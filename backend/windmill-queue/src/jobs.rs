@@ -251,6 +251,7 @@ pub async fn push<'c>(
     parent_job: Option<Uuid>,
     is_flow_step: bool,
     mut same_worker: bool,
+    pre_run_error: Option<&windmill_common::error::Error>,
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
     let scheduled_for = scheduled_for_o.unwrap_or_else(chrono::Utc::now);
     let args_json = serde_json::Value::Object(args);
@@ -465,8 +466,8 @@ pub async fn push<'c>(
         "INSERT INTO queue
             (workspace_id, id, running, parent_job, created_by, permissioned_as, scheduled_for, 
                 script_hash, script_path, raw_code, raw_lock, args, job_kind, schedule_path, raw_flow, \
-         flow_status, is_flow_step, language, started_at, same_worker)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19) \
+         flow_status, is_flow_step, language, started_at, same_worker, pre_run_error)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20) \
          RETURNING id",
         workspace_id,
         job_id,
@@ -486,7 +487,8 @@ pub async fn push<'c>(
         flow_status.map(|f| serde_json::json!(f)),
         is_flow_step,
         language: ScriptLang,
-        same_worker
+        same_worker,
+        pre_run_error.map(|e| e.to_string())
     )
     .fetch_one(&mut tx)
     .await
@@ -585,6 +587,7 @@ pub struct QueuedJob {
     pub is_flow_step: bool,
     pub language: Option<ScriptLang>,
     pub same_worker: bool,
+    pub pre_run_error: Option<String>,
 }
 
 impl QueuedJob {

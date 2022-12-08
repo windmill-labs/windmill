@@ -757,6 +757,10 @@ async fn handle_queued_job(
     if job.canceled {
         return Err(Error::ExecutionErr(canceled_job_to_result(&job)))?;
     }
+    if let Some(e) = job.pre_run_error {
+        return Err(Error::ExecutionErr(e));
+    }
+
     match job.job_kind {
         JobKind::FlowPreview | JobKind::Flow => {
             let args = job.args.clone().unwrap_or(Value::Null);

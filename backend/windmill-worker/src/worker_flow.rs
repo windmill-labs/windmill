@@ -7,6 +7,7 @@
  */
 
 use std::collections::HashMap;
+use std::iter;
 use std::time::Duration;
 
 use crate::jobs::{add_completed_job, add_completed_job_error, schedule_again_if_scheduled};
@@ -14,6 +15,7 @@ use crate::js_eval::{eval_timeout, EvalCreds, IdContext};
 use crate::worker;
 use anyhow::Context;
 use async_recursion::async_recursion;
+use dyn_iter::DynIter;
 use serde_json::{json, Map, Value};
 use tokio::sync::mpsc::Sender;
 use tracing::instrument;
@@ -35,7 +37,7 @@ use windmill_queue::{
 };
 
 #[async_recursion]
-#[instrument(level = "trace", skip_all)]
+// #[instrument(level = "trace", skip_all)]
 pub async fn update_flow_status_after_job_completion(
     db: &DB,
     client: &windmill_api_client::Client,
@@ -680,7 +682,7 @@ async fn transform_input(
     approvers: Vec<String>,
     by_id: &IdContext,
     base_internal_url: &str,
-) -> anyhow::Result<Map<String, serde_json::Value>> {
+) -> windmill_common::error::Result<Map<String, serde_json::Value>> {
     let mut mapped = serde_json::Map::new();
 
     for (key, val) in input_transforms.into_iter() {
@@ -767,7 +769,7 @@ pub async fn handle_flow(
 }
 
 #[async_recursion]
-#[instrument(level = "trace", skip_all)]
+// #[instrument(level = "trace", skip_all)]
 async fn push_next_flow_job(
     flow_job: &QueuedJob,
     mut status: FlowStatus,
@@ -1094,7 +1096,7 @@ async fn push_next_flow_job(
 
     let mut transform_context: Option<TransformContext> = None;
 
-    let mut args = match &module.value {
+    let args: windmill_common::error::Result<_> = match &module.value {
         FlowModuleValue::Script { input_transforms, .. }
         | FlowModuleValue::RawScript { input_transforms, .. }
         | FlowModuleValue::Flow { input_transforms, .. } => {
@@ -1116,27 +1118,27 @@ async fn push_next_flow_job(
                 by_id,
                 base_internal_url,
             )
-            .await?
+            .await
         }
         FlowModuleValue::Identity => match last_result.clone() {
-            Value::Object(m) => m,
+            Value::Object(m) => Ok(m),
             v @ _ => {
                 let mut m = Map::new();
                 m.insert("previous_result".to_string(), v);
-                m
+                Ok(m)
             }
         },
         _ => {
             /* embedded flow input is augmented with embedding flow input */
             if let Some(value) = &flow_job.args {
-                value
+                Ok(value
                     .as_object()
                     .ok_or_else(|| {
                         Error::BadRequest(format!("Expected an object value, found: {value:?}"))
                     })?
-                    .clone()
+                    .clone())
             } else {
-                Map::new()
+                Ok(Map::new())
             }
         }
     };
@@ -1187,44 +1189,54 @@ async fn push_next_flow_job(
     let continue_on_same_worker =
         flow.same_worker && module.suspend.is_none() && module.sleep.is_none();
 
-    let all_args = match &next_status {
-        NextStatus::NextLoopIteration(NextIteration { new_args, .. }) => {
-            args.extend(new_args.clone());
-            vec![args]
-        }
+    let zipped = {
+        let all_args = match &next_status {
+            NextStatus::NextLoopIteration(NextIteration { new_args, .. }) => {
+                let args = args.as_ref().map(|args| {
+                    let mut args = args.clone();
+                    args.extend(new_args.clone());
+                    args
+                });
+                DynIter::new(iter::once(args))
+            }
 
-        NextStatus::AllFlowJobs {
-            branchall: Some(BranchAllStatus { len, .. }),
-            iterator: None,
-            ..
-        } => (0..*len).map(|_| args.clone()).collect(),
-        NextStatus::AllFlowJobs {
-            branchall: None,
-            iterator: Some(Iterator { itered, .. }),
-            ..
-        } => itered
-            .into_iter()
-            .enumerate()
-            .map(|(i, v)| {
-                let mut new_args = args.clone();
-                new_args.insert("iter".to_string(), json!({ "index": i, "value": v }));
-                new_args
-            })
-            .collect(),
+            NextStatus::AllFlowJobs {
+                branchall: Some(BranchAllStatus { len, .. }),
+                iterator: None,
+                ..
+            } => DynIter::new((0..*len).map(|_| args.as_ref().map(|args| args.clone()))),
+            NextStatus::AllFlowJobs {
+                branchall: None,
+                iterator: Some(Iterator { itered, .. }),
+                ..
+            } => DynIter::new(itered.into_iter().enumerate().map(|(i, v)| {
+                args.as_ref().map(|args| {
+                    let mut new_args = args.clone();
+                    new_args.insert("iter".to_string(), json!({ "index": i, "value": v }));
+                    new_args
+                })
+            })),
 
-        _ => vec![args],
+            _ => DynIter::new(iter::once(args.as_ref().map(|m| m.clone()))),
+        };
+
+        job_payloads.into_iter().zip(all_args).collect::<Vec<_>>()
     };
 
     /* Finally, push the job into the queue */
     let mut tx = db.begin().await?;
     let mut uuids = vec![];
 
-    for (payload, args) in job_payloads.into_iter().zip(all_args.into_iter()) {
+    for (payload, args) in zipped {
+        let (ok, err) = match args {
+            Ok(v) => (Some(v), None),
+            Err(e) => (None, Some(e)),
+        };
         let (uuid, inner_tx) = push(
             tx,
             &flow_job.workspace_id,
             payload,
-            args,
+            ok.unwrap_or_else(|| Map::new()),
             &flow_job.created_by,
             flow_job.permissioned_as.to_owned(),
             scheduled_for_o,
@@ -1232,6 +1244,7 @@ async fn push_next_flow_job(
             Some(flow_job.id),
             true,
             continue_on_same_worker,
+            err,
         )
         .await?;
         tx = inner_tx;
