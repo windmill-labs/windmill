@@ -17,6 +17,7 @@
 		schema?: any
 	}
 	export let initialOpen: number | undefined = undefined
+	export let noSide = false
 
 	$: flowFiltered = {
 		summary: flow.summary,
@@ -76,7 +77,7 @@
 				{:else}
 					<div class="text-gray-700 text-xs italic mb-4">No inputs</div>
 				{/if}
-				<FlowGraphViewer {flow} overflowAuto />
+				<FlowGraphViewer {noSide} {flow} overflowAuto />
 			</div>
 		</TabContent>
 		<TabContent value="json">

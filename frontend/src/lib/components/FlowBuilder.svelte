@@ -190,7 +190,9 @@
 
 <Drawer bind:this={flowViewer} size="1200px">
 	<DrawerContent title="View Graph" on:close={flowViewer.closeDrawer} noPadding>
-		<FlowGraphViewer flow={$flowStore} overflowAuto />
+		<div class="overflow-hidden h-full w-full">
+			<FlowGraphViewer flow={$flowStore} />
+		</div>
 	</DrawerContent>
 </Drawer>
 

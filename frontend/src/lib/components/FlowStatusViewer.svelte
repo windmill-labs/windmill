@@ -14,6 +14,7 @@
 	import { FlowGraph, type GraphModuleState } from './graph'
 	import ModuleStatus from './ModuleStatus.svelte'
 	import { displayDate, truncateRev } from '$lib/utils'
+	import JobArgs from './JobArgs.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -338,9 +339,8 @@
 		</div>
 	</div>
 	{#if job.raw_flow && !isListJob}
-		<div class="{selected != 'graph' ? 'hidden' : ''} mx-10 mt-4">
-			<div class="border" />
-			<div class="grid grid-cols-3">
+		<div class="{selected != 'graph' ? 'hidden' : ''} mt-4">
+			<div class="grid grid-cols-3 border border-gray-300">
 				<div class="col-span-2 bg-gray-50">
 					<div class="flex flex-col">
 						{#each Object.values(retry_status) as count}
@@ -355,16 +355,30 @@
 						on:click={(e) => {
 							if (e.detail.id) {
 								selectedNode = e.detail.id
+							} else if (e.detail == 'End') {
+								selectedNode = 'end'
+							} else if (e.detail == 'Start') {
+								selectedNode = 'start'
 							}
 						}}
 						modules={job.raw_flow?.modules ?? []}
 						failureModule={job.raw_flow?.failure_module}
 					/>
 				</div>
-				<div class="border-l border-gray-400 pt-1">
+				<div class="border-l border-gray-400 pt-1 overflow-hidden">
 					{#if selectedNode}
 						{@const node = localFlowModuleStates[selectedNode]}
-						{#if node}
+						{#if selectedNode == 'end'}
+							<FlowJobResult noBorder col result={job['result'] ?? {}} logs={job.logs ?? ''} />
+						{:else if selectedNode == 'start'}
+							{#if job.args}
+								<div class="p-2">
+									<JobArgs args={job.args} />
+								</div>
+							{:else}
+								<p class="p-2">No arguments</p>
+							{/if}
+						{:else if node}
 							<div class="px-2 flex gap-2 min-w-0 ">
 								<ModuleStatus type={node.type} scheduled_for={node['scheduled_for']} />
 								{#if node.job_id}
