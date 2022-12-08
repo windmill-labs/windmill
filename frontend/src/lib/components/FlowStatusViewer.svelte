@@ -71,25 +71,26 @@
 	$: innerModules && localFlowModuleStates && updateInnerModules()
 
 	function updateInnerModules() {
-		innerModules.forEach((module, i) => {
+		innerModules.forEach((mod, i) => {
 			if (
-				module.type === FlowStatusModule.type.WAITING_FOR_EVENTS &&
+				mod.type === FlowStatusModule.type.WAITING_FOR_EVENTS &&
 				localFlowModuleStates?.[innerModules?.[i - 1]?.id ?? '']?.type ==
 					FlowStatusModule.type.SUCCESS
 			) {
-				localFlowModuleStates[module.id ?? ''] = { type: module.type }
+				localFlowModuleStates[mod.id ?? ''] = { type: mod.type }
 			} else if (
-				module.type === FlowStatusModule.type.WAITING_FOR_EXECUTOR &&
-				localFlowModuleStates[module.id ?? '']?.scheduled_for == undefined
+				mod.type === FlowStatusModule.type.WAITING_FOR_EXECUTOR &&
+				localFlowModuleStates[mod.id ?? '']?.scheduled_for == undefined
 			) {
 				JobService.getJob({
 					workspace: $workspaceStore ?? '',
-					id: module.job ?? ''
+					id: mod.job ?? ''
 				}).then((job) => {
-					localFlowModuleStates[module.id ?? ''] = {
-						type: module.type,
+					localFlowModuleStates[mod.id ?? ''] = {
+						type: mod.type,
 						scheduled_for: 'scheduled for ' + displayDate(job?.['scheduled_for'], true),
-						job_id: job?.id
+						job_id: job?.id,
+						parent_module: mod['parent_module']
 					}
 				})
 			}
@@ -218,7 +219,7 @@
 										flowState[flowJobIds.moduleId].previewResult[j] = e.detail.result
 										flowState[flowJobIds.moduleId].previewArgs = e.detail.args
 										jobResults[j] =
-											e.detail.result == null ? 'Job in progress ...' : e.detail.result
+											e.detail.type == 'QueuedJob' ? 'Job in progress ...' : e.detail.result
 										jobFailures[j] = e.detail.success === false
 									}
 									if (e.detail.type == 'QueuedJob') {
@@ -289,7 +290,8 @@
 											if (e.detail.type == 'QueuedJob') {
 												localFlowModuleStates[mod.id] = {
 													type: FlowStatusModule.type.IN_PROGRESS,
-													logs: e.detail.logs
+													logs: e.detail.logs,
+													parent_module: mod['parent_module']
 												}
 											} else {
 												localFlowModuleStates[mod.id] = {
@@ -298,7 +300,8 @@
 														: FlowStatusModule.type.FAILURE,
 													logs: e.detail.logs,
 													result: e.detail.result,
-													job_id: e.detail.id
+													job_id: e.detail.id,
+													parent_module: mod['parent_module']
 												}
 											}
 										}

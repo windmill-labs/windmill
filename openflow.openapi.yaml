@@ -338,7 +338,13 @@ components:
           items:
             $ref: "#/components/schemas/FlowStatusModule"
         failure_module:
-          $ref: "#/components/schemas/FlowStatusModule"
+          allOf:
+            - $ref: "#/components/schemas/FlowStatusModule"
+            - type: object
+              properties:
+                parent_module:
+                  type: string
+                  
         retry:
           type: object
           properties:

@@ -24,7 +24,7 @@ pub const MAX_RETRY_INTERVAL: Duration = HOURS.saturating_mul(6);
 pub struct FlowStatus {
     pub step: i32,
     pub modules: Vec<FlowStatusModule>,
-    pub failure_module: FlowStatusModule,
+    pub failure_module: FlowStatusModuleWParent,
     #[serde(default)]
     #[serde(skip_serializing_if = "is_default")]
     pub retry: RetryStatus,
@@ -65,6 +65,14 @@ pub enum BranchChosen {
 pub struct Approval {
     pub resume_id: u16,
     pub approver: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct FlowStatusModuleWParent {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_module: Option<String>,
+    #[serde(flatten)]
+    pub module_status: FlowStatusModule,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -171,12 +179,15 @@ impl FlowStatus {
                 .iter()
                 .map(|m| FlowStatusModule::WaitingForPriorSteps { id: m.id.clone() })
                 .collect(),
-            failure_module: FlowStatusModule::WaitingForPriorSteps {
-                id: f
-                    .failure_module
-                    .as_ref()
-                    .map(|x| x.id.clone())
-                    .unwrap_or_else(|| "failure".to_string()),
+            failure_module: FlowStatusModuleWParent {
+                parent_module: None,
+                module_status: FlowStatusModule::WaitingForPriorSteps {
+                    id: f
+                        .failure_module
+                        .as_ref()
+                        .map(|x| x.id.clone())
+                        .unwrap_or_else(|| "failure".to_string()),
+                },
             },
             retry: RetryStatus { fail_count: 0, previous_result: None, failed_jobs: vec![] },
         }

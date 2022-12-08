@@ -62,7 +62,7 @@ pub async fn add_completed_job(
         if queued_job.job_kind == JobKind::Flow || queued_job.job_kind == JobKind::FlowPreview {
             let jobs = queued_job.parse_flow_status().map(|s| {
                 let mut modules = s.modules;
-                modules.extend([s.failure_module]);
+                modules.extend([s.failure_module.module_status]);
                 modules
                     .into_iter()
                     .filter_map(|m| match m {
