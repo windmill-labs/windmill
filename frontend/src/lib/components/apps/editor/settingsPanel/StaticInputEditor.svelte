@@ -4,6 +4,7 @@
 	import type { AppInput } from '../../inputType'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
+	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 
 	export let componentInput: AppInput | undefined
 	export let canHide: boolean = false
@@ -32,7 +33,18 @@
 		<div class="flex gap-2 flex-col mt-2">
 			{#if componentInput.value}
 				{#each componentInput.value as value, index}
-					<input bind:value={componentInput.value[index]} />
+					<div class="border rounded-sm">
+						<SimpleEditor
+							lang="json"
+							code={JSON.stringify(componentInput.value[index], null, 2)}
+							class="few-lines-editor"
+							on:change={(e) => {
+								if (componentInput?.type === 'static' && componentInput.value) {
+									componentInput.value[index] = JSON.parse(e.detail.code)
+								}
+							}}
+						/>
+					</div>
 				{/each}
 				<Button
 					size="xs"
@@ -44,7 +56,7 @@
 							componentInput.type === 'static' &&
 							componentInput.value
 						) {
-							componentInput.value.push('')
+							componentInput.value.push({})
 						}
 					}}
 				>

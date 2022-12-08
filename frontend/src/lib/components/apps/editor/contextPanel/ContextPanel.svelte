@@ -132,46 +132,50 @@
 		/>
 	</svelte:fragment>
 
-	<div class="w-full border rounded-sm">
-		{#each $app.inlineScripts ? Object.entries($app.inlineScripts) : [] as [key, value], index}
-			<div
-				class={classNames(
-					'flex justify-between flex-row w-full items-center p-2',
-					index % 2 === 0 ? 'bg-gray-100' : 'bg-white'
-				)}
-			>
-				<span class="text-xs">{key}</span>
-				<div class="flex gap-2">
-					<Button
-						size="xs"
-						color="light"
-						variant="border"
-						iconOnly
-						startIcon={{ icon: faEdit }}
-						on:click={() => {
-							if (value) {
-								selectedScript = value
-								scriptEditorDrawer.openDrawer && scriptEditorDrawer.openDrawer()
-							}
-						}}
-					/>
-					<Button
-						size="xs"
-						color="red"
-						variant="border"
-						iconOnly
-						startIcon={{ icon: faTrash }}
-						on:click={() => {
-							if ($app.inlineScripts[key]) {
-								delete $app.inlineScripts[key]
-								$app = $app
-							}
-						}}
-					/>
+	{#if $app.inlineScripts && Object.keys($app.inlineScripts).length > 0}
+		<div class="w-full border rounded-sm">
+			{#each $app.inlineScripts ? Object.entries($app.inlineScripts) : [] as [key, value], index}
+				<div
+					class={classNames(
+						'flex justify-between flex-row w-full items-center p-2',
+						index % 2 === 0 ? 'bg-gray-100' : 'bg-white'
+					)}
+				>
+					<span class="text-xs">{key}</span>
+					<div class="flex gap-2">
+						<Button
+							size="xs"
+							color="light"
+							variant="border"
+							iconOnly
+							startIcon={{ icon: faEdit }}
+							on:click={() => {
+								if (value) {
+									selectedScript = value
+									scriptEditorDrawer.openDrawer && scriptEditorDrawer.openDrawer()
+								}
+							}}
+						/>
+						<Button
+							size="xs"
+							color="red"
+							variant="border"
+							iconOnly
+							startIcon={{ icon: faTrash }}
+							on:click={() => {
+								if ($app.inlineScripts[key]) {
+									delete $app.inlineScripts[key]
+									$app = $app
+								}
+							}}
+						/>
+					</div>
 				</div>
-			</div>
-		{/each}
-	</div>
+			{/each}
+		</div>
+	{:else}
+		<div class="text-sm text-gray-500">No inline scripts</div>
+	{/if}
 </PanelSection>
 
 <PanelSection title="Outputs">

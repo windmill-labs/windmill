@@ -36,32 +36,36 @@
 		}
 	}
 
-	let searchConfiguration: 'Frontend' | 'Backend' | 'Disabled' = 'Disabled'
-	let paginationEnabled: boolean | undefined = undefined
+	let search: 'Frontend' | 'Backend' | 'Disabled' = 'Disabled'
+	let pagination: boolean | undefined = undefined
 
 	let page = 1
-	let search = ''
+	let searchValue = ''
 
 	let result: Array<Record<string, any>> = []
 	$: headers = Object.keys(result[0] || {}) || []
 
-	const extraQueryParams = { search, page }
+	const extraQueryParams = { search: searchValue, page }
 
 	export const reservedKeys: string[] = Object.keys(extraQueryParams)
 
-	$: (searchConfiguration === 'Frontend' || searchConfiguration === 'Backend') &&
-		(extraQueryParams.search = search)
+	$: (search === 'Frontend' || search === 'Backend') && (extraQueryParams.search = searchValue)
 </script>
 
-<InputValue input={configuration.searchConfiguration} bind:value={searchConfiguration} />
-<InputValue input={configuration.paginationEnabled} bind:value={paginationEnabled} />
+<InputValue input={configuration.search} bind:value={search} />
+<InputValue input={configuration.pagination} bind:value={pagination} />
 
-<RunnableWrapper bind:componentInput {id} bind:result extraQueryParams={{ search, page }}>
+<RunnableWrapper
+	bind:componentInput
+	{id}
+	bind:result
+	extraQueryParams={{ search: searchValue, page }}
+>
 	<div class="gap-2 flex flex-col mt-2">
-		{#if searchConfiguration !== 'Disabled'}
+		{#if search !== 'Disabled'}
 			<div>
 				<div>
-					<DebouncedInput placeholder="Search..." bind:value={search} />
+					<DebouncedInput placeholder="Search..." bind:value={searchValue} />
 				</div>
 			</div>
 		{/if}
@@ -117,7 +121,7 @@
 			</table>
 		</div>
 
-		{#if paginationEnabled}
+		{#if pagination}
 			<div class="flex flex-row gap-2">
 				<Button
 					on:click={() => {
