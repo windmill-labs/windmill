@@ -1,4 +1,3 @@
-import type { InputsSpec, InputType } from './types'
 import type { Schema } from '$lib/common'
 
 import { FlowService, ScriptService } from '$lib/gen'
@@ -9,6 +8,8 @@ import {
 	faMobileScreenButton,
 	faPieChart
 } from '@fortawesome/free-solid-svg-icons'
+import type { InputType } from 'zlib'
+import type { AppInput, AppInputs } from './inputType'
 
 export async function loadSchema(
 	workspace: string,
@@ -32,7 +33,7 @@ export async function loadSchema(
 	}
 }
 
-export function schemaToInputsSpec(schema: Schema): InputsSpec {
+export function schemaToInputsSpec(schema: Schema): AppInputs {
 	return Object.keys(schema.properties).reduce((accu, key) => {
 		const property = schema.properties[key]
 
@@ -100,18 +101,66 @@ export function accessPropertyByPath<T>(object: T, path: string): T | undefined 
 
 export function fieldTypeToTsType(InputType: InputType): string {
 	switch (InputType) {
-		case 'text':
-		case 'textarea':
-		case 'date':
-		case 'time':
-		case 'datetime':
-		case 'select':
-			return 'string'
 		case 'number':
 			return 'number'
 		case 'boolean':
 			return 'boolean'
 		case 'object':
 			return 'object'
+		default:
+			return 'string'
 	}
+}
+
+const userTypeKeys = ['value']
+const staticTypeKeys = ['value']
+const dynamicTypeKeys = ['connection']
+const runnableTypeKeys = ['runnable', 'fields']
+
+export function sanitizeInputSpec(componentInput: AppInput): AppInput {
+	if (componentInput.type === 'user') {
+		for (const key of staticTypeKeys) {
+			delete componentInput[key]
+		}
+		for (const key of dynamicTypeKeys) {
+			delete componentInput[key]
+		}
+		for (const key of runnableTypeKeys) {
+			delete componentInput[key]
+		}
+	} else if (componentInput.type === 'static') {
+		for (const key of userTypeKeys) {
+			delete componentInput[key]
+		}
+		for (const key of dynamicTypeKeys) {
+			delete componentInput[key]
+		}
+		for (const key of runnableTypeKeys) {
+			delete componentInput[key]
+		}
+	} else if (componentInput.type === 'connected') {
+		for (const key of userTypeKeys) {
+			delete componentInput[key]
+		}
+		for (const key of staticTypeKeys) {
+			delete componentInput[key]
+		}
+		for (const key of runnableTypeKeys) {
+			delete componentInput[key]
+		}
+	} else if (componentInput.type === 'runnable') {
+		for (const key of userTypeKeys) {
+			delete componentInput[key]
+		}
+
+		for (const key of staticTypeKeys) {
+			delete componentInput[key]
+		}
+
+		for (const key of dynamicTypeKeys) {
+			delete componentInput[key]
+		}
+	}
+
+	return componentInput
 }
