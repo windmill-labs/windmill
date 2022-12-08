@@ -26,6 +26,7 @@ export type GraphModuleState = {
 	job_id?: string
 	parent_module?: string
 	iteration_total?: number
+	retries?: number
 }
 
 export type NestedNodes = GraphItem[]

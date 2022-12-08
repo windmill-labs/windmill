@@ -42,6 +42,7 @@
 	$: {
 		width && height && minHeight && selectedNode && flowModuleStates
 		nodes = edges = []
+		errorHandlers = {}
 		createGraph()
 	}
 
