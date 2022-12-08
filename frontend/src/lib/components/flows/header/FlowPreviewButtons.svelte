@@ -26,7 +26,7 @@
 			'inputs',
 			'schedules',
 			'failure'
-		].includes($selectedId) || $selectedId.includes('branch')
+		].includes($selectedId) || $selectedId?.includes('branch')
 </script>
 
 <div class="flex flex-row-reverse justify-between items-center gap-x-2">
@@ -60,7 +60,7 @@
 	{/if}
 </div>
 
-<Drawer bind:open={previewOpen} size="1200px">
+<Drawer bind:open={previewOpen} size="75%">
 	<FlowPreviewContent
 		open={previewOpen}
 		bind:previewMode

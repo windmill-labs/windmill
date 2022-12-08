@@ -14,6 +14,7 @@
 	import { FlowGraph, type GraphModuleState } from './graph'
 	import ModuleStatus from './ModuleStatus.svelte'
 	import { displayDate, truncateRev } from '$lib/utils'
+	import JobArgs from './JobArgs.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -31,6 +32,7 @@
 	export let flowModuleStates: Record<string, GraphModuleState> = {}
 
 	let localFlowModuleStates: Record<string, GraphModuleState> = {}
+	export let retry_status: Record<string, number> = {}
 
 	let selectedNode: string | undefined = undefined
 
@@ -58,6 +60,16 @@
 		if (len != lastSize) {
 			forloop_selected = flowJobIds?.flowJobs[len - 1] ?? ''
 			lastSize = len
+		}
+	}
+
+	$: updateFailCount(job?.flow_status?.retry?.fail_count)
+
+	function updateFailCount(count?: number) {
+		if (count) {
+			retry_status[jobId ?? ''] = count
+		} else {
+			delete retry_status[jobId ?? '']
 		}
 	}
 
@@ -123,6 +135,7 @@
 
 	function updateJobId() {
 		if (jobId !== job?.id) {
+			retry_status = {}
 			localFlowModuleStates = {}
 			loadJobInProgress()
 		}
@@ -204,6 +217,7 @@
 					</Button>
 					<div class="border p-6" class:hidden={forloop_selected != loopJobId}>
 						<svelte:self
+							bind:retry_status
 							bind:flowState
 							bind:flowModuleStates={localFlowModuleStates}
 							jobId={loopJobId}
@@ -226,7 +240,8 @@
 										localFlowModuleStates[flowJobIds.moduleId] = {
 											type: FlowStatusModule.type.IN_PROGRESS,
 											logs: e.detail.logs,
-											job_id: e.detail.id
+											job_id: e.detail.id,
+											iteration_total: flowJobIds?.flowJobs.length
 										}
 									} else {
 										localFlowModuleStates[flowJobIds.moduleId] = {
@@ -235,7 +250,8 @@
 												: FlowStatusModule.type.FAILURE,
 											logs: 'All jobs completed',
 											result: jobResults,
-											job_id: e.detail.id
+											job_id: e.detail.id,
+											iteration_total: flowJobIds?.flowJobs.length
 										}
 									}
 								}
@@ -272,6 +288,7 @@
 						<li class="w-full border border-gray-600 p-6 space-y-2 bg-blue-50/50">
 							{#if [FlowStatusModule.type.IN_PROGRESS, FlowStatusModule.type.SUCCESS, FlowStatusModule.type.FAILURE].includes(mod.type)}
 								<svelte:self
+									bind:retry_status
 									bind:flowState
 									bind:flowModuleStates={localFlowModuleStates}
 									jobId={mod.job}
@@ -301,7 +318,9 @@
 													logs: e.detail.logs,
 													result: e.detail.result,
 													job_id: e.detail.id,
-													parent_module: mod['parent_module']
+													parent_module: mod['parent_module'],
+													iteration_total: mod.iterator?.itered?.length
+													// retries: flowState?.raw_flow
 												}
 											}
 										}
@@ -320,25 +339,46 @@
 		</div>
 	</div>
 	{#if job.raw_flow && !isListJob}
-		<div class="{selected != 'graph' ? 'hidden' : ''} mx-10 mt-4">
-			<div class="border" />
-			<div class="grid grid-cols-3">
+		<div class="{selected != 'graph' ? 'hidden' : ''} mt-4">
+			<div class="grid grid-cols-3 border border-gray-300">
 				<div class="col-span-2 bg-gray-50">
+					<div class="flex flex-col">
+						{#each Object.values(retry_status) as count}
+							<span class="text-sm">
+								Retry in progress, # of failed attempts: {count}
+							</span>
+						{/each}
+					</div>
+
 					<FlowGraph
 						flowModuleStates={localFlowModuleStates}
 						on:click={(e) => {
 							if (e.detail.id) {
 								selectedNode = e.detail.id
+							} else if (e.detail == 'Result') {
+								selectedNode = 'end'
+							} else if (e.detail == 'Input') {
+								selectedNode = 'start'
 							}
 						}}
 						modules={job.raw_flow?.modules ?? []}
 						failureModule={job.raw_flow?.failure_module}
 					/>
 				</div>
-				<div class="border-l border-gray-400 pt-1">
+				<div class="border-l border-gray-400 pt-1 overflow-hidden">
 					{#if selectedNode}
 						{@const node = localFlowModuleStates[selectedNode]}
-						{#if node}
+						{#if selectedNode == 'end'}
+							<FlowJobResult noBorder col result={job['result'] ?? {}} logs={job.logs ?? ''} />
+						{:else if selectedNode == 'start'}
+							{#if job.args}
+								<div class="p-2">
+									<JobArgs args={job.args} />
+								</div>
+							{:else}
+								<p class="p-2">No arguments</p>
+							{/if}
+						{:else if node}
 							<div class="px-2 flex gap-2 min-w-0 ">
 								<ModuleStatus type={node.type} scheduled_for={node['scheduled_for']} />
 								{#if node.job_id}

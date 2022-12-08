@@ -8,24 +8,22 @@
 		AppEditorContext,
 		ConnectingInput,
 		EditorBreakpoint,
-		EditorMode,
-		InputType
+		EditorMode
 	} from '../types'
 	import GridEditor from './GridEditor.svelte'
 
 	import { classNames } from '$lib/utils'
 
 	export let app: App
-	export let initialMode: EditorMode = 'dnd'
 
 	const appStore = writable<App>(app)
 	const worldStore = writable<World | undefined>(undefined)
 	const staticOutputs = writable<Record<string, string[]>>({})
 	const selectedComponent = writable<string | undefined>(undefined)
-	const mode = writable<EditorMode>(initialMode)
+	const mode = writable<EditorMode>('preview')
 	const breakpoint = writable<EditorBreakpoint>('lg')
 
-	const connectingInput = writable<ConnectingInput<InputType, any>>({
+	const connectingInput = writable<ConnectingInput>({
 		opened: false,
 		input: undefined
 	})
@@ -40,12 +38,6 @@
 		breakpoint
 	})
 
-	function clearSelectionOnPreview() {
-		if ($mode === 'preview') {
-			$selectedComponent = undefined
-		}
-	}
-
 	let mounted = false
 
 	onMount(() => {
@@ -53,7 +45,6 @@
 	})
 
 	$: mounted && ($worldStore = buildWorld($staticOutputs))
-	$: $mode && $selectedComponent && clearSelectionOnPreview()
 	$: width = $breakpoint === 'sm' ? 'w-[640px]' : 'w-full '
 </script>
 
