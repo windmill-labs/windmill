@@ -116,7 +116,7 @@
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
 				code = getCode()
-				dispatch('change')
+				dispatch('change', { code })
 			}, 200)
 		})
 

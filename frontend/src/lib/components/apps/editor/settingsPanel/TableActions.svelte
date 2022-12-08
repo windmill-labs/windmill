@@ -77,7 +77,7 @@
 	{#if components.length > 0}
 		<div class="w-full">
 			<Alert title="Special argument" size="xs">
-				A "row" argument is automatically added to the script. It contains the row data.
+				The row is passed as an argument to the runnable.
 			</Alert>
 		</div>
 	{/if}
@@ -98,7 +98,7 @@
 			on:keypress
 		>
 			<div>
-				<TableActionLabel componentInput={component.componentInput} />
+				<TableActionLabel componentInput={component.configuration.label} />
 			</div>
 			<Badge color="dark-blue">
 				Component: {component.id}

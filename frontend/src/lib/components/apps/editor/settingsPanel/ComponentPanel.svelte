@@ -25,7 +25,6 @@
 	import { Plus } from 'svelte-lucide'
 	import StaticInputEditor from './StaticInputEditor.svelte'
 	import ConnectedInputEditor from './ConnectedInputEditor.svelte'
-	import { sanitizeInputSpec } from '../../utils'
 
 	export let component: AppComponent | undefined
 	export let onDelete: (() => void) | undefined = undefined
@@ -73,7 +72,7 @@
 							Connect
 						</ToggleButton>
 						<ToggleButton position="right" value="runnable" startIcon={{ icon: faCode }} size="xs">
-							Script
+							Computed
 						</ToggleButton>
 					</ToggleButtonGroup>
 
