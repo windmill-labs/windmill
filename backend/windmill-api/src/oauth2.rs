@@ -91,6 +91,7 @@ pub struct OAuthConfig {
     scopes: Option<Vec<String>>,
     extra_params: Option<HashMap<String, String>>,
     extra_params_callback: Option<HashMap<String, String>>,
+    req_body_auth: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -209,6 +210,7 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
                 scopes: None,
                 extra_params: None,
                 extra_params_callback: None,
+                req_body_auth: None,
             },
             v.clone(),
             false,
@@ -241,6 +243,9 @@ pub fn build_basic_client(
     };
 
     let mut client = OClient::new(client_params.id, auth_url, token_url);
+    if config.req_body_auth.unwrap_or(false) {
+        client.set_auth_type(AuthType::RequestBody);
+    }
     client.set_client_secret(client_params.secret.clone());
     client.set_redirect_url(Url::parse(&redirect_url).expect("Invalid redirect URL"));
     // Set up the config for the Github OAuth2 process.
@@ -309,7 +314,7 @@ async fn connect(
 struct CreateAccount {
     client: String,
     owner: String,
-    refresh_token: String,
+    refresh_token: Option<String>,
     expires_in: i64,
 }
 async fn create_account(
@@ -987,6 +992,7 @@ async fn exchange_code<T: DeserializeOwned>(
             token_url = token_url.param(key, value)
         }
     }
+
     token_url
         .with_client(http_client)
         .execute::<T>()
