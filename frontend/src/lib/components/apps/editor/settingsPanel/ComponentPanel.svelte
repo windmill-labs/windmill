@@ -210,7 +210,7 @@
 		{/if}
 
 		{#if component.type === 'buttoncomponent'}
-			<Recompute bind:recomputeIds={component.recomputeIds} />
+			<Recompute bind:recomputeIds={component.recomputeIds} ownId={component.id} />
 		{/if}
 
 		{#if component.verticalAlignment !== undefined}

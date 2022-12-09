@@ -13,6 +13,7 @@
 	import GridEditor from './GridEditor.svelte'
 
 	import { classNames } from '$lib/utils'
+	import type RunnableComponent from '../components/helpers/RunnableComponent.svelte'
 
 	export let app: App
 
@@ -28,6 +29,8 @@
 		input: undefined
 	})
 
+	const runnableComponents = writable<Record<string, RunnableComponent>>({})
+
 	setContext<AppEditorContext>('AppEditorContext', {
 		worldStore,
 		staticOutputs,
@@ -35,7 +38,8 @@
 		selectedComponent,
 		mode,
 		connectingInput,
-		breakpoint
+		breakpoint,
+		runnableComponents
 	})
 
 	let mounted = false

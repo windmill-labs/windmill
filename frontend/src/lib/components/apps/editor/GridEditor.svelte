@@ -9,6 +9,7 @@
 	import { fly } from 'svelte/transition'
 
 	import Button from '$lib/components/common/button/Button.svelte'
+	import RecomputeAllComponents from './RecomputeAllComponents.svelte'
 
 	const { selectedComponent, app, mode, connectingInput } =
 		getContext<AppEditorContext>('AppEditorContext')
@@ -26,6 +27,8 @@
 	class="bg-white h-full relative"
 	on:click|preventDefault={() => ($selectedComponent = undefined)}
 >
+	<RecomputeAllComponents />
+
 	<Grid bind:items={$app.grid} rowHeight={64} let:dataItem cols={columnConfiguration}>
 		{#each $app.grid as gridComponent (gridComponent.id)}
 			{#if gridComponent.data.id === dataItem.data.id}

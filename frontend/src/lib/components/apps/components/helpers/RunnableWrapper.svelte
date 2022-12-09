@@ -1,7 +1,11 @@
 <script lang="ts">
+	import { getContext } from 'svelte'
 	import type { AppInput } from '../../inputType'
+	import type { AppEditorContext } from '../../types'
 	import NonRunnableComponent from './NonRunnableComponent.svelte'
 	import RunnableComponent from './RunnableComponent.svelte'
+
+	const { runnableComponents } = getContext<AppEditorContext>('AppEditorContext')
 
 	export let componentInput: AppInput | undefined
 	export let id: string
@@ -11,6 +15,14 @@
 	export let extraQueryParams: Record<string, any> = {}
 	export let autoRefresh: boolean = true
 	export let runnableComponent: RunnableComponent | undefined = undefined
+
+	$: {
+		if (runnableComponent) {
+			$runnableComponents[id] = runnableComponent
+		} else {
+			delete $runnableComponents[id]
+		}
+	}
 </script>
 
 {#if componentInput === undefined}

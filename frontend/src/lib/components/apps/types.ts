@@ -2,6 +2,7 @@ import type { Schema } from '$lib/common'
 import type { Preview } from '$lib/gen'
 import type { FilledItem } from 'svelte-grid'
 import type { Writable } from 'svelte/store'
+import type RunnableComponent from './components/helpers/RunnableComponent.svelte'
 import type { AppInput, ConnectedInput } from './inputType'
 import type { World } from './rx'
 
@@ -107,6 +108,7 @@ export type AppEditorContext = {
 	mode: Writable<EditorMode>
 	connectingInput: Writable<ConnectingInput>
 	breakpoint: Writable<EditorBreakpoint>
+	runnableComponents: Writable<Record<string, RunnableComponent>>
 }
 
 export type EditorMode = 'dnd' | 'preview'

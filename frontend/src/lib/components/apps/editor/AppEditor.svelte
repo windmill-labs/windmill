@@ -25,6 +25,8 @@
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
 	import { classNames } from '$lib/utils'
 	import AppPreview from './AppPreview.svelte'
+	import type RunnableComponent from '../components/helpers/RunnableComponent.svelte'
+	import RecomputeAllComponent from './RecomputeAllComponents.svelte'
 
 	export let app: App
 	export let path: string
@@ -42,6 +44,8 @@
 		input: undefined
 	})
 
+	const runnableComponents = writable<Record<string, RunnableComponent>>({})
+
 	setContext<AppEditorContext>('AppEditorContext', {
 		worldStore,
 		staticOutputs,
@@ -49,7 +53,8 @@
 		selectedComponent,
 		mode,
 		connectingInput,
-		breakpoint
+		breakpoint,
+		runnableComponents
 	})
 
 	function clearSelectionOnPreview() {

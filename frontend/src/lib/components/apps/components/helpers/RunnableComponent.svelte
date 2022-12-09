@@ -179,8 +179,8 @@
 		})
 	}
 
-	export function runComponent() {
-		executeComponent()
+	export async function runComponent() {
+		await executeComponent()
 	}
 </script>
 
