@@ -9,18 +9,18 @@
 	export let componentInput: AppInput | undefined
 	export let configuration: Record<string, AppInput>
 	export let extraQueryParams: Record<string, any> = {}
-	export const staticOutputs: string[] = ['loading', 'result']
+	export const staticOutputs: string[] = ['result']
 
 	let value: string
 	let labelValue: string = 'Title'
 	let runnableComponent: RunnableComponent
 
-	$: if(value || !value) {
-		if(componentInput) {
-			(componentInput as any).value = value
-		}
-		runnableComponent?.runComponent()
-	}
+	// $: if(value || !value) {
+	// 	if(componentInput) {
+	// 		(componentInput as any).value = value
+	// 	}
+	// 	runnableComponent?.runComponent()
+	// }
 </script>
 
 <InputValue input={configuration.label} bind:value={labelValue} />
@@ -28,9 +28,16 @@
 <RunnableWrapper
 	bind:runnableComponent
 	bind:componentInput
+	bind:result={value}
 	{id}
 	{extraQueryParams}
-	autoRefresh={false}
+	autoRefresh={true}
 >
-	<DebouncedInput bind:value={value} debounceDelay={300} type="text" placeholder="Type..." />
+	<!-- svelte-ignore a11y-label-has-associated-control -->
+	<label>
+		<div>
+			{labelValue}
+		</div>
+		<DebouncedInput bind:value={value} debounceDelay={300} type="text" placeholder="Type..." />
+	</label>
 </RunnableWrapper>

@@ -25,12 +25,7 @@ const textInputs: ComponentSet = {
 		{
 			id: 'textinputcomponent',
 			type: 'textinputcomponent',
-			componentInput: {
-				type: 'static',
-				fieldType: 'text',
-				defaultValue: '',
-				value: ''
-			},
+			componentInput: undefined,
 			configuration: {
 				label: {
 					type: 'static',
