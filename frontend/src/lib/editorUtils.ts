@@ -21,7 +21,9 @@ export function editorConfig(model: any, code: string, lang: string, automaticLa
         },
         lightbulb: {
             enabled: true
-        }
+        },
+        'bracketPairColorization.enabled': true,
+        matchBrackets: 'always' as 'always',
     }
 }
 
