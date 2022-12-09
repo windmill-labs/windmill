@@ -170,7 +170,7 @@
 			}
 
 			let account: number | undefined = undefined
-			if (valueToken?.refresh_token != undefined || valueToken?.expires_in != undefined) {
+			if (valueToken?.expires_in != undefined) {
 				account = Number(
 					await OauthService.createAccount({
 						workspace: $workspaceStore!,

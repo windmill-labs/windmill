@@ -1139,7 +1139,6 @@ paths:
                 client:
                   type: string
               required:
-                - refresh_token
                 - expires_in
                 - owner
                 - client
