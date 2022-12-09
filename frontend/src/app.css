@@ -35,6 +35,10 @@
 		border-top-width: 1px !important;
 		border-bottom-width: 0px !important;
 	}
+
+	.monaco-editor textarea:focus {
+		box-shadow: none !important;
+	}
 }
 
 @layer components {
