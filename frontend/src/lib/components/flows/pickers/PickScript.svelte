@@ -4,7 +4,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { Code } from 'svelte-lucide'
+	import { Code } from 'lucide-svelte'
 
 	export let kind: string
 
@@ -37,7 +37,7 @@
 	color="light"
 >
 	<div class="flex justify-center flex-col items-center gap-2">
-		<Code size="18px" />
+		<Code size={18} />
 
 		<span class="text-xs">Script</span>
 	</div>
