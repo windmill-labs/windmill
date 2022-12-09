@@ -1,11 +1,11 @@
 <script lang="ts">
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { staticValues } from '../componentsPanel/componentStaticValues'
-	import type { AppInput } from '../../inputType'
+	import type { StaticAppInput } from '../../inputType'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import ArrayStaticInputEditor from './ArrayStaticInputEditor.svelte'
 
-	export let componentInput: AppInput | undefined
+	export let componentInput: StaticAppInput | undefined
 	export let canHide: boolean = false
 </script>
 

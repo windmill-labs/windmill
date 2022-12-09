@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import { faPlus, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
-	import type { AppInput } from '../../inputType'
+	import type { StaticAppInput } from '../../inputType'
 	import { staticValues } from '../componentsPanel/componentStaticValues'
 	import SubTypeEditor from './SubTypeEditor.svelte'
 
-	type ArrayComponentInput = Extract<AppInput, { type: 'static'; fieldType: 'array' }>
+	type ArrayComponentInput = Extract<StaticAppInput, { fieldType: 'array' }>
 
 	export let canHide: boolean = false
 	export let componentInput: ArrayComponentInput

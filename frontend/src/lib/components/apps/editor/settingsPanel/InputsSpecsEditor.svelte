@@ -3,15 +3,23 @@
 	import { capitalize, classNames } from '$lib/utils'
 	import { faBolt, faLink, faUser } from '@fortawesome/free-solid-svg-icons'
 	import { slide } from 'svelte/transition'
-	import type { AppInputs } from '../../inputType'
 	import { fieldTypeToTsType } from '../../utils'
 	import InputsSpecEditor from './InputsSpecEditor.svelte'
+	import type { ConnectedAppInput, StaticAppInput, UserAppInput } from '../../inputType'
 
-	export let inputSpecs: AppInputs
+	export let inputSpecs: Record<string, StaticAppInput | ConnectedAppInput | UserAppInput>
 	export let userInputEnabled: boolean = true
 	export let staticOnly: boolean = true
 
 	let openedProp: string | undefined = inputSpecs ? Object.keys(inputSpecs)[0] : undefined
+
+	function toggleInput(inputSpecKey: string) {
+		if (openedProp === inputSpecKey) {
+			openedProp = undefined
+		} else {
+			openedProp = inputSpecKey
+		}
+	}
 </script>
 
 {#if inputSpecs}
@@ -26,13 +34,7 @@
 						openedProp === inputSpecKey ? 'outline outline-gray-500 outline-offset-1' : ''
 					)}
 					on:keypress
-					on:click={() => {
-						if (openedProp === inputSpecKey) {
-							openedProp = undefined
-						} else {
-							openedProp = inputSpecKey
-						}
-					}}
+					on:click={() => toggleInput(inputSpecKey)}
 				>
 					{capitalize(inputSpecKey)}
 					{#if input?.fieldType}

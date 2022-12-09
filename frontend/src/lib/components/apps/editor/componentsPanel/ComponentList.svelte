@@ -14,7 +14,6 @@
 	import { gridColumns } from '../../gridUtils'
 
 	const { app } = getContext<AppEditorContext>('AppEditorContext')
-	const COLS = 6
 
 	function addComponent(
 		appComponent: AppComponent,

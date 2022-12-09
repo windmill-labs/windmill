@@ -15,7 +15,7 @@ import {
 	Type
 } from 'lucide-svelte'
 import type { InputType } from 'zlib'
-import type { AppInput, AppInputs } from './inputType'
+import type { AppInputs } from './inputType'
 import type { AppComponent } from './types'
 
 export async function loadSchema(
@@ -55,7 +55,7 @@ export function schemaToInputsSpec(schema: Schema): AppInputs {
 	}, {})
 }
 
-export const displayData: Record<AppComponent['type'], {name: string, icon: any}> = {
+export const displayData: Record<AppComponent['type'], { name: string; icon: any }> = {
 	displaycomponent: {
 		name: 'Result',
 		icon: Monitor
@@ -143,57 +143,4 @@ export function fieldTypeToTsType(InputType: InputType): string {
 		default:
 			return 'string'
 	}
-}
-
-const userTypeKeys = ['value']
-const staticTypeKeys = ['value']
-const dynamicTypeKeys = ['connection']
-const runnableTypeKeys = ['runnable', 'fields']
-
-export function sanitizeInputSpec(componentInput: AppInput): AppInput {
-	if (componentInput.type === 'user') {
-		for (const key of staticTypeKeys) {
-			delete componentInput[key]
-		}
-		for (const key of dynamicTypeKeys) {
-			delete componentInput[key]
-		}
-		for (const key of runnableTypeKeys) {
-			delete componentInput[key]
-		}
-	} else if (componentInput.type === 'static') {
-		for (const key of userTypeKeys) {
-			delete componentInput[key]
-		}
-		for (const key of dynamicTypeKeys) {
-			delete componentInput[key]
-		}
-		for (const key of runnableTypeKeys) {
-			delete componentInput[key]
-		}
-	} else if (componentInput.type === 'connected') {
-		for (const key of userTypeKeys) {
-			delete componentInput[key]
-		}
-		for (const key of staticTypeKeys) {
-			delete componentInput[key]
-		}
-		for (const key of runnableTypeKeys) {
-			delete componentInput[key]
-		}
-	} else if (componentInput.type === 'runnable') {
-		for (const key of userTypeKeys) {
-			delete componentInput[key]
-		}
-
-		for (const key of staticTypeKeys) {
-			delete componentInput[key]
-		}
-
-		for (const key of dynamicTypeKeys) {
-			delete componentInput[key]
-		}
-	}
-
-	return componentInput
 }

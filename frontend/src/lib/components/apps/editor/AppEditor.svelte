@@ -25,7 +25,6 @@
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
 	import { classNames } from '$lib/utils'
 	import AppPreview from './AppPreview.svelte'
-	import type RunnableComponent from '../components/helpers/RunnableComponent.svelte'
 
 	export let app: App
 	export let path: string
@@ -56,19 +55,12 @@
 		runnableComponents
 	})
 
-	function clearSelectionOnPreview() {
-		if ($mode === 'preview') {
-			$selectedComponent = undefined
-		}
-	}
-
 	let mounted = false
 	onMount(() => {
 		mounted = true
 	})
 
 	$: mounted && ($worldStore = buildWorld($staticOutputs))
-	$: $mode && $selectedComponent && clearSelectionOnPreview()
 	$: selectedTab = $selectedComponent ? 'settings' : 'insert'
 	$: previewing = $mode === 'preview'
 
