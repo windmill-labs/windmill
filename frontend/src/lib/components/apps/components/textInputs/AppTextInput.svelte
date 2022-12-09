@@ -9,7 +9,6 @@
 	export let id: string
 	export let configuration: Record<string, AppInput>
 	export const staticOutputs: string[] = ['result']
-	console.log('');
 
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
 	let value: string
