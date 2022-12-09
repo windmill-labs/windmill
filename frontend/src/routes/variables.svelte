@@ -129,13 +129,13 @@
 	<Tabs bind:selected={tab}>
 		<Tab size="md" value="workspace">
 			<div class="flex gap-2 items-center my-1">
-				<Building size="18px" />
+				<Building size={18} />
 				Workspace
 			</div>
 		</Tab>
 		<Tab size="md" value="contextual">
 			<div class="flex gap-2 items-center my-1">
-				<DollarSign size="18px" />
+				<DollarSign size={18} />
 				Contextual <Tooltip>
 					Contextual variables are utility variables passed to your environment when running a
 					script and depends on the execution context.</Tooltip

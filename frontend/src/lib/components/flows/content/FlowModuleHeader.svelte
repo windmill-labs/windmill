@@ -28,7 +28,7 @@
 			class={classNames('badge', moduleRetry ? 'badge-on' : 'badge-off', 'center-center')}
 			on:click={() => dispatch('toggleRetry')}
 		>
-			<Repeat size="14px" />
+			<Repeat size={14} />
 		</button>
 		<button
 			class={classNames('badge', Boolean(module.sleep) ? 'badge-on' : 'badge-off')}
@@ -40,7 +40,7 @@
 			class={classNames('badge', Boolean(module.suspend) ? 'badge-on' : 'badge-off')}
 			on:click={() => dispatch('toggleSuspend')}
 		>
-			<PhoneIncoming size="14px" />
+			<PhoneIncoming size={14} />
 		</button>
 	{/if}
 	{#if module.value.type === 'script'}

@@ -50,7 +50,7 @@
 
 {#if kind === 'read' || kind === 'write'}
 	<Badge capitalize color="blue" baseClass="border border-blue-200 flex gap-1 items-center">
-		<Users size="12" />
+		<Users size={12} />
 		{kind}
 		{#if reason}
 			<Tooltip><span class="normal-case">{reason}</span></Tooltip>

@@ -233,19 +233,19 @@
 				<ToggleButton light position="left" value="all" size="sm">All</ToggleButton>
 				<ToggleButton light position="center" value="script" size="sm">
 					<div class="flex gap-1 items-center">
-						<Code2 size="16px" />
+						<Code2 size={16} />
 						Scripts
 					</div>
 				</ToggleButton>
 				<ToggleButton light position="center" value="flow" size="sm">
 					<div class="flex gap-1 items-center">
-						<Wind size="16px" />
+						<Wind size={16} />
 						Flows
 					</div>
 				</ToggleButton>
 				<ToggleButton light position="right" value="app" size="sm">
 					<div class="flex gap-1 items-center">
-						<LayoutDashboard size="16px" />
+						<LayoutDashboard size={16} />
 						Apps
 					</div>
 				</ToggleButton>

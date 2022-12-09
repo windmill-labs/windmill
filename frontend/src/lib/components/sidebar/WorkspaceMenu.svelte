@@ -18,7 +18,7 @@
 		)}
 	>
 		<div class="center-center mr-2">
-			<Building size="16px" />
+			<Building size={16} />
 		</div>
 
 		{#if !isCollapsed}

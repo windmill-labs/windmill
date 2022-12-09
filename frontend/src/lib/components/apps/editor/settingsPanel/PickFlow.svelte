@@ -35,7 +35,7 @@
 	color="light"
 >
 	<div class="flex justify-center flex-col items-center gap-2">
-		<Wind size="18px" />
+		<Wind size={18} />
 
 		<span class="text-xs">Flow</span>
 	</div>

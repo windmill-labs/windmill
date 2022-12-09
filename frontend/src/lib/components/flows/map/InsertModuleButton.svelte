@@ -38,7 +38,7 @@
 			role="menuitem"
 		>
 			<span>
-				<Repeat size="14px" />
+				<Repeat size={14} />
 			</span>
 
 			For Loop

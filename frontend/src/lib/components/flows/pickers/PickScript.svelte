@@ -37,7 +37,7 @@
 	color="light"
 >
 	<div class="flex justify-center flex-col items-center gap-2">
-		<Code size="18px" />
+		<Code size={18} />
 
 		<span class="text-xs">Script</span>
 	</div>

@@ -283,7 +283,7 @@
 	<Tabs bind:selected={tab}>
 		<Tab size="md" value="workspace">
 			<div class="flex gap-2 items-center my-1">
-				<Building size="18px" />
+				<Building size={18} />
 				Workspace
 			</div>
 		</Tab>

@@ -16,7 +16,7 @@
 		<span class="text-sm truncate">{path}</span>
 	{:else}
 		<div class="center-center">
-			<Building size="16px" />
+			<Building size={16} />
 		</div>
 		<span class="text-sm truncate">{path}</span>
 		{#if hash}

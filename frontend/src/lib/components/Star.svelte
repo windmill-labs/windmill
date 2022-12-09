@@ -39,6 +39,6 @@
 			<Icon data={faStar} class="hover:text-gray-300" scale={1.1} />
 		</div>
 	{:else}
-		<Star size="18px" class="hover:bg-gray-200" />
+		<Star size={18} class="hover:bg-gray-200" />
 	{/if}
 </button>
