@@ -1,12 +1,12 @@
 <script lang="ts">
-	import type { AppInput } from '../../inputType'
+	import type { StaticAppInput } from '../../inputType'
 	import StaticInputEditor from './StaticInputEditor.svelte'
 
 	export let value: any
 	export let canHide: boolean = false
-	export let componentInput: Extract<AppInput, { type: 'static' }>
+	export let componentInput: StaticAppInput
 
-	let fakeComponentInput: Extract<AppInput, { type: 'static' }> = {
+	let fakeComponentInput: StaticAppInput = {
 		...componentInput,
 		value,
 		visible: componentInput.visible,

@@ -99,4 +99,9 @@ export type AppInput =
 			optionValuesKey: keyof typeof staticValues
 	  })
 
+export type StaticAppInput = Extract<AppInput, { type: 'static' }>
+export type ConnectedAppInput = Extract<AppInput, { type: 'connected' }>
+export type UserAppInput = Extract<AppInput, { type: 'user' }>
+export type ResultAppInput = Extract<AppInput, { type: 'runnable' }>
+
 export type AppInputs = Record<string, AppInput>
