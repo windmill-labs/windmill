@@ -28,10 +28,18 @@ const textInputs: ComponentSet = {
 			componentInput: {
 				type: 'static',
 				fieldType: 'text',
-				defaultValue: 'Lorem Ipsum',
-				value: 'Lorem Ipsum'
+				defaultValue: '',
+				value: ''
 			},
-			configuration: {},
+			configuration: {
+				label: {
+					type: 'static',
+					visible: false,
+					value: 'Title',
+					fieldType: 'textarea',
+					defaultValue: 'Title'
+				}
+			},
 			card: false
 		}
 	]
