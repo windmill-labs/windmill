@@ -239,7 +239,7 @@
 				bind:pickForField
 			/>
 		{:else if arg.expr != undefined}
-			<div class="border rounded p-2 mt-2 border-gray-300">
+			<div class="border rounded mt-2 border-gray-300">
 				<SimpleEditor
 					bind:this={monaco}
 					bind:code={arg.expr}
