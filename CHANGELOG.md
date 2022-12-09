@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.55.0](https://github.com/windmill-labs/windmill/compare/v1.54.0...v1.55.0) (2022-12-09)
+
+
+### Features
+
+* **frontend:** Add text input to app builder ([#1008](https://github.com/windmill-labs/windmill/issues/1008)) ([6198383](https://github.com/windmill-labs/windmill/commit/6198383138929237c1eb898954a1fd91bdded08a))
+
 ## [1.54.0](https://github.com/windmill-labs/windmill/compare/v1.53.0...v1.54.0) (2022-12-08)
 
 
