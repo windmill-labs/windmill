@@ -807,7 +807,6 @@ struct UnifiedJob {
     is_flow_step: bool,
     language: Option<ScriptLang>,
     is_skipped: bool,
-    pre_run_error: Option<String>,
 }
 
 impl From<UnifiedJob> for Job {
@@ -868,7 +867,7 @@ impl From<UnifiedJob> for Job {
                 is_flow_step: uj.is_flow_step,
                 language: uj.language,
                 same_worker: false,
-                pre_run_error: uj.pre_run_error,
+                pre_run_error: None,
             }),
             t => panic!("job type {} not valid", t),
         }
