@@ -42,7 +42,23 @@ const textInputs: ComponentSet = {
 
 const numberInputs: ComponentSet = {
 	title: 'Number Inputs',
-	components: []
+	components: [
+		{
+			id: 'numberinputcomponent',
+			type: 'numberinputcomponent',
+			componentInput: undefined,
+			configuration: {
+				label: {
+					type: 'static',
+					visible: false,
+					value: 'Title',
+					fieldType: 'textarea',
+					defaultValue: 'Title'
+				}
+			},
+			card: false
+		}
+	]
 }
 
 const buttons: ComponentSet = {

@@ -10,6 +10,7 @@
 	import PieChartComponent from '../components/dataDisplay/AppPieChart.svelte'
 	import CheckboxComponent from '../components/selectInputs/AppCheckbox.svelte'
 	import TextInputComponent from '../components/textInputs/AppTextInput.svelte'
+	import NumberInputComponent from '../components/numberInputs/AppNumberInput.svelte'
 	import ComponentHeader from './ComponentHeader.svelte'
 
 	export let component: AppComponent
@@ -75,6 +76,8 @@
 			<CheckboxComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{:else if component.type === 'textinputcomponent'}
 			<TextInputComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+		{:else if component.type === 'numberinputcomponent'}
+			<NumberInputComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{/if}
 	</div>
 </div>
