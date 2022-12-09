@@ -2,7 +2,7 @@
 	import { workspaceStore, usersWorkspaceStore } from '$lib/stores'
 	import { classNames } from '$lib/utils'
 	import Icon from 'svelte-awesome'
-	import { Building } from 'svelte-lucide'
+	import { Building } from 'lucide-svelte'
 
 	import Menu from '../common/menu/Menu.svelte'
 
@@ -18,7 +18,7 @@
 		)}
 	>
 		<div class="center-center mr-2">
-			<Building size="16px" />
+			<Building size={16} />
 		</div>
 
 		{#if !isCollapsed}

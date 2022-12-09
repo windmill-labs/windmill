@@ -13,7 +13,7 @@
 	import PickHubFlow from './PickHubFlow.svelte'
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import { Building, Globe2 } from 'svelte-lucide'
+	import { Building, Globe2 } from 'lucide-svelte'
 
 	import CreateApp from '$lib/components/apps/CreateApp.svelte'
 	import ItemsList from '$lib/components/home/ItemsList.svelte'
@@ -59,7 +59,7 @@
 				size="xs"
 			>
 				<div class="flex gap-2 items-center">
-					<Globe2 size="18px" />
+					<Globe2 size={18} />
 					View on the Hub
 				</div>
 			</Button>
@@ -87,7 +87,7 @@
 				size="xs"
 			>
 				<div class="flex gap-2 items-center">
-					<Globe2 size="18px" />
+					<Globe2 size={18} />
 					View on the Hub
 				</div>
 			</Button>
@@ -135,19 +135,19 @@
 		<Tabs bind:selected={tab}>
 			<Tab size="md" value="workspace">
 				<div class="flex gap-2 items-center my-1">
-					<Building size="18px" />
+					<Building size={18} />
 					Workspace
 				</div>
 			</Tab>
 			<Tab size="md" value="hubscripts">
 				<div class="flex gap-2 items-center my-1">
-					<Globe2 size="18px" />
+					<Globe2 size={18} />
 					Hub Scripts
 				</div>
 			</Tab>
 			<Tab size="md" value="hubflows">
 				<div class="flex gap-2 items-center my-1">
-					<Globe2 size="18px" />
+					<Globe2 size={18} />
 					Hub Flows
 				</div>
 			</Tab>

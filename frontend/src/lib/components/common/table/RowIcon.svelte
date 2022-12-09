@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
-	import { Code2, LayoutDashboard, Wind } from 'svelte-lucide'
+	import { Code2, LayoutDashboard, Wind } from 'lucide-svelte'
 
 	export let kind: 'script' | 'flow' | 'app'
 
