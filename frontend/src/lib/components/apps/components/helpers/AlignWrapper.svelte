@@ -7,27 +7,27 @@
 	function tailwindHorizontalAlignment(horizontalAlignment) {
 		switch (horizontalAlignment) {
 			case 'left':
-				return 'items-start'
+				return 'justify-start'
 			case 'center':
-				return 'items-center'
+				return 'justify-center'
 			case 'right':
-				return 'items-end'
+				return 'justify-end'
 		}
 	}
 
 	function tailwindVerticalAlignment(verticalAlignment) {
 		switch (verticalAlignment) {
 			case 'top':
-				return 'justify-start'
+				return 'items-start'
 			case 'center':
-				return 'justify-center'
+				return 'items-center'
 			case 'bottom':
-				return 'justify-end'
+				return 'items-end'
 		}
 	}
 
 	$: classes = classNames(
-		'flex w-full h-full flex-col',
+		'flex w-full h-full',
 		tailwindHorizontalAlignment(horizontalAlignment),
 		tailwindVerticalAlignment(verticalAlignment)
 	)

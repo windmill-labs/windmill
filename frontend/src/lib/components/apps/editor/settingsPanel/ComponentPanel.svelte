@@ -224,30 +224,33 @@
 			<PanelSection title="Alignment">
 				<div class="w-full text-xs font-bold">Horizontal alignment</div>
 
-				<ToggleButtonGroup bind:selected={component.horizontalAlignment}>
-					<ToggleButton position="left" value="left" size="xs">
-						<AlignStartHorizontal size={14} />
-					</ToggleButton>
-					<ToggleButton position="center" value="center" size="xs">
-						<AlignCenterHorizontal size={14} />
-					</ToggleButton>
-					<ToggleButton position="right" value="right" size="xs">
-						<AlignEndHorizontal size={14} />
-					</ToggleButton>
-				</ToggleButtonGroup>
+				<div class="w-full">
+					<ToggleButtonGroup bind:selected={component.horizontalAlignment}>
+						<ToggleButton position="left" value="left" size="xs">
+							<AlignStartVertical size={16} />
+						</ToggleButton>
+						<ToggleButton position="center" value="center" size="xs">
+							<AlignCenterVertical size={16} />
+						</ToggleButton>
+						<ToggleButton position="right" value="right" size="xs">
+							<AlignEndVertical size={16} />
+						</ToggleButton>
+					</ToggleButtonGroup>
+				</div>
 				<div class="w-full text-xs font-bold">Vertical alignment</div>
-
-				<ToggleButtonGroup bind:selected={component.verticalAlignment}>
-					<ToggleButton position="left" value="top" size="xs">
-						<AlignStartVertical size={14} />
-					</ToggleButton>
-					<ToggleButton position="center" value="center" size="xs">
-						<AlignCenterVertical size={14} />
-					</ToggleButton>
-					<ToggleButton position="right" value="bottom" size="xs">
-						<AlignEndVertical size={14} />
-					</ToggleButton>
-				</ToggleButtonGroup>
+				<div class="w-full">
+					<ToggleButtonGroup bind:selected={component.verticalAlignment}>
+						<ToggleButton position="left" value="top" size="xs">
+							<AlignStartHorizontal size={16} />
+						</ToggleButton>
+						<ToggleButton position="center" value="center" size="xs">
+							<AlignCenterHorizontal size={16} />
+						</ToggleButton>
+						<ToggleButton position="right" value="bottom" size="xs">
+							<AlignEndHorizontal size={16} />
+						</ToggleButton>
+					</ToggleButtonGroup>
+				</div>
 			</PanelSection>
 		{/if}
 		<PanelSection title="Danger zone">
