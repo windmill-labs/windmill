@@ -4273,6 +4273,8 @@ components:
           type: string
         is_linked:
           type: boolean
+        is_refreshed:
+          type: boolean
       required:
         - workspace_id
         - path
@@ -4568,6 +4570,8 @@ components:
           type: string
         is_linked:
           type: boolean
+        is_refreshed:
+          type: boolean
         account:
           type: number
       required:
@@ -4575,6 +4579,7 @@ components:
         - resource_type
         - is_oauth
         - is_linked
+        - is_refreshed
 
     ResourceType:
       type: object

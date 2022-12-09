@@ -166,7 +166,7 @@
 						<th />
 					</tr>
 					<tbody slot="body">
-						{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_oauth, is_expired, refresh_error, is_linked, marked }}
+						{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_refreshed, is_expired, refresh_error, is_linked, marked }}
 							<tr>
 								<td
 									><a
@@ -225,7 +225,7 @@
 											{/if}
 										</div>
 
-										{#if is_oauth}
+										{#if is_refreshed}
 											<div class="w-10">
 												{#if refresh_error}
 													<Popover notClickable>
