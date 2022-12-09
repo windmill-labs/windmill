@@ -3,7 +3,7 @@
 	import { faCode, faCodeBranch, faPlus, faWind } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import { Repeat } from 'svelte-lucide'
+	import { Repeat } from 'lucide-svelte'
 
 	const dispatch = createEventDispatcher()
 </script>

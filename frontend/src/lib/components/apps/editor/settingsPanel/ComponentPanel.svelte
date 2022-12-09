@@ -22,7 +22,7 @@
 	import PickInlineScript from './PickInlineScript.svelte'
 	import TableActions from './TableActions.svelte'
 	import { gridColumns } from '../../gridUtils'
-	import { Plus } from 'svelte-lucide'
+	import { Plus } from 'lucide-svelte'
 	import StaticInputEditor from './StaticInputEditor.svelte'
 	import ConnectedInputEditor from './ConnectedInputEditor.svelte'
 

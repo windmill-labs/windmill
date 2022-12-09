@@ -5,7 +5,7 @@
 	import { faBed, faCodeBranch, faSave, faStop } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import { PhoneIncoming, Repeat } from 'svelte-lucide'
+	import { PhoneIncoming, Repeat } from 'lucide-svelte'
 
 	export let module: FlowModule
 

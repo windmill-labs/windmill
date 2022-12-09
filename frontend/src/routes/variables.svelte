@@ -34,7 +34,7 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { Alert, Badge, Skeleton } from '$lib/components/common'
 	import Popover from '$lib/components/Popover.svelte'
-	import { Building, DollarSign } from 'svelte-lucide'
+	import { Building, DollarSign } from 'lucide-svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import ListFilters from '$lib/components/home/ListFilters.svelte'

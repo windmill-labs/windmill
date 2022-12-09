@@ -2,7 +2,7 @@
 	import { workspaceStore, usersWorkspaceStore } from '$lib/stores'
 	import { classNames } from '$lib/utils'
 	import Icon from 'svelte-awesome'
-	import { Building } from 'svelte-lucide'
+	import { Building } from 'lucide-svelte'
 
 	import Menu from '../common/menu/Menu.svelte'
 

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { truncateHash } from '$lib/utils'
-	import { Building } from 'svelte-lucide'
+	import { Building } from 'lucide-svelte'
 	import { Badge } from './common'
 	import IconedResourceType from './IconedResourceType.svelte'
 

@@ -16,7 +16,7 @@
 	import type { HubItem } from '$lib/components/flows/pickers/model'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import type uFuzzy from '@leeoniya/ufuzzy'
-	import { Code2, LayoutDashboard, Wind } from 'svelte-lucide'
+	import { Code2, LayoutDashboard, Wind } from 'lucide-svelte'
 
 	import ScriptRow from '$lib/components/common/table/ScriptRow.svelte'
 	import FlowRow from '$lib/components/common/table/FlowRow.svelte'

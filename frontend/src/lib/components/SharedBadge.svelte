@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { userStore } from '$lib/stores'
-	import { Users } from 'svelte-lucide'
+	import { Users } from 'lucide-svelte'
 	import Badge from './common/badge/Badge.svelte'
 	import Tooltip from './Tooltip.svelte'
 

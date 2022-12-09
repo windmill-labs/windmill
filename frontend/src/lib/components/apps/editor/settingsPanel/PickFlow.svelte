@@ -4,7 +4,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { Wind } from 'svelte-lucide'
+	import { Wind } from 'lucide-svelte'
 
 	type Item = { summary: String; path: String; version?: String }
 

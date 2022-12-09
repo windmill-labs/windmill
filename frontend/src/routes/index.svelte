@@ -13,7 +13,7 @@
 	import PickHubFlow from './PickHubFlow.svelte'
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import { Building, Globe2 } from 'svelte-lucide'
+	import { Building, Globe2 } from 'lucide-svelte'
 
 	import CreateApp from '$lib/components/apps/CreateApp.svelte'
 	import ItemsList from '$lib/components/home/ItemsList.svelte'

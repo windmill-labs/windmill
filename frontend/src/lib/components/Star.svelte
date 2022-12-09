@@ -5,7 +5,7 @@
 	import { faStar } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import { Star } from 'svelte-lucide'
+	import { Star } from 'lucide-svelte'
 
 	export let path: string
 	export let kind: 'flow' | 'app' | 'script'

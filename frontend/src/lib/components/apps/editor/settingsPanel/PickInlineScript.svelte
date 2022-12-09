@@ -2,7 +2,7 @@
 	import ItemPicker from '$lib/components/ItemPicker.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { MousePointerClick } from 'svelte-lucide'
+	import { MousePointerClick } from 'lucide-svelte'
 
 	export let scripts: Item[]
 

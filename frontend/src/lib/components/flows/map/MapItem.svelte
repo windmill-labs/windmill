@@ -11,7 +11,7 @@
 	import Icon from 'svelte-awesome'
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
 	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
-	import { Building, Repeat } from 'svelte-lucide'
+	import { Building, Repeat } from 'lucide-svelte'
 
 	export let mod: FlowModule
 

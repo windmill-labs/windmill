@@ -4,7 +4,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { Code } from 'svelte-lucide'
+	import { Code } from 'lucide-svelte'
 
 	export let kind: string
 

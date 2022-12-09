@@ -21,7 +21,20 @@ const windmillComponents: ComponentSet = {
 
 const textInputs: ComponentSet = {
 	title: 'Text Inputs',
-	components: []
+	components: [
+		{
+			id: 'textinputcomponent',
+			type: 'textinputcomponent',
+			componentInput: {
+				type: 'static',
+				fieldType: 'text',
+				defaultValue: 'Lorem Ipsum',
+				value: 'Lorem Ipsum'
+			},
+			configuration: {},
+			card: false
+		}
+	]
 }
 
 const numberInputs: ComponentSet = {

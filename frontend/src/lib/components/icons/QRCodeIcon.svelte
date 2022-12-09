@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { QrCode } from 'svelte-lucide'
+	import { QrCode } from 'lucide-svelte'
 
 	export let height = '24px'
 	export let width = '24px'
