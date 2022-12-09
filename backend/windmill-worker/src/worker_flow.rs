@@ -414,7 +414,6 @@ pub async fn update_flow_status_after_job_completion(
     {
         tx = schedule_again_if_scheduled(
             tx,
-            client,
             flow_job.schedule_path.as_ref().unwrap(),
             flow_job.script_path.as_ref().unwrap(),
             &w_id,
@@ -435,7 +434,6 @@ pub async fn update_flow_status_after_job_completion(
         if flow_job.canceled {
             add_completed_job_error(
                 db,
-                client,
                 &flow_job,
                 logs,
                 &canceled_job_to_result(&flow_job),
@@ -445,7 +443,6 @@ pub async fn update_flow_status_after_job_completion(
         } else {
             add_completed_job(
                 db,
-                client,
                 &flow_job,
                 success,
                 stop_early && skip_if_stop_early,
@@ -470,7 +467,6 @@ pub async fn update_flow_status_after_job_completion(
             Err(err) => {
                 let _ = add_completed_job_error(
                     db,
-                    client,
                     &flow_job,
                     "Unexpected error during flow chaining:\n".to_string(),
                     err,
@@ -982,8 +978,7 @@ async fn push_next_flow_job(
                 let logs = "Timed out waiting to be resumed".to_string();
                 let result = json!({ "error": logs });
                 let _uuid =
-                    add_completed_job(db, client, &flow_job, success, skipped, result, logs)
-                        .await?;
+                    add_completed_job(db, &flow_job, success, skipped, result, logs).await?;
 
                 return Ok(());
             }

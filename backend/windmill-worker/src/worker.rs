@@ -682,7 +682,6 @@ async fn handle_job_error(
                     {
                         let _ = add_completed_job_error(
                             db,
-                            client,
                             &parent_job,
                             format!("Unexpected error during flow job error handling:\n{err}"),
                             err,
@@ -696,7 +695,6 @@ async fn handle_job_error(
     }
     add_completed_job_error(
         db,
-        client,
         &job,
         format!("Unexpected error during job execution:\n{err}"),
         &err,
@@ -834,7 +832,7 @@ async fn handle_queued_job(
 
             match result {
                 Ok(r) => {
-                    add_completed_job(db, client, &job, true, false, r.clone(), logs).await?;
+                    add_completed_job(db, &job, true, false, r.clone(), logs).await?;
                     if job.is_flow_step {
                         if let Some(parent_job) = job.parent_job {
                             update_flow_status_after_job_completion(
@@ -878,7 +876,6 @@ async fn handle_queued_job(
 
                     let (_, output_map) = add_completed_job_error(
                         db,
-                        client,
                         &job,
                         logs,
                         error_message,
