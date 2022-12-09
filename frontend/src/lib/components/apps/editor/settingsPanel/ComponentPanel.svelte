@@ -3,9 +3,6 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import PickScript from '$lib/components/flows/pickers/PickScript.svelte'
 	import {
-		faAlignCenter,
-		faAlignLeft,
-		faAlignRight,
 		faArrowRight,
 		faBolt,
 		faClose,
@@ -13,7 +10,6 @@
 		faTrashAlt
 	} from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
-	import Icon from 'svelte-awesome'
 	import type { AppComponent, AppEditorContext } from '../../types'
 	import PanelSection from './common/PanelSection.svelte'
 	import InputsSpecsEditor from './InputsSpecsEditor.svelte'
@@ -22,9 +18,21 @@
 	import PickInlineScript from './PickInlineScript.svelte'
 	import TableActions from './TableActions.svelte'
 	import { gridColumns } from '../../gridUtils'
-	import { Plus } from 'svelte-lucide'
+	import {
+		AlignCenter,
+		AlignLeft,
+		AlignRight,
+		AlignVerticalJustifyCenter,
+		AlignVerticalJustifyEnd,
+		AlignVerticalJustifyStart,
+		Plus
+	} from 'svelte-lucide'
 	import StaticInputEditor from './StaticInputEditor.svelte'
 	import ConnectedInputEditor from './ConnectedInputEditor.svelte'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import { capitalize } from '$lib/utils'
+	import { fieldTypeToTsType } from '../../utils'
+	import Recompute from './Recompute.svelte'
 
 	export let component: AppComponent | undefined
 	export let onDelete: (() => void) | undefined = undefined
@@ -58,6 +66,18 @@
 	<div class="flex flex-col w-full divide-y">
 		{#if component.componentInput}
 			<PanelSection title="Main input">
+				<svelte:fragment slot="action">
+					<div>
+						<Badge color="blue">
+							{capitalize(fieldTypeToTsType(component.componentInput.fieldType))}
+						</Badge>
+						{#if component.componentInput.subFieldType}
+							<Badge color="indigo">
+								{capitalize(fieldTypeToTsType(component.componentInput.subFieldType))}
+							</Badge>
+						{/if}
+					</div>
+				</svelte:fragment>
 				<div class="flex flex-col w-full gap-2 my-2">
 					<ToggleButtonGroup bind:selected={component.componentInput.type}>
 						<ToggleButton position="left" value="static" startIcon={{ icon: faBolt }} size="xs">
@@ -172,7 +192,9 @@
 			</PanelSection>
 		{/if}
 		{#if component.componentInput?.type === 'runnable'}
-			<PanelSection title="Runnable inputs">
+			<PanelSection
+				title={`Runnable inputs (${Object.keys(component.componentInput.fields ?? {}).length})`}
+			>
 				<InputsSpecsEditor bind:inputSpecs={component.componentInput.fields} />
 			</PanelSection>
 		{/if}
@@ -187,32 +209,36 @@
 			<TableActions bind:components={component.actionButtons} />
 		{/if}
 
+		{#if component.type === 'buttoncomponent'}
+			<Recompute bind:recomputeIds={component.recomputeIds} />
+		{/if}
+
 		{#if component.verticalAlignment !== undefined}
 			<PanelSection title="Alignment">
 				<div class="w-full text-xs font-bold">Horizontal alignment</div>
 
 				<ToggleButtonGroup bind:selected={component.horizontalAlignment}>
 					<ToggleButton position="left" value="left" size="xs">
-						<Icon data={faAlignLeft} />
+						<AlignLeft size="18px" />
 					</ToggleButton>
 					<ToggleButton position="center" value="center" size="xs">
-						<Icon data={faAlignCenter} />
+						<AlignCenter size="18px" />
 					</ToggleButton>
 					<ToggleButton position="right" value="right" size="xs">
-						<Icon data={faAlignRight} />
+						<AlignRight size="18px" />
 					</ToggleButton>
 				</ToggleButtonGroup>
 				<div class="w-full text-xs font-bold">Vertical alignment</div>
 
 				<ToggleButtonGroup bind:selected={component.verticalAlignment}>
 					<ToggleButton position="left" value="top" size="xs">
-						<Icon data={faAlignLeft} />
+						<AlignVerticalJustifyStart size="18px" />
 					</ToggleButton>
 					<ToggleButton position="center" value="center" size="xs">
-						<Icon data={faAlignCenter} />
+						<AlignVerticalJustifyCenter size="18px" />
 					</ToggleButton>
 					<ToggleButton position="right" value="bottom" size="xs">
-						<Icon data={faAlignRight} />
+						<AlignVerticalJustifyEnd size="18px" />
 					</ToggleButton>
 				</ToggleButtonGroup>
 			</PanelSection>

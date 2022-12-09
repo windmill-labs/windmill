@@ -10,6 +10,7 @@ export type InputType =
 	| 'time'
 	| 'datetime'
 	| 'object'
+	| 'array'
 
 // Connection to an output of another component
 // defined by the id of the component and the path of the output
@@ -57,12 +58,18 @@ export type ResultInput = {
 	type: 'runnable'
 }
 
-type AppInputSpec<T, U> = (StaticInput<U> | ConnectedInput | UserInput<U> | ResultInput) &
-	InputConfiguration<T, U>
+type AppInputSpec<T extends InputType, U, V extends InputType = never> = (
+	| StaticInput<U>
+	| ConnectedInput
+	| UserInput<U>
+	| ResultInput
+) &
+	InputConfiguration<T, U, V>
 
-type InputConfiguration<T, U> = {
+type InputConfiguration<T extends InputType, U, V extends InputType> = {
 	fieldType: T
 	defaultValue: U
+	subFieldType?: V
 }
 
 export type AppInput =
@@ -74,11 +81,21 @@ export type AppInput =
 	| AppInputSpec<'time', string>
 	| AppInputSpec<'datetime', string>
 	| AppInputSpec<'object', Record<string | number, any>>
-	| AppInputSpec<'array', any[]>
 	| (AppInputSpec<'select', string> & {
 			/**
 			 * One of the keys of `staticValues` from `lib/components/apps/editor/componentsPanel/componentStaticValues`
 			 */
+			optionValuesKey: keyof typeof staticValues
+	  })
+	| AppInputSpec<'array', string[], 'text'>
+	| AppInputSpec<'array', string[], 'textarea'>
+	| AppInputSpec<'array', number[], 'number'>
+	| AppInputSpec<'array', boolean[], 'boolean'>
+	| AppInputSpec<'array', string[], 'date'>
+	| AppInputSpec<'array', string[], 'time'>
+	| AppInputSpec<'array', string[], 'datetime'>
+	| AppInputSpec<'array', object[], 'object'>
+	| (AppInputSpec<'array', string[], 'select'> & {
 			optionValuesKey: keyof typeof staticValues
 	  })
 

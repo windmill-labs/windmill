@@ -12,7 +12,7 @@ type BaseComponent<T extends string> = {
 export type TextComponent = BaseComponent<'textcomponent'>
 export type TextInputComponent = BaseComponent<'textinputcomponent'>
 export type ButtonComponent = BaseComponent<'buttoncomponent'> & {
-	recompute: string[] | undefined
+	recomputeIds: string[] | undefined
 }
 
 export type RunFormComponent = BaseComponent<'runformcomponent'>

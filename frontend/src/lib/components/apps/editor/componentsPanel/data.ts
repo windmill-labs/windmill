@@ -42,7 +42,7 @@ const buttons: ComponentSet = {
 				defaultValue: '',
 				value: ''
 			},
-			recompute: undefined,
+			recomputeIds: undefined,
 			configuration: {
 				label: {
 					type: 'static',
@@ -140,6 +140,7 @@ const dataDisplay: ComponentSet = {
 			componentInput: {
 				type: 'static',
 				fieldType: 'array',
+				subFieldType: 'object',
 				defaultValue: [
 					{
 						id: 1,
@@ -183,12 +184,14 @@ const dataDisplay: ComponentSet = {
 					type: 'static',
 					value: ['Lorem ipsum', 'Lorem ipsum', 'Lorem ipsum'],
 					fieldType: 'array',
+					subFieldType: 'text',
 					defaultValue: ['Lorem ipsum', 'Lorem ipsum', 'Lorem ipsum']
 				}
 			},
 			componentInput: {
 				type: 'static',
 				fieldType: 'array',
+				subFieldType: 'number',
 				defaultValue: [25, 50, 25],
 				value: [25, 50, 25]
 			},
@@ -209,12 +212,14 @@ const dataDisplay: ComponentSet = {
 					type: 'static',
 					value: ['Lorem ipsum', 'Lorem ipsum', 'Lorem ipsum'],
 					fieldType: 'array',
+					subFieldType: 'text',
 					defaultValue: ['Lorem ipsum', 'Lorem ipsum', 'Lorem ipsum']
 				}
 			},
 			componentInput: {
 				type: 'static',
 				fieldType: 'array',
+				subFieldType: 'number',
 				defaultValue: [25, 50, 25],
 				value: [25, 50, 25]
 			},

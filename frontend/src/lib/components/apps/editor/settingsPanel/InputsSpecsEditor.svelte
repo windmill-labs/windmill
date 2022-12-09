@@ -2,8 +2,9 @@
 	import { Badge, ToggleButton, ToggleButtonGroup } from '$lib/components/common'
 	import { capitalize, classNames } from '$lib/utils'
 	import { faBolt, faLink, faUser } from '@fortawesome/free-solid-svg-icons'
+	import { slide } from 'svelte/transition'
 	import type { AppInputs } from '../../inputType'
-	import { fieldTypeToTsType, sanitizeInputSpec } from '../../utils'
+	import { fieldTypeToTsType } from '../../utils'
 	import InputsSpecEditor from './InputsSpecEditor.svelte'
 
 	export let inputSpecs: AppInputs
@@ -20,7 +21,7 @@
 			<div>
 				<div
 					class={classNames(
-						'w-full text-xs font-bold py-1.5 px-2 cursor-pointer transition-all justify-between flex items-center border border-gray-3 rounded-md',
+						'w-full text-xs font-bold py-1 px-2 cursor-pointer transition-all justify-between flex items-center border border-gray-3 rounded-md',
 						'bg-white border-gray-300  hover:bg-gray-100 focus:bg-gray-100 text-gray-700',
 						openedProp === inputSpecKey ? 'outline outline-gray-500 outline-offset-1' : ''
 					)}
@@ -33,7 +34,7 @@
 						}
 					}}
 				>
-					{inputSpecKey}
+					{capitalize(inputSpecKey)}
 					{#if input?.fieldType}
 						<Badge color={openedProp === inputSpecKey ? 'dark-blue' : 'blue'}>
 							{capitalize(fieldTypeToTsType(input.fieldType))}
@@ -41,7 +42,7 @@
 					{/if}
 				</div>
 				{#if inputSpecKey === openedProp}
-					<div class="flex flex-col w-full gap-2 my-2">
+					<div class="flex flex-col w-full gap-2 my-2 " transition:slide={{ duration: 100 }}>
 						{#if staticOnly}
 							<ToggleButtonGroup bind:selected={inputSpecs[inputSpecKey].type}>
 								<ToggleButton position="left" value="static" startIcon={{ icon: faBolt }} size="xs">

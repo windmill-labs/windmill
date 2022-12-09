@@ -7,22 +7,22 @@
 	function tailwindHorizontalAlignment(horizontalAlignment) {
 		switch (horizontalAlignment) {
 			case 'left':
-				return 'justify-start'
+				return 'items-start'
 			case 'center':
-				return 'justify-center'
+				return 'items-center'
 			case 'right':
-				return 'justify-end'
+				return 'items-end'
 		}
 	}
 
 	function tailwindVerticalAlignment(verticalAlignment) {
 		switch (verticalAlignment) {
 			case 'top':
-				return 'items-start'
+				return 'justify-start'
 			case 'center':
-				return 'items-center'
+				return 'justify-center'
 			case 'bottom':
-				return 'items-end'
+				return 'justify-end'
 		}
 	}
 

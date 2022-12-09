@@ -107,6 +107,8 @@ export function fieldTypeToTsType(InputType: InputType): string {
 			return 'boolean'
 		case 'object':
 			return 'object'
+		case 'array':
+			return 'array'
 		default:
 			return 'string'
 	}

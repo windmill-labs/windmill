@@ -5,6 +5,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
+	import SubTypeEditor from './SubTypeEditor.svelte'
 
 	export let componentInput: AppInput | undefined
 	export let canHide: boolean = false
@@ -29,22 +30,24 @@
 				</option>
 			{/each}
 		</select>
+	{:else if componentInput.fieldType === 'object'}
+		<div class="border rounded-sm">
+			<SimpleEditor
+				lang="json"
+				code={JSON.stringify(componentInput.value, null, 2)}
+				class="few-lines-editor"
+				on:change={(e) => {
+					if (componentInput?.type === 'static' && componentInput.value) {
+						componentInput.value = JSON.parse(e.detail.code)
+					}
+				}}
+			/>
+		</div>
 	{:else if componentInput.fieldType === 'array'}
 		<div class="flex gap-2 flex-col mt-2">
 			{#if componentInput.value}
-				{#each componentInput.value as value, index}
-					<div class="border rounded-sm">
-						<SimpleEditor
-							lang="json"
-							code={JSON.stringify(componentInput.value[index], null, 2)}
-							class="few-lines-editor"
-							on:change={(e) => {
-								if (componentInput?.type === 'static' && componentInput.value) {
-									componentInput.value[index] = JSON.parse(e.detail.code)
-								}
-							}}
-						/>
-					</div>
+				{#each componentInput.value as value, index (index)}
+					<SubTypeEditor bind:componentInput bind:value {canHide} />
 				{/each}
 				<Button
 					size="xs"
@@ -56,7 +59,8 @@
 							componentInput.type === 'static' &&
 							componentInput.value
 						) {
-							componentInput.value.push({})
+							componentInput.value.push(100)
+							componentInput = componentInput
 						}
 					}}
 				>
