@@ -3,17 +3,22 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import PickScript from '$lib/components/flows/pickers/PickScript.svelte'
 	import {
-		faAlignCenter,
-		faAlignLeft,
-		faAlignRight,
 		faArrowRight,
 		faBolt,
 		faClose,
 		faCode,
 		faTrashAlt
 	} from '@fortawesome/free-solid-svg-icons'
+	import {
+		AlignStartHorizontal,
+		AlignStartVertical,
+		AlignCenterHorizontal,
+		AlignCenterVertical,
+		AlignEndHorizontal,
+		AlignEndVertical,
+		Plus
+	} from 'lucide-svelte'
 	import { getContext } from 'svelte'
-	import Icon from 'svelte-awesome'
 	import type { AppComponent, AppEditorContext } from '../../types'
 	import PanelSection from './common/PanelSection.svelte'
 	import InputsSpecsEditor from './InputsSpecsEditor.svelte'
@@ -22,7 +27,6 @@
 	import PickInlineScript from './PickInlineScript.svelte'
 	import TableActions from './TableActions.svelte'
 	import { gridColumns } from '../../gridUtils'
-	import { Plus } from 'lucide-svelte'
 	import StaticInputEditor from './StaticInputEditor.svelte'
 	import ConnectedInputEditor from './ConnectedInputEditor.svelte'
 
@@ -110,7 +114,7 @@
 								color="light"
 							>
 								<div class="flex justify-center flex-col items-center gap-2">
-									<Plus size="18px" />
+									<Plus size={18} />
 
 									<span class="text-xs">Create</span>
 								</div>
@@ -193,26 +197,26 @@
 
 				<ToggleButtonGroup bind:selected={component.horizontalAlignment}>
 					<ToggleButton position="left" value="left" size="xs">
-						<Icon data={faAlignLeft} />
+						<AlignStartHorizontal size={14} />
 					</ToggleButton>
 					<ToggleButton position="center" value="center" size="xs">
-						<Icon data={faAlignCenter} />
+						<AlignCenterHorizontal size={14} />
 					</ToggleButton>
 					<ToggleButton position="right" value="right" size="xs">
-						<Icon data={faAlignRight} />
+						<AlignEndHorizontal size={14} />
 					</ToggleButton>
 				</ToggleButtonGroup>
 				<div class="w-full text-xs font-bold">Vertical alignment</div>
 
 				<ToggleButtonGroup bind:selected={component.verticalAlignment}>
 					<ToggleButton position="left" value="top" size="xs">
-						<Icon data={faAlignLeft} />
+						<AlignStartVertical size={14} />
 					</ToggleButton>
 					<ToggleButton position="center" value="center" size="xs">
-						<Icon data={faAlignCenter} />
+						<AlignCenterVertical size={14} />
 					</ToggleButton>
 					<ToggleButton position="right" value="bottom" size="xs">
-						<Icon data={faAlignRight} />
+						<AlignEndVertical size={14} />
 					</ToggleButton>
 				</ToggleButtonGroup>
 			</PanelSection>
