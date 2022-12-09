@@ -183,7 +183,7 @@
 	</div>
 
 	<!--json schema or table view-->
-	<div class="h-full overflow-y-auto">
+	<div class="h-full">
 		{#if !viewJsonSchema}
 			<div class="h-full">
 				{#if schema.properties && Object.keys(schema.properties).length > 0 && schema.required}
