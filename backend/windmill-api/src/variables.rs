@@ -85,7 +85,8 @@ async fn list_variables(
         "SELECT variable.workspace_id, variable.path, CASE WHEN is_secret IS TRUE THEN null ELSE variable.value::text END as value, 
          is_secret, variable.description, variable.extra_perms, account, is_oauth, (now() > account.expires_at) as is_expired,
          account.refresh_error,
-         resource.path IS NOT NULL as is_linked
+         resource.path IS NOT NULL as is_linked,
+         account.refresh_token != '' as is_refreshed
          from variable
          LEFT JOIN account ON variable.account = account.id AND account.workspace_id = variable.workspace_id
          LEFT JOIN resource ON resource.path = variable.path AND resource.workspace_id = variable.workspace_id
@@ -117,7 +118,8 @@ async fn get_variable(
 
     let variable_o = sqlx::query_as::<_, ListableVariable>(
         "SELECT variable.*, (now() > account.expires_at) as is_expired, account.refresh_error,
-        resource.path IS NOT NULL as is_linked
+        resource.path IS NOT NULL as is_linked,
+        account.refresh_token != '' as is_refreshed
         from variable
         LEFT JOIN account ON variable.account = account.id
         LEFT JOIN resource ON resource.path = variable.path AND resource.workspace_id = variable.workspace_id
