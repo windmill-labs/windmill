@@ -9,6 +9,15 @@
 		faCode,
 		faTrashAlt
 	} from '@fortawesome/free-solid-svg-icons'
+	import {
+		AlignStartHorizontal,
+		AlignStartVertical,
+		AlignCenterHorizontal,
+		AlignCenterVertical,
+		AlignEndHorizontal,
+		AlignEndVertical,
+		Plus
+	} from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import type { AppComponent, AppEditorContext } from '../../types'
 	import PanelSection from './common/PanelSection.svelte'
@@ -18,15 +27,6 @@
 	import PickInlineScript from './PickInlineScript.svelte'
 	import TableActions from './TableActions.svelte'
 	import { gridColumns } from '../../gridUtils'
-	import {
-		AlignCenter,
-		AlignLeft,
-		AlignRight,
-		AlignVerticalJustifyCenter,
-		AlignVerticalJustifyEnd,
-		AlignVerticalJustifyStart,
-		Plus
-	} from 'svelte-lucide'
 	import StaticInputEditor from './StaticInputEditor.svelte'
 	import ConnectedInputEditor from './ConnectedInputEditor.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
@@ -37,12 +37,16 @@
 	export let component: AppComponent | undefined
 	export let onDelete: (() => void) | undefined = undefined
 
-	const { app, staticOutputs } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, staticOutputs, runnableComponents } =
+		getContext<AppEditorContext>('AppEditorContext')
 
 	function removeGridElement() {
 		if (onDelete && component) {
 			delete $staticOutputs[component.id]
 			$staticOutputs = $staticOutputs
+
+			delete $runnableComponents[component.id]
+			$runnableComponents = $runnableComponents
 
 			onDelete()
 			// Delete static inputs
@@ -57,6 +61,9 @@
 				// Delete static inputs
 				delete $staticOutputs[component.id]
 				$staticOutputs = $staticOutputs
+
+				delete $runnableComponents[component.id]
+				$runnableComponents = $runnableComponents
 			}
 		}
 	}
@@ -130,7 +137,7 @@
 								color="light"
 							>
 								<div class="flex justify-center flex-col items-center gap-2">
-									<Plus size="18px" />
+									<Plus size={18} />
 
 									<span class="text-xs">Create</span>
 								</div>
@@ -219,26 +226,26 @@
 
 				<ToggleButtonGroup bind:selected={component.horizontalAlignment}>
 					<ToggleButton position="left" value="left" size="xs">
-						<AlignLeft size="18px" />
+						<AlignStartHorizontal size={14} />
 					</ToggleButton>
 					<ToggleButton position="center" value="center" size="xs">
-						<AlignCenter size="18px" />
+						<AlignCenterHorizontal size={14} />
 					</ToggleButton>
 					<ToggleButton position="right" value="right" size="xs">
-						<AlignRight size="18px" />
+						<AlignEndHorizontal size={14} />
 					</ToggleButton>
 				</ToggleButtonGroup>
 				<div class="w-full text-xs font-bold">Vertical alignment</div>
 
 				<ToggleButtonGroup bind:selected={component.verticalAlignment}>
 					<ToggleButton position="left" value="top" size="xs">
-						<AlignVerticalJustifyStart size="18px" />
+						<AlignStartVertical size={14} />
 					</ToggleButton>
 					<ToggleButton position="center" value="center" size="xs">
-						<AlignVerticalJustifyCenter size="18px" />
+						<AlignCenterVertical size={14} />
 					</ToggleButton>
 					<ToggleButton position="right" value="bottom" size="xs">
-						<AlignVerticalJustifyEnd size="18px" />
+						<AlignEndVertical size={14} />
 					</ToggleButton>
 				</ToggleButtonGroup>
 			</PanelSection>

@@ -26,11 +26,17 @@
 	<table class="divide-y divide-gray-300 border w-full">
 		<thead class="bg-gray-50">
 			<tr>
-				<th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 tracking-wider"
-					>Component
+				<th
+					scope="col"
+					class="px-4 py-2 text-left text-xs font-medium text-gray-500 tracking-wider"
+				>
+					Component
 				</th>
-				<th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500 tracking-wider"
-					>Recompute
+				<th
+					scope="col"
+					class="px-4 py-2 text-left text-xs font-medium text-gray-500 tracking-wider"
+				>
+					Recompute
 				</th>
 			</tr>
 		</thead>

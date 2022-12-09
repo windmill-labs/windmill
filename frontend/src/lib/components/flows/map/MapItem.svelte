@@ -11,7 +11,7 @@
 	import Icon from 'svelte-awesome'
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
 	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
-	import { Building, Repeat } from 'svelte-lucide'
+	import { Building, Repeat } from 'lucide-svelte'
 
 	export let mod: FlowModule
 
@@ -47,7 +47,7 @@
 				{...itemProps}
 			>
 				<div slot="icon">
-					<Repeat size="16px" />
+					<Repeat size={16} />
 				</div>
 			</FlowModuleSchemaItem>
 			<div class="flex flex-row w-full">
@@ -119,7 +119,7 @@
 								/>
 							</div>
 						{:else}
-							<Building size="14px" />
+							<Building size={14} />
 						{/if}
 					{/if}
 				</div>

@@ -45,7 +45,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
-	import { Building } from 'svelte-lucide'
+	import { Building } from 'lucide-svelte'
 	import ListFilters from '$lib/components/home/ListFilters.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import autosize from 'svelte-autosize'
@@ -283,7 +283,7 @@
 	<Tabs bind:selected={tab}>
 		<Tab size="md" value="workspace">
 			<div class="flex gap-2 items-center my-1">
-				<Building size="18px" />
+				<Building size={18} />
 				Workspace
 			</div>
 		</Tab>

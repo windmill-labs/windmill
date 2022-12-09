@@ -5,7 +5,7 @@
 	import { faBed, faRepeat, faStop, faTimesCircle } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import { PhoneIncoming, Repeat } from 'svelte-lucide'
+	import { PhoneIncoming, Repeat } from 'lucide-svelte'
 
 	export let isFirst: boolean = false
 	export let isLast: boolean = false
@@ -44,7 +44,7 @@
 			{#if retry}
 				<Popover notClickable>
 					<div class="bg-white rounded border text-gray-700 px-1 center-center">
-						<Repeat size="14px" />
+						<Repeat size={14} />
 					</div>
 					<span slot="text">Retries</span>
 				</Popover>
@@ -68,7 +68,7 @@
 			{#if suspend}
 				<Popover notClickable>
 					<div class="bg-white rounded border text-gray-700 px-1 center-center">
-						<PhoneIncoming size="12px" />
+						<PhoneIncoming size={12} />
 					</div>
 					<span slot="text">Suspend</span>
 				</Popover>

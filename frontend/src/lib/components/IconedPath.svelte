@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { truncateHash } from '$lib/utils'
-	import { Building } from 'svelte-lucide'
+	import { Building } from 'lucide-svelte'
 	import { Badge } from './common'
 	import IconedResourceType from './IconedResourceType.svelte'
 
@@ -16,7 +16,7 @@
 		<span class="text-sm truncate">{path}</span>
 	{:else}
 		<div class="center-center">
-			<Building size="16px" />
+			<Building size={16} />
 		</div>
 		<span class="text-sm truncate">{path}</span>
 		{#if hash}

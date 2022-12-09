@@ -108,7 +108,7 @@ export type AppEditorContext = {
 	mode: Writable<EditorMode>
 	connectingInput: Writable<ConnectingInput>
 	breakpoint: Writable<EditorBreakpoint>
-	runnableComponents: Writable<Record<string, RunnableComponent>>
+	runnableComponents: Writable<Record<string, () => void>>
 }
 
 export type EditorMode = 'dnd' | 'preview'

@@ -144,7 +144,7 @@
 			</svelte:fragment>
 
 			{#if value.type === 'rawscript'}
-				<div class="border-b-2 shadow-sm px-1 mb-1">
+				<div class="border-b-2 shadow-sm px-1">
 					<EditorBar
 						{validCode}
 						{editor}

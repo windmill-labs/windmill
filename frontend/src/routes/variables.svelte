@@ -34,7 +34,7 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { Alert, Badge, Skeleton } from '$lib/components/common'
 	import Popover from '$lib/components/Popover.svelte'
-	import { Building, DollarSign } from 'svelte-lucide'
+	import { Building, DollarSign } from 'lucide-svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import ListFilters from '$lib/components/home/ListFilters.svelte'
@@ -129,13 +129,13 @@
 	<Tabs bind:selected={tab}>
 		<Tab size="md" value="workspace">
 			<div class="flex gap-2 items-center my-1">
-				<Building size="18px" />
+				<Building size={18} />
 				Workspace
 			</div>
 		</Tab>
 		<Tab size="md" value="contextual">
 			<div class="flex gap-2 items-center my-1">
-				<DollarSign size="18px" />
+				<DollarSign size={18} />
 				Contextual <Tooltip>
 					Contextual variables are utility variables passed to your environment when running a
 					script and depends on the execution context.</Tooltip

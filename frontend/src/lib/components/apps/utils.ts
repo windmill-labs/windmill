@@ -1,15 +1,22 @@
 import type { Schema } from '$lib/common'
-
 import { FlowService, ScriptService } from '$lib/gen'
 import {
-	faBarChart,
-	faDisplay,
-	faFile,
-	faMobileScreenButton,
-	faPieChart
-} from '@fortawesome/free-solid-svg-icons'
+	BarChart4,
+	BoxSelect,
+	CircleDot,
+	FormInput,
+	Inspect,
+	List,
+	Monitor,
+	PieChart,
+	Play,
+	Table2,
+	TextCursorInput,
+	Type
+} from 'lucide-svelte'
 import type { InputType } from 'zlib'
 import type { AppInput, AppInputs } from './inputType'
+import type { AppComponent } from './types'
 
 export async function loadSchema(
 	workspace: string,
@@ -48,34 +55,58 @@ export function schemaToInputsSpec(schema: Schema): AppInputs {
 	}, {})
 }
 
-export const displayData = {
+export const displayData: Record<AppComponent['type'], {name: string, icon: any}> = {
 	displaycomponent: {
 		name: 'Result',
-		icon: faDisplay
+		icon: Monitor
 	},
 	textcomponent: {
 		name: 'Text',
-		icon: faFile
+		icon: Type
 	},
 	buttoncomponent: {
 		name: 'Button',
-		icon: faMobileScreenButton
+		icon: Inspect
 	},
 	piechartcomponent: {
 		name: 'Pie chart',
-		icon: faPieChart
+		icon: PieChart
 	},
 	barchartcomponent: {
 		name: 'Bar chart',
-		icon: faBarChart
+		icon: BarChart4
 	},
 	tablecomponent: {
 		name: 'Table',
-		icon: faBarChart
+		icon: Table2
 	},
 	checkboxcomponent: {
 		name: 'Checkbox',
-		icon: faBarChart
+		icon: BoxSelect
+	},
+	textinputcomponent: {
+		name: 'Text input',
+		icon: TextCursorInput
+	},
+	imagecomponent: {
+		name: 'Image',
+		icon: Image
+	},
+	inputcomponent: {
+		name: 'Input',
+		icon: FormInput
+	},
+	radiocomponent: {
+		name: 'Radio button',
+		icon: CircleDot
+	},
+	runformcomponent: {
+		name: 'Run form',
+		icon: Play
+	},
+	selectcomponent: {
+		name: 'Select',
+		icon: List
 	}
 }
 

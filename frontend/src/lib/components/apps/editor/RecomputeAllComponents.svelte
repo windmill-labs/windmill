@@ -8,17 +8,15 @@
 	const { runnableComponents } = getContext<AppEditorContext>('AppEditorContext')
 
 	let loading: boolean = false
-	let disabled: boolean = false
+
 	async function onRefresh() {
 		await Promise.all(
 			Object.keys($runnableComponents).map((id) => {
-				return $runnableComponents?.[id]?.runComponent()
+				return $runnableComponents?.[id]?.()
 			})
 		)
 		loading = false
 	}
-
-	$: $runnableComponents && (disabled = Object.keys($runnableComponents).length === 0)
 </script>
 
 <Button
@@ -27,11 +25,11 @@
 	startIcon={{ icon: faRefresh, classes: classNames(loading ? 'animate-spin' : '', 'mr-2') }}
 	color="light"
 	variant="border"
-	{disabled}
+	disabled={Object.keys($runnableComponents).length === 0}
 	on:click={() => {
 		loading = true
 		onRefresh()
 	}}
 >
-	Recompute all
+	Recompute all ({Object.keys($runnableComponents).length})
 </Button>

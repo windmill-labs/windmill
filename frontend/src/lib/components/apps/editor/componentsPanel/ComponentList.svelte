@@ -78,7 +78,7 @@
 		<button
 			on:click|preventDefault={() => isOpenStore.toggle(title)}
 			class="w-full flex justify-between items-center text-gray-700 px-2 py-1 
-				rounded-sm hover:bg-gray-100"
+				rounded-sm duration-200 hover:bg-gray-100"
 		>
 			<h1 class="text-sm font-semibold text-left">{title}</h1>
 			<Icon data={faAngleDown} class="rotate-0 duration-300 {isOpen ? '!rotate-180' : ''}" />
@@ -86,15 +86,18 @@
 		{#if isOpen}
 			<div transition:slide|local={{ duration: 300 }}>
 				{#if components.length}
-					<div class="grid grid-cols-3 gap-1 p-2">
-						{#each components as item, componentIndex (componentIndex)}
+					<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2 p-2">
+						{#each components as item}
 							<button
 								on:click={() => addComponent(item, { w: 2, h: 2 })}
+								title={displayData[item.type].name}
 								class="border shadow-sm h-16 p-2 flex flex-col gap-2 items-center
 									justify-center bg-white rounded-md scale-100 hover:scale-105 ease-in duration-75"
 							>
-								<Icon data={displayData[item.type].icon} scale={1.6} class="text-blue-800" />
-								<div class="text-xs">{displayData[item.type].name}</div>
+								<svelte:component this={displayData[item.type].icon} class="text-blue-800" />
+								<div class="text-xs w-full text-center ellipsize">
+									{displayData[item.type].name}
+								</div>
 							</button>
 						{/each}
 					</div>

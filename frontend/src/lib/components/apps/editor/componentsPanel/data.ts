@@ -21,7 +21,23 @@ const windmillComponents: ComponentSet = {
 
 const textInputs: ComponentSet = {
 	title: 'Text Inputs',
-	components: []
+	components: [
+		{
+			id: 'textinputcomponent',
+			type: 'textinputcomponent',
+			componentInput: undefined,
+			configuration: {
+				label: {
+					type: 'static',
+					visible: false,
+					value: 'Label',
+					fieldType: 'textarea',
+					defaultValue: 'Label'
+				}
+			},
+			card: false
+		}
+	]
 }
 
 const numberInputs: ComponentSet = {
@@ -85,7 +101,7 @@ const selectInputs: ComponentSet = {
 				label: {
 					type: 'static',
 					visible: true,
-					value: undefined,
+					value: 'Lorem ipsum',
 					fieldType: 'textarea',
 					defaultValue: 'Lorem ipsum'
 				}

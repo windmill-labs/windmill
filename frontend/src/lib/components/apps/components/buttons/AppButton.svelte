@@ -44,7 +44,7 @@
 
 				if (recomputeIds) {
 					recomputeIds.forEach((id) => {
-						$runnableComponents[id]?.runComponent()
+						$runnableComponents[id]?.()
 					})
 				}
 			}}
