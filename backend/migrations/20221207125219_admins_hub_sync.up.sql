@@ -1,7 +1,7 @@
 INSERT INTO script(workspace_id, created_by, content, schema, summary, description, path, hash, language, lock) VALUES (
 'admins',
 'system',
-'import wmill from "https://deno.land/x/wmill@v1.53.0/main.ts";
+'import wmill from "https://deno.land/x/wmill@v1.55.0/main.ts";
 
 export async function main() {
   await run(
@@ -24,7 +24,7 @@ INSERT INTO schedule(workspace_id, path, edited_by, schedule, enabled, script_pa
     'u/admin/sync_with_hub_nightly',
     'system',
     '0 0 0 * * *',
-    true,
+    false,
     'u/admin/hub_sync',
     false,
     0
