@@ -107,6 +107,7 @@ struct EditResource {
 #[derive(Deserialize)]
 pub struct ListResourceQuery {
     resource_type: Option<String>,
+    resource_type_exclude: Option<String>,
 }
 async fn list_resources(
     authed: Authed,
@@ -145,7 +146,14 @@ async fn list_resources(
         .clone();
 
     if let Some(rt) = &lq.resource_type {
-        sqlb.and_where_eq("resource_type", "?".bind(rt));
+        for rt in rt.split(',') {
+            sqlb.and_where_eq("resource_type", "?".bind(&rt));
+        }
+    }
+    if let Some(rt) = &lq.resource_type_exclude {
+        for rt in rt.split(',') {
+            sqlb.and_where_ne("resource_type", "?".bind(&rt));
+        }
     }
 
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;

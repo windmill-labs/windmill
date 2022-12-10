@@ -286,7 +286,7 @@
 				/>
 			</div>
 
-			<h2 class="mb-2">OAuth APIs</h2>
+			<h2 class="mb-4">OAuth APIs</h2>
 			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 				{#if filteredConnects}
 					{#each filteredConnects as [key, values]}
@@ -349,7 +349,7 @@
 				{/if}
 			{/if}
 
-			<h2 class="mt-8 mb-2">Non OAuth APIs & Resources</h2>
+			<h2 class="mt-8 mb-4">Non OAuth APIs & Resources</h2>
 			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 				{#if filteredConnectsManual}
 					{#each filteredConnectsManual as [key, instructions]}
