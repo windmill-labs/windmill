@@ -28,6 +28,8 @@ import DatadogIcon from './DatadogIcon.svelte'
 import StripeIcon from './StripeIcon.svelte'
 import TelegramIcon from './TelegramIcon.svelte'
 import FunkwhaleIcon from './FunkwhaleIcon.svelte'
+import GdocsIcon from './GdocsIcon.svelte'
+import NextcloudIcon from './NextcloudIcon.svelte'
 
 export const APP_TO_ICON_COMPONENT = {
 	postgresql: PostgresIcon,
@@ -60,7 +62,11 @@ export const APP_TO_ICON_COMPONENT = {
 	datadog: DatadogIcon,
 	stripe: StripeIcon,
 	telegram: TelegramIcon,
-	funkwhale: FunkwhaleIcon
+	funkwhale: FunkwhaleIcon,
+	helper: WindmillIcon,
+	windmillhub: WindmillIcon,
+	gdocs: GdocsIcon,
+	ocs: NextcloudIcon
 } as const
 
 export {
@@ -91,5 +97,6 @@ export {
 	TelegramIcon,
 	StripeIcon,
 	DatadogIcon,
-	FunkwhaleIcon
+	FunkwhaleIcon,
+	GdocsIcon,
 }

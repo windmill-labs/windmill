@@ -33,7 +33,7 @@
 	<slot />
 	<input type="text" placeholder="Search Hub Scripts" bind:value={filter} class="text-2xl grow" />
 </div>
-<ListFilters filters={apps} bind:selectedFilter={appFilter} />
+<ListFilters filters={apps} bind:selectedFilter={appFilter} resourceType />
 
 {#if $hubScripts}
 	{#if filteredItems.length == 0}

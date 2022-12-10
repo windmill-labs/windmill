@@ -301,7 +301,7 @@
 			<input placeholder="Search Resource" bind:value={filter} class="input mt-1" />
 		</div>
 		<ListFilters bind:selectedFilter={ownerFilter} filters={owners} />
-		<ListFilters bind:selectedFilter={typeFilter} filters={types} />
+		<ListFilters bind:selectedFilter={typeFilter} filters={types} resourceType />
 
 		<div class="overflow-x-auto pb-40">
 			{#if loading.resources}
