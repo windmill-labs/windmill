@@ -820,7 +820,7 @@ async fn slack_command(
 }
 
 #[allow(non_snake_case)]
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct UserInfo {
     email: Option<String>,
     name: Option<String>,
