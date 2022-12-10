@@ -24,28 +24,32 @@
 </script>
 
 <PanelSection title="Recompute">
-	<table class="divide-y divide-gray-300 border w-full">
-		<thead class="bg-gray-50">
-			<tr>
-				<th scope="col" class="px-2 py-2 text-left text-xs font-medium text-gray-500">
-					Component
-				</th>
-				<th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500">
-					Recompute
-				</th>
-			</tr>
-		</thead>
-		<tbody>
-			{#each Object.keys($runnableComponents ?? {}).filter((id) => id !== ownId) as id}
+	{#if Object.keys($runnableComponents ?? {}).length > 0}
+		<table class="divide-y divide-gray-300 border w-full">
+			<thead class="bg-gray-50">
 				<tr>
-					<td class="whitespace-nowrap px-4 py-2 text-xs">
-						<Badge color="blue">{id}</Badge>
-					</td>
-					<td class="relative whitespace-nowrap px-4 py-2 ">
-						<input type="checkbox" on:change={(event) => onChange(event, id)} />
-					</td>
+					<th scope="col" class="px-2 py-2 text-left text-xs font-medium text-gray-500">
+						Component
+					</th>
+					<th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500">
+						Recompute
+					</th>
 				</tr>
-			{/each}
-		</tbody>
-	</table>
+			</thead>
+			<tbody>
+				{#each Object.keys($runnableComponents ?? {}).filter((id) => id !== ownId) as id}
+					<tr>
+						<td class="whitespace-nowrap px-4 py-2 text-xs">
+							<Badge color="blue">{id}</Badge>
+						</td>
+						<td class="relative whitespace-nowrap px-4 py-2 ">
+							<input type="checkbox" on:change={(event) => onChange(event, id)} />
+						</td>
+					</tr>
+				{/each}
+			</tbody>
+		</table>
+	{:else}
+		<div class="text-xs">No components to recompute</div>
+	{/if}
 </PanelSection>

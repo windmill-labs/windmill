@@ -22,7 +22,7 @@
 		} else if (componentType === 'textcomponent') {
 			return column === 3 ? { w: 1, h: 1 } : { w: 3, h: 1 }
 		} else if (componentType === 'textinputcomponent') {
-			return column === 3 ? { w: 1, h: 1 } : { w: 3, h: 2 }
+			return column === 3 ? { w: 1, h: 2 } : { w: 3, h: 2 }
 		} else if (componentType === 'barchartcomponent') {
 			return column === 3 ? { w: 2, h: 4 } : { w: 6, h: 4 }
 		} else if (componentType === 'piechartcomponent') {
@@ -31,6 +31,8 @@
 			return column === 3 ? { w: 3, h: 4 } : { w: 12, h: 4 }
 		} else if (componentType === 'displaycomponent') {
 			return column === 3 ? { w: 2, h: 2 } : { w: 6, h: 4 }
+		} else if (componentType === 'checkboxcomponent') {
+			return column === 3 ? { w: 1, h: 1 } : { w: 3, h: 1 }
 		} else {
 			return { w: 2, h: 1 }
 		}

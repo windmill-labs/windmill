@@ -229,6 +229,15 @@
 						</PanelSection>
 					</div>
 				{/if}
+
+				{#if component.type === 'buttoncomponent' || component.type === 'displaycomponent'}
+					<div class="w-full">
+						<Alert size="xs" type="warning" title="Result output">
+							This input is not directly used by the component. It is piped to the component's
+							<code>result</code> output.
+						</Alert>
+					</div>
+				{/if}
 			</PanelSection>
 		{/if}
 
