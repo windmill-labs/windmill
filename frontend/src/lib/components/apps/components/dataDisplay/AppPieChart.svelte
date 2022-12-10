@@ -48,7 +48,8 @@
 
 	const options = {
 		responsive: true,
-		animation: false
+		animation: false,
+		maintainAspectRatio: false
 	}
 
 	$: data = {
