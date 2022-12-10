@@ -230,7 +230,7 @@
 					</div>
 				{/if}
 
-				{#if component.type === 'buttoncomponent' || component.type === 'displaycomponent'}
+				{#if component.type === 'buttoncomponent'}
 					<div class="w-full">
 						<Alert size="xs" type="warning" title="Result output">
 							This input is not directly used by the component. It is piped to the component's

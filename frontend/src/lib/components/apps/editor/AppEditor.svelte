@@ -75,7 +75,7 @@
 	<AppPreview app={$appStore} />
 {:else}
 	<SplitPanesWrapper class="max-w-full overflow-hidden">
-		<Pane size={20} minSize={20} maxSize={40}>
+		<Pane size={20} minSize={15} maxSize={40}>
 			<ContextPanel appPath={path} />
 		</Pane>
 		<Pane size={60}>

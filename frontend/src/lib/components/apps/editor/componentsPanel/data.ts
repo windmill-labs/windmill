@@ -198,11 +198,11 @@ const dataDisplay: ComponentSet = {
 				},
 				labels: {
 					type: 'static',
-					value: ['Lorem ipsum', 'Lorem ipsum', 'Lorem ipsum'],
+					value: ['First', 'Second', 'Third'],
 					fieldType: 'array',
 
 					subFieldType: 'text',
-					defaultValue: ['Lorem ipsum', 'Lorem ipsum', 'Lorem ipsum']
+					defaultValue: ['First', 'Second', 'Third']
 				}
 			},
 			componentInput: {
