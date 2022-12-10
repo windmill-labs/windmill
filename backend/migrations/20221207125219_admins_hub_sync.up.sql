@@ -18,14 +18,3 @@ async function run(...cmd: string[]) {
 'Syncronize Hub Resource types with starter workspace',
 'Basic administrative script to sync latest resource types from hub. Recommended to run at least once. On a schedule by default.',
 'u/admin/hub_sync', -28028598712388162, 'deno', '');
-
-INSERT INTO schedule(workspace_id, path, edited_by, schedule, enabled, script_path, is_flow, offset_) VALUES (
-    'admins',
-    'u/admin/sync_with_hub_nightly',
-    'system',
-    '0 0 0 * * *',
-    false,
-    'u/admin/hub_sync',
-    false,
-    0
-);
