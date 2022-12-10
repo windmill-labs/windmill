@@ -59,16 +59,19 @@
 	on:change
 >
 	<svelte:fragment slot="badges">
-		<SharedBadge {canWrite} extraPerms={extra_perms} />
-		{#if lock_error_logs}
-			<Badge color="red" baseClass="border border-red-200">Deployment failed</Badge>
-		{/if}
-		{#if kind !== 'script'}
-			<Badge color="gray" baseClass="border">{capitalize(kind)}</Badge>
-		{/if}
+		<span class="hidden md:block">
+			<SharedBadge {canWrite} extraPerms={extra_perms} />
+			{#if lock_error_logs}
+				<Badge color="red" baseClass="border border-red-200">Deployment failed</Badge>
+			{/if}
+			{#if kind !== 'script'}
+				<Badge color="gray" baseClass="border">{capitalize(kind)}</Badge>
+			{/if}
 
-		<LanguageBadge {language} />
+			<LanguageBadge {language} />
+		</span>
 	</svelte:fragment>
+
 	<svelte:fragment slot="actions">
 		<Dropdown
 			dropdownItems={[
