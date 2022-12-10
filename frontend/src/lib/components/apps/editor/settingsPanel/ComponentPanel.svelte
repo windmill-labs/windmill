@@ -129,6 +129,8 @@
 								on:click={() => {
 									if (component?.componentInput?.type === 'runnable') {
 										component.componentInput.runnable = undefined
+										component.componentInput.fields = {}
+										component = component
 									}
 								}}
 							>
@@ -205,7 +207,7 @@
 						</div>
 					{/if}
 				</div>
-				{#if component.componentInput?.type === 'runnable'}
+				{#if component.componentInput?.type === 'runnable' && Object.keys(component.componentInput.fields ?? {}).length > 0}
 					<div class="border w-full">
 						<PanelSection
 							title={`Runnable inputs (${

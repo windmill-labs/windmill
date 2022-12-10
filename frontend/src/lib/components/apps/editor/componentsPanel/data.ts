@@ -79,9 +79,9 @@ const buttons: ComponentSet = {
 					fieldType: 'select',
 					type: 'static',
 					visible: true,
-					value: 'md',
+					value: 'xs',
 					optionValuesKey: 'buttonSizeOptions',
-					defaultValue: 'md'
+					defaultValue: 'xs'
 				}
 			},
 

@@ -15,12 +15,26 @@
 
 	const { app } = getContext<AppEditorContext>('AppEditorContext')
 
-	function addComponent(
-		appComponent: AppComponent,
-		defaultDimensions: Size,
-		minDimensions: Size = { w: 2, h: 1 },
-		maxDimensions: Size = { w: 12, h: 12 }
-	) {
+	function getMinDimensionsByComponent(componentType: string, column: number): Size {
+		console.log(componentType, column)
+		if (componentType === 'buttoncomponent') {
+			return column === 3 ? { w: 1, h: 1 } : { w: 3, h: 1 }
+		} else if (componentType === 'textcomponent') {
+			return column === 3 ? { w: 1, h: 1 } : { w: 2, h: 1 }
+		} else if (componentType === 'textinputcomponent') {
+			return column === 3 ? { w: 1, h: 1 } : { w: 2, h: 2 }
+		} else if (componentType === 'barchartcomponent') {
+			return column === 3 ? { w: 1, h: 1 } : { w: 2, h: 1 }
+		} else if (componentType === 'piechartcomponent') {
+			return column === 3 ? { w: 1, h: 1 } : { w: 2, h: 1 }
+		} else if (componentType === 'tablecomponent') {
+			return column === 3 ? { w: 1, h: 1 } : { w: 2, h: 1 }
+		} else {
+			return { w: 2, h: 1 }
+		}
+	}
+
+	function addComponent(appComponent: AppComponent, defaultDimensions: Size) {
 		const grid = $app.grid ?? []
 		const id = getNextId(grid.map((gridItem) => gridItem.data.id))
 
@@ -42,25 +56,12 @@
 			id: id
 		}
 
-		function getMinMaxDimensions(column) {
-			if (column === 3) {
-				return {
-					min: { w: 1, h: 1 },
-					max: { w: 3, h: 12 }
-				}
-			} else {
-				return {
-					min: minDimensions,
-					max: maxDimensions
-				}
-			}
-		}
-
 		gridColumns.forEach((column) => {
 			newItem[column] = newComponent
 			const position = gridHelp.findSpace(newItem, grid, column)
-			const dimensions = getMinMaxDimensions(column)
-			newItem[column] = { ...newItem[column], ...position, ...dimensions }
+			const min = getMinDimensionsByComponent(appComponent.type, column)
+			const max = { w: 12, h: 12 }
+			newItem[column] = { ...newItem[column], ...position, min, max }
 		})
 
 		$app.grid = [...grid, newItem]
