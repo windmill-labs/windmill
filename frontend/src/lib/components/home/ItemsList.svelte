@@ -1,22 +1,14 @@
 <script lang="ts">
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import {
-		AppService,
-		FlowService,
-		ListableApp,
-		Script,
-		ScriptService,
-		type Flow,
-		type OpenFlow
-	} from '$lib/gen'
+	import { AppService, FlowService, ListableApp, Script, ScriptService, type Flow } from '$lib/gen'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
-	import VirtualList from '@sveltejs/svelte-virtual-list'
-	import { Drawer, Skeleton, ToggleButton, ToggleButtonGroup } from '$lib/components/common'
-	import { canWrite, classNames, pluralize } from '$lib/utils'
-	import type { HubItem } from '$lib/components/flows/pickers/model'
+	import { Skeleton, ToggleButton, ToggleButtonGroup } from '$lib/components/common'
+	import { canWrite } from '$lib/utils'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import { Code2, LayoutDashboard, Wind } from 'lucide-svelte'
+
+	export let filter = ''
 
 	import ScriptRow from '$lib/components/common/table/ScriptRow.svelte'
 	import FlowRow from '$lib/components/common/table/FlowRow.svelte'
@@ -46,7 +38,6 @@
 
 	let itemKind: 'script' | 'flow' | 'app' | 'all' = 'all'
 
-	let filter: string = ''
 	let shareModalScripts: ShareModal
 	let shareModalFlows: ShareModal
 
@@ -184,12 +175,6 @@
 	}
 
 	$: items = filter !== '' ? filteredItems : preFilteredItems
-	let start: number
-	let end: number
-
-	export let clientHeight: number
-
-	$: height = (100 * clientHeight) / window.innerHeight
 
 	function resetScroll() {
 		const element = document.getElementsByTagName('svelte-virtual-list-viewport')
@@ -294,11 +279,9 @@
 		{:else if filteredItems.length === 0}
 			<NoItemFound />
 		{:else}
-			<div
-				class={classNames('border rounded-md')}
-				style={`height: calc(100vh - 10em - ${height}vh);`}
-			>
-				<VirtualList {items} let:item bind:start bind:end>
+			<div class="border rounded-md divide-y divide-gray-200 mb-80">
+				<!-- <VirtualList {items} let:item bind:start bind:end> -->
+				{#each items ?? [] as item, i (item.type + '/' + item.path)}
 					{#if item.type == 'script'}
 						<ScriptRow
 							starred={item.starred ?? false}
@@ -323,10 +306,11 @@
 							app={item}
 						/>
 					{/if}
-				</VirtualList>
+				{/each}
+				<!-- </VirtualList> -->
 			</div>
-			<span class="text-xs">{pluralize(items?.length ?? 0, 'item')}</span>
-			<span class="text-xs">{`(${start} - ${end})`}</span>
+			<!-- <span class="text-xs">{pluralize(items?.length ?? 0, 'item')}</span>
+			<span class="text-xs">{`(${start} - ${end})`}</span> -->
 		{/if}
 	</div>
 </CenteredPage>

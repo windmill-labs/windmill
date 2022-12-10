@@ -51,7 +51,6 @@
 	<div on:click={() => (show = !show)} class="cursor-pointer hover:bg-gray-100/30">
 		<slot class="triggerable" name="trigger" />
 	</div>
-
 	{#if show}
 		<div
 			class={classNames(

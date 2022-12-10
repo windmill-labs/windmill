@@ -145,17 +145,6 @@
 			<div class={innerClasses}>
 				<slot />
 			</div>
-			{#if !disableInstruction && focusableElements?.length}
-				<div
-					class="flex justify-center items-center font-semibold
-					text-xs text-gray-700 p-1 border-x border-b rounded-b bg-gray-100"
-				>
-					Use
-					<Kbd class="!bg-gray-200 !border-gray-300 !px-1 !py-0 !rounded-sm">↑</Kbd>
-					and
-					<Kbd class="!bg-gray-200 !border-gray-300 !px-1 !py-0 !rounded-sm">↓</Kbd>
-				</div>
-			{/if}
 		</div>
 	{/if}
 </div>

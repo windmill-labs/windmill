@@ -115,6 +115,7 @@
 						<td>{summary ?? ''}</td>
 						<td>
 							<Dropdown
+								placement="bottom-end"
 								dropdownItems={[
 									{
 										displayName: 'Manage members',
@@ -125,7 +126,7 @@
 										}
 									},
 									{
-										displayName: 'Manage ACL of the group itself',
+										displayName: 'Manage ACL of the group',
 										icon: faShare,
 										disabled: !canWrite,
 										action: () => {
@@ -144,7 +145,6 @@
 										}
 									}
 								]}
-								relative={false}
 							/>
 						</td>
 					</tr>

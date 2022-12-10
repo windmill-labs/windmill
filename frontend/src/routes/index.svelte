@@ -1,5 +1,4 @@
 <script lang="ts">
-	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { FlowService, type OpenFlow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Alert, Button, Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
@@ -44,8 +43,6 @@
 		flowViewerFlow = hub
 		flowViewer.openDrawer?.()
 	}
-
-	$: clientHeight = 0
 </script>
 
 <Drawer bind:this={codeViewer} size="900px">
@@ -110,7 +107,7 @@
 	</DrawerContent>
 </Drawer>
 
-<div bind:clientHeight>
+<div>
 	<div class="max-w-6xl mx-auto px-4 sm:px-6 md:px-8 h-fit-content">
 		{#if $workspaceStore == 'demo'}
 			<div class="my-4" />
@@ -166,5 +163,5 @@
 </div>
 
 {#if tab == 'workspace'}
-	<ItemsList {clientHeight} />
+	<ItemsList bind:filter />
 {/if}
