@@ -9,7 +9,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
-	import { faGithub, faGitlab, faGoogle } from '@fortawesome/free-brands-svg-icons'
+	import { faGithub, faGitlab, faGoogle, faMicrosoft } from '@fortawesome/free-brands-svg-icons'
 	import { onMount } from 'svelte'
 	import { slide } from 'svelte/transition'
 	import { OauthService, UserService, WorkspaceService } from '$lib/gen'
@@ -38,6 +38,11 @@
 			type: 'google',
 			name: 'Google',
 			icon: faGoogle
+		},
+		{
+			type: 'microsoft',
+			name: 'Microsoft',
+			icon: faMicrosoft
 		}
 	] as const
 
