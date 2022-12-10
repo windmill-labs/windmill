@@ -29,6 +29,7 @@ pub struct ListableVariable {
     pub account: Option<i32>,
     pub is_oauth: Option<bool>,
     pub is_expired: Option<bool>,
+    pub is_refreshed: Option<bool>,
     pub refresh_error: Option<String>,
     pub is_linked: Option<bool>,
 }

@@ -76,8 +76,6 @@
     "auth_url": "https://www.linkedin.com/oauth/v2/authorization",
     "token_url": "https://www.linkedin.com/oauth/v2/accessToken",
     "scopes": ["w_member_social"],
-    "extra_params_callback": {
-      "redirect_uri": "https://app.windmill.dev/oauth/callback/linkedin"
-    }
+    "req_body_auth": true
   }
 }

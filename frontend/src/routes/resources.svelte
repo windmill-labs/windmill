@@ -321,7 +321,7 @@
 					</tr>
 					<tbody slot="body">
 						{#if filteredItems}
-							{#each filteredItems as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, marked }}
+							{#each filteredItems as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, marked, is_refreshed }}
 								<tr>
 									<td>
 										<a
@@ -372,7 +372,7 @@
 												{/if}
 											</div>
 											<div class="w-10">
-												{#if account}
+												{#if is_refreshed}
 													<Popover>
 														<Icon data={faRefresh} />
 														<div slot="text">

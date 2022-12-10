@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.54.0
+  version: 1.55.0
   title: Windmill server API
   contact:
     name: Windmill contact
@@ -1139,7 +1139,6 @@ paths:
                 client:
                   type: string
               required:
-                - refresh_token
                 - expires_in
                 - owner
                 - client
@@ -4274,6 +4273,8 @@ components:
           type: string
         is_linked:
           type: boolean
+        is_refreshed:
+          type: boolean
       required:
         - workspace_id
         - path
@@ -4569,6 +4570,8 @@ components:
           type: string
         is_linked:
           type: boolean
+        is_refreshed:
+          type: boolean
         account:
           type: number
       required:
@@ -4576,6 +4579,7 @@ components:
         - resource_type
         - is_oauth
         - is_linked
+        - is_refreshed
 
     ResourceType:
       type: object

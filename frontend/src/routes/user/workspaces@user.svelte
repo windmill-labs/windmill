@@ -12,7 +12,7 @@
 	import { sendUserToast } from '$lib/utils'
 	import { logout, logoutWithRedirect } from '$lib/logout'
 	import { UserService, type WorkspaceInvite, WorkspaceService } from '$lib/gen'
-	import { superadmin, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { superadmin, usersWorkspaceStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { faCrown, faUserCog } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import { Button } from '$lib/components/common'
@@ -60,7 +60,7 @@
 		if (list_all_as_super_admin) {
 			loadWorkspacesAsAdmin()
 		} else {
-			workspaces = $usersWorkspaceStore?.workspaces ?? []
+			workspaces = $userWorkspaces
 		}
 	}
 

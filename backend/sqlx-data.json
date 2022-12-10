@@ -1980,87 +1980,6 @@
     },
     "query": "SELECT EXISTS(SELECT 1 FROM usr WHERE workspace_id = $1 AND username = $2)"
   },
-  "71b953191b3175a32a22f803205a5fd3dedef1baa0993afad08109ab5bf62fe9": {
-    "describe": {
-      "columns": [
-        {
-          "name": "workspace_id",
-          "ordinal": 0,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "path",
-          "ordinal": 1,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "value",
-          "ordinal": 2,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "description",
-          "ordinal": 3,
-          "type_info": "Text"
-        },
-        {
-          "name": "resource_type",
-          "ordinal": 4,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "extra_perms",
-          "ordinal": 5,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "is_expired",
-          "ordinal": 6,
-          "type_info": "Bool"
-        },
-        {
-          "name": "refresh_error",
-          "ordinal": 7,
-          "type_info": "Text"
-        },
-        {
-          "name": "is_linked",
-          "ordinal": 8,
-          "type_info": "Bool"
-        },
-        {
-          "name": "is_oauth?",
-          "ordinal": 9,
-          "type_info": "Bool"
-        },
-        {
-          "name": "account",
-          "ordinal": 10,
-          "type_info": "Int4"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        true,
-        true,
-        false,
-        false,
-        null,
-        true,
-        null,
-        false,
-        true
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT resource.*, (now() > account.expires_at) as is_expired, account.refresh_error,\n        variable.path IS NOT NULL as is_linked,\n        variable.is_oauth as \"is_oauth?\",\n        variable.account\n        FROM resource\n        LEFT JOIN variable ON variable.path = resource.path AND variable.workspace_id = resource.workspace_id\n        LEFT JOIN account ON variable.account = account.id AND account.workspace_id = resource.workspace_id\n        WHERE resource.path = $1 AND (resource.workspace_id = $2 OR resource.workspace_id = 'starter')"
-  },
   "765c18d77412cbb4474f4074d583b9b44681f3b9f58754662ac07a3a3470a3c5": {
     "describe": {
       "columns": [
@@ -3372,6 +3291,93 @@
       }
     },
     "query": "\n       UPDATE capture\n          SET payload = $3\n        WHERE workspace_id = $1\n          AND path = $2\n        "
+  },
+  "b9e968d522558b8ca2bd24d345768ba864a766e10dd79864b9d601254bb2d612": {
+    "describe": {
+      "columns": [
+        {
+          "name": "workspace_id",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "path",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "value",
+          "ordinal": 2,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "description",
+          "ordinal": 3,
+          "type_info": "Text"
+        },
+        {
+          "name": "resource_type",
+          "ordinal": 4,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "extra_perms",
+          "ordinal": 5,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "is_expired",
+          "ordinal": 6,
+          "type_info": "Bool"
+        },
+        {
+          "name": "is_refreshed",
+          "ordinal": 7,
+          "type_info": "Bool"
+        },
+        {
+          "name": "refresh_error",
+          "ordinal": 8,
+          "type_info": "Text"
+        },
+        {
+          "name": "is_linked",
+          "ordinal": 9,
+          "type_info": "Bool"
+        },
+        {
+          "name": "is_oauth?",
+          "ordinal": 10,
+          "type_info": "Bool"
+        },
+        {
+          "name": "account",
+          "ordinal": 11,
+          "type_info": "Int4"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        true,
+        true,
+        false,
+        false,
+        null,
+        null,
+        true,
+        null,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT resource.*, (now() > account.expires_at) as is_expired, account.refresh_token != '' as is_refreshed,\n        account.refresh_error,\n        variable.path IS NOT NULL as is_linked,\n        variable.is_oauth as \"is_oauth?\",\n        variable.account\n        FROM resource\n        LEFT JOIN variable ON variable.path = resource.path AND variable.workspace_id = resource.workspace_id\n        LEFT JOIN account ON variable.account = account.id AND account.workspace_id = resource.workspace_id\n        WHERE resource.path = $1 AND (resource.workspace_id = $2 OR resource.workspace_id = 'starter')"
   },
   "bb56e61c7cfb09c0a28fb3226dfe91704c70d9fe15eda18e6889adfd7496f80b": {
     "describe": {
