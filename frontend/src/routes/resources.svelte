@@ -431,6 +431,7 @@
 									</td>
 									<td>
 										<Dropdown
+											placement="bottom-end"
 											dropdownItems={[
 												{
 													displayName: 'Share',
@@ -483,7 +484,6 @@
 													  ]
 													: [])
 											]}
-											relative={true}
 										/>
 									</td>
 								</tr>
