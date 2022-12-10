@@ -130,8 +130,8 @@ export function accessPropertyByPath<T>(object: T, path: string): T | undefined 
 	return object
 }
 
-export function fieldTypeToTsType(InputType: InputType): string {
-	switch (InputType) {
+export function fieldTypeToTsType(inputType: InputType): string {
+	switch (inputType) {
 		case 'number':
 			return 'number'
 		case 'boolean':

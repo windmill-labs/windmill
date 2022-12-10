@@ -1,82 +1,68 @@
 <script lang="ts">
 	import { Badge, ToggleButton, ToggleButtonGroup } from '$lib/components/common'
-	import { capitalize, classNames } from '$lib/utils'
-	import { faBolt, faLink, faUser } from '@fortawesome/free-solid-svg-icons'
-	import { slide } from 'svelte/transition'
+	import { capitalize } from '$lib/utils'
+	import { faArrowRight, faPen, faUser } from '@fortawesome/free-solid-svg-icons'
 	import { fieldTypeToTsType } from '../../utils'
 	import InputsSpecEditor from './InputsSpecEditor.svelte'
 	import type { ConnectedAppInput, StaticAppInput, UserAppInput } from '../../inputType'
 
 	export let inputSpecs: Record<string, StaticAppInput | ConnectedAppInput | UserAppInput>
 	export let userInputEnabled: boolean = true
-	export let staticOnly: boolean = true
-
-	let openedProp: string | undefined = inputSpecs ? Object.keys(inputSpecs)[0] : undefined
-
-	function toggleInput(inputSpecKey: string) {
-		if (openedProp === inputSpecKey) {
-			openedProp = undefined
-		} else {
-			openedProp = inputSpecKey
-		}
-	}
+	export let staticOnly: boolean = false
 </script>
 
 {#if inputSpecs}
-	<div class="w-full flex flex-col gap-2">
+	<div class="w-full flex flex-col gap-4">
 		{#each Object.keys(inputSpecs) as inputSpecKey, index (index)}
 			{@const input = inputSpecs[inputSpecKey]}
-			<div>
-				<div
-					class={classNames(
-						'w-full text-xs font-bold py-1 px-2 cursor-pointer transition-all justify-between flex items-center border border-gray-3 rounded-md',
-						'bg-white border-gray-300  hover:bg-gray-100 focus:bg-gray-100 text-gray-700',
-						openedProp === inputSpecKey ? 'outline outline-gray-500 outline-offset-1' : ''
-					)}
-					on:keypress
-					on:click={() => toggleInput(inputSpecKey)}
-				>
-					{capitalize(inputSpecKey)}
-					{#if input?.fieldType}
-						<Badge color={openedProp === inputSpecKey ? 'dark-blue' : 'blue'}>
-							{capitalize(fieldTypeToTsType(input.fieldType))}
-						</Badge>
-					{/if}
-				</div>
-				{#if inputSpecKey === openedProp}
-					<div class="flex flex-col w-full gap-2 my-2 " transition:slide={{ duration: 100 }}>
-						{#if staticOnly}
+			{#if true}
+				<div class="flex flex-col gap-2">
+					<div class="flex justify-between items-center">
+						<span class="text-xs font-semibold">{capitalize(inputSpecKey)}</span>
+
+						<div class="flex gap-2 items-center">
+							<Badge color="blue">
+								{input.fieldType === 'array' && input.subFieldType
+									? `${capitalize(fieldTypeToTsType(input.subFieldType))}[]`
+									: capitalize(fieldTypeToTsType(input.fieldType))}
+							</Badge>
+
 							<ToggleButtonGroup bind:selected={inputSpecs[inputSpecKey].type}>
-								<ToggleButton position="left" value="static" startIcon={{ icon: faBolt }} size="xs">
-									Static
-								</ToggleButton>
+								<ToggleButton
+									position="left"
+									value="static"
+									startIcon={{ icon: faPen }}
+									size="xs"
+									iconOnly
+								/>
 								<ToggleButton
 									position={userInputEnabled ? 'center' : 'right'}
 									value="connected"
-									startIcon={{ icon: faLink }}
+									startIcon={{ icon: faArrowRight }}
 									size="xs"
-								>
-									Connect
-								</ToggleButton>
+									iconOnly
+									disabled={staticOnly}
+								/>
 								{#if userInputEnabled}
 									<ToggleButton
 										position="right"
 										value="user"
 										startIcon={{ icon: faUser }}
 										size="xs"
-									>
-										User
-									</ToggleButton>
+										iconOnly
+										disabled={staticOnly && !userInputEnabled}
+									/>
 								{/if}
 							</ToggleButtonGroup>
-						{/if}
-						<InputsSpecEditor
-							bind:componentInput={inputSpecs[inputSpecKey]}
-							canHide={userInputEnabled}
-						/>
+						</div>
 					</div>
-				{/if}
-			</div>
+
+					<InputsSpecEditor
+						bind:componentInput={inputSpecs[inputSpecKey]}
+						canHide={userInputEnabled}
+					/>
+				</div>
+			{/if}
 		{/each}
 	</div>
 {:else}

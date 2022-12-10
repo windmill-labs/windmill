@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { getContext } from 'svelte'
 	import type { AppEditorContext } from '../../types'
 	import PanelSection from './common/PanelSection.svelte'
@@ -26,16 +27,10 @@
 	<table class="divide-y divide-gray-300 border w-full">
 		<thead class="bg-gray-50">
 			<tr>
-				<th
-					scope="col"
-					class="px-4 py-2 text-left text-xs font-medium text-gray-500 tracking-wider"
-				>
+				<th scope="col" class="px-2 py-2 text-left text-xs font-medium text-gray-500">
 					Component
 				</th>
-				<th
-					scope="col"
-					class="px-4 py-2 text-left text-xs font-medium text-gray-500 tracking-wider"
-				>
+				<th scope="col" class="px-4 py-2 text-left text-xs font-medium text-gray-500">
 					Recompute
 				</th>
 			</tr>
@@ -43,7 +38,9 @@
 		<tbody>
 			{#each Object.keys($runnableComponents ?? {}).filter((id) => id !== ownId) as id}
 				<tr>
-					<td class="whitespace-nowrap px-4 py-2">{id}</td>
+					<td class="whitespace-nowrap px-4 py-2 text-xs">
+						<Badge color="blue">{id}</Badge>
+					</td>
 					<td class="relative whitespace-nowrap px-4 py-2 ">
 						<input type="checkbox" on:change={(event) => onChange(event, id)} />
 					</td>

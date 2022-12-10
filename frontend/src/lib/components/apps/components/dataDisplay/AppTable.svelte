@@ -43,7 +43,8 @@
 	let searchValue = ''
 
 	let result: Array<Record<string, any>> = []
-	$: headers = Object.keys(result[0] || {}) || []
+
+	$: headers = Array.from(new Set(result.flatMap((row) => Object.keys(row))))
 
 	const extraQueryParams = { search: searchValue, page }
 

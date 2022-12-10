@@ -200,6 +200,7 @@ const dataDisplay: ComponentSet = {
 					type: 'static',
 					value: ['Lorem ipsum', 'Lorem ipsum', 'Lorem ipsum'],
 					fieldType: 'array',
+
 					subFieldType: 'text',
 					defaultValue: ['Lorem ipsum', 'Lorem ipsum', 'Lorem ipsum']
 				}

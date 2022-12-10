@@ -4,9 +4,10 @@
 	import PickScript from '$lib/components/flows/pickers/PickScript.svelte'
 	import {
 		faArrowRight,
-		faBolt,
 		faClose,
 		faCode,
+		faMinimize,
+		faPen,
 		faTrashAlt
 	} from '@fortawesome/free-solid-svg-icons'
 	import {
@@ -33,6 +34,7 @@
 	import { capitalize } from '$lib/utils'
 	import { fieldTypeToTsType } from '../../utils'
 	import Recompute from './Recompute.svelte'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
 
 	export let component: AppComponent | undefined
 	export let onDelete: (() => void) | undefined = undefined
@@ -74,35 +76,40 @@
 		{#if component.componentInput}
 			<PanelSection title="Main input">
 				<svelte:fragment slot="action">
-					<div>
+					<div class="flex gap-2">
 						<Badge color="blue">
-							{capitalize(fieldTypeToTsType(component.componentInput.fieldType))}
+							{component.componentInput.fieldType === 'array' &&
+							component.componentInput.subFieldType
+								? `${capitalize(fieldTypeToTsType(component.componentInput.subFieldType))}[]`
+								: capitalize(fieldTypeToTsType(component.componentInput.fieldType))}
 						</Badge>
-						{#if component.componentInput.subFieldType}
-							<Badge color="indigo">
-								{capitalize(fieldTypeToTsType(component.componentInput.subFieldType))}
-							</Badge>
-						{/if}
+
+						<ToggleButtonGroup bind:selected={component.componentInput.type}>
+							<ToggleButton
+								position="left"
+								value="static"
+								startIcon={{ icon: faPen }}
+								size="xs"
+								iconOnly
+							/>
+							<ToggleButton
+								value="connected"
+								position="center"
+								startIcon={{ icon: faArrowRight }}
+								size="xs"
+								iconOnly
+							/>
+							<ToggleButton
+								position="right"
+								value="runnable"
+								startIcon={{ icon: faCode }}
+								size="xs"
+								iconOnly
+							/>
+						</ToggleButtonGroup>
 					</div>
 				</svelte:fragment>
 				<div class="flex flex-col w-full gap-2 my-2">
-					<ToggleButtonGroup bind:selected={component.componentInput.type}>
-						<ToggleButton position="left" value="static" startIcon={{ icon: faBolt }} size="xs">
-							Static
-						</ToggleButton>
-						<ToggleButton
-							value="connected"
-							position="center"
-							startIcon={{ icon: faArrowRight }}
-							size="xs"
-						>
-							Connect
-						</ToggleButton>
-						<ToggleButton position="right" value="runnable" startIcon={{ icon: faCode }} size="xs">
-							Computed
-						</ToggleButton>
-					</ToggleButtonGroup>
-
 					{#if component.componentInput.type === 'static'}
 						<StaticInputEditor bind:componentInput={component.componentInput} />
 					{:else if component.componentInput.type === 'connected' && component.componentInput !== undefined}
@@ -117,10 +124,12 @@
 							<Button
 								size="xs"
 								color="red"
+								variant="border"
 								startIcon={{ icon: faClose }}
 								on:click={() => {
-									// @ts-ignore
-									component.componentInput.runnable = undefined
+									if (component?.componentInput?.type === 'runnable') {
+										component.componentInput.runnable = undefined
+									}
 								}}
 							>
 								Clear
@@ -196,13 +205,28 @@
 						</div>
 					{/if}
 				</div>
-			</PanelSection>
-		{/if}
-		{#if component.componentInput?.type === 'runnable'}
-			<PanelSection
-				title={`Runnable inputs (${Object.keys(component.componentInput.fields ?? {}).length})`}
-			>
-				<InputsSpecsEditor bind:inputSpecs={component.componentInput.fields} />
+				{#if component.componentInput?.type === 'runnable'}
+					<div class="border w-full">
+						<PanelSection
+							title={`Runnable inputs (${
+								Object.keys(component.componentInput.fields ?? {}).length
+							})`}
+							smallPadding
+						>
+							{#if component.type === 'buttoncomponent'}
+								<Alert title="Button inputs" type="info" size="xs">
+									The runnable inputs of a button component are not settable by the user. They must
+									be defined statically or connected.
+								</Alert>
+							{/if}
+
+							<InputsSpecsEditor
+								bind:inputSpecs={component.componentInput.fields}
+								userInputEnabled={component.type !== 'buttoncomponent'}
+							/>
+						</PanelSection>
+					</div>
+				{/if}
 			</PanelSection>
 		{/if}
 
@@ -216,13 +240,23 @@
 			<TableActions bind:components={component.actionButtons} />
 		{/if}
 
-		{#if component.type === 'buttoncomponent'}
-			<Recompute bind:recomputeIds={component.recomputeIds} ownId={component.id} />
-		{/if}
-
 		{#if component.verticalAlignment !== undefined}
 			<PanelSection title="Alignment">
-				<div class="w-full text-xs font-bold">Horizontal alignment</div>
+				<svelte:fragment slot="action">
+					<Button
+						size="xs"
+						on:click={() => {
+							if (component) {
+								component.verticalAlignment = 'center'
+								component.horizontalAlignment = 'center'
+							}
+						}}
+						startIcon={{ icon: faMinimize }}
+					>
+						Center
+					</Button>
+				</svelte:fragment>
+				<div class="w-full text-xs font-semibold">Horizontal alignment</div>
 
 				<div class="w-full">
 					<ToggleButtonGroup bind:selected={component.horizontalAlignment}>
@@ -237,7 +271,7 @@
 						</ToggleButton>
 					</ToggleButtonGroup>
 				</div>
-				<div class="w-full text-xs font-bold">Vertical alignment</div>
+				<div class="w-full text-xs font-semibold">Vertical alignment</div>
 				<div class="w-full">
 					<ToggleButtonGroup bind:selected={component.verticalAlignment}>
 						<ToggleButton position="left" value="top" size="xs">
@@ -253,6 +287,10 @@
 				</div>
 			</PanelSection>
 		{/if}
+		{#if component.type === 'buttoncomponent'}
+			<Recompute bind:recomputeIds={component.recomputeIds} ownId={component.id} />
+		{/if}
+
 		<PanelSection title="Danger zone">
 			<Button
 				size="xs"

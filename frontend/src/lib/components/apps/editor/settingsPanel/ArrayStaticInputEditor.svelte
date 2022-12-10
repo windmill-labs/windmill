@@ -51,7 +51,8 @@
 				<div>
 					<Button
 						size="xs"
-						color="dark"
+						color="light"
+						variant="border"
 						on:click={() => deleteElementByType(index)}
 						iconOnly
 						startIcon={{ icon: faTrashAlt }}
@@ -59,7 +60,12 @@
 				</div>
 			</div>
 		{/each}
-		<Button size="xs" color="dark" startIcon={{ icon: faPlus }} on:click={() => addElementByType()}>
+		<Button
+			size="xs"
+			color="light"
+			startIcon={{ icon: faPlus }}
+			on:click={() => addElementByType()}
+		>
 			Add
 		</Button>
 	{/if}
