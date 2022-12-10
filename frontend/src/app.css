@@ -23,6 +23,10 @@
 		display: none !important;
 	}
 
+	.nowrap pre code.hljs {
+		whitespace: normal !important;
+	}
+
 	svelte-virtual-list-row {
 		overflow: visible !important;
 	}
@@ -32,7 +36,9 @@
 		border-bottom-width: 0px !important;
 	}
 
-	
+	.monaco-editor textarea:focus {
+		box-shadow: none !important;
+	}
 }
 
 @layer components {
@@ -42,4 +48,3 @@
 		cursor: pointer !important;
 	}
 }
-

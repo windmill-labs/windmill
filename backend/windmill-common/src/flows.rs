@@ -12,7 +12,7 @@ use serde::{self, Deserialize, Serialize};
 
 use crate::{
     more_serde::{default_false, default_id, default_true, is_default},
-    scripts::{Schema, ScriptLang},
+    scripts::{Schema, ScriptHash, ScriptLang},
 };
 
 #[derive(Serialize)]
@@ -160,6 +160,12 @@ pub struct FlowModule {
     pub sleep: Option<InputTransform>,
 }
 
+impl FlowModule {
+    pub fn id_append(&mut self, s: &str) {
+        self.id = format!("{}-{}", self.id, s);
+    }
+}
+
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 #[serde(
     tag = "type",
@@ -196,6 +202,14 @@ pub struct BranchAllModules {
 )]
 pub enum FlowModuleValue {
     Script {
+        #[serde(default)]
+        #[serde(alias = "input_transform")]
+        input_transforms: HashMap<String, InputTransform>,
+        path: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        hash: Option<ScriptHash>,
+    },
+    Flow {
         #[serde(default)]
         #[serde(alias = "input_transform")]
         input_transforms: HashMap<String, InputTransform>,

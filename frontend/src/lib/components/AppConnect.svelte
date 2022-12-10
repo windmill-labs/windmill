@@ -48,6 +48,7 @@
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import ApiConnectForm from './ApiConnectForm.svelte'
 	import SearchItems from './SearchItems.svelte'
+	import autosize from 'svelte-autosize'
 
 	export let newPageOAuth = false
 
@@ -169,13 +170,13 @@
 			}
 
 			let account: number | undefined = undefined
-			if (valueToken?.refresh_token != undefined && valueToken?.expires_in != undefined) {
+			if (valueToken?.expires_in != undefined) {
 				account = Number(
 					await OauthService.createAccount({
 						workspace: $workspaceStore!,
 						requestBody: {
-							refresh_token: valueToken.refresh_token!,
-							expires_in: valueToken.expires_in!,
+							refresh_token: valueToken.refresh_token ?? '',
+							expires_in: valueToken.expires_in,
 							owner: path.split('/').slice(0, 2).join('/'),
 							client: resource_type
 						}
@@ -383,7 +384,7 @@
 			/>
 			<h2 class="mt-4 mb-2">Description</h2>
 
-			<input type="text" bind:value={description} />
+			<textarea type="text" autocomplete="off" use:autosize bind:value={description} />
 
 			{#if apiTokenApps[resource_type]}
 				<h2 class="mt-4 mb-2">Instructions</h2>
@@ -403,7 +404,7 @@
 				{/if}
 			{/if}
 
-			<h2 class="mt-4">Value</h2>
+			<h2 class="mt-8">Value</h2>
 			<div class="mt-4">
 				<ApiConnectForm password={key ?? ''} {resource_type} bind:args bind:isValid />
 			</div>
@@ -432,7 +433,7 @@
 				>
 			{/if}
 		{/if}
-		<div slot="submission" class="flex items-center gap-4">
+		<div slot="actions">
 			{#if step > 1 && !no_back}
 				<Button variant="border" on:click={back}>Back</Button>
 			{/if}

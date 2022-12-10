@@ -2,24 +2,24 @@
 	import { hubScripts } from '$lib/stores'
 	import { createEventDispatcher, onMount } from 'svelte'
 	import type { HubItem } from './model'
-	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
 	import { Badge, Skeleton } from '$lib/components/common'
 	import SearchItems from '$lib/components/SearchItems.svelte'
-	import { loadHubScripts } from '$lib/utils'
+	import { capitalize, classNames, loadHubScripts } from '$lib/utils'
+	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
+	import { APP_TO_ICON_COMPONENT } from '$lib/components/icons'
+	import ListFilters from '$lib/components/home/ListFilters.svelte'
 
 	export let kind: 'script' | 'trigger' | 'approval' | 'failure' = 'script'
 	export let filter = ''
 
-	$: items = ($hubScripts ?? []).filter((i) => i.kind === kind)
+	const dispatch = createEventDispatcher()
 
 	let filteredItems: (HubItem & { marked?: string })[] = []
 	let appFilter: string | undefined = undefined
 
+	$: items = ($hubScripts ?? []).filter((i) => i.kind === kind)
 	$: prefilteredItems = appFilter ? (items ?? []).filter((i) => i.app == appFilter) : items ?? []
-
 	$: apps = Array.from(new Set(filteredItems?.map((x) => x.app) ?? [])).sort()
-
-	const dispatch = createEventDispatcher()
 
 	onMount(() => {
 		if (!$hubScripts) {
@@ -29,60 +29,60 @@
 </script>
 
 <SearchItems {filter} items={prefilteredItems} bind:filteredItems f={(x) => x.summary} />
-
-<div class="flex flex-col min-h-0">
-	<div class="w-full flex mt-1 items-center gap-2 mb-5">
-		<slot />
-		<input type="text" placeholder="Search Hub Scripts" bind:value={filter} class="text-2xl grow" />
-	</div>
-
-	<div class="gap-2 w-full flex flex-wrap pb-3">
-		{#each apps as app}
-			<Badge
-				class="cursor-pointer hover:bg-gray-200 border"
-				on:click={() => {
-					appFilter = appFilter == app ? undefined : app
-				}}
-				capitalize
-				color={app === appFilter ? 'blue' : 'gray'}
-			>
-				{app}
-				{#if app === appFilter}&cross;{/if}
-			</Badge>
-		{/each}
-	</div>
-	<div class="overflow-auto">
-		<ul class="divide-y divide-gray-200">
-			{#if $hubScripts}
-				{#if filter.length > 0 && filteredItems.length == 0}
-					<p>No items found</p>
-				{/if}
-				{#each filteredItems as obj}
-					<li class="flex flex-row w-full">
-						<button
-							class="py-4 px-1 gap-1 flex flex-row grow hover:bg-blue-50 bg-white transition-all"
-							on:click={() => {
-								dispatch('pick', obj)
-							}}
-						>
-							<div class="mr-2 text-sm text-left truncate w-32 shrink-0">
-								<IconedResourceType after={true} silent={false} name={obj['app']} />
-							</div>
-							<div class="mr-2 text-left">
-								{#if obj.marked}
-									{@html obj.marked ?? ''}
-								{:else}
-									{obj.summary ?? ''}
-								{/if}
-							</div>
-						</button>
-					</li>
-				{/each}
-			{:else}
-				{#each Array(10).fill(0) as sk}
-					<Skeleton layout={[[4], 0.5]} />
-				{/each}
-			{/if}
-		</ul>
-	</div>
+<div class="w-full flex mt-1 items-center gap-2">
+	<slot />
+	<input type="text" placeholder="Search Hub Scripts" bind:value={filter} class="text-2xl grow" />
 </div>
+<ListFilters filters={apps} bind:selectedFilter={appFilter} />
+
+{#if $hubScripts}
+	{#if filteredItems.length == 0}
+		<NoItemFound />
+	{:else}
+		<ul class="divide-y divide-gray-200 border rounded-md">
+			{#each filteredItems as item (item.path)}
+				<li class="flex flex-row w-full">
+					<button
+						class="p-4 gap-4 flex flex-row grow hover:bg-gray-50 bg-white transition-all items-center"
+						on:click={() => dispatch('pick', item)}
+					>
+						<div class="flex items-center gap-4">
+							<div
+								class={classNames(
+									'rounded-md p-1 flex justify-center items-center border',
+									'bg-gray-50 border-gray-200'
+								)}
+							>
+								<svelte:component
+									this={APP_TO_ICON_COMPONENT[item['app']]}
+									height={18}
+									width={18}
+								/>
+							</div>
+
+							<div class="w-full text-left font-normal ">
+								<div class="text-gray-900 flex-wrap text-md font-semibold mb-1">
+									{#if item.marked}
+										{@html item.marked ?? ''}
+									{:else}
+										{item.summary ?? ''}
+									{/if}
+								</div>
+								<div class="text-gray-600 text-xs ">
+									{item.path}
+								</div>
+							</div>
+						</div>
+						{#if kind !== 'script'}
+							<Badge color="gray" baseClass="border">{capitalize(kind)}</Badge>
+						{/if}
+					</button>
+				</li>
+			{/each}
+		</ul>
+	{/if}
+{:else}
+	{#each Array(10).fill(0) as _}
+		<Skeleton layout={[[4], 0.5]} />
+	{/each}
+{/if}

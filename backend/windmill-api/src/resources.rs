@@ -83,6 +83,7 @@ pub struct ListableResource {
     pub resource_type: String,
     pub extra_perms: serde_json::Value,
     pub is_linked: Option<bool>,
+    pub is_refreshed: Option<bool>,
     pub is_oauth: Option<bool>,
     pub is_expired: Option<bool>,
     pub refresh_error: Option<String>,
@@ -126,6 +127,7 @@ async fn list_resources(
             "resource.extra_perms",
             "(now() > account.expires_at) as is_expired",
             "variable.path IS NOT NULL as is_linked",
+            "account.refresh_token != '' as is_refreshed",
             "variable.is_oauth",
             "variable.account",
             "account.refresh_error",
@@ -167,7 +169,8 @@ async fn get_resource(
 
     let resource_o = sqlx::query_as!(
         ListableResource,
-        "SELECT resource.*, (now() > account.expires_at) as is_expired, account.refresh_error,
+        "SELECT resource.*, (now() > account.expires_at) as is_expired, account.refresh_token != '' as is_refreshed,
+        account.refresh_error,
         variable.path IS NOT NULL as is_linked,
         variable.is_oauth as \"is_oauth?\",
         variable.account

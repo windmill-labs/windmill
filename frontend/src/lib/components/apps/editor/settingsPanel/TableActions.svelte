@@ -7,9 +7,9 @@
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { ButtonComponent, AppEditorContext, BaseAppComponent } from '../../types'
-	import { defaultProps } from '../componentsPanel/componentDefaultProps'
 	import PanelSection from './common/PanelSection.svelte'
 	import ComponentPanel from './ComponentPanel.svelte'
+	import TableActionLabel from './TableActionLabel.svelte'
 
 	export let components: (BaseAppComponent & ButtonComponent)[]
 
@@ -20,10 +20,9 @@
 		const id = getNextId(grid.map((gridItem) => gridItem.data.id))
 
 		const newComponent: BaseAppComponent & ButtonComponent = {
-			...defaultProps,
 			id,
 			type: 'buttoncomponent',
-			componentInputs: {
+			configuration: {
 				label: {
 					type: 'static',
 					visible: true,
@@ -48,7 +47,14 @@
 					defaultValue: 'xs'
 				}
 			},
-			runnable: true
+			componentInput: {
+				type: 'static',
+				fieldType: 'textarea',
+				defaultValue: '',
+				value: ''
+			},
+			recompute: undefined,
+			card: false
 		}
 
 		components = [...components, newComponent]
@@ -71,7 +77,7 @@
 	{#if components.length > 0}
 		<div class="w-full">
 			<Alert title="Special argument" size="xs">
-				A "row" argument is automatically added to the script. It contains the row data.
+				The row is passed as an argument to the runnable.
 			</Alert>
 		</div>
 	{/if}
@@ -91,10 +97,8 @@
 			}}
 			on:keypress
 		>
-			<div
-				>{component.componentInputs.label.type === 'static'
-					? component.componentInputs.label.value
-					: ''}
+			<div>
+				<TableActionLabel componentInput={component.configuration.label} />
 			</div>
 			<Badge color="dark-blue">
 				Component: {component.id}

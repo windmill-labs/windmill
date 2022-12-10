@@ -1,14 +1,22 @@
-import type { InputsSpec, InputType } from './types'
 import type { Schema } from '$lib/common'
-
 import { FlowService, ScriptService } from '$lib/gen'
 import {
-	faBarChart,
-	faDisplay,
-	faFile,
-	faMobileScreenButton,
-	faPieChart
-} from '@fortawesome/free-solid-svg-icons'
+	BarChart4,
+	BoxSelect,
+	CircleDot,
+	FormInput,
+	Inspect,
+	List,
+	Monitor,
+	PieChart,
+	Play,
+	Table2,
+	TextCursorInput,
+	Type
+} from 'lucide-svelte'
+import type { InputType } from 'zlib'
+import type { AppInput, AppInputs } from './inputType'
+import type { AppComponent } from './types'
 
 export async function loadSchema(
 	workspace: string,
@@ -32,7 +40,7 @@ export async function loadSchema(
 	}
 }
 
-export function schemaToInputsSpec(schema: Schema): InputsSpec {
+export function schemaToInputsSpec(schema: Schema): AppInputs {
 	return Object.keys(schema.properties).reduce((accu, key) => {
 		const property = schema.properties[key]
 
@@ -47,34 +55,58 @@ export function schemaToInputsSpec(schema: Schema): InputsSpec {
 	}, {})
 }
 
-export const displayData = {
+export const displayData: Record<AppComponent['type'], {name: string, icon: any}> = {
 	displaycomponent: {
 		name: 'Result',
-		icon: faDisplay
+		icon: Monitor
 	},
 	textcomponent: {
 		name: 'Text',
-		icon: faFile
+		icon: Type
 	},
 	buttoncomponent: {
 		name: 'Button',
-		icon: faMobileScreenButton
+		icon: Inspect
 	},
 	piechartcomponent: {
 		name: 'Pie chart',
-		icon: faPieChart
+		icon: PieChart
 	},
 	barchartcomponent: {
 		name: 'Bar chart',
-		icon: faBarChart
+		icon: BarChart4
 	},
 	tablecomponent: {
 		name: 'Table',
-		icon: faBarChart
+		icon: Table2
 	},
 	checkboxcomponent: {
 		name: 'Checkbox',
-		icon: faBarChart
+		icon: BoxSelect
+	},
+	textinputcomponent: {
+		name: 'Text input',
+		icon: TextCursorInput
+	},
+	imagecomponent: {
+		name: 'Image',
+		icon: Image
+	},
+	inputcomponent: {
+		name: 'Input',
+		icon: FormInput
+	},
+	radiocomponent: {
+		name: 'Radio button',
+		icon: CircleDot
+	},
+	runformcomponent: {
+		name: 'Run form',
+		icon: Play
+	},
+	selectcomponent: {
+		name: 'Select',
+		icon: List
 	}
 }
 
@@ -100,18 +132,66 @@ export function accessPropertyByPath<T>(object: T, path: string): T | undefined 
 
 export function fieldTypeToTsType(InputType: InputType): string {
 	switch (InputType) {
-		case 'text':
-		case 'textarea':
-		case 'date':
-		case 'time':
-		case 'datetime':
-		case 'select':
-			return 'string'
 		case 'number':
 			return 'number'
 		case 'boolean':
 			return 'boolean'
 		case 'object':
 			return 'object'
+		default:
+			return 'string'
 	}
+}
+
+const userTypeKeys = ['value']
+const staticTypeKeys = ['value']
+const dynamicTypeKeys = ['connection']
+const runnableTypeKeys = ['runnable', 'fields']
+
+export function sanitizeInputSpec(componentInput: AppInput): AppInput {
+	if (componentInput.type === 'user') {
+		for (const key of staticTypeKeys) {
+			delete componentInput[key]
+		}
+		for (const key of dynamicTypeKeys) {
+			delete componentInput[key]
+		}
+		for (const key of runnableTypeKeys) {
+			delete componentInput[key]
+		}
+	} else if (componentInput.type === 'static') {
+		for (const key of userTypeKeys) {
+			delete componentInput[key]
+		}
+		for (const key of dynamicTypeKeys) {
+			delete componentInput[key]
+		}
+		for (const key of runnableTypeKeys) {
+			delete componentInput[key]
+		}
+	} else if (componentInput.type === 'connected') {
+		for (const key of userTypeKeys) {
+			delete componentInput[key]
+		}
+		for (const key of staticTypeKeys) {
+			delete componentInput[key]
+		}
+		for (const key of runnableTypeKeys) {
+			delete componentInput[key]
+		}
+	} else if (componentInput.type === 'runnable') {
+		for (const key of userTypeKeys) {
+			delete componentInput[key]
+		}
+
+		for (const key of staticTypeKeys) {
+			delete componentInput[key]
+		}
+
+		for (const key of dynamicTypeKeys) {
+			delete componentInput[key]
+		}
+	}
+
+	return componentInput
 }

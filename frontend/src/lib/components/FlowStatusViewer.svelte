@@ -11,7 +11,10 @@
 	import { Button, Tab } from './common'
 	import DisplayResult from './DisplayResult.svelte'
 	import Tabs from './common/tabs/Tabs.svelte'
-	import { FlowGraph } from './graph'
+	import { FlowGraph, type GraphModuleState } from './graph'
+	import ModuleStatus from './ModuleStatus.svelte'
+	import { displayDate, truncateRev } from '$lib/utils'
+	import JobArgs from './JobArgs.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -25,9 +28,13 @@
 		  }
 		| undefined = undefined
 	export let job: Job | undefined = undefined
-	export let flowModuleStates: Record<string, FlowStatusModule.type> = {}
 
-	let localFlowModuleStates: Record<string, FlowStatusModule.type> = {}
+	export let flowModuleStates: Record<string, GraphModuleState> = {}
+
+	let localFlowModuleStates: Record<string, GraphModuleState> = {}
+	export let retry_status: Record<string, number> = {}
+
+	let selectedNode: string | undefined = undefined
 
 	let jobResults: any[] = []
 	let jobFailures: boolean[] = []
@@ -41,7 +48,7 @@
 		Object.entries(localFlowModuleStates).forEach(([moduleId, state]) => {
 			if (
 				flowModuleStates[moduleId] !== state &&
-				flowModuleStates[moduleId] !== FlowStatusModule.type.FAILURE
+				flowModuleStates[moduleId]?.type !== FlowStatusModule.type.FAILURE
 			) {
 				flowModuleStates[moduleId] = state
 			}
@@ -56,23 +63,63 @@
 		}
 	}
 
+	$: updateFailCount(job?.flow_status?.retry?.fail_count)
+
+	function updateFailCount(count?: number) {
+		if (count) {
+			retry_status[jobId ?? ''] = count
+		} else {
+			delete retry_status[jobId ?? '']
+		}
+	}
+
 	$: innerModules =
-		job?.flow_status?.modules
-			.filter((x) => x.job != jobId)
-			.concat(
-				job?.flow_status.failure_module.type != 'WaitingForPriorSteps'
-					? job?.flow_status.failure_module
-					: []
-			) ?? []
+		job?.flow_status?.modules.concat(
+			job?.flow_status.failure_module.type != 'WaitingForPriorSteps'
+				? job?.flow_status.failure_module
+				: []
+		) ?? []
+
+	$: innerModules && localFlowModuleStates && updateInnerModules()
+
+	function updateInnerModules() {
+		innerModules.forEach((mod, i) => {
+			if (
+				mod.type === FlowStatusModule.type.WAITING_FOR_EVENTS &&
+				localFlowModuleStates?.[innerModules?.[i - 1]?.id ?? '']?.type ==
+					FlowStatusModule.type.SUCCESS
+			) {
+				localFlowModuleStates[mod.id ?? ''] = { type: mod.type }
+			} else if (
+				mod.type === FlowStatusModule.type.WAITING_FOR_EXECUTOR &&
+				localFlowModuleStates[mod.id ?? '']?.scheduled_for == undefined
+			) {
+				JobService.getJob({
+					workspace: $workspaceStore ?? '',
+					id: mod.job ?? ''
+				}).then((job) => {
+					localFlowModuleStates[mod.id ?? ''] = {
+						type: mod.type,
+						scheduled_for: 'scheduled for ' + displayDate(job?.['scheduled_for'], true),
+						job_id: job?.id,
+						parent_module: mod['parent_module']
+					}
+				})
+			}
+		})
+	}
 
 	let errorCount = 0
 	async function loadJobInProgress() {
 		if (jobId != '00000000-0000-0000-0000-000000000000') {
 			try {
-				job = await JobService.getJob({
+				const newJob = await JobService.getJob({
 					workspace: $workspaceStore ?? '',
 					id: jobId ?? ''
 				})
+				if (JSON.stringify(newJob) !== JSON.stringify(job)) {
+					job = newJob
+				}
 				errorCount = 0
 			} catch (e) {
 				errorCount += 1
@@ -88,6 +135,7 @@
 
 	function updateJobId() {
 		if (jobId !== job?.id) {
+			retry_status = {}
 			localFlowModuleStates = {}
 			loadJobInProgress()
 		}
@@ -135,7 +183,7 @@
 			</Tabs>
 		{/if}
 
-		<div class="{selected == 'graph' && !isListJob ? 'hidden' : ''} ">
+		<div class={selected == 'graph' && !isListJob ? 'hidden' : ''}>
 			{#if isListJob}
 				<h3 class="text-md leading-6 font-bold text-gray-600 border-b mb-4">
 					Embedded flows: ({flowJobIds?.flowJobs.length} items)
@@ -169,12 +217,13 @@
 					</Button>
 					<div class="border p-6" class:hidden={forloop_selected != loopJobId}>
 						<svelte:self
+							bind:retry_status
 							bind:flowState
 							bind:flowModuleStates={localFlowModuleStates}
 							jobId={loopJobId}
 							on:jobsLoaded={(e) => {
 								if (flowJobIds?.moduleId) {
-									if (flowState) {
+									if (flowState?.[flowJobIds.moduleId]) {
 										if (
 											!flowState[flowJobIds.moduleId].previewResult ||
 											!Array.isArray(flowState[flowJobIds.moduleId]?.previewResult)
@@ -184,8 +233,26 @@
 										flowState[flowJobIds.moduleId].previewResult[j] = e.detail.result
 										flowState[flowJobIds.moduleId].previewArgs = e.detail.args
 										jobResults[j] =
-											e.detail.result == null ? 'Job in progress ...' : e.detail.result
+											e.detail.type == 'QueuedJob' ? 'Job in progress ...' : e.detail.result
 										jobFailures[j] = e.detail.success === false
+									}
+									if (e.detail.type == 'QueuedJob') {
+										localFlowModuleStates[flowJobIds.moduleId] = {
+											type: FlowStatusModule.type.IN_PROGRESS,
+											logs: e.detail.logs,
+											job_id: e.detail.id,
+											iteration_total: flowJobIds?.flowJobs.length
+										}
+									} else {
+										localFlowModuleStates[flowJobIds.moduleId] = {
+											type: e.detail.success
+												? FlowStatusModule.type.SUCCESS
+												: FlowStatusModule.type.FAILURE,
+											logs: 'All jobs completed',
+											result: jobResults,
+											job_id: e.detail.id,
+											iteration_total: flowJobIds?.flowJobs.length
+										}
 									}
 								}
 							}}
@@ -221,6 +288,7 @@
 						<li class="w-full border border-gray-600 p-6 space-y-2 bg-blue-50/50">
 							{#if [FlowStatusModule.type.IN_PROGRESS, FlowStatusModule.type.SUCCESS, FlowStatusModule.type.FAILURE].includes(mod.type)}
 								<svelte:self
+									bind:retry_status
 									bind:flowState
 									bind:flowModuleStates={localFlowModuleStates}
 									jobId={mod.job}
@@ -237,27 +305,32 @@
 												flowState[mod.id].previewArgs = e.detail.args
 											}
 											if (e.detail.type == 'QueuedJob') {
-												localFlowModuleStates[mod.id] = FlowStatusModule.type.IN_PROGRESS
+												localFlowModuleStates[mod.id] = {
+													type: FlowStatusModule.type.IN_PROGRESS,
+													logs: e.detail.logs,
+													parent_module: mod['parent_module']
+												}
 											} else {
-												localFlowModuleStates[mod.id] = e.detail.success
-													? FlowStatusModule.type.SUCCESS
-													: FlowStatusModule.type.FAILURE
+												localFlowModuleStates[mod.id] = {
+													type: e.detail.success
+														? FlowStatusModule.type.SUCCESS
+														: FlowStatusModule.type.FAILURE,
+													logs: e.detail.logs,
+													result: e.detail.result,
+													job_id: e.detail.id,
+													parent_module: mod['parent_module'],
+													iteration_total: mod.iterator?.itered?.length
+													// retries: flowState?.raw_flow
+												}
 											}
 										}
 									}}
 								/>
 							{:else}
-								<span class="italic text-gray-600">
-									<Icon data={faHourglassHalf} class="mr-2" />
-
-									{#if mod.type == FlowStatusModule.type.WAITING_FOR_EVENT}
-										Waiting to be resumed by receivent events such as approvals
-									{:else if mod.type == FlowStatusModule.type.WAITING_FOR_PRIOR_STEPS}
-										Waiting for prior steps to complete
-									{:else if mod.type == FlowStatusModule.type.WAITING_FOR_EXECUTOR}
-										Job is ready to be executed and will be picked up by the next available worker
-									{/if}
-								</span>
+								<ModuleStatus
+									type={mod.type}
+									scheduled_for={localFlowModuleStates?.[mod.id ?? '']?.scheduled_for}
+								/>
 							{/if}
 						</li>
 					{/each}
@@ -266,13 +339,73 @@
 		</div>
 	</div>
 	{#if job.raw_flow && !isListJob}
-		<div class="{selected != 'graph' ? 'hidden' : ''} lg:mx-40 mx-10 border border-gray-400 mt-4">
-			<FlowGraph
-				flowModuleStates={localFlowModuleStates}
-				notSelectable
-				modules={job.raw_flow?.modules ?? []}
-				failureModule={job.raw_flow?.failure_module}
-			/>
+		<div class="{selected != 'graph' ? 'hidden' : ''} mt-4">
+			<div class="grid grid-cols-3 border border-gray-300">
+				<div class="col-span-2 bg-gray-50">
+					<div class="flex flex-col">
+						{#each Object.values(retry_status) as count}
+							<span class="text-sm">
+								Retry in progress, # of failed attempts: {count}
+							</span>
+						{/each}
+					</div>
+
+					<FlowGraph
+						flowModuleStates={localFlowModuleStates}
+						on:click={(e) => {
+							if (e.detail.id) {
+								selectedNode = e.detail.id
+							} else if (e.detail == 'Result') {
+								selectedNode = 'end'
+							} else if (e.detail == 'Input') {
+								selectedNode = 'start'
+							}
+						}}
+						modules={job.raw_flow?.modules ?? []}
+						failureModule={job.raw_flow?.failure_module}
+					/>
+				</div>
+				<div class="border-l border-gray-400 pt-1 overflow-hidden">
+					{#if selectedNode}
+						{@const node = localFlowModuleStates[selectedNode]}
+						{#if selectedNode == 'end'}
+							<FlowJobResult noBorder col result={job['result'] ?? {}} logs={job.logs ?? ''} />
+						{:else if selectedNode == 'start'}
+							{#if job.args}
+								<div class="p-2">
+									<JobArgs args={job.args} />
+								</div>
+							{:else}
+								<p class="p-2">No arguments</p>
+							{/if}
+						{:else if node}
+							<div class="px-2 flex gap-2 min-w-0 ">
+								<ModuleStatus type={node.type} scheduled_for={node['scheduled_for']} />
+								{#if node.job_id}
+									<div class="truncate"
+										><div class=" text-gray-900 whitespace-nowrap truncate">
+											<span class="font-bold">Job Id</span>
+											<a
+												rel="noreferrer"
+												target="_blank"
+												href="/run/{node.job_id ?? ''}?workspace={job?.workspace_id}"
+											>
+												{truncateRev(node.job_id ?? '', 10) ?? ''}
+											</a>
+										</div>
+									</div>
+								{/if}
+							</div>
+							<FlowJobResult noBorder col result={node.result ?? {}} logs={node.logs ?? ''} />
+						{:else}
+							<p class="p-2 text-gray-600 italic"
+								>The execution of this node has no information attached to it. The job likely did
+								not run yet</p
+							>
+						{/if}
+					{:else}<p class="p-2 text-gray-600 italic">Select a node to see its details here</p>{/if}
+				</div>
+			</div>
 		</div>
 	{/if}
 {:else}

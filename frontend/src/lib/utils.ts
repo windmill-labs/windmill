@@ -54,13 +54,13 @@ export function displayDaysAgo(dateString: string): string {
 	}
 }
 
-export function displayDate(dateString: string | undefined): string {
+export function displayDate(dateString: string | undefined, displaySecond = false): string {
 	const date = new Date(dateString ?? '')
 	if (date.toString() === 'Invalid Date') {
 		return ''
 	} else {
 		return `${date.getFullYear()}/${date.getMonth() + 1
-			}/${date.getDate()} at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+			}/${date.getDate()} at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: displaySecond ? '2-digit' : undefined })}`
 	}
 }
 
@@ -294,6 +294,9 @@ export function groupBy<T>(
 	})
 }
 
+export function removeMarkdown(text: string): string {
+	return text.replace(/[[\*|\-|#\_]/g, '')
+}
 export function truncate(s: string, n: number, suffix: string = '...'): string {
 	if (!s) {
 		return ''
@@ -363,7 +366,6 @@ export function schemaToTsType(schema: Schema): string {
 
 export function schemaToObject(schema: Schema, args: Record<string, any>): Object {
 	const object = {}
-
 	if (!schema || !schema.properties) {
 		return object
 	}
@@ -372,7 +374,6 @@ export function schemaToObject(schema: Schema, args: Record<string, any>): Objec
 	propKeys.forEach((key: string) => {
 		object[key] = args[key] ?? null
 	})
-
 	return object
 }
 

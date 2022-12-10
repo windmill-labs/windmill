@@ -8,11 +8,11 @@
 	import { createScriptFromInlineScript, fork } from '$lib/components/flows/flowStateUtils'
 	import { flowStore } from '$lib/components/flows/flowStore'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
-	import { RawScript, type FlowModule } from '$lib/gen'
+	import { RawScript, type FlowModule, type PathFlow, type PathScript } from '$lib/gen'
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
 	import { flowStateStore } from '../flowState'
-	import { scriptLangToEditorLang } from '$lib/utils'
+	import { schemaToObject, scriptLangToEditorLang } from '$lib/utils'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import { afterUpdate, getContext, setContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
@@ -26,6 +26,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import FlowModuleSleep from './FlowModuleSleep.svelte'
+	import FlowPathViewer from './FlowPathViewer.svelte'
 
 	const { selectedId, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -34,6 +35,9 @@
 
 	export let parentModule: FlowModule | undefined = undefined
 	export let previousModule: FlowModule | undefined
+
+	let value = flowModule.value as PathFlow | RawScript | PathScript
+	$: value = flowModule.value as PathFlow | RawScript | PathScript
 
 	let editor: Editor
 	let modulePreview: ModulePreview
@@ -45,21 +49,17 @@
 	let validCode = true
 	let width = 1200
 
-	let inputTransforms: Record<string, any> =
-		flowModule.value.type === 'rawscript' || flowModule.value.type === 'script'
-			? flowModule.value.input_transforms
-			: {}
+	let inputTransforms: Record<string, any> = value.input_transforms
 
-	$: if (flowModule.value.type === 'rawscript' || flowModule.value.type === 'script') {
-		flowModule.value.input_transforms = inputTransforms
-	}
+	$: value.input_transforms = inputTransforms
 
 	$: stepPropPicker = failureModule
 		? {
 				pickableProperties: {
-					flow_input: $previewArgs,
+					flow_input: schemaToObject($flowStore.schema, $previewArgs),
 					priorIds: {},
-					previousId: undefined
+					previousId: undefined,
+					hasResume: false
 				},
 				extraLib: ''
 		  }
@@ -87,10 +87,7 @@
 			const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
 			validCode = true
 			setTimeout(() => {
-				if (
-					(flowModule.value.type == 'script' || flowModule.value.type == 'rawscript') &&
-					JSON.stringify(flowModule.value.input_transforms) !== JSON.stringify(input_transforms)
-				) {
+				if (JSON.stringify(value.input_transforms) !== JSON.stringify(input_transforms)) {
 					inputTransforms = input_transforms
 				}
 			})
@@ -119,13 +116,14 @@
 
 <svelte:window on:keydown={onKeyDown} />
 
-{#if flowModule.value.type === 'rawscript' || flowModule.value.type === 'script'}
+{#if value}
 	<div class="h-full" bind:this={wrapper} bind:clientWidth={width}>
 		<FlowCard bind:flowModule>
 			<svelte:fragment slot="header">
 				<FlowModuleHeader
 					bind:module={flowModule}
 					on:toggleSuspend={() => (selected = 'advanced-suspend')}
+					on:toggleSleep={() => (selected = 'advanced-sleep')}
 					on:toggleRetry={() => (selected = 'advanced-retries')}
 					on:toggleStopAfterIf={() => (selected = 'advanced-early-stop')}
 					on:fork={async () => {
@@ -145,12 +143,12 @@
 				/>
 			</svelte:fragment>
 
-			{#if flowModule.value.type === 'rawscript'}
-				<div class="border-b-2 shadow-sm px-1 mb-1">
+			{#if value.type === 'rawscript'}
+				<div class="border-b-2 shadow-sm px-1">
 					<EditorBar
 						{validCode}
 						{editor}
-						lang={flowModule.value['language'] ?? 'deno'}
+						lang={value['language'] ?? 'deno'}
 						{websocketAlive}
 						iconOnly={width < 768}
 					/>
@@ -163,21 +161,21 @@
 				style="max-height: calc(100% - {totalTopGap}px) !important;"
 			>
 				<Splitpanes horizontal>
-					<Pane size={flowModule.value.type === 'script' ? 30 : 50} minSize={20}>
-						{#if flowModule.value.type === 'rawscript'}
+					<Pane size={value.type === 'script' ? 30 : 50} minSize={20}>
+						{#if value.type === 'rawscript'}
 							<div class="h-full">
 								<Editor
 									bind:websocketAlive
 									bind:this={editor}
 									class="h-full px-2"
-									bind:code={flowModule.value.content}
-									deno={flowModule.value.language === RawScript.language.DENO}
-									lang={scriptLangToEditorLang(flowModule.value.language)}
+									bind:code={value.content}
+									deno={value.language === RawScript.language.DENO}
+									lang={scriptLangToEditorLang(value.language)}
 									automaticLayout={true}
 									cmdEnterAction={async () => {
 										selected = 'test'
-										if (flowModule.value.type === 'rawscript') {
-											flowModule.value.content = editor.getCode()
+										if (value.type === 'rawscript') {
+											value.content = editor.getCode()
 										}
 										await reload(flowModule)
 										modulePreview?.runTestWithStepArgs()
@@ -188,11 +186,13 @@
 									formatAction={() => reload(flowModule)}
 								/>
 							</div>
-						{:else if flowModule.value.type === 'script'}
-							<FlowModuleScript path={flowModule.value.path} />
+						{:else if value.type === 'script'}
+							<FlowModuleScript path={value.path} />
+						{:else if value.type === 'flow'}
+							<FlowPathViewer path={value.path} />
 						{/if}
 					</Pane>
-					<Pane size={flowModule.value.type === 'script' ? 70 : 50} minSize={20}>
+					<Pane size={value.type === 'script' ? 70 : 50} minSize={20}>
 						<Tabs bind:selected>
 							<Tab value="inputs"><span class="font-semibold">Step Input</span></Tab>
 							<Tab value="test"><span class="font-semibold text-md">Test this step</span></Tab>
@@ -201,12 +201,15 @@
 						<div class="h-[calc(100%-32px)]">
 							{#if selected === 'inputs'}
 								<div class="h-full overflow-auto">
-									<PropPickerWrapper pickableProperties={stepPropPicker.pickableProperties}>
+									<PropPickerWrapper
+										pickableProperties={stepPropPicker.pickableProperties}
+										error={failureModule}
+									>
 										<SchemaForm
 											schema={$flowStateStore[$selectedId]?.schema ?? {}}
 											inputTransform={true}
 											previousModuleId={previousModule?.id}
-											bind:args={flowModule.value.input_transforms}
+											bind:args={value.input_transforms}
 											bind:extraLib={stepPropPicker.extraLib}
 										/>
 									</PropPickerWrapper>
@@ -221,7 +224,7 @@
 								<Tabs bind:selected>
 									<Tab value="advanced-retries">Retries</Tab>
 									{#if !$selectedId.includes('failure')}
-										<Tab value="advanced-early-stop">Early Stop</Tab>
+										<Tab value="advanced-early-stop">Early Stop/Break</Tab>
 										<Tab value="advanced-suspend">Suspend</Tab>
 										<Tab value="advanced-sleep">Sleep</Tab>
 										<Tab value="advanced-same_worker">Shared Directory</Tab>

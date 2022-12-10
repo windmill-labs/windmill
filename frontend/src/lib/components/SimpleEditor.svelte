@@ -116,7 +116,7 @@
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
 				code = getCode()
-				dispatch('change')
+				dispatch('change', { code })
 			}, 200)
 		})
 
@@ -182,13 +182,11 @@
 	})
 </script>
 
-<div bind:this={divEl} class={$$props.class} bind:clientWidth={width} />
+<div bind:this={divEl} class="{$$props.class} editor" bind:clientWidth={width} />
 
 <style>
 	.editor {
-		@apply px-0;
-		/* stylelint-disable-next-line unit-allowed-list */
-		height: 80vh;
+		@apply rounded-lg p-0;
 	}
 
 	.small-editor {

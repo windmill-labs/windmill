@@ -140,7 +140,7 @@
 <SplitPanesWrapper panesClass="!overflow-visible">
 	<Pane size={60} minSize={10} class="!overflow-visible">
 		<div
-			class="p-2 h-full !overflow-visible"
+			class="pl-2 h-full !overflow-visible"
 			on:mouseleave={() => {
 				inferSchema()
 			}}

@@ -1,14 +1,14 @@
 <script lang="ts">
-	import type { AppInputTransform } from '../../types'
-	import DynamicInputEditor from './DynamicInputEditor.svelte'
+	import type { AppInput } from '../../inputType'
+	import ConnectedInputEditor from './ConnectedInputEditor.svelte'
 	import StaticInputEditor from './StaticInputEditor.svelte'
 
-	export let appInputTransform: AppInputTransform
+	export let componentInput: AppInput
 	export let canHide: boolean = false
 </script>
 
-{#if appInputTransform.type === 'static'}
-	<StaticInputEditor bind:input={appInputTransform} {canHide} />
-{:else if appInputTransform.type === 'output'}
-	<DynamicInputEditor bind:input={appInputTransform} />
+{#if componentInput.type === 'static'}
+	<StaticInputEditor bind:componentInput {canHide} />
+{:else if componentInput.type === 'connected'}
+	<ConnectedInputEditor bind:componentInput />
 {/if}

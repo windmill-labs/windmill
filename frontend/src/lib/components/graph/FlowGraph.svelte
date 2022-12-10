@@ -13,54 +13,67 @@
 		type Loop,
 		type Branch,
 		type NestedNodes,
-		type ModuleHost
+		type ModuleHost,
+		type GraphModuleState
 	} from '.'
 	import { defaultIfEmptyString, truncateRev } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
-	import { numberToChars } from '../flows/utils'
-	import type { FlowState } from '../flows/flowState'
+	import { charsToNumber, numberToChars } from '../flows/utils'
 
 	export let modules: FlowModule[] | undefined = []
 	export let failureModule: FlowModule | undefined = undefined
 	export let minHeight: number = 0
 	export let notSelectable = false
-	export let flowModuleStates: Record<string, FlowStatusModule.type> | undefined = undefined
+	export let flowModuleStates: Record<string, GraphModuleState> | undefined = undefined
 
 	let selectedNode: string | undefined = undefined
 
-	const idGenerator = createIdGenerator()
+	let idGenerator: Generator
 	let nestedNodes: NestedNodes
 	let nodes: Node[] = []
 	let edges: Edge[] = []
 	let width: number, height: number
 
+	let errorHandlers: Record<string, number> = {}
+
 	let dispatch = createEventDispatcher()
 
 	$: {
 		width && height && minHeight && selectedNode && flowModuleStates
-		if (modules) {
-			createGraph(modules, failureModule)
-		} else {
-			nodes = edges = []
-		}
+		nodes = edges = []
+		errorHandlers = {}
+		createGraph()
 	}
 
-	function createGraph(modules: FlowModule[], failureModule?: FlowModule) {
+	async function createGraph() {
+		if (modules) {
+			idGenerator = createIdGenerator()
+		} else {
+			nodes = edges = []
+			return
+		}
 		nestedNodes = nodes = []
 
-		nestedNodes.push(createVirtualNode(getParentIds(), 'Flow start'))
+		nestedNodes.push(createVirtualNode(getParentIds(), 'Input'))
+
 		modules.forEach((m) => {
 			const item = getConvertedFlowModule(m)
 			item && nestedNodes.push(item)
 		})
-		const endParentIds = getParentIds()
-		nestedNodes.push(createVirtualNode(getParentIds(), 'Flow end'))
-		if (failureModule) {
-			nestedNodes.push(createErrorHandler(endParentIds, failureModule))
-		}
+		nestedNodes.push(createVirtualNode(getParentIds(), 'Result'))
 
+		if (!flowModuleStates) {
+			if (failureModule) nestedNodes.push(createErrorHandler(failureModule))
+		} else {
+			Object.entries(flowModuleStates ?? [])
+				.filter(([k, v]) => k.startsWith('failure'))
+				.forEach(([k, v]) => {
+					nestedNodes.push(createErrorHandler({ id: k } as FlowModule, v.parent_module))
+				})
+		}
 		const flatNodes = flattenNestedNodes(nestedNodes)
 		const layered = layoutNodes(flatNodes)
+
 		nodes = layered.nodes
 		// width = layered.width
 		height = layered.height
@@ -110,6 +123,16 @@
 		} else if (type === 'branchall') {
 			const branches = module.value.branches.map((b) => b.modules)
 			return flowModuleToBranch(module, branches, [], parent)
+		} else if (type === 'flow') {
+			return flowModuleToNode(
+				parentIds,
+				module.id,
+				module.summary || 'Flow ' + module.value.path,
+				'inline',
+				module,
+				undefined,
+				edgeLabel
+			)
 		}
 		return flowModuleToNode(
 			parentIds,
@@ -130,7 +153,8 @@
 		if (!item) return []
 
 		if (isNode(item)) {
-			return ['' + item.id]
+			const id = numberToChars(item.id)
+			return [id]
 		} else if (isLoop(item)) {
 			return getParentIds(item.items)
 		} else if (isBranch(item)) {
@@ -142,11 +166,15 @@
 	function getStateColor(state: FlowStatusModule.type | undefined): string {
 		switch (state) {
 			case FlowStatusModule.type.SUCCESS:
-				return 'rgb(34 197 94)'
+				return 'rgb(193, 255, 216)'
 			case FlowStatusModule.type.FAILURE:
 				return 'rgb(248 113 113)'
 			case FlowStatusModule.type.IN_PROGRESS:
-				return 'rgb(253 224 71)'
+				return 'rgb(253, 240, 176)'
+			case FlowStatusModule.type.WAITING_FOR_EVENTS:
+				return 'rgb(229, 176, 253)'
+			case FlowStatusModule.type.WAITING_FOR_EXECUTOR:
+				return 'rgb(255, 208, 193)'
 			default:
 				return '#fff'
 		}
@@ -158,7 +186,8 @@
 		host: ModuleHost,
 		onClickDetail: any,
 		lang?: RawScript.language,
-		edgeLabel?: string
+		edgeLabel?: string,
+		header?: string
 	): Node {
 		const langImg: Record<RawScript.language, string> = {
 			deno: '/icons/ts-lang.svg',
@@ -172,9 +201,10 @@
 			inline: ''
 		}
 		const wrapperWidth = lang ? 'w-[calc(100%-70px)]' : 'w-[calc(100%-50px)]'
-		const graphId = idGenerator.next().value
+		let nodeId = id ?? numberToChars(idGenerator.next().value - 1)
+
 		return {
-			id: graphId,
+			id: charsToNumber(nodeId),
 			position: { x: -1, y: -1 },
 			data: {
 				html: `
@@ -186,24 +216,27 @@
 						${lang ? `<img src="${langImg[lang]}" class="grayscale">` : ''}
 						${host != 'inline' ? `<img src="${hostImg[host]}" class="grayscale">` : ''}
 						<span class="center-center font-semibold bg-indigo-100 text-indigo-800 rounded px-1 pb-[2px] ml-[2px]">
-							${id ?? numberToChars(graphId - 1)}
+							${nodeId}
 						</span>
 					</div>
 				</div>
+				<div class="text-2xs absolute -top-6 text-gray-600 truncate">${
+					flowModuleStates?.[nodeId]?.scheduled_for ?? header ?? ''
+				}<div>
 			`
 			},
 			host,
 			width: NODE.width,
 			height: NODE.height,
-			borderColor: selectedNode == onClickDetail.id ? 'black' : '#999',
-			bgColor:
-				selectedNode == onClickDetail.id
-					? '#f5f5f5'
-					: getStateColor(flowModuleStates?.[onClickDetail.id]),
+			borderColor: selectedNode == nodeId ? 'black' : '#999',
+			bgColor: selectedNode == nodeId ? '#f5f5f5' : getStateColor(flowModuleStates?.[nodeId]?.type),
 			parentIds,
 			clickCallback: (node) => {
 				if (!notSelectable) {
-					selectedNode = onClickDetail.id
+					selectedNode = nodeId
+				}
+				if (onClickDetail.id == undefined) {
+					onClickDetail.id = nodeId
 				}
 				dispatch('click', onClickDetail)
 			},
@@ -227,7 +260,11 @@
 					module.summary || `For Loop: ${defaultIfEmptyString(expr ?? '', 'TBD')}`,
 					'inline',
 					module,
-					undefined
+					undefined,
+					undefined,
+					flowModuleStates?.[module.id]?.iteration_total
+						? 'Iteration ' + flowModuleStates?.[module.id]?.iteration_total
+						: ''
 				)
 			]
 		}
@@ -238,7 +275,9 @@
 		loop.items.push(
 			createVirtualNode(
 				getParentIds(loop.items),
-				`Collect iterations' results of For Loop ${module.id}`
+				`Collect iterations' results of For Loop ${module.id}`,
+				undefined,
+				1000
 			)
 		)
 		return loop
@@ -264,7 +303,7 @@
 			),
 			items: []
 		}
-		const branchParent = [branch.node.id.toString()]
+		const branchParent = [numberToChars(branch.node.id)]
 		if (branches.length == 0) {
 			branch.items.push([createVirtualNode(branchParent, 'No branches')])
 		}
@@ -276,7 +315,7 @@
 				modules.forEach((module) => {
 					const item = getConvertedFlowModule(
 						module,
-						items.length ? items : branch.node.id.toString(),
+						items.length ? items : numberToChars(branch.node.id),
 						edgesLabel[i]
 					)
 					item && items.push(item)
@@ -305,8 +344,9 @@
 	}
 
 	function layoutNodes(nodes: Node[]): { nodes: Node[]; height: number } {
-		const stratify = dagStratify().id(({ id }: Node) => '' + id)
+		const stratify = dagStratify().id(({ id }: Node) => numberToChars(id))
 		const dag = stratify(nodes)
+
 		const layout = sugiyama()
 			.decross(decrossOpt())
 			.coord(coordCenter())
@@ -315,7 +355,7 @@
 		return {
 			nodes: dag.descendants().map((des) => ({
 				...des.data,
-				id: +des.data.id,
+				id: des.data.id,
 				position: {
 					x: des.x ? des.x + (width - boxSize.width - NODE.width) / 2 : 0,
 					y: des.y || 0
@@ -329,25 +369,56 @@
 		const edges: Edge[] = []
 		nodes.forEach((node) => {
 			node.parentIds.forEach((pid, i) => {
-				edges.push({
-					id: `e-${pid}-${node.id}`,
-					source: +pid,
-					target: node.id,
-					labelBgColor: 'white',
-					arrow: true,
-					animate: false,
-					noHandle: false,
-					label: node.edgeLabel
-					// type: 'smoothstep'
-				})
+				// skip virtual nodes such as collect result
+				if (errorHandlers[pid] && node.id < 900 && nodes.find((x) => x.id == errorHandlers[pid])) {
+					edges.push({
+						id: `e-${pid}-${node.id}`,
+						source: charsToNumber(pid),
+						target: errorHandlers[pid],
+						labelBgColor: 'white',
+						arrow: true,
+						animate: false,
+						noHandle: false,
+						label: node.edgeLabel
+						// type: 'smoothstep'
+					})
+					edges.push({
+						id: `e-${pid}-${node.id}`,
+						source: errorHandlers[pid],
+						target: node.id,
+						labelBgColor: 'white',
+						arrow: true,
+						animate: false,
+						noHandle: false,
+						label: node.edgeLabel
+						// type: 'smoothstep'
+					})
+				} else {
+					edges.push({
+						id: `e-${pid}-${node.id}`,
+						source: charsToNumber(pid),
+						target: node.id,
+						labelBgColor: 'white',
+						arrow: true,
+						animate: false,
+						noHandle: false,
+						label: node.edgeLabel
+						// type: 'smoothstep'
+					})
+				}
 			})
 		})
 		return edges
 	}
 
-	function createVirtualNode(parentIds: string[], label: string, edgesLabel?: string): Node {
+	function createVirtualNode(
+		parentIds: string[],
+		label: string,
+		edgesLabel?: string,
+		offset?: number
+	): Node {
 		return {
-			id: idGenerator.next().value,
+			id: -idGenerator.next().value - 1 + (offset ?? 0),
 			position: { x: -1, y: -1 },
 			data: {
 				html: `
@@ -358,40 +429,54 @@
 			},
 			width: NODE.width,
 			height: NODE.height,
-			borderColor: '#999',
-			bgColor: '#d4e4ff',
-			parentIds
+			borderColor: selectedNode == label ? 'black' : '#999',
+			bgColor: selectedNode == label ? '#f5f5f5' : '#d4e4ff',
+			parentIds,
+			clickCallback: (node) => {
+				if (!notSelectable) {
+					selectedNode = label
+				}
+				dispatch('click', label)
+			}
 		}
 	}
 
-	function createErrorHandler(parentIds: string[], module: FlowModule): Node {
+	function createErrorHandler(mod: FlowModule, parent_module?: string): Node {
+		const nId = -idGenerator.next().value - 1 + 1100
+		parent_module && (errorHandlers[parent_module] = nId)
 		return {
-			id: -1,
+			id: nId,
 			position: { x: -1, y: -1 },
 			data: {
 				html: `
-				<div class="w-full max-h-full text-center ellipsize-multi-line text-2xs [-webkit-line-clamp:2] px-1">
-					Error handler
+				<div class="w-full flex justify-between items-center px-1">
+					<div class="text-left ellipsize text-2xs truncate">
+						Error Handler
+					</div>
+					<div class="flex items-center">
+						<span class="center-center font-semibold bg-indigo-100 text-indigo-800 rounded px-1 pb-[2px] ml-[2px]">
+							${mod.id}
+						</span>
+					</div>
 				</div>
 			`
 			},
 			width: NODE.width,
 			height: NODE.height,
-			bgColor: 'rgb(248 113 113)',
-			borderColor: '#999',
-
-			parentIds,
+			bgColor: selectedNode == mod.id ? '#f5f5f5' : getStateColor(flowModuleStates?.[mod.id]?.type),
+			borderColor: selectedNode == mod.id ? 'black' : '#999',
+			parentIds: parent_module ? [parent_module] : [],
 			clickCallback: (node) => {
 				if (!notSelectable) {
-					selectedNode = module.id
+					selectedNode = mod.id
 				}
-				dispatch('click', module)
+				dispatch('click', mod)
 			}
 		}
 	}
 </script>
 
-<div bind:clientWidth={width} class="w-full h-full overflow-hidden">
+<div bind:clientWidth={width} class="w-full h-full overflow-hidden relative">
 	{#if width && height}
 		<Svelvet {nodes} {width} {edges} {height} bgColor="rgb(249 250 251)" />
 	{/if}

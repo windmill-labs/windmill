@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.52.0
+  version: 1.55.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -147,6 +147,7 @@ components:
       oneOf:
         - $ref: "#/components/schemas/RawScript"
         - $ref: "#/components/schemas/PathScript"
+        - $ref: "#/components/schemas/PathFlow"
         - $ref: "#/components/schemas/ForloopFlow"
         - $ref: "#/components/schemas/BranchOne"
         - $ref: "#/components/schemas/BranchAll"
@@ -156,6 +157,7 @@ components:
         mapping:
           rawscript: "#/components/schemas/RawScript"
           script: "#/components/schemas/PathScript"
+          flow: "#/components/schemas/PathFlow"
           forloopflow: "#/components/schemas/ForloopFlow"
           branchone: "#/components/schemas/BranchOne"
           branchall: "#/components/schemas/BranchAll"
@@ -195,7 +197,26 @@ components:
     PathScript:
       type: object
       properties:
-        # to be made required once migration is over
+        input_transforms:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/InputTransform"
+        path:
+          type: string
+        hash:
+          type: string
+        type:
+          type: string
+          enum:
+            - script
+      required:
+        - type
+        - path
+        - input_transforms
+
+    PathFlow:
+      type: object
+      properties:
         input_transforms:
           type: object
           additionalProperties:
@@ -205,7 +226,7 @@ components:
         type:
           type: string
           enum:
-            - script
+            - flow
       required:
         - type
         - path
@@ -302,8 +323,11 @@ components:
           type: string
           enum:
             - identity
+        flow:
+          type: boolean
       required:
         - type
+        
     FlowStatus:
       type: object
       properties:
@@ -314,7 +338,13 @@ components:
           items:
             $ref: "#/components/schemas/FlowStatusModule"
         failure_module:
-          $ref: "#/components/schemas/FlowStatusModule"
+          allOf:
+            - $ref: "#/components/schemas/FlowStatusModule"
+            - type: object
+              properties:
+                parent_module:
+                  type: string
+                  
         retry:
           type: object
           properties:
@@ -337,7 +367,7 @@ components:
           type: string
           enum:
             - WaitingForPriorSteps
-            - WaitingForEvent
+            - WaitingForEvents
             - WaitingForExecutor
             - InProgress
             - Success

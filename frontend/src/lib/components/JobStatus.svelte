@@ -43,21 +43,27 @@
 		</Badge>
 	</div>
 {:else if job && 'running' in job && job.running}
-	<Badge large color="yellow">
-		<Icon data={faCircle} scale={SMALL_ICON_SCALE} class="mr-2" />
-		Running {#if job.flow_status}({job.flow_status?.step ?? ''} of {job.raw_flow?.modules?.length ??
-				'?'}){/if}
-	</Badge>
+	<div>
+		<Badge large color="yellow">
+			<Icon data={faCircle} scale={SMALL_ICON_SCALE} class="mr-2" />
+			Running {#if job.flow_status}({job.flow_status?.step ?? ''} of {job.raw_flow?.modules
+					?.length ?? '?'}){/if}
+		</Badge>
+	</div>
 {:else if job && 'running' in job && 'scheduled_for' in job && job.scheduled_for && forLater(job.scheduled_for)}
-	<Badge>
-		<Icon data={faCalendar} scale={SMALL_ICON_SCALE} class="mr-2" />
-		Scheduled for {displayDate(job.scheduled_for)}
-	</Badge>
+	<div>
+		<Badge>
+			<Icon data={faCalendar} scale={SMALL_ICON_SCALE} class="mr-2" />
+			Scheduled for {displayDate(job.scheduled_for)}
+		</Badge>
+	</div>
 {:else if job && 'running' in job}
-	<Badge>
-		<Icon data={faClock} scale={SMALL_ICON_SCALE} class="mr-2" />
-		Queued
-	</Badge>
+	<div>
+		<Badge>
+			<Icon data={faClock} scale={SMALL_ICON_SCALE} class="mr-2" />
+			Queued
+		</Badge>
+	</div>
 {:else}
 	<Icon class="text-gray-200" data={faCircle} scale={SMALL_ICON_SCALE} />
 {/if}

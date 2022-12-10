@@ -5,7 +5,7 @@
 	import { faStar } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import { Star } from 'svelte-lucide'
+	import { Star } from 'lucide-svelte'
 
 	export let path: string
 	export let kind: 'flow' | 'app' | 'script'
@@ -39,6 +39,6 @@
 			<Icon data={faStar} class="hover:text-gray-300" scale={1.1} />
 		</div>
 	{:else}
-		<Star size="18px" class="hover:bg-gray-200" />
+		<Star size={18} class="hover:bg-gray-200" />
 	{/if}
 </button>

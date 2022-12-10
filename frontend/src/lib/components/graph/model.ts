@@ -1,3 +1,4 @@
+import type { FlowStatusModule } from "$lib/gen"
 import type { Node as SvelvetNode } from "svelvet"
 
 export type ModuleHost = 'workspace' | 'inline' | 'hub'
@@ -16,6 +17,17 @@ export type Branch = {
 }
 
 export type GraphItem = Node | Loop | Branch
+
+export type GraphModuleState = {
+	type: FlowStatusModule.type
+	logs?: string
+	result?: any
+	scheduled_for?: string
+	job_id?: string
+	parent_module?: string
+	iteration_total?: number
+	retries?: number
+}
 
 export type NestedNodes = GraphItem[]
 

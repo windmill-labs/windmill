@@ -4,7 +4,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { Wind } from 'svelte-lucide'
+	import { Wind } from 'lucide-svelte'
 
 	type Item = { summary: String; path: String; version?: String }
 
@@ -35,7 +35,7 @@
 	color="light"
 >
 	<div class="flex justify-center flex-col items-center gap-2">
-		<Wind size="18px" />
+		<Wind size={18} />
 
 		<span class="text-xs">Flow</span>
 	</div>

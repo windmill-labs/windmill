@@ -7,7 +7,7 @@
 </script>
 
 <script lang="ts">
-	import { canWrite, emptySchema, sendUserToast, truncate } from '$lib/utils'
+	import { canWrite, emptySchema, removeMarkdown, sendUserToast, truncate } from '$lib/utils'
 	import { OauthService, ResourceService, type ListableResource } from '$lib/gen'
 	import type { ResourceType } from '$lib/gen'
 	import PageHeader from '$lib/components/PageHeader.svelte'
@@ -45,13 +45,18 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
-	import { Building } from 'svelte-lucide'
+	import { Building } from 'lucide-svelte'
+	import ListFilters from '$lib/components/home/ListFilters.svelte'
+	import SearchItems from '$lib/components/SearchItems.svelte'
+	import autosize from 'svelte-autosize'
 
 	type ResourceW = ListableResource & { canWrite: boolean }
 	type ResourceTypeW = ResourceType & { canWrite: boolean }
 
 	let resources: ResourceW[] | undefined
 	let resourceTypes: ResourceTypeW[] | undefined
+
+	let filteredItems: (ResourceW & { marked?: string })[] | undefined = undefined
 
 	let resourceTypeViewer: Drawer
 	let resourceTypeViewerObj = {
@@ -76,6 +81,26 @@
 	}
 
 	$: open = Boolean(deleteConfirmedCallback)
+
+	$: owners = Array.from(
+		new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
+	).sort()
+
+	$: types = Array.from(new Set(filteredItems?.map((x) => x.resource_type))).sort()
+
+	let filter = ''
+	let ownerFilter: string | undefined = undefined
+	let typeFilter: string | undefined = undefined
+
+	$: preFilteredItemsOwners =
+		ownerFilter == undefined
+			? resources
+			: resources?.filter((x) => x.path.startsWith(ownerFilter ?? ''))
+
+	$: preFilteredType =
+		typeFilter == undefined
+			? preFilteredItemsOwners
+			: preFilteredItemsOwners?.filter((x) => x.resource_type == typeFilter)
 
 	async function loadResources(): Promise<void> {
 		resources = (await ResourceService.listResource({ workspace: $workspaceStore! })).map((x) => {
@@ -187,49 +212,59 @@
 
 <Drawer bind:this={resourceTypeDrawer} size="800px">
 	<DrawerContent title="Create resource type" on:close={resourceTypeDrawer.closeDrawer}>
-		<div>
-			<div class="flex flex-col gap-6">
-				<label for="inp">
-					<div class="mb-1 font-semibold text-gray-700">Name<Required required={true} /></div>
-					<div class="flex flex-row items-center gap-x-4">
-						{#if !disableCustomPrefix}
-							<span
-								class="border border-gray-700 rounded p-1 -mr-6 text-sm bg-gray-200 inline-block w-8"
-								>c_</span
-							>
-						{/if}
-
-						<div class="inline-block">
-							<input id="inp" type="text" bind:value={newResourceType.name} />
-						</div>
-
-						{#if $userStore?.is_admin || $superadmin}
-							<Toggle
-								bind:checked={disableCustomPrefix}
-								options={{ right: 'disable c_ prefix (admin only)' }}
-							/>
-							<Tooltip
-								>Resource types are synchronized with the official types on the hub regularly. The
-								`c_` prefix is to avoid name clashes with them.</Tooltip
-							>
-						{/if}
-					</div>
-				</label>
-				<label>
-					<div class="mb-1 font-semibold text-gray-700">Description</div>
-					<input type="text" bind:value={newResourceType.description} /></label
-				>
-				<div>
-					<div class="mb-1 font-semibold text-gray-700">Schema</div>
-					<SchemaEditor bind:schema={newResourceType.schema} />
-				</div>
-			</div>
-		</div>
-		<div slot="submission">
+		<svelte:fragment slot="actions">
 			<Button startIcon={{ icon: faSave }} on:click={addResourceType}>Save</Button>
+		</svelte:fragment>
+		<div class="flex flex-col gap-6">
+			<label for="inp">
+				<div class="mb-1 font-semibold text-gray-700">Name<Required required={true} /></div>
+				<div class="flex flex-row items-center gap-x-4">
+					{#if !disableCustomPrefix}
+						<span
+							class="border border-gray-700 rounded p-1 -mr-6 text-sm bg-gray-200 inline-block w-8"
+							>c_</span
+						>
+					{/if}
+
+					<div class="inline-block">
+						<input id="inp" type="text" bind:value={newResourceType.name} />
+					</div>
+
+					{#if $userStore?.is_admin || $superadmin}
+						<Toggle
+							bind:checked={disableCustomPrefix}
+							options={{ right: 'disable c_ prefix (admin only)' }}
+						/>
+						<Tooltip
+							>Resource types are synchronized with the official types on the hub regularly. The
+							`c_` prefix is to avoid name clashes with them.</Tooltip
+						>
+					{/if}
+				</div>
+			</label>
+			<label>
+				<div class="mb-1 font-semibold text-gray-700">Description</div>
+				<textarea
+					type="text"
+					use:autosize
+					autocomplete="off"
+					bind:value={newResourceType.description}
+				/></label
+			>
+			<div>
+				<div class="mb-1 font-semibold text-gray-700">Schema</div>
+				<SchemaEditor bind:schema={newResourceType.schema} />
+			</div>
 		</div>
 	</DrawerContent>
 </Drawer>
+
+<SearchItems
+	{filter}
+	items={preFilteredType}
+	bind:filteredItems
+	f={(x) => x.path + ' ' + x.resource_type + ' ' + x.description + ' '}
+/>
 
 <CenteredPage>
 	<PageHeader
@@ -248,7 +283,7 @@
 	<Tabs bind:selected={tab}>
 		<Tab size="md" value="workspace">
 			<div class="flex gap-2 items-center my-1">
-				<Building size="18px" />
+				<Building size={18} />
 				Workspace
 			</div>
 		</Tab>
@@ -262,6 +297,12 @@
 		</Tab>
 	</Tabs>
 	{#if tab == 'workspace'}
+		<div class="pt-2">
+			<input placeholder="Search Resource" bind:value={filter} class="input mt-1" />
+		</div>
+		<ListFilters bind:selectedFilter={ownerFilter} filters={owners} />
+		<ListFilters bind:selectedFilter={typeFilter} filters={types} />
+
 		<div class="overflow-x-auto pb-40">
 			{#if loading.resources}
 				<Skeleton layout={[0.5, [2], 1]} />
@@ -279,14 +320,15 @@
 						<th />
 					</tr>
 					<tbody slot="body">
-						{#if resources}
-							{#each resources as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired }}
+						{#if filteredItems}
+							{#each filteredItems as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, marked, is_refreshed }}
 								<tr>
 									<td>
 										<a
 											class="break-words"
 											href="#{path}"
-											on:click={() => resourceEditor?.initEdit?.(path)}>{path}</a
+											on:click={() => resourceEditor?.initEdit?.(path)}
+											>{#if marked}{@html marked}{:else}{path}{/if}</a
 										>
 									</td>
 									<td><SharedBadge {canWrite} extraPerms={extra_perms} /></td>
@@ -313,7 +355,7 @@
 									>
 									<td
 										><span class="text-gray-500 text-xs"
-											><SvelteMarkdown source={truncate(description ?? '', 30)} /></span
+											>{removeMarkdown(truncate(description ?? '', 30))}</span
 										></td
 									>
 									<td class="text-center">
@@ -330,7 +372,7 @@
 												{/if}
 											</div>
 											<div class="w-10">
-												{#if account}
+												{#if is_refreshed}
 													<Popover>
 														<Icon data={faRefresh} />
 														<div slot="text">
@@ -489,7 +531,7 @@
 									>
 									<td
 										><span class="text-gray-500 text-xs"
-											><SvelteMarkdown source={truncate(description ?? '', 200)} /></span
+											>{removeMarkdown(truncate(description ?? '', 200))}</span
 										></td
 									>
 									<td>

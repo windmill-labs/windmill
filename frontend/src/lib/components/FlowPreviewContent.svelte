@@ -18,8 +18,8 @@
 	export let previewMode: 'upTo' | 'whole'
 	export let open: boolean
 
-	let jobId: string | undefined = undefined
-	let job: Job | undefined = undefined
+	export let jobId: string | undefined = undefined
+	export let job: Job | undefined = undefined
 	let isValid: boolean = false
 	let isRunning: boolean = false
 	let jobProgressReset: () => void
@@ -83,11 +83,8 @@
 		}
 	}
 
-	function onJobsLoaded(newJob: Job | undefined) {
-		job = newJob
-		if (job?.type === 'CompletedJob') {
-			isRunning = false
-		}
+	$: if (job?.type === 'CompletedJob') {
+		isRunning = false
 	}
 </script>
 
@@ -97,17 +94,12 @@
 
 <div class="flex divide-y flex-col space-y-2 h-screen bg-white px-6 py-2 w-full">
 	<div class="flex flex-row justify-between w-full items-center gap-x-2">
-		<Button
-			variant="border"
-			size="lg"
-			color="dark"
-			btnClasses="!p-0 !w-16 !h-full"
-			on:click={() => {
-				dispatch('close')
-			}}
+		<button
+			on:click={() => dispatch('close')}
+			class="hover:bg-gray-200 bg-gray-100 rounded-full w-8 h-8 flex items-center justify-center transition-all"
 		>
-			<Icon data={faClose} />
-		</Button>
+			<Icon data={faClose} class="text-gray-500" />
+		</button>
 
 		{#if isRunning}
 			<Button
@@ -162,14 +154,9 @@
 			bind:isValid
 			bind:args={$previewArgs}
 		/>
-
 		<div class="h-full pt-4 grow">
 			{#if jobId}
-				<FlowStatusViewer
-					bind:flowState={$flowStateStore}
-					{jobId}
-					on:jobsLoaded={({ detail }) => onJobsLoaded(detail)}
-				/>
+				<FlowStatusViewer bind:flowState={$flowStateStore} {jobId} bind:job />
 			{:else}
 				<div class="italic text-gray-500 h-full grow"> Flow status will be displayed here </div>
 			{/if}

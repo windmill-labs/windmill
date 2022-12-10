@@ -2,7 +2,7 @@
 	import Highlight from 'svelte-highlight'
 	import json from 'svelte-highlight/languages/json'
 	import { faClipboard } from '@fortawesome/free-solid-svg-icons'
-	import type { FlowModule, FlowValue } from '$lib/gen'
+	import type { FlowValue } from '$lib/gen'
 	import { Tab, Tabs, TabContent, Button } from './common'
 	import SchemaViewer from './SchemaViewer.svelte'
 	import FieldHeader from './FieldHeader.svelte'
@@ -17,6 +17,7 @@
 		schema?: any
 	}
 	export let initialOpen: number | undefined = undefined
+	export let noSide = false
 
 	$: flowFiltered = {
 		summary: flow.summary,
@@ -76,7 +77,7 @@
 				{:else}
 					<div class="text-gray-700 text-xs italic mb-4">No inputs</div>
 				{/if}
-				<FlowGraphViewer {flow} overflowAuto />
+				<FlowGraphViewer {noSide} {flow} overflowAuto />
 			</div>
 		</TabContent>
 		<TabContent value="json">

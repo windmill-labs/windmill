@@ -13,7 +13,7 @@
 	import PickHubFlow from './PickHubFlow.svelte'
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import { Building, Globe2 } from 'svelte-lucide'
+	import { Building, Globe2 } from 'lucide-svelte'
 
 	import CreateApp from '$lib/components/apps/CreateApp.svelte'
 	import ItemsList from '$lib/components/home/ItemsList.svelte'
@@ -36,13 +36,13 @@
 		codeViewerContent = content
 		codeViewerLanguage = language
 		codeViewerObj = obj
-		codeViewer.openDrawer()
+		codeViewer.openDrawer?.()
 	}
 
 	async function viewFlow(obj: { flow_id: number }): Promise<void> {
 		const hub = await FlowService.getHubFlowById({ id: obj.flow_id })
 		flowViewerFlow = hub
-		flowViewer.openDrawer()
+		flowViewer.openDrawer?.()
 	}
 
 	$: clientHeight = 0
@@ -50,50 +50,68 @@
 
 <Drawer bind:this={codeViewer} size="900px">
 	<DrawerContent title={codeViewerObj?.summary ?? ''} on:close={codeViewer.closeDrawer}>
-		<div slot="submission" class="flex flex-row gap-2 pr-2">
+		<svelte:fragment slot="actions">
 			<Button
 				href="https://hub.windmill.dev/scripts/{codeViewerObj?.app ?? ''}/{codeViewerObj?.ask_id ??
 					0}"
-				startIcon={{ icon: faGlobe }}
-				variant="border"
+				variant="contained"
+				color="light"
+				size="xs"
 			>
-				View on the Hub
+				<div class="flex gap-2 items-center">
+					<Globe2 size={18} />
+					View on the Hub
+				</div>
 			</Button>
 			<Button
 				href="/scripts/add?hub={encodeURIComponent(codeViewerObj?.path ?? '')}"
 				startIcon={{ icon: faCodeFork }}
+				color="dark"
+				size="xs"
 			>
 				Fork
 			</Button>
-		</div>
+		</svelte:fragment>
 
 		<HighlightCode language={codeViewerLanguage} code={codeViewerContent} />
 	</DrawerContent>
 </Drawer>
 
-<Drawer bind:this={flowViewer} size="900px">
+<Drawer bind:this={flowViewer} size="1200px">
 	<DrawerContent title="Hub flow" on:close={flowViewer.closeDrawer}>
-		<div slot="submission" class="flex flex-row gap-2 pr-2">
+		<svelte:fragment slot="actions">
 			<Button
 				href="https://hub.windmill.dev/flows/{flowViewerFlow?.flow?.id}"
-				startIcon={{ icon: faGlobe }}
-				variant="border"
+				variant="contained"
+				color="light"
+				size="xs"
 			>
-				View on the Hub
+				<div class="flex gap-2 items-center">
+					<Globe2 size={18} />
+					View on the Hub
+				</div>
 			</Button>
-			<Button href="/flows/add?hub={flowViewerFlow?.flow?.id}" startIcon={{ icon: faCodeFork }}>
+
+			<Button
+				href="/flows/add?hub={flowViewerFlow?.flow?.id}"
+				startIcon={{ icon: faCodeFork }}
+				color="dark"
+				size="xs"
+			>
 				Fork
 			</Button>
-		</div>
+		</svelte:fragment>
 
 		{#if flowViewerFlow?.flow}
-			<FlowViewer flow={flowViewerFlow.flow} />
+			<div class="p-4">
+				<FlowViewer flow={flowViewerFlow.flow} />
+			</div>
 		{/if}
 	</DrawerContent>
 </Drawer>
 
 <div bind:clientHeight>
-	<CenteredPage>
+	<div class="max-w-6xl mx-auto px-4 sm:px-6 md:px-8 h-fit-content">
 		{#if $workspaceStore == 'demo'}
 			<div class="my-4" />
 			<Alert title="Demo workspace">All users get an invitation to this workspace.</Alert>
@@ -114,23 +132,22 @@
 			</div>
 		</PageHeader>
 
-		<div class="my-6" />
 		<Tabs bind:selected={tab}>
 			<Tab size="md" value="workspace">
 				<div class="flex gap-2 items-center my-1">
-					<Building size="18px" />
+					<Building size={18} />
 					Workspace
 				</div>
 			</Tab>
 			<Tab size="md" value="hubscripts">
 				<div class="flex gap-2 items-center my-1">
-					<Globe2 size="18px" />
+					<Globe2 size={18} />
 					Hub Scripts
 				</div>
 			</Tab>
 			<Tab size="md" value="hubflows">
 				<div class="flex gap-2 items-center my-1">
-					<Globe2 size="18px" />
+					<Globe2 size={18} />
 					Hub Flows
 				</div>
 			</Tab>
@@ -145,7 +162,7 @@
 				{/if}
 			</div>
 		</div>
-	</CenteredPage>
+	</div>
 </div>
 
 {#if tab == 'workspace'}

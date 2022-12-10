@@ -11,6 +11,16 @@
 		noSuggestionDiagnostics: true,
 		noSyntaxValidation: true
 	})
+	monaco.editor.defineTheme('myTheme', {
+		base: 'vs',
+		inherit: true,
+		rules: [],
+		colors: {
+			'editorLineNumber.foreground': '#999',
+			'editorGutter.background': '#F9FAFB'
+		}
+	})
+	monaco.editor.setTheme('myTheme')
 </script>
 
 <script lang="ts">
@@ -485,12 +495,10 @@
 	})
 </script>
 
-<div bind:this={divEl} class={$$props.class} />
+<div bind:this={divEl} class="{$$props.class} editor" />
 
 <style>
 	.editor {
-		@apply px-0;
-		/* stylelint-disable-next-line unit-allowed-list */
-		height: 80vh;
+		@apply p-0 border rounded-md border-gray-50;
 	}
 </style>

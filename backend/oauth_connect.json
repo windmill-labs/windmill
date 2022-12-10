@@ -71,5 +71,11 @@
     "extra_params": {
       "type": "web_server"
     }
+  },
+  "linkedin": {
+    "auth_url": "https://www.linkedin.com/oauth/v2/authorization",
+    "token_url": "https://www.linkedin.com/oauth/v2/accessToken",
+    "scopes": ["w_member_social"],
+    "req_body_auth": true
   }
 }

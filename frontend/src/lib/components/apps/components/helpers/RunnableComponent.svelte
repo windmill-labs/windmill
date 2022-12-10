@@ -9,17 +9,16 @@
 	import { workspaceStore } from '$lib/stores'
 	import { faRefresh } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
+	import type { AppInputs, Runnable } from '../../inputType'
 	import type { Output } from '../../rx'
-	import type { AppEditorContext, InputsSpec } from '../../types'
+	import type { AppEditorContext } from '../../types'
 	import { loadSchema, schemaToInputsSpec } from '../../utils'
 	import InputValue from './InputValue.svelte'
 
 	// Component props
 	export let id: string
-	export let inputs: InputsSpec
-	export let path: string | undefined = undefined
-	export let runType: 'script' | 'flow' | undefined = undefined
-	export let inlineScriptName: string | undefined = undefined
+	export let inputs: AppInputs
+	export let runnable: Runnable
 	export let extraQueryParams: Record<string, any> = {}
 	export let autoRefresh: boolean = true
 	export let result: any = undefined
@@ -34,9 +33,8 @@
 
 	$: mergedArgs = { ...args, ...extraQueryParams, ...runnableInputValues }
 
-	// TODO: Review
 	function setStaticInputsToArgs() {
-		Object.entries(inputs).forEach(([key, value]) => {
+		Object.entries(inputs ?? {}).forEach(([key, value]) => {
 			if (value.type === 'static') {
 				args[key] = value.value
 			}
@@ -47,9 +45,9 @@
 
 	$: inputs && setStaticInputsToArgs()
 
-	function argMergedArgsValid(mergedArgs: Record<string, any>) {
+	function argMergedArgsValid(mergedArgs: Record<string, any>, testJobLoader) {
 		if (
-			Object.keys(inputs).filter((k) => inputs[k].type !== 'user').length !==
+			Object.keys(inputs ?? {}).filter((k) => inputs[k].type !== 'user').length !==
 			Object.keys(runnableInputValues).length
 		) {
 			return false
@@ -59,14 +57,14 @@
 			(arg) => arg !== undefined && arg !== null
 		)
 
-		if (areAllArgsValid && autoRefresh) {
+		if (areAllArgsValid && autoRefresh && testJobLoader) {
 			executeComponent()
 		}
 
 		return areAllArgsValid
 	}
 
-	$: isValid = argMergedArgsValid(mergedArgs)
+	$: isValid = argMergedArgsValid(mergedArgs, testJobLoader)
 
 	// Test job internal state
 	let testJob: CompletedJob | undefined = undefined
@@ -86,17 +84,19 @@
 	}
 
 	// Only loads the schema
-	$: if ($workspaceStore && path && runType && !schema) {
+	$: if ($workspaceStore && runnable?.type === 'runnableByPath' && !schema) {
 		// Remote schema needs to be loaded
+		const { path, runType } = runnable
 		loadSchemaFromTriggerable($workspaceStore, path, runType)
-	} else if (inlineScriptName && $app.inlineScripts[inlineScriptName] && !schema) {
+	} else if (runnable?.type === 'runnableByName' && !schema) {
+		const { inlineScriptName } = runnable
 		// Inline scripts directly provide the schema
 		schema = $app.inlineScripts[inlineScriptName].schema
 	}
 
 	// When the schema is loaded, we need to update the inputs spec
 	// in order to render the inputs the component panel
-	$: if (schema && Object.keys(schema.properties).length !== Object.keys(inputs).length) {
+	$: if (schema && Object.keys(schema.properties).length !== Object.keys(inputs ?? {}).length) {
 		let schemaWithoutExtraQueries: Schema = JSON.parse(JSON.stringify(schema))
 
 		// Remove extra query params from the schema, which are not directly configurable by the user
@@ -109,18 +109,18 @@
 
 	let schemaStripped: Schema | undefined = undefined
 
-	function stripSchema(schema: Schema, inputs: InputsSpec) {
+	function stripSchema(schema: Schema, inputs: AppInputs) {
 		schemaStripped = JSON.parse(JSON.stringify(schema))
 
 		// Remove hidden static inputs
-		Object.keys(inputs).forEach((key: string) => {
+		Object.keys(inputs ?? {}).forEach((key: string) => {
 			const input = inputs[key]
 
 			if (input.type === 'static' && !input.visible && schemaStripped !== undefined) {
 				delete schemaStripped.properties[key]
 			}
 
-			if (input.type === 'output' && schemaStripped !== undefined) {
+			if (input.type === 'connected' && schemaStripped !== undefined) {
 				delete schemaStripped.properties[key]
 			}
 		})
@@ -135,7 +135,7 @@
 
 	$: schema && inputs && stripSchema(schema, inputs)
 
-	$: disabledArgs = Object.keys(inputs).reduce(
+	$: disabledArgs = Object.keys(inputs ?? {}).reduce(
 		(disabledArgsAccumulator: string[], inputName: string) => {
 			if (inputs[inputName].type === 'static') {
 				disabledArgsAccumulator = [...disabledArgsAccumulator, inputName]
@@ -150,7 +150,7 @@
 			return
 		}
 
-		outputs?.loading.set(true)
+		outputs?.loading?.set(true)
 
 		await testJobLoader?.abstractRun(() => {
 			const requestBody = {
@@ -158,13 +158,16 @@
 				force_viewer_static_fields: {}
 			}
 
-			if (inlineScriptName && $app.inlineScripts[inlineScriptName]) {
+			if (runnable?.type === 'runnableByName') {
+				const { inlineScriptName } = runnable
+
 				requestBody['raw_code'] = {
 					content: $app.inlineScripts[inlineScriptName].content,
 					language: $app.inlineScripts[inlineScriptName].language,
 					path: $app.inlineScripts[inlineScriptName].path
 				}
-			} else if (path && runType) {
+			} else if (runnable?.type === 'runnableByPath') {
+				const { path, runType } = runnable
 				requestBody['path'] = `${runType}/${path}`
 			}
 
@@ -181,17 +184,16 @@
 	}
 </script>
 
-{#each Object.keys(inputs) as key}
+{#each Object.keys(inputs ?? {}) as key}
 	<InputValue input={inputs[key]} bind:value={runnableInputValues[key]} />
 {/each}
 
 <TestJobLoader
 	on:done={() => {
-		if (testJob) {
-			outputs.result.set(testJob?.result)
-			outputs?.loading.set(false)
-
-			result = testJob?.result
+		if (testJob && outputs) {
+			outputs.result?.set(testJob?.result)
+			outputs.loading?.set(false)
+			result = testJob.result
 		}
 	}}
 	bind:isLoading={testIsLoading}
@@ -203,7 +205,7 @@
 	<SchemaForm schema={schemaStripped} bind:args {isValid} {disabledArgs} shouldHideNoInputs />
 {/if}
 
-{#if inlineScriptName === undefined && path === undefined && runType === undefined && autoRefresh}
+{#if !runnable}
 	<Alert type="warning" size="xs" class="mt-2" title="Missing runnable">
 		Please select a runnable
 	</Alert>

@@ -6,15 +6,19 @@
 	import { Badge, Skeleton } from '$lib/components/common'
 	import { fade } from 'svelte/transition'
 	import { flip } from 'svelte/animate'
-	import { emptyString } from '$lib/utils'
+	import { emptyString, truncateHash } from '$lib/utils'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 
 	export let kind: 'script' | 'trigger' | 'approval' | 'failure' = 'script'
 	export let isTemplate: boolean | undefined = undefined
+	export let displayLock = false
 
 	type Item = {
 		path: string
 		summary?: string
 		description?: string
+		hash?: string
 	}
 
 	let items: Item[] | undefined = undefined
@@ -36,6 +40,7 @@
 	).sort()
 
 	const dispatch = createEventDispatcher()
+	let lockHash = displayLock
 </script>
 
 <SearchItems
@@ -47,6 +52,7 @@
 <div class="flex flex-col min-h-0">
 	<div class="w-full flex mt-1 items-center gap-2 mb-3">
 		<slot />
+
 		<input
 			type="text"
 			placeholder="Search Workspace Scripts"
@@ -75,16 +81,24 @@
 				{/each}
 			</div>
 		{/if}
+		{#if displayLock}
+			<div class="flex flex-row-reverse">
+				<Toggle
+					bind:checked={lockHash}
+					options={{ left: 'Latest version', right: 'Lock current hash permanently' }}
+				/>
+			</div>
+		{/if}
 		{#if filter.length > 0 && filteredItems.length == 0}
-			<p class="py-5">No items found</p>
+			<NoItemFound />
 		{/if}
 		<ul class="divide-y divide-gray-200 overflow-auto">
-			{#each filteredItems as { path, summary, description, marked }}
+			{#each filteredItems as { path, hash, summary, description, marked }}
 				<li class="flex flex-row w-full">
 					<button
 						class="py-4 px-1 gap-1 flex flex-row grow hover:bg-blue-50 bg-white transition-all text-black"
 						on:click={() => {
-							dispatch('pick', { path })
+							dispatch('pick', { path, hash: lockHash ? hash : undefined })
 						}}
 					>
 						<div class="flex flex-col">
@@ -102,6 +116,7 @@
 							</div>
 							<div class="text-xs font-light italic text-left">{description ?? ''}</div>
 						</div>
+						{#if lockHash}<Badge large baseClass="ml-4">{truncateHash(hash ?? '')}</Badge>{/if}
 					</button>
 				</li>
 			{/each}

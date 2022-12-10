@@ -1,18 +1,11 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { EDITOR_BAR_WIDTH_THRESHOLD } from '$lib/components/EditorBar.svelte'
 	import type { FlowModule } from '$lib/gen'
 	import { classNames } from '$lib/utils'
-	import {
-		faArrowRotateForward,
-		faBed,
-		faCodeBranch,
-		faSave,
-		faStop
-	} from '@fortawesome/free-solid-svg-icons'
+	import { faBed, faCodeBranch, faSave, faStop } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import { isEmptyFlowModule } from '../utils'
+	import { PhoneIncoming, Repeat } from 'lucide-svelte'
 
 	export let module: FlowModule
 
@@ -20,36 +13,38 @@
 
 	let width = 0
 
-	$: shouldPick = isEmptyFlowModule(module)
-	$: iconOnly = width < EDITOR_BAR_WIDTH_THRESHOLD
 	$: moduleRetry = module.retry?.constant || module.retry?.exponential
 </script>
 
 <div class="flex flex-row space-x-2" bind:clientWidth={width}>
-	{#if !shouldPick}
-		<span
+	{#if module.value.type === 'script' || module.value.type === 'rawscript'}
+		<button
 			class={classNames('badge', module.stop_after_if ? 'badge-on' : 'badge-off')}
 			on:click={() => dispatch('toggleStopAfterIf')}
 		>
 			<Icon data={faStop} scale={0.8} />
-		</span>
-		<span
-			class={classNames('badge', moduleRetry ? 'badge-on' : 'badge-off')}
+		</button>
+		<button
+			class={classNames('badge', moduleRetry ? 'badge-on' : 'badge-off', 'center-center')}
 			on:click={() => dispatch('toggleRetry')}
 		>
-			<Icon data={faArrowRotateForward} scale={0.8} />
-		</span>
-		<span
-			class={classNames(
-				'badge',
-				Boolean(module.suspend) || Boolean(module.sleep) ? 'badge-on' : 'badge-off'
-			)}
-			on:click={() => dispatch('toggleSuspend')}
+			<Repeat size={14} />
+		</button>
+		<button
+			class={classNames('badge', Boolean(module.sleep) ? 'badge-on' : 'badge-off')}
+			on:click={() => dispatch('toggleSleep')}
 		>
 			<Icon data={faBed} scale={0.8} />
-		</span>
+		</button>
+		<button
+			class={classNames('badge', Boolean(module.suspend) ? 'badge-on' : 'badge-off')}
+			on:click={() => dispatch('toggleSuspend')}
+		>
+			<PhoneIncoming size={14} />
+		</button>
 	{/if}
-	{#if module.value.type === 'script' && !shouldPick}
+	{#if module.value.type === 'script'}
+		<div class="w-2" />
 		<Button
 			size="xs"
 			color="light"
@@ -62,7 +57,7 @@
 		</Button>
 	{/if}
 
-	{#if module.value.type === 'rawscript' && !shouldPick}
+	{#if module.value.type === 'rawscript'}
 		<Button
 			size="xs"
 			color="light"

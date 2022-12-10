@@ -148,6 +148,23 @@ export async function main(
   return query.rows;
 }`
 
+export const MYSQL_INIT_CODE = `import {
+  mySql,
+  type Resource
+} from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts";
+
+// MySQL parameterized statement. No SQL injection is possible.
+export async function main(
+  db: Resource<"mysql">,
+  key: number,
+  value: string,
+) {
+  const query = await mySql(
+    db
+  )\`INSERT INTO demo VALUES (\${key}, \${value})\`;
+  return query.rows;
+}`;
+
 export const BASH_INIT_CODE = `
 # arguments of the form X="$I" are parsed as parameters X of type string
 msg="$1"
@@ -235,7 +252,7 @@ export function isInitialCode(content: string): boolean {
   return false
 }
 
-export function initialCode(language: 'deno' | 'python3' | 'go' | 'bash', kind: Script.kind, subkind: 'pgsql' | 'flow' | 'script' | undefined): string {
+export function initialCode(language: 'deno' | 'python3' | 'go' | 'bash', kind: Script.kind, subkind: 'pgsql' | 'mysql' | 'flow' | 'script' | undefined): string {
   if (language === 'deno') {
     if (kind === 'trigger') {
       return DENO_INIT_CODE_TRIGGER
@@ -245,6 +262,9 @@ export function initialCode(language: 'deno' | 'python3' | 'go' | 'bash', kind: 
       }
       else if (subkind === 'pgsql') {
         return POSTGRES_INIT_CODE
+      }
+      else if (subkind === 'mysql') {
+        return MYSQL_INIT_CODE
       } else {
         return DENO_INIT_CODE
       }

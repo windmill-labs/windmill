@@ -20,7 +20,7 @@
 	let resourceToEdit: Resource | undefined
 
 	let description: string = ''
-	let DESCRIPTION_PLACEHOLDER = `You can use markdown to style your description`
+	let DESCRIPTION_PLACEHOLDER = `Describe what this resource is for`
 	let selectedResourceType: string | undefined
 	let resourceSchema: Schema | undefined
 	let args: Record<string, any> = {}
@@ -172,12 +172,14 @@
 				</div>
 			</div>
 		</div>
-		<span slot="submission" class="flex gap-4 mr-2">
+		<svelte:fragment slot="actions">
 			<Button
 				startIcon={{ icon: faSave }}
 				on:click={editResource}
-				disabled={!can_write || !isValid || jsonError != ''}>Save</Button
+				disabled={!can_write || !isValid || jsonError != ''}
 			>
-		</span>
+				Save
+			</Button>
+		</svelte:fragment>
 	</DrawerContent>
 </Drawer>

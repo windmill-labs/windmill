@@ -3,12 +3,10 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import IconedPath from '$lib/components/IconedPath.svelte'
 	import { RawScript, type FlowModule } from '$lib/gen'
-	import { isEmptyFlowModule } from '../utils'
+	import { truncateHash } from '$lib/utils'
 
 	export let flowModule: FlowModule | undefined = undefined
 	export let title: string | undefined = undefined
-
-	$: shouldPick = flowModule && isEmptyFlowModule(flowModule)
 
 	const languageColors: Record<RawScript.language, BadgeColor> = {
 		[RawScript.language.GO]: 'dark-indigo',
@@ -22,18 +20,18 @@
 	class="flex items-center justify-between py-2 px-4 border-b border-gray-300 space-x-2  h-full max-h-12 flex-nowrap"
 >
 	{#if flowModule}
-		<span class="text-sm w-full">
+		<span class="text-sm w-full mr-4">
 			<div class="flex items-center space-x-2">
-				{#if shouldPick}
-					<span class="font-bold text-xs">Select a step kind</span>
+				{#if flowModule.value.type === 'identity'}
+					<span class="font-bold text-xs">Identity (input copied to output)</span>
 				{:else if flowModule?.value.type === 'rawscript'}
 					<Badge color={languageColors[flowModule?.value.language] ?? 'gray'} capitalize>
 						{flowModule?.value.language}
 					</Badge>
-					<input bind:value={flowModule.summary} placeholder={'Summary'} />
+					<input bind:value={flowModule.summary} placeholder={'Summary'} class="w-full grow" />
 				{:else if flowModule?.value.type === 'script' && 'path' in flowModule.value && flowModule.value.path}
-					<IconedPath path={flowModule.value.path} />
-					<input bind:value={flowModule.summary} placeholder="Summary" class="ml-2" />
+					<IconedPath path={flowModule.value.path} hash={flowModule.value.hash} class="grow" />
+					<input bind:value={flowModule.summary} placeholder="Summary" class="w-full grow" />
 				{/if}
 			</div>
 		</span>

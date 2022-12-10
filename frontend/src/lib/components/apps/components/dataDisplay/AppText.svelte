@@ -1,20 +1,27 @@
 <script lang="ts">
 	import SvelteMarkdown from 'svelte-markdown'
-	import type { InputsSpec } from '../../types'
+	import type { AppInput } from '../../inputType'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
-	import InputValue from '../helpers/InputValue.svelte'
+	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 
-	export let componentInputs: InputsSpec
+	export let id: string
+	export let componentInput: AppInput | undefined
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 
-	export const staticOutputs: string[] = []
+	export const staticOutputs: string[] = ['result', 'loading']
 
-	let contentValue: string = ''
+	let result: string = ''
 </script>
 
-<InputValue input={componentInputs.content} bind:value={contentValue} />
-
-<AlignWrapper {horizontalAlignment} {verticalAlignment}>
-	<SvelteMarkdown source={String(contentValue)} />
-</AlignWrapper>
+<RunnableWrapper bind:componentInput {id} bind:result>
+	<AlignWrapper {horizontalAlignment} {verticalAlignment}>
+		{#if result === ''}
+			<div class="text-gray-400 bg-gray-100 flex justify-center items-center h-full w-full">
+				No text
+			</div>
+		{:else}
+			<SvelteMarkdown source={String(result)} />
+		{/if}
+	</AlignWrapper>
+</RunnableWrapper>

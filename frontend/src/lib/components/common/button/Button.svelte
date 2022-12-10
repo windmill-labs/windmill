@@ -4,7 +4,7 @@
 	import Icon from 'svelte-awesome'
 	import { ButtonType } from './model'
 	import { goto } from '$app/navigation'
-	import { faArrowsRotate, faSpinner } from '@fortawesome/free-solid-svg-icons'
+	import { faSpinner } from '@fortawesome/free-solid-svg-icons'
 
 	export let size: ButtonType.Size = 'md'
 	export let spacingSize: ButtonType.Size = size

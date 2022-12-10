@@ -533,7 +533,7 @@ async fn execute_component(
         tx,
         &w_id,
         job_payload,
-        Some(args),
+        args,
         &username,
         permissioned_as,
         None,
@@ -541,6 +541,7 @@ async fn execute_component(
         None,
         false,
         false,
+        None,
     )
     .await?;
 

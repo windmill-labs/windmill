@@ -1,41 +1,43 @@
 <script lang="ts">
+	import { classNames } from '$lib/utils'
 	import { faClose } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
-	import Icon from 'svelte-awesome'
+	import { Icon } from 'svelte-awesome'
 	import Button from '../button/Button.svelte'
 
 	export let title: string | undefined = undefined
 	export let overflow_y = true
 	export let noPadding = false
 	export let forceOverflowVisible = false
+
 	const dispatch = createEventDispatcher()
 </script>
 
 <div class="flex flex-col divide-y h-screen max-h-screen">
-	<div class="flex justify-between items-center gap-x-2">
-		<Button
-			btnClasses="m-1"
-			variant="border"
-			size="lg"
-			color="dark"
-			on:click={() => {
-				dispatch('close')
-			}}
-		>
-			<Icon data={faClose} />
-		</Button>
-		<span class="font-bold truncate">{title}</span>
-		<div class="flex flex-row m-1">
-			{#if $$slots.submission}
-				<slot name="submission" class="sticky" />
-			{/if}
+	<div class="flex justify-between w-wull items-center px-2 py-2 ">
+		<div class="flex items-center gap-2">
+			<button
+				on:click={() => dispatch('close')}
+				class="hover:bg-gray-200 bg-gray-100 rounded-full w-8 h-8 flex items-center justify-center transition-all"
+			>
+				<Icon data={faClose} class="text-gray-500" />
+			</button>
+
+			<span class="font-semibold truncate text-gray-800">{title}</span>
 		</div>
+		{#if $$slots.actions}
+			<div class="flex gap-1 items-center justify-end">
+				<slot name="actions" />
+			</div>
+		{/if}
 	</div>
 
 	<div
-		class="{noPadding ? '' : 'py-2 px-6'} grow h-full max-h-full {forceOverflowVisible
-			? '!overflow-visible'
-			: ''}"
+		class={classNames(
+			noPadding ? '' : 'p-4',
+			'grow h-full max-h-full',
+			forceOverflowVisible ? '!overflow-visible' : ''
+		)}
 		class:overflow-y-auto={overflow_y}
 	>
 		<slot />

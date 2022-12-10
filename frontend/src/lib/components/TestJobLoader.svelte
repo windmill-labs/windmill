@@ -26,6 +26,7 @@
 	export async function abstractRun(fn: () => Promise<string>) {
 		try {
 			intervalId && clearIntervalAsync(intervalId)
+
 			if (isLoading && job) {
 				JobService.cancelQueuedJob({
 					workspace: workspace!,
@@ -36,6 +37,7 @@
 			isLoading = true
 
 			const testId = await fn()
+
 			await watchJob(testId)
 		} catch (err) {
 			isLoading = false

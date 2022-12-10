@@ -18,4 +18,4 @@
 	}
 </script>
 
-<input {placeholder} on:keyup={debounce} class={parentClass} />
+<input {placeholder} on:keyup={debounce} class={parentClass} {...$$restProps} />

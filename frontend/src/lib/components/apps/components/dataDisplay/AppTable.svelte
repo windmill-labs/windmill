@@ -3,18 +3,16 @@
 	import { classNames } from '$lib/utils'
 	import { getContext } from 'svelte'
 	import type { Output } from '../../rx'
-	import type { AppEditorContext, BaseAppComponent, ButtonComponent, InputsSpec } from '../../types'
+	import type { AppEditorContext, BaseAppComponent, ButtonComponent } from '../../types'
 	import InputValue from '../helpers/InputValue.svelte'
 	import DebouncedInput from '../helpers/DebouncedInput.svelte'
-	import RunnableComponent from '../helpers/RunnableComponent.svelte'
 	import AppButton from '../buttons/AppButton.svelte'
+	import type { AppInput } from '../../inputType'
+	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 
 	export let id: string
-	export let inputs: InputsSpec
-	export let path: string | undefined = undefined
-	export let runType: 'script' | 'flow' | undefined = undefined
-	export let inlineScriptName: string | undefined = undefined
-	export let componentInputs: InputsSpec
+	export let componentInput: AppInput | undefined
+	export let configuration: Record<string, AppInput>
 	export let actionButtons: (BaseAppComponent & ButtonComponent)[]
 
 	const { worldStore, staticOutputs: staticOutputsStore } =
@@ -38,37 +36,36 @@
 		}
 	}
 
-	let searchEnabledValue: boolean | undefined = undefined
-	let paginationEnabled: boolean | undefined = undefined
+	let search: 'Frontend' | 'Backend' | 'Disabled' = 'Disabled'
+	let pagination: boolean | undefined = undefined
 
 	let page = 1
-	let search = ''
+	let searchValue = ''
 
 	let result: Array<Record<string, any>> = []
 	$: headers = Object.keys(result[0] || {}) || []
 
-	const extraQueryParams = { search, page }
+	const extraQueryParams = { search: searchValue, page }
 
 	export const reservedKeys: string[] = Object.keys(extraQueryParams)
+
+	$: (search === 'Frontend' || search === 'Backend') && (extraQueryParams.search = searchValue)
 </script>
 
-<InputValue input={componentInputs.searchEnabled} bind:value={searchEnabledValue} />
-<InputValue input={componentInputs.paginationEnabled} bind:value={paginationEnabled} />
+<InputValue input={configuration.search} bind:value={search} />
+<InputValue input={configuration.pagination} bind:value={pagination} />
 
-<RunnableComponent
+<RunnableWrapper
+	bind:componentInput
 	{id}
-	{path}
-	{runType}
-	{inlineScriptName}
-	bind:inputs
 	bind:result
-	extraQueryParams={{ search, page }}
+	extraQueryParams={{ search: searchValue, page }}
 >
 	<div class="gap-2 flex flex-col mt-2">
-		{#if searchEnabledValue}
+		{#if search !== 'Disabled'}
 			<div>
 				<div>
-					<DebouncedInput placeholder="Search..." bind:value={search} />
+					<DebouncedInput placeholder="Search..." bind:value={searchValue} />
 				</div>
 			</div>
 		{/if}
@@ -111,7 +108,7 @@
 											<AppButton
 												{...props}
 												extraQueryParams={{ row }}
-												bind:inputs={props.inputs}
+												bind:componentInput={props.componentInput}
 												bind:staticOutputs={$staticOutputsStore[props.id]}
 											/>
 										{/each}
@@ -124,7 +121,7 @@
 			</table>
 		</div>
 
-		{#if paginationEnabled}
+		{#if pagination}
 			<div class="flex flex-row gap-2">
 				<Button
 					on:click={() => {
@@ -148,4 +145,4 @@
 			</div>
 		{/if}
 	</div>
-</RunnableComponent>
+</RunnableWrapper>

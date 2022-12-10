@@ -258,6 +258,73 @@
     },
     "query": "DELETE FROM account WHERE id = $1 AND workspace_id = $2"
   },
+  "0eea65f84168d4425d20d24b321cdee98b69dbf1e8a75e916af6d37abc4aee92": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Uuid",
+          "Bool",
+          "Uuid",
+          "Varchar",
+          "Varchar",
+          "Timestamptz",
+          "Int8",
+          "Varchar",
+          "Text",
+          "Text",
+          "Jsonb",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "script",
+                  "preview",
+                  "flow",
+                  "dependencies",
+                  "flowpreview",
+                  "script_hub",
+                  "identity",
+                  "flowdependencies"
+                ]
+              },
+              "name": "job_kind"
+            }
+          },
+          "Varchar",
+          "Jsonb",
+          "Jsonb",
+          "Bool",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "python3",
+                  "deno",
+                  "go",
+                  "bash"
+                ]
+              },
+              "name": "script_lang"
+            }
+          },
+          "Bool",
+          "Text"
+        ]
+      }
+    },
+    "query": "INSERT INTO queue\n            (workspace_id, id, running, parent_job, created_by, permissioned_as, scheduled_for, \n                script_hash, script_path, raw_code, raw_lock, args, job_kind, schedule_path, raw_flow, flow_status, is_flow_step, language, started_at, same_worker, pre_run_error)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20) RETURNING id"
+  },
   "11b1586acdfc180c5a077861ee1f7201fcbcec9d0ebada464f9d952c9c3e400d": {
     "describe": {
       "columns": [],
@@ -1078,72 +1145,6 @@
     },
     "query": "UPDATE variable SET path = $1 WHERE path = $2 AND workspace_id = $3"
   },
-  "499978e08a3a5e4d09d20f4212dbeff6ed5c5d4a696243cd3687c71099e8a6a6": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Uuid"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Uuid",
-          "Bool",
-          "Uuid",
-          "Varchar",
-          "Varchar",
-          "Timestamptz",
-          "Int8",
-          "Varchar",
-          "Text",
-          "Text",
-          "Jsonb",
-          {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "script",
-                  "preview",
-                  "flow",
-                  "dependencies",
-                  "flowpreview",
-                  "script_hub",
-                  "identity",
-                  "flowdependencies"
-                ]
-              },
-              "name": "job_kind"
-            }
-          },
-          "Varchar",
-          "Jsonb",
-          "Jsonb",
-          "Bool",
-          {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "python3",
-                  "deno",
-                  "go",
-                  "bash"
-                ]
-              },
-              "name": "script_lang"
-            }
-          },
-          "Bool"
-        ]
-      }
-    },
-    "query": "INSERT INTO queue\n            (workspace_id, id, running, parent_job, created_by, permissioned_as, scheduled_for, \n                script_hash, script_path, raw_code, raw_lock, args, job_kind, schedule_path, raw_flow, flow_status, is_flow_step, language, started_at, same_worker)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19) RETURNING id"
-  },
   "4ad5fa2f08236507aad911a95697e84fc0c3a274ba0e928da28c4d146cf8f1a8": {
     "describe": {
       "columns": [
@@ -1343,6 +1344,21 @@
       }
     },
     "query": "INSERT INTO variable\n            (workspace_id, path, value, is_secret, description, account, is_oauth)\n            VALUES ($1, $2, $3, $4, $5, $6, $7)\n            ON CONFLICT (workspace_id, path) DO UPDATE SET value = $3"
+  },
+  "53ec897ac019abf3fc4499f593adadf85af465d66c1a23b0549d176edbabad79": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Jsonb",
+          "Jsonb",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n                UPDATE queue\n                   SET flow_status = JSONB_SET(\n                                     JSONB_SET(flow_status, ARRAY['modules', $1::TEXT], $2),\n                                                            ARRAY['step'], $3)\n                 WHERE id = $4\n                  "
   },
   "541ebd3bac65431237cf3b882dfdcd61ca97c253d9754d05bba59fda89841067": {
     "describe": {
@@ -3586,6 +3602,20 @@
     },
     "query": "SELECT  usr.username  \n            FROM usr_to_group LEFT JOIN usr ON usr_to_group.usr = usr.username \n            WHERE group_ = $1 AND usr.workspace_id = $2 AND usr_to_group.workspace_id = $2"
   },
+  "c461bdf083d7aaacafb6c981556b218342626524ee0c92f083dbff2930b7de9e": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Jsonb",
+          "Jsonb",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n                UPDATE queue\n                   SET flow_status = JSONB_SET(\n                                     JSONB_SET(flow_status, ARRAY['failure_module'], $1),\n                                                            ARRAY['step'], $2)\n                 WHERE id = $3\n                  "
+  },
   "c4f1c14c3aae145b52ff39bdecd779cd3eba27a869fda68516dc68dc2abefd38": {
     "describe": {
       "columns": [],
@@ -4218,6 +4248,26 @@
       }
     },
     "query": "DELETE FROM usr_to_group WHERE usr = $1 AND group_ = $2 AND workspace_id = $3"
+  },
+  "f4849960aff7387cb6b130d2bc62dbfce45209fbbccf3b4b9b13019e0cd55ddb": {
+    "describe": {
+      "columns": [
+        {
+          "name": "?column?",
+          "ordinal": 0,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "SELECT flow_status->'failure_module'->>'parent_module' FROM queue WHERE id = $1"
   },
   "f4960efbb4189b595541608c9ab5cbbd56eb42059e961b6338b685105626a5c7": {
     "describe": {

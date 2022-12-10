@@ -74,11 +74,11 @@ pub async fn push_scheduled_job<'c>(
         return Ok(tx);
     }
 
-    let mut args: Option<serde_json::Map<String, serde_json::Value>> = None;
+    let mut args: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
 
     if let Some(args_v) = schedule.args {
         if let serde_json::Value::Object(args_m) = args_v {
-            args = Some(args_m)
+            args = args_m
         } else {
             return Err(error::Error::ExecutionErr(
                 "args of scripts needs to be dict".to_string(),
@@ -112,6 +112,7 @@ pub async fn push_scheduled_job<'c>(
         None,
         false,
         false,
+        None,
     )
     .await?;
     Ok(tx)

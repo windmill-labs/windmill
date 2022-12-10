@@ -192,7 +192,7 @@ async fn create_flow(
         tx,
         &w_id,
         JobPayload::FlowDependencies { path: nf.path.clone() },
-        None,
+        serde_json::Map::new(),
         &authed.username,
         windmill_common::users::owner_to_token_owner(&authed.username, false),
         None,
@@ -200,6 +200,7 @@ async fn create_flow(
         None,
         false,
         false,
+        None,
     )
     .await?;
     sqlx::query!(
@@ -296,7 +297,7 @@ async fn update_flow(
         tx,
         &w_id,
         JobPayload::FlowDependencies { path: nf.path.clone() },
-        None,
+        serde_json::Map::new(),
         &authed.username,
         windmill_common::users::owner_to_token_owner(&authed.username, false),
         None,
@@ -304,6 +305,7 @@ async fn update_flow(
         None,
         false,
         false,
+        None,
     )
     .await?;
     sqlx::query!(
@@ -426,6 +428,7 @@ mod tests {
                             InputTransform::Static { value: serde_json::json!("test2") },
                         )]
                         .into(),
+                        hash: None,
                     },
                     stop_after_if: None,
                     summary: None,
@@ -477,6 +480,7 @@ mod tests {
                 value: FlowModuleValue::Script {
                     path: "test".to_string(),
                     input_transforms: HashMap::new(),
+                    hash: None,
                 },
                 stop_after_if: Some(StopAfterIf {
                     expr: "previous.isEmpty()".to_string(),

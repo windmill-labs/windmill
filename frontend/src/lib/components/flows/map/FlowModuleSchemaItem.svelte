@@ -1,9 +1,11 @@
 <script lang="ts">
 	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import Popover from '$lib/components/Popover.svelte'
 	import { classNames } from '$lib/utils'
 	import { faBed, faRepeat, faStop, faTimesCircle } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
+	import { PhoneIncoming, Repeat } from 'lucide-svelte'
 
 	export let isFirst: boolean = false
 	export let isLast: boolean = false
@@ -38,21 +40,38 @@
 			margin
 		)}
 	>
-		<div class="absolute text-sm right-14 -bottom-3 flex flex-row gap-1">
+		<div class="absolute text-sm right-12 -bottom-3 flex flex-row gap-1 z-20">
 			{#if retry}
-				<div class="bg-white rounded border text-gray-600 px-1">
-					<Icon scale={0.8} data={faRepeat} />
-				</div>
+				<Popover notClickable>
+					<div class="bg-white rounded border text-gray-700 px-1 center-center">
+						<Repeat size={14} />
+					</div>
+					<span slot="text">Retries</span>
+				</Popover>
 			{/if}
 			{#if earlyStop}
-				<div class="bg-white rounded border text-gray-600 px-1">
-					<Icon scale={0.8} data={faStop} />
-				</div>
+				<Popover notClickable>
+					<div class="bg-white rounded border text-gray-700 px-1">
+						<Icon scale={0.8} data={faStop} />
+					</div>
+					<span slot="text">Early Stop/Break</span>
+				</Popover>
 			{/if}
-			{#if suspend || sleep}
-				<div class="bg-white rounded border text-gray-600 px-1">
-					<Icon scale={0.8} data={faBed} />
-				</div>
+			{#if sleep}
+				<Popover notClickable>
+					<div class="bg-white rounded border text-gray-700 px-1">
+						<Icon scale={0.8} data={faBed} />
+					</div>
+					<span slot="text">Sleep</span>
+				</Popover>
+			{/if}
+			{#if suspend}
+				<Popover notClickable>
+					<div class="bg-white rounded border text-gray-700 px-1 center-center">
+						<PhoneIncoming size={12} />
+					</div>
+					<span slot="text">Suspend</span>
+				</Popover>
 			{/if}
 		</div>
 		<div

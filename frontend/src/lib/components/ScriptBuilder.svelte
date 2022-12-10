@@ -24,7 +24,7 @@
 
 	export let script: Script
 	export let initialPath: string = ''
-	export let template: 'pgsql' | 'script' = 'script'
+	export let template: 'pgsql'| 'mysql' | 'script' = 'script'
 	export let initialArgs: Record<string, any> = {}
 
 	const langs: [string, SupportedLanguage][] = [
@@ -50,7 +50,7 @@
 	function initContent(
 		language: 'deno' | 'python3' | 'go' | 'bash',
 		kind: Script.kind,
-		template: 'pgsql' | 'script'
+		template: 'pgsql' | 'mysql' | 'script'
 	) {
 		script.content = initialCode(language, kind, template)
 	}
@@ -223,6 +223,19 @@
 						}}
 					>
 						<LanguageIcon lang="pgsql" /><span class="ml-2">PostgreSQL</span>
+					</Button>
+					<Button
+						size="sm"
+						variant="border"
+						color={template == 'mysql' ? 'blue' : 'dark'}
+						btnClasses={template == 'mysql' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+						on:click={() => {
+							script.language = Script.language.DENO
+							template = 'mysql'
+							initContent(script.language, script.kind, template)
+						}}
+					>
+						<LanguageIcon lang="mysql" /><span class="ml-2">MySQL</span>
 					</Button>
 				</div>
 				<h2 class="border-b pb-1 mt-4">Advanced</h2>

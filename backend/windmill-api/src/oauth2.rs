@@ -76,6 +76,7 @@ pub struct ClientWithScopes {
     client: OClient,
     scopes: Vec<String>,
     extra_params: Option<HashMap<String, String>>,
+    extra_params_callback: Option<HashMap<String, String>>,
     allowed_domains: Option<Vec<String>>,
     userinfo_url: Option<String>,
 }
@@ -89,6 +90,8 @@ pub struct OAuthConfig {
     userinfo_url: Option<String>,
     scopes: Option<Vec<String>>,
     extra_params: Option<HashMap<String, String>>,
+    extra_params_callback: Option<HashMap<String, String>>,
+    req_body_auth: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -158,6 +161,7 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
                     client: named_client.1,
                     scopes: config.scopes.unwrap_or(vec![]),
                     extra_params: config.extra_params,
+                    extra_params_callback: config.extra_params_callback,
                     allowed_domains: client_params.allowed_domains.clone(),
                     userinfo_url: config.userinfo_url,
                 },
@@ -188,6 +192,7 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
                     client: named_client.1,
                     scopes: config.scopes.unwrap_or(vec![]),
                     extra_params: config.extra_params,
+                    extra_params_callback: config.extra_params_callback,
                     allowed_domains: None,
                     userinfo_url: None,
                 },
@@ -204,6 +209,8 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
                 userinfo_url: None,
                 scopes: None,
                 extra_params: None,
+                extra_params_callback: None,
+                req_body_auth: None,
             },
             v.clone(),
             false,
@@ -236,6 +243,9 @@ pub fn build_basic_client(
     };
 
     let mut client = OClient::new(client_params.id, auth_url, token_url);
+    if config.req_body_auth.unwrap_or(false) {
+        client.set_auth_type(AuthType::RequestBody);
+    }
     client.set_client_secret(client_params.secret.clone());
     client.set_redirect_url(Url::parse(&redirect_url).expect("Invalid redirect URL"));
     // Set up the config for the Github OAuth2 process.
@@ -304,7 +314,7 @@ async fn connect(
 struct CreateAccount {
     client: String,
     owner: String,
-    refresh_token: String,
+    refresh_token: Option<String>,
     expires_in: i64,
 }
 async fn create_account(
@@ -599,15 +609,16 @@ async fn connect_callback(
     Extension(clients): Extension<Arc<AllClients>>,
     Extension(http_client): Extension<Client>,
 ) -> error::JsonResult<TokenResponse> {
-    let client = (&clients
+    let client_w_scopes = &clients
         .connects
         .get(&client_name)
-        .ok_or_else(|| error::Error::BadRequest("invalid client".to_string()))?
-        .client)
-        .to_owned();
+        .ok_or_else(|| error::Error::BadRequest("invalid client".to_string()))?;
 
+    let client = client_w_scopes.client.to_owned();
+    let extra_params = client_w_scopes.extra_params_callback.clone();
     let token_response =
-        exchange_code::<TokenResponse>(callback, &cookies, client, &http_client).await?;
+        exchange_code::<TokenResponse>(callback, &cookies, client, &http_client, extra_params)
+            .await?;
 
     Ok(Json(token_response))
 }
@@ -627,7 +638,7 @@ async fn connect_slack_callback(
         .ok_or_else(|| error::Error::BadRequest("slack client not setup".to_string()))?
         .to_owned();
     let token =
-        exchange_code::<SlackTokenResponse>(callback, &cookies, client, &http_client).await?;
+        exchange_code::<SlackTokenResponse>(callback, &cookies, client, &http_client, None).await?;
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -783,7 +794,7 @@ async fn slack_command(
                 tx,
                 &settings.workspace_id,
                 payload,
-                Some(map),
+                map,
                 &form.user_name,
                 "g/slack".to_string(),
                 None,
@@ -791,6 +802,7 @@ async fn slack_command(
                 None,
                 false,
                 false,
+                None,
             )
             .await?;
             tx.commit().await?;
@@ -831,7 +843,8 @@ async fn login_callback(
         .get(&client_name)
         .ok_or_else(|| error::Error::BadRequest("invalid client".to_string()))?;
     let client = client_w_config.client.to_owned();
-    let token_res = exchange_code::<TokenResponse>(callback, &cookies, client, &http_client).await;
+    let token_res =
+        exchange_code::<TokenResponse>(callback, &cookies, client, &http_client, None).await;
 
     if let Ok(token) = token_res {
         let token = &token.access_token.to_string();
@@ -962,6 +975,7 @@ async fn exchange_code<T: DeserializeOwned>(
     cookies: &Cookies,
     client: OClient,
     http_client: &Client,
+    extra_params: Option<HashMap<String, String>>,
 ) -> error::Result<T> {
     let csrf_state = cookies
         .get("csrf")
@@ -971,8 +985,15 @@ async fn exchange_code<T: DeserializeOwned>(
         return Err(error::Error::BadRequest("csrf did not match".to_string()));
     }
 
-    client
-        .exchange_code(callback.code)
+    let mut token_url = client.exchange_code(callback.code);
+
+    if let Some(extra_params) = extra_params {
+        for (key, value) in extra_params {
+            token_url = token_url.param(key, value)
+        }
+    }
+
+    token_url
         .with_client(http_client)
         .execute::<T>()
         .await

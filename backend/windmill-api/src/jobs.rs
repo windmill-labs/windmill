@@ -16,7 +16,7 @@ use axum::{
     Extension, Json, Router,
 };
 use hmac::Mac;
-use hyper::StatusCode;
+use hyper::{HeaderMap, StatusCode};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sql_builder::{prelude::*, quote, SqlBuilder};
 use sqlx::{query_scalar, types::Uuid, Postgres, Transaction};
@@ -240,16 +240,17 @@ pub struct CompletedJob {
     pub is_skipped: bool,
 }
 
-#[derive(Deserialize, Clone, Copy)]
+#[derive(Deserialize, Clone)]
 pub struct RunJobQuery {
     scheduled_for: Option<chrono::DateTime<chrono::Utc>>,
     scheduled_in_secs: Option<i64>,
     parent_job: Option<Uuid>,
+    include_header: Option<String>,
 }
 
 impl RunJobQuery {
     async fn get_scheduled_for<'c>(
-        self,
+        &self,
         db: &mut Transaction<'c, Postgres>,
     ) -> error::Result<Option<chrono::DateTime<chrono::Utc>>> {
         if let Some(scheduled_for) = self.scheduled_for {
@@ -260,6 +261,27 @@ impl RunJobQuery {
         } else {
             Ok(None)
         }
+    }
+
+    fn add_include_headers(
+        &self,
+        headers: HeaderMap,
+        mut args: serde_json::Map<String, serde_json::Value>,
+    ) -> serde_json::Map<String, serde_json::Value> {
+        self.include_header
+            .as_ref()
+            .map(|s| s.split(",").map(|s| s.to_string()).collect::<Vec<_>>())
+            .unwrap_or_default()
+            .iter()
+            .for_each(|h| {
+                if let Some(v) = headers.get(h) {
+                    args.insert(
+                        h.to_string().to_lowercase().replace('-', "_"),
+                        serde_json::Value::String(v.to_str().unwrap().to_string()),
+                    );
+                }
+            });
+        args
     }
 }
 
@@ -845,6 +867,7 @@ impl From<UnifiedJob> for Job {
                 is_flow_step: uj.is_flow_step,
                 language: uj.language,
                 same_worker: false,
+                pre_run_error: None,
             }),
             t => panic!("job type {} not valid", t),
         }
@@ -921,10 +944,13 @@ pub async fn run_flow_by_path(
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     axum::Json(args): axum::Json<Option<serde_json::Map<String, serde_json::Value>>>,
     Query(run_query): Query<RunJobQuery>,
+    headers: HeaderMap,
 ) -> error::Result<(StatusCode, String)> {
     let flow_path = flow_path.to_path();
     let mut tx = user_db.begin(&authed).await?;
     let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
+    let args = run_query.add_include_headers(headers, args.unwrap_or_default());
+
     let (uuid, tx) = push(
         tx,
         &w_id,
@@ -937,6 +963,7 @@ pub async fn run_flow_by_path(
         run_query.parent_job,
         false,
         false,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -949,11 +976,13 @@ pub async fn run_job_by_path(
     Path((w_id, script_path)): Path<(String, StripPath)>,
     axum::Json(args): axum::Json<Option<serde_json::Map<String, serde_json::Value>>>,
     Query(run_query): Query<RunJobQuery>,
+    headers: HeaderMap,
 ) -> error::Result<(StatusCode, String)> {
     let script_path = script_path.to_path();
     let mut tx = user_db.begin(&authed).await?;
     let job_payload = script_path_to_payload(script_path, &mut tx, &w_id).await?;
     let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
+    let args = run_query.add_include_headers(headers, args.unwrap_or_default());
 
     let (uuid, tx) = push(
         tx,
@@ -967,6 +996,7 @@ pub async fn run_job_by_path(
         run_query.parent_job,
         false,
         false,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -1011,11 +1041,14 @@ pub async fn run_wait_result_job_by_path(
     Path((w_id, script_path)): Path<(String, StripPath)>,
     axum::Json(args): axum::Json<Option<serde_json::Map<String, serde_json::Value>>>,
     Query(run_query): Query<RunJobQuery>,
+    headers: HeaderMap,
 ) -> error::JsonResult<serde_json::Value> {
     let script_path = script_path.to_path();
     let mut tx = user_db.clone().begin(&authed).await?;
     let job_payload = script_path_to_payload(script_path, &mut tx, &w_id).await?;
     let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
+
+    let args = run_query.add_include_headers(headers, args.unwrap_or_default());
 
     let (uuid, tx) = push(
         tx,
@@ -1029,6 +1062,7 @@ pub async fn run_wait_result_job_by_path(
         run_query.parent_job,
         false,
         false,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -1042,11 +1076,13 @@ pub async fn run_wait_result_job_by_hash(
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     axum::Json(args): axum::Json<Option<serde_json::Map<String, serde_json::Value>>>,
     Query(run_query): Query<RunJobQuery>,
+    headers: HeaderMap,
 ) -> error::JsonResult<serde_json::Value> {
     let hash = script_hash.0;
     let mut tx = user_db.clone().begin(&authed).await?;
     let path = get_path_for_hash(&mut tx, &w_id, hash).await?;
     let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
+    let args = run_query.add_include_headers(headers, args.unwrap_or_default());
 
     let (uuid, tx) = push(
         tx,
@@ -1060,6 +1096,7 @@ pub async fn run_wait_result_job_by_hash(
         run_query.parent_job,
         false,
         false,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -1087,10 +1124,12 @@ async fn run_preview_job(
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(preview): Json<Preview>,
-    Query(sch_query): Query<RunJobQuery>,
+    Query(run_query): Query<RunJobQuery>,
+    headers: HeaderMap,
 ) -> error::Result<(StatusCode, String)> {
     let mut tx = user_db.begin(&authed).await?;
-    let scheduled_for = sch_query.get_scheduled_for(&mut tx).await?;
+    let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
+    let args = run_query.add_include_headers(headers, preview.args.unwrap_or_default());
 
     let (uuid, tx) = push(
         tx,
@@ -1101,7 +1140,7 @@ async fn run_preview_job(
             language: preview.language,
             lock: None,
         }),
-        preview.args,
+        args,
         &authed.username,
         owner_to_token_owner(&authed.username, false),
         scheduled_for,
@@ -1109,6 +1148,7 @@ async fn run_preview_job(
         None,
         false,
         false,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -1120,15 +1160,18 @@ async fn run_preview_flow_job(
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(raw_flow): Json<PreviewFlow>,
-    Query(sch_query): Query<RunJobQuery>,
+    Query(run_query): Query<RunJobQuery>,
+    headers: HeaderMap,
 ) -> error::Result<(StatusCode, String)> {
     let mut tx = user_db.begin(&authed).await?;
-    let scheduled_for = sch_query.get_scheduled_for(&mut tx).await?;
+    let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
+    let args = run_query.add_include_headers(headers, raw_flow.args.unwrap_or_default());
+
     let (uuid, tx) = push(
         tx,
         &w_id,
         JobPayload::RawFlow { value: raw_flow.value, path: raw_flow.path },
-        raw_flow.args,
+        args,
         &authed.username,
         owner_to_token_owner(&authed.username, false),
         scheduled_for,
@@ -1136,6 +1179,7 @@ async fn run_preview_flow_job(
         None,
         false,
         false,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -1148,11 +1192,13 @@ pub async fn run_job_by_hash(
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     axum::Json(args): axum::Json<Option<serde_json::Map<String, serde_json::Value>>>,
     Query(run_query): Query<RunJobQuery>,
+    headers: HeaderMap,
 ) -> error::Result<(StatusCode, String)> {
     let hash = script_hash.0;
     let mut tx = user_db.begin(&authed).await?;
     let path = get_path_for_hash(&mut tx, &w_id, hash).await?;
     let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
+    let args = run_query.add_include_headers(headers, args.unwrap_or_default());
 
     let (uuid, tx) = push(
         tx,
@@ -1166,6 +1212,7 @@ pub async fn run_job_by_hash(
         run_query.parent_job,
         false,
         false,
+        None,
     )
     .await?;
     tx.commit().await?;

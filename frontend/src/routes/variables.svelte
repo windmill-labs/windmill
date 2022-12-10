@@ -34,25 +34,36 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { Alert, Badge, Skeleton } from '$lib/components/common'
 	import Popover from '$lib/components/Popover.svelte'
-	import { Building, DollarSign } from 'svelte-lucide'
+	import { Building, DollarSign } from 'lucide-svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
+	import ListFilters from '$lib/components/home/ListFilters.svelte'
 
 	type ListableVariableW = ListableVariable & { canWrite: boolean }
 
 	let filter = ''
-	let variables: ListableVariableW[] = []
-	let filteredItems: ListableVariableW[] = []
+	let variables: ListableVariableW[] | undefined = undefined
+	let filteredItems: (ListableVariableW & { marked?: string })[] | undefined = undefined
 	let contextualVariables: ContextualVariable[] = []
 	let shareModal: ShareModal
 	let variableEditor: VariableEditor
 	let loading = {
-		variables: true,
 		contextual: true
 	}
 
 	let deleteConfirmedCallback: (() => void) | undefined = undefined
 	$: open = Boolean(deleteConfirmedCallback)
+
+	$: owners = Array.from(
+		new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
+	).sort()
+
+	let ownerFilter: string | undefined = undefined
+
+	$: preFilteredItems =
+		ownerFilter == undefined
+			? variables
+			: variables?.filter((x) => x.path.startsWith(ownerFilter ?? ''))
 
 	// If relative, the dropdown is positioned relative to its button
 	async function loadVariables(): Promise<void> {
@@ -62,8 +73,8 @@
 				...x
 			}
 		})
-		loading.variables = false
 	}
+
 	async function loadContextualVariables(): Promise<void> {
 		contextualVariables = await VariableService.listContextualVariables({
 			workspace: $workspaceStore!
@@ -91,7 +102,7 @@
 
 <SearchItems
 	{filter}
-	items={variables}
+	items={preFilteredItems}
 	bind:filteredItems
 	f={(x) => x.path + ' ' + x.description}
 />
@@ -118,13 +129,13 @@
 	<Tabs bind:selected={tab}>
 		<Tab size="md" value="workspace">
 			<div class="flex gap-2 items-center my-1">
-				<Building size="18px" />
+				<Building size={18} />
 				Workspace
 			</div>
 		</Tab>
 		<Tab size="md" value="contextual">
 			<div class="flex gap-2 items-center my-1">
-				<DollarSign size="18px" />
+				<DollarSign size={18} />
 				Contextual <Tooltip>
 					Contextual variables are utility variables passed to your environment when running a
 					script and depends on the execution context.</Tooltip
@@ -136,8 +147,10 @@
 		<div class="pt-2">
 			<input placeholder="Search Variable" bind:value={filter} class="input mt-1" />
 		</div>
+		<ListFilters bind:selectedFilter={ownerFilter} filters={owners} />
+
 		<div class="relative overflow-x-auto pb-40 pr-4">
-			{#if loading.variables}
+			{#if !filteredItems}
 				<Skeleton layout={[0.5, [2], 1]} />
 				{#each new Array(3) as _}
 					<Skeleton layout={[[3.5], 0.5]} />
@@ -153,14 +166,15 @@
 						<th />
 					</tr>
 					<tbody slot="body">
-						{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_oauth, is_expired, refresh_error, is_linked }}
+						{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_refreshed, is_expired, refresh_error, is_linked, marked }}
 							<tr>
 								<td
 									><a
 										class="break-words"
 										id="edit-{path}"
 										on:click={() => variableEditor.editVariable(path)}
-										href="#{path}">{path}</a
+										href="#{path}"
+										>{#if marked}{@html marked}{:else}{path}{/if}</a
 									>
 									<div><SharedBadge {canWrite} extraPerms={extra_perms} /></div>
 								</td>
@@ -211,7 +225,7 @@
 											{/if}
 										</div>
 
-										{#if is_oauth}
+										{#if is_refreshed}
 											<div class="w-10">
 												{#if refresh_error}
 													<Popover notClickable>

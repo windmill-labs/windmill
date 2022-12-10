@@ -2,7 +2,7 @@
 	import ItemPicker from '$lib/components/ItemPicker.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { MousePointerClick } from 'svelte-lucide'
+	import { MousePointerClick } from 'lucide-svelte'
 
 	export let scripts: Item[]
 
@@ -29,7 +29,7 @@
 />
 
 <Button
-	on:click={() => itemPicker.openDrawer()}
+	on:click={() => itemPicker?.openDrawer()}
 	btnClasses="w-24 truncate"
 	size="sm"
 	spacingSize="md"
@@ -37,7 +37,7 @@
 	color="light"
 >
 	<div class="flex justify-center flex-col items-center gap-2">
-		<MousePointerClick size="18px" />
+		<MousePointerClick size={18} />
 
 		<span class="text-xs">Pick</span>
 	</div>

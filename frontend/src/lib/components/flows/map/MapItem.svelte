@@ -7,17 +7,11 @@
 	import InsertModuleButton from './InsertModuleButton.svelte'
 	import FlowBranchOneMap from './FlowBranchOneMap.svelte'
 	import FlowBranchAllMap from './FlowBranchAllMap.svelte'
-	import {
-		faArrowRotateForward,
-		faBuilding,
-		faCode,
-		faCodeBranch,
-		faLongArrowDown,
-		faRepeat
-	} from '@fortawesome/free-solid-svg-icons'
+	import { faCodeBranch, faLongArrowDown } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
 	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
+	import { Building, Repeat } from 'lucide-svelte'
 
 	export let mod: FlowModule
 
@@ -53,7 +47,7 @@
 				{...itemProps}
 			>
 				<div slot="icon">
-					<Icon data={faArrowRotateForward} scale={1.1} />
+					<Repeat size={16} />
 				</div>
 			</FlowModuleSchemaItem>
 			<div class="flex flex-row w-full">
@@ -116,11 +110,16 @@
 						<Icon data={faLongArrowDown} scale={1.1} />
 					{:else if mod.value.type === 'script'}
 						{#if mod.value.path.startsWith('hub/')}
-							<div class="w-5">
-								<IconedResourceType name={mod.value.path.split('/')[2]} silent={true} />
+							<div>
+								<IconedResourceType
+									width="20px"
+									height="20px"
+									name={mod.value.path.split('/')[2]}
+									silent={true}
+								/>
 							</div>
 						{:else}
-							<Icon data={faBuilding} scale={1.1} />
+							<Building size={14} />
 						{/if}
 					{/if}
 				</div>

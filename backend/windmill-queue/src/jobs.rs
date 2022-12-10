@@ -17,7 +17,7 @@ use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{self, to_anyhow, Error},
     flow_status::{FlowStatus, JobResult, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL},
-    flows::FlowValue,
+    flows::{FlowModule, FlowModuleValue, FlowValue},
     scripts::{get_full_hub_script_by_path, HubScript, ScriptHash, ScriptLang},
     utils::StripPath,
 };
@@ -243,7 +243,7 @@ pub async fn push<'c>(
     mut tx: Transaction<'c, Postgres>,
     workspace_id: &str,
     job_payload: JobPayload,
-    args: Option<serde_json::Map<String, serde_json::Value>>,
+    args: serde_json::Map<String, serde_json::Value>,
     user: &str,
     permissioned_as: String,
     scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
@@ -251,9 +251,10 @@ pub async fn push<'c>(
     parent_job: Option<Uuid>,
     is_flow_step: bool,
     mut same_worker: bool,
+    pre_run_error: Option<&windmill_common::error::Error>,
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
     let scheduled_for = scheduled_for_o.unwrap_or_else(chrono::Utc::now);
-    let args_json = args.map(serde_json::Value::Object);
+    let args_json = serde_json::Value::Object(args);
     let job_id: Uuid = Ulid::new().into();
 
     let premium_workspace =
@@ -307,111 +308,111 @@ pub async fn push<'c>(
         }
     }
 
-    let (script_hash, script_path, raw_code_tuple, job_kind, raw_flow, language) = match job_payload
-    {
-        JobPayload::ScriptHash { hash, path } => {
-            let language = sqlx::query_scalar!(
-                "SELECT language as \"language: ScriptLang\" FROM script WHERE hash = $1 AND \
+    let (script_hash, script_path, raw_code_tuple, job_kind, mut raw_flow, language) =
+        match job_payload {
+            JobPayload::ScriptHash { hash, path } => {
+                let language = sqlx::query_scalar!(
+                    "SELECT language as \"language: ScriptLang\" FROM script WHERE hash = $1 AND \
                  (workspace_id = $2 OR workspace_id = 'starter')",
-                hash.0,
-                workspace_id
-            )
-            .fetch_one(&mut tx)
-            .await
-            .map_err(|e| {
-                Error::InternalErr(format!(
-                    "fetching language for hash {hash} in {workspace_id}: {e}"
-                ))
-            })?;
-            (
-                Some(hash.0),
-                Some(path),
+                    hash.0,
+                    workspace_id
+                )
+                .fetch_one(&mut tx)
+                .await
+                .map_err(|e| {
+                    Error::InternalErr(format!(
+                        "fetching language for hash {hash} in {workspace_id}: {e}"
+                    ))
+                })?;
+                (
+                    Some(hash.0),
+                    Some(path),
+                    None,
+                    JobKind::Script,
+                    None,
+                    Some(language),
+                )
+            }
+            JobPayload::ScriptHub { path } => {
+                let email = sqlx::query_scalar!(
+                    "SELECT email FROM usr WHERE username = $1 AND workspace_id = $2",
+                    user,
+                    workspace_id
+                )
+                .fetch_optional(&mut tx)
+                .await?;
+                let script = get_hub_script(path.clone(), email, user).await?;
+                (
+                    None,
+                    Some(path),
+                    Some((script.content, script.lockfile)),
+                    JobKind::Script_Hub,
+                    None,
+                    Some(script.language),
+                )
+            }
+            JobPayload::Code(RawCode { content, path, language, lock }) => (
                 None,
-                JobKind::Script,
+                path,
+                Some((content, lock)),
+                JobKind::Preview,
                 None,
                 Some(language),
-            )
-        }
-        JobPayload::ScriptHub { path } => {
-            let email = sqlx::query_scalar!(
-                "SELECT email FROM usr WHERE username = $1 AND workspace_id = $2",
-                user,
-                workspace_id
-            )
-            .fetch_optional(&mut tx)
-            .await?;
-            let script = get_hub_script(path.clone(), email, user).await?;
-            (
+            ),
+            JobPayload::Dependencies { hash, dependencies, language } => (
+                Some(hash.0),
                 None,
-                Some(path),
-                Some((script.content, script.lockfile)),
-                JobKind::Script_Hub,
+                Some((dependencies, None)),
+                JobKind::Dependencies,
                 None,
-                Some(script.language),
-            )
-        }
-        JobPayload::Code(RawCode { content, path, language, lock }) => (
-            None,
-            path,
-            Some((content, lock)),
-            JobKind::Preview,
-            None,
-            Some(language),
-        ),
-        JobPayload::Dependencies { hash, dependencies, language } => (
-            Some(hash.0),
-            None,
-            Some((dependencies, None)),
-            JobKind::Dependencies,
-            None,
-            Some(language),
-        ),
-        JobPayload::FlowDependencies { path } => {
-            let value_json = sqlx::query_scalar!(
+                Some(language),
+            ),
+            JobPayload::FlowDependencies { path } => {
+                let value_json = sqlx::query_scalar!(
                 "SELECT value FROM flow WHERE path = $1 AND (workspace_id = $2 OR workspace_id = \
                  'starter')",
                 path,
                 workspace_id
             )
-            .fetch_optional(&mut tx)
-            .await?
-            .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", path)))?;
-            let value = serde_json::from_value::<FlowValue>(value_json).map_err(|err| {
-                Error::InternalErr(format!(
-                    "could not convert json to flow for {path}: {err:?}"
-                ))
-            })?;
-            (
-                None,
-                Some(path),
-                None,
-                JobKind::FlowDependencies,
-                Some(value),
-                None,
-            )
-        }
-        JobPayload::RawFlow { value, path } => {
-            (None, path, None, JobKind::FlowPreview, Some(value), None)
-        }
-        JobPayload::Flow(flow) => {
-            let value_json = sqlx::query_scalar!(
+                .fetch_optional(&mut tx)
+                .await?
+                .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", path)))?;
+                let value = serde_json::from_value::<FlowValue>(value_json).map_err(|err| {
+                    Error::InternalErr(format!(
+                        "could not convert json to flow for {path}: {err:?}"
+                    ))
+                })?;
+                (
+                    None,
+                    Some(path),
+                    None,
+                    JobKind::FlowDependencies,
+                    Some(value),
+                    None,
+                )
+            }
+            JobPayload::RawFlow { value, path } => {
+                (None, path, None, JobKind::FlowPreview, Some(value), None)
+            }
+            JobPayload::Flow(flow) => {
+                let value_json = sqlx::query_scalar!(
                 "SELECT value FROM flow WHERE path = $1 AND (workspace_id = $2 OR workspace_id = \
                  'starter')",
                 flow,
                 workspace_id
             )
-            .fetch_optional(&mut tx)
-            .await?
-            .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", flow)))?;
-            let value = serde_json::from_value::<FlowValue>(value_json).map_err(|err| {
-                Error::InternalErr(format!(
-                    "could not convert json to flow for {flow}: {err:?}"
-                ))
-            })?;
-            (None, Some(flow), None, JobKind::Flow, Some(value), None)
-        }
-        JobPayload::Identity => (None, None, None, JobKind::Identity, None, None),
-    };
+                .fetch_optional(&mut tx)
+                .await?
+                .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", flow)))?;
+                let value = serde_json::from_value::<FlowValue>(value_json).map_err(|err| {
+                    Error::InternalErr(format!(
+                        "could not convert json to flow for {flow}: {err:?}"
+                    ))
+                })?;
+                (None, Some(flow), None, JobKind::Flow, Some(value), None)
+            }
+            JobPayload::Identity => (None, None, None, JobKind::Identity, None, None),
+        };
 
     let is_running = same_worker;
     if let Some(flow) = raw_flow.as_ref() {
@@ -433,6 +434,27 @@ pub async fn push<'c>(
                 }
             }
         }
+
+        // If last module has a sleep or suspend, we insert a virtual identity module
+        if flow.modules.len() > 0
+            && (flow.modules[flow.modules.len() - 1].sleep.is_some()
+                || flow.modules[flow.modules.len() - 1].suspend.is_some())
+        {
+            let mut modules = flow.modules.clone();
+            modules.push(FlowModule {
+                id: "".to_string(),
+                value: FlowModuleValue::Identity,
+                input_transforms: HashMap::new(),
+                stop_after_if: None,
+                summary: Some(
+                    "Virtual module needed for suspend/sleep when last module".to_string(),
+                ),
+                retry: None,
+                sleep: None,
+                suspend: None,
+            });
+            raw_flow = Some(FlowValue { modules, ..flow.clone() });
+        }
     }
 
     let (raw_code, raw_lock) = raw_code_tuple
@@ -444,8 +466,8 @@ pub async fn push<'c>(
         "INSERT INTO queue
             (workspace_id, id, running, parent_job, created_by, permissioned_as, scheduled_for, 
                 script_hash, script_path, raw_code, raw_lock, args, job_kind, schedule_path, raw_flow, \
-         flow_status, is_flow_step, language, started_at, same_worker)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19) \
+         flow_status, is_flow_step, language, started_at, same_worker, pre_run_error)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20) \
          RETURNING id",
         workspace_id,
         job_id,
@@ -465,7 +487,8 @@ pub async fn push<'c>(
         flow_status.map(|f| serde_json::json!(f)),
         is_flow_step,
         language: ScriptLang,
-        same_worker
+        same_worker,
+        pre_run_error.map(|e| e.to_string())
     )
     .fetch_one(&mut tx)
     .await
@@ -564,6 +587,7 @@ pub struct QueuedJob {
     pub is_flow_step: bool,
     pub language: Option<ScriptLang>,
     pub same_worker: bool,
+    pub pre_run_error: Option<String>,
 }
 
 impl QueuedJob {

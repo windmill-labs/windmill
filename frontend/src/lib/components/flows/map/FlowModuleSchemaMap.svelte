@@ -13,7 +13,7 @@
 	import type { FlowModule } from '$lib/gen'
 	import FlowErrorHandlerItem from './FlowErrorHandlerItem.svelte'
 	import RemoveStepConfirmationModal from '../content/RemoveStepConfirmationModal.svelte'
-	import { emptyFlowModuleState, isEmptyFlowModule } from '../utils'
+	import { emptyFlowModuleState } from '../utils'
 	import MapItem from './MapItem.svelte'
 	import FlowSettingsItem from './FlowSettingsItem.svelte'
 	import FlowInputsItem from './FlowInputsItem.svelte'
@@ -21,17 +21,17 @@
 	import { slide } from 'svelte/transition'
 
 	export let root: boolean = false
-	export let modules: FlowModule[]
+	export let modules: FlowModule[] | undefined
 
 	let indexToRemove: number | undefined = undefined
 	const { select } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	async function insertNewModuleAtIndex(
 		index: number,
-		kind: 'script' | 'forloop' | 'branchone' | 'branchall'
+		kind: 'script' | 'forloop' | 'branchone' | 'branchall' | 'flow'
 	): Promise<void> {
 		await idMutex.runExclusive(async () => {
-			var module = emptyModule()
+			var module = emptyModule(kind == 'flow')
 			var state = emptyFlowModuleState()
 			if (kind == 'forloop') {
 				;[module, state] = await createLoop(module.id)
@@ -41,6 +41,7 @@
 				;[module, state] = await createBranchAll(module.id)
 			}
 			const flowModule = module
+			if (!modules) return
 			modules.splice(index, 0, flowModule)
 			modules = modules
 			$flowStateStore[flowModule.id] = state
@@ -50,6 +51,7 @@
 
 	function removeAtIndex(index: number): void {
 		select('settings')
+		if (!modules) return
 		const [removedModule] = modules.splice(index, 1)
 		modules = modules
 
@@ -107,25 +109,27 @@
 			</li>
 		{/if}
 
-		{#each modules as mod, index (mod.id ?? index)}
-			<div transition:slide|local>
-				<MapItem
-					bind:mod
-					on:delete={(event) => {
-						if (event.detail.detail.shiftKey || isEmptyFlowModule(mod)) {
-							removeAtIndex(index)
-						} else {
-							indexToRemove = index
-						}
-					}}
-					on:insert={(e) => {
-						insertNewModuleAtIndex(index, e.detail)
-					}}
-				/>
-			</div>
-		{/each}
+		{#if modules}
+			{#each modules as mod, index (mod.id ?? index)}
+				<div transition:slide|local>
+					<MapItem
+						bind:mod
+						on:delete={(event) => {
+							if (event.detail.detail.shiftKey || mod.value.type === 'identity') {
+								removeAtIndex(index)
+							} else {
+								indexToRemove = index
+							}
+						}}
+						on:insert={(e) => {
+							insertNewModuleAtIndex(index, e.detail)
+						}}
+					/>
+				</div>
+			{/each}
+		{/if}
 
-		<InsertModuleButton on:new={(e) => insertNewModuleAtIndex(modules.length, e.detail)} />
+		<InsertModuleButton on:new={(e) => insertNewModuleAtIndex(modules?.length ?? 0, e.detail)} />
 	</ul>
 	{#if root}
 		<div class="sticky bottom-0 bg-gray-50 flex-none px-4 py-1 pb-2 border-t">

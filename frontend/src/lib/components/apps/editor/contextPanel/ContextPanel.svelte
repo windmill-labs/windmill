@@ -2,7 +2,6 @@
 	import { fade } from 'svelte/transition'
 	import type { Schema } from '$lib/common'
 	import { Drawer } from '$lib/components/common'
-	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import ScriptEditor from '$lib/components/ScriptEditor.svelte'
@@ -24,16 +23,16 @@
 
 	$: isTakenPath = Object.keys($app.inlineScripts).includes(newScriptPath)
 
-	function connectInput(id: string, name: string) {
+	function connectInput(componentId: string, path: string) {
 		if ($connectingInput) {
 			$connectingInput = {
 				opened: false,
 				input: {
-					id,
-					name,
-					type: 'output',
-					defaultValue: undefined,
-					fieldType: 'any'
+					connection: {
+						componentId,
+						path
+					},
+					type: 'connected'
 				}
 			}
 		}
@@ -115,9 +114,9 @@
 				fixedOverflowWidgets={false}
 			/>
 		{/if}
-		<div slot="submission" class="flex items-center gap-4">
+		<svelte:fragment slot="actions">
 			<Button startIcon={{ icon: faSave }} disabled>Automatically Saved</Button>
-		</div>
+		</svelte:fragment>
 	</DrawerContent>
 </Drawer>
 
@@ -133,46 +132,50 @@
 		/>
 	</svelte:fragment>
 
-	<div class="w-full border rounded-sm">
-		{#each $app.inlineScripts ? Object.entries($app.inlineScripts) : [] as [key, value], index}
-			<div
-				class={classNames(
-					'flex justify-between flex-row w-full items-center p-2',
-					index % 2 === 0 ? 'bg-gray-100' : 'bg-white'
-				)}
-			>
-				<span class="text-xs">{key}</span>
-				<div class="flex gap-2">
-					<Button
-						size="xs"
-						color="light"
-						variant="border"
-						iconOnly
-						startIcon={{ icon: faEdit }}
-						on:click={() => {
-							if (value) {
-								selectedScript = value
-								scriptEditorDrawer.openDrawer && scriptEditorDrawer.openDrawer()
-							}
-						}}
-					/>
-					<Button
-						size="xs"
-						color="red"
-						variant="border"
-						iconOnly
-						startIcon={{ icon: faTrash }}
-						on:click={() => {
-							if ($app.inlineScripts[key]) {
-								delete $app.inlineScripts[key]
-								$app = $app
-							}
-						}}
-					/>
+	{#if $app.inlineScripts && Object.keys($app.inlineScripts).length > 0}
+		<div class="w-full border rounded-sm">
+			{#each $app.inlineScripts ? Object.entries($app.inlineScripts) : [] as [key, value], index}
+				<div
+					class={classNames(
+						'flex justify-between flex-row w-full items-center p-2',
+						index % 2 === 0 ? 'bg-gray-100' : 'bg-white'
+					)}
+				>
+					<span class="text-xs">{key}</span>
+					<div class="flex gap-2">
+						<Button
+							size="xs"
+							color="light"
+							variant="border"
+							iconOnly
+							startIcon={{ icon: faEdit }}
+							on:click={() => {
+								if (value) {
+									selectedScript = value
+									scriptEditorDrawer.openDrawer && scriptEditorDrawer.openDrawer()
+								}
+							}}
+						/>
+						<Button
+							size="xs"
+							color="red"
+							variant="border"
+							iconOnly
+							startIcon={{ icon: faTrash }}
+							on:click={() => {
+								if ($app.inlineScripts[key]) {
+									delete $app.inlineScripts[key]
+									$app = $app
+								}
+							}}
+						/>
+					</div>
 				</div>
-			</div>
-		{/each}
-	</div>
+			{/each}
+		</div>
+	{:else}
+		<div class="text-sm text-gray-500">No inline scripts</div>
+	{/if}
 </PanelSection>
 
 <PanelSection title="Outputs">
