@@ -426,6 +426,15 @@ async fn delete_workspace(
     Path(w_id): Path<String>,
     Authed { is_admin, username, email, .. }: Authed,
 ) -> Result<String> {
+    let w_id = match w_id.as_str() {
+        "starter" => Err(Error::BadRequest(
+            "starter workspace cannot be deleted".to_string(),
+        )),
+        "admins" => Err(Error::BadRequest(
+            "admins workspace cannot be deleted".to_string(),
+        )),
+        _ => Ok(w_id),
+    }?;
     require_admin(is_admin, &username)?;
     let mut tx = db.begin().await?;
     sqlx::query!("UPDATE workspace SET deleted = true WHERE id = $1", &w_id)

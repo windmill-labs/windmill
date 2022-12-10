@@ -277,8 +277,15 @@
 		<p class="italic text-xs">
 			The workspace will be archived for a short period of time and then permanently deleted
 		</p>
+		{#if $workspaceStore === 'admins' || $workspaceStore === 'starter'}
+			<p class="italic text-xs">
+				This workspace cannot be deleted as it has a special function. Consult the documentation for
+				more information.
+			</p>
+		{/if}
 		<Button
 			color="red"
+			disabled={$workspaceStore === 'admins' || $workspaceStore === 'starter'}
 			size="sm"
 			btnClasses="mt-2"
 			on:click={async () => {
