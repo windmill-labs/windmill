@@ -22,6 +22,14 @@ import MailchimpIcon from './MailchimpIcon.svelte'
 import SendgridIcon from './SendgridIcon.svelte'
 import SendflakeIcon from './SendflakeIcon.svelte'
 import QRCodeIcon from './QRCodeIcon.svelte'
+import LinkedinIcon from './LinkedinIcon.svelte'
+import HubspotIcon from './HubspotIcon.svelte'
+import DatadogIcon from './DatadogIcon.svelte'
+import StripeIcon from './StripeIcon.svelte'
+import TelegramIcon from './TelegramIcon.svelte'
+import FunkwhaleIcon from './FunkwhaleIcon.svelte'
+import GdocsIcon from './GdocsIcon.svelte'
+import NextcloudIcon from './NextcloudIcon.svelte'
 
 export const APP_TO_ICON_COMPONENT = {
 	postgresql: PostgresIcon,
@@ -48,7 +56,17 @@ export const APP_TO_ICON_COMPONENT = {
 	mailchimp: MailchimpIcon,
 	sendgrid: SendgridIcon,
 	snowflake: SendflakeIcon,
-	qrcode: QRCodeIcon
+	qrcode: QRCodeIcon,
+	linkedin: LinkedinIcon,
+	hubspot: HubspotIcon,
+	datadog: DatadogIcon,
+	stripe: StripeIcon,
+	telegram: TelegramIcon,
+	funkwhale: FunkwhaleIcon,
+	helper: WindmillIcon,
+	windmillhub: WindmillIcon,
+	gdocs: GdocsIcon,
+	ocs: NextcloudIcon
 } as const
 
 export {
@@ -73,5 +91,12 @@ export {
 	TogglIcon,
 	WindmillIcon,
 	MailchimpIcon,
-	SendgridIcon
+	SendgridIcon,
+	LinkedinIcon,
+	HubspotIcon,
+	TelegramIcon,
+	StripeIcon,
+	DatadogIcon,
+	FunkwhaleIcon,
+	GdocsIcon,
 }

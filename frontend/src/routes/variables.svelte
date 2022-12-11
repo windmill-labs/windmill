@@ -272,6 +272,7 @@
 								</td>
 								<td
 									><Dropdown
+										placement="bottom-end"
 										dropdownItems={[
 											{
 												displayName: 'Edit',
@@ -322,7 +323,6 @@
 												  ]
 												: [])
 										]}
-										relative={true}
 									/></td
 								>
 							</tr>

@@ -119,6 +119,7 @@
 							>
 							<td
 								><Dropdown
+									placement="bottom-end"
 									dropdownItems={[
 										{
 											displayName: enabled ? 'Disable' : 'Enable',
@@ -157,7 +158,6 @@
 											}
 										}
 									]}
-									relative={true}
 								/></td
 							>
 						</tr>

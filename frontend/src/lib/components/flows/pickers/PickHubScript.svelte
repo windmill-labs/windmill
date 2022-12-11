@@ -26,6 +26,7 @@
 			loadHubScripts()
 		}
 	})
+	const maxItems = 40
 </script>
 
 <SearchItems {filter} items={prefilteredItems} bind:filteredItems f={(x) => x.summary} />
@@ -33,14 +34,14 @@
 	<slot />
 	<input type="text" placeholder="Search Hub Scripts" bind:value={filter} class="text-2xl grow" />
 </div>
-<ListFilters filters={apps} bind:selectedFilter={appFilter} />
+<ListFilters filters={apps} bind:selectedFilter={appFilter} resourceType />
 
 {#if $hubScripts}
 	{#if filteredItems.length == 0}
 		<NoItemFound />
 	{:else}
 		<ul class="divide-y divide-gray-200 border rounded-md">
-			{#each filteredItems as item (item.path)}
+			{#each filteredItems.slice(0, maxItems) as item (item.path)}
 				<li class="flex flex-row w-full">
 					<button
 						class="p-4 gap-4 flex flex-row grow hover:bg-gray-50 bg-white transition-all items-center"
@@ -80,6 +81,11 @@
 				</li>
 			{/each}
 		</ul>
+	{/if}
+	{#if filteredItems.length > maxItems}
+		<div class="text-gray-500 text-sm py-4">
+			There are more items ({filteredItems.length}) than being displayed. Refine your search.
+		</div>
 	{/if}
 {:else}
 	{#each Array(10).fill(0) as _}

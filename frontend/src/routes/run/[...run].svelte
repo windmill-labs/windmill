@@ -70,7 +70,7 @@
 
 	// If we get results, focus on that tab. Else, focus on logs
 	function initView(): void {
-		if (job && 'result' in job && job.result !== undefined) {
+		if (job && 'result' in job && job.result != undefined) {
 			viewTab = 'result'
 		} else if (viewTab == 'result') {
 			viewTab = 'logs'

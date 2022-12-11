@@ -16,5 +16,11 @@
     "token_url": "https://oauth2.googleapis.com/token",
     "userinfo_url": "https://www.googleapis.com/oauth2/v1/userinfo?alt=json",
     "scopes": ["https://www.googleapis.com/auth/userinfo.email"]
+  },
+  "microsoft": {
+    "auth_url": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+    "token_url": "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+    "userinfo_url": "https://graph.microsoft.com/oidc/userinfo",
+    "scopes": ["openid", "profile", "email"]
   }
 }

@@ -13,7 +13,7 @@
 	const color = {
 		script: 'bg-blue-50 border-blue-200',
 		flow: 'bg-[#f0fdfa] border-[#99f6e4]',
-		app: 'bg-[#fff7ed] border-orange-200'
+		app: 'bg-[#fff7ed] border-orange-300'
 	}[kind]
 
 	const iconColor = {
@@ -24,5 +24,5 @@
 </script>
 
 <div class={classNames('rounded-md p-1 flex justify-center items-center border', color)}>
-	<svelte:component this={icon} size="18px" color={iconColor} />
+	<svelte:component this={icon} size={26} color={iconColor} />
 </div>

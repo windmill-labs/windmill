@@ -99,11 +99,21 @@
 
 	$: preFilteredType =
 		typeFilter == undefined
-			? preFilteredItemsOwners
-			: preFilteredItemsOwners?.filter((x) => x.resource_type == typeFilter)
+			? preFilteredItemsOwners?.filter((x) =>
+					tab == 'states' ? x.resource_type == 'state' : x.resource_type != 'state'
+			  )
+			: preFilteredItemsOwners?.filter(
+					(x) =>
+						x.resource_type == typeFilter &&
+						(tab == 'states' ? x.resource_type == 'state' : x.resource_type != 'state')
+			  )
 
 	async function loadResources(): Promise<void> {
-		resources = (await ResourceService.listResource({ workspace: $workspaceStore! })).map((x) => {
+		resources = (
+			await ResourceService.listResource({
+				workspace: $workspaceStore!
+			})
+		).map((x) => {
 			return {
 				canWrite:
 					canWrite(x.path, x.extra_perms!, $userStore) && $workspaceStore! == x.workspace_id,
@@ -195,7 +205,7 @@
 	})
 
 	let disableCustomPrefix = false
-	let tab: 'workspace' | 'types' = 'workspace'
+	let tab: 'workspace' | 'types' | 'states' = 'workspace'
 </script>
 
 <Drawer bind:this={resourceTypeViewer} size="800px">
@@ -295,13 +305,24 @@
 				>
 			</div>
 		</Tab>
+		<Tab size="md" value="states">
+			<div class="flex gap-2 items-center my-1">
+				States <Tooltip
+					>States are actually resources (but excluded from the Workspace tab for clarity). States
+					are used by scripts to keep data persistent between runs of the same script by the same
+					trigger (schedule or user)</Tooltip
+				>
+			</div>
+		</Tab>
 	</Tabs>
-	{#if tab == 'workspace'}
+	{#if tab == 'workspace' || tab == 'states'}
 		<div class="pt-2">
 			<input placeholder="Search Resource" bind:value={filter} class="input mt-1" />
 		</div>
 		<ListFilters bind:selectedFilter={ownerFilter} filters={owners} />
-		<ListFilters bind:selectedFilter={typeFilter} filters={types} />
+		{#if tab != 'states'}
+			<ListFilters bind:selectedFilter={typeFilter} filters={types} resourceType />
+		{/if}
 
 		<div class="overflow-x-auto pb-40">
 			{#if loading.resources}
@@ -431,6 +452,7 @@
 									</td>
 									<td>
 										<Dropdown
+											placement="bottom-end"
 											dropdownItems={[
 												{
 													displayName: 'Share',
@@ -483,7 +505,6 @@
 													  ]
 													: [])
 											]}
-											relative={true}
 										/>
 									</td>
 								</tr>

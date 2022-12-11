@@ -1376,7 +1376,12 @@ paths:
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
         - name: resource_type
-          description: resource_type to list from
+          description: resource_types to list from, separated by ',',
+          in: query
+          schema:
+            type: string
+        - name: resource_type_exclude
+          description: resource_types to not list from, separated by ',',
           in: query
           schema:
             type: string
