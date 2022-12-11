@@ -43,7 +43,6 @@ lazy_static::lazy_static! {
 
 }
 
-#[cfg(feature = "enterprise")]
 const MAX_FREE_EXECS: i32 = 1000;
 
 pub async fn cancel_job<'c>(
@@ -260,8 +259,7 @@ pub async fn push<'c>(
     let args_json = serde_json::Value::Object(args);
     let job_id: Uuid = Ulid::new().into();
 
-    #[cfg(feature = "enterprise")]
-    {
+    if cfg!(feature = "enterprise") {
         let premium_workspace =
             sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", workspace_id)
                 .fetch_one(&mut tx)
@@ -297,13 +295,18 @@ pub async fn push<'c>(
                 .map_err(|e| Error::InternalErr(format!("updating usage: {e}")))?
             }
         } else if *CLOUD_HOSTED && !premium_workspace {
-            sqlx::query_scalar!("
+            sqlx::query_scalar!(
+                "
         SELECT usage.usage + 1 FROM usage 
-        WHERE is_workspace = false AND month_ = EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date)")
-        .fetch_optional(&mut tx)
-        .await?
-        .flatten()
-        .unwrap_or(0)
+        WHERE is_workspace = false AND
+     month_ = EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date)
+     AND id = $1",
+                email
+            )
+            .fetch_optional(&mut tx)
+            .await?
+            .flatten()
+            .unwrap_or(0)
         } else {
             0
         };

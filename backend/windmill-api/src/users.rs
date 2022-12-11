@@ -719,8 +719,19 @@ async fn get_email(Authed { email, .. }: Authed) -> Result<String> {
     Ok(email)
 }
 
-async fn get_usage(Authed { email, .. }: Authed) -> Result<String> {
-    Ok(email)
+async fn get_usage(Extension(db): Extension<DB>, Authed { email, .. }: Authed) -> Result<String> {
+    let usage = sqlx::query_scalar!(
+        "
+    SELECT usage.usage FROM usage 
+    WHERE is_workspace = false 
+    AND month_ = EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date)
+    AND id = $1",
+        email
+    )
+    .fetch_optional(&db)
+    .await?
+    .unwrap_or(0);
+    Ok(usage.to_string())
 }
 
 async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo>> {

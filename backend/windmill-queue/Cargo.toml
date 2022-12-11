@@ -8,6 +8,10 @@ edition.workspace = true
 name = "windmill_queue"
 path = "src/lib.rs"
 
+[features]
+default = []
+enterprise = []
+
 [dependencies]
 windmill-audit.workspace = true
 windmill-common = { workspace = true, features = ["sqlx", "reqwest"] }

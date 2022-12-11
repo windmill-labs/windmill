@@ -12,6 +12,9 @@ path = "src/lib.rs"
 name = "windmill_api"
 path = "src/main.rs"
 
+[features]
+enterprise = ["windmill-queue/enterprise"]
+
 [dependencies]
 windmill-queue.workspace = true
 windmill-common = { workspace = true, features = [
