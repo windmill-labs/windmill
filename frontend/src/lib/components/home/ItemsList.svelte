@@ -6,7 +6,7 @@
 	import { canWrite } from '$lib/utils'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import type uFuzzy from '@leeoniya/ufuzzy'
-	import { Code2, LayoutDashboard, Wind } from 'lucide-svelte'
+	import { Code2, LayoutDashboard } from 'lucide-svelte'
 
 	export let filter = ''
 
@@ -17,6 +17,8 @@
 	import NoItemFound from './NoItemFound.svelte'
 	import ListFilters from './ListFilters.svelte'
 	import SearchItems from '../SearchItems.svelte'
+	import { Icon } from 'svelte-awesome'
+	import { faBarsStaggered } from '@fortawesome/free-solid-svg-icons'
 
 	type TableItem<T, U extends 'script' | 'flow' | 'app'> = T & {
 		canWrite: boolean
@@ -224,7 +226,7 @@
 				</ToggleButton>
 				<ToggleButton light position="center" value="flow" size="sm">
 					<div class="flex gap-1 items-center">
-						<Wind size={16} />
+						<Icon data={faBarsStaggered} scale={0.8} class="mr-1" />
 						Flows
 					</div>
 				</ToggleButton>

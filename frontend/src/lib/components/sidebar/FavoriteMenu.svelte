@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
-	import { faCode, faStar, faTelevision, faWind } from '@fortawesome/free-solid-svg-icons'
+	import { faCode, faStar, faTelevision, faBarsStaggered } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 
 	import Menu from '../common/menu/Menu.svelte'
@@ -40,7 +40,7 @@
 							{#if favorite.kind == 'script'}
 								<Icon data={faCode} />
 							{:else if favorite.kind == 'flow'}
-								<Icon data={faWind} />
+								<Icon data={faBarsStaggered} />
 							{:else if favorite.kind == 'app'}
 								<Icon data={faTelevision} />
 							{/if}

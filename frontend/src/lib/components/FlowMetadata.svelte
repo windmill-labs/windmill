@@ -9,7 +9,7 @@
 		faRobot,
 		faScroll,
 		faUser,
-		faWind
+		faBarsStaggered
 	} from '@fortawesome/free-solid-svg-icons'
 
 	export let job: Job
@@ -33,7 +33,9 @@
 	<div>
 		{#if job && job.parent_job}
 			{#if job.is_flow_step}
-				<Icon class="text-gray-700" data={faWind} scale={SMALL_ICON_SCALE} /><span class="mx-2">
+				<Icon class="text-gray-700" data={faBarsStaggered} scale={SMALL_ICON_SCALE} /><span
+					class="mx-2"
+				>
 					Step of flow <a href={`/run/${job.parent_job}`}>{job.parent_job}</a></span
 				>
 			{:else}
