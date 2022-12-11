@@ -46,6 +46,7 @@ pub fn workspaced_service() -> Router {
         .route("/get_settings", get(get_settings))
         .route("/edit_slack_command", post(edit_slack_command))
         .route("/tarball", get(tarball_workspace))
+        .route("/usage", get(get_usage))
 }
 
 pub fn global_service() -> Router {
@@ -74,6 +75,16 @@ pub struct WorkspaceSettings {
     pub slack_team_id: Option<String>,
     pub slack_name: Option<String>,
     pub slack_command_script: Option<String>,
+    pub slack_email: String,
+}
+
+#[derive(FromRow, Serialize, Debug)]
+pub struct Usage {
+    pub workspace_id: String,
+    pub slack_team_id: Option<String>,
+    pub slack_name: Option<String>,
+    pub slack_command_script: Option<String>,
+    pub slack_email: String,
 }
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug)]
@@ -175,7 +186,7 @@ async fn list_workspaces(
         Workspace,
         "SELECT workspace.* FROM workspace, usr WHERE usr.workspace_id = workspace.id AND \
          usr.email = $1 AND deleted = false",
-        authed.email.as_ref()
+        authed.email
     )
     .fetch_all(&mut tx)
     .await?;
@@ -184,6 +195,25 @@ async fn list_workspaces(
 }
 
 async fn get_settings(
+    authed: Authed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<WorkspaceSettings> {
+    let mut tx = user_db.begin(&authed).await?;
+    let settings = sqlx::query_as!(
+        WorkspaceSettings,
+        "SELECT * FROM workspace_settings WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_one(&mut tx)
+    .await
+    .map_err(|e| Error::InternalErr(format!("getting settings: {e}")))?;
+
+    tx.commit().await?;
+    Ok(Json(settings))
+}
+
+async fn get_usage(
     authed: Authed,
     Path(w_id): Path<String>,
     Extension(user_db): Extension<UserDB>,
@@ -225,7 +255,7 @@ async fn edit_slack_command(
         "workspaces.edit_command_script",
         ActionKind::Update,
         &w_id,
-        Some(&authed.email.unwrap()),
+        Some(&authed.email),
         Some(
             [(
                 "script",
@@ -249,7 +279,7 @@ async fn list_workspaces_as_super_admin(
     Authed { email, .. }: Authed,
 ) -> JsonResult<Vec<Workspace>> {
     let mut tx = user_db.begin(&authed).await?;
-    require_super_admin(&mut tx, email).await?;
+    require_super_admin(&mut tx, &email).await?;
     let (per_page, offset) = paginate(pagination);
 
     let workspaces = sqlx::query_as!(
@@ -268,9 +298,6 @@ async fn user_workspaces(
     Extension(db): Extension<DB>,
     Authed { email, .. }: Authed,
 ) -> JsonResult<WorkspaceList> {
-    let email = email
-        .ok_or("not a personal token")
-        .map_err(|x| Error::NotAuthorized(x.to_string()))?;
     let mut tx = db.begin().await?;
     let workspaces = sqlx::query_as!(
         UserWorkspace,
@@ -406,7 +433,7 @@ async fn edit_workspace(
         "workspaces.update",
         ActionKind::Update,
         &w_id,
-        Some(&authed.email.unwrap()),
+        Some(&authed.email),
         Some(
             [(
                 "domain",
@@ -447,7 +474,7 @@ async fn delete_workspace(
         "workspaces.delete",
         ActionKind::Update,
         &w_id,
-        Some(&email.unwrap_or("noemail".to_string())),
+        Some(&email),
         None,
     )
     .await?;

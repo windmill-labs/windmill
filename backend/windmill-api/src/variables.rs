@@ -60,7 +60,7 @@ async fn list_contextual_variables(
         get_reserved_variables(
             &w_id,
             "q1A0qcPuO00yxioll7iph76N9CJDqn",
-            &email.unwrap_or_else(|| "no email".to_string()),
+            &email,
             &username,
             "017e0ad5-f499-73b6-5488-92a61c5196dd",
             format!("u/{username}").as_str(),

@@ -1,14 +1,13 @@
 <script context="module">
 	export function load({ params }) {
 		return {
-			stuff: { title: `Script ${params.hash}` }
+			stuff: { title: `App ${params.path}` }
 		}
 	}
 </script>
 
 <script lang="ts">
 	import { page } from '$app/stores'
-	import AppEditor from '$lib/components/apps/editor/AppEditor.svelte'
 	import AppPreview from '$lib/components/apps/editor/AppPreview.svelte'
 
 	import CenteredPage from '$lib/components/CenteredPage.svelte'

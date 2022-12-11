@@ -242,10 +242,10 @@ pub async fn create_token_for_owner<'c>(
         .await?
         .unwrap_or(false);
 
-    let expiration = sqlx::query_scalar!(
+    sqlx::query_scalar!(
         "INSERT INTO token
             (workspace_id, token, owner, label, expiration, super_admin)
-            VALUES ($1, $2, $3, $4, now() + ($5 || ' seconds')::interval, $6) RETURNING expiration",
+            VALUES ($1, $2, $3, $4, now() + ($5 || ' seconds')::interval, $6)",
         &w_id,
         token,
         owner,
@@ -253,32 +253,7 @@ pub async fn create_token_for_owner<'c>(
         expires_in.to_string(),
         is_super_admin
     )
-    .fetch_one(&mut tx)
-    .await?;
-
-    let mut truncated_token = token[..10].to_owned();
-    truncated_token.push_str("*****");
-
-    windmill_audit::audit_log(
-        &mut tx,
-        &username,
-        "users.token.create",
-        windmill_audit::ActionKind::Create,
-        w_id,
-        Some(&truncated_token),
-        Some(
-            [
-                Some(("label", label)),
-                expiration
-                    .map(|x| x.to_string())
-                    .as_ref()
-                    .map(|exp| ("expiration", &exp[..])),
-            ]
-            .into_iter()
-            .flatten()
-            .collect(),
-        ),
-    )
+    .execute(&mut tx)
     .await?;
     Ok((tx, token))
 }
@@ -646,6 +621,17 @@ async fn handle_job_error(
     keep_job_dir: bool,
     base_internal_url: &str,
 ) {
+    add_completed_job_error(
+        db,
+        &job,
+        format!("Unexpected error during job execution:\n{err}"),
+        &err,
+        metrics.clone(),
+    )
+    .await
+    .map(|(_, m)| m)
+    .unwrap_or_else(|_| Map::new());
+
     if job.is_flow_step || job.job_kind == JobKind::FlowPreview || job.job_kind == JobKind::Flow {
         let (flow, job_status_to_update) = if let Some(parent_job_id) = job.parent_job {
             (parent_job_id, job.id)
@@ -693,17 +679,6 @@ async fn handle_job_error(
             }
         }
     }
-    add_completed_job_error(
-        db,
-        &job,
-        format!("Unexpected error during job execution:\n{err}"),
-        &err,
-        metrics,
-    )
-    .await
-    .map(|(_, m)| m)
-    .unwrap_or_else(|_| Map::new());
-
     tracing::error!(job_id = %job.id, err = err.alt(), "error handling job: {} {} {}", job.id, job.workspace_id, job.created_by);
 }
 
@@ -787,7 +762,7 @@ async fn handle_queued_job(
                 .await?;
             }
 
-            tracing::info!(
+            tracing::debug!(
                 worker = %worker_name,
                 job_id = %job.id,
                 workspace_id = %job.workspace_id,
@@ -1005,7 +980,7 @@ async fn handle_code_execution_job(
         .map(|x| format!("{x:?}"))
         .unwrap_or_else(|| "NO_LANG".to_string());
 
-    tracing::info!(
+    tracing::debug!(
         worker_name = %worker_name,
         job_id = %job.id,
         workspace_id = %job.workspace_id,
@@ -2103,17 +2078,6 @@ async fn gen_go_mymod(code: &str, job_dir: &str) -> error::Result<()> {
     Ok(())
 }
 
-// TODO: this really shouldn't be here
-pub async fn get_email_from_username(
-    username: &String,
-    db: &Pool<Postgres>,
-) -> error::Result<Option<String>> {
-    let email = sqlx::query_scalar!("SELECT email FROM usr WHERE username = $1", username)
-        .fetch_optional(db)
-        .await?;
-    Ok(email)
-}
-
 #[tracing::instrument(level = "trace", skip_all)]
 async fn get_reserved_variables(
     job: &QueuedJob,
@@ -2133,9 +2097,7 @@ async fn get_reserved_variables(
     let variables = variables::get_reserved_variables(
         &job.workspace_id,
         token,
-        &get_email_from_username(&job.created_by, db)
-            .await?
-            .unwrap_or_else(|| "nosuitable@email.xyz".to_string()),
+        &job.email,
         &job.created_by,
         &job.id.to_string(),
         &job.permissioned_as,

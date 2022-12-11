@@ -7,11 +7,11 @@
  */
 
 use serde_json::{Map, Value};
-use sqlx::{Pool, Postgres, Transaction};
+use sqlx::{Pool, Postgres};
 use tracing::instrument;
 use uuid::Uuid;
 use windmill_common::{error::Error, flow_status::FlowStatusModule};
-use windmill_queue::{delete_job, schedule::get_schedule_opt, JobKind, QueuedJob};
+use windmill_queue::{delete_job, schedule::get_schedule_opt, JobKind, QueuedJob, CLOUD_HOSTED};
 
 #[instrument(level = "trace", skip_all)]
 pub async fn add_completed_job_error<E: ToString + std::fmt::Debug>(
@@ -46,6 +46,24 @@ pub fn error_to_result<E: ToString + std::fmt::Debug>(
     );
 }
 
+fn flatten_jobs(modules: Vec<FlowStatusModule>) -> Vec<Uuid> {
+    modules
+        .into_iter()
+        .filter_map(|m| match m {
+            FlowStatusModule::Success { job, flow_jobs, .. }
+            | FlowStatusModule::Failure { job, flow_jobs, .. } => {
+                if let Some(flow_jobs) = flow_jobs {
+                    Some(flow_jobs)
+                } else {
+                    Some(vec![job])
+                }
+            }
+            _ => None,
+        })
+        .flatten()
+        .collect::<Vec<_>>()
+}
+
 #[instrument(level = "trace", skip_all)]
 pub async fn add_completed_job(
     db: &Pool<Postgres>,
@@ -60,14 +78,7 @@ pub async fn add_completed_job(
             let jobs = queued_job.parse_flow_status().map(|s| {
                 let mut modules = s.modules;
                 modules.extend([s.failure_module.module_status]);
-                modules
-                    .into_iter()
-                    .filter_map(|m| match m {
-                        FlowStatusModule::Success { job, .. }
-                        | FlowStatusModule::Failure { job, .. } => Some(job),
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>()
+                flatten_jobs(modules)
             });
             if let Some(jobs) = jobs {
                 sqlx::query_scalar!(
@@ -85,6 +96,7 @@ pub async fn add_completed_job(
         } else {
             None
         };
+
     let mut tx = db.begin().await?;
     let job_id = queued_job.id.clone();
     sqlx::query!(
@@ -149,32 +161,69 @@ pub async fn add_completed_job(
     .await
     .map_err(|e| Error::InternalErr(format!("Could not add completed job {job_id}: {e}")))?;
     let _ = delete_job(db, &queued_job.workspace_id, job_id).await?;
+    tx.commit().await?;
+
+    if duration.unwrap_or(0) > 1000 {
+        let additional_usage = (duration.unwrap() as i32 / 1000) - 1;
+        sqlx::query!(
+        "INSERT INTO usage (id, is_workspace, month_, usage) 
+        VALUES ($1, false, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 0) 
+        ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + $2",
+        queued_job.email,
+        additional_usage)
+            .execute(db)
+            .await
+            .map_err(|e| Error::InternalErr(format!("updating usage: {e}")))?;
+
+        if *CLOUD_HOSTED {
+            let w_id = &queued_job.workspace_id;
+            let premium_workspace =
+                sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", w_id)
+                    .fetch_one(db)
+                    .await
+                    .map_err(|e| {
+                        Error::InternalErr(format!("fetching if {w_id} is premium: {e}"))
+                    })?;
+            if premium_workspace {
+                let _ = sqlx::query!(
+                "INSERT INTO usage (id, is_workspace, month_, usage) 
+                VALUES ($1, true, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 0) 
+                ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + $2",
+                w_id,
+                additional_usage)
+                .execute(db)
+                .await
+                .map_err(|e| Error::InternalErr(format!("updating usage: {e}")));
+            }
+        }
+    }
     if !queued_job.is_flow_step
         && queued_job.job_kind != JobKind::Flow
         && queued_job.job_kind != JobKind::FlowPreview
         && queued_job.schedule_path.is_some()
         && queued_job.script_path.is_some()
     {
-        tx = schedule_again_if_scheduled(
-            tx,
+        schedule_again_if_scheduled(
+            db,
             queued_job.schedule_path.as_ref().unwrap(),
             queued_job.script_path.as_ref().unwrap(),
             &queued_job.workspace_id,
         )
         .await?;
     }
-    tx.commit().await?;
     tracing::debug!("Added completed job {}", queued_job.id);
     Ok(queued_job.id)
 }
 
 #[instrument(level = "trace", skip_all)]
-pub async fn schedule_again_if_scheduled<'c>(
-    mut tx: Transaction<'c, Postgres>,
+pub async fn schedule_again_if_scheduled(
+    db: &Pool<Postgres>,
     schedule_path: &str,
     script_path: &str,
     w_id: &str,
-) -> windmill_common::error::Result<Transaction<'c, Postgres>> {
+) -> windmill_common::error::Result<()> {
+    let mut tx = db.begin().await?;
+
     let schedule = get_schedule_opt(&mut tx, w_id, schedule_path)
         .await?
         .ok_or_else(|| {
@@ -184,11 +233,11 @@ pub async fn schedule_again_if_scheduled<'c>(
             ))
         })?;
     if schedule.enabled && script_path == schedule.script_path {
-        tx = windmill_queue::schedule::push_scheduled_job(
+        let res = windmill_queue::schedule::push_scheduled_job(
             tx,
             windmill_queue::schedule::Schedule {
                 workspace_id: w_id.to_owned(),
-                path: schedule.path,
+                path: schedule.path.clone(),
                 edited_by: schedule.edited_by,
                 edited_at: schedule.edited_at,
                 schedule: schedule.schedule,
@@ -200,10 +249,25 @@ pub async fn schedule_again_if_scheduled<'c>(
                     .args
                     .and_then(|e| serde_json::to_value(e).map_or(None, |v| Some(v))),
                 extra_perms: serde_json::to_value(schedule.extra_perms).expect("hashmap -> json"),
+                email: schedule.email,
+                error: None,
             },
         )
-        .await?;
+        .await;
+        match res {
+            Ok(tx) => tx.commit().await?,
+            Err(e) => {
+                sqlx::query!(
+                    "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
+                    e.to_string(),
+                    &schedule.workspace_id,
+                    &schedule.path
+                )
+                .execute(db)
+                .await?;
+                tracing::warn!("Could not schedule job for {}: {}", schedule_path, e);
+            }
+        }
     }
-
-    Ok(tx)
+    Ok(())
 }

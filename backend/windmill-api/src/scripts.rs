@@ -12,10 +12,10 @@ use windmill_audit::{audit_log, ActionKind};
 
 use crate::{
     db::{UserDB, DB},
-    users::{truncate_token, Authed, Tokened},
+    users::Authed,
 };
 use axum::{
-    extract::{Extension, Host, Path, Query},
+    extract::{Extension, Path, Query},
     routing::{get, post},
     Json, Router,
 };
@@ -160,16 +160,13 @@ async fn list_scripts(
 }
 
 async fn list_hub_scripts(
-    Authed { email, username, .. }: Authed,
+    Authed { email, .. }: Authed,
     Extension(http_client): Extension<Client>,
-    Host(host): Host,
 ) -> JsonResult<serde_json::Value> {
     let asks = list_elems_from_hub(
         http_client,
         "https://hub.windmill.dev/searchData?approved=true",
-        email,
-        username,
-        host,
+        &email,
     )
     .await?;
     Ok(Json(asks))
@@ -182,7 +179,6 @@ fn hash_script(ns: &NewScript) -> i64 {
 }
 async fn create_script(
     authed: Authed,
-    Tokened { token }: Tokened,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(ns): Json<NewScript>,
@@ -293,7 +289,7 @@ async fn create_script(
         .map(|v| v.1.clone())
         .unwrap_or(json!({}));
 
-    let lock = if ns.language == ScriptLang::Bash {
+    let lock = if ns.language == ScriptLang::Bash || ns.language == ScriptLang::Deno {
         Some(String::new())
     } else {
         ns.lock
@@ -339,6 +335,7 @@ async fn create_script(
             windmill_queue::JobPayload::Dependencies { hash, dependencies, language: ns.language },
             serde_json::Map::new(),
             &authed.username,
+            &authed.email,
             owner_to_token_owner(&authed.username, false),
             None,
             None,
@@ -361,13 +358,7 @@ async fn create_script(
             ActionKind::Update,
             &w_id,
             Some(&ns.path),
-            Some(
-                [
-                    ("hash", hash.to_string().as_str()),
-                    ("token", &truncate_token(&token)),
-                ]
-                .into(),
-            ),
+            Some([("hash", hash.to_string().as_str())].into()),
         )
         .await?;
     } else {
@@ -382,7 +373,6 @@ async fn create_script(
                 [
                     ("workspace", w_id.as_str()),
                     ("hash", hash.to_string().as_str()),
-                    ("token", &truncate_token(&token)),
                 ]
                 .into(),
             ),
@@ -399,33 +389,17 @@ pub async fn get_hub_script_by_path(
     authed: Authed,
     Path(path): Path<StripPath>,
     Extension(http_client): Extension<Client>,
-    Host(host): Host,
 ) -> Result<String> {
-    windmill_common::scripts::get_hub_script_by_path(
-        authed.email,
-        authed.username,
-        path,
-        http_client,
-        host,
-    )
-    .await
+    windmill_common::scripts::get_hub_script_by_path(&authed.email, path, http_client).await
 }
 
 pub async fn get_full_hub_script_by_path(
-    Authed { username, email, .. }: Authed,
+    Authed { email, .. }: Authed,
     Path(path): Path<StripPath>,
     Extension(http_client): Extension<Client>,
-    Host(host): Host,
 ) -> JsonResult<HubScript> {
     Ok(Json(
-        windmill_common::scripts::get_full_hub_script_by_path(
-            email,
-            username,
-            path,
-            http_client,
-            host,
-        )
-        .await?,
+        windmill_common::scripts::get_full_hub_script_by_path(&email, path, http_client).await?,
     ))
 }
 

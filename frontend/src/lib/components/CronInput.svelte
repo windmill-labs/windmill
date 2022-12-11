@@ -77,7 +77,7 @@
 			<div class="flex flex-row justify-between">The next runs will be scheduled at:</div>
 			<ul class="list-disc mx-12">
 				{#each preview.slice(0, limit) as p}
-					<li class="mx-2 text-gray-700 text-sm">{displayDate(p)}</li>
+					<li class="mx-2 text-gray-700 text-sm">{displayDate(p, true)}</li>
 				{/each}
 				<li class="text-sm mx-2">...</li>
 				{#if limit != 10}
