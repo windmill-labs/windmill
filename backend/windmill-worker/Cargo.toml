@@ -12,7 +12,7 @@ path = "./src/main.rs"
 [features]
 default = []
 deno-lock = []
-enterprise = []
+enterprise = ["windmill-queue/enterprise"]
 
 [dependencies]
 windmill-queue.workspace = true

@@ -473,6 +473,20 @@ paths:
               schema:
                 type: string
 
+  /users/usage:
+    get:
+      summary: get current usage outside of premium workspaces
+      operationId: getUsage
+      tags:
+        - user
+      responses:
+        "200":
+          description: free usage
+          content:
+            text/plain:
+              schema:
+                type: number
+
   /users/whoami:
     get:
       summary: get current global whoami (if logged in)

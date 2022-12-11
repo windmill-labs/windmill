@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { logout } from '$lib/logout'
 
-	import { userStore, usersWorkspaceStore, superadmin } from '$lib/stores'
-	import { classNames } from '$lib/utils'
+	import { userStore, usersWorkspaceStore, superadmin, usageStore } from '$lib/stores'
+	import { classNames, isCloudHosted } from '$lib/utils'
 	import { faCrown, faUser } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 
@@ -78,5 +78,12 @@
 				Sign out
 			</button>
 		</div>
+		{#if isCloudHosted()}
+			<div class="py-1" role="none">
+				<span class="text-gray-700 block w-full text-left px-4 py-2 text-sm"
+					>{$usageStore}/1000 free-tier executions</span
+				>
+			</div>
+		{/if}
 	</div>
 </Menu>

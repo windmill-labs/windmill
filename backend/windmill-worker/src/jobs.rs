@@ -163,8 +163,7 @@ pub async fn add_completed_job(
     let _ = delete_job(db, &queued_job.workspace_id, job_id).await?;
     tx.commit().await?;
 
-    #[cfg(feature = "enterprise")]
-    if duration.unwrap_or(0) > 1000 {
+    if cfg!(enterprise) && duration.unwrap_or(0) > 1000 {
         let additional_usage = duration.unwrap() as i32 / 1000;
 
         let w_id = &queued_job.workspace_id;

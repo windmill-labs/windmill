@@ -6,7 +6,7 @@
 	import { page } from '$app/stores'
 	import { usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
-	import { Alert, Button } from '$lib/components/common'
+	import { Button } from '$lib/components/common'
 
 	const rd = $page.url.searchParams.get('rd')
 
@@ -81,12 +81,6 @@
 </script>
 
 <CenteredModal title="New Workspace">
-	{#if $page.url.hostname != 'app.windmill.dev'}
-		<Alert title="Restricted to 1 workspace - unlimited during beta" type="info">
-			More than 1 user-created workspace for self-hosted will require a team or enterprise license
-		</Alert>
-	{/if}
-
 	<label class="block pb-2 pt-4">
 		<span class="text-gray-700">workspace name:</span>
 		<input type="text" bind:value={name} class="mt-1" />
