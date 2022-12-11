@@ -69,6 +69,7 @@ pub fn global_service() -> Router {
         .route("/tokens/create", post(create_token))
         .route("/tokens/delete/:token_prefix", delete(delete_token))
         .route("/tokens/list", get(list_tokens))
+        .route("/usage", get(get_usage))
     // .route("/list_invite_codes", get(list_invite_codes))
     // .route("/create_invite_code", post(create_invite_code))
     // .route("/signup", post(signup))
@@ -715,6 +716,10 @@ async fn global_whoami(
 }
 
 async fn get_email(Authed { email, .. }: Authed) -> Result<String> {
+    Ok(email)
+}
+
+async fn get_usage(Authed { email, .. }: Authed) -> Result<String> {
     Ok(email)
 }
 

@@ -11,7 +11,7 @@ use sqlx::{Pool, Postgres};
 use tracing::instrument;
 use uuid::Uuid;
 use windmill_common::{error::Error, flow_status::FlowStatusModule};
-use windmill_queue::{delete_job, schedule::get_schedule_opt, JobKind, QueuedJob, CLOUD_HOSTED};
+use windmill_queue::{delete_job, schedule::get_schedule_opt, JobKind, QueuedJob};
 
 #[instrument(level = "trace", skip_all)]
 pub async fn add_completed_job_error<E: ToString + std::fmt::Debug>(
@@ -163,29 +163,18 @@ pub async fn add_completed_job(
     let _ = delete_job(db, &queued_job.workspace_id, job_id).await?;
     tx.commit().await?;
 
+    #[cfg(feature = "enterprise")]
     if duration.unwrap_or(0) > 1000 {
-        let additional_usage = (duration.unwrap() as i32 / 1000) - 1;
-        sqlx::query!(
-        "INSERT INTO usage (id, is_workspace, month_, usage) 
-        VALUES ($1, false, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 0) 
-        ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + $2",
-        queued_job.email,
-        additional_usage)
-            .execute(db)
-            .await
-            .map_err(|e| Error::InternalErr(format!("updating usage: {e}")))?;
+        let additional_usage = duration.unwrap() as i32 / 1000;
 
-        if *CLOUD_HOSTED {
-            let w_id = &queued_job.workspace_id;
-            let premium_workspace =
-                sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", w_id)
-                    .fetch_one(db)
-                    .await
-                    .map_err(|e| {
-                        Error::InternalErr(format!("fetching if {w_id} is premium: {e}"))
-                    })?;
-            if premium_workspace {
-                let _ = sqlx::query!(
+        let w_id = &queued_job.workspace_id;
+        let premium_workspace =
+            sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", w_id)
+                .fetch_one(db)
+                .await
+                .map_err(|e| Error::InternalErr(format!("fetching if {w_id} is premium: {e}")))?;
+        if premium_workspace {
+            let _ = sqlx::query!(
                 "INSERT INTO usage (id, is_workspace, month_, usage) 
                 VALUES ($1, true, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 0) 
                 ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + $2",
@@ -194,9 +183,19 @@ pub async fn add_completed_job(
                 .execute(db)
                 .await
                 .map_err(|e| Error::InternalErr(format!("updating usage: {e}")));
-            }
+        } else {
+            sqlx::query!(
+                    "INSERT INTO usage (id, is_workspace, month_, usage) 
+                    VALUES ($1, false, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 0) 
+                    ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + $2",
+                    queued_job.email,
+                    additional_usage)
+                        .execute(db)
+                        .await
+                        .map_err(|e| Error::InternalErr(format!("updating usage: {e}")))?;
         }
     }
+
     if !queued_job.is_flow_step
         && queued_job.job_kind != JobKind::Flow
         && queued_job.job_kind != JobKind::FlowPreview

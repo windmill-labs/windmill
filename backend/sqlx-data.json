@@ -1032,26 +1032,6 @@
     },
     "query": "UPDATE app SET versions = array_append(versions, $1) WHERE id = $2"
   },
-  "3e785610aa9f63241c16affc1f4a20c52f2aeb2aed9fc9e3b8c24874c87b14dc": {
-    "describe": {
-      "columns": [
-        {
-          "name": "usage",
-          "ordinal": 0,
-          "type_info": "Int4"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Varchar"
-        ]
-      }
-    },
-    "query": "INSERT INTO usage (id, is_workspace, month_, usage) \n                VALUES ($1, true, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 0) \n                ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + 1 \n                RETURNING usage.usage"
-  },
   "3fabb3857c9cf2d057814b54ee54a95d01b6a7d9e89bea239b832a9d70f0044b": {
     "describe": {
       "columns": [],
@@ -3139,19 +3119,6 @@
     },
     "query": "SELECT * FROM schedule WHERE path = $1 AND workspace_id = $2"
   },
-  "ab690bfb3fd84eb0a833818352501e1560d22fd47b9a676571ea6efdad1ad300": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Int4"
-        ]
-      }
-    },
-    "query": "INSERT INTO usage (id, is_workspace, month_, usage) \n        VALUES ($1, false, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 0) \n        ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + $2"
-  },
   "abc9f034e62ac224894173356aa69e09f3647a45d176e253e4fc8f7206f6a18d": {
     "describe": {
       "columns": [
@@ -3300,26 +3267,6 @@
       }
     },
     "query": "UPDATE usr SET is_admin = $1 WHERE username = $2 AND workspace_id = $3"
-  },
-  "b2e14f4fe46b82fe333eb76cd75fdac0ab205a14999becb394b09c6e51af284f": {
-    "describe": {
-      "columns": [
-        {
-          "name": "usage",
-          "ordinal": 0,
-          "type_info": "Int4"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Varchar"
-        ]
-      }
-    },
-    "query": "INSERT INTO usage (id, is_workspace, month_, usage) \n        VALUES ($1, false, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 0) \n        ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + 1 \n        RETURNING usage.usage"
   },
   "b3b80de52d0931a2fdb5d38b7603a2d69cc25ab1cda413228c363a5ffd777113": {
     "describe": {
@@ -3940,26 +3887,6 @@
     },
     "query": "UPDATE script SET lock = $1 WHERE hash = $2 AND workspace_id = $3"
   },
-  "d768bbc46f8a9c4289b918c88ca50aa180b29bbe931d948f6e61976f71b7cdb9": {
-    "describe": {
-      "columns": [
-        {
-          "name": "premium",
-          "ordinal": 0,
-          "type_info": "Bool"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT premium FROM workspace WHERE id = $1"
-  },
   "d9c8f6ec7bd10e533876526255c15e376ccb4f898b9c0ab8840b2930bda24fdc": {
     "describe": {
       "columns": [
@@ -4469,19 +4396,6 @@
     },
     "query": "SELECT SUM(duration_ms) as duration FROM completed_job WHERE id = ANY($1)"
   },
-  "f67ba6ca3ed802ca41e49a310a4161ea8d81f79021f11f3a9f2b65e93ce6312d": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Int4"
-        ]
-      }
-    },
-    "query": "INSERT INTO usage (id, is_workspace, month_, usage) \n                VALUES ($1, true, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 0) \n                ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + $2"
-  },
   "f7906298e4204ad55ec84021bb2461f369386493519637279f1188227230c580": {
     "describe": {
       "columns": [
@@ -4648,24 +4562,6 @@
       }
     },
     "query": "SELECT * FROM resource WHERE workspace_id = $1"
-  },
-  "fa32fb9e4676dd91e20226b2a88672aed65ef33c39be7cdf63c733020a46e212": {
-    "describe": {
-      "columns": [
-        {
-          "name": "?column?",
-          "ordinal": 0,
-          "type_info": "Int4"
-        }
-      ],
-      "nullable": [
-        null
-      ],
-      "parameters": {
-        "Left": []
-      }
-    },
-    "query": "\n        SELECT usage.usage + 1 FROM usage \n        WHERE is_workspace = false AND month_ = EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date)"
   },
   "fa567c205929f41799a64aefac97c4504c7993b22478530e9345b9bc117e92e9": {
     "describe": {

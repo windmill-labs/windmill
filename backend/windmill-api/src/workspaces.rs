@@ -46,7 +46,6 @@ pub fn workspaced_service() -> Router {
         .route("/get_settings", get(get_settings))
         .route("/edit_slack_command", post(edit_slack_command))
         .route("/tarball", get(tarball_workspace))
-        .route("/usage", get(get_usage))
 }
 
 pub fn global_service() -> Router {
@@ -195,25 +194,6 @@ async fn list_workspaces(
 }
 
 async fn get_settings(
-    authed: Authed,
-    Path(w_id): Path<String>,
-    Extension(user_db): Extension<UserDB>,
-) -> JsonResult<WorkspaceSettings> {
-    let mut tx = user_db.begin(&authed).await?;
-    let settings = sqlx::query_as!(
-        WorkspaceSettings,
-        "SELECT * FROM workspace_settings WHERE workspace_id = $1",
-        &w_id
-    )
-    .fetch_one(&mut tx)
-    .await
-    .map_err(|e| Error::InternalErr(format!("getting settings: {e}")))?;
-
-    tx.commit().await?;
-    Ok(Json(settings))
-}
-
-async fn get_usage(
     authed: Authed,
     Path(w_id): Path<String>,
     Extension(user_db): Extension<UserDB>,
