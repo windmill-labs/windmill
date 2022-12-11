@@ -5,6 +5,7 @@
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import WorkspaceScriptPicker from '../flows/pickers/WorkspaceScriptPicker.svelte'
 	import { goto } from '$app/navigation'
+	import { Code2 } from 'lucide-svelte'
 
 	let drawer: Drawer | undefined = undefined
 </script>
@@ -12,7 +13,7 @@
 <!-- Buttons -->
 <div class="flex flex-row gap-2">
 	<ButtonPopup size="sm" spacingSize="xl" startIcon={{ icon: faPlus }} href="/scripts/add">
-		<svelte:fragment slot="main">New Script</svelte:fragment>
+		<svelte:fragment slot="main">New Script <Code2 class="ml-1.5" size={18} /></svelte:fragment>
 		<ButtonPopupItem on:click={() => drawer?.toggleDrawer?.()}>
 			Import from template
 		</ButtonPopupItem>
