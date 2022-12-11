@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Menu } from '$lib/components/common'
-	import { faCode, faCodeBranch, faPlus, faWind } from '@fortawesome/free-solid-svg-icons'
+	import { faCode, faCodeBranch, faPlus, faBarsStaggered } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { Repeat } from 'lucide-svelte'
@@ -76,7 +76,7 @@
 			}}
 			role="menuitem"
 		>
-			<Icon data={faWind} scale={0.8} class="mr-1" />
+			<Icon data={faBarsStaggered} scale={0.8} class="mr-1" />
 			Flow
 		</button>
 	</div>

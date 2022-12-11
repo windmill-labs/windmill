@@ -1,14 +1,10 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
+	import { faBarsStaggered } from '@fortawesome/free-solid-svg-icons'
 	import { Code2, LayoutDashboard, Wind } from 'lucide-svelte'
+	import Icon from 'svelte-awesome'
 
 	export let kind: 'script' | 'flow' | 'app'
-
-	const icon = {
-		script: Code2,
-		flow: Wind,
-		app: LayoutDashboard
-	}[kind]
 
 	const color = {
 		script: 'bg-blue-50 border-blue-200',
@@ -24,5 +20,13 @@
 </script>
 
 <div class={classNames('rounded-md p-1 flex justify-center items-center border', color)}>
-	<svelte:component this={icon} size={26} color={iconColor} />
+	{#if kind === 'flow'}
+		<span class="ml-1.5 mb-0.5 -mt-0.5">
+			<Icon data={faBarsStaggered} scale={1.2} class="mr-1 text-[#14b8a6]" />
+		</span>
+	{:else if kind === 'app'}
+		<LayoutDashboard size={26} color={iconColor} />
+	{:else if kind === 'script'}
+		<Code2 size={26} color={iconColor} />
+	{/if}
 </div>

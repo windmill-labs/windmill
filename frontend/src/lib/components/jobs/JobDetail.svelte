@@ -20,7 +20,7 @@
 		faSearch,
 		faTimes,
 		faUser,
-		faWind
+		faBarsStaggered
 	} from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
@@ -143,7 +143,7 @@
 				<div>
 					{#if job && job.parent_job}
 						{#if job.is_flow_step}
-							<Icon class="text-gray-700" data={faWind} scale={SMALL_ICON_SCALE} /><span
+							<Icon class="text-gray-700" data={faBarsStaggered} scale={SMALL_ICON_SCALE} /><span
 								class="mx-2"
 							>
 								Step of flow <a href={`/run/${job.parent_job}`}>{truncateRev(job.parent_job, 6)}</a

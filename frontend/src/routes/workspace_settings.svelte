@@ -26,7 +26,7 @@
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import { Button, Skeleton } from '$lib/components/common'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { faScroll, faWind } from '@fortawesome/free-solid-svg-icons'
+	import { faScroll, faBarsStaggered } from '@fortawesome/free-solid-svg-icons'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 
 	let users: User[] | undefined = undefined
@@ -239,7 +239,7 @@
 				>
 					Create a script to handle slack commands
 				</Button>
-				<Button size="sm" endIcon={{ icon: faWind }} href="/flows/add?hub=28">
+				<Button size="sm" endIcon={{ icon: faBarsStaggered }} href="/flows/add?hub=28">
 					Create a flow to handle slack commands
 				</Button>
 			</div>
