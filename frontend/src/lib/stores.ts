@@ -16,6 +16,7 @@ export interface UserExt {
 
 let persistedWorkspace = browser && localStorage.getItem("workspace");
 
+export const usageStore = writable<number>(0);
 export const oauthStore = writable<TokenResponse | undefined>(undefined);
 export const userStore = writable<UserExt | undefined>(undefined);
 export const workspaceStore = writable<string | undefined>(

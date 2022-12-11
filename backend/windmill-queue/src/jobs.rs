@@ -43,6 +43,7 @@ lazy_static::lazy_static! {
 
 }
 
+#[cfg(feature = "enterprise")]
 const MAX_FREE_EXECS: i32 = 1000;
 
 pub async fn cancel_job<'c>(
@@ -259,31 +260,8 @@ pub async fn push<'c>(
     let args_json = serde_json::Value::Object(args);
     let job_id: Uuid = Ulid::new().into();
 
-    // we track only non flow steps
-    let usage = if !matches!(
-        job_payload,
-        JobPayload::Flow(_) | JobPayload::RawFlow { .. }
-    ) {
-        sqlx::query_scalar!(
-        "INSERT INTO usage (id, is_workspace, month_, usage) 
-        VALUES ($1, false, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 0) 
-        ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + 1 
-        RETURNING usage.usage",
-        email)
-    .fetch_one(&mut tx)
-    .await
-    .map_err(|e| Error::InternalErr(format!("updating usage: {e}")))?
-    } else {
-        sqlx::query_scalar!("
-        SELECT usage.usage + 1 FROM usage 
-        WHERE is_workspace = false AND month_ = EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date)")
-        .fetch_optional(&mut tx)
-        .await?
-        .flatten()
-        .unwrap_or(0)
-    };
-
-    if *CLOUD_HOSTED {
+    #[cfg(feature = "enterprise")]
+    {
         let premium_workspace =
             sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", workspace_id)
                 .fetch_one(&mut tx)
@@ -292,7 +270,45 @@ pub async fn push<'c>(
                     Error::InternalErr(format!("fetching if {workspace_id} is premium: {e}"))
                 })?;
 
-        if !premium_workspace {
+        // we track only non flow steps
+        let usage = if !matches!(
+            job_payload,
+            JobPayload::Flow(_) | JobPayload::RawFlow { .. }
+        ) {
+            if !premium_workspace {
+                sqlx::query_scalar!(
+                    "INSERT INTO usage (id, is_workspace, month_, usage) 
+                    VALUES ($1, false, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 0) 
+                    ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + 1 
+                    RETURNING usage.usage",
+                    email)
+                .fetch_one(&mut tx)
+                .await
+                .map_err(|e| Error::InternalErr(format!("updating usage: {e}")))?
+            } else {
+                sqlx::query_scalar!(
+                    "INSERT INTO usage (id, is_workspace, month_, usage) 
+                    VALUES ($1, true, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 0) 
+                    ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + 1 
+                    RETURNING usage.usage",
+                    workspace_id)
+                .fetch_one(&mut tx)
+                .await
+                .map_err(|e| Error::InternalErr(format!("updating usage: {e}")))?
+            }
+        } else if *CLOUD_HOSTED && !premium_workspace {
+            sqlx::query_scalar!("
+        SELECT usage.usage + 1 FROM usage 
+        WHERE is_workspace = false AND month_ = EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date)")
+        .fetch_optional(&mut tx)
+        .await?
+        .flatten()
+        .unwrap_or(0)
+        } else {
+            0
+        };
+
+        if *CLOUD_HOSTED && !premium_workspace {
             let is_super_admin =
                 sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", email)
                     .fetch_optional(&mut tx)
@@ -303,16 +319,6 @@ pub async fn push<'c>(
                     "User {email} has exceeded the free usage limit of {MAX_FREE_EXECS} that applies outside of premium workspaces."
                 )));
             }
-        } else {
-            sqlx::query_scalar!(
-                "INSERT INTO usage (id, is_workspace, month_, usage) 
-                VALUES ($1, true, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 0) 
-                ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + 1 
-                RETURNING usage.usage",
-                workspace_id)
-            .fetch_one(&mut tx)
-            .await
-            .map_err(|e| Error::InternalErr(format!("updating usage: {e}")))?;
         }
     }
 
