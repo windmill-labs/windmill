@@ -35,6 +35,7 @@
 	import { fieldTypeToTsType } from '../../utils'
 	import Recompute from './Recompute.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import RunnableSelector from './RunnableSelector.svelte'
 
 	export let component: AppComponent | undefined
 	export let onDelete: (() => void) | undefined = undefined
@@ -138,73 +139,9 @@
 							</Button>
 						</div>
 					{:else}
-						<div class="text-sm">Inline scripts:</div>
-						<div class="flex gap-2">
-							<Button
-								btnClasses="w-24 truncate"
-								size="sm"
-								spacingSize="md"
-								variant="border"
-								color="light"
-							>
-								<div class="flex justify-center flex-col items-center gap-2">
-									<Plus size={18} />
-
-									<span class="text-xs">Create</span>
-								</div>
-							</Button>
-
-							<PickInlineScript
-								scripts={(Object.keys($app.inlineScripts) || []).map((summary) => ({ summary }))}
-								on:pick={({ detail }) => {
-									if (
-										component &&
-										component.componentInput &&
-										component.componentInput.type === 'runnable'
-									) {
-										component.componentInput.runnable = {
-											type: 'runnableByName',
-											inlineScriptName: detail.summary
-										}
-									}
-								}}
-							/>
-						</div>
-
-						<div class="text-sm">Pick from workspace:</div>
-						<div class="flex gap-2">
-							<PickScript
-								kind="script"
-								on:pick={({ detail }) => {
-									if (
-										component &&
-										component.componentInput &&
-										component.componentInput.type === 'runnable'
-									) {
-										component.componentInput.runnable = {
-											type: 'runnableByPath',
-											path: detail.path,
-											runType: 'script'
-										}
-									}
-								}}
-							/>
-							<PickFlow
-								on:pick={({ detail }) => {
-									if (
-										component &&
-										component.componentInput &&
-										component.componentInput.type === 'runnable'
-									) {
-										component.componentInput.runnable = {
-											type: 'runnableByPath',
-											path: detail.path,
-											runType: 'flow'
-										}
-									}
-								}}
-							/>
-						</div>
+						<RunnableSelector
+							scripts={(Object.keys($app.inlineScripts) || []).map((summary) => ({ summary }))}
+						/>
 					{/if}
 				</div>
 				{#if component.componentInput?.type === 'runnable' && Object.keys(component.componentInput.fields ?? {}).length > 0}
