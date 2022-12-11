@@ -823,6 +823,7 @@ impl RunJob {
             payload,
             args,
             /* user */ "test-user",
+            /* email  */ "test@windmill.dev",
             /* permissioned_as */ "u/admin".to_string(),
             /* scheduled_for_o */ None,
             /* schedule_path */ None,

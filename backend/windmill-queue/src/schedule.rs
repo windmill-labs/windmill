@@ -32,6 +32,8 @@ pub struct Schedule {
     pub is_flow: bool,
     pub args: Option<serde_json::Value>,
     pub extra_perms: serde_json::Value,
+    pub email: String,
+    pub error: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -100,20 +102,28 @@ pub async fn push_scheduled_job<'c>(
         }
     };
 
-    let (_, tx) = push(
+    let (_, mut tx) = push(
         tx,
         &schedule.workspace_id,
         payload,
         args,
         &schedule_to_user(&schedule.path),
+        &schedule.email,
         get_owner_from_path(&schedule.path),
         Some(next),
-        Some(schedule.path),
+        Some(schedule.path.clone()),
         None,
         false,
         false,
         None,
     )
+    .await?;
+    sqlx::query!(
+        "UPDATE schedule SET error = NULL WHERE workspace_id = $1 AND path = $2",
+        &schedule.workspace_id,
+        &schedule.path
+    )
+    .execute(&mut tx)
     .await?;
     Ok(tx)
 }
@@ -123,6 +133,7 @@ pub async fn create_schedule(
     w_id: String,
     ns: NewSchedule,
     username: &str,
+    email: &str,
 ) -> Result<String> {
     cron::Schedule::from_str(&ns.schedule).map_err(|e| error::Error::BadRequest(e.to_string()))?;
     check_flow_conflict(&mut tx, &w_id, &ns.path, ns.is_flow, &ns.script_path).await?;
@@ -130,7 +141,7 @@ pub async fn create_schedule(
     let schedule = sqlx::query_as!(
         Schedule,
         "INSERT INTO schedule (workspace_id, path, schedule, offset_, edited_by, script_path, \
-         is_flow, args, enabled) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *",
+         is_flow, args, enabled, email) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *",
         w_id,
         ns.path,
         ns.schedule,
@@ -140,6 +151,7 @@ pub async fn create_schedule(
         ns.is_flow,
         ns.args,
         ns.enabled.unwrap_or(false),
+        email
     )
     .fetch_one(&mut tx)
     .await
@@ -360,12 +372,14 @@ pub async fn set_enabled(
     path: StripPath,
     SetEnabled { enabled }: SetEnabled,
     username: &str,
+    email: &str,
 ) -> Result<String> {
     let path = path.to_path();
     let schedule_o = sqlx::query_as!(
         Schedule,
-        "UPDATE schedule SET enabled = $1 WHERE path = $2 AND workspace_id = $3 RETURNING *",
+        "UPDATE schedule SET enabled = $1, email = $2 WHERE path = $3 AND workspace_id = $4 RETURNING *",
         enabled,
+        email,
         path,
         w_id
     )

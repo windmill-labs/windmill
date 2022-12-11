@@ -11,7 +11,7 @@ use reqwest::Client;
 use sql_builder::prelude::*;
 
 use axum::{
-    extract::{Extension, Host, Path, Query},
+    extract::{Extension, Path, Query},
     routing::{get, post},
     Json, Router,
 };
@@ -108,33 +108,27 @@ async fn list_flows(
 }
 
 async fn list_hub_flows(
-    Authed { email, username, .. }: Authed,
+    Authed { email, .. }: Authed,
     Extension(http_client): Extension<Client>,
-    Host(host): Host,
 ) -> JsonResult<serde_json::Value> {
     let flows = list_elems_from_hub(
         http_client,
         "https://hub.windmill.dev/searchFlowData?approved=true",
-        email,
-        username,
-        host,
+        &email,
     )
     .await?;
     Ok(Json(flows))
 }
 
 pub async fn get_hub_flow_by_id(
-    Authed { email, username, .. }: Authed,
+    Authed { email, .. }: Authed,
     Path(id): Path<i32>,
     Extension(http_client): Extension<Client>,
-    Host(host): Host,
 ) -> JsonResult<serde_json::Value> {
     let value = http_get_from_hub(
         http_client,
         &format!("https://hub.windmill.dev/flows/{id}/json"),
-        email,
-        username,
-        host,
+        &email,
         false,
     )
     .await?
@@ -194,6 +188,7 @@ async fn create_flow(
         JobPayload::FlowDependencies { path: nf.path.clone() },
         serde_json::Map::new(),
         &authed.username,
+        &authed.email,
         windmill_common::users::owner_to_token_owner(&authed.username, false),
         None,
         None,
@@ -299,6 +294,7 @@ async fn update_flow(
         JobPayload::FlowDependencies { path: nf.path.clone() },
         serde_json::Map::new(),
         &authed.username,
+        &authed.email,
         windmill_common::users::owner_to_token_owner(&authed.username, false),
         None,
         None,

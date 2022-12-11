@@ -94,6 +94,7 @@ pub enum ExecutionMode {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Policy {
     pub on_behalf_of: Option<String>,
+    pub on_behalf_of_email: Option<String>,
     //paths:
     // - script/<path>
     // - flow/<path>
@@ -457,49 +458,40 @@ async fn execute_component(
                 static_fields,
             );
         }
-        Policy { execution_mode: ExecutionMode::Viewer, triggerables: hm, on_behalf_of: None }
+        Policy {
+            execution_mode: ExecutionMode::Viewer,
+            triggerables: hm,
+            on_behalf_of: None,
+            on_behalf_of_email: None,
+        }
     } else {
         policy
     };
 
-    let (username, permissioned_as) = match policy.execution_mode {
+    let (username, permissioned_as, email) = match policy.execution_mode {
         ExecutionMode::Anonymous => {
             let username = opt_authed
                 .map(|a| a.username)
                 .unwrap_or_else(|| "anonymous".to_string());
-            let permissioned_as = policy
-                .on_behalf_of
-                .as_ref()
-                .ok_or_else(|| {
-                    Error::BadRequest(
-                "on_behalf_of is missing in the app policy and is required for anonymous execution"
-                    .to_string(),
-            )
-                })?
-                .to_string();
-            (username, permissioned_as)
+            let (permissioned_as, email) = get_on_behalf_of(&policy)?;
+            (username, permissioned_as, email)
         }
         ExecutionMode::Publisher => {
             let username = opt_authed.map(|a| a.username).ok_or_else(|| {
                 Error::BadRequest("publisher execution mode requires authentication".to_string())
             })?;
-            let permissioned_as = policy
-                .on_behalf_of
-                .as_ref()
-                .ok_or_else(|| {
-                    Error::BadRequest(
-                "on_behalf_of is missing in the app policy and is required for publisher execution"
-                    .to_string(),
-            )
-                })?
-                .to_string();
-            (username, permissioned_as)
+            let (permissioned_as, email) = get_on_behalf_of(&policy)?;
+            (username, permissioned_as, email)
         }
         ExecutionMode::Viewer => {
-            let username = opt_authed
-                .map(|a| a.username)
-                .ok_or_else(|| Error::BadRequest("".to_string()))?;
-            (username.clone(), owner_to_token_owner(&username, false))
+            let (username, email) = opt_authed.map(|a| (a.username, a.email)).ok_or_else(|| {
+                Error::BadRequest("Required to be authed in viewer mode".to_string())
+            })?;
+            (
+                username.clone(),
+                owner_to_token_owner(&username, false),
+                email,
+            )
         }
     };
 
@@ -535,6 +527,7 @@ async fn execute_component(
         job_payload,
         args,
         &username,
+        &email,
         permissioned_as,
         None,
         None,
@@ -547,6 +540,30 @@ async fn execute_component(
 
     tx.commit().await?;
     Ok(uuid.to_string())
+}
+
+fn get_on_behalf_of(policy: &Policy) -> Result<(String, String)> {
+    let permissioned_as = policy
+        .on_behalf_of
+        .as_ref()
+        .ok_or_else(|| {
+            Error::BadRequest(
+                "on_behalf_of is missing in the app policy and is required for anonymous execution"
+                    .to_string(),
+            )
+        })?
+        .to_string();
+    let email = policy
+        .on_behalf_of_email
+        .as_ref()
+        .ok_or_else(|| {
+            Error::BadRequest(
+                "on_behalf_of is missing in the app policy and is required for anonymous execution"
+                    .to_string(),
+            )
+        })?
+        .to_string();
+    Ok((permissioned_as, email))
 }
 
 async fn exists_app(

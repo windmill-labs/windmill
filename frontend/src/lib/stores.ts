@@ -8,6 +8,7 @@ export interface UserExt {
   email: string;
   username: string;
   is_admin: boolean;
+  is_super_admin: boolean;
   created_at: string;
   groups: string[];
   pgroups: string[];

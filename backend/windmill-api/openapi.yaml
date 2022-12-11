@@ -4041,6 +4041,8 @@ components:
         language:
           type: string
           enum: [python3, deno, go, bash]
+        email:
+          type: string
       required:
         - id
         - running
@@ -4048,6 +4050,7 @@ components:
         - job_kind
         - permissioned_as
         - is_flow_step
+        - email
 
     CompletedJob:
       type: object
@@ -4633,6 +4636,10 @@ components:
           type: object
           additionalProperties:
             type: boolean
+        email:
+          type: string
+        error:
+          type: string
       required:
         - path
         - edited_by
@@ -4643,6 +4650,7 @@ components:
         - extra_perms
         - is_flow
         - enabled
+        - email
 
     NewSchedule:
       type: object

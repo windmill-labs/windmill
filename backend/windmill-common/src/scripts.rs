@@ -208,11 +208,9 @@ pub fn to_hex_string(i: &i64) -> String {
 
 #[cfg(feature = "reqwest")]
 pub async fn get_hub_script_by_path(
-    email: Option<String>,
-    username: String,
+    email: &str,
     path: StripPath,
     http_client: reqwest::Client,
-    host: String,
 ) -> crate::error::Result<String> {
     use crate::{
         error::{to_anyhow, Error},
@@ -228,8 +226,6 @@ pub async fn get_hub_script_by_path(
         http_client,
         &format!("https://hub.windmill.dev/raw/{path}.ts"),
         email,
-        username,
-        host,
         true,
     )
     .await?
@@ -241,11 +237,9 @@ pub async fn get_hub_script_by_path(
 
 #[cfg(feature = "reqwest")]
 pub async fn get_full_hub_script_by_path(
-    email: Option<String>,
-    username: String,
+    email: &str,
     path: StripPath,
     http_client: reqwest::Client,
-    host: String,
 ) -> crate::error::Result<HubScript> {
     use crate::{
         error::{to_anyhow, Error},
@@ -261,8 +255,6 @@ pub async fn get_full_hub_script_by_path(
         http_client,
         &format!("https://hub.windmill.dev/raw2/{path}"),
         email,
-        username,
-        host,
         true,
     )
     .await?

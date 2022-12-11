@@ -4,7 +4,7 @@ import { FlowService, Script, ScriptService, type Flow, type FlowModule, type Us
 import { toast } from '@zerodevx/svelte-toast'
 import { get } from 'svelte/store'
 import type { Schema, SupportedLanguage } from './common'
-import { hubScripts, superadmin, workspaceStore, type UserExt } from './stores'
+import { hubScripts, workspaceStore, type UserExt } from './stores'
 
 export function validateUsername(username: string): string {
 	if (username != '' && !/^\w+$/.test(username)) {
@@ -179,7 +179,7 @@ export function canWrite(
 	if (!user) {
 		return false
 	}
-	if (user.is_admin || get(superadmin)) {
+	if (user.is_admin || user.is_super_admin) {
 		return true
 	}
 	let userOwner = `u/${user.username}`
