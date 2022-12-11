@@ -21,12 +21,12 @@
 
 <div class={classNames('rounded-md p-1 flex justify-center items-center border', color)}>
 	{#if kind === 'flow'}
-		<span class="ml-1.5 mb-0.5 -mt-0.5">
-			<Icon data={faBarsStaggered} scale={1.2} class="mr-1 text-[#14b8a6]" />
+		<span class="ml-1 mb-0.5 -mt-0.5">
+			<Icon data={faBarsStaggered} scale={1.1} class="mr-0.5 text-[#14b8a6]" />
 		</span>
 	{:else if kind === 'app'}
-		<LayoutDashboard size={26} color={iconColor} />
+		<LayoutDashboard size={24} color={iconColor} />
 	{:else if kind === 'script'}
-		<Code2 size={26} color={iconColor} />
+		<Code2 size={24} color={iconColor} />
 	{/if}
 </div>
