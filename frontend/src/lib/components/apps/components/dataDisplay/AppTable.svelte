@@ -63,7 +63,7 @@
 <InputValue input={configuration.search} bind:value={search} />
 <InputValue input={configuration.pagination} bind:value={pagination} />
 
-<RunnableWrapper bind:componentInput {id} bind:result>
+<RunnableWrapper bind:componentInput {id} bind:result {extraQueryParams}>
 	<div class="gap-2 flex flex-col mt-2">
 		{#if search !== 'Disabled'}
 			<div>
