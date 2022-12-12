@@ -41,12 +41,11 @@
 
 	let page = 1
 	let searchValue = ''
-	let result: Array<Record<string, any>> = []
-
+	$: result = [] as Array<Record<string, any>>
 	$: headers = Array.from(new Set(result.flatMap((row) => Object.keys(row))))
 	$: extraQueryParams = search === 'Backend' ? { search: searchValue, page } : { page }
 
-	function searchInResult(searchValue: string) {
+	function searchInResult(result: Array<Record<string, any>>, searchValue: string) {
 		if (searchValue === '') {
 			return result
 		}
@@ -57,14 +56,14 @@
 
 	let filteredResult: Array<Record<string, any>> = []
 
-	$: search === 'Frontend' && (filteredResult = searchInResult(searchValue))
+	$: search === 'Frontend' && (filteredResult = searchInResult(result, searchValue))
 	$: (search === 'Backend' || search === 'Disabled') && (filteredResult = result)
 </script>
 
 <InputValue input={configuration.search} bind:value={search} />
 <InputValue input={configuration.pagination} bind:value={pagination} />
 
-<RunnableWrapper bind:componentInput {id} bind:result {extraQueryParams}>
+<RunnableWrapper bind:componentInput {id} bind:result>
 	<div class="gap-2 flex flex-col mt-2">
 		{#if search !== 'Disabled'}
 			<div>
