@@ -493,7 +493,10 @@ pub async fn run_worker(
                         .await
                         .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string())))
                     },
-                    job = { let _timer = worker_pull_duration.start_timer(); pull(&db) } => (false, job),
+                    (job, timer) = {let timer = worker_pull_duration.start_timer(); pull(&db).map(|x| (x, timer)) } => {
+                        drop(timer);
+                        (false, job)
+                    },
                 }
             }.instrument(trace_span!("worker_get_next_job")).await;
             if do_break {
