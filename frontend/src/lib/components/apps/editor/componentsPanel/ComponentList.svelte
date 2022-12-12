@@ -19,6 +19,8 @@
 		console.log(componentType, column)
 		if (componentType === 'buttoncomponent') {
 			return column === 3 ? { w: 1, h: 1 } : { w: 3, h: 1 }
+		} else if (componentType === 'formcomponent') {
+			return column === 3 ? { w: 2, h: 3 } : { w: 6, h: 4 }
 		} else if (componentType === 'textcomponent') {
 			return column === 3 ? { w: 1, h: 1 } : { w: 3, h: 1 }
 		} else if (componentType === 'textinputcomponent') {
@@ -75,10 +77,49 @@
 		})
 
 		$app.grid = [...grid, newItem]
+	}
 
-		gridColumns.forEach((colIndex) => {
-			$app.grid = gridHelp.adjust($app.grid, colIndex)
-		})
+	const products = {
+		1: {
+			name: 'Product 1',
+			description: 'Product 1 description',
+			image: 'https://picsum.photos/200'
+		},
+		2: {
+			name: 'Product 2',
+			description: 'Product 2 description',
+			image: 'https://picsum.photos/200'
+		},
+		3: {
+			name: 'Product 3',
+			description: 'Product 3 description',
+			image: 'https://picsum.photos/200'
+		},
+		4: {
+			name: 'Product 4',
+			description: 'Product 4 description',
+			image: 'https://picsum.photos/200'
+		},
+		5: {
+			name: 'Product 5',
+			description: 'Product 5 description',
+			image: 'https://picsum.photos/200'
+		},
+		6: {
+			name: 'Product 6',
+			description: 'Product 6 description',
+			image: 'https://picsum.photos/200'
+		},
+		7: {
+			name: 'Product 7',
+			description: 'Product 7 description',
+			image: 'https://picsum.photos/200'
+		},
+		8: {
+			name: 'Product 8',
+			description: 'Product 8 description',
+			image: 'https://picsum.photos/200'
+		}
 	}
 
 	onMount(() => {

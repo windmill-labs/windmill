@@ -15,16 +15,13 @@
 		AlignCenterHorizontal,
 		AlignCenterVertical,
 		AlignEndHorizontal,
-		AlignEndVertical,
-		Plus
+		AlignEndVertical
 	} from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import type { AppComponent, AppEditorContext } from '../../types'
 	import PanelSection from './common/PanelSection.svelte'
 	import InputsSpecsEditor from './InputsSpecsEditor.svelte'
-	import gridHelp from 'svelte-grid/build/helper/index.mjs'
 	import TableActions from './TableActions.svelte'
-	import { gridColumns } from '../../gridUtils'
 	import StaticInputEditor from './StaticInputEditor.svelte'
 	import ConnectedInputEditor from './ConnectedInputEditor.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
@@ -54,10 +51,6 @@
 			if (component) {
 				$app.grid = $app.grid.filter((gridComponent) => gridComponent.data.id !== component?.id)
 
-				gridColumns.forEach((colIndex) => {
-					$app.grid = gridHelp.adjust($app.grid, colIndex)
-				})
-
 				// Delete static inputs
 				delete $staticOutputs[component.id]
 				$staticOutputs = $staticOutputs
@@ -82,7 +75,13 @@
 				</svelte:fragment>
 				<div class="w-full">
 					<ToggleButtonGroup bind:selected={component.componentInput.type}>
-						<ToggleButton position="left" value="static" startIcon={{ icon: faPen }} size="xs">
+						<ToggleButton
+							position="left"
+							value="static"
+							startIcon={{ icon: faPen }}
+							size="xs"
+							disable={component.type === 'buttoncomponent'}
+						>
 							Static
 						</ToggleButton>
 						<ToggleButton
@@ -208,23 +207,25 @@
 						</ToggleButton>
 					</ToggleButtonGroup>
 				</div>
-				<div class="w-full text-xs font-semibold">Vertical alignment</div>
-				<div class="w-full">
-					<ToggleButtonGroup bind:selected={component.verticalAlignment}>
-						<ToggleButton position="left" value="top" size="xs">
-							<AlignStartHorizontal size={16} />
-						</ToggleButton>
-						<ToggleButton position="center" value="center" size="xs">
-							<AlignCenterHorizontal size={16} />
-						</ToggleButton>
-						<ToggleButton position="right" value="bottom" size="xs">
-							<AlignEndHorizontal size={16} />
-						</ToggleButton>
-					</ToggleButtonGroup>
-				</div>
+				{#if component.type !== 'formcomponent'}
+					<div class="w-full text-xs font-semibold">Vertical alignment</div>
+					<div class="w-full">
+						<ToggleButtonGroup bind:selected={component.verticalAlignment}>
+							<ToggleButton position="left" value="top" size="xs">
+								<AlignStartHorizontal size={16} />
+							</ToggleButton>
+							<ToggleButton position="center" value="center" size="xs">
+								<AlignCenterHorizontal size={16} />
+							</ToggleButton>
+							<ToggleButton position="right" value="bottom" size="xs">
+								<AlignEndHorizontal size={16} />
+							</ToggleButton>
+						</ToggleButtonGroup>
+					</div>
+				{/if}
 			</PanelSection>
 		{/if}
-		{#if component.type === 'buttoncomponent'}
+		{#if component.type === 'buttoncomponent' || component.type === 'formcomponent'}
 			<Recompute bind:recomputeIds={component.recomputeIds} ownId={component.id} />
 		{/if}
 

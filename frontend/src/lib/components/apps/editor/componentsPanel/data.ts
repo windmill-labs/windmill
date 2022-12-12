@@ -94,6 +94,45 @@ const buttons: ComponentSet = {
 			},
 
 			card: false
+		},
+		{
+			...defaultAlignement,
+			id: 'formcomponent',
+			type: 'formcomponent',
+			componentInput: {
+				type: 'static',
+				fieldType: 'textarea',
+				defaultValue: '',
+				value: ''
+			},
+			recomputeIds: undefined,
+			configuration: {
+				label: {
+					type: 'static',
+					visible: true,
+					value: 'Submit',
+					fieldType: 'textarea',
+					defaultValue: 'formcomponent'
+				},
+				color: {
+					fieldType: 'select',
+					type: 'static',
+					visible: true,
+					value: 'dark',
+					optionValuesKey: 'buttonColorOptions',
+					defaultValue: 'dark'
+				},
+				size: {
+					fieldType: 'select',
+					type: 'static',
+					visible: true,
+					value: 'xs',
+					optionValuesKey: 'buttonSizeOptions',
+					defaultValue: 'xs'
+				}
+			},
+
+			card: true
 		}
 	]
 }

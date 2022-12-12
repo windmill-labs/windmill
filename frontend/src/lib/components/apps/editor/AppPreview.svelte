@@ -51,7 +51,7 @@
 	$: width = $breakpoint === 'sm' ? 'w-[640px]' : 'w-full '
 </script>
 
-<div class="h-full w-full">
+<div class="h-full w-5/6 mx-auto">
 	{#if $appStore.grid}
 		<div class={classNames('mx-auto h-full', width)}>
 			<GridEditor />
