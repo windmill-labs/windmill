@@ -77,8 +77,12 @@
 		-->
 		{#if selectedTab === 'logs'}
 			<SplitPanesWrapper horizontal>
-				<Pane class="!duration-[0ms]">
-					<LogViewer content={previewJob?.logs} isLoading={previewIsLoading} />
+				<Pane class="!duration-[0ms] relative">
+					<LogViewer
+						duration={previewJob?.['duration_ms']}
+						content={previewJob?.logs}
+						isLoading={previewIsLoading}
+					/>
 				</Pane>
 				<Pane class="!duration-[0ms]">
 					{#if previewJob != undefined && 'result' in previewJob && previewJob.result != undefined}
