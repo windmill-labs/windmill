@@ -1,6 +1,8 @@
 <script lang="ts">
 	export let placeholder: string = 'Search...'
-	export let value: string
+	// Using 'any' so 'type="number"' can be passed to the input
+	// which should return a number
+	export let value: any
 	export let debounceDelay: number = 500
 
 	let parentClass: string | undefined = undefined
@@ -18,4 +20,10 @@
 	}
 </script>
 
-<input {placeholder} on:keyup={debounce} class={parentClass} {...$$restProps} />
+<input
+	bind:value
+	{placeholder}
+	on:keyup={debounce}
+	class={parentClass}
+	{...$$restProps}
+/>

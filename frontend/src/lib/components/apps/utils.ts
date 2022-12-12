@@ -2,6 +2,7 @@ import type { Schema } from '$lib/common'
 import { FlowService, ScriptService } from '$lib/gen'
 import {
 	BarChart4,
+	Binary,
 	BoxSelect,
 	CircleDot,
 	FormInput,
@@ -115,7 +116,11 @@ export const displayData: Record<AppComponent['type'], { name: string; icon: any
 	selectcomponent: {
 		name: 'Select',
 		icon: List
-	}
+	},
+	numberinputcomponent: {
+		name: 'Number input',
+		icon: Binary
+	},
 }
 
 export function accessPropertyByPath<T>(object: T, path: string): T | undefined {

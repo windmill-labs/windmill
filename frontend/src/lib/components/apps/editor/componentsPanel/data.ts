@@ -20,6 +20,21 @@ const inputs: ComponentSet = {
 			card: false
 		},
 		{
+			id: 'numberinputcomponent',
+			type: 'numberinputcomponent',
+			componentInput: undefined,
+			configuration: {
+				label: {
+					type: 'static',
+					visible: false,
+					value: 'Title',
+					fieldType: 'textarea',
+					defaultValue: 'Title'
+				}
+			},
+			card: false
+		},
+		{
 			...defaultAlignement,
 			id: 'checkboxcomponent',
 			type: 'checkboxcomponent',
