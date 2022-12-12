@@ -128,9 +128,9 @@
 													deleteConfirmedCallback = async () => {
 														await UserService.globalUserDelete({ email })
 														sendUserToast(`User ${email} removed`)
-														listUsers()
+														await listUsers()
 													}
-													openConfirmation = true
+													openConfirmation = false
 												}}>remove</button
 											>
 										</div>

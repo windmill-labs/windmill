@@ -351,6 +351,20 @@ paths:
                 items:
                   $ref: "#/components/schemas/Workspace"
 
+  /workspaces/allowed_domain_auto_invite:
+    get:
+      summary: is domain allowed for auto invi
+      operationId: isDomainAllowed
+      tags:
+        - workspace
+      responses:
+        "200":
+          description: domain allowed or not
+          content:
+            application/json:
+              schema:
+                type: boolean
+
   /workspaces/users:
     get:
       summary: list all workspaces visible to me with user info
@@ -765,6 +779,8 @@ paths:
                     type: string
                   slack_command_script:
                     type: string
+                  auto_invite_domain:
+                    type: string
 
   /w/{workspace}/workspaces/edit_slack_command:
     post:
@@ -784,6 +800,35 @@ paths:
               properties:
                 slack_command_script:
                   type: string
+
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/edit_auto_invite:
+    post:
+      summary: edit auto invite
+      operationId: editAutoInvite
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: WorkspaceInvite
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                set:
+                  type: boolean
+              required:
+                - set
 
       responses:
         "200":
@@ -4783,13 +4828,10 @@ components:
           type: string
         username:
           type: string
-        domain:
-          type: string
       required:
         - id
         - name
         - username
-        - domain
 
     Workspace:
       type: object

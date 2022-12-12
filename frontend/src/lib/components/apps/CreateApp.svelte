@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { faDashboard, faPlus } from '@fortawesome/free-solid-svg-icons'
+	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import { AppService, Policy } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
@@ -60,7 +60,9 @@
 			</div>
 		</Path>
 
-		<Button on:click={() => createApp()}>Create app</Button>
+		<div slot="actions">
+			<Button on:click={() => createApp()}>Create app</Button>
+		</div>
 	</DrawerContent>
 </Drawer>
 

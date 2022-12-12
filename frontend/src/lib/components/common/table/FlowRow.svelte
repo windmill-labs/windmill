@@ -55,7 +55,56 @@
 		<SharedBadge {canWrite} extraPerms={extra_perms} />
 	</svelte:fragment>
 	<svelte:fragment slot="actions">
+		<span class="hidden md:inline-flex gap-x-1">
+			{#if canWrite}
+				<div>
+					<Button
+						color="light"
+						size="xs"
+						variant="border"
+						startIcon={{ icon: faEdit }}
+						href="/flows/edit/{path}"
+					>
+						Edit
+					</Button>
+				</div>
+			{:else}
+				<div>
+					<Button
+						color="light"
+						size="xs"
+						variant="border"
+						startIcon={{ icon: faCodeFork }}
+						href="/flows/add?template={path}"
+					>
+						Fork
+					</Button>
+				</div>
+			{/if}
+
+			<Button
+				href="/flows/get/{path}"
+				color="light"
+				variant="border"
+				size="xs"
+				spacingSize="md"
+				startIcon={{ icon: faEye }}
+			>
+				Detail
+			</Button>
+			<Button
+				href="/flows/run/{path}"
+				color="dark"
+				size="xs"
+				spacingSize="md"
+				endIcon={{ icon: faPlay }}
+			>
+				Run
+			</Button>
+		</span>
+
 		<Dropdown
+			placement="bottom-end"
 			dropdownItems={[
 				{
 					displayName: 'View flow',
@@ -102,51 +151,5 @@
 				}
 			]}
 		/>
-
-		{#if canWrite}
-			<div>
-				<Button
-					color="light"
-					size="xs"
-					variant="border"
-					startIcon={{ icon: faEdit }}
-					href="/flows/edit/{path}"
-				>
-					Edit
-				</Button>
-			</div>
-		{:else}
-			<div>
-				<Button
-					color="light"
-					size="xs"
-					variant="border"
-					startIcon={{ icon: faCodeFork }}
-					href="/flows/add?template={path}"
-				>
-					Fork
-				</Button>
-			</div>
-		{/if}
-
-		<Button
-			href="/flows/get/{path}"
-			color="light"
-			variant="border"
-			size="xs"
-			spacingSize="md"
-			startIcon={{ icon: faEye }}
-		>
-			Detail
-		</Button>
-		<Button
-			href="/flows/run/{path}"
-			color="dark"
-			size="xs"
-			spacingSize="md"
-			endIcon={{ icon: faPlay }}
-		>
-			Run
-		</Button>
 	</svelte:fragment>
 </Row>

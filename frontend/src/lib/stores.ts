@@ -38,7 +38,7 @@ export const userWorkspaces: Readable<
   ([store, superadmin]) => {
     const originalWorkspaces = (store?.workspaces ?? []);
     if (superadmin) {
-      return [...originalWorkspaces, {
+      return [...originalWorkspaces.filter((x) => x.id != 'starter' && x.id != 'admins'), {
         id: "admins",
         name: "Admins",
         username: "superadmin",

@@ -24,7 +24,7 @@
 	import { goto } from '$app/navigation'
 	import InviteUser from '$lib/components/InviteUser.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import { Button, Skeleton } from '$lib/components/common'
+	import { Badge, Button, Skeleton } from '$lib/components/common'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { faScroll, faBarsStaggered } from '@fortawesome/free-solid-svg-icons'
 	import SearchItems from '$lib/components/SearchItems.svelte'
@@ -36,6 +36,7 @@
 	let scriptPath: string
 	let initialPath: string
 	let team_name: string | undefined
+	let auto_invite_domain: string | undefined
 	let itemKind: 'flow' | 'script' = 'flow'
 
 	// function getDropDownItems(username: string): DropdownItem[] {
@@ -71,9 +72,10 @@
 		sendUserToast(`slack command script set to ${scriptPath}`)
 	}
 
-	async function loadSlack(): Promise<void> {
+	async function loadSettings(): Promise<void> {
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
 		team_name = settings.slack_name
+		auto_invite_domain = settings.auto_invite_domain
 		scriptPath = (settings.slack_command_script ?? '').split('/').slice(1).join('/')
 		initialPath = scriptPath
 	}
@@ -86,11 +88,20 @@
 		invites = await WorkspaceService.listPendingInvites({ workspace: $workspaceStore! })
 	}
 
+	let allowedAutoDomain = false
+
+	async function getDisallowedAutoDomain() {
+		allowedAutoDomain = await WorkspaceService.isDomainAllowed()
+	}
+
+	$: domain = $userStore?.email.split('@')[1]
+
 	$: {
 		if ($workspaceStore) {
+			getDisallowedAutoDomain()
 			listUsers()
 			listInvites()
-			loadSlack()
+			loadSettings()
 		}
 	}
 </script>
@@ -210,9 +221,42 @@
 			</TableCustom>
 		</div>
 		<div class="mt-20" />
+		<PageHeader title="Auto Invite" primary={false} />
+		<div class="flex gap-2">
+			{#if auto_invite_domain != domain}
+				<Button
+					disabled={!allowedAutoDomain}
+					on:click={async () => {
+						await WorkspaceService.editAutoInvite({
+							workspace: $workspaceStore ?? '',
+							requestBody: { set: true }
+						})
+						loadSettings()
+						listInvites()
+					}}>Set auto-invite to {domain}</Button
+				>
+			{/if}
+			{#if auto_invite_domain}
+				<Button
+					on:click={async () => {
+						await WorkspaceService.editAutoInvite({
+							workspace: $workspaceStore ?? '',
+							requestBody: { set: false }
+						})
+						loadSettings()
+						listInvites()
+					}}>Unset auto-invite from {auto_invite_domain}</Button
+				>
+			{/if}
+		</div>
+		{#if !allowedAutoDomain}
+			<div class="text-red-400 text-sm mb-2">{domain} domain not allowed for auto-invite</div>
+		{/if}
+		<div class="mt-20" />
 		<PageHeader title="Slack integration" primary={false} />
 		<p class="text-xs text-gray-700 my-1">
-			Status: {#if team_name}Connected to slack workspace {team_name}{:else}Not connected{/if}
+			Status: {#if team_name}Connected to slack workspace <Badge>{team_name}</Badge>{:else}Not
+				connected{/if}
 		</p>
 
 		{#if team_name}
@@ -226,7 +270,7 @@
 						await OauthService.disconnectSlack({
 							workspace: $workspaceStore ?? ''
 						})
-						loadSlack()
+						loadSettings()
 						sendUserToast('Disconnected Slack')
 					}}
 				>
