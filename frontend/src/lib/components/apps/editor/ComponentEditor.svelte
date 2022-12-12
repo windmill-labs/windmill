@@ -12,6 +12,7 @@
 	import TextInputComponent from '../components/textInputs/AppTextInput.svelte'
 	import NumberInputComponent from '../components/numberInputs/AppNumberInput.svelte'
 	import ComponentHeader from './ComponentHeader.svelte'
+	import AppForm from '../components/form/AppForm.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -68,6 +69,12 @@
 			/>
 		{:else if component.type === 'buttoncomponent'}
 			<ButtonComponent
+				{...component}
+				bind:componentInput={component.componentInput}
+				bind:staticOutputs={$staticOutputs[component.id]}
+			/>
+		{:else if component.type === 'formcomponent'}
+			<AppForm
 				{...component}
 				bind:componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}

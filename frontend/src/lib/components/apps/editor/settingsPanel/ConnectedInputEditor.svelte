@@ -13,13 +13,14 @@
 		if (
 			!$connectingInput.opened &&
 			$connectingInput.input !== undefined &&
-			componentInput.type === 'connected'
+			componentInput.type === 'connected' &&
+			!componentInput.connection
 		) {
+			debugger
 			componentInput.connection = $connectingInput.input.connection
 			$connectingInput = {
 				opened: false,
-				input: undefined,
-				sourceName: undefined
+				input: undefined
 			}
 		}
 	}
@@ -67,8 +68,7 @@
 				if (componentInput.type === 'connected') {
 					$connectingInput = {
 						opened: true,
-						input: undefined,
-						sourceName: componentInput.connection?.path
+						input: undefined
 					}
 				}
 			}}
