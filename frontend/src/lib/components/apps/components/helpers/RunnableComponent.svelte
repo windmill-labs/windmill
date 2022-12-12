@@ -84,7 +84,7 @@
 	async function loadSchemaFromTriggerable(
 		workspace: string,
 		path: string,
-		runType: 'script' | 'flow'
+		runType: 'script' | 'flow' | 'hubscript'
 	) {
 		schema = await loadSchema(workspace, path, runType)
 	}
@@ -93,6 +93,7 @@
 	$: if ($workspaceStore && runnable?.type === 'runnableByPath' && !schema) {
 		// Remote schema needs to be loaded
 		const { path, runType } = runnable
+
 		loadSchemaFromTriggerable($workspaceStore, path, runType)
 	} else if (runnable?.type === 'runnableByName' && !schema) {
 		const { inlineScriptName } = runnable

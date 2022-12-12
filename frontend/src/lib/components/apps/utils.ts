@@ -21,7 +21,7 @@ import type { AppComponent } from './types'
 export async function loadSchema(
 	workspace: string,
 	path: string,
-	runType: 'script' | 'flow'
+	runType: 'script' | 'flow' | 'hubscript'
 ): Promise<Schema> {
 	if (runType === 'script') {
 		const script = await ScriptService.getScriptByPath({
@@ -30,13 +30,21 @@ export async function loadSchema(
 		})
 
 		return script.schema
-	} else {
+	} else if (runType === 'flow') {
 		const flow = await FlowService.getFlowByPath({
 			workspace,
 			path
 		})
 
 		return flow.schema
+	} else {
+		const script = await ScriptService.getHubScriptByPath({
+			path
+		})
+
+		debugger
+
+		return script.schema
 	}
 }
 

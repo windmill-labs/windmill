@@ -40,7 +40,7 @@ export type StaticInput<U> = {
 
 type RunnableByPath = {
 	path: string
-	runType: 'script' | 'flow'
+	runType: 'script' | 'flow' | 'hubscript'
 	type: 'runnableByPath'
 }
 

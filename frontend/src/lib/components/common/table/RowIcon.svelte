@@ -24,5 +24,5 @@
 </script>
 
 <div class={classNames('rounded-md p-1 flex justify-center items-center border', color)}>
-	<svelte:component this={icon} size={26} color={iconColor} />
+	<svelte:component this={icon} size={18} color={iconColor} />
 </div>

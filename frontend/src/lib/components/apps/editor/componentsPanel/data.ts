@@ -1,26 +1,8 @@
 import type { ComponentSet } from '../../types'
 import { defaultAlignement } from './componentDefaultProps'
 
-const windmillComponents: ComponentSet = {
-	title: 'Windmill Components',
-	components: [
-		{
-			id: 'displaycomponent',
-			type: 'displaycomponent',
-			componentInput: {
-				type: 'static',
-				fieldType: 'text',
-				defaultValue: 'Lorem Ipsum',
-				value: 'Lorem Ipsum'
-			},
-			configuration: {},
-			card: false
-		}
-	]
-}
-
-const textInputs: ComponentSet = {
-	title: 'Text Inputs',
+const inputs: ComponentSet = {
+	title: 'Inputs',
 	components: [
 		{
 			id: 'textinputcomponent',
@@ -36,13 +18,24 @@ const textInputs: ComponentSet = {
 				}
 			},
 			card: false
+		},
+		{
+			...defaultAlignement,
+			id: 'checkboxcomponent',
+			type: 'checkboxcomponent',
+			configuration: {
+				label: {
+					type: 'static',
+					visible: true,
+					value: 'Lorem ipsum',
+					fieldType: 'textarea',
+					defaultValue: 'Lorem ipsum'
+				}
+			},
+			componentInput: undefined,
+			card: false
 		}
 	]
-}
-
-const numberInputs: ComponentSet = {
-	title: 'Number Inputs',
-	components: []
 }
 
 const buttons: ComponentSet = {
@@ -88,33 +81,6 @@ const buttons: ComponentSet = {
 			card: false
 		}
 	]
-}
-
-const selectInputs: ComponentSet = {
-	title: 'Select Inputs',
-	components: [
-		{
-			...defaultAlignement,
-			id: 'checkboxcomponent',
-			type: 'checkboxcomponent',
-			configuration: {
-				label: {
-					type: 'static',
-					visible: true,
-					value: 'Lorem ipsum',
-					fieldType: 'textarea',
-					defaultValue: 'Lorem ipsum'
-				}
-			},
-			componentInput: undefined,
-			card: false
-		}
-	]
-}
-
-const dateTimeInputs: ComponentSet = {
-	title: 'Date and Time Inputs',
-	components: []
 }
 
 const dataDisplay: ComponentSet = {
@@ -241,18 +207,22 @@ const dataDisplay: ComponentSet = {
 				value: [25, 50, 25]
 			},
 			card: true
+		},
+		{
+			id: 'displaycomponent',
+			type: 'displaycomponent',
+			componentInput: {
+				type: 'static',
+				fieldType: 'text',
+				defaultValue: 'Lorem Ipsum',
+				value: 'Lorem Ipsum'
+			},
+			configuration: {},
+			card: false
 		}
 	]
 }
 
-const componentSets = [
-	windmillComponents,
-	textInputs,
-	numberInputs,
-	buttons,
-	selectInputs,
-	dateTimeInputs,
-	dataDisplay
-]
+const componentSets = [buttons, inputs, dataDisplay]
 
 export { componentSets }

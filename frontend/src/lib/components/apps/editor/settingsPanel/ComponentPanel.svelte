@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { ToggleButton, ToggleButtonGroup } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import PickScript from '$lib/components/flows/pickers/PickScript.svelte'
 	import {
 		faArrowRight,
 		faClose,
@@ -23,9 +22,7 @@
 	import type { AppComponent, AppEditorContext } from '../../types'
 	import PanelSection from './common/PanelSection.svelte'
 	import InputsSpecsEditor from './InputsSpecsEditor.svelte'
-	import PickFlow from './PickFlow.svelte'
 	import gridHelp from 'svelte-grid/build/helper/index.mjs'
-	import PickInlineScript from './PickInlineScript.svelte'
 	import TableActions from './TableActions.svelte'
 	import { gridColumns } from '../../gridUtils'
 	import StaticInputEditor from './StaticInputEditor.svelte'
@@ -35,7 +32,7 @@
 	import { fieldTypeToTsType } from '../../utils'
 	import Recompute from './Recompute.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
-	import RunnableSelector from './RunnableSelector.svelte'
+	import RunnableSelector from './mainInput/RunnableSelector.svelte'
 
 	export let component: AppComponent | undefined
 	export let onDelete: (() => void) | undefined = undefined
@@ -77,39 +74,30 @@
 		{#if component.componentInput}
 			<PanelSection title="Main input">
 				<svelte:fragment slot="action">
-					<div class="flex gap-2">
-						<Badge color="blue">
-							{component.componentInput.fieldType === 'array' &&
-							component.componentInput.subFieldType
-								? `${capitalize(fieldTypeToTsType(component.componentInput.subFieldType))}[]`
-								: capitalize(fieldTypeToTsType(component.componentInput.fieldType))}
-						</Badge>
-
-						<ToggleButtonGroup bind:selected={component.componentInput.type}>
-							<ToggleButton
-								position="left"
-								value="static"
-								startIcon={{ icon: faPen }}
-								size="xs"
-								iconOnly
-							/>
-							<ToggleButton
-								value="connected"
-								position="center"
-								startIcon={{ icon: faArrowRight }}
-								size="xs"
-								iconOnly
-							/>
-							<ToggleButton
-								position="right"
-								value="runnable"
-								startIcon={{ icon: faCode }}
-								size="xs"
-								iconOnly
-							/>
-						</ToggleButtonGroup>
-					</div>
+					<Badge color="blue">
+						{component.componentInput.fieldType === 'array' && component.componentInput.subFieldType
+							? `${capitalize(fieldTypeToTsType(component.componentInput.subFieldType))}[]`
+							: capitalize(fieldTypeToTsType(component.componentInput.fieldType))}
+					</Badge>
 				</svelte:fragment>
+				<div class="w-full">
+					<ToggleButtonGroup bind:selected={component.componentInput.type}>
+						<ToggleButton position="left" value="static" startIcon={{ icon: faPen }} size="xs">
+							Static
+						</ToggleButton>
+						<ToggleButton
+							value="connected"
+							position="center"
+							startIcon={{ icon: faArrowRight }}
+							size="xs"
+						>
+							Connected
+						</ToggleButton>
+						<ToggleButton position="right" value="runnable" startIcon={{ icon: faCode }} size="xs">
+							Computed
+						</ToggleButton>
+					</ToggleButtonGroup>
+				</div>
 				<div class="flex flex-col w-full gap-2 my-2">
 					{#if component.componentInput.type === 'static'}
 						<StaticInputEditor bind:componentInput={component.componentInput} />
@@ -140,7 +128,8 @@
 						</div>
 					{:else}
 						<RunnableSelector
-							scripts={(Object.keys($app.inlineScripts) || []).map((summary) => ({ summary }))}
+							inlineScripts={Object.keys($app.inlineScripts)}
+							bind:componentInput={component.componentInput}
 						/>
 					{/if}
 				</div>

@@ -92,7 +92,7 @@
 				{/if}
 			</div>
 		</Pane>
-		<Pane size={25} minSize={25} maxSize={40}>
+		<Pane size={30} minSize={25} maxSize={40}>
 			<Tabs bind:selected={selectedTab}>
 				<Tab value="insert" size="xs">
 					<div class="m-1 flex flex-row gap-2">
