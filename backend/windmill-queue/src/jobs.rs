@@ -10,7 +10,7 @@ use std::{collections::HashMap, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres, Transaction};
-use tracing::instrument;
+use tracing::{instrument, Instrument};
 use ulid::Ulid;
 use uuid::Uuid;
 use windmill_audit::{audit_log, ActionKind};
@@ -39,10 +39,11 @@ lazy_static::lazy_static! {
         "Total number of jobs pulled from the queue."
     )
     .unwrap();
+    pub static ref CLOUD_HOSTED: bool = std::env::var("CLOUD_HOSTED").is_ok();
+
 }
 
-const MAX_NB_OF_JOBS_IN_Q_PER_USER: i64 = 10;
-const MAX_DURATION_LAST_1200: std::time::Duration = std::time::Duration::from_secs(900);
+const MAX_FREE_EXECS: i32 = 1000;
 
 pub async fn cancel_job<'c>(
     username: &str,
@@ -245,6 +246,7 @@ pub async fn push<'c>(
     job_payload: JobPayload,
     args: serde_json::Map<String, serde_json::Value>,
     user: &str,
+    email: &str,
     permissioned_as: String,
     scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
     schedule_path: Option<String>,
@@ -257,52 +259,67 @@ pub async fn push<'c>(
     let args_json = serde_json::Value::Object(args);
     let job_id: Uuid = Ulid::new().into();
 
-    let premium_workspace =
-        sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", workspace_id)
-            .fetch_one(&mut tx)
-            .await
-            .map_err(|e| {
-                Error::InternalErr(format!("fetching if {workspace_id} is premium: {e}"))
-            })?;
+    if cfg!(feature = "enterprise") {
+        let premium_workspace =
+            sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", workspace_id)
+                .fetch_one(&mut tx)
+                .await
+                .map_err(|e| {
+                    Error::InternalErr(format!("fetching if {workspace_id} is premium: {e}"))
+                })?;
 
-    if !premium_workspace && std::env::var("CLOUD_HOSTED").is_ok() {
-        let rate_limiting_queue = sqlx::query_scalar!(
-            "SELECT COUNT(id) FROM queue WHERE permissioned_as = $1 AND workspace_id = $2",
-            permissioned_as,
-            workspace_id
-        )
-        .fetch_one(&mut tx)
-        .await?;
-
-        if let Some(nb_jobs) = rate_limiting_queue {
-            if nb_jobs > MAX_NB_OF_JOBS_IN_Q_PER_USER {
-                return Err(error::Error::ExecutionErr(format!(
-                    "You have exceeded the number of authorized elements of queue at any given \
-                     time: {}",
-                    MAX_NB_OF_JOBS_IN_Q_PER_USER
-                )));
+        // we track only non flow steps
+        let usage = if !matches!(
+            job_payload,
+            JobPayload::Flow(_) | JobPayload::RawFlow { .. }
+        ) {
+            if !premium_workspace {
+                sqlx::query_scalar!(
+                    "INSERT INTO usage (id, is_workspace, month_, usage) 
+                    VALUES ($1, false, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 0) 
+                    ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + 1 
+                    RETURNING usage.usage",
+                    email)
+                .fetch_one(&mut tx)
+                .await
+                .map_err(|e| Error::InternalErr(format!("updating usage: {e}")))?
+            } else {
+                sqlx::query_scalar!(
+                    "INSERT INTO usage (id, is_workspace, month_, usage) 
+                    VALUES ($1, true, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 0) 
+                    ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + 1 
+                    RETURNING usage.usage",
+                    workspace_id)
+                .fetch_one(&mut tx)
+                .await
+                .map_err(|e| Error::InternalErr(format!("updating usage: {e}")))?
             }
-        }
+        } else if *CLOUD_HOSTED && !premium_workspace {
+            sqlx::query_scalar!(
+                "
+        SELECT usage.usage + 1 FROM usage 
+        WHERE is_workspace = false AND
+     month_ = EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date)
+     AND id = $1",
+                email
+            )
+            .fetch_optional(&mut tx)
+            .await?
+            .flatten()
+            .unwrap_or(0)
+        } else {
+            0
+        };
 
-        let rate_limiting_duration_ms = sqlx::query_scalar!(
-            "
-           SELECT SUM(duration_ms)
-             FROM completed_job
-            WHERE permissioned_as = $1
-              AND created_at > NOW() - INTERVAL '1200 seconds'
-              AND workspace_id = $2",
-            permissioned_as,
-            workspace_id
-        )
-        .fetch_one(&mut tx)
-        .await?;
-
-        if let Some(sum_duration_ms) = rate_limiting_duration_ms {
-            if sum_duration_ms as u128 > MAX_DURATION_LAST_1200.as_millis() {
-                return Err(error::Error::ExecutionErr(format!(
-                    "You have exceeded the scripts cumulative duration limit over the last 20m \
-                     which is: {} seconds",
-                    MAX_DURATION_LAST_1200.as_secs()
+        if *CLOUD_HOSTED && !premium_workspace {
+            let is_super_admin =
+                sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", email)
+                    .fetch_optional(&mut tx)
+                    .await?
+                    .unwrap_or(false);
+            if !is_super_admin && usage > MAX_FREE_EXECS {
+                return Err(error::Error::BadRequest(format!(
+                    "User {email} has exceeded the free usage limit of {MAX_FREE_EXECS} that applies outside of premium workspaces."
                 )));
             }
         }
@@ -334,14 +351,7 @@ pub async fn push<'c>(
                 )
             }
             JobPayload::ScriptHub { path } => {
-                let email = sqlx::query_scalar!(
-                    "SELECT email FROM usr WHERE username = $1 AND workspace_id = $2",
-                    user,
-                    workspace_id
-                )
-                .fetch_optional(&mut tx)
-                .await?;
-                let script = get_hub_script(path.clone(), email, user).await?;
+                let script = get_hub_script(path.clone(), email).await?;
                 (
                     None,
                     Some(path),
@@ -466,8 +476,8 @@ pub async fn push<'c>(
         "INSERT INTO queue
             (workspace_id, id, running, parent_job, created_by, permissioned_as, scheduled_for, 
                 script_hash, script_path, raw_code, raw_lock, args, job_kind, schedule_path, raw_flow, \
-         flow_status, is_flow_step, language, started_at, same_worker, pre_run_error)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20) \
+         flow_status, is_flow_step, language, started_at, same_worker, pre_run_error, email)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21) \
          RETURNING id",
         workspace_id,
         job_id,
@@ -488,7 +498,8 @@ pub async fn push<'c>(
         is_flow_step,
         language: ScriptLang,
         same_worker,
-        pre_run_error.map(|e| e.to_string())
+        pre_run_error.map(|e| e.to_string()),
+        email
     )
     .fetch_one(&mut tx)
     .await
@@ -526,6 +537,7 @@ pub async fn push<'c>(
             script_path.as_ref().map(|x| x.as_str()),
             Some(hm),
         )
+        .instrument(tracing::info_span!("job_run", email = &email))
         .await?;
     }
     Ok((uuid, tx))
@@ -540,20 +552,14 @@ pub fn canceled_job_to_result(job: &QueuedJob) -> String {
     format!("Job canceled: {reason} by {canceler}")
 }
 
-pub async fn get_hub_script(
-    path: String,
-    email: Option<String>,
-    user: &str,
-) -> error::Result<HubScript> {
+pub async fn get_hub_script(path: String, email: &str) -> error::Result<HubScript> {
     get_full_hub_script_by_path(
         email,
-        user.to_string(),
         StripPath(path),
         reqwest::ClientBuilder::new()
             .user_agent("windmill/beta")
             .build()
             .map_err(to_anyhow)?,
-        std::env::var("BASE_URL").unwrap_or_else(|_| "".to_string()),
     )
     .await
     .map(|e| e)
@@ -588,6 +594,7 @@ pub struct QueuedJob {
     pub language: Option<ScriptLang>,
     pub same_worker: bool,
     pub pre_run_error: Option<String>,
+    pub email: String,
 }
 
 impl QueuedJob {

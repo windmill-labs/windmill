@@ -91,6 +91,7 @@ pub struct OAuthConfig {
     scopes: Option<Vec<String>>,
     extra_params: Option<HashMap<String, String>>,
     extra_params_callback: Option<HashMap<String, String>>,
+    req_body_auth: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -209,6 +210,7 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
                 scopes: None,
                 extra_params: None,
                 extra_params_callback: None,
+                req_body_auth: None,
             },
             v.clone(),
             false,
@@ -241,6 +243,9 @@ pub fn build_basic_client(
     };
 
     let mut client = OClient::new(client_params.id, auth_url, token_url);
+    if config.req_body_auth.unwrap_or(false) {
+        client.set_auth_type(AuthType::RequestBody);
+    }
     client.set_client_secret(client_params.secret.clone());
     client.set_redirect_url(Url::parse(&redirect_url).expect("Invalid redirect URL"));
     // Set up the config for the Github OAuth2 process.
@@ -309,7 +314,7 @@ async fn connect(
 struct CreateAccount {
     client: String,
     owner: String,
-    refresh_token: String,
+    refresh_token: Option<String>,
     expires_in: i64,
 }
 async fn create_account(
@@ -639,12 +644,13 @@ async fn connect_slack_callback(
 
     sqlx::query!(
         "INSERT INTO workspace_settings
-                (workspace_id, slack_team_id, slack_name)
-                VALUES ($1, $2, $3) ON CONFLICT (workspace_id) DO UPDATE SET slack_team_id = $2, \
-             slack_name = $3",
+                (workspace_id, slack_team_id, slack_name, slack_email)
+                VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id) DO UPDATE SET slack_team_id = $2, \
+             slack_name = $3, slack_email = $4",
         &w_id,
         token.team_id,
-        token.team_name
+        token.team_name,
+        authed.email
     )
     .execute(&mut tx)
     .await?;
@@ -791,6 +797,7 @@ async fn slack_command(
                 payload,
                 map,
                 &form.user_name,
+                &settings.slack_email,
                 "g/slack".to_string(),
                 None,
                 None,
@@ -815,7 +822,7 @@ async fn slack_command(
 }
 
 #[allow(non_snake_case)]
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct UserInfo {
     email: Option<String>,
     name: Option<String>,
@@ -987,6 +994,7 @@ async fn exchange_code<T: DeserializeOwned>(
             token_url = token_url.param(key, value)
         }
     }
+
     token_url
         .with_client(http_client)
         .execute::<T>()

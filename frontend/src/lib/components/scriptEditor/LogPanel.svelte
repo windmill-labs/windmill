@@ -18,6 +18,7 @@
 	import LogViewer from '../LogViewer.svelte'
 	import { Pane } from 'svelte-splitpanes'
 	import SplitPanesWrapper from '../splitPanes/SplitPanesWrapper.svelte'
+	import { fade } from 'svelte/transition'
 
 	export let path: string | undefined
 	export let lang: Preview.language
@@ -77,17 +78,23 @@
 		-->
 		{#if selectedTab === 'logs'}
 			<SplitPanesWrapper horizontal>
-				<Pane class="!duration-[0ms]">
-					<LogViewer content={previewJob?.logs} isLoading={previewIsLoading} />
+				<Pane class="!duration-[0ms] relative">
+					<LogViewer
+						duration={previewJob?.['duration_ms']}
+						content={previewJob?.logs}
+						isLoading={previewIsLoading}
+					/>
 				</Pane>
 				<Pane class="!duration-[0ms]">
 					{#if previewJob != undefined && 'result' in previewJob && previewJob.result != undefined}
-						<pre class="overflow-x-auto break-words relative h-full p-2"
+						<pre
+							transition:fade={{ duration: 50 }}
+							class="overflow-x-auto break-words relative h-full p-2"
 							><DisplayResult result={previewJob.result} />
 						</pre>
 					{:else}
 						<div class="text-sm text-gray-600 p-2">
-							{previewIsLoading ? 'Waiting for result...' : 'Test to see the result here'}
+							{previewIsLoading ? '' : 'Test to see the result here'}
 						</div>
 					{/if}
 				</Pane>

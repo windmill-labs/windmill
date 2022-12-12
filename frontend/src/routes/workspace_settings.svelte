@@ -26,7 +26,7 @@
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import { Button, Skeleton } from '$lib/components/common'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { faScroll, faWind } from '@fortawesome/free-solid-svg-icons'
+	import { faScroll, faBarsStaggered } from '@fortawesome/free-solid-svg-icons'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 
 	let users: User[] | undefined = undefined
@@ -239,7 +239,7 @@
 				>
 					Create a script to handle slack commands
 				</Button>
-				<Button size="sm" endIcon={{ icon: faWind }} href="/flows/add?hub=28">
+				<Button size="sm" endIcon={{ icon: faBarsStaggered }} href="/flows/add?hub=28">
 					Create a flow to handle slack commands
 				</Button>
 			</div>
@@ -277,8 +277,15 @@
 		<p class="italic text-xs">
 			The workspace will be archived for a short period of time and then permanently deleted
 		</p>
+		{#if $workspaceStore === 'admins' || $workspaceStore === 'starter'}
+			<p class="italic text-xs">
+				This workspace cannot be deleted as it has a special function. Consult the documentation for
+				more information.
+			</p>
+		{/if}
 		<Button
 			color="red"
+			disabled={$workspaceStore === 'admins' || $workspaceStore === 'starter'}
 			size="sm"
 			btnClasses="mt-2"
 			on:click={async () => {

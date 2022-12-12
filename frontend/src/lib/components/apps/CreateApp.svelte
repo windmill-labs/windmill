@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { faPlus } from '@fortawesome/free-solid-svg-icons'
+	import { faDashboard, faPlus } from '@fortawesome/free-solid-svg-icons'
 	import { AppService, Policy } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
@@ -12,6 +12,7 @@
 	import type { App } from '$lib/components/apps/types'
 	import { goto } from '$app/navigation'
 	import Path from '$lib/components/Path.svelte'
+	import { LayoutDashboard } from 'lucide-svelte'
 
 	let drawerOpen = false
 
@@ -69,5 +70,5 @@
 	startIcon={{ icon: faPlus }}
 	on:click={() => (drawerOpen = true)}
 >
-	New app
+	New App (alpha) <LayoutDashboard class="ml-1.5" size={18} />
 </Button>

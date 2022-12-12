@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.54.0
+  version: 1.55.0
   title: Windmill server API
   contact:
     name: Windmill contact
@@ -472,6 +472,20 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /users/usage:
+    get:
+      summary: get current usage outside of premium workspaces
+      operationId: getUsage
+      tags:
+        - user
+      responses:
+        "200":
+          description: free usage
+          content:
+            text/plain:
+              schema:
+                type: number
 
   /users/whoami:
     get:
@@ -1139,7 +1153,6 @@ paths:
                 client:
                   type: string
               required:
-                - refresh_token
                 - expires_in
                 - owner
                 - client
@@ -1377,7 +1390,12 @@ paths:
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
         - name: resource_type
-          description: resource_type to list from
+          description: resource_types to list from, separated by ',',
+          in: query
+          schema:
+            type: string
+        - name: resource_type_exclude
+          description: resource_types to not list from, separated by ',',
           in: query
           schema:
             type: string
@@ -4037,6 +4055,8 @@ components:
         language:
           type: string
           enum: [python3, deno, go, bash]
+        email:
+          type: string
       required:
         - id
         - running
@@ -4044,6 +4064,7 @@ components:
         - job_kind
         - permissioned_as
         - is_flow_step
+        - email
 
     CompletedJob:
       type: object
@@ -4273,6 +4294,8 @@ components:
         refresh_error:
           type: string
         is_linked:
+          type: boolean
+        is_refreshed:
           type: boolean
       required:
         - workspace_id
@@ -4569,6 +4592,8 @@ components:
           type: string
         is_linked:
           type: boolean
+        is_refreshed:
+          type: boolean
         account:
           type: number
       required:
@@ -4576,6 +4601,7 @@ components:
         - resource_type
         - is_oauth
         - is_linked
+        - is_refreshed
 
     ResourceType:
       type: object
@@ -4624,6 +4650,10 @@ components:
           type: object
           additionalProperties:
             type: boolean
+        email:
+          type: string
+        error:
+          type: string
       required:
         - path
         - edited_by
@@ -4634,6 +4664,7 @@ components:
         - extra_perms
         - is_flow
         - enabled
+        - email
 
     NewSchedule:
       type: object

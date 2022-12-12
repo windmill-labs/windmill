@@ -15,9 +15,14 @@
 	export let path: string
 	export let href: string
 	export let workspaceId: string
+	const color = {
+		script: 'hover:bg-blue-50 hover:border-blue-200',
+		flow: 'hover:bg-[#f0fdfa] hover:border-[#99f6e4]',
+		app: 'hover:bg-[#fff7ed] hover:border-orange-300'
+	}[kind]
 </script>
 
-<a class="hover:bg-gray-50 cursor-pointer w-full flex items-center p-4 gap-4 min-w-[1000px]" {href}>
+<a class="hover:bg-gray-50 cursor-pointer w-full flex items-center p-4 gap-4 {color}" {href}>
 	<RowIcon {kind} />
 
 	<div class="w-full">

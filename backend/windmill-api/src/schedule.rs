@@ -47,7 +47,9 @@ async fn create_schedule(
     Json(ns): Json<NewSchedule>,
 ) -> Result<String> {
     let tx = user_db.begin(&authed).await?;
-    let res = windmill_queue::schedule::create_schedule(tx, w_id, ns, &authed.username).await?;
+    let res =
+        windmill_queue::schedule::create_schedule(tx, w_id, ns, &authed.username, &authed.email)
+            .await?;
     Ok(res)
 }
 
@@ -110,8 +112,15 @@ pub async fn set_enabled(
     Json(payload): Json<SetEnabled>,
 ) -> Result<String> {
     let tx = user_db.begin(&authed).await?;
-    let res =
-        windmill_queue::schedule::set_enabled(tx, w_id, path, payload, &authed.username).await?;
+    let res = windmill_queue::schedule::set_enabled(
+        tx,
+        w_id,
+        path,
+        payload,
+        &authed.username,
+        &authed.email,
+    )
+    .await?;
     Ok(res)
 }
 

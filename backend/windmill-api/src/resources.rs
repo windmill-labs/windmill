@@ -83,6 +83,7 @@ pub struct ListableResource {
     pub resource_type: String,
     pub extra_perms: serde_json::Value,
     pub is_linked: Option<bool>,
+    pub is_refreshed: Option<bool>,
     pub is_oauth: Option<bool>,
     pub is_expired: Option<bool>,
     pub refresh_error: Option<String>,
@@ -106,6 +107,7 @@ struct EditResource {
 #[derive(Deserialize)]
 pub struct ListResourceQuery {
     resource_type: Option<String>,
+    resource_type_exclude: Option<String>,
 }
 async fn list_resources(
     authed: Authed,
@@ -126,6 +128,7 @@ async fn list_resources(
             "resource.extra_perms",
             "(now() > account.expires_at) as is_expired",
             "variable.path IS NOT NULL as is_linked",
+            "account.refresh_token != '' as is_refreshed",
             "variable.is_oauth",
             "variable.account",
             "account.refresh_error",
@@ -143,7 +146,14 @@ async fn list_resources(
         .clone();
 
     if let Some(rt) = &lq.resource_type {
-        sqlb.and_where_eq("resource_type", "?".bind(rt));
+        for rt in rt.split(',') {
+            sqlb.and_where_eq("resource_type", "?".bind(&rt));
+        }
+    }
+    if let Some(rt) = &lq.resource_type_exclude {
+        for rt in rt.split(',') {
+            sqlb.and_where_ne("resource_type", "?".bind(&rt));
+        }
     }
 
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
@@ -167,7 +177,8 @@ async fn get_resource(
 
     let resource_o = sqlx::query_as!(
         ListableResource,
-        "SELECT resource.*, (now() > account.expires_at) as is_expired, account.refresh_error,
+        "SELECT resource.*, (now() > account.expires_at) as is_expired, account.refresh_token != '' as is_refreshed,
+        account.refresh_error,
         variable.path IS NOT NULL as is_linked,
         variable.is_oauth as \"is_oauth?\",
         variable.account

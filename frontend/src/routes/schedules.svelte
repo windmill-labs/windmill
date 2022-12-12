@@ -17,6 +17,7 @@
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import {
+		faCircle,
 		faEdit,
 		faPlus,
 		faShare,
@@ -28,6 +29,8 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { Badge, Button, Skeleton } from '$lib/components/common'
+	import Popover from '$lib/components/Popover.svelte'
+	import { Icon } from 'svelte-awesome'
 
 	type ScheduleW = Schedule & { canWrite: boolean }
 
@@ -51,7 +54,7 @@
 			})
 			loadSchedules()
 		} catch (err) {
-			sendUserToast(`Cannot ` + (enabled ? 'disable' : 'enable') + ` schedule: ${err}`, true)
+			sendUserToast(`Cannot ` + (enabled ? 'enable' : 'disable') + ` schedule: ${err.body}`, true)
 			loadSchedules()
 		}
 	}
@@ -79,13 +82,14 @@
 					<th>Schedule</th>
 					<th>Script or Flow</th>
 					<th>schedule</th>
+					<th />
 					<th>off/on</th>
 					<th>timezone</th>
 					<th>last edit</th>
 					<th />
 				</tr>
 				<tbody slot="body">
-					{#each schedules as { path, edited_by, edited_at, schedule, offset_, enabled, script_path, is_flow, extra_perms, canWrite }}
+					{#each schedules as { path, error, edited_by, edited_at, schedule, offset_, enabled, script_path, is_flow, extra_perms, canWrite }}
 						<tr class={enabled ? '' : 'bg-gray-50'}>
 							<td class="max-w-sm"
 								><a class="break-words text-sm" href="/schedule/add?edit={path}&isFlow={is_flow}"
@@ -102,6 +106,32 @@
 								>
 							</td><td><Badge color="blue">{schedule}</Badge></td>
 							<td>
+								<div class="w-10">
+									{#if error}
+										<Popover notClickable>
+											<span class="flex h-4 w-4">
+												<Icon
+													class="text-red-600 animate-ping absolute inline-flex "
+													data={faCircle}
+													scale={0.7}
+													label="Error during last job scheduling"
+												/>
+												<Icon
+													class="text-red-600 relative inline-flex"
+													data={faCircle}
+													scale={0.7}
+													label="Error during last job scheduling"
+												/>
+											</span>
+											<div slot="text">
+												The schedule disabled itself because there was an error scheduling the next
+												job: {error}
+											</div>
+										</Popover>
+									{/if}
+								</div></td
+							>
+							<td>
 								<Toggle
 									checked={enabled}
 									on:change={(e) => {
@@ -117,8 +147,9 @@
 							<td
 								><span class="text-2xs">By {edited_by} <br />the {displayDate(edited_at)}</span></td
 							>
-							<td
-								><Dropdown
+							<td>
+								<Dropdown
+									placement="bottom-end"
 									dropdownItems={[
 										{
 											displayName: enabled ? 'Disable' : 'Enable',
@@ -157,7 +188,6 @@
 											}
 										}
 									]}
-									relative={true}
 								/></td
 							>
 						</tr>

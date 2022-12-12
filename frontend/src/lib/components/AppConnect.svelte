@@ -170,13 +170,13 @@
 			}
 
 			let account: number | undefined = undefined
-			if (valueToken?.refresh_token != undefined && valueToken?.expires_in != undefined) {
+			if (valueToken?.expires_in != undefined) {
 				account = Number(
 					await OauthService.createAccount({
 						workspace: $workspaceStore!,
 						requestBody: {
-							refresh_token: valueToken.refresh_token!,
-							expires_in: valueToken.expires_in!,
+							refresh_token: valueToken.refresh_token ?? '',
+							expires_in: valueToken.expires_in,
 							owner: path.split('/').slice(0, 2).join('/'),
 							client: resource_type
 						}
@@ -275,7 +275,7 @@
 	}}
 	size="800px"
 >
-	<DrawerContent title="Connect an API" on:close={drawer.closeDrawer}>
+	<DrawerContent title="Connect an API or add a Resource" on:close={drawer.closeDrawer}>
 		{#if step == 1}
 			<div class="w-12/12 pb-2 flex flex-row my-1 gap-1">
 				<input
@@ -286,7 +286,7 @@
 				/>
 			</div>
 
-			<h2 class="mb-2">OAuth APIs</h2>
+			<h2 class="mb-4">OAuth APIs</h2>
 			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 				{#if filteredConnects}
 					{#each filteredConnects as [key, values]}
@@ -349,7 +349,7 @@
 				{/if}
 			{/if}
 
-			<h2 class="mt-8 mb-2">Non OAuth APIs</h2>
+			<h2 class="mt-8 mb-4">Non OAuth APIs & Resources</h2>
 			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 				{#if filteredConnectsManual}
 					{#each filteredConnectsManual as [key, instructions]}

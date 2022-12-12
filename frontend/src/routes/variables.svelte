@@ -166,7 +166,7 @@
 						<th />
 					</tr>
 					<tbody slot="body">
-						{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_oauth, is_expired, refresh_error, is_linked, marked }}
+						{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_refreshed, is_expired, refresh_error, is_linked, marked }}
 							<tr>
 								<td
 									><a
@@ -225,16 +225,24 @@
 											{/if}
 										</div>
 
-										{#if is_oauth}
+										{#if is_refreshed}
 											<div class="w-10">
 												{#if refresh_error}
 													<Popover notClickable>
-														<Icon
-															class="text-red-600 animate-[pulse_5s_linear_infinite]"
-															data={faCircle}
-															scale={0.7}
-															label="Error during exchange of the refresh token"
-														/>
+														<span class="flex h-4 w-4">
+															<Icon
+																class="text-red-600 animate-ping absolute inline-flex "
+																data={faCircle}
+																scale={0.7}
+																label="Error during exchange of the refresh token"
+															/>
+															<Icon
+																class="text-red-600 relative inline-flex"
+																data={faCircle}
+																scale={0.7}
+																label="Error during exchange of the refresh token"
+															/>
+														</span>
 														<div slot="text">
 															Latest exchange of the refresh token did not succeed. Error: {refresh_error}
 														</div>
@@ -272,6 +280,7 @@
 								</td>
 								<td
 									><Dropdown
+										placement="bottom-end"
 										dropdownItems={[
 											{
 												displayName: 'Edit',
@@ -322,7 +331,6 @@
 												  ]
 												: [])
 										]}
-										relative={true}
 									/></td
 								>
 							</tr>

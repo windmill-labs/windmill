@@ -4,7 +4,8 @@
 	import { workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { Wind } from 'lucide-svelte'
+	import { Icon } from 'svelte-awesome'
+	import { faBarsStaggered } from '@fortawesome/free-solid-svg-icons'
 
 	type Item = { summary: String; path: String; version?: String }
 
@@ -35,7 +36,7 @@
 	color="light"
 >
 	<div class="flex justify-center flex-col items-center gap-2">
-		<Wind size={18} />
+		<Icon data={faBarsStaggered} scale={0.8} class="mr-1" />
 
 		<span class="text-xs">Flow</span>
 	</div>

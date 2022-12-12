@@ -60,7 +60,7 @@ async fn list_contextual_variables(
         get_reserved_variables(
             &w_id,
             "q1A0qcPuO00yxioll7iph76N9CJDqn",
-            &email.unwrap_or_else(|| "no email".to_string()),
+            &email,
             &username,
             "017e0ad5-f499-73b6-5488-92a61c5196dd",
             format!("u/{username}").as_str(),
@@ -85,7 +85,8 @@ async fn list_variables(
         "SELECT variable.workspace_id, variable.path, CASE WHEN is_secret IS TRUE THEN null ELSE variable.value::text END as value, 
          is_secret, variable.description, variable.extra_perms, account, is_oauth, (now() > account.expires_at) as is_expired,
          account.refresh_error,
-         resource.path IS NOT NULL as is_linked
+         resource.path IS NOT NULL as is_linked,
+         account.refresh_token != '' as is_refreshed
          from variable
          LEFT JOIN account ON variable.account = account.id AND account.workspace_id = variable.workspace_id
          LEFT JOIN resource ON resource.path = variable.path AND resource.workspace_id = variable.workspace_id
@@ -117,7 +118,8 @@ async fn get_variable(
 
     let variable_o = sqlx::query_as::<_, ListableVariable>(
         "SELECT variable.*, (now() > account.expires_at) as is_expired, account.refresh_error,
-        resource.path IS NOT NULL as is_linked
+        resource.path IS NOT NULL as is_linked,
+        account.refresh_token != '' as is_refreshed
         from variable
         LEFT JOIN account ON variable.account = account.id
         LEFT JOIN resource ON resource.path = variable.path AND resource.workspace_id = variable.workspace_id

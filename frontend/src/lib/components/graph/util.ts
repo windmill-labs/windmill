@@ -13,3 +13,4 @@ export function* createIdGenerator(): Generator<number, number, unknown> {
 		yield id++
 	}
 }
+

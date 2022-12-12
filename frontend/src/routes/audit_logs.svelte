@@ -94,10 +94,6 @@
 		tooltip="You can only see your own audit logs unless you are an admin."
 	/>
 
-	<Alert type="info" title="Audit logs are a team or enterprise feature - Unlimited during beta">
-		Audit logs are a team or enterprise feature and the feature might be significantly different
-		after beta in the community edition
-	</Alert>
 	<!-- Filtering -->
 	<div class="flex flex-row my-3">
 		<label>

@@ -78,7 +78,7 @@
 		editor?.setCode(variable.value)
 	}
 
-	const MAX_VARIABLE_LENGTH = 3000
+	const MAX_VARIABLE_LENGTH = 10000
 
 	$: valid = variable.value.length <= MAX_VARIABLE_LENGTH
 
@@ -166,7 +166,9 @@
 			<div>
 				<div class="mb-1">
 					<span class="font-semibold text-gray-700">Variable value</span>
-					<span class="text-sm text-gray-500 mr-4">({variable.value.length}/3000 characters)</span>
+					<span class="text-sm text-gray-500 mr-4"
+						>({variable.value.length}/{MAX_VARIABLE_LENGTH} characters)</span
+					>
 					{#if edit && variable.is_secret}<Button
 							variant="border"
 							size="xs"

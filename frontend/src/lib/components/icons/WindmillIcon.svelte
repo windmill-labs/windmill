@@ -28,13 +28,13 @@
 			fill: #ffffff;
 		}
 		.st2 {
-			fill: #999;
+			fill: #bcd4fc;
 		}
 		.st3 {
-			fill: black;
+			fill: #3b82f6;
 		}
 		.st4 {
-			fill: #999;
+			fill: #b3b3b3;
 		}
 		.st5 {
 			fill: url(#SVGID_1_);

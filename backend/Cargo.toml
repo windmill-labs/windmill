@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.54.0"
+version = "1.55.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -19,7 +19,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.54.0"
+version = "1.55.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -28,7 +28,7 @@ name = "windmill"
 path = "./src/main.rs"
 
 [features]
-enterprise = ["windmill-worker/enterprise"]
+enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise"]
 
 [dependencies]
 anyhow.workspace = true
@@ -44,6 +44,7 @@ sqlx.workspace = true
 tokio-metrics.workspace = true
 rand.workspace = true
 chrono.workspace = true
+git-version.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true

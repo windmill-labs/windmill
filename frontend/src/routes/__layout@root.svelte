@@ -3,13 +3,13 @@
 	import Icon from 'svelte-awesome'
 
 	import UserMenu from '$lib/components/sidebar/UserMenu.svelte'
-	import { AppService, FlowService, OpenAPI, ScriptService } from '$lib/gen'
-	import { classNames } from '$lib/utils'
+	import { AppService, FlowService, OpenAPI, ScriptService, UserService } from '$lib/gen'
+	import { classNames, isCloudHosted } from '$lib/utils'
 
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import '../app.css'
-	import { starStore, superadmin, userStore, workspaceStore } from '$lib/stores'
+	import { starStore, superadmin, usageStore, userStore, workspaceStore } from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { beforeNavigate, goto } from '$app/navigation'
 	import UserSettings from '$lib/components/UserSettings.svelte'
@@ -36,7 +36,18 @@
 	let innerWidth = window.innerWidth
 
 	let favoriteLinks = [] as { label: string; href: string; kind: 'app' | 'script' | 'flow' }[]
-	$: $workspaceStore && $starStore && loadFavorites()
+	$: $workspaceStore && $starStore && onLoad()
+
+	function onLoad() {
+		loadFavorites()
+		loadUsage()
+	}
+
+	async function loadUsage() {
+		if (isCloudHosted()) {
+			$usageStore = await UserService.getUsage()
+		}
+	}
 
 	async function loadFavorites() {
 		const scripts = await ScriptService.listScripts({

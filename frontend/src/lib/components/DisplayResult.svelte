@@ -174,5 +174,7 @@
 				code={JSON.stringify(result, null, 4).replace(/\\n/g, '\n')}
 			/>
 		{/if}
+	{:else}
+		<div class="text-gray-500 text-sm">No result</div>
 	{/if}
 </div>

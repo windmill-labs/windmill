@@ -74,6 +74,16 @@ pub struct WorkspaceSettings {
     pub slack_team_id: Option<String>,
     pub slack_name: Option<String>,
     pub slack_command_script: Option<String>,
+    pub slack_email: String,
+}
+
+#[derive(FromRow, Serialize, Debug)]
+pub struct Usage {
+    pub workspace_id: String,
+    pub slack_team_id: Option<String>,
+    pub slack_name: Option<String>,
+    pub slack_command_script: Option<String>,
+    pub slack_email: String,
 }
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug)]
@@ -175,7 +185,7 @@ async fn list_workspaces(
         Workspace,
         "SELECT workspace.* FROM workspace, usr WHERE usr.workspace_id = workspace.id AND \
          usr.email = $1 AND deleted = false",
-        authed.email.as_ref()
+        authed.email
     )
     .fetch_all(&mut tx)
     .await?;
@@ -225,7 +235,7 @@ async fn edit_slack_command(
         "workspaces.edit_command_script",
         ActionKind::Update,
         &w_id,
-        Some(&authed.email.unwrap()),
+        Some(&authed.email),
         Some(
             [(
                 "script",
@@ -249,7 +259,7 @@ async fn list_workspaces_as_super_admin(
     Authed { email, .. }: Authed,
 ) -> JsonResult<Vec<Workspace>> {
     let mut tx = user_db.begin(&authed).await?;
-    require_super_admin(&mut tx, email).await?;
+    require_super_admin(&mut tx, &email).await?;
     let (per_page, offset) = paginate(pagination);
 
     let workspaces = sqlx::query_as!(
@@ -268,9 +278,6 @@ async fn user_workspaces(
     Extension(db): Extension<DB>,
     Authed { email, .. }: Authed,
 ) -> JsonResult<WorkspaceList> {
-    let email = email
-        .ok_or("not a personal token")
-        .map_err(|x| Error::NotAuthorized(x.to_string()))?;
     let mut tx = db.begin().await?;
     let workspaces = sqlx::query_as!(
         UserWorkspace,
@@ -406,7 +413,7 @@ async fn edit_workspace(
         "workspaces.update",
         ActionKind::Update,
         &w_id,
-        Some(&authed.email.unwrap()),
+        Some(&authed.email),
         Some(
             [(
                 "domain",
@@ -426,6 +433,15 @@ async fn delete_workspace(
     Path(w_id): Path<String>,
     Authed { is_admin, username, email, .. }: Authed,
 ) -> Result<String> {
+    let w_id = match w_id.as_str() {
+        "starter" => Err(Error::BadRequest(
+            "starter workspace cannot be deleted".to_string(),
+        )),
+        "admins" => Err(Error::BadRequest(
+            "admins workspace cannot be deleted".to_string(),
+        )),
+        _ => Ok(w_id),
+    }?;
     require_admin(is_admin, &username)?;
     let mut tx = db.begin().await?;
     sqlx::query!("UPDATE workspace SET deleted = true WHERE id = $1", &w_id)
@@ -438,7 +454,7 @@ async fn delete_workspace(
         "workspaces.delete",
         ActionKind::Update,
         &w_id,
-        Some(&email.unwrap_or("noemail".to_string())),
+        Some(&email),
         None,
     )
     .await?;

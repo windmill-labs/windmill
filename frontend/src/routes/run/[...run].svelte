@@ -26,7 +26,7 @@
 		faFastForward
 	} from '@fortawesome/free-solid-svg-icons'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
-	import { superadmin, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { superadmin, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
@@ -70,7 +70,7 @@
 
 	// If we get results, focus on that tab. Else, focus on logs
 	function initView(): void {
-		if (job && 'result' in job && job.result !== undefined) {
+		if (job && 'result' in job && job.result != undefined) {
 			viewTab = 'result'
 		} else if (viewTab == 'result') {
 			viewTab = 'logs'
@@ -105,7 +105,7 @@
 			<h1 class="text-red-400 mt-6">Job {$page.params.run} not found in {workspace_id}</h1>
 			<h2>Are you in the right workspace?</h2>
 			<div class="flex flex-col gap-2">
-				{#each $usersWorkspaceStore?.workspaces ?? [] as workspace}
+				{#each $userWorkspaces as workspace}
 					<div>
 						<Button variant="border" href="/run/{$page.params.run}?workspace={workspace.id}">
 							See in {workspace.name}

@@ -1,5 +1,4 @@
 <script lang="ts">
-	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { FlowService, type OpenFlow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Alert, Button, Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
@@ -44,8 +43,6 @@
 		flowViewerFlow = hub
 		flowViewer.openDrawer?.()
 	}
-
-	$: clientHeight = 0
 </script>
 
 <Drawer bind:this={codeViewer} size="900px">
@@ -110,7 +107,7 @@
 	</DrawerContent>
 </Drawer>
 
-<div bind:clientHeight>
+<div>
 	<div class="max-w-6xl mx-auto px-4 sm:px-6 md:px-8 h-fit-content">
 		{#if $workspaceStore == 'demo'}
 			<div class="my-4" />
@@ -118,10 +115,17 @@
 		{:else if $workspaceStore == 'starter'}
 			<div class="my-4" />
 
-			<Alert title="Stater workspace">
+			<Alert title="Starter workspace">
 				The starter workspace has all its elements (variables, resources, scripts, flows) shared
 				across all other workspaces. Useful to seed workspace with common elements within your
 				organization.
+			</Alert>
+		{:else if $workspaceStore == 'admins'}
+			<div class="my-4" />
+
+			<Alert title="Admins workspace">
+				The Admins workspace is for admins only and contains scripts whose purpose is to manage your
+				Windmill instance, such as keeping resource types up to date.
 			</Alert>
 		{/if}
 		<PageHeader title="Home">
@@ -166,5 +170,5 @@
 </div>
 
 {#if tab == 'workspace'}
-	<ItemsList {clientHeight} />
+	<ItemsList bind:filter />
 {/if}
