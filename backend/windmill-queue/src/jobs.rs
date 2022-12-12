@@ -611,16 +611,13 @@ pub fn canceled_job_to_result(job: &QueuedJob) -> serde_json::Value {
 }
 
 pub async fn get_hub_script(path: String, email: &str) -> error::Result<HubScript> {
-    get_full_hub_script_by_path(
-        email,
-        StripPath(path),
-        reqwest::ClientBuilder::new()
-            .user_agent("windmill/beta")
-            .build()
-            .map_err(to_anyhow)?,
-    )
-    .await
-    .map(|e| e)
+    let client = reqwest::ClientBuilder::new()
+        .user_agent("windmill/beta")
+        .build()
+        .map_err(to_anyhow)?;
+    get_full_hub_script_by_path(email, StripPath(path), client)
+        .await
+        .map(|e| e)
 }
 
 #[derive(Debug, sqlx::FromRow, Serialize, Clone)]
