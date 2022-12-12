@@ -10,6 +10,7 @@ export type InputType =
 	| 'time'
 	| 'datetime'
 	| 'object'
+	| 'array'
 
 // Connection to an output of another component
 // defined by the id of the component and the path of the output
@@ -39,7 +40,7 @@ export type StaticInput<U> = {
 
 type RunnableByPath = {
 	path: string
-	runType: 'script' | 'flow'
+	runType: 'script' | 'flow' | 'hubscript'
 	type: 'runnableByPath'
 }
 
@@ -53,16 +54,22 @@ export type Runnable = RunnableByPath | RunnableByName | undefined
 // Runnable input, set by the developer in the component panel
 export type ResultInput = {
 	runnable: Runnable
-	fields: AppInputs
+	fields: Record<string, StaticAppInput | ConnectedAppInput>
 	type: 'runnable'
 }
 
-type AppInputSpec<T, U> = (StaticInput<U> | ConnectedInput | UserInput<U> | ResultInput) &
-	InputConfiguration<T, U>
+type AppInputSpec<T extends InputType, U, V extends InputType = never> = (
+	| StaticInput<U>
+	| ConnectedInput
+	| UserInput<U>
+	| ResultInput
+) &
+	InputConfiguration<T, U, V>
 
-type InputConfiguration<T, U> = {
+type InputConfiguration<T extends InputType, U, V extends InputType> = {
 	fieldType: T
 	defaultValue: U
+	subFieldType?: V
 }
 
 export type AppInput =
@@ -74,12 +81,27 @@ export type AppInput =
 	| AppInputSpec<'time', string>
 	| AppInputSpec<'datetime', string>
 	| AppInputSpec<'object', Record<string | number, any>>
-	| AppInputSpec<'array', any[]>
 	| (AppInputSpec<'select', string> & {
 			/**
 			 * One of the keys of `staticValues` from `lib/components/apps/editor/componentsPanel/componentStaticValues`
 			 */
 			optionValuesKey: keyof typeof staticValues
 	  })
+	| AppInputSpec<'array', string[], 'text'>
+	| AppInputSpec<'array', string[], 'textarea'>
+	| AppInputSpec<'array', number[], 'number'>
+	| AppInputSpec<'array', boolean[], 'boolean'>
+	| AppInputSpec<'array', string[], 'date'>
+	| AppInputSpec<'array', string[], 'time'>
+	| AppInputSpec<'array', string[], 'datetime'>
+	| AppInputSpec<'array', object[], 'object'>
+	| (AppInputSpec<'array', string[], 'select'> & {
+			optionValuesKey: keyof typeof staticValues
+	  })
+
+export type StaticAppInput = Extract<AppInput, { type: 'static' }>
+export type ConnectedAppInput = Extract<AppInput, { type: 'connected' }>
+export type UserAppInput = Extract<AppInput, { type: 'user' }>
+export type ResultAppInput = Extract<AppInput, { type: 'runnable' }>
 
 export type AppInputs = Record<string, AppInput>

@@ -4,13 +4,15 @@
 	import Grid from 'svelte-grid'
 	import ComponentEditor from './ComponentEditor.svelte'
 	import { classNames } from '$lib/utils'
-	import { columnConfiguration, disableDrag, enableDrag } from '../gridUtils'
+	import { columnConfiguration, disableDrag, enableDrag, gridColumns } from '../gridUtils'
 	import { Alert } from '$lib/components/common'
 	import { fly } from 'svelte/transition'
+	import gridHelp from 'svelte-grid/build/helper/index.mjs'
 
 	import Button from '$lib/components/common/button/Button.svelte'
+	import RecomputeAllComponents from './RecomputeAllComponents.svelte'
 
-	const { selectedComponent, app, mode, connectingInput } =
+	const { selectedComponent, app, mode, connectingInput, staticOutputs, runnableComponents } =
 		getContext<AppEditorContext>('AppEditorContext')
 
 	// The drag is disabled when the user is connecting an input
@@ -19,6 +21,23 @@
 	} else {
 		$app.grid.map((gridItem) => enableDrag(gridItem))
 	}
+
+	function deleteComponent(component) {
+		if (component) {
+			$app.grid = $app.grid.filter((gridComponent) => gridComponent.data.id !== component?.id)
+
+			gridColumns.forEach((colIndex) => {
+				$app.grid = gridHelp.adjust($app.grid, colIndex)
+			})
+
+			// Delete static inputs
+			delete $staticOutputs[component.id]
+			$staticOutputs = $staticOutputs
+
+			delete $runnableComponents[component.id]
+			$runnableComponents = $runnableComponents
+		}
+	}
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -26,6 +45,8 @@
 	class="bg-white h-full relative"
 	on:click|preventDefault={() => ($selectedComponent = undefined)}
 >
+	<RecomputeAllComponents />
+
 	<Grid bind:items={$app.grid} rowHeight={64} let:dataItem cols={columnConfiguration}>
 		{#each $app.grid as gridComponent (gridComponent.id)}
 			{#if gridComponent.data.id === dataItem.data.id}
@@ -45,6 +66,7 @@
 					<ComponentEditor
 						bind:component={gridComponent.data}
 						selected={$selectedComponent === dataItem.data.id}
+						on:delete={() => deleteComponent(gridComponent.data)}
 					/>
 				</div>
 			{/if}
@@ -68,8 +90,8 @@
 								$connectingInput.input = undefined
 							}}
 						>
-							Stop connecting</Button
-						>
+							Stop connecting
+						</Button>
 					</div>
 				</div>
 			</Alert>

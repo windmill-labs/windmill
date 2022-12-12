@@ -8,7 +8,7 @@
 	import { AppService, type CompletedJob } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { faRefresh } from '@fortawesome/free-solid-svg-icons'
-	import { getContext } from 'svelte'
+	import { getContext, onMount } from 'svelte'
 	import type { AppInputs, Runnable } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppEditorContext } from '../../types'
@@ -23,7 +23,13 @@
 	export let autoRefresh: boolean = true
 	export let result: any = undefined
 
-	const { app, worldStore } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, worldStore, runnableComponents } = getContext<AppEditorContext>('AppEditorContext')
+
+	onMount(() => {
+		$runnableComponents[id] = async () => {
+			await executeComponent()
+		}
+	})
 
 	let pagePath = $page.params.path
 	let args: Record<string, any> = {}
@@ -78,7 +84,7 @@
 	async function loadSchemaFromTriggerable(
 		workspace: string,
 		path: string,
-		runType: 'script' | 'flow'
+		runType: 'script' | 'flow' | 'hubscript'
 	) {
 		schema = await loadSchema(workspace, path, runType)
 	}
@@ -87,6 +93,7 @@
 	$: if ($workspaceStore && runnable?.type === 'runnableByPath' && !schema) {
 		// Remote schema needs to be loaded
 		const { path, runType } = runnable
+
 		loadSchemaFromTriggerable($workspaceStore, path, runType)
 	} else if (runnable?.type === 'runnableByName' && !schema) {
 		const { inlineScriptName } = runnable
@@ -179,8 +186,8 @@
 		})
 	}
 
-	export function runComponent() {
-		executeComponent()
+	export async function runComponent() {
+		await executeComponent()
 	}
 </script>
 

@@ -42,6 +42,8 @@
 		input: undefined
 	})
 
+	const runnableComponents = writable<Record<string, () => void>>({})
+
 	setContext<AppEditorContext>('AppEditorContext', {
 		worldStore,
 		staticOutputs,
@@ -49,14 +51,9 @@
 		selectedComponent,
 		mode,
 		connectingInput,
-		breakpoint
+		breakpoint,
+		runnableComponents
 	})
-
-	function clearSelectionOnPreview() {
-		if ($mode === 'preview') {
-			$selectedComponent = undefined
-		}
-	}
 
 	let mounted = false
 	onMount(() => {
@@ -64,7 +61,6 @@
 	})
 
 	$: mounted && ($worldStore = buildWorld($staticOutputs))
-	$: $mode && $selectedComponent && clearSelectionOnPreview()
 	$: selectedTab = $selectedComponent ? 'settings' : 'insert'
 	$: previewing = $mode === 'preview'
 
@@ -79,11 +75,11 @@
 	<AppPreview app={$appStore} />
 {:else}
 	<SplitPanesWrapper class="max-w-full overflow-hidden">
-		<Pane size={previewing ? 0 : 20} minSize={previewing ? 0 : 20} maxSize={40}>
+		<Pane size={20} minSize={15} maxSize={40}>
 			<ContextPanel appPath={path} />
 		</Pane>
-		<Pane size={previewing ? 100 : 60}>
-			<div class="p-4 bg-gray-100 h-full w-full relative">
+		<Pane size={60}>
+			<div class="p-4 bg-gray-100 min-h-full w-full relative">
 				{#if $appStore.grid}
 					<div class={classNames('mx-auto h-full', width)}>
 						<GridEditor />
@@ -96,7 +92,7 @@
 				{/if}
 			</div>
 		</Pane>
-		<Pane size={previewing ? 0 : 25} minSize={previewing ? 0 : 20} maxSize={40}>
+		<Pane size={30} minSize={25} maxSize={40}>
 			<Tabs bind:selected={selectedTab}>
 				<Tab value="insert" size="xs">
 					<div class="m-1 flex flex-row gap-2">

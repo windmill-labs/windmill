@@ -27,7 +27,7 @@
 	}
 
 	$: classes = classNames(
-		'flex w-full h-full flex-col',
+		'flex w-full h-full',
 		tailwindHorizontalAlignment(horizontalAlignment),
 		tailwindVerticalAlignment(verticalAlignment)
 	)

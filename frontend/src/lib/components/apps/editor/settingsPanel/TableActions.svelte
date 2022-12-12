@@ -53,7 +53,7 @@
 				defaultValue: '',
 				value: ''
 			},
-			recompute: undefined,
+			recomputeIds: undefined,
 			card: false
 		}
 

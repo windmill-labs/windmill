@@ -7,6 +7,7 @@
 
 	export let marked: string | undefined
 	export let starred: boolean
+	export let canFavorite: boolean = true
 
 	const dispatch = createEventDispatcher()
 
@@ -22,7 +23,10 @@
 	}[kind]
 </script>
 
-<a class="hover:bg-gray-50 cursor-pointer w-full flex items-center p-4 gap-4 {color}" {href}>
+<a
+	class="hover:bg-gray-50 cursor-pointer w-full flex items-center p-4 gap-4 {color} rounded-md"
+	{href}
+>
 	<RowIcon {kind} />
 
 	<div class="w-full">
@@ -44,15 +48,17 @@
 	<div class="flex gap-1 items-center justify-end">
 		<slot name="actions" />
 	</div>
-	<div class="text-left text-sm font-semibold text-gray-900">
-		<Star
-			{kind}
-			{path}
-			{starred}
-			workspace_id={workspaceId}
-			on:starred={() => {
-				dispatch('change')
-			}}
-		/>
-	</div>
+	{#if canFavorite}
+		<div class="text-left text-sm font-semibold text-gray-900">
+			<Star
+				{kind}
+				{path}
+				{starred}
+				workspace_id={workspaceId}
+				on:starred={() => {
+					dispatch('change')
+				}}
+			/>
+		</div>
+	{/if}
 </a>
