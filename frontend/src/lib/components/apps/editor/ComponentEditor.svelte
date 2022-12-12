@@ -8,6 +8,7 @@
 	import type { AppComponent, AppEditorContext } from '../types'
 	import ButtonComponent from '../components/buttons/AppButton.svelte'
 	import PieChartComponent from '../components/dataDisplay/AppPieChart.svelte'
+	import SelectComponent from '../components/selectInputs/AppSelect.svelte'
 	import CheckboxComponent from '../components/selectInputs/AppCheckbox.svelte'
 	import TextInputComponent from '../components/textInputs/AppTextInput.svelte'
 	import NumberInputComponent from '../components/numberInputs/AppNumberInput.svelte'
@@ -69,6 +70,12 @@
 			/>
 		{:else if component.type === 'buttoncomponent'}
 			<ButtonComponent
+				{...component}
+				bind:componentInput={component.componentInput}
+				bind:staticOutputs={$staticOutputs[component.id]}
+			/>
+		{:else if component.type === 'selectcomponent'}
+			<SelectComponent
 				{...component}
 				bind:componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}

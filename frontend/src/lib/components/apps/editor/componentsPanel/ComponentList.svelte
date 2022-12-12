@@ -15,31 +15,20 @@
 
 	const { app } = getContext<AppEditorContext>('AppEditorContext')
 
-	function getMinDimensionsByComponent(componentType: string, column: number): Size {
-		console.log(componentType, column)
-		if (componentType === 'buttoncomponent') {
-			return column === 3 ? { w: 1, h: 1 } : { w: 3, h: 1 }
-		} else if (componentType === 'formcomponent') {
-			return column === 3 ? { w: 2, h: 3 } : { w: 6, h: 4 }
-		} else if (componentType === 'textcomponent') {
-			return column === 3 ? { w: 1, h: 1 } : { w: 3, h: 1 }
-		} else if (componentType === 'textinputcomponent') {
-			return column === 3 ? { w: 1, h: 2 } : { w: 3, h: 2 }
-		} else if (componentType === 'numberinputcomponent') {
-			return column === 3 ? { w: 1, h: 2 } : { w: 3, h: 2 }
-		} else if (componentType === 'barchartcomponent') {
-			return column === 3 ? { w: 2, h: 4 } : { w: 6, h: 4 }
-		} else if (componentType === 'piechartcomponent') {
-			return column === 3 ? { w: 2, h: 4 } : { w: 6, h: 4 }
-		} else if (componentType === 'tablecomponent') {
-			return column === 3 ? { w: 3, h: 4 } : { w: 12, h: 4 }
-		} else if (componentType === 'displaycomponent') {
-			return column === 3 ? { w: 2, h: 2 } : { w: 6, h: 4 }
-		} else if (componentType === 'checkboxcomponent') {
-			return column === 3 ? { w: 1, h: 1 } : { w: 3, h: 1 }
-		} else {
-			return { w: 2, h: 1 }
+	function getMinDimensionsByComponent(componentType: AppComponent['type'], column: number): Size {
+		// Dimensions key formula: <mobile width>:<mobile height>-<desktop width>:<desktop height>
+		const dimensions: Record<`${number}:${number}-${number}:${number}`, AppComponent['type'][]> = {
+			'1:1-3:1': [ 'buttoncomponent', 'textcomponent', 'checkboxcomponent' ],
+			'1:2-3:2': [ 'textinputcomponent', 'numberinputcomponent', 'selectcomponent' ],
+			'2:2-6:4': [ 'displaycomponent' ],
+			'2:3-6:4': [ 'formcomponent' ],
+			'2:4-6:4': [ 'barchartcomponent', 'piechartcomponent' ],
+			'3:4-12:4': [ 'tablecomponent' ],
 		}
+		// Finds the key that is associated with the component type and extracts the dimensions from it
+		const [dimension] = Object.entries(dimensions).find(([_, value]) => value.includes(componentType)) || ['2:1-2:1']
+		const size = dimension.split('-')[column === 3 ? 0 : 1].split(':')
+		return { w: +size[0], h: +size[1] }
 	}
 
 	function addComponent(appComponent: AppComponent) {

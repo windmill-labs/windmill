@@ -27,9 +27,9 @@ const inputs: ComponentSet = {
 				label: {
 					type: 'static',
 					visible: false,
-					value: 'Title',
+					value: 'Label',
 					fieldType: 'textarea',
-					defaultValue: 'Title'
+					defaultValue: 'Label'
 				}
 			},
 			card: false
@@ -38,16 +38,38 @@ const inputs: ComponentSet = {
 			...defaultAlignement,
 			id: 'checkboxcomponent',
 			type: 'checkboxcomponent',
+			componentInput: undefined,
 			configuration: {
 				label: {
 					type: 'static',
 					visible: true,
-					value: 'Lorem ipsum',
+					value: 'Label',
 					fieldType: 'textarea',
-					defaultValue: 'Lorem ipsum'
+					defaultValue: 'Label'
 				}
 			},
-			componentInput: undefined,
+			card: false
+		},
+		{
+			...defaultAlignement,
+			id: 'selectcomponent',
+			type: 'selectcomponent',
+			componentInput: {
+				type: 'static',
+				fieldType: 'array',
+				subFieldType: 'text',
+				defaultValue: ['Foo', 'Bar'],
+				value: ['Foo', 'Bar']
+			},
+			configuration: {
+				label: {
+					type: 'static',
+					visible: false,
+					value: 'Label',
+					fieldType: 'textarea',
+					defaultValue: 'Label'
+				}
+			},
 			card: false
 		}
 	]
@@ -138,7 +160,7 @@ const buttons: ComponentSet = {
 }
 
 const dataDisplay: ComponentSet = {
-	title: 'Data Display',
+	title: 'Data Displays',
 	components: [
 		{
 			...defaultAlignement,
