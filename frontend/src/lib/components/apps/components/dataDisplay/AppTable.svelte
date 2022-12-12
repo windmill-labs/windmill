@@ -41,26 +41,30 @@
 
 	let page = 1
 	let searchValue = ''
-
 	let result: Array<Record<string, any>> = []
-	$: headers = Object.keys(result[0] || {}) || []
 
-	const extraQueryParams = { search: searchValue, page }
+	$: headers = Array.from(new Set(result.flatMap((row) => Object.keys(row))))
+	$: extraQueryParams = search === 'Backend' ? { search: searchValue, page } : { page }
 
-	export const reservedKeys: string[] = Object.keys(extraQueryParams)
+	function searchInResult(searchValue: string) {
+		if (searchValue === '') {
+			return result
+		}
+		return result.filter((row) =>
+			Object.values(row).some((value) => value.toString().includes(searchValue))
+		)
+	}
 
-	$: (search === 'Frontend' || search === 'Backend') && (extraQueryParams.search = searchValue)
+	let filteredResult: Array<Record<string, any>> = []
+
+	$: search === 'Frontend' && (filteredResult = searchInResult(searchValue))
+	$: (search === 'Backend' || search === 'Disabled') && (filteredResult = result)
 </script>
 
 <InputValue input={configuration.search} bind:value={search} />
 <InputValue input={configuration.pagination} bind:value={pagination} />
 
-<RunnableWrapper
-	bind:componentInput
-	{id}
-	bind:result
-	extraQueryParams={{ search: searchValue, page }}
->
+<RunnableWrapper bind:componentInput {id} bind:result {extraQueryParams}>
 	<div class="gap-2 flex flex-col mt-2">
 		{#if search !== 'Disabled'}
 			<div>
@@ -89,7 +93,7 @@
 					</thead>
 				{/if}
 				<tbody class="divide-y divide-gray-200 bg-white">
-					{#each result as row, rowIndex (rowIndex)}
+					{#each filteredResult as row, rowIndex (rowIndex)}
 						<tr
 							class={classNames(
 								selectedRowIndex === rowIndex ? 'bg-blue-100 hover:bg-blue-200' : 'hover:bg-blue-50'

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { AppEditorContext } from '../../types'
 	import { Badge, Button } from '$lib/components/common'
-	import { faLink } from '@fortawesome/free-solid-svg-icons'
+	import { faArrowRight, faClose } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../inputType'
 
@@ -30,38 +30,39 @@
 {#if componentInput.type === 'connected'}
 	{#if componentInput.connection}
 		<div class="flex justify-between w-full">
-			<span class="text-xs font-bold">Status</span>
+			<span class="text-xs">Status</span>
 			<Badge color="green">Connected</Badge>
 		</div>
 		<div class="flex justify-between w-full">
-			<span class="text-xs font-bold">Component</span>
+			<span class="text-xs">Component</span>
 			<Badge color="indigo">{componentInput.connection.componentId}</Badge>
 		</div>
 		<div class="flex justify-between w-full">
-			<span class="text-xs font-bold">Path</span>
+			<span class="text-xs">Path</span>
 			<Badge color="indigo">{componentInput.connection.path}</Badge>
 		</div>
 		<Button
 			size="xs"
-			startIcon={{ icon: faLink }}
+			startIcon={{ icon: faClose }}
 			color="red"
+			variant="border"
 			on:click={() => {
 				if (componentInput.type === 'connected') {
 					componentInput.connection = undefined
 				}
 			}}
 		>
-			Clear connection
+			Disconnect
 		</Button>
 	{:else}
 		<div class="flex justify-between w-full">
-			<span class="text-xs font-bold">Status</span>
-			<Badge color="dark-yellow">Not connected</Badge>
+			<span class="text-xs">Status</span>
+			<Badge color="yellow">Not connected</Badge>
 		</div>
 		<Button
 			size="xs"
-			startIcon={{ icon: faLink }}
-			color="dark"
+			endIcon={{ icon: faArrowRight }}
+			color="blue"
 			on:click={() => {
 				if (componentInput.type === 'connected') {
 					$connectingInput = {
@@ -72,7 +73,7 @@
 				}
 			}}
 		>
-			Connect this input to an output
+			Connect
 		</Button>
 	{/if}
 {/if}

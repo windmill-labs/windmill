@@ -14,14 +14,33 @@
 	import { gridColumns } from '../../gridUtils'
 
 	const { app } = getContext<AppEditorContext>('AppEditorContext')
-	const COLS = 6
 
-	function addComponent(
-		appComponent: AppComponent,
-		defaultDimensions: Size,
-		minDimensions: Size = { w: 2, h: 1 },
-		maxDimensions: Size = { w: 12, h: 12 }
-	) {
+	function getMinDimensionsByComponent(componentType: string, column: number): Size {
+		console.log(componentType, column)
+		if (componentType === 'buttoncomponent') {
+			return column === 3 ? { w: 1, h: 1 } : { w: 3, h: 1 }
+		} else if (componentType === 'textcomponent') {
+			return column === 3 ? { w: 1, h: 1 } : { w: 3, h: 1 }
+		} else if (componentType === 'textinputcomponent') {
+			return column === 3 ? { w: 1, h: 2 } : { w: 3, h: 2 }
+		} else if (componentType === 'numberinputcomponent') {
+			return column === 3 ? { w: 1, h: 2 } : { w: 3, h: 2 }
+		} else if (componentType === 'barchartcomponent') {
+			return column === 3 ? { w: 2, h: 4 } : { w: 6, h: 4 }
+		} else if (componentType === 'piechartcomponent') {
+			return column === 3 ? { w: 2, h: 4 } : { w: 6, h: 4 }
+		} else if (componentType === 'tablecomponent') {
+			return column === 3 ? { w: 3, h: 4 } : { w: 12, h: 4 }
+		} else if (componentType === 'displaycomponent') {
+			return column === 3 ? { w: 2, h: 2 } : { w: 6, h: 4 }
+		} else if (componentType === 'checkboxcomponent') {
+			return column === 3 ? { w: 1, h: 1 } : { w: 3, h: 1 }
+		} else {
+			return { w: 2, h: 1 }
+		}
+	}
+
+	function addComponent(appComponent: AppComponent) {
 		const grid = $app.grid ?? []
 		const id = getNextId(grid.map((gridItem) => gridItem.data.id))
 
@@ -34,8 +53,7 @@
 			customDragger: false,
 			customResizer: false,
 			x: 0,
-			y: 0,
-			...defaultDimensions
+			y: 0
 		}
 
 		const newItem: GridItem = {
@@ -43,28 +61,24 @@
 			id: id
 		}
 
-		function getMinMaxDimensions(column) {
-			if (column === 3) {
-				return {
-					min: { w: 1, h: 1 },
-					max: { w: 3, h: 12 }
-				}
-			} else {
-				return {
-					min: minDimensions,
-					max: maxDimensions
-				}
-			}
-		}
-
 		gridColumns.forEach((column) => {
 			newItem[column] = newComponent
 			const position = gridHelp.findSpace(newItem, grid, column)
-			const dimensions = getMinMaxDimensions(column)
-			newItem[column] = { ...newItem[column], ...position, ...dimensions }
+			const min = getMinDimensionsByComponent(appComponent.type, column)
+
+			const max = { w: 12, h: 12 }
+
+			newItem[column].w = min.w
+			newItem[column].h = min.h
+
+			newItem[column] = { ...newItem[column], ...position, min, max }
 		})
 
 		$app.grid = [...grid, newItem]
+
+		gridColumns.forEach((colIndex) => {
+			$app.grid = gridHelp.adjust($app.grid, colIndex)
+		})
 	}
 
 	onMount(() => {
@@ -89,7 +103,7 @@
 					<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2 p-2">
 						{#each components as item}
 							<button
-								on:click={() => addComponent(item, { w: 2, h: 2 })}
+								on:click={() => addComponent(item)}
 								title={displayData[item.type].name}
 								class="border shadow-sm h-16 p-2 flex flex-col gap-2 items-center
 									justify-center bg-white rounded-md scale-100 hover:scale-105 ease-in duration-75"

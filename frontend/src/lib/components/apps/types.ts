@@ -2,7 +2,13 @@ import type { Schema } from '$lib/common'
 import type { Preview } from '$lib/gen'
 import type { FilledItem } from 'svelte-grid'
 import type { Writable } from 'svelte/store'
-import type { AppInput, ConnectedInput } from './inputType'
+import type {
+	AppInput,
+	ConnectedAppInput,
+	ConnectedInput,
+	StaticAppInput,
+	UserAppInput
+} from './inputType'
 import type { World } from './rx'
 
 type BaseComponent<T extends string> = {
@@ -13,7 +19,7 @@ export type TextComponent = BaseComponent<'textcomponent'>
 export type TextInputComponent = BaseComponent<'textinputcomponent'>
 export type NumberInputComponent = BaseComponent<'numberinputcomponent'>
 export type ButtonComponent = BaseComponent<'buttoncomponent'> & {
-	recompute: string[] | undefined
+	recomputeIds: string[] | undefined
 }
 
 export type RunFormComponent = BaseComponent<'runformcomponent'>
@@ -41,7 +47,7 @@ export type Aligned = {
 export interface BaseAppComponent extends Partial<Aligned> {
 	id: ComponentID
 	componentInput: AppInput | undefined
-	configuration: Record<string, AppInput>
+	configuration: Record<string, StaticAppInput | ConnectedAppInput | UserAppInput>
 	card: boolean | undefined
 	// TODO: add min/max width/height
 }
@@ -109,6 +115,7 @@ export type AppEditorContext = {
 	mode: Writable<EditorMode>
 	connectingInput: Writable<ConnectingInput>
 	breakpoint: Writable<EditorBreakpoint>
+	runnableComponents: Writable<Record<string, () => void>>
 }
 
 export type EditorMode = 'dnd' | 'preview'

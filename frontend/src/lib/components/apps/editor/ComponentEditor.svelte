@@ -23,7 +23,7 @@
 
 <div class="h-full flex flex-col w-full">
 	{#if shouldDisplayOverlay}
-		<ComponentHeader {component} {selected} />
+		<ComponentHeader {component} {selected} on:delete />
 	{/if}
 
 	<div

@@ -16,13 +16,13 @@ import {
 	Type
 } from 'lucide-svelte'
 import type { InputType } from 'zlib'
-import type { AppInput, AppInputs } from './inputType'
+import type { AppInputs } from './inputType'
 import type { AppComponent } from './types'
 
 export async function loadSchema(
 	workspace: string,
 	path: string,
-	runType: 'script' | 'flow'
+	runType: 'script' | 'flow' | 'hubscript'
 ): Promise<Schema> {
 	if (runType === 'script') {
 		const script = await ScriptService.getScriptByPath({
@@ -31,13 +31,21 @@ export async function loadSchema(
 		})
 
 		return script.schema
-	} else {
+	} else if (runType === 'flow') {
 		const flow = await FlowService.getFlowByPath({
 			workspace,
 			path
 		})
 
 		return flow.schema
+	} else {
+		const script = await ScriptService.getHubScriptByPath({
+			path
+		})
+
+		debugger
+
+		return script.schema
 	}
 }
 
@@ -56,7 +64,7 @@ export function schemaToInputsSpec(schema: Schema): AppInputs {
 	}, {})
 }
 
-export const displayData: Record<AppComponent['type'], {name: string, icon: any}> = {
+export const displayData: Record<AppComponent['type'], { name: string; icon: any }> = {
 	displaycomponent: {
 		name: 'Result',
 		icon: Monitor
@@ -135,68 +143,17 @@ export function accessPropertyByPath<T>(object: T, path: string): T | undefined 
 	return object
 }
 
-export function fieldTypeToTsType(InputType: InputType): string {
-	switch (InputType) {
+export function fieldTypeToTsType(inputType: InputType): string {
+	switch (inputType) {
 		case 'number':
 			return 'number'
 		case 'boolean':
 			return 'boolean'
 		case 'object':
 			return 'object'
+		case 'array':
+			return 'array'
 		default:
 			return 'string'
 	}
-}
-
-const userTypeKeys = ['value']
-const staticTypeKeys = ['value']
-const dynamicTypeKeys = ['connection']
-const runnableTypeKeys = ['runnable', 'fields']
-
-export function sanitizeInputSpec(componentInput: AppInput): AppInput {
-	if (componentInput.type === 'user') {
-		for (const key of staticTypeKeys) {
-			delete componentInput[key]
-		}
-		for (const key of dynamicTypeKeys) {
-			delete componentInput[key]
-		}
-		for (const key of runnableTypeKeys) {
-			delete componentInput[key]
-		}
-	} else if (componentInput.type === 'static') {
-		for (const key of userTypeKeys) {
-			delete componentInput[key]
-		}
-		for (const key of dynamicTypeKeys) {
-			delete componentInput[key]
-		}
-		for (const key of runnableTypeKeys) {
-			delete componentInput[key]
-		}
-	} else if (componentInput.type === 'connected') {
-		for (const key of userTypeKeys) {
-			delete componentInput[key]
-		}
-		for (const key of staticTypeKeys) {
-			delete componentInput[key]
-		}
-		for (const key of runnableTypeKeys) {
-			delete componentInput[key]
-		}
-	} else if (componentInput.type === 'runnable') {
-		for (const key of userTypeKeys) {
-			delete componentInput[key]
-		}
-
-		for (const key of staticTypeKeys) {
-			delete componentInput[key]
-		}
-
-		for (const key of dynamicTypeKeys) {
-			delete componentInput[key]
-		}
-	}
-
-	return componentInput
 }
