@@ -4078,6 +4078,7 @@ dependencies = [
  "chrono",
  "dotenv",
  "futures",
+ "git-version",
  "rand",
  "reqwest",
  "serde_json",

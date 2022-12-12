@@ -644,12 +644,13 @@ async fn connect_slack_callback(
 
     sqlx::query!(
         "INSERT INTO workspace_settings
-                (workspace_id, slack_team_id, slack_name)
-                VALUES ($1, $2, $3) ON CONFLICT (workspace_id) DO UPDATE SET slack_team_id = $2, \
-             slack_name = $3",
+                (workspace_id, slack_team_id, slack_name, slack_email)
+                VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id) DO UPDATE SET slack_team_id = $2, \
+             slack_name = $3, slack_email = $4",
         &w_id,
         token.team_id,
-        token.team_name
+        token.team_name,
+        authed.email
     )
     .execute(&mut tx)
     .await?;
@@ -796,6 +797,7 @@ async fn slack_command(
                 payload,
                 map,
                 &form.user_name,
+                &settings.slack_email,
                 "g/slack".to_string(),
                 None,
                 None,

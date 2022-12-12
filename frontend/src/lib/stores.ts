@@ -8,6 +8,7 @@ export interface UserExt {
   email: string;
   username: string;
   is_admin: boolean;
+  is_super_admin: boolean;
   created_at: string;
   groups: string[];
   pgroups: string[];
@@ -15,6 +16,7 @@ export interface UserExt {
 
 let persistedWorkspace = browser && localStorage.getItem("workspace");
 
+export const usageStore = writable<number>(0);
 export const oauthStore = writable<TokenResponse | undefined>(undefined);
 export const userStore = writable<UserExt | undefined>(undefined);
 export const workspaceStore = writable<string | undefined>(

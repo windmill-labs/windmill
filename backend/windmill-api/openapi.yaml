@@ -473,6 +473,20 @@ paths:
               schema:
                 type: string
 
+  /users/usage:
+    get:
+      summary: get current usage outside of premium workspaces
+      operationId: getUsage
+      tags:
+        - user
+      responses:
+        "200":
+          description: free usage
+          content:
+            text/plain:
+              schema:
+                type: number
+
   /users/whoami:
     get:
       summary: get current global whoami (if logged in)
@@ -4041,6 +4055,8 @@ components:
         language:
           type: string
           enum: [python3, deno, go, bash]
+        email:
+          type: string
       required:
         - id
         - running
@@ -4048,6 +4064,7 @@ components:
         - job_kind
         - permissioned_as
         - is_flow_step
+        - email
 
     CompletedJob:
       type: object
@@ -4633,6 +4650,10 @@ components:
           type: object
           additionalProperties:
             type: boolean
+        email:
+          type: string
+        error:
+          type: string
       required:
         - path
         - edited_by
@@ -4643,6 +4664,7 @@ components:
         - extra_perms
         - is_flow
         - enabled
+        - email
 
     NewSchedule:
       type: object

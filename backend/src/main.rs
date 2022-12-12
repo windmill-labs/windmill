@@ -8,9 +8,12 @@
 
 use std::net::SocketAddr;
 
+use git_version::git_version;
 use sqlx::{Pool, Postgres};
 use windmill_common::utils::rd_string;
 use windmill_worker::WorkerConfig;
+
+const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -93,11 +96,28 @@ async fn main() -> anyhow::Result<()> {
                     .map(|e| Some(e))
                     .unwrap_or(None);
 
+                #[cfg(feature = "enterprise")]
+                tracing::info!(
+                        "
+##############################
+Windmill Enterprise Edition {GIT_VERSION} LICENSE_KEY: {license_key:?}, S3_CACHE_BUCKET: {sync_bucket:?}
+##############################"
+                    );
+
+                #[cfg(not(feature = "enterprise"))]
+                tracing::info!(
+                    "
+##############################
+Windmill Community Edition {GIT_VERSION}
+##############################"
+                );
+
                 tracing::info!(
                     "DISABLE_NSJAIL: {disable_nsjail}, DISABLE_NUSER: {disable_nuser}, BASE_URL: \
                      {base_url}, SLEEP_QUEUE: {sleep_queue}, NUM_WORKERS: {num_workers}, TIMEOUT: \
                      {timeout}, KEEP_JOB_DIR: {keep_job_dir}"
                 );
+
                 run_workers(
                     db.clone(),
                     addr,

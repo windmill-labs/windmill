@@ -2,9 +2,10 @@
 import { goto } from '$app/navigation'
 import { FlowService, Script, ScriptService, type Flow, type FlowModule, type User } from '$lib/gen'
 import { toast } from '@zerodevx/svelte-toast'
-import { get } from 'svelte/store'
 import type { Schema, SupportedLanguage } from './common'
-import { hubScripts, superadmin, workspaceStore, type UserExt } from './stores'
+import { hubScripts, workspaceStore, type UserExt } from './stores'
+import { page } from "$app/stores"
+import { get } from "svelte/store"
 
 export function validateUsername(username: string): string {
 	if (username != '' && !/^\w+$/.test(username)) {
@@ -179,7 +180,7 @@ export function canWrite(
 	if (!user) {
 		return false
 	}
-	if (user.is_admin || get(superadmin)) {
+	if (user.is_admin || user.is_super_admin) {
 		return true
 	}
 	let userOwner = `u/${user.username}`
@@ -575,4 +576,8 @@ export function pluralize(quantity: number, word: string, customPlural?: string)
 
 export function capitalize(word: string): string {
 	return word ? word.charAt(0).toUpperCase() + word.slice(1) : ''
+}
+
+export function isCloudHosted(): boolean {
+	return get(page).url.hostname == 'app.windmill.dev'
 }

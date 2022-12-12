@@ -85,10 +85,6 @@
 		</div>
 	</PageHeader>
 
-	<Alert type="info" title="Groups are a team or enterprise feature - Unlimited during beta">
-		Groups are a team or enterprise feature and the feature might be significantly different after
-		beta in the community edition
-	</Alert>
 
 	<div class="relative mb-20">
 		<TableCustom>

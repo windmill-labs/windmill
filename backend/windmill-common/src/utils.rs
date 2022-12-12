@@ -80,11 +80,9 @@ pub fn get_owner_from_path(path: &str) -> String {
 pub async fn list_elems_from_hub(
     http_client: reqwest::Client,
     url: &str,
-    email: Option<String>,
-    username: String,
-    host: String,
+    email: &str,
 ) -> Result<serde_json::Value> {
-    let rows = http_get_from_hub(http_client, url, email, username, host, false)
+    let rows = http_get_from_hub(http_client, url, email, false)
         .await?
         .json::<serde_json::Value>()
         .await
@@ -96,9 +94,7 @@ pub async fn list_elems_from_hub(
 pub async fn http_get_from_hub(
     http_client: reqwest::Client,
     url: &str,
-    email: Option<String>,
-    username: String,
-    host: String,
+    email: &str,
     plain: bool,
 ) -> Result<reqwest::Response> {
     let response = http_client
@@ -111,9 +107,7 @@ pub async fn http_get_from_hub(
                 "application/json"
             },
         )
-        .header("X-email", email.unwrap_or_else(|| "".to_string()))
-        .header("X-username", username)
-        .header("X-hostname", host)
+        .header("X-email", email)
         .send()
         .await
         .map_err(crate::error::to_anyhow)?;

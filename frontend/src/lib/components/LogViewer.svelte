@@ -1,8 +1,10 @@
 <script lang="ts">
+	import { fade } from 'svelte/transition'
 	import { Drawer, DrawerContent } from './common'
 
 	export let content: string | undefined
 	export let isLoading: boolean
+	export let duration: number | undefined = undefined
 
 	let scroll = true
 	let div: HTMLElement | null = null
@@ -43,8 +45,14 @@
 				</div>
 			</div>
 		</div>
+		{#if duration}
+			<span class="absolute text-xs text-gray-500 top-2 left-2">took {duration}ms</span>
+		{/if}
+
 		<pre class="whitespace-pre-wrap break-words bg-gray-50 text-xs w-full p-2"
-			>{#if content}{content}{:else if isLoading}Waiting for job to start...{:else}No logs are available yet{/if}</pre
+			>{#if content}<span transition:fade={{ duration: 50 }}>{content}</span
+				>{:else if isLoading}{:else}<span class="text-gray-600">No logs are available yet</span
+				>{/if}</pre
 		>
 	</div>
 </div>

@@ -28,7 +28,7 @@ name = "windmill"
 path = "./src/main.rs"
 
 [features]
-enterprise = ["windmill-worker/enterprise"]
+enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise"]
 
 [dependencies]
 anyhow.workspace = true
@@ -44,6 +44,7 @@ sqlx.workspace = true
 tokio-metrics.workspace = true
 rand.workspace = true
 chrono.workspace = true
+git-version.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true

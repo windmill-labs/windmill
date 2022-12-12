@@ -21,14 +21,15 @@
 	let intervalId: SetIntervalAsyncTimer<unknown[]> | undefined = undefined
 
 	let syncIteration: number = 0
-	let ITERATIONS_BEFORE_SLOW_REFRESH = 100
+	let ITERATIONS_BEFORE_SLOW_REFRESH = 10
+	let ITERATIONS_BEFORE_SUPER_SLOW_REFRESH = 100
 
 	export async function abstractRun(fn: () => Promise<string>) {
 		try {
 			intervalId && clearIntervalAsync(intervalId)
 
 			if (isLoading && job) {
-				JobService.cancelQueuedJob({
+				await JobService.cancelQueuedJob({
 					workspace: workspace!,
 					id: job.id,
 					requestBody: {}
@@ -91,11 +92,16 @@
 	}
 
 	export async function cancelJob() {
-		await JobService.cancelQueuedJob({
-			workspace: $workspaceStore ?? '',
-			id: job?.id ?? '',
-			requestBody: {}
-		})
+		try {
+			await JobService.cancelQueuedJob({
+				workspace: $workspaceStore ?? '',
+				id: job?.id ?? '',
+				requestBody: {}
+			})
+		} catch (err) {
+			console.error(err)
+		}
+		isLoading = false
 		console.log('cancelled')
 	}
 
@@ -108,7 +114,7 @@
 			isLoading = true
 			intervalId = setIntervalAsync(async () => {
 				await syncer(testId)
-			}, 500)
+			}, 50)
 		}
 	}
 
@@ -144,6 +150,7 @@
 			notfound = false
 		} catch (err) {
 			intervalId && clearIntervalAsync(intervalId)
+			isLoading = false
 			if (err.status === 404) {
 				notfound = true
 			}
@@ -154,6 +161,9 @@
 
 	async function syncer(id: string): Promise<void> {
 		if (syncIteration == ITERATIONS_BEFORE_SLOW_REFRESH) {
+			intervalId && clearIntervalAsync(intervalId)
+			intervalId = setIntervalAsync(async () => await syncer(id), 500)
+		} else if (syncIteration == ITERATIONS_BEFORE_SUPER_SLOW_REFRESH) {
 			intervalId && clearIntervalAsync(intervalId)
 			intervalId = setIntervalAsync(async () => await syncer(id), 2000)
 		}

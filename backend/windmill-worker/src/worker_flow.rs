@@ -407,21 +407,21 @@ pub async fn update_flow_status_after_job_completion(
         false => false,
     };
 
+    tx.commit().await?;
+
     if old_status.step == 0
         && !flow_job.is_flow_step
         && flow_job.schedule_path.is_some()
         && flow_job.script_path.is_some()
     {
-        tx = schedule_again_if_scheduled(
-            tx,
+        schedule_again_if_scheduled(
+            db,
             flow_job.schedule_path.as_ref().unwrap(),
             flow_job.script_path.as_ref().unwrap(),
             &w_id,
         )
         .await?;
     }
-
-    tx.commit().await?;
 
     let done = if !should_continue_flow {
         let logs = if flow_job.canceled {
@@ -1233,6 +1233,7 @@ async fn push_next_flow_job(
             payload,
             ok.unwrap_or_else(|| Map::new()),
             &flow_job.created_by,
+            &flow_job.email,
             flow_job.permissioned_as.to_owned(),
             scheduled_for_o,
             flow_job.schedule_path.clone(),

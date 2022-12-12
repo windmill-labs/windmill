@@ -44,7 +44,8 @@ mod variables;
 mod worker_ping;
 mod workspaces;
 
-const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
+pub const GIT_VERSION: &str =
+    git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 
 pub struct BaseUrl(String);
 pub struct IsSecure(bool);
