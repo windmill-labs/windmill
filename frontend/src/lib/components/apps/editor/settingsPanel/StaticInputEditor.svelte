@@ -1,12 +1,11 @@
 <script lang="ts">
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { staticValues } from '../componentsPanel/componentStaticValues'
-	import type { AppInput } from '../../inputType'
-	import Button from '$lib/components/common/button/Button.svelte'
-	import { faPlus } from '@fortawesome/free-solid-svg-icons'
+	import type { StaticAppInput } from '../../inputType'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
+	import ArrayStaticInputEditor from './ArrayStaticInputEditor.svelte'
 
-	export let componentInput: AppInput | undefined
+	export let componentInput: StaticAppInput | undefined
 	export let canHide: boolean = false
 </script>
 
@@ -29,41 +28,21 @@
 				</option>
 			{/each}
 		</select>
-	{:else if componentInput.fieldType === 'array'}
-		<div class="flex gap-2 flex-col mt-2">
-			{#if componentInput.value}
-				{#each componentInput.value as value, index}
-					<div class="border rounded-sm">
-						<SimpleEditor
-							lang="json"
-							code={JSON.stringify(componentInput.value[index], null, 2)}
-							class="few-lines-editor"
-							on:change={(e) => {
-								if (componentInput?.type === 'static' && componentInput.value) {
-									componentInput.value[index] = JSON.parse(e.detail.code)
-								}
-							}}
-						/>
-					</div>
-				{/each}
-				<Button
-					size="xs"
-					color="dark"
-					startIcon={{ icon: faPlus }}
-					on:click={() => {
-						if (
-							componentInput?.fieldType === 'array' &&
-							componentInput.type === 'static' &&
-							componentInput.value
-						) {
-							componentInput.value.push({})
-						}
-					}}
-				>
-					Add
-				</Button>
-			{/if}
+	{:else if componentInput.fieldType === 'object'}
+		<div class="border rounded-sm w-full">
+			<SimpleEditor
+				lang="json"
+				code={JSON.stringify(componentInput.value, null, 2)}
+				class="few-lines-editor"
+				on:change={(e) => {
+					if (componentInput?.type === 'static' && componentInput.value) {
+						componentInput.value = JSON.parse(e.detail.code)
+					}
+				}}
+			/>
 		</div>
+	{:else if componentInput.fieldType === 'array'}
+		<ArrayStaticInputEditor bind:componentInput {canHide} />
 	{:else}
 		<input bind:value={componentInput.value} />
 	{/if}

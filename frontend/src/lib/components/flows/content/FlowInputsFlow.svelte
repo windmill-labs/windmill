@@ -88,11 +88,11 @@
 										{@html marked}
 									{:else}
 										{!summary || summary.length == 0 ? path : summary}
-									{/if}</span
-								>
+									{/if}
+								</span>
 								<span class="font-normal text-xs text-left italic overflow-hidden"
-									>{path ?? ''}</span
-								>
+									>{path ?? ''}
+								</span>
 							</div>
 							<div class="text-xs font-light italic text-left">{description ?? ''}</div>
 						</div>

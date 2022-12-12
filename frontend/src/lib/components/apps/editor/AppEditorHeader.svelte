@@ -54,7 +54,7 @@
 
 <div class="border-b flex flex-row justify-between py-1 px-4 items-center">
 	<input class="text-sm w-64" bind:value={title} />
-	<div class="flex gap-8">
+	<div class="flex gap-2">
 		<div>
 			<ToggleButtonGroup bind:selected={mode}>
 				<ToggleButton position="left" value="dnd" startIcon={{ icon: faHand }} size="xs">
@@ -76,7 +76,7 @@
 			</ToggleButtonGroup>
 		</div>
 	</div>
-	<div class="flex flex-row gap-2">
+	<div class="flex flex-row gap-2 w-64 justify-end">
 		<Button color="dark" size="xs" variant="border" startIcon={{ icon: faExternalLink }}>
 			Publish
 		</Button>

@@ -28,6 +28,8 @@
 		input: undefined
 	})
 
+	const runnableComponents = writable<Record<string, () => void>>({})
+
 	setContext<AppEditorContext>('AppEditorContext', {
 		worldStore,
 		staticOutputs,
@@ -35,7 +37,8 @@
 		selectedComponent,
 		mode,
 		connectingInput,
-		breakpoint
+		breakpoint,
+		runnableComponents
 	})
 
 	let mounted = false

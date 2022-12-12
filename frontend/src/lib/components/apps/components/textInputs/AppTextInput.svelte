@@ -3,7 +3,6 @@
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppEditorContext } from '../../types'
-	import DebouncedInput from '../helpers/DebouncedInput.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 
 	export let id: string
@@ -17,9 +16,7 @@
 	$: outputs = $worldStore?.outputsById[id] as {
 		result: Output<string>
 	}
-	$: if(value || !value) {
-		outputs?.result.set(value || '')
-	}
+	$: (value || !value) && outputs?.result.set(value || '')
 </script>
 
 <InputValue input={configuration.label} bind:value={labelValue} />
@@ -29,5 +26,5 @@
 	<div>
 		{labelValue}
 	</div>
-	<DebouncedInput bind:value={value} debounceDelay={300} type="text" placeholder="Type..." />
+	<input type="text" bind:value placeholder="Type..." />
 </label>
