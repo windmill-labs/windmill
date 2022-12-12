@@ -29,19 +29,19 @@
 >
 	<RowIcon {kind} />
 
-	<div class="w-full">
-		<div class="text-gray-900 flex-wrap text-md font-semibold mb-1">
+	<div class="w-full min-w-0 ">
+		<div class="text-gray-900 flex-wrap text-md font-semibold mb-1 truncate">
 			{#if marked}
 				{@html marked}
 			{:else}
 				{!summary || summary.length == 0 ? path : summary}
 			{/if}
 		</div>
-		<div class="text-gray-600 text-xs ">
+		<div class="text-gray-600 text-xs truncate">
 			{path}
 		</div>
 	</div>
-	<div class="w-96 flex flex-row max-w-xs gap-1 items-start flex-wrap">
+	<div class="w-96 hidden lg:flex flex-row max-w-xs gap-1 items-start flex-wrap">
 		<slot name="badges" />
 	</div>
 

@@ -73,7 +73,55 @@
 	</svelte:fragment>
 
 	<svelte:fragment slot="actions">
+		<span class="hidden md:inline-flex gap-x-1">
+			{#if canWrite}
+				<div>
+					<Button
+						color="light"
+						size="xs"
+						variant="border"
+						startIcon={{ icon: faEdit }}
+						href="/scripts/edit/{hash}?step=2"
+					>
+						Edit
+					</Button>
+				</div>
+			{:else}
+				<div>
+					<Button
+						color="light"
+						size="xs"
+						variant="border"
+						startIcon={{ icon: faCodeFork }}
+						href="/scripts/add?template={path}"
+					>
+						Fork
+					</Button>
+				</div>
+			{/if}
+
+			<Button
+				href="/scripts/get/{hash}"
+				color="light"
+				variant="border"
+				size="xs"
+				spacingSize="md"
+				startIcon={{ icon: faEye }}
+			>
+				Detail
+			</Button>
+			<Button
+				href="/scripts/run/{hash}"
+				color="dark"
+				size="xs"
+				spacingSize="md"
+				endIcon={{ icon: faPlay }}
+			>
+				Run
+			</Button>
+		</span>
 		<Dropdown
+			placement="bottom-end"
 			dropdownItems={[
 				{
 					displayName: 'View script',
@@ -126,51 +174,5 @@
 				}
 			]}
 		/>
-
-		{#if canWrite}
-			<div>
-				<Button
-					color="light"
-					size="xs"
-					variant="border"
-					startIcon={{ icon: faEdit }}
-					href="/scripts/edit/{hash}?step=2"
-				>
-					Edit
-				</Button>
-			</div>
-		{:else}
-			<div>
-				<Button
-					color="light"
-					size="xs"
-					variant="border"
-					startIcon={{ icon: faCodeFork }}
-					href="/scripts/add?template={path}"
-				>
-					Fork
-				</Button>
-			</div>
-		{/if}
-
-		<Button
-			href="/scripts/get/{hash}"
-			color="light"
-			variant="border"
-			size="xs"
-			spacingSize="md"
-			startIcon={{ icon: faEye }}
-		>
-			Detail
-		</Button>
-		<Button
-			href="/scripts/run/{hash}"
-			color="dark"
-			size="xs"
-			spacingSize="md"
-			endIcon={{ icon: faPlay }}
-		>
-			Run
-		</Button>
 	</svelte:fragment>
 </Row>

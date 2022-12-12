@@ -23,7 +23,7 @@
 		})
 		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
 		workspaceStore.set(workspace_id)
-		goto($page.url.searchParams.get('rd') ?? '/scripts')
+		goto($page.url.searchParams.get('rd') ?? '/')
 	}
 
 	async function validateName(username: string): Promise<void> {

@@ -33,6 +33,7 @@ use windmill_audit::{audit_log, ActionKind};
 use windmill_common::utils::{not_found_if_none, now_from_db};
 
 use crate::users::Authed;
+use crate::workspaces::invite_user_to_all_auto_invite_worspaces;
 use crate::{
     db::{UserDB, DB},
     variables::{build_crypt, encrypt},
@@ -923,6 +924,9 @@ async fn login_callback(
             .bind(user.company)
             .execute(&mut tx)
             .await?;
+            tx.commit().await?;
+            invite_user_to_all_auto_invite_worspaces(&db, &email).await?;
+            tx = db.begin().await?;
             crate::users::create_session_token(
                 &email,
                 false,
