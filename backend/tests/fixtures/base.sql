@@ -2,8 +2,8 @@
 -- https://docs.rs/sqlx/latest/sqlx/attr.test.html
 
 INSERT INTO workspace
-            (id,               name,             owner,       domain)
-     VALUES ('test-workspace', 'test-workspace', 'test-user', null);
+            (id,               name,             owner)
+     VALUES ('test-workspace', 'test-workspace', 'test-user');
 
 INSERT INTO usr(workspace_id, email, username, is_admin, role) VALUES
 	('test-workspace', 'test@windmill.dev', 'test-user', true, 'Admin');
