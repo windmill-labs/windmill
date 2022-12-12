@@ -22,6 +22,7 @@
 	export let extraQueryParams: Record<string, any> = {}
 	export let autoRefresh: boolean = true
 	export let result: any = undefined
+	export let forceSchemaDisplay: boolean = false
 
 	const { app, worldStore, runnableComponents } = getContext<AppEditorContext>('AppEditorContext')
 
@@ -208,7 +209,7 @@
 	bind:this={testJobLoader}
 />
 
-{#if schemaStripped !== undefined && autoRefresh}
+{#if schemaStripped !== undefined && (autoRefresh || forceSchemaDisplay)}
 	<SchemaForm schema={schemaStripped} bind:args {isValid} {disabledArgs} shouldHideNoInputs />
 {/if}
 

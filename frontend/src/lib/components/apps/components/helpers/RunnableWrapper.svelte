@@ -11,6 +11,7 @@
 	export let extraQueryParams: Record<string, any> = {}
 	export let autoRefresh: boolean = true
 	export let runnableComponent: RunnableComponent | undefined = undefined
+	export let forceSchemaDisplay: boolean = false
 </script>
 
 {#if componentInput === undefined}
@@ -24,6 +25,7 @@
 		{autoRefresh}
 		{id}
 		{extraQueryParams}
+		{forceSchemaDisplay}
 	>
 		<slot />
 	</RunnableComponent>

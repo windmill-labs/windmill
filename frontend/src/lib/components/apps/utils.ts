@@ -13,7 +13,8 @@ import {
 	Play,
 	Table2,
 	TextCursorInput,
-	Type
+	Type,
+	FolderInput
 } from 'lucide-svelte'
 import type { InputType } from 'zlib'
 import type { AppInputs } from './inputType'
@@ -77,6 +78,10 @@ export const displayData: Record<AppComponent['type'], { name: string; icon: any
 		name: 'Button',
 		icon: Inspect
 	},
+	formcomponent: {
+		name: 'Form',
+		icon: FolderInput
+	},
 	piechartcomponent: {
 		name: 'Pie chart',
 		icon: PieChart
@@ -120,7 +125,7 @@ export const displayData: Record<AppComponent['type'], { name: string; icon: any
 	numberinputcomponent: {
 		name: 'Number input',
 		icon: Binary
-	},
+	}
 }
 
 export function accessPropertyByPath<T>(object: T, path: string): T | undefined {

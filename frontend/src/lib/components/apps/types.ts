@@ -22,6 +22,10 @@ export type ButtonComponent = BaseComponent<'buttoncomponent'> & {
 	recomputeIds: string[] | undefined
 }
 
+export type FormComponent = BaseComponent<'formcomponent'> & {
+	recomputeIds: string[] | undefined
+}
+
 export type RunFormComponent = BaseComponent<'runformcomponent'>
 export type BarChartComponent = BaseComponent<'barchartcomponent'>
 export type PieChartComponent = BaseComponent<'piechartcomponent'>
@@ -69,6 +73,7 @@ export type AppComponent = BaseAppComponent &
 		| SelectComponent
 		| CheckboxComponent
 		| RadioComponent
+		| FormComponent
 	)
 
 export type ComponentSet = {
