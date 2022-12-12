@@ -51,15 +51,15 @@ const inputs: ComponentSet = {
 			card: false
 		},
 		{
-			...defaultAlignement,
+			horizontalAlignment: 'center',
+			verticalAlignment: 'top',
 			id: 'selectcomponent',
 			type: 'selectcomponent',
 			componentInput: {
 				type: 'static',
-				fieldType: 'array',
-				subFieldType: 'text',
-				defaultValue: ['Foo', 'Bar'],
-				value: ['Foo', 'Bar']
+				fieldType: 'text',
+				defaultValue: 'Foo',
+				value: undefined
 			},
 			configuration: {
 				label: {
@@ -68,6 +68,13 @@ const inputs: ComponentSet = {
 					value: 'Label',
 					fieldType: 'textarea',
 					defaultValue: 'Label'
+				},
+				items: {
+					type: 'static',
+					fieldType: 'array',
+					subFieldType: 'text',
+					defaultValue: ['Foo', 'Bar'],
+					value: ['Foo', 'Bar']
 				}
 			},
 			card: false
