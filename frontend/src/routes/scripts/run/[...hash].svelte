@@ -25,7 +25,6 @@
 	import RunForm from '$lib/components/RunForm.svelte'
 	import { Alert, Badge, Button, Kbd, Skeleton } from '$lib/components/common'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
-	import SvelteMarkdown from 'svelte-markdown'
 	import { faPlay, faScroll } from '@fortawesome/free-solid-svg-icons'
 
 	$: hash = $page.params.hash
@@ -163,7 +162,7 @@
 				</div>
 			</div>
 			<div class="prose text-sm box max-w-6xl w-full mb-4 mt-8">
-				<SvelteMarkdown source={defaultIfEmptyString(script.description, 'No description')} />
+				{defaultIfEmptyString(script.description, 'No description')}
 			</div>
 		</div>
 

@@ -8,7 +8,7 @@
 
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { FlowService, ScheduleService, type Flow, type Schedule } from '$lib/gen'
+	import { FlowService, JobService, ScheduleService, type Flow, type Schedule } from '$lib/gen'
 	import {
 		displayDaysAgo,
 		canWrite,
@@ -42,6 +42,8 @@
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import CronInput from '$lib/components/CronInput.svelte'
 	import Icon from 'svelte-awesome'
+	import RunForm from '$lib/components/RunForm.svelte'
+	import { goto } from '$app/navigation'
 
 	let userSettings: UserSettings
 
@@ -95,6 +97,20 @@
 	}
 
 	$: url = `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run/f/${flow?.path}`
+
+	let runForm: RunForm | undefined
+	let isValid = true
+
+	async function runFlow(scheduledForStr: string | undefined, args: Record<string, any>) {
+		const scheduledFor = scheduledForStr ? new Date(scheduledForStr).toISOString() : undefined
+		let run = await JobService.runFlowByPath({
+			workspace: $workspaceStore!,
+			path,
+			requestBody: args,
+			scheduledFor
+		})
+		await goto('/run/' + run + '?workspace=' + $workspaceStore)
+	}
 </script>
 
 <UserSettings bind:this={userSettings} />
@@ -212,11 +228,24 @@
 			{#if flow.archived}
 				<div class="bg-red-100 border-l-4 border-red-500 text-orange-700 p-4" role="alert">
 					<p class="font-bold">Archived</p>
-					<p>This version was archived</p>
+					<p>This flow was archived</p>
 				</div>
 			{/if}
-			<div class="prose text-sm box max-w-6xl w-full mt-4">
-				<SvelteMarkdown source={defaultIfEmptyString(flow?.description, 'No description')} />
+
+			<div class="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-6">
+				<div class="col-span-2">
+					<RunForm
+						autofocus
+						detailed={false}
+						bind:isValid
+						bind:this={runForm}
+						runnable={flow}
+						runAction={runFlow}
+					/>
+				</div>
+				<div class="mt-6">
+					{defaultIfEmptyString(flow.description, 'No description')}
+				</div>
 			</div>
 			<div class="mt-4">
 				<FlowViewer {flow} noSummary={true} />

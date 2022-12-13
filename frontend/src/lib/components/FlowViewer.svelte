@@ -6,7 +6,6 @@
 	import { Tab, Tabs, TabContent, Button } from './common'
 	import SchemaViewer from './SchemaViewer.svelte'
 	import FieldHeader from './FieldHeader.svelte'
-	import SvelteMarkdown from 'svelte-markdown'
 	import { copyToClipboard } from '../utils'
 	import FlowGraphViewer from './FlowGraphViewer.svelte'
 
@@ -49,7 +48,7 @@
 			<div class="flow-root w-full pb-4">
 				{#if !noSummary}
 					<h2 class="my-4">{flow.summary}</h2>
-					<SvelteMarkdown source={flow.description ?? ''} />
+					<div>{flow.description ?? ''}</div>
 				{/if}
 
 				<p class="font-black text-lg w-full my-4">
