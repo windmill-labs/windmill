@@ -157,25 +157,27 @@
 			>
 				Run
 			</Button>
-			<Button
-				href="/flows/edit/{path}"
-				variant="contained"
-				color="blue"
-				size="xs"
-				startIcon={{ icon: faEdit }}
-				disabled={!can_write}
-			>
-				Edit
-			</Button>
-			<Button
-				href="/flows/add?template={flow.path}"
-				variant="contained"
-				color="blue"
-				size="xs"
-				startIcon={{ icon: faCodeFork }}
-			>
-				Use as template/Fork
-			</Button>
+			{#if !$userStore?.operator}
+				<Button
+					href="/flows/edit/{path}"
+					variant="contained"
+					color="blue"
+					size="xs"
+					startIcon={{ icon: faEdit }}
+					disabled={!can_write}
+				>
+					Edit
+				</Button>
+				<Button
+					href="/flows/add?template={flow.path}"
+					variant="contained"
+					color="blue"
+					size="xs"
+					startIcon={{ icon: faCodeFork }}
+				>
+					Use as template/Fork
+				</Button>
+			{/if}
 			<Button href="/runs/{flow.path}" color="blue" size="xs" startIcon={{ icon: faList }}>
 				View runs
 			</Button>

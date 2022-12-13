@@ -18,21 +18,21 @@
 	const mainMenuLinks = [
 		{ label: 'Home', href: '/', icon: faHomeAlt },
 		{ label: 'Runs', href: '/runs', icon: faPlay },
-		{ label: 'Variables', href: '/variables', icon: faDollarSign },
-		{ label: 'Resources', href: '/resources', icon: faCubes }
+		{ label: 'Variables', href: '/variables', icon: faDollarSign, disabled: $userStore?.operator },
+		{ label: 'Resources', href: '/resources', icon: faCubes, disabled: $userStore?.operator }
 	]
 
 	$: secondaryMenuLinks = [
-		{ label: 'Schedules', href: '/schedules', icon: faCalendar },
-		{ label: 'Groups', href: '/groups', icon: faUsersCog },
-		{ label: 'Audit Logs', href: '/audit_logs', icon: faEye },
+		{ label: 'Schedules', href: '/schedules', icon: faCalendar, disabled: $userStore?.operator },
+		{ label: 'Groups', href: '/groups', icon: faUsersCog, disabled: $userStore?.operator },
+		{ label: 'Audit Logs', href: '/audit_logs', icon: faEye, disabled: $userStore?.operator },
 		{
 			label: 'Workspace',
 			href: '/workspace_settings',
 			icon: faCog,
 			disabled: !($userStore?.is_admin || $superadmin)
 		},
-		{ label: 'Workers', href: '/workers', icon: faRobot }
+		{ label: 'Workers', href: '/workers', icon: faRobot, disabled: $userStore?.operator }
 	]
 
 	const thirdMenuLinks = [

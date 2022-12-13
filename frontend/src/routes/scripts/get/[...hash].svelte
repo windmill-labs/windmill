@@ -157,24 +157,26 @@
 					>
 						Run
 					</Button>
-					<Button
-						href={`/scripts/edit/${script.hash}?step=2`}
-						color="blue"
-						size="md"
-						startIcon={{ icon: faEdit }}
-						disabled={!can_write}
-					>
-						Edit
-					</Button>
-					{#if !topHash}
+					{#if !$userStore?.operator}
 						<Button
-							href={`/scripts/add?template=${script.path}`}
-							variant="border"
+							href={`/scripts/edit/${script.hash}?step=2`}
+							color="blue"
 							size="md"
-							startIcon={{ icon: faCodeFork }}
+							startIcon={{ icon: faEdit }}
+							disabled={!can_write}
 						>
-							Fork
+							Edit
 						</Button>
+						{#if !topHash}
+							<Button
+								href={`/scripts/add?template=${script.path}`}
+								variant="border"
+								size="md"
+								startIcon={{ icon: faCodeFork }}
+							>
+								Fork
+							</Button>
+						{/if}
 					{/if}
 				</div>
 			</div>

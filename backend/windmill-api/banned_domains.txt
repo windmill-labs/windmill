@@ -1,1 +1,6 @@
 gmail.com
+hotmail.com
+live.com
+yahoo.com
+protonmail.com
+yandex.com

@@ -3,7 +3,7 @@
 
 	import { userStore, usersWorkspaceStore, superadmin, usageStore } from '$lib/stores'
 	import { classNames, isCloudHosted } from '$lib/utils'
-	import { faCrown, faUser } from '@fortawesome/free-solid-svg-icons'
+	import { faCrown, faPlay, faUser } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 
 	import Icon from 'svelte-awesome'
@@ -31,6 +31,8 @@
 				{$userStore?.username ?? ($superadmin ? $superadmin : '___')}
 				{#if $userStore?.is_admin || $superadmin}
 					<Icon data={faCrown} scale={0.6} />
+				{:else if $userStore?.operator}
+					<Icon class="ml-2" data={faPlay} scale={0.8} />
 				{/if}
 			</span>
 		{/if}
@@ -42,7 +44,15 @@
 			<p class="text-sm font-medium text-gray-900 truncate" role="none">
 				{$usersWorkspaceStore?.email}
 			</p>
+			<span class="text-xs text-gray-600">
+				{#if $userStore?.is_admin}
+					Admin of this workspace <Icon data={faCrown} scale={0.6} />
+				{:else if $userStore?.operator}
+					Operator in this workspace <Icon class="ml-2" data={faPlay} scale={0.8} />
+				{/if}
+			</span>
 		</div>
+
 		<div class="py-1" role="none">
 			<a
 				on:click={() => dispatch('user-settings')}

@@ -41,10 +41,10 @@
 			}
 		})
 			.then(() => {
-				sendUserToast('Saved successfully.')
+				sendUserToast('Saved')
 			})
 			.catch(() => {
-				sendUserToast('Error during saving. Please try again later.', true)
+				sendUserToast('Error during saving. Please try again later', true)
 			})
 			.finally(() => {
 				loading.save = false

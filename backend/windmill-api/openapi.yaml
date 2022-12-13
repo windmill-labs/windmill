@@ -638,9 +638,12 @@ paths:
                   type: string
                 is_admin:
                   type: boolean
+                operator:
+                  type: boolean
               required:
                 - email
                 - is_admin
+                - operator
       responses:
         "200":
           description: status
@@ -669,9 +672,12 @@ paths:
                   type: string
                 is_admin:
                   type: boolean
+                operator:
+                  type: boolean
               required:
                 - email
                 - is_admin
+                - operator
       responses:
         "200":
           description: status
@@ -781,6 +787,8 @@ paths:
                     type: string
                   auto_invite_domain:
                     type: string
+                  auto_invite_operator:
+                    type: boolean
 
   /w/{workspace}/workspaces/edit_slack_command:
     post:
@@ -825,10 +833,8 @@ paths:
             schema:
               type: object
               properties:
-                set:
+                operator:
                   type: boolean
-              required:
-                - set
 
       responses:
         "200":
@@ -4183,6 +4189,8 @@ components:
           enum: [python3, deno, go, bash]
         is_skipped:
           type: boolean
+        email:
+          type: string
       required:
         - id
         - created_by
@@ -4195,6 +4203,7 @@ components:
         - permissioned_as
         - is_flow_step
         - is_skipped
+        - email
 
     Job:
       allOf:
@@ -4245,12 +4254,8 @@ components:
     Usage:
       type: object
       properties:
-        duration_ms:
-          type: integer
-        jobs:
-          type: integer
-        flows:
-          type: integer
+        executions:
+          type: number
 
     Login:
       type: object
@@ -4281,6 +4286,10 @@ components:
       type: object
       properties:
         is_admin:
+          type: boolean
+        operator:
+          type: boolean
+        disabled:
           type: boolean
 
     TruncatedToken:
@@ -4858,10 +4867,13 @@ components:
           type: string
         is_admin:
           type: boolean
+        operator:
+          type: boolean
       required:
         - workspace_id
         - email
         - is_admin
+        - operator
 
     GlobalUserInfo:
       type: object

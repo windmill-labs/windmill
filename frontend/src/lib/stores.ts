@@ -9,6 +9,7 @@ export interface UserExt {
   username: string;
   is_admin: boolean;
   is_super_admin: boolean;
+  operator: boolean;
   created_at: string;
   groups: string[];
   pgroups: string[];

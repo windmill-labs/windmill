@@ -4,7 +4,7 @@
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 
 	import { FlowService, type Flow } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
 	import {
 		faArchive,
@@ -34,7 +34,7 @@
 		try {
 			await FlowService.archiveFlowByPath({ workspace: $workspaceStore!, path })
 			dispatch('change')
-			sendUserToast(`Successfully archived flow ${path}`)
+			sendUserToast(`Archived flow ${path}`)
 		} catch (err) {
 			sendUserToast(`Could not archive this flow ${err.body}`, true)
 		}
@@ -56,30 +56,32 @@
 	</svelte:fragment>
 	<svelte:fragment slot="actions">
 		<span class="hidden md:inline-flex gap-x-1">
-			{#if canWrite}
-				<div>
-					<Button
-						color="light"
-						size="xs"
-						variant="border"
-						startIcon={{ icon: faEdit }}
-						href="/flows/edit/{path}"
-					>
-						Edit
-					</Button>
-				</div>
-			{:else}
-				<div>
-					<Button
-						color="light"
-						size="xs"
-						variant="border"
-						startIcon={{ icon: faCodeFork }}
-						href="/flows/add?template={path}"
-					>
-						Fork
-					</Button>
-				</div>
+			{#if !$userStore?.operator}
+				{#if canWrite}
+					<div>
+						<Button
+							color="light"
+							size="xs"
+							variant="border"
+							startIcon={{ icon: faEdit }}
+							href="/flows/edit/{path}"
+						>
+							Edit
+						</Button>
+					</div>
+				{:else}
+					<div>
+						<Button
+							color="light"
+							size="xs"
+							variant="border"
+							startIcon={{ icon: faCodeFork }}
+							href="/flows/add?template={path}"
+						>
+							Fork
+						</Button>
+					</div>
+				{/if}
 			{/if}
 
 			<Button

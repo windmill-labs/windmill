@@ -131,6 +131,8 @@
 					<span class="font-mono font-semibold">{invite.workspace_id}</span>
 					{#if invite.is_admin}
 						<span class="text-sm">as an admin</span>
+					{:else if invite.operator}
+						<span class="text-sm">as an operator</span>
 					{/if}
 				</div>
 				<div class="flex justify-end items-center flex-col sm:flex-row gap-1">

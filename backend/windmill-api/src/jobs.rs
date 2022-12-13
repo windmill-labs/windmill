@@ -238,6 +238,7 @@ pub struct CompletedJob {
     pub is_flow_step: bool,
     pub language: Option<ScriptLang>,
     pub is_skipped: bool,
+    pub email: String,
 }
 
 #[derive(Deserialize, Clone)]
@@ -400,6 +401,7 @@ async fn list_jobs(
             "is_flow_step",
             "language",
             "false as is_skipped",
+            "email",
         ],
     );
     let sqlc = list_completed_jobs_query(
@@ -432,6 +434,7 @@ async fn list_jobs(
             "is_flow_step",
             "language",
             "is_skipped",
+            "email",
         ],
     );
     let sql = format!(
@@ -807,6 +810,7 @@ struct UnifiedJob {
     is_flow_step: bool,
     language: Option<ScriptLang>,
     is_skipped: bool,
+    email: String,
 }
 
 impl From<UnifiedJob> for Job {
@@ -839,6 +843,7 @@ impl From<UnifiedJob> for Job {
                 is_flow_step: uj.is_flow_step,
                 language: uj.language,
                 is_skipped: uj.is_skipped,
+                email: uj.email,
             }),
             "QueuedJob" => Job::QueuedJob(QueuedJob {
                 workspace_id: uj.workspace_id,
@@ -868,7 +873,7 @@ impl From<UnifiedJob> for Job {
                 language: uj.language,
                 same_worker: false,
                 pre_run_error: None,
-                email: "".to_string(),
+                email: uj.email,
             }),
             t => panic!("job type {} not valid", t),
         }
@@ -1392,6 +1397,7 @@ async fn list_completed_jobs(
             "is_flow_step",
             "language",
             "is_skipped",
+            "email",
         ],
     )
     .sql()?;
