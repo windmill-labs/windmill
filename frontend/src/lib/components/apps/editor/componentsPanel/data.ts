@@ -72,9 +72,21 @@ const inputs: ComponentSet = {
 				items: {
 					type: 'static',
 					fieldType: 'array',
-					subFieldType: 'text',
-					defaultValue: ['Foo', 'Bar'],
-					value: ['Foo', 'Bar']
+					subFieldType: 'object',
+					defaultValue: [
+						{ value: 'foo', label: 'Foo' },
+						{ value: 'bar', label: 'Bar' }
+					],
+					value: [
+						{ value: 'foo', label: 'Foo' },
+						{ value: 'bar', label: 'Bar' }
+					]
+				},
+				itemKey: {
+					type: 'static',
+					fieldType: 'text',
+					defaultValue: 'value',
+					value: 'value'
 				}
 			},
 			card: false

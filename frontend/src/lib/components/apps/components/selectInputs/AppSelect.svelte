@@ -17,18 +17,21 @@
 	let value
 	let label: string
 	let items: string[]
+	let itemKey: string
 	
 	$: outputs = $worldStore?.outputsById[id] as {
 		result: Output<string | undefined>
 	}
 
-	function onChange(item: CustomEvent) {
-		outputs?.result.set(item?.detail?.value || undefined)
+	function onChange({detail}: CustomEvent) {
+		console.log(detail);
+		outputs?.result.set(detail?.[itemKey] || undefined)
 	}
 </script>
 
 <InputValue input={configuration.label} bind:value={label} />
 <InputValue input={configuration.items} bind:value={items} />
+<InputValue input={configuration.itemKey} bind:value={itemKey} />
 
 <AlignWrapper {horizontalAlignment} {verticalAlignment}>
 	<!-- svelte-ignore a11y-label-has-associated-control -->
@@ -39,7 +42,7 @@
 		<Select
 			on:clear={onChange}
 			on:change={onChange}
-			bind:justValue={value}
+			
 			{items}
 			class="w-full"
 			placeholder="Select an item"
