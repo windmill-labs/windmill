@@ -31,8 +31,6 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton/ToggleButton.svelte'
-	import { onMount } from 'svelte'
-	import { Plane } from 'lucide-svelte'
 
 	let users: User[] | undefined = undefined
 	let invites: WorkspaceInvite[] = []
@@ -44,7 +42,7 @@
 	let auto_invite_domain: string | undefined
 	let itemKind: 'flow' | 'script' = 'flow'
 	let operatorOnly: boolean | undefined = undefined
-	let premium_info: { premium: boolean; usage: number } | undefined = undefined
+	let premium_info: { premium: boolean; usage?: number } | undefined = undefined
 
 	// function getDropDownItems(username: string): DropdownItem[] {
 	// 	return [
