@@ -45,6 +45,7 @@ pub fn workspaced_service() -> Router {
         .route("/delete_invite", post(delete_invite))
         .route("/get_settings", get(get_settings))
         .route("/edit_slack_command", post(edit_slack_command))
+        .route("/edit_auto_invite", post(edit_auto_invite))
         .route("/tarball", get(tarball_workspace))
 }
 
@@ -56,6 +57,7 @@ pub fn global_service() -> Router {
         .route("/create", post(create_workspace))
         .route("/exists", post(exists_workspace))
         .route("/exists_username", post(exists_username))
+        .route("/allowed_domain_auto_invite", get(is_allowed_auto_domain))
 }
 
 #[derive(FromRow, Serialize)]
@@ -63,7 +65,6 @@ struct Workspace {
     id: String,
     name: String,
     owner: String,
-    domain: Option<String>,
     deleted: bool,
     premium: bool,
 }
@@ -75,6 +76,7 @@ pub struct WorkspaceSettings {
     pub slack_name: Option<String>,
     pub slack_command_script: Option<String>,
     pub slack_email: String,
+    pub auto_invite_domain: Option<String>,
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -96,19 +98,23 @@ pub enum WorkspaceKeyKind {
 struct EditCommandScript {
     slack_command_script: Option<String>,
 }
+
+#[derive(Deserialize)]
+struct EditAutoInvite {
+    set: bool,
+}
+
 #[derive(Deserialize)]
 struct CreateWorkspace {
     id: String,
     name: String,
     username: String,
-    domain: Option<String>,
 }
 
 #[derive(Deserialize)]
 struct EditWorkspace {
     name: String,
     owner: String,
-    domain: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -252,6 +258,76 @@ async fn edit_slack_command(
     Ok(format!("Edit command script {}", &w_id))
 }
 
+const BANNED_DOMAINS: &str = include_str!("../banned_domains.txt");
+
+async fn is_allowed_auto_domain(Authed { email, .. }: Authed) -> JsonResult<bool> {
+    let domain = email.split('@').last().unwrap();
+    return Ok(Json(!BANNED_DOMAINS.contains(domain)));
+}
+
+async fn edit_auto_invite(
+    authed: Authed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Authed { is_admin, email, username, .. }: Authed,
+    Json(ea): Json<EditAutoInvite>,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+    let domain = email.split('@').last().unwrap();
+
+    let mut tx = db.begin().await?;
+
+    if ea.set {
+        if BANNED_DOMAINS.contains(domain) {
+            return Err(Error::BadRequest(format!(
+                "Domain {} is not allowed",
+                domain
+            )));
+        }
+
+        sqlx::query!(
+            "UPDATE workspace_settings SET auto_invite_domain = $1 WHERE workspace_id = $2",
+            domain,
+            &w_id
+        )
+        .execute(&mut tx)
+        .await?;
+
+        sqlx::query!(
+            "INSERT INTO workspace_invite
+        (workspace_id, email, is_admin)
+        SELECT $1::text, email, false FROM password WHERE email LIKE CONCAT('%', $2::text) AND NOT EXISTS (
+            SELECT 1 FROM usr WHERE workspace_id = $1::text AND email = password.email
+        )
+        ON CONFLICT DO NOTHING",
+            &w_id,
+            &domain
+        )
+        .execute(&mut tx)
+        .await?;
+    } else {
+        sqlx::query!(
+            "UPDATE workspace_settings SET auto_invite_domain = NULL WHERE workspace_id = $1",
+            &w_id
+        )
+        .execute(&mut tx)
+        .await?;
+    }
+    audit_log(
+        &mut tx,
+        &authed.username,
+        "workspaces.edit_auto_invite_domain",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        Some([("set", &ea.set.to_string()[..])].into()),
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(format!("Edit command script {}", &w_id))
+}
+
 async fn list_workspaces_as_super_admin(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
@@ -303,12 +379,11 @@ async fn create_workspace(
     let mut tx = db.begin().await?;
     sqlx::query!(
         "INSERT INTO workspace
-            (id, name, owner, domain)
-            VALUES ($1, $2, $3, $4)",
+            (id, name, owner)
+            VALUES ($1, $2, $3)",
         nw.id,
         nw.name,
         authed.email,
-        nw.domain
     )
     .execute(&mut tx)
     .await?;
@@ -384,7 +459,6 @@ async fn create_workspace(
     )
     .await?;
     tx.commit().await?;
-
     Ok(format!("Created workspace {}", &nw.id))
 }
 
@@ -398,10 +472,9 @@ async fn edit_workspace(
     require_admin(is_admin, &username)?;
     let mut tx = db.begin().await?;
     sqlx::query!(
-        "UPDATE workspace SET name = $1, owner = $2, domain = $3 WHERE id = $4",
+        "UPDATE workspace SET name = $1, owner = $2 WHERE id = $3",
         ew.name,
         ew.owner,
-        ew.domain,
         &w_id
     )
     .execute(&mut tx)
@@ -414,13 +487,7 @@ async fn edit_workspace(
         ActionKind::Update,
         &w_id,
         Some(&authed.email),
-        Some(
-            [(
-                "domain",
-                ew.domain.unwrap_or("NO_DOMAIN".to_string()).as_str(),
-            )]
-            .into(),
-        ),
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -461,6 +528,31 @@ async fn delete_workspace(
     tx.commit().await?;
 
     Ok(format!("Deleted workspace {}", &w_id))
+}
+
+pub async fn invite_user_to_all_auto_invite_worspaces(db: &DB, email: &str) -> Result<()> {
+    let mut tx = db.begin().await?;
+    let domain = email.split('@').last().unwrap();
+    let workspaces = sqlx::query_scalar!(
+        "SELECT workspace_id FROM workspace_settings WHERE auto_invite_domain = $1",
+        domain
+    )
+    .fetch_all(&mut tx)
+    .await?;
+    for w in workspaces {
+        sqlx::query!(
+            "INSERT INTO workspace_invite
+                (workspace_id, email, is_admin)
+                VALUES ($1, $2, false)
+                ON CONFLICT DO NOTHING",
+            w,
+            email,
+        )
+        .execute(&mut tx)
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(())
 }
 
 async fn invite_user(

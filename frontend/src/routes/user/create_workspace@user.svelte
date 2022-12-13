@@ -4,16 +4,16 @@
 	import { sendUserToast, validateUsername } from '$lib/utils'
 	import { logoutWithRedirect } from '$lib/logout'
 	import { page } from '$app/stores'
-	import { usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { Button } from '$lib/components/common'
+	import Toggle from '$lib/components/Toggle.svelte'
 
 	const rd = $page.url.searchParams.get('rd')
 
 	let id = ''
 	let name = ''
 	let username = ''
-	let domain = ''
 
 	let errorId = ''
 	let errorUser = ''
@@ -39,11 +39,17 @@
 			requestBody: {
 				id,
 				name,
-				username,
-				domain
+				username
 			}
 		})
+		if (auto_invite) {
+			await WorkspaceService.editAutoInvite({
+				workspace: id,
+				requestBody: { set: true }
+			})
+		}
 		sendUserToast(`Successfully created workspace id: ${id}`)
+
 		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
 		workspaceStore.set(id)
 		goto(rd ?? '/')
@@ -78,6 +84,16 @@
 		}
 		username = username.toLowerCase()
 	})
+
+	WorkspaceService.isDomainAllowed().then((x) => {
+		isDomainAllowed = x
+	})
+
+	let isDomainAllowed = false
+
+	$: domain = $usersWorkspaceStore?.email.split('@')[1]
+
+	let auto_invite = false
 </script>
 
 <CenteredModal title="New Workspace">
@@ -99,6 +115,14 @@
 		{/if}
 		<input type="text" bind:value={username} on:keyup={handleKeyUp} class="mt-1" />
 	</label>
+	<Toggle
+		disabled={!isDomainAllowed}
+		bind:checked={auto_invite}
+		options={{ right: `Auto invite users with the same domain (${domain})` }}
+	/>
+	{#if !isDomainAllowed}
+		<div class="text-gray-600 text-sm mb-4 mt-2">{domain} domain not allowed for auto-invite</div>
+	{/if}
 	<div class="flex flex-row justify-between pt-4 gap-x-1">
 		<Button variant="border" size="sm" href="/user/workspaces"
 			>&leftarrow; Back to workspaces</Button

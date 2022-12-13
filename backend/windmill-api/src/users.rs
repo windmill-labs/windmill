@@ -11,6 +11,7 @@ use std::{sync::Arc, time::Duration};
 use crate::{
     db::{UserDB, DB},
     utils::require_super_admin,
+    workspaces::invite_user_to_all_auto_invite_worspaces,
     CookieDomain, IsSecure,
 };
 use argon2::{password_hash::SaltString, Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
@@ -951,7 +952,7 @@ async fn add_user_to_workspace<'c>(
     .await?;
     sqlx::query_as!(
         Group,
-        "INSERT INTO usr_to_group (workspace_id, usr, group_) VALUES ($1, $2, $3)",
+        "INSERT INTO usr_to_group (workspace_id, usr, group_) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
         &w_id,
         username,
         "all",
@@ -1049,28 +1050,33 @@ async fn delete_user(
 
     require_super_admin(&mut tx, &email).await?;
 
-    let username = sqlx::query_scalar!(
-        "DELETE FROM usr WHERE email = $1 RETURNING username",
-        &email_to_delete
-    )
-    .fetch_one(&mut tx)
-    .await?;
-
     sqlx::query!("DELETE FROM password WHERE email = $1", &email_to_delete)
         .execute(&mut tx)
         .await?;
 
-    sqlx::query!("DELETE FROM usr_to_group WHERE usr = $1", &username)
-        .execute(&mut tx)
-        .await?;
-
-    sqlx::query!(
-        "DELETE FROM workspace_invite WHERE email = $1",
+    let usernames = sqlx::query_scalar!(
+        "DELETE FROM usr WHERE email = $1 RETURNING username",
         &email_to_delete
     )
-    .execute(&mut tx)
+    .fetch_all(&mut tx)
     .await?;
 
+    for username in usernames {
+        sqlx::query!("DELETE FROM password WHERE email = $1", &email_to_delete)
+            .execute(&mut tx)
+            .await?;
+
+        sqlx::query!("DELETE FROM usr_to_group WHERE usr = $1", &username)
+            .execute(&mut tx)
+            .await?;
+
+        sqlx::query!(
+            "DELETE FROM workspace_invite WHERE email = $1",
+            &email_to_delete
+        )
+        .execute(&mut tx)
+        .await?;
+    }
     audit_log(
         &mut tx,
         &email,
@@ -1120,6 +1126,8 @@ async fn create_user(
     )
     .await?;
     tx.commit().await?;
+    invite_user_to_all_auto_invite_worspaces(&db, &email).await?;
+
     Ok((StatusCode::CREATED, format!("email {} created", nu.email)))
 }
 

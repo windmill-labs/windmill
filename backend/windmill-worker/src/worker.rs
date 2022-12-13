@@ -372,6 +372,20 @@ pub async fn run_worker(
     )
     .expect("register prometheus metric");
 
+    let worker_sleep_duration = prometheus::register_histogram!(prometheus::HistogramOpts::new(
+        "worker_sleep_duration",
+        "Duration sleeping waiting for job",
+    )
+    .const_label("name", &worker_name),)
+    .expect("register prometheus metric");
+
+    let worker_pull_duration = prometheus::register_histogram!(prometheus::HistogramOpts::new(
+        "worker_pull_duration",
+        "Duration pulling next job",
+    )
+    .const_label("name", &worker_name),)
+    .expect("register prometheus metric");
+
     let worker_execution_failed = prometheus::register_int_counter_vec!(
         prometheus::Opts::new("worker_execution_failed", "Number of failed jobs",)
             .const_label("name", &worker_name),
@@ -479,7 +493,10 @@ pub async fn run_worker(
                         .await
                         .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string())))
                     },
-                    job = pull(&db) => (false, job),
+                    (job, timer) = {let timer = worker_pull_duration.start_timer(); pull(&db).map(|x| (x, timer)) } => {
+                        drop(timer);
+                        (false, job)
+                    },
                 }
             }.instrument(trace_span!("worker_get_next_job")).await;
             if do_break {
@@ -592,7 +609,12 @@ pub async fn run_worker(
                     }
                 }
                 Ok(None) => {
-                    tokio::time::sleep(Duration::from_millis(sleep_queue * num_workers)).await
+
+                    let _timer = worker_sleep_duration
+                        .start_timer();
+
+                    tokio::time::sleep(Duration::from_millis(sleep_queue * num_workers)).await;
+
                 }
                 Err(err) => {
                     tracing::error!(worker = %worker_name, "run_worker: pulling jobs: {}", err);
