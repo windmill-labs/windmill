@@ -28,6 +28,9 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { faScroll, faBarsStaggered } from '@fortawesome/free-solid-svg-icons'
 	import SearchItems from '$lib/components/SearchItems.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton/ToggleButton.svelte'
 
 	let users: User[] | undefined = undefined
 	let invites: WorkspaceInvite[] = []
@@ -38,6 +41,7 @@
 	let team_name: string | undefined
 	let auto_invite_domain: string | undefined
 	let itemKind: 'flow' | 'script' = 'flow'
+	let operatorOnly: boolean | undefined = undefined
 
 	// function getDropDownItems(username: string): DropdownItem[] {
 	// 	return [
@@ -76,6 +80,7 @@
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
 		team_name = settings.slack_name
 		auto_invite_domain = settings.auto_invite_domain
+		operatorOnly = settings.auto_invite_operator
 		scriptPath = (settings.slack_command_script ?? '').split('/').slice(1).join('/')
 		initialPath = scriptPath
 	}
@@ -104,6 +109,34 @@
 			loadSettings()
 		}
 	}
+
+	$: operatorOnly != undefined && auto_invite_domain && setOperatorOnly()
+
+	async function removeAllInvitesFromDomain() {
+		await Promise.all(
+			invites
+				.filter((x) => x.email.endsWith('@' + auto_invite_domain ?? ''))
+				.map(({ email, is_admin, operator }) =>
+					WorkspaceService.deleteInvite({
+						workspace: $workspaceStore ?? '',
+						requestBody: {
+							email,
+							is_admin,
+							operator
+						}
+					})
+				)
+		)
+	}
+	async function setOperatorOnly() {
+		await removeAllInvitesFromDomain()
+		await WorkspaceService.editAutoInvite({
+			workspace: $workspaceStore ?? '',
+			requestBody: { operator: operatorOnly }
+		})
+		loadSettings()
+		listInvites()
+	}
 </script>
 
 <SearchItems
@@ -127,47 +160,94 @@
 				<tr slot="header-row">
 					<th>email</th>
 					<th>username</th>
-					<th>role</th>
-					<th colspan="3">jobs &amp; flows (<abbr title="past two weeks">2w</abbr>)</th>
+					<th
+						>executions (<abbr title="past 5 weeks">5w</abbr>) <Tooltip
+							>An execution is calculated as 1 for any runs of scripts + 1 for each seconds above
+							the first one</Tooltip
+						>
+					</th>
+					<th />
+					<th />
+					<th />
 				</tr>
 				<tbody slot="body">
 					{#if filteredUsers}
-						{#each filteredUsers as { email, username, is_admin, usage } (email)}
+						{#each filteredUsers as { email, username, is_admin, operator, usage, disabled } (email)}
 							<tr class="border">
 								<td>{email}</td>
 								<td>{username}</td>
-								<td>{is_admin ? 'admin' : 'user'}</td>
-								<td>{usage?.jobs}</td>
-								<td>{usage?.flows}</td>
-								<td>{msToSec(usage?.duration_ms)}s</td>
-								<td class="whitespace-nowrap"
-									><button
-										class="ml-2 text-red-500"
-										on:click={async () => {
-											await UserService.deleteUser({
-												workspace: $workspaceStore ?? '',
-												username
-											})
-											sendUserToast('User removed')
-											listUsers()
-										}}>remove</button
-									>
-									-
-									<button
-										class="text-blue-500"
-										on:click={async () => {
-											await UserService.updateUser({
-												workspace: $workspaceStore ?? '',
-												username,
-												requestBody: {
-													is_admin: !is_admin
-												}
-											})
-											sendUserToast('User updated')
-											listUsers()
-										}}>{is_admin ? 'demote' : 'promote'}</button
+								<td>{usage?.executions}</td>
+								<td
+									><div class="flex gap-1"
+										>{#if disabled}
+											<Badge color="red">disabled</Badge>
+										{/if}</div
 									></td
 								>
+								<td>
+									<div>
+										<ToggleButtonGroup
+											selected={is_admin ? 'admin' : operator ? 'operator' : 'author'}
+											on:selected={async (e) => {
+												const body =
+													e.detail == 'admin'
+														? { is_admin: true, operator: false }
+														: e.detail == 'operator'
+														? { is_admin: false, operator: true }
+														: { is_admin: false, operator: false }
+												await UserService.updateUser({
+													workspace: $workspaceStore ?? '',
+													username,
+													requestBody: body
+												})
+												listUsers()
+											}}
+										>
+											<ToggleButton position="left" value="operator" size="xs"
+												>Operator <Tooltip
+													>An operator can only execute and view scripts/flows/apps from your
+													workspace, and only those that he has visibility on</Tooltip
+												></ToggleButton
+											>
+											<ToggleButton position="center" value="author" size="xs"
+												>Author <Tooltip
+													>An Author can execute and view scripts/flows/apps, but he can also create
+													new ones</Tooltip
+												></ToggleButton
+											>
+											<ToggleButton position="right" value="admin" size="xs">Admin</ToggleButton>
+										</ToggleButtonGroup>
+									</div>
+								</td>
+								<td>
+									<div class="flex gap-1">
+										<button
+											class="text-blue-500"
+											on:click={async () => {
+												await UserService.updateUser({
+													workspace: $workspaceStore ?? '',
+													username,
+													requestBody: {
+														disabled: !disabled
+													}
+												})
+												listUsers()
+											}}>{disabled ? 'enable' : 'disable'}</button
+										>
+										|
+										<button
+											class="text-red-500"
+											on:click={async () => {
+												await UserService.deleteUser({
+													workspace: $workspaceStore ?? '',
+													username
+												})
+												sendUserToast('User removed')
+												listUsers()
+											}}>remove</button
+										>
+									</div>
+								</td>
 							</tr>
 						{/each}
 					{:else}
@@ -196,10 +276,12 @@
 					<th />
 				</tr>
 				<tbody slot="body">
-					{#each invites as { email, is_admin }}
+					{#each invites as { email, is_admin, operator }}
 						<tr class="border">
 							<td>{email}</td>
-							<td>{is_admin ? 'admin' : 'user'}</td>
+							<td
+								>{#if operator}<Badge>operator</Badge>{:else if is_admin}<Badge>admin</Badge>{/if}
+							</td>
 							<td>
 								<button
 									class="ml-2 text-red-500"
@@ -208,11 +290,12 @@
 											workspace: $workspaceStore ?? '',
 											requestBody: {
 												email,
-												is_admin
+												is_admin,
+												operator
 											}
 										})
 										listInvites()
-									}}>remove</button
+									}}>cancel</button
 								></td
 							>
 						</tr>
@@ -224,29 +307,42 @@
 		<PageHeader title="Auto Invite" primary={false} />
 		<div class="flex gap-2">
 			{#if auto_invite_domain != domain}
-				<Button
-					disabled={!allowedAutoDomain}
-					on:click={async () => {
-						await WorkspaceService.editAutoInvite({
-							workspace: $workspaceStore ?? '',
-							requestBody: { set: true }
-						})
-						loadSettings()
-						listInvites()
-					}}>Set auto-invite to {domain}</Button
-				>
+				<div>
+					<Button
+						disabled={!allowedAutoDomain}
+						on:click={async () => {
+							await WorkspaceService.editAutoInvite({
+								workspace: $workspaceStore ?? '',
+								requestBody: { operator: false }
+							})
+							loadSettings()
+							listInvites()
+						}}>Set auto-invite to {domain}</Button
+					>
+				</div>
 			{/if}
 			{#if auto_invite_domain}
-				<Button
-					on:click={async () => {
-						await WorkspaceService.editAutoInvite({
-							workspace: $workspaceStore ?? '',
-							requestBody: { set: false }
-						})
-						loadSettings()
-						listInvites()
-					}}>Unset auto-invite from {auto_invite_domain}</Button
-				>
+				<div class="flex flex-col gap-y-2">
+					<Toggle
+						bind:checked={operatorOnly}
+						options={{
+							right: `Auto-invited users to join as operators`
+						}}
+					/>
+					<div>
+						<Button
+							on:click={async () => {
+								await removeAllInvitesFromDomain()
+								await WorkspaceService.editAutoInvite({
+									workspace: $workspaceStore ?? '',
+									requestBody: { operator: undefined }
+								})
+								loadSettings()
+								listInvites()
+							}}>Unset auto-invite from {auto_invite_domain} domain</Button
+						>
+					</div>
+				</div>
 			{/if}
 		</div>
 		{#if !allowedAutoDomain}
@@ -334,7 +430,7 @@
 			btnClasses="mt-2"
 			on:click={async () => {
 				await WorkspaceService.deleteWorkspace({ workspace: $workspaceStore ?? '' })
-				sendUserToast(`Successfully deleted workspace ${$workspaceStore}`)
+				sendUserToast(`Deleted workspace ${$workspaceStore}`)
 				workspaceStore.set(undefined)
 				usersWorkspaceStore.set(undefined)
 				goto('/user/workspaces')

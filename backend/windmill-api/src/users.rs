@@ -123,7 +123,7 @@ impl AuthCache {
                                         let is_admin = super_admin
                                             || sqlx::query_scalar!(
                                                 "SELECT is_admin FROM usr where username = $1 AND \
-                                                 workspace_id = $2",
+                                                 workspace_id = $2 AND disabled = false",
                                                 name,
                                                 &w_id.as_ref().unwrap()
                                             )
@@ -162,7 +162,7 @@ impl AuthCache {
                                 if w_id.is_some() {
                                     let row_o = sqlx::query_as::<_, (String, bool)>(
                                         "SELECT username, is_admin FROM usr where email = $1 AND \
-                                         workspace_id = $2",
+                                         workspace_id = $2 AND disabled = false",
                                     )
                                     .bind(&email)
                                     .bind(&w_id.as_ref().unwrap())
@@ -368,9 +368,7 @@ pub struct User {
 
 #[derive(FromRow, Serialize)]
 pub struct Usage {
-    pub duration_ms: i64,
-    pub jobs: i64,
-    pub flows: i64,
+    pub executions: i64,
 }
 
 #[derive(Serialize)]
@@ -409,6 +407,7 @@ pub struct WorkspaceInvite {
     pub workspace_id: String,
     pub email: String,
     pub is_admin: bool,
+    pub operator: bool,
 }
 
 #[derive(FromRow, Serialize)]
@@ -465,7 +464,8 @@ pub struct EditUser {
 #[derive(Deserialize)]
 pub struct EditWorkspaceUser {
     pub is_admin: Option<bool>,
-    pub enabled: Option<bool>,
+    pub operator: Option<bool>,
+    pub disabled: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -542,14 +542,12 @@ async fn list_users(
         SELECT usr.*, usage.*
           FROM usr
              , LATERAL (
-                SELECT COALESCE(SUM(duration_ms), 0)  duration_ms
-                     , COALESCE(SUM(job_kind     IN ('flow', 'flowpreview') ::int), 0)  flows
-                     , COALESCE(SUM(job_kind NOT IN ('flow', 'flowpreview') ::int), 0)  jobs
+                SELECT COALESCE(SUM(duration_ms + 1000)/1000 , 0) executions
                   FROM completed_job
                  WHERE workspace_id = usr.workspace_id
-                   AND created_by = usr.username
-                   AND parent_job IS NULL
-                   AND now() - '2 week'::interval < created_at 
+                   AND job_kind NOT IN ('flow', 'flowpreview')
+                   AND email = usr.email
+                   AND now() - '5 week'::interval < created_at 
                ) usage
          WHERE workspace_id = $1
          ",
@@ -863,31 +861,40 @@ async fn accept_invite(
     }
     let mut tx = db.begin().await?;
 
-    let is_admin = sqlx::query_scalar!(
-        "DELETE FROM workspace_invite WHERE workspace_id = $1 AND email = $2 RETURNING is_admin",
+    let r = sqlx::query!(
+        "DELETE FROM workspace_invite WHERE workspace_id = $1 AND email = $2 RETURNING is_admin, operator",
         nu.workspace_id,
         email,
     )
     .fetch_optional(&mut tx)
     .await?;
 
-    if let Some(is_admin) = is_admin {
-        tx = add_user_to_workspace(&nu.workspace_id, &email, &nu.username, is_admin, tx).await?;
+    let is_some = r.is_some();
+    if let Some(r) = r {
+        tx = add_user_to_workspace(
+            &nu.workspace_id,
+            &email,
+            &nu.username,
+            r.is_admin,
+            r.operator,
+            tx,
+        )
+        .await?;
+
+        audit_log(
+            &mut tx,
+            &nu.username,
+            "users.accept_invite",
+            ActionKind::Create,
+            &nu.workspace_id,
+            Some(&email),
+            None,
+        )
+        .await?;
+        tx.commit().await?;
     }
 
-    audit_log(
-        &mut tx,
-        &nu.username,
-        "users.accept_invite",
-        ActionKind::Create,
-        &nu.workspace_id,
-        Some(&email),
-        None,
-    )
-    .await?;
-    tx.commit().await?;
-
-    if is_admin.is_some() {
+    if is_some {
         Ok((
             StatusCode::CREATED,
             format!(
@@ -905,6 +912,7 @@ async fn add_user_to_workspace<'c>(
     email: &str,
     username: &str,
     is_admin: bool,
+    operator: bool,
     mut tx: sqlx::Transaction<'c, sqlx::Postgres>,
 ) -> error::Result<sqlx::Transaction<'c, sqlx::Postgres>> {
     let already_exists_username = sqlx::query_scalar!(
@@ -941,12 +949,13 @@ async fn add_user_to_workspace<'c>(
 
     sqlx::query!(
         "INSERT INTO usr
-            (workspace_id, email, username, is_admin)
-            VALUES ($1, $2, $3, $4)",
+            (workspace_id, email, username, is_admin, operator)
+            VALUES ($1, $2, $3, $4, $5)",
         &w_id,
         email,
         username,
-        is_admin
+        is_admin,
+        operator
     )
     .execute(&mut tx)
     .await?;
@@ -985,6 +994,28 @@ async fn update_workspace_user(
     if let Some(a) = eu.is_admin {
         sqlx::query_scalar!(
             "UPDATE usr SET is_admin = $1 WHERE username = $2 AND workspace_id = $3",
+            a,
+            &username_to_update,
+            &w_id
+        )
+        .execute(&mut tx)
+        .await?;
+    }
+
+    if let Some(a) = eu.operator {
+        sqlx::query_scalar!(
+            "UPDATE usr SET operator = $1 WHERE username = $2 AND workspace_id = $3",
+            a,
+            &username_to_update,
+            &w_id
+        )
+        .execute(&mut tx)
+        .await?;
+    }
+
+    if let Some(a) = eu.disabled {
+        sqlx::query_scalar!(
+            "UPDATE usr SET disabled = $1 WHERE username = $2 AND workspace_id = $3",
             a,
             &username_to_update,
             &w_id
@@ -1118,15 +1149,15 @@ async fn create_user(
     audit_log(
         &mut tx,
         &email,
-        "users.update",
-        ActionKind::Update,
+        "users.add_global",
+        ActionKind::Create,
         "global",
         Some(&nu.email),
         None,
     )
     .await?;
     tx.commit().await?;
-    invite_user_to_all_auto_invite_worspaces(&db, &email).await?;
+    invite_user_to_all_auto_invite_worspaces(&db, &nu.email).await?;
 
     Ok((StatusCode::CREATED, format!("email {} created", nu.email)))
 }

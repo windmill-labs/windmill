@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { FlowService, type OpenFlow } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { Alert, Button, Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import CreateActionsFlow from '$lib/components/flows/CreateActionsFlow.svelte'
@@ -130,32 +130,36 @@
 		{/if}
 		<PageHeader title="Home">
 			<div class="flex flex-row gap-2 flex-wrap">
-				<CreateApp />
-				<CreateActionsScript />
-				<CreateActionsFlow />
+				{#if !$userStore?.operator}
+					<CreateApp />
+					<CreateActionsScript />
+					<CreateActionsFlow />
+				{/if}
 			</div>
 		</PageHeader>
 
-		<Tabs bind:selected={tab}>
-			<Tab size="md" value="workspace">
-				<div class="flex gap-2 items-center my-1">
-					<Building size={18} />
-					Workspace
-				</div>
-			</Tab>
-			<Tab size="md" value="hubscripts">
-				<div class="flex gap-2 items-center my-1">
-					<Globe2 size={18} />
-					Hub Scripts
-				</div>
-			</Tab>
-			<Tab size="md" value="hubflows">
-				<div class="flex gap-2 items-center my-1">
-					<Globe2 size={18} />
-					Hub Flows
-				</div>
-			</Tab>
-		</Tabs>
+		{#if !$userStore?.operator}
+			<Tabs bind:selected={tab}>
+				<Tab size="md" value="workspace">
+					<div class="flex gap-2 items-center my-1">
+						<Building size={18} />
+						Workspace
+					</div>
+				</Tab>
+				<Tab size="md" value="hubscripts">
+					<div class="flex gap-2 items-center my-1">
+						<Globe2 size={18} />
+						Hub Scripts
+					</div>
+				</Tab>
+				<Tab size="md" value="hubflows">
+					<div class="flex gap-2 items-center my-1">
+						<Globe2 size={18} />
+						Hub Flows
+					</div>
+				</Tab>
+			</Tabs>
+		{/if}
 		<div class="my-2" />
 		<div class="flex flex-col gap-y-16">
 			<div class="flex flex-col">

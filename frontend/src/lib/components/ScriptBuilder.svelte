@@ -5,7 +5,7 @@
 	import { page } from '$app/stores'
 	import { inferArgs } from '$lib/infer'
 	import { initialCode, isInitialCode } from '$lib/script_helpers'
-	import { workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { encodeState, sendUserToast, setQueryWithoutLoad } from '$lib/utils'
 	import Path from './Path.svelte'
 	import RadioButton from './RadioButton.svelte'
@@ -24,7 +24,7 @@
 
 	export let script: Script
 	export let initialPath: string = ''
-	export let template: 'pgsql'| 'mysql' | 'script' = 'script'
+	export let template: 'pgsql' | 'mysql' | 'script' = 'script'
 	export let initialArgs: Record<string, any> = {}
 
 	const langs: [string, SupportedLanguage][] = [
@@ -91,228 +91,232 @@
 	$: kind = script.kind as 'script' | 'trigger' | 'approval' | undefined
 </script>
 
-<UnsavedConfirmationModal />
-<div class="flex flex-col h-screen">
-	<!-- Nav between steps-->
-	<div class="flex flex-col w-full px-2 py-1  border-b shadow-sm">
-		<div
-			class="justify-between flex flex-row w-full items-center overflow-x-auto scrollbar-hidden px-2"
-		>
-			<div class="flex flex-row py-1">
-				<Breadcrumb
-					items={['Metadata', 'Code', 'Advanced']}
-					selectedIndex={step}
-					on:select={(e) => changeStep(e.detail.index + 1)}
-					disabled={pathError != ''}
-				>
-					<svelte:fragment slot="separator">/</svelte:fragment>
-				</Breadcrumb>
-			</div>
+{#if !$userStore?.operator}
+	<UnsavedConfirmationModal />
+	<div class="flex flex-col h-screen">
+		<!-- Nav between steps-->
+		<div class="flex flex-col w-full px-2 py-1  border-b shadow-sm">
+			<div
+				class="justify-between flex flex-row w-full items-center overflow-x-auto scrollbar-hidden px-2"
+			>
+				<div class="flex flex-row py-1">
+					<Breadcrumb
+						items={['Metadata', 'Code', 'Advanced']}
+						selectedIndex={step}
+						on:select={(e) => changeStep(e.detail.index + 1)}
+						disabled={pathError != ''}
+					>
+						<svelte:fragment slot="separator">/</svelte:fragment>
+					</Breadcrumb>
+				</div>
 
-			<div class="gap-1 flex-row hidden md:flex shrink overflow-hidden">
-				<Button
-					btnClasses="hidden lg:inline-flex"
-					startIcon={{ icon: faPen }}
-					variant="contained"
-					color="light"
-					size="xs"
-					on:click={async () => {
-						await changeStep(1)
-						setTimeout(() => pathC?.focus(), 100)
-					}}
-				>
-					{script.path}
-				</Button>
+				<div class="gap-1 flex-row hidden md:flex shrink overflow-hidden">
+					<Button
+						btnClasses="hidden lg:inline-flex"
+						startIcon={{ icon: faPen }}
+						variant="contained"
+						color="light"
+						size="xs"
+						on:click={async () => {
+							await changeStep(1)
+							setTimeout(() => pathC?.focus(), 100)
+						}}
+					>
+						{script.path}
+					</Button>
 
-				<Button
-					startIcon={{ icon: faPen }}
-					variant="contained"
-					color="light"
-					size="xs"
-					on:click={async () => {
-						await changeStep(1)
-						setTimeout(() => summaryC?.focus(), 100)
-					}}
-				>
-					<div class="max-w-[10em] !truncate">
-						{script.summary == '' || !script.summary ? 'No summary' : script.summary}
-					</div>
-				</Button>
-			</div>
-			<div class="flex flex-row gap-x-2">
-				<Button
-					variant="border"
-					size="sm"
-					btnClasses={step == 1 ? 'hidden sm:invisible' : ''}
-					on:click={() => changeStep(step - 1)}
-				>
-					Back
-				</Button>
-				<Button
-					size="sm"
-					variant={step == 1 ? 'contained' : 'border'}
-					btnClasses={step == 3 ? 'invisible' : ''}
-					disabled={step === 1 && pathError !== ''}
-					on:click={() => changeStep(step + 1)}
-				>
-					Next
-				</Button>
-				<Button
-					size="sm"
-					variant={step == 1 ? 'border' : 'contained'}
-					disabled={step === 1 && pathError !== ''}
-					btnClasses={step == 1 && initialPath == '' ? 'invisible' : ''}
-					startIcon={{ icon: faSave }}
-					on:click={editScript}>Save</Button
-				>
+					<Button
+						startIcon={{ icon: faPen }}
+						variant="contained"
+						color="light"
+						size="xs"
+						on:click={async () => {
+							await changeStep(1)
+							setTimeout(() => summaryC?.focus(), 100)
+						}}
+					>
+						<div class="max-w-[10em] !truncate">
+							{script.summary == '' || !script.summary ? 'No summary' : script.summary}
+						</div>
+					</Button>
+				</div>
+				<div class="flex flex-row gap-x-2">
+					<Button
+						variant="border"
+						size="sm"
+						btnClasses={step == 1 ? 'hidden sm:invisible' : ''}
+						on:click={() => changeStep(step - 1)}
+					>
+						Back
+					</Button>
+					<Button
+						size="sm"
+						variant={step == 1 ? 'contained' : 'border'}
+						btnClasses={step == 3 ? 'invisible' : ''}
+						disabled={step === 1 && pathError !== ''}
+						on:click={() => changeStep(step + 1)}
+					>
+						Next
+					</Button>
+					<Button
+						size="sm"
+						variant={step == 1 ? 'border' : 'contained'}
+						disabled={step === 1 && pathError !== ''}
+						btnClasses={step == 1 && initialPath == '' ? 'invisible' : ''}
+						startIcon={{ icon: faSave }}
+						on:click={editScript}>Save</Button
+					>
+				</div>
 			</div>
 		</div>
-	</div>
 
-	<!-- metadata -->
-	{#if step === 1}
-		<CenteredPage>
-			<div class="space-y-6">
-				<h2 class="border-b pb-1 mt-4">Path & Summary</h2>
-				<Path
-					bind:this={pathC}
-					bind:error={pathError}
-					bind:path={script.path}
-					{initialPath}
-					on:enter={() => changeStep(2)}
-					namePlaceholder="my_script"
-					kind="script"
-				/>
-				<label class="block ">
-					<span class="text-gray-700 text-sm">Summary <Required required={false} /></span>
-					<input
-						type="text"
-						bind:this={summaryC}
-						bind:value={script.summary}
-						placeholder="A very short summary of the script displayed when the script is listed"
-						rows="1"
+		<!-- metadata -->
+		{#if step === 1}
+			<CenteredPage>
+				<div class="space-y-6">
+					<h2 class="border-b pb-1 mt-4">Path & Summary</h2>
+					<Path
+						bind:this={pathC}
+						bind:error={pathError}
+						bind:path={script.path}
+						{initialPath}
+						on:enter={() => changeStep(2)}
+						namePlaceholder="my_script"
+						kind="script"
 					/>
-				</label>
-				<h2 class="border-b pb-1 mt-4">Language</h2>
-				<div class="flex flex-row gap-2 flex-wrap">
-					{#each langs as [label, lang]}
-						{@const isPicked = script.language == lang && template == 'script'}
+					<label class="block ">
+						<span class="text-gray-700 text-sm">Summary <Required required={false} /></span>
+						<input
+							type="text"
+							bind:this={summaryC}
+							bind:value={script.summary}
+							placeholder="A very short summary of the script displayed when the script is listed"
+							rows="1"
+						/>
+					</label>
+					<h2 class="border-b pb-1 mt-4">Language</h2>
+					<div class="flex flex-row gap-2 flex-wrap">
+						{#each langs as [label, lang]}
+							{@const isPicked = script.language == lang && template == 'script'}
+							<Button
+								size="sm"
+								variant="border"
+								color={isPicked ? 'blue' : 'dark'}
+								btnClasses={isPicked ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+								on:click={() => {
+									script.language = lang
+									template = 'script'
+									initContent(lang, script.kind, template)
+								}}
+							>
+								<LanguageIcon {lang} /><span class="ml-2">{label}</span>
+							</Button>
+						{/each}
 						<Button
 							size="sm"
 							variant="border"
-							color={isPicked ? 'blue' : 'dark'}
-							btnClasses={isPicked ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+							color={template == 'pgsql' ? 'blue' : 'dark'}
+							btnClasses={template == 'pgsql' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
 							on:click={() => {
-								script.language = lang
-								template = 'script'
-								initContent(lang, script.kind, template)
+								script.language = Script.language.DENO
+								template = 'pgsql'
+								initContent(script.language, script.kind, template)
 							}}
 						>
-							<LanguageIcon {lang} /><span class="ml-2">{label}</span>
+							<LanguageIcon lang="pgsql" /><span class="ml-2">PostgreSQL</span>
 						</Button>
-					{/each}
-					<Button
-						size="sm"
-						variant="border"
-						color={template == 'pgsql' ? 'blue' : 'dark'}
-						btnClasses={template == 'pgsql' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
-						on:click={() => {
-							script.language = Script.language.DENO
-							template = 'pgsql'
-							initContent(script.language, script.kind, template)
-						}}
-					>
-						<LanguageIcon lang="pgsql" /><span class="ml-2">PostgreSQL</span>
-					</Button>
-					<Button
-						size="sm"
-						variant="border"
-						color={template == 'mysql' ? 'blue' : 'dark'}
-						btnClasses={template == 'mysql' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
-						on:click={() => {
-							script.language = Script.language.DENO
-							template = 'mysql'
-							initContent(script.language, script.kind, template)
-						}}
-					>
-						<LanguageIcon lang="mysql" /><span class="ml-2">MySQL</span>
-					</Button>
-				</div>
-				<h2 class="border-b pb-1 mt-4">Advanced</h2>
-				<div>
-					<Button
-						color="light"
-						size="sm"
-						endIcon={{ icon: viewScriptKind ? faChevronUp : faChevronDown }}
-						on:click={() => (viewScriptKind = !viewScriptKind)}
-					>
-						Tag this script as having a specific purpose inside flows
-					</Button>
-				</div>
-				{#if viewScriptKind}
-					<div class="max-w-lg">
-						<RadioButton
-							label="Script Type"
-							options={[
-								['Common Script', Script.kind.SCRIPT],
-								[
-									{
-										title: 'Trigger Script',
-										desc: `First module of flows to trigger them based on watching changes external periodically using an internal state`
-									},
-									Script.kind.TRIGGER
-								],
-								[
-									{
-										title: 'Error Handler',
-										desc: `Handle errors for flows after all retries attempts have been exhausted`
-									},
-									Script.kind.FAILURE
-								],
-								[
-									{
-										title: 'Approval Script',
-										desc: `Send notification externally to ask for approval to continue a flow`
-									},
-									Script.kind.APPROVAL
-								]
-
-								// ['Command Handler', Script.kind.COMMAND]
-							]}
-							on:change={(e) => {
-								if (isInitialCode(script.content)) {
-									template = 'script'
-									initContent(script.language, e.detail, template)
-								}
+						<Button
+							size="sm"
+							variant="border"
+							color={template == 'mysql' ? 'blue' : 'dark'}
+							btnClasses={template == 'mysql' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+							on:click={() => {
+								script.language = Script.language.DENO
+								template = 'mysql'
+								initContent(script.language, script.kind, template)
 							}}
-							bind:value={script.kind}
+						>
+							<LanguageIcon lang="mysql" /><span class="ml-2">MySQL</span>
+						</Button>
+					</div>
+					<h2 class="border-b pb-1 mt-4">Advanced</h2>
+					<div>
+						<Button
+							color="light"
+							size="sm"
+							endIcon={{ icon: viewScriptKind ? faChevronUp : faChevronDown }}
+							on:click={() => (viewScriptKind = !viewScriptKind)}
+						>
+							Tag this script as having a specific purpose inside flows
+						</Button>
+					</div>
+					{#if viewScriptKind}
+						<div class="max-w-lg">
+							<RadioButton
+								label="Script Type"
+								options={[
+									['Common Script', Script.kind.SCRIPT],
+									[
+										{
+											title: 'Trigger Script',
+											desc: `First module of flows to trigger them based on watching changes external periodically using an internal state`
+										},
+										Script.kind.TRIGGER
+									],
+									[
+										{
+											title: 'Error Handler',
+											desc: `Handle errors for flows after all retries attempts have been exhausted`
+										},
+										Script.kind.FAILURE
+									],
+									[
+										{
+											title: 'Approval Script',
+											desc: `Send notification externally to ask for approval to continue a flow`
+										},
+										Script.kind.APPROVAL
+									]
+
+									// ['Command Handler', Script.kind.COMMAND]
+								]}
+								on:change={(e) => {
+									if (isInitialCode(script.content)) {
+										template = 'script'
+										initContent(script.language, e.detail, template)
+									}
+								}}
+								bind:value={script.kind}
+							/>
+						</div>
+					{/if}
+					<div class="ml-3">
+						<Toggle
+							bind:checked={script.is_template}
+							options={{ right: 'Save as a workspace template' }}
 						/>
 					</div>
-				{/if}
-				<div class="ml-3">
-					<Toggle
-						bind:checked={script.is_template}
-						options={{ right: 'Save as a workspace template' }}
-					/>
 				</div>
-			</div>
-		</CenteredPage>
-	{:else if step === 2}
-		<ScriptEditor
-			bind:schema={script.schema}
-			path={script.path}
-			bind:code={script.content}
-			lang={script.language}
-			{initialArgs}
-			{kind}
-		/>
-	{:else if step === 3}
-		<CenteredPage>
-			<ScriptSchema
-				bind:summary={script.summary}
-				bind:description={script.description}
+			</CenteredPage>
+		{:else if step === 2}
+			<ScriptEditor
 				bind:schema={script.schema}
+				path={script.path}
+				bind:code={script.content}
+				lang={script.language}
+				{initialArgs}
+				{kind}
 			/>
-		</CenteredPage>
-	{/if}
-</div>
+		{:else if step === 3}
+			<CenteredPage>
+				<ScriptSchema
+					bind:summary={script.summary}
+					bind:description={script.description}
+					bind:schema={script.schema}
+				/>
+			</CenteredPage>
+		{/if}
+	</div>
+{:else}
+	Script Builder not available to operators
+{/if}
