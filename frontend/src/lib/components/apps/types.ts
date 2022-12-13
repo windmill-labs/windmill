@@ -17,6 +17,7 @@ type BaseComponent<T extends string> = {
 
 export type TextComponent = BaseComponent<'textcomponent'>
 export type TextInputComponent = BaseComponent<'textinputcomponent'>
+export type PasswordInputComponent = BaseComponent<'passwordinputcomponent'>
 export type NumberInputComponent = BaseComponent<'numberinputcomponent'>
 export type ButtonComponent = BaseComponent<'buttoncomponent'> & {
 	recomputeIds: string[] | undefined
@@ -61,6 +62,7 @@ export type AppComponent = BaseAppComponent &
 		| RunFormComponent
 		| DisplayComponent
 		| TextInputComponent
+		| PasswordInputComponent
 		| NumberInputComponent
 		| BarChartComponent
 		| TableComponent

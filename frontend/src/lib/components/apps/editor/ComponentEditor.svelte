@@ -83,6 +83,8 @@
 			<CheckboxComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{:else if component.type === 'textinputcomponent'}
 			<TextInputComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+		{:else if component.type === 'passwordinputcomponent'}
+			<TextInputComponent inputType='password' {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{:else if component.type === 'numberinputcomponent'}
 			<NumberInputComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{/if}

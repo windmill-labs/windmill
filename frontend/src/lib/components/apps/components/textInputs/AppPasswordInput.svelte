@@ -7,20 +7,17 @@
 
 	export let id: string
 	export let configuration: Record<string, AppInput>
-	export let inputType = 'text'
+	export let type = 'password'
 	export const staticOutputs: string[] = ['result']
 
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
-	let input: HTMLInputElement
+	let value: string
 	let labelValue: string = 'Title'
 
 	$: outputs = $worldStore?.outputsById[id] as {
 		result: Output<string>
 	}
-
-	function handleInput() {
-		outputs?.result.set(input.value)
-	}
+	$: (value || !value) && outputs?.result.set(value || '')
 </script>
 
 <InputValue input={configuration.label} bind:value={labelValue} />
@@ -30,5 +27,5 @@
 	<div>
 		{labelValue}
 	</div>
-	<input type={inputType} bind:this={input} on:input={handleInput} placeholder="Type..." />
+	<input {type} bind:value placeholder="Type..." />
 </label>

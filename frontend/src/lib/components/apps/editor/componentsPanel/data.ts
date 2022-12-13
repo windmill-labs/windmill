@@ -20,6 +20,21 @@ const inputs: ComponentSet = {
 			card: false
 		},
 		{
+			id: 'passwordinputcomponent',
+			type: 'passwordinputcomponent',
+			componentInput: undefined,
+			configuration: {
+				label: {
+					type: 'static',
+					visible: false,
+					value: 'Label',
+					fieldType: 'textarea',
+					defaultValue: 'Label'
+				}
+			},
+			card: false
+		},
+		{
 			id: 'numberinputcomponent',
 			type: 'numberinputcomponent',
 			componentInput: undefined,
