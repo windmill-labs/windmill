@@ -50,6 +50,35 @@ const inputs: ComponentSet = {
 			card: false
 		},
 		{
+			id: 'dateinputcomponent',
+			type: 'dateinputcomponent',
+			componentInput: undefined,
+			configuration: {
+				label: {
+					type: 'static',
+					visible: false,
+					value: 'Title',
+					fieldType: 'textarea',
+					defaultValue: 'Title'
+				},
+				minDate: {
+					type: 'static',
+					visible: false,
+					value: '',
+					fieldType: 'date',
+					defaultValue: ''
+				},
+				maxDate: {
+					type: 'static',
+					visible: false,
+					value: '',
+					fieldType: 'date',
+					defaultValue: ''
+				},
+			},
+			card: false
+		},
+		{
 			...defaultAlignement,
 			id: 'checkboxcomponent',
 			type: 'checkboxcomponent',

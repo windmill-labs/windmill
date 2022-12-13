@@ -15,7 +15,8 @@ import {
 	TextCursorInput,
 	Type,
 	FolderInput,
-	Lock
+	Lock,
+	Calendar
 } from 'lucide-svelte'
 import type { InputType } from 'zlib'
 import type { AppInputs } from './inputType'
@@ -130,6 +131,10 @@ export const displayData: Record<AppComponent['type'], { name: string; icon: any
 	passwordinputcomponent: {
 		name: 'Password input',
 		icon: Lock
+	},
+	dateinputcomponent: {
+		name: 'Date input',
+		icon: Calendar
 	}
 }
 
