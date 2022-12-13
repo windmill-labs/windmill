@@ -790,6 +790,30 @@ paths:
                   auto_invite_operator:
                     type: boolean
 
+  /w/{workspace}/workspaces/premium_info:
+    get:
+      summary: get premium info
+      operationId: getPremiumInfo
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  premium:
+                    type: boolean
+                  usage:
+                    type: number
+                required:
+                  - premium
+
   /w/{workspace}/workspaces/edit_slack_command:
     post:
       summary: edit slack command

@@ -47,6 +47,7 @@ pub fn workspaced_service() -> Router {
         .route("/edit_slack_command", post(edit_slack_command))
         .route("/edit_auto_invite", post(edit_auto_invite))
         .route("/tarball", get(tarball_workspace))
+        .route("/premium_info", get(premium_info))
 }
 
 pub fn global_service() -> Router {
@@ -165,6 +166,28 @@ async fn list_pending_invites(
     .await?;
     tx.commit().await?;
     Ok(Json(rows))
+}
+
+#[derive(Serialize, FromRow)]
+pub struct PremiumWorkspaceInfo {
+    pub premium: bool,
+    pub usage: Option<i32>,
+}
+async fn premium_info(
+    authed: Authed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<PremiumWorkspaceInfo> {
+    require_admin(authed.is_admin, &authed.username)?;
+    let mut tx = db.begin().await?;
+    let row = sqlx::query_as::<_, PremiumWorkspaceInfo>(
+        "SELECT premium, usage.usage FROM workspace LEFT JOIN usage ON workspace.id = usage.id AND usage.is_workspace IS true WHERE workspace.id = $1",
+    )
+    .bind(w_id)
+    .fetch_one(&mut tx)
+    .await?;
+    tx.commit().await?;
+    Ok(Json(row))
 }
 
 async fn exists_workspace(
