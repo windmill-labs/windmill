@@ -309,11 +309,7 @@
 			/>
 		{:else if step === 3}
 			<CenteredPage>
-				<ScriptSchema
-					bind:summary={script.summary}
-					bind:description={script.description}
-					bind:schema={script.schema}
-				/>
+				<ScriptSchema bind:description={script.description} bind:schema={script.schema} />
 			</CenteredPage>
 		{/if}
 	</div>

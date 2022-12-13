@@ -16,7 +16,6 @@
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
-	import SvelteMarkdown from 'svelte-markdown'
 	import { userStore, workspaceStore, oauthStore, superadmin } from '$lib/stores'
 	import SchemaEditor from '$lib/components/SchemaEditor.svelte'
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
@@ -213,7 +212,7 @@
 		<div>
 			<h1 class="mb-8 mt-4"><IconedResourceType name={resourceTypeViewerObj.rt} /></h1>
 			<div class="py-2 box prose mb-8">
-				<SvelteMarkdown source={resourceTypeViewerObj.description} />
+				{resourceTypeViewerObj.description ?? ''}
 			</div>
 			<SchemaViewer schema={resourceTypeViewerObj.schema} />
 		</div>
