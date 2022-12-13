@@ -77,7 +77,6 @@
 		{:else if component.type === 'selectcomponent'}
 			<SelectComponent
 				{...component}
-				bind:componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
 			/>
 		{:else if component.type === 'formcomponent'}
