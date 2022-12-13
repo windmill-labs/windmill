@@ -15,7 +15,7 @@
 		Script
 	} from '$lib/gen'
 	import type { User } from '$lib/gen'
-	import { sendUserToast, msToSec } from '$lib/utils'
+	import { sendUserToast, isCloudHosted } from '$lib/utils'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import { superadmin, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -31,6 +31,8 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton/ToggleButton.svelte'
+	import { onMount } from 'svelte'
+	import { Plane } from 'lucide-svelte'
 
 	let users: User[] | undefined = undefined
 	let invites: WorkspaceInvite[] = []
@@ -42,6 +44,7 @@
 	let auto_invite_domain: string | undefined
 	let itemKind: 'flow' | 'script' = 'flow'
 	let operatorOnly: boolean | undefined = undefined
+	let premium_info: { premium: boolean; usage: number } | undefined = undefined
 
 	// function getDropDownItems(username: string): DropdownItem[] {
 	// 	return [
@@ -99,6 +102,11 @@
 		allowedAutoDomain = await WorkspaceService.isDomainAllowed()
 	}
 
+	async function loadPremiumInfo() {
+		if (isCloudHosted()) {
+			premium_info = await WorkspaceService.getPremiumInfo({ workspace: $workspaceStore! })
+		}
+	}
 	$: domain = $userStore?.email.split('@')[1]
 
 	$: {
@@ -107,6 +115,7 @@
 			listUsers()
 			listInvites()
 			loadSettings()
+			loadPremiumInfo()
 		}
 	}
 
@@ -303,7 +312,29 @@
 				</tbody>
 			</TableCustom>
 		</div>
-		<div class="mt-20" />
+
+		{#if isCloudHosted()}
+			<div class="mt-10" />
+			<PageHeader title="Team plan" primary={false} />
+			{#if premium_info?.premium}This workspace is on a team plan. The number of executions is
+				tracked globally. Current number of executions in this workspace since it was switched to
+				the team Plan for this month: <b>{premium_info.usage ?? 0}</b>
+			{:else}
+				This workspace is <b>NOT</b> on a team plan. Users use their global free-tier quotas when
+				doing executions in this workspace. Upgrade to a Team plan to unlock unlimited execution in
+				this workspace.
+				<div class="mt-2">
+					<Button
+						on:click={() =>
+							sendUserToast(
+								'Upgrading to a team plan is a manual process for now. Send an email to ruben@windmill.dev'
+							)}>Upgrade to Team plan</Button
+					>
+				</div>
+			{/if}
+		{/if}
+
+		<div class="mt-10" />
 		<PageHeader title="Auto Invite" primary={false} />
 		<div class="flex gap-2">
 			{#if auto_invite_domain != domain}

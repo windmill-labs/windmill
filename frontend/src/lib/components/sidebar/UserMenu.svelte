@@ -3,7 +3,13 @@
 
 	import { userStore, usersWorkspaceStore, superadmin, usageStore } from '$lib/stores'
 	import { classNames, isCloudHosted } from '$lib/utils'
-	import { faCrown, faPlay, faUser } from '@fortawesome/free-solid-svg-icons'
+	import {
+		faAngleDoubleDown,
+		faCrown,
+		faHardHat,
+		faPlay,
+		faUser
+	} from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 
 	import Icon from 'svelte-awesome'
@@ -32,7 +38,7 @@
 				{#if $userStore?.is_admin || $superadmin}
 					<Icon data={faCrown} scale={0.6} />
 				{:else if $userStore?.operator}
-					<Icon class="ml-2" data={faPlay} scale={0.8} />
+					<Icon class="ml-2" data={faHardHat} scale={0.8} />
 				{/if}
 			</span>
 		{/if}
@@ -48,7 +54,7 @@
 				{#if $userStore?.is_admin}
 					Admin of this workspace <Icon data={faCrown} scale={0.6} />
 				{:else if $userStore?.operator}
-					Operator in this workspace <Icon class="ml-2" data={faPlay} scale={0.8} />
+					Operator in this workspace <Icon class="ml-2" data={faHardHat} scale={0.8} />
 				{/if}
 			</span>
 		</div>
