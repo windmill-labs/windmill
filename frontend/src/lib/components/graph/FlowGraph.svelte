@@ -275,7 +275,7 @@
 		loop.items.push(
 			createVirtualNode(
 				getParentIds(loop.items),
-				`Collect iterations' results of For Loop ${module.id}`,
+				`Collect iterations' results of For Loop ${module.id ?? ''}`,
 				undefined,
 				1000
 			)
