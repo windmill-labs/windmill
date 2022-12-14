@@ -30,6 +30,8 @@
 	import Recompute from './Recompute.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import RunnableSelector from './mainInput/RunnableSelector.svelte'
+	import gridHelp from 'svelte-grid/build/helper/index.mjs'
+	import { gridColumns } from '../../gridUtils'
 
 	export let component: AppComponent | undefined
 	export let onDelete: (() => void) | undefined = undefined
@@ -51,6 +53,10 @@
 			if (component) {
 				$app.grid = $app.grid.filter((gridComponent) => gridComponent.data.id !== component?.id)
 
+				gridColumns.forEach((colIndex) => {
+					$app.grid = gridHelp.adjust($app.grid, colIndex)
+				})
+
 				// Delete static inputs
 				delete $staticOutputs[component.id]
 				$staticOutputs = $staticOutputs
@@ -65,38 +71,50 @@
 {#if component}
 	<div class="flex flex-col w-full divide-y">
 		{#if component.componentInput}
-			<PanelSection title="Main input">
+			<PanelSection
+				title={component.componentInput.fieldType === 'any' ? 'Runnable' : 'Component input'}
+			>
 				<svelte:fragment slot="action">
-					<Badge color="blue">
-						{component.componentInput.fieldType === 'array' && component.componentInput.subFieldType
-							? `${capitalize(fieldTypeToTsType(component.componentInput.subFieldType))}[]`
-							: capitalize(fieldTypeToTsType(component.componentInput.fieldType))}
-					</Badge>
+					{#if component.componentInput.fieldType !== 'any'}
+						<Badge color="blue">
+							{component.componentInput.fieldType === 'array' &&
+							component.componentInput.subFieldType
+								? `${capitalize(fieldTypeToTsType(component.componentInput.subFieldType))}[]`
+								: capitalize(fieldTypeToTsType(component.componentInput.fieldType))}
+						</Badge>
+					{/if}
 				</svelte:fragment>
-				<div class="w-full">
-					<ToggleButtonGroup bind:selected={component.componentInput.type}>
-						<ToggleButton
-							position="left"
-							value="static"
-							startIcon={{ icon: faPen }}
-							size="xs"
-							disable={component.type === 'buttoncomponent'}
-						>
-							Static
-						</ToggleButton>
-						<ToggleButton
-							value="connected"
-							position="center"
-							startIcon={{ icon: faArrowRight }}
-							size="xs"
-						>
-							Connected
-						</ToggleButton>
-						<ToggleButton position="right" value="runnable" startIcon={{ icon: faCode }} size="xs">
-							Computed
-						</ToggleButton>
-					</ToggleButtonGroup>
-				</div>
+				{#if component.componentInput.fieldType !== 'any'}
+					<div class="w-full">
+						<ToggleButtonGroup bind:selected={component.componentInput.type}>
+							<ToggleButton
+								position="left"
+								value="static"
+								startIcon={{ icon: faPen }}
+								size="xs"
+								disable={component.type === 'buttoncomponent'}
+							>
+								Static
+							</ToggleButton>
+							<ToggleButton
+								value="connected"
+								position="center"
+								startIcon={{ icon: faArrowRight }}
+								size="xs"
+							>
+								Connected
+							</ToggleButton>
+							<ToggleButton
+								position="right"
+								value="runnable"
+								startIcon={{ icon: faCode }}
+								size="xs"
+							>
+								Computed
+							</ToggleButton>
+						</ToggleButtonGroup>
+					</div>
+				{/if}
 				<div class="flex flex-col w-full gap-2 my-2">
 					{#if component.componentInput.type === 'static'}
 						<StaticInputEditor bind:componentInput={component.componentInput} />
@@ -135,10 +153,10 @@
 				{#if component.componentInput?.type === 'runnable' && Object.keys(component.componentInput.fields ?? {}).length > 0}
 					<div class="border w-full">
 						<PanelSection
+							smallPadding
 							title={`Runnable inputs (${
 								Object.keys(component.componentInput.fields ?? {}).length
 							})`}
-							smallPadding
 						>
 							{#if component.type === 'buttoncomponent'}
 								<Alert title="Button inputs" type="info" size="xs">
@@ -152,15 +170,6 @@
 								userInputEnabled={component.type !== 'buttoncomponent'}
 							/>
 						</PanelSection>
-					</div>
-				{/if}
-
-				{#if component.type === 'buttoncomponent'}
-					<div class="w-full">
-						<Alert size="xs" type="warning" title="Result output">
-							This input is not directly used by the component. It is piped to the component's
-							<code>result</code> output.
-						</Alert>
 					</div>
 				{/if}
 			</PanelSection>

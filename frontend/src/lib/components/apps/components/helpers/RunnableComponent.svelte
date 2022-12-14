@@ -7,7 +7,6 @@
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import { AppService, type CompletedJob } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { faRefresh } from '@fortawesome/free-solid-svg-icons'
 	import { getContext, onMount } from 'svelte'
 	import type { AppInputs, Runnable } from '../../inputType'
 	import type { Output } from '../../rx'
@@ -39,6 +38,8 @@
 	let runnableInputValues: Record<string, any> = {}
 
 	$: mergedArgs = { ...args, ...extraQueryParams, ...runnableInputValues }
+
+	$: console.log({ mergedArgs })
 
 	function setStaticInputsToArgs() {
 		Object.entries(inputs ?? {}).forEach(([key, value]) => {
@@ -213,23 +214,12 @@
 	<SchemaForm schema={schemaStripped} bind:args {isValid} {disabledArgs} shouldHideNoInputs />
 {/if}
 
-{#if !runnable}
+{#if !runnable && autoRefresh}
 	<Alert type="warning" size="xs" class="mt-2" title="Missing runnable">
 		Please select a runnable
 	</Alert>
 {:else if autoRefresh === true}
 	{#if isValid}
-		<div class="flex flex-row-reverse">
-			<Button
-				size="xs"
-				color="light"
-				variant="border"
-				on:click={() => executeComponent()}
-				disabled={!isValid}
-				startIcon={{ icon: faRefresh, classes: testIsLoading ? 'animate-spin' : '' }}
-				iconOnly
-			/>
-		</div>
 		<slot />
 	{:else}
 		<Alert type="warning" size="xs" class="mt-2" title="Missing inputs">

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { faMousePointer } from '@fortawesome/free-solid-svg-icons'
+	import { faMousePointer, faPlus } from '@fortawesome/free-solid-svg-icons'
 	import { Button, Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
 	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
 	import { Building, Globe2 } from 'lucide-svelte'
@@ -8,12 +8,12 @@
 	import WorkspaceScriptList from './WorkspaceScriptList.svelte'
 	import WorkspaceFlowList from './WorkspaceFlowList.svelte'
 
-	type Tab = 'hubscripts' | 'hubflows' | 'workspacescripts' | 'workspaceflows' | 'inlinescripts'
+	type Tab = 'hubscripts' | 'workspacescripts' | 'workspaceflows' | 'inlinescripts'
 
 	export let inlineScripts: string[]
 
 	export let componentInput: AppInput
-	let tab: Tab = 'workspacescripts'
+	let tab: Tab = 'inlinescripts'
 	let filter: string = ''
 
 	let picker: Drawer
@@ -97,12 +97,22 @@
 	</DrawerContent>
 </Drawer>
 
-<Button
-	on:click={() => picker?.openDrawer()}
-	size="sm"
-	spacingSize="md"
-	color="blue"
-	startIcon={{ icon: faMousePointer }}
->
-	Pick
-</Button>
+<div class="flex flex-row gap-2 justify-between">
+	<Button
+		on:click={() => picker?.openDrawer()}
+		size="sm"
+		color="light"
+		variant="border"
+		startIcon={{ icon: faPlus }}
+	>
+		Create an inline script
+	</Button>
+	<Button
+		on:click={() => picker?.openDrawer()}
+		size="sm"
+		color="blue"
+		startIcon={{ icon: faMousePointer }}
+	>
+		Select a script
+	</Button>
+</div>

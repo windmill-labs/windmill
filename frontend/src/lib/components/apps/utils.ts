@@ -16,8 +16,7 @@ import {
 	Type,
 	FolderInput
 } from 'lucide-svelte'
-import type { InputType } from 'zlib'
-import type { AppInputs } from './inputType'
+import type { AppInputs, InputType } from './inputType'
 import type { AppComponent } from './types'
 
 export async function loadSchema(
@@ -158,6 +157,8 @@ export function fieldTypeToTsType(inputType: InputType): string {
 			return 'object'
 		case 'array':
 			return 'array'
+		case 'any':
+			return 'any'
 		default:
 			return 'string'
 	}
