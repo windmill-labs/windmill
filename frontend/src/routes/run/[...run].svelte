@@ -193,14 +193,16 @@
 					size="xs"
 					startIcon={{ icon: faRefresh }}>Run again</Button
 				>
-				{#if canWrite(job?.script_path ?? '', {}, $userStore)}
-					<Button
-						disabled={not_same_workspace}
-						href={editHref}
-						color="blue"
-						size="xs"
-						startIcon={{ icon: faEdit }}>Edit</Button
-					>
+				{#if !$userStore?.operator}
+					{#if canWrite(job?.script_path ?? '', {}, $userStore)}
+						<Button
+							disabled={not_same_workspace}
+							href={editHref}
+							color="blue"
+							size="xs"
+							startIcon={{ icon: faEdit }}>Edit</Button
+						>
+					{/if}
 				{/if}
 				<Button
 					disabled={not_same_workspace}

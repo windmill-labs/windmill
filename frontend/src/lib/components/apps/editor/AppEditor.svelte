@@ -25,6 +25,7 @@
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
 	import { classNames } from '$lib/utils'
 	import AppPreview from './AppPreview.svelte'
+	import { userStore } from '$lib/stores'
 
 	import InlineScriptsPanel from './inlineScriptsPanel/InlineScriptsPanel.svelte'
 
@@ -69,70 +70,74 @@
 	$: width = $breakpoint === 'sm' ? 'w-[640px]' : 'min-w-[900px] w-full'
 </script>
 
-{#if initialMode !== 'preview'}
-	<AppEditorHeader bind:title={$appStore.title} bind:mode={$mode} bind:breakpoint={$breakpoint} />
-{/if}
+{#if !$userStore?.operator}
+	{#if initialMode !== 'preview'}
+		<AppEditorHeader bind:title={$appStore.title} bind:mode={$mode} bind:breakpoint={$breakpoint} />
+	{/if}
 
-{#if previewing}
-	<AppPreview app={$appStore} />
+	{#if previewing}
+		<AppPreview app={$appStore} />
+	{:else}
+		<SplitPanesWrapper class="max-w-full overflow-hidden">
+			<Pane size={20}>
+				<ContextPanel appPath={path} />
+			</Pane>
+			<Pane size={60}>
+				<SplitPanesWrapper horizontal>
+					<Pane size={75}>
+						<div class="bg-gray-100 p-4 relative min-h-full w-full">
+							{#if $appStore.grid}
+								<div class={classNames('mx-auto h-full bg-gray-100', width)}>
+									<GridEditor />
+								</div>
+							{/if}
+							{#if $connectingInput.opened}
+								<div
+									class="absolute top-0 left-0 w-full h-full bg-black border-2 bg-opacity-25 z-1 flex justify-center items-center"
+								/>
+							{/if}
+						</div>
+					</Pane>
+					<Pane size={25}>
+						<InlineScriptsPanel appPath={path} />
+					</Pane>
+				</SplitPanesWrapper>
+			</Pane>
+			<Pane size={20} minSize={20} maxSize={20}>
+				<Tabs bind:selected={selectedTab}>
+					<Tab value="insert" size="xs">
+						<div class="m-1 flex flex-row gap-2">
+							<Icon data={faPlus} />
+							<span>Insert</span>
+						</div>
+					</Tab>
+					<Tab value="settings" size="xs">
+						<div class="m-1 flex flex-row gap-2">
+							<Icon data={faSliders} />
+							<span>Settings</span>
+						</div>
+					</Tab>
+					<svelte:fragment slot="content">
+						<TabContent value="settings">
+							{#if $selectedComponent !== undefined}
+								{#each $appStore.grid as gridItem (gridItem.id)}
+									{#if gridItem.data.id === $selectedComponent}
+										<ComponentPanel bind:component={gridItem.data} />
+									{/if}
+								{/each}
+							{/if}
+							{#if $selectedComponent === undefined}
+								<div class="p-4 text-sm">No component selected.</div>
+							{/if}
+						</TabContent>
+						<TabContent value="insert">
+							<ComponentList />
+						</TabContent>
+					</svelte:fragment>
+				</Tabs>
+			</Pane>
+		</SplitPanesWrapper>
+	{/if}
 {:else}
-	<SplitPanesWrapper class="max-w-full overflow-hidden">
-		<Pane size={20}>
-			<ContextPanel appPath={path} />
-		</Pane>
-		<Pane size={60}>
-			<SplitPanesWrapper horizontal>
-				<Pane size={75}>
-					<div class="bg-gray-100 p-4 relative min-h-full w-full">
-						{#if $appStore.grid}
-							<div class={classNames('mx-auto h-full bg-gray-100', width)}>
-								<GridEditor />
-							</div>
-						{/if}
-						{#if $connectingInput.opened}
-							<div
-								class="absolute top-0 left-0 w-full h-full bg-black border-2 bg-opacity-25 z-1 flex justify-center items-center"
-							/>
-						{/if}
-					</div>
-				</Pane>
-				<Pane size={25}>
-					<InlineScriptsPanel appPath={path} />
-				</Pane>
-			</SplitPanesWrapper>
-		</Pane>
-		<Pane size={20} minSize={20} maxSize={20}>
-			<Tabs bind:selected={selectedTab}>
-				<Tab value="insert" size="xs">
-					<div class="m-1 flex flex-row gap-2">
-						<Icon data={faPlus} />
-						<span>Insert</span>
-					</div>
-				</Tab>
-				<Tab value="settings" size="xs">
-					<div class="m-1 flex flex-row gap-2">
-						<Icon data={faSliders} />
-						<span>Settings</span>
-					</div>
-				</Tab>
-				<svelte:fragment slot="content">
-					<TabContent value="settings">
-						{#if $selectedComponent !== undefined}
-							{#each $appStore.grid as gridItem (gridItem.id)}
-								{#if gridItem.data.id === $selectedComponent}
-									<ComponentPanel bind:component={gridItem.data} />
-								{/if}
-							{/each}
-						{/if}
-						{#if $selectedComponent === undefined}
-							<div class="p-4 text-sm">No component selected.</div>
-						{/if}
-					</TabContent>
-					<TabContent value="insert">
-						<ComponentList />
-					</TabContent>
-				</svelte:fragment>
-			</Tabs>
-		</Pane>
-	</SplitPanesWrapper>
+	App editor not available to operators
 {/if}
