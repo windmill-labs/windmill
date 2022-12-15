@@ -8,6 +8,7 @@
 	import type { AppComponent, AppEditorContext } from '../types'
 	import ButtonComponent from '../components/buttons/AppButton.svelte'
 	import PieChartComponent from '../components/dataDisplay/AppPieChart.svelte'
+	import SelectComponent from '../components/selectInputs/AppSelect.svelte'
 	import CheckboxComponent from '../components/selectInputs/AppCheckbox.svelte'
 	import TextInputComponent from '../components/textInputs/AppTextInput.svelte'
 	import NumberInputComponent from '../components/numberInputs/AppNumberInput.svelte'
@@ -30,11 +31,12 @@
 
 	<div
 		class={classNames(
-			' border overflow-auto cursor-pointer  h-full bg-white',
+			' border cursor-pointer  h-full bg-white',
 			shouldDisplayOverlay ? 'border-blue-500' : 'border-white',
 			!selected && $mode !== 'preview' && !component.card ? 'border-gray-100' : '',
 			$mode !== 'preview' && !$connectingInput.opened ? 'hover:border-blue-500' : '',
 			component.card ? 'p-2' : '',
+			component.softWrap ? '' : 'overflow-auto',
 			'relative'
 		)}
 	>
@@ -72,6 +74,11 @@
 			<ButtonComponent
 				{...component}
 				bind:componentInput={component.componentInput}
+				bind:staticOutputs={$staticOutputs[component.id]}
+			/>
+		{:else if component.type === 'selectcomponent'}
+			<SelectComponent
+				{...component}
 				bind:staticOutputs={$staticOutputs[component.id]}
 			/>
 		{:else if component.type === 'formcomponent'}

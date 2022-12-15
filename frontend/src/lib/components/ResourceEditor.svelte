@@ -58,7 +58,7 @@
 					path: resourceToEdit.path,
 					requestBody: { path, value: args, description }
 				})
-				sendUserToast(`Successfully updated resource at ${path}`)
+				sendUserToast(`Updated resource at ${path}`)
 				dispatch('refresh')
 				drawer.closeDrawer?.()
 			} else {

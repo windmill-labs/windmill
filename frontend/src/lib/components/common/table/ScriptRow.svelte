@@ -4,7 +4,7 @@
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 
 	import { ScriptService, type Script } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { capitalize, sendUserToast } from '$lib/utils'
 	import {
 		faArchive,
@@ -44,7 +44,7 @@
 	async function archiveScript(path: string): Promise<void> {
 		await ScriptService.archiveScriptByPath({ workspace: $workspaceStore!, path })
 		dispatch('change')
-		sendUserToast(`Successfully archived script ${path}`)
+		sendUserToast(`Archived script ${path}`)
 	}
 </script>
 
@@ -74,30 +74,32 @@
 
 	<svelte:fragment slot="actions">
 		<span class="hidden md:inline-flex gap-x-1">
-			{#if canWrite}
-				<div>
-					<Button
-						color="light"
-						size="xs"
-						variant="border"
-						startIcon={{ icon: faEdit }}
-						href="/scripts/edit/{hash}?step=2"
-					>
-						Edit
-					</Button>
-				</div>
-			{:else}
-				<div>
-					<Button
-						color="light"
-						size="xs"
-						variant="border"
-						startIcon={{ icon: faCodeFork }}
-						href="/scripts/add?template={path}"
-					>
-						Fork
-					</Button>
-				</div>
+			{#if !$userStore?.operator}
+				{#if canWrite}
+					<div>
+						<Button
+							color="light"
+							size="xs"
+							variant="border"
+							startIcon={{ icon: faEdit }}
+							href="/scripts/edit/{hash}?step=2"
+						>
+							Edit
+						</Button>
+					</div>
+				{:else}
+					<div>
+						<Button
+							color="light"
+							size="xs"
+							variant="border"
+							startIcon={{ icon: faCodeFork }}
+							href="/scripts/add?template={path}"
+						>
+							Fork
+						</Button>
+					</div>
+				{/if}
 			{/if}
 
 			<Button
@@ -128,6 +130,7 @@
 					icon: faEye,
 					href: `/scripts/get/${hash}`
 				},
+
 				{
 					displayName: 'Edit',
 					icon: faEdit,

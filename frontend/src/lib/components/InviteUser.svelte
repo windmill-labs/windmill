@@ -3,8 +3,8 @@
 	import { createEventDispatcher } from 'svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { WorkspaceService } from '$lib/gen'
-	import { Button } from './common'
-	import Toggle from '$lib/components/Toggle.svelte'
+	import { Button, ToggleButton, ToggleButtonGroup } from './common'
+	import Tooltip from './Tooltip.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -24,18 +24,33 @@
 			workspace: $workspaceStore!,
 			requestBody: {
 				email,
-				is_admin
+				is_admin: selected == 'admin',
+				operator: selected == 'operator'
 			}
 		})
-		sendUserToast(`Successfully invited ${email}. Welcome to them!`)
+		sendUserToast(`Invited ${email}`)
 		dispatch('new')
 	}
+
+	let selected: 'operator' | 'author' | 'admin' = 'author'
 </script>
 
 <div class="flex flex-row">
 	<input type="email" on:keyup={handleKeyUp} placeholder="email" bind:value={email} class="mr-4" />
-
-	<Toggle bind:checked={is_admin} options={{ right: 'admin' }} />
+	<ToggleButtonGroup bind:selected>
+		<ToggleButton position="left" value="operator" size="sm"
+			>Operator <Tooltip
+				>An operator can only execute and view scripts/flows/apps from your workspace, and only
+				those that he has visibility on</Tooltip
+			></ToggleButton
+		>
+		<ToggleButton position="center" value="author" size="sm"
+			>Author <Tooltip
+				>An Author can execute and view scripts/flows/apps, but he can also create new ones</Tooltip
+			></ToggleButton
+		>
+		<ToggleButton position="right" value="admin" size="sm">Admin</ToggleButton>
+	</ToggleButtonGroup>
 	<Button
 		variant="contained"
 		color="blue"

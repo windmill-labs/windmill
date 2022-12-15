@@ -92,7 +92,7 @@
 				description: variable.description
 			}
 		})
-		sendUserToast(`Successfully created variable ${path}`)
+		sendUserToast(`Created variable ${path}`)
 		dispatch('create')
 		drawer.closeDrawer()
 	}
@@ -115,7 +115,7 @@
 					description: getV.description != variable.description ? variable.description : undefined
 				}
 			})
-			sendUserToast(`Successfully updated variable at ${initialPath}`)
+			sendUserToast(`Updated variable ${initialPath}`)
 			dispatch('create')
 			drawer.closeDrawer()
 		} catch (err) {

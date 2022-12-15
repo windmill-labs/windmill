@@ -5,7 +5,6 @@
 	import { slide } from 'svelte/transition'
 	import { createPopperActions, type PopperOptions } from 'svelte-popperjs'
 	import { clickOutside } from '../../../utils'
-	import { Kbd } from '..'
 	import { createStateMachine } from '../../../stateMachine'
 
 	export let ref: HTMLElement
@@ -14,7 +13,6 @@
 	export let openOn: (keyof HTMLElementEventMap)[] = ['focus']
 	/** Events on the reference element */
 	export let closeOn: (keyof HTMLElementEventMap)[] = ['blur']
-	export let disableInstruction = false
 	export let innerClasses = ''
 	export let outerClasses = ''
 
