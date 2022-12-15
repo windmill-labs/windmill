@@ -111,7 +111,7 @@
 			<SchemaForm {autofocus} schema={runnable.schema} bind:isValid bind:args />
 		{/if}
 	{:else}
-		<div class="text-sm">No schema</div>
+		<div class="text-xs text-gray-600">No schema</div>
 	{/if}
 	{#if viewOptions}
 		<div transition:slide class="mt-6">
