@@ -1,6 +1,37 @@
 import type { FlowStatusModule } from "$lib/gen"
-import type { Node as SvelvetNode } from "svelvet"
 
+export interface SvelvetNode<T = any> {
+	id: number;
+	position: { x: number, y: number };
+	data: T;
+	width: number;
+	height: number;
+	bgColor?: string;
+	fontSize?: number;
+	borderColor?: string;
+	parentNode?: number;
+	childNodes?: number[];
+	borderRadius?: number;
+	textColor?: string;
+	clickCallback?: Function;
+	image?: boolean;
+	src?: string;
+	sourcePosition?: 'left' | 'right' | 'top' | 'bottom';
+	targetPosition?: 'left' | 'right' | 'top' | 'bottom';
+}
+export interface Edge {
+	id: string;
+	source: number;
+	target: number;
+	label?: string;
+	labelBgColor?: string;
+	labelTextColor?: string;
+	edgeColor?: string;
+	type?: string;
+	animate?: boolean;
+	noHandle?: boolean;
+	arrow?: boolean;
+}
 export type ModuleHost = 'workspace' | 'inline' | 'hub'
 
 export type Node = SvelvetNode & { parentIds: string[], edgeLabel?: string, host?: ModuleHost }

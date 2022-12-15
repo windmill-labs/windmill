@@ -104,7 +104,9 @@
 							{#if $flowStore.value.modules}
 								<FlowGraph
 									on:click={(e) => {
-										$selectedId = e.detail.id
+										if (e.detail.id) {
+											$selectedId = e.detail.id
+										}
 									}}
 									minHeight={topHeight}
 									modules={$flowStore.value.modules}
