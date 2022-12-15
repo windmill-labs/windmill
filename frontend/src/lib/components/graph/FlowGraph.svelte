@@ -85,7 +85,8 @@
 	function getConvertedFlowModule(
 		module: FlowModule,
 		parent: NestedNodes | string | undefined = undefined,
-		edgeLabel: string | undefined = undefined
+		edgeLabel: string | undefined = undefined,
+		insideLoop: boolean = false
 	): GraphItem | undefined {
 		const type = module.value.type
 		const parentIds = getParentIds(parent)
@@ -99,7 +100,9 @@
 				'inline',
 				module,
 				lang,
-				edgeLabel
+				edgeLabel,
+				undefined,
+				insideLoop
 			)
 		} else if (type === 'script') {
 			const isHub = module.value.path.startsWith('hub/')
@@ -110,7 +113,9 @@
 				isHub ? 'hub' : 'workspace',
 				module,
 				undefined,
-				edgeLabel
+				edgeLabel,
+				undefined,
+				insideLoop
 			)
 		} else if (type === 'forloopflow') {
 			return flowModuleToLoop(module.value.modules, module, parent)
@@ -120,11 +125,12 @@
 				module,
 				branches,
 				['Default', ...module.value.branches.map((x) => `If ${truncateRev(x.expr, 20)}`)],
-				parent
+				parent,
+				insideLoop
 			)
 		} else if (type === 'branchall') {
 			const branches = module.value.branches.map((b) => b.modules)
-			return flowModuleToBranch(module, branches, [], parent)
+			return flowModuleToBranch(module, branches, [], parent, insideLoop)
 		} else if (type === 'flow') {
 			return flowModuleToNode(
 				parentIds,
@@ -133,7 +139,9 @@
 				'inline',
 				module,
 				undefined,
-				edgeLabel
+				edgeLabel,
+				undefined,
+				insideLoop
 			)
 		}
 		return flowModuleToNode(
@@ -143,7 +151,9 @@
 			'inline',
 			module,
 			undefined,
-			edgeLabel
+			edgeLabel,
+			undefined,
+			insideLoop
 		)
 	}
 
@@ -189,7 +199,8 @@
 		onClickDetail: any,
 		lang?: RawScript.language,
 		edgeLabel?: string,
-		header?: string
+		header?: string,
+		insideLoop: boolean = false
 	): Node {
 		const langImg: Record<RawScript.language, string> = {
 			deno: '/icons/ts-lang.svg',
@@ -228,7 +239,7 @@
 			`
 			},
 			host,
-			width: NODE.width,
+			width: insideLoop ? NODE.width * 0.8 : NODE.width,
 			height: NODE.height,
 			borderColor: selectedNode == nodeId ? 'black' : '#999',
 			bgColor: selectedNode == nodeId ? '#f5f5f5' : getStateColor(flowModuleStates?.[nodeId]?.type),
@@ -271,7 +282,7 @@
 			]
 		}
 		modules.forEach((module) => {
-			const item = getConvertedFlowModule(module, loop.items)
+			const item = getConvertedFlowModule(module, loop.items, undefined, true)
 			item && loop.items.push(item)
 		})
 		loop.items.push(
@@ -289,7 +300,8 @@
 		module: FlowModule,
 		branches: FlowModule[][],
 		edgesLabel: string[],
-		parent: string | NestedNodes | undefined = undefined
+		parent: string | NestedNodes | undefined = undefined,
+		insideLoop: boolean = false
 	): Branch {
 		const branch: Branch = {
 			type: 'branch',
@@ -301,7 +313,10 @@
 					: 'Run one branch given predicate',
 				'inline',
 				module,
-				undefined
+				undefined,
+				undefined,
+				undefined,
+				insideLoop
 			),
 			items: []
 		}
@@ -318,7 +333,8 @@
 					const item = getConvertedFlowModule(
 						module,
 						items.length ? items : numberToChars(branch.node.id),
-						edgesLabel[i]
+						edgesLabel[i],
+						insideLoop
 					)
 					item && items.push(item)
 				})

@@ -1,11 +1,18 @@
 <script lang="ts">
 	import { Menu } from '$lib/components/common'
-	import { faCode, faCodeBranch, faPlus, faBarsStaggered } from '@fortawesome/free-solid-svg-icons'
+	import {
+		faCode,
+		faCodeBranch,
+		faPlus,
+		faBarsStaggered,
+		faBolt
+	} from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { Repeat } from 'lucide-svelte'
 
 	const dispatch = createEventDispatcher()
+	export let trigger = false
 </script>
 
 <Menu noMinW placement="bottom-start" let:close>
@@ -17,6 +24,20 @@
 		<Icon data={faPlus} scale={0.8} />
 	</button>
 	<div class="divide-y divide-gray-100 text-xs w-40">
+		{#if trigger}
+			<button
+				class="w-full text-left p-2 hover:bg-gray-100"
+				on:click={() => {
+					close()
+					dispatch('new', 'trigger')
+				}}
+				role="menuitem"
+				tabindex="-1"
+			>
+				<Icon data={faBolt} scale={0.8} class="mr-1" />
+				Trigger
+			</button>
+		{/if}
 		<button
 			class="w-full text-left p-2 hover:bg-gray-100"
 			on:click={() => {

@@ -20,7 +20,7 @@
 	const hubId = $page.url.searchParams.get('hub')
 
 	const templatePath = $page.url.searchParams.get('template')
-	let selectedId: string = 'settings'
+	let selectedId: string = 'settings-metadata'
 	let loading = false
 
 	async function loadFlow() {

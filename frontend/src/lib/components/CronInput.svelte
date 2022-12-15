@@ -4,7 +4,7 @@
 
 <script lang="ts">
 	import { ScheduleService } from '$lib/gen'
-	import { displayDate, formatCron, sendUserToast } from '$lib/utils'
+	import { displayDate, emptyString, formatCron, sendUserToast } from '$lib/utils'
 	import CollapseLink from './CollapseLink.svelte'
 
 	export let validCRON = true
@@ -15,7 +15,7 @@
 	export let disabled = false
 	let limit = 3
 
-	$: handleScheduleInput(schedule)
+	$: !emptyString(schedule) && handleScheduleInput(schedule)
 
 	async function handleScheduleInput(input: string): Promise<void> {
 		try {
@@ -29,14 +29,13 @@
 				cronError = `Invalid cron expression`
 				validCRON = false
 			} else {
-				sendUserToast(`Cannot preview: ${err}`, true)
 				validCRON = false
 			}
 		}
 	}
 </script>
 
-<div class="text-red-600 text-2xs grow">{cronError}</div>
+<div class="w-full text-right text-red-600 text-2xs grow">{cronError}</div>
 <div class="flex flex-row items-end max-w-5xl">
 	<label class="text-xs min-w-max mr-2 self-center" for="cron-schedule">CRON expression</label>
 	<input

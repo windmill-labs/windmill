@@ -336,6 +336,7 @@
 
 			<div class="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-6">
 				<div class="col-span-2">
+					<h2 class="mb-2">Preview</h2>
 					<RunForm
 						autofocus
 						detailed={false}
@@ -345,7 +346,7 @@
 						runAction={runScript}
 					/>
 				</div>
-				<div class="mt-6 box">
+				<div class="box">
 					{defaultIfEmptyString(script.description, 'No description')}
 				</div>
 			</div>

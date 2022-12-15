@@ -19,7 +19,7 @@
 	import FlowBranchesAllWrapper from './FlowBranchesAllWrapper.svelte'
 	import FlowBranchesOneWrapper from './FlowBranchesOneWrapper.svelte'
 
-	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectedId, schedule } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let flowModule: FlowModule
 
@@ -62,6 +62,7 @@
 			/>
 		{:else}
 			<FlowInputs
+				summary={flowModule.summary}
 				shouldDisableTriggerScripts={parentModule !== undefined ||
 					previousModule !== undefined ||
 					$selectedId == 'failure'}
@@ -71,6 +72,18 @@
 
 					if (kind == Script.kind.APPROVAL) {
 						module.suspend = { required_events: 1, timeout: 1800 }
+					}
+
+					if (kind == Script.kind.TRIGGER) {
+						if (!$schedule.cron) {
+							$schedule.cron = '0 */15 * * *'
+						}
+						$schedule.enabled = true
+
+						module.stop_after_if = {
+							expr: 'result == undefined || Array.isArray(result) && result.length == 0',
+							skip_if_stopped: true
+						}
 					}
 
 					flowModule = module
@@ -85,6 +98,18 @@
 						subkind,
 						flowModule.id
 					)
+
+					if (kind == Script.kind.TRIGGER) {
+						if (!$schedule.cron) {
+							$schedule.cron = '0 */15 * * *'
+						}
+						$schedule.enabled = true
+
+						module.stop_after_if = {
+							expr: 'result == undefined || Array.isArray(result) && result.length == 0',
+							skip_if_stopped: true
+						}
+					}
 
 					if (kind == Script.kind.APPROVAL) {
 						module.suspend = { required_events: 1, timeout: 1800 }
