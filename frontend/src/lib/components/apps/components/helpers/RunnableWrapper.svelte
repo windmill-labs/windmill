@@ -7,7 +7,6 @@
 	export let id: string
 	export let result: any = undefined
 
-	// Optional props
 	export let extraQueryParams: Record<string, any> = {}
 	export let autoRefresh: boolean = true
 	export let runnableComponent: RunnableComponent | undefined = undefined
@@ -16,7 +15,7 @@
 
 {#if componentInput === undefined}
 	<slot />
-{:else if componentInput.type === 'runnable' && componentInput.runnable}
+{:else if componentInput.type === 'runnable'}
 	<RunnableComponent
 		bind:this={runnableComponent}
 		bind:inputs={componentInput.fields}

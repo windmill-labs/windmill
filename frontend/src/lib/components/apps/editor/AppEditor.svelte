@@ -27,6 +27,8 @@
 	import AppPreview from './AppPreview.svelte'
 	import { userStore } from '$lib/stores'
 
+	import InlineScriptsPanel from './inlineScriptsPanel/InlineScriptsPanel.svelte'
+
 	export let app: App
 	export let path: string
 	export let initialMode: EditorMode = 'dnd'
@@ -53,10 +55,12 @@
 		mode,
 		connectingInput,
 		breakpoint,
-		runnableComponents
+		runnableComponents,
+		appPath: path
 	})
 
 	let mounted = false
+
 	onMount(() => {
 		mounted = true
 	})
@@ -64,8 +68,7 @@
 	$: mounted && ($worldStore = buildWorld($staticOutputs))
 	$: selectedTab = $selectedComponent ? 'settings' : 'insert'
 	$: previewing = $mode === 'preview'
-
-	$: width = $breakpoint === 'sm' ? 'w-[640px]' : 'w-full '
+	$: width = $breakpoint === 'sm' ? 'w-[640px]' : 'min-w-[900px] w-full'
 </script>
 
 {#if !$userStore?.operator}
@@ -74,27 +77,34 @@
 	{/if}
 
 	{#if previewing}
-		<AppPreview app={$appStore} />
+		<AppPreview app={$appStore} appPath={path} />
 	{:else}
 		<SplitPanesWrapper class="max-w-full overflow-hidden">
-			<Pane size={20} minSize={15} maxSize={40}>
-				<ContextPanel appPath={path} />
+			<Pane size={20}>
+				<ContextPanel />
 			</Pane>
 			<Pane size={60}>
-				<div class="p-4 bg-gray-100 min-h-full w-full relative">
-					{#if $appStore.grid}
-						<div class={classNames('mx-auto h-full', width)}>
-							<GridEditor />
+				<SplitPanesWrapper horizontal>
+					<Pane size={75}>
+						<div class="bg-gray-100 p-4 relative min-h-full w-full">
+							{#if $appStore.grid}
+								<div class={classNames('mx-auto h-full bg-gray-100', width)}>
+									<GridEditor />
+								</div>
+							{/if}
+							{#if $connectingInput.opened}
+								<div
+									class="absolute top-0 left-0 w-full h-full bg-black border-2 bg-opacity-25 z-1 flex justify-center items-center"
+								/>
+							{/if}
 						</div>
-					{/if}
-					{#if $connectingInput.opened}
-						<div
-							class="absolute top-0 left-0 w-full h-full bg-black border-2 bg-opacity-25 z-1 flex justify-center items-center"
-						/>
-					{/if}
-				</div>
+					</Pane>
+					<Pane size={25}>
+						<InlineScriptsPanel />
+					</Pane>
+				</SplitPanesWrapper>
 			</Pane>
-			<Pane size={30} minSize={25} maxSize={40}>
+			<Pane size={20} minSize={20} maxSize={20}>
 				<Tabs bind:selected={selectedTab}>
 					<Tab value="insert" size="xs">
 						<div class="m-1 flex flex-row gap-2">

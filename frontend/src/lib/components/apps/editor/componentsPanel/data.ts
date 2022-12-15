@@ -97,10 +97,11 @@ const buttons: ComponentSet = {
 			id: 'buttoncomponent',
 			type: 'buttoncomponent',
 			componentInput: {
-				type: 'static',
-				fieldType: 'textarea',
-				defaultValue: '',
-				value: ''
+				type: 'runnable',
+				fieldType: 'any',
+				fields: {},
+				runnable: undefined,
+				defaultValue: undefined
 			},
 			recomputeIds: undefined,
 			configuration: {
@@ -136,10 +137,11 @@ const buttons: ComponentSet = {
 			id: 'formcomponent',
 			type: 'formcomponent',
 			componentInput: {
-				type: 'static',
-				fieldType: 'textarea',
-				defaultValue: '',
-				value: ''
+				type: 'runnable',
+				fieldType: 'any',
+				fields: {},
+				runnable: undefined,
+				defaultValue: undefined
 			},
 			recomputeIds: undefined,
 			configuration: {
@@ -173,8 +175,8 @@ const buttons: ComponentSet = {
 	]
 }
 
-const dataDisplay: ComponentSet = {
-	title: 'Data Displays',
+const display: ComponentSet = {
+	title: 'Display',
 	components: [
 		{
 			...defaultAlignement,
@@ -313,6 +315,6 @@ const dataDisplay: ComponentSet = {
 	]
 }
 
-const componentSets = [buttons, inputs, dataDisplay]
+const componentSets = [buttons, inputs, display]
 
 export { componentSets }

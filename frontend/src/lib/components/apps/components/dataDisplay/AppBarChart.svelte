@@ -67,7 +67,7 @@
 <InputValue input={configuration.labels} bind:value={labels} />
 
 <RunnableWrapper bind:componentInput {id} bind:result>
-	{#if data}
+	{#if result}
 		<Bar {data} {options} />
 	{/if}
 </RunnableWrapper>

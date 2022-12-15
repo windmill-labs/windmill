@@ -28,4 +28,5 @@
 {#if componentInput.type !== 'runnable'}
 	<InputValue input={componentInput} bind:value={result} />
 {/if}
+
 <slot />

@@ -63,6 +63,7 @@
 		"@fortawesome/free-solid-svg-icons": "^6.2.0",
 		"@leeoniya/ufuzzy": "^0.8.0",
 		"@redocly/json-to-json-schema": "^0.0.1",
+		"@tanstack/svelte-table": "^8.7.2",
 		"@types/autosize": "^4.0.1",
 		"@types/node": "^18.11.9",
 		"async-mutex": "^0.4.0",

@@ -2,12 +2,10 @@
 	import { page } from '$app/stores'
 	import type { Schema } from '$lib/common'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
-	import Button from '$lib/components/common/button/Button.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import { AppService, type CompletedJob } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { faRefresh } from '@fortawesome/free-solid-svg-icons'
 	import { getContext, onMount } from 'svelte'
 	import type { AppInputs, Runnable } from '../../inputType'
 	import type { Output } from '../../rx'
@@ -213,23 +211,12 @@
 	<SchemaForm schema={schemaStripped} bind:args {isValid} {disabledArgs} shouldHideNoInputs />
 {/if}
 
-{#if !runnable}
+{#if !runnable && autoRefresh}
 	<Alert type="warning" size="xs" class="mt-2" title="Missing runnable">
 		Please select a runnable
 	</Alert>
 {:else if autoRefresh === true}
 	{#if isValid}
-		<div class="flex flex-row-reverse">
-			<Button
-				size="xs"
-				color="light"
-				variant="border"
-				on:click={() => executeComponent()}
-				disabled={!isValid}
-				startIcon={{ icon: faRefresh, classes: testIsLoading ? 'animate-spin' : '' }}
-				iconOnly
-			/>
-		</div>
 		<slot />
 	{:else}
 		<Alert type="warning" size="xs" class="mt-2" title="Missing inputs">

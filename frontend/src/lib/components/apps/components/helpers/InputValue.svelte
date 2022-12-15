@@ -38,7 +38,7 @@
 				return
 			}
 
-			const { componentId, path } = connection
+			const { path } = connection
 
 			const hasSubPath = ['.', '['].some((x) => path.includes(x))
 
