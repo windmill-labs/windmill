@@ -9,7 +9,6 @@
 	export let id: string
 	export let configuration: Record<string, AppInput>
 	export let inputType: 'date' | 'time' | 'datetime-local'
-	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export const staticOutputs: string[] = ['result']
 
@@ -32,7 +31,7 @@
 <InputValue input={configuration.minDate} bind:value={minValue} />
 <InputValue input={configuration.maxDate} bind:value={maxValue} />
 
-<AlignWrapper {horizontalAlignment} {verticalAlignment}>
+<AlignWrapper {verticalAlignment}>
 	<!-- svelte-ignore a11y-label-has-associated-control -->
 	<label class="w-full">
 		<div>

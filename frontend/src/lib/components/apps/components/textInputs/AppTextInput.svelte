@@ -9,7 +9,6 @@
 	export let id: string
 	export let configuration: Record<string, AppInput>
 	export let inputType = 'text'
-	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export const staticOutputs: string[] = ['result']
 
@@ -28,7 +27,7 @@
 
 <InputValue input={configuration.label} bind:value={labelValue} />
 
-<AlignWrapper {horizontalAlignment} {verticalAlignment}>
+<AlignWrapper {verticalAlignment}>
 	<!-- svelte-ignore a11y-label-has-associated-control -->
 	<label class="w-full">
 		<div>

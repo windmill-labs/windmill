@@ -21,7 +21,7 @@ const inputs: ComponentSet = {
 			card: false
 		},
 		{
-			...defaultAlignement,
+			verticalAlignment: 'center',
 			id: 'passwordinputcomponent',
 			type: 'passwordinputcomponent',
 			componentInput: undefined,
@@ -37,7 +37,7 @@ const inputs: ComponentSet = {
 			card: false
 		},
 		{
-			...defaultAlignement,
+			verticalAlignment: 'center',
 			id: 'numberinputcomponent',
 			type: 'numberinputcomponent',
 			componentInput: undefined,
@@ -53,7 +53,7 @@ const inputs: ComponentSet = {
 			card: false
 		},
 		{
-			...defaultAlignement,
+			verticalAlignment: 'center',
 			id: 'dateinputcomponent',
 			type: 'dateinputcomponent',
 			componentInput: undefined,
@@ -100,7 +100,7 @@ const inputs: ComponentSet = {
 			card: false
 		},
 		{
-			...defaultAlignement,
+			verticalAlignment: 'center',
 			id: 'selectcomponent',
 			type: 'selectcomponent',
 			componentInput: undefined,
