@@ -2,7 +2,7 @@
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
 	import { FlowService, ScheduleService, type Flow } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import {
 		encodeState,
 		formatCron,
@@ -186,80 +186,84 @@
 	let flowViewer: Drawer
 </script>
 
-<UnsavedConfirmationModal />
+{#if !$userStore?.operator}
+	<UnsavedConfirmationModal />
 
-<Drawer bind:this={flowViewer} size="75%">
-	<DrawerContent title="View Graph" on:close={flowViewer.closeDrawer} noPadding>
-		<div class="overflow-hidden h-full w-full">
-			<FlowGraphViewer flow={$flowStore} />
-		</div>
-	</DrawerContent>
-</Drawer>
+	<Drawer bind:this={flowViewer} size="75%">
+		<DrawerContent title="View Graph" on:close={flowViewer.closeDrawer} noPadding>
+			<div class="overflow-hidden h-full w-full">
+				<FlowGraphViewer flow={$flowStore} />
+			</div>
+		</DrawerContent>
+	</Drawer>
 
-<div class="flex flex-col flex-1 h-screen">
-	<!-- Nav between steps-->
-	<div
-		class="justify-between flex flex-row w-full items-center pl-2.5 pr-6  space-x-4 overflow-x-auto scrollbar-hidden max-h-12 h-full"
-	>
-		<div class="flex flex-row">
-			<FlowImportExportMenu />
-			<Button
-				btnClasses="inline-flex"
-				startIcon={{ icon: faEye }}
-				variant="border"
-				color="light"
-				size="sm"
-				on:click={flowViewer.openDrawer}
-			>
-				View Graph
-			</Button>
-		</div>
-		<div class="gap-1 flex-row hidden md:flex shrink overflow-hidden">
-			<Button
-				btnClasses="hidden lg:inline-flex"
-				startIcon={{ icon: faPen }}
-				variant="contained"
-				color="light"
-				size="xs"
-				on:click={async () => {
-					select('settings')
-					document.getElementById('path')?.focus()
-				}}
-			>
-				{$flowStore.path && $flowStore.path != '' ? $flowStore.path : 'Choose a path'}
-			</Button>
-			<Button
-				startIcon={{ icon: faPen }}
-				variant="contained"
-				color="light"
-				size="xs"
-				on:click={async () => {
-					select('settings')
-					document.getElementById('flow-summary')?.focus()
-				}}
-			>
-				<div class="max-w-[10em] !truncate">
-					{$flowStore.summary == '' || !$flowStore.summary ? 'No summary' : $flowStore.summary}
-				</div>
-			</Button>
-		</div>
-		<div class="flex flex-row space-x-2">
-			<FlowPreviewButtons />
-			<div class="center-center">
+	<div class="flex flex-col flex-1 h-screen">
+		<!-- Nav between steps-->
+		<div
+			class="justify-between flex flex-row w-full items-center pl-2.5 pr-6  space-x-4 overflow-x-auto scrollbar-hidden max-h-12 h-full"
+		>
+			<div class="flex flex-row">
+				<FlowImportExportMenu />
 				<Button
-					disabled={pathError != ''}
-					startIcon={{ icon: faSave }}
+					btnClasses="inline-flex"
+					startIcon={{ icon: faEye }}
+					variant="border"
+					color="light"
 					size="sm"
-					on:click={saveFlow}>Save</Button
+					on:click={flowViewer.openDrawer}
 				>
+					View Graph
+				</Button>
+			</div>
+			<div class="gap-1 flex-row hidden md:flex shrink overflow-hidden">
+				<Button
+					btnClasses="hidden lg:inline-flex"
+					startIcon={{ icon: faPen }}
+					variant="contained"
+					color="light"
+					size="xs"
+					on:click={async () => {
+						select('settings')
+						document.getElementById('path')?.focus()
+					}}
+				>
+					{$flowStore.path && $flowStore.path != '' ? $flowStore.path : 'Choose a path'}
+				</Button>
+				<Button
+					startIcon={{ icon: faPen }}
+					variant="contained"
+					color="light"
+					size="xs"
+					on:click={async () => {
+						select('settings')
+						document.getElementById('flow-summary')?.focus()
+					}}
+				>
+					<div class="max-w-[10em] !truncate">
+						{$flowStore.summary == '' || !$flowStore.summary ? 'No summary' : $flowStore.summary}
+					</div>
+				</Button>
+			</div>
+			<div class="flex flex-row space-x-2">
+				<FlowPreviewButtons />
+				<div class="center-center">
+					<Button
+						disabled={pathError != ''}
+						startIcon={{ icon: faSave }}
+						size="sm"
+						on:click={saveFlow}>Save</Button
+					>
+				</div>
 			</div>
 		</div>
-	</div>
 
-	<!-- metadata -->
-	{#if $flowStateStore}
-		<FlowEditor {initialPath} {loading} />
-	{:else}
-		<CenteredPage>Loading...</CenteredPage>
-	{/if}
-</div>
+		<!-- metadata -->
+		{#if $flowStateStore}
+			<FlowEditor {initialPath} {loading} />
+		{:else}
+			<CenteredPage>Loading...</CenteredPage>
+		{/if}
+	</div>
+{:else}
+	Flow Builder not available to operators
+{/if}

@@ -23,7 +23,6 @@
 	import { Button, Kbd, Skeleton } from '$lib/components/common'
 	import { faPlay, faScroll } from '@fortawesome/free-solid-svg-icons'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
-	import SvelteMarkdown from 'svelte-markdown'
 
 	const path = $page.params.path
 	let flow: Flow | undefined
@@ -54,7 +53,6 @@
 			requestBody: args,
 			scheduledFor
 		})
-		sendUserToast(`Job <a href='/run/${run}?workspace=${$workspaceStore}'>${run}</a> started`)
 		goto('/run/' + run + '?workspace=' + $workspaceStore)
 	}
 
@@ -128,7 +126,7 @@
 				</div>
 			</div>
 			<div class="prose text-sm box max-w-6xl w-full mt-8">
-				<SvelteMarkdown source={defaultIfEmptyString(flow.description, 'No description')} />
+				{defaultIfEmptyString(flow.description, 'No description')}
 			</div>
 		</div>
 		<RunForm

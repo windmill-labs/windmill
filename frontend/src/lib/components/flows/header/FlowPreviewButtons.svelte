@@ -17,6 +17,7 @@
 	let job: Job | undefined = undefined
 
 	$: upToDisabled =
+		$selectedId == undefined ||
 		[
 			'settings',
 			'settings-schedule',
@@ -26,7 +27,8 @@
 			'inputs',
 			'schedules',
 			'failure'
-		].includes($selectedId) || $selectedId?.includes('branch')
+		].includes($selectedId) ||
+		$selectedId?.includes('branch')
 </script>
 
 <div class="flex flex-row-reverse justify-between items-center gap-x-2">

@@ -26,9 +26,6 @@
 	let users: GlobalUserInfo[] = []
 	let filteredUsers: GlobalUserInfo[] = []
 
-	let deleteConfirmedCallback: (() => void) | undefined = undefined
-	$: openConfirmation = Boolean(deleteConfirmedCallback)
-
 	async function loadVersion(): Promise<void> {
 		version = await SettingsService.backendVersion()
 	}
@@ -47,39 +44,13 @@
 
 <Drawer bind:this={drawer} on:open={listUsers} size="900px">
 	<DrawerContent overflow_y={false} title="Superadmin Settings" on:close={drawer.closeDrawer}>
-		<ConfirmationModal
-			open={openConfirmation}
-			title="Remove user"
-			confirmationText="Remove"
-			on:canceled={() => {
-				deleteConfirmedCallback = undefined
-			}}
-			on:confirmed={() => {
-				if (deleteConfirmedCallback) {
-					deleteConfirmedCallback()
-				}
-				deleteConfirmedCallback = undefined
-			}}
-		>
-			<div class="flex flex-col w-full space-y-4">
-				<span>Are you sure you want to remove this user?</span>
-				<Alert type="info" title="Bypass confirmation">
-					<div>
-						You can press
-						<Badge color="dark-gray">SHIFT</Badge>
-						while removing a variable to bypass confirmation.
-					</div>
-				</Alert>
-			</div>
-		</ConfirmationModal>
-
 		<div class="flex flex-col h-full">
 			<div>
 				<div class="text-xs pt-1 text-gray-500 ">
 					Windmill {version}
 				</div>
 
-				<PageHeader title="All users" primary={false} />
+				<PageHeader title="All global users" primary={false} />
 
 				<div class="pb-1" />
 				<InviteGlobalUser on:new={listUsers} />
@@ -91,10 +62,10 @@
 				<TableCustom>
 					<tr slot="header-row" class="sticky top-0 bg-white border-b">
 						<th>email</th>
-						<th>superadmin</th>
 						<th>auth</th>
 						<th>name</th>
 						<th>company</th>
+						<th />
 						<th />
 					</tr>
 					<tbody slot="body" class="overflow-y-auto h-full max-h-full">
@@ -102,10 +73,12 @@
 							{#each filteredUsers as { email, super_admin, login_type, name, company } (email)}
 								<tr class="border">
 									<td>{email}</td>
-									<td>{super_admin ? 'yes' : ''}</td>
 									<td>{login_type}</td>
 									<td><span class="break-words">{name ?? ''}</span></td>
 									<td><span class="break-words">{company ?? ''}</span></td>
+									<td
+										>{#if super_admin}<Badge>Superadmin</Badge>{/if}</td
+									>
 									<td>
 										<div class="flex flex-row gap-x-1">
 											<button
@@ -119,18 +92,15 @@
 													})
 													sendUserToast('User updated')
 													listUsers()
-												}}>{super_admin ? 'demote' : 'promote'}</button
+												}}>{super_admin ? 'non-superadmin' : 'superadmin'}</button
 											>
 											|
 											<button
 												class="text-red-500"
 												on:click={async () => {
-													deleteConfirmedCallback = async () => {
-														await UserService.globalUserDelete({ email })
-														sendUserToast(`User ${email} removed`)
-														await listUsers()
-													}
-													openConfirmation = false
+													await UserService.globalUserDelete({ email })
+													sendUserToast(`User ${email} removed`)
+													listUsers()
 												}}>remove</button
 											>
 										</div>

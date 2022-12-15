@@ -8,11 +8,10 @@
 
 	import Highlight from 'svelte-highlight'
 	import json from 'svelte-highlight/languages/json'
-	import SvelteMarkdown from 'svelte-markdown'
 	import { Alert } from './common'
+	import autosize from 'svelte-autosize'
 
 	export let schema: Schema
-	export let summary: string
 	export let description: string | undefined
 
 	export function setSchema(newSchema: Schema) {
@@ -24,37 +23,19 @@
 	<h1 class="my-4">Advanced</h1>
 
 	<Tabs selected="ui">
-		<Tab value="ui">UI</Tab>
+		<Tab value="ui">Description & Arguments refinement</Tab>
 		<Tab value="jsonschema">JSON Schema</Tab>
 		<svelte:fragment slot="content">
 			<TabContent value="ui">
-				<h2 class="border-b pb-1 mt-6">Display</h2>
-				<div class="grid grid-cols-3 gap-2 mt-4">
-					<label>
-						<div class="text-gray-700 text-sm">Summary</div>
-						<textarea bind:value={summary} placeholder="Edit summary" class="text-sm" />
-					</label>
-					<label class="col-span-2">
-						<div class="text-gray-700 text-sm">Description</div>
-						<textarea
-							bind:value={description}
-							placeholder="Edit description. Markdown accepted."
-							class="text-sm"
-						/>
-						<div class="mt-1 px-2">
-							{#if description}
-								<div
-									class="prose !max-w-full !max-h-48 text-xs shadow-inner shadow-blue overflow-auto mt-1"
-								>
-									<SvelteMarkdown source={description} />
-								</div>
-							{:else}
-								<div class="text-xs text-gray-500"> Enter a description to see the preview </div>
-							{/if}
-						</div>
-					</label>
-				</div>
-				<h2 class="border-b pb-1 my-4">Arguments</h2>
+				<h2 class="border-b pb-1 mt-6 mb-4">Description</h2>
+				<textarea
+					use:autosize
+					bind:value={description}
+					placeholder="Edit description"
+					class="text-sm"
+				/>
+
+				<h2 class="border-b pb-1 mb-4 mt-8">Arguments</h2>
 				<Alert type="info" title="Synchronized with main signature">
 					Argument names, being required or not, and default values are derived from the main
 					signature of step 2 and cannot be edited directly. Change the main signature to edit them.

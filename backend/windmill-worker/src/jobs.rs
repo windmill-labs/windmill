@@ -126,9 +126,10 @@ pub async fn add_completed_job(
                    , raw_flow
                    , is_flow_step
                    , is_skipped
-                   , language )
+                   , language
+                   , email )
             VALUES ($1, $2, $3, $4, $5, $6, COALESCE($26, EXTRACT(milliseconds FROM (now() - $6))), $7, $8, $9,\
-                    $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
+                    $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $27)
          ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12)",
         queued_job.workspace_id,
         queued_job.id,
@@ -155,7 +156,8 @@ pub async fn add_completed_job(
         queued_job.is_flow_step,
         skipped,
         queued_job.language: ScriptLang,
-        duration: Option<i64>
+        duration: Option<i64>,
+        queued_job.email
     )
     .execute(&mut tx)
     .await

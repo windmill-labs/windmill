@@ -23,6 +23,7 @@
 		"@types/vscode": "~1.73.1",
 		"@typescript-eslint/eslint-plugin": "^5.46.1",
 		"@typescript-eslint/parser": "^5.46.1",
+		"@windmill-labs/svelvet": "^4.0.6",
 		"@zerodevx/svelte-toast": "^0.8.1",
 		"autoprefixer": "^10.4.13",
 		"cssnano": "^5.1.14",
@@ -52,7 +53,6 @@
 		"svelte-preprocess": "^4.9.8",
 		"svelte-splitpanes": "^0.7.3",
 		"svelte2tsx": "^0.5.22",
-		"svelvet": "^4.0.3",
 		"tailwindcss": "^3.2.2",
 		"tslib": "^2.4.1",
 		"typescript": "^4.9.3"

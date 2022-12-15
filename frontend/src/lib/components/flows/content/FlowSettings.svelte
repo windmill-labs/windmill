@@ -8,7 +8,6 @@
 	import Required from '$lib/components/Required.svelte'
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowSchedules from './FlowSchedules.svelte'
-	import SvelteMarkdown from 'svelte-markdown'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { Alert } from '$lib/components/common'
 	import { FlowGraph } from '$lib/components/graph'
@@ -66,7 +65,7 @@
 							<div class="font-bold pb-1 mt-4">Description preview</div>
 							{#if $flowStore.description}
 								<div class="prose max-h-48 mt-5 text-xs shadow-inner shadow-blue p-4 overflow-auto">
-									<SvelteMarkdown source={$flowStore.description} />
+									{$flowStore.description}
 								</div>
 							{:else}
 								<div class="text-sm text-gray-500"> Enter a description to see the preview </div>
@@ -105,7 +104,9 @@
 							{#if $flowStore.value.modules}
 								<FlowGraph
 									on:click={(e) => {
-										$selectedId = e.detail.id
+										if (e.detail.id) {
+											$selectedId = e.detail.id
+										}
 									}}
 									minHeight={topHeight}
 									modules={$flowStore.value.modules}

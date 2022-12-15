@@ -8,7 +8,7 @@
 
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { ScriptService, type Script } from '$lib/gen'
+	import { JobService, ScriptService, type Script } from '$lib/gen'
 	import {
 		truncateHash,
 		sendUserToast,
@@ -54,6 +54,8 @@
 	import Skeleton from '../../../lib/components/common/skeleton/Skeleton.svelte'
 	import UserSettings from '$lib/components/UserSettings.svelte'
 	import Icon from 'svelte-awesome'
+	import RunForm from '$lib/components/RunForm.svelte'
+	import { goto } from '$app/navigation'
 
 	let userSettings: UserSettings
 	let script: Script | undefined
@@ -138,6 +140,23 @@
 	onDestroy(() => {
 		intervalId && clearInterval(intervalId)
 	})
+
+	let isValid = true
+	let runForm: RunForm | undefined
+	async function runScript(scheduledForStr: string | undefined, args: Record<string, any>) {
+		try {
+			const scheduledFor = scheduledForStr ? new Date(scheduledForStr).toISOString() : undefined
+			let run = await JobService.runScriptByHash({
+				workspace: $workspaceStore!,
+				hash: script?.hash ?? '',
+				requestBody: args,
+				scheduledFor
+			})
+			await goto('/run/' + run + '?workspace=' + $workspaceStore)
+		} catch (err) {
+			sendUserToast(`Could not create job: ${err.body}`, true)
+		}
+	}
 </script>
 
 {#if script}
@@ -157,25 +176,36 @@
 					>
 						Run
 					</Button>
-					<Button
-						href={`/scripts/edit/${script.hash}?step=2`}
-						color="blue"
-						size="md"
-						startIcon={{ icon: faEdit }}
-						disabled={!can_write}
-					>
-						Edit
-					</Button>
-					{#if !topHash}
+					{#if !$userStore?.operator}
 						<Button
-							href={`/scripts/add?template=${script.path}`}
-							variant="border"
+							href={`/scripts/edit/${script.hash}?step=2`}
+							color="blue"
 							size="md"
-							startIcon={{ icon: faCodeFork }}
+							startIcon={{ icon: faEdit }}
+							disabled={!can_write}
 						>
-							Fork
+							Edit
 						</Button>
+						{#if !topHash}
+							<Button
+								href={`/scripts/add?template=${script.path}`}
+								variant="border"
+								size="md"
+								startIcon={{ icon: faCodeFork }}
+							>
+								Fork
+							</Button>
+						{/if}
 					{/if}
+					<Button
+						href={`/runs/${script.path}`}
+						size="md"
+						startIcon={{ icon: faList }}
+						color="light"
+						variant="border"
+					>
+						View Runs
+					</Button>
 				</div>
 			</div>
 
@@ -251,15 +281,6 @@
 				>
 					Schedule
 				</Button>
-				<Button
-					href={`/runs/${script.path}`}
-					size="xs"
-					startIcon={{ icon: faList }}
-					color="light"
-					variant="border"
-				>
-					View runs
-				</Button>
 				{#if Array.isArray(script.parent_hashes) && script.parent_hashes.length > 0}
 					<ButtonPopup
 						color="dark"
@@ -308,33 +329,39 @@
 				</div>
 			{/if}
 
-			<div class="max-w-2xl box mt-6">
-				<SvelteMarkdown source={defaultIfEmptyString(script.description, 'No description')} />
+			<div class="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-6">
+				<div class="col-span-2">
+					<RunForm
+						autofocus
+						detailed={false}
+						bind:isValid
+						bind:this={runForm}
+						runnable={script}
+						runAction={runScript}
+					/>
+				</div>
+				<div class="mt-6 box">
+					{defaultIfEmptyString(script.description, 'No description')}
+				</div>
 			</div>
 
-			<div class="max-w-2xl">
-				<h3>
-					Arguments JSON schema
-
-					<Tooltip>
-						The jsonschema defines the constraints that the payload must respect to be compatible
-						with the input parameters of this script. The UI form is generated automatically from
-						the script jsonschema. See
-						<a href="https://json-schema.org/" class="text-blue-500"> jsonschema documentation </a>
-					</Tooltip>
-				</h3>
-				<Skeleton {loading} layout={[[15]]} />
-				<SchemaViewer schema={script.schema} />
-			</div>
-
-			<div>
-				<h3>Code</h3>
-
+			<div class="mt-8">
 				<Skeleton {loading} layout={[[20]]} />
 
 				<Tabs selected="code">
 					<Tab value="code">Code</Tab>
 					<Tab value="dependencies">Dependencies lock file</Tab>
+					<Tab value="arguments"
+						>Arguments JSON Schema
+						<Tooltip>
+							The jsonschema defines the constraints that the payload must respect to be compatible
+							with the input parameters of this script. The UI form is generated automatically from
+							the script jsonschema. See
+							<a href="https://json-schema.org/" class="text-blue-500">
+								jsonschema documentation
+							</a>
+						</Tooltip></Tab
+					>
 					<svelte:fragment slot="content">
 						<TabContent value="code">
 							<div class="border rounded-sm mt-2">
@@ -348,6 +375,11 @@
 								{:else}
 									<p>There is no lock file for this script</p>
 								{/if}
+							</div>
+						</TabContent>
+						<TabContent value="arguments">
+							<div class="max-w-2xl">
+								<SchemaViewer schema={script.schema} />
 							</div>
 						</TabContent>
 					</svelte:fragment>
