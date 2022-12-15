@@ -39,9 +39,9 @@
 </script>
 
 <Tabs bind:selected={tab}>
-	<Tab value="ui">Flow rendered</Tab>
+	<Tab value="ui">Graph</Tab>
 	<Tab value="json">Json</Tab>
-	<Tab value="schema">Input schema of the flow</Tab>
+	<Tab value="schema">Input Schema</Tab>
 
 	<svelte:fragment slot="content">
 		<TabContent value="ui">

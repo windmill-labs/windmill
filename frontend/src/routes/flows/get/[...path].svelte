@@ -243,7 +243,7 @@
 						runAction={runFlow}
 					/>
 				</div>
-				<div class="mt-6">
+				<div class="mt-6 box">
 					{defaultIfEmptyString(flow.description, 'No description')}
 				</div>
 			</div>
