@@ -23,7 +23,6 @@
 	}
 
 	function onChange({detail}: CustomEvent) {
-		console.log(detail);
 		outputs?.result.set(detail?.[itemKey] || undefined)
 	}
 </script>
