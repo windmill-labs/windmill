@@ -343,6 +343,7 @@ async fn create_script(
             false,
             false,
             None,
+            true,
         )
         .await?;
         tx

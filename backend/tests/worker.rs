@@ -831,6 +831,7 @@ impl RunJob {
             /* is_flow_step */ false,
             /* running */ false,
             None,
+            true,
         )
         .await
         .expect("push has to succeed");

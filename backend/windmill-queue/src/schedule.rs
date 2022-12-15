@@ -116,6 +116,7 @@ pub async fn push_scheduled_job<'c>(
         false,
         false,
         None,
+        true,
     )
     .await?;
     sqlx::query!(
