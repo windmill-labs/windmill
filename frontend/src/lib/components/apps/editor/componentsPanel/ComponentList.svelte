@@ -68,49 +68,6 @@
 		$app.grid = [...grid, newItem]
 	}
 
-	const products = {
-		1: {
-			name: 'Product 1',
-			description: 'Product 1 description',
-			image: 'https://picsum.photos/200'
-		},
-		2: {
-			name: 'Product 2',
-			description: 'Product 2 description',
-			image: 'https://picsum.photos/200'
-		},
-		3: {
-			name: 'Product 3',
-			description: 'Product 3 description',
-			image: 'https://picsum.photos/200'
-		},
-		4: {
-			name: 'Product 4',
-			description: 'Product 4 description',
-			image: 'https://picsum.photos/200'
-		},
-		5: {
-			name: 'Product 5',
-			description: 'Product 5 description',
-			image: 'https://picsum.photos/200'
-		},
-		6: {
-			name: 'Product 6',
-			description: 'Product 6 description',
-			image: 'https://picsum.photos/200'
-		},
-		7: {
-			name: 'Product 7',
-			description: 'Product 7 description',
-			image: 'https://picsum.photos/200'
-		},
-		8: {
-			name: 'Product 8',
-			description: 'Product 8 description',
-			image: 'https://picsum.photos/200'
-		}
-	}
-
 	onMount(() => {
 		isOpenStore.addItems(componentSets.map((set) => ({ [set.title]: true })))
 	})
@@ -136,7 +93,7 @@
 								on:click={() => addComponent(item)}
 								title={displayData[item.type].name}
 								class="border shadow-sm h-16 p-2 flex flex-col gap-2 items-center
-									justify-center bg-white rounded-md scale-100 hover:scale-105 ease-in duration-75"
+									justify-center bg-white rounded-md hover:bg-gray-100 duration-200"
 							>
 								<svelte:component this={displayData[item.type].icon} class="text-blue-800" />
 								<div class="text-xs w-full text-center ellipsize">

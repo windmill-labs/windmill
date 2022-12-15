@@ -3,7 +3,7 @@
 	import { getContext } from 'svelte'
 	import BarChartComponent from '../components/dataDisplay/AppBarChart.svelte'
 	import DisplayComponent from '../components/DisplayComponent.svelte'
-	import TableComponent from '../components/dataDisplay/AppTable.svelte'
+	import TableComponent from '../components/table/AppTable.svelte'
 	import TextComponent from '../components/dataDisplay/AppText.svelte'
 	import type { AppComponent, AppEditorContext } from '../types'
 	import ButtonComponent from '../components/buttons/AppButton.svelte'
