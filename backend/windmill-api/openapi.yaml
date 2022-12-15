@@ -4154,6 +4154,8 @@ components:
           enum: [python3, deno, go, bash]
         email:
           type: string
+        visible_to_owner:
+          type: boolean
       required:
         - id
         - running
@@ -4162,6 +4164,7 @@ components:
         - permissioned_as
         - is_flow_step
         - email
+        - visible_to_owner
 
     CompletedJob:
       type: object

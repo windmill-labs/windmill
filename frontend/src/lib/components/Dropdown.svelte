@@ -29,8 +29,8 @@
 			{#if item.action}
 				<button
 					on:click={(event) => {
+						event.preventDefault()
 						if (!item.disabled) {
-							event.preventDefault()
 							close()
 							item.action && item.action(event)
 							dispatch('click', { item: item?.eventName })
@@ -56,12 +56,14 @@
 					{/if}
 					{item.displayName}
 				</button>
-			{:else if item.href}
+			{:else if item.href && !item.disabled}
 				<a
 					href={item.href}
-					on:click={() => {
+					on:click={(e) => {
 						if (!item.disabled) {
 							close()
+						} else {
+							e.preventDefault()
 						}
 					}}
 					class="block w-full px-4 py-2 text-sm text-gray-700 hover:drop-shadow-sm hover:bg-gray-50 hover:bg-opacity-30"
@@ -81,11 +83,20 @@
 				</a>
 			{:else}
 				<span
-					class="block  px-4 py-2 text-sm text-gray-700"
+					class:bg-gray-50={item.disabled}
+					class="block  px-4 py-2 text-sm text-gray-700 cursor-auto"
 					role="menuitem"
 					tabindex="-1"
 					id="user-menu-item-{name}-{i}}"
+					on:click|preventDefault
 				>
+					{#if item.icon}
+						<Icon
+							data={item.icon}
+							scale={0.6}
+							class="inline mr-2 {item.type == 'delete' ? 'text-red-500' : 'text-gray-700'}"
+						/>
+					{/if}
 					{item.displayName}
 				</span>
 			{/if}

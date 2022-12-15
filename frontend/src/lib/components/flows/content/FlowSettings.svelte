@@ -55,22 +55,11 @@
 									class="text-sm"
 									id="inp"
 									bind:value={$flowStore.description}
-									placeholder="A description to help users understand what this flow does and how to use it. Markdown accepted."
+									placeholder="A description to help users understand what this flow does and how to use it."
 									rows="3"
 								/>
 							</span>
 						</label>
-
-						<div>
-							<div class="font-bold pb-1 mt-4">Description preview</div>
-							{#if $flowStore.description}
-								<div class="prose max-h-48 mt-5 text-xs shadow-inner shadow-blue p-4 overflow-auto">
-									{$flowStore.description}
-								</div>
-							{:else}
-								<div class="text-sm text-gray-500"> Enter a description to see the preview </div>
-							{/if}
-						</div>
 					</TabContent>
 					<TabContent value="schedule" class="p-4">
 						<Alert type="info" title="Primary Schedule">
