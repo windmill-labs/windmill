@@ -106,7 +106,10 @@
 		on:click={() => {
 			const name = inlineScriptEditorDrawer.createScript()
 			inlineScriptEditorDrawer.openDrawer(name)
-			pickInlineScript(name)
+
+			setTimeout(() => {
+				pickInlineScript(name)
+			})
 		}}
 		size="sm"
 		color="light"

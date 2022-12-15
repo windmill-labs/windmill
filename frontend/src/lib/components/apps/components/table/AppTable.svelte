@@ -148,7 +148,7 @@
 							{/each}
 
 							{#if actionButtons.length > 0}
-								<td>
+								<td class="flex flex-row gap-2 p-4">
 									{#each actionButtons as props}
 										<AppButton
 											{...props}
