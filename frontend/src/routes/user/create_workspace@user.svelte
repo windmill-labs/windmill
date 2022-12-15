@@ -123,14 +123,16 @@
 		options={{ right: `Auto invite users with the same domain (${domain})` }}
 	/>
 	{#if auto_invite}
-		<Toggle
-			bind:checked={operatorOnly}
-			options={{ right: `Auto invited users to join as operators` }}
-		/>
-		<Tooltip
-			>An operator can only execute and view scripts/flows/apps from your workspace, and only those
-			that he has visibility on</Tooltip
-		>
+		<div class="flex items-center gap-1">
+			<Toggle
+				bind:checked={operatorOnly}
+				options={{ right: `Auto invited users to join as operators` }}
+			/>
+			<Tooltip
+				>An operator can only execute and view scripts/flows/apps from your workspace, and only
+				those that he has visibility on</Tooltip
+			>
+		</div>
 	{/if}
 	{#if !isDomainAllowed}
 		<div class="text-gray-600 text-sm mb-4 mt-2">{domain} domain not allowed for auto-invite</div>
