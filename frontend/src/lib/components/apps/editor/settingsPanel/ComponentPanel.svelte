@@ -5,6 +5,7 @@
 		faArrowRight,
 		faClose,
 		faCode,
+		faEdit,
 		faMinimize,
 		faPen,
 		faTrashAlt
@@ -32,11 +33,13 @@
 	import RunnableSelector from './mainInput/RunnableSelector.svelte'
 	import gridHelp from 'svelte-grid/build/helper/index.mjs'
 	import { gridColumns } from '../../gridUtils'
+	import InlineScriptEditorDrawer from '../inlineScriptsPanel/InlineScriptEditorDrawer.svelte'
+	import { faEdge } from '@fortawesome/free-brands-svg-icons'
 
 	export let component: AppComponent | undefined
 	export let onDelete: (() => void) | undefined = undefined
 
-	const { app, staticOutputs, runnableComponents } =
+	const { app, staticOutputs, runnableComponents, appPath } =
 		getContext<AppEditorContext>('AppEditorContext')
 
 	function removeGridElement() {
@@ -66,9 +69,12 @@
 			}
 		}
 	}
+	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
 </script>
 
 {#if component}
+	<InlineScriptEditorDrawer bind:this={inlineScriptEditorDrawer} />
+
 	<div class="flex flex-col w-full divide-y">
 		{#if component.componentInput}
 			<PanelSection
@@ -122,31 +128,53 @@
 						<ConnectedInputEditor bind:componentInput={component.componentInput} />
 					{:else if component && component.componentInput?.type === 'runnable' && component.componentInput.runnable}
 						<div class="flex justify-between w-full items-center">
-							<span class="text-xs">
+							<span class="text-xs font-semibold">
 								{component.componentInput.runnable.type === 'runnableByName'
 									? component.componentInput.runnable.inlineScriptName
 									: component.componentInput.runnable.path}
 							</span>
-							<Button
-								size="xs"
-								color="red"
-								variant="border"
-								startIcon={{ icon: faClose }}
-								on:click={() => {
-									if (component?.componentInput?.type === 'runnable') {
-										component.componentInput.runnable = undefined
-										component.componentInput.fields = {}
-										component = component
-									}
-								}}
-							>
-								Clear
-							</Button>
+							<div>
+								<Button
+									size="xs"
+									color="light"
+									variant="border"
+									startIcon={{ icon: faEdit }}
+									on:click={() => {
+										if (
+											component?.componentInput?.type === 'runnable' &&
+											component?.componentInput?.runnable?.type === 'runnableByName' &&
+											component?.componentInput?.runnable.inlineScriptName
+										) {
+											inlineScriptEditorDrawer.openDrawer(
+												component.componentInput.runnable.inlineScriptName
+											)
+										}
+									}}
+								>
+									Edit
+								</Button>
+								<Button
+									size="xs"
+									color="red"
+									variant="border"
+									startIcon={{ icon: faClose }}
+									on:click={() => {
+										if (component?.componentInput?.type === 'runnable') {
+											component.componentInput.runnable = undefined
+											component.componentInput.fields = {}
+											component = component
+										}
+									}}
+								>
+									Clear
+								</Button>
+							</div>
 						</div>
 					{:else}
 						<RunnableSelector
 							inlineScripts={Object.keys($app.inlineScripts)}
 							bind:componentInput={component.componentInput}
+							{inlineScriptEditorDrawer}
 						/>
 					{/if}
 				</div>

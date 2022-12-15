@@ -7,12 +7,13 @@
 	import type { AppInput } from '$lib/components/apps/inputType'
 	import WorkspaceScriptList from './WorkspaceScriptList.svelte'
 	import WorkspaceFlowList from './WorkspaceFlowList.svelte'
+	import InlineScriptEditorDrawer from '../../inlineScriptsPanel/InlineScriptEditorDrawer.svelte'
 
 	type Tab = 'hubscripts' | 'workspacescripts' | 'workspaceflows' | 'inlinescripts'
 
 	export let inlineScripts: string[]
-
 	export let componentInput: AppInput
+
 	let tab: Tab = 'inlinescripts'
 	let filter: string = ''
 
@@ -46,6 +47,8 @@
 			}
 		}
 	}
+
+	export let inlineScriptEditorDrawer: InlineScriptEditorDrawer
 </script>
 
 <Drawer bind:this={picker} size="1000px">
@@ -97,9 +100,14 @@
 	</DrawerContent>
 </Drawer>
 
+<InlineScriptEditorDrawer bind:this={inlineScriptEditorDrawer} />
 <div class="flex flex-row gap-2 justify-between">
 	<Button
-		on:click={() => picker?.openDrawer()}
+		on:click={() => {
+			const name = inlineScriptEditorDrawer.createScript()
+			inlineScriptEditorDrawer.openDrawer(name)
+			pickInlineScript(name)
+		}}
 		size="sm"
 		color="light"
 		variant="border"

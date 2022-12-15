@@ -55,7 +55,8 @@
 		mode,
 		connectingInput,
 		breakpoint,
-		runnableComponents
+		runnableComponents,
+		appPath: path
 	})
 
 	let mounted = false
@@ -67,7 +68,6 @@
 	$: mounted && ($worldStore = buildWorld($staticOutputs))
 	$: selectedTab = $selectedComponent ? 'settings' : 'insert'
 	$: previewing = $mode === 'preview'
-
 	$: width = $breakpoint === 'sm' ? 'w-[640px]' : 'min-w-[900px] w-full'
 </script>
 
@@ -81,7 +81,7 @@
 	{:else}
 		<SplitPanesWrapper class="max-w-full overflow-hidden">
 			<Pane size={20}>
-				<ContextPanel appPath={path} />
+				<ContextPanel />
 			</Pane>
 			<Pane size={60}>
 				<SplitPanesWrapper horizontal>
@@ -100,7 +100,7 @@
 						</div>
 					</Pane>
 					<Pane size={25}>
-						<InlineScriptsPanel appPath={path} />
+						<InlineScriptsPanel />
 					</Pane>
 				</SplitPanesWrapper>
 			</Pane>
