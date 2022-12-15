@@ -51,8 +51,7 @@ const inputs: ComponentSet = {
 			card: false
 		},
 		{
-			horizontalAlignment: 'center',
-			verticalAlignment: 'top',
+			...defaultAlignement,
 			id: 'selectcomponent',
 			type: 'selectcomponent',
 			componentInput: undefined,
