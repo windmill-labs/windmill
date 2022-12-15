@@ -2,7 +2,6 @@
 	import { page } from '$app/stores'
 	import type { Schema } from '$lib/common'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
-	import Button from '$lib/components/common/button/Button.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import { AppService, type CompletedJob } from '$lib/gen'
@@ -38,8 +37,6 @@
 	let runnableInputValues: Record<string, any> = {}
 
 	$: mergedArgs = { ...args, ...extraQueryParams, ...runnableInputValues }
-
-	$: console.log({ mergedArgs })
 
 	function setStaticInputsToArgs() {
 		Object.entries(inputs ?? {}).forEach(([key, value]) => {

@@ -59,6 +59,7 @@
 	})
 
 	let mounted = false
+
 	onMount(() => {
 		mounted = true
 	})
