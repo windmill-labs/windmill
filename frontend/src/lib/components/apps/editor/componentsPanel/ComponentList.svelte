@@ -19,7 +19,7 @@
 		// Dimensions key formula: <mobile width>:<mobile height>-<desktop width>:<desktop height>
 		const dimensions: Record<`${number}:${number}-${number}:${number}`, AppComponent['type'][]> = {
 			'1:1-3:1': [ 'buttoncomponent', 'textcomponent', 'checkboxcomponent' ],
-			'1:2-3:2': [ 'textinputcomponent', 'numberinputcomponent', 'selectcomponent' ],
+			'1:2-3:2': [ 'textinputcomponent', 'numberinputcomponent', 'selectcomponent', 'passwordinputcomponent', 'dateinputcomponent' ],
 			'2:2-6:4': [ 'displaycomponent' ],
 			'2:3-6:4': [ 'formcomponent' ],
 			'2:4-6:4': [ 'barchartcomponent', 'piechartcomponent' ],
@@ -27,8 +27,8 @@
 		}
 		// Finds the key that is associated with the component type and extracts the dimensions from it
 		const [dimension] = Object.entries(dimensions).find(([_, value]) => value.includes(componentType)) || ['2:1-2:1']
-		const size = dimension.split('-')[column === 3 ? 0 : 1].split(':')
-		return { w: +size[0], h: +size[1] }
+		const [width, height] = dimension.split('-')[column === 3 ? 0 : 1].split(':')
+		return { w: +width, h: +height }
 	}
 
 	function addComponent(appComponent: AppComponent) {

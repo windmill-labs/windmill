@@ -76,7 +76,8 @@ const inputs: ComponentSet = {
 					defaultValue: ''
 				},
 			},
-			card: false
+			card: false,
+			softWrap: true
 		},
 		{
 			...defaultAlignement,
