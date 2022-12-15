@@ -176,14 +176,16 @@
 			<TableActions bind:components={component.actionButtons} />
 		{/if}
 
-		{#if component.verticalAlignment !== undefined}
+		{#if component.verticalAlignment !== undefined || component.horizontalAlignment !== undefined}
 			<PanelSection title="Alignment">
 				<svelte:fragment slot="action">
 					<Button
 						size="xs"
 						on:click={() => {
-							if (component) {
+							if (component?.verticalAlignment) {
 								component.verticalAlignment = 'center'
+							}
+							if (component?.horizontalAlignment) {
 								component.horizontalAlignment = 'center'
 							}
 						}}
@@ -192,22 +194,24 @@
 						Center
 					</Button>
 				</svelte:fragment>
-				<div class="w-full text-xs font-semibold">Horizontal alignment</div>
 
-				<div class="w-full">
-					<ToggleButtonGroup bind:selected={component.horizontalAlignment}>
-						<ToggleButton position="left" value="left" size="xs">
-							<AlignStartVertical size={16} />
-						</ToggleButton>
-						<ToggleButton position="center" value="center" size="xs">
-							<AlignCenterVertical size={16} />
-						</ToggleButton>
-						<ToggleButton position="right" value="right" size="xs">
-							<AlignEndVertical size={16} />
-						</ToggleButton>
-					</ToggleButtonGroup>
-				</div>
-				{#if component.type !== 'formcomponent'}
+				{#if component.horizontalAlignment !== undefined}
+					<div class="w-full text-xs font-semibold">Horizontal alignment</div>
+					<div class="w-full">
+						<ToggleButtonGroup bind:selected={component.horizontalAlignment}>
+							<ToggleButton position="left" value="left" size="xs">
+								<AlignStartVertical size={16} />
+							</ToggleButton>
+							<ToggleButton position="center" value="center" size="xs">
+								<AlignCenterVertical size={16} />
+							</ToggleButton>
+							<ToggleButton position="right" value="right" size="xs">
+								<AlignEndVertical size={16} />
+							</ToggleButton>
+						</ToggleButtonGroup>
+					</div>
+				{/if}
+				{#if component.verticalAlignment !== undefined}
 					<div class="w-full text-xs font-semibold">Vertical alignment</div>
 					<div class="w-full">
 						<ToggleButtonGroup bind:selected={component.verticalAlignment}>

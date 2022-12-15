@@ -4,10 +4,13 @@
 	import type { Output } from '../../rx'
 	import type { AppEditorContext } from '../../types'
 	import DebouncedInput from '../helpers/DebouncedInput.svelte'
+	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 
 	export let id: string
 	export let configuration: Record<string, AppInput>
+	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
+	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export const staticOutputs: string[] = ['result']
 
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
@@ -29,17 +32,19 @@
 
 <InputValue input={configuration.label} bind:value={labelValue} />
 
-<!-- svelte-ignore a11y-label-has-associated-control -->
-<label>
-	<div>
-		{labelValue}
-	</div>
-	<DebouncedInput
-		bind:value={value}
-		debounceDelay={300}
-		type="number"
-		inputmode="numeric"
-		pattern="\d*"
-		placeholder="Type..."
-	/>
-</label>
+<AlignWrapper {horizontalAlignment} {verticalAlignment}>
+	<!-- svelte-ignore a11y-label-has-associated-control -->
+	<label class="w-full">
+		<div>
+			{labelValue}
+		</div>
+		<DebouncedInput
+			bind:value={value}
+			debounceDelay={300}
+			type="number"
+			inputmode="numeric"
+			pattern="\d*"
+			placeholder="Type..."
+		/>
+	</label>
+</AlignWrapper>

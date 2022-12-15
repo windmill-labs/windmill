@@ -5,6 +5,7 @@ const inputs: ComponentSet = {
 	title: 'Inputs',
 	components: [
 		{
+			verticalAlignment: 'center',
 			id: 'textinputcomponent',
 			type: 'textinputcomponent',
 			componentInput: undefined,
@@ -20,6 +21,7 @@ const inputs: ComponentSet = {
 			card: false
 		},
 		{
+			...defaultAlignement,
 			id: 'passwordinputcomponent',
 			type: 'passwordinputcomponent',
 			componentInput: undefined,
@@ -35,6 +37,7 @@ const inputs: ComponentSet = {
 			card: false
 		},
 		{
+			...defaultAlignement,
 			id: 'numberinputcomponent',
 			type: 'numberinputcomponent',
 			componentInput: undefined,
@@ -50,6 +53,7 @@ const inputs: ComponentSet = {
 			card: false
 		},
 		{
+			...defaultAlignement,
 			id: 'dateinputcomponent',
 			type: 'dateinputcomponent',
 			componentInput: undefined,
@@ -177,7 +181,7 @@ const buttons: ComponentSet = {
 			card: false
 		},
 		{
-			...defaultAlignement,
+			horizontalAlignment: 'center',
 			id: 'formcomponent',
 			type: 'formcomponent',
 			componentInput: {
