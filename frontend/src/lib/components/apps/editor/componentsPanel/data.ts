@@ -55,12 +55,7 @@ const inputs: ComponentSet = {
 			verticalAlignment: 'top',
 			id: 'selectcomponent',
 			type: 'selectcomponent',
-			componentInput: {
-				type: 'static',
-				fieldType: 'text',
-				defaultValue: 'Foo',
-				value: undefined
-			},
+			componentInput: undefined,
 			configuration: {
 				label: {
 					type: 'static',
@@ -89,7 +84,8 @@ const inputs: ComponentSet = {
 					value: 'value'
 				}
 			},
-			card: false
+			card: false,
+			softWrap: true
 		}
 	]
 }

@@ -14,7 +14,6 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
-	let value
 	let label: string
 	let items: string[]
 	let itemKey: string
@@ -39,13 +38,15 @@
 		<div>
 			{label}
 		</div>
-		<Select
-			on:clear={onChange}
-			on:change={onChange}
+		<div>
+			<Select
+				on:clear={onChange}
+				on:change={onChange}
 			
-			{items}
-			class="w-full"
-			placeholder="Select an item"
-		/>
+				{items}
+				class="w-full"
+				placeholder="Select an item"
+			/>
+		</div>
 	</label>
 </AlignWrapper>

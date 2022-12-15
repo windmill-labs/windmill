@@ -53,6 +53,12 @@ export interface BaseAppComponent extends Partial<Aligned> {
 	componentInput: AppInput | undefined
 	configuration: Record<string, StaticAppInput | ConnectedAppInput | UserAppInput>
 	card: boolean | undefined
+	/** 
+	 * If `true` then the wrapper will allow items to flow outside of it's borders.
+	 * 
+	 * *For example when the component has a popup like `Select`*
+	 */
+	softWrap?: boolean
 	// TODO: add min/max width/height
 }
 
