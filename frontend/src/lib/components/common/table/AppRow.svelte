@@ -2,7 +2,7 @@
 	import Dropdown from '$lib/components/Dropdown.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import { AppService, type ListableApp } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { faEdit, faEye, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import Button from '../button/Button.svelte'
@@ -32,18 +32,20 @@
 	</svelte:fragment>
 	<svelte:fragment slot="actions">
 		<span class="hidden md:inline-flex gap-x-1">
-			{#if canWrite}
-				<div>
-					<Button
-						color="light"
-						size="xs"
-						variant="border"
-						startIcon={{ icon: faEdit }}
-						href="/apps/edit/{path}"
-					>
-						Edit
-					</Button>
-				</div>
+			{#if !$userStore?.operator}
+				{#if canWrite}
+					<div>
+						<Button
+							color="light"
+							size="xs"
+							variant="border"
+							startIcon={{ icon: faEdit }}
+							href="/apps/edit/{path}"
+						>
+							Edit
+						</Button>
+					</div>
+				{/if}
 			{/if}
 			<Button
 				href="/apps/get/{path}"

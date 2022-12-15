@@ -55,7 +55,8 @@
 			return {
 				canWrite:
 					canWrite(script.path, script.extra_perms, $userStore) &&
-					script.workspace_id == $workspaceStore,
+					script.workspace_id == $workspaceStore &&
+					!$userStore?.operator,
 				...script
 			}
 		})
@@ -66,7 +67,10 @@
 	async function loadFlows(): Promise<void> {
 		flows = (await FlowService.listFlows({ workspace: $workspaceStore! })).map((x: Flow) => {
 			return {
-				canWrite: canWrite(x.path, x.extra_perms, $userStore) && x.workspace_id == $workspaceStore,
+				canWrite:
+					canWrite(x.path, x.extra_perms, $userStore) &&
+					x.workspace_id == $workspaceStore &&
+					!$userStore?.operator,
 				...x
 			}
 		})
@@ -77,7 +81,9 @@
 		apps = (await AppService.listApps({ workspace: $workspaceStore! })).map((app: ListableApp) => {
 			return {
 				canWrite:
-					canWrite(app.path!, app.extra_perms!, $userStore) && app.workspace_id == $workspaceStore,
+					canWrite(app.path!, app.extra_perms!, $userStore) &&
+					app.workspace_id == $workspaceStore &&
+					!$userStore?.operator,
 				...app
 			}
 		})

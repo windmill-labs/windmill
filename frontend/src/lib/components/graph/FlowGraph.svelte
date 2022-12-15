@@ -1,5 +1,6 @@
 <script lang="ts">
-	import Svelvet, { type Edge } from 'svelvet'
+	import Svelvet from '@windmill-labs/svelvet'
+
 	import { sugiyama, dagStratify, decrossOpt, coordCenter } from 'd3-dag'
 	import { type FlowModule, FlowStatusModule, type ForloopFlow, RawScript } from '../../gen'
 	import {
@@ -14,7 +15,8 @@
 		type Branch,
 		type NestedNodes,
 		type ModuleHost,
-		type GraphModuleState
+		type GraphModuleState,
+		type Edge
 	} from '.'
 	import { defaultIfEmptyString, truncateRev } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
@@ -275,7 +277,7 @@
 		loop.items.push(
 			createVirtualNode(
 				getParentIds(loop.items),
-				`Collect iterations' results of For Loop ${module.id}`,
+				`Collect iterations' results of For Loop ${module.id ?? ''}`,
 				undefined,
 				1000
 			)

@@ -42,10 +42,8 @@ def main(no_default: str,
     # the return value is then parsed and can be retrieved by other scripts conveniently
     return {"splitted": name.split(), "user": user, "state": new_state}
 `
-export const DENO_INIT_CODE = `// reload the smart assistant on the top right if it dies to get autocompletion and syntax highlighting
-// (Ctrl+space to cache dependencies on imports hover, Ctrl+S to autoformat and parse parameters).
+export const DENO_INIT_CODE = `// Ctrl+space to cache dependencies on imports hover, Ctrl+S to format.
 
-// you can use npm imports directly
 // import { toWords } from "npm:number-to-words@1"
 // import * as wmill from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts"
 

@@ -8,6 +8,7 @@
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { Button } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	const rd = $page.url.searchParams.get('rd')
 
@@ -45,10 +46,10 @@
 		if (auto_invite) {
 			await WorkspaceService.editAutoInvite({
 				workspace: id,
-				requestBody: { set: true }
+				requestBody: { operator: operatorOnly }
 			})
 		}
-		sendUserToast(`Successfully created workspace id: ${id}`)
+		sendUserToast(`Created workspace id: ${id}`)
 
 		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
 		workspaceStore.set(id)
@@ -94,6 +95,7 @@
 	$: domain = $usersWorkspaceStore?.email.split('@')[1]
 
 	let auto_invite = false
+	let operatorOnly = false
 </script>
 
 <CenteredModal title="New Workspace">
@@ -120,6 +122,16 @@
 		bind:checked={auto_invite}
 		options={{ right: `Auto invite users with the same domain (${domain})` }}
 	/>
+	{#if auto_invite}
+		<Toggle
+			bind:checked={operatorOnly}
+			options={{ right: `Auto invited users to join as operators` }}
+		/>
+		<Tooltip
+			>An operator can only execute and view scripts/flows/apps from your workspace, and only those
+			that he has visibility on</Tooltip
+		>
+	{/if}
 	{#if !isDomainAllowed}
 		<div class="text-gray-600 text-sm mb-4 mt-2">{domain} domain not allowed for auto-invite</div>
 	{/if}

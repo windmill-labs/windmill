@@ -1,5 +1,19 @@
 {
   "db": "PostgreSQL",
+  "006f03e979abdf8055b1c598bc9806337216a6abf74db4eb64b0acb918a0de08": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Bool",
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE usr SET disabled = $1 WHERE username = $2 AND workspace_id = $3"
+  },
   "0355b53b1d45955ca56b2829372ce9c656d7f0ad7b8d0709161047f0d8cdc4f4": {
     "describe": {
       "columns": [
@@ -176,20 +190,6 @@
     },
     "query": "SELECT flow_status FROM queue WHERE id = $1 AND workspace_id = $2"
   },
-  "0a76ed47629cac693ba7f169a1229b62bd900bc007a63fbae3fa7374ba66df65": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Varchar",
-          "Bool"
-        ]
-      }
-    },
-    "query": "INSERT INTO workspace_invite\n            (workspace_id, email, is_admin)\n            VALUES ($1, $2, $3)"
-  },
   "0a9a191273c735c41d56ea46a39ffca075a0550eada87df7162c5037164ad6bf": {
     "describe": {
       "columns": [],
@@ -204,20 +204,20 @@
     },
     "query": "\n       INSERT INTO capture\n                   (workspace_id, path, created_by)\n            VALUES ($1, $2, $3)\n       ON CONFLICT (workspace_id, path)\n     DO UPDATE SET created_at = now()\n        "
   },
-  "0ae9160591ae00117d20a616cfe07e38f0c32953c7e881e916c389255190b72d": {
+  "0c5faa1e3233ca15240f80c9ba805f839d9f1f7450d1ea1f2b8e9faf8533892d": {
     "describe": {
       "columns": [],
       "nullable": [],
       "parameters": {
         "Left": [
-          "Varchar",
-          "Varchar",
-          "Varchar",
+          "Text",
+          "Text",
+          "Bool",
           "Bool"
         ]
       }
     },
-    "query": "INSERT INTO usr\n            (workspace_id, email, username, is_admin)\n            VALUES ($1, $2, $3, $4)"
+    "query": "DELETE FROM workspace_invite WHERE\n        workspace_id = $1 AND email = $2 AND is_admin = $3 AND operator = $4"
   },
   "0d6412bc3ebb1d58bdd9cbcef774dacf9016fa402af5c1b4e339b9a3d7163d5e": {
     "describe": {
@@ -404,6 +404,11 @@
           "name": "auto_invite_domain",
           "ordinal": 5,
           "type_info": "Varchar"
+        },
+        {
+          "name": "auto_invite_operator",
+          "ordinal": 6,
+          "type_info": "Bool"
         }
       ],
       "nullable": [
@@ -412,6 +417,7 @@
         true,
         true,
         false,
+        true,
         true
       ],
       "parameters": {
@@ -460,9 +466,15 @@
           "name": "is_admin",
           "ordinal": 2,
           "type_info": "Bool"
+        },
+        {
+          "name": "operator",
+          "ordinal": 3,
+          "type_info": "Bool"
         }
       ],
       "nullable": [
+        false,
         false,
         false,
         false
@@ -841,33 +853,6 @@
     },
     "query": "SELECT flow_status, parent_job FROM completed_job WHERE id = $1 AND workspace_id = $2 UNION ALL SELECT flow_status, parent_job FROM queue WHERE id = $1 AND workspace_id = $2 "
   },
-  "2bf44d998d7acd17ec6d98f81395f8bdac49f58880fbbb9350bf0142cd2efdc7": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Text",
-          "Bool"
-        ]
-      }
-    },
-    "query": "DELETE FROM workspace_invite WHERE\n        workspace_id = $1 AND email = $2 AND is_admin = $3"
-  },
-  "2c6c2358fc24d92db179306a0f18a83d71bf15d8dc76502c451634dff35715a6": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Varchar"
-        ]
-      }
-    },
-    "query": "INSERT INTO workspace_invite\n                (workspace_id, email, is_admin)\n                VALUES ($1, $2, false)\n                ON CONFLICT DO NOTHING"
-  },
   "2e11e3ef361c41e6e055dd4805cb9d5e45eaa486e35fc5f01dae311189d6800f": {
     "describe": {
       "columns": [
@@ -932,6 +917,22 @@
       }
     },
     "query": "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3"
+  },
+  "31a6e8a73fa568e28b8ca6e35a38b663e0b07d15a212b81883ad9c327d99a7c4": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Varchar",
+          "Bool",
+          "Bool"
+        ]
+      }
+    },
+    "query": "INSERT INTO usr\n            (workspace_id, email, username, is_admin, operator)\n            VALUES ($1, $2, $3, $4, $5)"
   },
   "355dcb2cbebd13f0e3bdd4929b9e431b0e6d72716d1c4f9ab6af6adce5b5e4b3": {
     "describe": {
@@ -1173,27 +1174,6 @@
       }
     },
     "query": "UPDATE variable SET path = $1 WHERE path = $2 AND workspace_id = $3"
-  },
-  "4ad5fa2f08236507aad911a95697e84fc0c3a274ba0e928da28c4d146cf8f1a8": {
-    "describe": {
-      "columns": [
-        {
-          "name": "is_admin",
-          "ordinal": 0,
-          "type_info": "Bool"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT is_admin FROM usr where username = $1 AND workspace_id = $2"
   },
   "4de3ba6930b91c639f9f3939dab7b3ab35aa792484e4ccb8084c336a2ec60f45": {
     "describe": {
@@ -1467,6 +1447,11 @@
           "name": "auto_invite_domain",
           "ordinal": 5,
           "type_info": "Varchar"
+        },
+        {
+          "name": "auto_invite_operator",
+          "ordinal": 6,
+          "type_info": "Bool"
         }
       ],
       "nullable": [
@@ -1475,6 +1460,7 @@
         true,
         true,
         false,
+        true,
         true
       ],
       "parameters": {
@@ -1655,6 +1641,18 @@
       }
     },
     "query": "DELETE FROM group_ WHERE name = $1 AND workspace_id = $2"
+  },
+  "5c377fffc224a06f693c125f4c13b0a9ccfc217190ba6cf78246294bbc6c93bc": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE workspace_settings SET auto_invite_domain = NULL, auto_invite_operator = NULL WHERE workspace_id = $1"
   },
   "5fee34ce48f01bb55707227548ea4d1e77ba75abfae412a902b1d8d6a1963725": {
     "describe": {
@@ -2079,6 +2077,72 @@
     },
     "query": "SELECT email, login_type::text, verified, super_admin, name, company from password LIMIT $1 OFFSET $2"
   },
+  "77c3915246e37ae158d0c600e2402b93ce4fb1179d034daf231e00797e214207": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Uuid",
+          "Uuid",
+          "Varchar",
+          "Timestamptz",
+          "Timestamptz",
+          "Bool",
+          "Int8",
+          "Varchar",
+          "Jsonb",
+          "Jsonb",
+          "Text",
+          "Text",
+          "Text",
+          "Bool",
+          "Varchar",
+          "Text",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "script",
+                  "preview",
+                  "flow",
+                  "dependencies",
+                  "flowpreview",
+                  "script_hub",
+                  "identity",
+                  "flowdependencies"
+                ]
+              },
+              "name": "job_kind"
+            }
+          },
+          "Varchar",
+          "Varchar",
+          "Jsonb",
+          "Jsonb",
+          "Bool",
+          "Bool",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "python3",
+                  "deno",
+                  "go",
+                  "bash"
+                ]
+              },
+              "name": "script_lang"
+            }
+          },
+          "Numeric",
+          "Varchar"
+        ]
+      }
+    },
+    "query": "INSERT INTO completed_job AS cj\n                   ( workspace_id\n                   , id\n                   , parent_job\n                   , created_by\n                   , created_at\n                   , started_at\n                   , duration_ms\n                   , success\n                   , script_hash\n                   , script_path\n                   , args\n                   , result\n                   , logs\n                   , raw_code\n                   , raw_lock\n                   , canceled\n                   , canceled_by\n                   , canceled_reason\n                   , job_kind\n                   , schedule_path\n                   , permissioned_as\n                   , flow_status\n                   , raw_flow\n                   , is_flow_step\n                   , is_skipped\n                   , language\n                   , email )\n            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($26, EXTRACT(milliseconds FROM (now() - $6))), $7, $8, $9,$10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $27)\n         ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12)"
+  },
   "7a511ce8dbbf761423b527672ab02156aba5594623dc269992b34398673ca387": {
     "describe": {
       "columns": [
@@ -2110,19 +2174,6 @@
       }
     },
     "query": "INSERT INTO workspace_invite\n                (workspace_id, email, is_admin)\n                VALUES ('demo', $1, false)\n                ON CONFLICT DO NOTHING"
-  },
-  "7b0a6bf71751668eea56923f70e198c36386a82b8a8abbf4f55caeb0618478fe": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Text"
-        ]
-      }
-    },
-    "query": "UPDATE workspace_settings SET auto_invite_domain = $1 WHERE workspace_id = $2"
   },
   "7b1239ad6460e8f5fb41bfe12f662a779528784ec8cf3f6dcce5545ab90bf234": {
     "describe": {
@@ -2181,6 +2232,20 @@
       }
     },
     "query": "SELECT name FROM group_ WHERE workspace_id = $1 ORDER BY name desc"
+  },
+  "7fcffd77d0957cff4dff7aa822f7bcab9ec10563738e47ab02657baa9b29179d": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Bool"
+        ]
+      }
+    },
+    "query": "INSERT INTO workspace_invite\n                (workspace_id, email, is_admin, operator)\n                VALUES ($1, $2, false, $3)\n                ON CONFLICT DO NOTHING"
   },
   "808ff76fdb74482d5d3201417c8a2470e2867cb08b9a46d244653eb366d8ee5e": {
     "describe": {
@@ -2705,70 +2770,26 @@
     },
     "query": "SELECT email, login_type::TEXT, super_admin, verified, name, company FROM password WHERE email = $1"
   },
-  "90d477b39e9d2f439d378c21041af8bc7720cc21ae150a62ecaa6235142aea05": {
+  "924e1d5cbb682db0d6121dd911f38cf8948d0e59ca47428daa4f43fce686ba80": {
     "describe": {
-      "columns": [],
-      "nullable": [],
+      "columns": [
+        {
+          "name": "is_admin",
+          "ordinal": 0,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        false
+      ],
       "parameters": {
         "Left": [
-          "Varchar",
-          "Uuid",
-          "Uuid",
-          "Varchar",
-          "Timestamptz",
-          "Timestamptz",
-          "Bool",
-          "Int8",
-          "Varchar",
-          "Jsonb",
-          "Jsonb",
           "Text",
-          "Text",
-          "Text",
-          "Bool",
-          "Varchar",
-          "Text",
-          {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "script",
-                  "preview",
-                  "flow",
-                  "dependencies",
-                  "flowpreview",
-                  "script_hub",
-                  "identity",
-                  "flowdependencies"
-                ]
-              },
-              "name": "job_kind"
-            }
-          },
-          "Varchar",
-          "Varchar",
-          "Jsonb",
-          "Jsonb",
-          "Bool",
-          "Bool",
-          {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "python3",
-                  "deno",
-                  "go",
-                  "bash"
-                ]
-              },
-              "name": "script_lang"
-            }
-          },
-          "Numeric"
+          "Text"
         ]
       }
     },
-    "query": "INSERT INTO completed_job AS cj\n                   ( workspace_id\n                   , id\n                   , parent_job\n                   , created_by\n                   , created_at\n                   , started_at\n                   , duration_ms\n                   , success\n                   , script_hash\n                   , script_path\n                   , args\n                   , result\n                   , logs\n                   , raw_code\n                   , raw_lock\n                   , canceled\n                   , canceled_by\n                   , canceled_reason\n                   , job_kind\n                   , schedule_path\n                   , permissioned_as\n                   , flow_status\n                   , raw_flow\n                   , is_flow_step\n                   , is_skipped\n                   , language )\n            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($26, EXTRACT(milliseconds FROM (now() - $6))), $7, $8, $9,$10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)\n         ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12)"
+    "query": "SELECT is_admin FROM usr where username = $1 AND workspace_id = $2 AND disabled = false"
   },
   "9251404312374679a4be2f9def508fcadce446405e91d95100c3397ec26e5882": {
     "describe": {
@@ -2791,6 +2812,20 @@
       }
     },
     "query": "INSERT INTO app_version\n                (flow_id, value, created_by)\n                VALUES ($1, $2, $3) RETURNING id"
+  },
+  "930ad84a4db26fa6d2c8447d447099e944a0ea7b1266b4d02cee620fe3d761a5": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Bool",
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE workspace_settings SET auto_invite_domain = $1, auto_invite_operator = $2 WHERE workspace_id = $3"
   },
   "9490a4388f43e45e32911f1129e623f2d73ce2da7a948fe134bea1c87cdbefd1": {
     "describe": {
@@ -2948,6 +2983,32 @@
       }
     },
     "query": "DELETE FROM token WHERE token = $1 RETURNING email"
+  },
+  "9db64c9ff790d8c833c1e831a87803c32103ce9de68cc9c08d6f56cc988d7e37": {
+    "describe": {
+      "columns": [
+        {
+          "name": "workspace_id",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "auto_invite_operator",
+          "ordinal": 1,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT workspace_id, auto_invite_operator FROM workspace_settings WHERE auto_invite_domain = $1"
   },
   "9def921a0b697e4cbcb6ad88196ff6f66358f3b819aaf4e279596ccfc433fa92": {
     "describe": {
@@ -3375,9 +3436,15 @@
           "name": "is_admin",
           "ordinal": 2,
           "type_info": "Bool"
+        },
+        {
+          "name": "operator",
+          "ordinal": 3,
+          "type_info": "Bool"
         }
       ],
       "nullable": [
+        false,
         false,
         false,
         false
@@ -3597,6 +3664,21 @@
     },
     "query": "SELECT null FROM queue WHERE id = $1 FOR UPDATE"
   },
+  "be7a99a5bb6858323ca61dd51077010f51ba58ae76b9a413339255024dcb524d": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Bool",
+          "Bool"
+        ]
+      }
+    },
+    "query": "INSERT INTO workspace_invite\n            (workspace_id, email, is_admin, operator)\n            VALUES ($1, $2, $3, $4)"
+  },
   "bf1d8e043338867e1da1ed236ff6c85a566d5fd58d4b0d5c3a10454513811ba3": {
     "describe": {
       "columns": [],
@@ -3640,6 +3722,20 @@
       }
     },
     "query": "UPDATE flow SET path = $1, summary = $2, description = $3, value = $4, edited_by = $5, edited_at = now(), schema = $6, dependency_job = NULL WHERE path = $7 AND workspace_id = $8"
+  },
+  "c1149f74ef0cca4a48be80f523d339d78e8e20e2bfacac9ad1b6b75c5ae370fb": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Bool",
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE usr SET operator = $1 WHERE username = $2 AND workspace_id = $3"
   },
   "c2849e67b9fea0dc46e6d7000f5a0c9dab89ae80a183d9255f8fdb356b4bc61c": {
     "describe": {
@@ -3733,26 +3829,6 @@
       }
     },
     "query": "\n        INSERT INTO resume_job\n                    (id, resume_id, job, flow, value, approver)\n             VALUES ($1, $2, $3, $4, $5, $6)\n        "
-  },
-  "c5429cd91368fcdc4da65ef6d84b32b2726f5ea938bc53bf6ed63465bd0eb0f2": {
-    "describe": {
-      "columns": [
-        {
-          "name": "workspace_id",
-          "ordinal": 0,
-          "type_info": "Varchar"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT workspace_id FROM workspace_settings WHERE auto_invite_domain = $1"
   },
   "c59dd666b9a316c027e8c319b80ccbab3a220d93b64357981bd4a03324dad1d0": {
     "describe": {
@@ -3883,18 +3959,6 @@
     },
     "query": "UPDATE queue SET running = false WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 AND same_worker = false RETURNING id, workspace_id, last_ping"
   },
-  "ccb05bf4c0a0f297f75498a684673ae7e4f6ed47f7a8f5d7154e0e0350865d41": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Text"
-        ]
-      }
-    },
-    "query": "UPDATE workspace_settings SET auto_invite_domain = NULL WHERE workspace_id = $1"
-  },
   "d0308abac80575038203b60bb66d3b39b586939da0421a595e47c7a759616431": {
     "describe": {
       "columns": [],
@@ -3977,6 +4041,20 @@
       }
     },
     "query": "SELECT app.id, app.path, app.summary, app.versions, app.policy,\n        app.extra_perms, app_version.value, \n        app_version.created_at, app_version.created_by from app, app_version \n        WHERE app.path = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]"
+  },
+  "d4bf68b4c2bfd11db84787e41e92c13612fda7352e841f3cdef45ea762588f04": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text",
+          "Bool"
+        ]
+      }
+    },
+    "query": "INSERT INTO workspace_invite\n        (workspace_id, email, is_admin, operator)\n        SELECT $1::text, email, false, $3 FROM password WHERE email LIKE CONCAT('%', $2::text) AND NOT EXISTS (\n            SELECT 1 FROM usr WHERE workspace_id = $1::text AND email = password.email\n        )\n        ON CONFLICT DO NOTHING"
   },
   "d4eb7aea60894b65498144b9bf522beba612f36368d62fe4e94b5b9e26349d32": {
     "describe": {
@@ -4425,6 +4503,33 @@
     },
     "query": "INSERT INTO workspace_settings\n                (workspace_id, slack_team_id, slack_name, slack_email)\n                VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id) DO UPDATE SET slack_team_id = $2, slack_name = $3, slack_email = $4"
   },
+  "ec85a425f88044c6ed4f8fcea223c28eb9fb8c16c89a52d4c4552bd149badafa": {
+    "describe": {
+      "columns": [
+        {
+          "name": "is_admin",
+          "ordinal": 0,
+          "type_info": "Bool"
+        },
+        {
+          "name": "operator",
+          "ordinal": 1,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM workspace_invite WHERE workspace_id = $1 AND email = $2 RETURNING is_admin, operator"
+  },
   "ed400dbf4a1fa597bc984240cfe9069369a8a265b127116187d78c0ba93ae076": {
     "describe": {
       "columns": [
@@ -4823,18 +4928,5 @@
       }
     },
     "query": "UPDATE variable SET value = $1 WHERE workspace_id = $2 AND path = $3"
-  },
-  "fceeeaa8d3c97273c8e77b3badd9e7cf82deead59c0d0619e0c303ea665f7d72": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Text"
-        ]
-      }
-    },
-    "query": "INSERT INTO workspace_invite\n        (workspace_id, email, is_admin)\n        SELECT $1::text, email, false FROM password WHERE email LIKE CONCAT('%', $2::text) AND NOT EXISTS (\n            SELECT 1 FROM usr WHERE workspace_id = $1::text AND email = password.email\n        )\n        ON CONFLICT DO NOTHING"
   }
 }

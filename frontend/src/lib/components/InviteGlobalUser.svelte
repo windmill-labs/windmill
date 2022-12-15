@@ -31,7 +31,7 @@
 				company
 			}
 		})
-		sendUserToast(`Successfully added ${email}. Welcome to them!`)
+		sendUserToast(`Added ${email}`)
 		dispatch('new')
 	}
 </script>
@@ -39,7 +39,7 @@
 <div class="flex flex-row space-x-1">
 	<input type="email" on:keyup={handleKeyUp} placeholder="email" bind:value={email} />
 
-	<Toggle class="mx-2" bind:checked={is_super_admin} options={{ right: 'admin' }} />
+	<Toggle class="mx-2" bind:checked={is_super_admin} options={{ right: 'superadmin' }} />
 	<input on:keyup={handleKeyUp} type="password" placeholder="password" bind:value={password} />
 	<input type="text" on:keyup={handleKeyUp} placeholder="name" bind:value={name} />
 	<input type="text" on:keyup={handleKeyUp} placeholder="company" bind:value={company} />
