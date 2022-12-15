@@ -60,6 +60,10 @@
 
 	let ownerFilter: string | undefined = undefined
 
+	$: if ($workspaceStore) {
+		ownerFilter = undefined
+	}
+
 	$: preFilteredItems =
 		ownerFilter == undefined
 			? variables

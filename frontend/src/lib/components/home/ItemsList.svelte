@@ -129,6 +129,10 @@
 
 	let ownerFilter: string | undefined = undefined
 
+	$: if ($workspaceStore) {
+		ownerFilter = undefined
+	}
+
 	$: {
 		if (($userStore || $superadmin) && $workspaceStore) {
 			loadScripts()

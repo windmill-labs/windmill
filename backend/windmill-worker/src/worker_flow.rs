@@ -1241,6 +1241,7 @@ async fn push_next_flow_job(
             true,
             continue_on_same_worker,
             err,
+            flow_job.visible_to_owner,
         )
         .await?;
         tx = inner_tx;

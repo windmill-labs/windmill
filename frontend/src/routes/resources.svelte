@@ -89,6 +89,11 @@
 
 	let filter = ''
 	let ownerFilter: string | undefined = undefined
+
+	$: if ($workspaceStore) {
+		ownerFilter = undefined
+	}
+
 	let typeFilter: string | undefined = undefined
 
 	$: preFilteredItemsOwners =
