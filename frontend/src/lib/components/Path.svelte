@@ -17,11 +17,7 @@
 	import Popover from './Popover.svelte'
 
 	type PathKind = 'resource' | 'script' | 'variable' | 'flow' | 'schedule' | 'app'
-	export let meta: Meta = {
-		ownerKind: 'user',
-		owner: '',
-		name: ''
-	}
+	let meta: Meta | undefined = undefined
 	export let namePlaceholder = ''
 	export let initialPath: string
 	export let path = ''
@@ -36,14 +32,17 @@
 
 	let groups: Group[] = []
 
-	$: path = metaToPath(meta)
+	$: meta && onMetaChange()
+
+	function onMetaChange() {
+		if (meta) {
+			path = metaToPath(meta)
+			validate(meta, path, kind)
+		}
+	}
 
 	function metaToPath(meta: Meta): string {
 		return [meta.ownerKind === 'group' ? 'g' : 'u', meta.owner, meta.name].join('/')
-	}
-
-	export function getPath() {
-		return path
 	}
 
 	export function focus() {
@@ -61,31 +60,25 @@
 
 	export async function reset() {
 		if (path == '' || path == 'u//') {
-			meta.ownerKind = 'user'
+			meta = { ownerKind: 'user', name: namePlaceholder, owner: '' }
 
 			while ($userStore == undefined) {
 				await sleep(500)
 			}
 			meta.owner = $userStore!.username
-			meta.name = namePlaceholder
+
 			let i = 1
 			while (await pathExists(metaToPath(meta), kind)) {
 				meta.name = `${namePlaceholder}_${i}`
 				i += 1
-				if (initialPath && initialPath != '') {
-					meta = pathToMeta(initialPath)
-				}
 			}
 		} else {
 			meta = pathToMeta(path)
 		}
 	}
 
-	$: validate(meta, path, kind)
-
 	async function loadGroups(): Promise<void> {
 		groups = await GroupService.listGroups({ workspace: $workspaceStore! })
-		meta.owner = meta.owner
 	}
 
 	async function validate(meta: Meta, path: string, kind: PathKind) {
@@ -102,7 +95,7 @@
 		validateTimeout = setTimeout(async () => {
 			if ((path == '' || path != initialPath) && (await pathExists(path, kind))) {
 				error = 'path already used'
-			} else if (validateName(meta)) {
+			} else if (meta && validateName(meta)) {
 				error = ''
 			}
 			validateTimeout = undefined
@@ -149,89 +142,97 @@
 	$: {
 		if ($workspaceStore) {
 			loadGroups()
+			initPath()
 		}
 	}
 
-	$: {
+	function initPath() {
 		if (initialPath == undefined || initialPath == '') {
 			reset()
 		} else {
 			meta = pathToMeta(initialPath)
+			onMetaChange()
+			path = initialPath
 		}
 	}
 </script>
 
 <div>
 	<div class="flex flex-col sm:grid sm:grid-cols-4 sm:gap-4 pb-0 mb-1">
-		<label class="block">
-			<span class="text-gray-700 text-sm whitespace-nowrap">
-				<Popover
-					>Owner Kind
-					<span slot="text"
-						>Select the group <span class="font-mono">all</span>
-						to share it with all workspace users, and <span class="font-mono">user</span> to keep it
-						private.
-						<a href="https://docs.windmill.dev/docs/reference/namespaces">docs</a>
-					</span>
-				</Popover>
-			</span>
+		{#if meta != undefined}
+			<label class="block">
+				<span class="text-gray-700 text-sm whitespace-nowrap">
+					<Popover
+						>Owner Kind
+						<span slot="text"
+							>Select the group <span class="font-mono">all</span>
+							to share it with all workspace users, and <span class="font-mono">user</span> to keep
+							it private.
+							<a href="https://docs.windmill.dev/docs/reference/namespaces">docs</a>
+						</span>
+					</Popover>
+				</span>
 
-			<select
-				{disabled}
-				bind:value={meta.ownerKind}
-				on:change={() => {
-					if (meta.ownerKind === 'group') {
-						meta.owner = 'all'
-					} else {
-						meta.owner = $userStore?.username ?? ''
-					}
-				}}
-			>
-				<option>user</option>
-				<option>group</option>
-			</select>
-		</label>
-		{#if meta.ownerKind === 'user'}
-			<label class="block">
-				<span class="text-gray-700 text-sm">Owner</span>
-				<input
-					type="text"
-					bind:value={meta.owner}
-					placeholder={$userStore?.username ?? ''}
-					disabled={!($superadmin || ($userStore?.is_admin ?? false))}
-				/>
-			</label>
-		{:else}
-			<label class="block">
-				<span class="text-gray-700 text-sm">Owner</span>
-				<select {disabled} bind:value={meta.owner}>
-					{#each groups as g}
-						<option>{g.name}</option>
-					{/each}
+				<select
+					{disabled}
+					bind:value={meta.ownerKind}
+					on:change={() => {
+						if (meta) {
+							if (meta.ownerKind === 'group') {
+								meta.owner = 'all'
+							} else {
+								meta.owner = $userStore?.username ?? ''
+							}
+						}
+					}}
+				>
+					<option>user</option>
+					<option>group</option>
 				</select>
 			</label>
+			{#if meta.ownerKind === 'user'}
+				<label class="block">
+					<span class="text-gray-700 text-sm">Owner</span>
+					<input
+						type="text"
+						bind:value={meta.owner}
+						placeholder={$userStore?.username ?? ''}
+						disabled={!($superadmin || ($userStore?.is_admin ?? false))}
+					/>
+				</label>
+			{:else}
+				<label class="block">
+					<span class="text-gray-700 text-sm">Owner</span>
+					<select {disabled} bind:value={meta.owner}>
+						{#each groups as g}
+							<option>{g.name}</option>
+						{/each}
+					</select>
+				</label>
+			{/if}
+			<label class="block col-span-2">
+				<span class="text-gray-700 text-sm">
+					Name
+					<Required required={true} />
+				</span>
+				<input
+					{disabled}
+					type="text"
+					id="path"
+					autofocus
+					bind:this={inputP}
+					autocomplete="off"
+					on:keyup={handleKeyUp}
+					bind:value={meta.name}
+					placeholder={namePlaceholder}
+					class={error === ''
+						? ''
+						: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
+				/>
+			</label>
 		{/if}
-		<label class="block col-span-2">
-			<span class="text-gray-700 text-sm">
-				Name
-				<Required required={true} />
-			</span>
-			<input
-				{disabled}
-				type="text"
-				id="path"
-				autofocus
-				bind:this={inputP}
-				autocomplete="off"
-				on:keyup={handleKeyUp}
-				bind:value={meta.name}
-				placeholder={namePlaceholder}
-				class={error === ''
-					? ''
-					: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
-			/>
-		</label>
 	</div>
+
 	<div class="pt-0 text-xs px-1 flex flex-col-reverse sm:grid sm:grid-cols-4 sm:gap-4 w-full">
 		<div class="col-span-2"><span class="font-mono">{path}</span></div>
 		<div class="text-red-600 text-2xs col-span-2">{error}</div>

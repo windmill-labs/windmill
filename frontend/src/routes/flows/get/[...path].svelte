@@ -34,7 +34,6 @@
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import SvelteMarkdown from 'svelte-markdown'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
 	import { Button, ActionRow, Skeleton, Badge } from '$lib/components/common'
@@ -173,7 +172,7 @@
 				href="/flows/run/{path}"
 				variant="contained"
 				color="blue"
-				size="xs"
+				size="md"
 				startIcon={{ icon: faPlay }}
 			>
 				Run
@@ -183,7 +182,7 @@
 					href="/flows/edit/{path}"
 					variant="contained"
 					color="blue"
-					size="xs"
+					size="md"
 					startIcon={{ icon: faEdit }}
 					disabled={!can_write}
 				>
@@ -193,13 +192,13 @@
 					href="/flows/add?template={flow.path}"
 					variant="contained"
 					color="blue"
-					size="xs"
+					size="md"
 					startIcon={{ icon: faCodeFork }}
 				>
-					Use as template/Fork
+					Fork
 				</Button>
 			{/if}
-			<Button href="/runs/{flow.path}" color="blue" size="xs" startIcon={{ icon: faList }}>
+			<Button href="/runs/{flow.path}" color="blue" size="md" startIcon={{ icon: faList }}>
 				View runs
 			</Button>
 		</svelte:fragment>
@@ -227,7 +226,11 @@
 				>Edited {displayDaysAgo(flow.edited_at ?? '')} by {flow.edited_by}
 				<a href="#webhook" class="ml-2">
 					<Badge color="dark-blue">Webhook</Badge>
-				</a></p
+				</a>
+				{#if schedule}
+					<a href="#primary-schedule" class="ml-2">
+						<Badge color="dark-blue">Primary schedule</Badge>
+					</a>{/if}</p
 			>
 
 			{#if flow.archived}
@@ -239,6 +242,7 @@
 
 			<div class="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-6">
 				<div class="col-span-2">
+					<h2 class="mb-2">Preview</h2>
 					<RunForm
 						autofocus
 						detailed={false}
@@ -248,7 +252,7 @@
 						runAction={runFlow}
 					/>
 				</div>
-				<div class="mt-6 box">
+				<div class="box">
 					{defaultIfEmptyString(flow.description, 'No description')}
 				</div>
 			</div>
@@ -286,7 +290,9 @@
 				</div>
 				{#if schedule}
 					<div class="mt-10">
-						<h2 class="text-gray-700 pb-1 mb-3 border-b inline-flex flex-row items-center gap-x-4"
+						<h2
+							id="primary-schedule"
+							class="text-gray-700 pb-1 mb-3 border-b inline-flex flex-row items-center gap-x-4"
 							><div>Primary Schedule </div>
 							<Badge color="gray">{schedule.schedule}</Badge>
 							<Toggle

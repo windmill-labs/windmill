@@ -15,7 +15,7 @@
 		if ($flowStore?.value?.failure_module) {
 			$flowStore.value.failure_module = undefined
 			// By default, we return to settings when disabling the failure module
-			select('settings')
+			select('settings-metadata')
 		} else {
 			const failureModule: FlowModuleState = {
 				schema: emptySchema(),

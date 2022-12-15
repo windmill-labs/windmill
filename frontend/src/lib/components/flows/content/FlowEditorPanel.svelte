@@ -13,22 +13,16 @@
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 </script>
 
-{#key $selectedId}
-	{#if $selectedId === 'settings'}
-		<FlowSettings {initialPath} />
-	{:else if $selectedId === 'inputs'}
-		<FlowInput />
-	{:else if $selectedId === 'settings-schedule'}
-		<FlowSettings {initialPath} defaultTab="schedule" />
-	{:else if $selectedId === 'settings-same-worker'}
-		<FlowSettings {initialPath} defaultTab="same-worker" />
-	{:else if $selectedId === 'settings-graph'}
-		<FlowSettings {initialPath} defaultTab="graph" />
-	{:else if $selectedId === 'failure'}
-		<FlowFailureModule />
-	{:else}
+{#if $selectedId?.startsWith('settings')}
+	<FlowSettings {initialPath} />
+{:else if $selectedId === 'inputs'}
+	<FlowInput />
+{:else if $selectedId === 'failure'}
+	<FlowFailureModule />
+{:else}
+	{#key $selectedId}
 		{#each $flowStore.value.modules as flowModule, index (flowModule.id ?? index)}
 			<FlowModuleWrapper bind:flowModule previousModule={$flowStore.value.modules[index - 1]} />
 		{/each}
-	{/if}
-{/key}
+	{/key}
+{/if}

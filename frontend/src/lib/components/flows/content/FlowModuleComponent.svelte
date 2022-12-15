@@ -196,7 +196,7 @@
 						<Tabs bind:selected>
 							<Tab value="inputs"><span class="font-semibold">Step Input</span></Tab>
 							<Tab value="test"><span class="font-semibold text-md">Test this step</span></Tab>
-							<Tab value="advanced">Advanced</Tab>
+							<Tab value="advanced-retries">Advanced</Tab>
 						</Tabs>
 						<div class="h-[calc(100%-32px)]">
 							{#if selected === 'inputs'}

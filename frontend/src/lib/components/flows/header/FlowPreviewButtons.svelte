@@ -20,6 +20,7 @@
 		$selectedId == undefined ||
 		[
 			'settings',
+			'settings-metadata',
 			'settings-schedule',
 			'settings-retries',
 			'settings-same-worker',

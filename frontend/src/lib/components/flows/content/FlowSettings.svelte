@@ -13,26 +13,26 @@
 	import { FlowGraph } from '$lib/components/graph'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
+	import autosize from 'svelte-autosize'
 
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let initialPath: string
 
-	export let defaultTab = 'metadata'
 	let topHeight = 0
 </script>
 
 <div class="h-full overflow-hidden">
 	<FlowCard title="Settings">
 		<div class="h-full flex-1">
-			<Tabs selected={defaultTab}>
-				<Tab value="metadata">Metadata</Tab>
-				<Tab value="schedule">Schedule</Tab>
-				<Tab value="same-worker">Shared Directory</Tab>
-				<Tab value="graph">Graph</Tab>
+			<Tabs bind:selected={$selectedId}>
+				<Tab value="settings-metadata">Metadata</Tab>
+				<Tab value="settings-schedule">Schedule</Tab>
+				<Tab value="settings-same-worker">Shared Directory</Tab>
+				<Tab value="settings-graph">Graph</Tab>
 
 				<svelte:fragment slot="content">
-					<TabContent value="metadata" class="p-4">
+					<TabContent value="settings-metadata" class="p-4">
 						<Path bind:path={$flowStore.path} {initialPath} namePlaceholder="my_flow" kind="flow" />
 
 						<label class="block my-4">
@@ -49,8 +49,9 @@
 						<label class="block my-4" for="inp">
 							<span class="text-gray-700 text-sm">
 								Description
-								<Required required={false} detail="markdown" />
+								<Required required={false} />
 								<textarea
+									use:autosize
 									type="text"
 									class="text-sm"
 									id="inp"
@@ -61,7 +62,7 @@
 							</span>
 						</label>
 					</TabContent>
-					<TabContent value="schedule" class="p-4">
+					<TabContent value="settings-schedule" class="p-4">
 						<Alert type="info" title="Primary Schedule">
 							Flows can be triggered by any schedules, their webhooks or their UI but they only have
 							only one primary schedules with which they share the same path. The primary schedule
@@ -71,7 +72,7 @@
 						<FlowSchedules />
 					</TabContent>
 
-					<TabContent value="same-worker" class="p-4 flex flex-col">
+					<TabContent value="settings-same-worker" class="p-4 flex flex-col">
 						<Alert type="info" title="Shared Directory">
 							Steps will share a folder at `./shared` in which they can store heavier data and pass
 							them to the next step. <br /><br />Beware that the `./shared` folder is not preserved
@@ -85,7 +86,7 @@
 							}}
 						/>
 					</TabContent>
-					<TabContent value="graph">
+					<TabContent value="settings-graph">
 						<div
 							bind:clientHeight={topHeight}
 							class="max-w-full w-full overflow-hidden h-screen bg-gray-50"
