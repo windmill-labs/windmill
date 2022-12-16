@@ -34,7 +34,7 @@
 	import gridHelp from 'svelte-grid/build/helper/index.mjs'
 	import { gridColumns } from '../../gridUtils'
 	import InlineScriptEditorDrawer from '../inlineScriptsPanel/InlineScriptEditorDrawer.svelte'
-	import { faEdge } from '@fortawesome/free-brands-svg-icons'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	export let component: AppComponent | undefined
 	export let onDelete: (() => void) | undefined = undefined
@@ -186,12 +186,12 @@
 								Object.keys(component.componentInput.fields ?? {}).length
 							})`}
 						>
-							{#if component.type === 'buttoncomponent'}
-								<Alert title="Button inputs" type="info" size="xs">
+							<svelte:fragment slot="action">
+								<Tooltip>
 									The runnable inputs of a button component are not settable by the user. They must
 									be defined statically or connected.
-								</Alert>
-							{/if}
+								</Tooltip>
+							</svelte:fragment>
 
 							<InputsSpecsEditor
 								bind:inputSpecs={component.componentInput.fields}
@@ -215,21 +215,7 @@
 
 		{#if component.verticalAlignment !== undefined}
 			<PanelSection title="Alignment">
-				<svelte:fragment slot="action">
-					<Button
-						size="xs"
-						on:click={() => {
-							if (component) {
-								component.verticalAlignment = 'center'
-								component.horizontalAlignment = 'center'
-							}
-						}}
-						startIcon={{ icon: faMinimize }}
-					>
-						Center
-					</Button>
-				</svelte:fragment>
-				<div class="w-full text-xs font-semibold">Horizontal alignment</div>
+				<div class="w-full text-xs font-semibold">Horizontal</div>
 
 				<div class="w-full">
 					<ToggleButtonGroup bind:selected={component.horizontalAlignment}>
@@ -245,7 +231,7 @@
 					</ToggleButtonGroup>
 				</div>
 				{#if component.type !== 'formcomponent'}
-					<div class="w-full text-xs font-semibold">Vertical alignment</div>
+					<div class="w-full text-xs font-semibold">Vertical</div>
 					<div class="w-full">
 						<ToggleButtonGroup bind:selected={component.verticalAlignment}>
 							<ToggleButton position="left" value="top" size="xs">

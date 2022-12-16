@@ -14,7 +14,7 @@ import {
 	Table2,
 	TextCursorInput,
 	Type,
-	FolderInput
+	ToggleLeft
 } from 'lucide-svelte'
 import type { AppInputs, InputType } from './inputType'
 import type { AppComponent } from './types'
@@ -79,7 +79,7 @@ export const displayData: Record<AppComponent['type'], { name: string; icon: any
 	},
 	formcomponent: {
 		name: 'Form',
-		icon: FolderInput
+		icon: FormInput
 	},
 	piechartcomponent: {
 		name: 'Pie chart',
@@ -94,8 +94,8 @@ export const displayData: Record<AppComponent['type'], { name: string; icon: any
 		icon: Table2
 	},
 	checkboxcomponent: {
-		name: 'Checkbox',
-		icon: BoxSelect
+		name: 'Toggle',
+		icon: ToggleLeft
 	},
 	textinputcomponent: {
 		name: 'Text input',
