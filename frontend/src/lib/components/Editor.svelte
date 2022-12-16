@@ -38,6 +38,7 @@
 		MessageTransports,
 		MonacoLanguageClient
 	} from 'monaco-languageclient'
+	import getMessageServiceOverride from 'vscode/service-override/messages'
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 
 	import {
@@ -53,6 +54,15 @@
 		updateOptions
 	} from '$lib/editorUtils'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
+	import { StandaloneServices } from 'vscode/services'
+
+	try {
+		StandaloneServices.initialize({
+			...getMessageServiceOverride(document.body)
+		})
+	} catch (e) {
+		console.error(e)
+	}
 
 	let divEl: HTMLDivElement | null = null
 	let editor: monaco.editor.IStandaloneCodeEditor
