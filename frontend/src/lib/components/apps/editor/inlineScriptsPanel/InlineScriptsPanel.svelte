@@ -61,14 +61,18 @@
 	let scriptCreationDrawer: Drawer | undefined = undefined
 
 	$: selectedScriptName = undefined as string | undefined
-	$: scriptsUsedByComponents = new Map<string, string[]>()
+	$: scriptsUsedByComponents = new Map<string, string>()
 	$: {
 		scriptsUsedByComponents.clear()
 
 		$app.grid
-			.filter((gridComponent) => gridComponent.data.type !== 'runnable')
+			.filter((gridComponent) => gridComponent)
 			.forEach((gridComponent) => {
-				if (gridComponent.data.componentInput.runnable !== undefined) {
+				if (
+					gridComponent.data?.componentInput?.type === 'runnable' &&
+					gridComponent.data.componentInput.runnable !== undefined &&
+					gridComponent.data.componentInput.runnable.type === 'runnableByName'
+				) {
 					scriptsUsedByComponents.set(
 						gridComponent.data.componentInput.runnable.inlineScriptName,
 						gridComponent.data.id
