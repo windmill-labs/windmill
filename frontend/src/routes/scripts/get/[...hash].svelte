@@ -143,14 +143,19 @@
 
 	let isValid = true
 	let runForm: RunForm | undefined
-	async function runScript(scheduledForStr: string | undefined, args: Record<string, any>) {
+	async function runScript(
+		scheduledForStr: string | undefined,
+		args: Record<string, any>,
+		invisibleToOwner?: boolean
+	) {
 		try {
 			const scheduledFor = scheduledForStr ? new Date(scheduledForStr).toISOString() : undefined
 			let run = await JobService.runScriptByHash({
 				workspace: $workspaceStore!,
 				hash: script?.hash ?? '',
 				requestBody: args,
-				scheduledFor
+				scheduledFor,
+				invisibleToOwner
 			})
 			await goto('/run/' + run + '?workspace=' + $workspaceStore)
 		} catch (err) {
@@ -331,6 +336,7 @@
 
 			<div class="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-6">
 				<div class="col-span-2">
+					<h2 class="mb-2">Preview</h2>
 					<RunForm
 						autofocus
 						detailed={false}
@@ -340,7 +346,7 @@
 						runAction={runScript}
 					/>
 				</div>
-				<div class="mt-6 box">
+				<div class="box">
 					{defaultIfEmptyString(script.description, 'No description')}
 				</div>
 			</div>

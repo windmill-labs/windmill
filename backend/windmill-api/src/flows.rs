@@ -196,6 +196,7 @@ async fn create_flow(
         false,
         false,
         None,
+        true,
     )
     .await?;
     sqlx::query!(
@@ -302,6 +303,7 @@ async fn update_flow(
         false,
         false,
         None,
+        true,
     )
     .await?;
     sqlx::query!(

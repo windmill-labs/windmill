@@ -535,6 +535,7 @@ async fn execute_component(
         false,
         false,
         None,
+        true,
     )
     .await?;
 

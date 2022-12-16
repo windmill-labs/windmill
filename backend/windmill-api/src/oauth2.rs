@@ -806,6 +806,7 @@ async fn slack_command(
                 false,
                 false,
                 None,
+                true,
             )
             .await?;
             tx.commit().await?;

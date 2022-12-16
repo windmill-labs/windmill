@@ -14,6 +14,7 @@
 	import { Building, Repeat } from 'lucide-svelte'
 
 	export let mod: FlowModule
+	export let index: number
 
 	const { select, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher<{
@@ -35,7 +36,7 @@
 </script>
 
 {#if mod}
-	<InsertModuleButton on:new={(e) => dispatch('insert', e.detail)} />
+	<InsertModuleButton trigger={index == 0} on:new={(e) => dispatch('insert', e.detail)} />
 	{#if mod.value.type === 'forloopflow'}
 		<li class="w-full">
 			<FlowModuleSchemaItem

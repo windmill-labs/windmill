@@ -45,11 +45,16 @@
 		}
 	}
 
-	async function runFlow(scheduledForStr: string | undefined, args: Record<string, any>) {
+	async function runFlow(
+		scheduledForStr: string | undefined,
+		args: Record<string, any>,
+		invisibleToOwner?: boolean
+	) {
 		const scheduledFor = scheduledForStr ? new Date(scheduledForStr).toISOString() : undefined
 		let run = await JobService.runFlowByPath({
 			workspace: $workspaceStore!,
 			path,
+			invisibleToOwner,
 			requestBody: args,
 			scheduledFor
 		})

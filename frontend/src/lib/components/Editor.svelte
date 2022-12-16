@@ -38,10 +38,9 @@
 		MessageTransports,
 		MonacoLanguageClient
 	} from 'monaco-languageclient'
+	import getMessageServiceOverride from 'vscode/service-override/messages'
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 
-	import getMessageServiceOverride from 'vscode/service-override/messages'
-	import { StandaloneServices } from 'vscode/services'
 	import {
 		BASH_INIT_CODE,
 		DENO_INIT_CODE_CLEAR,
@@ -55,6 +54,7 @@
 		updateOptions
 	} from '$lib/editorUtils'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
+	import { StandaloneServices } from 'vscode/services'
 
 	try {
 		StandaloneServices.initialize({

@@ -10,6 +10,7 @@
 	let loading: boolean = false
 
 	async function onRefresh() {
+		loading = true
 		await Promise.all(
 			Object.keys($runnableComponents).map((id) => {
 				return $runnableComponents?.[id]?.()
@@ -17,19 +18,17 @@
 		)
 		loading = false
 	}
+
+	$: disabled = Object.keys($runnableComponents).length === 0
 </script>
 
 <Button
 	size="xs"
 	btnClasses="m-2 mb-4"
 	startIcon={{ icon: faRefresh, classes: classNames(loading ? 'animate-spin' : '', 'mr-2') }}
-	color="light"
-	variant="border"
-	disabled={Object.keys($runnableComponents).length === 0}
-	on:click={() => {
-		loading = true
-		onRefresh()
-	}}
+	color="dark"
+	{disabled}
+	on:click={onRefresh}
 >
 	Recompute all ({Object.keys($runnableComponents).length})
 </Button>

@@ -38,6 +38,7 @@
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	$: workspace_id = $page.url.searchParams.get('workspace') ?? $workspaceStore
 	$: not_same_workspace = workspace_id !== $workspaceStore
@@ -134,7 +135,7 @@
 						disabled={not_same_workspace}
 						variant="border"
 						color="red"
-						size="xs"
+						size="md"
 						startIcon={{ icon: faTrash }}
 						on:click={() => job?.id && deleteCompletedJob(job.id)}
 					>
@@ -145,7 +146,7 @@
 						href={runsHref}
 						variant="border"
 						color="blue"
-						size="xs"
+						size="md"
 						startIcon={{ icon: faList }}
 					>
 						View runs
@@ -170,7 +171,7 @@
 					<Button
 						disabled={not_same_workspace}
 						color="red"
-						size="xs"
+						size="md"
 						startIcon={{ icon: faTimesCircle }}
 						on:click|once={() => {
 							if (job?.id) {
@@ -190,7 +191,7 @@
 					href={runHref}
 					disabled={isRunning || not_same_workspace}
 					color="blue"
-					size="xs"
+					size="md"
 					startIcon={{ icon: faRefresh }}>Run again</Button
 				>
 				{#if !$userStore?.operator}
@@ -199,7 +200,7 @@
 							disabled={not_same_workspace}
 							href={editHref}
 							color="blue"
-							size="xs"
+							size="md"
 							startIcon={{ icon: faEdit }}>Edit</Button
 						>
 					{/if}
@@ -208,7 +209,7 @@
 					disabled={not_same_workspace}
 					href={viewHref}
 					color="blue"
-					size="xs"
+					size="md"
 					startIcon={{ icon: faScroll }}
 				>
 					View {job?.job_kind}
@@ -272,6 +273,12 @@
 						>
 					{/if}
 					{#if job && 'job_kind' in job}<Badge color="blue">{job.job_kind}</Badge>
+					{/if}
+					{#if !job.visible_to_owner}<Badge color="red"
+							>only visible to you <Tooltip
+								>The option to hide this run from the owner of this script or flow was activated</Tooltip
+							></Badge
+						>
 					{/if}
 				{/if}
 			</div>

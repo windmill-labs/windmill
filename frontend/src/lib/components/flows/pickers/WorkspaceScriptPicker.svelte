@@ -33,6 +33,9 @@
 	}
 
 	let ownerFilter: string | undefined = undefined
+	$: if ($workspaceStore) {
+		ownerFilter = undefined
+	}
 	$: prefilteredItems = ownerFilter ? items?.filter((x) => x.path.startsWith(ownerFilter!)) : items
 
 	$: owners = Array.from(

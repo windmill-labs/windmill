@@ -15,6 +15,9 @@
 	import type { Schema } from '$lib/common'
 	import { Badge, Button } from './common'
 	import SharedBadge from './SharedBadge.svelte'
+	import Toggle from './Toggle.svelte'
+	import { userStore } from '$lib/stores'
+	import Tooltip from './Tooltip.svelte'
 
 	export let runnable:
 		| {
@@ -31,7 +34,11 @@
 				extra_perms?: Record<string, boolean>
 		  }
 		| undefined
-	export let runAction: (scheduledForStr: string | undefined, args: Record<string, any>) => void
+	export let runAction: (
+		scheduledForStr: string | undefined,
+		args: Record<string, any>,
+		invisible_to_owner?: boolean
+	) => void
 	export let buttonText = 'Run'
 	export let schedulable = true
 	export let detailed = true
@@ -41,7 +48,7 @@
 	export let args: Record<string, any> = decodeArgs($page.url.searchParams.get('args') ?? undefined)
 
 	export function run() {
-		runAction(scheduledForStr, args)
+		runAction(scheduledForStr, args, invisible_to_owner)
 	}
 
 	export let isValid = true
@@ -49,6 +56,7 @@
 	// Run later
 	let viewOptions = false
 	let scheduledForStr: string | undefined
+	let invisible_to_owner: false
 </script>
 
 <div class="max-w-6xl">
@@ -154,10 +162,23 @@
 			>
 				Schedule to run later
 			</Button>
+			{#if runnable?.path?.startsWith(`u/${$userStore?.username}`) != true && (runnable?.path?.split('/')?.length ?? 0) > 2}
+				<div class="flex items-center gap-1">
+					<Toggle
+						options={{
+							right: `make run invisible to ${runnable?.path?.split('/').slice(0, 2).join('/')}`
+						}}
+						bind:checked={invisible_to_owner}
+					/>
+					<Tooltip
+						>By default, runs are visible to the owner of the script or flow being triggered</Tooltip
+					>
+				</div>
+			{/if}
 			<Button
 				btnClasses="!px-6 !py-1"
 				disabled={!isValid}
-				on:click={() => runAction(scheduledForStr, args)}
+				on:click={() => runAction(scheduledForStr, args, invisible_to_owner)}
 			>
 				{scheduledForStr ? 'Schedule run to a later time' : buttonText}
 			</Button>
@@ -166,7 +187,7 @@
 		<Button
 			btnClasses="!px-6 !py-1 w-full"
 			disabled={!isValid}
-			on:click={() => runAction(undefined, args)}
+			on:click={() => runAction(undefined, args, invisible_to_owner)}
 		>
 			{buttonText}
 		</Button>

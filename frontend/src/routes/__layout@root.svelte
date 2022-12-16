@@ -81,8 +81,17 @@
 		]
 	}
 
-	$: innerWidth < 1248 && innerWidth >= 768 && (isCollapsed = true)
-	$: (innerWidth >= 1248 || innerWidth < 768) && (isCollapsed = false)
+	$: onAppEditor = $page.url.pathname?.includes('apps')
+
+	$: if (onAppEditor) {
+		isCollapsed = true
+	} else {
+		if (innerWidth < 1248 && innerWidth >= 768) {
+			isCollapsed = true
+		} else if (innerWidth >= 1248 || innerWidth < 768) {
+			isCollapsed = false
+		}
+	}
 </script>
 
 <svelte:window bind:innerWidth />
@@ -210,6 +219,7 @@
 						on:click={() => {
 							isCollapsed = !isCollapsed
 						}}
+						disabled={onAppEditor}
 					>
 						<Icon
 							data={faArrowLeft}

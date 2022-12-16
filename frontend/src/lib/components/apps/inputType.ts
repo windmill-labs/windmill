@@ -11,6 +11,7 @@ export type InputType =
 	| 'datetime'
 	| 'object'
 	| 'array'
+	| 'any'
 
 // Connection to an output of another component
 // defined by the id of the component and the path of the output
@@ -80,6 +81,7 @@ export type AppInput =
 	| AppInputSpec<'date', string>
 	| AppInputSpec<'time', string>
 	| AppInputSpec<'datetime', string>
+	| AppInputSpec<'any', any>
 	| AppInputSpec<'object', Record<string | number, any>>
 	| (AppInputSpec<'select', string> & {
 			/**

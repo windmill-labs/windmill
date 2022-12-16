@@ -15,6 +15,7 @@
 	import { classNames } from '$lib/utils'
 
 	export let app: App
+	export let appPath: string
 
 	const appStore = writable<App>(app)
 	const worldStore = writable<World | undefined>(undefined)
@@ -38,7 +39,8 @@
 		mode,
 		connectingInput,
 		breakpoint,
-		runnableComponents
+		runnableComponents,
+		appPath
 	})
 
 	let mounted = false

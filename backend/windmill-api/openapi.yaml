@@ -2175,7 +2175,11 @@ paths:
           schema:
             type: integer
         - $ref: "#/components/parameters/ParentJob"
-
+        - name: invisible_to_owner
+          description: make the run invisible to the the script owner (default false)
+          in: query
+          schema:
+            type: boolean
       requestBody:
         description: script args
         required: true
@@ -2653,6 +2657,11 @@ paths:
             type: integer
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/IncludeHeader"
+        - name: invisible_to_owner
+          description: make the run invisible to the the flow owner (default false)
+          in: query
+          schema:
+            type: boolean
 
       requestBody:
         description: flow args
@@ -2693,7 +2702,11 @@ paths:
             type: integer
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/IncludeHeader"
-
+        - name: invisible_to_owner
+          description: make the run invisible to the the script owner (default false)
+          in: query
+          schema:
+            type: boolean
       requestBody:
         description: Partially filled args
         required: true
@@ -2720,7 +2733,11 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/IncludeHeader"
-
+        - name: invisible_to_owner
+          description: make the run invisible to the the script owner (default false)
+          in: query
+          schema:
+            type: boolean
       requestBody:
         description: preview
         required: true
@@ -2747,6 +2764,11 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/IncludeHeader"
+        - name: invisible_to_owner
+          description: make the run invisible to the the script owner (default false)
+          in: query
+          schema:
+            type: boolean
 
       requestBody:
         description: preview
@@ -4132,6 +4154,8 @@ components:
           enum: [python3, deno, go, bash]
         email:
           type: string
+        visible_to_owner:
+          type: boolean
       required:
         - id
         - running
@@ -4140,6 +4164,7 @@ components:
         - permissioned_as
         - is_flow_step
         - email
+        - visible_to_owner
 
     CompletedJob:
       type: object
@@ -4215,6 +4240,8 @@ components:
           type: boolean
         email:
           type: string
+        visible_to_owner:
+          type: boolean
       required:
         - id
         - created_by
@@ -4228,6 +4255,7 @@ components:
         - is_flow_step
         - is_skipped
         - email
+        - visible_to_owner
 
     Job:
       allOf:

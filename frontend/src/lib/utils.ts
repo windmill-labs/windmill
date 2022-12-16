@@ -4,8 +4,8 @@ import { FlowService, Script, ScriptService, type Flow, type FlowModule, type Us
 import { toast } from '@zerodevx/svelte-toast'
 import type { Schema, SupportedLanguage } from './common'
 import { hubScripts, workspaceStore, type UserExt } from './stores'
-import { page } from "$app/stores"
-import { get } from "svelte/store"
+import { page } from '$app/stores'
+import { get } from 'svelte/store'
 
 export function validateUsername(username: string): string {
 	if (username != '' && !/^\w+$/.test(username)) {
@@ -61,7 +61,11 @@ export function displayDate(dateString: string | undefined, displaySecond = fals
 		return ''
 	} else {
 		return `${date.getFullYear()}/${date.getMonth() + 1
-			}/${date.getDate()} at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: displaySecond ? '2-digit' : undefined })}`
+			}/${date.getDate()} at ${date.toLocaleTimeString([], {
+				hour: '2-digit',
+				minute: '2-digit',
+				second: displaySecond ? '2-digit' : undefined
+			})}`
 	}
 }
 

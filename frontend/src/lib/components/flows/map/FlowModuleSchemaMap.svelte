@@ -28,7 +28,7 @@
 
 	async function insertNewModuleAtIndex(
 		index: number,
-		kind: 'script' | 'forloop' | 'branchone' | 'branchall' | 'flow'
+		kind: 'script' | 'forloop' | 'branchone' | 'branchall' | 'flow' | 'trigger'
 	): Promise<void> {
 		await idMutex.runExclusive(async () => {
 			var module = emptyModule(kind == 'flow')
@@ -45,12 +45,15 @@
 			modules.splice(index, 0, flowModule)
 			modules = modules
 			$flowStateStore[flowModule.id] = state
+			if (kind == 'trigger') {
+				flowModule.summary = 'Trigger'
+			}
 			select(flowModule.id)
 		})
 	}
 
 	function removeAtIndex(index: number): void {
-		select('settings')
+		select('settings-graph')
 		if (!modules) return
 		const [removedModule] = modules.splice(index, 1)
 		modules = modules
@@ -113,6 +116,7 @@
 			{#each modules as mod, index (mod.id ?? index)}
 				<div transition:slide|local>
 					<MapItem
+						{index}
 						bind:mod
 						on:delete={(event) => {
 							if (event.detail.detail.shiftKey || mod.value.type === 'identity') {
@@ -128,8 +132,10 @@
 				</div>
 			{/each}
 		{/if}
-
-		<InsertModuleButton on:new={(e) => insertNewModuleAtIndex(modules?.length ?? 0, e.detail)} />
+		<InsertModuleButton
+			trigger={modules?.length == 0}
+			on:new={(e) => insertNewModuleAtIndex(modules?.length ?? 0, e.detail)}
+		/>
 	</ul>
 	{#if root}
 		<div class="sticky bottom-0 bg-gray-50 flex-none px-4 py-1 pb-2 border-t">

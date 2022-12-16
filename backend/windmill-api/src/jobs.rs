@@ -239,6 +239,7 @@ pub struct CompletedJob {
     pub language: Option<ScriptLang>,
     pub is_skipped: bool,
     pub email: String,
+    pub visible_to_owner: bool,
 }
 
 #[derive(Deserialize, Clone)]
@@ -247,6 +248,7 @@ pub struct RunJobQuery {
     scheduled_in_secs: Option<i64>,
     parent_job: Option<Uuid>,
     include_header: Option<String>,
+    invisible_to_owner: Option<bool>,
 }
 
 impl RunJobQuery {
@@ -402,6 +404,7 @@ async fn list_jobs(
             "language",
             "false as is_skipped",
             "email",
+            "visible_to_owner",
         ],
     );
     let sqlc = list_completed_jobs_query(
@@ -435,6 +438,7 @@ async fn list_jobs(
             "language",
             "is_skipped",
             "email",
+            "visible_to_owner",
         ],
     );
     let sql = format!(
@@ -811,6 +815,7 @@ struct UnifiedJob {
     language: Option<ScriptLang>,
     is_skipped: bool,
     email: String,
+    visible_to_owner: bool,
 }
 
 impl From<UnifiedJob> for Job {
@@ -844,6 +849,7 @@ impl From<UnifiedJob> for Job {
                 language: uj.language,
                 is_skipped: uj.is_skipped,
                 email: uj.email,
+                visible_to_owner: uj.visible_to_owner,
             }),
             "QueuedJob" => Job::QueuedJob(QueuedJob {
                 workspace_id: uj.workspace_id,
@@ -874,6 +880,7 @@ impl From<UnifiedJob> for Job {
                 same_worker: false,
                 pre_run_error: None,
                 email: uj.email,
+                visible_to_owner: uj.visible_to_owner,
             }),
             t => panic!("job type {} not valid", t),
         }
@@ -971,6 +978,7 @@ pub async fn run_flow_by_path(
         false,
         false,
         None,
+        !run_query.invisible_to_owner.unwrap_or(false),
     )
     .await?;
     tx.commit().await?;
@@ -1005,6 +1013,7 @@ pub async fn run_job_by_path(
         false,
         false,
         None,
+        !run_query.invisible_to_owner.unwrap_or(false),
     )
     .await?;
     tx.commit().await?;
@@ -1072,6 +1081,7 @@ pub async fn run_wait_result_job_by_path(
         false,
         false,
         None,
+        !run_query.invisible_to_owner.unwrap_or(false),
     )
     .await?;
     tx.commit().await?;
@@ -1107,6 +1117,7 @@ pub async fn run_wait_result_job_by_hash(
         false,
         false,
         None,
+        !run_query.invisible_to_owner.unwrap_or(false),
     )
     .await?;
     tx.commit().await?;
@@ -1160,6 +1171,7 @@ async fn run_preview_job(
         false,
         false,
         None,
+        true,
     )
     .await?;
     tx.commit().await?;
@@ -1192,6 +1204,7 @@ async fn run_preview_flow_job(
         false,
         false,
         None,
+        true,
     )
     .await?;
     tx.commit().await?;
@@ -1226,6 +1239,7 @@ pub async fn run_job_by_hash(
         false,
         false,
         None,
+        !run_query.invisible_to_owner.unwrap_or(false),
     )
     .await?;
     tx.commit().await?;
@@ -1398,6 +1412,7 @@ async fn list_completed_jobs(
             "language",
             "is_skipped",
             "email",
+            "visible_to_owner",
         ],
     )
     .sql()?;

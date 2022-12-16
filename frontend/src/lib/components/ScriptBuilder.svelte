@@ -255,7 +255,7 @@
 							<RadioButton
 								label="Script Type"
 								options={[
-									['Common Script', Script.kind.SCRIPT],
+									['Action', Script.kind.SCRIPT],
 									[
 										{
 											title: 'Trigger Script',
