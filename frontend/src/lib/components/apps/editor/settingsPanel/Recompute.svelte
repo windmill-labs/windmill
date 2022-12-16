@@ -24,7 +24,7 @@
 </script>
 
 <PanelSection title="Recompute">
-	{#if Object.keys($runnableComponents ?? {}).length > 0}
+	{#if Object.keys($runnableComponents ?? {}).filter((id) => id !== ownId).length > 0}
 		<table class="divide-y divide-gray-300 border w-full">
 			<thead class="bg-gray-50">
 				<tr>
@@ -50,6 +50,6 @@
 			</tbody>
 		</table>
 	{:else}
-		<div class="text-xs">No components to recompute</div>
+		<div class="text-xs">No components to recompute. Create one and select it here.</div>
 	{/if}
 </PanelSection>
