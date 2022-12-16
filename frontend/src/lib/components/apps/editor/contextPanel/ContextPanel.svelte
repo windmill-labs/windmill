@@ -2,10 +2,11 @@
 	import { classNames } from '$lib/utils'
 	import { getContext } from 'svelte'
 	import type { AppEditorContext } from '../../types'
+	import { displayData } from '../../utils'
 	import PanelSection from '../settingsPanel/common/PanelSection.svelte'
 	import ComponentOutputViewer from './ComponentOutputViewer.svelte'
 
-	const { connectingInput, staticOutputs, worldStore, selectedComponent } =
+	const { connectingInput, staticOutputs, worldStore, selectedComponent, app } =
 		getContext<AppEditorContext>('AppEditorContext')
 
 	function connectInput(componentId: string, path: string) {
@@ -22,6 +23,14 @@
 			}
 		}
 	}
+
+	function getComponentNameById(componentId: string) {
+		const component = $app.grid.find((c) => c.data.id === componentId)
+
+		if (component?.data.type) {
+			return displayData[component?.data.type].name
+		}
+	}
 </script>
 
 <PanelSection title="Outputs">
@@ -30,13 +39,14 @@
 			<button
 				on:click={() => ($selectedComponent = componentId)}
 				class={classNames(
-					'text-xs px-2 py-1 -mb-2 rounded-t-',
+					'px-1 text-2xs py-0.5 font-bold rounded-t-sm w-fit  -mb-2',
 					$selectedComponent === componentId
-						? 'bg-blue-500 text-white'
+						? ' bg-indigo-500 text-white'
 						: 'bg-gray-200 text-gray-500'
 				)}
 			>
-				Component: {componentId}
+				{getComponentNameById(componentId)} -
+				{componentId}
 			</button>
 
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
