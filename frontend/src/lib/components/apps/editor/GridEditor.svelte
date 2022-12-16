@@ -74,7 +74,7 @@
 	</Grid>
 	{#if $connectingInput.opened}
 		<div
-			class="fixed top-32 left-0 w-full z-10 flex justify-center items-center"
+			class="fixed top-32  z-10 flex justify-center items-center"
 			transition:fly={{ duration: 100, y: -100 }}
 		>
 			<Alert title="Connecting" type="info">
