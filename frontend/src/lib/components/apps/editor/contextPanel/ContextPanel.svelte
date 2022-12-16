@@ -1,5 +1,4 @@
 <script lang="ts">
-	import Button from '$lib/components/common/button/Button.svelte'
 	import { classNames } from '$lib/utils'
 	import { getContext } from 'svelte'
 	import type { AppEditorContext } from '../../types'
@@ -28,16 +27,24 @@
 <PanelSection title="Outputs">
 	{#each Object.entries($staticOutputs) as [componentId, outputs], index}
 		{#if outputs.length > 0 && $worldStore?.outputsById[componentId]}
-			<Button size="xs" on:click={() => ($selectedComponent = componentId)} color="blue">
-				Component: {componentId}
-			</Button>
-
-			<div
+			<button
+				on:click={() => ($selectedComponent = componentId)}
 				class={classNames(
-					'w-full p-2 rounded-xs border',
+					'text-xs px-2 py-1 -mb-2 rounded-t-',
 					$selectedComponent === componentId
-						? 'outline-1 outline outline-offset-2 outline-blue-500'
-						: ''
+						? 'bg-blue-500 text-white'
+						: 'bg-gray-200 text-gray-500'
+				)}
+			>
+				Component: {componentId}
+			</button>
+
+			<!-- svelte-ignore a11y-click-events-have-key-events -->
+			<div
+				on:click={() => ($selectedComponent = componentId)}
+				class={classNames(
+					'w-full py-2 border',
+					$selectedComponent === componentId ? 'border border-blue-500' : 'cursor-pointer'
 				)}
 			>
 				<ComponentOutputViewer
