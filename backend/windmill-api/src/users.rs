@@ -36,6 +36,7 @@ use windmill_common::{
     error::{self, Error, JsonResult, Result},
     utils::{not_found_if_none, rd_string, require_admin, Pagination},
 };
+use windmill_queue::CLOUD_HOSTED;
 
 const TTL_TOKEN_CACHE_S: u64 = 60 * 5; // 5 minutes
 pub const TTL_TOKEN_DB_H: u32 = 72;
@@ -607,6 +608,12 @@ async fn list_usernames(
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<String>> {
+    if *CLOUD_HOSTED && w_id == "demo" {
+        return Ok(Json(vec![
+            authed.username,
+            "other_usernames_redacted_in_demo_workspace".to_string(),
+        ]));
+    }
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query_scalar!("SELECT username from usr WHERE workspace_id = $1", &w_id)
         .fetch_all(&mut tx)

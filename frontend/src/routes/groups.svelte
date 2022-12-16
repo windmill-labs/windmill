@@ -26,7 +26,6 @@
 
 	let newGroupName: string = ''
 	let groups: GroupW[] = []
-	let shareModal: ShareModal
 	let groupDrawer: Drawer
 
 	async function loadGroups(): Promise<void> {
@@ -58,14 +57,6 @@
 
 	let editGroupName: string = ''
 </script>
-
-<ShareModal
-	bind:this={shareModal}
-	kind="group_"
-	on:change={() => {
-		loadGroups()
-	}}
-/>
 
 <Drawer bind:this={groupDrawer}>
 	<DrawerContent title="Group {editGroupName}" on:close={groupDrawer.closeDrawer}>
@@ -120,20 +111,12 @@
 								placement="bottom-end"
 								dropdownItems={[
 									{
-										displayName: 'Manage members',
+										displayName: 'Manage group',
 										icon: faEdit,
 										disabled: !canWrite,
 										action: () => {
 											editGroupName = name
 											groupDrawer.openDrawer()
-										}
-									},
-									{
-										displayName: 'Manage ACL of the group',
-										icon: faShare,
-										disabled: !canWrite,
-										action: () => {
-											shareModal.openDrawer(name)
 										}
 									},
 									{

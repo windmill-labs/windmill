@@ -18,7 +18,6 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Icon from 'svelte-awesome'
 	import { faCross, faEdit, faPlay, faPlus, faQuestion } from '@fortawesome/free-solid-svg-icons'
-	import { Alert } from '$lib/components/common'
 
 	let logs: AuditLog[]
 	let usernames: string[]
