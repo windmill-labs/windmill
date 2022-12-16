@@ -13,21 +13,21 @@
 
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Dropdown from '$lib/components/Dropdown.svelte'
-	import GroupModal from '$lib/components/GroupModal.svelte'
+	import GroupEditor from '$lib/components/GroupEditor.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { faEdit, faPlus, faShare, faTrash } from '@fortawesome/free-solid-svg-icons'
-	import { Alert, Button } from '$lib/components/common'
+	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 
 	type GroupW = Group & { canWrite: boolean }
 
 	let newGroupName: string = ''
 	let groups: GroupW[] = []
 	let shareModal: ShareModal
-	let groupModal: GroupModal
+	let groupDrawer: Drawer
 
 	async function loadGroups(): Promise<void> {
 		groups = (await GroupService.listGroups({ workspace: $workspaceStore! })).map((x) => {
@@ -55,6 +55,8 @@
 			loadGroups()
 		}
 	}
+
+	let editGroupName: string = ''
 </script>
 
 <ShareModal
@@ -65,7 +67,11 @@
 	}}
 />
 
-<GroupModal bind:this={groupModal} />
+<Drawer bind:this={groupDrawer}>
+	<DrawerContent title="Group {editGroupName}" on:close={groupDrawer.closeDrawer}>
+		<GroupEditor name={editGroupName} />
+	</DrawerContent>
+</Drawer>
 
 <CenteredPage>
 	<PageHeader
@@ -85,7 +91,6 @@
 		</div>
 	</PageHeader>
 
-
 	<div class="relative mb-20">
 		<TableCustom>
 			<tr slot="header-row">
@@ -100,7 +105,8 @@
 							<a
 								href="#{name}"
 								on:click={() => {
-									groupModal.openDrawer(name)
+									editGroupName = name
+									groupDrawer.openDrawer()
 								}}
 								>{name}
 							</a>
@@ -118,7 +124,8 @@
 										icon: faEdit,
 										disabled: !canWrite,
 										action: () => {
-											groupModal.openDrawer(name)
+											editGroupName = name
+											groupDrawer.openDrawer()
 										}
 									},
 									{

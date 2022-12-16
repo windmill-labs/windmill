@@ -15,6 +15,9 @@
 	import { createEventDispatcher } from 'svelte'
 	import Required from './Required.svelte'
 	import Popover from './Popover.svelte'
+	import { Button, Drawer, DrawerContent } from './common'
+	import { faPlus } from '@fortawesome/free-solid-svg-icons'
+	import GroupEditor from './GroupEditor.svelte'
 
 	type PathKind = 'resource' | 'script' | 'variable' | 'flow' | 'schedule' | 'app'
 	let meta: Meta | undefined = undefined
@@ -155,7 +158,36 @@
 			path = initialPath
 		}
 	}
+
+	let newGroup: Drawer
+	let newGroupName: string
+	let groupCreated: string | undefined = undefined
+
+	async function addGroup() {
+		await GroupService.createGroup({
+			workspace: $workspaceStore ?? '',
+			requestBody: { name: newGroupName }
+		})
+		groupCreated = newGroupName
+		loadGroups()
+	}
 </script>
+
+<Drawer bind:this={newGroup}>
+	<DrawerContent title="New Group" on:close={newGroup.closeDrawer}>
+		<div class="flex flex-row">
+			<input class="mr-2" placeholder="New group name" bind:value={newGroupName} />
+			<Button size="md" startIcon={{ icon: faPlus }} disabled={!newGroupName} on:click={addGroup}>
+				New&nbsp;group
+			</Button>
+		</div>
+
+		{#if groupCreated}
+			<div class="mt-8" />
+			<GroupEditor name={groupCreated} />
+		{/if}
+	</DrawerContent>
+</Drawer>
 
 <div>
 	<div class="flex flex-col sm:grid sm:grid-cols-4 sm:gap-4 pb-0 mb-1">
@@ -202,7 +234,11 @@
 				</label>
 			{:else}
 				<label class="block">
-					<span class="text-gray-700 text-sm">Owner</span>
+					<span class="text-gray-700 text-sm inline-flex justify-between w-full"
+						>Owner <button class=" text-xs text-blue-500" on:click={newGroup.openDrawer}
+							>+group</button
+						></span
+					>
 					<select {disabled} bind:value={meta.owner}>
 						{#each groups as g}
 							<option>{g.name}</option>
