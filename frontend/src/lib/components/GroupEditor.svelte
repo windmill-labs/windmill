@@ -106,12 +106,12 @@
 									if (group == 'member') {
 										GroupService.addUserToGroup(group)
 
-										GranularAclService.removeGranularAcls({
-											workspace: $workspaceStore ?? '',
-											path: name,
-											kind: 'group_',
-											requestBody: $userStore.
-										})
+										// GranularAclService.removeGranularAcls({
+										// 	workspace: $workspaceStore ?? '',
+										// 	path: name,
+										// 	kind: 'group_',
+										// 	requestBody: $userStore.
+										// })
 									}
 									loadGroup()
 								}}
