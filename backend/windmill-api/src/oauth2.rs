@@ -32,7 +32,7 @@ use tower_cookies::{Cookie, Cookies};
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::utils::{not_found_if_none, now_from_db};
 
-use crate::users::Authed;
+use crate::users::{truncate_token, Authed};
 use crate::workspaces::invite_user_to_all_auto_invite_worspaces;
 use crate::{
     db::{UserDB, DB},
@@ -910,6 +910,16 @@ async fn login_callback(
                      login type {login_type}"
                 )));
             }
+            audit_log(
+                &mut tx,
+                &email,
+                "oauth.login",
+                ActionKind::Create,
+                "global",
+                Some(&truncate_token(&token)),
+                None,
+            )
+            .await?;
         } else {
             let mut name = user.name;
             if name.is_none() || name == Some(String::new()) {
