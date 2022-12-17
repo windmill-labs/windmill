@@ -75,6 +75,7 @@
 				meta.name = `${namePlaceholder}_${i}`
 				i += 1
 			}
+			path = metaToPath(meta)
 		} else {
 			meta = pathToMeta(path)
 		}

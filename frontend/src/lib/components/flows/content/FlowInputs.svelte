@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ToggleButton, ToggleButtonGroup } from '$lib/components/common'
+	import { Alert, ToggleButton, ToggleButtonGroup } from '$lib/components/common'
 	import ToggleHubWorkspace from '$lib/components/ToggleHubWorkspace.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { RawScript, Script } from '$lib/gen'
@@ -19,6 +19,8 @@
 		? 'failure'
 		: summary == 'Trigger'
 		? 'trigger'
+		: summary == 'Approval'
+		? 'approval'
 		: 'script'
 	let pick_existing: 'workspace' | 'hub' = 'hub'
 	let filter = ''
@@ -57,9 +59,10 @@
 		</div>
 	{/if}
 	{#if kind == 'trigger'}
-		<p class="text-sm text-gray-600 my-4"
-			>Once you pick a trigger script, a schedule will be automatically attached to this flow to run
-			every 15 minutes. Adjust frequency in 'Flow settings -> Schedule'</p
+		<div class="mt-2" />
+		<Alert title="Trigger script automatic schedule" role="info">
+			A schedule will be automatically attached to this flow to run every 15 minutes. Adjust
+			frequency in 'Settings -> Schedule'</Alert
 		>
 	{/if}
 	<h3 class="pb-2 pt-4">

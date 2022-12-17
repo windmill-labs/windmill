@@ -80,7 +80,9 @@
 <div class="grid grid-cols-3 w-full">
 	<div
 		bind:clientHeight={topHeight}
-		class="{noSide ? 'col-span-3' : 'col-span-2'} w-full border border-gray-400 h-screen"
+		class="{noSide
+			? 'col-span-3'
+			: 'sm:col-span-2 col-span-3'} w-full border border-gray-400 h-screen"
 		class:overflow-auto={overflowAuto}
 	>
 		<FlowGraph
@@ -91,7 +93,9 @@
 		/>
 	</div>
 	{#if !noSide}
-		<div class="w-full border-r border-b border-t border-gray-400 min-h-[150px] p-2 overflow-auto">
+		<div
+			class="w-full border-r border-b border-t border-gray-400 min-h-[150px] p-2 overflow-auto hidden sm:block"
+		>
 			{#if stepDetail == undefined}
 				<span class="font-black text-lg w-full my-4">
 					<span>Click on a step to see its details</span>
