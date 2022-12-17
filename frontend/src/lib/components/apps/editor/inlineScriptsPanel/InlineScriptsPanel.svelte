@@ -1,13 +1,10 @@
 <script lang="ts">
-	import { fade } from 'svelte/transition'
 	import type { Schema } from '$lib/common'
-	import { Drawer } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
-	import { Preview } from '$lib/gen'
-	import { DENO_INIT_CODE_CLEAR } from '$lib/script_helpers'
+	import { Preview, Script } from '$lib/gen'
+	import { initialCode } from '$lib/script_helpers'
 	import { classNames, emptySchema } from '$lib/utils'
-	import { faPlus, faTrash } from '@fortawesome/free-solid-svg-icons'
+	import { faTrash } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { AppEditorContext } from '../../types'
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
@@ -17,50 +14,32 @@
 	import { Code2 } from 'lucide-svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import InlineScriptEditorDrawer from './InlineScriptEditorDrawer.svelte'
+	import FlowScriptPicker from '$lib/components/flows/pickers/FlowScriptPicker.svelte'
 
-	const { app, appPath } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, appPath, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
 
-	let newScriptPath: string
-	let ignorePathError = false
-
-	$: isTakenPath = Object.keys($app.inlineScripts).includes(newScriptPath)
-
-	function createScript() {
-		// To prevent the error message flashing up just before the drawer is closed
-		ignorePathError = true
-		const path = `${appPath}/inline-script/${newScriptPath}`
-		const inlineScript = {
-			content: DENO_INIT_CODE_CLEAR,
-			language: Preview.language.DENO,
-			path,
-			schema: emptySchema()
-		}
-
-		if ($app.inlineScripts) {
-			$app.inlineScripts[newScriptPath] = inlineScript
-		} else {
-			$app.inlineScripts = {
-				[newScriptPath]: inlineScript
-			}
-		}
-		scriptCreationDrawer?.closeDrawer?.()
-		selectedScript = inlineScript
-		scriptEditorDrawer.openDrawer?.()
-	}
-
-	function afterCreateScript() {
-		newScriptPath = ''
-		ignorePathError = false
-	}
-
+	$: selectedScriptName = undefined as string | undefined
 	$: selectedScript = undefined as
 		| { content: string; language: Preview.language; path: string; schema: Schema }
 		| undefined
-	let scriptEditorDrawer: Drawer
 
-	let scriptCreationDrawer: Drawer | undefined = undefined
+	selectedComponent.subscribe((selectedComponentId: string | undefined) => {
+		if (selectedComponentId) {
+			const selectedComponent = $app.grid.find(
+				(gridComponent) => gridComponent?.data?.id === selectedComponentId
+			)
+			if (
+				selectedComponent?.data?.componentInput?.type === 'runnable' &&
+				selectedComponent.data.componentInput.runnable !== undefined &&
+				selectedComponent.data.componentInput.runnable.type === 'runnableByName'
+			) {
+				const inlineScriptName = selectedComponent.data.componentInput.runnable.inlineScriptName
+				selectedScript = $app.inlineScripts[inlineScriptName]
+				selectedScriptName = inlineScriptName
+			}
+		}
+	})
 
-	$: selectedScriptName = undefined as string | undefined
 	$: scriptsUsedByComponents = new Map<string, string>()
 	$: {
 		scriptsUsedByComponents.clear()
@@ -83,7 +62,7 @@
 
 	function deleteInlineScript() {
 		const key = Object.keys($app.inlineScripts).find(
-			(key) => $app.inlineScripts[key].path === selectedScript?.path
+			(key) => $app.inlineScripts[key]?.path === selectedScript?.path
 		)
 
 		if (key && $app.inlineScripts[key]) {
@@ -93,32 +72,30 @@
 		}
 	}
 
+	function createInlineScriptByLanguage(
+		language: Preview.language,
+		path: string,
+		subkind: 'pgsql' | 'mysql' | undefined = undefined
+	) {
+		const fullPath = `${appPath}/inline-script/${path}`
+
+		const inlineScript = {
+			content: initialCode(language, Script.kind.SCRIPT, subkind),
+			language: language,
+			path: fullPath,
+			schema: emptySchema()
+		}
+
+		selectedScript = inlineScript
+
+		$app.inlineScripts = {
+			...$app.inlineScripts,
+			[path]: inlineScript
+		}
+	}
+
 	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
 </script>
-
-<Drawer bind:this={scriptCreationDrawer} size="600px" on:afterClose={afterCreateScript}>
-	<DrawerContent title="Script creation" on:close={scriptCreationDrawer.closeDrawer}>
-		<label for="pathInput" class="text-sm font-semibold"> Script name </label>
-		<div class="flex justify-between items-center gap-4">
-			<!-- svelte-ignore a11y-autofocus -->
-			<input
-				autofocus
-				id="pathInput"
-				class="grow min-w-[150px]"
-				bind:value={newScriptPath}
-				on:keypress={(e) => e.key === 'Enter' && createScript()}
-			/>
-			<Button on:click={createScript} size="sm" disabled={isTakenPath} startIcon={{ icon: faPlus }}>
-				Create
-			</Button>
-		</div>
-		{#if isTakenPath && !ignorePathError}
-			<div transition:fade={{ duration: 100 }} class="text-sm text-red-600 h-5 mt-1">
-				This name is already used.
-			</div>
-		{/if}
-	</DrawerContent>
-</Drawer>
 
 <InlineScriptEditorDrawer bind:this={inlineScriptEditorDrawer} />
 
@@ -133,7 +110,7 @@
 							<div
 								class="{classNames(
 									'border flex justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-blue-50 hover:text-blue-400',
-									selectedScript?.path === value.path ? 'bg-blue-100 text-blue-600' : ''
+									selectedScript?.path === value?.path ? 'bg-blue-100 text-blue-600' : ''
 								)},"
 								on:click={() => {
 									selectedScript = value
@@ -142,7 +119,7 @@
 							>
 								<span class="text-xs">{key}</span>
 								{#if scriptsUsedByComponents.get(key)}
-									<Badge color="blue">{scriptsUsedByComponents.get(key)}</Badge>
+									<Badge color="dark-indigo">{scriptsUsedByComponents.get(key)}</Badge>
 								{:else}
 									<Badge color="red">Unused</Badge>
 								{/if}
@@ -156,44 +133,84 @@
 		</PanelSection>
 	</Pane>
 	<Pane size={75}>
-		{#key selectedScript?.path}
-			{#if selectedScript}
-				<div class="h-full p-4 flex flex-col gap-2 ">
-					<div class="flex w-full flex-row-reverse gap-2 items-center">
-						<Button
-							size="xs"
-							color="light"
-							variant="border"
-							on:click={() => {
-								if (selectedScriptName) {
-									inlineScriptEditorDrawer?.openDrawer(selectedScriptName)
-								}
-							}}
-						>
-							<div class="flex gap-1 items-center">
-								<Code2 size={16} />
-								Open full editor
-							</div>
-						</Button>
-						<Button
-							size="xs"
-							color="light"
-							variant="border"
-							iconOnly
-							startIcon={{ icon: faTrash }}
-							on:click={deleteInlineScript}
-						/>
-					</div>
+		{#key selectedScriptName}
+			{#if selectedScriptName}
+				{#if selectedScript}
+					<div class="h-full p-4 flex flex-col gap-2 ">
+						<div class="flex w-full flex-row-reverse gap-2 items-center">
+							<Button
+								size="xs"
+								color="light"
+								variant="border"
+								on:click={() => {
+									if (selectedScriptName) {
+										inlineScriptEditorDrawer?.openDrawer(selectedScriptName)
+									}
+								}}
+							>
+								<div class="flex gap-1 items-center">
+									<Code2 size={16} />
+									Open full editor
+								</div>
+							</Button>
+							<Button
+								size="xs"
+								color="light"
+								variant="border"
+								iconOnly
+								startIcon={{ icon: faTrash }}
+								on:click={deleteInlineScript}
+							/>
+						</div>
 
-					<div class="border h-full">
-						<SimpleEditor
-							class="flex flex-1 grow h-full"
-							lang="typescript"
-							bind:code={selectedScript.content}
-							fixedOverflowWidgets={false}
-						/>
+						<div class="border h-full">
+							<SimpleEditor
+								class="flex flex-1 grow h-full"
+								lang="typescript"
+								bind:code={selectedScript.content}
+								fixedOverflowWidgets={false}
+							/>
+						</div>
 					</div>
-				</div>
+				{:else}
+					<div class="flex flex-col p-4 gap-2 text-sm">
+						Please choose a language:
+						<div class="flex gap-2 flex-row flex-wrap">
+							{#each Object.values(Script.language) as lang}
+								<FlowScriptPicker
+									label={lang}
+									{lang}
+									on:click={() => {
+										if (selectedScriptName) {
+											createInlineScriptByLanguage(lang, selectedScriptName)
+										}
+									}}
+								/>
+							{/each}
+
+							<FlowScriptPicker
+								label={`PostgreSQL`}
+								lang="pgsql"
+								on:click={() => {
+									if (selectedScriptName) {
+										createInlineScriptByLanguage(Script.language.DENO, selectedScriptName, 'pgsql')
+									}
+								}}
+							/>
+							<FlowScriptPicker
+								label={`MySQL`}
+								lang="mysql"
+								on:click={() => {
+									if (selectedScriptName) {
+										createInlineScriptByLanguage(Script.language.DENO, selectedScriptName, 'mysql')
+									}
+								}}
+							/>
+						</div>
+					</div>
+				{/if}
+			{:else}
+				<div class="flex flex-col p-4 gap-2 text-sm"> Please choose a script </div>
 			{/if}
 		{/key}
 	</Pane>

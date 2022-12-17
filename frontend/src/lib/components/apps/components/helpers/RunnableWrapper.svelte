@@ -1,5 +1,7 @@
 <script lang="ts">
+	import { getContext } from 'svelte'
 	import type { AppInput } from '../../inputType'
+	import type { AppEditorContext } from '../../types'
 	import NonRunnableComponent from './NonRunnableComponent.svelte'
 	import RunnableComponent from './RunnableComponent.svelte'
 
@@ -11,11 +13,27 @@
 	export let autoRefresh: boolean = true
 	export let runnableComponent: RunnableComponent | undefined = undefined
 	export let forceSchemaDisplay: boolean = false
+
+	const { app } = getContext<AppEditorContext>('AppEditorContext')
+
+	function isRunnableDefined() {
+		if (!componentInput) return false
+		if (componentInput.type !== 'runnable') return false
+
+		if (
+			componentInput.runnable?.type === 'runnableByName' &&
+			$app.inlineScripts[componentInput.runnable.inlineScriptName] === undefined
+		) {
+			return false
+		}
+
+		return true
+	}
 </script>
 
 {#if componentInput === undefined}
 	<slot />
-{:else if componentInput.type === 'runnable'}
+{:else if componentInput.type === 'runnable' && isRunnableDefined()}
 	<RunnableComponent
 		bind:this={runnableComponent}
 		bind:inputs={componentInput.fields}

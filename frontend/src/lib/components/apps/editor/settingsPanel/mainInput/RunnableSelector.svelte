@@ -8,6 +8,8 @@
 	import WorkspaceScriptList from './WorkspaceScriptList.svelte'
 	import WorkspaceFlowList from './WorkspaceFlowList.svelte'
 	import InlineScriptEditorDrawer from '../../inlineScriptsPanel/InlineScriptEditorDrawer.svelte'
+	import type { AppEditorContext } from '$lib/components/apps/types'
+	import { getContext } from 'svelte'
 
 	type Tab = 'hubscripts' | 'workspacescripts' | 'workspaceflows' | 'inlinescripts'
 
@@ -16,8 +18,9 @@
 
 	let tab: Tab = 'inlinescripts'
 	let filter: string = ''
-
 	let picker: Drawer
+
+	const { app } = getContext<AppEditorContext>('AppEditorContext')
 
 	function pickScript(path: string) {
 		if (componentInput.type === 'runnable') {
@@ -46,6 +49,25 @@
 				inlineScriptName
 			}
 		}
+	}
+
+	function createScript(): string {
+		let index = 0
+		let newScriptPath = `inline_script_${index}`
+
+		while ($app.inlineScripts?.[newScriptPath]) {
+			newScriptPath = `inline_script_${++index}`
+		}
+
+		if ($app.inlineScripts) {
+			$app.inlineScripts[newScriptPath] = undefined
+		} else {
+			$app.inlineScripts = {
+				[newScriptPath]: undefined
+			}
+		}
+
+		return newScriptPath
 	}
 
 	export let inlineScriptEditorDrawer: InlineScriptEditorDrawer
@@ -101,15 +123,11 @@
 </Drawer>
 
 <InlineScriptEditorDrawer bind:this={inlineScriptEditorDrawer} />
-<div class="flex flex-row gap-2 justify-between">
+<div class="flex flex-col gap-2">
 	<Button
 		on:click={() => {
 			const name = inlineScriptEditorDrawer.createScript()
-			inlineScriptEditorDrawer.openDrawer(name)
-
-			setTimeout(() => {
-				pickInlineScript(name)
-			})
+			pickInlineScript(name)
 		}}
 		size="sm"
 		color="light"
