@@ -28,7 +28,7 @@
 
 	async function insertNewModuleAtIndex(
 		index: number,
-		kind: 'script' | 'forloop' | 'branchone' | 'branchall' | 'flow' | 'trigger'
+		kind: 'script' | 'forloop' | 'branchone' | 'branchall' | 'flow' | 'trigger' | 'approval'
 	): Promise<void> {
 		await idMutex.runExclusive(async () => {
 			var module = emptyModule(kind == 'flow')
@@ -47,6 +47,8 @@
 			$flowStateStore[flowModule.id] = state
 			if (kind == 'trigger') {
 				flowModule.summary = 'Trigger'
+			} else if (kind == 'approval') {
+				flowModule.summary = 'Approval'
 			}
 			select(flowModule.id)
 		})
