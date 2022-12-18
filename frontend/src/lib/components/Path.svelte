@@ -16,8 +16,11 @@
 	import Required from './Required.svelte'
 	import Popover from './Popover.svelte'
 	import { Button, Drawer, DrawerContent } from './common'
-	import { faPlus } from '@fortawesome/free-solid-svg-icons'
+	import { faEye, faPlus } from '@fortawesome/free-solid-svg-icons'
 	import GroupEditor from './GroupEditor.svelte'
+	import ToggleButtonGroup from './common/toggleButton/ToggleButtonGroup.svelte'
+	import ToggleButton from './common/toggleButton/ToggleButton.svelte'
+	import { Icon } from 'svelte-awesome'
 
 	type PathKind = 'resource' | 'script' | 'variable' | 'flow' | 'schedule' | 'app'
 	let meta: Meta | undefined = undefined
@@ -33,7 +36,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	let groups: Group[] = []
+	let groups: string[] = []
 
 	$: meta && onMetaChange()
 
@@ -82,7 +85,10 @@
 	}
 
 	async function loadGroups(): Promise<void> {
-		groups = await GroupService.listGroups({ workspace: $workspaceStore! })
+		groups = await GroupService.listGroupNames({
+			workspace: $workspaceStore!,
+			onlyMemberOf: !($userStore?.is_admin || $superadmin)
+		})
 	}
 
 	async function validate(meta: Meta, path: string, kind: PathKind) {
@@ -161,6 +167,7 @@
 	}
 
 	let newGroup: Drawer
+	let viewGroup: Drawer
 	let newGroupName: string
 	let groupCreated: string | undefined = undefined
 
@@ -190,63 +197,77 @@
 	</DrawerContent>
 </Drawer>
 
-<div>
-	<div class="flex flex-col sm:grid sm:grid-cols-4 sm:gap-4 pb-0 mb-1">
-		{#if meta != undefined}
-			<label class="block">
-				<span class="text-gray-700 text-sm whitespace-nowrap">
-					<Popover
-						>Owner Kind
-						<span slot="text"
-							>Select the group <span class="font-mono">all</span>
-							to share it with all workspace users, and <span class="font-mono">user</span> to keep
-							it private.
-							<a href="https://docs.windmill.dev/docs/reference/namespaces">docs</a>
-						</span>
-					</Popover>
-				</span>
+<Drawer bind:this={viewGroup}>
+	<DrawerContent title="Group {meta?.owner}" on:close={viewGroup.closeDrawer}>
+		<GroupEditor name={meta?.owner ?? ''} />
+	</DrawerContent>
+</Drawer>
 
-				<select
-					{disabled}
-					bind:value={meta.ownerKind}
-					on:change={() => {
-						if (meta) {
-							if (meta.ownerKind === 'group') {
-								meta.owner = 'all'
-							} else {
-								meta.owner = $userStore?.username ?? ''
+<div>
+	<div class="flex flex-col sm:grid sm:grid-cols-3 gap-2 sm:gap-4 pb-0 mb-1">
+		{#if meta != undefined}
+			<div class="flex gap-4 w-full">
+				<label class="block">
+					<span class="text-gray-700 text-sm whitespace-nowrap">
+						<Popover
+							>&nbsp;
+							<span slot="text"
+								>Select the group <span class="font-mono">all</span>
+								to share it with all workspace users, and <span class="font-mono">user</span> to
+								keep it private.
+								<a href="https://docs.windmill.dev/docs/reference/namespaces">docs</a>
+							</span>
+						</Popover>
+					</span>
+
+					<ToggleButtonGroup
+						bind:selected={meta.ownerKind}
+						on:selected={(e) => {
+							const kind = e.detail
+							console.log(kind)
+							if (meta) {
+								if (kind === 'group') {
+									meta.owner = 'all'
+								} else {
+									meta.owner = $userStore?.username ?? ''
+								}
 							}
-						}
-					}}
-				>
-					<option>user</option>
-					<option>group</option>
-				</select>
-			</label>
-			{#if meta.ownerKind === 'user'}
-				<label class="block">
-					<span class="text-gray-700 text-sm">Owner</span>
-					<input
-						type="text"
-						bind:value={meta.owner}
-						placeholder={$userStore?.username ?? ''}
-						disabled={!($superadmin || ($userStore?.is_admin ?? false))}
-					/>
-				</label>
-			{:else}
-				<label class="block">
-					<span class="text-gray-700 text-sm inline-flex justify-between w-full"
-						>Owner <button class=" text-xs text-blue-500" on:click={newGroup.openDrawer}
-							>+group</button
-						></span
+						}}
 					>
-					<select {disabled} bind:value={meta.owner}>
-						{#each groups as g}
-							<option>{g.name}</option>
-						{/each}
-					</select>
+						<ToggleButton light size="xs" value="user" position="left">User</ToggleButton>
+						<ToggleButton light size="xs" value="group" position="right">Group</ToggleButton>
+					</ToggleButtonGroup>
 				</label>
-			{/if}
+				{#if meta.ownerKind === 'user'}
+					<label class="block">
+						<span class="text-gray-700 text-sm">Owner</span>
+						<input
+							type="text"
+							bind:value={meta.owner}
+							placeholder={$userStore?.username ?? ''}
+							disabled={!($superadmin || ($userStore?.is_admin ?? false))}
+						/>
+					</label>
+				{:else}
+					<label class="block w-full">
+						<span class="text-gray-700 text-sm inline-flex justify-between w-full">Owner</span>
+
+						<div class="flex flex-row gap-1 w-full">
+							<select class="grow w-full" {disabled} bind:value={meta.owner}>
+								{#each groups as g}
+									<option>{g}</option>
+								{/each}
+							</select>
+							<Button variant="border" size="xs" on:click={viewGroup.openDrawer}>
+								<Icon scale={0.8} data={faEye} /></Button
+							>
+							<Button variant="border" size="xs" on:click={newGroup.openDrawer}>
+								<Icon scale={0.8} data={faPlus} /></Button
+							></div
+						>
+					</label>
+				{/if}
+			</div>
 			<label class="block col-span-2">
 				<span class="text-gray-700 text-sm">
 					Name

@@ -3460,6 +3460,11 @@ paths:
         - group
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: only_member_of
+          in: query
+          description: only list the groups the user is member of (default false)
+          schema:
+            type: boolean
       responses:
         "200":
           description: group list
