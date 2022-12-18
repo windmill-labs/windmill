@@ -51,21 +51,17 @@
 	}
 
 	async function editResource(): Promise<void> {
-		try {
-			if (resourceToEdit) {
-				await ResourceService.updateResource({
-					workspace: $workspaceStore!,
-					path: resourceToEdit.path,
-					requestBody: { path, value: args, description }
-				})
-				sendUserToast(`Updated resource at ${path}`)
-				dispatch('refresh')
-				drawer.closeDrawer?.()
-			} else {
-				throw Error('Cannot edit undefined resourceToEdit')
-			}
-		} catch (err) {
-			sendUserToast(`${err}`, true)
+		if (resourceToEdit) {
+			await ResourceService.updateResource({
+				workspace: $workspaceStore!,
+				path: resourceToEdit.path,
+				requestBody: { path, value: args, description }
+			})
+			sendUserToast(`Updated resource at ${path}`)
+			dispatch('refresh')
+			drawer.closeDrawer?.()
+		} else {
+			throw Error('Cannot edit undefined resourceToEdit')
 		}
 	}
 

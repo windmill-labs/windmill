@@ -17,6 +17,7 @@ pub mod flow_status;
 pub mod flows;
 pub mod more_serde;
 pub mod oauth2;
+pub mod schedule;
 pub mod scripts;
 pub mod users;
 pub mod utils;

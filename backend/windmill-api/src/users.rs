@@ -782,6 +782,31 @@ pub async fn get_groups_for_user(w_id: &str, username: &str, db: &DB) -> Result<
     Ok(groups)
 }
 
+pub async fn require_owner_of_path(w_id: &str, username: &str, path: &str, db: &DB) -> Result<()> {
+    let splitted = path.split("/").collect::<Vec<&str>>();
+    if splitted[0] == "u" {
+        if splitted[1] == username {
+            return Ok(());
+        } else {
+            return Err(Error::BadRequest(format!(
+                "only the owner {} is authorized to perform this operation",
+                splitted[1]
+            )));
+        }
+    } else if splitted[0] == "g" {
+        let groups = get_groups_for_user(w_id, username, db).await?;
+        if groups.contains(&username.to_string()) {
+            return Ok(());
+        } else {
+            return Err(Error::BadRequest(format!(
+                "{} is not a member of {} and hence is not authorized to perform this operation",
+                username, splitted[1]
+            )));
+        }
+    }
+    Err(Error::BadRequest(format!("not recognized owner kind")))
+}
+
 async fn whois(
     Extension(db): Extension<DB>,
     Path((w_id, username)): Path<(String, String)>,

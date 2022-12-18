@@ -10,7 +10,7 @@ use serde_json::{Map, Value};
 use sqlx::{Pool, Postgres};
 use tracing::instrument;
 use uuid::Uuid;
-use windmill_common::{error::Error, flow_status::FlowStatusModule};
+use windmill_common::{error::Error, flow_status::FlowStatusModule, schedule::Schedule};
 use windmill_queue::{delete_job, schedule::get_schedule_opt, JobKind, QueuedJob};
 
 #[instrument(level = "trace", skip_all)]
@@ -238,7 +238,7 @@ pub async fn schedule_again_if_scheduled(
     if schedule.enabled && script_path == schedule.script_path {
         let res = windmill_queue::schedule::push_scheduled_job(
             tx,
-            windmill_queue::schedule::Schedule {
+            Schedule {
                 workspace_id: w_id.to_owned(),
                 path: schedule.path.clone(),
                 edited_by: schedule.edited_by,

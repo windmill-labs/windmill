@@ -154,7 +154,7 @@
 />
 
 <CenteredPage>
-	{#if $userStore?.is_admin || $superadmin}
+	{#if $userStore?.is_admin}
 		<PageHeader title="Workspace Settings of {$workspaceStore}" />
 
 		<PageHeader title="Members" primary={false} />
