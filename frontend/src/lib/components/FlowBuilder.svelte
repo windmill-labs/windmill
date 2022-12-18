@@ -90,25 +90,19 @@
 			})
 			const scheduleExists = await ScheduleService.existsSchedule({
 				workspace: $workspaceStore ?? '',
-				path: initialPath
+				path: flow.path
 			})
 			if (scheduleExists) {
 				const schedule = await ScheduleService.getSchedule({
 					workspace: $workspaceStore ?? '',
-					path: initialPath
+					path: flow.path
 				})
-				if (
-					schedule.path != flow.path ||
-					JSON.stringify(schedule.args) != JSON.stringify(args) ||
-					schedule.schedule != cron
-				) {
+				if (JSON.stringify(schedule.args) != JSON.stringify(args) || schedule.schedule != cron) {
 					await ScheduleService.updateSchedule({
 						workspace: $workspaceStore ?? '',
-						path: initialPath,
+						path: flow.path,
 						requestBody: {
 							schedule: formatCron(cron),
-							script_path: flow.path,
-							is_flow: true,
 							args
 						}
 					})

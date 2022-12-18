@@ -244,7 +244,7 @@
 						<input id="inp" type="text" bind:value={newResourceType.name} />
 					</div>
 
-					{#if $userStore?.is_admin || $superadmin}
+					{#if $userStore?.is_admin}
 						<Toggle
 							bind:checked={disableCustomPrefix}
 							options={{ right: 'disable c_ prefix (admin only)' }}
@@ -567,7 +567,7 @@
 													workspaces</Tooltip
 												></Badge
 											>
-										{:else if $userStore?.is_admin || $superadmin}
+										{:else if $userStore?.is_admin}
 											<Button
 												size="sm"
 												color="red"

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { AppService, FlowService, ListableApp, Script, ScriptService, type Flow } from '$lib/gen'
-	import { superadmin, userStore, workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { Skeleton, ToggleButton, ToggleButtonGroup } from '$lib/components/common'
 	import { canWrite } from '$lib/utils'
 	import ShareModal from '$lib/components/ShareModal.svelte'
@@ -134,7 +134,7 @@
 	}
 
 	$: {
-		if (($userStore || $superadmin) && $workspaceStore) {
+		if ($userStore && $workspaceStore) {
 			loadScripts()
 			loadFlows()
 			loadApps()

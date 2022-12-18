@@ -13,7 +13,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 
 	import Path from '$lib/components/Path.svelte'
-	import { Button } from '$lib/components/common'
+	import { Alert, Badge, Button } from '$lib/components/common'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { goto } from '$app/navigation'
 	import { workspaceStore } from '$lib/stores'
@@ -23,6 +23,7 @@
 	import Required from '$lib/components/Required.svelte'
 	import CronInput, { OFFSET } from '$lib/components/CronInput.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
+	import { faList, faSave } from '@fortawesome/free-solid-svg-icons'
 
 	let initialPath = $page.url.searchParams.get('edit') || ''
 	let edit = initialPath === '' ? false : true
@@ -70,6 +71,7 @@
 			enabled = s.enabled
 			schedule = s.schedule
 			script_path = s.script_path ?? ''
+			is_flow = s.is_flow
 			initialScriptPath = script_path
 			args = s.args ?? {}
 		} catch (err) {
@@ -84,8 +86,6 @@
 				path: initialPath,
 				requestBody: {
 					schedule: formatCron(schedule),
-					script_path: script_path,
-					is_flow: is_flow,
 					args
 				}
 			})
@@ -117,7 +117,15 @@
 </script>
 
 <CenteredPage>
-	<PageHeader title={edit ? 'Edit schedule ' + initialPath : 'New schedule'} />
+	<PageHeader title={edit ? 'Edit schedule ' + initialPath : 'New schedule'}>
+		<Button
+			startIcon={{ icon: faSave }}
+			disabled={!allowSchedule || pathError != ''}
+			on:click={scheduleScript}
+		>
+			{edit ? 'Save' : 'Schedule'}
+		</Button>
+	</PageHeader>
 
 	<div>
 		{#if !edit}
@@ -132,17 +140,41 @@
 			/>
 		{/if}
 
-		<h2 class="border-b pb-1 mt-8 mb-2">Script</h2>
-		<p class="text-xs mb-1 text-gray-600">
-			Pick a script or flow to be triggered by the schedule<Required required={true} />
-		</p>
-		<ScriptPicker
-			initialPath={initialScriptPath}
-			kind={Script.kind.SCRIPT}
-			allowFlow={true}
-			bind:itemKind
-			bind:scriptPath={script_path}
-		/>
+		<h2 class="border-b pb-1 mt-8 mb-2">Runnable</h2>
+		{#if !edit}
+			<p class="text-xs mb-1 text-gray-600">
+				Pick a script or flow to be triggered by the schedule<Required required={true} />
+			</p>
+			<ScriptPicker
+				initialPath={initialScriptPath}
+				kind={Script.kind.SCRIPT}
+				allowFlow={true}
+				bind:itemKind
+				bind:scriptPath={script_path}
+			/>
+		{:else}
+			<Alert type="info" title="Runnable path cannot be edited">
+				Once a schedule is created, the runnable path cannot be changed. However, when renaming a
+				script or a flow, the runnable path will automatically update itself. To edit the runnable
+				path, you can always delete the schedule and create a new on.
+			</Alert>
+			<div class="mt-4 flex items-center gap-2 max-w-xl">
+				<div> <Badge large color="blue">{itemKind}</Badge></div><input
+					type="text"
+					disabled
+					value={script_path}
+				/>
+				<Button
+					variant="border"
+					href="/runs/{script_path}"
+					color="blue"
+					size="md"
+					startIcon={{ icon: faList }}
+				>
+					View runs
+				</Button>
+			</div>
+		{/if}
 		<div class={edit ? '' : 'mt-2 md:mt-6'}>
 			<h2 class="border-b pb-1 mt-8 mb-2">Arguments</h2>
 			{#if runnable}
@@ -178,12 +210,5 @@
 				}}
 			/>
 		{/if}
-		<div class="flex flex-row-reverse mt-2 ">
-			<div>
-				<Button disabled={!allowSchedule || pathError != ''} on:click={scheduleScript}>
-					{edit ? 'Save' : 'Schedule'}
-				</Button>
-			</div>
-		</div>
 	</div>
 </CenteredPage>

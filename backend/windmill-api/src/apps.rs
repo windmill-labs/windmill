@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use crate::{
     db::{UserDB, DB},
     jobs::script_path_to_payload,
-    users::{Authed, OptAuthed},
+    users::{require_owner_of_path, Authed, OptAuthed},
 };
 use axum::{
     extract::{Extension, Path, Query},
@@ -309,6 +309,7 @@ async fn delete_app(
 async fn update_app(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(ns): Json<EditApp>,
 ) -> Result<String> {
@@ -324,6 +325,11 @@ async fn update_app(
         sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
 
         if let Some(npath) = &ns.path {
+            if npath != path {
+                if !authed.is_admin {
+                    require_owner_of_path(&w_id, &authed.username, &path, &db).await?;
+                }
+            }
             sqlb.set_str("path", npath);
         }
 

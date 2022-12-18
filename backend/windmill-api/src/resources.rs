@@ -8,7 +8,7 @@
 
 use crate::{
     db::{UserDB, DB},
-    users::Authed,
+    users::{require_owner_of_path, Authed},
 };
 use axum::{
     extract::{Extension, Path, Query},
@@ -315,6 +315,7 @@ async fn delete_resource(
 async fn update_resource(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(ns): Json<EditResource>,
 ) -> Result<String> {
@@ -346,6 +347,9 @@ async fn update_resource(
     let npath = not_found_if_none(npath_o, "Resource", path)?;
 
     if let Some(npath) = ns.path {
+        if !authed.is_admin {
+            require_owner_of_path(&w_id, &authed.username, &path, &db).await?;
+        }
         sqlx::query!(
             "UPDATE variable SET path = $1 WHERE path = $2 AND workspace_id = $3",
             npath,
