@@ -8,7 +8,7 @@
 
 use crate::{
     db::{UserDB, DB},
-    users::Authed,
+    users::{get_groups_for_user, Authed},
 };
 use axum::{
     extract::{Extension, Path, Query},
@@ -91,16 +91,26 @@ async fn list_groups(
     Ok(Json(rows))
 }
 
+#[derive(Deserialize)]
+struct QueryListGroup {
+    pub only_member_of: Option<bool>,
+}
 async fn list_group_names(
+    Authed { username, .. }: Authed,
     Extension(db): Extension<DB>,
+    Query(QueryListGroup { only_member_of }): Query<QueryListGroup>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<String>> {
-    let rows = sqlx::query_scalar!(
-        "SELECT name FROM group_ WHERE workspace_id = $1 ORDER BY name desc",
-        w_id
-    )
-    .fetch_all(&db)
-    .await?;
+    let rows = if !only_member_of.unwrap_or(false) {
+        sqlx::query_scalar!(
+            "SELECT name FROM group_ WHERE workspace_id = $1 ORDER BY name desc",
+            w_id
+        )
+        .fetch_all(&db)
+        .await?
+    } else {
+        get_groups_for_user(&w_id, &username, &db).await?
+    };
 
     Ok(Json(rows))
 }

@@ -771,7 +771,7 @@ async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo
     }))
 }
 
-async fn get_groups_for_user(w_id: &str, username: &str, db: &DB) -> Result<Vec<String>> {
+pub async fn get_groups_for_user(w_id: &str, username: &str, db: &DB) -> Result<Vec<String>> {
     let groups = sqlx::query_scalar!(
         "SELECT group_ FROM usr_to_group where usr = $1 AND workspace_id = $2",
         username,
