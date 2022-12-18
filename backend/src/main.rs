@@ -21,8 +21,6 @@ async fn main() -> anyhow::Result<()> {
 
     windmill_common::tracing_init::initialize_tracing();
 
-    let db = windmill_common::connect_db().await?;
-
     let num_workers = std::env::var("NUM_WORKERS")
         .ok()
         .and_then(|x| x.parse::<i32>().ok())
@@ -42,6 +40,8 @@ async fn main() -> anyhow::Result<()> {
         .ok()
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(false);
+
+    let db = windmill_common::connect_db(server_mode).await?;
 
     if server_mode {
         windmill_api::migrate_db(&db).await?;

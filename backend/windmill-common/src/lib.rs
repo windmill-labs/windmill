@@ -29,7 +29,8 @@ pub mod tracing_init;
 pub const DEFAULT_NUM_WORKERS: usize = 3;
 pub const DEFAULT_TIMEOUT: i32 = 300;
 pub const DEFAULT_SLEEP_QUEUE: u64 = 50;
-pub const DEFAULT_MAX_CONNECTIONS: u32 = 100;
+pub const DEFAULT_MAX_CONNECTIONS_SERVER: u32 = 50;
+pub const DEFAULT_MAX_CONNECTIONS_WORKER: u32 = 3;
 
 #[cfg(feature = "tokio")]
 pub async fn shutdown_signal(tx: tokio::sync::broadcast::Sender<()>) -> anyhow::Result<()> {
@@ -79,7 +80,7 @@ async fn metrics() -> Result<String, Error> {
 }
 
 #[cfg(feature = "sqlx")]
-pub async fn connect_db() -> anyhow::Result<sqlx::Pool<sqlx::Postgres>> {
+pub async fn connect_db(server_mode: bool) -> anyhow::Result<sqlx::Pool<sqlx::Postgres>> {
     use anyhow::Context;
 
     let database_url = std::env::var("DATABASE_URL")
@@ -87,7 +88,13 @@ pub async fn connect_db() -> anyhow::Result<sqlx::Pool<sqlx::Postgres>> {
 
     let max_connections = match std::env::var("DATABASE_CONNECTIONS") {
         Ok(n) => n.parse::<u32>().context("invalid DATABASE_CONNECTIONS")?,
-        Err(_) => DEFAULT_MAX_CONNECTIONS,
+        Err(_) => {
+            if server_mode {
+                DEFAULT_MAX_CONNECTIONS_SERVER
+            } else {
+                DEFAULT_MAX_CONNECTIONS_WORKER
+            }
+        }
     };
 
     Ok(connect(&database_url, max_connections).await?)
@@ -101,6 +108,7 @@ pub async fn connect(
     use std::time::Duration;
 
     sqlx::postgres::PgPoolOptions::new()
+        .min_connections(3)
         .max_connections(max_connections)
         .max_lifetime(Duration::from_secs(30 * 60)) // 30 mins
         .connect(database_url)
