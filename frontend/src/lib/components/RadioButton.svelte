@@ -2,6 +2,7 @@
 	export let label = ''
 	export let options: [string | { title: string; desc: string }, any][]
 	export let value: any
+	export let disabled = false
 
 	import { createEventDispatcher } from 'svelte'
 	import Tooltip from './Tooltip.svelte'
@@ -19,6 +20,7 @@
 				{val === value ? '!bg-blue-50 !border-blue-500' : ''}"
 			>
 				<input
+					{disabled}
 					type="radio"
 					value={val}
 					class="sr-only"
