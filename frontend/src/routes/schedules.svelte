@@ -13,7 +13,6 @@
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import Dropdown from '$lib/components/Dropdown.svelte'
-	import { goto } from '$app/navigation'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import {
@@ -31,6 +30,7 @@
 	import { Badge, Button, Skeleton } from '$lib/components/common'
 	import Popover from '$lib/components/Popover.svelte'
 	import { Icon } from 'svelte-awesome'
+	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 
 	type ScheduleW = Schedule & { canWrite: boolean }
 
@@ -64,11 +64,15 @@
 			loadSchedules()
 		}
 	}
+	let scheduleEditor: ScheduleEditor
 </script>
 
+<ScheduleEditor on:update={loadSchedules} bind:this={scheduleEditor} />
 <CenteredPage>
 	<PageHeader title="Schedules" tooltip="Trigger Scripts and Flows according to a cron schedule">
-		<Button size="md" startIcon={{ icon: faPlus }} href="/schedule/add">New&nbsp;schedule</Button>
+		<Button size="md" startIcon={{ icon: faPlus }} on:click={() => scheduleEditor.openNew(false)}
+			>New&nbsp;schedule</Button
+		>
 	</PageHeader>
 	<div class="mt-10 mb-40">
 		{#if loading}
@@ -92,8 +96,9 @@
 					{#each schedules as { path, error, edited_by, edited_at, schedule, offset_, enabled, script_path, is_flow, extra_perms, canWrite }}
 						<tr class={enabled ? '' : 'bg-gray-50'}>
 							<td class="max-w-sm"
-								><a class="break-words text-sm" href="/schedule/add?edit={path}&isFlow={is_flow}"
-									>{path}</a
+								><button
+									class="break-words text-sm text-blue-600 font-normal"
+									on:click={() => scheduleEditor?.openEdit(path, is_flow)}>{path}</button
 								>
 								<SharedBadge {canWrite} extraPerms={extra_perms} />
 							</td>
@@ -176,7 +181,7 @@
 											icon: faEdit,
 											disabled: !canWrite,
 											action: () => {
-												goto(`/schedule/add?edit=${path}&isFlow=${is_flow}`)
+												scheduleEditor?.openEdit(path, is_flow)
 											}
 										},
 										{

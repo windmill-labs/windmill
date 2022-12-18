@@ -10,7 +10,6 @@
 	} from '$lib/gen'
 	import { GroupService } from '$lib/gen'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
-	import { sleep } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Required from './Required.svelte'
 	import { Button, Drawer, DrawerContent } from './common'
@@ -28,6 +27,7 @@
 	export let path = ''
 	export let error = ''
 	export let disabled = false
+	export let checkInitialPathExistence = false
 
 	export let kind: PathKind
 
@@ -105,7 +105,10 @@
 			clearTimeout(validateTimeout)
 		}
 		validateTimeout = setTimeout(async () => {
-			if ((path == '' || path != initialPath) && (await pathExists(path, kind))) {
+			if (
+				(path == '' || checkInitialPathExistence || path != initialPath) &&
+				(await pathExists(path, kind))
+			) {
 				error = 'path already used'
 			} else if (meta && validateName(meta)) {
 				error = ''

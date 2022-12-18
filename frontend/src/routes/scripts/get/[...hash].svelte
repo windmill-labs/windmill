@@ -36,7 +36,6 @@
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
-	import SvelteMarkdown from 'svelte-markdown'
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { onDestroy } from 'svelte'
@@ -57,6 +56,7 @@
 	import RunForm from '$lib/components/RunForm.svelte'
 	import { goto } from '$app/navigation'
 	import Popover from '$lib/components/Popover.svelte'
+	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 
 	let userSettings: UserSettings
 	let script: Script | undefined
@@ -163,7 +163,10 @@
 			sendUserToast(`Could not create job: ${err.body}`, true)
 		}
 	}
+	let scheduleEditor: ScheduleEditor
 </script>
+
+<ScheduleEditor bind:this={scheduleEditor} />
 
 {#if script}
 	<CenteredPage>
@@ -279,7 +282,7 @@
 					Share
 				</Button>
 				<Button
-					href="/schedule/add?path={script.path}"
+					on:click={() => scheduleEditor?.openNew(false, script?.path ?? '')}
 					variant="border"
 					color="light"
 					size="xs"

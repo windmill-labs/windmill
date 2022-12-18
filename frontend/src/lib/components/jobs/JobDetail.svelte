@@ -25,11 +25,15 @@
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
 	import { Badge } from '../common'
+	import ScheduleEditor from '../ScheduleEditor.svelte'
 
 	const SMALL_ICON_SCALE = 0.7
 
 	export let job: Job
+	let scheduleEditor: ScheduleEditor
 </script>
+
+<ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
 
 <div class="border border-gray-400 rounded py-4">
 	<div class="grid grid-cols-1 lg:grid-cols-3 w-full gap-4">
@@ -159,9 +163,11 @@
 					{:else if job && job.schedule_path}
 						<Icon class="text-gray-700" data={faCalendar} scale={SMALL_ICON_SCALE} />
 						<span class="mx-2"
-							>Triggered by the schedule: <a
-								href={`/schedule/add?edit=${job.schedule_path}&isFlow=${job.job_kind == 'flow'}`}
-								>{job.schedule_path}</a
+							>Triggered by the schedule: <button
+								class="break-words text-sm text-blue-600 font-normal"
+								on:click={() =>
+									scheduleEditor?.openEdit(job.schedule_path ?? '', job.job_kind == 'flow')}
+								>{job.schedule_path}</button
 							></span
 						>
 					{/if}
