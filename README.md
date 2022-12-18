@@ -299,6 +299,7 @@ upcoming CLI tool.
 | PIP_TRUSTED_HOST          | None                   | The trusted host to pass to pip.                                                                                                                                                                   | Worker                |
 | PATH                      | None                   | The path environment variable, usually inherited                                                                                                                                                   | Worker                |
 | HOME                      | None                   | The home directory to use for Go and Bash , usually inherited                                                                                                                                      | Worker                |
+| DATABASE_CONNECTIONS      | 50 (Server)/3 (Worker) | The max number of connections in the database connection pool                                                                                                                                      | All                   |
 
 ## Run a local dev setup
 

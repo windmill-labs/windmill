@@ -14,7 +14,7 @@ use anyhow::Ok;
 async fn main() -> anyhow::Result<()> {
     windmill_common::tracing_init::initialize_tracing();
 
-    let db = windmill_common::connect_db().await?;
+    let db = windmill_common::connect_db(true).await?;
 
     let num_workers = std::env::var("NUM_WORKERS")
         .ok()
