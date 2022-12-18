@@ -415,13 +415,14 @@
 								<ul>
 									{#each Object.keys(webhooks[key]) as type}
 										{@const url = webhooks[key][type]}
+										{@const href = $page.url.protocol + '//' + url}
 										<li class="flex justify-between items-center mt-2">
 											<a
 												on:click={(e) => {
 													e.preventDefault()
-													copyToClipboard(url)
+													copyToClipboard(href)
 												}}
-												href={$page.url.protocol + '//' + url}
+												href={href}
 												class="whitespace-nowrap text-ellipsis overflow-hidden mr-1"
 											>
 												{url}
