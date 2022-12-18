@@ -230,47 +230,53 @@
 			>Groups managing this group <Tooltip>Any member of those groups can manage this group</Tooltip
 			></h2
 		>
-		<div class="flex items-start">
-			<AutoComplete items={groups} bind:selectedItem={new_managing_group} />
-			<Button
-				variant="contained"
-				color="blue"
-				size="sm"
-				btnClasses="!ml-4"
-				on:click={addToManagingGroup}
-			>
-				Add group managing this group
-			</Button>
-		</div>
-		<TableCustom>
-			<tr slot="header-row">
-				<th>group</th>
-				<th />
-			</tr>
-			<tbody slot="body">
-				{#each managing_groups as managing_group}<tr>
-						<td>{managing_group.split('/')[1]}</td>
-						<td>
-							{#if can_write}
-								<button
-									class="ml-2 text-red-500"
-									on:click={async () => {
-										await GranularAclService.removeGranularAcls({
-											workspace: $workspaceStore ?? '',
-											path: name,
-											kind: 'group_',
-											requestBody: {
-												owner: managing_group
-											}
-										})
-										loadGroup()
-									}}>remove</button
-								>
-							{/if}</td
-						>
-					</tr>{/each}
-			</tbody>
-		</TableCustom>
+		{#if can_write}
+			<div class="flex items-start">
+				<AutoComplete items={groups} bind:selectedItem={new_managing_group} />
+				<Button
+					variant="contained"
+					color="blue"
+					size="sm"
+					btnClasses="!ml-4"
+					on:click={addToManagingGroup}
+				>
+					Add group managing this group
+				</Button>
+			</div>
+		{/if}
+		{#if managing_groups.length == 0}
+			<p class="text-gray-600 text-sm">No group is managing this group</p>
+		{:else}
+			<TableCustom>
+				<tr slot="header-row">
+					<th>group</th>
+					<th />
+				</tr>
+				<tbody slot="body">
+					{#each managing_groups as managing_group}<tr>
+							<td>{managing_group.split('/')[1]}</td>
+							<td>
+								{#if can_write}
+									<button
+										class="ml-2 text-red-500"
+										on:click={async () => {
+											await GranularAclService.removeGranularAcls({
+												workspace: $workspaceStore ?? '',
+												path: name,
+												kind: 'group_',
+												requestBody: {
+													owner: managing_group
+												}
+											})
+											loadGroup()
+										}}>remove</button
+									>
+								{/if}</td
+							>
+						</tr>{/each}
+				</tbody>
+			</TableCustom>
+		{/if}
 	{:else}
 		<div class="flex flex-col">
 			{#each new Array(6) as _}

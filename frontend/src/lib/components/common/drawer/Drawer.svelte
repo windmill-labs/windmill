@@ -70,7 +70,7 @@
 
 <svelte:window on:keydown={onKeyDown} />
 
-<aside class="drawer" class:open class:close={!open && timeout} {style}>
+<aside class="drawer {$$props.class}" class:open class:close={!open && timeout} {style}>
 	<div class="overlay" on:click={handleClickAway} />
 	<div class="panel {placement}" class:size>
 		{#if open || !timeout}
