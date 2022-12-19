@@ -22,7 +22,7 @@
 	export let result: any = undefined
 	export let forceSchemaDisplay: boolean = false
 
-	const { app, worldStore, runnableComponents } = getContext<AppEditorContext>('AppEditorContext')
+	const { worldStore, runnableComponents } = getContext<AppEditorContext>('AppEditorContext')
 
 	onMount(() => {
 		$runnableComponents[id] = async () => {
@@ -97,7 +97,9 @@
 	} else if (runnable?.type === 'runnableByName' && !schema) {
 		const { inlineScript } = runnable
 		// Inline scripts directly provide the schema
-		schema = inlineScript.schema
+		if (inlineScript) {
+			schema = inlineScript.schema
+		}
 	}
 
 	// When the schema is loaded, we need to update the inputs spec
@@ -167,10 +169,12 @@
 			if (runnable?.type === 'runnableByName') {
 				const { inlineScript } = runnable
 
-				requestBody['raw_code'] = {
-					content: inlineScript.content,
-					language: inlineScript.language,
-					path: inlineScript.path
+				if (inlineScript) {
+					requestBody['raw_code'] = {
+						content: inlineScript.content,
+						language: inlineScript.language,
+						path: inlineScript.path
+					}
 				}
 			} else if (runnable?.type === 'runnableByPath') {
 				const { path, runType } = runnable

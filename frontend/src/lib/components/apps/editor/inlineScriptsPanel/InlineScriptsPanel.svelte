@@ -4,7 +4,7 @@
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
 	import { Pane } from 'svelte-splitpanes'
 	import InlineScriptsPanelList from './InlineScriptsPanelList.svelte'
-	import Xyz from './Xyz.svelte'
+	import InlineScriptEditor from './InlineScriptEditor.svelte'
 
 	const { app } = getContext<AppEditorContext>('AppEditorContext')
 
@@ -16,8 +16,11 @@
 		<InlineScriptsPanelList bind:selectedScriptName />
 	</Pane>
 	<Pane size={75}>
-		{#each $app.grid as gridComponent, index}
-			<Xyz bind:componentInput={gridComponent.data.componentInput} {selectedScriptName} />
+		{#each $app.grid as gridComponent, index (index)}
+			<InlineScriptEditor
+				bind:componentInput={gridComponent.data.componentInput}
+				{selectedScriptName}
+			/>
 		{/each}
 	</Pane>
 </SplitPanesWrapper>

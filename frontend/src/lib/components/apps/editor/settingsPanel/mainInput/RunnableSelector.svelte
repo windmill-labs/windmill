@@ -134,9 +134,7 @@
 
 <div class="flex flex-col gap-2">
 	<Button
-		on:click={() => {
-			const name = createScript()
-		}}
+		on:click={createScript}
 		size="sm"
 		color="light"
 		variant="border"

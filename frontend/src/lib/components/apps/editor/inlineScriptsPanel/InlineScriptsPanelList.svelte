@@ -6,9 +6,9 @@
 	import type { AppEditorContext } from '../../types'
 	import PanelSection from '../settingsPanel/common/PanelSection.svelte'
 
-	const { app } = getContext<AppEditorContext>('AppEditorContext')
-
 	export let selectedScriptName: string | undefined = undefined
+
+	const { app } = getContext<AppEditorContext>('AppEditorContext')
 
 	function selectInlineScript(name: string) {
 		selectedScriptName = name
@@ -17,7 +17,7 @@
 	$: componentInlineScripts = $app.grid.reduce((acc, gridComponent) => {
 		const componentInput: AppInput = gridComponent.data.componentInput
 
-		if (componentInput.type === 'runnable') {
+		if (componentInput?.type === 'runnable') {
 			if (componentInput.runnable?.type === 'runnableByName') {
 				acc.push({
 					name: componentInput.runnable.name,
@@ -33,7 +33,7 @@
 	<div class="flex flex-col gap-2 w-full">
 		{#if componentInlineScripts.length > 0}
 			<div class="flex gap-2 flex-col ">
-				{#each componentInlineScripts as { name, id }, index}
+				{#each componentInlineScripts as { name, id }, index (index)}
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
 					<div
 						class="{classNames(
@@ -43,11 +43,7 @@
 						on:click={() => selectInlineScript(name)}
 					>
 						<span class="text-xs">{name}</span>
-						{#if selectedScriptName === name}
-							<Badge color="dark-indigo">{id}</Badge>
-						{:else}
-							<Badge color="red">Unused</Badge>
-						{/if}
+						<Badge color="dark-indigo">{id}</Badge>
 					</div>
 				{/each}
 			</div>

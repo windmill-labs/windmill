@@ -16,7 +16,7 @@ import {
 	ToggleLeft
 } from 'lucide-svelte'
 import type { AppInput, AppInputs, InputType } from './inputType'
-import type { AppComponent, InlineScript } from './types'
+import type { AppComponent } from './types'
 
 export async function loadSchema(
 	workspace: string,
@@ -41,8 +41,6 @@ export async function loadSchema(
 		const script = await ScriptService.getHubScriptByPath({
 			path
 		})
-
-		debugger
 
 		return script.schema
 	}

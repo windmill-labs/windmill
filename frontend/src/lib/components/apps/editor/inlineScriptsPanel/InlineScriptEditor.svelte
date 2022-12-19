@@ -7,10 +7,13 @@
 	import { getContext } from 'svelte'
 	import type { AppEditorContext } from '../../types'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
-	import { Code2 } from 'lucide-svelte'
+	import { Check, CheckCheck, CheckCircle, Code2, X } from 'lucide-svelte'
 	import FlowScriptPicker from '$lib/components/flows/pickers/FlowScriptPicker.svelte'
 	import type { ResultAppInput } from '../../inputType'
 	import InlineScriptEditorDrawer from './InlineScriptEditorDrawer.svelte'
+	import { inferArgs } from '$lib/infer'
+	import type { Schema } from '$lib/common'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
 
 	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
 	export let componentInput: ResultAppInput
@@ -21,18 +24,41 @@
 		componentInput.runnable?.name === selectedScriptName
 	const { appPath } = getContext<AppEditorContext>('AppEditorContext')
 
-	function createInlineScriptByLanguage(
+	let validCode = false
+
+	async function inferInlineScriptSchema(
+		language: Preview.language,
+		content: string,
+		schema: Schema
+	): Promise<Schema> {
+		try {
+			await inferArgs(language, content, schema)
+			validCode = true
+		} catch (e) {
+			console.error("Couldn't infer args", e)
+			validCode = false
+		}
+
+		return schema
+	}
+
+	async function createInlineScriptByLanguage(
 		language: Preview.language,
 		path: string,
 		subkind: 'pgsql' | 'mysql' | undefined = undefined
-	): void {
+	) {
 		const fullPath = `${appPath}/inline-script/${path}`
 
+		const content = initialCode(language, Script.kind.SCRIPT, subkind)
+		let schema: Schema = emptySchema()
+
+		schema = await inferInlineScriptSchema(language, content, schema)
+
 		const inlineScript = {
-			content: initialCode(language, Script.kind.SCRIPT, subkind),
-			language: language,
+			content,
+			language,
 			path: fullPath,
-			schema: emptySchema()
+			schema
 		}
 		if (componentInput?.runnable?.type === 'runnableByName') {
 			componentInput.runnable.inlineScript = inlineScript
@@ -79,6 +105,15 @@
 						}
 					}}
 				/>
+				{#if validCode}
+					<Badge color="green">
+						<CheckCircle size={16} />
+					</Badge>
+				{:else}
+					<Badge color="red">
+						<X size={16} />
+					</Badge>
+				{/if}
 			</div>
 
 			{#if componentInput?.runnable?.type === 'runnableByName' && componentInput?.runnable?.inlineScript}
@@ -88,6 +123,22 @@
 						lang="typescript"
 						bind:code={componentInput.runnable.inlineScript.content}
 						fixedOverflowWidgets={false}
+						on:change={async () => {
+							if (
+								componentInput?.runnable?.type === 'runnableByName' &&
+								componentInput?.runnable?.inlineScript
+							) {
+								let schema = await inferInlineScriptSchema(
+									componentInput?.runnable?.inlineScript?.language,
+									componentInput.runnable.inlineScript.content,
+									componentInput.runnable.inlineScript.schema
+								)
+
+								componentInput.runnable.inlineScript.schema = schema
+
+								componentInput = componentInput
+							}
+						}}
 					/>
 				</div>
 			{/if}

@@ -15,7 +15,6 @@
 	import gridHelp from 'svelte-grid/build/helper/index.mjs'
 	import { gridColumns } from '../../gridUtils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import SelectedRunnable from './SelectedRunnable.svelte'
 	import ComponentInputTypeEditor from './ComponentInputTypeEditor.svelte'
 	import AlignmentEditor from './AlignmentEditor.svelte'
 	import RunnableInputEditor from './inputEditor/RunnableInputEditor.svelte'
