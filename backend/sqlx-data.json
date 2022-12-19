@@ -1003,51 +1003,6 @@
     },
     "query": "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3"
   },
-  "2fe6c0806486fbdc6cfc4bb0d5fa8f4267c6e117523aa2c1ab6c6df368c43b32": {
-    "describe": {
-      "columns": [
-        {
-          "name": "name",
-          "ordinal": 0,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "workspace_id",
-          "ordinal": 1,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "owners",
-          "ordinal": 2,
-          "type_info": "VarcharArray"
-        },
-        {
-          "name": "extra_perms",
-          "ordinal": 3,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "display_name",
-          "ordinal": 4,
-          "type_info": "Varchar"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT * FROM folder WHERE name = $1 AND workspace_id = $2"
-  },
   "31a6e8a73fa568e28b8ca6e35a38b663e0b07d15a212b81883ad9c327d99a7c4": {
     "describe": {
       "columns": [],
@@ -1120,6 +1075,51 @@
       }
     },
     "query": "UPDATE flow SET value = $1 WHERE path = $2 AND workspace_id = $3"
+  },
+  "3911bf3bbc82d87366a5297496fd2350a252bcd69f1c7c972bf566ee7eb28b0a": {
+    "describe": {
+      "columns": [
+        {
+          "name": "workspace_id",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "name",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "display_name",
+          "ordinal": 2,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "owners",
+          "ordinal": 3,
+          "type_info": "VarcharArray"
+        },
+        {
+          "name": "extra_perms",
+          "ordinal": 4,
+          "type_info": "Jsonb"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT workspace_id, name, display_name, owners, extra_perms FROM folder WHERE name = $1 AND workspace_id = $2"
   },
   "3d363466d79075df3f74f946eff43ca89faefca3bcdf2c533425ca3868b0369a": {
     "describe": {
@@ -2210,52 +2210,6 @@
     },
     "query": "UPDATE workspace SET deleted = true WHERE id = $1"
   },
-  "705a34bdcd904b25f22e533ee6e659b6901584bde8e851c43b11869c332e8683": {
-    "describe": {
-      "columns": [
-        {
-          "name": "name",
-          "ordinal": 0,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "workspace_id",
-          "ordinal": 1,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "owners",
-          "ordinal": 2,
-          "type_info": "VarcharArray"
-        },
-        {
-          "name": "extra_perms",
-          "ordinal": 3,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "display_name",
-          "ordinal": 4,
-          "type_info": "Varchar"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Int8",
-          "Int8"
-        ]
-      }
-    },
-    "query": "SELECT * FROM folder WHERE workspace_id = $1 ORDER BY name desc LIMIT $2 OFFSET $3"
-  },
   "70e6ca3b5ad81f70376d31c75ba5f2b5dd94dd2f7f4cacd5a64029ccc3315d6c": {
     "describe": {
       "columns": [
@@ -2548,6 +2502,52 @@
       }
     },
     "query": "\n        SELECT id, flow_status, suspend\n        FROM queue\n        WHERE id = ( SELECT parent_job FROM queue WHERE id = $1 UNION ALL SELECT parent_job FROM completed_job WHERE id = $1)\n        FOR UPDATE\n        "
+  },
+  "8543f029d9784234e4c6a6dcd7b03e62d544b98be261334ee210594e0bb839f2": {
+    "describe": {
+      "columns": [
+        {
+          "name": "workspace_id",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "name",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "display_name",
+          "ordinal": 2,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "owners",
+          "ordinal": 3,
+          "type_info": "VarcharArray"
+        },
+        {
+          "name": "extra_perms",
+          "ordinal": 4,
+          "type_info": "Jsonb"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Int8",
+          "Int8"
+        ]
+      }
+    },
+    "query": "SELECT workspace_id, name, display_name, owners, extra_perms FROM folder WHERE workspace_id = $1 ORDER BY name desc LIMIT $2 OFFSET $3"
   },
   "877829f87c4d94c2e385ab9c5d75d3f70929c89231650e20db57c4b7c1d8911f": {
     "describe": {
