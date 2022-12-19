@@ -6,20 +6,19 @@
 	import PanelSection from './common/PanelSection.svelte'
 	import InputsSpecsEditor from './InputsSpecsEditor.svelte'
 	import TableActions from './TableActions.svelte'
-	import StaticInputEditor from './StaticInputEditor.svelte'
-	import ConnectedInputEditor from './ConnectedInputEditor.svelte'
+	import StaticInputEditor from './inputEditor/StaticInputEditor.svelte'
+	import ConnectedInputEditor from './inputEditor/ConnectedInputEditor.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { capitalize } from '$lib/utils'
 	import { fieldTypeToTsType } from '../../utils'
 	import Recompute from './Recompute.svelte'
-	import RunnableSelector from './mainInput/RunnableSelector.svelte'
 	import gridHelp from 'svelte-grid/build/helper/index.mjs'
 	import { gridColumns } from '../../gridUtils'
-	import InlineScriptEditorDrawer from '../inlineScriptsPanel/InlineScriptEditorDrawer.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import SelectedRunnable from './SelectedRunnable.svelte'
 	import ComponentInputTypeEditor from './ComponentInputTypeEditor.svelte'
 	import AlignmentEditor from './AlignmentEditor.svelte'
+	import RunnableInputEditor from './inputEditor/RunnableInputEditor.svelte'
 
 	export let component: AppComponent | undefined
 	export let onDelete: (() => void) | undefined = undefined
@@ -54,12 +53,9 @@
 			}
 		}
 	}
-	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
 </script>
 
 {#if component}
-	<InlineScriptEditorDrawer bind:this={inlineScriptEditorDrawer} />
-
 	<div class="flex flex-col w-full divide-y">
 		{#if component.componentInput}
 			<PanelSection
@@ -82,24 +78,8 @@
 						<StaticInputEditor bind:componentInput={component.componentInput} />
 					{:else if component.componentInput.type === 'connected' && component.componentInput !== undefined}
 						<ConnectedInputEditor bind:componentInput={component.componentInput} />
-					{:else if component && component.componentInput?.type === 'runnable' && component.componentInput.runnable}
-						<SelectedRunnable
-							{inlineScriptEditorDrawer}
-							appInput={component.componentInput}
-							on:clear={() => {
-								if (component?.componentInput?.type === 'runnable') {
-									component.componentInput.runnable = undefined
-									component.componentInput.fields = {}
-									component = component
-								}
-							}}
-						/>
-					{:else}
-						<RunnableSelector
-							inlineScripts={Object.keys($app.inlineScripts)}
-							bind:componentInput={component.componentInput}
-							{inlineScriptEditorDrawer}
-						/>
+					{:else if component.componentInput?.type === 'runnable' && component.componentInput !== undefined}
+						<RunnableInputEditor bind:appInput={component.componentInput} />
 					{/if}
 				</div>
 				{#if component.componentInput?.type === 'runnable' && Object.keys(component.componentInput.fields ?? {}).length > 0}

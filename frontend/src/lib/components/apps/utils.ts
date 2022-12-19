@@ -3,7 +3,6 @@ import { FlowService, ScriptService } from '$lib/gen'
 import {
 	BarChart4,
 	Binary,
-	BoxSelect,
 	CircleDot,
 	FormInput,
 	Inspect,
@@ -16,8 +15,8 @@ import {
 	Type,
 	ToggleLeft
 } from 'lucide-svelte'
-import type { AppInputs, InputType } from './inputType'
-import type { AppComponent } from './types'
+import type { AppInput, AppInputs, InputType } from './inputType'
+import type { AppComponent, InlineScript } from './types'
 
 export async function loadSchema(
 	workspace: string,
@@ -162,4 +161,28 @@ export function fieldTypeToTsType(inputType: InputType): string {
 		default:
 			return 'string'
 	}
+}
+
+export function isScriptByNameDefined(appInput: AppInput | undefined): boolean {
+	if (!appInput) {
+		return false
+	}
+
+	if (appInput.type === 'runnable' && appInput.runnable?.type == 'runnableByName') {
+		return Boolean(appInput.runnable?.name)
+	}
+
+	return false
+}
+
+export function isScriptByPathDefined(appInput: AppInput | undefined): boolean {
+	if (!appInput) {
+		return false
+	}
+
+	if (appInput.type === 'runnable' && appInput.runnable?.type == 'runnableByPath') {
+		return Boolean(appInput.runnable?.path)
+	}
+
+	return false
 }

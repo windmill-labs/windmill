@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
 	import type { AppInput } from '../../inputType'
-	import type { AppEditorContext } from '../../types'
 	import NonRunnableComponent from './NonRunnableComponent.svelte'
 	import RunnableComponent from './RunnableComponent.svelte'
 
@@ -14,20 +12,19 @@
 	export let runnableComponent: RunnableComponent | undefined = undefined
 	export let forceSchemaDisplay: boolean = false
 
-	const { app } = getContext<AppEditorContext>('AppEditorContext')
-
 	function isRunnableDefined() {
 		if (!componentInput) return false
 		if (componentInput.type !== 'runnable') return false
 
 		if (
-			componentInput.runnable?.type === 'runnableByName' &&
-			$app.inlineScripts[componentInput.runnable.inlineScriptName] === undefined
+			(componentInput.runnable?.type === 'runnableByName' &&
+				componentInput.runnable.inlineScript) ||
+			(componentInput.runnable?.type === 'runnableByPath' && componentInput.runnable.path)
 		) {
-			return false
+			return true
 		}
 
-		return true
+		return false
 	}
 </script>
 
