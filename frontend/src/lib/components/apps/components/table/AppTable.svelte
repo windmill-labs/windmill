@@ -55,6 +55,10 @@
 	}
 
 	function setOptions(filteredResult: Array<Record<string, any>>) {
+		if (!Array.isArray(result)) {
+			return
+		}
+
 		const headers = Array.from(new Set(result.flatMap((row) => Object.keys(row))))
 
 		$options = {

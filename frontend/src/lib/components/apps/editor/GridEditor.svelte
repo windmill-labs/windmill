@@ -47,7 +47,14 @@
 >
 	<RecomputeAllComponents />
 
-	<Grid bind:items={$app.grid} rowHeight={64} let:dataItem cols={columnConfiguration}>
+	<Grid
+		bind:items={$app.grid}
+		let:dataItem
+		rowHeight={64}
+		cols={columnConfiguration}
+		fastStart={true}
+		fillSpace={true}
+	>
 		{#each $app.grid as gridComponent (gridComponent.id)}
 			{#if gridComponent.data.id === dataItem.data.id}
 				<!-- svelte-ignore a11y-click-events-have-key-events -->

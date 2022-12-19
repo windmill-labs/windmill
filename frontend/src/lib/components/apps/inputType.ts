@@ -1,4 +1,5 @@
 import type { staticValues } from './editor/componentsPanel/componentStaticValues'
+import type { InlineScript } from './types'
 
 export type InputType =
 	| 'text'
@@ -46,7 +47,8 @@ type RunnableByPath = {
 }
 
 type RunnableByName = {
-	inlineScriptName: string
+	name: string
+	inlineScript: InlineScript | undefined
 	type: 'runnableByName'
 }
 
