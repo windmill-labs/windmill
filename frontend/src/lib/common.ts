@@ -1,6 +1,6 @@
 import type { Script } from "./gen"
 
-export type OwnerKind = 'group' | 'user'
+export type OwnerKind = 'group' | 'user' | 'folder'
 
 export type ActionKind = 'Create' | 'Update' | 'Delete' | 'Execute'
 
@@ -32,6 +32,8 @@ export function pathToMeta(path: string): Meta {
 	let ownerKind: OwnerKind
 	if (splitted[0] == 'g') {
 		ownerKind = 'group'
+	} else if (splitted[0] == 'f') {
+		ownerKind = 'folder'
 	} else if (splitted[0] == 'u') {
 		ownerKind = 'user'
 	} else {

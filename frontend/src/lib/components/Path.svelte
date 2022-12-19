@@ -3,22 +3,22 @@
 
 	import {
 		FlowService,
+		FolderService,
 		ResourceService,
 		ScheduleService,
 		ScriptService,
 		VariableService
 	} from '$lib/gen'
-	import { GroupService } from '$lib/gen'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import Required from './Required.svelte'
 	import { Button, Drawer, DrawerContent } from './common'
 	import { faEye, faPlus } from '@fortawesome/free-solid-svg-icons'
-	import GroupEditor from './GroupEditor.svelte'
 	import ToggleButtonGroup from './common/toggleButton/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton/ToggleButton.svelte'
 	import { Icon } from 'svelte-awesome'
 	import Tooltip from './Tooltip.svelte'
+	import FolderEditor from './FolderEditor.svelte'
 
 	type PathKind = 'resource' | 'script' | 'variable' | 'flow' | 'schedule' | 'app'
 	let meta: Meta | undefined = undefined
@@ -35,7 +35,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	let groups: string[] = []
+	let folders: string[] = []
 
 	$: meta && onMetaChange()
 
@@ -47,7 +47,7 @@
 	}
 
 	function metaToPath(meta: Meta): string {
-		return [meta.ownerKind === 'group' ? 'g' : 'u', meta.owner, meta.name].join('/')
+		return [meta.ownerKind === 'folder' ? 'f' : 'u', meta.owner, meta.name].join('/')
 	}
 
 	export function focus() {
@@ -80,15 +80,14 @@
 		}
 	}
 
-	async function loadGroups(): Promise<void> {
-		let initialGroups: string[] = []
-		if (initialPath?.split('/')?.[0] == 'g') {
-			initialGroups.push(initialPath?.split('/')?.[1])
+	async function loadFolders(): Promise<void> {
+		let initialFolders: string[] = []
+		if (initialPath?.split('/')?.[0] == 'f') {
+			initialFolders.push(initialPath?.split('/')?.[1])
 		}
-		groups = initialGroups.concat(
-			await GroupService.listGroupNames({
-				workspace: $workspaceStore!,
-				onlyMemberOf: !$userStore?.is_admin
+		folders = initialFolders.concat(
+			await FolderService.listFolderNames({
+				workspace: $workspaceStore!
 			})
 		)
 	}
@@ -149,6 +148,9 @@
 		} else if (!/^[\w-]+(\/[\w-]+)*$/.test(meta.name)) {
 			error = 'This name is not valid'
 			return false
+		} else if (meta.owner == '') {
+			error = 'Folder need to be chosen'
+			return false
 		} else {
 			return true
 		}
@@ -156,7 +158,7 @@
 
 	$: {
 		if ($workspaceStore && $userStore) {
-			loadGroups()
+			loadFolders()
 			initPath()
 		}
 	}
@@ -171,40 +173,43 @@
 		}
 	}
 
-	let newGroup: Drawer
-	let viewGroup: Drawer
-	let newGroupName: string
-	let groupCreated: string | undefined = undefined
+	let newFolder: Drawer
+	let viewFolder: Drawer
+	let newFolderName: string
+	let folderCreated: string | undefined = undefined
 
-	async function addGroup() {
-		await GroupService.createGroup({
+	async function addFolder() {
+		await FolderService.createFolder({
 			workspace: $workspaceStore ?? '',
-			requestBody: { name: newGroupName }
+			requestBody: { name: newFolderName }
 		})
-		groupCreated = newGroupName
-		loadGroups()
+		folderCreated = newFolderName
+		if (meta) {
+			meta.owner = newFolderName
+		}
+		loadFolders()
 	}
 </script>
 
-<Drawer bind:this={newGroup}>
-	<DrawerContent title="New Group" on:close={newGroup.closeDrawer}>
+<Drawer bind:this={newFolder}>
+	<DrawerContent title="New Folder" on:close={newFolder.closeDrawer}>
 		<div class="flex flex-row">
-			<input class="mr-2" placeholder="New group name" bind:value={newGroupName} />
-			<Button size="md" startIcon={{ icon: faPlus }} disabled={!newGroupName} on:click={addGroup}>
-				New&nbsp;group
+			<input class="mr-2" placeholder="New folder name" bind:value={newFolderName} />
+			<Button size="md" startIcon={{ icon: faPlus }} disabled={!newFolderName} on:click={addFolder}>
+				New&nbsp;folder
 			</Button>
 		</div>
 
-		{#if groupCreated}
+		{#if folderCreated}
 			<div class="mt-8" />
-			<GroupEditor name={groupCreated} />
+			<FolderEditor name={folderCreated} />
 		{/if}
 	</DrawerContent>
 </Drawer>
 
-<Drawer bind:this={viewGroup}>
-	<DrawerContent title="Group {meta?.owner}" on:close={viewGroup.closeDrawer}>
-		<GroupEditor name={meta?.owner ?? ''} />
+<Drawer bind:this={viewFolder}>
+	<DrawerContent title="Folder {meta?.owner}" on:close={viewFolder.closeDrawer}>
+		<FolderEditor name={meta?.owner ?? ''} />
 	</DrawerContent>
 </Drawer>
 
@@ -220,10 +225,9 @@
 						bind:selected={meta.ownerKind}
 						on:selected={(e) => {
 							const kind = e.detail
-							console.log(kind)
 							if (meta) {
-								if (kind === 'group') {
-									meta.owner = 'all'
+								if (kind === 'folder') {
+									meta.owner = $userStore?.folders?.[0] ?? ''
 								} else {
 									meta.owner = $userStore?.username ?? ''
 								}
@@ -231,19 +235,12 @@
 						}}
 					>
 						<ToggleButton light size="xs" value="user" position="left">User</ToggleButton>
-						<ToggleButton light size="xs" value="group" position="right">Group</ToggleButton>
+						<ToggleButton light size="xs" value="folder" position="right">Folder</ToggleButton>
 					</ToggleButtonGroup>
 				</label>
 				{#if meta.ownerKind === 'user'}
 					<label class="block shrink min-w-0">
-						<span
-							><span class="text-gray-700 text-sm mr-1">Owner</span><Tooltip
-								>The prefix of a path defines the owner of an item. An owner has write permissions
-								and can modify the path. An item can still be made writable or readable using
-								granular perissioning.
-								<a href="https://docs.windmill.dev/docs/reference/namespaces">See docs</a></Tooltip
-							></span
-						>
+						<span class="text-gray-700 text-sm">User</span>
 						<input
 							class="!w-36"
 							type="text"
@@ -254,25 +251,18 @@
 					</label>
 				{:else}
 					<label class="block grow w-48">
-						<span
-							><span class="text-gray-700 text-sm mr-1">Owner</span><Tooltip
-								>The prefix of a path defines the owner of an item. An owner has write permissions
-								and can modify the path. An item can still be made writable or readable using
-								granular perissioning.
-								<a href="https://docs.windmill.dev/docs/reference/namespaces">docs</a></Tooltip
-							></span
-						>
+						<span class="text-gray-700 text-sm">Folder</span>
 
 						<div class="flex flex-row gap-1 w-full">
 							<select class="grow w-full" {disabled} bind:value={meta.owner}>
-								{#each groups as g}
-									<option>{g}</option>
+								{#each folders as f}
+									<option>{f}</option>
 								{/each}
 							</select>
-							<Button variant="border" size="xs" on:click={viewGroup.openDrawer}>
+							<Button variant="border" size="xs" on:click={viewFolder.openDrawer}>
 								<Icon scale={0.8} data={faEye} /></Button
 							>
-							<Button variant="border" size="xs" on:click={newGroup.openDrawer}>
+							<Button variant="border" size="xs" on:click={newFolder.openDrawer}>
 								<Icon scale={0.8} data={faPlus} /></Button
 							></div
 						>

@@ -199,6 +199,11 @@ export function canWrite(
 	) {
 		return true
 	}
+	if (
+		user.folders.findIndex((x) => path.startsWith('f/' + x)) != -1
+	) {
+		return true
+	}
 	return false
 }
 
@@ -332,7 +337,7 @@ export function mapUserToUserExt(user: User): UserExt {
 	return {
 		...user,
 		groups: user.groups!,
-		pgroups: user.groups!.map((x) => `g/${x}`)
+		pgroups: user.groups!.map((x) => `g/${x}`),
 	}
 }
 
