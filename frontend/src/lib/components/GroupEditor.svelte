@@ -3,10 +3,12 @@
 	import { type Group, GroupService, UserService, GranularAclService } from '$lib/gen'
 	import AutoComplete from 'simple-svelte-autocomplete'
 	import TableCustom from './TableCustom.svelte'
-	import { canWrite } from '$lib/utils'
+	import { canWrite, sendUserToast } from '$lib/utils'
 	import { Button, ToggleButton, ToggleButtonGroup } from './common'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import Tooltip from './Tooltip.svelte'
+	import autosize from 'svelte-autosize'
+	import { createEventDispatcher } from 'svelte'
 
 	export let name: string
 	let can_write = false
@@ -18,6 +20,8 @@
 	let usernames: string[] | undefined = []
 	let username: string = ''
 	let groups: string[] = []
+
+	const dispatch = createEventDispatcher()
 
 	async function loadUsernames(): Promise<void> {
 		usernames = await UserService.listUsernames({ workspace: $workspaceStore! })
@@ -48,19 +52,6 @@
 		loadGroup()
 	}
 
-	async function addToManagingGroup() {
-		await GranularAclService.addGranularAcls({
-			workspace: $workspaceStore ?? '',
-			path: name,
-			kind: 'group_',
-			requestBody: {
-				owner: 'g/' + new_managing_group,
-				write: true
-			}
-		})
-		loadGroup()
-	}
-
 	async function loadGroup(): Promise<void> {
 		group = await GroupService.getGroup({ workspace: $workspaceStore!, name })
 		can_write = canWrite(name!, group.extra_perms ?? {}, $userStore)
@@ -85,7 +76,7 @@
 	function getRole(x: string): Role {
 		const writer = 'u/' + x in (group?.extra_perms ?? {}) && (group?.extra_perms ?? {})['u/' + x]
 		const member = group?.members?.includes(x)
-		console.log(writer, member, x, group?.members, group?.extra_perms)
+
 		if (writer && member) {
 			return 'member_manager'
 		} else if (writer) {
@@ -94,14 +85,33 @@
 			return 'member'
 		}
 	}
-
-	let new_managing_group = ''
 </script>
 
 <div class="flex flex-col gap-6">
 	<h1>{name}</h1>
 	{#if group}
-		<p>{group?.summary ?? 'No summary'}</p>
+		<div class="flex flex-col gap-1">
+			<textarea
+				disabled={!can_write}
+				rows="2"
+				type="text"
+				use:autosize
+				bind:value={group.summary}
+				placeholder="Summary of the group"
+			/>
+			<Button
+				size="xs"
+				on:click={async () => {
+					await GroupService.updateGroup({
+						workspace: $workspaceStore ?? '',
+						name,
+						requestBody: { summary: group?.summary }
+					})
+					dispatch('update')
+					sendUserToast('New summary saved')
+				}}>Save Summary</Button
+			>
+		</div>
 	{:else}
 		<Skeleton layout={[[4]]} />
 	{/if}
@@ -195,14 +205,14 @@
 												everything the group can write, and generally act on behalf of the group</Tooltip
 											></ToggleButton
 										>
-										<ToggleButton position="center" value="manager" size="xs"
+										<!-- <ToggleButton position="center" value="manager" size="xs"
 											>Manager <Tooltip
 												>A manager of a group can manage the group, adding and removing users and
 												change their roles. Being a manager does not make you a member.</Tooltip
 											></ToggleButton
-										>
+										> -->
 										<ToggleButton position="right" value="member_manager" size="xs"
-											>Member & Manager</ToggleButton
+											>Admin</ToggleButton
 										>
 									</ToggleButtonGroup>
 								</div>
@@ -226,7 +236,7 @@
 					</tr>{/each}
 			</tbody>
 		</TableCustom>
-		<h2 class="mt-10"
+		<!-- <h2 class="mt-10"
 			>Groups managing this group <Tooltip>Any member of those groups can manage this group</Tooltip
 			></h2
 		>
@@ -276,7 +286,7 @@
 						</tr>{/each}
 				</tbody>
 			</TableCustom>
-		{/if}
+		{/if} -->
 	{:else}
 		<div class="flex flex-col">
 			{#each new Array(6) as _}

@@ -13,6 +13,7 @@ export interface UserExt {
   created_at: string;
   groups: string[];
   pgroups: string[];
+  folders: string[]
 }
 
 let persistedWorkspace = browser && localStorage.getItem("workspace");

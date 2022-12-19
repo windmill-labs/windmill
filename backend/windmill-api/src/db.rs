@@ -72,6 +72,34 @@ impl UserDB {
         )
         .fetch_optional(&mut tx)
         .await?;
+
+        let (folders_write, folders_read): &(Vec<_>, Vec<_>) =
+            &authed.folders.clone().into_iter().partition(|x| x.1);
+
+        let mut folders_read = folders_read.clone();
+        folders_read.extend(folders_write.clone());
+        sqlx::query!(
+            "SELECT set_config('session.folders_read', $1, true)",
+            folders_read
+                .iter()
+                .map(|x| x.0.clone())
+                .collect::<Vec<_>>()
+                .join(",")
+        )
+        .fetch_optional(&mut tx)
+        .await?;
+
+        sqlx::query!(
+            "SELECT set_config('session.folders_write', $1, true)",
+            folders_write
+                .iter()
+                .map(|x| x.0.clone())
+                .collect::<Vec<_>>()
+                .join(",")
+        )
+        .fetch_optional(&mut tx)
+        .await?;
+
         Ok(tx)
     }
 }

@@ -1,35 +1,34 @@
 <script context="module">
 	export function load() {
 		return {
-			stuff: { title: 'Groups' }
+			stuff: { title: 'Folders' }
 		}
 	}
 </script>
 
 <script lang="ts">
-	import type { Group } from '$lib/gen'
-	import { GroupService } from '$lib/gen'
+	import type { Folder } from '$lib/gen'
+	import { FolderService } from '$lib/gen'
 	import { canWrite } from '$lib/utils'
 
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Dropdown from '$lib/components/Dropdown.svelte'
-	import GroupEditor from '$lib/components/GroupEditor.svelte'
+	import FolderEditor from '$lib/components/FolderEditor.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
-	import ShareModal from '$lib/components/ShareModal.svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { faEdit, faPlus, faShare, faTrash } from '@fortawesome/free-solid-svg-icons'
+	import { faEdit, faPlus, faTrash } from '@fortawesome/free-solid-svg-icons'
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 
-	type GroupW = Group & { canWrite: boolean }
+	type FolderW = Folder & { canWrite: boolean }
 
-	let newGroupName: string = ''
-	let groups: GroupW[] = []
-	let groupDrawer: Drawer
+	let newFolderName: string = ''
+	let folders: FolderW[] = []
+	let folderDrawer: Drawer
 
-	async function loadGroups(): Promise<void> {
-		groups = (await GroupService.listGroups({ workspace: $workspaceStore! })).map((x) => {
+	async function loadFolders(): Promise<void> {
+		folders = (await FolderService.listFolders({ workspace: $workspaceStore! })).map((x) => {
 			return { canWrite: canWrite(x.name, x.extra_perms ?? {}, $userStore), ...x }
 		})
 	}
@@ -38,48 +37,48 @@
 		const key = event.key
 		if (key === 'Enter') {
 			event.preventDefault()
-			addGroup()
+			addFolder()
 		}
 	}
-	async function addGroup() {
-		await GroupService.createGroup({
+	async function addFolder() {
+		await FolderService.createFolder({
 			workspace: $workspaceStore ?? '',
-			requestBody: { name: newGroupName }
+			requestBody: { name: newFolderName }
 		})
-		loadGroups()
-		editGroupName = newGroupName
-		groupDrawer.openDrawer()
+		loadFolders()
+		editFolderName = newFolderName
+		folderDrawer.openDrawer()
 	}
 
 	$: {
 		if ($workspaceStore && $userStore) {
-			loadGroups()
+			loadFolders()
 		}
 	}
 
-	let editGroupName: string = ''
+	let editFolderName: string = ''
 </script>
 
-<Drawer bind:this={groupDrawer}>
-	<DrawerContent title="Group {editGroupName}" on:close={groupDrawer.closeDrawer}>
-		<GroupEditor on:update={loadGroups} name={editGroupName} />
+<Drawer bind:this={folderDrawer}>
+	<DrawerContent title="Folder {editFolderName}" on:close={folderDrawer.closeDrawer}>
+		<FolderEditor on:update={loadFolders} name={editFolderName} />
 	</DrawerContent>
 </Drawer>
 
 <CenteredPage>
 	<PageHeader
-		title="Groups"
-		tooltip="Group users together to grant roles and homegenous permissions. Same users can be in many groups at the same time."
+		title="Folders"
+		tooltip="Folder users together to grant roles and homegenous permissions. Same users can be in many folders at the same time."
 	>
 		<div class="flex flex-row">
 			<input
 				class="mr-2"
 				on:keyup={handleKeyUp}
-				placeholder="New group name"
-				bind:value={newGroupName}
+				placeholder="New folder name"
+				bind:value={newFolderName}
 			/>
-			<Button size="md" startIcon={{ icon: faPlus }} disabled={!newGroupName} on:click={addGroup}>
-				New&nbsp;group
+			<Button size="md" startIcon={{ icon: faPlus }} disabled={!newFolderName} on:click={addFolder}>
+				New&nbsp;folder
 			</Button>
 		</div>
 	</PageHeader>
@@ -88,18 +87,23 @@
 		<TableCustom>
 			<tr slot="header-row">
 				<th>Name</th>
-				<th>Summary</th>
 				<th />
 			</tr>
 			<tbody slot="body">
-				{#each groups as { name, summary, extra_perms, canWrite }}
+				{#if folders.length === 0}
+					<tr>
+						<td colspan="2" class="text-gray-600 mt-2"> No folders yet, create one! </td>
+					</tr>
+				{/if}
+
+				{#each folders as { name, extra_perms, canWrite }}
 					<tr>
 						<td>
 							<a
 								href="#{name}"
 								on:click={() => {
-									editGroupName = name
-									groupDrawer.openDrawer()
+									editFolderName = name
+									folderDrawer.openDrawer()
 								}}
 								>{name}
 							</a>
@@ -107,18 +111,17 @@
 								<SharedBadge {canWrite} extraPerms={extra_perms} />
 							</div>
 						</td>
-						<td>{summary ?? ''}</td>
 						<td>
 							<Dropdown
 								placement="bottom-end"
 								dropdownItems={[
 									{
-										displayName: 'Manage group',
+										displayName: 'Manage folder',
 										icon: faEdit,
 										disabled: !canWrite,
 										action: () => {
-											editGroupName = name
-											groupDrawer.openDrawer()
+											editFolderName = name
+											folderDrawer.openDrawer()
 										}
 									},
 									{
@@ -128,8 +131,8 @@
 										type: 'delete',
 										disabled: !canWrite,
 										action: async () => {
-											await GroupService.deleteGroup({ workspace: $workspaceStore ?? '', name })
-											loadGroups()
+											await FolderService.deleteFolder({ workspace: $workspaceStore ?? '', name })
+											loadFolders()
 										}
 									}
 								]}

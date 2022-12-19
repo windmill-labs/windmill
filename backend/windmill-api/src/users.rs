@@ -10,6 +10,7 @@ use std::{sync::Arc, time::Duration};
 
 use crate::{
     db::{UserDB, DB},
+    folders::get_folders_for_user,
     utils::require_super_admin,
     workspaces::invite_user_to_all_auto_invite_worspaces,
     CookieDomain, IsSecure,
@@ -133,8 +134,14 @@ impl AuthCache {
                                             .ok()
                                             .unwrap_or(false);
 
-                                        let groups =
-                                            get_groups_for_user(&w_id.unwrap(), &name, &self.db)
+                                        let w_id = &w_id.unwrap();
+                                        let groups = get_groups_for_user(w_id, &name, &self.db)
+                                            .await
+                                            .ok()
+                                            .unwrap_or_default();
+
+                                        let folders =
+                                            get_folders_for_user(w_id, &name, &groups, &self.db)
                                                 .await
                                                 .ok()
                                                 .unwrap_or_default();
@@ -145,14 +152,26 @@ impl AuthCache {
                                             username: name.to_string(),
                                             is_admin,
                                             groups,
+                                            folders,
                                         })
                                     } else {
+                                        let groups = vec![name.to_string()];
+                                        let folders = get_folders_for_user(
+                                            &w_id.unwrap(),
+                                            "",
+                                            &groups,
+                                            &self.db,
+                                        )
+                                        .await
+                                        .ok()
+                                        .unwrap_or_default();
                                         Some(Authed {
                                             email: email
                                                 .unwrap_or_else(|| "missing@email.xyz".to_string()),
                                             username: format!("group-{name}"),
                                             is_admin: false,
-                                            groups: vec![name.to_string()],
+                                            groups,
+                                            folders,
                                         })
                                     }
                                 } else {
@@ -182,11 +201,21 @@ impl AuthCache {
                                             .ok()
                                             .unwrap_or_default();
 
+                                            let folders = get_folders_for_user(
+                                                &w_id.unwrap(),
+                                                &username,
+                                                &groups,
+                                                &self.db,
+                                            )
+                                            .await
+                                            .ok()
+                                            .unwrap_or_default();
                                             Some(Authed {
                                                 email,
                                                 username,
                                                 is_admin: is_admin || super_admin,
                                                 groups,
+                                                folders,
                                             })
                                         }
                                         None if super_admin || w_id.unwrap() == "starter" => {
@@ -195,6 +224,7 @@ impl AuthCache {
                                                 username: email,
                                                 is_admin: super_admin,
                                                 groups: vec![],
+                                                folders: vec![],
                                             })
                                         }
                                         None => None,
@@ -205,6 +235,7 @@ impl AuthCache {
                                         username: email,
                                         is_admin: super_admin,
                                         groups: Vec::new(),
+                                        folders: Vec::new(),
                                     })
                                 }
                             }
@@ -292,6 +323,7 @@ pub struct Authed {
     pub username: String,
     pub is_admin: bool,
     pub groups: Vec<String>,
+    pub folders: Vec<(String, bool)>,
 }
 
 #[async_trait]
@@ -401,6 +433,7 @@ pub struct UserInfo {
     pub operator: bool,
     pub disabled: bool,
     pub role: Option<String>,
+    pub folders: Vec<String>,
 }
 
 #[derive(FromRow, Serialize)]
@@ -683,7 +716,7 @@ async fn logout(
 async fn whoami(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Authed { username, email, is_admin, groups }: Authed,
+    Authed { username, email, is_admin, groups, folders }: Authed,
 ) -> JsonResult<UserInfo> {
     let user = get_user(&w_id, &username, &db).await?;
     if let Some(user) = user {
@@ -700,6 +733,10 @@ async fn whoami(
             operator: false,
             disabled: false,
             role: Some("superadmin".to_string()),
+            folders: folders
+                .into_iter()
+                .filter_map(|x| if x.1 { Some(x.0) } else { None })
+                .collect(),
         }))
     }
 }
@@ -757,6 +794,8 @@ async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo
     .await?
     .unwrap_or(false);
     let groups = get_groups_for_user(&w_id, username, db).await?;
+    let folders = get_folders_for_user(&w_id, username, &groups, db).await?;
+
     Ok(user.map(|usr| UserInfo {
         groups,
         workspace_id: usr.workspace_id,
@@ -768,6 +807,10 @@ async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo
         operator: usr.operator,
         disabled: usr.disabled,
         role: usr.role,
+        folders: folders
+            .into_iter()
+            .filter_map(|x| if x.1 { Some(x.0) } else { None })
+            .collect(),
     }))
 }
 
