@@ -11,11 +11,26 @@
 	export let autoRefresh: boolean = true
 	export let runnableComponent: RunnableComponent | undefined = undefined
 	export let forceSchemaDisplay: boolean = false
+
+	function isRunnableDefined() {
+		if (!componentInput) return false
+		if (componentInput.type !== 'runnable') return false
+
+		if (
+			(componentInput.runnable?.type === 'runnableByName' &&
+				componentInput.runnable.inlineScript) ||
+			(componentInput.runnable?.type === 'runnableByPath' && componentInput.runnable.path)
+		) {
+			return true
+		}
+
+		return false
+	}
 </script>
 
 {#if componentInput === undefined}
 	<slot />
-{:else if componentInput.type === 'runnable'}
+{:else if componentInput.type === 'runnable' && isRunnableDefined()}
 	<RunnableComponent
 		bind:this={runnableComponent}
 		bind:inputs={componentInput.fields}

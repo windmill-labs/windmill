@@ -1,9 +1,9 @@
 <script lang="ts">
-	import type { AppEditorContext } from '../../types'
+	import type { AppEditorContext } from '../../../types'
 	import { Badge, Button } from '$lib/components/common'
 	import { faArrowRight, faClose } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
-	import type { AppInput } from '../../inputType'
+	import type { AppInput } from '../../../inputType'
 
 	export let componentInput: AppInput
 
@@ -16,7 +16,6 @@
 			componentInput.type === 'connected' &&
 			!componentInput.connection
 		) {
-			debugger
 			componentInput.connection = $connectingInput.input.connection
 			$connectingInput = {
 				opened: false,

@@ -108,7 +108,6 @@ export type InlineScript = {
 
 export type App = {
 	grid: GridItem[]
-	inlineScripts: Record<string, InlineScript>
 	title: string
 }
 

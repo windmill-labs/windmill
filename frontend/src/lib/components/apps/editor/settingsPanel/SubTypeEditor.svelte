@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { StaticAppInput } from '../../inputType'
-	import StaticInputEditor from './StaticInputEditor.svelte'
+	import StaticInputEditor from './inputEditor/StaticInputEditor.svelte'
 
 	export let value: any
 	export let canHide: boolean = false

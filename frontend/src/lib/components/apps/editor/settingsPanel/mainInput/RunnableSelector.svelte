@@ -4,24 +4,25 @@
 	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
 	import { Building, Globe2 } from 'lucide-svelte'
 	import InlineScriptList from './InlineScriptList.svelte'
-	import type { AppInput } from '$lib/components/apps/inputType'
+	import type { ResultAppInput } from '$lib/components/apps/inputType'
 	import WorkspaceScriptList from './WorkspaceScriptList.svelte'
 	import WorkspaceFlowList from './WorkspaceFlowList.svelte'
-	import InlineScriptEditorDrawer from '../../inlineScriptsPanel/InlineScriptEditorDrawer.svelte'
+	import type { AppEditorContext, GridItem, InlineScript } from '$lib/components/apps/types'
+	import { getContext } from 'svelte'
 
 	type Tab = 'hubscripts' | 'workspacescripts' | 'workspaceflows' | 'inlinescripts'
 
-	export let inlineScripts: string[]
-	export let componentInput: AppInput
+	export let appInput: ResultAppInput
 
 	let tab: Tab = 'inlinescripts'
 	let filter: string = ''
-
 	let picker: Drawer
 
+	const { app } = getContext<AppEditorContext>('AppEditorContext')
+
 	function pickScript(path: string) {
-		if (componentInput.type === 'runnable') {
-			componentInput.runnable = {
+		if (appInput.type === 'runnable') {
+			appInput.runnable = {
 				type: 'runnableByPath',
 				path,
 				runType: 'script'
@@ -30,8 +31,8 @@
 	}
 
 	function pickFlow(path: string) {
-		if (componentInput.type === 'runnable') {
-			componentInput.runnable = {
+		if (appInput.type === 'runnable') {
+			appInput.runnable = {
 				type: 'runnableByPath',
 				path,
 				runType: 'flow'
@@ -39,16 +40,47 @@
 		}
 	}
 
-	function pickInlineScript(inlineScriptName: string) {
-		if (componentInput.type === 'runnable') {
-			componentInput.runnable = {
+	function pickInlineScript(name: string, inlineScript: InlineScript) {
+		if (appInput.type === 'runnable') {
+			appInput.runnable = {
 				type: 'runnableByName',
-				inlineScriptName
+				name,
+				inlineScript
 			}
 		}
 	}
 
-	export let inlineScriptEditorDrawer: InlineScriptEditorDrawer
+	function createScript(): string {
+		let index = 0
+		let newScriptPath = `inline_script_${index}`
+
+		const names = $app.grid.reduce((acc, gridItem: GridItem) => {
+			const { componentInput } = gridItem.data
+
+			if (
+				componentInput.type === 'runnable' &&
+				componentInput.runnable?.type === 'runnableByName'
+			) {
+				acc.push(componentInput.runnable.name)
+			}
+
+			return acc
+		}, [] as string[])
+
+		while (names.includes(newScriptPath)) {
+			newScriptPath = `inline_script_${++index}`
+		}
+
+		appInput.runnable = {
+			type: 'runnableByName',
+			name: newScriptPath,
+			inlineScript: undefined
+		}
+
+		appInput = appInput
+
+		return newScriptPath
+	}
 </script>
 
 <Drawer bind:this={picker} size="1000px">
@@ -85,7 +117,7 @@
 				<div class="flex flex-col gap-y-16">
 					<div class="flex flex-col">
 						{#if tab == 'inlinescripts'}
-							<InlineScriptList {inlineScripts} on:pick={(e) => pickInlineScript(e.detail)} />
+							<InlineScriptList on:pick={(e) => pickInlineScript('', e.detail)} />
 						{:else if tab == 'workspacescripts'}
 							<WorkspaceScriptList on:pick={(e) => pickScript(e.detail)} />
 						{:else if tab == 'workspaceflows'}
@@ -100,17 +132,9 @@
 	</DrawerContent>
 </Drawer>
 
-<InlineScriptEditorDrawer bind:this={inlineScriptEditorDrawer} />
-<div class="flex flex-row gap-2 justify-between">
+<div class="flex flex-col gap-2">
 	<Button
-		on:click={() => {
-			const name = inlineScriptEditorDrawer.createScript()
-			inlineScriptEditorDrawer.openDrawer(name)
-
-			setTimeout(() => {
-				pickInlineScript(name)
-			})
-		}}
+		on:click={createScript}
 		size="sm"
 		color="light"
 		variant="border"

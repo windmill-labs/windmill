@@ -14,7 +14,7 @@
 	let result: string = ''
 </script>
 
-<RunnableWrapper bind:componentInput {id} bind:result>
+<RunnableWrapper bind:componentInput {id} bind:result autoRefresh={false}>
 	<AlignWrapper {horizontalAlignment} {verticalAlignment}>
 		{#if result === ''}
 			<div class="text-gray-400 bg-gray-100 flex justify-center items-center h-full w-full">
