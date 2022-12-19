@@ -1,5 +1,7 @@
 <script lang="ts">
+	import { goto } from '$app/navigation'
 	import Dropdown from '$lib/components/Dropdown.svelte'
+	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 
@@ -39,8 +41,10 @@
 			sendUserToast(`Could not archive this flow ${err.body}`, true)
 		}
 	}
+	let scheduleEditor: ScheduleEditor
 </script>
 
+<ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
 <Row
 	href={`/flows/run/${path}`}
 	kind="flow"
@@ -132,7 +136,9 @@
 				{
 					displayName: 'Schedule',
 					icon: faCalendarAlt,
-					href: `/schedule/add?path=${path}&isFlow=true`
+					action: () => {
+						scheduleEditor.openNew(true, path)
+					}
 				},
 				{
 					displayName: 'Share',

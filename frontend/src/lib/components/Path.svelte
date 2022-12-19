@@ -6,21 +6,19 @@
 		ResourceService,
 		ScheduleService,
 		ScriptService,
-		VariableService,
-		type Group
+		VariableService
 	} from '$lib/gen'
 	import { GroupService } from '$lib/gen'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
-	import { sleep } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Required from './Required.svelte'
-	import Popover from './Popover.svelte'
 	import { Button, Drawer, DrawerContent } from './common'
 	import { faEye, faPlus } from '@fortawesome/free-solid-svg-icons'
 	import GroupEditor from './GroupEditor.svelte'
 	import ToggleButtonGroup from './common/toggleButton/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton/ToggleButton.svelte'
 	import { Icon } from 'svelte-awesome'
+	import Tooltip from './Tooltip.svelte'
 
 	type PathKind = 'resource' | 'script' | 'variable' | 'flow' | 'schedule' | 'app'
 	let meta: Meta | undefined = undefined
@@ -29,6 +27,7 @@
 	export let path = ''
 	export let error = ''
 	export let disabled = false
+	export let checkInitialPathExistence = false
 
 	export let kind: PathKind
 
@@ -68,9 +67,6 @@
 		if (path == '' || path == 'u//') {
 			meta = { ownerKind: 'user', name: namePlaceholder, owner: '' }
 
-			while ($userStore == undefined) {
-				await sleep(500)
-			}
 			meta.owner = $userStore!.username
 
 			let i = 1
@@ -85,10 +81,16 @@
 	}
 
 	async function loadGroups(): Promise<void> {
-		groups = await GroupService.listGroupNames({
-			workspace: $workspaceStore!,
-			onlyMemberOf: !($userStore?.is_admin || $superadmin)
-		})
+		let initialGroups: string[] = []
+		if (initialPath?.split('/')?.[0] == 'g') {
+			initialGroups.push(initialPath?.split('/')?.[1])
+		}
+		groups = initialGroups.concat(
+			await GroupService.listGroupNames({
+				workspace: $workspaceStore!,
+				onlyMemberOf: !$userStore?.is_admin
+			})
+		)
 	}
 
 	async function validate(meta: Meta, path: string, kind: PathKind) {
@@ -103,7 +105,10 @@
 			clearTimeout(validateTimeout)
 		}
 		validateTimeout = setTimeout(async () => {
-			if ((path == '' || path != initialPath) && (await pathExists(path, kind))) {
+			if (
+				(path == '' || checkInitialPathExistence || path != initialPath) &&
+				(await pathExists(path, kind))
+			) {
 				error = 'path already used'
 			} else if (meta && validateName(meta)) {
 				error = ''
@@ -150,7 +155,7 @@
 	}
 
 	$: {
-		if ($workspaceStore) {
+		if ($workspaceStore && $userStore) {
 			loadGroups()
 			initPath()
 		}
@@ -204,23 +209,14 @@
 </Drawer>
 
 <div>
-	<div class="flex flex-col sm:grid sm:grid-cols-3 gap-2 sm:gap-4 pb-0 mb-1">
+	<div class="flex flex-col sm:flex-row items-center gap-2 sm:gap-4 pb-0 mb-1">
 		{#if meta != undefined}
-			<div class="flex gap-4 w-full">
+			<div class="flex gap-4 shrink">
 				<label class="block">
-					<span class="text-gray-700 text-sm whitespace-nowrap">
-						<Popover
-							>&nbsp;
-							<span slot="text"
-								>Select the group <span class="font-mono">all</span>
-								to share it with all workspace users, and <span class="font-mono">user</span> to
-								keep it private.
-								<a href="https://docs.windmill.dev/docs/reference/namespaces">docs</a>
-							</span>
-						</Popover>
-					</span>
+					<span class="text-gray-700 text-sm whitespace-nowrap">&nbsp;</span>
 
 					<ToggleButtonGroup
+						class="mt-0.5"
 						bind:selected={meta.ownerKind}
 						on:selected={(e) => {
 							const kind = e.detail
@@ -239,9 +235,17 @@
 					</ToggleButtonGroup>
 				</label>
 				{#if meta.ownerKind === 'user'}
-					<label class="block">
-						<span class="text-gray-700 text-sm">Owner</span>
+					<label class="block shrink min-w-0">
+						<span
+							><span class="text-gray-700 text-sm mr-1">Owner</span><Tooltip
+								>The prefix of a path defines the owner of an item. An owner has write permissions
+								and can modify the path. An item can still be made writable or readable using
+								granular perissioning.
+								<a href="https://docs.windmill.dev/docs/reference/namespaces">See docs</a></Tooltip
+							></span
+						>
 						<input
+							class="!w-36"
 							type="text"
 							bind:value={meta.owner}
 							placeholder={$userStore?.username ?? ''}
@@ -249,8 +253,15 @@
 						/>
 					</label>
 				{:else}
-					<label class="block w-full">
-						<span class="text-gray-700 text-sm inline-flex justify-between w-full">Owner</span>
+					<label class="block grow w-48">
+						<span
+							><span class="text-gray-700 text-sm mr-1">Owner</span><Tooltip
+								>The prefix of a path defines the owner of an item. An owner has write permissions
+								and can modify the path. An item can still be made writable or readable using
+								granular perissioning.
+								<a href="https://docs.windmill.dev/docs/reference/namespaces">docs</a></Tooltip
+							></span
+						>
 
 						<div class="flex flex-row gap-1 w-full">
 							<select class="grow w-full" {disabled} bind:value={meta.owner}>
@@ -268,7 +279,7 @@
 					</label>
 				{/if}
 			</div>
-			<label class="block col-span-2">
+			<label class="block grow">
 				<span class="text-gray-700 text-sm">
 					Name
 					<Required required={true} />
@@ -291,9 +302,9 @@
 		{/if}
 	</div>
 
-	<div class="pt-0 text-xs px-1 flex flex-col-reverse sm:grid sm:grid-cols-4 sm:gap-4 w-full">
-		<div class="col-span-2"><span class="font-mono">{path}</span></div>
-		<div class="text-red-600 text-2xs col-span-2">{error}</div>
+	<div class="flex-row flex justify-between">
+		<div><span class="font-mono text-sm">{path}</span></div>
+		<div class="text-red-600 text-2xs">{error}</div>
 	</div>
 </div>
 

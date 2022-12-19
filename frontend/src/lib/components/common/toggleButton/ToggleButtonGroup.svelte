@@ -31,6 +31,6 @@
 	})
 </script>
 
-<div class:flex-col={col} class="flex rounded-md" role="group">
+<div class:flex-col={col} class="flex rounded-md {$$props.class}" role="group">
 	<slot />
 </div>

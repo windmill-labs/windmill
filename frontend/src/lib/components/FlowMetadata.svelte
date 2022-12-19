@@ -11,10 +11,14 @@
 		faUser,
 		faBarsStaggered
 	} from '@fortawesome/free-solid-svg-icons'
+	import ScheduleEditor from './ScheduleEditor.svelte'
 
 	export let job: Job
 	const SMALL_ICON_SCALE = 0.7
+	let scheduleEditor: ScheduleEditor
 </script>
+
+<ScheduleEditor bind:this={scheduleEditor} />
 
 <div class="rounded-md p-3 bg-gray-50 shadow-sm sm:text-sm md:text-base" style="min-height: 150px;">
 	<JobStatus {job} />
@@ -46,9 +50,10 @@
 		{:else if job && job.schedule_path}
 			<Icon class="text-gray-700" data={faCalendar} scale={SMALL_ICON_SCALE} />
 			<span
-				>Triggered by the schedule: <a
-					href={`/schedule/add?edit=${job.schedule_path}&isFlow=${job.job_kind == 'flow'}`}
-					>{job.schedule_path}</a
+				>Triggered by the schedule: <button
+					class="break-words text-sm text-blue-600 font-normal"
+					on:click={() => scheduleEditor?.openEdit(job.schedule_path ?? '', job.job_kind == 'flow')}
+					>{job.schedule_path}</button
 				></span
 			>
 		{/if}

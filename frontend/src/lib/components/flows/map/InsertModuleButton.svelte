@@ -36,7 +36,7 @@
 				tabindex="-1"
 			>
 				<Icon data={faBolt} scale={0.8} class="mr-1" />
-				Trigger (script)
+				Trigger (Script)
 			</button>
 		{/if}
 		<button
@@ -49,7 +49,7 @@
 			tabindex="-1"
 		>
 			<Icon data={faCode} scale={0.8} class="mr-1" />
-			Action (script)
+			Action (Script)
 		</button>
 		<button
 			class="w-full text-left p-2 hover:bg-gray-100"
@@ -61,7 +61,7 @@
 			tabindex="-1"
 		>
 			<Icon data={faCheck} scale={0.8} class="mr-1" />
-			Approval (script)
+			Approval (Script)
 		</button>
 		<button
 			class="w-full inline-flex gap-1 text-left p-2 hover:bg-gray-100"

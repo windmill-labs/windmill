@@ -30,7 +30,7 @@
 			label: 'Workspace',
 			href: '/workspace_settings',
 			icon: faCog,
-			disabled: !($userStore?.is_admin || $superadmin)
+			disabled: !$userStore?.is_admin
 		},
 		{ label: 'Workers', href: '/workers', icon: faRobot, disabled: $userStore?.operator }
 	]

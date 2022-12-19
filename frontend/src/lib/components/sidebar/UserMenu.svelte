@@ -35,7 +35,7 @@
 		{#if !isCollapsed}
 			<span class={classNames('whitespace-pre truncate')}>
 				{$userStore?.username ?? ($superadmin ? $superadmin : '___')}
-				{#if $userStore?.is_admin || $superadmin}
+				{#if $userStore?.is_admin}
 					<Icon data={faCrown} scale={0.6} />
 				{:else if $userStore?.operator}
 					<Icon class="ml-2" data={faHardHat} scale={0.8} />

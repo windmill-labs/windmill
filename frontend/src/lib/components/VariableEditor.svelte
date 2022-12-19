@@ -141,7 +141,7 @@
 							>
 						</div>
 					{/if}
-					<div class="mb-1 font-semibold text-gray-700">General</div>
+					<span class="font-semibold text-gray-700">Path</span>
 					<Path
 						disabled={!can_write}
 						bind:error={pathError}
@@ -153,6 +153,7 @@
 				</div>
 				<div class="mt-4">
 					<Toggle bind:checked={variable.is_secret} options={{ right: 'Secret' }} />
+					<div class="mb-2" />
 					{#if variable.is_secret}
 						<Alert type="warning" title="Audit log for each access">
 							Every secret is encrypted at rest and in transit with a key specific to this

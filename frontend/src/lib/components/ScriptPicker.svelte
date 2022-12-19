@@ -10,6 +10,7 @@
 	import RadioButton from './RadioButton.svelte'
 	import { Button, Drawer, DrawerContent } from './common'
 	import HighlightCode from './HighlightCode.svelte'
+	import FlowPathViewer from './flows/content/FlowPathViewer.svelte'
 
 	export let initialPath: string | undefined = undefined
 	export let scriptPath: string | undefined = undefined
@@ -17,9 +18,11 @@
 	export let allowHub = false
 	export let itemKind: 'hub' | 'script' | 'flow' = allowHub ? 'hub' : 'script'
 	export let kind: Script.kind = Script.kind.SCRIPT
+	export let disabled = false
 
 	let items: { value: string; label: string }[] = []
 	let drawerViewer: Drawer
+	let drawerFlowViewer: Drawer
 	let code: string = ''
 	let lang: 'deno' | 'python3' | 'go' | 'bash' | undefined
 
@@ -53,41 +56,64 @@
 	$: itemKind && $workspaceStore && loadItems()
 </script>
 
-<div class="flex flex-row  items-center gap-4 w-full">
-	{#if options.length > 1}
-		<div class="w-80 mt-1">
-			<RadioButton bind:value={itemKind} {options} />
-		</div>
-	{/if}
-
-	<Select
-		value={items.find((x) => x.value == initialPath)}
-		class="grow"
-		on:change={() => {
-			dispatch('select', { path: scriptPath })
-		}}
-		bind:justValue={scriptPath}
-		{items}
-		placeholder="Pick a {itemKind}"
-	/>
-	{#if scriptPath !== undefined && scriptPath !== ''}
-		<Button
-			color="light"
-			size="xs"
-			on:click={async () => {
-				const { language, content } = await getScriptByPath(scriptPath ?? '')
-				code = content
-				lang = language
-				drawerViewer.openDrawer()
-			}}
-		>
-			Show code
-		</Button>
-	{/if}
-</div>
-
-<Drawer bind:this={drawerViewer}>
+<Drawer bind:this={drawerViewer} size="900px">
 	<DrawerContent title="Script {scriptPath}" on:close={drawerViewer.closeDrawer}>
 		<HighlightCode {code} language={lang} />
 	</DrawerContent>
 </Drawer>
+
+<Drawer bind:this={drawerFlowViewer} size="900px">
+	<DrawerContent title="Flow {scriptPath}" on:close={drawerFlowViewer.closeDrawer}>
+		<FlowPathViewer path={scriptPath ?? ''} />
+	</DrawerContent>
+</Drawer>
+
+<div class="flex flex-row  items-center gap-4 w-full">
+	{#if options.length > 1}
+		<div class="w-80 mt-1">
+			<RadioButton {disabled} bind:value={itemKind} {options} />
+		</div>
+	{/if}
+
+	{#if disabled}
+		<input type="text" value={scriptPath} disabled />
+	{:else}
+		<Select
+			value={items.find((x) => x.value == initialPath)}
+			class="grow"
+			on:change={() => {
+				dispatch('select', { path: scriptPath })
+			}}
+			bind:justValue={scriptPath}
+			{items}
+			placeholder="Pick a {itemKind}"
+		/>
+	{/if}
+
+	{#if scriptPath !== undefined && scriptPath !== ''}
+		{#if itemKind == 'flow'}
+			<Button
+				color="light"
+				size="xs"
+				on:click={async () => {
+					drawerFlowViewer.openDrawer()
+				}}
+			>
+				Show flow
+			</Button>
+		{:else}
+			<Button
+				color="light"
+				size="xs"
+				on:click={async () => {
+					const { language, content } = await getScriptByPath(scriptPath ?? '')
+					code = content
+					lang = language
+					drawerViewer.openDrawer()
+				}}
+			>
+				Show code
+			</Button>
+		{/if}
+	{/if}
+</div>

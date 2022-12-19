@@ -4806,10 +4806,6 @@ components:
       properties:
         schedule:
           type: string
-        script_path:
-          type: string
-        is_flow:
-          type: boolean
         args:
           $ref: "#/components/schemas/ScriptArgs"
       required:
