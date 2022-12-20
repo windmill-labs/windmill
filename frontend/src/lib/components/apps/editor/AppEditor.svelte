@@ -83,7 +83,7 @@
 	{/if}
 
 	{#if previewing}
-		<AppPreview app={$appStore} appPath={path} />
+		<AppPreview app={$appStore} appPath={path} {breakpoint} />
 	{:else}
 		<SplitPanesWrapper class="max-w-full overflow-hidden">
 			<Pane size={20}>

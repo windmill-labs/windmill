@@ -29,7 +29,7 @@
 		$app.grid.map((gridItem) => enableDrag(gridItem))
 	}
 
-	function deleteComponent(component) {
+	function removeGridElement(component) {
 		if (component) {
 			$app.grid = $app.grid.filter((gridComponent) => {
 				if (gridComponent.data.id === component.id) {
@@ -55,10 +55,6 @@
 				return gridComponent.data.id !== component?.id
 			})
 
-			gridColumns.forEach((colIndex) => {
-				$app.grid = gridHelp.adjust($app.grid, colIndex)
-			})
-
 			// Delete static inputs
 			delete $staticOutputs[component.id]
 			$staticOutputs = $staticOutputs
@@ -79,7 +75,6 @@
 		rowHeight={64}
 		cols={columnConfiguration}
 		fastStart={true}
-		throttleUpdate={50}
 		on:pointerup={({ detail }) => {
 			if (!$connectingInput.opened) {
 				$selectedComponent = detail.id
@@ -97,7 +92,7 @@
 					<ComponentEditor
 						bind:component={gridComponent.data}
 						selected={$selectedComponent === dataItem.data.id}
-						on:delete={() => deleteComponent(gridComponent.data)}
+						on:delete={() => removeGridElement(gridComponent.data)}
 						on:lock={() => {
 							gridComponent = toggleFixed(gridComponent)
 						}}

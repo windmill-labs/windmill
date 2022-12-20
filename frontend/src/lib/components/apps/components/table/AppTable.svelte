@@ -96,7 +96,7 @@
 <InputValue input={configuration.search} bind:value={search} />
 <InputValue input={configuration.pagination} bind:value={pagination} />
 
-<RunnableWrapper bind:componentInput {id} bind:result {extraQueryParams}>
+<RunnableWrapper bind:componentInput {id} bind:result {extraQueryParams} autoRefresh={false}>
 	<div class="border border-gray-300 shadow-sm divide-y divide-gray-300  flex flex-col h-full">
 		<div class="py-2 px-4">
 			<div class="flex justify-between items-center">
