@@ -1,9 +1,8 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 
-	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined
-	export let disableVerticalAlignment: boolean = false
+	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
+	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 
 	function tailwindHorizontalAlignment(horizontalAlignment) {
 		switch (horizontalAlignment) {
@@ -31,7 +30,7 @@
 		'flex w-full',
 		tailwindHorizontalAlignment(horizontalAlignment),
 		tailwindVerticalAlignment(verticalAlignment),
-		disableVerticalAlignment ? '' : 'h-full'
+		verticalAlignment ? 'h-full' : ''
 	)
 </script>
 

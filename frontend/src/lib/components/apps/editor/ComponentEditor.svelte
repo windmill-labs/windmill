@@ -12,6 +12,7 @@
 	import CheckboxComponent from '../components/selectInputs/AppCheckbox.svelte'
 	import TextInputComponent from '../components/textInputs/AppTextInput.svelte'
 	import NumberInputComponent from '../components/numberInputs/AppNumberInput.svelte'
+	import DateInputComponent from '../components/dateInputs/AppDateInput.svelte'
 	import ComponentHeader from './ComponentHeader.svelte'
 	import AppForm from '../components/form/AppForm.svelte'
 
@@ -88,6 +89,18 @@
 			<CheckboxComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{:else if component.type === 'textinputcomponent'}
 			<TextInputComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+		{:else if component.type === 'passwordinputcomponent'}
+			<TextInputComponent
+				inputType="password"
+				{...component}
+				bind:staticOutputs={$staticOutputs[component.id]}
+			/>
+		{:else if component.type === 'dateinputcomponent'}
+			<DateInputComponent
+				inputType="date"
+				{...component}
+				bind:staticOutputs={$staticOutputs[component.id]}
+			/>
 		{:else if component.type === 'numberinputcomponent'}
 			<NumberInputComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{/if}
