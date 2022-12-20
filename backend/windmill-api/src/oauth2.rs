@@ -1029,13 +1029,25 @@ async fn http_get_user_info<T: DeserializeOwned>(
     url: &str,
     token: &str,
 ) -> error::Result<T> {
-    Ok(http_client
+    let res = http_client
         .get(url)
         .bearer_auth(token)
         .send()
         .await
         .map_err(to_anyhow)
-        .context("failed to fetch user info")?
+        .context("failed to fetch user info")?;
+    if !res.status().is_success() {
+        tracing::debug!(
+            "The bearer token of the failed oauth user info exchange is: {}",
+            token
+        );
+        return Err(error::Error::BadConfig(format!(
+            "The user info endpoint responded with non 200: {}, {}",
+            res.status(),
+            res.text().await.unwrap_or_default()
+        )));
+    }
+    Ok(res
         .json::<T>()
         .await
         .map_err(to_anyhow)
