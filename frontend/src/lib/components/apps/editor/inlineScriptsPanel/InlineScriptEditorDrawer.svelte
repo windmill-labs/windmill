@@ -22,10 +22,10 @@
 		{#if inlineScript}
 			<ScriptEditor
 				lang={inlineScript.language}
-				bind:code={inlineScript.content}
 				path={inlineScript.path}
-				bind:schema={inlineScript.schema}
 				fixedOverflowWidgets={false}
+				bind:code={inlineScript.content}
+				bind:schema={inlineScript.schema}
 			/>
 		{/if}
 		<svelte:fragment slot="actions">
