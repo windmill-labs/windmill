@@ -4,7 +4,14 @@
 	import Grid from 'svelte-grid'
 	import ComponentEditor from './ComponentEditor.svelte'
 	import { classNames } from '$lib/utils'
-	import { columnConfiguration, disableDrag, enableDrag, gridColumns } from '../gridUtils'
+	import {
+		columnConfiguration,
+		disableDrag,
+		enableDrag,
+		gridColumns,
+		isFixed,
+		toggleFixed
+	} from '../gridUtils'
 	import { Alert } from '$lib/components/common'
 	import { fly } from 'svelte/transition'
 	import gridHelp from 'svelte-grid/build/helper/index.mjs'
@@ -40,40 +47,37 @@
 	}
 </script>
 
-<!-- svelte-ignore a11y-click-events-have-key-events -->
-<div
-	class="bg-white h-full relative"
-	on:click|preventDefault={() => $selectedComponent = undefined}
->
+<div class="bg-white h-full relative">
 	<RecomputeAllComponents />
-
 	<Grid
 		bind:items={$app.grid}
 		let:dataItem
 		rowHeight={64}
 		cols={columnConfiguration}
 		fastStart={true}
-		fillSpace={true}
+		throttleUpdate={50}
+		on:pointerup={({ detail }) => {
+			if (!$connectingInput.opened) {
+				$selectedComponent = detail.id
+			}
+		}}
 	>
 		{#each $app.grid as gridComponent (gridComponent.id)}
 			{#if gridComponent.data.id === dataItem.data.id}
-				<!-- svelte-ignore a11y-click-events-have-key-events -->
-
 				<div
 					class={classNames(
 						'h-full w-full flex justify-center align-center',
 						gridComponent.data.card ? 'border border-gray-100' : ''
 					)}
-					on:click|stopPropagation={() => {
-						if (!$connectingInput.opened) {
-							$selectedComponent = dataItem.data.id
-						}
-					}}
 				>
 					<ComponentEditor
 						bind:component={gridComponent.data}
 						selected={$selectedComponent === dataItem.data.id}
 						on:delete={() => deleteComponent(gridComponent.data)}
+						on:lock={() => {
+							gridComponent = toggleFixed(gridComponent)
+						}}
+						locked={isFixed(gridComponent)}
 					/>
 				</div>
 			{/if}
