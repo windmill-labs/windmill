@@ -22,6 +22,24 @@ function disableDrag(component: GridItem): GridItem {
 	return component
 }
 
+function toggleFixed(component: GridItem): GridItem {
+	gridColumns.forEach((column: number) => {
+		component[column].fixed = !component[column].fixed
+	})
+
+	return component
+}
+
+function isFixed(component: GridItem): boolean {
+	let fixed = false
+	gridColumns.forEach((column: number) => {
+		if (component[column].fixed) {
+			fixed = true
+		}
+	})
+	return fixed
+}
+
 function enableDrag(component: GridItem): GridItem {
 	gridColumns.forEach((column: number) => {
 		component[column].customDragger = false
@@ -30,4 +48,12 @@ function enableDrag(component: GridItem): GridItem {
 	return component
 }
 
-export { gridColumns, columnConfiguration, disableDrag, enableDrag, Breakpoints }
+export {
+	gridColumns,
+	columnConfiguration,
+	disableDrag,
+	enableDrag,
+	Breakpoints,
+	toggleFixed,
+	isFixed
+}

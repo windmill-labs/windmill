@@ -4,7 +4,7 @@
 	import { initialCode } from '$lib/script_helpers'
 	import { emptySchema } from '$lib/utils'
 	import { faTrash } from '@fortawesome/free-solid-svg-icons'
-	import { getContext } from 'svelte'
+	import { getContext, onMount } from 'svelte'
 	import type { AppEditorContext } from '../../types'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { CheckCircle, Code2, X } from 'lucide-svelte'
@@ -14,6 +14,7 @@
 	import { inferArgs } from '$lib/infer'
 	import type { Schema } from '$lib/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import { fly } from 'svelte/transition'
 
 	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
 	export let componentInput: ResultAppInput
@@ -48,12 +49,11 @@
 		subkind: 'pgsql' | 'mysql' | undefined = undefined
 	) {
 		const fullPath = `${appPath}/inline-script/${path}`
-
 		const content = initialCode(language, Script.kind.SCRIPT, subkind)
+
 		let schema: Schema = emptySchema()
 
 		schema = await inferInlineScriptSchema(language, content, schema)
-
 		const inlineScript = {
 			content,
 			language,
@@ -64,6 +64,19 @@
 			componentInput.runnable.inlineScript = inlineScript
 		}
 	}
+
+	onMount(async () => {
+		if (
+			componentInput.runnable?.type === 'runnableByName' &&
+			componentInput.runnable.inlineScript
+		) {
+			componentInput.runnable.inlineScript.schema = await inferInlineScriptSchema(
+				componentInput.runnable.inlineScript?.language,
+				componentInput.runnable.inlineScript?.content,
+				componentInput.runnable.inlineScript?.schema
+			)
+		}
+	})
 </script>
 
 {#if componentInput.runnable && componentInput.runnable.type === 'runnableByName' && componentInput.runnable.inlineScript}
@@ -75,10 +88,10 @@
 
 {#if shouldDisplay}
 	{#if componentInput?.runnable?.type === 'runnableByName' && componentInput?.runnable?.inlineScript}
-		<div class="h-full p-2 flex flex-col gap-2">
+		<div class="h-full p-4 flex flex-col gap-2" transition:fly={{ duration: 50 }}>
 			<div class="flex justify-between w-full flex-row items-center">
-				{#if componentInput?.runnable?.name}
-					<input bind:value={componentInput.runnable.name} />
+				{#if componentInput?.runnable?.name !== undefined}
+					<input bind:value={componentInput.runnable.name} placeholder="Inline script name" />
 				{/if}
 				<div class="flex w-full flex-row gap-2 items-center justify-end">
 					{#if validCode}
@@ -147,7 +160,7 @@
 			{/if}
 		</div>
 	{:else}
-		<div class="flex flex-col p-4 gap-2 text-sm">
+		<div class="flex flex-col p-4 gap-2 text-sm" in:fly={{ duration: 50 }}>
 			Please choose a language:
 			<div class="flex gap-2 flex-row flex-wrap">
 				{#each Object.values(Script.language) as lang}
