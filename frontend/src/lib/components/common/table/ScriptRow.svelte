@@ -170,8 +170,7 @@
 					icon: faShare,
 					action: () => {
 						shareModal.openDrawer && shareModal.openDrawer(path)
-					},
-					disabled: !canWrite
+					}
 				},
 				{
 					displayName: 'Archive',

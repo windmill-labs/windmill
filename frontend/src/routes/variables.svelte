@@ -312,8 +312,7 @@
 												action: () => {
 													shareModal.openDrawer(path)
 												},
-												icon: faShare,
-												disabled: !canWrite
+												icon: faShare
 											},
 											...(account != undefined
 												? [

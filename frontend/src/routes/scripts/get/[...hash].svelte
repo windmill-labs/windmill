@@ -272,7 +272,7 @@
 					Publish to Hub
 				</Button>
 				<Button
-					on:click={() => shareModal.openDrawer()}
+					on:click={() => shareModal.openDrawer(script?.path ?? '')}
 					variant="border"
 					color="light"
 					size="xs"
@@ -426,7 +426,7 @@
 													e.preventDefault()
 													copyToClipboard(href)
 												}}
-												href={href}
+												{href}
 												class="whitespace-nowrap text-ellipsis overflow-hidden mr-1"
 											>
 												{url}
