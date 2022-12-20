@@ -31,6 +31,7 @@ fn filter_metadata(meta: &Metadata) -> bool {
 }
 
 pub fn initialize_tracing() {
+    let style = std::env::var("RUST_LOG_STYLE").unwrap_or_else(|_| "auto".into());
     let json_fmt = std::env::var("JSON_FMT")
         .map(|x| x == "true")
         .unwrap_or(false);
@@ -44,7 +45,11 @@ pub fn initialize_tracing() {
             .with(json_layer().with_filter(filter_fn(filter_metadata)))
             .init(),
         false => ts_base
-            .with(compact_layer().with_filter(filter_fn(filter_metadata)))
+            .with(
+                compact_layer()
+                    .with_ansi(style.to_lowercase() != "never")
+                    .with_filter(filter_fn(filter_metadata)),
+            )
             .init(),
     }
 }
