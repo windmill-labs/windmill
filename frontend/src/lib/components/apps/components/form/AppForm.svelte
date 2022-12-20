@@ -14,7 +14,6 @@
 	export let recomputeIds: string[] | undefined = undefined
 	export let extraQueryParams: Record<string, any> = {}
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 
 	export const staticOutputs: string[] = ['loading', 'result']
 
@@ -38,7 +37,7 @@
 	autoRefresh={false}
 	forceSchemaDisplay={true}
 >
-	<AlignWrapper {horizontalAlignment} {verticalAlignment} disableVerticalAlignment={true}>
+	<AlignWrapper {horizontalAlignment}>
 		<Button
 			on:click={() => {
 				runnableComponent?.runComponent()
