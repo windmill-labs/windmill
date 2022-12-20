@@ -231,6 +231,8 @@ the following format:
 
 and mount it at `/usr/src/app/oauth.json`.
 
+The redirect url for the oauth clients is: `<instance_url>/user/login_callback/<client>`
+
 [The list of all possible "connect an app" oauth clients](https://github.com/windmill-labs/windmill/blob/main/backend/oauth_connect.json)
 
 To add more "connect an app" OAuth clients to the Windmill project, read the
