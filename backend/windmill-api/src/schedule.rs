@@ -54,6 +54,28 @@ pub struct NewSchedule {
     pub enabled: Option<bool>,
 }
 
+async fn check_path_conflict<'c>(
+    tx: &mut Transaction<'c, Postgres>,
+    w_id: &str,
+    path: &str,
+) -> Result<()> {
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM schedule WHERE path = $1 AND workspace_id = $2)",
+        path,
+        w_id
+    )
+    .fetch_one(tx)
+    .await?
+    .unwrap_or(false);
+    if exists {
+        return Err(Error::BadRequest(format!(
+            "Schedule {} already exists",
+            path
+        )));
+    }
+    return Ok(());
+}
+
 async fn create_schedule(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
@@ -62,6 +84,7 @@ async fn create_schedule(
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
     cron::Schedule::from_str(&ns.schedule).map_err(|e| Error::BadRequest(e.to_string()))?;
+    check_path_conflict(&mut tx, &w_id, &ns.path).await?;
     check_flow_conflict(&mut tx, &w_id, &ns.path, ns.is_flow, &ns.script_path).await?;
 
     let schedule = sqlx::query_as!(

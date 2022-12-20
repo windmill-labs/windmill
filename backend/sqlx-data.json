@@ -226,6 +226,27 @@
     },
     "query": "SELECT name FROM folder WHERE workspace_id = $1 ORDER BY name desc LIMIT $2 OFFSET $3"
   },
+  "0c3b687d97cb0bb2dfec369c013e7570ee9c3f473c6e92b1161ed71527385348": {
+    "describe": {
+      "columns": [
+        {
+          "name": "exists",
+          "ordinal": 0,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT EXISTS(SELECT 1 FROM flow WHERE path = $1 AND workspace_id = $2)"
+  },
   "0c5faa1e3233ca15240f80c9ba805f839d9f1f7450d1ea1f2b8e9faf8533892d": {
     "describe": {
       "columns": [],
@@ -470,6 +491,27 @@
       }
     },
     "query": "SELECT dependency_job FROM flow WHERE path = $1 AND workspace_id = $2"
+  },
+  "1a8d9f265302f0f9175e02cc4b3f26fa0e9cbbaab89299e940eb4e94d8e62cf1": {
+    "describe": {
+      "columns": [
+        {
+          "name": "count",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT count(path) FROM script WHERE path LIKE 'f/' || $1 || '%' AND archived IS false AND workspace_id = $2"
   },
   "1b31847d6187d6969deac5aa7b2feb169ef963449ac2d3ea06e1ed785f6d42e7": {
     "describe": {
@@ -2373,6 +2415,27 @@
     },
     "query": "SELECT * FROM resource_type WHERE workspace_id = $1"
   },
+  "7b23055f7d7ede8943637e54a76c43583ef80e475f527c6bbb660329e4f1ac7a": {
+    "describe": {
+      "columns": [
+        {
+          "name": "exists",
+          "ordinal": 0,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT EXISTS(SELECT 1 FROM folder WHERE name = $1 AND workspace_id = $2)"
+  },
   "7eeac533a0d63f4e3af9d3e3123b0a73f44543e618e29e4c6a6d573852339933": {
     "describe": {
       "columns": [
@@ -2814,6 +2877,27 @@
     },
     "query": "SELECT * FROM schedule WHERE workspace_id = $1 ORDER BY edited_at desc LIMIT $2 OFFSET $3"
   },
+  "8cc4fa257cb8053d27eb7a555d6e1b993e4a74b063eac632df8da24f6b87130e": {
+    "describe": {
+      "columns": [
+        {
+          "name": "count",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT count(path) FROM resource WHERE path LIKE 'f/' || $1 || '%'  AND workspace_id = $2"
+  },
   "8cea673a5b17bc7cf671b539c2c1eb34731c77aaf42dc12e45472eeb134887d0": {
     "describe": {
       "columns": [
@@ -2867,6 +2951,27 @@
       }
     },
     "query": "SELECT value FROM flow WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter')"
+  },
+  "8d678edbc19a195ef4c26c2deb4bb2bd6dbe9253356f1cd617f5522d8d65c238": {
+    "describe": {
+      "columns": [
+        {
+          "name": "count",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT count(path) FROM flow WHERE path LIKE 'f/' || $1 || '%' AND archived IS false AND workspace_id = $2"
   },
   "8da6ff304d199401ee8ee9a3de1d51477c04f9abc1b6255d84c5b1fc58267c59": {
     "describe": {
@@ -3443,6 +3548,27 @@
     },
     "query": "\n            UPDATE queue\n               SET flow_status = JSONB_SET(flow_status, ARRAY['failure_module'], $1)\n             WHERE id = $2\n            "
   },
+  "a7abe946c8d0653169e292560eb7a5aa50a9c0f590444480ac642afcb83bbffb": {
+    "describe": {
+      "columns": [
+        {
+          "name": "exists",
+          "ordinal": 0,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT EXISTS(SELECT 1 FROM group_ WHERE name = $1 AND workspace_id = $2)"
+  },
   "a7b028e832396ee4d1ad6dfd44ba6134344f3eb37dbf0254154eba31b9cc2ed3": {
     "describe": {
       "columns": [
@@ -3740,6 +3866,27 @@
       }
     },
     "query": "SELECT * from workspace_invite WHERE workspace_id = $1"
+  },
+  "b3d4787ad09757725a721228e0f3deaf3ee851ba23f866da50162e362764d6a6": {
+    "describe": {
+      "columns": [
+        {
+          "name": "count",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT count(path) FROM schedule WHERE path LIKE 'f/' || $1 || '%'  AND workspace_id = $2"
   },
   "b5c9891b5bf3d581e62f8835aaa25b8158fe3cefc849af0ba312a45cf22721ca": {
     "describe": {
@@ -4442,6 +4589,27 @@
     },
     "query": "SELECT app.id, app.path, app.summary, app.versions, app.policy,\n        app.extra_perms, app_version.value, \n        app_version.created_at, app_version.created_by from app, app_version \n        WHERE app.path = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]"
   },
+  "d12d151995da2e8357307dd99e3f7b59192832a566d56b56097d15f713430705": {
+    "describe": {
+      "columns": [
+        {
+          "name": "count",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT count(path) FROM app WHERE path LIKE 'f/' || $1 || '%'  AND workspace_id = $2"
+  },
   "d47bff7d6b54cd6da8bb330f7321c37af5dcbd76f9acad73b5ba1b8a4afb5091": {
     "describe": {
       "columns": [
@@ -4544,6 +4712,27 @@
       }
     },
     "query": "UPDATE script SET lock = $1 WHERE hash = $2 AND workspace_id = $3"
+  },
+  "d6acfbc2e4ef1a4f4252cf7566d91fc4d80a4bb0e383495efa82c697b17d2bf8": {
+    "describe": {
+      "columns": [
+        {
+          "name": "count",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT count(path) FROM variable WHERE path LIKE 'f/' || $1 || '%'  AND workspace_id = $2"
   },
   "d768bbc46f8a9c4289b918c88ca50aa180b29bbe931d948f6e61976f71b7cdb9": {
     "describe": {
@@ -4658,6 +4847,26 @@
       }
     },
     "query": "UPDATE app SET versions = array_append(versions, $1) WHERE path = $2 AND workspace_id = $3"
+  },
+  "dd7940ec390357b268d616e1880516ecc08d506db2109efcce840f096d7a594e": {
+    "describe": {
+      "columns": [
+        {
+          "name": "exists",
+          "ordinal": 0,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT EXISTS(SELECT 1 FROM workspace WHERE id = $1)"
   },
   "de4c8f42ff846599d6b2b26615a34f0bcbad974edc5f00fb0491475017eebaeb": {
     "describe": {
