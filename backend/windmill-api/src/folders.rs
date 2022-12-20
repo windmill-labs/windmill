@@ -31,6 +31,7 @@ pub fn workspaced_service() -> Router {
         .route("/listnames", get(list_foldernames))
         .route("/create", post(create_folder))
         .route("/get/:name", get(get_folder))
+        .route("/getusage/:name", get(get_folder_usage))
         .route("/delete/:name", delete(delete_folder))
         .route("/addowner/:name", post(add_owner))
         .route("/removeowner/:name", post(remove_owner))
@@ -166,6 +167,87 @@ async fn get_folder(
 
     tx.commit().await?;
     Ok(Json(folder))
+}
+
+#[derive(Serialize)]
+struct FolderUsage {
+    pub scripts: i64,
+    pub schedules: i64,
+    pub flows: i64,
+    pub apps: i64,
+    pub resources: i64,
+    pub variables: i64,
+}
+async fn get_folder_usage(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, name)): Path<(String, String)>,
+) -> JsonResult<FolderUsage> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    let scripts = sqlx::query_scalar!(
+        "SELECT count(path) FROM script WHERE path LIKE 'f/' || $1 || '%' AND archived IS false AND workspace_id = $2",
+        name,
+        w_id
+    )
+    .fetch_one(&mut tx)
+    .await?
+    .unwrap_or(0);
+
+    let schedules = sqlx::query_scalar!(
+        "SELECT count(path) FROM schedule WHERE path LIKE 'f/' || $1 || '%'  AND workspace_id = $2",
+        name,
+        w_id
+    )
+    .fetch_one(&mut tx)
+    .await?
+    .unwrap_or(0);
+
+    let flows = sqlx::query_scalar!(
+        "SELECT count(path) FROM flow WHERE path LIKE 'f/' || $1 || '%' AND archived IS false AND workspace_id = $2",
+        name,
+        w_id
+    )
+    .fetch_one(&mut tx)
+    .await?
+    .unwrap_or(0);
+
+    let apps = sqlx::query_scalar!(
+        "SELECT count(path) FROM app WHERE path LIKE 'f/' || $1 || '%'  AND workspace_id = $2",
+        name,
+        w_id
+    )
+    .fetch_one(&mut tx)
+    .await?
+    .unwrap_or(0);
+
+    let resources = sqlx::query_scalar!(
+        "SELECT count(path) FROM resource WHERE path LIKE 'f/' || $1 || '%'  AND workspace_id = $2",
+        name,
+        w_id
+    )
+    .fetch_one(&mut tx)
+    .await?
+    .unwrap_or(0);
+
+    let variables = sqlx::query_scalar!(
+        "SELECT count(path) FROM variable WHERE path LIKE 'f/' || $1 || '%'  AND workspace_id = $2",
+        name,
+        w_id
+    )
+    .fetch_one(&mut tx)
+    .await?
+    .unwrap_or(0);
+
+    tx.commit().await?;
+    Ok(Json(FolderUsage {
+        scripts,
+        flows,
+        schedules,
+        apps,
+        resources,
+        variables,
+    }))
 }
 
 async fn delete_folder(
