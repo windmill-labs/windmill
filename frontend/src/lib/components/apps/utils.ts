@@ -17,7 +17,7 @@ import {
 	Calendar,
 	ToggleLeft
 } from 'lucide-svelte'
-import type { AppInput, AppInputs, InputType } from './inputType'
+import type { AppInput, AppInputs, InputType, ResultAppInput } from './inputType'
 import type { AppComponent } from './types'
 
 export async function loadSchema(
@@ -193,4 +193,10 @@ export function isScriptByPathDefined(appInput: AppInput | undefined): boolean {
 	}
 
 	return false
+}
+
+export function clearResultAppInput(appInput: ResultAppInput): ResultAppInput {
+	appInput.runnable = undefined
+	appInput.fields = {}
+	return appInput
 }

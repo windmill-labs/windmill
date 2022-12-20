@@ -3,20 +3,36 @@
 	import { classNames } from '$lib/utils'
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../inputType'
-	import type { AppEditorContext } from '../../types'
+	import type { AppComponent, AppEditorContext } from '../../types'
 	import PanelSection from '../settingsPanel/common/PanelSection.svelte'
 
 	export let selectedScriptComponentId: string | undefined = undefined
 
 	const { app, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
 
-	function selectInlineScript(id: string) {
-		selectedScriptComponentId = id
+	function selectInlineScript(id: string, subId?: string) {
+		selectedScriptComponentId = subId ? subId : id
 		$selectedComponent = id
 	}
 
 	$: runnablesByName = $app.grid.reduce((acc, gridComponent) => {
-		const componentInput: AppInput = gridComponent.data.componentInput
+		const component: AppComponent = gridComponent.data
+
+		if (component.type === 'tablecomponent') {
+			component.actionButtons.forEach((actionButton) => {
+				if (actionButton.componentInput?.type === 'runnable') {
+					if (actionButton.componentInput.runnable?.type === 'runnableByName') {
+						acc.push({
+							name: actionButton.componentInput.runnable.name,
+							id: gridComponent.id,
+							subId: actionButton.id
+						})
+					}
+				}
+			})
+		}
+
+		const componentInput = component.componentInput
 
 		if (componentInput?.type === 'runnable') {
 			if (componentInput.runnable?.type === 'runnableByName') {
@@ -55,17 +71,22 @@
 	<div class="flex flex-col gap-2 w-full">
 		{#if runnablesByName.length > 0}
 			<div class="flex gap-2 flex-col ">
-				{#each runnablesByName as { name, id }, index (index)}
+				{#each runnablesByName as { name, id, subId }, index (index)}
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
 					<div
 						class="{classNames(
 							'border flex justify-between flex-row w-full items-center p-2 rounded-sm cursor-pointer hover:bg-blue-50 hover:text-blue-400',
-							selectedScriptComponentId === id ? 'border-blue-500 border' : ''
+							selectedScriptComponentId === (subId ? subId : id) ? 'border-blue-500 border' : ''
 						)},"
-						on:click={() => selectInlineScript(id)}
+						on:click={() => selectInlineScript(id, subId)}
 					>
 						<span class="text-xs">{name}</span>
-						<Badge color="dark-indigo">{id}</Badge>
+						<div>
+							<Badge color="dark-indigo">{id}</Badge>
+							{#if subId}
+								<Badge color="dark-indigo">{subId}</Badge>
+							{/if}
+						</div>
 					</div>
 				{/each}
 			</div>

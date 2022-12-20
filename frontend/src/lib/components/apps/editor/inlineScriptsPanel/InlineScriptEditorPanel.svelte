@@ -5,6 +5,7 @@
 	import { faCodeBranch } from '@fortawesome/free-solid-svg-icons'
 	import { r } from 'svelte-highlight/languages'
 	import type { ResultAppInput } from '../../inputType'
+	import { clearResultAppInput } from '../../utils'
 	import EmptyInlineScript from './EmptyInlineScript.svelte'
 	import InlineScriptEditor from './InlineScriptEditor.svelte'
 
@@ -31,9 +32,7 @@
 			bind:inlineScript={componentInput.runnable.inlineScript}
 			bind:name={componentInput.runnable.name}
 			on:delete={() => {
-				if (componentInput?.runnable?.type === 'runnableByName') {
-					componentInput.runnable = undefined
-				}
+				componentInput = clearResultAppInput(componentInput)
 			}}
 		/>
 	{:else}

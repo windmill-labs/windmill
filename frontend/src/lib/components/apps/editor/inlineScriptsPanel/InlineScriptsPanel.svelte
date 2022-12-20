@@ -21,6 +21,14 @@
 			{#if gridComponent.data.id === selectedScriptComponentId}
 				<InlineScriptEditorPanel bind:componentInput={gridComponent.data.componentInput} />
 			{/if}
+
+			{#if gridComponent.data.type === 'tablecomponent'}
+				{#each gridComponent.data.actionButtons as actionButton, index (index)}
+					{#if actionButton.id === selectedScriptComponentId}
+						<InlineScriptEditorPanel bind:componentInput={actionButton.componentInput} />
+					{/if}
+				{/each}
+			{/if}
 		{/each}
 		{#if Array.isArray($app.unusedInlineScripts)}
 			{#each $app.unusedInlineScripts as unusedInlineScript, index (index)}
