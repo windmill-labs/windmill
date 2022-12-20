@@ -16,16 +16,16 @@
 	import GroupEditor from '$lib/components/GroupEditor.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
-	import ShareModal from '$lib/components/ShareModal.svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { faEdit, faPlus, faShare, faTrash } from '@fortawesome/free-solid-svg-icons'
-	import { Button, Drawer, DrawerContent } from '$lib/components/common'
+	import { Button, Drawer, DrawerContent, Skeleton } from '$lib/components/common'
+	import GroupInfo from '$lib/components/GroupInfo.svelte'
 
 	type GroupW = Group & { canWrite: boolean }
 
 	let newGroupName: string = ''
-	let groups: GroupW[] = []
+	let groups: GroupW[] | undefined = undefined
 	let groupDrawer: Drawer
 
 	async function loadGroups(): Promise<void> {
@@ -89,54 +89,62 @@
 			<tr slot="header-row">
 				<th>Name</th>
 				<th>Summary</th>
+				<th>Members</th>
 				<th />
 			</tr>
 			<tbody slot="body">
-				{#each groups as { name, summary, extra_perms, canWrite }}
-					<tr>
-						<td>
-							<a
-								href="#{name}"
-								on:click={() => {
-									editGroupName = name
-									groupDrawer.openDrawer()
-								}}
-								>{name}
-							</a>
-							<div>
-								<SharedBadge {canWrite} extraPerms={extra_perms} />
-							</div>
-						</td>
-						<td>{summary ?? ''}</td>
-						<td>
-							<Dropdown
-								placement="bottom-end"
-								dropdownItems={[
-									{
-										displayName: 'Manage group',
-										icon: faEdit,
-										disabled: !canWrite,
-										action: () => {
-											editGroupName = name
-											groupDrawer.openDrawer()
-										}
-									},
-									{
-										displayName: 'Delete',
+				{#if groups === undefined}
+					{#each new Array(6) as _}
+						<Skeleton layout={[0.25, [2], 0.25]} />
+					{/each}
+				{:else}
+					{#each groups as { name, summary, extra_perms, canWrite }}
+						<tr>
+							<td>
+								<a
+									href="#{name}"
+									on:click={() => {
+										editGroupName = name
+										groupDrawer.openDrawer()
+									}}
+									>{name}
+								</a>
+								<div>
+									<SharedBadge {canWrite} extraPerms={extra_perms} />
+								</div>
+							</td>
+							<td>{summary ?? ''}</td>
+							<td><GroupInfo {name} /></td>
+							<td>
+								<Dropdown
+									placement="bottom-end"
+									dropdownItems={[
+										{
+											displayName: 'Manage group',
+											icon: faEdit,
+											disabled: !canWrite,
+											action: () => {
+												editGroupName = name
+												groupDrawer.openDrawer()
+											}
+										},
+										{
+											displayName: 'Delete',
 
-										icon: faTrash,
-										type: 'delete',
-										disabled: !canWrite,
-										action: async () => {
-											await GroupService.deleteGroup({ workspace: $workspaceStore ?? '', name })
-											loadGroups()
+											icon: faTrash,
+											type: 'delete',
+											disabled: !canWrite,
+											action: async () => {
+												await GroupService.deleteGroup({ workspace: $workspaceStore ?? '', name })
+												loadGroups()
+											}
 										}
-									}
-								]}
-							/>
-						</td>
-					</tr>
-				{/each}
+									]}
+								/>
+							</td>
+						</tr>
+					{/each}
+				{/if}
 			</tbody>
 		</TableCustom>
 	</div>

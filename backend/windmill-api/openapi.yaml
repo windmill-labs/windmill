@@ -3733,6 +3733,43 @@ paths:
               schema:
                 $ref: "#/components/schemas/Folder"
 
+  /w/{workspace}/folders/getusage/{name}:
+    get:
+      summary: get folder usage
+      operationId: getFolderUsage
+      tags:
+        - folder
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Name"
+      responses:
+        "200":
+          description: folder
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scripts:
+                    type: number
+                  flows:
+                    type: number
+                  apps:
+                    type: number
+                  resources:
+                    type: number
+                  variables:
+                    type: number
+                  schedules:
+                    type: number
+                required:
+                  - scripts
+                  - flows
+                  - apps
+                  - resources
+                  - variables
+                  - schedules
+
   /w/{workspace}/folders/addowner/{name}:
     post:
       summary: add owner to folder

@@ -19,12 +19,14 @@
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { faEdit, faPlus, faTrash } from '@fortawesome/free-solid-svg-icons'
-	import { Button, Drawer, DrawerContent } from '$lib/components/common'
+	import { Button, Drawer, DrawerContent, Skeleton } from '$lib/components/common'
+	import FolderInfo from '$lib/components/FolderInfo.svelte'
+	import FolderUsageInfo from '$lib/components/FolderUsageInfo.svelte'
 
 	type FolderW = Folder & { canWrite: boolean }
 
 	let newFolderName: string = ''
-	let folders: FolderW[] = []
+	let folders: FolderW[] | undefined = undefined
 	let folderDrawer: Drawer
 
 	async function loadFolders(): Promise<void> {
@@ -57,6 +59,14 @@
 	}
 
 	let editFolderName: string = ''
+
+	function computeMembers(owners: string[], extra_perms: Record<string, any>) {
+		const members = new Set(owners)
+		for (const [user, _] of Object.entries(extra_perms)) {
+			members.add(user)
+		}
+		return Array.from(members)
+	}
 </script>
 
 <Drawer bind:this={folderDrawer}>
@@ -87,59 +97,72 @@
 		<TableCustom>
 			<tr slot="header-row">
 				<th>Name</th>
-				<th />
+				<th>Usage</th>
+				<th>Participants</th>
 			</tr>
 			<tbody slot="body">
-				{#if folders.length === 0}
-					<tr>
-						<td colspan="2" class="text-gray-600 mt-2"> No folders yet, create one! </td>
-					</tr>
+				{#if folders === undefined}
+					{#each new Array(6) as _}
+						<Skeleton layout={[0.25, [2], 0.25]} />
+					{/each}
+				{:else}
+					{#if folders.length === 0}
+						<tr>
+							<td colspan="4" class="text-gray-600 mt-2"> No folders yet, create one! </td>
+						</tr>
+					{/if}
+
+					{#each folders as { name, extra_perms, owners, canWrite }}
+						<tr>
+							<td>
+								<a
+									href="#{name}"
+									on:click={() => {
+										editFolderName = name
+										folderDrawer.openDrawer()
+									}}
+									>{name}
+								</a>
+								<div>
+									<SharedBadge {canWrite} extraPerms={extra_perms} />
+								</div>
+							</td>
+							<td><FolderUsageInfo {name} /></td>
+
+							<td><FolderInfo members={computeMembers(owners, extra_perms)} /></td>
+							<td>
+								<Dropdown
+									placement="bottom-end"
+									dropdownItems={[
+										{
+											displayName: 'Manage folder',
+											icon: faEdit,
+											disabled: !canWrite,
+											action: () => {
+												editFolderName = name
+												folderDrawer.openDrawer()
+											}
+										},
+										{
+											displayName: 'Delete',
+
+											icon: faTrash,
+											type: 'delete',
+											disabled: !canWrite,
+											action: async () => {
+												await FolderService.deleteFolder({
+													workspace: $workspaceStore ?? '',
+													name
+												})
+												loadFolders()
+											}
+										}
+									]}
+								/>
+							</td>
+						</tr>
+					{/each}
 				{/if}
-
-				{#each folders as { name, extra_perms, canWrite }}
-					<tr>
-						<td>
-							<a
-								href="#{name}"
-								on:click={() => {
-									editFolderName = name
-									folderDrawer.openDrawer()
-								}}
-								>{name}
-							</a>
-							<div>
-								<SharedBadge {canWrite} extraPerms={extra_perms} />
-							</div>
-						</td>
-						<td>
-							<Dropdown
-								placement="bottom-end"
-								dropdownItems={[
-									{
-										displayName: 'Manage folder',
-										icon: faEdit,
-										disabled: !canWrite,
-										action: () => {
-											editFolderName = name
-											folderDrawer.openDrawer()
-										}
-									},
-									{
-										displayName: 'Delete',
-
-										icon: faTrash,
-										type: 'delete',
-										disabled: !canWrite,
-										action: async () => {
-											await FolderService.deleteFolder({ workspace: $workspaceStore ?? '', name })
-											loadFolders()
-										}
-									}
-								]}
-							/>
-						</td>
-					</tr>
-				{/each}
 			</tbody>
 		</TableCustom>
 	</div>
