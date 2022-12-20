@@ -1042,9 +1042,14 @@ async fn http_get_user_info<T: DeserializeOwned>(
             token
         );
         return Err(error::Error::BadConfig(format!(
-            "The user info endpoint responded with non 200: {}, {}",
+            "The user info endpoint responded with non 200: {}\n{}\n{}",
             res.status(),
-            res.text().await.unwrap_or_default()
+            res.headers()
+                .iter()
+                .map(|x| format!("{}: {}", x.0.as_str(), x.1.to_str().unwrap_or_default()))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            res.text().await.unwrap_or_default(),
         )));
     }
     Ok(res
