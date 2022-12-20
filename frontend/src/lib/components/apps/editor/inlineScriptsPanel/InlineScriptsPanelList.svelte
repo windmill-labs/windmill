@@ -29,7 +29,7 @@
 	}, [])
 </script>
 
-<PanelSection title="Inline scripts">
+<PanelSection title="Inline scripts" smallPadding>
 	<div class="flex flex-col gap-2 w-full">
 		{#if componentInlineScripts.length > 0}
 			<div class="flex gap-2 flex-col ">

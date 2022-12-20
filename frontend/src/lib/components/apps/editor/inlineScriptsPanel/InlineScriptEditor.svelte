@@ -75,7 +75,7 @@
 
 {#if shouldDisplay}
 	{#if componentInput?.runnable?.type === 'runnableByName' && componentInput?.runnable?.inlineScript}
-		<div class="h-full p-4 flex flex-col gap-2 ">
+		<div class="h-full p-2 flex flex-col gap-2">
 			<div class="flex justify-between w-full flex-row items-center">
 				{#if componentInput?.runnable?.name}
 					<input bind:value={componentInput.runnable.name} />
@@ -106,8 +106,7 @@
 					/>
 					<Button
 						size="xs"
-						color="light"
-						variant="border"
+						color="blue"
 						on:click={() => {
 							inlineScriptEditorDrawer?.openDrawer()
 						}}

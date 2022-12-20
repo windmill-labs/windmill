@@ -43,7 +43,7 @@
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <div
 	class="bg-white h-full relative"
-	on:click|preventDefault={() => $selectedComponent = undefined}
+	on:click|preventDefault={() => ($selectedComponent = undefined)}
 >
 	<RecomputeAllComponents />
 

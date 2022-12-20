@@ -85,10 +85,10 @@
 			</Pane>
 			<Pane size={60}>
 				<SplitPanesWrapper horizontal>
-					<Pane size={75}>
-						<div class="bg-gray-100 p-4 relative min-h-full w-full">
+					<Pane size={70}>
+						<div class={classNames('bg-gray-100  relative min-h-full', width)}>
 							{#if $appStore.grid}
-								<div class={classNames('mx-auto h-full bg-gray-100', width)}>
+								<div class={classNames('mx-auto p-4 h-full bg-gray-100', width)}>
 									<GridEditor />
 								</div>
 							{/if}
@@ -99,7 +99,7 @@
 							{/if}
 						</div>
 					</Pane>
-					<Pane size={25}>
+					<Pane size={30}>
 						<InlineScriptsPanel />
 					</Pane>
 				</SplitPanesWrapper>
