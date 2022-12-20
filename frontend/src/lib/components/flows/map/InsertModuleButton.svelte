@@ -5,7 +5,8 @@
 		faCodeBranch,
 		faPlus,
 		faBarsStaggered,
-		faBolt
+		faBolt,
+		faCheck
 	} from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
@@ -35,7 +36,7 @@
 				tabindex="-1"
 			>
 				<Icon data={faBolt} scale={0.8} class="mr-1" />
-				Trigger
+				Trigger (Script)
 			</button>
 		{/if}
 		<button
@@ -48,7 +49,19 @@
 			tabindex="-1"
 		>
 			<Icon data={faCode} scale={0.8} class="mr-1" />
-			Script
+			Action (Script)
+		</button>
+		<button
+			class="w-full text-left p-2 hover:bg-gray-100"
+			on:click={() => {
+				close()
+				dispatch('new', 'approval')
+			}}
+			role="menuitem"
+			tabindex="-1"
+		>
+			<Icon data={faCheck} scale={0.8} class="mr-1" />
+			Approval (Script)
 		</button>
 		<button
 			class="w-full inline-flex gap-1 text-left p-2 hover:bg-gray-100"

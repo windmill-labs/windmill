@@ -8,7 +8,7 @@
 
 use crate::{
     db::{UserDB, DB},
-    users::Authed,
+    users::{get_groups_for_user, Authed},
 };
 use axum::{
     extract::{Extension, Path, Query},
@@ -24,6 +24,7 @@ use windmill_common::{
 
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Transaction};
+use windmill_queue::CLOUD_HOSTED;
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -90,16 +91,26 @@ async fn list_groups(
     Ok(Json(rows))
 }
 
+#[derive(Deserialize)]
+struct QueryListGroup {
+    pub only_member_of: Option<bool>,
+}
 async fn list_group_names(
+    Authed { username, .. }: Authed,
     Extension(db): Extension<DB>,
+    Query(QueryListGroup { only_member_of }): Query<QueryListGroup>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<String>> {
-    let rows = sqlx::query_scalar!(
-        "SELECT name FROM group_ WHERE workspace_id = $1 ORDER BY name desc",
-        w_id
-    )
-    .fetch_all(&db)
-    .await?;
+    let rows = if !only_member_of.unwrap_or(false) {
+        sqlx::query_scalar!(
+            "SELECT name FROM group_ WHERE workspace_id = $1 ORDER BY name desc",
+            w_id
+        )
+        .fetch_all(&db)
+        .await?
+    } else {
+        get_groups_for_user(&w_id, &username, &db).await?
+    };
 
     Ok(Json(rows))
 }
@@ -159,6 +170,16 @@ async fn get_group(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, name)): Path<(String, String)>,
 ) -> JsonResult<GroupInfo> {
+    if *CLOUD_HOSTED && w_id == "demo" && name == "all" && !authed.is_admin {
+        return Ok(Json(GroupInfo {
+            workspace_id: w_id,
+            name: name,
+            summary: Some("The group that contains all users".to_string()),
+            members: vec!["redacted_in_demo_workspace".to_string()],
+            extra_perms: serde_json::json!({}),
+        }));
+    }
+
     let mut tx = user_db.begin(&authed).await?;
 
     let group = not_found_if_none(get_group_opt(&mut tx, &w_id, &name).await?, "Group", &name)?;
@@ -266,7 +287,7 @@ async fn add_user(
 
     sqlx::query_as!(
         Group,
-        "INSERT INTO usr_to_group (workspace_id, usr, group_) VALUES ($1, $2, $3)",
+        "INSERT INTO usr_to_group (workspace_id, usr, group_) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
         &w_id,
         user_username,
         name,

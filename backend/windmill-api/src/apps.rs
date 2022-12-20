@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use crate::{
     db::{UserDB, DB},
     jobs::script_path_to_payload,
-    users::{Authed, OptAuthed},
+    users::{require_owner_of_path, Authed, OptAuthed},
 };
 use axum::{
     extract::{Extension, Path, Query},
@@ -62,7 +62,7 @@ pub struct ListableApp {
 #[derive(FromRow, Serialize, Deserialize)]
 pub struct AppVersion {
     pub id: i64,
-    pub flow_id: Uuid,
+    pub app_id: Uuid,
     pub value: serde_json::Value,
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
@@ -210,7 +210,7 @@ async fn get_app_by_id(
         "SELECT app.id, app.path, app.summary, app.versions, app.policy,
         app.extra_perms, app_version.value, 
         app_version.created_at, app_version.created_by from app, app_version 
-        WHERE app_version.id = $1 AND app.id = app_version.flow_id AND app.workspace_id = $2",
+        WHERE app_version.id = $1 AND app.id = app_version.app_id AND app.workspace_id = $2",
         id,
         &w_id
     )
@@ -244,7 +244,7 @@ async fn create_app(
 
     let v_id = sqlx::query_scalar!(
         "INSERT INTO app_version
-            (flow_id, value, created_by)
+            (app_id, value, created_by)
             VALUES ($1, $2, $3) RETURNING id",
         id,
         app.value,
@@ -309,6 +309,7 @@ async fn delete_app(
 async fn update_app(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(ns): Json<EditApp>,
 ) -> Result<String> {
@@ -324,6 +325,11 @@ async fn update_app(
         sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
 
         if let Some(npath) = &ns.path {
+            if npath != path {
+                if !authed.is_admin {
+                    require_owner_of_path(&w_id, &authed.username, &path, &db).await?;
+                }
+            }
             sqlb.set_str("path", npath);
         }
 
@@ -352,7 +358,7 @@ async fn update_app(
         "".to_string()
     };
     if let Some(nvalue) = &ns.value {
-        let flow_id = sqlx::query_scalar!(
+        let app_id = sqlx::query_scalar!(
             "SELECT id FROM app WHERE path = $1 AND workspace_id = $2",
             path,
             w_id
@@ -362,9 +368,9 @@ async fn update_app(
 
         let v_id = sqlx::query_scalar!(
             "INSERT INTO app_version
-                (flow_id, value, created_by)
+                (app_id, value, created_by)
                 VALUES ($1, $2, $3) RETURNING id",
-            flow_id,
+            app_id,
             nvalue,
             authed.username,
         )

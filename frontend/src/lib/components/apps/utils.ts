@@ -3,7 +3,6 @@ import { FlowService, ScriptService } from '$lib/gen'
 import {
 	BarChart4,
 	Binary,
-	BoxSelect,
 	CircleDot,
 	FormInput,
 	Inspect,
@@ -14,11 +13,11 @@ import {
 	Table2,
 	TextCursorInput,
 	Type,
-	FolderInput,
 	Lock,
-	Calendar
+	Calendar,
+	ToggleLeft
 } from 'lucide-svelte'
-import type { AppInputs, InputType } from './inputType'
+import type { AppInput, AppInputs, InputType } from './inputType'
 import type { AppComponent } from './types'
 
 export async function loadSchema(
@@ -44,8 +43,6 @@ export async function loadSchema(
 		const script = await ScriptService.getHubScriptByPath({
 			path
 		})
-
-		debugger
 
 		return script.schema
 	}
@@ -81,7 +78,7 @@ export const displayData: Record<AppComponent['type'], { name: string; icon: any
 	},
 	formcomponent: {
 		name: 'Form',
-		icon: FolderInput
+		icon: FormInput
 	},
 	piechartcomponent: {
 		name: 'Pie chart',
@@ -96,8 +93,8 @@ export const displayData: Record<AppComponent['type'], { name: string; icon: any
 		icon: Table2
 	},
 	checkboxcomponent: {
-		name: 'Checkbox',
-		icon: BoxSelect
+		name: 'Toggle',
+		icon: ToggleLeft
 	},
 	textinputcomponent: {
 		name: 'Text input',
@@ -172,4 +169,28 @@ export function fieldTypeToTsType(inputType: InputType): string {
 		default:
 			return 'string'
 	}
+}
+
+export function isScriptByNameDefined(appInput: AppInput | undefined): boolean {
+	if (!appInput) {
+		return false
+	}
+
+	if (appInput.type === 'runnable' && appInput.runnable?.type == 'runnableByName') {
+		return Boolean(appInput.runnable?.name)
+	}
+
+	return false
+}
+
+export function isScriptByPathDefined(appInput: AppInput | undefined): boolean {
+	if (!appInput) {
+		return false
+	}
+
+	if (appInput.type === 'runnable' && appInput.runnable?.type == 'runnableByPath') {
+		return Boolean(appInput.runnable?.path)
+	}
+
+	return false
 }

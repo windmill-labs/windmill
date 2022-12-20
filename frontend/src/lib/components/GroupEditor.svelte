@@ -3,19 +3,25 @@
 	import { type Group, GroupService, UserService, GranularAclService } from '$lib/gen'
 	import AutoComplete from 'simple-svelte-autocomplete'
 	import TableCustom from './TableCustom.svelte'
-	import { canWrite } from '$lib/utils'
+	import { canWrite, sendUserToast } from '$lib/utils'
 	import { Button, ToggleButton, ToggleButtonGroup } from './common'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import Tooltip from './Tooltip.svelte'
+	import autosize from 'svelte-autosize'
+	import { createEventDispatcher } from 'svelte'
 
 	export let name: string
 	let can_write = false
 
-	type Role = 'viewer' | 'member' | 'manager' | 'member_manager'
+	type Role = 'member' | 'manager' | 'admin'
 	let group: Group | undefined
-	let members: { name: string; role: Role }[] | undefined = undefined
+	let members: { member_name: string; role: Role }[] | undefined = undefined
+	let managing_groups: string[] = []
 	let usernames: string[] | undefined = []
 	let username: string = ''
+	let groups: string[] = []
+
+	const dispatch = createEventDispatcher()
 
 	async function loadUsernames(): Promise<void> {
 		usernames = await UserService.listUsernames({ workspace: $workspaceStore! })
@@ -28,8 +34,13 @@
 	}
 
 	async function load() {
+		loadGroups()
 		await loadGroup()
-		await loadUsernames()
+		loadUsernames()
+	}
+
+	async function loadGroups(): Promise<void> {
+		groups = (await GroupService.listGroups({ workspace: $workspaceStore! })).map((x) => x.name)
 	}
 
 	async function addToGroup() {
@@ -43,39 +54,68 @@
 
 	async function loadGroup(): Promise<void> {
 		group = await GroupService.getGroup({ workspace: $workspaceStore!, name })
-		can_write = canWrite(group.name!, group.extra_perms ?? {}, $userStore)
-		members = Object.keys(group?.extra_perms ?? {})
-			.concat(group?.members ?? [])
-			.map((x) => {
-				return {
-					name: x,
-					role: getRole(x)
-				}
-			})
+		can_write = canWrite(name!, group.extra_perms ?? {}, $userStore)
+		members = Array.from(
+			new Set(
+				Object.entries(group?.extra_perms ?? {})
+					.filter(([k, v]) => k.startsWith('u/') && v)
+					.map(([k, _]) => k.split('/')[1])
+					.concat(group?.members ?? [])
+			)
+		).map((x) => {
+			return {
+				member_name: x,
+				role: getRole(x)
+			}
+		})
+		managing_groups = Object.entries(group?.extra_perms ?? {})
+			.filter(([k, v]) => k.startsWith('g/') && v)
+			.map(([k, v]) => k)
 	}
 
 	function getRole(x: string): Role {
-		const writer = x in (group?.extra_perms ?? {}) && (group?.extra_perms ?? {})[name]
+		const writer = 'u/' + x in (group?.extra_perms ?? {}) && (group?.extra_perms ?? {})['u/' + x]
 		const member = group?.members?.includes(x)
+
 		if (writer && member) {
-			return 'member_manager'
+			return 'admin'
 		} else if (writer) {
 			return 'manager'
-		} else if (member) {
+		} else {
 			return 'member'
 		}
-		return 'viewer'
 	}
 </script>
 
 <div class="flex flex-col gap-6">
-	<h2>Summary</h2>
+	<h1>{name}</h1>
 	{#if group}
-		<p>{group?.summary ?? 'No summary'}</p>
+		<div class="flex flex-col gap-1">
+			<textarea
+				disabled={!can_write}
+				rows="2"
+				type="text"
+				use:autosize
+				bind:value={group.summary}
+				placeholder="Summary of the group"
+			/>
+			<Button
+				size="xs"
+				on:click={async () => {
+					await GroupService.updateGroup({
+						workspace: $workspaceStore ?? '',
+						name,
+						requestBody: { summary: group?.summary }
+					})
+					dispatch('update')
+					sendUserToast('New summary saved')
+				}}>Save Summary</Button
+			>
+		</div>
 	{:else}
 		<Skeleton layout={[[4]]} />
 	{/if}
-	<h2>Members</h2>
+	<h2>Members ({members?.length ?? 0})</h2>
 	{#if can_write}
 		<div class="flex items-start">
 			<AutoComplete items={usernames} bind:selectedItem={username} />
@@ -92,51 +132,96 @@
 				<th />
 			</tr>
 			<tbody slot="body">
-				{#each members as { name, role }}<tr>
-						<td>{name}</td>
+				{#each members as { member_name, role }}<tr>
+						<td>{member_name}</td>
 						<td>
-							<ToggleButtonGroup
-								selected={role}
-								on:selected={async (e) => {
-									const group = e.detail
-									// const wasInGroup = (group?.members ?? []).includes(group)
-									// const inAcl = (
-									// 	group?.extra_perms ? Object.keys(group?.extra_perms) : []
-									// ).includes(group)
-									if (group == 'member') {
-										GroupService.addUserToGroup(group)
-
-										// GranularAclService.removeGranularAcls({
-										// 	workspace: $workspaceStore ?? '',
-										// 	path: name,
-										// 	kind: 'group_',
-										// 	requestBody: $userStore.
-										// })
-									}
-									loadGroup()
-								}}
-							>
-								<ToggleButton position="left" value="member" size="xs"
-									>Viewer <Tooltip
-										>A viewer can see who are the members and managers of a group</Tooltip
-									></ToggleButton
-								>
-								<ToggleButton position="left" value="member" size="xs"
-									>Member <Tooltip
-										>A Member of a group can see everything the group can see, write to everything
-										the group can write, and generally act on behalf of the group</Tooltip
-									></ToggleButton
-								>
-								<ToggleButton position="center" value="manager" size="xs"
-									>Manager <Tooltip
-										>A manager of a group can manage the group, adding and removing users and change
-										their roles. He is not necessarily a member of the group.</Tooltip
-									></ToggleButton
-								>
-								<ToggleButton position="right" value="member_manager" size="xs"
-									>Member & Manager</ToggleButton
-								>
-							</ToggleButtonGroup></td
+							{#if can_write}
+								<div>
+									<ToggleButtonGroup
+										selected={role}
+										on:selected={async (e) => {
+											const role = e.detail
+											// const wasInGroup = (group?.members ?? []).includes(group)
+											// const inAcl = (
+											// 	group?.extra_perms ? Object.keys(group?.extra_perms) : []
+											// ).includes(group)
+											if (role == 'member') {
+												await GroupService.addUserToGroup({
+													workspace: $workspaceStore ?? '',
+													name,
+													requestBody: {
+														username: member_name
+													}
+												})
+												await GranularAclService.removeGranularAcls({
+													workspace: $workspaceStore ?? '',
+													path: name,
+													kind: 'group_',
+													requestBody: {
+														owner: 'u/' + member_name
+													}
+												})
+											} else if (role == 'manager') {
+												await GroupService.removeUserToGroup({
+													workspace: $workspaceStore ?? '',
+													name,
+													requestBody: {
+														username: member_name
+													}
+												})
+												await GranularAclService.addGranularAcls({
+													workspace: $workspaceStore ?? '',
+													path: name,
+													kind: 'group_',
+													requestBody: {
+														owner: 'u/' + member_name,
+														write: true
+													}
+												})
+											} else if (role == 'admin') {
+												await GroupService.addUserToGroup({
+													workspace: $workspaceStore ?? '',
+													name,
+													requestBody: {
+														username: member_name
+													}
+												})
+												await GranularAclService.addGranularAcls({
+													workspace: $workspaceStore ?? '',
+													path: name,
+													kind: 'group_',
+													requestBody: {
+														owner: 'u/' + member_name,
+														write: true
+													}
+												})
+											}
+											loadGroup()
+										}}
+									>
+										<ToggleButton position="left" value="member" size="xs"
+											>Member <Tooltip
+												>A Member of a group can see everything the group can see, write to
+												everything the group can write, and generally act on behalf of the group</Tooltip
+											></ToggleButton
+										>
+										<!-- <ToggleButton position="center" value="manager" size="xs"
+											>Manager <Tooltip
+												>A manager of a group can manage the group, adding and removing users and
+												change their roles. Being a manager does not make you a member.</Tooltip
+											></ToggleButton
+										> -->
+										<ToggleButton position="right" value="admin" size="xs"
+											>Admin <Tooltip
+												>An admin of a group is a member of a group that can also add and remove
+												members to the group, or make them admin.</Tooltip
+											></ToggleButton
+										>
+									</ToggleButtonGroup>
+								</div>
+							{:else}
+								{role}
+							{/if}</td
 						>
 						<td>
 							{#if can_write}
@@ -145,8 +230,8 @@
 									on:click={async () => {
 										await GroupService.removeUserToGroup({
 											workspace: $workspaceStore ?? '',
-											name: group?.name ?? '',
-											requestBody: { username: name }
+											name,
+											requestBody: { username: member_name }
 										})
 										loadGroup()
 									}}>remove</button
@@ -156,6 +241,57 @@
 					</tr>{/each}
 			</tbody>
 		</TableCustom>
+		<!-- <h2 class="mt-10"
+			>Groups managing this group <Tooltip>Any member of those groups can manage this group</Tooltip
+			></h2
+		>
+		{#if can_write}
+			<div class="flex items-start">
+				<AutoComplete items={groups} bind:selectedItem={new_managing_group} />
+				<Button
+					variant="contained"
+					color="blue"
+					size="sm"
+					btnClasses="!ml-4"
+					on:click={addToManagingGroup}
+				>
+					Add group managing this group
+				</Button>
+			</div>
+		{/if}
+		{#if managing_groups.length == 0}
+			<p class="text-gray-600 text-sm">No group is managing this group</p>
+		{:else}
+			<TableCustom>
+				<tr slot="header-row">
+					<th>group</th>
+					<th />
+				</tr>
+				<tbody slot="body">
+					{#each managing_groups as managing_group}<tr>
+							<td>{managing_group.split('/')[1]}</td>
+							<td>
+								{#if can_write}
+									<button
+										class="ml-2 text-red-500"
+										on:click={async () => {
+											await GranularAclService.removeGranularAcls({
+												workspace: $workspaceStore ?? '',
+												path: name,
+												kind: 'group_',
+												requestBody: {
+													owner: managing_group
+												}
+											})
+											loadGroup()
+										}}>remove</button
+									>
+								{/if}</td
+							>
+						</tr>{/each}
+				</tbody>
+			</TableCustom>
+		{/if} -->
 	{:else}
 		<div class="flex flex-col">
 			{#each new Array(6) as _}

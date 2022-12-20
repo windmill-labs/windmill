@@ -1821,7 +1821,8 @@ paths:
             (default false)
             show also the archived files.
             when multiple archived hash share the same path, only the ones with the latest create_at
-            are displayed.
+            are 
+            ed.
           in: query
           schema:
             type: boolean
@@ -3460,6 +3461,11 @@ paths:
         - group
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: only_member_of
+          in: query
+          description: only list the groups the user is member of (default false)
+          schema:
+            type: boolean
       responses:
         "200":
           description: group list
@@ -3615,6 +3621,209 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/folders/list:
+    get:
+      summary: list folders
+      operationId: listFolders
+      tags:
+        - folder
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: folder list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Folder"
+
+  /w/{workspace}/folders/listnames:
+    get:
+      summary: list folder names
+      operationId: listFolderNames
+      tags:
+        - folder
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: only_member_of
+          in: query
+          description: only list the folders the user is member of (default false)
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: folder list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /w/{workspace}/folders/create:
+    post:
+      summary: create folder
+      operationId: createFolder
+      tags:
+        - folder
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: create folder
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                owners:
+                  type: array
+                  items: 
+                    type: string
+                extra_perms:
+                  additionalProperties:
+                    type: boolean
+              required:
+                - name
+      responses:
+        "200":
+          description: folder created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/folders/delete/{name}:
+    delete:
+      summary: delete folder
+      operationId: deleteFolder
+      tags:
+        - folder
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Name"
+      responses:
+        "200":
+          description: folder deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/folders/get/{name}:
+    get:
+      summary: get folder
+      operationId: getFolder
+      tags:
+        - folder
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Name"
+      responses:
+        "200":
+          description: folder
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Folder"
+
+  /w/{workspace}/folders/getusage/{name}:
+    get:
+      summary: get folder usage
+      operationId: getFolderUsage
+      tags:
+        - folder
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Name"
+      responses:
+        "200":
+          description: folder
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scripts:
+                    type: number
+                  flows:
+                    type: number
+                  apps:
+                    type: number
+                  resources:
+                    type: number
+                  variables:
+                    type: number
+                  schedules:
+                    type: number
+                required:
+                  - scripts
+                  - flows
+                  - apps
+                  - resources
+                  - variables
+                  - schedules
+
+  /w/{workspace}/folders/addowner/{name}:
+    post:
+      summary: add owner to folder
+      operationId: addOwnerToFolder
+      tags:
+        - folder
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Name"
+      requestBody:
+        description: owner user to folder
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                owner:
+                  type: string
+      responses:
+        "200":
+          description: owner added to folder
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/folders/removeowner/{name}:
+    post:
+      summary: remove owner to folder
+      operationId: removeOwnerToFolder
+      tags:
+        - folder
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Name"
+      requestBody:
+        description: added owner to folder
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                owner:
+                  type: string
+      responses:
+        "200":
+          description: owner removed from folder
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /workers/list:
     get:
       summary: list workers
@@ -3648,7 +3857,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [script, group_, resource, schedule, variable, flow]
+            enum: [script, group_, resource, schedule, variable, flow, folder]
       responses:
         "200":
           description: acls
@@ -3673,7 +3882,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [script, group_, resource, schedule, variable, flow]
+            enum: [script, group_, resource, schedule, variable, flow, folder]
       requestBody:
         description: acl to add
         required: true
@@ -3709,7 +3918,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [script, group_, resource, schedule, variable, flow]
+            enum: [script, group_, resource, schedule, variable, flow, folder]
       requestBody:
         description: acl to add
         required: true
@@ -4292,6 +4501,10 @@ components:
           type: array
           items:
             type: string
+        folders:
+          type: array
+          items:
+            type: string
         usage:
           $ref: "#/components/schemas/Usage"
       required:
@@ -4302,6 +4515,7 @@ components:
         - created_at
         - operator
         - disabled
+        - folders
 
     Usage:
       type: object
@@ -4801,10 +5015,6 @@ components:
       properties:
         schedule:
           type: string
-        script_path:
-          type: string
-        is_flow:
-          type: boolean
         args:
           $ref: "#/components/schemas/ScriptArgs"
       required:
@@ -4830,6 +5040,24 @@ components:
             type: boolean
       required:
         - name
+
+    Folder:
+      type: object
+      properties:
+        name:
+          type: string
+        owners:
+          type: array
+          items:
+            type: string
+        extra_perms:
+          type: object
+          additionalProperties:
+            type: boolean
+      required:
+        - name
+        - owners
+        - extra_perms
 
     WorkerPing:
       type: object

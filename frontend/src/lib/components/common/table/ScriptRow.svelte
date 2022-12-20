@@ -1,5 +1,7 @@
 <script lang="ts">
+	import { goto } from '$app/navigation'
 	import Dropdown from '$lib/components/Dropdown.svelte'
+	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 
@@ -46,7 +48,10 @@
 		dispatch('change')
 		sendUserToast(`Archived script ${path}`)
 	}
+	let scheduleEditor: ScheduleEditor
 </script>
+
+<ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
 
 <Row
 	href={`/scripts/run/${hash}`}
@@ -156,15 +161,16 @@
 				{
 					displayName: 'Schedule',
 					icon: faCalendarAlt,
-					href: `/schedule/add?path=${path}`
+					action: () => {
+						scheduleEditor.openNew(false, path)
+					}
 				},
 				{
 					displayName: 'Share',
 					icon: faShare,
 					action: () => {
 						shareModal.openDrawer && shareModal.openDrawer(path)
-					},
-					disabled: !canWrite
+					}
 				},
 				{
 					displayName: 'Archive',

@@ -20,7 +20,6 @@
 	import type { SchemaProperty } from '$lib/common'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import autosize from 'svelte-autosize'
-	import * as autosizeLib from 'autosize'
 	import Toggle from './Toggle.svelte'
 	import Password from './Password.svelte'
 	import type VariableEditor from './VariableEditor.svelte'
@@ -296,6 +295,7 @@
 				{#if properties && Object.keys(properties).length > 0}
 					<div class="p-4 pl-8 border rounded w-full">
 						<SchemaForm
+							{disabled}
 							schema={{ properties, $schema: '', required: [], type: 'object' }}
 							bind:args={value}
 						/>

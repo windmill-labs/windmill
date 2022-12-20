@@ -18,7 +18,6 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Icon from 'svelte-awesome'
 	import { faCross, faEdit, faPlay, faPlus, faQuestion } from '@fortawesome/free-solid-svg-icons'
-	import { Alert } from '$lib/components/common'
 
 	let logs: AuditLog[]
 	let usernames: string[]
@@ -52,10 +51,9 @@
 	}
 
 	async function loadUsers() {
-		usernames =
-			$userStore?.is_admin || $superadmin
-				? await UserService.listUsernames({ workspace: $workspaceStore! })
-				: [$userStore?.username ?? '']
+		usernames = $userStore?.is_admin
+			? await UserService.listUsernames({ workspace: $workspaceStore! })
+			: [$userStore?.username ?? '']
 	}
 
 	async function gotoUsername(username: string | undefined): Promise<void> {
@@ -99,11 +97,11 @@
 		<label>
 			<select class="px-6" bind:value={username} on:change={() => gotoUsername(username)}>
 				{#if usernames}
-					{#if $userStore?.is_admin || $superadmin}
+					{#if $userStore?.is_admin}
 						<option selected>all</option>
 					{/if}
 					{#each usernames as e}
-						{#if e == username || $userStore?.is_admin || $superadmin}
+						{#if e == username || $userStore?.is_admin}
 							<option>{e}</option>
 						{:else}
 							<option disabled>{e}</option>

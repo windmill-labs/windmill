@@ -54,7 +54,7 @@
 
 <div class="border-b flex flex-row justify-between py-1 px-4 items-center">
 	<input class="text-sm w-64" bind:value={title} />
-	<div class="flex gap-2">
+	<div class="flex gap-4 items-center">
 		<div>
 			<ToggleButtonGroup bind:selected={mode}>
 				<ToggleButton position="left" value="dnd" startIcon={{ icon: faHand }} size="xs">
@@ -67,12 +67,20 @@
 		</div>
 		<div>
 			<ToggleButtonGroup bind:selected={breakpoint}>
-				<ToggleButton position="left" value="sm" startIcon={{ icon: faMobileAlt }} size="xs">
-					Mobile
-				</ToggleButton>
-				<ToggleButton position="right" value="lg" startIcon={{ icon: faDesktopAlt }} size="xs">
-					Desktop
-				</ToggleButton>
+				<ToggleButton
+					position="left"
+					value="sm"
+					startIcon={{ icon: faMobileAlt }}
+					size="xs"
+					iconOnly
+				/>
+				<ToggleButton
+					position="right"
+					value="lg"
+					startIcon={{ icon: faDesktopAlt }}
+					size="xs"
+					iconOnly
+				/>
 			</ToggleButtonGroup>
 		</div>
 	</div>

@@ -47,7 +47,14 @@
 >
 	<RecomputeAllComponents />
 
-	<Grid bind:items={$app.grid} rowHeight={64} let:dataItem cols={columnConfiguration}>
+	<Grid
+		bind:items={$app.grid}
+		let:dataItem
+		rowHeight={64}
+		cols={columnConfiguration}
+		fastStart={true}
+		fillSpace={true}
+	>
 		{#each $app.grid as gridComponent (gridComponent.id)}
 			{#if gridComponent.data.id === dataItem.data.id}
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -74,7 +81,7 @@
 	</Grid>
 	{#if $connectingInput.opened}
 		<div
-			class="fixed top-32 left-0 w-full z-10 flex justify-center items-center"
+			class="fixed top-32  z-10 flex justify-center items-center"
 			transition:fly={{ duration: 100, y: -100 }}
 		>
 			<Alert title="Connecting" type="info">

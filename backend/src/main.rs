@@ -21,8 +21,6 @@ async fn main() -> anyhow::Result<()> {
 
     windmill_common::tracing_init::initialize_tracing();
 
-    let db = windmill_common::connect_db().await?;
-
     let num_workers = std::env::var("NUM_WORKERS")
         .ok()
         .and_then(|x| x.parse::<i32>().ok())
@@ -43,6 +41,8 @@ async fn main() -> anyhow::Result<()> {
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(false);
 
+    let db = windmill_common::connect_db(server_mode).await?;
+
     if server_mode {
         windmill_api::migrate_db(&db).await?;
     }
@@ -50,11 +50,10 @@ async fn main() -> anyhow::Result<()> {
     let (tx, rx) = tokio::sync::broadcast::channel::<()>(3);
     let shutdown_signal = windmill_common::shutdown_signal(tx);
 
-    let base_internal_url =
-        std::env::var("BASE_INTERNAL_URL").unwrap_or_else(|_| "http://localhost:8000".to_string());
-
     let base_url = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost".to_string());
 
+    let base_internal_url =
+        std::env::var("BASE_INTERNAL_URL").unwrap_or_else(|_| "http://localhost:8000".to_string());
     let timeout = std::env::var("TIMEOUT")
         .ok()
         .and_then(|x| x.parse::<i32>().ok())

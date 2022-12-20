@@ -23,8 +23,7 @@
 	async function createApp() {
 		const appJson: App = {
 			grid: [],
-			title: 'New app',
-			inlineScripts: {}
+			title: 'New app'
 		}
 
 		const policy = {

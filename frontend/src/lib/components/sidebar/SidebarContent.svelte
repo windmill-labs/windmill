@@ -9,11 +9,12 @@
 		faRobot,
 		faUsersCog,
 		faCog,
-		faDollarSign
+		faDollarSign,
+		faFolderTree
 	} from '@fortawesome/free-solid-svg-icons'
 	import { faDiscord, faGithub } from '@fortawesome/free-brands-svg-icons'
 	import MenuLink from './MenuLink.svelte'
-	import { superadmin, userStore } from '$lib/stores'
+	import { userStore } from '$lib/stores'
 
 	const mainMenuLinks = [
 		{ label: 'Home', href: '/', icon: faHomeAlt },
@@ -24,13 +25,14 @@
 
 	$: secondaryMenuLinks = [
 		{ label: 'Schedules', href: '/schedules', icon: faCalendar, disabled: $userStore?.operator },
+		{ label: 'Folders', href: '/folders', icon: faFolderTree, disabled: $userStore?.operator },
 		{ label: 'Groups', href: '/groups', icon: faUsersCog, disabled: $userStore?.operator },
 		{ label: 'Audit Logs', href: '/audit_logs', icon: faEye, disabled: $userStore?.operator },
 		{
 			label: 'Workspace',
 			href: '/workspace_settings',
 			icon: faCog,
-			disabled: !($userStore?.is_admin || $superadmin)
+			disabled: !$userStore?.is_admin
 		},
 		{ label: 'Workers', href: '/workers', icon: faRobot, disabled: $userStore?.operator }
 	]

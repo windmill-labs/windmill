@@ -43,6 +43,7 @@
 	import Icon from 'svelte-awesome'
 	import RunForm from '$lib/components/RunForm.svelte'
 	import { goto } from '$app/navigation'
+	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 
 	let userSettings: UserSettings
 
@@ -115,7 +116,10 @@
 		})
 		await goto('/run/' + run + '?workspace=' + $workspaceStore)
 	}
+	let scheduleEditor: ScheduleEditor
 </script>
+
+<ScheduleEditor on:update={() => loadSchedule()} bind:this={scheduleEditor} />
 
 <UserSettings bind:this={userSettings} />
 
@@ -148,7 +152,7 @@
 				Publish to Hub
 			</Button>
 			<Button
-				href="/schedule/add?path={flow.path}&isFlow=true"
+				on:click={() => scheduleEditor?.openNew(true, flow?.path ?? '')}
 				variant="border"
 				color="light"
 				size="xs"
@@ -157,7 +161,7 @@
 				Schedule
 			</Button>
 			<Button
-				on:click={() => shareModal.openDrawer()}
+				on:click={() => shareModal.openDrawer(flow?.path ?? '')}
 				variant="border"
 				color="light"
 				size="xs"
@@ -305,7 +309,7 @@
 									}
 								}}
 							/>
-							<Button size="xs" href="/schedule/add?edit={flow.path}&isFlow=true"
+							<Button size="xs" on:click={() => scheduleEditor?.openEdit(flow?.path ?? '', true)}
 								>Edit schedule</Button
 							>
 						</h2>

@@ -34,9 +34,8 @@
 	} from '@fortawesome/free-solid-svg-icons'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { superadmin, userStore, workspaceStore } from '$lib/stores'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
-	import SvelteMarkdown from 'svelte-markdown'
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { onDestroy } from 'svelte'
@@ -56,6 +55,8 @@
 	import Icon from 'svelte-awesome'
 	import RunForm from '$lib/components/RunForm.svelte'
 	import { goto } from '$app/navigation'
+	import Popover from '$lib/components/Popover.svelte'
+	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 
 	let userSettings: UserSettings
 	let script: Script | undefined
@@ -162,7 +163,10 @@
 			sendUserToast(`Could not create job: ${err.body}`, true)
 		}
 	}
+	let scheduleEditor: ScheduleEditor
 </script>
+
+<ScheduleEditor bind:this={scheduleEditor} />
 
 {#if script}
 	<CenteredPage>
@@ -268,7 +272,7 @@
 					Publish to Hub
 				</Button>
 				<Button
-					on:click={() => shareModal.openDrawer()}
+					on:click={() => shareModal.openDrawer(script?.path ?? '')}
 					variant="border"
 					color="light"
 					size="xs"
@@ -278,7 +282,7 @@
 					Share
 				</Button>
 				<Button
-					href="/schedule/add?path={script.path}"
+					on:click={() => scheduleEditor?.openNew(false, script?.path ?? '')}
 					variant="border"
 					color="light"
 					size="xs"
@@ -415,13 +419,14 @@
 								<ul>
 									{#each Object.keys(webhooks[key]) as type}
 										{@const url = webhooks[key][type]}
+										{@const href = $page.url.protocol + '//' + url}
 										<li class="flex justify-between items-center mt-2">
 											<a
 												on:click={(e) => {
 													e.preventDefault()
-													copyToClipboard(url)
+													copyToClipboard(href)
 												}}
-												href={$page.url.protocol + '//' + url}
+												{href}
 												class="whitespace-nowrap text-ellipsis overflow-hidden mr-1"
 											>
 												{url}
@@ -444,31 +449,37 @@
 				</Tabs>
 			</div>
 			<div>
-				<h3>Danger zone</h3>
-				<div class="flex gap-2">
-					<Button
-						size="xs"
-						on:click={() => {
-							script?.hash && deleteScript(script.hash)
-						}}
-						color="red"
-						variant="contained"
-						startIcon={{ icon: faTrash }}
-					>
-						Delete
-					</Button>
-					<Button
-						size="xs"
-						on:click={() => {
-							script?.hash && archiveScript(script.hash)
-						}}
-						color="red"
-						variant="border"
-						startIcon={{ icon: faArchive }}
-					>
-						Archive
-					</Button>
-				</div>
+				{#if can_write}
+					<h3>Danger zone</h3>
+					<div class="flex gap-2">
+						<Popover>
+							<Button
+								size="xs"
+								on:click={() => {
+									script?.hash && deleteScript(script.hash)
+								}}
+								color="red"
+								variant="contained"
+								startIcon={{ icon: faTrash }}
+								disabled={!($superadmin || ($userStore?.is_admin ?? false))}
+							>
+								Delete
+							</Button>
+							<span slot="text">require to be admin</span>
+						</Popover>
+						<Button
+							size="xs"
+							on:click={() => {
+								script?.hash && archiveScript(script.hash)
+							}}
+							color="red"
+							variant="border"
+							startIcon={{ icon: faArchive }}
+						>
+							Archive
+						</Button>
+					</div>
+				{/if}
 			</div>
 		</div>
 	</CenteredPage>
