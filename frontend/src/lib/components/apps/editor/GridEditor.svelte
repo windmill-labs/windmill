@@ -65,6 +65,8 @@
 
 			delete $runnableComponents[component.id]
 			$runnableComponents = $runnableComponents
+
+			$selectedComponent = undefined
 		}
 	}
 </script>

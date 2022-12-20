@@ -66,9 +66,15 @@
 	})
 
 	$: mounted && ($worldStore = buildWorld($staticOutputs))
-	$: selectedTab = $selectedComponent ? 'settings' : 'insert'
 	$: previewing = $mode === 'preview'
 	$: width = $breakpoint === 'sm' ? 'w-[640px]' : 'min-w-[1080px] w-full'
+
+	let selectedTab: 'insert' | 'settings' = 'insert'
+	$: if ($selectedComponent) {
+		selectedTab = 'settings'
+	} else {
+		selectedTab = 'insert'
+	}
 </script>
 
 {#if !$userStore?.operator}
@@ -86,9 +92,9 @@
 			<Pane size={60}>
 				<SplitPanesWrapper horizontal>
 					<Pane size={70}>
-						<div class={classNames('bg-gray-100  relative min-h-full', width)}>
+						<div class={classNames('bg-gray-100  mx-auto  relative min-h-full', width)}>
 							{#if $appStore.grid}
-								<div class={classNames('mx-auto p-4 h-full bg-gray-100', width)}>
+								<div class={classNames('mx-auto p-4 w-full h-full bg-gray-100', width)}>
 									<GridEditor />
 								</div>
 							{/if}

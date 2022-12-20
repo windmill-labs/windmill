@@ -51,7 +51,7 @@
 
 <div class="h-full p-4 flex flex-col gap-2" transition:fly={{ duration: 50 }}>
 	<div class="flex justify-between w-full flex-row items-center">
-		{#if name}
+		{#if name !== undefined}
 			<input bind:value={name} placeholder="Inline script name" />
 		{/if}
 		<div class="flex w-full flex-row gap-2 items-center justify-end">

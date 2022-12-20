@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 	import type { AppComponent } from '../types'
-	import { Lock, X } from 'lucide-svelte'
+	import { Anchor, Lock, X } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 
 	export let component: AppComponent
@@ -30,9 +30,9 @@
 	}}
 >
 	{#if locked}
-		<Lock size={16} class="text-red-500" />
+		<Anchor size={16} class="text-red-500" />
 	{:else}
-		<Lock size={16} />
+		<Anchor size={16} />
 	{/if}
 </button>
 

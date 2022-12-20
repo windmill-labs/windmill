@@ -128,7 +128,9 @@
 						{#if tab == 'inlinescripts'}
 							<InlineScriptList
 								on:pick={(e) => pickInlineScript(e.detail)}
-								inlineScripts={$app.unusedInlineScripts.map((uis) => uis.name)}
+								inlineScripts={$app.unusedInlineScripts
+									? $app.unusedInlineScripts.map((uis) => uis.name)
+									: []}
 							/>
 						{:else if tab == 'workspacescripts'}
 							<WorkspaceScriptList on:pick={(e) => pickScript(e.detail)} />
