@@ -104,6 +104,28 @@ async fn list_foldernames(
     Ok(Json(rows))
 }
 
+async fn check_name_conflict<'c>(
+    tx: &mut Transaction<'c, Postgres>,
+    w_id: &str,
+    name: &str,
+) -> Result<()> {
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM folder WHERE name = $1 AND workspace_id = $2)",
+        name,
+        w_id
+    )
+    .fetch_one(tx)
+    .await?
+    .unwrap_or(false);
+    if exists {
+        return Err(windmill_common::error::Error::BadRequest(format!(
+            "Folder {} already exists",
+            name
+        )));
+    }
+    return Ok(());
+}
+
 async fn create_folder(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
@@ -112,6 +134,7 @@ async fn create_folder(
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
 
+    check_name_conflict(&mut tx, &w_id, &ng.name).await?;
     let owner = owner_to_token_owner(&authed.username, false);
     sqlx::query_as!(
         Folder,

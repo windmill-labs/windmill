@@ -115,6 +115,28 @@ async fn list_group_names(
     Ok(Json(rows))
 }
 
+async fn check_name_conflict<'c>(
+    tx: &mut Transaction<'c, Postgres>,
+    w_id: &str,
+    name: &str,
+) -> Result<()> {
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM group_ WHERE name = $1 AND workspace_id = $2)",
+        name,
+        w_id
+    )
+    .fetch_one(tx)
+    .await?
+    .unwrap_or(false);
+    if exists {
+        return Err(windmill_common::error::Error::BadRequest(format!(
+            "Group {} already exists",
+            name
+        )));
+    }
+    return Ok(());
+}
+
 async fn create_group(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
@@ -122,6 +144,8 @@ async fn create_group(
     Json(ng): Json<NewGroup>,
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
+
+    check_name_conflict(&mut tx, &w_id, &ng.name).await?;
 
     sqlx::query_as!(
         Group,
