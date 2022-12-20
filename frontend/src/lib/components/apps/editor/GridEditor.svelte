@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import type { AppEditorContext } from '../types'
+	import type { AppEditorContext, InlineScript } from '../types'
 	import Grid from 'svelte-grid'
 	import ComponentEditor from './ComponentEditor.svelte'
 	import { classNames } from '$lib/utils'
@@ -31,7 +31,24 @@
 
 	function deleteComponent(component) {
 		if (component) {
-			$app.grid = $app.grid.filter((gridComponent) => gridComponent.data.id !== component?.id)
+			$app.grid = $app.grid.filter((gridComponent) => {
+				if (gridComponent.data.id === component.id) {
+					if (
+						gridComponent.data.componentInput?.runnable.type === 'runnableByName' &&
+						gridComponent.data.componentInput?.runnable.inlineScript
+					) {
+						const { name, inlineScript } = gridComponent.data.componentInput?.runnable
+
+						if (!$app.unusedInlineScripts) {
+							$app.unusedInlineScripts = {}
+						}
+
+						$app.unusedInlineScripts[name] = inlineScript
+					}
+				}
+
+				return gridComponent.data.id !== component?.id
+			})
 
 			gridColumns.forEach((colIndex) => {
 				$app.grid = gridHelp.adjust($app.grid, colIndex)

@@ -50,5 +50,23 @@
 		{:else}
 			<div class="text-sm text-gray-500">No inline scripts</div>
 		{/if}
+
+		{#if Object.keys($app.unusedInlineScripts ?? {}).length > 0}
+			<div class="flex gap-2 flex-col ">
+				{#each Object.entries($app.unusedInlineScripts ?? {}) as [key, value], index (index)}
+					<!-- svelte-ignore a11y-click-events-have-key-events -->
+					<div
+						class="{classNames(
+							'border flex justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-blue-50 hover:text-blue-400',
+							selectedScriptComponentId === '' ? 'bg-blue-100 text-blue-600' : ''
+						)},"
+						on:click={() => selectInlineScript(key)}
+					>
+						<span class="text-xs">{key}</span>
+						<Badge color="red">Unused</Badge>
+					</div>
+				{/each}
+			</div>
+		{/if}
 	</div>
 </PanelSection>

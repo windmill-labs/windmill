@@ -67,7 +67,10 @@
 			return acc
 		}, [] as string[])
 
-		while (names.includes(newScriptPath)) {
+		const unusedNames = Object.keys($app.unusedInlineScripts ?? {})
+
+		// Find a name that is not used by any other inline script
+		while (names.includes(newScriptPath) || unusedNames.includes(newScriptPath)) {
 			newScriptPath = `inline_script_${++index}`
 		}
 
