@@ -39,7 +39,7 @@ use windmill_common::{
 };
 use windmill_queue::CLOUD_HOSTED;
 
-const TTL_TOKEN_CACHE_S: u64 = 60 * 5; // 5 minutes
+const TTL_TOKEN_CACHE_S: u64 = 60; // 60s
 pub const TTL_TOKEN_DB_H: u32 = 72;
 
 const COOKIE_NAME: &str = "token";

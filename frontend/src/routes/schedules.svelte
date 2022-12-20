@@ -187,7 +187,6 @@
 										{
 											displayName: 'Share',
 											icon: faShare,
-											disabled: !canWrite,
 											action: () => {
 												shareModal.openDrawer(path)
 											}

@@ -161,7 +161,7 @@
 				Schedule
 			</Button>
 			<Button
-				on:click={() => shareModal.openDrawer()}
+				on:click={() => shareModal.openDrawer(flow?.path ?? '')}
 				variant="border"
 				color="light"
 				size="xs"

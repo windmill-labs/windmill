@@ -9,8 +9,7 @@
 	} from '$lib/gen'
 	import AutoComplete from 'simple-svelte-autocomplete'
 	import TableCustom from './TableCustom.svelte'
-	import { canWrite } from '$lib/utils'
-	import { Button, ToggleButton, ToggleButtonGroup } from './common'
+	import { Alert, Button, ToggleButton, ToggleButtonGroup } from './common'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import Tooltip from './Tooltip.svelte'
 
@@ -21,18 +20,17 @@
 	let folder: Folder | undefined
 	let perms: { owner_name: string; role: Role }[] | undefined = undefined
 	let managing_folders: string[] = []
-	let ownerItems: string[] | undefined = []
+	let usernames: string[] = []
+	let groups: string[] = []
 	let ownerItem: string = ''
 	let folders: string[] = []
 
 	async function loadUsernames(): Promise<void> {
-		ownerItem = ''
-		ownerItems = await UserService.listUsernames({ workspace: $workspaceStore! })
+		usernames = await UserService.listUsernames({ workspace: $workspaceStore! })
 	}
 
 	async function loadGroups(): Promise<void> {
-		ownerItem = ''
-		ownerItems = await GroupService.listGroupNames({ workspace: $workspaceStore! })
+		groups = await GroupService.listGroupNames({ workspace: $workspaceStore! })
 	}
 
 	$: {
@@ -41,20 +39,11 @@
 		}
 	}
 
-	$: {
-		if ($workspaceStore && $userStore) {
-			if (ownerKind == 'user') {
-				loadUsernames()
-			} else {
-				loadGroups()
-			}
-		}
-	}
-
 	async function load() {
+		loadUsernames()
+		loadGroups()
 		loadFolders()
 		await loadFolder()
-		loadUsernames()
 	}
 
 	async function loadFolders(): Promise<void> {
@@ -113,14 +102,22 @@
 	<h1>{name}</h1>
 	<h2>Permissions ({perms?.length ?? 0})</h2>
 	{#if can_write}
+		<Alert role="info" title="New permissions may take up to 60s to apply"
+			><span class="text-xs text-gray-500">Due to permissions cache invalidation</span></Alert
+		>
 		<div class="flex items-center gap-1">
 			<div>
-				<ToggleButtonGroup bind:selected={ownerKind}>
+				<ToggleButtonGroup bind:selected={ownerKind} on:selected={() => (ownerItem = '')}>
 					<ToggleButton position="left" value="user" size="xs">User</ToggleButton>
 					<ToggleButton position="right" value="group" size="xs">Group</ToggleButton>
 				</ToggleButtonGroup>
 			</div>
-			<AutoComplete items={ownerItems} bind:selectedItem={ownerItem} />
+			{#key ownerKind}
+				<AutoComplete
+					items={ownerKind === 'user' ? usernames : groups}
+					bind:selectedItem={ownerItem}
+				/>
+			{/key}
 			<Button
 				disabled={ownerItem == ''}
 				variant="contained"
