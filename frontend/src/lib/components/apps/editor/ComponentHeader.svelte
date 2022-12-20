@@ -30,7 +30,7 @@
 	}}
 >
 	{#if locked}
-		<Anchor size={16} class="text-red-500" />
+		<Anchor size={16} class="text-orange-500" />
 	{:else}
 		<Anchor size={16} />
 	{/if}

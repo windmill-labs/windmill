@@ -32,12 +32,12 @@
 	let page = 1
 
 	const options = writable<TableOptions<T>>({
-		data: result,
+		data: [],
 		columns: [],
 		...tableOptions
 	})
 
-	const table = createSvelteTable(options)
+	let table = createSvelteTable(options)
 
 	const { worldStore, staticOutputs: staticOutputsStore } =
 		getContext<AppEditorContext>('AppEditorContext')
@@ -91,6 +91,12 @@
 	$: outputs = $worldStore?.outputsById[id] as {
 		selectedRow: Output<any>
 	}
+
+	function rerender() {
+		table = createSvelteTable(options)
+	}
+
+	$: result && rerender()
 </script>
 
 <InputValue input={configuration.search} bind:value={search} />
@@ -129,7 +135,7 @@
 					{/each}
 				</thead>
 				<tbody class="divide-y divide-gray-200 bg-white ">
-					{#each $table.getRowModel().rows as row, rowIndex}
+					{#each $table.getRowModel().rows as row, rowIndex (row.id)}
 						<tr
 							class={classNames(
 								selectedRowIndex === rowIndex
@@ -143,7 +149,7 @@
 							)}
 							on:click={() => toggleRow(row, rowIndex)}
 						>
-							{#each row.getVisibleCells() as cell}
+							{#each row.getVisibleCells() as cell, index (index)}
 								<td class="p-4 whitespace-nowrap text-xs text-gray-900">
 									<svelte:component
 										this={flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -153,7 +159,7 @@
 
 							{#if actionButtons.length > 0}
 								<td class="flex flex-row gap-2 p-4">
-									{#each actionButtons as props}
+									{#each actionButtons as props, actionIndex (actionIndex)}
 										<AppButton
 											{...props}
 											extraQueryParams={{ row }}
