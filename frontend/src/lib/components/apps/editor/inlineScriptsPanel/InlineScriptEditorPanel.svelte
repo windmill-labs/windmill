@@ -10,7 +10,12 @@
 	{#if componentInput.runnable.inlineScript}
 		<InlineScriptEditor
 			bind:inlineScript={componentInput.runnable.inlineScript}
-			name={componentInput.runnable.name}
+			bind:name={componentInput.runnable.name}
+			on:delete={() => {
+				if (componentInput?.runnable?.type === 'runnableByName') {
+					componentInput.runnable = undefined
+				}
+			}}
 		/>
 	{:else}
 		<EmptyInlineScript

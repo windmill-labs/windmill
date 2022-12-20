@@ -120,7 +120,10 @@
 				<div class="flex flex-col gap-y-16">
 					<div class="flex flex-col">
 						{#if tab == 'inlinescripts'}
-							<InlineScriptList on:pick={(e) => pickInlineScript('', e.detail)} />
+							<InlineScriptList
+								on:pick={(e) => pickInlineScript('', e.detail)}
+								inlineScripts={$app.unusedInlineScripts.map((uis) => uis.name)}
+							/>
 						{:else if tab == 'workspacescripts'}
 							<WorkspaceScriptList on:pick={(e) => pickScript(e.detail)} />
 						{:else if tab == 'workspaceflows'}

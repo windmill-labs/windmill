@@ -34,16 +34,21 @@
 			$app.grid = $app.grid.filter((gridComponent) => {
 				if (gridComponent.data.id === component.id) {
 					if (
-						gridComponent.data.componentInput?.runnable.type === 'runnableByName' &&
+						gridComponent.data.componentInput?.runnable?.type === 'runnableByName' &&
 						gridComponent.data.componentInput?.runnable.inlineScript
 					) {
 						const { name, inlineScript } = gridComponent.data.componentInput?.runnable
 
 						if (!$app.unusedInlineScripts) {
-							$app.unusedInlineScripts = {}
+							$app.unusedInlineScripts = []
 						}
 
-						$app.unusedInlineScripts[name] = inlineScript
+						$app.unusedInlineScripts.push({
+							name,
+							inlineScript
+						})
+
+						$app = $app
 					}
 				}
 

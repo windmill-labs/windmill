@@ -8,10 +8,11 @@
 
 	export let selectedScriptComponentId: string | undefined = undefined
 
-	const { app } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
 
 	function selectInlineScript(id: string) {
 		selectedScriptComponentId = id
+		$selectedComponent = id
 	}
 
 	$: componentInlineScripts = $app.grid.reduce((acc, gridComponent) => {
@@ -51,18 +52,18 @@
 			<div class="text-sm text-gray-500">No inline scripts</div>
 		{/if}
 
-		{#if Object.keys($app.unusedInlineScripts ?? {}).length > 0}
+		{#if Array.isArray($app.unusedInlineScripts) && $app.unusedInlineScripts.length > 0}
 			<div class="flex gap-2 flex-col ">
-				{#each Object.entries($app.unusedInlineScripts ?? {}) as [key, value], index (index)}
+				{#each $app.unusedInlineScripts as unusedInlineScript, index (index)}
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
 					<div
 						class="{classNames(
 							'border flex justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-blue-50 hover:text-blue-400',
 							selectedScriptComponentId === '' ? 'bg-blue-100 text-blue-600' : ''
 						)},"
-						on:click={() => selectInlineScript(key)}
+						on:click={() => selectInlineScript(unusedInlineScript.name)}
 					>
-						<span class="text-xs">{key}</span>
+						<span class="text-xs">{unusedInlineScript.name}</span>
 						<Badge color="red">Unused</Badge>
 					</div>
 				{/each}

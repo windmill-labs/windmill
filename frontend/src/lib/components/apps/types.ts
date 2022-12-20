@@ -113,7 +113,10 @@ export type InlineScript = {
 export type App = {
 	grid: GridItem[]
 	title: string
-	unusedInlineScripts: Record<string, InlineScript>
+	unusedInlineScripts: Array<{
+		name: string
+		inlineScript: InlineScript
+	}>
 }
 
 export type ConnectingInput = {

@@ -15,7 +15,7 @@
 	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
 
 	export let inlineScript: InlineScript
-	export let name: string
+	export let name: string | undefined = undefined
 
 	let validCode = false
 
