@@ -4,6 +4,7 @@
 	import {
 		FlowService,
 		FolderService,
+		GroupService,
 		ResourceService,
 		ScheduleService,
 		ScriptService,
@@ -19,6 +20,7 @@
 	import { Icon } from 'svelte-awesome'
 	import Tooltip from './Tooltip.svelte'
 	import FolderEditor from './FolderEditor.svelte'
+	import GroupEditor from './GroupEditor.svelte'
 
 	type PathKind = 'resource' | 'script' | 'variable' | 'flow' | 'schedule' | 'app'
 	let meta: Meta | undefined = undefined
@@ -36,6 +38,7 @@
 	const dispatch = createEventDispatcher()
 
 	let folders: string[] = []
+	let groups: string[] = []
 
 	$: meta && onMetaChange()
 
@@ -47,7 +50,7 @@
 	}
 
 	function metaToPath(meta: Meta): string {
-		return [meta.ownerKind === 'folder' ? 'f' : 'u', meta.owner, meta.name].join('/')
+		return [meta.ownerKind?.charAt(0) ?? '', meta.owner, meta.name].join('/')
 	}
 
 	export function focus() {
@@ -87,6 +90,18 @@
 		}
 		folders = initialFolders.concat(
 			await FolderService.listFolderNames({
+				workspace: $workspaceStore!
+			})
+		)
+	}
+
+	async function loadGroups(): Promise<void> {
+		let initialGroups: string[] = []
+		if (initialPath?.split('/')?.[0] == 'f') {
+			initialGroups.push(initialPath?.split('/')?.[1])
+		}
+		groups = initialGroups.concat(
+			await GroupService.listGroupNames({
 				workspace: $workspaceStore!
 			})
 		)
@@ -148,8 +163,11 @@
 		} else if (!/^[\w-]+(\/[\w-]+)*$/.test(meta.name)) {
 			error = 'This name is not valid'
 			return false
-		} else if (meta.owner == '') {
+		} else if (meta.owner == '' && meta.ownerKind == 'folder') {
 			error = 'Folder need to be chosen'
+			return false
+		} else if (meta.owner == '' && meta.ownerKind == 'group') {
+			error = 'Group need to be chosen'
 			return false
 		} else {
 			return true
@@ -159,6 +177,7 @@
 	$: {
 		if ($workspaceStore && $userStore) {
 			loadFolders()
+			loadGroups()
 			initPath()
 		}
 	}
@@ -189,10 +208,59 @@
 		}
 		loadFolders()
 	}
+
+	let newGroup: Drawer
+	let viewGroup: Drawer
+	let newGroupName: string
+	let groupCreated: string | undefined = undefined
+
+	async function addGroup() {
+		await GroupService.createGroup({
+			workspace: $workspaceStore ?? '',
+			requestBody: { name: newGroupName }
+		})
+		groupCreated = newGroupName
+		if (meta) {
+			meta.owner = newGroupName
+		}
+		loadGroups()
+	}
 </script>
 
+<Drawer bind:this={newGroup}>
+	<DrawerContent
+		title="New Folder"
+		on:close={() => {
+			newGroup.closeDrawer()
+			groupCreated = undefined
+		}}
+	>
+		<div class="flex flex-row">
+			<input class="mr-2" placeholder="New group name" bind:value={newGroupName} />
+			<Button size="md" startIcon={{ icon: faPlus }} disabled={!newGroupName} on:click={addGroup}>
+				New&nbsp;group
+			</Button>
+		</div>
+		{#if groupCreated}
+			<div class="mt-8" />
+			<GroupEditor name={groupCreated} />
+		{/if}
+	</DrawerContent>
+</Drawer>
+<Drawer bind:this={viewGroup}>
+	<DrawerContent title="Folder {meta?.owner}" on:close={viewGroup.closeDrawer}>
+		<GroupEditor name={meta?.owner ?? ''} />
+	</DrawerContent>
+</Drawer>
+
 <Drawer bind:this={newFolder}>
-	<DrawerContent title="New Folder" on:close={newFolder.closeDrawer}>
+	<DrawerContent
+		title="New Folder"
+		on:close={() => {
+			newFolder.closeDrawer()
+			folderCreated = undefined
+		}}
+	>
 		<div class="flex flex-row">
 			<input class="mr-2" placeholder="New folder name" bind:value={newFolderName} />
 			<Button size="md" startIcon={{ icon: faPlus }} disabled={!newFolderName} on:click={addFolder}>
@@ -228,6 +296,8 @@
 							if (meta) {
 								if (kind === 'folder') {
 									meta.owner = $userStore?.folders?.[0] ?? ''
+								} else if (kind === 'group') {
+									meta.owner = 'all'
 								} else {
 									meta.owner = $userStore?.username ?? ''
 								}
@@ -235,6 +305,7 @@
 						}}
 					>
 						<ToggleButton light size="xs" value="user" position="left">User</ToggleButton>
+						<ToggleButton light size="xs" value="group" position="center">Group</ToggleButton>
 						<ToggleButton light size="xs" value="folder" position="right">Folder</ToggleButton>
 					</ToggleButtonGroup>
 				</label>
@@ -249,9 +320,14 @@
 							disabled={!($superadmin || ($userStore?.is_admin ?? false))}
 						/>
 					</label>
-				{:else}
+				{:else if meta.ownerKind === 'folder'}
 					<label class="block grow w-48">
-						<span class="text-gray-700 text-sm">Folder</span>
+						<span class="text-gray-700 text-sm"
+							>Folder <Tooltip
+								>Read and write permissions are given to groups and users at the folder level and
+								shared by all items inside the folder.</Tooltip
+							></span
+						>
 
 						<div class="flex flex-row gap-1 w-full">
 							<select class="grow w-full" {disabled} bind:value={meta.owner}>
@@ -263,6 +339,27 @@
 								<Icon scale={0.8} data={faEye} /></Button
 							>
 							<Button variant="border" size="xs" on:click={newFolder.openDrawer}>
+								<Icon scale={0.8} data={faPlus} /></Button
+							></div
+						>
+					</label>
+				{:else if meta.ownerKind === 'group'}
+					<label class="block grow w-48">
+						<span class="text-gray-700 text-sm"
+							>Group <Tooltip>Item will be owned by the group and hence all its member</Tooltip
+							></span
+						>
+
+						<div class="flex flex-row gap-1 w-full">
+							<select class="grow w-full" {disabled} bind:value={meta.owner}>
+								{#each groups as g}
+									<option>{g}</option>
+								{/each}
+							</select>
+							<Button variant="border" size="xs" on:click={viewGroup.openDrawer}>
+								<Icon scale={0.8} data={faEye} /></Button
+							>
+							<Button variant="border" size="xs" on:click={newGroup.openDrawer}>
 								<Icon scale={0.8} data={faPlus} /></Button
 							></div
 						>

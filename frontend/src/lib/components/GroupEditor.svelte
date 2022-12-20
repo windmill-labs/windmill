@@ -13,7 +13,7 @@
 	export let name: string
 	let can_write = false
 
-	type Role = 'member' | 'manager' | 'member_manager'
+	type Role = 'member' | 'manager' | 'admin'
 	let group: Group | undefined
 	let members: { member_name: string; role: Role }[] | undefined = undefined
 	let managing_groups: string[] = []
@@ -78,7 +78,7 @@
 		const member = group?.members?.includes(x)
 
 		if (writer && member) {
-			return 'member_manager'
+			return 'admin'
 		} else if (writer) {
 			return 'manager'
 		} else {
@@ -115,7 +115,7 @@
 	{:else}
 		<Skeleton layout={[[4]]} />
 	{/if}
-	<h2>Members & Managers</h2>
+	<h2>Members ({members?.length ?? 0})</h2>
 	{#if can_write}
 		<div class="flex items-start">
 			<AutoComplete items={usernames} bind:selectedItem={username} />
@@ -178,7 +178,7 @@
 														write: true
 													}
 												})
-											} else if (role == 'member_manager') {
+											} else if (role == 'admin') {
 												await GroupService.addUserToGroup({
 													workspace: $workspaceStore ?? '',
 													name,
@@ -211,11 +211,16 @@
 												change their roles. Being a manager does not make you a member.</Tooltip
 											></ToggleButton
 										> -->
-										<ToggleButton position="right" value="member_manager" size="xs"
-											>Admin</ToggleButton
+										<ToggleButton position="right" value="admin" size="xs"
+											>Admin <Tooltip
+												>An admin of a group is a member of a group that can also add and remove
+												members to the group, or make them admin.</Tooltip
+											></ToggleButton
 										>
 									</ToggleButtonGroup>
 								</div>
+							{:else}
+								{role}
 							{/if}</td
 						>
 						<td>

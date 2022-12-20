@@ -50,11 +50,10 @@ async fn main() -> anyhow::Result<()> {
     let (tx, rx) = tokio::sync::broadcast::channel::<()>(3);
     let shutdown_signal = windmill_common::shutdown_signal(tx);
 
-    let base_internal_url =
-        std::env::var("BASE_INTERNAL_URL").unwrap_or_else(|_| "http://localhost:8000".to_string());
-
     let base_url = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost".to_string());
 
+    let base_internal_url =
+        std::env::var("BASE_INTERNAL_URL").unwrap_or_else(|_| "http://localhost:8000".to_string());
     let timeout = std::env::var("TIMEOUT")
         .ok()
         .and_then(|x| x.parse::<i32>().ok())

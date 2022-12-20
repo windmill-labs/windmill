@@ -17,7 +17,7 @@
 	export let name: string
 	let can_write = false
 
-	type Role = 'viewer' | 'writer' | 'owner'
+	type Role = 'viewer' | 'writer' | 'admin'
 	let folder: Folder | undefined
 	let perms: { owner_name: string; role: Role }[] | undefined = undefined
 	let managing_folders: string[] = []
@@ -75,7 +75,7 @@
 
 	async function loadFolder(): Promise<void> {
 		folder = await FolderService.getFolder({ workspace: $workspaceStore!, name })
-		can_write = canWrite(name!, folder.extra_perms ?? {}, $userStore)
+		can_write = folder.owners.includes('u/' + $userStore?.username)
 		perms = Array.from(
 			new Set(
 				Object.entries(folder?.extra_perms ?? {})
@@ -99,7 +99,7 @@
 		const owner = folder?.owners?.includes(x)
 
 		if (owner) {
-			return 'owner'
+			return 'admin'
 		} else if (writer) {
 			return 'writer'
 		} else {
@@ -111,7 +111,7 @@
 
 <div class="flex flex-col gap-6">
 	<h1>{name}</h1>
-	<h2>Permissions</h2>
+	<h2>Permissions ({perms?.length ?? 0})</h2>
 	{#if can_write}
 		<div class="flex items-center gap-1">
 			<div>
@@ -153,7 +153,7 @@
 											// const inAcl = (
 											// 	folder?.extra_perms ? Object.keys(folder?.extra_perms) : []
 											// ).includes(folder)
-											if (role == 'owner') {
+											if (role == 'admin') {
 												await FolderService.addOwnerToFolder({
 													workspace: $workspaceStore ?? '',
 													name,
@@ -227,6 +227,8 @@
 										>
 									</ToggleButtonGroup>
 								</div>
+							{:else}
+								{role}
 							{/if}</td
 						>
 						<td>
