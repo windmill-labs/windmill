@@ -7,7 +7,7 @@
 	import { getContext } from 'svelte'
 	import type { AppEditorContext } from '../../types'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
-	import { Check, CheckCheck, CheckCircle, Code2, X } from 'lucide-svelte'
+	import { CheckCircle, Code2, X } from 'lucide-svelte'
 	import FlowScriptPicker from '$lib/components/flows/pickers/FlowScriptPicker.svelte'
 	import type { ResultAppInput } from '../../inputType'
 	import InlineScriptEditorDrawer from './InlineScriptEditorDrawer.svelte'
@@ -17,11 +17,11 @@
 
 	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
 	export let componentInput: ResultAppInput
-	export let selectedScriptName: string | undefined = undefined
 
-	$: shouldDisplay =
-		componentInput.runnable?.type === 'runnableByName' &&
-		componentInput.runnable?.name === selectedScriptName
+	const name =
+		componentInput.runnable?.type === 'runnableByName' ? componentInput.runnable?.name : ''
+
+	$: shouldDisplay = componentInput.runnable?.type === 'runnableByName'
 	const { appPath } = getContext<AppEditorContext>('AppEditorContext')
 
 	let validCode = false
@@ -76,44 +76,48 @@
 {#if shouldDisplay}
 	{#if componentInput?.runnable?.type === 'runnableByName' && componentInput?.runnable?.inlineScript}
 		<div class="h-full p-4 flex flex-col gap-2 ">
-			<div class="flex w-full flex-row-reverse gap-2 items-center">
-				<Button
-					size="xs"
-					color="light"
-					variant="border"
-					on:click={() => {
-						if (selectedScriptName) {
-							inlineScriptEditorDrawer?.openDrawer()
-						}
-					}}
-				>
-					<div class="flex gap-1 items-center">
-						<Code2 size={16} />
-						Open full editor
-					</div>
-				</Button>
-				<Button
-					size="xs"
-					color="light"
-					variant="border"
-					iconOnly
-					startIcon={{ icon: faTrash }}
-					on:click={() => {
-						if (componentInput?.runnable?.type === 'runnableByName') {
-							componentInput.runnable = undefined
-							componentInput.fields = {}
-						}
-					}}
-				/>
-				{#if validCode}
-					<Badge color="green">
-						<CheckCircle size={16} />
-					</Badge>
-				{:else}
-					<Badge color="red">
-						<X size={16} />
-					</Badge>
+			<div class="flex justify-between w-full flex-row items-center">
+				{#if componentInput?.runnable?.name}
+					<input bind:value={componentInput.runnable.name} />
 				{/if}
+				<div class="flex w-full flex-row gap-2 items-center justify-end">
+					{#if validCode}
+						<Badge color="green">
+							<CheckCircle size={16} />
+						</Badge>
+					{:else}
+						<Badge color="red">
+							<X size={16} />
+						</Badge>
+					{/if}
+
+					<Button
+						size="xs"
+						color="light"
+						variant="border"
+						iconOnly
+						startIcon={{ icon: faTrash }}
+						on:click={() => {
+							if (componentInput?.runnable?.type === 'runnableByName') {
+								componentInput.runnable = undefined
+								componentInput.fields = {}
+							}
+						}}
+					/>
+					<Button
+						size="xs"
+						color="light"
+						variant="border"
+						on:click={() => {
+							inlineScriptEditorDrawer?.openDrawer()
+						}}
+					>
+						<div class="flex gap-1 items-center">
+							<Code2 size={16} />
+							Open full editor
+						</div>
+					</Button>
+				</div>
 			</div>
 
 			{#if componentInput?.runnable?.type === 'runnableByName' && componentInput?.runnable?.inlineScript}
@@ -152,9 +156,7 @@
 						label={lang}
 						{lang}
 						on:click={() => {
-							if (selectedScriptName) {
-								createInlineScriptByLanguage(lang, selectedScriptName)
-							}
+							createInlineScriptByLanguage(lang, name)
 						}}
 					/>
 				{/each}
@@ -163,18 +165,14 @@
 					label={`PostgreSQL`}
 					lang="pgsql"
 					on:click={() => {
-						if (selectedScriptName) {
-							createInlineScriptByLanguage(Script.language.DENO, selectedScriptName, 'pgsql')
-						}
+						createInlineScriptByLanguage(Script.language.DENO, name, 'pgsql')
 					}}
 				/>
 				<FlowScriptPicker
 					label={`MySQL`}
 					lang="mysql"
 					on:click={() => {
-						if (selectedScriptName) {
-							createInlineScriptByLanguage(Script.language.DENO, selectedScriptName, 'mysql')
-						}
+						createInlineScriptByLanguage(Script.language.DENO, name, 'mysql')
 					}}
 				/>
 			</div>
