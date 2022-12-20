@@ -13,6 +13,8 @@ import {
 	Table2,
 	TextCursorInput,
 	Type,
+	Lock,
+	Calendar,
 	ToggleLeft
 } from 'lucide-svelte'
 import type { AppInput, AppInputs, InputType } from './inputType'
@@ -121,6 +123,14 @@ export const displayData: Record<AppComponent['type'], { name: string; icon: any
 	numberinputcomponent: {
 		name: 'Number input',
 		icon: Binary
+	},
+	passwordinputcomponent: {
+		name: 'Password input',
+		icon: Lock
+	},
+	dateinputcomponent: {
+		name: 'Date input',
+		icon: Calendar
 	}
 }
 

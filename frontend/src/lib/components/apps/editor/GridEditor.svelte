@@ -43,7 +43,7 @@
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <div
 	class="bg-white h-full relative"
-	on:click|preventDefault={() => ($selectedComponent = undefined)}
+	on:click|preventDefault={() => $selectedComponent = undefined}
 >
 	<RecomputeAllComponents />
 
@@ -64,7 +64,7 @@
 						'h-full w-full flex justify-center align-center',
 						gridComponent.data.card ? 'border border-gray-100' : ''
 					)}
-					on:click|preventDefault|stopPropagation={() => {
+					on:click|stopPropagation={() => {
 						if (!$connectingInput.opened) {
 							$selectedComponent = dataItem.data.id
 						}
