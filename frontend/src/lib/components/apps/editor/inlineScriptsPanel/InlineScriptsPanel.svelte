@@ -8,19 +8,18 @@
 
 	const { app } = getContext<AppEditorContext>('AppEditorContext')
 
-	let selectedScriptName: string | undefined = undefined
+	let selectedScriptComponentId: string | undefined = undefined
 </script>
 
 <SplitPanesWrapper>
 	<Pane size={25}>
-		<InlineScriptsPanelList bind:selectedScriptName />
+		<InlineScriptsPanelList bind:selectedScriptComponentId />
 	</Pane>
 	<Pane size={75}>
 		{#each $app.grid as gridComponent, index (index)}
-			<InlineScriptEditor
-				bind:componentInput={gridComponent.data.componentInput}
-				{selectedScriptName}
-			/>
+			{#if gridComponent.data.id === selectedScriptComponentId}
+				<InlineScriptEditor bind:componentInput={gridComponent.data.componentInput} />
+			{/if}
 		{/each}
 	</Pane>
 </SplitPanesWrapper>
