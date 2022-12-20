@@ -3806,6 +3806,28 @@
     },
     "query": "select hash from script where path = $1 AND (workspace_id = $2 OR workspace_id = 'starter') AND\n    created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter')) AND\n    deleted = false"
   },
+  "b89fc3a68c10e6b80cb4fbe84e22e139389867fcbaa2938871fb04ab6e354d85": {
+    "describe": {
+      "columns": [
+        {
+          "name": "exists",
+          "ordinal": 0,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT EXISTS(SELECT 1 FROM usr_to_group where usr = $1 AND group_ = $2 AND workspace_id = $3)"
+  },
   "b9468b9e16f55db11b33d8e9793e6e3ae6c5add6ca02414140adb724120a6800": {
     "describe": {
       "columns": [],

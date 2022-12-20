@@ -10,7 +10,7 @@ use std::{sync::Arc, time::Duration};
 
 use crate::{
     db::{UserDB, DB},
-    folders::get_folders_for_user,
+    folders::{get_folderopt, get_folders_for_user},
     utils::require_super_admin,
     workspaces::invite_user_to_all_auto_invite_worspaces,
     CookieDomain, IsSecure,
@@ -825,6 +825,19 @@ pub async fn get_groups_for_user(w_id: &str, username: &str, db: &DB) -> Result<
     Ok(groups)
 }
 
+pub async fn is_user_member(w_id: &str, username: &str, group: &str, db: &DB) -> Result<bool> {
+    let is_member = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM usr_to_group where usr = $1 AND group_ = $2 AND workspace_id = $3)",
+        username,
+        group,
+        w_id
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false);
+    Ok(is_member)
+}
+
 pub async fn require_owner_of_path(w_id: &str, username: &str, path: &str, db: &DB) -> Result<()> {
     let splitted = path.split("/").collect::<Vec<&str>>();
     if splitted[0] == "u" {
@@ -837,12 +850,21 @@ pub async fn require_owner_of_path(w_id: &str, username: &str, path: &str, db: &
             )));
         }
     } else if splitted[0] == "g" {
-        let groups = get_groups_for_user(w_id, username, db).await?;
-        if groups.contains(&username.to_string()) {
+        if is_user_member(w_id, username, splitted[1], db).await? {
             return Ok(());
         } else {
             return Err(Error::BadRequest(format!(
                 "{} is not a member of {} and hence is not authorized to perform this operation",
+                username, splitted[1]
+            )));
+        }
+    } else if splitted[0] == "f" {
+        let folder = get_folderopt(&mut db.begin().await?, w_id, splitted[1]).await?;
+        if folder.is_some() && folder.unwrap().owners.contains(&username.to_string()) {
+            return Ok(());
+        } else {
+            return Err(Error::BadRequest(format!(
+                "{} is not an admin of {} and hence is not authorized to perform this destructive operation",
                 username, splitted[1]
             )));
         }
