@@ -40,13 +40,19 @@
 		}
 	}
 
-	function pickInlineScript(name: string, inlineScript: InlineScript) {
-		if (appInput.type === 'runnable') {
+	function pickInlineScript(name: string) {
+		const unusedInlineScriptIndex = $app.unusedInlineScripts?.findIndex(
+			(script) => script.name === name
+		)
+		const unusedInlineScript = $app.unusedInlineScripts?.[unusedInlineScriptIndex]
+		if (appInput.type === 'runnable' && unusedInlineScript?.inlineScript) {
 			appInput.runnable = {
 				type: 'runnableByName',
 				name,
-				inlineScript
+				inlineScript: unusedInlineScript.inlineScript
 			}
+
+			$app.unusedInlineScripts.splice(unusedInlineScriptIndex, 1)
 		}
 	}
 
@@ -121,7 +127,7 @@
 					<div class="flex flex-col">
 						{#if tab == 'inlinescripts'}
 							<InlineScriptList
-								on:pick={(e) => pickInlineScript('', e.detail)}
+								on:pick={(e) => pickInlineScript(e.detail)}
 								inlineScripts={$app.unusedInlineScripts.map((uis) => uis.name)}
 							/>
 						{:else if tab == 'workspacescripts'}
