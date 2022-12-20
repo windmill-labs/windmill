@@ -8,13 +8,15 @@
 
 	export let id: string
 	export let configuration: Record<string, AppInput>
-	export let inputType = 'text'
+	export let inputType: 'date' | 'time' | 'datetime-local'
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export const staticOutputs: string[] = ['result']
 
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
 	let input: HTMLInputElement
 	let labelValue: string = 'Title'
+	let minValue: string = ''
+	let maxValue: string = ''
 
 	$: outputs = $worldStore?.outputsById[id] as {
 		result: Output<string>
@@ -26,6 +28,8 @@
 </script>
 
 <InputValue input={configuration.label} bind:value={labelValue} />
+<InputValue input={configuration.minDate} bind:value={minValue} />
+<InputValue input={configuration.maxDate} bind:value={maxValue} />
 
 <AlignWrapper {verticalAlignment}>
 	<!-- svelte-ignore a11y-label-has-associated-control -->
@@ -37,6 +41,8 @@
 			type={inputType}
 			bind:this={input}
 			on:input={handleInput}
+			min={minValue}
+			max={maxValue}
 			placeholder="Type..."
 		/>
 	</label>
