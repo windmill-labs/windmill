@@ -31,7 +31,7 @@ use windmill_common::{
 
 use hyper::{header, StatusCode};
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
+use sqlx::{FromRow, Postgres, Transaction};
 use tempfile::TempDir;
 use tokio::fs::File;
 use tokio_util::io::ReaderStream;
@@ -395,6 +395,20 @@ async fn user_workspaces(
     Ok(Json(WorkspaceList { email, workspaces }))
 }
 
+async fn check_name_conflict<'c>(tx: &mut Transaction<'c, Postgres>, w_id: &str) -> Result<()> {
+    let exists = sqlx::query_scalar!("SELECT EXISTS(SELECT 1 FROM workspace WHERE id = $1)", w_id)
+        .fetch_one(tx)
+        .await?
+        .unwrap_or(false);
+    if exists {
+        return Err(windmill_common::error::Error::BadRequest(format!(
+            "Workspace {} already exists",
+            w_id
+        )));
+    }
+    return Ok(());
+}
+
 async fn create_workspace(
     authed: Authed,
     Extension(db): Extension<DB>,
@@ -404,6 +418,7 @@ async fn create_workspace(
         return Err(Error::BadRequest("bot is a reserved username".to_string()));
     }
     let mut tx = db.begin().await?;
+    check_name_conflict(&mut tx, &nw.id).await?;
     sqlx::query!(
         "INSERT INTO workspace
             (id, name, owner)

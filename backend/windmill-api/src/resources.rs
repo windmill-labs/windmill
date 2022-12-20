@@ -18,7 +18,7 @@ use axum::{
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
-use sqlx::FromRow;
+use sqlx::{FromRow, Postgres, Transaction};
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{Error, JsonResult, Result},
@@ -237,6 +237,28 @@ async fn get_resource_value(
     Ok(Json(value))
 }
 
+async fn check_path_conflict<'c>(
+    tx: &mut Transaction<'c, Postgres>,
+    w_id: &str,
+    path: &str,
+) -> Result<()> {
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM resource WHERE path = $1 AND workspace_id = $2)",
+        path,
+        w_id
+    )
+    .fetch_one(tx)
+    .await?
+    .unwrap_or(false);
+    if exists {
+        return Err(Error::BadRequest(format!(
+            "Resource {} already exists",
+            path
+        )));
+    }
+    return Ok(());
+}
+
 async fn create_resource(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
@@ -245,6 +267,7 @@ async fn create_resource(
 ) -> Result<(StatusCode, String)> {
     let mut tx = user_db.begin(&authed).await?;
 
+    check_path_conflict(&mut tx, &w_id, &resource.path).await?;
     sqlx::query!(
         "INSERT INTO resource
             (workspace_id, path, value, description, resource_type)
@@ -347,17 +370,21 @@ async fn update_resource(
     let npath = not_found_if_none(npath_o, "Resource", path)?;
 
     if let Some(npath) = ns.path {
-        if !authed.is_admin {
-            require_owner_of_path(&w_id, &authed.username, &path, &db).await?;
+        if npath != path {
+            check_path_conflict(&mut tx, &w_id, &npath).await?;
+
+            if !authed.is_admin {
+                require_owner_of_path(&w_id, &authed.username, &path, &db).await?;
+            }
+            sqlx::query!(
+                "UPDATE variable SET path = $1 WHERE path = $2 AND workspace_id = $3",
+                npath,
+                path,
+                w_id
+            )
+            .execute(&mut tx)
+            .await?;
         }
-        sqlx::query!(
-            "UPDATE variable SET path = $1 WHERE path = $2 AND workspace_id = $3",
-            npath,
-            path,
-            w_id
-        )
-        .execute(&mut tx)
-        .await?;
     }
 
     audit_log(
@@ -452,6 +479,8 @@ async fn create_resource_type(
 ) -> Result<(StatusCode, String)> {
     let mut tx = user_db.begin(&authed).await?;
 
+    check_rt_path_conflict(&mut tx, &w_id, &resource_type.name).await?;
+
     sqlx::query!(
         "INSERT INTO resource_type
             (workspace_id, name, schema, description)
@@ -479,6 +508,28 @@ async fn create_resource_type(
         StatusCode::CREATED,
         format!("resource_type {} created", resource_type.name),
     ))
+}
+
+async fn check_rt_path_conflict<'c>(
+    tx: &mut Transaction<'c, Postgres>,
+    w_id: &str,
+    name: &str,
+) -> Result<()> {
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM resource_type WHERE name = $1 AND workspace_id = $2)",
+        name,
+        w_id
+    )
+    .fetch_one(tx)
+    .await?
+    .unwrap_or(false);
+    if exists {
+        return Err(Error::BadRequest(format!(
+            "Resource type {} already exists",
+            name
+        )));
+    }
+    return Ok(());
 }
 
 async fn delete_resource_type(

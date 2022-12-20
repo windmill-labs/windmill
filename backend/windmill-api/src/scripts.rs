@@ -179,6 +179,7 @@ fn hash_script(ns: &NewScript) -> i64 {
     ns.hash(&mut dh);
     dh.finish() as i64
 }
+
 async fn create_script(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
