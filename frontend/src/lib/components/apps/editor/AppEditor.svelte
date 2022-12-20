@@ -68,7 +68,7 @@
 	$: mounted && ($worldStore = buildWorld($staticOutputs))
 	$: selectedTab = $selectedComponent ? 'settings' : 'insert'
 	$: previewing = $mode === 'preview'
-	$: width = $breakpoint === 'sm' ? 'w-[640px]' : 'min-w-[900px] w-full'
+	$: width = $breakpoint === 'sm' ? 'w-[640px]' : 'min-w-[1080px] w-full'
 </script>
 
 {#if !$userStore?.operator}
