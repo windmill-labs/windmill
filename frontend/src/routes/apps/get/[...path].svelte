@@ -9,6 +9,7 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import AppPreview from '$lib/components/apps/editor/AppPreview.svelte'
+	import type { EditorBreakpoint } from '$lib/components/apps/types'
 
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Skeleton } from '$lib/components/common'
@@ -16,6 +17,7 @@
 	import { AppService, AppWithLastVersion } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { faPen } from '@fortawesome/free-solid-svg-icons'
+	import { writable } from 'svelte/store'
 
 	let app: AppWithLastVersion | undefined = undefined
 
@@ -26,6 +28,8 @@
 	$: if ($workspaceStore) {
 		loadApp()
 	}
+
+	const breakpoint = writable<EditorBreakpoint>('lg')
 </script>
 
 <Skeleton loading={app == undefined} layout={[10]} />
@@ -41,7 +45,7 @@
 		</div>
 
 		<div class="border rounded-md p-2">
-			<AppPreview app={app.value} appPath={app.path} />
+			<AppPreview app={app.value} appPath={app.path} {breakpoint} />
 		</div>
 	{/if}
 </CenteredPage>
