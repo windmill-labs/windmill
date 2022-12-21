@@ -9,15 +9,7 @@ const inputs: ComponentSet = {
 			id: 'textinputcomponent',
 			type: 'textinputcomponent',
 			componentInput: undefined,
-			configuration: {
-				label: {
-					type: 'static',
-					visible: false,
-					value: 'Label',
-					fieldType: 'textarea',
-					defaultValue: 'Label'
-				}
-			},
+			configuration: {},
 			card: false
 		},
 		{
@@ -25,15 +17,7 @@ const inputs: ComponentSet = {
 			id: 'passwordinputcomponent',
 			type: 'passwordinputcomponent',
 			componentInput: undefined,
-			configuration: {
-				label: {
-					type: 'static',
-					visible: false,
-					value: 'Label',
-					fieldType: 'textarea',
-					defaultValue: 'Label'
-				}
-			},
+			configuration: {},
 			card: false
 		},
 		{
@@ -41,15 +25,7 @@ const inputs: ComponentSet = {
 			id: 'numberinputcomponent',
 			type: 'numberinputcomponent',
 			componentInput: undefined,
-			configuration: {
-				label: {
-					type: 'static',
-					visible: false,
-					value: 'Label',
-					fieldType: 'textarea',
-					defaultValue: 'Label'
-				}
-			},
+			configuration: {},
 			card: false
 		},
 		{
@@ -58,13 +34,6 @@ const inputs: ComponentSet = {
 			type: 'dateinputcomponent',
 			componentInput: undefined,
 			configuration: {
-				label: {
-					type: 'static',
-					visible: false,
-					value: 'Title',
-					fieldType: 'textarea',
-					defaultValue: 'Title'
-				},
 				minDate: {
 					type: 'static',
 					visible: false,
@@ -78,7 +47,7 @@ const inputs: ComponentSet = {
 					value: '',
 					fieldType: 'date',
 					defaultValue: ''
-				},
+				}
 			},
 			card: false,
 			softWrap: true
@@ -105,13 +74,6 @@ const inputs: ComponentSet = {
 			type: 'selectcomponent',
 			componentInput: undefined,
 			configuration: {
-				label: {
-					type: 'static',
-					visible: false,
-					value: 'Label',
-					fieldType: 'textarea',
-					defaultValue: 'Label'
-				},
 				items: {
 					type: 'static',
 					fieldType: 'array',

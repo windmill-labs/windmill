@@ -1,6 +1,14 @@
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
 import { goto } from '$app/navigation'
-import { FlowService, FolderService, Script, ScriptService, type Flow, type FlowModule, type User } from '$lib/gen'
+import {
+	FlowService,
+	FolderService,
+	Script,
+	ScriptService,
+	type Flow,
+	type FlowModule,
+	type User
+} from '$lib/gen'
 import { toast } from '@zerodevx/svelte-toast'
 import type { Schema, SupportedLanguage } from './common'
 import { hubScripts, workspaceStore, type UserExt } from './stores'
@@ -60,12 +68,13 @@ export function displayDate(dateString: string | undefined, displaySecond = fals
 	if (date.toString() === 'Invalid Date') {
 		return ''
 	} else {
-		return `${date.getFullYear()}/${date.getMonth() + 1
-			}/${date.getDate()} at ${date.toLocaleTimeString([], {
-				hour: '2-digit',
-				minute: '2-digit',
-				second: displaySecond ? '2-digit' : undefined
-			})}`
+		return `${date.getFullYear()}/${
+			date.getMonth() + 1
+		}/${date.getDate()} at ${date.toLocaleTimeString([], {
+			hour: '2-digit',
+			minute: '2-digit',
+			second: displaySecond ? '2-digit' : undefined
+		})}`
 	}
 }
 
@@ -175,11 +184,7 @@ export function removeItemAll<T>(arr: T[], value: T) {
 	return arr
 }
 
-export async function isOwner(
-	path: string,
-	user: UserExt,
-	workspace: string
-): Promise<boolean> {
+export async function isOwner(path: string, user: UserExt, workspace: string): Promise<boolean> {
 	if (isObviousOwner(path, user)) {
 		return true
 	} else if (path.startsWith('f/')) {
@@ -191,11 +196,7 @@ export async function isOwner(
 	}
 }
 
-
-export function isObviousOwner(
-	path: string,
-	user?: UserExt
-): boolean {
+export function isObviousOwner(path: string, user?: UserExt): boolean {
 	if (!user) {
 		return false
 	}
@@ -206,14 +207,10 @@ export function isObviousOwner(
 	if (path.startsWith(userOwner)) {
 		return true
 	}
-	if (
-		user.pgroups.findIndex((x) => path.startsWith(x)) != -1
-	) {
+	if (user.pgroups.findIndex((x) => path.startsWith(x)) != -1) {
 		return true
 	}
-	if (
-		user.folders.findIndex((x) => path.startsWith('f/' + x)) != -1
-	) {
+	if (user.folders.findIndex((x) => path.startsWith('f/' + x)) != -1) {
 		return true
 	}
 	return false
@@ -235,14 +232,10 @@ export function canWrite(
 	if (keys.includes(userOwner) && extra_perms[userOwner]) {
 		return true
 	}
-	if (
-		user.pgroups.findIndex((x) => keys.includes(x) && extra_perms[x]) != -1
-	) {
+	if (user.pgroups.findIndex((x) => keys.includes(x) && extra_perms[x]) != -1) {
 		return true
 	}
-	if (
-		user.folders.findIndex((x) => path.startsWith('f/' + x)) != -1
-	) {
+	if (user.folders.findIndex((x) => path.startsWith('f/' + x)) != -1) {
 		return true
 	}
 	return false
@@ -378,7 +371,7 @@ export function mapUserToUserExt(user: User): UserExt {
 	return {
 		...user,
 		groups: user.groups!,
-		pgroups: user.groups!.map((x) => `g/${x}`),
+		pgroups: user.groups!.map((x) => `g/${x}`)
 	}
 }
 
@@ -630,4 +623,8 @@ export function capitalize(word: string): string {
 
 export function isCloudHosted(): boolean {
 	return get(page).url.hostname == 'app.windmill.dev'
+}
+
+export function isObject(obj: any) {
+	return typeof obj === 'object'
 }

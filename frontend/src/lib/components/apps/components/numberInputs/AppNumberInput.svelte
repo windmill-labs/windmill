@@ -19,7 +19,7 @@
 	$: outputs = $worldStore?.outputsById[id] as {
 		result: Output<number | null>
 	}
-	$: if(value || !value) {
+	$: if (value || !value) {
 		// Disallow 'e' character in numbers
 		// if(value && value.toString().includes('e')) {
 		// 	value = +value.toString().replaceAll('e', '')
@@ -32,18 +32,12 @@
 <InputValue input={configuration.label} bind:value={labelValue} />
 
 <AlignWrapper {verticalAlignment}>
-	<!-- svelte-ignore a11y-label-has-associated-control -->
-	<label class="w-full">
-		<div>
-			{labelValue}
-		</div>
-		<DebouncedInput
-			bind:value={value}
-			debounceDelay={300}
-			type="number"
-			inputmode="numeric"
-			pattern="\d*"
-			placeholder="Type..."
-		/>
-	</label>
+	<input
+		bind:value
+		type="number"
+		inputmode="numeric"
+		pattern="\d*"
+		placeholder="Type..."
+		class="h-full"
+	/>
 </AlignWrapper>
