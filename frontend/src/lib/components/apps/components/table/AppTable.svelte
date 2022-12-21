@@ -8,11 +8,12 @@
 	import { writable } from 'svelte/store'
 	import { createSvelteTable, flexRender, type TableOptions } from '@tanstack/svelte-table'
 	import AppButton from '../buttons/AppButton.svelte'
-	import { classNames } from '$lib/utils'
+	import { classNames, isObject } from '$lib/utils'
 	import DebouncedInput from '../helpers/DebouncedInput.svelte'
 	import AppTableFooter from './AppTableFooter.svelte'
 	import RefreshButton from '../helpers/RefreshButton.svelte'
 	import { tableOptions } from './tableOptions'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -102,79 +103,85 @@
 <InputValue input={configuration.search} bind:value={search} />
 <InputValue input={configuration.pagination} bind:value={pagination} />
 
-<RunnableWrapper bind:componentInput {id} bind:result {extraQueryParams} autoRefresh={false}>
-	<div class="border border-gray-300 shadow-sm divide-y divide-gray-300  flex flex-col h-full">
-		<div class="py-2 px-4">
-			<div class="flex justify-between items-center">
-				<RefreshButton componentId={id} />
-				{#if search !== 'Disabled'}
-					<div>
-						<DebouncedInput placeholder="Search..." bind:value={searchValue} />
-					</div>
-				{/if}
+<RunnableWrapper bind:componentInput {id} bind:result {extraQueryParams}>
+	{#if Array.isArray(result) && result.every(isObject)}
+		<div class="border border-gray-300 shadow-sm divide-y divide-gray-300  flex flex-col h-full">
+			<div class="py-2 px-4">
+				<div class="flex justify-between items-center">
+					<RefreshButton componentId={id} />
+					{#if search !== 'Disabled'}
+						<div>
+							<DebouncedInput placeholder="Search..." bind:value={searchValue} />
+						</div>
+					{/if}
+				</div>
 			</div>
-		</div>
-		<div class="overflow-auto flex-1 w-full">
-			<table class="divide-y divide-gray-300 w-full border-b border-b-gray-200">
-				<thead class="bg-gray-50 text-left">
-					{#each $table.getHeaderGroups() as headerGroup}
-						<tr class="divide-x">
-							{#each headerGroup.headers as header}
-								<th class="px-4 py-4 text-sm font-semibold">
-									{#if !header.isPlaceholder}
+			<div class="overflow-auto flex-1 w-full">
+				<table class="divide-y divide-gray-300 w-full border-b border-b-gray-200">
+					<thead class="bg-gray-50 text-left">
+						{#each $table.getHeaderGroups() as headerGroup}
+							<tr class="divide-x">
+								{#each headerGroup.headers as header}
+									<th class="px-4 py-4 text-sm font-semibold">
+										{#if !header.isPlaceholder}
+											<svelte:component
+												this={flexRender(header.column.columnDef.header, header.getContext())}
+											/>
+										{/if}
+									</th>
+								{/each}
+								{#if actionButtons.length > 0}
+									<th class="px-4 py-4 text-sm font-semibold">Actions</th>
+								{/if}
+							</tr>
+						{/each}
+					</thead>
+					<tbody class="divide-y divide-gray-200 bg-white ">
+						{#each $table.getRowModel().rows as row, rowIndex (row.id)}
+							<tr
+								class={classNames(
+									selectedRowIndex === rowIndex
+										? 'bg-blue-100 hover:bg-blue-200'
+										: 'hover:bg-blue-50',
+									'divide-x',
+									'border-b w-full',
+									selectedRowIndex === rowIndex
+										? 'divide-blue-200 hover:divide-blue-300'
+										: 'divide-gray-200'
+								)}
+								on:click={() => toggleRow(row, rowIndex)}
+							>
+								{#each row.getVisibleCells() as cell, index (index)}
+									<td class="p-4 whitespace-nowrap text-xs text-gray-900">
 										<svelte:component
-											this={flexRender(header.column.columnDef.header, header.getContext())}
+											this={flexRender(cell.column.columnDef.cell, cell.getContext())}
 										/>
-									{/if}
-								</th>
-							{/each}
-							{#if actionButtons.length > 0}
-								<th class="px-4 py-4 text-sm font-semibold">Actions</th>
-							{/if}
-						</tr>
-					{/each}
-				</thead>
-				<tbody class="divide-y divide-gray-200 bg-white ">
-					{#each $table.getRowModel().rows as row, rowIndex (row.id)}
-						<tr
-							class={classNames(
-								selectedRowIndex === rowIndex
-									? 'bg-blue-100 hover:bg-blue-200'
-									: 'hover:bg-blue-50',
-								'divide-x',
-								'border-b w-full',
-								selectedRowIndex === rowIndex
-									? 'divide-blue-200 hover:divide-blue-300'
-									: 'divide-gray-200'
-							)}
-							on:click={() => toggleRow(row, rowIndex)}
-						>
-							{#each row.getVisibleCells() as cell, index (index)}
-								<td class="p-4 whitespace-nowrap text-xs text-gray-900">
-									<svelte:component
-										this={flexRender(cell.column.columnDef.cell, cell.getContext())}
-									/>
-								</td>
-							{/each}
+									</td>
+								{/each}
 
-							{#if actionButtons.length > 0}
-								<td class="flex flex-row gap-2 p-4">
-									{#each actionButtons as props, actionIndex (actionIndex)}
-										<AppButton
-											{...props}
-											extraQueryParams={{ row }}
-											bind:componentInput={props.componentInput}
-											bind:staticOutputs={$staticOutputsStore[props.id]}
-										/>
-									{/each}
-								</td>
-							{/if}
-						</tr>
-					{/each}
-				</tbody>
-			</table>
+								{#if actionButtons.length > 0}
+									<td class="flex flex-row gap-2 p-4">
+										{#each actionButtons as props, actionIndex (actionIndex)}
+											<AppButton
+												{...props}
+												extraQueryParams={{ row }}
+												bind:componentInput={props.componentInput}
+												bind:staticOutputs={$staticOutputsStore[props.id]}
+											/>
+										{/each}
+									</td>
+								{/if}
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			</div>
+
+			<AppTableFooter paginationEnabled={pagination} {result} {table} />
 		</div>
-
-		<AppTableFooter paginationEnabled={pagination} {result} {table} />
-	</div>
+	{:else}
+		<Alert title="Parsing issues" type="error" size="xs">
+			The result should be an array of objects
+		</Alert>
+	{/if}
 </RunnableWrapper>

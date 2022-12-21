@@ -32,18 +32,13 @@
 <InputValue input={configuration.maxDate} bind:value={maxValue} />
 
 <AlignWrapper {verticalAlignment}>
-	<!-- svelte-ignore a11y-label-has-associated-control -->
-	<label class="w-full">
-		<div>
-			{labelValue}
-		</div>
-		<input
-			type={inputType}
-			bind:this={input}
-			on:input={handleInput}
-			min={minValue}
-			max={maxValue}
-			placeholder="Type..."
-		/>
-	</label>
+	<input
+		type={inputType}
+		bind:this={input}
+		on:input={handleInput}
+		min={minValue}
+		max={maxValue}
+		placeholder="Type..."
+		class="h-full"
+	/>
 </AlignWrapper>
