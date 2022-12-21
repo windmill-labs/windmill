@@ -626,5 +626,5 @@ export function isCloudHosted(): boolean {
 }
 
 export function isObject(obj: any) {
-	return obj === Object(obj)
+	return typeof obj === 'object'
 }
