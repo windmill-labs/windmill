@@ -124,7 +124,6 @@
 	<VariableEditor bind:this={variableEditor} on:create={loadVariables} />
 	<ShareModal
 		bind:this={shareModal}
-		kind="variable"
 		on:change={() => {
 			loadVariables()
 		}}
@@ -308,9 +307,9 @@
 												disabled: !canWrite
 											},
 											{
-												displayName: 'Share',
+												displayName: canWrite ? 'Share' : 'See Permissions',
 												action: () => {
-													shareModal.openDrawer(path)
+													shareModal.openDrawer(path, 'variable')
 												},
 												icon: faShare
 											},

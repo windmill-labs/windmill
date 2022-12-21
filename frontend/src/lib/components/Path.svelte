@@ -350,7 +350,7 @@
 							></span
 						>
 
-						<div class="flex flex-row gap-1 w-full">
+						<div class="flex flex-row gap-1">
 							<select class="grow w-full" {disabled} bind:value={meta.owner}>
 								{#each groups as g}
 									<option>{g}</option>
@@ -366,7 +366,7 @@
 					</label>
 				{/if}
 			</div>
-			<label class="block grow">
+			<label class="block grow w-full max-w-md">
 				<span class="text-gray-700 text-sm">
 					Name
 					<Required required={true} />

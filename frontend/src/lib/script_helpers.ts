@@ -25,11 +25,11 @@ def main(no_default: str,
     # secret fetching is audited by windmill.
 
     try:
-      secret = wmill.get_variable("g/all/pretty_secret")
+      secret = wmill.get_variable("f/examples/secret")
     except:
-      secret = "No secret yet at g/all/pretty_secret!"
+      secret = "No secret yet at f/examples/secret !"
 
-    print(f"The variable at \`g/all/pretty_secret\`: {secret}")
+    print(f"The variable at \`f/examples/secret\`: {secret}")
     
     # Get last state of this script execution by the same trigger/user
     last_state = wmill.get_state()
@@ -73,7 +73,7 @@ func main(x string, nested struct{ Foo string \`json:"foo"\` }) (interface{}, er
 	fmt.Println("Hello, World")
 	fmt.Println(nested.Foo)
 	fmt.Println(quote.Opt())
-  // v, _ := wmill.GetVariable("g/all/pretty_secret")
+  // v, _ := wmill.GetVariable("f/examples/secret")
   return x, nil
 }
 `

@@ -4,6 +4,7 @@ from typing import Generic, TypeVar, TypeAlias
 import os
 
 from time import sleep
+from windmill_api.models.whoami_response_200 import WhoamiResponse200
 
 from windmill_api.client import AuthenticatedClient
 
@@ -177,6 +178,15 @@ def get_resource(path: str | None = None, none_if_undefined: bool = False) -> An
 
     raw = parsed.value
     return _transform_leaf(raw)
+
+
+def whoami() -> WhoamiResponse200 | None:
+    """
+    Returns the current user
+    """
+    from windmill_api.api.user import whoami
+
+    return whoami.sync(client=create_client(), workspace=get_workspace())
 
 
 def get_state() -> Any:
