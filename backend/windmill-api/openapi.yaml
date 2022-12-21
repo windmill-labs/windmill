@@ -4275,6 +4275,7 @@ components:
         - hash
         - path
         - summary
+        - description
         - content
         - created_by
         - created_at

@@ -19,6 +19,7 @@
 	import SearchItems from '../SearchItems.svelte'
 	import { Icon } from 'svelte-awesome'
 	import { faBarsStaggered } from '@fortawesome/free-solid-svg-icons'
+	import MoveDrawer from '../MoveDrawer.svelte'
 
 	type TableItem<T, U extends 'script' | 'flow' | 'app'> = T & {
 		canWrite: boolean
@@ -40,8 +41,8 @@
 
 	let itemKind: 'script' | 'flow' | 'app' | 'all' = 'all'
 
-	let shareModalScripts: ShareModal
-	let shareModalFlows: ShareModal
+	let shareModal: ShareModal
+	let moveDrawer: MoveDrawer
 
 	let loading = true
 
@@ -208,17 +209,19 @@
 />
 
 <ShareModal
-	bind:this={shareModalScripts}
-	kind="script"
+	bind:this={shareModal}
 	on:change={() => {
 		loadScripts()
+		loadApps()
+		loadFlows()
 	}}
 />
 
-<ShareModal
-	bind:this={shareModalFlows}
-	kind="flow"
-	on:change={() => {
+<MoveDrawer
+	bind:this={moveDrawer}
+	on:update={() => {
+		loadScripts()
+		loadApps()
 		loadFlows()
 	}}
 />
@@ -300,7 +303,8 @@
 							marked={item.marked}
 							on:change={loadScripts}
 							script={item}
-							shareModal={shareModalScripts}
+							{shareModal}
+							{moveDrawer}
 						/>
 					{:else if item.type == 'flow'}
 						<FlowRow
@@ -308,7 +312,8 @@
 							marked={item.marked}
 							on:change={loadFlows}
 							flow={item}
-							shareModal={shareModalFlows}
+							{shareModal}
+							{moveDrawer}
 						/>
 					{:else if item.type == 'app'}
 						<AppRow

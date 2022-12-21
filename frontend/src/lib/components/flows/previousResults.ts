@@ -139,7 +139,7 @@ export function buildExtraLib(flowInput: Record<string, any>, results: Record<st
 	return `
 /**
 * get variable (including secret) at path
-* @param {string} path - path of the variable (e.g: g/all/pretty_secret)
+* @param {string} path - path of the variable (e.g: f/examples/secret)
 */
 declare function variable(path: string): string;
 

@@ -459,10 +459,10 @@
 											placement="bottom-end"
 											dropdownItems={[
 												{
-													displayName: 'Share',
+													displayName: !canWrite ? 'View Permissions' : 'Share',
 													icon: faShare,
 													action: () => {
-														shareModal.openDrawer?.(path)
+														shareModal.openDrawer?.(path, 'resource')
 													}
 												},
 												{
@@ -604,7 +604,6 @@
 
 <ShareModal
 	bind:this={shareModal}
-	kind="resource"
 	on:change={() => {
 		loadResources()
 	}}
