@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { AppInput } from '../../inputType'
+	import { isScriptByNameDefined, isScriptByPathDefined } from '../../utils'
 	import NonRunnableComponent from './NonRunnableComponent.svelte'
 	import RunnableComponent from './RunnableComponent.svelte'
 
@@ -13,18 +14,7 @@
 	export let forceSchemaDisplay: boolean = false
 
 	function isRunnableDefined() {
-		if (!componentInput) return false
-		if (componentInput.type !== 'runnable') return false
-
-		if (
-			(componentInput.runnable?.type === 'runnableByName' &&
-				componentInput.runnable.inlineScript) ||
-			(componentInput.runnable?.type === 'runnableByPath' && componentInput.runnable.path)
-		) {
-			return true
-		}
-
-		return false
+		return isScriptByNameDefined(componentInput) || isScriptByPathDefined(componentInput)
 	}
 </script>
 
