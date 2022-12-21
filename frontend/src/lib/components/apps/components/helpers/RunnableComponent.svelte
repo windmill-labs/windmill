@@ -12,6 +12,7 @@
 	import type { AppEditorContext } from '../../types'
 	import { loadSchema, schemaToInputsSpec } from '../../utils'
 	import InputValue from './InputValue.svelte'
+	import MissingConnectionWarning from './MissingConnectionWarning.svelte'
 
 	// Component props
 	export let id: string
@@ -25,8 +26,10 @@
 	const { worldStore, runnableComponents } = getContext<AppEditorContext>('AppEditorContext')
 
 	onMount(() => {
-		$runnableComponents[id] = async () => {
-			await executeComponent()
+		if (autoRefresh) {
+			$runnableComponents[id] = async () => {
+				await executeComponent()
+			}
 		}
 	})
 
@@ -108,7 +111,10 @@
 
 	// When the schema is loaded, we need to update the inputs spec
 	// in order to render the inputs the component panel
-	$: if (schema && Object.keys(schema.properties).length !== Object.keys(inputs ?? {}).length) {
+	$: if (
+		schema &&
+		Object.keys(schema?.properties ?? {}).length !== Object.keys(inputs ?? {}).length
+	) {
 		let schemaWithoutExtraQueries: Schema = JSON.parse(JSON.stringify(schema))
 
 		// Remove extra query params from the schema, which are not directly configurable by the user
@@ -182,7 +188,7 @@
 				}
 			} else if (runnable?.type === 'runnableByPath') {
 				const { path, runType } = runnable
-				requestBody['path'] = `${runType}/${path}`
+				requestBody['path'] = runType !== 'hubscript' ? `${runType}/${path}` : `script/${path}`
 			}
 
 			return AppService.executeComponent({
@@ -228,8 +234,14 @@
 		{#if isValid}
 			<slot />
 		{:else}
-			<Alert type="warning" size="xs" class="mt-2" title="Missing inputs">
+			<Alert type="info" size="xs" class="mt-2" title="Missing inputs">
 				Please fill in all the inputs
+
+				{#each Object.keys(inputs ?? {}) as key}
+					{#if inputs[key].type === 'connected'}
+						<MissingConnectionWarning input={inputs[key]} />
+					{/if}
+				{/each}
 			</Alert>
 		{/if}
 	{:else}

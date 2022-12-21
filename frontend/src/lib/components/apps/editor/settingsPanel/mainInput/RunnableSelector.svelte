@@ -40,6 +40,16 @@
 		}
 	}
 
+	function pickHubScript(path: string) {
+		if (appInput.type === 'runnable') {
+			appInput.runnable = {
+				type: 'runnableByPath',
+				path,
+				runType: 'hubscript'
+			}
+		}
+	}
+
 	function pickInlineScript(name: string) {
 		const unusedInlineScriptIndex = $app.unusedInlineScripts?.findIndex(
 			(script) => script.name === name
@@ -137,7 +147,7 @@
 						{:else if tab == 'workspaceflows'}
 							<WorkspaceFlowList on:pick={(e) => pickFlow(e.detail)} />
 						{:else if tab == 'hubscripts'}
-							<PickHubScript bind:filter on:pick={(e) => pickScript(e.detail.path)} />
+							<PickHubScript bind:filter on:pick={(e) => pickHubScript(e.detail.path)} />
 						{/if}
 					</div>
 				</div>

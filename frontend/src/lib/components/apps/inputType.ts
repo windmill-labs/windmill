@@ -73,6 +73,7 @@ type InputConfiguration<T extends InputType, U, V extends InputType> = {
 	fieldType: T
 	defaultValue: U
 	subFieldType?: V
+	format: string | undefined
 }
 
 export type AppInput =
@@ -85,6 +86,7 @@ export type AppInput =
 	| AppInputSpec<'datetime', string>
 	| AppInputSpec<'any', any>
 	| AppInputSpec<'object', Record<string | number, any>>
+	| AppInputSpec<'object', string>
 	| (AppInputSpec<'select', string> & {
 			/**
 			 * One of the keys of `staticValues` from `lib/components/apps/editor/componentsPanel/componentStaticValues`

@@ -46,7 +46,23 @@
 	}, [])
 
 	$: runnablesByPath = $app.grid.reduce((acc, gridComponent) => {
-		const componentInput: AppInput = gridComponent.data.componentInput
+		const component: AppComponent = gridComponent.data
+
+		if (component.type === 'tablecomponent') {
+			component.actionButtons.forEach((actionButton) => {
+				if (actionButton.componentInput?.type === 'runnable') {
+					if (actionButton.componentInput.runnable?.type === 'runnableByPath') {
+						acc.push({
+							name: actionButton.componentInput.runnable.path,
+							id: gridComponent.id,
+							subId: actionButton.id
+						})
+					}
+				}
+			})
+		}
+
+		const componentInput = component.componentInput
 
 		if (componentInput?.type === 'runnable') {
 			if (componentInput.runnable?.type === 'runnableByPath') {
