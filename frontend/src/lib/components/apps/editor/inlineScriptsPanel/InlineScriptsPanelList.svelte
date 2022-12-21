@@ -75,12 +75,12 @@
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
 					<div
 						class="{classNames(
-							'border flex justify-between flex-row w-full items-center p-2 rounded-sm cursor-pointer hover:bg-blue-50 hover:text-blue-400',
+							'border flex  gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-sm cursor-pointer hover:bg-blue-50 hover:text-blue-400',
 							selectedScriptComponentId === (subId ? subId : id) ? 'border-blue-500 border' : ''
 						)},"
 						on:click={() => selectInlineScript(id, subId)}
 					>
-						<span class="text-xs">{name}</span>
+						<span class="text-xs truncate">{name}</span>
 						<div>
 							<Badge color="dark-indigo">{id}</Badge>
 							{#if subId}
@@ -100,12 +100,12 @@
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
 					<div
 						class="{classNames(
-							'border flex justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-blue-50 hover:text-blue-400',
+							'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-blue-50 hover:text-blue-400',
 							selectedScriptComponentId === '' ? 'bg-blue-100 text-blue-600' : ''
 						)},"
 						on:click={() => selectInlineScript(unusedInlineScript.name)}
 					>
-						<span class="text-xs">{unusedInlineScript.name}</span>
+						<span class="text-xs truncate">{unusedInlineScript.name}</span>
 						<Badge color="red">Unused</Badge>
 					</div>
 				{/each}
@@ -122,12 +122,12 @@
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
 					<div
 						class="{classNames(
-							'border flex justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-blue-50 hover:text-blue-400',
+							'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-blue-50 hover:text-blue-400',
 							selectedScriptComponentId === id ? 'bg-blue-100 text-blue-600' : ''
 						)},"
 						on:click={() => selectInlineScript(id)}
 					>
-						<span class="text-xs">{name}</span>
+						<span class="text-xs truncate">{name}</span>
 						<Badge color="dark-indigo">{id}</Badge>
 					</div>
 				{/each}

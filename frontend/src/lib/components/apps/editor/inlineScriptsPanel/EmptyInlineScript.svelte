@@ -34,7 +34,7 @@
 		subkind: 'pgsql' | 'mysql' | undefined = undefined
 	) {
 		const fullPath = `${appPath}/inline-script/${path}`
-		const content = initialCode(language, Script.kind.SCRIPT, subkind)
+		const content = initialCode(language, Script.kind.SCRIPT, subkind ?? 'flow')
 
 		let schema: Schema = emptySchema()
 
@@ -47,12 +47,13 @@
 		}
 		dispatch('new', newInlineScript)
 	}
+	const langs = ['deno', 'python3', 'go', 'bash'] as Script.language[]
 </script>
 
 <div class="flex flex-col p-4 gap-2 text-sm" in:fly={{ duration: 50 }}>
 	Please choose a language:
 	<div class="flex gap-2 flex-row flex-wrap">
-		{#each Object.values(Script.language) as lang}
+		{#each langs as lang}
 			<FlowScriptPicker
 				label={lang}
 				{lang}

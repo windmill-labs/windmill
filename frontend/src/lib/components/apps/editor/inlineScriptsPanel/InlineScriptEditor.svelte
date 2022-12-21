@@ -11,6 +11,8 @@
 	import type { Schema } from '$lib/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { fly } from 'svelte/transition'
+	import Editor from '$lib/components/Editor.svelte'
+	import { scriptLangToEditorLang } from '$lib/utils'
 
 	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
 
@@ -50,7 +52,7 @@
 <InlineScriptEditorDrawer bind:this={inlineScriptEditorDrawer} bind:inlineScript />
 
 <div class="h-full p-4 flex flex-col gap-2" transition:fly={{ duration: 50 }}>
-	<div class="flex justify-between w-full flex-row items-center">
+	<div class="flex justify-between w-full gap-1 flex-row items-center">
 		{#if name !== undefined}
 			<input bind:value={name} placeholder="Inline script name" />
 		{/if}
@@ -89,9 +91,9 @@
 	</div>
 
 	<div class="border h-full">
-		<SimpleEditor
+		<Editor
 			class="flex flex-1 grow h-full"
-			lang="typescript"
+			lang={scriptLangToEditorLang(inlineScript?.language)}
 			bind:code={inlineScript.content}
 			fixedOverflowWidgets={false}
 			on:change={async () => {

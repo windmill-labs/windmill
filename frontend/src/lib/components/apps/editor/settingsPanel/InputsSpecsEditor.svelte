@@ -17,7 +17,7 @@
 			{@const input = inputSpecs[inputSpecKey]}
 			{#if true}
 				<div class="flex flex-col gap-2">
-					<div class="flex justify-between items-center">
+					<div class="flex justify-between items-center gap-1">
 						<span class="text-xs font-semibold">{capitalize(inputSpecKey)}</span>
 
 						<div class="flex gap-2 items-center">

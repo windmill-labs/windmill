@@ -25,7 +25,7 @@
 		bind:inlineScript={appInput.runnable.inlineScript}
 	/>
 {/if}
-<div class="flex justify-between w-full items-center">
+<div class="flex justify-between w-full items-center gap-1">
 	<span class="text-xs font-semibold">
 		{#if appInput.runnable?.type === 'runnableByName'}
 			{appInput.runnable.name}
@@ -33,7 +33,7 @@
 			{appInput.runnable.path}
 		{/if}
 	</span>
-	<div>
+	<div class="flex flex-wrap gap-1">
 		{#if appInput.runnable?.type === 'runnableByName' && appInput.runnable.inlineScript}
 			<Button size="xs" color="light" variant="border" startIcon={{ icon: faEdit }} on:click={edit}>
 				Edit

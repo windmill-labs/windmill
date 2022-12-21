@@ -21,6 +21,7 @@
 	>
 		{#if inlineScript}
 			<ScriptEditor
+				noSyncFromGithub
 				lang={inlineScript.language}
 				path={inlineScript.path}
 				fixedOverflowWidgets={false}
