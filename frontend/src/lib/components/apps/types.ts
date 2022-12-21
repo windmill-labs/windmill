@@ -61,7 +61,6 @@ export interface BaseAppComponent extends Partial<Aligned> {
 	 * *For example when the component has a popup like `Select`*
 	 */
 	softWrap?: boolean
-	// TODO: add min/max width/height
 }
 
 export type AppComponent = BaseAppComponent &

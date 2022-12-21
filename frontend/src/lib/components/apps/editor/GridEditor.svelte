@@ -4,17 +4,9 @@
 	import Grid from 'svelte-grid'
 	import ComponentEditor from './ComponentEditor.svelte'
 	import { classNames } from '$lib/utils'
-	import {
-		columnConfiguration,
-		disableDrag,
-		enableDrag,
-		gridColumns,
-		isFixed,
-		toggleFixed
-	} from '../gridUtils'
+	import { columnConfiguration, disableDrag, enableDrag, isFixed, toggleFixed } from '../gridUtils'
 	import { Alert } from '$lib/components/common'
 	import { fly } from 'svelte/transition'
-	import gridHelp from 'svelte-grid/build/helper/index.mjs'
 
 	import Button from '$lib/components/common/button/Button.svelte'
 	import RecomputeAllComponents from './RecomputeAllComponents.svelte'
@@ -92,16 +84,17 @@
 					<ComponentEditor
 						bind:component={gridComponent.data}
 						selected={$selectedComponent === dataItem.data.id}
+						locked={isFixed(gridComponent)}
 						on:delete={() => removeGridElement(gridComponent.data)}
 						on:lock={() => {
 							gridComponent = toggleFixed(gridComponent)
 						}}
-						locked={isFixed(gridComponent)}
 					/>
 				</div>
 			{/if}
 		{/each}
 	</Grid>
+
 	{#if $connectingInput.opened}
 		<div
 			class="fixed top-32  z-10 flex justify-center items-center"

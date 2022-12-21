@@ -64,8 +64,8 @@
 			const { componentInput } = gridItem.data
 
 			if (
-				componentInput.type === 'runnable' &&
-				componentInput.runnable?.type === 'runnableByName'
+				componentInput?.type === 'runnable' &&
+				componentInput?.runnable?.type === 'runnableByName'
 			) {
 				acc.push(componentInput.runnable.name)
 			}
