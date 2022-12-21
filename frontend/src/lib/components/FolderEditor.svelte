@@ -64,7 +64,8 @@
 
 	async function loadFolder(): Promise<void> {
 		folder = await FolderService.getFolder({ workspace: $workspaceStore!, name })
-		can_write = folder.owners.includes('u/' + $userStore?.username)
+		can_write =
+			folder.owners.includes('u/' + $userStore?.username) || ($userStore?.is_admin ?? false)
 		perms = Array.from(
 			new Set(
 				Object.entries(folder?.extra_perms ?? {})
@@ -216,7 +217,7 @@
 												(scripts/flows/apps/schedules/resources/variables) inside the folder</Tooltip
 											></ToggleButton
 										>
-										<ToggleButton position="right" value="owner" size="xs"
+										<ToggleButton position="right" value="admin" size="xs"
 											>Admin&nbsp;<Tooltip
 												>An admin of a folder has read AND write access to all the elements inside
 												the folders and can manage the permissions as well as add new admins</Tooltip

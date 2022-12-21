@@ -103,7 +103,11 @@
 			<tbody slot="body">
 				{#if folders === undefined}
 					{#each new Array(6) as _}
-						<Skeleton layout={[0.25, [2], 0.25]} />
+						<tr>
+							<td colspan="4">
+								<Skeleton layout={[[2]]} />
+							</td>
+						</tr>
 					{/each}
 				{:else}
 					{#if folders.length === 0}
