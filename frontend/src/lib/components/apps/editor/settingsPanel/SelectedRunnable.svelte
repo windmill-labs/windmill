@@ -2,6 +2,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { faClose, faEdit } from '@fortawesome/free-solid-svg-icons'
 	import type { ResultAppInput } from '../../inputType'
+	import { clearResultAppInput } from '../../utils'
 	import InlineScriptEditorDrawer from '../inlineScriptsPanel/InlineScriptEditorDrawer.svelte'
 
 	export let appInput: ResultAppInput
@@ -14,11 +15,7 @@
 	}
 
 	function clear() {
-		if (appInput) {
-			appInput.runnable = undefined
-			appInput.fields = {}
-			appInput = appInput
-		}
+		appInput = clearResultAppInput(appInput)
 	}
 </script>
 

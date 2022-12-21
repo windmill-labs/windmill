@@ -39,10 +39,6 @@
 			if (component) {
 				$app.grid = $app.grid.filter((gridComponent) => gridComponent.data.id !== component?.id)
 
-				gridColumns.forEach((colIndex) => {
-					$app.grid = gridHelp.adjust($app.grid, colIndex)
-				})
-
 				// Delete static inputs
 				delete $staticOutputs[component.id]
 				$staticOutputs = $staticOutputs

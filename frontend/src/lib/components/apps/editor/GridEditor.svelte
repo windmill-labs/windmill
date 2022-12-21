@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import type { AppEditorContext } from '../types'
+	import type { AppEditorContext, InlineScript } from '../types'
 	import Grid from 'svelte-grid'
 	import ComponentEditor from './ComponentEditor.svelte'
 	import { classNames } from '$lib/utils'
@@ -29,12 +29,30 @@
 		$app.grid.map((gridItem) => enableDrag(gridItem))
 	}
 
-	function deleteComponent(component) {
+	function removeGridElement(component) {
 		if (component) {
-			$app.grid = $app.grid.filter((gridComponent) => gridComponent.data.id !== component?.id)
+			$app.grid = $app.grid.filter((gridComponent) => {
+				if (gridComponent.data.id === component.id) {
+					if (
+						gridComponent.data.componentInput?.runnable?.type === 'runnableByName' &&
+						gridComponent.data.componentInput?.runnable.inlineScript
+					) {
+						const { name, inlineScript } = gridComponent.data.componentInput?.runnable
 
-			gridColumns.forEach((colIndex) => {
-				$app.grid = gridHelp.adjust($app.grid, colIndex)
+						if (!$app.unusedInlineScripts) {
+							$app.unusedInlineScripts = []
+						}
+
+						$app.unusedInlineScripts.push({
+							name,
+							inlineScript
+						})
+
+						$app = $app
+					}
+				}
+
+				return gridComponent.data.id !== component?.id
 			})
 
 			// Delete static inputs
@@ -43,6 +61,8 @@
 
 			delete $runnableComponents[component.id]
 			$runnableComponents = $runnableComponents
+
+			$selectedComponent = undefined
 		}
 	}
 </script>
@@ -55,7 +75,6 @@
 		rowHeight={64}
 		cols={columnConfiguration}
 		fastStart={true}
-		throttleUpdate={50}
 		on:pointerup={({ detail }) => {
 			if (!$connectingInput.opened) {
 				$selectedComponent = detail.id
@@ -73,7 +92,7 @@
 					<ComponentEditor
 						bind:component={gridComponent.data}
 						selected={$selectedComponent === dataItem.data.id}
-						on:delete={() => deleteComponent(gridComponent.data)}
+						on:delete={() => removeGridElement(gridComponent.data)}
 						on:lock={() => {
 							gridComponent = toggleFixed(gridComponent)
 						}}
