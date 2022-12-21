@@ -3,7 +3,7 @@ import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
 import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/table.ts";
 import { VariableService } from "https://deno.land/x/windmill@v1.50.0/mod.ts";
-import { requireLogin, resolveWorkspace } from "./context.ts";
+import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import { GlobalOptions } from "./types.ts";
 
 async function list(opts: GlobalOptions) {
@@ -41,12 +41,7 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  if (!(remotePath.startsWith("g") || remotePath.startsWith("u"))) {
-    console.log(
-      colors.red(
-        "Given remote path looks invalid. Remote paths are typicall of the form <u|g>/<username|group>/...",
-      ),
-    );
+  if (!await validatePath(opts, remotePath)) {
     return;
   }
 

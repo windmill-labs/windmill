@@ -12,22 +12,22 @@ import { pushResourceType } from "./resource-type.ts";
 
 type Candidate = {
   path: string;
-  group: boolean;
-  groupOrUsername: string;
+  namespaceKind: "user" | "group" | "folder" | undefined;
+  namespaceName: string | undefined;
 };
 async function findCandidateFiles(dir: string): Promise<Candidate[]> {
   const candidates: Candidate[] = [];
   if (dir.startsWith(".")) return [];
   for await (const e of Deno.readDir(dir)) {
     if (e.isDirectory) {
-      if (e.name == "u" || e.name == "g") {
+      if (e.name == "u" || e.name == "g" || e.name == "f") { // TODO: Check version for f
         const newDir = dir + (dir.endsWith("/") ? "" : "/") + e.name;
         for await (const e2 of Deno.readDir(newDir)) {
           if (e2.isDirectory) {
             if (e2.name.startsWith(".")) return [];
-            const groupOrUserName = e2.name;
+            const namespaceName = e2.name;
             const stack: string[] = [];
-            stack.push(newDir + "/" + groupOrUserName + "/");
+            stack.push(newDir + "/" + namespaceName + "/");
 
             while (stack.length > 0) {
               const dir2 = stack.pop()!;
@@ -35,8 +35,12 @@ async function findCandidateFiles(dir: string): Promise<Candidate[]> {
                 if (e3.isFile) {
                   candidates.push({
                     path: dir2 + e3.name,
-                    group: e.name == "g",
-                    groupOrUsername: groupOrUserName,
+                    namespaceKind: e.name == "g"
+                      ? "group"
+                      : e.name == "u"
+                      ? "user"
+                      : "folder",
+                    namespaceName: namespaceName,
                   });
                 } else {
                   stack.push(dir2 + e3.name + "/");
@@ -57,8 +61,8 @@ async function findCandidateFiles(dir: string): Promise<Candidate[]> {
       // handle root files
       if (e.name.endsWith(".resource-type.json")) {
         candidates.push({
-          group: false,
-          groupOrUsername: "",
+          namespaceKind: undefined,
+          namespaceName: undefined,
           path: dir + (dir.endsWith("/") ? "" : "/") + e.name,
         });
         console.log(candidates);
@@ -83,7 +87,8 @@ async function push(opts: GlobalOptions, dir?: string) {
     );
     // figure out just the path after ...../u|g/username|group/ (in extra dir)
     const dirParts = candidate.path.split("/").filter((x) => x.length > 0);
-    const gIndex = dirParts.findIndex((x) => x == "u" || x == "g");
+    // TODO: check version for folder
+    const gIndex = dirParts.findIndex((x) => x == "u" || x == "g" || x == "f");
     const extraDir = dirParts.slice(gIndex + 2, -1).join("/");
 
     // file name parts has .json (hopefully) at -1, type at -2, and the actual name at -3. Dots in names are not allowed.
@@ -116,7 +121,7 @@ async function push(opts: GlobalOptions, dir?: string) {
     // get the type & filter it for valid ones.
     const type = fileNameParts.at(-2);
     if (type == "resource-type") {
-      if (candidate.group == false && candidate.groupOrUsername == "") {
+      if (!candidate.namespaceKind && !candidate.namespaceName) {
         console.log("pushing resource type " + fileNameParts.at(-3)!);
         await pushResourceType(
           workspace.workspaceId,
@@ -150,8 +155,10 @@ async function push(opts: GlobalOptions, dir?: string) {
     }
 
     // create the remotePath for the API
-    const remotePath = (candidate.group ? "g/" : "u/") +
-      candidate.groupOrUsername +
+    const remotePath = (candidate.namespaceKind === "group"
+      ? "g/"
+      : (candidate.namespaceKind === "user" ? "u/" : "f/")) +
+      candidate.namespaceName +
       "/" +
       (extraDir.length > 0 ? extraDir + "/" : "") +
       fileNameParts.at(-3);

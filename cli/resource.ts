@@ -2,7 +2,7 @@ import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
 import { ResourceService } from "https://deno.land/x/windmill@v1.50.0/mod.ts";
 import { GlobalOptions } from "./types.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
-import { requireLogin, resolveWorkspace } from "./context.ts";
+import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import { Resource } from "https://deno.land/x/windmill@v1.50.0/windmill-api/index.ts";
 import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/table.ts";
 
@@ -16,7 +16,7 @@ type ResourceFile = {
 export async function pushResource(
   workspace: string,
   filePath: string,
-  remotePath: string
+  remotePath: string,
 ) {
   const data: ResourceFile = JSON.parse(await Deno.readTextFile(filePath));
   if (
@@ -35,8 +35,8 @@ export async function pushResource(
         colors.red.underline.bold(
           "Remote resource at " +
             remotePath +
-            " exists & has a different resource type. This cannot be updated. If you wish to do this anyways, consider deleting the remote resource."
-        )
+            " exists & has a different resource type. This cannot be updated. If you wish to do this anyways, consider deleting the remote resource.",
+        ),
       );
       return;
     }
@@ -45,8 +45,8 @@ export async function pushResource(
         colors.red.underline.bold(
           "Remote resource at " +
             remotePath +
-            " exists & has a different oauth state. This cannot be updated. If you wish to do this anyways, consider deleting the remote resource."
-        )
+            " exists & has a different oauth state. This cannot be updated. If you wish to do this anyways, consider deleting the remote resource.",
+        ),
       );
       return;
     }
@@ -79,12 +79,7 @@ async function push(opts: PushOptions, filePath: string, remotePath: string) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  if (!(remotePath.startsWith("g") || remotePath.startsWith("u"))) {
-    console.log(
-      colors.red(
-        "Given remote path looks invalid. Remote paths are typicall of the form <u|g>/<username|group>/..."
-      )
-    );
+  if (!await validatePath(opts, remotePath)) {
     return;
   }
 
@@ -131,7 +126,7 @@ const command = new Command()
   .action(list as any)
   .command(
     "push",
-    "push a local resource spec. This overrides any remote versions."
+    "push a local resource spec. This overrides any remote versions.",
   )
   .arguments("<file_path:string> <remote_path:string>")
   .action(push as any);

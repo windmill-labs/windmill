@@ -12,6 +12,8 @@ import variable from "./variable.ts";
 import push from "./push.ts";
 import pull from "./pull.ts";
 import hub from "./hub.ts";
+import { tryResolveVersion } from "./context.ts";
+import { GlobalOptions } from "./types.ts";
 
 const VERSION = "v1.55.0";
 
@@ -36,6 +38,16 @@ const command = new Command()
   .command("push", push)
   .command("pull", pull)
   .command("hub", hub)
+  .command("version", "Show version information")
+  .action(async (opts) => {
+    console.log("CLI build against " + VERSION);
+    const backendVersion = await tryResolveVersion(opts as GlobalOptions);
+    if (backendVersion) {
+      console.log("Backend Version: " + backendVersion);
+    } else {
+      console.log("Cannot resolve Backend Version");
+    }
+  })
   .command(
     "upgrade",
     new UpgradeCommand({
