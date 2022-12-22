@@ -4,7 +4,6 @@
 	import { faTrash } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher, onMount } from 'svelte'
 	import type { InlineScript } from '../../types'
-	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { CheckCircle, Code2, X } from 'lucide-svelte'
 	import InlineScriptEditorDrawer from './InlineScriptEditorDrawer.svelte'
 	import { inferArgs } from '$lib/infer'

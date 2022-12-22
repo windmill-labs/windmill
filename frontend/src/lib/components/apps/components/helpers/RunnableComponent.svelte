@@ -10,13 +10,13 @@
 	import type { AppInputs, Runnable } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppEditorContext } from '../../types'
-	import { loadSchema, schemaToInputsSpec } from '../../utils'
+	import { fieldTypeToTsType, loadSchema, schemaToInputsSpec } from '../../utils'
 	import InputValue from './InputValue.svelte'
 	import MissingConnectionWarning from './MissingConnectionWarning.svelte'
 
 	// Component props
 	export let id: string
-	export let inputs: AppInputs
+	export let fields: AppInputs
 	export let runnable: Runnable
 	export let extraQueryParams: Record<string, any> = {}
 	export let autoRefresh: boolean = true
@@ -42,7 +42,7 @@
 	$: mergedArgs = { ...extraQueryParams, ...runnableInputValues, ...args }
 
 	function setStaticInputsToArgs() {
-		Object.entries(inputs ?? {}).forEach(([key, value]) => {
+		Object.entries(fields ?? {}).forEach(([key, value]) => {
 			if (value.type === 'static') {
 				args[key] = value.value
 			}
@@ -51,15 +51,15 @@
 		args = args
 	}
 
-	$: inputs && setStaticInputsToArgs()
+	$: fields && setStaticInputsToArgs()
 
 	function argMergedArgsValid(mergedArgs: Record<string, any>, testJobLoader) {
-		if (!inputs) {
+		if (!fields) {
 			return false
 		}
 
 		if (
-			Object.keys(inputs).length !==
+			Object.keys(fields).length !==
 			Object.keys(mergedArgs).length - Object.keys(extraQueryParams).length
 		) {
 			return false
@@ -91,30 +91,53 @@
 		workspace: string,
 		path: string,
 		runType: 'script' | 'flow' | 'hubscript'
-	) {
-		schema = await loadSchema(workspace, path, runType)
+	): Promise<Schema> {
+		return loadSchema(workspace, path, runType)
 	}
 
-	// Only loads the schema
-	$: if ($workspaceStore && runnable?.type === 'runnableByPath' && !schema) {
-		// Remote schema needs to be loaded
-		const { path, runType } = runnable
+	$: runnable && loadSchemaAndInputsByName()
 
-		loadSchemaFromTriggerable($workspaceStore, path, runType)
-	} else if (runnable?.type === 'runnableByName' && !schema) {
-		const { inlineScript } = runnable
-		// Inline scripts directly provide the schema
-		if (inlineScript) {
-			schema = inlineScript.schema
+	async function loadSchemaAndInputsByName() {
+		if (runnable?.type === 'runnableByName') {
+			const { inlineScript } = runnable
+			// Inline scripts directly provide the schema
+			if (inlineScript) {
+				const newSchema = inlineScript.schema
+				schema = newSchema
+
+				const newFields = reloadInputs()
+
+				if (JSON.stringify(newFields) !== JSON.stringify(fields)) {
+					console.log('newFields', newFields)
+					fields = newFields
+				}
+			}
 		}
 	}
 
+	async function loadSchemaAndInputsByPath() {
+		if ($workspaceStore && runnable?.type === 'runnableByPath') {
+			// Remote schema needs to be loaded
+			const { path, runType } = runnable
+			const newSchema = await loadSchemaFromTriggerable($workspaceStore, path, runType)
+			schema = newSchema
+
+			let schemaWithoutExtraQueries: Schema = JSON.parse(JSON.stringify(schema))
+
+			// Remove extra query params from the schema, which are not directly configurable by the user
+			Object.keys(extraQueryParams).forEach((key) => {
+				delete schemaWithoutExtraQueries.properties[key]
+			})
+
+			fields = schemaToInputsSpec(schemaWithoutExtraQueries)
+		}
+	}
+
+	$: !schema && runnable?.type === 'runnableByPath' && loadSchemaAndInputsByPath()
+
 	// When the schema is loaded, we need to update the inputs spec
 	// in order to render the inputs the component panel
-	$: if (
-		schema &&
-		Object.keys(schema?.properties ?? {}).length !== Object.keys(inputs ?? {}).length
-	) {
+	function reloadInputs() {
 		let schemaWithoutExtraQueries: Schema = JSON.parse(JSON.stringify(schema))
 
 		// Remove extra query params from the schema, which are not directly configurable by the user
@@ -122,7 +145,26 @@
 			delete schemaWithoutExtraQueries.properties[key]
 		})
 
-		inputs = schemaToInputsSpec(schemaWithoutExtraQueries)
+		const result = {}
+		const newInputs = schemaToInputsSpec(schemaWithoutExtraQueries)
+
+		Object.keys(newInputs).forEach((key) => {
+			const newInput = newInputs[key]
+			const oldInput = fields[key]
+
+			// If the input is not present in the old inputs, add it
+			if (oldInput === undefined) {
+				result[key] = newInput
+			} else {
+				if (fieldTypeToTsType(newInput.fieldType) !== fieldTypeToTsType(oldInput.fieldType)) {
+					result[key] = newInput
+				} else {
+					result[key] = oldInput
+				}
+			}
+		})
+
+		return result
 	}
 
 	let schemaStripped: Schema | undefined = undefined
@@ -151,11 +193,11 @@
 		})
 	}
 
-	$: schema && inputs && stripSchema(schema, inputs)
+	$: schema && fields && stripSchema(schema, fields)
 
-	$: disabledArgs = Object.keys(inputs ?? {}).reduce(
+	$: disabledArgs = Object.keys(fields ?? {}).reduce(
 		(disabledArgsAccumulator: string[], inputName: string) => {
-			if (inputs[inputName].type === 'static') {
+			if (fields[inputName].type === 'static') {
 				disabledArgsAccumulator = [...disabledArgsAccumulator, inputName]
 			}
 			return disabledArgsAccumulator
@@ -208,8 +250,8 @@
 	}
 </script>
 
-{#each Object.keys(inputs ?? {}) as key}
-	<InputValue {id} input={inputs[key]} bind:value={runnableInputValues[key]} />
+{#each Object.keys(fields ?? {}) as key}
+	<InputValue {id} input={fields[key]} bind:value={runnableInputValues[key]} />
 {/each}
 
 <TestJobLoader
@@ -241,9 +283,9 @@
 			<Alert type="info" size="xs" class="mt-2" title="Missing inputs">
 				Please fill in all the inputs
 
-				{#each Object.keys(inputs ?? {}) as key}
-					{#if inputs[key].type === 'connected'}
-						<MissingConnectionWarning input={inputs[key]} />
+				{#each Object.keys(fields ?? {}) as key}
+					{#if fields[key].type === 'connected'}
+						<MissingConnectionWarning input={fields[key]} />
 					{/if}
 				{/each}
 			</Alert>

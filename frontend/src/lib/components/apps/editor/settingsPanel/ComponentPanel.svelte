@@ -48,6 +48,25 @@
 				$runnableComponents = $runnableComponents
 			}
 		}
+
+		if (
+			component &&
+			component.componentInput?.type === 'runnable' &&
+			component.componentInput?.runnable?.type === 'runnableByName'
+		) {
+			const { name, inlineScript } = component.componentInput.runnable
+
+			if (inlineScript) {
+				if (!$app.unusedInlineScripts) {
+					$app.unusedInlineScripts = []
+				}
+
+				$app.unusedInlineScripts.push({
+					name,
+					inlineScript
+				})
+			}
+		}
 	}
 
 	export function buildExtraLib(components: Record<string, Record<string, Output<any>>>): string {
@@ -132,6 +151,7 @@ declare const ${k} = ${JSON.stringify(v)};
 							</svelte:fragment>
 
 							<InputsSpecsEditor
+								shouldCapitalize={false}
 								bind:inputSpecs={component.componentInput.fields}
 								userInputEnabled={component.type !== 'buttoncomponent'}
 							/>

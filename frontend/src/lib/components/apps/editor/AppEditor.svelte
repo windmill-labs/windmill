@@ -132,13 +132,13 @@
 										<ComponentPanel bind:component={gridItem.data} />
 									{/if}
 									{#if gridItem.data.type === 'tablecomponent'}
-										{#each gridItem.data.actionButtons as component (component.id)}
-											{#if component.id === $selectedComponent}
+										{#each gridItem.data.actionButtons as actionButton (actionButton.id)}
+											{#if actionButton.id === $selectedComponent}
 												<ComponentPanel
-													bind:component
+													bind:component={actionButton}
 													onDelete={() => {
 														gridItem.data.actionButtons = gridItem.data.actionButtons.filter(
-															(c) => c.id !== component.id
+															(c) => c.id !== actionButton.id
 														)
 													}}
 												/>
