@@ -734,12 +734,7 @@ async fn tarball_workspace(
                 ScriptLang::Go => "go",
                 ScriptLang::Bash => "sh",
             };
-            write_to_archive(
-                script.content,
-                format!("scripts/{}.{}", script.path, ext),
-                &mut a,
-            )
-            .await?;
+            write_to_archive(script.content, format!("{}.{}", script.path, ext), &mut a).await?;
 
             let lock = script
                 .lock
@@ -755,12 +750,7 @@ async fn tarball_workspace(
                 lock,
             };
             let metadata_str = serde_json::to_string_pretty(&metadata).unwrap();
-            write_to_archive(
-                metadata_str,
-                format!("scripts/{}.script.json", script.path),
-                &mut a,
-            )
-            .await?;
+            write_to_archive(metadata_str, format!("{}.script.json", script.path), &mut a).await?;
         }
     }
 
@@ -777,7 +767,7 @@ async fn tarball_workspace(
             let resource_str = serde_json::to_string_pretty(&resource).unwrap();
             write_to_archive(
                 resource_str,
-                format!("resources/{}.resource.json", resource.path),
+                format!("{}.resource.json", resource.path),
                 &mut a,
             )
             .await?;
@@ -797,7 +787,7 @@ async fn tarball_workspace(
             let resource_str = serde_json::to_string_pretty(&resource_type).unwrap();
             write_to_archive(
                 resource_str,
-                format!("resource_types/{}.resource-type.json", resource_type.name),
+                format!("{}.resource-type.json", resource_type.name),
                 &mut a,
             )
             .await?;
@@ -814,7 +804,7 @@ async fn tarball_workspace(
 
         for flow in flows {
             let flow_str = serde_json::to_string_pretty(&flow).unwrap();
-            write_to_archive(flow_str, format!("flows/{}.flow.json", flow.path), &mut a).await?;
+            write_to_archive(flow_str, format!("{}.flow.json", flow.path), &mut a).await?;
         }
     }
 
@@ -828,12 +818,7 @@ async fn tarball_workspace(
 
         for var in variables {
             let flow_str = serde_json::to_string_pretty(&var).unwrap();
-            write_to_archive(
-                flow_str,
-                format!("variables/{}.variable.json", var.path),
-                &mut a,
-            )
-            .await?;
+            write_to_archive(flow_str, format!("{}.variable.json", var.path), &mut a).await?;
         }
     }
     a.into_inner().await?;
