@@ -8,6 +8,7 @@
 
 use crate::{
     db::{UserDB, DB},
+    folders::Folder,
     resources::{Resource, ResourceType},
     users::{Authed, WorkspaceInvite},
     utils::require_super_admin,
@@ -699,6 +700,22 @@ async fn tarball_workspace(
     let file_path = tmp_dir.path().join(&name);
     let file = File::create(&file_path).await?;
     let mut a = tokio_tar::Builder::new(file);
+
+    {
+        let folders = sqlx::query_as::<_, Folder>("SELECT * FROM folder WHERE workspace_id = $1")
+            .bind(&w_id)
+            .fetch_all(&db)
+            .await?;
+
+        for folder in folders {
+            write_to_archive(
+                serde_json::to_string_pretty(&folder).unwrap(),
+                format!("f/{}/folder.meta.json", folder.name),
+                &mut a,
+            )
+            .await?;
+        }
+    }
 
     {
         let scripts = sqlx::query_as::<_, Script>(

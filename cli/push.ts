@@ -7,7 +7,7 @@ import { findContentFile, pushScript } from "./script.ts";
 import { GlobalOptions } from "./types.ts";
 import { pushVariable } from "./variable.ts";
 import { pushResourceType } from "./resource-type.ts";
-import { pushFolder } from "./folder.ts";
+// import { pushFolder } from "./folder.ts";
 
 type Candidate = {
   path: string;
@@ -150,11 +150,11 @@ async function push(opts: GlobalOptions, dir?: string) {
     );
   }
   for (const folder of folders) {
-    await pushFolder(
+    /*await pushFolder(
       workspace.workspaceId,
       folder.path,
       "f/" + folder.namespaceName,
-    );
+    );*/
   }
   for (const candidate of normal) {
     // full file name. No leading /. includes .type.json
