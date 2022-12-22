@@ -113,7 +113,7 @@ export async function validatePath(
   ) {
     console.log(
       colors.red(
-        "Given remote path looks invalid. Remote paths are typicall of the form <u|g|f>/<username|group|folder>/...",
+        "Given remote path looks invalid. Remote paths are typically of the form <u|g|f>/<username|group|folder>/...",
       ),
     );
     return false;
