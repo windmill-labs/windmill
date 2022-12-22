@@ -161,7 +161,7 @@
 				Schedule
 			</Button>
 			<Button
-				on:click={() => shareModal.openDrawer(flow?.path ?? '')}
+				on:click={() => shareModal.openDrawer(flow?.path ?? '', 'flow')}
 				variant="border"
 				color="light"
 				size="xs"
@@ -218,7 +218,7 @@
 			<h2 class="font-bold pb-4">{flow.path}</h2>
 		{/if}
 	{/if}
-	<ShareModal bind:this={shareModal} kind="flow" path={flow?.path ?? ''} />
+	<ShareModal bind:this={shareModal} />
 
 	<div class="grid grid-cols-1 gap-6 max-w-7xl pb-6">
 		<Skeleton

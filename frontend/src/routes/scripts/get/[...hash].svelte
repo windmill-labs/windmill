@@ -272,7 +272,7 @@
 					Publish to Hub
 				</Button>
 				<Button
-					on:click={() => shareModal.openDrawer(script?.path ?? '')}
+					on:click={() => shareModal.openDrawer(script?.path ?? '', 'script')}
 					variant="border"
 					color="light"
 					size="xs"
@@ -487,4 +487,4 @@
 
 <UserSettings bind:this={userSettings} />
 
-<ShareModal bind:this={shareModal} kind="script" path={script?.path ?? ''} />
+<ShareModal bind:this={shareModal} />

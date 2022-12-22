@@ -17,35 +17,20 @@
 	let label: string
 	let items: string[]
 	let itemKey: string
-	
+
 	$: outputs = $worldStore?.outputsById[id] as {
 		result: Output<string | undefined>
 	}
 
-	function onChange({detail}: CustomEvent) {
+	function onChange({ detail }: CustomEvent) {
 		outputs?.result.set(detail?.[itemKey] || undefined)
 	}
 </script>
 
-<InputValue input={configuration.label} bind:value={label} />
-<InputValue input={configuration.items} bind:value={items} />
-<InputValue input={configuration.itemKey} bind:value={itemKey} />
+<InputValue {id} input={configuration.label} bind:value={label} />
+<InputValue {id} input={configuration.items} bind:value={items} />
+<InputValue {id} input={configuration.itemKey} bind:value={itemKey} />
 
 <AlignWrapper {horizontalAlignment} {verticalAlignment}>
-	<!-- svelte-ignore a11y-label-has-associated-control -->
-	<label class="block w-full">
-		<div>
-			{label}
-		</div>
-		<div>
-			<Select
-				on:clear={onChange}
-				on:change={onChange}
-			
-				{items}
-				class="w-full"
-				placeholder="Select an item"
-			/>
-		</div>
-	</label>
+	<Select on:clear={onChange} on:change={onChange} {items} placeholder="Select an item" />
 </AlignWrapper>

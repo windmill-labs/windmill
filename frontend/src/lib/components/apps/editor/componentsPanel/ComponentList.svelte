@@ -19,7 +19,7 @@
 		// Dimensions key formula: <mobile width>:<mobile height>-<desktop width>:<desktop height>
 		const dimensions: Record<`${number}:${number}-${number}:${number}`, AppComponent['type'][]> = {
 			'1:1-3:1': ['buttoncomponent', 'textcomponent', 'checkboxcomponent'],
-			'1:2-3:2': ['textinputcomponent', 'numberinputcomponent', 'selectcomponent'],
+			'1:2-2:1': ['textinputcomponent', 'numberinputcomponent', 'selectcomponent'],
 			'2:2-6:4': ['displaycomponent'],
 			'2:3-6:4': ['formcomponent'],
 			'2:4-6:4': ['barchartcomponent', 'piechartcomponent'],
@@ -31,6 +31,21 @@
 		) || ['2:1-2:1']
 		const size = dimension.split('-')[column === 3 ? 0 : 1].split(':')
 		return { w: +size[0], h: +size[1] }
+	}
+
+	function getMaxDimensionsByComponent(componentType: AppComponent['type'], column: number): Size {
+		if (
+			[
+				'textinputcomponent',
+				'numberinputcomponent',
+				'selectcomponent',
+				'dateinputcomponent',
+				'passwordinputcomponent'
+			].includes(componentType)
+		) {
+			return { w: column, h: 1 }
+		}
+		return { w: column, h: 12 }
 	}
 
 	function addComponent(appComponent: AppComponent) {
@@ -56,7 +71,7 @@
 
 		gridColumns.forEach((column) => {
 			const min = getMinDimensionsByComponent(appComponent.type, column)
-			const max = { w: 12, h: 12 }
+			const max = getMaxDimensionsByComponent(appComponent.type, column)
 
 			newItem[column] = { ...newComponent, min, max, w: min.w, h: min.h }
 			const position = gridHelp.findSpace(newItem, grid, column)

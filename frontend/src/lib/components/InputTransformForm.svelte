@@ -14,6 +14,9 @@
 	import type VariableEditor from './VariableEditor.svelte'
 	import type ItemPicker from './ItemPicker.svelte'
 	import type { InputTransform } from '$lib/gen'
+	import TemplateEditor from './TemplateEditor.svelte'
+	import Tooltip from './Tooltip.svelte'
+	import { escape } from 'svelte/internal'
 
 	export let schema: Schema
 	export let arg: InputTransform | any
@@ -99,6 +102,10 @@
 	}
 
 	const { focusProp, propPickerConfig } = getContext<PropPickerWrapperContext>('PropPickerWrapper')
+
+	$: isStaticTemplate(inputCat) && propertyType == 'static' && setPropertyType(arg.value)
+	const openBracket = '${'
+	const closeBracket = '}'
 </script>
 
 {#if arg != undefined}
@@ -174,7 +181,11 @@
 				>
 					{#if isStaticTemplate(inputCat)}
 						<ToggleButton light position="left" value="static" size="xs">
-							{'${} '}Templatable</ToggleButton
+							{'${} '}Templatable &nbsp; <Tooltip
+								>Write javascript expressions between "{openBracket}" and "{closeBracket}". You may
+								refer to contextual objects like 'flow_input', or 'result' or functions like
+								'resource' and 'variable'
+							</Tooltip></ToggleButton
 						>
 					{:else}
 						<ToggleButton light position="left" value="static" size="xs">Static</ToggleButton>
@@ -207,7 +218,11 @@
 				Connect input &rightarrow;
 			</span>
 		{/if}
-		{#if propertyType === undefined || propertyType == 'static'}
+		{#if isStaticTemplate(inputCat) && propertyType == 'static'}
+			<div class="py-1">
+				<TemplateEditor {extraLib} on:focus={onFocus} bind:code={arg.value} />
+			</div>
+		{:else if propertyType === undefined || propertyType == 'static'}
 			<ArgInput
 				noMargin
 				compact
@@ -229,11 +244,6 @@
 				properties={schema.properties[argName].properties}
 				displayHeader={false}
 				bind:inputCat
-				on:input={(e) => {
-					if (isStaticTemplate(inputCat)) {
-						setPropertyType(e.detail.rawValue)
-					}
-				}}
 				{variableEditor}
 				{itemPicker}
 				bind:pickForField

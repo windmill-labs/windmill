@@ -3,7 +3,6 @@
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppEditorContext } from '../../types'
-	import DebouncedInput from '../helpers/DebouncedInput.svelte'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 
@@ -19,7 +18,7 @@
 	$: outputs = $worldStore?.outputsById[id] as {
 		result: Output<number | null>
 	}
-	$: if(value || !value) {
+	$: if (value || !value) {
 		// Disallow 'e' character in numbers
 		// if(value && value.toString().includes('e')) {
 		// 	value = +value.toString().replaceAll('e', '')
@@ -29,21 +28,15 @@
 	}
 </script>
 
-<InputValue input={configuration.label} bind:value={labelValue} />
+<InputValue {id} input={configuration.label} bind:value={labelValue} />
 
 <AlignWrapper {verticalAlignment}>
-	<!-- svelte-ignore a11y-label-has-associated-control -->
-	<label class="w-full">
-		<div>
-			{labelValue}
-		</div>
-		<DebouncedInput
-			bind:value={value}
-			debounceDelay={300}
-			type="number"
-			inputmode="numeric"
-			pattern="\d*"
-			placeholder="Type..."
-		/>
-	</label>
+	<input
+		bind:value
+		type="number"
+		inputmode="numeric"
+		pattern="\d*"
+		placeholder="Type..."
+		class="h-full"
+	/>
 </AlignWrapper>

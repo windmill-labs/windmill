@@ -13,8 +13,10 @@
 
 	const dispatch = createEventDispatcher()
 
-	export let kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow'
-	export let path: string = ''
+	type Kind = 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow'
+	let kind: Kind
+
+	let path: string = ''
 
 	let ownerKind: 'user' | 'group' = 'user'
 	let owner: string = ''
@@ -30,15 +32,15 @@
 	$: newOwner = [ownerKind === 'group' ? 'g' : 'u', owner].join('/')
 
 	let own = false
-	export async function openDrawer(newPath: string) {
+	export async function openDrawer(newPath: string, kind_l: Kind) {
 		path = newPath
+		kind = kind_l
 		loadAcls()
 		loadGroups()
 		loadUsernames()
+		await loadOwner()
 		drawer.openDrawer()
 	}
-
-	$: $userStore && $workspaceStore && loadOwner()
 
 	async function loadOwner() {
 		own = await isOwner(path, $userStore!, $workspaceStore!)
@@ -66,7 +68,7 @@
 				requestBody: { owner }
 			})
 			loadAcls()
-			dispatch('change')
+			dispatch('change', { path, kind })
 		} catch (err) {
 			sendUserToast(err.toString(), true)
 		}
@@ -80,7 +82,7 @@
 			requestBody: { owner, write }
 		})
 		loadAcls()
-		dispatch('change')
+		dispatch('change', { path, kind })
 	}
 </script>
 

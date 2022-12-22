@@ -185,10 +185,10 @@
 											}
 										},
 										{
-											displayName: 'Share',
+											displayName: canWrite ? 'Share' : 'See Permissions',
 											icon: faShare,
 											action: () => {
-												shareModal.openDrawer(path)
+												shareModal.openDrawer(path, 'schedule')
 											}
 										}
 									]}
@@ -204,7 +204,6 @@
 
 <ShareModal
 	bind:this={shareModal}
-	kind="schedule"
 	on:change={() => {
 		loadSchedules()
 	}}

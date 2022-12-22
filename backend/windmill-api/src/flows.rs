@@ -297,7 +297,7 @@ async fn update_flow(
         check_schedule_conflict(&mut tx, &w_id, &nf.path).await?;
 
         if !authed.is_admin {
-            require_owner_of_path(&w_id, &authed.username, &flow_path, &db).await?;
+            require_owner_of_path(&w_id, &authed.username, &authed.groups, &flow_path, &db).await?;
         }
 
         let mut schedulables = sqlx::query_as!(

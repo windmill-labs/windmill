@@ -201,6 +201,24 @@ paths:
               schema:
                 type: string
 
+
+  /w/{workspace}/users/is_owner/{path}:
+    get:
+      summary: is owner of path
+      operationId: isOwnerOfPath
+      tags:
+        - user
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: is owner
+          content:
+            application/json:
+              schema:
+                type: boolean
+
   /users/setpassword:
     post:
       summary: set password
@@ -3699,6 +3717,38 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/folders/update/{name}:
+    post:
+      summary: update folder
+      operationId: updateFolder
+      tags:
+        - folder
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Name"
+      requestBody:
+        description: update folder
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                owners:
+                  type: array
+                  items: 
+                    type: string
+                extra_perms:
+                  additionalProperties:
+                    type: boolean
+      responses:
+        "200":
+          description: folder updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/folders/delete/{name}:
     delete:
       summary: delete folder
@@ -4275,6 +4325,7 @@ components:
         - hash
         - path
         - summary
+        - description
         - content
         - created_by
         - created_at

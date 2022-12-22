@@ -26,9 +26,9 @@
 	let runnableComponent: RunnableComponent
 </script>
 
-<InputValue input={configuration.label} bind:value={labelValue} />
-<InputValue input={configuration.color} bind:value={color} />
-<InputValue input={configuration.size} bind:value={size} />
+<InputValue {id} input={configuration.label} bind:value={labelValue} />
+<InputValue {id} input={configuration.color} bind:value={color} />
+<InputValue {id} input={configuration.size} bind:value={size} />
 
 <RunnableWrapper
 	bind:runnableComponent

@@ -40,13 +40,19 @@
 		}
 	}
 
-	function pickInlineScript(name: string, inlineScript: InlineScript) {
-		if (appInput.type === 'runnable') {
+	function pickInlineScript(name: string) {
+		const unusedInlineScriptIndex = $app.unusedInlineScripts?.findIndex(
+			(script) => script.name === name
+		)
+		const unusedInlineScript = $app.unusedInlineScripts?.[unusedInlineScriptIndex]
+		if (appInput.type === 'runnable' && unusedInlineScript?.inlineScript) {
 			appInput.runnable = {
 				type: 'runnableByName',
 				name,
-				inlineScript
+				inlineScript: unusedInlineScript.inlineScript
 			}
+
+			$app.unusedInlineScripts.splice(unusedInlineScriptIndex, 1)
 		}
 	}
 
@@ -58,8 +64,8 @@
 			const { componentInput } = gridItem.data
 
 			if (
-				componentInput.type === 'runnable' &&
-				componentInput.runnable?.type === 'runnableByName'
+				componentInput?.type === 'runnable' &&
+				componentInput?.runnable?.type === 'runnableByName'
 			) {
 				acc.push(componentInput.runnable.name)
 			}
@@ -67,7 +73,10 @@
 			return acc
 		}, [] as string[])
 
-		while (names.includes(newScriptPath)) {
+		const unusedNames = Object.keys($app.unusedInlineScripts ?? {})
+
+		// Find a name that is not used by any other inline script
+		while (names.includes(newScriptPath) || unusedNames.includes(newScriptPath)) {
 			newScriptPath = `inline_script_${++index}`
 		}
 
@@ -117,7 +126,12 @@
 				<div class="flex flex-col gap-y-16">
 					<div class="flex flex-col">
 						{#if tab == 'inlinescripts'}
-							<InlineScriptList on:pick={(e) => pickInlineScript('', e.detail)} />
+							<InlineScriptList
+								on:pick={(e) => pickInlineScript(e.detail)}
+								inlineScripts={$app.unusedInlineScripts
+									? $app.unusedInlineScripts.map((uis) => uis.name)
+									: []}
+							/>
 						{:else if tab == 'workspacescripts'}
 							<WorkspaceScriptList on:pick={(e) => pickScript(e.detail)} />
 						{:else if tab == 'workspaceflows'}

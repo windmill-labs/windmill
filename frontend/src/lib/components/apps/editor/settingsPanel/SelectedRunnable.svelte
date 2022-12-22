@@ -2,6 +2,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { faClose, faEdit } from '@fortawesome/free-solid-svg-icons'
 	import type { ResultAppInput } from '../../inputType'
+	import { clearResultAppInput } from '../../utils'
 	import InlineScriptEditorDrawer from '../inlineScriptsPanel/InlineScriptEditorDrawer.svelte'
 
 	export let appInput: ResultAppInput
@@ -14,11 +15,7 @@
 	}
 
 	function clear() {
-		if (appInput) {
-			appInput.runnable = undefined
-			appInput.fields = {}
-			appInput = appInput
-		}
+		appInput = clearResultAppInput(appInput)
 	}
 </script>
 
@@ -28,7 +25,7 @@
 		bind:inlineScript={appInput.runnable.inlineScript}
 	/>
 {/if}
-<div class="flex justify-between w-full items-center">
+<div class="flex justify-between w-full items-center gap-1">
 	<span class="text-xs font-semibold">
 		{#if appInput.runnable?.type === 'runnableByName'}
 			{appInput.runnable.name}
@@ -36,7 +33,7 @@
 			{appInput.runnable.path}
 		{/if}
 	</span>
-	<div>
+	<div class="flex flex-wrap gap-1">
 		{#if appInput.runnable?.type === 'runnableByName' && appInput.runnable.inlineScript}
 			<Button size="xs" color="light" variant="border" startIcon={{ icon: faEdit }} on:click={edit}>
 				Edit

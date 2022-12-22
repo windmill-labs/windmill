@@ -65,10 +65,16 @@
 		mounted = true
 	})
 
-	$: mounted && ($worldStore = buildWorld($staticOutputs))
-	$: selectedTab = $selectedComponent ? 'settings' : 'insert'
+	$: mounted && ($worldStore = buildWorld($staticOutputs, $worldStore))
 	$: previewing = $mode === 'preview'
-	$: width = $breakpoint === 'sm' ? 'w-[640px]' : 'min-w-[900px] w-full'
+	$: width = $breakpoint === 'sm' ? 'w-[640px]' : 'min-w-[1080px] w-full'
+
+	let selectedTab: 'insert' | 'settings' = 'insert'
+	$: if ($selectedComponent) {
+		selectedTab = 'settings'
+	} else {
+		selectedTab = 'insert'
+	}
 </script>
 
 {#if !$userStore?.operator}
@@ -77,18 +83,18 @@
 	{/if}
 
 	{#if previewing}
-		<AppPreview app={$appStore} appPath={path} />
+		<AppPreview app={$appStore} appPath={path} {breakpoint} />
 	{:else}
 		<SplitPanesWrapper class="max-w-full overflow-hidden">
 			<Pane size={20}>
 				<ContextPanel />
 			</Pane>
-			<Pane size={60}>
+			<Pane size={55}>
 				<SplitPanesWrapper horizontal>
-					<Pane size={75}>
-						<div class="bg-gray-100 p-4 relative min-h-full w-full">
+					<Pane size={70}>
+						<div class={classNames('bg-gray-100  mx-auto  relative min-h-full', width)}>
 							{#if $appStore.grid}
-								<div class={classNames('mx-auto h-full bg-gray-100', width)}>
+								<div class={classNames('mx-auto p-4 w-full h-full bg-gray-100', width)}>
 									<GridEditor />
 								</div>
 							{/if}
@@ -99,12 +105,12 @@
 							{/if}
 						</div>
 					</Pane>
-					<Pane size={25}>
+					<Pane size={30}>
 						<InlineScriptsPanel />
 					</Pane>
 				</SplitPanesWrapper>
 			</Pane>
-			<Pane size={20} minSize={20} maxSize={20}>
+			<Pane size={25} minSize={20} maxSize={33}>
 				<Tabs bind:selected={selectedTab}>
 					<Tab value="insert" size="xs">
 						<div class="m-1 flex flex-row gap-2">

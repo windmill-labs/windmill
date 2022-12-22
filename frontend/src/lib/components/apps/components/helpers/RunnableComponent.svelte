@@ -36,7 +36,7 @@
 	let testIsLoading = false
 	let runnableInputValues: Record<string, any> = {}
 
-	$: mergedArgs = { ...args, ...extraQueryParams, ...runnableInputValues }
+	$: mergedArgs = { ...extraQueryParams, ...runnableInputValues, ...args }
 
 	function setStaticInputsToArgs() {
 		Object.entries(inputs ?? {}).forEach(([key, value]) => {
@@ -51,9 +51,13 @@
 	$: inputs && setStaticInputsToArgs()
 
 	function argMergedArgsValid(mergedArgs: Record<string, any>, testJobLoader) {
+		if (!inputs) {
+			return false
+		}
+
 		if (
-			Object.keys(inputs ?? {}).filter((k) => inputs[k].type !== 'user').length !==
-			Object.keys(runnableInputValues).length
+			Object.keys(inputs).length !==
+			Object.keys(mergedArgs).length - Object.keys(extraQueryParams).length
 		) {
 			return false
 		}
@@ -195,7 +199,7 @@
 </script>
 
 {#each Object.keys(inputs ?? {}) as key}
-	<InputValue input={inputs[key]} bind:value={runnableInputValues[key]} />
+	<InputValue {id} input={inputs[key]} bind:value={runnableInputValues[key]} />
 {/each}
 
 <TestJobLoader
@@ -211,22 +215,24 @@
 	bind:this={testJobLoader}
 />
 
-{#if schemaStripped !== undefined && (autoRefresh || forceSchemaDisplay)}
-	<SchemaForm schema={schemaStripped} bind:args {isValid} {disabledArgs} shouldHideNoInputs />
-{/if}
-
-{#if !runnable && autoRefresh}
-	<Alert type="warning" size="xs" class="mt-2" title="Missing runnable">
-		Please select a runnable
-	</Alert>
-{:else if autoRefresh === true}
-	{#if isValid}
-		<slot />
-	{:else}
-		<Alert type="warning" size="xs" class="mt-2" title="Missing inputs">
-			Please fill in all the inputs
-		</Alert>
+<div class="h-full flex flex-col">
+	{#if schemaStripped !== undefined && (autoRefresh || forceSchemaDisplay)}
+		<SchemaForm schema={schemaStripped} bind:args {isValid} {disabledArgs} shouldHideNoInputs />
 	{/if}
-{:else}
-	<slot />
-{/if}
+
+	{#if !runnable && autoRefresh}
+		<Alert type="warning" size="xs" class="mt-2" title="Missing runnable">
+			Please select a runnable
+		</Alert>
+	{:else if autoRefresh === true}
+		{#if isValid}
+			<slot />
+		{:else}
+			<Alert type="warning" size="xs" class="mt-2" title="Missing inputs">
+				Please fill in all the inputs
+			</Alert>
+		{/if}
+	{:else}
+		<slot />
+	{/if}
+</div>

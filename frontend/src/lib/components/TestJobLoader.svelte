@@ -130,7 +130,7 @@
 				})
 
 				if (previewJobUpdates.new_logs) {
-					job.logs = (job.logs ?? '').concat(previewJobUpdates.new_logs)
+					job.logs = (job?.logs ?? '').concat(previewJobUpdates.new_logs)
 				}
 				if ((previewJobUpdates.running ?? false) || (previewJobUpdates.completed ?? false)) {
 					job = await JobService.getJob({ workspace: workspace!, id })
