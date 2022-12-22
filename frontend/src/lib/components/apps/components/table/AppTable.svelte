@@ -100,8 +100,8 @@
 	$: result && rerender()
 </script>
 
-<InputValue input={configuration.search} bind:value={search} />
-<InputValue input={configuration.pagination} bind:value={pagination} />
+<InputValue {id} input={configuration.search} bind:value={search} />
+<InputValue {id} input={configuration.pagination} bind:value={pagination} />
 
 <RunnableWrapper bind:componentInput {id} bind:result {extraQueryParams}>
 	{#if Array.isArray(result) && result.every(isObject)}

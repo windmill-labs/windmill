@@ -27,9 +27,9 @@
 	}
 </script>
 
-<InputValue input={configuration.label} bind:value={labelValue} />
-<InputValue input={configuration.minDate} bind:value={minValue} />
-<InputValue input={configuration.maxDate} bind:value={maxValue} />
+<InputValue {id} input={configuration.label} bind:value={labelValue} />
+<InputValue {id} input={configuration.minDate} bind:value={minValue} />
+<InputValue {id} input={configuration.maxDate} bind:value={maxValue} />
 
 <AlignWrapper {verticalAlignment}>
 	<input

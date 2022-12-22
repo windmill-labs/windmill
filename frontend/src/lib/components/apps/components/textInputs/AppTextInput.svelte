@@ -25,7 +25,7 @@
 	}
 </script>
 
-<InputValue input={configuration.label} bind:value={labelValue} />
+<InputValue {id} input={configuration.label} bind:value={labelValue} />
 
 <AlignWrapper {verticalAlignment}>
 	<input
