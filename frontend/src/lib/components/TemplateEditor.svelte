@@ -418,7 +418,8 @@
 			...editorConfig(model, code, lang, automaticLayout, fixedOverflowWidgets),
 			lineNumbers: 'off',
 			fontSize: 16,
-			suggestOnTriggerCharacters: true
+			suggestOnTriggerCharacters: true,
+			lineDecorationsWidth: 0
 		})
 
 		const stdLib = { content: libStdContent, filePath: 'es5.d.ts' }

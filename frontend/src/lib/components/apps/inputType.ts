@@ -79,7 +79,7 @@ type InputConfiguration<T extends InputType, U, V extends InputType> = {
 	fieldType: T
 	defaultValue: U
 	subFieldType?: V
-	format: string | undefined
+	format?: string | undefined
 }
 
 export type AppInput =
@@ -94,11 +94,11 @@ export type AppInput =
 	| AppInputSpec<'object', Record<string | number, any>>
 	| AppInputSpec<'object', string>
 	| (AppInputSpec<'select', string> & {
-		/**
-		 * One of the keys of `staticValues` from `lib/components/apps/editor/componentsPanel/componentStaticValues`
-		 */
-		optionValuesKey: keyof typeof staticValues
-	})
+			/**
+			 * One of the keys of `staticValues` from `lib/components/apps/editor/componentsPanel/componentStaticValues`
+			 */
+			optionValuesKey: keyof typeof staticValues
+	  })
 	| AppInputSpec<'array', string[], 'text'>
 	| AppInputSpec<'array', string[], 'textarea'>
 	| AppInputSpec<'array', number[], 'number'>
@@ -108,8 +108,8 @@ export type AppInput =
 	| AppInputSpec<'array', string[], 'datetime'>
 	| AppInputSpec<'array', object[], 'object'>
 	| (AppInputSpec<'array', string[], 'select'> & {
-		optionValuesKey: keyof typeof staticValues
-	})
+			optionValuesKey: keyof typeof staticValues
+	  })
 
 export type StaticAppInput = Extract<AppInput, { type: 'static' }>
 export type ConnectedAppInput = Extract<AppInput, { type: 'connected' }>
