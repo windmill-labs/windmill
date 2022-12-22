@@ -161,7 +161,8 @@
 					icon: faFileExport,
 					action: () => {
 						moveDrawer.openDrawer(path, 'script')
-					}
+					},
+					disabled: !canWrite
 				},
 				{
 					displayName: 'View runs',

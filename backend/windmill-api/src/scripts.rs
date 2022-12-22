@@ -260,7 +260,8 @@ async fn create_script(
 
             if ps.path != ns.path {
                 if !authed.is_admin {
-                    require_owner_of_path(&w_id, &authed.username, &ps.path, &db).await?;
+                    require_owner_of_path(&w_id, &authed.username, &authed.groups, &ps.path, &db)
+                        .await?;
                 }
             }
 

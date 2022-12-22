@@ -65,7 +65,11 @@
 	async function loadFolder(): Promise<void> {
 		folder = await FolderService.getFolder({ workspace: $workspaceStore!, name })
 		can_write =
-			folder.owners.includes('u/' + $userStore?.username) || ($userStore?.is_admin ?? false)
+			$userStore != undefined &&
+			(folder?.owners.includes('u/' + $userStore.username) ||
+				($userStore.is_admin ?? false) ||
+				$userStore.pgroups.findIndex((x) => folder?.owners.includes(x)) != -1)
+
 		perms = Array.from(
 			new Set(
 				Object.entries(folder?.extra_perms ?? {})

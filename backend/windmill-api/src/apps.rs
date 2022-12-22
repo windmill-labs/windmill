@@ -327,7 +327,8 @@ async fn update_app(
         if let Some(npath) = &ns.path {
             if npath != path {
                 if !authed.is_admin {
-                    require_owner_of_path(&w_id, &authed.username, &path, &db).await?;
+                    require_owner_of_path(&w_id, &authed.username, &authed.groups, &path, &db)
+                        .await?;
                 }
             }
             sqlb.set_str("path", npath);

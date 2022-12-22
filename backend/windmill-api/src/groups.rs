@@ -23,7 +23,7 @@ use windmill_common::{
 };
 
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, Postgres, Transaction};
+use sqlx::{query_scalar, FromRow, Postgres, Transaction};
 use windmill_queue::CLOUD_HOSTED;
 
 pub fn workspaced_service() -> Router {
@@ -36,6 +36,7 @@ pub fn workspaced_service() -> Router {
         .route("/delete/:name", delete(delete_group))
         .route("/adduser/:name", post(add_user))
         .route("/removeuser/:name", post(remove_user))
+        .route("/is_owner", get(is_owner))
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -137,6 +138,51 @@ async fn check_name_conflict<'c>(
     return Ok(());
 }
 
+pub async fn is_owner(
+    Authed { username, is_admin, groups, .. }: Authed,
+    Extension(db): Extension<DB>,
+    Path((w_id, name)): Path<(String, String)>,
+) -> JsonResult<bool> {
+    if is_admin {
+        Ok(Json(true))
+    } else {
+        Ok(Json(
+            require_is_owner(&name, &username, &groups, &w_id, &db)
+                .await
+                .is_ok(),
+        ))
+    }
+}
+
+pub async fn require_is_owner(
+    group_name: &str,
+    username: &str,
+    groups: &Vec<String>,
+    w_id: &str,
+    db: &DB,
+) -> Result<()> {
+    let is_owner = query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM group_ WHERE (group_.extra_perms ->> CONCAT('u/', $1::text))::boolean AND name = $2 AND workspace_id = $4) OR exists(
+            SELECT 1 FROM group_ g, jsonb_each_text(g.extra_perms) f 
+    WHERE $2 = g.name AND $4 = g.workspace_id AND SPLIT_PART(key, '/', 1) = 'g' AND key = ANY($3::text[])
+    AND value::boolean)",
+        username,
+        group_name,
+        groups,
+        w_id,
+    ).fetch_one(db)
+    .await?
+    .unwrap_or(false);
+    if !is_owner {
+        Err(Error::BadRequest(format!(
+            "{} is not an owner of {} and hence is not authorized to perform this operation",
+            username, group_name
+        )))
+    } else {
+        Ok(())
+    }
+}
+
 async fn create_group(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
@@ -230,11 +276,13 @@ async fn get_group(
 
 async fn delete_group(
     authed: Authed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, name)): Path<(String, String)>,
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
 
+    require_is_owner(&name, &authed.username, &authed.groups, &w_id, &db).await?;
     not_found_if_none(get_group_opt(&mut tx, &w_id, &name).await?, "Group", &name)?;
 
     sqlx::query!(
@@ -267,12 +315,14 @@ async fn delete_group(
 
 async fn update_group(
     authed: Authed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, name)): Path<(String, String)>,
     Json(eg): Json<EditGroup>,
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
 
+    require_is_owner(&name, &authed.username, &authed.groups, &w_id, &db).await?;
     not_found_if_none(get_group_opt(&mut tx, &w_id, &name).await?, "Group", &name)?;
 
     sqlx::query_as!(
@@ -301,11 +351,14 @@ async fn update_group(
 
 async fn add_user(
     authed: Authed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, name)): Path<(String, String)>,
     Json(Username { username: user_username }): Json<Username>,
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
+
+    require_is_owner(&name, &authed.username, &authed.groups, &w_id, &db).await?;
 
     not_found_if_none(get_group_opt(&mut tx, &w_id, &name).await?, "Group", &name)?;
 
@@ -335,11 +388,13 @@ async fn add_user(
 
 async fn remove_user(
     authed: Authed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, name)): Path<(String, String)>,
     Json(Username { username: user_username }): Json<Username>,
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
+    require_is_owner(&name, &authed.username, &authed.groups, &w_id, &db).await?;
 
     not_found_if_none(get_group_opt(&mut tx, &w_id, &name).await?, "Group", &name)?;
     if &name == "all" {
