@@ -29,8 +29,12 @@ async function pull(opts: GlobalOptions & { override: boolean }, dir: string) {
   );
 
   if (!tarResponse.ok) {
-    console.log(colors.red("Failed to request tarball from API"));
-    console.log(colors.red(await tarResponse.text()));
+    console.log(
+      colors.red(
+        "Failed to request tarball from API " + tarResponse.statusText,
+      ),
+    );
+    console.log(await tarResponse.text());
     return;
   }
 
@@ -71,7 +75,8 @@ async function pull(opts: GlobalOptions & { override: boolean }, dir: string) {
       }
     }
     const file = await Deno.open(filePath, { write: true, create: true });
-    await copy(entry, file);
+    const len = await copy(entry, file);
+    await file.truncate(len);
     file.close();
   }
   console.log(colors.green("Done. Wrote all files to disk."));
