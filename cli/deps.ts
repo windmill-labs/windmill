@@ -16,7 +16,7 @@ export {
 } from "https://deno.land/x/cliffy@v0.25.6/command/upgrade/mod.ts";
 
 // std
-export { Untar } from "https://deno.land/std@0.170.0/archive/tar.ts";
+export { Untar } from "https://deno.land/std@0.170.0/archive/untar.ts";
 export * as path from "https://deno.land/std@0.170.0/path/mod.ts";
 export { ensureDir } from "https://deno.land/std@0.170.0/fs/ensure_dir.ts";
 export {

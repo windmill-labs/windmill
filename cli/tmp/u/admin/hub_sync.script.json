@@ -1,0 +1,12 @@
+{
+  "summary": "Syncronize Hub Resource types with starter workspace",
+  "description": "Basic administrative script to sync latest resource types from hub. Recommended to run at least once. On a schedule by default.",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {},
+    "required": [],
+    "type": "object"
+  },
+  "is_template": false,
+  "lock": []
+}
