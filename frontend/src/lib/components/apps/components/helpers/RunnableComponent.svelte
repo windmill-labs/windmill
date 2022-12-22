@@ -168,6 +168,10 @@
 			return
 		}
 
+		if (outputs?.loading.peak() === true) {
+			return
+		}
+
 		outputs?.loading?.set(true)
 
 		await testJobLoader?.abstractRun(() => {

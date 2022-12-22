@@ -164,7 +164,7 @@
 										{#each actionButtons as props, actionIndex (actionIndex)}
 											<AppButton
 												{...props}
-												extraQueryParams={{ row }}
+												extraQueryParams={{ row: row.original }}
 												bind:componentInput={props.componentInput}
 												bind:staticOutputs={$staticOutputsStore[props.id]}
 											/>

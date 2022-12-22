@@ -35,7 +35,8 @@
 				initialValue={componentInput.value?.split('$res:')[1] || ''}
 				on:change={(e) => {
 					let path = e.detail
-					if (componentInput) {
+
+					if (componentInput && path) {
 						componentInput.value = `$res:${path}`
 					}
 				}}

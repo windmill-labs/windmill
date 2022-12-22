@@ -9,7 +9,7 @@
 	import StaticInputEditor from './inputEditor/StaticInputEditor.svelte'
 	import ConnectedInputEditor from './inputEditor/ConnectedInputEditor.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import { capitalize } from '$lib/utils'
+	import { capitalize, classNames } from '$lib/utils'
 	import { fieldTypeToTsType } from '../../utils'
 	import Recompute from './Recompute.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -18,6 +18,7 @@
 	import RunnableInputEditor from './inputEditor/RunnableInputEditor.svelte'
 	import TemplateEditor from '$lib/components/TemplateEditor.svelte'
 	import type { Output } from '../../rx'
+	import { Alert } from '$lib/components/common'
 
 	export let component: AppComponent | undefined
 	export let onDelete: (() => void) | undefined = undefined
@@ -85,8 +86,25 @@ declare const ${k} = ${JSON.stringify(v)};
 						</Badge>
 					{/if}
 				</svelte:fragment>
+				<span
+					class={classNames(
+						'text-white px-2 text-2xs py-0.5 font-bold rounded-sm w-fit',
+						'bg-indigo-500'
+					)}
+				>
+					{`Selected component: ${component.id}`}
+				</span>
 
 				<ComponentInputTypeEditor bind:componentInput={component.componentInput} />
+
+				{#if onDelete}
+					<div class="w-full">
+						<Alert title="Special argument" size="xs">
+							The row is passed as an argument to the runnable.
+						</Alert>
+					</div>
+				{/if}
+
 				<div class="flex flex-col w-full gap-2 my-2">
 					{#if component.componentInput.type === 'static'}
 						<StaticInputEditor bind:componentInput={component.componentInput} />
