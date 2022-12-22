@@ -54,12 +54,14 @@ export async function pushFolder(
     // }
 
     console.log(colors.yellow("Updating existing folder..."));
-    await syncFolderOwners(
+    await FolderService.updateFolder({
       workspace,
-      remotePath,
-      optFolder.owners,
-      data.owners ?? [],
-    );
+      name: remotePath,
+      requestBody: {
+        extra_perms: data.extra_perms,
+        owners: data.owners,
+      },
+    });
   } else {
     console.log(colors.yellow("Creating new folder..."));
     await FolderService.createFolder({
@@ -73,36 +75,6 @@ export async function pushFolder(
 
     // HACK: Workaround backend automatically adding current user to folder.
     await pushFolder(workspace, filePath, remotePath);
-  }
-}
-
-async function syncFolderOwners(
-  workspace: string,
-  name: string,
-  existing: string[],
-  intended: string[],
-) {
-  const ownersToRemove = existing.filter((e) => !intended.includes(e));
-  const ownersToAdd = intended.filter((e) => !existing.includes(e));
-
-  for (const owner in ownersToRemove) {
-    await FolderService.removeOwnerToFolder({
-      workspace,
-      name,
-      requestBody: {
-        owner,
-      },
-    });
-  }
-
-  for (const owner in ownersToAdd) {
-    await FolderService.addOwnerToFolder({
-      workspace,
-      name,
-      requestBody: {
-        owner,
-      },
-    });
   }
 }
 
