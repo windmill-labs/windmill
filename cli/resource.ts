@@ -1,16 +1,12 @@
-import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
-import { ResourceService } from "https://deno.land/x/windmill@v1.50.0/mod.ts";
 import { GlobalOptions } from "./types.ts";
-import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
-import { Resource } from "https://deno.land/x/windmill@v1.50.0/windmill-api/index.ts";
-import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/table.ts";
+import { colors, Command, Resource, ResourceService, Table } from "./deps.ts";
 
 type ResourceFile = {
   value: any;
   description?: string;
   resource_type: string;
-  is_oauth?: boolean;
+  is_oauth?: boolean; // deprecated
 };
 
 export async function pushResource(
@@ -30,6 +26,7 @@ export async function pushResource(
       workspace: workspace,
       path: remotePath,
     });
+
     if (existing.resource_type != data.resource_type) {
       console.log(
         colors.red.underline.bold(
@@ -40,16 +37,15 @@ export async function pushResource(
       );
       return;
     }
-    if (existing.is_oauth != data.is_oauth) {
+
+    if (typeof data.is_oauth !== "undefined") {
       console.log(
-        colors.red.underline.bold(
-          "Remote resource at " +
-            remotePath +
-            " exists & has a different oauth state. This cannot be updated. If you wish to do this anyways, consider deleting the remote resource.",
+        colors.yellow(
+          "! is_oauth has been removed in newer versions. Ignoring.",
         ),
       );
-      return;
     }
+
     await ResourceService.updateResource({
       workspace: workspace,
       path: remotePath,
@@ -60,6 +56,14 @@ export async function pushResource(
       },
     });
   } else {
+    if (typeof data.is_oauth !== "undefined") {
+      console.log(
+        colors.yellow(
+          "! is_oauth has been removed in newer versions. Ignoring.",
+        ),
+      );
+    }
+
     console.log(colors.yellow("Creating new resource..."));
     await ResourceService.createResource({
       workspace: workspace,
@@ -68,7 +72,6 @@ export async function pushResource(
         resource_type: data.resource_type,
         value: data.value,
         description: data.description,
-        is_oauth: data.is_oauth,
       },
     });
   }

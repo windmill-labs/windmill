@@ -1,15 +1,11 @@
 // deno-lint-ignore-file no-explicit-any
-import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
-import { ScriptService } from "https://deno.land/x/windmill@v1.50.0/mod.ts";
 import { GlobalOptions } from "./types.ts";
-import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import {
   JobService,
   Script,
 } from "https://deno.land/x/windmill@v1.50.0/windmill-api/index.ts";
-import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/table.ts";
-import { readAll } from "https://deno.land/std@0.165.0/streams/mod.ts";
+import { colors, Command, readAll, ScriptService, Table } from "./deps.ts";
 
 type ScriptFile = {
   parent_hash?: string;

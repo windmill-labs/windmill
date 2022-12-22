@@ -1,7 +1,5 @@
 // deno-lint-ignore-file no-explicit-any
-import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
-import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
-import * as path from "https://deno.land/std@0.162.0/path/mod.ts";
+import { colors, Command, path } from "./deps.ts";
 import { requireLogin, resolveWorkspace } from "./context.ts";
 import { pushFlow } from "./flow.ts";
 import { pushResource } from "./resource.ts";
@@ -9,31 +7,65 @@ import { findContentFile, pushScript } from "./script.ts";
 import { GlobalOptions } from "./types.ts";
 import { pushVariable } from "./variable.ts";
 import { pushResourceType } from "./resource-type.ts";
+import { pushFolder } from "./folder.ts";
 
 type Candidate = {
   path: string;
-  namespaceKind: "user" | "group" | "folder" | undefined;
-  namespaceName: string | undefined;
+  namespaceKind: "user" | "group" | "folder";
+  namespaceName: string;
 };
-async function findCandidateFiles(dir: string): Promise<Candidate[]> {
-  const candidates: Candidate[] = [];
-  if (dir.startsWith(".")) return [];
+
+type ResourceTypeCandidate = {
+  path: string;
+};
+
+type FolderCandidate = {
+  path: string;
+  namespaceName: string;
+};
+
+async function findCandidateFiles(
+  dir: string,
+): Promise<
+  {
+    normal: Candidate[];
+    resourceTypes: ResourceTypeCandidate[];
+    folders: FolderCandidate[];
+  }
+> {
+  if (dir.startsWith(".")) {
+    return { normal: [], resourceTypes: [], folders: [] };
+  }
+  const normalCandidates: Candidate[] = [];
+  const resourceTypeCandidates: ResourceTypeCandidate[] = [];
+  const folderCandidates: FolderCandidate[] = [];
   for await (const e of Deno.readDir(dir)) {
     if (e.isDirectory) {
       if (e.name == "u" || e.name == "g" || e.name == "f") { // TODO: Check version for f
         const newDir = dir + (dir.endsWith("/") ? "" : "/") + e.name;
         for await (const e2 of Deno.readDir(newDir)) {
           if (e2.isDirectory) {
-            if (e2.name.startsWith(".")) return [];
+            if (e2.name.startsWith(".")) continue;
             const namespaceName = e2.name;
             const stack: string[] = [];
-            stack.push(newDir + "/" + namespaceName + "/");
+            {
+              const path = newDir + "/" + namespaceName + "/";
+              stack.push(path);
+              try {
+                await Deno.stat(path + "folder.json");
+                folderCandidates.push({
+                  namespaceName,
+                  path: path + "folder.json",
+                });
+              } catch {}
+            }
 
             while (stack.length > 0) {
               const dir2 = stack.pop()!;
               for await (const e3 of Deno.readDir(dir2)) {
                 if (e3.isFile) {
-                  candidates.push({
+                  if (e3.name === "folder.json") continue;
+                  normalCandidates.push({
                     path: dir2 + e3.name,
                     namespaceKind: e.name == "g"
                       ? "group"
@@ -55,21 +87,27 @@ async function findCandidateFiles(dir: string): Promise<Candidate[]> {
             "Including organizational folder " + e.name + " in push!",
           ),
         );
-        candidates.push(...(await findCandidateFiles(path.join(dir, e.name))));
+        const { normal, resourceTypes, folders } = await findCandidateFiles(
+          path.join(dir, e.name),
+        );
+        normalCandidates.push(...normal);
+        resourceTypeCandidates.push(...resourceTypes);
+        folderCandidates.push(...folders);
       }
     } else {
       // handle root files
       if (e.name.endsWith(".resource-type.json")) {
-        candidates.push({
-          namespaceKind: undefined,
-          namespaceName: undefined,
+        resourceTypeCandidates.push({
           path: dir + (dir.endsWith("/") ? "" : "/") + e.name,
         });
-        console.log(candidates);
       }
     }
   }
-  return candidates;
+  return {
+    normal: normalCandidates,
+    folders: folderCandidates,
+    resourceTypes: resourceTypeCandidates,
+  };
 }
 
 async function push(opts: GlobalOptions, dir?: string) {
@@ -78,9 +116,47 @@ async function push(opts: GlobalOptions, dir?: string) {
   await requireLogin(opts);
 
   console.log(colors.blue("Searching Directory..."));
-  const candidates: Candidate[] = await findCandidateFiles(dir);
-  console.log(colors.blue("Found " + candidates.length + " candidates"));
-  for (const candidate of candidates) {
+  const { normal, resourceTypes, folders } = await findCandidateFiles(dir);
+  console.log(
+    colors.blue(
+      "Found " + (normal.length + resourceTypes.length + folders.length) +
+        " candidates",
+    ),
+  );
+  for (const resourceType of resourceTypes) {
+    const fileName = resourceType.path.substring(
+      resourceType.path.lastIndexOf("/") + 1,
+    );
+    const fileNameParts = fileName.split(".");
+    // invalid file names, like my.cool.script.script.json. Not valid.
+    if (fileNameParts.length != 3) {
+      console.log(
+        colors.yellow("invalid file name found at " + resourceType.path),
+      );
+      continue;
+    }
+
+    // filter out non-json files. Note that we filter out script contents above, so this is really an error.
+    if (fileNameParts.at(-1) != "json") {
+      console.log(colors.yellow("non-JSON file found at " + resourceType.path));
+      continue;
+    }
+
+    console.log("pushing resource type " + fileNameParts.at(-3)!);
+    await pushResourceType(
+      workspace.workspaceId,
+      resourceType.path,
+      fileNameParts.at(-3)!,
+    );
+  }
+  for (const folder of folders) {
+    await pushFolder(
+      workspace.workspaceId,
+      folder.path,
+      "f/" + folder.namespaceName,
+    );
+  }
+  for (const candidate of normal) {
     // full file name. No leading /. includes .type.json
     const fileName = candidate.path.substring(
       candidate.path.lastIndexOf("/") + 1,
@@ -121,22 +197,13 @@ async function push(opts: GlobalOptions, dir?: string) {
     // get the type & filter it for valid ones.
     const type = fileNameParts.at(-2);
     if (type == "resource-type") {
-      if (!candidate.namespaceKind && !candidate.namespaceName) {
-        console.log("pushing resource type " + fileNameParts.at(-3)!);
-        await pushResourceType(
-          workspace.workspaceId,
-          candidate.path,
-          fileNameParts.at(-3)!,
-        );
-      } else {
-        console.log(
-          colors.yellow(
-            "Found resource type file at " +
-              candidate.path +
-              " this appears to be inside a path folder. Resource types are not addressed by path. Place them at the root or inside only an organizational folder. Ignoring this file!",
-          ),
-        );
-      }
+      console.log(
+        colors.yellow(
+          "Found resource type file at " +
+            candidate.path +
+            " this appears to be inside a path folder. Resource types are not addressed by path. Place them at the root or inside only an organizational folder. Ignoring this file!",
+        ),
+      );
       continue;
     }
 

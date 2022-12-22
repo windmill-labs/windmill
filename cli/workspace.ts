@@ -1,12 +1,8 @@
 // deno-lint-ignore-file no-explicit-any
-import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
-import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/table.ts";
 import { GlobalOptions } from "./types.ts";
-import { DelimiterStream } from "https://deno.land/std@0.165.0/streams/mod.ts";
-import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import { getRootStore } from "./store.ts";
-import { Input } from "https://deno.land/x/cliffy@v0.25.4/prompt/input.ts";
 import { loginInteractive, tryGetLoginInfo } from "./login.ts";
+import { colors, Command, DelimiterStream, Input, Table } from "./deps.ts";
 
 export type Workspace = {
   remote: string;

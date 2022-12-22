@@ -1,10 +1,7 @@
 // deno-lint-ignore-file no-explicit-any
-import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
-import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
-import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/table.ts";
-import { VariableService } from "https://deno.land/x/windmill@v1.50.0/mod.ts";
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import { GlobalOptions } from "./types.ts";
+import { colors, Command, Table, VariableService } from "./deps.ts";
 
 async function list(opts: GlobalOptions) {
   const workspace = await resolveWorkspace(opts);

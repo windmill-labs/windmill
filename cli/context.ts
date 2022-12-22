@@ -1,6 +1,5 @@
 // deno-lint-ignore-file no-explicit-any
-import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
-import { setClient } from "https://deno.land/x/windmill@v1.50.0/mod.ts";
+import { colors, setClient } from "./deps.ts";
 import { tryGetLoginInfo } from "./login.ts";
 import { GlobalOptions } from "./types.ts";
 import {
@@ -8,7 +7,6 @@ import {
   getWorkspaceByName,
   Workspace,
 } from "./workspace.ts";
-import * as api from "https://deno.land/x/windmill@v1.55.0/windmill-api/index.ts";
 
 export type Context = {
   workspace: string;
@@ -104,7 +102,7 @@ export async function validatePath(
       return true;
     }
     console.log(
-      `Attempting to use folders, but the current remote does not have support. Remote version is ${backendVersion} but folders are supported from 1550.`,
+      `Attempting to use folders, but the current remote does not have support. Remote version is ${backendVersion} but folders are supported from 1560.`,
     );
     return false;
   }
