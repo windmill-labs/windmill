@@ -7,7 +7,7 @@ import { findContentFile, pushScript } from "./script.ts";
 import { GlobalOptions } from "./types.ts";
 import { pushVariable } from "./variable.ts";
 import { pushResourceType } from "./resource-type.ts";
-// import { pushFolder } from "./folder.ts";
+import { pushFolder } from "./folder.ts";
 
 type Candidate = {
   path: string;
@@ -33,7 +33,8 @@ async function findCandidateFiles(
     folders: FolderCandidate[];
   }
 > {
-  if (dir.startsWith(".")) {
+  dir = path.resolve(dir);
+  if (path.dirname(dir).startsWith(".")) {
     return { normal: [], resourceTypes: [], folders: [] };
   }
   const normalCandidates: Candidate[] = [];
@@ -52,10 +53,10 @@ async function findCandidateFiles(
               const path = newDir + "/" + namespaceName + "/";
               stack.push(path);
               try {
-                await Deno.stat(path + "folder.json");
+                await Deno.stat(path + "folder.meta.json");
                 folderCandidates.push({
                   namespaceName,
-                  path: path + "folder.json",
+                  path: path + "folder.meta.json",
                 });
               } catch {}
             }
@@ -64,7 +65,7 @@ async function findCandidateFiles(
               const dir2 = stack.pop()!;
               for await (const e3 of Deno.readDir(dir2)) {
                 if (e3.isFile) {
-                  if (e3.name === "folder.json") continue;
+                  if (e3.name === "folder.meta.json") continue;
                   normalCandidates.push({
                     path: dir2 + e3.name,
                     namespaceKind: e.name == "g"
@@ -150,11 +151,11 @@ async function push(opts: GlobalOptions, dir?: string) {
     );
   }
   for (const folder of folders) {
-    /*await pushFolder(
+    await pushFolder(
       workspace.workspaceId,
       folder.path,
       "f/" + folder.namespaceName,
-    );*/
+    );
   }
   for (const candidate of normal) {
     // full file name. No leading /. includes .type.json
@@ -241,7 +242,7 @@ async function push(opts: GlobalOptions, dir?: string) {
       try {
         contentPath = await findContentFile(candidate.path);
       } catch (e) {
-        console.log(colors.red(e));
+        console.log(colors.red(e.toString()));
         continue;
       }
       await pushScript(

@@ -49,9 +49,9 @@ async function push(
 
 export async function findContentFile(filePath: string) {
   const candidates = [
-    filePath.replace(".json", ".ts"),
-    filePath.replace(".json", ".py"),
-    filePath.replace(".json", ".go"),
+    filePath.replace(".script.json", ".ts"),
+    filePath.replace(".script.json", ".py"),
+    filePath.replace(".script.json", ".go"),
   ];
   const validCandidates = (
     await Promise.all(
