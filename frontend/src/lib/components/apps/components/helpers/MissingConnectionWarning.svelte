@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { AppInput, ConnectedAppInput } from '../../inputType'
+	import type { AppInput } from '../../inputType'
 
 	export let input: AppInput
 </script>
