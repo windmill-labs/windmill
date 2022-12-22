@@ -302,6 +302,8 @@ upcoming CLI tool.
 | PATH                      | None                   | The path environment variable, usually inherited                                                                                                                                                   | Worker                |
 | HOME                      | None                   | The home directory to use for Go and Bash , usually inherited                                                                                                                                      | Worker                |
 | DATABASE_CONNECTIONS      | 50 (Server)/3 (Worker) | The max number of connections in the database connection pool                                                                                                                                      | All                   |
+| SUPERADMIN_SECRET         | None                   | A token that would let the caller act as a virtual superadmin superadmin@windmill.dev                                                                                                              | Server                |
+
 
 ## Run a local dev setup
 

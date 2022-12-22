@@ -70,7 +70,7 @@
 		if (path == '' || path == 'u//') {
 			meta = { ownerKind: 'user', name: namePlaceholder, owner: '' }
 
-			meta.owner = $userStore!.username
+			meta.owner = $userStore!.username.split('@')[0]
 
 			let i = 1
 			while (await pathExists(metaToPath(meta), kind)) {
