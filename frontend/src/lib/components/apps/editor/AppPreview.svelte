@@ -49,7 +49,7 @@
 		mounted = true
 	})
 
-	$: mounted && ($worldStore = buildWorld($staticOutputs))
+	$: mounted && ($worldStore = buildWorld($staticOutputs, undefined))
 	$: width = $breakpoint === 'sm' ? 'w-[640px]' : 'w-full '
 </script>
 

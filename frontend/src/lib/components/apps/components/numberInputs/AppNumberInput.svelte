@@ -3,7 +3,6 @@
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppEditorContext } from '../../types'
-	import DebouncedInput from '../helpers/DebouncedInput.svelte'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 
@@ -29,7 +28,7 @@
 	}
 </script>
 
-<InputValue input={configuration.label} bind:value={labelValue} />
+<InputValue {id} input={configuration.label} bind:value={labelValue} />
 
 <AlignWrapper {verticalAlignment}>
 	<input

@@ -25,6 +25,18 @@
 		<Icon data={faPlus} scale={0.8} />
 	</button>
 	<div class="divide-y divide-gray-100 text-xs w-40">
+		<button
+			class="w-full text-left p-2 hover:bg-gray-100"
+			on:click={() => {
+				close()
+				dispatch('new', 'script')
+			}}
+			role="menuitem"
+			tabindex="-1"
+		>
+			<Icon data={faCode} scale={0.8} class="mr-1" />
+			Action (Script)
+		</button>
 		{#if trigger}
 			<button
 				class="w-full text-left p-2 hover:bg-gray-100"
@@ -39,18 +51,6 @@
 				Trigger (Script)
 			</button>
 		{/if}
-		<button
-			class="w-full text-left p-2 hover:bg-gray-100"
-			on:click={() => {
-				close()
-				dispatch('new', 'script')
-			}}
-			role="menuitem"
-			tabindex="-1"
-		>
-			<Icon data={faCode} scale={0.8} class="mr-1" />
-			Action (Script)
-		</button>
 		<button
 			class="w-full text-left p-2 hover:bg-gray-100"
 			on:click={() => {

@@ -65,7 +65,7 @@
 		mounted = true
 	})
 
-	$: mounted && ($worldStore = buildWorld($staticOutputs))
+	$: mounted && ($worldStore = buildWorld($staticOutputs, $worldStore))
 	$: previewing = $mode === 'preview'
 	$: width = $breakpoint === 'sm' ? 'w-[640px]' : 'min-w-[1080px] w-full'
 
@@ -89,7 +89,7 @@
 			<Pane size={20}>
 				<ContextPanel />
 			</Pane>
-			<Pane size={60}>
+			<Pane size={55}>
 				<SplitPanesWrapper horizontal>
 					<Pane size={70}>
 						<div class={classNames('bg-gray-100  mx-auto  relative min-h-full', width)}>
@@ -110,7 +110,7 @@
 					</Pane>
 				</SplitPanesWrapper>
 			</Pane>
-			<Pane size={20} minSize={20} maxSize={20}>
+			<Pane size={25} minSize={20} maxSize={33}>
 				<Tabs bind:selected={selectedTab}>
 					<Tab value="insert" size="xs">
 						<div class="m-1 flex flex-row gap-2">

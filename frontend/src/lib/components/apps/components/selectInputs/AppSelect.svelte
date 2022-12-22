@@ -27,9 +27,9 @@
 	}
 </script>
 
-<InputValue input={configuration.label} bind:value={label} />
-<InputValue input={configuration.items} bind:value={items} />
-<InputValue input={configuration.itemKey} bind:value={itemKey} />
+<InputValue {id} input={configuration.label} bind:value={label} />
+<InputValue {id} input={configuration.items} bind:value={items} />
+<InputValue {id} input={configuration.itemKey} bind:value={itemKey} />
 
 <AlignWrapper {horizontalAlignment} {verticalAlignment}>
 	<Select on:clear={onChange} on:change={onChange} {items} placeholder="Select an item" />

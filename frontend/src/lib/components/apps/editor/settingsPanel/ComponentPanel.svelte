@@ -12,17 +12,17 @@
 	import { capitalize } from '$lib/utils'
 	import { fieldTypeToTsType } from '../../utils'
 	import Recompute from './Recompute.svelte'
-	import gridHelp from 'svelte-grid/build/helper/index.mjs'
-	import { gridColumns } from '../../gridUtils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ComponentInputTypeEditor from './ComponentInputTypeEditor.svelte'
 	import AlignmentEditor from './AlignmentEditor.svelte'
 	import RunnableInputEditor from './inputEditor/RunnableInputEditor.svelte'
+	import TemplateEditor from '$lib/components/TemplateEditor.svelte'
+	import type { Output } from '../../rx'
 
 	export let component: AppComponent | undefined
 	export let onDelete: (() => void) | undefined = undefined
 
-	const { app, staticOutputs, runnableComponents } =
+	const { app, staticOutputs, runnableComponents, worldStore } =
 		getContext<AppEditorContext>('AppEditorContext')
 
 	function removeGridElement() {
@@ -48,6 +48,25 @@
 			}
 		}
 	}
+
+	export function buildExtraLib(components: Record<string, Record<string, Output<any>>>): string {
+		return Object.entries(components)
+			.filter(([k, v]) => k != component?.id)
+			.map(([k, v]) => [k, Object.fromEntries(Object.entries(v).map(([k, v]) => [k, v.peak()]))])
+			.map(
+				([k, v]) => `
+
+declare const ${k} = ${JSON.stringify(v)};
+
+`
+			)
+			.join('\n')
+	}
+
+	$: extraLib =
+		component?.componentInput?.type === 'template' && $worldStore
+			? buildExtraLib($worldStore?.outputsById ?? {})
+			: undefined
 </script>
 
 {#if component}
@@ -71,6 +90,8 @@
 				<div class="flex flex-col w-full gap-2 my-2">
 					{#if component.componentInput.type === 'static'}
 						<StaticInputEditor bind:componentInput={component.componentInput} />
+					{:else if component.componentInput.type === 'template' && component.componentInput !== undefined}
+						<TemplateEditor bind:code={component.componentInput.eval} {extraLib} />
 					{:else if component.componentInput.type === 'connected' && component.componentInput !== undefined}
 						<ConnectedInputEditor bind:componentInput={component.componentInput} />
 					{:else if component.componentInput?.type === 'runnable' && component.componentInput !== undefined}
