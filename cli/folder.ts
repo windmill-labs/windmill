@@ -46,13 +46,12 @@ export async function pushFolder(
   }
 
   if (optFolder) {
-    console.log(optFolder.extra_perms);
-    for (const [k, v] of Object.entries(optFolder.extra_perms)) {
-      if (!data.extra_perms || data.extra_perms[k] !== v) {
-        console.log(colors.red.underline.bold(`Extra Perms missmatch on ${k}`));
-        return;
-      }
-    }
+    // for (const [k, v] of Object.entries(optFolder.extra_perms)) {
+    //   if (!data.extra_perms || data.extra_perms[k] !== v) {
+    //     console.log(colors.red.underline.bold(`Extra Perms missmatch on ${k}`));
+    //     return;
+    //   }
+    // }
 
     console.log(colors.yellow("Updating existing folder..."));
     await syncFolderOwners(
