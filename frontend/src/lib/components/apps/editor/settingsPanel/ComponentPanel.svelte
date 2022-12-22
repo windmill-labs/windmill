@@ -99,8 +99,8 @@ declare const ${k} = ${JSON.stringify(v)};
 
 				{#if onDelete}
 					<div class="w-full">
-						<Alert title="Special argument" size="xs">
-							The row is passed as an argument to the runnable.
+						<Alert title="Special arguments" size="xs">
+							The row and the rowIndex are passed as arguments to the runnable.
 						</Alert>
 					</div>
 				{/if}

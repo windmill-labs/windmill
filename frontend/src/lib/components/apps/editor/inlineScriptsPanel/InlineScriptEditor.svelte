@@ -103,6 +103,7 @@
 						inlineScript.content,
 						inlineScript.schema
 					)
+
 					inlineScript.schema = schema
 					inlineScript = inlineScript
 				}

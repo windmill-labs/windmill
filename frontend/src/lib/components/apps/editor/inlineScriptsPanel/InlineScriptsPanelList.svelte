@@ -2,7 +2,6 @@
 	import { Badge } from '$lib/components/common'
 	import { classNames } from '$lib/utils'
 	import { getContext } from 'svelte'
-	import type { AppInput } from '../../inputType'
 	import type { AppComponent, AppEditorContext } from '../../types'
 	import PanelSection from '../settingsPanel/common/PanelSection.svelte'
 
@@ -12,7 +11,7 @@
 
 	function selectInlineScript(id: string, subId?: string) {
 		selectedScriptComponentId = subId ? subId : id
-		$selectedComponent = id
+		$selectedComponent = selectedScriptComponentId
 	}
 
 	$: runnablesByName = $app.grid.reduce((acc, gridComponent) => {
