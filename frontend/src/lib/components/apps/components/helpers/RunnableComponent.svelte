@@ -205,7 +205,7 @@
 </script>
 
 {#each Object.keys(inputs ?? {}) as key}
-	<InputValue input={inputs[key]} bind:value={runnableInputValues[key]} />
+	<InputValue {id} input={inputs[key]} bind:value={runnableInputValues[key]} />
 {/each}
 
 <TestJobLoader

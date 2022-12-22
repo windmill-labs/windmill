@@ -39,6 +39,10 @@
 	.monaco-editor textarea:focus {
 		box-shadow: none !important;
 	}
+
+	.monaco-editor span.mtk20 {
+		color: black !important;
+	}
 }
 
 @layer components {

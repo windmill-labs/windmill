@@ -299,7 +299,7 @@
 								} else if (kind === 'group') {
 									meta.owner = 'all'
 								} else {
-									meta.owner = $userStore?.username ?? ''
+									meta.owner = $userStore?.username?.split('@')[0] ?? ''
 								}
 							}
 						}}
