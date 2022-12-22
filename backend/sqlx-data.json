@@ -1118,6 +1118,29 @@
     },
     "query": "UPDATE flow SET value = $1 WHERE path = $2 AND workspace_id = $3"
   },
+  "388d6fd335a3f8a405b2d465892cf21a68d4b50ace25ef88c4cdf5b347c3d5eb": {
+    "describe": {
+      "columns": [
+        {
+          "name": "?column?",
+          "ordinal": 0,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text",
+          "TextArray",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT EXISTS(SELECT 1 FROM group_ WHERE (group_.extra_perms ->> CONCAT('u/', $1::text))::boolean AND name = $2 AND workspace_id = $4) OR exists(\n            SELECT 1 FROM group_ g, jsonb_each_text(g.extra_perms) f \n    WHERE $2 = g.name AND $4 = g.workspace_id AND SPLIT_PART(key, '/', 1) = 'g' AND key = ANY($3::text[])\n    AND value::boolean)"
+  },
   "3911bf3bbc82d87366a5297496fd2350a252bcd69f1c7c972bf566ee7eb28b0a": {
     "describe": {
       "columns": [
@@ -3953,28 +3976,6 @@
     },
     "query": "select hash from script where path = $1 AND (workspace_id = $2 OR workspace_id = 'starter') AND\n    created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter')) AND\n    deleted = false"
   },
-  "b89fc3a68c10e6b80cb4fbe84e22e139389867fcbaa2938871fb04ab6e354d85": {
-    "describe": {
-      "columns": [
-        {
-          "name": "exists",
-          "ordinal": 0,
-          "type_info": "Bool"
-        }
-      ],
-      "nullable": [
-        null
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Text",
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT EXISTS(SELECT 1 FROM usr_to_group where usr = $1 AND group_ = $2 AND workspace_id = $3)"
-  },
   "b9468b9e16f55db11b33d8e9793e6e3ae6c5add6ca02414140adb724120a6800": {
     "describe": {
       "columns": [],
@@ -5171,6 +5172,29 @@
       }
     },
     "query": "INSERT INTO workspace_settings\n                (workspace_id, slack_team_id, slack_name, slack_email)\n                VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id) DO UPDATE SET slack_team_id = $2, slack_name = $3, slack_email = $4"
+  },
+  "ebc06efe51532f7f60e98f62d09a3453fc1d97d93e96ec849eac96dca05236f0": {
+    "describe": {
+      "columns": [
+        {
+          "name": "?column?",
+          "ordinal": 0,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text",
+          "TextArray",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT EXISTS(SELECT 1 FROM folder WHERE CONCAT('u/', $1::text) = ANY(owners) AND name = $2 AND workspace_id = $4) OR exists(\n            SELECT 1 FROM folder, unnest(folder.owners) as o\n            WHERE o = ANY($3::text[]) AND folder.name = $2 AND folder.workspace_id = $4)"
   },
   "ec85a425f88044c6ed4f8fcea223c28eb9fb8c16c89a52d4c4552bd149badafa": {
     "describe": {

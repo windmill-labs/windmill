@@ -5,8 +5,8 @@ import {
 	FolderService,
 	Script,
 	ScriptService,
+	UserService,
 	type Flow,
-	type FlowModule,
 	type User
 } from '$lib/gen'
 import { toast } from '@zerodevx/svelte-toast'
@@ -68,13 +68,12 @@ export function displayDate(dateString: string | undefined, displaySecond = fals
 	if (date.toString() === 'Invalid Date') {
 		return ''
 	} else {
-		return `${date.getFullYear()}/${
-			date.getMonth() + 1
-		}/${date.getDate()} at ${date.toLocaleTimeString([], {
-			hour: '2-digit',
-			minute: '2-digit',
-			second: displaySecond ? '2-digit' : undefined
-		})}`
+		return `${date.getFullYear()}/${date.getMonth() + 1
+			}/${date.getDate()} at ${date.toLocaleTimeString([], {
+				hour: '2-digit',
+				minute: '2-digit',
+				second: displaySecond ? '2-digit' : undefined
+			})}`
 	}
 }
 
@@ -185,14 +184,12 @@ export function removeItemAll<T>(arr: T[], value: T) {
 }
 
 export async function isOwner(path: string, user: UserExt, workspace: string): Promise<boolean> {
-	if (isObviousOwner(path, user)) {
+	if (user.is_admin && (workspace != 'starter' || user.is_super_admin)) {
 		return true
-	} else if (path.startsWith('f/')) {
-		let folder = path.split('/')[1]
-		let res = await FolderService.getFolder({ workspace, name: folder })
-		return res.owners.includes('u/' + user.username)
-	} else {
+	} else if (workspace == 'starter') {
 		return false
+	} else {
+		return await UserService.isOwnerOfPath({ path: path, workspace: workspace })
 	}
 }
 

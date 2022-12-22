@@ -305,7 +305,7 @@
 						}}
 					>
 						<ToggleButton light size="xs" value="user" position="left">User</ToggleButton>
-						<ToggleButton light size="xs" value="group" position="center">Group</ToggleButton>
+						<!-- <ToggleButton light size="xs" value="group" position="center">Group</ToggleButton> -->
 						<ToggleButton light size="xs" value="folder" position="right">Folder</ToggleButton>
 					</ToggleButtonGroup>
 				</label>
