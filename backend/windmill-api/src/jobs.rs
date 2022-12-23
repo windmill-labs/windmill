@@ -35,7 +35,7 @@ use windmill_queue::{get_queued_job, push, JobKind, JobPayload, QueuedJob, RawCo
 
 use crate::{
     db::{UserDB, DB},
-    users::Authed,
+    users::{require_owner_of_path, Authed},
     variables::get_workspace_key,
     BaseUrl,
 };
@@ -466,6 +466,16 @@ pub async fn resume_suspended_job_as_owner(
 
     let flow = get_suspended_flow_info(job_id, &mut tx).await?;
 
+    if !authed.is_admin {
+        require_owner_of_path(
+            &w_id,
+            &authed.username,
+            &authed.groups,
+            &flow.script_path.clone().unwrap_or_else(|| String::new()),
+            &db,
+        )
+        .await?;
+    }
     insert_resume_job(0, job_id, &flow, value, Some(authed.username), &mut tx).await?;
 
     resume_immediately_if_relevant(flow, job_id, &mut tx).await?;
@@ -580,6 +590,7 @@ struct FlowInfo {
     id: Uuid,
     flow_status: Option<serde_json::Value>,
     suspend: i32,
+    script_path: Option<String>,
 }
 
 async fn get_suspended_flow_info<'c>(
@@ -589,7 +600,7 @@ async fn get_suspended_flow_info<'c>(
     let flow = sqlx::query_as!(
         FlowInfo,
         r#"
-        SELECT id, flow_status, suspend
+        SELECT id, flow_status, suspend, script_path
         FROM queue
         WHERE id = ( SELECT parent_job FROM queue WHERE id = $1 UNION ALL SELECT parent_job FROM completed_job WHERE id = $1)
         FOR UPDATE
@@ -1495,22 +1506,6 @@ async fn get_completed_job(
 
     let job = not_found_if_none(job_o, "Completed Job", id.to_string())?;
     Ok(Json(job))
-}
-
-async fn get_flow_current_step_state(
-    Extension(db): Extension<DB>,
-    Path((w_id, id)): Path<(String, Uuid)>,
-) -> error::JsonResult<String> {
-    let x = sqlx::query!(
-        "
-    SELECT (flow_status->'step')::integer as step, jsonb_array_length(flow_status->'modules') as len
-        FROM queue WHERE id = $1 AND workspace_id = $2",
-        id,
-        w_id
-    )
-    .fetch_optional(&db)
-    .await?;
-    Ok(Json(String::new()))
 }
 
 async fn get_completed_job_result(
