@@ -6,6 +6,7 @@
 
 	let code: string
 	let language: 'deno' | 'python3' | 'go' | 'bash'
+	let description: string
 
 	async function loadCode(path: string) {
 		const script = await getScriptByPath(path!)
