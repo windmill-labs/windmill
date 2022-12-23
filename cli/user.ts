@@ -1,12 +1,14 @@
 // deno-lint-ignore-file no-explicit-any
-import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
-import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/table.ts";
-import { UserService } from "https://deno.land/x/windmill@v1.50.0/mod.ts";
-import { GlobalUserInfo } from "https://deno.land/x/windmill@v1.50.0/windmill-api/index.ts";
-import { passwordGenerator } from "https://deno.land/x/password_generator@latest/mod.ts"; // TODO: I think the version is called latest, but it's still pinned.
 import { requireLogin } from "./context.ts";
 import { GlobalOptions } from "./types.ts";
-import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
+import {
+  colors,
+  Command,
+  GlobalUserInfo,
+  passwordGenerator,
+  Table,
+  UserService,
+} from "./deps.ts";
 
 async function list(opts: GlobalOptions) {
   await requireLogin(opts);

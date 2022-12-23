@@ -1,4 +1,4 @@
-import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
+import { Command } from "./deps.ts";
 import { requireLogin, resolveWorkspace } from "./context.ts";
 import { pushResourceTypeDef } from "./resource-type.ts";
 import { GlobalOptions } from "./types.ts";
