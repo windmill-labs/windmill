@@ -28,6 +28,9 @@
 	import { userStore } from '$lib/stores'
 
 	import InlineScriptsPanel from './inlineScriptsPanel/InlineScriptsPanel.svelte'
+	import TablePanel from './TablePanel.svelte'
+	import { grid } from 'd3-dag'
+	import SettingsPanel from './SettingsPanel.svelte'
 
 	export let app: App
 	export let path: string
@@ -127,13 +130,8 @@
 					<svelte:fragment slot="content">
 						<TabContent value="settings">
 							{#if $selectedComponent !== undefined}
-								{#each $appStore.grid as gridItem (gridItem.id)}
-									{#if gridItem.data.id === $selectedComponent}
-										<ComponentPanel bind:component={gridItem.data} />
-									{/if}
-								{/each}
-							{/if}
-							{#if $selectedComponent === undefined}
+								<SettingsPanel />
+							{:else}
 								<div class="p-4 text-sm">No component selected.</div>
 							{/if}
 						</TabContent>

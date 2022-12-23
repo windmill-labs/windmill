@@ -18,7 +18,7 @@
 		if (event.currentTarget.checked) {
 			recomputeIds = [...(recomputeIds ?? []), id]
 		} else {
-			recomputeIds = recomputeIds?.filter((id) => id !== id)
+			recomputeIds = recomputeIds?.filter((x) => x !== id)
 		}
 	}
 </script>
@@ -43,7 +43,11 @@
 							<Badge color="blue">{id}</Badge>
 						</td>
 						<td class="relative whitespace-nowrap px-4 py-2 ">
-							<input type="checkbox" on:change={(event) => onChange(event, id)} />
+							<input
+								type="checkbox"
+								on:change={(event) => onChange(event, id)}
+								checked={recomputeIds?.includes(id)}
+							/>
 						</td>
 					</tr>
 				{/each}

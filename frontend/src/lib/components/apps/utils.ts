@@ -1,5 +1,6 @@
 import type { Schema } from '$lib/common'
 import { FlowService, ScriptService } from '$lib/gen'
+import { inferArgs } from '$lib/infer'
 import {
 	BarChart4,
 	Binary,
@@ -44,6 +45,8 @@ export async function loadSchema(
 			path
 		})
 
+		await inferArgs(script.language, script.content, script.schema)
+
 		return script.schema
 	}
 }
@@ -56,9 +59,11 @@ export function schemaToInputsSpec(schema: Schema): AppInputs {
 			type: 'static',
 			defaultValue: property.default,
 			value: undefined,
-			visible: true,
-			fieldType: property.type
+			visible: property.format ? false : true,
+			fieldType: property.type,
+			format: property.format
 		}
+
 		return accu
 	}, {})
 }
