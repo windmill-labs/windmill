@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { Button, type ButtonType } from '$lib/components/common'
+	import { faArrowRight, faRefresh } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../inputType'
+	import type { Output } from '../../rx'
 	import type { AppEditorContext } from '../../types'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
@@ -17,12 +19,31 @@
 
 	export const staticOutputs: string[] = ['loading', 'result']
 
-	const { runnableComponents } = getContext<AppEditorContext>('AppEditorContext')
+	const { runnableComponents, worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
 	let labelValue: string = 'Default label'
 	let color: ButtonType.Color
 	let size: ButtonType.Size
 	let runnableComponent: RunnableComponent
+
+	let isLoading: boolean = false
+	let ownClick: boolean = false
+
+	$: outputs = $worldStore?.outputsById[id] as {
+		result: Output<Array<any>>
+		loading: Output<boolean>
+	}
+
+	$: outputs?.loading.subscribe({
+		next: (value) => {
+			isLoading = value
+			if (ownClick && !value) {
+				ownClick = false
+			}
+		}
+	})
+
+	$: loading = isLoading && ownClick
 </script>
 
 <InputValue {id} input={configuration.label} bind:value={labelValue} />
@@ -50,6 +71,10 @@
 			}}
 			{size}
 			{color}
+			endIcon={{
+				icon: loading ? faRefresh : faArrowRight,
+				classes: loading ? 'animate-spin w-4' : 'w-4'
+			}}
 		>
 			{labelValue}
 		</Button>
