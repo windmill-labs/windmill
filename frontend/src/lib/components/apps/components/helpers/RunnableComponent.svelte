@@ -109,6 +109,9 @@
 
 				if (JSON.stringify(newFields) !== JSON.stringify(fields)) {
 					fields = newFields
+					setTimeout(() => {
+						fields = newFields
+					}, 0)
 				}
 			}
 		}
@@ -147,6 +150,9 @@
 		const result = {}
 		const newInputs = schemaToInputsSpec(schemaWithoutExtraQueries)
 
+		if (!fields) {
+			return newInputs
+		}
 		Object.keys(newInputs).forEach((key) => {
 			const newInput = newInputs[key]
 			const oldInput = fields[key]

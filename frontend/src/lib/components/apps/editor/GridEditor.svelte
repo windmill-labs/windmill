@@ -65,7 +65,7 @@
 	<Grid
 		bind:items={$app.grid}
 		let:dataItem
-		rowHeight={64}
+		rowHeight={32}
 		cols={columnConfiguration}
 		fastStart={true}
 		on:pointerup={({ detail }) => {

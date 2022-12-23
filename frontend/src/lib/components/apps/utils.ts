@@ -59,7 +59,7 @@ export function schemaToInputsSpec(schema: Schema): AppInputs {
 			type: 'static',
 			defaultValue: property.default,
 			value: undefined,
-			visible: true,
+			visible: property.format ? false : true,
 			fieldType: property.type,
 			format: property.format
 		}
