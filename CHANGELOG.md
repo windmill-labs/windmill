@@ -1,6 +1,40 @@
 # Changelog
 
 
+## [1.56.0](https://github.com/windmill-labs/windmill/compare/v1.55.0...v1.56.0) (2022-12-23)
+
+
+### Features
+
+* add move to drawer for script and flows ([f73dbd8](https://github.com/windmill-labs/windmill/commit/f73dbd8039b3c987ca94e5b56f0ecdea93cbd1b8))
+* add operator mode ([3485b07](https://github.com/windmill-labs/windmill/commit/3485b07b2548b7ea8fbd2b6b31b91e2d36d072ef))
+* auto-invite from same domain ([2bae50f](https://github.com/windmill-labs/windmill/commit/2bae50f3910a99a87efa402a9eef566320fe1f68))
+* **backend:** add SUPERADMIN_SECRET as an env set superadmin ([c283112](https://github.com/windmill-labs/windmill/commit/c28311242d58af12a039b81a5e5c90688022ce8c))
+* **frontend:** Add an input field to edit inline script name ([#1033](https://github.com/windmill-labs/windmill/issues/1033)) ([95a0b9c](https://github.com/windmill-labs/windmill/commit/95a0b9ceae73e291a0def340e935658b6c2ac3a5))
+* **frontend:** Add app number input ([#1010](https://github.com/windmill-labs/windmill/issues/1010)) ([2fe927f](https://github.com/windmill-labs/windmill/commit/2fe927f7fdc1309c7bad8b90fb7e0cc41d364b3f))
+* **frontend:** Add form component + fix connection bug ([#1012](https://github.com/windmill-labs/windmill/issues/1012)) ([424c31c](https://github.com/windmill-labs/windmill/commit/424c31c54a2652b89f9b06499a5aaf1cc0f00ad9))
+* **frontend:** Add select component to app builder ([#1021](https://github.com/windmill-labs/windmill/issues/1021)) ([08071bb](https://github.com/windmill-labs/windmill/commit/08071bb66b4fc40e3b984ffb459e5d52d5816298))
+* **frontend:** Add the ability to lock components so they don't move around ([#1035](https://github.com/windmill-labs/windmill/issues/1035)) ([26a6de2](https://github.com/windmill-labs/windmill/commit/26a6de247c3566bfa524b8fa4f8fc212ca557874))
+* **frontend:** Align output panel UI ([#1025](https://github.com/windmill-labs/windmill/issues/1025)) ([0e871ca](https://github.com/windmill-labs/windmill/commit/0e871ca8432d4f0bc68543b4a3f3bf8f8af99669))
+* **frontend:** App builder password and date input ([#1022](https://github.com/windmill-labs/windmill/issues/1022)) ([4651c9d](https://github.com/windmill-labs/windmill/commit/4651c9d8cd644e59bfd4f57be0bcecc01962a536))
+* **frontend:** AppTable v2 + Inline script panel ([#1023](https://github.com/windmill-labs/windmill/issues/1023)) ([f6df3ae](https://github.com/windmill-labs/windmill/commit/f6df3ae36748a1271625c3f4b50ca66f604d79f7))
+* **frontend:** Fix component synchro ([#1038](https://github.com/windmill-labs/windmill/issues/1038)) ([cebbc5f](https://github.com/windmill-labs/windmill/commit/cebbc5fbd1b8b855c9b1bcab535cff5b9de8d778))
+* **frontend:** Fix inline script status ([#1034](https://github.com/windmill-labs/windmill/issues/1034)) ([be74311](https://github.com/windmill-labs/windmill/commit/be743117d155afb2a2f0fe33ff610e0f621409f7))
+* **frontend:** Fix UI ([#1009](https://github.com/windmill-labs/windmill/issues/1009)) ([0ceb4ab](https://github.com/windmill-labs/windmill/commit/0ceb4ab1a893fecf9e64497612e6040d0e7bc8cd))
+* **frontend:** Fork + Fix table ([#1037](https://github.com/windmill-labs/windmill/issues/1037)) ([ab13e8c](https://github.com/windmill-labs/windmill/commit/ab13e8cce44ded7e05a8dda3d4d4d1ac696bf739))
+* **frontend:** Small UI fixes ([#1026](https://github.com/windmill-labs/windmill/issues/1026)) ([ebca9f3](https://github.com/windmill-labs/windmill/commit/ebca9f39eab27dda65d0ee5de175a90363bfebae))
+* **frontend:** templatable editor with autocompletion ([e228c64](https://github.com/windmill-labs/windmill/commit/e228c6448ead4a7aef433f4abdfe3c466a0f50f4))
+* implement usage tracker + quotas ([fd87109](https://github.com/windmill-labs/windmill/commit/fd871093f0ea4b2def351857d7d8d7e4e79f9539))
+* introduce folders, deprecate items owned by groups ([4329d25](https://github.com/windmill-labs/windmill/commit/4329d259887da71eb2b2a67f73947b0fbe9f3941))
+* introduce folders, deprecate items owned by groups ([c1b0b64](https://github.com/windmill-labs/windmill/commit/c1b0b64e1728007b364d2a0acc58fc459e49e461))
+* Superadmins workspace ([#1003](https://github.com/windmill-labs/windmill/issues/1003)) ([4004de0](https://github.com/windmill-labs/windmill/commit/4004de06180868af4570668a2040bd711a461e0d))
+
+
+### Bug Fixes
+
+* **frontend:** copy-to-clipnoard url with protocol ([#1027](https://github.com/windmill-labs/windmill/issues/1027)) ([f77fe7b](https://github.com/windmill-labs/windmill/commit/f77fe7b6b321c3d00a51a42a4118fd37f7c9d782))
+* **frontend:** Fix AppTable frontend search ([#1013](https://github.com/windmill-labs/windmill/issues/1013)) ([f7627b5](https://github.com/windmill-labs/windmill/commit/f7627b5f17a9f5a4528715eebb4d207f33609da2))
+
 ## [1.55.0](https://github.com/windmill-labs/windmill/compare/v1.54.0...v1.55.0) (2022-12-09)
 
 
