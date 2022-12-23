@@ -30,6 +30,7 @@
 	import InlineScriptsPanel from './inlineScriptsPanel/InlineScriptsPanel.svelte'
 	import TablePanel from './TablePanel.svelte'
 	import { grid } from 'd3-dag'
+	import SettingsPanel from './SettingsPanel.svelte'
 
 	export let app: App
 	export let path: string
@@ -77,8 +78,6 @@
 	} else {
 		selectedTab = 'insert'
 	}
-
-	$: console.log($appStore.grid)
 </script>
 
 {#if !$userStore?.operator}
@@ -99,7 +98,7 @@
 						<div class={classNames('bg-gray-100  mx-auto  relative min-h-full', width)}>
 							{#if $appStore.grid}
 								<div class={classNames('mx-auto p-4 w-full h-full bg-gray-100', width)}>
-									<!-- <GridEditor /> -->
+									<GridEditor />
 								</div>
 							{/if}
 							{#if $connectingInput.opened}
@@ -131,15 +130,8 @@
 					<svelte:fragment slot="content">
 						<TabContent value="settings">
 							{#if $selectedComponent !== undefined}
-								{#each $appStore.grid as gridItem, i (gridItem.id)}
-									{#if gridItem.data.id === $selectedComponent}
-										<ComponentPanel bind:component={gridItem.data} />
-									{:else if gridItem.data.type === 'tablecomponent'}
-										<TablePanel bind:component={gridItem.data} />
-									{/if}
-								{/each}
-							{/if}
-							{#if $selectedComponent === undefined}
+								<SettingsPanel />
+							{:else}
 								<div class="p-4 text-sm">No component selected.</div>
 							{/if}
 						</TabContent>

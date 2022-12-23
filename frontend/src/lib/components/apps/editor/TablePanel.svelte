@@ -7,11 +7,8 @@
 	const { selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
 </script>
 
-<!-- {JSON.stringify(component)} -->
-
 {#each component.actionButtons as actionButton (actionButton.id)}
 	{#if actionButton.id === $selectedComponent}
-		{JSON.stringify(actionButton.componentInput.fields)}
 		<ComponentPanel
 			bind:component={actionButton}
 			onDelete={() => {
