@@ -42,7 +42,7 @@
 			}
 		}
 		return acc
-	}, [])
+	}, [] as { name: string; id: string; subId?: string }[])
 
 	$: runnablesByPath = $app.grid.reduce((acc, gridComponent) => {
 		const component: AppComponent = gridComponent.data
@@ -72,7 +72,7 @@
 			}
 		}
 		return acc
-	}, [])
+	}, [] as { name: string; id: string; subId?: string }[])
 
 	// When seleced component changes, update selectedScriptComponentId
 	$: {

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import type { AppEditorContext, InlineScript } from '../types'
+	import type { AppEditorContext } from '../types'
 	import Grid from 'svelte-grid'
 	import ComponentEditor from './ComponentEditor.svelte'
 	import { classNames } from '$lib/utils'
@@ -26,6 +26,7 @@
 			$app.grid = $app.grid.filter((gridComponent) => {
 				if (gridComponent.data.id === component.id) {
 					if (
+						gridComponent.data.componentInput?.type === 'runnable' &&
 						gridComponent.data.componentInput?.runnable?.type === 'runnableByName' &&
 						gridComponent.data.componentInput?.runnable.inlineScript
 					) {

@@ -74,7 +74,7 @@
 			const max = getMaxDimensionsByComponent(appComponent.type, column)
 
 			newItem[column] = { ...newComponent, min, max, w: min.w, h: min.h }
-			const position = gridHelp.findSpace(newItem, grid, column)
+			const position = gridHelp.findSpace(newItem, grid, column) as { x: number; y: number }
 			newItem[column] = { ...newItem[column], ...position, min, max }
 		})
 
