@@ -1371,6 +1371,7 @@ pub struct ListCompletedQuery {
     pub is_skipped: Option<bool>,
     pub is_flow_step: Option<bool>,
 }
+
 async fn list_completed_jobs(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
@@ -1437,6 +1438,18 @@ async fn get_completed_job(
     let job = not_found_if_none(job_o, "Completed Job", id.to_string())?;
     Ok(Json(job))
 }
+
+// async fn get_flow_current_step_state(
+//     Extension(db): Extension<DB>,
+//     Path((w_id, id)): Path<(String, Uuid)>,
+// ) -> error::JsonResult<String> {
+//     let x = sqlx::query!("
+//     SELECT (flow_status->'step')::integer as step, jsonb_array_length(flow_status->'modules') as len
+//         FROM queue WHERE id = $1 AND workspace_id = $2",
+//     id, w_id)
+//     .fetch_optional(&db).await?;
+//     Ok(Json(String::new()))
+// }
 
 async fn get_completed_job_result(
     Extension(db): Extension<DB>,
