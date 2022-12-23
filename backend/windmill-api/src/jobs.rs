@@ -63,7 +63,7 @@ pub fn workspaced_service() -> Router {
         .route("/completed/get_result/:id", get(get_completed_job_result))
         .route("/completed/delete/:id", post(delete_completed_job))
         .route("/get/:id", get(get_job))
-        .route("/flow/resume/:id", post(resume_suspended_job_as_owner))
+        .route("/flow/resume/:id", post(resume_suspended_flow_as_owner))
         .route("/getupdate/:id", get(get_job_update))
         .route(
             "/job_signature/:job_id/:resume_id",
@@ -455,7 +455,7 @@ async fn list_jobs(
     Ok(Json(jobs.into_iter().map(From::from).collect()))
 }
 
-pub async fn resume_suspended_job_as_owner(
+pub async fn resume_suspended_flow_as_owner(
     authed: Authed,
     Extension(db): Extension<DB>,
     Path((w_id, job_id)): Path<(String, Uuid)>,

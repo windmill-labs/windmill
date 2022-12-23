@@ -5,6 +5,7 @@
 	import Icon from 'svelte-awesome'
 
 	export let kind: 'script' | 'flow' | 'app'
+	export let href: string = '#'
 
 	const color = {
 		script: 'bg-blue-50 border-blue-200',
@@ -19,7 +20,7 @@
 	}[kind]
 </script>
 
-<div class={classNames('rounded-md p-1 flex justify-center items-center border', color)}>
+<a {href} class={classNames('rounded-md p-1 flex justify-center items-center border', color)}>
 	{#if kind === 'flow'}
 		<span class="ml-1 mb-0.5 -mt-0.5">
 			<Icon data={faBarsStaggered} scale={1.1} class="mr-0.5 text-[#14b8a6]" />
@@ -29,4 +30,4 @@
 	{:else if kind === 'script'}
 		<Code2 size={24} color={iconColor} />
 	{/if}
-</div>
+</a>
