@@ -401,6 +401,19 @@
 		}
 	}
 
+	export function insertAtCursor(code: string): void {
+		if (editor) {
+			editor.trigger('keyboard', 'type', { text: code })
+		}
+	}
+
+	export function setCode(ncode: string): void {
+		code = ncode
+		if (editor) {
+			editor.setValue(ncode)
+		}
+	}
+
 	export function getCode(): string {
 		return editor?.getValue() ?? ''
 	}
