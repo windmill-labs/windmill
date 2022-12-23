@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.56.1](https://github.com/windmill-labs/windmill/compare/v1.56.0...v1.56.1) (2022-12-23)
+
+
+### Bug Fixes
+
+* **cli:** typo in cli deps ([0614ec4](https://github.com/windmill-labs/windmill/commit/0614ec42baf3e8f1675d62ca0f143b831c2700a1))
+
 ## [1.56.0](https://github.com/windmill-labs/windmill/compare/v1.55.0...v1.56.0) (2022-12-23)
 
 
