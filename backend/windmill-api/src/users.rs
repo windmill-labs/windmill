@@ -877,20 +877,22 @@ pub async fn require_owner_of_path(
     path: &str,
     db: &DB,
 ) -> Result<()> {
-    let splitted = path.split("/").collect::<Vec<&str>>();
-    if splitted[0] == "u" {
-        if splitted[1] == username {
-            return Ok(());
-        } else {
-            return Err(Error::BadRequest(format!(
-                "only the owner {} is authorized to perform this operation",
-                splitted[1]
-            )));
+    if !path.is_empty() {
+        let splitted = path.split("/").collect::<Vec<&str>>();
+        if splitted[0] == "u" {
+            if splitted[1] == username {
+                return Ok(());
+            } else {
+                return Err(Error::BadRequest(format!(
+                    "only the owner {} is authorized to perform this operation",
+                    splitted[1]
+                )));
+            }
+        } else if splitted[0] == "g" {
+            return crate::groups::require_is_owner(w_id, username, groups, splitted[1], db).await;
+        } else if splitted[0] == "f" {
+            return crate::folders::require_is_owner(w_id, username, groups, splitted[1], db).await;
         }
-    } else if splitted[0] == "g" {
-        return crate::groups::require_is_owner(w_id, username, groups, splitted[1], db).await;
-    } else if splitted[0] == "f" {
-        return crate::folders::require_is_owner(w_id, username, groups, splitted[1], db).await;
     }
     Err(Error::BadRequest(format!("not recognized owner kind")))
 }
