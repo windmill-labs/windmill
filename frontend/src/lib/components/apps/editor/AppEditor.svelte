@@ -28,6 +28,8 @@
 	import { userStore } from '$lib/stores'
 
 	import InlineScriptsPanel from './inlineScriptsPanel/InlineScriptsPanel.svelte'
+	import TablePanel from './TablePanel.svelte'
+	import { grid } from 'd3-dag'
 
 	export let app: App
 	export let path: string
@@ -75,6 +77,8 @@
 	} else {
 		selectedTab = 'insert'
 	}
+
+	$: console.log($appStore.grid)
 </script>
 
 {#if !$userStore?.operator}
@@ -95,7 +99,7 @@
 						<div class={classNames('bg-gray-100  mx-auto  relative min-h-full', width)}>
 							{#if $appStore.grid}
 								<div class={classNames('mx-auto p-4 w-full h-full bg-gray-100', width)}>
-									<GridEditor />
+									<!-- <GridEditor /> -->
 								</div>
 							{/if}
 							{#if $connectingInput.opened}
@@ -127,24 +131,11 @@
 					<svelte:fragment slot="content">
 						<TabContent value="settings">
 							{#if $selectedComponent !== undefined}
-								{#each $appStore.grid as gridItem (gridItem.id)}
+								{#each $appStore.grid as gridItem, i (gridItem.id)}
 									{#if gridItem.data.id === $selectedComponent}
 										<ComponentPanel bind:component={gridItem.data} />
-									{/if}
-									{#if gridItem.data.type === 'tablecomponent'}
-										{#each gridItem.data.actionButtons as actionButton (actionButton.id)}
-											{#if actionButton.id === $selectedComponent}
-												<!-- {JSON.stringify(actionButton.componentInput.fields)} -->
-												<ComponentPanel
-													bind:component={actionButton}
-													onDelete={() => {
-														gridItem.data.actionButtons = gridItem.data.actionButtons.filter(
-															(c) => c.id !== actionButton.id
-														)
-													}}
-												/>
-											{/if}
-										{/each}
+									{:else if gridItem.data.type === 'tablecomponent'}
+										<TablePanel bind:component={gridItem.data} />
 									{/if}
 								{/each}
 							{/if}
