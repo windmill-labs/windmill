@@ -1,5 +1,4 @@
-import dir from "https://deno.land/x/dir@1.5.1/mod.ts";
-import * as fs from "https://deno.land/std@0.161.0/fs/mod.ts";
+import { dir, ensureDir } from "./deps.ts";
 
 function hash_string(str: string): number {
   let hash = 0,
@@ -16,13 +15,13 @@ function hash_string(str: string): number {
 
 export async function getRootStore(): Promise<string> {
   const store = dir("config") + "/windmill/";
-  await fs.ensureDir(store);
+  await ensureDir(store);
   return store;
 }
 
 export async function getStore(baseUrl: string): Promise<string> {
   const baseHash = Math.abs(hash_string(baseUrl)).toString(16);
   const baseStore = (await getRootStore()) + baseHash + "/";
-  await fs.ensureDir(baseStore);
+  await ensureDir(baseStore);
   return baseStore;
 }

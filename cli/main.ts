@@ -1,8 +1,4 @@
-import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/mod.ts";
-import {
-  DenoLandProvider,
-  UpgradeCommand,
-} from "https://deno.land/x/cliffy@v0.25.4/command/upgrade/mod.ts";
+import { Command, DenoLandProvider, UpgradeCommand } from "./deps.ts";
 import flow from "./flow.ts";
 import script from "./script.ts";
 import workspace from "./workspace.ts";
@@ -12,6 +8,9 @@ import variable from "./variable.ts";
 import push from "./push.ts";
 import pull from "./pull.ts";
 import hub from "./hub.ts";
+// import folder from "./folder.ts";
+import { tryResolveVersion } from "./context.ts";
+import { GlobalOptions } from "./types.ts";
 
 const VERSION = "v1.55.0";
 
@@ -36,6 +35,17 @@ const command = new Command()
   .command("push", push)
   .command("pull", pull)
   .command("hub", hub)
+  // .command("folder", folder)
+  .command("version", "Show version information")
+  .action(async (opts) => {
+    console.log("CLI build against " + VERSION);
+    const backendVersion = await tryResolveVersion(opts as GlobalOptions);
+    if (backendVersion) {
+      console.log("Backend Version: " + backendVersion);
+    } else {
+      console.log("Cannot resolve Backend Version");
+    }
+  })
   .command(
     "upgrade",
     new UpgradeCommand({
