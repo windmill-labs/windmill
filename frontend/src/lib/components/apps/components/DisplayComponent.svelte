@@ -5,9 +5,10 @@
 
 	export let id: string
 	export let componentInput: AppInput | undefined
-	export const staticOutputs: string[] = []
 
 	let result: any = undefined
+
+	export const staticOutputs: string[] = ['result', 'loading']
 </script>
 
 <RunnableWrapper bind:result bind:componentInput {id}>

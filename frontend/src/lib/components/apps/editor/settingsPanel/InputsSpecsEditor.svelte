@@ -9,6 +9,7 @@
 	export let inputSpecs: Record<string, StaticAppInput | ConnectedAppInput | UserAppInput>
 	export let userInputEnabled: boolean = true
 	export let staticOnly: boolean = false
+	export let shouldCapitalize: boolean = true
 </script>
 
 {#if inputSpecs}
@@ -18,7 +19,9 @@
 			{#if true}
 				<div class="flex flex-col gap-2">
 					<div class="flex justify-between items-center gap-1">
-						<span class="text-xs font-semibold">{capitalize(inputSpecKey)}</span>
+						<span class="text-xs font-semibold">
+							{shouldCapitalize ? capitalize(inputSpecKey) : inputSpecKey}
+						</span>
 
 						<div class="flex gap-2 items-center">
 							<Badge color="blue">
@@ -36,14 +39,14 @@
 									iconOnly
 								/>
 								<ToggleButton
-									position={userInputEnabled ? 'center' : 'right'}
+									position={userInputEnabled && input.format === undefined ? 'center' : 'right'}
 									value="connected"
 									startIcon={{ icon: faArrowRight }}
 									size="xs"
 									iconOnly
 									disabled={staticOnly}
 								/>
-								{#if userInputEnabled}
+								{#if userInputEnabled && input.format === undefined}
 									<ToggleButton
 										position="right"
 										value="user"
@@ -59,7 +62,7 @@
 
 					<InputsSpecEditor
 						bind:componentInput={inputSpecs[inputSpecKey]}
-						canHide={userInputEnabled}
+						canHide={userInputEnabled && input.format === undefined}
 					/>
 				</div>
 			{/if}

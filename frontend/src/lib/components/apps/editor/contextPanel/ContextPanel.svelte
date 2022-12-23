@@ -29,6 +29,8 @@
 
 		if (component?.data.type) {
 			return displayData[component?.data.type].name
+		} else {
+			return 'Table action'
 		}
 	}
 </script>

@@ -23,7 +23,7 @@
 {:else if componentInput.type === 'runnable' && isRunnableDefined()}
 	<RunnableComponent
 		bind:this={runnableComponent}
-		bind:inputs={componentInput.fields}
+		bind:fields={componentInput.fields}
 		bind:result
 		runnable={componentInput.runnable}
 		{autoRefresh}

@@ -154,7 +154,7 @@
 			if (err.status === 404) {
 				notfound = true
 			}
-			console.error(err)
+			console.warn(err)
 		}
 		return isCompleted
 	}

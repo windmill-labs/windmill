@@ -17,14 +17,16 @@ export interface Input<T> extends Subscriber<T> {
 	peak(): T | any | undefined
 }
 
-
 export type World = {
 	outputsById: Record<string, Record<string, Output<any>>>
 	connect: <T>(inputSpec: AppInput, next: (x: T) => void, previousValue: T) => Input<T>
 	state: Writable<number>
 }
 
-export function buildWorld(components: Record<string, string[]>, previousWorld: World | undefined): World {
+export function buildWorld(
+	components: Record<string, string[]>,
+	previousWorld: World | undefined
+): World {
 	const newWorld = buildObservableWorld()
 	const outputsById: Record<string, Record<string, Output<any>>> = {}
 	const state = writable(0)
@@ -32,7 +34,12 @@ export function buildWorld(components: Record<string, string[]>, previousWorld: 
 		outputsById[k] = {}
 
 		for (const o of outputs) {
-			outputsById[k][o] = newWorld.newOutput(k, o, state, previousWorld?.outputsById[k]?.[o].peak())
+			outputsById[k][o] = newWorld.newOutput(
+				k,
+				o,
+				state,
+				previousWorld?.outputsById[k]?.[o]?.peak()
+			)
 		}
 	}
 	state.update((x) => x + 1)
@@ -47,7 +54,7 @@ export function buildObservableWorld() {
 		if (inputSpec.type === 'static') {
 			return {
 				peak: () => inputSpec.value,
-				next: () => { }
+				next: () => {}
 			}
 		} else if (inputSpec.type === 'connected') {
 			const input = cachedInput(next)
@@ -57,7 +64,7 @@ export function buildObservableWorld() {
 			if (!connection) {
 				return {
 					peak: () => undefined,
-					next: () => { }
+					next: () => {}
 				}
 			}
 
@@ -71,7 +78,7 @@ export function buildObservableWorld() {
 				console.warn('Observable at ' + componentId + '.' + p + ' not found')
 				return {
 					peak: () => undefined,
-					next: () => { }
+					next: () => {}
 				}
 			}
 
@@ -80,15 +87,19 @@ export function buildObservableWorld() {
 		} else if (inputSpec.type === 'user') {
 			return {
 				peak: () => inputSpec.value,
-				next: () => { }
+				next: () => {}
 			}
 		} else {
 			throw Error('Unknown input type ' + inputSpec)
 		}
-
 	}
 
-	function newOutput<T>(id: string, name: string, state: Writable<number>, previousValue: T): Output<T> {
+	function newOutput<T>(
+		id: string,
+		name: string,
+		state: Writable<number>,
+		previousValue: T
+	): Output<T> {
 		const output = settableOutput<T>(state, previousValue)
 		observables[`${id}.${name}`] = output
 		return output
@@ -123,7 +134,6 @@ export function settableOutput<T>(state: Writable<number>, previousValue: T): Ou
 
 	function subscribe(x: Subscriber<T>) {
 		if (!subscribers.includes(x)) {
-
 			subscribers.push(x)
 
 			// Send the current value to the new subscriber if it already exists

@@ -64,6 +64,7 @@
 				{...component}
 				bind:staticOutputs={$staticOutputs[component.id]}
 				bind:componentInput={component.componentInput}
+				bind:actionButtons={component.actionButtons}
 			/>
 		{:else if component.type === 'textcomponent'}
 			<TextComponent
