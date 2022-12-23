@@ -15,6 +15,8 @@
 	function handleOutsideClick(event) {
 		if (show && !menu.contains(event.target)) {
 			show = false
+			event.preventDefault()
+			event.stopPropagation()
 		}
 	}
 
@@ -48,7 +50,7 @@
 
 <div class="relative" bind:this={menu}>
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
-	<div on:click={() => (show = !show)} class="cursor-pointer hover:bg-gray-100/30">
+	<div on:click|stopPropagation={() => (show = !show)} class="cursor-pointer hover:bg-gray-100/30">
 		<slot class="triggerable" name="trigger" />
 	</div>
 	{#if show}

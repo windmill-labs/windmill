@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto } from '$app/navigation'
 	import Star from '$lib/components/Star.svelte'
 
 	import { createEventDispatcher } from 'svelte'
@@ -23,24 +24,21 @@
 	}[kind]
 </script>
 
-<a
-	class="hover:bg-gray-50 cursor-pointer w-full flex items-center p-4 gap-4 {color} rounded-md"
-	{href}
->
-	<RowIcon {kind} />
+<div class="hover:bg-gray-50 w-full inline-flex items-center p-4 gap-4 {color} rounded-md">
+	<RowIcon {href} {kind} />
 
-	<div class="w-full min-w-0 ">
-		<div class="text-gray-900 flex-wrap text-md font-semibold mb-1 truncate">
+	<a {href} class="w-full min-w-0 grow hover:underline decoration-gray-400">
+		<div class="text-gray-900 flex-wrap text-left text-md font-semibold mb-1 truncate ">
 			{#if marked}
 				{@html marked}
 			{:else}
 				{!summary || summary.length == 0 ? path : summary}
 			{/if}
 		</div>
-		<div class="text-gray-600 text-xs truncate">
+		<div class="text-gray-600 text-xs truncate text-left font-light">
 			{path}
 		</div>
-	</div>
+	</a>
 	<div class="w-96 hidden lg:flex flex-row max-w-xs gap-1 items-start flex-wrap">
 		<slot name="badges" />
 	</div>
@@ -61,4 +59,4 @@
 			/>
 		</div>
 	{/if}
-</a>
+</div>
