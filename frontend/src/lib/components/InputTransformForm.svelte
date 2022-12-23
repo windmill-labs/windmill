@@ -219,7 +219,7 @@
 			</span>
 		{/if}
 		{#if isStaticTemplate(inputCat) && propertyType == 'static'}
-			<div class="py-1">
+			<div class="py-1 rounded border border-1 border-gray-500">
 				<TemplateEditor {extraLib} on:focus={onFocus} bind:code={arg.value} />
 			</div>
 		{:else if propertyType === undefined || propertyType == 'static'}

@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { FlowStatusModule, Job, JobService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import FlowJobResult from './FlowJobResult.svelte'
 	import FlowPreviewStatus from './preview/FlowPreviewStatus.svelte'
 	import Icon from 'svelte-awesome'
-	import { faChevronDown, faChevronUp, faHourglassHalf } from '@fortawesome/free-solid-svg-icons'
+	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import { onDestroy } from 'svelte'
 	import type { FlowState } from './flows/flowState'
@@ -13,8 +13,10 @@
 	import Tabs from './common/tabs/Tabs.svelte'
 	import { FlowGraph, type GraphModuleState } from './graph'
 	import ModuleStatus from './ModuleStatus.svelte'
-	import { displayDate, truncateRev } from '$lib/utils'
+	import { displayDate, isOwner, truncateRev } from '$lib/utils'
 	import JobArgs from './JobArgs.svelte'
+	import autosize from 'svelte-autosize'
+	import Tooltip from './Tooltip.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -33,6 +35,8 @@
 
 	let localFlowModuleStates: Record<string, GraphModuleState> = {}
 	export let retry_status: Record<string, number> = {}
+
+	export let is_owner = false
 
 	let selectedNode: string | undefined = undefined
 
@@ -133,11 +137,12 @@
 
 	$: job && dispatch('jobsLoaded', job)
 
-	function updateJobId() {
+	async function updateJobId() {
 		if (jobId !== job?.id) {
 			retry_status = {}
 			localFlowModuleStates = {}
-			loadJobInProgress()
+			await loadJobInProgress()
+			job?.script_path && loadOwner(job.script_path)
 		}
 	}
 
@@ -149,7 +154,13 @@
 		timeout && clearTimeout(timeout)
 	})
 
+	async function loadOwner(path: string) {
+		is_owner = await isOwner(path, $userStore!, $workspaceStore!)
+	}
+
 	let selected: 'graph' | 'sequence' = 'graph'
+
+	let payload: string = ''
 </script>
 
 {#if job}
@@ -167,6 +178,33 @@
 				{#if `result` in job}
 					<div class="w-full h-full">
 						<FlowJobResult result={job.result} logs={job.logs ?? ''} />
+					</div>
+				{:else if job.flow_status?.modules?.[job?.flow_status?.step].type === FlowStatusModule.type.WAITING_FOR_EVENTS}
+					<div class="w-full h-full mt-2 text-sm text-gray-600">
+						<p>Waiting for approval from the previous step</p>
+						<div>
+							{#if is_owner}
+								<div class="flex flex-row gap-2 mt-2">
+									<div>
+										<Button color="green" variant="border">Resume</Button>
+									</div>
+									<div>
+										<Button color="red" variant="border">Cancel</Button>
+									</div>
+									<div>
+										<div class="border border-black">
+											<input placeholder="payload" type="text" bind:value={payload} use:autosize />
+										</div>
+									</div>
+									<Tooltip
+										>Since you are an owner of this flow, you can send resume events without
+										necessarily knowing the resume id sent by the approval step</Tooltip
+									>
+								</div>
+							{:else}
+								You cannot resume the job without the resume id since you are not an owner of {job.script_path}
+							{/if}
+						</div>
 					</div>
 				{:else if job.logs}
 					<div class="text-xs p-4 bg-gray-50 overflow-auto max-h-80 border">

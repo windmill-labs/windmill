@@ -63,6 +63,8 @@ pub fn workspaced_service() -> Router {
         .route("/completed/get_result/:id", get(get_completed_job_result))
         .route("/completed/delete/:id", post(delete_completed_job))
         .route("/get/:id", get(get_job))
+        .route("/flow/resume/:id", get(get_flow_current_step_state))
+        .route("/flow/cancel/:id", get(get_flow_current_step_state))
         .route("/getupdate/:id", get(get_job_update))
         .route(
             "/job_signature/:job_id/:resume_id",
@@ -454,6 +456,39 @@ async fn list_jobs(
     Ok(Json(jobs.into_iter().map(From::from).collect()))
 }
 
+pub async fn resume_suspended_job_as_owner(
+    authed: Authed,
+    Extension(db): Extension<DB>,
+    Path((w_id, job_id, resume_id, secret)): Path<(String, Uuid, u32, String)>,
+    QueryOrBody(value): QueryOrBody<serde_json::Value>,
+    Query(approver): Query<QueryApprover>,
+) {
+    let value = value.unwrap_or(serde_json::Value::Null);
+    let mut tx = db.begin().await?;
+
+    let flow = get_suspended_flow_info(job_id, &mut tx).await?;
+
+    let exists = sqlx::query_scalar!(
+        r#"
+        SELECT EXISTS (SELECT 1 FROM resume_job WHERE id = $1)
+        "#,
+        Uuid::from_u128(job_id.as_u128() ^ resume_id as u128),
+    )
+    .fetch_one(&mut tx)
+    .await?
+    .unwrap_or(false);
+
+    if exists {
+        return Err(anyhow::anyhow!("resume request already sent").into());
+    }
+
+    insert_resume_job(resume_id, job_id, &flow, value, approver, &mut tx).await?;
+
+    resume_immediately_if_relevant(flow, job_id, &mut tx).await?;
+
+    tx.commit().await?;
+    Ok(StatusCode::CREATED)
+}
 pub async fn resume_suspended_job(
     /* unauthed */
     Extension(db): Extension<DB>,
@@ -472,18 +507,7 @@ pub async fn resume_suspended_job(
     }
     mac.verify_slice(hex::decode(secret)?.as_ref())
         .map_err(|_| anyhow::anyhow!("Invalid signature"))?;
-    let flow = sqlx::query!(
-        r#"
-        SELECT id, flow_status, suspend
-        FROM queue
-        WHERE id = ( SELECT parent_job FROM queue WHERE id = $1 UNION ALL SELECT parent_job FROM completed_job WHERE id = $1)
-        FOR UPDATE
-        "#,
-        job_id,
-    )
-    .fetch_optional(&mut tx)
-    .await?
-    .ok_or_else(|| anyhow::anyhow!("parent flow job not found"))?;
+    let flow = get_suspended_flow_info(job_id, &mut tx).await?;
 
     let exists = sqlx::query_scalar!(
         r#"
@@ -499,6 +523,55 @@ pub async fn resume_suspended_job(
         return Err(anyhow::anyhow!("resume request already sent").into());
     }
 
+    insert_resume_job(resume_id, job_id, &flow, value, approver, &mut tx).await?;
+
+    resume_immediately_if_relevant(flow, job_id, &mut tx).await?;
+
+    tx.commit().await?;
+    Ok(StatusCode::CREATED)
+}
+
+/* If the flow is currently waiting to be resumed (`FlowStatusModule::WaitingForEvents`)
+ * the suspend column must be set to the number of resume messages waited on.
+ *
+ * The flow's queue row is locked in this transaction because to avoid race conditions around
+ * the suspend column.
+ * That is, a job needs one event but it hasn't arrived, a worker counts zero events before
+ * entering WaitingForEvents.  Then this message arrives but the job isn't in WaitingForEvents
+ * yet so the suspend counter isn't updated.  Then the job enters WaitingForEvents expecting
+ * one event to arrive based on the count that is no longer correct. */
+async fn resume_immediately_if_relevant<'c>(
+    flow: FlowInfo,
+    job_id: Uuid,
+    tx: &mut Transaction<'c, Postgres>,
+) -> error::Result<()> {
+    Ok(
+        if let Some(suspend) = (0 < flow.suspend).then(|| flow.suspend - 1) {
+            let status =
+                serde_json::from_value::<FlowStatus>(flow.flow_status.context("no flow status")?)
+                    .context("deserialize flow status")?;
+            if matches!(status.current_step(), Some(FlowStatusModule::WaitingForEvents { job, .. }) if job == &job_id)
+            {
+                sqlx::query!(
+                    "UPDATE queue SET suspend = $1 WHERE id = $2",
+                    suspend,
+                    flow.id,
+                )
+                .execute(tx)
+                .await?;
+            }
+        },
+    )
+}
+
+async fn insert_resume_job<'c>(
+    resume_id: u32,
+    job_id: Uuid,
+    flow: &FlowInfo,
+    value: serde_json::Value,
+    approver: QueryApprover,
+    tx: &mut Transaction<'c, Postgres>,
+) -> error::Result<()> {
     sqlx::query!(
         r#"
         INSERT INTO resume_job
@@ -512,36 +585,36 @@ pub async fn resume_suspended_job(
         value,
         approver.approver
     )
-    .execute(&mut tx)
+    .execute(tx)
     .await?;
+    Ok(())
+}
 
-    /* If the flow is currently waiting to be resumed (`FlowStatusModule::WaitingForEvents`)
-     * the suspend column must be set to the number of resume messages waited on.
-     *
-     * The flow's queue row is locked in this transaction because to avoid race conditions around
-     * the suspend column.
-     * That is, a job needs one event but it hasn't arrived, a worker counts zero events before
-     * entering WaitingForEvents.  Then this message arrives but the job isn't in WaitingForEvents
-     * yet so the suspend counter isn't updated.  Then the job enters WaitingForEvents expecting
-     * one event to arrive based on the count that is no longer correct. */
-    if let Some(suspend) = (0 < flow.suspend).then(|| flow.suspend - 1) {
-        let status =
-            serde_json::from_value::<FlowStatus>(flow.flow_status.context("no flow status")?)
-                .context("deserialize flow status")?;
-        if matches!(status.current_step(), Some(FlowStatusModule::WaitingForEvents { job, .. }) if job == &job_id)
-        {
-            sqlx::query!(
-                "UPDATE queue SET suspend = $1 WHERE id = $2",
-                suspend,
-                flow.id,
-            )
-            .execute(&mut tx)
-            .await?;
-        }
-    }
+#[derive(sqlx::FromRow)]
+struct FlowInfo {
+    id: Uuid,
+    flow_status: Option<serde_json::Value>,
+    suspend: i32,
+}
 
-    tx.commit().await?;
-    Ok(StatusCode::CREATED)
+async fn get_suspended_flow_info<'c>(
+    job_id: Uuid,
+    tx: &mut Transaction<'c, Postgres>,
+) -> error::Result<FlowInfo> {
+    let flow = sqlx::query_as!(
+        FlowInfo,
+        r#"
+        SELECT id, flow_status, suspend
+        FROM queue
+        WHERE id = ( SELECT parent_job FROM queue WHERE id = $1 UNION ALL SELECT parent_job FROM completed_job WHERE id = $1)
+        FOR UPDATE
+        "#,
+        job_id,
+    )
+    .fetch_optional(tx)
+    .await?
+    .ok_or_else(|| anyhow::anyhow!("parent flow job not found"))?;
+    Ok(flow)
 }
 
 pub async fn cancel_suspended_job(
@@ -1439,17 +1512,21 @@ async fn get_completed_job(
     Ok(Json(job))
 }
 
-// async fn get_flow_current_step_state(
-//     Extension(db): Extension<DB>,
-//     Path((w_id, id)): Path<(String, Uuid)>,
-// ) -> error::JsonResult<String> {
-//     let x = sqlx::query!("
-//     SELECT (flow_status->'step')::integer as step, jsonb_array_length(flow_status->'modules') as len
-//         FROM queue WHERE id = $1 AND workspace_id = $2",
-//     id, w_id)
-//     .fetch_optional(&db).await?;
-//     Ok(Json(String::new()))
-// }
+async fn get_flow_current_step_state(
+    Extension(db): Extension<DB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+) -> error::JsonResult<String> {
+    let x = sqlx::query!(
+        "
+    SELECT (flow_status->'step')::integer as step, jsonb_array_length(flow_status->'modules') as len
+        FROM queue WHERE id = $1 AND workspace_id = $2",
+        id,
+        w_id
+    )
+    .fetch_optional(&db)
+    .await?;
+    Ok(Json(String::new()))
+}
 
 async fn get_completed_job_result(
     Extension(db): Extension<DB>,
