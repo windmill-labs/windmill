@@ -16,7 +16,6 @@
 	import type { InputTransform } from '$lib/gen'
 	import TemplateEditor from './TemplateEditor.svelte'
 	import Tooltip from './Tooltip.svelte'
-	import { escape } from 'svelte/internal'
 
 	export let schema: Schema
 	export let arg: InputTransform | any
@@ -28,7 +27,8 @@
 	export let variableEditor: VariableEditor | undefined = undefined
 	export let itemPicker: ItemPicker | undefined = undefined
 
-	export let monaco: SimpleEditor | undefined = undefined
+	let monaco: SimpleEditor | undefined = undefined
+	let monacoTemplate: TemplateEditor | undefined = undefined
 	let argInput: ArgInput | undefined = undefined
 
 	let inputCat: InputCat = 'object'
@@ -73,6 +73,7 @@
 		if (isStaticTemplate(inputCat)) {
 			arg.value = `\$\{${rawValue}}`
 			setPropertyType(arg.value)
+			monacoTemplate?.setCode(arg.value)
 		} else {
 			arg.expr = getDefaultExpr(undefined, previousModuleId, rawValue)
 			arg.type = 'javascript'
@@ -86,6 +87,7 @@
 			focusProp(argName, 'append', (path) => {
 				const toAppend = `\$\{${path}}`
 				arg.value = `${arg.value ?? ''}${toAppend}`
+				monacoTemplate?.setCode(arg.value)
 				setPropertyType(arg.value)
 				argInput?.focus()
 				return false
@@ -219,8 +221,13 @@
 			</span>
 		{/if}
 		{#if isStaticTemplate(inputCat) && propertyType == 'static'}
-			<div class="py-1">
-				<TemplateEditor {extraLib} on:focus={onFocus} bind:code={arg.value} />
+			<div class="py-1 rounded border border-1 border-gray-500">
+				<TemplateEditor
+					bind:this={monacoTemplate}
+					{extraLib}
+					on:focus={onFocus}
+					bind:code={arg.value}
+				/>
 			</div>
 		{:else if propertyType === undefined || propertyType == 'static'}
 			<ArgInput

@@ -453,7 +453,7 @@ pub async fn push<'c>(
         {
             let mut modules = flow.modules.clone();
             modules.push(FlowModule {
-                id: "".to_string(),
+                id: format!("{}-v", flow.modules[flow.modules.len() - 1].id),
                 value: FlowModuleValue::Identity,
                 input_transforms: HashMap::new(),
                 stop_after_if: None,
