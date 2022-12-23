@@ -63,8 +63,7 @@ pub fn workspaced_service() -> Router {
         .route("/completed/get_result/:id", get(get_completed_job_result))
         .route("/completed/delete/:id", post(delete_completed_job))
         .route("/get/:id", get(get_job))
-        .route("/flow/resume/:id", get(get_flow_current_step_state))
-        .route("/flow/cancel/:id", get(get_flow_current_step_state))
+        .route("/flow/resume/:id", post(resume_suspended_job_as_owner))
         .route("/getupdate/:id", get(get_job_update))
         .route(
             "/job_signature/:job_id/:resume_id",
@@ -459,36 +458,22 @@ async fn list_jobs(
 pub async fn resume_suspended_job_as_owner(
     authed: Authed,
     Extension(db): Extension<DB>,
-    Path((w_id, job_id, resume_id, secret)): Path<(String, Uuid, u32, String)>,
+    Path((w_id, job_id)): Path<(String, Uuid)>,
     QueryOrBody(value): QueryOrBody<serde_json::Value>,
-    Query(approver): Query<QueryApprover>,
-) {
+) -> error::Result<StatusCode> {
     let value = value.unwrap_or(serde_json::Value::Null);
     let mut tx = db.begin().await?;
 
     let flow = get_suspended_flow_info(job_id, &mut tx).await?;
 
-    let exists = sqlx::query_scalar!(
-        r#"
-        SELECT EXISTS (SELECT 1 FROM resume_job WHERE id = $1)
-        "#,
-        Uuid::from_u128(job_id.as_u128() ^ resume_id as u128),
-    )
-    .fetch_one(&mut tx)
-    .await?
-    .unwrap_or(false);
-
-    if exists {
-        return Err(anyhow::anyhow!("resume request already sent").into());
-    }
-
-    insert_resume_job(resume_id, job_id, &flow, value, approver, &mut tx).await?;
+    insert_resume_job(0, job_id, &flow, value, Some(authed.username), &mut tx).await?;
 
     resume_immediately_if_relevant(flow, job_id, &mut tx).await?;
 
     tx.commit().await?;
     Ok(StatusCode::CREATED)
 }
+
 pub async fn resume_suspended_job(
     /* unauthed */
     Extension(db): Extension<DB>,
@@ -523,7 +508,7 @@ pub async fn resume_suspended_job(
         return Err(anyhow::anyhow!("resume request already sent").into());
     }
 
-    insert_resume_job(resume_id, job_id, &flow, value, approver, &mut tx).await?;
+    insert_resume_job(resume_id, job_id, &flow, value, approver.approver, &mut tx).await?;
 
     resume_immediately_if_relevant(flow, job_id, &mut tx).await?;
 
@@ -569,7 +554,7 @@ async fn insert_resume_job<'c>(
     job_id: Uuid,
     flow: &FlowInfo,
     value: serde_json::Value,
-    approver: QueryApprover,
+    approver: Option<String>,
     tx: &mut Transaction<'c, Postgres>,
 ) -> error::Result<()> {
     sqlx::query!(
@@ -583,7 +568,7 @@ async fn insert_resume_job<'c>(
         job_id,
         flow.id,
         value,
-        approver.approver
+        approver
     )
     .execute(tx)
     .await?;

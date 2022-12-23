@@ -3173,6 +3173,29 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/jobs/flow/resume/{id}:
+    post:
+      summary: resume a job for a suspended flow as an owner
+      operationId: resumeSuspendedJobAsOwner
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "201":
+          description: job resumed
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/jobs/cancel/{id}/{resume_id}/{signature}:
     get:
       summary: cancel a job for a suspended flow
