@@ -134,6 +134,7 @@
 									{#if gridItem.data.type === 'tablecomponent'}
 										{#each gridItem.data.actionButtons as actionButton (actionButton.id)}
 											{#if actionButton.id === $selectedComponent}
+												<!-- {JSON.stringify(actionButton.componentInput.fields)} -->
 												<ComponentPanel
 													bind:component={actionButton}
 													onDelete={() => {

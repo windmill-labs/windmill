@@ -89,6 +89,8 @@ declare const ${k} = ${JSON.stringify(v)};
 			: undefined
 </script>
 
+<!-- {JSON.stringify(component?.componentInput?.fields)} -->
+
 {#if component}
 	<div class="flex flex-col w-full divide-y">
 		{#if component.componentInput}

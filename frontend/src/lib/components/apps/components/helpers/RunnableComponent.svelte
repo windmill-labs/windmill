@@ -108,7 +108,6 @@
 				const newFields = reloadInputs()
 
 				if (JSON.stringify(newFields) !== JSON.stringify(fields)) {
-					console.log('newFields', newFields)
 					fields = newFields
 				}
 			}
