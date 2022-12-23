@@ -128,4 +128,7 @@
 		/* Back shadow */
 		background: rgb(147 197 253) !important;
 	}
+	:global(.svlt-grid-active) {
+		opacity: 1 !important;
+	}
 </style>
