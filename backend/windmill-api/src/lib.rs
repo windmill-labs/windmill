@@ -64,7 +64,10 @@ pub async fn run_server(
 ) -> anyhow::Result<()> {
     let user_db = UserDB::new(db.clone());
 
-    let auth_cache = Arc::new(users::AuthCache::new(db.clone()));
+    let auth_cache = Arc::new(users::AuthCache::new(
+        db.clone(),
+        std::env::var("SUPERADMIN_SECRET").ok(),
+    ));
     let argon2 = Arc::new(Argon2::default());
     let basic_clients = Arc::new(build_oauth_clients(&base_url).await?);
     let slack_verifier = Arc::new(

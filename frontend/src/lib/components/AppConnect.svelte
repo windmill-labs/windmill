@@ -398,8 +398,8 @@
 					</ol>
 				</div>
 				{#if apiTokenApps[resource_type].img}
-					<div class="mt-4">
-						<img alt="connect" src={apiTokenApps[resource_type].img} />
+					<div class="mt-4 w-full">
+						<img class="max-h-96 m-auto" alt="connect" src={apiTokenApps[resource_type].img} />
 					</div>
 				{/if}
 			{/if}

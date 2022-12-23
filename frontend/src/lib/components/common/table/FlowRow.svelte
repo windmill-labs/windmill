@@ -141,7 +141,8 @@
 					icon: faFileExport,
 					action: () => {
 						moveDrawer.openDrawer(path, 'flow')
-					}
+					},
+					disabled: !canWrite
 				},
 				{
 					displayName: 'Schedule',

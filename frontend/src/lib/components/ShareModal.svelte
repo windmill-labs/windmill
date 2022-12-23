@@ -38,10 +38,9 @@
 		loadAcls()
 		loadGroups()
 		loadUsernames()
+		await loadOwner()
 		drawer.openDrawer()
 	}
-
-	$: $userStore && $workspaceStore && loadOwner()
 
 	async function loadOwner() {
 		own = await isOwner(path, $userStore!, $workspaceStore!)

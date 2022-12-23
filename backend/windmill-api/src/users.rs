@@ -10,7 +10,7 @@ use std::{sync::Arc, time::Duration};
 
 use crate::{
     db::{UserDB, DB},
-    folders::{get_folderopt, get_folders_for_user},
+    folders::get_folders_for_user,
     utils::require_super_admin,
     workspaces::invite_user_to_all_auto_invite_worspaces,
     CookieDomain, IsSecure,
@@ -35,7 +35,7 @@ use tracing::{Instrument, Span};
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{self, Error, JsonResult, Result},
-    utils::{not_found_if_none, rd_string, require_admin, Pagination},
+    utils::{not_found_if_none, rd_string, require_admin, Pagination, StripPath},
 };
 use windmill_queue::CLOUD_HOSTED;
 
@@ -52,6 +52,7 @@ pub fn workspaced_service() -> Router {
         .route("/exists", post(exists_username))
         .route("/update/:user", post(update_workspace_user))
         .route("/delete/:user", delete(delete_workspace_user))
+        .route("/is_owner/:path", get(is_owner_of_path))
         .route("/whois/:email", get(whois))
         .route("/whoami", get(whoami))
         .route("/leave", post(leave_workspace))
@@ -90,11 +91,12 @@ pub fn make_unauthed_service() -> Router {
 pub struct AuthCache {
     cache: Cache<(String, String), Authed>,
     db: DB,
+    superadmin_secret: Option<String>,
 }
 
 impl AuthCache {
-    pub fn new(db: DB) -> Self {
-        AuthCache { cache: Cache::new(), db }
+    pub fn new(db: DB, superadmin_secret: Option<String>) -> Self {
+        AuthCache { cache: Cache::new(), db, superadmin_secret }
     }
 
     pub async fn get_authed(&self, w_id: Option<String>, token: &str) -> Option<Authed> {
@@ -248,6 +250,19 @@ impl AuthCache {
                             .await;
                     }
                     authed_o
+                } else if self
+                    .superadmin_secret
+                    .as_ref()
+                    .map(|x| x == token)
+                    .unwrap_or(false)
+                {
+                    Some(Authed {
+                        email: "superadmin_secret@windmill.dev".to_string(),
+                        username: "superadmin_secret".to_string(),
+                        is_admin: true,
+                        groups: Vec::new(),
+                        folders: Vec::new(),
+                    })
                 } else {
                     None
                 }
@@ -411,7 +426,7 @@ pub struct UserWithUsage {
     pub usage: Usage,
 }
 
-#[derive(FromRow, Serialize)]
+#[derive(FromRow, Serialize, Debug)]
 pub struct GlobalUserInfo {
     email: String,
     login_type: Option<String>,
@@ -744,8 +759,9 @@ async fn whoami(
 async fn global_whoami(
     Extension(db): Extension<DB>,
     Authed { email, .. }: Authed,
+    Tokened { token }: Tokened,
 ) -> JsonResult<GlobalUserInfo> {
-    let user: GlobalUserInfo = sqlx::query_as!(
+    let user = sqlx::query_as!(
         GlobalUserInfo,
         "SELECT email, login_type::TEXT, super_admin, verified, name, company FROM password WHERE \
          email = $1",
@@ -753,9 +769,22 @@ async fn global_whoami(
     )
     .fetch_one(&db)
     .await
-    .map_err(|e| Error::InternalErr(format!("fetching global identity: {e}")))?;
+    .map_err(|e| Error::InternalErr(format!("fetching global identity: {e}")));
 
-    Ok(Json(user))
+    if let Ok(user) = user {
+        Ok(Json(user))
+    } else if std::env::var("SUPERADMIN_SECRET").ok() == Some(token) {
+        Ok(Json(GlobalUserInfo {
+            email: email.clone(),
+            login_type: Some("superadmin_secret".to_string()),
+            super_admin: true,
+            verified: true,
+            name: None,
+            company: None,
+        }))
+    } else {
+        Err(user.unwrap_err())
+    }
 }
 
 async fn get_email(Authed { email, .. }: Authed) -> Result<String> {
@@ -824,21 +853,30 @@ pub async fn get_groups_for_user(w_id: &str, username: &str, db: &DB) -> Result<
     .await?;
     Ok(groups)
 }
-
-pub async fn is_user_member(w_id: &str, username: &str, group: &str, db: &DB) -> Result<bool> {
-    let is_member = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM usr_to_group where usr = $1 AND group_ = $2 AND workspace_id = $3)",
-        username,
-        group,
-        w_id
-    )
-    .fetch_one(db)
-    .await?
-    .unwrap_or(false);
-    Ok(is_member)
+pub async fn is_owner_of_path(
+    Authed { username, is_admin, groups, .. }: Authed,
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<bool> {
+    let path = path.to_path();
+    if is_admin {
+        Ok(Json(true))
+    } else {
+        Ok(Json(
+            require_owner_of_path(&w_id, &username, &groups, path, &db)
+                .await
+                .is_ok(),
+        ))
+    }
 }
 
-pub async fn require_owner_of_path(w_id: &str, username: &str, path: &str, db: &DB) -> Result<()> {
+pub async fn require_owner_of_path(
+    w_id: &str,
+    username: &str,
+    groups: &Vec<String>,
+    path: &str,
+    db: &DB,
+) -> Result<()> {
     let splitted = path.split("/").collect::<Vec<&str>>();
     if splitted[0] == "u" {
         if splitted[1] == username {
@@ -850,24 +888,9 @@ pub async fn require_owner_of_path(w_id: &str, username: &str, path: &str, db: &
             )));
         }
     } else if splitted[0] == "g" {
-        if is_user_member(w_id, username, splitted[1], db).await? {
-            return Ok(());
-        } else {
-            return Err(Error::BadRequest(format!(
-                "{} is not a member of {} and hence is not authorized to perform this operation",
-                username, splitted[1]
-            )));
-        }
+        return crate::groups::require_is_owner(w_id, username, groups, splitted[1], db).await;
     } else if splitted[0] == "f" {
-        let folder = get_folderopt(&mut db.begin().await?, w_id, splitted[1]).await?;
-        if folder.is_some() && folder.unwrap().owners.contains(&username.to_string()) {
-            return Ok(());
-        } else {
-            return Err(Error::BadRequest(format!(
-                "{} is not an admin of {} and hence is not authorized to perform this destructive operation",
-                username, splitted[1]
-            )));
-        }
+        return crate::folders::require_is_owner(w_id, username, groups, splitted[1], db).await;
     }
     Err(Error::BadRequest(format!("not recognized owner kind")))
 }

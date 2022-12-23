@@ -1,15 +1,11 @@
 // deno-lint-ignore-file no-explicit-any
-import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
-import { ScriptService } from "https://deno.land/x/windmill@v1.50.0/mod.ts";
 import { GlobalOptions } from "./types.ts";
-import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
-import { resolveWorkspace, requireLogin } from "./context.ts";
+import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import {
   JobService,
   Script,
 } from "https://deno.land/x/windmill@v1.50.0/windmill-api/index.ts";
-import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/table.ts";
-import { readAll } from "https://deno.land/std@0.165.0/streams/mod.ts";
+import { colors, Command, readAll, ScriptService, Table } from "./deps.ts";
 
 type ScriptFile = {
   parent_hash?: string;
@@ -26,15 +22,10 @@ async function push(
   opts: PushOptions,
   filePath: string,
   remotePath: string,
-  contentPath?: string
+  contentPath?: string,
 ) {
   const workspace = await resolveWorkspace(opts);
-  if (!(remotePath.startsWith("g") || remotePath.startsWith("u"))) {
-    console.log(
-      colors.red(
-        "Given remote path looks invalid. Remote paths are typicall of the form <u|g>/<username|group>/..."
-      )
-    );
+  if (!await validatePath(opts, remotePath)) {
     return;
   }
 
@@ -58,9 +49,9 @@ async function push(
 
 export async function findContentFile(filePath: string) {
   const candidates = [
-    filePath.replace(".json", ".ts"),
-    filePath.replace(".json", ".py"),
-    filePath.replace(".json", ".go"),
+    filePath.replace(".script.json", ".ts"),
+    filePath.replace(".script.json", ".py"),
+    filePath.replace(".script.json", ".go"),
   ];
   const validCandidates = (
     await Promise.all(
@@ -71,7 +62,7 @@ export async function findContentFile(filePath: string) {
           .then((e) => {
             return { path: x, file: e };
           });
-      })
+      }),
     )
   )
     .filter((x) => x.file)
@@ -79,7 +70,7 @@ export async function findContentFile(filePath: string) {
   if (validCandidates.length > 1) {
     throw new Error(
       "No content path given and more then one candidate found: " +
-        validCandidates.join(", ")
+        validCandidates.join(", "),
     );
   }
   if (validCandidates.length < 1) {
@@ -92,7 +83,7 @@ export async function pushScript(
   filePath: string,
   contentPath: string,
   workspace: string,
-  remotePath: string
+  remotePath: string,
 ) {
   const data: ScriptFile = JSON.parse(await Deno.readTextFile(filePath));
   const content = await Deno.readTextFile(contentPath);
@@ -170,7 +161,7 @@ async function list(opts: GlobalOptions & { showArchived?: boolean }) {
         x.language,
         x.created_at,
         x.created_by,
-      ])
+      ]),
     )
     .render();
 }
@@ -221,7 +212,7 @@ async function run(
     input: string[];
     silent: boolean;
   },
-  path: string
+  path: string,
 ) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
@@ -239,13 +230,12 @@ async function run(
 
   while (true) {
     try {
-      const result =
-        (
-          await JobService.getCompletedJob({
-            workspace: workspace.workspaceId,
-            id,
-          })
-        ).result ?? {};
+      const result = (
+        await JobService.getCompletedJob({
+          workspace: workspace.workspaceId,
+          id,
+        })
+      ).result ?? {};
       console.log(result);
 
       break;
@@ -311,7 +301,7 @@ export async function track_job(workspace: string, id: string) {
     if (running && updates.running === false) {
       running = false;
       console.log(
-        colors.yellow("Job suspended. Waiting for it to continue...")
+        colors.yellow("Job suspended. Waiting for it to continue..."),
       );
     }
   }
@@ -352,7 +342,7 @@ const command = new Command()
   .action(list as any)
   .command(
     "push",
-    "push a local script spec. This overrides any remote versions."
+    "push a local script spec. This overrides any remote versions.",
   )
   .arguments("<file_path:string> <remote_path:string> [content_path:string]")
   .action(push as any)
@@ -363,11 +353,11 @@ const command = new Command()
   .arguments("<path:string>")
   .option(
     "-i --input [inputs...:string]",
-    "Inputs specified as JSON objects or simply as <name>=<value>. Supports file inputs using @<filename> and stdin using @- these also need to be formatted as JSON. Later inputs override earlier ones."
+    "Inputs specified as JSON objects or simply as <name>=<value>. Supports file inputs using @<filename> and stdin using @- these also need to be formatted as JSON. Later inputs override earlier ones.",
   )
   .option(
     "-s --silent",
-    "Do not ouput anything other then the final output. Useful for scripting."
+    "Do not ouput anything other then the final output. Useful for scripting.",
   )
   .action(run as any);
 

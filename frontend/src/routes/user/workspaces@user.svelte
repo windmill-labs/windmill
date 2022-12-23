@@ -15,14 +15,15 @@
 	import { superadmin, usersWorkspaceStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { faCrown, faUserCog } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
-	import { Button } from '$lib/components/common'
+	import { Button, Skeleton } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import UserSettings from '$lib/components/UserSettings.svelte'
 	import SuperadminSettings from '$lib/components/SuperadminSettings.svelte'
+	import { WindmillIcon } from '$lib/components/icons'
 
 	let invites: WorkspaceInvite[] = []
 	let list_all_as_super_admin: boolean = false
-	let workspaces: { id: string; name: string; username: string }[] = []
+	let workspaces: { id: string; name: string; username: string }[] | undefined = undefined
 
 	let userSettings: UserSettings
 	let superadminSettings: SuperadminSettings
@@ -66,6 +67,7 @@
 
 	loadInvites()
 	loadWorkspaces()
+	let loading = false
 </script>
 
 {#if $superadmin}
@@ -80,7 +82,13 @@
 		<p class="text-center font-medium text-gray-600 text-xs mb-10">
 			Logged in as {$usersWorkspaceStore?.email}
 		</p>
-		<h2 class="mb-4">Workspaces</h2>
+		<h2 class="mb-4 inline-flex gap-2"
+			>Workspaces{#if loading}<WindmillIcon
+					class="animate-[pulse_5s_linear_infinite] animate-[spin_5s_linear_infinite]"
+				/>
+			{/if}
+		</h2>
+
 		{#if $superadmin}
 			<div class="flex flex-row-reverse pb-4">
 				<Toggle
@@ -89,26 +97,34 @@
 				/>
 			</div>
 		{/if}
-		{#if workspaces.length == 0}
-			<p class="text-sm text-gray-600 mt-2">
-				You are not a member of any workspace yet. Accept an invitation or create your own
-				workspace.
-			</p>
-		{/if}
-		{#each workspaces as workspace}
-			<label class="block pb-2">
-				<button
-					class="block w-full mx-auto py-1 px-2 rounded-md border border-gray-300 
+		{#if workspaces}
+			{#if workspaces.length == 0}
+				<p class="text-sm text-gray-600 mt-2">
+					You are not a member of any workspace yet. Accept an invitation or create your own
+					workspace.
+				</p>
+			{/if}
+			{#each workspaces as workspace}
+				<label class="block pb-2">
+					<button
+						class="block w-full mx-auto py-1 px-2 rounded-md border border-gray-300 
 					shadow-sm text-sm font-normal mt-1 hover:ring-1 hover:ring-indigo-300"
-					on:click={() => {
-						workspaceStore.set(workspace.id)
-						goto(rd ?? '/')
-					}}
-					><span class="font-mono">{workspace.id}</span> - {workspace.name} as
-					<span class="font-mono">{workspace.username}</span>
-				</button>
-			</label>
-		{/each}
+						on:click={async () => {
+							workspaceStore.set(workspace.id)
+							loading = true
+							await goto(rd ?? '/')
+							loading = false
+						}}
+						><span class="font-mono">{workspace.id}</span> - {workspace.name} as
+						<span class="font-mono">{workspace.username}</span>
+					</button>
+				</label>
+			{/each}
+		{:else}
+			{#each new Array(3) as _}
+				<Skeleton layout={[[2], 0.5]} />
+			{/each}
+		{/if}
 		<div class="flex flex-row-reverse  pt-4">
 			<Button
 				size="sm"
