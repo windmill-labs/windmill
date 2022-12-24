@@ -63,10 +63,16 @@
 
 	async function loadSchedule() {
 		try {
-			schedule = await ScheduleService.getSchedule({
+			let exists = await ScheduleService.existsSchedule({
 				workspace: $workspaceStore ?? '',
 				path
 			})
+			if (exists) {
+				schedule = await ScheduleService.getSchedule({
+					workspace: $workspaceStore ?? '',
+					path
+				})
+			}
 		} catch (e) {
 			console.log('no primary schedule')
 		}
@@ -131,16 +137,6 @@
 {#if flow}
 	<ActionRow applyPageWidth>
 		<svelte:fragment slot="left">
-			<Button
-				on:click={() => flow?.path && archiveFlow()}
-				variant="border"
-				color="red"
-				size="xs"
-				startIcon={{ icon: faArchive }}
-				disabled={flow.archived || !can_write}
-			>
-				Archive
-			</Button>
 			<Button
 				target="_blank"
 				href={flowToHubUrl(flow).toString()}
@@ -319,6 +315,23 @@
 						<div class="box max-w-lg mt-2">
 							<CronInput disabled={true} schedule={schedule.schedule} />
 						</div>
+					</div>
+				{/if}
+			</div>
+			<div>
+				{#if can_write}
+					<h2 class="mt-4">Danger zone</h2>
+					<div class="flex gap-2 mt-6">
+						<Button
+							on:click={() => flow?.path && archiveFlow()}
+							variant="border"
+							color="red"
+							size="md"
+							startIcon={{ icon: faArchive }}
+							disabled={flow.archived || !can_write}
+						>
+							Archive
+						</Button>
 					</div>
 				{/if}
 			</div>
