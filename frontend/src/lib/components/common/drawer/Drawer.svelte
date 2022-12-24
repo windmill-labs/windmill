@@ -6,6 +6,7 @@
 	export let duration = 0.3
 	export let placement = 'right'
 	export let size = '600px'
+	export let alwaysOpen = false
 
 	$: durationMs = duration * 1000
 
@@ -73,7 +74,7 @@
 <aside class="drawer {$$props.class}" class:open class:close={!open && timeout} {style}>
 	<div class="overlay" on:click={handleClickAway} />
 	<div class="panel {placement}" class:size>
-		{#if open || !timeout}
+		{#if open || !timeout || alwaysOpen}
 			<slot />
 		{/if}
 	</div>
