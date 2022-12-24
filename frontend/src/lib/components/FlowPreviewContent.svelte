@@ -17,7 +17,6 @@
 	let capturePayload: CapturePayload
 	export let previewMode: 'upTo' | 'whole'
 	export let open: boolean
-	export let is_owner: boolean = false
 
 	export let jobId: string | undefined = undefined
 	export let job: Job | undefined = undefined
@@ -158,7 +157,7 @@
 		/>
 		<div class="h-full pt-4 grow">
 			{#if jobId}
-				<FlowStatusViewer bind:is_owner bind:flowState={$flowStateStore} {jobId} bind:job />
+				<FlowStatusViewer bind:flowState={$flowStateStore} {jobId} bind:job />
 			{:else}
 				<div class="italic text-gray-500 h-full grow"> Flow status will be displayed here </div>
 			{/if}

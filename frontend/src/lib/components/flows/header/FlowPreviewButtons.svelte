@@ -65,9 +65,8 @@
 	{/if}
 </div>
 
-<Drawer bind:open={previewOpen} size="75%">
+<Drawer bind:open={previewOpen} alwaysOpen size="75%">
 	<FlowPreviewContent
-		bind:is_owner
 		open={previewOpen}
 		bind:previewMode
 		bind:job
