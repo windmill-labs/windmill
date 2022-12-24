@@ -43,7 +43,7 @@
 	).sort()
 
 	const dispatch = createEventDispatcher()
-	let lockHash = displayLock
+	let lockHash = false
 </script>
 
 <SearchItems
