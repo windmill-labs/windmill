@@ -3176,7 +3176,7 @@ paths:
   /w/{workspace}/jobs/flow/resume/{id}:
     post:
       summary: resume a job for a suspended flow as an owner
-      operationId: resumeSuspendedJobAsOwner
+      operationId: resumeSuspendedFlowAsOwner
       tags:
         - job
       parameters:

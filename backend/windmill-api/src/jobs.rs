@@ -406,6 +406,7 @@ async fn list_jobs(
             "false as is_skipped",
             "email",
             "visible_to_owner",
+            "suspend",
         ],
     );
     let sqlc = list_completed_jobs_query(
@@ -440,6 +441,7 @@ async fn list_jobs(
             "is_skipped",
             "email",
             "visible_to_owner",
+            "null as suspend",
         ],
     );
     let sql = format!(
@@ -458,13 +460,13 @@ async fn list_jobs(
 pub async fn resume_suspended_flow_as_owner(
     authed: Authed,
     Extension(db): Extension<DB>,
-    Path((w_id, job_id)): Path<(String, Uuid)>,
+    Path((w_id, flow_id)): Path<(String, Uuid)>,
     QueryOrBody(value): QueryOrBody<serde_json::Value>,
 ) -> error::Result<StatusCode> {
     let value = value.unwrap_or(serde_json::Value::Null);
     let mut tx = db.begin().await?;
 
-    let flow = get_suspended_flow_info(job_id, &mut tx).await?;
+    let (flow, job_id) = get_suspended_flow_info(flow_id, &mut tx).await?;
 
     if !authed.is_admin {
         require_owner_of_path(
@@ -502,7 +504,7 @@ pub async fn resume_suspended_job(
     }
     mac.verify_slice(hex::decode(secret)?.as_ref())
         .map_err(|_| anyhow::anyhow!("Invalid signature"))?;
-    let flow = get_suspended_flow_info(job_id, &mut tx).await?;
+    let flow = get_suspended_prent_flow_info(job_id, &mut tx).await?;
 
     let exists = sqlx::query_scalar!(
         r#"
@@ -593,7 +595,7 @@ struct FlowInfo {
     script_path: Option<String>,
 }
 
-async fn get_suspended_flow_info<'c>(
+async fn get_suspended_prent_flow_info<'c>(
     job_id: Uuid,
     tx: &mut Transaction<'c, Postgres>,
 ) -> error::Result<FlowInfo> {
@@ -611,6 +613,38 @@ async fn get_suspended_flow_info<'c>(
     .await?
     .ok_or_else(|| anyhow::anyhow!("parent flow job not found"))?;
     Ok(flow)
+}
+
+async fn get_suspended_flow_info<'c>(
+    job_id: Uuid,
+    tx: &mut Transaction<'c, Postgres>,
+) -> error::Result<(FlowInfo, Uuid)> {
+    let flow = sqlx::query_as!(
+        FlowInfo,
+        r#"
+        SELECT id, flow_status, suspend, script_path
+        FROM queue
+        WHERE id = $1
+        "#,
+        job_id,
+    )
+    .fetch_optional(tx)
+    .await?
+    .ok_or_else(|| anyhow::anyhow!("parent flow job not found"))?;
+    let job_id = flow
+        .flow_status
+        .as_ref()
+        .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok())
+        .and_then(|s| match s.modules.get(s.step as usize) {
+            Some(FlowStatusModule::WaitingForEvents { job, .. }) => Some(job.to_owned()),
+            _ => None,
+        });
+
+    if let Some(job_id) = job_id {
+        Ok((flow, job_id))
+    } else {
+        Err(anyhow::anyhow!("the flow is not in a suspended state anymore").into())
+    }
 }
 
 pub async fn cancel_suspended_job(
@@ -885,6 +919,7 @@ struct UnifiedJob {
     is_skipped: bool,
     email: String,
     visible_to_owner: bool,
+    suspend: Option<i32>,
 }
 
 impl From<UnifiedJob> for Job {
@@ -950,6 +985,7 @@ impl From<UnifiedJob> for Job {
                 pre_run_error: None,
                 email: uj.email,
                 visible_to_owner: uj.visible_to_owner,
+                suspend: uj.suspend,
             }),
             t => panic!("job type {} not valid", t),
         }

@@ -97,7 +97,7 @@
 	<div class="flex flex-row justify-between w-full items-center gap-x-2">
 		<button
 			on:click={() => dispatch('close')}
-			class="hover:bg-gray-200 bg-gray-100 rounded-full w-8 h-8 flex items-center justify-center transition-all"
+			class="hover:bg-gray-200 bg-gray-100 rounded-full w-16 h-8 flex items-center justify-center transition-all"
 		>
 			<Icon data={faClose} class="text-gray-500" />
 		</button>
