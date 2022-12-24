@@ -593,6 +593,44 @@
     },
     "query": "UPDATE queue SET logs = $1 WHERE id = $2"
   },
+  "1c28baaadd7d0c86a92bf9880a4ea33457bf8cff669e983431f1fd26ff275f83": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "flow_status",
+          "ordinal": 1,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "suspend",
+          "ordinal": 2,
+          "type_info": "Int4"
+        },
+        {
+          "name": "script_path",
+          "ordinal": 3,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false,
+        true,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n        SELECT id, flow_status, suspend, script_path\n        FROM queue\n        WHERE id = $1\n        "
+  },
   "1e35c39bc786d638252e5483ca4efae9a041f7e845341f8bfd715ddd9e899499": {
     "describe": {
       "columns": [

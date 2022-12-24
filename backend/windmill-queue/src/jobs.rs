@@ -598,6 +598,7 @@ pub struct QueuedJob {
     pub pre_run_error: Option<String>,
     pub email: String,
     pub visible_to_owner: bool,
+    pub suspend: Option<i32>,
 }
 
 impl QueuedJob {

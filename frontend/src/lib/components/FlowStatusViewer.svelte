@@ -13,9 +13,8 @@
 	import Tabs from './common/tabs/Tabs.svelte'
 	import { FlowGraph, type GraphModuleState } from './graph'
 	import ModuleStatus from './ModuleStatus.svelte'
-	import { displayDate, isOwner, truncateRev } from '$lib/utils'
+	import { displayDate, isOwner, pluralize, truncateRev } from '$lib/utils'
 	import JobArgs from './JobArgs.svelte'
-	import autosize from 'svelte-autosize'
 	import Tooltip from './Tooltip.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
 
@@ -36,6 +35,7 @@
 
 	let localFlowModuleStates: Record<string, GraphModuleState> = {}
 	export let retry_status: Record<string, number> = {}
+	export let suspend_status: number | undefined = undefined
 
 	export let is_owner = false
 
@@ -69,6 +69,7 @@
 	}
 
 	$: updateFailCount(job?.flow_status?.retry?.fail_count)
+	$: suspend_status = job?.flow_status?.modules?.[job?.flow_status.step]?.count
 
 	function updateFailCount(count?: number) {
 		if (count) {
@@ -191,9 +192,9 @@
 											color="green"
 											variant="border"
 											on:click={async () =>
-												await JobService.resumeSuspendedJobAsOwner({
+												await JobService.resumeSuspendedFlowAsOwner({
 													workspace: $workspaceStore ?? '',
-													id: job?.flow_status?.modules?.[job?.flow_status?.step - 1]?.job ?? '',
+													id: job?.id ?? '',
 													requestBody: JSON.parse(payload)
 												})}
 											>Resume <Tooltip
@@ -264,6 +265,7 @@
 					</Button>
 					<div class="border p-6" class:hidden={forloop_selected != loopJobId}>
 						<svelte:self
+							bind:suspend_status
 							bind:retry_status
 							bind:flowState
 							bind:flowModuleStates={localFlowModuleStates}
@@ -335,6 +337,7 @@
 						<li class="w-full border border-gray-600 p-6 space-y-2 bg-blue-50/50">
 							{#if [FlowStatusModule.type.IN_PROGRESS, FlowStatusModule.type.SUCCESS, FlowStatusModule.type.FAILURE].includes(mod.type)}
 								<svelte:self
+									bind:suspend_status
 									bind:retry_status
 									bind:flowState
 									bind:flowModuleStates={localFlowModuleStates}
@@ -395,6 +398,11 @@
 								Retry in progress, # of failed attempts: {count}
 							</span>
 						{/each}
+						{#if suspend_status}
+							<span class="text-sm">
+								Flow suspended, waiting for {pluralize(suspend_status, 'approval')}
+							</span>
+						{/if}
 					</div>
 
 					<FlowGraph

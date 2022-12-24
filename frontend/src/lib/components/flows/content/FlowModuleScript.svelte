@@ -5,7 +5,7 @@
 	import { getScriptByPath } from '$lib/utils'
 
 	export let path: string
-	export let hash: string | undefined
+	export let hash: string | undefined = undefined
 
 	let code: string
 	let language: 'deno' | 'python3' | 'go' | 'bash'
