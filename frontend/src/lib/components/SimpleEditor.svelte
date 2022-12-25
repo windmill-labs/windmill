@@ -10,16 +10,17 @@
 
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 	import { createHash, editorConfig, langToExt, updateOptions } from '$lib/editorUtils'
-	import * as monaco from 'monaco-editor'
+	import { languages, editor as meditor, KeyCode, KeyMod, Uri as mUri } from 'monaco-editor'
+
 	import libStdContent from '$lib/es5.d.ts.txt?raw'
 
-	monaco.languages.typescript.javascriptDefaults.setCompilerOptions({
-		target: monaco.languages.typescript.ScriptTarget.Latest,
+	languages.typescript.javascriptDefaults.setCompilerOptions({
+		target: languages.typescript.ScriptTarget.Latest,
 		allowNonTsExtensions: true,
 		noLib: true
 	})
 
-	monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
+	languages.json.jsonDefaults.setDiagnosticsOptions({
 		validate: true,
 		allowComments: false,
 		schemas: [],
@@ -27,8 +28,8 @@
 	})
 
 	let divEl: HTMLDivElement | null = null
-	let editor: monaco.editor.IStandaloneCodeEditor
-	let model: monaco.editor.ITextModel
+	let editor: meditor.IStandaloneCodeEditor
+	let model: meditor.ITextModel
 
 	export let lang: string
 	export let code: string = ''
@@ -100,11 +101,11 @@
 
 	let width = 0
 	async function loadMonaco() {
-		model = monaco.editor.createModel(code, lang, monaco.Uri.parse(uri))
+		model = meditor.createModel(code, lang, mUri.parse(uri))
 
 		model.updateOptions(updateOptions)
 
-		editor = monaco.editor.create(
+		editor = meditor.create(
 			divEl as HTMLDivElement,
 			editorConfig(model, code, lang, automaticLayout, fixedOverflowWidgets)
 		)
@@ -137,12 +138,12 @@
 		}
 
 		editor.onDidFocusEditorText(() => {
-			editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, function () {
+			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {
 				code = getCode()
 				shouldBindKey && format && format()
 			})
 
-			editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, function () {
+			editor.addCommand(KeyMod.CtrlCmd | KeyCode.Enter, function () {
 				code = getCode()
 				shouldBindKey && cmdEnterAction && cmdEnterAction()
 			})
@@ -157,7 +158,7 @@
 		if (lang == 'javascript') {
 			const stdLib = { content: libStdContent, filePath: 'es5.d.ts' }
 			if (extraLib != '') {
-				monaco.languages.typescript.javascriptDefaults.setExtraLibs([
+				languages.typescript.javascriptDefaults.setExtraLibs([
 					{
 						content: extraLib,
 						filePath: 'windmill.d.ts'
@@ -165,7 +166,7 @@
 					stdLib
 				])
 			} else {
-				monaco.languages.typescript.javascriptDefaults.setExtraLibs([stdLib])
+				languages.typescript.javascriptDefaults.setExtraLibs([stdLib])
 			}
 		}
 	}

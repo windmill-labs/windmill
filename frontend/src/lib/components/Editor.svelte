@@ -28,19 +28,19 @@
 	} from 'monaco-languageclient'
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 
-	import * as monaco from 'monaco-editor'
+	import { languages, editor as meditor, KeyCode, KeyMod, Uri as mUri } from 'monaco-editor'
 
-	monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
-		target: monaco.languages.typescript.ScriptTarget.Latest,
+	languages.typescript.typescriptDefaults.setCompilerOptions({
+		target: languages.typescript.ScriptTarget.Latest,
 		allowNonTsExtensions: true,
 		noLib: true
 	})
-	monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+	languages.typescript.typescriptDefaults.setDiagnosticsOptions({
 		noSemanticValidation: true,
 		noSuggestionDiagnostics: true,
 		noSyntaxValidation: true
 	})
-	monaco.editor.defineTheme('myTheme', {
+	meditor.defineTheme('myTheme', {
 		base: 'vs',
 		inherit: true,
 		rules: [],
@@ -49,7 +49,7 @@
 			'editorGutter.background': '#F9FAFB'
 		}
 	})
-	monaco.editor.setTheme('myTheme')
+	meditor.setTheme('myTheme')
 
 	import {
 		BASH_INIT_CODE,
@@ -66,7 +66,7 @@
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
 
 	let divEl: HTMLDivElement | null = null
-	let editor: monaco.editor.IStandaloneCodeEditor
+	let editor: meditor.IStandaloneCodeEditor
 
 	export let lang: 'typescript' | 'python' | 'go' | 'shell'
 	export let code: string = ''
@@ -406,10 +406,10 @@
 	}
 
 	async function loadMonaco() {
-		const model = monaco.editor.createModel(code, lang, monaco.Uri.parse(uri))
+		const model = meditor.createModel(code, lang, mUri.parse(uri))
 
 		model.updateOptions(updateOptions)
-		editor = monaco.editor.create(
+		editor = meditor.create(
 			divEl as HTMLDivElement,
 			editorConfig(model, code, lang, automaticLayout, fixedOverflowWidgets)
 		)
@@ -428,12 +428,12 @@
 		editor.onDidFocusEditorText(() => {
 			dispatch('focus')
 
-			editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, function () {
+			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {
 				code = getCode()
 				shouldBindKey && format && format()
 			})
 
-			editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, function () {
+			editor.addCommand(KeyMod.CtrlCmd | KeyCode.Enter, function () {
 				code = getCode()
 				shouldBindKey && cmdEnterAction && cmdEnterAction()
 			})
@@ -469,7 +469,7 @@
 	export function addAction(
 		id: string,
 		label: string,
-		callback: (editor: monaco.editor.IStandaloneCodeEditor) => void,
+		callback: (editor: meditor.IStandaloneCodeEditor) => void,
 		keybindings: number[] = []
 	) {
 		editor.addAction({
@@ -478,7 +478,7 @@
 			keybindings,
 			contextMenuGroupId: 'navigation',
 
-			run: function (editor: monaco.editor.IStandaloneCodeEditor) {
+			run: function (editor: meditor.IStandaloneCodeEditor) {
 				callback(editor)
 			}
 		})
