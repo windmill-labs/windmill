@@ -1,11 +1,3 @@
-<script context="module">
-	export function load({ params }) {
-		return {
-			stuff: { title: `Edit Script ${params.hash}` }
-		}
-	}
-</script>
-
 <script lang="ts">
 	import { ScriptService, type Script } from '$lib/gen'
 

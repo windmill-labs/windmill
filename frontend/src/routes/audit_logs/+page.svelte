@@ -1,11 +1,3 @@
-<script context="module">
-	export function load() {
-		return {
-			stuff: { title: 'Audit Logs' }
-		}
-	}
-</script>
-
 <script lang="ts">
 	import { AuditService, AuditLog, UserService } from '$lib/gen'
 	import type { ActionKind } from '$lib/common'

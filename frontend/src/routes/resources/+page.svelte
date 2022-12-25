@@ -1,11 +1,3 @@
-<script context="module">
-	export function load() {
-		return {
-			stuff: { title: 'Resources' }
-		}
-	}
-</script>
-
 <script lang="ts">
 	import { canWrite, emptySchema, removeMarkdown, sendUserToast, truncate } from '$lib/utils'
 	import { OauthService, ResourceService, type ListableResource } from '$lib/gen'

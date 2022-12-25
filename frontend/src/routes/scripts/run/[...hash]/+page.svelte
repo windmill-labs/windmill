@@ -1,11 +1,3 @@
-<script context="module">
-	export function load({ params }) {
-		return {
-			stuff: { title: `Run Script ${params.hash}` }
-		}
-	}
-</script>
-
 <script lang="ts">
 	import { page } from '$app/stores'
 	import {

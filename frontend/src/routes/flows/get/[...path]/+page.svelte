@@ -1,11 +1,3 @@
-<script context="module">
-	export function load({ params }) {
-		return {
-			stuff: { title: `Flow ${params.path}` }
-		}
-	}
-</script>
-
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { FlowService, JobService, ScheduleService, type Flow, type Schedule } from '$lib/gen'

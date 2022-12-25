@@ -1,11 +1,3 @@
-<script context="module">
-	export function load({ params }) {
-		return {
-			stuff: { title: `Script ${params.hash}` }
-		}
-	}
-</script>
-
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { JobService, ScriptService, type Script } from '$lib/gen'
@@ -50,7 +42,7 @@
 		ButtonPopup,
 		ButtonPopupItem
 	} from '$lib/components/common'
-	import Skeleton from '../../../lib/components/common/skeleton/Skeleton.svelte'
+	import Skeleton from '../../../../lib/components/common/skeleton/Skeleton.svelte'
 	import UserSettings from '$lib/components/UserSettings.svelte'
 	import Icon from 'svelte-awesome'
 	import RunForm from '$lib/components/RunForm.svelte'
