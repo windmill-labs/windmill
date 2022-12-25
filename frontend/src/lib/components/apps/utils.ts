@@ -12,6 +12,7 @@ import {
 	PieChart,
 	Play,
 	Table2,
+	Image,
 	TextCursorInput,
 	Type,
 	Lock,
