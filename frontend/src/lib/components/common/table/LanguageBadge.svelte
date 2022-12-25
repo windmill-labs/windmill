@@ -1,8 +1,8 @@
-<script type="ts">
+<script lang="ts">
 	import { Script } from '$lib/gen'
 	import { classNames } from '$lib/utils'
-	import Badge from '../badge/Badge.svelte'
 	import type { BadgeColor } from '../badge/model'
+	import Badge from '../badge/Badge.svelte'
 	import { LanguageIcon } from '../languageIcons'
 
 	export let language: Script.language

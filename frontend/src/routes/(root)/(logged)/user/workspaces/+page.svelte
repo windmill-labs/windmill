@@ -171,7 +171,7 @@
 				</div>
 			</div>
 		{/each}
-		<div class="flex justify-between items-center mt-10">
+		<div class="flex justify-between items-center mt-10 flex-wrap">
 			{#if $superadmin}
 				<Button variant="border" size="sm" on:click={superadminSettings.openDrawer}>
 					<Icon data={faCrown} class="mr-1" scale={1} />
