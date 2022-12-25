@@ -15,16 +15,17 @@
 		updateOptions
 	} from '$lib/editorUtils'
 
-	import * as monaco from 'monaco-editor'
+	import { languages, editor as meditor, Uri as mUri, Range } from 'monaco-editor'
+
 	import libStdContent from '$lib/es5.d.ts.txt?raw'
 
-	monaco.languages.typescript.javascriptDefaults.setCompilerOptions({
-		target: monaco.languages.typescript.ScriptTarget.Latest,
+	languages.typescript.javascriptDefaults.setCompilerOptions({
+		target: languages.typescript.ScriptTarget.Latest,
 		allowNonTsExtensions: true,
 		noLib: true
 	})
 
-	monaco.languages.register({ id: 'template' })
+	languages.register({ id: 'template' })
 
 	export const conf = {
 		wordPattern:
@@ -356,15 +357,15 @@
 	}
 
 	// Register a tokens provider for the language
-	monaco.languages.registerTokensProviderFactory('template', {
-		create: () => language as monaco.languages.IMonarchLanguage
+	languages.registerTokensProviderFactory('template', {
+		create: () => language as languages.IMonarchLanguage
 	})
 
-	monaco.languages.setLanguageConfiguration('template', conf)
+	languages.setLanguageConfiguration('template', conf)
 
 	let divEl: HTMLDivElement | null = null
-	let editor: monaco.editor.IStandaloneCodeEditor
-	let model: monaco.editor.ITextModel
+	let editor: meditor.IStandaloneCodeEditor
+	let model: meditor.ITextModel
 
 	export let code: string = ''
 	export let hash: string = createHash()
@@ -417,11 +418,11 @@
 
 	let width = 0
 	async function loadMonaco() {
-		model = monaco.editor.createModel(code, lang, monaco.Uri.parse(uri))
+		model = meditor.createModel(code, lang, mUri.parse(uri))
 
 		model.updateOptions(updateOptions)
 
-		editor = monaco.editor.create(divEl as HTMLDivElement, {
+		editor = meditor.create(divEl as HTMLDivElement, {
 			...editorConfig(model, code, lang, automaticLayout, fixedOverflowWidgets),
 			lineNumbers: 'off',
 			fontSize: 16,
@@ -431,7 +432,7 @@
 
 		const stdLib = { content: libStdContent, filePath: 'es5.d.ts' }
 		if (extraLib != '') {
-			monaco.languages.typescript.javascriptDefaults.setExtraLibs([
+			languages.typescript.javascriptDefaults.setExtraLibs([
 				{
 					content: extraLib,
 					filePath: 'windmill.d.ts'
@@ -439,14 +440,14 @@
 				stdLib
 			])
 		} else {
-			monaco.languages.typescript.javascriptDefaults.setExtraLibs([stdLib])
+			languages.typescript.javascriptDefaults.setExtraLibs([stdLib])
 		}
 
-		extraModel = monaco.editor.createModel('`' + model.getValue() + '`', 'javascript')
-		const worker = await monaco.languages.typescript.getJavaScriptWorker()
+		extraModel = meditor.createModel('`' + model.getValue() + '`', 'javascript')
+		const worker = await languages.typescript.getJavaScriptWorker()
 		const client = await worker(extraModel.uri)
 
-		cip = monaco.languages.registerCompletionItemProvider('template', {
+		cip = languages.registerCompletionItemProvider('template', {
 			triggerCharacters: ['.'],
 
 			provideCompletionItems: async (model, position) => {
@@ -458,7 +459,7 @@
 					return { suggestions: [] }
 				}
 				const wordInfo = model.getWordUntilPosition(position)
-				const wordRange = new monaco.Range(
+				const wordRange = new Range(
 					position.lineNumber,
 					wordInfo.startColumn,
 					position.lineNumber,
@@ -474,12 +475,12 @@
 							const p2 = model.getPositionAt(
 								entry.replacementSpan.start + entry.replacementSpan.length
 							)
-							range = new monaco.Range(p1.lineNumber, p1.column, p2.lineNumber, p2.column)
+							range = new Range(p1.lineNumber, p1.column, p2.lineNumber, p2.column)
 						}
 
-						const tags: monaco.languages.CompletionItemTag[] = []
+						const tags: languages.CompletionItemTag[] = []
 						if (entry.kindModifiers?.indexOf('deprecated') !== -1) {
-							tags.push(monaco.languages.CompletionItemTag.Deprecated)
+							tags.push(languages.CompletionItemTag.Deprecated)
 						}
 						return {
 							uri: model.uri,
@@ -495,7 +496,7 @@
 					})
 				return { suggestions }
 			},
-			resolveCompletionItem: async (item: monaco.languages.CompletionItem, token: any) => {
+			resolveCompletionItem: async (item: languages.CompletionItem, token: any) => {
 				extraModel.setValue('`' + model.getValue() + '`')
 
 				const myItem = <any>item
