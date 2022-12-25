@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button, type ButtonType } from '$lib/components/common'
-	import { faArrowRight, faRefresh } from '@fortawesome/free-solid-svg-icons'
+	import { faArrowRight, faRefresh, faSpinner } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
@@ -72,12 +72,17 @@
 			}}
 			{size}
 			{color}
-			endIcon={{
-				icon: loading ? faRefresh : faArrowRight,
-				classes: loading ? 'animate-spin w-4' : 'w-4'
-			}}
+			endIcon={loading
+				? {
+						icon: faSpinner,
+						classes: 'animate-spin w-4'
+				  }
+				: undefined}
 		>
 			{labelValue}
+			{#if !loading}
+				<span class="w-5" />
+			{/if}
 		</Button>
 	</AlignWrapper>
 </RunnableWrapper>

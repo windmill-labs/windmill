@@ -35,6 +35,7 @@
 		const [dimension] = Object.entries(dimensions).find(([_, value]) =>
 			value.includes(componentType)
 		) || ['2:1-2:1']
+
 		const size = dimension.split('-')[column === 3 ? 0 : 1].split(':')
 		return { w: +size[0], h: +size[1] }
 	}
