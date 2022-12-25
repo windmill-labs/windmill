@@ -61,8 +61,8 @@
 	},
 	"type": "module",
 	"dependencies": {
-		"@fortawesome/free-brands-svg-icons": "^6.2.0",
-		"@fortawesome/free-solid-svg-icons": "^6.2.0",
+		"@fortawesome/free-brands-svg-icons": "^6.2.1",
+		"@fortawesome/free-solid-svg-icons": "^6.2.1",
 		"@leeoniya/ufuzzy": "^0.8.0",
 		"@redocly/json-to-json-schema": "^0.0.1",
 		"@tanstack/svelte-table": "^8.7.2",

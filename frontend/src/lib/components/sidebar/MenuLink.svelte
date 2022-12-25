@@ -2,8 +2,8 @@
 	import { classNames } from '$lib/utils'
 	import { navigating, page } from '$app/stores'
 
-	import type { IconDefinition } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
+	import type { IconDefinition } from '@fortawesome/fontawesome-common-types'
 
 	export let label: string
 	export let href: string
