@@ -5,13 +5,62 @@ const inputs: ComponentSet = {
 	title: 'Inputs',
 	components: [
 		{
+			verticalAlignment: 'center',
 			id: 'textinputcomponent',
 			type: 'textinputcomponent',
+			componentInput: undefined,
+			configuration: {},
+			card: false
+		},
+		{
+			verticalAlignment: 'center',
+			id: 'passwordinputcomponent',
+			type: 'passwordinputcomponent',
+			componentInput: undefined,
+			configuration: {},
+			card: false
+		},
+		{
+			verticalAlignment: 'center',
+			id: 'numberinputcomponent',
+			type: 'numberinputcomponent',
+			componentInput: undefined,
+			configuration: {},
+			card: false
+		},
+		{
+			verticalAlignment: 'center',
+			id: 'dateinputcomponent',
+			type: 'dateinputcomponent',
+			componentInput: undefined,
+			configuration: {
+				minDate: {
+					type: 'static',
+					visible: false,
+					value: '',
+					fieldType: 'date',
+					defaultValue: ''
+				},
+				maxDate: {
+					type: 'static',
+					visible: false,
+					value: '',
+					fieldType: 'date',
+					defaultValue: ''
+				}
+			},
+			card: false,
+			softWrap: true
+		},
+		{
+			...defaultAlignement,
+			id: 'checkboxcomponent',
+			type: 'checkboxcomponent',
 			componentInput: undefined,
 			configuration: {
 				label: {
 					type: 'static',
-					visible: false,
+					visible: true,
 					value: 'Label',
 					fieldType: 'textarea',
 					defaultValue: 'Label'
@@ -20,35 +69,33 @@ const inputs: ComponentSet = {
 			card: false
 		},
 		{
-			id: 'numberinputcomponent',
-			type: 'numberinputcomponent',
+			verticalAlignment: 'center',
+			id: 'selectcomponent',
+			type: 'selectcomponent',
 			componentInput: undefined,
 			configuration: {
-				label: {
+				items: {
 					type: 'static',
-					visible: false,
-					value: 'Title',
-					fieldType: 'textarea',
-					defaultValue: 'Title'
+					fieldType: 'array',
+					subFieldType: 'object',
+					defaultValue: [
+						{ value: 'foo', label: 'Foo' },
+						{ value: 'bar', label: 'Bar' }
+					],
+					value: [
+						{ value: 'foo', label: 'Foo' },
+						{ value: 'bar', label: 'Bar' }
+					]
+				},
+				itemKey: {
+					type: 'static',
+					fieldType: 'text',
+					defaultValue: 'value',
+					value: 'value'
 				}
 			},
-			card: false
-		},
-		{
-			...defaultAlignement,
-			id: 'checkboxcomponent',
-			type: 'checkboxcomponent',
-			configuration: {
-				label: {
-					type: 'static',
-					visible: true,
-					value: 'Lorem ipsum',
-					fieldType: 'textarea',
-					defaultValue: 'Lorem ipsum'
-				}
-			},
-			componentInput: undefined,
-			card: false
+			card: false,
+			softWrap: true
 		}
 	]
 }
@@ -61,10 +108,11 @@ const buttons: ComponentSet = {
 			id: 'buttoncomponent',
 			type: 'buttoncomponent',
 			componentInput: {
-				type: 'static',
-				fieldType: 'textarea',
-				defaultValue: '',
-				value: ''
+				type: 'runnable',
+				fieldType: 'any',
+				fields: {},
+				runnable: undefined,
+				defaultValue: undefined
 			},
 			recomputeIds: undefined,
 			configuration: {
@@ -96,14 +144,15 @@ const buttons: ComponentSet = {
 			card: false
 		},
 		{
-			...defaultAlignement,
+			horizontalAlignment: 'center',
 			id: 'formcomponent',
 			type: 'formcomponent',
 			componentInput: {
-				type: 'static',
-				fieldType: 'textarea',
-				defaultValue: '',
-				value: ''
+				type: 'runnable',
+				fieldType: 'any',
+				fields: {},
+				runnable: undefined,
+				defaultValue: undefined
 			},
 			recomputeIds: undefined,
 			configuration: {
@@ -137,8 +186,8 @@ const buttons: ComponentSet = {
 	]
 }
 
-const dataDisplay: ComponentSet = {
-	title: 'Data Display',
+const display: ComponentSet = {
+	title: 'Display',
 	components: [
 		{
 			...defaultAlignement,
@@ -277,6 +326,6 @@ const dataDisplay: ComponentSet = {
 	]
 }
 
-const componentSets = [buttons, inputs, dataDisplay]
+const componentSets = [buttons, inputs, display]
 
 export { componentSets }

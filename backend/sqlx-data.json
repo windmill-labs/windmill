@@ -204,6 +204,49 @@
     },
     "query": "\n       INSERT INTO capture\n                   (workspace_id, path, created_by)\n            VALUES ($1, $2, $3)\n       ON CONFLICT (workspace_id, path)\n     DO UPDATE SET created_at = now()\n        "
   },
+  "0bfd22be1d6966c61c9a5fedc2522be8a17f06391b882337c74c1817c99b533d": {
+    "describe": {
+      "columns": [
+        {
+          "name": "name",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Int8",
+          "Int8"
+        ]
+      }
+    },
+    "query": "SELECT name FROM folder WHERE workspace_id = $1 ORDER BY name desc LIMIT $2 OFFSET $3"
+  },
+  "0c3b687d97cb0bb2dfec369c013e7570ee9c3f473c6e92b1161ed71527385348": {
+    "describe": {
+      "columns": [
+        {
+          "name": "exists",
+          "ordinal": 0,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT EXISTS(SELECT 1 FROM flow WHERE path = $1 AND workspace_id = $2)"
+  },
   "0c5faa1e3233ca15240f80c9ba805f839d9f1f7450d1ea1f2b8e9faf8533892d": {
     "describe": {
       "columns": [],
@@ -449,6 +492,27 @@
     },
     "query": "SELECT dependency_job FROM flow WHERE path = $1 AND workspace_id = $2"
   },
+  "1a8d9f265302f0f9175e02cc4b3f26fa0e9cbbaab89299e940eb4e94d8e62cf1": {
+    "describe": {
+      "columns": [
+        {
+          "name": "count",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT count(path) FROM script WHERE path LIKE 'f/' || $1 || '%' AND archived IS false AND workspace_id = $2"
+  },
   "1b31847d6187d6969deac5aa7b2feb169ef963449ac2d3ea06e1ed785f6d42e7": {
     "describe": {
       "columns": [
@@ -487,6 +551,35 @@
     },
     "query": "SELECT * from workspace_invite WHERE email = $1"
   },
+  "1b9a418e1a6bda6abde432112a4e94bfef3708a57a8fa31670a61e001aaf2fd6": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "script",
+                  "preview",
+                  "flow",
+                  "dependencies",
+                  "flowpreview",
+                  "script_hub",
+                  "identity",
+                  "flowdependencies"
+                ]
+              },
+              "name": "job_kind"
+            }
+          }
+        ]
+      }
+    },
+    "query": "DELETE FROM queue WHERE schedule_path = $1 AND running = false AND job_kind = $2"
+  },
   "1bf2ca894246bd716875635b2d0c294a1ce2ed21916097ea165df240f7421a1e": {
     "describe": {
       "columns": [],
@@ -500,47 +593,45 @@
     },
     "query": "UPDATE queue SET logs = $1 WHERE id = $2"
   },
-  "1f040850c2a82bc09789226b167c43fd4935cfbb4951760a4d527665b70a5ac7": {
+  "1c28baaadd7d0c86a92bf9880a4ea33457bf8cff669e983431f1fd26ff275f83": {
     "describe": {
       "columns": [
         {
-          "name": "result",
+          "name": "id",
           "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "flow_status",
+          "ordinal": 1,
           "type_info": "Jsonb"
         },
         {
-          "name": "id",
-          "ordinal": 1,
-          "type_info": "Uuid"
+          "name": "suspend",
+          "ordinal": 2,
+          "type_info": "Int4"
+        },
+        {
+          "name": "script_path",
+          "ordinal": 3,
+          "type_info": "Varchar"
         }
       ],
       "nullable": [
+        false,
         true,
-        false
+        false,
+        true
       ],
       "parameters": {
         "Left": [
-          "UuidArray",
-          "Text"
-        ]
-      }
-    },
-    "query": "\n                  SELECT result, id\n                    FROM completed_job\n                   WHERE id = ANY($1)\n                     AND workspace_id = $2\n                    "
-  },
-  "1f93b533fa6fee0db4340445da3fac8e6773bc1db1f88cd60fd3c1e8c9781eb0": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Int4",
           "Uuid"
         ]
       }
     },
-    "query": "UPDATE queue SET suspend = $1 WHERE id = $2"
+    "query": "\n        SELECT id, flow_status, suspend, script_path\n        FROM queue\n        WHERE id = $1\n        "
   },
-  "207b9cca0240dd6eea3f3b95c093ead9d7bb48fae2484e1a4086636396c0dcb7": {
+  "1e35c39bc786d638252e5483ca4efae9a041f7e845341f8bfd715ddd9e899499": {
     "describe": {
       "columns": [
         {
@@ -602,11 +693,74 @@
           },
           "Bool",
           "Text",
-          "Varchar"
+          "Varchar",
+          "Bool"
         ]
       }
     },
-    "query": "INSERT INTO queue\n            (workspace_id, id, running, parent_job, created_by, permissioned_as, scheduled_for, \n                script_hash, script_path, raw_code, raw_lock, args, job_kind, schedule_path, raw_flow, flow_status, is_flow_step, language, started_at, same_worker, pre_run_error, email)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21) RETURNING id"
+    "query": "INSERT INTO queue\n            (workspace_id, id, running, parent_job, created_by, permissioned_as, scheduled_for, \n                script_hash, script_path, raw_code, raw_lock, args, job_kind, schedule_path, raw_flow, flow_status, is_flow_step, language, started_at, same_worker, pre_run_error, email, visible_to_owner)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22) RETURNING id"
+  },
+  "1f040850c2a82bc09789226b167c43fd4935cfbb4951760a4d527665b70a5ac7": {
+    "describe": {
+      "columns": [
+        {
+          "name": "result",
+          "ordinal": 0,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "id",
+          "ordinal": 1,
+          "type_info": "Uuid"
+        }
+      ],
+      "nullable": [
+        true,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "UuidArray",
+          "Text"
+        ]
+      }
+    },
+    "query": "\n                  SELECT result, id\n                    FROM completed_job\n                   WHERE id = ANY($1)\n                     AND workspace_id = $2\n                    "
+  },
+  "1f93b533fa6fee0db4340445da3fac8e6773bc1db1f88cd60fd3c1e8c9781eb0": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Int4",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "UPDATE queue SET suspend = $1 WHERE id = $2"
+  },
+  "1fab686dee77ae1ef35ff17239900ddbb55e86320ec820803f454c53571fdddf": {
+    "describe": {
+      "columns": [
+        {
+          "name": "name",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE folder SET owners = array_remove(owners, $1) WHERE name = $2 AND workspace_id = $3 RETURNING name"
   },
   "20e8a8343adc4a3a28a1c4908a13047cddafc4480cf028d3455fd17347cace73": {
     "describe": {
@@ -687,28 +841,6 @@
     },
     "query": "DELETE FROM favorite WHERE workspace_id = $1 AND usr = $2 AND path = $3 AND favorite_kind = $4"
   },
-  "23086afd75927486884944e48b768e956d1fd77ce08c6f345fcde083b1e9bbf1": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Int8"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Int8",
-          "Jsonb",
-          "Varchar"
-        ]
-      }
-    },
-    "query": "INSERT INTO app_version\n            (flow_id, value, created_by)\n            VALUES ($1, $2, $3) RETURNING id"
-  },
   "230d58732a08164268ca10d248a93cced646632a76864b693ed2325d85b36c45": {
     "describe": {
       "columns": [
@@ -768,6 +900,19 @@
     },
     "query": "SELECT now()"
   },
+  "26e4ec75366d1e46a98710f29066b40e66a802f98eeabbb3ae5bebe3aeb6b3f8": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM folder WHERE name = $1 AND workspace_id = $2"
+  },
   "28c042adef65c3055edc324fbbd2f267285d3566cbec58404983323d410ace27": {
     "describe": {
       "columns": [
@@ -812,6 +957,26 @@
       }
     },
     "query": "DELETE FROM usr_to_group WHERE usr = $1"
+  },
+  "29fbc3a8c35845a997cd548ed417b9cc3c82d815d99b3d435adcfbb5a9246124": {
+    "describe": {
+      "columns": [
+        {
+          "name": "set_config",
+          "ordinal": 0,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT set_config('session.folders_read', $1, true)"
   },
   "2a4be8334db7d39f3d954193a8b0169cc4a4a07e081d2fa61d8764879d6a8ff5": {
     "describe": {
@@ -955,6 +1120,28 @@
     },
     "query": "SELECT EXISTS(SELECT 1 FROM resource_type WHERE name = $1 AND workspace_id = $2)"
   },
+  "3593fe778f1b2cad6441108d88577641b5dd5d28bca17f615e5b6eb86a0f8ba8": {
+    "describe": {
+      "columns": [
+        {
+          "name": "name",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE folder SET owners = array_append(owners, $1) WHERE name = $2 AND workspace_id = $3 AND NOT $1 = ANY(owners) RETURNING name"
+  },
   "372b0a81d37b6874727c1aa4dc1bec17f9475a5f446e8987ab7359f55b96436e": {
     "describe": {
       "columns": [],
@@ -968,6 +1155,74 @@
       }
     },
     "query": "UPDATE flow SET value = $1 WHERE path = $2 AND workspace_id = $3"
+  },
+  "388d6fd335a3f8a405b2d465892cf21a68d4b50ace25ef88c4cdf5b347c3d5eb": {
+    "describe": {
+      "columns": [
+        {
+          "name": "?column?",
+          "ordinal": 0,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text",
+          "TextArray",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT EXISTS(SELECT 1 FROM group_ WHERE (group_.extra_perms ->> CONCAT('u/', $1::text))::boolean AND name = $2 AND workspace_id = $4) OR exists(\n            SELECT 1 FROM group_ g, jsonb_each_text(g.extra_perms) f \n    WHERE $2 = g.name AND $4 = g.workspace_id AND SPLIT_PART(key, '/', 1) = 'g' AND key = ANY($3::text[])\n    AND value::boolean)"
+  },
+  "3911bf3bbc82d87366a5297496fd2350a252bcd69f1c7c972bf566ee7eb28b0a": {
+    "describe": {
+      "columns": [
+        {
+          "name": "workspace_id",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "name",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "display_name",
+          "ordinal": 2,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "owners",
+          "ordinal": 3,
+          "type_info": "VarcharArray"
+        },
+        {
+          "name": "extra_perms",
+          "ordinal": 4,
+          "type_info": "Jsonb"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT workspace_id, name, display_name, owners, extra_perms FROM folder WHERE name = $1 AND workspace_id = $2"
   },
   "3d363466d79075df3f74f946eff43ca89faefca3bcdf2c533425ca3868b0369a": {
     "describe": {
@@ -1066,17 +1321,74 @@
     },
     "query": "UPDATE app SET versions = array_append(versions, $1) WHERE id = $2"
   },
-  "3fabb3857c9cf2d057814b54ee54a95d01b6a7d9e89bea239b832a9d70f0044b": {
+  "438fb925ee90d5115bd3c3be8ae48b56ba86017af3ca519bd3a15829edaa7d1b": {
     "describe": {
-      "columns": [],
-      "nullable": [],
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int8"
+        },
+        {
+          "name": "path",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "summary",
+          "ordinal": 2,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "versions",
+          "ordinal": 3,
+          "type_info": "Int8Array"
+        },
+        {
+          "name": "policy",
+          "ordinal": 4,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "extra_perms",
+          "ordinal": 5,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "value",
+          "ordinal": 6,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 7,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "created_by",
+          "ordinal": 8,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
       "parameters": {
         "Left": [
+          "Int8",
           "Text"
         ]
       }
     },
-    "query": "DELETE FROM queue WHERE schedule_path = $1 AND running = false"
+    "query": "SELECT app.id, app.path, app.summary, app.versions, app.policy,\n        app.extra_perms, app_version.value, \n        app_version.created_at, app_version.created_by from app, app_version \n        WHERE app_version.id = $1 AND app.id = app_version.app_id AND app.workspace_id = $2"
   },
   "453501fbd61efd26647baf9b6ef702ce0bc2e920914e9f08fe5f2a5f4ab03f02": {
     "describe": {
@@ -1187,103 +1499,6 @@
       }
     },
     "query": "\n            UPDATE queue\n               SET flow_status = JSONB_SET(flow_status, ARRAY['step'], $1)\n             WHERE id = $2\n            "
-  },
-  "4eb6b80c410e00e8a72eced6c25cdd3ed941e7a46a0619173f272eec7f28a3c1": {
-    "describe": {
-      "columns": [
-        {
-          "name": "workspace_id",
-          "ordinal": 0,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "path",
-          "ordinal": 1,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "edited_by",
-          "ordinal": 2,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "edited_at",
-          "ordinal": 3,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "schedule",
-          "ordinal": 4,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "offset_",
-          "ordinal": 5,
-          "type_info": "Int4"
-        },
-        {
-          "name": "enabled",
-          "ordinal": 6,
-          "type_info": "Bool"
-        },
-        {
-          "name": "script_path",
-          "ordinal": 7,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "args",
-          "ordinal": 8,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "extra_perms",
-          "ordinal": 9,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "is_flow",
-          "ordinal": 10,
-          "type_info": "Bool"
-        },
-        {
-          "name": "email",
-          "ordinal": 11,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "error",
-          "ordinal": 12,
-          "type_info": "Text"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        true,
-        false,
-        false,
-        false,
-        true
-      ],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Varchar",
-          "Bool",
-          "Jsonb",
-          "Text",
-          "Text"
-        ]
-      }
-    },
-    "query": "UPDATE schedule SET schedule = $1, script_path = $2, is_flow = $3, args = $4 WHERE path = $5 AND workspace_id = $6 RETURNING *"
   },
   "5061c0d054bf4f028e7fe51a8f9389024c6ae4492755cadac0f7167e5300bda0": {
     "describe": {
@@ -1487,13 +1702,13 @@
     },
     "query": "INSERT INTO token\n            (token, email, label, expiration, super_admin)\n            VALUES ($1, $2, $3, $4, $5)"
   },
-  "547f0a03f954210b06ad3cbee0ff4ef90c378be68d6a105b8bcda8a7a8d834c6": {
+  "55960eb3cd5a82f593496349a2521607f8066d88ff11a2ca4a63b6e37e62b71b": {
     "describe": {
       "columns": [
         {
-          "name": "id",
+          "name": "workspace_id",
           "ordinal": 0,
-          "type_info": "Int8"
+          "type_info": "Varchar"
         },
         {
           "name": "path",
@@ -1501,39 +1716,59 @@
           "type_info": "Varchar"
         },
         {
-          "name": "summary",
+          "name": "edited_by",
           "ordinal": 2,
           "type_info": "Varchar"
         },
         {
-          "name": "versions",
+          "name": "edited_at",
           "ordinal": 3,
-          "type_info": "Int8Array"
+          "type_info": "Timestamptz"
         },
         {
-          "name": "policy",
+          "name": "schedule",
           "ordinal": 4,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "offset_",
+          "ordinal": 5,
+          "type_info": "Int4"
+        },
+        {
+          "name": "enabled",
+          "ordinal": 6,
+          "type_info": "Bool"
+        },
+        {
+          "name": "script_path",
+          "ordinal": 7,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "args",
+          "ordinal": 8,
           "type_info": "Jsonb"
         },
         {
           "name": "extra_perms",
-          "ordinal": 5,
+          "ordinal": 9,
           "type_info": "Jsonb"
         },
         {
-          "name": "value",
-          "ordinal": 6,
-          "type_info": "Jsonb"
+          "name": "is_flow",
+          "ordinal": 10,
+          "type_info": "Bool"
         },
         {
-          "name": "created_at",
-          "ordinal": 7,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "created_by",
-          "ordinal": 8,
+          "name": "email",
+          "ordinal": 11,
           "type_info": "Varchar"
+        },
+        {
+          "name": "error",
+          "ordinal": 12,
+          "type_info": "Text"
         }
       ],
       "nullable": [
@@ -1545,16 +1780,43 @@
         false,
         false,
         false,
-        false
+        true,
+        false,
+        false,
+        false,
+        true
       ],
       "parameters": {
         "Left": [
-          "Int8",
+          "Varchar",
+          "Jsonb",
+          "Text",
           "Text"
         ]
       }
     },
-    "query": "SELECT app.id, app.path, app.summary, app.versions, app.policy,\n        app.extra_perms, app_version.value, \n        app_version.created_at, app_version.created_by from app, app_version \n        WHERE app_version.id = $1 AND app.id = app_version.flow_id AND app.workspace_id = $2"
+    "query": "UPDATE schedule SET schedule = $1, args = $2 WHERE path = $3 AND workspace_id = $4 RETURNING *"
+  },
+  "56839d3aec6c0177d14589aedda8d5c431d841b6d5d0d99ce3836bb42d4d83d9": {
+    "describe": {
+      "columns": [
+        {
+          "name": "is_flow",
+          "ordinal": 0,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT is_flow FROM schedule WHERE path = $1 AND workspace_id = $2"
   },
   "576b00c515ee7cbf628b1881596d8a03c1c506b309e39a0048a3a8fe18f37070": {
     "describe": {
@@ -1628,6 +1890,73 @@
       }
     },
     "query": "SELECT * from resource_type WHERE name = $1 AND (workspace_id = $2 OR workspace_id = 'starter')"
+  },
+  "59fc51efa01e823ec63f55a8081f282db0d7a40716c04f4043925eb84fe4429b": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Uuid",
+          "Uuid",
+          "Varchar",
+          "Timestamptz",
+          "Timestamptz",
+          "Bool",
+          "Int8",
+          "Varchar",
+          "Jsonb",
+          "Jsonb",
+          "Text",
+          "Text",
+          "Text",
+          "Bool",
+          "Varchar",
+          "Text",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "script",
+                  "preview",
+                  "flow",
+                  "dependencies",
+                  "flowpreview",
+                  "script_hub",
+                  "identity",
+                  "flowdependencies"
+                ]
+              },
+              "name": "job_kind"
+            }
+          },
+          "Varchar",
+          "Varchar",
+          "Jsonb",
+          "Jsonb",
+          "Bool",
+          "Bool",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "python3",
+                  "deno",
+                  "go",
+                  "bash"
+                ]
+              },
+              "name": "script_lang"
+            }
+          },
+          "Numeric",
+          "Varchar",
+          "Bool"
+        ]
+      }
+    },
+    "query": "INSERT INTO completed_job AS cj\n                   ( workspace_id\n                   , id\n                   , parent_job\n                   , created_by\n                   , created_at\n                   , started_at\n                   , duration_ms\n                   , success\n                   , script_hash\n                   , script_path\n                   , args\n                   , result\n                   , logs\n                   , raw_code\n                   , raw_lock\n                   , canceled\n                   , canceled_by\n                   , canceled_reason\n                   , job_kind\n                   , schedule_path\n                   , permissioned_as\n                   , flow_status\n                   , raw_flow\n                   , is_flow_step\n                   , is_skipped\n                   , language\n                   , email\n                   , visible_to_owner\n                )\n            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($26, EXTRACT(milliseconds FROM (now() - $6))), $7, $8, $9,$10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $27, $28)\n         ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12)"
   },
   "5b9b58612ca0f703a5d154a76fab82ac2329aef965fa937bfab2810b6e1336a4": {
     "describe": {
@@ -2077,72 +2406,6 @@
     },
     "query": "SELECT email, login_type::text, verified, super_admin, name, company from password LIMIT $1 OFFSET $2"
   },
-  "77c3915246e37ae158d0c600e2402b93ce4fb1179d034daf231e00797e214207": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Uuid",
-          "Uuid",
-          "Varchar",
-          "Timestamptz",
-          "Timestamptz",
-          "Bool",
-          "Int8",
-          "Varchar",
-          "Jsonb",
-          "Jsonb",
-          "Text",
-          "Text",
-          "Text",
-          "Bool",
-          "Varchar",
-          "Text",
-          {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "script",
-                  "preview",
-                  "flow",
-                  "dependencies",
-                  "flowpreview",
-                  "script_hub",
-                  "identity",
-                  "flowdependencies"
-                ]
-              },
-              "name": "job_kind"
-            }
-          },
-          "Varchar",
-          "Varchar",
-          "Jsonb",
-          "Jsonb",
-          "Bool",
-          "Bool",
-          {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "python3",
-                  "deno",
-                  "go",
-                  "bash"
-                ]
-              },
-              "name": "script_lang"
-            }
-          },
-          "Numeric",
-          "Varchar"
-        ]
-      }
-    },
-    "query": "INSERT INTO completed_job AS cj\n                   ( workspace_id\n                   , id\n                   , parent_job\n                   , created_by\n                   , created_at\n                   , started_at\n                   , duration_ms\n                   , success\n                   , script_hash\n                   , script_path\n                   , args\n                   , result\n                   , logs\n                   , raw_code\n                   , raw_lock\n                   , canceled\n                   , canceled_by\n                   , canceled_reason\n                   , job_kind\n                   , schedule_path\n                   , permissioned_as\n                   , flow_status\n                   , raw_flow\n                   , is_flow_step\n                   , is_skipped\n                   , language\n                   , email )\n            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($26, EXTRACT(milliseconds FROM (now() - $6))), $7, $8, $9,$10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $27)\n         ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12)"
-  },
   "7a511ce8dbbf761423b527672ab02156aba5594623dc269992b34398673ca387": {
     "describe": {
       "columns": [
@@ -2212,6 +2475,27 @@
       }
     },
     "query": "SELECT * FROM resource_type WHERE workspace_id = $1"
+  },
+  "7b23055f7d7ede8943637e54a76c43583ef80e475f527c6bbb660329e4f1ac7a": {
+    "describe": {
+      "columns": [
+        {
+          "name": "exists",
+          "ordinal": 0,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT EXISTS(SELECT 1 FROM folder WHERE name = $1 AND workspace_id = $2)"
   },
   "7eeac533a0d63f4e3af9d3e3123b0a73f44543e618e29e4c6a6d573852339933": {
     "describe": {
@@ -2311,37 +2595,51 @@
     },
     "query": "UPDATE resource SET path = $1 WHERE path = $2 AND workspace_id = $3"
   },
-  "853788436dbe987853433e8dc83665f68bd127de31d4c807abafeead896f6ac4": {
+  "8543f029d9784234e4c6a6dcd7b03e62d544b98be261334ee210594e0bb839f2": {
     "describe": {
       "columns": [
         {
-          "name": "id",
+          "name": "workspace_id",
           "ordinal": 0,
-          "type_info": "Uuid"
+          "type_info": "Varchar"
         },
         {
-          "name": "flow_status",
+          "name": "name",
           "ordinal": 1,
-          "type_info": "Jsonb"
+          "type_info": "Varchar"
         },
         {
-          "name": "suspend",
+          "name": "display_name",
           "ordinal": 2,
-          "type_info": "Int4"
+          "type_info": "Varchar"
+        },
+        {
+          "name": "owners",
+          "ordinal": 3,
+          "type_info": "VarcharArray"
+        },
+        {
+          "name": "extra_perms",
+          "ordinal": 4,
+          "type_info": "Jsonb"
         }
       ],
       "nullable": [
         false,
-        true,
+        false,
+        false,
+        false,
         false
       ],
       "parameters": {
         "Left": [
-          "Uuid"
+          "Text",
+          "Int8",
+          "Int8"
         ]
       }
     },
-    "query": "\n        SELECT id, flow_status, suspend\n        FROM queue\n        WHERE id = ( SELECT parent_job FROM queue WHERE id = $1 UNION ALL SELECT parent_job FROM completed_job WHERE id = $1)\n        FOR UPDATE\n        "
+    "query": "SELECT workspace_id, name, display_name, owners, extra_perms FROM folder WHERE workspace_id = $1 ORDER BY name desc LIMIT $2 OFFSET $3"
   },
   "877829f87c4d94c2e385ab9c5d75d3f70929c89231650e20db57c4b7c1d8911f": {
     "describe": {
@@ -2608,6 +2906,27 @@
     },
     "query": "SELECT * FROM schedule WHERE workspace_id = $1 ORDER BY edited_at desc LIMIT $2 OFFSET $3"
   },
+  "8cc4fa257cb8053d27eb7a555d6e1b993e4a74b063eac632df8da24f6b87130e": {
+    "describe": {
+      "columns": [
+        {
+          "name": "count",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT count(path) FROM resource WHERE path LIKE 'f/' || $1 || '%'  AND workspace_id = $2"
+  },
   "8cea673a5b17bc7cf671b539c2c1eb34731c77aaf42dc12e45472eeb134887d0": {
     "describe": {
       "columns": [
@@ -2661,6 +2980,27 @@
       }
     },
     "query": "SELECT value FROM flow WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter')"
+  },
+  "8d678edbc19a195ef4c26c2deb4bb2bd6dbe9253356f1cd617f5522d8d65c238": {
+    "describe": {
+      "columns": [
+        {
+          "name": "count",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT count(path) FROM flow WHERE path LIKE 'f/' || $1 || '%' AND archived IS false AND workspace_id = $2"
   },
   "8da6ff304d199401ee8ee9a3de1d51477c04f9abc1b6255d84c5b1fc58267c59": {
     "describe": {
@@ -2770,6 +3110,100 @@
     },
     "query": "SELECT email, login_type::TEXT, super_admin, verified, name, company FROM password WHERE email = $1"
   },
+  "911b1e1f2a5ba6d5159916e5598020e680c45043b0736ad0153ee261a151dd90": {
+    "describe": {
+      "columns": [
+        {
+          "name": "workspace_id",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "path",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "edited_by",
+          "ordinal": 2,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "edited_at",
+          "ordinal": 3,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "schedule",
+          "ordinal": 4,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "offset_",
+          "ordinal": 5,
+          "type_info": "Int4"
+        },
+        {
+          "name": "enabled",
+          "ordinal": 6,
+          "type_info": "Bool"
+        },
+        {
+          "name": "script_path",
+          "ordinal": 7,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "args",
+          "ordinal": 8,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "extra_perms",
+          "ordinal": 9,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "is_flow",
+          "ordinal": 10,
+          "type_info": "Bool"
+        },
+        {
+          "name": "email",
+          "ordinal": 11,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "error",
+          "ordinal": 12,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        false,
+        false,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE schedule SET path = $1, script_path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow IS true RETURNING *"
+  },
   "924e1d5cbb682db0d6121dd911f38cf8948d0e59ca47428daa4f43fce686ba80": {
     "describe": {
       "columns": [
@@ -2790,28 +3224,6 @@
       }
     },
     "query": "SELECT is_admin FROM usr where username = $1 AND workspace_id = $2 AND disabled = false"
-  },
-  "9251404312374679a4be2f9def508fcadce446405e91d95100c3397ec26e5882": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Int8"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Int8",
-          "Jsonb",
-          "Varchar"
-        ]
-      }
-    },
-    "query": "INSERT INTO app_version\n                (flow_id, value, created_by)\n                VALUES ($1, $2, $3) RETURNING id"
   },
   "930ad84a4db26fa6d2c8447d447099e944a0ea7b1266b4d02cee620fe3d761a5": {
     "describe": {
@@ -2984,6 +3396,26 @@
     },
     "query": "DELETE FROM token WHERE token = $1 RETURNING email"
   },
+  "9897705b7c265333559df757a725711a40924ec551a7589a64ee96f8aa7f6a21": {
+    "describe": {
+      "columns": [
+        {
+          "name": "set_config",
+          "ordinal": 0,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT set_config('session.folders_write', $1, true)"
+  },
   "9db64c9ff790d8c833c1e831a87803c32103ce9de68cc9c08d6f56cc988d7e37": {
     "describe": {
       "columns": [
@@ -3144,6 +3576,27 @@
       }
     },
     "query": "\n            UPDATE queue\n               SET flow_status = JSONB_SET(flow_status, ARRAY['failure_module'], $1)\n             WHERE id = $2\n            "
+  },
+  "a7abe946c8d0653169e292560eb7a5aa50a9c0f590444480ac642afcb83bbffb": {
+    "describe": {
+      "columns": [
+        {
+          "name": "exists",
+          "ordinal": 0,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT EXISTS(SELECT 1 FROM group_ WHERE name = $1 AND workspace_id = $2)"
   },
   "a7b028e832396ee4d1ad6dfd44ba6134344f3eb37dbf0254154eba31b9cc2ed3": {
     "describe": {
@@ -3310,20 +3763,6 @@
     },
     "query": "SELECT * FROM group_ WHERE workspace_id = $1 ORDER BY name desc LIMIT $2 OFFSET $3"
   },
-  "add01e9e31d64e88b84c9505fe3de553031e581b1bb173413a9a3e3eb0817b43": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Varchar",
-          "Varchar"
-        ]
-      }
-    },
-    "query": "INSERT INTO usr_to_group (workspace_id, usr, group_) VALUES ($1, $2, $3)"
-  },
   "aeaae7641539d51f4535b04e9a7adb7545bd37d0d706edb54b8f5507403105ee": {
     "describe": {
       "columns": [
@@ -3456,6 +3895,27 @@
       }
     },
     "query": "SELECT * from workspace_invite WHERE workspace_id = $1"
+  },
+  "b3d4787ad09757725a721228e0f3deaf3ee851ba23f866da50162e362764d6a6": {
+    "describe": {
+      "columns": [
+        {
+          "name": "count",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT count(path) FROM schedule WHERE path LIKE 'f/' || $1 || '%'  AND workspace_id = $2"
   },
   "b5c9891b5bf3d581e62f8835aaa25b8158fe3cefc849af0ba312a45cf22721ca": {
     "describe": {
@@ -3704,6 +4164,100 @@
     },
     "query": "DELETE FROM resource WHERE path = $1 AND workspace_id = $2"
   },
+  "bfc760c2f3f1477b177a7c570ddadda818dd3f57142165f381c1db01c26cf1bf": {
+    "describe": {
+      "columns": [
+        {
+          "name": "workspace_id",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "path",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "edited_by",
+          "ordinal": 2,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "edited_at",
+          "ordinal": 3,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "schedule",
+          "ordinal": 4,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "offset_",
+          "ordinal": 5,
+          "type_info": "Int4"
+        },
+        {
+          "name": "enabled",
+          "ordinal": 6,
+          "type_info": "Bool"
+        },
+        {
+          "name": "script_path",
+          "ordinal": 7,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "args",
+          "ordinal": 8,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "extra_perms",
+          "ordinal": 9,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "is_flow",
+          "ordinal": 10,
+          "type_info": "Bool"
+        },
+        {
+          "name": "email",
+          "ordinal": 11,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "error",
+          "ordinal": 12,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        false,
+        false,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE schedule SET script_path = $1 WHERE script_path = $2 AND workspace_id = $3 AND is_flow IS false RETURNING *"
+  },
   "c07577e99ef7817473b7f8cef2a4d97e9867260f932aeed2755964fab4a4e0de": {
     "describe": {
       "columns": [],
@@ -3883,6 +4437,44 @@
     },
     "query": "UPDATE queue SET canceled = true WHERE id = $1"
   },
+  "c75761c9aa900391251596771782039809bc01e4a0aa05701d6607b06769caa5": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "flow_status",
+          "ordinal": 1,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "suspend",
+          "ordinal": 2,
+          "type_info": "Int4"
+        },
+        {
+          "name": "script_path",
+          "ordinal": 3,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false,
+        true,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n        SELECT id, flow_status, suspend, script_path\n        FROM queue\n        WHERE id = ( SELECT parent_job FROM queue WHERE id = $1 UNION ALL SELECT parent_job FROM completed_job WHERE id = $1)\n        FOR UPDATE\n        "
+  },
   "cac594031a21b4806de9c4616317d3541522ef9712a83ecff7bd8b5f6e870748": {
     "describe": {
       "columns": [],
@@ -4042,6 +4634,49 @@
     },
     "query": "SELECT app.id, app.path, app.summary, app.versions, app.policy,\n        app.extra_perms, app_version.value, \n        app_version.created_at, app_version.created_by from app, app_version \n        WHERE app.path = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]"
   },
+  "d12d151995da2e8357307dd99e3f7b59192832a566d56b56097d15f713430705": {
+    "describe": {
+      "columns": [
+        {
+          "name": "count",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT count(path) FROM app WHERE path LIKE 'f/' || $1 || '%'  AND workspace_id = $2"
+  },
+  "d47bff7d6b54cd6da8bb330f7321c37af5dcbd76f9acad73b5ba1b8a4afb5091": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Jsonb",
+          "Varchar"
+        ]
+      }
+    },
+    "query": "INSERT INTO app_version\n                (app_id, value, created_by)\n                VALUES ($1, $2, $3) RETURNING id"
+  },
   "d4bf68b4c2bfd11db84787e41e92c13612fda7352e841f3cdef45ea762588f04": {
     "describe": {
       "columns": [],
@@ -4087,6 +4722,28 @@
     },
     "query": "DELETE FROM resource_type WHERE name = $1 AND workspace_id = $2"
   },
+  "d68eaf1533bbe9052f6b1737e2f212c969a18c9d7840fe419c20995404ed0be8": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Jsonb",
+          "Varchar"
+        ]
+      }
+    },
+    "query": "INSERT INTO app_version\n            (app_id, value, created_by)\n            VALUES ($1, $2, $3) RETURNING id"
+  },
   "d697b7311430e7bd5375ec5494179f4071e3bfe123d9600249cfa80c1103edd8": {
     "describe": {
       "columns": [],
@@ -4100,6 +4757,27 @@
       }
     },
     "query": "UPDATE script SET lock = $1 WHERE hash = $2 AND workspace_id = $3"
+  },
+  "d6acfbc2e4ef1a4f4252cf7566d91fc4d80a4bb0e383495efa82c697b17d2bf8": {
+    "describe": {
+      "columns": [
+        {
+          "name": "count",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT count(path) FROM variable WHERE path LIKE 'f/' || $1 || '%'  AND workspace_id = $2"
   },
   "d768bbc46f8a9c4289b918c88ca50aa180b29bbe931d948f6e61976f71b7cdb9": {
     "describe": {
@@ -4215,6 +4893,26 @@
     },
     "query": "UPDATE app SET versions = array_append(versions, $1) WHERE path = $2 AND workspace_id = $3"
   },
+  "dd7940ec390357b268d616e1880516ecc08d506db2109efcce840f096d7a594e": {
+    "describe": {
+      "columns": [
+        {
+          "name": "exists",
+          "ordinal": 0,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT EXISTS(SELECT 1 FROM workspace WHERE id = $1)"
+  },
   "de4c8f42ff846599d6b2b26615a34f0bcbad974edc5f00fb0491475017eebaeb": {
     "describe": {
       "columns": [],
@@ -4282,6 +4980,22 @@
       }
     },
     "query": "SELECT EXISTS (SELECT 1 FROM flow WHERE path = $1 AND workspace_id = $2)"
+  },
+  "e33d0bec7e08c0bb4e6f26c93a636707714699e8984b9f537085e773849c8b43": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Varchar",
+          "VarcharArray",
+          "Jsonb"
+        ]
+      }
+    },
+    "query": "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms) VALUES ($1, $2, $3, $4, $5)"
   },
   "e3eeda2e19bfbfd5aadd71c40774f7e93c8479a777fdb2828607b1db36361726": {
     "describe": {
@@ -4503,6 +5217,29 @@
     },
     "query": "INSERT INTO workspace_settings\n                (workspace_id, slack_team_id, slack_name, slack_email)\n                VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id) DO UPDATE SET slack_team_id = $2, slack_name = $3, slack_email = $4"
   },
+  "ebc06efe51532f7f60e98f62d09a3453fc1d97d93e96ec849eac96dca05236f0": {
+    "describe": {
+      "columns": [
+        {
+          "name": "?column?",
+          "ordinal": 0,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text",
+          "TextArray",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT EXISTS(SELECT 1 FROM folder WHERE CONCAT('u/', $1::text) = ANY(owners) AND name = $2 AND workspace_id = $4) OR exists(\n            SELECT 1 FROM folder, unnest(folder.owners) as o\n            WHERE o = ANY($3::text[]) AND folder.name = $2 AND folder.workspace_id = $4)"
+  },
   "ec85a425f88044c6ed4f8fcea223c28eb9fb8c16c89a52d4c4552bd149badafa": {
     "describe": {
       "columns": [
@@ -4529,6 +5266,100 @@
       }
     },
     "query": "DELETE FROM workspace_invite WHERE workspace_id = $1 AND email = $2 RETURNING is_admin, operator"
+  },
+  "eced0a09ba547ce1dccb54a5419b22373603c9d01f77047b3553bde125bf71e8": {
+    "describe": {
+      "columns": [
+        {
+          "name": "workspace_id",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "path",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "edited_by",
+          "ordinal": 2,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "edited_at",
+          "ordinal": 3,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "schedule",
+          "ordinal": 4,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "offset_",
+          "ordinal": 5,
+          "type_info": "Int4"
+        },
+        {
+          "name": "enabled",
+          "ordinal": 6,
+          "type_info": "Bool"
+        },
+        {
+          "name": "script_path",
+          "ordinal": 7,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "args",
+          "ordinal": 8,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "extra_perms",
+          "ordinal": 9,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "is_flow",
+          "ordinal": 10,
+          "type_info": "Bool"
+        },
+        {
+          "name": "email",
+          "ordinal": 11,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "error",
+          "ordinal": 12,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        false,
+        false,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE schedule SET script_path = $1 WHERE script_path = $2 AND path != $2 AND workspace_id = $3 AND is_flow IS true RETURNING *"
   },
   "ed400dbf4a1fa597bc984240cfe9069369a8a265b127116187d78c0ba93ae076": {
     "describe": {
@@ -4628,6 +5459,33 @@
       }
     },
     "query": "DELETE FROM usr_to_group WHERE usr = $1 AND group_ = $2 AND workspace_id = $3"
+  },
+  "f418ad25df9bd0a85c7210c4ea0f44c3b6e8c0810b49e325fd0698259f0bb1a3": {
+    "describe": {
+      "columns": [
+        {
+          "name": "name",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "write",
+          "ordinal": 1,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        false,
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "TextArray",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT name, (EXISTS (SELECT 1 FROM (SELECT key, value FROM jsonb_each_text(extra_perms) WHERE key = ANY($1)) t  WHERE value::boolean IS true)) as write  FROM folder\n        WHERE extra_perms ?| $1  AND workspace_id = $2"
   },
   "f4849960aff7387cb6b130d2bc62dbfce45209fbbccf3b4b9b13019e0cd55ddb": {
     "describe": {

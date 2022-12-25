@@ -4,10 +4,9 @@
 	import Grid from 'svelte-grid'
 	import ComponentEditor from './ComponentEditor.svelte'
 	import { classNames } from '$lib/utils'
-	import { columnConfiguration, disableDrag, enableDrag, gridColumns } from '../gridUtils'
+	import { columnConfiguration, disableDrag, enableDrag, isFixed, toggleFixed } from '../gridUtils'
 	import { Alert } from '$lib/components/common'
 	import { fly } from 'svelte/transition'
-	import gridHelp from 'svelte-grid/build/helper/index.mjs'
 
 	import Button from '$lib/components/common/button/Button.svelte'
 	import RecomputeAllComponents from './RecomputeAllComponents.svelte'
@@ -22,9 +21,32 @@
 		$app.grid.map((gridItem) => enableDrag(gridItem))
 	}
 
-	function deleteComponent(component) {
+	function removeGridElement(component) {
 		if (component) {
-			$app.grid = $app.grid.filter((gridComponent) => gridComponent.data.id !== component?.id)
+			$app.grid = $app.grid.filter((gridComponent) => {
+				if (gridComponent.data.id === component.id) {
+					if (
+						gridComponent.data.componentInput?.type === 'runnable' &&
+						gridComponent.data.componentInput?.runnable?.type === 'runnableByName' &&
+						gridComponent.data.componentInput?.runnable.inlineScript
+					) {
+						const { name, inlineScript } = gridComponent.data.componentInput?.runnable
+
+						if (!$app.unusedInlineScripts) {
+							$app.unusedInlineScripts = []
+						}
+
+						$app.unusedInlineScripts.push({
+							name,
+							inlineScript
+						})
+
+						$app = $app
+					}
+				}
+
+				return gridComponent.data.id !== component?.id
+			})
 
 			// Delete static inputs
 			delete $staticOutputs[component.id]
@@ -32,45 +54,51 @@
 
 			delete $runnableComponents[component.id]
 			$runnableComponents = $runnableComponents
+
+			$selectedComponent = undefined
 		}
 	}
 </script>
 
-<!-- svelte-ignore a11y-click-events-have-key-events -->
-<div
-	class="bg-white h-full relative"
-	on:click|preventDefault={() => ($selectedComponent = undefined)}
->
+<div class="bg-white h-full relative">
 	<RecomputeAllComponents />
-
-	<Grid bind:items={$app.grid} rowHeight={64} let:dataItem cols={columnConfiguration}>
+	<Grid
+		bind:items={$app.grid}
+		let:dataItem
+		rowHeight={32}
+		cols={columnConfiguration}
+		fastStart={true}
+		on:pointerup={({ detail }) => {
+			if (!$connectingInput.opened) {
+				$selectedComponent = detail.id
+			}
+		}}
+	>
 		{#each $app.grid as gridComponent (gridComponent.id)}
 			{#if gridComponent.data.id === dataItem.data.id}
-				<!-- svelte-ignore a11y-click-events-have-key-events -->
-
 				<div
 					class={classNames(
 						'h-full w-full flex justify-center align-center',
 						gridComponent.data.card ? 'border border-gray-100' : ''
 					)}
-					on:click|preventDefault|stopPropagation={() => {
-						if (!$connectingInput.opened) {
-							$selectedComponent = dataItem.data.id
-						}
-					}}
 				>
 					<ComponentEditor
 						bind:component={gridComponent.data}
 						selected={$selectedComponent === dataItem.data.id}
-						on:delete={() => deleteComponent(gridComponent.data)}
+						locked={isFixed(gridComponent)}
+						on:delete={() => removeGridElement(gridComponent.data)}
+						on:lock={() => {
+							gridComponent = toggleFixed(gridComponent)
+						}}
 					/>
 				</div>
 			{/if}
 		{/each}
 	</Grid>
+
 	{#if $connectingInput.opened}
 		<div
-			class="fixed top-32 left-0 w-full z-10 flex justify-center items-center"
+			class="fixed top-32  z-10 flex justify-center items-center"
 			transition:fly={{ duration: 100, y: -100 }}
 		>
 			<Alert title="Connecting" type="info">
@@ -99,5 +127,8 @@
 	:global(.svlt-grid-shadow) {
 		/* Back shadow */
 		background: rgb(147 197 253) !important;
+	}
+	:global(.svlt-grid-active) {
+		opacity: 1 !important;
 	}
 </style>

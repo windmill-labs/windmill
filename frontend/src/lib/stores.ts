@@ -1,4 +1,4 @@
-import { browser } from "$app/env";
+import { browser } from "$app/environment";
 import { derived, type Readable, writable } from "svelte/store";
 import type { UserWorkspaceList } from "$lib/gen/models/UserWorkspaceList.js";
 import { getUserExt } from "./user";
@@ -13,6 +13,7 @@ export interface UserExt {
   created_at: string;
   groups: string[];
   pgroups: string[];
+  folders: string[]
 }
 
 let persistedWorkspace = browser && localStorage.getItem("workspace");

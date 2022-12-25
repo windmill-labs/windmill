@@ -49,7 +49,8 @@
 
 	const options = {
 		responsive: true,
-		animation: false
+		animation: false,
+		maintainAspectRatio: false
 	}
 
 	$: data = {
@@ -63,11 +64,11 @@
 	}
 </script>
 
-<InputValue input={configuration.theme} bind:value={theme} />
-<InputValue input={configuration.labels} bind:value={labels} />
+<InputValue {id} input={configuration.theme} bind:value={theme} />
+<InputValue {id} input={configuration.labels} bind:value={labels} />
 
 <RunnableWrapper bind:componentInput {id} bind:result>
-	{#if data}
+	{#if result}
 		<Bar {data} {options} />
 	{/if}
 </RunnableWrapper>

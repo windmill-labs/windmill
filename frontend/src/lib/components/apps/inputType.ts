@@ -1,4 +1,5 @@
 import type { staticValues } from './editor/componentsPanel/componentStaticValues'
+import type { InlineScript } from './types'
 
 export type InputType =
 	| 'text'
@@ -11,6 +12,7 @@ export type InputType =
 	| 'datetime'
 	| 'object'
 	| 'array'
+	| 'any'
 
 // Connection to an output of another component
 // defined by the id of the component and the path of the output
@@ -38,6 +40,11 @@ export type StaticInput<U> = {
 	visible?: boolean | undefined
 }
 
+export type TemplateInput = {
+	eval: string
+	type: 'template'
+}
+
 type RunnableByPath = {
 	path: string
 	runType: 'script' | 'flow' | 'hubscript'
@@ -45,7 +52,8 @@ type RunnableByPath = {
 }
 
 type RunnableByName = {
-	inlineScriptName: string
+	name: string
+	inlineScript: InlineScript | undefined
 	type: 'runnableByName'
 }
 
@@ -63,6 +71,7 @@ type AppInputSpec<T extends InputType, U, V extends InputType = never> = (
 	| ConnectedInput
 	| UserInput<U>
 	| ResultInput
+	| TemplateInput
 ) &
 	InputConfiguration<T, U, V>
 
@@ -70,6 +79,7 @@ type InputConfiguration<T extends InputType, U, V extends InputType> = {
 	fieldType: T
 	defaultValue: U
 	subFieldType?: V
+	format?: string | undefined
 }
 
 export type AppInput =
@@ -80,7 +90,9 @@ export type AppInput =
 	| AppInputSpec<'date', string>
 	| AppInputSpec<'time', string>
 	| AppInputSpec<'datetime', string>
+	| AppInputSpec<'any', any>
 	| AppInputSpec<'object', Record<string | number, any>>
+	| AppInputSpec<'object', string>
 	| (AppInputSpec<'select', string> & {
 			/**
 			 * One of the keys of `staticValues` from `lib/components/apps/editor/componentsPanel/componentStaticValues`

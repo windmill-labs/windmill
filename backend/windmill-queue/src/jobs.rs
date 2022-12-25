@@ -254,6 +254,7 @@ pub async fn push<'c>(
     is_flow_step: bool,
     mut same_worker: bool,
     pre_run_error: Option<&windmill_common::error::Error>,
+    visible_to_owner: bool,
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
     let scheduled_for = scheduled_for_o.unwrap_or_else(chrono::Utc::now);
     let args_json = serde_json::Value::Object(args);
@@ -452,7 +453,7 @@ pub async fn push<'c>(
         {
             let mut modules = flow.modules.clone();
             modules.push(FlowModule {
-                id: "".to_string(),
+                id: format!("{}-v", flow.modules[flow.modules.len() - 1].id),
                 value: FlowModuleValue::Identity,
                 input_transforms: HashMap::new(),
                 stop_after_if: None,
@@ -476,8 +477,8 @@ pub async fn push<'c>(
         "INSERT INTO queue
             (workspace_id, id, running, parent_job, created_by, permissioned_as, scheduled_for, 
                 script_hash, script_path, raw_code, raw_lock, args, job_kind, schedule_path, raw_flow, \
-         flow_status, is_flow_step, language, started_at, same_worker, pre_run_error, email)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21) \
+         flow_status, is_flow_step, language, started_at, same_worker, pre_run_error, email, visible_to_owner)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22) \
          RETURNING id",
         workspace_id,
         job_id,
@@ -499,7 +500,8 @@ pub async fn push<'c>(
         language: ScriptLang,
         same_worker,
         pre_run_error.map(|e| e.to_string()),
-        email
+        email,
+        visible_to_owner
     )
     .fetch_one(&mut tx)
     .await
@@ -595,6 +597,8 @@ pub struct QueuedJob {
     pub same_worker: bool,
     pub pre_run_error: Option<String>,
     pub email: String,
+    pub visible_to_owner: bool,
+    pub suspend: Option<i32>,
 }
 
 impl QueuedJob {

@@ -12,7 +12,8 @@ use windmill_audit::{audit_log, ActionKind};
 
 use crate::{
     db::{UserDB, DB},
-    users::Authed,
+    schedule::clear_schedule,
+    users::{require_owner_of_path, Authed},
 };
 use axum::{
     extract::{Extension, Path, Query},
@@ -30,6 +31,7 @@ use std::{
 };
 use windmill_common::{
     error::{Error, JsonResult, Result},
+    schedule::Schedule,
     scripts::{
         to_i64, HubScript, ListScriptQuery, ListableScript, NewScript, Script, ScriptHash,
         ScriptKind, ScriptLang,
@@ -39,7 +41,7 @@ use windmill_common::{
         list_elems_from_hub, not_found_if_none, paginate, require_admin, Pagination, StripPath,
     },
 };
-use windmill_queue;
+use windmill_queue::{self, schedule::push_scheduled_job};
 
 const MAX_HASH_HISTORY_LENGTH_STORED: usize = 20;
 
@@ -177,9 +179,11 @@ fn hash_script(ns: &NewScript) -> i64 {
     ns.hash(&mut dh);
     dh.finish() as i64
 }
+
 async fn create_script(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(ns): Json<NewScript>,
 ) -> Result<(StatusCode, String)> {
@@ -210,83 +214,96 @@ async fn create_script(
     .fetch_optional(&mut tx)
     .await?;
 
-    let parent_hashes_and_perms: Option<(Vec<i64>, serde_json::Value)> =
-        match (&ns.parent_hash, clashing_script) {
-            (None, None) => Ok(None),
-            (None, Some(s)) => Err(Error::BadRequest(format!(
-                "Path conflict for {} with non-archived hash {}",
-                &ns.path, &s.hash
-            ))),
-            (Some(p_hash), o) => {
-                if sqlx::query_scalar!(
-                    "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2",
-                    p_hash.0,
-                    &w_id
-                )
-                .fetch_optional(&mut tx)
-                .await?
-                .is_none()
-                {
-                    return Err(Error::BadRequest(
-                        "The parent hash does not seem to exist".to_owned(),
-                    ));
-                };
+    struct ParentInfo {
+        p_hashes: Vec<i64>,
+        perms: serde_json::Value,
+        p_path: String,
+    }
+    let parent_hashes_and_perms: Option<ParentInfo> = match (&ns.parent_hash, clashing_script) {
+        (None, None) => Ok(None),
+        (None, Some(s)) => Err(Error::BadRequest(format!(
+            "Path conflict for {} with non-archived hash {}",
+            &ns.path, &s.hash
+        ))),
+        (Some(p_hash), o) => {
+            if sqlx::query_scalar!(
+                "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2",
+                p_hash.0,
+                &w_id
+            )
+            .fetch_optional(&mut tx)
+            .await?
+            .is_none()
+            {
+                return Err(Error::BadRequest(
+                    "The parent hash does not seem to exist".to_owned(),
+                ));
+            };
 
-                let clashing_hash_o = sqlx::query_scalar!(
-                    "SELECT hash FROM script WHERE parent_hashes[1] = $1 AND workspace_id = $2",
-                    p_hash.0,
-                    &w_id
-                )
-                .fetch_optional(&mut tx)
-                .await?;
+            let clashing_hash_o = sqlx::query_scalar!(
+                "SELECT hash FROM script WHERE parent_hashes[1] = $1 AND workspace_id = $2",
+                p_hash.0,
+                &w_id
+            )
+            .fetch_optional(&mut tx)
+            .await?;
 
-                if let Some(clashing_hash) = clashing_hash_o {
-                    return Err(Error::BadRequest(format!(
-                        "A script with hash {} with same parent_hash has been found. However, the \
+            if let Some(clashing_hash) = clashing_hash_o {
+                return Err(Error::BadRequest(format!(
+                    "A script with hash {} with same parent_hash has been found. However, the \
                          lineage must be linear: no 2 scripts can have the same parent",
-                        ScriptHash(clashing_hash)
-                    )));
-                };
+                    ScriptHash(clashing_hash)
+                )));
+            };
 
-                let ps = get_script_by_hash_internal(&mut tx, &w_id, p_hash).await?;
+            let ps = get_script_by_hash_internal(&mut tx, &w_id, p_hash).await?;
 
-                let ph = {
-                    let v = ps.parent_hashes.map(|x| x.0).unwrap_or_default();
-                    let mut v: Vec<i64> = v
-                        .into_iter()
-                        .take(MAX_HASH_HISTORY_LENGTH_STORED - 1)
-                        .collect();
-                    v.insert(0, p_hash.0);
-                    v
-                };
-                let r: Result<Option<(Vec<i64>, serde_json::Value)>> = match o {
-                    Some(clashing_script)
-                        if clashing_script.path == ns.path
-                            && clashing_script.hash.0 != p_hash.0 =>
-                    {
-                        Err(Error::BadRequest(format!(
-                            "Path conflict for {} with non-archived hash {}",
-                            &ns.path, &clashing_script.hash
-                        )))
-                    }
-                    Some(_) => Ok(Some((ph, ps.extra_perms))),
-                    None => Ok(Some((ph, ps.extra_perms))),
-                };
-                sqlx::query!(
-                    "UPDATE script SET archived = true WHERE hash = $1 AND workspace_id = $2",
-                    p_hash.0,
-                    &w_id
-                )
-                .execute(&mut tx)
-                .await?;
-                r
+            if ps.path != ns.path {
+                if !authed.is_admin {
+                    require_owner_of_path(&w_id, &authed.username, &authed.groups, &ps.path, &db)
+                        .await?;
+                }
             }
-        }?;
 
-    let p_hashes = parent_hashes_and_perms.as_ref().map(|v| &v.0[..]);
+            let ph = {
+                let v = ps.parent_hashes.map(|x| x.0).unwrap_or_default();
+                let mut v: Vec<i64> = v
+                    .into_iter()
+                    .take(MAX_HASH_HISTORY_LENGTH_STORED - 1)
+                    .collect();
+                v.insert(0, p_hash.0);
+                v
+            };
+            let r: Result<Option<ParentInfo>> = match o {
+                Some(clashing_script)
+                    if clashing_script.path == ns.path && clashing_script.hash.0 != p_hash.0 =>
+                {
+                    Err(Error::BadRequest(format!(
+                        "Path conflict for {} with non-archived hash {}",
+                        &ns.path, &clashing_script.hash
+                    )))
+                }
+                Some(_) | None => Ok(Some(ParentInfo {
+                    p_hashes: ph,
+                    perms: ps.extra_perms,
+                    p_path: ps.path,
+                })),
+            };
+            sqlx::query!(
+                "UPDATE script SET archived = true WHERE hash = $1 AND workspace_id = $2",
+                p_hash.0,
+                &w_id
+            )
+            .execute(&mut tx)
+            .await?;
+            r
+        }
+    }?;
+
+    let p_hashes = parent_hashes_and_perms.as_ref().map(|v| &v.p_hashes[..]);
     let extra_perms = parent_hashes_and_perms
         .as_ref()
-        .map(|v| v.1.clone())
+        .map(|v| v.perms.clone())
         .unwrap_or(json!({}));
 
     let lock = if ns.language == ScriptLang::Bash || ns.language == ScriptLang::Deno {
@@ -322,6 +339,26 @@ async fn create_script(
     .execute(&mut tx)
     .await?;
 
+    if let Some(p_path) = parent_hashes_and_perms.as_ref().map(|x| x.p_path.clone()) {
+        let schedulables = sqlx::query_as!(
+        Schedule,
+            "UPDATE schedule SET script_path = $1 WHERE script_path = $2 AND workspace_id = $3 AND is_flow IS false RETURNING *",
+            ns.path,
+            p_path,
+            w_id,
+        )
+        .fetch_all(&mut tx)
+        .await?;
+
+        for schedule in schedulables {
+            clear_schedule(&mut tx, &schedule.path, false).await?;
+
+            if schedule.enabled {
+                tx = push_scheduled_job(tx, schedule).await?;
+            }
+        }
+    }
+
     let mut tx = if needs_lock_gen {
         let dependencies = match ns.language {
             ScriptLang::Python3 => {
@@ -343,6 +380,7 @@ async fn create_script(
             false,
             false,
             None,
+            true,
         )
         .await?;
         tx

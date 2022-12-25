@@ -1,8 +1,5 @@
-import { Select } from "https://deno.land/x/cliffy@v0.25.4/prompt/select.ts";
 import { GlobalOptions } from "./types.ts";
-import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
-import { getAvailablePort } from "https://deno.land/x/port@1.0.0/mod.ts";
-import { Secret } from "https://deno.land/x/cliffy@v0.25.4/prompt/secret.ts";
+import { colors, getAvailablePort, Secret, Select } from "./deps.ts";
 
 export async function loginInteractive(remote: string) {
   let token: string | undefined;

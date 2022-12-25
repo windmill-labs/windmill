@@ -10,6 +10,7 @@ use std::{sync::Arc, time::Duration};
 
 use crate::{
     db::{UserDB, DB},
+    folders::get_folders_for_user,
     utils::require_super_admin,
     workspaces::invite_user_to_all_auto_invite_worspaces,
     CookieDomain, IsSecure,
@@ -34,10 +35,11 @@ use tracing::{Instrument, Span};
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{self, Error, JsonResult, Result},
-    utils::{not_found_if_none, rd_string, require_admin, Pagination},
+    utils::{not_found_if_none, rd_string, require_admin, Pagination, StripPath},
 };
+use windmill_queue::CLOUD_HOSTED;
 
-const TTL_TOKEN_CACHE_S: u64 = 60 * 5; // 5 minutes
+const TTL_TOKEN_CACHE_S: u64 = 60; // 60s
 pub const TTL_TOKEN_DB_H: u32 = 72;
 
 const COOKIE_NAME: &str = "token";
@@ -50,6 +52,7 @@ pub fn workspaced_service() -> Router {
         .route("/exists", post(exists_username))
         .route("/update/:user", post(update_workspace_user))
         .route("/delete/:user", delete(delete_workspace_user))
+        .route("/is_owner/:path", get(is_owner_of_path))
         .route("/whois/:email", get(whois))
         .route("/whoami", get(whoami))
         .route("/leave", post(leave_workspace))
@@ -88,11 +91,12 @@ pub fn make_unauthed_service() -> Router {
 pub struct AuthCache {
     cache: Cache<(String, String), Authed>,
     db: DB,
+    superadmin_secret: Option<String>,
 }
 
 impl AuthCache {
-    pub fn new(db: DB) -> Self {
-        AuthCache { cache: Cache::new(), db }
+    pub fn new(db: DB, superadmin_secret: Option<String>) -> Self {
+        AuthCache { cache: Cache::new(), db, superadmin_secret }
     }
 
     pub async fn get_authed(&self, w_id: Option<String>, token: &str) -> Option<Authed> {
@@ -132,8 +136,14 @@ impl AuthCache {
                                             .ok()
                                             .unwrap_or(false);
 
-                                        let groups =
-                                            get_groups_for_user(&w_id.unwrap(), &name, &self.db)
+                                        let w_id = &w_id.unwrap();
+                                        let groups = get_groups_for_user(w_id, &name, &self.db)
+                                            .await
+                                            .ok()
+                                            .unwrap_or_default();
+
+                                        let folders =
+                                            get_folders_for_user(w_id, &name, &groups, &self.db)
                                                 .await
                                                 .ok()
                                                 .unwrap_or_default();
@@ -144,14 +154,26 @@ impl AuthCache {
                                             username: name.to_string(),
                                             is_admin,
                                             groups,
+                                            folders,
                                         })
                                     } else {
+                                        let groups = vec![name.to_string()];
+                                        let folders = get_folders_for_user(
+                                            &w_id.unwrap(),
+                                            "",
+                                            &groups,
+                                            &self.db,
+                                        )
+                                        .await
+                                        .ok()
+                                        .unwrap_or_default();
                                         Some(Authed {
                                             email: email
                                                 .unwrap_or_else(|| "missing@email.xyz".to_string()),
                                             username: format!("group-{name}"),
                                             is_admin: false,
-                                            groups: vec![name.to_string()],
+                                            groups,
+                                            folders,
                                         })
                                     }
                                 } else {
@@ -181,11 +203,21 @@ impl AuthCache {
                                             .ok()
                                             .unwrap_or_default();
 
+                                            let folders = get_folders_for_user(
+                                                &w_id.unwrap(),
+                                                &username,
+                                                &groups,
+                                                &self.db,
+                                            )
+                                            .await
+                                            .ok()
+                                            .unwrap_or_default();
                                             Some(Authed {
                                                 email,
                                                 username,
                                                 is_admin: is_admin || super_admin,
                                                 groups,
+                                                folders,
                                             })
                                         }
                                         None if super_admin || w_id.unwrap() == "starter" => {
@@ -194,6 +226,7 @@ impl AuthCache {
                                                 username: email,
                                                 is_admin: super_admin,
                                                 groups: vec![],
+                                                folders: vec![],
                                             })
                                         }
                                         None => None,
@@ -204,6 +237,7 @@ impl AuthCache {
                                         username: email,
                                         is_admin: super_admin,
                                         groups: Vec::new(),
+                                        folders: Vec::new(),
                                     })
                                 }
                             }
@@ -216,6 +250,19 @@ impl AuthCache {
                             .await;
                     }
                     authed_o
+                } else if self
+                    .superadmin_secret
+                    .as_ref()
+                    .map(|x| x == token)
+                    .unwrap_or(false)
+                {
+                    Some(Authed {
+                        email: "superadmin_secret@windmill.dev".to_string(),
+                        username: "superadmin_secret".to_string(),
+                        is_admin: true,
+                        groups: Vec::new(),
+                        folders: Vec::new(),
+                    })
                 } else {
                     None
                 }
@@ -291,6 +338,7 @@ pub struct Authed {
     pub username: String,
     pub is_admin: bool,
     pub groups: Vec<String>,
+    pub folders: Vec<(String, bool)>,
 }
 
 #[async_trait]
@@ -378,7 +426,7 @@ pub struct UserWithUsage {
     pub usage: Usage,
 }
 
-#[derive(FromRow, Serialize)]
+#[derive(FromRow, Serialize, Debug)]
 pub struct GlobalUserInfo {
     email: String,
     login_type: Option<String>,
@@ -400,6 +448,7 @@ pub struct UserInfo {
     pub operator: bool,
     pub disabled: bool,
     pub role: Option<String>,
+    pub folders: Vec<String>,
 }
 
 #[derive(FromRow, Serialize)]
@@ -607,6 +656,12 @@ async fn list_usernames(
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<String>> {
+    if *CLOUD_HOSTED && w_id == "demo" {
+        return Ok(Json(vec![
+            authed.username,
+            "other_usernames_redacted_in_demo_workspace".to_string(),
+        ]));
+    }
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query_scalar!("SELECT username from usr WHERE workspace_id = $1", &w_id)
         .fetch_all(&mut tx)
@@ -676,7 +731,7 @@ async fn logout(
 async fn whoami(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Authed { username, email, is_admin, groups }: Authed,
+    Authed { username, email, is_admin, groups, folders }: Authed,
 ) -> JsonResult<UserInfo> {
     let user = get_user(&w_id, &username, &db).await?;
     if let Some(user) = user {
@@ -693,6 +748,10 @@ async fn whoami(
             operator: false,
             disabled: false,
             role: Some("superadmin".to_string()),
+            folders: folders
+                .into_iter()
+                .filter_map(|x| if x.1 { Some(x.0) } else { None })
+                .collect(),
         }))
     }
 }
@@ -700,8 +759,9 @@ async fn whoami(
 async fn global_whoami(
     Extension(db): Extension<DB>,
     Authed { email, .. }: Authed,
+    Tokened { token }: Tokened,
 ) -> JsonResult<GlobalUserInfo> {
-    let user: GlobalUserInfo = sqlx::query_as!(
+    let user = sqlx::query_as!(
         GlobalUserInfo,
         "SELECT email, login_type::TEXT, super_admin, verified, name, company FROM password WHERE \
          email = $1",
@@ -709,9 +769,22 @@ async fn global_whoami(
     )
     .fetch_one(&db)
     .await
-    .map_err(|e| Error::InternalErr(format!("fetching global identity: {e}")))?;
+    .map_err(|e| Error::InternalErr(format!("fetching global identity: {e}")));
 
-    Ok(Json(user))
+    if let Ok(user) = user {
+        Ok(Json(user))
+    } else if std::env::var("SUPERADMIN_SECRET").ok() == Some(token) {
+        Ok(Json(GlobalUserInfo {
+            email: email.clone(),
+            login_type: Some("superadmin_secret".to_string()),
+            super_admin: true,
+            verified: true,
+            name: None,
+            company: None,
+        }))
+    } else {
+        Err(user.unwrap_err())
+    }
 }
 
 async fn get_email(Authed { email, .. }: Authed) -> Result<String> {
@@ -750,6 +823,8 @@ async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo
     .await?
     .unwrap_or(false);
     let groups = get_groups_for_user(&w_id, username, db).await?;
+    let folders = get_folders_for_user(&w_id, username, &groups, db).await?;
+
     Ok(user.map(|usr| UserInfo {
         groups,
         workspace_id: usr.workspace_id,
@@ -761,10 +836,14 @@ async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo
         operator: usr.operator,
         disabled: usr.disabled,
         role: usr.role,
+        folders: folders
+            .into_iter()
+            .filter_map(|x| if x.1 { Some(x.0) } else { None })
+            .collect(),
     }))
 }
 
-async fn get_groups_for_user(w_id: &str, username: &str, db: &DB) -> Result<Vec<String>> {
+pub async fn get_groups_for_user(w_id: &str, username: &str, db: &DB) -> Result<Vec<String>> {
     let groups = sqlx::query_scalar!(
         "SELECT group_ FROM usr_to_group where usr = $1 AND workspace_id = $2",
         username,
@@ -773,6 +852,49 @@ async fn get_groups_for_user(w_id: &str, username: &str, db: &DB) -> Result<Vec<
     .fetch_all(db)
     .await?;
     Ok(groups)
+}
+pub async fn is_owner_of_path(
+    Authed { username, is_admin, groups, .. }: Authed,
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<bool> {
+    let path = path.to_path();
+    if is_admin {
+        Ok(Json(true))
+    } else {
+        Ok(Json(
+            require_owner_of_path(&w_id, &username, &groups, path, &db)
+                .await
+                .is_ok(),
+        ))
+    }
+}
+
+pub async fn require_owner_of_path(
+    w_id: &str,
+    username: &str,
+    groups: &Vec<String>,
+    path: &str,
+    db: &DB,
+) -> Result<()> {
+    if !path.is_empty() {
+        let splitted = path.split("/").collect::<Vec<&str>>();
+        if splitted[0] == "u" {
+            if splitted[1] == username {
+                return Ok(());
+            } else {
+                return Err(Error::BadRequest(format!(
+                    "only the owner {} is authorized to perform this operation",
+                    splitted[1]
+                )));
+            }
+        } else if splitted[0] == "g" {
+            return crate::groups::require_is_owner(w_id, username, groups, splitted[1], db).await;
+        } else if splitted[0] == "f" {
+            return crate::folders::require_is_owner(w_id, username, groups, splitted[1], db).await;
+        }
+    }
+    Err(Error::BadRequest(format!("not recognized owner kind")))
 }
 
 async fn whois(

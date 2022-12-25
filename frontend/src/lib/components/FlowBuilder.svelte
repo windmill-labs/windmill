@@ -10,11 +10,12 @@
 		sendUserToast,
 		setQueryWithoutLoad
 	} from '$lib/utils'
-	import { faEye, faPen, faSave } from '@fortawesome/free-solid-svg-icons'
+	import { faCalendarAlt, faEye, faPen, faSave } from '@fortawesome/free-solid-svg-icons'
 	import { setContext } from 'svelte'
+	import { Icon } from 'svelte-awesome'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
-	import { Button, Drawer, DrawerContent } from './common'
+	import { Badge, Button, Drawer, DrawerContent } from './common'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { OFFSET } from './CronInput.svelte'
@@ -38,18 +39,22 @@
 	async function createSchedule(path: string) {
 		const { cron, args, enabled } = $scheduleStore
 
-		await ScheduleService.createSchedule({
-			workspace: $workspaceStore!,
-			requestBody: {
-				path: path,
-				schedule: formatCron(cron),
-				offset: OFFSET,
-				script_path: path,
-				is_flow: true,
-				args,
-				enabled
-			}
-		})
+		try {
+			await ScheduleService.createSchedule({
+				workspace: $workspaceStore!,
+				requestBody: {
+					path: path,
+					schedule: formatCron(cron),
+					offset: OFFSET,
+					script_path: path,
+					is_flow: true,
+					args,
+					enabled
+				}
+			})
+		} catch (err) {
+			sendUserToast(`The primary schedule could not be created: ${err}`, true)
+		}
 	}
 
 	async function saveFlow(): Promise<void> {
@@ -85,25 +90,19 @@
 			})
 			const scheduleExists = await ScheduleService.existsSchedule({
 				workspace: $workspaceStore ?? '',
-				path: initialPath
+				path: flow.path
 			})
 			if (scheduleExists) {
 				const schedule = await ScheduleService.getSchedule({
 					workspace: $workspaceStore ?? '',
-					path: initialPath
+					path: flow.path
 				})
-				if (
-					schedule.path != flow.path ||
-					JSON.stringify(schedule.args) != JSON.stringify(args) ||
-					schedule.schedule != cron
-				) {
+				if (JSON.stringify(schedule.args) != JSON.stringify(args) || schedule.schedule != cron) {
 					await ScheduleService.updateSchedule({
 						workspace: $workspaceStore ?? '',
-						path: initialPath,
+						path: flow.path,
 						requestBody: {
 							schedule: formatCron(cron),
-							script_path: flow.path,
-							is_flow: true,
 							args
 						}
 					})
@@ -212,10 +211,24 @@
 					size="sm"
 					on:click={flowViewer.openDrawer}
 				>
-					View Graph
+					Graph
 				</Button>
 			</div>
 			<div class="gap-1 flex-row hidden md:flex shrink overflow-hidden">
+				{#if $scheduleStore.enabled}
+					<Button
+						btnClasses="hidden lg:inline-flex"
+						startIcon={{ icon: faCalendarAlt }}
+						variant="contained"
+						color="light"
+						size="xs"
+						on:click={async () => {
+							select('settings-schedule')
+						}}
+					>
+						{$scheduleStore.cron ?? ''}
+					</Button>
+				{/if}
 				<Button
 					btnClasses="hidden lg:inline-flex"
 					startIcon={{ icon: faPen }}
@@ -223,7 +236,7 @@
 					color="light"
 					size="xs"
 					on:click={async () => {
-						select('settings')
+						select('settings-metadata')
 						document.getElementById('path')?.focus()
 					}}
 				>
@@ -235,7 +248,7 @@
 					color="light"
 					size="xs"
 					on:click={async () => {
-						select('settings')
+						select('settings-metadata')
 						document.getElementById('flow-summary')?.focus()
 					}}
 				>

@@ -20,7 +20,7 @@
 		position === 'center' ? 'rounded-none border-t border-b border-r' : '',
 		position === 'right' ? 'rounded-none rounded-r-md  border-r border-y' : ''
 	)}
-	color={$selected === value ? (light ? 'dark' : 'dark') : 'light'}
+	color={$selected === value ? (light ? 'gray' : 'dark') : 'light'}
 	variant="contained"
 >
 	<slot />

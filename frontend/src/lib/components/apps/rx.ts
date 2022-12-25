@@ -1,4 +1,5 @@
 import type { AppInput } from './inputType'
+import { writable, type Writable } from 'svelte/store'
 
 export interface Subscriber<T> {
 	next(v: T)
@@ -9,6 +10,7 @@ export interface Observable<T> {
 }
 export interface Output<T> extends Observable<T> {
 	set(x: T, force?: boolean): void
+	peak(): T | any | undefined
 }
 
 export interface Input<T> extends Subscriber<T> {
@@ -17,28 +19,38 @@ export interface Input<T> extends Subscriber<T> {
 
 export type World = {
 	outputsById: Record<string, Record<string, Output<any>>>
-	connect: <T>(inputSpec: AppInput, next: (x: T) => void) => Input<T>
+	connect: <T>(inputSpec: AppInput, next: (x: T) => void, previousValue: T) => Input<T>
+	state: Writable<number>
 }
 
-export function buildWorld(components: Record<string, string[]>) {
+export function buildWorld(
+	components: Record<string, string[]>,
+	previousWorld: World | undefined
+): World {
 	const newWorld = buildObservableWorld()
 	const outputsById: Record<string, Record<string, Output<any>>> = {}
-
+	const state = writable(0)
 	for (const [k, outputs] of Object.entries(components)) {
 		outputsById[k] = {}
 
 		for (const o of outputs) {
-			outputsById[k][o] = newWorld.newOutput(k, o)
+			outputsById[k][o] = newWorld.newOutput(
+				k,
+				o,
+				state,
+				previousWorld?.outputsById[k]?.[o]?.peak()
+			)
 		}
 	}
+	state.update((x) => x + 1)
 
-	return { outputsById, connect: newWorld.connect }
+	return { outputsById, connect: newWorld.connect, state }
 }
 
 export function buildObservableWorld() {
 	const observables: Record<string, Output<any>> = {}
 
-	function connect<T>(inputSpec: AppInput, next: (x: T) => void): Input<T> {
+	function connect<T>(inputSpec: AppInput, next: (x: T) => void, previousValue: T): Input<T> {
 		if (inputSpec.type === 'static') {
 			return {
 				peak: () => inputSpec.value,
@@ -82,8 +94,13 @@ export function buildObservableWorld() {
 		}
 	}
 
-	function newOutput<T>(id: string, name: string): Output<T> {
-		const output = settableOutput<T>()
+	function newOutput<T>(
+		id: string,
+		name: string,
+		state: Writable<number>,
+		previousValue: T
+	): Output<T> {
+		const output = settableOutput<T>(state, previousValue)
 		observables[`${id}.${name}`] = output
 		return output
 	}
@@ -111,8 +128,8 @@ export function cachedInput<T>(nextParan: (x: T) => void): Input<T> {
 	}
 }
 
-export function settableOutput<T>(): Output<T> {
-	let value: T | undefined = undefined
+export function settableOutput<T>(state: Writable<number>, previousValue: T): Output<T> {
+	let value: T | undefined = previousValue
 	const subscribers: Subscriber<T>[] = []
 
 	function subscribe(x: Subscriber<T>) {
@@ -128,14 +145,21 @@ export function settableOutput<T>(): Output<T> {
 
 	function set(x: T, force: boolean = false) {
 		if (value != x || force) {
+			state.update((x) => x + 1)
+
 			value = x
 
 			subscribers.forEach((x) => x.next(value!))
 		}
 	}
 
+	function peak(): T | undefined {
+		return value
+	}
+
 	return {
 		subscribe,
-		set
+		set,
+		peak
 	}
 }

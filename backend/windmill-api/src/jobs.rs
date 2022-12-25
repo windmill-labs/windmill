@@ -35,7 +35,7 @@ use windmill_queue::{get_queued_job, push, JobKind, JobPayload, QueuedJob, RawCo
 
 use crate::{
     db::{UserDB, DB},
-    users::Authed,
+    users::{require_owner_of_path, Authed},
     variables::get_workspace_key,
     BaseUrl,
 };
@@ -63,6 +63,7 @@ pub fn workspaced_service() -> Router {
         .route("/completed/get_result/:id", get(get_completed_job_result))
         .route("/completed/delete/:id", post(delete_completed_job))
         .route("/get/:id", get(get_job))
+        .route("/flow/resume/:id", post(resume_suspended_flow_as_owner))
         .route("/getupdate/:id", get(get_job_update))
         .route(
             "/job_signature/:job_id/:resume_id",
@@ -239,6 +240,7 @@ pub struct CompletedJob {
     pub language: Option<ScriptLang>,
     pub is_skipped: bool,
     pub email: String,
+    pub visible_to_owner: bool,
 }
 
 #[derive(Deserialize, Clone)]
@@ -247,6 +249,7 @@ pub struct RunJobQuery {
     scheduled_in_secs: Option<i64>,
     parent_job: Option<Uuid>,
     include_header: Option<String>,
+    invisible_to_owner: Option<bool>,
 }
 
 impl RunJobQuery {
@@ -402,6 +405,8 @@ async fn list_jobs(
             "language",
             "false as is_skipped",
             "email",
+            "visible_to_owner",
+            "suspend",
         ],
     );
     let sqlc = list_completed_jobs_query(
@@ -435,6 +440,8 @@ async fn list_jobs(
             "language",
             "is_skipped",
             "email",
+            "visible_to_owner",
+            "null as suspend",
         ],
     );
     let sql = format!(
@@ -448,6 +455,35 @@ async fn list_jobs(
     let jobs: Vec<UnifiedJob> = sqlx::query_as(&sql).fetch_all(&mut tx).await?;
     tx.commit().await?;
     Ok(Json(jobs.into_iter().map(From::from).collect()))
+}
+
+pub async fn resume_suspended_flow_as_owner(
+    authed: Authed,
+    Extension(db): Extension<DB>,
+    Path((w_id, flow_id)): Path<(String, Uuid)>,
+    QueryOrBody(value): QueryOrBody<serde_json::Value>,
+) -> error::Result<StatusCode> {
+    let value = value.unwrap_or(serde_json::Value::Null);
+    let mut tx = db.begin().await?;
+
+    let (flow, job_id) = get_suspended_flow_info(flow_id, &mut tx).await?;
+
+    if !authed.is_admin {
+        require_owner_of_path(
+            &w_id,
+            &authed.username,
+            &authed.groups,
+            &flow.script_path.clone().unwrap_or_else(|| String::new()),
+            &db,
+        )
+        .await?;
+    }
+    insert_resume_job(0, job_id, &flow, value, Some(authed.username), &mut tx).await?;
+
+    resume_immediately_if_relevant(flow, job_id, &mut tx).await?;
+
+    tx.commit().await?;
+    Ok(StatusCode::CREATED)
 }
 
 pub async fn resume_suspended_job(
@@ -468,18 +504,7 @@ pub async fn resume_suspended_job(
     }
     mac.verify_slice(hex::decode(secret)?.as_ref())
         .map_err(|_| anyhow::anyhow!("Invalid signature"))?;
-    let flow = sqlx::query!(
-        r#"
-        SELECT id, flow_status, suspend
-        FROM queue
-        WHERE id = ( SELECT parent_job FROM queue WHERE id = $1 UNION ALL SELECT parent_job FROM completed_job WHERE id = $1)
-        FOR UPDATE
-        "#,
-        job_id,
-    )
-    .fetch_optional(&mut tx)
-    .await?
-    .ok_or_else(|| anyhow::anyhow!("parent flow job not found"))?;
+    let flow = get_suspended_prent_flow_info(job_id, &mut tx).await?;
 
     let exists = sqlx::query_scalar!(
         r#"
@@ -495,6 +520,55 @@ pub async fn resume_suspended_job(
         return Err(anyhow::anyhow!("resume request already sent").into());
     }
 
+    insert_resume_job(resume_id, job_id, &flow, value, approver.approver, &mut tx).await?;
+
+    resume_immediately_if_relevant(flow, job_id, &mut tx).await?;
+
+    tx.commit().await?;
+    Ok(StatusCode::CREATED)
+}
+
+/* If the flow is currently waiting to be resumed (`FlowStatusModule::WaitingForEvents`)
+ * the suspend column must be set to the number of resume messages waited on.
+ *
+ * The flow's queue row is locked in this transaction because to avoid race conditions around
+ * the suspend column.
+ * That is, a job needs one event but it hasn't arrived, a worker counts zero events before
+ * entering WaitingForEvents.  Then this message arrives but the job isn't in WaitingForEvents
+ * yet so the suspend counter isn't updated.  Then the job enters WaitingForEvents expecting
+ * one event to arrive based on the count that is no longer correct. */
+async fn resume_immediately_if_relevant<'c>(
+    flow: FlowInfo,
+    job_id: Uuid,
+    tx: &mut Transaction<'c, Postgres>,
+) -> error::Result<()> {
+    Ok(
+        if let Some(suspend) = (0 < flow.suspend).then(|| flow.suspend - 1) {
+            let status =
+                serde_json::from_value::<FlowStatus>(flow.flow_status.context("no flow status")?)
+                    .context("deserialize flow status")?;
+            if matches!(status.current_step(), Some(FlowStatusModule::WaitingForEvents { job, .. }) if job == &job_id)
+            {
+                sqlx::query!(
+                    "UPDATE queue SET suspend = $1 WHERE id = $2",
+                    suspend,
+                    flow.id,
+                )
+                .execute(tx)
+                .await?;
+            }
+        },
+    )
+}
+
+async fn insert_resume_job<'c>(
+    resume_id: u32,
+    job_id: Uuid,
+    flow: &FlowInfo,
+    value: serde_json::Value,
+    approver: Option<String>,
+    tx: &mut Transaction<'c, Postgres>,
+) -> error::Result<()> {
     sqlx::query!(
         r#"
         INSERT INTO resume_job
@@ -506,38 +580,71 @@ pub async fn resume_suspended_job(
         job_id,
         flow.id,
         value,
-        approver.approver
+        approver
     )
-    .execute(&mut tx)
+    .execute(tx)
     .await?;
+    Ok(())
+}
 
-    /* If the flow is currently waiting to be resumed (`FlowStatusModule::WaitingForEvents`)
-     * the suspend column must be set to the number of resume messages waited on.
-     *
-     * The flow's queue row is locked in this transaction because to avoid race conditions around
-     * the suspend column.
-     * That is, a job needs one event but it hasn't arrived, a worker counts zero events before
-     * entering WaitingForEvents.  Then this message arrives but the job isn't in WaitingForEvents
-     * yet so the suspend counter isn't updated.  Then the job enters WaitingForEvents expecting
-     * one event to arrive based on the count that is no longer correct. */
-    if let Some(suspend) = (0 < flow.suspend).then(|| flow.suspend - 1) {
-        let status =
-            serde_json::from_value::<FlowStatus>(flow.flow_status.context("no flow status")?)
-                .context("deserialize flow status")?;
-        if matches!(status.current_step(), Some(FlowStatusModule::WaitingForEvents { job, .. }) if job == &job_id)
-        {
-            sqlx::query!(
-                "UPDATE queue SET suspend = $1 WHERE id = $2",
-                suspend,
-                flow.id,
-            )
-            .execute(&mut tx)
-            .await?;
-        }
+#[derive(sqlx::FromRow)]
+struct FlowInfo {
+    id: Uuid,
+    flow_status: Option<serde_json::Value>,
+    suspend: i32,
+    script_path: Option<String>,
+}
+
+async fn get_suspended_prent_flow_info<'c>(
+    job_id: Uuid,
+    tx: &mut Transaction<'c, Postgres>,
+) -> error::Result<FlowInfo> {
+    let flow = sqlx::query_as!(
+        FlowInfo,
+        r#"
+        SELECT id, flow_status, suspend, script_path
+        FROM queue
+        WHERE id = ( SELECT parent_job FROM queue WHERE id = $1 UNION ALL SELECT parent_job FROM completed_job WHERE id = $1)
+        FOR UPDATE
+        "#,
+        job_id,
+    )
+    .fetch_optional(tx)
+    .await?
+    .ok_or_else(|| anyhow::anyhow!("parent flow job not found"))?;
+    Ok(flow)
+}
+
+async fn get_suspended_flow_info<'c>(
+    job_id: Uuid,
+    tx: &mut Transaction<'c, Postgres>,
+) -> error::Result<(FlowInfo, Uuid)> {
+    let flow = sqlx::query_as!(
+        FlowInfo,
+        r#"
+        SELECT id, flow_status, suspend, script_path
+        FROM queue
+        WHERE id = $1
+        "#,
+        job_id,
+    )
+    .fetch_optional(tx)
+    .await?
+    .ok_or_else(|| anyhow::anyhow!("parent flow job not found"))?;
+    let job_id = flow
+        .flow_status
+        .as_ref()
+        .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok())
+        .and_then(|s| match s.modules.get(s.step as usize) {
+            Some(FlowStatusModule::WaitingForEvents { job, .. }) => Some(job.to_owned()),
+            _ => None,
+        });
+
+    if let Some(job_id) = job_id {
+        Ok((flow, job_id))
+    } else {
+        Err(anyhow::anyhow!("the flow is not in a suspended state anymore").into())
     }
-
-    tx.commit().await?;
-    Ok(StatusCode::CREATED)
 }
 
 pub async fn cancel_suspended_job(
@@ -811,6 +918,8 @@ struct UnifiedJob {
     language: Option<ScriptLang>,
     is_skipped: bool,
     email: String,
+    visible_to_owner: bool,
+    suspend: Option<i32>,
 }
 
 impl From<UnifiedJob> for Job {
@@ -844,6 +953,7 @@ impl From<UnifiedJob> for Job {
                 language: uj.language,
                 is_skipped: uj.is_skipped,
                 email: uj.email,
+                visible_to_owner: uj.visible_to_owner,
             }),
             "QueuedJob" => Job::QueuedJob(QueuedJob {
                 workspace_id: uj.workspace_id,
@@ -874,6 +984,8 @@ impl From<UnifiedJob> for Job {
                 same_worker: false,
                 pre_run_error: None,
                 email: uj.email,
+                visible_to_owner: uj.visible_to_owner,
+                suspend: uj.suspend,
             }),
             t => panic!("job type {} not valid", t),
         }
@@ -971,6 +1083,7 @@ pub async fn run_flow_by_path(
         false,
         false,
         None,
+        !run_query.invisible_to_owner.unwrap_or(false),
     )
     .await?;
     tx.commit().await?;
@@ -1005,6 +1118,7 @@ pub async fn run_job_by_path(
         false,
         false,
         None,
+        !run_query.invisible_to_owner.unwrap_or(false),
     )
     .await?;
     tx.commit().await?;
@@ -1072,6 +1186,7 @@ pub async fn run_wait_result_job_by_path(
         false,
         false,
         None,
+        !run_query.invisible_to_owner.unwrap_or(false),
     )
     .await?;
     tx.commit().await?;
@@ -1107,6 +1222,7 @@ pub async fn run_wait_result_job_by_hash(
         false,
         false,
         None,
+        !run_query.invisible_to_owner.unwrap_or(false),
     )
     .await?;
     tx.commit().await?;
@@ -1160,6 +1276,7 @@ async fn run_preview_job(
         false,
         false,
         None,
+        true,
     )
     .await?;
     tx.commit().await?;
@@ -1192,6 +1309,7 @@ async fn run_preview_flow_job(
         false,
         false,
         None,
+        true,
     )
     .await?;
     tx.commit().await?;
@@ -1226,6 +1344,7 @@ pub async fn run_job_by_hash(
         false,
         false,
         None,
+        !run_query.invisible_to_owner.unwrap_or(false),
     )
     .await?;
     tx.commit().await?;
@@ -1357,6 +1476,7 @@ pub struct ListCompletedQuery {
     pub is_skipped: Option<bool>,
     pub is_flow_step: Option<bool>,
 }
+
 async fn list_completed_jobs(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
@@ -1398,6 +1518,7 @@ async fn list_completed_jobs(
             "language",
             "is_skipped",
             "email",
+            "visible_to_owner",
         ],
     )
     .sql()?;

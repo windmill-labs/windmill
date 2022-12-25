@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { onMount } from 'svelte'
 	import { createEventDispatcher } from 'svelte'
+	import { browser } from '$app/environment'
 
 	export let open = false
 	export let duration = 0.3
 	export let placement = 'right'
 	export let size = '600px'
+	export let alwaysOpen = false
 
 	$: durationMs = duration * 1000
 
@@ -33,10 +35,12 @@
 	$: style = `--duration: ${duration}s; --size: ${size};`
 
 	function scrollLock(open: boolean) {
-		const body = document.querySelector('body')
+		if (browser) {
+			const body = document.querySelector('body')
 
-		if (mounted && body) {
-			body.style.overflowY = open ? 'hidden' : 'auto'
+			if (mounted && body) {
+				body.style.overflowY = open ? 'hidden' : 'auto'
+			}
 		}
 	}
 
@@ -70,10 +74,10 @@
 
 <svelte:window on:keydown={onKeyDown} />
 
-<aside class="drawer" class:open class:close={!open && timeout} {style}>
+<aside class="drawer {$$props.class}" class:open class:close={!open && timeout} {style}>
 	<div class="overlay" on:click={handleClickAway} />
 	<div class="panel {placement}" class:size>
-		{#if open || !timeout}
+		{#if open || !timeout || alwaysOpen}
 			<slot />
 		{/if}
 	</div>

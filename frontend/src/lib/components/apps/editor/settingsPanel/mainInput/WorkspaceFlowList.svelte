@@ -3,7 +3,7 @@
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
-	import { FlowService, Script, ScriptService, type Flow } from '$lib/gen'
+	import { FlowService, type Flow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { emptyString } from '$lib/utils'
 	import { Skeleton } from '$lib/components/common'

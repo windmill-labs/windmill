@@ -21,15 +21,17 @@ use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{self, to_anyhow, Error, JsonResult, Result},
     flows::{Flow, ListFlowQuery, ListableFlow, NewFlow},
+    schedule::Schedule,
     utils::{
         http_get_from_hub, list_elems_from_hub, not_found_if_none, paginate, Pagination, StripPath,
     },
 };
-use windmill_queue::{push, JobPayload};
+use windmill_queue::{push, schedule::push_scheduled_job, JobPayload};
 
 use crate::{
     db::{UserDB, DB},
-    users::Authed,
+    schedule::clear_schedule,
+    users::{require_owner_of_path, Authed},
 };
 
 pub fn workspaced_service() -> Router {
@@ -138,6 +140,25 @@ pub async fn get_hub_flow_by_id(
     Ok(Json(value))
 }
 
+async fn check_path_conflict<'c>(
+    tx: &mut Transaction<'c, Postgres>,
+    w_id: &str,
+    path: &str,
+) -> Result<()> {
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM flow WHERE path = $1 AND workspace_id = $2)",
+        path,
+        w_id
+    )
+    .fetch_one(tx)
+    .await?
+    .unwrap_or(false);
+    if exists {
+        return Err(Error::BadRequest(format!("Flow {} already exists", path)));
+    }
+    return Ok(());
+}
+
 async fn create_flow(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
@@ -147,6 +168,7 @@ async fn create_flow(
     // cron::Schedule::from_str(&ns.schedule).map_err(|e| error::Error::BadRequest(e.to_string()))?;
     let mut tx = user_db.clone().begin(&authed).await?;
 
+    check_path_conflict(&mut tx, &w_id, &nf.path).await?;
     check_schedule_conflict(&mut tx, &w_id, &nf.path).await?;
 
     sqlx::query!(
@@ -196,6 +218,7 @@ async fn create_flow(
         false,
         false,
         None,
+        true,
     )
     .await?;
     sqlx::query!(
@@ -237,6 +260,7 @@ async fn check_schedule_conflict<'c>(
 async fn update_flow(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Json(nf): Json<NewFlow>,
 ) -> Result<String> {
@@ -248,7 +272,7 @@ async fn update_flow(
     let schema = nf.schema.map(|x| x.0);
     let old_dep_job = sqlx::query_scalar!(
         "SELECT dependency_job FROM flow WHERE path = $1 AND workspace_id = $2",
-        nf.path,
+        flow_path,
         w_id
     )
     .fetch_optional(&mut tx)
@@ -268,6 +292,45 @@ async fn update_flow(
     )
     .execute(&mut tx)
     .await?;
+
+    if nf.path != flow_path {
+        check_schedule_conflict(&mut tx, &w_id, &nf.path).await?;
+
+        if !authed.is_admin {
+            require_owner_of_path(&w_id, &authed.username, &authed.groups, &flow_path, &db).await?;
+        }
+
+        let mut schedulables = sqlx::query_as!(
+            Schedule,
+                "UPDATE schedule SET script_path = $1 WHERE script_path = $2 AND path != $2 AND workspace_id = $3 AND is_flow IS true RETURNING *",
+                nf.path,
+                flow_path,
+                w_id,
+            )
+            .fetch_all(&mut tx)
+            .await?;
+
+        let schedule = sqlx::query_as!(Schedule,
+            "UPDATE schedule SET path = $1, script_path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow IS true RETURNING *",
+            nf.path,
+            flow_path,
+            w_id,
+        )
+        .fetch_optional(&mut tx)
+        .await?;
+
+        if let Some(schedule) = schedule {
+            schedulables.push(schedule);
+        }
+
+        for schedule in schedulables {
+            clear_schedule(&mut tx, flow_path, true).await?;
+
+            if schedule.enabled {
+                tx = push_scheduled_job(tx, schedule).await?;
+            }
+        }
+    }
 
     audit_log(
         &mut tx,
@@ -302,6 +365,7 @@ async fn update_flow(
         false,
         false,
         None,
+        true,
     )
     .await?;
     sqlx::query!(

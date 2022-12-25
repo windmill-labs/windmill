@@ -18,13 +18,13 @@
 		if (event.currentTarget.checked) {
 			recomputeIds = [...(recomputeIds ?? []), id]
 		} else {
-			recomputeIds = recomputeIds?.filter((id) => id !== id)
+			recomputeIds = recomputeIds?.filter((x) => x !== id)
 		}
 	}
 </script>
 
 <PanelSection title="Recompute">
-	{#if Object.keys($runnableComponents ?? {}).length > 0}
+	{#if Object.keys($runnableComponents ?? {}).filter((id) => id !== ownId).length > 0}
 		<table class="divide-y divide-gray-300 border w-full">
 			<thead class="bg-gray-50">
 				<tr>
@@ -43,13 +43,17 @@
 							<Badge color="blue">{id}</Badge>
 						</td>
 						<td class="relative whitespace-nowrap px-4 py-2 ">
-							<input type="checkbox" on:change={(event) => onChange(event, id)} />
+							<input
+								type="checkbox"
+								on:change={(event) => onChange(event, id)}
+								checked={recomputeIds?.includes(id)}
+							/>
 						</td>
 					</tr>
 				{/each}
 			</tbody>
 		</table>
 	{:else}
-		<div class="text-xs">No components to recompute</div>
+		<div class="text-xs">No components to recompute. Create one and select it here.</div>
 	{/if}
 </PanelSection>

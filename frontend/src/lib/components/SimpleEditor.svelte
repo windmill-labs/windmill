@@ -1,5 +1,17 @@
-<script lang="ts" context="module">
+<script lang="ts">
+	import { browser, dev } from '$app/environment'
+
+	import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
+	import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
+	import yamlWorker from 'monaco-yaml/yaml.worker?worker'
+	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
+
+	import { buildWorkerDefinition } from 'monaco-editor-workers'
+
+	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
+	import { createHash, editorConfig, langToExt, updateOptions } from '$lib/editorUtils'
 	import * as monaco from 'monaco-editor'
+	import libStdContent from '$lib/es5.d.ts.txt?raw'
 
 	monaco.languages.typescript.javascriptDefaults.setCompilerOptions({
 		target: monaco.languages.typescript.ScriptTarget.Latest,
@@ -13,20 +25,6 @@
 		schemas: [],
 		enableSchemaRequest: true
 	})
-</script>
-
-<script lang="ts">
-	import { browser, dev } from '$app/env'
-
-	import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
-	import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
-	import yamlWorker from 'monaco-yaml/yaml.worker?worker'
-	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
-
-	import { buildWorkerDefinition } from 'monaco-editor-workers'
-
-	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
-	import { createHash, editorConfig, langToExt, updateOptions } from '$lib/editorUtils'
 
 	let divEl: HTMLDivElement | null = null
 	let editor: monaco.editor.IStandaloneCodeEditor
@@ -156,15 +154,19 @@
 			dispatch('blur')
 		})
 
-		if (lang == 'javascript' && extraLib != '') {
-			monaco.languages.typescript.javascriptDefaults.setExtraLibs([
-				{
-					content: extraLib,
-					filePath: 'windmill.d.ts'
-				}
-			])
-		} else {
-			monaco.languages.typescript.javascriptDefaults.setExtraLibs([])
+		if (lang == 'javascript') {
+			const stdLib = { content: libStdContent, filePath: 'es5.d.ts' }
+			if (extraLib != '') {
+				monaco.languages.typescript.javascriptDefaults.setExtraLibs([
+					{
+						content: extraLib,
+						filePath: 'windmill.d.ts'
+					},
+					stdLib
+				])
+			} else {
+				monaco.languages.typescript.javascriptDefaults.setExtraLibs([stdLib])
+			}
 		}
 	}
 

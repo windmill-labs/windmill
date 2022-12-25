@@ -1,5 +1,8 @@
 <script lang="ts">
+	import { goto } from '$app/navigation'
 	import Dropdown from '$lib/components/Dropdown.svelte'
+	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
+	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 
@@ -12,6 +15,7 @@
 		faCodeFork,
 		faEdit,
 		faEye,
+		faFileExport,
 		faList,
 		faPlay,
 		faShare
@@ -26,6 +30,7 @@
 	export let marked: string | undefined
 	export let starred: boolean
 	export let shareModal: ShareModal
+	export let moveDrawer: MoveDrawer
 
 	let {
 		summary,
@@ -46,7 +51,10 @@
 		dispatch('change')
 		sendUserToast(`Archived script ${path}`)
 	}
+	let scheduleEditor: ScheduleEditor
 </script>
+
+<ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
 
 <Row
 	href={`/scripts/run/${hash}`}
@@ -149,6 +157,14 @@
 					href: `/scripts/add?template=${path}`
 				},
 				{
+					displayName: 'Move',
+					icon: faFileExport,
+					action: () => {
+						moveDrawer.openDrawer(path, 'script')
+					},
+					disabled: !canWrite
+				},
+				{
 					displayName: 'View runs',
 					icon: faList,
 					href: `/runs/${path}`
@@ -156,15 +172,16 @@
 				{
 					displayName: 'Schedule',
 					icon: faCalendarAlt,
-					href: `/schedule/add?path=${path}`
+					action: () => {
+						scheduleEditor.openNew(false, path)
+					}
 				},
 				{
-					displayName: 'Share',
+					displayName: canWrite ? 'Share' : 'See Permissions',
 					icon: faShare,
 					action: () => {
-						shareModal.openDrawer && shareModal.openDrawer(path)
-					},
-					disabled: !canWrite
+						shareModal.openDrawer && shareModal.openDrawer(path, 'script')
+					}
 				},
 				{
 					displayName: 'Archive',

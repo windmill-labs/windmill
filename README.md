@@ -231,6 +231,8 @@ the following format:
 
 and mount it at `/usr/src/app/oauth.json`.
 
+The redirect url for the oauth clients is: `<instance_url>/user/login_callback/<client>`
+
 [The list of all possible "connect an app" oauth clients](https://github.com/windmill-labs/windmill/blob/main/backend/oauth_connect.json)
 
 To add more "connect an app" OAuth clients to the Windmill project, read the
@@ -299,6 +301,9 @@ upcoming CLI tool.
 | PIP_TRUSTED_HOST          | None                   | The trusted host to pass to pip.                                                                                                                                                                   | Worker                |
 | PATH                      | None                   | The path environment variable, usually inherited                                                                                                                                                   | Worker                |
 | HOME                      | None                   | The home directory to use for Go and Bash , usually inherited                                                                                                                                      | Worker                |
+| DATABASE_CONNECTIONS      | 50 (Server)/3 (Worker) | The max number of connections in the database connection pool                                                                                                                                      | All                   |
+| SUPERADMIN_SECRET         | None                   | A token that would let the caller act as a virtual superadmin superadmin@windmill.dev                                                                                                              | Server                |
+
 
 ## Run a local dev setup
 

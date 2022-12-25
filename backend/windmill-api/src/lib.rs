@@ -29,6 +29,7 @@ mod capture;
 mod db;
 mod favorite;
 mod flows;
+mod folders;
 mod granular_acls;
 mod groups;
 pub mod jobs;
@@ -63,7 +64,10 @@ pub async fn run_server(
 ) -> anyhow::Result<()> {
     let user_db = UserDB::new(db.clone());
 
-    let auth_cache = Arc::new(users::AuthCache::new(db.clone()));
+    let auth_cache = Arc::new(users::AuthCache::new(
+        db.clone(),
+        std::env::var("SUPERADMIN_SECRET").ok(),
+    ));
     let argon2 = Arc::new(Argon2::default());
     let basic_clients = Arc::new(build_oauth_clients(&base_url).await?);
     let slack_verifier = Arc::new(
@@ -126,7 +130,8 @@ pub async fn run_server(
                         .nest("/flows", flows::workspaced_service())
                         .nest("/capture", capture::workspaced_service())
                         .nest("/apps", apps::workspaced_service())
-                        .nest("/favorites", favorite::workspaced_service()),
+                        .nest("/favorites", favorite::workspaced_service())
+                        .nest("/folders", folders::workspaced_service()),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(

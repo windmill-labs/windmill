@@ -26,6 +26,7 @@
 	export let kind: 'script' | 'trigger' | 'approval' | undefined = undefined
 	export let initialArgs: Record<string, any> = {}
 	export let fixedOverflowWidgets = true
+	export let noSyncFromGithub = false
 
 	let websocketAlive = { pyright: false, black: false, deno: false, go: false }
 
@@ -121,20 +122,22 @@
 			{websocketAlive}
 			{kind}
 		/>
-		<div class="py-1">
-			<Button
-				target="_blank"
-				href="https://github.com/windmill-labs/windmill/tree/main/cli"
-				color="light"
-				size="xs"
-				btnClasses="mr-1 hidden md:block"
-				startIcon={{
-					icon: faGithub
-				}}
-			>
-				Sync from Github
-			</Button>
-		</div>
+		{#if !noSyncFromGithub}
+			<div class="py-1">
+				<Button
+					target="_blank"
+					href="https://github.com/windmill-labs/windmill/tree/main/cli"
+					color="light"
+					size="xs"
+					btnClasses="mr-1 hidden md:block"
+					startIcon={{
+						icon: faGithub
+					}}
+				>
+					Sync from Github
+				</Button>
+			</div>
+		{/if}
 	</div>
 </div>
 <SplitPanesWrapper panesClass="!overflow-visible">

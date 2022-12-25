@@ -1,16 +1,16 @@
 // deno-lint-ignore-file no-explicit-any
-import { Untar } from "https://deno.land/std@0.162.0/archive/tar.ts";
-import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
-import {
-  copy,
-  readerFromStreamReader,
-} from "https://deno.land/std@0.162.0/streams/mod.ts";
 import { resolveWorkspace } from "./context.ts";
 import { GlobalOptions } from "./types.ts";
-import * as path from "https://deno.land/std@0.162.0/path/mod.ts";
-import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
-import { ensureDir } from "https://deno.land/std@0.162.0/fs/ensure_dir.ts";
-import { Confirm } from "https://deno.land/x/cliffy@v0.25.4/prompt/confirm.ts";
+import {
+  colors,
+  Command,
+  Confirm,
+  copy,
+  ensureDir,
+  path,
+  readerFromStreamReader,
+  Untar,
+} from "./deps.ts";
 
 async function pull(opts: GlobalOptions & { override: boolean }, dir: string) {
   const workspace = await resolveWorkspace(opts);
@@ -29,8 +29,12 @@ async function pull(opts: GlobalOptions & { override: boolean }, dir: string) {
   );
 
   if (!tarResponse.ok) {
-    console.log(colors.red("Failed to request tarball from API"));
-    console.log(colors.red(await tarResponse.text()));
+    console.log(
+      colors.red(
+        "Failed to request tarball from API " + tarResponse.statusText,
+      ),
+    );
+    console.log(await tarResponse.text());
     return;
   }
 
@@ -71,7 +75,8 @@ async function pull(opts: GlobalOptions & { override: boolean }, dir: string) {
       }
     }
     const file = await Deno.open(filePath, { write: true, create: true });
-    await copy(entry, file);
+    const len = await copy(entry, file);
+    await file.truncate(len);
     file.close();
   }
   console.log(colors.green("Done. Wrote all files to disk."));

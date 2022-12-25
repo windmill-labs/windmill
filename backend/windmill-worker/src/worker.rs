@@ -2215,10 +2215,10 @@ async fn handle_child(
                     r#"
                        UPDATE queue
                           SET canceled = true
-                            , canceled_by = 'timeout',
+                            , canceled_by = 'timeout'
                             , canceled_reason = $1
                         WHERE id = $2
-                    r"#,
+                    "#,
                 )
                 .bind(format!("duration > {}", timeout.as_secs()))
                 .bind(job_id)

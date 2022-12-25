@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import type { FlowModule, Job } from '$lib/gen'
+	import { ScriptService, type FlowModule, type Job } from '$lib/gen'
 	import { getScriptByPath, sendUserToast, truncateRev } from '$lib/utils'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import RunForm from './RunForm.svelte'
@@ -12,6 +12,7 @@
 	import { flowStateStore } from './flows/flowState'
 	import { flowStore } from './flows/flowStore'
 	import { Alert } from './common'
+	import { workspaceStore } from '$lib/stores'
 
 	let testJobLoader: TestJobLoader
 
@@ -33,7 +34,9 @@
 		if (val.type == 'rawscript') {
 			await testJobLoader?.runPreview(val.path, val.content, val.language, args)
 		} else if (val.type == 'script') {
-			const script = await getScriptByPath(val.path)
+			const script = val.hash
+				? await ScriptService.getScriptByHash({ workspace: $workspaceStore!, hash: val.hash })
+				: await getScriptByPath(val.path)
 			await testJobLoader?.runPreview(val.path, script.content, script.language, args)
 		} else {
 			throw Error('not testable module type')

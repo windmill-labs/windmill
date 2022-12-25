@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { Button, type ButtonType } from '$lib/components/common'
+	import { faArrowRight, faRefresh } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../inputType'
+	import type { Output } from '../../rx'
 	import type { AppEditorContext } from '../../types'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
@@ -14,21 +16,39 @@
 	export let recomputeIds: string[] | undefined = undefined
 	export let extraQueryParams: Record<string, any> = {}
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 
 	export const staticOutputs: string[] = ['loading', 'result']
 
-	const { runnableComponents } = getContext<AppEditorContext>('AppEditorContext')
+	const { runnableComponents, worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
 	let labelValue: string = 'Default label'
 	let color: ButtonType.Color
 	let size: ButtonType.Size
 	let runnableComponent: RunnableComponent
+
+	let isLoading: boolean = false
+	let ownClick: boolean = false
+
+	$: outputs = $worldStore?.outputsById[id] as {
+		result: Output<Array<any>>
+		loading: Output<boolean>
+	}
+
+	$: outputs?.loading.subscribe({
+		next: (value) => {
+			isLoading = value
+			if (ownClick && !value) {
+				ownClick = false
+			}
+		}
+	})
+
+	$: loading = isLoading && ownClick
 </script>
 
-<InputValue input={configuration.label} bind:value={labelValue} />
-<InputValue input={configuration.color} bind:value={color} />
-<InputValue input={configuration.size} bind:value={size} />
+<InputValue {id} input={configuration.label} bind:value={labelValue} />
+<InputValue {id} input={configuration.color} bind:value={color} />
+<InputValue {id} input={configuration.size} bind:value={size} />
 
 <RunnableWrapper
 	bind:runnableComponent
@@ -38,7 +58,7 @@
 	autoRefresh={false}
 	forceSchemaDisplay={true}
 >
-	<AlignWrapper {horizontalAlignment} {verticalAlignment} disableVerticalAlignment={true}>
+	<AlignWrapper {horizontalAlignment}>
 		<Button
 			on:click={() => {
 				runnableComponent?.runComponent()
@@ -51,6 +71,10 @@
 			}}
 			{size}
 			{color}
+			endIcon={{
+				icon: loading ? faRefresh : faArrowRight,
+				classes: loading ? 'animate-spin w-4' : 'w-4'
+			}}
 		>
 			{labelValue}
 		</Button>

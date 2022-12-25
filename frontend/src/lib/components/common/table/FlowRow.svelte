@@ -1,5 +1,8 @@
 <script lang="ts">
+	import { goto } from '$app/navigation'
 	import Dropdown from '$lib/components/Dropdown.svelte'
+	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
+	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 
@@ -12,6 +15,7 @@
 		faCodeFork,
 		faEdit,
 		faEye,
+		faFileExport,
 		faList,
 		faPlay,
 		faShare
@@ -25,6 +29,7 @@
 	export let marked: string | undefined
 	export let starred: boolean
 	export let shareModal: ShareModal
+	export let moveDrawer: MoveDrawer
 
 	let { summary, path, extra_perms, canWrite, workspace_id } = flow
 
@@ -39,8 +44,10 @@
 			sendUserToast(`Could not archive this flow ${err.body}`, true)
 		}
 	}
+	let scheduleEditor: ScheduleEditor
 </script>
 
+<ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
 <Row
 	href={`/flows/run/${path}`}
 	kind="flow"
@@ -130,17 +137,26 @@
 					href: `/runs/${path}`
 				},
 				{
-					displayName: 'Schedule',
-					icon: faCalendarAlt,
-					href: `/schedule/add?path=${path}&isFlow=true`
-				},
-				{
-					displayName: 'Share',
-					icon: faShare,
+					displayName: 'Move',
+					icon: faFileExport,
 					action: () => {
-						shareModal.openDrawer && shareModal.openDrawer(path)
+						moveDrawer.openDrawer(path, 'flow')
 					},
 					disabled: !canWrite
+				},
+				{
+					displayName: 'Schedule',
+					icon: faCalendarAlt,
+					action: () => {
+						scheduleEditor.openNew(true, path)
+					}
+				},
+				{
+					displayName: canWrite ? 'Share' : 'See Permissions',
+					icon: faShare,
+					action: () => {
+						shareModal.openDrawer && shareModal.openDrawer(path, 'flow')
+					}
 				},
 				{
 					displayName: 'Archive',

@@ -1,22 +1,18 @@
-import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
-import { ResourceService } from "https://deno.land/x/windmill@v1.50.0/mod.ts";
 import { GlobalOptions } from "./types.ts";
-import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
-import { requireLogin, resolveWorkspace } from "./context.ts";
-import { Resource } from "https://deno.land/x/windmill@v1.50.0/windmill-api/index.ts";
-import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/table.ts";
+import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
+import { colors, Command, Resource, ResourceService, Table } from "./deps.ts";
 
 type ResourceFile = {
   value: any;
   description?: string;
   resource_type: string;
-  is_oauth?: boolean;
+  is_oauth?: boolean; // deprecated
 };
 
 export async function pushResource(
   workspace: string,
   filePath: string,
-  remotePath: string
+  remotePath: string,
 ) {
   const data: ResourceFile = JSON.parse(await Deno.readTextFile(filePath));
   if (
@@ -30,26 +26,26 @@ export async function pushResource(
       workspace: workspace,
       path: remotePath,
     });
+
     if (existing.resource_type != data.resource_type) {
       console.log(
         colors.red.underline.bold(
           "Remote resource at " +
             remotePath +
-            " exists & has a different resource type. This cannot be updated. If you wish to do this anyways, consider deleting the remote resource."
-        )
+            " exists & has a different resource type. This cannot be updated. If you wish to do this anyways, consider deleting the remote resource.",
+        ),
       );
       return;
     }
-    if (existing.is_oauth != data.is_oauth) {
+
+    if (typeof data.is_oauth !== "undefined") {
       console.log(
-        colors.red.underline.bold(
-          "Remote resource at " +
-            remotePath +
-            " exists & has a different oauth state. This cannot be updated. If you wish to do this anyways, consider deleting the remote resource."
-        )
+        colors.yellow(
+          "! is_oauth has been removed in newer versions. Ignoring.",
+        ),
       );
-      return;
     }
+
     await ResourceService.updateResource({
       workspace: workspace,
       path: remotePath,
@@ -60,6 +56,14 @@ export async function pushResource(
       },
     });
   } else {
+    if (typeof data.is_oauth !== "undefined") {
+      console.log(
+        colors.yellow(
+          "! is_oauth has been removed in newer versions. Ignoring.",
+        ),
+      );
+    }
+
     console.log(colors.yellow("Creating new resource..."));
     await ResourceService.createResource({
       workspace: workspace,
@@ -68,7 +72,6 @@ export async function pushResource(
         resource_type: data.resource_type,
         value: data.value,
         description: data.description,
-        is_oauth: data.is_oauth,
       },
     });
   }
@@ -79,12 +82,7 @@ async function push(opts: PushOptions, filePath: string, remotePath: string) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  if (!(remotePath.startsWith("g") || remotePath.startsWith("u"))) {
-    console.log(
-      colors.red(
-        "Given remote path looks invalid. Remote paths are typicall of the form <u|g>/<username|group>/..."
-      )
-    );
+  if (!await validatePath(opts, remotePath)) {
     return;
   }
 
@@ -131,7 +129,7 @@ const command = new Command()
   .action(list as any)
   .command(
     "push",
-    "push a local resource spec. This overrides any remote versions."
+    "push a local resource spec. This overrides any remote versions.",
   )
   .arguments("<file_path:string> <remote_path:string>")
   .action(push as any);

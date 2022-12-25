@@ -8,7 +8,7 @@
 
 use crate::{
     db::{UserDB, DB},
-    users::Authed,
+    users::{get_groups_for_user, Authed},
 };
 use axum::{
     extract::{Extension, Path, Query},
@@ -23,7 +23,8 @@ use windmill_common::{
 };
 
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, Postgres, Transaction};
+use sqlx::{query_scalar, FromRow, Postgres, Transaction};
+use windmill_queue::CLOUD_HOSTED;
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -35,6 +36,7 @@ pub fn workspaced_service() -> Router {
         .route("/delete/:name", delete(delete_group))
         .route("/adduser/:name", post(add_user))
         .route("/removeuser/:name", post(remove_user))
+        .route("/is_owner", get(is_owner))
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -90,18 +92,95 @@ async fn list_groups(
     Ok(Json(rows))
 }
 
+#[derive(Deserialize)]
+struct QueryListGroup {
+    pub only_member_of: Option<bool>,
+}
 async fn list_group_names(
+    Authed { username, .. }: Authed,
     Extension(db): Extension<DB>,
+    Query(QueryListGroup { only_member_of }): Query<QueryListGroup>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<String>> {
-    let rows = sqlx::query_scalar!(
-        "SELECT name FROM group_ WHERE workspace_id = $1 ORDER BY name desc",
-        w_id
-    )
-    .fetch_all(&db)
-    .await?;
+    let rows = if !only_member_of.unwrap_or(false) {
+        sqlx::query_scalar!(
+            "SELECT name FROM group_ WHERE workspace_id = $1 ORDER BY name desc",
+            w_id
+        )
+        .fetch_all(&db)
+        .await?
+    } else {
+        get_groups_for_user(&w_id, &username, &db).await?
+    };
 
     Ok(Json(rows))
+}
+
+async fn check_name_conflict<'c>(
+    tx: &mut Transaction<'c, Postgres>,
+    w_id: &str,
+    name: &str,
+) -> Result<()> {
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM group_ WHERE name = $1 AND workspace_id = $2)",
+        name,
+        w_id
+    )
+    .fetch_one(tx)
+    .await?
+    .unwrap_or(false);
+    if exists {
+        return Err(windmill_common::error::Error::BadRequest(format!(
+            "Group {} already exists",
+            name
+        )));
+    }
+    return Ok(());
+}
+
+pub async fn is_owner(
+    Authed { username, is_admin, groups, .. }: Authed,
+    Extension(db): Extension<DB>,
+    Path((w_id, name)): Path<(String, String)>,
+) -> JsonResult<bool> {
+    if is_admin {
+        Ok(Json(true))
+    } else {
+        Ok(Json(
+            require_is_owner(&name, &username, &groups, &w_id, &db)
+                .await
+                .is_ok(),
+        ))
+    }
+}
+
+pub async fn require_is_owner(
+    group_name: &str,
+    username: &str,
+    groups: &Vec<String>,
+    w_id: &str,
+    db: &DB,
+) -> Result<()> {
+    let is_owner = query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM group_ WHERE (group_.extra_perms ->> CONCAT('u/', $1::text))::boolean AND name = $2 AND workspace_id = $4) OR exists(
+            SELECT 1 FROM group_ g, jsonb_each_text(g.extra_perms) f 
+    WHERE $2 = g.name AND $4 = g.workspace_id AND SPLIT_PART(key, '/', 1) = 'g' AND key = ANY($3::text[])
+    AND value::boolean)",
+        username,
+        group_name,
+        groups,
+        w_id,
+    ).fetch_one(db)
+    .await?
+    .unwrap_or(false);
+    if !is_owner {
+        Err(Error::BadRequest(format!(
+            "{} is not an owner of {} and hence is not authorized to perform this operation",
+            username, group_name
+        )))
+    } else {
+        Ok(())
+    }
 }
 
 async fn create_group(
@@ -111,6 +190,8 @@ async fn create_group(
     Json(ng): Json<NewGroup>,
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
+
+    check_name_conflict(&mut tx, &w_id, &ng.name).await?;
 
     sqlx::query_as!(
         Group,
@@ -159,6 +240,16 @@ async fn get_group(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, name)): Path<(String, String)>,
 ) -> JsonResult<GroupInfo> {
+    if *CLOUD_HOSTED && w_id == "demo" && name == "all" && !authed.is_admin {
+        return Ok(Json(GroupInfo {
+            workspace_id: w_id,
+            name: name,
+            summary: Some("The group that contains all users".to_string()),
+            members: vec!["redacted_in_demo_workspace".to_string()],
+            extra_perms: serde_json::json!({}),
+        }));
+    }
+
     let mut tx = user_db.begin(&authed).await?;
 
     let group = not_found_if_none(get_group_opt(&mut tx, &w_id, &name).await?, "Group", &name)?;
@@ -185,11 +276,13 @@ async fn get_group(
 
 async fn delete_group(
     authed: Authed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, name)): Path<(String, String)>,
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
 
+    require_is_owner(&name, &authed.username, &authed.groups, &w_id, &db).await?;
     not_found_if_none(get_group_opt(&mut tx, &w_id, &name).await?, "Group", &name)?;
 
     sqlx::query!(
@@ -222,12 +315,14 @@ async fn delete_group(
 
 async fn update_group(
     authed: Authed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, name)): Path<(String, String)>,
     Json(eg): Json<EditGroup>,
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
 
+    require_is_owner(&name, &authed.username, &authed.groups, &w_id, &db).await?;
     not_found_if_none(get_group_opt(&mut tx, &w_id, &name).await?, "Group", &name)?;
 
     sqlx::query_as!(
@@ -256,17 +351,20 @@ async fn update_group(
 
 async fn add_user(
     authed: Authed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, name)): Path<(String, String)>,
     Json(Username { username: user_username }): Json<Username>,
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
 
+    require_is_owner(&name, &authed.username, &authed.groups, &w_id, &db).await?;
+
     not_found_if_none(get_group_opt(&mut tx, &w_id, &name).await?, "Group", &name)?;
 
     sqlx::query_as!(
         Group,
-        "INSERT INTO usr_to_group (workspace_id, usr, group_) VALUES ($1, $2, $3)",
+        "INSERT INTO usr_to_group (workspace_id, usr, group_) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
         &w_id,
         user_username,
         name,
@@ -290,11 +388,13 @@ async fn add_user(
 
 async fn remove_user(
     authed: Authed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, name)): Path<(String, String)>,
     Json(Username { username: user_username }): Json<Username>,
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
+    require_is_owner(&name, &authed.username, &authed.groups, &w_id, &db).await?;
 
     not_found_if_none(get_group_opt(&mut tx, &w_id, &name).await?, "Group", &name)?;
     if &name == "all" {

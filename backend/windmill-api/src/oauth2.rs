@@ -32,7 +32,7 @@ use tower_cookies::{Cookie, Cookies};
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::utils::{not_found_if_none, now_from_db};
 
-use crate::users::Authed;
+use crate::users::{truncate_token, Authed};
 use crate::workspaces::invite_user_to_all_auto_invite_worspaces;
 use crate::{
     db::{UserDB, DB},
@@ -806,6 +806,7 @@ async fn slack_command(
                 false,
                 false,
                 None,
+                true,
             )
             .await?;
             tx.commit().await?;
@@ -909,6 +910,16 @@ async fn login_callback(
                      login type {login_type}"
                 )));
             }
+            audit_log(
+                &mut tx,
+                &email,
+                "oauth.login",
+                ActionKind::Create,
+                "global",
+                Some(&truncate_token(&token)),
+                None,
+            )
+            .await?;
         } else {
             let mut name = user.name;
             if name.is_none() || name == Some(String::new()) {
@@ -1018,13 +1029,30 @@ async fn http_get_user_info<T: DeserializeOwned>(
     url: &str,
     token: &str,
 ) -> error::Result<T> {
-    Ok(http_client
+    let res = http_client
         .get(url)
         .bearer_auth(token)
         .send()
         .await
         .map_err(to_anyhow)
-        .context("failed to fetch user info")?
+        .context("failed to fetch user info")?;
+    if !res.status().is_success() {
+        tracing::debug!(
+            "The bearer token of the failed oauth user info exchange is: {}",
+            token
+        );
+        return Err(error::Error::BadConfig(format!(
+            "The user info endpoint responded with non 200: {}\n{}\n{}",
+            res.status(),
+            res.headers()
+                .iter()
+                .map(|x| format!("{}: {}", x.0.as_str(), x.1.to_str().unwrap_or_default()))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            res.text().await.unwrap_or_default(),
+        )));
+    }
+    Ok(res
         .json::<T>()
         .await
         .map_err(to_anyhow)

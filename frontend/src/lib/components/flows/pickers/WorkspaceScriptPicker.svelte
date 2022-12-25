@@ -33,6 +33,9 @@
 	}
 
 	let ownerFilter: string | undefined = undefined
+	$: if ($workspaceStore) {
+		ownerFilter = undefined
+	}
 	$: prefilteredItems = ownerFilter ? items?.filter((x) => x.path.startsWith(ownerFilter!)) : items
 
 	$: owners = Array.from(
@@ -40,7 +43,7 @@
 	).sort()
 
 	const dispatch = createEventDispatcher()
-	let lockHash = displayLock
+	let lockHash = false
 </script>
 
 <SearchItems

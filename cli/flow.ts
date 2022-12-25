@@ -1,28 +1,21 @@
 // deno-lint-ignore-file no-explicit-any
-import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
-import {
-  FlowService,
-  JobService,
-} from "https://deno.land/x/windmill@v1.50.0/mod.ts";
 import { GlobalOptions } from "./types.ts";
 import {
+  colors,
+  Command,
   Flow,
+  FlowService,
+  JobService,
   OpenFlow,
-} from "https://deno.land/x/windmill@v1.50.0/windmill-api/index.ts";
-import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
-import { requireLogin, resolveWorkspace } from "./context.ts";
-import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/table.ts";
+  Table,
+} from "./deps.ts";
+import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import { resolve, track_job } from "./script.ts";
 
 type Options = GlobalOptions;
 
 async function push(opts: Options, filePath: string, remotePath: string) {
-  if (!(remotePath.startsWith("g") || remotePath.startsWith("u"))) {
-    console.log(
-      colors.red(
-        "Given remote path looks invalid. Remote paths are typicall of the form <u|g>/<username|group>/...",
-      ),
-    );
+  if (!await validatePath(opts, remotePath)) {
     return;
   }
   const workspace = await resolveWorkspace(opts);

@@ -17,6 +17,8 @@ type BaseComponent<T extends string> = {
 
 export type TextComponent = BaseComponent<'textcomponent'>
 export type TextInputComponent = BaseComponent<'textinputcomponent'>
+export type PasswordInputComponent = BaseComponent<'passwordinputcomponent'>
+export type DateInputComponent = BaseComponent<'dateinputcomponent'>
 export type NumberInputComponent = BaseComponent<'numberinputcomponent'>
 export type ButtonComponent = BaseComponent<'buttoncomponent'> & {
 	recomputeIds: string[] | undefined
@@ -53,7 +55,12 @@ export interface BaseAppComponent extends Partial<Aligned> {
 	componentInput: AppInput | undefined
 	configuration: Record<string, StaticAppInput | ConnectedAppInput | UserAppInput>
 	card: boolean | undefined
-	// TODO: add min/max width/height
+	/**
+	 * If `true` then the wrapper will allow items to flow outside of it's borders.
+	 *
+	 * *For example when the component has a popup like `Select`*
+	 */
+	softWrap?: boolean
 }
 
 export type AppComponent = BaseAppComponent &
@@ -61,6 +68,8 @@ export type AppComponent = BaseAppComponent &
 		| RunFormComponent
 		| DisplayComponent
 		| TextInputComponent
+		| PasswordInputComponent
+		| DateInputComponent
 		| NumberInputComponent
 		| BarChartComponent
 		| TableComponent
@@ -102,8 +111,11 @@ export type InlineScript = {
 
 export type App = {
 	grid: GridItem[]
-	inlineScripts: Record<string, InlineScript>
 	title: string
+	unusedInlineScripts: Array<{
+		name: string
+		inlineScript: InlineScript
+	}>
 }
 
 export type ConnectingInput = {
@@ -121,6 +133,7 @@ export type AppEditorContext = {
 	connectingInput: Writable<ConnectingInput>
 	breakpoint: Writable<EditorBreakpoint>
 	runnableComponents: Writable<Record<string, () => void>>
+	appPath: string
 }
 
 export type EditorMode = 'dnd' | 'preview'

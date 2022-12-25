@@ -13,38 +13,64 @@
 	import { isOpenStore } from './store'
 	import { gridColumns } from '../../gridUtils'
 
-	const { app } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
 
-	function getMinDimensionsByComponent(componentType: string, column: number): Size {
-		console.log(componentType, column)
-		if (componentType === 'buttoncomponent') {
-			return column === 3 ? { w: 1, h: 1 } : { w: 3, h: 1 }
-		} else if (componentType === 'formcomponent') {
-			return column === 3 ? { w: 2, h: 3 } : { w: 6, h: 4 }
-		} else if (componentType === 'textcomponent') {
-			return column === 3 ? { w: 1, h: 1 } : { w: 3, h: 1 }
-		} else if (componentType === 'textinputcomponent') {
-			return column === 3 ? { w: 1, h: 2 } : { w: 3, h: 2 }
-		} else if (componentType === 'numberinputcomponent') {
-			return column === 3 ? { w: 1, h: 2 } : { w: 3, h: 2 }
-		} else if (componentType === 'barchartcomponent') {
-			return column === 3 ? { w: 2, h: 4 } : { w: 6, h: 4 }
-		} else if (componentType === 'piechartcomponent') {
-			return column === 3 ? { w: 2, h: 4 } : { w: 6, h: 4 }
-		} else if (componentType === 'tablecomponent') {
-			return column === 3 ? { w: 3, h: 4 } : { w: 12, h: 4 }
-		} else if (componentType === 'displaycomponent') {
-			return column === 3 ? { w: 2, h: 2 } : { w: 6, h: 4 }
-		} else if (componentType === 'checkboxcomponent') {
-			return column === 3 ? { w: 1, h: 1 } : { w: 3, h: 1 }
-		} else {
-			return { w: 2, h: 1 }
+	function getMinDimensionsByComponent(componentType: AppComponent['type'], column: number): Size {
+		// Dimensions key formula: <mobile width>:<mobile height>-<desktop width>:<desktop height>
+		const dimensions: Record<`${number}:${number}-${number}:${number}`, AppComponent['type'][]> = {
+			'1:2-2:2': [
+				'buttoncomponent',
+				'textcomponent',
+				'checkboxcomponent',
+				'textinputcomponent',
+				'numberinputcomponent',
+				'selectcomponent',
+				'passwordinputcomponent',
+				'dateinputcomponent'
+			],
+			'2:6-4:6': ['barchartcomponent', 'piechartcomponent', 'formcomponent', 'displaycomponent'],
+			'3:6-6:8': ['tablecomponent']
 		}
+		// Finds the key that is associated with the component type and extracts the dimensions from it
+		const [dimension] = Object.entries(dimensions).find(([_, value]) =>
+			value.includes(componentType)
+		) || ['2:1-2:1']
+
+		const size = dimension.split('-')[column === 3 ? 0 : 1].split(':')
+		return { w: +size[0], h: +size[1] }
+	}
+
+	function getMaxDimensionsByComponent(componentType: AppComponent['type'], column: number): Size {
+		if (
+			[
+				'textinputcomponent',
+				'numberinputcomponent',
+				'selectcomponent',
+				'dateinputcomponent',
+				'passwordinputcomponent'
+			].includes(componentType)
+		) {
+			return { w: column, h: 1 }
+		}
+		return { w: column, h: 12 }
 	}
 
 	function addComponent(appComponent: AppComponent) {
 		const grid = $app.grid ?? []
-		const id = getNextId(grid.map((gridItem) => gridItem.data.id))
+		const id = getNextId(
+			grid
+				.map((gridItem) => {
+					if (gridItem.data.type === 'tablecomponent') {
+						return [
+							gridItem.data.id,
+							...gridItem.data.actionButtons.map((actionButton) => actionButton.id)
+						]
+					} else {
+						return [gridItem.data.id]
+					}
+				})
+				.flat()
+		)
 
 		appComponent.id = id
 
@@ -64,62 +90,17 @@
 		}
 
 		gridColumns.forEach((column) => {
-			newItem[column] = newComponent
-			const position = gridHelp.findSpace(newItem, grid, column)
 			const min = getMinDimensionsByComponent(appComponent.type, column)
+			const max = getMaxDimensionsByComponent(appComponent.type, column)
 
-			const max = { w: 12, h: 12 }
-
-			newItem[column].w = min.w
-			newItem[column].h = min.h
-
+			newItem[column] = { ...newComponent, min, max, w: min.w, h: min.h }
+			const position = gridHelp.findSpace(newItem, grid, column) as { x: number; y: number }
 			newItem[column] = { ...newItem[column], ...position, min, max }
 		})
 
 		$app.grid = [...grid, newItem]
-	}
 
-	const products = {
-		1: {
-			name: 'Product 1',
-			description: 'Product 1 description',
-			image: 'https://picsum.photos/200'
-		},
-		2: {
-			name: 'Product 2',
-			description: 'Product 2 description',
-			image: 'https://picsum.photos/200'
-		},
-		3: {
-			name: 'Product 3',
-			description: 'Product 3 description',
-			image: 'https://picsum.photos/200'
-		},
-		4: {
-			name: 'Product 4',
-			description: 'Product 4 description',
-			image: 'https://picsum.photos/200'
-		},
-		5: {
-			name: 'Product 5',
-			description: 'Product 5 description',
-			image: 'https://picsum.photos/200'
-		},
-		6: {
-			name: 'Product 6',
-			description: 'Product 6 description',
-			image: 'https://picsum.photos/200'
-		},
-		7: {
-			name: 'Product 7',
-			description: 'Product 7 description',
-			image: 'https://picsum.photos/200'
-		},
-		8: {
-			name: 'Product 8',
-			description: 'Product 8 description',
-			image: 'https://picsum.photos/200'
-		}
+		$selectedComponent = id
 	}
 
 	onMount(() => {
@@ -147,7 +128,7 @@
 								on:click={() => addComponent(item)}
 								title={displayData[item.type].name}
 								class="border shadow-sm h-16 p-2 flex flex-col gap-2 items-center
-									justify-center bg-white rounded-md scale-100 hover:scale-105 ease-in duration-75"
+									justify-center bg-white rounded-md hover:bg-gray-100 duration-200"
 							>
 								<svelte:component this={displayData[item.type].icon} class="text-blue-800" />
 								<div class="text-xs w-full text-center ellipsize">

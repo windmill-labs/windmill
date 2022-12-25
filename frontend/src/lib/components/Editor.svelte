@@ -1,4 +1,33 @@
 <script lang="ts" context="module">
+	import getMessageServiceOverride from 'vscode/service-override/messages'
+	import { StandaloneServices } from 'vscode/services'
+
+	try {
+		StandaloneServices.initialize({
+			...getMessageServiceOverride(document.body)
+		})
+	} catch (e) {
+		console.error(e)
+	}
+</script>
+
+<script lang="ts">
+	import { browser, dev } from '$app/environment'
+	import { page } from '$app/stores'
+	import { sendUserToast } from '$lib/utils'
+
+	import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
+	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
+
+	import { buildWorkerDefinition } from 'monaco-editor-workers'
+	import type {
+		Disposable,
+		DocumentUri,
+		MessageTransports,
+		MonacoLanguageClient
+	} from 'monaco-languageclient'
+	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
+
 	import * as monaco from 'monaco-editor'
 
 	monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
@@ -21,27 +50,7 @@
 		}
 	})
 	monaco.editor.setTheme('myTheme')
-</script>
 
-<script lang="ts">
-	import { browser, dev } from '$app/env'
-	import { page } from '$app/stores'
-	import { sendUserToast } from '$lib/utils'
-
-	import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
-	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
-
-	import { buildWorkerDefinition } from 'monaco-editor-workers'
-	import type {
-		Disposable,
-		DocumentUri,
-		MessageTransports,
-		MonacoLanguageClient
-	} from 'monaco-languageclient'
-	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
-
-	import getMessageServiceOverride from 'vscode/service-override/messages'
-	import { StandaloneServices } from 'vscode/services'
 	import {
 		BASH_INIT_CODE,
 		DENO_INIT_CODE_CLEAR,
@@ -55,14 +64,6 @@
 		updateOptions
 	} from '$lib/editorUtils'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
-
-	try {
-		StandaloneServices.initialize({
-			...getMessageServiceOverride(document.body)
-		})
-	} catch (e) {
-		console.error(e)
-	}
 
 	let divEl: HTMLDivElement | null = null
 	let editor: monaco.editor.IStandaloneCodeEditor

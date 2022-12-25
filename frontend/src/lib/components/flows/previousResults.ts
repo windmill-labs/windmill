@@ -125,21 +125,21 @@ export function getStepPropPicker(
 
 
 
-	if (approvers && ((previousModule?.suspend?.required_events ?? 0) > 0)) {
+	if (pickableProperties.hasResume) {
 		pickableProperties["approvers"] = "The list of approvers"
 	}
 
 	return {
-		extraLib: buildExtraLib(flowInput, priorIds),
+		extraLib: buildExtraLib(flowInput, priorIds, previousModule?.suspend != undefined),
 		pickableProperties
 	}
 }
 
-export function buildExtraLib(flowInput: Record<string, any>, results: Record<string, any>): string {
+export function buildExtraLib(flowInput: Record<string, any>, results: Record<string, any>, resume: boolean): string {
 	return `
 /**
 * get variable (including secret) at path
-* @param {string} path - path of the variable (e.g: g/all/pretty_secret)
+* @param {string} path - path of the variable (e.g: f/examples/secret)
 */
 declare function variable(path: string): string;
 
@@ -163,6 +163,18 @@ declare const params: any;
  * result by id
  */
 declare const results = ${JSON.stringify(results)};
+
+${resume ? `
+/**
+ * resume payload
+ */
+declare const resume: any
+
+/**
+ * The list of approvers separated by ,
+ */
+declare const approvers: string
+` : ''}
 `
 
 }

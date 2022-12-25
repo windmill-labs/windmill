@@ -1,26 +1,28 @@
 <script lang="ts">
-	import { faMousePointer } from '@fortawesome/free-solid-svg-icons'
+	import { faMousePointer, faPlus } from '@fortawesome/free-solid-svg-icons'
 	import { Button, Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
 	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
 	import { Building, Globe2 } from 'lucide-svelte'
 	import InlineScriptList from './InlineScriptList.svelte'
-	import type { AppInput } from '$lib/components/apps/inputType'
+	import type { ResultAppInput } from '$lib/components/apps/inputType'
 	import WorkspaceScriptList from './WorkspaceScriptList.svelte'
 	import WorkspaceFlowList from './WorkspaceFlowList.svelte'
+	import type { AppEditorContext, GridItem, InlineScript } from '$lib/components/apps/types'
+	import { getContext } from 'svelte'
 
-	type Tab = 'hubscripts' | 'hubflows' | 'workspacescripts' | 'workspaceflows' | 'inlinescripts'
+	type Tab = 'hubscripts' | 'workspacescripts' | 'workspaceflows' | 'inlinescripts'
 
-	export let inlineScripts: string[]
+	export let appInput: ResultAppInput
 
-	export let componentInput: AppInput
-	let tab: Tab = 'workspacescripts'
+	let tab: Tab = 'inlinescripts'
 	let filter: string = ''
-
 	let picker: Drawer
 
+	const { app } = getContext<AppEditorContext>('AppEditorContext')
+
 	function pickScript(path: string) {
-		if (componentInput.type === 'runnable') {
-			componentInput.runnable = {
+		if (appInput.type === 'runnable') {
+			appInput.runnable = {
 				type: 'runnableByPath',
 				path,
 				runType: 'script'
@@ -29,8 +31,8 @@
 	}
 
 	function pickFlow(path: string) {
-		if (componentInput.type === 'runnable') {
-			componentInput.runnable = {
+		if (appInput.type === 'runnable') {
+			appInput.runnable = {
 				type: 'runnableByPath',
 				path,
 				runType: 'flow'
@@ -38,13 +40,65 @@
 		}
 	}
 
-	function pickInlineScript(inlineScriptName: string) {
-		if (componentInput.type === 'runnable') {
-			componentInput.runnable = {
-				type: 'runnableByName',
-				inlineScriptName
+	function pickHubScript(path: string) {
+		if (appInput.type === 'runnable') {
+			appInput.runnable = {
+				type: 'runnableByPath',
+				path,
+				runType: 'hubscript'
 			}
 		}
+	}
+
+	function pickInlineScript(name: string) {
+		const unusedInlineScriptIndex = $app.unusedInlineScripts?.findIndex(
+			(script) => script.name === name
+		)
+		const unusedInlineScript = $app.unusedInlineScripts?.[unusedInlineScriptIndex]
+		if (appInput.type === 'runnable' && unusedInlineScript?.inlineScript) {
+			appInput.runnable = {
+				type: 'runnableByName',
+				name,
+				inlineScript: unusedInlineScript.inlineScript
+			}
+
+			$app.unusedInlineScripts.splice(unusedInlineScriptIndex, 1)
+		}
+	}
+
+	function createScript(): string {
+		let index = 0
+		let newScriptPath = `inline_script_${index}`
+
+		const names = $app.grid.reduce((acc, gridItem: GridItem) => {
+			const { componentInput } = gridItem.data
+
+			if (
+				componentInput?.type === 'runnable' &&
+				componentInput?.runnable?.type === 'runnableByName'
+			) {
+				acc.push(componentInput.runnable.name)
+			}
+
+			return acc
+		}, [] as string[])
+
+		const unusedNames = Object.keys($app.unusedInlineScripts ?? {})
+
+		// Find a name that is not used by any other inline script
+		while (names.includes(newScriptPath) || unusedNames.includes(newScriptPath)) {
+			newScriptPath = `inline_script_${++index}`
+		}
+
+		appInput.runnable = {
+			type: 'runnableByName',
+			name: newScriptPath,
+			inlineScript: undefined
+		}
+
+		appInput = appInput
+
+		return newScriptPath
 	}
 </script>
 
@@ -82,13 +136,18 @@
 				<div class="flex flex-col gap-y-16">
 					<div class="flex flex-col">
 						{#if tab == 'inlinescripts'}
-							<InlineScriptList {inlineScripts} on:pick={(e) => pickInlineScript(e.detail)} />
+							<InlineScriptList
+								on:pick={(e) => pickInlineScript(e.detail)}
+								inlineScripts={$app.unusedInlineScripts
+									? $app.unusedInlineScripts.map((uis) => uis.name)
+									: []}
+							/>
 						{:else if tab == 'workspacescripts'}
 							<WorkspaceScriptList on:pick={(e) => pickScript(e.detail)} />
 						{:else if tab == 'workspaceflows'}
 							<WorkspaceFlowList on:pick={(e) => pickFlow(e.detail)} />
 						{:else if tab == 'hubscripts'}
-							<PickHubScript bind:filter on:pick={(e) => pickScript(e.detail.path)} />
+							<PickHubScript bind:filter on:pick={(e) => pickHubScript(e.detail.path)} />
 						{/if}
 					</div>
 				</div>
@@ -97,12 +156,22 @@
 	</DrawerContent>
 </Drawer>
 
-<Button
-	on:click={() => picker?.openDrawer()}
-	size="sm"
-	spacingSize="md"
-	color="blue"
-	startIcon={{ icon: faMousePointer }}
->
-	Pick
-</Button>
+<div class="flex flex-col gap-2">
+	<Button
+		on:click={createScript}
+		size="sm"
+		color="light"
+		variant="border"
+		startIcon={{ icon: faPlus }}
+	>
+		Create an inline script
+	</Button>
+	<Button
+		on:click={() => picker?.openDrawer()}
+		size="sm"
+		color="blue"
+		startIcon={{ icon: faMousePointer }}
+	>
+		Select a script
+	</Button>
+</div>
