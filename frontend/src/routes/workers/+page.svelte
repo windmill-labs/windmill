@@ -1,11 +1,3 @@
-<script context="module">
-	export function load() {
-		return {
-			stuff: { title: 'Workers' }
-		}
-	}
-</script>
-
 <script lang="ts">
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'

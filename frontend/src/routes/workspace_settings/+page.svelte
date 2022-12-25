@@ -1,11 +1,3 @@
-<script context="module">
-	export function load() {
-		return {
-			stuff: { title: 'Workspace Settings' }
-		}
-	}
-</script>
-
 <script lang="ts">
 	import {
 		UserService,

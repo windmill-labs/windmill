@@ -1,11 +1,3 @@
-<script context="module">
-	export function load() {
-		return {
-			stuff: { title: 'Groups' }
-		}
-	}
-</script>
-
 <script lang="ts">
 	import type { Group } from '$lib/gen'
 	import { GroupService } from '$lib/gen'

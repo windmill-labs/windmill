@@ -1,11 +1,3 @@
-<script context="module">
-	export function load({ params }) {
-		return {
-			stuff: { title: `App ${params.path}` }
-		}
-	}
-</script>
-
 <script lang="ts">
 	import { page } from '$app/stores'
 	import AppPreview from '$lib/components/apps/editor/AppPreview.svelte'

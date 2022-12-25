@@ -1,11 +1,3 @@
-<script context="module">
-	export function load() {
-		return {
-			stuff: { title: `New Script` }
-		}
-	}
-</script>
-
 <script lang="ts">
 	import { Script, ScriptService } from '$lib/gen'
 

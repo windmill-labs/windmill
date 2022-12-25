@@ -1,11 +1,3 @@
-<script context="module">
-	export function load() {
-		return {
-			stuff: { title: 'Runs' }
-		}
-	}
-</script>
-
 <script lang="ts">
 	import { onDestroy } from 'svelte'
 	import { JobService, Job, CompletedJob } from '$lib/gen'

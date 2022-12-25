@@ -1,11 +1,3 @@
-<script context="module">
-	export function load() {
-		return {
-			stuff: { title: 'Folders' }
-		}
-	}
-</script>
-
 <script lang="ts">
 	import type { Folder } from '$lib/gen'
 	import { FolderService } from '$lib/gen'
