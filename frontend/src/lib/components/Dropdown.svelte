@@ -28,24 +28,24 @@
 		{#each dropdownItems as item, i}
 			{#if item.action}
 				<button
-					on:click={(event) => {
-						event.preventDefault()
+					on:click|preventDefault|stopPropagation={(event) => {
 						if (!item.disabled) {
 							close()
 							item.action && item.action(event)
 							dispatch('click', { item: item?.eventName })
 						}
 					}}
-					class="block w-full whitespace-nowrap hover:drop-shadow-sm hover:bg-gray-50 hover:bg-opacity-30 px-4 py-2 text-sm text-gray-700 text-left {item.separatorTop
-						? 'border-t'
-						: ''} {item.separatorBottom ? 'border-b' : ''} {item.type == 'delete'
+					class="block w-full  whitespace-nowrap hover:drop-shadow-sm hover:bg-gray-50 hover:bg-opacity-30
+					 px-4 py-2 text-sm text-gray-700 text-left 
+					 {item.disabled ? 'bg-gray-200' : ''}
+					 {item.separatorTop ? 'border-t' : ''} {item.separatorBottom ? 'border-b' : ''} {item.type ==
+					'delete'
 						? 'text-red-500'
 						: ''}"
 					role="menuitem"
 					tabindex="-1"
 					id="user-menu-item-{name}-{i}}"
 					disabled={item.disabled}
-					class:disabled={item.disabled}
 				>
 					{#if item.icon}
 						<Icon
@@ -59,14 +59,9 @@
 			{:else if item.href && !item.disabled}
 				<a
 					href={item.href}
-					on:click={(e) => {
-						if (!item.disabled) {
-							close()
-						} else {
-							e.preventDefault()
-						}
-					}}
-					class="block w-full px-4 py-2 text-sm text-gray-700 hover:drop-shadow-sm hover:bg-gray-50 hover:bg-opacity-30"
+					on:click|stopPropagation
+					class="block w-full px-4 font-semibold text-left  py-2 text-sm text-gray-700 hover:drop-shadow-sm hover:bg-gray-50 hover:bg-opacity-30
+					{item.disabled ? 'bg-gray-200' : ''}"
 					role="menuitem"
 					tabindex="-1"
 					id="user-menu-item-{name}-{i}}"
@@ -84,11 +79,11 @@
 			{:else}
 				<span
 					class:bg-gray-50={item.disabled}
-					class="block  px-4 py-2 text-sm text-gray-700 cursor-auto"
+					class="block  text-left px-4 py-2 text-sm text-gray-700 cursor-auto"
 					role="menuitem"
 					tabindex="-1"
 					id="user-menu-item-{name}-{i}}"
-					on:click|preventDefault
+					on:click|preventDefault|stopPropagation
 				>
 					{#if item.icon}
 						<Icon

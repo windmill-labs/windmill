@@ -3,11 +3,12 @@
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppEditorContext } from '../../types'
-	import DebouncedInput from '../helpers/DebouncedInput.svelte'
+	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 
 	export let id: string
 	export let configuration: Record<string, AppInput>
+	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export const staticOutputs: string[] = ['result']
 
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
@@ -17,7 +18,7 @@
 	$: outputs = $worldStore?.outputsById[id] as {
 		result: Output<number | null>
 	}
-	$: if(value || !value) {
+	$: if (value || !value) {
 		// Disallow 'e' character in numbers
 		// if(value && value.toString().includes('e')) {
 		// 	value = +value.toString().replaceAll('e', '')
@@ -27,19 +28,15 @@
 	}
 </script>
 
-<InputValue input={configuration.label} bind:value={labelValue} />
+<InputValue {id} input={configuration.label} bind:value={labelValue} />
 
-<!-- svelte-ignore a11y-label-has-associated-control -->
-<label>
-	<div>
-		{labelValue}
-	</div>
-	<DebouncedInput
-		bind:value={value}
-		debounceDelay={300}
+<AlignWrapper {verticalAlignment}>
+	<input
+		bind:value
 		type="number"
 		inputmode="numeric"
 		pattern="\d*"
 		placeholder="Type..."
+		class="h-full"
 	/>
-</label>
+</AlignWrapper>

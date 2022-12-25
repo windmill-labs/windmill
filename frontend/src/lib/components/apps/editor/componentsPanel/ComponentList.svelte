@@ -18,24 +18,59 @@
 	function getMinDimensionsByComponent(componentType: AppComponent['type'], column: number): Size {
 		// Dimensions key formula: <mobile width>:<mobile height>-<desktop width>:<desktop height>
 		const dimensions: Record<`${number}:${number}-${number}:${number}`, AppComponent['type'][]> = {
-			'1:1-3:1': ['buttoncomponent', 'textcomponent', 'checkboxcomponent'],
-			'1:2-3:2': ['textinputcomponent', 'numberinputcomponent', 'selectcomponent'],
-			'2:2-6:4': ['displaycomponent'],
-			'2:3-6:4': ['formcomponent'],
-			'2:4-6:4': ['barchartcomponent', 'piechartcomponent'],
-			'3:4-12:4': ['tablecomponent']
+			'1:2-2:2': [
+				'buttoncomponent',
+				'textcomponent',
+				'checkboxcomponent',
+				'textinputcomponent',
+				'numberinputcomponent',
+				'selectcomponent',
+				'passwordinputcomponent',
+				'dateinputcomponent'
+			],
+			'2:6-4:6': ['barchartcomponent', 'piechartcomponent', 'formcomponent', 'displaycomponent'],
+			'3:6-6:8': ['tablecomponent']
 		}
 		// Finds the key that is associated with the component type and extracts the dimensions from it
 		const [dimension] = Object.entries(dimensions).find(([_, value]) =>
 			value.includes(componentType)
 		) || ['2:1-2:1']
+
 		const size = dimension.split('-')[column === 3 ? 0 : 1].split(':')
 		return { w: +size[0], h: +size[1] }
 	}
 
+	function getMaxDimensionsByComponent(componentType: AppComponent['type'], column: number): Size {
+		if (
+			[
+				'textinputcomponent',
+				'numberinputcomponent',
+				'selectcomponent',
+				'dateinputcomponent',
+				'passwordinputcomponent'
+			].includes(componentType)
+		) {
+			return { w: column, h: 1 }
+		}
+		return { w: column, h: 12 }
+	}
+
 	function addComponent(appComponent: AppComponent) {
 		const grid = $app.grid ?? []
-		const id = getNextId(grid.map((gridItem) => gridItem.data.id))
+		const id = getNextId(
+			grid
+				.map((gridItem) => {
+					if (gridItem.data.type === 'tablecomponent') {
+						return [
+							gridItem.data.id,
+							...gridItem.data.actionButtons.map((actionButton) => actionButton.id)
+						]
+					} else {
+						return [gridItem.data.id]
+					}
+				})
+				.flat()
+		)
 
 		appComponent.id = id
 
@@ -56,10 +91,10 @@
 
 		gridColumns.forEach((column) => {
 			const min = getMinDimensionsByComponent(appComponent.type, column)
-			const max = { w: 12, h: 12 }
+			const max = getMaxDimensionsByComponent(appComponent.type, column)
 
 			newItem[column] = { ...newComponent, min, max, w: min.w, h: min.h }
-			const position = gridHelp.findSpace(newItem, grid, column)
+			const position = gridHelp.findSpace(newItem, grid, column) as { x: number; y: number }
 			newItem[column] = { ...newItem[column], ...position, min, max }
 		})
 

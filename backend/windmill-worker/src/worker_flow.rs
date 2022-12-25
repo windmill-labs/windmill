@@ -407,14 +407,13 @@ pub async fn update_flow_status_after_job_completion(
         false => false,
     };
 
-    tx.commit().await?;
-
     if old_status.step == 0
         && !flow_job.is_flow_step
         && flow_job.schedule_path.is_some()
         && flow_job.script_path.is_some()
     {
-        schedule_again_if_scheduled(
+        tx = schedule_again_if_scheduled(
+            tx,
             db,
             flow_job.schedule_path.as_ref().unwrap(),
             flow_job.script_path.as_ref().unwrap(),
@@ -422,6 +421,7 @@ pub async fn update_flow_status_after_job_completion(
         )
         .await?;
     }
+    tx.commit().await?;
 
     let done = if !should_continue_flow {
         let logs = if flow_job.canceled {

@@ -140,6 +140,25 @@ pub async fn get_hub_flow_by_id(
     Ok(Json(value))
 }
 
+async fn check_path_conflict<'c>(
+    tx: &mut Transaction<'c, Postgres>,
+    w_id: &str,
+    path: &str,
+) -> Result<()> {
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM flow WHERE path = $1 AND workspace_id = $2)",
+        path,
+        w_id
+    )
+    .fetch_one(tx)
+    .await?
+    .unwrap_or(false);
+    if exists {
+        return Err(Error::BadRequest(format!("Flow {} already exists", path)));
+    }
+    return Ok(());
+}
+
 async fn create_flow(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
@@ -149,6 +168,7 @@ async fn create_flow(
     // cron::Schedule::from_str(&ns.schedule).map_err(|e| error::Error::BadRequest(e.to_string()))?;
     let mut tx = user_db.clone().begin(&authed).await?;
 
+    check_path_conflict(&mut tx, &w_id, &nf.path).await?;
     check_schedule_conflict(&mut tx, &w_id, &nf.path).await?;
 
     sqlx::query!(
@@ -274,8 +294,10 @@ async fn update_flow(
     .await?;
 
     if nf.path != flow_path {
+        check_schedule_conflict(&mut tx, &w_id, &nf.path).await?;
+
         if !authed.is_admin {
-            require_owner_of_path(&w_id, &authed.username, &flow_path, &db).await?;
+            require_owner_of_path(&w_id, &authed.username, &authed.groups, &flow_path, &db).await?;
         }
 
         let mut schedulables = sqlx::query_as!(

@@ -7,7 +7,7 @@
  */
 
 use serde_json::{Map, Value};
-use sqlx::{Pool, Postgres};
+use sqlx::{Pool, Postgres, Transaction};
 use tracing::instrument;
 use uuid::Uuid;
 use windmill_common::{error::Error, flow_status::FlowStatusModule, schedule::Schedule};
@@ -166,6 +166,21 @@ pub async fn add_completed_job(
     .await
     .map_err(|e| Error::InternalErr(format!("Could not add completed job {job_id}: {e}")))?;
     let _ = delete_job(db, &queued_job.workspace_id, job_id).await?;
+    if !queued_job.is_flow_step
+        && queued_job.job_kind != JobKind::Flow
+        && queued_job.job_kind != JobKind::FlowPreview
+        && queued_job.schedule_path.is_some()
+        && queued_job.script_path.is_some()
+    {
+        tx = schedule_again_if_scheduled(
+            tx,
+            db,
+            queued_job.schedule_path.as_ref().unwrap(),
+            queued_job.script_path.as_ref().unwrap(),
+            &queued_job.workspace_id,
+        )
+        .await?;
+    }
     tx.commit().await?;
 
     if cfg!(enterprise) && duration.unwrap_or(0) > 1000 {
@@ -200,33 +215,18 @@ pub async fn add_completed_job(
         }
     }
 
-    if !queued_job.is_flow_step
-        && queued_job.job_kind != JobKind::Flow
-        && queued_job.job_kind != JobKind::FlowPreview
-        && queued_job.schedule_path.is_some()
-        && queued_job.script_path.is_some()
-    {
-        schedule_again_if_scheduled(
-            db,
-            queued_job.schedule_path.as_ref().unwrap(),
-            queued_job.script_path.as_ref().unwrap(),
-            &queued_job.workspace_id,
-        )
-        .await?;
-    }
     tracing::debug!("Added completed job {}", queued_job.id);
     Ok(queued_job.id)
 }
 
 #[instrument(level = "trace", skip_all)]
-pub async fn schedule_again_if_scheduled(
+pub async fn schedule_again_if_scheduled<'c>(
+    mut tx: Transaction<'c, Postgres>,
     db: &Pool<Postgres>,
     schedule_path: &str,
     script_path: &str,
     w_id: &str,
-) -> windmill_common::error::Result<()> {
-    let mut tx = db.begin().await?;
-
+) -> windmill_common::error::Result<Transaction<'c, Postgres>> {
     let schedule = get_schedule_opt(&mut tx, w_id, schedule_path)
         .await?
         .ok_or_else(|| {
@@ -258,19 +258,21 @@ pub async fn schedule_again_if_scheduled(
         )
         .await;
         match res {
-            Ok(tx) => tx.commit().await?,
-            Err(e) => {
+            Ok(tx) => Ok(tx),
+            Err(err) => {
                 sqlx::query!(
                     "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
-                    e.to_string(),
+                    err.to_string(),
                     &schedule.workspace_id,
                     &schedule.path
                 )
                 .execute(db)
                 .await?;
-                tracing::warn!("Could not schedule job for {}: {}", schedule_path, e);
+                tracing::warn!("Could not schedule job for {}: {}", schedule_path, err);
+                Err(err)
             }
         }
+    } else {
+        Ok(tx)
     }
-    Ok(())
 }

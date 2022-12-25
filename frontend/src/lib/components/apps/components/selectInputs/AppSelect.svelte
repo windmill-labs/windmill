@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import Select from 'svelte-select'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
@@ -13,39 +13,37 @@
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 
-	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
+	const { worldStore, connectingInput, selectedComponent } =
+		getContext<AppEditorContext>('AppEditorContext')
 	let label: string
 	let items: string[]
 	let itemKey: string
-	
+
 	$: outputs = $worldStore?.outputsById[id] as {
 		result: Output<string | undefined>
 	}
 
-	function onChange({detail}: CustomEvent) {
+	function onChange({ detail }: CustomEvent) {
 		outputs?.result.set(detail?.[itemKey] || undefined)
 	}
+
+	const dispatch = createEventDispatcher()
 </script>
 
-<InputValue input={configuration.label} bind:value={label} />
-<InputValue input={configuration.items} bind:value={items} />
-<InputValue input={configuration.itemKey} bind:value={itemKey} />
+<InputValue {id} input={configuration.label} bind:value={label} />
+<InputValue {id} input={configuration.items} bind:value={items} />
+<InputValue {id} input={configuration.itemKey} bind:value={itemKey} />
 
 <AlignWrapper {horizontalAlignment} {verticalAlignment}>
-	<!-- svelte-ignore a11y-label-has-associated-control -->
-	<label class="block w-full">
-		<div>
-			{label}
-		</div>
-		<div>
-			<Select
-				on:clear={onChange}
-				on:change={onChange}
-			
-				{items}
-				class="w-full"
-				placeholder="Select an item"
-			/>
-		</div>
-	</label>
+	<Select
+		on:clear={onChange}
+		on:change={onChange}
+		{items}
+		placeholder="Select an item"
+		on:click={() => {
+			if (!$connectingInput.opened) {
+				$selectedComponent = id
+			}
+		}}
+	/>
 </AlignWrapper>

@@ -29,12 +29,14 @@
 
 		if (component?.data.type) {
 			return displayData[component?.data.type].name
+		} else {
+			return 'Table action'
 		}
 	}
 </script>
 
 <PanelSection title="Outputs">
-	{#each Object.entries($staticOutputs) as [componentId, outputs], index}
+	{#each Object.entries($staticOutputs) as [componentId, outputs] (componentId)}
 		{#if outputs.length > 0 && $worldStore?.outputsById[componentId]}
 			<div class="flex flex-row justify-between w-full -mb-2 ">
 				<button

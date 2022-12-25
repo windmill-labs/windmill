@@ -5,34 +5,52 @@ const inputs: ComponentSet = {
 	title: 'Inputs',
 	components: [
 		{
+			verticalAlignment: 'center',
 			id: 'textinputcomponent',
 			type: 'textinputcomponent',
 			componentInput: undefined,
-			configuration: {
-				label: {
-					type: 'static',
-					visible: false,
-					value: 'Label',
-					fieldType: 'textarea',
-					defaultValue: 'Label'
-				}
-			},
+			configuration: {},
 			card: false
 		},
 		{
+			verticalAlignment: 'center',
+			id: 'passwordinputcomponent',
+			type: 'passwordinputcomponent',
+			componentInput: undefined,
+			configuration: {},
+			card: false
+		},
+		{
+			verticalAlignment: 'center',
 			id: 'numberinputcomponent',
 			type: 'numberinputcomponent',
 			componentInput: undefined,
+			configuration: {},
+			card: false
+		},
+		{
+			verticalAlignment: 'center',
+			id: 'dateinputcomponent',
+			type: 'dateinputcomponent',
+			componentInput: undefined,
 			configuration: {
-				label: {
+				minDate: {
 					type: 'static',
 					visible: false,
-					value: 'Label',
-					fieldType: 'textarea',
-					defaultValue: 'Label'
+					value: '',
+					fieldType: 'date',
+					defaultValue: ''
+				},
+				maxDate: {
+					type: 'static',
+					visible: false,
+					value: '',
+					fieldType: 'date',
+					defaultValue: ''
 				}
 			},
-			card: false
+			card: false,
+			softWrap: true
 		},
 		{
 			...defaultAlignement,
@@ -51,18 +69,11 @@ const inputs: ComponentSet = {
 			card: false
 		},
 		{
-			...defaultAlignement,
+			verticalAlignment: 'center',
 			id: 'selectcomponent',
 			type: 'selectcomponent',
 			componentInput: undefined,
 			configuration: {
-				label: {
-					type: 'static',
-					visible: false,
-					value: 'Label',
-					fieldType: 'textarea',
-					defaultValue: 'Label'
-				},
 				items: {
 					type: 'static',
 					fieldType: 'array',
@@ -133,7 +144,7 @@ const buttons: ComponentSet = {
 			card: false
 		},
 		{
-			...defaultAlignement,
+			horizontalAlignment: 'center',
 			id: 'formcomponent',
 			type: 'formcomponent',
 			componentInput: {

@@ -7,7 +7,7 @@
 </script>
 
 <script lang="ts">
-	import { sendUserToast, formatCron, canWrite } from '$lib/utils'
+	import { sendUserToast, formatCron, canWrite, emptyString } from '$lib/utils'
 	import { ScriptService, Script, ScheduleService, type Flow, FlowService } from '$lib/gen'
 	import Toggle from '$lib/components/Toggle.svelte'
 
@@ -166,7 +166,7 @@
 			{/if}
 			<Button
 				startIcon={{ icon: faSave }}
-				disabled={!allowSchedule || pathError != ''}
+				disabled={!allowSchedule || pathError != '' || emptyString(script_path)}
 				on:click={scheduleScript}
 			>
 				{edit ? 'Save' : 'Schedule'}

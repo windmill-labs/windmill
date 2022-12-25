@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, setContext } from 'svelte'
 
-	import { writable } from 'svelte/store'
+	import { writable, type Writable } from 'svelte/store'
 	import { buildWorld, type World } from '../rx'
 	import type {
 		App,
@@ -16,13 +16,13 @@
 
 	export let app: App
 	export let appPath: string
+	export let breakpoint: Writable<EditorBreakpoint>
 
 	const appStore = writable<App>(app)
 	const worldStore = writable<World | undefined>(undefined)
 	const staticOutputs = writable<Record<string, string[]>>({})
 	const selectedComponent = writable<string | undefined>(undefined)
 	const mode = writable<EditorMode>('preview')
-	const breakpoint = writable<EditorBreakpoint>('lg')
 
 	const connectingInput = writable<ConnectingInput>({
 		opened: false,
@@ -49,7 +49,7 @@
 		mounted = true
 	})
 
-	$: mounted && ($worldStore = buildWorld($staticOutputs))
+	$: mounted && ($worldStore = buildWorld($staticOutputs, undefined))
 	$: width = $breakpoint === 'sm' ? 'w-[640px]' : 'w-full '
 </script>
 

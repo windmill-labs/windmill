@@ -14,6 +14,9 @@
 	import type VariableEditor from './VariableEditor.svelte'
 	import type ItemPicker from './ItemPicker.svelte'
 	import type { InputTransform } from '$lib/gen'
+	import TemplateEditor from './TemplateEditor.svelte'
+	import Tooltip from './Tooltip.svelte'
+	import { setInputCat as computeInputCat } from '$lib/utils'
 
 	export let schema: Schema
 	export let arg: InputTransform | any
@@ -25,10 +28,17 @@
 	export let variableEditor: VariableEditor | undefined = undefined
 	export let itemPicker: ItemPicker | undefined = undefined
 
-	export let monaco: SimpleEditor | undefined = undefined
+	let monaco: SimpleEditor | undefined = undefined
+	let monacoTemplate: TemplateEditor | undefined = undefined
 	let argInput: ArgInput | undefined = undefined
 
-	let inputCat: InputCat = 'object'
+	let inputCat: InputCat = computeInputCat(
+		schema.properties[argName].type,
+		schema.properties[argName].format,
+		schema.properties[argName].items?.type,
+		schema.properties[argName].enum,
+		schema.properties[argName].contentEncoding
+	)
 	let propertyType = getPropertyType(arg)
 
 	function getPropertyType(arg: InputTransform | any): 'static' | 'javascript' {
@@ -70,6 +80,7 @@
 		if (isStaticTemplate(inputCat)) {
 			arg.value = `\$\{${rawValue}}`
 			setPropertyType(arg.value)
+			monacoTemplate?.setCode(arg.value)
 		} else {
 			arg.expr = getDefaultExpr(undefined, previousModuleId, rawValue)
 			arg.type = 'javascript'
@@ -83,6 +94,7 @@
 			focusProp(argName, 'append', (path) => {
 				const toAppend = `\$\{${path}}`
 				arg.value = `${arg.value ?? ''}${toAppend}`
+				monacoTemplate?.setCode(arg.value)
 				setPropertyType(arg.value)
 				argInput?.focus()
 				return false
@@ -99,6 +111,10 @@
 	}
 
 	const { focusProp, propPickerConfig } = getContext<PropPickerWrapperContext>('PropPickerWrapper')
+
+	$: isStaticTemplate(inputCat) && propertyType == 'static' && setPropertyType(arg.value)
+	const openBracket = '${'
+	const closeBracket = '}'
 </script>
 
 {#if arg != undefined}
@@ -174,7 +190,11 @@
 				>
 					{#if isStaticTemplate(inputCat)}
 						<ToggleButton light position="left" value="static" size="xs">
-							{'${} '}Templatable</ToggleButton
+							{'${} '}Templatable &nbsp; <Tooltip
+								>Write javascript expressions between "{openBracket}" and "{closeBracket}". You may
+								refer to contextual objects like 'flow_input', or 'result' or functions like
+								'resource' and 'variable'
+							</Tooltip></ToggleButton
 						>
 					{:else}
 						<ToggleButton light position="left" value="static" size="xs">Static</ToggleButton>
@@ -207,7 +227,16 @@
 				Connect input &rightarrow;
 			</span>
 		{/if}
-		{#if propertyType === undefined || propertyType == 'static'}
+		{#if isStaticTemplate(inputCat) && propertyType == 'static'}
+			<div class="py-1 rounded border border-1 border-gray-500">
+				<TemplateEditor
+					bind:this={monacoTemplate}
+					{extraLib}
+					on:focus={onFocus}
+					bind:code={arg.value}
+				/>
+			</div>
+		{:else if propertyType === undefined || propertyType == 'static'}
 			<ArgInput
 				noMargin
 				compact
@@ -229,11 +258,6 @@
 				properties={schema.properties[argName].properties}
 				displayHeader={false}
 				bind:inputCat
-				on:input={(e) => {
-					if (isStaticTemplate(inputCat)) {
-						setPropertyType(e.detail.rawValue)
-					}
-				}}
 				{variableEditor}
 				{itemPicker}
 				bind:pickForField

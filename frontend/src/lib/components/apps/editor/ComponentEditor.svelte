@@ -12,11 +12,13 @@
 	import CheckboxComponent from '../components/selectInputs/AppCheckbox.svelte'
 	import TextInputComponent from '../components/textInputs/AppTextInput.svelte'
 	import NumberInputComponent from '../components/numberInputs/AppNumberInput.svelte'
+	import DateInputComponent from '../components/dateInputs/AppDateInput.svelte'
 	import ComponentHeader from './ComponentHeader.svelte'
 	import AppForm from '../components/form/AppForm.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
+	export let locked: boolean = false
 
 	$: shouldDisplayOverlay = selected && $mode !== 'preview'
 
@@ -25,12 +27,12 @@
 
 <div class="h-full flex flex-col w-full">
 	{#if shouldDisplayOverlay}
-		<ComponentHeader {component} {selected} on:delete />
+		<ComponentHeader {component} {selected} on:delete on:lock {locked} />
 	{/if}
 
 	<div
 		class={classNames(
-			' border cursor-pointer  h-full bg-white',
+			'border cursor-pointer h-full bg-white',
 			shouldDisplayOverlay ? 'border-blue-500' : 'border-white',
 			!selected && $mode !== 'preview' && !component.card ? 'border-gray-100' : '',
 			$mode !== 'preview' && !$connectingInput.opened ? 'hover:border-blue-500' : '',
@@ -62,6 +64,7 @@
 				{...component}
 				bind:staticOutputs={$staticOutputs[component.id]}
 				bind:componentInput={component.componentInput}
+				bind:actionButtons={component.actionButtons}
 			/>
 		{:else if component.type === 'textcomponent'}
 			<TextComponent
@@ -76,10 +79,7 @@
 				bind:staticOutputs={$staticOutputs[component.id]}
 			/>
 		{:else if component.type === 'selectcomponent'}
-			<SelectComponent
-				{...component}
-				bind:staticOutputs={$staticOutputs[component.id]}
-			/>
+			<SelectComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{:else if component.type === 'formcomponent'}
 			<AppForm
 				{...component}
@@ -90,6 +90,18 @@
 			<CheckboxComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{:else if component.type === 'textinputcomponent'}
 			<TextInputComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+		{:else if component.type === 'passwordinputcomponent'}
+			<TextInputComponent
+				inputType="password"
+				{...component}
+				bind:staticOutputs={$staticOutputs[component.id]}
+			/>
+		{:else if component.type === 'dateinputcomponent'}
+			<DateInputComponent
+				inputType="date"
+				{...component}
+				bind:staticOutputs={$staticOutputs[component.id]}
+			/>
 		{:else if component.type === 'numberinputcomponent'}
 			<NumberInputComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{/if}

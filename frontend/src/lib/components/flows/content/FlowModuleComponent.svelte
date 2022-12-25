@@ -187,7 +187,7 @@
 								/>
 							</div>
 						{:else if value.type === 'script'}
-							<FlowModuleScript path={value.path} />
+							<FlowModuleScript path={value.path} hash={value.hash} />
 						{:else if value.type === 'flow'}
 							<FlowPathViewer path={value.path} />
 						{/if}

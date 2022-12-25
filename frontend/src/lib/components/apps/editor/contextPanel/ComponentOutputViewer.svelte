@@ -14,7 +14,7 @@
 	function subscribeToAllOutputs(observableOutputs: Record<string, Output<any>>) {
 		if (observableOutputs) {
 			outputs.forEach((output: string) => {
-				observableOutputs[output].subscribe({
+				observableOutputs[output]?.subscribe({
 					next: (value) => {
 						object[output] = value
 					}

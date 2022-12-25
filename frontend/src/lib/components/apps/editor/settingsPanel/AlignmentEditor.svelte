@@ -16,22 +16,24 @@
 
 {#if component.verticalAlignment !== undefined}
 	<PanelSection title="Alignment">
-		<div class="w-full text-xs font-semibold">Horizontal</div>
+		{#if component.horizontalAlignment}
+			<div class="w-full text-xs font-semibold">Horizontal</div>
 
-		<div class="w-full">
-			<ToggleButtonGroup bind:selected={component.horizontalAlignment}>
-				<ToggleButton position="left" value="left" size="xs">
-					<AlignStartVertical size={16} />
-				</ToggleButton>
-				<ToggleButton position="center" value="center" size="xs">
-					<AlignCenterVertical size={16} />
-				</ToggleButton>
-				<ToggleButton position="right" value="right" size="xs">
-					<AlignEndVertical size={16} />
-				</ToggleButton>
-			</ToggleButtonGroup>
-		</div>
-		{#if component.type !== 'formcomponent'}
+			<div class="w-full">
+				<ToggleButtonGroup bind:selected={component.horizontalAlignment}>
+					<ToggleButton position="left" value="left" size="xs">
+						<AlignStartVertical size={16} />
+					</ToggleButton>
+					<ToggleButton position="center" value="center" size="xs">
+						<AlignCenterVertical size={16} />
+					</ToggleButton>
+					<ToggleButton position="right" value="right" size="xs">
+						<AlignEndVertical size={16} />
+					</ToggleButton>
+				</ToggleButtonGroup>
+			</div>
+		{/if}
+		{#if component.type !== 'formcomponent' && component.verticalAlignment}
 			<div class="w-full text-xs font-semibold">Vertical</div>
 			<div class="w-full">
 				<ToggleButtonGroup bind:selected={component.verticalAlignment}>

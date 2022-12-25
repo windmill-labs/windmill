@@ -1,6 +1,14 @@
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
 import { goto } from '$app/navigation'
-import { FlowService, FolderService, Script, ScriptService, type Flow, type FlowModule, type User } from '$lib/gen'
+import {
+	FlowService,
+	FolderService,
+	Script,
+	ScriptService,
+	UserService,
+	type Flow,
+	type User
+} from '$lib/gen'
 import { toast } from '@zerodevx/svelte-toast'
 import type { Schema, SupportedLanguage } from './common'
 import { hubScripts, workspaceStore, type UserExt } from './stores'
@@ -175,27 +183,17 @@ export function removeItemAll<T>(arr: T[], value: T) {
 	return arr
 }
 
-export async function isOwner(
-	path: string,
-	user: UserExt,
-	workspace: string
-): Promise<boolean> {
-	if (isObviousOwner(path, user)) {
+export async function isOwner(path: string, user: UserExt, workspace: string): Promise<boolean> {
+	if (user.is_admin && (workspace != 'starter' || user.is_super_admin)) {
 		return true
-	} else if (path.startsWith('f/')) {
-		let folder = path.split('/')[1]
-		let res = await FolderService.getFolder({ workspace, name: folder })
-		return res.owners.includes('u/' + user.username)
-	} else {
+	} else if (workspace == 'starter') {
 		return false
+	} else {
+		return await UserService.isOwnerOfPath({ path: path, workspace: workspace })
 	}
 }
 
-
-export function isObviousOwner(
-	path: string,
-	user?: UserExt
-): boolean {
+export function isObviousOwner(path: string, user?: UserExt): boolean {
 	if (!user) {
 		return false
 	}
@@ -206,14 +204,10 @@ export function isObviousOwner(
 	if (path.startsWith(userOwner)) {
 		return true
 	}
-	if (
-		user.pgroups.findIndex((x) => path.startsWith(x)) != -1
-	) {
+	if (user.pgroups.findIndex((x) => path.startsWith(x)) != -1) {
 		return true
 	}
-	if (
-		user.folders.findIndex((x) => path.startsWith('f/' + x)) != -1
-	) {
+	if (user.folders.findIndex((x) => path.startsWith('f/' + x)) != -1) {
 		return true
 	}
 	return false
@@ -235,14 +229,10 @@ export function canWrite(
 	if (keys.includes(userOwner) && extra_perms[userOwner]) {
 		return true
 	}
-	if (
-		user.pgroups.findIndex((x) => keys.includes(x) && extra_perms[x]) != -1
-	) {
+	if (user.pgroups.findIndex((x) => keys.includes(x) && extra_perms[x]) != -1) {
 		return true
 	}
-	if (
-		user.folders.findIndex((x) => path.startsWith('f/' + x)) != -1
-	) {
+	if (user.folders.findIndex((x) => path.startsWith('f/' + x)) != -1) {
 		return true
 	}
 	return false
@@ -378,7 +368,7 @@ export function mapUserToUserExt(user: User): UserExt {
 	return {
 		...user,
 		groups: user.groups!,
-		pgroups: user.groups!.map((x) => `g/${x}`),
+		pgroups: user.groups!.map((x) => `g/${x}`)
 	}
 }
 
@@ -484,7 +474,8 @@ export function scriptPathToHref(path: string): string {
 export async function getScriptByPath(path: string): Promise<{
 	content: string
 	language: SupportedLanguage
-	schema: any
+	schema: any,
+	description: string
 }> {
 	if (path.startsWith('hub/')) {
 		const { content, language, schema } = await ScriptService.getHubScriptByPath({ path })
@@ -492,7 +483,8 @@ export async function getScriptByPath(path: string): Promise<{
 		return {
 			content,
 			language: language as SupportedLanguage,
-			schema
+			schema,
+			description: ''
 		}
 	} else {
 		const script = await ScriptService.getScriptByPath({
@@ -502,7 +494,8 @@ export async function getScriptByPath(path: string): Promise<{
 		return {
 			content: script.content,
 			language: script.language,
-			schema: script.schema
+			schema: script.schema,
+			description: script.description
 		}
 	}
 }
@@ -630,4 +623,8 @@ export function capitalize(word: string): string {
 
 export function isCloudHosted(): boolean {
 	return get(page).url.hostname == 'app.windmill.dev'
+}
+
+export function isObject(obj: any) {
+	return typeof obj === 'object'
 }

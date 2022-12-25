@@ -1,9 +1,10 @@
 <script lang="ts">
 	import type { BadgeColor } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import Button from '$lib/components/common/button/Button.svelte'
 	import IconedPath from '$lib/components/IconedPath.svelte'
-	import { RawScript, type FlowModule } from '$lib/gen'
-	import { truncateHash } from '$lib/utils'
+	import { RawScript, ScriptService, type FlowModule, type PathScript } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
 
 	export let flowModule: FlowModule | undefined = undefined
 	export let title: string | undefined = undefined
@@ -14,6 +15,22 @@
 		[RawScript.language.PYTHON3]: 'dark-green',
 		[RawScript.language.BASH]: 'dark-yellow'
 	}
+
+	let newHash: string | undefined = undefined
+	async function loadLatestHash(value: PathScript) {
+		let script = await ScriptService.getScriptByPath({
+			workspace: $workspaceStore!,
+			path: value.path
+		})
+		if (script.hash != value.hash) {
+			newHash = script.hash
+		}
+	}
+
+	$: $workspaceStore &&
+		flowModule?.value.type === 'script' &&
+		flowModule.value.hash &&
+		loadLatestHash(flowModule.value)
 </script>
 
 <div
@@ -31,6 +48,18 @@
 					<input bind:value={flowModule.summary} placeholder={'Summary'} class="w-full grow" />
 				{:else if flowModule?.value.type === 'script' && 'path' in flowModule.value && flowModule.value.path}
 					<IconedPath path={flowModule.value.path} hash={flowModule.value.hash} class="grow" />
+					{#if newHash}
+						<Button
+							size="xs"
+							variant="border"
+							on:click={() => {
+								if (flowModule?.value.type == 'script') {
+									flowModule.value.hash = newHash
+									newHash = undefined
+								}
+							}}>Update to latest hash</Button
+						>
+					{/if}
 					<input bind:value={flowModule.summary} placeholder="Summary" class="w-full grow" />
 				{/if}
 			</div>

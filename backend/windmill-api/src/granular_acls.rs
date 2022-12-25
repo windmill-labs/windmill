@@ -6,7 +6,10 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use crate::{db::UserDB, users::Authed};
+use crate::{
+    db::{UserDB, DB},
+    users::{require_owner_of_path, Authed},
+};
 use axum::{
     extract::{Extension, Path},
     routing::{get, post},
@@ -34,6 +37,7 @@ pub struct GranularAcl {
 
 async fn add_granular_acl(
     authed: Authed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(GranularAcl { owner, write }): Json<GranularAcl>,
@@ -44,6 +48,15 @@ async fn add_granular_acl(
         .ok_or_else(|| Error::BadRequest("Invalid path or kind".to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
 
+    if !authed.is_admin {
+        if kind == "folder" {
+            crate::folders::require_is_owner(&path, &authed.username, &authed.groups, &w_id, &db)
+                .await?;
+        } else if kind == "group_" {
+        } else {
+            require_owner_of_path(&w_id, &authed.username, &authed.groups, &path, &db).await?;
+        }
+    }
     let identifier = if kind == "group_" || kind == "folder" {
         "name"
     } else {
@@ -67,11 +80,15 @@ async fn add_granular_acl(
 
 async fn remove_granular_acl(
     authed: Authed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(GranularAcl { owner, write: _ }): Json<GranularAcl>,
 ) -> Result<String> {
     let path = path.to_path();
+    if !authed.is_admin {
+        require_owner_of_path(&w_id, &authed.username, &authed.groups, &path, &db).await?;
+    }
     let (kind, path) = path
         .split_once('/')
         .ok_or_else(|| Error::BadRequest("Invalid path or kind".to_string()))?;

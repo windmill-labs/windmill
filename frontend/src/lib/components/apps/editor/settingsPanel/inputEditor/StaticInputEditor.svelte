@@ -4,6 +4,7 @@
 	import type { StaticAppInput } from '../../../inputType'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import ArrayStaticInputEditor from '../ArrayStaticInputEditor.svelte'
+	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 
 	export let componentInput: StaticAppInput | undefined
 	export let canHide: boolean = false
@@ -17,7 +18,7 @@
 	{#if componentInput.fieldType === 'number'}
 		<input type="number" bind:value={componentInput.value} />
 	{:else if componentInput.fieldType === 'textarea'}
-		<textarea bind:value={componentInput.value} />
+		<textarea type="text" bind:value={componentInput.value} />
 	{:else if componentInput.fieldType === 'boolean'}
 		<Toggle bind:checked={componentInput.value} />
 	{:else if componentInput.fieldType === 'select'}
@@ -29,18 +30,34 @@
 			{/each}
 		</select>
 	{:else if componentInput.fieldType === 'object'}
-		<div class="border rounded-sm w-full">
-			<SimpleEditor
-				lang="json"
-				code={JSON.stringify(componentInput.value, null, 2)}
-				class="few-lines-editor"
+		{#if componentInput.format}
+			<ResourcePicker
+				initialValue={componentInput.value?.split('$res:')[1] || ''}
 				on:change={(e) => {
-					if (componentInput?.type === 'static' && componentInput.value) {
-						componentInput.value = JSON.parse(e.detail.code)
+					let path = e.detail
+
+					if (componentInput && path) {
+						componentInput.value = `$res:${path}`
 					}
 				}}
+				resourceType={componentInput.format.split('-').length > 1
+					? componentInput.format.substring('resource-'.length)
+					: undefined}
 			/>
-		</div>
+		{:else}
+			<div class="border rounded-sm w-full">
+				<SimpleEditor
+					lang="json"
+					code={JSON.stringify(componentInput.value, null, 2)}
+					class="few-lines-editor"
+					on:change={(e) => {
+						if (componentInput?.type === 'static' && componentInput.value) {
+							componentInput.value = JSON.parse(e.detail.code)
+						}
+					}}
+				/>
+			</div>
+		{/if}
 	{:else if componentInput.fieldType === 'array'}
 		<ArrayStaticInputEditor bind:componentInput {canHide} />
 	{:else}

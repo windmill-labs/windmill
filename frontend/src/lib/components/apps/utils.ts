@@ -1,5 +1,6 @@
 import type { Schema } from '$lib/common'
 import { FlowService, ScriptService } from '$lib/gen'
+import { inferArgs } from '$lib/infer'
 import {
 	BarChart4,
 	Binary,
@@ -11,11 +12,14 @@ import {
 	PieChart,
 	Play,
 	Table2,
+	Image,
 	TextCursorInput,
 	Type,
+	Lock,
+	Calendar,
 	ToggleLeft
 } from 'lucide-svelte'
-import type { AppInput, AppInputs, InputType } from './inputType'
+import type { AppInput, AppInputs, InputType, ResultAppInput } from './inputType'
 import type { AppComponent } from './types'
 
 export async function loadSchema(
@@ -42,6 +46,8 @@ export async function loadSchema(
 			path
 		})
 
+		await inferArgs(script.language, script.content, script.schema)
+
 		return script.schema
 	}
 }
@@ -54,9 +60,11 @@ export function schemaToInputsSpec(schema: Schema): AppInputs {
 			type: 'static',
 			defaultValue: property.default,
 			value: undefined,
-			visible: true,
-			fieldType: property.type
+			visible: property.format ? false : true,
+			fieldType: property.type,
+			format: property.format
 		}
+
 		return accu
 	}, {})
 }
@@ -121,6 +129,14 @@ export const displayData: Record<AppComponent['type'], { name: string; icon: any
 	numberinputcomponent: {
 		name: 'Number input',
 		icon: Binary
+	},
+	passwordinputcomponent: {
+		name: 'Password input',
+		icon: Lock
+	},
+	dateinputcomponent: {
+		name: 'Date input',
+		icon: Calendar
 	}
 }
 
@@ -183,4 +199,10 @@ export function isScriptByPathDefined(appInput: AppInput | undefined): boolean {
 	}
 
 	return false
+}
+
+export function clearResultAppInput(appInput: ResultAppInput): ResultAppInput {
+	appInput.runnable = undefined
+	appInput.fields = {}
+	return appInput
 }

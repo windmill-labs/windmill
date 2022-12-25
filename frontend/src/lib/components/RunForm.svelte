@@ -153,7 +153,7 @@
 		</div>
 	{/if}
 	{#if schedulable}
-		<div class="flex justify-between mt-2 md:mt-6 mb-6">
+		<div class="flex gap-2 items-center flex-wrap justify-between mt-2 md:mt-6 mb-6">
 			<Button
 				color="light"
 				size="sm"
@@ -175,13 +175,15 @@
 					>
 				</div>
 			{/if}
-			<Button
-				btnClasses="!px-6 !py-1"
-				disabled={!isValid}
-				on:click={() => runAction(scheduledForStr, args, invisible_to_owner)}
-			>
-				{scheduledForStr ? 'Schedule run to a later time' : buttonText}
-			</Button>
+			<div class="flex-row-reverse flex grow">
+				<Button
+					btnClasses="!px-6 !py-1"
+					disabled={!isValid}
+					on:click={() => runAction(scheduledForStr, args, invisible_to_owner)}
+				>
+					{scheduledForStr ? 'Schedule run to a later time' : buttonText}
+				</Button>
+			</div>
 		</div>
 	{:else if !topButton}
 		<Button

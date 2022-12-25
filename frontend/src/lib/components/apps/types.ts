@@ -17,6 +17,8 @@ type BaseComponent<T extends string> = {
 
 export type TextComponent = BaseComponent<'textcomponent'>
 export type TextInputComponent = BaseComponent<'textinputcomponent'>
+export type PasswordInputComponent = BaseComponent<'passwordinputcomponent'>
+export type DateInputComponent = BaseComponent<'dateinputcomponent'>
 export type NumberInputComponent = BaseComponent<'numberinputcomponent'>
 export type ButtonComponent = BaseComponent<'buttoncomponent'> & {
 	recomputeIds: string[] | undefined
@@ -59,7 +61,6 @@ export interface BaseAppComponent extends Partial<Aligned> {
 	 * *For example when the component has a popup like `Select`*
 	 */
 	softWrap?: boolean
-	// TODO: add min/max width/height
 }
 
 export type AppComponent = BaseAppComponent &
@@ -67,6 +68,8 @@ export type AppComponent = BaseAppComponent &
 		| RunFormComponent
 		| DisplayComponent
 		| TextInputComponent
+		| PasswordInputComponent
+		| DateInputComponent
 		| NumberInputComponent
 		| BarChartComponent
 		| TableComponent
@@ -109,6 +112,10 @@ export type InlineScript = {
 export type App = {
 	grid: GridItem[]
 	title: string
+	unusedInlineScripts: Array<{
+		name: string
+		inlineScript: InlineScript
+	}>
 }
 
 export type ConnectingInput = {

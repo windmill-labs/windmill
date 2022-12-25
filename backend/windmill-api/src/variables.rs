@@ -199,6 +199,28 @@ async fn exists_variable(
     Ok(Json(exists))
 }
 
+async fn check_path_conflict<'c>(
+    tx: &mut Transaction<'c, Postgres>,
+    w_id: &str,
+    path: &str,
+) -> Result<()> {
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM variable WHERE path = $1 AND workspace_id = $2)",
+        path,
+        w_id
+    )
+    .fetch_one(tx)
+    .await?
+    .unwrap_or(false);
+    if exists {
+        return Err(Error::BadRequest(format!(
+            "Variable {} already exists",
+            path
+        )));
+    }
+    return Ok(());
+}
+
 async fn create_variable(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
@@ -207,6 +229,7 @@ async fn create_variable(
 ) -> Result<(StatusCode, String)> {
     let mut tx = user_db.begin(&authed).await?;
 
+    check_path_conflict(&mut tx, &w_id, &variable.path).await?;
     let value = if variable.is_secret {
         let mc = build_crypt(&mut tx, &w_id).await?;
         encrypt(&mc, &variable.value)
@@ -352,17 +375,20 @@ async fn update_variable(
     let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut tx).await?;
 
     if let Some(npath) = ns.path {
-        if !authed.is_admin {
-            require_owner_of_path(&w_id, &authed.username, &path, &db).await?;
+        if npath != path {
+            check_path_conflict(&mut tx, &w_id, &npath).await?;
+            if !authed.is_admin {
+                require_owner_of_path(&w_id, &authed.username, &authed.groups, &path, &db).await?;
+            }
+            sqlx::query!(
+                "UPDATE resource SET path = $1 WHERE path = $2 AND workspace_id = $3",
+                npath,
+                path,
+                w_id
+            )
+            .execute(&mut tx)
+            .await?;
         }
-        sqlx::query!(
-            "UPDATE resource SET path = $1 WHERE path = $2 AND workspace_id = $3",
-            npath,
-            path,
-            w_id
-        )
-        .execute(&mut tx)
-        .await?;
     }
 
     let npath = not_found_if_none(npath_o, "Variable", path)?;

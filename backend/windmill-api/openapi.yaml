@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.55.0
+  version: 1.56.1
   title: Windmill server API
   contact:
     name: Windmill contact
@@ -200,6 +200,24 @@ paths:
             text/plain:
               schema:
                 type: string
+
+
+  /w/{workspace}/users/is_owner/{path}:
+    get:
+      summary: is owner of path
+      operationId: isOwnerOfPath
+      tags:
+        - user
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: is owner
+          content:
+            application/json:
+              schema:
+                type: boolean
 
   /users/setpassword:
     post:
@@ -2913,6 +2931,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/Job"
 
+  # /w/{workspace}/jobs/flow/current_state/{id}:
+  #   get:
+  #     summary: get flow current step state
+  #     operationId: getJob
+  #     tags:
+  #       - job
+  #     parameters:
+  #       - $ref: "#/components/parameters/WorkspaceId"
+  #       - $ref: "#/components/parameters/JobId"
+  #     responses:
+  #       "200":
+  #         description: state details
+  #         content:
+  #           application/json:
+  #             schema:
+  #               type: string
+
   /w/{workspace}/jobs/getupdate/{id}:
     get:
       summary: get job updates
@@ -3124,6 +3159,29 @@ paths:
           in: query
           schema:
             type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "201":
+          description: job resumed
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/jobs/flow/resume/{id}:
+    post:
+      summary: resume a job for a suspended flow as an owner
+      operationId: resumeSuspendedFlowAsOwner
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
       requestBody:
         required: true
         content:
@@ -3694,6 +3752,38 @@ paths:
       responses:
         "200":
           description: folder created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/folders/update/{name}:
+    post:
+      summary: update folder
+      operationId: updateFolder
+      tags:
+        - folder
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Name"
+      requestBody:
+        description: update folder
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                owners:
+                  type: array
+                  items: 
+                    type: string
+                extra_perms:
+                  additionalProperties:
+                    type: boolean
+      responses:
+        "200":
+          description: folder updated
           content:
             text/plain:
               schema:
@@ -4275,6 +4365,7 @@ components:
         - hash
         - path
         - summary
+        - description
         - content
         - created_by
         - created_at

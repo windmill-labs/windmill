@@ -70,7 +70,7 @@
 		if (path == '' || path == 'u//') {
 			meta = { ownerKind: 'user', name: namePlaceholder, owner: '' }
 
-			meta.owner = $userStore!.username
+			meta.owner = $userStore!.username.split('@')[0]
 
 			let i = 1
 			while (await pathExists(metaToPath(meta), kind)) {
@@ -299,13 +299,13 @@
 								} else if (kind === 'group') {
 									meta.owner = 'all'
 								} else {
-									meta.owner = $userStore?.username ?? ''
+									meta.owner = $userStore?.username?.split('@')[0] ?? ''
 								}
 							}
 						}}
 					>
 						<ToggleButton light size="xs" value="user" position="left">User</ToggleButton>
-						<ToggleButton light size="xs" value="group" position="center">Group</ToggleButton>
+						<!-- <ToggleButton light size="xs" value="group" position="center">Group</ToggleButton> -->
 						<ToggleButton light size="xs" value="folder" position="right">Folder</ToggleButton>
 					</ToggleButtonGroup>
 				</label>
@@ -350,7 +350,7 @@
 							></span
 						>
 
-						<div class="flex flex-row gap-1 w-full">
+						<div class="flex flex-row gap-1">
 							<select class="grow w-full" {disabled} bind:value={meta.owner}>
 								{#each groups as g}
 									<option>{g}</option>
@@ -366,7 +366,7 @@
 					</label>
 				{/if}
 			</div>
-			<label class="block grow">
+			<label class="block grow w-full max-w-md">
 				<span class="text-gray-700 text-sm">
 					Name
 					<Required required={true} />
