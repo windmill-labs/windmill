@@ -20,7 +20,7 @@
 
 	export let jobId: string | undefined = undefined
 	export let job: Job | undefined = undefined
-	let isValid: boolean = false
+	let isValid: boolean = true
 	let isRunning: boolean = false
 	let jobProgressReset: () => void
 

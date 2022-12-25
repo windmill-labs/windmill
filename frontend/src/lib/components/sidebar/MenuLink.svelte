@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
-	import { navigating } from '$app/stores'
+	import { navigating, page } from '$app/stores'
 
 	import type { IconDefinition } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
@@ -15,9 +15,9 @@
 
 	navigating.subscribe(() => {
 		if (href === '/') {
-			isSelected = window.location.pathname === href
+			isSelected = $page.url.pathname === href
 		} else {
-			isSelected = window.location.pathname.includes(href)
+			isSelected = $page.url.pathname.includes(href)
 		}
 	})
 </script>
@@ -46,7 +46,7 @@
 		{#if !isCollapsed}
 			<span
 				class={classNames(
-					'whitespace-pre text-white truncate',
+					'whitespace-pre truncate',
 					isSelected ? ' text-gray-700 font-bold' : 'text-white group-hover:text-gray-900'
 				)}
 			>

@@ -4,7 +4,8 @@
 	import { onDestroy } from 'svelte/internal'
 	import { dirtyStore } from './dirtyStore'
 
-	let navigationState: { from: URL; to: URL | null; cancel: () => void } | undefined = undefined
+	let navigationState: { from: URL | undefined; to: URL | null; cancel: () => void } | undefined =
+		undefined
 	$: open = Boolean(navigationState)
 
 	beforeNavigate((newNavigationState) => {
@@ -12,9 +13,13 @@
 			!navigationState &&
 			$dirtyStore &&
 			newNavigationState.to &&
-			newNavigationState.to.pathname !== newNavigationState.from.pathname
+			newNavigationState.to.url.pathname !== newNavigationState.from?.url.pathname
 		) {
-			navigationState = newNavigationState
+			navigationState = {
+				to: newNavigationState.to.url,
+				from: newNavigationState.from?.url,
+				cancel: newNavigationState.cancel
+			}
 			newNavigationState.cancel()
 		}
 	})

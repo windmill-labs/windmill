@@ -1,3 +1,7 @@
+<script lang="ts" context="module">
+	let current: (() => void) | undefined = undefined
+</script>
+
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 	import { onMount } from 'svelte'
@@ -50,7 +54,16 @@
 
 <div class="relative" bind:this={menu}>
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
-	<div on:click|stopPropagation={() => (show = !show)} class="cursor-pointer hover:bg-gray-100/30">
+	<div
+		on:click|stopPropagation={() => {
+			if (!show) {
+				current && current()
+				current = close
+			}
+			show = !show
+		}}
+		class="cursor-pointer hover:bg-gray-100/30"
+	>
 		<slot class="triggerable" name="trigger" />
 	</div>
 	{#if show}

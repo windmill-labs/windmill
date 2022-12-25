@@ -16,6 +16,7 @@
 	import type { InputTransform } from '$lib/gen'
 	import TemplateEditor from './TemplateEditor.svelte'
 	import Tooltip from './Tooltip.svelte'
+	import { setInputCat as computeInputCat } from '$lib/utils'
 
 	export let schema: Schema
 	export let arg: InputTransform | any
@@ -31,7 +32,13 @@
 	let monacoTemplate: TemplateEditor | undefined = undefined
 	let argInput: ArgInput | undefined = undefined
 
-	let inputCat: InputCat = 'object'
+	let inputCat: InputCat = computeInputCat(
+		schema.properties[argName].type,
+		schema.properties[argName].format,
+		schema.properties[argName].items?.type,
+		schema.properties[argName].enum,
+		schema.properties[argName].contentEncoding
+	)
 	let propertyType = getPropertyType(arg)
 
 	function getPropertyType(arg: InputTransform | any): 'static' | 'javascript' {

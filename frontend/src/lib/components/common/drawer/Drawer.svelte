@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte'
 	import { createEventDispatcher } from 'svelte'
+	import { browser } from '$app/environment'
 
 	export let open = false
 	export let duration = 0.3
@@ -34,10 +35,12 @@
 	$: style = `--duration: ${duration}s; --size: ${size};`
 
 	function scrollLock(open: boolean) {
-		const body = document.querySelector('body')
+		if (browser) {
+			const body = document.querySelector('body')
 
-		if (mounted && body) {
-			body.style.overflowY = open ? 'hidden' : 'auto'
+			if (mounted && body) {
+				body.style.overflowY = open ? 'hidden' : 'auto'
+			}
 		}
 	}
 
