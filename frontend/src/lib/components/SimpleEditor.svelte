@@ -1,4 +1,15 @@
-<script lang="ts" context="module">
+<script lang="ts">
+	import { browser, dev } from '$app/environment'
+
+	import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
+	import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
+	import yamlWorker from 'monaco-yaml/yaml.worker?worker'
+	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
+
+	import { buildWorkerDefinition } from 'monaco-editor-workers'
+
+	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
+	import { createHash, editorConfig, langToExt, updateOptions } from '$lib/editorUtils'
 	import * as monaco from 'monaco-editor'
 	import libStdContent from '$lib/es5.d.ts.txt?raw'
 
@@ -14,20 +25,6 @@
 		schemas: [],
 		enableSchemaRequest: true
 	})
-</script>
-
-<script lang="ts">
-	import { browser, dev } from '$app/env'
-
-	import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
-	import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
-	import yamlWorker from 'monaco-yaml/yaml.worker?worker'
-	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
-
-	import { buildWorkerDefinition } from 'monaco-editor-workers'
-
-	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
-	import { createHash, editorConfig, langToExt, updateOptions } from '$lib/editorUtils'
 
 	let divEl: HTMLDivElement | null = null
 	let editor: monaco.editor.IStandaloneCodeEditor

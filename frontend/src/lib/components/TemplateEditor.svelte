@@ -1,4 +1,20 @@
-<script lang="ts" context="module">
+<script lang="ts">
+	import { browser, dev } from '$app/environment'
+
+	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
+
+	import { buildWorkerDefinition } from 'monaco-editor-workers'
+
+	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
+	import {
+		convertKind,
+		createDocumentationString,
+		createHash,
+		displayPartsToString,
+		editorConfig,
+		updateOptions
+	} from '$lib/editorUtils'
+
 	import * as monaco from 'monaco-editor'
 	import libStdContent from '$lib/es5.d.ts.txt?raw'
 
@@ -345,28 +361,6 @@
 	})
 
 	monaco.languages.setLanguageConfiguration('template', conf)
-
-	// monaco.languages.typescript.getTypeScriptWorker()
-
-	// Register a completion item provider for the new language
-</script>
-
-<script lang="ts">
-	import { browser, dev } from '$app/env'
-
-	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
-
-	import { buildWorkerDefinition } from 'monaco-editor-workers'
-
-	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
-	import {
-		convertKind,
-		createDocumentationString,
-		createHash,
-		displayPartsToString,
-		editorConfig,
-		updateOptions
-	} from '$lib/editorUtils'
 
 	let divEl: HTMLDivElement | null = null
 	let editor: monaco.editor.IStandaloneCodeEditor
