@@ -3,7 +3,7 @@
 	import { StandaloneServices } from 'vscode/services'
 
 	try {
-		StandaloneServices.initialize({
+		StandaloneServices?.initialize({
 			...getMessageServiceOverride(document.body)
 		})
 	} catch (e) {
