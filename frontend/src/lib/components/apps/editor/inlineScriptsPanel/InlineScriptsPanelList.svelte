@@ -2,7 +2,6 @@
 	import { Badge } from '$lib/components/common'
 	import { classNames } from '$lib/utils'
 	import { getContext } from 'svelte'
-	import type { AppInput } from '../../inputType'
 	import type { AppComponent, AppEditorContext } from '../../types'
 	import PanelSection from '../settingsPanel/common/PanelSection.svelte'
 
@@ -12,7 +11,7 @@
 
 	function selectInlineScript(id: string, subId?: string) {
 		selectedScriptComponentId = subId ? subId : id
-		$selectedComponent = id
+		$selectedComponent = selectedScriptComponentId
 	}
 
 	$: runnablesByName = $app.grid.reduce((acc, gridComponent) => {
@@ -43,10 +42,26 @@
 			}
 		}
 		return acc
-	}, [])
+	}, [] as { name: string; id: string; subId?: string }[])
 
 	$: runnablesByPath = $app.grid.reduce((acc, gridComponent) => {
-		const componentInput: AppInput = gridComponent.data.componentInput
+		const component: AppComponent = gridComponent.data
+
+		if (component.type === 'tablecomponent') {
+			component.actionButtons.forEach((actionButton) => {
+				if (actionButton.componentInput?.type === 'runnable') {
+					if (actionButton.componentInput.runnable?.type === 'runnableByPath') {
+						acc.push({
+							name: actionButton.componentInput.runnable.path,
+							id: gridComponent.id,
+							subId: actionButton.id
+						})
+					}
+				}
+			})
+		}
+
+		const componentInput = component.componentInput
 
 		if (componentInput?.type === 'runnable') {
 			if (componentInput.runnable?.type === 'runnableByPath') {
@@ -57,7 +72,7 @@
 			}
 		}
 		return acc
-	}, [])
+	}, [] as { name: string; id: string; subId?: string }[])
 
 	// When seleced component changes, update selectedScriptComponentId
 	$: {

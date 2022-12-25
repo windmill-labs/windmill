@@ -30,6 +30,8 @@
 			'failure'
 		].includes($selectedId) ||
 		$selectedId?.includes('branch')
+
+	let is_owner = false
 </script>
 
 <div class="flex flex-row-reverse justify-between items-center gap-x-2">
@@ -63,7 +65,7 @@
 	{/if}
 </div>
 
-<Drawer bind:open={previewOpen} size="75%">
+<Drawer bind:open={previewOpen} alwaysOpen size="75%">
 	<FlowPreviewContent
 		open={previewOpen}
 		bind:previewMode

@@ -161,12 +161,12 @@
 
 								{#if actionButtons.length > 0}
 									<td class="flex flex-row gap-2 p-4">
-										{#each actionButtons as props, actionIndex (actionIndex)}
+										{#each actionButtons as actionButton, actionIndex (actionIndex)}
 											<AppButton
-												{...props}
-												extraQueryParams={{ row }}
-												bind:componentInput={props.componentInput}
-												bind:staticOutputs={$staticOutputsStore[props.id]}
+												{...actionButton}
+												extraQueryParams={{ row: row.original, rowIndex }}
+												bind:componentInput={actionButton.componentInput}
+												bind:staticOutputs={$staticOutputsStore[actionButton.id]}
 											/>
 										{/each}
 									</td>

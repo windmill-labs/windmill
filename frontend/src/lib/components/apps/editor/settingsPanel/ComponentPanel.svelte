@@ -9,7 +9,7 @@
 	import StaticInputEditor from './inputEditor/StaticInputEditor.svelte'
 	import ConnectedInputEditor from './inputEditor/ConnectedInputEditor.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import { capitalize } from '$lib/utils'
+	import { capitalize, classNames } from '$lib/utils'
 	import { fieldTypeToTsType } from '../../utils'
 	import Recompute from './Recompute.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -18,6 +18,7 @@
 	import RunnableInputEditor from './inputEditor/RunnableInputEditor.svelte'
 	import TemplateEditor from '$lib/components/TemplateEditor.svelte'
 	import type { Output } from '../../rx'
+	import { Alert } from '$lib/components/common'
 
 	export let component: AppComponent | undefined
 	export let onDelete: (() => void) | undefined = undefined
@@ -45,6 +46,25 @@
 
 				delete $runnableComponents[component.id]
 				$runnableComponents = $runnableComponents
+			}
+		}
+
+		if (
+			component &&
+			component.componentInput?.type === 'runnable' &&
+			component.componentInput?.runnable?.type === 'runnableByName'
+		) {
+			const { name, inlineScript } = component.componentInput.runnable
+
+			if (inlineScript) {
+				if (!$app.unusedInlineScripts) {
+					$app.unusedInlineScripts = []
+				}
+
+				$app.unusedInlineScripts.push({
+					name,
+					inlineScript
+				})
 			}
 		}
 	}
@@ -85,13 +105,32 @@ declare const ${k} = ${JSON.stringify(v)};
 						</Badge>
 					{/if}
 				</svelte:fragment>
+				<span
+					class={classNames(
+						'text-white px-2 text-2xs py-0.5 font-bold rounded-sm w-fit',
+						'bg-indigo-500'
+					)}
+				>
+					{`Selected component: ${component.id}`}
+				</span>
 
 				<ComponentInputTypeEditor bind:componentInput={component.componentInput} />
+
+				{#if onDelete}
+					<div class="w-full">
+						<Alert title="Special arguments" size="xs">
+							The row and the rowIndex are passed as arguments to the runnable.
+						</Alert>
+					</div>
+				{/if}
+
 				<div class="flex flex-col w-full gap-2 my-2">
 					{#if component.componentInput.type === 'static'}
 						<StaticInputEditor bind:componentInput={component.componentInput} />
 					{:else if component.componentInput.type === 'template' && component.componentInput !== undefined}
-						<TemplateEditor bind:code={component.componentInput.eval} {extraLib} />
+						<div class="py-1 rounded border border-1 border-gray-500">
+							<TemplateEditor bind:code={component.componentInput.eval} {extraLib} />
+						</div>
 					{:else if component.componentInput.type === 'connected' && component.componentInput !== undefined}
 						<ConnectedInputEditor bind:componentInput={component.componentInput} />
 					{:else if component.componentInput?.type === 'runnable' && component.componentInput !== undefined}
@@ -114,6 +153,7 @@ declare const ${k} = ${JSON.stringify(v)};
 							</svelte:fragment>
 
 							<InputsSpecsEditor
+								shouldCapitalize={false}
 								bind:inputSpecs={component.componentInput.fields}
 								userInputEnabled={component.type !== 'buttoncomponent'}
 							/>

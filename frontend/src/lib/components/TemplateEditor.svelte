@@ -1,4 +1,20 @@
-<script lang="ts" context="module">
+<script lang="ts">
+	import { browser, dev } from '$app/environment'
+
+	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
+
+	import { buildWorkerDefinition } from 'monaco-editor-workers'
+
+	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
+	import {
+		convertKind,
+		createDocumentationString,
+		createHash,
+		displayPartsToString,
+		editorConfig,
+		updateOptions
+	} from '$lib/editorUtils'
+
 	import * as monaco from 'monaco-editor'
 	import libStdContent from '$lib/es5.d.ts.txt?raw'
 
@@ -346,28 +362,6 @@
 
 	monaco.languages.setLanguageConfiguration('template', conf)
 
-	// monaco.languages.typescript.getTypeScriptWorker()
-
-	// Register a completion item provider for the new language
-</script>
-
-<script lang="ts">
-	import { browser, dev } from '$app/env'
-
-	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
-
-	import { buildWorkerDefinition } from 'monaco-editor-workers'
-
-	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
-	import {
-		convertKind,
-		createDocumentationString,
-		createHash,
-		displayPartsToString,
-		editorConfig,
-		updateOptions
-	} from '$lib/editorUtils'
-
 	let divEl: HTMLDivElement | null = null
 	let editor: monaco.editor.IStandaloneCodeEditor
 	let model: monaco.editor.ITextModel
@@ -401,6 +395,19 @@
 		}
 	}
 
+	export function insertAtCursor(code: string): void {
+		if (editor) {
+			editor.trigger('keyboard', 'type', { text: code })
+		}
+	}
+
+	export function setCode(ncode: string): void {
+		code = ncode
+		if (editor) {
+			editor.setValue(ncode)
+		}
+	}
+
 	export function getCode(): string {
 		return editor?.getValue() ?? ''
 	}
@@ -418,7 +425,8 @@
 			...editorConfig(model, code, lang, automaticLayout, fixedOverflowWidgets),
 			lineNumbers: 'off',
 			fontSize: 16,
-			suggestOnTriggerCharacters: true
+			suggestOnTriggerCharacters: true,
+			lineDecorationsWidth: 20
 		})
 
 		const stdLib = { content: libStdContent, filePath: 'es5.d.ts' }

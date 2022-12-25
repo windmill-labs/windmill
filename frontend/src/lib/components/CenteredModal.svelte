@@ -1,13 +1,14 @@
 <script lang="ts">
 	import { SettingsService } from '$lib/gen'
+	import { onMount } from 'svelte'
 	import WindmillIcon from './icons/WindmillIcon.svelte'
 
 	export let subtitle: string | undefined = undefined
 	export let title = 'Windmill'
 	let version = ''
 
-	SettingsService.backendVersion().then((x) => {
-		version = x
+	onMount(async () => {
+		version = await SettingsService.backendVersion()
 	})
 </script>
 

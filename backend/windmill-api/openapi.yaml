@@ -2931,6 +2931,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/Job"
 
+  # /w/{workspace}/jobs/flow/current_state/{id}:
+  #   get:
+  #     summary: get flow current step state
+  #     operationId: getJob
+  #     tags:
+  #       - job
+  #     parameters:
+  #       - $ref: "#/components/parameters/WorkspaceId"
+  #       - $ref: "#/components/parameters/JobId"
+  #     responses:
+  #       "200":
+  #         description: state details
+  #         content:
+  #           application/json:
+  #             schema:
+  #               type: string
+
   /w/{workspace}/jobs/getupdate/{id}:
     get:
       summary: get job updates
@@ -3142,6 +3159,29 @@ paths:
           in: query
           schema:
             type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "201":
+          description: job resumed
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/jobs/flow/resume/{id}:
+    post:
+      summary: resume a job for a suspended flow as an owner
+      operationId: resumeSuspendedFlowAsOwner
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
       requestBody:
         required: true
         content:

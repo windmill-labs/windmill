@@ -12,10 +12,9 @@
 	export let id: string | undefined = undefined
 
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
+
 	$: state = $worldStore?.state
-
 	$: input && $worldStore && handleConnection()
-
 	$: input && $state && input.type == 'template' && setValue()
 
 	function handleConnection() {
@@ -29,9 +28,6 @@
 	}
 
 	function computeGlobalContext() {
-		Object.prototype.toString = function () {
-			return JSON.stringify(this)
-		}
 		return Object.fromEntries(
 			Object.entries($worldStore?.outputsById ?? {})
 				.filter(([k, _]) => k != id)
@@ -45,7 +41,6 @@
 	}
 
 	function setValue() {
-		console.log(computeGlobalContext())
 		if (input.type === 'template' && isCodeInjection(input.eval)) {
 			try {
 				value = eval_like('`' + input.eval + '`', computeGlobalContext())

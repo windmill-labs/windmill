@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import Select from 'svelte-select'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
@@ -13,7 +13,8 @@
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 
-	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
+	const { worldStore, connectingInput, selectedComponent } =
+		getContext<AppEditorContext>('AppEditorContext')
 	let label: string
 	let items: string[]
 	let itemKey: string
@@ -25,6 +26,8 @@
 	function onChange({ detail }: CustomEvent) {
 		outputs?.result.set(detail?.[itemKey] || undefined)
 	}
+
+	const dispatch = createEventDispatcher()
 </script>
 
 <InputValue {id} input={configuration.label} bind:value={label} />
@@ -32,5 +35,15 @@
 <InputValue {id} input={configuration.itemKey} bind:value={itemKey} />
 
 <AlignWrapper {horizontalAlignment} {verticalAlignment}>
-	<Select on:clear={onChange} on:change={onChange} {items} placeholder="Select an item" />
+	<Select
+		on:clear={onChange}
+		on:change={onChange}
+		{items}
+		placeholder="Select an item"
+		on:click={() => {
+			if (!$connectingInput.opened) {
+				$selectedComponent = id
+			}
+		}}
+	/>
 </AlignWrapper>

@@ -19,9 +19,7 @@ const config = {
 			assets: 'build',
 			fallback: '200.html'
 		}),
-		prerender: {
-			default: false,
-		},
+		prerender: { entries: [] },
 	}
 }
 

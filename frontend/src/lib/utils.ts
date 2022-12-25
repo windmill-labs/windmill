@@ -474,7 +474,8 @@ export function scriptPathToHref(path: string): string {
 export async function getScriptByPath(path: string): Promise<{
 	content: string
 	language: SupportedLanguage
-	schema: any
+	schema: any,
+	description: string
 }> {
 	if (path.startsWith('hub/')) {
 		const { content, language, schema } = await ScriptService.getHubScriptByPath({ path })
@@ -482,7 +483,8 @@ export async function getScriptByPath(path: string): Promise<{
 		return {
 			content,
 			language: language as SupportedLanguage,
-			schema
+			schema,
+			description: ''
 		}
 	} else {
 		const script = await ScriptService.getScriptByPath({
@@ -492,7 +494,8 @@ export async function getScriptByPath(path: string): Promise<{
 		return {
 			content: script.content,
 			language: script.language,
-			schema: script.schema
+			schema: script.schema,
+			description: script.description
 		}
 	}
 }

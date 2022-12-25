@@ -129,7 +129,8 @@
 						pureViewer={!$propPickerConfig}
 						json={{
 							resume: 'The resume payload',
-							resumes: 'All resume payloads from all approvers'
+							resumes: 'All resume payloads from all approvers',
+							approvers: 'The list of approvers'
 						}}
 						on:select={(e) => {
 							dispatch('select', `${e.detail}`)
