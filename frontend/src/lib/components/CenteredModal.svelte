@@ -5,6 +5,7 @@
 
 	export let subtitle: string | undefined = undefined
 	export let title = 'Windmill'
+	export let disableLogo = false
 	let version = ''
 
 	onMount(async () => {
@@ -20,19 +21,21 @@
 				{title}
 			</h1>
 			{#if subtitle}
-				<p class="text-sm text-gray-600 mt-2">
+				<p class="text-sm text-center text-gray-600 mt-2">
 					{subtitle}
 				</p>
 			{/if}
 		</div>
 		<slot />
 	</div>
-	<div class="hidden lg:block absolute top-10 right-50">
-		<div class="animate-[spin_100s_linear_infinite] ">
-			<WindmillIcon white height="100px" width="100px" />
+	{#if !disableLogo}
+		<div class="hidden lg:block absolute top-10 right-50">
+			<div class="animate-[spin_100s_linear_infinite] ">
+				<WindmillIcon white height="100px" width="100px" />
+			</div>
+			<h2 class="text-center pt-2 text-gray-100">Windmill</h2>
 		</div>
-		<h2 class="text-center pt-2 text-gray-100">Windmill</h2>
-	</div>
+	{/if}
 	<div class="absolute top-0 right-0 text-2xs text-gray-300 italic px-3 py-1">
 		<span class="font-mono">{version}</span>
 	</div>
