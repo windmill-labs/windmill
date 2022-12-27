@@ -37,7 +37,7 @@ pub fn workspaced_service() -> Router {
         .route("/delete/:name", delete(delete_folder))
         .route("/addowner/:name", post(add_owner))
         .route("/removeowner/:name", post(remove_owner))
-        .route("/is_owner", get(is_owner))
+        .route("/is_owner/*path", get(is_owner))
 }
 
 #[derive(FromRow, Serialize, Deserialize, Clone)]
