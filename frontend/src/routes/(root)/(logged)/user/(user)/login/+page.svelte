@@ -116,68 +116,66 @@
 	}
 </script>
 
-<div class="min-h-screen antialiased text-gray-900">
-	<!-- Enable submit form on enter -->
-	<CenteredModal title="Login">
-		<div class="justify-center text-center flex flex-col">
-			{#each providers as { type, icon, name }}
-				{#if logins.includes(type)}
-					<Button
-						color="dark"
-						variant="border"
-						endIcon={{ icon }}
-						btnClasses="mt-2 w-full"
-						on:click={() => storeRedirect(type)}
-					>
-						{name}
-					</Button>
-				{/if}
-			{/each}
-			{#each logins.filter((x) => !providersType.includes(x)) as login}
+<!-- Enable submit form on enter -->
+<CenteredModal title="Login">
+	<div class="justify-center text-center flex flex-col">
+		{#each providers as { type, icon, name }}
+			{#if logins.includes(type)}
 				<Button
 					color="dark"
 					variant="border"
+					endIcon={{ icon }}
 					btnClasses="mt-2 w-full"
-					on:click={() => storeRedirect(login)}
+					on:click={() => storeRedirect(type)}
 				>
-					{login}
+					{name}
 				</Button>
-			{/each}
-		</div>
-		<div class="flex flex-row-reverse w-full">
-			<button
-				class="my-6 text-xs text-blue-400 m-auto"
-				id="showPassword"
-				on:click={() => {
-					showPassword = !showPassword
-				}}>login without third-party</button
+			{/if}
+		{/each}
+		{#each logins.filter((x) => !providersType.includes(x)) as login}
+			<Button
+				color="dark"
+				variant="border"
+				btnClasses="mt-2 w-full"
+				on:click={() => storeRedirect(login)}
 			>
-		</div>
-		{#if showPassword}
-			<div transition:slide>
-				<p class="text-xs text-gray-400 italic my-2">
-					To get credentials without the OAuth providers above, you can send us an email at
-					contact@windmill.dev or your admin owners if this instance is self-hosted and you will
-					receive credentials that you can use below.
-				</p>
-				<label class="block pb-2">
-					<span class="text-gray-700">email</span>
-					<input type="text" bind:value={email} class="mt-1" id="email" />
-				</label>
-				<label class="block ">
-					<span class="text-gray-700">password</span>
-					<input
-						type="password"
-						on:keyup={handleKeyUp}
-						bind:value={password}
-						class="mt-1"
-						id="password"
-					/>
-				</label>
-				<div class="flex justify-end pt-4">
-					<Button id="login2" on:click={login}>Login</Button>
-				</div>
+				{login}
+			</Button>
+		{/each}
+	</div>
+	<div class="flex flex-row-reverse w-full">
+		<button
+			class="my-6 text-xs text-blue-400 m-auto"
+			id="showPassword"
+			on:click={() => {
+				showPassword = !showPassword
+			}}>login without third-party</button
+		>
+	</div>
+	{#if showPassword}
+		<div transition:slide>
+			<p class="text-xs text-gray-400 italic my-2">
+				To get credentials without the OAuth providers above, you can send us an email at
+				contact@windmill.dev or your admin owners if this instance is self-hosted and you will
+				receive credentials that you can use below.
+			</p>
+			<label class="block pb-2">
+				<span class="text-gray-700">email</span>
+				<input type="text" bind:value={email} class="mt-1" id="email" />
+			</label>
+			<label class="block ">
+				<span class="text-gray-700">password</span>
+				<input
+					type="password"
+					on:keyup={handleKeyUp}
+					bind:value={password}
+					class="mt-1"
+					id="password"
+				/>
+			</label>
+			<div class="flex justify-end pt-4">
+				<Button id="login2" on:click={login}>Login</Button>
 			</div>
-		{/if}
-	</CenteredModal>
-</div>
+		</div>
+	{/if}
+</CenteredModal>

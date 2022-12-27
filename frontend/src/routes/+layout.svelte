@@ -7,6 +7,7 @@
 	import { page } from '$app/stores'
 
 	import { SvelteToast } from '@zerodevx/svelte-toast'
+	import '$lib/assets/app.css'
 
 	// Default toast options
 	const toastOptions = {

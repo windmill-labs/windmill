@@ -9,7 +9,6 @@
 
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
-	import '$lib/assets/app.css'
 	import { starStore, superadmin, usageStore, userStore, workspaceStore } from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { beforeNavigate, goto } from '$app/navigation'
