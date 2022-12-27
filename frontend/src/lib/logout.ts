@@ -21,7 +21,7 @@ export async function logout(): Promise<void> {
 	sendUserToast('you have been logged out')
 }
 
-async function clearUser() {
+export async function clearUser() {
 	try {
 		clearStores()
 		await UserService.logout()
