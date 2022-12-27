@@ -24,6 +24,5 @@ async function clearUser() {
 		clearStores()
 		await UserService.logout()
 	} catch (error) {
-		console.error(error)
 	}
 }
