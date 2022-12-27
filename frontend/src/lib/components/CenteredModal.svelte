@@ -5,6 +5,7 @@
 
 	export let subtitle: string | undefined = undefined
 	export let title = 'Windmill'
+	export let disableLogo = false
 	let version = ''
 
 	onMount(async () => {
@@ -12,29 +13,29 @@
 	})
 </script>
 
-<div class="flex justify-center min-h-screen pt-10 relative bg-[#3b4252]">
-	<div class="w-10/12 md:w-7/12 lg:w-6/12 xl:4/12 m-auto z-10">
-		<div class="border rounded-md py-4 px-16 shadow-md bg-gray-50">
-			<h1 class="justify-center text-center font-medium pb-4">
+<div class="center-center min-h-screen p-4 relative bg-[#3b4252]">
+	<div class="border rounded-md shadow-md bg-white w-full max-w-[640px] 
+	p-4 sm:py-8 sm:px-10 mb-6 md:mb-20 z-10">
+		<div class="mb-10">
+			<h1 class="text-center">
 				{title}
 			</h1>
 			{#if subtitle}
-				<p class="justify-center text-center font-medium pb-2 text-xs">
+				<p class="text-sm text-center text-gray-600 mt-2">
 					{subtitle}
 				</p>
 			{/if}
-			<slot />
 		</div>
-
-		<!-- empty row to make the form a little bit above vertical centering-->
-		<div class="py-12" />
+		<slot />
 	</div>
-	<div class="hidden lg:block absolute top-10 right-50">
-		<div class="animate-[spin_100s_linear_infinite] ">
-			<WindmillIcon white height="100px" width="100px" />
+	{#if !disableLogo}
+		<div class="hidden lg:block absolute top-10 right-50">
+			<div class="animate-[spin_100s_linear_infinite] ">
+				<WindmillIcon white height="100px" width="100px" />
+			</div>
+			<h2 class="text-center pt-2 text-gray-100">Windmill</h2>
 		</div>
-		<h2 class="text-center pt-2 text-gray-100">Windmill</h2>
-	</div>
+	{/if}
 	<div class="absolute top-0 right-0 text-2xs text-gray-300 italic px-3 py-1">
 		<span class="font-mono">{version}</span>
 	</div>

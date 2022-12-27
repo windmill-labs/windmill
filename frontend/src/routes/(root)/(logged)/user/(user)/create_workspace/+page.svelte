@@ -4,7 +4,7 @@
 	import { sendUserToast, validateUsername } from '$lib/utils'
 	import { logoutWithRedirect } from '$lib/logout'
 	import { page } from '$app/stores'
-	import { userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { Button } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -19,6 +19,7 @@
 
 	let errorId = ''
 	let errorUser = ''
+	let checking = false
 
 	$: id = name.toLowerCase().replace(/\s/gi, '-')
 
@@ -26,14 +27,16 @@
 	$: errorUser = validateUsername(username)
 
 	async function validateName(id: string): Promise<void> {
+		checking = true
 		let exists = await WorkspaceService.existsWorkspace({ requestBody: { id } })
 		if (exists) {
-			errorId = 'id already exists'
+			errorId = 'ID already exists'
 		} else if (id != '' && !/^\w+(-\w+)*$/.test(id)) {
-			errorId = 'id can only contain letters, numbers and dashes and must not finish by a dash'
+			errorId = 'ID can only contain letters, numbers and dashes and must not finish by a dash'
 		} else {
 			errorId = ''
 		}
+		checking = false
 	}
 
 	async function createWorkspace(): Promise<void> {
@@ -103,49 +106,48 @@
 
 <CenteredModal title="New Workspace">
 	<label class="block pb-2 pt-4">
-		<span class="text-gray-700">workspace name:</span>
-		<input type="text" bind:value={name} class="mt-1" />
+		<span class="text-gray-700 text-sm">Workspace name</span>
+		<input type="text" bind:value={name} />
 	</label>
 	<label class="block pb-2">
-		<span class="text-gray-700">workspace id:</span>
+		<span class="text-gray-700 text-sm">Workspace ID</span>
 		{#if errorId}
 			<span class="text-red-500 text-xs">{errorId}</span>
 		{/if}
-		<input type="text" bind:value={id} class="mt-1" class:input-error={errorId != ''} />
+		<input type="text" bind:value={id} class:input-error={errorId != ''} />
 	</label>
 	<label class="block pb-2">
-		<span class="text-gray-700">your username in that workspace:</span>
+		<span class="text-gray-700 text-sm">Your username in that workspace</span>
 		{#if errorUser}
 			<span class="text-red-500 text-xs">{errorUser}</span>
 		{/if}
-		<input type="text" bind:value={username} on:keyup={handleKeyUp} class="mt-1" />
+		<input type="text" bind:value={username} on:keyup={handleKeyUp} />
 	</label>
 	<Toggle
 		disabled={!isDomainAllowed}
 		bind:checked={auto_invite}
-		options={{ right: `Auto invite users with the same domain (${domain})` }}
+		options={{ right: `Auto invite users with the same email address domain (${domain})` }}
 	/>
-	{#if auto_invite}
-		<div class="flex items-center gap-1">
-			<Toggle
-				bind:checked={operatorOnly}
-				options={{ right: `Auto invited users to join as operators` }}
-			/>
-			<Tooltip
-				>An operator can only execute and view scripts/flows/apps from your workspace, and only
-				those that he has visibility on</Tooltip
-			>
-		</div>
-	{/if}
+	<div class="flex items-center gap-1">
+		<Toggle
+			disabled={!auto_invite}
+			bind:checked={operatorOnly}
+			options={{ right: `Auto invite users as operators` }}
+		/>
+		<Tooltip
+			>An operator can only execute and view scripts/flows/apps from your workspace, and only
+			those that he has visibility on</Tooltip
+		>
+	</div>
 	{#if !isDomainAllowed}
 		<div class="text-gray-600 text-sm mb-4 mt-2">{domain} domain not allowed for auto-invite</div>
 	{/if}
-	<div class="flex flex-row justify-between pt-4 gap-x-1">
+	<div class="flex flex-wrap flex-row justify-between pt-10 gap-1">
 		<Button variant="border" size="sm" href="/user/workspaces"
 			>&leftarrow; Back to workspaces</Button
 		>
 		<Button
-			disabled={errorId != '' || errorUser != '' || !name || !username || !id}
+			disabled={checking || errorId != '' || errorUser != '' || !name || !username || !id}
 			on:click={createWorkspace}
 		>
 			Create workspace
