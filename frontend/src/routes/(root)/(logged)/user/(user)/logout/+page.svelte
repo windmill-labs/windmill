@@ -1,0 +1,21 @@
+<script lang="ts">
+	import { page } from '$app/stores'
+	import CenteredModal from '$lib/components/CenteredModal.svelte'
+	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
+	import { logoutWithRedirect } from '$lib/logout'
+	import { onMount } from 'svelte'
+
+	const rd = $page.url.searchParams.get('rd')
+
+	onMount(async () => {
+		await logoutWithRedirect(rd ?? undefined)
+	})
+</script>
+
+<CenteredModal title="Logging out ...">
+	<div class="w-full ">
+		<div class="block m-auto w-20">
+			<WindmillIcon class="animate-[spin_6s_linear_infinite]" height="80px" width="80px" />
+		</div>
+	</div>
+</CenteredModal>
