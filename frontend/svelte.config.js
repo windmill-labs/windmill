@@ -13,7 +13,7 @@ const config = {
 	],
 
 	kit: {
-		adapter: adapter({
+		adapter: process.env.CLOUDFLARE ? staticAdapter({ pages: 'build', assets: 'build', fallback: 'index.html' }) : adapter({
 			// default options are shown
 			pages: 'build',
 			assets: 'build',
