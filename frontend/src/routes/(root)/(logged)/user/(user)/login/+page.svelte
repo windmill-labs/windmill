@@ -9,7 +9,7 @@
 	import { sendUserToast } from '$lib/utils'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { getUserExt, refreshSuperadmin } from '$lib/user'
-	import { Button } from '$lib/components/common'
+	import { Button, Skeleton } from '$lib/components/common'
 
 	let email = $page.url.searchParams.get('email') ?? ''
 	let password = $page.url.searchParams.get('password') ?? ''
@@ -18,12 +18,12 @@
 	const providers = [
 		{
 			type: 'github',
-			name: 'Github',
+			name: 'GitHub',
 			icon: faGithub
 		},
 		{
 			type: 'gitlab',
-			name: 'Gitlab',
+			name: 'GitLab',
 			icon: faGitlab
 		},
 		{
@@ -125,51 +125,54 @@
 					color="dark"
 					variant="border"
 					endIcon={{ icon }}
-					btnClasses="mt-2 w-full"
+					btnClasses="mt-2 w-full !border-gray-300"
 					on:click={() => storeRedirect(type)}
 				>
 					{name}
 				</Button>
+			{:else}
+				<Skeleton layout={[0.5, [2.375]]} />
 			{/if}
 		{/each}
 		{#each logins.filter((x) => !providersType.includes(x)) as login}
 			<Button
 				color="dark"
 				variant="border"
-				btnClasses="mt-2 w-full"
+				btnClasses="mt-2 w-full !border-gray-300"
 				on:click={() => storeRedirect(login)}
 			>
 				{login}
 			</Button>
 		{/each}
 	</div>
-	<div class="flex flex-row-reverse w-full">
-		<button
-			class="my-6 text-xs text-blue-400 m-auto"
-			id="showPassword"
-			on:click={() => {
-				showPassword = !showPassword
-			}}>login without third-party</button
+	<div class="center-center my-6">
+		<Button
+			size="xs"
+			color="blue"
+			variant="border"
+			btnClasses="!border-none"
+			on:click={() => {showPassword = !showPassword}}
 		>
+			Login without third-party
+		</Button>
 	</div>
 	{#if showPassword}
 		<div transition:slide>
-			<p class="text-xs text-gray-400 italic my-2">
+			<p class="text-xs text-gray-500 italic pb-6">
 				To get credentials without the OAuth providers above, you can send us an email at
 				contact@windmill.dev or your admin owners if this instance is self-hosted and you will
 				receive credentials that you can use below.
 			</p>
 			<label class="block pb-2">
-				<span class="text-gray-700">email</span>
-				<input type="text" bind:value={email} class="mt-1" id="email" />
+				<span class="text-gray-700 text-sm">Email</span>
+				<input type="email" bind:value={email} id="email" />
 			</label>
 			<label class="block ">
-				<span class="text-gray-700">password</span>
+				<span class="text-gray-700 text-sm">Password</span>
 				<input
 					type="password"
 					on:keyup={handleKeyUp}
 					bind:value={password}
-					class="mt-1"
 					id="password"
 				/>
 			</label>

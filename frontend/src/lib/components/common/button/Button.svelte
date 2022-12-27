@@ -68,7 +68,7 @@
 			ButtonType.FontSizeClasses[size],
 			ButtonType.SpacingClasses[spacingSize],
 			'focus:ring-2 font-semibold',
-			'rounded-md',
+			'duration-200 rounded-md',
 			'justify-center items-center text-center whitespace-nowrap inline-flex',
 			btnClasses,
 			disabled ? 'bg-gray-300' : ''

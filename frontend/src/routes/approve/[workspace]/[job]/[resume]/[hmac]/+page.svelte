@@ -90,97 +90,95 @@
 	}
 </script>
 
-<div class="min-h-screen antialiased text-gray-900">
-	<CenteredModal title="Approval for resuming of flow">
-		{#if error}
-			<h1 class="text-red-400">{error}</h1>
-		{/if}
-		<div class="flex flex-row justify-between flex-wrap sm:flex-nowrap gap-x-4">
-			<div class="w-full">
-				<h2 class="mt-4">Current approvers</h2>
-				<p class="text-xs italic"
-					>Each approver can only approve once and cannot change his approver name set by the
-					approval sender</p
-				>
-				<div class="my-4">
-					{#if currentApprovers.length > 0}
-						<ul>
-							{#each currentApprovers as approver}
-								<li
-									><b
-										>{approver.approver}<Tooltip
-											>Unique id of approval: {approver.resume_id}</Tooltip
-										></b
-									></li
-								>
-							{/each}
-						</ul>
-					{:else}
-						<p class="text-sm"
-							>No current approvers for this step (approval steps can require more than one
-							approval)</p
-						>
-					{/if}
-				</div>
-			</div>
-			<div class="w-full">
-				{#if job && job.raw_flow}
-					<FlowMetadata {job} />
+<CenteredModal title="Approval for resuming of flow" disableLogo>
+	{#if error}
+		<p class="text-red-400 text-lg">{error}</p>
+	{/if}
+	<div class="flex flex-row justify-between flex-wrap sm:flex-nowrap gap-x-4">
+		<div class="w-full">
+			<h2 class="mt-4">Current approvers</h2>
+			<p class="text-xs italic"
+				>Each approver can only approve once and cannot change his approver name set by the
+				approval sender</p
+			>
+			<div class="my-4">
+				{#if currentApprovers.length > 0}
+					<ul>
+						{#each currentApprovers as approver}
+							<li
+								><b
+									>{approver.approver}<Tooltip
+										>Unique id of approval: {approver.resume_id}</Tooltip
+									></b
+								></li
+							>
+						{/each}
+					</ul>
+				{:else}
+					<p class="text-sm"
+						>No current approvers for this step (approval steps can require more than one
+						approval)</p
+					>
 				{/if}
 			</div>
 		</div>
-		<h2 class="mt-4">Flow arguments</h2>
-
-		<JobArgs args={job?.args} />
-		<div class="mt-8">
-			{#if approver}
-				<p>Dis/approving as: <b>{approver}</b></p>
+		<div class="w-full">
+			{#if job && job.raw_flow}
+				<FlowMetadata {job} />
 			{/if}
 		</div>
-		{#if completed}
-			<div class="my-2"
-				><p><b>The flow is not running anymore. You cannot cancel or resume it.</b></p></div
-			>
-		{:else if alreadyResumed}
-			<div class="my-2"><p><b>You have already approved this flow to be resumed</b></p></div>
-		{/if}
+	</div>
+	<h2 class="mt-4">Flow arguments</h2>
 
-		<div class="w-max-md flex flex-row gap-x-4 gap-y-4 justify-between w-full flex-wrap mt-2">
-			<Button
-				btnClasses="grow"
-				color="red"
-				on:click|once={cancel}
-				size="md"
-				disabled={completed || alreadyResumed}>Disapprove/Cancel</Button
-			>
-			<Button
-				btnClasses="grow"
-				color="green"
-				on:click|once={resume}
-				size="md"
-				disabled={completed || alreadyResumed}>Approve/Resume</Button
-			>
-		</div>
-		<div>
-			<h3 class="mt-2">Payload (optional)</h3>
-			<input type="text" bind:value={payload} use:autosize />
-		</div>
-
-		<div class="mt-4 flex flex-row flex-wrap justify-between"
-			><a href="https://windmill.dev">Learn more about Windmill</a>
-			<a target="_blank" rel="noreferrer" href="/run/{job?.id}?workspace={job?.workspace_id}"
-				>Flow run details (require auth)</a
-			>
-		</div>
-		{#if job && job.raw_flow}
-			<h2 class="mt-10">Flow details</h2>
-			<div class="border border-gray-700">
-				<FlowGraph
-					modules={job.raw_flow?.modules}
-					failureModule={job.raw_flow?.failure_module}
-					notSelectable
-				/>
-			</div>
+	<JobArgs args={job?.args} />
+	<div class="mt-8">
+		{#if approver}
+			<p>Dis/approving as: <b>{approver}</b></p>
 		{/if}
-	</CenteredModal>
-</div>
+	</div>
+	{#if completed}
+		<div class="my-2"
+			><p><b>The flow is not running anymore. You cannot cancel or resume it.</b></p></div
+		>
+	{:else if alreadyResumed}
+		<div class="my-2"><p><b>You have already approved this flow to be resumed</b></p></div>
+	{/if}
+
+  <div class="w-max-md flex flex-row gap-x-4 gap-y-4 justify-between w-full flex-wrap mt-2">
+    <Button
+      btnClasses="grow"
+      color="red"
+      on:click|once={cancel}
+      size="md"
+      disabled={completed || alreadyResumed}>Disapprove/Cancel</Button
+    >
+    <Button
+      btnClasses="grow"
+      color="green"
+      on:click|once={resume}
+      size="md"
+      disabled={completed || alreadyResumed}>Approve/Resume</Button
+    >
+  </div>
+  <div>
+    <h3 class="mt-2">Payload (optional)</h3>
+    <input type="text" bind:value={payload} use:autosize />
+  </div>
+
+	<div class="mt-4 flex flex-row flex-wrap justify-between"
+		><a href="https://windmill.dev">Learn more about Windmill</a>
+		<a target="_blank" rel="noreferrer" href="/run/{job?.id}?workspace={job?.workspace_id}"
+			>Flow run details (require auth)</a
+		>
+	</div>
+	{#if job && job.raw_flow}
+		<h2 class="mt-10">Flow details</h2>
+		<div class="border border-gray-700">
+			<FlowGraph
+				modules={job.raw_flow?.modules}
+				failureModule={job.raw_flow?.failure_module}
+				notSelectable
+			/>
+		</div>
+	{/if}
+</CenteredModal>
