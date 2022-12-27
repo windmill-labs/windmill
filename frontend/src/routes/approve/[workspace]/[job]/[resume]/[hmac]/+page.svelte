@@ -25,9 +25,8 @@
 	let error: string | undefined = undefined
 	let payload = ''
 
-	getJob()
-
 	onMount(() => {
+		getJob()
 		timeout = setInterval(getJob, 1000)
 		window.onunhandledrejection = (event: PromiseRejectionEvent) => {
 			event.preventDefault()
@@ -163,7 +162,7 @@
 			>
 		</div>
 		<div>
-			<h3>Payload (optional)</h3>
+			<h3 class="mt-2">Payload (optional)</h3>
 			<input type="text" bind:value={payload} use:autosize />
 		</div>
 
