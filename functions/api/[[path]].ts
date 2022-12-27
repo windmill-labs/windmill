@@ -1,6 +1,6 @@
 //this is purely for cloudflare pages redirection purposes
 
-export async function onRequest(context: EventContext<unknown, string, unknown>) {
+export async function onRequest(context) {
     // Contents of context object
     const {
         request, // same as existing Worker API
@@ -11,9 +11,15 @@ export async function onRequest(context: EventContext<unknown, string, unknown>)
         data, // arbitrary space for passing data between middlewares
     } = context
 
-    const url = new URL(request.url)
-    url.hostname = "app.windmill.dev"
-    const res = await fetch(url.toString(), { method: request.method, body: request.body, headers: request.headers, redirect: 'manual' })
-    res.headers.set('set-cookie', res.headers.get('set-cookie')?.replace('Domain=windmill.dev;', '') ?? '')
-    return res
+    try {
+        const url = new URL(request.url)
+        url.hostname = "app.windmill.dev"
+        const res = await fetch(url.toString(), { method: request.method, body: request.body, headers: request.headers, redirect: 'manual' })
+        const newResponse = new Response(res.body, res);
+        newResponse.headers.set('set-cookie', newResponse.headers.get('set-cookie')?.replace('Domain=windmill.dev;', '') ?? '')
+        return newResponse
+    } catch (e) {
+        return new Response(e.message, { status: 500 })
+    }
+
 }
