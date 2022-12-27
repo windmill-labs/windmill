@@ -24,7 +24,7 @@
 	export let modules: FlowModule[] | undefined
 
 	let indexToRemove: number | undefined = undefined
-	const { select } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { select, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	async function insertNewModuleAtIndex(
 		index: number,
@@ -156,5 +156,6 @@
 			removeAtIndex(indexToRemove)
 			indexToRemove = undefined
 		}
+		$selectedId = 'settings-graph'
 	}}
 />
