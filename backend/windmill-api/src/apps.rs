@@ -222,12 +222,12 @@ async fn get_app_by_id(
     Ok(Json(app))
 }
 
-async fn get_public_app_by_secret_appX(
+async fn get_public_app_by_secret_(
     authed: Authed,
-    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, i64)>,
 ) -> JsonResult<AppWithLastVersion> {
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx = db.begin().await?;
 
     let app_o = sqlx::query_as!(
         AppWithLastVersion,
