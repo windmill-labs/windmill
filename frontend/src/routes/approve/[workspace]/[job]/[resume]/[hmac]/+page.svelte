@@ -25,9 +25,8 @@
 	let error: string | undefined = undefined
 	let payload = ''
 
-	getJob()
-
 	onMount(() => {
+		getJob()
 		timeout = setInterval(getJob, 1000)
 		window.onunhandledrejection = (event: PromiseRejectionEvent) => {
 			event.preventDefault()
@@ -145,26 +144,26 @@
 		<div class="my-2"><p><b>You have already approved this flow to be resumed</b></p></div>
 	{/if}
 
-	<div class="w-max-md flex flex-row gap-x-4 gap-y-4 justify-between w-full flex-wrap mt-2">
-		<Button
-			btnClasses="grow"
-			color="red"
-			on:click|once={cancel}
-			size="md"
-			disabled={completed || alreadyResumed}>Disapprove/Cancel</Button
-		>
-		<Button
-			btnClasses="grow"
-			color="green"
-			on:click|once={resume}
-			size="md"
-			disabled={completed || alreadyResumed}>Approve/Resume</Button
-		>
-	</div>
-	<div>
-		<h3>Payload (optional)</h3>
-		<input type="text" bind:value={payload} use:autosize />
-	</div>
+  <div class="w-max-md flex flex-row gap-x-4 gap-y-4 justify-between w-full flex-wrap mt-2">
+    <Button
+      btnClasses="grow"
+      color="red"
+      on:click|once={cancel}
+      size="md"
+      disabled={completed || alreadyResumed}>Disapprove/Cancel</Button
+    >
+    <Button
+      btnClasses="grow"
+      color="green"
+      on:click|once={resume}
+      size="md"
+      disabled={completed || alreadyResumed}>Approve/Resume</Button
+    >
+  </div>
+  <div>
+    <h3 class="mt-2">Payload (optional)</h3>
+    <input type="text" bind:value={payload} use:autosize />
+  </div>
 
 	<div class="mt-4 flex flex-row flex-wrap justify-between"
 		><a href="https://windmill.dev">Learn more about Windmill</a>
