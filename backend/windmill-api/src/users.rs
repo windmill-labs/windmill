@@ -52,7 +52,7 @@ pub fn workspaced_service() -> Router {
         .route("/exists", post(exists_username))
         .route("/update/:user", post(update_workspace_user))
         .route("/delete/:user", delete(delete_workspace_user))
-        .route("/is_owner/:path", get(is_owner_of_path))
+        .route("/is_owner/*path", get(is_owner_of_path))
         .route("/whois/:email", get(whois))
         .route("/whoami", get(whoami))
         .route("/leave", post(leave_workspace))
