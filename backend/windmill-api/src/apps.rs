@@ -222,6 +222,30 @@ async fn get_app_by_id(
     Ok(Json(app))
 }
 
+async fn get_public_app_by_secret_appX(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, id)): Path<(String, i64)>,
+) -> JsonResult<AppWithLastVersion> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    let app_o = sqlx::query_as!(
+        AppWithLastVersion,
+        "SELECT app.id, app.path, app.summary, app.versions, app.policy,
+        app.extra_perms, app_version.value, 
+        app_version.created_at, app_version.created_by from app, app_version 
+        WHERE app_version.id = $1 AND app.id = app_version.app_id AND app.workspace_id = $2",
+        id,
+        &w_id
+    )
+    .fetch_optional(&mut tx)
+    .await?;
+    tx.commit().await?;
+
+    let app = not_found_if_none(app_o, "App", id.to_string())?;
+    Ok(Json(app))
+}
+
 async fn create_app(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
