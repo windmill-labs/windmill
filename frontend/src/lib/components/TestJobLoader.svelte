@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Job, JobService } from '$lib/gen'
+	import { CompletedJob, Job, JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { onDestroy } from 'svelte'
 	import type { Preview } from '$lib/gen/models/Preview'
@@ -26,7 +26,7 @@
 
 	export async function abstractRun(fn: () => Promise<string>) {
 		try {
-			intervalId && clearIntervalAsync(intervalId)
+			intervalId && (await clearIntervalAsync(intervalId))
 
 			if (isLoading && job) {
 				await JobService.cancelQueuedJob({
@@ -106,7 +106,7 @@
 	}
 
 	export async function watchJob(testId: string) {
-		intervalId && clearIntervalAsync(intervalId)
+		intervalId && (await clearIntervalAsync(intervalId))
 		job = undefined
 		syncIteration = 0
 		const isCompleted = await loadTestJob(testId)
@@ -138,10 +138,12 @@
 			} else {
 				job = await JobService.getJob({ workspace: workspace!, id })
 			}
+			job = await JobService.getJob({ workspace: workspace ?? '', id })
+
 			if (job?.type === 'CompletedJob') {
 				//only CompletedJob has success property
 				isCompleted = true
-				intervalId && clearIntervalAsync(intervalId)
+				intervalId && (await clearIntervalAsync(intervalId))
 				if (isLoading) {
 					dispatch('done', job)
 					isLoading = false
@@ -149,7 +151,7 @@
 			}
 			notfound = false
 		} catch (err) {
-			intervalId && clearIntervalAsync(intervalId)
+			intervalId && (await clearIntervalAsync(intervalId))
 			isLoading = false
 			if (err.status === 404) {
 				notfound = true
@@ -161,17 +163,17 @@
 
 	async function syncer(id: string): Promise<void> {
 		if (syncIteration == ITERATIONS_BEFORE_SLOW_REFRESH) {
-			intervalId && clearIntervalAsync(intervalId)
+			intervalId && (await clearIntervalAsync(intervalId))
 			intervalId = setIntervalAsync(async () => await syncer(id), 500)
 		} else if (syncIteration == ITERATIONS_BEFORE_SUPER_SLOW_REFRESH) {
-			intervalId && clearIntervalAsync(intervalId)
+			intervalId && (await clearIntervalAsync(intervalId))
 			intervalId = setIntervalAsync(async () => await syncer(id), 2000)
 		}
 		syncIteration++
 		await loadTestJob(id)
 	}
 
-	onDestroy(() => {
-		intervalId && clearIntervalAsync(intervalId)
+	onDestroy(async () => {
+		intervalId && (await clearIntervalAsync(intervalId))
 	})
 </script>
