@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Job, JobService } from '$lib/gen'
+	import { CompletedJob, Job, JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { onDestroy } from 'svelte'
 	import type { Preview } from '$lib/gen/models/Preview'
@@ -24,22 +24,16 @@
 	let ITERATIONS_BEFORE_SLOW_REFRESH = 10
 	let ITERATIONS_BEFORE_SUPER_SLOW_REFRESH = 100
 
+	let stopCurrentIteration = false
+
 	export async function abstractRun(fn: () => Promise<string>) {
 		try {
-			intervalId && clearIntervalAsync(intervalId)
-
-			if (isLoading && job) {
-				await JobService.cancelQueuedJob({
-					workspace: workspace!,
-					id: job.id,
-					requestBody: {}
-				})
-			}
+			await clearCurrentJob()
 			isLoading = true
-
 			const testId = await fn()
 
 			await watchJob(testId)
+			return testId
 		} catch (err) {
 			isLoading = false
 			throw err
@@ -49,8 +43,8 @@
 	export async function runScriptByPath(
 		path: string | undefined,
 		args: Record<string, any>
-	): Promise<void> {
-		abstractRun(() =>
+	): Promise<string> {
+		return abstractRun(() =>
 			JobService.runScriptByPath({
 				workspace: $workspaceStore!,
 				path: path ?? '',
@@ -62,8 +56,8 @@
 	export async function runFlowByPath(
 		path: string | undefined,
 		args: Record<string, any>
-	): Promise<void> {
-		abstractRun(() =>
+	): Promise<string> {
+		return abstractRun(() =>
 			JobService.runFlowByPath({
 				workspace: $workspaceStore!,
 				path: path ?? '',
@@ -77,8 +71,8 @@
 		code: string,
 		lang: 'deno' | 'go' | 'python3' | 'bash',
 		args: Record<string, any>
-	): Promise<void> {
-		abstractRun(() =>
+	): Promise<string> {
+		return abstractRun(() =>
 			JobService.runScriptPreview({
 				workspace: $workspaceStore!,
 				requestBody: {
@@ -105,10 +99,26 @@
 		console.log('cancelled')
 	}
 
-	export async function watchJob(testId: string) {
-		intervalId && clearIntervalAsync(intervalId)
+	export async function clearCurrentJob() {
+		if (intervalId) {
+			const interval = intervalId
+			intervalId = undefined
+			stopCurrentIteration = true
+			if (isLoading && job) {
+				await JobService.cancelQueuedJob({
+					workspace: workspace!,
+					id: job.id,
+					requestBody: {}
+				})
+			}
+			await clearIntervalAsync(interval)
+		}
+		stopCurrentIteration = false
 		job = undefined
-		syncIteration = 0
+		isLoading = false
+	}
+
+	export async function watchJob(testId: string) {
 		const isCompleted = await loadTestJob(testId)
 		if (!isCompleted) {
 			isLoading = true
@@ -138,10 +148,12 @@
 			} else {
 				job = await JobService.getJob({ workspace: workspace!, id })
 			}
+			job = await JobService.getJob({ workspace: workspace ?? '', id })
+
 			if (job?.type === 'CompletedJob') {
 				//only CompletedJob has success property
 				isCompleted = true
-				intervalId && clearIntervalAsync(intervalId)
+				intervalId && clearIntervalAsync(intervalId!)
 				if (isLoading) {
 					dispatch('done', job)
 					isLoading = false
@@ -149,7 +161,7 @@
 			}
 			notfound = false
 		} catch (err) {
-			intervalId && clearIntervalAsync(intervalId)
+			intervalId && clearIntervalAsync(intervalId!)
 			isLoading = false
 			if (err.status === 404) {
 				notfound = true
@@ -160,18 +172,21 @@
 	}
 
 	async function syncer(id: string): Promise<void> {
+		syncIteration++
 		if (syncIteration == ITERATIONS_BEFORE_SLOW_REFRESH) {
-			intervalId && clearIntervalAsync(intervalId)
+			intervalId && clearIntervalAsync(intervalId!)
 			intervalId = setIntervalAsync(async () => await syncer(id), 500)
 		} else if (syncIteration == ITERATIONS_BEFORE_SUPER_SLOW_REFRESH) {
-			intervalId && clearIntervalAsync(intervalId)
+			intervalId && clearIntervalAsync(intervalId!)
 			intervalId = setIntervalAsync(async () => await syncer(id), 2000)
 		}
-		syncIteration++
+		if (stopCurrentIteration) {
+			return
+		}
 		await loadTestJob(id)
 	}
 
-	onDestroy(() => {
-		intervalId && clearIntervalAsync(intervalId)
+	onDestroy(async () => {
+		await clearCurrentJob()
 	})
 </script>

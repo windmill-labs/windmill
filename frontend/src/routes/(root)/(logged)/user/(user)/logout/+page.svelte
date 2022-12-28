@@ -3,7 +3,7 @@
 	import { page } from '$app/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
-	import { clearUser, logoutWithRedirect } from '$lib/logout'
+	import { clearUser } from '$lib/logout'
 	import { onMount } from 'svelte'
 
 	const rd = $page.url.searchParams.get('rd')
@@ -14,7 +14,7 @@
 	})
 </script>
 
-<CenteredModal title="Logging out ...">
+<CenteredModal title="Logging out">
 	<div class="w-full ">
 		<div class="block m-auto w-20">
 			<WindmillIcon class="animate-[spin_6s_linear_infinite]" height="80px" width="80px" />
