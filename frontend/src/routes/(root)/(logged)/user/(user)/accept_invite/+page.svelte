@@ -11,6 +11,7 @@
 	let workspace_id = $page.url.searchParams.get('workspace') ?? ''
 	let username = ''
 	let errorUsername = ''
+	let checking = false
 
 	$: validateName(username)
 
@@ -27,12 +28,14 @@
 	}
 
 	async function validateName(username: string): Promise<void> {
+		checking = true
 		try {
 			await WorkspaceService.existsUsername({ requestBody: { id: workspace_id, username } })
 			errorUsername = validateUsername(username)
 		} catch (error) {
-			errorUsername = 'username already exists'
+			errorUsername = 'Username already exists'
 		}
+		checking = false
 	}
 
 	function handleKey(event: KeyboardEvent) {
@@ -57,14 +60,13 @@
 
 <CenteredModal title="Invitation to join {workspace_id}">
 	<label class="block pb-2">
-		<span class="text-gray-700">Your username in workspace {workspace_id}:</span>
+		<span class="text-gray-700 text-sm">Your username in workspace {workspace_id}:</span>
 		{#if errorUsername}
 			<span class="text-red-500 text-xs">{errorUsername}</span>
 		{/if}
 		<input
 			on:keyup={handleKey}
 			bind:value={username}
-			class="mt-1"
 			class:input-error={errorUsername != ''}
 		/>
 	</label>
@@ -73,7 +75,7 @@
 			>&leftarrow; Back to workspaces</Button
 		>
 		<button
-			disabled={errorUsername != '' || !username}
+			disabled={checking || errorUsername != '' || !username}
 			class="place-items-end bg-blue-500 hover:bg-blue-700 text-white font-bold py-1 px-2 border rounded"
 			type="button"
 			on:click={acceptInvite}
