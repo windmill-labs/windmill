@@ -156,8 +156,9 @@
 						{#if !emptyString(jsonError)}<span
 								class="text-red-400 text-xs mb-1 flex flex-row-reverse">{jsonError}</span
 							>{:else}<div class="py-2" />{/if}
-						<div class="h-full w-full">
+						<div class="h-full w-full border p-1 rounded">
 							<SimpleEditor
+								autoHeight
 								class="editor"
 								lang="json"
 								bind:code={rawCode}
