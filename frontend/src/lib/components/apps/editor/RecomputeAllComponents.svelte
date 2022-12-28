@@ -24,7 +24,7 @@
 
 <Button
 	size="xs"
-	btnClasses="m-2 mb-4"
+	btnClasses="m-2 mb-6"
 	startIcon={{ icon: faRefresh, classes: classNames(loading ? 'animate-spin' : '', 'mr-2') }}
 	color="dark"
 	{disabled}

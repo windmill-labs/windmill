@@ -50,7 +50,7 @@
 				'passwordinputcomponent'
 			].includes(componentType)
 		) {
-			return { w: column, h: 1 }
+			return { w: column, h: 2 }
 		}
 		return { w: column, h: 12 }
 	}

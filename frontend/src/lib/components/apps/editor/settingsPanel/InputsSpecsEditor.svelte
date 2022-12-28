@@ -39,30 +39,20 @@
 									iconOnly
 								/>
 								<ToggleButton
-									position={userInputEnabled && input.format === undefined ? 'center' : 'right'}
+									position="right"
 									value="connected"
 									startIcon={{ icon: faArrowRight }}
 									size="xs"
 									iconOnly
 									disabled={staticOnly}
 								/>
-								{#if userInputEnabled && input.format === undefined}
-									<ToggleButton
-										position="right"
-										value="user"
-										startIcon={{ icon: faUser }}
-										size="xs"
-										iconOnly
-										disabled={staticOnly && !userInputEnabled}
-									/>
-								{/if}
 							</ToggleButtonGroup>
 						</div>
 					</div>
 
 					<InputsSpecEditor
 						bind:componentInput={inputSpecs[inputSpecKey]}
-						canHide={userInputEnabled && input.format === undefined}
+						userInputEnabled={userInputEnabled && input.format === undefined}
 					/>
 				</div>
 			{/if}

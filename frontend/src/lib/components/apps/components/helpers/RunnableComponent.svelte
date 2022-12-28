@@ -181,7 +181,7 @@
 		Object.keys(inputs ?? {}).forEach((key: string) => {
 			const input = inputs[key]
 
-			if (input.type === 'static' && !input.visible && schemaStripped !== undefined) {
+			if (input.type === 'static' && schemaStripped !== undefined) {
 				delete schemaStripped.properties[key]
 			}
 

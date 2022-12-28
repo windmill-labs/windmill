@@ -58,6 +58,12 @@
 			$selectedComponent = undefined
 		}
 	}
+
+	function selectComponent(id: string) {
+		if (!$connectingInput.opened) {
+			$selectedComponent = id
+		}
+	}
 </script>
 
 <div class="bg-white h-full relative">
@@ -68,19 +74,19 @@
 		rowHeight={32}
 		cols={columnConfiguration}
 		fastStart={true}
-		on:pointerup={({ detail }) => {
-			if (!$connectingInput.opened) {
-				$selectedComponent = detail.id
-			}
-		}}
+		on:pointerup={({ detail }) => selectComponent(detail.id)}
+		gap={[10, 2]}
 	>
 		{#each $app.grid as gridComponent (gridComponent.id)}
 			{#if gridComponent.data.id === dataItem.data.id}
+				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<div
 					class={classNames(
 						'h-full w-full flex justify-center align-center',
-						gridComponent.data.card ? 'border border-gray-100' : ''
+						gridComponent.data.card ? 'border border-gray-100' : '',
+						'z-50'
 					)}
+					on:click|stopPropagation|preventDefault|capture|once
 				>
 					<ComponentEditor
 						bind:component={gridComponent.data}

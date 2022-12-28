@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { classNames } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 
 	export let options: {
@@ -8,6 +9,7 @@
 	export let checked: boolean = false
 	export let disabled = false
 
+	export let size: 'sm' | 'xs' = 'sm'
 	const id = (Math.random() + 1).toString(36).substring(10)
 	const dispatch = createEventDispatcher()
 </script>
@@ -17,6 +19,7 @@
 		{#if Boolean(options?.left)}
 			<span class="mr-2 text-sm font-medium text-gray-900">{options?.left}</span>
 		{/if}
+		<!-- svelte-ignore a11y-click-events-have-key-events -->
 		<div class="relative" on:click|stopPropagation={() => {}}>
 			<input
 				{disabled}
@@ -34,7 +37,10 @@
 			/>
 		</div>
 		{#if Boolean(options?.right)}
-			<span class="ml-2 text-sm font-medium text-gray-900">{options?.right}</span>
+			<span
+				class={classNames('ml-2  font-medium text-gray-900', size === 'xs' ? 'text-xs' : 'text-sm')}
+				>{options?.right}</span
+			>
 		{/if}
 	</label>
 </span>

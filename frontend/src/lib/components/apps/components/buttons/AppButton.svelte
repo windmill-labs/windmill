@@ -22,7 +22,7 @@
 
 	const { runnableComponents, worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
-	let labelValue: string = 'Default label'
+	let labelValue: string
 	let color: ButtonType.Color
 	let size: ButtonType.Size
 	let runnableComponent: RunnableComponent

@@ -7,14 +7,9 @@
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 
 	export let componentInput: StaticAppInput | undefined
-	export let canHide: boolean = false
 </script>
 
 {#if componentInput?.type === 'static'}
-	{#if canHide}
-		<Toggle bind:checked={componentInput.visible} options={{ right: 'Visible' }} />
-	{/if}
-
 	{#if componentInput.fieldType === 'number'}
 		<input type="number" bind:value={componentInput.value} />
 	{:else if componentInput.fieldType === 'textarea'}
@@ -59,7 +54,7 @@
 			</div>
 		{/if}
 	{:else if componentInput.fieldType === 'array'}
-		<ArrayStaticInputEditor bind:componentInput {canHide} />
+		<ArrayStaticInputEditor bind:componentInput />
 	{:else}
 		<input bind:value={componentInput.value} />
 	{/if}

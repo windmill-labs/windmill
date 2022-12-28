@@ -37,7 +37,6 @@ export type UserInput<U> = {
 export type StaticInput<U> = {
 	value: U | undefined
 	type: 'static'
-	visible?: boolean | undefined
 }
 
 export type TemplateInput = {
