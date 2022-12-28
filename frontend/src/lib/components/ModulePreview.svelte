@@ -8,20 +8,19 @@
 	import LogViewer from './LogViewer.svelte'
 	import DisplayResult from './DisplayResult.svelte'
 	import Button from './common/button/Button.svelte'
-	import { faRotateRight } from '@fortawesome/free-solid-svg-icons'
+	import { faSpinner } from '@fortawesome/free-solid-svg-icons'
 	import { flowStateStore } from './flows/flowState'
 	import { flowStore } from './flows/flowStore'
-	import { Alert } from './common'
 	import { workspaceStore } from '$lib/stores'
-
-	let testJobLoader: TestJobLoader
-
-	// Test
-	let testIsLoading = false
-	let testJob: Job | undefined
+	import { Icon } from 'svelte-awesome'
 
 	export let mod: FlowModule
 	export let schema: Schema
+
+	// Test
+	let testJobLoader: TestJobLoader
+	let testIsLoading = false
+	let testJob: Job | undefined = undefined
 
 	let stepArgs: Record<string, any> = {}
 
@@ -46,13 +45,15 @@
 
 	function jobDone() {
 		if (testJob && !testJob.canceled && testJob.type == 'CompletedJob' && `result` in testJob) {
-			$flowStateStore[mod.id].previewResult = testJob.result
+			if ($flowStateStore[mod.id]?.previewResult) {
+				$flowStateStore[mod.id].previewResult = testJob.result
+			}
 		}
 	}
 </script>
 
 <TestJobLoader
-	on:done={jobDone}
+	on:done={() => jobDone()}
 	bind:this={testJobLoader}
 	bind:isLoading={testIsLoading}
 	bind:job={testJob}
@@ -81,7 +82,7 @@
 				color="red"
 				size="sm"
 				startIcon={{
-					icon: faRotateRight,
+					icon: faSpinner,
 					classes: 'animate-spin'
 				}}
 			>
@@ -101,7 +102,11 @@
 					</pre>
 				{:else}
 					<div class="p-2">
-						{testIsLoading ? 'Waiting for result...' : 'Test to see the result here'}
+						{#if testIsLoading}
+							<Icon data={faSpinner} class="animate-spin" />
+						{:else}
+							Test to see the result here
+						{/if}
 					</div>
 				{/if}
 			</Pane>

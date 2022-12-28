@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { faSpinner } from '@fortawesome/free-solid-svg-icons'
+	import { Icon } from 'svelte-awesome'
 	import { fade } from 'svelte/transition'
 	import { Drawer, DrawerContent } from './common'
 
@@ -50,9 +52,11 @@
 		{/if}
 
 		<pre class="whitespace-pre-wrap break-words bg-gray-50 text-xs w-full p-2"
-			>{#if content}<span transition:fade={{ duration: 50 }}>{content}</span
-				>{:else if isLoading}{:else}<span class="text-gray-600">No logs are available yet</span
-				>{/if}</pre
+			>{#if content}<span>{content}</span>{:else if isLoading}<Icon
+					data={faSpinner}
+					class="animate-spin"
+				/>{:else}
+				<span class="text-gray-600">No logs are available yet</span>{/if}</pre
 		>
 	</div>
 </div>
