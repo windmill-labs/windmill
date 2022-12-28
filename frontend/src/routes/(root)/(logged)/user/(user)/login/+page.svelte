@@ -41,7 +41,7 @@
 	const providersType = providers.map((p) => p.type as string)
 
 	let showPassword = false
-	let logins: string[] = []
+	let logins: string[] | undefined = undefined
 
 	async function login(): Promise<void> {
 		const requestBody = {
@@ -119,31 +119,36 @@
 <!-- Enable submit form on enter -->
 <CenteredModal title="Login">
 	<div class="justify-center text-center flex flex-col">
-		{#each providers as { type, icon, name }}
-			{#if logins.includes(type)}
+		{#if !logins}
+			{#each Array(4) as _}
+				<Skeleton layout={[0.5, [2.375]]} />
+			{/each}
+		{:else}
+			{#each providers as { type, icon, name }}
+				{#if logins.includes(type)}
+					<Button
+						color="dark"
+						variant="border"
+						endIcon={{ icon }}
+						btnClasses="mt-2 w-full !border-gray-300"
+						on:click={() => storeRedirect(type)}
+					>
+						{name}
+					</Button>
+				{/if}
+			{/each}
+
+			{#each logins.filter((x) => !providersType.includes(x)) as login}
 				<Button
 					color="dark"
 					variant="border"
-					endIcon={{ icon }}
 					btnClasses="mt-2 w-full !border-gray-300"
-					on:click={() => storeRedirect(type)}
+					on:click={() => storeRedirect(login)}
 				>
-					{name}
+					{login}
 				</Button>
-			{:else}
-				<Skeleton layout={[0.5, [2.375]]} />
-			{/if}
-		{/each}
-		{#each logins.filter((x) => !providersType.includes(x)) as login}
-			<Button
-				color="dark"
-				variant="border"
-				btnClasses="mt-2 w-full !border-gray-300"
-				on:click={() => storeRedirect(login)}
-			>
-				{login}
-			</Button>
-		{/each}
+			{/each}
+		{/if}
 	</div>
 	<div class="center-center my-6">
 		<Button
@@ -151,7 +156,9 @@
 			color="blue"
 			variant="border"
 			btnClasses="!border-none"
-			on:click={() => {showPassword = !showPassword}}
+			on:click={() => {
+				showPassword = !showPassword
+			}}
 		>
 			Login without third-party
 		</Button>
@@ -169,12 +176,7 @@
 			</label>
 			<label class="block ">
 				<span class="text-gray-700 text-sm">Password</span>
-				<input
-					type="password"
-					on:keyup={handleKeyUp}
-					bind:value={password}
-					id="password"
-				/>
+				<input type="password" on:keyup={handleKeyUp} bind:value={password} id="password" />
 			</label>
 			<div class="flex justify-end pt-4">
 				<Button id="login2" on:click={login}>Login</Button>

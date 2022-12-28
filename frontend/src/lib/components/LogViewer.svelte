@@ -55,8 +55,7 @@
 			>{#if content}<span>{content}</span>{:else if isLoading}<Icon
 					data={faSpinner}
 					class="animate-spin"
-				/>{:else}
-				<span class="text-gray-600">No logs are available yet</span>{/if}</pre
+				/>{:else}<span class="text-gray-600">No logs are available yet</span>{/if}</pre
 		>
 	</div>
 </div>
