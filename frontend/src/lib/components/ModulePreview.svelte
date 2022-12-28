@@ -30,17 +30,18 @@
 
 	export async function runTest(args: any) {
 		const val = mod.value
+		let jobId: string | undefined = undefined
 		if (val.type == 'rawscript') {
-			await testJobLoader?.runPreview(val.path, val.content, val.language, args)
+			jobId = await testJobLoader?.runPreview(val.path, val.content, val.language, args)
 		} else if (val.type == 'script') {
 			const script = val.hash
 				? await ScriptService.getScriptByHash({ workspace: $workspaceStore!, hash: val.hash })
 				: await getScriptByPath(val.path)
-			await testJobLoader?.runPreview(val.path, script.content, script.language, args)
+			jobId = await testJobLoader?.runPreview(val.path, script.content, script.language, args)
 		} else {
 			throw Error('not testable module type')
 		}
-		sendUserToast(`started test ${truncateRev(testJob?.id ?? '', 10)}`)
+		sendUserToast(`started test ${truncateRev(jobId ?? '', 10)}`)
 	}
 
 	function jobDone() {
