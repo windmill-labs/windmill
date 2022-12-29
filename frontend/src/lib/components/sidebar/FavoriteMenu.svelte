@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
-	import { faCode, faStar, faTelevision, faBarsStaggered } from '@fortawesome/free-solid-svg-icons'
+	import { Code2, LayoutDashboard } from 'lucide-svelte'
+	import { faStar, faBarsStaggered } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 
 	import Menu from '../common/menu/Menu.svelte'
@@ -13,7 +14,7 @@
 	}[]
 </script>
 
-<Menu placement="bottom-start" let:close noMinW>
+<Menu placement="bottom-start" let:close>
 	<button
 		slot="trigger"
 		type="button"
@@ -31,29 +32,32 @@
 		{/if}
 	</button>
 
-	<div class="divide-y divide-gray-100  overflow-hidden" role="none">
-		<table class="w-full">
-			{#each favoriteLinks ?? [] as favorite (favorite.href)}
-				<tr>
-					<a href={favorite.href} on:click={close} class="inline-flex flex-row px-4 py-2">
-						<td class="center-center">
+	<div class="overflow-hidden" role="none">
+		{#if !favoriteLinks.length}
+			<div class="py-1" role="none">
+				<div class="text-gray-600 block px-4 py-2 text-xs" role="menuitem" tabindex="-1">
+					Add Scripts/Flows/Apps here by starring them
+				</div>
+			</div>
+		{:else}
+			<div class="py-1 w-full max-w-full">
+				{#each favoriteLinks ?? [] as favorite (favorite.href)}
+					<a href={favorite.href} on:click={close} class="w-full inline-flex flex-row px-4 py-2 hover:bg-gray-100">
+						<span class="center-center">
 							{#if favorite.kind == 'script'}
-								<Icon data={faCode} />
+								<Code2 size={16} />
 							{:else if favorite.kind == 'flow'}
 								<Icon data={faBarsStaggered} />
 							{:else if favorite.kind == 'app'}
-								<Icon data={faTelevision} />
+								<LayoutDashboard size={16} />
 							{/if}
-						</td>
-						<td class="text-gray-800 ml-2 grow text-xs center-center truncate">{favorite.label}</td>
+						</span>
+						<span class="text-gray-800 ml-2 grow min-w-0 text-xs truncate">
+							{favorite.label}
+						</span>
 					</a>
-				</tr>
-			{/each}
-		</table>
-		<div class="py-1" role="none">
-			<div class="text-gray-600 block px-4 py-2 text-xs" role="menuitem" tabindex="-1">
-				Add Scripts/Flows/Apps here by starring them
+				{/each}
 			</div>
-		</div>
+		{/if}
 	</div>
 </Menu>
