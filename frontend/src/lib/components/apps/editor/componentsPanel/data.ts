@@ -36,14 +36,12 @@ const inputs: ComponentSet = {
 			configuration: {
 				minDate: {
 					type: 'static',
-					visible: false,
 					value: '',
 					fieldType: 'date',
 					defaultValue: ''
 				},
 				maxDate: {
 					type: 'static',
-					visible: false,
 					value: '',
 					fieldType: 'date',
 					defaultValue: ''
@@ -60,7 +58,6 @@ const inputs: ComponentSet = {
 			configuration: {
 				label: {
 					type: 'static',
-					visible: true,
 					value: 'Label',
 					fieldType: 'textarea',
 					defaultValue: 'Label'
@@ -118,7 +115,6 @@ const buttons: ComponentSet = {
 			configuration: {
 				label: {
 					type: 'static',
-					visible: true,
 					value: 'Lorem ipsum',
 					fieldType: 'textarea',
 					defaultValue: 'Lorem ipsum'
@@ -126,7 +122,6 @@ const buttons: ComponentSet = {
 				color: {
 					fieldType: 'select',
 					type: 'static',
-					visible: true,
 					value: 'blue',
 					optionValuesKey: 'buttonColorOptions',
 					defaultValue: 'blue'
@@ -134,7 +129,6 @@ const buttons: ComponentSet = {
 				size: {
 					fieldType: 'select',
 					type: 'static',
-					visible: true,
 					value: 'xs',
 					optionValuesKey: 'buttonSizeOptions',
 					defaultValue: 'xs'
@@ -158,7 +152,6 @@ const buttons: ComponentSet = {
 			configuration: {
 				label: {
 					type: 'static',
-					visible: true,
 					value: 'Submit',
 					fieldType: 'textarea',
 					defaultValue: 'formcomponent'
@@ -166,7 +159,6 @@ const buttons: ComponentSet = {
 				color: {
 					fieldType: 'select',
 					type: 'static',
-					visible: true,
 					value: 'dark',
 					optionValuesKey: 'buttonColorOptions',
 					defaultValue: 'dark'
@@ -174,7 +166,6 @@ const buttons: ComponentSet = {
 				size: {
 					fieldType: 'select',
 					type: 'static',
-					visible: true,
 					value: 'xs',
 					optionValuesKey: 'buttonSizeOptions',
 					defaultValue: 'xs'
@@ -195,7 +186,6 @@ const display: ComponentSet = {
 			type: 'textcomponent',
 			componentInput: {
 				type: 'static',
-				visible: true,
 				value: 'Lorem ipsum',
 				fieldType: 'textarea',
 				defaultValue: 'Lorem ipsum'
@@ -218,7 +208,6 @@ const display: ComponentSet = {
 					type: 'static',
 					value: false,
 					fieldType: 'boolean',
-					visible: true,
 					defaultValue: false
 				}
 			},

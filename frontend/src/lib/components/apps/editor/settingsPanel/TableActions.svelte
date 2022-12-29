@@ -23,7 +23,6 @@
 			configuration: {
 				label: {
 					type: 'static',
-					visible: true,
 					value: 'Action',
 					fieldType: 'textarea',
 					defaultValue: 'Action'
@@ -31,7 +30,6 @@
 				color: {
 					fieldType: 'select',
 					type: 'static',
-					visible: true,
 					value: 'dark',
 					optionValuesKey: 'buttonColorOptions',
 					defaultValue: 'dark'
@@ -39,7 +37,6 @@
 				size: {
 					fieldType: 'select',
 					type: 'static',
-					visible: true,
 					value: 'xs',
 					optionValuesKey: 'buttonSizeOptions',
 					defaultValue: 'xs'
