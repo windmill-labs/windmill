@@ -16,6 +16,9 @@
 	const dispatch = createEventDispatcher()
 
 	export let schema: Schema = emptySchema()
+	if (!schema) {
+		schema = emptySchema()
+	}
 
 	let schemaModal: SchemaModal
 	let schemaString: string = ''

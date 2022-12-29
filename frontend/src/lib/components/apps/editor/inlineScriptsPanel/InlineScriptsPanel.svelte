@@ -7,7 +7,7 @@
 	import InlineScriptEditorPanel from './InlineScriptEditorPanel.svelte'
 	import InlineScriptEditor from './InlineScriptEditor.svelte'
 
-	const { app } = getContext<AppEditorContext>('AppEditorContext')
+	const { lazyGrid, app } = getContext<AppEditorContext>('AppEditorContext')
 
 	let selectedScriptComponentId: string | undefined = undefined
 </script>
@@ -17,7 +17,7 @@
 		<InlineScriptsPanelList bind:selectedScriptComponentId />
 	</Pane>
 	<Pane size={75}>
-		{#each $app.grid as gridComponent, index (index)}
+		{#each $lazyGrid as gridComponent, index (index)}
 			{#if gridComponent.data.id === selectedScriptComponentId}
 				<InlineScriptEditorPanel bind:componentInput={gridComponent.data.componentInput} />
 			{/if}

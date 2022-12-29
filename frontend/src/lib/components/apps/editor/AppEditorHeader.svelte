@@ -13,6 +13,7 @@
 		faMobileAlt
 	} from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
+	import { Icon } from 'svelte-awesome'
 	import { sendUserToast } from '../../../utils'
 	import type { AppEditorContext, EditorBreakpoint, EditorMode } from '../types'
 
@@ -57,10 +58,12 @@
 	<div class="flex gap-4 items-center">
 		<div>
 			<ToggleButtonGroup bind:selected={mode}>
-				<ToggleButton position="left" value="dnd" startIcon={{ icon: faHand }} size="xs">
+				<ToggleButton position="left" value="dnd" size="xs">
+					<Icon data={faHand} class="h-3 mr-1" />
 					Editor
 				</ToggleButton>
-				<ToggleButton position="right" value="preview" startIcon={{ icon: faDisplay }} size="xs">
+				<ToggleButton position="right" value="preview" size="xs">
+					<Icon data={faDisplay} class="h-4 mr-1" />
 					Preview
 				</ToggleButton>
 			</ToggleButtonGroup>

@@ -43,6 +43,7 @@
 			selectedId = 'settings-graph'
 		} else if (hubId) {
 			const hub = await FlowService.getHubFlowById({ id: Number(hubId) })
+			delete hub['comments']
 			flow.path = `u/${$userStore?.username}/flow_${hubId}`
 			Object.assign(flow, hub.flow)
 			flow = flow

@@ -3,6 +3,7 @@
 
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
+	export let noWFull = false
 
 	function tailwindHorizontalAlignment(horizontalAlignment) {
 		switch (horizontalAlignment) {
@@ -27,7 +28,8 @@
 	}
 
 	$: classes = classNames(
-		'flex w-full',
+		'flex z-auto',
+		noWFull ? '' : 'w-full',
 		tailwindHorizontalAlignment(horizontalAlignment),
 		tailwindVerticalAlignment(verticalAlignment),
 		verticalAlignment ? 'h-full' : ''

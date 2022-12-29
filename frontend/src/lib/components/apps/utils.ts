@@ -183,7 +183,7 @@ export function isScriptByNameDefined(appInput: AppInput | undefined): boolean {
 	}
 
 	if (appInput.type === 'runnable' && appInput.runnable?.type == 'runnableByName') {
-		return Boolean(appInput.runnable?.name)
+		return appInput.runnable?.name != undefined
 	}
 
 	return false
