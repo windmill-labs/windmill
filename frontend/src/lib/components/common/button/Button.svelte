@@ -106,6 +106,7 @@
 <svelte:element
 	this={href ? 'a' : 'button'}
 	bind:this={element}
+	on:pointerdown
 	on:click={onClick}
 	on:focus
 	on:blur

@@ -15,7 +15,7 @@
 </script>
 
 {#if componentInput.fieldType !== 'any'}
-	<div class="w-full">
+	<div class="w-full overflow-x-auto">
 		<ToggleButtonGroup bind:selected={componentInput.type}>
 			{#if componentInput.fieldType === 'textarea'}
 				<ToggleButton position="left" value="template" size="xs" disable={disableStatic}>

@@ -13,6 +13,7 @@
 {:else}
 	{#if userInputEnabled}
 		<Toggle
+			class="-mt-2 -mb-1"
 			checked={componentInput.type === 'user'}
 			on:change={({ detail }) => {
 				componentInput.type = detail ? 'user' : 'static'

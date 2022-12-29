@@ -37,7 +37,7 @@ declare module 'svelte-grid' {
 
 	export interface Props<T> {
 		fillSpace?: boolean
-		items: FilledItem<T>[]
+		items: FilledItem<T>[],
 		rowHeight: number
 		cols: [number, number][]
 		gap?: [number, number]
@@ -59,7 +59,7 @@ declare module 'svelte-grid' {
 			pointerup: CustomEvent<{ id: string }>
 		},
 		Slots<T>
-	> {}
+	> { }
 }
 
 declare module 'svelte-grid/build/helper/index.mjs' {

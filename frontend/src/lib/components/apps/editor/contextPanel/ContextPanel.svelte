@@ -40,7 +40,9 @@
 		{#if outputs.length > 0 && $worldStore?.outputsById[componentId]}
 			<div class="flex flex-row justify-between w-full -mb-2 ">
 				<button
-					on:click={() => ($selectedComponent = componentId)}
+					on:click|stopPropagation|preventDefault={$connectingInput.opened
+						? undefined
+						: () => ($selectedComponent = componentId)}
 					class={classNames(
 						'px-2 text-2xs py-0.5 font-bold rounded-t-sm w-fit',
 						$selectedComponent === componentId
@@ -62,10 +64,9 @@
 
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
 			<div
-				on:click={() => ($selectedComponent = componentId)}
 				class={classNames(
 					'w-full py-2 border relative',
-					$selectedComponent === componentId ? 'border border-blue-500 ' : 'cursor-pointer'
+					$selectedComponent === componentId ? 'border border-blue-500 ' : ''
 				)}
 			>
 				{#if $selectedComponent === componentId && $connectingInput?.opened}

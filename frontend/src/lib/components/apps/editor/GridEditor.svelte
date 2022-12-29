@@ -1,14 +1,12 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, onDestroy, onMount } from 'svelte'
 	import type { AppEditorContext } from '../types'
 	import Grid from 'svelte-grid'
 	import ComponentEditor from './ComponentEditor.svelte'
 	import { classNames } from '$lib/utils'
 	import { columnConfiguration, disableDrag, enableDrag, isFixed, toggleFixed } from '../gridUtils'
-	import { Alert } from '$lib/components/common'
 	import { fly } from 'svelte/transition'
 
-	import Button from '$lib/components/common/button/Button.svelte'
 	import RecomputeAllComponents from './RecomputeAllComponents.svelte'
 
 	const {
@@ -92,9 +90,22 @@
 			}, 50)
 		}
 	}
+
+	let pointerdown = false
+	const onpointerdown = () => {
+		pointerdown = true
+	}
+	const onpointerup = () => {
+		pointerdown = false
+	}
 </script>
 
-<div class="bg-white h-full relative">
+<div
+	on:pointerdown={onpointerdown}
+	on:pointerleave={onpointerup}
+	on:pointerup={onpointerup}
+	class="bg-white h-full relative"
+>
 	<RecomputeAllComponents />
 	<Grid
 		bind:items={$app.grid}
@@ -111,12 +122,12 @@
 				<div
 					class={classNames(
 						'h-full w-full flex justify-center align-center',
-						gridComponent.data.card ? 'border border-gray-100' : '',
-						'z-50'
+						gridComponent.data.card ? 'border border-gray-100' : ''
 					)}
 					on:click|preventDefault|capture|once
 				>
 					<ComponentEditor
+						{pointerdown}
 						bind:component={gridComponent.data}
 						selected={$selectedComponent === dataItem.data.id}
 						locked={isFixed(gridComponent)}
@@ -129,32 +140,6 @@
 			{/if}
 		{/each}
 	</Grid>
-
-	{#if $connectingInput.opened}
-		<div
-			class="fixed top-32  z-10 flex justify-center items-center"
-			transition:fly={{ duration: 100, y: -100 }}
-		>
-			<Alert title="Connecting" type="info">
-				<div class="flex gap-2 flex-col">
-					Click on the output of the component you want to connect to on the left panel.
-					<div>
-						<Button
-							color="blue"
-							variant="border"
-							size="xs"
-							on:click={() => {
-								$connectingInput.opened = false
-								$connectingInput.input = undefined
-							}}
-						>
-							Stop connecting
-						</Button>
-					</div>
-				</div>
-			</Alert>
-		</div>
-	{/if}
 </div>
 
 <style>

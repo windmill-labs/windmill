@@ -29,5 +29,15 @@
 <InputValue {id} input={configuration.placeholder} bind:value={placeholder} />
 
 <AlignWrapper {verticalAlignment}>
-	<input type={inputType} bind:this={input} on:input={handleInput} {placeholder} class="h-full" />
+	<input
+		on:focus={(e) => {
+			e?.stopPropagation()
+			window.dispatchEvent(new Event('pointerup'))
+		}}
+		type={inputType}
+		bind:this={input}
+		on:input={handleInput}
+		{placeholder}
+		class="h-full"
+	/>
 </AlignWrapper>

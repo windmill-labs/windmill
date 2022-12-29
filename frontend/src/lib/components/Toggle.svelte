@@ -14,7 +14,7 @@
 	const dispatch = createEventDispatcher()
 </script>
 
-<span class={$$props.class}>
+<span class="{$$props.class} z-auto">
 	<label
 		for={id}
 		class="inline-flex items-center mt-2 duration-200 {disabled
@@ -29,8 +29,10 @@
 			</span>
 		{/if}
 		<!-- svelte-ignore a11y-click-events-have-key-events -->
-		<div class="relative" on:click|stopPropagation={() => {}}>
+		<div class="relative" on:pointerdown on:click|stopPropagation>
 			<input
+				on:focus
+				on:click
 				{disabled}
 				type="checkbox"
 				value={false}

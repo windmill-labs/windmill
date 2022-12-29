@@ -87,6 +87,10 @@
 		loading: Output<boolean>
 	}
 
+	$: if (outputs.loading != undefined) {
+		outputs.loading.set(false, true)
+	}
+
 	async function loadSchemaFromTriggerable(
 		workspace: string,
 		path: string,

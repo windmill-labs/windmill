@@ -31,6 +31,10 @@
 
 <AlignWrapper {horizontalAlignment} {verticalAlignment}>
 	<Toggle
+		on:pointerdown={(e) => {
+			e?.stopPropagation()
+			window.dispatchEvent(new Event('pointerup'))
+		}}
 		bind:value
 		options={{ right: labelValue }}
 		on:change={(e) => {

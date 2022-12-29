@@ -13,7 +13,12 @@
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
 	$: outputs = $worldStore?.outputsById[id] as {
+		loading: Output<boolean>
 		result: Output<any>
+	}
+
+	$: if (outputs.loading != undefined) {
+		outputs.loading.set(false, true)
 	}
 
 	function setOutput() {

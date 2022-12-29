@@ -19,23 +19,24 @@
 	export let component: AppComponent
 	export let selected: boolean
 	export let locked: boolean = false
+	export let pointerdown: boolean = false
 
 	const { staticOutputs, mode, connectingInput } = getContext<AppEditorContext>('AppEditorContext')
 </script>
 
 <div class="h-full flex flex-col w-full component">
 	{#if $mode !== 'preview'}
-		<ComponentHeader {component} {selected} on:delete on:lock {locked} />
+		<ComponentHeader {pointerdown} {component} {selected} on:delete on:lock {locked} />
 	{/if}
 
 	<div
 		class={classNames(
-			'border cursor-pointer h-full bg-white z-10',
+			'border cursor-pointer h-full bg-white',
 			selected && $mode !== 'preview' ? 'border-blue-500' : 'border-white',
 			!selected && $mode !== 'preview' && !component.card ? 'border-gray-100' : '',
 			$mode !== 'preview' && !$connectingInput.opened ? 'hover:border-blue-500' : '',
 			component.softWrap ? '' : 'overflow-auto',
-			'relative'
+			'relative z-auto'
 		)}
 	>
 		{#if component.type === 'displaycomponent'}

@@ -35,6 +35,10 @@
 		loading: Output<boolean>
 	}
 
+	$: if (outputs.loading != undefined) {
+		outputs.loading.set(false, true)
+	}
+
 	$: outputs?.loading.subscribe({
 		next: (value) => {
 			isLoading = value
@@ -60,6 +64,10 @@
 >
 	<AlignWrapper {horizontalAlignment} {verticalAlignment}>
 		<Button
+			on:pointerdown={(e) => {
+				e?.stopPropagation()
+				window.dispatchEvent(new Event('pointerup'))
+			}}
 			on:click={() => {
 				ownClick = true
 				runnableComponent?.runComponent()
