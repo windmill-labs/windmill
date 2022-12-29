@@ -20,6 +20,7 @@
 		faPlay,
 		faShare
 	} from '@fortawesome/free-solid-svg-icons'
+	import { MoreVertical } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Badge from '../badge/Badge.svelte'
 	import Button from '../button/Button.svelte'
@@ -130,7 +131,7 @@
 		</span>
 		<Dropdown
 			placement="bottom-end"
-			btnClasses="!text-gray-700 !bg-transparent hover:!bg-gray-400/20"
+			btnClasses="!text-gray-700 !bg-transparent hover:!bg-gray-400/20 !p-[6px]"
 			dropdownItems={[
 				{
 					displayName: 'View script',
@@ -192,6 +193,8 @@
 					disabled: !canWrite
 				}
 			]}
-		/>
+		>
+			<MoreVertical size={20} />
+		</Dropdown>
 	</svelte:fragment>
 </Row>

@@ -2,7 +2,7 @@
 	import type { DropdownItem } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import { faEllipsisH } from '@fortawesome/free-solid-svg-icons'
+	import { MoreHorizontal } from 'lucide-svelte'
 	import { Button, Menu } from './common'
 
 	type Alignment = 'start' | 'end'
@@ -20,7 +20,7 @@
 <Menu {placement} let:close>
 	<Button nonCaptureEvent color="light" size="xs" {btnClasses} slot="trigger">
 		{#if !$$slots.default}
-			<Icon data={faEllipsisH} scale={1.2} />
+			<MoreHorizontal size={20} />
 		{:else}
 			<slot />
 		{/if}
