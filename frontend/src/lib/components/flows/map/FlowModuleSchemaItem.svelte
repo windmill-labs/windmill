@@ -2,10 +2,9 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { classNames } from '$lib/utils'
-	import { faBed, faRepeat, faStop, faTimesCircle } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
-	import Icon from 'svelte-awesome'
-	import { PhoneIncoming, Repeat } from 'lucide-svelte'
+	import { fade } from 'svelte/transition'
+	import { Bed, PhoneIncoming, Repeat, Square, X } from 'lucide-svelte'
 
 	export let isFirst: boolean = false
 	export let isLast: boolean = false
@@ -43,39 +42,52 @@
 		<div class="absolute text-sm right-12 -bottom-3 flex flex-row gap-1 z-20">
 			{#if retry}
 				<Popover notClickable>
-					<div class="bg-white rounded border text-gray-700 px-1 center-center">
+					<div
+						transition:fade={{duration: 200}}
+						class="center-center bg-white rounded border border-gray-400 text-gray-700 px-1 py-0.5"
+					>
 						<Repeat size={14} />
 					</div>
-					<span slot="text">Retries</span>
+					<svelte:fragment slot="text">Retries</svelte:fragment>
 				</Popover>
 			{/if}
 			{#if earlyStop}
 				<Popover notClickable>
-					<div class="bg-white rounded border text-gray-700 px-1">
-						<Icon scale={0.8} data={faStop} />
+					<div
+						transition:fade={{duration: 200}}
+						class="center-center bg-white rounded border border-gray-400 text-gray-700 px-1 py-0.5"
+					>
+						<Square size={14} />
 					</div>
-					<span slot="text">Early Stop/Break</span>
-				</Popover>
-			{/if}
-			{#if sleep}
-				<Popover notClickable>
-					<div class="bg-white rounded border text-gray-700 px-1">
-						<Icon scale={0.8} data={faBed} />
-					</div>
-					<span slot="text">Sleep</span>
+					<svelte:fragment slot="text">Early stop/break</svelte:fragment>
 				</Popover>
 			{/if}
 			{#if suspend}
 				<Popover notClickable>
-					<div class="bg-white rounded border text-gray-700 px-1 center-center">
-						<PhoneIncoming size={12} />
+					<div
+						transition:fade={{duration: 200}}
+						class="center-center bg-white rounded border border-gray-400 text-gray-700 px-1 py-0.5"
+					>
+						<PhoneIncoming size={14} />
 					</div>
-					<span slot="text">Suspend</span>
+					<svelte:fragment slot="text">Suspend</svelte:fragment>
+				</Popover>
+			{/if}
+			{#if sleep}
+				<Popover notClickable>
+					<div
+						transition:fade={{duration: 200}}
+						class="center-center bg-white rounded border border-gray-400 text-gray-700 px-1 py-0.5"
+					>
+						<Bed size={14} />
+					</div>
+					<svelte:fragment slot="text">Sleep</svelte:fragment>
 				</Popover>
 			{/if}
 		</div>
 		<div
-			class="flex justify-between items-center w-full overflow-hidden rounded-sm border border-gray-400 p-2 bg-white text-2xs module"
+			class="flex justify-between items-center w-full overflow-hidden rounded-sm 
+			border border-gray-400 p-2 bg-white text-2xs module"
 		>
 			{#if $$slots.icon}
 				<slot name="icon" />
@@ -88,16 +100,13 @@
 				{/if}
 				{#if deletable}
 					<button
-						class="absolute -top-2 right-0 rounded-full h-4 w-4 trash center-center bg-white {selected
-							? ''
-							: '!hidden'}"
+						class="absolute -top-2 right-0 rounded-full h-4 w-4 trash center-center 
+						border-[1.5px] border-gray-700 bg-white duration-150 hover:bg-red-400 hover:text-white 
+						hover:border-red-700 {selected ? '' : '!hidden'}"
 						on:click={(event) => dispatch('delete', event)}
-						><Icon
-							data={faTimesCircle}
-							class="text-gray-600 hover:text-red-600"
-							scale={0.9}
-						/></button
 					>
+						<X size={12} strokeWidth={2} />
+					</button>
 				{/if}
 			</div>
 		</div>

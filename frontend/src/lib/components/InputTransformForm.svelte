@@ -141,77 +141,73 @@
 				</span>
 			{/if}
 		</div>
-		<div class="flex flex-row-reverse gap-x-4 gap-y-1 flex-wrap">
-			<div>
-				<Button
-					variant="contained"
-					color="blue"
-					size="xs"
-					on:click={() => {
-						focusProp(argName, 'connect', (path) => {
-							connectProperty(path)
-							return true
-						})
-					}}>Connect &rightarrow;</Button
-				>
-			</div>
-			<div>
-				<ToggleButtonGroup
-					bind:selected={propertyType}
-					on:selected={(e) => {
-						const staticTemplate = isStaticTemplate(inputCat)
-						if (e.detail === 'javascript') {
-							if (arg.expr == undefined) {
-								arg.expr = getDefaultExpr(
-									argName,
-									previousModuleId,
-									staticTemplate
-										? `\`${arg.value ?? ''}\``
-										: arg.value
-										? JSON.stringify(arg.value, null, 4)
-										: ''
-								)
-							}
-
-							arg.value = undefined
-							propertyType = 'javascript'
-							arg.type = 'javascript'
-						} else {
-							if (staticTemplate) {
-								arg.value = codeToStaticTemplate(arg.expr)
-								setPropertyType(arg.value)
-							} else {
-								arg.type = 'static'
-								arg.value = undefined
-								arg.expr = undefined
-							}
-							propertyType = 'static'
+		<div class="flex flex-row gap-x-4 gap-y-1 flex-wrap">
+			<ToggleButtonGroup
+				bind:selected={propertyType}
+				on:selected={(e) => {
+					const staticTemplate = isStaticTemplate(inputCat)
+					if (e.detail === 'javascript') {
+						if (arg.expr == undefined) {
+							arg.expr = getDefaultExpr(
+								argName,
+								previousModuleId,
+								staticTemplate
+									? `\`${arg.value ?? ''}\``
+									: arg.value
+									? JSON.stringify(arg.value, null, 4)
+									: ''
+							)
 						}
-					}}
-				>
-					{#if isStaticTemplate(inputCat)}
-						<ToggleButton light position="left" value="static" size="xs">
-							{'${} '}Templatable &nbsp; <Tooltip
-								>Write javascript expressions between "{openBracket}" and "{closeBracket}". You may
-								refer to contextual objects like 'flow_input', or 'result' or functions like
-								'resource' and 'variable'
-							</Tooltip></ToggleButton
-						>
-					{:else}
-						<ToggleButton light position="left" value="static" size="xs">Static</ToggleButton>
-					{/if}
 
-					<ToggleButton
-						light
-						position="right"
-						value="javascript"
-						startIcon={{ icon: faCode }}
-						size="xs"
+						arg.value = undefined
+						propertyType = 'javascript'
+						arg.type = 'javascript'
+					} else {
+						if (staticTemplate) {
+							arg.value = codeToStaticTemplate(arg.expr)
+							setPropertyType(arg.value)
+						} else {
+							arg.type = 'static'
+							arg.value = undefined
+							arg.expr = undefined
+						}
+						propertyType = 'static'
+					}
+				}}
+			>
+				{#if isStaticTemplate(inputCat)}
+					<ToggleButton light position="left" value="static" size="xs">
+						{'${} '}Templatable &nbsp; <Tooltip
+							>Write javascript expressions between "{openBracket}" and "{closeBracket}". You may
+							refer to contextual objects like 'flow_input', or 'result' or functions like
+							'resource' and 'variable'
+						</Tooltip></ToggleButton
 					>
-						Dynamic (JS)
-					</ToggleButton>
-				</ToggleButtonGroup>
-			</div>
+				{:else}
+					<ToggleButton light position="left" value="static" size="xs">Static</ToggleButton>
+				{/if}
+
+				<ToggleButton
+					light
+					position="right"
+					value="javascript"
+					startIcon={{ icon: faCode }}
+					size="xs"
+				>
+					Dynamic (JS)
+				</ToggleButton>
+			</ToggleButtonGroup>
+			<Button
+				variant="contained"
+				color="blue"
+				size="xs"
+				on:click={() => {
+					focusProp(argName, 'connect', (path) => {
+						connectProperty(path)
+						return true
+					})
+				}}>Connect &rightarrow;</Button
+			>
 		</div>
 	</div>
 	<div class="max-w-xs" />
@@ -235,6 +231,7 @@
 					{extraLib}
 					on:focus={onFocus}
 					bind:code={arg.value}
+					fontSize={12}
 				/>
 			</div>
 		{:else if propertyType === undefined || propertyType == 'static'}
@@ -288,5 +285,5 @@
 	</div>
 	<div class="mb-6" />
 {:else}
-	<p class="text-sm text-gray-700">Arg at {argName} is undefined</p>
+	<p class="text-sm text-gray-700">Argument at {argName} is undefined</p>
 {/if}

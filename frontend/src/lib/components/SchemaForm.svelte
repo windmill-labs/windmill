@@ -95,7 +95,7 @@
 						bind:pickForField
 					/>
 				{:else}
-					Expected args to be an object, got {JSON.stringify(args)} instead
+					Expected argument to be an object, got {JSON.stringify(args)} instead
 				{/if}
 			</div>
 		{/each}

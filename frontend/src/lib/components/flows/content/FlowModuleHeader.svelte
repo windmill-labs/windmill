@@ -5,7 +5,8 @@
 	import { faBed, faCodeBranch, faSave, faStop } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import { PhoneIncoming, Repeat } from 'lucide-svelte'
+	import { Bed, PhoneIncoming, Repeat, Square } from 'lucide-svelte'
+	import Popover from '../../Popover.svelte'
 
 	export let module: FlowModule
 
@@ -18,30 +19,46 @@
 
 <div class="flex flex-row space-x-2" bind:clientWidth={width}>
 	{#if module.value.type === 'script' || module.value.type === 'rawscript'}
-		<button
-			class={classNames('badge', module.stop_after_if ? 'badge-on' : 'badge-off')}
-			on:click={() => dispatch('toggleStopAfterIf')}
-		>
-			<Icon data={faStop} scale={0.8} />
-		</button>
-		<button
-			class={classNames('badge', moduleRetry ? 'badge-on' : 'badge-off', 'center-center')}
+		<Popover
+			class="center-center rounded border p-2 duration-200
+			{moduleRetry
+				? 'bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200'
+				: 'bg-white text-gray-800 border-gray-300 hover:bg-gray-100'}"
 			on:click={() => dispatch('toggleRetry')}
 		>
 			<Repeat size={14} />
-		</button>
-		<button
-			class={classNames('badge', Boolean(module.sleep) ? 'badge-on' : 'badge-off')}
-			on:click={() => dispatch('toggleSleep')}
+			<svelte:fragment slot="text">Retries</svelte:fragment>
+		</Popover>
+		<Popover
+			class="center-center rounded border p-2 duration-200
+			{module.stop_after_if
+				? 'bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200'
+				: 'bg-white text-gray-800 border-gray-300 hover:bg-gray-100'}"
+			on:click={() => dispatch('toggleStopAfterIf')}
 		>
-			<Icon data={faBed} scale={0.8} />
-		</button>
-		<button
-			class={classNames('badge', Boolean(module.suspend) ? 'badge-on' : 'badge-off')}
+			<Square size={14} />
+			<svelte:fragment slot="text">Early stop/break</svelte:fragment>
+		</Popover>
+		<Popover
+			class="center-center rounded border p-2 duration-200
+			{module.suspend
+				? 'bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200'
+				: 'bg-white text-gray-800 border-gray-300 hover:bg-gray-100'}"
 			on:click={() => dispatch('toggleSuspend')}
 		>
 			<PhoneIncoming size={14} />
-		</button>
+			<svelte:fragment slot="text">Suspend</svelte:fragment>
+		</Popover>
+		<Popover
+			class="center-center rounded border p-2 duration-200
+			{module.sleep
+				? 'bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200'
+				: 'bg-white text-gray-800 border-gray-300 hover:bg-gray-100'}"
+			on:click={() => dispatch('toggleSleep')}
+		>
+			<Bed size={14} />
+			<svelte:fragment slot="text">Sleep</svelte:fragment>
+		</Popover>
 	{/if}
 	{#if module.value.type === 'script'}
 		<div class="w-2" />
@@ -70,17 +87,3 @@
 		</Button>
 	{/if}
 </div>
-
-<style>
-	.badge {
-		@apply whitespace-nowrap text-sm font-medium border px-2.5 py-0.5 rounded cursor-pointer flex items-center;
-	}
-
-	.badge-on {
-		@apply bg-blue-100 text-blue-800 hover:bg-blue-200;
-	}
-
-	.badge-off {
-		@apply bg-gray-100 text-gray-800 hover:bg-gray-200;
-	}
-</style>
