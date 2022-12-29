@@ -117,7 +117,7 @@
 							on:click={() => selectInlineScript(unusedInlineScript.name)}
 						>
 							<span class="text-xs truncate">{unusedInlineScript.name}</span>
-							<Badge color="red">Unused</Badge>
+							<Badge color="red">Detached</Badge>
 						</div>
 					{/each}
 				</div>

@@ -111,7 +111,7 @@
 					<Tab size="sm" value="inlinescripts">
 						<div class="flex gap-2 items-center my-1">
 							<Building size={18} />
-							Inline Scripts
+							Detached Inline Scripts
 						</div>
 					</Tab>
 					<Tab size="sm" value="workspacescripts">
