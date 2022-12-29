@@ -12,12 +12,13 @@
 	export let dropdownItems: DropdownItem[]
 	export let name: string | undefined = undefined
 	export let placement: Placement = 'bottom-start'
+	export let btnClasses = '!text-blue-500 bg-transparent'
 
 	const dispatch = createEventDispatcher()
 </script>
 
 <Menu {placement} let:close>
-	<Button color="light" size="xs" btnClasses="!text-blue-500 bg-transparent" slot="trigger">
+	<Button color="light" size="xs" {btnClasses} slot="trigger">
 		{#if !$$slots.default}
 			<Icon data={faEllipsisH} scale={1.2} />
 		{:else}
