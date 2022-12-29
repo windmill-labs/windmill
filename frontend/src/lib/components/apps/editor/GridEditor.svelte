@@ -131,7 +131,10 @@
 						locked={isFixed(gridComponent)}
 						on:delete={() => removeGridElement(gridComponent.data)}
 						on:lock={() => {
-							gridComponent = toggleFixed(gridComponent)
+							let fComponent = $app.grid.find((c) => c.id === gridComponent.id)
+							if (fComponent) {
+								fComponent = toggleFixed(fComponent)
+							}
 						}}
 					/>
 				</div>
