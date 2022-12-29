@@ -2,7 +2,16 @@
 import { GlobalOptions } from "./types.ts";
 import { getRootStore } from "./store.ts";
 import { loginInteractive, tryGetLoginInfo } from "./login.ts";
-import { colors, Command, DelimiterStream, Input, Table } from "./deps.ts";
+import {
+  colors,
+  Command,
+  DelimiterStream,
+  Input,
+  setClient,
+  Table,
+  WorkspaceService,
+} from "./deps.ts";
+import { requireLogin } from "./context.ts";
 
 export type Workspace = {
   remote: string;
@@ -132,7 +141,11 @@ async function switchC(opts: GlobalOptions, workspaceName: string) {
 }
 
 export async function add(
-  opts: GlobalOptions,
+  opts: GlobalOptions & {
+    create: boolean;
+    createWorkspaceName: string | undefined;
+    createUsername: string;
+  },
   workspaceName: string | undefined,
   workspaceId: string | undefined,
   remote: string | undefined,
@@ -176,6 +189,25 @@ export async function add(
   let token = await tryGetLoginInfo(opts);
   while (!token) {
     token = await loginInteractive(remote);
+  }
+
+  if (opts.create) {
+    setClient(token, remote.substring(0, remote.length - 1));
+
+    if (
+      !await WorkspaceService.existsWorkspace({
+        requestBody: { id: workspaceId },
+      })
+    ) {
+      console.log(colors.yellow("Workspace does not exist. Creating..."));
+      await WorkspaceService.createWorkspace({
+        requestBody: {
+          id: workspaceId,
+          name: opts.createWorkspaceName ?? workspaceId,
+          username: opts.createUsername,
+        },
+      });
+    }
   }
 
   await addWorkspace({
@@ -224,6 +256,18 @@ const command = new Command()
   .command("add")
   .description("Add a workspace")
   .arguments("[workspace_name:string] [workspace_id:string] [remote:string]")
+  .option("-c --create", "Create the workspace if it does not exist")
+  .option(
+    "--create-workspace-name <workspace_name:string>",
+    "Specify the workspace name. Ignored if --create is not specified or the workspace already exists. Will default to the workspace id.",
+  )
+  .option(
+    "--create-username <username:string>",
+    "Specify your own username in the newly created workspace. Ignored if --create is not specified or the workspace already exists.",
+    {
+      default: "admin",
+    },
+  )
   .action(add as any)
   .command("remove")
   .description("Remove a workspace")
