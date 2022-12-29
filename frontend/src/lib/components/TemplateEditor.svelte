@@ -1,10 +1,7 @@
 <script lang="ts">
 	import { browser, dev } from '$app/environment'
-
 	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
-
 	import { buildWorkerDefinition } from 'monaco-editor-workers'
-
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 	import {
 		convertKind,
@@ -14,9 +11,7 @@
 		editorConfig,
 		updateOptions
 	} from '$lib/editorUtils'
-
 	import { languages, editor as meditor, Uri as mUri, Range } from 'monaco-editor'
-
 	import libStdContent from '$lib/es5.d.ts.txt?raw'
 
 	languages.typescript.javascriptDefaults.setCompilerOptions({
@@ -373,6 +368,7 @@
 	export let extraLib: string = ''
 	export let autoHeight = true
 	export let fixedOverflowWidgets = true
+	export let fontSize = 16
 
 	const lang = 'template'
 	const dispatch = createEventDispatcher()
@@ -425,7 +421,7 @@
 		editor = meditor.create(divEl as HTMLDivElement, {
 			...editorConfig(model, code, lang, automaticLayout, fixedOverflowWidgets),
 			lineNumbers: 'off',
-			fontSize: 16,
+			fontSize,
 			suggestOnTriggerCharacters: true,
 			lineDecorationsWidth: 20
 		})
@@ -577,10 +573,4 @@
 	})
 </script>
 
-<div bind:this={divEl} class="{$$props.class} editor templatable-editor" bind:clientWidth={width} />
-
-<style>
-	.editor {
-		@apply rounded-lg mx-0.5;
-	}
-</style>
+<div bind:this={divEl} class="{$$props.class} rounded-lg mx-0.5" bind:clientWidth={width} />
