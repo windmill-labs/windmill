@@ -45,6 +45,8 @@
 	use:popperRef
 	on:mouseenter={open}
 	on:mouseleave={close}
+	on:click
+	class={$$props.class}
 >
 	<slot />
 </button>
