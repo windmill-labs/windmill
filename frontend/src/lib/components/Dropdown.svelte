@@ -18,7 +18,7 @@
 </script>
 
 <Menu {placement} let:close>
-	<Button color="light" size="xs" {btnClasses} slot="trigger">
+	<Button nonCaptureEvent color="light" size="xs" {btnClasses} slot="trigger">
 		{#if !$$slots.default}
 			<Icon data={faEllipsisH} scale={1.2} />
 		{:else}
