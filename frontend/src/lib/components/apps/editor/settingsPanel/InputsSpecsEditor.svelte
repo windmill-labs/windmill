@@ -17,8 +17,8 @@
 		{#each Object.keys(inputSpecs) as inputSpecKey, index (index)}
 			{@const input = inputSpecs[inputSpecKey]}
 			{#if true}
-				<div class="flex flex-col gap-2">
-					<div class="flex justify-between items-center gap-1">
+				<div class="flex flex-col gap-1">
+					<div class="flex justify-between items-end gap-1">
 						<span class="text-xs font-semibold">
 							{shouldCapitalize ? capitalize(inputSpecKey) : inputSpecKey}
 						</span>

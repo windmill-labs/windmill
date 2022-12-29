@@ -69,7 +69,7 @@
 			ButtonType.SpacingClasses[spacingSize],
 			'focus:ring-2 font-semibold',
 			'duration-200 rounded-md',
-			'justify-center items-center text-center whitespace-nowrap inline-flex',
+			'justify-center items-center text-center whitespace-nowrap inline-flex truncate',
 			btnClasses,
 			disabled ? 'bg-gray-300' : ''
 		),
@@ -82,6 +82,7 @@
 	async function onClick(event: MouseEvent) {
 		if (!nonCaptureEvent) {
 			event.preventDefault()
+			event.stopPropagation()
 			dispatch('click', event)
 			if (href) {
 				if (href.startsWith('http') || target == '_blank') {

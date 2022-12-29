@@ -18,8 +18,6 @@
 		)
 		loading = false
 	}
-
-	$: disabled = Object.keys($runnableComponents).length === 0
 </script>
 
 <Button
@@ -27,7 +25,6 @@
 	btnClasses="m-2 mb-6"
 	startIcon={{ icon: faRefresh, classes: classNames(loading ? 'animate-spin' : '', 'mr-2') }}
 	color="dark"
-	{disabled}
 	on:click={onRefresh}
 >
 	Recompute all ({Object.keys($runnableComponents).length})

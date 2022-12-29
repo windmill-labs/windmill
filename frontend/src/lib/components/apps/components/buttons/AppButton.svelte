@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button, type ButtonType } from '$lib/components/common'
-	import { faArrowRight, faRefresh, faSpinner } from '@fortawesome/free-solid-svg-icons'
+	import { faSpinner } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
@@ -17,6 +17,7 @@
 	export let extraQueryParams: Record<string, any> = {}
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
+	export let noWFull = false
 
 	export const staticOutputs: string[] = ['loading', 'result']
 
@@ -62,13 +63,15 @@
 	{extraQueryParams}
 	autoRefresh={false}
 >
-	<AlignWrapper {horizontalAlignment} {verticalAlignment}>
+	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
 		<Button
 			on:pointerdown={(e) => {
 				e?.stopPropagation()
 				window.dispatchEvent(new Event('pointerup'))
 			}}
-			on:click={() => {
+			on:click={(e) => {
+				e?.stopPropagation()
+				e?.preventDefault()
 				ownClick = true
 				runnableComponent?.runComponent()
 

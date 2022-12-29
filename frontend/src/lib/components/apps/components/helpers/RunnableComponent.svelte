@@ -6,6 +6,7 @@
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import { AppService, type CompletedJob } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { emptySchema } from '$lib/utils'
 	import { getContext, onMount } from 'svelte'
 	import type { AppInputs, Runnable } from '../../inputType'
 	import type { Output } from '../../rx'
@@ -96,7 +97,7 @@
 		path: string,
 		runType: 'script' | 'flow' | 'hubscript'
 	): Promise<Schema> {
-		return loadSchema(workspace, path, runType)
+		return loadSchema(workspace, path, runType) ?? emptySchema()
 	}
 
 	$: runnable && loadSchemaAndInputsByName()

@@ -26,7 +26,7 @@
 
 	$: result = [] as Array<Record<string, any>>
 
-	let search: 'Frontend' | 'Backend' | 'Disabled' = 'Disabled'
+	let search: 'Runnable' | 'Component' | 'Disabled' = 'Disabled'
 	let searchValue = ''
 
 	let pagination: boolean | undefined = undefined
@@ -86,9 +86,9 @@
 	let filteredResult: Array<Record<string, any>> = []
 
 	$: filteredResult && setOptions(filteredResult)
-	$: extraQueryParams = search === 'Backend' ? { search: searchValue, page } : { page, search: '' }
-	$: search === 'Frontend' && (filteredResult = searchInResult(result, searchValue))
-	$: (search === 'Backend' || search === 'Disabled') && (filteredResult = result)
+	$: extraQueryParams = search === 'Runnable' ? { search: searchValue, page } : { page, search: '' }
+	$: search === 'Runnable' && (filteredResult = searchInResult(result, searchValue))
+	$: (search === 'Runnable' || search === 'Disabled') && (filteredResult = result)
 	$: outputs = $worldStore?.outputsById[id] as {
 		selectedRow: Output<any>
 	}
@@ -149,10 +149,12 @@
 										? 'divide-blue-200 hover:divide-blue-300'
 										: 'divide-gray-200'
 								)}
-								on:click={() => toggleRow(row, rowIndex)}
 							>
 								{#each row.getVisibleCells() as cell, index (index)}
-									<td class="p-4 whitespace-nowrap text-xs text-gray-900">
+									<td
+										on:click={() => toggleRow(row, rowIndex)}
+										class="p-4 whitespace-nowrap text-xs text-gray-900"
+									>
 										<svelte:component
 											this={flexRender(cell.column.columnDef.cell, cell.getContext())}
 										/>
@@ -160,9 +162,13 @@
 								{/each}
 
 								{#if actionButtons.length > 0}
-									<td class="flex flex-row gap-2 p-4">
+									<td
+										class="flex w-full flex-row gap-2 p-4"
+										on:click={() => toggleRow(row, rowIndex)}
+									>
 										{#each actionButtons as actionButton, actionIndex (actionIndex)}
 											<AppButton
+												noWFull
 												{...actionButton}
 												extraQueryParams={{ row: row.original, rowIndex }}
 												bind:componentInput={actionButton.componentInput}

@@ -58,20 +58,7 @@
 
 	function addComponent(appComponent: AppComponent) {
 		const grid = $app.grid ?? []
-		const id = getNextId(
-			grid
-				.map((gridItem) => {
-					if (gridItem.data.type === 'tablecomponent') {
-						return [
-							gridItem.data.id,
-							...gridItem.data.actionButtons.map((actionButton) => actionButton.id)
-						]
-					} else {
-						return [gridItem.data.id]
-					}
-				})
-				.flat()
-		)
+		const id = getNextId(grid.map((gridItem) => gridItem.data.id))
 
 		appComponent.id = id
 

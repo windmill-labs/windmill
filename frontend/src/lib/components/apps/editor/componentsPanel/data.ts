@@ -66,7 +66,7 @@ const inputs: ComponentSet = {
 				label: {
 					type: 'static',
 					value: 'Label',
-					fieldType: 'textarea',
+					fieldType: 'text',
 					defaultValue: 'Label'
 				}
 			},
@@ -123,7 +123,7 @@ const buttons: ComponentSet = {
 				label: {
 					type: 'static',
 					value: 'Lorem ipsum',
-					fieldType: 'textarea',
+					fieldType: 'text',
 					defaultValue: 'Lorem ipsum'
 				},
 				color: {
@@ -160,7 +160,7 @@ const buttons: ComponentSet = {
 				label: {
 					type: 'static',
 					value: 'Submit',
-					fieldType: 'textarea',
+					fieldType: 'text',
 					defaultValue: 'formcomponent'
 				},
 				color: {

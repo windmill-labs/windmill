@@ -96,6 +96,14 @@ declare const ${k} = ${JSON.stringify(v)};
 				title={component.componentInput.fieldType === 'any' ? 'Runnable' : 'Component input'}
 			>
 				<svelte:fragment slot="action">
+					<span
+						class={classNames(
+							'text-white px-2 text-2xs py-0.5 font-bold rounded-sm w-fit',
+							'bg-indigo-500'
+						)}
+					>
+						{`${component.id}`}
+					</span>
 					{#if component.componentInput.fieldType !== 'any'}
 						<Badge color="blue">
 							{component.componentInput.fieldType === 'array' &&
@@ -105,24 +113,8 @@ declare const ${k} = ${JSON.stringify(v)};
 						</Badge>
 					{/if}
 				</svelte:fragment>
-				<span
-					class={classNames(
-						'text-white px-2 text-2xs py-0.5 font-bold rounded-sm w-fit',
-						'bg-indigo-500'
-					)}
-				>
-					{`Selected component: ${component.id}`}
-				</span>
 
 				<ComponentInputTypeEditor bind:componentInput={component.componentInput} />
-
-				{#if onDelete}
-					<div class="w-full">
-						<Alert title="Special arguments" size="xs">
-							The row and the rowIndex are passed as arguments to the runnable.
-						</Alert>
-					</div>
-				{/if}
 
 				<div class="flex flex-col w-full gap-2 my-2">
 					{#if component.componentInput.type === 'static'}
@@ -170,7 +162,7 @@ declare const ${k} = ${JSON.stringify(v)};
 		{/if}
 
 		{#if component.type === 'tablecomponent' && Array.isArray(component.actionButtons)}
-			<TableActions bind:components={component.actionButtons} />
+			<TableActions id={component.id} bind:components={component.actionButtons} />
 		{/if}
 
 		<AlignmentEditor bind:component />

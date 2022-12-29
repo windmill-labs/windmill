@@ -97,17 +97,19 @@
 			<Pane size={55}>
 				<SplitPanesWrapper horizontal>
 					<Pane size={70}>
-						<div class={classNames('bg-gray-100  mx-auto  relative min-h-full', width)}>
-							{#if $appStore.grid}
-								<div class={classNames('mx-auto p-4 w-full h-full bg-gray-100', width)}>
-									<GridEditor />
-								</div>
-							{/if}
-							{#if $connectingInput.opened}
-								<div
-									class="absolute top-0 left-0 w-full h-full bg-black border-2 bg-opacity-25 z-1 flex justify-center items-center"
-								/>
-							{/if}
+						<div class="bg-gray-100 w-full p-4 h-full overflow-auto">
+							<div class={classNames('bg-gray-100  mx-auto relative min-h-full', width)}>
+								{#if $appStore.grid}
+									<div class={classNames('w-full p-2 h-full bg-white', width)}>
+										<GridEditor />
+									</div>
+								{/if}
+								{#if $connectingInput.opened}
+									<div
+										class="absolute top-0 left-0 w-full h-full bg-black border-2 bg-opacity-25 z-1 flex justify-center items-center"
+									/>
+								{/if}
+							</div>
 						</div>
 					</Pane>
 					<Pane size={30}>
