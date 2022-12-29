@@ -294,7 +294,7 @@
 		{:else if filteredItems.length === 0}
 			<NoItemFound />
 		{:else}
-			<div class="border rounded-md overflow-hidden divide-y divide-gray-200 mb-80">
+			<div class="border rounded-md divide-y divide-gray-200 mb-80">
 				<!-- <VirtualList {items} let:item bind:start bind:end> -->
 				{#each items ?? [] as item, i (item.type + '/' + item.path)}
 					{#if item.type == 'script'}
