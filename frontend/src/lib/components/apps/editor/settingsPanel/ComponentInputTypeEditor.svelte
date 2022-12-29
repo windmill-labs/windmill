@@ -19,7 +19,7 @@
 		<ToggleButtonGroup bind:selected={componentInput.type}>
 			{#if componentInput.fieldType === 'textarea'}
 				<ToggleButton position="left" value="template" size="xs" disable={disableStatic}>
-					{brackets} Templatable
+					{brackets}&nbsp;<span class="hidden lg:block">Templatable</span>
 				</ToggleButton>
 			{:else}
 				<ToggleButton
@@ -29,7 +29,7 @@
 					size="xs"
 					disable={disableStatic}
 				>
-					Static
+					<span class="hidden lg:block"> Static </span>
 				</ToggleButton>
 			{/if}
 
@@ -39,10 +39,10 @@
 				startIcon={{ icon: faArrowRight }}
 				size="xs"
 			>
-				Connected
+				<span class="hidden lg:block"> Connected </span>
 			</ToggleButton>
 			<ToggleButton position="right" value="runnable" startIcon={{ icon: faCode }} size="xs">
-				Computed
+				<span class="hidden lg:block"> Computed </span>
 			</ToggleButton>
 		</ToggleButtonGroup>
 	</div>

@@ -35,7 +35,7 @@
 		loading: Output<boolean>
 	}
 
-	$: if (outputs.loading != undefined) {
+	$: if (outputs?.loading != undefined) {
 		outputs.loading.set(false, true)
 	}
 

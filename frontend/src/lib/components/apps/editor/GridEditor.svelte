@@ -83,11 +83,9 @@
 				clearTimeout(intervalId)
 			}
 			intervalId = setTimeout(() => {
-				if (JSON.stringify($app.grid) != JSON.stringify($lazyGrid)) {
-					lazyGrid.set($app.grid)
-				}
+				lazyGrid.set($app.grid)
 				intervalId = undefined
-			}, 50)
+			}, 100)
 		}
 	}
 
