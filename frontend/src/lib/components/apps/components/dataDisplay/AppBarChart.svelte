@@ -50,7 +50,12 @@
 	const options = {
 		responsive: true,
 		animation: false,
-		maintainAspectRatio: false
+		maintainAspectRatio: false,
+		plugins: {
+			legend: {
+				display: false
+			}
+		}
 	}
 
 	$: data = {

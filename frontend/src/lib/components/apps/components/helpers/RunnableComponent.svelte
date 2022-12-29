@@ -274,7 +274,14 @@
 
 <div class="h-full flex flex-col">
 	{#if schemaStripped !== undefined && (autoRefresh || forceSchemaDisplay)}
-		<SchemaForm schema={schemaStripped} bind:args {isValid} {disabledArgs} shouldHideNoInputs />
+		<SchemaForm
+			schema={schemaStripped}
+			bind:args
+			{isValid}
+			{disabledArgs}
+			shouldHideNoInputs
+			noVariablePicker
+		/>
 	{/if}
 
 	{#if !runnable && autoRefresh}

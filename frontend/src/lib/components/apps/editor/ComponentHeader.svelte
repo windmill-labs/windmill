@@ -13,8 +13,8 @@
 
 <span
 	class={classNames(
-		'text-white px-2 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute -top-5 z-50',
-		selected ? 'bg-indigo-500' : 'bg-gray-500'
+		'px-2 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute z-50',
+		selected ? 'bg-indigo-500 text-white' : 'bg-gray-200/60 text-gray-500'
 	)}
 >
 	{component.id}
@@ -22,8 +22,9 @@
 
 <button
 	class={classNames(
-		'text-white px-1 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute -top-5 right-8  cursor-pointer',
-		'bg-gray-600 hover:bg-gray-800'
+		'text-white px-1 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute right-8 z-50 cursor-pointer',
+		' hover:bg-gray-800',
+		selected ? 'bg-gray-600/90' : 'bg-gray-600/60'
 	)}
 	on:click={() => {
 		dispatch('lock')
@@ -35,15 +36,16 @@
 		<Anchor size={16} />
 	{/if}
 </button>
-
-<button
-	class={classNames(
-		'text-white px-1 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute -top-5 right-0  cursor-pointer',
-		'bg-gray-600 hover:bg-gray-800'
-	)}
-	on:click={() => {
-		dispatch('delete')
-	}}
->
-	<X size={16} />
-</button>
+{#if selected}
+	<button
+		class={classNames(
+			'text-white px-1 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute right-0 z-50 cursor-pointer',
+			'bg-gray-600/80 hover:bg-gray-800'
+		)}
+		on:click={() => {
+			dispatch('delete')
+		}}
+	>
+		<X size={16} />
+	</button>
+{/if}

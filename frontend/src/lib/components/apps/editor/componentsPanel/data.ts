@@ -9,7 +9,14 @@ const inputs: ComponentSet = {
 			id: 'textinputcomponent',
 			type: 'textinputcomponent',
 			componentInput: undefined,
-			configuration: {},
+			configuration: {
+				placeholder: {
+					type: 'static',
+					value: 'Type...',
+					fieldType: 'text',
+					defaultValue: 'Type...'
+				},
+			},
 			card: false
 		},
 		{

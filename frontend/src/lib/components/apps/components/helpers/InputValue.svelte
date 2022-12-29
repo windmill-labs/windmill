@@ -13,9 +13,16 @@
 
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
+	$: input && setDefault()
 	$: state = $worldStore?.state
 	$: input && $worldStore && handleConnection()
 	$: input && $state && input.type == 'template' && setValue()
+
+	function setDefault() {
+		if (!value && input.defaultValue) {
+			value = input.defaultValue
+		}
+	}
 
 	function handleConnection() {
 		if (input.type === 'connected') {

@@ -54,6 +54,7 @@
 		worldStore,
 		staticOutputs,
 		app: appStore,
+		lazyGrid: writable(app.grid),
 		selectedComponent,
 		mode,
 		connectingInput,

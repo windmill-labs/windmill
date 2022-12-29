@@ -11,14 +11,25 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import RecomputeAllComponents from './RecomputeAllComponents.svelte'
 
-	const { selectedComponent, app, mode, connectingInput, staticOutputs, runnableComponents } =
-		getContext<AppEditorContext>('AppEditorContext')
+	const {
+		selectedComponent,
+		app,
+		mode,
+		connectingInput,
+		staticOutputs,
+		runnableComponents,
+		lazyGrid
+	} = getContext<AppEditorContext>('AppEditorContext')
 
 	// The drag is disabled when the user is connecting an input
-	$: if ($mode === 'preview' || $connectingInput.opened) {
-		$app.grid.map((gridItem) => disableDrag(gridItem))
-	} else {
-		$app.grid.map((gridItem) => enableDrag(gridItem))
+	$: setAllDrags($mode === 'preview' || $connectingInput.opened)
+
+	function setAllDrags(enable: boolean) {
+		if (enable) {
+			$app.grid.map((gridItem) => disableDrag(gridItem))
+		} else {
+			$app.grid.map((gridItem) => enableDrag(gridItem))
+		}
 	}
 
 	function removeGridElement(component) {
@@ -64,6 +75,23 @@
 			$selectedComponent = id
 		}
 	}
+
+	$: $app.grid && recomputeLazyGrid()
+
+	let intervalId: NodeJS.Timeout | undefined = undefined
+	function recomputeLazyGrid() {
+		{
+			if (intervalId) {
+				clearTimeout(intervalId)
+			}
+			intervalId = setTimeout(() => {
+				if (JSON.stringify($app.grid) != JSON.stringify($lazyGrid)) {
+					lazyGrid.set($app.grid)
+				}
+				intervalId = undefined
+			}, 50)
+		}
+	}
 </script>
 
 <div class="bg-white h-full relative">
@@ -71,13 +99,13 @@
 	<Grid
 		bind:items={$app.grid}
 		let:dataItem
-		rowHeight={32}
+		rowHeight={46}
 		cols={columnConfiguration}
 		fastStart={true}
 		on:pointerup={({ detail }) => selectComponent(detail.id)}
-		gap={[10, 2]}
+		gap={[4, 2]}
 	>
-		{#each $app.grid as gridComponent (gridComponent.id)}
+		{#each $lazyGrid as gridComponent (gridComponent.id)}
 			{#if gridComponent.data.id === dataItem.data.id}
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<div
@@ -86,7 +114,7 @@
 						gridComponent.data.card ? 'border border-gray-100' : '',
 						'z-50'
 					)}
-					on:click|stopPropagation|preventDefault|capture|once
+					on:click|preventDefault|capture|once
 				>
 					<ComponentEditor
 						bind:component={gridComponent.data}

@@ -14,7 +14,8 @@
 
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
 	let input: HTMLInputElement
-	let labelValue: string = 'Title'
+
+	let placeholder: string | undefined = undefined
 
 	$: outputs = $worldStore?.outputsById[id] as {
 		result: Output<string>
@@ -25,14 +26,8 @@
 	}
 </script>
 
-<InputValue {id} input={configuration.label} bind:value={labelValue} />
+<InputValue {id} input={configuration.placeholder} bind:value={placeholder} />
 
 <AlignWrapper {verticalAlignment}>
-	<input
-		type={inputType}
-		bind:this={input}
-		on:input={handleInput}
-		placeholder="Type..."
-		class="h-full"
-	/>
+	<input type={inputType} bind:this={input} on:input={handleInput} {placeholder} class="h-full" />
 </AlignWrapper>

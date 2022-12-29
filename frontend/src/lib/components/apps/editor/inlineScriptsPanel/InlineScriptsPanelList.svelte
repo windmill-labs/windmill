@@ -7,14 +7,14 @@
 
 	export let selectedScriptComponentId: string | undefined = undefined
 
-	const { app, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, selectedComponent, lazyGrid } = getContext<AppEditorContext>('AppEditorContext')
 
 	function selectInlineScript(id: string, subId?: string) {
 		selectedScriptComponentId = subId ? subId : id
 		$selectedComponent = selectedScriptComponentId
 	}
 
-	$: runnablesByName = $app.grid.reduce((acc, gridComponent) => {
+	$: runnablesByName = $lazyGrid.reduce((acc, gridComponent) => {
 		const component: AppComponent = gridComponent.data
 
 		if (component.type === 'tablecomponent') {
@@ -44,7 +44,7 @@
 		return acc
 	}, [] as { name: string; id: string; subId?: string }[])
 
-	$: runnablesByPath = $app.grid.reduce((acc, gridComponent) => {
+	$: runnablesByPath = $lazyGrid.reduce((acc, gridComponent) => {
 		const component: AppComponent = gridComponent.data
 
 		if (component.type === 'tablecomponent') {
