@@ -49,15 +49,15 @@
 	<slot />
 </button>
 {#if showTooltip}
-	<div id="tooltip" use:popperContent={extraOpts} on:mouseenter={open} on:mouseleave={close}>
+	<div
+		use:popperContent={extraOpts}
+		on:mouseenter={open}
+		on:mouseleave={close}
+		class="z-50 text-sm font-normal text-gray-300 bg-gray-800 py-2 px-3 rounded-md 
+		whitespace-normal text-left {$$props.class}"
+	>
 		<div class="max-w-sm">
 			<slot name="text" />
 		</div>
 	</div>
 {/if}
-
-<style>
-	#tooltip {
-		@apply z-50 text-sm font-normal text-gray-300 bg-gray-800 p-4 rounded-xl whitespace-normal text-left;
-	}
-</style>
