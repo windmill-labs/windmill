@@ -114,6 +114,7 @@
 
 		<Dropdown
 			placement="bottom-end"
+			btnClasses="!text-gray-700 !bg-transparent hover:!bg-gray-400/20"
 			dropdownItems={[
 				{
 					displayName: 'View flow',
