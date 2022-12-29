@@ -40,16 +40,15 @@
 	let testIsLoading = false
 	let runnableInputValues: Record<string, any> = {}
 
-	$: mergedArgs = { ...extraQueryParams, ...runnableInputValues, ...args }
-
 	function setStaticInputsToArgs() {
+		let nargs = {}
 		Object.entries(fields ?? {}).forEach(([key, value]) => {
 			if (value.type === 'static') {
-				args[key] = value.value
+				nargs[key] = value.value
 			}
 		})
 
-		args = args
+		args = nargs
 	}
 
 	$: fields && setStaticInputsToArgs()
@@ -77,7 +76,10 @@
 		return areAllArgsValid
 	}
 
-	$: isValid = argMergedArgsValid(mergedArgs, testJobLoader)
+	$: isValid = argMergedArgsValid(
+		{ ...extraQueryParams, ...runnableInputValues, ...args },
+		testJobLoader
+	)
 
 	// Test job internal state
 	let testJob: CompletedJob | undefined = undefined
@@ -228,7 +230,7 @@
 
 		await testJobLoader?.abstractRun(() => {
 			const requestBody = {
-				args: mergedArgs,
+				args: { ...extraQueryParams, ...args, ...runnableInputValues },
 				force_viewer_static_fields: {}
 			}
 
@@ -261,7 +263,12 @@
 </script>
 
 {#each Object.keys(fields ?? {}) as key}
-	<InputValue {id} input={fields[key]} bind:value={runnableInputValues[key]} />
+	<InputValue
+		{id}
+		input={fields[key]}
+		bind:value={runnableInputValues[key]}
+		row={extraQueryParams['row'] ?? {}}
+	/>
 {/each}
 
 <TestJobLoader

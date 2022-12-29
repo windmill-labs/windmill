@@ -162,7 +162,7 @@
 			notfound = false
 		} catch (err) {
 			intervalId && clearIntervalAsync(intervalId!)
-			isLoading = false
+			clearCurrentJob()
 			if (err.status === 404) {
 				notfound = true
 			}

@@ -18,10 +18,10 @@
 	import RunnableInputEditor from './inputEditor/RunnableInputEditor.svelte'
 	import TemplateEditor from '$lib/components/TemplateEditor.svelte'
 	import type { Output } from '../../rx'
-	import { Alert } from '$lib/components/common'
 
 	export let component: AppComponent | undefined
 	export let onDelete: (() => void) | undefined = undefined
+	export let rowColumns = false
 
 	const { app, staticOutputs, runnableComponents, worldStore } =
 		getContext<AppEditorContext>('AppEditorContext')
@@ -148,6 +148,7 @@ declare const ${k} = ${JSON.stringify(v)};
 								shouldCapitalize={false}
 								bind:inputSpecs={component.componentInput.fields}
 								userInputEnabled={component.type !== 'buttoncomponent'}
+								{rowColumns}
 							/>
 						</PanelSection>
 					</div>

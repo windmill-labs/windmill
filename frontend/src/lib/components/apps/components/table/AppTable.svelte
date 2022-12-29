@@ -170,7 +170,7 @@
 											<AppButton
 												noWFull
 												{...actionButton}
-												extraQueryParams={{ row: row.original, rowIndex }}
+												extraQueryParams={{ row: row.original }}
 												bind:componentInput={actionButton.componentInput}
 												bind:staticOutputs={$staticOutputsStore[actionButton.id]}
 											/>

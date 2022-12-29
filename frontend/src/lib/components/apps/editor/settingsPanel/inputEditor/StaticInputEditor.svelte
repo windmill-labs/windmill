@@ -56,6 +56,6 @@
 	{:else if componentInput.fieldType === 'array'}
 		<ArrayStaticInputEditor bind:componentInput />
 	{:else}
-		<input bind:value={componentInput.value} />
+		<input type="text" placeholder="Static value" bind:value={componentInput.value} />
 	{/if}
 {/if}

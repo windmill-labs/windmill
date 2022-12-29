@@ -19,7 +19,7 @@ export interface Input<T> extends Subscriber<T> {
 
 export type World = {
 	outputsById: Record<string, Record<string, Output<any>>>
-	connect: <T>(inputSpec: AppInput, next: (x: T) => void, previousValue: T) => Input<T>
+	connect: <T>(inputSpec: AppInput, next: (x: T) => void) => Input<T>
 	state: Writable<number>
 }
 
@@ -50,11 +50,11 @@ export function buildWorld(
 export function buildObservableWorld() {
 	const observables: Record<string, Output<any>> = {}
 
-	function connect<T>(inputSpec: AppInput, next: (x: T) => void, previousValue: T): Input<T> {
+	function connect<T>(inputSpec: AppInput, next: (x: T) => void): Input<T> {
 		if (inputSpec.type === 'static') {
 			return {
 				peak: () => inputSpec.value,
-				next: () => {}
+				next: () => { }
 			}
 		} else if (inputSpec.type === 'connected') {
 			const input = cachedInput(next)
@@ -64,13 +64,13 @@ export function buildObservableWorld() {
 			if (!connection) {
 				return {
 					peak: () => undefined,
-					next: () => {}
+					next: () => { }
 				}
 			}
 
 			const { componentId, path } = connection
 
-			const [p] = path ? path.split('.') : [undefined]
+			const [p] = path ? path.split('.')[0].split('[') : [undefined]
 
 			let obs = observables[`${componentId}.${p}`]
 
@@ -78,16 +78,17 @@ export function buildObservableWorld() {
 				console.warn('Observable at ' + componentId + '.' + p + ' not found')
 				return {
 					peak: () => undefined,
-					next: () => {}
+					next: () => { }
 				}
 			}
 
 			obs.subscribe(input)
+			input.next(obs.peak())
 			return input
 		} else if (inputSpec.type === 'user') {
 			return {
 				peak: () => inputSpec.value,
-				next: () => {}
+				next: () => { }
 			}
 		} else {
 			throw Error('Unknown input type ' + inputSpec)

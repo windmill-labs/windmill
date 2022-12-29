@@ -1,15 +1,24 @@
 <script lang="ts">
 	import { Badge, ToggleButton, ToggleButtonGroup } from '$lib/components/common'
 	import { capitalize } from '$lib/utils'
-	import { faArrowRight, faPen, faUser } from '@fortawesome/free-solid-svg-icons'
+	import { faArrowRight, faPen, faTableCells, faUser } from '@fortawesome/free-solid-svg-icons'
 	import { fieldTypeToTsType } from '../../utils'
 	import InputsSpecEditor from './InputsSpecEditor.svelte'
-	import type { ConnectedAppInput, StaticAppInput, UserAppInput } from '../../inputType'
+	import type {
+		ConnectedAppInput,
+		RowAppInput,
+		StaticAppInput,
+		UserAppInput
+	} from '../../inputType'
 
-	export let inputSpecs: Record<string, StaticAppInput | ConnectedAppInput | UserAppInput>
+	export let inputSpecs: Record<
+		string,
+		StaticAppInput | ConnectedAppInput | UserAppInput | RowAppInput
+	>
 	export let userInputEnabled: boolean = true
 	export let staticOnly: boolean = false
 	export let shouldCapitalize: boolean = true
+	export let rowColumns = false
 </script>
 
 {#if inputSpecs}
@@ -38,6 +47,16 @@
 									size="xs"
 									iconOnly
 								/>
+								{#if rowColumns}
+									<ToggleButton
+										position="center"
+										value="row"
+										startIcon={{ icon: faTableCells }}
+										size="xs"
+										iconOnly
+										disabled={staticOnly}
+									/>
+								{/if}
 								<ToggleButton
 									position="right"
 									value="connected"

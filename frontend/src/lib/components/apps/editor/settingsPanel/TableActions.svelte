@@ -13,7 +13,7 @@
 	export let components: (BaseAppComponent & ButtonComponent)[]
 	export let id: string
 
-	const { selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
+	const { selectedComponent, staticOutputs } = getContext<AppEditorContext>('AppEditorContext')
 
 	function addComponent() {
 		const actionId = getNextId(components.map((x) => x.id.split('-')[1]))
@@ -59,6 +59,8 @@
 
 	function deleteComponent(cid: string) {
 		components = components.filter((x) => x.id !== cid)
+		delete $staticOutputs[cid]
+		$staticOutputs = $staticOutputs
 		$selectedComponent = id
 	}
 </script>

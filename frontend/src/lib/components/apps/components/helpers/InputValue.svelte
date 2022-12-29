@@ -10,12 +10,13 @@
 	export let input: AppInput
 	export let value: T
 	export let id: string | undefined = undefined
+	export let row: Record<string, any> = {}
 
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
 	$: input && setDefault()
 	$: state = $worldStore?.state
-	$: input && $worldStore && handleConnection()
+	$: input && $worldStore && row && handleConnection()
 	$: input && $state && input.type == 'template' && setValue()
 
 	function setDefault() {
@@ -26,7 +27,9 @@
 
 	function handleConnection() {
 		if (input.type === 'connected') {
-			$worldStore?.connect<any>(input, onValueChange, value)
+			$worldStore?.connect<any>(input, onValueChange)
+		} else if (input.type === 'row') {
+			value = row[input.column]
 		} else if (input.type === 'static' || input.type == 'template') {
 			setValue()
 		} else {
@@ -100,9 +103,11 @@
 			const hasSubPath = ['.', '['].some((x) => path.includes(x))
 
 			if (hasSubPath) {
-				// Must remove top level property from path
-				// Which was manually added, i.e. result
-				const realPath = path.split('.').slice(1).join('.')
+				const realPath = path
+					.replace(/\[(\w+)\]/g, '.$1')
+					.split('.')
+					.slice(1)
+					.join('.')
 
 				value = accessPropertyByPath<T>(newValue, realPath)
 			} else {

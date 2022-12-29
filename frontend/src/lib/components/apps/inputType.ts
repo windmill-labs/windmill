@@ -33,6 +33,12 @@ export type UserInput<U> = {
 	value: U | undefined
 }
 
+
+export type RowInput = {
+	type: 'row'
+	column: string
+}
+
 // Static input, set by the developer in the component panel
 export type StaticInput<U> = {
 	value: U | undefined
@@ -61,7 +67,7 @@ export type Runnable = RunnableByPath | RunnableByName | undefined
 // Runnable input, set by the developer in the component panel
 export type ResultInput = {
 	runnable: Runnable
-	fields: Record<string, StaticAppInput | ConnectedAppInput>
+	fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput>
 	type: 'runnable'
 }
 
@@ -69,6 +75,7 @@ type AppInputSpec<T extends InputType, U, V extends InputType = never> = (
 	| StaticInput<U>
 	| ConnectedInput
 	| UserInput<U>
+	| RowInput
 	| ResultInput
 	| TemplateInput
 ) &
@@ -93,11 +100,11 @@ export type AppInput =
 	| AppInputSpec<'object', Record<string | number, any>>
 	| AppInputSpec<'object', string>
 	| (AppInputSpec<'select', string> & {
-			/**
-			 * One of the keys of `staticValues` from `lib/components/apps/editor/componentsPanel/componentStaticValues`
-			 */
-			optionValuesKey: keyof typeof staticValues
-	  })
+		/**
+		 * One of the keys of `staticValues` from `lib/components/apps/editor/componentsPanel/componentStaticValues`
+		 */
+		optionValuesKey: keyof typeof staticValues
+	})
 	| AppInputSpec<'array', string[], 'text'>
 	| AppInputSpec<'array', string[], 'textarea'>
 	| AppInputSpec<'array', number[], 'number'>
@@ -107,9 +114,10 @@ export type AppInput =
 	| AppInputSpec<'array', string[], 'datetime'>
 	| AppInputSpec<'array', object[], 'object'>
 	| (AppInputSpec<'array', string[], 'select'> & {
-			optionValuesKey: keyof typeof staticValues
-	  })
+		optionValuesKey: keyof typeof staticValues
+	})
 
+export type RowAppInput = Extract<AppInput, { type: 'row' }>
 export type StaticAppInput = Extract<AppInput, { type: 'static' }>
 export type ConnectedAppInput = Extract<AppInput, { type: 'connected' }>
 export type UserAppInput = Extract<AppInput, { type: 'user' }>
