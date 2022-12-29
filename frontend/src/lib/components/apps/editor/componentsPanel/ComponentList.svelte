@@ -18,7 +18,7 @@
 	function getMinDimensionsByComponent(componentType: AppComponent['type'], column: number): Size {
 		// Dimensions key formula: <mobile width>:<mobile height>-<desktop width>:<desktop height>
 		const dimensions: Record<`${number}:${number}-${number}:${number}`, AppComponent['type'][]> = {
-			'1:2-2:2': [
+			'1:1-2:1': [
 				'buttoncomponent',
 				'textcomponent',
 				'checkboxcomponent',
@@ -47,7 +47,8 @@
 				'numberinputcomponent',
 				'selectcomponent',
 				'dateinputcomponent',
-				'passwordinputcomponent'
+				'passwordinputcomponent',
+				'buttoncomponent'
 			].includes(componentType)
 		) {
 			return { w: column, h: 1 }
@@ -57,20 +58,7 @@
 
 	function addComponent(appComponent: AppComponent) {
 		const grid = $app.grid ?? []
-		const id = getNextId(
-			grid
-				.map((gridItem) => {
-					if (gridItem.data.type === 'tablecomponent') {
-						return [
-							gridItem.data.id,
-							...gridItem.data.actionButtons.map((actionButton) => actionButton.id)
-						]
-					} else {
-						return [gridItem.data.id]
-					}
-				})
-				.flat()
-		)
+		const id = getNextId(grid.map((gridItem) => gridItem.data.id))
 
 		appComponent.id = id
 

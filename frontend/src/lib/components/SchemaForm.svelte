@@ -25,6 +25,7 @@
 	export let shouldHideNoInputs: boolean = false
 	export let compact = false
 	export let password: string | undefined = undefined
+	export let noVariablePicker = false
 
 	let clazz: string = ''
 	export { clazz as class }
@@ -48,8 +49,8 @@
 	$: schema?.properties && removeExtraKey()
 
 	let pickForField: string | undefined
-	let itemPicker: ItemPicker
-	let variableEditor: VariableEditor
+	let itemPicker: ItemPicker | undefined = undefined
+	let variableEditor: VariableEditor | undefined = undefined
 </script>
 
 <div class="w-full {clazz}">
@@ -66,6 +67,7 @@
 						bind:extraLib
 						{variableEditor}
 						{itemPicker}
+						{noVariablePicker}
 						bind:pickForField
 					/>
 				{:else if typeof args == 'object'}
@@ -102,40 +104,42 @@
 	{/if}
 </div>
 
-<ItemPicker
-	bind:this={itemPicker}
-	pickCallback={(path, _) => {
-		if (pickForField) {
-			if (inputTransform) {
-				args[pickForField].value = '$var:' + path
-			} else {
-				args[pickForField] = '$var:' + path
+{#if !noVariablePicker}
+	<ItemPicker
+		bind:this={itemPicker}
+		pickCallback={(path, _) => {
+			if (pickForField) {
+				if (inputTransform) {
+					args[pickForField].value = '$var:' + path
+				} else {
+					args[pickForField] = '$var:' + path
+				}
 			}
-		}
-	}}
-	itemName="Variable"
-	extraField="name"
-	loadItems={async () =>
-		(await VariableService.listVariable({ workspace: $workspaceStore ?? '' })).map((x) => ({
-			name: x.path,
-			...x
-		}))}
->
-	<div
-		slot="submission"
-		class="flex flex-row-reverse w-full p-5 bg-white border-t border-gray-200 rounded-bl-lg rounded-br-lg"
+		}}
+		itemName="Variable"
+		extraField="name"
+		loadItems={async () =>
+			(await VariableService.listVariable({ workspace: $workspaceStore ?? '' })).map((x) => ({
+				name: x.path,
+				...x
+			}))}
 	>
-		<Button
-			variant="border"
-			color="blue"
-			size="sm"
-			on:click={() => {
-				variableEditor?.initNew?.()
-			}}
+		<div
+			slot="submission"
+			class="flex flex-row-reverse w-full p-5 bg-white border-t border-gray-200 rounded-bl-lg rounded-br-lg"
 		>
-			Create a new variable
-		</Button>
-	</div>
-</ItemPicker>
+			<Button
+				variant="border"
+				color="blue"
+				size="sm"
+				on:click={() => {
+					variableEditor?.initNew?.()
+				}}
+			>
+				Create a new variable
+			</Button>
+		</div>
+	</ItemPicker>
 
-<VariableEditor bind:this={variableEditor} on:create={itemPicker.openDrawer} />
+	<VariableEditor bind:this={variableEditor} on:create={itemPicker.openDrawer} />
+{/if}

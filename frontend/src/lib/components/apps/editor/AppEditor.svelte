@@ -17,7 +17,7 @@
 
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
-	import { Tab } from '$lib/components/common'
+	import { Alert, Button, Tab } from '$lib/components/common'
 	import ComponentList from './componentsPanel/ComponentList.svelte'
 	import Icon from 'svelte-awesome'
 	import { faPlus, faSliders } from '@fortawesome/free-solid-svg-icons'
@@ -31,6 +31,7 @@
 	import TablePanel from './TablePanel.svelte'
 	import { grid } from 'd3-dag'
 	import SettingsPanel from './SettingsPanel.svelte'
+	import { fly } from 'svelte/transition'
 
 	export let app: App
 	export let path: string
@@ -54,6 +55,7 @@
 		worldStore,
 		staticOutputs,
 		app: appStore,
+		lazyGrid: writable([]),
 		selectedComponent,
 		mode,
 		connectingInput,
@@ -95,51 +97,90 @@
 			<Pane size={55}>
 				<SplitPanesWrapper horizontal>
 					<Pane size={70}>
-						<div class={classNames('bg-gray-100  mx-auto  relative min-h-full', width)}>
-							{#if $appStore.grid}
-								<div class={classNames('mx-auto p-4 w-full h-full bg-gray-100', width)}>
-									<GridEditor />
-								</div>
-							{/if}
+						<div class="bg-gray-100 w-full p-4 h-full overflow-auto">
+							<div class={classNames('bg-gray-100  mx-auto relative min-h-full', width)}>
+								{#if $appStore.grid}
+									<div class={classNames('w-full p-2 h-full bg-white', width)}>
+										<GridEditor />
+									</div>
+								{/if}
+								{#if $connectingInput.opened}
+									<div
+										class="absolute top-0 left-0 w-full h-full bg-black border-2 bg-opacity-25 z-1 flex justify-center items-center"
+									/>
+								{/if}
+							</div>
+						</div>
+					</Pane>
+					<Pane size={30}>
+						<div class="relative h-full w-full">
+							<InlineScriptsPanel />
 							{#if $connectingInput.opened}
 								<div
 									class="absolute top-0 left-0 w-full h-full bg-black border-2 bg-opacity-25 z-1 flex justify-center items-center"
 								/>
-							{/if}
-						</div>
-					</Pane>
-					<Pane size={30}>
-						<InlineScriptsPanel />
+							{/if}</div
+						>
 					</Pane>
 				</SplitPanesWrapper>
 			</Pane>
 			<Pane size={25} minSize={20} maxSize={33}>
-				<Tabs bind:selected={selectedTab}>
-					<Tab value="insert" size="xs">
-						<div class="m-1 flex flex-row gap-2">
-							<Icon data={faPlus} />
-							<span>Insert</span>
+				<div class="relative">
+					<Tabs bind:selected={selectedTab}>
+						<Tab value="insert" size="xs">
+							<div class="m-1 flex flex-row gap-2">
+								<Icon data={faPlus} />
+								<span>Insert</span>
+							</div>
+						</Tab>
+						<Tab value="settings" size="xs">
+							<div class="m-1 flex flex-row gap-2">
+								<Icon data={faSliders} />
+								<span>Settings</span>
+							</div>
+						</Tab>
+						<svelte:fragment slot="content">
+							<TabContent value="settings">
+								{#if $selectedComponent !== undefined}
+									<SettingsPanel />
+								{:else}
+									<div class="p-4 text-sm">No component selected.</div>
+								{/if}
+							</TabContent>
+							<TabContent value="insert">
+								<ComponentList />
+							</TabContent>
+						</svelte:fragment>
+					</Tabs>
+					{#if $connectingInput.opened}
+						<div
+							class="absolute top-0 left-0 w-full h-full bg-black border-2 bg-opacity-25 z-1 flex justify-center items-center"
+						/>
+						<div
+							class="fixed top-32  p-2 z-10 flex justify-center items-center"
+							transition:fly={{ duration: 100, y: -100 }}
+						>
+							<Alert title="Connecting" type="info">
+								<div class="flex gap-2 flex-col">
+									Click on the output of the component you want to connect to on the left panel.
+									<div>
+										<Button
+											color="blue"
+											variant="border"
+											size="xs"
+											on:click={() => {
+												$connectingInput.opened = false
+												$connectingInput.input = undefined
+											}}
+										>
+											Stop connecting
+										</Button>
+									</div>
+								</div>
+							</Alert>
 						</div>
-					</Tab>
-					<Tab value="settings" size="xs">
-						<div class="m-1 flex flex-row gap-2">
-							<Icon data={faSliders} />
-							<span>Settings</span>
-						</div>
-					</Tab>
-					<svelte:fragment slot="content">
-						<TabContent value="settings">
-							{#if $selectedComponent !== undefined}
-								<SettingsPanel />
-							{:else}
-								<div class="p-4 text-sm">No component selected.</div>
-							{/if}
-						</TabContent>
-						<TabContent value="insert">
-							<ComponentList />
-						</TabContent>
-					</svelte:fragment>
-				</Tabs>
+					{/if}
+				</div>
 			</Pane>
 		</SplitPanesWrapper>
 	{/if}

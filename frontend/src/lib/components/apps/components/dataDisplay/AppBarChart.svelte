@@ -50,7 +50,12 @@
 	const options = {
 		responsive: true,
 		animation: false,
-		maintainAspectRatio: false
+		maintainAspectRatio: false,
+		plugins: {
+			legend: {
+				display: false
+			}
+		}
 	}
 
 	$: data = {
@@ -67,7 +72,7 @@
 <InputValue {id} input={configuration.theme} bind:value={theme} />
 <InputValue {id} input={configuration.labels} bind:value={labels} />
 
-<RunnableWrapper bind:componentInput {id} bind:result>
+<RunnableWrapper autoRefresh bind:componentInput {id} bind:result>
 	{#if result}
 		<Bar {data} {options} />
 	{/if}

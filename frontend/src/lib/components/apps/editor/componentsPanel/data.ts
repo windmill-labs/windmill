@@ -9,7 +9,14 @@ const inputs: ComponentSet = {
 			id: 'textinputcomponent',
 			type: 'textinputcomponent',
 			componentInput: undefined,
-			configuration: {},
+			configuration: {
+				placeholder: {
+					type: 'static',
+					value: 'Type...',
+					fieldType: 'text',
+					defaultValue: 'Type...'
+				},
+			},
 			card: false
 		},
 		{
@@ -36,14 +43,12 @@ const inputs: ComponentSet = {
 			configuration: {
 				minDate: {
 					type: 'static',
-					visible: false,
 					value: '',
 					fieldType: 'date',
 					defaultValue: ''
 				},
 				maxDate: {
 					type: 'static',
-					visible: false,
 					value: '',
 					fieldType: 'date',
 					defaultValue: ''
@@ -60,9 +65,8 @@ const inputs: ComponentSet = {
 			configuration: {
 				label: {
 					type: 'static',
-					visible: true,
 					value: 'Label',
-					fieldType: 'textarea',
+					fieldType: 'text',
 					defaultValue: 'Label'
 				}
 			},
@@ -118,15 +122,13 @@ const buttons: ComponentSet = {
 			configuration: {
 				label: {
 					type: 'static',
-					visible: true,
 					value: 'Lorem ipsum',
-					fieldType: 'textarea',
+					fieldType: 'text',
 					defaultValue: 'Lorem ipsum'
 				},
 				color: {
 					fieldType: 'select',
 					type: 'static',
-					visible: true,
 					value: 'blue',
 					optionValuesKey: 'buttonColorOptions',
 					defaultValue: 'blue'
@@ -134,7 +136,6 @@ const buttons: ComponentSet = {
 				size: {
 					fieldType: 'select',
 					type: 'static',
-					visible: true,
 					value: 'xs',
 					optionValuesKey: 'buttonSizeOptions',
 					defaultValue: 'xs'
@@ -158,15 +159,13 @@ const buttons: ComponentSet = {
 			configuration: {
 				label: {
 					type: 'static',
-					visible: true,
 					value: 'Submit',
-					fieldType: 'textarea',
+					fieldType: 'text',
 					defaultValue: 'formcomponent'
 				},
 				color: {
 					fieldType: 'select',
 					type: 'static',
-					visible: true,
 					value: 'dark',
 					optionValuesKey: 'buttonColorOptions',
 					defaultValue: 'dark'
@@ -174,7 +173,6 @@ const buttons: ComponentSet = {
 				size: {
 					fieldType: 'select',
 					type: 'static',
-					visible: true,
 					value: 'xs',
 					optionValuesKey: 'buttonSizeOptions',
 					defaultValue: 'xs'
@@ -195,7 +193,6 @@ const display: ComponentSet = {
 			type: 'textcomponent',
 			componentInput: {
 				type: 'static',
-				visible: true,
 				value: 'Lorem ipsum',
 				fieldType: 'textarea',
 				defaultValue: 'Lorem ipsum'
@@ -218,7 +215,6 @@ const display: ComponentSet = {
 					type: 'static',
 					value: false,
 					fieldType: 'boolean',
-					visible: true,
 					defaultValue: false
 				}
 			},

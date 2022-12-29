@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button, type ButtonType } from '$lib/components/common'
-	import { faArrowRight, faRefresh, faSpinner } from '@fortawesome/free-solid-svg-icons'
+	import { faSpinner } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
@@ -17,12 +17,13 @@
 	export let extraQueryParams: Record<string, any> = {}
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
+	export let noWFull = false
 
 	export const staticOutputs: string[] = ['loading', 'result']
 
 	const { runnableComponents, worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
-	let labelValue: string = 'Default label'
+	let labelValue: string
 	let color: ButtonType.Color
 	let size: ButtonType.Size
 	let runnableComponent: RunnableComponent
@@ -33,6 +34,10 @@
 	$: outputs = $worldStore?.outputsById[id] as {
 		result: Output<Array<any>>
 		loading: Output<boolean>
+	}
+
+	$: if (outputs?.loading != undefined) {
+		outputs.loading.set(false, true)
 	}
 
 	$: outputs?.loading.subscribe({
@@ -58,9 +63,15 @@
 	{extraQueryParams}
 	autoRefresh={false}
 >
-	<AlignWrapper {horizontalAlignment} {verticalAlignment}>
+	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
 		<Button
-			on:click={() => {
+			on:pointerdown={(e) => {
+				e?.stopPropagation()
+				window.dispatchEvent(new Event('pointerup'))
+			}}
+			on:click={(e) => {
+				e?.stopPropagation()
+				e?.preventDefault()
 				ownClick = true
 				runnableComponent?.runComponent()
 

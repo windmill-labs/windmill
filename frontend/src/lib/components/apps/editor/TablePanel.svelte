@@ -10,6 +10,7 @@
 {#each component.actionButtons as actionButton (actionButton.id)}
 	{#if actionButton.id === $selectedComponent}
 		<ComponentPanel
+			rowColumns
 			bind:component={actionButton}
 			onDelete={() => {
 				component.actionButtons = component.actionButtons.filter((c) => c.id !== actionButton.id)

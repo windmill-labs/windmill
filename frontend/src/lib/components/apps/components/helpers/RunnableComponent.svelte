@@ -6,6 +6,7 @@
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import { AppService, type CompletedJob } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { emptySchema } from '$lib/utils'
 	import { getContext, onMount } from 'svelte'
 	import type { AppInputs, Runnable } from '../../inputType'
 	import type { Output } from '../../rx'
@@ -39,16 +40,15 @@
 	let testIsLoading = false
 	let runnableInputValues: Record<string, any> = {}
 
-	$: mergedArgs = { ...extraQueryParams, ...runnableInputValues, ...args }
-
 	function setStaticInputsToArgs() {
+		let nargs = {}
 		Object.entries(fields ?? {}).forEach(([key, value]) => {
 			if (value.type === 'static') {
-				args[key] = value.value
+				nargs[key] = value.value
 			}
 		})
 
-		args = args
+		args = nargs
 	}
 
 	$: fields && setStaticInputsToArgs()
@@ -76,7 +76,10 @@
 		return areAllArgsValid
 	}
 
-	$: isValid = argMergedArgsValid(mergedArgs, testJobLoader)
+	$: isValid = argMergedArgsValid(
+		{ ...extraQueryParams, ...runnableInputValues, ...args },
+		testJobLoader
+	)
 
 	// Test job internal state
 	let testJob: CompletedJob | undefined = undefined
@@ -87,12 +90,16 @@
 		loading: Output<boolean>
 	}
 
+	$: if (outputs?.loading != undefined) {
+		outputs.loading.set(false, true)
+	}
+
 	async function loadSchemaFromTriggerable(
 		workspace: string,
 		path: string,
 		runType: 'script' | 'flow' | 'hubscript'
 	): Promise<Schema> {
-		return loadSchema(workspace, path, runType)
+		return loadSchema(workspace, path, runType) ?? emptySchema()
 	}
 
 	$: runnable && loadSchemaAndInputsByName()
@@ -181,7 +188,7 @@
 		Object.keys(inputs ?? {}).forEach((key: string) => {
 			const input = inputs[key]
 
-			if (input.type === 'static' && !input.visible && schemaStripped !== undefined) {
+			if (input.type === 'static' && schemaStripped !== undefined) {
 				delete schemaStripped.properties[key]
 			}
 
@@ -223,7 +230,7 @@
 
 		await testJobLoader?.abstractRun(() => {
 			const requestBody = {
-				args: mergedArgs,
+				args: { ...extraQueryParams, ...args, ...runnableInputValues },
 				force_viewer_static_fields: {}
 			}
 
@@ -256,7 +263,12 @@
 </script>
 
 {#each Object.keys(fields ?? {}) as key}
-	<InputValue {id} input={fields[key]} bind:value={runnableInputValues[key]} />
+	<InputValue
+		{id}
+		input={fields[key]}
+		bind:value={runnableInputValues[key]}
+		row={extraQueryParams['row'] ?? {}}
+	/>
 {/each}
 
 <TestJobLoader
@@ -274,7 +286,14 @@
 
 <div class="h-full flex flex-col">
 	{#if schemaStripped !== undefined && (autoRefresh || forceSchemaDisplay)}
-		<SchemaForm schema={schemaStripped} bind:args {isValid} {disabledArgs} shouldHideNoInputs />
+		<SchemaForm
+			schema={schemaStripped}
+			bind:args
+			{isValid}
+			{disabledArgs}
+			shouldHideNoInputs
+			noVariablePicker
+		/>
 	{/if}
 
 	{#if !runnable && autoRefresh}

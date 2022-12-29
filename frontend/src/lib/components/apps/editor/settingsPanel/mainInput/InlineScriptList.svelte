@@ -28,8 +28,7 @@
 
 {#if inlineScripts.length === 0}
 	<div class="flex flex-col  w-full h-full">
-		<div class="text-md ">No inline scripts</div>
-		<div class="text-sm">Add inline scripts to your app</div>
+		<div class="text-md">No detached inline scripts</div>
 	</div>
 {:else if filteredItems.length === 0}
 	<NoItemFound />

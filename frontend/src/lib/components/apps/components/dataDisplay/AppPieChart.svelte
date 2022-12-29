@@ -66,7 +66,7 @@
 <InputValue {id} input={configuration.theme} bind:value={theme} />
 <InputValue {id} input={configuration.labels} bind:value={labels} />
 
-<RunnableWrapper bind:componentInput {id} bind:result>
+<RunnableWrapper autoRefresh bind:componentInput {id} bind:result>
 	{#if result}
 		<Pie {data} {options} />
 	{/if}
