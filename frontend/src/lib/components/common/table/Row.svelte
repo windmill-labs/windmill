@@ -1,9 +1,6 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
 	import Star from '$lib/components/Star.svelte'
-
 	import { createEventDispatcher } from 'svelte'
-
 	import RowIcon from './RowIcon.svelte'
 
 	export let marked: string | undefined
@@ -24,10 +21,10 @@
 	}[kind]
 </script>
 
-<div class="hover:bg-gray-50 w-full inline-flex items-center p-4 gap-4 {color} rounded-md">
+<div class="hover:bg-gray-50 w-full inline-flex items-center p-4 gap-4 first-of-type:!border-t-0 {color}">
 	<RowIcon {href} {kind} />
 
-	<a {href} class="w-full min-w-0 grow hover:underline decoration-gray-400">
+	<a {href} class="min-w-0 grow hover:underline decoration-gray-400">
 		<div class="text-gray-900 flex-wrap text-left text-md font-semibold mb-1 truncate ">
 			{#if marked}
 				{@html marked}
@@ -39,15 +36,17 @@
 			{path}
 		</div>
 	</a>
-	<div class="w-96 hidden lg:flex flex-row max-w-xs gap-1 items-start flex-wrap">
-		<slot name="badges" />
-	</div>
+	{#if $$slots.badges}
+		<div class="w-32 hidden lg:flex flex-row gap-1 items-start flex-wrap">
+			<slot name="badges" />
+		</div>
+	{/if}
 
 	<div class="flex gap-1 items-center justify-end">
 		<slot name="actions" />
 	</div>
 	{#if canFavorite}
-		<div class="text-left text-sm font-semibold text-gray-900">
+		<div class="center-center h-full text-sm font-semibold text-gray-900">
 			<Star
 				{kind}
 				{path}

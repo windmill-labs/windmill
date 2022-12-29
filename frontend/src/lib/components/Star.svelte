@@ -2,15 +2,15 @@
 	import { FavoriteService } from '$lib/gen'
 	import { starStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
-	import { faStar } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
-	import Icon from 'svelte-awesome'
-	import { Star } from 'lucide-svelte'
+	import { Star, StarOff } from 'lucide-svelte'
 
 	export let path: string
 	export let kind: 'flow' | 'app' | 'script'
 	export let starred = false
 	export let workspace_id: string
+
+	let buttonHover = false
 
 	async function onClick() {
 		if (starred) {
@@ -33,12 +33,19 @@
 	const dispatch = createEventDispatcher()
 </script>
 
-<button on:click|preventDefault={onClick} class="mx-1">
+<button
+	on:click|preventDefault={onClick}
+	on:mouseenter={() => (buttonHover = true)}
+	on:mouseleave={() => (buttonHover = false)}
+	class="p-2"
+>
 	{#if starred}
-		<div>
-			<Icon data={faStar} class="hover:text-gray-300" scale={1.1} />
-		</div>
+		{#if buttonHover}
+			<StarOff size={18} fill="currentcolor" />
+		{:else}
+			<Star size={18} fill="currentcolor" />
+		{/if}
 	{:else}
-		<Star size={18} class="hover:bg-gray-200" />
+		<Star size={18} fill={buttonHover ? 'currentcolor' : 'none'} />
 	{/if}
 </button>
