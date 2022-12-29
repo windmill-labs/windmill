@@ -192,12 +192,15 @@
 							classes: 'animate-none'
 						}}
 					>
-						{#if testIsLoading}Running{:else}Test <Kbd class="ml-4 text-5xs -my-0.5">Ctrl+Enter</Kbd
-							>{/if}
+						{#if testIsLoading}
+							Running
+						{:else}
+							Test <Kbd class="ml-4 text-5xs -my-0.5">Ctrl+Enter</Kbd>
+						{/if}
 					</Button>
 				{/if}
 			</div>
-			<Splitpanes horizontal>
+			<Splitpanes horizontal class="!max-h-[calc(100%-43px)]">
 				<Pane size={33}>
 					<div class="px-2">
 						<div class="break-words relative font-sans">
