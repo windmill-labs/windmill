@@ -111,7 +111,7 @@
 	{/if}
 	<div>
 		<div
-			class={classNames('relative  md:hidden 	', menuOpen ? 'z-40' : 'pointer-events-none')}
+			class={classNames('relative md:hidden', menuOpen ? 'z-40' : 'pointer-events-none')}
 			role="dialog"
 			aria-modal="true"
 		>
@@ -164,7 +164,7 @@
 							{#if !isCollapsed}Windmill{/if}
 						</div>
 
-						<div class="px-2 py-4 space-y-2 border-y border-gray-400">
+						<div class="px-2 py-4 space-y-2 border-y border-gray-500">
 							<WorkspaceMenu />
 							<UserMenu
 								on:user-settings={() => userSettings.openDrawer()}
@@ -181,29 +181,31 @@
 
 		<div
 			class={classNames(
-				'hidden md:flex md:flex-col md:fixed md:inset-y-0  transition-all ease-in-out duration-200 shadow-md z-40',
+				'hidden md:flex md:flex-col md:fixed md:inset-y-0 transition-all ease-in-out duration-200 shadow-md z-40',
 				isCollapsed ? 'md:w-12' : 'md:w-40'
 			)}
 		>
-			<div class="flex-1 flex flex-col min-h-0 shadow-lg bg-[#2e3440]">
+			<div class="flex-1 flex flex-col min-h-0 h-screen overflow-y-auto shadow-lg bg-[#2e3440]">
 				<button
 					on:click={() => {
 						goto('/')
 					}}
 				>
 					<div
-						class="flex flex-row items-center flex-shrink-0 px-4 py-3.5 font-extrabold text-white w-14 h-12"
+						class="center-center flex-row flex-shrink-0 px-2 py-3.5 font-extrabold text-white h-12"
 						class:w-40={!isCollapsed}
 					>
-						<div class="mr-1">
-							<WindmillIcon white={true} height="19px" width="20px" />
+						<div class:mr-1={!isCollapsed}>
+							<WindmillIcon white={true} height="20px" width="20px" />
 						</div>
-						<span class=""
-							>{#if !isCollapsed}Windmill{/if}</span
-						>
+						{#if !isCollapsed}
+							<span>
+								Windmill
+							</span>
+						{/if}
 					</div>
 				</button>
-				<div class="px-2 py-4 space-y-2 border-y border-gray-300">
+				<div class="px-2 py-4 space-y-2 border-y border-gray-500">
 					<WorkspaceMenu {isCollapsed} />
 					<UserMenu
 						on:user-settings={userSettings.openDrawer}
@@ -214,7 +216,7 @@
 				</div>
 				<SidebarContent {isCollapsed} />
 
-				<div class="flex-shrink-0 flex px-4 pb-3.5 pt-3 border-t border-gray-300">
+				<div class="flex-shrink-0 flex px-4 pb-3.5 pt-3 border-t border-gray-500">
 					<button
 						on:click={() => {
 							isCollapsed = !isCollapsed
