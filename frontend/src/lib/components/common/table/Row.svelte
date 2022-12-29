@@ -21,7 +21,8 @@
 	}[kind]
 </script>
 
-<div class="hover:bg-gray-50 w-full inline-flex items-center p-4 gap-4 first-of-type:!border-t-0 {color}">
+<div class="hover:bg-gray-50 w-full inline-flex items-center p-4 gap-4 first-of-type:!border-t-0 
+first-of-type:rounded-t-md last-of-type:rounded-b-md {color}">
 	<RowIcon {href} {kind} />
 
 	<a {href} class="min-w-0 grow hover:underline decoration-gray-400">
