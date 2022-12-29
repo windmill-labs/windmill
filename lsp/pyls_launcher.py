@@ -79,22 +79,31 @@ class GoLS(LanguageServerWebSocketHandler):
     procargs = ["gopls", "serve"]
 
 
+class MainHandler(web.RequestHandler):
+    def get(self):
+        self.write("ok")
+
+
 if __name__ == "__main__":
 
-    monaco_path = '/tmp/monaco'
+    monaco_path = "/tmp/monaco"
     os.makedirs(monaco_path, exist_ok=True)
     print("The monaco directory is created!")
-    go_mod_path = os.path.join(monaco_path, 'go.mod')
+    go_mod_path = os.path.join(monaco_path, "go.mod")
     if not os.path.exists(go_mod_path):
         f = open(go_mod_path, "w")
         f.write("module mymod\ngo 1.19")
         f.close()
     port = int(os.environ.get("PORT", "3001"))
-    app = web.Application([
-        (r"/ws/pyright", PyrightLS),
-        (r"/ws/black", DiagnosticLS),
-        (r"/ws/deno", DenoLS),
-        (r"/ws/go", GoLS),
-    ])
+    app = web.Application(
+        [
+            (r"/ws/pyright", PyrightLS),
+            (r"/ws/black", DiagnosticLS),
+            (r"/ws/deno", DenoLS),
+            (r"/ws/go", GoLS),
+            (r"/", MainHandler),
+            (r"/health", MainHandler),
+        ]
+    )
     app.listen(port, address="0.0.0.0")
     ioloop.IOLoop.current().start()
