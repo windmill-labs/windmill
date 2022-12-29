@@ -10,7 +10,7 @@
 		faUsersCog,
 		faCog,
 		faDollarSign,
-		faFolderTree
+		faFolderOpen
 	} from '@fortawesome/free-solid-svg-icons'
 	import { faDiscord, faGithub } from '@fortawesome/free-brands-svg-icons'
 	import MenuLink from './MenuLink.svelte'
@@ -25,7 +25,7 @@
 
 	$: secondaryMenuLinks = [
 		{ label: 'Schedules', href: '/schedules', icon: faCalendar, disabled: $userStore?.operator },
-		{ label: 'Folders', href: '/folders', icon: faFolderTree, disabled: $userStore?.operator },
+		{ label: 'Folders', href: '/folders', icon: faFolderOpen, disabled: $userStore?.operator },
 		{ label: 'Groups', href: '/groups', icon: faUsersCog, disabled: $userStore?.operator },
 		{ label: 'Audit Logs', href: '/audit_logs', icon: faEye, disabled: $userStore?.operator },
 		{
@@ -50,22 +50,22 @@
 	export let isCollapsed: boolean = false
 </script>
 
-<div class="flex-1 flex flex-col pb-4 overflow-x-hidden scrollbar-hidden">
-	<nav class="h-full flex justify-between flex-col px-2">
-		<div class="space-y-1 pt-4">
-			{#each mainMenuLinks as menuLink (menuLink.href)}
-				<MenuLink class="text-md" {...menuLink} {isCollapsed} />
-			{/each}
-			<div class="h-2" />
-		</div>
-		<div class="space-1-2">
+<nav class="grow flex md:justify-between flex-col overflow-x-hidden scrollbar-hidden px-2 md:pb-4">
+	<div class="space-y-1 pt-4 mb-6 md:mb-10">
+		{#each mainMenuLinks as menuLink (menuLink.href)}
+			<MenuLink class="text-md" {...menuLink} {isCollapsed} />
+		{/each}
+	</div>
+	<div>
+		<div class="space-y-1 mb-6 md:mb-10">
 			{#each secondaryMenuLinks as menuLink (menuLink.href)}
 				<MenuLink class="text-xs" {...menuLink} {isCollapsed} />
 			{/each}
-			<div class="h-8" />
+		</div>
+		<div>
 			{#each thirdMenuLinks as menuLink (menuLink.href)}
 				<MenuLink class="text-xs" {...menuLink} {isCollapsed} />
 			{/each}
 		</div>
-	</nav>
-</div>
+	</div>
+</nav>
