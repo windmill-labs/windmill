@@ -23,8 +23,9 @@ function disableDrag(component: GridItem): GridItem {
 }
 
 function toggleFixed(component: GridItem): GridItem {
+	const nValue = !component[gridColumns[0]].fixed
 	gridColumns.forEach((column: number) => {
-		component[column].fixed = !component[column].fixed
+		component[column].fixed = nValue
 	})
 
 	return component
