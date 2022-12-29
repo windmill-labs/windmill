@@ -3,35 +3,34 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { getNextId } from '$lib/components/flows/flowStateUtils'
 	import { classNames } from '$lib/utils'
-	import { faPlus } from '@fortawesome/free-solid-svg-icons'
+	import { faPlus, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
+	import { Icon } from 'svelte-awesome'
 	import type { ButtonComponent, AppEditorContext, BaseAppComponent } from '../../types'
 	import PanelSection from './common/PanelSection.svelte'
 	import TableActionLabel from './TableActionLabel.svelte'
 
 	export let components: (BaseAppComponent & ButtonComponent)[]
+	export let id: string
 
-	const { app, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
+	const { selectedComponent, staticOutputs } = getContext<AppEditorContext>('AppEditorContext')
 
 	function addComponent() {
-		const grid = $app.grid ?? []
-		const id = getNextId(grid.map((gridItem) => gridItem.data.id))
+		const actionId = getNextId(components.map((x) => x.id.split('-')[1]))
 
 		const newComponent: BaseAppComponent & ButtonComponent = {
-			id,
+			id: `${id}-${actionId}`,
 			type: 'buttoncomponent',
 			configuration: {
 				label: {
 					type: 'static',
-					visible: true,
 					value: 'Action',
-					fieldType: 'textarea',
+					fieldType: 'text',
 					defaultValue: 'Action'
 				},
 				color: {
 					fieldType: 'select',
 					type: 'static',
-					visible: true,
 					value: 'dark',
 					optionValuesKey: 'buttonColorOptions',
 					defaultValue: 'dark'
@@ -39,7 +38,6 @@
 				size: {
 					fieldType: 'select',
 					type: 'static',
-					visible: true,
 					value: 'xs',
 					optionValuesKey: 'buttonSizeOptions',
 					defaultValue: 'xs'
@@ -57,6 +55,13 @@
 		}
 
 		components = [...components, newComponent]
+	}
+
+	function deleteComponent(cid: string) {
+		components = components.filter((x) => x.id !== cid)
+		delete $staticOutputs[cid]
+		$staticOutputs = $staticOutputs
+		$selectedComponent = id
 	}
 </script>
 
@@ -84,6 +89,11 @@
 			}}
 			on:keypress
 		>
+			<div>
+				<Button variant="border" color="red" on:click={() => deleteComponent(component.id)}>
+					<Icon class="h-3" data={faTrashAlt} />
+				</Button>
+			</div>
 			<div>
 				<TableActionLabel componentInput={component.configuration.label} />
 			</div>

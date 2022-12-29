@@ -7,7 +7,6 @@
 
 	type ArrayComponentInput = Extract<StaticAppInput, { fieldType: 'array' }>
 
-	export let canHide: boolean = false
 	export let componentInput: ArrayComponentInput
 
 	function addElementByType() {
@@ -46,7 +45,7 @@
 	{#if componentInput.value}
 		{#each componentInput.value as value, index (index)}
 			<div class="flex flex-row gap-2 items-center">
-				<SubTypeEditor bind:componentInput bind:value {canHide} />
+				<SubTypeEditor bind:componentInput bind:value />
 
 				<div>
 					<Button

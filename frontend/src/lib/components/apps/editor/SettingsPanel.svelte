@@ -4,10 +4,10 @@
 	import ComponentPanel from './settingsPanel/ComponentPanel.svelte'
 	import TablePanel from './TablePanel.svelte'
 
-	const { selectedComponent, app } = getContext<AppEditorContext>('AppEditorContext')
+	const { selectedComponent, lazyGrid } = getContext<AppEditorContext>('AppEditorContext')
 </script>
 
-{#each $app.grid as gridItem (gridItem.data.id)}
+{#each $lazyGrid as gridItem (gridItem.data.id)}
 	{#if gridItem.data.id === $selectedComponent}
 		<ComponentPanel bind:component={gridItem.data} />
 	{:else if gridItem.data.type === 'tablecomponent'}

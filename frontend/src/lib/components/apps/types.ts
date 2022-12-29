@@ -126,7 +126,8 @@ export type ConnectingInput = {
 
 export type AppEditorContext = {
 	worldStore: Writable<World | undefined>
-	staticOutputs: Writable<Record<string, string[]>>
+	staticOutputs: Writable<Record<string, string[]>>,
+	lazyGrid: Writable<GridItem[]>,
 	app: Writable<App>
 	selectedComponent: Writable<string | undefined>
 	mode: Writable<EditorMode>

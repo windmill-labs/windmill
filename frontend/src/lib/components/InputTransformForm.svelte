@@ -27,6 +27,7 @@
 	export let pickForField: string | undefined = undefined
 	export let variableEditor: VariableEditor | undefined = undefined
 	export let itemPicker: ItemPicker | undefined = undefined
+	export let noVariablePicker = false
 
 	let monaco: SimpleEditor | undefined = undefined
 	let monacoTemplate: TemplateEditor | undefined = undefined

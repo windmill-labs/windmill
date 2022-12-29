@@ -3,13 +3,11 @@
 	import StaticInputEditor from './inputEditor/StaticInputEditor.svelte'
 
 	export let value: any
-	export let canHide: boolean = false
 	export let componentInput: StaticAppInput
 
 	let fakeComponentInput: StaticAppInput = {
 		...componentInput,
 		value,
-		visible: componentInput.visible,
 		// We don't support array of arrays
 		// @ts-ignore
 		fieldType: componentInput.subFieldType
@@ -19,4 +17,4 @@
 	$: fakeComponentInput && (value = fakeComponentInput.value)
 </script>
 
-<StaticInputEditor bind:componentInput={fakeComponentInput} {canHide} />
+<StaticInputEditor bind:componentInput={fakeComponentInput} />

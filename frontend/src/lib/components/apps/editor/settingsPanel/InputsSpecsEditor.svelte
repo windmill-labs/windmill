@@ -1,15 +1,24 @@
 <script lang="ts">
 	import { Badge, ToggleButton, ToggleButtonGroup } from '$lib/components/common'
 	import { capitalize } from '$lib/utils'
-	import { faArrowRight, faPen, faUser } from '@fortawesome/free-solid-svg-icons'
+	import { faArrowRight, faPen, faTableCells, faUser } from '@fortawesome/free-solid-svg-icons'
 	import { fieldTypeToTsType } from '../../utils'
 	import InputsSpecEditor from './InputsSpecEditor.svelte'
-	import type { ConnectedAppInput, StaticAppInput, UserAppInput } from '../../inputType'
+	import type {
+		ConnectedAppInput,
+		RowAppInput,
+		StaticAppInput,
+		UserAppInput
+	} from '../../inputType'
 
-	export let inputSpecs: Record<string, StaticAppInput | ConnectedAppInput | UserAppInput>
+	export let inputSpecs: Record<
+		string,
+		StaticAppInput | ConnectedAppInput | UserAppInput | RowAppInput
+	>
 	export let userInputEnabled: boolean = true
 	export let staticOnly: boolean = false
 	export let shouldCapitalize: boolean = true
+	export let rowColumns = false
 </script>
 
 {#if inputSpecs}
@@ -17,8 +26,8 @@
 		{#each Object.keys(inputSpecs) as inputSpecKey, index (index)}
 			{@const input = inputSpecs[inputSpecKey]}
 			{#if true}
-				<div class="flex flex-col gap-2">
-					<div class="flex justify-between items-center gap-1">
+				<div class="flex flex-col gap-1">
+					<div class="flex justify-between items-end gap-1">
 						<span class="text-xs font-semibold">
 							{shouldCapitalize ? capitalize(inputSpecKey) : inputSpecKey}
 						</span>
@@ -38,31 +47,31 @@
 									size="xs"
 									iconOnly
 								/>
+								{#if rowColumns}
+									<ToggleButton
+										position="center"
+										value="row"
+										startIcon={{ icon: faTableCells }}
+										size="xs"
+										iconOnly
+										disabled={staticOnly}
+									/>
+								{/if}
 								<ToggleButton
-									position={userInputEnabled && input.format === undefined ? 'center' : 'right'}
+									position="right"
 									value="connected"
 									startIcon={{ icon: faArrowRight }}
 									size="xs"
 									iconOnly
 									disabled={staticOnly}
 								/>
-								{#if userInputEnabled && input.format === undefined}
-									<ToggleButton
-										position="right"
-										value="user"
-										startIcon={{ icon: faUser }}
-										size="xs"
-										iconOnly
-										disabled={staticOnly && !userInputEnabled}
-									/>
-								{/if}
 							</ToggleButtonGroup>
 						</div>
 					</div>
 
 					<InputsSpecEditor
 						bind:componentInput={inputSpecs[inputSpecKey]}
-						canHide={userInputEnabled && input.format === undefined}
+						userInputEnabled={userInputEnabled && input.format === undefined}
 					/>
 				</div>
 			{/if}

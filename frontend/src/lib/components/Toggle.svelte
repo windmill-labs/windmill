@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { classNames } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 
 	export let options: {
@@ -8,20 +9,30 @@
 	export let checked: boolean = false
 	export let disabled = false
 
+	export let size: 'sm' | 'xs' = 'sm'
 	const id = (Math.random() + 1).toString(36).substring(10)
 	const dispatch = createEventDispatcher()
 </script>
 
-<span class={$$props.class}>
-	<label for={id} class="inline-flex items-center mt-2 duration-200 {disabled ? 'grayscale opacity-50' : 'cursor-pointer'}">
+<span class="{$$props.class} z-auto">
+	<label
+		for={id}
+		class="inline-flex items-center mt-2 duration-200 {disabled
+			? 'grayscale opacity-50'
+			: 'cursor-pointer'}"
+	>
 		{#if Boolean(options?.left)}
-			<span class="mr-2 text-sm font-medium duration-200 {disabled ? 'text-gray-600' : 'text-gray-900'}">
+			<span
+				class="mr-2 text-sm font-medium duration-200 {disabled ? 'text-gray-600' : 'text-gray-900'}"
+			>
 				{options?.left}
 			</span>
 		{/if}
 		<!-- svelte-ignore a11y-click-events-have-key-events -->
-		<div class="relative" on:click|stopPropagation={() => {}}>
+		<div class="relative" on:pointerdown on:click|stopPropagation>
 			<input
+				on:focus
+				on:click
 				{disabled}
 				type="checkbox"
 				value={false}
@@ -40,7 +51,11 @@
 			/>
 		</div>
 		{#if Boolean(options?.right)}
-			<span class="ml-2 text-sm font-medium duration-200 {disabled ? 'text-gray-500' : 'text-gray-900'}">
+			<span
+				class="ml-2 text-sm font-medium duration-200
+				{disabled ? 'text-gray-500' : 'text-gray-900'} 
+				{size === 'xs' ? 'text-xs' : 'text-sm'}"
+			>
 				{options?.right}
 			</span>
 		{/if}

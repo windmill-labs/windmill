@@ -64,11 +64,12 @@
 
 			$app.unusedInlineScripts.splice(unusedInlineScriptIndex, 1)
 		}
+		$app = $app
 	}
 
 	function createScript(): string {
 		let index = 0
-		let newScriptPath = `inline_script_${index}`
+		let newScriptPath = `Inline Script ${index}`
 
 		const names = $app.grid.reduce((acc, gridItem: GridItem) => {
 			const { componentInput } = gridItem.data
@@ -83,11 +84,11 @@
 			return acc
 		}, [] as string[])
 
-		const unusedNames = Object.keys($app.unusedInlineScripts ?? {})
+		const unusedNames = $app.unusedInlineScripts.map((x) => x.name)
 
 		// Find a name that is not used by any other inline script
 		while (names.includes(newScriptPath) || unusedNames.includes(newScriptPath)) {
-			newScriptPath = `inline_script_${++index}`
+			newScriptPath = `Inline Script ${++index}`
 		}
 
 		appInput.runnable = {
@@ -103,14 +104,14 @@
 </script>
 
 <Drawer bind:this={picker} size="1000px">
-	<DrawerContent title="Picker" on:close={picker.closeDrawer}>
+	<DrawerContent title="Script/Flow Picker" on:close={picker.closeDrawer}>
 		<div>
 			<div class="max-w-6xl">
 				<Tabs bind:selected={tab}>
 					<Tab size="sm" value="inlinescripts">
 						<div class="flex gap-2 items-center my-1">
 							<Building size={18} />
-							Inline Scripts
+							Detached Inline Scripts
 						</div>
 					</Tab>
 					<Tab size="sm" value="workspacescripts">
@@ -172,6 +173,6 @@
 		color="blue"
 		startIcon={{ icon: faMousePointer }}
 	>
-		Select a script
+		Select a script or flow
 	</Button>
 </div>

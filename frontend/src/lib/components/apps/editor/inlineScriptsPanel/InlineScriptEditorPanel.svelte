@@ -1,8 +1,10 @@
 <script lang="ts">
+	import { Drawer, DrawerContent } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import FlowModuleScript from '$lib/components/flows/content/FlowModuleScript.svelte'
+	import FlowPathViewer from '$lib/components/flows/content/FlowPathViewer.svelte'
 	import { getScriptByPath } from '$lib/utils'
-	import { faCodeBranch } from '@fortawesome/free-solid-svg-icons'
+	import { faCodeBranch, faExternalLinkAlt, faEye, faPen } from '@fortawesome/free-solid-svg-icons'
 	import type { AppInput, ResultAppInput } from '../../inputType'
 	import { clearResultAppInput } from '../../utils'
 	import EmptyInlineScript from './EmptyInlineScript.svelte'
@@ -28,8 +30,17 @@
 		}
 	}
 
+	let drawerFlowViewer: Drawer
+	let flowPath: string = ''
+
 	// $: inlineScript && (componentInput = componentInput)
 </script>
+
+<Drawer bind:this={drawerFlowViewer} size="1200px">
+	<DrawerContent title="Flow {flowPath}" on:close={drawerFlowViewer.closeDrawer}>
+		<FlowPathViewer path={flowPath ?? ''} />
+	</DrawerContent>
+</Drawer>
 
 {#if componentInput && componentInput.type == 'runnable'}
 	{#if componentInput?.runnable?.type === 'runnableByName' && componentInput?.runnable?.name !== undefined}
@@ -59,25 +70,57 @@
 		{/if}
 	{:else if componentInput?.runnable?.type === 'runnableByPath' && componentInput?.runnable?.path}
 		<div class="p-2 h-full flex flex-col gap-2 ">
-			<div>
-				<Button
-					size="xs"
-					startIcon={{ icon: faCodeBranch }}
-					on:click={() => {
-						if (
-							componentInput &&
-							componentInput.type == 'runnable' &&
-							componentInput.runnable?.type === 'runnableByPath'
-						) {
-							fork(componentInput.runnable.path)
-						}
-					}}
-				>
-					Fork
-				</Button>
-			</div>
+			{#if componentInput.runnable.runType == 'script' || componentInput.runnable.runType == 'hubscript'}
+				<div>
+					<Button
+						size="xs"
+						startIcon={{ icon: faCodeBranch }}
+						on:click={() => {
+							if (
+								componentInput &&
+								componentInput.type == 'runnable' &&
+								componentInput.runnable?.type === 'runnableByPath'
+							) {
+								fork(componentInput.runnable.path)
+							}
+						}}
+					>
+						Fork
+					</Button>
+				</div>
+			{/if}
 			<div class="border w-full">
-				<FlowModuleScript path={componentInput.runnable.path} />
+				{#if componentInput.runnable.runType == 'script' || componentInput.runnable.runType == 'hubscript'}
+					<FlowModuleScript path={componentInput.runnable.path} />
+				{:else if componentInput.runnable.runType == 'flow'}
+					<div class="py-1 flex gap-2 w-full flex-row-reverse">
+						<Button
+							size="xs"
+							startIcon={{ icon: faEye }}
+							on:click={() => {
+								flowPath = componentInput?.['runnable']?.path
+								drawerFlowViewer.openDrawer()
+							}}>Expand</Button
+						>
+						<Button
+							size="xs"
+							startIcon={{ icon: faPen }}
+							endIcon={{ icon: faExternalLinkAlt }}
+							target="_blank"
+							href="/flows/edit/{componentInput?.['runnable']?.path}">Edit</Button
+						>
+						<Button
+							size="xs"
+							startIcon={{ icon: faEye }}
+							endIcon={{ icon: faExternalLinkAlt }}
+							target="_blank"
+							href="/flows/get/{componentInput?.['runnable']?.path}">Details page</Button
+						>
+					</div>
+					<FlowPathViewer path={componentInput.runnable.path} />
+				{:else}
+					Unrecognized runType {componentInput.runnable.runType}
+				{/if}
 			</div>
 		</div>
 	{/if}
