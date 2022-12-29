@@ -40,6 +40,7 @@
 
 	async function viewFlow(obj: { flow_id: number }): Promise<void> {
 		const hub = await FlowService.getHubFlowById({ id: obj.flow_id })
+		delete hub['comments']
 		flowViewerFlow = hub
 		flowViewer.openDrawer?.()
 	}
