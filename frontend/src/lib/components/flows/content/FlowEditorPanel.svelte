@@ -7,6 +7,7 @@
 	import FlowInput from './FlowInput.svelte'
 	import FlowFailureModule from './FlowFailureModule.svelte'
 	import { flowStore } from '../flowStore'
+	import FlowConstants from './FlowConstants.svelte'
 
 	export let initialPath: string
 
@@ -17,6 +18,8 @@
 	<FlowSettings {initialPath} />
 {:else if $selectedId === 'inputs'}
 	<FlowInput />
+{:else if $selectedId === 'constants'}
+	<FlowConstants />
 {:else if $selectedId === 'failure'}
 	<FlowFailureModule />
 {:else}

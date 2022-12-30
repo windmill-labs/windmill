@@ -27,7 +27,8 @@
 			'settings-graph',
 			'inputs',
 			'schedules',
-			'failure'
+			'failure',
+			'constants'
 		].includes($selectedId) ||
 		$selectedId?.includes('branch')
 

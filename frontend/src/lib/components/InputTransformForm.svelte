@@ -27,7 +27,7 @@
 	export let pickForField: string | undefined = undefined
 	export let variableEditor: VariableEditor | undefined = undefined
 	export let itemPicker: ItemPicker | undefined = undefined
-	export let noVariablePicker = false
+	export let noDynamicToggle = false
 
 	let monaco: SimpleEditor | undefined = undefined
 	let monacoTemplate: TemplateEditor | undefined = undefined
@@ -113,7 +113,7 @@
 
 	const { focusProp, propPickerConfig } = getContext<PropPickerWrapperContext>('PropPickerWrapper')
 
-	$: isStaticTemplate(inputCat) && propertyType == 'static' && setPropertyType(arg.value)
+	$: isStaticTemplate(inputCat) && propertyType == 'static' && setPropertyType(arg?.value)
 	const openBracket = '${'
 	const closeBracket = '}'
 </script>
@@ -141,75 +141,83 @@
 				</span>
 			{/if}
 		</div>
-		<div class="flex flex-row gap-x-4 gap-y-1 flex-wrap">
-			<ToggleButtonGroup
-				bind:selected={propertyType}
-				on:selected={(e) => {
-					const staticTemplate = isStaticTemplate(inputCat)
-					if (e.detail === 'javascript') {
-						if (arg.expr == undefined) {
-							arg.expr = getDefaultExpr(
-								argName,
-								previousModuleId,
-								staticTemplate
-									? `\`${arg.value ?? ''}\``
-									: arg.value
-									? JSON.stringify(arg.value, null, 4)
-									: ''
-							)
-						}
-
-						arg.value = undefined
-						propertyType = 'javascript'
-						arg.type = 'javascript'
-					} else {
-						if (staticTemplate) {
-							arg.value = codeToStaticTemplate(arg.expr)
-							setPropertyType(arg.value)
+		{#if !noDynamicToggle}
+			<div class="flex flex-row gap-x-4 gap-y-1 flex-wrap">
+				<ToggleButtonGroup
+					bind:selected={propertyType}
+					on:selected={(e) => {
+						const staticTemplate = isStaticTemplate(inputCat)
+						if (e.detail === 'javascript') {
+							if (arg.expr == undefined) {
+								arg.expr = getDefaultExpr(
+									argName,
+									previousModuleId,
+									staticTemplate
+										? `\`${arg?.value ?? ''}\``
+										: arg.value
+										? JSON.stringify(arg?.value, null, 4)
+										: ''
+								)
+							}
+							if (arg) {
+								arg.value = undefined
+							}
+							propertyType = 'javascript'
+							arg.type = 'javascript'
 						} else {
-							arg.type = 'static'
-							arg.value = undefined
-							arg.expr = undefined
+							if (staticTemplate) {
+								if (arg) {
+									arg.value = codeToStaticTemplate(arg.expr)
+								}
+								setPropertyType(arg?.value)
+							} else {
+								if (arg) {
+									arg.type = 'static'
+									arg.value = undefined
+									arg.expr = undefined
+								}
+							}
+							propertyType = 'static'
 						}
-						propertyType = 'static'
-					}
-				}}
-			>
-				{#if isStaticTemplate(inputCat)}
-					<ToggleButton light position="left" value="static" size="xs">
-						{'${} '}Templatable &nbsp; <Tooltip
-							>Write javascript expressions between "{openBracket}" and "{closeBracket}". You may
-							refer to contextual objects like 'flow_input', or 'result' or functions like
-							'resource' and 'variable'
-						</Tooltip></ToggleButton
-					>
-				{:else}
-					<ToggleButton light position="left" value="static" size="xs">Static</ToggleButton>
-				{/if}
-
-				<ToggleButton
-					light
-					position="right"
-					value="javascript"
-					startIcon={{ icon: faCode }}
-					size="xs"
+					}}
 				>
-					Dynamic (JS)
-				</ToggleButton>
-			</ToggleButtonGroup>
-			<Button
-				variant="contained"
-				color="blue"
-				size="xs"
-				on:click={() => {
-					focusProp(argName, 'connect', (path) => {
-						connectProperty(path)
-						return true
-					})
-				}}>Connect &rightarrow;</Button
-			>
-		</div>
+					{#if isStaticTemplate(inputCat)}
+						<ToggleButton light position="left" value="static" size="xs">
+							{'${} '}Templatable &nbsp; <Tooltip
+								>Write javascript expressions between "{openBracket}" and "{closeBracket}". You may
+								refer to contextual objects like 'flow_input', or 'result' or functions like
+								'resource' and 'variable'
+							</Tooltip></ToggleButton
+						>
+					{:else}
+						<ToggleButton light position="left" value="static" size="xs">Static</ToggleButton>
+					{/if}
+
+					<ToggleButton
+						light
+						position="right"
+						value="javascript"
+						startIcon={{ icon: faCode }}
+						size="xs"
+					>
+						Dynamic (JS)
+					</ToggleButton>
+				</ToggleButtonGroup>
+				<Button
+					variant="contained"
+					color="blue"
+					size="xs"
+					on:click={() => {
+						focusProp(argName, 'connect', (path) => {
+							connectProperty(path)
+							return true
+						})
+					}}>Connect &rightarrow;</Button
+				>
+			</div>
+		{/if}
 	</div>
+
 	<div class="max-w-xs" />
 
 	<div
@@ -224,15 +232,17 @@
 				Connect input &rightarrow;
 			</span>
 		{/if}
-		{#if isStaticTemplate(inputCat) && propertyType == 'static'}
-			<div class="py-1 rounded border border-1 border-gray-500">
-				<TemplateEditor
-					bind:this={monacoTemplate}
-					{extraLib}
-					on:focus={onFocus}
-					bind:code={arg.value}
-					fontSize={12}
-				/>
+		{#if isStaticTemplate(inputCat) && propertyType == 'static' && !noDynamicToggle}
+			<div class="py-1 mt-2 min-h-[28px] rounded border border-1 border-gray-500">
+				{#if arg}
+					<TemplateEditor
+						bind:this={monacoTemplate}
+						{extraLib}
+						on:focus={onFocus}
+						bind:code={arg.value}
+						fontSize={14}
+					/>
+				{/if}
 			</div>
 		{:else if propertyType === undefined || propertyType == 'static'}
 			<ArgInput

@@ -3,14 +3,13 @@
 	import { getContext } from 'svelte'
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
 	import Icon from 'svelte-awesome'
-	import { faFlagCheckered, faPen } from '@fortawesome/free-solid-svg-icons'
+	import { faFlagCheckered } from '@fortawesome/free-solid-svg-icons'
 
 	const { select, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 </script>
 
 <FlowModuleSchemaItem
 	on:click={() => select('inputs')}
-	isFirst
 	hasLine
 	selected={$selectedId === 'inputs'}
 	bold
