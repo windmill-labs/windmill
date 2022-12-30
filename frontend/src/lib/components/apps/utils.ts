@@ -203,6 +203,8 @@ export function isScriptByPathDefined(appInput: AppInput | undefined): boolean {
 
 export function clearResultAppInput(appInput: ResultAppInput): ResultAppInput {
 	appInput.runnable = undefined
-	appInput.fields = {}
+	if (Object.keys(appInput.fields).length > 0) {
+		appInput.fields = {}
+	}
 	return appInput
 }

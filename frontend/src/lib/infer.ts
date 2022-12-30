@@ -38,6 +38,7 @@ export async function inferArgs(
 		loadSchemaLastRun.set([code, inferedSchema])
 	}
 
+
 	schema.required = []
 	const oldProperties = Object.assign({}, schema.properties)
 	schema.properties = {}

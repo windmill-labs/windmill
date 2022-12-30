@@ -18,6 +18,8 @@
 	export let inlineScript: InlineScript
 	export let name: string | undefined = undefined
 
+	let editor: Editor
+
 	let validCode = false
 
 	async function inferInlineScriptSchema(
@@ -48,7 +50,7 @@
 	const dispatch = createEventDispatcher()
 </script>
 
-<InlineScriptEditorDrawer bind:this={inlineScriptEditorDrawer} bind:inlineScript />
+<InlineScriptEditorDrawer {editor} bind:this={inlineScriptEditorDrawer} bind:inlineScript />
 
 <div class="h-full p-4 flex flex-col gap-2" transition:fly={{ duration: 50 }}>
 	<div class="flex justify-between w-full gap-1 flex-row items-center">
@@ -91,20 +93,18 @@
 
 	<div class="border h-full">
 		<Editor
+			bind:this={editor}
 			class="flex flex-1 grow h-full"
 			lang={scriptLangToEditorLang(inlineScript?.language)}
 			bind:code={inlineScript.content}
 			fixedOverflowWidgets={false}
-			on:change={async () => {
+			on:change={async (e) => {
 				if (inlineScript) {
-					let schema = await inferInlineScriptSchema(
-						inlineScript?.language,
-						inlineScript.content,
-						inlineScript.schema
-					)
-
-					inlineScript.schema = schema
-					inlineScript = inlineScript
+					const oldSchema = JSON.stringify(inlineScript.schema)
+					await inferInlineScriptSchema(inlineScript?.language, e.detail, inlineScript.schema)
+					if (JSON.stringify(inlineScript.schema) != oldSchema) {
+						inlineScript = inlineScript
+					}
 				}
 			}}
 		/>

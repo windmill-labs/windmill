@@ -48,7 +48,9 @@
 			}
 		})
 
-		args = nargs
+		if (JSON.stringify(args) != JSON.stringify(nargs)) {
+			args = nargs
+		}
 	}
 
 	$: fields && setStaticInputsToArgs()
@@ -102,7 +104,8 @@
 		return loadSchema(workspace, path, runType) ?? emptySchema()
 	}
 
-	$: runnable && loadSchemaAndInputsByName()
+	$: runnable?.type === 'runnableByName' && loadSchemaAndInputsByName()
+	$: !schema && runnable?.type === 'runnableByPath' && loadSchemaAndInputsByPath()
 
 	async function loadSchemaAndInputsByName() {
 		if (runnable?.type === 'runnableByName') {
@@ -112,7 +115,7 @@
 				const newSchema = inlineScript.schema
 				schema = newSchema
 
-				const newFields = reloadInputs()
+				const newFields = reloadInputs(newSchema)
 
 				if (JSON.stringify(newFields) !== JSON.stringify(fields)) {
 					fields = newFields
@@ -142,11 +145,9 @@
 		}
 	}
 
-	$: !schema && runnable?.type === 'runnableByPath' && loadSchemaAndInputsByPath()
-
 	// When the schema is loaded, we need to update the inputs spec
 	// in order to render the inputs the component panel
-	function reloadInputs() {
+	function reloadInputs(schema: Schema) {
 		let schemaWithoutExtraQueries: Schema = JSON.parse(JSON.stringify(schema))
 
 		// Remove extra query params from the schema, which are not directly configurable by the user
@@ -156,7 +157,6 @@
 
 		const result = {}
 		const newInputs = schemaToInputsSpec(schemaWithoutExtraQueries)
-
 		if (!fields) {
 			return newInputs
 		}
