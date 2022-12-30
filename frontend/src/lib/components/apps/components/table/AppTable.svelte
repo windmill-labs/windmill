@@ -83,6 +83,14 @@
 		)
 	}
 
+	function renderCell(x: any, props: any) {
+		try {
+			return flexRender(x, props)
+		} catch (e) {
+			return undefined
+		}
+	}
+
 	let filteredResult: Array<Record<string, any>> = []
 
 	$: filteredResult && setOptions(filteredResult)
@@ -122,13 +130,17 @@
 						{#each $table.getHeaderGroups() as headerGroup}
 							<tr class="divide-x">
 								{#each headerGroup.headers as header}
-									<th class="px-4 py-4 text-sm font-semibold">
-										{#if !header.isPlaceholder}
-											<svelte:component
-												this={flexRender(header.column.columnDef.header, header.getContext())}
-											/>
+									{#if header?.column?.columnDef?.header}
+										{@const context = header?.getContext()}
+										{#if context}
+											{@const component = renderCell(header.column.columnDef.header, context)}
+											<th class="px-4 py-4 text-sm font-semibold">
+												{#if !header.isPlaceholder && component}
+													<svelte:component this={component} />
+												{/if}
+											</th>
 										{/if}
-									</th>
+									{/if}
 								{/each}
 								{#if actionButtons.length > 0}
 									<th class="px-4 py-4 text-sm font-semibold">Actions</th>
@@ -151,14 +163,20 @@
 								)}
 							>
 								{#each row.getVisibleCells() as cell, index (index)}
-									<td
-										on:click={() => toggleRow(row, rowIndex)}
-										class="p-4 whitespace-nowrap text-xs text-gray-900"
-									>
-										<svelte:component
-											this={flexRender(cell.column.columnDef.cell, cell.getContext())}
-										/>
-									</td>
+									{#if cell?.column?.columnDef?.header}
+										{@const context = cell?.getContext()}
+										{#if context}
+											{@const component = renderCell(cell.column.columnDef.cell, context)}
+											<td
+												on:click={() => toggleRow(row, rowIndex)}
+												class="p-4 whitespace-nowrap text-xs text-gray-900"
+											>
+												{#if component != undefined}
+													<svelte:component this={component} />
+												{/if}
+											</td>
+										{/if}
+									{/if}
 								{/each}
 
 								{#if actionButtons.length > 0}

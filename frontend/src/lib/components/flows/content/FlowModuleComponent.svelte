@@ -14,7 +14,7 @@
 	import { flowStateStore } from '../flowState'
 	import { schemaToObject, scriptLangToEditorLang } from '$lib/utils'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
-	import { afterUpdate, getContext, setContext } from 'svelte'
+	import { afterUpdate, getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import { loadSchemaFromModule } from '../utils'
 	import FlowModuleScript from './FlowModuleScript.svelte'
@@ -181,6 +181,9 @@
 										modulePreview?.runTestWithStepArgs()
 									}}
 									on:change={async (event) => {
+										if (flowModule.value.type === 'rawscript') {
+											flowModule.value.content = event.detail
+										}
 										await reload(flowModule)
 									}}
 									formatAction={() => reload(flowModule)}

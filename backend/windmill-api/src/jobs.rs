@@ -301,6 +301,7 @@ pub struct ListQueueQuery {
     pub parent_job: Option<String>,
     pub order_desc: Option<bool>,
     pub job_kinds: Option<String>,
+    pub suspended: Option<bool>,
 }
 
 fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> SqlBuilder {
@@ -334,6 +335,13 @@ fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> Sq
     }
     if let Some(dt) = &lq.created_after {
         sqlb.and_where_gt("created_at", format!("to_timestamp({})", dt.timestamp()));
+    }
+    if let Some(s) = &lq.suspended {
+        if *s {
+            sqlb.and_where_is_not_null("suspend");
+        } else {
+            sqlb.and_where_is_null("suspend");
+        }
     }
     if let Some(jk) = &lq.job_kinds {
         sqlb.and_where_in(
@@ -378,6 +386,7 @@ async fn list_jobs(
             parent_job: lq.parent_job,
             order_desc: Some(true),
             job_kinds: lq.job_kinds,
+            suspended: lq.suspended,
         },
         &[
             "'QueuedJob' as typ",
@@ -1475,6 +1484,7 @@ pub struct ListCompletedQuery {
     pub job_kinds: Option<String>,
     pub is_skipped: Option<bool>,
     pub is_flow_step: Option<bool>,
+    pub suspended: Option<bool>,
 }
 
 async fn list_completed_jobs(

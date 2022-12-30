@@ -70,7 +70,7 @@
 		})
 	}
 
-	async function inferSchema() {
+	async function inferSchema(code: string) {
 		let isDefault: string[] = []
 		Object.entries(args).forEach(([k, v]) => {
 			if (schema.properties[k].default == v) {
@@ -99,7 +99,7 @@
 	}
 
 	onMount(() => {
-		inferSchema()
+		inferSchema(code)
 	})
 </script>
 
@@ -145,20 +145,22 @@
 		<div
 			class="pl-2 h-full !overflow-visible"
 			on:mouseleave={() => {
-				inferSchema()
+				inferSchema(code)
 			}}
 		>
 			<Editor
 				bind:code
 				bind:websocketAlive
 				bind:this={editor}
-				on:change={() => inferSchema()}
+				on:change={(e) => {
+					inferSchema(e.detail)
+				}}
 				cmdEnterAction={async () => {
-					await inferSchema()
+					await inferSchema(code)
 					runTest()
 				}}
 				formatAction={async () => {
-					await inferSchema()
+					await inferSchema(code)
 					localStorage.setItem(path ?? 'last_save', code)
 					lastSave = code
 				}}
