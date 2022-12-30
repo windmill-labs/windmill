@@ -106,7 +106,7 @@
 	on:pointerup={onpointerup}
 	class="bg-white h-full relative"
 >
-	<div class="w-full flex justify-between border-b p-1 m-1 items-center gap-4">
+	<div class="w-full flex justify-between border-b px-4 py-2  mb-4 items-center gap-4">
 		<h2>{$app.title}</h2>
 		<RecomputeAllComponents />
 		<div class="text-2xs text-gray-600"
