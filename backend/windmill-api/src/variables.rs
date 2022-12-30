@@ -370,10 +370,6 @@ async fn update_variable(
     }
     sqlb.returning("path");
 
-    let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
-
-    let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut tx).await?;
-
     if let Some(npath) = ns.path {
         if npath != path {
             check_path_conflict(&mut tx, &w_id, &npath).await?;
@@ -390,6 +386,10 @@ async fn update_variable(
             .await?;
         }
     }
+
+    let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
+
+    let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut tx).await?;
 
     let npath = not_found_if_none(npath_o, "Variable", path)?;
 

@@ -364,11 +364,6 @@ async fn update_resource(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
-    let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut tx).await?;
-
-    let npath = not_found_if_none(npath_o, "Resource", path)?;
-
     if let Some(npath) = ns.path {
         if npath != path {
             check_path_conflict(&mut tx, &w_id, &npath).await?;
@@ -386,6 +381,11 @@ async fn update_resource(
             .await?;
         }
     }
+
+    let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
+    let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut tx).await?;
+
+    let npath = not_found_if_none(npath_o, "Resource", path)?;
 
     audit_log(
         &mut tx,
