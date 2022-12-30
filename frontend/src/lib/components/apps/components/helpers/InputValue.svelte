@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { isCodeInjection } from '$lib/components/flows/utils'
-	import { getContext } from 'svelte'
+	import { getContext, onMount } from 'svelte'
 	import type { AppInput } from '../../inputType'
 	import type { AppEditorContext } from '../../types'
 	import { accessPropertyByPath } from '../../utils'
@@ -17,7 +17,7 @@
 	$: input && setDefault()
 	$: state = $worldStore?.state
 	$: input && $worldStore && row && handleConnection()
-	$: input && $state && input.type == 'template' && setValue()
+	$: input && $state && input.type == 'template' && (value = getValue(input))
 
 	function setDefault() {
 		if (!value && input.defaultValue) {
@@ -31,7 +31,7 @@
 		} else if (input.type === 'row') {
 			value = row[input.column]
 		} else if (input.type === 'static' || input.type == 'template') {
-			setValue()
+			getValue(input)
 		} else {
 			value = undefined
 		}
@@ -50,17 +50,17 @@
 		)
 	}
 
-	function setValue() {
+	export function getValue(input: AppInput) {
 		if (input.type === 'template' && isCodeInjection(input.eval)) {
 			try {
-				value = eval_like('`' + input.eval + '`', computeGlobalContext())
+				return eval_like('`' + input.eval + '`', computeGlobalContext())
 			} catch (e) {
-				value = e.message
+				return e.message
 			}
 		} else if (input.type === 'static') {
-			value = input.value
+			return input.value
 		} else if (input.type === 'template') {
-			value = input.eval
+			return input.eval
 		}
 	}
 

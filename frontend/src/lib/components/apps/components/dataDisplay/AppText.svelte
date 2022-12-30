@@ -11,7 +11,7 @@
 
 	export const staticOutputs: string[] = ['result', 'loading']
 
-	let result: string = ''
+	let result: string | undefined = undefined
 </script>
 
 <RunnableWrapper bind:componentInput {id} bind:result>
@@ -21,7 +21,15 @@
 				No text
 			</div>
 		{:else}
-			<SvelteMarkdown source={String(result)} />
+			<div class="prose-sm">
+				<SvelteMarkdown source={String(result)} />
+			</div>
 		{/if}
 	</AlignWrapper>
 </RunnableWrapper>
+
+<style>
+	.prose-sm p {
+		margin: 0px !important;
+	}
+</style>
