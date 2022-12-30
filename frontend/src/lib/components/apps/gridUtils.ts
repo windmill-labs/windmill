@@ -8,7 +8,7 @@ const Breakpoints = {
 }
 
 const columnConfiguration: ColumnConfiguration = [
-	[Breakpoints.lg, 12],
+	[Breakpoints.lg, 9],
 	[Breakpoints.sm, 3]
 ]
 

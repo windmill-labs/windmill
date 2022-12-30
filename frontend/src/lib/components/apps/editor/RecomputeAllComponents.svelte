@@ -1,7 +1,5 @@
 <script lang="ts">
-	import Button from '$lib/components/common/button/Button.svelte'
-	import { classNames } from '$lib/utils'
-	import { faRefresh } from '@fortawesome/free-solid-svg-icons'
+	import { RefreshCw } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import type { AppEditorContext } from '../types'
 
@@ -20,12 +18,10 @@
 	}
 </script>
 
-<Button
-	size="xs"
-	btnClasses="m-2 mb-6"
-	startIcon={{ icon: faRefresh, classes: classNames(loading ? 'animate-spin' : '', 'mr-2') }}
-	color="dark"
-	on:click={onRefresh}
+<button
+	on:click|preventDefault|stopPropagation={onRefresh}
+	class="center-center p-1 rounded border bg-white/60  inline-flex gap-2"
 >
-	Recompute all ({Object.keys($runnableComponents).length})
-</Button>
+	<RefreshCw class={loading ? 'animate-spin' : ''} size={20} /> ({Object.keys($runnableComponents)
+		.length})
+</button>

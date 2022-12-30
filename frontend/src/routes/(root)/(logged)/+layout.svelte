@@ -11,7 +11,7 @@
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import { starStore, superadmin, usageStore, userStore, workspaceStore } from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
-	import { beforeNavigate, goto } from '$app/navigation'
+	import { afterNavigate, beforeNavigate, goto } from '$app/navigation'
 	import UserSettings from '$lib/components/UserSettings.svelte'
 	import SuperadminSettings from '$lib/components/SuperadminSettings.svelte'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
@@ -81,16 +81,15 @@
 		]
 	}
 
-	$: onAppEditor = $page.url.pathname?.includes('apps')
-
-	$: if (onAppEditor) {
-		isCollapsed = true
-	} else {
-		if (innerWidth < 1248 && innerWidth >= 768) {
+	afterNavigate((n) => {
+		if (n.to?.url.pathname.startsWith('/apps')) {
 			isCollapsed = true
-		} else if (innerWidth >= 1248 || innerWidth < 768) {
-			isCollapsed = false
 		}
+	})
+	$: if (innerWidth < 1248 && innerWidth >= 768) {
+		isCollapsed = true
+	} else if (innerWidth >= 1248 || innerWidth < 768) {
+		isCollapsed = false
 	}
 </script>
 
@@ -199,9 +198,7 @@
 							<WindmillIcon white={true} height="20px" width="20px" />
 						</div>
 						{#if !isCollapsed}
-							<span>
-								Windmill
-							</span>
+							<span> Windmill </span>
 						{/if}
 					</div>
 				</button>
@@ -221,7 +218,6 @@
 						on:click={() => {
 							isCollapsed = !isCollapsed
 						}}
-						disabled={onAppEditor}
 					>
 						<Icon
 							data={faArrowLeft}

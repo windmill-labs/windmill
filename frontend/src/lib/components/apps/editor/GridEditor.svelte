@@ -5,9 +5,11 @@
 	import ComponentEditor from './ComponentEditor.svelte'
 	import { classNames } from '$lib/utils'
 	import { columnConfiguration, disableDrag, enableDrag, isFixed, toggleFixed } from '../gridUtils'
-	import { fly } from 'svelte/transition'
 
 	import RecomputeAllComponents from './RecomputeAllComponents.svelte'
+	import type { Policy } from '$lib/gen'
+
+	export let policy: Policy
 
 	const {
 		selectedComponent,
@@ -104,7 +106,15 @@
 	on:pointerup={onpointerup}
 	class="bg-white h-full relative"
 >
-	<RecomputeAllComponents />
+	<div class="w-full flex justify-between border-b p-1 m-1 items-center gap-4">
+		<h2>{$app.title}</h2>
+		<RecomputeAllComponents />
+		<div class="text-2xs text-gray-600"
+			>{policy.execution_mode} mode {policy.on_behalf_of
+				? `on behalf of ${policy.on_behalf_of}`
+				: ''}</div
+		>
+	</div>
 	<Grid
 		bind:items={$app.grid}
 		let:dataItem

@@ -14,6 +14,7 @@
 	import { fieldTypeToTsType, loadSchema, schemaToInputsSpec } from '../../utils'
 	import InputValue from './InputValue.svelte'
 	import MissingConnectionWarning from './MissingConnectionWarning.svelte'
+	import RefreshButton from './RefreshButton.svelte'
 
 	// Component props
 	export let id: string
@@ -78,10 +79,9 @@
 		return areAllArgsValid
 	}
 
-	$: isValid = argMergedArgsValid(
-		{ ...extraQueryParams, ...runnableInputValues, ...args },
-		testJobLoader
-	)
+	$: isValid =
+		Object.keys(fields ?? {}).length == 0 ||
+		argMergedArgsValid({ ...extraQueryParams, ...runnableInputValues, ...args }, testJobLoader)
 
 	// Test job internal state
 	let testJob: CompletedJob | undefined = undefined
@@ -297,14 +297,18 @@
 	{/if}
 
 	{#if !runnable && autoRefresh}
-		<Alert type="warning" size="xs" class="mt-2" title="Missing runnable">
+		<Alert type="warning" size="xs" class="mt-2 px-1" title="Missing runnable">
 			Please select a runnable
 		</Alert>
 	{:else if autoRefresh === true}
+		<div class="flex absolute top-1 right-1">
+			<RefreshButton componentId={id} />
+		</div>
+
 		{#if isValid}
 			<slot />
 		{:else}
-			<Alert type="info" size="xs" class="mt-2" title="Missing inputs">
+			<Alert type="info" size="xs" class="mt-2 px-1" title="Missing inputs">
 				Please fill in all the inputs
 
 				{#each Object.keys(fields ?? {}) as key}
