@@ -106,13 +106,9 @@
 <div class="flex flex-col h-full relative">
 	{#if root}
 		<div
-			class="z-10 sticky inline-flex top-0 bg-gray-50 flex-initial  px-3 py-2 items-center h-full max-h-12 border-b border-gray-300"
+			class="z-10 sticky inline-flex flex-col gap-2 top-0 bg-gray-50 flex-initial p-2 items-center border-b border-gray-300"
 		>
 			<FlowSettingsItem />
-		</div>
-		<div
-			class="z-10 sticky inline-flex top-0 bg-gray-50 flex-initial  px-3 py-2 items-center h-full max-h-12 border-b border-gray-300"
-		>
 			<FlowConstantsItem />
 		</div>
 	{/if}

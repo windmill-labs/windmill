@@ -1,11 +1,10 @@
 <script lang="ts">
 	import type { FlowEditorContext } from '../types'
 	import { getContext } from 'svelte'
-	import Icon from 'svelte-awesome'
-	import { faSliders } from '@fortawesome/free-solid-svg-icons'
 	import { classNames } from '$lib/utils'
 	import { Badge } from '$lib/components/common'
 	import { flowStore } from '../flowStore'
+	import { SlidersHorizontal } from 'lucide-svelte'
 
 	const { select, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -17,14 +16,13 @@
 	)
 </script>
 
-<!-- svelte-ignore a11y-click-events-have-key-events -->
-<div on:click={() => select('settings-metadata')} class={settingsClass}>
-	<Icon data={faSliders} class="mr-2" />
-	<span class="text-xs font-bold flex flex-row justify-between w-full gap-2 items-center truncate">
+<button on:click={() => select('settings-metadata')} class={settingsClass}>
+	<SlidersHorizontal size={16} />
+	<span class="text-xs font-bold flex flex-row justify-between w-full gap-2 items-center truncate ml-1">
 		Settings
 
 		{#if $flowStore.value.same_worker}
 			<Badge color="blue" baseClass="truncate">./shared</Badge>
 		{/if}
 	</span>
-</div>
+</button>

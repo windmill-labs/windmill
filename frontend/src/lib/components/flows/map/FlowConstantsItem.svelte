@@ -1,9 +1,8 @@
 <script lang="ts">
 	import type { FlowEditorContext } from '../types'
 	import { getContext } from 'svelte'
-	import Icon from 'svelte-awesome'
-	import { faDollarSign } from '@fortawesome/free-solid-svg-icons'
 	import { classNames } from '$lib/utils'
+	import { DollarSign } from 'lucide-svelte'
 
 	const { select, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -13,10 +12,9 @@
 	)
 </script>
 
-<!-- svelte-ignore a11y-click-events-have-key-events -->
-<div on:click={() => select('constants')} class={settingsClass}>
-	<Icon data={faDollarSign} class="mr-2" />
-	<span class="text-xs flex flex-row justify-between w-full gap-2 items-center truncate">
+<button on:click={() => select('constants')} class={settingsClass}>
+	<DollarSign size={16} />
+	<span class="text-xs font-bold flex flex-row justify-between w-full gap-2 items-center truncate ml-1">
 		All Static Inputs
 	</span>
-</div>
+</button>
