@@ -21,6 +21,8 @@
 	let intervalId: SetIntervalAsyncTimer<unknown[]> | undefined = undefined
 
 	let syncIteration: number = 0
+	let errorIteration = 0
+
 	let ITERATIONS_BEFORE_SLOW_REFRESH = 10
 	let ITERATIONS_BEFORE_SUPER_SLOW_REFRESH = 100
 
@@ -119,6 +121,8 @@
 	}
 
 	export async function watchJob(testId: string) {
+		syncIteration = 0
+		errorIteration = 0
 		const isCompleted = await loadTestJob(testId)
 		if (!isCompleted) {
 			isLoading = true
@@ -161,10 +165,10 @@
 			}
 			notfound = false
 		} catch (err) {
-			intervalId && clearIntervalAsync(intervalId!)
-			clearCurrentJob()
-			if (err.status === 404) {
+			errorIteration += 1
+			if (errorIteration == 5) {
 				notfound = true
+				await clearCurrentJob()
 			}
 			console.warn(err)
 		}

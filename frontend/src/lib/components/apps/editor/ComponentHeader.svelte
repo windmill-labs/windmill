@@ -15,7 +15,7 @@
 <span
 	class={classNames(
 		'px-2 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute z-50',
-		selected ? 'bg-indigo-500 text-white' : 'bg-gray-200/60 text-gray-500'
+		selected ? 'bg-indigo-500/90 text-white' : 'bg-gray-200/60 text-gray-500'
 	)}
 >
 	{component.id}
@@ -24,7 +24,7 @@
 {#if pointerdown || selected}
 	<button
 		class={classNames(
-			'text-white px-1 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute  right-8 z-50 cursor-pointer',
+			'text-white px-1 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute  right-10 z-50 cursor-pointer',
 			' hover:bg-gray-800',
 			selected ? 'bg-gray-600/90' : 'bg-gray-600/80'
 		)}
@@ -44,19 +44,8 @@
 	<span
 		on:mousedown|stopPropagation|capture
 		class={classNames(
-			'text-white px-1 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute  right-16 z-50 cursor-move',
+			'text-white px-1 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute  right-20 z-50 cursor-move',
 			'bg-gray-600/80'
 		)}><Move size={16} /></span
 	>
-	<button
-		class={classNames(
-			'text-white px-1 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute  right-0 z-50 cursor-pointer',
-			'bg-gray-600/80 hover:bg-gray-800'
-		)}
-		on:click={() => {
-			dispatch('delete')
-		}}
-	>
-		<X size={16} />
-	</button>
 {/if}

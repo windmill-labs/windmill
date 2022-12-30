@@ -133,7 +133,7 @@ export type AppEditorContext = {
 	mode: Writable<EditorMode>
 	connectingInput: Writable<ConnectingInput>
 	breakpoint: Writable<EditorBreakpoint>
-	runnableComponents: Writable<Record<string, () => void>>
+	runnableComponents: Writable<Record<string, () => Promise<void>>>
 	appPath: string
 }
 

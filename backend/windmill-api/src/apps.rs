@@ -57,6 +57,7 @@ pub struct ListableApp {
     pub extra_perms: serde_json::Value,
     pub execution_mode: String,
     pub starred: bool,
+    pub edited_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(FromRow, Serialize, Deserialize)]

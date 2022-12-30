@@ -26,7 +26,7 @@
 
 	$: result = [] as Array<Record<string, any>>
 
-	let search: 'Runnable' | 'Component' | 'Disabled' = 'Disabled'
+	let search: 'Runnable' | 'Component' | 'Disabled' | undefined = undefined
 	let searchValue = ''
 
 	let pagination: boolean | undefined = undefined
@@ -114,16 +114,16 @@
 <RunnableWrapper bind:componentInput {id} bind:result {extraQueryParams}>
 	{#if Array.isArray(result) && result.every(isObject)}
 		<div class="border border-gray-300 shadow-sm divide-y divide-gray-300  flex flex-col h-full">
-			<div class="py-2 px-4">
-				<div class="flex justify-between items-center">
-					<RefreshButton componentId={id} />
-					{#if search !== 'Disabled'}
+			{#if search !== 'Disabled'}
+				<div class="px-4 py-2">
+					<div class="flex items-center">
 						<div>
 							<DebouncedInput placeholder="Search..." bind:value={searchValue} />
 						</div>
-					{/if}
+					</div>
 				</div>
-			</div>
+			{/if}
+
 			<div class="overflow-auto flex-1 w-full">
 				<table class="divide-y divide-gray-300 w-full border-b border-b-gray-200">
 					<thead class="bg-gray-50 text-left">

@@ -53,18 +53,18 @@
 <nav class="grow flex md:justify-between flex-col overflow-x-hidden scrollbar-hidden px-2 md:pb-4">
 	<div class="space-y-1 pt-4 mb-6 md:mb-10">
 		{#each mainMenuLinks as menuLink (menuLink.href)}
-			<MenuLink class="text-md" {...menuLink} {isCollapsed} />
+			<MenuLink class="!text-md" {...menuLink} {isCollapsed} />
 		{/each}
 	</div>
 	<div>
-		<div class="space-y-1 mb-6 md:mb-10">
+		<div class="mb-6 md:mb-10">
 			{#each secondaryMenuLinks as menuLink (menuLink.href)}
-				<MenuLink class="text-xs" {...menuLink} {isCollapsed} />
+				<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
 			{/each}
 		</div>
 		<div>
 			{#each thirdMenuLinks as menuLink (menuLink.href)}
-				<MenuLink class="text-xs" {...menuLink} {isCollapsed} />
+				<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
 			{/each}
 		</div>
 	</div>

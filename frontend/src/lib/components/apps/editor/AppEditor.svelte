@@ -32,10 +32,12 @@
 	import { grid } from 'd3-dag'
 	import SettingsPanel from './SettingsPanel.svelte'
 	import { fly } from 'svelte/transition'
+	import type { Policy } from '$lib/gen'
 
 	export let app: App
 	export let path: string
 	export let initialMode: EditorMode = 'dnd'
+	export let policy: Policy
 
 	const appStore = writable<App>(app)
 	const worldStore = writable<World | undefined>(undefined)
@@ -49,7 +51,7 @@
 		input: undefined
 	})
 
-	const runnableComponents = writable<Record<string, () => void>>({})
+	const runnableComponents = writable<Record<string, () => Promise<void>>>({})
 
 	setContext<AppEditorContext>('AppEditorContext', {
 		worldStore,
@@ -88,20 +90,20 @@
 	{/if}
 
 	{#if previewing}
-		<AppPreview app={$appStore} appPath={path} {breakpoint} />
+		<AppPreview app={$appStore} appPath={path} {breakpoint} {policy} />
 	{:else}
 		<SplitPanesWrapper class="max-w-full overflow-hidden">
-			<Pane size={20}>
+			<Pane size={15}>
 				<ContextPanel />
 			</Pane>
-			<Pane size={55}>
+			<Pane size={65}>
 				<SplitPanesWrapper horizontal>
 					<Pane size={70}>
 						<div class="bg-gray-100 w-full p-4 h-full overflow-auto">
 							<div class={classNames('bg-gray-100  mx-auto relative min-h-full', width)}>
 								{#if $appStore.grid}
-									<div class={classNames('w-full p-2 h-full bg-white', width)}>
-										<GridEditor />
+									<div class={classNames('w-full px-2 pb-2 h-full bg-white', width)}>
+										<GridEditor {policy} />
 									</div>
 								{/if}
 								{#if $connectingInput.opened}
@@ -124,7 +126,7 @@
 					</Pane>
 				</SplitPanesWrapper>
 			</Pane>
-			<Pane size={25} minSize={20} maxSize={33}>
+			<Pane size={20} minSize={15} maxSize={33}>
 				<div class="relative">
 					<Tabs bind:selected={selectedTab}>
 						<Tab value="insert" size="xs">

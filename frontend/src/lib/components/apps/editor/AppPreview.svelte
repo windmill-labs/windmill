@@ -13,10 +13,12 @@
 	import GridEditor from './GridEditor.svelte'
 
 	import { classNames } from '$lib/utils'
+	import type { Policy } from '$lib/gen'
 
 	export let app: App
 	export let appPath: string
 	export let breakpoint: Writable<EditorBreakpoint>
+	export let policy: Policy
 
 	const appStore = writable<App>(app)
 	const worldStore = writable<World | undefined>(undefined)
@@ -29,7 +31,7 @@
 		input: undefined
 	})
 
-	const runnableComponents = writable<Record<string, () => void>>({})
+	const runnableComponents = writable<Record<string, () => Promise<void>>>({})
 
 	setContext<AppEditorContext>('AppEditorContext', {
 		worldStore,
@@ -57,7 +59,7 @@
 <div class="h-full w-5/6 mx-auto">
 	{#if $appStore.grid}
 		<div class={classNames('mx-auto h-full', width)}>
-			<GridEditor />
+			<GridEditor {policy} />
 		</div>
 	{/if}
 </div>
