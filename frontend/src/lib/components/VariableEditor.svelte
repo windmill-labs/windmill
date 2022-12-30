@@ -49,11 +49,11 @@
 		drawer.openDrawer()
 	}
 
-	export async function editVariable(path: string): Promise<void> {
+	export async function editVariable(edit_path: string): Promise<void> {
 		edit = true
 		const getV = await VariableService.getVariable({
 			workspace: $workspaceStore ?? '',
-			path,
+			path: edit_path,
 			decryptSecret: false
 		})
 		can_write =
@@ -64,7 +64,8 @@
 			is_secret: getV.is_secret,
 			description: getV.description ?? ''
 		}
-		initialPath = path
+		initialPath = edit_path
+		path = edit_path
 		drawer.openDrawer()
 	}
 
