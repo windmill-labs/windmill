@@ -1,9 +1,17 @@
 <script lang="ts">
 	import Dropdown from '$lib/components/Dropdown.svelte'
+	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
+	import type ShareModal from '$lib/components/ShareModal.svelte'
 	import { AppService, type ListableApp } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { faEdit, faEye, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
+	import {
+		faEdit,
+		faEye,
+		faFileExport,
+		faShare,
+		faTrashAlt
+	} from '@fortawesome/free-solid-svg-icons'
 	import { MoreVertical } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Button from '../button/Button.svelte'
@@ -12,6 +20,8 @@
 	export let app: ListableApp & { canWrite: boolean }
 	export let marked: string | undefined
 	export let starred: boolean
+	export let shareModal: ShareModal
+	export let moveDrawer: MoveDrawer
 
 	let { summary, path, extra_perms, canWrite, workspace_id } = app
 
@@ -48,6 +58,7 @@
 					</div>
 				{/if}
 			{/if}
+
 			<Button
 				href="/apps/get/{path}"
 				color="dark"
@@ -66,6 +77,21 @@
 					displayName: 'View app',
 					icon: faEye,
 					href: `/apps/get/${path}`
+				},
+				{
+					displayName: 'Move',
+					icon: faFileExport,
+					action: () => {
+						moveDrawer.openDrawer(path, 'app')
+					},
+					disabled: !canWrite
+				},
+				{
+					displayName: canWrite ? 'Share' : 'See Permissions',
+					icon: faShare,
+					action: () => {
+						shareModal.openDrawer && shareModal.openDrawer(path, 'app')
+					}
 				},
 				{
 					displayName: 'Delete',

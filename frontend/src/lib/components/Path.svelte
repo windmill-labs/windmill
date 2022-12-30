@@ -2,6 +2,7 @@
 	import { type Meta, pathToMeta } from '$lib/common'
 
 	import {
+		AppService,
 		FlowService,
 		FolderService,
 		GroupService,
@@ -151,6 +152,8 @@
 			})
 		} else if (kind == 'schedule') {
 			return await ScheduleService.existsSchedule({ workspace: $workspaceStore!, path: path })
+		} else if (kind == 'app') {
+			return await AppService.existsApp({ workspace: $workspaceStore!, path: path })
 		} else {
 			return false
 		}
@@ -237,7 +240,7 @@
 	>
 		<div class="flex flex-row">
 			<input class="mr-2" placeholder="New group name" bind:value={newGroupName} />
-			<Button size="md" startIcon={{ icon: faPlus }} disabled={!newGroupName} on:click={addGroup}>
+			<Button size="md" endIcon={{ icon: faPlus }} disabled={!newGroupName} on:click={addGroup}>
 				New&nbsp;group
 			</Button>
 		</div>

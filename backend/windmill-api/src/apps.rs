@@ -37,7 +37,7 @@ pub fn workspaced_service() -> Router {
         .route("/list", get(list_apps))
         .route("/get/p/*path", get(get_app))
         .route("/get/v/*id", get(get_app_by_id))
-        .route("/exists/*path", post(exists_app))
+        .route("/exists/*path", get(exists_app))
         .route("/update/*path", post(update_app))
         .route("/delete/*path", delete(delete_app))
         .route("/create", post(create_app))

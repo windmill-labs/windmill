@@ -51,7 +51,7 @@
 </script>
 
 <Drawer bind:open={drawerOpen} size="800px">
-	<DrawerContent title="Add an app" on:close={() => closeDrawer()}>
+	<DrawerContent title="Create an App" on:close={() => closeDrawer()}>
 		<Path bind:error={pathError} bind:path {initialPath} namePlaceholder="my_app" kind="app">
 			<div slot="ownerToolkit">
 				App permissions depend on their path. Select the group <span class="font-mono">all</span>

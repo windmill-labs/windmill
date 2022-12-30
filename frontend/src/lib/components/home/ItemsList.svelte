@@ -321,6 +321,8 @@
 							marked={item.marked}
 							on:change={loadApps}
 							app={item}
+							{moveDrawer}
+							{shareModal}
 						/>
 					{/if}
 				{/each}

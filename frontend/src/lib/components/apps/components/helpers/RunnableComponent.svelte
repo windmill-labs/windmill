@@ -33,6 +33,7 @@
 				await executeComponent()
 			}
 		}
+		executeComponent()
 	})
 
 	let pagePath = $page.params.path

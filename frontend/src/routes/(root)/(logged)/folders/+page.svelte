@@ -79,9 +79,16 @@
 				placeholder="New folder name"
 				bind:value={newFolderName}
 			/>
-			<Button size="md" startIcon={{ icon: faPlus }} disabled={!newFolderName} on:click={addFolder}>
-				New&nbsp;folder
-			</Button>
+			<div>
+				<Button
+					size="md"
+					startIcon={{ icon: faPlus }}
+					disabled={!newFolderName}
+					on:click={addFolder}
+				>
+					New&nbsp;folder
+				</Button>
+			</div>
 		</div>
 	</PageHeader>
 

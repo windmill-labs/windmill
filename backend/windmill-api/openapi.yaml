@@ -3947,7 +3947,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [script, group_, resource, schedule, variable, flow, folder]
+            enum: [script, group_, resource, schedule, variable, flow, folder, app]
       responses:
         "200":
           description: acls
@@ -3972,7 +3972,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [script, group_, resource, schedule, variable, flow, folder]
+            enum: [script, group_, resource, schedule, variable, flow, folder, app]
       requestBody:
         description: acl to add
         required: true
@@ -4008,7 +4008,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [script, group_, resource, schedule, variable, flow, folder]
+            enum: [script, group_, resource, schedule, variable, flow, folder, app]
       requestBody:
         description: acl to add
         required: true

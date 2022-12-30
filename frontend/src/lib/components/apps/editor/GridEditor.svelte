@@ -100,57 +100,52 @@
 	}
 </script>
 
-<div
-	on:pointerdown={onpointerdown}
-	on:pointerleave={onpointerup}
-	on:pointerup={onpointerup}
-	class="bg-white h-full relative"
->
+<div class="bg-white h-full relative">
 	<div class="w-full flex justify-between border-b px-4 py-2  mb-4 items-center gap-4">
 		<h2>{$app.title}</h2>
 		<RecomputeAllComponents />
 		<div class="text-2xs text-gray-600"
-			>{policy.execution_mode} mode {policy.on_behalf_of
-				? `on behalf of ${policy.on_behalf_of}`
-				: ''}</div
+			>{policy.on_behalf_of ? `on behalf of ${policy.on_behalf_of}` : ''}</div
 		>
 	</div>
-	<Grid
-		bind:items={$app.grid}
-		let:dataItem
-		rowHeight={46}
-		cols={columnConfiguration}
-		fastStart={true}
-		on:pointerup={({ detail }) => selectComponent(detail.id)}
-		gap={[4, 2]}
-	>
-		{#each $lazyGrid as gridComponent (gridComponent.id)}
-			{#if gridComponent.data.id === dataItem.data.id}
-				<!-- svelte-ignore a11y-click-events-have-key-events -->
-				<div
-					class={classNames(
-						'h-full w-full flex justify-center align-center',
-						gridComponent.data.card ? 'border border-gray-100' : ''
-					)}
-					on:click|preventDefault|capture|once
-				>
-					<ComponentEditor
-						{pointerdown}
-						bind:component={gridComponent.data}
-						selected={$selectedComponent === dataItem.data.id}
-						locked={isFixed(gridComponent)}
-						on:delete={() => removeGridElement(gridComponent.data)}
-						on:lock={() => {
-							let fComponent = $app.grid.find((c) => c.id === gridComponent.id)
-							if (fComponent) {
-								fComponent = toggleFixed(fComponent)
-							}
-						}}
-					/>
-				</div>
-			{/if}
-		{/each}
-	</Grid>
+	<div on:pointerdown={onpointerdown} on:pointerleave={onpointerup} on:pointerup={onpointerup}>
+		<Grid
+			bind:items={$app.grid}
+			let:dataItem
+			rowHeight={46}
+			cols={columnConfiguration}
+			fastStart={true}
+			on:pointerup={({ detail }) => selectComponent(detail.id)}
+			gap={[4, 2]}
+		>
+			{#each $lazyGrid as gridComponent (gridComponent.id)}
+				{#if gridComponent.data.id === dataItem.data.id}
+					<!-- svelte-ignore a11y-click-events-have-key-events -->
+					<div
+						class={classNames(
+							'h-full w-full flex justify-center align-center',
+							gridComponent.data.card ? 'border border-gray-100' : ''
+						)}
+						on:click|preventDefault|capture|once
+					>
+						<ComponentEditor
+							{pointerdown}
+							bind:component={gridComponent.data}
+							selected={$selectedComponent === dataItem.data.id}
+							locked={isFixed(gridComponent)}
+							on:delete={() => removeGridElement(gridComponent.data)}
+							on:lock={() => {
+								let fComponent = $app.grid.find((c) => c.id === gridComponent.id)
+								if (fComponent) {
+									fComponent = toggleFixed(fComponent)
+								}
+							}}
+						/>
+					</div>
+				{/if}
+			{/each}
+		</Grid>
+	</div>
 </div>
 
 <style>

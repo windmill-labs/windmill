@@ -13,7 +13,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	type Kind = 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow'
+	type Kind = 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow' | 'app'
 	let kind: Kind
 
 	let path: string = ''
