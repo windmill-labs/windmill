@@ -4,6 +4,8 @@ import { clearStores } from './stores.js'
 import { sendUserToast } from './utils.js'
 
 export async function logoutWithRedirect(rd?: string): Promise<void> {
+	console.log('logoutWithRedirect', rd)
+
 	await clearUser()
 	if (rd && rd?.split('?')[0] != '/user/login') {
 		const error = document.cookie.includes('token')

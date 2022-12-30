@@ -45,7 +45,9 @@
 			}
 		} catch (e) {
 			console.error(e)
-			await logoutWithRedirect($page.url.pathname + $page.url.search)
+			if ($page.url.pathname != '/user/login') {
+				await logoutWithRedirect($page.url.pathname + $page.url.search)
+			}
 		}
 	}
 
