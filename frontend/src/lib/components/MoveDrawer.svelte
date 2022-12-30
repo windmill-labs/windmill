@@ -5,7 +5,7 @@
 	import { Alert, Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Path from './Path.svelte'
-	import { FlowService, ScriptService } from '$lib/gen'
+	import { AppService, FlowService, ScriptService } from '$lib/gen'
 
 	const dispatch = createEventDispatcher()
 
@@ -24,7 +24,6 @@
 		await loadOwner()
 		drawer.openDrawer()
 	}
-
 
 	async function loadOwner() {
 		own = await isOwner(path, $userStore!, $workspaceStore!)
@@ -58,6 +57,14 @@
 					description: script.description ?? '',
 					lock: script.lock?.split('\n'),
 					parent_hash: script.hash,
+					path
+				}
+			})
+		} else if (kind == 'app') {
+			await AppService.updateApp({
+				workspace: $workspaceStore!,
+				path: initialPath,
+				requestBody: {
 					path
 				}
 			})

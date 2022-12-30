@@ -12,6 +12,7 @@
 		faHand,
 		faMobileAlt
 	} from '@fortawesome/free-solid-svg-icons'
+	import { Eye, Laptop2, Pencil, PenTool, Smartphone } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
 	import { sendUserToast } from '../../../utils'
@@ -55,40 +56,37 @@
 
 <div class="border-b flex flex-row justify-between py-1 px-4 items-center">
 	<input class="text-sm w-64" bind:value={title} />
-	<div class="flex gap-4 items-center">
+	<div class="flex gap-8 items-center">
 		<div>
 			<ToggleButtonGroup bind:selected={mode}>
 				<ToggleButton position="left" value="dnd" size="xs">
-					<Icon data={faHand} class="h-3 mr-1" />
-					Editor
+					<div class="inline-flex gap-1 items-center">
+						<Pencil size={14} />
+						Editor
+					</div>
 				</ToggleButton>
 				<ToggleButton position="right" value="preview" size="xs">
-					<Icon data={faDisplay} class="h-4 mr-1" />
-					Preview
-				</ToggleButton>
+					<div class="inline-flex gap-1 items-center"> <Eye size={14} /> Preview</div></ToggleButton
+				>
 			</ToggleButtonGroup>
 		</div>
 		<div>
 			<ToggleButtonGroup bind:selected={breakpoint}>
-				<ToggleButton
-					position="left"
-					value="sm"
-					startIcon={{ icon: faMobileAlt }}
-					size="xs"
-					iconOnly
-				/>
-				<ToggleButton
-					position="right"
-					value="lg"
-					startIcon={{ icon: faDesktopAlt }}
-					size="xs"
-					iconOnly
-				/>
+				<ToggleButton position="left" value="sm" size="xs">
+					<Smartphone size={14} />
+				</ToggleButton>
+				<ToggleButton position="right" value="lg" size="xs"><Laptop2 size={14} /></ToggleButton>
 			</ToggleButtonGroup>
 		</div>
 	</div>
 	<div class="flex flex-row gap-2 w-64 justify-end">
-		<Button color="dark" size="xs" variant="border" startIcon={{ icon: faExternalLink }}>
+		<Button
+			on:click={() => sendUserToast('Publishing apps publically at secret urls is coming soon')}
+			color="dark"
+			size="xs"
+			variant="border"
+			startIcon={{ icon: faExternalLink }}
+		>
 			Publish
 		</Button>
 		<Button loading={loading.save} on:click={save} color="dark" size="xs">Save</Button>
