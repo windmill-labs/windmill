@@ -3,6 +3,8 @@
 	export let options: [string | { title: string; desc: string }, any][]
 	export let value: any
 	export let disabled = false
+	export let labelClass = ''
+	export let inputClass = ''
 
 	import { createEventDispatcher } from 'svelte'
 	import Tooltip from './Tooltip.svelte'
@@ -11,13 +13,13 @@
 </script>
 
 <fieldset class="w-full">
-	<legend class="sr-only">{label}</legend>
+	<legend class="sr-only {labelClass}">{label}</legend>
 	<div class="flex flex-row flex-wrap gap-2 items-center mb-2 w-full">
 		{#each options as [label, val]}
 			<label
 				class="text-center text-sm border border-gray-300 h-full rounded-sm cursor-pointer p-2 
-				grow whitespace-nowrap hover:border-gray-600 hover:bg-gray-100
-				{val === value ? '!bg-blue-50 !border-blue-500' : ''}"
+				grow whitespace-nowrap duration-200 hover:border-gray-600 hover:bg-gray-100
+				{val === value ? '!bg-blue-50 !border-blue-500' : ''} {inputClass}"
 			>
 				<input
 					{disabled}
