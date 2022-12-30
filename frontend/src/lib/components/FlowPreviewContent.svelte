@@ -54,7 +54,7 @@
 			return $flowStore
 		} else {
 			const flow: Flow = JSON.parse(JSON.stringify($flowStore))
-			const idOrders = dfs(flow.value.modules)
+			const idOrders = dfs(flow.value.modules, (x) => x.id)
 			let upToIndex = idOrders.indexOf($selectedId)
 
 			if (upToIndex != -1) {

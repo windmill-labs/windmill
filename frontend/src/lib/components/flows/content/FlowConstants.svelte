@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { flowStore } from '$lib/components/flows/flowStore'
+	import { dfs, flowStore } from '$lib/components/flows/flowStore'
 
 	import FlowCard from '../common/FlowCard.svelte'
 
@@ -12,22 +12,24 @@
 	import { writable } from 'svelte/store'
 
 	$: steps = (
-		$flowStore.value.modules
+		dfs($flowStore.value.modules, (x) => x)
 			.map((x) => [x.value, x] as [FlowModuleValue, FlowModule])
 			.filter((x) => x[0].type == 'script' || x[0].type == 'rawscript') as [
 			PathScript | RawScript,
 			FlowModule
 		][]
-	).map(
-		([v, m]) =>
-			[
-				v.input_transforms,
-				Object.entries(v.input_transforms)
-					.filter((x) => x[1].type == 'static')
-					.map((x) => x[0]),
-				m
-			] as [Record<string, InputTransform>, string[], FlowModule]
 	)
+		.map(
+			([v, m]) =>
+				[
+					v.input_transforms,
+					Object.entries(v.input_transforms)
+						.filter((x) => x[1].type == 'static')
+						.map((x) => x[0]),
+					m
+				] as [Record<string, InputTransform>, string[], FlowModule]
+		)
+		.filter(([i, f, m]) => f.length > 0)
 
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
 		focusProp: () => {},
@@ -45,6 +47,19 @@
 				useful when forking a flow to get an overview of all the variables to parametrize that are
 				not exposed directly as flow inputs.</Alert
 			>
+			{#if steps.length == 0}
+				<div class="mt-2" />
+				{#if $flowStore.value.modules.length == 0}
+					<Alert type="warning" title="No steps">
+						This flow has no steps. Add a step to see its static inputs.
+					</Alert>
+				{:else}
+					<Alert type="warning" title="No static inputs">
+						This flow has no steps with static inputs. Add a step with static inputs to see them
+						here.
+					</Alert>
+				{/if}
+			{/if}
 			{#each steps as [args, filter, m] (m.id)}
 				{#if filter.length > 0}
 					<div class="box">
