@@ -26,6 +26,8 @@
 	export let compact = false
 	export let password: string | undefined = undefined
 	export let noVariablePicker = false
+	export let filter: string[] | undefined = undefined
+	export let noDynamicToggle = false
 
 	let clazz: string = ''
 	export { clazz as class }
@@ -56,48 +58,50 @@
 <div class="w-full {clazz}">
 	{#if Object.keys(schema?.properties ?? {}).length > 0}
 		{#each Object.keys(schema?.properties ?? {}) as argName, i (argName)}
-			<div transition:slide|local>
-				{#if inputTransform}
-					<InputTransformForm
-						{previousModuleId}
-						bind:arg={args[argName]}
-						bind:schema
-						bind:argName
-						bind:inputCheck={inputCheck[argName]}
-						bind:extraLib
-						{variableEditor}
-						{itemPicker}
-						{noVariablePicker}
-						bind:pickForField
-					/>
-				{:else if typeof args == 'object'}
-					<ArgInput
-						autofocus={i == 0 && autofocus}
-						label={argName}
-						bind:description={schema.properties[argName].description}
-						bind:value={args[argName]}
-						type={schema.properties[argName].type}
-						required={schema.required.includes(argName)}
-						bind:pattern={schema.properties[argName].pattern}
-						bind:valid={inputCheck[argName]}
-						defaultValue={schema.properties[argName].default}
-						bind:enum_={schema.properties[argName].enum}
-						bind:format={schema.properties[argName].format}
-						contentEncoding={schema.properties[argName].contentEncoding}
-						properties={schema.properties[argName].properties}
-						bind:itemsType={schema.properties[argName].items}
-						disabled={disabledArgs.includes(argName) || disabled}
-						{editableSchema}
-						{compact}
-						password={argName == password}
-						{variableEditor}
-						{itemPicker}
-						bind:pickForField
-					/>
-				{:else}
-					Expected argument to be an object, got {JSON.stringify(args)} instead
-				{/if}
-			</div>
+			{#if !filter || filter.includes(argName)}
+				<div transition:slide|local>
+					{#if inputTransform}
+						<InputTransformForm
+							{previousModuleId}
+							bind:arg={args[argName]}
+							bind:schema
+							bind:argName
+							bind:inputCheck={inputCheck[argName]}
+							bind:extraLib
+							{variableEditor}
+							{itemPicker}
+							bind:pickForField
+							{noDynamicToggle}
+						/>
+					{:else if typeof args == 'object'}
+						<ArgInput
+							autofocus={i == 0 && autofocus}
+							label={argName}
+							bind:description={schema.properties[argName].description}
+							bind:value={args[argName]}
+							type={schema.properties[argName].type}
+							required={schema.required.includes(argName)}
+							bind:pattern={schema.properties[argName].pattern}
+							bind:valid={inputCheck[argName]}
+							defaultValue={schema.properties[argName].default}
+							bind:enum_={schema.properties[argName].enum}
+							bind:format={schema.properties[argName].format}
+							contentEncoding={schema.properties[argName].contentEncoding}
+							properties={schema.properties[argName].properties}
+							bind:itemsType={schema.properties[argName].items}
+							disabled={disabledArgs.includes(argName) || disabled}
+							{editableSchema}
+							{compact}
+							password={argName == password}
+							{variableEditor}
+							{itemPicker}
+							bind:pickForField
+						/>
+					{:else}
+						Expected argument to be an object, got {JSON.stringify(args)} instead
+					{/if}
+				</div>
+			{/if}
 		{/each}
 	{:else if !shouldHideNoInputs}
 		<div class="text-gray-500 text-sm">No inputs</div>

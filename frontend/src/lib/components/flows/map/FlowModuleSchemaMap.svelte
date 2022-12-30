@@ -19,6 +19,10 @@
 	import FlowInputsItem from './FlowInputsItem.svelte'
 	import InsertModuleButton from './InsertModuleButton.svelte'
 	import { slide } from 'svelte/transition'
+	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
+	import { Icon } from 'svelte-awesome'
+	import { faDollarSign } from '@fortawesome/free-solid-svg-icons'
+	import FlowConstantsItem from './FlowConstantsItem.svelte'
 
 	export let root: boolean = false
 	export let modules: FlowModule[] | undefined
@@ -102,12 +106,17 @@
 <div class="flex flex-col h-full relative">
 	{#if root}
 		<div
-			class="z-10 sticky top-0 bg-gray-50 flex-initial inline-flex px-3 py-2 items-center h-full max-h-12 border-b border-gray-300"
+			class="z-10 sticky inline-flex top-0 bg-gray-50 flex-initial  px-3 py-2 items-center h-full max-h-12 border-b border-gray-300"
 		>
 			<FlowSettingsItem />
 		</div>
+		<div
+			class="z-10 sticky inline-flex top-0 bg-gray-50 flex-initial  px-3 py-2 items-center h-full max-h-12 border-b border-gray-300"
+		>
+			<FlowConstantsItem />
+		</div>
 	{/if}
-	<ul class="w-full flex-auto   {root ? 'px-2 pb-2 pt-3' : ''} py-1">
+	<ul class="w-full flex-auto {root ? 'px-2 pb-2 pt-3' : ''} py-1">
 		{#if root}
 			<li>
 				<FlowInputsItem />

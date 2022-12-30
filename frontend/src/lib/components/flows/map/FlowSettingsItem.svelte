@@ -2,12 +2,12 @@
 	import type { FlowEditorContext } from '../types'
 	import { getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import { faCalendarAlt, faSliders } from '@fortawesome/free-solid-svg-icons'
+	import { faSliders } from '@fortawesome/free-solid-svg-icons'
 	import { classNames } from '$lib/utils'
 	import { Badge } from '$lib/components/common'
 	import { flowStore } from '../flowStore'
 
-	const { select, selectedId, schedule } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { select, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	$: settingsClass = classNames(
 		'border w-full rounded-sm p-2 bg-white border-gray-400 text-sm cursor-pointer flex items-center',

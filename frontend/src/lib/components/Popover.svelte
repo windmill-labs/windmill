@@ -55,7 +55,7 @@
 		use:popperContent={extraOpts}
 		on:mouseenter={open}
 		on:mouseleave={close}
-		class="z-50 text-sm font-normal text-gray-300 bg-gray-800 py-2 px-3 rounded-md 
+		class="z-50  py-2 px-3 rounded-md  text-sm font-normal !text-gray-300 bg-gray-800
 		whitespace-normal text-left {$$props.class}"
 	>
 		<div class="max-w-sm">

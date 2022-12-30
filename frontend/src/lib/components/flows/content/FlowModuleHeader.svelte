@@ -20,7 +20,7 @@
 <div class="flex flex-row space-x-2" bind:clientWidth={width}>
 	{#if module.value.type === 'script' || module.value.type === 'rawscript'}
 		<Popover
-			class="center-center rounded border p-2 duration-200
+			class="center-center rounded border p-2 
 			{moduleRetry
 				? 'bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200'
 				: 'bg-white text-gray-800 border-gray-300 hover:bg-gray-100'}"
@@ -30,7 +30,7 @@
 			<svelte:fragment slot="text">Retries</svelte:fragment>
 		</Popover>
 		<Popover
-			class="center-center rounded border p-2 duration-200
+			class="center-center rounded border p-2
 			{module.stop_after_if
 				? 'bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200'
 				: 'bg-white text-gray-800 border-gray-300 hover:bg-gray-100'}"
@@ -40,7 +40,7 @@
 			<svelte:fragment slot="text">Early stop/break</svelte:fragment>
 		</Popover>
 		<Popover
-			class="center-center rounded border p-2 duration-200
+			class="center-center rounded border p-2 
 			{module.suspend
 				? 'bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200'
 				: 'bg-white text-gray-800 border-gray-300 hover:bg-gray-100'}"
@@ -50,7 +50,7 @@
 			<svelte:fragment slot="text">Suspend</svelte:fragment>
 		</Popover>
 		<Popover
-			class="center-center rounded border p-2 duration-200
+			class="center-center rounded border p-2
 			{module.sleep
 				? 'bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200'
 				: 'bg-white text-gray-800 border-gray-300 hover:bg-gray-100'}"

@@ -423,7 +423,7 @@
 			lineNumbers: 'off',
 			fontSize,
 			suggestOnTriggerCharacters: true,
-			lineDecorationsWidth: 20
+			lineDecorationsWidth: 24
 		})
 
 		const stdLib = { content: libStdContent, filePath: 'es5.d.ts' }
