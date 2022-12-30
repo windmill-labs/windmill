@@ -5,9 +5,9 @@
 	import type { AppEditorContext } from '../../types'
 	import InputValue from './InputValue.svelte'
 
-	export let result: any = undefined
 	export let componentInput: AppInput
 	export let id: string
+	export let result: any
 
 	// Sync the result to the output
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
@@ -27,7 +27,7 @@
 		}
 	}
 
-	$: result !== undefined && setOutput()
+	$: result !== undefined && outputs && setOutput()
 </script>
 
 {#if componentInput.type !== 'runnable'}
