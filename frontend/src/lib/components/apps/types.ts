@@ -112,6 +112,7 @@ export type InlineScript = {
 export type App = {
 	grid: GridItem[]
 	title: string
+	fullscreen: boolean
 	unusedInlineScripts: Array<{
 		name: string
 		inlineScript: InlineScript

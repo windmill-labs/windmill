@@ -24,7 +24,8 @@
 		const appJson: App = {
 			grid: [],
 			title: 'New app',
-			unusedInlineScripts: []
+			unusedInlineScripts: [],
+			fullscreen: false
 		}
 
 		const policy = {
