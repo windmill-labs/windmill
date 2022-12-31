@@ -77,7 +77,15 @@ if (browser) {
   });
 }
 
+export function switchWorkspace(workspace: string | undefined) {
+  localStorage.removeItem("flow")
+  localStorage.removeItem("app")
+  workspaceStore.set(workspace);
+}
+
 export function clearStores(): void {
+  localStorage.removeItem("flow")
+  localStorage.removeItem("app")
   localStorage.removeItem("workspace");
   userStore.set(undefined);
   workspaceStore.set(undefined);

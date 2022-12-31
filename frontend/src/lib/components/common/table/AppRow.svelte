@@ -51,7 +51,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: faEdit }}
-							href="/apps/edit/{path}"
+							href="/apps/edit/{path}?nodraft=true"
 						>
 							Edit
 						</Button>

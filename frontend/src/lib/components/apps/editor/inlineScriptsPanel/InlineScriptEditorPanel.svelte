@@ -107,7 +107,7 @@
 							startIcon={{ icon: faPen }}
 							endIcon={{ icon: faExternalLinkAlt }}
 							target="_blank"
-							href="/flows/edit/{componentInput?.['runnable']?.path}">Edit</Button
+							href="/flows/edit/{componentInput?.['runnable']?.path}?nodraft=true">Edit</Button
 						>
 						<Button
 							size="xs"

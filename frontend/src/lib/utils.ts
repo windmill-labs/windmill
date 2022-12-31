@@ -292,14 +292,18 @@ export async function setQuery(url: URL, key: string, value: string): Promise<vo
 	await goto(`?${url.searchParams.toString()}`)
 }
 
+let debounced: NodeJS.Timeout | undefined = undefined
 export function setQueryWithoutLoad(url: URL, key: string, value: string): void {
-	const nurl = new URL(url.toString())
-	nurl.searchParams.set(key, value)
-	try {
-		history.replaceState(history.state, '', nurl.toString())
-	} catch (e) {
-		console.error(e)
-	}
+	debounced && clearTimeout(debounced)
+	debounced = setTimeout(() => {
+		const nurl = new URL(url.toString())
+		nurl.searchParams.set(key, value)
+		try {
+			history.replaceState(history.state, '', nurl.toString())
+		} catch (e) {
+			console.error(e)
+		}
+	}, 200)
 }
 
 export function groupBy<T>(

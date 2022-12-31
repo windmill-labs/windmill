@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 
@@ -8,10 +9,16 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { decodeState, emptySchema } from '$lib/utils'
 
-	const initialState = $page.url.searchParams.get('state')
-	const hubId = $page.url.searchParams.get('hub')
+	let nodraft = $page.url.searchParams.get('nodraft')
 
+	if (nodraft) {
+		goto('?', { replaceState: true })
+	}
+
+	const hubId = $page.url.searchParams.get('hub')
 	const templatePath = $page.url.searchParams.get('template')
+	const initialState = hubId || templatePath || nodraft ? undefined : localStorage.getItem('flow')
+
 	let selectedId: string = 'settings-metadata'
 	let loading = false
 

@@ -7,10 +7,16 @@
 	import { decodeArgs, decodeState, emptySchema } from '$lib/utils'
 	import { initFlow } from '$lib/components/flows/flowStore'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
+	import { goto } from '$app/navigation'
 
-	const initialState = $page.url.searchParams.get('state')
+	let nodraft = $page.url.searchParams.get('nodraft')
+	const initialState = nodraft ? undefined : localStorage.getItem('flow')
 	let stateLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
 	const initialArgs = decodeArgs($page.url.searchParams.get('args') ?? undefined)
+
+	if (nodraft) {
+		goto('?', { replaceState: true })
+	}
 
 	let loading = false
 

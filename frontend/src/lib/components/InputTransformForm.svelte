@@ -116,6 +116,9 @@
 	$: isStaticTemplate(inputCat) && propertyType == 'static' && setPropertyType(arg?.value)
 	const openBracket = '${'
 	const closeBracket = '}'
+
+	$: schema.properties[argName].default &&
+		monacoTemplate?.setCode(schema.properties[argName].default)
 </script>
 
 {#if arg != undefined}
@@ -183,7 +186,7 @@
 				>
 					{#if isStaticTemplate(inputCat)}
 						<ToggleButton light position="left" value="static" size="xs">
-							{'${} '}Templatable &nbsp; <Tooltip
+							{'${} '}Template &nbsp; <Tooltip
 								>Write javascript expressions between "{openBracket}" and "{closeBracket}". You may
 								refer to contextual objects like 'flow_input', or 'result' or functions like
 								'resource' and 'variable'

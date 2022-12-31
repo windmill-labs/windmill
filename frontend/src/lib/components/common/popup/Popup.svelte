@@ -139,7 +139,7 @@
 	aria-expanded={$stateMachine.currentState !== 'closed'}
 >
 	{#if $stateMachine.currentState !== 'closed'}
-		<div transition:slide={{ duration: 200 }} class={outerClasses}>
+		<div transition:slide|local={{ duration: 200 }} class={outerClasses}>
 			<div class={innerClasses}>
 				<slot />
 			</div>

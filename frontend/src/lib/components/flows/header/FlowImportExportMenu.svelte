@@ -27,7 +27,7 @@
 </div>
 
 <Drawer bind:this={jsonViewerDrawer} size="800px">
-	<DrawerContent title="See JSON" on:close={() => jsonViewerDrawer.toggleDrawer()}>
+	<DrawerContent title="OpenFlow JSON" on:close={() => jsonViewerDrawer.toggleDrawer()}>
 		{#if $flowStore}
 			<FlowViewer flow={cleanInputs($flowStore)} tab="json" />
 		{/if}
