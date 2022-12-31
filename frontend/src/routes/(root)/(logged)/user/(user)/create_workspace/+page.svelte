@@ -4,7 +4,7 @@
 	import { sendUserToast, validateUsername } from '$lib/utils'
 	import { logoutWithRedirect } from '$lib/logout'
 	import { page } from '$app/stores'
-	import { usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { switchWorkspace, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { Button } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -56,7 +56,8 @@
 		sendUserToast(`Created workspace id: ${id}`)
 
 		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-		workspaceStore.set(id)
+		switchWorkspace(id)
+
 		goto(rd ?? '/')
 	}
 
@@ -135,8 +136,8 @@
 			options={{ right: `Auto invite users as operators` }}
 		/>
 		<Tooltip
-			>An operator can only execute and view scripts/flows/apps from your workspace, and only
-			those that he has visibility on</Tooltip
+			>An operator can only execute and view scripts/flows/apps from your workspace, and only those
+			that he has visibility on</Tooltip
 		>
 	</div>
 	{#if !isDomainAllowed}

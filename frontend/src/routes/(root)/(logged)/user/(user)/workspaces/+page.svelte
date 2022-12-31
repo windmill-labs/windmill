@@ -4,7 +4,13 @@
 	import { sendUserToast } from '$lib/utils'
 	import { logout, logoutWithRedirect } from '$lib/logout'
 	import { UserService, type WorkspaceInvite, WorkspaceService } from '$lib/gen'
-	import { superadmin, usersWorkspaceStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import {
+		superadmin,
+		switchWorkspace,
+		usersWorkspaceStore,
+		userWorkspaces,
+		workspaceStore
+	} from '$lib/stores'
 	import { faCrown, faUserCog } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import { Button, Skeleton } from '$lib/components/common'
@@ -38,7 +44,7 @@
 		}
 		if ($usersWorkspaceStore) {
 			if (!$workspaceStore) {
-				workspaceStore.set(localStorage.getItem('workspace')?.toString())
+				switchWorkspace(localStorage.getItem('workspace')?.toString())
 			}
 		} else {
 			await logoutWithRedirect($page.url.pathname + $page.url.search)

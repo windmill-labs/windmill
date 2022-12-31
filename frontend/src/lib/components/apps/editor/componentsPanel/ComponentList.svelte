@@ -12,6 +12,7 @@
 	import { faAngleDown } from '@fortawesome/free-solid-svg-icons'
 	import { isOpenStore } from './store'
 	import { gridColumns } from '../../gridUtils'
+	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 
 	const { app, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
 
@@ -57,6 +58,7 @@
 	}
 
 	function addComponent(appComponent: AppComponent) {
+		$dirtyStore = true
 		const grid = $app.grid ?? []
 		const id = getNextId(grid.map((gridItem) => gridItem.data.id))
 

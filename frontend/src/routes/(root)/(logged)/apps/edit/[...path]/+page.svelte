@@ -11,8 +11,6 @@
 	let path = $page.params.path
 
 	let nodraft = $page.url.searchParams.get('nodraft')
-	const initialState = nodraft ? undefined : localStorage.getItem('app')
-	let stateLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
 
 	if (nodraft) {
 		goto('?', { replaceState: true })
@@ -21,15 +19,16 @@
 	let loading = true
 	async function loadApp(): Promise<void> {
 		loading = true
-		console.log(stateLoadedFromUrl)
-		app =
-			stateLoadedFromUrl != undefined && stateLoadedFromUrl?.path == path
-				? stateLoadedFromUrl
-				: await AppService.getAppByPath({
-						path,
-						workspace: $workspaceStore!
-				  })
+		app = await AppService.getAppByPath({
+			path,
+			workspace: $workspaceStore!
+		})
 
+		const initialState = nodraft ? undefined : localStorage.getItem('app')
+		let stateLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
+		if (stateLoadedFromUrl) {
+			app.value = stateLoadedFromUrl
+		}
 		loading = false
 		$dirtyStore = false
 	}

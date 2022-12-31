@@ -14,8 +14,8 @@
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import { Building, Globe2 } from 'lucide-svelte'
 
-	import CreateApp from '$lib/components/apps/CreateApp.svelte'
 	import ItemsList from '$lib/components/home/ItemsList.svelte'
+	import CreateActionsApp from '$lib/components/flows/CreateActionsApp.svelte'
 
 	type Tab = 'hubscripts' | 'hubflows' | 'workspace'
 
@@ -132,9 +132,9 @@
 		<PageHeader title="Home">
 			<div class="flex flex-row gap-3 flex-wrap">
 				{#if !$userStore?.operator}
-					<CreateApp />
 					<CreateActionsScript />
 					<CreateActionsFlow />
+					<CreateActionsApp />
 				{/if}
 			</div>
 		</PageHeader>

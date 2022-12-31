@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { workspaceStore, userWorkspaces } from '$lib/stores'
+	import { workspaceStore, userWorkspaces, switchWorkspace } from '$lib/stores'
 	import { classNames } from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import { Building } from 'lucide-svelte'
@@ -33,7 +33,7 @@
 					<tr
 						class="text-xs cursor-pointer hover:bg-gray-100"
 						on:click={() => {
-							workspaceStore.set(workspace.id)
+							switchWorkspace(workspace.id)
 							close()
 						}}
 					>
