@@ -27,8 +27,7 @@
 	import { userStore } from '$lib/stores'
 
 	import InlineScriptsPanel from './inlineScriptsPanel/InlineScriptsPanel.svelte'
-	import TablePanel from './TablePanel.svelte'
-	import { grid } from 'd3-dag'
+
 	import SettingsPanel from './SettingsPanel.svelte'
 	import { fly } from 'svelte/transition'
 	import type { Policy } from '$lib/gen'
@@ -72,18 +71,7 @@
 
 	function saveDraft() {
 		timeout && clearTimeout(timeout)
-		timeout = setTimeout(
-			() =>
-				localStorage.setItem(
-					'app',
-					encodeState({
-						path,
-						value: $appStore,
-						policy
-					})
-				),
-			500
-		)
+		timeout = setTimeout(() => localStorage.setItem('app', encodeState($appStore)), 500)
 	}
 
 	let mounted = false

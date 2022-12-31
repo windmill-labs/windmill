@@ -6,17 +6,16 @@
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
-	import { flowStore, initFlow } from '$lib/components/flows/flowStore'
 	import { Icon } from 'svelte-awesome'
+	import { importStore } from '../apps/store'
+	import { LayoutDashboard } from 'lucide-svelte'
 
 	let drawer: Drawer | undefined = undefined
 	let pendingJson: string
 
 	async function importJson() {
-		await goto('/flows/add')
-		Object.assign($flowStore, JSON.parse(pendingJson))
-
-		initFlow($flowStore)
+		$importStore = JSON.parse(pendingJson)
+		await goto('/apps/add')
 		drawer?.closeDrawer?.()
 	}
 </script>
@@ -27,10 +26,10 @@
 		size="sm"
 		spacingSize="xl"
 		startIcon={{ icon: faPlus }}
-		href="/flows/add?nodraft=true"
+		href="/apps/add?nodraft=true"
 	>
 		<svelte:fragment slot="main"
-			>New Flow <Icon data={faBarsStaggered} scale={0.8} class="ml-1.5" />
+			>New App (alpha) <LayoutDashboard class="ml-1.5" size={18} />
 		</svelte:fragment>
 		<ButtonPopupItem on:click={() => drawer?.toggleDrawer?.()}>
 			Import from raw JSON
@@ -40,7 +39,7 @@
 
 <!-- Raw JSON -->
 <Drawer bind:this={drawer} size="800px">
-	<DrawerContent title="Import flow from JSON" on:close={() => drawer?.toggleDrawer?.()}>
+	<DrawerContent title="Import app from JSON" on:close={() => drawer?.toggleDrawer?.()}>
 		<SimpleEditor bind:code={pendingJson} lang="json" class="h-full" fixedOverflowWidgets={false} />
 		<svelte:fragment slot="actions">
 			<Button size="sm" on:click={importJson}>Import</Button>
