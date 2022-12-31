@@ -21,9 +21,8 @@
 	import ComponentList from './componentsPanel/ComponentList.svelte'
 	import Icon from 'svelte-awesome'
 	import { faPlus, faSliders } from '@fortawesome/free-solid-svg-icons'
-	import ComponentPanel from './settingsPanel/ComponentPanel.svelte'
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
-	import { classNames } from '$lib/utils'
+	import { classNames, encodeState } from '$lib/utils'
 	import AppPreview from './AppPreview.svelte'
 	import { userStore } from '$lib/stores'
 
@@ -33,6 +32,7 @@
 	import SettingsPanel from './SettingsPanel.svelte'
 	import { fly } from 'svelte/transition'
 	import type { Policy } from '$lib/gen'
+	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 
 	export let app: App
 	export let path: string
@@ -66,6 +66,26 @@
 		appPath: path
 	})
 
+	let timeout: NodeJS.Timeout | undefined = undefined
+
+	$: $appStore && saveDraft()
+
+	function saveDraft() {
+		timeout && clearTimeout(timeout)
+		timeout = setTimeout(
+			() =>
+				localStorage.setItem(
+					'app',
+					encodeState({
+						path,
+						value: $appStore,
+						policy
+					})
+				),
+			500
+		)
+	}
+
 	let mounted = false
 
 	onMount(() => {
@@ -85,6 +105,7 @@
 </script>
 
 {#if !$userStore?.operator}
+	<UnsavedConfirmationModal />
 	{#if initialMode !== 'preview'}
 		<AppEditorHeader bind:title={$appStore.title} bind:mode={$mode} bind:breakpoint={$breakpoint} />
 	{/if}

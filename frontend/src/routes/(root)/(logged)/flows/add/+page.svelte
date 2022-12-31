@@ -8,10 +8,10 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { decodeState, emptySchema } from '$lib/utils'
 
-	const initialState = $page.url.searchParams.get('state')
 	const hubId = $page.url.searchParams.get('hub')
-
 	const templatePath = $page.url.searchParams.get('template')
+	const initialState = hubId || templatePath ? undefined : localStorage.getItem('flow')
+
 	let selectedId: string = 'settings-metadata'
 	let loading = false
 

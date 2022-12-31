@@ -19,7 +19,7 @@
 		<ToggleButtonGroup bind:selected={componentInput.type}>
 			{#if componentInput.fieldType === 'textarea'}
 				<ToggleButton position="left" value="template" size="xs" disable={disableStatic}>
-					{brackets}&nbsp;<span class="hidden lg:block">Templatable</span>
+					{brackets}&nbsp;<span class="hidden lg:block">Template</span>
 				</ToggleButton>
 			{:else}
 				<ToggleButton

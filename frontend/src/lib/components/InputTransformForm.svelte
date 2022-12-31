@@ -183,7 +183,7 @@
 				>
 					{#if isStaticTemplate(inputCat)}
 						<ToggleButton light position="left" value="static" size="xs">
-							{'${} '}Templatable &nbsp; <Tooltip
+							{'${} '}Template &nbsp; <Tooltip
 								>Write javascript expressions between "{openBracket}" and "{closeBracket}". You may
 								refer to contextual objects like 'flow_input', or 'result' or functions like
 								'resource' and 'variable'
