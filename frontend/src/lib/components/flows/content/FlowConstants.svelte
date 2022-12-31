@@ -38,10 +38,10 @@
 	})
 </script>
 
-<div class="h-full overflow-hidden">
+<div class="min-h-full">
 	<FlowCard title="All Static Inputs">
-		<div class="h-full flex-1">
-			<Alert type="info" title="Static Inputs"
+		<div class="min-h-full flex-1">
+			<Alert type="info" title="Static Inputs" class="m-4"
 				>This page centralizes the static inputs of every steps. It is akin to a file containing all
 				constants. Modifying a value here modify it in the step input directly. It is especially
 				useful when forking a flow to get an overview of all the variables to parametrize that are
@@ -50,11 +50,11 @@
 			{#if steps.length == 0}
 				<div class="mt-2" />
 				{#if $flowStore.value.modules.length == 0}
-					<Alert type="warning" title="No steps">
+					<Alert type="warning" title="No steps" class="m-4">
 						This flow has no steps. Add a step to see its static inputs.
 					</Alert>
 				{:else}
-					<Alert type="warning" title="No static inputs">
+					<Alert type="warning" title="No static inputs" class="m-4">
 						This flow has no steps with static inputs. Add a step with static inputs to see them
 						here.
 					</Alert>
@@ -62,9 +62,9 @@
 			{/if}
 			{#each steps as [args, filter, m] (m.id)}
 				{#if filter.length > 0}
-					<div class="box">
-						<h2 class="pb-4 inline-flex items-center"
-							><span class="mr-4">{m.summary || m.value['path'] || 'Inline script'}</span>
+					<div class="relative h-full border-t p-4">
+						<h2 class="sticky w-full top-0 z-10 inline-flex items-center bg-white py-2">
+							<span class="mr-4">{m.summary || m.value['path'] || 'Inline script'}</span>
 							<Badge large color="indigo">{m.id}</Badge>
 						</h2>
 
@@ -72,6 +72,7 @@
 							noDynamicToggle
 							inputTransform
 							{filter}
+							class="mt-2"
 							schema={$flowStateStore[m.id]?.schema ?? {}}
 							bind:args
 						/>
