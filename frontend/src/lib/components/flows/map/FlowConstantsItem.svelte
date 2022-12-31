@@ -14,7 +14,7 @@
 
 <button on:click={() => select('constants')} class={settingsClass}>
 	<DollarSign size={16} />
-	<span class="text-xs font-bold flex flex-row justify-between w-full gap-2 items-center truncate ml-1">
+	<span class="text-xs flex flex-row justify-between w-full gap-2 items-center truncate ml-1">
 		All Static Inputs
 	</span>
 </button>
