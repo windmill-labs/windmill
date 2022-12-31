@@ -105,7 +105,7 @@
 			<Pane size={15} minSize={5} maxSize={33}>
 				<ContextPanel />
 			</Pane>
-			<Pane size={65}>
+			<Pane size={64}>
 				<SplitPanesWrapper horizontal>
 					<Pane size={70}>
 						<div class="bg-gray-100 w-full p-4 h-full overflow-auto">
@@ -140,7 +140,7 @@
 					</Pane>
 				</SplitPanesWrapper>
 			</Pane>
-			<Pane size={20} minSize={5} maxSize={33}>
+			<Pane size={21} minSize={5} maxSize={33}>
 				<div class="relative">
 					<Tabs bind:selected={selectedTab}>
 						<Tab value="insert" size="xs">

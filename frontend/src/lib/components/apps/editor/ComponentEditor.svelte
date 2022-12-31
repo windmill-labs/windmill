@@ -21,12 +21,17 @@
 	export let locked: boolean = false
 	export let pointerdown: boolean = false
 
+	let hover = false
 	const { staticOutputs, mode, connectingInput } = getContext<AppEditorContext>('AppEditorContext')
 </script>
 
-<div class="h-full flex flex-col w-full component">
+<div
+	on:pointerenter={() => (hover = true)}
+	on:pointerleave={() => (hover = false)}
+	class="h-full flex flex-col w-full component"
+>
 	{#if $mode !== 'preview'}
-		<ComponentHeader {pointerdown} {component} {selected} on:delete on:lock {locked} />
+		<ComponentHeader {hover} {pointerdown} {component} {selected} on:delete on:lock {locked} />
 	{/if}
 
 	<div

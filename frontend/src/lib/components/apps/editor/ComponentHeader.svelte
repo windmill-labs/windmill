@@ -1,13 +1,14 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 	import type { AppComponent } from '../types'
-	import { Anchor, Lock, Move, X } from 'lucide-svelte'
+	import { Anchor, Move, X } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
 	export let locked: boolean = false
 	export let pointerdown: boolean = false
+	export let hover: boolean = false
 
 	const dispatch = createEventDispatcher()
 </script>
@@ -21,7 +22,7 @@
 	{component.id}
 </span>
 
-{#if pointerdown || selected}
+{#if pointerdown || selected || hover}
 	<button
 		class={classNames(
 			'text-white px-1 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute  right-10 z-50 cursor-pointer',
@@ -40,7 +41,7 @@
 	</button>
 {/if}
 
-{#if selected}
+{#if selected || hover}
 	<span
 		on:mousedown|stopPropagation|capture
 		class={classNames(
