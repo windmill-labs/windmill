@@ -87,11 +87,11 @@ export const displayData: Record<AppComponent['type'], { name: string; icon: any
 		icon: FormInput
 	},
 	piechartcomponent: {
-		name: 'Pie chart',
+		name: 'Pie Chart',
 		icon: PieChart
 	},
 	barchartcomponent: {
-		name: 'Bar chart',
+		name: 'Bar Chart',
 		icon: BarChart4
 	},
 	tablecomponent: {
@@ -127,11 +127,11 @@ export const displayData: Record<AppComponent['type'], { name: string; icon: any
 		icon: List
 	},
 	numberinputcomponent: {
-		name: 'Number input',
+		name: 'Number',
 		icon: Binary
 	},
 	passwordinputcomponent: {
-		name: 'Password input',
+		name: 'Password',
 		icon: Lock
 	},
 	dateinputcomponent: {

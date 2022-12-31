@@ -94,7 +94,7 @@
 
 	$: mounted && ($worldStore = buildWorld($staticOutputs, $worldStore))
 	$: previewing = $mode === 'preview'
-	$: width = $breakpoint === 'sm' ? 'w-[640px]' : 'min-w-[1080px] w-full'
+	$: width = $breakpoint === 'sm' ? 'w-[640px]' : 'w-full'
 
 	let selectedTab: 'insert' | 'settings' = 'insert'
 	$: if ($selectedComponent) {
@@ -114,16 +114,21 @@
 		<AppPreview app={$appStore} appPath={path} {breakpoint} {policy} />
 	{:else}
 		<SplitPanesWrapper class="max-w-full overflow-hidden">
-			<Pane size={15}>
+			<Pane size={15} minSize={5} maxSize={33}>
 				<ContextPanel />
 			</Pane>
 			<Pane size={65}>
 				<SplitPanesWrapper horizontal>
 					<Pane size={70}>
 						<div class="bg-gray-100 w-full p-4 h-full overflow-auto">
-							<div class={classNames('bg-gray-100  mx-auto relative min-h-full', width)}>
+							<div
+								class={classNames(
+									'bg-gray-100  mx-auto w-full relative min-h-full',
+									app.fullscreen ? '' : 'max-w-6xl'
+								)}
+							>
 								{#if $appStore.grid}
-									<div class={classNames('w-full px-2 pb-2 h-full bg-white', width)}>
+									<div class={classNames('px-2 pb-2 w-full h-full bg-white', width)}>
 										<GridEditor {policy} />
 									</div>
 								{/if}
@@ -147,7 +152,7 @@
 					</Pane>
 				</SplitPanesWrapper>
 			</Pane>
-			<Pane size={20} minSize={15} maxSize={33}>
+			<Pane size={20} minSize={5} maxSize={33}>
 				<div class="relative">
 					<Tabs bind:selected={selectedTab}>
 						<Tab value="insert" size="xs">

@@ -110,12 +110,12 @@
 		{#if isOpen}
 			<div transition:slide|local={{ duration: 300 }}>
 				{#if components.length}
-					<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2 p-2">
+					<div class="flex flex-wrap gap-2 py-2">
 						{#each components as item}
 							<button
 								on:click={() => addComponent(item)}
 								title={displayData[item.type].name}
-								class="border shadow-sm h-16 p-2 flex flex-col gap-2 items-center
+								class="border w-24 shadow-sm h-16 p-2 flex flex-col gap-2 items-center
 									justify-center bg-white rounded-md hover:bg-gray-100 duration-200"
 							>
 								<svelte:component this={displayData[item.type].icon} class="text-blue-800" />

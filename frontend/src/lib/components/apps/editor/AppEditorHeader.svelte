@@ -3,18 +3,12 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton/ToggleButtonGroup.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 	import { AppService, Policy } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import {
-		faDesktopAlt,
-		faDisplay,
-		faExternalLink,
-		faHand,
-		faMobileAlt
-	} from '@fortawesome/free-solid-svg-icons'
+	import { faExternalLink } from '@fortawesome/free-solid-svg-icons'
 	import { Eye, Laptop2, Pencil, PenTool, Smartphone } from 'lucide-svelte'
 	import { getContext } from 'svelte'
-	import { Icon } from 'svelte-awesome'
 	import { sendUserToast } from '../../../utils'
 	import type { AppEditorContext, EditorBreakpoint, EditorMode } from '../types'
 
@@ -78,6 +72,12 @@
 				<ToggleButton position="right" value="lg" size="xs"><Laptop2 size={14} /></ToggleButton>
 			</ToggleButtonGroup>
 		</div>
+
+		<Toggle
+			size="xs"
+			bind:checked={$app.fullscreen}
+			options={{ left: 'max-width (1152px)', right: 'fullscreen' }}
+		/>
 	</div>
 	<div class="flex flex-row gap-2 w-64 justify-end">
 		<Button
