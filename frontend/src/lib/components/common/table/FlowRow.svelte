@@ -70,7 +70,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: faEdit }}
-							href="/flows/edit/{path}"
+							href="/flows/edit/{path}?nodraft=true"
 						>
 							Edit
 						</Button>
@@ -123,7 +123,7 @@
 				{
 					displayName: 'Edit',
 					icon: faEdit,
-					href: `/flows/edit/${path}`,
+					href: `/flows/edit/${path}?nodraft=true`,
 					disabled: !canWrite
 				},
 				{

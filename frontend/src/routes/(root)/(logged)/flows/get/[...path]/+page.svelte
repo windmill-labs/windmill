@@ -171,7 +171,7 @@
 			</Button>
 			{#if !$userStore?.operator}
 				<Button
-					href="/flows/edit/{path}"
+					href="/flows/edit/{path}?nodraft=true"
 					variant="contained"
 					color="blue"
 					size="md"

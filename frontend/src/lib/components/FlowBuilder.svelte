@@ -3,19 +3,12 @@
 	import { page } from '$app/stores'
 	import { FlowService, ScheduleService, type Flow } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import {
-		encodeState,
-		formatCron,
-		loadHubScripts,
-		sendUserToast,
-		setQueryWithoutLoad
-	} from '$lib/utils'
+	import { encodeState, formatCron, loadHubScripts, sendUserToast } from '$lib/utils'
 	import { faCalendarAlt, faEye, faPen, faSave } from '@fortawesome/free-solid-svg-icons'
 	import { setContext } from 'svelte'
-	import { Icon } from 'svelte-awesome'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
-	import { Badge, Button, Drawer, DrawerContent } from './common'
+	import { Button, Drawer, DrawerContent } from './common'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { OFFSET } from './CronInput.svelte'
@@ -125,18 +118,17 @@
 	let timeout: NodeJS.Timeout | undefined = undefined
 
 	$: {
-		if ($flowStore && $flowStateStore) {
-			setUrl()
+		if ($flowStore || $selectedIdStore) {
+			saveDraft()
 		}
 	}
 
-	function setUrl() {
+	function saveDraft() {
 		timeout && clearTimeout(timeout)
 		timeout = setTimeout(
 			() =>
-				setQueryWithoutLoad(
-					$page.url,
-					'state',
+				localStorage.setItem(
+					'flow',
 					encodeState({
 						flow: $flowStore,
 						selectedId: $selectedIdStore

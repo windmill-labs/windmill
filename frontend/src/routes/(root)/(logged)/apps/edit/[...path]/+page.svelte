@@ -3,15 +3,35 @@
 	import { AppService, AppWithLastVersion } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { page } from '$app/stores'
+	import { decodeState } from '$lib/utils'
+	import { goto } from '$app/navigation'
+	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 
 	let app: AppWithLastVersion | undefined = undefined
 	let path = $page.params.path
 
+	let nodraft = $page.url.searchParams.get('nodraft')
+	const initialState = nodraft ? undefined : localStorage.getItem('app')
+	let stateLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
+
+	if (nodraft) {
+		goto('?', { replaceState: true })
+	}
+
+	let loading = true
 	async function loadApp(): Promise<void> {
-		app = await AppService.getAppByPath({
-			path,
-			workspace: $workspaceStore!
-		})
+		loading = true
+		console.log(stateLoadedFromUrl)
+		app =
+			stateLoadedFromUrl != undefined && stateLoadedFromUrl?.path == path
+				? stateLoadedFromUrl
+				: await AppService.getAppByPath({
+						path,
+						workspace: $workspaceStore!
+				  })
+
+		loading = false
+		$dirtyStore = false
 	}
 
 	$: {
