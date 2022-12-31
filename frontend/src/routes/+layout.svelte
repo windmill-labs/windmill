@@ -23,7 +23,7 @@
 </script>
 
 <svelte:head>
-	<title>{$page.data.title ? `${$page.data.title} | ` : ''}Windmill</title>
+	<title>{$page.data?.stuff?.title ? `${$page.data?.stuff?.title} | ` : ''}Windmill</title>
 </svelte:head>
 
 <slot />
