@@ -31,7 +31,7 @@
 		} else if (input.type === 'row') {
 			value = row[input.column]
 		} else if (input.type === 'static' || input.type == 'template') {
-			getValue(input)
+			value = getValue(input)
 		} else {
 			value = undefined
 		}
