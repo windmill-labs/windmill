@@ -116,6 +116,9 @@
 	$: isStaticTemplate(inputCat) && propertyType == 'static' && setPropertyType(arg?.value)
 	const openBracket = '${'
 	const closeBracket = '}'
+
+	$: schema.properties[argName].default &&
+		monacoTemplate?.setCode(schema.properties[argName].default)
 </script>
 
 {#if arg != undefined}
