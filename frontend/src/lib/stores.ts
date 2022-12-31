@@ -69,6 +69,8 @@ export const hubScripts = writable<
 if (browser) {
   workspaceStore.subscribe(async (workspace) => {
     if (workspace) {
+      localStorage.removeItem("flow")
+      localStorage.removeItem("app")
       localStorage.setItem("workspace", String(workspace));
       userStore.set(await getUserExt(workspace));
     } else {
@@ -78,6 +80,8 @@ if (browser) {
 }
 
 export function clearStores(): void {
+  localStorage.removeItem("flow")
+  localStorage.removeItem("app")
   localStorage.removeItem("workspace");
   userStore.set(undefined);
   workspaceStore.set(undefined);
