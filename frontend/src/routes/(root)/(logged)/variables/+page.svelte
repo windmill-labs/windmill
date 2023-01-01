@@ -165,7 +165,7 @@
 							<tr>
 								<td
 									><a
-										class="break-words"
+										class="break-all"
 										id="edit-{path}"
 										on:click={() => variableEditor.editVariable(path)}
 										href="#{path}"
