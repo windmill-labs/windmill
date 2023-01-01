@@ -6,9 +6,9 @@ import { GlobalOptions } from "./types.ts";
 async function pull(opts: GlobalOptions) {
   const workspace = await resolveWorkspace(opts);
 
-  if (workspace.workspaceId !== "starter") {
+  if (workspace.workspaceId !== "admins") {
     console.log(
-      "Should only sync to starter workspace, but current is not starter.",
+      "Should only sync to admins workspace, but current is not admins.",
     );
     return;
   }
