@@ -1,6 +1,29 @@
 # Changelog
 
 
+## [1.57.0](https://github.com/windmill-labs/windmill/compare/v1.56.1...v1.57.0) (2023-01-01)
+
+
+### Features
+
+* add a All Static Inputs module to the flow editor ([3296deb](https://github.com/windmill-labs/windmill/commit/3296debfe7940fe833d489af0a4b6609c2d53411))
+* apps can be published publicly ([be14aab](https://github.com/windmill-labs/windmill/commit/be14aab9b102ef81eccf689e00cd3cd8eae8f503))
+* **app:** Update sidebar menu ([#1050](https://github.com/windmill-labs/windmill/issues/1050)) ([faa046a](https://github.com/windmill-labs/windmill/commit/faa046a3fdc326084df93f8e57dd5c573164b91d))
+* **app:** Use consistent styles on settings pages ([#1048](https://github.com/windmill-labs/windmill/issues/1048)) ([681e2e8](https://github.com/windmill-labs/windmill/commit/681e2e824a39d9748f1aaa37f20001b5200f82bc))
+* **backend:** resume from owner directly in flow status viewer ([#1042](https://github.com/windmill-labs/windmill/issues/1042)) ([40195d4](https://github.com/windmill-labs/windmill/commit/40195d42f661d401cd9ce11ca9739f87c1a27afd))
+* **frontend:** Add customization props to radio ([#1056](https://github.com/windmill-labs/windmill/issues/1056)) ([0812f6e](https://github.com/windmill-labs/windmill/commit/0812f6efd8484e86a4f09631b28c71d17cd69627))
+* **frontend:** Fix initial component dimensions + Select select + add spinner when buttons are clicked ([#1044](https://github.com/windmill-labs/windmill/issues/1044)) ([70e7a5d](https://github.com/windmill-labs/windmill/commit/70e7a5d07542e1ac936152e434146e056a80bad4))
+* **frontend:** Properly support resource ([#1039](https://github.com/windmill-labs/windmill/issues/1039)) ([65f4e86](https://github.com/windmill-labs/windmill/commit/65f4e86a22838bd34373ce808c77a1770eeaf295))
+* **frontend:** Update tooltip and home list dropdown ([#1053](https://github.com/windmill-labs/windmill/issues/1053)) ([9d30e5f](https://github.com/windmill-labs/windmill/commit/9d30e5fa57363c4cf715f845f5268856c4aa0fb3))
+
+
+### Bug Fixes
+
+* **app:** Fix inconsistencies in list items and sidebar menus ([#1051](https://github.com/windmill-labs/windmill/issues/1051)) ([0f1b19c](https://github.com/windmill-labs/windmill/commit/0f1b19c7d3eea4f8106fed3188460678e5035812))
+* **frontend:** List item overflowing corners ([#1055](https://github.com/windmill-labs/windmill/issues/1055)) ([2fd730f](https://github.com/windmill-labs/windmill/commit/2fd730f8d2303b57f2da42354cd207dad2a410ce))
+* **frontend:** Minor fixes in editor ([#1054](https://github.com/windmill-labs/windmill/issues/1054)) ([adc84f0](https://github.com/windmill-labs/windmill/commit/adc84f06d97275b17bf77cb6c8d264ad28b0f6ce))
+* **frontend:** Static inputs overflow ([#1057](https://github.com/windmill-labs/windmill/issues/1057)) ([72aeba1](https://github.com/windmill-labs/windmill/commit/72aeba121cb694e8e96ad189b4acbfc2340bf520))
+
 ## [1.56.1](https://github.com/windmill-labs/windmill/compare/v1.56.0...v1.56.1) (2022-12-23)
 
 
