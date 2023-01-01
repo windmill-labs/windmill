@@ -205,10 +205,9 @@ def set_resource(
     from windmill_api.models.create_resource_json_body import CreateResourceJsonBody
     from windmill_api.api.resource import (
         exists_resource,
-        update_resource,
+        update_resource_value,
         create_resource,
     )
-    from windmill_api.models.update_resource_json_body import UpdateResourceJsonBody
 
     path = path or get_state_path()
     workspace = get_workspace()
@@ -224,11 +223,11 @@ def set_resource(
             ),
         )
     else:
-        update_resource.sync_detailed(
+        update_resource_value.sync_detailed(
             workspace=get_workspace(),
             client=client,
             path=path,
-            json_body=UpdateResourceJsonBody(value=value),
+            json_body=value,
         )
 
 

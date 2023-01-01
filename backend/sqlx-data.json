@@ -2655,6 +2655,20 @@
     },
     "query": "INSERT INTO group_\n                (workspace_id, name, summary)\n                VALUES ($1, $2, $3) ON CONFLICT DO NOTHING"
   },
+  "8876fa929ffb175cd976a2bca1195704aa9fe7215013ae29e49ef15cb201ba57": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Jsonb",
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE resource SET value = $1 WHERE path = $2 AND workspace_id = $3"
+  },
   "88a3f58a1a315200fdd2e4bb8638246ee21818f8aaaf56f6e9d7ddce1490d886": {
     "describe": {
       "columns": [

@@ -1422,6 +1422,29 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/resources/update_value/{path}:
+    post:
+      summary: update resource value
+      operationId: updateResourceValue
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated resource
+        required: true
+        content:
+          application/json:
+            schema: {}
+      responses:
+        "200":
+          description: resource value updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/resources/get/{path}:
     get:
       summary: get resource
