@@ -100,7 +100,7 @@
 	}
 </script>
 
-<div class="bg-white h-full relative">
+<div class="bg-white px-2 relative">
 	<div class="w-full flex justify-between border-b px-4 py-2  mb-4 items-center gap-4">
 		<h2>{$app.title}</h2>
 		<RecomputeAllComponents />
@@ -112,7 +112,7 @@
 		<Grid
 			bind:items={$app.grid}
 			let:dataItem
-			rowHeight={46}
+			rowHeight={23}
 			cols={columnConfiguration}
 			fastStart={true}
 			on:pointerup={({ detail }) => selectComponent(detail.id)}

@@ -53,12 +53,12 @@
 	})
 
 	$: mounted && ($worldStore = buildWorld($staticOutputs, undefined))
-	$: width = $breakpoint === 'sm' ? 'w-[640px]' : 'w-full '
+	$: width = $breakpoint === 'sm' ? 'max-w-[640px]' : 'w-full '
 </script>
 
 <div class="h-full w-full  {app.fullscreen ? '' : 'max-w-6xl'} px-4 mx-auto">
 	{#if $appStore.grid}
-		<div class={classNames('mx-auto h-full', width)}>
+		<div class={classNames('mx-auto pb-4', width)}>
 			<GridEditor {policy} />
 		</div>
 	{/if}

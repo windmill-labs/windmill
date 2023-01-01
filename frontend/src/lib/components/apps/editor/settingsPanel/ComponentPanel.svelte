@@ -90,11 +90,9 @@ declare const ${k} = ${JSON.stringify(v)};
 </script>
 
 {#if component}
-	<div class="flex flex-col w-full divide-y">
+	<div class="flex flex-col min-w-[150px] w-full divide-y">
 		{#if component.componentInput}
-			<PanelSection
-				title={component.componentInput.fieldType === 'any' ? 'Runnable' : 'Component input'}
-			>
+			<PanelSection title={component.componentInput.fieldType === 'any' ? 'Runnable' : 'Input'}>
 				<svelte:fragment slot="action">
 					<span
 						class={classNames(

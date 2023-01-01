@@ -122,21 +122,21 @@ const buttons: ComponentSet = {
 			configuration: {
 				label: {
 					type: 'static',
-					value: 'Lorem ipsum',
+					value: undefined,
 					fieldType: 'text',
 					defaultValue: 'Lorem ipsum'
 				},
 				color: {
 					fieldType: 'select',
 					type: 'static',
-					value: 'blue',
+					value: undefined,
 					optionValuesKey: 'buttonColorOptions',
 					defaultValue: 'blue'
 				},
 				size: {
 					fieldType: 'select',
 					type: 'static',
-					value: 'xs',
+					value: undefined,
 					optionValuesKey: 'buttonSizeOptions',
 					defaultValue: 'xs'
 				}
@@ -193,11 +193,27 @@ const display: ComponentSet = {
 			type: 'textcomponent',
 			componentInput: {
 				type: 'static',
-				value: 'Lorem ipsum',
 				fieldType: 'textarea',
-				defaultValue: 'Lorem ipsum'
+				defaultValue: 'Lorem ipsum',
+				value: undefined
 			},
-			configuration: {},
+			configuration: {
+				style: {
+					fieldType: 'select',
+					type: 'static',
+					value: undefined,
+					optionValuesKey: 'textStyleOptions',
+					defaultValue: 'Body'
+				},
+				extraStyle:
+				{
+					type: 'static',
+					fieldType: 'text',
+					defaultValue: '',
+					value: undefined
+				},
+
+			},
 			card: false
 		},
 		{
@@ -207,13 +223,13 @@ const display: ComponentSet = {
 				search: {
 					fieldType: 'select',
 					type: 'static',
-					value: 'Disabled',
+					value: undefined,
 					optionValuesKey: 'tableSearchOptions',
 					defaultValue: 'Disabled'
 				},
 				pagination: {
 					type: 'static',
-					value: false,
+					value: undefined,
 					fieldType: 'boolean',
 					defaultValue: false
 				}
@@ -234,18 +250,7 @@ const display: ComponentSet = {
 						age: 42
 					}
 				],
-				value: [
-					{
-						id: 1,
-						name: 'Lorem ipsum',
-						age: 42
-					},
-					{
-						id: 2,
-						name: 'Lorem ipsum',
-						age: 42
-					}
-				]
+				value: undefined
 			},
 			card: true,
 			actionButtons: []
@@ -256,7 +261,7 @@ const display: ComponentSet = {
 			configuration: {
 				theme: {
 					type: 'static',
-					value: 'theme1',
+					value: undefined,
 					fieldType: 'select',
 					optionValuesKey: 'chartThemeOptions',
 					defaultValue: 'theme1'
@@ -275,7 +280,7 @@ const display: ComponentSet = {
 				fieldType: 'array',
 				subFieldType: 'number',
 				defaultValue: [25, 50, 25],
-				value: [25, 50, 25]
+				value: undefined
 			},
 			card: true
 		},
@@ -285,14 +290,14 @@ const display: ComponentSet = {
 			configuration: {
 				theme: {
 					type: 'static',
-					value: 'theme1',
+					value: undefined,
 					fieldType: 'select',
 					optionValuesKey: 'chartThemeOptions',
 					defaultValue: 'theme1'
 				},
 				labels: {
 					type: 'static',
-					value: ['Lorem ipsum', 'Lorem ipsum', 'Lorem ipsum'],
+					value: undefined,
 					fieldType: 'array',
 					subFieldType: 'text',
 					defaultValue: ['Lorem ipsum', 'Lorem ipsum', 'Lorem ipsum']
@@ -303,7 +308,7 @@ const display: ComponentSet = {
 				fieldType: 'array',
 				subFieldType: 'number',
 				defaultValue: [25, 50, 25],
-				value: [25, 50, 25]
+				value: undefined
 			},
 			card: true
 		},
@@ -314,7 +319,7 @@ const display: ComponentSet = {
 				type: 'static',
 				fieldType: 'text',
 				defaultValue: 'Lorem Ipsum',
-				value: 'Lorem Ipsum'
+				value: undefined
 			},
 			configuration: {},
 			card: false

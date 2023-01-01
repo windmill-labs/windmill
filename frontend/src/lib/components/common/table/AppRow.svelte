@@ -9,6 +9,7 @@
 		faEdit,
 		faEye,
 		faFileExport,
+		faPen,
 		faShare,
 		faTrashAlt
 	} from '@fortawesome/free-solid-svg-icons'
@@ -74,9 +75,14 @@
 			btnClasses="!text-gray-700 !bg-transparent hover:!bg-gray-400/20 !p-[6px]"
 			dropdownItems={[
 				{
-					displayName: 'View app',
+					displayName: 'View',
 					icon: faEye,
 					href: `/apps/get/${path}`
+				},
+				{
+					displayName: 'Edit',
+					icon: faPen,
+					href: `/apps/edit/${path}?nodraft=true`
 				},
 				{
 					displayName: 'Move',

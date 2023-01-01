@@ -19,7 +19,7 @@
 	function getMinDimensionsByComponent(componentType: AppComponent['type'], column: number): Size {
 		// Dimensions key formula: <mobile width>:<mobile height>-<desktop width>:<desktop height>
 		const dimensions: Record<`${number}:${number}-${number}:${number}`, AppComponent['type'][]> = {
-			'1:1-2:1': [
+			'1:2-2:2': [
 				'buttoncomponent',
 				'textcomponent',
 				'checkboxcomponent',
@@ -29,7 +29,7 @@
 				'passwordinputcomponent',
 				'dateinputcomponent'
 			],
-			'2:6-4:6': ['barchartcomponent', 'piechartcomponent', 'formcomponent', 'displaycomponent'],
+			'2:12-4:12': ['barchartcomponent', 'piechartcomponent', 'formcomponent', 'displaycomponent'],
 			'3:6-6:8': ['tablecomponent']
 		}
 		// Finds the key that is associated with the component type and extracts the dimensions from it
@@ -74,8 +74,17 @@
 			y: 0
 		}
 
+		let newData: AppComponent = JSON.parse(JSON.stringify(appComponent))
+		Object.values(newData.configuration).forEach((x) => {
+			if (x.type == 'static') {
+				x.value = x.defaultValue
+			}
+		})
+		if (newData?.componentInput?.type == 'static') {
+			newData.componentInput.value = newData.componentInput.defaultValue
+		}
 		const newItem: GridItem = {
-			data: JSON.parse(JSON.stringify(appComponent)),
+			data: newData,
 			id: id
 		}
 

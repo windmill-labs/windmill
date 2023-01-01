@@ -82,7 +82,7 @@
 	}
 
 	afterNavigate((n) => {
-		if (n.to?.url.pathname.startsWith('/apps')) {
+		if (n.to?.url.pathname.startsWith('/apps') && innerWidth >= 768) {
 			isCollapsed = true
 		}
 	})

@@ -15,9 +15,10 @@
 
 <span
 	class={classNames(
-		'px-2 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute z-50',
+		'px-2 text-2xs font-bold rounded-t-sm w-fit absolute z-50',
 		selected ? 'bg-indigo-500/90 text-white' : 'bg-gray-200/60 text-gray-500'
 	)}
+	style="padding-top: 1px; padding-bottom: 1px;"
 >
 	{component.id}
 </span>
@@ -25,18 +26,18 @@
 {#if pointerdown || selected || hover}
 	<button
 		class={classNames(
-			'text-white px-1 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute  right-10 z-50 cursor-pointer',
-			' hover:bg-gray-800',
-			selected ? 'bg-gray-600/90' : 'bg-gray-600/80'
+			'text-gray-800 px-1 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute  right-10 z-50 cursor-pointer',
+			' hover:bg-gray-300',
+			selected ? 'bg-gray-200/80' : 'bg-gray-200/60'
 		)}
 		on:click={() => {
 			dispatch('lock')
 		}}
 	>
 		{#if locked}
-			<Anchor size={16} class="text-orange-500" />
+			<Anchor size={14} class="text-orange-500" />
 		{:else}
-			<Anchor size={16} />
+			<Anchor size={14} />
 		{/if}
 	</button>
 {/if}
@@ -45,8 +46,8 @@
 	<span
 		on:mousedown|stopPropagation|capture
 		class={classNames(
-			'text-white px-1 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute  right-20 z-50 cursor-move',
-			'bg-gray-600/80'
-		)}><Move size={16} /></span
+			'text-gray-600 px-1 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute  right-16 z-50 cursor-move',
+			'bg-gray-200/60'
+		)}><Move size={14} /></span
 	>
 {/if}

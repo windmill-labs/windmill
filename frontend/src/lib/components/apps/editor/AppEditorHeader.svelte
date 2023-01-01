@@ -3,10 +3,11 @@
 	import { page } from '$app/stores'
 	import { Drawer, DrawerContent } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 	import ToggleButton from '$lib/components/common/toggleButton/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton/ToggleButtonGroup.svelte'
 	import Path from '$lib/components/Path.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { AppService, Policy } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { faExternalLink, faSave } from '@fortawesome/free-solid-svg-icons'
@@ -57,6 +58,7 @@
 	}
 
 	async function save() {
+		$dirtyStore = false
 		if ($page.params.path == undefined) {
 			drawerOpen = true
 			return
@@ -107,7 +109,7 @@
 	</DrawerContent>
 </Drawer>
 
-<div class="border-b flex flex-row justify-between py-1 px-4 items-center">
+<div class="border-b flex flex-row justify-between py-1 gap-1 gap-y-2 px-4 items-center flex-wrap">
 	<input class="text-sm w-64" bind:value={title} />
 	<div class="flex gap-8 items-center">
 		<div>
@@ -133,8 +135,13 @@
 		</div>
 
 		<ToggleButtonGroup bind:selected={$app.fullscreen}>
-			<ToggleButton position="left" value={false} size="xs">Centered</ToggleButton>
-			<ToggleButton position="right" value={true} size="xs">Full Width</ToggleButton>
+			<ToggleButton position="left" value={false} size="xs"
+				>Centered &nbsp; <Tooltip
+					>The max width is 1168px and the content stay centered instead of taking the full page
+					width</Tooltip
+				></ToggleButton
+			>
+			<ToggleButton position="right" value={true} size="xs">Full</ToggleButton>
 		</ToggleButtonGroup>
 	</div>
 	<div class="flex flex-row gap-4 justify-end">

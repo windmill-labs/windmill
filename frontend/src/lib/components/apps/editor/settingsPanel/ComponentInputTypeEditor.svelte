@@ -12,10 +12,12 @@
 	}
 
 	const brackets = '${}'
+
+	let clientWidth: number
 </script>
 
 {#if componentInput.fieldType !== 'any'}
-	<div class="w-full overflow-x-auto">
+	<div class="w-full overflow-x-auto" bind:clientWidth>
 		<ToggleButtonGroup bind:selected={componentInput.type}>
 			{#if componentInput.fieldType === 'textarea'}
 				<ToggleButton position="left" value="template" size="xs" disable={disableStatic}>
@@ -29,7 +31,9 @@
 					size="xs"
 					disable={disableStatic}
 				>
-					<span class="hidden lg:block"> Static </span>
+					{#if clientWidth > 250}
+						<span class="hidden lg:block"> Static </span>
+					{/if}
 				</ToggleButton>
 			{/if}
 
@@ -39,10 +43,14 @@
 				startIcon={{ icon: faArrowRight }}
 				size="xs"
 			>
-				<span class="hidden lg:block"> Connected </span>
+				{#if clientWidth > 250}
+					<span class="hidden lg:block"> Connected </span>
+				{/if}
 			</ToggleButton>
 			<ToggleButton position="right" value="runnable" startIcon={{ icon: faCode }} size="xs">
-				<span class="hidden lg:block"> Computed </span>
+				{#if clientWidth > 250}
+					<span class="hidden lg:block"> Computed </span>
+				{/if}
 			</ToggleButton>
 		</ToggleButtonGroup>
 	</div>
