@@ -2528,6 +2528,41 @@ paths:
               schema:
                 $ref: "#/components/schemas/AppWithLastVersion"
 
+  /w/{workspace}/apps/public_app/{path}:
+    get:
+      summary: get public app by secret
+      operationId: getPublicAppBySecret
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: app details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppWithLastVersion"
+
+
+  /w/{workspace}/apps/secret_of/{path}:
+    get:
+      summary: get public secret of app
+      operationId: getPublicSecretOfApp
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: app secret
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/apps/get/v/{id}:
     get:
       summary: get app by version

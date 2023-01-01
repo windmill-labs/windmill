@@ -97,7 +97,7 @@
 {#if !$userStore?.operator}
 	<UnsavedConfirmationModal />
 	{#if initialMode !== 'preview'}
-		<AppEditorHeader />
+		<AppEditorHeader {policy} />
 	{/if}
 
 	{#if previewing}
