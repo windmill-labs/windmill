@@ -9,6 +9,6 @@ for item in ${RT[@]}; do
     jq -r '.resource_type.schema' <<< "$body" > ./tmp
     description=$(jq -r '.resource_type.description' <<< "$body")
     description=$(echo -E $description)
-    echo "{\"workspace_id\": \"starter\", \"name\": \"$name\", \"schema\": $(cat ./tmp), \"description\": \"$description\"} " | jq . > community/resource_types/${name}.json
+    echo "{\"workspace_id\": \"admins\", \"name\": \"$name\", \"schema\": $(cat ./tmp), \"description\": \"$description\"} " | jq . > community/resource_types/${name}.json
     rm ./tmp
 done

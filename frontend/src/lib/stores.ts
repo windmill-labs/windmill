@@ -44,10 +44,6 @@ export const userWorkspaces: Readable<
         id: "admins",
         name: "Admins",
         username: "superadmin",
-      }, {
-        id: "starter",
-        name: "Starter",
-        username: "superadmin",
       }];
     } else {
       return originalWorkspaces;

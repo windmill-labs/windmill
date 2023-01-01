@@ -2717,23 +2717,7 @@
     },
     "query": "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2"
   },
-  "8a80333c2fbf7b50fed305882de6e4ffda985d5c648cd617add6c9e6a9c03f34": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Varchar",
-          "Jsonb",
-          "Text",
-          "Varchar"
-        ]
-      }
-    },
-    "query": "INSERT INTO resource\n            (workspace_id, path, value, description, resource_type)\n            VALUES ($1, $2, $3, $4, $5)"
-  },
-  "8ad6a17eecce77f61236e0585ba89b99a32e07ad37b97662007db35acb59d139": {
+  "8971be3b27108d2e9bda18ac718c62c67c063b9e5195842cd008803584ccf93c": {
     "describe": {
       "columns": [
         {
@@ -2769,7 +2753,23 @@
         ]
       }
     },
-    "query": "SELECT * from resource_type WHERE (workspace_id = $1 OR workspace_id = 'starter') ORDER BY name"
+    "query": "SELECT * from resource_type WHERE (workspace_id = $1 OR workspace_id = 'starter' OR workspace_id = 'admins') ORDER BY name"
+  },
+  "8a80333c2fbf7b50fed305882de6e4ffda985d5c648cd617add6c9e6a9c03f34": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Jsonb",
+          "Text",
+          "Varchar"
+        ]
+      }
+    },
+    "query": "INSERT INTO resource\n            (workspace_id, path, value, description, resource_type)\n            VALUES ($1, $2, $3, $4, $5)"
   },
   "8af34c8fd96ccc3c007e211982e60306fee109944c2a053e8c38632992c39983": {
     "describe": {

@@ -408,7 +408,7 @@ async fn list_resource_types(
 ) -> JsonResult<Vec<ResourceType>> {
     let rows = sqlx::query_as!(
         ResourceType,
-        "SELECT * from resource_type WHERE (workspace_id = $1 OR workspace_id = 'starter') ORDER \
+        "SELECT * from resource_type WHERE (workspace_id = $1 OR workspace_id = 'starter' OR workspace_id = 'admins') ORDER \
          BY name",
         &w_id
     )
