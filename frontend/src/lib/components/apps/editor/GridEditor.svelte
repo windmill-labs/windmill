@@ -101,7 +101,7 @@
 	}
 </script>
 
-<div class="bg-white px-2 relative">
+<div class="bg-white px-2 pb-2 relative">
 	<div class="w-full flex justify-between border-b px-4 py-2  mb-4 items-center gap-4">
 		<h2 class="truncate">{$summary}</h2>
 		<RecomputeAllComponents />

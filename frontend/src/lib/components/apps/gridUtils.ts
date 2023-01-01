@@ -16,6 +16,7 @@ const gridColumns = columnConfiguration.map((value) => value[1])
 
 function disableDrag(component: GridItem): GridItem {
 	gridColumns.forEach((column: number) => {
+		console.log(component, column)
 		component[column].customDragger = true
 		component[column].customResizer = true
 	})

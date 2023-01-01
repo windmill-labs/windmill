@@ -11,6 +11,7 @@ use crate::{
     db::{UserDB, DB},
     jobs::script_path_to_payload,
     users::{require_owner_of_path, Authed, OptAuthed},
+    variables::build_crypt,
 };
 use axum::{
     extract::{Extension, Path, Query},
@@ -18,11 +19,13 @@ use axum::{
     Json, Router,
 };
 use hyper::StatusCode;
+use magic_crypt::MagicCryptTrait;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{types::Uuid, FromRow};
+use std::str;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     apps::ListAppQuery,
@@ -36,6 +39,7 @@ pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_apps))
         .route("/get/p/*path", get(get_app))
+        .route("/secret_of/*path", get(get_secret_id))
         .route("/get/v/*id", get(get_app_by_id))
         .route("/exists/*path", get(exists_app))
         .route("/update/*path", post(update_app))
@@ -44,7 +48,9 @@ pub fn workspaced_service() -> Router {
 }
 
 pub fn unauthed_service() -> Router {
-    Router::new().route("/execute_component/*path", post(execute_component))
+    Router::new()
+        .route("/execute_component/*path", post(execute_component))
+        .route("/public_app/:secret", get(get_public_app_by_secret))
 }
 
 #[derive(FromRow, Deserialize, Serialize)]
@@ -223,19 +229,27 @@ async fn get_app_by_id(
     Ok(Json(app))
 }
 
-async fn get_public_app_by_secret_(
-    authed: Authed,
+async fn get_public_app_by_secret(
     Extension(db): Extension<DB>,
-    Path((w_id, id)): Path<(String, i64)>,
+    Path((w_id, secret)): Path<(String, String)>,
 ) -> JsonResult<AppWithLastVersion> {
     let mut tx = db.begin().await?;
+
+    let mc = build_crypt(&mut tx, &w_id).await?;
+
+    let decrypted = mc
+        .decrypt_bytes_to_bytes(&(hex::decode(secret)?))
+        .map_err(|e| Error::InternalErr(e.to_string()))?;
+    let bytes = str::from_utf8(&decrypted).map_err(to_anyhow)?;
+
+    let id: i64 = bytes.parse().map_err(to_anyhow)?;
 
     let app_o = sqlx::query_as!(
         AppWithLastVersion,
         "SELECT app.id, app.path, app.summary, app.versions, app.policy,
         app.extra_perms, app_version.value, 
         app_version.created_at, app_version.created_by from app, app_version 
-        WHERE app_version.id = $1 AND app.id = app_version.app_id AND app.workspace_id = $2",
+        WHERE app.id = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]",
         id,
         &w_id
     )
@@ -245,6 +259,34 @@ async fn get_public_app_by_secret_(
 
     let app = not_found_if_none(app_o, "App", id.to_string())?;
     Ok(Json(app))
+}
+
+async fn get_secret_id(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> Result<String> {
+    let path = path.to_path();
+    let mut tx = user_db.begin(&authed).await?;
+
+    let id_o = sqlx::query_scalar!(
+        "SELECT app.id FROM app
+        WHERE app.path = $1 AND app.workspace_id = $2",
+        path,
+        &w_id
+    )
+    .fetch_optional(&mut tx)
+    .await?;
+
+    let id = not_found_if_none(id_o, "App", path.to_string())?;
+
+    let mc = build_crypt(&mut tx, &w_id).await?;
+
+    let hx = hex::encode(mc.encrypt_str_to_bytes(id.to_string()));
+
+    tx.commit().await?;
+
+    Ok(hx)
 }
 
 async fn create_app(
