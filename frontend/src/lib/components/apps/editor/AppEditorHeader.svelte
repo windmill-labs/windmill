@@ -17,10 +17,7 @@
 	import type { AppEditorContext, EditorBreakpoint, EditorMode } from '../types'
 	import AppExportButton from './AppExportButton.svelte'
 
-	const { app } = getContext<AppEditorContext>('AppEditorContext')
-	export let title: string = $app.title || ''
-	export let mode: EditorMode
-	export let breakpoint: EditorBreakpoint
+	const { app, summary, mode, breakpoint } = getContext<AppEditorContext>('AppEditorContext')
 	const loading = {
 		publish: false,
 		save: false
@@ -47,7 +44,7 @@
 				requestBody: {
 					value: $app,
 					path,
-					summary: 'App summary',
+					summary: $summary,
 					policy
 				}
 			})
@@ -69,7 +66,7 @@
 			path: $page.params.path,
 			requestBody: {
 				value: $app!,
-				summary: title,
+				summary: $summary,
 				policy: {
 					triggerables: {},
 					execution_mode: Policy.execution_mode.PUBLISHER,
@@ -110,10 +107,10 @@
 </Drawer>
 
 <div class="border-b flex flex-row justify-between py-1 gap-1 gap-y-2 px-4 items-center flex-wrap">
-	<input class="text-sm w-64" bind:value={title} />
+	<input type="text" placeholder="App summary" class="text-sm w-64" bind:value={$summary} />
 	<div class="flex gap-8 items-center">
 		<div>
-			<ToggleButtonGroup bind:selected={mode}>
+			<ToggleButtonGroup bind:selected={$mode}>
 				<ToggleButton position="left" value="dnd" size="xs">
 					<div class="inline-flex gap-1 items-center">
 						<Pencil size={14} />
@@ -126,7 +123,7 @@
 			</ToggleButtonGroup>
 		</div>
 		<div>
-			<ToggleButtonGroup bind:selected={breakpoint}>
+			<ToggleButtonGroup bind:selected={$breakpoint}>
 				<ToggleButton position="left" value="sm" size="xs">
 					<Smartphone size={14} />
 				</ToggleButton>

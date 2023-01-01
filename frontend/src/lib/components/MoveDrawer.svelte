@@ -13,20 +13,26 @@
 
 	let kind: Kind
 	let initialPath: string = ''
-	let path: string = ''
+	let path: string | undefined = undefined
+	let summary: undefined | string = undefined
 
 	let drawer: Drawer
 
 	let own = false
-	export async function openDrawer(initialPath_l: string, kind_l: Kind) {
+	export async function openDrawer(
+		initialPath_l: string,
+		summary_l: string | undefined,
+		kind_l: Kind
+	) {
 		kind = kind_l
 		initialPath = initialPath_l
+		summary = summary_l
 		await loadOwner()
 		drawer.openDrawer()
 	}
 
 	async function loadOwner() {
-		own = await isOwner(path, $userStore!, $workspaceStore!)
+		own = await isOwner(initialPath, $userStore!, $workspaceStore!)
 	}
 
 	async function updatePath() {
@@ -39,8 +45,8 @@
 				workspace: $workspaceStore!,
 				path: initialPath,
 				requestBody: {
-					path,
-					summary: flow.summary,
+					path: path ?? '',
+					summary: summary ?? '',
 					description: flow.description,
 					value: flow.value
 				}
@@ -50,6 +56,7 @@
 				workspace: $workspaceStore!,
 				path: initialPath
 			})
+			script.summary = summary ?? ''
 			await ScriptService.createScript({
 				workspace: $workspaceStore!,
 				requestBody: {
@@ -57,7 +64,7 @@
 					description: script.description ?? '',
 					lock: script.lock?.split('\n'),
 					parent_hash: script.hash,
-					path
+					path: path ?? ''
 				}
 			})
 		} else if (kind == 'app') {
@@ -65,7 +72,8 @@
 				workspace: $workspaceStore!,
 				path: initialPath,
 				requestBody: {
-					path
+					path: path != initialPath ? path : undefined,
+					summary
 				}
 			})
 		}
@@ -75,16 +83,27 @@
 </script>
 
 <Drawer bind:this={drawer}>
-	<DrawerContent title="Move {initialPath}" on:close={drawer.closeDrawer}>
-		<div class="flex flex-col gap-6">
-			<h1>Move {initialPath} to</h1>
-			{#if !own}
-				<Alert type="warning" title="Not owner"
-					>Since you do not own this item, you cannot move this item (you can however fork it)</Alert
-				>
-			{/if}
+	<DrawerContent title="Move/Rename {initialPath}" on:close={drawer.closeDrawer}>
+		<h1 class="mb-2">Move/Rename {initialPath}</h1>
+
+		{#if !own}
+			<Alert type="warning" title="Not owner"
+				>Since you do not own this item, you cannot move this item (you can however fork it)</Alert
+			>
+		{/if}
+		<h2 class="border-b pb-1 mt-8 mb-4">Summary</h2>
+		<input
+			type="text"
+			bind:value={summary}
+			placeholder="A short summary displayed when it is listed"
+			rows="1"
+			disabled={!own}
+		/>
+
+		<h2 class="border-b pb-1 mt-8 mb-4">Path</h2>
+		<div class="flex flex-col mb-2 gap-6">
 			<Path disabled={!own} {kind} {initialPath} bind:path />
-			<Button disabled={!own} on:click={updatePath}>Move</Button>
+			<Button disabled={!own} on:click={updatePath}>Move/Rename</Button>
 			<div />
 		</div>
 	</DrawerContent>

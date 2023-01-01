@@ -37,6 +37,7 @@
 	export let path: string
 	export let initialMode: EditorMode = 'dnd'
 	export let policy: Policy
+	export let summary: string
 
 	const appStore = writable<App>(app)
 	const worldStore = writable<World | undefined>(undefined)
@@ -44,7 +45,7 @@
 	const selectedComponent = writable<string | undefined>(undefined)
 	const mode = writable<EditorMode>(initialMode)
 	const breakpoint = writable<EditorBreakpoint>('lg')
-
+	const summaryStore = writable(summary)
 	const connectingInput = writable<ConnectingInput>({
 		opened: false,
 		input: undefined
@@ -57,6 +58,7 @@
 		staticOutputs,
 		app: appStore,
 		lazyGrid: writable([]),
+		summary: summaryStore,
 		selectedComponent,
 		mode,
 		connectingInput,
@@ -95,11 +97,11 @@
 {#if !$userStore?.operator}
 	<UnsavedConfirmationModal />
 	{#if initialMode !== 'preview'}
-		<AppEditorHeader bind:title={$appStore.title} bind:mode={$mode} bind:breakpoint={$breakpoint} />
+		<AppEditorHeader />
 	{/if}
 
 	{#if previewing}
-		<AppPreview app={$appStore} appPath={path} {breakpoint} {policy} />
+		<AppPreview {summary} app={$appStore} appPath={path} {breakpoint} {policy} />
 	{:else}
 		<SplitPanesWrapper class="max-w-full overflow-hidden">
 			<Pane size={15} minSize={5} maxSize={33}>

@@ -137,10 +137,10 @@
 					href: `/runs/${path}`
 				},
 				{
-					displayName: 'Move',
+					displayName: 'Move/Rename',
 					icon: faFileExport,
 					action: () => {
-						moveDrawer.openDrawer(path, 'flow')
+						moveDrawer.openDrawer(path, summary, 'flow')
 					},
 					disabled: !canWrite
 				},

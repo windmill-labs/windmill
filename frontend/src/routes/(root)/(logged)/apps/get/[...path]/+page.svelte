@@ -23,7 +23,13 @@
 
 {#if app}
 	<div class="border rounded-md p-2 w-full">
-		<AppPreview app={app.value} appPath={app.path} {breakpoint} policy={app.policy} />
+		<AppPreview
+			summary={app.summary}
+			app={app.value}
+			appPath={app.path}
+			{breakpoint}
+			policy={app.policy}
+		/>
 	</div>
 {:else}
 	<Skeleton layout={[10]} />

@@ -19,6 +19,7 @@
 	export let appPath: string
 	export let breakpoint: Writable<EditorBreakpoint>
 	export let policy: Policy
+	export let summary: string
 
 	const appStore = writable<App>(app)
 	const worldStore = writable<World | undefined>(undefined)
@@ -38,6 +39,7 @@
 		staticOutputs,
 		lazyGrid: writable(app.grid),
 		app: appStore,
+		summary: writable(summary),
 		selectedComponent,
 		mode,
 		connectingInput,
