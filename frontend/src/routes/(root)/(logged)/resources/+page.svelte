@@ -342,7 +342,7 @@
 								<tr>
 									<td>
 										<a
-											class="break-words"
+											class="break-all"
 											href="#{path}"
 											on:click={() => resourceEditor?.initEdit?.(path)}
 											>{#if marked}{@html marked}{:else}{path}{/if}</a
