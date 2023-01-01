@@ -85,10 +85,10 @@
 					href: `/apps/edit/${path}?nodraft=true`
 				},
 				{
-					displayName: 'Move',
+					displayName: 'Move/Rename',
 					icon: faFileExport,
 					action: () => {
-						moveDrawer.openDrawer(path, 'app')
+						moveDrawer.openDrawer(path, summary, 'app')
 					},
 					disabled: !canWrite
 				},

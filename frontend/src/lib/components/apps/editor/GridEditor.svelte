@@ -18,7 +18,8 @@
 		connectingInput,
 		staticOutputs,
 		runnableComponents,
-		lazyGrid
+		lazyGrid,
+		summary
 	} = getContext<AppEditorContext>('AppEditorContext')
 
 	// The drag is disabled when the user is connecting an input
@@ -102,7 +103,7 @@
 
 <div class="bg-white px-2 relative">
 	<div class="w-full flex justify-between border-b px-4 py-2  mb-4 items-center gap-4">
-		<h2>{$app.title}</h2>
+		<h2 class="truncate">{$summary}</h2>
 		<RecomputeAllComponents />
 		<div class="text-2xs text-gray-600"
 			>{policy.on_behalf_of ? `on behalf of ${policy.on_behalf_of}` : ''}</div

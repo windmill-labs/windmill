@@ -100,6 +100,7 @@
 				placeholder="Summary of the group"
 			/>
 			<Button
+				disabled={!can_write}
 				size="xs"
 				on:click={async () => {
 					await GroupService.updateGroup({

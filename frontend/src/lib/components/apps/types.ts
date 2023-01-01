@@ -111,7 +111,6 @@ export type InlineScript = {
 
 export type App = {
 	grid: GridItem[]
-	title: string
 	fullscreen: boolean
 	unusedInlineScripts: Array<{
 		name: string
@@ -129,7 +128,8 @@ export type AppEditorContext = {
 	worldStore: Writable<World | undefined>
 	staticOutputs: Writable<Record<string, string[]>>,
 	lazyGrid: Writable<GridItem[]>,
-	app: Writable<App>
+	app: Writable<App>,
+	summary: Writable<string>,
 	selectedComponent: Writable<string | undefined>
 	mode: Writable<EditorMode>
 	connectingInput: Writable<ConnectingInput>

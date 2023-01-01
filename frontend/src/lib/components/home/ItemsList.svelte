@@ -296,7 +296,7 @@
 		{:else}
 			<div class="border rounded-md divide-y divide-gray-200 mb-80">
 				<!-- <VirtualList {items} let:item bind:start bind:end> -->
-				{#each items ?? [] as item, i (item.type + '/' + item.path)}
+				{#each items ?? [] as item, i (item.type + '/' + item.path + (item.summary ?? ''))}
 					{#if item.type == 'script'}
 						<ScriptRow
 							starred={item.starred ?? false}

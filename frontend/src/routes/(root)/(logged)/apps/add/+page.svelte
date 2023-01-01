@@ -40,6 +40,7 @@
 {#if value}
 	<div class="h-screen">
 		<AppEditor
+			summary={''}
 			app={value}
 			path={''}
 			policy={{

@@ -157,10 +157,10 @@
 					href: `/scripts/add?template=${path}`
 				},
 				{
-					displayName: 'Move',
+					displayName: 'Move/Rename',
 					icon: faFileExport,
 					action: () => {
-						moveDrawer.openDrawer(path, 'script')
+						moveDrawer.openDrawer(path, summary, 'script')
 					},
 					disabled: !canWrite
 				},
