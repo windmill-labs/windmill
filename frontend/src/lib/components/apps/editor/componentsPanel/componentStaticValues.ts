@@ -6,5 +6,6 @@ export const staticValues = {
 	buttonColorOptions,
 	buttonSizeOptions: ['xs', 'sm', 'md', 'lg', 'xl'],
 	tableSearchOptions: ['Component', 'Runnable', 'Disabled'],
-	chartThemeOptions: ['theme1', 'theme2', 'theme3']
+	chartThemeOptions: ['theme1', 'theme2', 'theme3'],
+	textStyleOptions: ['Title', 'Subtitle', 'Body', 'Label', 'Caption']
 } as const

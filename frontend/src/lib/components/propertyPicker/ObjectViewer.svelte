@@ -57,7 +57,7 @@
 		<ul class="w-full">
 			{#each keys as key, index}
 				<li class="pt-1">
-					<button on:click={() => selectProp(key)}>
+					<button on:click={() => selectProp(key)} class="whitespace-nowrap">
 						{#if topLevelNode}
 							<Badge baseClass="border border-blue-600" color="indigo">{key}</Badge>
 						{:else}

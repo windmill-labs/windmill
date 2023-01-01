@@ -36,7 +36,7 @@
 </script>
 
 <PanelSection noPadding titlePadding="px-4 pt-2" title="Outputs">
-	<div class="overflow-auto  border-t w-full relative flex flex-col gap-2 px-4">
+	<div class="overflow-auto min-w-[150px]  border-t w-full relative flex flex-col gap-2 px-4">
 		{#each Object.entries($staticOutputs) as [componentId, outputs] (componentId)}
 			{#if outputs.length > 0 && $worldStore?.outputsById[componentId]}
 				<div class="flex flex-row justify-between w-full -mb-2">
@@ -66,7 +66,7 @@
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<div
 					class={classNames(
-						'w-full py-2 border relative',
+						'w-full py-2 border relative overflow-auto',
 						$selectedComponent === componentId ? 'border border-blue-500 ' : ''
 					)}
 				>

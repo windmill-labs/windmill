@@ -82,7 +82,7 @@
 
 	$: mounted && ($worldStore = buildWorld($staticOutputs, $worldStore))
 	$: previewing = $mode === 'preview'
-	$: width = $breakpoint === 'sm' ? 'w-[640px]' : 'w-full'
+	$: width = $breakpoint === 'sm' ? 'min-w-[400px] max-w-[656px]' : 'min-w-[657px] w-full'
 
 	let selectedTab: 'insert' | 'settings' = 'insert'
 	$: if ($selectedComponent) {
@@ -108,24 +108,19 @@
 			<Pane size={64}>
 				<SplitPanesWrapper horizontal>
 					<Pane size={70}>
-						<div class="bg-gray-100 w-full p-4 h-full overflow-auto">
-							<div
-								class={classNames(
-									'bg-gray-100  mx-auto w-full relative min-h-full',
-									app.fullscreen ? '' : 'max-w-6xl'
-								)}
-							>
-								{#if $appStore.grid}
-									<div class={classNames('px-2 pb-2 w-full h-full bg-white', width)}>
-										<GridEditor {policy} />
-									</div>
-								{/if}
-								{#if $connectingInput.opened}
-									<div
-										class="absolute top-0 left-0 w-full h-full bg-black border-2 bg-opacity-25 z-1 flex justify-center items-center"
-									/>
-								{/if}
-							</div>
+						<div
+							class="bg-gray-100  w-full h-full overflow-auto {app.fullscreen ? '' : 'max-w-6xl'}"
+						>
+							{#if $appStore.grid}
+								<div class={classNames('p-4 mx-auto', width)}>
+									<GridEditor {policy} />
+								</div>
+							{/if}
+							{#if $connectingInput.opened}
+								<div
+									class="absolute top-0 left-0 w-full h-full bg-black border-2 bg-opacity-25 z-1 flex justify-center items-center"
+								/>
+							{/if}
 						</div>
 					</Pane>
 					<Pane size={30}>
@@ -160,7 +155,7 @@
 								{#if $selectedComponent !== undefined}
 									<SettingsPanel />
 								{:else}
-									<div class="p-4 text-sm">No component selected.</div>
+									<div class="p-4 min-w-[150px] text-sm">No component selected.</div>
 								{/if}
 							</TabContent>
 							<TabContent value="insert">

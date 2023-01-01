@@ -6,7 +6,6 @@
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
-	import { Icon } from 'svelte-awesome'
 	import { importStore } from '../apps/store'
 	import { LayoutDashboard } from 'lucide-svelte'
 
@@ -15,7 +14,7 @@
 
 	async function importJson() {
 		$importStore = JSON.parse(pendingJson)
-		await goto('/apps/add')
+		await goto('/apps/add?nodraft=true')
 		drawer?.closeDrawer?.()
 	}
 </script>
