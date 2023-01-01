@@ -32,6 +32,7 @@ pub fn workspaced_service() -> Router {
         .route("/exists/*path", get(exists_resource))
         .route("/get_value/*path", get(get_resource_value))
         .route("/update/*path", post(update_resource))
+        .route("/update_value/*path", post(update_resource_value))
         .route("/delete/*path", delete(delete_resource))
         .route("/create", post(create_resource))
         .route("/type/list", get(list_resource_types))
@@ -400,6 +401,38 @@ async fn update_resource(
     tx.commit().await?;
 
     Ok(format!("resource {} updated (npath: {:?})", path, npath))
+}
+
+async fn update_resource_value(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+    Json(nv): Json<serde_json::Value>,
+) -> Result<String> {
+    let path = path.to_path();
+    let mut tx = user_db.begin(&authed).await?;
+
+    sqlx::query!(
+        "UPDATE resource SET value = $1 WHERE path = $2 AND workspace_id = $3",
+        nv,
+        path,
+        w_id
+    )
+    .execute(&mut tx)
+    .await?;
+    audit_log(
+        &mut tx,
+        &authed.username,
+        "resources.update",
+        ActionKind::Update,
+        &w_id,
+        Some(path),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(format!("value of resource {} updated", path))
 }
 
 async fn list_resource_types(
