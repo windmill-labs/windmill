@@ -494,12 +494,12 @@ async fn execute_component(
     Json(payload): Json<ExecuteApp>,
 ) -> Result<String> {
     match (payload.path.is_some(), payload.raw_code.is_some()) {
-        (true, true) => {
+        (false, false) => {
             return Err(Error::BadRequest(
                 "path or raw_code is required".to_string(),
             ))
         }
-        (false, false) => {
+        (true, true) => {
             return Err(Error::BadRequest(
                 "path and raw_code cannot be set at the same time".to_string(),
             ))
@@ -509,18 +509,6 @@ async fn execute_component(
 
     let path = path.to_path();
     let mut tx = db.begin().await?;
-
-    let policy_o = sqlx::query_scalar!(
-        "SELECT policy from app WHERE path = $1 AND workspace_id = $2",
-        path,
-        &w_id
-    )
-    .fetch_optional(&mut tx)
-    .await?;
-
-    let policy = not_found_if_none(policy_o, "App", path)?;
-
-    let policy = serde_json::from_value::<Policy>(policy).map_err(to_anyhow)?;
 
     let policy = if let Some(static_fields) = payload.clone().force_viewer_static_fields {
         let mut hm = HashMap::new();
@@ -539,7 +527,17 @@ async fn execute_component(
             on_behalf_of_email: None,
         }
     } else {
-        policy
+        let policy_o = sqlx::query_scalar!(
+            "SELECT policy from app WHERE path = $1 AND workspace_id = $2",
+            path,
+            &w_id
+        )
+        .fetch_optional(&mut tx)
+        .await?;
+
+        let policy = not_found_if_none(policy_o, "App", path)?;
+
+        serde_json::from_value::<Policy>(policy).map_err(to_anyhow)?
     };
 
     let (username, permissioned_as, email) = match policy.execution_mode {

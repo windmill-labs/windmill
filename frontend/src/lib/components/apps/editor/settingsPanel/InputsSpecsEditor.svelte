@@ -23,58 +23,67 @@
 
 {#if inputSpecs}
 	<div class="w-full flex flex-col gap-4">
-		{#each Object.keys(inputSpecs) as inputSpecKey, index (index)}
+		{#each Object.keys(inputSpecs) as inputSpecKey (inputSpecKey)}
 			{@const input = inputSpecs[inputSpecKey]}
-			{#if true}
-				<div class="flex flex-col gap-1">
-					<div class="flex justify-between items-end gap-1">
-						<span class="text-xs font-semibold">
-							{shouldCapitalize ? capitalize(inputSpecKey) : inputSpecKey}
-						</span>
+			<div class="flex flex-col gap-1">
+				<div class="flex justify-between items-end gap-1">
+					<span class="text-xs font-semibold">
+						{shouldCapitalize ? capitalize(inputSpecKey) : inputSpecKey}
+					</span>
 
-						<div class="flex gap-2 items-center">
-							<Badge color="blue">
-								{input.fieldType === 'array' && input.subFieldType
-									? `${capitalize(fieldTypeToTsType(input.subFieldType))}[]`
-									: capitalize(fieldTypeToTsType(input.fieldType))}
-							</Badge>
+					<div class="flex gap-2 items-center">
+						<Badge color="blue">
+							{input.fieldType === 'array' && input.subFieldType
+								? `${capitalize(fieldTypeToTsType(input.subFieldType))}[]`
+								: capitalize(fieldTypeToTsType(input.fieldType))}
+						</Badge>
 
-							<ToggleButtonGroup bind:selected={inputSpecs[inputSpecKey].type}>
+						<ToggleButtonGroup bind:selected={inputSpecs[inputSpecKey].type}>
+							<ToggleButton
+								title="Static"
+								position="left"
+								value="static"
+								startIcon={{ icon: faPen }}
+								size="xs"
+								iconOnly
+							/>
+							{#if rowColumns}
 								<ToggleButton
-									position="left"
-									value="static"
-									startIcon={{ icon: faPen }}
-									size="xs"
-									iconOnly
-								/>
-								{#if rowColumns}
-									<ToggleButton
-										position="center"
-										value="row"
-										startIcon={{ icon: faTableCells }}
-										size="xs"
-										iconOnly
-										disabled={staticOnly}
-									/>
-								{/if}
-								<ToggleButton
-									position="right"
-									value="connected"
-									startIcon={{ icon: faArrowRight }}
+									title="From Row"
+									position="center"
+									value="row"
+									startIcon={{ icon: faTableCells }}
 									size="xs"
 									iconOnly
 									disabled={staticOnly}
 								/>
-							</ToggleButtonGroup>
-						</div>
+							{/if}
+							{#if userInputEnabled && (!input.format?.startsWith('resource-') || true)}
+								<ToggleButton
+									title="User Input"
+									position="center"
+									value="user"
+									startIcon={{ icon: faUser }}
+									size="xs"
+									iconOnly
+									disabled={staticOnly}
+								/>
+							{/if}
+							<ToggleButton
+								title="Connected"
+								position="right"
+								value="connected"
+								startIcon={{ icon: faArrowRight }}
+								size="xs"
+								iconOnly
+								disabled={staticOnly}
+							/>
+						</ToggleButtonGroup>
 					</div>
-
-					<InputsSpecEditor
-						bind:componentInput={inputSpecs[inputSpecKey]}
-						userInputEnabled={userInputEnabled && input.format === undefined}
-					/>
 				</div>
-			{/if}
+
+				<InputsSpecEditor bind:componentInput={inputSpecs[inputSpecKey]} />
+			</div>
 		{/each}
 	</div>
 {:else}

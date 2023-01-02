@@ -54,7 +54,7 @@
 		) {
 			return { w: column, h: 1 }
 		}
-		return { w: column, h: 12 }
+		return { w: column, h: 80 }
 	}
 
 	function addComponent(appComponent: AppComponent) {
@@ -76,7 +76,7 @@
 
 		let newData: AppComponent = JSON.parse(JSON.stringify(appComponent))
 		Object.values(newData.configuration).forEach((x) => {
-			if (x.type == 'static') {
+			if (x.type == 'static' && !x.value) {
 				x.value = x.defaultValue
 			}
 		})

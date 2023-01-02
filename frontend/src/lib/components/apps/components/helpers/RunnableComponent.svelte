@@ -1,17 +1,15 @@
 <script lang="ts">
-	import { page } from '$app/stores'
 	import type { Schema } from '$lib/common'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import { AppService, type CompletedJob } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
-	import { emptySchema } from '$lib/utils'
+	import { defaultIfEmptyString, emptySchema } from '$lib/utils'
 	import { getContext, onMount } from 'svelte'
 	import type { AppInputs, Runnable } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppEditorContext } from '../../types'
-	import { fieldTypeToTsType, loadSchema, schemaToInputsSpec } from '../../utils'
+	import { fieldTypeToTsType, schemaToInputsSpec } from '../../utils'
 	import InputValue from './InputValue.svelte'
 	import MissingConnectionWarning from './MissingConnectionWarning.svelte'
 	import RefreshButton from './RefreshButton.svelte'
@@ -25,7 +23,8 @@
 	export let result: any = undefined
 	export let forceSchemaDisplay: boolean = false
 
-	const { worldStore, runnableComponents } = getContext<AppEditorContext>('AppEditorContext')
+	const { worldStore, runnableComponents, workspace, appPath } =
+		getContext<AppEditorContext>('AppEditorContext')
 
 	onMount(() => {
 		if (autoRefresh) {
@@ -36,12 +35,23 @@
 		executeComponent()
 	})
 
-	let pagePath = $page.params.path
 	let args: Record<string, any> = {}
-	let schema: Schema | undefined = undefined
+	let debouncedArgs: Record<string, any> = args
 	let testIsLoading = false
 	let runnableInputValues: Record<string, any> = {}
 
+	let argsTimeout: NodeJS.Timeout | undefined
+
+	function setDebouncedArgs() {
+		argsTimeout && clearTimeout(argsTimeout)
+		argsTimeout = setTimeout(() => {
+			Object.assign(args, debouncedArgs)
+			args = args
+		}, 200)
+	}
+	$: debouncedArgs && setDebouncedArgs()
+
+	let previousStaticArgs: any = {}
 	function setStaticInputsToArgs() {
 		let nargs = {}
 		Object.entries(fields ?? {}).forEach(([key, value]) => {
@@ -50,8 +60,10 @@
 			}
 		})
 
-		if (JSON.stringify(args) != JSON.stringify(nargs)) {
-			args = nargs
+		if (JSON.stringify(previousStaticArgs) != JSON.stringify(nargs)) {
+			previousStaticArgs = nargs
+			Object.assign(args, nargs)
+			args = args
 		}
 	}
 
@@ -97,16 +109,7 @@
 		outputs.loading.set(false, true)
 	}
 
-	async function loadSchemaFromTriggerable(
-		workspace: string,
-		path: string,
-		runType: 'script' | 'flow' | 'hubscript'
-	): Promise<Schema> {
-		return loadSchema(workspace, path, runType) ?? emptySchema()
-	}
-
 	$: runnable?.type === 'runnableByName' && loadSchemaAndInputsByName()
-	$: !schema && runnable?.type === 'runnableByPath' && loadSchemaAndInputsByPath()
 
 	async function loadSchemaAndInputsByName() {
 		if (runnable?.type === 'runnableByName') {
@@ -114,12 +117,10 @@
 			// Inline scripts directly provide the schema
 			if (inlineScript) {
 				const newSchema = inlineScript.schema
-				schema = newSchema
 
 				const newFields = reloadInputs(newSchema)
 
 				if (JSON.stringify(newFields) !== JSON.stringify(fields)) {
-					fields = newFields
 					setTimeout(() => {
 						fields = newFields
 					}, 0)
@@ -128,33 +129,10 @@
 		}
 	}
 
-	async function loadSchemaAndInputsByPath() {
-		if ($workspaceStore && runnable?.type === 'runnableByPath') {
-			// Remote schema needs to be loaded
-			const { path, runType } = runnable
-			const newSchema = await loadSchemaFromTriggerable($workspaceStore, path, runType)
-			schema = newSchema
-
-			let schemaWithoutExtraQueries: Schema = JSON.parse(JSON.stringify(schema))
-
-			// Remove extra query params from the schema, which are not directly configurable by the user
-			Object.keys(extraQueryParams).forEach((key) => {
-				delete schemaWithoutExtraQueries.properties[key]
-			})
-
-			fields = schemaToInputsSpec(schemaWithoutExtraQueries)
-		}
-	}
-
 	// When the schema is loaded, we need to update the inputs spec
 	// in order to render the inputs the component panel
 	function reloadInputs(schema: Schema) {
 		let schemaWithoutExtraQueries: Schema = JSON.parse(JSON.stringify(schema))
-
-		// Remove extra query params from the schema, which are not directly configurable by the user
-		Object.keys(extraQueryParams).forEach((key) => {
-			delete schemaWithoutExtraQueries.properties[key]
-		})
 
 		const result = {}
 		const newInputs = schemaToInputsSpec(schemaWithoutExtraQueries)
@@ -180,10 +158,17 @@
 		return result
 	}
 
-	let schemaStripped: Schema | undefined = undefined
+	$: schemaStripped = runnable && stripSchema(fields)
 
-	function stripSchema(schema: Schema, inputs: AppInputs) {
-		schemaStripped = JSON.parse(JSON.stringify(schema))
+	function stripSchema(inputs: AppInputs): Schema {
+		let schema =
+			runnable?.type == 'runnableByName' ? runnable.inlineScript?.schema : runnable?.schema
+		try {
+			schemaStripped = JSON.parse(JSON.stringify(schema))
+		} catch (e) {
+			console.warn('Error loading schema')
+			return emptySchema()
+		}
 
 		// Remove hidden static inputs
 		Object.keys(inputs ?? {}).forEach((key: string) => {
@@ -197,16 +182,8 @@
 				delete schemaStripped.properties[key]
 			}
 		})
-
-		// Remove extra query params from schema
-		Object.keys(extraQueryParams).forEach((key: string) => {
-			if (schemaStripped !== undefined) {
-				delete schemaStripped.properties[key]
-			}
-		})
+		return schemaStripped as Schema
 	}
-
-	$: schema && fields && stripSchema(schema, fields)
 
 	$: disabledArgs = Object.keys(fields ?? {}).reduce(
 		(disabledArgsAccumulator: string[], inputName: string) => {
@@ -219,11 +196,11 @@
 	)
 
 	async function executeComponent() {
-		if (!schema) {
+		if (outputs?.loading.peak() === true) {
 			return
 		}
 
-		if (outputs?.loading.peak() === true) {
+		if (runnable?.type === 'runnableByName' && !runnable.inlineScript) {
 			return
 		}
 
@@ -231,7 +208,7 @@
 
 		await testJobLoader?.abstractRun(() => {
 			const requestBody = {
-				args: { ...extraQueryParams, ...args, ...runnableInputValues },
+				args: { ...args, ...runnableInputValues },
 				force_viewer_static_fields: {}
 			}
 
@@ -251,8 +228,8 @@
 			}
 
 			return AppService.executeComponent({
-				workspace: $workspaceStore!,
-				path: pagePath,
+				workspace,
+				path: defaultIfEmptyString(appPath, 'newapp'),
 				requestBody
 			})
 		})
@@ -273,6 +250,7 @@
 {/each}
 
 <TestJobLoader
+	workspaceOverride={workspace}
 	on:done={() => {
 		if (testJob && outputs) {
 			outputs.result?.set(testJob?.result)
@@ -287,14 +265,16 @@
 
 <div class="h-full flex flex-col">
 	{#if schemaStripped !== undefined && (autoRefresh || forceSchemaDisplay)}
-		<SchemaForm
-			schema={schemaStripped}
-			bind:args
-			{isValid}
-			{disabledArgs}
-			shouldHideNoInputs
-			noVariablePicker
-		/>
+		<div class="px-2">
+			<SchemaForm
+				schema={schemaStripped}
+				bind:args={debouncedArgs}
+				{isValid}
+				{disabledArgs}
+				shouldHideNoInputs
+				noVariablePicker
+			/>
+		</div>
 	{/if}
 
 	{#if !runnable && autoRefresh}

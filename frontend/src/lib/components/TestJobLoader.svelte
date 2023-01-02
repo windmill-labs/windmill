@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { CompletedJob, Job, JobService } from '$lib/gen'
+	import { Job, JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { onDestroy } from 'svelte'
 	import type { Preview } from '$lib/gen/models/Preview'
@@ -33,8 +33,9 @@
 			await clearCurrentJob()
 			isLoading = true
 			const testId = await fn()
-
-			await watchJob(testId)
+			if (testId) {
+				await watchJob(testId)
+			}
 			return testId
 		} catch (err) {
 			isLoading = false

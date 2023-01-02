@@ -317,8 +317,8 @@ const display: ComponentSet = {
 			type: 'displaycomponent',
 			componentInput: {
 				type: 'static',
-				fieldType: 'text',
-				defaultValue: 'Lorem Ipsum',
+				fieldType: 'object',
+				defaultValue: { "foo": 42 },
 				value: undefined
 			},
 			configuration: {},

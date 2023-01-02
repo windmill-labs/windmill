@@ -22,6 +22,7 @@
 	export let nonCaptureEvent: boolean = false
 	export let buttonType: 'button' | 'submit' | 'reset' = 'button'
 	export let loading = false
+	export let title: string | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 	// Order of classes: border, border modifier, bg, bg modifier, text, text modifier, everything else
@@ -76,7 +77,8 @@
 		href,
 		target,
 		tabindex: disabled ? -1 : 0,
-		type: buttonType
+		type: buttonType,
+		title
 	}
 
 	async function onClick(event: MouseEvent) {

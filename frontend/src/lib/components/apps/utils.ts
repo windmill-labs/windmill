@@ -19,7 +19,7 @@ import {
 	Calendar,
 	ToggleLeft
 } from 'lucide-svelte'
-import type { AppInput, AppInputs, InputType, ResultAppInput } from './inputType'
+import type { AppInput, AppInputs, InputType, ResultAppInput, StaticAppInput, StaticInput } from './inputType'
 import type { AppComponent } from './types'
 
 export async function loadSchema(
@@ -52,7 +52,7 @@ export async function loadSchema(
 	}
 }
 
-export function schemaToInputsSpec(schema: Schema): AppInputs {
+export function schemaToInputsSpec(schema: Schema): Record<string, StaticAppInput> {
 	return Object.keys(schema.properties).reduce((accu, key) => {
 		const property = schema.properties[key]
 
@@ -203,7 +203,7 @@ export function isScriptByPathDefined(appInput: AppInput | undefined): boolean {
 
 export function clearResultAppInput(appInput: ResultAppInput): ResultAppInput {
 	appInput.runnable = undefined
-	if (Object.keys(appInput.fields).length > 0) {
+	if (Object.keys(appInput.fields ?? {}).length > 0) {
 		appInput.fields = {}
 	}
 	return appInput
