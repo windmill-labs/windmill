@@ -1,11 +1,14 @@
 <script lang="ts">
 	import { createPopperActions } from 'svelte-popperjs'
 
-	export let notClickable = false
+	const SIDE = ['auto', 'top', 'bottom', 'left', 'right'] as const
+	const ALIGN = ['start', 'end'] as const
 
-	const [popperRef, popperContent] = createPopperActions({
-		placement: 'auto'
-	})
+	export let placement: `${typeof SIDE[number]}` | `${typeof SIDE[number]}-${typeof ALIGN[number]}` = 'auto'
+	export let notClickable = false
+	export let popupClass = ''
+
+	const [popperRef, popperContent] = createPopperActions({ placement })
 	const betterPreventOverflow = (options) => ({
 		name: 'preventOverflow',
 		options,
@@ -56,7 +59,7 @@
 		on:mouseenter={open}
 		on:mouseleave={close}
 		class="z-50  py-2 px-3 rounded-md  text-sm font-normal !text-gray-300 bg-gray-800
-		whitespace-normal text-left {$$props.class}"
+		whitespace-normal text-left {popupClass}"
 	>
 		<div class="max-w-sm">
 			<slot name="text" />
