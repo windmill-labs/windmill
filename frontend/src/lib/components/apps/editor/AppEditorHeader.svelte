@@ -63,7 +63,10 @@
 						console.log(staticInputs)
 						return [`rawscript/${hex}`, staticInputs]
 					} else if (c.componentInput.runnable?.type == 'runnableByPath') {
-						return [c.componentInput.runnable.path, staticInputs]
+						return [
+							`${c.componentInput.runnable.runType}/${c.componentInput.runnable.path}`,
+							staticInputs
+						]
 					}
 				}
 				return []
