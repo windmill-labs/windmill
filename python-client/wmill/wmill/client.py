@@ -203,6 +203,9 @@ def set_resource(
     Set the resource at a given path as a string, creating it if it does not exist
     """
     from windmill_api.models.create_resource_json_body import CreateResourceJsonBody
+    from windmill_api.models.update_resource_value_json_body import (
+        UpdateResourceValueJsonBody,
+    )
     from windmill_api.api.resource import (
         exists_resource,
         update_resource_value,
@@ -227,7 +230,7 @@ def set_resource(
             workspace=get_workspace(),
             client=client,
             path=path,
-            json_body=value,
+            json_body=UpdateResourceValueJsonBody(value=value),
         )
 
 

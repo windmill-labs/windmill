@@ -403,18 +403,23 @@ async fn update_resource(
     Ok(format!("resource {} updated (npath: {:?})", path, npath))
 }
 
+#[derive(FromRow, Serialize, Deserialize)]
+struct UpdateResource {
+    value: Option<serde_json::Value>,
+}
+
 async fn update_resource_value(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    Json(nv): Json<serde_json::Value>,
+    Json(nv): Json<UpdateResource>,
 ) -> Result<String> {
     let path = path.to_path();
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
         "UPDATE resource SET value = $1 WHERE path = $2 AND workspace_id = $3",
-        nv,
+        nv.value,
         path,
         w_id
     )

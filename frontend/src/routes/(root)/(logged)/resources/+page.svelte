@@ -277,7 +277,7 @@
 		title="Resources"
 		tooltip="Save and permission rich objects (JSON) including credentials obtained through OAuth."
 	>
-		<div class="flex flex-row space-x-4">
+		<div class="flex flex-row justify-end gap-4">
 			<Button variant="border" size="md" startIcon={{ icon: faPlus }} on:click={startNewType}
 				>Add a resource type</Button
 			>

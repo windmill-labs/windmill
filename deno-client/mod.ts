@@ -72,7 +72,7 @@ export async function setResource(value: any, path?: string, initializeToTypeIfN
     path = path ?? getStatePath()
     const workspace = getWorkspace()
     if (await ResourceService.existsResource({ workspace, path })) {
-        await ResourceService.updateResourceValue({ workspace, path, requestBody: value })
+        await ResourceService.updateResourceValue({ workspace, path, requestBody: { value } })
     } else if (initializeToTypeIfNotExist) {
         await ResourceService.createResource({ workspace, requestBody: { path, value, resource_type: initializeToTypeIfNotExist } })
     } else {
