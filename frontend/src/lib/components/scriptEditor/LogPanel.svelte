@@ -87,9 +87,7 @@
 				</Pane>
 				<Pane class="!duration-[0ms]">
 					{#if previewJob != undefined && 'result' in previewJob && previewJob.result != undefined}
-						<pre
-							transition:fade={{ duration: 50 }}
-							class="overflow-x-auto break-words relative h-full p-2"
+						<pre class="overflow-x-auto break-words relative h-full p-2"
 							><DisplayResult result={previewJob.result} />
 						</pre>
 					{:else}
