@@ -84,7 +84,7 @@
 				action: () => setInter(undefined)
 			},
 			...[1, 2, 3, 4, 5, 6].map((i) => ({
-				displayName: `${i * 5}s`,
+				displayName: `Every ${i * 5} seconds`,
 				action: () => setInter(i * 5000)
 			})),
 		]}
