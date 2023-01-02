@@ -1,43 +1,95 @@
 <script lang="ts">
 	import Dropdown from '$lib/components/Dropdown.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
-	import { RefreshCw } from 'lucide-svelte'
-	import { getContext } from 'svelte'
+	import { ChevronDown, RefreshCw } from 'lucide-svelte'
+	import { getContext, onMount } from 'svelte'
+	import Button from '../../common/button/Button.svelte'
 	import type { AppEditorContext } from '../types'
 
 	const { runnableComponents } = getContext<AppEditorContext>('AppEditorContext')
-
 	let loading: boolean = false
+	let timeout: NodeJS.Timer | undefined = undefined
+	let interval: number | undefined = undefined
+	let shouldRefresh = false
 
-	async function onRefresh() {
+	$: componentNumber = Object.keys($runnableComponents).length
+
+	function onClick(stopAfterClear = true) {
+		if(timeout) {
+			clearInterval(timeout)
+			timeout = undefined
+			shouldRefresh = false
+			if(stopAfterClear) return;
+		}
+		refresh()
+		if(interval) {
+			shouldRefresh = true
+			timeout = setInterval(refresh, interval)
+		}
+	}
+
+	function setInter(inter: number | undefined) {
+		interval = inter
+		onClick(!inter)
+	}
+
+	function refresh() {
 		loading = true
-		await Promise.all(
+		Promise.all(
 			Object.keys($runnableComponents).map((id) => {
 				return $runnableComponents?.[id]?.()
 			})
-		)
-		loading = false
+		).finally(() => {
+			loading = false
+		})
 	}
-	let timeout: NodeJS.Timeout | undefined = undefined
+
+	function visChange() {
+		if(document.visibilityState === 'hidden') {
+			if(timeout) {
+				clearInterval(timeout)
+				timeout = undefined
+			}
+		} else if(shouldRefresh) {
+			timeout = setInterval(refresh, interval)
+		}
+	}
+
+	onMount(() => {
+		document.addEventListener('visibilitychange', visChange)
+		return () => {
+			document.removeEventListener('visibilitychange', visChange)
+			if(timeout) clearInterval(timeout)
+		}
+	})
 </script>
 
-<div class="flex gap-4 items-center">
-	<button
-		on:click|preventDefault|stopPropagation={onRefresh}
-		class="center-center p-1 rounded border bg-white/60 hover:bg-gray-200 inline-flex gap-2"
-	>
-		<RefreshCw class={loading ? 'animate-spin' : ''} size={20} /> ({Object.keys($runnableComponents)
-			.length})
-	</button>
-	<Toggle
+<div class="flex items-center">
+	<Button
+		on:click={() => onClick()}
+		color="{timeout ? 'blue' : 'light'}"
+		variant="{timeout ? 'contained' : 'border'}"
 		size="xs"
-		on:change={(e) => {
-			if (e.detail) {
-				timeout = setInterval(onRefresh, 15000)
-			} else {
-				timeout && clearInterval(timeout)
-			}
-		}}
-		options={{ right: 'auto (15s)' }}
-	/>
+		btnClasses="!rounded-r-none {timeout ? '!border !border-blue-500' : ''}"
+		title="Refresh {componentNumber} component{componentNumber > 1 ? 's' : ''} {interval ? `every ${interval / 1000} seconds` : 'once'}"
+	>
+		<RefreshCw class={loading ? 'animate-spin' : ''} size={16} />
+	</Button>
+	<Dropdown
+		btnClasses="!rounded-l-none !border-l-0 min-w-[4rem] !px-2"
+		color="{timeout ? 'blue' : 'light'}"
+		variant="border"
+		dropdownItems={[
+			{
+				displayName: 'Once',
+				action: () => setInter(undefined)
+			},
+			...[1, 2, 3, 4, 5, 6].map((i) => ({
+				displayName: `Every ${i * 5} seconds`,
+				action: () => setInter(i * 5000)
+			})),
+		]}
+	>
+		<span class="grow text center">{interval ? `${interval / 1000}s` : 'once'}</span>
+		<ChevronDown class="ml-0.5" size={14} />
+	</Dropdown>
 </div>
