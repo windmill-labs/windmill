@@ -6,9 +6,9 @@
 	import { OauthService } from '$lib/gen'
 	import { oauthStore } from '$lib/stores'
 	import Icon from 'svelte-awesome'
-	import { faSpinner } from '@fortawesome/free-solid-svg-icons'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
+	import { Loader2 } from 'lucide-svelte'
 
 	let client_name = $page.params.client_name
 	let error = $page.url.searchParams.get('error')
@@ -41,6 +41,6 @@
 <CenteredPage>
 	<PageHeader title="Connection to {client_name} in progress" />
 	<div class="mx-auto w-0">
-		<Icon class="animate-spin" data={faSpinner} scale={2.0} />
+		<Loader2 class="animate-spin" />
 	</div>
 </CenteredPage>

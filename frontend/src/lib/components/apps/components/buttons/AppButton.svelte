@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button, type ButtonType } from '$lib/components/common'
-	import { faSpinner } from '@fortawesome/free-solid-svg-icons'
+	import { Loader2 } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
@@ -83,16 +83,12 @@
 			}}
 			{size}
 			{color}
-			endIcon={loading
-				? {
-						icon: faSpinner,
-						classes: 'animate-spin w-4'
-				  }
-				: undefined}
 		>
 			{labelValue}
 			{#if !loading}
 				<span class="w-5" />
+			{:else}
+				<Loader2 class="animate-spin" />
 			{/if}
 		</Button>
 	</AlignWrapper>

@@ -11,8 +11,8 @@ use serde::Deserialize;
 
 use crate::error::{Error, Result};
 
-pub const MAX_PER_PAGE: usize = 1000;
-pub const DEFAULT_PER_PAGE: usize = 100;
+pub const MAX_PER_PAGE: usize = 10000;
+pub const DEFAULT_PER_PAGE: usize = 1000;
 
 #[derive(Deserialize)]
 pub struct Pagination {

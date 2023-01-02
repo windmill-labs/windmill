@@ -8,11 +8,11 @@
 	import LogViewer from './LogViewer.svelte'
 	import DisplayResult from './DisplayResult.svelte'
 	import Button from './common/button/Button.svelte'
-	import { faSpinner } from '@fortawesome/free-solid-svg-icons'
 	import { flowStateStore } from './flows/flowState'
 	import { flowStore } from './flows/flowStore'
 	import { workspaceStore } from '$lib/stores'
 	import { Icon } from 'svelte-awesome'
+	import { Loader2 } from 'lucide-svelte'
 
 	export let mod: FlowModule
 	export let schema: Schema
@@ -77,16 +77,8 @@
 			bind:args={stepArgs}
 		/>
 		{#if testIsLoading}
-			<Button
-				on:click={testJobLoader?.cancelJob}
-				btnClasses="w-full mt-4"
-				color="red"
-				size="sm"
-				startIcon={{
-					icon: faSpinner,
-					classes: 'animate-spin'
-				}}
-			>
+			<Button on:click={testJobLoader?.cancelJob} btnClasses="w-full mt-4" color="red" size="sm">
+				<Loader2 class="animate-spin mr-1" />
 				Cancel
 			</Button>
 		{/if}
@@ -104,7 +96,7 @@
 				{:else}
 					<div class="p-2">
 						{#if testIsLoading}
-							<Icon data={faSpinner} class="animate-spin" />
+							<Loader2 class="animate-spin" />
 						{:else}
 							Test to see the result here
 						{/if}

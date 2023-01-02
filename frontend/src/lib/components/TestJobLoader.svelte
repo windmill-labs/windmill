@@ -141,7 +141,7 @@
 					workspace: workspace!,
 					id,
 					running: job.running,
-					logOffset: job.logs?.length ?? 0
+					logOffset: job.logs?.length ? job.logs?.length + 1 : 0
 				})
 
 				if (previewJobUpdates.new_logs) {

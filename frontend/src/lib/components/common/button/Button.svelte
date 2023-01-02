@@ -4,7 +4,7 @@
 	import Icon from 'svelte-awesome'
 	import { ButtonType } from './model'
 	import { goto } from '$app/navigation'
-	import { faSpinner } from '@fortawesome/free-solid-svg-icons'
+	import { Loader2 } from 'lucide-svelte'
 
 	export let size: ButtonType.Size = 'md'
 	export let spacingSize: ButtonType.Size = size
@@ -118,11 +118,7 @@
 	type="submit"
 >
 	{#if loading}
-		<Icon
-			data={faSpinner}
-			class={`animate-spin ${startIconClass}`}
-			scale={ButtonType.IconScale[size]}
-		/>
+		<Loader2 class="animate-spin mr-1" size={14} />
 	{:else if startIcon}
 		<Icon data={startIcon.icon} class={startIconClass} scale={ButtonType.IconScale[size]} />
 	{/if}
