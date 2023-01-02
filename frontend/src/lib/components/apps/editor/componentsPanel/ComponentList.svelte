@@ -30,7 +30,7 @@
 				'dateinputcomponent'
 			],
 			'2:12-4:12': ['barchartcomponent', 'piechartcomponent', 'formcomponent', 'displaycomponent'],
-			'3:6-6:8': ['tablecomponent']
+			'3:10-6:12': ['tablecomponent']
 		}
 		// Finds the key that is associated with the component type and extracts the dimensions from it
 		const [dimension] = Object.entries(dimensions).find(([_, value]) =>

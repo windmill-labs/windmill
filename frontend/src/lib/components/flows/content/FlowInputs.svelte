@@ -145,7 +145,7 @@
 	</div>
 
 	<h3 class="mb-2 mt-6"
-		>Use pre-made <span class="text-blue-500">{kind == 'script' ? 'common' : kind}</span> script</h3
+		>Use pre-made <span class="text-blue-500">{kind == 'script' ? 'action' : kind}</span> script</h3
 	>
 	{#if pick_existing == 'hub'}
 		<PickHubScript bind:filter {kind} on:pick>

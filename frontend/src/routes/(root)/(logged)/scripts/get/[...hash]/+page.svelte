@@ -49,6 +49,7 @@
 	import { goto } from '$app/navigation'
 	import Popover from '$lib/components/Popover.svelte'
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
+	import { Loader2 } from 'lucide-svelte'
 
 	let userSettings: UserSettings
 	let script: Script | undefined
@@ -232,10 +233,8 @@
 						</Badge>
 					{/if}
 					{#if deploymentInProgress}
-						<Badge
-							color="yellow"
-							icon={{ data: faSpinner, position: 'right', class: 'animate-spin' }}
-						>
+						<Badge color="yellow">
+							<Loader2 class="animate-spin mr-2" />
 							Deployment in progress
 						</Badge>
 					{/if}
