@@ -122,7 +122,7 @@
 </script>
 
 {#if arg != undefined}
-	<div class="flex flex-row justify-between gap-1 mb-1">
+	<div class="flex flex-row justify-between gap-1 pb-1">
 		<div class="flex items-center flex-wrap grow">
 			<FieldHeader
 				label={argName}
@@ -224,7 +224,7 @@
 	<div class="max-w-xs" />
 
 	<div
-		class="relative {$propPickerConfig?.propName == argName
+		class="relative pb-6 {$propPickerConfig?.propName == argName
 			? 'outline outline-offset-0 outline-2 outline-blue-500 rounded-md'
 			: ''}"
 	>
@@ -296,7 +296,6 @@
 			Not recognized input type {argName}
 		{/if}
 	</div>
-	<div class="mb-6" />
 {:else}
 	<p class="text-sm text-gray-700">Argument at {argName} is undefined</p>
 {/if}
