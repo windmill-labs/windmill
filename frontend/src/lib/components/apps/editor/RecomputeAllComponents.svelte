@@ -80,7 +80,7 @@
 		variant="border"
 		dropdownItems={[
 			{
-				displayName: 'once',
+				displayName: 'Once',
 				action: () => setInter(undefined)
 			},
 			...[1, 2, 3, 4, 5, 6].map((i) => ({
