@@ -280,13 +280,13 @@ async fn update_flow(
     let old_dep_job = not_found_if_none(old_dep_job, "Flow", flow_path)?;
     sqlx::query!(
         "UPDATE flow SET path = $1, summary = $2, description = $3, value = $4, edited_by = $5, \
-         edited_at = now(), schema = $6, dependency_job = NULL WHERE path = $7 AND workspace_id = $8",
+         edited_at = now(), schema = $6::text::json, dependency_job = NULL WHERE path = $7 AND workspace_id = $8",
         nf.path,
         nf.summary,
         nf.description,
         nf.value,
         &authed.username,
-        schema,
+        schema.and_then(|x| serde_json::to_string(&x).ok()),
         flow_path,
         w_id,
     )
