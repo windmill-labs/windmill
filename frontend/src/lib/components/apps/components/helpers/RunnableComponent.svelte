@@ -11,7 +11,6 @@
 	import type { AppEditorContext } from '../../types'
 	import { fieldTypeToTsType, schemaToInputsSpec } from '../../utils'
 	import InputValue from './InputValue.svelte'
-	import MissingConnectionWarning from './MissingConnectionWarning.svelte'
 	import RefreshButton from './RefreshButton.svelte'
 
 	// Component props
@@ -23,7 +22,7 @@
 	export let result: any = undefined
 	export let forceSchemaDisplay: boolean = false
 
-	const { worldStore, runnableComponents, workspace, appPath } =
+	const { worldStore, runnableComponents, workspace, appPath, mode } =
 		getContext<AppEditorContext>('AppEditorContext')
 
 	onMount(() => {
@@ -36,65 +35,19 @@
 	})
 
 	let args: Record<string, any> = {}
-	let debouncedArgs: Record<string, any> = args
 	let testIsLoading = false
 	let runnableInputValues: Record<string, any> = {}
 
-	let argsTimeout: NodeJS.Timeout | undefined
+	let executeTimeout: NodeJS.Timeout | undefined = undefined
 
-	function setDebouncedArgs() {
-		argsTimeout && clearTimeout(argsTimeout)
-		argsTimeout = setTimeout(() => {
-			Object.assign(args, debouncedArgs)
-			args = args
+	function setDebouncedExecute() {
+		executeTimeout && clearTimeout(executeTimeout)
+		executeTimeout = setTimeout(() => {
+			executeComponent()
 		}, 200)
 	}
-	$: debouncedArgs && setDebouncedArgs()
 
-	let previousStaticArgs: any = {}
-	function setStaticInputsToArgs() {
-		let nargs = {}
-		Object.entries(fields ?? {}).forEach(([key, value]) => {
-			if (value.type === 'static') {
-				nargs[key] = value.value
-			}
-		})
-
-		if (JSON.stringify(previousStaticArgs) != JSON.stringify(nargs)) {
-			previousStaticArgs = nargs
-			Object.assign(args, nargs)
-			args = args
-		}
-	}
-
-	$: fields && setStaticInputsToArgs()
-
-	function argMergedArgsValid(mergedArgs: Record<string, any>, testJobLoader) {
-		if (!fields) {
-			return false
-		}
-
-		if (
-			Object.keys(fields).length !==
-			Object.keys(mergedArgs).length - Object.keys(extraQueryParams).length
-		) {
-			return false
-		}
-
-		const areAllArgsValid = Object.values(mergedArgs).every(
-			(arg) => arg !== undefined && arg !== null
-		)
-
-		if (areAllArgsValid && autoRefresh && testJobLoader) {
-			executeComponent()
-		}
-
-		return areAllArgsValid
-	}
-
-	$: isValid =
-		Object.keys(fields ?? {}).length == 0 ||
-		argMergedArgsValid({ ...extraQueryParams, ...runnableInputValues, ...args }, testJobLoader)
+	$: fields && runnableInputValues && args && autoRefresh && testJobLoader && setDebouncedExecute()
 
 	// Test job internal state
 	let testJob: CompletedJob | undefined = undefined
@@ -108,6 +61,8 @@
 	$: if (outputs?.loading != undefined) {
 		outputs.loading.set(false, true)
 	}
+
+	$: outputs?.loading?.set(testIsLoading)
 
 	$: runnable?.type === 'runnableByName' && loadSchemaAndInputsByName()
 
@@ -132,10 +87,10 @@
 	// When the schema is loaded, we need to update the inputs spec
 	// in order to render the inputs the component panel
 	function reloadInputs(schema: Schema) {
-		let schemaWithoutExtraQueries: Schema = JSON.parse(JSON.stringify(schema))
+		let schemaCopy: Schema = JSON.parse(JSON.stringify(schema))
 
 		const result = {}
-		const newInputs = schemaToInputsSpec(schemaWithoutExtraQueries)
+		const newInputs = schemaToInputsSpec(schemaCopy)
 		if (!fields) {
 			return newInputs
 		}
@@ -207,9 +162,19 @@
 		outputs?.loading?.set(true)
 
 		await testJobLoader?.abstractRun(() => {
+			const nonStaticRunnableInputs = {}
+			const staticRunnableInputs = {}
+			Object.keys(fields ?? {}).forEach(([k, v]) => {
+				let field = fields[k]
+				if (field.type == 'static') {
+					staticRunnableInputs[k] = field.value
+				} else {
+					nonStaticRunnableInputs[k] = runnableInputValues[k]
+				}
+			}, {})
 			const requestBody = {
-				args: { ...args, ...runnableInputValues },
-				force_viewer_static_fields: {}
+				args: { ...nonStaticRunnableInputs, ...args },
+				force_viewer_static_fields: $mode == 'preview' ? undefined : staticRunnableInputs
 			}
 
 			if (runnable?.type === 'runnableByName') {
@@ -240,13 +205,15 @@
 	}
 </script>
 
-{#each Object.keys(fields ?? {}) as key}
-	<InputValue
-		{id}
-		input={fields[key]}
-		bind:value={runnableInputValues[key]}
-		row={extraQueryParams['row'] ?? {}}
-	/>
+{#each Object.entries(fields ?? {}) as [key, v]}
+	{#if v.type != 'static' && v.type != 'user'}
+		<InputValue
+			{id}
+			input={fields[key]}
+			bind:value={runnableInputValues[key]}
+			row={extraQueryParams['row'] ?? {}}
+		/>
+	{/if}
 {/each}
 
 <TestJobLoader
@@ -254,7 +221,6 @@
 	on:done={() => {
 		if (testJob && outputs) {
 			outputs.result?.set(testJob?.result)
-			outputs.loading?.set(false)
 			result = testJob.result
 		}
 	}}
@@ -268,8 +234,7 @@
 		<div class="px-2">
 			<SchemaForm
 				schema={schemaStripped}
-				bind:args={debouncedArgs}
-				{isValid}
+				bind:args
 				{disabledArgs}
 				shouldHideNoInputs
 				noVariablePicker
@@ -286,19 +251,7 @@
 			<RefreshButton componentId={id} />
 		</div>
 
-		{#if isValid}
-			<slot />
-		{:else}
-			<Alert type="info" size="xs" class="mt-2 px-1" title="Missing inputs">
-				Please fill in all the inputs
-
-				{#each Object.keys(fields ?? {}) as key}
-					{#if fields[key].type === 'connected'}
-						<MissingConnectionWarning input={fields[key]} />
-					{/if}
-				{/each}
-			</Alert>
-		{/if}
+		<slot />
 	{:else}
 		<slot />
 	{/if}

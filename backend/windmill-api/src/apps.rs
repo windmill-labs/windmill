@@ -631,7 +631,7 @@ fn get_on_behalf_of(policy: &Policy) -> Result<(String, String)> {
         .as_ref()
         .ok_or_else(|| {
             Error::BadRequest(
-                "on_behalf_of is missing in the app policy and is required for anonymous execution"
+                "on_behalf_of_email is missing in the app policy and is required for anonymous execution"
                     .to_string(),
             )
         })?

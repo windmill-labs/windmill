@@ -554,7 +554,7 @@
 										{#if !canWrite}
 											<Badge
 												>Shared globally<Tooltip
-													>This resource type is from the 'starter' workspace shared with all
+													>This resource type is from the 'admins' workspace shared with all
 													workspaces</Tooltip
 												></Badge
 											>

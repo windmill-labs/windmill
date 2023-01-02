@@ -184,9 +184,9 @@ export function removeItemAll<T>(arr: T[], value: T) {
 }
 
 export async function isOwner(path: string, user: UserExt, workspace: string): Promise<boolean> {
-	if (user.is_admin && (workspace != 'starter' || user.is_super_admin)) {
+	if (user.is_admin && ((workspace == 'starter' || workspace == 'admin') && user.is_super_admin)) {
 		return true
-	} else if (workspace == 'starter') {
+	} else if (workspace == 'starter' || workspace == 'admin') {
 		return false
 	} else {
 		return await UserService.isOwnerOfPath({ path: path, workspace: workspace })

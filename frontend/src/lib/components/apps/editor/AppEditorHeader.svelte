@@ -12,12 +12,20 @@
 	import { AppService, Policy } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { faClipboard, faExternalLink, faSave } from '@fortawesome/free-solid-svg-icons'
-	import { Eye, Laptop2, Pencil, PenTool, Smartphone } from 'lucide-svelte'
+	import { Eye, Laptop2, Pencil, Smartphone } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
 	import { copyToClipboard, sendUserToast } from '../../../utils'
-	import type { AppEditorContext, EditorBreakpoint, EditorMode } from '../types'
+	import type { AppComponent, AppEditorContext } from '../types'
 	import AppExportButton from './AppExportButton.svelte'
+
+	async function hash(message) {
+		const msgUint8 = new TextEncoder().encode(message) // encode as (utf-8) Uint8Array
+		const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8) // hash the message
+		const hashArray = Array.from(new Uint8Array(hashBuffer)) // convert buffer to byte array
+		const hashHex = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('') // convert bytes to hex string
+		return hashHex
+	}
 
 	export let policy: Policy
 
@@ -38,12 +46,35 @@
 		saveDrawerOpen = false
 	}
 
+	async function computeTriggerables() {
+		const allTriggers = await Promise.all(
+			$app.grid.map(async (x) => {
+				let c = x.data as AppComponent
+				if (c.componentInput?.type == 'runnable') {
+					const staticInputs = Object.fromEntries(
+						Object.entries(c.componentInput.fields ?? {})
+							.filter(([k, v]) => v.type == 'static')
+							.map(([k, v]) => {
+								return [k, v['value']]
+							})
+					)
+					if (c.componentInput.runnable?.type == 'runnableByName') {
+						let hex = await hash(c.componentInput.runnable.inlineScript?.content)
+						console.log(staticInputs)
+						return [`rawscript/${hex}`, staticInputs]
+					} else if (c.componentInput.runnable?.type == 'runnableByPath') {
+						return [c.componentInput.runnable.path, staticInputs]
+					}
+				}
+				return []
+			})
+		)
+		policy.triggerables = Object.fromEntries(allTriggers)
+		policy.on_behalf_of = `u/${$userStore?.username}`
+		policy.on_behalf_of_email = $userStore?.email
+	}
 	async function createApp(path: string) {
-		const policy = {
-			triggerables: {},
-			execution_mode: Policy.execution_mode.PUBLISHER,
-			on_behalf_of: `u/${$userStore?.username}`
-		}
+		await computeTriggerables()
 		try {
 			const appId = await AppService.createApp({
 				workspace: $workspaceStore!,
@@ -77,6 +108,7 @@
 			path: appPath,
 			requestBody: { policy }
 		})
+		console.log(policy)
 	}
 
 	async function save() {
@@ -86,17 +118,14 @@
 			return
 		}
 		loading.save = true
+		await computeTriggerables()
 		await AppService.updateApp({
 			workspace: $workspaceStore!,
 			path: $page.params.path,
 			requestBody: {
 				value: $app!,
 				summary: $summary,
-				policy: {
-					triggerables: {},
-					execution_mode: Policy.execution_mode.PUBLISHER,
-					on_behalf_of: `u/${$userStore?.username}`
-				}
+				policy
 			}
 		})
 		loading.save = false
