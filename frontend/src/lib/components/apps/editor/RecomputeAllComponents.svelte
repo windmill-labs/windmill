@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Dropdown from '$lib/components/Dropdown.svelte'
 	import { ChevronDown, RefreshCw } from 'lucide-svelte'
-	import { getContext } from 'svelte'
+	import { getContext, onMount } from 'svelte'
 	import Button from '../../common/button/Button.svelte'
 	import type { AppEditorContext } from '../types'
 
@@ -9,6 +9,7 @@
 	let loading: boolean = false
 	let timeout: NodeJS.Timer | undefined = undefined
 	let interval: number | undefined = undefined
+	let shouldRefresh = false
 
 	$: componentNumber = Object.keys($runnableComponents).length
 
@@ -16,10 +17,12 @@
 		if(timeout) {
 			clearInterval(timeout)
 			timeout = undefined
-			if(stopAfterClear) return
+			shouldRefresh = false
+			if(stopAfterClear) return;
 		}
 		refresh()
 		if(interval) {
+			shouldRefresh = true
 			timeout = setInterval(refresh, interval)
 		}
 	}
@@ -39,6 +42,25 @@
 			loading = false
 		})
 	}
+
+	function visChange() {
+		if(document.visibilityState === 'hidden') {
+			if(timeout) {
+				clearInterval(timeout)
+				timeout = undefined
+			}
+		} else if(shouldRefresh) {
+			timeout = setInterval(refresh, interval)
+		}
+	}
+
+	onMount(() => {
+		document.addEventListener('visibilitychange', visChange)
+		return () => {
+			document.removeEventListener('visibilitychange', visChange)
+			if(timeout) clearInterval(timeout)
+		}
+	})
 </script>
 
 <div class="flex items-center">
