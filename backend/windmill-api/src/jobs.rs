@@ -62,7 +62,6 @@ pub fn workspaced_service() -> Router {
         .route("/completed/get/:id", get(get_completed_job))
         .route("/completed/get_result/:id", get(get_completed_job_result))
         .route("/completed/delete/:id", post(delete_completed_job))
-        .route("/get/:id", get(get_job))
         .route("/flow/resume/:id", post(resume_suspended_flow_as_owner))
         .route("/getupdate/:id", get(get_job_update))
         .route(
@@ -95,6 +94,7 @@ pub fn global_service() -> Router {
             "/get_flow/:job_id/:resume_id/:secret",
             get(get_suspended_job_flow),
         )
+        .route("/get/:id", get(get_job))
 }
 
 async fn get_result_by_id(

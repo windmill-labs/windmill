@@ -74,7 +74,6 @@
 	$: $appStore && saveDraft()
 
 	function saveDraft() {
-		console.log('save')
 		timeout && clearTimeout(timeout)
 		timeout = setTimeout(() => localStorage.setItem('app', encodeState($appStore)), 500)
 	}
@@ -121,7 +120,9 @@
 				<SplitPanesWrapper horizontal>
 					<Pane size={70}>
 						<div
-							class="bg-gray-100  w-full h-full overflow-auto {app.fullscreen ? '' : 'max-w-6xl'}"
+							class="bg-gray-100 relative  w-full h-full overflow-auto {app.fullscreen
+								? ''
+								: 'max-w-6xl'}"
 						>
 							{#if $appStore.grid}
 								<div class={classNames('p-4 mx-auto', width)}>

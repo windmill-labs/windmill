@@ -317,6 +317,45 @@
     },
     "query": "DELETE FROM account WHERE id = $1 AND workspace_id = $2"
   },
+  "0f6af40e79a3f44ce84bd127a8af9216c82e71acf8bf4df12b078020c90d7d9d": {
+    "describe": {
+      "columns": [
+        {
+          "name": "workspace_id",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "name",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "schema",
+          "ordinal": 2,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "description",
+          "ordinal": 3,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        true,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT * from resource_type WHERE name = $1 AND (workspace_id = $2 OR workspace_id = 'starter' OR workspace_id = 'admins')"
+  },
   "11b1586acdfc180c5a077861ee1f7201fcbcec9d0ebada464f9d952c9c3e400d": {
     "describe": {
       "columns": [],
@@ -1839,6 +1878,27 @@
     },
     "query": "SELECT is_flow FROM schedule WHERE path = $1 AND workspace_id = $2"
   },
+  "5767e6a8f94f571a78bed0c0423882060c7d417fdabb30cff6c86cb1c5f46df9": {
+    "describe": {
+      "columns": [
+        {
+          "name": "exists",
+          "ordinal": 0,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT EXISTS(SELECT 1 FROM resource_type WHERE name = $1 AND (workspace_id = $2 OR workspace_id = 'starter' OR workspace_id = 'admins'))"
+  },
   "576b00c515ee7cbf628b1881596d8a03c1c506b309e39a0048a3a8fe18f37070": {
     "describe": {
       "columns": [],
@@ -1872,45 +1932,6 @@
       }
     },
     "query": "SELECT EXISTS(SELECT 1 FROM app WHERE path = $1 AND workspace_id = $2)"
-  },
-  "58efbf34ba014b4853ef20ae400929b57c1d9de4262189274badf100d29e0649": {
-    "describe": {
-      "columns": [
-        {
-          "name": "workspace_id",
-          "ordinal": 0,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "name",
-          "ordinal": 1,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "schema",
-          "ordinal": 2,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "description",
-          "ordinal": 3,
-          "type_info": "Text"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        true,
-        true
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT * from resource_type WHERE name = $1 AND (workspace_id = $2 OR workspace_id = 'starter')"
   },
   "59fc51efa01e823ec63f55a8081f282db0d7a40716c04f4043925eb84fe4429b": {
     "describe": {
@@ -2107,26 +2128,6 @@
       }
     },
     "query": "SELECT EXISTS(SELECT 1 FROM usr WHERE username = $1 AND workspace_id = $2)"
-  },
-  "63c4b9320681fac84ea92c25c0f6da5c9ac154dfccf575cea8145692246205c4": {
-    "describe": {
-      "columns": [
-        {
-          "name": "name",
-          "ordinal": 0,
-          "type_info": "Varchar"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT name from resource_type WHERE (workspace_id = $1 OR workspace_id = 'starter') ORDER BY name"
   },
   "63f330e98051ae9d0cf5617a553f769cc98b05fdc8643839b504023b26f38aab": {
     "describe": {
@@ -5113,6 +5114,26 @@
       }
     },
     "query": "INSERT INTO usr_to_group\n            VALUES ($1, 'all', $2)"
+  },
+  "e3fbad80527771f63390fb1ab203bd3d0c058627b92f32f5c6f3e2856ab24e47": {
+    "describe": {
+      "columns": [
+        {
+          "name": "name",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT name from resource_type WHERE (workspace_id = $1 OR workspace_id = 'starter' OR workspace_id = 'admins') ORDER BY name"
   },
   "e5231634fbb37d45e5cf3e5dfb39cb829d224caad1c3ca1712d0fc4c495aa4fc": {
     "describe": {

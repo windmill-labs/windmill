@@ -108,11 +108,13 @@
 			intervalId = undefined
 			stopCurrentIteration = true
 			if (isLoading && job) {
-				await JobService.cancelQueuedJob({
-					workspace: workspace!,
-					id: job.id,
-					requestBody: {}
-				})
+				try {
+					await JobService.cancelQueuedJob({
+						workspace: workspace!,
+						id: job.id,
+						requestBody: {}
+					})
+				} catch {}
 			}
 			await clearIntervalAsync(interval)
 		}

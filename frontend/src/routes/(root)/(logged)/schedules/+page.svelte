@@ -89,7 +89,7 @@
 						<tr class={enabled ? '' : 'bg-gray-50'}>
 							<td class="max-w-sm"
 								><button
-									class="break-words text-sm text-blue-600 font-normal"
+									class="break-words text-left text-sm text-blue-600 font-normal"
 									on:click={() => scheduleEditor?.openEdit(path, is_flow)}>{path}</button
 								>
 								<SharedBadge {canWrite} extraPerms={extra_perms} />

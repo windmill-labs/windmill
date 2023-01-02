@@ -461,7 +461,7 @@ async fn list_resource_types_names(
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<String>> {
     let rows = sqlx::query_scalar!(
-        "SELECT name from resource_type WHERE (workspace_id = $1 OR workspace_id = 'starter') \
+        "SELECT name from resource_type WHERE (workspace_id = $1 OR workspace_id = 'starter' OR workspace_id = 'admins') \
          ORDER BY name",
         &w_id
     )
@@ -481,7 +481,7 @@ async fn get_resource_type(
     let resource_type_o = sqlx::query_as!(
         ResourceType,
         "SELECT * from resource_type WHERE name = $1 AND (workspace_id = $2 OR workspace_id = \
-         'starter')",
+         'starter' OR workspace_id = 'admins')",
         &name,
         &w_id
     )
@@ -498,7 +498,8 @@ async fn exists_resource_type(
     Path((w_id, name)): Path<(String, String)>,
 ) -> JsonResult<bool> {
     let exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM resource_type WHERE name = $1 AND workspace_id = $2)",
+        "SELECT EXISTS(SELECT 1 FROM resource_type WHERE name = $1 AND (workspace_id = $2 OR workspace_id = \
+            'starter' OR workspace_id = 'admins'))",
         name,
         w_id
     )

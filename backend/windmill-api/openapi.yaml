@@ -5399,6 +5399,8 @@ components:
           enum: [viewer, publisher, anonymous]
         on_behalf_of:
           type: string
+        on_behalf_of_email:
+          type: string
 
     ListableApp:
       type: object
