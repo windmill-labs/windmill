@@ -227,8 +227,8 @@
 />
 
 <CenteredPage>
-	<div class="flex flex-col md:flex-row gap-2 items-center sm:justify-between w-full">
-		<div>
+	<div class="flex flex-wrap gap-2 items-center justify-between w-full">
+		<div class="flex justify-start">
 			<ToggleButtonGroup bind:selected={itemKind}>
 				<ToggleButton light position="left" value="all" size="sm">All</ToggleButton>
 				<ToggleButton light position="center" value="script" size="sm">
@@ -252,7 +252,7 @@
 			</ToggleButtonGroup>
 		</div>
 
-		<div class="relative text-gray-600 w-full">
+		<div class="relative text-gray-600 grow min-w-[100px]">
 			<!-- svelte-ignore a11y-autofocus -->
 			<input
 				autofocus

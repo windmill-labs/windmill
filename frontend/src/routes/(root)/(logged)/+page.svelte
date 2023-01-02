@@ -130,7 +130,7 @@
 			</Alert>
 		{/if}
 		<PageHeader title="Home">
-			<div class="flex flex-row gap-3 flex-wrap">
+			<div class="flex flex-row gap-3 flex-wrap justify-end">
 				{#if !$userStore?.operator}
 					<CreateActionsScript />
 					<CreateActionsFlow />

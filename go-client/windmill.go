@@ -73,7 +73,10 @@ func SetResource(path string, value interface{}) error {
 	if err != nil {
 		return err
 	}
-	res, err := client.Client.UpdateResourceValueWithResponse(context.Background(), client.Workspace, path, value)
+	res, err := client.Client.UpdateResourceValueWithResponse(
+		context.Background(),
+		client.Workspace, path,
+		api.UpdateResourceValueJSONRequestBody{Value: &value})
 	if err != nil {
 		return err
 	}

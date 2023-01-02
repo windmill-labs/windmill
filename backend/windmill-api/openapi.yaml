@@ -1436,7 +1436,10 @@ paths:
         required: true
         content:
           application/json:
-            schema: {}
+            schema: 
+              type: object
+              properties:
+                value: {}
       responses:
         "200":
           description: resource value updated
