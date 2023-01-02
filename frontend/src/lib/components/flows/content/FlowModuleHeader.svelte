@@ -1,10 +1,8 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
 	import type { FlowModule } from '$lib/gen'
-	import { classNames } from '$lib/utils'
-	import { faBed, faCodeBranch, faSave, faStop } from '@fortawesome/free-solid-svg-icons'
+	import { faCodeBranch, faSave } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
-	import Icon from 'svelte-awesome'
 	import { Bed, PhoneIncoming, Repeat, Square } from 'lucide-svelte'
 	import Popover from '../../Popover.svelte'
 
@@ -12,14 +10,13 @@
 
 	const dispatch = createEventDispatcher()
 
-	let width = 0
-
 	$: moduleRetry = module.retry?.constant || module.retry?.exponential
 </script>
 
-<div class="flex flex-row space-x-2" bind:clientWidth={width}>
+<div class="flex flex-row space-x-2">
 	{#if module.value.type === 'script' || module.value.type === 'rawscript'}
 		<Popover
+			placement="bottom"
 			class="center-center rounded border p-2 
 			{moduleRetry
 				? 'bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200'
@@ -30,6 +27,7 @@
 			<svelte:fragment slot="text">Retries</svelte:fragment>
 		</Popover>
 		<Popover
+			placement="bottom"
 			class="center-center rounded border p-2
 			{module.stop_after_if
 				? 'bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200'
@@ -40,6 +38,7 @@
 			<svelte:fragment slot="text">Early stop/break</svelte:fragment>
 		</Popover>
 		<Popover
+			placement="bottom"
 			class="center-center rounded border p-2 
 			{module.suspend
 				? 'bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200'
@@ -50,6 +49,7 @@
 			<svelte:fragment slot="text">Suspend</svelte:fragment>
 		</Popover>
 		<Popover
+			placement="bottom"
 			class="center-center rounded border p-2
 			{module.sleep
 				? 'bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200'
