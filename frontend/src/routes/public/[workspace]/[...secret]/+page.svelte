@@ -7,6 +7,7 @@
 	import { Skeleton } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
 	import { AppService, AppWithLastVersion, GlobalUserInfo, UserService } from '$lib/gen'
+	import github from 'svelte-highlight/styles/github'
 	import { writable } from 'svelte/store'
 
 	let app: AppWithLastVersion | undefined = undefined
@@ -31,6 +32,10 @@
 
 	const breakpoint = writable<EditorBreakpoint>('lg')
 </script>
+
+<svelte:head>
+	{@html github}
+</svelte:head>
 
 <div class="z-50 text-xs fixed bottom-1 right-2 ">
 	<a href="https://windmill.dev" class="whitespace-nowrap text-gray-500 inline-flex items-center"
