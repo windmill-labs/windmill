@@ -18,7 +18,7 @@
 </script>
 
 <Menu {placement} let:close>
-	<Button nonCaptureEvent color="light" size="xs" {btnClasses} slot="trigger">
+	<Button nonCaptureEvent color="light" size="xs" {btnClasses} {...$$restProps} slot="trigger">
 		{#if !$$slots.default}
 			<MoreHorizontal size={20} />
 		{:else}
