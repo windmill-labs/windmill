@@ -1,8 +1,6 @@
 <script lang="ts">
 	import { dfs, flowStore } from '$lib/components/flows/flowStore'
-
 	import FlowCard from '../common/FlowCard.svelte'
-
 	import { Alert, Badge } from '$lib/components/common'
 	import type { FlowModule, FlowModuleValue, InputTransform, PathScript, RawScript } from '$lib/gen'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
@@ -10,6 +8,10 @@
 	import { setContext } from 'svelte'
 	import type { PropPickerWrapperContext } from '../propPicker/PropPickerWrapper.svelte'
 	import { writable } from 'svelte/store'
+	import { slide } from 'svelte/transition'
+	import Toggle from '../../Toggle.svelte'
+
+	let hideOptional = false
 
 	$: steps = (
 		dfs($flowStore.value.modules, (x) => x)
@@ -24,12 +26,19 @@
 				[
 					v.input_transforms,
 					Object.entries(v.input_transforms)
-						.filter((x) => x[1].type == 'static')
+						.filter((x) => {
+							const shouldDisplay = hideOptional
+								? $flowStateStore[m.id]?.schema.required?.includes(x[0])
+								: true
+							return x[1].type == 'static' && shouldDisplay
+						})
 						.map((x) => x[0]),
 					m
 				] as [Record<string, InputTransform>, string[], FlowModule]
 		)
 		.filter(([i, f, m]) => f.length > 0)
+	
+	$: console.log({flowState: $flowStateStore, steps});
 
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
 		focusProp: () => {},
@@ -40,6 +49,11 @@
 
 <div class="min-h-full">
 	<FlowCard title="All Static Inputs">
+		<Toggle
+			slot="header"
+			bind:checked={hideOptional}
+			options={{left: 'Hide optional inputs'}}
+		/>
 		<div class="min-h-full flex-1">
 			<Alert type="info" title="Static Inputs" class="m-4"
 				>This page centralizes the static inputs of every steps. It is akin to a file containing all
@@ -62,7 +76,7 @@
 			{/if}
 			{#each steps as [args, filter, m] (m.id)}
 				{#if filter.length > 0}
-					<div class="relative h-full border-t p-4">
+					<div transition:slide class="relative h-full border-t p-4">
 						<h2 class="sticky w-full top-0 z-10 inline-flex items-center bg-white py-2">
 							<span class="mr-4">{m.summary || m.value['path'] || 'Inline script'}</span>
 							<Badge large color="indigo">{m.id}</Badge>

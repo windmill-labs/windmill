@@ -386,7 +386,7 @@
 										variant="border"
 										color="blue"
 										size="sm"
-										btnClasses="min-w-min items-center leading-4 py-0"
+										btnClasses="min-w-min min-h-[34px] items-center leading-4 py-0"
 										on:click={() => {
 											pickForField = label
 											itemPicker?.openDrawer?.()
