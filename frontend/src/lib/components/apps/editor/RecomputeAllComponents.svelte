@@ -7,31 +7,29 @@
 
 	const { runnableComponents } = getContext<AppEditorContext>('AppEditorContext')
 	let loading: boolean = false
-	let timeout: NodeJS.Timeout | undefined = undefined
+	let timeout: NodeJS.Timer | undefined = undefined
 	let interval: number | undefined = undefined
 
 	$: componentNumber = Object.keys($runnableComponents).length
-	$: console.log({interval, timeout});
 
 	function onClick(stopAfterClear = true) {
 		if(timeout) {
-			clearTimeout(timeout)
+			clearInterval(timeout)
 			timeout = undefined
 			if(stopAfterClear) return
 		}
 		refresh()
 		if(interval) {
-			timeout = setTimeout(refresh, interval)
+			timeout = setInterval(refresh, interval)
 		}
 	}
 
-	function setInterval(inter: number | undefined) {
+	function setInter(inter: number | undefined) {
 		interval = inter
 		onClick(!inter)
 	}
 
 	function refresh() {
-		console.log('refreshing...');
 		loading = true
 		Promise.all(
 			Object.keys($runnableComponents).map((id) => {
@@ -61,11 +59,11 @@
 		dropdownItems={[
 			{
 				displayName: 'once',
-				action: () => setInterval(undefined)
+				action: () => setInter(undefined)
 			},
 			...[1, 2, 3, 4, 5, 6].map((i) => ({
 				displayName: `${i * 5}s`,
-				action: () => setInterval(i * 5000)
+				action: () => setInter(i * 5000)
 			})),
 		]}
 	>
