@@ -9,6 +9,9 @@
 	import WorkspaceFlowList from './WorkspaceFlowList.svelte'
 	import type { AppEditorContext, GridItem, InlineScript } from '$lib/components/apps/types'
 	import { getContext } from 'svelte'
+	import type { Schema } from '$lib/common'
+	import { loadSchema, schemaToInputsSpec } from '$lib/components/apps/utils'
+	import { emptySchema } from '$lib/utils'
 
 	type Tab = 'hubscripts' | 'workspacescripts' | 'workspaceflows' | 'inlinescripts'
 
@@ -18,35 +21,54 @@
 	let filter: string = ''
 	let picker: Drawer
 
-	const { app } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, workspace } = getContext<AppEditorContext>('AppEditorContext')
 
-	function pickScript(path: string) {
+	async function loadSchemaFromTriggerable(
+		path: string,
+		runType: 'script' | 'flow' | 'hubscript'
+	): Promise<Schema> {
+		return loadSchema(workspace, path, runType) ?? emptySchema()
+	}
+
+	async function pickScript(path: string) {
 		if (appInput.type === 'runnable') {
+			const schema = await loadSchemaFromTriggerable(path, 'script')
+			const fields = schemaToInputsSpec(schema)
 			appInput.runnable = {
 				type: 'runnableByPath',
 				path,
-				runType: 'script'
+				runType: 'script',
+				schema
 			}
+			appInput.fields = fields
 		}
 	}
 
-	function pickFlow(path: string) {
+	async function pickFlow(path: string) {
 		if (appInput.type === 'runnable') {
+			const schema = await loadSchemaFromTriggerable(path, 'flow')
+			const fields = schemaToInputsSpec(schema)
 			appInput.runnable = {
 				type: 'runnableByPath',
 				path,
-				runType: 'flow'
+				runType: 'flow',
+				schema
 			}
+			appInput.fields = fields
 		}
 	}
 
-	function pickHubScript(path: string) {
+	async function pickHubScript(path: string) {
 		if (appInput.type === 'runnable') {
+			const schema = await loadSchemaFromTriggerable(path, 'hubscript')
+			const fields = schemaToInputsSpec(schema)
 			appInput.runnable = {
 				type: 'runnableByPath',
 				path,
-				runType: 'hubscript'
+				runType: 'hubscript',
+				schema
 			}
+			appInput.fields = fields
 		}
 	}
 

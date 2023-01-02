@@ -24,6 +24,7 @@
 {#if app}
 	<div class="border rounded-md p-2 w-full">
 		<AppPreview
+			workspace={$workspaceStore ?? ''}
 			summary={app.summary}
 			app={app.value}
 			appPath={app.path}

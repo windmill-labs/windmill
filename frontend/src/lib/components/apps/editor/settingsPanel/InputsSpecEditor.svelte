@@ -11,26 +11,16 @@
 	import StaticInputEditor from './inputEditor/StaticInputEditor.svelte'
 
 	export let componentInput: StaticAppInput | ConnectedAppInput | UserAppInput | RowAppInput
-	export let userInputEnabled: boolean = false
 </script>
 
 {#if componentInput.type === 'connected'}
 	<ConnectedInputEditor bind:componentInput />
 {:else if componentInput.type === 'row'}
 	<RowInputEditor bind:componentInput />
-{:else}
-	{#if userInputEnabled}
-		<Toggle
-			class="-mt-2 -mb-1"
-			checked={componentInput.type === 'user'}
-			on:change={({ detail }) => {
-				componentInput.type = detail ? 'user' : 'static'
-			}}
-			options={{ right: 'User input' }}
-			size="xs"
-		/>
-	{/if}
-	{#if componentInput.type === 'static'}
-		<StaticInputEditor bind:componentInput />
-	{/if}
+{:else if componentInput.type === 'static'}
+	<StaticInputEditor bind:componentInput />
+{:else if componentInput.type === 'user'}
+	<span class="text-2xs italic text-gray-6f00"
+		>Field's value is set by the user in the visible field</span
+	>
 {/if}

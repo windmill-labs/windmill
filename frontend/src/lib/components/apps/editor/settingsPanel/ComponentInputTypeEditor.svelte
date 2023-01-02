@@ -1,10 +1,14 @@
 <script lang="ts">
 	import { ToggleButton, ToggleButtonGroup } from '$lib/components/common'
 	import { faArrowRight, faCode, faPen } from '@fortawesome/free-solid-svg-icons'
+	import { getContext } from 'svelte'
 	import type { AppInput } from '../../inputType'
+	import type { AppEditorContext } from '../../types'
 
 	export let componentInput: AppInput
 	export let disableStatic: boolean = false
+
+	const { onchange } = getContext<AppEditorContext>('AppEditorContext')
 
 	$: if (componentInput.fieldType == 'textarea' && componentInput.type == 'static') {
 		//@ts-ignore
@@ -18,13 +22,14 @@
 
 {#if componentInput.fieldType !== 'any'}
 	<div class="w-full overflow-x-auto" bind:clientWidth>
-		<ToggleButtonGroup bind:selected={componentInput.type}>
+		<ToggleButtonGroup on:selected={() => onchange?.()} bind:selected={componentInput.type}>
 			{#if componentInput.fieldType === 'textarea'}
 				<ToggleButton position="left" value="template" size="xs" disable={disableStatic}>
 					{brackets}&nbsp;<span class="hidden lg:block">Template</span>
 				</ToggleButton>
 			{:else}
 				<ToggleButton
+					title="Static"
 					position="left"
 					value="static"
 					startIcon={{ icon: faPen }}
@@ -38,6 +43,7 @@
 			{/if}
 
 			<ToggleButton
+				title="Connected"
 				value="connected"
 				position="center"
 				startIcon={{ icon: faArrowRight }}
@@ -47,7 +53,13 @@
 					<span class="hidden lg:block"> Connected </span>
 				{/if}
 			</ToggleButton>
-			<ToggleButton position="right" value="runnable" startIcon={{ icon: faCode }} size="xs">
+			<ToggleButton
+				title="Computed"
+				position="right"
+				value="runnable"
+				startIcon={{ icon: faCode }}
+				size="xs"
+			>
 				{#if clientWidth > 250}
 					<span class="hidden lg:block"> Computed </span>
 				{/if}

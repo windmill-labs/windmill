@@ -24,7 +24,7 @@
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
 	import { classNames, encodeState } from '$lib/utils'
 	import AppPreview from './AppPreview.svelte'
-	import { userStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 
 	import InlineScriptsPanel from './inlineScriptsPanel/InlineScriptsPanel.svelte'
 
@@ -64,7 +64,9 @@
 		connectingInput,
 		breakpoint,
 		runnableComponents,
-		appPath: path
+		appPath: path,
+		workspace: $workspaceStore ?? '',
+		onchange: () => saveDraft()
 	})
 
 	let timeout: NodeJS.Timeout | undefined = undefined
@@ -72,6 +74,7 @@
 	$: $appStore && saveDraft()
 
 	function saveDraft() {
+		console.log('save')
 		timeout && clearTimeout(timeout)
 		timeout = setTimeout(() => localStorage.setItem('app', encodeState($appStore)), 500)
 	}
@@ -84,7 +87,7 @@
 
 	$: mounted && ($worldStore = buildWorld($staticOutputs, $worldStore))
 	$: previewing = $mode === 'preview'
-	$: width = $breakpoint === 'sm' ? 'min-w-[400px] max-w-[656px]' : 'min-w-[657px] w-full'
+	$: width = $breakpoint === 'sm' ? 'min-w-[400px] max-w-[656px]' : 'min-w-[710px] w-full'
 
 	let selectedTab: 'insert' | 'settings' = 'insert'
 	$: if ($selectedComponent) {
@@ -101,7 +104,14 @@
 	{/if}
 
 	{#if previewing}
-		<AppPreview {summary} app={$appStore} appPath={path} {breakpoint} {policy} />
+		<AppPreview
+			workspace={$workspaceStore ?? ''}
+			{summary}
+			app={$appStore}
+			appPath={path}
+			{breakpoint}
+			{policy}
+		/>
 	{:else}
 		<SplitPanesWrapper class="max-w-full overflow-hidden">
 			<Pane size={15} minSize={5} maxSize={33}>

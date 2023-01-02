@@ -20,6 +20,7 @@
 	export let breakpoint: Writable<EditorBreakpoint>
 	export let policy: Policy
 	export let summary: string
+	export let workspace: string
 
 	const appStore = writable<App>(app)
 	const worldStore = writable<World | undefined>(undefined)
@@ -45,7 +46,9 @@
 		connectingInput,
 		breakpoint,
 		runnableComponents,
-		appPath
+		appPath,
+		workspace,
+		onchange: undefined
 	})
 
 	let mounted = false

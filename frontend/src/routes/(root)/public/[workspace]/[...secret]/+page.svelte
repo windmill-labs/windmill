@@ -1,11 +1,11 @@
 <script lang="ts">
+	import { browser } from '$app/environment'
 	import { page } from '$app/stores'
 	import AppPreview from '$lib/components/apps/editor/AppPreview.svelte'
 	import type { EditorBreakpoint } from '$lib/components/apps/types'
 
 	import { Skeleton } from '$lib/components/common'
 	import { AppService, AppWithLastVersion } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { writable } from 'svelte/store'
 
 	let app: AppWithLastVersion | undefined = undefined
@@ -17,17 +17,17 @@
 		})
 	}
 
-	$: if ($workspaceStore) {
+	if (browser) {
 		loadApp()
 	}
 
 	const breakpoint = writable<EditorBreakpoint>('lg')
 </script>
 
-<!-- {JSON.stringify(app)} -->
 {#if app}
 	<div class="border rounded-md p-2 w-full">
 		<AppPreview
+			workspace={$page.params.workspace}
 			summary={app.summary}
 			app={app.value}
 			appPath={app.path}

@@ -86,7 +86,7 @@
 			return
 		}
 		loading.save = true
-		AppService.updateApp({
+		await AppService.updateApp({
 			workspace: $workspaceStore!,
 			path: $page.params.path,
 			requestBody: {
@@ -99,15 +99,8 @@
 				}
 			}
 		})
-			.then(() => {
-				sendUserToast('Saved')
-			})
-			.catch(() => {
-				sendUserToast('Error during saving. Please try again later', true)
-			})
-			.finally(() => {
-				loading.save = false
-			})
+		loading.save = false
+		sendUserToast('App saved')
 	}
 </script>
 

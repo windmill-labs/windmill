@@ -135,7 +135,9 @@ export type AppEditorContext = {
 	connectingInput: Writable<ConnectingInput>
 	breakpoint: Writable<EditorBreakpoint>
 	runnableComponents: Writable<Record<string, () => Promise<void>>>
-	appPath: string
+	appPath: string,
+	workspace: string,
+	onchange: (() => void) | undefined
 }
 
 export type EditorMode = 'dnd' | 'preview'

@@ -7,12 +7,13 @@
 	export let value: any
 	export let position: 'left' | 'center' | 'right'
 	export let light = false
-
+	export let title: string | undefined = undefined
 	const { select, selected } = getContext<ToggleButtonContext>('ToggleButtonGroup')
 </script>
 
 <Button
 	{...$$props}
+	{title}
 	on:click={() => select(value)}
 	btnClasses={classNames(
 		'border-gray-200 focus:ring-0 w-full',

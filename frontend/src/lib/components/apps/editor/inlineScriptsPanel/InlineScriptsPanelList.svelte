@@ -101,18 +101,18 @@
 						</div>
 					{/each}
 				</div>
-			{:else}
-				<div class="text-sm text-gray-500">No inline scripts</div>
 			{/if}
 
-			{#if Array.isArray($app.unusedInlineScripts) && $app.unusedInlineScripts.length > 0}
+			{#if $app.unusedInlineScripts?.length > 0}
 				<div class="flex gap-2 flex-col ">
 					{#each $app.unusedInlineScripts as unusedInlineScript, index (index)}
 						<!-- svelte-ignore a11y-click-events-have-key-events -->
 						<div
 							class="{classNames(
 								'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-blue-50 hover:text-blue-400',
-								selectedScriptComponentId === '' ? 'bg-blue-100 text-blue-600' : ''
+								selectedScriptComponentId === unusedInlineScript.name
+									? 'bg-blue-100 text-blue-600'
+									: ''
 							)},"
 							on:click={() => selectInlineScript(unusedInlineScript.name)}
 						>
@@ -121,6 +121,10 @@
 						</div>
 					{/each}
 				</div>
+			{/if}
+
+			{#if runnablesByName.length == 0 && $app.unusedInlineScripts?.length == 0}
+				<div class="text-sm text-gray-500">No inline scripts</div>
 			{/if}
 		</div>
 	</PanelSection>
