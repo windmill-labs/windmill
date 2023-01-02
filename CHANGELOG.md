@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [1.57.1](https://github.com/windmill-labs/windmill/compare/v1.57.0...v1.57.1) (2023-01-02)
+
+
+### Bug Fixes
+
+* preserver order changes for flows' schema ([2c8e98a](https://github.com/windmill-labs/windmill/commit/2c8e98a9c7fe3fdd48c851c0575fdb1d87c953a9))
+* support setting undefined states ([ab0aeb0](https://github.com/windmill-labs/windmill/commit/ab0aeb0df825fb5afefbefae6739179dbbbc5f30))
+
 ## [1.57.0](https://github.com/windmill-labs/windmill/compare/v1.56.1...v1.57.0) (2023-01-01)
 
 
