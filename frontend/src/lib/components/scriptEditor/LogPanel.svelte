@@ -18,7 +18,7 @@
 	import LogViewer from '../LogViewer.svelte'
 	import { Pane } from 'svelte-splitpanes'
 	import SplitPanesWrapper from '../splitPanes/SplitPanesWrapper.svelte'
-	import { Loader, Loader2 } from 'lucide-svelte'
+	import { Loader2 } from 'lucide-svelte'
 
 	export let path: string | undefined
 	export let lang: Preview.language
@@ -87,7 +87,7 @@
 				</Pane>
 				<Pane>
 					{#if previewJob != undefined && 'result' in previewJob && previewJob.result != undefined}
-						<pre class="overflow-x-auto break-words relative h-full p-2"
+						<pre class="relative w-full h-full p-2"
 							><DisplayResult result={previewJob.result} />
 						</pre>
 					{:else}

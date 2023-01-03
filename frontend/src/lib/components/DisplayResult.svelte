@@ -88,7 +88,7 @@
 				class="grid grid-flow-col-dense border border-gray-200 rounded-md "
 			>
 				{#each Object.keys(result) as col}
-					<div class="flex flex-col max-h-40 min-w-full overflow-auto">
+					<div class="flex flex-col max-h-40 min-w-full">
 						<div
 							class="px-12 text-left uppercase border-b bg-gray-50 overflow-hidden rounded-t-md "
 						>

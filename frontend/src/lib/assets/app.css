@@ -27,6 +27,10 @@
 		whitespace: normal !important;
 	}
 
+	pre code.hljs {
+		overflow: visible !important;
+	}
+
 	svelte-virtual-list-row {
 		overflow: visible !important;
 	}
