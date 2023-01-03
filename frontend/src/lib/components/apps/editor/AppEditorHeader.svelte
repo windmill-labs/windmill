@@ -12,7 +12,14 @@
 	import { AppService, Policy } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { faClipboard, faExternalLink, faSave } from '@fortawesome/free-solid-svg-icons'
-	import { Eye, Laptop2, Pencil, Smartphone } from 'lucide-svelte'
+	import {
+		AlignHorizontalSpaceAround,
+		Expand,
+		Eye,
+		Laptop2,
+		Pencil,
+		Smartphone
+	} from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
 	import { copyToClipboard, sendUserToast } from '../../../utils'
@@ -211,11 +218,11 @@
 	</DrawerContent>
 </Drawer>
 
-<div class="border-b flex flex-row justify-between py-1 gap-1 flex-wrap gap-y-2 px-4 items-center">
+<div class="border-b flex flex-row justify-between py-1 gap-4 flex-wrap gap-y-2 px-4 items-center">
 	<div class="w-64">
 		<input type="text" placeholder="App summary" class="text-sm w-full" bind:value={$summary} />
 	</div>
-	<div class="flex gap-8 items-center">
+	<div class="flex gap-8 items-center grow justify-center">
 		<div>
 			<ToggleButtonGroup bind:selected={$mode}>
 				<ToggleButton position="left" value="dnd" size="xs">
@@ -240,12 +247,12 @@
 
 		<ToggleButtonGroup bind:selected={$app.fullscreen}>
 			<ToggleButton position="left" value={false} size="xs"
-				>Centered &nbsp; <Tooltip
+				><AlignHorizontalSpaceAround size={14} /> &nbsp; <Tooltip
 					>The max width is 1168px and the content stay centered instead of taking the full page
 					width</Tooltip
 				></ToggleButton
 			>
-			<ToggleButton position="right" value={true} size="xs">Full</ToggleButton>
+			<ToggleButton position="right" value={true} size="xs"><Expand size={14} /></ToggleButton>
 		</ToggleButtonGroup>
 	</div>
 	<div class="flex flex-row grow gap-4 justify-end ">

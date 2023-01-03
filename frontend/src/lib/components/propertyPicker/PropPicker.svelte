@@ -59,7 +59,7 @@
 	}
 </script>
 
-<div class="flex flex-col h-full">
+<div class="flex flex-col h-full ">
 	<div class="px-2">
 		{#if !notSelectable}
 			<div class="flex flex-row space-x-1">

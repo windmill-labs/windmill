@@ -21,13 +21,11 @@
 		outputs.loading.set(false, true)
 	}
 
-	function setOutput() {
-		if (outputs) {
-			outputs.result?.set(result)
-		}
+	function setOutput(v: any) {
+		outputs.result?.set(v, true)
 	}
 
-	$: result !== undefined && outputs && setOutput()
+	$: result && outputs && setOutput(result)
 </script>
 
 {#if componentInput.type !== 'runnable'}

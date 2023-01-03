@@ -101,15 +101,26 @@
 	}
 </script>
 
-<div class="bg-white px-2 pb-2 relative">
-	<div class="w-full flex justify-between border-b px-4 py-2  mb-4 items-center gap-4">
+<div class="pb-2 relative z-20">
+	<div
+		class="w-full flex justify-between border-b {$connectingInput?.opened
+			? ''
+			: 'bg-gray-50 '}px-4 py-2 items-center gap-4"
+	>
 		<h2 class="truncate">{$summary}</h2>
-		<RecomputeAllComponents />
+		{#if !$connectingInput.opened}
+			<RecomputeAllComponents />
+		{/if}
 		<div class="text-2xs text-gray-600"
 			>{policy.on_behalf_of ? `on behalf of ${policy.on_behalf_of}` : ''}</div
 		>
 	</div>
-	<div on:pointerdown={onpointerdown} on:pointerleave={onpointerup} on:pointerup={onpointerup}>
+	<div
+		class="px-4 pt-4 {$connectingInput?.opened ? '' : 'bg-gray-50/70'}"
+		on:pointerdown={onpointerdown}
+		on:pointerleave={onpointerup}
+		on:pointerup={onpointerup}
+	>
 		<Grid
 			bind:items={$app.grid}
 			let:dataItem
@@ -122,9 +133,23 @@
 			{#each $lazyGrid as gridComponent (gridComponent.id)}
 				{#if gridComponent.data.id === dataItem.data.id}
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
+					{#if $connectingInput.opened}
+						{#if $connectingInput.opened}
+							<div
+								on:pointerenter={() => ($connectingInput.hoveredComponent = gridComponent.data.id)}
+								on:pointerleave={() => ($connectingInput.hoveredComponent = undefined)}
+								class="absolute  w-full h-full bg-black border-2 bg-opacity-25 z-20 flex justify-center items-center"
+							/>
+						{/if}
+						<div
+							style="transform: translate(-50%, -50%);"
+							class="absolute w-fit justify-center bg-indigo-500/90 left-[50%] top-[50%] z-50 px-6 rounded border text-white py-2 text-5xl center-center"
+							>{dataItem.data.id}</div
+						>
+					{/if}
 					<div
 						class={classNames(
-							'h-full w-full flex justify-center align-center',
+							'h-full w-full flex justify-center align-center items-center',
 							gridComponent.data.card ? 'border border-gray-100' : ''
 						)}
 						on:click|preventDefault|capture|once

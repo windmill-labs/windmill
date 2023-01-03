@@ -25,22 +25,19 @@
 				label: {
 					type: 'static',
 					value: 'Action',
-					fieldType: 'text',
-					defaultValue: 'Action'
+					fieldType: 'text'
 				},
 				color: {
 					fieldType: 'select',
 					type: 'static',
 					value: 'dark',
-					optionValuesKey: 'buttonColorOptions',
-					defaultValue: 'dark'
+					optionValuesKey: 'buttonColorOptions'
 				},
 				size: {
 					fieldType: 'select',
 					type: 'static',
 					value: 'xs',
-					optionValuesKey: 'buttonSizeOptions',
-					defaultValue: 'xs'
+					optionValuesKey: 'buttonSizeOptions'
 				}
 			},
 			componentInput: {
@@ -48,7 +45,7 @@
 				fieldType: 'any',
 				fields: {},
 				runnable: undefined,
-				defaultValue: undefined
+				value: undefined
 			},
 			recomputeIds: undefined,
 			card: false

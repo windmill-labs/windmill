@@ -122,6 +122,7 @@ export type ConnectingInput = {
 	opened: boolean
 	input?: ConnectedInput
 	sourceName?: string
+	hoveredComponent: string | undefined
 }
 
 export type AppEditorContext = {
@@ -137,7 +138,8 @@ export type AppEditorContext = {
 	runnableComponents: Writable<Record<string, () => Promise<void>>>
 	appPath: string,
 	workspace: string,
-	onchange: (() => void) | undefined
+	onchange: (() => void) | undefined,
+	isEditor: boolean
 }
 
 export type EditorMode = 'dnd' | 'preview'

@@ -21,6 +21,7 @@
 	export let policy: Policy
 	export let summary: string
 	export let workspace: string
+	export let isEditor: boolean
 
 	const appStore = writable<App>(app)
 	const worldStore = writable<World | undefined>(undefined)
@@ -30,7 +31,8 @@
 
 	const connectingInput = writable<ConnectingInput>({
 		opened: false,
-		input: undefined
+		input: undefined,
+		hoveredComponent: undefined
 	})
 
 	const runnableComponents = writable<Record<string, () => Promise<void>>>({})
@@ -48,7 +50,8 @@
 		runnableComponents,
 		appPath,
 		workspace,
-		onchange: undefined
+		onchange: undefined,
+		isEditor
 	})
 
 	let mounted = false
@@ -61,7 +64,7 @@
 	$: width = $breakpoint === 'sm' ? 'max-w-[640px]' : 'w-full '
 </script>
 
-<div class="h-full w-full  {app.fullscreen ? '' : 'max-w-6xl'} px-4 mx-auto">
+<div class="h-full w-full {app.fullscreen ? '' : 'max-w-6xl'} mx-auto">
 	{#if $appStore.grid}
 		<div class={classNames('mx-auto pb-4', width)}>
 			<GridEditor {policy} />

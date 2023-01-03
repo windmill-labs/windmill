@@ -186,6 +186,7 @@
 		color="light"
 		variant="border"
 		startIcon={{ icon: faPlus }}
+		btnClasses="truncate"
 	>
 		Create an inline script
 	</Button>
@@ -194,6 +195,7 @@
 		size="sm"
 		color="blue"
 		startIcon={{ icon: faMousePointer }}
+		btnClasses="truncate"
 	>
 		Select a script or flow
 	</Button>

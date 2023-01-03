@@ -11,7 +11,9 @@
 
 	function selectInlineScript(id: string) {
 		selectedScriptComponentId = id
-		$selectedComponent = selectedScriptComponentId
+		if (!id.startsWith('unused-')) {
+			$selectedComponent = selectedScriptComponentId
+		}
 	}
 
 	$: runnablesByName = $lazyGrid.reduce((acc, gridComponent) => {
@@ -110,11 +112,9 @@
 						<div
 							class="{classNames(
 								'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-blue-50 hover:text-blue-400',
-								selectedScriptComponentId === unusedInlineScript.name
-									? 'bg-blue-100 text-blue-600'
-									: ''
+								selectedScriptComponentId === `unused-${index}` ? 'bg-blue-100 text-blue-600' : ''
 							)},"
-							on:click={() => selectInlineScript(unusedInlineScript.name)}
+							on:click={() => selectInlineScript(`unused-${index}`)}
 						>
 							<span class="text-xs truncate">{unusedInlineScript.name}</span>
 							<Badge color="red">Detached</Badge>

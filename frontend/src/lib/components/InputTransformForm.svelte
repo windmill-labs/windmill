@@ -224,7 +224,7 @@
 	<div class="max-w-xs" />
 
 	<div
-		class="relative pb-6 {$propPickerConfig?.propName == argName
+		class="relative mb-6 {$propPickerConfig?.propName == argName
 			? 'outline outline-offset-0 outline-2 outline-blue-500 rounded-md'
 			: ''}"
 	>

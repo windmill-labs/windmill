@@ -117,8 +117,10 @@
 	{#if !isLast && collapsed}
 		<span class="text-black">,</span>
 	{/if}
-{:else}
+{:else if topBrackets}
 	<span class="text-black">{openBracket}{closeBracket}</span>
+{:else}
+	<span class="text-gray-600 text-xs">No items</span>
 {/if}
 
 <style>

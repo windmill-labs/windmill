@@ -75,14 +75,7 @@
 		}
 
 		let newData: AppComponent = JSON.parse(JSON.stringify(appComponent))
-		Object.values(newData.configuration).forEach((x) => {
-			if (x.type == 'static' && !x.value) {
-				x.value = x.defaultValue
-			}
-		})
-		if (newData?.componentInput?.type == 'static') {
-			newData.componentInput.value = newData.componentInput.defaultValue
-		}
+
 		const newItem: GridItem = {
 			data: newData,
 			id: id

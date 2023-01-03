@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { isCodeInjection } from '$lib/components/flows/utils'
-	import { getContext, onMount } from 'svelte'
+	import { createEventDispatcher, getContext, onMount } from 'svelte'
 	import type { AppInput } from '../../inputType'
 	import type { AppEditorContext } from '../../types'
 	import { accessPropertyByPath } from '../../utils'
@@ -14,26 +14,19 @@
 
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
-	$: input && setDefault()
 	$: state = $worldStore?.state
 	$: input && $worldStore && row && handleConnection()
 	$: input && $state && input.type == 'template' && (value = getValue(input))
-
-	function setDefault() {
-		if (!value && input.defaultValue) {
-			value = input.defaultValue
-		}
-	}
 
 	function handleConnection() {
 		if (input.type === 'connected') {
 			$worldStore?.connect<any>(input, onValueChange)
 		} else if (input.type === 'row') {
-			value = row[input.column]
+			setTimeout(() => (value = row[input['column']]), 0)
 		} else if (input.type === 'static' || input.type == 'template') {
-			value = getValue(input)
+			setTimeout(() => (value = getValue(input)), 0)
 		} else {
-			value = undefined
+			setTimeout(() => (value = undefined), 0)
 		}
 	}
 

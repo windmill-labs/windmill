@@ -2,8 +2,8 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import type { Preview } from '$lib/gen'
 	import { faTrash } from '@fortawesome/free-solid-svg-icons'
-	import { createEventDispatcher, onMount } from 'svelte'
-	import type { InlineScript } from '../../types'
+	import { createEventDispatcher, getContext, onMount } from 'svelte'
+	import type { AppEditorContext, InlineScript } from '../../types'
 	import { CheckCircle, Code2, X } from 'lucide-svelte'
 	import InlineScriptEditorDrawer from './InlineScriptEditorDrawer.svelte'
 	import { inferArgs } from '$lib/infer'
@@ -17,6 +17,8 @@
 
 	export let inlineScript: InlineScript
 	export let name: string | undefined = undefined
+
+	const { app } = getContext<AppEditorContext>('AppEditorContext')
 
 	let editor: Editor
 
@@ -68,14 +70,17 @@
 				</Badge>
 			{/if}
 
-			<Button
-				size="xs"
-				color="light"
-				variant="border"
-				iconOnly
-				startIcon={{ icon: faTrash }}
-				on:click={() => dispatch('delete')}
-			/>
+			{#if $app.unusedInlineScripts.map((x) => x.name).includes(name ?? '')}
+				<Button
+					size="xs"
+					color="light"
+					variant="border"
+					iconOnly
+					startIcon={{ icon: faTrash }}
+					on:click={() => dispatch('delete')}
+				/>
+			{/if}
+
 			<Button
 				size="xs"
 				color="blue"

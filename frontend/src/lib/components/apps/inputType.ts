@@ -84,7 +84,6 @@ type AppInputSpec<T extends InputType, U, V extends InputType = never> = (
 
 type InputConfiguration<T extends InputType, U, V extends InputType> = {
 	fieldType: T
-	defaultValue: U
 	subFieldType?: V
 	format?: string | undefined
 }
