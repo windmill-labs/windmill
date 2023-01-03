@@ -32,8 +32,6 @@
 
 	let drawerFlowViewer: Drawer
 	let flowPath: string = ''
-
-	// $: inlineScript && (componentInput = componentInput)
 </script>
 
 <Drawer bind:this={drawerFlowViewer} size="1200px">

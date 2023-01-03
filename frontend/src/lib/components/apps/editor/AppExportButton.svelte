@@ -16,13 +16,7 @@
 	export let app: App
 </script>
 
-<Button
-	btnClasses="pr-4"
-	size="sm"
-	variant="border"
-	color="light"
-	on:click={() => jsonViewerDrawer.toggleDrawer()}
->
+<Button size="sm" variant="border" color="light" on:click={() => jsonViewerDrawer.toggleDrawer()}>
 	<Icon data={faFileExport} scale={0.6} class="inline mr-2" />
 	JSON
 </Button>

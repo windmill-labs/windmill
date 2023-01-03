@@ -9,6 +9,7 @@
 
 <div
 	class={classNames(
+		$$props.class,
 		'flex flex-col h-full gap-2 items-start',
 		noPadding ? '' : smallPadding ? 'p-2' : 'p-4'
 	)}

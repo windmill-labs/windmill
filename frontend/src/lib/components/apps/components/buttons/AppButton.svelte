@@ -88,7 +88,7 @@
 			{#if !loading}
 				<span class="w-5" />
 			{:else}
-				<Loader2 class="animate-spin" />
+				<Loader2 class="animate-spin ml-1" size={14} />
 			{/if}
 		</Button>
 	</AlignWrapper>

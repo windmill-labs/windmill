@@ -14,7 +14,6 @@ const inputs: ComponentSet = {
 					type: 'static',
 					value: 'Type...',
 					fieldType: 'text',
-					defaultValue: 'Type...'
 				},
 			},
 			card: false
@@ -45,13 +44,11 @@ const inputs: ComponentSet = {
 					type: 'static',
 					value: '',
 					fieldType: 'date',
-					defaultValue: ''
 				},
 				maxDate: {
 					type: 'static',
 					value: '',
 					fieldType: 'date',
-					defaultValue: ''
 				}
 			},
 			card: false,
@@ -67,7 +64,6 @@ const inputs: ComponentSet = {
 					type: 'static',
 					value: 'Label',
 					fieldType: 'text',
-					defaultValue: 'Label'
 				}
 			},
 			card: false
@@ -82,10 +78,6 @@ const inputs: ComponentSet = {
 					type: 'static',
 					fieldType: 'array',
 					subFieldType: 'object',
-					defaultValue: [
-						{ value: 'foo', label: 'Foo' },
-						{ value: 'bar', label: 'Bar' }
-					],
 					value: [
 						{ value: 'foo', label: 'Foo' },
 						{ value: 'bar', label: 'Bar' }
@@ -94,7 +86,6 @@ const inputs: ComponentSet = {
 				itemKey: {
 					type: 'static',
 					fieldType: 'text',
-					defaultValue: 'value',
 					value: 'value'
 				}
 			},
@@ -116,29 +107,29 @@ const buttons: ComponentSet = {
 				fieldType: 'any',
 				fields: {},
 				runnable: undefined,
-				defaultValue: undefined
+
 			},
 			recomputeIds: undefined,
 			configuration: {
 				label: {
 					type: 'static',
-					value: undefined,
+
 					fieldType: 'text',
-					defaultValue: 'Lorem ipsum'
+					value: 'Lorem ipsum'
 				},
 				color: {
 					fieldType: 'select',
 					type: 'static',
-					value: undefined,
+
 					optionValuesKey: 'buttonColorOptions',
-					defaultValue: 'blue'
+					value: 'blue'
 				},
 				size: {
 					fieldType: 'select',
 					type: 'static',
-					value: undefined,
+
 					optionValuesKey: 'buttonSizeOptions',
-					defaultValue: 'xs'
+					value: 'xs'
 				}
 			},
 
@@ -153,7 +144,7 @@ const buttons: ComponentSet = {
 				fieldType: 'any',
 				fields: {},
 				runnable: undefined,
-				defaultValue: undefined
+
 			},
 			recomputeIds: undefined,
 			configuration: {
@@ -161,21 +152,18 @@ const buttons: ComponentSet = {
 					type: 'static',
 					value: 'Submit',
 					fieldType: 'text',
-					defaultValue: 'formcomponent'
 				},
 				color: {
 					fieldType: 'select',
 					type: 'static',
 					value: 'dark',
 					optionValuesKey: 'buttonColorOptions',
-					defaultValue: 'dark'
 				},
 				size: {
 					fieldType: 'select',
 					type: 'static',
 					value: 'xs',
 					optionValuesKey: 'buttonSizeOptions',
-					defaultValue: 'xs'
 				}
 			},
 
@@ -194,23 +182,23 @@ const display: ComponentSet = {
 			componentInput: {
 				type: 'static',
 				fieldType: 'textarea',
-				defaultValue: 'Lorem ipsum',
-				value: undefined
+				value: 'Lorem ipsum',
+
 			},
 			configuration: {
 				style: {
 					fieldType: 'select',
 					type: 'static',
-					value: undefined,
+
 					optionValuesKey: 'textStyleOptions',
-					defaultValue: 'Body'
+					value: 'Body'
 				},
 				extraStyle:
 				{
 					type: 'static',
 					fieldType: 'text',
-					defaultValue: '',
-					value: undefined
+					value: '',
+
 				},
 
 			},
@@ -223,22 +211,22 @@ const display: ComponentSet = {
 				search: {
 					fieldType: 'select',
 					type: 'static',
-					value: undefined,
+
 					optionValuesKey: 'tableSearchOptions',
-					defaultValue: 'Disabled'
+					value: 'Disabled'
 				},
 				pagination: {
 					type: 'static',
-					value: undefined,
+
 					fieldType: 'boolean',
-					defaultValue: false
+					value: false
 				}
 			},
 			componentInput: {
 				type: 'static',
 				fieldType: 'array',
 				subFieldType: 'object',
-				defaultValue: [
+				value: [
 					{
 						id: 1,
 						name: 'Lorem ipsum',
@@ -250,7 +238,7 @@ const display: ComponentSet = {
 						age: 42
 					}
 				],
-				value: undefined
+
 			},
 			card: true,
 			actionButtons: []
@@ -261,26 +249,24 @@ const display: ComponentSet = {
 			configuration: {
 				theme: {
 					type: 'static',
-					value: undefined,
+
 					fieldType: 'select',
 					optionValuesKey: 'chartThemeOptions',
-					defaultValue: 'theme1'
+					value: 'theme1'
 				},
 				labels: {
 					type: 'static',
 					value: ['First', 'Second', 'Third'],
 					fieldType: 'array',
-
 					subFieldType: 'text',
-					defaultValue: ['First', 'Second', 'Third']
 				}
 			},
 			componentInput: {
 				type: 'static',
 				fieldType: 'array',
 				subFieldType: 'number',
-				defaultValue: [25, 50, 25],
-				value: undefined
+				value: [25, 50, 25],
+
 			},
 			card: true
 		},
@@ -290,25 +276,25 @@ const display: ComponentSet = {
 			configuration: {
 				theme: {
 					type: 'static',
-					value: undefined,
+
 					fieldType: 'select',
 					optionValuesKey: 'chartThemeOptions',
-					defaultValue: 'theme1'
+					value: 'theme1'
 				},
 				labels: {
 					type: 'static',
-					value: undefined,
+
 					fieldType: 'array',
 					subFieldType: 'text',
-					defaultValue: ['Lorem ipsum', 'Lorem ipsum', 'Lorem ipsum']
+					value: ['Lorem ipsum', 'Lorem ipsum', 'Lorem ipsum']
 				}
 			},
 			componentInput: {
 				type: 'static',
 				fieldType: 'array',
 				subFieldType: 'number',
-				defaultValue: [25, 50, 25],
-				value: undefined
+				value: [25, 50, 25],
+
 			},
 			card: true
 		},
@@ -318,8 +304,8 @@ const display: ComponentSet = {
 			componentInput: {
 				type: 'static',
 				fieldType: 'object',
-				defaultValue: { "foo": 42 },
-				value: undefined
+				value: { "foo": 42 },
+
 			},
 			configuration: {},
 			card: false

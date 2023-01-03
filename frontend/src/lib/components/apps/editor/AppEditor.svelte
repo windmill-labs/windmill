@@ -48,7 +48,8 @@
 	const summaryStore = writable(summary)
 	const connectingInput = writable<ConnectingInput>({
 		opened: false,
-		input: undefined
+		input: undefined,
+		hoveredComponent: undefined
 	})
 
 	const runnableComponents = writable<Record<string, () => Promise<void>>>({})
@@ -66,7 +67,8 @@
 		runnableComponents,
 		appPath: path,
 		workspace: $workspaceStore ?? '',
-		onchange: () => saveDraft()
+		onchange: () => saveDraft(),
+		isEditor: true
 	})
 
 	let timeout: NodeJS.Timeout | undefined = undefined
@@ -96,6 +98,11 @@
 	}
 </script>
 
+{#if $connectingInput.opened}
+	<div
+		class="absolute  w-full h-screen bg-black border-2 bg-opacity-25 z-20 flex justify-center items-center"
+	/>
+{/if}
 {#if !$userStore?.operator}
 	<UnsavedConfirmationModal />
 	{#if initialMode !== 'preview'}
@@ -110,15 +117,16 @@
 			appPath={path}
 			{breakpoint}
 			{policy}
+			isEditor
 		/>
 	{:else}
 		<SplitPanesWrapper class="max-w-full overflow-hidden">
-			<Pane size={15} minSize={5} maxSize={33}>
+			<Pane size={$connectingInput?.opened ? 40 : 15} minSize={5} maxSize={33}>
 				<ContextPanel />
 			</Pane>
 			<Pane size={64}>
 				<SplitPanesWrapper horizontal>
-					<Pane size={70}>
+					<Pane size={$connectingInput?.opened ? 100 : 70}>
 						<div
 							class="bg-gray-100 relative  w-full h-full overflow-auto {app.fullscreen
 								? ''
@@ -129,22 +137,12 @@
 									<GridEditor {policy} />
 								</div>
 							{/if}
-							{#if $connectingInput.opened}
-								<div
-									class="absolute top-0 left-0 w-full h-full bg-black border-2 bg-opacity-25 z-1 flex justify-center items-center"
-								/>
-							{/if}
 						</div>
 					</Pane>
-					<Pane size={30}>
+					<Pane size={$connectingInput?.opened ? 0 : 30}>
 						<div class="relative h-full w-full">
 							<InlineScriptsPanel />
-							{#if $connectingInput.opened}
-								<div
-									class="absolute top-0 left-0 w-full h-full bg-black border-2 bg-opacity-25 z-1 flex justify-center items-center"
-								/>
-							{/if}</div
-						>
+						</div>
 					</Pane>
 				</SplitPanesWrapper>
 			</Pane>
@@ -178,10 +176,7 @@
 					</Tabs>
 					{#if $connectingInput.opened}
 						<div
-							class="absolute top-0 left-0 w-full h-full bg-black border-2 bg-opacity-25 z-1 flex justify-center items-center"
-						/>
-						<div
-							class="fixed top-32  p-2 z-10 flex justify-center items-center"
+							class="fixed top-32  p-2 z-50 flex justify-center items-center"
 							transition:fly={{ duration: 100, y: -100 }}
 						>
 							<Alert title="Connecting" type="info">

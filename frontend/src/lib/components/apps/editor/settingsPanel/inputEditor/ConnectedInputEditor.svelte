@@ -19,7 +19,8 @@
 			componentInput.connection = $connectingInput.input.connection
 			$connectingInput = {
 				opened: false,
-				input: undefined
+				input: undefined,
+				hoveredComponent: undefined
 			}
 		}
 	}
@@ -67,7 +68,8 @@
 				if (componentInput.type === 'connected') {
 					$connectingInput = {
 						opened: true,
-						input: undefined
+						input: undefined,
+						hoveredComponent: undefined
 					}
 				}
 			}}

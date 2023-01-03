@@ -23,10 +23,11 @@
 	export let onDelete: (() => void) | undefined = undefined
 	export let rowColumns = false
 
-	const { app, staticOutputs, runnableComponents, worldStore } =
+	const { app, staticOutputs, runnableComponents, selectedComponent, worldStore } =
 		getContext<AppEditorContext>('AppEditorContext')
 
 	function removeGridElement() {
+		$selectedComponent = undefined
 		if (onDelete && component) {
 			delete $staticOutputs[component.id]
 			$staticOutputs = $staticOutputs
@@ -92,7 +93,7 @@ declare const ${k} = ${JSON.stringify(v)};
 {#if component}
 	<div class="flex flex-col min-w-[150px] w-full divide-y">
 		{#if component.componentInput}
-			<PanelSection title={component.componentInput.fieldType === 'any' ? 'Runnable' : 'Input'}>
+			<PanelSection title={component.componentInput.fieldType === 'any' ? 'By Runnable' : 'Input'}>
 				<svelte:fragment slot="action">
 					<span
 						class={classNames(

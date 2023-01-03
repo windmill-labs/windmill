@@ -43,25 +43,25 @@
 			{/if}
 
 			<ToggleButton
-				title="Connected"
+				title="Connect"
 				value="connected"
 				position="center"
 				startIcon={{ icon: faArrowRight }}
 				size="xs"
 			>
 				{#if clientWidth > 250}
-					<span class="hidden lg:block"> Connected </span>
+					<span class="hidden lg:block"> Connect </span>
 				{/if}
 			</ToggleButton>
 			<ToggleButton
-				title="Computed"
+				title="Compute"
 				position="right"
 				value="runnable"
 				startIcon={{ icon: faCode }}
 				size="xs"
 			>
 				{#if clientWidth > 250}
-					<span class="hidden lg:block"> Computed </span>
+					<span class="hidden lg:block"> Compute </span>
 				{/if}
 			</ToggleButton>
 		</ToggleButtonGroup>

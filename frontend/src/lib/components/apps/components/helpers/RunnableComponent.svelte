@@ -22,7 +22,7 @@
 	export let result: any = undefined
 	export let forceSchemaDisplay: boolean = false
 
-	const { worldStore, runnableComponents, workspace, appPath, mode } =
+	const { worldStore, runnableComponents, workspace, appPath, isEditor } =
 		getContext<AppEditorContext>('AppEditorContext')
 
 	onMount(() => {
@@ -47,7 +47,30 @@
 		}, 200)
 	}
 
-	$: fields && runnableInputValues && args && autoRefresh && testJobLoader && setDebouncedExecute()
+	function computeStaticValues() {
+		return Object.entries(fields ?? {})
+			.filter(([k, v]) => v.type == 'static')
+			.map(([name, field]) => {
+				return [name, field['value']]
+			})
+	}
+
+	let lazyStaticValues = computeStaticValues()
+	let currentStaticValues = lazyStaticValues
+
+	$: fields && (currentStaticValues = computeStaticValues())
+	$: if (JSON.stringify(currentStaticValues) != JSON.stringify(lazyStaticValues)) {
+		lazyStaticValues = currentStaticValues
+		setDebouncedExecute()
+	}
+
+	$: fields && (lazyStaticValues = computeStaticValues())
+	$: runnableInputValues &&
+		extraQueryParams &&
+		args &&
+		autoRefresh &&
+		testJobLoader &&
+		setDebouncedExecute()
 
 	// Test job internal state
 	let testJob: CompletedJob | undefined = undefined
@@ -164,17 +187,18 @@
 		await testJobLoader?.abstractRun(() => {
 			const nonStaticRunnableInputs = {}
 			const staticRunnableInputs = {}
-			Object.keys(fields ?? {}).forEach(([k, v]) => {
+			Object.keys(fields ?? {}).forEach((k) => {
 				let field = fields[k]
-				if (field.type == 'static') {
+				if (field?.type == 'static' && fields[k]) {
 					staticRunnableInputs[k] = field.value
 				} else {
 					nonStaticRunnableInputs[k] = runnableInputValues[k]
 				}
-			}, {})
+			})
+
 			const requestBody = {
 				args: { ...nonStaticRunnableInputs, ...args },
-				force_viewer_static_fields: $mode == 'preview' ? undefined : staticRunnableInputs
+				force_viewer_static_fields: !isEditor ? undefined : staticRunnableInputs
 			}
 
 			if (runnable?.type === 'runnableByName') {

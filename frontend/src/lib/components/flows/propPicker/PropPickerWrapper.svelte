@@ -19,6 +19,7 @@
 <script lang="ts">
 	import PropPicker from '$lib/components/propertyPicker/PropPicker.svelte'
 	import PropPickerResult from '$lib/components/propertyPicker/PropPickerResult.svelte'
+	import { clickOutside } from '$lib/utils'
 	import { createEventDispatcher, setContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { writable, type Writable } from 'svelte/store'
@@ -48,34 +49,44 @@
 	})
 </script>
 
-<Splitpanes>
-	<Pane minSize={20} size={60} class="relative p-4 !transition-none">
-		<slot />
-	</Pane>
-	<Pane minSize={20} size={40} class="py-2 relative !transition-none">
-		{#if result}
-			<PropPickerResult
-				{result}
-				on:select={({ detail }) => {
-					dispatch('select', detail)
-					if ($propPickerConfig?.onSelect(detail)) {
-						propPickerConfig.set(undefined)
-					}
-				}}
-			/>
-		{:else if pickableProperties}
-			<PropPicker
-				{displayContext}
-				{error}
-				{pickableProperties}
-				{notSelectable}
-				on:select={({ detail }) => {
-					dispatch('select', detail)
-					if ($propPickerConfig?.onSelect(detail)) {
-						propPickerConfig.set(undefined)
-					}
-				}}
-			/>
-		{/if}
-	</Pane>
-</Splitpanes>
+<div
+	class="h-full w-full"
+	use:clickOutside
+	on:click_outside={() => propPickerConfig.set(undefined)}
+>
+	<Splitpanes>
+		<Pane minSize={20} size={60} class="relative p-4 !transition-none">
+			<slot />
+		</Pane>
+		<Pane
+			minSize={20}
+			size={40}
+			class="pt-2 relative !transition-none {$propPickerConfig ? 'border-2 border-blue-500' : ''}"
+		>
+			{#if result}
+				<PropPickerResult
+					{result}
+					on:select={({ detail }) => {
+						dispatch('select', detail)
+						if ($propPickerConfig?.onSelect(detail)) {
+							propPickerConfig.set(undefined)
+						}
+					}}
+				/>
+			{:else if pickableProperties}
+				<PropPicker
+					{displayContext}
+					{error}
+					{pickableProperties}
+					{notSelectable}
+					on:select={({ detail }) => {
+						dispatch('select', detail)
+						if ($propPickerConfig?.onSelect(detail)) {
+							propPickerConfig.set(undefined)
+						}
+					}}
+				/>
+			{/if}
+		</Pane>
+	</Splitpanes>
+</div>

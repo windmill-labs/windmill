@@ -30,6 +30,7 @@
 			appPath={app.path}
 			{breakpoint}
 			policy={app.policy}
+			isEditor={false}
 		/>
 	</div>
 {:else}

@@ -11,7 +11,6 @@
 	import { classNames, isObject } from '$lib/utils'
 	import DebouncedInput from '../helpers/DebouncedInput.svelte'
 	import AppTableFooter from './AppTableFooter.svelte'
-	import RefreshButton from '../helpers/RefreshButton.svelte'
 	import { tableOptions } from './tableOptions'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 
@@ -20,17 +19,22 @@
 	export let configuration: Record<string, AppInput>
 	export let actionButtons: (BaseAppComponent & ButtonComponent)[]
 
-	export const staticOutputs: string[] = ['selectedRow', 'loading', 'result']
+	export const staticOutputs: string[] = ['selectedRow', 'loading', 'result', 'search']
 
 	type T = Record<string, any>
 
 	$: result = [] as Array<Record<string, any>>
 
-	let search: 'Runnable' | 'Component' | 'Disabled' | undefined = undefined
+	let search: 'By Runnable' | 'By Component' | 'Disabled' | undefined = undefined
 	let searchValue = ''
 
 	let pagination: boolean | undefined = undefined
-	let page = 1
+
+	$: setSearch(searchValue)
+
+	function setSearch(srch) {
+		outputs?.search?.set(srch)
+	}
 
 	const options = writable<TableOptions<T>>({
 		data: [],
@@ -79,7 +83,7 @@
 			return result
 		}
 		return result.filter((row) =>
-			Object.values(row).some((value) => value.toString().includes(searchValue))
+			Object.values(row).some((value) => value?.toString()?.includes(searchValue))
 		)
 	}
 
@@ -94,11 +98,11 @@
 	let filteredResult: Array<Record<string, any>> = []
 
 	$: filteredResult && setOptions(filteredResult)
-	$: extraQueryParams = search === 'Runnable' ? { search: searchValue, page } : { page, search: '' }
-	$: search === 'Runnable' && (filteredResult = searchInResult(result, searchValue))
-	$: (search === 'Runnable' || search === 'Disabled') && (filteredResult = result)
+	$: search === 'By Component' && (filteredResult = searchInResult(result, searchValue))
+	$: (search === 'By Runnable' || search === 'Disabled') && (filteredResult = result)
 	$: outputs = $worldStore?.outputsById[id] as {
 		selectedRow: Output<any>
+		search: Output<string>
 	}
 
 	function rerender() {
@@ -111,7 +115,7 @@
 <InputValue {id} input={configuration.search} bind:value={search} />
 <InputValue {id} input={configuration.pagination} bind:value={pagination} />
 
-<RunnableWrapper bind:componentInput {id} bind:result {extraQueryParams}>
+<RunnableWrapper bind:componentInput {id} bind:result>
 	{#if Array.isArray(result) && result.every(isObject)}
 		<div class="border border-gray-300 shadow-sm divide-y divide-gray-300  flex flex-col h-full">
 			{#if search !== 'Disabled'}

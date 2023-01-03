@@ -19,7 +19,8 @@
 						path
 					},
 					type: 'connected'
-				}
+				},
+				hoveredComponent: undefined
 			}
 		}
 	}
@@ -36,10 +37,14 @@
 </script>
 
 <PanelSection noPadding titlePadding="px-4 pt-2" title="Outputs">
-	<div class="overflow-auto min-w-[150px]  border-t w-full relative flex flex-col gap-2 px-4">
+	<div class="overflow-auto min-w-[150px] border-t w-full relative flex flex-col gap-2 px-4 pb-2">
 		{#each Object.entries($staticOutputs) as [componentId, outputs] (componentId)}
 			{#if outputs.length > 0 && $worldStore?.outputsById[componentId]}
-				<div class="flex flex-row justify-between w-full -mb-2">
+				<div
+					class="flex {$connectingInput?.opened
+						? 'bg-white z-50'
+						: ''} flex-row justify-between w-full -mb-2"
+				>
 					<button
 						on:click|stopPropagation|preventDefault={$connectingInput.opened
 							? undefined
@@ -66,13 +71,15 @@
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<div
 					class={classNames(
-						'w-full py-2 border relative overflow-auto',
-						$selectedComponent === componentId ? 'border border-blue-500 ' : ''
+						$connectingInput?.opened ? 'bg-white z-50' : '',
+						`w-full py-2 border relative overflow-auto`,
+						$selectedComponent === componentId ? 'border border-blue-500 ' : '',
+						$connectingInput.hoveredComponent === componentId ? 'outline outline-blue-500' : ''
 					)}
 				>
-					{#if $selectedComponent === componentId && $connectingInput?.opened}
+					<!-- {#if $selectedComponent === componentId && $connectingInput?.opened}
 						<div class="absolute top-0 left-0 w-full h-full bg-gray-500 bg-opacity-50 z-10" />
-					{/if}
+					{/if} -->
 					<ComponentOutputViewer
 						{outputs}
 						{componentId}

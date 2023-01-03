@@ -58,8 +58,7 @@ export function schemaToInputsSpec(schema: Schema): Record<string, StaticAppInpu
 
 		accu[key] = {
 			type: 'static',
-			defaultValue: property.default,
-			value: undefined,
+			value: property.default,
 			visible: property.format ? false : true,
 			fieldType: property.type,
 			format: property.format

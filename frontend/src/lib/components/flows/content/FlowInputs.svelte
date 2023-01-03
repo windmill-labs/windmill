@@ -66,7 +66,7 @@
 		>
 	{/if}
 	<h3 class="pb-2 pt-4">
-		Inline new <span class="text-blue-500">{kind == 'script' ? 'common' : kind}</span> script
+		Inline new <span class="text-blue-500">{kind == 'script' ? 'action' : kind}</span> script
 		<Tooltip>
 			Embed a script directly inside a flow instead of saving the script into your workspace for
 			reuse. You can always save an inline script to your workspace later.
