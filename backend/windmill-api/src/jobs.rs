@@ -19,7 +19,7 @@ use hmac::Mac;
 use hyper::{HeaderMap, StatusCode};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sql_builder::{prelude::*, quote, SqlBuilder};
-use sqlx::{query_scalar, types::Uuid, Postgres, Transaction};
+use sqlx::{query_scalar, types::Uuid, FromRow, Postgres, Transaction};
 use urlencoding::encode;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
@@ -338,9 +338,9 @@ fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> Sq
     }
     if let Some(s) = &lq.suspended {
         if *s {
-            sqlb.and_where_is_not_null("suspend");
+            sqlb.and_where_gt("suspend", 0);
         } else {
-            sqlb.and_where_is_null("suspend");
+            sqlb.and_where_eq("suspend", 0);
         }
     }
     if let Some(jk) = &lq.job_kinds {
@@ -353,13 +353,55 @@ fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> Sq
     sqlb
 }
 
+#[derive(Serialize, FromRow)]
+struct ListableQueuedJob {
+    pub id: Uuid,
+    pub created_by: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub started_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub scheduled_for: chrono::DateTime<chrono::Utc>,
+    pub script_hash: Option<ScriptHash>,
+    pub script_path: Option<String>,
+    pub args: Option<serde_json::Value>,
+    pub job_kind: JobKind,
+    pub schedule_path: Option<String>,
+    pub is_flow_step: bool,
+    pub language: Option<ScriptLang>,
+    pub email: String,
+    pub suspend: Option<i32>,
+}
+
 async fn list_queue_jobs(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Query(lq): Query<ListQueueQuery>,
-) -> error::JsonResult<Vec<QueuedJob>> {
-    let sql = list_queue_jobs_query(&w_id, &lq, &["*"]).sql()?;
-    let jobs = sqlx::query_as::<_, QueuedJob>(&sql).fetch_all(&db).await?;
+) -> error::JsonResult<Vec<ListableQueuedJob>> {
+    let sql = list_queue_jobs_query(
+        &w_id,
+        &lq,
+        &[
+            "id",
+            "created_by",
+            "created_at",
+            "started_at",
+            "scheduled_for",
+            "script_hash",
+            "script_path",
+            "args",
+            "job_kind",
+            "schedule_path",
+            "permissioned_as",
+            "is_flow_step",
+            "language",
+            "same_worker",
+            "email",
+            "suspend",
+        ],
+    )
+    .sql()?;
+    let jobs = sqlx::query_as::<_, ListableQueuedJob>(&sql)
+        .fetch_all(&db)
+        .await?;
     Ok(Json(jobs))
 }
 

@@ -53,6 +53,9 @@ export async function loadSchema(
 }
 
 export function schemaToInputsSpec(schema: Schema): Record<string, StaticAppInput> {
+	if (schema?.properties == undefined) {
+		return {}
+	}
 	return Object.keys(schema.properties).reduce((accu, key) => {
 		const property = schema.properties[key]
 
