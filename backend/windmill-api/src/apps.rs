@@ -258,6 +258,15 @@ async fn get_public_app_by_secret(
     tx.commit().await?;
 
     let app = not_found_if_none(app_o, "App", id.to_string())?;
+
+    let policy = serde_json::from_value::<Policy>(app.policy.clone()).map_err(to_anyhow)?;
+
+    if !matches!(policy.execution_mode, ExecutionMode::Anonymous) {
+        return Err(Error::NotAuthorized(
+            "App visibility does not allow public access".to_string(),
+        ));
+    }
+
     Ok(Json(app))
 }
 

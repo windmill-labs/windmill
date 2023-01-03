@@ -1,7 +1,6 @@
 <script lang="ts">
-	import { workspaceStore, userWorkspaces, switchWorkspace } from '$lib/stores'
+	import { workspaceStore, userWorkspaces, switchWorkspace, usersWorkspaceStore } from '$lib/stores'
 	import { classNames } from '$lib/utils'
-	import Icon from 'svelte-awesome'
 	import { Building } from 'lucide-svelte'
 
 	import Menu from '../common/menu/Menu.svelte'
