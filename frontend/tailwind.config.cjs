@@ -256,7 +256,7 @@ const config = {
 					padding: '0px !important',
 					fontFamily: theme('fontFamily.mono'),
 					fontSize: theme('fontSize.sm') + ' !important',
-					lineHeight: theme('lineHeight.4') + ' !important',
+					lineHeight: theme('lineHeight.4') + ' !important'
 				}
 			})
 			addComponents({
