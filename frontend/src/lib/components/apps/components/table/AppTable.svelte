@@ -95,6 +95,10 @@
 		}
 	}
 
+	function cellIsObject(x: (any) => any, props: any): boolean {
+		return typeof x != 'string' && typeof x(props) == 'object'
+	}
+
 	let filteredResult: Array<Record<string, any>> = []
 
 	$: filteredResult && setOptions(filteredResult)
@@ -167,7 +171,7 @@
 								)}
 							>
 								{#each row.getVisibleCells() as cell, index (index)}
-									{#if cell?.column?.columnDef?.header}
+									{#if cell?.column?.columnDef?.cell}
 										{@const context = cell?.getContext()}
 										{#if context}
 											{@const component = renderCell(cell.column.columnDef.cell, context)}
@@ -175,7 +179,9 @@
 												on:click={() => toggleRow(row, rowIndex)}
 												class="p-4 whitespace-nowrap text-xs text-gray-900"
 											>
-												{#if component != undefined}
+												{#if typeof cell.column.columnDef.cell != 'string' && cellIsObject(cell.column.columnDef.cell, context)}
+													{JSON.stringify(cell.column.columnDef.cell(context), null, 4)}
+												{:else if component != undefined}
 													<svelte:component this={component} />
 												{/if}
 											</td>

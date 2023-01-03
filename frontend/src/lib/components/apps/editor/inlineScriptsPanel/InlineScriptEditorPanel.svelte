@@ -3,7 +3,9 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import FlowModuleScript from '$lib/components/flows/content/FlowModuleScript.svelte'
 	import FlowPathViewer from '$lib/components/flows/content/FlowPathViewer.svelte'
-	import { getScriptByPath } from '$lib/utils'
+	import { inferArgs } from '$lib/infer'
+	import { loadSchema } from '$lib/scripts'
+	import { emptySchema, getScriptByPath } from '$lib/utils'
 	import { faCodeBranch, faExternalLinkAlt, faEye, faPen } from '@fortawesome/free-solid-svg-icons'
 	import type { AppInput, ResultAppInput } from '../../inputType'
 	import { clearResultAppInput } from '../../utils'
@@ -13,8 +15,13 @@
 	export let componentInput: AppInput | undefined
 
 	async function fork(path: string) {
-		const { content, language, schema } = await getScriptByPath(path)
+		let { content, language, schema } = await getScriptByPath(path)
 		if (componentInput && componentInput.type == 'runnable') {
+			if (!schema || Object.keys(schema).length == 0) {
+				schema = emptySchema()
+				await inferArgs(language, content, schema)
+			}
+			console.log(schema)
 			componentInput.runnable = {
 				type: 'runnableByName',
 				name: path,
@@ -25,6 +32,7 @@
 					path
 				}
 			}
+			console.log(content, language, schema)
 		} else {
 			console.error('componentInput is undefined')
 		}

@@ -5,6 +5,7 @@
 	import { Badge } from '../common'
 	import { NEVER_TESTED_THIS_FAR } from '../flows/utils'
 	import { getTypeAsString } from '../flows/utils'
+	import Popover from '../Popover.svelte'
 	import { computeKey } from './utils'
 	import WarningMessage from './WarningMessage.svelte'
 
@@ -90,9 +91,13 @@
 							{#if json[key] === NEVER_TESTED_THIS_FAR}
 								<WarningMessage />
 							{:else if json[key] == undefined}
-								<span>undefined</span>
+								<span class="text-2xs">undefined</span>
+							{:else if typeof json[key] == 'string'}
+								<span title={json[key]} class="text-2xs">"{truncate(json[key], 200)}"</span>
 							{:else}
-								<span>{truncate(JSON.stringify(json[key]), 40)}</span>
+								<span title={JSON.stringify(json[key])} class="text-2xs"
+									>{truncate(JSON.stringify(json[key]), 200)}</span
+								>
 							{/if}
 						</button>
 					{/if}
