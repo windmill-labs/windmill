@@ -86,7 +86,9 @@
 		mounted = true
 	})
 
-	$: mounted && ($worldStore = buildWorld($staticOutputs, $worldStore))
+	$: context = { email: $userStore?.email, username: $userStore?.username }
+
+	$: mounted && ($worldStore = buildWorld($staticOutputs, $worldStore, context))
 	$: previewing = $mode === 'preview'
 	$: width = $breakpoint === 'sm' ? 'min-w-[400px] max-w-[656px]' : 'min-w-[710px] w-full'
 
@@ -118,6 +120,7 @@
 			{breakpoint}
 			{policy}
 			isEditor
+			{context}
 		/>
 	{:else}
 		<SplitPanesWrapper class="max-w-full overflow-hidden">

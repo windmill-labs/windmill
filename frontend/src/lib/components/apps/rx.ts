@@ -25,11 +25,17 @@ export type World = {
 
 export function buildWorld(
 	components: Record<string, string[]>,
-	previousWorld: World | undefined
+	previousWorld: World | undefined,
+	context: Record<string, any>
 ): World {
 	const newWorld = buildObservableWorld()
-	const outputsById: Record<string, Record<string, Output<any>>> = {}
 	const state = writable(0)
+
+	const outputsById: Record<string, Record<string, Output<any>>> = {
+		context: Object.fromEntries(Object.entries(context).map(([k, v]) => {
+			return [k, newWorld.newOutput('context', k, state, v)]
+		}))
+	}
 	for (const [k, outputs] of Object.entries(components)) {
 		outputsById[k] = {}
 

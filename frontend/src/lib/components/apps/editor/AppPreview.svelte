@@ -22,6 +22,7 @@
 	export let summary: string
 	export let workspace: string
 	export let isEditor: boolean
+	export let context: Record<string, any>
 
 	const appStore = writable<App>(app)
 	const worldStore = writable<World | undefined>(undefined)
@@ -60,7 +61,7 @@
 		mounted = true
 	})
 
-	$: mounted && ($worldStore = buildWorld($staticOutputs, undefined))
+	$: mounted && ($worldStore = buildWorld($staticOutputs, undefined, context))
 	$: width = $breakpoint === 'sm' ? 'max-w-[640px]' : 'w-full '
 </script>
 
