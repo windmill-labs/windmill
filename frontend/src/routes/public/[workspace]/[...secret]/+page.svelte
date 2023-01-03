@@ -4,7 +4,7 @@
 	import AppPreview from '$lib/components/apps/editor/AppPreview.svelte'
 	import type { EditorBreakpoint } from '$lib/components/apps/types'
 
-	import { Skeleton } from '$lib/components/common'
+	import { Alert, Skeleton } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
 	import { AppService, AppWithLastVersion, GlobalUserInfo, UserService } from '$lib/gen'
 	import github from 'svelte-highlight/styles/github'
@@ -12,12 +12,17 @@
 
 	let app: AppWithLastVersion | undefined = undefined
 	let user: GlobalUserInfo | undefined = undefined
+	let notExists = false
 
 	async function loadApp() {
-		app = await AppService.getPublicAppBySecret({
-			workspace: $page.params.workspace,
-			path: $page.params.secret
-		})
+		try {
+			app = await AppService.getPublicAppBySecret({
+				workspace: $page.params.workspace,
+				path: $page.params.secret
+			})
+		} catch (e) {
+			notExists = true
+		}
 	}
 
 	async function loadUser() {
@@ -42,17 +47,24 @@
 		>Powered by &nbsp;<WindmillIcon />&nbsp;Windmill</a
 	>
 </div>
-{#if app}
-	<div class="z-50 text-xs text-gray-500 fixed top-1 left-2">
-		<div>
-			{#if user}
-				Logged in as {user.email}
-			{:else}
-				Not logged in
-			{/if}
-		</div>
-		<a class="text-blue-400" href="/">Go to app</a>
+<div class="z-50 text-xs text-gray-500 fixed top-1 left-2">
+	<div>
+		{#if user}
+			Logged in as {user.email}
+		{:else}
+			Not logged in
+		{/if}
 	</div>
+	<a class="text-blue-400" href="/">Go to app</a>
+</div>
+{#if notExists}
+	<div class="px-4 mt-20"
+		><Alert type="error" title="Not found"
+			>There was an error loading the app. Either it does not exist at this url or its visibility
+			has changed to not be public anymore. <a href="/">Go to app</a>
+		</Alert></div
+	>
+{:else if app}
 	<div class="border rounded-md p-2 w-full">
 		<AppPreview
 			workspace={$page.params.workspace}

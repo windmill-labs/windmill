@@ -90,7 +90,7 @@
 			/>
 		</div>
 	{/if}
-	{#if workspaces}
+	{#if workspaces && $usersWorkspaceStore}
 		{#if workspaces.length == 0}
 			<p class="text-sm text-gray-600 mt-2">
 				You are not a member of any workspace yet. Accept an invitation or create your own

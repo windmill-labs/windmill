@@ -162,10 +162,13 @@
 			<Alert title="Require saving" type="error">Save this app once before you can publish it</Alert
 			>
 		{:else}
-			<Alert title="App executed on behalf of publisher"
-				>Every runnable will run with the permissions of the publisher of the app. This ensures that
-				every users gets the same experience. Make sure that the app does not expose actions that
-				are too sensitive to be exposed publicly.</Alert
+			<Alert title="App executed on behalf of publisher">
+				A viewer of the app will execute the runnables of the app on behalf of the publisher
+				avoiding the risk that a resource or script would not be available to the viewer. To
+				guarantee tight security, a policy is computed at time of saving of the app which only allow
+				the scripts/flows referred to in the app to be called on behalf of. Furthermore, static
+				parameters are not overridable. Hence, users will only be able to use the app as intended by
+				the publisher without risk for leaking resources not used in the app.</Alert
 			>
 			<div class="mt-4" />
 			<Toggle
