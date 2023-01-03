@@ -218,11 +218,13 @@
 	</DrawerContent>
 </Drawer>
 
-<div class="border-b flex flex-row justify-between py-1 gap-4 flex-wrap gap-y-2 px-4 items-center">
-	<div class="w-64">
+<div
+	class="border-b flex flex-row justify-between py-1 gap-4 overflow-x-auto gap-y-2 px-4 items-center"
+>
+	<div class="min-w-64 w-64">
 		<input type="text" placeholder="App summary" class="text-sm w-full" bind:value={$summary} />
 	</div>
-	<div class="flex gap-8 items-center grow justify-center">
+	<div class="flex gap-4 items-center grow justify-center">
 		<div>
 			<ToggleButtonGroup bind:selected={$mode}>
 				<ToggleButton position="left" value="dnd" size="xs">
@@ -245,18 +247,22 @@
 			</ToggleButtonGroup>
 		</div>
 
-		<ToggleButtonGroup bind:selected={$app.fullscreen}>
-			<ToggleButton position="left" value={false} size="xs"
-				><AlignHorizontalSpaceAround size={14} /> &nbsp; <Tooltip
-					>The max width is 1168px and the content stay centered instead of taking the full page
-					width</Tooltip
-				></ToggleButton
-			>
-			<ToggleButton position="right" value={true} size="xs"><Expand size={14} /></ToggleButton>
-		</ToggleButtonGroup>
+		<span class="hidden lg:block">
+			<ToggleButtonGroup bind:selected={$app.fullscreen}>
+				<ToggleButton position="left" value={false} size="xs"
+					><AlignHorizontalSpaceAround size={14} /> &nbsp; <Tooltip
+						>The max width is 1168px and the content stay centered instead of taking the full page
+						width</Tooltip
+					></ToggleButton
+				>
+				<ToggleButton position="right" value={true} size="xs"><Expand size={14} /></ToggleButton>
+			</ToggleButtonGroup>
+		</span>
 	</div>
 	<div class="flex flex-row grow gap-4 justify-end ">
-		<AppExportButton app={$app} />
+		<span class="hidden lg:block">
+			<AppExportButton app={$app} />
+		</span>
 
 		<Button
 			on:click={() => (publishDrawerOpen = true)}

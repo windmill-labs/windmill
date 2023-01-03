@@ -1,7 +1,7 @@
 <script lang="ts">
 	import AppEditor from '$lib/components/apps/editor/AppEditor.svelte'
 	import { AppService, AppWithLastVersion } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { page } from '$app/stores'
 	import { decodeState } from '$lib/utils'
 	import { goto } from '$app/navigation'
@@ -17,6 +17,7 @@
 	}
 
 	let loading = true
+
 	async function loadApp(): Promise<void> {
 		loading = true
 		app = await AppService.getAppByPath({

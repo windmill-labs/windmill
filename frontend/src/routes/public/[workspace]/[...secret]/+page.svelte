@@ -7,6 +7,7 @@
 	import { Alert, Skeleton } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
 	import { AppService, AppWithLastVersion, GlobalUserInfo, UserService } from '$lib/gen'
+	import { userStore } from '$lib/stores'
 	import github from 'svelte-highlight/styles/github'
 	import { writable } from 'svelte/store'
 
@@ -67,6 +68,7 @@
 {:else if app}
 	<div class="border rounded-md p-2 w-full">
 		<AppPreview
+			context={{ email: $userStore?.email, username: $userStore?.username }}
 			workspace={$page.params.workspace}
 			summary={app.summary}
 			app={app.value}

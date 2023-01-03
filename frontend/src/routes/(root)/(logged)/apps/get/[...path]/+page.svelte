@@ -5,7 +5,7 @@
 
 	import { Skeleton } from '$lib/components/common'
 	import { AppService, AppWithLastVersion } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { writable } from 'svelte/store'
 
 	let app: AppWithLastVersion | undefined = undefined
@@ -24,6 +24,7 @@
 {#if app}
 	<div class="border rounded-md p-2 w-full">
 		<AppPreview
+			context={{ email: $userStore?.email, username: $userStore?.username }}
 			workspace={$workspaceStore ?? ''}
 			summary={app.summary}
 			app={app.value}
