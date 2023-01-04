@@ -118,7 +118,11 @@
 			path: appPath,
 			requestBody: { policy }
 		})
-		console.log(policy)
+		if (policy.execution_mode == 'anonymous') {
+			sendUserToast('App made visible publicly at the secret URL.')
+		} else {
+			sendUserToast('App made unaccessible publicly')
+		}
 	}
 
 	async function save() {
@@ -195,7 +199,7 @@
 			{#if policy.execution_mode == 'anonymous' && secretUrl}
 				{@const url = `${$page.url.hostname}/public/${$workspaceStore}/${secretUrl}`}
 				{@const href = $page.url.protocol + '//' + url}
-				<div class="mt-6 box">
+				<div class="my-6 box">
 					Public url:
 					<a
 						on:click={(e) => {
@@ -211,6 +215,10 @@
 						</span>
 					</a>
 				</div>
+
+				<Alert type="info" title="Only show latest saved app">
+					Once made public, you will still need to save the app to make visible the latest changes
+				</Alert>
 			{/if}
 		{/if}
 

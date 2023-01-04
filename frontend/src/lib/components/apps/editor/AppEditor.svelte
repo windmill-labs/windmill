@@ -77,7 +77,13 @@
 
 	function saveDraft() {
 		timeout && clearTimeout(timeout)
-		timeout = setTimeout(() => localStorage.setItem('app', encodeState($appStore)), 500)
+		timeout = setTimeout(() => {
+			try {
+				localStorage.setItem(path != '' ? `app-${path}` : 'app', encodeState($appStore))
+			} catch (err) {
+				console.error(err)
+			}
+		}, 500)
 	}
 
 	let mounted = false

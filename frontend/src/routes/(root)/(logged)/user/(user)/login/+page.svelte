@@ -106,7 +106,11 @@
 
 	function storeRedirect(provider: string) {
 		if (rd) {
-			localStorage.setItem('rd', rd)
+			try {
+				localStorage.setItem('rd', rd)
+			} catch (e) {
+				console.error('Could not persist redirection to local storage', e)
+			}
 		}
 		goto('/api/oauth/login/' + provider)
 	}
