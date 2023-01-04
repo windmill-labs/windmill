@@ -30,13 +30,13 @@
 
 		if (component?.data.type) {
 			return displayData[component?.data.type].name
-		} else if (componentId == 'context') {
+		} else if (componentId == 'ctx') {
 			return 'Context'
 		} else {
 			return 'Table action'
 		}
 	}
-	$: panels = [['context', ['email', 'username']] as [string, string[]]].concat(
+	$: panels = [['ctx', ['email', 'username']] as [string, string[]]].concat(
 		Object.entries($staticOutputs)
 	)
 </script>
@@ -58,7 +58,7 @@
 								? undefined
 								: () => ($selectedComponent = componentId)}
 							class={classNames(
-								'px-2 text-2xs py-0.5 font-bold rounded-t-sm w-fit',
+								'px-2 text-2xs py-0.5 border border-gray-300 font-bold rounded-t-sm w-fit',
 								$selectedComponent === componentId
 									? ' bg-indigo-500 text-white'
 									: 'bg-gray-200 text-gray-500'
@@ -80,7 +80,7 @@
 					<div
 						class={classNames(
 							$connectingInput?.opened ? 'bg-white z-50' : '',
-							`w-full py-2 grow border relative overflow-x-auto`,
+							`w-full py-2 grow border relative `,
 							$selectedComponent === componentId ? 'border border-blue-500 ' : '',
 							$connectingInput.hoveredComponent === componentId ? 'outline outline-blue-500' : ''
 						)}

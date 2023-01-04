@@ -6,7 +6,7 @@
 
 	export let id: string
 	export let componentInput: AppInput | undefined
-	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
+	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = 'left'
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let configuration: Record<string, AppInput>
 

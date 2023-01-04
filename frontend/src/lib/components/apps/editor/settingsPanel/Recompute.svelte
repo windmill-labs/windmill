@@ -40,7 +40,7 @@
 				{#each Object.keys($runnableComponents ?? {}).filter((id) => id !== ownId) as id}
 					<tr>
 						<td class="whitespace-nowrap px-4 py-2 text-xs">
-							<Badge color="blue">{id}</Badge>
+							<Badge color="dark-indigo">{id}</Badge>
 						</td>
 						<td class="relative whitespace-nowrap px-4 py-2 ">
 							<input

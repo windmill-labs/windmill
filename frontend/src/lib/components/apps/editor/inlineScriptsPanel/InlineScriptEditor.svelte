@@ -57,8 +57,8 @@
 
 <InlineScriptEditorDrawer {editor} bind:this={inlineScriptEditorDrawer} bind:inlineScript />
 
-<div class="h-full p-2 flex flex-col gap-2" transition:fly={{ duration: 50 }}>
-	<div class="flex justify-between w-full gap-1 flex-row items-center">
+<div class="h-full flex flex-col gap-1" transition:fly={{ duration: 50 }}>
+	<div class="flex justify-between w-full gap-1 px-2 pt-1 flex-row items-center">
 		{#if name !== undefined}
 			<input bind:value={name} placeholder="Inline script name" />
 		{/if}

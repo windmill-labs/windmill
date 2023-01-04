@@ -13,6 +13,7 @@
 	$: if (componentInput.fieldType == 'textarea' && componentInput.type == 'static') {
 		//@ts-ignore
 		componentInput.type = 'template'
+		componentInput['eval'] = componentInput.value
 	}
 
 	const brackets = '${}'
@@ -37,7 +38,7 @@
 					disable={disableStatic}
 				>
 					{#if clientWidth > 250}
-						<span class="hidden lg:block"> Static </span>
+						<span class="hidden lg:block">Static</span>
 					{/if}
 				</ToggleButton>
 			{/if}
@@ -50,7 +51,7 @@
 				size="xs"
 			>
 				{#if clientWidth > 250}
-					<span class="hidden lg:block"> Connect </span>
+					<span class="hidden lg:block">Connect</span>
 				{/if}
 			</ToggleButton>
 			<ToggleButton
@@ -61,7 +62,7 @@
 				size="xs"
 			>
 				{#if clientWidth > 250}
-					<span class="hidden lg:block"> Compute </span>
+					<span class="hidden lg:block">Compute</span>
 				{/if}
 			</ToggleButton>
 		</ToggleButtonGroup>

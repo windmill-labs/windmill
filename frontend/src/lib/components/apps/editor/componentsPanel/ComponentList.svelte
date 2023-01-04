@@ -19,9 +19,9 @@
 	function getMinDimensionsByComponent(componentType: AppComponent['type'], column: number): Size {
 		// Dimensions key formula: <mobile width>:<mobile height>-<desktop width>:<desktop height>
 		const dimensions: Record<`${number}:${number}-${number}:${number}`, AppComponent['type'][]> = {
+			'4:1-4:1': ['textcomponent'],
+			'2:1-2:1': ['buttoncomponent'],
 			'4:2-4:2': [
-				'buttoncomponent',
-				'textcomponent',
 				'checkboxcomponent',
 				'textinputcomponent',
 				'numberinputcomponent',
@@ -29,7 +29,8 @@
 				'passwordinputcomponent',
 				'dateinputcomponent'
 			],
-			'4:12-4:12': ['barchartcomponent', 'piechartcomponent', 'formcomponent', 'displaycomponent'],
+			'3:5-6:5': ['formcomponent'],
+			'4:12-4:12': ['barchartcomponent', 'piechartcomponent', 'displaycomponent'],
 			'3:10-6:12': ['tablecomponent']
 		}
 		// Finds the key that is associated with the component type and extracts the dimensions from it
