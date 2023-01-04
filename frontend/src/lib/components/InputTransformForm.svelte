@@ -118,6 +118,7 @@
 	const closeBracket = '}'
 
 	$: schema.properties[argName].default &&
+		!arg?.value &&
 		monacoTemplate?.setCode(schema.properties[argName].default)
 </script>
 
