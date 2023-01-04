@@ -387,7 +387,7 @@
 			// @ts-ignore
 			self.MonacoEnvironment = {
 				getWorker: function (_moduleId: any, label: string) {
-					if (label == 'typescript') {
+					if (label == 'typescript' || label == 'javascript') {
 						return new tsWorker()
 					} else {
 						return new editorWorker()
