@@ -80,7 +80,7 @@
 					<div
 						class={classNames(
 							$connectingInput?.opened ? 'bg-white z-50' : '',
-							`w-full py-2 grow border relative `,
+							`w-full py-2 grow border relative break-all `,
 							$selectedComponent === componentId ? 'border border-blue-500 ' : '',
 							$connectingInput.hoveredComponent === componentId ? 'outline outline-blue-500' : ''
 						)}
