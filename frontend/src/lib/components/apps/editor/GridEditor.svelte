@@ -116,7 +116,7 @@
 		>
 	</div>
 	<div
-		class="px-4 pt-4 {$connectingInput?.opened ? '' : 'bg-gray-50/70'}"
+		class="px-4 pt-4 {$connectingInput?.opened ? '' : ''}"
 		on:pointerdown={onpointerdown}
 		on:pointerleave={onpointerup}
 		on:pointerup={onpointerup}
@@ -124,7 +124,7 @@
 		<Grid
 			bind:items={$app.grid}
 			let:dataItem
-			rowHeight={23}
+			rowHeight={30}
 			cols={columnConfiguration}
 			fastStart={true}
 			on:pointerup={({ detail }) => selectComponent(detail.id)}

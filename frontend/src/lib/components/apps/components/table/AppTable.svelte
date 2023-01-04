@@ -37,9 +37,9 @@
 	}
 
 	const options = writable<TableOptions<T>>({
+		...tableOptions,
 		data: [],
-		columns: [],
-		...tableOptions
+		columns: []
 	})
 
 	let table = createSvelteTable(options)
@@ -67,14 +67,14 @@
 		const headers = Array.from(new Set(result.flatMap((row) => Object.keys(row))))
 
 		$options = {
+			...tableOptions,
 			data: filteredResult,
 			columns: headers.map((header) => {
 				return {
 					accessorKey: header,
 					cell: (info) => info.getValue()
 				}
-			}),
-			...tableOptions
+			})
 		}
 	}
 
@@ -177,7 +177,7 @@
 											{@const component = renderCell(cell.column.columnDef.cell, context)}
 											<td
 												on:click={() => toggleRow(row, rowIndex)}
-												class="p-4 whitespace-nowrap text-xs text-gray-900"
+												class="p-4 whitespace-pre-wrap truncate text-xs text-gray-900"
 											>
 												{#if typeof cell.column.columnDef.cell != 'string' && cellIsObject(cell.column.columnDef.cell, context)}
 													{JSON.stringify(cell.column.columnDef.cell(context), null, 4)}

@@ -13,7 +13,7 @@
 
 	export let inputSpecs: Record<
 		string,
-		StaticAppInput | ConnectedAppInput | UserAppInput | RowAppInput
+		(StaticAppInput | ConnectedAppInput | UserAppInput | RowAppInput) & { onlyStatic?: boolean }
 	>
 	export let userInputEnabled: boolean = true
 	export let staticOnly: boolean = false
@@ -31,54 +31,56 @@
 						{shouldCapitalize ? capitalize(inputSpecKey) : inputSpecKey}
 					</span>
 
-					<div class="flex gap-2 items-center">
+					<div class="flex gap-2 flex-wrap items-center">
 						<Badge color="blue">
 							{input.fieldType === 'array' && input.subFieldType
 								? `${capitalize(fieldTypeToTsType(input.subFieldType))}[]`
 								: capitalize(fieldTypeToTsType(input.fieldType))}
 						</Badge>
 
-						<ToggleButtonGroup bind:selected={inputSpecs[inputSpecKey].type}>
-							<ToggleButton
-								title="Static"
-								position="left"
-								value="static"
-								startIcon={{ icon: faPen }}
-								size="xs"
-								iconOnly
-							/>
-							{#if rowColumns}
+						{#if !inputSpecs[inputSpecKey].onlyStatic}
+							<ToggleButtonGroup bind:selected={inputSpecs[inputSpecKey].type}>
 								<ToggleButton
-									title="From Row"
-									position="center"
-									value="row"
-									startIcon={{ icon: faTableCells }}
+									title="Static"
+									position="left"
+									value="static"
+									startIcon={{ icon: faPen }}
+									size="xs"
+									iconOnly
+								/>
+								{#if rowColumns}
+									<ToggleButton
+										title="From Row"
+										position="center"
+										value="row"
+										startIcon={{ icon: faTableCells }}
+										size="xs"
+										iconOnly
+										disabled={staticOnly}
+									/>
+								{/if}
+								{#if userInputEnabled && (!input.format?.startsWith('resource-') || true)}
+									<ToggleButton
+										title="User Input"
+										position="center"
+										value="user"
+										startIcon={{ icon: faUser }}
+										size="xs"
+										iconOnly
+										disabled={staticOnly}
+									/>
+								{/if}
+								<ToggleButton
+									title="Connected"
+									position="right"
+									value="connected"
+									startIcon={{ icon: faArrowRight }}
 									size="xs"
 									iconOnly
 									disabled={staticOnly}
 								/>
-							{/if}
-							{#if userInputEnabled && (!input.format?.startsWith('resource-') || true)}
-								<ToggleButton
-									title="User Input"
-									position="center"
-									value="user"
-									startIcon={{ icon: faUser }}
-									size="xs"
-									iconOnly
-									disabled={staticOnly}
-								/>
-							{/if}
-							<ToggleButton
-								title="Connected"
-								position="right"
-								value="connected"
-								startIcon={{ icon: faArrowRight }}
-								size="xs"
-								iconOnly
-								disabled={staticOnly}
-							/>
-						</ToggleButtonGroup>
+							</ToggleButtonGroup>
+						{/if}
 					</div>
 				</div>
 

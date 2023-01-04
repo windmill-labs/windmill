@@ -253,10 +253,17 @@
 	bind:this={testJobLoader}
 />
 
-<div class="h-full flex flex-col">
-	{#if schemaStripped !== undefined && (autoRefresh || forceSchemaDisplay)}
-		<div class="px-2">
+<div class="h-full flex relative flex-row flex-wrap">
+	{#if autoRefresh === true}
+		<div class="flex absolute top-1 right-1">
+			<RefreshButton componentId={id} />
+		</div>
+	{/if}
+	{#if schemaStripped && Object.keys(schemaStripped?.properties ?? {}).length > 0 && (autoRefresh || forceSchemaDisplay)}
+		<div class="px-2 h-fit min-h-0">
 			<SchemaForm
+				compact
+				flexWrap
 				schema={schemaStripped}
 				bind:args
 				{disabledArgs}
@@ -276,13 +283,9 @@
 				<pre title={result.error} class="text-2xs whitespace-pre-wrap">{result.error}</pre>
 			</Alert>
 		</div>
-	{:else if autoRefresh === true}
-		<div class="flex absolute top-1 right-1">
-			<RefreshButton componentId={id} />
-		</div>
-
-		<slot />
 	{:else}
-		<slot />
+		<div class="grow min-w-1/2 min-h-[66%]">
+			<slot />
+		</div>
 	{/if}
 </div>

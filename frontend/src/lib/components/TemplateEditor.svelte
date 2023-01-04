@@ -13,6 +13,7 @@
 	} from '$lib/editorUtils'
 	import { languages, editor as meditor, Uri as mUri, Range } from 'monaco-editor'
 	import libStdContent from '$lib/es5.d.ts.txt?raw'
+	import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 
 	languages.typescript.javascriptDefaults.setCompilerOptions({
 		target: languages.typescript.ScriptTarget.Latest,
@@ -386,7 +387,11 @@
 			// @ts-ignore
 			self.MonacoEnvironment = {
 				getWorker: function (_moduleId: any, label: string) {
-					return new tsWorker()
+					if (label == 'typescript') {
+						return new tsWorker()
+					} else {
+						return new editorWorker()
+					}
 				}
 			}
 		}

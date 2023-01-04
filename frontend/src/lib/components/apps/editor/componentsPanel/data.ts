@@ -14,6 +14,7 @@ const inputs: ComponentSet = {
 					type: 'static',
 					value: 'Type...',
 					fieldType: 'text',
+					onlyStatic: true,
 				},
 			},
 			card: false
@@ -100,6 +101,7 @@ const buttons: ComponentSet = {
 	components: [
 		{
 			...defaultAlignement,
+			softWrap: true,
 			id: 'buttoncomponent',
 			type: 'buttoncomponent',
 			componentInput: {
@@ -120,14 +122,14 @@ const buttons: ComponentSet = {
 				color: {
 					fieldType: 'select',
 					type: 'static',
-
+					onlyStatic: true,
 					optionValuesKey: 'buttonColorOptions',
 					value: 'blue'
 				},
 				size: {
 					fieldType: 'select',
 					type: 'static',
-
+					onlyStatic: true,
 					optionValuesKey: 'buttonSizeOptions',
 					value: 'xs'
 				}
@@ -156,6 +158,7 @@ const buttons: ComponentSet = {
 				color: {
 					fieldType: 'select',
 					type: 'static',
+					onlyStatic: true,
 					value: 'dark',
 					optionValuesKey: 'buttonColorOptions',
 				},
@@ -163,6 +166,7 @@ const buttons: ComponentSet = {
 					fieldType: 'select',
 					type: 'static',
 					value: 'xs',
+					onlyStatic: true,
 					optionValuesKey: 'buttonSizeOptions',
 				}
 			},
@@ -176,20 +180,21 @@ const display: ComponentSet = {
 	title: 'Display',
 	components: [
 		{
-			...defaultAlignement,
+			softWrap: true,
+			horizontalAlignment: 'left',
+			verticalAlignment: 'top',
 			id: 'textcomponent',
 			type: 'textcomponent',
 			componentInput: {
 				type: 'static',
 				fieldType: 'textarea',
-				value: 'Lorem ipsum',
-
+				value: 'Hello ${ctx.username}',
 			},
 			configuration: {
 				style: {
 					fieldType: 'select',
 					type: 'static',
-
+					onlyStatic: true,
 					optionValuesKey: 'textStyleOptions',
 					value: 'Body'
 				},
@@ -205,21 +210,22 @@ const display: ComponentSet = {
 			card: false
 		},
 		{
+
 			id: 'tablecomponent',
 			type: 'tablecomponent',
 			configuration: {
 				search: {
 					fieldType: 'select',
 					type: 'static',
-
+					onlyStatic: true,
 					optionValuesKey: 'tableSearchOptions',
 					value: 'Disabled'
 				},
 				pagination: {
 					type: 'static',
-
+					onlyStatic: true,
 					fieldType: 'boolean',
-					value: false
+					value: true
 				}
 			},
 			componentInput: {
@@ -249,7 +255,7 @@ const display: ComponentSet = {
 			configuration: {
 				theme: {
 					type: 'static',
-
+					onlyStatic: true,
 					fieldType: 'select',
 					optionValuesKey: 'chartThemeOptions',
 					value: 'theme1'
@@ -276,7 +282,7 @@ const display: ComponentSet = {
 			configuration: {
 				theme: {
 					type: 'static',
-
+					onlyStatic: true,
 					fieldType: 'select',
 					optionValuesKey: 'chartThemeOptions',
 					value: 'theme1'

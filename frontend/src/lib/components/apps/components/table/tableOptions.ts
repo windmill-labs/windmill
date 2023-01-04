@@ -1,13 +1,16 @@
-import { getCoreRowModel, getPaginationRowModel } from '@tanstack/svelte-table'
+import { getCoreRowModel, getPaginationRowModel, type TableOptions } from '@tanstack/svelte-table'
 
-const tableOptions = {
+const tableOptions: TableOptions<Record<string, any>> = {
+	data: [],
+	columns: [],
+	enableColumnResizing: false,
 	getCoreRowModel: getCoreRowModel(),
 	getPaginationRowModel: getPaginationRowModel(),
 	initialState: {
 		pagination: {
-			pageSize: 10
+			pageSize: 25
 		}
-	}
+	},
 }
 
 export { tableOptions }

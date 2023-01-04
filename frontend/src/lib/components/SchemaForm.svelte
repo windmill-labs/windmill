@@ -28,6 +28,7 @@
 	export let noVariablePicker = false
 	export let filter: string[] | undefined = undefined
 	export let noDynamicToggle = false
+	export let flexWrap = false
 
 	let clazz: string = ''
 	export { clazz as class }
@@ -55,7 +56,7 @@
 	let variableEditor: VariableEditor | undefined = undefined
 </script>
 
-<div class="w-full {clazz}">
+<div class="w-full {clazz} {flexWrap ? 'flex flex-row flex-wrap gap-x-4' : ''}">
 	{#if Object.keys(schema?.properties ?? {}).length > 0}
 		{#each Object.keys(schema?.properties ?? {}) as argName, i (argName)}
 			{#if !filter || filter.includes(argName)}

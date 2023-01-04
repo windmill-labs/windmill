@@ -53,7 +53,7 @@ export type Aligned = {
 export interface BaseAppComponent extends Partial<Aligned> {
 	id: ComponentID
 	componentInput: AppInput | undefined
-	configuration: Record<string, StaticAppInput | ConnectedAppInput | UserAppInput>
+	configuration: Record<string, (StaticAppInput | ConnectedAppInput | UserAppInput) & { onlyStatic?: boolean }>
 	card: boolean | undefined
 	/**
 	 * If `true` then the wrapper will allow items to flow outside of it's borders.

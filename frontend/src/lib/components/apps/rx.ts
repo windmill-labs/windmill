@@ -32,8 +32,8 @@ export function buildWorld(
 	const state = writable(0)
 
 	const outputsById: Record<string, Record<string, Output<any>>> = {
-		context: Object.fromEntries(Object.entries(context).map(([k, v]) => {
-			return [k, newWorld.newOutput('context', k, state, v)]
+		ctx: Object.fromEntries(Object.entries(context).map(([k, v]) => {
+			return [k, newWorld.newOutput('ctx', k, state, v)]
 		}))
 	}
 	for (const [k, outputs] of Object.entries(components)) {
