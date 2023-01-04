@@ -174,10 +174,6 @@
 	)
 
 	async function executeComponent() {
-		if (outputs?.loading.peak() === true) {
-			return
-		}
-
 		if (runnable?.type === 'runnableByName' && !runnable.inlineScript) {
 			return
 		}
