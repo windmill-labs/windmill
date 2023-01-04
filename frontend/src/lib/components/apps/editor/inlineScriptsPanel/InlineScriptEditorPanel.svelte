@@ -4,7 +4,6 @@
 	import FlowModuleScript from '$lib/components/flows/content/FlowModuleScript.svelte'
 	import FlowPathViewer from '$lib/components/flows/content/FlowPathViewer.svelte'
 	import { inferArgs } from '$lib/infer'
-	import { loadSchema } from '$lib/scripts'
 	import { emptySchema, getScriptByPath } from '$lib/utils'
 	import { faCodeBranch, faExternalLinkAlt, faEye, faPen } from '@fortawesome/free-solid-svg-icons'
 	import type { AppInput, ResultAppInput } from '../../inputType'
@@ -13,6 +12,7 @@
 	import InlineScriptEditor from './InlineScriptEditor.svelte'
 
 	export let componentInput: AppInput | undefined
+	export let id: string
 
 	async function fork(path: string) {
 		let { content, language, schema } = await getScriptByPath(path)
@@ -21,7 +21,6 @@
 				schema = emptySchema()
 				await inferArgs(language, content, schema)
 			}
-			console.log(schema)
 			componentInput.runnable = {
 				type: 'runnableByName',
 				name: path,
@@ -32,7 +31,6 @@
 					path
 				}
 			}
-			console.log(content, language, schema)
 		} else {
 			console.error('componentInput is undefined')
 		}
@@ -52,6 +50,7 @@
 	{#if componentInput?.runnable?.type === 'runnableByName' && componentInput?.runnable?.name !== undefined}
 		{#if componentInput.runnable.inlineScript}
 			<InlineScriptEditor
+				{id}
 				bind:inlineScript={componentInput.runnable.inlineScript}
 				bind:name={componentInput.runnable.name}
 				on:delete={() => {

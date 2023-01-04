@@ -12,13 +12,15 @@
 	import { fly } from 'svelte/transition'
 	import Editor from '$lib/components/Editor.svelte'
 	import { scriptLangToEditorLang } from '$lib/utils'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
 
 	export let inlineScript: InlineScript
 	export let name: string | undefined = undefined
+	export let id: string
 
-	const { app } = getContext<AppEditorContext>('AppEditorContext')
+	const { runnableComponents } = getContext<AppEditorContext>('AppEditorContext')
 
 	let editor: Editor
 
@@ -50,6 +52,7 @@
 		}
 	})
 	const dispatch = createEventDispatcher()
+	let runLoading = false
 </script>
 
 <InlineScriptEditorDrawer {editor} bind:this={inlineScriptEditorDrawer} bind:inlineScript />
@@ -70,7 +73,7 @@
 				</Badge>
 			{/if}
 
-			{#if $app.unusedInlineScripts.map((x) => x.name).includes(name ?? '')}
+			{#if id.startsWith('unused-')}
 				<Button
 					size="xs"
 					color="light"
@@ -79,6 +82,22 @@
 					startIcon={{ icon: faTrash }}
 					on:click={() => dispatch('delete')}
 				/>
+			{:else}
+				<Button
+					loading={runLoading}
+					size="xs"
+					color="blue"
+					title="Cmd+Enter"
+					on:click={async () => {
+						runLoading = true
+						await $runnableComponents[id]?.()
+						runLoading = false
+					}}
+				>
+					Run&nbsp;<Tooltip
+						>Cmd+Enter to run the script and see the result in the component directly</Tooltip
+					>
+				</Button>
 			{/if}
 
 			<Button
@@ -103,6 +122,11 @@
 			lang={scriptLangToEditorLang(inlineScript?.language)}
 			bind:code={inlineScript.content}
 			fixedOverflowWidgets={true}
+			cmdEnterAction={async () => {
+				runLoading = true
+				await $runnableComponents[id]?.()
+				runLoading = false
+			}}
 			on:change={async (e) => {
 				if (inlineScript) {
 					const oldSchema = JSON.stringify(inlineScript.schema)
