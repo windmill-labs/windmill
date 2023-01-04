@@ -16,14 +16,16 @@
 
 	const { app, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
 
-	function getMinDimensionsByComponent(componentType: AppComponent['type'], column: number): Size {
+	function getRecommendedDimensionsByComponent(
+		componentType: AppComponent['type'],
+		column: number
+	): Size {
 		// Dimensions key formula: <mobile width>:<mobile height>-<desktop width>:<desktop height>
 		const dimensions: Record<`${number}:${number}-${number}:${number}`, AppComponent['type'][]> = {
-			'4:1-4:1': ['textcomponent'],
-			'2:1-2:1': ['buttoncomponent'],
-			'2:2-2:2': ['htmlcomponent'],
-			'4:2-4:2': [
-				'checkboxcomponent',
+			'1:1-3:1': ['textcomponent'],
+			'1:1-1:1': ['buttoncomponent', 'checkboxcomponent'],
+			'1:2-1:2': ['htmlcomponent'],
+			'2:1-3:1': [
 				'textinputcomponent',
 				'numberinputcomponent',
 				'selectcomponent',
@@ -31,14 +33,14 @@
 				'dateinputcomponent'
 			],
 			'3:5-6:5': ['formcomponent'],
-			'4:12-4:12': [
+			'2:8-6:8': [
 				'timeseriescomponent',
 				'barchartcomponent',
 				'piechartcomponent',
 				'displaycomponent',
 				'scatterchartcomponent'
 			],
-			'3:10-6:12': ['tablecomponent']
+			'3:10-6:10': ['tablecomponent']
 		}
 		// Finds the key that is associated with the component type and extracts the dimensions from it
 		const [dimension] = Object.entries(dimensions).find(([_, value]) =>
@@ -47,22 +49,6 @@
 
 		const size = dimension.split('-')[column === 3 ? 0 : 1].split(':')
 		return { w: +size[0], h: +size[1] }
-	}
-
-	function getMaxDimensionsByComponent(componentType: AppComponent['type'], column: number): Size {
-		if (
-			[
-				'textinputcomponent',
-				'numberinputcomponent',
-				'selectcomponent',
-				'dateinputcomponent',
-				'passwordinputcomponent',
-				'buttoncomponent'
-			].includes(componentType)
-		) {
-			return { w: column, h: 2 }
-		}
-		return { w: column, h: 80 }
 	}
 
 	function addComponent(appComponent: AppComponent) {
@@ -90,12 +76,17 @@
 		}
 
 		gridColumns.forEach((column) => {
-			const min = getMinDimensionsByComponent(appComponent.type, column)
-			const max = getMaxDimensionsByComponent(appComponent.type, column)
+			const rec = getRecommendedDimensionsByComponent(appComponent.type, column)
 
-			newItem[column] = { ...newComponent, min, max, w: min.w, h: min.h }
+			newItem[column] = {
+				...newComponent,
+				min: { w: 1, h: 1 },
+				max: { w: column, h: 100 },
+				w: rec.w,
+				h: rec.h
+			}
 			const position = gridHelp.findSpace(newItem, grid, column) as { x: number; y: number }
-			newItem[column] = { ...newItem[column], ...position, min, max }
+			newItem[column] = { ...newItem[column], ...position }
 		})
 
 		$app.grid = [...grid, newItem]

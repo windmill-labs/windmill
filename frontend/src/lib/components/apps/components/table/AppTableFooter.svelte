@@ -3,6 +3,7 @@
 	import { faDownload } from '@fortawesome/free-solid-svg-icons'
 	import type { Table } from '@tanstack/svelte-table'
 	import type { Readable } from 'svelte/store'
+	import { tableOptions } from './tableOptions'
 
 	type T = Record<string, any>
 
@@ -22,7 +23,7 @@
 </script>
 
 <div class="px-4 py-2 text-xs flex flex-row gap-2 items-center justify-between">
-	{#if paginationEnabled}
+	{#if paginationEnabled && result.length > (tableOptions.initialState?.pagination?.pageSize ?? 25)}
 		<div class="flex items-center gap-2 flex-row">
 			<Button
 				size="xs"

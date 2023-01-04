@@ -327,17 +327,17 @@
 			{:else if inputCat == 'date'}
 				<input {autofocus} class="inline-block" type="datetime-local" bind:value />
 			{:else if inputCat == 'sql' || inputCat == 'yaml'}
-				<div class="border mb-4 w-full border-gray-400">
+				<div class="border my-1 mb-4 w-full border-gray-400">
 					<SimpleEditor
 						on:focus={() => dispatch('focus')}
 						on:blur={() => dispatch('blur')}
 						bind:this={editor}
 						lang={inputCat}
 						bind:code={value}
-						class="few-lines-editor"
 						on:change={async () => {
 							dispatch('input', { rawValue: value, isRaw: false })
 						}}
+						autoHeight
 					/>
 				</div>
 			{:else if inputCat == 'base64'}
