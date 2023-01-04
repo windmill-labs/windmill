@@ -12,7 +12,7 @@
 	let selectedScriptComponentId: string | undefined = undefined
 </script>
 
-<SplitPanesWrapper>
+<SplitPanesWrapper panesClass="!overflow-visible">
 	<Pane size={25}>
 		<InlineScriptsPanelList bind:selectedScriptComponentId />
 	</Pane>

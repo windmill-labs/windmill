@@ -19,7 +19,7 @@ import {
 	Calendar,
 	ToggleLeft
 } from 'lucide-svelte'
-import type { AppInput, AppInputs, InputType, ResultAppInput, StaticAppInput, StaticInput } from './inputType'
+import type { AppInput, InputType, ResultAppInput, StaticAppInput } from './inputType'
 import type { AppComponent } from './types'
 
 export async function loadSchema(

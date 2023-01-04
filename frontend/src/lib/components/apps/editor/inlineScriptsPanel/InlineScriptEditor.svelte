@@ -54,7 +54,7 @@
 
 <InlineScriptEditorDrawer {editor} bind:this={inlineScriptEditorDrawer} bind:inlineScript />
 
-<div class="h-full p-4 flex flex-col gap-2" transition:fly={{ duration: 50 }}>
+<div class="h-full p-2 flex flex-col gap-2" transition:fly={{ duration: 50 }}>
 	<div class="flex justify-between w-full gap-1 flex-row items-center">
 		{#if name !== undefined}
 			<input bind:value={name} placeholder="Inline script name" />
@@ -102,7 +102,7 @@
 			class="flex flex-1 grow h-full"
 			lang={scriptLangToEditorLang(inlineScript?.language)}
 			bind:code={inlineScript.content}
-			fixedOverflowWidgets={false}
+			fixedOverflowWidgets={true}
 			on:change={async (e) => {
 				if (inlineScript) {
 					const oldSchema = JSON.stringify(inlineScript.schema)
