@@ -43,7 +43,7 @@
 
 <PanelSection noPadding titlePadding="px-4 pt-2" title="Outputs">
 	<div
-		class="overflow-auto min-w-[150px] border-t w-full relative flex flex-col gap-4 px-4 pt-4 pb-2"
+		class="overflow-auto min-w-[150px] border-t w-full relative flex flex-col gap-4 px-2 pt-4 pb-2"
 	>
 		{#each panels as [componentId, outputs] (componentId)}
 			{#if outputs.length > 0 && $worldStore?.outputsById[componentId]}

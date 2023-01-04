@@ -93,7 +93,10 @@ declare const ${k} = ${JSON.stringify(v)};
 {#if component}
 	<div class="flex flex-col min-w-[150px] w-full divide-y">
 		{#if component.componentInput}
-			<PanelSection title={component.componentInput.fieldType === 'any' ? 'By Runnable' : 'Input'}>
+			<PanelSection
+				smallPadding
+				title={component.componentInput.fieldType === 'any' ? 'By Runnable' : 'Input'}
+			>
 				<svelte:fragment slot="action">
 					<span
 						class={classNames(

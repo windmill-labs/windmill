@@ -169,7 +169,7 @@
 								{#if $selectedComponent !== undefined}
 									<SettingsPanel />
 								{:else}
-									<div class="p-4 min-w-[150px] text-sm">No component selected.</div>
+									<div class="p-2 min-w-[150px] text-sm">No component selected.</div>
 								{/if}
 							</TabContent>
 							<TabContent value="insert">
