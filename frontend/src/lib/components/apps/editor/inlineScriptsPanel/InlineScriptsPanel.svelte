@@ -19,13 +19,19 @@
 	<Pane size={75}>
 		{#each $lazyGrid as gridComponent, index (index)}
 			{#if gridComponent.data.id === selectedScriptComponentId}
-				<InlineScriptEditorPanel bind:componentInput={gridComponent.data.componentInput} />
+				<InlineScriptEditorPanel
+					id={gridComponent.data.id}
+					bind:componentInput={gridComponent.data.componentInput}
+				/>
 			{/if}
 
 			{#if gridComponent.data.type === 'tablecomponent'}
 				{#each gridComponent.data.actionButtons as actionButton, index (index)}
 					{#if actionButton.id === selectedScriptComponentId}
-						<InlineScriptEditorPanel bind:componentInput={actionButton.componentInput} />
+						<InlineScriptEditorPanel
+							id={actionButton.id}
+							bind:componentInput={actionButton.componentInput}
+						/>
 					{/if}
 				{/each}
 			{/if}
@@ -33,6 +39,7 @@
 		{#each $app.unusedInlineScripts as unusedInlineScript, index (index)}
 			{#if `unused-${index}` === selectedScriptComponentId}
 				<InlineScriptEditor
+					id={`unused-${index}`}
 					bind:name={unusedInlineScript.name}
 					bind:inlineScript={unusedInlineScript.inlineScript}
 					on:delete={() => {
