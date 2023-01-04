@@ -122,7 +122,7 @@
 								class="border w-24 shadow-sm h-16 p-2 flex flex-col gap-2 items-center
 									justify-center bg-white rounded-md hover:bg-gray-100 duration-200"
 							>
-								<svelte:component this={displayData[item.type].icon} class="text-blue-800" />
+								<svelte:component this={displayData[item.type].icon} />
 								<div class="text-xs w-full text-center ellipsize">
 									{displayData[item.type].name}
 								</div>

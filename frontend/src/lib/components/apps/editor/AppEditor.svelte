@@ -166,7 +166,7 @@
 						</Tab>
 						<svelte:fragment slot="content">
 							<TabContent value="settings">
-								{#if $selectedComponent !== undefined}
+								{#if $selectedComponent !== undefined && $selectedComponent !== 'context'}
 									<SettingsPanel />
 								{:else}
 									<div class="p-4 min-w-[150px] text-sm">No component selected.</div>
