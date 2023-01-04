@@ -223,6 +223,7 @@
 	export async function runComponent() {
 		await executeComponent()
 	}
+	let lastStartedAt: number = Date.now()
 </script>
 
 {#each Object.entries(fields ?? {}) as [key, v]}
@@ -240,8 +241,12 @@
 	workspaceOverride={workspace}
 	on:done={() => {
 		if (testJob && outputs) {
-			outputs.result?.set(testJob?.result)
-			result = testJob.result
+			const startedAt = new Date(testJob.started_at).getTime()
+			if (startedAt > lastStartedAt) {
+				lastStartedAt = startedAt
+				outputs.result?.set(testJob?.result)
+				result = testJob.result
+			}
 		}
 	}}
 	bind:isLoading={testIsLoading}
