@@ -23,7 +23,7 @@
 		// Dimensions key formula: <mobile width>:<mobile height>-<desktop width>:<desktop height>
 		const dimensions: Record<`${number}:${number}-${number}:${number}`, AppComponent['type'][]> = {
 			'1:1-3:1': ['textcomponent'],
-			'1:1-1:1': ['buttoncomponent', 'checkboxcomponent'],
+			'1:1-2:1': ['buttoncomponent', 'checkboxcomponent'],
 			'1:2-1:2': ['htmlcomponent'],
 			'2:1-3:1': [
 				'textinputcomponent',
