@@ -89,7 +89,6 @@
 	$: if (innerWidth < 1248 && innerWidth >= 768) {
 		isCollapsed = true
 	} else if ((innerWidth >= 1248 || innerWidth < 768) && !$page.url.pathname.startsWith('/apps')) {
-		console.log($page.url.pathname)
 		isCollapsed = false
 	}
 </script>

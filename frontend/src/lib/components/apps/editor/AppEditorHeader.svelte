@@ -67,7 +67,6 @@
 					)
 					if (c.componentInput.runnable?.type == 'runnableByName') {
 						let hex = await hash(c.componentInput.runnable.inlineScript?.content)
-						console.log(staticInputs)
 						return [`rawscript/${hex}`, staticInputs]
 					} else if (c.componentInput.runnable?.type == 'runnableByPath') {
 						return [
