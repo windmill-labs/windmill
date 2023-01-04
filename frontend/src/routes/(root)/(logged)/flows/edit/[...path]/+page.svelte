@@ -4,13 +4,13 @@
 	import { page } from '$app/stores'
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import { workspaceStore } from '$lib/stores'
-	import { decodeArgs, decodeState, emptySchema } from '$lib/utils'
+	import { decodeArgs, decodeState, emptySchema, sendUserToast } from '$lib/utils'
 	import { initFlow } from '$lib/components/flows/flowStore'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 	import { goto } from '$app/navigation'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
-	const initialState = nodraft ? undefined : localStorage.getItem('flow')
+	const initialState = nodraft ? undefined : localStorage.getItem(`flow-${$page.params.path}`)
 	let stateLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
 	const initialArgs = decodeArgs($page.url.searchParams.get('args') ?? undefined)
 
@@ -39,13 +39,16 @@
 
 	async function loadFlow(): Promise<void> {
 		loading = true
-		flow =
-			stateLoadedFromUrl != undefined && stateLoadedFromUrl?.flow?.path == flow.path
-				? stateLoadedFromUrl.flow
-				: await FlowService.getFlowByPath({
-						workspace: $workspaceStore!,
-						path: flow.path
-				  })
+		let flow: Flow
+		if (stateLoadedFromUrl != undefined && stateLoadedFromUrl?.flow?.path == $page.params.path) {
+			sendUserToast('Flow restored from draft')
+			flow = stateLoadedFromUrl.flow
+		} else {
+			flow = await FlowService.getFlowByPath({
+				workspace: $workspaceStore!,
+				path: $page.params.path
+			})
+		}
 		initialPath = flow.path
 
 		await initFlow(flow)

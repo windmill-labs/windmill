@@ -4,7 +4,7 @@
 	import AppEditor from '$lib/components/apps/editor/AppEditor.svelte'
 	import { Policy } from '$lib/gen'
 	import { page } from '$app/stores'
-	import { decodeState } from '$lib/utils'
+	import { decodeState, sendUserToast } from '$lib/utils'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 	import { userStore } from '$lib/stores'
 	import type { App } from '$lib/components/apps/types'
@@ -34,6 +34,9 @@
 					unusedInlineScripts: []
 			  })
 
+	if (!importJson && initialState) {
+		sendUserToast('App restored from draft')
+	}
 	$dirtyStore = false
 </script>
 

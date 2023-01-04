@@ -161,7 +161,11 @@
 				}}
 				formatAction={async () => {
 					await inferSchema(code)
-					localStorage.setItem(path ?? 'last_save', code)
+					try {
+						localStorage.setItem(path ?? 'last_save', code)
+					} catch (e) {
+						console.error('Could not save last_save to local storage', e)
+					}
 					lastSave = code
 				}}
 				class="flex flex-1 h-full !overflow-visible"

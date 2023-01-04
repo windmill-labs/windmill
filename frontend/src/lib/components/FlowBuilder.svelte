@@ -54,8 +54,8 @@
 		const flow = cleanInputs($flowStore)
 		const { cron, args, enabled } = $scheduleStore
 		$dirtyStore = false
-
 		if (initialPath === '') {
+			localStorage.removeItem('flow')
 			await FlowService.createFlow({
 				workspace: $workspaceStore!,
 				requestBody: {
@@ -70,6 +70,7 @@
 				await createSchedule(flow.path)
 			}
 		} else {
+			localStorage.removeItem(`flow-${initialPath}`)
 			await FlowService.updateFlow({
 				workspace: $workspaceStore!,
 				path: initialPath,
@@ -125,17 +126,19 @@
 
 	function saveDraft() {
 		timeout && clearTimeout(timeout)
-		timeout = setTimeout(
-			() =>
+		timeout = setTimeout(() => {
+			try {
 				localStorage.setItem(
-					'flow',
+					initialPath ? `flow-${initialPath}` : 'flow',
 					encodeState({
 						flow: $flowStore,
 						selectedId: $selectedIdStore
 					})
-				),
-			500
-		)
+				)
+			} catch (err) {
+				console.error(err)
+			}
+		}, 500)
 	}
 
 	const selectedIdStore = writable<string>(selectedId)

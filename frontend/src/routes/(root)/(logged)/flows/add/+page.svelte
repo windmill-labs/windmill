@@ -7,7 +7,7 @@
 	import { initFlow } from '$lib/components/flows/flowStore'
 	import { FlowService, type Flow } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { decodeState, emptySchema } from '$lib/utils'
+	import { decodeState, emptySchema, sendUserToast } from '$lib/utils'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
 
@@ -24,8 +24,7 @@
 
 	async function loadFlow() {
 		loading = true
-		let state = initialState ? decodeState(initialState) : undefined
-		let flow: Flow = state?.flow ?? {
+		let flow: Flow = {
 			path: '',
 			summary: '',
 			value: { modules: [] },
@@ -36,28 +35,33 @@
 			schema: emptySchema()
 		}
 
-		state?.selectedId && (selectedId = state?.selectedId)
-		if (templatePath) {
-			const template = await FlowService.getFlowByPath({
-				workspace: $workspaceStore!,
-				path: templatePath
-			})
-			Object.assign(flow, template)
-			const oldPath = flow.path.split('/')
-			flow.path = `u/${$userStore?.username}/${oldPath[oldPath.length - 1]}`
-			flow = flow
-			$page.url.searchParams.delete('template')
-			selectedId = 'settings-graph'
-		} else if (hubId) {
-			const hub = await FlowService.getHubFlowById({ id: Number(hubId) })
-			delete hub['comments']
-			flow.path = `u/${$userStore?.username}/flow_${hubId}`
-			Object.assign(flow, hub.flow)
-			flow = flow
-			$page.url.searchParams.delete('hub')
-			selectedId = 'settings-graph'
+		let state = initialState ? decodeState(initialState) : undefined
+		if (!templatePath && !hubId && state) {
+			sendUserToast('Flow restored from draft')
+			flow = state.flow
+			state?.selectedId && (selectedId = state?.selectedId)
+		} else {
+			if (templatePath) {
+				const template = await FlowService.getFlowByPath({
+					workspace: $workspaceStore!,
+					path: templatePath
+				})
+				Object.assign(flow, template)
+				const oldPath = flow.path.split('/')
+				flow.path = `u/${$userStore?.username}/${oldPath[oldPath.length - 1]}`
+				flow = flow
+				$page.url.searchParams.delete('template')
+				selectedId = 'settings-graph'
+			} else if (hubId) {
+				const hub = await FlowService.getHubFlowById({ id: Number(hubId) })
+				delete hub['comments']
+				flow.path = `u/${$userStore?.username}/flow_${hubId}`
+				Object.assign(flow, hub.flow)
+				flow = flow
+				$page.url.searchParams.delete('hub')
+				selectedId = 'settings-graph'
+			}
 		}
-
 		await initFlow(flow)
 		loading = false
 	}

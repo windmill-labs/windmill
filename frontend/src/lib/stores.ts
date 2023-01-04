@@ -65,7 +65,12 @@ export const hubScripts = writable<
 if (browser) {
   workspaceStore.subscribe(async (workspace) => {
     if (workspace) {
-      localStorage.setItem("workspace", String(workspace));
+      try {
+        localStorage.setItem("workspace", String(workspace));
+      } catch (e) {
+        console.error('Could not persist workspace to local storage', e)
+      }
+
       userStore.set(await getUserExt(workspace));
     } else {
       userStore.set(undefined);
