@@ -270,6 +270,12 @@
 		<Alert type="warning" size="xs" class="mt-2 px-1" title="Missing runnable">
 			Please select a runnable
 		</Alert>
+	{:else if result?.error}
+		<div class="p-2">
+			<Alert type="error" title="Error during execution">
+				<pre title={result.error} class="text-2xs whitespace-pre-wrap">{result.error}</pre>
+			</Alert>
+		</div>
 	{:else if autoRefresh === true}
 		<div class="flex absolute top-1 right-1">
 			<RefreshButton componentId={id} />

@@ -112,7 +112,7 @@
 			<RecomputeAllComponents />
 		{/if}
 		<div class="text-2xs text-gray-600"
-			>{policy.on_behalf_of ? `on behalf of ${policy.on_behalf_of}` : ''}</div
+			>{policy.on_behalf_of ? `on behalf of ${policy.on_behalf_of_email}` : ''}</div
 		>
 	</div>
 	<div
