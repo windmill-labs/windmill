@@ -14,6 +14,17 @@
 
 	import libStdContent from '$lib/es5.d.ts.txt?raw'
 
+	meditor.defineTheme('myTheme', {
+		base: 'vs',
+		inherit: true,
+		rules: [],
+		colors: {
+			'editorLineNumber.foreground': '#999',
+			'editorGutter.background': '#F9FAFB'
+		}
+	})
+	meditor.setTheme('myTheme')
+
 	languages.typescript.javascriptDefaults.setCompilerOptions({
 		target: languages.typescript.ScriptTarget.Latest,
 		allowNonTsExtensions: true,

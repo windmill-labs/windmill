@@ -81,6 +81,9 @@ function argSigToJsonSchemaType(
 	} else if (t === 'sql') {
 		newS.type = 'string'
 		newS.format = 'sql'
+	} else if (t === 'yaml') {
+		newS.type = 'string'
+		newS.format = 'yaml'
 	} else if (t === 'bytes') {
 		newS.type = 'string'
 		newS.contentEncoding = 'base64'

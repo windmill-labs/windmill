@@ -434,6 +434,7 @@ export type InputCat =
 	| 'resource-string'
 	| 'object'
 	| 'sql'
+	| 'yaml'
 
 export function setInputCat(
 	type: string | undefined,
@@ -458,6 +459,8 @@ export function setInputCat(
 		return 'date'
 	} else if (type == 'string' && format == 'sql') {
 		return 'sql'
+	} else if (type == 'string' && format == 'yaml') {
+		return 'yaml'
 	} else if (type == 'string' && contentEncoding == 'base64') {
 		return 'base64'
 	} else if (type == 'string' && format?.startsWith('resource')) {

@@ -8,7 +8,7 @@
 	export let format: string | undefined
 	export let contentEncoding: 'base64' | 'binary' | undefined
 
-	let kind: 'none' | 'pattern' | 'enum' | 'resource' | 'format' | 'base64' = 'none'
+	let kind: 'none' | 'pattern' | 'enum' | 'resource' | 'format' | 'base64' = computeKind()
 	let patternStr: string = pattern ?? ''
 
 	let resource: string | undefined
@@ -18,7 +18,9 @@
 		'hostname',
 		'uri',
 		'uuid',
-		'ipv4'
+		'ipv4',
+		'yaml',
+		'sql'
 		// 'time',
 		// 'date',
 		// 'duration',
@@ -40,6 +42,25 @@
 		if (enum_.length == 0) {
 			enum_ = undefined
 		}
+	}
+
+	function computeKind(): 'base64' | 'none' | 'pattern' | 'enum' | 'resource' | 'format' {
+		if (enum_ != undefined) {
+			return 'enum'
+		}
+		if (contentEncoding == 'base64') {
+			return 'base64'
+		}
+		if (pattern != undefined) {
+			return 'pattern'
+		}
+		if (format != undefined) {
+			if (format.startsWith('resource')) {
+				return 'resource'
+			}
+			return 'format'
+		}
+		return 'none'
 	}
 </script>
 
@@ -81,12 +102,14 @@
 {:else if kind == 'enum'}
 	<label for="input" class="mb-2 text-gray-700 text-xs">
 		Enums
-		{#each enum_ || [] as e}
-			<div class="flex flex-row max-w-md">
-				<input id="input" type="text" bind:value={e} />
-				<Button size="sm" btnClasses="ml-6" on:click={() => remove(e)}>-</Button>
-			</div>
-		{/each}
+		<div class="flex flex-col gap-1">
+			{#each enum_ || [] as e}
+				<div class="flex flex-row max-w-md">
+					<input id="input" type="text" bind:value={e} />
+					<Button size="sm" btnClasses="ml-6" on:click={() => remove(e)}>-</Button>
+				</div>
+			{/each}
+		</div>
 		<div class="flex flex-row my-1">
 			<Button size="sm" on:click={add}>+</Button>
 			<Button variant="border" size="sm" btnClasses="ml-2" on:click={() => (enum_ = undefined)}>

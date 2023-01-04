@@ -74,7 +74,7 @@
 	}
 
 	function isStaticTemplate(inputCat: InputCat) {
-		return inputCat === 'string' || inputCat === 'sql'
+		return inputCat === 'string' || inputCat === 'sql' || inputCat == 'yaml'
 	}
 
 	function connectProperty(rawValue: string) {
