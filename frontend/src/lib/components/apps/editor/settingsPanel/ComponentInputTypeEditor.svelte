@@ -10,7 +10,7 @@
 
 	const { onchange } = getContext<AppEditorContext>('AppEditorContext')
 
-	$: if (componentInput.fieldType == 'textarea' && componentInput.type == 'static') {
+	$: if (componentInput.fieldType == 'template' && componentInput.type == 'static') {
 		//@ts-ignore
 		componentInput.type = 'template'
 		componentInput['eval'] = componentInput.value
@@ -24,7 +24,7 @@
 {#if componentInput.fieldType !== 'any'}
 	<div class="w-full overflow-x-auto" bind:clientWidth>
 		<ToggleButtonGroup on:selected={() => onchange?.()} bind:selected={componentInput.type}>
-			{#if componentInput.fieldType === 'textarea'}
+			{#if componentInput.fieldType === 'template'}
 				<ToggleButton position="left" value="template" size="xs" disable={disableStatic}>
 					{brackets}&nbsp;<span class="hidden lg:block">Template</span>
 				</ToggleButton>

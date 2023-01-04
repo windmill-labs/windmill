@@ -103,6 +103,16 @@
 				acc.push(componentInput.runnable.name)
 			}
 
+			if (componentInput.type === 'tablecomponent') {
+				componentInput.actionButtons.forEach((actionButton) => {
+					if (actionButton.componentInput?.type === 'runnable') {
+						if (actionButton.componentInput.runnable?.type === 'runnableByName') {
+							acc.push(actionButton.componentInput.runnable.name)
+						}
+					}
+				})
+			}
+
 			return acc
 		}, [] as string[])
 

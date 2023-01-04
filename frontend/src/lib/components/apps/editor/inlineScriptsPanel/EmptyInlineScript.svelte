@@ -7,11 +7,13 @@
 	import { emptySchema } from '$lib/utils'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { fly } from 'svelte/transition'
+	import { defaultCode } from '../../editorUtils'
 	import type { AppEditorContext } from '../../types'
 
 	export let name: string
+	export let id: string
 
-	const { appPath } = getContext<AppEditorContext>('AppEditorContext')
+	const { appPath, app } = getContext<AppEditorContext>('AppEditorContext')
 	const dispatch = createEventDispatcher()
 
 	async function inferInlineScriptSchema(
@@ -33,8 +35,12 @@
 		path: string,
 		subkind: 'pgsql' | 'mysql' | undefined = undefined
 	) {
+		const componentType = $app.grid.find((c) => c.data.id === id)?.data?.type
+
 		const fullPath = `${appPath}/inline-script/${path}`
-		const content = initialCode(language, Script.kind.SCRIPT, subkind ?? 'flow')
+		const content =
+			defaultCode(componentType, language) ??
+			initialCode(language, Script.kind.SCRIPT, subkind ?? 'flow')
 
 		let schema: Schema = emptySchema()
 

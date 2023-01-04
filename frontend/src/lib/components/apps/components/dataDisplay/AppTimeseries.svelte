@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { Bar, Line } from 'svelte-chartjs'
+	import zoomPlugin from 'chartjs-plugin-zoom'
+	import 'chartjs-adapter-date-fns'
 
 	import {
 		Chart as ChartJS,
@@ -10,11 +11,14 @@
 		LinearScale,
 		PointElement,
 		CategoryScale,
-		BarElement
+		BarElement,
+		TimeScale,
+		LogarithmicScale
 	} from 'chart.js'
 
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import type { AppInput } from '../../inputType'
+	import Scatter from 'svelte-chartjs/Scatter.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 
 	export let id: string
@@ -22,6 +26,8 @@
 	export let configuration: Record<string, AppInput>
 
 	export const staticOutputs: string[] = ['loading', 'result']
+
+	let logarithmicScale = false
 
 	ChartJS.register(
 		Title,
@@ -31,52 +37,54 @@
 		LinearScale,
 		PointElement,
 		CategoryScale,
-		BarElement
+		BarElement,
+		zoomPlugin,
+		TimeScale,
+		LogarithmicScale
 	)
 
-	let result: { data: number[]; labels?: string[] } | undefined = undefined
-	let theme: string = 'theme1'
-	let lineChart = false
+	const zoomOptions = {
+		pan: {
+			enabled: true
+		},
+		zoom: {
+			drag: {
+				enabled: false
+			},
+			wheel: {
+				enabled: true
+			}
+		}
+	}
 
-	$: backgroundColor = {
-		theme1: ['#FF6384', '#4BC0C0', '#FFCE56', '#E7E9ED', '#36A2EB'],
-		// blue theme
-		theme2: ['#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b'],
-		// red theme
-		theme3: ['#e74a3b', '#4e73df', '#1cc88a', '#36b9cc', '#f6c23e']
-	}[theme]
+	let result: { data: { x: any[]; y: string[] } } | undefined = undefined
 
-	const options = {
+	$: options = {
 		responsive: true,
 		animation: false,
 		maintainAspectRatio: false,
 		plugins: {
-			legend: {
-				display: false
+			zoom: zoomOptions
+		},
+		scales: {
+			x: {
+				type: 'time'
+			},
+			y: {
+				type: logarithmicScale ? 'logarithmic' : 'linear'
 			}
 		}
 	}
 
 	$: data = {
-		labels: result?.labels ?? [],
-		datasets: [
-			{
-				data: result?.data ?? [],
-				backgroundColor
-			}
-		]
+		datasets: result ?? []
 	}
 </script>
 
-<InputValue {id} input={configuration.theme} bind:value={theme} />
-<InputValue {id} input={configuration.line} bind:value={lineChart} />
+<InputValue {id} input={configuration.logarithmicScale} bind:value={logarithmicScale} />
 
 <RunnableWrapper autoRefresh bind:componentInput {id} bind:result>
 	{#if result}
-		{#if lineChart}
-			<Line {data} {options} />
-		{:else}
-			<Bar {data} {options} />
-		{/if}
+		<Scatter {data} {options} />
 	{/if}
 </RunnableWrapper>

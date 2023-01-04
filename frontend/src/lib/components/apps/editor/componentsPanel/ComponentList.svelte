@@ -21,6 +21,7 @@
 		const dimensions: Record<`${number}:${number}-${number}:${number}`, AppComponent['type'][]> = {
 			'4:1-4:1': ['textcomponent'],
 			'2:1-2:1': ['buttoncomponent'],
+			'2:2-2:2': ['htmlcomponent'],
 			'4:2-4:2': [
 				'checkboxcomponent',
 				'textinputcomponent',
@@ -30,7 +31,13 @@
 				'dateinputcomponent'
 			],
 			'3:5-6:5': ['formcomponent'],
-			'4:12-4:12': ['barchartcomponent', 'piechartcomponent', 'displaycomponent'],
+			'4:12-4:12': [
+				'timeseriescomponent',
+				'barchartcomponent',
+				'piechartcomponent',
+				'displaycomponent',
+				'scatterchartcomponent'
+			],
 			'3:10-6:12': ['tablecomponent']
 		}
 		// Finds the key that is associated with the component type and extracts the dimensions from it

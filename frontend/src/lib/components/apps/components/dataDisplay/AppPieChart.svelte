@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Pie } from 'svelte-chartjs'
+	import { Doughnut, Pie } from 'svelte-chartjs'
 
 	import {
 		Chart as ChartJS,
@@ -12,7 +12,6 @@
 		CategoryScale,
 		ArcElement
 	} from 'chart.js'
-	import type { ChartData } from 'chart.js'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import type { AppInput } from '../../inputType'
 	import InputValue from '../helpers/InputValue.svelte'
@@ -34,9 +33,9 @@
 		ArcElement
 	)
 
-	let result: ChartData<'bar', number[], unknown> | undefined = undefined
-	let labels: string[] = []
+	let result: { data: number[]; labels?: string[] } | undefined = undefined
 	let theme: string = 'theme1'
+	let doughnut = false
 
 	$: backgroundColor = {
 		theme1: ['#FF6384', '#4BC0C0', '#FFCE56', '#E7E9ED', '#36A2EB'],
@@ -53,10 +52,10 @@
 	}
 
 	$: data = {
-		labels,
+		labels: result?.labels ?? [],
 		datasets: [
 			{
-				data: result,
+				data: result?.data ?? [],
 				backgroundColor: backgroundColor
 			}
 		]
@@ -64,10 +63,14 @@
 </script>
 
 <InputValue {id} input={configuration.theme} bind:value={theme} />
-<InputValue {id} input={configuration.labels} bind:value={labels} />
+<InputValue {id} input={configuration.doughnutStyle} bind:value={doughnut} />
 
 <RunnableWrapper autoRefresh bind:componentInput {id} bind:result>
 	{#if result}
-		<Pie {data} {options} />
+		{#if doughnut}
+			<Doughnut {data} {options} />
+		{:else}
+			<Pie {data} {options} />
+		{/if}
 	{/if}
 </RunnableWrapper>

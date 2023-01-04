@@ -61,6 +61,7 @@
 			/>
 		{:else}
 			<EmptyInlineScript
+				{id}
 				name={componentInput.runnable.name}
 				on:new={(e) => {
 					if (

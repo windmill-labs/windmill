@@ -36,7 +36,7 @@
 
 <div
 	class={classNames(
-		'border-b border-gray-200 flex flex-row whitespace-nowrap overflow-y-auto scrollbar-hidden',
+		'border-b border-gray-200 flex flex-row whitespace-nowrap  scrollbar-hidden',
 		$$props.class
 	)}
 >
