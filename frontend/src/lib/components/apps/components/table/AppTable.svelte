@@ -28,7 +28,7 @@
 	let search: 'By Runnable' | 'By Component' | 'Disabled' | undefined = undefined
 	let searchValue = ''
 
-	let pagination: boolean | undefined = undefined
+	let pagination: boolean | undefined = true
 
 	$: setSearch(searchValue)
 
@@ -117,7 +117,6 @@
 </script>
 
 <InputValue {id} input={configuration.search} bind:value={search} />
-<InputValue {id} input={configuration.pagination} bind:value={pagination} />
 
 <RunnableWrapper bind:componentInput {id} bind:result>
 	{#if Array.isArray(result) && result.every(isObject)}

@@ -124,7 +124,7 @@
 		<Grid
 			bind:items={$app.grid}
 			let:dataItem
-			rowHeight={30}
+			rowHeight={36}
 			cols={columnConfiguration}
 			fastStart={true}
 			on:pointerup={({ detail }) => selectComponent(detail.id)}

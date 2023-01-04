@@ -49,6 +49,7 @@
 
 <div class="flex flex-row gap-x-1 w-full">
 	<Select
+		--height="34px"
 		value={collection.find((x) => x.value == value)}
 		bind:justValue={value}
 		items={collection}

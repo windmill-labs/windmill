@@ -5,6 +5,7 @@ const inputs: ComponentSet = {
 	title: 'Inputs',
 	components: [
 		{
+			softWrap: true,
 			verticalAlignment: 'center',
 			id: 'textinputcomponent',
 			type: 'textinputcomponent',
@@ -20,22 +21,39 @@ const inputs: ComponentSet = {
 			card: false
 		},
 		{
+			softWrap: true,
 			verticalAlignment: 'center',
 			id: 'passwordinputcomponent',
 			type: 'passwordinputcomponent',
 			componentInput: undefined,
-			configuration: {},
+			configuration: {
+				placeholder: {
+					type: 'static',
+					value: 'Password',
+					fieldType: 'text',
+					onlyStatic: true,
+				},
+			},
 			card: false
 		},
 		{
+			softWrap: true,
 			verticalAlignment: 'center',
 			id: 'numberinputcomponent',
 			type: 'numberinputcomponent',
 			componentInput: undefined,
-			configuration: {},
+			configuration: {
+				placeholder: {
+					type: 'static',
+					value: 'Type...',
+					fieldType: 'text',
+					onlyStatic: true,
+				},
+			},
 			card: false
 		},
 		{
+			softWrap: true,
 			verticalAlignment: 'center',
 			id: 'dateinputcomponent',
 			type: 'dateinputcomponent',
@@ -53,10 +71,10 @@ const inputs: ComponentSet = {
 				}
 			},
 			card: false,
-			softWrap: true
 		},
 		{
 			...defaultAlignement,
+			softWrap: true,
 			id: 'checkboxcomponent',
 			type: 'checkboxcomponent',
 			componentInput: undefined,
@@ -115,9 +133,8 @@ const buttons: ComponentSet = {
 			configuration: {
 				label: {
 					type: 'static',
-
 					fieldType: 'text',
-					value: 'Lorem ipsum'
+					value: 'Press me'
 				},
 				color: {
 					fieldType: 'select',
@@ -238,12 +255,6 @@ const display: ComponentSet = {
 					onlyStatic: true,
 					optionValuesKey: 'tableSearchOptions',
 					value: 'Disabled'
-				},
-				pagination: {
-					type: 'static',
-					onlyStatic: true,
-					fieldType: 'boolean',
-					value: true
 				}
 			},
 			componentInput: {
@@ -253,13 +264,13 @@ const display: ComponentSet = {
 				value: [
 					{
 						id: 1,
-						name: 'Lorem ipsum',
+						name: 'A cell with a long name',
 						age: 42
 					},
 					{
 						id: 2,
-						name: 'Lorem ipsum',
-						age: 42
+						name: 'A briefer cell',
+						age: 84
 					}
 				],
 
