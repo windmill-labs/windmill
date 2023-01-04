@@ -156,7 +156,7 @@
 				</SplitPanesWrapper>
 			</Pane>
 			<Pane size={21} minSize={5} maxSize={33}>
-				<div class="relative">
+				<div class="relative flex flex-col h-full">
 					<Tabs bind:selected={selectedTab}>
 						<Tab value="insert" size="xs">
 							<div class="m-1 flex flex-row gap-2">
@@ -171,7 +171,7 @@
 							</div>
 						</Tab>
 						<svelte:fragment slot="content">
-							<TabContent value="settings">
+							<TabContent class="overflow-auto" value="settings">
 								{#if $selectedComponent !== undefined}
 									<SettingsPanel />
 								{:else}

@@ -20,6 +20,8 @@ export type TextInputComponent = BaseComponent<'textinputcomponent'>
 export type PasswordInputComponent = BaseComponent<'passwordinputcomponent'>
 export type DateInputComponent = BaseComponent<'dateinputcomponent'>
 export type NumberInputComponent = BaseComponent<'numberinputcomponent'>
+export type HtmlComponent = BaseComponent<'htmlcomponent'>
+export type TimeseriesComponent = BaseComponent<'timeseriescomponent'>
 export type ButtonComponent = BaseComponent<'buttoncomponent'> & {
 	recomputeIds: string[] | undefined
 }
@@ -31,6 +33,7 @@ export type FormComponent = BaseComponent<'formcomponent'> & {
 export type RunFormComponent = BaseComponent<'runformcomponent'>
 export type BarChartComponent = BaseComponent<'barchartcomponent'>
 export type PieChartComponent = BaseComponent<'piechartcomponent'>
+export type ScatterChartComponent = BaseComponent<'scatterchartcomponent'>
 export type TableComponent = BaseComponent<'tablecomponent'> & {
 	actionButtons: (BaseAppComponent & ButtonComponent)[]
 }
@@ -72,11 +75,14 @@ export type AppComponent = BaseAppComponent &
 		| DateInputComponent
 		| NumberInputComponent
 		| BarChartComponent
+		| TimeseriesComponent
+		| HtmlComponent
 		| TableComponent
 		| TextComponent
 		| TableComponent
 		| ButtonComponent
 		| PieChartComponent
+		| ScatterChartComponent
 		| ImageComponent
 		| InputComponent
 		| SelectComponent

@@ -180,6 +180,24 @@ const display: ComponentSet = {
 	title: 'Display',
 	components: [
 		{
+			softWrap: false,
+			id: 'htmlcomponent',
+			type: 'htmlcomponent',
+			componentInput: {
+				type: 'static',
+				fieldType: 'template',
+				value: `<img
+	src="https://images.unsplash.com/photo-1554629947-334ff61d85dc?ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&amp;ixlib=rb-1.2.1&amp;auto=format&amp;fit=crop&amp;w=1024&amp;h=1280&amp;q=80"
+>
+<div class="absolute top-4 left-2  text-white">
+	Hello \${ctx.username}
+</div>			
+`,
+			},
+			configuration: {},
+			card: false
+		},
+		{
 			softWrap: true,
 			horizontalAlignment: 'left',
 			verticalAlignment: 'top',
@@ -187,7 +205,7 @@ const display: ComponentSet = {
 			type: 'textcomponent',
 			componentInput: {
 				type: 'static',
-				fieldType: 'textarea',
+				fieldType: 'template',
 				value: 'Hello ${ctx.username}',
 			},
 			configuration: {
@@ -260,19 +278,17 @@ const display: ComponentSet = {
 					optionValuesKey: 'chartThemeOptions',
 					value: 'theme1'
 				},
-				labels: {
+				doughnutStyle: {
 					type: 'static',
-					value: ['First', 'Second', 'Third'],
-					fieldType: 'array',
-					subFieldType: 'text',
+					onlyStatic: true,
+					fieldType: 'boolean',
+					value: false
 				}
 			},
 			componentInput: {
 				type: 'static',
-				fieldType: 'array',
-				subFieldType: 'number',
-				value: [25, 50, 25],
-
+				fieldType: 'object',
+				value: { data: [25, 50, 25], labels: ['Pie', 'Charts', '<3'] }
 			},
 			card: true
 		},
@@ -287,20 +303,93 @@ const display: ComponentSet = {
 					optionValuesKey: 'chartThemeOptions',
 					value: 'theme1'
 				},
-				labels: {
+				line: {
 					type: 'static',
+					onlyStatic: true,
+					fieldType: 'boolean',
+					value: false
+				}
 
-					fieldType: 'array',
-					subFieldType: 'text',
-					value: ['Lorem ipsum', 'Lorem ipsum', 'Lorem ipsum']
+			},
+			componentInput: {
+				type: 'static',
+				fieldType: 'object',
+				value: { data: [25, 50, 25], labels: ['Bar', 'Charts', '<3'] }
+			},
+			card: true
+		},
+		{
+			id: 'scatterchartcomponent',
+			type: 'scatterchartcomponent',
+			configuration: {},
+			componentInput: {
+				type: 'static',
+				fieldType: 'array',
+				subFieldType: 'object',
+				value: [{
+					label: 'foo',
+					data: [
+						{ x: 25, y: 50 },
+						{ x: 23, y: 23 },
+						{ x: 12, y: 37 }
+					],
+					backgroundColor: 'rgb(255, 12, 137)'
+				},
+				{
+					label: 'foobar',
+					data: [
+						{ x: 32, y: 32 },
+						{ x: 25, y: 42 },
+						{ x: 3, y: 27 }
+					],
+					backgroundColor: 'orange'
+				}]
+			},
+			card: true
+		},
+		{
+			id: 'timeseriescomponent',
+			type: 'timeseriescomponent',
+			configuration: {
+				logarithmicScale: {
+					type: 'static',
+					onlyStatic: true,
+					fieldType: 'boolean',
+					value: false
 				}
 			},
 			componentInput: {
 				type: 'static',
 				fieldType: 'array',
-				subFieldType: 'number',
-				value: [25, 50, 25],
-
+				subFieldType: 'object',
+				value: [{
+					label: 'foo',
+					data: [{
+						x: '2021-11-06 23:39:30',
+						y: 50
+					}, {
+						x: '2021-11-07 01:00:28',
+						y: 60
+					}, {
+						x: '2021-11-07 09:00:28',
+						y: 20
+					}],
+					backgroundColor: 'rgb(255, 12, 137)'
+				},
+				{
+					label: 'foobar',
+					data: [{
+						x: '2021-11-06 23:39:30',
+						y: 20
+					}, {
+						x: '2021-11-07 01:00:28',
+						y: 13
+					}, {
+						x: '2021-11-07 09:00:28',
+						y: 45
+					}],
+					backgroundColor: 'orange'
+				}]
 			},
 			card: true
 		},
@@ -315,7 +404,8 @@ const display: ComponentSet = {
 			},
 			configuration: {},
 			card: false
-		}
+		},
+
 	]
 }
 

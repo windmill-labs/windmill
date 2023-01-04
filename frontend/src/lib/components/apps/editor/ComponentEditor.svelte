@@ -15,6 +15,9 @@
 	import DateInputComponent from '../components/dateInputs/AppDateInput.svelte'
 	import ComponentHeader from './ComponentHeader.svelte'
 	import AppForm from '../components/form/AppForm.svelte'
+	import AppScatterChart from '../components/dataDisplay/AppScatterChart.svelte'
+	import AppTimeseries from '../components/dataDisplay/AppTimeseries.svelte'
+	import AppHtml from '../components/dataDisplay/AppHtml.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -35,12 +38,18 @@
 	{/if}
 
 	<div
+		on:pointerdown={(e) => {
+			if ($mode === 'preview') {
+				e?.stopPropagation()
+			}
+		}}
 		class={classNames(
-			'border cursor-pointer h-full bg-white',
+			'border h-full bg-white',
 			selected && $mode !== 'preview' ? 'border-blue-500' : 'border-white',
 			!selected && $mode !== 'preview' && !component.card ? 'border-gray-100' : '',
 			$mode !== 'preview' && !$connectingInput.opened ? 'hover:border-blue-500' : '',
 			component.softWrap ? '' : 'overflow-auto',
+			$mode != 'preview' ? 'cursor-pointer' : '',
 			'relative z-auto'
 		)}
 	>
@@ -52,6 +61,24 @@
 			/>
 		{:else if component.type === 'barchartcomponent'}
 			<BarChartComponent
+				{...component}
+				bind:componentInput={component.componentInput}
+				bind:staticOutputs={$staticOutputs[component.id]}
+			/>
+		{:else if component.type === 'timeseriescomponent'}
+			<AppTimeseries
+				{...component}
+				bind:componentInput={component.componentInput}
+				bind:staticOutputs={$staticOutputs[component.id]}
+			/>
+		{:else if component.type === 'htmlcomponent'}
+			<AppHtml
+				{...component}
+				bind:componentInput={component.componentInput}
+				bind:staticOutputs={$staticOutputs[component.id]}
+			/>
+		{:else if component.type === 'scatterchartcomponent'}
+			<AppScatterChart
 				{...component}
 				bind:componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}

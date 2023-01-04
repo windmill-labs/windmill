@@ -16,7 +16,6 @@
 	} from 'chart.js'
 	import type { CompletedJob } from '$lib/gen'
 	import { createEventDispatcher } from 'svelte'
-	import { json } from 'svelte-highlight/languages'
 
 	export let jobs: CompletedJob[] | undefined = []
 

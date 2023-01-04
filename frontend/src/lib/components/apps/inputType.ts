@@ -4,6 +4,7 @@ import type { InlineScript } from './types'
 export type InputType =
 	| 'text'
 	| 'textarea'
+	| 'template'
 	| 'number'
 	| 'boolean'
 	| 'select'
@@ -91,6 +92,7 @@ type InputConfiguration<T extends InputType, U, V extends InputType> = {
 export type AppInput =
 	| AppInputSpec<'text', string>
 	| AppInputSpec<'textarea', string>
+	| AppInputSpec<'template', string>
 	| AppInputSpec<'number', number>
 	| AppInputSpec<'boolean', boolean>
 	| AppInputSpec<'date', string>

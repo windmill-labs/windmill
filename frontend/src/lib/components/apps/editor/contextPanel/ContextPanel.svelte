@@ -26,7 +26,7 @@
 	}
 
 	function getComponentNameById(componentId: string) {
-		const component = $app.grid.find((c) => c.data.id === componentId)
+		const component = $app.grid.find((c) => c?.data?.id === componentId)
 
 		if (component?.data.type) {
 			return displayData[component?.data.type].name

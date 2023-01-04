@@ -123,7 +123,7 @@ declare const ${k} = ${JSON.stringify(v)};
 						<StaticInputEditor bind:componentInput={component.componentInput} />
 					{:else if component.componentInput.type === 'template' && component.componentInput !== undefined}
 						<div class="py-1 min-h-[28px]  rounded border border-1 border-gray-500">
-							<TemplateEditor bind:code={component.componentInput.eval} {extraLib} />
+							<TemplateEditor fontSize={12} bind:code={component.componentInput.eval} {extraLib} />
 						</div>
 					{:else if component.componentInput.type === 'connected' && component.componentInput !== undefined}
 						<ConnectedInputEditor bind:componentInput={component.componentInput} />

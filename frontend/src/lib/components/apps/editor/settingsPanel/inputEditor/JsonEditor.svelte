@@ -15,9 +15,11 @@
 	$: code && parseJson()
 </script>
 
-<div class="border rounded-sm w-full">
-	<SimpleEditor lang="json" bind:code class="few-lines-editor" />
+<div class="flex flex-col w-full">
+	<div class="border border-gray-300 w-full">
+		<SimpleEditor autoHeight lang="json" bind:code />
+	</div>
+	{#if error != ''}
+		<span class="text-red-600 text-xs">{error}</span>
+	{/if}
 </div>
-{#if error != ''}
-	<span class="text-red-600 text-xs">{error}</span>
-{/if}

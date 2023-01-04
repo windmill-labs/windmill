@@ -17,7 +17,9 @@ import {
 	Type,
 	Lock,
 	Calendar,
-	ToggleLeft
+	ToggleLeft,
+	GripHorizontal,
+	Code2
 } from 'lucide-svelte'
 import type { AppInput, InputType, ResultAppInput, StaticAppInput } from './inputType'
 import type { AppComponent } from './types'
@@ -93,8 +95,20 @@ export const displayData: Record<AppComponent['type'], { name: string; icon: any
 		icon: PieChart
 	},
 	barchartcomponent: {
-		name: 'Bar Chart',
+		name: 'Bar/Line Chart',
 		icon: BarChart4
+	},
+	htmlcomponent: {
+		name: 'Html',
+		icon: Code2
+	},
+	timeseriescomponent: {
+		name: 'Timeseries',
+		icon: GripHorizontal
+	},
+	scatterchartcomponent: {
+		name: 'Scatter Chart',
+		icon: GripHorizontal
 	},
 	tablecomponent: {
 		name: 'Table',
