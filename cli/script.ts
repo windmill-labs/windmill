@@ -81,6 +81,7 @@ export async function findContentFile(filePath: string) {
     filePath.replace(".script.json", ".ts"),
     filePath.replace(".script.json", ".py"),
     filePath.replace(".script.json", ".go"),
+    filePath.replace(".script.json", ".sh"),
   ];
   const validCandidates = (
     await Promise.all(
@@ -122,8 +123,12 @@ export async function pushScript(
   let language = contentPath.substring(contentPath.lastIndexOf("."));
   if (language == ".ts") language = "deno";
   if (language == ".py") language = "python3";
+  if (language == ".sh") language = "bash";
   if (language == ".go") language = "go";
-  if (language != "python3" && language != "deno" && language != "go") {
+  if (
+    language != "python3" && language != "deno" && language != "go" &&
+    language != "bash"
+  ) {
     throw new Error("Invalid language: " + language);
   }
 
