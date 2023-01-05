@@ -16,7 +16,7 @@
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import HighlightCode from '../HighlightCode.svelte'
 	import LogViewer from '../LogViewer.svelte'
-	import { Pane } from 'svelte-splitpanes'
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import SplitPanesWrapper from '../splitPanes/SplitPanesWrapper.svelte'
 	import { Loader2 } from 'lucide-svelte'
 
@@ -77,29 +77,31 @@
 			because SplitPanesWrapper uses the parent element as a reference point.
 		-->
 		{#if selectedTab === 'logs'}
-			<SplitPanesWrapper horizontal>
-				<Pane class="relative">
-					<LogViewer
-						duration={previewJob?.['duration_ms']}
-						content={previewJob?.logs}
-						isLoading={previewIsLoading}
-					/>
-				</Pane>
-				<Pane>
-					{#if previewJob != undefined && 'result' in previewJob && previewJob.result != undefined}
-						<pre class="relative w-full h-full p-2"
-							><DisplayResult result={previewJob.result} />
+			<SplitPanesWrapper>
+				<Splitpanes horizontal>
+					<Pane class="relative">
+						<LogViewer
+							duration={previewJob?.['duration_ms']}
+							content={previewJob?.logs}
+							isLoading={previewIsLoading}
+						/>
+					</Pane>
+					<Pane>
+						{#if previewJob != undefined && 'result' in previewJob && previewJob.result != undefined}
+							<pre class="relative w-full h-full p-2"
+								><DisplayResult result={previewJob.result} />
 						</pre>
-					{:else}
-						<div class="text-sm text-gray-600 p-2">
-							{#if previewIsLoading}
-								<Loader2 class="animate-spin" />
-							{:else}
-								Test to see the result here'
-							{/if}
-						</div>
-					{/if}
-				</Pane>
+						{:else}
+							<div class="text-sm text-gray-600 p-2">
+								{#if previewIsLoading}
+									<Loader2 class="animate-spin" />
+								{:else}
+									Test to see the result here'
+								{/if}
+							</div>
+						{/if}
+					</Pane>
+				</Splitpanes>
 			</SplitPanesWrapper>
 		{/if}
 		<TabContent value="history" class="p-2">

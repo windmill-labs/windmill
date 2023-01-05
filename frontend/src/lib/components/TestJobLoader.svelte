@@ -4,11 +4,6 @@
 	import { onDestroy } from 'svelte'
 	import type { Preview } from '$lib/gen/models/Preview'
 	import { createEventDispatcher } from 'svelte'
-	import {
-		setIntervalAsync,
-		clearIntervalAsync,
-		type SetIntervalAsyncTimer
-	} from 'set-interval-async'
 
 	export let isLoading = false
 	export let job: Job | undefined = undefined
@@ -18,7 +13,6 @@
 	const dispatch = createEventDispatcher()
 
 	$: workspace = workspaceOverride ?? $workspaceStore
-	let intervalId: SetIntervalAsyncTimer<unknown[]> | undefined = undefined
 
 	let syncIteration: number = 0
 	let errorIteration = 0
@@ -26,19 +20,32 @@
 	let ITERATIONS_BEFORE_SLOW_REFRESH = 10
 	let ITERATIONS_BEFORE_SUPER_SLOW_REFRESH = 100
 
-	let stopCurrentIteration = false
+	let lastStartedAt: number = Date.now()
+	let currentId: string | undefined = undefined
+
+	$: isLoading = currentId !== undefined
 
 	export async function abstractRun(fn: () => Promise<string>) {
 		try {
-			await clearCurrentJob()
 			isLoading = true
+			clearCurrentJob()
+			const startedAt = Date.now()
 			const testId = await fn()
-			if (testId) {
-				await watchJob(testId)
+
+			if (lastStartedAt < startedAt) {
+				lastStartedAt = startedAt
+				if (testId) {
+					try {
+						await watchJob(testId)
+					} catch {
+						if (currentId === testId) {
+							currentId = undefined
+						}
+					}
+				}
 			}
 			return testId
 		} catch (err) {
-			isLoading = false
 			throw err
 		}
 	}
@@ -89,108 +96,102 @@
 	}
 
 	export async function cancelJob() {
-		try {
-			await JobService.cancelQueuedJob({
-				workspace: $workspaceStore ?? '',
-				id: job?.id ?? '',
-				requestBody: {}
-			})
-		} catch (err) {
-			console.error(err)
+		const id = currentId
+		if (id) {
+			currentId = undefined
+			try {
+				await JobService.cancelQueuedJob({
+					workspace: $workspaceStore ?? '',
+					id,
+					requestBody: {}
+				})
+			} catch (err) {
+				console.error(err)
+			}
 		}
-		isLoading = false
-		console.log('cancelled')
+		console.debug('cancelled')
 	}
 
 	export async function clearCurrentJob() {
-		if (intervalId) {
-			const interval = intervalId
-			intervalId = undefined
-			stopCurrentIteration = true
-			if (isLoading && job) {
-				try {
-					await JobService.cancelQueuedJob({
-						workspace: workspace!,
-						id: job.id,
-						requestBody: {}
-					})
-				} catch {}
-			}
-			await clearIntervalAsync(interval)
+		if (currentId) {
+			console.debug('clear')
+			job = undefined
+			await cancelJob()
 		}
-		stopCurrentIteration = false
-		job = undefined
-		isLoading = false
 	}
 
 	export async function watchJob(testId: string) {
 		syncIteration = 0
 		errorIteration = 0
+		currentId = testId
+		job = undefined
 		const isCompleted = await loadTestJob(testId)
 		if (!isCompleted) {
-			isLoading = true
-			intervalId = setIntervalAsync(async () => {
-				await syncer(testId)
+			setTimeout(() => {
+				syncer(testId)
 			}, 50)
 		}
 	}
 
 	async function loadTestJob(id: string): Promise<boolean> {
 		let isCompleted = false
-		try {
-			if (job && `running` in job) {
-				let previewJobUpdates = await JobService.getJobUpdates({
-					workspace: workspace!,
-					id,
-					running: job.running,
-					logOffset: job.logs?.length ? job.logs?.length + 1 : 0
-				})
+		if (currentId === id) {
+			try {
+				if (job && `running` in job) {
+					let previewJobUpdates = await JobService.getJobUpdates({
+						workspace: workspace!,
+						id,
+						running: job.running,
+						logOffset: job.logs?.length ? job.logs?.length + 1 : 0
+					})
 
-				if (previewJobUpdates.new_logs) {
-					job.logs = (job?.logs ?? '').concat(previewJobUpdates.new_logs)
-				}
-				if ((previewJobUpdates.running ?? false) || (previewJobUpdates.completed ?? false)) {
+					if (previewJobUpdates.new_logs) {
+						job.logs = (job?.logs ?? '').concat(previewJobUpdates.new_logs)
+					}
+					if ((previewJobUpdates.running ?? false) || (previewJobUpdates.completed ?? false)) {
+						job = await JobService.getJob({ workspace: workspace!, id })
+					}
+				} else {
 					job = await JobService.getJob({ workspace: workspace!, id })
 				}
-			} else {
-				job = await JobService.getJob({ workspace: workspace!, id })
-			}
-			job = await JobService.getJob({ workspace: workspace ?? '', id })
 
-			if (job?.type === 'CompletedJob') {
-				//only CompletedJob has success property
-				isCompleted = true
-				intervalId && clearIntervalAsync(intervalId!)
-				if (isLoading) {
-					dispatch('done', job)
-					isLoading = false
+				if (job?.type === 'CompletedJob') {
+					//only CompletedJob has success property
+					isCompleted = true
+					if (currentId === id) {
+						dispatch('done', job)
+						currentId = undefined
+					}
 				}
+				notfound = false
+			} catch (err) {
+				errorIteration += 1
+				if (errorIteration == 5) {
+					notfound = true
+					await clearCurrentJob()
+				}
+				console.warn(err)
 			}
-			notfound = false
-		} catch (err) {
-			errorIteration += 1
-			if (errorIteration == 5) {
-				notfound = true
-				await clearCurrentJob()
-			}
-			console.warn(err)
+			return isCompleted
+		} else {
+			return true
 		}
-		return isCompleted
 	}
 
 	async function syncer(id: string): Promise<void> {
-		syncIteration++
-		if (syncIteration == ITERATIONS_BEFORE_SLOW_REFRESH) {
-			intervalId && clearIntervalAsync(intervalId!)
-			intervalId = setIntervalAsync(async () => await syncer(id), 500)
-		} else if (syncIteration == ITERATIONS_BEFORE_SUPER_SLOW_REFRESH) {
-			intervalId && clearIntervalAsync(intervalId!)
-			intervalId = setIntervalAsync(async () => await syncer(id), 2000)
-		}
-		if (stopCurrentIteration) {
+		if (currentId != id) {
+			console.debug('stop')
 			return
 		}
+		syncIteration++
 		await loadTestJob(id)
+		let nextIteration = 50
+		if (syncIteration == ITERATIONS_BEFORE_SLOW_REFRESH) {
+			nextIteration = 500
+		} else if (syncIteration == ITERATIONS_BEFORE_SUPER_SLOW_REFRESH) {
+			nextIteration = 2000
+		}
+		setTimeout(() => syncer(id), nextIteration)
 	}
 
 	onDestroy(async () => {
