@@ -21,7 +21,6 @@
 	const { app } = getContext<AppEditorContext>('AppEditorContext')
 
 	let editor: Editor
-
 	let validCode = false
 
 	async function inferInlineScriptSchema(

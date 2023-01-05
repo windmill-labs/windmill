@@ -36,6 +36,7 @@
 			return 'Table action'
 		}
 	}
+
 	$: panels = [['context', ['email', 'username']] as [string, string[]]].concat(
 		Object.entries($staticOutputs)
 	)

@@ -21,7 +21,6 @@
 				schema = emptySchema()
 				await inferArgs(language, content, schema)
 			}
-			console.log(schema)
 			componentInput.runnable = {
 				type: 'runnableByName',
 				name: path,
@@ -32,7 +31,6 @@
 					path
 				}
 			}
-			console.log(content, language, schema)
 		} else {
 			console.error('componentInput is undefined')
 		}
