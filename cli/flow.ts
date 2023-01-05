@@ -4,15 +4,46 @@ import {
   colors,
   Command,
   Flow,
+  FlowModule,
   FlowService,
   JobService,
-  OpenFlow,
   Table,
 } from "./deps.ts";
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import { resolve, track_job } from "./script.ts";
+import { Any, array, decoverto, model, property } from "./decoverto.ts";
 
-export type FlowFile = OpenFlow;
+@model()
+export class FlowValueFilePart {
+  @property(array(Any))
+  modules: Array<FlowModule>;
+  @property(Any)
+  failure_module?: FlowModule;
+  @property(() => Boolean)
+  same_worker?: boolean;
+
+  constructor(modules: Array<FlowModule>) {
+    this.modules = modules;
+  }
+}
+
+// this is effectively "OpenFlow" but a copy as it is accepted by the CLI
+@model()
+export class FlowFile {
+  @property(() => String)
+  summary: string;
+  @property(() => String)
+  description?: string;
+  @property(() => FlowValueFilePart)
+  value: FlowValueFilePart;
+  @property(Any)
+  schema?: any;
+
+  constructor(summary: string, value: FlowValueFilePart) {
+    this.summary = summary;
+    this.value = value;
+  }
+}
 
 type Options = GlobalOptions;
 
@@ -32,7 +63,9 @@ export async function pushFlow(
   workspace: string,
   remotePath: string,
 ) {
-  const data: FlowFile = JSON.parse(await Deno.readTextFile(filePath));
+  const data = decoverto.type(FlowFile).rawToInstance(
+    await Deno.readTextFile(filePath),
+  );
   if (
     await FlowService.existsFlowByPath({
       workspace: workspace,
