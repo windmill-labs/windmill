@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 	import { getContext } from 'svelte'
+	import { key } from 'svelte-awesome/icons'
 	import type { AppEditorContext } from '../../types'
 	import { displayData } from '../../utils'
 	import PanelSection from '../settingsPanel/common/PanelSection.svelte'
@@ -85,16 +86,19 @@
 							$connectingInput.hoveredComponent === componentId ? 'outline outline-blue-500' : ''
 						)}
 					>
-						<!-- {#if $selectedComponent === componentId && $connectingInput?.opened}
-						<div class="absolute top-0 left-0 w-full h-full bg-gray-500 bg-opacity-50 z-10" />
-					{/if} -->
-						<ComponentOutputViewer
-							{outputs}
-							{componentId}
-							on:select={({ detail }) => {
-								connectInput(componentId, detail)
-							}}
-						/>
+						{#key $selectedComponent}
+							{#key $connectingInput?.opened}
+								<ComponentOutputViewer
+									outputs={$connectingInput?.opened && $selectedComponent === componentId
+										? ['search']
+										: outputs}
+									{componentId}
+									on:select={({ detail }) => {
+										connectInput(componentId, detail)
+									}}
+								/>
+							{/key}
+						{/key}
 					</div>
 				</div>
 			{/if}

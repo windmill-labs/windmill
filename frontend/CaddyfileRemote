@@ -1,7 +1,3 @@
-{
-  auto_https off
-}
-
 http://localhost {  
   bind {$ADDRESS}
   reverse_proxy /api/* https://app.windmill.dev {

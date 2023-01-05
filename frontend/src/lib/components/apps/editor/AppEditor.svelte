@@ -68,7 +68,8 @@
 		appPath: path,
 		workspace: $workspaceStore ?? '',
 		onchange: () => saveDraft(),
-		isEditor: true
+		isEditor: true,
+		jobs: writable([])
 	})
 
 	let timeout: NodeJS.Timeout | undefined = undefined
@@ -120,7 +121,7 @@
 	{#if previewing}
 		<AppPreview
 			workspace={$workspaceStore ?? ''}
-			{summary}
+			summary={$summaryStore}
 			app={$appStore}
 			appPath={path}
 			{breakpoint}

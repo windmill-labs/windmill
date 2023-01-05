@@ -1,30 +1,42 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
-	import { Alert, Drawer, DrawerContent } from '$lib/components/common'
+	import { Alert, Badge, Drawer, DrawerContent } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
+	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton/ToggleButtonGroup.svelte'
+	import DisplayResult from '$lib/components/DisplayResult.svelte'
+	import FlowJobResult from '$lib/components/FlowJobResult.svelte'
+	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
+	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
+	import JobArgs from '$lib/components/JobArgs.svelte'
+	import LogViewer from '$lib/components/LogViewer.svelte'
 	import Path from '$lib/components/Path.svelte'
+	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
+	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { AppService, Policy } from '$lib/gen'
+	import { AppService, Job, Policy } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { faClipboard, faExternalLink, faSave } from '@fortawesome/free-solid-svg-icons'
+	import { faBug, faClipboard, faExternalLink, faSave } from '@fortawesome/free-solid-svg-icons'
 	import {
 		AlignHorizontalSpaceAround,
 		Expand,
 		Eye,
 		Laptop2,
+		Loader2,
 		Pencil,
 		Smartphone
 	} from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
-	import { copyToClipboard, sendUserToast } from '../../../utils'
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import { classNames, copyToClipboard, sendUserToast } from '../../../utils'
 	import type { AppComponent, AppEditorContext } from '../types'
 	import AppExportButton from './AppExportButton.svelte'
+	import PanelSection from './settingsPanel/common/PanelSection.svelte'
 
 	async function hash(message) {
 		const msgUint8 = new TextEncoder().encode(message) // encode as (utf-8) Uint8Array
@@ -36,7 +48,7 @@
 
 	export let policy: Policy
 
-	const { app, summary, mode, breakpoint, appPath } =
+	const { app, summary, mode, breakpoint, appPath, jobs } =
 		getContext<AppEditorContext>('AppEditorContext')
 	const loading = {
 		publish: false,
@@ -47,6 +59,7 @@
 	let pathError: string | undefined = undefined
 
 	let saveDrawerOpen = false
+	let jobsDrawerOpen = false
 	let publishDrawerOpen = false
 
 	function closeSaveDrawer() {
@@ -144,7 +157,16 @@
 		loading.save = false
 		sendUserToast('App saved')
 	}
+
+	let selectedJobId: string | undefined = undefined
+	let testJobLoader: TestJobLoader
+	let job: Job | undefined = undefined
+	let testIsLoading = false
+
+	$: selectedJobId && testJobLoader?.watchJob(selectedJobId)
 </script>
+
+<TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job />
 
 <Drawer bind:open={saveDrawerOpen} size="800px">
 	<DrawerContent title="Create an App" on:close={() => closeSaveDrawer()}>
@@ -163,6 +185,91 @@
 				on:click={() => createApp(newPath)}>Create app</Button
 			>
 		</div>
+	</DrawerContent>
+</Drawer>
+
+<Drawer bind:open={jobsDrawerOpen} size="900px">
+	<DrawerContent noPadding title="Debug Runs" on:close={() => (jobsDrawerOpen = false)}>
+		<Splitpanes class="!overflow-visible">
+			<Pane size={25}>
+				<PanelSection title="Past Runs" smallPadding>
+					<div class="flex flex-col gap-2 w-full">
+						{#if $jobs.length > 0}
+							<div class="flex gap-2 flex-col ">
+								{#each $jobs ?? [] as { job, component } (job)}
+									<!-- svelte-ignore a11y-click-events-have-key-events -->
+									<div
+										class="{classNames(
+											'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-blue-50 hover:text-blue-400',
+											selectedJobId == job ? 'bg-blue-100 text-blue-600' : ''
+										)},"
+										on:click={() => (selectedJobId = job)}
+									>
+										<span class="text-xs truncate">{job}</span>
+										<Badge color="dark-indigo">{component}</Badge>
+									</div>
+								{/each}
+							</div>
+						{:else}
+							<div class="text-sm text-gray-500">No items</div>
+						{/if}
+					</div>
+				</PanelSection>
+			</Pane>
+			<Pane size={75}>
+				<div class="h-full w-full overflow-hidden">
+					{#if selectedJobId}
+						{#if !job}
+							<Skeleton layout={[[40]]} />
+						{:else}
+							<div class="flex flex-col h-full w-full gap-4 mb-4">
+								{#if job?.['running']}
+									<div class="flex flex-row-reverse w-full"
+										><Button
+											color="red"
+											variant="border"
+											on:click={() => testJobLoader?.cancelJob()}>Cancel</Button
+										>
+									</div>
+								{/if}
+								<div class="p-2">
+									<JobArgs args={job?.args} />
+								</div>
+								{#if job?.job_kind !== 'flow' && job?.job_kind !== 'flowpreview'}
+									<Splitpanes horizontal class="grow border w-full">
+										<Pane size={50} minSize={10}>
+											<LogViewer content={job?.logs} isLoading={testIsLoading} />
+										</Pane>
+										<Pane size={50} minSize={10} class="text-sm text-gray-600">
+											{#if job != undefined && 'result' in job && job.result != undefined}
+												<pre class="overflow-x-auto break-words relative h-full px-2"
+													><DisplayResult result={job.result} /></pre
+												>
+											{:else if testIsLoading}
+												<div class="p-2"><Loader2 class="animate-spin" /> </div>
+											{/if}
+										</Pane>
+									</Splitpanes>
+								{:else}
+									<div class="mt-10" />
+									<FlowProgressBar {job} class="py-4" />
+									<div class="w-full mt-10 mb-20">
+										<FlowStatusViewer
+											jobId={job.id}
+											on:jobsLoaded={({ detail }) => {
+												job = detail
+											}}
+										/>
+									</div>
+								{/if}
+							</div>
+						{/if}
+					{:else}
+						<div class="text-sm p-2 text-gray-500">Select a job to see its details</div>
+					{/if}
+				</div>
+			</Pane>
+		</Splitpanes>
 	</DrawerContent>
 </Drawer>
 
@@ -267,6 +374,15 @@
 		</span>
 	</div>
 	<div class="flex flex-row grow gap-4 justify-end ">
+		<Button
+			on:click={() => (jobsDrawerOpen = true)}
+			color="light"
+			size="xs"
+			variant="border"
+			startIcon={{ icon: faBug }}
+		>
+			Debug Runs
+		</Button>
 		<span class="hidden lg:block">
 			<AppExportButton app={$app} />
 		</span>

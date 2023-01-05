@@ -73,6 +73,16 @@
 				</Badge>
 			{/if}
 
+			<Button
+				variant="border"
+				size="xs"
+				color="blue"
+				on:click={async () => {
+					editor.format()
+				}}
+			>
+				Format&nbsp;<Tooltip>Ctrl+S</Tooltip>
+			</Button>
 			{#if id.startsWith('unused-')}
 				<Button
 					size="xs"
@@ -87,7 +97,6 @@
 					loading={runLoading}
 					size="xs"
 					color="blue"
-					title="Cmd+Enter"
 					on:click={async () => {
 						runLoading = true
 						await $runnableComponents[id]?.()
@@ -95,7 +104,7 @@
 					}}
 				>
 					Run&nbsp;<Tooltip
-						>Cmd+Enter to run the script and see the result in the component directly</Tooltip
+						>Ctrl+Enter to run the script and see the result in the component directly</Tooltip
 					>
 				</Button>
 			{/if}

@@ -30,7 +30,7 @@
 
 {#if componentInput.type === 'connected'}
 	{#if componentInput.connection}
-		<div class="flex justify-between w-full">
+		<div class="flex justify-between w-full gap-1">
 			<span class="text-xs">Status</span>
 			<Badge color="green">Connected</Badge>
 		</div>
@@ -56,7 +56,7 @@
 			Disconnect
 		</Button>
 	{:else}
-		<div class="flex justify-between w-full">
+		<div class="flex justify-between w-full gap-1">
 			<span class="text-xs">Status</span>
 			<Badge color="yellow">Not connected</Badge>
 		</div>

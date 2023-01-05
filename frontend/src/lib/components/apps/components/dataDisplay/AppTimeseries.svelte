@@ -28,6 +28,8 @@
 	export const staticOutputs: string[] = ['loading', 'result']
 
 	let logarithmicScale = false
+	let zoomable = false
+	let pannable = false
 
 	ChartJS.register(
 		Title,
@@ -43,20 +45,6 @@
 		LogarithmicScale
 	)
 
-	const zoomOptions = {
-		pan: {
-			enabled: true
-		},
-		zoom: {
-			drag: {
-				enabled: false
-			},
-			wheel: {
-				enabled: true
-			}
-		}
-	}
-
 	let result: { data: { x: any[]; y: string[] } } | undefined = undefined
 
 	$: options = {
@@ -64,7 +52,19 @@
 		animation: false,
 		maintainAspectRatio: false,
 		plugins: {
-			zoom: zoomOptions
+			zoom: {
+				pan: {
+					enabled: pannable
+				},
+				zoom: {
+					drag: {
+						enabled: false
+					},
+					wheel: {
+						enabled: zoomable
+					}
+				}
+			}
 		},
 		scales: {
 			x: {
@@ -82,6 +82,8 @@
 </script>
 
 <InputValue {id} input={configuration.logarithmicScale} bind:value={logarithmicScale} />
+<InputValue {id} input={configuration.zoomable} bind:value={zoomable} />
+<InputValue {id} input={configuration.pannable} bind:value={pannable} />
 
 <RunnableWrapper autoRefresh bind:componentInput {id} bind:result>
 	{#if result}

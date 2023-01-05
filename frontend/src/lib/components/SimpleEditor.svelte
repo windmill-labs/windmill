@@ -130,6 +130,15 @@
 			}, 200)
 		})
 
+		editor.onDidFocusEditorText(() => {
+			dispatch('focus')
+
+			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {
+				code = getCode()
+				shouldBindKey && format && format()
+			})
+		})
+
 		if (autoHeight) {
 			let ignoreEvent = false
 			const updateHeight = () => {
