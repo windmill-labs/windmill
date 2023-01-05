@@ -145,7 +145,8 @@ export type AppEditorContext = {
 	appPath: string,
 	workspace: string,
 	onchange: (() => void) | undefined,
-	isEditor: boolean
+	isEditor: boolean,
+	jobs: Writable<{ job: string, component: string }[]>
 }
 
 export type EditorMode = 'dnd' | 'preview'

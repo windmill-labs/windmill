@@ -7,6 +7,7 @@
 	import { getScriptByPath, sendUserToast } from '$lib/utils'
 
 	import {
+		faBroom,
 		faCube,
 		faDollarSign,
 		faEye,
@@ -305,6 +306,20 @@
 						<span class={websocketAlive.black ? 'green' : 'text-red-700'}>Black</span>)
 					{/if}
 				</span>
+			</Button></div
+		>
+		<div>
+			<Button
+				btnClasses="!font-medium"
+				size="xs"
+				spacingSize="md"
+				color="light"
+				on:click={editor.format}
+				startIcon={{ icon: faBroom }}
+			>
+				{#if !iconOnly}
+					Format (Ctrl+S)
+				{/if}
 			</Button></div
 		>
 	</div>

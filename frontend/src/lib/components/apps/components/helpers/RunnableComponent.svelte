@@ -22,7 +22,7 @@
 	export let result: any = undefined
 	export let forceSchemaDisplay: boolean = false
 
-	const { worldStore, runnableComponents, workspace, appPath, isEditor } =
+	const { worldStore, runnableComponents, workspace, appPath, isEditor, jobs } =
 		getContext<AppEditorContext>('AppEditorContext')
 
 	onMount(() => {
@@ -180,7 +180,7 @@
 
 		outputs?.loading?.set(true)
 
-		await testJobLoader?.abstractRun(() => {
+		let njob = await testJobLoader?.abstractRun(() => {
 			const nonStaticRunnableInputs = {}
 			const staticRunnableInputs = {}
 			Object.keys(fields ?? {}).forEach((k) => {
@@ -220,6 +220,9 @@
 				requestBody
 			})
 		})
+		if (njob) {
+			$jobs = [...$jobs, { job: njob, component: id }]
+		}
 	}
 
 	export async function runComponent() {

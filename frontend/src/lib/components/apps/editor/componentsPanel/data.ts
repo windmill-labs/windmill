@@ -332,7 +332,20 @@ const display: ComponentSet = {
 		{
 			id: 'scatterchartcomponent',
 			type: 'scatterchartcomponent',
-			configuration: {},
+			configuration: {
+				zoomable: {
+					type: 'static',
+					onlyStatic: true,
+					fieldType: 'boolean',
+					value: false
+				},
+				pannable: {
+					type: 'static',
+					onlyStatic: true,
+					fieldType: 'boolean',
+					value: false
+				},
+			},
 			componentInput: {
 				type: 'static',
 				fieldType: 'array',
@@ -367,7 +380,19 @@ const display: ComponentSet = {
 					onlyStatic: true,
 					fieldType: 'boolean',
 					value: false
-				}
+				},
+				zoomable: {
+					type: 'static',
+					onlyStatic: true,
+					fieldType: 'boolean',
+					value: false
+				},
+				pannable: {
+					type: 'static',
+					onlyStatic: true,
+					fieldType: 'boolean',
+					value: false
+				},
 			},
 			componentInput: {
 				type: 'static',

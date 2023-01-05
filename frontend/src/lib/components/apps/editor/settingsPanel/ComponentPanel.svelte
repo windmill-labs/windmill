@@ -135,7 +135,7 @@ declare const ${k} = ${JSON.stringify(v)};
 					<div class="border w-full">
 						<PanelSection
 							smallPadding
-							title={`Runnable inputs (${
+							title={`Runnable Inputs (${
 								Object.keys(component.componentInput.fields ?? {}).length
 							})`}
 						>

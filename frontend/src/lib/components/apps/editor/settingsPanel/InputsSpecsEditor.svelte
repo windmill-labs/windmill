@@ -10,6 +10,8 @@
 		StaticAppInput,
 		UserAppInput
 	} from '../../inputType'
+	import { getContext } from 'svelte'
+	import type { AppEditorContext } from '../../types'
 
 	export let inputSpecs: Record<
 		string,
@@ -19,6 +21,8 @@
 	export let staticOnly: boolean = false
 	export let shouldCapitalize: boolean = true
 	export let rowColumns = false
+
+	const { connectingInput } = getContext<AppEditorContext>('AppEditorContext')
 </script>
 
 {#if inputSpecs}
@@ -27,7 +31,7 @@
 			{@const input = inputSpecs[inputSpecKey]}
 			<div class="flex flex-col gap-1">
 				<div class="flex justify-between items-end gap-1">
-					<span class="text-xs font-semibold">
+					<span class="text-sm font-semibold truncate">
 						{shouldCapitalize ? capitalize(inputSpecKey) : inputSpecKey}
 					</span>
 
@@ -39,7 +43,19 @@
 						</Badge>
 
 						{#if !inputSpecs[inputSpecKey].onlyStatic}
-							<ToggleButtonGroup bind:selected={inputSpecs[inputSpecKey].type}>
+							<ToggleButtonGroup
+								bind:selected={inputSpecs[inputSpecKey].type}
+								on:selected={(e) => {
+									console.log(inputSpecs[inputSpecKey])
+									if (e.detail == 'connected' && !inputSpecs[inputSpecKey]['connection']) {
+										$connectingInput = {
+											opened: true,
+											input: undefined,
+											hoveredComponent: undefined
+										}
+									}
+								}}
+							>
 								<ToggleButton
 									title="Static"
 									position="left"
@@ -71,7 +87,7 @@
 									/>
 								{/if}
 								<ToggleButton
-									title="Connected"
+									title="Connect"
 									position="right"
 									value="connected"
 									startIcon={{ icon: faArrowRight }}

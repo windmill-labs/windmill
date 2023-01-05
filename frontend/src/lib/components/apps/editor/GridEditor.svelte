@@ -127,7 +127,6 @@
 			rowHeight={36}
 			cols={columnConfiguration}
 			fastStart={true}
-			on:pointerup={({ detail }) => selectComponent(detail.id)}
 			gap={[4, 2]}
 		>
 			{#each $lazyGrid as gridComponent (gridComponent.id)}
@@ -148,11 +147,14 @@
 						>
 					{/if}
 					<div
+						on:pointerdown={() => {
+							selectComponent(dataItem.data.id)
+						}}
 						class={classNames(
 							'h-full w-full flex justify-center align-center items-center',
 							gridComponent.data.card ? 'border border-gray-100' : ''
 						)}
-						on:click|preventDefault|capture|once
+						on:click|preventDefault|capture|once|stopPropagation
 					>
 						<ComponentEditor
 							{pointerdown}
