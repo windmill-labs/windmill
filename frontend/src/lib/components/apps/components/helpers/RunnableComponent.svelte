@@ -187,13 +187,15 @@
 				let field = fields[k]
 				if (field?.type == 'static' && fields[k]) {
 					staticRunnableInputs[k] = field.value
+				} else if (field?.type == 'user') {
+					nonStaticRunnableInputs[k] = args[k]
 				} else {
 					nonStaticRunnableInputs[k] = runnableInputValues[k]
 				}
 			})
 
 			const requestBody = {
-				args: { ...nonStaticRunnableInputs, ...args },
+				args: nonStaticRunnableInputs,
 				force_viewer_static_fields: !isEditor ? undefined : staticRunnableInputs
 			}
 
@@ -239,7 +241,7 @@
 
 <TestJobLoader
 	workspaceOverride={workspace}
-	on:done={() => {
+	on:done={(e) => {
 		if (testJob && outputs) {
 			const startedAt = new Date(testJob.started_at).getTime()
 			if (startedAt > lastStartedAt) {

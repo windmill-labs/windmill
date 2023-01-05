@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { afterUpdate } from 'svelte'
-	import { Splitpanes } from 'svelte-splitpanes'
 
 	/**
 	 * This component should be used instead of `Splitpanes` if the wrapper `Splitpanes`
@@ -10,7 +9,6 @@
 	/** This element will act as the reference point to the `Splitpanes`
 	 * and the top difference will be calculated from it. */
 	export let refElement: HTMLElement | undefined = undefined
-	export let panesClass = ''
 	let wrapper: HTMLDivElement
 	let gap = 0
 
@@ -33,7 +31,5 @@
 	class="h-full {$$props.class || ''}"
 	style="max-height: calc(100% - {gap}px) !important;"
 >
-	<Splitpanes class={panesClass} {...$$restProps}>
-		<slot />
-	</Splitpanes>
+	<slot />
 </div>
