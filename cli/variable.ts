@@ -26,7 +26,7 @@ async function list(opts: GlobalOptions) {
     .render();
 }
 
-type VariableFile = {
+export type VariableFile = {
   value: string;
   is_secret: boolean;
   description: string;

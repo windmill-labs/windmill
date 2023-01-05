@@ -12,6 +12,8 @@ import {
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import { resolve, track_job } from "./script.ts";
 
+export type FlowFile = OpenFlow;
+
 type Options = GlobalOptions;
 
 async function push(opts: Options, filePath: string, remotePath: string) {
@@ -30,7 +32,7 @@ export async function pushFlow(
   workspace: string,
   remotePath: string,
 ) {
-  const data: OpenFlow = JSON.parse(await Deno.readTextFile(filePath));
+  const data: FlowFile = JSON.parse(await Deno.readTextFile(filePath));
   if (
     await FlowService.existsFlowByPath({
       workspace: workspace,

@@ -7,7 +7,7 @@ import {
 } from "https://deno.land/x/windmill@v1.50.0/windmill-api/index.ts";
 import { colors, Command, readAll, ScriptService, Table } from "./deps.ts";
 
-type ScriptFile = {
+export type ScriptFile = {
   parent_hash?: string;
   summary: string;
   description: string;

@@ -3,7 +3,7 @@ import { GlobalOptions } from "./types.ts";
 import { requireLogin, resolveWorkspace } from "./context.ts";
 import { colors, Command, ResourceService, Table } from "./deps.ts";
 
-type ResourceTypeFile = {
+export type ResourceTypeFile = {
   schema?: any;
   description?: string;
 };

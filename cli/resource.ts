@@ -2,7 +2,7 @@ import { GlobalOptions } from "./types.ts";
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import { colors, Command, Resource, ResourceService, Table } from "./deps.ts";
 
-type ResourceFile = {
+export type ResourceFile = {
   value: any;
   description?: string;
   resource_type: string;

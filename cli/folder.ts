@@ -21,7 +21,7 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
   console.log(colors.bold.underline.green("Resource successfully pushed"));
 }
 
-type FolderFile = {
+export type FolderFile = {
   owners: Array<string> | undefined;
   extra_perms: Record<string, boolean> | undefined;
 };
