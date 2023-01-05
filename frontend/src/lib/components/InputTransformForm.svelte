@@ -74,7 +74,7 @@
 	}
 
 	function isStaticTemplate(inputCat: InputCat) {
-		return inputCat === 'string' || inputCat === 'sql'
+		return inputCat === 'string' || inputCat === 'sql' || inputCat == 'yaml'
 	}
 
 	function connectProperty(rawValue: string) {
@@ -118,6 +118,7 @@
 	const closeBracket = '}'
 
 	$: schema.properties[argName].default &&
+		!arg?.value &&
 		monacoTemplate?.setCode(schema.properties[argName].default)
 </script>
 

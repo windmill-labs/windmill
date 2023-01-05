@@ -41,6 +41,8 @@ export function langToExt(lang: string): string {
             return 'json'
         case 'sql':
             return 'sql'
+        case 'yaml':
+            return 'yaml'
         case 'typescript':
             return 'ts'
         case 'python':

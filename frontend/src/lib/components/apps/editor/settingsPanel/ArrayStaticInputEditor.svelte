@@ -52,6 +52,7 @@
 						color="light"
 						on:click={() => deleteElementByType(index)}
 						iconOnly
+						btnClasses="!text-red-500"
 						startIcon={{ icon: faTrashAlt }}
 					/>
 				</div>

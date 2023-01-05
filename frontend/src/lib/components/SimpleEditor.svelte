@@ -14,6 +14,17 @@
 
 	import libStdContent from '$lib/es5.d.ts.txt?raw'
 
+	meditor.defineTheme('myTheme', {
+		base: 'vs',
+		inherit: true,
+		rules: [],
+		colors: {
+			'editorLineNumber.foreground': '#999',
+			'editorGutter.background': '#F9FAFB'
+		}
+	})
+	meditor.setTheme('myTheme')
+
 	languages.typescript.javascriptDefaults.setCompilerOptions({
 		target: languages.typescript.ScriptTarget.Latest,
 		allowNonTsExtensions: true,
@@ -117,6 +128,15 @@
 				code = getCode()
 				dispatch('change', { code })
 			}, 200)
+		})
+
+		editor.onDidFocusEditorText(() => {
+			dispatch('focus')
+
+			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {
+				code = getCode()
+				shouldBindKey && format && format()
+			})
 		})
 
 		if (autoHeight) {

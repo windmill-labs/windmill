@@ -28,7 +28,7 @@
 	let search: 'By Runnable' | 'By Component' | 'Disabled' | undefined = undefined
 	let searchValue = ''
 
-	let pagination: boolean | undefined = undefined
+	let pagination: boolean | undefined = true
 
 	$: setSearch(searchValue)
 
@@ -37,9 +37,9 @@
 	}
 
 	const options = writable<TableOptions<T>>({
+		...tableOptions,
 		data: [],
-		columns: [],
-		...tableOptions
+		columns: []
 	})
 
 	let table = createSvelteTable(options)
@@ -67,14 +67,14 @@
 		const headers = Array.from(new Set(result.flatMap((row) => Object.keys(row))))
 
 		$options = {
+			...tableOptions,
 			data: filteredResult,
 			columns: headers.map((header) => {
 				return {
 					accessorKey: header,
 					cell: (info) => info.getValue()
 				}
-			}),
-			...tableOptions
+			})
 		}
 	}
 
@@ -117,7 +117,6 @@
 </script>
 
 <InputValue {id} input={configuration.search} bind:value={search} />
-<InputValue {id} input={configuration.pagination} bind:value={pagination} />
 
 <RunnableWrapper bind:componentInput {id} bind:result>
 	{#if Array.isArray(result) && result.every(isObject)}
@@ -177,7 +176,7 @@
 											{@const component = renderCell(cell.column.columnDef.cell, context)}
 											<td
 												on:click={() => toggleRow(row, rowIndex)}
-												class="p-4 whitespace-nowrap text-xs text-gray-900"
+												class="p-4 whitespace-pre-wrap truncate text-xs text-gray-900"
 											>
 												{#if typeof cell.column.columnDef.cell != 'string' && cellIsObject(cell.column.columnDef.cell, context)}
 													{JSON.stringify(cell.column.columnDef.cell(context), null, 4)}

@@ -52,7 +52,8 @@
 		appPath,
 		workspace,
 		onchange: undefined,
-		isEditor
+		isEditor,
+		jobs: writable([])
 	})
 
 	let mounted = false

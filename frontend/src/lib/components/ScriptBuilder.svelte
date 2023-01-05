@@ -57,6 +57,7 @@
 	async function editScript(): Promise<void> {
 		try {
 			$dirtyStore = false
+			localStorage.removeItem(script.path)
 			if (!script.schema) {
 				await inferArgs(script.language, script.content, script.schema)
 			}

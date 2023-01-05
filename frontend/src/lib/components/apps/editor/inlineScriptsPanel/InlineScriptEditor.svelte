@@ -12,13 +12,15 @@
 	import { fly } from 'svelte/transition'
 	import Editor from '$lib/components/Editor.svelte'
 	import { scriptLangToEditorLang } from '$lib/utils'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
 
 	export let inlineScript: InlineScript
 	export let name: string | undefined = undefined
+	export let id: string
 
-	const { app } = getContext<AppEditorContext>('AppEditorContext')
+	const { runnableComponents } = getContext<AppEditorContext>('AppEditorContext')
 
 	let editor: Editor
 	let validCode = false
@@ -49,12 +51,13 @@
 		}
 	})
 	const dispatch = createEventDispatcher()
+	let runLoading = false
 </script>
 
 <InlineScriptEditorDrawer {editor} bind:this={inlineScriptEditorDrawer} bind:inlineScript />
 
-<div class="h-full p-4 flex flex-col gap-2" transition:fly={{ duration: 50 }}>
-	<div class="flex justify-between w-full gap-1 flex-row items-center">
+<div class="h-full flex flex-col gap-1" transition:fly={{ duration: 50 }}>
+	<div class="flex justify-between w-full gap-1 px-2 pt-1 flex-row items-center">
 		{#if name !== undefined}
 			<input bind:value={name} placeholder="Inline script name" />
 		{/if}
@@ -69,7 +72,17 @@
 				</Badge>
 			{/if}
 
-			{#if $app.unusedInlineScripts.map((x) => x.name).includes(name ?? '')}
+			<Button
+				variant="border"
+				size="xs"
+				color="blue"
+				on:click={async () => {
+					editor.format()
+				}}
+			>
+				Format&nbsp;<Tooltip>Ctrl+S</Tooltip>
+			</Button>
+			{#if id.startsWith('unused-')}
 				<Button
 					size="xs"
 					color="light"
@@ -78,6 +91,21 @@
 					startIcon={{ icon: faTrash }}
 					on:click={() => dispatch('delete')}
 				/>
+			{:else}
+				<Button
+					loading={runLoading}
+					size="xs"
+					color="blue"
+					on:click={async () => {
+						runLoading = true
+						await $runnableComponents[id]?.()
+						runLoading = false
+					}}
+				>
+					Run&nbsp;<Tooltip
+						>Ctrl+Enter to run the script and see the result in the component directly</Tooltip
+					>
+				</Button>
 			{/if}
 
 			<Button
@@ -101,7 +129,12 @@
 			class="flex flex-1 grow h-full"
 			lang={scriptLangToEditorLang(inlineScript?.language)}
 			bind:code={inlineScript.content}
-			fixedOverflowWidgets={false}
+			fixedOverflowWidgets={true}
+			cmdEnterAction={async () => {
+				runLoading = true
+				await $runnableComponents[id]?.()
+				runLoading = false
+			}}
 			on:change={async (e) => {
 				if (inlineScript) {
 					const oldSchema = JSON.stringify(inlineScript.schema)

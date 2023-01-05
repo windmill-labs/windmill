@@ -40,6 +40,8 @@
 		noSuggestionDiagnostics: true,
 		noSyntaxValidation: true
 	})
+	languages.typescript.typescriptDefaults.setExtraLibs([])
+
 	meditor.defineTheme('myTheme', {
 		base: 'vs',
 		inherit: true,
@@ -141,7 +143,7 @@
 		}
 	}
 
-	function format() {
+	export function format() {
 		if (editor) {
 			code = getCode()
 			editor.getAction('editor.action.formatDocument').run()
@@ -201,7 +203,6 @@
 						isTrusted: true
 					},
 
-					// workspaceFolder: { uri: Uri.parse(`/tmp/${name}`), name: 'tmp', index: 0 },
 					initializationOptions,
 					middleware: {
 						workspace: {
@@ -409,10 +410,9 @@
 		const model = meditor.createModel(code, lang, mUri.parse(uri))
 
 		model.updateOptions(updateOptions)
-		editor = meditor.create(
-			divEl as HTMLDivElement,
-			editorConfig(model, code, lang, automaticLayout, fixedOverflowWidgets)
-		)
+		editor = meditor.create(divEl as HTMLDivElement, {
+			...editorConfig(model, code, lang, automaticLayout, fixedOverflowWidgets)
+		})
 
 		let timeoutModel: NodeJS.Timeout | undefined = undefined
 		editor.onDidChangeModelContent((event) => {

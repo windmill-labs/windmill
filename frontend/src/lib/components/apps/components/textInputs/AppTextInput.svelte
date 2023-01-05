@@ -38,6 +38,5 @@
 		bind:this={input}
 		on:input={handleInput}
 		{placeholder}
-		class="h-full"
 	/>
 </AlignWrapper>

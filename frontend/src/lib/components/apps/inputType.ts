@@ -4,6 +4,7 @@ import type { InlineScript } from './types'
 export type InputType =
 	| 'text'
 	| 'textarea'
+	| 'template'
 	| 'number'
 	| 'boolean'
 	| 'select'
@@ -68,7 +69,7 @@ export type Runnable = RunnableByPath | RunnableByName | undefined
 // Runnable input, set by the developer in the component panel
 export type ResultInput = {
 	runnable: Runnable
-	fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput>
+	fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
 	type: 'runnable'
 }
 
@@ -91,6 +92,7 @@ type InputConfiguration<T extends InputType, U, V extends InputType> = {
 export type AppInput =
 	| AppInputSpec<'text', string>
 	| AppInputSpec<'textarea', string>
+	| AppInputSpec<'template', string>
 	| AppInputSpec<'number', number>
 	| AppInputSpec<'boolean', boolean>
 	| AppInputSpec<'date', string>

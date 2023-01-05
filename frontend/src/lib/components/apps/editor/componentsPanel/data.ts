@@ -5,6 +5,7 @@ const inputs: ComponentSet = {
 	title: 'Inputs',
 	components: [
 		{
+			softWrap: true,
 			verticalAlignment: 'center',
 			id: 'textinputcomponent',
 			type: 'textinputcomponent',
@@ -14,27 +15,45 @@ const inputs: ComponentSet = {
 					type: 'static',
 					value: 'Type...',
 					fieldType: 'text',
+					onlyStatic: true,
 				},
 			},
 			card: false
 		},
 		{
+			softWrap: true,
 			verticalAlignment: 'center',
 			id: 'passwordinputcomponent',
 			type: 'passwordinputcomponent',
 			componentInput: undefined,
-			configuration: {},
+			configuration: {
+				placeholder: {
+					type: 'static',
+					value: 'Password',
+					fieldType: 'text',
+					onlyStatic: true,
+				},
+			},
 			card: false
 		},
 		{
+			softWrap: true,
 			verticalAlignment: 'center',
 			id: 'numberinputcomponent',
 			type: 'numberinputcomponent',
 			componentInput: undefined,
-			configuration: {},
+			configuration: {
+				placeholder: {
+					type: 'static',
+					value: 'Type...',
+					fieldType: 'text',
+					onlyStatic: true,
+				},
+			},
 			card: false
 		},
 		{
+			softWrap: true,
 			verticalAlignment: 'center',
 			id: 'dateinputcomponent',
 			type: 'dateinputcomponent',
@@ -52,10 +71,10 @@ const inputs: ComponentSet = {
 				}
 			},
 			card: false,
-			softWrap: true
 		},
 		{
 			...defaultAlignement,
+			softWrap: true,
 			id: 'checkboxcomponent',
 			type: 'checkboxcomponent',
 			componentInput: undefined,
@@ -100,6 +119,7 @@ const buttons: ComponentSet = {
 	components: [
 		{
 			...defaultAlignement,
+			softWrap: true,
 			id: 'buttoncomponent',
 			type: 'buttoncomponent',
 			componentInput: {
@@ -113,21 +133,20 @@ const buttons: ComponentSet = {
 			configuration: {
 				label: {
 					type: 'static',
-
 					fieldType: 'text',
-					value: 'Lorem ipsum'
+					value: 'Press me'
 				},
 				color: {
 					fieldType: 'select',
 					type: 'static',
-
+					onlyStatic: true,
 					optionValuesKey: 'buttonColorOptions',
 					value: 'blue'
 				},
 				size: {
 					fieldType: 'select',
 					type: 'static',
-
+					onlyStatic: true,
 					optionValuesKey: 'buttonSizeOptions',
 					value: 'xs'
 				}
@@ -156,6 +175,7 @@ const buttons: ComponentSet = {
 				color: {
 					fieldType: 'select',
 					type: 'static',
+					onlyStatic: true,
 					value: 'dark',
 					optionValuesKey: 'buttonColorOptions',
 				},
@@ -163,6 +183,7 @@ const buttons: ComponentSet = {
 					fieldType: 'select',
 					type: 'static',
 					value: 'xs',
+					onlyStatic: true,
 					optionValuesKey: 'buttonSizeOptions',
 				}
 			},
@@ -176,20 +197,39 @@ const display: ComponentSet = {
 	title: 'Display',
 	components: [
 		{
-			...defaultAlignement,
+			softWrap: false,
+			id: 'htmlcomponent',
+			type: 'htmlcomponent',
+			componentInput: {
+				type: 'static',
+				fieldType: 'template',
+				value: `<img
+	src="https://images.unsplash.com/photo-1554629947-334ff61d85dc?ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&amp;ixlib=rb-1.2.1&amp;auto=format&amp;fit=crop&amp;w=1024&amp;h=1280&amp;q=80"
+>
+<div class="absolute top-4 left-2  text-white">
+	Hello \${ctx.username}
+</div>			
+`,
+			},
+			configuration: {},
+			card: false
+		},
+		{
+			softWrap: true,
+			horizontalAlignment: 'left',
+			verticalAlignment: 'top',
 			id: 'textcomponent',
 			type: 'textcomponent',
 			componentInput: {
 				type: 'static',
-				fieldType: 'textarea',
-				value: 'Lorem ipsum',
-
+				fieldType: 'template',
+				value: 'Hello ${ctx.username}',
 			},
 			configuration: {
 				style: {
 					fieldType: 'select',
 					type: 'static',
-
+					onlyStatic: true,
 					optionValuesKey: 'textStyleOptions',
 					value: 'Body'
 				},
@@ -205,21 +245,16 @@ const display: ComponentSet = {
 			card: false
 		},
 		{
+
 			id: 'tablecomponent',
 			type: 'tablecomponent',
 			configuration: {
 				search: {
 					fieldType: 'select',
 					type: 'static',
-
+					onlyStatic: true,
 					optionValuesKey: 'tableSearchOptions',
 					value: 'Disabled'
-				},
-				pagination: {
-					type: 'static',
-
-					fieldType: 'boolean',
-					value: false
 				}
 			},
 			componentInput: {
@@ -229,13 +264,13 @@ const display: ComponentSet = {
 				value: [
 					{
 						id: 1,
-						name: 'Lorem ipsum',
+						name: 'A cell with a long name',
 						age: 42
 					},
 					{
 						id: 2,
-						name: 'Lorem ipsum',
-						age: 42
+						name: 'A briefer cell',
+						age: 84
 					}
 				],
 
@@ -249,24 +284,22 @@ const display: ComponentSet = {
 			configuration: {
 				theme: {
 					type: 'static',
-
+					onlyStatic: true,
 					fieldType: 'select',
 					optionValuesKey: 'chartThemeOptions',
 					value: 'theme1'
 				},
-				labels: {
+				doughnutStyle: {
 					type: 'static',
-					value: ['First', 'Second', 'Third'],
-					fieldType: 'array',
-					subFieldType: 'text',
+					onlyStatic: true,
+					fieldType: 'boolean',
+					value: false
 				}
 			},
 			componentInput: {
 				type: 'static',
-				fieldType: 'array',
-				subFieldType: 'number',
-				value: [25, 50, 25],
-
+				fieldType: 'object',
+				value: { data: [25, 50, 25], labels: ['Pie', 'Charts', '<3'] }
 			},
 			card: true
 		},
@@ -276,25 +309,123 @@ const display: ComponentSet = {
 			configuration: {
 				theme: {
 					type: 'static',
-
+					onlyStatic: true,
 					fieldType: 'select',
 					optionValuesKey: 'chartThemeOptions',
 					value: 'theme1'
 				},
-				labels: {
+				line: {
 					type: 'static',
-
-					fieldType: 'array',
-					subFieldType: 'text',
-					value: ['Lorem ipsum', 'Lorem ipsum', 'Lorem ipsum']
+					onlyStatic: true,
+					fieldType: 'boolean',
+					value: false
 				}
+
+			},
+			componentInput: {
+				type: 'static',
+				fieldType: 'object',
+				value: { data: [25, 50, 25], labels: ['Bar', 'Charts', '<3'] }
+			},
+			card: true
+		},
+		{
+			id: 'scatterchartcomponent',
+			type: 'scatterchartcomponent',
+			configuration: {
+				zoomable: {
+					type: 'static',
+					onlyStatic: true,
+					fieldType: 'boolean',
+					value: false
+				},
+				pannable: {
+					type: 'static',
+					onlyStatic: true,
+					fieldType: 'boolean',
+					value: false
+				},
 			},
 			componentInput: {
 				type: 'static',
 				fieldType: 'array',
-				subFieldType: 'number',
-				value: [25, 50, 25],
-
+				subFieldType: 'object',
+				value: [{
+					label: 'foo',
+					data: [
+						{ x: 25, y: 50 },
+						{ x: 23, y: 23 },
+						{ x: 12, y: 37 }
+					],
+					backgroundColor: 'rgb(255, 12, 137)'
+				},
+				{
+					label: 'foobar',
+					data: [
+						{ x: 32, y: 32 },
+						{ x: 25, y: 42 },
+						{ x: 3, y: 27 }
+					],
+					backgroundColor: 'orange'
+				}]
+			},
+			card: true
+		},
+		{
+			id: 'timeseriescomponent',
+			type: 'timeseriescomponent',
+			configuration: {
+				logarithmicScale: {
+					type: 'static',
+					onlyStatic: true,
+					fieldType: 'boolean',
+					value: false
+				},
+				zoomable: {
+					type: 'static',
+					onlyStatic: true,
+					fieldType: 'boolean',
+					value: false
+				},
+				pannable: {
+					type: 'static',
+					onlyStatic: true,
+					fieldType: 'boolean',
+					value: false
+				},
+			},
+			componentInput: {
+				type: 'static',
+				fieldType: 'array',
+				subFieldType: 'object',
+				value: [{
+					label: 'foo',
+					data: [{
+						x: '2021-11-06 23:39:30',
+						y: 50
+					}, {
+						x: '2021-11-07 01:00:28',
+						y: 60
+					}, {
+						x: '2021-11-07 09:00:28',
+						y: 20
+					}],
+					backgroundColor: 'rgb(255, 12, 137)'
+				},
+				{
+					label: 'foobar',
+					data: [{
+						x: '2021-11-06 23:39:30',
+						y: 20
+					}, {
+						x: '2021-11-07 01:00:28',
+						y: 13
+					}, {
+						x: '2021-11-07 09:00:28',
+						y: 45
+					}],
+					backgroundColor: 'orange'
+				}]
 			},
 			card: true
 		},
@@ -309,7 +440,8 @@ const display: ComponentSet = {
 			},
 			configuration: {},
 			card: false
-		}
+		},
+
 	]
 }
 

@@ -11,7 +11,6 @@
 	import { flowStateStore } from './flows/flowState'
 	import { flowStore } from './flows/flowStore'
 	import { workspaceStore } from '$lib/stores'
-	import { Icon } from 'svelte-awesome'
 	import { Loader2 } from 'lucide-svelte'
 
 	export let mod: FlowModule

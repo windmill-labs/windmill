@@ -2,7 +2,7 @@
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
 	import { onMount, setContext } from 'svelte'
 
-	import { Pane } from 'svelte-splitpanes'
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { writable } from 'svelte/store'
 	import { buildWorld, type World } from '../rx'
 	import type {
@@ -68,7 +68,8 @@
 		appPath: path,
 		workspace: $workspaceStore ?? '',
 		onchange: () => saveDraft(),
-		isEditor: true
+		isEditor: true,
+		jobs: writable([])
 	})
 
 	let timeout: NodeJS.Timeout | undefined = undefined
@@ -77,7 +78,13 @@
 
 	function saveDraft() {
 		timeout && clearTimeout(timeout)
-		timeout = setTimeout(() => localStorage.setItem('app', encodeState($appStore)), 500)
+		timeout = setTimeout(() => {
+			try {
+				localStorage.setItem(path != '' ? `app-${path}` : 'app', encodeState($appStore))
+			} catch (err) {
+				console.error(err)
+			}
+		}, 500)
 	}
 
 	let mounted = false
@@ -114,7 +121,7 @@
 	{#if previewing}
 		<AppPreview
 			workspace={$workspaceStore ?? ''}
-			{summary}
+			summary={$summaryStore}
 			app={$appStore}
 			appPath={path}
 			{breakpoint}
@@ -123,87 +130,91 @@
 			{context}
 		/>
 	{:else}
-		<SplitPanesWrapper class="max-w-full overflow-hidden">
-			<Pane size={$connectingInput?.opened ? 40 : 15} minSize={5} maxSize={33}>
-				<ContextPanel />
-			</Pane>
-			<Pane size={64}>
-				<SplitPanesWrapper horizontal>
-					<Pane size={$connectingInput?.opened ? 100 : 70}>
-						<div
-							class="bg-gray-100 relative  w-full h-full overflow-auto {app.fullscreen
-								? ''
-								: 'max-w-6xl'}"
-						>
-							{#if $appStore.grid}
-								<div class={classNames('p-4 mx-auto', width)}>
-									<GridEditor {policy} />
+		<SplitPanesWrapper>
+			<Splitpanes class="max-w-full overflow-hidden">
+				<Pane size={$connectingInput?.opened ? 40 : 15} minSize={5} maxSize={33}>
+					<ContextPanel />
+				</Pane>
+				<Pane size={64}>
+					<SplitPanesWrapper>
+						<Splitpanes horizontal>
+							<Pane size={$connectingInput?.opened ? 100 : 70}>
+								<div
+									class="bg-gray-100 relative  w-full h-full overflow-auto {app.fullscreen
+										? ''
+										: 'max-w-6xl'}"
+								>
+									{#if $appStore.grid}
+										<div class={classNames('p-4 mx-auto', width)}>
+											<GridEditor {policy} />
+										</div>
+									{/if}
 								</div>
-							{/if}
-						</div>
-					</Pane>
-					<Pane size={$connectingInput?.opened ? 0 : 30}>
-						<div class="relative h-full w-full">
-							<InlineScriptsPanel />
-						</div>
-					</Pane>
-				</SplitPanesWrapper>
-			</Pane>
-			<Pane size={21} minSize={5} maxSize={33}>
-				<div class="relative">
-					<Tabs bind:selected={selectedTab}>
-						<Tab value="insert" size="xs">
-							<div class="m-1 flex flex-row gap-2">
-								<Icon data={faPlus} />
-								<span>Insert</span>
-							</div>
-						</Tab>
-						<Tab value="settings" size="xs">
-							<div class="m-1 flex flex-row gap-2">
-								<Icon data={faSliders} />
-								<span>Settings</span>
-							</div>
-						</Tab>
-						<svelte:fragment slot="content">
-							<TabContent value="settings">
-								{#if $selectedComponent !== undefined && $selectedComponent !== 'context'}
-									<SettingsPanel />
-								{:else}
-									<div class="p-4 min-w-[150px] text-sm">No component selected.</div>
-								{/if}
-							</TabContent>
-							<TabContent value="insert">
-								<ComponentList />
-							</TabContent>
-						</svelte:fragment>
-					</Tabs>
-					{#if $connectingInput.opened}
-						<div
-							class="fixed top-32  p-2 z-50 flex justify-center items-center"
-							transition:fly={{ duration: 100, y: -100 }}
-						>
-							<Alert title="Connecting" type="info">
-								<div class="flex gap-2 flex-col">
-									Click on the output of the component you want to connect to on the left panel.
-									<div>
-										<Button
-											color="blue"
-											variant="border"
-											size="xs"
-											on:click={() => {
-												$connectingInput.opened = false
-												$connectingInput.input = undefined
-											}}
-										>
-											Stop connecting
-										</Button>
+							</Pane>
+							<Pane size={$connectingInput?.opened ? 0 : 30}>
+								<div class="relative h-full w-full">
+									<InlineScriptsPanel />
+								</div>
+							</Pane>
+						</Splitpanes>
+					</SplitPanesWrapper>
+				</Pane>
+				<Pane size={21} minSize={5} maxSize={33}>
+					<div class="relative flex flex-col h-full">
+						<Tabs bind:selected={selectedTab}>
+							<Tab value="insert" size="xs">
+								<div class="m-1 flex flex-row gap-2">
+									<Icon data={faPlus} />
+									<span>Insert</span>
+								</div>
+							</Tab>
+							<Tab value="settings" size="xs">
+								<div class="m-1 flex flex-row gap-2">
+									<Icon data={faSliders} />
+									<span>Settings</span>
+								</div>
+							</Tab>
+							<svelte:fragment slot="content">
+								<TabContent class="overflow-auto" value="settings">
+									{#if $selectedComponent !== undefined}
+										<SettingsPanel />
+									{:else}
+										<div class="p-2 min-w-[150px] text-sm">No component selected.</div>
+									{/if}
+								</TabContent>
+								<TabContent value="insert">
+									<ComponentList />
+								</TabContent>
+							</svelte:fragment>
+						</Tabs>
+						{#if $connectingInput.opened}
+							<div
+								class="fixed top-32  p-2 z-50 flex justify-center items-center"
+								transition:fly={{ duration: 100, y: -100 }}
+							>
+								<Alert title="Connecting" type="info">
+									<div class="flex gap-2 flex-col">
+										Click on the output of the component you want to connect to on the left panel.
+										<div>
+											<Button
+												color="blue"
+												variant="border"
+												size="xs"
+												on:click={() => {
+													$connectingInput.opened = false
+													$connectingInput.input = undefined
+												}}
+											>
+												Stop connecting
+											</Button>
+										</div>
 									</div>
-								</div>
-							</Alert>
-						</div>
-					{/if}
-				</div>
-			</Pane>
+								</Alert>
+							</div>
+						{/if}
+					</div>
+				</Pane>
+			</Splitpanes>
 		</SplitPanesWrapper>
 	{/if}
 {:else}

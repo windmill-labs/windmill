@@ -36,6 +36,8 @@
 
 <AlignWrapper {horizontalAlignment} {verticalAlignment}>
 	<Select
+		--height="34px"
+		class="select"
 		on:clear={onChange}
 		on:change={onChange}
 		{items}

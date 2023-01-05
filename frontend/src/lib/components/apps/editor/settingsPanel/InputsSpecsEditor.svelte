@@ -10,15 +10,19 @@
 		StaticAppInput,
 		UserAppInput
 	} from '../../inputType'
+	import { getContext } from 'svelte'
+	import type { AppEditorContext } from '../../types'
 
 	export let inputSpecs: Record<
 		string,
-		StaticAppInput | ConnectedAppInput | UserAppInput | RowAppInput
+		(StaticAppInput | ConnectedAppInput | UserAppInput | RowAppInput) & { onlyStatic?: boolean }
 	>
 	export let userInputEnabled: boolean = true
 	export let staticOnly: boolean = false
 	export let shouldCapitalize: boolean = true
 	export let rowColumns = false
+
+	const { connectingInput } = getContext<AppEditorContext>('AppEditorContext')
 </script>
 
 {#if inputSpecs}
@@ -27,58 +31,72 @@
 			{@const input = inputSpecs[inputSpecKey]}
 			<div class="flex flex-col gap-1">
 				<div class="flex justify-between items-end gap-1">
-					<span class="text-xs font-semibold">
+					<span class="text-sm font-semibold truncate">
 						{shouldCapitalize ? capitalize(inputSpecKey) : inputSpecKey}
 					</span>
 
-					<div class="flex gap-2 items-center">
+					<div class="flex gap-2 flex-wrap items-center">
 						<Badge color="blue">
 							{input.fieldType === 'array' && input.subFieldType
 								? `${capitalize(fieldTypeToTsType(input.subFieldType))}[]`
 								: capitalize(fieldTypeToTsType(input.fieldType))}
 						</Badge>
 
-						<ToggleButtonGroup bind:selected={inputSpecs[inputSpecKey].type}>
-							<ToggleButton
-								title="Static"
-								position="left"
-								value="static"
-								startIcon={{ icon: faPen }}
-								size="xs"
-								iconOnly
-							/>
-							{#if rowColumns}
+						{#if !inputSpecs[inputSpecKey].onlyStatic}
+							<ToggleButtonGroup
+								bind:selected={inputSpecs[inputSpecKey].type}
+								on:selected={(e) => {
+									console.log(inputSpecs[inputSpecKey])
+									if (e.detail == 'connected' && !inputSpecs[inputSpecKey]['connection']) {
+										$connectingInput = {
+											opened: true,
+											input: undefined,
+											hoveredComponent: undefined
+										}
+									}
+								}}
+							>
 								<ToggleButton
-									title="From Row"
-									position="center"
-									value="row"
-									startIcon={{ icon: faTableCells }}
+									title="Static"
+									position="left"
+									value="static"
+									startIcon={{ icon: faPen }}
+									size="xs"
+									iconOnly
+								/>
+								{#if rowColumns}
+									<ToggleButton
+										title="From Row"
+										position="center"
+										value="row"
+										startIcon={{ icon: faTableCells }}
+										size="xs"
+										iconOnly
+										disabled={staticOnly}
+									/>
+								{/if}
+								{#if userInputEnabled && (!input.format?.startsWith('resource-') || true)}
+									<ToggleButton
+										title="User Input"
+										position="center"
+										value="user"
+										startIcon={{ icon: faUser }}
+										size="xs"
+										iconOnly
+										disabled={staticOnly}
+									/>
+								{/if}
+								<ToggleButton
+									title="Connect"
+									position="right"
+									value="connected"
+									startIcon={{ icon: faArrowRight }}
 									size="xs"
 									iconOnly
 									disabled={staticOnly}
 								/>
-							{/if}
-							{#if userInputEnabled && (!input.format?.startsWith('resource-') || true)}
-								<ToggleButton
-									title="User Input"
-									position="center"
-									value="user"
-									startIcon={{ icon: faUser }}
-									size="xs"
-									iconOnly
-									disabled={staticOnly}
-								/>
-							{/if}
-							<ToggleButton
-								title="Connected"
-								position="right"
-								value="connected"
-								startIcon={{ icon: faArrowRight }}
-								size="xs"
-								iconOnly
-								disabled={staticOnly}
-							/>
-						</ToggleButtonGroup>
+							</ToggleButtonGroup>
+						{/if}
 					</div>
 				</div>
 

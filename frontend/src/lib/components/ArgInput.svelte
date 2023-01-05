@@ -183,7 +183,7 @@
 								bind:value={description}
 								placeholder="Field description"
 							/>
-							{#if type == 'string' && !contentEncoding && format != 'date-time'}
+							{#if type == 'string' && format != 'date-time'}
 								<StringTypeNarrowing bind:format bind:pattern bind:enum_ bind:contentEncoding />
 							{:else if type == 'object'}
 								<ObjectTypeNarrowing bind:format />
@@ -326,18 +326,18 @@
 				</select>
 			{:else if inputCat == 'date'}
 				<input {autofocus} class="inline-block" type="datetime-local" bind:value />
-			{:else if inputCat == 'sql'}
-				<div class="border rounded mb-4 w-full border-gray-700">
+			{:else if inputCat == 'sql' || inputCat == 'yaml'}
+				<div class="border my-1 mb-4 w-full border-gray-400">
 					<SimpleEditor
 						on:focus={() => dispatch('focus')}
 						on:blur={() => dispatch('blur')}
 						bind:this={editor}
-						lang="sql"
+						lang={inputCat}
 						bind:code={value}
-						class="few-lines-editor"
 						on:change={async () => {
 							dispatch('input', { rawValue: value, isRaw: false })
 						}}
+						autoHeight
 					/>
 				</div>
 			{:else if inputCat == 'base64'}

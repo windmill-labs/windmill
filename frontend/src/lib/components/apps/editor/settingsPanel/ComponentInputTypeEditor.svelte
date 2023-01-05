@@ -10,9 +10,10 @@
 
 	const { onchange } = getContext<AppEditorContext>('AppEditorContext')
 
-	$: if (componentInput.fieldType == 'textarea' && componentInput.type == 'static') {
+	$: if (componentInput.fieldType == 'template' && componentInput.type == 'static') {
 		//@ts-ignore
 		componentInput.type = 'template'
+		componentInput['eval'] = componentInput.value
 	}
 
 	const brackets = '${}'
@@ -23,7 +24,7 @@
 {#if componentInput.fieldType !== 'any'}
 	<div class="w-full overflow-x-auto" bind:clientWidth>
 		<ToggleButtonGroup on:selected={() => onchange?.()} bind:selected={componentInput.type}>
-			{#if componentInput.fieldType === 'textarea'}
+			{#if componentInput.fieldType === 'template'}
 				<ToggleButton position="left" value="template" size="xs" disable={disableStatic}>
 					{brackets}&nbsp;<span class="hidden lg:block">Template</span>
 				</ToggleButton>
@@ -37,7 +38,7 @@
 					disable={disableStatic}
 				>
 					{#if clientWidth > 250}
-						<span class="hidden lg:block"> Static </span>
+						<span class="hidden lg:block">Static</span>
 					{/if}
 				</ToggleButton>
 			{/if}
@@ -50,7 +51,7 @@
 				size="xs"
 			>
 				{#if clientWidth > 250}
-					<span class="hidden lg:block"> Connect </span>
+					<span class="hidden lg:block">Connect</span>
 				{/if}
 			</ToggleButton>
 			<ToggleButton
@@ -61,7 +62,7 @@
 				size="xs"
 			>
 				{#if clientWidth > 250}
-					<span class="hidden lg:block"> Compute </span>
+					<span class="hidden lg:block">Compute</span>
 				{/if}
 			</ToggleButton>
 		</ToggleButtonGroup>

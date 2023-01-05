@@ -36,7 +36,7 @@
 </script>
 
 {#if componentInput.connection}
-	<div class="flex justify-between w-full">
+	<div class="flex justify-between w-full gap-1">
 		<span class="text-xs">Status</span>
 		<Badge color="green">Connected</Badge>
 	</div>
@@ -54,17 +54,32 @@
 		color="red"
 		variant="border"
 		on:click={() => {
-			componentInput.connection = undefined
+			if (componentInput.type === 'connected') {
+				componentInput.connection = undefined
+			}
 		}}
 	>
 		Disconnect
 	</Button>
 {:else}
-	<div class="flex justify-between w-full">
+	<div class="flex justify-between w-full gap-1">
 		<span class="text-xs">Status</span>
 		<Badge color="yellow">Not connected</Badge>
 	</div>
-	<Button size="xs" endIcon={{ icon: faArrowRight }} color="blue" on:click={startConnecting}>
+	<Button
+		size="xs"
+		endIcon={{ icon: faArrowRight }}
+		color="blue"
+		on:click={() => {
+			if (componentInput.type === 'connected') {
+				$connectingInput = {
+					opened: true,
+					input: undefined,
+					hoveredComponent: undefined
+				}
+			}
+		}}
+	>
 		Connect
 	</Button>
 {/if}

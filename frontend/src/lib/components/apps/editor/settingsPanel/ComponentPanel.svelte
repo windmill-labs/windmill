@@ -93,7 +93,10 @@ declare const ${k} = ${JSON.stringify(v)};
 {#if component}
 	<div class="flex flex-col min-w-[150px] w-full divide-y">
 		{#if component.componentInput}
-			<PanelSection title={component.componentInput.fieldType === 'any' ? 'By Runnable' : 'Input'}>
+			<PanelSection
+				smallPadding
+				title={component.componentInput.fieldType === 'any' ? 'By Runnable' : 'Input'}
+			>
 				<svelte:fragment slot="action">
 					<span
 						class={classNames(
@@ -120,7 +123,7 @@ declare const ${k} = ${JSON.stringify(v)};
 						<StaticInputEditor bind:componentInput={component.componentInput} />
 					{:else if component.componentInput.type === 'template' && component.componentInput !== undefined}
 						<div class="py-1 min-h-[28px]  rounded border border-1 border-gray-500">
-							<TemplateEditor bind:code={component.componentInput.eval} {extraLib} />
+							<TemplateEditor fontSize={12} bind:code={component.componentInput.eval} {extraLib} />
 						</div>
 					{:else if component.componentInput.type === 'connected' && component.componentInput !== undefined}
 						<ConnectedInputEditor bind:componentInput={component.componentInput} />
@@ -132,7 +135,7 @@ declare const ${k} = ${JSON.stringify(v)};
 					<div class="border w-full">
 						<PanelSection
 							smallPadding
-							title={`Runnable inputs (${
+							title={`Runnable Inputs (${
 								Object.keys(component.componentInput.fields ?? {}).length
 							})`}
 						>

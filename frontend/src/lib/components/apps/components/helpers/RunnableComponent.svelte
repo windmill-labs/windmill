@@ -22,7 +22,7 @@
 	export let result: any = undefined
 	export let forceSchemaDisplay: boolean = false
 
-	const { worldStore, runnableComponents, workspace, appPath, isEditor } =
+	const { worldStore, runnableComponents, workspace, appPath, isEditor, jobs } =
 		getContext<AppEditorContext>('AppEditorContext')
 
 	onMount(() => {
@@ -174,30 +174,28 @@
 	)
 
 	async function executeComponent() {
-		if (outputs?.loading.peak() === true) {
-			return
-		}
-
 		if (runnable?.type === 'runnableByName' && !runnable.inlineScript) {
 			return
 		}
 
 		outputs?.loading?.set(true)
 
-		await testJobLoader?.abstractRun(() => {
+		let njob = await testJobLoader?.abstractRun(() => {
 			const nonStaticRunnableInputs = {}
 			const staticRunnableInputs = {}
 			Object.keys(fields ?? {}).forEach((k) => {
 				let field = fields[k]
 				if (field?.type == 'static' && fields[k]) {
 					staticRunnableInputs[k] = field.value
+				} else if (field?.type == 'user') {
+					nonStaticRunnableInputs[k] = args[k]
 				} else {
 					nonStaticRunnableInputs[k] = runnableInputValues[k]
 				}
 			})
 
 			const requestBody = {
-				args: { ...nonStaticRunnableInputs, ...args },
+				args: nonStaticRunnableInputs,
 				force_viewer_static_fields: !isEditor ? undefined : staticRunnableInputs
 			}
 
@@ -222,11 +220,15 @@
 				requestBody
 			})
 		})
+		if (njob) {
+			$jobs = [...$jobs, { job: njob, component: id }]
+		}
 	}
 
 	export async function runComponent() {
 		await executeComponent()
 	}
+	let lastStartedAt: number = Date.now()
 </script>
 
 {#each Object.entries(fields ?? {}) as [key, v]}
@@ -242,10 +244,14 @@
 
 <TestJobLoader
 	workspaceOverride={workspace}
-	on:done={() => {
+	on:done={(e) => {
 		if (testJob && outputs) {
-			outputs.result?.set(testJob?.result)
-			result = testJob.result
+			const startedAt = new Date(testJob.started_at).getTime()
+			if (startedAt > lastStartedAt) {
+				lastStartedAt = startedAt
+				outputs.result?.set(testJob?.result)
+				result = testJob.result
+			}
 		}
 	}}
 	bind:isLoading={testIsLoading}
@@ -253,10 +259,17 @@
 	bind:this={testJobLoader}
 />
 
-<div class="h-full flex flex-col">
-	{#if schemaStripped !== undefined && (autoRefresh || forceSchemaDisplay)}
-		<div class="px-2">
+<div class="h-full flex relative flex-row flex-wrap">
+	{#if autoRefresh === true}
+		<div class="flex absolute top-1 right-1">
+			<RefreshButton componentId={id} />
+		</div>
+	{/if}
+	{#if schemaStripped && Object.keys(schemaStripped?.properties ?? {}).length > 0 && (autoRefresh || forceSchemaDisplay)}
+		<div class="px-2 h-fit min-h-0">
 			<SchemaForm
+				compact
+				flexWrap
 				schema={schemaStripped}
 				bind:args
 				{disabledArgs}
@@ -270,13 +283,15 @@
 		<Alert type="warning" size="xs" class="mt-2 px-1" title="Missing runnable">
 			Please select a runnable
 		</Alert>
-	{:else if autoRefresh === true}
-		<div class="flex absolute top-1 right-1">
-			<RefreshButton componentId={id} />
+	{:else if result?.error}
+		<div class="p-2">
+			<Alert type="error" title="Error during execution">
+				<pre title={result.error} class="text-2xs whitespace-pre-wrap">{result.error}</pre>
+			</Alert>
 		</div>
-
-		<slot />
 	{:else}
-		<slot />
+		<div class="grow min-w-1/2 min-h-[66%]">
+			<slot />
+		</div>
 	{/if}
 </div>

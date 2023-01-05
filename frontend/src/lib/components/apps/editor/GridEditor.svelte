@@ -112,11 +112,11 @@
 			<RecomputeAllComponents />
 		{/if}
 		<div class="text-2xs text-gray-600"
-			>{policy.on_behalf_of ? `on behalf of ${policy.on_behalf_of}` : ''}</div
+			>{policy.on_behalf_of ? `on behalf of ${policy.on_behalf_of_email}` : ''}</div
 		>
 	</div>
 	<div
-		class="px-4 pt-4 {$connectingInput?.opened ? '' : 'bg-gray-50/70'}"
+		class="px-4 pt-4 {$connectingInput?.opened ? '' : ''}"
 		on:pointerdown={onpointerdown}
 		on:pointerleave={onpointerup}
 		on:pointerup={onpointerup}
@@ -124,10 +124,9 @@
 		<Grid
 			bind:items={$app.grid}
 			let:dataItem
-			rowHeight={23}
+			rowHeight={36}
 			cols={columnConfiguration}
 			fastStart={true}
-			on:pointerup={({ detail }) => selectComponent(detail.id)}
 			gap={[4, 2]}
 		>
 			{#each $lazyGrid as gridComponent (gridComponent.id)}
@@ -149,11 +148,14 @@
 					{/if}
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
 					<div
+						on:pointerdown={() => {
+							selectComponent(dataItem.data.id)
+						}}
 						class={classNames(
 							'h-full w-full flex justify-center align-center items-center',
 							gridComponent.data.card ? 'border border-gray-100' : ''
 						)}
-						on:click|preventDefault|capture|once
+						on:click|preventDefault|capture|once|stopPropagation
 					>
 						<ComponentEditor
 							{pointerdown}

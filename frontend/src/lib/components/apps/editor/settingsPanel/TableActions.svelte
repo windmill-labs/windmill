@@ -74,10 +74,13 @@
 		/>
 	</svelte:fragment>
 
+	{#if components.length == 0}
+		<span class="text-xs text-gray-500">No action buttons</span>
+	{/if}
 	{#each components as component}
 		<div
 			class={classNames(
-				'w-full text-xs font-bold py-1.5 px-2 cursor-pointer transition-all justify-between flex items-center border border-gray-3 rounded-md',
+				'w-full text-xs font-bold gap-1 py-1.5 px-2 cursor-pointer transition-all justify-between flex items-center border border-gray-3 rounded-md',
 				'bg-white border-gray-300  hover:bg-gray-100 focus:bg-gray-100 text-gray-700',
 				$selectedComponent === component.id ? 'outline outline-blue-500 bg-red-400' : ''
 			)}
@@ -94,8 +97,8 @@
 			<div>
 				<TableActionLabel componentInput={component.configuration.label} />
 			</div>
-			<Badge color="dark-blue">
-				Component: {component.id}
+			<Badge color="dark-indigo">
+				{component.id}
 			</Badge>
 		</div>
 	{/each}

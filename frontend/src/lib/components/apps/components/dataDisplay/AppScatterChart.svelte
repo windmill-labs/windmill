@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Bar, Line } from 'svelte-chartjs'
+	import zoomPlugin from 'chartjs-plugin-zoom'
 
 	import {
 		Chart as ChartJS,
@@ -15,11 +15,15 @@
 
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import type { AppInput } from '../../inputType'
+	import Scatter from 'svelte-chartjs/Scatter.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
 	export let configuration: Record<string, AppInput>
+
+	let zoomable = false
+	let pannable = false
 
 	export const staticOutputs: string[] = ['loading', 'result']
 
@@ -31,52 +35,43 @@
 		LinearScale,
 		PointElement,
 		CategoryScale,
-		BarElement
+		BarElement,
+		zoomPlugin
 	)
 
-	let result: { data: number[]; labels?: string[] } | undefined = undefined
-	let theme: string = 'theme1'
-	let lineChart = false
+	let result: { data: { x: any[]; y: string[] } } | undefined = undefined
 
-	$: backgroundColor = {
-		theme1: ['#FF6384', '#4BC0C0', '#FFCE56', '#E7E9ED', '#36A2EB'],
-		// blue theme
-		theme2: ['#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b'],
-		// red theme
-		theme3: ['#e74a3b', '#4e73df', '#1cc88a', '#36b9cc', '#f6c23e']
-	}[theme]
-
-	const options = {
+	$: options = {
 		responsive: true,
 		animation: false,
 		maintainAspectRatio: false,
 		plugins: {
-			legend: {
-				display: false
+			zoom: {
+				pan: {
+					enabled: pannable
+				},
+				zoom: {
+					drag: {
+						enabled: false
+					},
+					wheel: {
+						enabled: zoomable
+					}
+				}
 			}
 		}
 	}
 
 	$: data = {
-		labels: result?.labels ?? [],
-		datasets: [
-			{
-				data: result?.data ?? [],
-				backgroundColor
-			}
-		]
+		datasets: result ?? []
 	}
 </script>
 
-<InputValue {id} input={configuration.theme} bind:value={theme} />
-<InputValue {id} input={configuration.line} bind:value={lineChart} />
+<InputValue {id} input={configuration.zoomable} bind:value={zoomable} />
+<InputValue {id} input={configuration.pannable} bind:value={pannable} />
 
 <RunnableWrapper autoRefresh bind:componentInput {id} bind:result>
 	{#if result}
-		{#if lineChart}
-			<Line {data} {options} />
-		{:else}
-			<Bar {data} {options} />
-		{/if}
+		<Scatter {data} {options} />
 	{/if}
 </RunnableWrapper>

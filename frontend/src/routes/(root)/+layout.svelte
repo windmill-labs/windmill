@@ -15,7 +15,8 @@
 		'Connection got disposed.',
 		'Stopping the server timed out',
 		'Canceled',
-		'Missing service editorService'
+		'Missing service editorService',
+		'Unexpected usage'
 	]
 
 	async function loadUser() {
@@ -65,6 +66,7 @@
 				}
 				// Unhandled errors from Monaco Editor don't logout the user
 				if (monacoEditorUnhandledErrors.includes(message)) {
+					console.warn(message)
 					return
 				}
 				if (message == 'Client not running') {

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 	import { getContext } from 'svelte'
+	import { key } from 'svelte-awesome/icons'
 	import type { AppEditorContext } from '../../types'
 	import { displayData } from '../../utils'
 	import PanelSection from '../settingsPanel/common/PanelSection.svelte'
@@ -26,25 +27,24 @@
 	}
 
 	function getComponentNameById(componentId: string) {
-		const component = $app.grid.find((c) => c.data.id === componentId)
+		const component = $app.grid.find((c) => c?.data?.id === componentId)
 
 		if (component?.data.type) {
 			return displayData[component?.data.type].name
-		} else if (componentId == 'context') {
+		} else if (componentId == 'ctx') {
 			return 'Context'
 		} else {
 			return 'Table action'
 		}
 	}
-
-	$: panels = [['context', ['email', 'username']] as [string, string[]]].concat(
+	$: panels = [['ctx', ['email', 'username']] as [string, string[]]].concat(
 		Object.entries($staticOutputs)
 	)
 </script>
 
 <PanelSection noPadding titlePadding="px-4 pt-2" title="Outputs">
 	<div
-		class="overflow-auto min-w-[150px] border-t w-full relative flex flex-col gap-4 px-4 pt-4 pb-2"
+		class="overflow-auto min-w-[150px] border-t w-full relative flex flex-col gap-4 px-2 pt-4 pb-2"
 	>
 		{#each panels as [componentId, outputs] (componentId)}
 			{#if outputs.length > 0 && $worldStore?.outputsById[componentId]}
@@ -59,7 +59,7 @@
 								? undefined
 								: () => ($selectedComponent = componentId)}
 							class={classNames(
-								'px-2 text-2xs py-0.5 font-bold rounded-t-sm w-fit',
+								'px-2 text-2xs py-0.5 border border-gray-300 font-bold rounded-t-sm w-fit',
 								$selectedComponent === componentId
 									? ' bg-indigo-500 text-white'
 									: 'bg-gray-200 text-gray-500'
@@ -81,21 +81,24 @@
 					<div
 						class={classNames(
 							$connectingInput?.opened ? 'bg-white z-50' : '',
-							`w-full py-2 grow border relative overflow-x-auto`,
+							`w-full py-2 grow border relative break-all `,
 							$selectedComponent === componentId ? 'border border-blue-500 ' : '',
 							$connectingInput.hoveredComponent === componentId ? 'outline outline-blue-500' : ''
 						)}
 					>
-						<!-- {#if $selectedComponent === componentId && $connectingInput?.opened}
-						<div class="absolute top-0 left-0 w-full h-full bg-gray-500 bg-opacity-50 z-10" />
-					{/if} -->
-						<ComponentOutputViewer
-							{outputs}
-							{componentId}
-							on:select={({ detail }) => {
-								connectInput(componentId, detail)
-							}}
-						/>
+						{#key $selectedComponent}
+							{#key $connectingInput?.opened}
+								<ComponentOutputViewer
+									outputs={$connectingInput?.opened && $selectedComponent === componentId
+										? ['search']
+										: outputs}
+									{componentId}
+									on:select={({ detail }) => {
+										connectInput(componentId, detail)
+									}}
+								/>
+							{/key}
+						{/key}
 					</div>
 				</div>
 			{/if}

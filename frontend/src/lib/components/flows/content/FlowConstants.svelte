@@ -38,8 +38,6 @@
 		)
 		.filter(([i, f, m]) => f.length > 0)
 	
-	$: console.log({flowState: $flowStateStore, steps});
-
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
 		focusProp: () => {},
 		propPickerConfig: writable(undefined),

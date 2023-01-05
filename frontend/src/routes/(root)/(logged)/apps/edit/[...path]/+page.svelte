@@ -3,7 +3,7 @@
 	import { AppService, AppWithLastVersion } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { page } from '$app/stores'
-	import { decodeState } from '$lib/utils'
+	import { decodeState, sendUserToast } from '$lib/utils'
 	import { goto } from '$app/navigation'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 
@@ -25,9 +25,10 @@
 			workspace: $workspaceStore!
 		})
 
-		const initialState = nodraft ? undefined : localStorage.getItem('app')
+		const initialState = nodraft ? undefined : localStorage.getItem(`app-${$page.params.path}`)
 		let stateLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
 		if (stateLoadedFromUrl) {
+			sendUserToast('App restored from draft')
 			app.value = stateLoadedFromUrl
 		}
 		loading = false

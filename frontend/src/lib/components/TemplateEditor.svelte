@@ -13,6 +13,7 @@
 	} from '$lib/editorUtils'
 	import { languages, editor as meditor, Uri as mUri, Range } from 'monaco-editor'
 	import libStdContent from '$lib/es5.d.ts.txt?raw'
+	import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 
 	languages.typescript.javascriptDefaults.setCompilerOptions({
 		target: languages.typescript.ScriptTarget.Latest,
@@ -358,6 +359,17 @@
 
 	languages.setLanguageConfiguration('template', conf)
 
+	meditor.defineTheme('myTheme', {
+		base: 'vs',
+		inherit: true,
+		rules: [],
+		colors: {
+			'editorLineNumber.foreground': '#999',
+			'editorGutter.background': '#F9FAFB'
+		}
+	})
+	meditor.setTheme('myTheme')
+
 	let divEl: HTMLDivElement | null = null
 	let editor: meditor.IStandaloneCodeEditor
 	let model: meditor.ITextModel
@@ -386,7 +398,11 @@
 			// @ts-ignore
 			self.MonacoEnvironment = {
 				getWorker: function (_moduleId: any, label: string) {
-					return new tsWorker()
+					if (label == 'typescript' || label == 'javascript') {
+						return new tsWorker()
+					} else {
+						return new editorWorker()
+					}
 				}
 			}
 		}
@@ -423,7 +439,7 @@
 			lineNumbers: 'off',
 			fontSize,
 			suggestOnTriggerCharacters: true,
-			lineDecorationsWidth: 24
+			lineDecorationsWidth: 14
 		})
 
 		const stdLib = { content: libStdContent, filePath: 'es5.d.ts' }
