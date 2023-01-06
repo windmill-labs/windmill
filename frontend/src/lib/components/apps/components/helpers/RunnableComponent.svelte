@@ -289,10 +289,8 @@
 	{:else if result?.error}
 		<div class="p-2">
 			<Alert type="error" title="Error during execution">
-				akdj
 				<pre title={result.error} class="text-2xs whitespace-pre-wrap">{result.error}</pre>
 			</Alert>
-			salut
 			<slot />
 		</div>
 	{:else}
