@@ -60,9 +60,13 @@
 			<div class="text-gray-400 bg-gray-100 flex justify-center items-center h-full w-full">
 				No text
 			</div>
-		{:else}<svelte:element this={component} class="whitespace-pre {classes}" style={extraStyle}
-				>{String(result)}</svelte:element
+		{:else}<svelte:element
+				this={component}
+				class="whitespace-pre-wrap {classes}"
+				style={extraStyle}
 			>
+				{String(result)}
+			</svelte:element>
 		{/if}
 	</AlignWrapper>
 </RunnableWrapper>

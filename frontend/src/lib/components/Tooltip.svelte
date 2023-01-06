@@ -4,7 +4,7 @@
 	import Popover from './Popover.svelte'
 </script>
 
-<Popover notClickable>
+<Popover notClickable class="flex">
 	<Icon
 		class="text-gray-500 font-thin inline-block align-middle w-4"
 		data={faInfoCircle}

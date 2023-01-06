@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { Button, type ButtonType } from '$lib/components/common'
-	import { faArrowRight, faRefresh } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
@@ -66,10 +65,10 @@
 		<div class="flex flex-col gap-2 px-4 w-full">
 			<div>
 				{#if componentInput?.type != 'runnable' || Object.values(componentInput?.fields ?? {}).filter((x) => x.type == 'user').length == 0}
-					<span class="text-gray-600 italic text-sm py-2"
-						>Run forms are meant to be associated with a runnable with some user inputs. Pick a
-						runnable and set some 'Runnable Inputs' to 'User Input'</span
-					>
+					<span class="text-gray-600 italic text-sm py-2">
+						Run forms are meant to be associated with a runnable with some user inputs. Pick a
+						runnable and set some 'Runnable Inputs' to 'User Input'
+					</span>
 				{/if}
 			</div>
 			<div class="flex justify-end">
@@ -81,6 +80,7 @@
 						window.dispatchEvent(new Event('pointerup'))
 					}}
 					on:click={() => {
+						ownClick = true
 						runnableComponent?.runComponent()
 
 						if (recomputeIds) {

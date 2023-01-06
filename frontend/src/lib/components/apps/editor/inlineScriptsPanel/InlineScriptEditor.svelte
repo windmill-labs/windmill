@@ -23,7 +23,6 @@
 	const { runnableComponents } = getContext<AppEditorContext>('AppEditorContext')
 
 	let editor: Editor
-
 	let validCode = false
 
 	async function inferInlineScriptSchema(
