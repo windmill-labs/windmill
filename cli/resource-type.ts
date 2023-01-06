@@ -2,18 +2,24 @@
 import { GlobalOptions } from "./types.ts";
 import { requireLogin, resolveWorkspace } from "./context.ts";
 import { colors, Command, ResourceService, Table } from "./deps.ts";
+import { Any, decoverto, model, property } from "./decoverto.ts";
 
-type ResourceTypeFile = {
+@model()
+export class ResourceTypeFile {
+  @property(Any)
   schema?: any;
+  @property(() => String)
   description?: string;
-};
+}
 
 export async function pushResourceType(
   workspace: string,
   filePath: string,
   name: string,
 ) {
-  const data: ResourceTypeFile = JSON.parse(await Deno.readTextFile(filePath));
+  const data: ResourceTypeFile = decoverto.type(ResourceTypeFile).rawToInstance(
+    await Deno.readTextFile(filePath),
+  );
   await pushResourceTypeDef(workspace, name, data);
 }
 

@@ -2,6 +2,7 @@
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import { GlobalOptions } from "./types.ts";
 import { colors, Command, Table, VariableService } from "./deps.ts";
+import { decoverto, model, property } from "./decoverto.ts";
 
 async function list(opts: GlobalOptions) {
   const workspace = await resolveWorkspace(opts);
@@ -26,13 +27,25 @@ async function list(opts: GlobalOptions) {
     .render();
 }
 
-type VariableFile = {
+@model()
+export class VariableFile {
+  @property(() => String)
   value: string;
+  @property(() => Boolean)
   is_secret: boolean;
+  @property(() => String)
   description: string;
+  @property(() => Number)
   account?: number;
+  @property(() => Boolean)
   is_oauth?: boolean;
-};
+
+  constructor(value: string, is_secret: boolean, description: string) {
+    this.value = value;
+    this.is_secret = is_secret;
+    this.description = description;
+  }
+}
 
 async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
   const workspace = await resolveWorkspace(opts);
@@ -58,7 +71,9 @@ export async function pushVariable(
   filePath: string,
   remotePath: string,
 ) {
-  const data: VariableFile = JSON.parse(await Deno.readTextFile(filePath));
+  const data = decoverto.type(VariableFile).rawToInstance(
+    await Deno.readTextFile(filePath),
+  );
   if (await VariableService.existsVariable({ workspace, path: remotePath })) {
     const existing = await VariableService.getVariable({
       workspace: workspace,

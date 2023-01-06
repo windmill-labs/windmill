@@ -11,14 +11,31 @@ import {
   Table,
   WorkspaceService,
 } from "./deps.ts";
-import { requireLogin } from "./context.ts";
+import { decoverto, model, property } from "./decoverto.ts";
 
-export type Workspace = {
+@model()
+export class Workspace {
+  @property(() => String)
   remote: string;
+  @property(() => String)
   workspaceId: string;
+  @property(() => String)
   name: string;
+  @property(() => String)
   token: string;
-};
+
+  constructor(
+    remote: string,
+    workspaceId: string,
+    name: string,
+    token: string,
+  ) {
+    this.remote = remote;
+    this.workspaceId = workspaceId;
+    this.name = name;
+    this.token = token;
+  }
+}
 
 function makeWorkspaceStream(
   readable: ReadableStream<Uint8Array>,
@@ -33,7 +50,9 @@ function makeWorkspaceStream(
             if (line.length <= 2) {
               return;
             }
-            controller.enqueue(JSON.parse(line) as Workspace);
+            controller.enqueue(
+              decoverto.type(Workspace).rawToInstance(line) as Workspace,
+            );
           } catch {
             /* ignore */
           }

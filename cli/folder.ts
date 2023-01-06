@@ -1,6 +1,22 @@
 import { colors, Command, Folder, FolderService } from "./deps.ts";
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import { GlobalOptions } from "./types.ts";
+import {
+  array,
+  decoverto,
+  map,
+  MapShape,
+  model,
+  property,
+} from "./decoverto.ts";
+
+@model()
+export class FolderFile {
+  @property(array(() => String))
+  owners: Array<string> | undefined;
+  @property(map(() => String, () => Boolean, { shape: MapShape.Object }))
+  extra_perms: Map<string, boolean> | undefined;
+}
 
 async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
   const workspace = await resolveWorkspace(opts);
@@ -21,11 +37,6 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
   console.log(colors.bold.underline.green("Resource successfully pushed"));
 }
 
-type FolderFile = {
-  owners: Array<string> | undefined;
-  extra_perms: Record<string, boolean> | undefined;
-};
-
 export async function pushFolder(
   workspace: string,
   filePath: string,
@@ -37,7 +48,9 @@ export async function pushFolder(
   if (remotePath.startsWith("f/")) {
     remotePath = remotePath.substring(2);
   }
-  const data: FolderFile = JSON.parse(await Deno.readTextFile(filePath));
+  const data = decoverto.type(FolderFile).rawToInstance(
+    await Deno.readTextFile(filePath),
+  );
   let optFolder: Folder | undefined;
   try {
     optFolder = await FolderService.getFolder({ workspace, name: remotePath });
