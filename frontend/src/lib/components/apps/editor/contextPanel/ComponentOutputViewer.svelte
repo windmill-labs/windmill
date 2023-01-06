@@ -12,7 +12,6 @@
 	let object = {}
 
 	function subscribeToAllOutputs(observableOutputs: Record<string, Output<any>>) {
-		// Should be done only once TODO
 		if (observableOutputs) {
 			outputs.forEach((output: string) => {
 				object[output] = undefined
