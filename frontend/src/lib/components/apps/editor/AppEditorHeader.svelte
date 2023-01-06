@@ -14,7 +14,6 @@
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import Path from '$lib/components/Path.svelte'
-	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -276,8 +275,9 @@
 <Drawer bind:open={publishDrawerOpen} size="800px">
 	<DrawerContent title="Publish an App" on:close={() => (publishDrawerOpen = false)}>
 		{#if appPath == ''}
-			<Alert title="Require saving" type="error">Save this app once before you can publish it</Alert
-			>
+			<Alert title="Require saving" type="error">
+				Save this app once before you can publish it
+			</Alert>
 		{:else}
 			<Alert title="App executed on behalf of publisher">
 				A viewer of the app will execute the runnables of the app on behalf of the publisher
@@ -285,8 +285,8 @@
 				guarantee tight security, a policy is computed at time of saving of the app which only allow
 				the scripts/flows referred to in the app to be called on behalf of. Furthermore, static
 				parameters are not overridable. Hence, users will only be able to use the app as intended by
-				the publisher without risk for leaking resources not used in the app.</Alert
-			>
+				the publisher without risk for leaking resources not used in the app.
+			</Alert>
 			<div class="mt-4" />
 			<Toggle
 				options={{
@@ -348,8 +348,8 @@
 					</div>
 				</ToggleButton>
 				<ToggleButton position="right" value="preview" size="xs">
-					<div class="inline-flex gap-1 items-center"> <Eye size={14} /> Preview</div></ToggleButton
-				>
+					<div class="inline-flex gap-1 items-center"> <Eye size={14} /> Preview</div>
+				</ToggleButton>
 			</ToggleButtonGroup>
 		</div>
 		<div>
@@ -357,23 +357,30 @@
 				<ToggleButton position="left" value="sm" size="xs">
 					<Smartphone size={14} />
 				</ToggleButton>
-				<ToggleButton position="right" value="lg" size="xs"><Laptop2 size={14} /></ToggleButton>
+				<ToggleButton position="right" value="lg" size="xs">
+					<Laptop2 size={14} />
+				</ToggleButton>
 			</ToggleButtonGroup>
 		</div>
 
 		<span class="hidden lg:block">
 			<ToggleButtonGroup bind:selected={$app.fullscreen}>
-				<ToggleButton position="left" value={false} size="xs"
-					><AlignHorizontalSpaceAround size={14} /> &nbsp; <Tooltip
-						>The max width is 1168px and the content stay centered instead of taking the full page
-						width</Tooltip
-					></ToggleButton
-				>
-				<ToggleButton position="right" value={true} size="xs"><Expand size={14} /></ToggleButton>
+				<ToggleButton position="left" value={false} size="xs">
+					<div class="flex gap-1 justify-start">
+						<AlignHorizontalSpaceAround size={14} />
+						<Tooltip>
+							The max width is 1168px and the content stay centered instead of taking the full page
+							width
+						</Tooltip>
+					</div>
+				</ToggleButton>
+				<ToggleButton position="right" value={true} size="xs">
+					<Expand size={14} />
+				</ToggleButton>
 			</ToggleButtonGroup>
 		</span>
 	</div>
-	<div class="flex flex-row grow gap-4 justify-end ">
+	<div class="flex flex-row grow gap-2 justify-end items-center">
 		<Button
 			on:click={() => (jobsDrawerOpen = true)}
 			color="light"
@@ -389,7 +396,7 @@
 
 		<Button
 			on:click={() => (publishDrawerOpen = true)}
-			color="dark"
+			color="light"
 			size="xs"
 			variant="border"
 			startIcon={{ icon: faExternalLink }}
@@ -401,7 +408,9 @@
 			startIcon={{ icon: faSave }}
 			on:click={save}
 			color="dark"
-			size="xs">Save</Button
+			size="xs"
 		>
+			Save
+		</Button>
 	</div>
 </div>

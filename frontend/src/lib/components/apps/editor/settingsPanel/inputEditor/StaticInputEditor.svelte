@@ -46,10 +46,12 @@
 					: undefined}
 			/>
 		{:else}
-			<JsonEditor
-				bind:value={componentInput.value}
-				code={JSON.stringify(componentInput.value, null, 2)}
-			/>
+			<div class="flex w-full flex-col">
+				<JsonEditor
+					bind:value={componentInput.value}
+					code={JSON.stringify(componentInput.value, null, 2)}
+				/>
+			</div>
 		{/if}
 	{:else if componentInput.fieldType === 'array'}
 		<ArrayStaticInputEditor bind:componentInput />

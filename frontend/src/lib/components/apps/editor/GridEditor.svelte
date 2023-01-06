@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext, onDestroy, onMount } from 'svelte'
+	import { getContext } from 'svelte'
 	import type { AppEditorContext } from '../types'
 	import Grid from 'svelte-grid'
 	import ComponentEditor from './ComponentEditor.svelte'
@@ -146,6 +146,7 @@
 							>{dataItem.data.id}</div
 						>
 					{/if}
+					<!-- svelte-ignore a11y-click-events-have-key-events -->
 					<div
 						on:pointerdown={() => {
 							selectComponent(dataItem.data.id)
