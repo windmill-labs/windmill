@@ -14,7 +14,6 @@
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import Path from '$lib/components/Path.svelte'
-	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -381,7 +380,7 @@
 			</ToggleButtonGroup>
 		</span>
 	</div>
-	<div class="flex flex-row grow gap-4 justify-end ">
+	<div class="flex flex-row grow gap-2 justify-end items-center">
 		<Button
 			on:click={() => (jobsDrawerOpen = true)}
 			color="light"
@@ -397,7 +396,7 @@
 
 		<Button
 			on:click={() => (publishDrawerOpen = true)}
-			color="dark"
+			color="light"
 			size="xs"
 			variant="border"
 			startIcon={{ icon: faExternalLink }}

@@ -30,8 +30,8 @@
 			$runnableComponents[id] = async () => {
 				await executeComponent()
 			}
+			executeComponent()
 		}
-		executeComponent()
 	})
 
 	let args: Record<string, any> = {}
@@ -61,7 +61,10 @@
 	$: fields && (currentStaticValues = computeStaticValues())
 	$: if (JSON.stringify(currentStaticValues) != JSON.stringify(lazyStaticValues)) {
 		lazyStaticValues = currentStaticValues
-		setDebouncedExecute()
+
+		if (autoRefresh) {
+			setDebouncedExecute()
+		}
 	}
 
 	$: fields && (lazyStaticValues = computeStaticValues())
@@ -286,8 +289,11 @@
 	{:else if result?.error}
 		<div class="p-2">
 			<Alert type="error" title="Error during execution">
+				akdj
 				<pre title={result.error} class="text-2xs whitespace-pre-wrap">{result.error}</pre>
 			</Alert>
+			salut
+			<slot />
 		</div>
 	{:else}
 		<div class="grow min-w-1/2 min-h-[66%]">

@@ -45,14 +45,14 @@
 	{#if componentInput.value}
 		{#each componentInput.value as value, index (index)}
 			<div class="flex flex-col items-center">
-				<div class="border-x border-t flex w-full justify-between p-1">
+				<div class="border-x border-t flex w-full justify-between p-1 items-center">
 					<span class="text-xs">{`Index: ${index}`}</span>
 					<Button
 						size="xs"
-						color="light"
+						color="red"
+						variant="border"
 						on:click={() => deleteElementByType(index)}
 						iconOnly
-						btnClasses="!text-red-500"
 						startIcon={{ icon: faTrashAlt }}
 					/>
 				</div>
