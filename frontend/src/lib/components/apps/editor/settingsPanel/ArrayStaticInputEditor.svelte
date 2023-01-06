@@ -44,20 +44,20 @@
 <div class="flex gap-2 flex-col mt-2">
 	{#if componentInput.value}
 		{#each componentInput.value as value, index (index)}
-			<div class="flex flex-col items-center">
-				<div class="border-x border-t flex w-full justify-between p-1 items-center">
-					<span class="text-xs">{`Index: ${index}`}</span>
+			<div class="flex flex-row gap-2 items-center relative">
+				<SubTypeEditor bind:componentInput bind:value />
+
+				<div class="absolute top-4 right-4">
 					<Button
 						size="xs"
-						color="red"
+						color="light"
 						variant="border"
 						on:click={() => deleteElementByType(index)}
 						iconOnly
+						btnClasses="!text-red-500"
 						startIcon={{ icon: faTrashAlt }}
 					/>
 				</div>
-
-				<SubTypeEditor bind:componentInput bind:value />
 			</div>
 		{/each}
 		<Button
