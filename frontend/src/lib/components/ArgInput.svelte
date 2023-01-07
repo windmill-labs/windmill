@@ -8,7 +8,7 @@
 	} from '@fortawesome/free-solid-svg-icons'
 
 	import { setInputCat as computeInputCat, type InputCat } from '$lib/utils'
-	import { Button } from './common'
+	import { Badge, Button } from './common'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import FieldHeader from './FieldHeader.svelte'
@@ -24,6 +24,8 @@
 	import Password from './Password.svelte'
 	import type VariableEditor from './VariableEditor.svelte'
 	import type ItemPicker from './ItemPicker.svelte'
+	import NumberTypeNarrowing from './NumberTypeNarrowing.svelte'
+	import Range from './Range.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -53,6 +55,7 @@
 	export let variableEditor: VariableEditor | undefined = undefined
 	export let itemPicker: ItemPicker | undefined = undefined
 	export let noMargin = false
+	export let extra: Record<string, any> = {}
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
@@ -185,6 +188,8 @@
 							/>
 							{#if type == 'string' && format != 'date-time'}
 								<StringTypeNarrowing bind:format bind:pattern bind:enum_ bind:contentEncoding />
+							{:else if type == 'number'}
+								<NumberTypeNarrowing bind:min={extra['min']} bind:max={extra['max']} />
 							{:else if type == 'object'}
 								<ObjectTypeNarrowing bind:format />
 							{:else if type == 'array'}
@@ -212,18 +217,31 @@
 
 		<div class="flex space-x-1">
 			{#if inputCat == 'number'}
-				<input
-					{autofocus}
-					on:focus
-					{disabled}
-					type="number"
-					class={valid
-						? ''
-						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}
-					placeholder={defaultValue ?? ''}
-					bind:value
-					on:input={() => dispatch('input', { value, isRaw: true })}
-				/>
+				{#if extra['min'] != undefined && extra['max'] != undefined}
+					<div class="flex w-full gap-1">
+						<span>{extra['min']}</span>
+						<div class="grow">
+							<Range bind:value min={extra['min']} max={extra['max']} />
+						</div>
+						<span>{extra['max']}</span>
+						<span class="mx-2"><Badge large color="blue">{value}</Badge></span>
+					</div>
+				{:else}
+					<input
+						{autofocus}
+						on:focus
+						{disabled}
+						type="number"
+						class={valid
+							? ''
+							: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}
+						placeholder={defaultValue ?? ''}
+						bind:value
+						min={extra['min']}
+						max={extra['max']}
+						on:input={() => dispatch('input', { value, isRaw: true })}
+					/>
+				{/if}
 			{:else if inputCat == 'boolean'}
 				<Toggle
 					{disabled}

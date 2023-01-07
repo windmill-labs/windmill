@@ -55,6 +55,28 @@ const inputs: ComponentSet = {
 		{
 			softWrap: true,
 			verticalAlignment: 'center',
+			id: 'slidercomponent',
+			type: 'slidercomponent',
+			componentInput: undefined,
+			configuration: {
+				min: {
+					type: 'static',
+					value: 0,
+					fieldType: 'number',
+					onlyStatic: true,
+				},
+				max: {
+					type: 'static',
+					value: 42,
+					fieldType: 'number',
+					onlyStatic: true,
+				},
+			},
+			card: false
+		},
+		{
+			softWrap: true,
+			verticalAlignment: 'center',
 			id: 'dateinputcomponent',
 			type: 'dateinputcomponent',
 			componentInput: undefined,

@@ -18,6 +18,7 @@
 	import AppScatterChart from '../components/dataDisplay/AppScatterChart.svelte'
 	import AppTimeseries from '../components/dataDisplay/AppTimeseries.svelte'
 	import AppHtml from '../components/dataDisplay/AppHtml.svelte'
+	import AppSliderInputs from '../components/numberInputs/AppSliderInputs.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -134,6 +135,8 @@
 			/>
 		{:else if component.type === 'numberinputcomponent'}
 			<NumberInputComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+		{:else if component.type === 'slidercomponent'}
+			<AppSliderInputs {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{/if}
 	</div>
 </div>
