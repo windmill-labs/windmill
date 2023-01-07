@@ -20,6 +20,7 @@ export type TextInputComponent = BaseComponent<'textinputcomponent'>
 export type PasswordInputComponent = BaseComponent<'passwordinputcomponent'>
 export type DateInputComponent = BaseComponent<'dateinputcomponent'>
 export type NumberInputComponent = BaseComponent<'numberinputcomponent'>
+export type SliderComponent = BaseComponent<'slidercomponent'>
 export type HtmlComponent = BaseComponent<'htmlcomponent'>
 export type TimeseriesComponent = BaseComponent<'timeseriescomponent'>
 export type ButtonComponent = BaseComponent<'buttoncomponent'> & {
@@ -74,6 +75,7 @@ export type AppComponent = BaseAppComponent &
 		| PasswordInputComponent
 		| DateInputComponent
 		| NumberInputComponent
+		| SliderComponent
 		| BarChartComponent
 		| TimeseriesComponent
 		| HtmlComponent

@@ -97,6 +97,7 @@
 							{variableEditor}
 							{itemPicker}
 							bind:pickForField
+							bind:extra={schema.properties[argName]}
 						/>
 					{:else}
 						Expected argument to be an object, got {JSON.stringify(args)} instead

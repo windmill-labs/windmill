@@ -353,16 +353,18 @@
 					<Tab value="code">Code</Tab>
 					<Tab value="dependencies">Dependencies lock file</Tab>
 					<Tab value="arguments"
-						>Arguments JSON Schema
-						<Tooltip>
-							The jsonschema defines the constraints that the payload must respect to be compatible
-							with the input parameters of this script. The UI form is generated automatically from
-							the script jsonschema. See
-							<a href="https://json-schema.org/" class="text-blue-500">
-								jsonschema documentation
-							</a>
-						</Tooltip></Tab
-					>
+						><span class="inline-flex items-center gap-1">
+							Arguments JSON Schema
+							<Tooltip>
+								The jsonschema defines the constraints that the payload must respect to be
+								compatible with the input parameters of this script. The UI form is generated
+								automatically from the script jsonschema. See
+								<a href="https://json-schema.org/" class="text-blue-500">
+									jsonschema documentation
+								</a>
+							</Tooltip>
+						</span>
+					</Tab>
 					<svelte:fragment slot="content">
 						<TabContent value="code">
 							<div class="border rounded-sm mt-2">

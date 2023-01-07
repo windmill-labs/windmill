@@ -19,7 +19,8 @@ import {
 	Calendar,
 	ToggleLeft,
 	GripHorizontal,
-	Code2
+	Code2,
+	SlidersHorizontal
 } from 'lucide-svelte'
 import type { AppInput, InputType, ResultAppInput, StaticAppInput } from './inputType'
 import type { AppComponent } from './types'
@@ -145,6 +146,10 @@ export const displayData: Record<AppComponent['type'], { name: string; icon: any
 	numberinputcomponent: {
 		name: 'Number',
 		icon: Binary
+	},
+	slidercomponent: {
+		name: 'Slider',
+		icon: SlidersHorizontal
 	},
 	passwordinputcomponent: {
 		name: 'Password',
