@@ -33,6 +33,8 @@ import NextcloudIcon from './NextcloudIcon.svelte'
 import FaunadbIcon from './FaunadbIcon.svelte'
 import ClickhouseIcon from './ClickhouseIcon.svelte'
 import OpenaiIcon from './OpenaiIcon.svelte'
+import AppwriteIcon from './AppwriteIcon.svelte'
+import LinkdingIconSvelte from './LinkdingIcon.svelte'
 
 export const APP_TO_ICON_COMPONENT = {
 	postgresql: PostgresIcon,
@@ -73,6 +75,8 @@ export const APP_TO_ICON_COMPONENT = {
 	faunadb: FaunadbIcon,
 	clickhouse: ClickhouseIcon,
 	openai: OpenaiIcon,
+	appwrite: AppwriteIcon,
+	linkding: LinkdingIconSvelte
 } as const
 
 export {
