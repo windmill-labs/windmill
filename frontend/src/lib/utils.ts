@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
 import { goto } from '$app/navigation'
 import {
+	AppService,
 	FlowService,
 	FolderService,
 	Script,
@@ -538,6 +539,17 @@ export async function loadHubFlows() {
 	}
 }
 
+
+export async function loadHubApps() {
+	try {
+		const apps = (await AppService.listHubApps()).apps ?? []
+		const processed = apps.sort((a, b) => b.votes - a.votes)
+		return processed
+	} catch {
+		console.error('Hub is not available')
+	}
+}
+
 export function formatCron(inp: string): string {
 	// Allow for cron expressions inputted by the user to omit month and year
 	let splitted = inp.split(' ')
@@ -558,6 +570,13 @@ export function flowToHubUrl(flow: Flow): URL {
 		schema: flow.schema
 	}
 	url.searchParams.append('flow', encodeState(openFlow))
+	return url
+}
+
+
+export function appToHubUrl(staticApp: any): URL {
+	const url = new URL('https://hub.windmill.dev/apps/add')
+	url.searchParams.append('app', encodeState(staticApp))
 	return url
 }
 

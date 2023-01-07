@@ -71,6 +71,7 @@ export type ResultInput = {
 	runnable: Runnable
 	fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
 	type: 'runnable'
+	value?: any
 }
 
 type AppInputSpec<T extends InputType, U, V extends InputType = never> = (

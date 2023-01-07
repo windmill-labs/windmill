@@ -1769,6 +1769,75 @@ paths:
                   flow:
                     $ref: "../../openflow.openapi.yaml#/components/schemas/OpenFlow"
 
+  /apps/hub/list:
+    get:
+      summary: list all available hub apps
+      operationId: listHubApps
+      tags:
+        - app
+      responses:
+        "200":
+          description: hub apps list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  apps:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: number
+                        app_id:
+                          type: number
+                        summary:
+                          type: string
+                        apps:
+                          type: array
+                          items:
+                            type: string
+                        approved:
+                          type: boolean
+                        votes:
+                          type: number
+                      required:
+                        - id
+                        - app_id
+                        - summary
+                        - apps
+                        - approved
+                        - votes
+
+  /apps/hub/get/{id}:
+    get:
+      summary: get hub app by id
+      operationId: getHubAppById
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: app
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  app:
+                    type: object
+                    properties:
+                      summary:
+                        type: string
+                      value: {}
+                    required:
+                      - summary
+                      - value
+                required:
+                  - app
+
   /scripts/hub/get/{path}:
     get:
       summary: get hub script content by path

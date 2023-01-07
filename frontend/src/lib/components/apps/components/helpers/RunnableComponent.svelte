@@ -4,7 +4,7 @@
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import { AppService, type CompletedJob } from '$lib/gen'
-	import { defaultIfEmptyString, emptySchema } from '$lib/utils'
+	import { defaultIfEmptyString, emptySchema, sendUserToast } from '$lib/utils'
 	import { getContext, onMount } from 'svelte'
 	import type { AppInputs, Runnable } from '../../inputType'
 	import type { Output } from '../../rx'
@@ -21,16 +21,17 @@
 	export let autoRefresh: boolean = true
 	export let result: any = undefined
 	export let forceSchemaDisplay: boolean = false
+	export let noMinH = false
 
-	const { worldStore, runnableComponents, workspace, appPath, isEditor, jobs } =
+	const { worldStore, runnableComponents, workspace, appPath, isEditor, jobs, noBackend } =
 		getContext<AppEditorContext>('AppEditorContext')
 
 	onMount(() => {
 		if (autoRefresh) {
 			$runnableComponents[id] = async () => {
-				await executeComponent()
+				await executeComponent(true)
 			}
-			executeComponent()
+			executeComponent(true)
 		}
 	})
 
@@ -43,7 +44,7 @@
 	function setDebouncedExecute() {
 		executeTimeout && clearTimeout(executeTimeout)
 		executeTimeout = setTimeout(() => {
-			executeComponent()
+			executeComponent(true)
 		}, 200)
 	}
 
@@ -176,7 +177,13 @@
 		[]
 	)
 
-	async function executeComponent() {
+	async function executeComponent(noToast = false) {
+		if (noBackend) {
+			if (!noToast) {
+				sendUserToast('This app is not connected to a windmill backend, it is a static preview')
+			}
+			return
+		}
 		if (runnable?.type === 'runnableByName' && !runnable.inlineScript) {
 			return
 		}
@@ -294,7 +301,7 @@
 			<slot />
 		</div>
 	{:else}
-		<div class="grow min-w-1/2 min-h-[66%]">
+		<div class="grow min-w-1/2 {noMinH ? '' : 'min-h-[66%]'}">
 			<slot />
 		</div>
 	{/if}
