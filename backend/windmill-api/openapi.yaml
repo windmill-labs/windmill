@@ -704,9 +704,41 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/workspaces/delete:
+  /w/{workspace}/workspaces/archive:
+    post:
+      summary: archive workspace
+      operationId: archiveWorkspace
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /workspaces/unarchive/{workspace}:
+    post:
+      summary: unarchive workspace
+      operationId: unarchiveWorkspace
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /workspaces/delete/{workspace}:
     delete:
-      summary: delete workspace
+      summary: delete workspace (require super admin)
       operationId: deleteWorkspace
       tags:
         - workspace

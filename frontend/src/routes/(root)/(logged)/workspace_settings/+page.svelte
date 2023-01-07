@@ -444,21 +444,41 @@
 				more information.
 			</p>
 		{/if}
-		<Button
-			color="red"
-			disabled={$workspaceStore === 'admins' || $workspaceStore === 'starter'}
-			size="sm"
-			btnClasses="mt-2"
-			on:click={async () => {
-				await WorkspaceService.deleteWorkspace({ workspace: $workspaceStore ?? '' })
-				sendUserToast(`Deleted workspace ${$workspaceStore}`)
-				workspaceStore.set(undefined)
-				usersWorkspaceStore.set(undefined)
-				goto('/user/workspaces')
-			}}
-		>
-			Delete workspace
-		</Button>
+		<div class="flex gap-2">
+			<Button
+				color="red"
+				disabled={$workspaceStore === 'admins' || $workspaceStore === 'starter'}
+				size="sm"
+				btnClasses="mt-2"
+				on:click={async () => {
+					await WorkspaceService.archiveWorkspace({ workspace: $workspaceStore ?? '' })
+					sendUserToast(`Archived workspace ${$workspaceStore}`)
+					workspaceStore.set(undefined)
+					usersWorkspaceStore.set(undefined)
+					goto('/user/workspaces')
+				}}
+			>
+				Archive workspace
+			</Button>
+
+			{#if $superadmin}
+				<Button
+					color="red"
+					disabled={$workspaceStore === 'admins' || $workspaceStore === 'starter'}
+					size="sm"
+					btnClasses="mt-2"
+					on:click={async () => {
+						await WorkspaceService.deleteWorkspace({ workspace: $workspaceStore ?? '' })
+						sendUserToast(`Deleted workspace ${$workspaceStore}`)
+						workspaceStore.set(undefined)
+						usersWorkspaceStore.set(undefined)
+						goto('/user/workspaces')
+					}}
+				>
+					Delete workspace (superadmin)
+				</Button>
+			{/if}
+		</div>
 	{:else}
 		<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4" role="alert">
 			<p class="font-bold">Not an admin</p>
