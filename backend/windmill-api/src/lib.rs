@@ -141,6 +141,7 @@ pub async fn run_server(
                 .nest("/workers", worker_ping::global_service())
                 .nest("/scripts", scripts::global_service())
                 .nest("/flows", flows::global_service())
+                .nest("/apps", apps::global_service())
                 .nest("/schedules", schedule::global_service())
                 .route_layer(from_extractor::<Authed>())
                 .route_layer(from_extractor::<users::Tokened>())

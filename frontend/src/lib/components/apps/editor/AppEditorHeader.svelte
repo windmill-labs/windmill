@@ -8,7 +8,7 @@
 	import ToggleButton from '$lib/components/common/toggleButton/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton/ToggleButtonGroup.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
-	import FlowJobResult from '$lib/components/FlowJobResult.svelte'
+	import Dropdown from '$lib/components/Dropdown.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
@@ -19,21 +19,29 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { AppService, Job, Policy } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { faBug, faClipboard, faExternalLink, faSave } from '@fortawesome/free-solid-svg-icons'
+	import {
+		faBug,
+		faClipboard,
+		faExternalLink,
+		faFileExport,
+		faGlobe,
+		faSave
+	} from '@fortawesome/free-solid-svg-icons'
 	import {
 		AlignHorizontalSpaceAround,
 		Expand,
 		Eye,
 		Laptop2,
 		Loader2,
+		MoreVertical,
 		Pencil,
 		Smartphone
 	} from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { classNames, copyToClipboard, sendUserToast } from '../../../utils'
-	import type { AppComponent, AppEditorContext } from '../types'
+	import { appToHubUrl, classNames, copyToClipboard, sendUserToast } from '../../../utils'
+	import type { App, AppComponent, AppEditorContext } from '../types'
 	import AppExportButton from './AppExportButton.svelte'
 	import PanelSection from './settingsPanel/common/PanelSection.svelte'
 
@@ -47,7 +55,7 @@
 
 	export let policy: Policy
 
-	const { app, summary, mode, breakpoint, appPath, jobs } =
+	const { app, summary, mode, breakpoint, appPath, jobs, staticExporter } =
 		getContext<AppEditorContext>('AppEditorContext')
 	const loading = {
 		publish: false,
@@ -57,12 +65,25 @@
 	let newPath: string = ''
 	let pathError: string | undefined = undefined
 
+	let appExport: AppExportButton
+
 	let saveDrawerOpen = false
 	let jobsDrawerOpen = false
 	let publishDrawerOpen = false
 
 	function closeSaveDrawer() {
 		saveDrawerOpen = false
+	}
+
+	function toStatic(): { app: App; summary: string } {
+		const newApp: App = JSON.parse(JSON.stringify($app))
+		newApp.grid.forEach((x) => {
+			let c: AppComponent = x.data
+			if (c.componentInput?.type == 'runnable') {
+				c.componentInput.value = $staticExporter[x.id]()
+			}
+		})
+		return { app: newApp, summary: $summary }
 	}
 
 	async function computeTriggerables() {
@@ -333,7 +354,7 @@
 </Drawer>
 
 <div
-	class="border-b flex flex-row justify-between py-1 gap-4 overflow-x-auto gap-y-2 px-4 items-center"
+	class="border-b flex flex-row justify-between py-1 gap-4  gap-y-2 px-4 items-center overflow-y-visible"
 >
 	<div class="min-w-64 w-64">
 		<input type="text" placeholder="App summary" class="text-sm w-full" bind:value={$summary} />
@@ -344,11 +365,13 @@
 				<ToggleButton position="left" value="dnd" size="xs">
 					<div class="inline-flex gap-1 items-center">
 						<Pencil size={14} />
-						Editor
+						<span class="hidden md:inline">Editor</span>
 					</div>
 				</ToggleButton>
 				<ToggleButton position="right" value="preview" size="xs">
-					<div class="inline-flex gap-1 items-center"> <Eye size={14} /> Preview</div>
+					<div class="inline-flex gap-1 items-center">
+						<Eye size={14} /> <span class="hidden md:inline">Preview</span>
+					</div>
 				</ToggleButton>
 			</ToggleButtonGroup>
 		</div>
@@ -363,7 +386,7 @@
 			</ToggleButtonGroup>
 		</div>
 
-		<span class="hidden lg:block">
+		<div class="hidden lg:block">
 			<ToggleButtonGroup bind:selected={$app.fullscreen}>
 				<ToggleButton position="left" value={false} size="xs">
 					<div class="flex gap-1 justify-start">
@@ -378,22 +401,44 @@
 					<Expand size={14} />
 				</ToggleButton>
 			</ToggleButtonGroup>
-		</span>
+		</div>
 	</div>
-	<div class="flex flex-row grow gap-2 justify-end items-center">
-		<Button
-			on:click={() => (jobsDrawerOpen = true)}
-			color="light"
-			size="xs"
-			variant="border"
-			startIcon={{ icon: faBug }}
+	<div class="flex flex-row grow gap-2 justify-end items-center overflow-visible">
+		<Dropdown
+			placement="bottom-end"
+			btnClasses="!text-gray-700 !bg-transparent hover:!bg-gray-400/20 !p-[6px] hidden lg:block"
+			dropdownItems={[
+				{
+					displayName: 'JSON',
+					icon: faFileExport,
+					action: () => {
+						appExport.open()
+					}
+				},
+				{
+					displayName: 'Publish to Hub',
+					icon: faGlobe,
+					action: () => {
+						const url = appToHubUrl(toStatic())
+						window.open(url.toString(), '_blank')
+					}
+				}
+			]}
 		>
-			Debug Runs
-		</Button>
-		<span class="hidden lg:block">
-			<AppExportButton app={$app} />
+			<MoreVertical size={20} />
+		</Dropdown>
+		<span class="hidden md:inline">
+			<Button
+				on:click={() => (jobsDrawerOpen = true)}
+				color="light"
+				size="xs"
+				variant="border"
+				startIcon={{ icon: faBug }}
+			>
+				<span class="hidden md:inline">Debug Runs</span>
+			</Button>
 		</span>
-
+		<AppExportButton bind:this={appExport} app={$app} />
 		<Button
 			on:click={() => (publishDrawerOpen = true)}
 			color="light"
@@ -401,7 +446,7 @@
 			variant="border"
 			startIcon={{ icon: faExternalLink }}
 		>
-			Publish
+			<span class="hidden md:inline">Publish</span>
 		</Button>
 		<Button
 			loading={loading.save}
@@ -410,7 +455,7 @@
 			color="dark"
 			size="xs"
 		>
-			Save
+			<span class="hidden md:inline">Save</span>
 		</Button>
 	</div>
 </div>

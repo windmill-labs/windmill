@@ -50,7 +50,7 @@
 				const oldPath = flow.path.split('/')
 				flow.path = `u/${$userStore?.username}/${oldPath[oldPath.length - 1]}`
 				flow = flow
-				$page.url.searchParams.delete('template')
+				goto('?', { replaceState: true })
 				selectedId = 'settings-graph'
 			} else if (hubId) {
 				const hub = await FlowService.getHubFlowById({ id: Number(hubId) })
@@ -58,7 +58,7 @@
 				flow.path = `u/${$userStore?.username}/flow_${hubId}`
 				Object.assign(flow, hub.flow)
 				flow = flow
-				$page.url.searchParams.delete('hub')
+				goto('?', { replaceState: true })
 				selectedId = 'settings-graph'
 			}
 		}

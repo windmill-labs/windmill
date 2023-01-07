@@ -2,7 +2,7 @@
 	import { createEventDispatcher, onMount } from 'svelte'
 	import { Badge, Skeleton } from '$lib/components/common'
 	import SearchItems from '$lib/components/SearchItems.svelte'
-	import { loadHubFlows } from '$lib/utils'
+	import { loadHubApps } from '$lib/utils'
 	import ListFilters from '$lib/components/home/ListFilters.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
@@ -10,20 +10,20 @@
 	export let filter = ''
 
 	type Item = { apps: string[]; summary: string; path: string }
-	let hubFlows: any[] | undefined = undefined
+	let hubApps: any[] | undefined = undefined
 	let filteredItems: (Item & { marked?: string })[] = []
 	let appFilter: string | undefined = undefined
 
 	$: prefilteredItems = appFilter
-		? (hubFlows ?? []).filter((i) => i.apps.includes(appFilter))
-		: hubFlows ?? []
+		? (hubApps ?? []).filter((i) => i.apps.includes(appFilter))
+		: hubApps ?? []
 
 	$: apps = Array.from(new Set(filteredItems?.flatMap((x) => x.apps) ?? [])).sort()
 
 	const dispatch = createEventDispatcher()
 
 	onMount(async () => {
-		hubFlows = await loadHubFlows()
+		hubApps = await loadHubApps()
 	})
 </script>
 
@@ -35,11 +35,11 @@
 />
 <div class="w-full flex mt-1 items-center gap-2">
 	<slot />
-	<input type="text" placeholder="Search Hub Flows" bind:value={filter} class="text-2xl grow" />
+	<input type="text" placeholder="Search Hub Apps" bind:value={filter} class="text-2xl grow" />
 </div>
 <ListFilters filters={apps} bind:selectedFilter={appFilter} resourceType />
 
-{#if hubFlows}
+{#if hubApps}
 	{#if filteredItems.length == 0}
 		<NoItemFound />
 	{:else}
@@ -51,7 +51,7 @@
 						on:click={() => dispatch('pick', item)}
 					>
 						<div class="flex items-center gap-4">
-							<RowIcon kind="flow" />
+							<RowIcon kind="app" />
 
 							<div class="w-full text-left font-normal ">
 								<div class="text-gray-900 flex-wrap text-md font-semibold mb-1">
@@ -75,7 +75,6 @@
 	{/if}
 {:else}
 	<div class="my-2" />
-
 	{#each Array(10).fill(0) as _}
 		<Skeleton layout={[[4], 0.5]} />
 	{/each}

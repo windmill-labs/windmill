@@ -142,11 +142,13 @@ export type AppEditorContext = {
 	connectingInput: Writable<ConnectingInput>
 	breakpoint: Writable<EditorBreakpoint>
 	runnableComponents: Writable<Record<string, () => Promise<void>>>
+	staticExporter: Writable<Record<string, () => any>>
 	appPath: string,
 	workspace: string,
 	onchange: (() => void) | undefined,
 	isEditor: boolean,
-	jobs: Writable<{ job: string, component: string }[]>
+	jobs: Writable<{ job: string, component: string }[]>,
+	noBackend: boolean
 }
 
 export type EditorMode = 'dnd' | 'preview'

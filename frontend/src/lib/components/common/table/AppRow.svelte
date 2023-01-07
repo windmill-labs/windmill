@@ -6,6 +6,7 @@
 	import { AppService, type ListableApp } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import {
+		faCodeFork,
 		faEdit,
 		faEye,
 		faFileExport,
@@ -55,6 +56,18 @@
 							href="/apps/edit/{path}?nodraft=true"
 						>
 							Edit
+						</Button>
+					</div>
+				{:else}
+					<div>
+						<Button
+							color="light"
+							size="xs"
+							variant="border"
+							startIcon={{ icon: faCodeFork }}
+							href="/apps/add?template={path}"
+						>
+							Fork
 						</Button>
 					</div>
 				{/if}

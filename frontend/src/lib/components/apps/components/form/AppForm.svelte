@@ -26,7 +26,6 @@
 	let runnableComponent: RunnableComponent
 
 	let isLoading: boolean = false
-	let ownClick: boolean = false
 
 	$: outputs = $worldStore?.outputsById[id] as {
 		result: Output<Array<any>>
@@ -40,13 +39,8 @@
 	$: outputs?.loading.subscribe({
 		next: (value) => {
 			isLoading = value
-			if (ownClick && !value) {
-				ownClick = false
-			}
 		}
 	})
-
-	$: loading = isLoading && ownClick
 </script>
 
 <InputValue {id} input={configuration.label} bind:value={labelValue} />
@@ -54,6 +48,7 @@
 <InputValue {id} input={configuration.size} bind:value={size} />
 
 <RunnableWrapper
+	noMinH
 	bind:runnableComponent
 	bind:componentInput
 	{id}
@@ -62,7 +57,7 @@
 	forceSchemaDisplay={true}
 >
 	<AlignWrapper {horizontalAlignment}>
-		<div class="flex flex-col gap-2 px-4 w-full">
+		<div class="flex flex-col gap-2 px-4 w-full ">
 			<div>
 				{#if componentInput?.type != 'runnable' || Object.values(componentInput?.fields ?? {}).filter((x) => x.type == 'user').length == 0}
 					<span class="text-gray-600 italic text-sm py-2">
@@ -73,14 +68,13 @@
 			</div>
 			<div class="flex justify-end">
 				<Button
-					{loading}
-					btnClasses="mt-1"
+					loading={isLoading}
+					btnClasses="my-1"
 					on:pointerdown={(e) => {
 						e?.stopPropagation()
 						window.dispatchEvent(new Event('pointerup'))
 					}}
 					on:click={() => {
-						ownClick = true
 						runnableComponent?.runComponent()
 
 						if (recomputeIds) {

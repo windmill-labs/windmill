@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 	import { faBarsStaggered } from '@fortawesome/free-solid-svg-icons'
-	import { Code2, LayoutDashboard, Wind } from 'lucide-svelte'
+	import { Code2, LayoutDashboard } from 'lucide-svelte'
 	import Icon from 'svelte-awesome'
 
 	export let kind: 'script' | 'flow' | 'app'
