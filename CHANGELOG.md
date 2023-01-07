@@ -1,6 +1,24 @@
 # Changelog
 
 
+## [1.58.0](https://github.com/windmill-labs/windmill/compare/v1.57.1...v1.58.0) (2023-01-07)
+
+
+### Features
+
+* add archive/unarchive/delete workspace ([6edf9b9](https://github.com/windmill-labs/windmill/commit/6edf9b9946d613b599cb91688c4986044caaba8d))
+* add hub support for apps ([50453ca](https://github.com/windmill-labs/windmill/commit/50453ca690dfd936474ebbf000e36ae1006b188b))
+* add min/max constraint to number + slider component ([0bcdcae](https://github.com/windmill-labs/windmill/commit/0bcdcaedcfdf7b7f76f703df3bf50d97dd389995))
+* add support for yaml format as a string format ([5204e4a](https://github.com/windmill-labs/windmill/commit/5204e4a75d74e6bb4087dee7087390f7c0388e51))
+* **frontend:** Add integration icons ([#1063](https://github.com/windmill-labs/windmill/issues/1063)) ([45acb89](https://github.com/windmill-labs/windmill/commit/45acb89f87ad78c48a1ba6abf1bd1424088b41c4))
+* **frontend:** Toggle to hide optional inputs ([#1060](https://github.com/windmill-labs/windmill/issues/1060)) ([4d6a568](https://github.com/windmill-labs/windmill/commit/4d6a568820ceb6c064dc2871085b80412e18c379))
+* **frontend:** Update app auto-refresh button ([#1062](https://github.com/windmill-labs/windmill/issues/1062)) ([34e3331](https://github.com/windmill-labs/windmill/commit/34e33319192f6d747d84fc6559853410f5d72ec8))
+
+
+### Bug Fixes
+
+* **frontend:** Remove popover hover styles ([#1064](https://github.com/windmill-labs/windmill/issues/1064)) ([76a860f](https://github.com/windmill-labs/windmill/commit/76a860fe538dadfc6691074384f92db1a331063d))
+
 ## [1.57.1](https://github.com/windmill-labs/windmill/compare/v1.57.0...v1.57.1) (2023-01-02)
 
 
