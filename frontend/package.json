@@ -73,7 +73,7 @@
 		"highlight.js": "^11.7.0",
 		"monaco-editor": "0.33.0",
 		"monaco-editor-workers": "0.33.0",
-		"monaco-languageclient": "2.1.0",
+		"monaco-languageclient": "4.0.3",
 		"monaco-yaml": "^4.0.2",
 		"svelte-autosize": "^1.0.1",
 		"svelte-chartjs": "^3.1.0",
