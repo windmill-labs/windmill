@@ -685,7 +685,7 @@ def main(error, port):
             json!({
                 "recv": 42,
                 "from failure module": {
-                    "error": "Error during execution of the script:\n\nTraceback (most recent call last):\n  File \"/tmp/main.py\", line 16, in <module>\n    res = inner_script.main(**kwargs)\n  File \"/tmp/inner.py\", line 5, in main\n    return sock.recv(1)[0]\nIndexError: index out of range",
+                    "error": "Error during execution of the script:\n\nTraceback (most recent call last):\n  File \"/tmp/main.py\", line 15, in <module>\n    res = inner_script.main(**kwargs)\n  File \"/tmp/inner.py\", line 5, in main\n    return sock.recv(1)[0]\nIndexError: index out of range",
                 }
             })
         );
