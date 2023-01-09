@@ -354,7 +354,10 @@ async fn edit_auto_invite(
     .await?;
     tx.commit().await?;
 
-    Ok(format!("Edit command script {}", &w_id))
+    Ok(format!(
+        "Edit auto-invite for workspace {} to {}",
+        &w_id, domain
+    ))
 }
 
 async fn list_workspaces_as_super_admin(
