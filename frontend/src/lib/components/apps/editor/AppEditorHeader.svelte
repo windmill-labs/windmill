@@ -111,7 +111,9 @@
 							let hex = await hash(input.runnable.inlineScript?.content)
 							return [`rawscript/${hex}`, staticInputs]
 						} else if (input.runnable?.type == 'runnableByPath') {
-							return [`${input.runnable.runType}/${input.runnable.path}`, staticInputs]
+							let prefix =
+								input.runnable.runType !== 'hubscript' ? input.runnable.runType : 'script'
+							return [`${prefix}/${input.runnable.path}`, staticInputs]
 						}
 					}
 					return []
