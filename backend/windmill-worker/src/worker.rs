@@ -1675,7 +1675,6 @@ async fn handle_python_job(
     let wrapper_content: String = format!(
         r#"
 import json
-import base64
 {import_loader}
 {import_base64}
 {import_datetime}
