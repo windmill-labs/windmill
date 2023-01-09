@@ -73,6 +73,13 @@ mount {
 }
 
 mount {
+    src: "{JOB_DIR}/loader.py"
+    dst: "/tmp/loader.py"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
     src: "{JOB_DIR}/main.py"
     dst: "/tmp/main.py"
     is_bind: true

@@ -9,6 +9,8 @@
 use const_format::concatcp;
 use git_version::git_version;
 use itertools::Itertools;
+use lazy_static::lazy_static;
+use regex::Regex;
 use sqlx::{Pool, Postgres, Transaction};
 use std::{borrow::Borrow, collections::HashMap, io, panic, process::Stdio, time::Duration};
 use tracing::{trace_span, Instrument};
@@ -271,8 +273,10 @@ const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT: &str = include_str!("../nsjail/download
 const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str = include_str!("../nsjail/run.python3.config.proto");
 const NSJAIL_CONFIG_RUN_GO_CONTENT: &str = include_str!("../nsjail/run.go.config.proto");
 const NSJAIL_CONFIG_RUN_BASH_CONTENT: &str = include_str!("../nsjail/run.bash.config.proto");
-
 const NSJAIL_CONFIG_RUN_DENO_CONTENT: &str = include_str!("../nsjail/run.deno.config.proto");
+
+const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
+
 const MAX_LOG_SIZE: u32 = 200000;
 const GO_REQ_SPLITTER: &str = "//go.sum";
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
@@ -1538,6 +1542,10 @@ async fn create_args_and_out_file(
     Ok(())
 }
 
+lazy_static! {
+    static ref RELATIVE_IMPORT_REGEX: Regex = Regex::new(r#"(import|from)\s(u|f)\."#).unwrap();
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_python_job(
     WorkerConfig { base_internal_url, base_url, disable_nuser, disable_nsjail, .. }: &WorkerConfig,
@@ -1608,12 +1616,17 @@ async fn handle_python_job(
 
     set_logs(logs, &job.id, db).await;
 
+    let relative_imports = RELATIVE_IMPORT_REGEX.is_match(&inner_content);
+
     let _ = write_file(job_dir, "inner.py", inner_content).await?;
+    if relative_imports {
+        let _ = write_file(job_dir, "loader.py", RELATIVE_PYTHON_LOADER).await?;
+    }
 
     let sig = windmill_parser_py::parse_python_signature(inner_content)?;
     let transforms = sig
         .args
-        .into_iter()
+        .iter()
         .map(|x| match x.typ {
             windmill_parser::Typ::Bytes => {
                 format!(
@@ -1636,11 +1649,36 @@ async fn handle_python_job(
         .join("");
     create_args_and_out_file(client, job, job_dir).await?;
 
+    let import_loader = if relative_imports {
+        "import loader"
+    } else {
+        ""
+    };
+    let import_base64 = if sig
+        .args
+        .iter()
+        .any(|x| x.typ == windmill_parser::Typ::Bytes)
+    {
+        "import base64"
+    } else {
+        ""
+    };
+    let import_datetime = if sig
+        .args
+        .iter()
+        .any(|x| x.typ == windmill_parser::Typ::Datetime)
+    {
+        "from datetime import datetime"
+    } else {
+        ""
+    };
     let wrapper_content: String = format!(
         r#"
 import json
 import base64
-from datetime import datetime
+{import_loader}
+{import_base64}
+{import_datetime}
 
 inner_script = __import__("inner")
 
