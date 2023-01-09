@@ -45,7 +45,7 @@
 		"svelte": "^3.53.1",
 		"svelte-awesome": "^3.0.0",
 		"svelte-check": "^2.9.2",
-		"svelte-dnd-action": "^0.9.21",
+		"svelte-dnd-action": "^0.9.22",
 		"svelte-grid": "^5.1.1",
 		"svelte-heros": "^2.3.5",
 		"svelte-highlight": "^6.2.1",
