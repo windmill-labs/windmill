@@ -183,7 +183,7 @@
 					</div>
 				{:else if job.flow_status?.modules?.[job?.flow_status?.step].type === FlowStatusModule.type.WAITING_FOR_EVENTS}
 					<div class="w-full h-full mt-2 text-sm text-gray-600">
-						<p>Waiting for approval from the previous step</p>
+						<p>Waiting to be resumed</p>
 						<div>
 							{#if is_owner}
 								<div class="flex flex-row gap-2 mt-2">
@@ -212,7 +212,8 @@
 									>
 								</div>
 							{:else}
-								You cannot resume the job without the resume id since you are not an owner of {job.script_path}
+								You cannot resume the flow yourself without receiving the resume secret since you
+								are not an owner of {job.script_path}
 							{/if}
 						</div>
 					</div>
