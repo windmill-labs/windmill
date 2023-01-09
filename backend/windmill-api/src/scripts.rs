@@ -469,10 +469,7 @@ async fn raw_script_by_path(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
-    let path = path
-        .to_path()
-        .strip_suffix(".ts")
-        .ok_or_else(|| Error::BadRequest("Raw script path must end with .ts".to_string()))?;
+    let path = path.to_path().split(".").next().unwrap_or_default();
     let mut tx = user_db.begin(&authed).await?;
 
     let content_o = sqlx::query_scalar!(
