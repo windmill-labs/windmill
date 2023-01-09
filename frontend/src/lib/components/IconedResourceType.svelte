@@ -20,7 +20,7 @@
 			<svelte:component this={APP_TO_ICON_COMPONENT[name_prefix]} {height} {width} />
 		</span>
 	{:else}
-		<span style="width: {width}" class="bg-gray-100 rounded-full" />
+		<span style="width: {width}; height: {height}" class="bg-gray-100 rounded-full" />
 	{/if}
 	{#if !silent && after}
 		{name}
