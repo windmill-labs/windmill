@@ -1,6 +1,7 @@
 import type { Schema } from '$lib/common'
 import { FlowService, ScriptService } from '$lib/gen'
 import { inferArgs } from '$lib/infer'
+import { emptySchema } from '$lib/utils'
 import {
 	BarChart4,
 	Binary,
@@ -48,9 +49,11 @@ export async function loadSchema(
 		const script = await ScriptService.getHubScriptByPath({
 			path
 		})
+		if (script.schema == undefined || Object.keys(script.schema).length == 0 || typeof script.schema != 'object') {
+			script.schema = emptySchema()
+		}
 
 		await inferArgs(script.language, script.content, script.schema)
-
 		return script.schema
 	}
 }
