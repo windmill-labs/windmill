@@ -2986,7 +2986,7 @@ paths:
         - $ref: "#/components/parameters/CreatedAfter"
         - $ref: "#/components/parameters/Success"
         - $ref: "#/components/parameters/JobKinds"
-
+        - $ref: "#/components/parameters/Suspend"
       responses:
         "200":
           description: All available queued jobs
@@ -4416,6 +4416,12 @@ components:
     Success:
       name: success
       description: filter on successful jobs
+      in: query
+      schema:
+        type: boolean
+    Suspend:
+      name: suspend
+      description: filter on suspended jobs
       in: query
       schema:
         type: boolean

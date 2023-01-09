@@ -11,7 +11,7 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { fly } from 'svelte/transition'
 	import Editor from '$lib/components/Editor.svelte'
-	import { scriptLangToEditorLang } from '$lib/utils'
+	import { emptySchema, scriptLangToEditorLang } from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
@@ -42,11 +42,11 @@
 	}
 
 	onMount(async () => {
-		if (inlineScript) {
+		if (inlineScript && !inlineScript.schema) {
 			inlineScript.schema = await inferInlineScriptSchema(
 				inlineScript?.language,
 				inlineScript?.content,
-				inlineScript?.schema
+				emptySchema()
 			)
 		}
 	})
