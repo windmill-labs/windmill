@@ -48,7 +48,8 @@
 					path: path ?? '',
 					summary: summary ?? '',
 					description: flow.description,
-					value: flow.value
+					value: flow.value,
+					schema: flow.schema
 				}
 			})
 		} else if (kind == 'script') {
