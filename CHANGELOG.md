@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [1.59.0](https://github.com/windmill-labs/windmill/compare/v1.58.0...v1.59.0) (2023-01-09)
+
+
+### Features
+
+* add relative imports for python scripts ([#1075](https://github.com/windmill-labs/windmill/issues/1075)) ([5347cd4](https://github.com/windmill-labs/windmill/commit/5347cd46a996b4cf48a96fbb873e4d029ca4f75f))
+
+
+### Bug Fixes
+
+* **frontend:** Iconed resource height issue ([#1073](https://github.com/windmill-labs/windmill/issues/1073)) ([a84eb9b](https://github.com/windmill-labs/windmill/commit/a84eb9b1f7e1b10c960ee1594ef476e7ba146f5e))
+
 ## [1.58.0](https://github.com/windmill-labs/windmill/compare/v1.57.1...v1.58.0) (2023-01-07)
 
 
