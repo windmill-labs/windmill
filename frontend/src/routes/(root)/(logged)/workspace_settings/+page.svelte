@@ -109,8 +109,6 @@
 		}
 	}
 
-	$: operatorOnly != undefined && auto_invite_domain && setOperatorOnly()
-
 	async function removeAllInvitesFromDomain() {
 		await Promise.all(
 			invites
@@ -126,15 +124,6 @@
 					})
 				)
 		)
-	}
-	async function setOperatorOnly() {
-		await removeAllInvitesFromDomain()
-		await WorkspaceService.editAutoInvite({
-			workspace: $workspaceStore ?? '',
-			requestBody: { operator: operatorOnly }
-		})
-		loadSettings()
-		listInvites()
 	}
 </script>
 
@@ -348,6 +337,15 @@
 						bind:checked={operatorOnly}
 						options={{
 							right: `Auto-invited users to join as operators`
+						}}
+						on:change={async (e) => {
+							await removeAllInvitesFromDomain()
+							await WorkspaceService.editAutoInvite({
+								workspace: $workspaceStore ?? '',
+								requestBody: { operator: e.detail }
+							})
+							loadSettings()
+							listInvites()
 						}}
 					/>
 					<div>
