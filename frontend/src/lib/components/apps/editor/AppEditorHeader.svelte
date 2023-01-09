@@ -41,6 +41,7 @@
 	import { Icon } from 'svelte-awesome'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { appToHubUrl, classNames, copyToClipboard, sendUserToast } from '../../../utils'
+	import type { AppInput } from '../inputType'
 	import type { App, AppComponent, AppEditorContext } from '../types'
 	import AppExportButton from './AppExportButton.svelte'
 	import PanelSection from './settingsPanel/common/PanelSection.svelte'
@@ -88,28 +89,33 @@
 
 	async function computeTriggerables() {
 		const allTriggers = await Promise.all(
-			$app.grid.map(async (x) => {
-				let c = x.data as AppComponent
-				if (c.componentInput?.type == 'runnable') {
-					const staticInputs = Object.fromEntries(
-						Object.entries(c.componentInput.fields ?? {})
-							.filter(([k, v]) => v.type == 'static')
-							.map(([k, v]) => {
-								return [k, v['value']]
-							})
-					)
-					if (c.componentInput.runnable?.type == 'runnableByName') {
-						let hex = await hash(c.componentInput.runnable.inlineScript?.content)
-						return [`rawscript/${hex}`, staticInputs]
-					} else if (c.componentInput.runnable?.type == 'runnableByPath') {
-						return [
-							`${c.componentInput.runnable.runType}/${c.componentInput.runnable.path}`,
-							staticInputs
-						]
+			$app.grid
+				.flatMap((x) => {
+					let c = x.data as AppComponent
+					let r: (AppInput | undefined)[] = [c.componentInput]
+					if (c.type === 'tablecomponent') {
+						r.push(...c.actionButtons.map((x) => x.componentInput))
 					}
-				}
-				return []
-			})
+					return r.filter((x) => x)
+				})
+				.map(async (input) => {
+					if (input?.type == 'runnable') {
+						const staticInputs = Object.fromEntries(
+							Object.entries(input.fields ?? {})
+								.filter(([k, v]) => v.type == 'static')
+								.map(([k, v]) => {
+									return [k, v['value']]
+								})
+						)
+						if (input.runnable?.type == 'runnableByName') {
+							let hex = await hash(input.runnable.inlineScript?.content)
+							return [`rawscript/${hex}`, staticInputs]
+						} else if (input.runnable?.type == 'runnableByPath') {
+							return [`${input.runnable.runType}/${input.runnable.path}`, staticInputs]
+						}
+					}
+					return []
+				})
 		)
 		policy.triggerables = Object.fromEntries(allTriggers)
 		policy.on_behalf_of = `u/${$userStore?.username}`
