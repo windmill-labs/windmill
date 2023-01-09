@@ -1,5 +1,5 @@
 export function load({ params }) {
 	return {
-		stuff: { title: `New App` }
+		stuff: { title: `App ${params.path}` }
 	}
 }
