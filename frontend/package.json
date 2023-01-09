@@ -80,5 +80,8 @@
 		"svelte-chartjs": "^3.1.0",
 		"svelte-select": "^5.0.1",
 		"vscode-ws-jsonrpc": "^2.0.1"
+	},
+	"peerDependencies": {
+		"svelte": "^3.53.1"
 	}
 }
