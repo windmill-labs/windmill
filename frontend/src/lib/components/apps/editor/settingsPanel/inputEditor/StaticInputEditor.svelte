@@ -19,7 +19,7 @@
 	{#if componentInput.fieldType === 'number'}
 		<input type="number" bind:value={componentInput.value} />
 	{:else if componentInput.fieldType === 'textarea'}
-		<textarea type="text" bind:value={componentInput.value} />
+		<textarea bind:value={componentInput.value} />
 	{:else if componentInput.fieldType === 'boolean'}
 		<Toggle bind:checked={componentInput.value} />
 	{:else if componentInput.fieldType === 'select'}

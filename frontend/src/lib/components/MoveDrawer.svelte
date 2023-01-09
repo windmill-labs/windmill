@@ -97,7 +97,6 @@
 			type="text"
 			bind:value={summary}
 			placeholder="A short summary displayed when it is listed"
-			rows="1"
 			disabled={!own}
 		/>
 
