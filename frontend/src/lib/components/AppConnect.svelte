@@ -151,6 +151,7 @@
 				window.location.href = url.toString()
 			} else {
 				window.open(url.toString(), '_blank')
+				drawer.closeDrawer()
 			}
 		} else {
 			let exists = await VariableService.existsVariable({
