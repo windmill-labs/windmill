@@ -19,7 +19,7 @@
 		const actionId = getNextId(components.map((x) => x.id.split('-')[1]))
 
 		const newComponent: BaseAppComponent & ButtonComponent = {
-			id: `${id}-${actionId}`,
+			id: `${id}_${actionId}`,
 			type: 'buttoncomponent',
 			configuration: {
 				label: {

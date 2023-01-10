@@ -5,5 +5,5 @@
 </script>
 
 {#if componentInput}
-	<input type="text" placeholder="column" bind:value={componentInput.column} />
+	<input type="text" placeholder="column name" bind:value={componentInput.column} />
 {/if}

@@ -656,19 +656,18 @@ async fn connect_slack_callback(
     .execute(&mut tx)
     .await?;
     sqlx::query!(
-        "INSERT INTO group_
-                (workspace_id, name, summary)
-                VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+        "INSERT INTO folder
+                (workspace_id, name, owners, extra_perms)
+                VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
         &w_id,
-        "slack",
-        "The group that runs the script triggered by the slack /windmill command.
-                         Share scripts to this group to make them executable from slack and add
-                         members to this group to let them manage the slack related owner space."
+        "slack_bot",
+        &[],
+        serde_json::json!({})
     )
     .execute(&mut tx)
     .await?;
 
-    let token_path = "g/slack/bot_token";
+    let token_path = "f/slack_bot/bot_token";
     let mc = build_crypt(&mut tx, &w_id).await?;
     let value = encrypt(&mc, &token.bot.bot_access_token);
     sqlx::query!(

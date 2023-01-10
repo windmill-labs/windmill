@@ -37,7 +37,7 @@
 <AlignWrapper {verticalAlignment}>
 	<div class="flex w-full gap-1 px-1">
 		<span>{min}</span>
-		<div class="grow">
+		<div class="grow ">
 			<Range bind:value {min} {max} />
 		</div>
 		<span>{max}</span>

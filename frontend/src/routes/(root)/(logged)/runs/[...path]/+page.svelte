@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte'
-	import { JobService, Job, CompletedJob } from '$lib/gen'
+	import { onDestroy, onMount } from 'svelte'
+	import { JobService, Job, CompletedJob, ScriptService, FlowService } from '$lib/gen'
 	import { setQuery } from '$lib/utils'
 
 	import { page } from '$app/stores'
@@ -14,8 +14,10 @@
 	import { goto } from '$app/navigation'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import RunChart from '$lib/components/RunChart.svelte'
-	import { faSearch, faSearchMinus } from '@fortawesome/free-solid-svg-icons'
+	import { faSearchMinus } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
+	import AutoComplete from 'simple-svelte-autocomplete'
+	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 
 	let jobs: Job[] | undefined
 	let error: Error | undefined
@@ -31,8 +33,7 @@
 			? $page.url.searchParams.get('is_skipped') == 'true'
 			: false
 
-	let showOlderJobs = true
-	const jobsPerPage = 100
+	let nbOfJobs = 30
 
 	$: path = $page.params.path
 
@@ -48,11 +49,11 @@
 		} else if (jobKindsCat == 'previews') {
 			return `${CompletedJob.job_kind.PREVIEW},${CompletedJob.job_kind.FLOWPREVIEW}`
 		} else {
-			return `${CompletedJob.job_kind.SCRIPT},${CompletedJob.job_kind.FLOW},${CompletedJob.job_kind.SCRIPT_HUB}`
+			return `${CompletedJob.job_kind.SCRIPT},${CompletedJob.job_kind.FLOW}`
 		}
 	}
 
-	$: ($workspaceStore && loadJobs(createdBefore)) || (success && isSkipped && jobKinds)
+	$: ($workspaceStore && loadJobs(createdBefore)) || (path && success && isSkipped && jobKinds)
 
 	async function fetchJobs(
 		createdBefore: string | undefined,
@@ -70,21 +71,9 @@
 		})
 	}
 
-	async function fetchCompletedJobs(createdBefore: string | undefined): Promise<CompletedJob[]> {
-		return JobService.listCompletedJobs({
-			workspace: $workspaceStore!,
-			createdBefore,
-			scriptPathExact: path === '' ? undefined : path,
-			jobKinds: jobKinds,
-			success,
-			isSkipped
-		})
-	}
-
 	async function loadJobs(createdBefore: string | undefined): Promise<void> {
 		try {
 			const newJobs = await fetchJobs(createdBefore, undefined)
-			showOlderJobs = newJobs.length === jobsPerPage
 			jobs = newJobs
 		} catch (err) {
 			sendUserToast(`There was a problem fetching jobs: ${err}`, true)
@@ -95,16 +84,13 @@
 
 	async function loadOlderJobs() {
 		if (jobs) {
-			const ts = jobs[jobs.length - 1].created_at
-			const olderJobs = await fetchCompletedJobs(ts!)
-			showOlderJobs = olderJobs.length === jobsPerPage
-			jobs = jobs.concat(...olderJobs)
+			nbOfJobs += 30
 		}
 	}
 
 	async function syncer() {
 		if (jobs && createdBefore === undefined) {
-			const reversedJobs = jobs.slice(0, jobsPerPage).reverse()
+			const reversedJobs = [...jobs].reverse()
 			const lastIndex = reversedJobs.findIndex((x) => x.type == Job.type.QUEUED_JOB) - 1
 			let ts = lastIndex >= 0 ? reversedJobs[lastIndex].created_at : undefined
 			if (!ts) {
@@ -124,18 +110,18 @@
 		}
 	}
 
-	$: {
-		if ($workspaceStore) {
-			loadJobs(createdBefore)
-			path // trigger on path change
-			success && isSkipped && jobKinds
-			if (intervalId) {
-				clearInterval(intervalId)
-			}
-			intervalId = setInterval(syncer, 5000)
-		}
-	}
+	onMount(() => {
+		loadPaths()
+		intervalId = setInterval(syncer, 5000)
+	})
 
+	let paths: string[] = []
+
+	async function loadPaths() {
+		const npaths_scripts = await ScriptService.listScriptPaths({ workspace: $workspaceStore ?? '' })
+		const npaths_flows = await FlowService.listFlowPaths({ workspace: $workspaceStore ?? '' })
+		paths = npaths_scripts.concat(npaths_flows).sort()
+	}
 	async function syncCatWithURL() {
 		await setQuery($page.url, 'job_kinds', jobKindsCat)
 	}
@@ -144,6 +130,7 @@
 
 	$: completedJobs =
 		jobs?.filter((x) => x.type == 'CompletedJob').map((x) => x as CompletedJob) ?? []
+
 	onDestroy(() => {
 		if (intervalId) {
 			clearInterval(intervalId)
@@ -153,6 +140,12 @@
 	$: searchPath = path
 	let minTs = undefined
 	let maxTs = undefined
+
+	$: searchPath && onSearchPathChange()
+
+	function onSearchPathChange() {
+		goto(`/runs/${searchPath}?${$page.url.searchParams.toString()}`)
+	}
 </script>
 
 <CenteredPage>
@@ -161,27 +154,6 @@
 		tooltip="All past and schedule executions of scripts and flows, including previews.
 	You only see your own runs or runs of groups you belong to unless you are an admin."
 	/>
-	<div class="flex flex-row gap-x-2">
-		<input placeholder="Search jobs at a given path" type="text" bind:value={searchPath} />
-		<Button
-			variant="border"
-			on:click={() => {
-				goto('/runs?' + $page.url.searchParams.toString())
-			}}
-			size="xs"
-		>
-			<Icon data={faSearchMinus} />
-		</Button>
-		<Button
-			variant="border"
-			on:click={() => {
-				goto('/runs?' + $page.url.searchParams.toString())
-			}}
-			size="xs"
-		>
-			<Icon data={faSearch} />
-		</Button>
-	</div>
 
 	<div class="max-w-7x mt-2">
 		<div class="flex flex-row space-x-4">
@@ -237,12 +209,23 @@
 					><span class="text-xs absolute -top-4">max datetime</span>
 					<input type="text" value={maxTs ?? 'zoom x axis to set max'} disabled />
 				</div>
+			</div>
+			<div class="flex flex-row gap-x-2 mb-2 w-full">
+				{#key path}
+					<AutoComplete
+						items={paths}
+						value={path}
+						bind:selectedItem={searchPath}
+						placeholder="Search by path of script/flow"
+					/>
+				{/key}
 				<Button
 					variant="border"
-					on:click={async () => {
+					on:click={() => {
 						minTs = undefined
 						maxTs = undefined
-						jobs = await fetchJobs(maxTs, minTs)
+						goto('/runs?' + $page.url.searchParams.toString())
+						fetchJobs(createdBefore, undefined)
 					}}
 					size="xs"
 				>
@@ -250,13 +233,17 @@
 				</Button>
 			</div>
 			<Skeleton loading={!jobs} layout={[[6], 1, [6], 1, [6], 1, [6], 1, [6]]} />
+
 			{#if jobs}
 				<div class="space-y-0">
-					{#each jobs as job}
+					{#each jobs.slice(0, nbOfJobs) as job (job.id)}
 						<JobDetail {job} />
 						<div class="line w-20 h-4" />
 					{/each}
 				</div>
+				{#if jobs.length == 0}
+					<NoItemFound />
+				{/if}
 			{/if}
 		</div>
 		{#if error}
@@ -266,13 +253,13 @@
 		{/if}
 	</div>
 
-	<div class="text-center pb-6">
-		{#if jobs && jobs.length >= jobsPerPage && showOlderJobs}
+	{#if (jobs?.length ?? 0) >= nbOfJobs}
+		<div class="text-center pb-6">
 			<button class=" mt-4 text-blue-500 text-center text-sm" on:click={loadOlderJobs}>
 				Load older jobs
 			</button>
-		{/if}
-	</div>
+		</div>
+	{/if}
 </CenteredPage>
 
 <style>

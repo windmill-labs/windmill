@@ -15,6 +15,7 @@
 	export let autoRefresh: boolean = true
 	export let runnableComponent: RunnableComponent | undefined = undefined
 	export let forceSchemaDisplay: boolean = false
+	export let defaultUserInput = false
 
 	const { staticExporter, noBackend } = getContext<AppEditorContext>('AppEditorContext')
 
@@ -34,6 +35,7 @@
 	<slot />
 {:else if componentInput.type === 'runnable' && isRunnableDefined()}
 	<RunnableComponent
+		{defaultUserInput}
 		bind:this={runnableComponent}
 		bind:fields={componentInput.fields}
 		bind:result

@@ -158,7 +158,7 @@
 	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
 </script>
 
-<div class="flex flex-col w-full">
+<div class="flex flex-col w-full min-w-[250px]">
 	<div>
 		{#if displayHeader}
 			<FieldHeader {label} {required} {type} {contentEncoding} {format} {itemsType} />
@@ -229,7 +229,10 @@
 				{:else}
 					<input
 						{autofocus}
-						on:focus
+						on:focus={(e) => {
+							window.dispatchEvent(new Event('pointerup'))
+							dispatch('focus')
+						}}
 						{disabled}
 						type="number"
 						class={valid
@@ -321,7 +324,10 @@
 				{:else}
 					<textarea
 						bind:this={el}
-						on:focus
+						on:focus={(e) => {
+							window.dispatchEvent(new Event('pointerup'))
+							dispatch('focus')
+						}}
 						{autofocus}
 						{disabled}
 						use:autosize
@@ -337,7 +343,15 @@
 					/>
 				{/if}
 			{:else if inputCat == 'enum'}
-				<select {disabled} class="px-6" bind:value>
+				<select
+					on:focus={(e) => {
+						window.dispatchEvent(new Event('pointerup'))
+						dispatch('focus')
+					}}
+					{disabled}
+					class="px-6"
+					bind:value
+				>
 					{#each enum_ ?? [] as e}
 						<option>{e}</option>
 					{/each}
@@ -347,7 +361,10 @@
 			{:else if inputCat == 'sql' || inputCat == 'yaml'}
 				<div class="border my-1 mb-4 w-full border-gray-400">
 					<SimpleEditor
-						on:focus={() => dispatch('focus')}
+						on:focus={(e) => {
+							window.dispatchEvent(new Event('pointerup'))
+							dispatch('focus')
+						}}
 						on:blur={() => dispatch('blur')}
 						bind:this={editor}
 						lang={inputCat}
@@ -383,7 +400,10 @@
 								{autofocus}
 								rows="1"
 								bind:this={el}
-								on:focus={() => dispatch('focus')}
+								on:focus={(e) => {
+									window.dispatchEvent(new Event('pointerup'))
+									dispatch('focus')
+								}}
 								on:blur={() => dispatch('blur')}
 								use:autosize
 								type="text"
@@ -399,16 +419,13 @@
 							/>
 							{#if itemPicker}
 								<div class="ml-1 relative">
-									<Button
-										{disabled}
-										variant="border"
-										color="blue"
-										size="sm"
-										btnClasses="min-w-min min-h-[34px] items-center leading-4 py-0"
+									<!-- svelte-ignore a11y-click-events-have-key-events -->
+									<div
+										class="min-w-min min-h-[34px] items-center leading-4 px-3 text-blue-500 cursor-pointer border border-blue-500 rounded center-center"
 										on:click={() => {
 											pickForField = label
 											itemPicker?.openDrawer?.()
-										}}><Icon data={faDollarSign} /></Button
+										}}><Icon data={faDollarSign} /></div
 									>
 								</div>
 							{/if}

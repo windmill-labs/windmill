@@ -2004,6 +2004,25 @@ paths:
                 items:
                   $ref: "#/components/schemas/Script"
 
+  /w/{workspace}/scripts/list_paths:
+    get:
+      summary: list all available scripts paths
+      operationId: listScriptPaths
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: list of script paths
+          content:
+            text/plain:
+              schema:
+                type: array
+                items:
+                  type: string
+
+
   /w/{workspace}/scripts/create:
     post:
       summary: create script
@@ -2410,6 +2429,24 @@ paths:
           content:
             application/json:
               schema: {}
+
+  /w/{workspace}/flows/list_paths:
+    get:
+      summary: list all available flow paths
+      operationId: listFlowPaths
+      tags:
+        - flow
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: list of flow paths
+          content:
+            text/plain:
+              schema:
+                type: array
+                items:
+                  type: string
 
   /w/{workspace}/flows/list:
     get:
@@ -2986,7 +3023,8 @@ paths:
         - $ref: "#/components/parameters/CreatedAfter"
         - $ref: "#/components/parameters/Success"
         - $ref: "#/components/parameters/JobKinds"
-        - $ref: "#/components/parameters/Suspend"
+        - $ref: "#/components/parameters/Suspended"
+        - $ref: "#/components/parameters/Running"
       responses:
         "200":
           description: All available queued jobs
@@ -4419,9 +4457,15 @@ components:
       in: query
       schema:
         type: boolean
-    Suspend:
-      name: suspend
+    Suspended:
+      name: suspended
       description: filter on suspended jobs
+      in: query
+      schema:
+        type: boolean
+    Running:
+      name: running
+      description: filter on running jobs
       in: query
       schema:
         type: boolean

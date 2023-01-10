@@ -37,11 +37,14 @@
 		}
 	}
 
+	let loading = false
+
 	async function runFlow(
 		scheduledForStr: string | undefined,
 		args: Record<string, any>,
 		invisibleToOwner?: boolean
 	) {
+		loading = true
 		const scheduledFor = scheduledForStr ? new Date(scheduledForStr).toISOString() : undefined
 		let run = await JobService.runFlowByPath({
 			workspace: $workspaceStore!,
@@ -127,6 +130,7 @@
 			</div>
 		</div>
 		<RunForm
+			{loading}
 			autofocus
 			bind:this={runForm}
 			bind:isValid

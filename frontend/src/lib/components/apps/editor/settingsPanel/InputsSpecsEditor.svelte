@@ -12,6 +12,7 @@
 	} from '../../inputType'
 	import { getContext } from 'svelte'
 	import type { AppEditorContext } from '../../types'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	export let inputSpecs: Record<
 		string,
@@ -66,14 +67,16 @@
 								/>
 								{#if rowColumns}
 									<ToggleButton
-										title="From Row"
+										title="Column"
 										position="center"
 										value="row"
 										startIcon={{ icon: faTableCells }}
 										size="xs"
-										iconOnly
 										disabled={staticOnly}
-									/>
+										><Tooltip
+											>Use the column name to have the value of the cell be passed to the action</Tooltip
+										></ToggleButton
+									>
 								{/if}
 								{#if userInputEnabled && (!input.format?.startsWith('resource-') || true)}
 									<ToggleButton
