@@ -70,7 +70,7 @@
 <InputValue {id} input={configuration.zoomable} bind:value={zoomable} />
 <InputValue {id} input={configuration.pannable} bind:value={pannable} />
 
-<RunnableWrapper autoRefresh bind:componentInput {id} bind:result>
+<RunnableWrapper flexWrap autoRefresh bind:componentInput {id} bind:result>
 	{#if result}
 		<Scatter {data} {options} />
 	{/if}

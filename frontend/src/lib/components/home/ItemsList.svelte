@@ -46,6 +46,8 @@
 
 	let loading = true
 
+	let nbDisplayed = 30
+
 	async function loadScripts(): Promise<void> {
 		const loadedScripts = await ScriptService.listScripts({
 			workspace: $workspaceStore!,
@@ -294,9 +296,9 @@
 		{:else if filteredItems.length === 0}
 			<NoItemFound />
 		{:else}
-			<div class="border rounded-md divide-y divide-gray-200 mb-80">
+			<div class="border rounded-md divide-y divide-gray-200">
 				<!-- <VirtualList {items} let:item bind:start bind:end> -->
-				{#each items ?? [] as item, i (item.type + '/' + item.path + (item.summary ?? ''))}
+				{#each (items ?? []).slice(0, nbDisplayed) as item, i (item.type + '/' + item.path + (item.summary ?? ''))}
 					{#if item.type == 'script'}
 						<ScriptRow
 							starred={item.starred ?? false}
@@ -328,8 +330,14 @@
 				{/each}
 				<!-- </VirtualList> -->
 			</div>
-			<!-- <span class="text-xs">{pluralize(items?.length ?? 0, 'item')}</span>
-			<span class="text-xs">{`(${start} - ${end})`}</span> -->
+			{#if items && items?.length > 30}
+				<span class="text-xs"
+					>{nbDisplayed} items out of {items.length}
+					<button class="ml-4" on:click={() => (nbDisplayed += 30)}>load 30 more</button></span
+				>
+			{/if}
+			<div class="pb-80" />
+			<!-- <span class="text-xs">{`(${start} - ${end})`}</span> --> -->
 		{/if}
 	</div>
 </CenteredPage>

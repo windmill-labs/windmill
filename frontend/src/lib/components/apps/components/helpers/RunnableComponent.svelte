@@ -23,6 +23,7 @@
 	export let forceSchemaDisplay: boolean = false
 	export let noMinH = false
 	export let defaultUserInput = false
+	export let flexWrap = false
 
 	const { worldStore, runnableComponents, workspace, appPath, isEditor, jobs, noBackend } =
 		getContext<AppEditorContext>('AppEditorContext')
@@ -279,8 +280,7 @@
 	{#if schemaStripped && Object.keys(schemaStripped?.properties ?? {}).length > 0 && (autoRefresh || forceSchemaDisplay)}
 		<div class="px-2 h-fit min-h-0">
 			<SchemaForm
-				compact
-				flexWrap
+				{flexWrap}
 				schema={schemaStripped}
 				bind:args
 				{disabledArgs}

@@ -54,7 +54,7 @@
 <InputValue {id} input={configuration.extraStyle} bind:value={extraStyle} />
 <InputValue {id} input={configuration.style} bind:value={style} />
 
-<RunnableWrapper bind:componentInput {id} bind:result>
+<RunnableWrapper flexWrap bind:componentInput {id} bind:result>
 	<AlignWrapper {horizontalAlignment} {verticalAlignment}>
 		{#if !result || result === ''}
 			<div class="text-gray-400 bg-gray-100 flex justify-center items-center h-full w-full">
