@@ -3,10 +3,10 @@ import { colors, Command, path } from "./deps.ts";
 import { requireLogin, resolveWorkspace } from "./context.ts";
 import { pushFlow } from "./flow.ts";
 import { pushResource } from "./resource.ts";
-import { findContentFile, pushScript } from "./script.ts";
-import { GlobalOptions } from "./types.ts";
+import { findContentFile, pushScript, ScriptFile } from "./script.ts";
+import { GlobalOptions, inferTypeFromPath } from "./types.ts";
 import { pushVariable } from "./variable.ts";
-import { pushResourceType } from "./resource-type.ts";
+import { pushResourceType, ResourceTypeFile } from "./resource-type.ts";
 import { pushFolder } from "./folder.ts";
 
 type Candidate = {
@@ -233,11 +233,13 @@ async function push(opts: GlobalOptions, dir?: string) {
 
     console.log("pushing " + type + " to " + remotePath);
 
-    if (type == "flow") {
-      await pushFlow(candidate.path, workspace.workspaceId, remotePath);
-    } else if (type == "resource") {
-      await pushResource(workspace.workspaceId, candidate.path, remotePath);
-    } else if (type == "script") {
+    const typed = inferTypeFromPath(
+      candidate.path,
+      JSON.parse(await Deno.readTextFile(candidate.path)),
+    );
+    if (typed instanceof ResourceTypeFile) {
+      throw new Error("What?!");
+    } else if (typed instanceof ScriptFile) {
       let contentPath: string;
       try {
         contentPath = await findContentFile(candidate.path);
@@ -251,8 +253,8 @@ async function push(opts: GlobalOptions, dir?: string) {
         workspace.workspaceId,
         remotePath,
       );
-    } else if (type == "variable") {
-      await pushVariable(workspace.workspaceId, candidate.path, remotePath);
+    } else {
+      typed.push(workspace.workspaceId, remotePath);
     }
   }
   console.log(colors.underline.bold.green("Successfully Pushed all files."));

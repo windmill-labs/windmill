@@ -11,10 +11,11 @@ import {
   readerFromStreamReader,
   Untar,
 } from "./deps.ts";
+import { Workspace } from "./workspace.ts";
 
-async function pull(opts: GlobalOptions & { override: boolean }, dir: string) {
-  const workspace = await resolveWorkspace(opts);
-
+export async function downloadTar(
+  workspace: Workspace,
+): Promise<Untar | undefined> {
   const requestHeaders: HeadersInit = new Headers();
   requestHeaders.set("Authorization", "Bearer " + workspace.token);
   requestHeaders.set("Content-Type", "application/octet-stream");
@@ -35,17 +36,26 @@ async function pull(opts: GlobalOptions & { override: boolean }, dir: string) {
       ),
     );
     console.log(await tarResponse.text());
-    return;
+    return undefined;
   }
 
   const streamReader = tarResponse.body?.getReader();
   if (!streamReader) {
     console.log(colors.red("Failed to read tar request body"));
-    return;
+    return undefined;
   }
   console.log(colors.yellow("Streaming tarball to disk..."));
   const denoReader = readerFromStreamReader(streamReader);
   const untar = new Untar(denoReader);
+  return untar;
+}
+
+async function pull(opts: GlobalOptions & { override: boolean }, dir: string) {
+  const workspace = await resolveWorkspace(opts);
+
+  const untar = await downloadTar(workspace);
+  if (!untar) return;
+
   for await (const entry of untar) {
     console.log(entry.fileName);
     const filePath = path.resolve(dir, entry.fileName);

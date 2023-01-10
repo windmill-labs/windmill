@@ -61,14 +61,17 @@ function makeWorkspaceStream(
     );
 }
 
-async function allWorkspaces(): Promise<Workspace[]> {
-  try {
-    const file = await Deno.open((await getRootStore()) + "remotes.ndjson", {
-      write: false,
-      read: true,
-    });
-    const workspaceStream = makeWorkspaceStream(file.readable);
+export async function getWorkspaceStream() {
+  const file = await Deno.open((await getRootStore()) + "remotes.ndjson", {
+    write: false,
+    read: true,
+  });
+  return makeWorkspaceStream(file.readable);
+}
 
+export async function allWorkspaces(): Promise<Workspace[]> {
+  try {
+    const workspaceStream = await getWorkspaceStream();
     const workspaces: Workspace[] = [];
     for await (const workspace of workspaceStream) {
       workspaces.push(workspace);
@@ -106,8 +109,7 @@ export async function getActiveWorkspace(
 export async function getWorkspaceByName(
   workspaceName: string,
 ): Promise<Workspace | undefined> {
-  const file = await Deno.open((await getRootStore()) + "remotes.ndjson");
-  const workspaceStream = makeWorkspaceStream(file.readable);
+  const workspaceStream = await getWorkspaceStream();
   for await (const workspace of workspaceStream) {
     if (workspace.name === workspaceName) {
       return workspace;
@@ -253,7 +255,7 @@ export async function addWorkspace(workspace: Workspace) {
   file.close();
 }
 
-async function remove(_opts: GlobalOptions, name: string) {
+export async function removeWorkspace(name: string) {
   const orgWorkspaces = await allWorkspaces();
   await Deno.writeTextFile(
     (await getRootStore()) + "remotes.ndjson",
@@ -262,6 +264,10 @@ async function remove(_opts: GlobalOptions, name: string) {
       .map((x) => JSON.stringify(x))
       .join("\n"),
   );
+}
+
+async function remove(_opts: GlobalOptions, name: string) {
+  removeWorkspace(name);
   console.log(colors.green.underline("Succesfully removed workspace!"));
 }
 

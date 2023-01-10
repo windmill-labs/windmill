@@ -25,8 +25,16 @@ export {
   readerFromStreamReader,
 } from "https://deno.land/std@0.170.0/streams/mod.ts";
 export { DelimiterStream } from "https://deno.land/std@0.170.0/streams/mod.ts";
+export { iterateReader } from "https://deno.land/std@0.170.0/streams/iterate_reader.ts";
 
 // other
 export { getAvailablePort } from "https://deno.land/x/port@1.0.0/mod.ts";
 export { default as dir } from "https://deno.land/x/dir@1.5.1/mod.ts";
 export { passwordGenerator } from "https://deno.land/x/password_generator@latest/mod.ts"; // TODO: I think the version is called latest, but it's still pinned.
+export { nanoid } from "https://deno.land/x/nanoid@v3.0.0/mod.ts";
+export * as cbor from "https://deno.land/x/cbor@v1.4.1/index.js";
+export { default as Murmurhash3 } from "https://deno.land/x/murmurhash@v1.0.0/mod.ts";
+export {
+  default as microdiff,
+} from "https://deno.land/x/microdiff@v1.3.1/index.ts";
+export { default as objectHash } from "https://deno.land/x/object_hash@2.0.3.1/mod.ts";

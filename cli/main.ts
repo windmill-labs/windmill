@@ -9,6 +9,7 @@ import push from "./push.ts";
 import pull from "./pull.ts";
 import hub from "./hub.ts";
 import folder from "./folder.ts";
+import sync from "./sync.ts";
 import { tryResolveVersion } from "./context.ts";
 import { GlobalOptions } from "./types.ts";
 
@@ -36,6 +37,7 @@ const command = new Command()
   .command("pull", pull)
   .command("hub", hub)
   .command("folder", folder)
+  .command("sync", sync)
   .command("version", "Show version information")
   .action(async (opts) => {
     console.log("CLI build against " + VERSION);

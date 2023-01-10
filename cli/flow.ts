@@ -1,5 +1,5 @@
 // deno-lint-ignore-file no-explicit-any
-import { GlobalOptions } from "./types.ts";
+import { GlobalOptions, Resource } from "./types.ts";
 import {
   colors,
   Command,
@@ -29,7 +29,7 @@ export class FlowValueFilePart {
 
 // this is effectively "OpenFlow" but a copy as it is accepted by the CLI
 @model()
-export class FlowFile {
+export class FlowFile implements Resource {
   @property(() => String)
   summary: string;
   @property(() => String)
@@ -42,6 +42,39 @@ export class FlowFile {
   constructor(summary: string, value: FlowValueFilePart) {
     this.summary = summary;
     this.value = value;
+  }
+  async push(workspace: string, remotePath: string): Promise<void> {
+    if (
+      await FlowService.existsFlowByPath({
+        workspace: workspace,
+        path: remotePath,
+      })
+    ) {
+      console.log(colors.bold.yellow("Updating existing flow..."));
+      await FlowService.updateFlow({
+        workspace: workspace,
+        path: remotePath,
+        requestBody: {
+          path: remotePath,
+          summary: this.summary,
+          value: this.value,
+          schema: this.schema,
+          description: this.description,
+        },
+      });
+    } else {
+      console.log(colors.bold.yellow("Creating new flow..."));
+      await FlowService.createFlow({
+        workspace: workspace,
+        requestBody: {
+          path: remotePath,
+          summary: this.summary,
+          value: this.value,
+          schema: this.schema,
+          description: this.description,
+        },
+      });
+    }
   }
 }
 
@@ -66,37 +99,7 @@ export async function pushFlow(
   const data = decoverto.type(FlowFile).rawToInstance(
     await Deno.readTextFile(filePath),
   );
-  if (
-    await FlowService.existsFlowByPath({
-      workspace: workspace,
-      path: remotePath,
-    })
-  ) {
-    console.log(colors.bold.yellow("Updating existing flow..."));
-    await FlowService.updateFlow({
-      workspace: workspace,
-      path: remotePath,
-      requestBody: {
-        path: remotePath,
-        summary: data.summary,
-        value: data.value,
-        schema: data.schema,
-        description: data.description,
-      },
-    });
-  } else {
-    console.log(colors.bold.yellow("Creating new flow..."));
-    await FlowService.createFlow({
-      workspace: workspace,
-      requestBody: {
-        path: remotePath,
-        summary: data.summary,
-        value: data.value,
-        schema: data.schema,
-        description: data.description,
-      },
-    });
-  }
+  await data.push(workspace, remotePath);
 }
 
 async function list(opts: GlobalOptions & { showArchived?: boolean }) {

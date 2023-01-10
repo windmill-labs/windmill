@@ -1,10 +1,10 @@
-import { GlobalOptions } from "./types.ts";
+import { GlobalOptions, Resource as Resource2 } from "./types.ts";
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import { colors, Command, Resource, ResourceService, Table } from "./deps.ts";
 import { Any, decoverto, model, property } from "./decoverto.ts";
 
 @model()
-export class ResourceFile {
+export class ResourceFile implements Resource2 {
   @property(Any)
   value?: any;
   @property(() => String)
@@ -17,6 +17,68 @@ export class ResourceFile {
   constructor(resource_type: string) {
     this.resource_type = resource_type;
   }
+  async push(workspace: string, remotePath: string): Promise<void> {
+    if (
+      await ResourceService.existsResource({
+        workspace: workspace,
+        path: remotePath,
+      })
+    ) {
+      console.log(colors.yellow("Updating existing resource..."));
+      const existing = await ResourceService.getResource({
+        workspace: workspace,
+        path: remotePath,
+      });
+
+      if (existing.resource_type != this.resource_type) {
+        console.log(
+          colors.red.underline.bold(
+            "Remote resource at " +
+              remotePath +
+              " exists & has a different resource type. This cannot be updated. If you wish to do this anyways, consider deleting the remote resource.",
+          ),
+        );
+        return;
+      }
+
+      if (typeof this.is_oauth !== "undefined") {
+        console.log(
+          colors.yellow(
+            "! is_oauth has been removed in newer versions. Ignoring.",
+          ),
+        );
+      }
+
+      await ResourceService.updateResource({
+        workspace: workspace,
+        path: remotePath,
+        requestBody: {
+          path: remotePath,
+          value: this.value,
+          description: this.description,
+        },
+      });
+    } else {
+      if (typeof this.is_oauth !== "undefined") {
+        console.log(
+          colors.yellow(
+            "! is_oauth has been removed in newer versions. Ignoring.",
+          ),
+        );
+      }
+
+      console.log(colors.yellow("Creating new resource..."));
+      await ResourceService.createResource({
+        workspace: workspace,
+        requestBody: {
+          path: remotePath,
+          resource_type: this.resource_type,
+          value: this.value,
+          description: this.description,
+        },
+      });
+    }
+  }
 }
 
 export async function pushResource(
@@ -27,66 +89,7 @@ export async function pushResource(
   const data = decoverto.type(ResourceFile).rawToInstance(
     await Deno.readTextFile(filePath),
   );
-  if (
-    await ResourceService.existsResource({
-      workspace: workspace,
-      path: remotePath,
-    })
-  ) {
-    console.log(colors.yellow("Updating existing resource..."));
-    const existing = await ResourceService.getResource({
-      workspace: workspace,
-      path: remotePath,
-    });
-
-    if (existing.resource_type != data.resource_type) {
-      console.log(
-        colors.red.underline.bold(
-          "Remote resource at " +
-            remotePath +
-            " exists & has a different resource type. This cannot be updated. If you wish to do this anyways, consider deleting the remote resource.",
-        ),
-      );
-      return;
-    }
-
-    if (typeof data.is_oauth !== "undefined") {
-      console.log(
-        colors.yellow(
-          "! is_oauth has been removed in newer versions. Ignoring.",
-        ),
-      );
-    }
-
-    await ResourceService.updateResource({
-      workspace: workspace,
-      path: remotePath,
-      requestBody: {
-        path: remotePath,
-        value: data.value,
-        description: data.description,
-      },
-    });
-  } else {
-    if (typeof data.is_oauth !== "undefined") {
-      console.log(
-        colors.yellow(
-          "! is_oauth has been removed in newer versions. Ignoring.",
-        ),
-      );
-    }
-
-    console.log(colors.yellow("Creating new resource..."));
-    await ResourceService.createResource({
-      workspace: workspace,
-      requestBody: {
-        path: remotePath,
-        resource_type: data.resource_type,
-        value: data.value,
-        description: data.description,
-      },
-    });
-  }
+  await data.push(workspace, remotePath);
 }
 
 type PushOptions = GlobalOptions;
