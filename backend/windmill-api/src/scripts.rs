@@ -72,6 +72,7 @@ pub fn workspaced_service() -> Router {
         .route("/get/h/:hash", get(get_script_by_hash))
         .route("/raw/h/:hash", get(raw_script_by_hash))
         .route("/deployment_status/h/:hash", get(get_deployment_status))
+        .route("/list_paths", get(list_paths))
 }
 async fn list_scripts(
     authed: Authed,
@@ -462,6 +463,24 @@ async fn get_script_by_path(
 
     let script = not_found_if_none(script_o, "Script", path)?;
     Ok(Json(script))
+}
+
+async fn list_paths(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<String>> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    let scripts = sqlx::query_scalar!(
+        "SELECT distinct(path) FROM script WHERE  workspace_id = $1",
+        w_id
+    )
+    .fetch_all(&mut tx)
+    .await?;
+    tx.commit().await?;
+
+    Ok(Json(scripts))
 }
 
 async fn raw_script_by_path(

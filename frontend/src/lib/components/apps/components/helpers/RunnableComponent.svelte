@@ -22,6 +22,7 @@
 	export let result: any = undefined
 	export let forceSchemaDisplay: boolean = false
 	export let noMinH = false
+	export let defaultUserInput = false
 
 	const { worldStore, runnableComponents, workspace, appPath, isEditor, jobs, noBackend } =
 		getContext<AppEditorContext>('AppEditorContext')
@@ -117,7 +118,7 @@
 		let schemaCopy: Schema = JSON.parse(JSON.stringify(schema))
 
 		const result = {}
-		const newInputs = schemaToInputsSpec(schemaCopy)
+		const newInputs = schemaToInputsSpec(schemaCopy, defaultUserInput)
 		if (!fields) {
 			return newInputs
 		}
@@ -231,7 +232,7 @@
 			})
 		})
 		if (njob) {
-			$jobs = [...$jobs, { job: njob, component: id }]
+			$jobs = [{ job: njob, component: id }, ...$jobs]
 		}
 	}
 

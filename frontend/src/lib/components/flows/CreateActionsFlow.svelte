@@ -30,7 +30,7 @@
 		href="/flows/add?nodraft=true"
 	>
 		<svelte:fragment slot="main"
-			>New Flow <Icon data={faBarsStaggered} scale={0.8} class="ml-1.5" />
+			>Flow <Icon data={faBarsStaggered} scale={0.8} class="ml-1.5" />
 		</svelte:fragment>
 		<ButtonPopupItem on:click={() => drawer?.toggleDrawer?.()}>
 			Import from raw JSON

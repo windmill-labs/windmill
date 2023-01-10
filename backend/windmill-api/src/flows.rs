@@ -42,6 +42,7 @@ pub fn workspaced_service() -> Router {
         .route("/archive/*path", post(archive_flow_by_path))
         .route("/get/*path", get(get_flow_by_path))
         .route("/exists/*path", get(exists_flow_by_path))
+        .route("/list_paths", get(list_paths))
 }
 
 pub fn global_service() -> Router {
@@ -119,6 +120,24 @@ async fn list_hub_flows(
         &email,
     )
     .await?;
+    Ok(Json(flows))
+}
+
+async fn list_paths(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<String>> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    let flows = sqlx::query_scalar!(
+        "SELECT distinct(path) FROM flow WHERE  workspace_id = $1",
+        w_id
+    )
+    .fetch_all(&mut tx)
+    .await?;
+    tx.commit().await?;
+
     Ok(Json(flows))
 }
 

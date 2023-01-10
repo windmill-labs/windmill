@@ -128,7 +128,10 @@ declare const ${k} = ${JSON.stringify(v)};
 					{:else if component.componentInput.type === 'connected' && component.componentInput !== undefined}
 						<ConnectedInputEditor bind:componentInput={component.componentInput} />
 					{:else if component.componentInput?.type === 'runnable' && component.componentInput !== undefined}
-						<RunnableInputEditor bind:appInput={component.componentInput} />
+						<RunnableInputEditor
+							bind:appInput={component.componentInput}
+							defaultUserInput={component.type == 'formcomponent'}
+						/>
 					{/if}
 				</div>
 				{#if component.componentInput?.type === 'runnable' && Object.keys(component.componentInput.fields ?? {}).length > 0}

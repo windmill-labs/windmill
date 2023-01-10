@@ -30,7 +30,7 @@
 		blue: {
 			border:
 				'border-blue-500 hover:border-blue-700 focus:border-blue-700 bg-white hover:bg-blue-100 focus:bg-blue-100 text-blue-500 hover:text-blue-700 focus:text-blue-700 focus:ring-blue-300',
-			contained: 'bg-blue-500 hover:bg-blue-700 focus:bg-blue-700 text-white focus:ring-blue-300'
+			contained: 'bg-blue-800/90 hover:bg-blue-900 focus:bg-blue-900 text-white focus:ring-blue-300'
 		},
 		red: {
 			border:

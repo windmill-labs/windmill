@@ -4,6 +4,7 @@
 	import Icon from 'svelte-awesome'
 	import { MoreHorizontal } from 'lucide-svelte'
 	import { Button, Menu } from './common'
+	import { goto } from '$app/navigation'
 
 	type Alignment = 'start' | 'end'
 	type Side = 'top' | 'bottom'
@@ -60,7 +61,7 @@
 			{:else if item.href && !item.disabled}
 				<a
 					href={item.href}
-					on:click|stopPropagation
+					on:click|stopPropagation|preventDefault={() => goto(item.href ?? '')}
 					class="block w-full px-4 font-semibold text-left  py-2 text-sm text-gray-700 hover:drop-shadow-sm hover:bg-gray-50 hover:bg-opacity-30
 					{item.disabled ? 'bg-gray-200' : ''}"
 					role="menuitem"

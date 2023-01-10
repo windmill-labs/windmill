@@ -155,7 +155,6 @@
 							'h-full w-full flex justify-center align-center items-center',
 							gridComponent.data.card ? 'border border-gray-100' : ''
 						)}
-						on:click|preventDefault|capture|once|stopPropagation
 					>
 						<ComponentEditor
 							{pointerdown}
