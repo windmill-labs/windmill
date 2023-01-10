@@ -2,11 +2,13 @@
 	import { faInfoCircle } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import Popover from './Popover.svelte'
+
+	export let light = false
 </script>
 
 <Popover notClickable>
 	<Icon
-		class="text-gray-500 font-thin inline-block align-middle w-4"
+		class="{light ? 'text-gray-300' : ' text-gray-500'} font-thin inline-block align-middle w-4"
 		data={faInfoCircle}
 		scale={0.8}
 	/>
