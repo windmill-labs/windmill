@@ -397,9 +397,9 @@
 		<div class="hidden lg:block">
 			<ToggleButtonGroup bind:selected={$app.fullscreen}>
 				<ToggleButton position="left" value={false} size="xs">
-					<div class="flex gap-1 justify-start">
+					<div class="flex gap-1 justify-start items-center">
 						<AlignHorizontalSpaceAround size={14} />
-						<Tooltip>
+						<Tooltip light>
 							The max width is 1168px and the content stay centered instead of taking the full page
 							width
 						</Tooltip>

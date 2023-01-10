@@ -102,9 +102,10 @@
 						runLoading = false
 					}}
 				>
-					Run&nbsp;<Tooltip
-						>Ctrl+Enter to run the script and see the result in the component directly</Tooltip
-					>
+					Run&nbsp;
+					<Tooltip light>
+						Ctrl+Enter to run the script and see the result in the component directly
+					</Tooltip>
 				</Button>
 			{/if}
 
