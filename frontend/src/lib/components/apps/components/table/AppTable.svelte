@@ -118,7 +118,7 @@
 
 <InputValue {id} input={configuration.search} bind:value={search} />
 
-<RunnableWrapper bind:componentInput {id} bind:result>
+<RunnableWrapper flexWrap bind:componentInput {id} bind:result>
 	{#if Array.isArray(result) && result.every(isObject)}
 		<div class="border border-gray-300 shadow-sm divide-y divide-gray-300  flex flex-col h-full">
 			{#if search !== 'Disabled'}

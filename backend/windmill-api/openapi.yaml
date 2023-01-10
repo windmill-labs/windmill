@@ -670,6 +670,43 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/workspaces/add_user:
+    post:
+      summary: add user to workspace
+      operationId: addUser
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: WorkspaceInvite
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                is_admin:
+                  type: boolean
+                username:
+                  type: string
+                operator:
+                  type: boolean
+              required:
+                - email
+                - is_admin
+                - operator
+                - username
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/workspaces/delete_invite:
     post:
       summary: delete user invite

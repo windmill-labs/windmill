@@ -57,6 +57,7 @@
 <InputValue {id} input={configuration.size} bind:value={size} />
 
 <RunnableWrapper
+	flexWrap
 	bind:runnableComponent
 	bind:componentInput
 	{id}

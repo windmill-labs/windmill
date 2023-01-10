@@ -43,6 +43,7 @@ pub fn workspaced_service() -> Router {
         .route("/update", post(edit_workspace))
         .route("/archive", post(archive_workspace))
         .route("/invite_user", post(invite_user))
+        .route("/add_user", post(add_user))
         .route("/delete_invite", post(delete_invite))
         .route("/get_settings", get(get_settings))
         .route("/edit_slack_command", post(edit_slack_command))
@@ -148,6 +149,14 @@ struct ValidateUsername {
 #[derive(Deserialize)]
 pub struct NewWorkspaceInvite {
     pub email: String,
+    pub is_admin: bool,
+    pub operator: bool,
+}
+
+#[derive(Deserialize)]
+pub struct NewWorkspaceUser {
+    pub email: String,
+    pub username: String,
     pub is_admin: bool,
     pub operator: bool,
 }
@@ -741,6 +750,37 @@ async fn invite_user(
     Ok((
         StatusCode::CREATED,
         format!("user with email {} invited", nu.email),
+    ))
+}
+
+async fn add_user(
+    Authed { username, is_admin, .. }: Authed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(nu): Json<NewWorkspaceUser>,
+) -> Result<(StatusCode, String)> {
+    require_admin(is_admin, &username)?;
+
+    let mut tx = db.begin().await?;
+
+    sqlx::query!(
+        "INSERT INTO usr
+            (workspace_id, email, username, is_admin, operator)
+            VALUES ($1, $2, $3, $4, $5)",
+        &w_id,
+        nu.email,
+        nu.username,
+        nu.is_admin,
+        nu.operator
+    )
+    .execute(&mut tx)
+    .await?;
+
+    tx.commit().await?;
+
+    Ok((
+        StatusCode::CREATED,
+        format!("user with email {} added", nu.email),
     ))
 }
 

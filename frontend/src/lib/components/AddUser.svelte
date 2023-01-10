@@ -9,25 +9,27 @@
 	const dispatch = createEventDispatcher()
 
 	let email: string
+	let username: string
 
 	function handleKeyUp(event: KeyboardEvent) {
 		const key = event.key
 		if (key === 'Enter') {
 			event.preventDefault()
-			inviteUser()
+			addUser()
 		}
 	}
 
-	async function inviteUser() {
-		await WorkspaceService.inviteUser({
+	async function addUser() {
+		await WorkspaceService.addUser({
 			workspace: $workspaceStore!,
 			requestBody: {
 				email,
+				username,
 				is_admin: selected == 'admin',
 				operator: selected == 'operator'
 			}
 		})
-		sendUserToast(`Invited ${email}`)
+		sendUserToast(`Added ${email}`)
 		dispatch('new')
 	}
 
@@ -36,6 +38,13 @@
 
 <div class="flex flex-row">
 	<input type="email" on:keyup={handleKeyUp} placeholder="email" bind:value={email} class="mr-4" />
+	<input
+		type="text"
+		on:keyup={handleKeyUp}
+		placeholder="username"
+		bind:value={username}
+		class="mr-4"
+	/>
 	<ToggleButtonGroup bind:selected>
 		<ToggleButton position="left" value="operator" size="sm"
 			>Operator <Tooltip
@@ -55,9 +64,9 @@
 		color="blue"
 		size="sm"
 		btnClasses="!ml-8"
-		on:click={inviteUser}
+		on:click={addUser}
 		disabled={email === undefined}
 	>
-		Invite
+		Add
 	</Button>
 </div>
