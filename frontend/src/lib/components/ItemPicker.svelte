@@ -48,12 +48,12 @@
 />
 
 <Drawer bind:this={drawer} size="600px">
-	<DrawerContent title="Search a {itemName}" on:close={drawer.closeDrawer}>
-		<div class="w-full">
+	<DrawerContent overflow_y={false} title="Search {itemName}s" on:close={drawer.closeDrawer}>
+		<div class="w-full h-full flex flex-col">
 			<div class="w-12/12 pb-4">
 				<input
 					type="text"
-					placeholder="Search {itemName}"
+					placeholder="Search {itemName}s"
 					bind:value={filter}
 					class="search-item"
 				/>
@@ -67,10 +67,10 @@
 					{@html noItemMessage}
 				</div>
 			{:else if filteredItems?.length}
-				<div class="border rounded-md divide-y divide-gray-200 w-full">
+				<div class="border rounded-md divide-y divide-gray-200 w-full overflow-auto pb-12 grow">
 					{#each filteredItems as obj}
 						<div
-							class="hover:bg-gray-50 w-full inline-flex items-center p-4 gap-4 first-of-type:!border-t-0 
+							class="hover:bg-gray-50 w-full flex items-center p-4 gap-4 first-of-type:!border-t-0 
 						first-of-type:rounded-t-md last-of-type:rounded-b-md"
 						>
 							<div class="inline-flex items-center grow">

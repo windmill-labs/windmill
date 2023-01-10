@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
+	import { Folder, User } from 'lucide-svelte'
 	import { flip } from 'svelte/animate'
 	import { fade } from 'svelte/transition'
 	import { Badge } from '../common'
@@ -28,6 +29,10 @@
 					<span style="height: 12px" class="-mt-0.5">
 						{#if resourceType}
 							<svelte:component this={APP_TO_ICON_COMPONENT[filter]} height="14px" width="14px" />
+						{:else if filter.startsWith('u/')}
+							<User class="mr-0.5" size={14} />
+						{:else if filter.startsWith('f/')}
+							<Folder class="mr-0.5" size={14} />
 						{/if}
 					</span>
 					{filter}

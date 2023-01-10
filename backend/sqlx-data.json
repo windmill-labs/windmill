@@ -1465,6 +1465,26 @@
     },
     "query": "UPDATE app SET versions = array_append(versions, $1) WHERE id = $2"
   },
+  "42e1b5634a9e51247115fa73f85a97b1467c913d012cac9c45bb6a349082dc71": {
+    "describe": {
+      "columns": [
+        {
+          "name": "path",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT distinct(path) FROM flow WHERE  workspace_id = $1"
+  },
   "438fb925ee90d5115bd3c3be8ae48b56ba86017af3ca519bd3a15829edaa7d1b": {
     "describe": {
       "columns": [
@@ -2789,20 +2809,6 @@
       }
     },
     "query": "SELECT workspace_id, name, display_name, owners, extra_perms FROM folder WHERE workspace_id = $1 ORDER BY name desc LIMIT $2 OFFSET $3"
-  },
-  "877829f87c4d94c2e385ab9c5d75d3f70929c89231650e20db57c4b7c1d8911f": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Varchar",
-          "Text"
-        ]
-      }
-    },
-    "query": "INSERT INTO group_\n                (workspace_id, name, summary)\n                VALUES ($1, $2, $3) ON CONFLICT DO NOTHING"
   },
   "8876fa929ffb175cd976a2bca1195704aa9fe7215013ae29e49ef15cb201ba57": {
     "describe": {
@@ -4928,6 +4934,21 @@
     },
     "query": "SELECT count(path) FROM app WHERE path LIKE 'f/' || $1 || '%'  AND workspace_id = $2"
   },
+  "d444e1c1e12a82e9aee5c2ffc4d1d3841bd41dd71344ab155c9842b45bcf30b6": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "VarcharArray",
+          "Jsonb"
+        ]
+      }
+    },
+    "query": "INSERT INTO folder\n                (workspace_id, name, owners, extra_perms)\n                VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING"
+  },
   "d47bff7d6b54cd6da8bb330f7321c37af5dcbd76f9acad73b5ba1b8a4afb5091": {
     "describe": {
       "columns": [
@@ -5762,6 +5783,26 @@
       }
     },
     "query": "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 AND workspace_id = $4 RETURNING id"
+  },
+  "f2485c69b3ab6bec11c4e1eac2934d6e49f83b71a72fe74eba7b49abc225df7c": {
+    "describe": {
+      "columns": [
+        {
+          "name": "path",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT distinct(path) FROM script WHERE  workspace_id = $1"
   },
   "f325a1262084bd3468e12dc8bcc289a96536f172b679af54dd0fbc82d4d7c987": {
     "describe": {

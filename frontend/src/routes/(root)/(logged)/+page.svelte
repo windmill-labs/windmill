@@ -192,8 +192,9 @@
 			</Alert>
 		{/if}
 		<PageHeader title="Home">
-			<div class="flex flex-row gap-3 flex-wrap justify-end">
+			<div class="flex flex-row gap-4 flex-wrap justify-end items-center">
 				{#if !$userStore?.operator}
+					<span class="text-sm text-gray-500">Create a new:</span>
 					<CreateActionsScript />
 					<CreateActionsFlow />
 					<CreateActionsApp />

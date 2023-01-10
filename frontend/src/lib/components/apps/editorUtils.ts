@@ -4,8 +4,12 @@ export function defaultCode(component: string, language: string): string | undef
   return [
     { foo: x, bar: 42 },
     { foo: "static", bar: 84 }]
-}
-`
+}`
+    } else if (component === 'tablecomponent' && language === 'python3') {
+        return `def main(x: str):
+  return [
+    { "foo": x, "bar": 42 },
+    { "foo": "static", "bar": 84 }]`
     }
     return undefined
 }

@@ -215,28 +215,40 @@ pub async fn get_job_by_id<'c>(
 pub struct CompletedJob {
     pub workspace_id: String,
     pub id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_job: Option<Uuid>,
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub started_at: chrono::DateTime<chrono::Utc>,
     pub duration_ms: i32,
     pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub script_hash: Option<ScriptHash>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub script_path: Option<String>,
     pub args: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub logs: Option<String>,
     pub deleted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub raw_code: Option<String>,
     pub canceled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub canceled_by: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub canceled_reason: Option<String>,
     pub job_kind: JobKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub schedule_path: Option<String>,
     pub permissioned_as: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub flow_status: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub raw_flow: Option<serde_json::Value>,
     pub is_flow_step: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub language: Option<ScriptLang>,
     pub is_skipped: bool,
     pub email: String,
@@ -336,6 +348,7 @@ fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> Sq
     if let Some(dt) = &lq.created_after {
         sqlb.and_where_gt("created_at", format!("to_timestamp({})", dt.timestamp()));
     }
+
     if let Some(s) = &lq.suspended {
         if *s {
             sqlb.and_where_gt("suspend", 0);
@@ -451,7 +464,6 @@ async fn list_jobs(
             "job_kind",
             "schedule_path",
             "permissioned_as",
-            "flow_status",
             "is_flow_step",
             "language",
             "false as is_skipped",
@@ -486,7 +498,6 @@ async fn list_jobs(
             "job_kind",
             "schedule_path",
             "permissioned_as",
-            "flow_status",
             "is_flow_step",
             "language",
             "is_skipped",
@@ -964,7 +975,6 @@ struct UnifiedJob {
     job_kind: JobKind,
     schedule_path: Option<String>,
     permissioned_as: String,
-    flow_status: Option<serde_json::Value>,
     is_flow_step: bool,
     language: Option<ScriptLang>,
     is_skipped: bool,
@@ -990,6 +1000,7 @@ impl From<UnifiedJob> for Job {
                 args: uj.args,
                 result: None,
                 logs: None,
+                flow_status: None,
                 deleted: uj.deleted,
                 canceled: uj.canceled,
                 canceled_by: uj.canceled_by,
@@ -998,7 +1009,6 @@ impl From<UnifiedJob> for Job {
                 job_kind: uj.job_kind,
                 schedule_path: uj.schedule_path,
                 permissioned_as: uj.permissioned_as,
-                flow_status: uj.flow_status,
                 raw_flow: None,
                 is_flow_step: uj.is_flow_step,
                 language: uj.language,
@@ -1019,6 +1029,7 @@ impl From<UnifiedJob> for Job {
                 running: uj.running.unwrap(),
                 scheduled_for: uj.scheduled_for.unwrap(),
                 logs: None,
+                flow_status: None,
                 raw_code: None,
                 raw_lock: None,
                 canceled: uj.canceled,
@@ -1028,7 +1039,6 @@ impl From<UnifiedJob> for Job {
                 job_kind: uj.job_kind,
                 schedule_path: uj.schedule_path,
                 permissioned_as: uj.permissioned_as,
-                flow_status: uj.flow_status,
                 raw_flow: None,
                 is_flow_step: uj.is_flow_step,
                 language: uj.language,
@@ -1621,7 +1631,7 @@ async fn delete_completed_job(
 
     require_admin(authed.is_admin, &authed.username)?;
     let job_o = sqlx::query_as::<_, CompletedJob>(
-        "UPDATE completed_job SET logs = '', deleted = true WHERE id = $1 AND workspace_id = $2 \
+        "UPDATE completed_job SET logs = '', result = null, deleted = true WHERE id = $1 AND workspace_id = $2 \
          RETURNING *",
     )
     .bind(id)

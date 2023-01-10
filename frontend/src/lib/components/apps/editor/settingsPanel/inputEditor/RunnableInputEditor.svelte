@@ -5,6 +5,7 @@
 	import SelectedRunnable from '../SelectedRunnable.svelte'
 
 	export let appInput: ResultAppInput
+	export let defaultUserInput = false
 
 	$: isRunnableSelected = isScriptByPathDefined(appInput) || isScriptByNameDefined(appInput)
 </script>
@@ -12,5 +13,5 @@
 {#if isRunnableSelected}
 	<SelectedRunnable bind:appInput />
 {:else}
-	<RunnableSelector bind:appInput />
+	<RunnableSelector {defaultUserInput} bind:appInput />
 {/if}

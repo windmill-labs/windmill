@@ -58,20 +58,23 @@ export async function loadSchema(
 	}
 }
 
-export function schemaToInputsSpec(schema: Schema): Record<string, StaticAppInput> {
+export function schemaToInputsSpec(schema: Schema, defaultUserInput: boolean): Record<string, StaticAppInput> {
 	if (schema?.properties == undefined) {
 		return {}
 	}
 	return Object.keys(schema.properties).reduce((accu, key) => {
 		const property = schema.properties[key]
 
+
+		console.log(defaultUserInput)
 		accu[key] = {
-			type: 'static',
+			type: defaultUserInput ? 'user' : 'static',
 			value: property.default,
 			visible: property.format ? false : true,
 			fieldType: property.type,
 			format: property.format
 		}
+
 
 		return accu
 	}, {})

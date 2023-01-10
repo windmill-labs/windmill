@@ -48,6 +48,7 @@
 <InputValue {id} input={configuration.size} bind:value={size} />
 
 <RunnableWrapper
+	defaultUserInput
 	noMinH
 	bind:runnableComponent
 	bind:componentInput
@@ -61,8 +62,8 @@
 			<div>
 				{#if componentInput?.type != 'runnable' || Object.values(componentInput?.fields ?? {}).filter((x) => x.type == 'user').length == 0}
 					<span class="text-gray-600 italic text-sm py-2">
-						Run forms are meant to be associated with a runnable with some user inputs. Pick a
-						runnable and set some 'Runnable Inputs' to 'User Input'
+						Run forms are associated with a runnable that has user inputs. Once a runnable is
+						chosen, set some 'Runnable Inputs' to 'User Input'
 					</span>
 				{/if}
 			</div>
