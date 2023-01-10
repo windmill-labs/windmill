@@ -175,11 +175,7 @@
 				<div class="flex items-center gap-1">
 					<Toggle
 						options={{
-<<<<<<< HEAD
 							right: `make run invisible to others`
-=======
-							right: `run only visible to you`
->>>>>>> main
 						}}
 						bind:checked={invisible_to_owner}
 					/>
