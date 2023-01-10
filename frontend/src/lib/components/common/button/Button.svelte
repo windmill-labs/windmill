@@ -29,8 +29,8 @@
 	const colorVariants: Record<ButtonType.Color, Record<ButtonType.Variant, string>> = {
 		blue: {
 			border:
-				'border-blue-500 hover:border-blue-700 focus:border-blue-700 bg-white hover:bg-blue-100 focus:bg-blue-100 text-blue-500 hover:text-blue-700 focus:text-blue-700 focus:ring-blue-300',
-			contained: 'bg-blue-800/90 hover:bg-blue-900 focus:bg-blue-900 text-white focus:ring-blue-300'
+				'border-frost-500 hover:border-frost-700 focus:border-frost-700 bg-white hover:bg-frost-100 focus:bg-frost-100 text-frost-500 hover:text-frost-700 focus:text-frost-700 focus:ring-frost-300',
+			contained: 'bg-frost-500 hover:bg-frost-700 focus:bg-frost-700 text-white focus:ring-frost-300'
 		},
 		red: {
 			border:
