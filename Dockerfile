@@ -55,8 +55,8 @@ COPY /backend/windmill-api/build_openapi.sh /backend/windmill-api/build_openapi.
 
 RUN npm run generate-backend-client
 ENV NODE_OPTIONS "--max-old-space-size=8192"
-RUN npm run check
 RUN npm run build
+RUN npm run check
 
 WORKDIR /backend/windmill-api
 RUN build_openapi.sh
