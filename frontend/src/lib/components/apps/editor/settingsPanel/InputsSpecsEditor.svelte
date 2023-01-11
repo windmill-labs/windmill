@@ -25,7 +25,9 @@
 			<div class="flex flex-col gap-1">
 				<div class="flex justify-between items-end gap-1">
 					<span class="text-sm font-semibold truncate">
-						{shouldCapitalize ? capitalize(addWhitespaceBeforeCapitals(inputSpecKey)) : inputSpecKey}
+						{shouldCapitalize
+							? capitalize(addWhitespaceBeforeCapitals(inputSpecKey))
+							: inputSpecKey}
 						{#if input.tooltip}
 							<Tooltip>
 								{input.tooltip}
@@ -44,7 +46,6 @@
 							<ToggleButtonGroup
 								bind:selected={inputSpecs[inputSpecKey].type}
 								on:selected={(e) => {
-									console.log(inputSpecs[inputSpecKey])
 									if (e.detail == 'connected' && !inputSpecs[inputSpecKey]['connection']) {
 										$connectingInput = {
 											opened: true,
@@ -62,9 +63,7 @@
 										size="xs"
 										iconOnly
 									/>
-									<svelte:fragment slot="text">
-										Static
-									</svelte:fragment>
+									<svelte:fragment slot="text">Static</svelte:fragment>
 								</Popover>
 								{#if rowColumns}
 									<Popover placement="bottom" notClickable disapperTimoout={0}>
@@ -79,12 +78,10 @@
 												Use the column name to have the value of the cell be passed to the action
 											</Tooltip>
 										</ToggleButton>
-										<svelte:fragment slot="text">
-											Column
-										</svelte:fragment>
+										<svelte:fragment slot="text">Column</svelte:fragment>
 									</Popover>
 								{/if}
-								{#if userInputEnabled && (!input.format?.startsWith('resource-'))}
+								{#if userInputEnabled && !input.format?.startsWith('resource-')}
 									<Popover placement="bottom" notClickable disapperTimoout={0}>
 										<ToggleButton
 											position="center"
@@ -94,9 +91,7 @@
 											iconOnly
 											disabled={staticOnly}
 										/>
-										<svelte:fragment slot="text">
-											User Input
-										</svelte:fragment>
+										<svelte:fragment slot="text">User Input</svelte:fragment>
 									</Popover>
 								{/if}
 								<Popover placement="bottom" notClickable disapperTimoout={0}>
@@ -108,9 +103,7 @@
 										iconOnly
 										disabled={staticOnly}
 									/>
-									<svelte:fragment slot="text">
-										Connect
-									</svelte:fragment>
+									<svelte:fragment slot="text">Connect</svelte:fragment>
 								</Popover>
 							</ToggleButtonGroup>
 						{/if}
