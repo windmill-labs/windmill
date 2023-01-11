@@ -53,11 +53,13 @@ COPY /backend/windmill-api/openapi.yaml /backend/windmill-api/openapi.yaml
 COPY /openflow.openapi.yaml /openflow.openapi.yaml
 COPY /backend/windmill-api/build_openapi.sh /backend/windmill-api/build_openapi.sh
 
-RUN cd /backend/windmill-api && /bin/sh /backend/windmill-api/build_openapi.sh
 RUN npm run generate-backend-client
 ENV NODE_OPTIONS "--max-old-space-size=8192"
 RUN npm run check
 RUN npm run build
+
+WORKDIR /backend/windmill-api
+RUN build_openapi.sh
 
 
 FROM rust_base AS planner
