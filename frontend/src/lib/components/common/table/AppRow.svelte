@@ -98,6 +98,11 @@
 					href: `/apps/edit/${path}?nodraft=true`
 				},
 				{
+					displayName: 'Use as template',
+					icon: faCodeFork,
+					href: `/apps/add?template=${path}`
+				},
+				{
 					displayName: 'Move/Rename',
 					icon: faFileExport,
 					action: () => {
