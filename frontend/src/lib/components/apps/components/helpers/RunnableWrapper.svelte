@@ -17,6 +17,7 @@
 	export let forceSchemaDisplay: boolean = false
 	export let defaultUserInput = false
 	export let flexWrap = false
+	export let runnableClass = ''
 
 	const { staticExporter, noBackend } = getContext<AppEditorContext>('AppEditorContext')
 
@@ -47,6 +48,7 @@
 		{extraQueryParams}
 		{forceSchemaDisplay}
 		{noMinH}
+		wrapperClass={runnableClass}
 	>
 		<slot />
 	</RunnableComponent>
