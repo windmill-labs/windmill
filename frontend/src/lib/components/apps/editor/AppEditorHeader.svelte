@@ -135,6 +135,7 @@
 					policy
 				}
 			})
+			closeSaveDrawer()
 			goto(`/apps/edit/${appId}`)
 		} catch (e) {
 			sendUserToast('Error creating app', e)

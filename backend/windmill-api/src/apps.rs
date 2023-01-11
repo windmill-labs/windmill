@@ -14,9 +14,9 @@ use crate::{
     variables::build_crypt,
 };
 use axum::{
-    extract::{Extension, Path, Query},
+    extract::{Extension, Json, Path, Query},
     routing::{delete, get, post},
-    Json, Router,
+    Router,
 };
 use hyper::StatusCode;
 use magic_crypt::MagicCryptTrait;
@@ -137,10 +137,10 @@ pub struct EditApp {
 
 async fn list_apps(
     authed: Authed,
-    Query(pagination): Query<Pagination>,
-    Query(lq): Query<ListAppQuery>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
+    Query(pagination): Query<Pagination>,
+    Query(lq): Query<ListAppQuery>,
 ) -> JsonResult<Vec<ListableApp>> {
     let (per_page, offset) = paginate(pagination);
 

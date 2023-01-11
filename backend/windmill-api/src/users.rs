@@ -18,8 +18,8 @@ use crate::{
 use argon2::{password_hash::SaltString, Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use axum::{
     async_trait,
-    extract::{Extension, FromRequest, Path, Query, RequestParts},
-    http,
+    extract::{Extension, FromRequestParts, Path, Query},
+    http::{self, request::Parts},
     response::{IntoResponse, Response},
     routing::{delete, get, post},
     Json, Router,
@@ -275,16 +275,16 @@ impl AuthCache {
     }
 }
 
-async fn extract_token<B: Send>(req: &mut RequestParts<B>) -> Option<String> {
-    let auth_header = req
-        .headers()
+async fn extract_token<S: Send + Sync>(parts: &mut Parts, state: &S) -> Option<String> {
+    let auth_header = parts
+        .headers
         .get(http::header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(|s| s.strip_prefix("Bearer "));
 
     let from_cookie = match auth_header {
         Some(x) => Some(x.to_owned()),
-        None => Extension::<Cookies>::from_request(req)
+        None => Extension::<Cookies>::from_request_parts(parts, state)
             .await
             .ok()
             .and_then(|cookies| cookies.get(COOKIE_NAME).map(|c| c.value().to_owned())),
@@ -296,7 +296,7 @@ async fn extract_token<B: Send>(req: &mut RequestParts<B>) -> Option<String> {
     }
     match from_cookie {
         Some(token) => Some(token),
-        None => Query::<Token>::from_request(req)
+        None => Query::<Token>::from_request_parts(parts, state)
             .await
             .ok()
             .and_then(|token| token.token.clone()),
@@ -309,21 +309,24 @@ pub struct Tokened {
 }
 
 #[async_trait]
-impl<B> FromRequest<B> for Tokened
+impl<S> FromRequestParts<S> for Tokened
 where
-    B: Send,
+    S: Send + Sync,
 {
     type Rejection = (StatusCode, String);
 
-    async fn from_request(req: &mut RequestParts<B>) -> std::result::Result<Self, Self::Rejection> {
-        let already_tokened = req.extensions().get::<Tokened>();
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &S,
+    ) -> std::result::Result<Self, Self::Rejection> {
+        let already_tokened = parts.extensions.get::<Tokened>();
         if let Some(tokened) = already_tokened {
             Ok(tokened.clone())
         } else {
-            let token_o = extract_token(req).await;
+            let token_o = extract_token(parts, state).await;
             if let Some(token) = token_o {
                 let tokened = Self { token };
-                req.extensions_mut().insert(tokened.clone());
+                parts.extensions.insert(tokened.clone());
                 Ok(tokened)
             } else {
                 Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_owned()))
@@ -342,33 +345,38 @@ pub struct Authed {
 }
 
 #[async_trait]
-impl<B> FromRequest<B> for Authed
+impl<S> FromRequestParts<S> for Authed
 where
-    B: Send,
+    S: Send + Sync,
 {
     type Rejection = (StatusCode, String);
 
-    async fn from_request(req: &mut RequestParts<B>) -> std::result::Result<Self, Self::Rejection> {
-        let already_authed = req.extensions().get::<Authed>();
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &S,
+    ) -> std::result::Result<Self, Self::Rejection> {
+        let already_authed = parts.extensions.get::<Authed>();
         if let Some(authed) = already_authed {
             Ok(authed.clone())
         } else {
-            let already_tokened = req.extensions().get::<Tokened>();
+            let already_tokened = parts.extensions.get::<Tokened>();
             let token_o = if let Some(token) = already_tokened {
                 Some(token.token.clone())
             } else {
-                extract_token(req).await
+                extract_token(parts, state).await
             };
-            let path_vec: Vec<&str> = req.uri().path().split("/").collect();
+            let path_vec: Vec<&str> = parts.uri.path().split("/").collect();
             let workspace_id = if path_vec[0] == "" && path_vec[1] == "w" {
                 Some(path_vec[2].to_owned())
             } else {
                 None
             };
             if let Some(token) = token_o {
-                if let Ok(Extension(cache)) = Extension::<Arc<AuthCache>>::from_request(req).await {
+                if let Ok(Extension(cache)) =
+                    Extension::<Arc<AuthCache>>::from_request_parts(parts, state).await
+                {
                     if let Some(authed) = cache.get_authed(workspace_id.clone(), &token).await {
-                        req.extensions_mut().insert(authed.clone());
+                        parts.extensions.insert(authed.clone());
                         Span::current().record("username", &authed.username.as_str());
                         Span::current().record("email", &authed.email);
 
@@ -388,14 +396,17 @@ where
 pub struct OptAuthed(pub Option<Authed>);
 
 #[async_trait]
-impl<B> FromRequest<B> for OptAuthed
+impl<S> FromRequestParts<S> for OptAuthed
 where
-    B: Send,
+    S: Send + Sync,
 {
     type Rejection = (StatusCode, String);
 
-    async fn from_request(req: &mut RequestParts<B>) -> std::result::Result<Self, Self::Rejection> {
-        Authed::from_request(req)
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &S,
+    ) -> std::result::Result<Self, Self::Rejection> {
+        Authed::from_request_parts(parts, state)
             .await
             .map(|authed| Self(Some(authed)))
             .or_else(|_| Ok(Self(None)))

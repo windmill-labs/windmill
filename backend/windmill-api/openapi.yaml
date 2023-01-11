@@ -2706,7 +2706,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/AppWithLastVersion"
 
-  /w/{workspace}/apps/public_app/{path}:
+  /w/{workspace}/apps_u/public_app/{path}:
     get:
       summary: get public app by secret
       operationId: getPublicAppBySecret
@@ -2843,7 +2843,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/apps/execute_component/{path}:
+  /w/{workspace}/apps_u/execute_component/{path}:
     post:
       summary: executeComponent
       operationId: executeComponent
@@ -3151,7 +3151,7 @@ paths:
                 items:
                   $ref: "#/components/schemas/Job"
 
-  /w/{workspace}/jobs/get/{id}:
+  /w/{workspace}/jobs_u/get/{id}:
     get:
       summary: get job
       operationId: getJob
@@ -3185,7 +3185,7 @@ paths:
   #             schema:
   #               type: string
 
-  /w/{workspace}/jobs/getupdate/{id}:
+  /w/{workspace}/jobs_u/getupdate/{id}:
     get:
       summary: get job updates
       operationId: getJobUpdates
@@ -3343,7 +3343,7 @@ paths:
                   - resume
                   - cancel
 
-  /w/{workspace}/jobs/resume/{id}/{resume_id}/{signature}:
+  /w/{workspace}/jobs_u/resume/{id}/{resume_id}/{signature}:
     get:
       summary: resume a job for a suspended flow
       operationId: resumeSuspendedJobGet
@@ -3433,7 +3433,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/jobs/cancel/{id}/{resume_id}/{signature}:
+  /w/{workspace}/jobs_u/cancel/{id}/{resume_id}/{signature}:
     get:
       summary: cancel a job for a suspended flow
       operationId: cancelSuspendedJobGet
@@ -3500,7 +3500,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/jobs/get_flow/{id}/{resume_id}/{signature}:
+  /w/{workspace}/jobs_u/get_flow/{id}/{resume_id}/{signature}:
     get:
       summary: get parent flow job of suspended job
       operationId: getSuspendedJobFlow
@@ -4265,6 +4265,20 @@ paths:
               schema:
                 type: string
 
+
+  /w/{workspace}/capture_u/{path}:
+      post:
+        summary: update flow preview capture
+        operationId: updateCapture
+        tags:
+          - capture
+        parameters:
+          - $ref: "#/components/parameters/WorkspaceId"
+          - $ref: "#/components/parameters/Path"
+        responses:
+          "204":
+            description: flow preview captured
+
   /w/{workspace}/capture/{path}:
     put:
       summary: create flow preview capture
@@ -4277,17 +4291,6 @@ paths:
       responses:
         "201":
           description: flow preview capture created
-    post:
-      summary: update flow preview capture
-      operationId: updateCapture
-      tags:
-        - capture
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Path"
-      responses:
-        "204":
-          description: flow preview captured
     get:
       summary: get flow preview capture
       operationId: getCapture

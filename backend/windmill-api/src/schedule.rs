@@ -383,7 +383,7 @@ pub struct PreviewPayload {
 }
 
 fn get_offset(offset: Option<i32>) -> FixedOffset {
-    FixedOffset::west(offset.unwrap_or(0) * 60)
+    FixedOffset::west_opt(offset.unwrap_or(0) * 60).expect("Invalid offset")
 }
 
 #[derive(Deserialize)]
