@@ -186,7 +186,7 @@ async fn git_v() -> &'static str {
 }
 
 async fn openapi() -> &'static str {
-    include_str!("../openapi-deref.json")
+    include_str!("../openapi-deref.yaml")
 }
 pub async fn migrate_db(db: &DB) -> anyhow::Result<()> {
     db::migrate(db).await?;

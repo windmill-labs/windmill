@@ -3,9 +3,7 @@ set -e
 
 npx @redocly/openapi-cli@latest bundle openapi.yaml > openapi-bundled.yaml
 
-sed -z 's/FlowModuleValue:/FlowModuleValue2:/' openapi-bundled.yaml  > openapi-decycled.yaml
-echo "    FlowModuleValue: {}" >> openapi-decycled.yaml
-npx @redocly/openapi-cli@latest bundle openapi-decycled.yaml --ext json -d > openapi-deref.json
+
+npx @redocly/openapi-cli@latest bundle openapi-bundled.yaml --ext yaml -d > openapi-deref.yaml
 
 rm openapi-bundled.yaml
-rm openapi-decycled.yaml
