@@ -160,7 +160,7 @@ pub async fn run_server(
                     oauth2::global_service().layer(Extension(slack_verifier)),
                 )
                 .route("/version", get(git_v))
-                .route("/openapi.json", get(openapi)),
+                .route("/openapi.yaml", get(openapi)),
         )
         .fallback(static_assets::static_handler)
         .layer(middleware_stack);
