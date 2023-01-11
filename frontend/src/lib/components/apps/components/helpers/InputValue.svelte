@@ -45,7 +45,6 @@
 
 	export function getValue(input: AppInput) {
 		if (input.type === 'template' && isCodeInjection(input.eval)) {
-			console.log(computeGlobalContext())
 			try {
 				return eval_like('`' + input.eval + '`', computeGlobalContext())
 			} catch (e) {

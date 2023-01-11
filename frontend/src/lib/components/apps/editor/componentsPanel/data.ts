@@ -255,14 +255,18 @@ const display: ComponentSet = {
 					optionValuesKey: 'textStyleOptions',
 					value: 'Body'
 				},
-				extraStyle:
-				{
+				extraStyle: {
 					type: 'static',
 					fieldType: 'text',
 					value: '',
-
+					tooltip: 'CSS rules like "color: blue;"',
 				},
-
+				copyButton: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean',
+					onlyStatic: true,
+				},
 			},
 			card: false
 		},
