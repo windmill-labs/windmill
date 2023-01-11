@@ -1,6 +1,22 @@
 # Changelog
 
 
+## [1.60.0](https://github.com/windmill-labs/windmill/compare/v1.59.0...v1.60.0) (2023-01-11)
+
+
+### Features
+
+* add 'add user to workspace' ([a14623f](https://github.com/windmill-labs/windmill/commit/a14623feaab4a36c01d558b775a42e587a74cdc9))
+* **frontend:** Add frost to color palette ([#1084](https://github.com/windmill-labs/windmill/issues/1084)) ([8e72007](https://github.com/windmill-labs/windmill/commit/8e7200736827e8f6e593f900124b1bd1bc0bd5f2))
+
+
+### Bug Fixes
+
+* **frontend:** App form component ([#1087](https://github.com/windmill-labs/windmill/issues/1087)) ([e93c511](https://github.com/windmill-labs/windmill/commit/e93c511bb562ab9d329e309f9907082264bd048d))
+* **frontend:** App minor fixes ([#1085](https://github.com/windmill-labs/windmill/issues/1085)) ([342ea56](https://github.com/windmill-labs/windmill/commit/342ea5609bfff3c3e70e0ce3b941a067c1d27042))
+* **frontend:** Keep pane resizer under open drawer ([#1089](https://github.com/windmill-labs/windmill/issues/1089)) ([cb25f88](https://github.com/windmill-labs/windmill/commit/cb25f883005b99b4ce98e8ae7b8253a8a2fedb5b))
+* **frontend:** Remove comment remnant ([#1088](https://github.com/windmill-labs/windmill/issues/1088)) ([3cbe5d1](https://github.com/windmill-labs/windmill/commit/3cbe5d1f66dfde0e3ae2da5152f83070b53285c1))
+
 ## [1.59.0](https://github.com/windmill-labs/windmill/compare/v1.58.0...v1.59.0) (2023-01-09)
 
 
