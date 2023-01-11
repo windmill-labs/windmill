@@ -79,7 +79,7 @@ COPY ./openflow.openapi.yaml /openflow.openapi.yaml
 COPY ./backend ./
 
 COPY --from=frontend /frontend /frontend
-COPY --from=frontend /backend/windmill-api/openapi-deref.json /backend/windmill-api/openapi-deref.json
+COPY --from=frontend /backend/windmill-api/openapi-deref.yaml /backend/windmill-api/openapi-deref.yaml
 COPY .git/ .git/
 
 RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release --features "$features"
