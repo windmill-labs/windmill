@@ -24,6 +24,7 @@
 	export let noMinH = false
 	export let defaultUserInput = false
 	export let flexWrap = false
+	export let wrapperClass = ''
 
 	const { worldStore, runnableComponents, workspace, appPath, isEditor, jobs, noBackend } =
 		getContext<AppEditorContext>('AppEditorContext')
@@ -271,7 +272,7 @@
 	bind:this={testJobLoader}
 />
 
-<div class="h-full flex relative flex-row flex-wrap">
+<div class="h-full flex relative flex-row flex-wrap {wrapperClass}">
 	{#if autoRefresh === true}
 		<div class="flex absolute top-1 right-1">
 			<RefreshButton componentId={id} />

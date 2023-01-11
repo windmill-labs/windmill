@@ -58,6 +58,7 @@
 	{extraQueryParams}
 	autoRefresh={false}
 	forceSchemaDisplay={true}
+	runnableClass="!flex-col"
 >
 	<AlignWrapper {horizontalAlignment}>
 		<div class="flex flex-col gap-2 px-4 w-full ">
