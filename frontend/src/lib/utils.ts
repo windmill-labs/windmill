@@ -620,7 +620,9 @@ export function scriptLangToEditorLang(
 	}
 }
 
-export async function copyToClipboard(value: string, sendToast = true): Promise<boolean> {
+export async function copyToClipboard(value?: string, sendToast = true): Promise<boolean> {
+	if(!value) { return false }
+
 	let success = false
 	if (navigator?.clipboard) {
 		success = await navigator.clipboard
@@ -645,6 +647,11 @@ export function pluralize(quantity: number, word: string, customPlural?: string)
 
 export function capitalize(word: string): string {
 	return word ? word.charAt(0).toUpperCase() + word.slice(1) : ''
+}
+
+export function addWhitespaceBeforeCapitals(word?: string): string {
+	if (!word) { return '' }
+	return word.replace(/([A-Z])/g, ' $1').trim()
 }
 
 export function isCloudHosted(): boolean {
