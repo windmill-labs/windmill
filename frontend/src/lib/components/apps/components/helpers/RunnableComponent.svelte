@@ -298,7 +298,8 @@
 	{:else if result?.error}
 		<div class="p-2">
 			<Alert type="error" title="Error during execution">
-				<pre title={result.error} class="text-2xs whitespace-pre-wrap">{result.error}</pre>
+				See "Debug Runs" on the top right for more details
+				<pre title={result.error} class=" mt-2 text-2xs whitespace-pre-wrap">{result.error}</pre>
 			</Alert>
 			<slot />
 		</div>

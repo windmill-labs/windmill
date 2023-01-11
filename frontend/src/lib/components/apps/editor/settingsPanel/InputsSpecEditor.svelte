@@ -21,6 +21,6 @@
 	<StaticInputEditor bind:componentInput />
 {:else if componentInput.type === 'user'}
 	<span class="text-2xs italic text-gray-6f00"
-		>Field's value is set by the user in the visible field</span
+		>Field's value is set by the user</span
 	>
 {/if}

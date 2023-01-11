@@ -89,7 +89,7 @@
 										</svelte:fragment>
 									</Popover>
 								{/if}
-								{#if userInputEnabled && (!input.format?.startsWith('resource-') || true)}
+								{#if userInputEnabled && (!input.format?.startsWith('resource-'))}
 									<Popover placement="bottom" notClickable disapperTimoout={0}>
 										<ToggleButton
 											position="center"
