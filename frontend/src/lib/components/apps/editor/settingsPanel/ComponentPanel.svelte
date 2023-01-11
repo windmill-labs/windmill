@@ -151,7 +151,7 @@ declare const ${k} = ${JSON.stringify(v)};
 
 							<InputsSpecsEditor
 								shouldCapitalize={false}
-								bind:inputSpecs={component.componentInput.fields}
+								bind:inputSpecs={component.configuration}
 								userInputEnabled={component.type !== 'buttoncomponent'}
 								{rowColumns}
 							/>

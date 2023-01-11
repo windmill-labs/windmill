@@ -4,22 +4,12 @@
 	import { faArrowRight, faPen, faTableCells, faUser } from '@fortawesome/free-solid-svg-icons'
 	import { fieldTypeToTsType } from '../../utils'
 	import InputsSpecEditor from './InputsSpecEditor.svelte'
-	import type {
-		ConnectedAppInput,
-		RowAppInput,
-		StaticAppInput,
-		UserAppInput
-	} from '../../inputType'
 	import { getContext } from 'svelte'
-	import type { AppEditorContext } from '../../types'
+	import type { AppEditorContext, BaseAppComponent } from '../../types'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import Popup from '../../../common/popup/Popup.svelte'
-	import Popover from '../../../Popover.svelte'
+	import Popover from '$lib/components/Popover.svelte'
 
-	export let inputSpecs: Record<
-		string,
-		(StaticAppInput | ConnectedAppInput | UserAppInput | RowAppInput) & { onlyStatic?: boolean }
-	>
+	export let inputSpecs: BaseAppComponent['configuration']
 	export let userInputEnabled: boolean = true
 	export let staticOnly: boolean = false
 	export let shouldCapitalize: boolean = true
@@ -36,6 +26,11 @@
 				<div class="flex justify-between items-end gap-1">
 					<span class="text-sm font-semibold truncate">
 						{shouldCapitalize ? capitalize(addWhitespaceBeforeCapitals(inputSpecKey)) : inputSpecKey}
+						{#if input.tooltip}
+							<Tooltip>
+								{input.tooltip}
+							</Tooltip>
+						{/if}
 					</span>
 
 					<div class="flex gap-x-2 gap-y-1 flex-wrap justify-end items-center">

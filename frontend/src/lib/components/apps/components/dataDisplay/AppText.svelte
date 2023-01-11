@@ -65,7 +65,7 @@ import { copyToClipboard } from '../../../../utils'
 				No text
 			</div>
 		{:else}
-			<div class="flex flex-wrap">
+			<div class="flex flex-wrap gap-2">
 				<svelte:element
 					this={component}
 					class="whitespace-pre-wrap {classes}"
@@ -75,7 +75,6 @@ import { copyToClipboard } from '../../../../utils'
 				</svelte:element>
 				{#if copyButton && result}
 					<Button
-						btnClasses="ml-2"
 						size="xs"
 						on:click={() => copyToClipboard(result)}
 					>
