@@ -54,7 +54,7 @@
 		bind:justValue={value}
 		items={collection}
 		class="text-clip grow min-w-0"
-		placeholder="Pick a {resourceType} resource"
+		placeholder="{resourceType} resource"
 	/>
 	{#if value && value != ''}
 		<Button variant="border" size="xs" on:click={() => resourceEditor?.initEdit?.(value ?? '')}>

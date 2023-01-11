@@ -78,7 +78,7 @@
 										></ToggleButton
 									>
 								{/if}
-								{#if userInputEnabled && (!input.format?.startsWith('resource-') || true)}
+								{#if userInputEnabled && !input.format?.startsWith('resource-')}
 									<ToggleButton
 										title="User Input"
 										position="center"

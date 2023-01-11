@@ -936,7 +936,7 @@ async fn transform_json_value(
                 .map(|v| v.into_inner())?
                 .value
                 .map_or_else(
-                    || Err(Error::NotFound(format!("Variable not found at {path}"))),
+                    || Err(Error::NotFound(format!("Variable {path} not found"))),
                     |e| Ok(e),
                 )?;
             Ok(Value::String(v))
@@ -951,7 +951,7 @@ async fn transform_json_value(
             let v = client
                 .get_resource_value(workspace, path)
                 .await
-                .map_err(to_anyhow)?
+                .map_err(|_| Error::NotFound(format!("Resource {path} not found")))?
                 .into_inner();
             transform_json_value(client, workspace, v).await
         }
