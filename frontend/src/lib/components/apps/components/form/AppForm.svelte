@@ -29,6 +29,8 @@
 
 	let isLoading: boolean = false
 
+	$: noInputs = componentInput?.type != 'runnable' || Object.values(componentInput?.fields ?? {}).filter((x) => x.type == 'user').length == 0
+
 	$: outputs = $worldStore?.outputsById[id] as {
 		result: Output<Array<any>>
 		loading: Output<boolean>
@@ -63,39 +65,42 @@
 	<AlignWrapper {horizontalAlignment}>
 		<div class="flex flex-col gap-2 px-4 w-full ">
 			<div>
-				{#if componentInput?.type != 'runnable' || Object.values(componentInput?.fields ?? {}).filter((x) => x.type == 'user').length == 0}
-					<span class="text-gray-600 italic text-sm py-2">
-						Run forms are associated with a runnable that has user inputs. Once a script or flow is
-						chosen, set some <strong>Runnable Inputs</strong> to 
+				{#if noInputs}
+					<div class="text-gray-600 italic text-sm my-4">
+						Run forms are associated with a runnable that has user inputs.
+						<br>
+						Once a script or flow is chosen, set some <strong>Runnable Inputs</strong> to 
 						<strong>
 							User Input
 							<Icon data={faUser} scale={1.3} class="rounded-sm bg-gray-200 p-1 ml-0.5" />
 						</strong>
-					</span>
+					</div>
 				{/if}
 			</div>
 			<div class="flex justify-end">
-				<Button
-					loading={isLoading}
-					btnClasses="my-1"
-					on:pointerdown={(e) => {
-						e?.stopPropagation()
-						window.dispatchEvent(new Event('pointerup'))
-					}}
-					on:click={() => {
-						runnableComponent?.runComponent()
+				{#if !noInputs}
+					<Button
+						loading={isLoading}
+						btnClasses="my-1"
+						on:pointerdown={(e) => {
+							e?.stopPropagation()
+							window.dispatchEvent(new Event('pointerup'))
+						}}
+						on:click={() => {
+							runnableComponent?.runComponent()
 
-						if (recomputeIds) {
-							recomputeIds.forEach((id) => {
-								$runnableComponents[id]?.()
-							})
-						}
-					}}
-					{size}
-					{color}
-				>
-					{labelValue}
-				</Button>
+							if (recomputeIds) {
+								recomputeIds.forEach((id) => {
+									$runnableComponents[id]?.()
+								})
+							}
+						}}
+						{size}
+						{color}
+					>
+						{labelValue}
+					</Button>
+				{/if}
 			</div>
 		</div>
 	</AlignWrapper>
