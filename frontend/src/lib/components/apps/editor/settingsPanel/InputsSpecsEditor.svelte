@@ -13,6 +13,8 @@
 	import { getContext } from 'svelte'
 	import type { AppEditorContext } from '../../types'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import Popup from '../../../common/popup/Popup.svelte'
+	import Popover from '../../../Popover.svelte'
 
 	export let inputSpecs: Record<
 		string,
@@ -36,7 +38,7 @@
 						{shouldCapitalize ? capitalize(inputSpecKey) : inputSpecKey}
 					</span>
 
-					<div class="flex gap-2 flex-wrap items-center">
+					<div class="flex gap-x-2 gap-y-1 flex-wrap justify-end items-center">
 						<Badge color="blue">
 							{input.fieldType === 'array' && input.subFieldType
 								? `${capitalize(fieldTypeToTsType(input.subFieldType))}[]`
@@ -57,47 +59,64 @@
 									}
 								}}
 							>
-								<ToggleButton
-									title="Static"
-									position="left"
-									value="static"
-									startIcon={{ icon: faPen }}
-									size="xs"
-									iconOnly
-								/>
-								{#if rowColumns}
+								<Popover placement="bottom" notClickable disapperTimoout={0}>
 									<ToggleButton
-										title="Column"
-										position="center"
-										value="row"
-										startIcon={{ icon: faTableCells }}
+										position="left"
+										value="static"
+										startIcon={{ icon: faPen }}
 										size="xs"
-										disabled={staticOnly}
-										><Tooltip
-											>Use the column name to have the value of the cell be passed to the action</Tooltip
-										></ToggleButton
-									>
+										iconOnly
+									/>
+									<svelte:fragment slot="text">
+										Static
+									</svelte:fragment>
+								</Popover>
+								{#if rowColumns}
+									<Popover placement="bottom" notClickable disapperTimoout={0}>
+										<ToggleButton
+											position="center"
+											value="row"
+											startIcon={{ icon: faTableCells }}
+											size="xs"
+											disabled={staticOnly}
+										>
+											<Tooltip>
+												Use the column name to have the value of the cell be passed to the action
+											</Tooltip>
+										</ToggleButton>
+										<svelte:fragment slot="text">
+											Column
+										</svelte:fragment>
+									</Popover>
 								{/if}
 								{#if userInputEnabled && (!input.format?.startsWith('resource-') || true)}
+									<Popover placement="bottom" notClickable disapperTimoout={0}>
+										<ToggleButton
+											position="center"
+											value="user"
+											startIcon={{ icon: faUser }}
+											size="xs"
+											iconOnly
+											disabled={staticOnly}
+										/>
+										<svelte:fragment slot="text">
+											User Input
+										</svelte:fragment>
+									</Popover>
+								{/if}
+								<Popover placement="bottom" notClickable disapperTimoout={0}>
 									<ToggleButton
-										title="User Input"
-										position="center"
-										value="user"
-										startIcon={{ icon: faUser }}
+										position="right"
+										value="connected"
+										startIcon={{ icon: faArrowRight }}
 										size="xs"
 										iconOnly
 										disabled={staticOnly}
 									/>
-								{/if}
-								<ToggleButton
-									title="Connect"
-									position="right"
-									value="connected"
-									startIcon={{ icon: faArrowRight }}
-									size="xs"
-									iconOnly
-									disabled={staticOnly}
-								/>
+									<svelte:fragment slot="text">
+										Connect
+									</svelte:fragment>
+								</Popover>
 							</ToggleButtonGroup>
 						{/if}
 					</div>

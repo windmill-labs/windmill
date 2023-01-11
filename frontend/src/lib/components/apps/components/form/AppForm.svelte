@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { Button, type ButtonType } from '$lib/components/common'
+	import { faUser } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
+	import { Icon } from 'svelte-awesome'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppEditorContext } from '../../types'
@@ -62,8 +64,12 @@
 			<div>
 				{#if componentInput?.type != 'runnable' || Object.values(componentInput?.fields ?? {}).filter((x) => x.type == 'user').length == 0}
 					<span class="text-gray-600 italic text-sm py-2">
-						Run forms are associated with a runnable that has user inputs. Once a runnable is
-						chosen, set some 'Runnable Inputs' to 'User Input'
+						Run forms are associated with a runnable that has user inputs. Once a script or flow is
+						chosen, set some <strong>Runnable Inputs</strong> to 
+						<strong>
+							User Input
+							<Icon data={faUser} scale={1.3} class="rounded-sm bg-gray-200 p-1 ml-0.5" />
+						</strong>
 					</span>
 				{/if}
 			</div>
