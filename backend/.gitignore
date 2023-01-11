@@ -1,3 +1,4 @@
 target/
 .env
 oauth.json
+windmill-api/openapi-deref.json

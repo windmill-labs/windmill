@@ -2,9 +2,10 @@ openapi: "3.0.3"
 
 info:
   version: 1.60.0
-  title: Windmill server API
+  title: Windmill API
+
   contact:
-    name: Windmill contact
+    name: Windmill Team
     email: contact@windmill.dev
     url: https://windmill.dev
 
@@ -12,6 +13,8 @@ info:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.html
 
+  x-logo:
+    url: https://docs.windmill.dev/img/windmill.svg
 externalDocs:
   description: documentation portal
   url: https://docs.windmill.dev

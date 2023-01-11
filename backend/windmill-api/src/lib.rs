@@ -160,7 +160,7 @@ pub async fn run_server(
                     oauth2::global_service().layer(Extension(slack_verifier)),
                 )
                 .route("/version", get(git_v))
-                .route("/openapi.yaml", get(openapi)),
+                .route("/openapi.json", get(openapi)),
         )
         .fallback(static_assets::static_handler)
         .layer(middleware_stack);
@@ -186,7 +186,7 @@ async fn git_v() -> &'static str {
 }
 
 async fn openapi() -> &'static str {
-    include_str!("../openapi.yaml")
+    include_str!("../openapi-deref.json")
 }
 pub async fn migrate_db(db: &DB) -> anyhow::Result<()> {
     db::migrate(db).await?;

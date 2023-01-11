@@ -50,11 +50,12 @@ RUN npm ci
 COPY frontend .
 RUN mkdir /backend
 COPY /backend/windmill-api/openapi.yaml /backend/windmill-api/openapi.yaml
+RUN cd /backend/windmill-api && ./build_openapi.sh
 COPY /openflow.openapi.yaml /openflow.openapi.yaml
 RUN npm run generate-backend-client
 ENV NODE_OPTIONS "--max-old-space-size=8192"
-RUN npm run build
 RUN npm run check
+RUN npm run build
 
 
 FROM rust_base AS planner
@@ -75,6 +76,7 @@ COPY ./openflow.openapi.yaml /openflow.openapi.yaml
 COPY ./backend ./
 
 COPY --from=frontend /frontend /frontend
+COPY --from=frontend /backend/windmill-api/openapi-deref.json /backend/windmill-api/openapi-deref.json
 COPY .git/ .git/
 
 RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release --features "$features"
