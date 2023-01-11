@@ -40,4 +40,4 @@ jobs:
             backend -> target
       - name: cargo test
         timeout-minutes: 10
-        run: mkdir frontend/build && cd backend && DATABASE_URL=postgres://postgres:changeme@postgres:5432/windmill cargo test --all -- --nocapture
+        run: mkdir frontend/build && cd backend && touch windmill-api/openapi-deref.json && DATABASE_URL=postgres://postgres:changeme@postgres:5432/windmill cargo test --all -- --nocapture

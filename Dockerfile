@@ -50,8 +50,10 @@ RUN npm ci
 COPY frontend .
 RUN mkdir /backend
 COPY /backend/windmill-api/openapi.yaml /backend/windmill-api/openapi.yaml
-RUN cd /backend/windmill-api && ./build_openapi.sh
 COPY /openflow.openapi.yaml /openflow.openapi.yaml
+COPY /backend/windmill-api/build_openapi.sh /backend/windmill-api/build_openapi.sh
+
+RUN cd /backend/windmill-api && ./build_openapi.sh
 RUN npm run generate-backend-client
 ENV NODE_OPTIONS "--max-old-space-size=8192"
 RUN npm run check
