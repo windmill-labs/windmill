@@ -2,6 +2,7 @@
 	import { Clipboard } from 'lucide-svelte'
 import { copyToClipboard } from '../../../../utils'
 	import Button from '../../../common/button/Button.svelte'
+	import Popover from '../../../Popover.svelte'
 	import type { AppInput } from '../../inputType'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
@@ -74,13 +75,18 @@ import { copyToClipboard } from '../../../../utils'
 					{String(result)}
 				</svelte:element>
 				{#if copyButton && result}
-					<Button
-						size="xs"
-						on:click={() => copyToClipboard(result)}
-					>
-						Copy
-						<Clipboard size={14} strokeWidth={2.3} class="ml-1" />
-					</Button>
+					<Popover notClickable>
+						<Button
+							size="xs"
+							btnClasses="!px-2"
+							on:click={() => copyToClipboard(result)}
+						>
+							<Clipboard size={14} strokeWidth={2} />
+						</Button>
+						<svelte:fragment slot="text">
+							Copy to clipboard
+						</svelte:fragment>
+					</Popover>
 				{/if}
 			</div>
 		{/if}
