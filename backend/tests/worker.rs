@@ -186,7 +186,7 @@ mod suspend_resume {
                                 const secret = await r.text();\
                                 console.log('Secret: ' + secret + ' ' + job + ' ' + token);\
                                 const r2 = await fetch(
-                                    `http://localhost:${port}/api/w/test-workspace/jobs/${op}/${job}/0/${secret}?approver=ruben`,\
+                                    `http://localhost:${port}/api/w/test-workspace/jobs_u/${op}/${job}/0/${secret}?approver=ruben`,\
                                     {\
                                         method: 'POST',\
                                         body: JSON.stringify('from job'),\
@@ -276,7 +276,7 @@ mod suspend_resume {
 
                 /* ImZyb20gdGVzdCIK = base64 "from test" */
                 reqwest::get(format!(
-                    "http://localhost:{port}/api/w/test-workspace/jobs/resume/{second}/0/{secret}?payload=ImZyb20gdGVzdCIK&approver=ruben"
+                    "http://localhost:{port}/api/w/test-workspace/jobs_u/resume/{second}/0/{secret}?payload=ImZyb20gdGVzdCIK&approver=ruben"
                 ))
                 .await
                 .unwrap()
@@ -379,7 +379,7 @@ mod suspend_resume {
 
                 /* ImZyb20gdGVzdCIK = base64 "from test" */
                 reqwest::get(format!(
-                    "http://localhost:{port}/api/w/test-workspace/jobs/cancel/{second}/0/{secret}?payload=ImZyb20gdGVzdCIK"
+                    "http://localhost:{port}/api/w/test-workspace/jobs_u/cancel/{second}/0/{secret}?payload=ImZyb20gdGVzdCIK"
                 ))
                 .await
                 .unwrap()
