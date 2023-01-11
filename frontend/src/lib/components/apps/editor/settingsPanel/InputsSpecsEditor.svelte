@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Badge, ToggleButton, ToggleButtonGroup } from '$lib/components/common'
-	import { capitalize } from '$lib/utils'
+	import { addWhitespaceBeforeCapitals, capitalize } from '$lib/utils'
 	import { faArrowRight, faPen, faTableCells, faUser } from '@fortawesome/free-solid-svg-icons'
 	import { fieldTypeToTsType } from '../../utils'
 	import InputsSpecEditor from './InputsSpecEditor.svelte'
@@ -35,7 +35,7 @@
 			<div class="flex flex-col gap-1">
 				<div class="flex justify-between items-end gap-1">
 					<span class="text-sm font-semibold truncate">
-						{shouldCapitalize ? capitalize(inputSpecKey) : inputSpecKey}
+						{shouldCapitalize ? capitalize(addWhitespaceBeforeCapitals(inputSpecKey)) : inputSpecKey}
 					</span>
 
 					<div class="flex gap-x-2 gap-y-1 flex-wrap justify-end items-center">

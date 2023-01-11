@@ -260,9 +260,13 @@ const display: ComponentSet = {
 					type: 'static',
 					fieldType: 'text',
 					value: '',
-
 				},
-
+				copyButton: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean',
+					onlyStatic: true,
+				},
 			},
 			card: false
 		},
