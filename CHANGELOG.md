@@ -1,6 +1,19 @@
 # Changelog
 
 
+## [1.60.0](https://github.com/windmill-labs/windmill/compare/v1.59.0...v1.60.0) (2023-01-11)
+
+
+### Features
+
+* add 'add user to workspace' ([a14623f](https://github.com/windmill-labs/windmill/commit/a14623feaab4a36c01d558b775a42e587a74cdc9))
+* **frontend:** Add frost to color palette ([#1084](https://github.com/windmill-labs/windmill/issues/1084)) ([8e72007](https://github.com/windmill-labs/windmill/commit/8e7200736827e8f6e593f900124b1bd1bc0bd5f2))
+
+
+### Bug Fixes
+
+* **frontend:** Keep pane resizer under open drawer ([#1089](https://github.com/windmill-labs/windmill/issues/1089)) ([cb25f88](https://github.com/windmill-labs/windmill/commit/cb25f883005b99b4ce98e8ae7b8253a8a2fedb5b))
+
 ## [1.59.0](https://github.com/windmill-labs/windmill/compare/v1.58.0...v1.59.0) (2023-01-09)
 
 
