@@ -181,7 +181,7 @@
 					<div class="w-full h-full">
 						<FlowJobResult result={job.result} logs={job.logs ?? ''} />
 					</div>
-				{:else if job.flow_status?.modules?.[job?.flow_status?.step].type === FlowStatusModule.type.WAITING_FOR_EVENTS}
+				{:else if job.flow_status?.modules?.[job?.flow_status?.step]?.type === FlowStatusModule.type.WAITING_FOR_EVENTS}
 					<div class="w-full h-full mt-2 text-sm text-gray-600">
 						<p>Waiting to be resumed</p>
 						<div>

@@ -7,7 +7,7 @@
  */
 
 use argon2::Argon2;
-use axum::{handler::Handler, middleware::from_extractor, routing::get, Extension, Router};
+use axum::{middleware::from_extractor, routing::get, Extension, Router};
 use db::DB;
 use git_version::git_version;
 use std::{net::SocketAddr, sync::Arc};
@@ -127,9 +127,9 @@ pub async fn run_server(
                         .nest("/audit", audit::workspaced_service())
                         .nest("/acls", granular_acls::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
+                        .nest("/apps", apps::workspaced_service())
                         .nest("/flows", flows::workspaced_service())
                         .nest("/capture", capture::workspaced_service())
-                        .nest("/apps", apps::workspaced_service())
                         .nest("/favorites", favorite::workspaced_service())
                         .nest("/folders", folders::workspaced_service()),
                 )
@@ -146,11 +146,11 @@ pub async fn run_server(
                 .route_layer(from_extractor::<Authed>())
                 .route_layer(from_extractor::<users::Tokened>())
                 .nest(
-                    "/w/:workspace_id/apps",
+                    "/w/:workspace_id/apps_u",
                     apps::unauthed_service().layer(from_extractor::<OptAuthed>()),
                 )
-                .nest("/w/:workspace_id/jobs", jobs::global_service())
-                .nest("/w/:workspace_id/capture", capture::global_service())
+                .nest("/w/:workspace_id/jobs_u", jobs::global_service())
+                .nest("/w/:workspace_id/capture_u", capture::global_service())
                 .nest(
                     "/auth",
                     users::make_unauthed_service().layer(Extension(argon2)),
@@ -162,7 +162,7 @@ pub async fn run_server(
                 .route("/version", get(git_v))
                 .route("/openapi.yaml", get(openapi)),
         )
-        .fallback(static_assets::static_handler.into_service())
+        .fallback(static_assets::static_handler)
         .layer(middleware_stack);
 
     let instance_name = rd_string(5);
