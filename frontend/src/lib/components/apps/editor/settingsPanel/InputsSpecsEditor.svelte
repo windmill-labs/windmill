@@ -5,11 +5,16 @@
 	import { fieldTypeToTsType } from '../../utils'
 	import InputsSpecEditor from './InputsSpecEditor.svelte'
 	import { getContext } from 'svelte'
-	import type { AppEditorContext, BaseAppComponent } from '../../types'
+	import type { AppEditorContext } from '../../types'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import Popover from '$lib/components/Popover.svelte'
+	import type { ConnectedAppInput, RowAppInput, StaticAppInput, UserAppInput } from '../../inputType'
 
-	export let inputSpecs: BaseAppComponent['configuration']
+	export let inputSpecs: Record<
+		string,
+		(StaticAppInput | ConnectedAppInput | UserAppInput | RowAppInput)
+		& { onlyStatic?: boolean, tooltip?: string }
+	>
 	export let userInputEnabled: boolean = true
 	export let staticOnly: boolean = false
 	export let shouldCapitalize: boolean = true
