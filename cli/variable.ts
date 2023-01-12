@@ -11,6 +11,7 @@ import {
   colors,
   Command,
   EditVariable,
+  ListableVariable,
   microdiff,
   Table,
   VariableService,
@@ -64,6 +65,11 @@ export class VariableFile implements Resource, PushDiffs {
     diffs: Difference[],
   ): Promise<void> {
     if (await VariableService.existsVariable({ workspace, path: remotePath })) {
+      console.log(
+        colors.bold.yellow(
+          `Applying ${diffs.length} diffs to existing variable...`,
+        ),
+      );
       const changeset: EditVariable = {};
       for (const diff of diffs) {
         if (
@@ -84,6 +90,7 @@ export class VariableFile implements Resource, PushDiffs {
         requestBody: changeset,
       });
     } else {
+      console.log(colors.yellow("Creating new variable..."));
       await VariableService.createVariable({
         workspace,
         requestBody: {
@@ -98,30 +105,20 @@ export class VariableFile implements Resource, PushDiffs {
     }
   }
   async push(workspace: string, remotePath: string): Promise<void> {
-    if (await VariableService.existsVariable({ workspace, path: remotePath })) {
-      const existing = await VariableService.getVariable({
+    let existing: ListableVariable | undefined;
+    try {
+      existing = await VariableService.getVariable({
         workspace: workspace,
         path: remotePath,
       });
-      await this.pushDiffs(
-        workspace,
-        remotePath,
-        microdiff(existing, this, { cyclesFix: false }),
-      );
-    } else {
-      console.log(colors.yellow("Creating new variable..."));
-      await VariableService.createVariable({
-        workspace,
-        requestBody: {
-          path: remotePath,
-          description: this.description,
-          is_secret: this.is_secret,
-          value: this.value,
-          account: this.account,
-          is_oauth: this.is_oauth,
-        },
-      });
+    } catch {
+      existing = undefined;
     }
+    await this.pushDiffs(
+      workspace,
+      remotePath,
+      microdiff(existing ?? {}, this, { cyclesFix: false }),
+    );
   }
 }
 

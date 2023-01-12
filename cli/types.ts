@@ -5,6 +5,8 @@ import { ResourceFile } from "./resource.ts";
 import { ScriptFile } from "./script.ts";
 import { VariableFile } from "./variable.ts";
 
+// TODO: Remove this & replace with a "pull" that lets the object either pull the remote version or return undefined.
+// Then combine those with diffing, which then gives the new push impl
 export interface Resource {
   push(workspace: string, remotePath: string): Promise<void>;
 }

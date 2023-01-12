@@ -325,7 +325,7 @@ async function push(opts: GlobalOptions) {
     const eHash = objectHash(eContent);
 
     if (fileHash !== eHash) {
-      const diff = microdiff(file, eContent, { cyclesFix: false });
+      const diff = microdiff(eContent, file, { cyclesFix: false });
       await applyDiff(entry.path, file, diff);
     }
   }
@@ -407,6 +407,9 @@ const command = new Command()
   .action(add as any)
   .command("pull")
   .description("Pull any remote changes and apply them locally")
+  .action(pull as any)
+  .command("push")
+  .description("Push any local changes and apply them remotely")
   .action(pull as any);
 
 export default command;
