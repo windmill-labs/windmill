@@ -1,10 +1,24 @@
-import { GlobalOptions, Resource as Resource2 } from "./types.ts";
+import {
+  Difference,
+  GlobalOptions,
+  PushDiffs,
+  Resource as Resource2,
+  setValueByPath,
+} from "./types.ts";
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
-import { colors, Command, Resource, ResourceService, Table } from "./deps.ts";
+import {
+  colors,
+  Command,
+  EditResource,
+  microdiff,
+  Resource,
+  ResourceService,
+  Table,
+} from "./deps.ts";
 import { Any, decoverto, model, property } from "./decoverto.ts";
 
 @model()
-export class ResourceFile implements Resource2 {
+export class ResourceFile implements Resource2, PushDiffs {
   @property(Any)
   value?: any;
   @property(() => String)
@@ -17,46 +31,52 @@ export class ResourceFile implements Resource2 {
   constructor(resource_type: string) {
     this.resource_type = resource_type;
   }
-  async push(workspace: string, remotePath: string): Promise<void> {
+  async pushDiffs(
+    workspace: string,
+    remotePath: string,
+    diffs: Difference[],
+  ): Promise<void> {
     if (
       await ResourceService.existsResource({
         workspace: workspace,
         path: remotePath,
       })
     ) {
-      console.log(colors.yellow("Updating existing resource..."));
-      const existing = await ResourceService.getResource({
-        workspace: workspace,
-        path: remotePath,
-      });
+      console.log(
+        colors.yellow(`Applying ${diffs.length} diffs to existing resource...`),
+      );
 
-      if (existing.resource_type != this.resource_type) {
-        console.log(
-          colors.red.underline.bold(
-            "Remote resource at " +
-              remotePath +
-              " exists & has a different resource type. This cannot be updated. If you wish to do this anyways, consider deleting the remote resource.",
-          ),
-        );
-        return;
-      }
-
-      if (typeof this.is_oauth !== "undefined") {
-        console.log(
-          colors.yellow(
-            "! is_oauth has been removed in newer versions. Ignoring.",
-          ),
-        );
+      const changeset: EditResource = {
+        path: remotePath, // TODO: Remove this in backend
+      };
+      for (const diff of diffs) {
+        if (diff.path[0] === "is_oauth") {
+          console.log(
+            colors.yellow(
+              "! is_oauth has been removed in newer versions. Ignoring.",
+            ),
+          );
+          continue;
+        }
+        if (
+          diff.path[0] !== "value" && (
+            diff.path.length !== 1 ||
+            !(diff.path[0] in ["description"])
+          )
+        ) {
+          throw new Error("Invalid folder diff with path " + diff.path);
+        }
+        if (diff.type === "CREATE" || diff.type === "CHANGE") {
+          setValueByPath(changeset, diff.path, diff.value);
+        } else if (diff.type === "REMOVE") {
+          setValueByPath(changeset, diff.path, null);
+        }
       }
 
       await ResourceService.updateResource({
         workspace: workspace,
         path: remotePath,
-        requestBody: {
-          path: remotePath,
-          value: this.value,
-          description: this.description,
-        },
+        requestBody: changeset,
       });
     } else {
       if (typeof this.is_oauth !== "undefined") {
@@ -78,6 +98,22 @@ export class ResourceFile implements Resource2 {
         },
       });
     }
+  }
+  async push(workspace: string, remotePath: string): Promise<void> {
+    let existing: Resource | undefined;
+    try {
+      existing = await ResourceService.getResource({
+        workspace,
+        path: remotePath,
+      });
+    } catch {
+      existing = undefined;
+    }
+    await this.pushDiffs(
+      workspace,
+      remotePath,
+      microdiff(existing ?? {}, this, { cyclesFix: false }),
+    );
   }
 }
 

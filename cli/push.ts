@@ -1,7 +1,8 @@
 // deno-lint-ignore-file no-explicit-any
 import { colors, Command, path } from "./deps.ts";
 import { requireLogin, resolveWorkspace } from "./context.ts";
-import { findContentFile, pushScript, ScriptFile } from "./script.ts";
+import { findContentFile, pushScript } from "./script.ts";
+import { ScriptFile } from "./ScriptFile";
 import { GlobalOptions, inferTypeFromPath } from "./types.ts";
 import { ResourceTypeFile } from "./resource-type.ts";
 import { FolderFile } from "./folder.ts";

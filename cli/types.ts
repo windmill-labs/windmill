@@ -2,7 +2,7 @@ import { decoverto } from "./decoverto.ts";
 import { FlowFile } from "./flow.ts";
 import { ResourceTypeFile } from "./resource-type.ts";
 import { ResourceFile } from "./resource.ts";
-import { ScriptFile } from "./script.ts";
+import { ScriptFile } from "./ScriptFile";
 import { VariableFile } from "./variable.ts";
 import { path } from "./deps.ts";
 import { FolderFile } from "./folder.ts";

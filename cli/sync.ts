@@ -326,15 +326,27 @@ async function push(opts: GlobalOptions) {
 
     if (fileHash !== eHash) {
       const diff = microdiff(eContent, file, { cyclesFix: false });
-      await applyDiff(entry.path, file, diff);
+      await applyDiff(
+        workspace.workspaceId,
+        entry.path.split(".")[0],
+        entry.path,
+        file,
+        diff,
+      );
     }
   }
 
   await updateStateFromRemote(workspace, state);
 
-  function applyDiff(path: string, file: any, diffs: Difference[]) {
+  function applyDiff(
+    workspace: string,
+    remotePath: string,
+    path: string,
+    file: any,
+    diffs: Difference[],
+  ) {
     const typed = inferTypeFromPath(path, file);
-    return typed.pushDiffs(diffs);
+    return typed.pushDiffs(workspace, remotePath, diffs);
   }
 }
 

@@ -1,15 +1,19 @@
 // deno-lint-ignore-file no-explicit-any
-import { GlobalOptions } from "./types.ts";
+import { Difference, GlobalOptions, PushDiffs, Resource } from "./types.ts";
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import {
+  colors,
+  Command,
   JobService,
+  readAll,
   Script,
-} from "https://deno.land/x/windmill@v1.50.0/windmill-api/index.ts";
-import { colors, Command, readAll, ScriptService, Table } from "./deps.ts";
+  ScriptService,
+  Table,
+} from "./deps.ts";
 import { Any, array, decoverto, model, property } from "./decoverto.ts";
 
 @model()
-export class ScriptFile {
+export class ScriptFile implements Resource, PushDiffs {
   @property(() => String)
   parent_hash?: string;
   @property(() => String)
@@ -42,6 +46,16 @@ export class ScriptFile {
   constructor(summary: string, description: string) {
     this.summary = summary;
     this.description = description;
+  }
+  pushDiffs(
+    workspace: string,
+    remotePath: string,
+    diffs: Difference[],
+  ): Promise<void> {
+    throw new Error("Method not implemented.");
+  }
+  push(workspace: string, remotePath: string): Promise<void> {
+    throw new Error("Method not implemented.");
   }
 }
 
