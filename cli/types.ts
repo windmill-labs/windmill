@@ -4,6 +4,8 @@ import { ResourceTypeFile } from "./resource-type.ts";
 import { ResourceFile } from "./resource.ts";
 import { ScriptFile } from "./script.ts";
 import { VariableFile } from "./variable.ts";
+import { path } from "./deps.ts";
+import { FolderFile } from "./folder.ts";
 
 // TODO: Remove this & replace with a "pull" that lets the object either pull the remote version or return undefined.
 // Then combine those with diffing, which then gives the new push impl
@@ -58,10 +60,23 @@ export type GlobalOptions = {
 };
 
 export function inferTypeFromPath(
-  path: string,
+  p: string,
   obj: any,
-): ScriptFile | VariableFile | FlowFile | ResourceFile | ResourceTypeFile {
-  const typeEnding = path.split(".")[-1];
+):
+  | ScriptFile
+  | VariableFile
+  | FlowFile
+  | ResourceFile
+  | ResourceTypeFile
+  | FolderFile {
+  const parsed = path.parse(p);
+  if (parsed.ext !== "json") {
+    throw new Error("Cannot infer type of non-json file");
+  }
+  if (parsed.name === "folder.meta") {
+    return decoverto.type(FolderFile).plainToInstance(obj);
+  }
+  const typeEnding = parsed.name.split(".")[-1];
   if (typeEnding === "script") {
     return decoverto.type(ScriptFile).plainToInstance(obj);
   } else if (typeEnding === "variable") {

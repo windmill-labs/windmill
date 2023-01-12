@@ -1,6 +1,6 @@
 import { colors, Command, Folder, FolderService } from "./deps.ts";
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
-import { GlobalOptions } from "./types.ts";
+import { GlobalOptions, Resource } from "./types.ts";
 import {
   array,
   decoverto,
@@ -11,11 +11,14 @@ import {
 } from "./decoverto.ts";
 
 @model()
-export class FolderFile {
+export class FolderFile implements Resource {
   @property(array(() => String))
   owners: Array<string> | undefined;
   @property(map(() => String, () => Boolean, { shape: MapShape.Object }))
   extra_perms: Map<string, boolean> | undefined;
+
+  async push(workspace: string, _remotePath: string): Promise<void> {
+  }
 }
 
 async function push(opts: GlobalOptions, filePath: string, remotePath: string) {

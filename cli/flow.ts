@@ -81,7 +81,7 @@ export class FlowFile implements Resource, PushDiffs {
             !(diff.path[0] in ["summary", "description", "value", "schema"])
           )
         ) {
-          throw new Error("Invalid variable diff with path " + diff.path);
+          throw new Error("Invalid flow diff with path " + diff.path);
         }
         if (diff.type === "CREATE" || diff.type === "CHANGE") {
           setValueByPath(changeset, diff.path, diff.value);

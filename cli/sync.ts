@@ -410,6 +410,6 @@ const command = new Command()
   .action(pull as any)
   .command("push")
   .description("Push any local changes and apply them remotely")
-  .action(pull as any);
+  .action(push as any);
 
 export default command;

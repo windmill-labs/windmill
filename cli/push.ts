@@ -1,13 +1,11 @@
 // deno-lint-ignore-file no-explicit-any
 import { colors, Command, path } from "./deps.ts";
 import { requireLogin, resolveWorkspace } from "./context.ts";
-import { pushFlow } from "./flow.ts";
-import { pushResource } from "./resource.ts";
 import { findContentFile, pushScript, ScriptFile } from "./script.ts";
 import { GlobalOptions, inferTypeFromPath } from "./types.ts";
-import { pushVariable } from "./variable.ts";
-import { pushResourceType, ResourceTypeFile } from "./resource-type.ts";
-import { pushFolder } from "./folder.ts";
+import { ResourceTypeFile } from "./resource-type.ts";
+import { FolderFile } from "./folder.ts";
+import { decoverto } from "./decoverto.ts";
 
 type Candidate = {
   path: string;
@@ -144,16 +142,15 @@ async function push(opts: GlobalOptions, dir?: string) {
     }
 
     console.log("pushing resource type " + fileNameParts.at(-3)!);
-    await pushResourceType(
-      workspace.workspaceId,
-      resourceType.path,
-      fileNameParts.at(-3)!,
-    );
+    await decoverto.type(ResourceTypeFile).rawToInstance(
+      await Deno.readTextFile(resourceType.path),
+    ).push(workspace.workspaceId, fileNameParts.at(-3)!);
   }
   for (const folder of folders) {
-    await pushFolder(
+    await decoverto.type(FolderFile).plainToInstance(
+      JSON.parse(await Deno.readTextFile(folder.path)),
+    ).push(
       workspace.workspaceId,
-      folder.path,
       "f/" + folder.namespaceName,
     );
   }
@@ -237,8 +234,10 @@ async function push(opts: GlobalOptions, dir?: string) {
       candidate.path,
       JSON.parse(await Deno.readTextFile(candidate.path)),
     );
-    if (typed instanceof ResourceTypeFile) {
-      throw new Error("What?!");
+    if (typed instanceof ResourceTypeFile || typed instanceof FolderFile) {
+      throw new Error(
+        "Resource Types and Folders should  be filtered out at this point!",
+      );
     } else if (typed instanceof ScriptFile) {
       let contentPath: string;
       try {
