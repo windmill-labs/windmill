@@ -60,10 +60,10 @@
 	{extraQueryParams}
 	autoRefresh={false}
 	forceSchemaDisplay={true}
-	runnableClass="!flex-col"
+	runnableClass="!block"
 >
 	<AlignWrapper {horizontalAlignment}>
-		<div class="flex flex-col gap-2 px-4 w-full ">
+		<div class="flex flex-col gap-2 px-4 w-full">
 			<div>
 				{#if noInputs}
 					<div class="text-gray-600 italic text-sm my-4">
