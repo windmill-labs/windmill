@@ -132,7 +132,11 @@
 			if (oldInput === undefined) {
 				result[key] = newInput
 			} else {
-				if (fieldTypeToTsType(newInput.fieldType) !== fieldTypeToTsType(oldInput.fieldType)) {
+				if (
+					fieldTypeToTsType(newInput.fieldType) !== fieldTypeToTsType(oldInput.fieldType) ||
+					newInput.format !== oldInput.format ||
+					newInput.subFieldType !== oldInput.subFieldType
+				) {
 					result[key] = newInput
 				} else {
 					result[key] = oldInput
