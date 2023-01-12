@@ -18,7 +18,7 @@ use crate::{
 use argon2::{password_hash::SaltString, Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use axum::{
     async_trait,
-    extract::{Extension, FromRequestParts, Path, Query},
+    extract::{Extension, FromRequestParts, OriginalUri, Path, Query},
     http::{self, request::Parts},
     response::{IntoResponse, Response},
     routing::{delete, get, post},
@@ -365,9 +365,15 @@ where
             } else {
                 extract_token(parts, state).await
             };
-            let path_vec: Vec<&str> = parts.uri.path().split("/").collect();
-            let workspace_id = if path_vec[0] == "" && path_vec[1] == "w" {
-                Some(path_vec[2].to_owned())
+            let original_uri = OriginalUri::from_request_parts(parts, state)
+                .await
+                .ok()
+                .map(|x| x.0)
+                .unwrap_or_default();
+            let path_vec: Vec<&str> = original_uri.path().split("/").collect();
+
+            let workspace_id = if path_vec.len() >= 4 && path_vec[0] == "" && path_vec[2] == "w" {
+                Some(path_vec[3].to_owned())
             } else {
                 None
             };

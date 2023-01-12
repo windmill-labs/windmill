@@ -23,7 +23,7 @@
 	const { runnableComponents } = getContext<AppEditorContext>('AppEditorContext')
 
 	let editor: Editor
-	let validCode = false
+	let validCode = true
 
 	async function inferInlineScriptSchema(
 		language: Preview.language,
@@ -91,7 +91,7 @@
 					startIcon={{ icon: faTrash }}
 					on:click={() => dispatch('delete')}
 				/>
-			{:else}
+			{:else if $runnableComponents[id] != undefined}
 				<Button
 					loading={runLoading}
 					size="xs"
@@ -103,9 +103,7 @@
 					}}
 				>
 					Run&nbsp;
-					<Tooltip light>
-						Ctrl+Enter to run the script and see the result in the component directly
-					</Tooltip>
+					<Tooltip light>Ctrl+Enter</Tooltip>
 				</Button>
 			{/if}
 
