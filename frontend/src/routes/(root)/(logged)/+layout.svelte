@@ -86,10 +86,18 @@
 			isCollapsed = true
 		}
 	})
-	$: if (innerWidth < 1248 && innerWidth >= 768) {
-		isCollapsed = true
-	} else if ((innerWidth >= 1248 || innerWidth < 768) && !$page.url.pathname.startsWith('/apps')) {
-		isCollapsed = false
+
+	$: innerWidth && changeCollapsed()
+
+	function changeCollapsed() {
+		if (innerWidth < 1248 && innerWidth >= 768) {
+			isCollapsed = true
+		} else if (
+			(innerWidth >= 1248 || innerWidth < 768) &&
+			!$page.url.pathname.startsWith('/apps')
+		) {
+			isCollapsed = false
+		}
 	}
 </script>
 
