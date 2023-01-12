@@ -8,7 +8,8 @@
 		canWrite,
 		defaultIfEmptyString,
 		scriptToHubUrl,
-		copyToClipboard
+		copyToClipboard,
+		emptyString
 	} from '$lib/utils'
 	import {
 		faPlay,
@@ -346,9 +347,11 @@
 						runAction={runScript}
 					/>
 				</div>
-				<div class="box">
-					{defaultIfEmptyString(script.description, 'No description')}
-				</div>
+				{#if !emptyString(script.description)}
+					<div class="box">
+						{defaultIfEmptyString(script.description, 'No description')}
+					</div>
+				{/if}
 			</div>
 
 			<div class="mt-8">

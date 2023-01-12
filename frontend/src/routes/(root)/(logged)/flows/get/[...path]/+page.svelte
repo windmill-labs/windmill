@@ -247,9 +247,11 @@
 						runAction={runFlow}
 					/>
 				</div>
-				<div class="box">
-					{defaultIfEmptyString(flow.description, 'No description')}
-				</div>
+				{#if !emptyString(flow.description)}
+					<div class="box">
+						{defaultIfEmptyString(flow.description, 'No description')}
+					</div>
+				{/if}
 			</div>
 			<div class="mt-4">
 				<FlowViewer {flow} noSummary={true} />

@@ -161,9 +161,11 @@
 					</div>
 				</div>
 			</div>
-			<div class="prose text-sm box max-w-6xl w-full mb-4 mt-8">
-				{defaultIfEmptyString(script.description, 'No description')}
-			</div>
+			{#if !emptyString(script.description)}
+				<div class="prose text-sm box max-w-6xl w-full mb-4 mt-8">
+					{defaultIfEmptyString(script.description, 'No description')}
+				</div>
+			{/if}
 		</div>
 
 		{#if script?.lock_error_logs}
