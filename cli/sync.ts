@@ -12,9 +12,13 @@ import {
   objectHash,
   path,
 } from "./deps.ts";
-import { GlobalOptions, inferTypeFromPath } from "./types.ts";
+import {
+  Difference,
+  GlobalOptions,
+  inferTypeFromPath,
+  setValueByPath,
+} from "./types.ts";
 import { downloadTar } from "./pull.ts";
-import { difference } from "https://deno.land/std@0.160.0/datetime/mod";
 
 type TrackedId = string;
 const TrackedId = String;
@@ -244,14 +248,6 @@ async function pull(opts: GlobalOptions) {
   }
 
   async function applyDiff(diffs: Difference[], file: string) {
-    function setValue(obj: any, path: (string | number)[], value: any) {
-      let i;
-      for (i = 0; i < path.length - 1; i++) {
-        obj = obj[path[i]];
-      }
-      obj[path[i]] = value;
-    }
-
     ensureDir(path.dirname(file));
     let json;
     try {
@@ -264,11 +260,11 @@ async function pull(opts: GlobalOptions) {
     // delegating the applying of the diffs to the object via an interface
     for (const diff of diffs) {
       if (diff.type === "CREATE") {
-        setValue(json, diff.path, diff.value);
+        setValueByPath(json, diff.path, diff.value);
       } else if (diff.type === "REMOVE") {
-        setValue(json, diff.path, undefined);
+        setValueByPath(json, diff.path, undefined);
       } else if (diff.type === "CHANGE") {
-        setValue(json, diff.path, diff.value);
+        setValueByPath(json, diff.path, diff.value);
       }
     }
 
@@ -341,27 +337,6 @@ async function push(opts: GlobalOptions) {
     return typed.pushDiffs(diffs);
   }
 }
-
-interface DifferenceCreate {
-  type: "CREATE";
-  path: (string | number)[];
-  value: any;
-}
-
-interface DifferenceRemove {
-  type: "REMOVE";
-  path: (string | number)[];
-  oldValue: any;
-}
-
-interface DifferenceChange {
-  type: "CHANGE";
-  path: (string | number)[];
-  value: any;
-  oldValue: any;
-}
-
-type Difference = DifferenceCreate | DifferenceRemove | DifferenceChange;
 
 class StateDiff {
   trackedId: TrackedId;

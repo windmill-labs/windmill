@@ -98,7 +98,6 @@ export class VariableFile implements Resource, PushDiffs {
     }
   }
   async push(workspace: string, remotePath: string): Promise<void> {
-    // TODO: Move this to simply use the diff based push.
     if (await VariableService.existsVariable({ workspace, path: remotePath })) {
       const existing = await VariableService.getVariable({
         workspace: workspace,

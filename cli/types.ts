@@ -3,7 +3,7 @@ import { FlowFile } from "./flow.ts";
 import { ResourceTypeFile } from "./resource-type.ts";
 import { ResourceFile } from "./resource.ts";
 import { ScriptFile } from "./script.ts";
-import { VariableFile } from "./VariableFile";
+import { VariableFile } from "./variable.ts";
 
 export interface Resource {
   push(workspace: string, remotePath: string): Promise<void>;
