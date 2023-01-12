@@ -9,7 +9,7 @@
 	<JobStatus {job} />
 	{#if job}
 		<div
-			><div class=" text-gray-900 whitespace-nowrap ">
+			><div class=" text-gray-900 whitespace-nowrap truncate ">
 				<span class="font-bold">Job Id</span>
 				<a rel="noreferrer" target="_blank" href="/run/{job?.id}?workspace={job?.workspace_id}">
 					{job?.id}

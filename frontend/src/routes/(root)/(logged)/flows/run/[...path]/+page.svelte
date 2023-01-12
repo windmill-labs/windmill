@@ -125,9 +125,11 @@
 					</div>
 				</div>
 			</div>
-			<div class="prose text-sm box max-w-6xl w-full mt-8">
-				{defaultIfEmptyString(flow.description, 'No description')}
-			</div>
+			{#if !emptyString(flow.description)}
+				<div class="prose text-sm box max-w-6xl w-full mt-8">
+					{defaultIfEmptyString(flow.description, 'No description')}
+				</div>
+			{/if}
 		</div>
 		<RunForm
 			{loading}
