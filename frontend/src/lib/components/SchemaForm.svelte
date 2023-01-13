@@ -3,6 +3,7 @@
 	import { VariableService, type InputTransform } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { allTrue } from '$lib/utils'
+	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import { slide } from 'svelte/transition'
 	import ArgInput from './ArgInput.svelte'
 	import { Button } from './common'
@@ -56,7 +57,7 @@
 	let variableEditor: VariableEditor | undefined = undefined
 </script>
 
-<div class="w-full {clazz} {flexWrap ? 'flex flex-row flex-wrap gap-x-4' : ''}">
+<div class="w-full {clazz} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 gap-y-2' : ''}">
 	{#if Object.keys(schema?.properties ?? {}).length > 0}
 		{#each Object.keys(schema?.properties ?? {}) as argName, i (argName)}
 			{#if !filter || filter.includes(argName)}
@@ -97,6 +98,7 @@
 							{variableEditor}
 							{itemPicker}
 							bind:pickForField
+							bind:extra={schema.properties[argName]}
 						/>
 					{:else}
 						Expected argument to be an object, got {JSON.stringify(args)} instead
@@ -122,7 +124,7 @@
 			}
 		}}
 		itemName="Variable"
-		extraField="name"
+		extraField="path"
 		loadItems={async () =>
 			(await VariableService.listVariable({ workspace: $workspaceStore ?? '' })).map((x) => ({
 				name: x.path,
@@ -131,20 +133,21 @@
 	>
 		<div
 			slot="submission"
-			class="flex flex-row-reverse w-full p-5 bg-white border-t border-gray-200 rounded-bl-lg rounded-br-lg"
+			class="flex flex-row-reverse w-full bg-white border-t border-gray-200 rounded-bl-lg rounded-br-lg"
 		>
 			<Button
 				variant="border"
 				color="blue"
 				size="sm"
+				startIcon={{ icon: faPlus }}
 				on:click={() => {
 					variableEditor?.initNew?.()
 				}}
 			>
-				Create a new variable
+				New variable
 			</Button>
 		</div>
 	</ItemPicker>
 
-	<VariableEditor bind:this={variableEditor} on:create={itemPicker.openDrawer} />
+	<VariableEditor bind:this={variableEditor} />
 {/if}

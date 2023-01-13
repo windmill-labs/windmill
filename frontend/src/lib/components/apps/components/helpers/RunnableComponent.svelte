@@ -4,7 +4,7 @@
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import { AppService, type CompletedJob } from '$lib/gen'
-	import { defaultIfEmptyString, emptySchema } from '$lib/utils'
+	import { defaultIfEmptyString, emptySchema, sendUserToast } from '$lib/utils'
 	import { getContext, onMount } from 'svelte'
 	import type { AppInputs, Runnable } from '../../inputType'
 	import type { Output } from '../../rx'
@@ -21,17 +21,21 @@
 	export let autoRefresh: boolean = true
 	export let result: any = undefined
 	export let forceSchemaDisplay: boolean = false
+	export let noMinH = false
+	export let defaultUserInput = false
+	export let flexWrap = false
+	export let wrapperClass = ''
 
-	const { worldStore, runnableComponents, workspace, appPath, isEditor, jobs } =
+	const { worldStore, runnableComponents, workspace, appPath, isEditor, jobs, noBackend } =
 		getContext<AppEditorContext>('AppEditorContext')
 
 	onMount(() => {
 		if (autoRefresh) {
 			$runnableComponents[id] = async () => {
-				await executeComponent()
+				await executeComponent(true)
 			}
+			executeComponent(true)
 		}
-		executeComponent()
 	})
 
 	let args: Record<string, any> = {}
@@ -43,7 +47,7 @@
 	function setDebouncedExecute() {
 		executeTimeout && clearTimeout(executeTimeout)
 		executeTimeout = setTimeout(() => {
-			executeComponent()
+			executeComponent(true)
 		}, 200)
 	}
 
@@ -61,7 +65,10 @@
 	$: fields && (currentStaticValues = computeStaticValues())
 	$: if (JSON.stringify(currentStaticValues) != JSON.stringify(lazyStaticValues)) {
 		lazyStaticValues = currentStaticValues
-		setDebouncedExecute()
+
+		if (autoRefresh) {
+			setDebouncedExecute()
+		}
 	}
 
 	$: fields && (lazyStaticValues = computeStaticValues())
@@ -113,7 +120,7 @@
 		let schemaCopy: Schema = JSON.parse(JSON.stringify(schema))
 
 		const result = {}
-		const newInputs = schemaToInputsSpec(schemaCopy)
+		const newInputs = schemaToInputsSpec(schemaCopy, defaultUserInput)
 		if (!fields) {
 			return newInputs
 		}
@@ -125,7 +132,11 @@
 			if (oldInput === undefined) {
 				result[key] = newInput
 			} else {
-				if (fieldTypeToTsType(newInput.fieldType) !== fieldTypeToTsType(oldInput.fieldType)) {
+				if (
+					fieldTypeToTsType(newInput.fieldType) !== fieldTypeToTsType(oldInput.fieldType) ||
+					newInput.format !== oldInput.format ||
+					newInput.subFieldType !== oldInput.subFieldType
+				) {
 					result[key] = newInput
 				} else {
 					result[key] = oldInput
@@ -173,7 +184,13 @@
 		[]
 	)
 
-	async function executeComponent() {
+	async function executeComponent(noToast = false) {
+		if (noBackend) {
+			if (!noToast) {
+				sendUserToast('This app is not connected to a windmill backend, it is a static preview')
+			}
+			return
+		}
 		if (runnable?.type === 'runnableByName' && !runnable.inlineScript) {
 			return
 		}
@@ -221,7 +238,7 @@
 			})
 		})
 		if (njob) {
-			$jobs = [...$jobs, { job: njob, component: id }]
+			$jobs = [{ job: njob, component: id }, ...$jobs]
 		}
 	}
 
@@ -259,7 +276,7 @@
 	bind:this={testJobLoader}
 />
 
-<div class="h-full flex relative flex-row flex-wrap">
+<div class="h-full flex relative flex-row flex-wrap {wrapperClass}">
 	{#if autoRefresh === true}
 		<div class="flex absolute top-1 right-1">
 			<RefreshButton componentId={id} />
@@ -268,8 +285,7 @@
 	{#if schemaStripped && Object.keys(schemaStripped?.properties ?? {}).length > 0 && (autoRefresh || forceSchemaDisplay)}
 		<div class="px-2 h-fit min-h-0">
 			<SchemaForm
-				compact
-				flexWrap
+				{flexWrap}
 				schema={schemaStripped}
 				bind:args
 				{disabledArgs}
@@ -286,11 +302,13 @@
 	{:else if result?.error}
 		<div class="p-2">
 			<Alert type="error" title="Error during execution">
-				<pre title={result.error} class="text-2xs whitespace-pre-wrap">{result.error}</pre>
+				See "Debug Runs" on the top right for more details
+				<pre title={result.error} class=" mt-2 text-2xs whitespace-pre-wrap">{result.error}</pre>
 			</Alert>
+			<slot />
 		</div>
 	{:else}
-		<div class="grow min-w-1/2 min-h-[66%]">
+		<div class="grow min-w-1/2 {noMinH ? '' : 'min-h-[66%]'}">
 			<slot />
 		</div>
 	{/if}

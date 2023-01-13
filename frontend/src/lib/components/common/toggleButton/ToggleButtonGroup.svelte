@@ -10,16 +10,16 @@
 	import { writable, type Writable } from 'svelte/store'
 
 	export let selected: any
-	const dispatch = createEventDispatcher()
 	export let col = false
 
-	$: setSelected(selected)
+	const dispatch = createEventDispatcher()
+	const selectedContent = writable(selected)
 
 	function setSelected(selected: any) {
 		selectedContent.set(selected)
 	}
 
-	const selectedContent = writable(selected)
+	$: setSelected(selected)
 
 	$: $selectedContent && dispatch('selected', $selectedContent)
 	setContext<ToggleButtonContext>('ToggleButtonGroup', {

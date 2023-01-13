@@ -14,12 +14,13 @@ use crate::{
     variables::build_crypt,
 };
 use axum::{
-    extract::{Extension, Path, Query},
+    extract::{Extension, Json, Path, Query},
     routing::{delete, get, post},
-    Json, Router,
+    Router,
 };
 use hyper::StatusCode;
 use magic_crypt::MagicCryptTrait;
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
@@ -31,7 +32,9 @@ use windmill_common::{
     apps::ListAppQuery,
     error::{to_anyhow, Error, JsonResult, Result},
     users::owner_to_token_owner,
-    utils::{not_found_if_none, paginate, Pagination, StripPath},
+    utils::{
+        http_get_from_hub, list_elems_from_hub, not_found_if_none, paginate, Pagination, StripPath,
+    },
 };
 use windmill_queue::{push, JobPayload, RawCode};
 
@@ -51,6 +54,12 @@ pub fn unauthed_service() -> Router {
     Router::new()
         .route("/execute_component/*path", post(execute_component))
         .route("/public_app/:secret", get(get_public_app_by_secret))
+}
+
+pub fn global_service() -> Router {
+    Router::new()
+        .route("/hub/list", get(list_hub_apps))
+        .route("/hub/get/:id", get(get_hub_app_by_id))
 }
 
 #[derive(FromRow, Deserialize, Serialize)]
@@ -128,10 +137,10 @@ pub struct EditApp {
 
 async fn list_apps(
     authed: Authed,
-    Query(pagination): Query<Pagination>,
-    Query(lq): Query<ListAppQuery>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
+    Query(pagination): Query<Pagination>,
+    Query(lq): Query<ListAppQuery>,
 ) -> JsonResult<Vec<ListableApp>> {
     let (per_page, offset) = paginate(pagination);
 
@@ -350,6 +359,37 @@ async fn create_app(
     tx.commit().await?;
 
     Ok((StatusCode::CREATED, app.path))
+}
+
+async fn list_hub_apps(
+    Authed { email, .. }: Authed,
+    Extension(http_client): Extension<Client>,
+) -> JsonResult<serde_json::Value> {
+    let flows = list_elems_from_hub(
+        http_client,
+        "https://hub.windmill.dev/searchUiData?approved=true",
+        &email,
+    )
+    .await?;
+    Ok(Json(flows))
+}
+
+pub async fn get_hub_app_by_id(
+    Authed { email, .. }: Authed,
+    Path(id): Path<i32>,
+    Extension(http_client): Extension<Client>,
+) -> JsonResult<serde_json::Value> {
+    let value = http_get_from_hub(
+        http_client,
+        &format!("https://hub.windmill.dev/apps/{id}/json"),
+        &email,
+        false,
+    )
+    .await?
+    .json()
+    .await
+    .map_err(to_anyhow)?;
+    Ok(Json(value))
 }
 
 async fn delete_app(

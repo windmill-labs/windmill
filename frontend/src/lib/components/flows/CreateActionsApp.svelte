@@ -27,9 +27,7 @@
 		startIcon={{ icon: faPlus }}
 		href="/apps/add?nodraft=true"
 	>
-		<svelte:fragment slot="main"
-			>New App (alpha) <LayoutDashboard class="ml-1.5" size={18} />
-		</svelte:fragment>
+		<svelte:fragment slot="main">App <LayoutDashboard class="ml-1.5" size={18} /></svelte:fragment>
 		<ButtonPopupItem on:click={() => drawer?.toggleDrawer?.()}>
 			Import from raw JSON
 		</ButtonPopupItem>

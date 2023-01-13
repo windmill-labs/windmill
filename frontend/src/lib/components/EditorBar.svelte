@@ -11,6 +11,7 @@
 		faCube,
 		faDollarSign,
 		faEye,
+		faPlus,
 		faRotate,
 		faRotateLeft
 	} from '@fortawesome/free-solid-svg-icons'
@@ -164,11 +165,12 @@
 			variant="border"
 			color="blue"
 			size="sm"
+			startIcon={{ icon: faPlus }}
 			on:click={() => {
 				variableEditor.initNew()
 			}}
 		>
-			Create a new variable
+			New variable
 		</Button>
 	</div>
 </ItemPicker>

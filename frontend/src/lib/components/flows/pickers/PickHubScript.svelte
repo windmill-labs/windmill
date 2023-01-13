@@ -88,6 +88,7 @@
 		</div>
 	{/if}
 {:else}
+	<div class="my-2" />
 	{#each Array(10).fill(0) as _}
 		<Skeleton layout={[0.5, [4]]} />
 	{/each}

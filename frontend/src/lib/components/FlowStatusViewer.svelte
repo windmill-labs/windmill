@@ -8,7 +8,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import { onDestroy } from 'svelte'
 	import type { FlowState } from './flows/flowState'
-	import { Button, Tab } from './common'
+	import { Badge, Button, Tab } from './common'
 	import DisplayResult from './DisplayResult.svelte'
 	import Tabs from './common/tabs/Tabs.svelte'
 	import { FlowGraph, type GraphModuleState } from './graph'
@@ -17,6 +17,7 @@
 	import JobArgs from './JobArgs.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
+	import { Loader2 } from 'lucide-svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -181,9 +182,9 @@
 					<div class="w-full h-full">
 						<FlowJobResult result={job.result} logs={job.logs ?? ''} />
 					</div>
-				{:else if job.flow_status?.modules?.[job?.flow_status?.step].type === FlowStatusModule.type.WAITING_FOR_EVENTS}
+				{:else if job.flow_status?.modules?.[job?.flow_status?.step]?.type === FlowStatusModule.type.WAITING_FOR_EVENTS}
 					<div class="w-full h-full mt-2 text-sm text-gray-600">
-						<p>Waiting for approval from the previous step</p>
+						<p>Waiting to be resumed</p>
 						<div>
 							{#if is_owner}
 								<div class="flex flex-row gap-2 mt-2">
@@ -212,13 +213,32 @@
 									>
 								</div>
 							{:else}
-								You cannot resume the job without the resume id since you are not an owner of {job.script_path}
+								You cannot resume the flow yourself without receiving the resume secret since you
+								are not an owner of {job.script_path}
 							{/if}
 						</div>
 					</div>
 				{:else if job.logs}
 					<div class="text-xs p-4 bg-gray-50 overflow-auto max-h-80 border">
 						<pre class="w-full">{job.logs}</pre>
+					</div>
+				{:else if innerModules?.length > 0}
+					<div class="flex flex-col gap-1">
+						{#each innerModules as mod, i (mod.id)}
+							{#if mod.type == FlowStatusModule.type.IN_PROGRESS}
+								<div
+									><span class="inline-flex gap-1"
+										><Badge color="indigo">{mod.id}</Badge>
+										{#if job.raw_flow?.modules[i]?.summary}
+											<span class="font-medium text-gray-900">
+												{job.raw_flow?.modules[i]?.summary ?? ''}
+											</span>
+										{/if}
+										<Loader2 class="animate-spin" /></span
+									></div
+								>
+							{/if}
+						{/each}
 					</div>
 				{/if}
 			</div>

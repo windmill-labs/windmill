@@ -86,13 +86,17 @@
 
 	async function loadFolders(): Promise<void> {
 		let initialFolders: string[] = []
+		let initialFolder = ''
 		if (initialPath?.split('/')?.[0] == 'f') {
-			initialFolders.push(initialPath?.split('/')?.[1])
+			initialFolder = initialPath?.split('/')?.[1]
+			initialFolders.push(initialFolder)
 		}
 		folders = initialFolders.concat(
-			await FolderService.listFolderNames({
-				workspace: $workspaceStore!
-			})
+			(
+				await FolderService.listFolderNames({
+					workspace: $workspaceStore!
+				})
+			).filter((x) => x != initialFolder)
 		)
 	}
 

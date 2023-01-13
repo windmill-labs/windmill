@@ -7,7 +7,7 @@
  */
 
 use argon2::Argon2;
-use axum::{handler::Handler, middleware::from_extractor, routing::get, Extension, Router};
+use axum::{middleware::from_extractor, routing::get, Extension, Router};
 use db::DB;
 use git_version::git_version;
 use std::{net::SocketAddr, sync::Arc};
@@ -127,9 +127,9 @@ pub async fn run_server(
                         .nest("/audit", audit::workspaced_service())
                         .nest("/acls", granular_acls::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
+                        .nest("/apps", apps::workspaced_service())
                         .nest("/flows", flows::workspaced_service())
                         .nest("/capture", capture::workspaced_service())
-                        .nest("/apps", apps::workspaced_service())
                         .nest("/favorites", favorite::workspaced_service())
                         .nest("/folders", folders::workspaced_service()),
                 )
@@ -141,15 +141,16 @@ pub async fn run_server(
                 .nest("/workers", worker_ping::global_service())
                 .nest("/scripts", scripts::global_service())
                 .nest("/flows", flows::global_service())
+                .nest("/apps", apps::global_service())
                 .nest("/schedules", schedule::global_service())
                 .route_layer(from_extractor::<Authed>())
                 .route_layer(from_extractor::<users::Tokened>())
                 .nest(
-                    "/w/:workspace_id/apps",
+                    "/w/:workspace_id/apps_u",
                     apps::unauthed_service().layer(from_extractor::<OptAuthed>()),
                 )
-                .nest("/w/:workspace_id/jobs", jobs::global_service())
-                .nest("/w/:workspace_id/capture", capture::global_service())
+                .nest("/w/:workspace_id/jobs_u", jobs::global_service())
+                .nest("/w/:workspace_id/capture_u", capture::global_service())
                 .nest(
                     "/auth",
                     users::make_unauthed_service().layer(Extension(argon2)),
@@ -161,7 +162,7 @@ pub async fn run_server(
                 .route("/version", get(git_v))
                 .route("/openapi.yaml", get(openapi)),
         )
-        .fallback(static_assets::static_handler.into_service())
+        .fallback(static_assets::static_handler)
         .layer(middleware_stack);
 
     let instance_name = rd_string(5);
@@ -185,7 +186,7 @@ async fn git_v() -> &'static str {
 }
 
 async fn openapi() -> &'static str {
-    include_str!("../openapi.yaml")
+    include_str!("../openapi-deref.yaml")
 }
 pub async fn migrate_db(db: &DB) -> anyhow::Result<()> {
     db::migrate(db).await?;

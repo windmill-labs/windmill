@@ -8,33 +8,41 @@
 	import ToggleButton from '$lib/components/common/toggleButton/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton/ToggleButtonGroup.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
-	import FlowJobResult from '$lib/components/FlowJobResult.svelte'
+	import Dropdown from '$lib/components/Dropdown.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import Path from '$lib/components/Path.svelte'
-	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { AppService, Job, Policy } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { faBug, faClipboard, faExternalLink, faSave } from '@fortawesome/free-solid-svg-icons'
+	import {
+		faBug,
+		faClipboard,
+		faExternalLink,
+		faFileExport,
+		faGlobe,
+		faSave
+	} from '@fortawesome/free-solid-svg-icons'
 	import {
 		AlignHorizontalSpaceAround,
 		Expand,
 		Eye,
 		Laptop2,
 		Loader2,
+		MoreVertical,
 		Pencil,
 		Smartphone
 	} from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { classNames, copyToClipboard, sendUserToast } from '../../../utils'
-	import type { AppComponent, AppEditorContext } from '../types'
+	import { appToHubUrl, classNames, copyToClipboard, sendUserToast } from '../../../utils'
+	import type { AppInput } from '../inputType'
+	import type { App, AppComponent, AppEditorContext } from '../types'
 	import AppExportButton from './AppExportButton.svelte'
 	import PanelSection from './settingsPanel/common/PanelSection.svelte'
 
@@ -48,7 +56,7 @@
 
 	export let policy: Policy
 
-	const { app, summary, mode, breakpoint, appPath, jobs } =
+	const { app, summary, mode, breakpoint, appPath, jobs, staticExporter } =
 		getContext<AppEditorContext>('AppEditorContext')
 	const loading = {
 		publish: false,
@@ -58,6 +66,8 @@
 	let newPath: string = ''
 	let pathError: string | undefined = undefined
 
+	let appExport: AppExportButton
+
 	let saveDrawerOpen = false
 	let jobsDrawerOpen = false
 	let publishDrawerOpen = false
@@ -66,30 +76,48 @@
 		saveDrawerOpen = false
 	}
 
+	function toStatic(): { app: App; summary: string } {
+		const newApp: App = JSON.parse(JSON.stringify($app))
+		newApp.grid.forEach((x) => {
+			let c: AppComponent = x.data
+			if (c.componentInput?.type == 'runnable') {
+				c.componentInput.value = $staticExporter[x.id]()
+			}
+		})
+		return { app: newApp, summary: $summary }
+	}
+
 	async function computeTriggerables() {
 		const allTriggers = await Promise.all(
-			$app.grid.map(async (x) => {
-				let c = x.data as AppComponent
-				if (c.componentInput?.type == 'runnable') {
-					const staticInputs = Object.fromEntries(
-						Object.entries(c.componentInput.fields ?? {})
-							.filter(([k, v]) => v.type == 'static')
-							.map(([k, v]) => {
-								return [k, v['value']]
-							})
-					)
-					if (c.componentInput.runnable?.type == 'runnableByName') {
-						let hex = await hash(c.componentInput.runnable.inlineScript?.content)
-						return [`rawscript/${hex}`, staticInputs]
-					} else if (c.componentInput.runnable?.type == 'runnableByPath') {
-						return [
-							`${c.componentInput.runnable.runType}/${c.componentInput.runnable.path}`,
-							staticInputs
-						]
+			$app.grid
+				.flatMap((x) => {
+					let c = x.data as AppComponent
+					let r: (AppInput | undefined)[] = [c.componentInput]
+					if (c.type === 'tablecomponent') {
+						r.push(...c.actionButtons.map((x) => x.componentInput))
 					}
-				}
-				return []
-			})
+					return r.filter((x) => x)
+				})
+				.map(async (input) => {
+					if (input?.type == 'runnable') {
+						const staticInputs = Object.fromEntries(
+							Object.entries(input.fields ?? {})
+								.filter(([k, v]) => v.type == 'static')
+								.map(([k, v]) => {
+									return [k, v['value']]
+								})
+						)
+						if (input.runnable?.type == 'runnableByName') {
+							let hex = await hash(input.runnable.inlineScript?.content)
+							return [`rawscript/${hex}`, staticInputs]
+						} else if (input.runnable?.type == 'runnableByPath') {
+							let prefix =
+								input.runnable.runType !== 'hubscript' ? input.runnable.runType : 'script'
+							return [`${prefix}/${input.runnable.path}`, staticInputs]
+						}
+					}
+					return []
+				})
 		)
 		policy.triggerables = Object.fromEntries(allTriggers)
 		policy.on_behalf_of = `u/${$userStore?.username}`
@@ -107,6 +135,7 @@
 					policy
 				}
 			})
+			closeSaveDrawer()
 			goto(`/apps/edit/${appId}`)
 		} catch (e) {
 			sendUserToast('Error creating app', e)
@@ -276,8 +305,9 @@
 <Drawer bind:open={publishDrawerOpen} size="800px">
 	<DrawerContent title="Publish an App" on:close={() => (publishDrawerOpen = false)}>
 		{#if appPath == ''}
-			<Alert title="Require saving" type="error">Save this app once before you can publish it</Alert
-			>
+			<Alert title="Require saving" type="error">
+				Save this app once before you can publish it
+			</Alert>
 		{:else}
 			<Alert title="App executed on behalf of publisher">
 				A viewer of the app will execute the runnables of the app on behalf of the publisher
@@ -285,8 +315,8 @@
 				guarantee tight security, a policy is computed at time of saving of the app which only allow
 				the scripts/flows referred to in the app to be called on behalf of. Furthermore, static
 				parameters are not overridable. Hence, users will only be able to use the app as intended by
-				the publisher without risk for leaking resources not used in the app.</Alert
-			>
+				the publisher without risk for leaking resources not used in the app.
+			</Alert>
 			<div class="mt-4" />
 			<Toggle
 				options={{
@@ -333,7 +363,7 @@
 </Drawer>
 
 <div
-	class="border-b flex flex-row justify-between py-1 gap-4 overflow-x-auto gap-y-2 px-4 items-center"
+	class="border-b flex flex-row justify-between py-1 gap-4  gap-y-2 px-4 items-center overflow-y-visible"
 >
 	<div class="min-w-64 w-64">
 		<input type="text" placeholder="App summary" class="text-sm w-full" bind:value={$summary} />
@@ -344,12 +374,14 @@
 				<ToggleButton position="left" value="dnd" size="xs">
 					<div class="inline-flex gap-1 items-center">
 						<Pencil size={14} />
-						Editor
+						<span class="hidden md:inline">Editor</span>
 					</div>
 				</ToggleButton>
 				<ToggleButton position="right" value="preview" size="xs">
-					<div class="inline-flex gap-1 items-center"> <Eye size={14} /> Preview</div></ToggleButton
-				>
+					<div class="inline-flex gap-1 items-center">
+						<Eye size={14} /> <span class="hidden md:inline">Preview</span>
+					</div>
+				</ToggleButton>
 			</ToggleButtonGroup>
 		</div>
 		<div>
@@ -357,51 +389,82 @@
 				<ToggleButton position="left" value="sm" size="xs">
 					<Smartphone size={14} />
 				</ToggleButton>
-				<ToggleButton position="right" value="lg" size="xs"><Laptop2 size={14} /></ToggleButton>
+				<ToggleButton position="right" value="lg" size="xs">
+					<Laptop2 size={14} />
+				</ToggleButton>
 			</ToggleButtonGroup>
 		</div>
 
-		<span class="hidden lg:block">
+		<div class="hidden lg:block">
 			<ToggleButtonGroup bind:selected={$app.fullscreen}>
-				<ToggleButton position="left" value={false} size="xs"
-					><AlignHorizontalSpaceAround size={14} /> &nbsp; <Tooltip
-						>The max width is 1168px and the content stay centered instead of taking the full page
-						width</Tooltip
-					></ToggleButton
-				>
-				<ToggleButton position="right" value={true} size="xs"><Expand size={14} /></ToggleButton>
+				<ToggleButton position="left" value={false} size="xs">
+					<div class="flex gap-1 justify-start items-center">
+						<AlignHorizontalSpaceAround size={14} />
+						<Tooltip light>
+							The max width is 1168px and the content stay centered instead of taking the full page
+							width
+						</Tooltip>
+					</div>
+				</ToggleButton>
+				<ToggleButton position="right" value={true} size="xs">
+					<Expand size={14} />
+				</ToggleButton>
 			</ToggleButtonGroup>
-		</span>
+		</div>
 	</div>
-	<div class="flex flex-row grow gap-4 justify-end ">
-		<Button
-			on:click={() => (jobsDrawerOpen = true)}
-			color="light"
-			size="xs"
-			variant="border"
-			startIcon={{ icon: faBug }}
+	<div class="flex flex-row grow gap-2 justify-end items-center overflow-visible">
+		<Dropdown
+			placement="bottom-end"
+			btnClasses="!text-gray-700 !bg-transparent hover:!bg-gray-400/20 !p-[6px] hidden lg:block"
+			dropdownItems={[
+				{
+					displayName: 'JSON',
+					icon: faFileExport,
+					action: () => {
+						appExport.open()
+					}
+				},
+				{
+					displayName: 'Publish to Hub',
+					icon: faGlobe,
+					action: () => {
+						const url = appToHubUrl(toStatic())
+						window.open(url.toString(), '_blank')
+					}
+				}
+			]}
 		>
-			Debug Runs
-		</Button>
-		<span class="hidden lg:block">
-			<AppExportButton app={$app} />
+			<MoreVertical size={20} />
+		</Dropdown>
+		<span class="hidden md:inline">
+			<Button
+				on:click={() => (jobsDrawerOpen = true)}
+				color="light"
+				size="xs"
+				variant="border"
+				startIcon={{ icon: faBug }}
+			>
+				<span class="hidden md:inline">Debug Runs</span>
+			</Button>
 		</span>
-
+		<AppExportButton bind:this={appExport} app={$app} />
 		<Button
 			on:click={() => (publishDrawerOpen = true)}
-			color="dark"
+			color="light"
 			size="xs"
 			variant="border"
 			startIcon={{ icon: faExternalLink }}
 		>
-			Publish
+			<span class="hidden md:inline">Publish</span>
 		</Button>
 		<Button
 			loading={loading.save}
 			startIcon={{ icon: faSave }}
 			on:click={save}
 			color="dark"
-			size="xs">Save</Button
+			size="xs"
 		>
+			<span class="hidden md:inline">Save</span>
+		</Button>
 	</div>
 </div>

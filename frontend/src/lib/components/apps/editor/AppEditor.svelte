@@ -69,7 +69,9 @@
 		workspace: $workspaceStore ?? '',
 		onchange: () => saveDraft(),
 		isEditor: true,
-		jobs: writable([])
+		jobs: writable([]),
+		staticExporter: writable({}),
+		noBackend: false
 	})
 
 	let timeout: NodeJS.Timeout | undefined = undefined
@@ -128,6 +130,7 @@
 			{policy}
 			isEditor
 			{context}
+			noBackend={false}
 		/>
 	{:else}
 		<SplitPanesWrapper>

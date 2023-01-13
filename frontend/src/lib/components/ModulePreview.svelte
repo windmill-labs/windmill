@@ -40,7 +40,6 @@
 		} else {
 			throw Error('not testable module type')
 		}
-		sendUserToast(`started test ${truncateRev(jobId ?? '', 10)}`)
 	}
 
 	function jobDone() {
@@ -67,6 +66,7 @@
 		{/if}
 
 		<RunForm
+			loading={testIsLoading}
 			runnable={{ summary: mod.summary ?? '', schema, description: '' }}
 			runAction={(_, args) => runTest(args)}
 			schedulable={false}

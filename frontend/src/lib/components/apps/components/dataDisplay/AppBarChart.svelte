@@ -71,7 +71,7 @@
 <InputValue {id} input={configuration.theme} bind:value={theme} />
 <InputValue {id} input={configuration.line} bind:value={lineChart} />
 
-<RunnableWrapper autoRefresh bind:componentInput {id} bind:result>
+<RunnableWrapper flexWrap autoRefresh bind:componentInput {id} bind:result>
 	{#if result}
 		{#if lineChart}
 			<Line {data} {options} />

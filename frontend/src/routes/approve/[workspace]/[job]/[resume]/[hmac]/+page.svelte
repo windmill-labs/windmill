@@ -23,7 +23,7 @@
 
 	let timeout: NodeJS.Timer | undefined = undefined
 	let error: string | undefined = undefined
-	let payload = ''
+	let message = ''
 
 	onMount(() => {
 		getJob()
@@ -70,7 +70,7 @@
 			resumeId: new Number($page.params.resume).valueOf(),
 			signature: $page.params.hmac,
 			approver,
-			requestBody: payload
+			requestBody: { message }
 		})
 		sendUserToast('Flow approved')
 		getJob()
@@ -98,8 +98,8 @@
 		<div class="w-full">
 			<h2 class="mt-4">Current approvers</h2>
 			<p class="text-xs italic"
-				>Each approver can only approve once and cannot change his approver name set by the
-				approval sender</p
+				>Each approver can only approve once and cannot change his approver name set by the approval
+				sender</p
 			>
 			<div class="my-4">
 				{#if currentApprovers.length > 0}
@@ -107,8 +107,7 @@
 						{#each currentApprovers as approver}
 							<li
 								><b
-									>{approver.approver}<Tooltip
-										>Unique id of approval: {approver.resume_id}</Tooltip
+									>{approver.approver}<Tooltip>Unique id of approval: {approver.resume_id}</Tooltip
 									></b
 								></li
 							>
@@ -116,8 +115,7 @@
 					</ul>
 				{:else}
 					<p class="text-sm"
-						>No current approvers for this step (approval steps can require more than one
-						approval)</p
+						>No current approvers for this step (approval steps can require more than one approval)</p
 					>
 				{/if}
 			</div>
@@ -144,26 +142,26 @@
 		<div class="my-2"><p><b>You have already approved this flow to be resumed</b></p></div>
 	{/if}
 
-  <div class="w-max-md flex flex-row gap-x-4 gap-y-4 justify-between w-full flex-wrap mt-2">
-    <Button
-      btnClasses="grow"
-      color="red"
-      on:click|once={cancel}
-      size="md"
-      disabled={completed || alreadyResumed}>Disapprove/Cancel</Button
-    >
-    <Button
-      btnClasses="grow"
-      color="green"
-      on:click|once={resume}
-      size="md"
-      disabled={completed || alreadyResumed}>Approve/Resume</Button
-    >
-  </div>
-  <div>
-    <h3 class="mt-2">Payload (optional)</h3>
-    <input type="text" bind:value={payload} use:autosize />
-  </div>
+	<div class="w-max-md flex flex-row gap-x-4 gap-y-4 justify-between w-full flex-wrap mt-2">
+		<Button
+			btnClasses="grow"
+			color="red"
+			on:click|once={cancel}
+			size="md"
+			disabled={completed || alreadyResumed}>Disapprove/Cancel</Button
+		>
+		<Button
+			btnClasses="grow"
+			color="green"
+			on:click|once={resume}
+			size="md"
+			disabled={completed || alreadyResumed}>Approve/Resume</Button
+		>
+	</div>
+	<div>
+		<h3 class="mt-2">message (optional)</h3>
+		<input type="text" bind:value={message} use:autosize />
+	</div>
 
 	<div class="mt-4 flex flex-row flex-wrap justify-between"
 		><a href="https://windmill.dev">Learn more about Windmill</a>

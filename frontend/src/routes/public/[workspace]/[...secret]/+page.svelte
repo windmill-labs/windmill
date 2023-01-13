@@ -68,6 +68,7 @@
 {:else if app}
 	<div class="border rounded-md p-2 w-full">
 		<AppPreview
+			noBackend={false}
 			context={{ email: $userStore?.email, username: $userStore?.username }}
 			workspace={$page.params.workspace}
 			summary={app.summary}

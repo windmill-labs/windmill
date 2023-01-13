@@ -65,13 +65,13 @@
 				on:click={(e) => {
 					e.preventDefault()
 					copyToClipboard(
-						`${$page.url.protocol}//${$page.url.hostname}/api/w/${$workspaceStore}/capture/${$flowStore.path}`
+						`${$page.url.protocol}//${$page.url.hostname}/api/w/${$workspaceStore}/capture_u/${$flowStore.path}`
 					)
 				}}
 				href="{$page.url.protocol}//{$page.url
-					.hostname}/api/w/{$workspaceStore}/capture/{$flowStore.path}"
+					.hostname}/api/w/{$workspaceStore}/capture_u/{$flowStore.path}"
 				>{$page.url.protocol}//{$page.url
-					.hostname}/api/w/{$workspaceStore}/capture/{$flowStore.path}
+					.hostname}/api/w/{$workspaceStore}/capture_u/{$flowStore.path}
 				<Icon data={faClipboard} /></a
 			>
 		</div>
@@ -79,7 +79,7 @@
 
 		<div class="text-xs box mb-4 b">
 			<pre class="overflow-auto"
-				>{`curl -X POST ${$page.url.protocol}//${$page.url.hostname}/api/w/${$workspaceStore}/capture/${$flowStore.path} \\
+				>{`curl -X POST ${$page.url.protocol}//${$page.url.hostname}/api/w/${$workspaceStore}/capture_u/${$flowStore.path} \\
    -H 'Content-Type: application/json' \\
    -d '{"foo": 42}'`}</pre
 			>

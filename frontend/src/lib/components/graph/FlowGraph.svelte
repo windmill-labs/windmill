@@ -90,7 +90,6 @@
 	): GraphItem | undefined {
 		const type = module.value.type
 		const parentIds = getParentIds(parent)
-
 		if (type === 'rawscript') {
 			const lang = module.value.language
 			return flowModuleToNode(

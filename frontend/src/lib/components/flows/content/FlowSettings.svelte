@@ -41,7 +41,6 @@
 								type="text"
 								bind:value={$flowStore.summary}
 								placeholder="A short summary of the flow displayed when the flow is listed"
-								rows="1"
 								id="flow-summary"
 							/>
 						</label>

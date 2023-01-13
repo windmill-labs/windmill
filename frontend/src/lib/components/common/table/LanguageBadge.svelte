@@ -34,5 +34,7 @@
 	baseClass={classNames(baseClassByLanguage, 'flex gap-1 items-center')}
 >
 	<LanguageIcon lang={language} width={12} height={12} />
-	{languageLabel}
+	<span class="hidden lg:inline">
+		{languageLabel}
+	</span>
 </Badge>

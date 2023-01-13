@@ -4,8 +4,7 @@
 
 	import { copyToClipboard } from '$lib/utils'
 
-	import { faClipboard, faFileExport } from '@fortawesome/free-solid-svg-icons'
-	import Icon from 'svelte-awesome'
+	import { faClipboard } from '@fortawesome/free-solid-svg-icons'
 	import { Highlight } from 'svelte-highlight'
 	import json from 'svelte-highlight/languages/json'
 	import { Button } from '../../common'
@@ -13,13 +12,12 @@
 
 	let jsonViewerDrawer: Drawer
 
+	export function open() {
+		jsonViewerDrawer?.toggleDrawer()
+	}
+
 	export let app: App
 </script>
-
-<Button size="sm" variant="border" color="light" on:click={() => jsonViewerDrawer.toggleDrawer()}>
-	<Icon data={faFileExport} scale={0.6} class="inline mr-2" />
-	JSON
-</Button>
 
 <Drawer bind:this={jsonViewerDrawer} size="800px">
 	<DrawerContent title="App JSON" on:close={() => jsonViewerDrawer.toggleDrawer()}>

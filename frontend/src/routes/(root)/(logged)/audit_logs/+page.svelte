@@ -19,7 +19,7 @@
 	let pageIndex: number | undefined = Number($page.url.searchParams.get('page')) || undefined
 	let before: string | undefined = $page.url.searchParams.get('before') ?? undefined
 	let after: string | undefined = $page.url.searchParams.get('after') ?? undefined
-	let perPage: number | undefined = Number($page.url.searchParams.get('perPage')) || undefined
+	let perPage: number | undefined = Number($page.url.searchParams.get('perPage')) || 100
 	let operation: string | undefined = $page.url.searchParams.get('operation') ?? undefined
 	let resource: string | undefined = $page.url.searchParams.get('resource') ?? undefined
 	let actionKind: ActionKind | undefined =

@@ -51,12 +51,14 @@
 		}
 	}
 
+	let loading = false
 	async function runScript(
 		scheduledForStr: string | undefined,
 		args: Record<string, any>,
 		invisibleToOwner?: boolean
 	) {
 		try {
+			loading = true
 			const scheduledFor = scheduledForStr ? new Date(scheduledForStr).toISOString() : undefined
 			let run = await JobService.runScriptByHash({
 				workspace: $workspaceStore!,
@@ -67,6 +69,7 @@
 			})
 			await goto('/run/' + run + '?workspace=' + $workspaceStore)
 		} catch (err) {
+			loading = false
 			sendUserToast(`Could not create job: ${err.body}`, true)
 		}
 	}
@@ -158,9 +161,11 @@
 					</div>
 				</div>
 			</div>
-			<div class="prose text-sm box max-w-6xl w-full mb-4 mt-8">
-				{defaultIfEmptyString(script.description, 'No description')}
-			</div>
+			{#if !emptyString(script.description)}
+				<div class="prose text-sm box max-w-6xl w-full mb-4 mt-8">
+					{defaultIfEmptyString(script.description, 'No description')}
+				</div>
+			{/if}
 		</div>
 
 		{#if script?.lock_error_logs}
@@ -179,6 +184,7 @@
 			</div>
 		{:else}
 			<RunForm
+				{loading}
 				autofocus
 				detailed={false}
 				bind:isValid

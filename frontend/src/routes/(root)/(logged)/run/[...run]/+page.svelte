@@ -24,13 +24,14 @@
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
-	import { Button, ActionRow, Skeleton, Tab } from '$lib/components/common'
+	import { Button, ActionRow, Skeleton, Tab, Alert } from '$lib/components/common'
 	import FlowMetadata from '$lib/components/FlowMetadata.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import Dropdown from '$lib/components/Dropdown.svelte'
 
 	$: workspace_id = $page.url.searchParams.get('workspace') ?? $workspaceStore
 	$: not_same_workspace = workspace_id !== $workspaceStore
@@ -123,16 +124,21 @@
 				{@const isScript = job?.job_kind === 'script'}
 				{@const runsHref = `/runs/${job?.script_path}${!isScript ? '?jobKind=flow' : ''}`}
 				{#if job && 'deleted' in job && !job?.deleted && ($superadmin || ($userStore?.is_admin ?? false))}
-					<Button
-						disabled={not_same_workspace}
-						variant="border"
-						color="red"
-						size="md"
-						startIcon={{ icon: faTrash }}
-						on:click={() => job?.id && deleteCompletedJob(job.id)}
+					<Dropdown
+						btnClasses="!text-red-500"
+						placement="bottom-start"
+						dropdownItems={[
+							{
+								displayName: 'delete log and results (admin only)',
+								icon: faTrash,
+								action: () => {
+									job?.id && deleteCompletedJob(job.id)
+								}
+							}
+						]}
 					>
-						Delete
-					</Button>
+						delete
+					</Dropdown>
 					<Button
 						disabled={not_same_workspace}
 						href={runsHref}
@@ -275,11 +281,10 @@
 				{/if}
 			</div>
 		</h1>
-		{#if job && 'deleted' in job && job?.deleted}
-			<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4" role="alert">
-				<p class="font-bold">Deleted</p>
-				<p>The content of this run was deleted (by an admin, no less)</p>
-			</div>
+		{#if job?.['deleted']}
+			<Alert type="error" title="Deleted">
+				The content of this run was deleted (by an admin, no less)
+			</Alert>
 		{/if}
 
 		<!-- Arguments and actions -->
@@ -329,7 +334,7 @@
 					</div>
 				{/if}
 			</div>
-		{:else}
+		{:else if !job?.['deleted']}
 			<div class="mt-10" />
 			<FlowProgressBar {job} class="py-4" />
 			<div class="w-full mt-10 mb-20">

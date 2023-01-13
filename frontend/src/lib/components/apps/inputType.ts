@@ -69,8 +69,9 @@ export type Runnable = RunnableByPath | RunnableByName | undefined
 // Runnable input, set by the developer in the component panel
 export type ResultInput = {
 	runnable: Runnable
-	fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
+	fields: Record<string, (StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput)>
 	type: 'runnable'
+	value?: any
 }
 
 type AppInputSpec<T extends InputType, U, V extends InputType = never> = (
