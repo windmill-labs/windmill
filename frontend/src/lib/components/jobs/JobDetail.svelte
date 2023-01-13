@@ -150,7 +150,7 @@
 				{#if 'started_at' in job && job.started_at}
 					<div>
 						<Icon class="text-gray-700" data={faClock} scale={SMALL_ICON_SCALE} /><span
-							class="mx-2"
+							class="mx-1.5"
 						>
 							Started {displayDaysAgo(job.started_at ?? '')}</span
 						>
