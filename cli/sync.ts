@@ -326,13 +326,13 @@ async function push(opts: GlobalOptions) {
     } catch {
       file = {};
     }
-    const eContent = entry.getContent();
+    const eContent = await entry.getContent();
 
     const fileHash = objectHash(file);
     const eHash = objectHash(eContent);
 
     if (fileHash !== eHash) {
-      const diff = microdiff(eContent, file, { cyclesFix: false });
+      const diff = microdiff(eContent as any, file, { cyclesFix: false });
       await applyDiff(
         workspace.workspaceId,
         entry.path.split(".")[0],
