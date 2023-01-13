@@ -417,7 +417,7 @@ pub async fn run_worker(
     let pip_trusted_host = std::env::var("PIP_TRUSTED_HOST").ok();
     let max_log_size = std::env::var("MAX_LOG_SIZE")
         .ok()
-        .and_then(|x| x.parse::<i32>().ok())
+        .and_then(|x| x.parse::<i64>().ok())
         .unwrap_or(500000);
 
     #[cfg(feature = "enterprise")]
@@ -739,7 +739,7 @@ struct Envs {
     pip_index_url: Option<String>,
     pip_extra_index_url: Option<String>,
     pip_trusted_host: Option<String>,
-    max_log_size: i32,
+    max_log_size: i64,
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -2088,7 +2088,7 @@ async fn install_go_dependencies(
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     timeout: i32,
-    max_log_size: i32,
+    max_log_size: i64,
     go_path: &str,
     preview: bool,
     skip_go_mod: bool,
@@ -2192,7 +2192,7 @@ async fn handle_child(
     db: &Pool<Postgres>,
     logs: &mut String,
     timeout: i32,
-    max_log_size: i32,
+    max_log_size: i64,
     mut child: Child,
 ) -> error::Result<()> {
     let timeout = Duration::from_secs(u64::try_from(timeout).expect("invalid timeout"));
@@ -2399,9 +2399,9 @@ async fn handle_child(
     kill_tx.send(()).expect("send should always work");
 
     match wait_result {
-        _ if *too_many_logs.borrow() => Err(Error::ExecutionErr(
-            "logs or result reached limit".to_string(),
-        )),
+        _ if *too_many_logs.borrow() => Err(Error::ExecutionErr(format!(
+            "logs or result reached limit. Set MAX_LOG_SIZE higher (current: {max_log_size})"
+        ))),
         Ok(Ok(status)) => {
             if status.success() {
                 Ok(())
