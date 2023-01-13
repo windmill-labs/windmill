@@ -71,7 +71,7 @@ export function inferTypeFromPath(
   | FolderFile {
   const parsed = path.parse(p);
   if (parsed.ext !== "json") {
-    throw new Error("Cannot infer type of non-json file");
+    throw new Error("Cannot infer type of non-json file " + p);
   }
   if (parsed.name === "folder.meta") {
     return decoverto.type(FolderFile).plainToInstance(obj);
