@@ -173,6 +173,8 @@ async function getState(opts: GlobalOptions) {
       ) {
         opts.workspace = res.value.name;
         (opts as any).__secret_workspace = res.value;
+        break;
+        5;
       }
     }
     if (res.done) {
@@ -316,9 +318,14 @@ async function push(opts: GlobalOptions) {
 
   for (const p of state.tracked.keys()) {
     const entry = state.get(p);
-    const file = JSON.parse(
-      await Deno.readTextFile(path.join(state.stateRoot!, entry.path)),
-    );
+    let file;
+    try {
+      file = JSON.parse(
+        await Deno.readTextFile(path.join(state.stateRoot!, entry.path)),
+      );
+    } catch {
+      file = {};
+    }
     const eContent = entry.getContent();
 
     const fileHash = objectHash(file);
