@@ -63,6 +63,13 @@
 	const dispatch = createEventDispatcher()
 	let drawer: Drawer
 
+	function handleKeyUp(event: KeyboardEvent) {
+		const key = event.key
+		if (key === 'Enter') {
+			dispatch('save')
+		}
+	}
+
 	export function openDrawer(): void {
 		drawer.openDrawer()
 		resource_type = property.format?.substring(5)
@@ -96,6 +103,8 @@
 		error = ''
 	}
 </script>
+
+<svelte:window on:keyup={handleKeyUp} />
 
 <Drawer bind:this={drawer} placement="right">
 	<DrawerContent on:close={clearModal} title="Add an argument">
