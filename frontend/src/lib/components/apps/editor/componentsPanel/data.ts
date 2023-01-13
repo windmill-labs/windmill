@@ -228,10 +228,9 @@ const display: ComponentSet = {
 				value: `<img
 	src="https://images.unsplash.com/photo-1554629947-334ff61d85dc?ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&amp;ixlib=rb-1.2.1&amp;auto=format&amp;fit=crop&amp;w=1024&amp;h=1280&amp;q=80"
 >
-<div class="absolute top-4 left-2  text-white">
+<h1 class="absolute top-4 left-2 text-white">
 	Hello \${ctx.username}
-</div>			
-`,
+</h1>`,
 			},
 			configuration: {},
 			card: false
