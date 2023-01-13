@@ -72,8 +72,11 @@ export class ResourceTypeFile implements ResourceI, PushDiffs {
       const changeset: EditResourceType = {};
       for (const diff of diffs) {
         if (
-          diff.path.length !== 1 ||
-          !(diff.path[0] in ["schema", "description"])
+          diff.type !== "REMOVE" &&
+          (
+            diff.path.length !== 1 ||
+            !(diff.path[0] in ["schema", "description"])
+          )
         ) {
           throw new Error("Invalid resource type diff with path " + diff.path);
         }

@@ -49,6 +49,7 @@ export class FolderFile implements Resource, PushDiffs {
     remotePath: string,
     diffs: Difference[],
   ): Promise<void> {
+    console.log(diffs);
     if (remotePath.startsWith("/")) {
       remotePath = remotePath.substring(1);
     }
@@ -76,8 +77,11 @@ export class FolderFile implements Resource, PushDiffs {
       } = {};
       for (const diff of diffs) {
         if (
-          diff.path.length !== 1 ||
-          !(diff.path[0] in ["owners", "extra_perms"])
+          diff.type !== "REMOVE" &&
+          (
+            diff.path.length !== 1 ||
+            !(diff.path[0] in ["owners", "extra_perms"])
+          )
         ) {
           throw new Error("Invalid folder diff with path " + diff.path);
         }

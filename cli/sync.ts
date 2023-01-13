@@ -19,6 +19,7 @@ import {
   setValueByPath,
 } from "./types.ts";
 import { downloadTar } from "./pull.ts";
+import { FolderFile } from "./folder.ts";
 
 type TrackedId = string;
 const TrackedId = String;
@@ -353,6 +354,14 @@ async function push(opts: GlobalOptions) {
     diffs: Difference[],
   ) {
     const typed = inferTypeFromPath(path, file);
+    if (typed instanceof FolderFile) {
+      const parts = remotePath.split("/");
+      if (parts[0] === "f") {
+        remotePath = parts[1];
+      } else {
+        remotePath = parts[0];
+      }
+    }
     return typed.pushDiffs(workspace, remotePath, diffs);
   }
 }

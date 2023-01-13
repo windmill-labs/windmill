@@ -59,9 +59,12 @@ export class ResourceFile implements Resource2, PushDiffs {
           continue;
         }
         if (
-          diff.path[0] !== "value" && (
-            diff.path.length !== 1 ||
-            !(diff.path[0] in ["description"])
+          diff.type !== "REMOVE" &&
+          (
+            diff.path[0] !== "value" && (
+              diff.path.length !== 1 ||
+              !(diff.path[0] in ["description"])
+            )
           )
         ) {
           throw new Error("Invalid folder diff with path " + diff.path);

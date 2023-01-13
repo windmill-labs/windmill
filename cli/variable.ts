@@ -73,8 +73,12 @@ export class VariableFile implements Resource, PushDiffs {
       const changeset: EditVariable = {};
       for (const diff of diffs) {
         if (
-          diff.path.length !== 1 ||
-          !(diff.path[0] in ["path", "description", "is_secret", "description"])
+          diff.type !== "REMOVE" &&
+          (
+            diff.path.length !== 1 ||
+            !(diff.path[0] in
+              ["path", "description", "is_secret", "description"])
+          )
         ) {
           throw new Error("Invalid variable diff with path " + diff.path);
         }

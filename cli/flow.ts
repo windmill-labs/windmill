@@ -76,9 +76,12 @@ export class FlowFile implements Resource, PushDiffs {
       };
       for (const diff of diffs) {
         if (
-          diff.path[0] !== "value" && (
-            diff.path.length !== 1 ||
-            !(diff.path[0] in ["summary", "description", "schema"])
+          diff.type !== "REMOVE" &&
+          (
+            diff.path[0] !== "value" && (
+              diff.path.length !== 1 ||
+              !(diff.path[0] in ["summary", "description", "schema"])
+            )
           )
         ) {
           throw new Error("Invalid flow diff with path " + diff.path);
