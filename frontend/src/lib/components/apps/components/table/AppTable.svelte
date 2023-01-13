@@ -122,9 +122,9 @@
 	{#if Array.isArray(result) && result.every(isObject)}
 		<div class="border border-gray-300 shadow-sm divide-y divide-gray-300  flex flex-col h-full">
 			{#if search !== 'Disabled'}
-				<div class="px-4 py-2">
+				<div class="px-2 py-1">
 					<div class="flex items-center">
-						<div>
+						<div class="grow max-w-[300px]">
 							<DebouncedInput placeholder="Search..." bind:value={searchValue} />
 						</div>
 					</div>
