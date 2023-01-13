@@ -70,8 +70,8 @@ export function inferTypeFromPath(
   | ResourceTypeFile
   | FolderFile {
   const parsed = path.parse(p);
-  if (parsed.ext !== "json") {
-    throw new Error("Cannot infer type of non-json file " + p);
+  if (parsed.ext !== ".json") {
+    throw new Error("Cannot infer type of non-json file " + parsed);
   }
   if (parsed.name === "folder.meta") {
     return decoverto.type(FolderFile).plainToInstance(obj);
@@ -88,6 +88,6 @@ export function inferTypeFromPath(
   } else if (typeEnding === "resource-type") {
     return decoverto.type(ResourceTypeFile).plainToInstance(obj);
   } else {
-    throw new Error("Could not infer type of path " + path);
+    throw new Error("Could not infer type of path " + parsed);
   }
 }
