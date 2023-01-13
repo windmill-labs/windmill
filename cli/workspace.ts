@@ -213,7 +213,7 @@ export async function add(
   }
 
   if (opts.create) {
-    setClient(token, remote.substring(0, remote.length - 1));
+    setClient(token, remote.endsWith('/') ? remote.substring(0, remote.length - 1) : remote);
 
     if (
       !await WorkspaceService.existsWorkspace({

@@ -54,11 +54,12 @@
 			<Button size="xs" color="light" variant="border" startIcon={{ icon: faEdit }} on:click={edit}>
 				Edit
 			</Button>
-			<Button size="xs" color="light" variant="border" on:click={detach}
-				>Detach <Tooltip
-					>Detaching an inline script keep it for later to be reused by another component</Tooltip
-				></Button
-			>
+			<Button size="xs" color="light" variant="border" on:click={detach}>
+				Detach
+				<Tooltip>
+					Detaching an inline script keep it for later to be reused by another component
+				</Tooltip>
+			</Button>
 		{/if}
 		<Button size="xs" color="red" variant="border" startIcon={{ icon: faClose }} on:click={clear}>
 			Clear

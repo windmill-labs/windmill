@@ -10,7 +10,7 @@
 use axum::{
     body::{self, BoxBody},
     response::IntoResponse,
-    Json,
+    response::Json,
 };
 
 #[cfg(feature = "sqlx")]

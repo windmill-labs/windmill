@@ -11,10 +11,12 @@ use std::{collections::HashMap, fmt::Debug};
 use std::sync::Arc;
 
 use anyhow::Context;
+use axum::extract::FromRequestParts;
+use axum::http::request::Parts;
 use axum::{
     async_trait,
     body::Bytes,
-    extract::{Extension, FromRequest, Path, Query, RequestParts},
+    extract::{Extension, Path, Query},
     response::Redirect,
     routing::{get, post},
     Json, Router,
@@ -485,10 +487,10 @@ struct VariablePath {
 async fn refresh_token(
     authed: Authed,
     Path((w_id, id)): Path<(String, i32)>,
-    Json(VariablePath { path }): Json<VariablePath>,
     Extension(user_db): Extension<UserDB>,
     Extension(clients): Extension<Arc<AllClients>>,
     Extension(http_client): Extension<Client>,
+    Json(VariablePath { path }): Json<VariablePath>,
 ) -> error::Result<String> {
     let tx = user_db.begin(&authed).await?;
 
@@ -606,9 +608,9 @@ pub struct OAuthCallback {
 async fn connect_callback(
     cookies: Cookies,
     Path(client_name): Path<String>,
-    Json(callback): Json<OAuthCallback>,
     Extension(clients): Extension<Arc<AllClients>>,
     Extension(http_client): Extension<Client>,
+    Json(callback): Json<OAuthCallback>,
 ) -> error::JsonResult<TokenResponse> {
     let client_w_scopes = &clients
         .connects
@@ -628,10 +630,10 @@ async fn connect_slack_callback(
     Path(w_id): Path<String>,
     authed: Authed,
     cookies: Cookies,
-    Json(callback): Json<OAuthCallback>,
     Extension(user_db): Extension<UserDB>,
     Extension(clients): Extension<Arc<AllClients>>,
     Extension(http_client): Extension<Client>,
+    Json(callback): Json<OAuthCallback>,
 ) -> error::Result<String> {
     let client = clients
         .slack
@@ -656,19 +658,18 @@ async fn connect_slack_callback(
     .execute(&mut tx)
     .await?;
     sqlx::query!(
-        "INSERT INTO group_
-                (workspace_id, name, summary)
-                VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+        "INSERT INTO folder
+                (workspace_id, name, owners, extra_perms)
+                VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
         &w_id,
-        "slack",
-        "The group that runs the script triggered by the slack /windmill command.
-                         Share scripts to this group to make them executable from slack and add
-                         members to this group to let them manage the slack related owner space."
+        "slack_bot",
+        &[],
+        serde_json::json!({})
     )
     .execute(&mut tx)
     .await?;
 
-    let token_path = "g/slack/bot_token";
+    let token_path = "f/slack_bot/bot_token";
     let mc = build_crypt(&mut tx, &w_id).await?;
     let value = encrypt(&mc, &token.bot.bot_access_token);
     sqlx::query!(
@@ -718,14 +719,17 @@ pub struct SlackSig {
 }
 
 #[async_trait]
-impl<B> FromRequest<B> for SlackSig
+impl<S> FromRequestParts<S> for SlackSig
 where
-    B: Send,
+    S: Send + Sync,
 {
     type Rejection = (StatusCode, String);
 
-    async fn from_request(req: &mut RequestParts<B>) -> std::result::Result<Self, Self::Rejection> {
-        let hm = req.headers();
+    async fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> std::result::Result<Self, Self::Rejection> {
+        let hm = &parts.headers;
         Ok(Self {
             sig: hm
                 .get("X-Slack-Signature")
@@ -834,13 +838,13 @@ pub struct UserInfo {
 
 async fn login_callback(
     Path(client_name): Path<String>,
-    Json(callback): Json<OAuthCallback>,
     cookies: Cookies,
     Extension(clients): Extension<Arc<AllClients>>,
     Extension(db): Extension<DB>,
     Extension(http_client): Extension<Client>,
     Extension(is_secure): Extension<Arc<IsSecure>>,
     Extension(cookie_domain): Extension<Arc<CookieDomain>>,
+    Json(callback): Json<OAuthCallback>,
 ) -> error::Result<String> {
     let client_w_config = &clients
         .logins

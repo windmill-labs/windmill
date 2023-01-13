@@ -6,6 +6,7 @@ import type {
 	AppInput,
 	ConnectedAppInput,
 	ConnectedInput,
+	RowAppInput,
 	StaticAppInput,
 	UserAppInput
 } from './inputType'
@@ -20,6 +21,7 @@ export type TextInputComponent = BaseComponent<'textinputcomponent'>
 export type PasswordInputComponent = BaseComponent<'passwordinputcomponent'>
 export type DateInputComponent = BaseComponent<'dateinputcomponent'>
 export type NumberInputComponent = BaseComponent<'numberinputcomponent'>
+export type SliderComponent = BaseComponent<'slidercomponent'>
 export type HtmlComponent = BaseComponent<'htmlcomponent'>
 export type TimeseriesComponent = BaseComponent<'timeseriescomponent'>
 export type ButtonComponent = BaseComponent<'buttoncomponent'> & {
@@ -56,7 +58,10 @@ export type Aligned = {
 export interface BaseAppComponent extends Partial<Aligned> {
 	id: ComponentID
 	componentInput: AppInput | undefined
-	configuration: Record<string, (StaticAppInput | ConnectedAppInput | UserAppInput) & { onlyStatic?: boolean }>
+	configuration: Record<string, (StaticAppInput | ConnectedAppInput | UserAppInput | RowAppInput) & {
+		onlyStatic?: boolean,
+		tooltip?: string
+	}>
 	card: boolean | undefined
 	/**
 	 * If `true` then the wrapper will allow items to flow outside of it's borders.
@@ -74,6 +79,7 @@ export type AppComponent = BaseAppComponent &
 		| PasswordInputComponent
 		| DateInputComponent
 		| NumberInputComponent
+		| SliderComponent
 		| BarChartComponent
 		| TimeseriesComponent
 		| HtmlComponent
@@ -142,11 +148,13 @@ export type AppEditorContext = {
 	connectingInput: Writable<ConnectingInput>
 	breakpoint: Writable<EditorBreakpoint>
 	runnableComponents: Writable<Record<string, () => Promise<void>>>
+	staticExporter: Writable<Record<string, () => any>>
 	appPath: string,
 	workspace: string,
 	onchange: (() => void) | undefined,
 	isEditor: boolean,
-	jobs: Writable<{ job: string, component: string }[]>
+	jobs: Writable<{ job: string, component: string }[]>,
+	noBackend: boolean
 }
 
 export type EditorMode = 'dnd' | 'preview'

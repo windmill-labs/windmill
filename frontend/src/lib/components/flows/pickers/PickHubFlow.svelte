@@ -35,7 +35,7 @@
 />
 <div class="w-full flex mt-1 items-center gap-2">
 	<slot />
-	<input type="text" placeholder="Search Hub Scripts" bind:value={filter} class="text-2xl grow" />
+	<input type="text" placeholder="Search Hub Flows" bind:value={filter} class="text-2xl grow" />
 </div>
 <ListFilters filters={apps} bind:selectedFilter={appFilter} resourceType />
 
@@ -74,6 +74,8 @@
 		</ul>
 	{/if}
 {:else}
+	<div class="my-2" />
+
 	{#each Array(10).fill(0) as _}
 		<Skeleton layout={[[4], 0.5]} />
 	{/each}

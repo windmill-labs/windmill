@@ -17,7 +17,7 @@
 	async function fork(path: string) {
 		let { content, language, schema } = await getScriptByPath(path)
 		if (componentInput && componentInput.type == 'runnable') {
-			if (!schema || Object.keys(schema).length == 0) {
+			if (!schema || typeof schema == 'string' || Object.keys(schema).length == 0) {
 				schema = emptySchema()
 				await inferArgs(language, content, schema)
 			}

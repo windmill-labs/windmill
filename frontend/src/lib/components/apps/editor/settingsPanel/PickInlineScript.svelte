@@ -38,7 +38,6 @@
 >
 	<div class="flex justify-center flex-col items-center gap-2">
 		<MousePointerClick size={18} />
-
 		<span class="text-xs">Pick</span>
 	</div>
 </Button>

@@ -8,7 +8,7 @@
 	} from '@fortawesome/free-solid-svg-icons'
 
 	import { setInputCat as computeInputCat, type InputCat } from '$lib/utils'
-	import { Button } from './common'
+	import { Badge, Button } from './common'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import FieldHeader from './FieldHeader.svelte'
@@ -24,6 +24,8 @@
 	import Password from './Password.svelte'
 	import type VariableEditor from './VariableEditor.svelte'
 	import type ItemPicker from './ItemPicker.svelte'
+	import NumberTypeNarrowing from './NumberTypeNarrowing.svelte'
+	import Range from './Range.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -53,6 +55,7 @@
 	export let variableEditor: VariableEditor | undefined = undefined
 	export let itemPicker: ItemPicker | undefined = undefined
 	export let noMargin = false
+	export let extra: Record<string, any> = {}
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
@@ -142,12 +145,15 @@
 	$: {
 		if (value == undefined || value == null) {
 			value = defaultValue
-			if (defaultValue === undefined || defaultValue === null)
+			if (defaultValue === undefined || defaultValue === null) {
 				if (inputCat === 'string') {
 					value = ''
 				} else if (inputCat == 'enum') {
 					value = enum_?.[0]
+				} else if (inputCat == 'boolean') {
+					value = false
 				}
+			}
 		}
 	}
 
@@ -155,7 +161,7 @@
 	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
 </script>
 
-<div class="flex flex-col w-full">
+<div class="flex flex-col w-full min-w-[250px]">
 	<div>
 		{#if displayHeader}
 			<FieldHeader {label} {required} {type} {contentEncoding} {format} {itemsType} />
@@ -185,6 +191,8 @@
 							/>
 							{#if type == 'string' && format != 'date-time'}
 								<StringTypeNarrowing bind:format bind:pattern bind:enum_ bind:contentEncoding />
+							{:else if type == 'number'}
+								<NumberTypeNarrowing bind:min={extra['min']} bind:max={extra['max']} />
 							{:else if type == 'object'}
 								<ObjectTypeNarrowing bind:format />
 							{:else if type == 'array'}
@@ -212,20 +220,40 @@
 
 		<div class="flex space-x-1">
 			{#if inputCat == 'number'}
-				<input
-					{autofocus}
-					on:focus
-					{disabled}
-					type="number"
-					class={valid
-						? ''
-						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}
-					placeholder={defaultValue ?? ''}
-					bind:value
-					on:input={() => dispatch('input', { value, isRaw: true })}
-				/>
+				{#if extra['min'] != undefined && extra['max'] != undefined}
+					<div class="flex w-full gap-1">
+						<span>{extra['min']}</span>
+						<div class="grow">
+							<Range bind:value min={extra['min']} max={extra['max']} />
+						</div>
+						<span>{extra['max']}</span>
+						<span class="mx-2"><Badge large color="blue">{value}</Badge></span>
+					</div>
+				{:else}
+					<input
+						{autofocus}
+						on:focus={(e) => {
+							window.dispatchEvent(new Event('pointerup'))
+							dispatch('focus')
+						}}
+						{disabled}
+						type="number"
+						class={valid
+							? ''
+							: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}
+						placeholder={defaultValue ?? ''}
+						bind:value
+						min={extra['min']}
+						max={extra['max']}
+						on:input={() => dispatch('input', { value, isRaw: true })}
+					/>
+				{/if}
 			{:else if inputCat == 'boolean'}
 				<Toggle
+					on:pointerdown={(e) => {
+						e?.stopPropagation()
+						window.dispatchEvent(new Event('pointerup'))
+					}}
 					{disabled}
 					class={valid
 						? ''
@@ -303,7 +331,10 @@
 				{:else}
 					<textarea
 						bind:this={el}
-						on:focus
+						on:focus={(e) => {
+							window.dispatchEvent(new Event('pointerup'))
+							dispatch('focus')
+						}}
 						{autofocus}
 						{disabled}
 						use:autosize
@@ -319,7 +350,15 @@
 					/>
 				{/if}
 			{:else if inputCat == 'enum'}
-				<select {disabled} class="px-6" bind:value>
+				<select
+					on:focus={(e) => {
+						window.dispatchEvent(new Event('pointerup'))
+						dispatch('focus')
+					}}
+					{disabled}
+					class="px-6"
+					bind:value
+				>
 					{#each enum_ ?? [] as e}
 						<option>{e}</option>
 					{/each}
@@ -329,7 +368,10 @@
 			{:else if inputCat == 'sql' || inputCat == 'yaml'}
 				<div class="border my-1 mb-4 w-full border-gray-400">
 					<SimpleEditor
-						on:focus={() => dispatch('focus')}
+						on:focus={(e) => {
+							window.dispatchEvent(new Event('pointerup'))
+							dispatch('focus')
+						}}
 						on:blur={() => dispatch('blur')}
 						bind:this={editor}
 						lang={inputCat}
@@ -365,7 +407,10 @@
 								{autofocus}
 								rows="1"
 								bind:this={el}
-								on:focus={() => dispatch('focus')}
+								on:focus={(e) => {
+									window.dispatchEvent(new Event('pointerup'))
+									dispatch('focus')
+								}}
 								on:blur={() => dispatch('blur')}
 								use:autosize
 								type="text"
@@ -381,16 +426,13 @@
 							/>
 							{#if itemPicker}
 								<div class="ml-1 relative">
-									<Button
-										{disabled}
-										variant="border"
-										color="blue"
-										size="sm"
-										btnClasses="min-w-min min-h-[34px] items-center leading-4 py-0"
+									<!-- svelte-ignore a11y-click-events-have-key-events -->
+									<div
+										class="min-w-min min-h-[34px] items-center leading-4 px-3 text-blue-500 cursor-pointer border border-blue-500 rounded center-center"
 										on:click={() => {
 											pickForField = label
 											itemPicker?.openDrawer?.()
-										}}><Icon data={faDollarSign} /></Button
+										}}><Icon data={faDollarSign} /></div
 									>
 								</div>
 							{/if}

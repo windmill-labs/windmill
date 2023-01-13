@@ -7,6 +7,7 @@
 	export let placement: `${typeof SIDE[number]}` | `${typeof SIDE[number]}-${typeof ALIGN[number]}` = 'auto'
 	export let notClickable = false
 	export let popupClass = ''
+	export let disapperTimoout = 100
 
 	const [popperRef, popperContent] = createPopperActions({ placement })
 	const betterPreventOverflow = (options) => ({
@@ -39,20 +40,30 @@
 		showTooltip = true
 	}
 	function close() {
-		timeout = setTimeout(() => (showTooltip = false), 100)
+		timeout = setTimeout(() => (showTooltip = false), disapperTimoout)
 	}
 </script>
 
-<button
-	class:cursor-default={notClickable}
-	use:popperRef
-	on:mouseenter={open}
-	on:mouseleave={close}
-	on:click
-	class={$$props.class}
->
-	<slot />
-</button>
+{#if notClickable}
+	<span
+		use:popperRef
+		on:mouseenter={open}
+		on:mouseleave={close}
+		class={$$props.class}
+	>
+		<slot />
+	</span>
+{:else}
+	<button
+		use:popperRef
+		on:mouseenter={open}
+		on:mouseleave={close}
+		on:click
+		class={$$props.class}
+	>
+		<slot />
+	</button>
+{/if}
 {#if showTooltip}
 	<div
 		use:popperContent={extraOpts}

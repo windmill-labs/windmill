@@ -98,12 +98,14 @@
 
 	let runForm: RunForm | undefined
 	let isValid = true
+	let loading = false
 
 	async function runFlow(
 		scheduledForStr: string | undefined,
 		args: Record<string, any>,
 		invisibleToOwner?: boolean
 	) {
+		loading = true
 		const scheduledFor = scheduledForStr ? new Date(scheduledForStr).toISOString() : undefined
 		let run = await JobService.runFlowByPath({
 			workspace: $workspaceStore!,
@@ -236,6 +238,7 @@
 				<div class="col-span-2">
 					<h2 class="mb-2">Preview</h2>
 					<RunForm
+						{loading}
 						autofocus
 						detailed={false}
 						bind:isValid
@@ -244,9 +247,11 @@
 						runAction={runFlow}
 					/>
 				</div>
-				<div class="box">
-					{defaultIfEmptyString(flow.description, 'No description')}
-				</div>
+				{#if !emptyString(flow.description)}
+					<div class="box">
+						{defaultIfEmptyString(flow.description, 'No description')}
+					</div>
+				{/if}
 			</div>
 			<div class="mt-4">
 				<FlowViewer {flow} noSummary={true} />

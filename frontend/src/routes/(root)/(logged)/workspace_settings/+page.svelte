@@ -23,6 +23,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton/ToggleButton.svelte'
+	import AddUser from '$lib/components/AddUser.svelte'
 
 	let users: User[] | undefined = undefined
 	let invites: WorkspaceInvite[] = []
@@ -35,6 +36,7 @@
 	let itemKind: 'flow' | 'script' = 'flow'
 	let operatorOnly: boolean | undefined = undefined
 	let premium_info: { premium: boolean; usage?: number } | undefined = undefined
+	let nbDisplayed = 30
 
 	// function getDropDownItems(username: string): DropdownItem[] {
 	// 	return [
@@ -109,8 +111,6 @@
 		}
 	}
 
-	$: operatorOnly != undefined && auto_invite_domain && setOperatorOnly()
-
 	async function removeAllInvitesFromDomain() {
 		await Promise.all(
 			invites
@@ -127,15 +127,6 @@
 				)
 		)
 	}
-	async function setOperatorOnly() {
-		await removeAllInvitesFromDomain()
-		await WorkspaceService.editAutoInvite({
-			workspace: $workspaceStore ?? '',
-			requestBody: { operator: operatorOnly }
-		})
-		loadSettings()
-		listInvites()
-	}
 </script>
 
 <SearchItems
@@ -149,12 +140,14 @@
 	{#if $userStore?.is_admin}
 		<PageHeader title="Workspace Settings of {$workspaceStore}" />
 
-		<PageHeader title="Members" primary={false} />
+		<PageHeader title="Members ({users?.length ?? ''})" primary={false} />
 
-		<div class="pb-1">
+		<AddUser on:new={listUsers} />
+
+		<div class="pt-2 pb-1">
 			<input placeholder="Search users" bind:value={userFilter} class="input mt-1" />
 		</div>
-		<div class="overflow-auto max-h-screen">
+		<div class="overflow-auto max-h-screen mb-20">
 			<TableCustom>
 				<tr slot="header-row">
 					<th>email</th>
@@ -171,7 +164,7 @@
 				</tr>
 				<tbody slot="body">
 					{#if filteredUsers}
-						{#each filteredUsers as { email, username, is_admin, operator, usage, disabled } (email)}
+						{#each filteredUsers.slice(0, nbDisplayed) as { email, username, is_admin, operator, usage, disabled } (email)}
 							<tr class="border">
 								<td>{email}</td>
 								<td>{username}</td>
@@ -249,6 +242,13 @@
 								</td>
 							</tr>
 						{/each}
+						{#if filteredUsers?.length > 50}
+							<span class="text-xs"
+								>{nbDisplayed} items out of {filteredUsers.length}
+								<button class="ml-4" on:click={() => (nbDisplayed += 30)}>load 30 more</button
+								></span
+							>
+						{/if}
 					{:else}
 						{#each new Array(6) as _}
 							<tr class="border">
@@ -263,7 +263,7 @@
 				</tbody>
 			</TableCustom>
 		</div>
-		<PageHeader title="Pending invites" primary={false}>
+		<PageHeader title="Pending Invites ({invites.length ?? ''})" primary={false}>
 			<InviteUser on:new={listInvites} />
 		</PageHeader>
 
@@ -348,6 +348,15 @@
 						bind:checked={operatorOnly}
 						options={{
 							right: `Auto-invited users to join as operators`
+						}}
+						on:change={async (e) => {
+							await removeAllInvitesFromDomain()
+							await WorkspaceService.editAutoInvite({
+								workspace: $workspaceStore ?? '',
+								requestBody: { operator: e.detail }
+							})
+							loadSettings()
+							listInvites()
 						}}
 					/>
 					<div>
@@ -444,21 +453,41 @@
 				more information.
 			</p>
 		{/if}
-		<Button
-			color="red"
-			disabled={$workspaceStore === 'admins' || $workspaceStore === 'starter'}
-			size="sm"
-			btnClasses="mt-2"
-			on:click={async () => {
-				await WorkspaceService.deleteWorkspace({ workspace: $workspaceStore ?? '' })
-				sendUserToast(`Deleted workspace ${$workspaceStore}`)
-				workspaceStore.set(undefined)
-				usersWorkspaceStore.set(undefined)
-				goto('/user/workspaces')
-			}}
-		>
-			Delete workspace
-		</Button>
+		<div class="flex gap-2">
+			<Button
+				color="red"
+				disabled={$workspaceStore === 'admins' || $workspaceStore === 'starter'}
+				size="sm"
+				btnClasses="mt-2"
+				on:click={async () => {
+					await WorkspaceService.archiveWorkspace({ workspace: $workspaceStore ?? '' })
+					sendUserToast(`Archived workspace ${$workspaceStore}`)
+					workspaceStore.set(undefined)
+					usersWorkspaceStore.set(undefined)
+					goto('/user/workspaces')
+				}}
+			>
+				Archive workspace
+			</Button>
+
+			{#if $superadmin}
+				<Button
+					color="red"
+					disabled={$workspaceStore === 'admins' || $workspaceStore === 'starter'}
+					size="sm"
+					btnClasses="mt-2"
+					on:click={async () => {
+						await WorkspaceService.deleteWorkspace({ workspace: $workspaceStore ?? '' })
+						sendUserToast(`Deleted workspace ${$workspaceStore}`)
+						workspaceStore.set(undefined)
+						usersWorkspaceStore.set(undefined)
+						goto('/user/workspaces')
+					}}
+				>
+					Delete workspace (superadmin)
+				</Button>
+			{/if}
+		</div>
 	{:else}
 		<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4" role="alert">
 			<p class="font-bold">Not an admin</p>

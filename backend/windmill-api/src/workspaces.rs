@@ -41,8 +41,9 @@ pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list_pending_invites", get(list_pending_invites))
         .route("/update", post(edit_workspace))
-        .route("/delete", delete(delete_workspace))
+        .route("/archive", post(archive_workspace))
         .route("/invite_user", post(invite_user))
+        .route("/add_user", post(add_user))
         .route("/delete_invite", post(delete_invite))
         .route("/get_settings", get(get_settings))
         .route("/edit_slack_command", post(edit_slack_command))
@@ -50,7 +51,6 @@ pub fn workspaced_service() -> Router {
         .route("/tarball", get(tarball_workspace))
         .route("/premium_info", get(premium_info))
 }
-
 pub fn global_service() -> Router {
     Router::new()
         .route("/list_as_superadmin", get(list_workspaces_as_super_admin))
@@ -60,6 +60,8 @@ pub fn global_service() -> Router {
         .route("/exists", post(exists_workspace))
         .route("/exists_username", post(exists_username))
         .route("/allowed_domain_auto_invite", get(is_allowed_auto_domain))
+        .route("/unarchive/:workspace", post(unarchive_workspace))
+        .route("/delete/:workspace", delete(delete_workspace))
 }
 
 #[derive(FromRow, Serialize)]
@@ -147,6 +149,14 @@ struct ValidateUsername {
 #[derive(Deserialize)]
 pub struct NewWorkspaceInvite {
     pub email: String,
+    pub is_admin: bool,
+    pub operator: bool,
+}
+
+#[derive(Deserialize)]
+pub struct NewWorkspaceUser {
+    pub email: String,
+    pub username: String,
     pub is_admin: bool,
     pub operator: bool,
 }
@@ -353,7 +363,10 @@ async fn edit_auto_invite(
     .await?;
     tx.commit().await?;
 
-    Ok(format!("Edit command script {}", &w_id))
+    Ok(format!(
+        "Edit auto-invite for workspace {} to {}",
+        &w_id, domain
+    ))
 }
 
 async fn list_workspaces_as_super_admin(
@@ -538,10 +551,62 @@ async fn edit_workspace(
     Ok(format!("Updated workspace {}", &w_id))
 }
 
-async fn delete_workspace(
+async fn archive_workspace(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Authed { is_admin, username, email, .. }: Authed,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+    let mut tx = db.begin().await?;
+    sqlx::query!("UPDATE workspace SET deleted = true WHERE id = $1", &w_id)
+        .execute(&mut tx)
+        .await?;
+
+    audit_log(
+        &mut tx,
+        &username,
+        "workspaces.archive",
+        ActionKind::Update,
+        &w_id,
+        Some(&email),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(format!("Archived workspace {}", &w_id))
+}
+
+async fn unarchive_workspace(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Authed { is_admin, username, email, .. }: Authed,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+    let mut tx = db.begin().await?;
+    sqlx::query!("UPDATE workspace SET deleted = false WHERE id = $1", &w_id)
+        .execute(&mut tx)
+        .await?;
+
+    audit_log(
+        &mut tx,
+        &username,
+        "workspaces.unarchive",
+        ActionKind::Update,
+        &w_id,
+        Some(&email),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(format!("Unarchived workspace {}", &w_id))
+}
+
+async fn delete_workspace(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Authed { username, email, .. }: Authed,
 ) -> Result<String> {
     let w_id = match w_id.as_str() {
         "starter" => Err(Error::BadRequest(
@@ -552,9 +617,68 @@ async fn delete_workspace(
         )),
         _ => Ok(w_id),
     }?;
-    require_admin(is_admin, &username)?;
     let mut tx = db.begin().await?;
-    sqlx::query!("UPDATE workspace SET deleted = true WHERE id = $1", &w_id)
+    require_super_admin(&mut tx, &email).await?;
+
+    sqlx::query!("DELETE FROM script WHERE workspace_id = $1", &w_id)
+        .execute(&mut tx)
+        .await?;
+    sqlx::query!("DELETE FROM flow WHERE workspace_id = $1", &w_id)
+        .execute(&mut tx)
+        .await?;
+    sqlx::query!("DELETE FROM app WHERE workspace_id = $1", &w_id)
+        .execute(&mut tx)
+        .await?;
+    sqlx::query!("DELETE FROM variable WHERE workspace_id = $1", &w_id)
+        .execute(&mut tx)
+        .await?;
+    sqlx::query!("DELETE FROM resource WHERE workspace_id = $1", &w_id)
+        .execute(&mut tx)
+        .await?;
+
+    sqlx::query!("DELETE FROM schedule WHERE workspace_id = $1", &w_id)
+        .execute(&mut tx)
+        .await?;
+
+    sqlx::query!("DELETE FROM completed_job WHERE workspace_id = $1", &w_id)
+        .execute(&mut tx)
+        .await?;
+
+    sqlx::query!("DELETE FROM usr WHERE workspace_id = $1", &w_id)
+        .execute(&mut tx)
+        .await?;
+
+    sqlx::query!(
+        "DELETE FROM workspace_invite WHERE workspace_id = $1",
+        &w_id
+    )
+    .execute(&mut tx)
+    .await?;
+
+    sqlx::query!("DELETE FROM usr_to_group WHERE workspace_id = $1", &w_id)
+        .execute(&mut tx)
+        .await?;
+
+    sqlx::query!("DELETE FROM group_ WHERE workspace_id = $1", &w_id)
+        .execute(&mut tx)
+        .await?;
+
+    sqlx::query!("DELETE FROM folder WHERE workspace_id = $1", &w_id)
+        .execute(&mut tx)
+        .await?;
+
+    sqlx::query!("DELETE FROM workspace_key WHERE workspace_id = $1", &w_id)
+        .execute(&mut tx)
+        .await?;
+
+    sqlx::query!(
+        "DELETE FROM workspace_settings WHERE workspace_id = $1",
+        &w_id
+    )
+    .execute(&mut tx)
+    .await?;
+
+    sqlx::query!("DELETE FROM workspace WHERE id = $1", &w_id)
         .execute(&mut tx)
         .await?;
 
@@ -562,7 +686,7 @@ async fn delete_workspace(
         &mut tx,
         &username,
         "workspaces.delete",
-        ActionKind::Update,
+        ActionKind::Delete,
         &w_id,
         Some(&email),
         None,
@@ -626,6 +750,37 @@ async fn invite_user(
     Ok((
         StatusCode::CREATED,
         format!("user with email {} invited", nu.email),
+    ))
+}
+
+async fn add_user(
+    Authed { username, is_admin, .. }: Authed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(nu): Json<NewWorkspaceUser>,
+) -> Result<(StatusCode, String)> {
+    require_admin(is_admin, &username)?;
+
+    let mut tx = db.begin().await?;
+
+    sqlx::query!(
+        "INSERT INTO usr
+            (workspace_id, email, username, is_admin, operator)
+            VALUES ($1, $2, $3, $4, $5)",
+        &w_id,
+        nu.email,
+        nu.username,
+        nu.is_admin,
+        nu.operator
+    )
+    .execute(&mut tx)
+    .await?;
+
+    tx.commit().await?;
+
+    Ok((
+        StatusCode::CREATED,
+        format!("user with email {} added", nu.email),
     ))
 }
 

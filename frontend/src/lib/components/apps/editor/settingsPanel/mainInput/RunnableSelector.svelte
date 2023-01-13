@@ -16,6 +16,7 @@
 	type Tab = 'hubscripts' | 'workspacescripts' | 'workspaceflows' | 'inlinescripts'
 
 	export let appInput: ResultAppInput
+	export let defaultUserInput = false
 
 	let tab: Tab = 'inlinescripts'
 	let filter: string = ''
@@ -33,7 +34,7 @@
 	async function pickScript(path: string) {
 		if (appInput.type === 'runnable') {
 			const schema = await loadSchemaFromTriggerable(path, 'script')
-			const fields = schemaToInputsSpec(schema)
+			const fields = schemaToInputsSpec(schema, defaultUserInput)
 			appInput.runnable = {
 				type: 'runnableByPath',
 				path,
@@ -47,7 +48,7 @@
 	async function pickFlow(path: string) {
 		if (appInput.type === 'runnable') {
 			const schema = await loadSchemaFromTriggerable(path, 'flow')
-			const fields = schemaToInputsSpec(schema)
+			const fields = schemaToInputsSpec(schema, defaultUserInput)
 			appInput.runnable = {
 				type: 'runnableByPath',
 				path,
@@ -61,7 +62,7 @@
 	async function pickHubScript(path: string) {
 		if (appInput.type === 'runnable') {
 			const schema = await loadSchemaFromTriggerable(path, 'hubscript')
-			const fields = schemaToInputsSpec(schema)
+			const fields = schemaToInputsSpec(schema, defaultUserInput)
 			appInput.runnable = {
 				type: 'runnableByPath',
 				path,

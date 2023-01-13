@@ -1,30 +1,30 @@
 <script lang="ts" context="module">
 	const apiTokenApps: Record<string, { img?: string; instructions: string[]; key?: string }> = {
 		airtable: {
-			img: 'airtable_connect.png',
+			img: '/airtable_connect.png',
 			instructions: ['Click on the top-right avatar', 'Click on Account', 'Find "Api"']
 		},
 		discord_webhook: {
-			img: 'discord_webhook.png',
+			img: '/discord_webhook.png',
 			instructions: ['Click on Server Settings', 'Click on Integration', 'Find "Webhooks"'],
 			key: 'webhook_url'
 		},
 		toggl: {
-			img: 'toggl_connect.png',
+			img: '/toggl_connect.png',
 			instructions: [
 				'Go to <a href="https://track.toggl.com/profile" target="_blank" rel=”noopener noreferrer”>https://track.toggl.com/profile</a>',
 				'Find "API Token"'
 			]
 		},
 		mailchimp: {
-			img: 'mailchimp_connect.png',
+			img: '/mailchimp_connect.png',
 			instructions: [
 				'Go to <a href="https://admin.mailchimp.com/account/api" target="_blank" rel=”noopener noreferrer”>https://admin.mailchimp.com/account/api</a>',
 				'Find "Your API Keys"'
 			]
 		},
 		sendgrid: {
-			img: 'sendgrid_connect.png',
+			img: '/sendgrid_connect.png',
 			instructions: [
 				'Go to <a href="https://app.sendgrid.com/settings/api_keys" target="_blank" rel=”noopener noreferrer”>https://app.sendgrid.com/settings/api_keys</a>',
 				'Create an API key',
@@ -151,6 +151,7 @@
 				window.location.href = url.toString()
 			} else {
 				window.open(url.toString(), '_blank')
+				drawer.closeDrawer()
 			}
 		} else {
 			let exists = await VariableService.existsVariable({

@@ -8,7 +8,8 @@
 
 use axum::{
     body::{self, BoxBody},
-    http::{header, response::Builder, Response, Uri},
+    extract::OriginalUri,
+    http::{header, response::Builder, Response},
     response::IntoResponse,
     Extension,
 };
@@ -20,26 +21,28 @@ use std::sync::Arc;
 
 // static_handler is a handler that serves static files from the
 pub async fn static_handler(
-    uri: Uri,
     Extension(is_secure): Extension<Arc<IsSecure>>,
     Extension(is_cloud_hosted): Extension<Arc<CloudHosted>>,
     Extension(csp): Extension<Arc<ContentSecurityPolicy>>,
-) -> impl IntoResponse {
-    let path = uri.path().trim_start_matches('/').to_string();
+    OriginalUri(original_uri): OriginalUri,
+) -> StaticFile {
+    let path = original_uri.path().trim_start_matches('/').to_string();
     StaticFile(path, is_secure.0, is_cloud_hosted.0, csp)
 }
 
 #[derive(RustEmbed)]
 #[folder = "../../frontend/build/"]
 struct Asset;
-pub struct StaticFile<T>(pub T, pub bool, pub bool, pub Arc<ContentSecurityPolicy>);
+pub struct StaticFile(
+    pub String,
+    pub bool,
+    pub bool,
+    pub Arc<ContentSecurityPolicy>,
+);
 
-impl<T> IntoResponse for StaticFile<T>
-where
-    T: Into<String>,
-{
+impl IntoResponse for StaticFile {
     fn into_response(self) -> Response<BoxBody> {
-        let path = self.0.into();
+        let path = self.0;
         let can_set_security_headers = self.1 && self.2;
         let csp = self.3;
         serve_path(path, can_set_security_headers, csp)

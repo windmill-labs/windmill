@@ -57,6 +57,7 @@
 <InputValue {id} input={configuration.size} bind:value={size} />
 
 <RunnableWrapper
+	flexWrap
 	bind:runnableComponent
 	bind:componentInput
 	{id}
@@ -83,13 +84,9 @@
 			}}
 			{size}
 			{color}
+			{loading}
 		>
 			{labelValue}
-			{#if !loading}
-				<span class="w-5" />
-			{:else}
-				<Loader2 class="animate-spin ml-1" size={14} />
-			{/if}
 		</Button>
 	</AlignWrapper>
 </RunnableWrapper>

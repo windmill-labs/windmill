@@ -32,6 +32,7 @@
 			{breakpoint}
 			policy={app.policy}
 			isEditor={false}
+			noBackend={false}
 		/>
 	</div>
 {:else}

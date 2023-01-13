@@ -10,13 +10,14 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use axum::{
-    extract::{FromRequest, Path, Query},
+    extract::{FromRequest, Json, Path, Query},
     response::{IntoResponse, Response},
     routing::{get, post},
-    Extension, Json, Router,
+    Extension, Router,
 };
+use base64::Engine;
 use hmac::Mac;
-use hyper::{HeaderMap, StatusCode};
+use hyper::{HeaderMap, Request, StatusCode};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sql_builder::{prelude::*, quote, SqlBuilder};
 use sqlx::{query_scalar, types::Uuid, FromRow, Postgres, Transaction};
@@ -215,28 +216,40 @@ pub async fn get_job_by_id<'c>(
 pub struct CompletedJob {
     pub workspace_id: String,
     pub id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_job: Option<Uuid>,
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub started_at: chrono::DateTime<chrono::Utc>,
     pub duration_ms: i32,
     pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub script_hash: Option<ScriptHash>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub script_path: Option<String>,
     pub args: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub logs: Option<String>,
     pub deleted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub raw_code: Option<String>,
     pub canceled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub canceled_by: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub canceled_reason: Option<String>,
     pub job_kind: JobKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub schedule_path: Option<String>,
     pub permissioned_as: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub flow_status: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub raw_flow: Option<serde_json::Value>,
     pub is_flow_step: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub language: Option<ScriptLang>,
     pub is_skipped: bool,
     pub email: String,
@@ -336,6 +349,7 @@ fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> Sq
     if let Some(dt) = &lq.created_after {
         sqlb.and_where_gt("created_at", format!("to_timestamp({})", dt.timestamp()));
     }
+
     if let Some(s) = &lq.suspended {
         if *s {
             sqlb.and_where_gt("suspend", 0);
@@ -451,7 +465,6 @@ async fn list_jobs(
             "job_kind",
             "schedule_path",
             "permissioned_as",
-            "flow_status",
             "is_flow_step",
             "language",
             "false as is_skipped",
@@ -486,7 +499,6 @@ async fn list_jobs(
             "job_kind",
             "schedule_path",
             "permissioned_as",
-            "flow_status",
             "is_flow_step",
             "language",
             "is_skipped",
@@ -541,8 +553,8 @@ pub async fn resume_suspended_job(
     /* unauthed */
     Extension(db): Extension<DB>,
     Path((w_id, job_id, resume_id, secret)): Path<(String, Uuid, u32, String)>,
-    QueryOrBody(value): QueryOrBody<serde_json::Value>,
     Query(approver): Query<QueryApprover>,
+    QueryOrBody(value): QueryOrBody<serde_json::Value>,
 ) -> error::Result<StatusCode> {
     let value = value.unwrap_or(serde_json::Value::Null);
     let mut tx = db.begin().await?;
@@ -885,7 +897,7 @@ fn build_resume_url(
     approver: &str,
     base_url: &str,
 ) -> String {
-    format!("{base_url}/api/w/{w_id}/jobs/{op}/{job_id}/{resume_id}/{signature}{approver}")
+    format!("{base_url}/api/w/{w_id}/jobs_u/{op}/{job_id}/{resume_id}/{signature}{approver}")
 }
 
 pub async fn get_resume_urls(
@@ -964,7 +976,6 @@ struct UnifiedJob {
     job_kind: JobKind,
     schedule_path: Option<String>,
     permissioned_as: String,
-    flow_status: Option<serde_json::Value>,
     is_flow_step: bool,
     language: Option<ScriptLang>,
     is_skipped: bool,
@@ -990,6 +1001,7 @@ impl From<UnifiedJob> for Job {
                 args: uj.args,
                 result: None,
                 logs: None,
+                flow_status: None,
                 deleted: uj.deleted,
                 canceled: uj.canceled,
                 canceled_by: uj.canceled_by,
@@ -998,7 +1010,6 @@ impl From<UnifiedJob> for Job {
                 job_kind: uj.job_kind,
                 schedule_path: uj.schedule_path,
                 permissioned_as: uj.permissioned_as,
-                flow_status: uj.flow_status,
                 raw_flow: None,
                 is_flow_step: uj.is_flow_step,
                 language: uj.language,
@@ -1019,6 +1030,7 @@ impl From<UnifiedJob> for Job {
                 running: uj.running.unwrap(),
                 scheduled_for: uj.scheduled_for.unwrap(),
                 logs: None,
+                flow_status: None,
                 raw_code: None,
                 raw_lock: None,
                 canceled: uj.canceled,
@@ -1028,7 +1040,6 @@ impl From<UnifiedJob> for Job {
                 job_kind: uj.job_kind,
                 schedule_path: uj.schedule_path,
                 permissioned_as: uj.permissioned_as,
-                flow_status: uj.flow_status,
                 raw_flow: None,
                 is_flow_step: uj.is_flow_step,
                 language: uj.language,
@@ -1065,20 +1076,19 @@ struct PreviewFlow {
 pub struct QueryOrBody<D>(pub Option<D>);
 
 #[axum::async_trait]
-impl<D, B> FromRequest<B> for QueryOrBody<D>
+impl<S, D> FromRequest<S, axum::body::Body> for QueryOrBody<D>
 where
     D: DeserializeOwned,
-    B: Send + axum::body::HttpBody,
-    <B as axum::body::HttpBody>::Data: Send,
-    <B as axum::body::HttpBody>::Error: Into<axum::BoxError>,
+    S: Send + Sync,
 {
     type Rejection = Response;
 
     async fn from_request(
-        req: &mut axum::extract::RequestParts<B>,
+        req: Request<axum::body::Body>,
+        state: &S,
     ) -> std::result::Result<Self, Self::Rejection> {
         return if req.method() == axum::http::Method::GET {
-            let Query(InPayload { payload }) = Query::from_request(req)
+            let Query(InPayload { payload }) = Query::from_request(req, state)
                 .await
                 .map_err(IntoResponse::into_response)?;
             payload
@@ -1090,7 +1100,7 @@ where
                 })
                 .unwrap_or(Ok(QueryOrBody(None)))
         } else {
-            Json::from_request(req)
+            Json::from_request(req, state)
                 .await
                 .map(|Json(v)| QueryOrBody(Some(v)))
                 .map_err(IntoResponse::into_response)
@@ -1102,7 +1112,9 @@ where
         }
 
         fn decode_payload<D: DeserializeOwned, T: AsRef<[u8]>>(t: T) -> anyhow::Result<D> {
-            let vec = base64::decode_config(&t, base64::URL_SAFE).context("invalid base64")?;
+            let vec = base64::engine::general_purpose::URL_SAFE
+                .decode(t)
+                .context("invalid base64")?;
             serde_json::from_slice(vec.as_slice()).context("invalid json")
         }
     }
@@ -1111,9 +1123,9 @@ pub async fn run_flow_by_path(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
-    axum::Json(args): axum::Json<Option<serde_json::Map<String, serde_json::Value>>>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
+    Json(args): Json<Option<serde_json::Map<String, serde_json::Value>>>,
 ) -> error::Result<(StatusCode, String)> {
     let flow_path = flow_path.to_path();
     let mut tx = user_db.begin(&authed).await?;
@@ -1145,9 +1157,9 @@ pub async fn run_job_by_path(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
-    axum::Json(args): axum::Json<Option<serde_json::Map<String, serde_json::Value>>>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
+    Json(args): Json<Option<serde_json::Map<String, serde_json::Value>>>,
 ) -> error::Result<(StatusCode, String)> {
     let script_path = script_path.to_path();
     let mut tx = user_db.begin(&authed).await?;
@@ -1212,9 +1224,9 @@ pub async fn run_wait_result_job_by_path(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
-    axum::Json(args): axum::Json<Option<serde_json::Map<String, serde_json::Value>>>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
+    Json(args): Json<Option<serde_json::Map<String, serde_json::Value>>>,
 ) -> error::JsonResult<serde_json::Value> {
     let script_path = script_path.to_path();
     let mut tx = user_db.clone().begin(&authed).await?;
@@ -1249,9 +1261,9 @@ pub async fn run_wait_result_job_by_hash(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
-    axum::Json(args): axum::Json<Option<serde_json::Map<String, serde_json::Value>>>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
+    Json(args): Json<Option<serde_json::Map<String, serde_json::Value>>>,
 ) -> error::JsonResult<serde_json::Value> {
     let hash = script_hash.0;
     let mut tx = user_db.clone().begin(&authed).await?;
@@ -1300,9 +1312,9 @@ async fn run_preview_job(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
-    Json(preview): Json<Preview>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
+    Json(preview): Json<Preview>,
 ) -> error::Result<(StatusCode, String)> {
     let mut tx = user_db.begin(&authed).await?;
     let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
@@ -1338,9 +1350,9 @@ async fn run_preview_flow_job(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
-    Json(raw_flow): Json<PreviewFlow>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
+    Json(raw_flow): Json<PreviewFlow>,
 ) -> error::Result<(StatusCode, String)> {
     let mut tx = user_db.begin(&authed).await?;
     let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
@@ -1371,9 +1383,9 @@ pub async fn run_job_by_hash(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
-    axum::Json(args): axum::Json<Option<serde_json::Map<String, serde_json::Value>>>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
+    Json(args): Json<Option<serde_json::Map<String, serde_json::Value>>>,
 ) -> error::Result<(StatusCode, String)> {
     let hash = script_hash.0;
     let mut tx = user_db.begin(&authed).await?;
@@ -1621,7 +1633,7 @@ async fn delete_completed_job(
 
     require_admin(authed.is_admin, &authed.username)?;
     let job_o = sqlx::query_as::<_, CompletedJob>(
-        "UPDATE completed_job SET logs = '', deleted = true WHERE id = $1 AND workspace_id = $2 \
+        "UPDATE completed_job SET logs = '', result = null, deleted = true WHERE id = $1 AND workspace_id = $2 \
          RETURNING *",
     )
     .bind(id)

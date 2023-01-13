@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { Button, type ButtonType } from '$lib/components/common'
-	import { faArrowRight, faRefresh } from '@fortawesome/free-solid-svg-icons'
+	import { faUser } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
+	import { Icon } from 'svelte-awesome'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppEditorContext } from '../../types'
@@ -27,7 +28,9 @@
 	let runnableComponent: RunnableComponent
 
 	let isLoading: boolean = false
-	let ownClick: boolean = false
+
+	$: noInputs =
+		componentInput?.type != 'runnable' || Object.keys(componentInput?.fields ?? {}).length == 0
 
 	$: outputs = $worldStore?.outputsById[id] as {
 		result: Output<Array<any>>
@@ -41,13 +44,8 @@
 	$: outputs?.loading.subscribe({
 		next: (value) => {
 			isLoading = value
-			if (ownClick && !value) {
-				ownClick = false
-			}
 		}
 	})
-
-	$: loading = isLoading && ownClick
 </script>
 
 <InputValue {id} input={configuration.label} bind:value={labelValue} />
@@ -55,45 +53,55 @@
 <InputValue {id} input={configuration.size} bind:value={size} />
 
 <RunnableWrapper
+	defaultUserInput
+	noMinH
 	bind:runnableComponent
 	bind:componentInput
 	{id}
 	{extraQueryParams}
 	autoRefresh={false}
 	forceSchemaDisplay={true}
+	runnableClass="!block"
 >
 	<AlignWrapper {horizontalAlignment}>
 		<div class="flex flex-col gap-2 px-4 w-full">
 			<div>
-				{#if componentInput?.type != 'runnable' || Object.values(componentInput?.fields ?? {}).filter((x) => x.type == 'user').length == 0}
-					<span class="text-gray-600 italic text-sm py-2"
-						>Run forms are meant to be associated with a runnable with some user inputs. Pick a
-						runnable and set some 'Runnable Inputs' to 'User Input'</span
-					>
+				{#if noInputs}
+					<div class="text-gray-600 italic text-sm my-4">
+						Run forms are associated with a runnable that has user inputs.
+						<br />
+						Once a script or flow is chosen, set some <strong>Runnable Inputs</strong> to
+						<strong>
+							User Input
+							<Icon data={faUser} scale={1.3} class="rounded-sm bg-gray-200 p-1 ml-0.5" />
+						</strong>
+					</div>
 				{/if}
 			</div>
 			<div class="flex justify-end">
-				<Button
-					{loading}
-					btnClasses="mt-1"
-					on:pointerdown={(e) => {
-						e?.stopPropagation()
-						window.dispatchEvent(new Event('pointerup'))
-					}}
-					on:click={() => {
-						runnableComponent?.runComponent()
+				{#if !noInputs}
+					<Button
+						loading={isLoading}
+						btnClasses="my-1"
+						on:pointerdown={(e) => {
+							e?.stopPropagation()
+							window.dispatchEvent(new Event('pointerup'))
+						}}
+						on:click={() => {
+							runnableComponent?.runComponent()
 
-						if (recomputeIds) {
-							recomputeIds.forEach((id) => {
-								$runnableComponents[id]?.()
-							})
-						}
-					}}
-					{size}
-					{color}
-				>
-					{labelValue}
-				</Button>
+							if (recomputeIds) {
+								recomputeIds.forEach((id) => {
+									$runnableComponents[id]?.()
+								})
+							}
+						}}
+						{size}
+						{color}
+					>
+						{labelValue}
+					</Button>
+				{/if}
 			</div>
 		</div>
 	</AlignWrapper>

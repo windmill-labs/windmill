@@ -8,7 +8,8 @@
 		canWrite,
 		defaultIfEmptyString,
 		scriptToHubUrl,
-		copyToClipboard
+		copyToClipboard,
+		emptyString
 	} from '$lib/utils'
 	import {
 		faPlay,
@@ -137,12 +138,15 @@
 
 	let isValid = true
 	let runForm: RunForm | undefined
+
+	let runLoading = false
 	async function runScript(
 		scheduledForStr: string | undefined,
 		args: Record<string, any>,
 		invisibleToOwner?: boolean
 	) {
 		try {
+			runLoading = true
 			const scheduledFor = scheduledForStr ? new Date(scheduledForStr).toISOString() : undefined
 			let run = await JobService.runScriptByHash({
 				workspace: $workspaceStore!,
@@ -153,6 +157,7 @@
 			})
 			await goto('/run/' + run + '?workspace=' + $workspaceStore)
 		} catch (err) {
+			runLoading = false
 			sendUserToast(`Could not create job: ${err.body}`, true)
 		}
 	}
@@ -333,6 +338,7 @@
 				<div class="col-span-2">
 					<h2 class="mb-2">Preview</h2>
 					<RunForm
+						loading={runLoading}
 						autofocus
 						detailed={false}
 						bind:isValid
@@ -341,9 +347,11 @@
 						runAction={runScript}
 					/>
 				</div>
-				<div class="box">
-					{defaultIfEmptyString(script.description, 'No description')}
-				</div>
+				{#if !emptyString(script.description)}
+					<div class="box">
+						{defaultIfEmptyString(script.description, 'No description')}
+					</div>
+				{/if}
 			</div>
 
 			<div class="mt-8">
@@ -353,16 +361,18 @@
 					<Tab value="code">Code</Tab>
 					<Tab value="dependencies">Dependencies lock file</Tab>
 					<Tab value="arguments"
-						>Arguments JSON Schema
-						<Tooltip>
-							The jsonschema defines the constraints that the payload must respect to be compatible
-							with the input parameters of this script. The UI form is generated automatically from
-							the script jsonschema. See
-							<a href="https://json-schema.org/" class="text-blue-500">
-								jsonschema documentation
-							</a>
-						</Tooltip></Tab
-					>
+						><span class="inline-flex items-center gap-1">
+							Arguments JSON Schema
+							<Tooltip>
+								The jsonschema defines the constraints that the payload must respect to be
+								compatible with the input parameters of this script. The UI form is generated
+								automatically from the script jsonschema. See
+								<a href="https://json-schema.org/" class="text-blue-500">
+									jsonschema documentation
+								</a>
+							</Tooltip>
+						</span>
+					</Tab>
 					<svelte:fragment slot="content">
 						<TabContent value="code">
 							<div class="border rounded-sm mt-2">

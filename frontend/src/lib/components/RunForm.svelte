@@ -44,6 +44,7 @@
 	export let detailed = true
 	export let autofocus = false
 	export let topButton = false
+	export let loading = false
 
 	export let args: Record<string, any> = decodeArgs($page.url.searchParams.get('args') ?? undefined)
 
@@ -166,17 +167,18 @@
 				<div class="flex items-center gap-1">
 					<Toggle
 						options={{
-							right: `make run invisible to ${runnable?.path?.split('/').slice(0, 2).join('/')}`
+							right: `run only visible to you`
 						}}
 						bind:checked={invisible_to_owner}
 					/>
 					<Tooltip
-						>By default, runs are visible to the owner of the script or flow being triggered</Tooltip
+						>By default, runs are visible to the owner(s) of the script or flow being triggered</Tooltip
 					>
 				</div>
 			{/if}
 			<div class="flex-row-reverse flex grow">
 				<Button
+					{loading}
 					btnClasses="!px-6 !py-1"
 					disabled={!isValid}
 					on:click={() => runAction(scheduledForStr, args, invisible_to_owner)}

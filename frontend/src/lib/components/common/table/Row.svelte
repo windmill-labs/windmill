@@ -21,8 +21,10 @@
 	}[kind]
 </script>
 
-<div class="hover:bg-gray-50 w-full inline-flex items-center p-4 gap-4 first-of-type:!border-t-0 
-first-of-type:rounded-t-md last-of-type:rounded-b-md {color}">
+<div
+	class="hover:bg-gray-50 w-full inline-flex items-center p-4 gap-4 first-of-type:!border-t-0 
+first-of-type:rounded-t-md last-of-type:rounded-b-md {color}"
+>
 	<RowIcon {href} {kind} />
 
 	<a {href} class="min-w-0 grow hover:underline decoration-gray-400">
@@ -38,7 +40,7 @@ first-of-type:rounded-t-md last-of-type:rounded-b-md {color}">
 		</div>
 	</a>
 	{#if $$slots.badges}
-		<div class="w-32 hidden lg:flex flex-row gap-1 items-start flex-wrap">
+		<div class="w-32 hidden md:flex flex-row gap-1 items-start flex-wrap">
 			<slot name="badges" />
 		</div>
 	{/if}

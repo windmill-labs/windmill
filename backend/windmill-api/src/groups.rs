@@ -204,6 +204,16 @@ async fn create_group(
     .execute(&mut tx)
     .await?;
 
+    sqlx::query_as!(
+        Group,
+        "INSERT INTO usr_to_group (workspace_id, usr, group_) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+        &w_id,
+        &authed.username,
+        ng.name,
+    )
+    .execute(&mut tx)
+    .await?;
+
     audit_log(
         &mut tx,
         &authed.username,
@@ -282,7 +292,9 @@ async fn delete_group(
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
 
-    require_is_owner(&name, &authed.username, &authed.groups, &w_id, &db).await?;
+    if !authed.is_admin {
+        require_is_owner(&name, &authed.username, &authed.groups, &w_id, &db).await?;
+    }
     not_found_if_none(get_group_opt(&mut tx, &w_id, &name).await?, "Group", &name)?;
 
     sqlx::query!(
@@ -321,8 +333,9 @@ async fn update_group(
     Json(eg): Json<EditGroup>,
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
-
-    require_is_owner(&name, &authed.username, &authed.groups, &w_id, &db).await?;
+    if !authed.is_admin {
+        require_is_owner(&name, &authed.username, &authed.groups, &w_id, &db).await?;
+    }
     not_found_if_none(get_group_opt(&mut tx, &w_id, &name).await?, "Group", &name)?;
 
     sqlx::query_as!(
@@ -357,8 +370,9 @@ async fn add_user(
     Json(Username { username: user_username }): Json<Username>,
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
-
-    require_is_owner(&name, &authed.username, &authed.groups, &w_id, &db).await?;
+    if !authed.is_admin {
+        require_is_owner(&name, &authed.username, &authed.groups, &w_id, &db).await?;
+    }
 
     not_found_if_none(get_group_opt(&mut tx, &w_id, &name).await?, "Group", &name)?;
 
@@ -394,7 +408,9 @@ async fn remove_user(
     Json(Username { username: user_username }): Json<Username>,
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
-    require_is_owner(&name, &authed.username, &authed.groups, &w_id, &db).await?;
+    if !authed.is_admin {
+        require_is_owner(&name, &authed.username, &authed.groups, &w_id, &db).await?;
+    }
 
     not_found_if_none(get_group_opt(&mut tx, &w_id, &name).await?, "Group", &name)?;
     if &name == "all" {

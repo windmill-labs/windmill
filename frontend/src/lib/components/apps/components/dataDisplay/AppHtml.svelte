@@ -14,7 +14,7 @@
 	let result: string | undefined = undefined
 </script>
 
-<RunnableWrapper bind:componentInput {id} bind:result>
+<RunnableWrapper flexWrap bind:componentInput {id} bind:result>
 	<AlignWrapper {horizontalAlignment} {verticalAlignment}>
 		<div
 			on:pointerdown={(e) => {

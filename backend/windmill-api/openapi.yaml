@@ -1,10 +1,11 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.57.1
-  title: Windmill server API
+  version: 1.60.0
+  title: Windmill API
+
   contact:
-    name: Windmill contact
+    name: Windmill Team
     email: contact@windmill.dev
     url: https://windmill.dev
 
@@ -12,6 +13,8 @@ info:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.html
 
+  x-logo:
+    url: https://docs.windmill.dev/img/windmill.svg
 externalDocs:
   description: documentation portal
   url: https://docs.windmill.dev
@@ -670,6 +673,43 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/workspaces/add_user:
+    post:
+      summary: add user to workspace
+      operationId: addUser
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: WorkspaceInvite
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                is_admin:
+                  type: boolean
+                username:
+                  type: string
+                operator:
+                  type: boolean
+              required:
+                - email
+                - is_admin
+                - operator
+                - username
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/workspaces/delete_invite:
     post:
       summary: delete user invite
@@ -704,9 +744,41 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/workspaces/delete:
+  /w/{workspace}/workspaces/archive:
+    post:
+      summary: archive workspace
+      operationId: archiveWorkspace
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /workspaces/unarchive/{workspace}:
+    post:
+      summary: unarchive workspace
+      operationId: unarchiveWorkspace
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /workspaces/delete/{workspace}:
     delete:
-      summary: delete workspace
+      summary: delete workspace (require super admin)
       operationId: deleteWorkspace
       tags:
         - workspace
@@ -1769,6 +1841,75 @@ paths:
                   flow:
                     $ref: "../../openflow.openapi.yaml#/components/schemas/OpenFlow"
 
+  /apps/hub/list:
+    get:
+      summary: list all available hub apps
+      operationId: listHubApps
+      tags:
+        - app
+      responses:
+        "200":
+          description: hub apps list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  apps:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: number
+                        app_id:
+                          type: number
+                        summary:
+                          type: string
+                        apps:
+                          type: array
+                          items:
+                            type: string
+                        approved:
+                          type: boolean
+                        votes:
+                          type: number
+                      required:
+                        - id
+                        - app_id
+                        - summary
+                        - apps
+                        - approved
+                        - votes
+
+  /apps/hub/get/{id}:
+    get:
+      summary: get hub app by id
+      operationId: getHubAppById
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: app
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  app:
+                    type: object
+                    properties:
+                      summary:
+                        type: string
+                      value: {}
+                    required:
+                      - summary
+                      - value
+                required:
+                  - app
+
   /scripts/hub/get/{path}:
     get:
       summary: get hub script content by path
@@ -1902,6 +2043,25 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Script"
+
+  /w/{workspace}/scripts/list_paths:
+    get:
+      summary: list all available scripts paths
+      operationId: listScriptPaths
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: list of script paths
+          content:
+            text/plain:
+              schema:
+                type: array
+                items:
+                  type: string
+
 
   /w/{workspace}/scripts/create:
     post:
@@ -2310,6 +2470,24 @@ paths:
             application/json:
               schema: {}
 
+  /w/{workspace}/flows/list_paths:
+    get:
+      summary: list all available flow paths
+      operationId: listFlowPaths
+      tags:
+        - flow
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: list of flow paths
+          content:
+            text/plain:
+              schema:
+                type: array
+                items:
+                  type: string
+
   /w/{workspace}/flows/list:
     get:
       summary: list all available flows
@@ -2531,7 +2709,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/AppWithLastVersion"
 
-  /w/{workspace}/apps/public_app/{path}:
+  /w/{workspace}/apps_u/public_app/{path}:
     get:
       summary: get public app by secret
       operationId: getPublicAppBySecret
@@ -2668,7 +2846,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/apps/execute_component/{path}:
+  /w/{workspace}/apps_u/execute_component/{path}:
     post:
       summary: executeComponent
       operationId: executeComponent
@@ -2885,7 +3063,8 @@ paths:
         - $ref: "#/components/parameters/CreatedAfter"
         - $ref: "#/components/parameters/Success"
         - $ref: "#/components/parameters/JobKinds"
-
+        - $ref: "#/components/parameters/Suspended"
+        - $ref: "#/components/parameters/Running"
       responses:
         "200":
           description: All available queued jobs
@@ -2975,7 +3154,7 @@ paths:
                 items:
                   $ref: "#/components/schemas/Job"
 
-  /w/{workspace}/jobs/get/{id}:
+  /w/{workspace}/jobs_u/get/{id}:
     get:
       summary: get job
       operationId: getJob
@@ -3009,7 +3188,7 @@ paths:
   #             schema:
   #               type: string
 
-  /w/{workspace}/jobs/getupdate/{id}:
+  /w/{workspace}/jobs_u/getupdate/{id}:
     get:
       summary: get job updates
       operationId: getJobUpdates
@@ -3167,7 +3346,7 @@ paths:
                   - resume
                   - cancel
 
-  /w/{workspace}/jobs/resume/{id}/{resume_id}/{signature}:
+  /w/{workspace}/jobs_u/resume/{id}/{resume_id}/{signature}:
     get:
       summary: resume a job for a suspended flow
       operationId: resumeSuspendedJobGet
@@ -3257,7 +3436,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/jobs/cancel/{id}/{resume_id}/{signature}:
+  /w/{workspace}/jobs_u/cancel/{id}/{resume_id}/{signature}:
     get:
       summary: cancel a job for a suspended flow
       operationId: cancelSuspendedJobGet
@@ -3324,7 +3503,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/jobs/get_flow/{id}/{resume_id}/{signature}:
+  /w/{workspace}/jobs_u/get_flow/{id}/{resume_id}/{signature}:
     get:
       summary: get parent flow job of suspended job
       operationId: getSuspendedJobFlow
@@ -4089,6 +4268,20 @@ paths:
               schema:
                 type: string
 
+
+  /w/{workspace}/capture_u/{path}:
+      post:
+        summary: update flow preview capture
+        operationId: updateCapture
+        tags:
+          - capture
+        parameters:
+          - $ref: "#/components/parameters/WorkspaceId"
+          - $ref: "#/components/parameters/Path"
+        responses:
+          "204":
+            description: flow preview captured
+
   /w/{workspace}/capture/{path}:
     put:
       summary: create flow preview capture
@@ -4101,17 +4294,6 @@ paths:
       responses:
         "201":
           description: flow preview capture created
-    post:
-      summary: update flow preview capture
-      operationId: updateCapture
-      tags:
-        - capture
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Path"
-      responses:
-        "204":
-          description: flow preview captured
     get:
       summary: get flow preview capture
       operationId: getCapture
@@ -4315,6 +4497,18 @@ components:
     Success:
       name: success
       description: filter on successful jobs
+      in: query
+      schema:
+        type: boolean
+    Suspended:
+      name: suspended
+      description: filter on suspended jobs
+      in: query
+      schema:
+        type: boolean
+    Running:
+      name: running
+      description: filter on running jobs
       in: query
       schema:
         type: boolean

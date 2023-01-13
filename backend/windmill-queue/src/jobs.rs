@@ -571,33 +571,49 @@ pub async fn get_hub_script(path: String, email: &str) -> error::Result<HubScrip
 pub struct QueuedJob {
     pub workspace_id: String,
     pub id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_job: Option<Uuid>,
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub started_at: Option<chrono::DateTime<chrono::Utc>>,
     pub scheduled_for: chrono::DateTime<chrono::Utc>,
     pub running: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub script_hash: Option<ScriptHash>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub script_path: Option<String>,
     pub args: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub logs: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub raw_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub raw_lock: Option<String>,
     pub canceled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub canceled_by: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub canceled_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub last_ping: Option<chrono::DateTime<chrono::Utc>>,
     pub job_kind: JobKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub schedule_path: Option<String>,
     pub permissioned_as: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub flow_status: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub raw_flow: Option<serde_json::Value>,
     pub is_flow_step: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub language: Option<ScriptLang>,
     pub same_worker: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub pre_run_error: Option<String>,
     pub email: String,
     pub visible_to_owner: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub suspend: Option<i32>,
 }
 

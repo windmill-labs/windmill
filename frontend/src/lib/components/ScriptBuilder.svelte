@@ -189,7 +189,6 @@
 					bind:this={summaryC}
 					bind:value={script.summary}
 					placeholder="A short summary of the script displayed when the script is listed"
-					rows="1"
 				/>
 				<h2 class="border-b pb-1 mt-8 mb-6">Language</h2>
 				<div class="flex flex-row gap-2 flex-wrap">

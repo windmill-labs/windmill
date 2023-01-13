@@ -163,6 +163,18 @@
     },
     "query": "SELECT EXISTS(SELECT 1 FROM resource WHERE path = $1 AND workspace_id = $2)"
   },
+  "07b984faa14193f529ae589608289a9ffb0f3d4a0e48054393e1bb8b70b4e5e0": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM flow WHERE workspace_id = $1"
+  },
   "097a576938eac385ddc2f16a00ddc69c3ca54f5a66923291730980eeeea1f8c1": {
     "describe": {
       "columns": [],
@@ -304,6 +316,18 @@
     },
     "query": "SELECT EXISTS (SELECT 1 FROM schedule WHERE path = $1 AND workspace_id = $2 AND path != script_path)"
   },
+  "0dc502078eeb874262568c44078d492ac6c22b97dbf2ab0a1fd00eb3156f1745": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM script WHERE workspace_id = $1"
+  },
   "0dd3fe3ddf9cb72760687d2ee0950afdcce2d54721bfe8dba008b15e4b581956": {
     "describe": {
       "columns": [],
@@ -316,6 +340,18 @@
       }
     },
     "query": "DELETE FROM account WHERE id = $1 AND workspace_id = $2"
+  },
+  "0e21323c27b282ab79da7bb3418e0730ada0f3ad9b4bc38941c8ccc39685a53d": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM workspace_settings WHERE workspace_id = $1"
   },
   "0f6af40e79a3f44ce84bd127a8af9216c82e71acf8bf4df12b078020c90d7d9d": {
     "describe": {
@@ -760,6 +796,18 @@
     },
     "query": "INSERT INTO queue\n            (workspace_id, id, running, parent_job, created_by, permissioned_as, scheduled_for, \n                script_hash, script_path, raw_code, raw_lock, args, job_kind, schedule_path, raw_flow, flow_status, is_flow_step, language, started_at, same_worker, pre_run_error, email, visible_to_owner)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22) RETURNING id"
   },
+  "1eaf8d677d520c7f2f303a731de6b6d939918e41ad0d1c748d80db3fd33cb9d3": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM app WHERE workspace_id = $1"
+  },
   "1f040850c2a82bc09789226b167c43fd4935cfbb4951760a4d527665b70a5ac7": {
     "describe": {
       "columns": [
@@ -821,6 +869,18 @@
       }
     },
     "query": "UPDATE folder SET owners = array_remove(owners, $1) WHERE name = $2 AND workspace_id = $3 RETURNING name"
+  },
+  "20597f46f2793b30f926bbd18e41f4860b7a7839879b932916ea20f2d98f43f9": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM resource WHERE workspace_id = $1"
   },
   "20e8a8343adc4a3a28a1c4908a13047cddafc4480cf028d3455fd17347cace73": {
     "describe": {
@@ -1284,6 +1344,30 @@
     },
     "query": "SELECT workspace_id, name, display_name, owners, extra_perms FROM folder WHERE name = $1 AND workspace_id = $2"
   },
+  "39f1b99319f48acb95fd4247f70baaf7a38062aa8b4f70fac10215edbbd2d41c": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM schedule WHERE workspace_id = $1"
+  },
+  "3cd8dd59567bcd1d2b6babfbb995be97cd20a0f299a7fd8fa163dc3af388603d": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM folder WHERE workspace_id = $1"
+  },
   "3d363466d79075df3f74f946eff43ca89faefca3bcdf2c533425ca3868b0369a": {
     "describe": {
       "columns": [
@@ -1380,6 +1464,26 @@
       }
     },
     "query": "UPDATE app SET versions = array_append(versions, $1) WHERE id = $2"
+  },
+  "42e1b5634a9e51247115fa73f85a97b1467c913d012cac9c45bb6a349082dc71": {
+    "describe": {
+      "columns": [
+        {
+          "name": "path",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT distinct(path) FROM flow WHERE  workspace_id = $1"
   },
   "438fb925ee90d5115bd3c3be8ae48b56ba86017af3ca519bd3a15829edaa7d1b": {
     "describe": {
@@ -2204,6 +2308,18 @@
     },
     "query": "INSERT INTO favorite (workspace_id, usr, path, favorite_kind) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING"
   },
+  "67411b46ce51caf84c049dbb52d0e51c9889e73c99ff16ba12a02782bbaa53c4": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE workspace SET deleted = false WHERE id = $1"
+  },
   "6c63bbcb45d3f51eccaea52ec862700e1f1c2426d823abd951e1eea4fd9b85aa": {
     "describe": {
       "columns": [],
@@ -2374,6 +2490,18 @@
       }
     },
     "query": "UPDATE flow SET path = $1, summary = $2, description = $3, value = $4, edited_by = $5, edited_at = now(), schema = $6::text::json, dependency_job = NULL WHERE path = $7 AND workspace_id = $8"
+  },
+  "73d3ed17fd0723ba75722f394904f6ee306b59aaf8ecfcf56484d38541343f06": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM group_ WHERE workspace_id = $1"
   },
   "765c18d77412cbb4474f4074d583b9b44681f3b9f58754662ac07a3a3470a3c5": {
     "describe": {
@@ -2682,20 +2810,6 @@
     },
     "query": "SELECT workspace_id, name, display_name, owners, extra_perms FROM folder WHERE workspace_id = $1 ORDER BY name desc LIMIT $2 OFFSET $3"
   },
-  "877829f87c4d94c2e385ab9c5d75d3f70929c89231650e20db57c4b7c1d8911f": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Varchar",
-          "Text"
-        ]
-      }
-    },
-    "query": "INSERT INTO group_\n                (workspace_id, name, summary)\n                VALUES ($1, $2, $3) ON CONFLICT DO NOTHING"
-  },
   "8876fa929ffb175cd976a2bca1195704aa9fe7215013ae29e49ef15cb201ba57": {
     "describe": {
       "columns": [],
@@ -2809,6 +2923,18 @@
       }
     },
     "query": "SELECT * from resource_type WHERE (workspace_id = $1 OR workspace_id = 'starter' OR workspace_id = 'admins') ORDER BY name"
+  },
+  "8974baa530cf20156d9931123f0e046dd626e7763b54c4d0089a33bb417906f8": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM usr_to_group WHERE workspace_id = $1"
   },
   "8a80333c2fbf7b50fed305882de6e4ffda985d5c648cd617add6c9e6a9c03f34": {
     "describe": {
@@ -3632,6 +3758,18 @@
     },
     "query": "SELECT EXISTS (SELECT 1 FROM queue WHERE workspace_id = $1 AND schedule_path = $2 AND scheduled_for = $3)"
   },
+  "a2b78a33c8122a4657e95d0da73e1de64c096a41ce7b993b267284fae5ea53fb": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM workspace_key WHERE workspace_id = $1"
+  },
   "a34066d4a1578a13b2e322e6936ae80a0239a79148f3edce65f51a93910a1a4b": {
     "describe": {
       "columns": [
@@ -3741,6 +3879,18 @@
       }
     },
     "query": "\n    SELECT usage.usage FROM usage \n    WHERE is_workspace = false \n    AND month_ = EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date)\n    AND id = $1"
+  },
+  "a8a9a0197c51ec1614a7a5f2c24e621eadeca9a3500e9b8ab34b3b2d5037ca3c": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM variable WHERE workspace_id = $1"
   },
   "a98b2d68f023f46ab91167d3147416df672c2aed2ba5ab70e98a9da5fa47255a": {
     "describe": {
@@ -4530,6 +4680,18 @@
     },
     "query": "SELECT username from usr WHERE workspace_id = $1"
   },
+  "c6f5c08cb7c641b398e77424fb79c26d4218aea34ff9fe05beac685504333053": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM usr WHERE workspace_id = $1"
+  },
   "c732dcb4df5877560a3e75e0032179140cbe442f0b80ce1172d80903dd8a14fa": {
     "describe": {
       "columns": [],
@@ -4739,6 +4901,18 @@
     },
     "query": "SELECT app.id, app.path, app.summary, app.versions, app.policy,\n        app.extra_perms, app_version.value, \n        app_version.created_at, app_version.created_by from app, app_version \n        WHERE app.path = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]"
   },
+  "d0bcb407ce7442511add6572b100783fb6d517a23bb9a32febf38b8c47bda656": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM workspace WHERE id = $1"
+  },
   "d12d151995da2e8357307dd99e3f7b59192832a566d56b56097d15f713430705": {
     "describe": {
       "columns": [
@@ -4759,6 +4933,21 @@
       }
     },
     "query": "SELECT count(path) FROM app WHERE path LIKE 'f/' || $1 || '%'  AND workspace_id = $2"
+  },
+  "d444e1c1e12a82e9aee5c2ffc4d1d3841bd41dd71344ab155c9842b45bcf30b6": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "VarcharArray",
+          "Jsonb"
+        ]
+      }
+    },
+    "query": "INSERT INTO folder\n                (workspace_id, name, owners, extra_perms)\n                VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING"
   },
   "d47bff7d6b54cd6da8bb330f7321c37af5dcbd76f9acad73b5ba1b8a4afb5091": {
     "describe": {
@@ -5156,6 +5345,18 @@
     },
     "query": "SELECT hash FROM script WHERE parent_hashes[1] = $1 AND workspace_id = $2"
   },
+  "e533518bd272a0643529f101b1d1dcbd6287494cc87b90487d917bc56bfcf1c1": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM workspace_invite WHERE workspace_id = $1"
+  },
   "e587299612077e6de39b5a501aa8a736cae4a21f11853f8ae66a610b4e65f49e": {
     "describe": {
       "columns": [
@@ -5298,6 +5499,18 @@
       }
     },
     "query": "INSERT INTO schedule (workspace_id, path, schedule, offset_, edited_by, script_path, is_flow, args, enabled, email) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *"
+  },
+  "e6f85cdbe681ace495fde31e67339dc58460b6914440473fe94de7a7bc292af4": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM completed_job WHERE workspace_id = $1"
   },
   "e838b15953b567af2a2da6a4e3a04add5ec2cacabd93171a97c5fc978a64f8aa": {
     "describe": {
@@ -5570,6 +5783,26 @@
       }
     },
     "query": "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 AND workspace_id = $4 RETURNING id"
+  },
+  "f2485c69b3ab6bec11c4e1eac2934d6e49f83b71a72fe74eba7b49abc225df7c": {
+    "describe": {
+      "columns": [
+        {
+          "name": "path",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT distinct(path) FROM script WHERE  workspace_id = $1"
   },
   "f325a1262084bd3468e12dc8bcc289a96536f172b679af54dd0fbc82d4d7c987": {
     "describe": {

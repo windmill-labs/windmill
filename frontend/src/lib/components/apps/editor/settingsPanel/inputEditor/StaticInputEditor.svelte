@@ -19,7 +19,7 @@
 	{#if componentInput.fieldType === 'number'}
 		<input type="number" bind:value={componentInput.value} />
 	{:else if componentInput.fieldType === 'textarea'}
-		<textarea type="text" bind:value={componentInput.value} />
+		<textarea bind:value={componentInput.value} />
 	{:else if componentInput.fieldType === 'boolean'}
 		<Toggle bind:checked={componentInput.value} />
 	{:else if componentInput.fieldType === 'select'}
@@ -46,10 +46,12 @@
 					: undefined}
 			/>
 		{:else}
-			<JsonEditor
-				bind:value={componentInput.value}
-				code={JSON.stringify(componentInput.value, null, 2)}
-			/>
+			<div class="flex w-full flex-col">
+				<JsonEditor
+					bind:value={componentInput.value}
+					code={JSON.stringify(componentInput.value, null, 2)}
+				/>
+			</div>
 		{/if}
 	{:else if componentInput.fieldType === 'array'}
 		<ArrayStaticInputEditor bind:componentInput />

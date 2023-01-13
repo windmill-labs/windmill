@@ -23,6 +23,7 @@
 	export let workspace: string
 	export let isEditor: boolean
 	export let context: Record<string, any>
+	export let noBackend: boolean = false
 
 	const appStore = writable<App>(app)
 	const worldStore = writable<World | undefined>(undefined)
@@ -53,7 +54,9 @@
 		workspace,
 		onchange: undefined,
 		isEditor,
-		jobs: writable([])
+		jobs: writable([]),
+		staticExporter: writable({}),
+		noBackend
 	})
 
 	let mounted = false

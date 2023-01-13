@@ -110,7 +110,24 @@
 					}}
 					><span class="font-mono">{workspace.id}</span> - {workspace.name} as
 					<span class="font-mono">{workspace.username}</span>
+					{#if workspace['deleted']}
+						<span class="text-red-500"> (archived)</span>
+					{/if}
 				</button>
+				{#if $superadmin && workspace['deleted']}
+					<Button
+						size="xs"
+						btnClasses="w-full mt-1"
+						color="green"
+						variant="border"
+						on:click={async () => {
+							await WorkspaceService.unarchiveWorkspace({ workspace: workspace.id })
+							loadWorkspacesAsAdmin()
+						}}
+					>
+						Unarchive {workspace.id}
+					</Button>
+				{/if}
 			</label>
 		{/each}
 	{:else}
