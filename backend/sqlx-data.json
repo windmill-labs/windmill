@@ -1576,6 +1576,20 @@
     },
     "query": "SELECT substr(logs, $1) as logs FROM completed_job WHERE workspace_id = $2 AND id = $3"
   },
+  "460a3c3161899e172d2d20004e12ad3f331c73f260d099749a9e8fb85ae5614e": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Uuid",
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE queue SET canceled = true, canceled_reason = 'http connection broke', canceled_by = $1 WHERE id = $2 AND workspace_id = $3"
+  },
   "46b44de4ea6eb15258c1cb9bbd21cab7fc350b46e8899d59759945eae02a6d40": {
     "describe": {
       "columns": [
