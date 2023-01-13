@@ -621,7 +621,7 @@ export function scriptLangToEditorLang(
 }
 
 export async function copyToClipboard(value?: string, sendToast = true): Promise<boolean> {
-	if(!value) { return false }
+	if (!value) { return false }
 
 	let success = false
 	if (navigator?.clipboard) {
