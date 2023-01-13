@@ -23,7 +23,7 @@
 
 	type T = Record<string, any>
 
-	$: result = [] as Array<Record<string, any>>
+	let result: Record<string, any>[] | undefined = undefined
 
 	let search: 'By Runnable' | 'By Component' | 'Disabled' | undefined = undefined
 	let searchValue = ''
@@ -102,8 +102,8 @@
 	let filteredResult: Array<Record<string, any>> = []
 
 	$: filteredResult && setOptions(filteredResult)
-	$: search === 'By Component' && (filteredResult = searchInResult(result, searchValue))
-	$: (search === 'By Runnable' || search === 'Disabled') && (filteredResult = result)
+	$: search === 'By Component' && (filteredResult = searchInResult(result ?? [], searchValue))
+	$: (search === 'By Runnable' || search === 'Disabled') && (filteredResult = result ?? [])
 	$: outputs = $worldStore?.outputsById[id] as {
 		selectedRow: Output<any>
 		search: Output<string>
@@ -212,7 +212,7 @@
 
 			<AppTableFooter paginationEnabled={pagination} {result} {table} />
 		</div>
-	{:else}
+	{:else if result != undefined}
 		<Alert title="Parsing issues" type="error" size="xs">
 			The result should be an array of objects
 		</Alert>
