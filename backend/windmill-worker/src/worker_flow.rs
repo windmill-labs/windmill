@@ -303,7 +303,6 @@ pub async fn update_flow_status_after_job_completion(
             .fetch_one(&mut tx)
             .await?;
 
-            tracing::info!("setting failure module for flow XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX {parent_module:?}");
             sqlx::query!(
                 "
             UPDATE queue
@@ -687,13 +686,19 @@ async fn transform_input(
         }
     }
 
+    let lresult = last_result.clone();
+    let error = if let Some(error) = lresult.as_object() {
+        error.get("error")
+    } else {
+        None
+    };
     for (key, val) in input_transforms.into_iter() {
         match val {
             InputTransform::Static { value: _ } => (),
             InputTransform::Javascript { expr } => {
                 let flow_input = flow_args.clone().unwrap_or_else(|| json!({}));
                 let previous_result = last_result.clone();
-                let context = vec![
+                let mut context = vec![
                     ("params".to_string(), json!(mapped)),
                     ("previous_result".to_string(), previous_result),
                     ("flow_input".to_string(), flow_input),
@@ -704,6 +709,10 @@ async fn transform_input(
                     ("resumes".to_string(), resumes.clone().into()),
                     ("approvers".to_string(), json!(approvers.clone())),
                 ];
+
+                if error.is_some() {
+                    context.push(("error".to_string(), error.unwrap().clone()));
+                }
 
                 let v = eval_timeout(
                     expr.to_string(),
