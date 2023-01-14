@@ -87,10 +87,11 @@ import (
 
 // connect the error parameter to 'previous_result.error'
 
-func main(error string) (interface{}, error) {
-	fmt.Println(error)
-	fmt.Println("job", os.Getenv("WM_JOB_ID"))
-  return x, nil
+func main(message string, name string) (interface{}, error) {
+	fmt.Println(message)
+	fmt.Println(name)
+	fmt.Println("flow id that failed", os.Getenv("WM_FLOW_JOB_ID"))
+  return message, nil
 }
 `
 
@@ -102,13 +103,12 @@ export async function main(x: string) {
 `
 
 export const DENO_FAILURE_MODULE_CODE = `
-// connect the error parameter to 'previous_result.error'
 
-export async function main(error: string) {
-  const job = Deno.env.get("WM_JOB_ID")
-  console.log("error", error)
-  console.log("job", job)
-  return { error, job }
+export async function main(message: string, name: string) {
+  const flow_id = Deno.env.get("WM_FLOW_JOB_ID")
+  console.log("message", message)
+  console.log("name",name)
+  return { message, flow_id }
 }
 `
 
@@ -122,11 +122,11 @@ export const PYTHON_FAILURE_MODULE_CODE = `import os
 
 # connect the error parameter to 'previous_result.error'
 
-def main(error: str):
-  job = os.environ.get("WM_JOB_ID")
-  print("error", error)
-  print("job", job)
-  return error, job
+def main(message: str, name: str):
+  flow_id = os.environ.get("WM_FLOW_JOB_ID")
+  print("message", message)
+  print("name", name)
+  return message, flow_id
 `
 
 export const POSTGRES_INIT_CODE = `import {

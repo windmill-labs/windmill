@@ -59,7 +59,7 @@
 					return 'jpeg'
 				} else if (keys.length == 1 && keys[0] == 'file') {
 					return 'file'
-				} else if (keys.length == 1 && keys[0] == 'error' && typeof result['error'] == 'string') {
+				} else if (keys.length == 1 && keys[0] == 'error') {
 					return 'error'
 				} else if (
 					keys.length == 3 &&
@@ -141,8 +141,9 @@
 					>Download</a
 				>
 			</div>
-		{:else if !forceJson && resultKind == 'error'}<div
-				><pre class="text-sm text-red-500 whitespace-pre-wrap">{result.error}</pre>
+		{:else if !forceJson && resultKind == 'error'}<div>
+				<span class="text-red-500 font-semibold">{result.error.name}: {result.error.message}</span>
+				<pre class="text-sm whitespace-pre-wrap text-gray-900">{result.error.stack}</pre>
 			</div>
 		{:else if !forceJson && resultKind == 'approval'}<div class="flex flex-col gap-1 mx-4">
 				<Button

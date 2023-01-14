@@ -402,7 +402,7 @@ pub async fn update_flow_status_after_job_completion(
         {
             true
         }
-        false if has_failure_module(flow, &mut tx).await? => true,
+        false if has_failure_module(flow, &mut tx).await? && !is_failure_step => true,
         false => false,
     };
 
@@ -435,7 +435,7 @@ pub async fn update_flow_status_after_job_completion(
                 db,
                 &flow_job,
                 logs,
-                &canceled_job_to_result(&flow_job),
+                canceled_job_to_result(&flow_job),
                 metrics.clone(),
             )
             .await?;
@@ -468,7 +468,7 @@ pub async fn update_flow_status_after_job_completion(
                     db,
                     &flow_job,
                     "Unexpected error during flow chaining:\n".to_string(),
-                    err,
+                    json!({"message": err.to_string(), "name": "InternalError"}),
                     metrics.clone(),
                 )
                 .await;
@@ -692,6 +692,7 @@ async fn transform_input(
     } else {
         None
     };
+
     for (key, val) in input_transforms.into_iter() {
         match val {
             InputTransform::Static { value: _ } => (),

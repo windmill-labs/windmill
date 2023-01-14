@@ -157,7 +157,6 @@
 		}
 	}
 
-	export let inputCat: InputCat = 'string'
 	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
 </script>
 
