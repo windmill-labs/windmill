@@ -875,10 +875,12 @@ async fn handle_queued_job(
                                 .split("CODE EXECUTION ---")
                                 .last()
                                 .unwrap_or(&logs);
-                            format!("Error during execution of the script:\n{}", log_lines)
+                            log_lines.to_string().trim().to_string()
                         }
                         err @ _ => format!("error before termination: {err:#?}"),
                     };
+
+                    tracing::info!("job {} failed: {}", job.id, error_message);
 
                     let (_, output_map) = add_completed_job_error(
                         db,

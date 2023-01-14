@@ -101,7 +101,7 @@
 			<div class="overflow-y-auto mb-2">
 				<ObjectViewer
 					pureViewer={!$propPickerConfig}
-					json={{ previous_result: { error: 'The error to handle' } }}
+					json={{ error: 'The error to handle' }}
 					on:select
 				/>
 			</div>
