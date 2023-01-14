@@ -12,11 +12,12 @@
 
 	let jsonViewerDrawer: Drawer
 
-	export function open() {
+	let app: App | undefined = undefined
+
+	export function open(app_l: App) {
+		app = app_l
 		jsonViewerDrawer?.toggleDrawer()
 	}
-
-	export let app: App
 </script>
 
 <Drawer bind:this={jsonViewerDrawer} size="800px">
@@ -32,7 +33,7 @@
 			>
 				Copy content
 			</Button>
-			<Highlight language={json} code={JSON.stringify(app, null, 4)} />
+			<Highlight language={json} code={JSON.stringify(app ?? {}, null, 4)} />
 		</div>
 	</DrawerContent>
 </Drawer>

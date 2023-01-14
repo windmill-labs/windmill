@@ -42,7 +42,8 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { appToHubUrl, classNames, copyToClipboard, sendUserToast } from '../../../utils'
 	import type { AppInput } from '../inputType'
-	import type { App, AppComponent, AppEditorContext } from '../types'
+	import type { AppComponent, AppEditorContext } from '../types'
+	import { toStatic } from '../utils'
 	import AppExportButton from './AppExportButton.svelte'
 	import PanelSection from './settingsPanel/common/PanelSection.svelte'
 
@@ -74,17 +75,6 @@
 
 	function closeSaveDrawer() {
 		saveDrawerOpen = false
-	}
-
-	function toStatic(): { app: App; summary: string } {
-		const newApp: App = JSON.parse(JSON.stringify($app))
-		newApp.grid.forEach((x) => {
-			let c: AppComponent = x.data
-			if (c.componentInput?.type == 'runnable') {
-				c.componentInput.value = $staticExporter[x.id]()
-			}
-		})
-		return { app: newApp, summary: $summary }
 	}
 
 	async function computeTriggerables() {
@@ -421,15 +411,22 @@
 					displayName: 'JSON',
 					icon: faFileExport,
 					action: () => {
-						appExport.open()
+						appExport.open($app)
 					}
 				},
 				{
 					displayName: 'Publish to Hub',
 					icon: faGlobe,
 					action: () => {
-						const url = appToHubUrl(toStatic())
+						const url = appToHubUrl(toStatic($app, $staticExporter, $summary))
 						window.open(url.toString(), '_blank')
+					}
+				},
+				{
+					displayName: 'Hub compatible JSON',
+					icon: faFileExport,
+					action: () => {
+						appExport.open(toStatic($app, $staticExporter, $summary).app)
 					}
 				}
 			]}
@@ -447,7 +444,7 @@
 				<span class="hidden md:inline">Debug Runs</span>
 			</Button>
 		</span>
-		<AppExportButton bind:this={appExport} app={$app} />
+		<AppExportButton bind:this={appExport} />
 		<Button
 			on:click={() => (publishDrawerOpen = true)}
 			color="light"
