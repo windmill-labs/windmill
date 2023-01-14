@@ -25,7 +25,7 @@ use windmill_common::{
 };
 use windmill_queue::{canceled_job_to_result, get_queued_job, pull, JobKind, QueuedJob};
 
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 
 use tokio::{
     fs::{metadata, symlink, DirBuilder, File},
@@ -651,16 +651,14 @@ async fn handle_job_error(
     keep_job_dir: bool,
     base_internal_url: &str,
 ) {
-    add_completed_job_error(
+    let _ = add_completed_job_error(
         db,
         &job,
         format!("Unexpected error during job execution:\n{err}"),
-        &err,
+        json!({"message": err.to_string(), "name": "InternalErr"}),
         metrics.clone(),
     )
-    .await
-    .map(|(_, m)| m)
-    .unwrap_or_else(|_| Map::new());
+    .await;
 
     if job.is_flow_step || job.job_kind == JobKind::FlowPreview || job.job_kind == JobKind::Flow {
         let (flow, job_status_to_update) = if let Some(parent_job_id) = job.parent_job {
@@ -700,7 +698,7 @@ async fn handle_job_error(
                             db,
                             &parent_job,
                             format!("Unexpected error during flow job error handling:\n{err}"),
-                            err,
+                            json!({"message": err.to_string(), "name": "InternalErr"}),
                             metrics.clone(),
                         )
                         .await;
@@ -742,6 +740,14 @@ struct Envs {
     max_log_size: i64,
 }
 
+fn extract_error_value(log_lines: &str) -> serde_json::Value {
+    if let Some(last) = log_lines.split("\n").last() {
+        if let Ok(v) = serde_json::from_str(last) {
+            return v;
+        };
+    }
+    return json!({"message": log_lines.to_string().trim().to_string(), "name": "ExecutionErr"});
+}
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_queued_job(
     job: QueuedJob,
@@ -759,7 +765,9 @@ async fn handle_queued_job(
     base_internal_url: &str,
 ) -> windmill_common::error::Result<()> {
     if job.canceled {
-        return Err(Error::ExecutionErr(canceled_job_to_result(&job)))?;
+        return Err(Error::ExecutionErr(
+            canceled_job_to_result(&job).to_string(),
+        ))?;
     }
     if let Some(e) = job.pre_run_error {
         return Err(Error::ExecutionErr(e));
@@ -862,7 +870,7 @@ async fn handle_queued_job(
                     }
                 }
                 Err(e) => {
-                    let error_message = match e {
+                    let error_value = match e {
                         Error::ExitStatus(_) => {
                             let last_10_log_lines = logs
                                 .lines()
@@ -875,21 +883,17 @@ async fn handle_queued_job(
                                 .split("CODE EXECUTION ---")
                                 .last()
                                 .unwrap_or(&logs);
-                            log_lines.to_string().trim().to_string()
+
+                            extract_error_value(log_lines)
                         }
-                        err @ _ => format!("error before termination: {err:#?}"),
+                        err @ _ => {
+                            json!({"message": format!("error before termination: {err:#?}"), "name": "ExecutionErr"})
+                        }
                     };
 
-                    tracing::info!("job {} failed: {}", job.id, error_message);
-
-                    let (_, output_map) = add_completed_job_error(
-                        db,
-                        &job,
-                        logs,
-                        error_message,
-                        Some(metrics.clone()),
-                    )
-                    .await?;
+                    let result =
+                        add_completed_job_error(db, &job, logs, error_value, Some(metrics.clone()))
+                            .await?;
                     if job.is_flow_step {
                         if let Some(parent_job) = job.parent_job {
                             update_flow_status_after_job_completion(
@@ -899,7 +903,7 @@ async fn handle_queued_job(
                                 &job.id,
                                 &job.workspace_id,
                                 false,
-                                serde_json::Value::Object(output_map),
+                                result,
                                 Some(metrics),
                                 false,
                                 same_worker_tx,
@@ -1454,7 +1458,10 @@ async function run() {{
     await Deno.writeTextFile("result.json", res_json);
     Deno.exit(0);
 }}
-run();
+run().catch((e) => {{
+    console.error(JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
+    Deno.exit(1);
+}});
 "#,
     );
     write_file(job_dir, "main.ts", &wrapper_content).await?;
@@ -1686,6 +1693,8 @@ import json
 {import_loader}
 {import_base64}
 {import_datetime}
+import traceback
+import sys
 
 inner_script = __import__("inner")
 
@@ -1695,10 +1704,16 @@ for k, v in list(kwargs.items()):
     if v == '<function call>':
         del kwargs[k]
 {transforms}
-res = inner_script.main(**kwargs)
-res_json = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
-with open("result.json", 'w') as f:
-    f.write(res_json)
+try:
+    res = inner_script.main(**kwargs)
+    res_json = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
+    with open("result.json", 'w') as f:
+        f.write(res_json)
+except Exception as e:
+    exc_type, exc_value, exc_traceback = sys.exc_info()
+    tb = traceback.format_tb(exc_traceback)
+    print(json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:])  }}, separators=(',', ':'), default=str).replace('\n', ''), file=sys.stderr)
+    sys.exit(1)
 "#,
     );
     write_file(job_dir, "main.py", &wrapper_content).await?;

@@ -33,7 +33,7 @@
 	let monacoTemplate: TemplateEditor | undefined = undefined
 	let argInput: ArgInput | undefined = undefined
 
-	let inputCat: InputCat = computeInputCat(
+	$: inputCat = computeInputCat(
 		schema.properties[argName].type,
 		schema.properties[argName].format,
 		schema.properties[argName].items?.type,
@@ -269,7 +269,6 @@
 				bind:itemsType={schema.properties[argName].items}
 				properties={schema.properties[argName].properties}
 				displayHeader={false}
-				bind:inputCat
 				{variableEditor}
 				{itemPicker}
 				bind:pickForField
