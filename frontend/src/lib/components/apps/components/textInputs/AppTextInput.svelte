@@ -16,6 +16,7 @@
 	let input: HTMLInputElement
 
 	let placeholder: string | undefined = undefined
+	let disabled: boolean = false
 
 	$: outputs = $worldStore?.outputsById[id] as {
 		result: Output<string>
@@ -27,6 +28,7 @@
 </script>
 
 <InputValue {id} input={configuration.placeholder} bind:value={placeholder} />
+<InputValue {id} input={configuration.disabled} bind:value={disabled} />
 
 <AlignWrapper {verticalAlignment}>
 	<input
@@ -38,5 +40,6 @@
 		bind:this={input}
 		on:input={handleInput}
 		{placeholder}
+		{disabled}
 	/>
 </AlignWrapper>
