@@ -172,7 +172,6 @@ pub async fn get_result_by_id(
         "Flow result by id",
         format!("{}, {}", flow_id, node_id),
     )?;
-    println!("result_id: {:#?}, {node_id}", result_id);
 
     let value = match result_id {
         JobResult::ListJob(x) => {
