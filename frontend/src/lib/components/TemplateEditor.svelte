@@ -382,6 +382,10 @@
 	export let fixedOverflowWidgets = true
 	export let fontSize = 16
 
+	if (typeof code != 'string') {
+		code = ''
+	}
+
 	const lang = 'template'
 	const dispatch = createEventDispatcher()
 
