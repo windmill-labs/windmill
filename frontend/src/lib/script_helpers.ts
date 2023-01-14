@@ -102,7 +102,7 @@ export async function main(x: string) {
 }
 `
 
-export const DENO_FAILURE_MODULE_CODE = `
+export const DENO_FAILURE_MODULE_CODE = `// flow is considered recovered and a success unless an exception is thrown
 
 export async function main(message: string, name: string) {
   const flow_id = Deno.env.get("WM_FLOW_JOB_ID")
@@ -119,8 +119,7 @@ def main(x: str):
 `
 
 export const PYTHON_FAILURE_MODULE_CODE = `import os
-
-# connect the error parameter to 'previous_result.error'
+# flow is considered recovered and a success unless an exception is raised
 
 def main(message: str, name: str):
   flow_id = os.environ.get("WM_FLOW_JOB_ID")
