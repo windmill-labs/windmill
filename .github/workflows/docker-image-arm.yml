@@ -13,19 +13,19 @@ concurrency:
   group: ${{ github.ref }}-arm
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   publish_arm:
-    runs-on: [self-hosted, new]
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+      - uses: depot/setup-action@v1
 
       - name: Docker meta
         id: meta-slim-public
@@ -47,7 +47,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push publicly
-        uses: docker/build-push-action@v3
+        uses: depot/build-push-action@v1
         with:
           context: .
           push: true
@@ -58,5 +58,3 @@ jobs:
           labels: |
             ${{ steps.meta-slim-public.outputs.labels }}
             org.opencontainers.image.licenses=AGPLv3
-          cache-from: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}-arm:buildcache
-          cache-to: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}-arm:buildcache,mode=max
