@@ -143,7 +143,7 @@
 			</div>
 		{:else if !forceJson && resultKind == 'error'}<div>
 				<span class="text-red-500 font-semibold">{result.error.name}: {result.error.message}</span>
-				<pre class="text-sm whitespace-pre-wrap text-gray-900">{result.error.stack}</pre>
+				<pre class="text-sm whitespace-pre-wrap text-gray-900">{result.error.stack ?? ''}</pre>
 			</div>
 		{:else if !forceJson && resultKind == 'approval'}<div class="flex flex-col gap-1 mx-4">
 				<Button
