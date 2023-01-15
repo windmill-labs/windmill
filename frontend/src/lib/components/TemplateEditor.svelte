@@ -594,3 +594,9 @@
 </script>
 
 <div bind:this={divEl} class="{$$props.class} rounded-lg mx-0.5" bind:clientWidth={width} />
+
+<style>
+	:global(.mtk20) {
+		color: black !important;
+	}
+</style>
