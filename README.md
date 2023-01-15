@@ -91,7 +91,7 @@ Windmill is <b>fully open-sourced (AGPLv3)</b>:
    shared on [WindmillHub](https://hub.windmill.dev).
    ![Step 4](./imgs/windmill-flow.png)
 
-4. (Coming soon) Build complex UI on top of your scripts and flows.
+4. Build complex UI on top of your scripts and flows.
    ![Step 5](./imgs/windmill-builder.png)
 
 Scripts and flows can also be triggered by a cron schedule '*/5 * * * *' or
