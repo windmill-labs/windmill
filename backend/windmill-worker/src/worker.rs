@@ -741,11 +741,6 @@ struct Envs {
 }
 
 fn extract_error_value(log_lines: &str) -> serde_json::Value {
-    if let Some(last) = log_lines.split("\n").last() {
-        if let Ok(v) = serde_json::from_str(last) {
-            return v;
-        };
-    }
     return json!({"message": log_lines.to_string().trim().to_string(), "name": "ExecutionErr"});
 }
 #[tracing::instrument(level = "trace", skip_all)]
@@ -872,19 +867,25 @@ async fn handle_queued_job(
                 Err(e) => {
                     let error_value = match e {
                         Error::ExitStatus(_) => {
-                            let last_10_log_lines = logs
-                                .lines()
-                                .skip(logs.lines().count().max(13) - 13)
-                                .join("\n")
-                                .to_string()
-                                .replace("\n\n", "\n");
+                            let res = read_result(job_dir).await.ok();
 
-                            let log_lines = last_10_log_lines
-                                .split("CODE EXECUTION ---")
-                                .last()
-                                .unwrap_or(&logs);
+                            if res.is_some() && res.clone().unwrap().is_object() {
+                                res.unwrap()
+                            } else {
+                                let last_10_log_lines = logs
+                                    .lines()
+                                    .skip(logs.lines().count().max(13) - 13)
+                                    .join("\n")
+                                    .to_string()
+                                    .replace("\n\n", "\n");
 
-                            extract_error_value(log_lines)
+                                let log_lines = last_10_log_lines
+                                    .split("CODE EXECUTION ---")
+                                    .last()
+                                    .unwrap_or(&logs);
+
+                                extract_error_value(log_lines)
+                            }
                         }
                         err @ _ => {
                             json!({"message": format!("error before termination: {err:#?}"), "name": "ExecutionErr"})
@@ -1458,8 +1459,8 @@ async function run() {{
     await Deno.writeTextFile("result.json", res_json);
     Deno.exit(0);
 }}
-run().catch((e) => {{
-    console.error(JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
+run().catch(async (e) => {{
+    await Deno.writeTextFile("result.json", JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
     Deno.exit(1);
 }});
 "#,
@@ -1712,8 +1713,10 @@ try:
 except Exception as e:
     exc_type, exc_value, exc_traceback = sys.exc_info()
     tb = traceback.format_tb(exc_traceback)
-    print(json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:])  }}, separators=(',', ':'), default=str).replace('\n', ''), file=sys.stderr)
-    sys.exit(1)
+    with open("result.json", 'w') as f:
+        err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:])  }}, separators=(',', ':'), default=str).replace('\n', '')
+        f.write(err_json)
+        sys.exit(1)
 "#,
     );
     write_file(job_dir, "main.py", &wrapper_content).await?;

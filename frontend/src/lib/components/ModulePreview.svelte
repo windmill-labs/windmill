@@ -66,11 +66,12 @@
 		{/if}
 
 		<RunForm
+			noVariablePicker
 			loading={testIsLoading}
 			runnable={{ summary: mod.summary ?? '', schema, description: '' }}
 			runAction={(_, args) => runTest(args)}
 			schedulable={false}
-			buttonText="Test just this step (Ctrl+Enter)"
+			buttonText="Test (Ctrl+Enter)"
 			detailed={false}
 			topButton
 			bind:args={stepArgs}
