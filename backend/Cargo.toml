@@ -45,6 +45,9 @@ tokio-metrics.workspace = true
 rand.workspace = true
 chrono.workspace = true
 git-version.workspace = true
+rsa.workspace = true
+base64.workspace = true
+sha2.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
@@ -140,3 +143,4 @@ lazy_static = "1.4.0"
 serde_derive = "1.0.147"
 const_format = { version = "0.2", features = ["rust_1_64", "rust_1_51"] }
 dyn-iter = "0.2.0"
+rsa = "0.7.2"
