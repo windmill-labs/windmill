@@ -178,7 +178,8 @@ static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_ma
     "yaml" => "pyyaml",
     "git" => "GitPython",
     "u" => "requests",
-    "f" => "requests"
+    "f" => "requests",
+    "seleniumwire" => "selenium-wire",
 };
 
 fn replace_import(x: String) -> String {
