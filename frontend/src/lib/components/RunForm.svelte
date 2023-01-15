@@ -45,6 +45,7 @@
 	export let autofocus = false
 	export let topButton = false
 	export let loading = false
+	export let noVariablePicker = false
 
 	export let args: Record<string, any> = decodeArgs($page.url.searchParams.get('args') ?? undefined)
 
@@ -117,7 +118,7 @@
 		{#if !runnable.schema.properties || Object.keys(runnable.schema.properties).length === 0}
 			<div class="text-sm p-4">No arguments</div>
 		{:else}
-			<SchemaForm {autofocus} schema={runnable.schema} bind:isValid bind:args />
+			<SchemaForm {noVariablePicker} {autofocus} schema={runnable.schema} bind:isValid bind:args />
 		{/if}
 	{:else}
 		<div class="text-xs text-gray-600">No schema</div>
