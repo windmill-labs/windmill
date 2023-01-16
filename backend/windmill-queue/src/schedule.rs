@@ -13,7 +13,7 @@ use sqlx::{query_scalar, Postgres, Transaction};
 use windmill_common::{
     error::{self, Result},
     schedule::Schedule,
-    utils::{get_owner_from_path, now_from_db, StripPath},
+    utils::{now_from_db, StripPath},
 };
 
 use crate::{push, JobPayload};
