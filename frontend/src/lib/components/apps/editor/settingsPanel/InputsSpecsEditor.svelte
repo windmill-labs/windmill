@@ -9,9 +9,9 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 
+	export let id: string
 	export let inputSpecs: BaseAppComponent['configuration']
 	export let userInputEnabled: boolean = true
-	export let staticOnly: boolean = false
 	export let shouldCapitalize: boolean = true
 	export let rowColumns = false
 
@@ -42,7 +42,7 @@
 								: capitalize(fieldTypeToTsType(input.fieldType))}
 						</Badge>
 
-						{#if !inputSpecs[inputSpecKey].onlyStatic}
+						{#if !inputSpecs[inputSpecKey].onlyStatic && inputSpecs[inputSpecKey].type != 'eval'}
 							<ToggleButtonGroup
 								bind:selected={inputSpecs[inputSpecKey].type}
 								on:selected={(e) => {
@@ -72,7 +72,6 @@
 											value="row"
 											startIcon={{ icon: faTableCells }}
 											size="xs"
-											disabled={staticOnly}
 										>
 											<Tooltip>
 												Use the column name to have the value of the cell be passed to the action
@@ -89,7 +88,6 @@
 											startIcon={{ icon: faUser }}
 											size="xs"
 											iconOnly
-											disabled={staticOnly}
 										/>
 										<svelte:fragment slot="text">User Input</svelte:fragment>
 									</Popover>
@@ -101,7 +99,6 @@
 										startIcon={{ icon: faArrowRight }}
 										size="xs"
 										iconOnly
-										disabled={staticOnly}
 									/>
 									<svelte:fragment slot="text">Connect</svelte:fragment>
 								</Popover>
@@ -110,7 +107,7 @@
 					</div>
 				</div>
 
-				<InputsSpecEditor bind:componentInput={inputSpecs[inputSpecKey]} />
+				<InputsSpecEditor {id} bind:componentInput={inputSpecs[inputSpecKey]} />
 			</div>
 		{/each}
 	</div>

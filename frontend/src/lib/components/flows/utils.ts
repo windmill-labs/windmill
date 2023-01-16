@@ -92,7 +92,7 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 
 		if (JSON.stringify(keys.sort()) !== JSON.stringify(Object.keys(input_transforms).sort())) {
 			input_transforms = keys.reduce((accu, key) => {
-				let nv = input_transforms[key] ?? {
+				let nv = input_transforms[key] ?? (module.id == 'failure' && ['message', 'name'].includes(key)) ? { type: 'javascript', expr: `error.${key}` } : {
 					type: 'static',
 					value: undefined
 				}

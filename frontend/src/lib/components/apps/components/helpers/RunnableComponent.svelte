@@ -303,7 +303,10 @@
 		<div class="p-2">
 			<Alert type="error" title="Error during execution">
 				See "Debug Runs" on the top right for more details
-				<pre title={result.error} class=" mt-2 text-2xs whitespace-pre-wrap">{result.error}</pre>
+				<pre
+					title={JSON.stringify(result.error, null, 4)}
+					class=" mt-2 text-2xs whitespace-pre-wrap">{JSON.stringify(result.error, null, 4)}</pre
+				>
 			</Alert>
 			<slot />
 		</div>

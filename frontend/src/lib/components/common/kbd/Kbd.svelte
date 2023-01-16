@@ -1,7 +1,7 @@
-<kbd
-	class="mx-1 px-2 py-1 text-xs font-mono font-semibold text-gray-800 
-	bg-gray-100 border border-gray-200 rounded-lg 
-	dark:bg-gray-600 dark:text-gray-100 dark:border-gray-500 {$$props.class}"
+<span
+	class="{$$props.class} rounded border bg-white/70 px-1.5 !text-xs text-gray-600 shadow-sm font-light transition-all group-hover:border-primary-500 group-hover:text-primary-500"
 >
-	<slot />
-</kbd>
+	<kbd>
+		<slot />
+	</kbd>
+</span>

@@ -24,7 +24,8 @@ import {
 	SlidersHorizontal
 } from 'lucide-svelte'
 import type { AppInput, InputType, ResultAppInput, StaticAppInput } from './inputType'
-import type { AppComponent } from './types'
+import type { Output } from './rx'
+import type { App, AppComponent } from './types'
 
 export async function loadSchema(
 	workspace: string,
@@ -232,4 +233,30 @@ export function clearResultAppInput(appInput: ResultAppInput): ResultAppInput {
 		appInput.fields = {}
 	}
 	return appInput
+}
+
+
+export function toStatic(app: App, staticExporter: Record<string, () => any>, summary: string): { app: App; summary: string } {
+	const newApp: App = JSON.parse(JSON.stringify(app))
+	newApp.grid.forEach((x) => {
+		let c: AppComponent = x.data
+		if (c.componentInput?.type == 'runnable') {
+			c.componentInput.value = staticExporter[x.id]()
+		}
+	})
+	return { app: newApp, summary }
+}
+
+export function buildExtraLib(components: Record<string, Record<string, Output<any>>>, idToExclude: string): string {
+	return Object.entries(components)
+		.filter(([k, v]) => k != idToExclude)
+		.map(([k, v]) => [k, Object.fromEntries(Object.entries(v).map(([k, v]) => [k, v.peak()]))])
+		.map(
+			([k, v]) => `
+
+declare const ${k} = ${JSON.stringify(v)};
+
+`
+		)
+		.join('\n')
 }

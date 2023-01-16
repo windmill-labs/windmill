@@ -172,7 +172,6 @@ pub async fn get_result_by_id(
         "Flow result by id",
         format!("{}, {}", flow_id, node_id),
     )?;
-    println!("result_id: {:#?}, {node_id}", result_id);
 
     let value = match result_id {
         JobResult::ListJob(x) => {
@@ -545,13 +544,13 @@ pub async fn push<'c>(
     Ok((uuid, tx))
 }
 
-pub fn canceled_job_to_result(job: &QueuedJob) -> String {
+pub fn canceled_job_to_result(job: &QueuedJob) -> serde_json::Value {
     let reason = job
         .canceled_reason
         .as_deref()
         .unwrap_or_else(|| "no reason given");
     let canceler = job.canceled_by.as_deref().unwrap_or_else(|| "unknown");
-    format!("Job canceled: {reason} by {canceler}")
+    serde_json::json!({"message": format!("Job canceled: {reason} by {canceler}"), "name": "Canceled", "reason": reason, "canceler": canceler})
 }
 
 pub async fn get_hub_script(path: String, email: &str) -> error::Result<HubScript> {

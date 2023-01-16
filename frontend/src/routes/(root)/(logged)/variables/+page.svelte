@@ -134,8 +134,8 @@
 			<div class="flex gap-2 items-center my-1">
 				<DollarSign size={18} />
 				Contextual <Tooltip>
-					Contextual variables are utility variables passed to your environment when running a
-					script and depends on the execution context.</Tooltip
+					Contextual variables are passed as environment variables when running a script and depends
+					on the execution context.</Tooltip
 				>
 			</div>
 		</Tab>

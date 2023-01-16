@@ -23,7 +23,7 @@
 
 	type T = Record<string, any>
 
-	$: result = [] as Array<Record<string, any>>
+	let result: Record<string, any>[] | undefined = undefined
 
 	let search: 'By Runnable' | 'By Component' | 'Disabled' | undefined = undefined
 	let searchValue = ''
@@ -102,8 +102,8 @@
 	let filteredResult: Array<Record<string, any>> = []
 
 	$: filteredResult && setOptions(filteredResult)
-	$: search === 'By Component' && (filteredResult = searchInResult(result, searchValue))
-	$: (search === 'By Runnable' || search === 'Disabled') && (filteredResult = result)
+	$: search === 'By Component' && (filteredResult = searchInResult(result ?? [], searchValue))
+	$: (search === 'By Runnable' || search === 'Disabled') && (filteredResult = result ?? [])
 	$: outputs = $worldStore?.outputsById[id] as {
 		selectedRow: Output<any>
 		search: Output<string>
@@ -122,18 +122,18 @@
 	{#if Array.isArray(result) && result.every(isObject)}
 		<div class="border border-gray-300 shadow-sm divide-y divide-gray-300  flex flex-col h-full">
 			{#if search !== 'Disabled'}
-				<div class="px-4 py-2">
+				<div class="px-2 py-1">
 					<div class="flex items-center">
-						<div>
+						<div class="grow max-w-[300px]">
 							<DebouncedInput placeholder="Search..." bind:value={searchValue} />
 						</div>
 					</div>
 				</div>
 			{/if}
 
-			<div class="overflow-auto flex-1 w-full">
-				<table class="divide-y divide-gray-300 w-full border-b border-b-gray-200">
-					<thead class="bg-gray-50 text-left">
+			<div class="overflow-x-auto flex-1 w-full">
+				<table class="relative w-full border-b border-b-gray-200">
+					<thead class="sticky top-0 bg-gray-50 text-left">
 						{#each $table.getHeaderGroups() as headerGroup}
 							<tr class="divide-x">
 								{#each headerGroup.headers as header}
@@ -141,16 +141,22 @@
 										{@const context = header?.getContext()}
 										{#if context}
 											{@const component = renderCell(header.column.columnDef.header, context)}
-											<th class="px-4 py-4 text-sm font-semibold">
-												{#if !header.isPlaceholder && component}
-													<svelte:component this={component} />
-												{/if}
+											<th class="!p-0">
+												<span class="block px-4 py-4 text-sm font-semibold border-b">
+													{#if !header.isPlaceholder && component}
+														<svelte:component this={component} />
+													{/if}
+												</span>
 											</th>
 										{/if}
 									{/if}
 								{/each}
 								{#if actionButtons.length > 0}
-									<th class="px-4 py-4 text-sm font-semibold">Actions</th>
+									<th class="!p-0">
+										<span class="block px-4 py-4 text-sm font-semibold border-b">
+											Actions
+										</span>
+									</th>
 								{/if}
 							</tr>
 						{/each}
@@ -212,7 +218,7 @@
 
 			<AppTableFooter paginationEnabled={pagination} {result} {table} />
 		</div>
-	{:else}
+	{:else if result != undefined}
 		<Alert title="Parsing issues" type="error" size="xs">
 			The result should be an array of objects
 		</Alert>

@@ -82,7 +82,7 @@
 	}
 </script>
 
-<div class="h-full flex flex-col gap-4">
+<div class="min-h-full flex flex-col gap-4">
 	<PanelSection title="Inline scripts" smallPadding>
 		<div class="flex flex-col gap-2 w-full">
 			{#if runnablesByName.length > 0}

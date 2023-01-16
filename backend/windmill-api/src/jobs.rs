@@ -1188,16 +1188,58 @@ pub async fn run_job_by_path(
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
+struct Guard {
+    done: bool,
+    id: Uuid,
+    w_id: String,
+    db: UserDB,
+    authed: Authed,
+}
+
+impl Drop for Guard {
+    fn drop(&mut self) {
+        if !&self.done {
+            let id = self.id;
+            let username = self.authed.username.clone();
+            let w_id = self.w_id.clone();
+            let db = self.db.clone();
+            let authed = self.authed.clone();
+
+            tracing::info!("http connection broke, marking job {id} as canceled");
+            tokio::spawn(async move {
+                let tx = db.begin(&authed).await.ok();
+                if let Some(mut tx) = tx {
+                    let _ = sqlx::query!(
+                "UPDATE queue SET canceled = true, canceled_reason = 'http connection broke', canceled_by = $1 WHERE id = $2 AND workspace_id = $3",
+                username,
+                id,
+                w_id
+            )
+            .execute(&mut tx)
+            .await;
+                    let _ = tx.commit().await;
+                }
+            });
+        }
+    }
+}
+
 async fn run_wait_result<T>(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
     uuid: Uuid,
     Path((w_id, _)): Path<(String, T)>,
 ) -> error::JsonResult<serde_json::Value> {
+    let mut g = Guard {
+        done: false,
+        id: uuid,
+        w_id: w_id.clone(),
+        db: user_db.clone(),
+        authed: authed.clone(),
+    };
     let mut result = None;
     for i in 0..48 {
         let mut tx = user_db.clone().begin(&authed).await?;
-
         result = sqlx::query_scalar!(
             "SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2",
             uuid,
@@ -1206,6 +1248,7 @@ async fn run_wait_result<T>(
         .fetch_optional(&mut tx)
         .await?
         .flatten();
+        drop(tx);
 
         if result.is_some() {
             break;
@@ -1213,6 +1256,7 @@ async fn run_wait_result<T>(
         let delay = if i < 10 { 100 } else { 500 };
         tokio::time::sleep(core::time::Duration::from_millis(delay)).await;
     }
+    g.done = true;
     if let Some(result) = result {
         Ok(Json(result))
     } else {

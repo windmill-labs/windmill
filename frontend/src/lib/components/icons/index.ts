@@ -44,6 +44,7 @@ import RedditIcon from './RedditIcon.svelte'
 import SupabaseIcon from './SupabaseIcon.svelte'
 import WebdavIcon from './WebdavIcon.svelte'
 import ZammadIcon from './ZammadIcon.svelte'
+import SurrealdbIcon from './SurrealdbIcon.svelte'
 
 export const APP_TO_ICON_COMPONENT = {
 	postgresql: PostgresIcon,
@@ -95,6 +96,7 @@ export const APP_TO_ICON_COMPONENT = {
 	webdav: WebdavIcon,
 	zammad: ZammadIcon,
 	nextcloud: NextcloudIcon,
+	surrealdb: SurrealdbIcon,
 } as const
 
 export {
@@ -141,4 +143,5 @@ export {
 	ZammadIcon,
 	NextcloudIcon,
 	SendflakeIcon,
+	SurrealdbIcon,
 }
