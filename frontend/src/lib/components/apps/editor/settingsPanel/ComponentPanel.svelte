@@ -10,7 +10,7 @@
 	import ConnectedInputEditor from './inputEditor/ConnectedInputEditor.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { capitalize, classNames } from '$lib/utils'
-	import { fieldTypeToTsType } from '../../utils'
+	import { buildExtraLib, fieldTypeToTsType } from '../../utils'
 	import Recompute from './Recompute.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ComponentInputTypeEditor from './ComponentInputTypeEditor.svelte'
@@ -70,23 +70,9 @@
 		}
 	}
 
-	export function buildExtraLib(components: Record<string, Record<string, Output<any>>>): string {
-		return Object.entries(components)
-			.filter(([k, v]) => k != component?.id)
-			.map(([k, v]) => [k, Object.fromEntries(Object.entries(v).map(([k, v]) => [k, v.peak()]))])
-			.map(
-				([k, v]) => `
-
-declare const ${k} = ${JSON.stringify(v)};
-
-`
-			)
-			.join('\n')
-	}
-
 	$: extraLib =
 		component?.componentInput?.type === 'template' && $worldStore
-			? buildExtraLib($worldStore?.outputsById ?? {})
+			? buildExtraLib($worldStore?.outputsById ?? {}, component?.id)
 			: undefined
 </script>
 
@@ -150,6 +136,7 @@ declare const ${k} = ${JSON.stringify(v)};
 							</svelte:fragment>
 
 							<InputsSpecsEditor
+								id={component.id}
 								shouldCapitalize={false}
 								bind:inputSpecs={component.componentInput.fields}
 								userInputEnabled={component.type !== 'buttoncomponent'}
@@ -163,7 +150,11 @@ declare const ${k} = ${JSON.stringify(v)};
 
 		{#if Object.values(component.configuration).length > 0}
 			<PanelSection title={`Configuration (${Object.values(component.configuration).length})`}>
-				<InputsSpecsEditor bind:inputSpecs={component.configuration} userInputEnabled={false} />
+				<InputsSpecsEditor
+					id={component.id}
+					bind:inputSpecs={component.configuration}
+					userInputEnabled={false}
+				/>
 			</PanelSection>
 		{/if}
 

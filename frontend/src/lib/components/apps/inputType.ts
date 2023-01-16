@@ -35,6 +35,13 @@ export type UserInput<U> = {
 }
 
 
+
+export type EvalInput = {
+	type: 'eval'
+	expr: string
+}
+
+
 export type RowInput = {
 	type: 'row'
 	column: string
@@ -79,6 +86,7 @@ type AppInputSpec<T extends InputType, U, V extends InputType = never> = (
 	| ConnectedInput
 	| UserInput<U>
 	| RowInput
+	| EvalInput
 	| ResultInput
 	| TemplateInput
 ) &
@@ -125,5 +133,6 @@ export type StaticAppInput = Extract<AppInput, { type: 'static' }>
 export type ConnectedAppInput = Extract<AppInput, { type: 'connected' }>
 export type UserAppInput = Extract<AppInput, { type: 'user' }>
 export type ResultAppInput = Extract<AppInput, { type: 'runnable' }>
+export type EvalAppInput = Extract<AppInput, { type: 'eval' }>
 
 export type AppInputs = Record<string, AppInput>

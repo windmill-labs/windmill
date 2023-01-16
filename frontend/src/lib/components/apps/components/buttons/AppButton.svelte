@@ -27,6 +27,7 @@
 	let color: ButtonType.Color
 	let size: ButtonType.Size
 	let runnableComponent: RunnableComponent
+	let disabled = false
 
 	let isLoading: boolean = false
 	let ownClick: boolean = false
@@ -55,6 +56,7 @@
 <InputValue {id} input={configuration.label} bind:value={labelValue} />
 <InputValue {id} input={configuration.color} bind:value={color} />
 <InputValue {id} input={configuration.size} bind:value={size} />
+<InputValue {id} input={configuration.disabled} bind:value={disabled} />
 
 <RunnableWrapper
 	flexWrap
@@ -66,6 +68,7 @@
 >
 	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
 		<Button
+			{disabled}
 			on:pointerdown={(e) => {
 				e?.stopPropagation()
 				window.dispatchEvent(new Event('pointerup'))
