@@ -107,7 +107,11 @@
 					</div>
 				</div>
 
-				<InputsSpecEditor {id} bind:componentInput={inputSpecs[inputSpecKey]} />
+				<InputsSpecEditor
+					hasRows={rowColumns}
+					{id}
+					bind:componentInput={inputSpecs[inputSpecKey]}
+				/>
 			</div>
 		{/each}
 	</div>

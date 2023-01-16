@@ -247,7 +247,7 @@ export function toStatic(app: App, staticExporter: Record<string, () => any>, su
 	return { app: newApp, summary }
 }
 
-export function buildExtraLib(components: Record<string, Record<string, Output<any>>>, idToExclude: string): string {
+export function buildExtraLib(components: Record<string, Record<string, Output<any>>>, idToExclude: string, hasRows: boolean): string {
 	return Object.entries(components)
 		.filter(([k, v]) => k != idToExclude)
 		.map(([k, v]) => [k, Object.fromEntries(Object.entries(v).map(([k, v]) => [k, v.peak()]))])
@@ -258,5 +258,5 @@ declare const ${k} = ${JSON.stringify(v)};
 
 `
 		)
-		.join('\n')
+		.join('\n') + (hasRows ? 'declare const row: Record<string, any>;' : '')
 }

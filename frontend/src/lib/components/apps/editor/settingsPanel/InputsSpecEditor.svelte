@@ -1,5 +1,4 @@
 <script lang="ts">
-	import Toggle from '$lib/components/Toggle.svelte'
 	import type {
 		ConnectedAppInput,
 		EvalAppInput,
@@ -19,6 +18,7 @@
 		| UserAppInput
 		| RowAppInput
 		| EvalAppInput
+	export let hasRows: boolean = false
 </script>
 
 {#if componentInput.type === 'connected'}
@@ -28,7 +28,7 @@
 {:else if componentInput.type === 'static'}
 	<StaticInputEditor bind:componentInput />
 {:else if componentInput.type === 'eval'}
-	<EvalInputEditor {id} bind:componentInput />
+	<EvalInputEditor {hasRows} {id} bind:componentInput />
 {:else if componentInput.type === 'user'}
 	<span class="text-2xs italic text-gray-6f00">Field's value is set by the user</span>
 {/if}
