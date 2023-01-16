@@ -32,6 +32,7 @@
 			]
 		},
 		supabase: {
+			img: '/supabase_connect.png',
 			instructions: ['Go to the API Settings of your app to find the project URL and key']
 		}
 	}
