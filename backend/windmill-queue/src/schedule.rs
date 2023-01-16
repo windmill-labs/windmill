@@ -80,7 +80,7 @@ pub async fn push_scheduled_job<'c>(
         args,
         &schedule_to_user(&schedule.path),
         &schedule.email,
-        get_owner_from_path(&schedule.path),
+        format!("u/{}", schedule.edited_by),
         Some(next),
         Some(schedule.path.clone()),
         None,
