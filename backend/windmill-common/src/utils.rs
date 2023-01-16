@@ -72,10 +72,6 @@ pub fn not_found_if_none<T, U: AsRef<str>>(opt: Option<T>, kind: &str, name: U) 
     }
 }
 
-pub fn get_owner_from_path(path: &str) -> String {
-    path.split('/').take(2).collect::<Vec<_>>().join("/")
-}
-
 #[cfg(feature = "reqwest")]
 pub async fn list_elems_from_hub(
     http_client: reqwest::Client,
