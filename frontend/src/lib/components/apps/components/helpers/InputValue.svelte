@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { isCodeInjection } from '$lib/components/flows/utils'
 	import { createEventDispatcher, getContext, onMount } from 'svelte'
-	import type { AppInput } from '../../inputType'
+	import type { AppInput, EvalAppInput } from '../../inputType'
 	import type { AppEditorContext } from '../../types'
 	import { accessPropertyByPath } from '../../utils'
 
@@ -16,7 +16,8 @@
 
 	$: state = $worldStore?.state
 	$: input && $worldStore && row && handleConnection()
-	$: input && $state && input.type == 'template' && (value = getValue(input))
+	$: input && input.type == 'template' && $state && (value = getValue(input))
+	$: input && input.type == 'eval' && $state && (value = evalExpr(input))
 
 	function handleConnection() {
 		if (input.type === 'connected') {
@@ -25,8 +26,18 @@
 			setTimeout(() => (value = row[input['column']]), 0)
 		} else if (input.type === 'static' || input.type == 'template') {
 			setTimeout(() => (value = getValue(input)), 0)
+		} else if (input.type == 'eval') {
+			setTimeout(() => ((value = evalExpr(input as EvalAppInput)), 0))
 		} else {
 			setTimeout(() => (value = undefined), 0)
+		}
+	}
+
+	function evalExpr(input: EvalAppInput) {
+		try {
+			return eval_like(input.expr, computeGlobalContext())
+		} catch (e) {
+			return e.message
 		}
 	}
 

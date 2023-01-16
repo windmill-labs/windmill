@@ -171,6 +171,11 @@ const buttons: ComponentSet = {
 					onlyStatic: true,
 					optionValuesKey: 'buttonSizeOptions',
 					value: 'xs'
+				},
+				disabled: {
+					fieldType: 'boolean',
+					type: 'eval',
+					expr: 'false'
 				}
 			},
 

@@ -6,6 +6,7 @@ import type {
 	AppInput,
 	ConnectedAppInput,
 	ConnectedInput,
+	EvalAppInput,
 	RowAppInput,
 	StaticAppInput,
 	UserAppInput
@@ -58,8 +59,9 @@ export type Aligned = {
 export interface BaseAppComponent extends Partial<Aligned> {
 	id: ComponentID
 	componentInput: AppInput | undefined
-	configuration: Record<string, (StaticAppInput | ConnectedAppInput | UserAppInput | RowAppInput) & {
+	configuration: Record<string, (StaticAppInput | ConnectedAppInput | UserAppInput | RowAppInput | EvalAppInput) & {
 		onlyStatic?: boolean,
+		evaluatedValue?: boolean,
 		tooltip?: string
 	}>
 	card: boolean | undefined
