@@ -78,7 +78,7 @@ export function inferTypeFromPath(
   if (parsed.name === "folder.meta") {
     return decoverto.type(FolderFile).plainToInstance(obj);
   }
-  const typeEnding = parsed.name.split(".")[-1];
+  const typeEnding = parsed.name.split(".").at(-1);
   if (typeEnding === "script") {
     return decoverto.type(ScriptFile).plainToInstance(obj);
   } else if (typeEnding === "variable") {
