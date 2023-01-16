@@ -6,11 +6,7 @@ on:
 concurrency:
   group: ${{ github.ref }}
   cancel-in-progress: true
-
-permissions:
-  contents: read
-  id-token: write
-
+  
 jobs:
   build-windmill:
     name: Build and Push `windmill`
@@ -33,12 +29,14 @@ jobs:
           images: registry.uffizzi.com/${{ env.UUID_TAG_APP }}
           tags: type=raw,value=60d
       - name: Build and Push Image to registry.uffizzi.com ephemeral registry
-        uses: depot/build-push-action@v1
+        uses: docker/build-push-action@v2
         with:
           push: true
           context: ./
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
 
 
