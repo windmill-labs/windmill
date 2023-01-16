@@ -11,6 +11,7 @@ jobs:
   cache-compose-file:
     name: Cache Compose File
     runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     outputs:
       compose-file-cache-key: ${{ env.COMPOSE_FILE_HASH }}
       pr-number: ${{ env.PR_NUMBER }}
@@ -28,6 +29,9 @@ jobs:
             let matchArtifact = allArtifacts.data.artifacts.filter((artifact) => {
               return artifact.name == "preview-spec"
             })[0];
+            if (matchArtifact === undefined) {
+              throw TypeError('Build Artifact not found!');
+            }
             let download = await github.rest.actions.downloadArtifact({
                owner: context.repo.owner,
                repo: context.repo.repo,
@@ -65,17 +69,19 @@ jobs:
           echo "PR number: ${{ env.PR_NUMBER }}"
           echo "Compose file hash: ${{ env.COMPOSE_FILE_HASH }}"
           cat event.json
+
   deploy-uffizzi-preview:
     name: Use Remote Workflow to Preview on Uffizzi
     needs:
       - cache-compose-file
-    uses: UffizziCloud/preview-action/.github/workflows/reusable.yaml@v2.6.1
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    uses: UffizziCloud/preview-action/.github/workflows/reusable.yaml@v2
     with:
       # If this workflow was triggered by a PR close event, cache-key will be an empty string
       # and this reusable workflow will delete the preview deployment.
       compose-file-cache-key: ${{ needs.cache-compose-file.outputs.compose-file-cache-key }}
       compose-file-cache-path: docker-compose.rendered.yml
-      server: https://app.uffizzi.com/
+      server: https://app.uffizzi.com
       pr-number: ${{ needs.cache-compose-file.outputs.pr-number }}
     permissions:
       contents: read
