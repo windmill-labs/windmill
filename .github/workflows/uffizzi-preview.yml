@@ -81,3 +81,16 @@ jobs:
       contents: read
       pull-requests: write
       id-token: write
+
+  playwright:
+    runs-on: ubuntu-latest
+    needs:
+      - deploy-uffizzi-preview
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 16
+      - name: "Playwright run"
+        timeout-minutes: 2
+        run: cd frontend && npm ci @playwright/test && npx playwright install && export BASE_URL=http://localhost:8000 && npm run test

@@ -110,38 +110,6 @@ jobs:
             org.opencontainers.image.licenses=Windmill-Enterprise-License
 
 
-  playwright:
-    runs-on: [self-hosted, new]
-    needs: [build]
-    services:
-      postgres:
-        image: postgres
-        env:
-          POSTGRES_DB: windmill
-          POSTGRES_USER: admin
-          POSTGRES_PASSWORD: changeme
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    steps:
-      - uses: actions/checkout@v3
-      - name: "Docker"
-        run: echo "::set-output name=id::$(docker run --network=host --rm -d -p 8000:8000 --privileged -it -e DATABASE_URL=postgres://admin:changeme@localhost:5432/windmill -e BASE_INTERNAL_URL=http://localhost:8000 ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-slim:latest)"
-        id: docker-container
-      - uses: actions/setup-node@v3
-        with:
-          node-version: 16
-      - name: "Playwright run"
-        timeout-minutes: 2
-        run: cd frontend && npm ci @playwright/test && npx playwright install && export BASE_URL=http://localhost:8000 && npm run test
-      - name: "Clean up"
-        run: docker kill ${{ steps.docker-container.outputs.id }}
-        if: always()
-
 
   publish_privately_heavy:
     needs: [build_ee]
