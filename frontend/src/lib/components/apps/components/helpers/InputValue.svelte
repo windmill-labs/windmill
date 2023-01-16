@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { isCodeInjection } from '$lib/components/flows/utils'
-	import { createEventDispatcher, getContext, onMount } from 'svelte'
+	import { getContext } from 'svelte'
 	import type { AppInput, EvalAppInput } from '../../inputType'
 	import type { AppEditorContext } from '../../types'
 	import { accessPropertyByPath } from '../../utils'
@@ -10,7 +10,8 @@
 	export let input: AppInput
 	export let value: T
 	export let id: string | undefined = undefined
-	export let row: Record<string, any> = {}
+	export let row: Record<string, any> | undefined = {}
+	export let error: string = ''
 
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
@@ -23,7 +24,7 @@
 		if (input.type === 'connected') {
 			$worldStore?.connect<any>(input, onValueChange)
 		} else if (input.type === 'row') {
-			setTimeout(() => (value = row[input['column']]), 0)
+			setTimeout(() => (value = row?.[input['column']]), 0)
 		} else if (input.type === 'static' || input.type == 'template') {
 			setTimeout(() => (value = getValue(input)), 0)
 		} else if (input.type == 'eval') {
@@ -35,9 +36,12 @@
 
 	function evalExpr(input: EvalAppInput) {
 		try {
-			return eval_like(input.expr, computeGlobalContext())
+			const r = eval_like(input.expr, computeGlobalContext())
+			error = ''
+			return r
 		} catch (e) {
-			return e.message
+			error = e.message
+			return value
 		}
 	}
 
@@ -51,13 +55,16 @@
 						Object.fromEntries(Object.entries(value ?? {}).map((x) => [x[0], x[1].peak()]))
 					]
 				})
+				.concat(row ? [['row', row]] : [])
 		)
 	}
 
 	export function getValue(input: AppInput) {
 		if (input.type === 'template' && isCodeInjection(input.eval)) {
 			try {
-				return eval_like('`' + input.eval + '`', computeGlobalContext())
+				const r = eval_like('`' + input.eval + '`', computeGlobalContext())
+				error = ''
+				return r
 			} catch (e) {
 				return e.message
 			}

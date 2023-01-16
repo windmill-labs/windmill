@@ -17,7 +17,6 @@
 	import AlignmentEditor from './AlignmentEditor.svelte'
 	import RunnableInputEditor from './inputEditor/RunnableInputEditor.svelte'
 	import TemplateEditor from '$lib/components/TemplateEditor.svelte'
-	import type { Output } from '../../rx'
 
 	export let component: AppComponent | undefined
 	export let onDelete: (() => void) | undefined = undefined
@@ -72,7 +71,7 @@
 
 	$: extraLib =
 		component?.componentInput?.type === 'template' && $worldStore
-			? buildExtraLib($worldStore?.outputsById ?? {}, component?.id)
+			? buildExtraLib($worldStore?.outputsById ?? {}, component?.id, false)
 			: undefined
 </script>
 
@@ -151,6 +150,7 @@
 		{#if Object.values(component.configuration).length > 0}
 			<PanelSection title={`Configuration (${Object.values(component.configuration).length})`}>
 				<InputsSpecsEditor
+					{rowColumns}
 					id={component.id}
 					bind:inputSpecs={component.configuration}
 					userInputEnabled={false}
