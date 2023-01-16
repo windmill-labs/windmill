@@ -8,6 +8,7 @@
 
 	export let componentInput: EvalAppInput | undefined
 	export let id: string
+	export let hasRows: boolean = false
 
 	const { onchange, worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
@@ -15,7 +16,7 @@
 
 	$: extraLib =
 		componentInput?.expr && $worldStore
-			? buildExtraLib($worldStore?.outputsById ?? {}, id)
+			? buildExtraLib($worldStore?.outputsById ?? {}, id, hasRows)
 			: undefined
 </script>
 
