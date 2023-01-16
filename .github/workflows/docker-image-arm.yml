@@ -1,7 +1,6 @@
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
-  LOCAL_REGISTRY: registry.wimill.xyz
 
 name: Build and push arm docker image
 on:
