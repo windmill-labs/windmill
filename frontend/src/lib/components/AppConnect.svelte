@@ -30,6 +30,9 @@
 				'Create an API key',
 				'Copy your key'
 			]
+		},
+		supabase: {
+			instructions: ['Go to the API Settings of your app to find the project URL and key']
 		}
 	}
 </script>
@@ -126,6 +129,7 @@
 		const availableRts = await ResourceService.listResourceTypeNames({
 			workspace: $workspaceStore!
 		})
+
 		connectsManual = availableRts
 			.filter((x) => !Object.keys(connects ?? {}).includes(x))
 			.map((x) => [
