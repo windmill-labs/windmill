@@ -1,22 +1,27 @@
-import { chromium, FullConfig } from '@playwright/test'
+import { chromium } from '@playwright/test'
 
-async function globalSetup(config: FullConfig) {
-	console.log('start global setup!')
+async function globalSetup() {
 	const browser = await chromium.launch()
-	const page = await browser.newPage()
-	await page.goto('http://localhost:8000/user/login')
+	// baseURL is set in the global config, but it doesn't affect the globalSetup script.
+	const page = await browser.newPage({ baseURL: process.env.BASE_URL || 'http://localhost' })
+	await page.goto('/user/login', { waitUntil: 'networkidle' })
 
-	if (!(await page.locator('#email').isVisible())) {
-		page.locator('text=login without third-party').click()
+	if (await page.locator('#email').isHidden()) {
+		await page.locator('button', {
+			hasText: 'Login without third-party'
+		}).click()
 	}
 
-	await page.locator('#email').fill('admin@windmill.dev')
-	await page.locator('input[type="password"]').fill('changeme')
-	await page.locator('text="Login"').click()
-	await page.waitForResponse('http://localhost:8000/api/auth/login')
+	const email = page.locator('input[type="email"]')
+	await email.fill('user@windmill.dev')
+
+	const password = page.locator('input[type="password"]')
+	await password.fill('changeme')
+
+	await page.locator('#login2').click()
+	await page.waitForResponse('/api/auth/login')
 	await page.context().storageState({ path: 'storageState.json' })
 	await browser.close()
-	console.log('end global setup!')
 }
 
 export default globalSetup
