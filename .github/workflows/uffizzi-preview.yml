@@ -99,4 +99,4 @@ jobs:
           node-version: 16
       - name: "Playwright run"
         timeout-minutes: 2
-        run: cd frontend && npm ci @playwright/test && npx playwright install && export BASE_URL=http://localhost:8000 && npm run test
+        run: cd frontend && npm ci @playwright/test && npx playwright install && export BASE_URL=${{ needs.deploy-uffizzi-preview.outputs.url }} && npm run test

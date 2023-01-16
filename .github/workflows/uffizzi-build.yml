@@ -53,7 +53,7 @@ jobs:
         run: |
           WINDMILL_IMAGE=${{ needs.build-windmill.outputs.tags }}
           export WINDMILL_IMAGE
-          LSP_IMAGE=ghcr.io/windmill-labs/windmill-lsp
+          LSP_IMAGE=ghcr.io/windmill-labs/windmill-lsp:latest
           export LSP_IMAGE
           envsubst '${WINDMILL_IMAGE} ${LSP_IMAGE}' < ./.github/uffizzi/docker-compose.uffizzi.yml > docker-compose.rendered.yml
           cat docker-compose.rendered.yml
