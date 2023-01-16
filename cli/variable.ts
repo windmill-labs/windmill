@@ -77,7 +77,7 @@ export class VariableFile implements Resource, PushDiffs {
           (
             diff.path.length !== 1 ||
             !(diff.path[0] in
-              ["path", "description", "is_secret", "description"])
+              ["path", "value", "is_secret", "description"])
           )
         ) {
           throw new Error("Invalid variable diff with path " + diff.path);
