@@ -13,8 +13,8 @@ jobs:
     steps:
       - name: Checkout git repo
         uses: actions/checkout@v3
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+      - uses: depot/setup-action@v1
+
       - name: Generate UUID image name
         id: uuid
         run: echo "UUID_TAG_APP=$(uuidgen)" >> $GITHUB_ENV
@@ -25,7 +25,7 @@ jobs:
           images: registry.uffizzi.com/${{ env.UUID_TAG_APP }}
           tags: type=raw,value=60d
       - name: Build and Push Image to registry.uffizzi.com ephemeral registry
-        uses: docker/build-push-action@v2
+        uses: depot/build-push-action@v1
         with:
           push: true
           context: ./
