@@ -2,7 +2,8 @@ import { chromium } from '@playwright/test'
 
 async function globalSetup() {
 	const browser = await chromium.launch()
-	const page = await browser.newPage({baseURL: 'http://localhost:8000' })
+	// baseURL is set in the global config, but it doesn't affect the globalSetup script.
+	const page = await browser.newPage({ baseURL: process.env.BASE_URL || 'http://localhost' })
 	await page.goto('/user/login', { waitUntil: 'networkidle' })
 
 	if (await page.locator('#email').isHidden()) {
