@@ -7,6 +7,10 @@ concurrency:
   group: ${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   build-windmill:
     name: Build and Push `windmill`
