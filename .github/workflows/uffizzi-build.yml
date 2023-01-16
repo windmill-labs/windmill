@@ -3,6 +3,10 @@ on:
   pull_request:
     types: [opened,synchronize,reopened,closed]
 
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+  
 jobs:
   build-windmill:
     name: Build and Push `windmill`
@@ -33,6 +37,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
 
 
   render-compose-file:

@@ -130,7 +130,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: "Docker"
-        run: echo "::set-output name=id::$(docker run --network=host --rm -d -p 8000:8000 --privileged -it -e DATABASE_URL=postgres://admin:changeme@localhost:5432/windmill -e BASE_INTERNAL_URL=http://localhost:8000 ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-slim:latest)"
+        run: echo "::set-output name=id::$(docker run --network=host --rm -d -p 8000:8000 --privileged -it -e DATABASE_URL=postgres://admin:changeme@localhost:5432/windmill -e BASE_INTERNAL_URL=http://localhost:8000 ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest)"
         id: docker-container
       - uses: actions/setup-node@v3
         with:
