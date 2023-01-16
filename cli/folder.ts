@@ -79,7 +79,7 @@ export class FolderFile implements Resource, PushDiffs {
           diff.type !== "REMOVE" &&
           (
             diff.path.length !== 1 ||
-            !(diff.path[0] in ["owners", "extra_perms"])
+            !["owners", "extra_perms"].includes(diff.path[0] as string)
           )
         ) {
           throw new Error("Invalid folder diff with path " + diff.path);

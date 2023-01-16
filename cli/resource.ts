@@ -63,7 +63,7 @@ export class ResourceFile implements Resource2, PushDiffs {
           (
             diff.path[0] !== "value" && (
               diff.path.length !== 1 ||
-              !(diff.path[0] in ["description"])
+              diff.path[0] !== "description"
             )
           )
         ) {

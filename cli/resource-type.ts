@@ -75,7 +75,7 @@ export class ResourceTypeFile implements ResourceI, PushDiffs {
           diff.type !== "REMOVE" &&
           (
             diff.path.length !== 1 ||
-            !(diff.path[0] in ["schema", "description"])
+            !["schema", "description"].includes(diff.path[0] as string)
           )
         ) {
           throw new Error("Invalid resource type diff with path " + diff.path);
