@@ -92,6 +92,14 @@ export class FlowFile implements Resource, PushDiffs {
           setValueByPath(changeset, diff.path, null);
         }
       }
+      const hasChanges = Object.values(changeset).some((v) =>
+        v !== null && typeof v !== "undefined"
+      );
+      if (!hasChanges) {
+        console.log(colors.yellow("! Skipping empty changeset"));
+        return;
+      }
+
       await FlowService.updateFlow({
         workspace: workspace,
         path: remotePath,

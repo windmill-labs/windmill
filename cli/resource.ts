@@ -76,6 +76,14 @@ export class ResourceFile implements Resource2, PushDiffs {
         }
       }
 
+      const hasChanges = Object.values(changeset).some((v) =>
+        v !== null && typeof v !== "undefined"
+      );
+      if (!hasChanges) {
+        console.log(colors.yellow("! Skipping empty changeset"));
+        return;
+      }
+
       await ResourceService.updateResource({
         workspace: workspace,
         path: remotePath,

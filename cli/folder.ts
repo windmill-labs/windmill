@@ -49,7 +49,6 @@ export class FolderFile implements Resource, PushDiffs {
     remotePath: string,
     diffs: Difference[],
   ): Promise<void> {
-    console.log(diffs);
     if (remotePath.startsWith("/")) {
       remotePath = remotePath.substring(1);
     }
@@ -91,6 +90,15 @@ export class FolderFile implements Resource, PushDiffs {
           setValueByPath(changeset, diff.path, null);
         }
       }
+
+      const hasChanges = Object.values(changeset).some((v) =>
+        v !== null && typeof v !== "undefined"
+      );
+      if (!hasChanges) {
+        console.log(colors.yellow("! Skipping empty changeset"));
+        return;
+      }
+
       await FolderService.updateFolder({
         workspace: workspace,
         name: remotePath,

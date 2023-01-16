@@ -88,6 +88,15 @@ export class VariableFile implements Resource, PushDiffs {
           setValueByPath(changeset, diff.path, null);
         }
       }
+
+      const hasChanges = Object.values(changeset).some((v) =>
+        v !== null && typeof v !== "undefined"
+      );
+      if (!hasChanges) {
+        console.log(colors.yellow("! Skipping empty changeset"));
+        return;
+      }
+
       await VariableService.updateVariable({
         workspace,
         path: remotePath,
