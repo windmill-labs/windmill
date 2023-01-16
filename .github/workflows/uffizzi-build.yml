@@ -38,8 +38,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-
-
   render-compose-file:
     name: Render Docker Compose File
     # Pass output of this workflow to another triggered by `workflow_run` event.
@@ -55,7 +53,7 @@ jobs:
         run: |
           WINDMILL_IMAGE=${{ needs.build-windmill.outputs.tags }}
           export WINDMILL_IMAGE
-          LSP_IMAGE=ghcr.io/windmill-labs/windmill-lsp
+          LSP_IMAGE=ghcr.io/windmill-labs/windmill-lsp:latest
           export LSP_IMAGE
           envsubst '${WINDMILL_IMAGE} ${LSP_IMAGE}' < ./.github/uffizzi/docker-compose.uffizzi.yml > docker-compose.rendered.yml
           cat docker-compose.rendered.yml
@@ -66,7 +64,7 @@ jobs:
           path: docker-compose.rendered.yml
           retention-days: 2
       - name: Serialize PR Event to File
-        run:  |
+        run: |
           cat << EOF > event.json
           ${{ toJSON(github.event) }}
           EOF
@@ -84,7 +82,10 @@ jobs:
     steps:
       # If this PR is closing, we will not render a compose file nor pass it to the next workflow.
       - name: Serialize PR Event to File
-        run: echo '${{ toJSON(github.event) }}' > event.json
+        run: |
+          cat << EOF > event.json
+          ${{ toJSON(github.event) }}
+          EOF
       - name: Upload PR Event as Artifact
         uses: actions/upload-artifact@v3
         with:

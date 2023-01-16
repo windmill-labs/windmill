@@ -16,7 +16,7 @@
 	const { selectedComponent, staticOutputs } = getContext<AppEditorContext>('AppEditorContext')
 
 	function addComponent() {
-		const actionId = getNextId(components.map((x) => x.id.split('-')[1]))
+		const actionId = getNextId(components.map((x) => x.id.split('_')[1]))
 
 		const newComponent: BaseAppComponent & ButtonComponent = {
 			id: `${id}_${actionId}`,
