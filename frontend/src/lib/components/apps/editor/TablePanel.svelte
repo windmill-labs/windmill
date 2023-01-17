@@ -9,6 +9,9 @@
 
 {#each component.actionButtons as actionButton (actionButton.id)}
 	{#if actionButton.id === $selectedComponent}
+		<div>
+			{console.log(actionButton)}
+		</div>
 		<ComponentPanel
 			rowColumns
 			bind:component={actionButton}

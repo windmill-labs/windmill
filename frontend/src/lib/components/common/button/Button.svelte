@@ -65,7 +65,7 @@
 	$: buttonProps = {
 		id,
 		class: classNames(
-			colorVariants[color][variant],
+			colorVariants?.[color]?.[variant],
 			variant === 'border' ? 'border' : '',
 			ButtonType.FontSizeClasses[size],
 			ButtonType.SpacingClasses[spacingSize],
