@@ -193,4 +193,8 @@
 		}
 		setTimeout(() => syncer(id), nextIteration)
 	}
+
+	onDestroy(async () => {
+		currentId = undefined
+	})
 </script>
