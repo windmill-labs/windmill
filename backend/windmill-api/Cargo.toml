@@ -69,3 +69,4 @@ hmac.workspace = true
 cookie.workspace = true
 sha2.workspace = true
 urlencoding.workspace = true
+async-stripe.workspace = true

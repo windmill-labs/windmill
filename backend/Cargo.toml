@@ -144,3 +144,4 @@ serde_derive = "1.0.147"
 const_format = { version = "0.2", features = ["rust_1_64", "rust_1_51"] }
 dyn-iter = "0.2.0"
 rsa = "0.7.2"
+async-stripe = { version = "0.14", features = ["runtime-tokio-hyper", "checkout"] }
