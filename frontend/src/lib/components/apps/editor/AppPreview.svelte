@@ -69,7 +69,7 @@
 	$: width = $breakpoint === 'sm' ? 'max-w-[640px]' : 'w-full '
 </script>
 
-<div class="h-full w-full {app.fullscreen ? '' : 'max-w-6xl'} mx-auto">
+<div class="h-full max-h-[calc(100%-41px)] overflow-auto w-full {app.fullscreen ? '' : 'max-w-6xl'} mx-auto">
 	{#if $appStore.grid}
 		<div class={classNames('mx-auto pb-4', width)}>
 			<GridEditor {policy} />
