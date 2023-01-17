@@ -31,9 +31,7 @@
 				style="height: {h}px; width: {w}px"
 				class="p-0"
 				title="sandbox"
-				srcdoc={result
-					? '<scr' + `ipt src="https://cdn.tailwindcss.com"></script>` + result
-					: 'No html'}
+				srcdoc={result ? '<scr' + `ipt src="/tailwind.css"></script>` + result : 'No html'}
 			/></AlignWrapper
 		>
 	</RunnableWrapper>
