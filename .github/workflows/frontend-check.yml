@@ -14,4 +14,4 @@ jobs:
           node-version: 18
       - name: "npm check"
         timeout-minutes: 2
-        run: cd frontend && npm ci && npm run check
+        run: cd frontend && npm ci && npm run generate-backend-client && npm run check
