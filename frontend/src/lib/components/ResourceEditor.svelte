@@ -26,7 +26,7 @@
 	let args: Record<string, any> = {}
 	let can_write = true
 	let loadingSchema = false
-
+	let linkedVars: string[] = []
 	let drawer: Drawer
 
 	let rawCode: string | undefined = undefined
@@ -48,6 +48,9 @@
 		can_write =
 			resourceToEdit.workspace_id == $workspaceStore &&
 			canWrite(p, resourceToEdit.extra_perms ?? {}, $userStore)
+		linkedVars = Object.entries(args)
+			.filter(([_, v]) => typeof v == 'string' && v == `$var:${initialPath}`)
+			.map(([k, _]) => k)
 	}
 
 	async function editResource(): Promise<void> {
@@ -58,7 +61,7 @@
 				requestBody: { path, value: args, description }
 			})
 			sendUserToast(`Updated resource at ${path}`)
-			dispatch('refresh')
+			dispatch('refresh', path)
 			drawer.closeDrawer?.()
 		} else {
 			throw Error('Cannot edit undefined resourceToEdit')
@@ -99,6 +102,14 @@
 		} catch (e) {
 			jsonError = e.message
 		}
+	}
+
+	$: linkedVars.length > 0 && path && updateArgsFromLinkedVars()
+
+	function updateArgsFromLinkedVars() {
+		linkedVars.forEach((k) => {
+			args[k] = `$var:${path}`
+		})
 	}
 </script>
 

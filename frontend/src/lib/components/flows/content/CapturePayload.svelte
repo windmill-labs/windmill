@@ -115,7 +115,7 @@
 				Copy as flow inputs and test args
 			</Button>
 		</svelte:fragment>
-		<h3 class="mt-2">Derived inputs schema</h3>
+		<h3 class="my-2">Derived schema</h3>
 		<div class="box p-2">
 			<SchemaViewer schema={jsonSchema} />
 		</div>

@@ -150,11 +150,11 @@
 	<FlowProgressBar {job} bind:reset={jobProgressReset} />
 
 	<div class="overflow-y-auto grow flex-col flex divide-y divide-gray-600 ">
-		<div class="max-w-3xl">
+		<div class="max-h-1/2 overflow-auto">
 			<SchemaForm
 				noVariablePicker
 				compact
-				class="py-4"
+				class="py-4 max-w-3xl"
 				schema={$flowStore.schema}
 				bind:isValid
 				bind:args={$previewArgs}

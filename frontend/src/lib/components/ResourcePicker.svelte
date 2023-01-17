@@ -46,7 +46,16 @@
 	bind:this={appConnect}
 />
 
-<ResourceEditor bind:this={resourceEditor} on:refresh={() => loadResources(resourceType)} />
+<ResourceEditor
+	bind:this={resourceEditor}
+	on:refresh={async (e) => {
+		await loadResources(resourceType)
+		console.log(e)
+		if (e.detail) {
+			value = e.detail
+		}
+	}}
+/>
 
 <div class="flex flex-row gap-x-1 w-full">
 	<Select
