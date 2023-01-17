@@ -3,10 +3,6 @@ on:
   pull_request:
     types: [opened,synchronize,reopened,closed]
 
-concurrency:
-  group: ${{ github.ref }}
-  cancel-in-progress: true
-  
 jobs:
   build-windmill:
     name: Build and Push `windmill`
@@ -39,7 +35,6 @@ jobs:
           cache-to: type=gha,mode=max
 
 
-
   render-compose-file:
     name: Render Docker Compose File
     # Pass output of this workflow to another triggered by `workflow_run` event.
@@ -55,7 +50,7 @@ jobs:
         run: |
           WINDMILL_IMAGE=${{ needs.build-windmill.outputs.tags }}
           export WINDMILL_IMAGE
-          LSP_IMAGE=ghcr.io/windmill-labs/windmill-lsp
+          LSP_IMAGE=registry.uffizzi.com/windmill-lsp:60d
           export LSP_IMAGE
           envsubst '${WINDMILL_IMAGE} ${LSP_IMAGE}' < ./.github/uffizzi/docker-compose.uffizzi.yml > docker-compose.rendered.yml
           cat docker-compose.rendered.yml
