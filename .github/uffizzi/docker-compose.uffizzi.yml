@@ -31,11 +31,11 @@ services:
     volumes:
       - worker_dependency_cache:/tmp/windmill/cache
 
-  lsp:
-    image: '${LSP_IMAGE}'
-    restart: unless-stopped
-    ports:
-      - 3001:3001
+  # lsp:
+  #   image: '${LSP_IMAGE}'
+  #   restart: unless-stopped
+  #   ports:
+  #     - 3001:3001
 
   # caddy:
   #   image: caddy:2.5.2-alpine
