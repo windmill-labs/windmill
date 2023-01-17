@@ -165,11 +165,11 @@
 						{#each $table.getRowModel().rows as row, rowIndex (row.id)}
 							<tr
 								class={classNames(
+									'last-of-type:!border-b-0',
 									selectedRowIndex === rowIndex
 										? 'bg-blue-100 hover:bg-blue-200'
 										: 'hover:bg-blue-50',
-									'divide-x',
-									'border-b w-full',
+									'divide-x w-full',
 									selectedRowIndex === rowIndex
 										? 'divide-blue-200 hover:divide-blue-300'
 										: 'divide-gray-200'
