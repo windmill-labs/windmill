@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { page } from '$app/stores'
 	import { classNames } from '$lib/utils'
 	import { getContext } from 'svelte'
 	import { key } from 'svelte-awesome/icons'
@@ -37,7 +38,7 @@
 			return 'Table action'
 		}
 	}
-	$: panels = [['ctx', ['email', 'username']] as [string, string[]]].concat(
+	$: panels = [['ctx', ['email', 'username', 'query']] as [string, string[]]].concat(
 		Object.entries($staticOutputs)
 	)
 </script>

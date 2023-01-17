@@ -32,6 +32,7 @@
 	import { fly } from 'svelte/transition'
 	import type { Policy } from '$lib/gen'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
+	import { page } from '$app/stores'
 
 	export let app: App
 	export let path: string
@@ -95,7 +96,11 @@
 		mounted = true
 	})
 
-	$: context = { email: $userStore?.email, username: $userStore?.username }
+	$: context = {
+		email: $userStore?.email,
+		username: $userStore?.username,
+		query: Object.fromEntries($page.url.searchParams.entries())
+	}
 
 	$: mounted && ($worldStore = buildWorld($staticOutputs, $worldStore, context))
 	$: previewing = $mode === 'preview'
