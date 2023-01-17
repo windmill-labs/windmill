@@ -129,7 +129,7 @@
 
 			<div class="overflow-x-auto flex-1 w-full">
 				<table class="relative w-full border-b border-b-gray-200">
-					<thead class="sticky top-0 bg-gray-50 text-left">
+					<thead class="sticky top-0 z-40 bg-gray-50 text-left">
 						{#each $table.getHeaderGroups() as headerGroup}
 							<tr class="divide-x">
 								{#each headerGroup.headers as header}
