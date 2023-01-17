@@ -193,8 +193,4 @@
 		}
 		setTimeout(() => syncer(id), nextIteration)
 	}
-
-	onDestroy(async () => {
-		await clearCurrentJob()
-	})
 </script>
