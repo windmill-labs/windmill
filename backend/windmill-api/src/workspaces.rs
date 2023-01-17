@@ -6,12 +6,15 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use std::sync::Arc;
+
 use crate::{
     db::{UserDB, DB},
     folders::Folder,
     resources::{Resource, ResourceType},
     users::{Authed, WorkspaceInvite},
     utils::require_super_admin,
+    BaseUrl,
 };
 use axum::{
     body::StreamBody,
@@ -50,6 +53,7 @@ pub fn workspaced_service() -> Router {
         .route("/edit_auto_invite", post(edit_auto_invite))
         .route("/tarball", get(tarball_workspace))
         .route("/premium_info", get(premium_info))
+        .route("/checkout", get(stripe_checkout))
 }
 pub fn global_service() -> Router {
     Router::new()
@@ -199,6 +203,43 @@ async fn premium_info(
     .await?;
     tx.commit().await?;
     Ok(Json(row))
+}
+
+async fn stripe_checkout(authed: Authed, Extension(base_url): Extension<Arc<BaseUrl>>) {
+    let client = stripe::Client::new("sk_test_51MCt8dGU3NdFi9eLNhKb8RXkvb267we5HyeJ46wyLCESokSLsqsY2EKdcOsapepcEBlUYTQXJ8957tYN6h3zE2ir00Nwfl41w0");
+    // finally, create a checkout session for this product / price
+    let success_rd = format!(
+        "{}/workspace_settings?session={{CHECKOUT_SESSION_ID}}",
+        base_url.0
+    );
+    let failure_rd = format!("{}/workspace_settings", base_url.0);
+    let checkout_session = {
+        let mut params = stripe::CreateCheckoutSession::new(&failure_rd, &success_rd);
+        params.mode = Some(stripe::CheckoutSessionMode::Subscription);
+        params.line_items = Some(vec![
+            stripe::CreateCheckoutSessionLineItems {
+                quantity: None,
+                price: Some("price_1MQzMHGU3NdFi9eLWFC7IXEv".to_string()),
+                ..Default::default()
+            },
+            stripe::CreateCheckoutSessionLineItems {
+                quantity: None,
+                price: Some("price_1MR2BZGU3NdFi9eLNRuibxPx".to_string()),
+                ..Default::default()
+            },
+        ]);
+        params.customer_email = Some(&authed.email);
+        params.client_reference_id = Some("foo");
+        stripe::CheckoutSession::create(&client, params)
+            .await
+            .unwrap()
+    };
+
+    println!(
+        "created a {}  at {}",
+        checkout_session.payment_status,
+        checkout_session.url.unwrap()
+    );
 }
 
 async fn exists_workspace(
