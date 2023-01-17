@@ -15,7 +15,7 @@ import { GlobalOptions } from "./types.ts";
 
 const VERSION = "v1.60.0";
 
-const command = new Command()
+let command: any = new Command()
   .name("wmill")
   .description("A simple CLI tool for windmill.")
   .globalOption(
@@ -33,8 +33,6 @@ const command = new Command()
   .command("resource", resource)
   .command("user", user)
   .command("variable", variable)
-  .command("push", push)
-  .command("pull", pull)
   .command("hub", hub)
   .command("folder", folder)
   .command("sync", sync)
@@ -62,6 +60,12 @@ const command = new Command()
       provider: new DenoLandProvider({ name: "wmill" }),
     }),
   );
+
+if (Number.parseInt(VERSION.replace("v", "").replace(".", "")) > 1700) {
+  command = command
+    .command("push", push)
+    .command("pull", pull);
+}
 
 try {
   await command.parse(Deno.args);
