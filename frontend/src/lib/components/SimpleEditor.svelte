@@ -99,7 +99,7 @@
 	function format() {
 		if (editor) {
 			code = getCode()
-			editor.getAction('editor.action.formatDocument').run()
+			editor.getAction('editor.action.formatDocument')?.run()
 			if (formatAction) {
 				formatAction()
 				code = getCode()
