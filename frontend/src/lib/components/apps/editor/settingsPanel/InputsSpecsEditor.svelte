@@ -73,7 +73,7 @@
 											startIcon={{ icon: faTableCells }}
 											size="xs"
 										>
-											<Tooltip>
+											<Tooltip scale={0.6} placement="top-end" wrapperClass="center-center">
 												Use the column name to have the value of the cell be passed to the action
 											</Tooltip>
 										</ToggleButton>

@@ -1,10 +1,8 @@
 <script lang="ts">
 	import { createPopperActions } from 'svelte-popperjs'
+	import type { PopoverPlacement } from './Popover.model'
 
-	const SIDE = ['auto', 'top', 'bottom', 'left', 'right'] as const
-	const ALIGN = ['start', 'end'] as const
-
-	export let placement: `${typeof SIDE[number]}` | `${typeof SIDE[number]}-${typeof ALIGN[number]}` = 'auto'
+	export let placement: PopoverPlacement = 'auto'
 	export let notClickable = false
 	export let popupClass = ''
 	export let disapperTimoout = 100
