@@ -13,6 +13,7 @@ use sqlx::{query_scalar, Postgres, Transaction};
 use windmill_common::{
     error::{self, Result},
     schedule::Schedule,
+    users::username_to_permissioned_as,
     utils::{now_from_db, StripPath},
 };
 
@@ -80,7 +81,7 @@ pub async fn push_scheduled_job<'c>(
         args,
         &schedule_to_user(&schedule.path),
         &schedule.email,
-        format!("u/{}", schedule.edited_by),
+        username_to_permissioned_as(&schedule.edited_by),
         Some(next),
         Some(schedule.path.clone()),
         None,

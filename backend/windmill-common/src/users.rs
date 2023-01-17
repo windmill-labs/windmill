@@ -6,7 +6,10 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-pub fn owner_to_token_owner(user: &str, is_group: bool) -> String {
-    let prefix = if is_group { 'g' } else { 'u' };
-    format!("{}/{}", prefix, user)
+pub fn username_to_permissioned_as(user: &str) -> String {
+    if user.contains('@') {
+        user.to_string()
+    } else {
+        format!("u/{}", user)
+    }
 }
