@@ -1132,6 +1132,11 @@ pub async fn run_flow_by_path(
     let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
 
+    let permissioned_as = if authed.username.contains('@') {
+        authed.username.clone()
+    } else {
+        owner_to_token_owner(&authed.username, false)
+    };
     let (uuid, tx) = push(
         tx,
         &w_id,
@@ -1139,7 +1144,7 @@ pub async fn run_flow_by_path(
         args,
         &authed.username,
         &authed.email,
-        owner_to_token_owner(&authed.username, false),
+        permissioned_as,
         scheduled_for,
         None,
         run_query.parent_job,

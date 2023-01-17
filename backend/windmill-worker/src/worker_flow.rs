@@ -1881,7 +1881,6 @@ async fn get_transform_context(
         &flow_job.permissioned_as,
         "transform-input",
         10,
-        &flow_job.created_by,
     )
     .await?;
     //we need to commit asap otherwise the token won't be valid for auth to check outside of this transaction
