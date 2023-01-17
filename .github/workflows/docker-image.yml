@@ -52,10 +52,10 @@ jobs:
 
 
       - name: Build and push publicly
-        if: github.event_name != 'pull_request'
         uses: depot/build-push-action@v1
         with:
           context: .
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
