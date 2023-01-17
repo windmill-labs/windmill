@@ -311,7 +311,7 @@
 			<slot />
 		</div>
 	{:else}
-		<div class="grow min-w-1/2 {noMinH ? '' : 'min-h-[66%]'}">
+		<div class="block w-full h-full">
 			<slot />
 		</div>
 	{/if}
