@@ -231,18 +231,14 @@ pub async fn create_token_for_owner<'c>(
     owner: &str,
     label: &str,
     expires_in: i32,
-    username: &str,
 ) -> error::Result<(Transaction<'c, Postgres>, String)> {
     // TODO: Bad implementation. We should not have access to this DB here.
     let token: String = rd_string(30);
-    let is_super_admin = username.contains('@')
-        && sqlx::query_scalar!(
-            "SELECT super_admin FROM password WHERE email = $1",
-            owner.split_once('/').map(|x| x.1).unwrap_or("")
-        )
-        .fetch_optional(&mut tx)
-        .await?
-        .unwrap_or(false);
+    let is_super_admin = owner.contains('@')
+        && sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", owner)
+            .fetch_optional(&mut tx)
+            .await?
+            .unwrap_or(false);
 
     sqlx::query_scalar!(
         "INSERT INTO token
@@ -571,7 +567,6 @@ pub async fn run_worker(
                         &job.permissioned_as,
                         "ephemeral-script",
                         timeout * 2,
-                        &job.created_by,
                     )
                     .await.expect("could not create job token");
                     tx.commit().await.expect("could not commit job token");
@@ -944,13 +939,10 @@ async fn transform_json_value(
             let v = client
                 .get_variable(workspace, path, Some(true))
                 .await
-                .map_err(to_anyhow)
+                .map_err(|_| Error::NotFound(format!("Variable {path} not found")))
                 .map(|v| v.into_inner())?
                 .value
-                .map_or_else(
-                    || Err(Error::NotFound(format!("Variable {path} not found"))),
-                    |e| Ok(e),
-                )?;
+                .unwrap_or_else(|| String::new());
             Ok(Value::String(v))
         }
         Value::String(y) if y.starts_with("$res:") => {
@@ -2597,7 +2589,6 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, timeout: i32, base_url: &str) {
             &job.permissioned_as,
             "ephemeral-zombie-jobs",
             timeout * 2,
-            &job.created_by,
         )
         .await
         .expect("could not create job token");
