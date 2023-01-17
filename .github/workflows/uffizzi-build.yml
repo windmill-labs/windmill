@@ -2,7 +2,10 @@ name: Build PR Image
 on:
   pull_request:
     types: [opened,synchronize,reopened,closed]
-
+    paths:
+      - "backend/**"
+  workflow_dispatch:
+      
 jobs:
   build-windmill:
     name: Build and Push `windmill`
