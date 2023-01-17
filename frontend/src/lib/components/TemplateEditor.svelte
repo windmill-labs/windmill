@@ -595,7 +595,8 @@
 
 <div
 	bind:this={divEl}
-	class="{$$props.class} template rounded-lg mx-0.5"
+	style="height: 18px;"
+	class="{$$props.class} template rounded-lg min-h-4 mx-0.5"
 	bind:clientWidth={width}
 />
 
