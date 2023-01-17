@@ -193,7 +193,7 @@
 						{#if $connectingInput.opened}
 							<div
 								class="fixed top-32  p-2 z-50 flex justify-center items-center"
-								transition:fly={{ duration: 100, y: -100 }}
+								transition:fly|local={{ duration: 100, y: -100 }}
 							>
 								<Alert title="Connecting" type="info">
 									<div class="flex gap-2 flex-col">
