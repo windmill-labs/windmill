@@ -27,7 +27,6 @@
 
 	let search: 'By Runnable' | 'By Component' | 'Disabled' | undefined = undefined
 	let searchValue = ''
-
 	let pagination: boolean | undefined = true
 
 	$: setSearch(searchValue)
@@ -47,13 +46,10 @@
 	const { worldStore, staticOutputs: staticOutputsStore } =
 		getContext<AppEditorContext>('AppEditorContext')
 
-	let selectedRowIndex = -1
+	let selectedRowIndex = 0
 
 	function toggleRow(row: Record<string, any>, rowIndex: number) {
-		if (selectedRowIndex === rowIndex) {
-			selectedRowIndex = -1
-			outputs.selectedRow.set(null)
-		} else {
+		if (selectedRowIndex !== rowIndex) {
 			selectedRowIndex = rowIndex
 			outputs?.selectedRow.set(row.original)
 		}
@@ -133,7 +129,7 @@
 
 			<div class="overflow-x-auto flex-1 w-full">
 				<table class="relative w-full border-b border-b-gray-200">
-					<thead class="sticky top-0 z-50 bg-gray-50 text-left">
+					<thead class="sticky top-0 z-40 bg-gray-50 text-left">
 						{#each $table.getHeaderGroups() as headerGroup}
 							<tr class="divide-x">
 								{#each headerGroup.headers as header}
@@ -153,9 +149,7 @@
 								{/each}
 								{#if actionButtons.length > 0}
 									<th class="!p-0">
-										<span class="block px-4 py-4 text-sm font-semibold border-b">
-											Actions
-										</span>
+										<span class="block px-4 py-4 text-sm font-semibold border-b"> Actions </span>
 									</th>
 								{/if}
 							</tr>
