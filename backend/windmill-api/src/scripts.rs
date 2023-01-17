@@ -36,7 +36,7 @@ use windmill_common::{
         to_i64, HubScript, ListScriptQuery, ListableScript, NewScript, Script, ScriptHash,
         ScriptKind, ScriptLang,
     },
-    users::owner_to_token_owner,
+    users::username_to_permissioned_as,
     utils::{
         list_elems_from_hub, not_found_if_none, paginate, require_admin, Pagination, StripPath,
     },
@@ -374,7 +374,7 @@ async fn create_script(
             serde_json::Map::new(),
             &authed.username,
             &authed.email,
-            owner_to_token_owner(&authed.username, false),
+            username_to_permissioned_as(&authed.username),
             None,
             None,
             None,

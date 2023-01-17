@@ -31,7 +31,7 @@ use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     apps::ListAppQuery,
     error::{to_anyhow, Error, JsonResult, Result},
-    users::owner_to_token_owner,
+    users::username_to_permissioned_as,
     utils::{
         http_get_from_hub, list_elems_from_hub, not_found_if_none, paginate, Pagination, StripPath,
     },
@@ -610,7 +610,7 @@ async fn execute_component(
             })?;
             (
                 username.clone(),
-                owner_to_token_owner(&username, false),
+                username_to_permissioned_as(&username),
                 email,
             )
         }

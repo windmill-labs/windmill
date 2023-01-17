@@ -29,7 +29,7 @@ use windmill_common::{
     flows::FlowValue,
     oauth2::HmacSha256,
     scripts::{ScriptHash, ScriptLang},
-    users::owner_to_token_owner,
+    users::username_to_permissioned_as,
     utils::{not_found_if_none, now_from_db, paginate, require_admin, Pagination, StripPath},
 };
 use windmill_queue::{get_queued_job, push, JobKind, JobPayload, QueuedJob, RawCode};
@@ -1132,11 +1132,6 @@ pub async fn run_flow_by_path(
     let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
 
-    let permissioned_as = if authed.username.contains('@') {
-        authed.username.clone()
-    } else {
-        owner_to_token_owner(&authed.username, false)
-    };
     let (uuid, tx) = push(
         tx,
         &w_id,
@@ -1144,7 +1139,7 @@ pub async fn run_flow_by_path(
         args,
         &authed.username,
         &authed.email,
-        permissioned_as,
+        username_to_permissioned_as(&authed.username),
         scheduled_for,
         None,
         run_query.parent_job,
@@ -1179,7 +1174,7 @@ pub async fn run_job_by_path(
         args,
         &authed.username,
         &authed.email,
-        owner_to_token_owner(&authed.username, false),
+        username_to_permissioned_as(&authed.username),
         scheduled_for,
         None,
         run_query.parent_job,
@@ -1291,7 +1286,7 @@ pub async fn run_wait_result_job_by_path(
         args,
         &authed.username,
         &authed.email,
-        owner_to_token_owner(&authed.username, false),
+        username_to_permissioned_as(&authed.username),
         scheduled_for,
         None,
         run_query.parent_job,
@@ -1327,7 +1322,7 @@ pub async fn run_wait_result_job_by_hash(
         args,
         &authed.username,
         &authed.email,
-        owner_to_token_owner(&authed.username, false),
+        username_to_permissioned_as(&authed.username),
         scheduled_for,
         None,
         run_query.parent_job,
@@ -1381,7 +1376,7 @@ async fn run_preview_job(
         args,
         &authed.username,
         &authed.email,
-        owner_to_token_owner(&authed.username, false),
+        username_to_permissioned_as(&authed.username),
         scheduled_for,
         None,
         None,
@@ -1414,7 +1409,7 @@ async fn run_preview_flow_job(
         args,
         &authed.username,
         &authed.email,
-        owner_to_token_owner(&authed.username, false),
+        username_to_permissioned_as(&authed.username),
         scheduled_for,
         None,
         None,
@@ -1449,7 +1444,7 @@ pub async fn run_job_by_hash(
         args,
         &authed.username,
         &authed.email,
-        owner_to_token_owner(&authed.username, false),
+        username_to_permissioned_as(&authed.username),
         scheduled_for,
         None,
         run_query.parent_job,
