@@ -65,7 +65,7 @@
 		"@fortawesome/free-solid-svg-icons": "^6.2.1",
 		"@leeoniya/ufuzzy": "^0.9.0",
 		"@redocly/json-to-json-schema": "^0.0.1",
-		"@tanstack/svelte-table": "^8.7.2",
+		"@tanstack/svelte-table": "^8.7.6",
 		"async-mutex": "^0.4.0",
 		"chartjs-adapter-date-fns": "^2.0.0",
 		"chartjs-plugin-zoom": "^2.0.0",
