@@ -13,9 +13,11 @@ import {
   nanoid,
   objectHash,
   path,
+  ScriptService,
 } from "./deps.ts";
 import {
   Difference,
+  getTypeStrFromPath,
   GlobalOptions,
   inferTypeFromPath,
   setValueByPath,
@@ -23,7 +25,12 @@ import {
 import { downloadTar } from "./pull.ts";
 import { FolderFile } from "./folder.ts";
 import { ResourceTypeFile } from "./resource-type.ts";
-import { findContentFile, pushScript, ScriptFile } from "./script.ts";
+import {
+  findContentFile,
+  inferContentTypeFromFilePath,
+  pushScript,
+  ScriptFile,
+} from "./script.ts";
 
 type TrackedId = string;
 const TrackedId = String;
@@ -355,14 +362,65 @@ async function push(opts: GlobalOptions & { raw: boolean }) {
     const eHash = objectHash(eContent);
 
     if (fileHash !== eHash) {
-      const diff = microdiff(eContent as any, file, { cyclesFix: false });
-      await applyDiff(
-        workspace.workspaceId,
-        entry.path.split(".")[0],
-        entry.path,
-        file,
-        diff,
-      );
+      const remotePath = entry.path.split(".")[0];
+      const type = getTypeStrFromPath(entry.path);
+      if (type === "script") {
+        // Diffing makes no sense for scripts - instead fetch parent hash & check hash again.
+        // If hash is still missmatched - create new script as child.
+        const typed = decoverto.type(ScriptFile).plainToInstance(file);
+        const contentPath = await findContentFile(entry.path);
+        const language = inferContentTypeFromFilePath(contentPath);
+        const content = await Deno.readTextFile(contentPath);
+        try {
+          const remote = await ScriptService.getScriptByPath({
+            workspace: workspace.workspaceId,
+            path: remotePath,
+          });
+          if (objectHash(remote) !== fileHash) {
+            await ScriptService.createScript({
+              workspace: workspace.workspaceId,
+              requestBody: {
+                content,
+                description: typed.description,
+                language,
+                path: remotePath,
+                summary: typed.summary,
+                is_template: typed.is_template,
+                kind: typed.kind,
+                lock: undefined,
+                parent_hash: remote.hash,
+                schema: typed.schema,
+              },
+            });
+          }
+        } catch {
+          // no parent hash
+          await ScriptService.createScript({
+            workspace: workspace.workspaceId,
+            requestBody: {
+              content,
+              description: typed.description,
+              language,
+              path: remotePath,
+              summary: typed.summary,
+              is_template: typed.is_template,
+              kind: typed.kind,
+              lock: undefined,
+              parent_hash: undefined,
+              schema: typed.schema,
+            },
+          });
+        }
+      } else {
+        const diff = microdiff(eContent as any, file, { cyclesFix: false });
+        await applyDiff(
+          workspace.workspaceId,
+          remotePath,
+          entry.path,
+          file,
+          diff,
+        );
+      }
     }
   }
 
@@ -376,7 +434,11 @@ async function push(opts: GlobalOptions & { raw: boolean }) {
     diffs: Difference[],
   ) {
     const typed = inferTypeFromPath(path, file);
-    if (typed instanceof FolderFile) {
+    if (typed instanceof ScriptFile) {
+      throw new Error(
+        "This code path should be unreachable - we should never generate diffs for scripts",
+      );
+    } else if (typed instanceof FolderFile) {
       const parts = remotePath.split("/");
       if (parts[0] === "f") {
         remotePath = parts[1];

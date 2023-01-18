@@ -69,17 +69,11 @@ export function inferTypeFromPath(
   | ResourceFile
   | ResourceTypeFile
   | FolderFile {
-  const parsed = path.parse(p);
-  if (parsed.ext !== ".json") {
-    throw new Error(
-      "Cannot infer type of non-json file " + JSON.stringify(parsed),
-    );
-  }
-  if (parsed.name === "folder.meta") {
+  const typeEnding = getTypeStrFromPath(p);
+
+  if (typeEnding === "folder") {
     return decoverto.type(FolderFile).plainToInstance(obj);
-  }
-  const typeEnding = parsed.name.split(".").at(-1);
-  if (typeEnding === "script") {
+  } else if (typeEnding === "script") {
     return decoverto.type(ScriptFile).plainToInstance(obj);
   } else if (typeEnding === "variable") {
     return decoverto.type(VariableFile).plainToInstance(obj);
@@ -89,6 +83,32 @@ export function inferTypeFromPath(
     return decoverto.type(ResourceFile).plainToInstance(obj);
   } else if (typeEnding === "resource-type") {
     return decoverto.type(ResourceTypeFile).plainToInstance(obj);
+  } else {
+    throw new Error("infer type unreachable");
+  }
+}
+
+export function getTypeStrFromPath(
+  p: string,
+): "script" | "variable" | "flow" | "resource" | "resource-type" | "folder" {
+  const parsed = path.parse(p);
+  if (parsed.ext !== ".json") {
+    throw new Error(
+      "Cannot infer type of non-json file " + JSON.stringify(parsed),
+    );
+  }
+
+  if (parsed.name === "folder.meta") {
+    return "folder";
+  }
+
+  const typeEnding = parsed.name.split(".").at(-1);
+  if (
+    typeEnding === "script" || typeEnding === "variable" ||
+    typeEnding === "flow" || typeEnding === "resource" ||
+    typeEnding === "resource-type"
+  ) {
+    return typeEnding;
   } else {
     throw new Error("Could not infer type of path " + JSON.stringify(parsed));
   }

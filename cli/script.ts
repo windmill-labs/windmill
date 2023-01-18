@@ -1,5 +1,5 @@
 // deno-lint-ignore-file no-explicit-any
-import { Difference, GlobalOptions, PushDiffs, Resource } from "./types.ts";
+import { GlobalOptions } from "./types.ts";
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import {
   colors,
@@ -13,7 +13,7 @@ import {
 import { Any, array, decoverto, model, property } from "./decoverto.ts";
 
 @model()
-export class ScriptFile implements Resource, PushDiffs {
+export class ScriptFile {
   @property(() => String)
   parent_hash?: string;
   @property(() => String)
@@ -46,16 +46,6 @@ export class ScriptFile implements Resource, PushDiffs {
   constructor(summary: string, description: string) {
     this.summary = summary;
     this.description = description;
-  }
-  pushDiffs(
-    workspace: string,
-    remotePath: string,
-    diffs: Difference[],
-  ): Promise<void> {
-    throw new Error("Method not implemented.");
-  }
-  push(workspace: string, remotePath: string): Promise<void> {
-    throw new Error("Method not implemented.");
   }
 }
 
@@ -123,17 +113,9 @@ export async function findContentFile(filePath: string) {
   return validCandidates[0];
 }
 
-export async function pushScript(
-  filePath: string,
+export function inferContentTypeFromFilePath(
   contentPath: string,
-  workspace: string,
-  remotePath: string,
-) {
-  const data = decoverto.type(ScriptFile).rawToInstance(
-    await Deno.readTextFile(filePath),
-  );
-  const content = await Deno.readTextFile(contentPath);
-
+): "python3" | "deno" | "go" | "bash" {
   let language = contentPath.substring(contentPath.lastIndexOf("."));
   if (language == ".ts") language = "deno";
   if (language == ".py") language = "python3";
@@ -145,7 +127,21 @@ export async function pushScript(
   ) {
     throw new Error("Invalid language: " + language);
   }
+  return language;
+}
 
+export async function pushScript(
+  filePath: string,
+  contentPath: string,
+  workspace: string,
+  remotePath: string,
+) {
+  const data = decoverto.type(ScriptFile).rawToInstance(
+    await Deno.readTextFile(filePath),
+  );
+  const content = await Deno.readTextFile(contentPath);
+
+  const language = inferContentTypeFromFilePath(contentPath);
   let parent_hash = data.parent_hash;
   if (!parent_hash) {
     try {
