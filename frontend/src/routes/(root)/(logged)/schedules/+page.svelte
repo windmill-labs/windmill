@@ -24,6 +24,7 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { Icon } from 'svelte-awesome'
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
+	import { MoreVertical } from 'lucide-svelte'
 
 	type ScheduleW = Schedule & { canWrite: boolean }
 
@@ -149,7 +150,7 @@
 								><span class="text-2xs">By {edited_by} <br />the {displayDate(edited_at)}</span></td
 							>
 							<td>
-								<div class="inline-flex gap-1">
+								<div class="inline-flex gap-2">
 									<Button
 										href={`/runs/${path}`}
 										size="xs"
@@ -161,6 +162,7 @@
 									</Button>
 									<Dropdown
 										placement="bottom-end"
+										btnClasses="!text-gray-700"
 										dropdownItems={[
 											{
 												displayName: enabled ? 'Disable' : 'Enable',
@@ -172,6 +174,7 @@
 											},
 											{
 												displayName: 'Delete',
+												type: 'delete',
 												icon: faTrash,
 												disabled: !canWrite,
 												action: async () => {
@@ -203,7 +206,9 @@
 												}
 											}
 										]}
-									/>
+									>
+										<MoreVertical size={20} />
+									</Dropdown>
 								</div>
 							</td>
 						</tr>
