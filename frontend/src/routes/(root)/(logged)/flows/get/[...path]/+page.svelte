@@ -19,7 +19,9 @@
 		faShare,
 		faGlobe,
 		faCodeFork,
-		faClipboard
+		faClipboard,
+		faChevronUp,
+		faChevronDown
 	} from '@fortawesome/free-solid-svg-icons'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -36,6 +38,7 @@
 	import RunForm from '$lib/components/RunForm.svelte'
 	import { goto } from '$app/navigation'
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
+	import { slide } from 'svelte/transition'
 
 	let userSettings: UserSettings
 
@@ -117,6 +120,15 @@
 		await goto('/run/' + run + '?workspace=' + $workspaceStore)
 	}
 	let scheduleEditor: ScheduleEditor
+
+	let viewWebhookCommand = false
+
+	let args = undefined
+	$: curlCommand = `curl -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" -X POST -d '${JSON.stringify(
+		args
+	)}' ${$page.url.protocol}//${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run/f/${
+		flow?.path
+	}`
 </script>
 
 <ScheduleEditor on:update={() => loadSchedule()} bind:this={scheduleEditor} />
@@ -236,7 +248,6 @@
 
 			<div class="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-6">
 				<div class="col-span-2">
-					<h2 class="mb-2">Preview</h2>
 					<RunForm
 						{loading}
 						autofocus
@@ -245,6 +256,7 @@
 						bind:this={runForm}
 						runnable={flow}
 						runAction={runFlow}
+						bind:args
 					/>
 				</div>
 				{#if !emptyString(flow.description)}
@@ -257,11 +269,9 @@
 				<FlowViewer {flow} noSummary={true} />
 
 				<h2 id="webhook" class="mt-10 text-gray-700 pb-1 mb-3 border-b"
-					>Webhook<Tooltip
-						>To trigger this script with a webhook, do a POST request to the endpoint below. Flows
-						are not public and can only be run by users with at least view rights on them. You will
-						need to pass a bearer token to authentify as a user. You can either pass it as a Bearer
-						token or as query arg `?token=XXX`. <a
+					>Webhook<Tooltip>
+						Pass the input as a json payload, the token as a Bearer token or as query arg
+						`?token=XXX` and pass as header: 'Content-Type: application/json <a
 							href="https://docs.windmill.dev/docs/getting_started/webhooks">See docs</a
 						></Tooltip
 					></h2
@@ -284,6 +294,29 @@
 
 						<Button size="xs" on:click={userSettings.openDrawer}>Create token</Button>
 					</div>
+				</div>
+
+				<div class="flex flex-col gap-2 mt-2">
+					<div>
+						<Button
+							color="light"
+							size="sm"
+							endIcon={{ icon: viewWebhookCommand ? faChevronUp : faChevronDown }}
+							on:click={() => (viewWebhookCommand = !viewWebhookCommand)}
+						>
+							See example curl command
+						</Button>
+					</div>
+					{#if viewWebhookCommand}
+						<div transition:slide|local class="px-4">
+							<pre class="bg-gray-700 text-gray-100 p-2  font-mono text-sm whitespace-pre-wrap"
+								>{curlCommand} <span
+									on:click={() => copyToClipboard(curlCommand)}
+									class="cursor-pointer ml-2"><Icon data={faClipboard} /></span
+								></pre
+							>
+						</div>
+					{/if}
 				</div>
 				{#if schedule}
 					<div class="mt-10">
