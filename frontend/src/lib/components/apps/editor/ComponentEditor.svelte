@@ -19,6 +19,7 @@
 	import AppTimeseries from '../components/dataDisplay/AppTimeseries.svelte'
 	import AppHtml from '../components/dataDisplay/AppHtml.svelte'
 	import AppSliderInputs from '../components/numberInputs/AppSliderInputs.svelte'
+	import AppFormButton from '../components/form/AppFormButton.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -113,6 +114,12 @@
 			<SelectComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{:else if component.type === 'formcomponent'}
 			<AppForm
+				{...component}
+				bind:componentInput={component.componentInput}
+				bind:staticOutputs={$staticOutputs[component.id]}
+			/>
+		{:else if component.type === 'formbuttoncomponent'}
+			<AppFormButton
 				{...component}
 				bind:componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}

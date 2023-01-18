@@ -15,8 +15,8 @@ const inputs: ComponentSet = {
 					type: 'static',
 					value: 'Type...',
 					fieldType: 'text',
-					onlyStatic: true,
-				},
+					onlyStatic: true
+				}
 			},
 			card: false
 		},
@@ -31,8 +31,8 @@ const inputs: ComponentSet = {
 					type: 'static',
 					value: 'Password',
 					fieldType: 'text',
-					onlyStatic: true,
-				},
+					onlyStatic: true
+				}
 			},
 			card: false
 		},
@@ -47,8 +47,8 @@ const inputs: ComponentSet = {
 					type: 'static',
 					value: 'Type...',
 					fieldType: 'text',
-					onlyStatic: true,
-				},
+					onlyStatic: true
+				}
 			},
 			card: false
 		},
@@ -63,14 +63,14 @@ const inputs: ComponentSet = {
 					type: 'static',
 					value: 0,
 					fieldType: 'number',
-					onlyStatic: true,
+					onlyStatic: true
 				},
 				max: {
 					type: 'static',
 					value: 42,
 					fieldType: 'number',
-					onlyStatic: true,
-				},
+					onlyStatic: true
+				}
 			},
 			card: false
 		},
@@ -84,15 +84,15 @@ const inputs: ComponentSet = {
 				minDate: {
 					type: 'static',
 					value: '',
-					fieldType: 'date',
+					fieldType: 'date'
 				},
 				maxDate: {
 					type: 'static',
 					value: '',
-					fieldType: 'date',
+					fieldType: 'date'
 				}
 			},
-			card: false,
+			card: false
 		},
 		{
 			...defaultAlignement,
@@ -104,7 +104,7 @@ const inputs: ComponentSet = {
 				label: {
 					type: 'static',
 					value: 'Label',
-					fieldType: 'text',
+					fieldType: 'text'
 				}
 			},
 			card: false
@@ -148,8 +148,7 @@ const buttons: ComponentSet = {
 				type: 'runnable',
 				fieldType: 'any',
 				fields: {},
-				runnable: undefined,
-
+				runnable: undefined
 			},
 			recomputeIds: undefined,
 			configuration: {
@@ -189,29 +188,63 @@ const buttons: ComponentSet = {
 				type: 'runnable',
 				fieldType: 'any',
 				fields: {},
-				runnable: undefined,
-
+				runnable: undefined
 			},
 			recomputeIds: undefined,
 			configuration: {
 				label: {
 					type: 'static',
 					value: 'Submit',
-					fieldType: 'text',
+					fieldType: 'text'
 				},
 				color: {
 					fieldType: 'select',
 					type: 'static',
 					onlyStatic: true,
 					value: 'dark',
-					optionValuesKey: 'buttonColorOptions',
+					optionValuesKey: 'buttonColorOptions'
 				},
 				size: {
 					fieldType: 'select',
 					type: 'static',
 					value: 'xs',
 					onlyStatic: true,
-					optionValuesKey: 'buttonSizeOptions',
+					optionValuesKey: 'buttonSizeOptions'
+				}
+			},
+
+			card: true
+		},
+		{
+			horizontalAlignment: 'center',
+			id: 'formbuttoncomponent',
+			type: 'formbuttoncomponent',
+			componentInput: {
+				type: 'runnable',
+				fieldType: 'any',
+				fields: {},
+				runnable: undefined
+			},
+			recomputeIds: undefined,
+			configuration: {
+				label: {
+					type: 'static',
+					value: 'Open popup',
+					fieldType: 'text'
+				},
+				color: {
+					fieldType: 'select',
+					type: 'static',
+					onlyStatic: true,
+					value: 'dark',
+					optionValuesKey: 'buttonColorOptions'
+				},
+				size: {
+					fieldType: 'select',
+					type: 'static',
+					value: 'xs',
+					onlyStatic: true,
+					optionValuesKey: 'buttonSizeOptions'
 				}
 			},
 
@@ -235,7 +268,7 @@ const display: ComponentSet = {
 >
 <h1 class="absolute top-4 left-2 text-white">
 	Hello \${ctx.username}
-</h1>`,
+</h1>`
 			},
 			configuration: {},
 			card: false
@@ -249,7 +282,7 @@ const display: ComponentSet = {
 			componentInput: {
 				type: 'static',
 				fieldType: 'template',
-				value: 'Hello ${ctx.username}',
+				value: 'Hello ${ctx.username}'
 			},
 			configuration: {
 				style: {
@@ -263,19 +296,18 @@ const display: ComponentSet = {
 					type: 'static',
 					fieldType: 'text',
 					value: '',
-					tooltip: 'CSS rules like "color: blue;"',
+					tooltip: 'CSS rules like "color: blue;"'
 				},
 				copyButton: {
 					type: 'static',
 					value: false,
 					fieldType: 'boolean',
-					onlyStatic: true,
-				},
+					onlyStatic: true
+				}
 			},
 			card: false
 		},
 		{
-
 			id: 'tablecomponent',
 			type: 'tablecomponent',
 			configuration: {
@@ -302,8 +334,7 @@ const display: ComponentSet = {
 						name: 'A briefer cell',
 						age: 84
 					}
-				],
-
+				]
 			},
 			card: true,
 			actionButtons: []
@@ -350,7 +381,6 @@ const display: ComponentSet = {
 					fieldType: 'boolean',
 					value: false
 				}
-
 			},
 			componentInput: {
 				type: 'static',
@@ -374,30 +404,32 @@ const display: ComponentSet = {
 					onlyStatic: true,
 					fieldType: 'boolean',
 					value: false
-				},
+				}
 			},
 			componentInput: {
 				type: 'static',
 				fieldType: 'array',
 				subFieldType: 'object',
-				value: [{
-					label: 'foo',
-					data: [
-						{ x: 25, y: 50 },
-						{ x: 23, y: 23 },
-						{ x: 12, y: 37 }
-					],
-					backgroundColor: 'rgb(255, 12, 137)'
-				},
-				{
-					label: 'foobar',
-					data: [
-						{ x: 32, y: 32 },
-						{ x: 25, y: 42 },
-						{ x: 3, y: 27 }
-					],
-					backgroundColor: 'orange'
-				}]
+				value: [
+					{
+						label: 'foo',
+						data: [
+							{ x: 25, y: 50 },
+							{ x: 23, y: 23 },
+							{ x: 12, y: 37 }
+						],
+						backgroundColor: 'rgb(255, 12, 137)'
+					},
+					{
+						label: 'foobar',
+						data: [
+							{ x: 32, y: 32 },
+							{ x: 25, y: 42 },
+							{ x: 3, y: 27 }
+						],
+						backgroundColor: 'orange'
+					}
+				]
 			},
 			card: true
 		},
@@ -422,40 +454,50 @@ const display: ComponentSet = {
 					onlyStatic: true,
 					fieldType: 'boolean',
 					value: false
-				},
+				}
 			},
 			componentInput: {
 				type: 'static',
 				fieldType: 'array',
 				subFieldType: 'object',
-				value: [{
-					label: 'foo',
-					data: [{
-						x: '2021-11-06 23:39:30',
-						y: 50
-					}, {
-						x: '2021-11-07 01:00:28',
-						y: 60
-					}, {
-						x: '2021-11-07 09:00:28',
-						y: 20
-					}],
-					backgroundColor: 'rgb(255, 12, 137)'
-				},
-				{
-					label: 'foobar',
-					data: [{
-						x: '2021-11-06 23:39:30',
-						y: 20
-					}, {
-						x: '2021-11-07 01:00:28',
-						y: 13
-					}, {
-						x: '2021-11-07 09:00:28',
-						y: 45
-					}],
-					backgroundColor: 'orange'
-				}]
+				value: [
+					{
+						label: 'foo',
+						data: [
+							{
+								x: '2021-11-06 23:39:30',
+								y: 50
+							},
+							{
+								x: '2021-11-07 01:00:28',
+								y: 60
+							},
+							{
+								x: '2021-11-07 09:00:28',
+								y: 20
+							}
+						],
+						backgroundColor: 'rgb(255, 12, 137)'
+					},
+					{
+						label: 'foobar',
+						data: [
+							{
+								x: '2021-11-06 23:39:30',
+								y: 20
+							},
+							{
+								x: '2021-11-07 01:00:28',
+								y: 13
+							},
+							{
+								x: '2021-11-07 09:00:28',
+								y: 45
+							}
+						],
+						backgroundColor: 'orange'
+					}
+				]
 			},
 			card: true
 		},
@@ -465,13 +507,11 @@ const display: ComponentSet = {
 			componentInput: {
 				type: 'static',
 				fieldType: 'object',
-				value: { "foo": 42 },
-
+				value: { foo: 42 }
 			},
 			configuration: {},
 			card: false
-		},
-
+		}
 	]
 }
 

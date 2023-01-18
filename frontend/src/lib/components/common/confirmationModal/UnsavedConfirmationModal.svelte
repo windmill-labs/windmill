@@ -48,9 +48,9 @@
 	}}
 >
 	<div class="flex flex-col w-full space-y-4">
-		<span
-			>Are you sure you want to discard change you have made? (A draft has been temporarily and
-			locally saved)</span
-		>
+		<span>
+			Are you sure you want to discard change you have made? (A draft has been temporarily and
+			locally saved)
+		</span>
 	</div>
 </ConfirmationModal>

@@ -10,7 +10,7 @@
 	import type { AppEditorContext, GridItem, InlineScript } from '$lib/components/apps/types'
 	import { getContext } from 'svelte'
 	import type { Schema } from '$lib/common'
-	import { loadSchema, schemaToInputsSpec } from '$lib/components/apps/utils'
+	import { getAllScriptNames, loadSchema, schemaToInputsSpec } from '$lib/components/apps/utils'
 	import { emptySchema } from '$lib/utils'
 
 	type Tab = 'hubscripts' | 'workspacescripts' | 'workspaceflows' | 'inlinescripts'
@@ -94,33 +94,10 @@
 		let index = 0
 		let newScriptPath = `Inline Script ${index}`
 
-		const names = $app.grid.reduce((acc, gridItem: GridItem) => {
-			const { componentInput } = gridItem.data
-
-			if (
-				componentInput?.type === 'runnable' &&
-				componentInput?.runnable?.type === 'runnableByName'
-			) {
-				acc.push(componentInput.runnable.name)
-			}
-
-			if (componentInput?.type === 'tablecomponent') {
-				componentInput.actionButtons.forEach((actionButton) => {
-					if (actionButton.componentInput?.type === 'runnable') {
-						if (actionButton.componentInput.runnable?.type === 'runnableByName') {
-							acc.push(actionButton.componentInput.runnable.name)
-						}
-					}
-				})
-			}
-
-			return acc
-		}, [] as string[])
-
-		const unusedNames = $app.unusedInlineScripts.map((x) => x.name)
+		const names = getAllScriptNames($app)
 
 		// Find a name that is not used by any other inline script
-		while (names.includes(newScriptPath) || unusedNames.includes(newScriptPath)) {
+		while (names.includes(newScriptPath)) {
 			newScriptPath = `Inline Script ${++index}`
 		}
 

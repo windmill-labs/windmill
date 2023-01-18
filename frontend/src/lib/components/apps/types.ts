@@ -33,6 +33,10 @@ export type FormComponent = BaseComponent<'formcomponent'> & {
 	recomputeIds: string[] | undefined
 }
 
+export type FormButtonComponent = BaseComponent<'formbuttoncomponent'> & {
+	recomputeIds: string[] | undefined
+}
+
 export type RunFormComponent = BaseComponent<'runformcomponent'>
 export type BarChartComponent = BaseComponent<'barchartcomponent'>
 export type PieChartComponent = BaseComponent<'piechartcomponent'>
@@ -59,11 +63,14 @@ export type Aligned = {
 export interface BaseAppComponent extends Partial<Aligned> {
 	id: ComponentID
 	componentInput: AppInput | undefined
-	configuration: Record<string, (StaticAppInput | ConnectedAppInput | UserAppInput | RowAppInput | EvalAppInput) & {
-		onlyStatic?: boolean,
-		evaluatedValue?: boolean,
-		tooltip?: string
-	}>
+	configuration: Record<
+		string,
+		(StaticAppInput | ConnectedAppInput | UserAppInput | RowAppInput | EvalAppInput) & {
+			onlyStatic?: boolean
+			evaluatedValue?: boolean
+			tooltip?: string
+		}
+	>
 	card: boolean | undefined
 	/**
 	 * If `true` then the wrapper will allow items to flow outside of it's borders.
@@ -97,6 +104,7 @@ export type AppComponent = BaseAppComponent &
 		| CheckboxComponent
 		| RadioComponent
 		| FormComponent
+		| FormButtonComponent
 	)
 
 export type ComponentSet = {
@@ -130,6 +138,11 @@ export type App = {
 		name: string
 		inlineScript: InlineScript
 	}>
+	hiddenInlineScripts: Array<{
+		name: string
+		inlineScript: InlineScript | undefined
+		fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
+	}>
 }
 
 export type ConnectingInput = {
@@ -141,21 +154,21 @@ export type ConnectingInput = {
 
 export type AppEditorContext = {
 	worldStore: Writable<World | undefined>
-	staticOutputs: Writable<Record<string, string[]>>,
-	lazyGrid: Writable<GridItem[]>,
-	app: Writable<App>,
-	summary: Writable<string>,
+	staticOutputs: Writable<Record<string, string[]>>
+	lazyGrid: Writable<GridItem[]>
+	app: Writable<App>
+	summary: Writable<string>
 	selectedComponent: Writable<string | undefined>
 	mode: Writable<EditorMode>
 	connectingInput: Writable<ConnectingInput>
 	breakpoint: Writable<EditorBreakpoint>
 	runnableComponents: Writable<Record<string, () => Promise<void>>>
 	staticExporter: Writable<Record<string, () => any>>
-	appPath: string,
-	workspace: string,
-	onchange: (() => void) | undefined,
-	isEditor: boolean,
-	jobs: Writable<{ job: string, component: string }[]>,
+	appPath: string
+	workspace: string
+	onchange: (() => void) | undefined
+	isEditor: boolean
+	jobs: Writable<{ job: string; component: string }[]>
 	noBackend: boolean
 }
 

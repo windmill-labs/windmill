@@ -21,11 +21,12 @@ import {
 	ToggleLeft,
 	GripHorizontal,
 	Code2,
-	SlidersHorizontal
+	SlidersHorizontal,
+	PackageOpen
 } from 'lucide-svelte'
 import type { AppInput, InputType, ResultAppInput, StaticAppInput } from './inputType'
 import type { Output } from './rx'
-import type { App, AppComponent } from './types'
+import type { App, AppComponent, GridItem } from './types'
 
 export async function loadSchema(
 	workspace: string,
@@ -50,7 +51,11 @@ export async function loadSchema(
 		const script = await ScriptService.getHubScriptByPath({
 			path
 		})
-		if (script.schema == undefined || Object.keys(script.schema).length == 0 || typeof script.schema != 'object') {
+		if (
+			script.schema == undefined ||
+			Object.keys(script.schema).length == 0 ||
+			typeof script.schema != 'object'
+		) {
 			script.schema = emptySchema()
 		}
 
@@ -59,13 +64,15 @@ export async function loadSchema(
 	}
 }
 
-export function schemaToInputsSpec(schema: Schema, defaultUserInput: boolean): Record<string, StaticAppInput> {
+export function schemaToInputsSpec(
+	schema: Schema,
+	defaultUserInput: boolean
+): Record<string, StaticAppInput> {
 	if (schema?.properties == undefined) {
 		return {}
 	}
 	return Object.keys(schema.properties).reduce((accu, key) => {
 		const property = schema.properties[key]
-
 
 		accu[key] = {
 			type: defaultUserInput && !property.format?.startsWith('resource-') ? 'user' : 'static',
@@ -73,7 +80,6 @@ export function schemaToInputsSpec(schema: Schema, defaultUserInput: boolean): R
 			fieldType: property.type,
 			format: property.format
 		}
-
 
 		return accu
 	}, {})
@@ -95,6 +101,10 @@ export const displayData: Record<AppComponent['type'], { name: string; icon: any
 	formcomponent: {
 		name: 'Form',
 		icon: FormInput
+	},
+	formbuttoncomponent: {
+		name: 'Form button',
+		icon: PackageOpen
 	},
 	piechartcomponent: {
 		name: 'Pie Chart',
@@ -235,8 +245,11 @@ export function clearResultAppInput(appInput: ResultAppInput): ResultAppInput {
 	return appInput
 }
 
-
-export function toStatic(app: App, staticExporter: Record<string, () => any>, summary: string): { app: App; summary: string } {
+export function toStatic(
+	app: App,
+	staticExporter: Record<string, () => any>,
+	summary: string
+): { app: App; summary: string } {
 	const newApp: App = JSON.parse(JSON.stringify(app))
 	newApp.grid.forEach((x) => {
 		let c: AppComponent = x.data
@@ -247,16 +260,52 @@ export function toStatic(app: App, staticExporter: Record<string, () => any>, su
 	return { app: newApp, summary }
 }
 
-export function buildExtraLib(components: Record<string, Record<string, Output<any>>>, idToExclude: string, hasRows: boolean): string {
-	return Object.entries(components)
-		.filter(([k, v]) => k != idToExclude)
-		.map(([k, v]) => [k, Object.fromEntries(Object.entries(v).map(([k, v]) => [k, v.peak()]))])
-		.map(
-			([k, v]) => `
+export function buildExtraLib(
+	components: Record<string, Record<string, Output<any>>>,
+	idToExclude: string,
+	hasRows: boolean
+): string {
+	return (
+		Object.entries(components)
+			.filter(([k, v]) => k != idToExclude)
+			.map(([k, v]) => [k, Object.fromEntries(Object.entries(v).map(([k, v]) => [k, v.peak()]))])
+			.map(
+				([k, v]) => `
 
 declare const ${k} = ${JSON.stringify(v)};
 
 `
-		)
-		.join('\n') + (hasRows ? 'declare const row: Record<string, any>;' : '')
+			)
+			.join('\n') + (hasRows ? 'declare const row: Record<string, any>;' : '')
+	)
+}
+
+export function getAllScriptNames(app: App): string[] {
+	const names = app.grid.reduce((acc, gridItem: GridItem) => {
+		const { componentInput } = gridItem.data
+
+		if (
+			componentInput?.type === 'runnable' &&
+			componentInput?.runnable?.type === 'runnableByName'
+		) {
+			acc.push(componentInput.runnable.name)
+		}
+
+		if (componentInput?.type === 'tablecomponent') {
+			componentInput.actionButtons.forEach((actionButton) => {
+				if (actionButton.componentInput?.type === 'runnable') {
+					if (actionButton.componentInput.runnable?.type === 'runnableByName') {
+						acc.push(actionButton.componentInput.runnable.name)
+					}
+				}
+			})
+		}
+
+		return acc
+	}, [] as string[])
+
+	const unusedNames = app.unusedInlineScripts.map((x) => x.name)
+	const backgroundNames = app.hiddenInlineScripts?.map((x) => x.name) ?? []
+
+	return [...names, ...unusedNames, ...backgroundNames]
 }

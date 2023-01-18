@@ -6,6 +6,7 @@
 	import InlineScriptsPanelList from './InlineScriptsPanelList.svelte'
 	import InlineScriptEditorPanel from './InlineScriptEditorPanel.svelte'
 	import InlineScriptEditor from './InlineScriptEditor.svelte'
+	import EmptyInlineScript from './EmptyInlineScript.svelte'
 
 	const { lazyGrid, app } = getContext<AppEditorContext>('AppEditorContext')
 
@@ -49,6 +50,30 @@
 							$app.unusedInlineScripts = [...$app.unusedInlineScripts]
 						}}
 					/>
+				{/if}
+			{/each}
+			{#each $app.hiddenInlineScripts as hiddenInlineScript, index (index)}
+				{#if `bg-${index}` === selectedScriptComponentId}
+					{#if hiddenInlineScript.inlineScript}
+						<InlineScriptEditor
+							id={`bg-${index}`}
+							bind:inlineScript={hiddenInlineScript.inlineScript}
+							bind:name={hiddenInlineScript.name}
+							on:delete={() => {
+								// remove the script from the array at the index
+								$app.hiddenInlineScripts.splice(index, 1)
+								$app.hiddenInlineScripts = [...$app.hiddenInlineScripts]
+							}}
+						/>
+					{:else}
+						<EmptyInlineScript
+							id={`bg-${index}`}
+							name={hiddenInlineScript.name}
+							on:new={(e) => {
+								hiddenInlineScript.inlineScript = e.detail
+							}}
+						/>
+					{/if}
 				{/if}
 			{/each}
 		</Pane>

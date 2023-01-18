@@ -8,6 +8,7 @@
 
 	import RecomputeAllComponents from './RecomputeAllComponents.svelte'
 	import type { Policy } from '$lib/gen'
+	import HiddenComponent from '../components/HiddenComponent.svelte'
 
 	export let policy: Policy
 
@@ -175,6 +176,17 @@
 		</Grid>
 	</div>
 </div>
+
+{#each $app.hiddenInlineScripts as script, index}
+	{#if script}
+		<HiddenComponent
+			id={`bg-${index}`}
+			inlineScript={script.inlineScript}
+			name={script.name}
+			bind:fields={script.fields}
+		/>
+	{/if}
+{/each}
 
 <style>
 	:global(.svlt-grid-shadow) {

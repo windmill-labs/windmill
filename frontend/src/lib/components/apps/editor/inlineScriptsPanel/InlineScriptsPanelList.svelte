@@ -1,8 +1,10 @@
 <script lang="ts">
-	import { Badge } from '$lib/components/common'
+	import { Badge, Button } from '$lib/components/common'
 	import { classNames } from '$lib/utils'
+	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { AppComponent, AppEditorContext } from '../../types'
+	import { getAllScriptNames } from '../../utils'
 	import PanelSection from '../settingsPanel/common/PanelSection.svelte'
 
 	export let selectedScriptComponentId: string | undefined = undefined
@@ -11,7 +13,7 @@
 
 	function selectInlineScript(id: string) {
 		selectedScriptComponentId = id
-		if (!id.startsWith('unused-')) {
+		if (!id.startsWith('unused-') || !id.startsWith('bg-')) {
 			$selectedComponent = selectedScriptComponentId
 		}
 	}
@@ -80,6 +82,29 @@
 			selectedScriptComponentId = $selectedComponent
 		}
 	}
+
+	function createBackgroundScript() {
+		let index = 0
+		let newScriptPath = `Background Script ${index}`
+
+		const names = getAllScriptNames($app)
+
+		// Find a name that is not used by any other inline script
+		while (names.includes(newScriptPath)) {
+			newScriptPath = `Background Script ${++index}`
+		}
+
+		if (!$app.hiddenInlineScripts) {
+			$app.hiddenInlineScripts = []
+		}
+
+		$app.hiddenInlineScripts.push({
+			name: newScriptPath,
+			inlineScript: undefined,
+			fields: {}
+		})
+		$app.hiddenInlineScripts = $app.hiddenInlineScripts
+	}
 </script>
 
 <div class="min-h-full flex flex-col gap-4">
@@ -144,6 +169,35 @@
 						>
 							<span class="text-xs truncate">{name}</span>
 							<Badge color="dark-indigo">{id}</Badge>
+						</div>
+					{/each}
+				</div>
+			{:else}
+				<div class="text-sm text-gray-500">No items</div>
+			{/if}
+		</div>
+	</PanelSection>
+
+	<PanelSection title="Background scripts" smallPadding>
+		<svelte:fragment slot="action">
+			<Button size="xs" color="dark" startIcon={{ icon: faPlus }} on:click={createBackgroundScript}>
+				Add
+			</Button>
+		</svelte:fragment>
+		<div class="flex flex-col gap-2 w-full">
+			{#if $app.hiddenInlineScripts?.length > 0}
+				<div class="flex gap-2 flex-col ">
+					{#each $app.hiddenInlineScripts as { name }, index (index)}
+						<!-- svelte-ignore a11y-click-events-have-key-events -->
+						<div
+							class="{classNames(
+								'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-blue-50 hover:text-blue-400',
+								selectedScriptComponentId === `bg-${index}` ? 'bg-blue-100 text-blue-600' : ''
+							)},"
+							on:click={() => selectInlineScript(`bg-${index}`)}
+						>
+							<span class="text-xs truncate">{name}</span>
+							<Badge color="yellow">Background</Badge>
 						</div>
 					{/each}
 				</div>
