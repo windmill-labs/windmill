@@ -217,6 +217,7 @@ const buttons: ComponentSet = {
 		},
 		{
 			horizontalAlignment: 'center',
+			verticalAlignment: 'center',
 			id: 'formbuttoncomponent',
 			type: 'formbuttoncomponent',
 			componentInput: {
@@ -286,7 +287,7 @@ const display: ComponentSet = {
 							{ a: 'A', b: 28 },
 							{ a: 'B', b: 55 },
 							{ a: 'C', b: 43 },
-							{ a: 'D', b: 91 },
+							{ a: 'D', b: 91 }
 						]
 					},
 					mark: 'bar',
@@ -302,9 +303,8 @@ const display: ComponentSet = {
 					onlyStatic: true,
 					fieldType: 'boolean',
 					value: false,
-					tooltip: "use the canvas renderer instead of the svg one for more interactive plots"
+					tooltip: 'use the canvas renderer instead of the svg one for more interactive plots'
 				}
-
 			},
 			card: false
 		},

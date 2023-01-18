@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { Button, type ButtonType } from '$lib/components/common'
-	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { faUser } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
@@ -20,6 +19,7 @@
 	export let recomputeIds: string[] | undefined = undefined
 	export let extraQueryParams: Record<string, any> = {}
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
+	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 
 	export const staticOutputs: string[] = ['loading', 'result']
 
@@ -87,61 +87,62 @@
 			open = false
 		}}
 	>
-		<div class="flex flex-col gap-2 px-4 w-full">
-			<div>
-				{#if noInputs}
-					<div class="text-gray-600 italic text-sm my-4">
-						Run forms are associated with a runnable that has user inputs.
-						<br />
-						Once a script or flow is chosen, set some <strong>Runnable Inputs</strong> to
-						<strong>
-							User Input
-							<Icon data={faUser} scale={1.3} class="rounded-sm bg-gray-200 p-1 ml-0.5" />
-						</strong>
-					</div>
-				{/if}
-			</div>
-			<div class="flex justify-end">
-				{#if !noInputs}
-					<RunnableWrapper
-						defaultUserInput
-						noMinH
-						bind:runnableComponent
-						bind:componentInput
-						{id}
-						{extraQueryParams}
-						autoRefresh={false}
-						forceSchemaDisplay={true}
-						runnableClass="!block"
-					>
-						<Button
-							{loading}
-							btnClasses="my-1"
-							on:pointerdown={(e) => {
-								e?.stopPropagation()
-								window.dispatchEvent(new Event('pointerup'))
-							}}
-							on:click={() => {
-								runnableComponent?.runComponent()
+		<RunnableWrapper
+			defaultUserInput
+			noMinH
+			bind:runnableComponent
+			bind:componentInput
+			{id}
+			{extraQueryParams}
+			autoRefresh={false}
+			forceSchemaDisplay={true}
+			runnableClass="!block"
+		>
+			<div class="flex flex-col gap-2 px-4 w-full">
+				<div>
+					{#if noInputs}
+						<div class="text-gray-600 italic text-sm my-4">
+							Run forms are associated with a runnable that has user inputs.
+							<br />
+							Once a script or flow is chosen, set some <strong>Runnable Inputs</strong> to
+							<strong>
+								User Input
+								<Icon data={faUser} scale={1.3} class="rounded-sm bg-gray-200 p-1 ml-0.5" />
+							</strong>
+						</div>
+					{/if}
+				</div>
+				<div class="flex justify-end">
+					<Button
+						{loading}
+						btnClasses="my-1"
+						on:pointerdown={(e) => {
+							e?.stopPropagation()
+							window.dispatchEvent(new Event('pointerup'))
+						}}
+						on:click={async () => {
+							await runnableComponent?.runComponent()
 
-								if (recomputeIds) {
-									recomputeIds.forEach((id) => {
-										$runnableComponents[id]?.()
-									})
-								}
-							}}
-							size="xs"
-							color="dark"
-						>
-							Submit
-						</Button>
-					</RunnableWrapper>
-				{/if}
+							if (recomputeIds) {
+								recomputeIds.forEach((id) => {
+									$runnableComponents[id]?.()
+								})
+							}
+
+							open = false
+						}}
+						size="xs"
+						color="dark"
+					>
+						Submit
+					</Button>
+				</div>
 			</div>
-		</div>
+		</RunnableWrapper>
 	</Modal>
 </Portal>
-<AlignWrapper {horizontalAlignment}>
+
+<AlignWrapper {horizontalAlignment} {verticalAlignment}>
 	{#if errorsMessage}
 		<div class="text-red-500 text-xs">{errorsMessage}</div>
 	{/if}

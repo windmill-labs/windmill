@@ -6,7 +6,6 @@
 	import Badge from '../badge/Badge.svelte'
 
 	export let title: string
-
 	export let open: boolean = false
 
 	const dispatch = createEventDispatcher()
@@ -67,7 +66,7 @@
 					</div>
 					<div class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4">
 						<Button on:click={() => dispatch('canceled')} color="light" size="sm">
-							<span>Cancel <Badge color="dark-gray">Escape</Badge></span>
+							<span class="gap-2">Cancel <Badge color="dark-gray">Escape</Badge></span>
 						</Button>
 					</div>
 				</div>
