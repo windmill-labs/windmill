@@ -168,7 +168,7 @@
 	let viewWebhookCommand = false
 
 	let args = undefined
-	$: curlCommand = `curl -H 'Content-Type: application/json' -H 'Authorization: Bearer $TOKEN -X POST -d '${JSON.stringify(
+	$: curlCommand = `curl -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" -X POST -d '${JSON.stringify(
 		args
 	)}' ${$page.url.protocol}//${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run/p/${
 		script?.path
@@ -412,10 +412,8 @@
 				<h3 id="webhooks">
 					Webhooks
 					<Tooltip>
-						To trigger this script with a webhook, do a POST request to the endpoints below. Scripts
-						are not public and can only be run by users with at least view rights on them. You will
-						need to pass a bearer token to authentify as a user. You can either pass it as a Bearer
-						token or as query arg `?token=XXX`.
+						Pass the input as a json payload, the token as a Bearer token or as query arg
+						`?token=XXX` and pass as header: 'Content-Type: application/json'
 						<a href="https://docs.windmill.dev/docs/getting_started/webhooks" class="text-blue-500">
 							See docs
 						</a>
