@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Loader2 } from 'lucide-svelte'
 	import { parse } from 'path'
 	import { onMount } from 'svelte'
 	import type { AppInput } from '../../inputType'
@@ -42,6 +43,7 @@
 			{ ...result, ...{ width: w - 100 } },
 			{
 				mode: 'vega-lite',
+				actions: false,
 				renderer: canvas ? 'canvas' : 'svg',
 				height: h - 75,
 				width: w - 75
@@ -53,6 +55,11 @@
 
 <div class="w-full h-full" bind:clientHeight={h} bind:clientWidth={w}>
 	<RunnableWrapper flexWrap bind:componentInput {id} bind:result>
+		{#if !vegaEmbed}
+			<div class="p-2">
+				<Loader2 class="animate-spin" />
+			</div>
+		{/if}
 		<div on:pointerdown bind:this={divEl} />
 	</RunnableWrapper>
 </div>
