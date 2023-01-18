@@ -7,7 +7,7 @@ export function defaultCode(component: string, language: string): string | undef
 const DEFAULT_CODES: Partial<Record<AppComponent['type'], Record<'deno' | 'python3', string>>> = {
 	tablecomponent: {
 		deno:
-`export async function main() {
+			`export async function main() {
 	return [
 		{
 			"id": 1,
@@ -22,7 +22,7 @@ const DEFAULT_CODES: Partial<Record<AppComponent['type'], Record<'deno' | 'pytho
 	]
 }`,
 		python3:
-`def main():
+			`def main():
 	return [
 		{
 			"id": 1,
@@ -38,16 +38,16 @@ const DEFAULT_CODES: Partial<Record<AppComponent['type'], Record<'deno' | 'pytho
 	},
 	textcomponent: {
 		deno:
-`export async function main() {
+			`export async function main() {
 	return "foo"
 }`,
 		python3:
-`def main():
+			`def main():
 	return "foo"`,
 	},
 	barchartcomponent: {
 		deno:
-`export async function main() {
+			`export async function main() {
 	return {
 		"data": [
 			25,
@@ -62,7 +62,7 @@ const DEFAULT_CODES: Partial<Record<AppComponent['type'], Record<'deno' | 'pytho
 	}
 }`,
 		python3:
-`def main():
+			`def main():
 	return {
 		"data": [
 			25,
@@ -78,20 +78,20 @@ const DEFAULT_CODES: Partial<Record<AppComponent['type'], Record<'deno' | 'pytho
 	},
 	displaycomponent: {
 		deno:
-`export async function main() {
+			`export async function main() {
 	return {
 		"foo": 42
 	}
 }`,
 		python3:
-`def main():
+			`def main():
 	return {
 		"foo": 42
 	}`,
 	},
 	htmlcomponent: {
 		deno:
-`export async function main() {
+			`export async function main() {
 	return \`<img
 	src="https://images.unsplash.com/photo-1554629947-334ff61d85dc?ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&amp;ixlib=rb-1.2.1&amp;auto=format&amp;fit=crop&amp;w=1024&amp;h=1280&amp;q=80"
 >
@@ -100,7 +100,7 @@ const DEFAULT_CODES: Partial<Record<AppComponent['type'], Record<'deno' | 'pytho
 </h1>\`
 }`,
 		python3:
-`def main():
+			`def main():
 	return '''<img
 	src="https://images.unsplash.com/photo-1554629947-334ff61d85dc?ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&amp;ixlib=rb-1.2.1&amp;auto=format&amp;fit=crop&amp;w=1024&amp;h=1280&amp;q=80"
 >
@@ -108,9 +108,50 @@ const DEFAULT_CODES: Partial<Record<AppComponent['type'], Record<'deno' | 'pytho
 	Hello world
 </h1>'''`,
 	},
+	vegalitecomponent: {
+		deno:
+			`
+			export async function main() {
+				return {
+					data: {
+					values: [
+						{ a: "A", b: 28 },
+						{ a: "B", b: 55 },
+						{ a: "C", b: 43 },
+						{ a: "D", b: 91 },
+					],
+					},
+					mark: "bar",
+					encoding: {
+						x: { field: "a", type: "ordinal" },
+						y: { field: "b", type: "quantitative" },
+					},
+				};
+			}			  
+`,
+		python3:
+			`
+def main():
+	return {
+		"data": {
+		"values": [
+			{ "a": "A", "b": 28 },
+			{ "a": "B", "b": 55 },
+			{ "a": "C", "b": 43 },
+			{ "a": "D", "b": 91 },
+		],
+		},
+			"mark": "bar",
+		"encoding": {
+			"x": { "field": "a", "type": "ordinal" },
+			"y": { "field": "b", "type": "quantitative" },
+		},
+	}	
+`
+	},
 	piechartcomponent: {
 		deno:
-`export async function main() {
+			`export async function main() {
 	return {
 		"data": [
 			25,
@@ -125,7 +166,7 @@ const DEFAULT_CODES: Partial<Record<AppComponent['type'], Record<'deno' | 'pytho
 	}
 }`,
 		python3:
-`def main():
+			`def main():
 	return {
 		"data": [
 			25,
@@ -141,7 +182,7 @@ const DEFAULT_CODES: Partial<Record<AppComponent['type'], Record<'deno' | 'pytho
 	},
 	scatterchartcomponent: {
 		deno:
-`export async function main() {
+			`export async function main() {
 	return [
 		{
 			"label": "foo",
@@ -164,7 +205,7 @@ const DEFAULT_CODES: Partial<Record<AppComponent['type'], Record<'deno' | 'pytho
 	]
 }`,
 		python3:
-`def main():
+			`def main():
 	return [
 		{
 			"label": "foo",
@@ -188,7 +229,7 @@ const DEFAULT_CODES: Partial<Record<AppComponent['type'], Record<'deno' | 'pytho
 	},
 	timeseriescomponent: {
 		deno:
-`export async function main() {
+			`export async function main() {
 	return [
 		{
 			"label": "foo",
@@ -229,7 +270,7 @@ const DEFAULT_CODES: Partial<Record<AppComponent['type'], Record<'deno' | 'pytho
 	]
 }`,
 		python3:
-`def main():
+			`def main():
 	return [
 		{
 			"label": "foo",

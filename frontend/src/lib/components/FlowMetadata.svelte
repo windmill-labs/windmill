@@ -12,6 +12,19 @@
 		faBarsStaggered
 	} from '@fortawesome/free-solid-svg-icons'
 	import ScheduleEditor from './ScheduleEditor.svelte'
+	import { onDestroy, onMount } from 'svelte'
+
+	let time = Date.now()
+	let interval
+	onMount(() => {
+		interval = setInterval(() => {
+			time = Date.now()
+		}, 1000)
+	})
+
+	onDestroy(() => {
+		interval && clearInterval(interval)
+	})
 
 	export let job: Job
 	const SMALL_ICON_SCALE = 0.7
@@ -23,14 +36,19 @@
 <div class="rounded-md p-3 bg-gray-50 shadow-sm sm:text-sm md:text-base" style="min-height: 150px;">
 	<JobStatus {job} />
 	<div>
-		<Icon class="text-gray-700" data={faClock} scale={SMALL_ICON_SCALE} /><span class="mx-2">
-			Created {displayDaysAgo(job.created_at ?? '')}</span
+		<Icon class="text-gray-700" data={faClock} scale={SMALL_ICON_SCALE} /><span
+			class="mx-2 text-2xs text-gray-600"
+		>
+			{#key time}
+				Received job {displayDaysAgo(job.created_at ?? '')}
+			{/key}</span
 		>
 	</div>
 	{#if job && 'started_at' in job && job.started_at}
 		<div>
 			<Icon class="text-gray-700" data={faClock} scale={SMALL_ICON_SCALE} /><span class="mx-2">
-				Started {displayDaysAgo(job.started_at ?? '')}</span
+				{#key time}
+					Started {displayDaysAgo(job.started_at ?? '')}{/key}</span
 			>
 		</div>
 	{/if}

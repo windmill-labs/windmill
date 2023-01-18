@@ -38,7 +38,8 @@
 				'barchartcomponent',
 				'piechartcomponent',
 				'displaycomponent',
-				'scatterchartcomponent'
+				'scatterchartcomponent',
+				'vegalitecomponent'
 			],
 			'3:10-6:10': ['tablecomponent']
 		}

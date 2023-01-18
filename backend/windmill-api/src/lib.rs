@@ -53,6 +53,7 @@ pub struct IsSecure(bool);
 pub struct CookieDomain(Option<String>);
 pub struct CloudHosted(bool);
 pub struct ContentSecurityPolicy(String);
+pub struct TimeoutWaitResult(i32);
 
 pub use users::delete_expired_items_perdiodically;
 
@@ -91,14 +92,14 @@ pub async fn run_server(
         .layer(Extension(auth_cache.clone()))
         .layer(Extension(basic_clients))
         .layer(Extension(Arc::new(BaseUrl(base_url.to_string()))))
+        .layer(Extension(Arc::new(ContentSecurityPolicy(
+            std::env::var("SERVE_CSP").unwrap_or("".to_owned()),
+        ))))
         .layer(Extension(Arc::new(CloudHosted(
             std::env::var("CLOUD_HOSTED").is_ok(),
         ))))
         .layer(Extension(Arc::new(IsSecure(
             base_url.starts_with("https://"),
-        ))))
-        .layer(Extension(Arc::new(ContentSecurityPolicy(
-            std::env::var("SERVE_CSP").unwrap_or("".to_owned()),
         ))))
         .layer(Extension(Arc::new(CookieDomain(
             std::env::var("COOKIE_DOMAIN").ok(),
@@ -114,7 +115,17 @@ pub async fn run_server(
                     "/w/:workspace_id",
                     Router::new()
                         .nest("/scripts", scripts::workspaced_service())
-                        .nest("/jobs", jobs::workspaced_service())
+                        .nest(
+                            "/jobs",
+                            jobs::workspaced_service().layer(Extension(Arc::new(
+                                TimeoutWaitResult(
+                                    std::env::var("TIMEOUT_WAIT_RESULT")
+                                        .ok()
+                                        .and_then(|x| x.parse().ok())
+                                        .unwrap_or(20),
+                                ),
+                            ))),
+                        )
                         .nest(
                             "/users",
                             users::workspaced_service().layer(Extension(argon2.clone())),

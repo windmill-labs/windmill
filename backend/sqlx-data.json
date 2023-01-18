@@ -2051,73 +2051,6 @@
     },
     "query": "SELECT EXISTS(SELECT 1 FROM app WHERE path = $1 AND workspace_id = $2)"
   },
-  "59fc51efa01e823ec63f55a8081f282db0d7a40716c04f4043925eb84fe4429b": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Uuid",
-          "Uuid",
-          "Varchar",
-          "Timestamptz",
-          "Timestamptz",
-          "Bool",
-          "Int8",
-          "Varchar",
-          "Jsonb",
-          "Jsonb",
-          "Text",
-          "Text",
-          "Text",
-          "Bool",
-          "Varchar",
-          "Text",
-          {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "script",
-                  "preview",
-                  "flow",
-                  "dependencies",
-                  "flowpreview",
-                  "script_hub",
-                  "identity",
-                  "flowdependencies"
-                ]
-              },
-              "name": "job_kind"
-            }
-          },
-          "Varchar",
-          "Varchar",
-          "Jsonb",
-          "Jsonb",
-          "Bool",
-          "Bool",
-          {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "python3",
-                  "deno",
-                  "go",
-                  "bash"
-                ]
-              },
-              "name": "script_lang"
-            }
-          },
-          "Numeric",
-          "Varchar",
-          "Bool"
-        ]
-      }
-    },
-    "query": "INSERT INTO completed_job AS cj\n                   ( workspace_id\n                   , id\n                   , parent_job\n                   , created_by\n                   , created_at\n                   , started_at\n                   , duration_ms\n                   , success\n                   , script_hash\n                   , script_path\n                   , args\n                   , result\n                   , logs\n                   , raw_code\n                   , raw_lock\n                   , canceled\n                   , canceled_by\n                   , canceled_reason\n                   , job_kind\n                   , schedule_path\n                   , permissioned_as\n                   , flow_status\n                   , raw_flow\n                   , is_flow_step\n                   , is_skipped\n                   , language\n                   , email\n                   , visible_to_owner\n                )\n            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($26, EXTRACT(milliseconds FROM (now() - $6))), $7, $8, $9,$10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $27, $28)\n         ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12)"
-  },
   "5b9b58612ca0f703a5d154a76fab82ac2329aef965fa937bfab2810b6e1336a4": {
     "describe": {
       "columns": [],
@@ -3840,6 +3773,73 @@
     },
     "query": "UPDATE flow SET dependency_job = $1 WHERE path = $2 AND workspace_id = $3"
   },
+  "a46d97b0c65bbbcc29022c2d010a4853541987a58f0098f9c2e3fd6e40b11a52": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Uuid",
+          "Uuid",
+          "Varchar",
+          "Timestamptz",
+          "Timestamptz",
+          "Bool",
+          "Int8",
+          "Varchar",
+          "Jsonb",
+          "Jsonb",
+          "Text",
+          "Text",
+          "Text",
+          "Bool",
+          "Varchar",
+          "Text",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "script",
+                  "preview",
+                  "flow",
+                  "dependencies",
+                  "flowpreview",
+                  "script_hub",
+                  "identity",
+                  "flowdependencies"
+                ]
+              },
+              "name": "job_kind"
+            }
+          },
+          "Varchar",
+          "Varchar",
+          "Jsonb",
+          "Jsonb",
+          "Bool",
+          "Bool",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "python3",
+                  "deno",
+                  "go",
+                  "bash"
+                ]
+              },
+              "name": "script_lang"
+            }
+          },
+          "Numeric",
+          "Varchar",
+          "Bool"
+        ]
+      }
+    },
+    "query": "INSERT INTO completed_job AS cj\n                   ( workspace_id\n                   , id\n                   , parent_job\n                   , created_by\n                   , created_at\n                   , started_at\n                   , duration_ms\n                   , success\n                   , script_hash\n                   , script_path\n                   , args\n                   , result\n                   , logs\n                   , raw_code\n                   , raw_lock\n                   , canceled\n                   , canceled_by\n                   , canceled_reason\n                   , job_kind\n                   , schedule_path\n                   , permissioned_as\n                   , flow_status\n                   , raw_flow\n                   , is_flow_step\n                   , is_skipped\n                   , language\n                   , email\n                   , visible_to_owner\n                )\n            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($26, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE($6, now()))))*1000), $7, $8, $9,$10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $27, $28)\n         ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12)"
+  },
   "a6145b0482c9e5da245059a80b1563cad20318fd2dd8aef33f9ca97de1826b8b": {
     "describe": {
       "columns": [],
@@ -4204,6 +4204,24 @@
       }
     },
     "query": "SELECT count(path) FROM schedule WHERE path LIKE 'f/' || $1 || '%'  AND workspace_id = $2"
+  },
+  "b50b8d3367bd1f74986e6f923fe8497bcbfffea2570a3f3d1f8100207bc1557c": {
+    "describe": {
+      "columns": [
+        {
+          "name": "count",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": []
+      }
+    },
+    "query": "SELECT COUNT(*) FROM queue WHERE  canceled = false AND (scheduled_for <= now()\n        OR (suspend_until IS NOT NULL\n            AND (   suspend <= 0\n                 OR suspend_until <= now())))"
   },
   "b5c9891b5bf3d581e62f8835aaa25b8158fe3cefc849af0ba312a45cf22721ca": {
     "describe": {

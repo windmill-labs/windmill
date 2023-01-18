@@ -10,6 +10,7 @@
 	import {
 		faCircle,
 		faEdit,
+		faList,
 		faPlus,
 		faShare,
 		faToggleOff,
@@ -23,6 +24,7 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { Icon } from 'svelte-awesome'
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
+	import { MoreVertical } from 'lucide-svelte'
 
 	type ScheduleW = Schedule & { canWrite: boolean }
 
@@ -76,7 +78,7 @@
 			<TableCustom>
 				<tr slot="header-row">
 					<th>Schedule</th>
-					<th>Script or Flow</th>
+					<th>Script/Flow</th>
 					<th>schedule</th>
 					<th />
 					<th>off/on</th>
@@ -95,11 +97,14 @@
 								<SharedBadge {canWrite} extraPerms={extra_perms} />
 							</td>
 							<td
-								><div class="inline-flex flex-row gap-x-2 align-middle"
-									><Badge class="text-2xs font-mono ml-2">{is_flow ? 'flow' : 'script'}</Badge><a
-										class="text-sm break-words"
-										href="{is_flow ? '/flows/get' : '/scripts/get'}/{script_path}">{script_path}</a
-									></div
+								><div class="inline-flex flex-row gap-x-2 align-middle w-full"
+									><div class="grow"
+										><a
+											class="text-sm break-words"
+											href="{is_flow ? '/flows/get' : '/scripts/get'}/{script_path}"
+											>{script_path}</a
+										></div
+									><Badge class="text-2xs font-mono">{is_flow ? 'flow' : 'script'}</Badge></div
 								>
 							</td><td><Badge color="blue">{schedule}</Badge></td>
 							<td>
@@ -145,47 +150,67 @@
 								><span class="text-2xs">By {edited_by} <br />the {displayDate(edited_at)}</span></td
 							>
 							<td>
-								<Dropdown
-									placement="bottom-end"
-									dropdownItems={[
-										{
-											displayName: enabled ? 'Disable' : 'Enable',
-											icon: enabled ? faToggleOff : faToggleOn,
-											disabled: !canWrite,
-											action: () => {
-												setScheduleEnabled(path, enabled ? false : true)
+								<div class="inline-flex gap-2">
+									<Button
+										href={`/runs/${path}`}
+										size="xs"
+										startIcon={{ icon: faList }}
+										color="light"
+										variant="border"
+									>
+										Runs
+									</Button>
+									<Dropdown
+										placement="bottom-end"
+										btnClasses="!text-gray-700"
+										dropdownItems={[
+											{
+												displayName: enabled ? 'Disable' : 'Enable',
+												icon: enabled ? faToggleOff : faToggleOn,
+												disabled: !canWrite,
+												action: () => {
+													setScheduleEnabled(path, enabled ? false : true)
+												}
+											},
+											{
+												displayName: 'Delete',
+												type: 'delete',
+												icon: faTrash,
+												disabled: !canWrite,
+												action: async () => {
+													await ScheduleService.deleteSchedule({
+														workspace: $workspaceStore ?? '',
+														path
+													})
+													loadSchedules()
+												}
+											},
+											{
+												displayName: 'Edit',
+												icon: faEdit,
+												disabled: !canWrite,
+												action: () => {
+													scheduleEditor?.openEdit(path, is_flow)
+												}
+											},
+											{
+												displayName: 'View Runs',
+												icon: faList,
+												href: '/runs/' + path
+											},
+											{
+												displayName: canWrite ? 'Share' : 'See Permissions',
+												icon: faShare,
+												action: () => {
+													shareModal.openDrawer(path, 'schedule')
+												}
 											}
-										},
-										{
-											displayName: 'Delete',
-											icon: faTrash,
-											disabled: !canWrite,
-											action: async () => {
-												await ScheduleService.deleteSchedule({
-													workspace: $workspaceStore ?? '',
-													path
-												})
-												loadSchedules()
-											}
-										},
-										{
-											displayName: 'Edit',
-											icon: faEdit,
-											disabled: !canWrite,
-											action: () => {
-												scheduleEditor?.openEdit(path, is_flow)
-											}
-										},
-										{
-											displayName: canWrite ? 'Share' : 'See Permissions',
-											icon: faShare,
-											action: () => {
-												shareModal.openDrawer(path, 'schedule')
-											}
-										}
-									]}
-								/></td
-							>
+										]}
+									>
+										<MoreVertical size={20} />
+									</Dropdown>
+								</div>
+							</td>
 						</tr>
 					{/each}
 				</tbody>

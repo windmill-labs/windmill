@@ -121,7 +121,7 @@ pub async fn add_completed_job(
                    , email
                    , visible_to_owner
                 )
-            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($26, EXTRACT(milliseconds FROM (now() - $6))), $7, $8, $9,\
+            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($26, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE($6, now()))))*1000), $7, $8, $9,\
                     $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $27, $28)
          ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12)",
         queued_job.workspace_id,

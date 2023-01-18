@@ -274,6 +274,41 @@ const display: ComponentSet = {
 			card: false
 		},
 		{
+			softWrap: false,
+			id: 'vegalitecomponent',
+			type: 'vegalitecomponent',
+			componentInput: {
+				type: 'static',
+				fieldType: 'object',
+				value: {
+					data: {
+						values: [
+							{ a: 'A', b: 28 },
+							{ a: 'B', b: 55 },
+							{ a: 'C', b: 43 },
+							{ a: 'D', b: 91 },
+						]
+					},
+					mark: 'bar',
+					encoding: {
+						x: { field: 'a', type: 'ordinal' },
+						y: { field: 'b', type: 'quantitative' }
+					}
+				}
+			},
+			configuration: {
+				canvas: {
+					type: 'static',
+					onlyStatic: true,
+					fieldType: 'boolean',
+					value: false,
+					tooltip: "use the canvas renderer instead of the svg one for more interactive plots"
+				}
+
+			},
+			card: false
+		},
+		{
 			softWrap: true,
 			horizontalAlignment: 'left',
 			verticalAlignment: 'top',

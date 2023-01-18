@@ -195,6 +195,6 @@
 	}
 
 	onDestroy(async () => {
-		await clearCurrentJob()
+		currentId = undefined
 	})
 </script>
