@@ -108,6 +108,10 @@ export const displayData: Record<AppComponent['type'], { name: string; icon: any
 		name: 'Html',
 		icon: Code2
 	},
+	vegalitecomponent: {
+		name: 'Vega Lite',
+		icon: PieChart
+	},
 	timeseriescomponent: {
 		name: 'Timeseries',
 		icon: GripHorizontal
