@@ -347,7 +347,6 @@
 
 			<div class="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-6">
 				<div class="col-span-2">
-					<h2 class="mb-2">Preview</h2>
 					<RunForm
 						loading={runLoading}
 						autofocus
@@ -409,7 +408,7 @@
 				</Tabs>
 			</div>
 
-			<div class="max-w-2xl">
+			<div class="max-w-2xl mt-12">
 				<h3 id="webhooks">
 					Webhooks
 					<Tooltip>
@@ -479,7 +478,7 @@
 					</svelte:fragment>
 				</Tabs>
 			</div>
-			<div>
+			<div class="mt-20">
 				{#if can_write}
 					<h3>Danger zone</h3>
 					<div class="flex gap-2">
