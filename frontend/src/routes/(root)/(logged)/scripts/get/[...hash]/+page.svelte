@@ -53,6 +53,7 @@
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import { slide } from 'svelte/transition'
+	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 
 	let userSettings: UserSettings
 	let script: Script | undefined
@@ -164,16 +165,26 @@
 		}
 	}
 	let scheduleEditor: ScheduleEditor
+	let webhookElem: HTMLHeadingElement
 
 	let viewWebhookCommand = false
 
 	let args = undefined
-	$: curlCommand = `curl -H 'Content-Type: application/json' -H 'Authorization: Bearer $TOKEN -X POST -d '${JSON.stringify(
+	$: curlCommand = `curl -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" -X POST -d '${JSON.stringify(
 		args
 	)}' ${$page.url.protocol}//${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run/p/${
 		script?.path
 	}`
+	let moveDrawer: MoveDrawer
 </script>
+
+<MoveDrawer
+	bind:this={moveDrawer}
+	on:update={async (e) => {
+		await goto('/scripts/get/' + e.detail)
+		loadScript($page.params.hash)
+	}}
+/>
 
 <ScheduleEditor bind:this={scheduleEditor} />
 
@@ -227,38 +238,35 @@
 				</div>
 			</div>
 
-			<span class="text-lg font-semibold">{script.path}</span>
+			{#if !emptyString(script.summary)}
+				<span class="text-lg font-semibold">{script.path}</span>
+			{/if}
 
-			<div class="flex flex-row gap-x-2 flex-wrap">
-				<p>
+			<div class="flex flex-row gap-x-2 flex-wrap items-center mt-4">
+				<span class="text-sm text-gray-600">
 					Edited {displayDaysAgo(script.created_at || '')} by {script.created_by || 'unknown'}
-				</p>
-				<div class="flex items-center gap-2">
-					<Badge color="dark-gray">
-						{truncateHash(script?.hash ?? '')}
+				</span>
+				<Badge color="dark-gray">
+					{truncateHash(script?.hash ?? '')}
+				</Badge>
+				{#if script?.is_template}
+					<Badge color="blue">Template</Badge>
+				{/if}
+				{#if script && script.kind !== 'script'}
+					<Badge color="blue">
+						{script?.kind}
 					</Badge>
-					<a href="#webhooks">
-						<Badge color="dark-blue">Webhooks</Badge>
-					</a>
-					{#if script?.is_template}
-						<Badge color="blue">Template</Badge>
-					{/if}
-					{#if script && script.kind !== 'script'}
-						<Badge color="blue">
-							{script?.kind}
-						</Badge>
-					{/if}
-					{#if deploymentInProgress}
-						<Badge color="yellow">
-							<Loader2 size={12} class="inline animate-spin mr-1" />
-							Deployment in progress
-						</Badge>
-					{/if}
-					<SharedBadge canWrite={can_write} extraPerms={script?.extra_perms ?? {}} />
-				</div>
+				{/if}
+				{#if deploymentInProgress}
+					<Badge color="yellow">
+						<Loader2 size={12} class="inline animate-spin mr-1" />
+						Deployment in progress
+					</Badge>
+				{/if}
+				<SharedBadge canWrite={can_write} extraPerms={script?.extra_perms ?? {}} />
 			</div>
 
-			<div class="flex gap-2 flex-wrap">
+			<div class="flex gap-2 flex-wrap mt-4">
 				<Button
 					disabled={deploymentInProgress}
 					target="_blank"
@@ -297,6 +305,21 @@
 				>
 					Schedule
 				</Button>
+				<Button
+					on:click={() => moveDrawer.openDrawer(script?.path ?? '', script?.summary, 'script')}
+					variant="border"
+					color="light"
+					size="xs"
+					startIcon={{ icon: faEdit }}
+				>
+					Move/Rename
+				</Button>
+				<Button
+					color="dark"
+					variant="border"
+					size="xs"
+					on:click={() => webhookElem.scrollIntoView()}>Webhooks</Button
+				>
 				{#if Array.isArray(script.parent_hashes) && script.parent_hashes.length > 0}
 					<ButtonPopup
 						color="dark"
@@ -346,7 +369,7 @@
 			{/if}
 
 			<div class="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-6">
-				<div class="col-span-2">
+				<div class="col-span-2 box">
 					<RunForm
 						loading={runLoading}
 						autofocus
@@ -409,13 +432,11 @@
 			</div>
 
 			<div class="max-w-2xl mt-12">
-				<h3 id="webhooks">
+				<h3 bind:this={webhookElem} id="webhooks">
 					Webhooks
 					<Tooltip>
-						To trigger this script with a webhook, do a POST request to the endpoints below. Scripts
-						are not public and can only be run by users with at least view rights on them. You will
-						need to pass a bearer token to authentify as a user. You can either pass it as a Bearer
-						token or as query arg `?token=XXX`.
+						Pass the input as a json payload, the token as a Bearer token or as query arg
+						`?token=XXX` and pass as header: 'Content-Type: application/json'
 						<a href="https://docs.windmill.dev/docs/getting_started/webhooks" class="text-blue-500">
 							See docs
 						</a>

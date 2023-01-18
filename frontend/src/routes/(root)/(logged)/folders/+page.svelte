@@ -70,7 +70,7 @@
 <CenteredPage>
 	<PageHeader
 		title="Folders"
-		tooltip="Folder users together to grant roles and homegenous permissions. Same users can be in many folders at the same time."
+		tooltip="Folders allow to group items such as scripts/flows/resources/schedule together and to grant homogenous RBAC permissions to groups and individual users towards them."
 	>
 		<div class="flex flex-row">
 			<input

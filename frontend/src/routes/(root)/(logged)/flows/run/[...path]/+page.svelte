@@ -13,7 +13,7 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
 	import { Button, Kbd, Skeleton } from '$lib/components/common'
-	import { faPlay, faScroll } from '@fortawesome/free-solid-svg-icons'
+	import { faEye, faPlay, faScroll } from '@fortawesome/free-solid-svg-icons'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 
 	const path = $page.params.path
@@ -90,7 +90,7 @@
 						<div class="flex flex-row">
 							<div>
 								<Button
-									startIcon={{ icon: faScroll }}
+									startIcon={{ icon: faEye }}
 									disabled={flow == undefined}
 									btnClasses="mr-4"
 									variant="border"

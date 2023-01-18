@@ -15,7 +15,7 @@
 	let tokens: TruncatedToken[]
 	let newToken: string | undefined
 	let newTokenLabel: string | undefined
-	let newTokenExpiration: string | undefined
+	let newTokenExpiration: number | undefined
 	let displayCreateToken = false
 	let login_type = 'none'
 
@@ -57,12 +57,13 @@
 
 	async function createToken(): Promise<void> {
 		newToken = undefined
-		let expirationISO: Date | undefined
+		let date: Date | undefined
 		if (newTokenExpiration) {
-			expirationISO = new Date(newTokenExpiration)
+			date = new Date()
+			date.setDate(date.getDate() + newTokenExpiration)
 		}
 		newToken = await UserService.createToken({
-			requestBody: { label: newTokenLabel, expiration: expirationISO?.toISOString() } as NewToken
+			requestBody: { label: newTokenLabel, expiration: date?.toISOString() } as NewToken
 		})
 		listTokens()
 		displayCreateToken = false
@@ -87,7 +88,7 @@
 					Windmill {version}
 				</div>
 
-				<h2 class="border-b">User info</h2>
+				<h2 class="border-b mt-4">User info</h2>
 				<div class="">
 					{#if passwordError}
 						<div class="text-red-600 text-2xs grow">{passwordError}</div>
@@ -164,7 +165,7 @@
 								>{truncate(newToken ?? '', 10, '****')} <Icon data={faClipboard} />
 							</button>
 						</div>
-						<div class="pt-1 text-xs text-right">
+						<div class="pt-1 text-xs ml-2">
 							Make sure to copy your personal access token now. You won’t be able to see it again!
 						</div>
 					</div>
@@ -185,29 +186,17 @@
 							</div>
 							<div class="flex flex-col ">
 								<label for="expires"
-									>Expires on <span class="text-xs text-gray-500">(optional)</span>
+									>Expires In<span class="text-xs text-gray-500">(optional)</span>
 								</label>
-								<input
-									class="block md:w-1/2"
-									type="date"
-									id="expires"
-									name="expiration-date"
-									bind:value={newTokenExpiration}
-									min={getToday().getFullYear() +
-										'/' +
-										getToday().getMonth() +
-										'/' +
-										getToday().getDate()}
-									max={getToday().getFullYear() +
-										1 +
-										'/' +
-										getToday().getMonth() +
-										'/' +
-										getToday().getDate()}
-								/>
+								<select bind:value={newTokenExpiration}>
+									<option value={undefined}>No expiration</option>
+									<option value={7}>7d</option>
+									<option value={30}>30d</option>
+									<option value={90}>90d</option>
+								</select>
 							</div>
 							<div class="flex items-end">
-								<Button btnClasses="!mt-2" on:click={createToken}>Submit</Button>
+								<Button btnClasses="!mt-2" on:click={createToken}>New Token</Button>
 							</div>
 						</div>
 					</div>

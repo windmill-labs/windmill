@@ -19,7 +19,9 @@
 		faShare,
 		faGlobe,
 		faCodeFork,
-		faClipboard
+		faClipboard,
+		faChevronUp,
+		faChevronDown
 	} from '@fortawesome/free-solid-svg-icons'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -36,6 +38,8 @@
 	import RunForm from '$lib/components/RunForm.svelte'
 	import { goto } from '$app/navigation'
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
+	import { slide } from 'svelte/transition'
+	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 
 	let userSettings: UserSettings
 
@@ -117,6 +121,18 @@
 		await goto('/run/' + run + '?workspace=' + $workspaceStore)
 	}
 	let scheduleEditor: ScheduleEditor
+
+	let viewWebhookCommand = false
+
+	let args = undefined
+	$: curlCommand = `curl -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" -X POST -d '${JSON.stringify(
+		args
+	)}' ${$page.url.protocol}//${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run/f/${
+		flow?.path
+	}`
+
+	let webhook: HTMLHeadElement
+	let moveDrawer: MoveDrawer
 </script>
 
 <ScheduleEditor on:update={() => loadSchedule()} bind:this={scheduleEditor} />
@@ -128,115 +144,138 @@
 	loading={!flow}
 	layout={[0.75, [2, 0, 2], 2.25, [{ h: 1.5, w: 40 }], 0.2, [{ h: 1, w: 30 }]]}
 />
-{#if flow}
-	<ActionRow applyPageWidth>
-		<svelte:fragment slot="left">
-			<Button
-				target="_blank"
-				href={flowToHubUrl(flow).toString()}
-				variant="border"
-				color="light"
-				size="xs"
-				startIcon={{ icon: faGlobe }}
-			>
-				Publish to Hub
-			</Button>
-			<Button
-				on:click={() => scheduleEditor?.openNew(true, flow?.path ?? '')}
-				variant="border"
-				color="light"
-				size="xs"
-				startIcon={{ icon: faCalendar }}
-			>
-				Schedule
-			</Button>
-			<Button
-				on:click={() => shareModal.openDrawer(flow?.path ?? '', 'flow')}
-				variant="border"
-				color="light"
-				size="xs"
-				startIcon={{ icon: faShare }}
-				disabled={!can_write}
-			>
-				Share
-			</Button>
-		</svelte:fragment>
-		<svelte:fragment slot="right">
-			<Button
-				href="/flows/run/{path}"
-				variant="contained"
-				color="blue"
-				size="md"
-				startIcon={{ icon: faPlay }}
-			>
-				Run
-			</Button>
-			{#if !$userStore?.operator}
-				<Button
-					href="/flows/edit/{path}?nodraft=true"
-					variant="contained"
-					color="blue"
-					size="md"
-					startIcon={{ icon: faEdit }}
-					disabled={!can_write}
-				>
-					Edit
-				</Button>
-				<Button
-					href="/flows/add?template={flow.path}"
-					variant="contained"
-					color="blue"
-					size="md"
-					startIcon={{ icon: faCodeFork }}
-				>
-					Fork
-				</Button>
-			{/if}
-			<Button href="/runs/{flow.path}" color="blue" size="md" startIcon={{ icon: faList }}>
-				View runs
-			</Button>
-		</svelte:fragment>
-	</ActionRow>
-{/if}
+
+<MoveDrawer
+	bind:this={moveDrawer}
+	on:update={async (e) => {
+		await goto('/flows/get/' + e.detail)
+		loadFlow()
+		loadSchedule()
+	}}
+/>
 
 <CenteredPage>
 	{#if flow}
-		<h1 class="break-words py-2 mr-2">
-			{defaultIfEmptyString(flow.summary, flow.path)}
-		</h1>
-		{#if !emptyString(flow.summary)}
-			<h2 class="font-bold pb-4">{flow.path}</h2>
-		{/if}
+		<div class="prose-sm mx-auto mt-6">
+			<div class="flex flex-row w-full justify-between item-center">
+				<h1 class="mb-1 truncate">
+					{defaultIfEmptyString(flow.summary, flow.path)}
+				</h1>
+				<div class="flex flex-row-reverse gap-2 h-full">
+					<Button
+						href="/flows/run/{path}"
+						variant="contained"
+						color="blue"
+						size="md"
+						startIcon={{ icon: faPlay }}
+					>
+						Run
+					</Button>
+					{#if !$userStore?.operator}
+						<Button
+							href="/flows/edit/{path}?nodraft=true"
+							variant="contained"
+							color="blue"
+							size="md"
+							startIcon={{ icon: faEdit }}
+							disabled={!can_write}
+						>
+							Edit
+						</Button>
+						<Button
+							href="/flows/add?template={flow.path}"
+							variant="contained"
+							color="blue"
+							size="md"
+							startIcon={{ icon: faCodeFork }}
+						>
+							Fork
+						</Button>
+					{/if}
+					<Button href="/runs/{flow.path}" color="blue" size="md" startIcon={{ icon: faList }}>
+						View runs
+					</Button>
+				</div>
+			</div>
+			{#if !emptyString(flow.summary)}
+				<span class="text-lg font-semibold">{flow.path}</span>
+			{/if}
+		</div>
 	{/if}
 	<ShareModal bind:this={shareModal} />
 
-	<div class="grid grid-cols-1 gap-6 max-w-7xl pb-6">
+	<div class="grid grid-cols-1 gap-6 max-w-7xl pb-6 mt-2">
 		<Skeleton
 			loading={!flow}
 			layout={[[{ h: 1.5, w: 40 }], 1, [4], 2.25, [{ h: 1.5, w: 30 }], 1, [10]]}
 		/>
 		{#if flow}
-			<p class="text-sm text-gray-600"
-				>Edited {displayDaysAgo(flow.edited_at ?? '')} by {flow.edited_by}
-				<a href="#webhook" class="ml-2">
-					<Badge color="dark-blue">Webhook</Badge>
-				</a>
-				{#if schedule}
-					<a href="#primary-schedule" class="ml-2">
-						<Badge color="dark-blue">Primary schedule</Badge>
-					</a>{/if}</p
-			>
+			<div>
+				<span class="text-sm text-gray-600">
+					Edited {displayDaysAgo(flow.edited_at ?? '')} by {flow.edited_by}
 
-			{#if flow.archived}
-				<div class="bg-red-100 border-l-4 border-red-500 text-orange-700 p-4" role="alert">
-					<p class="font-bold">Archived</p>
-					<p>This flow was archived</p>
+					{#if schedule}
+						<a href="#primary-schedule" class="ml-2">
+							<Badge color="dark-blue">Primary schedule</Badge>
+						</a>{/if}</span
+				>
+
+				{#if flow.archived}
+					<div class="bg-red-100 border-l-4 border-red-500 text-orange-700 p-4" role="alert">
+						<p class="font-bold">Archived</p>
+						<p>This flow was archived</p>
+					</div>
+				{/if}
+
+				<div class="flex gap-2 flex-wrap mt-2">
+					<Button
+						target="_blank"
+						href={flowToHubUrl(flow).toString()}
+						variant="border"
+						color="light"
+						size="xs"
+						startIcon={{ icon: faGlobe }}
+					>
+						Publish to Hub
+					</Button>
+					<Button
+						on:click={() => shareModal.openDrawer(flow?.path ?? '', 'flow')}
+						variant="border"
+						color="light"
+						size="xs"
+						startIcon={{ icon: faShare }}
+						disabled={!can_write}
+					>
+						Share
+					</Button>
+					<Button
+						on:click={() => scheduleEditor?.openNew(true, flow?.path ?? '')}
+						variant="border"
+						color="light"
+						size="xs"
+						startIcon={{ icon: faCalendar }}
+					>
+						Schedule
+					</Button>
+					<Button
+						on:click={() => moveDrawer.openDrawer(flow?.path ?? '', flow?.summary, 'flow')}
+						variant="border"
+						color="light"
+						size="xs"
+						startIcon={{ icon: faEdit }}
+					>
+						Move/Rename
+					</Button>
+					<Button
+						btnClasses="ml-2"
+						variant="border"
+						size="xs"
+						on:click={() => webhook.scrollIntoView()}>Webhook</Button
+					>
 				</div>
-			{/if}
-
+			</div>
 			<div class="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-6">
-				<div class="col-span-2">
-					<h2 class="mb-2">Preview</h2>
+				<div class="col-span-2 box">
 					<RunForm
 						{loading}
 						autofocus
@@ -245,6 +284,7 @@
 						bind:this={runForm}
 						runnable={flow}
 						runAction={runFlow}
+						bind:args
 					/>
 				</div>
 				{#if !emptyString(flow.description)}
@@ -256,12 +296,10 @@
 			<div class="mt-4">
 				<FlowViewer {flow} noSummary={true} />
 
-				<h2 id="webhook" class="mt-10 text-gray-700 pb-1 mb-3 border-b"
-					>Webhook<Tooltip
-						>To trigger this script with a webhook, do a POST request to the endpoint below. Flows
-						are not public and can only be run by users with at least view rights on them. You will
-						need to pass a bearer token to authentify as a user. You can either pass it as a Bearer
-						token or as query arg `?token=XXX`. <a
+				<h2 bind:this={webhook} class="mt-10 text-gray-700 pb-1 mb-3 border-b"
+					>Webhook<Tooltip>
+						Pass the input as a json payload, the token as a Bearer token or as query arg
+						`?token=XXX` and pass as header: 'Content-Type: application/json <a
 							href="https://docs.windmill.dev/docs/getting_started/webhooks">See docs</a
 						></Tooltip
 					></h2
@@ -284,6 +322,29 @@
 
 						<Button size="xs" on:click={userSettings.openDrawer}>Create token</Button>
 					</div>
+				</div>
+
+				<div class="flex flex-col gap-2 mt-2">
+					<div>
+						<Button
+							color="light"
+							size="sm"
+							endIcon={{ icon: viewWebhookCommand ? faChevronUp : faChevronDown }}
+							on:click={() => (viewWebhookCommand = !viewWebhookCommand)}
+						>
+							See example curl command
+						</Button>
+					</div>
+					{#if viewWebhookCommand}
+						<div transition:slide|local class="px-4">
+							<pre class="bg-gray-700 text-gray-100 p-2  font-mono text-sm whitespace-pre-wrap"
+								>{curlCommand} <span
+									on:click={() => copyToClipboard(curlCommand)}
+									class="cursor-pointer ml-2"><Icon data={faClipboard} /></span
+								></pre
+							>
+						</div>
+					{/if}
 				</div>
 				{#if schedule}
 					<div class="mt-10">

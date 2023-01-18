@@ -137,7 +137,7 @@
 	{#if perms}
 		<TableCustom>
 			<tr slot="header-row">
-				<th>user</th>
+				<th>user/group</th>
 				<th />
 				<th />
 			</tr>
