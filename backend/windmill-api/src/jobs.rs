@@ -38,7 +38,7 @@ use crate::{
     db::{UserDB, DB},
     users::{require_owner_of_path, Authed},
     variables::get_workspace_key,
-    BaseUrl,
+    BaseUrl, TimeoutWaitResult,
 };
 
 pub fn workspaced_service() -> Router {
@@ -263,6 +263,7 @@ pub struct RunJobQuery {
     parent_job: Option<Uuid>,
     include_header: Option<String>,
     invisible_to_owner: Option<bool>,
+    queue_limit: Option<i64>,
 }
 
 impl RunJobQuery {
@@ -1227,9 +1228,18 @@ impl Drop for Guard {
 async fn run_wait_result<T>(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    timeout: i32,
     uuid: Uuid,
     Path((w_id, _)): Path<(String, T)>,
 ) -> error::JsonResult<serde_json::Value> {
+    let mut result = None;
+    let iters = if timeout <= 0 {
+        20
+    } else if timeout <= 1 {
+        timeout * 10
+    } else {
+        10 + ((timeout - 1) * 2)
+    };
     let mut g = Guard {
         done: false,
         id: uuid,
@@ -1237,8 +1247,7 @@ async fn run_wait_result<T>(
         db: user_db.clone(),
         authed: authed.clone(),
     };
-    let mut result = None;
-    for i in 0..48 {
+    for i in 0..iters {
         let mut tx = user_db.clone().begin(&authed).await?;
         result = sqlx::query_scalar!(
             "SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2",
@@ -1256,22 +1265,45 @@ async fn run_wait_result<T>(
         let delay = if i < 10 { 100 } else { 500 };
         tokio::time::sleep(core::time::Duration::from_millis(delay)).await;
     }
-    g.done = true;
     if let Some(result) = result {
+        g.done = true;
         Ok(Json(result))
     } else {
-        Err(Error::ExecutionErr("timeout after 20s".to_string()))
+        Err(Error::ExecutionErr(format!("timeout after {}s", timeout)))
     }
 }
 
+pub async fn check_queue_too_long(db: DB, queue_limit: Option<i64>) -> error::Result<()> {
+    if let Some(limit) = queue_limit {
+        let count = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM queue WHERE  canceled = false AND (scheduled_for <= now()
+        OR (suspend_until IS NOT NULL
+            AND (   suspend <= 0
+                 OR suspend_until <= now())))",
+        )
+        .fetch_one(&db)
+        .await?
+        .unwrap_or(0);
+
+        if count > queue_limit.unwrap() {
+            return Err(Error::InternalErr(format!(
+                "Number of queued job is too high: {count} > {limit}"
+            )));
+        }
+    }
+    Ok(())
+}
 pub async fn run_wait_result_job_by_path(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Extension(timeout): Extension<Arc<TimeoutWaitResult>>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
     Json(args): Json<Option<serde_json::Map<String, serde_json::Value>>>,
 ) -> error::JsonResult<serde_json::Value> {
+    check_queue_too_long(db, run_query.queue_limit).await?;
     let script_path = script_path.to_path();
     let mut tx = user_db.clone().begin(&authed).await?;
     let job_payload = script_path_to_payload(script_path, &mut tx, &w_id).await?;
@@ -1298,17 +1330,28 @@ pub async fn run_wait_result_job_by_path(
     .await?;
     tx.commit().await?;
 
-    run_wait_result(authed, Extension(user_db), uuid, Path((w_id, script_path))).await
+    run_wait_result(
+        authed,
+        Extension(user_db),
+        timeout.0,
+        uuid,
+        Path((w_id, script_path)),
+    )
+    .await
 }
 
 pub async fn run_wait_result_job_by_hash(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Extension(timeout): Extension<Arc<TimeoutWaitResult>>,
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
     Json(args): Json<Option<serde_json::Map<String, serde_json::Value>>>,
 ) -> error::JsonResult<serde_json::Value> {
+    check_queue_too_long(db, run_query.queue_limit).await?;
+
     let hash = script_hash.0;
     let mut tx = user_db.clone().begin(&authed).await?;
     let path = get_path_for_hash(&mut tx, &w_id, hash).await?;
@@ -1334,7 +1377,14 @@ pub async fn run_wait_result_job_by_hash(
     .await?;
     tx.commit().await?;
 
-    run_wait_result(authed, Extension(user_db), uuid, Path((w_id, script_hash))).await
+    run_wait_result(
+        authed,
+        Extension(user_db),
+        timeout.0,
+        uuid,
+        Path((w_id, script_hash)),
+    )
+    .await
 }
 
 // a similar function exists on the worker

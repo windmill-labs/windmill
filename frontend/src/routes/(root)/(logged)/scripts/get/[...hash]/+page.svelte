@@ -19,11 +19,12 @@
 		faTrash,
 		faCalendar,
 		faShare,
-		faSpinner,
 		faGlobe,
 		faCodeFork,
 		faClipboard,
-		faArrowLeft
+		faArrowLeft,
+		faChevronUp,
+		faChevronDown
 	} from '@fortawesome/free-solid-svg-icons'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
@@ -51,6 +52,7 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 	import { Loader2 } from 'lucide-svelte'
+	import { slide } from 'svelte/transition'
 
 	let userSettings: UserSettings
 	let script: Script | undefined
@@ -162,6 +164,15 @@
 		}
 	}
 	let scheduleEditor: ScheduleEditor
+
+	let viewWebhookCommand = false
+
+	let args = undefined
+	$: curlCommand = `curl -H 'Content-Type: application/json' -H 'Authorization: Bearer $TOKEN -X POST -d '${JSON.stringify(
+		args
+	)}' ${$page.url.protocol}//${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run/p/${
+		script?.path
+	}`
 </script>
 
 <ScheduleEditor bind:this={scheduleEditor} />
@@ -239,7 +250,7 @@
 					{/if}
 					{#if deploymentInProgress}
 						<Badge color="yellow">
-							<Loader2 class="animate-spin mr-2" />
+							<Loader2 size={12} class="inline animate-spin mr-1" />
 							Deployment in progress
 						</Badge>
 					{/if}
@@ -345,6 +356,7 @@
 						bind:this={runForm}
 						runnable={script}
 						runAction={runScript}
+						bind:args
 					/>
 				</div>
 				{#if !emptyString(script.description)}
@@ -446,6 +458,24 @@
 								</div>
 							</TabContent>
 						{/each}
+						<Button
+							color="light"
+							size="sm"
+							endIcon={{ icon: viewWebhookCommand ? faChevronUp : faChevronDown }}
+							on:click={() => (viewWebhookCommand = !viewWebhookCommand)}
+						>
+							See example curl command
+						</Button>
+						{#if viewWebhookCommand}
+							<div transition:slide|local class="px-4">
+								<pre class="bg-gray-700 text-gray-100 p-2  font-mono text-sm whitespace-pre-wrap"
+									>{curlCommand} <span
+										on:click={() => copyToClipboard(curlCommand)}
+										class="cursor-pointer ml-2"><Icon data={faClipboard} /></span
+									></pre
+								>
+							</div>
+						{/if}
 					</svelte:fragment>
 				</Tabs>
 			</div>

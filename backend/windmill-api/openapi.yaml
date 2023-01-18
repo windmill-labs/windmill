@@ -2424,6 +2424,7 @@ paths:
             type: integer
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/IncludeHeader"
+        - $ref: "#/components/parameters/QueueLimit"
 
       requestBody:
         description: script args
@@ -4458,6 +4459,13 @@ components:
       description: |
         List of headers's keys (separated with ',') whove value are added to the args
         Header's key lowercased and '-'' replaced to '_' such that 'Content-Type' becomes the 'content_type' arg key
+      in: query
+      schema:
+        type: string
+    QueueLimit:
+      name: queue_limit
+      description: |
+        The maximum size of the queue for which the request would get rejected if that job would push it above that limit
       in: query
       schema:
         type: string

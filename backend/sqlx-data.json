@@ -4205,6 +4205,24 @@
     },
     "query": "SELECT count(path) FROM schedule WHERE path LIKE 'f/' || $1 || '%'  AND workspace_id = $2"
   },
+  "b50b8d3367bd1f74986e6f923fe8497bcbfffea2570a3f3d1f8100207bc1557c": {
+    "describe": {
+      "columns": [
+        {
+          "name": "count",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": []
+      }
+    },
+    "query": "SELECT COUNT(*) FROM queue WHERE  canceled = false AND (scheduled_for <= now()\n        OR (suspend_until IS NOT NULL\n            AND (   suspend <= 0\n                 OR suspend_until <= now())))"
+  },
   "b5c9891b5bf3d581e62f8835aaa25b8158fe3cefc849af0ba312a45cf22721ca": {
     "describe": {
       "columns": [
