@@ -17,13 +17,15 @@
 	{/if}
 {/each}
 
-{#each $app.hiddenInlineScripts as script, index (index)}
-	<PanelSection title={`Background script inputs`}>
-		<InputsSpecsEditor
-			id={`bg-${index}`}
-			shouldCapitalize={false}
-			bind:inputSpecs={script.fields}
-			userInputEnabled={false}
-		/>
-	</PanelSection>
+{#each $app.hiddenInlineScripts as script, index (script.name)}
+	{#if $selectedComponent === `bg-${index}`}
+		<PanelSection title={`Background script inputs`}>
+			<InputsSpecsEditor
+				id={`bg-${index}`}
+				shouldCapitalize={false}
+				bind:inputSpecs={script.fields}
+				userInputEnabled={false}
+			/>
+		</PanelSection>
+	{/if}
 {/each}

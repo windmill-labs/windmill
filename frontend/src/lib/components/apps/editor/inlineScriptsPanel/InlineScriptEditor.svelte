@@ -82,7 +82,7 @@
 			>
 				Format&nbsp;<Tooltip>Ctrl+S</Tooltip>
 			</Button>
-			{#if id.startsWith('unused-')}
+			{#if id.startsWith('unused-') || id.startsWith('bg-')}
 				<Button
 					size="xs"
 					color="light"

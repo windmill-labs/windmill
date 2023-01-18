@@ -184,6 +184,7 @@
 			inlineScript={script.inlineScript}
 			name={script.name}
 			bind:fields={script.fields}
+			bind:staticOutputs={$staticOutputs[`bg-${index}`]}
 		/>
 	{/if}
 {/each}
