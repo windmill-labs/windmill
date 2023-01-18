@@ -51,7 +51,7 @@ export class Tracked {
     this.path = path;
   }
 
-  async getContent(): Promise<unknown> {
+  async getContent(): Promise<unknown | undefined> {
     if (this.#content_cache) {
       return this.#content_cache;
     }
@@ -62,7 +62,7 @@ export class Tracked {
 
     const f = this.#parent.contentFile(this.#id);
     if (!f) {
-      throw new Error("Could not resolve content for self");
+      return undefined;
     }
 
     const data = await Deno.readFile(
@@ -212,20 +212,31 @@ async function updateStateFromRemote(
         const tmp = decoder.decode(e);
         val += tmp;
       }
-      const parsed = JSON.parse(val);
 
-      const oldHash = state.hashes.get(id);
-      const newHash = objectHash(parsed);
+      if (entry.fileName.endsWith(".json")) {
+        const parsed = JSON.parse(val);
 
-      if (!oldHash || oldHash !== newHash) {
-        state.hashes.set(id, newHash);
+        const oldHash = state.hashes.get(id);
+        const newHash = objectHash(parsed);
 
-        const encoded = CONTENT_ENCODER.encode(parsed);
+        if (!oldHash || oldHash !== newHash) {
+          state.hashes.set(id, newHash);
 
+          const encoded = CONTENT_ENCODER.encode(parsed);
+
+          const fileName = nanoid();
+          await Deno.writeFile(
+            path.join(state.stateRoot!, ".wmill", fileName),
+            encoded,
+            { create: true },
+          );
+          state.contentFiles.set(id, fileName);
+        }
+      } else {
         const fileName = nanoid();
-        await Deno.writeFile(
+        await Deno.writeTextFile(
           path.join(state.stateRoot!, ".wmill", fileName),
-          encoded,
+          val,
           { create: true },
         );
         state.contentFiles.set(id, fileName);
@@ -257,6 +268,8 @@ async function pull(
   await updateStateFromRemote(workspace, state);
 
   const diffs = await diffState(state);
+
+  await copyNonJsonFiles(state);
 
   if (diffs.length > 0) {
     console.log(`Applying ${diffs.length} changes to files`);
@@ -299,9 +312,35 @@ async function pull(
     });
   }
 
+  async function copyNonJsonFiles(state: State): Promise<void> {
+    for (const t of state.tracked.keys()) {
+      if (t.endsWith(".json")) {
+        continue;
+      }
+      const entry = state.get(t);
+
+      const target = await Deno.open(entry.path, { create: true, write: true });
+      const source = await Deno.open(
+        path.join(
+          state.stateRoot!,
+          ".wmill",
+          state.contentFile(entry.getId())!,
+        ),
+        {
+          read: true,
+          write: false,
+        },
+      );
+      await source.readable.pipeTo(target.writable);
+    }
+  }
+
   async function diffState(state: State): Promise<StateDiff[]> {
     const diffs: StateDiff[] = [];
     for (const t of state.tracked.keys()) {
+      if (!t.endsWith(".json")) {
+        continue;
+      }
       const entry = state.get(t);
       let fileText;
       try {
@@ -319,7 +358,7 @@ async function pull(
 
         const diff = microdiff(
           old,
-          stateContent,
+          stateContent ?? {},
           { cyclesFix: false },
         );
 
@@ -347,6 +386,7 @@ async function push(opts: GlobalOptions & { raw: boolean }) {
   await updateStateFromRemote(workspace, state);
 
   for (const p of state.tracked.keys()) {
+    if (!p.endsWith(".json")) continue;
     const entry = state.get(p);
     let file;
     try {
@@ -356,7 +396,7 @@ async function push(opts: GlobalOptions & { raw: boolean }) {
     } catch {
       file = {};
     }
-    const eContent = await entry.getContent();
+    const eContent = await entry.getContent() ?? {};
 
     const fileHash = objectHash(file);
     const eHash = objectHash(eContent);
@@ -471,6 +511,37 @@ async function add(opts: GlobalOptions, path: string) {
 
   // TODO: Automatically check whether this path exists either locally or on the remote
   state.add(path);
+
+  if (path.endsWith(".script.json")) {
+    try {
+      const f = await findContentFile(path);
+      state.add(f);
+    } catch {
+      const workspace = await resolveWorkspace(opts);
+      await requireLogin(opts);
+      try {
+        const old = await ScriptService.getScriptByPath({
+          workspace: workspace.workspaceId,
+          path: path.split(".")[0],
+        });
+        if (old.language === "python3") {
+          state.add(path.replace(".script.json", ".py"));
+        } else if (old.language === "bash") {
+          state.add(path.replace(".script.json", ".sh"));
+        } else if (old.language === "deno") {
+          state.add(path.replace(".script.json", ".ts"));
+        } else if (old.language === "go") {
+          state.add(path.replace(".script.json", ".go"));
+        } else {
+          throw new Error("Remote returned invalid language?! " + old.language);
+        }
+      } catch {
+        throw new Error(
+          "Could not infer script language from local or remote. Exiting.",
+        );
+      }
+    }
+  }
 
   await state.save();
 }
