@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import type { AppEditorContext } from '../types'
+	import PanelSection from './settingsPanel/common/PanelSection.svelte'
 	import ComponentPanel from './settingsPanel/ComponentPanel.svelte'
+	import InputsSpecsEditor from './settingsPanel/InputsSpecsEditor.svelte'
 	import TablePanel from './TablePanel.svelte'
 
-	const { selectedComponent, lazyGrid } = getContext<AppEditorContext>('AppEditorContext')
+	const { selectedComponent, lazyGrid, app } = getContext<AppEditorContext>('AppEditorContext')
 </script>
 
 {#each $lazyGrid as gridItem (gridItem.data.id)}
@@ -13,4 +15,15 @@
 	{:else if gridItem.data.type === 'tablecomponent'}
 		<TablePanel bind:component={gridItem.data} />
 	{/if}
+{/each}
+
+{#each $app.hiddenInlineScripts as script, index (index)}
+	<PanelSection title={`Background script inputs`}>
+		<InputsSpecsEditor
+			id={`bg-${index}`}
+			shouldCapitalize={false}
+			bind:inputSpecs={script.fields}
+			userInputEnabled={false}
+		/>
+	</PanelSection>
 {/each}
