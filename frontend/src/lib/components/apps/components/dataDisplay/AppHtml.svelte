@@ -26,13 +26,15 @@
 >
 	<RunnableWrapper flexWrap bind:componentInput {id} bind:result>
 		<AlignWrapper {horizontalAlignment} {verticalAlignment}>
-			<iframe
-				frameborder="0"
-				style="height: {h}px; width: {w}px"
-				class="p-0"
-				title="sandbox"
-				srcdoc={result ? '<scr' + `ipt src="/tailwind.css"></script>` + result : 'No html'}
-			/></AlignWrapper
-		>
+			{#key result}
+				<iframe
+					frameborder="0"
+					style="height: {h}px; width: {w}px"
+					class="p-0"
+					title="sandbox"
+					srcdoc={result ? '<scr' + `ipt src="/tailwind.css"></script>` + result : 'No html'}
+				/>
+			{/key}
+		</AlignWrapper>
 	</RunnableWrapper>
 </div>
