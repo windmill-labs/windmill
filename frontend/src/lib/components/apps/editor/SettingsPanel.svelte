@@ -18,10 +18,10 @@
 {/each}
 
 {#each $app.hiddenInlineScripts as script, index (script.name)}
-	{#if $selectedComponent === `bg-${index}`}
+	{#if $selectedComponent === `bg_${index}`}
 		<PanelSection title={`Background script inputs`}>
 			<InputsSpecsEditor
-				id={`bg-${index}`}
+				id={`bg_${index}`}
 				shouldCapitalize={false}
 				bind:inputSpecs={script.fields}
 				userInputEnabled={false}

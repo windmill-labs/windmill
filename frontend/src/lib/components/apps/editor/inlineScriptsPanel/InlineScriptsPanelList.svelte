@@ -13,7 +13,7 @@
 
 	function selectInlineScript(id: string) {
 		selectedScriptComponentId = id
-		if (!id.startsWith('unused-') || !id.startsWith('bg-')) {
+		if (!id.startsWith('unused-') || !id.startsWith('bg_')) {
 			$selectedComponent = selectedScriptComponentId
 		}
 	}
@@ -136,9 +136,9 @@
 						<div
 							class="{classNames(
 								'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-blue-50 hover:text-blue-400',
-								selectedScriptComponentId === `bg-${index}` ? 'bg-blue-100 text-blue-600' : ''
+								selectedScriptComponentId === `bg_${index}` ? 'bg-blue-100 text-blue-600' : ''
 							)},"
-							on:click={() => selectInlineScript(`bg-${index}`)}
+							on:click={() => selectInlineScript(`bg_${index}`)}
 						>
 							<span class="text-xs truncate">{name}</span>
 							<Badge color="yellow">Background</Badge>

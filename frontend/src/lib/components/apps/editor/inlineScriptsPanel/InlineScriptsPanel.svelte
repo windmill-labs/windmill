@@ -53,10 +53,10 @@
 				{/if}
 			{/each}
 			{#each $app.hiddenInlineScripts as hiddenInlineScript, index (index)}
-				{#if `bg-${index}` === selectedScriptComponentId}
+				{#if `bg_${index}` === selectedScriptComponentId}
 					{#if hiddenInlineScript.inlineScript}
 						<InlineScriptEditor
-							id={`bg-${index}`}
+							id={`bg_${index}`}
 							bind:inlineScript={hiddenInlineScript.inlineScript}
 							bind:name={hiddenInlineScript.name}
 							on:delete={() => {
@@ -64,12 +64,13 @@
 								$app.hiddenInlineScripts.splice(index, 1)
 								$app.hiddenInlineScripts = [...$app.hiddenInlineScripts]
 
-								delete $staticOutputs[`bg-${index}`]
+								delete $staticOutputs[`bg_${index}`]
+								$staticOutputs = $staticOutputs
 							}}
 						/>
 					{:else}
 						<EmptyInlineScript
-							id={`bg-${index}`}
+							id={`b_${index}`}
 							name={hiddenInlineScript.name}
 							on:new={(e) => {
 								hiddenInlineScript.inlineScript = e.detail

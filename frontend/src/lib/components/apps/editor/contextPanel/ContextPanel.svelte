@@ -34,7 +34,7 @@
 			return displayData[component?.data.type].name
 		} else if (componentId == 'ctx') {
 			return 'Context'
-		} else if (componentId.startsWith('bg-')) {
+		} else if (componentId.startsWith('bg_')) {
 			return 'Background'
 		} else {
 			return 'Table action'

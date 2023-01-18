@@ -180,11 +180,11 @@
 {#each $app.hiddenInlineScripts as script, index}
 	{#if script}
 		<HiddenComponent
-			id={`bg-${index}`}
+			id={`bg_${index}`}
 			inlineScript={script.inlineScript}
 			name={script.name}
 			bind:fields={script.fields}
-			bind:staticOutputs={$staticOutputs[`bg-${index}`]}
+			bind:staticOutputs={$staticOutputs[`bg_${index}`]}
 		/>
 	{/if}
 {/each}
