@@ -137,6 +137,9 @@
 			on:change={async (e) => {
 				if (inlineScript) {
 					const oldSchema = JSON.stringify(inlineScript.schema)
+					if (inlineScript.schema == undefined) {
+						inlineScript.schema = emptySchema()
+					}
 					await inferInlineScriptSchema(inlineScript?.language, e.detail, inlineScript.schema)
 					if (JSON.stringify(inlineScript.schema) != oldSchema) {
 						inlineScript = inlineScript
