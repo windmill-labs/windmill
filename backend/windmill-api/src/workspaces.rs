@@ -206,39 +206,42 @@ async fn premium_info(
 }
 
 async fn stripe_checkout(authed: Authed, Extension(base_url): Extension<Arc<BaseUrl>>) {
-    // let client = stripe::Client::new(std::env::var("STRIPE_KEY").expect("STRIPE_KEY"));
-    // let success_rd = format!(
-    //     "{}/workspace_settings?session={{CHECKOUT_SESSION_ID}}",
-    //     base_url.0
-    // );
-    // let failure_rd = format!("{}/workspace_settings", base_url.0);
-    // let checkout_session = {
-    //     let mut params = stripe::CreateCheckoutSession::new(&failure_rd, &success_rd);
-    //     params.mode = Some(stripe::CheckoutSessionMode::Subscription);
-    //     params.line_items = Some(vec![
-    //         stripe::CreateCheckoutSessionLineItems {
-    //             quantity: None,
-    //             price: Some("price_1MQzMHGU3NdFi9eLWFC7IXEv".to_string()),
-    //             ..Default::default()
-    //         },
-    //         stripe::CreateCheckoutSessionLineItems {
-    //             quantity: None,
-    //             price: Some("price_1MR2BZGU3NdFi9eLNRuibxPx".to_string()),
-    //             ..Default::default()
-    //         },
-    //     ]);
-    //     params.customer_email = Some(&authed.email);
-    //     params.client_reference_id = Some("foo");
-    //     stripe::CheckoutSession::create(&client, params)
-    //         .await
-    //         .unwrap()
-    // };
+    #[cfg(feature = "enterprise")]
+    {
+        let client = stripe::Client::new(std::env::var("STRIPE_KEY").expect("STRIPE_KEY"));
+        let success_rd = format!(
+            "{}/workspace_settings?session={{CHECKOUT_SESSION_ID}}",
+            base_url.0
+        );
+        let failure_rd = format!("{}/workspace_settings", base_url.0);
+        let checkout_session = {
+            let mut params = stripe::CreateCheckoutSession::new(&failure_rd, &success_rd);
+            params.mode = Some(stripe::CheckoutSessionMode::Subscription);
+            params.line_items = Some(vec![
+                stripe::CreateCheckoutSessionLineItems {
+                    quantity: None,
+                    price: Some("price_1MQzMHGU3NdFi9eLWFC7IXEv".to_string()),
+                    ..Default::default()
+                },
+                stripe::CreateCheckoutSessionLineItems {
+                    quantity: None,
+                    price: Some("price_1MR2BZGU3NdFi9eLNRuibxPx".to_string()),
+                    ..Default::default()
+                },
+            ]);
+            params.customer_email = Some(&authed.email);
+            params.client_reference_id = Some("foo");
+            stripe::CheckoutSession::create(&client, params)
+                .await
+                .unwrap()
+        };
 
-    // println!(
-    //     "created a {}  at {}",
-    //     checkout_session.payment_status,
-    //     checkout_session.url.unwrap()
-    // );
+        println!(
+            "created a {}  at {}",
+            checkout_session.payment_status,
+            checkout_session.url.unwrap()
+        );
+    }
 }
 
 async fn exists_workspace(

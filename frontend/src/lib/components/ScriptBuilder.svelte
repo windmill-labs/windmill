@@ -6,7 +6,7 @@
 	import { inferArgs } from '$lib/infer'
 	import { initialCode, isInitialCode } from '$lib/script_helpers'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { encodeState, sendUserToast, setQueryWithoutLoad } from '$lib/utils'
+	import { emptySchema, encodeState, sendUserToast, setQueryWithoutLoad } from '$lib/utils'
 	import Path from './Path.svelte'
 	import RadioButton from './RadioButton.svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
@@ -58,6 +58,8 @@
 		try {
 			$dirtyStore = false
 			localStorage.removeItem(script.path)
+
+			script.schema = script.schema ?? emptySchema()
 			if (!script.schema) {
 				await inferArgs(script.language, script.content, script.schema)
 			}
@@ -84,6 +86,7 @@
 
 	async function changeStep(step: number) {
 		if (step > 1) {
+			script.schema = script.schema ?? emptySchema()
 			await inferArgs(script.language, script.content, script.schema)
 		}
 		goto(`?step=${step}`)
