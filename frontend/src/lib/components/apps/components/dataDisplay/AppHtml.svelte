@@ -5,8 +5,6 @@
 
 	export let id: string
 	export let componentInput: AppInput | undefined
-	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = 'left'
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let configuration: Record<string, AppInput>
 
 	export const staticOutputs: string[] = ['result', 'loading']
@@ -24,17 +22,15 @@
 	bind:clientHeight={h}
 	bind:clientWidth={w}
 >
-	<RunnableWrapper flexWrap bind:componentInput {id} bind:result>
-		<AlignWrapper {horizontalAlignment} {verticalAlignment}>
-			{#key result}
-				<iframe
-					frameborder="0"
-					style="height: {h}px; width: {w}px"
-					class="p-0"
-					title="sandbox"
-					srcdoc={result ? '<scr' + `ipt src="/tailwind.css"></script>` + result : 'No html'}
-				/>
-			{/key}
-		</AlignWrapper>
+	<RunnableWrapper autoRefresh flexWrap bind:componentInput {id} bind:result>
+		{#key result}
+			<iframe
+				frameborder="0"
+				style="height: {h}px; width: {w}px"
+				class="p-0"
+				title="sandbox"
+				srcdoc={result ? '<scr' + `ipt src="/tailwind.css"></script>` + result : 'No html'}
+			/>
+		{/key}
 	</RunnableWrapper>
 </div>

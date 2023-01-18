@@ -19,6 +19,7 @@
 	import AppTimeseries from '../components/dataDisplay/AppTimeseries.svelte'
 	import AppHtml from '../components/dataDisplay/AppHtml.svelte'
 	import AppSliderInputs from '../components/numberInputs/AppSliderInputs.svelte'
+	import VegaLiteHtml from '../components/dataDisplay/VegaLiteHtml.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -74,6 +75,12 @@
 			/>
 		{:else if component.type === 'htmlcomponent'}
 			<AppHtml
+				{...component}
+				bind:componentInput={component.componentInput}
+				bind:staticOutputs={$staticOutputs[component.id]}
+			/>
+		{:else if component.type === 'vegalitecomponent'}
+			<VegaLiteHtml
 				{...component}
 				bind:componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
