@@ -23,7 +23,7 @@
 	}
 </script>
 
-<PanelSection title="Recompute after this compute">
+<PanelSection title="Recompute others" tooltip="Select components to recompute after running this script">
 	{#if Object.keys($runnableComponents ?? {}).filter((id) => id !== ownId).length > 0}
 		<table class="divide-y divide-gray-300 border w-full">
 			<thead class="bg-gray-50">
