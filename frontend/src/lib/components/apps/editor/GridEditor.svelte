@@ -177,17 +177,19 @@
 	</div>
 </div>
 
-{#each $app.hiddenInlineScripts as script, index}
-	{#if script}
-		<HiddenComponent
-			id={`bg_${index}`}
-			inlineScript={script.inlineScript}
-			name={script.name}
-			bind:fields={script.fields}
-			bind:staticOutputs={$staticOutputs[`bg_${index}`]}
-		/>
-	{/if}
-{/each}
+{#if $app.hiddenInlineScripts}
+	{#each $app.hiddenInlineScripts as script, index}
+		{#if script}
+			<HiddenComponent
+				id={`bg_${index}`}
+				inlineScript={script.inlineScript}
+				name={script.name}
+				bind:fields={script.fields}
+				bind:staticOutputs={$staticOutputs[`bg_${index}`]}
+			/>
+		{/if}
+	{/each}
+{/if}
 
 <style>
 	:global(.svlt-grid-shadow) {
