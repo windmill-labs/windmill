@@ -5,7 +5,6 @@ RUN mkdir -p /nsjail_data/python && HOME=/nsjail_data/python /usr/local/bin/pyth
 
 RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - &&\
     apt-get install -y nodejs
-RUN curl -fsSL https://npmjs.org/install.sh | bash
 
 RUN apt-get update \
     && apt-get install -y tesseract-ocr \
