@@ -47,6 +47,22 @@ jobs:
           echo 'EVENT_JSON<<EOF' >> $GITHUB_ENV
           cat event.json >> $GITHUB_ENV
           echo 'EOF' >> $GITHUB_ENV
+      - name: Read PR Number From Event Object
+        id: pr
+        run: echo "PR_NUMBER=${{ fromJSON(env.EVENT_JSON).number }}" >> $GITHUB_ENV
+      - name: Predict Deployment URL
+        id: url
+        # Replace dots in the repo name with the plus sign
+        run: |
+          REPO=$(echo ${{ github.repository }} | sed 's/\./+/g')
+          echo "EXPECTED_URL=${{ inputs.server }}/github.com/$REPO/pull/$PR_NUMBER" >> $GITHUB_ENV
+
+      - name: Re-Render Compose File
+        run: |
+          OAUTH_JSON_BASE64=${{ secrets.OAUTH_JSON_BASE64 }}
+          export OAUTH_JSON_BASE64
+          envsubst '${OAUTH_JSON_BASE64} ${EXPECTED_URL}' < docker-compose.rendered.yml | tee docker-compose.rendered.yml
+
       - name: Hash Rendered Compose File
         id: hash
         # If the previous workflow was triggered by a PR close event, we will not have a compose file artifact.
@@ -58,10 +74,6 @@ jobs:
         with:
           path: docker-compose.rendered.yml
           key: ${{ env.COMPOSE_FILE_HASH }}
-
-      - name: Read PR Number From Event Object
-        id: pr
-        run: echo "PR_NUMBER=${{ fromJSON(env.EVENT_JSON).number }}" >> $GITHUB_ENV
 
       - name: DEBUG - Print Job Outputs
         if: ${{ runner.debug }}
