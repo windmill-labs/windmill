@@ -4,5 +4,5 @@ RUN /usr/local/bin/python3 -m pip install nltk
 RUN mkdir -p /nsjail_data/python && HOME=/nsjail_data/python /usr/local/bin/python3 -m nltk.downloader vader_lexicon
 
 RUN apt-get update \
-    && apt-get install -y tesseract-ocr \
+    && apt-get install -y tesseract-ocr nodejs npm \
     && rm -rf /var/lib/apt/lists/*
