@@ -20,7 +20,7 @@ use axum::{
     body::StreamBody,
     extract::{Extension, Path, Query},
     headers,
-    response::IntoResponse,
+    response::{IntoResponse, Redirect},
     routing::{delete, get, post},
     Json, Router,
 };
@@ -211,7 +211,7 @@ async fn stripe_checkout(
     authed: Authed,
     Path(w_id): Path<String>,
     Extension(base_url): Extension<Arc<BaseUrl>>,
-) {
+) -> Result<Redirect, Error> {
     // #[cfg(feature = "enterprise")]
     {
         let client = stripe::Client::new(std::env::var("STRIPE_KEY").expect("STRIPE_KEY"));
@@ -242,11 +242,11 @@ async fn stripe_checkout(
                 .unwrap()
         };
 
-        println!(
-            "created a {}  at {}",
-            checkout_session.payment_status,
-            checkout_session.url.unwrap()
-        );
+        Ok(Redirect::to(
+            &checkout_session
+                .url
+                .ok_or_else(|| anyh("issue going to checkout page")),
+        ))
     }
 }
 
@@ -254,7 +254,7 @@ async fn stripe_portal(
     authed: Authed,
     Path(w_id): Path<String>,
     Extension(base_url): Extension<Arc<BaseUrl>>,
-) -> Result<()> {
+) -> Result<Redirect> {
     let client = stripe::Client::new(std::env::var("STRIPE_KEY").expect("STRIPE_KEY"));
     let success_rd = format!("{}/workspace_settings", base_url.0);
     let portal_session = {
