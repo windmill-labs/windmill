@@ -54,7 +54,7 @@ mount {
 	dst: "/tmp"
 	fstype: "tmpfs"
 	rw: true
-    options: "size=500000000"
+    options: "size=800000000"
 }
 
 mount {
