@@ -84,7 +84,7 @@
 		<!-- svelte-ignore a11y-click-events-have-key-events -->
 		<div
 			on:click={() => isLocked = false}
-			class="absolute inset-0 center-center bg-black/30 z-50 backdrop-blur-[1px] cursor-pointer"
+			class="absolute inset-0 center-center bg-black/20 z-50 backdrop-blur-[1px] cursor-pointer"
 		>
 			<Button on:click={() => isLocked = false}>
 				Unlock preview
