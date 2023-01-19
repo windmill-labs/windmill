@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::sync::Arc;
+use std::{str::FromStr, sync::Arc};
 
 use crate::{
     db::{UserDB, DB},
@@ -24,6 +24,7 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
+use stripe::CustomerId;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{Error, JsonResult, Result},
@@ -54,6 +55,7 @@ pub fn workspaced_service() -> Router {
         .route("/tarball", get(tarball_workspace))
         .route("/premium_info", get(premium_info))
         .route("/checkout", get(stripe_checkout))
+        .route("/billing_portal", get(stripe_portal))
 }
 pub fn global_service() -> Router {
     Router::new()
@@ -242,6 +244,28 @@ async fn stripe_checkout(authed: Authed, Extension(base_url): Extension<Arc<Base
             checkout_session.url.unwrap()
         );
     }
+}
+
+async fn stripe_portal(
+    authed: Authed,
+    Path(w_id): Path<String>,
+    Extension(base_url): Extension<Arc<BaseUrl>>,
+) {
+    let client = stripe::Client::new(std::env::var("STRIPE_KEY").expect("STRIPE_KEY"));
+    let success_rd = format!(
+        "{}/workspace_settings?session={{CHECKOUT_SESSION_ID}}",
+        base_url.0
+    );
+    let failure_rd = format!("{}/workspace_settings", base_url.0);
+    let portal_session = {
+        let customerId = CustomerId::from_str(&w_id)?;
+        stripe::CreateBillingPortalSession::new(customerId);
+    };
+    println!(
+        "created a {}  at {}",
+        portal_session.payment_status,
+        _session.url.unwrap()
+    );
 }
 
 async fn exists_workspace(
