@@ -24,10 +24,10 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
-use stripe::CustomerId;
+use stripe::{CreateBillingPortalSession, CustomerId};
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
-    error::{Error, JsonResult, Result},
+    error::{to_anyhow, Error, JsonResult, Result},
     flows::Flow,
     scripts::{Schema, Script, ScriptLang},
     utils::{paginate, rd_string, require_admin, Pagination},
@@ -250,7 +250,7 @@ async fn stripe_portal(
     authed: Authed,
     Path(w_id): Path<String>,
     Extension(base_url): Extension<Arc<BaseUrl>>,
-) {
+) -> Result<()> {
     let client = stripe::Client::new(std::env::var("STRIPE_KEY").expect("STRIPE_KEY"));
     let success_rd = format!(
         "{}/workspace_settings?session={{CHECKOUT_SESSION_ID}}",
@@ -258,14 +258,15 @@ async fn stripe_portal(
     );
     let failure_rd = format!("{}/workspace_settings", base_url.0);
     let portal_session = {
-        let customerId = CustomerId::from_str(&w_id)?;
-        stripe::CreateBillingPortalSession::new(customerId);
+        let customerId = CustomerId::from_str("cus_NBP2VHz5yy0y4v").unwrap();
+        let mut params = stripe::CreateBillingPortalSession::new(customerId);
+        params.return_url = Some(&success_rd);
+        stripe::BillingPortalSession::create(&client, params)
+            .await
+            .map_err(to_anyhow)?
     };
-    println!(
-        "created a {}  at {}",
-        portal_session.payment_status,
-        _session.url.unwrap()
-    );
+    println!("created a {:?}", portal_session.url);
+    Ok(())
 }
 
 async fn exists_workspace(
