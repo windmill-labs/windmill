@@ -3,12 +3,8 @@ name: "python run script"
 mode: ONCE
 hostname: "python"
 log_level: ERROR
-time_limit: 300
 
-rlimit_as: 2048
-rlimit_cpu: 1000
-rlimit_fsize: 1024
-rlimit_nofile: 64
+rlimit_nofile: 10000
 
 cwd: "/tmp"
 
