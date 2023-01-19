@@ -22,7 +22,7 @@ import {
 	GripHorizontal,
 	Code2,
 	SlidersHorizontal,
-	PackageOpen
+	PlusSquare
 } from 'lucide-svelte'
 import type { AppInput, InputType, ResultAppInput, StaticAppInput } from './inputType'
 import type { Output } from './rx'
@@ -103,8 +103,8 @@ export const displayData: Record<AppComponent['type'], { name: string; icon: any
 		icon: FormInput
 	},
 	formbuttoncomponent: {
-		name: 'Form button',
-		icon: PackageOpen
+		name: 'Modal Form',
+		icon: PlusSquare
 	},
 	piechartcomponent: {
 		name: 'Pie Chart',

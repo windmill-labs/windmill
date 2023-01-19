@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Badge, Button } from '$lib/components/common'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { classNames } from '$lib/utils'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
@@ -127,6 +128,10 @@
 			<Button size="xs" color="dark" startIcon={{ icon: faPlus }} on:click={createBackgroundScript}>
 				Add
 			</Button>
+			<Tooltip>
+				Background scripts are triggered upon global refresh or when their input changes. The result
+				of a background script can be shared among many components.
+			</Tooltip>
 		</svelte:fragment>
 		<div class="flex flex-col gap-2 w-full">
 			{#if $app.hiddenInlineScripts?.length > 0}

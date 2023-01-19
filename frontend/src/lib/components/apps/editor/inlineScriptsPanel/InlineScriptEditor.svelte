@@ -91,7 +91,8 @@
 					startIcon={{ icon: faTrash }}
 					on:click={() => dispatch('delete')}
 				/>
-			{:else if $runnableComponents[id] != undefined}
+			{/if}
+			{#if $runnableComponents[id] != undefined}
 				<Button
 					loading={runLoading}
 					size="xs"
