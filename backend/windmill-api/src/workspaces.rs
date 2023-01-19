@@ -207,8 +207,12 @@ async fn premium_info(
     Ok(Json(row))
 }
 
-async fn stripe_checkout(authed: Authed, Extension(base_url): Extension<Arc<BaseUrl>>) {
-    #[cfg(feature = "enterprise")]
+async fn stripe_checkout(
+    authed: Authed,
+    Path(w_id): Path<String>,
+    Extension(base_url): Extension<Arc<BaseUrl>>,
+) {
+    // #[cfg(feature = "enterprise")]
     {
         let client = stripe::Client::new(std::env::var("STRIPE_KEY").expect("STRIPE_KEY"));
         let success_rd = format!(
@@ -232,7 +236,7 @@ async fn stripe_checkout(authed: Authed, Extension(base_url): Extension<Arc<Base
                 },
             ]);
             params.customer_email = Some(&authed.email);
-            params.client_reference_id = Some("foo");
+            params.client_reference_id = Some(&w_id);
             stripe::CheckoutSession::create(&client, params)
                 .await
                 .unwrap()
@@ -252,14 +256,10 @@ async fn stripe_portal(
     Extension(base_url): Extension<Arc<BaseUrl>>,
 ) -> Result<()> {
     let client = stripe::Client::new(std::env::var("STRIPE_KEY").expect("STRIPE_KEY"));
-    let success_rd = format!(
-        "{}/workspace_settings?session={{CHECKOUT_SESSION_ID}}",
-        base_url.0
-    );
-    let failure_rd = format!("{}/workspace_settings", base_url.0);
+    let success_rd = format!("{}/workspace_settings", base_url.0);
     let portal_session = {
-        let customerId = CustomerId::from_str("cus_NBP2VHz5yy0y4v").unwrap();
-        let mut params = stripe::CreateBillingPortalSession::new(customerId);
+        let customer_id = CustomerId::from_str("cus_NBP2VHz5yy0y4v").unwrap();
+        let mut params = stripe::CreateBillingPortalSession::new(customer_id);
         params.return_url = Some(&success_rd);
         stripe::BillingPortalSession::create(&client, params)
             .await
