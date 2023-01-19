@@ -12,7 +12,10 @@ use itertools::Itertools;
 use lazy_static::lazy_static;
 use regex::Regex;
 use sqlx::{Pool, Postgres, Transaction};
-use std::{borrow::Borrow, collections::HashMap, io, panic, process::Stdio, time::Duration};
+use std::{
+    borrow::Borrow, collections::HashMap, io, os::unix::process::ExitStatusExt, panic,
+    process::Stdio, time::Duration,
+};
 use tracing::{trace_span, Instrument};
 use uuid::Uuid;
 
@@ -2420,9 +2423,12 @@ async fn handle_child(
             } else if let Some(code) = status.code() {
                 Err(error::Error::ExitStatus(code))
             } else {
-                Err(error::Error::ExecutionErr(
-                    "process terminated by signal".to_string(),
-                ))
+                Err(error::Error::ExecutionErr(format!(
+                    "process terminated by signal: {:#?}, stopped_signal: {:#?}, core_dumped: {}",
+                    status.signal(),
+                    status.stopped_signal(),
+                    status.core_dumped()
+                )))
             }
         }
         Ok(Err(kill_reason)) => Err(Error::ExecutionErr(format!(
