@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { onMount, setContext } from 'svelte'
+	import { fade } from 'svelte/transition'
+	import { cubicOut } from 'svelte/easing'
 	import { writable, type Writable } from 'svelte/store'
 	import { buildWorld, type World } from '../rx'
 	import type {
@@ -68,11 +70,11 @@
 
 	$: mounted && ($worldStore = buildWorld($staticOutputs, undefined, context))
 	$: width = $breakpoint === 'sm' ? 'max-w-[640px]' : 'w-full '
-	$: lockedClasses = isLocked ? '!max-h-[400px]  overflow-hidden pointer-events-none' : ''
+	$: lockedClasses = isLocked ? '!max-h-[400px] overflow-hidden pointer-events-none' : ''
 </script>
 
 <div class="relative">
-	<div class="{lockedClasses} h-full max-h-[calc(100%-41px)] overflow-auto
+	<div class="{$$props.class} {lockedClasses} h-full max-h-[calc(100%-41px)] overflow-auto 
 	w-full {app.fullscreen ? '' : 'max-w-6xl'} mx-auto">
 		{#if $appStore.grid}
 			<div class={classNames('mx-auto pb-4', width)}>
@@ -83,6 +85,7 @@
 	{#if isLocked}
 		<!-- svelte-ignore a11y-click-events-have-key-events -->
 		<div
+			transition:fade|local={{ duration: 200, easing: cubicOut }}
 			on:click={() => isLocked = false}
 			class="absolute inset-0 center-center bg-black/20 z-50 backdrop-blur-[1px] cursor-pointer"
 		>
