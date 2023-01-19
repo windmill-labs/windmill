@@ -163,7 +163,7 @@
 		{/if}
 
 		<AlignmentEditor bind:component />
-		{#if component.type === 'buttoncomponent' || component.type === 'formcomponent'}
+		{#if component.type === 'buttoncomponent' || component.type === 'formcomponent' || component.type === 'formbuttoncomponent'}
 			<Recompute bind:recomputeIds={component.recomputeIds} ownId={component.id} />
 		{/if}
 
