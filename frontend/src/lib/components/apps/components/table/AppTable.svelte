@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, onMount } from 'svelte'
 	import type { Output } from '../../rx'
 	import type { AppEditorContext, BaseAppComponent, ButtonComponent } from '../../types'
 	import InputValue from '../helpers/InputValue.svelte'
@@ -31,7 +31,7 @@
 
 	$: setSearch(searchValue)
 
-	function setSearch(srch) {
+	function setSearch(srch: string) {
 		outputs?.search?.set(srch)
 	}
 
@@ -46,7 +46,7 @@
 	const { worldStore, staticOutputs: staticOutputsStore } =
 		getContext<AppEditorContext>('AppEditorContext')
 
-	let selectedRowIndex = 0
+	let selectedRowIndex = -1
 
 	function toggleRow(row: Record<string, any>, rowIndex: number) {
 		if (selectedRowIndex !== rowIndex) {
@@ -54,6 +54,18 @@
 			outputs?.selectedRow.set(row.original)
 		}
 	}
+
+	let mounted = false
+	onMount(() => {
+		mounted = true
+	})
+
+	$: Array.isArray(result) &&
+		result.length > 0 &&
+		selectedRowIndex === -1 &&
+		// We need to wait until the component is mounted so the world is created
+		mounted &&
+		toggleRow({ original: result[0] }, 0)
 
 	function setOptions(filteredResult: Array<Record<string, any>>) {
 		if (!Array.isArray(result)) {
