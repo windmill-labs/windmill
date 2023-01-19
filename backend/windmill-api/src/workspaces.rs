@@ -24,7 +24,7 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
-use stripe::{CreateBillingPortalSession, CustomerId};
+use stripe::CustomerId;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{to_anyhow, Error, JsonResult, Result},
@@ -211,7 +211,7 @@ async fn stripe_checkout(
     authed: Authed,
     Path(w_id): Path<String>,
     Extension(base_url): Extension<Arc<BaseUrl>>,
-) -> Result<Redirect, Error> {
+) -> Result<Redirect> {
     // #[cfg(feature = "enterprise")]
     {
         let client = stripe::Client::new(std::env::var("STRIPE_KEY").expect("STRIPE_KEY"));
@@ -241,12 +241,10 @@ async fn stripe_checkout(
                 .await
                 .unwrap()
         };
-
-        Ok(Redirect::to(
-            &checkout_session
-                .url
-                .ok_or_else(|| anyh("issue going to checkout page")),
-        ))
+        let uri = checkout_session
+            .url
+            .ok_or_else(|| Error::InternalErr(format!("stripe checkout redirect issue")))?;
+        Ok(Redirect::to(&uri))
     }
 }
 
@@ -265,8 +263,7 @@ async fn stripe_portal(
             .await
             .map_err(to_anyhow)?
     };
-    println!("created a {:?}", portal_session.url);
-    Ok(())
+    Ok(Redirect::to(&portal_session.url))
 }
 
 async fn exists_workspace(
