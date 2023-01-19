@@ -60,9 +60,9 @@
 		mounted = true
 	})
 
-	$: Array.isArray(result) &&
+	$: selectedRowIndex === -1 &&
+		Array.isArray(result) &&
 		result.length > 0 &&
-		selectedRowIndex === -1 &&
 		// We need to wait until the component is mounted so the world is created
 		mounted &&
 		toggleRow({ original: result[0] }, 0)
