@@ -11,7 +11,9 @@ use std::{collections::HashMap, time::Duration};
 use serde::{self, Deserialize, Serialize};
 
 use crate::{
-    more_serde::{default_false, default_id, default_true, is_default},
+    more_serde::{
+        default_empty_string, default_false, default_id, default_null, default_true, is_default,
+    },
     scripts::{Schema, ScriptHash, ScriptLang},
 };
 
@@ -172,8 +174,14 @@ impl FlowModule {
     rename_all(serialize = "lowercase", deserialize = "lowercase")
 )]
 pub enum InputTransform {
-    Static { value: serde_json::Value },
-    Javascript { expr: String },
+    Static {
+        #[serde(default = "default_null")]
+        value: serde_json::Value,
+    },
+    Javascript {
+        #[serde(default = "default_empty_string")]
+        expr: String,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
