@@ -38,7 +38,7 @@ use crate::{
     db::{UserDB, DB},
     users::{require_owner_of_path, Authed},
     variables::get_workspace_key,
-    BaseUrl, TimeoutWaitResult,
+    BaseUrl, QueueLimitWaitResult, TimeoutWaitResult,
 };
 
 pub fn workspaced_service() -> Router {
@@ -1298,12 +1298,13 @@ pub async fn run_wait_result_job_by_path(
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Extension(timeout): Extension<Arc<TimeoutWaitResult>>,
+    Extension(queue_limit): Extension<Arc<QueueLimitWaitResult>>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
     Json(args): Json<Option<serde_json::Map<String, serde_json::Value>>>,
 ) -> error::JsonResult<serde_json::Value> {
-    check_queue_too_long(db, run_query.queue_limit).await?;
+    check_queue_too_long(db, queue_limit.0.or(run_query.queue_limit)).await?;
     let script_path = script_path.to_path();
     let mut tx = user_db.clone().begin(&authed).await?;
     let job_payload = script_path_to_payload(script_path, &mut tx, &w_id).await?;
