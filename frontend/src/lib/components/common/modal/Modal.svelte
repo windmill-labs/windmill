@@ -12,13 +12,15 @@
 
 	function onKeyDown(event: KeyboardEvent) {
 		if (open) {
-			event.stopPropagation()
-			event.preventDefault()
 			switch (event.key) {
 				case 'Enter':
+					event.stopPropagation()
+					event.preventDefault()
 					dispatch('confirmed')
 					break
 				case 'Escape':
+					event.stopPropagation()
+					event.preventDefault()
 					dispatch('canceled')
 					break
 			}
