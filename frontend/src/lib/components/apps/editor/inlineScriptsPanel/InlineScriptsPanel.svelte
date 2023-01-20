@@ -52,7 +52,7 @@
 					/>
 				{/if}
 			{/each}
-			{#each $app.hiddenInlineScripts as hiddenInlineScript, index (index)}
+			{#each $app?.hiddenInlineScripts ?? [] as hiddenInlineScript, index (index)}
 				{#if `bg_${index}` === selectedScriptComponentId}
 					{#if hiddenInlineScript.inlineScript}
 						<InlineScriptEditor
