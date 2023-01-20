@@ -142,21 +142,22 @@
 			'<b>1 000</b> free global executions per-user per month'
 		],
 		Team: [
-			`<b>$10/mo</b> per user in the workspace.`,
+			`<b>$10/month</b> per user in the workspace.`,
 			`Executions are not accounted for in the global user's
 					quotas but are accounted for in the workspace's quota.`,
-			`Every user in the workspace increases the pooled workspace quota by <b>50k</b> executions.`,
-			`1 000 executions above the pooled workspace quota is charged 1$.`
+			`Every user in the workspace increases the pooled workspace quota by <b>10k</b> executions.`,
+			`1 000 executions above the pooled workspace quota is charged 1$.`,
+			`<div class="text-lg mt-4"><b>10k executions/user + $1/1000 additional executions</b></div>`
 		],
 		Enterprise: [
 			`<b>$50/month</b> per user in the workspace.`,
 			`Executions are not accounted for in the global user's
 					quotas but are accounted for in the workspace's quota.`,
 			`Every user in the workspace increases the pooled workspace quota by <b>50k</b> executions.`,
-			`1 000 executions above the pooled workspace quota is charged 1$.`,
 			`<b>Dedicated workers and database</b>`,
 			`<b>SAML support</b>`,
-			`<b>Priority support including an automation engineer</b>`
+			`<b>Priority support including an automation engineer</b>`,
+			`<div class="text-lg mt-4"><b>50k executions/user + $1/1000 additional executions</b><div>`
 		]
 	}
 </script>
@@ -169,7 +170,7 @@
 />
 
 <CenteredPage>
-	{#if $userStore?.is_admin}
+	{#if $userStore?.is_admin || $superadmin}
 		<PageHeader title="Workspace Settings of {$workspaceStore}" />
 
 		<Tabs bind:selected={tab}>
@@ -230,6 +231,15 @@
 											<ToggleButtonGroup
 												selected={is_admin ? 'admin' : operator ? 'operator' : 'author'}
 												on:selected={async (e) => {
+													if (is_admin && e.detail != 'admin') {
+														sendUserToast(
+															'Admins cannot be demoted by themselves, ask another admin to demote you',
+															true
+														)
+														e.preventDefault()
+														listUsers()
+														return
+													}
 													const body =
 														e.detail == 'admin'
 															? { is_admin: true, operator: false }
@@ -408,9 +418,7 @@
 			{/if}
 		{:else if tab == 'premium'}
 			{#if isCloudHosted()}
-				<div class="mt-10" />
-				<PageHeader title="Premium Workspace" primary={false} />
-
+				<div class="mt-4" />
 				{#if customer_id || true}
 					<div class="mt-2 mb-6">
 						<Button endIcon={{ icon: faExternalLink }} href="">Customer Portal</Button>
@@ -442,7 +450,7 @@
 
 				<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
 					{#each Object.entries(plans) as [planTitle, planDesc]}
-						<div class="box p-4 text-sm  flex flex-col h-full">
+						<div class="box p-4 text-sm  flex flex-col h-full overflow-hidden">
 							<h2 class="mb-4">{planTitle}</h2>
 							<ul class="list-disc p-4">
 								{#each planDesc as item}
@@ -453,26 +461,26 @@
 							<div class="grow" />
 							{#if planTitle == 'Team'}
 								{#if plan != 'team'}
-									<div class="mt-4">
-										<Button href="/api/w/{$workspaceStore}/workspaces/checkout"
+									<div class="mt-4 mx-auto">
+										<Button href="/api/w/{$workspaceStore}/workspaces/checkout?plan=team"
 											>Upgrade to the Team plan</Button
 										>
 									</div>
 								{:else}
-									<div class="mx-auto text-lg font-semibold">You are on this plan</div>
+									<div class="mx-auto text-lg font-semibold">You are on the team plan</div>
 								{/if}
 							{:else if planTitle == 'Enterprise'}
 								{#if plan != 'enterprise'}
-									<div class="mt-4">
-										<Button href="/api/w/{$workspaceStore}/workspaces/checkout"
+									<div class="mt-4 mx-auto">
+										<Button href="/api/w/{$workspaceStore}/workspaces/checkout?plan=enterprise"
 											>Upgrade to the Enterprise plan</Button
 										>
 									</div>
 								{:else}
-									<div class="mx-auto text-lg font-semibold">You are on this plan</div>
+									<div class="mx-auto text-lg font-semibold">You are on enterprise plan</div>
 								{/if}
 							{:else if !plan}
-								<div class="mx-auto text-lg font-semibold">You are on the free-tier plan</div>
+								<div class="mx-auto text-lg font-semibold">You are on the free plan</div>
 							{:else}
 								<div class="mt-4 w-full">
 									<Button href="/api/w/{$workspaceStore}/workspaces/checkout"
@@ -485,8 +493,13 @@
 				</div>
 			{/if}
 		{:else if tab == 'slack'}
-			<PageHeader title="Slack integration" primary={false} />
-			<p class="text-xs text-gray-700 my-1">
+			<div class="mt-2"
+				><Alert type="info" title="Send commands from slack"
+					>Connect your windmill workspace to your slack workspace to trigger a script or a flow
+					with a '/windmill' command</Alert
+				></div
+			>
+			<p class="text-xs text-gray-700 my-1 mt-2">
 				Status: {#if team_name}Connected to slack workspace <Badge>{team_name}</Badge>{:else}Not
 					connected{/if}
 			</p>
@@ -539,7 +552,6 @@
 				on:select={editSlackCommand}
 			/>
 		{:else if tab == 'export_delete'}
-			<div class="mt-10" />
 			<PageHeader title="Export workspace" primary={false} />
 			<div class="flex justify-start">
 				<Button size="sm" href="/api/w/{$workspaceStore ?? ''}/workspaces/tarball" target="_blank">
