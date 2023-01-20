@@ -179,6 +179,7 @@ static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_ma
     "git" => "GitPython",
     "u" => "requests",
     "f" => "requests",
+    "shopify" => "ShopifyAPI",
     "seleniumwire" => "selenium-wire",
 };
 
