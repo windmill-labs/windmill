@@ -4,7 +4,7 @@ mode: ONCE
 hostname: "deno"
 log_level: ERROR
 
-rlimit_as: 4096
+rlimit_as: 16000
 rlimit_cpu: 1000
 rlimit_fsize: 1000
 rlimit_nofile: 10000
