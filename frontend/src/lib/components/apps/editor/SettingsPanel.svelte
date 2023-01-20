@@ -17,7 +17,7 @@
 	{/if}
 {/each}
 
-{#each $app.hiddenInlineScripts as script, index (script.name)}
+{#each $app?.hiddenInlineScripts ?? [] as script, index (script.name)}
 	{#if $selectedComponent === `bg_${index}`}
 		<PanelSection title={`Background script inputs`}>
 			<InputsSpecsEditor
