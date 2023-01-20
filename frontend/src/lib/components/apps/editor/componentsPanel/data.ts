@@ -16,6 +16,11 @@ const inputs: ComponentSet = {
 					value: 'Type...',
 					fieldType: 'text',
 					onlyStatic: true
+				},
+				defaultValue: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'text'
 				}
 			},
 			card: false
@@ -48,6 +53,11 @@ const inputs: ComponentSet = {
 					value: 'Type...',
 					fieldType: 'text',
 					onlyStatic: true
+				},
+				defaultValue: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'number'
 				}
 			},
 			card: false
@@ -90,6 +100,11 @@ const inputs: ComponentSet = {
 					type: 'static',
 					value: '',
 					fieldType: 'date'
+				},
+				defaultValue: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'date'
 				}
 			},
 			card: false
@@ -105,6 +120,11 @@ const inputs: ComponentSet = {
 					type: 'static',
 					value: 'Label',
 					fieldType: 'text'
+				},
+				defaultValue: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'boolean'
 				}
 			},
 			card: false
