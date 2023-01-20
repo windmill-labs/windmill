@@ -65,6 +65,7 @@
 		result.length > 0 &&
 		// We need to wait until the component is mounted so the world is created
 		mounted &&
+		outputs &&
 		toggleRow({ original: result[0] }, 0)
 
 	function setOptions(filteredResult: Array<Record<string, any>>) {

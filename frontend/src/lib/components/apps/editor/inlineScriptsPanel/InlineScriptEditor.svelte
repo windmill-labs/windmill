@@ -82,7 +82,7 @@
 			>
 				Format&nbsp;<Tooltip>Ctrl+S</Tooltip>
 			</Button>
-			{#if id.startsWith('unused-')}
+			{#if id.startsWith('unused-') || id.startsWith('bg_')}
 				<Button
 					size="xs"
 					color="light"
@@ -91,7 +91,8 @@
 					startIcon={{ icon: faTrash }}
 					on:click={() => dispatch('delete')}
 				/>
-			{:else if $runnableComponents[id] != undefined}
+			{/if}
+			{#if $runnableComponents[id] != undefined}
 				<Button
 					loading={runLoading}
 					size="xs"

@@ -86,11 +86,11 @@
 				e?.stopPropagation()
 				window.dispatchEvent(new Event('pointerup'))
 			}}
-			on:click={(e) => {
+			on:click={async (e) => {
 				e?.stopPropagation()
 				e?.preventDefault()
 				ownClick = true
-				runnableComponent?.runComponent()
+				await runnableComponent?.runComponent()
 
 				if (recomputeIds) {
 					recomputeIds.forEach((id) => {

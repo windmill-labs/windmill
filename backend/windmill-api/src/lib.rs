@@ -54,6 +54,7 @@ pub struct CookieDomain(Option<String>);
 pub struct CloudHosted(bool);
 pub struct ContentSecurityPolicy(String);
 pub struct TimeoutWaitResult(i32);
+pub struct QueueLimitWaitResult(Option<i64>);
 
 pub use users::delete_expired_items_perdiodically;
 
@@ -117,14 +118,18 @@ pub async fn run_server(
                         .nest("/scripts", scripts::workspaced_service())
                         .nest(
                             "/jobs",
-                            jobs::workspaced_service().layer(Extension(Arc::new(
-                                TimeoutWaitResult(
+                            jobs::workspaced_service()
+                                .layer(Extension(Arc::new(TimeoutWaitResult(
                                     std::env::var("TIMEOUT_WAIT_RESULT")
                                         .ok()
                                         .and_then(|x| x.parse().ok())
                                         .unwrap_or(20),
-                                ),
-                            ))),
+                                ))))
+                                .layer(Extension(Arc::new(QueueLimitWaitResult(
+                                    std::env::var("QUEUE_LIMIT_WAIT_RESULT")
+                                        .ok()
+                                        .and_then(|x| x.parse().ok()),
+                                )))),
                         )
                         .nest(
                             "/users",
