@@ -879,6 +879,10 @@ paths:
                     type: string
                   auto_invite_operator:
                     type: boolean
+                  plan:
+                    type: string
+                  customer_id:
+                    type: string
 
   /w/{workspace}/workspaces/premium_info:
     get:
