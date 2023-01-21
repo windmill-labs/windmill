@@ -1467,6 +1467,16 @@ run().catch(async (e) => {{
 "#,
     );
     write_file(job_dir, "main.ts", &wrapper_content).await?;
+    let w_id = job.workspace_id.clone();
+    let import_map = format!(
+        r#"{{
+        "imports": {{
+          "/": "{base_internal_url}/api/w/{w_id}/scripts/raw/p/",
+          "./": "./"
+        }}
+      }}"#
+    );
+    write_file(job_dir, "import_map.json", &import_map).await?;
     let mut reserved_variables = get_reserved_variables(job, &token, &base_url, db).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
@@ -1495,6 +1505,8 @@ run().catch(async (e) => {{
             if lockfile.is_some() {
                 args.push("--lock=/tmp/lock.json");
             }
+            args.push("--import-map");
+            args.push("/tmp/import_map.json");
             args.push("--unstable");
             args.push("--v8-flags=--max-heap-size=2048");
             args.push("-A");
@@ -1514,10 +1526,10 @@ run().catch(async (e) => {{
         } else {
             let mut args = Vec::new();
             let script_path = format!("{job_dir}/main.ts");
+            let import_map_path = format!("{job_dir}/import_map.json");
             args.push("run");
-            if lockfile.is_some() {
-                args.push("--lock=/tmp/lock.json");
-            }
+            args.push("--import-map");
+            args.push(&import_map_path);
             args.push("--unstable");
             args.push("--v8-flags=--max-heap-size=2048");
             args.push("-A");
