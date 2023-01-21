@@ -72,9 +72,9 @@ if (browser) {
       } catch (e) {
         console.error('Could not persist workspace to local storage', e)
       }
-
-      userStore.set(await getUserExt(workspace));
-      if (isCloudHosted()) {
+      const user = await getUserExt(workspace)
+      userStore.set(user);
+      if (isCloudHosted() && user?.is_admin) {
         premiumStore.set((await WorkspaceService.getPremiumInfo({ workspace })));
       }
     } else {
