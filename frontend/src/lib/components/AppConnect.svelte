@@ -397,9 +397,6 @@
 				namePlaceholder="my_{resource_type}"
 				kind="resource"
 			/>
-			<h2 class="mt-4 mb-2">Description</h2>
-
-			<textarea type="text" autocomplete="off" use:autosize bind:value={description} />
 
 			{#if apiTokenApps[resource_type]}
 				<h2 class="mt-4 mb-2">Instructions</h2>
@@ -419,10 +416,14 @@
 				{/if}
 			{/if}
 
-			<h2 class="mt-8">Value</h2>
+			<h2 class="mt-4">Value</h2>
 			<div class="mt-4">
 				<ApiConnectForm password={key ?? ''} {resource_type} bind:args bind:isValid />
 			</div>
+
+			<h2 class="mt-4 mb-2">Description</h2>
+
+			<textarea type="text" autocomplete="off" use:autosize bind:value={description} />
 		{:else}
 			<Path
 				initialPath=""
