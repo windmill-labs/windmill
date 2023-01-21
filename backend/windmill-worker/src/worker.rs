@@ -414,6 +414,10 @@ pub async fn run_worker(
     let pip_index_url = std::env::var("PIP_INDEX_URL").ok();
     let pip_extra_index_url = std::env::var("PIP_EXTRA_INDEX_URL").ok();
     let pip_trusted_host = std::env::var("PIP_TRUSTED_HOST").ok();
+    let deno_auth_tokens = std::env::var("DENO_AUTH_TOKENS")
+        .ok()
+        .map(|x| format!(";{x}"))
+        .unwrap_or_else(|| String::new());
     let max_log_size = std::env::var("MAX_LOG_SIZE")
         .ok()
         .and_then(|x| x.parse::<i64>().ok())
@@ -436,6 +440,7 @@ pub async fn run_worker(
         pip_extra_index_url,
         pip_trusted_host,
         max_log_size,
+        deno_auth_tokens,
     };
     WORKER_STARTED.inc();
 
@@ -735,6 +740,7 @@ struct Envs {
     pip_index_url: Option<String>,
     pip_extra_index_url: Option<String>,
     pip_trusted_host: Option<String>,
+    deno_auth_tokens: String,
     max_log_size: i64,
 }
 
@@ -1411,7 +1417,7 @@ fn capitalize(s: &str) -> String {
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_deno_job(
     WorkerConfig { base_internal_url, base_url, disable_nuser, disable_nsjail, .. }: &WorkerConfig,
-    Envs { nsjail_path, deno_path, path_env, max_log_size, .. }: &Envs,
+    Envs { nsjail_path, deno_path, path_env, max_log_size, deno_auth_tokens, .. }: &Envs,
     logs: &mut String,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -1466,7 +1472,8 @@ run().catch(async (e) => {{
 
     let hostname_base = base_url.split("://").last().unwrap_or("localhost");
     let hostname_internal = base_internal_url.split("://").last().unwrap_or("localhost");
-    let deno_auth_tokens = format!("{token}@{hostname_base};{token}@{hostname_internal}");
+    let deno_auth_tokens =
+        format!("{token}@{hostname_base};{token}@{hostname_internal}{deno_auth_tokens}",);
     let child = async {
         Ok(if !disable_nsjail {
             let _ = write_file(
