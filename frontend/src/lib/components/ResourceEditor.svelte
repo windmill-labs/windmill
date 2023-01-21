@@ -136,15 +136,6 @@
 						kind="resource"
 					/>
 				</div>
-				<h3>Description <Required required={false} /> </h3>
-				<textarea
-					type="text"
-					disabled={!can_write}
-					use:autosize
-					bind:value={description}
-					placeholder={DESCRIPTION_PLACEHOLDER}
-				/>
-
 				<h3 class="mt-4">Value</h3>
 				<div class="text-sm">
 					{#if loadingSchema}
@@ -178,6 +169,14 @@
 						</div>
 					{/if}
 				</div>
+				<h3 class="mt-4">Description <Required required={false} /> </h3>
+				<textarea
+					type="text"
+					disabled={!can_write}
+					use:autosize
+					bind:value={description}
+					placeholder={DESCRIPTION_PLACEHOLDER}
+				/>
 			</div>
 		</div>
 		<svelte:fragment slot="actions">
