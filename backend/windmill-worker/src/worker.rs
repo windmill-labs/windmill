@@ -422,6 +422,9 @@ pub async fn run_worker(
         .ok()
         .and_then(|x| x.parse::<i64>().ok())
         .unwrap_or(500000);
+    let deno_flags = std::env::var("DENO_FLAGS")
+        .ok()
+        .map(|x| x.split(' ').map(|x| x.to_string()).collect());
 
     #[cfg(feature = "enterprise")]
     let tar_cache_rate = std::env::var("TAR_CACHE_RATE")
@@ -440,6 +443,7 @@ pub async fn run_worker(
         pip_extra_index_url,
         pip_trusted_host,
         max_log_size,
+        deno_flags,
         deno_auth_tokens,
     };
     WORKER_STARTED.inc();
@@ -741,6 +745,7 @@ struct Envs {
     pip_extra_index_url: Option<String>,
     pip_trusted_host: Option<String>,
     deno_auth_tokens: String,
+    deno_flags: Option<Vec<String>>,
     max_log_size: i64,
 }
 
@@ -1417,7 +1422,7 @@ fn capitalize(s: &str) -> String {
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_deno_job(
     WorkerConfig { base_internal_url, base_url, disable_nuser, disable_nsjail, .. }: &WorkerConfig,
-    Envs { nsjail_path, deno_path, path_env, max_log_size, deno_auth_tokens, .. }: &Envs,
+    Envs { nsjail_path, deno_path, path_env, max_log_size, deno_auth_tokens, deno_flags, .. }: &Envs,
     logs: &mut String,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -1508,8 +1513,13 @@ run().catch(async (e) => {{
             args.push("--import-map");
             args.push("/tmp/import_map.json");
             args.push("--unstable");
-            args.push("--v8-flags=--max-heap-size=2048");
-            args.push("-A");
+            if let Some(deno_flags) = deno_flags {
+                for flag in deno_flags {
+                    args.push(flag);
+                }
+            } else {
+                args.push("-A");
+            }
             args.push("/tmp/main.ts");
 
             Command::new(nsjail_path)
@@ -1531,8 +1541,13 @@ run().catch(async (e) => {{
             args.push("--import-map");
             args.push(&import_map_path);
             args.push("--unstable");
-            args.push("--v8-flags=--max-heap-size=2048");
-            args.push("-A");
+            if let Some(deno_flags) = deno_flags {
+                for flag in deno_flags {
+                    args.push(flag);
+                }
+            } else {
+                args.push("-A");
+            }
             args.push(&script_path);
             Command::new(deno_path)
                 .current_dir(job_dir)
