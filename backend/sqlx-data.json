@@ -548,6 +548,16 @@
           "name": "auto_invite_operator",
           "ordinal": 6,
           "type_info": "Bool"
+        },
+        {
+          "name": "customer_id",
+          "ordinal": 7,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "plan",
+          "ordinal": 8,
+          "type_info": "Varchar"
         }
       ],
       "nullable": [
@@ -556,6 +566,8 @@
         true,
         true,
         false,
+        true,
+        true,
         true,
         true
       ],
@@ -1845,6 +1857,16 @@
           "name": "auto_invite_operator",
           "ordinal": 6,
           "type_info": "Bool"
+        },
+        {
+          "name": "customer_id",
+          "ordinal": 7,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "plan",
+          "ordinal": 8,
+          "type_info": "Varchar"
         }
       ],
       "nullable": [
@@ -1853,6 +1875,8 @@
         true,
         true,
         false,
+        true,
+        true,
         true,
         true
       ],
@@ -4563,6 +4587,26 @@
       }
     },
     "query": "UPDATE schedule SET script_path = $1 WHERE script_path = $2 AND workspace_id = $3 AND is_flow IS false RETURNING *"
+  },
+  "c07c9276945663d062cf0ff5b3323be681a0e2cb07a457ea9aede2daeff551cc": {
+    "describe": {
+      "columns": [
+        {
+          "name": "customer_id",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT customer_id FROM workspace_settings WHERE workspace_id = $1"
   },
   "c1149f74ef0cca4a48be80f523d339d78e8e20e2bfacac9ad1b6b75c5ae370fb": {
     "describe": {
