@@ -96,7 +96,7 @@
 				Sign out
 			</button>
 		</div>
-		{#if isCloudHosted()}
+		{#if isCloudHosted() && $premiumStore}
 			{#if !$premiumStore.premium}
 				<div class="py-1" role="none">
 					<span class="text-gray-700 block w-full text-left px-4 py-2 text-sm"
