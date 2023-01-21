@@ -4,6 +4,7 @@
 	import type { Output } from '../../rx'
 	import type { AppEditorContext } from '../../types'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
+	import InputDefaultValue from '../helpers/InputDefaultValue.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 
 	export let id: string
@@ -12,31 +13,39 @@
 	export const staticOutputs: string[] = ['result']
 
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
-	let value: number
-	let labelValue: string = 'Title'
+	let input: HTMLInputElement
+
+	let defaultValue: number | undefined = undefined
+	let placeholder: string | undefined = undefined
 
 	$: outputs = $worldStore?.outputsById[id] as {
 		result: Output<number | null>
 	}
-	$: if (value || !value) {
-		// Disallow 'e' character in numbers
-		// if(value && value.toString().includes('e')) {
-		// 	value = +value.toString().replaceAll('e', '')
-		// }
+
+	function handleInput() {
+		const value = input?.value
 		const num = isNaN(+value) ? null : +value
 		outputs?.result.set(num)
 	}
+
+	$: input && handleInput()
 </script>
 
-<InputValue {id} input={configuration.label} bind:value={labelValue} />
+<InputValue {id} input={configuration.placeholder} bind:value={placeholder} />
+<InputValue {id} input={configuration.defaultValue} bind:value={defaultValue} />
+<InputDefaultValue bind:input {defaultValue} />
 
 <AlignWrapper {verticalAlignment}>
 	<input
-		bind:value
+		bind:this={input}
+		on:input={handleInput}
+		on:focus={(e) => {
+			e?.stopPropagation()
+			window.dispatchEvent(new Event('pointerup'))
+		}}
 		type="number"
 		inputmode="numeric"
 		pattern="\d*"
-		placeholder="Type..."
-		class="h-full"
+		{placeholder}
 	/>
 </AlignWrapper>

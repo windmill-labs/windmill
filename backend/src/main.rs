@@ -15,6 +15,8 @@ use windmill_worker::WorkerConfig;
 
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 
+mod ee;
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenv::dotenv().ok();
@@ -190,19 +192,12 @@ pub async fn run_workers(
     license_key: Option<String>,
 ) -> anyhow::Result<()> {
     #[cfg(feature = "enterprise")]
-    if let Some(license_key) = license_key {
-        if license_key != "REQUIRED_DEC1" {
-            panic!("Invalid license key");
-        }
-    } else {
-        panic!("License key is required for the enterprise edition");
-    }
+    ee::verify_license_key(license_key)?;
 
     #[cfg(not(feature = "enterprise"))]
     if license_key.is_some() {
         panic!("License key is required ONLY for the enterprise edition");
     }
-
     #[cfg(not(feature = "enterprise"))]
     if !worker_config.disable_nsjail {
         tracing::warn!(

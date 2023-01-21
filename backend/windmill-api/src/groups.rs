@@ -16,9 +16,9 @@ use axum::{
     Json, Router,
 };
 use windmill_audit::{audit_log, ActionKind};
+use windmill_common::users::username_to_permissioned_as;
 use windmill_common::{
     error::{Error, JsonResult, Result},
-    users::owner_to_token_owner,
     utils::{not_found_if_none, paginate, Pagination},
 };
 
@@ -199,7 +199,7 @@ async fn create_group(
         w_id,
         ng.name,
         ng.summary,
-        serde_json::json!({owner_to_token_owner(&authed.username, false): true})
+        serde_json::json!({username_to_permissioned_as(&authed.username): true})
     )
     .execute(&mut tx)
     .await?;

@@ -59,7 +59,7 @@
 					return 'jpeg'
 				} else if (keys.length == 1 && keys[0] == 'file') {
 					return 'file'
-				} else if (keys.length == 1 && keys[0] == 'error' && typeof result['error'] == 'string') {
+				} else if (keys.length == 1 && keys[0] == 'error') {
 					return 'error'
 				} else if (
 					keys.length == 3 &&
@@ -96,7 +96,7 @@
 						</div>
 						{#if Array.isArray(result[col])}
 							{#each result[col] as item}
-								<div class="px-12 text-left  whitespace-nowrap">
+								<div class="px-12 text-left text-xs whitespace-nowrap">
 									{typeof item === 'string' ? item : JSON.stringify(item)}
 								</div>
 							{/each}
@@ -105,14 +105,14 @@
 				{/each}
 			</div>
 		{:else if !forceJson && resultKind == 'table-row'}<div
-				class="grid grid-flow-col-dense border border-gray-200 rounded-md "
+				class="grid grid-flow-col-dense border border-gray-200 "
 			>
 				<TableCustom>
 					<tbody slot="body">
 						{#each asListOfList(result) as row}
 							<tr>
 								{#each row as v}
-									<td>{truncate(JSON.stringify(v), 200) ?? ''}</td>
+									<td class="!text-xs">{truncate(JSON.stringify(v), 200) ?? ''}</td>
 								{/each}
 							</tr>
 						{/each}
@@ -141,8 +141,11 @@
 					>Download</a
 				>
 			</div>
-		{:else if !forceJson && resultKind == 'error'}<div
-				><pre class="text-sm text-red-500 whitespace-pre-wrap">{result.error}</pre>
+		{:else if !forceJson && resultKind == 'error'}<div>
+				<span class="text-red-500 font-semibold text-sm"
+					>{result.error.name}: {result.error.message}</span
+				>
+				<pre class="text-sm whitespace-pre-wrap text-gray-900">{result.error.stack ?? ''}</pre>
 			</div>
 		{:else if !forceJson && resultKind == 'approval'}<div class="flex flex-col gap-1 mx-4">
 				<Button

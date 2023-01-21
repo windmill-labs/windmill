@@ -92,7 +92,7 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 
 		if (JSON.stringify(keys.sort()) !== JSON.stringify(Object.keys(input_transforms).sort())) {
 			input_transforms = keys.reduce((accu, key) => {
-				let nv = input_transforms[key] ?? {
+				let nv = input_transforms[key] ?? (module.id == 'failure' && ['message', 'name'].includes(key)) ? { type: 'javascript', expr: `error.${key}` } : {
 					type: 'static',
 					value: undefined
 				}
@@ -189,27 +189,29 @@ export function numberToChars(n: number) {
 	sp = 0
 	while (sp < b.length) {
 		if (b[sp] > 25) {
-			div = Math.floor(b[sp] / 26)
+			div = Math.floor(b[sp] / 27)
 			b[sp + 1] = div - 1
-			b[sp] %= 26
+			b[sp] %= 27
 		}
 		sp += 1
 	}
 
 	out = ''
 	for (i = 0; i < b.length; i += 1) {
-		out = String.fromCharCode(aCharCode + b[i]) + out
+		let charCode = aCharCode + b[i]
+		out = (charCode == 26 ? '-' : String.fromCharCode(charCode)) + out
 	}
 
 	return out
 }
 
 export function charsToNumber(n: string): number {
-	let b = Math.pow(26, n.length - 1)
+	let b = Math.pow(27, n.length - 1)
 	let res = 0
 	for (let c of n) {
-		res += (c.charCodeAt(0) - aCharCode + 1) * b
-		b = b / 26
+		let charCode = c == '-' ? aCharCode + 26 : c.charCodeAt(0)
+		res += (charCode - aCharCode + 1) * b
+		b = b / 27
 	}
 	return res - 1
 }

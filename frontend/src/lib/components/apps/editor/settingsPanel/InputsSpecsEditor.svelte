@@ -1,25 +1,17 @@
 <script lang="ts">
 	import { Badge, ToggleButton, ToggleButtonGroup } from '$lib/components/common'
-	import { capitalize } from '$lib/utils'
+	import { addWhitespaceBeforeCapitals, capitalize } from '$lib/utils'
 	import { faArrowRight, faPen, faTableCells, faUser } from '@fortawesome/free-solid-svg-icons'
 	import { fieldTypeToTsType } from '../../utils'
 	import InputsSpecEditor from './InputsSpecEditor.svelte'
-	import type {
-		ConnectedAppInput,
-		RowAppInput,
-		StaticAppInput,
-		UserAppInput
-	} from '../../inputType'
 	import { getContext } from 'svelte'
-	import type { AppEditorContext } from '../../types'
+	import type { AppEditorContext, BaseAppComponent } from '../../types'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import Popover from '$lib/components/Popover.svelte'
 
-	export let inputSpecs: Record<
-		string,
-		(StaticAppInput | ConnectedAppInput | UserAppInput | RowAppInput) & { onlyStatic?: boolean }
-	>
+	export let id: string
+	export let inputSpecs: BaseAppComponent['configuration']
 	export let userInputEnabled: boolean = true
-	export let staticOnly: boolean = false
 	export let shouldCapitalize: boolean = true
 	export let rowColumns = false
 
@@ -33,21 +25,27 @@
 			<div class="flex flex-col gap-1">
 				<div class="flex justify-between items-end gap-1">
 					<span class="text-sm font-semibold truncate">
-						{shouldCapitalize ? capitalize(inputSpecKey) : inputSpecKey}
+						{shouldCapitalize
+							? capitalize(addWhitespaceBeforeCapitals(inputSpecKey))
+							: inputSpecKey}
+						{#if input.tooltip}
+							<Tooltip>
+								{input.tooltip}
+							</Tooltip>
+						{/if}
 					</span>
 
-					<div class="flex gap-2 flex-wrap items-center">
+					<div class="flex gap-x-2 gap-y-1 flex-wrap justify-end items-center">
 						<Badge color="blue">
 							{input.fieldType === 'array' && input.subFieldType
 								? `${capitalize(fieldTypeToTsType(input.subFieldType))}[]`
 								: capitalize(fieldTypeToTsType(input.fieldType))}
 						</Badge>
 
-						{#if !inputSpecs[inputSpecKey].onlyStatic}
+						{#if !inputSpecs[inputSpecKey].onlyStatic && inputSpecs[inputSpecKey].type != 'eval'}
 							<ToggleButtonGroup
 								bind:selected={inputSpecs[inputSpecKey].type}
 								on:selected={(e) => {
-									console.log(inputSpecs[inputSpecKey])
 									if (e.detail == 'connected' && !inputSpecs[inputSpecKey]['connection']) {
 										$connectingInput = {
 											opened: true,
@@ -57,53 +55,63 @@
 									}
 								}}
 							>
-								<ToggleButton
-									title="Static"
-									position="left"
-									value="static"
-									startIcon={{ icon: faPen }}
-									size="xs"
-									iconOnly
-								/>
-								{#if rowColumns}
+								<Popover placement="bottom" notClickable disapperTimoout={0}>
 									<ToggleButton
-										title="Column"
-										position="center"
-										value="row"
-										startIcon={{ icon: faTableCells }}
-										size="xs"
-										disabled={staticOnly}
-										><Tooltip
-											>Use the column name to have the value of the cell be passed to the action</Tooltip
-										></ToggleButton
-									>
-								{/if}
-								{#if userInputEnabled && (!input.format?.startsWith('resource-') || true)}
-									<ToggleButton
-										title="User Input"
-										position="center"
-										value="user"
-										startIcon={{ icon: faUser }}
+										position="left"
+										value="static"
+										startIcon={{ icon: faPen }}
 										size="xs"
 										iconOnly
-										disabled={staticOnly}
 									/>
+									<svelte:fragment slot="text">Static</svelte:fragment>
+								</Popover>
+								{#if rowColumns}
+									<Popover placement="bottom" notClickable disapperTimoout={0}>
+										<ToggleButton
+											position="center"
+											value="row"
+											startIcon={{ icon: faTableCells }}
+											size="xs"
+										>
+											<Tooltip scale={0.6} placement="top-end" wrapperClass="center-center">
+												Use the column name to have the value of the cell be passed to the action
+											</Tooltip>
+										</ToggleButton>
+										<svelte:fragment slot="text">Column</svelte:fragment>
+									</Popover>
 								{/if}
-								<ToggleButton
-									title="Connect"
-									position="right"
-									value="connected"
-									startIcon={{ icon: faArrowRight }}
-									size="xs"
-									iconOnly
-									disabled={staticOnly}
-								/>
+								{#if userInputEnabled && !input.format?.startsWith('resource-')}
+									<Popover placement="bottom" notClickable disapperTimoout={0}>
+										<ToggleButton
+											position="center"
+											value="user"
+											startIcon={{ icon: faUser }}
+											size="xs"
+											iconOnly
+										/>
+										<svelte:fragment slot="text">User Input</svelte:fragment>
+									</Popover>
+								{/if}
+								<Popover placement="bottom" notClickable disapperTimoout={0}>
+									<ToggleButton
+										position="right"
+										value="connected"
+										startIcon={{ icon: faArrowRight }}
+										size="xs"
+										iconOnly
+									/>
+									<svelte:fragment slot="text">Connect</svelte:fragment>
+								</Popover>
 							</ToggleButtonGroup>
 						{/if}
 					</div>
 				</div>
 
-				<InputsSpecEditor bind:componentInput={inputSpecs[inputSpecKey]} />
+				<InputsSpecEditor
+					hasRows={rowColumns}
+					{id}
+					bind:componentInput={inputSpecs[inputSpecKey]}
+				/>
 			</div>
 		{/each}
 	</div>

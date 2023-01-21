@@ -28,12 +28,19 @@
 			}
 		}
 	}
+	function fadeFast(node: HTMLElement) {
+		return fade(node, { duration: 100 })
+	}
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
 
 {#if open}
-	<div transition:fade={{ duration: 100 }} class={'relative  z-50'} role="dialog">
+	<div
+		transition:fadeFast|local
+		class={'absolute top-0 bottom-0 left-0 right-0 z-50'}
+		role="dialog"
+	>
 		<div
 			class={classNames(
 				'fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity',

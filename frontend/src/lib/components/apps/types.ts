@@ -6,6 +6,8 @@ import type {
 	AppInput,
 	ConnectedAppInput,
 	ConnectedInput,
+	EvalAppInput,
+	RowAppInput,
 	StaticAppInput,
 	UserAppInput
 } from './inputType'
@@ -22,12 +24,17 @@ export type DateInputComponent = BaseComponent<'dateinputcomponent'>
 export type NumberInputComponent = BaseComponent<'numberinputcomponent'>
 export type SliderComponent = BaseComponent<'slidercomponent'>
 export type HtmlComponent = BaseComponent<'htmlcomponent'>
+export type VegaLiteComponent = BaseComponent<'vegalitecomponent'>
 export type TimeseriesComponent = BaseComponent<'timeseriescomponent'>
 export type ButtonComponent = BaseComponent<'buttoncomponent'> & {
 	recomputeIds: string[] | undefined
 }
 
 export type FormComponent = BaseComponent<'formcomponent'> & {
+	recomputeIds: string[] | undefined
+}
+
+export type FormButtonComponent = BaseComponent<'formbuttoncomponent'> & {
 	recomputeIds: string[] | undefined
 }
 
@@ -57,7 +64,14 @@ export type Aligned = {
 export interface BaseAppComponent extends Partial<Aligned> {
 	id: ComponentID
 	componentInput: AppInput | undefined
-	configuration: Record<string, (StaticAppInput | ConnectedAppInput | UserAppInput) & { onlyStatic?: boolean }>
+	configuration: Record<
+		string,
+		(StaticAppInput | ConnectedAppInput | UserAppInput | RowAppInput | EvalAppInput) & {
+			onlyStatic?: boolean
+			evaluatedValue?: boolean
+			tooltip?: string
+		}
+	>
 	card: boolean | undefined
 	/**
 	 * If `true` then the wrapper will allow items to flow outside of it's borders.
@@ -91,6 +105,8 @@ export type AppComponent = BaseAppComponent &
 		| CheckboxComponent
 		| RadioComponent
 		| FormComponent
+		| FormButtonComponent
+		| VegaLiteComponent
 	)
 
 export type ComponentSet = {
@@ -124,6 +140,11 @@ export type App = {
 		name: string
 		inlineScript: InlineScript
 	}>
+	hiddenInlineScripts: Array<{
+		name: string
+		inlineScript: InlineScript | undefined
+		fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
+	}>
 }
 
 export type ConnectingInput = {
@@ -135,21 +156,21 @@ export type ConnectingInput = {
 
 export type AppEditorContext = {
 	worldStore: Writable<World | undefined>
-	staticOutputs: Writable<Record<string, string[]>>,
-	lazyGrid: Writable<GridItem[]>,
-	app: Writable<App>,
-	summary: Writable<string>,
+	staticOutputs: Writable<Record<string, string[]>>
+	lazyGrid: Writable<GridItem[]>
+	app: Writable<App>
+	summary: Writable<string>
 	selectedComponent: Writable<string | undefined>
 	mode: Writable<EditorMode>
 	connectingInput: Writable<ConnectingInput>
 	breakpoint: Writable<EditorBreakpoint>
 	runnableComponents: Writable<Record<string, () => Promise<void>>>
 	staticExporter: Writable<Record<string, () => any>>
-	appPath: string,
-	workspace: string,
-	onchange: (() => void) | undefined,
-	isEditor: boolean,
-	jobs: Writable<{ job: string, component: string }[]>,
+	appPath: string
+	workspace: string
+	onchange: (() => void) | undefined
+	isEditor: boolean
+	jobs: Writable<{ job: string; component: string }[]>
 	noBackend: boolean
 }
 

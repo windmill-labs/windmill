@@ -23,7 +23,7 @@
 	const { runnableComponents } = getContext<AppEditorContext>('AppEditorContext')
 
 	let editor: Editor
-	let validCode = false
+	let validCode = true
 
 	async function inferInlineScriptSchema(
 		language: Preview.language,
@@ -56,7 +56,7 @@
 
 <InlineScriptEditorDrawer {editor} bind:this={inlineScriptEditorDrawer} bind:inlineScript />
 
-<div class="h-full flex flex-col gap-1" transition:fly={{ duration: 50 }}>
+<div class="h-full flex flex-col gap-1" transition:fly|local={{ duration: 50 }}>
 	<div class="flex justify-between w-full gap-1 px-2 pt-1 flex-row items-center">
 		{#if name !== undefined}
 			<input bind:value={name} placeholder="Inline script name" />
@@ -82,7 +82,7 @@
 			>
 				Format&nbsp;<Tooltip>Ctrl+S</Tooltip>
 			</Button>
-			{#if id.startsWith('unused-')}
+			{#if id.startsWith('unused-') || id.startsWith('bg_')}
 				<Button
 					size="xs"
 					color="light"
@@ -91,7 +91,8 @@
 					startIcon={{ icon: faTrash }}
 					on:click={() => dispatch('delete')}
 				/>
-			{:else}
+			{/if}
+			{#if $runnableComponents[id] != undefined}
 				<Button
 					loading={runLoading}
 					size="xs"
@@ -102,9 +103,8 @@
 						runLoading = false
 					}}
 				>
-					Run&nbsp;<Tooltip
-						>Ctrl+Enter to run the script and see the result in the component directly</Tooltip
-					>
+					Run&nbsp;
+					<Tooltip light>Ctrl+Enter</Tooltip>
 				</Button>
 			{/if}
 
@@ -138,6 +138,9 @@
 			on:change={async (e) => {
 				if (inlineScript) {
 					const oldSchema = JSON.stringify(inlineScript.schema)
+					if (inlineScript.schema == undefined) {
+						inlineScript.schema = emptySchema()
+					}
 					await inferInlineScriptSchema(inlineScript?.language, e.detail, inlineScript.schema)
 					if (JSON.stringify(inlineScript.schema) != oldSchema) {
 						inlineScript = inlineScript

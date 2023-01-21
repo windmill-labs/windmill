@@ -1,0 +1,5 @@
+localhost {
+        bind 0.0.0.0
+        reverse_proxy /ws/* http://0.0.0.0:3001
+        reverse_proxy /* http://0.0.0.0:8000
+}

@@ -65,13 +65,13 @@
 				on:click={(e) => {
 					e.preventDefault()
 					copyToClipboard(
-						`${$page.url.protocol}//${$page.url.hostname}/api/w/${$workspaceStore}/capture/${$flowStore.path}`
+						`${$page.url.protocol}//${$page.url.hostname}/api/w/${$workspaceStore}/capture_u/${$flowStore.path}`
 					)
 				}}
 				href="{$page.url.protocol}//{$page.url
-					.hostname}/api/w/{$workspaceStore}/capture/{$flowStore.path}"
+					.hostname}/api/w/{$workspaceStore}/capture_u/{$flowStore.path}"
 				>{$page.url.protocol}//{$page.url
-					.hostname}/api/w/{$workspaceStore}/capture/{$flowStore.path}
+					.hostname}/api/w/{$workspaceStore}/capture_u/{$flowStore.path}
 				<Icon data={faClipboard} /></a
 			>
 		</div>
@@ -79,7 +79,7 @@
 
 		<div class="text-xs box mb-4 b">
 			<pre class="overflow-auto"
-				>{`curl -X POST ${$page.url.protocol}//${$page.url.hostname}/api/w/${$workspaceStore}/capture/${$flowStore.path} \\
+				>{`curl -X POST ${$page.url.protocol}//${$page.url.hostname}/api/w/${$workspaceStore}/capture_u/${$flowStore.path} \\
    -H 'Content-Type: application/json' \\
    -d '{"foo": 42}'`}</pre
 			>
@@ -115,11 +115,11 @@
 				Copy as flow inputs and test args
 			</Button>
 		</svelte:fragment>
-		<h3 class="mt-2">Derived inputs schema</h3>
+		<h3 class="my-2 mt-8">Derived schema</h3>
 		<div class="box p-2">
 			<SchemaViewer schema={jsonSchema} />
 		</div>
-		<h3 class="mt-2">Test args</h3>
-		<SchemaForm class="h-full pt-4" schema={$flowStore.schema} args={$previewArgs} />
+		<h3 class="mt-8">Test args</h3>
+		<SchemaForm class="pt-4" schema={$flowStore.schema} args={$previewArgs} />
 	</DrawerContent>
 </Drawer>

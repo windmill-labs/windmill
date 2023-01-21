@@ -14,9 +14,9 @@ use crate::{
     variables::build_crypt,
 };
 use axum::{
-    extract::{Extension, Path, Query},
+    extract::{Extension, Json, Path, Query},
     routing::{delete, get, post},
-    Json, Router,
+    Router,
 };
 use hyper::StatusCode;
 use magic_crypt::MagicCryptTrait;
@@ -31,7 +31,7 @@ use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     apps::ListAppQuery,
     error::{to_anyhow, Error, JsonResult, Result},
-    users::owner_to_token_owner,
+    users::username_to_permissioned_as,
     utils::{
         http_get_from_hub, list_elems_from_hub, not_found_if_none, paginate, Pagination, StripPath,
     },
@@ -137,10 +137,10 @@ pub struct EditApp {
 
 async fn list_apps(
     authed: Authed,
-    Query(pagination): Query<Pagination>,
-    Query(lq): Query<ListAppQuery>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
+    Query(pagination): Query<Pagination>,
+    Query(lq): Query<ListAppQuery>,
 ) -> JsonResult<Vec<ListableApp>> {
     let (per_page, offset) = paginate(pagination);
 
@@ -610,7 +610,7 @@ async fn execute_component(
             })?;
             (
                 username.clone(),
-                owner_to_token_owner(&username, false),
+                username_to_permissioned_as(&username),
                 email,
             )
         }

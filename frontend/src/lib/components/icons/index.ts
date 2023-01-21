@@ -5,7 +5,7 @@ import GcalIcon from './GcalIcon.svelte'
 import GCloudIcon from './GCloudIcon.svelte'
 import GdriveIcon from './GdriveIcon.svelte'
 import GithubIcon from './GithubIcon.svelte'
-import GitlabIcon from './GItlabIcon.svelte'
+import GitlabIcon from './GitlabIcon.svelte'
 import GmailIcon from './GmailIcon.svelte'
 import GSheetsIcon from './GSheetsIcon.svelte'
 import HttpIcon from './HttpIcon.svelte'
@@ -35,12 +35,22 @@ import ClickhouseIcon from './ClickhouseIcon.svelte'
 import OpenaiIcon from './OpenaiIcon.svelte'
 import AppwriteIcon from './AppwriteIcon.svelte'
 import LinkdingIconSvelte from './LinkdingIcon.svelte'
+import AwsIcon from './AwsIcon.svelte'
+import BcryptIcon from './BcryptIcon.svelte'
+import GoogleIcon from './GoogleIcon.svelte'
+import HackernewsIcon from './HackernewsIcon.svelte'
+import MongodbIcon from './MongodbIcon.svelte'
+import RedditIcon from './RedditIcon.svelte'
+import SupabaseIcon from './SupabaseIcon.svelte'
+import WebdavIcon from './WebdavIcon.svelte'
+import ZammadIcon from './ZammadIcon.svelte'
+import SurrealdbIcon from './SurrealdbIcon.svelte'
+import SquareIcon from './SquareIcon.svelte'
 
 export const APP_TO_ICON_COMPONENT = {
 	postgresql: PostgresIcon,
 	mysql: Mysql,
 	smtp: Mail,
-	mongodb: DbIcon,
 	slack: Slack,
 	github: GithubIcon,
 	gmail: GmailIcon,
@@ -76,7 +86,19 @@ export const APP_TO_ICON_COMPONENT = {
 	clickhouse: ClickhouseIcon,
 	openai: OpenaiIcon,
 	appwrite: AppwriteIcon,
-	linkding: LinkdingIconSvelte
+	linkding: LinkdingIconSvelte,
+	aws: AwsIcon,
+	bcrypt: BcryptIcon,
+	google: GoogleIcon,
+	hackernews: HackernewsIcon,
+	mongodb: MongodbIcon,
+	reddit: RedditIcon,
+	supabase: SupabaseIcon,
+	square: SquareIcon,
+	webdav: WebdavIcon,
+	zammad: ZammadIcon,
+	nextcloud: NextcloudIcon,
+	surrealdb: SurrealdbIcon,
 } as const
 
 export {
@@ -112,4 +134,16 @@ export {
 	FaunadbIcon,
 	ClickhouseIcon,
 	OpenaiIcon,
+	AwsIcon,
+	BcryptIcon,
+	GoogleIcon,
+	HackernewsIcon,
+	MongodbIcon,
+	RedditIcon,
+	SupabaseIcon,
+	WebdavIcon,
+	ZammadIcon,
+	NextcloudIcon,
+	SendflakeIcon,
+	SurrealdbIcon,
 }

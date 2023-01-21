@@ -9,7 +9,6 @@
 	const dispatch = createEventDispatcher()
 
 	let email: string
-	let is_admin = false
 
 	function handleKeyUp(event: KeyboardEvent) {
 		const key = event.key

@@ -23,11 +23,13 @@
 		result: Output<string | undefined>
 	}
 
-	function onChange({ detail }: CustomEvent) {
-		outputs?.result.set(detail?.[itemKey] || undefined)
+	function onChange(e: CustomEvent) {
+		e?.stopPropagation()
+		window.dispatchEvent(new Event('pointerup'))
+		outputs?.result.set(e.detail?.[itemKey] || undefined)
 	}
-
-	const dispatch = createEventDispatcher()
+	let value = undefined
+	$: items?.[0]?.['value'] != value && (value = items?.[0]?.['value'])
 </script>
 
 <InputValue {id} input={configuration.label} bind:value={label} />
@@ -40,7 +42,12 @@
 		class="select"
 		on:clear={onChange}
 		on:change={onChange}
+		on:focus={(e) => {
+			e?.stopPropagation()
+			window.dispatchEvent(new Event('pointerup'))
+		}}
 		{items}
+		{value}
 		placeholder="Select an item"
 		on:click={() => {
 			if (!$connectingInput.opened) {

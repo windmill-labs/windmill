@@ -22,6 +22,7 @@
 		faUser,
 		faBarsStaggered
 	} from '@fortawesome/free-solid-svg-icons'
+	import { CalendarClock } from 'lucide-svelte'
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
 	import { Badge } from '../common'
@@ -144,55 +145,21 @@
 						>
 					</div>
 				{/if}
-				<div>
-					{#if job && job.parent_job}
-						{#if job.is_flow_step}
-							<Icon class="text-gray-700" data={faBarsStaggered} scale={SMALL_ICON_SCALE} /><span
-								class="mx-2"
-							>
-								Step of flow <a href={`/run/${job.parent_job}`}>{truncateRev(job.parent_job, 6)}</a
-								></span
-							>
-						{:else}
-							<Icon class="text-gray-700" data={faRobot} scale={SMALL_ICON_SCALE} /><span
-								class="mx-2"
-							>
-								Triggered by parent <a href={`/run/${job.parent_job}`}>{job.parent_job}</a></span
-							>
-						{/if}
-					{:else if job && job.schedule_path}
-						<Icon class="text-gray-700" data={faCalendar} scale={SMALL_ICON_SCALE} />
-						<span class="mx-2"
-							>Triggered by the schedule: <button
-								class="break-words text-sm text-blue-600 font-normal"
-								on:click={() =>
-									scheduleEditor?.openEdit(job.schedule_path ?? '', job.job_kind == 'flow')}
-								>{job.schedule_path}</button
-							></span
-						>
-					{/if}
-				</div>
 			</div>
 			<div class="text-gray-500 text-xs text-left place-self-start flex flex-col gap-1">
-				<div>
-					<Icon class="text-gray-700" data={faClock} scale={SMALL_ICON_SCALE} /><span class="mx-2">
-						Created {displayDaysAgo(job.created_at ?? '')}</span
-					>
-				</div>
 				{#if 'started_at' in job && job.started_at}
 					<div>
 						<Icon class="text-gray-700" data={faClock} scale={SMALL_ICON_SCALE} /><span
-							class="mx-2"
+							class="mx-1.5"
 						>
 							Started {displayDaysAgo(job.started_at ?? '')}</span
 						>
 					</div>
 				{/if}
 				{#if 'scheduled_for' in job && !job.running && job.scheduled_for && forLater(job.scheduled_for)}
-					<div>
-						<Icon class="text-gray-700" data={faCalendar} scale={SMALL_ICON_SCALE} /><span
-							class="mx-2"
-						>
+					<div class="inline-flex gap-1">
+						<CalendarClock size={13} class="-ml-0.5" />
+						<span>
 							<span class="bg-blue-200 text-gray-700 text-xs rounded px-1 ">Scheduled</span>
 							for {displayDate(job.scheduled_for ?? '')}
 						</span>
@@ -208,6 +175,34 @@
 						</span>
 					</div>
 				{/if}
+				<div>
+					{#if job && job.parent_job}
+						{#if job.is_flow_step}
+							<Icon class="text-gray-700" data={faBarsStaggered} scale={SMALL_ICON_SCALE} /><span
+								class="mx-1"
+							>
+								Step of flow <a href={`/run/${job.parent_job}`}>{truncateRev(job.parent_job, 6)}</a
+								></span
+							>
+						{:else}
+							<Icon class="text-gray-700" data={faRobot} scale={SMALL_ICON_SCALE} /><span
+								class="mx-1"
+							>
+								Parent <a href={`/run/${job.parent_job}`}>{job.parent_job}</a></span
+							>
+						{/if}
+					{:else if job && job.schedule_path}
+						<Icon class="text-gray-700" data={faCalendar} scale={SMALL_ICON_SCALE} />
+						<span class="mx-1"
+							>Schedule <button
+								class="break-words text-blue-400 font-normal truncate text-xs"
+								on:click={() =>
+									scheduleEditor?.openEdit(job.schedule_path ?? '', job.job_kind == 'flow')}
+								>{job.schedule_path}</button
+							></span
+						>
+					{/if}
+				</div>
 			</div>
 		</div>
 	</div>

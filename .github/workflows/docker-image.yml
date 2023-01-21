@@ -9,22 +9,27 @@ on:
   push:
     branches: [main]
     tags: ["*"]
-  pull_request:
-    types: [opened, synchronize, reopened]
 
 concurrency:
   group: ${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  id-token: write
+  packages: write
+  
 jobs:
   build:
-    runs-on: [self-hosted, new]
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+
+      # - name: Set up Docker Buildx
+      #   uses: docker/setup-buildx-action@v2
+      - uses: depot/setup-action@v1
 
       - name: Login to registry
         uses: docker/login-action@v2
@@ -34,35 +39,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Docker meta
-        id: meta-slim
-        if: github.event_name == 'pull_request'
-        uses: docker/metadata-action@v4
-        with:
-          images: |
-            ${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}-slim
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-
-      - name: Build and push publicly
-        uses: docker/build-push-action@v3
-        if: github.event_name == 'pull_request'
-        with:
-          context: .
-          push: true
-          tags: |
-            ${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}-slim:latest
-            ${{ steps.meta-slim.outputs.tags }}
-          labels: |
-            ${{ steps.meta-slim.outputs.labels }}
-          cache-from: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}-slim:buildcache
-          cache-to: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}-slim:buildcache,mode=max
-
-      - name: Docker meta
         id: meta-public
-        if: github.event_name != 'pull_request'
         uses: docker/metadata-action@v4
         with:
           images: |
@@ -75,47 +52,31 @@ jobs:
 
 
       - name: Build and push publicly
-        if: github.event_name != 'pull_request'
-        uses: docker/build-push-action@v3
+        uses: depot/build-push-action@v1
         with:
           context: .
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}-slim:latest
             ${{ steps.meta-public.outputs.tags }}
           labels: |
             ${{ steps.meta-public.outputs.labels }}
             org.opencontainers.image.licenses=AGPLv3
-          cache-from: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}-slim:buildcache
-          cache-to: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}-slim:buildcache,mode=max
-
+   
   build_ee:
-    runs-on: [self-hosted, new]
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+      # - name: Set up Docker Buildx
+      #   uses: docker/setup-buildx-action@v2
 
-      - name: Docker meta
-        id: meta-slim
-        if: github.event_name == 'pull_request'
-        uses: docker/metadata-action@v4
-        with:
-          images: |
-            ${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}-slim
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-
+      - uses: depot/setup-action@v1
 
       - name: Docker meta
         id: meta-ee-public
-        if: github.event_name != 'pull_request'
         uses: docker/metadata-action@v4
         with:
           images: |
@@ -128,15 +89,13 @@ jobs:
 
       - name: Login to registry
         uses: docker/login-action@v2
-        if: github.event_name != 'pull_request'
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push publicly ee
-        if: github.event_name != 'pull_request'
-        uses: docker/build-push-action@v3
+        uses: depot/build-push-action@v1
         with:
           context: .
           push: true
@@ -149,8 +108,7 @@ jobs:
           labels: |
             ${{ steps.meta-ee-public.outputs.labels }}
             org.opencontainers.image.licenses=Windmill-Enterprise-License
-          cache-from: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}-ee:buildcache
-          cache-to: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}-ee:buildcache,mode=max
+
 
   playwright:
     runs-on: [self-hosted, new]
@@ -172,14 +130,14 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: "Docker"
-        run: echo "::set-output name=id::$(docker run --network=host --rm -d -p 8000:8000 --privileged -it -e DATABASE_URL=postgres://admin:changeme@localhost:5432/windmill -e BASE_INTERNAL_URL=http://localhost:8000 ${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}-slim:latest)"
+        run: echo "::set-output name=id::$(docker run --network=host --rm -d -p 8000:8000 --privileged -it -e DATABASE_URL=postgres://admin:changeme@localhost:5432/windmill -e BASE_INTERNAL_URL=http://localhost:8000 ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest)"
         id: docker-container
       - uses: actions/setup-node@v3
         with:
           node-version: 16
       - name: "Playwright run"
         timeout-minutes: 2
-        run: cd frontend && npm ci @playwright/test && npx playwright install && npm run test
+        run: cd frontend && npm ci @playwright/test && npx playwright install && export BASE_URL=http://localhost:8000 && npm run test
       - name: "Clean up"
         run: docker kill ${{ steps.docker-container.outputs.id }}
         if: always()
@@ -188,7 +146,6 @@ jobs:
   publish_privately_heavy:
     needs: [build_ee]
     runs-on: [self-hosted, new]
-    if: github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@v3
         with:
@@ -202,7 +159,6 @@ jobs:
         with:
           images: |
             ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}
-            ${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=ref,event=branch
             type=ref,event=pr

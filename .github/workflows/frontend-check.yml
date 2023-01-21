@@ -1,0 +1,17 @@
+name: check frontend build
+on:
+  pull_request:
+    types: [opened,synchronize,reopened,closed]
+    paths:
+      - "frontend/**"
+jobs:
+  npm_check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 18
+      - name: "npm check"
+        timeout-minutes: 2
+        run: cd frontend && npm ci && npm run generate-backend-client && npm run check

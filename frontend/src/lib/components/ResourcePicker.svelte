@@ -8,6 +8,7 @@
 	import Select from 'svelte-select'
 	import AppConnect from './AppConnect.svelte'
 	import ResourceEditor from './ResourceEditor.svelte'
+	import { truncate } from '$lib/utils'
 
 	const dispatch = createEventDispatcher()
 	let resources: Resource[] = []
@@ -30,7 +31,7 @@
 
 	$: collection = resources.map((x) => ({
 		value: x.path,
-		label: `${x.path}${x.description ? ' | ' + x.description : ''}`
+		label: x.path
 	}))
 	let appConnect: AppConnect
 	let resourceEditor: ResourceEditor
@@ -45,16 +46,26 @@
 	bind:this={appConnect}
 />
 
-<ResourceEditor bind:this={resourceEditor} on:refresh={() => loadResources(resourceType)} />
+<ResourceEditor
+	bind:this={resourceEditor}
+	on:refresh={async (e) => {
+		await loadResources(resourceType)
+		console.log(e)
+		if (e.detail) {
+			value = e.detail
+		}
+	}}
+/>
 
 <div class="flex flex-row gap-x-1 w-full">
 	<Select
+		listAutoWidth={false}
 		--height="34px"
 		value={collection.find((x) => x.value == value)}
 		bind:justValue={value}
 		items={collection}
 		class="text-clip grow min-w-0"
-		placeholder="Pick a {resourceType} resource"
+		placeholder="{resourceType} resource"
 	/>
 	{#if value && value != ''}
 		<Button variant="border" size="xs" on:click={() => resourceEditor?.initEdit?.(value ?? '')}>
@@ -73,3 +84,9 @@
 		}}><Icon scale={0.8} data={faRotateRight} /></Button
 	>
 </div>
+
+<style>
+	:global(.svelte-select-list) {
+		font-size: small !important;
+	}
+</style>

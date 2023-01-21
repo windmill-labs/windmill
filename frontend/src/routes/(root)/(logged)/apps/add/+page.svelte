@@ -25,7 +25,8 @@
 	let value: App = {
 		grid: [],
 		fullscreen: false,
-		unusedInlineScripts: []
+		unusedInlineScripts: [],
+		hiddenInlineScripts: []
 	}
 
 	if (nodraft) {

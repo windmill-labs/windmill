@@ -14,26 +14,17 @@ use windmill_common::{error::Error, flow_status::FlowStatusModule, schedule::Sch
 use windmill_queue::{delete_job, schedule::get_schedule_opt, JobKind, QueuedJob};
 
 #[instrument(level = "trace", skip_all)]
-pub async fn add_completed_job_error<E: ToString + std::fmt::Debug>(
+pub async fn add_completed_job_error(
     db: &Pool<Postgres>,
     queued_job: &QueuedJob,
     logs: String,
-    e: E,
+    e: serde_json::Value,
     metrics: Option<crate::worker::Metrics>,
-) -> Result<(Uuid, serde_json::Map<String, serde_json::Value>), Error> {
+) -> Result<serde_json::Value, Error> {
     metrics.map(|m| m.worker_execution_failed.inc());
-    let mut output_map = Map::new();
-    error_to_result(&mut output_map, &e);
-    let a = add_completed_job(
-        db,
-        &queued_job,
-        false,
-        false,
-        serde_json::Value::Object(output_map.clone()),
-        logs,
-    )
-    .await?;
-    Ok((a, output_map))
+    let result = serde_json::json!({ "error": e });
+    let _ = add_completed_job(db, &queued_job, false, false, result.clone(), logs).await?;
+    Ok(result)
 }
 
 pub fn error_to_result<E: ToString + std::fmt::Debug>(
@@ -130,7 +121,7 @@ pub async fn add_completed_job(
                    , email
                    , visible_to_owner
                 )
-            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($26, EXTRACT(milliseconds FROM (now() - $6))), $7, $8, $9,\
+            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($26, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE($6, now()))))*1000), $7, $8, $9,\
                     $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $27, $28)
          ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12)",
         queued_job.workspace_id,

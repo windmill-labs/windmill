@@ -13,6 +13,7 @@
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'
 	import { flowStateStore } from './flows/flowState'
 	import CapturePayload from './flows/content/CapturePayload.svelte'
+	import { Loader2 } from 'lucide-svelte'
 
 	let capturePayload: CapturePayload
 	export let previewMode: 'upTo' | 'whole'
@@ -119,8 +120,9 @@
 					jobId = undefined
 				}}
 				size="md"
-				btnClasses="w-full"
+				btnClasses="w-full max-w-lg"
 			>
+				<Loader2 class="animate-spin mr-2" />
 				Cancel
 			</Button>
 		{:else}
@@ -129,7 +131,7 @@
 				startIcon={{ icon: isRunning ? faRefresh : faPlay }}
 				color="blue"
 				size="sm"
-				btnClasses="w-full"
+				btnClasses="w-full max-w-lg"
 				disabled={!isValid}
 				on:click={() => runPreview($previewArgs)}
 			>
@@ -148,13 +150,17 @@
 	<FlowProgressBar {job} bind:reset={jobProgressReset} />
 
 	<div class="overflow-y-auto grow flex-col flex divide-y divide-gray-600 ">
-		<SchemaForm
-			compact
-			class="py-4"
-			schema={$flowStore.schema}
-			bind:isValid
-			bind:args={$previewArgs}
-		/>
+		<div class="max-h-1/2 overflow-auto">
+			<SchemaForm
+				noVariablePicker
+				compact
+				class="py-4 max-w-3xl"
+				schema={$flowStore.schema}
+				bind:isValid
+				bind:args={$previewArgs}
+			/>
+		</div>
+
 		<div class="h-full pt-4 grow">
 			{#if jobId}
 				<FlowStatusViewer bind:flowState={$flowStateStore} {jobId} bind:job />

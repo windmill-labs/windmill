@@ -1,6 +1,6 @@
 {
 	"name": "windmill",
-	"version": "1.59.0",
+	"version": "1.60.0",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -21,8 +21,8 @@
 		"@sveltejs/package": "^1.0.1",
 		"@tailwindcss/forms": "^0.5.3",
 		"@tailwindcss/typography": "^0.5.8",
-		"@types/vscode": "~1.74.0",
 		"@types/node": "^18.11.18",
+		"@types/vscode": "~1.74.0",
 		"@typescript-eslint/eslint-plugin": "^5.46.1",
 		"@typescript-eslint/parser": "^5.48.0",
 		"@windmill-labs/svelvet": "^4.0.20",
@@ -38,7 +38,7 @@
 		"path-browserify": "^1.0.1",
 		"postcss": "^8.4.18",
 		"postcss-load-config": "^4.0.1",
-		"prettier": "^2.8.1",
+		"prettier": "^2.8.3",
 		"prettier-plugin-svelte": "^2.9.0",
 		"simple-svelte-autocomplete": "^2.5.1",
 		"stylelint-config-recommended": "^9.0.0",
@@ -65,7 +65,7 @@
 		"@fortawesome/free-solid-svg-icons": "^6.2.1",
 		"@leeoniya/ufuzzy": "^0.9.0",
 		"@redocly/json-to-json-schema": "^0.0.1",
-		"@tanstack/svelte-table": "^8.7.2",
+		"@tanstack/svelte-table": "^8.7.6",
 		"async-mutex": "^0.4.0",
 		"chartjs-adapter-date-fns": "^2.0.0",
 		"chartjs-plugin-zoom": "^2.0.0",
@@ -77,6 +77,7 @@
 		"monaco-yaml": "^4.0.2",
 		"svelte-autosize": "^1.0.1",
 		"svelte-chartjs": "^3.1.0",
+		"svelte-portal": "^2.2.0",
 		"svelte-select": "^5.0.2",
 		"vscode-ws-jsonrpc": "^2.0.1"
 	},

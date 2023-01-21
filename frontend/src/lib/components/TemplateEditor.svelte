@@ -382,6 +382,10 @@
 	export let fixedOverflowWidgets = true
 	export let fontSize = 16
 
+	if (typeof code != 'string') {
+		code = ''
+	}
+
 	const lang = 'template'
 	const dispatch = createEventDispatcher()
 
@@ -589,4 +593,15 @@
 	})
 </script>
 
-<div bind:this={divEl} class="{$$props.class} rounded-lg mx-0.5" bind:clientWidth={width} />
+<div
+	bind:this={divEl}
+	style="height: 18px;"
+	class="{$$props.class} template rounded-lg min-h-4 mx-0.5"
+	bind:clientWidth={width}
+/>
+
+<style>
+	:global(.template .mtk20) {
+		color: black !important;
+	}
+</style>

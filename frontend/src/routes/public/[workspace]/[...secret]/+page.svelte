@@ -69,7 +69,11 @@
 	<div class="border rounded-md p-2 w-full">
 		<AppPreview
 			noBackend={false}
-			context={{ email: $userStore?.email, username: $userStore?.username }}
+			context={{
+				email: $userStore?.email,
+				username: $userStore?.username,
+				query: Object.fromEntries($page.url.searchParams.entries())
+			}}
 			workspace={$page.params.workspace}
 			summary={app.summary}
 			app={app.value}

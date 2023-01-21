@@ -9,6 +9,10 @@
 	export let filters: string[]
 	export let selectedFilter: string | undefined = undefined
 	export let resourceType = false
+
+	function getIconComponent(name: string) {
+		return APP_TO_ICON_COMPONENT[name] || APP_TO_ICON_COMPONENT[name.split('_')[0]]
+	}
 </script>
 
 {#if Array.isArray(filters) && filters.length > 0}
@@ -28,7 +32,7 @@
 				>
 					<span style="height: 12px" class="-mt-0.5">
 						{#if resourceType}
-							<svelte:component this={APP_TO_ICON_COMPONENT[filter]} height="14px" width="14px" />
+							<svelte:component this={getIconComponent(filter)} height="14px" width="14px" />
 						{:else if filter.startsWith('u/')}
 							<User class="mr-0.5" size={14} />
 						{:else if filter.startsWith('f/')}

@@ -145,16 +145,18 @@
 	$: {
 		if (value == undefined || value == null) {
 			value = defaultValue
-			if (defaultValue === undefined || defaultValue === null)
+			if (defaultValue === undefined || defaultValue === null) {
 				if (inputCat === 'string') {
 					value = ''
 				} else if (inputCat == 'enum') {
 					value = enum_?.[0]
+				} else if (inputCat == 'boolean') {
+					value = false
 				}
+			}
 		}
 	}
 
-	export let inputCat: InputCat = 'string'
 	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
 </script>
 
@@ -247,6 +249,10 @@
 				{/if}
 			{:else if inputCat == 'boolean'}
 				<Toggle
+					on:pointerdown={(e) => {
+						e?.stopPropagation()
+						window.dispatchEvent(new Event('pointerup'))
+					}}
 					{disabled}
 					class={valid
 						? ''

@@ -32,6 +32,7 @@
 	import { fly } from 'svelte/transition'
 	import type { Policy } from '$lib/gen'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
+	import { page } from '$app/stores'
 
 	export let app: App
 	export let path: string
@@ -95,7 +96,11 @@
 		mounted = true
 	})
 
-	$: context = { email: $userStore?.email, username: $userStore?.username }
+	$: context = {
+		email: $userStore?.email,
+		username: $userStore?.username,
+		query: Object.fromEntries($page.url.searchParams.entries())
+	}
 
 	$: mounted && ($worldStore = buildWorld($staticOutputs, $worldStore, context))
 	$: previewing = $mode === 'preview'
@@ -193,7 +198,7 @@
 						{#if $connectingInput.opened}
 							<div
 								class="fixed top-32  p-2 z-50 flex justify-center items-center"
-								transition:fly={{ duration: 100, y: -100 }}
+								transition:fly|local={{ duration: 100, y: -100 }}
 							>
 								<Alert title="Connecting" type="info">
 									<div class="flex gap-2 flex-col">

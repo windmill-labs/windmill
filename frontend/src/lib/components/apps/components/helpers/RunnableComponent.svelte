@@ -23,6 +23,8 @@
 	export let forceSchemaDisplay: boolean = false
 	export let noMinH = false
 	export let defaultUserInput = false
+	export let flexWrap = false
+	export let wrapperClass = ''
 
 	const { worldStore, runnableComponents, workspace, appPath, isEditor, jobs, noBackend } =
 		getContext<AppEditorContext>('AppEditorContext')
@@ -130,7 +132,11 @@
 			if (oldInput === undefined) {
 				result[key] = newInput
 			} else {
-				if (fieldTypeToTsType(newInput.fieldType) !== fieldTypeToTsType(oldInput.fieldType)) {
+				if (
+					fieldTypeToTsType(newInput.fieldType) !== fieldTypeToTsType(oldInput.fieldType) ||
+					newInput.format !== oldInput.format ||
+					newInput.subFieldType !== oldInput.subFieldType
+				) {
 					result[key] = newInput
 				} else {
 					result[key] = oldInput
@@ -270,7 +276,7 @@
 	bind:this={testJobLoader}
 />
 
-<div class="h-full flex relative flex-row flex-wrap">
+<div class="h-full flex relative flex-row flex-wrap {wrapperClass}">
 	{#if autoRefresh === true}
 		<div class="flex absolute top-1 right-1">
 			<RefreshButton componentId={id} />
@@ -279,8 +285,7 @@
 	{#if schemaStripped && Object.keys(schemaStripped?.properties ?? {}).length > 0 && (autoRefresh || forceSchemaDisplay)}
 		<div class="px-2 h-fit min-h-0">
 			<SchemaForm
-				compact
-				flexWrap
+				{flexWrap}
 				schema={schemaStripped}
 				bind:args
 				{disabledArgs}
@@ -297,12 +302,16 @@
 	{:else if result?.error}
 		<div class="p-2">
 			<Alert type="error" title="Error during execution">
-				<pre title={result.error} class="text-2xs whitespace-pre-wrap">{result.error}</pre>
+				See "Debug Runs" on the top right for more details
+				<pre
+					title={JSON.stringify(result.error, null, 4)}
+					class=" mt-2 text-2xs whitespace-pre-wrap">{JSON.stringify(result.error, null, 4)}</pre
+				>
 			</Alert>
 			<slot />
 		</div>
 	{:else}
-		<div class="grow min-w-1/2 {noMinH ? '' : 'min-h-[66%]'}">
+		<div class="block w-full h-full">
 			<slot />
 		</div>
 	{/if}

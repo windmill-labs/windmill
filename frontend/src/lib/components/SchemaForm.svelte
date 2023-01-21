@@ -149,5 +149,5 @@
 		</div>
 	</ItemPicker>
 
-	<VariableEditor bind:this={variableEditor} on:create={itemPicker.openDrawer} />
+	<VariableEditor bind:this={variableEditor} />
 {/if}

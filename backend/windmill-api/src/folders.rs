@@ -19,7 +19,7 @@ use itertools::Itertools;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{self, Error, JsonResult, Result},
-    users::owner_to_token_owner,
+    users::username_to_permissioned_as,
     utils::{not_found_if_none, paginate, Pagination},
 };
 
@@ -145,7 +145,7 @@ async fn create_folder(
     let mut tx = user_db.begin(&authed).await?;
 
     check_name_conflict(&mut tx, &w_id, &ng.name).await?;
-    let owner = owner_to_token_owner(&authed.username, false);
+    let owner = username_to_permissioned_as(&authed.username);
     let owners = &ng.owners.unwrap_or(vec![owner.clone()]);
 
     if let Some(extra_perms) = ng.extra_perms.clone() {

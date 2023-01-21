@@ -186,7 +186,7 @@ mod suspend_resume {
                                 const secret = await r.text();\
                                 console.log('Secret: ' + secret + ' ' + job + ' ' + token);\
                                 const r2 = await fetch(
-                                    `http://localhost:${port}/api/w/test-workspace/jobs/${op}/${job}/0/${secret}?approver=ruben`,\
+                                    `http://localhost:${port}/api/w/test-workspace/jobs_u/${op}/${job}/0/${secret}?approver=ruben`,\
                                     {\
                                         method: 'POST',\
                                         body: JSON.stringify('from job'),\
@@ -262,7 +262,7 @@ mod suspend_resume {
                 // print_job(second, &db).await;
 
                 let tx = db.begin().await.unwrap();
-                let (tx, token) = windmill_worker::create_token_for_owner(tx, "test-workspace", "u/test-user", "", 100, "").await.unwrap();
+                let (tx, token) = windmill_worker::create_token_for_owner(tx, "test-workspace", "u/test-user", "", 100).await.unwrap();
                 tx.commit().await.unwrap();
                 let secret = reqwest::get(format!(
                     "http://localhost:{port}/api/w/test-workspace/jobs/job_signature/{second}/0?token={token}&approver=ruben"
@@ -276,7 +276,7 @@ mod suspend_resume {
 
                 /* ImZyb20gdGVzdCIK = base64 "from test" */
                 reqwest::get(format!(
-                    "http://localhost:{port}/api/w/test-workspace/jobs/resume/{second}/0/{secret}?payload=ImZyb20gdGVzdCIK&approver=ruben"
+                    "http://localhost:{port}/api/w/test-workspace/jobs_u/resume/{second}/0/{secret}?payload=ImZyb20gdGVzdCIK&approver=ruben"
                 ))
                 .await
                 .unwrap()
@@ -333,7 +333,7 @@ mod suspend_resume {
         server.close().await.unwrap();
 
         assert_eq!(
-            json!({"error": "Job canceled: approval request disapproved by ruben" }),
+            json!({"error": {"name": "Canceled", "reason": "approval request disapproved", "message": "Job canceled: approval request disapproved by ruben", "canceler": "ruben"}}),
             result
         );
     }
@@ -365,7 +365,7 @@ mod suspend_resume {
                 let second = completed.next().await.unwrap();
 
                 let tx = db.begin().await.unwrap();
-                let (tx, token) = windmill_worker::create_token_for_owner(tx, "test-workspace", "u/test-user", "", 100, "").await.unwrap();
+                let (tx, token) = windmill_worker::create_token_for_owner(tx, "test-workspace", "u/test-user", "", 100).await.unwrap();
                 tx.commit().await.unwrap();
                 let secret = reqwest::get(format!(
                     "http://localhost:{port}/api/w/test-workspace/jobs/job_signature/{second}/0?token={token}"
@@ -379,7 +379,7 @@ mod suspend_resume {
 
                 /* ImZyb20gdGVzdCIK = base64 "from test" */
                 reqwest::get(format!(
-                    "http://localhost:{port}/api/w/test-workspace/jobs/cancel/{second}/0/{secret}?payload=ImZyb20gdGVzdCIK"
+                    "http://localhost:{port}/api/w/test-workspace/jobs_u/cancel/{second}/0/{secret}?payload=ImZyb20gdGVzdCIK"
                 ))
                 .await
                 .unwrap()
@@ -395,7 +395,7 @@ mod suspend_resume {
         let result = completed_job(flow, &db).await.result.unwrap();
 
         assert_eq!(
-            json!({"error": "Job canceled: approval request disapproved by unknown" }),
+            json!( {"error": {"name": "InternalErr", "message": "{\"message\":\"Job canceled: approval request disapproved by unknown\",\"name\":\"Canceled\",\"reason\":\"approval request disapproved\",\"canceler\":\"unknown\"}"}}),
             result
         );
     }
@@ -462,7 +462,7 @@ export async function main(index, port) {
     const buf = new Uint8Array([0]);
     const sock = await Deno.connect({ port });
     await sock.write(new Uint8Array([index]));
-    if (await sock.read(buf) != 1) throw "read";
+    if (await sock.read(buf) != 1) throw Error("read");
     return buf[0];
 }
             "#
@@ -581,10 +581,17 @@ def main(last, port):
             .unwrap();
 
         assert_eq!(server.close().await, attempts);
-        assert!(result[1]["error"]
-            .as_str()
-            .unwrap()
-            .contains(r#"Uncaught (in promise) "read""#));
+
+        assert!(
+            result[1]["error"]
+                .as_object()
+                .unwrap()
+                .get("message")
+                .unwrap()
+                .as_str()
+                .unwrap()
+                == "read"
+        );
     }
 
     #[sqlx::test(fixtures("base"))]
@@ -615,6 +622,10 @@ def main(last, port):
         let result = job.result.unwrap();
         assert_eq!(server.close().await, attempts);
         assert!(result["error"]
+            .as_object()
+            .unwrap()
+            .get("message")
+            .unwrap()
             .as_str()
             .unwrap()
             .contains("index out of range"));
@@ -684,9 +695,7 @@ def main(error, port):
             result,
             json!({
                 "recv": 42,
-                "from failure module": {
-                    "error": "Error during execution of the script:\n\nTraceback (most recent call last):\n  File \"/tmp/main.py\", line 15, in <module>\n    res = inner_script.main(**kwargs)\n  File \"/tmp/inner.py\", line 5, in main\n    return sock.recv(1)[0]\nIndexError: index out of range",
-                }
+                "from failure module": {"error": {"name": "IndexError", "stack": "  File \"/tmp/inner.py\", line 5, in main\n    return sock.recv(1)[0]\n", "message": "index out of range"}},
             })
         );
     }
@@ -739,9 +748,13 @@ async fn test_iteration(db: Pool<Postgres>) {
         .unwrap();
     assert!(matches!(result, serde_json::Value::Array(_)));
     assert!(result[2]["error"]
+        .as_object()
+        .unwrap()
+        .get("message")
+        .unwrap()
         .as_str()
         .unwrap()
-        .contains("StopIteration: 2"));
+        .contains("2"));
 }
 
 #[sqlx::test(fixtures("base"))]
@@ -792,9 +805,13 @@ async fn test_iteration_parallel(db: Pool<Postgres>) {
     let result = job.result.unwrap();
     assert!(matches!(result, serde_json::Value::Array(_)));
     assert!(result[2]["error"]
+        .as_object()
+        .unwrap()
+        .get("message")
+        .unwrap()
         .as_str()
         .unwrap()
-        .contains("StopIteration: 2"));
+        .contains("2"));
 }
 
 struct RunJob {
@@ -1767,7 +1784,7 @@ async fn test_invalid_first_step(db: Pool<Postgres>) {
 
     assert_eq!(
         job.result.unwrap(),
-        serde_json::json!({"error":"Expected an array value, found: {}"})
+        serde_json::json!( {"error":  {"name": "InternalErr", "message": "Expected an array value, found: {}"}})
     );
 }
 
@@ -2083,7 +2100,7 @@ async fn test_branchall_skip_failure(db: Pool<Postgres>) {
 
     assert_eq!(
         result,
-        serde_json::json!([{"error": "Error during execution of the script:\n\nerror: Uncaught (in promise) Error: failure\nexport function main(){ throw Error('failure') }\n                              ^\n    at main (file:///tmp/inner.ts:1:31)\n    at run (file:///tmp/main.ts:9:26)\n    at file:///tmp/main.ts:14:1"}, [1,3]])
+        serde_json::json!([{"error": {"name": "Error", "stack": "Error: failure\n    at main (file:///tmp/inner.ts:1:31)\n    at run (file:///tmp/main.ts:9:26)\n    at file:///tmp/main.ts:14:1", "message": "failure"}}, [1,3]])
     );
 
     let flow: FlowValue = serde_json::from_value(json!({
@@ -2117,7 +2134,7 @@ async fn test_branchall_skip_failure(db: Pool<Postgres>) {
 
     assert_eq!(
         result,
-        serde_json::json!([{"error": "Error during execution of the script:\n\nerror: Uncaught (in promise) Error: failure\nexport function main(){ throw Error('failure') }\n                              ^\n    at main (file:///tmp/inner.ts:1:31)\n    at run (file:///tmp/main.ts:9:26)\n    at file:///tmp/main.ts:14:1"}, [1, 2]])
+        serde_json::json!([ {"error": {"name": "Error", "stack": "Error: failure\n    at main (file:///tmp/inner.ts:1:31)\n    at run (file:///tmp/main.ts:9:26)\n    at file:///tmp/main.ts:14:1", "message": "failure"}}, [1, 2]])
     );
 }
 
@@ -2256,7 +2273,7 @@ async fn test_failure_module(db: Pool<Postgres>) {
                     },
                     "type": "rawscript",
                     "language": "deno",
-                    "content": "export function main(n, l) { if (n == 0) throw l; return { l: [...l, 0] } }",
+                    "content": "export function main(n, l) { if (n == 0) throw Error(JSON.stringify(l)); return { l: [...l, 0] } }",
                 },
             }, {
                 "id": "b",
@@ -2267,7 +2284,7 @@ async fn test_failure_module(db: Pool<Postgres>) {
                     },
                     "type": "rawscript",
                     "language": "deno",
-                    "content": "export function main(n, l) { if (n == 1) throw l; return { l: [...l, 1] } }",
+                    "content": "export function main(n, l) { if (n == 1) throw Error(JSON.stringify(l)); return { l: [...l, 1] } }",
                 },
             }, {
                 "value": {
@@ -2277,7 +2294,7 @@ async fn test_failure_module(db: Pool<Postgres>) {
                     },
                     "type": "rawscript",
                     "language": "deno",
-                    "content": "export function main(n, l) { if (n == 2) throw l; return { l: [...l, 2] } }",
+                    "content": "export function main(n, l) { if (n == 2) throw Error(JSON.stringify(l)); return { l: [...l, 2] } }",
                 },
             }],
             "failure_module": {
@@ -2297,10 +2314,15 @@ async fn test_failure_module(db: Pool<Postgres>) {
         .await
         .result
         .unwrap();
+
     assert!(result["from failure module"]["error"]
+        .as_object()
+        .unwrap()
+        .get("message")
+        .unwrap()
         .as_str()
         .unwrap()
-        .contains("Uncaught (in promise) []"));
+        .contains("[]"));
 
     let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
         .arg("n", json!(1))
@@ -2308,10 +2330,15 @@ async fn test_failure_module(db: Pool<Postgres>) {
         .await
         .result
         .unwrap();
+
     assert!(result["from failure module"]["error"]
+        .as_object()
+        .unwrap()
+        .get("message")
+        .unwrap()
         .as_str()
         .unwrap()
-        .contains("Uncaught (in promise) [ 0 ]"));
+        .contains("[0]"));
 
     let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
         .arg("n", json!(2))
@@ -2319,10 +2346,15 @@ async fn test_failure_module(db: Pool<Postgres>) {
         .await
         .result
         .unwrap();
+
     assert!(result["from failure module"]["error"]
+        .as_object()
+        .unwrap()
+        .get("message")
+        .unwrap()
         .as_str()
         .unwrap()
-        .contains("Uncaught (in promise) [ 0, 1 ]"));
+        .contains("[0,1]"));
 
     let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
         .arg("n", json!(3))

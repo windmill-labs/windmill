@@ -91,7 +91,7 @@ Windmill is <b>fully open-sourced (AGPLv3)</b>:
    shared on [WindmillHub](https://hub.windmill.dev).
    ![Step 4](./imgs/windmill-flow.png)
 
-4. (Coming soon) Build complex UI on top of your scripts and flows.
+4. Build complex UI on top of your scripts and flows.
    ![Step 5](./imgs/windmill-builder.png)
 
 Scripts and flows can also be triggered by a cron schedule '*/5 * * * *' or
@@ -285,6 +285,7 @@ upcoming CLI tool.
 | BASE_INTERNAL_URL         | http://localhost:8000  | The base url that is reachable by your workers to talk to the Servers. This help avoiding going through the external load balancer for VPC-internal requests.                                      | Worker                |
 | TIMEOUT                   | 300                    | The timeout in seconds for the execution of a script                                                                                                                                               | Worker                |
 | SLEEP_QUEUE               | 50                     | The number of ms to sleep in between the last check for new jobs in the DB. It is multiplied by NUM_WORKERS such that in average, for one worker instance, there is one pull every SLEEP_QUEUE ms. | Worker                |
+| MAX_LOG_SIZE              | 500000                 | The maximum number of characters a job can emit (log + result)                                                                                                                                     | Worker                |
 | DISABLE_NUSER             | false                  | If Nsjail is enabled, disable the nsjail's `clone_newuser` setting                                                                                                                                 | Worker                |
 | KEEP_JOB_DIR              | false                  | Keep the job directory after the job is done. Useful for debugging.                                                                                                                                | Worker                |
 | LICENSE_KEY (EE only)     | None                   | License key checked at startup for the Enterprise Edition of Windmill                                                                                                                              | Worker                |
@@ -303,6 +304,10 @@ upcoming CLI tool.
 | HOME                      | None                   | The home directory to use for Go and Bash , usually inherited                                                                                                                                      | Worker                |
 | DATABASE_CONNECTIONS      | 50 (Server)/3 (Worker) | The max number of connections in the database connection pool                                                                                                                                      | All                   |
 | SUPERADMIN_SECRET         | None                   | A token that would let the caller act as a virtual superadmin superadmin@windmill.dev                                                                                                              | Server                |
+| TIMEOUT_WAIT_RESULT       | 20                     | The number of seconds to wait before timeout on the 'run_wait_result' endpoint                                                                                                                     | Worker                |
+| QUEUE_LIMIT_WAIT_RESULT   | None                   | The number of max jobs in the queue before rejecting immediately the request in 'run_wait_result' endpoint. Takes precedence on the query arg. If none is specified, there are no limit.           | Worker                |
+
+
 
 
 ## Run a local dev setup

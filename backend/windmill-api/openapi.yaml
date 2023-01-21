@@ -1,10 +1,11 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.59.0
-  title: Windmill server API
+  version: 1.60.0
+  title: Windmill API
+
   contact:
-    name: Windmill contact
+    name: Windmill Team
     email: contact@windmill.dev
     url: https://windmill.dev
 
@@ -12,6 +13,8 @@ info:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.html
 
+  x-logo:
+    url: https://docs.windmill.dev/img/windmill.svg
 externalDocs:
   description: documentation portal
   url: https://docs.windmill.dev
@@ -662,6 +665,43 @@ paths:
                 - email
                 - is_admin
                 - operator
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/add_user:
+    post:
+      summary: add user to workspace
+      operationId: addUser
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: WorkspaceInvite
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                is_admin:
+                  type: boolean
+                username:
+                  type: string
+                operator:
+                  type: boolean
+              required:
+                - email
+                - is_admin
+                - operator
+                - username
       responses:
         "200":
           description: status
@@ -2384,6 +2424,7 @@ paths:
             type: integer
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/IncludeHeader"
+        - $ref: "#/components/parameters/QueueLimit"
 
       requestBody:
         description: script args
@@ -2669,7 +2710,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/AppWithLastVersion"
 
-  /w/{workspace}/apps/public_app/{path}:
+  /w/{workspace}/apps_u/public_app/{path}:
     get:
       summary: get public app by secret
       operationId: getPublicAppBySecret
@@ -2806,7 +2847,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/apps/execute_component/{path}:
+  /w/{workspace}/apps_u/execute_component/{path}:
     post:
       summary: executeComponent
       operationId: executeComponent
@@ -3114,7 +3155,7 @@ paths:
                 items:
                   $ref: "#/components/schemas/Job"
 
-  /w/{workspace}/jobs/get/{id}:
+  /w/{workspace}/jobs_u/get/{id}:
     get:
       summary: get job
       operationId: getJob
@@ -3148,7 +3189,7 @@ paths:
   #             schema:
   #               type: string
 
-  /w/{workspace}/jobs/getupdate/{id}:
+  /w/{workspace}/jobs_u/getupdate/{id}:
     get:
       summary: get job updates
       operationId: getJobUpdates
@@ -3306,7 +3347,7 @@ paths:
                   - resume
                   - cancel
 
-  /w/{workspace}/jobs/resume/{id}/{resume_id}/{signature}:
+  /w/{workspace}/jobs_u/resume/{id}/{resume_id}/{signature}:
     get:
       summary: resume a job for a suspended flow
       operationId: resumeSuspendedJobGet
@@ -3396,7 +3437,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/jobs/cancel/{id}/{resume_id}/{signature}:
+  /w/{workspace}/jobs_u/cancel/{id}/{resume_id}/{signature}:
     get:
       summary: cancel a job for a suspended flow
       operationId: cancelSuspendedJobGet
@@ -3463,7 +3504,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/jobs/get_flow/{id}/{resume_id}/{signature}:
+  /w/{workspace}/jobs_u/get_flow/{id}/{resume_id}/{signature}:
     get:
       summary: get parent flow job of suspended job
       operationId: getSuspendedJobFlow
@@ -4228,6 +4269,20 @@ paths:
               schema:
                 type: string
 
+
+  /w/{workspace}/capture_u/{path}:
+      post:
+        summary: update flow preview capture
+        operationId: updateCapture
+        tags:
+          - capture
+        parameters:
+          - $ref: "#/components/parameters/WorkspaceId"
+          - $ref: "#/components/parameters/Path"
+        responses:
+          "204":
+            description: flow preview captured
+
   /w/{workspace}/capture/{path}:
     put:
       summary: create flow preview capture
@@ -4240,17 +4295,6 @@ paths:
       responses:
         "201":
           description: flow preview capture created
-    post:
-      summary: update flow preview capture
-      operationId: updateCapture
-      tags:
-        - capture
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Path"
-      responses:
-        "204":
-          description: flow preview captured
     get:
       summary: get flow preview capture
       operationId: getCapture
@@ -4415,6 +4459,13 @@ components:
       description: |
         List of headers's keys (separated with ',') whove value are added to the args
         Header's key lowercased and '-'' replaced to '_' such that 'Content-Type' becomes the 'content_type' arg key
+      in: query
+      schema:
+        type: string
+    QueueLimit:
+      name: queue_limit
+      description: |
+        The maximum size of the queue for which the request would get rejected if that job would push it above that limit
       in: query
       schema:
         type: string

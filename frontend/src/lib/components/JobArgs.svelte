@@ -20,7 +20,7 @@
 				</tr>
 			{/each}
 		{:else if args}
-			<tr>No arguments</tr>
+			<tr><div class="text-gray-600 pt-2 pl-1 text-sm">No arguments</div></tr>
 		{:else}
 			<tr>
 				<td>

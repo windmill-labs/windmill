@@ -16,6 +16,8 @@
 	export let runnableComponent: RunnableComponent | undefined = undefined
 	export let forceSchemaDisplay: boolean = false
 	export let defaultUserInput = false
+	export let flexWrap = false
+	export let runnableClass = ''
 
 	const { staticExporter, noBackend } = getContext<AppEditorContext>('AppEditorContext')
 
@@ -35,6 +37,7 @@
 	<slot />
 {:else if componentInput.type === 'runnable' && isRunnableDefined()}
 	<RunnableComponent
+		{flexWrap}
 		{defaultUserInput}
 		bind:this={runnableComponent}
 		bind:fields={componentInput.fields}
@@ -45,6 +48,7 @@
 		{extraQueryParams}
 		{forceSchemaDisplay}
 		{noMinH}
+		wrapperClass={runnableClass}
 	>
 		<slot />
 	</RunnableComponent>

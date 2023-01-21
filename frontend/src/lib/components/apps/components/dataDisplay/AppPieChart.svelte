@@ -65,7 +65,7 @@
 <InputValue {id} input={configuration.theme} bind:value={theme} />
 <InputValue {id} input={configuration.doughnutStyle} bind:value={doughnut} />
 
-<RunnableWrapper autoRefresh bind:componentInput {id} bind:result>
+<RunnableWrapper flexWrap autoRefresh bind:componentInput {id} bind:result>
 	{#if result}
 		{#if doughnut}
 			<Doughnut {data} {options} />

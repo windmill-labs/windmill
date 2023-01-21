@@ -42,7 +42,11 @@ pub fn initialize_tracing() {
 
     match json_fmt {
         true => ts_base
-            .with(json_layer().with_filter(filter_fn(filter_metadata)))
+            .with(
+                json_layer()
+                    .flatten_event(true)
+                    .with_filter(filter_fn(filter_metadata)),
+            )
             .init(),
         false => ts_base
             .with(
