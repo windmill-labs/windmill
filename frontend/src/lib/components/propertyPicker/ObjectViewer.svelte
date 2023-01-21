@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { pluralize, truncate } from '$lib/utils'
+	import { copyToClipboard, pluralize, truncate } from '$lib/utils'
 
 	import { createEventDispatcher } from 'svelte'
 	import { Badge } from '../common'
@@ -38,7 +38,10 @@
 
 	const dispatch = createEventDispatcher()
 
-	function selectProp(key: string) {
+	function selectProp(key: string, value: any) {
+		if (pureViewer) {
+			copyToClipboard(value)
+		}
 		dispatch('select', rawKey ? key : computeKey(key, isArray, currentPath))
 	}
 </script>
@@ -58,7 +61,7 @@
 		<ul class="w-full">
 			{#each keys as key, index}
 				<li class="pt-1">
-					<button on:click={() => selectProp(key)} class="whitespace-nowrap">
+					<button on:click={() => selectProp(key, key)} class="whitespace-nowrap">
 						{#if topLevelNode}
 							<Badge baseClass="border border-blue-600" color="indigo">{key}</Badge>
 						{:else}
@@ -86,7 +89,7 @@
 							class="val {pureViewer
 								? 'cursor-auto'
 								: ''} rounded hover:bg-blue-100 {getTypeAsString(json[key])}"
-							on:click={() => selectProp(key)}
+							on:click={() => selectProp(key, json[key])}
 						>
 							{#if json[key] === NEVER_TESTED_THIS_FAR}
 								<WarningMessage />

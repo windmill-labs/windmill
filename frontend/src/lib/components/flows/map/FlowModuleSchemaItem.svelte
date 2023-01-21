@@ -43,7 +43,7 @@
 			{#if retry}
 				<Popover notClickable>
 					<div
-						transition:fade={{duration: 200}}
+						transition:fade={{ duration: 200 }}
 						class="center-center bg-white rounded border border-gray-400 text-gray-700 px-1 py-0.5"
 					>
 						<Repeat size={14} />
@@ -54,7 +54,7 @@
 			{#if earlyStop}
 				<Popover notClickable>
 					<div
-						transition:fade={{duration: 200}}
+						transition:fade={{ duration: 200 }}
 						class="center-center bg-white rounded border border-gray-400 text-gray-700 px-1 py-0.5"
 					>
 						<Square size={14} />
@@ -65,7 +65,7 @@
 			{#if suspend}
 				<Popover notClickable>
 					<div
-						transition:fade={{duration: 200}}
+						transition:fade={{ duration: 200 }}
 						class="center-center bg-white rounded border border-gray-400 text-gray-700 px-1 py-0.5"
 					>
 						<PhoneIncoming size={14} />
@@ -76,7 +76,7 @@
 			{#if sleep}
 				<Popover notClickable>
 					<div
-						transition:fade={{duration: 200}}
+						transition:fade={{ duration: 200 }}
 						class="center-center bg-white rounded border border-gray-400 text-gray-700 px-1 py-0.5"
 					>
 						<Bed size={14} />
@@ -103,7 +103,7 @@
 						class="absolute -top-2 right-0 rounded-full h-4 w-4 trash center-center 
 						border-[1.5px] border-gray-700 bg-white duration-150 hover:bg-red-400 hover:text-white 
 						hover:border-red-700 {selected ? '' : '!hidden'}"
-						on:click={(event) => dispatch('delete', event)}
+						on:click|preventDefault|stopPropagation={(event) => dispatch('delete', event)}
 					>
 						<X size={12} strokeWidth={2} />
 					</button>
