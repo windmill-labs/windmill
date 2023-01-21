@@ -7,6 +7,12 @@ export {
     UserService, WorkspaceService
 } from './windmill-api/index.ts'
 
+
+// @ts-ignore: Otherwise BigInt is not supported for export
+BigInt.prototype.toJSON = function () {
+    return this.toString();
+};
+
 export { pgSql, pgClient } from './pg.ts'
 export { mySql, mysqlClient } from './mysql.ts'
 
