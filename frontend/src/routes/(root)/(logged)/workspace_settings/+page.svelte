@@ -146,8 +146,8 @@
 			`Executions are not accounted for in the global user's
 					quotas but are accounted for in the workspace's quota.`,
 			`Every user in the workspace increases the pooled workspace quota by <b>10k</b> executions.`,
-			`1 000 executions above the pooled workspace quota is charged 1$.`,
-			`<div class="text-lg mt-4"><b>10k executions/user + $1/1000 additional executions</b></div>`
+			`<div class="text-lg mt-4"><b>10k executions/user</b></div>`,
+			`$0.001 per additional execution (1$ per 1000 executions)`
 		],
 		Enterprise: [
 			`<b>$50/month</b> per user in the workspace.`,
@@ -157,7 +157,8 @@
 			`<b>Dedicated workers and database</b>`,
 			`<b>SAML support</b>`,
 			`<b>Priority support including an automation engineer</b>`,
-			`<div class="text-lg mt-4"><b>50k executions/user + $1/1000 additional executions</b><div>`
+			`<div class="text-lg mt-4"><b>50k executions/user</b><div>`,
+			`$0.001 per additional execution (1$ per 1000 executions)`
 		]
 	}
 </script>
@@ -419,9 +420,12 @@
 		{:else if tab == 'premium'}
 			{#if isCloudHosted()}
 				<div class="mt-4" />
-				{#if customer_id || true}
+				{#if customer_id}
 					<div class="mt-2 mb-6">
-						<Button endIcon={{ icon: faExternalLink }} href="">Customer Portal</Button>
+						<Button
+							endIcon={{ icon: faExternalLink }}
+							href="/api/w/{$workspaceStore}/workspaces/billing_portal">Customer Portal</Button
+						>
 						<p class="text-xs text-gray-600 mt-1">
 							See invoices, change billing information or subscription details</p
 						>
@@ -429,9 +433,36 @@
 				{/if}
 
 				<div class="text-sm mb-4">
-					{#if premium_info?.premium}Number of executions in this workspace this month: <div
-							class=" inline text-2xl font-bold">{premium_info.usage ?? 0}</div
-						>
+					{#if premium_info?.premium}
+						<div class="flex flex-col gap-1">
+							<div
+								>Current plan: <div class=" inline text-2xl font-bold">{plan ?? 'Free plan'}</div
+								></div
+							>
+							{#if plan}
+								{@const team_factor = plan == 'team' ? 10 : 50}
+								{@const max = (users?.length ?? 0) * team_factor}
+
+								<div>
+									Current number of seats in this workspace:
+									<div class="inline text-2xl font-bold"
+										>{users?.length ?? 0} * ${team_factor} = ${(users?.length ?? 0) *
+											team_factor}/mo</div
+									>
+									<Tooltip
+										>Actual pricing is calculated on the MAXIMUM number of users in a given billing
+										period, see the customer portal for more info.</Tooltip
+									>
+								</div>
+
+								<div>
+									Included number of executions based on your seats and plan:
+									<div class=" inline text-2xl font-bold"
+										>{users?.length ?? 0} seats x {plan == 'team' ? '10k' : '50k'} = {max}k
+									</div>
+								</div>
+							{/if}
+						</div>
 					{:else}
 						This workspace is <b>NOT</b> on a team plan. Users use their global free-tier quotas when
 						doing executions in this workspace. Upgrade to a Team or Enterprise plan to unlock unlimited
@@ -462,25 +493,28 @@
 							{#if planTitle == 'Team'}
 								{#if plan != 'team'}
 									<div class="mt-4 mx-auto">
-										<Button href="/api/w/{$workspaceStore}/workspaces/checkout?plan=team"
-											>Upgrade to the Team plan</Button
+										<Button disabled href="/api/w/{$workspaceStore}/workspaces/checkout?plan=team"
+											>Upgrade to the Team plan (Coming soon)</Button
 										>
 									</div>
 								{:else}
-									<div class="mx-auto text-lg font-semibold">You are on the team plan</div>
+									<div class="mx-auto text-lg font-semibold">Workspace is on the team plan</div>
 								{/if}
 							{:else if planTitle == 'Enterprise'}
 								{#if plan != 'enterprise'}
 									<div class="mt-4 mx-auto">
-										<Button href="/api/w/{$workspaceStore}/workspaces/checkout?plan=enterprise"
-											>Upgrade to the Enterprise plan</Button
+										<Button
+											on:click={() =>
+												sendUserToast(
+													'Contact contact@windmill.dev to have your dedicated instance provisioned'
+												)}>Upgrade to the Enterprise plan</Button
 										>
 									</div>
 								{:else}
-									<div class="mx-auto text-lg font-semibold">You are on enterprise plan</div>
+									<div class="mx-auto text-lg font-semibold">Workspace is on enterprise plan</div>
 								{/if}
 							{:else if !plan}
-								<div class="mx-auto text-lg font-semibold">You are on the free plan</div>
+								<div class="mx-auto text-lg font-semibold">Workspace is on the free plan</div>
 							{:else}
 								<div class="mt-4 w-full">
 									<Button href="/api/w/{$workspaceStore}/workspaces/checkout"

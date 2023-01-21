@@ -16,12 +16,13 @@
 			goto('/workspace_settings?tab=premium')
 		}, 5000)
 	} else {
-		setInterval(async () => {
+		let interval = setInterval(async () => {
 			attempt += 1
 			if ((await WorkspaceService.getSettings({ workspace: $workspaceStore! })).customer_id) {
 				goto('/workspace_settings?tab=premium')
 			} else if (attempt > 10) {
 				sendUserToast('Subscription upgrade failed. Contact contact@windmill.dev', true)
+				clearInterval(interval)
 				goto('/workspace_settings?tab=premium')
 			}
 		}, 5000)
@@ -36,10 +37,13 @@
 				The checkout failed, your subscription has not been updated.
 			</Alert>
 		</div>
+		<p class="text-sm my-6 text-gray-600">
+			You will be redirected to the workspace settings page in 5 seconds...
+		</p>
+	{:else}
+		<p class="text-sm my-6 text-gray-600"> Waiting for your upgrade to be processed... </p>
 	{/if}
-	<p class="text-sm my-6 text-gray-600">
-		You will be redirected to the workspace settings page in 5 seconds...
-	</p>
+
 	<div class="block m-auto w-20">
 		<WindmillIcon class="animate-[spin_6s_linear_infinite]" height="80px" width="80px" />
 	</div>
