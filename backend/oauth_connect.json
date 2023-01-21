@@ -81,6 +81,12 @@
   "square": {
     "auth_url": "https://squareup.com/oauth2/authorize",
     "token_url": "https://squareup.com/oauth2/token",
-    "scopes": ["CUSTOMERS_READ", "ORDERS_READ", "INVENTORY_READ", "MERCHANT_PROFILE_READ"]
+    "scopes": [
+      "CUSTOMERS_READ",
+      "ORDERS_READ",
+      "INVENTORY_READ",
+      "MERCHANT_PROFILE_READ"
+    ],
+    "req_body_auth": true
   }
 }
