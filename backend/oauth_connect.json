@@ -77,5 +77,10 @@
     "token_url": "https://www.linkedin.com/oauth/v2/accessToken",
     "scopes": ["w_member_social", "r_liteprofile", "r_emailaddress"],
     "req_body_auth": true
+  },
+  "square": {
+    "auth_url": "https://squareup.com/oauth2/authorize",
+    "token_url": "https://squareup.com/oauth2/token",
+    "scopes": ["CUSTOMERS_READ", "ORDERS_READ", "INVENTORY_READ", "MERCHANT_PROFILE_READ"]
   }
 }
