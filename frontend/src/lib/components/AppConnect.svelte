@@ -34,6 +34,15 @@
 		supabase: {
 			img: '/supabase_connect.png',
 			instructions: ['Go to the API Settings of your app to find the project URL and key']
+		},
+
+		square: {
+			img: '/square_connect.gif',
+			instructions: [
+				'Go to <a href="https://developer.squareup.com/apps" target="_blank" rel=”noopener noreferrer”>https://developer.squareup.com/apps</a>',
+				'In the left pane, choose Credentials',
+				'At the top of the page, choose Production mode for a production access token or Sandbox mode for a Sandbox access token.'
+			]
 		}
 	}
 </script>
