@@ -2,7 +2,8 @@ import { browser } from "$app/environment";
 import { derived, type Readable, writable } from "svelte/store";
 import type { UserWorkspaceList } from "$lib/gen/models/UserWorkspaceList.js";
 import { getUserExt } from "./user";
-import type { TokenResponse } from "./gen";
+import { WorkspaceService, type TokenResponse } from "./gen";
+import { isCloudHosted } from "./utils";
 
 export interface UserExt {
   email: string;
@@ -24,6 +25,7 @@ export const userStore = writable<UserExt | undefined>(undefined);
 export const workspaceStore = writable<string | undefined>(
   persistedWorkspace ? String(persistedWorkspace) : undefined,
 );
+export const premiumStore = writable<{ premium: boolean, usage?: number }>({ premium: false });
 export const starStore = writable(1);
 export const usersWorkspaceStore = writable<UserWorkspaceList | undefined>(
   undefined,
@@ -72,6 +74,9 @@ if (browser) {
       }
 
       userStore.set(await getUserExt(workspace));
+      if (isCloudHosted()) {
+        premiumStore.set((await WorkspaceService.getPremiumInfo({ workspace })));
+      }
     } else {
       userStore.set(undefined);
     }

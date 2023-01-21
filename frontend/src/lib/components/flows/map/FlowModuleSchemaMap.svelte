@@ -19,9 +19,6 @@
 	import FlowInputsItem from './FlowInputsItem.svelte'
 	import InsertModuleButton from './InsertModuleButton.svelte'
 	import { slide } from 'svelte/transition'
-	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
-	import { Icon } from 'svelte-awesome'
-	import { faDollarSign } from '@fortawesome/free-solid-svg-icons'
 	import FlowConstantsItem from './FlowConstantsItem.svelte'
 
 	export let root: boolean = false
@@ -59,7 +56,6 @@
 	}
 
 	function removeAtIndex(index: number): void {
-		select('settings-graph')
 		if (!modules) return
 		const [removedModule] = modules.splice(index, 1)
 		modules = modules
@@ -67,6 +63,7 @@
 		const leaves = findLeaves(removedModule)
 
 		leaves.forEach((leafId: string) => deleteFlowStateById(leafId))
+		select('settings-graph')
 	}
 
 	function findLeaves(flowModule: FlowModule): string[] {

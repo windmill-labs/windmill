@@ -18,6 +18,7 @@ export type FlowState = Record<string, FlowModuleState>
  * We also hold the data of the results of a test job, ran by the user.
  */
 export const flowStateStore = writable<FlowState>({})
+export const testStepStore = writable<Record<string, any>>({})
 
 export async function initFlowState(flow: Flow) {
 	const modulesState: FlowState = {}

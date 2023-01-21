@@ -655,7 +655,7 @@ export function addWhitespaceBeforeCapitals(word?: string): string {
 }
 
 export function isCloudHosted(): boolean {
-	return get(page).url.hostname == 'app.windmill.dev'
+	return (get(page)?.url?.hostname == 'app.windmill.dev')
 }
 
 export function isObject(obj: any) {
