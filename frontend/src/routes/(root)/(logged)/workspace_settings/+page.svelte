@@ -153,7 +153,7 @@
 		],
 		Enterprise: [
 			`<b>$100/mo</b>, includes 1 user/author + 10k computations`,
-			`<b>+ $16/mo</b> per extra user/author in the workspace (10 included)`,
+			`<b>+ $16/mo</b> per extra user/author in the workspace (1 included)`,
 			`<b>+ $8/mo</b> per extra operators in the workspace.`,
 			`<b>$0.002</b> per additional computation (10k included)`,
 			`<b>Dedicated</b> cluster available for <b>+400$/mo</b>`,
