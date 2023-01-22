@@ -25,6 +25,7 @@
 	import ToggleButton from '$lib/components/common/toggleButton/ToggleButton.svelte'
 	import AddUser from '$lib/components/AddUser.svelte'
 	import { page } from '$app/stores'
+	import Slider from '$lib/components/Slider.svelte'
 
 	let users: User[] | undefined = undefined
 	let invites: WorkspaceInvite[] = []
@@ -40,7 +41,7 @@
 	let nbDisplayed = 30
 	let plan: string | undefined = undefined
 	let customer_id: string | undefined = undefined
-	let tab: 'users' | 'slack' | 'premium' | 'export_delete' =
+	let tab =
 		($page.url.searchParams.get('tab') as 'users' | 'slack' | 'premium' | 'export_delete') ??
 		'users'
 
@@ -142,23 +143,26 @@
 			'<b>1 000</b> free global executions per-user per month'
 		],
 		Team: [
-			`<b>$10/month</b> per user in the workspace.`,
-			`Executions are not accounted for in the global user's
-					quotas but are accounted for in the workspace's quota.`,
-			`Every user in the workspace increases the pooled workspace quota by <b>10k</b> executions.`,
-			`<div class="text-lg mt-4"><b>10k executions/user</b></div>`,
-			`$0.001 per additional execution (1$ per 1000 executions)`
+			`<b>$10/mo</b>, includes 1 user/author + 10k computations`,
+			`<b>+ $8/mo</b> per extra user/author in the workspace (1 included)`,
+			`<b>+ $4/mo</b> per extra operators in the workspace.`,
+			`<b>$0.001</b> per additional computation (10k included)`,
+			`Google/Github/Microsoft/Gitlab <b>SSO</b>`,
+			`<b>Unlimited</b> variables/resources/scripts/apps/flows`,
+			`<b>Support 24/7 with 48h response time</b>`
 		],
 		Enterprise: [
-			`<b>$50/month</b> per user in the workspace.`,
-			`Executions are not accounted for in the global user's
-					quotas but are accounted for in the workspace's quota.`,
-			`Every user in the workspace increases the pooled workspace quota by <b>50k</b> executions.`,
-			`<b>Dedicated workers and database</b>`,
-			`<b>SAML support</b>`,
-			`<b>Priority support including an automation engineer</b>`,
-			`<div class="text-lg mt-4"><b>50k executions/user</b><div>`,
-			`$0.001 per additional execution (1$ per 1000 executions)`
+			`<b>$100/mo</b>, includes 1 user/author + 10k computations`,
+			`<b>+ $16/mo</b> per extra user/author in the workspace (10 included)`,
+			`<b>+ $8/mo</b> per extra operators in the workspace.`,
+			`<b>$0.002</b> per additional computation (10k included)`,
+			`<b>Dedicated</b> cluster available for <b>+400$/mo</b>`,
+			`Everything in Team +`,
+			`<b>SAML</b> support`,
+			`<b>SLA</b>`,
+			`<b>Priority Support 24/7 with 3h response time and automation engineer assistance</b>`,
+			`<b>Design partners for Roadmap</b>`,
+			`<div class="mt-4">(Self-hosted enterprise licenses also available at 50% discount)</div>`
 		]
 	}
 </script>
@@ -471,12 +475,21 @@
 				</div>
 
 				<div class="my-4">
-					<Alert type="info" title="What is an execution">
-						The single credit-unit is called an "execution". An execution corresponds to a single
-						job whose duration is less than 1s. For any additional seconds of execution, an
-						additional execution is accounted for. Jobs are executed on powerful cpus. Most jobs
-						will take less than 200ms to execute.
-					</Alert>
+					<Slider text="What is a computation ?">
+						<Alert type="info" title="A computation is 1s of execution">
+							The single credit-unit is called a "computation". An computation corresponds to a
+							single job whose duration is less than 1s. For any additional seconds of computation,
+							an additional computation is accounted for. Jobs are executed on one powerful virtual
+							CPU with 2Gb of memory. Most jobs will take less than 200ms to execute.
+						</Alert>
+					</Slider>
+
+					<Slider text="Operator vs Author">
+						<Alert type="info" title="Operator vs Author"
+							>An author can write scripts/flows/apps/variables/resources. An operator can only
+							run/view them.</Alert
+						>
+					</Slider>
 				</div>
 
 				<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
