@@ -61,7 +61,7 @@
 	<div class="flex gap-2 flex-row flex-wrap">
 		{#each langs as lang}
 			<FlowScriptPicker
-				label={lang}
+				label={lang[0].toUpperCase() + lang.substring(1)}
 				{lang}
 				on:click={() => {
 					createInlineScriptByLanguage(lang, name)

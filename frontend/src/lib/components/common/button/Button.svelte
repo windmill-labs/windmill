@@ -79,7 +79,8 @@
 		target,
 		tabindex: disabled ? -1 : 0,
 		type: buttonType,
-		title
+		title,
+		...$$restProps
 	}
 
 	async function onClick(event: MouseEvent) {
@@ -125,7 +126,9 @@
 	{/if}
 
 	{#if !iconOnly}
-		<slot />
+		<span class:py-[1px]={variant !== 'border'}>
+			<slot />
+		</span>
 	{/if}
 	{#if endIcon}
 		<Icon data={endIcon.icon} class={endIconClass} scale={ButtonType.IconScale[size]} />
