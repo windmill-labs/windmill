@@ -48,6 +48,7 @@
 		}}
 		items={Array.isArray(items) ? items : []}
 		{value}
+		placeholder="Select an item"
 		on:click={() => {
 			if (!$connectingInput.opened) {
 				$selectedComponent = id
