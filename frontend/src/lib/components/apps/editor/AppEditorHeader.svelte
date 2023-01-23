@@ -244,12 +244,14 @@
 						{:else}
 							<div class="flex flex-col h-full w-full gap-4 mb-4">
 								{#if job?.['running']}
-									<div class="flex flex-row-reverse w-full"
-										><Button
+									<div class="flex flex-row-reverse w-full">
+										<Button
 											color="red"
 											variant="border"
-											on:click={() => testJobLoader?.cancelJob()}>Cancel</Button
+											on:click={() => testJobLoader?.cancelJob()}
 										>
+											Cancel
+										</Button>
 									</div>
 								{/if}
 								<div class="p-2">
@@ -437,10 +439,10 @@
 		<span class="hidden md:inline">
 			<Button
 				on:click={() => (jobsDrawerOpen = true)}
-				color="light"
+				color={hasErrors ? 'red' : 'light'}
 				size="xs"
 				variant="border"
-				startIcon={{ icon: faBug, classes: hasErrors ? '!text-red-500' : '' }}
+				startIcon={{ icon: faBug }}
 			>
 				<span class="hidden md:inline">Debug Runs</span>
 			</Button>

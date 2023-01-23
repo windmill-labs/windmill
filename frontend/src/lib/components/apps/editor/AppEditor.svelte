@@ -54,7 +54,6 @@
 	})
 
 	const runnableComponents = writable<Record<string, () => Promise<void>>>({})
-
 	const errorByComponent = writable<Record<string, string>>({})
 
 	setContext<AppEditorContext>('AppEditorContext', {

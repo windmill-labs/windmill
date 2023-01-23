@@ -4,7 +4,7 @@
 	import { Anchor, Bug, Move } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Popover from '$lib/components/Popover.svelte'
-	import { Alert } from '$lib/components/common'
+	import { Alert, Button } from '$lib/components/common'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -67,7 +67,7 @@
 	<span
 		title="Error"
 		class={classNames(
-			'text-red-500 px-1 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute border border-red-500 -top-1 shadow right-2 z-50 cursor-pointer',
+			'text-red-500 px-1 text-2xs py-0.5 font-bold w-fit absolute border border-red-500 -bottom-1  shadow left-1/2 transform -translate-x-1/2 z-50 cursor-pointer',
 			'bg-red-100/80'
 		)}
 	>
@@ -76,10 +76,9 @@
 			<span slot="text">
 				<div class="bg-white">
 					<Alert type="error" title="Error during execution">
-						See "Debug Runs" on the top right for more details
-						<pre title={JSON.stringify(error, null, 4)} class=" mt-2 text-2xs whitespace-pre-wrap">
-							{JSON.stringify(error, null, 4)}
-							</pre>
+						<div class="flex flex-col">
+							<span> See "Debug Runs" on the top right for more details </span>
+						</div>
 					</Alert>
 				</div>
 			</span>
