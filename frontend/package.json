@@ -23,7 +23,7 @@
 		"@tailwindcss/typography": "^0.5.8",
 		"@types/node": "^18.11.18",
 		"@types/vscode": "~1.74.0",
-		"@typescript-eslint/eslint-plugin": "^5.46.1",
+		"@typescript-eslint/eslint-plugin": "^5.49.0",
 		"@typescript-eslint/parser": "^5.48.0",
 		"@windmill-labs/svelvet": "^4.0.20",
 		"@zerodevx/svelte-toast": "^0.8.1",
