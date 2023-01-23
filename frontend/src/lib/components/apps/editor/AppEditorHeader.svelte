@@ -35,6 +35,7 @@
 		Loader2,
 		MoreVertical,
 		Pencil,
+		SlidersHorizontal,
 		Smartphone
 	} from 'lucide-svelte'
 	import { getContext } from 'svelte'
@@ -45,6 +46,7 @@
 	import type { AppComponent, AppEditorContext } from '../types'
 	import { toStatic } from '../utils'
 	import AppExportButton from './AppExportButton.svelte'
+	import AppInputs from './AppInputs.svelte'
 	import PanelSection from './settingsPanel/common/PanelSection.svelte'
 
 	async function hash(message) {
@@ -66,12 +68,12 @@
 
 	let newPath: string = ''
 	let pathError: string | undefined = undefined
-
 	let appExport: AppExportButton
 
 	let saveDrawerOpen = false
 	let jobsDrawerOpen = false
 	let publishDrawerOpen = false
+	let inputsDrawerOpen = false
 
 	function closeSaveDrawer() {
 		saveDrawerOpen = false
@@ -204,6 +206,12 @@
 				on:click={() => createApp(newPath)}>Create app</Button
 			>
 		</div>
+	</DrawerContent>
+</Drawer>
+
+<Drawer bind:open={inputsDrawerOpen} size="600px">
+	<DrawerContent title="App inputs configuration" on:close={() => (inputsDrawerOpen = false)}>
+		<AppInputs />
 	</DrawerContent>
 </Drawer>
 
@@ -433,6 +441,14 @@
 		>
 			<MoreVertical size={20} />
 		</Dropdown>
+		<span class="hidden md:inline">
+			<Button on:click={() => (inputsDrawerOpen = true)} color="light" size="xs" variant="border">
+				<span class="flex gap-2">
+					<SlidersHorizontal size={14} />
+					App inputs
+				</span>
+			</Button>
+		</span>
 		<span class="hidden md:inline">
 			<Button
 				on:click={() => (jobsDrawerOpen = true)}
