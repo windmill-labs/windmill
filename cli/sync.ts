@@ -31,6 +31,9 @@ import {
   pushScript,
   ScriptFile,
 } from "./script.ts";
+import { ResourceFile } from "./resource.ts";
+import { FlowFile } from "./flow.ts";
+import { VariableFile } from "./variable.ts";
 
 type TrackedId = string;
 const TrackedId = String;
@@ -186,7 +189,6 @@ async function getState(opts: GlobalOptions) {
         opts.workspace = res.value.name;
         (opts as any).__secret_workspace = res.value;
         break;
-        5;
       }
     }
     if (res.done) {
@@ -199,6 +201,7 @@ async function getState(opts: GlobalOptions) {
 async function updateStateFromRemote(
   workspace: Workspace,
   state: State,
+  callback: (filename: string) => PromiseLike<boolean> | boolean,
 ) {
   const untar = await downloadTar(workspace);
   if (!untar) throw new Error("Failed to pull Tar");
@@ -215,14 +218,18 @@ async function updateStateFromRemote(
 
       if (entry.fileName.endsWith(".json")) {
         const parsed = JSON.parse(val);
+        const typed = inferTypeFromPath(entry.fileName, parsed);
 
         const oldHash = state.hashes.get(id);
-        const newHash = objectHash(parsed);
+        const newHash = objectHash(typed);
 
         if (!oldHash || oldHash !== newHash) {
+          if (!await callback(entry.fileName)) {
+            return; // notice that we are not saving
+          }
           state.hashes.set(id, newHash);
 
-          const encoded = CONTENT_ENCODER.encode(parsed);
+          const encoded = CONTENT_ENCODER.encode(typed);
 
           const fileName = nanoid();
           await Deno.writeFile(
@@ -265,25 +272,20 @@ async function pull(
   await requireLogin(opts);
 
   console.log("Pulling remote changes");
-  await updateStateFromRemote(workspace, state);
+  await updateStateFromRemote(workspace, state, (_) => true);
 
-  const diffs = await diffState(state);
+  const diffs = diffState(state);
 
   await copyNonJsonFiles(state);
 
-  if (diffs.length > 0) {
-    console.log(`Applying ${diffs.length} changes to files`);
-    for (const diff of diffs) {
-      await applyDiff(
-        diff.diff,
-        path.join(state.stateRoot!, diff.localPath),
-      );
-    }
-    console.log(colors.green.underline("Done!"));
-    // TODO: Commit changes here
-  } else {
-    console.log(colors.green.underline("everything is up to date"));
+  console.log(`Applying changes to files`);
+  for await (const diff of diffs) {
+    await applyDiff(
+      diff.diff,
+      path.join(state.stateRoot!, diff.localPath),
+    );
   }
+  console.log(colors.green.underline("Done! All changes applied."));
 
   async function applyDiff(diffs: Difference[], file: string) {
     ensureDir(path.dirname(file));
@@ -334,39 +336,58 @@ async function pull(
       await source.readable.pipeTo(target.writable);
     }
   }
+}
 
-  async function diffState(state: State): Promise<StateDiff[]> {
-    const diffs: StateDiff[] = [];
-    for (const t of state.tracked.keys()) {
-      if (!t.endsWith(".json")) {
-        continue;
-      }
-      const entry = state.get(t);
-      let fileText;
-      try {
-        fileText = await Deno.readTextFile(
-          path.join(state.stateRoot!, entry.path),
-        );
-      } catch {
-        fileText = "{}";
-      }
-      const old = JSON.parse(fileText);
-      const fileHash = objectHash(old);
+async function* diffState(state: State): AsyncGenerator<StateDiff, void, void> {
+  for (const t of state.tracked.keys()) {
+    if (!t.endsWith(".json")) {
+      continue;
+    }
+    const entry = state.get(t);
+    let fileText;
+    try {
+      fileText = await Deno.readTextFile(
+        path.join(state.stateRoot!, entry.path),
+      );
+    } catch {
+      fileText = "{}";
+    }
+    const old = JSON.parse(fileText);
+    const fileHash = objectHash(old);
 
-      if (fileHash !== entry.getHash()) {
-        const stateContent = await entry.getContent() as any;
+    if (fileHash !== entry.getHash()) {
+      const stateContent = await entry.getContent() as any;
 
-        const diff = microdiff(
-          old,
-          stateContent ?? {},
-          { cyclesFix: false },
-        );
+      const diff = microdiff(
+        old,
+        stateContent ?? {},
+        { cyclesFix: false },
+      );
 
-        diffs.push(new StateDiff(entry.getId(), entry.path, diff));
+      yield new StateDiff(entry.getId(), entry.path, diff);
+    }
+  }
+}
+
+function prettyDiff(diffs: Difference[]) {
+  for (const diff of diffs) {
+    let pathString = "";
+    for (const pathSegment of diff.path) {
+      if (typeof pathSegment === "string") {
+        pathString += ".";
+        pathString += pathSegment;
+      } else {
+        pathString += "[";
+        pathString += pathSegment;
+        pathString += "]";
       }
     }
-
-    return diffs;
+    if (diff.type === "REMOVE" || diff.type === "CHANGE") {
+      console.log(colors.red("- " + pathString + " = " + diff.oldValue));
+    }
+    if (diff.type === "CREATE" || diff.type === "CHANGE") {
+      console.log(colors.green("+ " + pathString + " = " + diff.value));
+    }
   }
 }
 
@@ -383,20 +404,60 @@ async function push(opts: GlobalOptions & { raw: boolean }) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  await updateStateFromRemote(workspace, state);
+  let error = false;
+  await updateStateFromRemote(workspace, state, async (filename) => {
+    const e = state.get(filename);
+    if (!e) {
+      throw new Error("!? State change on untracked file ?!");
+    }
+
+    let fileJSON;
+    try {
+      fileJSON = JSON.parse(
+        await Deno.readTextFile(path.join(state.stateRoot!, e.path)),
+      );
+    } catch {
+      fileJSON = {};
+    }
+    const file = inferTypeFromPath(e.path, fileJSON);
+    const eContent = (inferTypeFromPath(e.path, await e.getContent())) ?? {};
+
+    const fileHash = objectHash(file);
+    const eHash = objectHash(eContent);
+
+    if (fileHash !== eHash) {
+      console.log(
+        colors.red("!! Local and Remote change present. Local diff:"),
+      );
+      prettyDiff(microdiff(eContent as any, file, { cyclesFix: false }));
+      console.log(
+        colors.red(
+          "Consider comitting or otherwise saving your work and pulling to load any remote changes",
+        ),
+      );
+      error = true;
+      return false;
+    }
+    return true;
+  });
+  if (error) {
+    return;
+  }
 
   for (const p of state.tracked.keys()) {
     if (!p.endsWith(".json")) continue;
     const entry = state.get(p);
-    let file;
+    let fileJSON;
     try {
-      file = JSON.parse(
+      fileJSON = JSON.parse(
         await Deno.readTextFile(path.join(state.stateRoot!, entry.path)),
       );
     } catch {
-      file = {};
+      fileJSON = {};
     }
-    const eContent = await entry.getContent() ?? {};
+    const file = inferTypeFromPath(entry.path, fileJSON);
+    const eContent =
+      (inferTypeFromPath(entry.path, await entry.getContent())) ?? {};
 
     const fileHash = objectHash(file);
     const eHash = objectHash(eContent);
@@ -456,7 +517,6 @@ async function push(opts: GlobalOptions & { raw: boolean }) {
         await applyDiff(
           workspace.workspaceId,
           remotePath,
-          entry.path,
           file,
           diff,
         );
@@ -464,21 +524,32 @@ async function push(opts: GlobalOptions & { raw: boolean }) {
     }
   }
 
-  await updateStateFromRemote(workspace, state);
+  let anyRemoteChanges = false;
+  await updateStateFromRemote(workspace, state, (_) => {
+    anyRemoteChanges = true;
+    return true;
+  });
+  if (anyRemoteChanges) {
+    console.log("New remote changes - consider pulling");
+  }
 
   function applyDiff(
     workspace: string,
     remotePath: string,
-    path: string,
-    file: any,
+    file:
+      | ScriptFile
+      | VariableFile
+      | FlowFile
+      | ResourceFile
+      | ResourceTypeFile
+      | FolderFile,
     diffs: Difference[],
   ) {
-    const typed = inferTypeFromPath(path, file);
-    if (typed instanceof ScriptFile) {
+    if (file instanceof ScriptFile) {
       throw new Error(
         "This code path should be unreachable - we should never generate diffs for scripts",
       );
-    } else if (typed instanceof FolderFile) {
+    } else if (file instanceof FolderFile) {
       const parts = remotePath.split("/");
       if (parts[0] === "f") {
         remotePath = parts[1];
@@ -486,7 +557,7 @@ async function push(opts: GlobalOptions & { raw: boolean }) {
         remotePath = parts[0];
       }
     }
-    return typed.pushDiffs(workspace, remotePath, diffs);
+    return file.pushDiffs(workspace, remotePath, diffs);
   }
 }
 

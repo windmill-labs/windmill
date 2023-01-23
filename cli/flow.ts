@@ -73,6 +73,8 @@ export class FlowFile implements Resource, PushDiffs {
         path: remotePath,
         summary: this.summary,
         value: this.value,
+        description: this.description, // This is OpenAPIed as optional, but isn't
+        schema: this.schema, // Same
       };
       for (const diff of diffs) {
         if (

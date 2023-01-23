@@ -48,14 +48,30 @@ export function setValueByPath(
   value: any,
 ) {
   let i;
+  let lastObj = undefined;
   for (i = 0; i < path.length - 1; i++) {
-    const newObj = obj[path[i]];
-    if (!newObj) {
-      obj[path[i]] = {};
-      obj = obj[path[i]];
-    } else {
-      obj = newObj;
+    if (!obj) {
+      let oldNewObj;
+      if (typeof path[i] === "number") {
+        oldNewObj = [];
+      } else {
+        oldNewObj = {};
+      }
+      lastObj[path[i - 1]] = oldNewObj;
+      obj = oldNewObj;
     }
+    lastObj = obj;
+    obj = obj[path[i]];
+  }
+  if (!obj) {
+    let oldNewObj;
+    if (typeof path[i] === "number") {
+      oldNewObj = [];
+    } else {
+      oldNewObj = {};
+    }
+    lastObj[path[i - 1]] = oldNewObj;
+    obj = oldNewObj;
   }
   obj[path[i]] = value;
 }
