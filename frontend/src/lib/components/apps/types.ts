@@ -172,6 +172,7 @@ export type AppEditorContext = {
 	isEditor: boolean
 	jobs: Writable<{ job: string; component: string }[]>
 	noBackend: boolean
+	errorByComponent: Writable<Record<string, string>>
 }
 
 export type EditorMode = 'dnd' | 'preview'
