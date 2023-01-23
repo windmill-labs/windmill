@@ -60,9 +60,15 @@
 			localStorage.removeItem(script.path)
 
 			script.schema = script.schema ?? emptySchema()
-			if (!script.schema) {
+			try {
 				await inferArgs(script.language, script.content, script.schema)
+			} catch (error) {
+				sendUserToast(
+					`Impossible to infer the schema. Assuming this is a script without main function`,
+					true
+				)
 			}
+
 			const newHash = await ScriptService.createScript({
 				workspace: $workspaceStore!,
 				requestBody: {
@@ -87,7 +93,13 @@
 	async function changeStep(step: number) {
 		if (step > 1) {
 			script.schema = script.schema ?? emptySchema()
-			await inferArgs(script.language, script.content, script.schema)
+			try {
+				await inferArgs(script.language, script.content, script.schema)
+			} catch (error) {
+				console.info(
+					'Impossible to infer the schema. Assuming this is a script without main function'
+				)
+			}
 		}
 		goto(`?step=${step}`)
 	}

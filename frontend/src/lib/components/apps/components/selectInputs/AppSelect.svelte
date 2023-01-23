@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { getContext } from 'svelte'
 	import Select from 'svelte-select'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
@@ -46,7 +46,7 @@
 			e?.stopPropagation()
 			window.dispatchEvent(new Event('pointerup'))
 		}}
-		{items}
+		items={Array.isArray(items) ? items : []}
 		{value}
 		placeholder="Select an item"
 		on:click={() => {
