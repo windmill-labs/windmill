@@ -21,13 +21,20 @@
 	export let autoRefresh: boolean = true
 	export let result: any = undefined
 	export let forceSchemaDisplay: boolean = false
-	export let noMinH = false
 	export let defaultUserInput = false
 	export let flexWrap = false
 	export let wrapperClass = ''
 
-	const { worldStore, runnableComponents, workspace, appPath, isEditor, jobs, noBackend } =
-		getContext<AppEditorContext>('AppEditorContext')
+	const {
+		worldStore,
+		runnableComponents,
+		workspace,
+		appPath,
+		isEditor,
+		jobs,
+		noBackend,
+		errorByComponent
+	} = getContext<AppEditorContext>('AppEditorContext')
 
 	onMount(() => {
 		if (autoRefresh) {
@@ -245,7 +252,14 @@
 	export async function runComponent() {
 		await executeComponent()
 	}
+
 	let lastStartedAt: number = Date.now()
+
+	function recordError(error: string) {
+		$errorByComponent[id] = error
+	}
+
+	$: result?.error && recordError(result.error)
 </script>
 
 {#each Object.entries(fields ?? {}) as [key, v]}
@@ -268,6 +282,11 @@
 				lastStartedAt = startedAt
 				outputs.result?.set(testJob?.result)
 				result = testJob.result
+
+				if ($errorByComponent[id] && !result?.error) {
+					delete $errorByComponent[id]
+					$errorByComponent = $errorByComponent
+				}
 			}
 		}
 	}}
@@ -299,17 +318,6 @@
 		<Alert type="warning" size="xs" class="mt-2 px-1" title="Missing runnable">
 			Please select a runnable
 		</Alert>
-	{:else if result?.error}
-		<div class="p-2">
-			<Alert type="error" title="Error during execution">
-				See "Debug Runs" on the top right for more details
-				<pre
-					title={JSON.stringify(result.error, null, 4)}
-					class=" mt-2 text-2xs whitespace-pre-wrap">{JSON.stringify(result.error, null, 4)}</pre
-				>
-			</Alert>
-			<slot />
-		</div>
 	{:else}
 		<div class="block w-full h-full">
 			<slot />

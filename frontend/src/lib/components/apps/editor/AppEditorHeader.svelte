@@ -57,7 +57,7 @@
 
 	export let policy: Policy
 
-	const { app, summary, mode, breakpoint, appPath, jobs, staticExporter } =
+	const { app, summary, mode, breakpoint, appPath, jobs, staticExporter, errorByComponent } =
 		getContext<AppEditorContext>('AppEditorContext')
 	const loading = {
 		publish: false,
@@ -183,6 +183,7 @@
 	let testIsLoading = false
 
 	$: selectedJobId && testJobLoader?.watchJob(selectedJobId)
+	$: hasErrors = Object.keys($errorByComponent).length > 0
 </script>
 
 <TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job />
@@ -439,7 +440,7 @@
 				color="light"
 				size="xs"
 				variant="border"
-				startIcon={{ icon: faBug }}
+				startIcon={{ icon: faBug, classes: hasErrors ? '!text-red-500' : '' }}
 			>
 				<span class="hidden md:inline">Debug Runs</span>
 			</Button>
