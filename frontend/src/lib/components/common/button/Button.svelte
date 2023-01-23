@@ -68,7 +68,7 @@
 			colorVariants?.[color]?.[variant],
 			variant === 'border' ? 'border' : '',
 			ButtonType.FontSizeClasses[size],
-			ButtonType.SpacingClasses[spacingSize],
+			ButtonType.SpacingClasses[spacingSize][variant],
 			'focus:ring-2 font-semibold',
 			'duration-200 rounded-md',
 			'justify-center items-center text-center whitespace-nowrap inline-flex',
@@ -126,9 +126,7 @@
 	{/if}
 
 	{#if !iconOnly}
-		<span class:py-[1px]={variant !== 'border'}>
-			<slot />
-		</span>
+		<slot />
 	{/if}
 	{#if endIcon}
 		<Icon data={endIcon.icon} class={endIconClass} scale={ButtonType.IconScale[size]} />
