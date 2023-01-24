@@ -54,7 +54,6 @@
 
 <RunnableWrapper
 	defaultUserInput
-	noMinH
 	bind:runnableComponent
 	bind:componentInput
 	{id}

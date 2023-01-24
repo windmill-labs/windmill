@@ -986,7 +986,7 @@ async fn push_next_flow_job(
                 let success = false;
                 let skipped = false;
                 let logs = "Timed out waiting to be resumed".to_string();
-                let result = json!({ "error": logs });
+                let result = json!({ "error": {"message": logs, "name": "SuspendedTimeout"}});
                 let _uuid =
                     add_completed_job(db, &flow_job, success, skipped, result, logs).await?;
 
