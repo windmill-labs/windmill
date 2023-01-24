@@ -211,18 +211,20 @@
 
 								{#if actionButtons.length > 0}
 									<td
-										class="flex w-full flex-row gap-2 p-4"
+										class="p-2 "
 										on:click={() => toggleRow(row, rowIndex)}
 									>
-										{#each actionButtons as actionButton, actionIndex (actionIndex)}
-											<AppButton
-												noWFull
-												{...actionButton}
-												extraQueryParams={{ row: row.original }}
-												bind:componentInput={actionButton.componentInput}
-												bind:staticOutputs={$staticOutputsStore[actionButton.id]}
-											/>
-										{/each}
+											<div class="center-center h-full w-full flex-wrap gap-1">
+												{#each actionButtons as actionButton, actionIndex (actionIndex)}
+													<AppButton
+														noWFull
+														{...actionButton}
+														extraQueryParams={{ row: row.original }}
+														bind:componentInput={actionButton.componentInput}
+														bind:staticOutputs={$staticOutputsStore[actionButton.id]}
+													/>
+												{/each}
+											</div>
 									</td>
 								{/if}
 							</tr>
