@@ -33,7 +33,8 @@
 		isEditor,
 		jobs,
 		noBackend,
-		errorByComponent
+		errorByComponent,
+		mode
 	} = getContext<AppEditorContext>('AppEditorContext')
 
 	onMount(() => {
@@ -48,7 +49,6 @@
 	let args: Record<string, any> = {}
 	let testIsLoading = false
 	let runnableInputValues: Record<string, any> = {}
-
 	let executeTimeout: NodeJS.Timeout | undefined = undefined
 
 	function setDebouncedExecute() {
@@ -256,7 +256,12 @@
 	let lastStartedAt: number = Date.now()
 
 	function recordError(error: string) {
-		$errorByComponent[id] = error
+		if (testJob) {
+			$errorByComponent[testJob.id] = {
+				error: error,
+				componentId: id
+			}
+		}
 	}
 
 	$: result?.error && recordError(result.error)
@@ -283,8 +288,12 @@
 				outputs.result?.set(testJob?.result)
 				result = testJob.result
 
-				if ($errorByComponent[id] && !result?.error) {
-					delete $errorByComponent[id]
+				const previousJobId = Object.keys($errorByComponent).find(
+					(key) => $errorByComponent[key].componentId === id
+				)
+
+				if (previousJobId && !result?.error) {
+					delete $errorByComponent[previousJobId]
 					$errorByComponent = $errorByComponent
 				}
 			}
@@ -318,6 +327,19 @@
 		<Alert type="warning" size="xs" class="mt-2 px-1" title="Missing runnable">
 			Please select a runnable
 		</Alert>
+	{:else if result?.error && $mode === 'preview'}
+		<div class="p-2">
+			<Alert type="error" title="Error during execution">
+				<div class="flex flex-col gap-2">
+					An error occured, please contact the app author.
+					<span class="font-semibold">Job id: {testJob?.id}</span>
+					<pre class=" whitespace-pre-wrap text-gray-900 bg-white border w-full p-4 text-xs"
+						>{JSON.stringify(result.error, null, 4)}
+				</pre>
+				</div>
+			</Alert>
+			<slot />
+		</div>
 	{:else}
 		<div class="block w-full h-full">
 			<slot />

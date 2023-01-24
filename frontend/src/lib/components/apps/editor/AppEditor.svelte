@@ -55,7 +55,7 @@
 	})
 
 	const runnableComponents = writable<Record<string, () => Promise<void>>>({})
-	const errorByComponent = writable<Record<string, string>>({})
+	const errorByComponent = writable<Record<string, { error: string; componentId: string }>>({})
 
 	setContext<AppEditorContext>('AppEditorContext', {
 		worldStore,
@@ -75,7 +75,8 @@
 		jobs: writable([]),
 		staticExporter: writable({}),
 		noBackend: false,
-		errorByComponent
+		errorByComponent,
+		openDebugRun: writable(undefined)
 	})
 
 	let timeout: NodeJS.Timeout | undefined = undefined

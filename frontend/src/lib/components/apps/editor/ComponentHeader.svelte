@@ -14,9 +14,15 @@
 
 	const dispatch = createEventDispatcher()
 
-	const { errorByComponent } = getContext<AppEditorContext>('AppEditorContext')
+	const { errorByComponent, openDebugRun } = getContext<AppEditorContext>('AppEditorContext')
 
-	$: error = $errorByComponent[component.id]
+	$: error = Object.values($errorByComponent).find((e) => e.componentId === component.id)
+
+	function openDebugRuns() {
+		if ($openDebugRun) {
+			$openDebugRun(component.id)
+		}
+	}
 </script>
 
 <span
@@ -64,6 +70,7 @@
 {/if}
 
 {#if error}
+	{@const json = JSON.parse(JSON.stringify(error.error))}
 	<span
 		title="Error"
 		class={classNames(
@@ -75,9 +82,14 @@
 			<Bug size={14} />
 			<span slot="text">
 				<div class="bg-white">
-					<Alert type="error" title="Error during execution">
-						<div class="flex flex-col">
-							<span> See "Debug Runs" on the top right for more details </span>
+					<Alert type="error" title={`${json?.name}: ${json?.message}`}>
+						<div class="flex flex-col gap-2">
+							<div>
+								<pre class=" whitespace-pre-wrap text-gray-900 bg-white border w-full p-4 text-xs"
+									>{json?.stack ?? ''}
+									</pre>
+							</div>
+							<Button color="red" variant="border" on:click={openDebugRuns}>Open Debug Runs</Button>
 						</div>
 					</Alert>
 				</div>
