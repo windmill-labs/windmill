@@ -87,7 +87,7 @@
 							autofocus={i == 0 && autofocus}
 							label={argName}
 							bind:description={schema.properties[argName].description}
-							value={args[argName]}
+							bind:value={args[argName]}
 							type={schema.properties[argName].type}
 							required={schema.required.includes(argName)}
 							bind:pattern={schema.properties[argName].pattern}

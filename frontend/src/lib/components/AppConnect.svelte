@@ -422,7 +422,6 @@
 			</div>
 
 			<h2 class="mt-4 mb-2">Description</h2>
-
 			<textarea type="text" autocomplete="off" use:autosize bind:value={description} />
 		{:else}
 			<Path
