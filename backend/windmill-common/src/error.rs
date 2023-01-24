@@ -58,6 +58,8 @@ pub enum Error {
     ExitStatus(i32),
     #[error(transparent)]
     Anyhow(#[from] anyhow::Error),
+    #[error("Error: {0:#?}")]
+    JsonErr(serde_json::Value),
 }
 
 impl Error {

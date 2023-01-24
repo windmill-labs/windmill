@@ -658,7 +658,10 @@ async fn handle_job_error(
     keep_job_dir: bool,
     base_internal_url: &str,
 ) {
-    let err = json!({"message": err.to_string(), "name": "InternalErr"});
+    let err = match err {
+        Error::JsonErr(err) => err,
+        _ => json!({"message": err.to_string(), "name": "InternalErr"}),
+    };
 
     let update_job_future = || {
         add_completed_job_error(
@@ -773,9 +776,7 @@ async fn handle_queued_job(
     base_internal_url: &str,
 ) -> windmill_common::error::Result<()> {
     if job.canceled {
-        return Err(Error::ExecutionErr(
-            canceled_job_to_result(&job).to_string(),
-        ))?;
+        return Err(Error::JsonErr(canceled_job_to_result(&job)))?;
     }
     if let Some(e) = job.pre_run_error {
         return Err(Error::ExecutionErr(e));
