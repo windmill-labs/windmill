@@ -43,23 +43,30 @@
 
 	function removeExtraKey() {
 		Object.keys(args ?? {}).forEach((key) => {
-			if (!Object.keys(schema?.properties ?? {}).includes(key)) {
+			if (!keys.includes(key)) {
 				delete args[key]
 				delete inputCheck[key]
+				console.log('DELETED', key)
 			}
 		})
 	}
 
-	$: schema?.properties && removeExtraKey()
-
 	let pickForField: string | undefined
 	let itemPicker: ItemPicker | undefined = undefined
 	let variableEditor: VariableEditor | undefined = undefined
+	let keys: string[] = []
+	$: {
+		let lkeys = Object.keys(schema?.properties ?? {})
+		if (schema?.properties && JSON.stringify(lkeys) != JSON.stringify(keys)) {
+			keys = lkeys
+			removeExtraKey()
+		}
+	}
 </script>
 
 <div class="w-full {clazz} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 gap-y-2' : ''}">
-	{#if Object.keys(schema?.properties ?? {}).length > 0}
-		{#each Object.keys(schema?.properties ?? {}) as argName, i (argName)}
+	{#if keys.length > 0}
+		{#each keys as argName, i (argName)}
 			{#if !filter || filter.includes(argName)}
 				<div transition:slide|local>
 					{#if inputTransform}
@@ -80,7 +87,7 @@
 							autofocus={i == 0 && autofocus}
 							label={argName}
 							bind:description={schema.properties[argName].description}
-							bind:value={args[argName]}
+							value={args[argName]}
 							type={schema.properties[argName].type}
 							required={schema.required.includes(argName)}
 							bind:pattern={schema.properties[argName].pattern}
