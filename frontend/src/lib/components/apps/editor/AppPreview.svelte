@@ -60,7 +60,8 @@
 		jobs: writable([]),
 		staticExporter: writable({}),
 		noBackend,
-		errorByComponent: writable({})
+		errorByComponent: writable({}),
+		openDebugRun: writable(undefined)
 	})
 
 	let mounted = false
