@@ -58,6 +58,7 @@
 	}
 
 	export let policy: Policy
+	export let fromHub: boolean = false
 
 	const { app, summary, mode, breakpoint, appPath, jobs, staticExporter, errorByComponent } =
 		getContext<AppEditorContext>('AppEditorContext')
@@ -73,7 +74,7 @@
 	let saveDrawerOpen = false
 	let jobsDrawerOpen = false
 	let publishDrawerOpen = false
-	let inputsDrawerOpen = false
+	let inputsDrawerOpen = fromHub
 
 	function closeSaveDrawer() {
 		saveDrawerOpen = false
