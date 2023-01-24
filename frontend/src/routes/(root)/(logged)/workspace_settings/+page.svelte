@@ -152,12 +152,12 @@
 			`<b>Support 24/7 with 48h response time</b>`
 		],
 		Enterprise: [
-			`<b>$100/mo</b>, includes 1 user/author + 10k computations`,
-			`<b>+ $16/mo</b> per extra user/author in the workspace (1 included)`,
-			`<b>+ $8/mo</b> per extra operators in the workspace.`,
-			`<b>$0.002</b> per additional computation (10k included)`,
-			`<b>Dedicated</b> cluster available for <b>+400$/mo</b>`,
-			`Everything in Team +`,
+			`<b>$200/mo</b>, includes 1 user/author + 10k computations`,
+			`<b>+ $32/mo</b> per extra user/author in the workspace (1 included)`,
+			`<b>+ $16/mo</b> per extra operators in the workspace.`,
+			`<b>$0.004</b> per additional computation (10k included)`,
+			`<b>Dedicated</b> and isolated database and workers available for <b>+400$/mo</b> (EU/US)`,
+			`<b>Dedicated</b> entire cluster available for <b>+4000$/mo</b> (EU/US)`,
 			`<b>SAML</b> support`,
 			`<b>SLA</b>`,
 			`<b>Priority Support 24/7 with 3h response time and automation engineer assistance</b>`,
