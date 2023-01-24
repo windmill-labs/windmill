@@ -57,11 +57,33 @@
 
 	export let policy: Policy
 
-	const { app, summary, mode, breakpoint, appPath, jobs, staticExporter, errorByComponent } =
-		getContext<AppEditorContext>('AppEditorContext')
+	const {
+		app,
+		summary,
+		mode,
+		breakpoint,
+		appPath,
+		jobs,
+		staticExporter,
+		errorByComponent,
+		eventBus
+	} = getContext<AppEditorContext>('AppEditorContext')
+
 	const loading = {
 		publish: false,
 		save: false
+	}
+
+	$: if ($eventBus.length > 0 && $eventBus[0].name === 'debug-runs') {
+		const { data: componentId } = $eventBus[0]
+		jobsDrawerOpen = true
+
+		const job = $jobs.find((job) => job.component === componentId)
+		if (job) {
+			selectedJobId = job.job
+		}
+
+		eventBus.update((events) => events.slice(1))
 	}
 
 	let newPath: string = ''

@@ -14,9 +14,16 @@
 
 	const dispatch = createEventDispatcher()
 
-	const { errorByComponent } = getContext<AppEditorContext>('AppEditorContext')
+	const { errorByComponent, eventBus } = getContext<AppEditorContext>('AppEditorContext')
 
 	$: error = $errorByComponent[component.id]
+
+	function openDebugRuns() {
+		eventBus.update((events) => {
+			events.unshift({ name: 'debug-runs', data: component.id })
+			return events
+		})
+	}
 </script>
 
 <span
@@ -78,6 +85,7 @@
 					<Alert type="error" title="Error during execution">
 						<div class="flex flex-col">
 							<span> See "Debug Runs" on the top right for more details </span>
+							<Button color="red" variant="border" on:click={openDebugRuns}>Open Debug Runs</Button>
 						</div>
 					</Alert>
 				</div>
