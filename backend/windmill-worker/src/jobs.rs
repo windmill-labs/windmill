@@ -6,7 +6,6 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use serde_json::{Map, Value};
 use sqlx::{Pool, Postgres, Transaction};
 use tracing::instrument;
 use uuid::Uuid;
@@ -25,16 +24,6 @@ pub async fn add_completed_job_error(
     let result = serde_json::json!({ "error": e });
     let _ = add_completed_job(db, &queued_job, false, false, result.clone(), logs).await?;
     Ok(result)
-}
-
-pub fn error_to_result<E: ToString + std::fmt::Debug>(
-    output_map: &mut Map<String, Value>,
-    err: &E,
-) {
-    output_map.insert(
-        "error".to_string(),
-        serde_json::Value::String(err.to_string()),
-    );
 }
 
 fn flatten_jobs(modules: Vec<FlowStatusModule>) -> Vec<Uuid> {
