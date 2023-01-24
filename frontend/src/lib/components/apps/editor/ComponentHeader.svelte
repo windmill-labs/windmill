@@ -70,6 +70,7 @@
 {/if}
 
 {#if error}
+	{@const json = JSON.parse(JSON.stringify(error.error))}
 	<span
 		title="Error"
 		class={classNames(
@@ -83,7 +84,14 @@
 				<div class="bg-white">
 					<Alert type="error" title="Error during execution">
 						<div class="flex flex-col gap-2">
-							<span> {JSON.stringify(error, null, 4)}</span>
+							<div>
+								<span class="text-red-500 font-semibold text-xs font-mono">
+									{json?.name}: {json?.message}
+								</span>
+								<pre class=" whitespace-pre-wrap text-gray-900 bg-white border w-full p-4 text-xs"
+									>{json?.stack ?? ''}
+									</pre>
+							</div>
 							<Button color="red" variant="border" on:click={openDebugRuns}>Open Debug Runs</Button>
 						</div>
 					</Alert>
