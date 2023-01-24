@@ -9,7 +9,6 @@
 	export let componentInput: AppInput | undefined
 	export let id: string
 	export let result: any = undefined
-	export let noMinH = false
 
 	export let extraQueryParams: Record<string, any> = {}
 	export let autoRefresh: boolean = true
@@ -47,7 +46,6 @@
 		{id}
 		{extraQueryParams}
 		{forceSchemaDisplay}
-		{noMinH}
 		wrapperClass={runnableClass}
 	>
 		<slot />
