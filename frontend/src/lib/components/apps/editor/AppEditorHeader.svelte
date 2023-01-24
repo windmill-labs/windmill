@@ -57,11 +57,32 @@
 
 	export let policy: Policy
 
-	const { app, summary, mode, breakpoint, appPath, jobs, staticExporter, errorByComponent } =
-		getContext<AppEditorContext>('AppEditorContext')
+	const {
+		app,
+		summary,
+		mode,
+		breakpoint,
+		appPath,
+		jobs,
+		staticExporter,
+		errorByComponent,
+		openDebugRun
+	} = getContext<AppEditorContext>('AppEditorContext')
+
 	const loading = {
 		publish: false,
 		save: false
+	}
+
+	$: if ($openDebugRun == undefined) {
+		$openDebugRun = (componentId: string) => {
+			jobsDrawerOpen = true
+
+			const job = $jobs.find((job) => job.component === componentId)
+			if (job) {
+				selectedJobId = job.job
+			}
+		}
 	}
 
 	let newPath: string = ''
@@ -219,10 +240,13 @@
 								{#each $jobs ?? [] as { job, component } (job)}
 									<!-- svelte-ignore a11y-click-events-have-key-events -->
 									<div
-										class="{classNames(
+										class={classNames(
 											'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-blue-50 hover:text-blue-400',
-											selectedJobId == job ? 'bg-blue-100 text-blue-600' : ''
-										)},"
+											$errorByComponent[job] ? 'border border-red-500 bg-red-100' : '',
+											selectedJobId == job && !$errorByComponent[component]
+												? 'bg-blue-100 text-blue-600'
+												: ''
+										)}
 										on:click={() => (selectedJobId = job)}
 									>
 										<span class="text-xs truncate">{job}</span>
