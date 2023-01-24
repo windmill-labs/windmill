@@ -19,7 +19,13 @@
 	export let configuration: Record<string, AppInput>
 	export let actionButtons: (BaseAppComponent & ButtonComponent)[]
 
-	export const staticOutputs: string[] = ['selectedRow', 'loading', 'result', 'search']
+	export const staticOutputs: string[] = [
+		'selectedRow',
+		'loading',
+		'result',
+		'search',
+		'selectedRowIndex'
+	]
 
 	type T = Record<string, any>
 
@@ -52,6 +58,7 @@
 		if (selectedRowIndex !== rowIndex) {
 			selectedRowIndex = rowIndex
 			outputs?.selectedRow.set(row.original)
+			outputs?.selectedRowIndex.set(rowIndex)
 		}
 	}
 
@@ -114,6 +121,7 @@
 	$: search === 'By Component' && (filteredResult = searchInResult(result ?? [], searchValue))
 	$: (search === 'By Runnable' || search === 'Disabled') && (filteredResult = result ?? [])
 	$: outputs = $worldStore?.outputsById[id] as {
+		selectedRowIndex: Output<number>
 		selectedRow: Output<any>
 		search: Output<string>
 	}

@@ -104,6 +104,7 @@ pub fn parse_python_signature(code: &str) -> error::Result<MainArgSignature> {
                             "bytes" => Typ::Bytes,
                             "datetime" => Typ::Datetime,
                             "datetime.datetime" => Typ::Datetime,
+                            "Sql" | "sql" => Typ::Sql,
                             _ => Typ::Resource(id),
                         },
                         _ => Typ::Unknown,
