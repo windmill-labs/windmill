@@ -63,7 +63,7 @@
 	"dependencies": {
 		"@fortawesome/free-brands-svg-icons": "^6.2.1",
 		"@fortawesome/free-solid-svg-icons": "^6.2.1",
-		"@leeoniya/ufuzzy": "^0.9.0",
+		"@leeoniya/ufuzzy": "^0.9.1",
 		"@redocly/json-to-json-schema": "^0.0.1",
 		"@tanstack/svelte-table": "^8.7.6",
 		"async-mutex": "^0.4.0",
