@@ -23,6 +23,7 @@
 		faBarsStaggered
 	} from '@fortawesome/free-solid-svg-icons'
 	import { CalendarClock } from 'lucide-svelte'
+	import { onDestroy, onMount } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
 	import { Badge } from '../common'
@@ -32,6 +33,24 @@
 
 	export let job: Job
 	let scheduleEditor: ScheduleEditor
+
+	let time = Date.now()
+	let interval
+	onMount(() => {
+		interval = setInterval(() => {
+			time = Date.now()
+		}, 1000)
+	})
+
+	onDestroy(() => {
+		interval && clearInterval(interval)
+	})
+
+	function endedDate(started_at: string, duration_ms: number): string {
+		const started = new Date(started_at)
+		started.setMilliseconds(started.getMilliseconds() + duration_ms)
+		return displayDaysAgo(started.toString())
+	}
 </script>
 
 <ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
@@ -152,9 +171,17 @@
 						<Icon class="text-gray-700" data={faClock} scale={SMALL_ICON_SCALE} /><span
 							class="mx-1.5"
 						>
-							Started {displayDaysAgo(job.started_at ?? '')}</span
-						>
-					</div>
+							<span>
+								{#if job?.['duration_ms']}
+									Ended {#key time}
+										{endedDate(job.started_at, job?.['duration_ms'])}{/key}
+								{:else}
+									Started {#key time}
+										{displayDaysAgo(job.started_at ?? '')}{/key}
+								{/if}</span
+							>
+						</span></div
+					>
 				{/if}
 				{#if 'scheduled_for' in job && !job.running && job.scheduled_for && forLater(job.scheduled_for)}
 					<div class="inline-flex gap-1">
