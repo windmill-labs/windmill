@@ -427,8 +427,10 @@ pub async fn update_flow_status_after_job_completion(
             "Flow job canceled".to_string()
         } else if stop_early {
             format!("Flow job stopped early because of a stop early predicate returning true")
+        } else if success {
+            "Flow job completed with success".to_string()
         } else {
-            "Flow job completed".to_string()
+            "Flow job completed with error".to_string()
         };
         if flow_job.canceled {
             add_completed_job_error(

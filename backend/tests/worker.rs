@@ -395,7 +395,7 @@ mod suspend_resume {
         let result = completed_job(flow, &db).await.result.unwrap();
 
         assert_eq!(
-            json!( {"error": {"name": "InternalErr", "message": "{\"message\":\"Job canceled: approval request disapproved by unknown\",\"name\":\"Canceled\",\"reason\":\"approval request disapproved\",\"canceler\":\"unknown\"}"}}),
+            json!( {"error": {"name": "Canceled", "reason": "approval request disapproved", "message": "Job canceled: approval request disapproved by unknown", "canceler": "unknown"}}),
             result
         );
     }

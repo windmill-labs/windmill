@@ -49,7 +49,7 @@ use futures::{
 use async_recursion::async_recursion;
 
 use crate::{
-    jobs::{add_completed_job, add_completed_job_error, error_to_result},
+    jobs::{add_completed_job, add_completed_job_error},
     worker_flow::{
         handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress,
     },
@@ -658,24 +658,29 @@ async fn handle_job_error(
     keep_job_dir: bool,
     base_internal_url: &str,
 ) {
-    let _ = add_completed_job_error(
-        db,
-        &job,
-        format!("Unexpected error during job execution:\n{err}"),
-        json!({"message": err.to_string(), "name": "InternalErr"}),
-        metrics.clone(),
-    )
-    .await;
+    let err = match err {
+        Error::JsonErr(err) => err,
+        _ => json!({"message": err.to_string(), "name": "InternalErr"}),
+    };
+
+    let update_job_future = || {
+        add_completed_job_error(
+            db,
+            &job,
+            format!("Unexpected error during job execution:\n{err}"),
+            err.clone(),
+            metrics.clone(),
+        )
+    };
 
     if job.is_flow_step || job.job_kind == JobKind::FlowPreview || job.job_kind == JobKind::Flow {
         let (flow, job_status_to_update) = if let Some(parent_job_id) = job.parent_job {
+            let _ = update_job_future().await;
             (parent_job_id, job.id)
         } else {
             (job.id, Uuid::nil())
         };
 
-        let mut output_map = serde_json::Map::new();
-        error_to_result(&mut output_map, &err);
         let updated_flow = update_flow_status_after_job_completion(
             db,
             client,
@@ -683,7 +688,7 @@ async fn handle_job_error(
             &job_status_to_update,
             &job.workspace_id,
             false,
-            serde_json::Value::Object(output_map),
+            json!({ "error": err }),
             metrics.clone(),
             unrecoverable,
             same_worker_tx,
@@ -693,9 +698,8 @@ async fn handle_job_error(
             None,
         )
         .await;
-        if let Err(err) = updated_flow {
-            println!("error updating flow status: {}", err);
 
+        if let Err(err) = updated_flow {
             if let Some(parent_job_id) = job.parent_job {
                 if let Ok(mut tx) = db.begin().await {
                     if let Ok(Some(parent_job)) =
@@ -714,7 +718,10 @@ async fn handle_job_error(
             }
         }
     }
-    tracing::error!(job_id = %job.id, err = err.alt(), "error handling job: {} {} {}", job.id, job.workspace_id, job.created_by);
+    if job.parent_job.is_none() {
+        let _ = update_job_future().await;
+    }
+    tracing::error!(job_id = %job.id, "error handling job: {err:#?} {} {} {}", job.id, job.workspace_id, job.created_by);
 }
 
 async fn insert_initial_ping(
@@ -769,9 +776,7 @@ async fn handle_queued_job(
     base_internal_url: &str,
 ) -> windmill_common::error::Result<()> {
     if job.canceled {
-        return Err(Error::ExecutionErr(
-            canceled_job_to_result(&job).to_string(),
-        ))?;
+        return Err(Error::JsonErr(canceled_job_to_result(&job)))?;
     }
     if let Some(e) = job.pre_run_error {
         return Err(Error::ExecutionErr(e));
