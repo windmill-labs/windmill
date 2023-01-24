@@ -57,7 +57,7 @@
 
 	export let policy: Policy
 
-	const { app, summary, mode, breakpoint, appPath, jobs, staticExporter } =
+	const { app, summary, mode, breakpoint, appPath, jobs, staticExporter, errorByComponent } =
 		getContext<AppEditorContext>('AppEditorContext')
 	const loading = {
 		publish: false,
@@ -183,6 +183,7 @@
 	let testIsLoading = false
 
 	$: selectedJobId && testJobLoader?.watchJob(selectedJobId)
+	$: hasErrors = Object.keys($errorByComponent).length > 0
 </script>
 
 <TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job />
@@ -243,12 +244,14 @@
 						{:else}
 							<div class="flex flex-col h-full w-full gap-4 mb-4">
 								{#if job?.['running']}
-									<div class="flex flex-row-reverse w-full"
-										><Button
+									<div class="flex flex-row-reverse w-full">
+										<Button
 											color="red"
 											variant="border"
-											on:click={() => testJobLoader?.cancelJob()}>Cancel</Button
+											on:click={() => testJobLoader?.cancelJob()}
 										>
+											Cancel
+										</Button>
 									</div>
 								{/if}
 								<div class="p-2">
@@ -436,7 +439,7 @@
 		<span class="hidden md:inline">
 			<Button
 				on:click={() => (jobsDrawerOpen = true)}
-				color="light"
+				color={hasErrors ? 'red' : 'light'}
 				size="xs"
 				variant="border"
 				startIcon={{ icon: faBug }}
