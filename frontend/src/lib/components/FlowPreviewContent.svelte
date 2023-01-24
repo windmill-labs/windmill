@@ -149,8 +149,8 @@
 	</div>
 	<FlowProgressBar {job} bind:reset={jobProgressReset} />
 
-	<div class="overflow-y-auto grow flex-col flex divide-y divide-gray-600 ">
-		<div class="max-h-1/2 overflow-auto">
+	<div class="overflow-y-auto grow  divide-y divide-gray-600 ">
+		<div class="max-h-1/2 overflow-auto border-b border-gray-700">
 			<SchemaForm
 				noVariablePicker
 				compact
@@ -160,8 +160,7 @@
 				bind:args={$previewArgs}
 			/>
 		</div>
-
-		<div class="h-full pt-4 grow">
+		<div class="pt-4 grow">
 			{#if jobId}
 				<FlowStatusViewer bind:flowState={$flowStateStore} {jobId} bind:job />
 			{:else}

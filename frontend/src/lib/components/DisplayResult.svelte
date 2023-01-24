@@ -142,7 +142,7 @@
 				>
 			</div>
 		{:else if !forceJson && resultKind == 'error'}<div>
-				<span class="text-red-500 font-semibold text-sm"
+				<span class="text-red-500 font-semibold text-sm whitespace-pre-wrap"
 					>{result.error.name}: {result.error.message}</span
 				>
 				<pre class="text-sm whitespace-pre-wrap text-gray-900">{result.error.stack ?? ''}</pre>

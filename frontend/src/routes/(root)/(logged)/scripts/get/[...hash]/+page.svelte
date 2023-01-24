@@ -9,7 +9,8 @@
 		defaultIfEmptyString,
 		scriptToHubUrl,
 		copyToClipboard,
-		emptyString
+		emptyString,
+		encodeState
 	} from '$lib/utils'
 	import {
 		faPlay,
@@ -207,7 +208,7 @@
 					</Button>
 					{#if !$userStore?.operator}
 						<Button
-							href={`/scripts/edit/${script.hash}?step=2`}
+							href={`/scripts/edit/${script.hash}?step=2&args=${encodeState(args)}`}
 							color="blue"
 							size="md"
 							startIcon={{ icon: faEdit }}
