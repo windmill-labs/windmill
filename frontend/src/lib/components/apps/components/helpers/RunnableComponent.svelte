@@ -48,7 +48,6 @@
 	let args: Record<string, any> = {}
 	let testIsLoading = false
 	let runnableInputValues: Record<string, any> = {}
-
 	let executeTimeout: NodeJS.Timeout | undefined = undefined
 
 	function setDebouncedExecute() {
@@ -256,7 +255,12 @@
 	let lastStartedAt: number = Date.now()
 
 	function recordError(error: string) {
-		$errorByComponent[id] = error
+		if (testJob) {
+			$errorByComponent[testJob.id] = {
+				error: error,
+				componentId: id
+			}
+		}
 	}
 
 	$: result?.error && recordError(result.error)
@@ -283,8 +287,12 @@
 				outputs.result?.set(testJob?.result)
 				result = testJob.result
 
-				if ($errorByComponent[id] && !result?.error) {
-					delete $errorByComponent[id]
+				const previousJobId = Object.keys($errorByComponent).find(
+					(key) => $errorByComponent[key].componentId === id
+				)
+
+				if (previousJobId && !result?.error) {
+					delete $errorByComponent[previousJobId]
 					$errorByComponent = $errorByComponent
 				}
 			}

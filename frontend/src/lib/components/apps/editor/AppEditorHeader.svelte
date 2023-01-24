@@ -66,7 +66,7 @@
 		jobs,
 		staticExporter,
 		errorByComponent,
-		eventBus
+		openDebugRun
 	} = getContext<AppEditorContext>('AppEditorContext')
 
 	const loading = {
@@ -74,16 +74,15 @@
 		save: false
 	}
 
-	$: if ($eventBus.length > 0 && $eventBus[0].name === 'debug-runs') {
-		const { data: componentId } = $eventBus[0]
-		jobsDrawerOpen = true
+	$: if ($openDebugRun == undefined) {
+		$openDebugRun = (componentId: string) => {
+			jobsDrawerOpen = true
 
-		const job = $jobs.find((job) => job.component === componentId)
-		if (job) {
-			selectedJobId = job.job
+			const job = $jobs.find((job) => job.component === componentId)
+			if (job) {
+				selectedJobId = job.job
+			}
 		}
-
-		eventBus.update((events) => events.slice(1))
 	}
 
 	let newPath: string = ''
@@ -241,10 +240,13 @@
 								{#each $jobs ?? [] as { job, component } (job)}
 									<!-- svelte-ignore a11y-click-events-have-key-events -->
 									<div
-										class="{classNames(
+										class={classNames(
 											'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-blue-50 hover:text-blue-400',
-											selectedJobId == job ? 'bg-blue-100 text-blue-600' : ''
-										)},"
+											$errorByComponent[job] ? 'border border-red-500 bg-red-100' : '',
+											selectedJobId == job && !$errorByComponent[component]
+												? 'bg-blue-100 text-blue-600'
+												: ''
+										)}
 										on:click={() => (selectedJobId = job)}
 									>
 										<span class="text-xs truncate">{job}</span>

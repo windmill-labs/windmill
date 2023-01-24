@@ -61,7 +61,7 @@
 		staticExporter: writable({}),
 		noBackend,
 		errorByComponent: writable({}),
-		eventBus: writable([])
+		openDebugRun: writable(undefined)
 	})
 
 	let mounted = false
