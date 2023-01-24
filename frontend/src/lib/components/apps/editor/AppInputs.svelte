@@ -29,16 +29,28 @@
 		<AppComponentInput bind:component={gridItem.data} {resourceOnly} />
 	{/if}
 {/each}
-<span class="font-bold text-sm">Background script inputs</span>
-<div class="gap-4 flex flex-col">
-	{#each $app?.hiddenInlineScripts ?? [] as script, index (script.name)}
-		<span class="text-sm">{script.name}</span>
-		<InputsSpecsEditor
-			id={`bg_${index}`}
-			shouldCapitalize={false}
-			bind:inputSpecs={script.fields}
-			userInputEnabled={false}
-			{resourceOnly}
-		/>
-	{/each}
-</div>
+
+{#if $app?.hiddenInlineScripts?.length > 0}
+	<span class="font-bold text-sm">Background script inputs</span>
+	<div class="gap-4 flex flex-col">
+		{#each $app?.hiddenInlineScripts ?? [] as script, index (script.name)}
+			<span class="text-sm">{script.name}</span>
+
+			{#if resourceOnly && Object.keys(script.fields).filter((fieldKey) => {
+					const fields = script.fields
+					const field = fields[fieldKey]
+					return field.fieldType === 'object' && field.format?.startsWith('resource-')
+				}).length === 0}
+				<span class="text-sm">No resource input</span>
+			{:else}
+				<InputsSpecsEditor
+					id={`bg_${index}`}
+					shouldCapitalize={false}
+					bind:inputSpecs={script.fields}
+					userInputEnabled={false}
+					{resourceOnly}
+				/>
+			{/if}
+		{/each}
+	</div>
+{/if}
