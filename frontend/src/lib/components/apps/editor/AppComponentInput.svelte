@@ -4,6 +4,7 @@
 	import InputsSpecsEditor from './settingsPanel/InputsSpecsEditor.svelte'
 
 	export let component: AppComponent
+	export let resourceOnly = false
 </script>
 
 {#if component?.componentInput?.type === 'runnable' && Object.keys(component?.componentInput?.fields ?? {}).length > 0}
@@ -17,6 +18,7 @@
 			shouldCapitalize={false}
 			bind:inputSpecs={component.componentInput.fields}
 			userInputEnabled={component.type !== 'buttoncomponent'}
+			{resourceOnly}
 		/>
 	</div>
 {/if}
