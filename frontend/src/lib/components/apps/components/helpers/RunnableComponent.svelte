@@ -330,11 +330,13 @@
 	{:else if result?.error && $mode === 'preview'}
 		<div class="p-2">
 			<Alert type="error" title="Error during execution">
-				See "Debug Runs" on the top right for more details
-				<pre
-					title={JSON.stringify(result.error, null, 4)}
-					class=" mt-2 text-2xs whitespace-pre-wrap">{JSON.stringify(result.error, null, 4)}</pre
-				>
+				<div class="flex flex-col gap-2">
+					An error occured, please contact the app author.
+					<span class="font-semibold">Job id: {testJob?.id}</span>
+					<pre class=" whitespace-pre-wrap text-gray-900 bg-white border w-full p-4 text-xs"
+						>{JSON.stringify(result.error, null, 4)}
+				</pre>
+				</div>
 			</Alert>
 			<slot />
 		</div>
