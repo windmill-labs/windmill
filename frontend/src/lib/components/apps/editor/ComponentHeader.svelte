@@ -82,12 +82,9 @@
 			<Bug size={14} />
 			<span slot="text">
 				<div class="bg-white">
-					<Alert type="error" title="Error during execution">
+					<Alert type="error" title={`${json?.name}: ${json?.message}`}>
 						<div class="flex flex-col gap-2">
 							<div>
-								<span class="text-red-500 font-semibold text-xs font-mono">
-									{json?.name}: {json?.message}
-								</span>
 								<pre class=" whitespace-pre-wrap text-gray-900 bg-white border w-full p-4 text-xs"
 									>{json?.stack ?? ''}
 									</pre>
