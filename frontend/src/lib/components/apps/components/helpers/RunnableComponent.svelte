@@ -33,7 +33,8 @@
 		isEditor,
 		jobs,
 		noBackend,
-		errorByComponent
+		errorByComponent,
+		mode
 	} = getContext<AppEditorContext>('AppEditorContext')
 
 	onMount(() => {
@@ -326,6 +327,17 @@
 		<Alert type="warning" size="xs" class="mt-2 px-1" title="Missing runnable">
 			Please select a runnable
 		</Alert>
+	{:else if result?.error && $mode === 'preview'}
+		<div class="p-2">
+			<Alert type="error" title="Error during execution">
+				See "Debug Runs" on the top right for more details
+				<pre
+					title={JSON.stringify(result.error, null, 4)}
+					class=" mt-2 text-2xs whitespace-pre-wrap">{JSON.stringify(result.error, null, 4)}</pre
+				>
+			</Alert>
+			<slot />
+		</div>
 	{:else}
 		<div class="block w-full h-full">
 			<slot />
