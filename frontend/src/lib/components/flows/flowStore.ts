@@ -53,7 +53,6 @@ export async function initFlow(flow: Flow) {
 	}
 
 	await initFlowState(flow)
-
 	flowStore.set(flow)
 
 	function migrateFlowModule(mod: FlowModule) {

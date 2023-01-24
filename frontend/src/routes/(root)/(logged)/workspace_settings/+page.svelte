@@ -178,22 +178,24 @@
 	{#if $userStore?.is_admin || $superadmin}
 		<PageHeader title="Workspace Settings of {$workspaceStore}" />
 
-		<Tabs bind:selected={tab}>
-			<Tab size="md" value="users">
-				<div class="flex gap-2 items-center my-1"> Users & Invites </div>
-			</Tab>
-			<Tab size="md" value="slack">
-				<div class="flex gap-2 items-center my-1"> Slack Command </div>
-			</Tab>
-			{#if isCloudHosted()}
-				<Tab size="md" value="premium">
-					<div class="flex gap-2 items-center my-1"> Premium Plans </div>
+		<div class="overflow-x-auto scrollbar-hidden">
+			<Tabs bind:selected={tab}>
+				<Tab size="md" value="users">
+					<div class="flex gap-2 items-center my-1"> Users & Invites </div>
 				</Tab>
-			{/if}
-			<Tab size="md" value="export_delete">
-				<div class="flex gap-2 items-center my-1"> Export & Delete Workspace </div>
-			</Tab>
-		</Tabs>
+				<Tab size="md" value="slack">
+					<div class="flex gap-2 items-center my-1"> Slack Command </div>
+				</Tab>
+				{#if isCloudHosted()}
+					<Tab size="md" value="premium">
+						<div class="flex gap-2 items-center my-1"> Premium Plans </div>
+					</Tab>
+				{/if}
+				<Tab size="md" value="export_delete">
+					<div class="flex gap-2 items-center my-1"> Export & Delete Workspace </div>
+				</Tab>
+			</Tabs>
+		</div>
 		{#if tab == 'users'}
 			<PageHeader title="Members ({users?.length ?? ''})" primary={false} />
 
@@ -506,8 +508,8 @@
 							{#if planTitle == 'Team'}
 								{#if plan != 'team'}
 									<div class="mt-4 mx-auto">
-										<Button disabled href="/api/w/{$workspaceStore}/workspaces/checkout?plan=team"
-											>Upgrade to the Team plan (Coming soon)</Button
+										<Button href="/api/w/{$workspaceStore}/workspaces/checkout?plan=team"
+											>Upgrade to the Team plan</Button
 										>
 									</div>
 								{:else}
