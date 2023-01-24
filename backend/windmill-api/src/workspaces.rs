@@ -233,13 +233,23 @@ async fn stripe_checkout(
             params.line_items = match plan.plan.as_str() {
                 "team" => Some(vec![
                     stripe::CreateCheckoutSessionLineItems {
-                        quantity: None,
-                        price: Some("price_1MSdSyGU3NdFi9eLMdV6cS6F".to_string()),
+                        quantity: Some(1),
+                        price: Some("price_1MT2nyGU3NdFi9eLxBweLWAz".to_string()),
                         ..Default::default()
                     },
                     stripe::CreateCheckoutSessionLineItems {
                         quantity: None,
                         price: Some("price_1MShsNGU3NdFi9eLJMEZUW8b".to_string()),
+                        ..Default::default()
+                    },
+                    stripe::CreateCheckoutSessionLineItems {
+                        quantity: None,
+                        price: Some("price_1MT2ouGU3NdFi9eLfn1VPKiX".to_string()),
+                        ..Default::default()
+                    },
+                    stripe::CreateCheckoutSessionLineItems {
+                        quantity: None,
+                        price: Some("price_1MT2pMGU3NdFi9eLUFhcTKjH".to_string()),
                         ..Default::default()
                     },
                 ]),
