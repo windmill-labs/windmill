@@ -341,7 +341,7 @@
 			<slot />
 		</div>
 	{:else}
-		<div class="block w-full h-full">
+		<div class="block grow max-h-full">
 			<slot />
 		</div>
 	{/if}

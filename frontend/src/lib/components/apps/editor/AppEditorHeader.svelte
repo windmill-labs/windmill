@@ -41,7 +41,13 @@
 	import { Icon } from 'svelte-awesome'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { appToHubUrl, classNames, copyToClipboard, sendUserToast } from '../../../utils'
-	import type { AppInput } from '../inputType'
+	import type {
+		AppInput,
+		ConnectedAppInput,
+		RowAppInput,
+		StaticAppInput,
+		UserAppInput
+	} from '../inputType'
 	import type { AppComponent, AppEditorContext } from '../types'
 	import { toStatic } from '../utils'
 	import AppExportButton from './AppExportButton.svelte'
@@ -98,6 +104,17 @@
 		saveDrawerOpen = false
 	}
 
+	function collectStaticFields(
+		fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
+	) {
+		return Object.fromEntries(
+			Object.entries(fields ?? {})
+				.filter(([k, v]) => v.type == 'static')
+				.map(([k, v]) => {
+					return [k, v['value']]
+				})
+		)
+	}
 	async function computeTriggerables() {
 		const allTriggers = await Promise.all(
 			$app.grid
@@ -111,13 +128,7 @@
 				})
 				.map(async (input) => {
 					if (input?.type == 'runnable') {
-						const staticInputs = Object.fromEntries(
-							Object.entries(input.fields ?? {})
-								.filter(([k, v]) => v.type == 'static')
-								.map(([k, v]) => {
-									return [k, v['value']]
-								})
-						)
+						const staticInputs = collectStaticFields(input.fields)
 						if (input.runnable?.type == 'runnableByName') {
 							let hex = await hash(input.runnable.inlineScript?.content)
 							return [`rawscript/${hex}`, staticInputs]
@@ -129,8 +140,16 @@
 					}
 					return []
 				})
+				.concat(
+					Object.values($app.hiddenInlineScripts).map(async (v) => {
+						let hex = await hash(v.inlineScript?.content)
+						const staticInputs = collectStaticFields(v.fields)
+						return [`rawscript/${hex}`, staticInputs]
+					})
+				)
 		)
-		policy.triggerables = Object.fromEntries(allTriggers)
+		policy.triggerables = Object.fromEntries(allTriggers.filter((x) => x.length > 0))
+
 		policy.on_behalf_of = `u/${$userStore?.username}`
 		policy.on_behalf_of_email = $userStore?.email
 	}
