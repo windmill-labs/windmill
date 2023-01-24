@@ -582,7 +582,7 @@ pub async fn run_worker(
                     )
                     .await.expect("could not create job token");
                     tx.commit().await.expect("could not commit job token");
-                    let job_client = windmill_api_client::create_client(&worker_config.base_url, token.clone());
+                    let job_client = windmill_api_client::create_client(&worker_config.base_internal_url, token.clone());
                     let is_flow = job.job_kind == JobKind::Flow || job.job_kind == JobKind::FlowPreview || job.job_kind == JobKind::FlowDependencies;
 
                     if let Some(err) = handle_queued_job(
