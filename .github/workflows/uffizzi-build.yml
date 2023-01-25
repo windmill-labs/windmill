@@ -4,6 +4,7 @@ on:
     types: [opened,synchronize,reopened,closed]
     paths:
       - "backend/**"
+      - ".github/**"
   workflow_dispatch:
       
 jobs:
