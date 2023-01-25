@@ -13,7 +13,7 @@
 	import Tabs from './common/tabs/Tabs.svelte'
 	import { FlowGraph, type GraphModuleState } from './graph'
 	import ModuleStatus from './ModuleStatus.svelte'
-	import { displayDate, isOwner, pluralize, truncateRev } from '$lib/utils'
+	import { displayDate, emptyString, isOwner, pluralize, truncateRev } from '$lib/utils'
 	import JobArgs from './JobArgs.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
@@ -226,14 +226,21 @@
 					<div class="flex flex-col gap-1">
 						{#each innerModules as mod, i (mod.id)}
 							{#if mod.type == FlowStatusModule.type.IN_PROGRESS}
+								{@const rawMod = job.raw_flow?.modules[i]}
+
 								<div
 									><span class="inline-flex gap-1"
 										><Badge color="indigo">{mod.id}</Badge>
-										{#if job.raw_flow?.modules[i]?.summary}
-											<span class="font-medium text-gray-900">
-												{job.raw_flow?.modules[i]?.summary ?? ''}
-											</span>
-										{/if}
+										<span class="font-medium text-gray-900">
+											{#if !emptyString(rawMod?.summary)}
+												{rawMod?.summary ?? ''}
+											{:else if rawMod?.value.type == 'script'}
+												{rawMod.value.path ?? ''}
+											{:else if rawMod?.value.type}
+												{rawMod?.value.type}
+											{/if}
+										</span>
+
 										<Loader2 class="animate-spin" /></span
 									></div
 								>
