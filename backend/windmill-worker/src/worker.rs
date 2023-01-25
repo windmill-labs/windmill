@@ -234,6 +234,7 @@ pub async fn create_token_for_owner<'c>(
     owner: &str,
     label: &str,
     expires_in: i32,
+    email: &str,
 ) -> error::Result<(Transaction<'c, Postgres>, String)> {
     // TODO: Bad implementation. We should not have access to this DB here.
     let token: String = rd_string(30);
@@ -245,14 +246,15 @@ pub async fn create_token_for_owner<'c>(
 
     sqlx::query_scalar!(
         "INSERT INTO token
-            (workspace_id, token, owner, label, expiration, super_admin)
-            VALUES ($1, $2, $3, $4, now() + ($5 || ' seconds')::interval, $6)",
+            (workspace_id, token, owner, label, expiration, super_admin, email)
+            VALUES ($1, $2, $3, $4, now() + ($5 || ' seconds')::interval, $6, $7)",
         &w_id,
         token,
         owner,
         label,
         expires_in.to_string(),
-        is_super_admin
+        is_super_admin,
+        email
     )
     .execute(&mut tx)
     .await?;
@@ -579,6 +581,7 @@ pub async fn run_worker(
                         &job.permissioned_as,
                         "ephemeral-script",
                         timeout * 2,
+                        &job.email,
                     )
                     .await.expect("could not create job token");
                     tx.commit().await.expect("could not commit job token");
@@ -2638,6 +2641,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, timeout: i32, base_url: &str) {
             &job.permissioned_as,
             "ephemeral-zombie-jobs",
             timeout * 2,
+            &job.email,
         )
         .await
         .expect("could not create job token");

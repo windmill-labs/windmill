@@ -45,6 +45,7 @@ lazy_static::lazy_static! {
 }
 
 const MAX_FREE_EXECS: i32 = 1000;
+const MAX_FREE_CONCURRENT_RUNS: i32 = 3;
 
 pub async fn cancel_job<'c>(
     username: &str,
@@ -318,10 +319,26 @@ pub async fn push<'c>(
                     .fetch_optional(&mut tx)
                     .await?
                     .unwrap_or(false);
-            if !is_super_admin && usage > MAX_FREE_EXECS {
-                return Err(error::Error::BadRequest(format!(
+
+            if !is_super_admin {
+                if usage > MAX_FREE_EXECS {
+                    return Err(error::Error::BadRequest(format!(
                     "User {email} has exceeded the free usage limit of {MAX_FREE_EXECS} that applies outside of premium workspaces."
                 )));
+                }
+                let concurrent_runs = sqlx::query_scalar!(
+                    "SELECT COUNT(id) FROM queue WHERE running = true AND email = $1",
+                    email
+                )
+                .fetch_one(&mut tx)
+                .await?
+                .unwrap_or(0);
+
+                if concurrent_runs > MAX_FREE_CONCURRENT_RUNS.into() {
+                    return Err(error::Error::BadRequest(format!(
+                    "User {email} has exceeded the concurrent runs limit of {MAX_FREE_CONCURRENT_RUNS} that applies outside of premium workspaces."
+                )));
+                }
             }
         }
     }
