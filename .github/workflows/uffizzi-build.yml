@@ -4,7 +4,8 @@ on:
     types: [opened,synchronize,reopened,closed]
     paths:
       - "backend/**"
-      - ".github/**"
+      - ".github/uffizzi/**"
+      - ".github/workflows/**"
   workflow_dispatch:
       
 jobs:
