@@ -31,6 +31,10 @@ services:
       - OAUTH_JSON_BASE64=${OAUTH_JSON_BASE64}
     volumes:
       - worker_dependency_cache:/tmp/windmill/cache
+    deploy:
+      resources:
+        limits:
+          memory: 250M
 
   lsp:
     image: '${LSP_IMAGE}'
