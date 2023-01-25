@@ -180,7 +180,11 @@
 				<FlowPreviewStatus {job} />
 				{#if `result` in job}
 					<div class="w-full h-full">
-						<FlowJobResult result={job.result} logs={job.logs ?? ''} />
+						<FlowJobResult
+							loading={job['running'] == true}
+							result={job.result}
+							logs={job.logs ?? ''}
+						/>
 					</div>
 				{:else if job.flow_status?.modules?.[job?.flow_status?.step]?.type === FlowStatusModule.type.WAITING_FOR_EVENTS}
 					<div class="w-full h-full mt-2 text-sm text-gray-600">
@@ -451,7 +455,13 @@
 					{#if selectedNode}
 						{@const node = localFlowModuleStates[selectedNode]}
 						{#if selectedNode == 'end'}
-							<FlowJobResult noBorder col result={job['result'] ?? {}} logs={job.logs ?? ''} />
+							<FlowJobResult
+								loading={job['running']}
+								noBorder
+								col
+								result={job['result']}
+								logs={job.logs ?? ''}
+							/>
 						{:else if selectedNode == 'start'}
 							{#if job.args}
 								<div class="p-2">
@@ -478,7 +488,13 @@
 									</div>
 								{/if}
 							</div>
-							<FlowJobResult noBorder col result={node.result ?? {}} logs={node.logs ?? ''} />
+							<FlowJobResult
+								loading={job['running'] == true}
+								noBorder
+								col
+								result={node.result}
+								logs={node.logs ?? ''}
+							/>
 						{:else}
 							<p class="p-2 text-gray-600 italic"
 								>The execution of this node has no information attached to it. The job likely did
