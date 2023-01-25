@@ -326,6 +326,18 @@ pub async fn push<'c>(
                     "User {email} has exceeded the free usage limit of {MAX_FREE_EXECS} that applies outside of premium workspaces."
                 )));
                 }
+                let in_queue =
+                    sqlx::query_scalar!("SELECT COUNT(id) FROM queue WHERE email = $1", email)
+                        .fetch_one(&mut tx)
+                        .await?
+                        .unwrap_or(0);
+
+                if in_queue > MAX_FREE_EXECS.into() {
+                    return Err(error::Error::BadRequest(format!(
+                    "User {email} has exceeded the jobs in queue limit of {MAX_FREE_EXECS} that applies outside of premium workspaces."
+                )));
+                }
+
                 let concurrent_runs = sqlx::query_scalar!(
                     "SELECT COUNT(id) FROM queue WHERE running = true AND email = $1",
                     email
