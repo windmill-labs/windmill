@@ -7,6 +7,7 @@
 	import autosize from 'svelte-autosize'
 
 	export let result: any
+	export let requireHtmlApproval = false
 
 	let resultKind:
 		| 'json'
@@ -21,9 +22,6 @@
 		| 'approval'
 		| undefined
 
-	$: if(result) {
-		enableHtml = false
-	}
 	$: resultKind = inferResultKind(result)
 
 	let forceJson = false
@@ -129,7 +127,7 @@
 			</div>
 		{:else if !forceJson && resultKind == 'html'}
 			<div class="h-full">
-				{#if enableHtml}
+				{#if !requireHtmlApproval || enableHtml}
 					{@html result.html}
 				{:else}
 					<div class="font-main text-sm">

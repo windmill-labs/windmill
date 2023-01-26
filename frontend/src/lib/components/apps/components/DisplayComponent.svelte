@@ -16,6 +16,6 @@
 		Results
 	</div>
 	<div class="p-2">
-		<DisplayResult {result} />
+		<DisplayResult {result} requireHtmlApproval />
 	</div>
 </RunnableWrapper>
