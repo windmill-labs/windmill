@@ -10,10 +10,11 @@
 	} from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import { Repeat } from 'lucide-svelte'
+	import { Repeat, Square } from 'lucide-svelte'
 
 	const dispatch = createEventDispatcher()
 	export let trigger = false
+	export let stop = false
 </script>
 
 <Menu noMinW placement="bottom-start" let:close>
@@ -113,5 +114,18 @@
 			<Icon data={faBarsStaggered} scale={0.8} class="mr-2" />
 			Flow
 		</button>
+		{#if stop}
+			<button
+				class="w-full text-left p-2 hover:bg-gray-100 inline-flex gap-2.5"
+				on:click={() => {
+					close()
+					dispatch('new', 'end')
+				}}
+				role="menuitem"
+			>
+				<Square size={14} />
+				End Flow
+			</button>
+		{/if}
 	</div>
 </Menu>

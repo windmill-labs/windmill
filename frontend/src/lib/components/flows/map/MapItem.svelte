@@ -11,7 +11,7 @@
 	import Icon from 'svelte-awesome'
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
 	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
-	import { Building, Repeat } from 'lucide-svelte'
+	import { Building, Repeat, Square } from 'lucide-svelte'
 
 	export let mod: FlowModule
 	export let index: number
@@ -107,6 +107,8 @@
 				<div slot="icon">
 					{#if mod.value.type === 'rawscript'}
 						<LanguageIcon lang={mod.value.language} width={16} height={16} />
+					{:else if mod.summary == 'Terminate flow'}
+						<Square size={16} />
 					{:else if mod.value.type === 'identity'}
 						<Icon data={faLongArrowDown} scale={1.1} />
 					{:else if mod.value.type === 'script'}
