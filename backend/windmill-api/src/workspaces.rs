@@ -51,6 +51,7 @@ pub fn workspaced_service() -> Router {
         .route("/delete_invite", post(delete_invite))
         .route("/get_settings", get(get_settings))
         .route("/edit_slack_command", post(edit_slack_command))
+        .route("/edit_webhook", post(edit_webhook))
         .route("/edit_auto_invite", post(edit_auto_invite))
         .route("/tarball", get(tarball_workspace))
         .route("/premium_info", get(premium_info))
@@ -90,6 +91,7 @@ pub struct WorkspaceSettings {
     pub auto_invite_operator: Option<bool>,
     pub customer_id: Option<String>,
     pub plan: Option<String>,
+    pub webhook: Option<String>,
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -115,6 +117,11 @@ struct EditCommandScript {
 #[derive(Deserialize)]
 struct EditAutoInvite {
     operator: Option<bool>,
+}
+
+#[derive(Deserialize)]
+struct EditWebhook {
+    webhook: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -507,6 +514,48 @@ async fn edit_auto_invite(
         "Edit auto-invite for workspace {} to {}",
         &w_id, domain
     ))
+}
+
+async fn edit_webhook(
+    authed: Authed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Authed { is_admin, username, .. }: Authed,
+    Json(ew): Json<EditWebhook>,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+
+    let mut tx = db.begin().await?;
+
+    if let Some(webhook) = &ew.webhook {
+        sqlx::query!(
+            "UPDATE workspace_settings SET webhook = $1 WHERE workspace_id = $2",
+            webhook,
+            &w_id
+        )
+        .execute(&mut tx)
+        .await?;
+    } else {
+        sqlx::query!(
+            "UPDATE workspace_settings SET webhook = NULL WHERE workspace_id = $1",
+            &w_id,
+        )
+        .execute(&mut tx)
+        .await?;
+    }
+    audit_log(
+        &mut tx,
+        &authed.username,
+        "workspaces.edit_webhook",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        Some([("webhook", &format!("{:?}", ew.webhook)[..])].into()),
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(format!("Edit webhook for workspace {}", &w_id))
 }
 
 async fn list_workspaces_as_super_admin(

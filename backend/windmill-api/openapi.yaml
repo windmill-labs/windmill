@@ -883,6 +883,8 @@ paths:
                     type: string
                   customer_id:
                     type: string
+                  webhook:
+                    type: string
 
   /w/{workspace}/workspaces/premium_info:
     get:
@@ -953,6 +955,33 @@ paths:
               properties:
                 operator:
                   type: boolean
+
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/edit_webhook:
+    post:
+      summary: edit webhook
+      operationId: editWebhook
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: WorkspaceWebhook
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                webhook:
+                  type: string
 
       responses:
         "200":

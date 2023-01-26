@@ -21,6 +21,7 @@ use crate::{
     oauth2::{build_oauth_clients, SlackVerifier},
     tracing_init::{MyMakeSpan, MyOnResponse},
     users::{Authed, OptAuthed},
+    webhook_util::{WebhookShared, WebhookUtil},
 };
 
 mod apps;
@@ -42,6 +43,7 @@ mod tracing_init;
 mod users;
 mod utils;
 mod variables;
+mod webhook_util;
 mod worker_ping;
 mod workspaces;
 
@@ -106,7 +108,8 @@ pub async fn run_server(
             std::env::var("COOKIE_DOMAIN").ok(),
         ))))
         .layer(Extension(http_client))
-        .layer(CookieManagerLayer::new());
+        .layer(CookieManagerLayer::new())
+        .layer(Extension(WebhookShared::new(rx.resubscribe())));
     // build our application with a route
     let app = Router::new()
         .nest(
@@ -147,7 +150,8 @@ pub async fn run_server(
                         .nest("/flows", flows::workspaced_service())
                         .nest("/capture", capture::workspaced_service())
                         .nest("/favorites", favorite::workspaced_service())
-                        .nest("/folders", folders::workspaced_service()),
+                        .nest("/folders", folders::workspaced_service())
+                        .route_layer(from_extractor::<WebhookUtil>()),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(

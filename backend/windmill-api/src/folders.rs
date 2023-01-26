@@ -9,6 +9,7 @@
 use crate::{
     db::{UserDB, DB},
     users::Authed,
+    webhook_util::{WebhookMessage, WebhookUtil},
 };
 use axum::{
     extract::{Extension, Path, Query},
@@ -139,6 +140,7 @@ async fn check_name_conflict<'c>(
 async fn create_folder(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    webhook: WebhookUtil,
     Path(w_id): Path<String>,
     Json(ng): Json<NewFolder>,
 ) -> Result<String> {
@@ -193,8 +195,12 @@ async fn create_folder(
         None,
     )
     .await?;
-
     tx.commit().await?;
+    webhook.send_message(WebhookMessage::CreateFolder {
+        workspace: w_id.clone(),
+        name: ng.name.clone(),
+    });
+
     Ok(format!("Created folder {}", ng.name))
 }
 
@@ -245,6 +251,7 @@ pub async fn require_is_owner(
 async fn update_folder(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    webhook: WebhookUtil,
     Path((w_id, name)): Path<(String, String)>,
     Json(ng): Json<UpdateFolder>,
 ) -> Result<String> {
@@ -298,8 +305,12 @@ async fn update_folder(
         None,
     )
     .await?;
-
     tx.commit().await?;
+    webhook.send_message(WebhookMessage::UpdateFolder {
+        workspace: w_id.clone(),
+        name: name.to_owned(),
+    });
+
     Ok(format!("Updated folder {}", name))
 }
 
@@ -416,6 +427,7 @@ async fn get_folder_usage(
 async fn delete_folder(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    webhook: WebhookUtil,
     Path((w_id, name)): Path<(String, String)>,
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
@@ -440,6 +452,10 @@ async fn delete_folder(
     )
     .await?;
     tx.commit().await?;
+
+    webhook
+        .send_message(WebhookMessage::DeleteFolder { workspace: w_id.clone(), name: name.clone() });
+
     Ok(format!("delete folder at name {}", name))
 }
 
@@ -447,6 +463,7 @@ async fn add_owner(
     authed: Authed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
+    webhook: WebhookUtil,
     Path((w_id, name)): Path<(String, String)>,
     Json(Owner { owner }): Json<Owner>,
 ) -> Result<String> {
@@ -477,6 +494,10 @@ async fn add_owner(
     )
     .await?;
     tx.commit().await?;
+
+    webhook
+        .send_message(WebhookMessage::UpdateFolder { workspace: w_id.clone(), name: name.clone() });
+
     Ok(format!("Added {} to folder {}", owner, name))
 }
 
@@ -510,6 +531,7 @@ async fn remove_owner(
     authed: Authed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
+    webhook: WebhookUtil,
     Path((w_id, name)): Path<(String, String)>,
     Json(Owner { owner }): Json<Owner>,
 ) -> Result<String> {
@@ -540,5 +562,9 @@ async fn remove_owner(
     )
     .await?;
     tx.commit().await?;
+
+    webhook
+        .send_message(WebhookMessage::UpdateFolder { workspace: w_id.clone(), name: name.clone() });
+
     Ok(format!("Removed {} to folder {}", owner, name))
 }
