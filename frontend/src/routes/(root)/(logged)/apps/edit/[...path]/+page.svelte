@@ -1,7 +1,7 @@
 <script lang="ts">
 	import AppEditor from '$lib/components/apps/editor/AppEditor.svelte'
 	import { AppService, AppWithLastVersion } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import { page } from '$app/stores'
 	import { decodeState, sendUserToast } from '$lib/utils'
 	import { goto } from '$app/navigation'
