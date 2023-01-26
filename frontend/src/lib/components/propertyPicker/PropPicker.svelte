@@ -26,7 +26,7 @@
 	const EMPTY_STRING = ''
 	let search = ''
 
-	const { propPickerConfig, clearFocus } = getContext<PropPickerWrapperContext>('PropPickerWrapper')
+	const { propPickerConfig } = getContext<PropPickerWrapperContext>('PropPickerWrapper')
 
 	$: flowInputsFiltered =
 		search === EMPTY_STRING
@@ -89,6 +89,7 @@
 		</div>
 		<div class="overflow-y-auto mb-2">
 			<ObjectViewer
+				allowCopy={false}
 				pureViewer={!$propPickerConfig}
 				json={flowInputsFiltered}
 				on:select={(e) => {
@@ -100,6 +101,7 @@
 			<span class="font-bold text-sm">Error</span>
 			<div class="overflow-y-auto mb-2">
 				<ObjectViewer
+					allowCopy={false}
 					pureViewer={!$propPickerConfig}
 					json={{
 						error: {
@@ -116,6 +118,7 @@
 				<span class="font-bold text-sm">Previous Result</span>
 				<div class="overflow-y-auto mb-2">
 					<ObjectViewer
+						allowCopy={false}
 						topLevelNode
 						pureViewer={!$propPickerConfig}
 						json={Object.fromEntries(
@@ -131,6 +134,7 @@
 				<span class="font-bold text-sm">Resume payloads</span>
 				<div class="overflow-y-auto mb-2">
 					<ObjectViewer
+						allowCopy={false}
 						topLevelNode
 						pureViewer={!$propPickerConfig}
 						json={{
@@ -148,6 +152,7 @@
 				<span class="font-bold text-sm">All Results</span>
 				<div class="overflow-y-auto mb-2">
 					<ObjectViewer
+						allowCopy={false}
 						topLevelNode
 						pureViewer={!$propPickerConfig}
 						collapsed={true}
@@ -173,6 +178,7 @@
 						}}>-</Button
 					>
 					<ObjectViewer
+						allowCopy={false}
 						pureViewer={!$propPickerConfig}
 						rawKey={true}
 						json={variables}
@@ -200,6 +206,7 @@
 						}}>-</Button
 					>
 					<ObjectViewer
+						allowCopy={false}
 						pureViewer={!$propPickerConfig}
 						rawKey={true}
 						json={resources}

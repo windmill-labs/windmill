@@ -5,7 +5,6 @@
 	import { Badge } from '../common'
 	import { NEVER_TESTED_THIS_FAR } from '../flows/utils'
 	import { getTypeAsString } from '../flows/utils'
-	import Popover from '../Popover.svelte'
 	import { computeKey } from './utils'
 	import WarningMessage from './WarningMessage.svelte'
 
@@ -18,6 +17,7 @@
 	export let rawKey = false
 	export let topBrackets = false
 	export let topLevelNode = false
+	export let allowCopy = true
 
 	const collapsedSymbol = '...'
 	let keys: string | any[]
@@ -39,7 +39,7 @@
 	const dispatch = createEventDispatcher()
 
 	function selectProp(key: string, value: any) {
-		if (pureViewer) {
+		if (pureViewer && allowCopy) {
 			copyToClipboard(value)
 		}
 		dispatch('select', rawKey ? key : computeKey(key, isArray, currentPath))
