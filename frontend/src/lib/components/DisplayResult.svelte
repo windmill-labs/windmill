@@ -12,6 +12,7 @@
 		| 'json'
 		| 'table-col'
 		| 'table-row'
+		| 'html'
 		| 'png'
 		| 'file'
 		| 'jpeg'
@@ -19,9 +20,14 @@
 		| 'error'
 		| 'approval'
 		| undefined
+
+	$: if(result) {
+		enableHtml = false
+	}
 	$: resultKind = inferResultKind(result)
 
 	let forceJson = false
+	let enableHtml = false
 
 	function isRectangularArray(obj: any) {
 		if (!Array.isArray(obj) || obj.length == 0) {
@@ -53,6 +59,8 @@
 					return 'table-row'
 				} else if (keys.map((k) => Array.isArray(result[k])).reduce((a, b) => a && b)) {
 					return 'table-col'
+				} else if (keys.length == 1 && keys[0] == 'html') {
+					return 'html'
 				} else if (keys.length == 1 && keys[0] == 'png') {
 					return 'png'
 				} else if (keys.length == 1 && keys[0] == 'jpeg') {
@@ -118,6 +126,34 @@
 						{/each}
 					</tbody>
 				</TableCustom>
+			</div>
+		{:else if !forceJson && resultKind == 'html'}
+			<div class="h-full">
+				{#if enableHtml}
+					{@html result.html}
+				{:else}
+					<div class="font-main text-sm">
+						<div class="flex flex-col">
+							<div class="bg-red-400 py-1 rounded-t text-white font-bold text-center">
+								Warning
+							</div>
+							<p
+								class="text-gray-600 mb-2 text-left border-2 !border-t-0 rounded-b border-red-400 overflow-auto p-1"
+							>Rendering HTML can expose you to XSS attacks.
+Only enable it if you trust the author of the script.
+							</p>
+						</div>
+						<div class="center-center">
+							<Button
+								size="sm"
+								color="dark"
+								on:click={() => enableHtml = true}
+							>
+								Enable HTML rendering
+							</Button>
+						</div>
+					</div>
+				{/if}
 			</div>
 		{:else if !forceJson && resultKind == 'png'}
 			<div class="h-full"
