@@ -12,6 +12,15 @@ use tokio::{select, sync::mpsc};
 
 use crate::db::DB;
 
+lazy_static::lazy_static! {
+    // TODO: these aren't synced, they should be moved into the queue abstraction once/if that happens.
+    static ref WEBHOOK_REQUEST_COUNT: prometheus::Histogram = prometheus::register_histogram!(
+        "webhook_request",
+        "Histogram of webhook requests made"
+    )
+    .unwrap();
+}
+
 #[derive(Serialize)]
 #[serde(tag = "type")]
 pub enum WebhookMessage {
@@ -59,7 +68,9 @@ impl WebhookShared {
                     _ = shutdown_rx.recv() => break,
                     r = rx.recv() => match r {
                         Some((url, message)) => {
+                            let timer = WEBHOOK_REQUEST_COUNT.start_timer();
                             let _ = client.post(url).json(&message).send().await;
+                            timer.stop_and_record();
                         },
                         None => break,
                     }
