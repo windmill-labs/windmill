@@ -179,4 +179,6 @@ export type AppEditorContext = {
 export type EditorMode = 'dnd' | 'preview'
 export type EditorBreakpoint = 'sm' | 'lg'
 
+export const IS_APP_PUBLIC_CONTEXT_KEY = 'isAppPublicContext' as const
+
 type ComponentID = string

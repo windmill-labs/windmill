@@ -1,11 +1,14 @@
 <script lang="ts">
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
+	import { getContext } from 'svelte'
 	import type { AppInput } from '../inputType'
+	import { IS_APP_PUBLIC_CONTEXT_KEY } from '../types'
 	import RunnableWrapper from './helpers/RunnableWrapper.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
 
+	const requireHtmlApproval = getContext<boolean | undefined>(IS_APP_PUBLIC_CONTEXT_KEY)
 	let result: any = undefined
 
 	export const staticOutputs: string[] = ['result', 'loading']
@@ -16,6 +19,6 @@
 		Results
 	</div>
 	<div class="p-2">
-		<DisplayResult {result} requireHtmlApproval />
+		<DisplayResult {result} {requireHtmlApproval} />
 	</div>
 </RunnableWrapper>
