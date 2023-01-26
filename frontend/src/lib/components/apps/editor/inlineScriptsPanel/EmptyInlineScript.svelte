@@ -4,7 +4,7 @@
 	import { Script, type Preview } from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
-	import { emptySchema } from '$lib/utils'
+	import { capitalize, emptySchema } from '$lib/utils'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { fly } from 'svelte/transition'
 	import { defaultCode } from '../../editorUtils'
@@ -61,7 +61,7 @@
 	<div class="flex gap-2 flex-row flex-wrap">
 		{#each langs as lang}
 			<FlowScriptPicker
-				label={lang}
+				label={capitalize(lang)}
 				{lang}
 				on:click={() => {
 					createInlineScriptByLanguage(lang, name)
