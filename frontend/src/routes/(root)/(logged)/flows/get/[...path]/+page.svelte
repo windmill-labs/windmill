@@ -8,7 +8,8 @@
 		defaultIfEmptyString,
 		flowToHubUrl,
 		copyToClipboard,
-		emptyString
+		emptyString,
+		encodeState
 	} from '$lib/utils'
 	import {
 		faPlay,
@@ -173,7 +174,7 @@
 					</Button>
 					{#if !$userStore?.operator}
 						<Button
-							href="/flows/edit/{path}?nodraft=true"
+							href="/flows/edit/{path}?nodraft=true&args={encodeState(args)}"
 							variant="contained"
 							color="blue"
 							size="md"

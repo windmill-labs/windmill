@@ -234,6 +234,7 @@ pub async fn create_token_for_owner<'c>(
     owner: &str,
     label: &str,
     expires_in: i32,
+    email: &str,
 ) -> error::Result<(Transaction<'c, Postgres>, String)> {
     // TODO: Bad implementation. We should not have access to this DB here.
     let token: String = rd_string(30);
@@ -245,14 +246,15 @@ pub async fn create_token_for_owner<'c>(
 
     sqlx::query_scalar!(
         "INSERT INTO token
-            (workspace_id, token, owner, label, expiration, super_admin)
-            VALUES ($1, $2, $3, $4, now() + ($5 || ' seconds')::interval, $6)",
+            (workspace_id, token, owner, label, expiration, super_admin, email)
+            VALUES ($1, $2, $3, $4, now() + ($5 || ' seconds')::interval, $6, $7)",
         &w_id,
         token,
         owner,
         label,
         expires_in.to_string(),
-        is_super_admin
+        is_super_admin,
+        email
     )
     .execute(&mut tx)
     .await?;
@@ -579,10 +581,11 @@ pub async fn run_worker(
                         &job.permissioned_as,
                         "ephemeral-script",
                         timeout * 2,
+                        &job.email,
                     )
                     .await.expect("could not create job token");
                     tx.commit().await.expect("could not commit job token");
-                    let job_client = windmill_api_client::create_client(&worker_config.base_url, token.clone());
+                    let job_client = windmill_api_client::create_client(&worker_config.base_internal_url, token.clone());
                     let is_flow = job.job_kind == JobKind::Flow || job.job_kind == JobKind::FlowPreview || job.job_kind == JobKind::FlowDependencies;
 
                     if let Some(err) = handle_queued_job(
@@ -902,7 +905,7 @@ async fn handle_queued_job(
                             }
                         }
                         err @ _ => {
-                            json!({"message": format!("error before termination: {err:#?}"), "name": "ExecutionErr"})
+                            json!({"message": format!("error during execution of the script:\n{}", err), "name": "ExecutionErr"})
                         }
                     };
 
@@ -948,6 +951,7 @@ async fn write_file(dir: &str, path: &str, content: &str) -> error::Result<File>
 
 #[async_recursion]
 async fn transform_json_value(
+    name: &str,
     client: &windmill_api_client::Client,
     workspace: &str,
     v: Value,
@@ -958,7 +962,7 @@ async fn transform_json_value(
             let v = client
                 .get_variable(workspace, path, Some(true))
                 .await
-                .map_err(|_| Error::NotFound(format!("Variable {path} not found")))
+                .map_err(|_| Error::NotFound(format!("Variable {path} not found for `{name}`")))
                 .map(|v| v.into_inner())?
                 .value
                 .unwrap_or_else(|| String::new());
@@ -967,20 +971,23 @@ async fn transform_json_value(
         Value::String(y) if y.starts_with("$res:") => {
             let path = y.strip_prefix("$res:").unwrap();
             if path.split("/").count() < 2 {
-                return Err(Error::InternalErr(
-                    format!("invalid resource path: {path}",),
-                ));
+                return Err(Error::InternalErr(format!(
+                    "Argument `{name}` is an invalid resource path: {path}",
+                )));
             }
             let v = client
                 .get_resource_value(workspace, path)
                 .await
-                .map_err(|_| Error::NotFound(format!("Resource {path} not found")))?
+                .map_err(|_| Error::NotFound(format!("Resource {path} not found for `{name}`")))?
                 .into_inner();
-            transform_json_value(client, workspace, v).await
+            transform_json_value(name, client, workspace, v).await
         }
         Value::Object(mut m) => {
             for (a, b) in m.clone().into_iter() {
-                m.insert(a, transform_json_value(client, workspace, b).await?);
+                m.insert(
+                    a.clone(),
+                    transform_json_value(&a, client, workspace, b).await?,
+                );
             }
             Ok(Value::Object(m))
         }
@@ -1582,7 +1589,7 @@ async fn create_args_and_out_file(
     job_dir: &str,
 ) -> Result<(), Error> {
     let args = if let Some(args) = &job.args {
-        Some(transform_json_value(client, &job.workspace_id, args.clone()).await?)
+        Some(transform_json_value("args", client, &job.workspace_id, args.clone()).await?)
     } else {
         None
     };
@@ -2634,6 +2641,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, timeout: i32, base_url: &str) {
             &job.permissioned_as,
             "ephemeral-zombie-jobs",
             timeout * 2,
+            &job.email,
         )
         .await
         .expect("could not create job token");

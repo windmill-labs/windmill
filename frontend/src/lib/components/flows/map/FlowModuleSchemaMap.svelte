@@ -23,13 +23,14 @@
 
 	export let root: boolean = false
 	export let modules: FlowModule[] | undefined
+	export let parentType: 'flow' | 'forloop' | 'branchall' | 'branchone' | undefined = undefined
 
 	let indexToRemove: number | undefined = undefined
 	const { select, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	async function insertNewModuleAtIndex(
 		index: number,
-		kind: 'script' | 'forloop' | 'branchone' | 'branchall' | 'flow' | 'trigger' | 'approval'
+		kind: 'script' | 'forloop' | 'branchone' | 'branchall' | 'flow' | 'trigger' | 'approval' | 'end'
 	): Promise<void> {
 		await idMutex.runExclusive(async () => {
 			var module = emptyModule(kind == 'flow')
@@ -50,6 +51,9 @@
 				flowModule.summary = 'Trigger'
 			} else if (kind == 'approval') {
 				flowModule.summary = 'Approval'
+			} else if (kind == 'end') {
+				flowModule.summary = 'Terminate flow'
+				flowModule.stop_after_if = { skip_if_stopped: false, expr: 'true' }
 			}
 			select(flowModule.id)
 		})
@@ -136,10 +140,15 @@
 				</div>
 			{/each}
 		{/if}
-		<InsertModuleButton
-			trigger={modules?.length == 0}
-			on:new={(e) => insertNewModuleAtIndex(modules?.length ?? 0, e.detail)}
-		/>
+		{#if !modules || modules[modules?.length - 1]?.summary != 'Terminate flow'}
+			<InsertModuleButton
+				stop={!root && parentType == 'branchone'}
+				trigger={root && modules?.length == 0}
+				on:new={(e) => insertNewModuleAtIndex(modules?.length ?? 0, e.detail)}
+			/>
+		{:else}
+			<div class="my-2" />
+		{/if}
 	</ul>
 	{#if root}
 		<div class="sticky bottom-0 bg-gray-50 flex-none px-4 py-1 pb-2 border-t">

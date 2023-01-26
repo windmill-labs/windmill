@@ -168,7 +168,11 @@
 				{@const editHref = `${stem}/edit/${route}${
 					isScript
 						? `?step=2${job?.args ? `&args=${encodeURIComponent(encodeState(job?.args))}` : ''}`
-						: `${job?.args ? `?args=${encodeURIComponent(encodeState(job?.args))}` : ''}`
+						: `${
+								job?.args
+									? `?args=${encodeURIComponent(encodeState(job?.args))}&nodraft=true`
+									: '?nodraft=true'
+						  }`
 				}`}
 				{@const isRunning = job && 'running' in job && job.running}
 				{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}

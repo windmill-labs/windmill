@@ -39,12 +39,14 @@
 		editor?.insertAtCursor(detail)
 	}}
 >
-	<SimpleEditor
-		bind:this={editor}
-		lang="javascript"
-		bind:code={branch.expr}
-		class="small-editor"
-		shouldBindKey={false}
-		extraLib={stepPropPicker.extraLib}
-	/>
+	<div class="border border-gray-400">
+		<SimpleEditor
+			bind:this={editor}
+			lang="javascript"
+			bind:code={branch.expr}
+			class="small-editor border "
+			shouldBindKey={false}
+			extraLib={stepPropPicker.extraLib}
+		/>
+	</div>
 </PropPickerWrapper>
