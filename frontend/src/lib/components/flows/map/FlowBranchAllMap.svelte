@@ -85,7 +85,7 @@
 					</div>
 
 					<div>
-						<FlowModuleSchemaMap bind:modules={branch.modules} />
+						<FlowModuleSchemaMap parentType="branchall" bind:modules={branch.modules} />
 					</div>
 				</div>
 			{/each}

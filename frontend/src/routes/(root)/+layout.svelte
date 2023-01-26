@@ -16,7 +16,8 @@
 		'Stopping the server timed out',
 		'Canceled',
 		'Missing service editorService',
-		'Unexpected usage'
+		'Unexpected usage',
+		'NetworkError when attempting to fetch resource.'
 	]
 
 	async function loadUser() {
