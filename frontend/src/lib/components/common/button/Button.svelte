@@ -68,7 +68,7 @@
 			colorVariants?.[color]?.[variant],
 			variant === 'border' ? 'border' : '',
 			ButtonType.FontSizeClasses[size],
-			ButtonType.SpacingClasses[spacingSize],
+			ButtonType.SpacingClasses[spacingSize][variant],
 			'focus:ring-2 font-semibold',
 			'duration-200 rounded-md',
 			'justify-center items-center text-center whitespace-nowrap inline-flex',
@@ -79,7 +79,8 @@
 		target,
 		tabindex: disabled ? -1 : 0,
 		type: buttonType,
-		title
+		title,
+		...$$restProps
 	}
 
 	async function onClick(event: MouseEvent) {

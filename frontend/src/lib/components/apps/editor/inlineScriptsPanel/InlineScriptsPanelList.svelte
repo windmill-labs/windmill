@@ -1,7 +1,5 @@
 <script lang="ts">
 	import { Badge, Button } from '$lib/components/common'
-	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { classNames } from '$lib/utils'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { AppEditorContext } from '../../types'
@@ -9,8 +7,11 @@
 	import PanelSection from '../settingsPanel/common/PanelSection.svelte'
 	import { getAppScripts } from './utils'
 
+	const PREFIX = 'script-selector-' as const
+
 	export let selectedScriptComponentId: string | undefined = undefined
 	const { app, selectedComponent, lazyGrid } = getContext<AppEditorContext>('AppEditorContext')
+	let list: HTMLElement
 
 	function selectInlineScript(id: string) {
 		selectedScriptComponentId = id
@@ -21,12 +22,19 @@
 
 	$: runnables = getAppScripts($lazyGrid)
 
-	// When seleced component changes, update selectedScriptComponentId
-	$: {
-		if (selectedComponent) {
-			selectedScriptComponentId = $selectedComponent
-		}
+	// When selected component changes, update selectedScriptComponentId
+	$: if (selectedComponent) {
+		selectedScriptComponentId = $selectedComponent
 	}
+
+	// Doesn't work for some reason
+	// $: if (selectedScriptComponentId) {
+	// 	const selected = document.getElementById(PREFIX + selectedScriptComponentId)
+	// 	if(selected) {
+	// 		const top = selected.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop
+	// 		list.scrollTo({ top, behavior: 'smooth' })
+	// 	}
+	// }
 
 	function createBackgroundScript() {
 		let index = 0
@@ -49,28 +57,27 @@
 			fields: {}
 		})
 		$app.hiddenInlineScripts = $app.hiddenInlineScripts
+		selectInlineScript(`bg_${$app.hiddenInlineScripts.length - 1}`)
 	}
 </script>
 
-<div class="min-h-full flex flex-col gap-4">
+<div bind:this={list} class="min-h-full flex flex-col gap-4">
 	<PanelSection title="Inline scripts" smallPadding>
 		<div class="flex flex-col gap-2 w-full">
 			{#if runnables.inline.length > 0}
 				<div class="flex gap-2 flex-col ">
 					{#each runnables.inline as { name, id }, index (index)}
-						<!-- svelte-ignore a11y-click-events-have-key-events -->
-						<div
-							class="{classNames(
-								'border flex  gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-sm cursor-pointer hover:bg-blue-50 hover:text-blue-400',
-								selectedScriptComponentId === id ? 'border-blue-500 border' : ''
-							)},"
+						<button
+							id={PREFIX + id}
+							class="border flex gap-1 truncate font-normal justify-between w-full items-center p-2 rounded-sm duration-200 
+							{selectedScriptComponentId === id ? 'border-blue-500 bg-blue-100' : 'hover:bg-blue-50'}"
 							on:click={() => selectInlineScript(id)}
 						>
 							<span class="text-xs truncate">{name}</span>
 							<div>
 								<Badge color="dark-indigo">{id}</Badge>
 							</div>
-						</div>
+						</button>
 					{/each}
 				</div>
 			{/if}
@@ -78,17 +85,16 @@
 			{#if $app.unusedInlineScripts?.length > 0}
 				<div class="flex gap-2 flex-col ">
 					{#each $app.unusedInlineScripts as unusedInlineScript, index (index)}
-						<!-- svelte-ignore a11y-click-events-have-key-events -->
-						<div
-							class="{classNames(
-								'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-blue-50 hover:text-blue-400',
-								selectedScriptComponentId === `unused-${index}` ? 'bg-blue-100 text-blue-600' : ''
-							)},"
-							on:click={() => selectInlineScript(`unused-${index}`)}
+						{@const id = `unused-${index}`}
+						<button
+							id={PREFIX + id}
+							class="border flex gap-1 truncate font-normal justify-between w-full items-center p-2 rounded-sm duration-200 
+							{selectedScriptComponentId === id ? 'border-blue-500 bg-blue-100' : 'hover:bg-blue-50'}"
+							on:click={() => selectInlineScript(id)}
 						>
 							<span class="text-xs truncate">{unusedInlineScript.name}</span>
 							<Badge color="red">Detached</Badge>
-						</div>
+						</button>
 					{/each}
 				</div>
 			{/if}
@@ -104,17 +110,15 @@
 			{#if runnables.imported.length > 0}
 				<div class="flex gap-2 flex-col ">
 					{#each runnables.imported as { name, id }, index (index)}
-						<!-- svelte-ignore a11y-click-events-have-key-events -->
-						<div
-							class="{classNames(
-								'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-blue-50 hover:text-blue-400',
-								selectedScriptComponentId === id ? 'bg-blue-100 text-blue-600' : ''
-							)},"
+						<button
+							id={PREFIX + id}
+							class="border flex gap-1 truncate font-normal justify-between w-full items-center p-2 rounded-sm duration-200 
+							{selectedScriptComponentId === id ? 'border-blue-500 bg-blue-100' : 'hover:bg-blue-50'}"
 							on:click={() => selectInlineScript(id)}
 						>
 							<span class="text-xs truncate">{name}</span>
 							<Badge color="dark-indigo">{id}</Badge>
-						</div>
+						</button>
 					{/each}
 				</div>
 			{:else}
@@ -123,31 +127,31 @@
 		</div>
 	</PanelSection>
 
-	<PanelSection title="Background scripts" smallPadding>
+	<PanelSection
+		title="Background scripts"
+		tooltip="Background scripts are triggered upon global refresh or when their input changes. The result
+		of a background script can be shared among many components."
+		smallPadding
+	>
 		<svelte:fragment slot="action">
 			<Button size="xs" color="dark" startIcon={{ icon: faPlus }} on:click={createBackgroundScript}>
 				Add
 			</Button>
-			<Tooltip>
-				Background scripts are triggered upon global refresh or when their input changes. The result
-				of a background script can be shared among many components.
-			</Tooltip>
 		</svelte:fragment>
 		<div class="flex flex-col gap-2 w-full">
 			{#if $app.hiddenInlineScripts?.length > 0}
 				<div class="flex gap-2 flex-col ">
 					{#each $app.hiddenInlineScripts as { name }, index (index)}
-						<!-- svelte-ignore a11y-click-events-have-key-events -->
-						<div
-							class="{classNames(
-								'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-blue-50 hover:text-blue-400',
-								selectedScriptComponentId === `bg_${index}` ? 'bg-blue-100 text-blue-600' : ''
-							)},"
-							on:click={() => selectInlineScript(`bg_${index}`)}
+						{@const id = `bg_${index}`}
+						<button
+							id={PREFIX + id}
+							class="border flex gap-1 truncate font-normal justify-between w-full items-center p-2 rounded-sm duration-200 
+							{selectedScriptComponentId === id ? 'border-blue-500 bg-blue-100' : 'hover:bg-blue-50'}"
+							on:click={() => selectInlineScript(id)}
 						>
 							<span class="text-xs truncate">{name}</span>
 							<Badge color="yellow">Background</Badge>
-						</div>
+						</button>
 					{/each}
 				</div>
 			{:else}
