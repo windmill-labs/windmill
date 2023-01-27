@@ -7,9 +7,15 @@
 		Script
 	} from '$lib/gen'
 	import type { User } from '$lib/gen'
-	import { sendUserToast, isCloudHosted } from '$lib/utils'
+	import { sendUserToast, isCloudHosted, capitalize } from '$lib/utils'
 	import PageHeader from '$lib/components/PageHeader.svelte'
-	import { superadmin, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import {
+		superadmin,
+		usageStore,
+		userStore,
+		usersWorkspaceStore,
+		workspaceStore
+	} from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { faSlack } from '@fortawesome/free-brands-svg-icons'
 	import TableCustom from '$lib/components/TableCustom.svelte'
@@ -427,7 +433,7 @@
 			{#if isCloudHosted()}
 				<div class="mt-4" />
 				{#if customer_id}
-					<div class="mt-2 mb-6">
+					<div class="mt-2 mb-2">
 						<Button
 							endIcon={{ icon: faExternalLink }}
 							href="/api/w/{$workspaceStore}/workspaces/billing_portal">Customer Portal</Button
@@ -438,33 +444,58 @@
 					</div>
 				{/if}
 
-				<div class="text-sm mb-4">
+				<div class="text-sm mb-4 box p-2 max-w-3xl">
 					{#if premium_info?.premium}
-						<div class="flex flex-col gap-1">
-							<div
-								>Current plan: <div class=" inline text-2xl font-bold">{plan ?? 'Free plan'}</div
-								></div
-							>
+						<div class="flex flex-col gap-0.5">
 							{#if plan}
-								{@const team_factor = plan == 'team' ? 10 : 50}
-								{@const max = (users?.length ?? 0) * team_factor}
+								<div class="mb-2"
+									><div class=" inline text-2xl font-bold float-right"
+										>{capitalize(plan ?? 'free')} plan</div
+									></div
+								>
+							{:else}
+								<div class="inline text-2xl font-bold ">Free plan</div>
+							{/if}
+
+							{#if plan}
+								{@const team_factor = plan == 'team' ? 8 : 32}
+								{@const user_nb = Math.max(0, (users?.filter((x) => !x.operator).length ?? 0) - 1)}
 
 								<div>
-									Current number of seats in this workspace:
-									<div class="inline text-2xl font-bold"
-										>{users?.length ?? 0} * ${team_factor} = ${(users?.length ?? 0) *
-											team_factor}/mo</div
+									Extra seats:
+									<div class="inline text-2xl font-bold float-right"
+										>{user_nb} * ${team_factor}
+										= ${(users?.length ?? 0) * team_factor}/mo</div
 									>
 									<Tooltip
 										>Actual pricing is calculated on the MAXIMUM number of users in a given billing
 										period, see the customer portal for more info.</Tooltip
 									>
 								</div>
-
 								<div>
-									Included number of executions based on your seats and plan:
-									<div class=" inline text-2xl font-bold"
-										>{users?.length ?? 0} seats x {plan == 'team' ? '10k' : '50k'} = {max}k
+									Extra operators:
+									<div class="inline text-2xl font-bold float-right"
+										>{Math.max(0, (users?.filter((x) => x.operator).length ?? 0) - 1)} * ${team_factor /
+											2} = ${((users?.length ?? 0) * team_factor) / 2}/mo</div
+									>
+									<Tooltip
+										>Actual pricing is calculated on the MAXIMUM number of users in a given billing
+										period, see the customer portal for more info.</Tooltip
+									>
+								</div>
+								<div>
+									Computations executed this month:
+									<div class=" inline text-2xl font-bold float-right"
+										>{premium_info?.usage ?? 0}
+									</div>
+								</div>
+								<div>
+									Extra computations (above the 10k included) this month:
+									<div class=" inline text-2xl font-bold float-right"
+										>{Math.max(0, (premium_info?.usage ?? 0) - 10000)} x {plan == 'team'
+											? '0.001'
+											: '0.004'} = ${Math.max(0, (premium_info?.usage ?? 0) - 10000) *
+											(plan == 'team' ? 0.001 : 0.004)}
 									</div>
 								</div>
 							{/if}
