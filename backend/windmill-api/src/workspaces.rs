@@ -234,37 +234,37 @@ async fn stripe_checkout(
                 "team" => Some(vec![
                     stripe::CreateCheckoutSessionLineItems {
                         quantity: Some(1),
-                        price: Some("price_1MT2nyGU3NdFi9eLxBweLWAz".to_string()),
+                        price: Some("price_1MUlrWGU3NdFi9eLE9GBZhoY".to_string()),
                         ..Default::default()
                     },
                     stripe::CreateCheckoutSessionLineItems {
                         quantity: None,
-                        price: Some("price_1MShsNGU3NdFi9eLJMEZUW8b".to_string()),
+                        price: Some("price_1MUlreGU3NdFi9eLi6sOyvVa".to_string()),
                         ..Default::default()
                     },
                     stripe::CreateCheckoutSessionLineItems {
                         quantity: None,
-                        price: Some("price_1MT2ouGU3NdFi9eLfn1VPKiX".to_string()),
+                        price: Some("price_1MUlrlGU3NdFi9eLFLggSXZV".to_string()),
                         ..Default::default()
                     },
                     stripe::CreateCheckoutSessionLineItems {
                         quantity: None,
-                        price: Some("price_1MT2pMGU3NdFi9eLUFhcTKjH".to_string()),
+                        price: Some("price_1MUlr3GU3NdFi9eLbZYFjR9p".to_string()),
                         ..Default::default()
                     },
                 ]),
-                "enterprise" => Some(vec![
-                    stripe::CreateCheckoutSessionLineItems {
-                        quantity: None,
-                        price: Some("price_1MSdf6GU3NdFi9eLJFRkntlx".to_string()),
-                        ..Default::default()
-                    },
-                    stripe::CreateCheckoutSessionLineItems {
-                        quantity: None,
-                        price: Some("price_1MShsNGU3NdFi9eLJMEZUW8b".to_string()),
-                        ..Default::default()
-                    },
-                ]),
+                // "enterprise" => Some(vec![
+                //     stripe::CreateCheckoutSessionLineItems {
+                //         quantity: None,
+                //         price: Some("price_1MSdf6GU3NdFi9eLJFRkntlx".to_string()),
+                //         ..Default::default()
+                //     },
+                //     stripe::CreateCheckoutSessionLineItems {
+                //         quantity: None,
+                //         price: Some("price_1MShsNGU3NdFi9eLJMEZUW8b".to_string()),
+                //         ..Default::default()
+                //     },
+                // ]),
                 _ => Err(Error::BadRequest("invalid plan".to_string()))?,
             };
             params.customer_email = Some(&authed.email);
