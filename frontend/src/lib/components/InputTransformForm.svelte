@@ -117,9 +117,13 @@
 	const openBracket = '${'
 	const closeBracket = '}'
 
-	$: schema.properties[argName].default &&
-		!arg?.value &&
-		monacoTemplate?.setCode(schema.properties[argName].default)
+	function setDefaultCode() {
+		if (!arg?.value) {
+			monacoTemplate?.setCode(schema.properties[argName].default)
+		}
+	}
+
+	$: schema.properties[argName].default && setDefaultCode()
 </script>
 
 {#if arg != undefined}
@@ -172,6 +176,7 @@
 							if (staticTemplate) {
 								if (arg) {
 									arg.value = codeToStaticTemplate(arg.expr)
+									arg.expr = undefined
 								}
 								setPropertyType(arg?.value)
 							} else {

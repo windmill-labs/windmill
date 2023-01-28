@@ -6,7 +6,7 @@
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
-	import { flowStore, initFlow } from '$lib/components/flows/flowStore'
+	import { importFlowStore } from '$lib/components/flows/flowStore'
 	import { Icon } from 'svelte-awesome'
 
 	let drawer: Drawer | undefined = undefined
@@ -14,9 +14,7 @@
 
 	async function importJson() {
 		await goto('/flows/add')
-		Object.assign($flowStore, JSON.parse(pendingJson))
-
-		initFlow($flowStore)
+		$importFlowStore = JSON.parse(pendingJson)
 		drawer?.closeDrawer?.()
 	}
 </script>

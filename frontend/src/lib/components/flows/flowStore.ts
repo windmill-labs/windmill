@@ -6,6 +6,7 @@ import { numberToChars } from './utils'
 
 export type FlowMode = 'push' | 'pull'
 
+export const importFlowStore = writable<Flow | undefined>(undefined)
 export const flowStore = writable<Flow>({
 	summary: '',
 	value: { modules: [] },
