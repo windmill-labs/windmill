@@ -427,6 +427,9 @@ pub async fn run_worker(
     let deno_flags = std::env::var("DENO_FLAGS")
         .ok()
         .map(|x| x.split(' ').map(|x| x.to_string()).collect());
+    let pip_local_dependencies = std::env::var("PIP_LOCAL_DEPENDENCIES")
+        .ok()
+        .map(|x| x.split(',').map(|x| x.to_string()).collect());
 
     #[cfg(feature = "enterprise")]
     let tar_cache_rate = std::env::var("TAR_CACHE_RATE")
@@ -447,6 +450,7 @@ pub async fn run_worker(
         max_log_size,
         deno_flags,
         deno_auth_tokens,
+        pip_local_dependencies,
     };
     WORKER_STARTED.inc();
 
@@ -757,6 +761,7 @@ struct Envs {
     deno_auth_tokens: String,
     deno_flags: Option<Vec<String>>,
     max_log_size: i64,
+    pip_local_dependencies: Option<Vec<String>>,
 }
 
 fn extract_error_value(log_lines: &str) -> serde_json::Value {
@@ -2101,7 +2106,14 @@ async fn pip_compile(
     requirements: &str,
     logs: &mut String,
     job_dir: &str,
-    Envs { pip_extra_index_url, pip_index_url, pip_trusted_host, max_log_size, .. }: &Envs,
+    Envs {
+        pip_extra_index_url,
+        pip_index_url,
+        pip_trusted_host,
+        max_log_size,
+        pip_local_dependencies,
+        ..
+    }: &Envs,
     db: &Pool<Postgres>,
     timeout: i32,
 ) -> error::Result<String> {
@@ -2109,6 +2121,15 @@ async fn pip_compile(
     set_logs(logs, job_id, db).await;
     logs.push_str(&format!("\ncontent of requirements:\n{}", requirements));
     let file = "requirements.in";
+    let requirements = if let Some(pip_local_dependencies) = pip_local_dependencies {
+        let deps = pip_local_dependencies.clone();
+        requirements
+            .lines()
+            .filter(|s| !deps.contains(&s.to_string()))
+            .join("\n")
+    } else {
+        requirements.to_string()
+    };
     write_file(job_dir, file, &requirements).await?;
 
     let mut args = vec!["-q", "--no-header", file, "--resolver=backtracking"];
