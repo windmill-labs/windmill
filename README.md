@@ -309,6 +309,8 @@ upcoming CLI tool.
 | DENO_AUTH_TOKENS          | None                   | Custom DENO_AUTH_TOKENS to pass to worker to allow the use of private modules                                                                                                                      | Worker                |
 | DENO_FLAGS                | None                   | Override the flags passed to deno (default --allow-all) to tighten permissions. Minimum permissions needed are "--allow-read=args.json --allow-write=result.json"                                  | Worker                |
 |                           |
+| PIP_LOCAL_DEPENDENCIES    | None                   | Specify dependencies that are installed locally and do not need to be solved nor installed again                                                                                                   | Worker                |
+|                           |
 
 
 

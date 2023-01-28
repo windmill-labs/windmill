@@ -182,6 +182,7 @@ static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_ma
     "f" => "requests",
     "shopify" => "ShopifyAPI",
     "seleniumwire" => "selenium-wire",
+    "openbb-terminal" => "openbb[all]",
 };
 
 fn replace_import(x: String) -> String {
