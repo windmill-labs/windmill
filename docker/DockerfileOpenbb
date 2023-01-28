@@ -129,6 +129,8 @@ COPY --from=nsjail /nsjail/nsjail /bin/nsjail
 
 COPY --from=denoland/deno:latest /usr/bin/deno /usr/bin/deno
 
+RUN /usr/local/bin/python3 -m pip install openbb[all]
+
 RUN mkdir -p ${APP}
 
 WORKDIR ${APP}

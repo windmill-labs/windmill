@@ -431,6 +431,12 @@ pub async fn run_worker(
         .ok()
         .map(|x| x.split(',').map(|x| x.to_string()).collect());
 
+    let pip_local_dependencies = if pip_local_dependencies == Some(vec!["".to_string()]) {
+        None
+    } else {
+        pip_local_dependencies
+    };
+
     #[cfg(feature = "enterprise")]
     let tar_cache_rate = std::env::var("TAR_CACHE_RATE")
         .ok()
