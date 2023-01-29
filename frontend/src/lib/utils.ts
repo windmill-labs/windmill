@@ -151,7 +151,7 @@ export interface DropdownItem {
 
 export function emptySchema() {
 	return {
-		$schema: 'https://json-schema.org/draft/2020-12/schema',
+		$schema: 'https://json-schema.org/draft/2020-12/schema' as string | undefined,
 		properties: {},
 		required: [],
 		type: 'object'

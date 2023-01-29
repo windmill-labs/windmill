@@ -55,8 +55,10 @@
 		if (open) {
 			switch (event.key) {
 				case 'Escape':
-					open = false
 					event.preventDefault()
+					event.stopPropagation()
+					event.stopImmediatePropagation()
+					open = false
 					break
 			}
 		}
