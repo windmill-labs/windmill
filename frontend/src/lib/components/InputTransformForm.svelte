@@ -60,7 +60,11 @@
 		}
 
 		if (isCodeInjection(rawValue)) {
-			arg.expr = getDefaultExpr(argName, previousModuleId, `\`${rawValue}\``)
+			arg.expr = getDefaultExpr(
+				argName,
+				previousModuleId,
+				`\`${rawValue.toString().replaceAll('`', '\\`')}\``
+			)
 			arg.type = 'javascript'
 			propertyType = 'static'
 		} else {
@@ -161,7 +165,7 @@
 									argName,
 									previousModuleId,
 									staticTemplate
-										? `\`${arg?.value ?? ''}\``
+										? `\`${arg?.value.toString().replaceAll('`', '\\`') ?? ''}\``
 										: arg.value
 										? JSON.stringify(arg?.value, null, 4)
 										: ''
