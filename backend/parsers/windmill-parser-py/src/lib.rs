@@ -194,13 +194,13 @@ fn replace_import(x: String) -> String {
 }
 
 lazy_static! {
-    static ref RE: Regex = Regex::new(r"^\#(\S+)$").unwrap();
+    static ref RE: Regex = Regex::new(r"^\#\s?(\S+)$").unwrap();
 }
 
 pub fn parse_python_imports(code: &str) -> error::Result<Vec<String>> {
     let find_requirements = code
         .lines()
-        .find_position(|x| x.starts_with("#requirements:"));
+        .find_position(|x| x.starts_with("#requirements:") || x.starts_with("# requirements:"));
     if let Some((pos, _)) = find_requirements {
         let lines = code
             .lines()
