@@ -35,9 +35,8 @@
 	<h2 class="mt-2"
 		>Retries <Tooltip>
 			If defined, upon error this step will be retried with a delay and a maximum number of attempts
-			as defined below. If none of the retries succeed, the step job is a failure and the error will
-			propagate up in the case of a branch, and the error handler will be called ultimately if not
-			handled prior.</Tooltip
+			as defined below. If both static and exponential delay is defined, the static delay attempts
+			are tried before the exponential ones.</Tooltip
 		></h2
 	>
 
@@ -90,6 +89,8 @@
 		<span class="text-xs font-bold">Attempts</span>
 		<input type="number" disabled />
 		<span class="text-xs font-bold">Mulitplier</span>
+		<span class="text-xs text-gray-500">additional delay = multiplier * seconds ^ (# attempts)</span
+		>
 		<input type="number" disabled />
 		<span class="text-xs font-bold">Initial delay (seconds)</span>
 		<input type="number" disabled />
