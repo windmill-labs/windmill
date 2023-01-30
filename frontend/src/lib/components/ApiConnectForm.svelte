@@ -47,6 +47,8 @@
 	let rawCode = ''
 	let viewJsonSchema = false
 
+	$: rawCode && parseJson()
+
 	function switchTab(asJson: boolean) {
 		viewJsonSchema = asJson
 		if (asJson) {
