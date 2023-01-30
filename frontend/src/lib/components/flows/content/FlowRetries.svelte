@@ -75,15 +75,16 @@
 			}
 		}}
 		options={{
-			right: 'Exponential retry enabled'
+			right: 'Exponential backoff enabled'
 		}}
 	/>
 	{#if flowModule.retry?.exponential}
 		<span class="text-xs font-bold">Attempts</span>
 		<input bind:value={flowModule.retry.exponential.attempts} type="number" />
 		<span class="text-xs font-bold">Mulitplier</span>
+		<span class="text-xs text-gray-500">additional delay = multiplier * base ^ (# attempts)</span>
 		<input bind:value={flowModule.retry.exponential.multiplier} type="number" />
-		<span class="text-xs font-bold">Initial delay (seconds)</span>
+		<span class="text-xs font-bold">Base</span>
 		<input bind:value={flowModule.retry.exponential.seconds} type="number" />
 	{:else}
 		<span class="text-xs font-bold">Attempts</span>
@@ -92,7 +93,7 @@
 		<span class="text-xs text-gray-500">additional delay = multiplier * seconds ^ (# attempts)</span
 		>
 		<input type="number" disabled />
-		<span class="text-xs font-bold">Initial delay (seconds)</span>
+		<span class="text-xs font-bold">Base</span>
 		<input type="number" disabled />
 	{/if}
 </div>
