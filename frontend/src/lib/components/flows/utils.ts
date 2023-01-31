@@ -199,7 +199,7 @@ export function numberToChars(n: number) {
 	out = ''
 	for (i = 0; i < b.length; i += 1) {
 		let charCode = aCharCode + b[i]
-		out = (charCode == 26 ? '-' : String.fromCharCode(charCode)) + out
+		out = (b[i] == 26 ? "-" : String.fromCharCode(charCode)) + out
 	}
 
 	return out
@@ -209,7 +209,7 @@ export function charsToNumber(n: string): number {
 	let b = Math.pow(27, n.length - 1)
 	let res = 0
 	for (let c of n) {
-		let charCode = c == '-' ? aCharCode + 26 : c.charCodeAt(0)
+		let charCode = (c == '-' || c == '_') ? aCharCode + 26 : c.charCodeAt(0)
 		res += (charCode - aCharCode + 1) * b
 		b = b / 27
 	}
