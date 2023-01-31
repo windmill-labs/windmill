@@ -122,6 +122,10 @@ export const displayData: Record<AppComponent['type'], { name: string; icon: any
 		name: 'Vega Lite',
 		icon: PieChart
 	},
+	plotlycomponent: {
+		name: 'Plotly',
+		icon: PieChart
+	},
 	timeseriescomponent: {
 		name: 'Timeseries',
 		icon: GripHorizontal
