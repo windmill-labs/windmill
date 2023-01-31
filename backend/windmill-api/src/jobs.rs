@@ -53,6 +53,10 @@ pub fn workspaced_service() -> Router {
             "/run_wait_result/h/:hash",
             post(run_wait_result_job_by_hash),
         )
+        .route(
+            "/run_wait_result/f/*script_path",
+            post(run_wait_result_flow_by_path),
+        )
         .route("/run/h/:hash", post(run_job_by_hash))
         .route("/run/preview", post(run_preview_job))
         .route("/run/preview_flow", post(run_preview_flow_job))
@@ -1384,6 +1388,53 @@ pub async fn run_wait_result_job_by_hash(
         timeout.0,
         uuid,
         Path((w_id, script_hash)),
+    )
+    .await
+}
+
+pub async fn run_wait_result_flow_by_path(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Extension(timeout): Extension<Arc<TimeoutWaitResult>>,
+    Path((w_id, flow_path)): Path<(String, StripPath)>,
+    Query(run_query): Query<RunJobQuery>,
+    headers: HeaderMap,
+    Json(args): Json<Option<serde_json::Map<String, serde_json::Value>>>,
+) -> error::JsonResult<serde_json::Value> {
+    check_queue_too_long(db, run_query.queue_limit).await?;
+
+    let flow_path = flow_path.to_path();
+    let mut tx = user_db.clone().begin(&authed).await?;
+    let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
+    let args = run_query.add_include_headers(headers, args.unwrap_or_default());
+
+    let (uuid, tx) = push(
+        tx,
+        &w_id,
+        JobPayload::Flow(flow_path.to_string()),
+        args,
+        &authed.username,
+        &authed.email,
+        username_to_permissioned_as(&authed.username),
+        scheduled_for,
+        None,
+        run_query.parent_job,
+        false,
+        false,
+        None,
+        !run_query.invisible_to_owner.unwrap_or(false),
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    run_wait_result(
+        authed,
+        Extension(user_db),
+        timeout.0,
+        uuid,
+        Path((w_id, flow_path)),
     )
     .await
 }
