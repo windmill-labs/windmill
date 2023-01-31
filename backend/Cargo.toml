@@ -83,7 +83,7 @@ chrono = { version = "^0", features = ["serde"] }
 tracing = "^0"
 tracing-subscriber = { version = "^0", features = ["env-filter", "json"] }
 prometheus = { version = "^0", default-features = false }
-cookie = { version = "^0" }
+cookie = { version = "0.16.2" }
 phf = { version = "0.11", features = ["macros"] }
 rust-embed = "^6"
 mime_guess = "^2"
