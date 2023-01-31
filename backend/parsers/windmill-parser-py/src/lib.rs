@@ -80,7 +80,7 @@ pub fn parse_python_signature(code: &str) -> error::Result<MainArgSignature> {
         let def_arg_start = params.args.len() - params.defaults.len();
         Ok(MainArgSignature {
             star_args: params.vararg.is_some(),
-            star_kwargs: params.vararg.is_some(),
+            star_kwargs: params.kwarg.is_some(),
             args: params
                 .args
                 .into_iter()
