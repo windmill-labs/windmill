@@ -25,6 +25,7 @@ export type NumberInputComponent = BaseComponent<'numberinputcomponent'>
 export type SliderComponent = BaseComponent<'slidercomponent'>
 export type HtmlComponent = BaseComponent<'htmlcomponent'>
 export type VegaLiteComponent = BaseComponent<'vegalitecomponent'>
+export type PlotlyComponent = BaseComponent<'plotlycomponent'>
 export type TimeseriesComponent = BaseComponent<'timeseriescomponent'>
 export type ButtonComponent = BaseComponent<'buttoncomponent'> & {
 	recomputeIds: string[] | undefined
@@ -107,6 +108,7 @@ export type AppComponent = BaseAppComponent &
 		| FormComponent
 		| FormButtonComponent
 		| VegaLiteComponent
+		| PlotlyComponent
 	)
 
 export type ComponentSet = {

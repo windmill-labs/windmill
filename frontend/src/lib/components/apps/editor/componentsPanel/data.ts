@@ -329,6 +329,28 @@ const display: ComponentSet = {
 			card: false
 		},
 		{
+			softWrap: false,
+			id: 'plotlycomponent',
+			type: 'plotlycomponent',
+			componentInput: {
+				type: 'static',
+				fieldType: 'object',
+				value: {
+					type: 'bar',
+					x: [1, 2, 3, 4],
+					y: [5, 10, 2, 8],
+					marker: {
+						color: '#C8A2C8',
+						line: {
+							width: 2.5
+						}
+					}
+				}
+			},
+			configuration: {},
+			card: false
+		},
+		{
 			softWrap: true,
 			horizontalAlignment: 'left',
 			verticalAlignment: 'top',

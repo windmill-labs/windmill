@@ -39,7 +39,8 @@
 				'piechartcomponent',
 				'displaycomponent',
 				'scatterchartcomponent',
-				'vegalitecomponent'
+				'vegalitecomponent',
+				'plotlycomponent'
 			],
 			'3:10-6:10': ['tablecomponent']
 		}

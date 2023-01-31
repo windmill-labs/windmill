@@ -14,46 +14,35 @@
 	let result: object | undefined = undefined
 	let divEl: HTMLDivElement | null = null
 
-	let vegaEmbed
+	let Plotly
 	onMount(async () => {
 		if (divEl) {
 			//@ts-ignore
-			await import('https://cdn.jsdelivr.net/npm/vega@5.22.1')
-			//@ts-ignore
-			await import('https://cdn.jsdelivr.net/npm/vega-lite@5.6.0')
-			//@ts-ignore
-			await import('https://cdn.jsdelivr.net/npm/vega-embed@6.21.0')
-			vegaEmbed = window['vegaEmbed']
+			await import('https://cdn.plot.ly/plotly-2.18.0.min.js')
+
+			Plotly = window['Plotly']
 		}
 	})
 
 	let h: number | undefined = undefined
 	let w: number | undefined = undefined
-	let canvas = false
 
-	$: vegaEmbed &&
+	$: Plotly &&
 		result &&
 		divEl &&
 		h &&
 		w &&
-		vegaEmbed(
+		Plotly.newPlot(
 			divEl,
-			{ ...result, ...{ width: w - 100 } },
-			{
-				mode: 'vega-lite',
-				actions: false,
-				renderer: canvas ? 'canvas' : 'svg',
-				height: h - 75,
-				width: w - 75
-			}
+			[result],
+			{ width: w, height: h, margin: { l: 40, r: 40, b: 40, t: 40, pad: 4 } },
+			{ responsive: true, displayModeBar: false }
 		)
 </script>
 
-<InputValue {id} input={configuration.canvas} bind:value={canvas} />
-
 <div class="w-full h-full" bind:clientHeight={h} bind:clientWidth={w}>
 	<RunnableWrapper flexWrap bind:componentInput {id} bind:result>
-		{#if !vegaEmbed}
+		{#if !Plotly}
 			<div class="p-2">
 				<Loader2 class="animate-spin" />
 			</div>

@@ -21,6 +21,7 @@
 	import AppSliderInputs from '../components/numberInputs/AppSliderInputs.svelte'
 	import AppFormButton from '../components/form/AppFormButton.svelte'
 	import VegaLiteHtml from '../components/dataDisplay/VegaLiteHtml.svelte'
+	import PlotlyHtml from '../components/dataDisplay/PlotlyHtml.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -82,6 +83,12 @@
 			/>
 		{:else if component.type === 'vegalitecomponent'}
 			<VegaLiteHtml
+				{...component}
+				bind:componentInput={component.componentInput}
+				bind:staticOutputs={$staticOutputs[component.id]}
+			/>
+		{:else if component.type === 'plotlycomponent'}
+			<PlotlyHtml
 				{...component}
 				bind:componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
