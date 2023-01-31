@@ -445,8 +445,8 @@
 				</h3>
 				<Skeleton {loading} layout={[[8.5]]} />
 				<Tabs selected="uuid">
-					<Tab value="uuid">UUID</Tab>
-					<Tab value="result">Result</Tab>
+					<Tab value="uuid">UUID/Async</Tab>
+					<Tab value="result">Result/Sync</Tab>
 					<svelte:fragment slot="content">
 						{#each Object.keys(webhooks) as key}
 							<TabContent value={key}>
