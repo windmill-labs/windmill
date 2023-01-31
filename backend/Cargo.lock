@@ -565,16 +565,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cookie"
-version = "0.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7efb37c3e1ccb1ff97164ad95ac1606e8ccd35b3fa0a7d99a304c7f4a428cc24"
-dependencies = [
- "time 0.3.17",
- "version_check",
-]
-
-[[package]]
 name = "core-foundation"
 version = "0.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2472,7 +2462,7 @@ dependencies = [
 [[package]]
 name = "progenitor"
 version = "0.2.1-dev"
-source = "git+https://github.com/oxidecomputer/progenitor#713138673f8e3a3cb55d39a6a8e5885214dac307"
+source = "git+https://github.com/oxidecomputer/progenitor#8a09b98645276ef3738d3e904e1c32e5de1d657e"
 dependencies = [
  "anyhow",
  "built",
@@ -2490,7 +2480,7 @@ dependencies = [
 [[package]]
 name = "progenitor-client"
 version = "0.2.1-dev"
-source = "git+https://github.com/oxidecomputer/progenitor#713138673f8e3a3cb55d39a6a8e5885214dac307"
+source = "git+https://github.com/oxidecomputer/progenitor#8a09b98645276ef3738d3e904e1c32e5de1d657e"
 dependencies = [
  "bytes",
  "futures-core",
@@ -2504,7 +2494,7 @@ dependencies = [
 [[package]]
 name = "progenitor-impl"
 version = "0.2.1-dev"
-source = "git+https://github.com/oxidecomputer/progenitor#713138673f8e3a3cb55d39a6a8e5885214dac307"
+source = "git+https://github.com/oxidecomputer/progenitor#8a09b98645276ef3738d3e904e1c32e5de1d657e"
 dependencies = [
  "getopts",
  "heck",
@@ -2526,7 +2516,7 @@ dependencies = [
 [[package]]
 name = "progenitor-macro"
 version = "0.2.1-dev"
-source = "git+https://github.com/oxidecomputer/progenitor#713138673f8e3a3cb55d39a6a8e5885214dac307"
+source = "git+https://github.com/oxidecomputer/progenitor#8a09b98645276ef3738d3e904e1c32e5de1d657e"
 dependencies = [
  "openapiv3",
  "proc-macro2",
@@ -2900,7 +2890,7 @@ dependencies = [
 [[package]]
 name = "rustpython-ast"
 version = "0.2.0"
-source = "git+https://github.com/RustPython/RustPython#e1ab8a9b42d25728b532561161f0afa65e9bd70d"
+source = "git+https://github.com/RustPython/RustPython#b6e447145800ec7888f035bf266329e4b457e5f9"
 dependencies = [
  "num-bigint",
  "rustpython-compiler-core",
@@ -2909,7 +2899,7 @@ dependencies = [
 [[package]]
 name = "rustpython-compiler-core"
 version = "0.2.0"
-source = "git+https://github.com/RustPython/RustPython#e1ab8a9b42d25728b532561161f0afa65e9bd70d"
+source = "git+https://github.com/RustPython/RustPython#b6e447145800ec7888f035bf266329e4b457e5f9"
 dependencies = [
  "bincode",
  "bitflags",
@@ -2926,7 +2916,7 @@ dependencies = [
 [[package]]
 name = "rustpython-parser"
 version = "0.2.0"
-source = "git+https://github.com/RustPython/RustPython#e1ab8a9b42d25728b532561161f0afa65e9bd70d"
+source = "git+https://github.com/RustPython/RustPython#b6e447145800ec7888f035bf266329e4b457e5f9"
 dependencies = [
  "ahash",
  "anyhow",
@@ -4024,7 +4014,7 @@ checksum = "4efe6d9c78aae53650a340d0e702e4f103582dce6af6bf897dc1b56c8ed5d4f6"
 dependencies = [
  "async-trait",
  "axum-core",
- "cookie 0.16.2",
+ "cookie",
  "futures-util",
  "http",
  "parking_lot 0.12.1",
@@ -4333,9 +4323,9 @@ dependencies = [
 
 [[package]]
 name = "unicode-segmentation"
-version = "1.10.0"
+version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0fdbf052a0783de01e944a6ce7a8cb939e295b1e7be835a1112c3b9a7f047a5a"
+checksum = "1dd624098567895118886609431a7c3b8f516e41d30e0643f03d94592a147e36"
 
 [[package]]
 name = "unicode-width"
@@ -4684,7 +4674,7 @@ dependencies = [
  "axum",
  "base64 0.21.0",
  "chrono",
- "cookie 0.17.0",
+ "cookie",
  "cron",
  "futures",
  "git-version",

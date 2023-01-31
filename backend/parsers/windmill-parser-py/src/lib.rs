@@ -136,7 +136,10 @@ fn to_value(et: &ExprKind) -> Option<serde_json::Value> {
                 .into_iter()
                 .zip(values)
                 .map(|(k, v)| {
-                    let key = to_value(&k.node)
+                    let key = k
+                        .as_ref()
+                        .map(|x| x.node.clone())
+                        .and_then(|n| to_value(&n))
                         .and_then(|x| match x {
                             serde_json::Value::String(s) => Some(s),
                             _ => None,
