@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.61.1](https://github.com/windmill-labs/windmill/compare/v1.61.0...v1.61.1) (2023-01-31)
+
+
+### Bug Fixes
+
+* **backend:** compile issue ([df8cc1f](https://github.com/windmill-labs/windmill/commit/df8cc1f2482b3d8b1530cdaef1361303ff5cadff))
+
 ## [1.61.0](https://github.com/windmill-labs/windmill/compare/v1.60.0...v1.61.0) (2023-01-31)
 
 
