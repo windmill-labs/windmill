@@ -1740,6 +1740,15 @@ async fn handle_python_job(
     } else {
         ""
     };
+    let spread = if sig.star_kwargs {
+        "args = kwargs".to_string()
+    } else {
+        sig.args
+            .into_iter()
+            .map(|x| format!("args[\"{}\"] = kwargs[\"{}\"]", x.name, x.name))
+            .join("\n")
+    };
+
     let wrapper_content: String = format!(
         r#"
 import json
@@ -1756,9 +1765,11 @@ with open("args.json") as f:
 for k, v in list(kwargs.items()):
     if v == '<function call>':
         del kwargs[k]
+args = {{}}
+{spread}
 {transforms}
 try:
-    res = inner_script.main(**kwargs)
+    res = inner_script.main(**args)
     res_json = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
     with open("result.json", 'w') as f:
         f.write(res_json)
