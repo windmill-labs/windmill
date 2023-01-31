@@ -244,7 +244,7 @@
 											<ToggleButtonGroup
 												selected={is_admin ? 'admin' : operator ? 'operator' : 'author'}
 												on:selected={async (e) => {
-													if (is_admin && e.detail != 'admin') {
+													if (is_admin && email == $userStore?.email && e.detail != 'admin') {
 														sendUserToast(
 															'Admins cannot be demoted by themselves, ask another admin to demote you',
 															true
