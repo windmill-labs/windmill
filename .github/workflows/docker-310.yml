@@ -6,7 +6,7 @@ name: Build and push windmill with python 3.10 and openbb
 on: workflow_dispatch
 
 concurrency:
-  group: ${{ github.ref }}
+  group: ${{ github.ref }}-openbb
   cancel-in-progress: true
 
 permissions:
