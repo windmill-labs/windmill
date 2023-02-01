@@ -43,9 +43,13 @@
 
 	<div
 		on:pointerdown={(e) => {
-			if ($mode === 'preview') {
-				e?.stopPropagation()
-			}
+			// Removed in https://github.com/windmill-labs/windmill/pull/1171
+			// In case of a bug, try stopping propagation on the native event
+			// and dispatch a custom event: `e?.stopPropagation(); dispatch('select');`
+
+			// if ($mode === 'preview') {
+			// 	e?.stopPropagation()
+			// }
 		}}
 		class={classNames(
 			'border h-full bg-white',

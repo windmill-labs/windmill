@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, afterUpdate } from 'svelte'
 	import type { AppEditorContext } from '../types'
 	import Grid from 'svelte-grid'
 	import ComponentEditor from './ComponentEditor.svelte'
@@ -100,6 +100,20 @@
 	const onpointerup = () => {
 		pointerdown = false
 	}
+
+	afterUpdate(() => {
+		if($selectedComponent) {
+			const parents = document.querySelectorAll<HTMLElement>('.svlt-grid-item')
+			parents.forEach((parent) => {
+				const hasActiveChild = !!parent.querySelector('.active-grid-item')
+				if(hasActiveChild) {
+					parent.style.setProperty('z-index', '100')
+				} else {
+					parent.style.removeProperty('z-index')
+				}
+			})
+		}
+	})
 </script>
 
 <div class="pb-2 relative z-20">
@@ -149,11 +163,10 @@
 					{/if}
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
 					<div
-						on:pointerdown={() => {
-							selectComponent(dataItem.data.id)
-						}}
+						on:pointerdown={() => selectComponent(dataItem.data.id)}
 						class={classNames(
-							'h-full w-full flex justify-center align-center items-center',
+							'h-full w-full center-center',
+							$selectedComponent === dataItem.data.id ? 'active-grid-item' : '',
 							gridComponent.data.card ? 'border border-gray-100' : ''
 						)}
 					>
@@ -191,12 +204,12 @@
 	{/each}
 {/if}
 
-<style>
-	:global(.svlt-grid-shadow) {
+<style global>
+	.svlt-grid-shadow {
 		/* Back shadow */
-		background: rgb(147 197 253) !important;
+		background: #93c4fdd0 !important;
 	}
-	:global(.svlt-grid-active) {
+	.svlt-grid-active {
 		opacity: 1 !important;
 	}
 </style>
