@@ -99,7 +99,8 @@
 		can_write = canWrite(flow.path, flow.extra_perms!, $userStore)
 	}
 
-	$: url = `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run/f/${flow?.path}`
+	$: urlAsync = `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run/f/${flow?.path}`
+	$: urlSync = `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run_wait_result/f/${flow?.path}`
 
 	let runForm: RunForm | undefined
 	let isValid = true
@@ -306,21 +307,39 @@
 					></h2
 				>
 				<div class="box max-w-2xl">
-					<div class="flex flex-row gap-x-2 w-full">
+					<div class="flex w-full flex-justify-between mb-1">
 						<a
 							on:click={(e) => {
 								e.preventDefault()
-								copyToClipboard(url)
+								copyToClipboard(urlAsync)
 							}}
-							href={$page.url.protocol + '//' + url}
-							class="whitespace-nowrap text-ellipsis overflow-hidden mr-1"
+							href={$page.url.protocol + '//' + urlAsync}
+							class="whitespace-nowrap text-ellipsis overflow-hidden mr-1 w-full"
 						>
-							{url}
+							{urlAsync}
 							<span class="text-gray-700 ml-2">
 								<Icon data={faClipboard} />
 							</span>
 						</a>
-
+						<Badge>UUID/Async</Badge>
+					</div>
+					<div class="mb-2 w-full flex flex-justify-between">
+						<a
+							on:click={(e) => {
+								e.preventDefault()
+								copyToClipboard(urlSync)
+							}}
+							href={$page.url.protocol + '//' + urlSync}
+							class="whitespace-nowrap text-ellipsis overflow-hidden mr-1 w-full"
+						>
+							{urlSync}
+							<span class="text-gray-700 ml-2">
+								<Icon data={faClipboard} />
+							</span>
+						</a>
+						<Badge>Result/Sync</Badge>
+					</div>
+					<div class="flex flex-row-reverse">
 						<Button size="xs" on:click={userSettings.openDrawer}>Create token</Button>
 					</div>
 				</div>

@@ -39,6 +39,7 @@
 	export let initialMode: EditorMode = 'dnd'
 	export let policy: Policy
 	export let summary: string
+	export let fromHub: boolean = false
 
 	const appStore = writable<App>(app)
 	const worldStore = writable<World | undefined>(undefined)
@@ -125,7 +126,7 @@
 {#if !$userStore?.operator}
 	<UnsavedConfirmationModal />
 	{#if initialMode !== 'preview'}
-		<AppEditorHeader {policy} />
+		<AppEditorHeader {policy} {fromHub} />
 	{/if}
 
 	{#if previewing}

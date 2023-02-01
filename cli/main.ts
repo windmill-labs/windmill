@@ -12,7 +12,7 @@ import hub from "./hub.ts";
 import { tryResolveVersion } from "./context.ts";
 import { GlobalOptions } from "./types.ts";
 
-const VERSION = "v1.60.0";
+const VERSION = "v1.61.1";
 
 const command = new Command()
   .name("wmill")

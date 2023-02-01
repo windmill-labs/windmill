@@ -21,6 +21,7 @@
 	import AppSliderInputs from '../components/numberInputs/AppSliderInputs.svelte'
 	import AppFormButton from '../components/form/AppFormButton.svelte'
 	import VegaLiteHtml from '../components/dataDisplay/VegaLiteHtml.svelte'
+	import PlotlyHtml from '../components/dataDisplay/PlotlyHtml.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -42,9 +43,13 @@
 
 	<div
 		on:pointerdown={(e) => {
-			if ($mode === 'preview') {
-				e?.stopPropagation()
-			}
+			// Removed in https://github.com/windmill-labs/windmill/pull/1171
+			// In case of a bug, try stopping propagation on the native event
+			// and dispatch a custom event: `e?.stopPropagation(); dispatch('select');`
+
+			// if ($mode === 'preview') {
+			// 	e?.stopPropagation()
+			// }
 		}}
 		class={classNames(
 			'border h-full bg-white',
@@ -82,6 +87,12 @@
 			/>
 		{:else if component.type === 'vegalitecomponent'}
 			<VegaLiteHtml
+				{...component}
+				bind:componentInput={component.componentInput}
+				bind:staticOutputs={$staticOutputs[component.id]}
+			/>
+		{:else if component.type === 'plotlycomponent'}
+			<PlotlyHtml
 				{...component}
 				bind:componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}

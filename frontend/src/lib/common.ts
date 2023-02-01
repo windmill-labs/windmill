@@ -19,7 +19,7 @@ export interface SchemaProperty {
 }
 
 export type Schema = {
-	$schema: string
+	$schema: string | undefined
 	type: string
 	properties: { [name: string]: SchemaProperty }
 	required: string[]

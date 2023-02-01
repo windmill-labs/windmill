@@ -32,7 +32,7 @@ export async function loadFlowModuleState(flowModule: FlowModule): Promise<FlowM
 
 export const idMutex = new Mutex()
 
-export function getNextId(currentKeys: string[]): string {
+export function getNextId(currentKeys: string[], skipTilde: boolean = false): string {
 	const max = currentKeys.reduce((acc, key) => {
 		if (key === 'failure' || key.includes('branch') || key.includes('loop')) {
 			return acc

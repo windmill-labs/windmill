@@ -6,7 +6,7 @@
 	import { slide } from 'svelte/transition'
 	import { OauthService, UserService, WorkspaceService } from '$lib/gen'
 	import { clearStores, usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
-	import { sendUserToast } from '$lib/utils'
+	import { isCloudHosted, sendUserToast } from '$lib/utils'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { getUserExt, refreshSuperadmin } from '$lib/user'
 	import { Button, Skeleton } from '$lib/components/common'
@@ -169,11 +169,12 @@
 	</div>
 	{#if showPassword}
 		<div transition:slide>
-			<p class="text-xs text-gray-500 italic pb-6">
-				To get credentials without the OAuth providers above, you can send us an email at
-				contact@windmill.dev or your admin owners if this instance is self-hosted and you will
-				receive credentials that you can use below.
-			</p>
+			{#if isCloudHosted()}
+				<p class="text-xs text-gray-500 italic pb-6">
+					To get credentials without the OAuth providers above, send an email at
+					contact@windmill.dev
+				</p>
+			{/if}
 			<label class="block pb-2">
 				<span class="text-gray-700 text-sm">Email</span>
 				<input type="email" bind:value={email} id="email" />
@@ -186,5 +187,16 @@
 				<Button id="login2" on:click={login}>Login</Button>
 			</div>
 		</div>
+	{/if}
+
+	{#if isCloudHosted()}
+		<p class="text-2xs text-gray-500 italic mt-10 text-center">
+			By logging in, you agree to our <a
+				href="https://docs.windmill.dev/terms_of_service"
+				target="_blank">Terms of Service</a
+			>
+			and
+			<a href="https://docs.windmill.dev/privacy_policy" target="_blank">Privacy Policy</a>
+		</p>
 	{/if}
 </CenteredModal>

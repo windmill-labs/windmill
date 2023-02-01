@@ -1,6 +1,6 @@
 {
 	"name": "windmill",
-	"version": "1.60.0",
+	"version": "1.61.1",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -18,7 +18,7 @@
 		"@playwright/test": "^1.29.2",
 		"@sveltejs/adapter-static": "^1.0.0",
 		"@sveltejs/kit": "^1.0.0-next.589",
-		"@sveltejs/package": "^1.0.1",
+		"@sveltejs/package": "^1.0.2",
 		"@tailwindcss/forms": "^0.5.3",
 		"@tailwindcss/typography": "^0.5.8",
 		"@types/node": "^18.11.18",
@@ -57,7 +57,7 @@
 		"tailwindcss": "^3.2.2",
 		"tslib": "^2.4.1",
 		"typescript": "^4.9.3",
-		"vite": "^4.0.3"
+		"vite": "^4.0.4"
 	},
 	"type": "module",
 	"dependencies": {

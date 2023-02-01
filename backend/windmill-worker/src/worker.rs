@@ -133,7 +133,7 @@ async fn copy_cache_to_bucket_as_tar(bucket: &str) {
         .current_dir(ROOT_CACHE_DIR)
         .arg("-c")
         .arg("-f")
-        .arg(format!("{ROOT_CACHE_DIR}/{TAR_CACHE_FILENAME}"))
+        .arg(format!("{ROOT_CACHE_DIR}{TAR_CACHE_FILENAME}"))
         .args(&["pip", "go", "deno"])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -181,7 +181,7 @@ async fn copy_cache_from_bucket_as_tar(bucket: &str) -> bool {
     match Command::new("rclone")
         .arg("copyto")
         .arg(format!(":s3,env_auth=true:{bucket}/{TAR_CACHE_FILENAME}"))
-        .arg(format!("{ROOT_CACHE_DIR}/{TAR_CACHE_FILENAME}"))
+        .arg(format!("{ROOT_CACHE_DIR}{TAR_CACHE_FILENAME}"))
         .arg("--size-only")
         .arg("--fast-list")
         .stdin(Stdio::null())
@@ -427,12 +427,25 @@ pub async fn run_worker(
     let deno_flags = std::env::var("DENO_FLAGS")
         .ok()
         .map(|x| x.split(' ').map(|x| x.to_string()).collect());
+    let pip_local_dependencies = std::env::var("PIP_LOCAL_DEPENDENCIES")
+        .ok()
+        .map(|x| x.split(',').map(|x| x.to_string()).collect());
+
+    let pip_local_dependencies = if pip_local_dependencies == Some(vec!["".to_string()]) {
+        None
+    } else {
+        pip_local_dependencies
+    };
 
     #[cfg(feature = "enterprise")]
     let tar_cache_rate = std::env::var("TAR_CACHE_RATE")
         .ok()
         .and_then(|x| x.parse::<i32>().ok())
         .unwrap_or(100);
+
+    let additional_python_paths = std::env::var("ADDITIONAL_PYTHON_PATHS")
+        .ok()
+        .map(|x| x.split(':').map(|x| x.to_string()).collect());
 
     let envs = Envs {
         deno_path,
@@ -447,6 +460,8 @@ pub async fn run_worker(
         max_log_size,
         deno_flags,
         deno_auth_tokens,
+        pip_local_dependencies,
+        additional_python_paths,
     };
     WORKER_STARTED.inc();
 
@@ -757,6 +772,8 @@ struct Envs {
     deno_auth_tokens: String,
     deno_flags: Option<Vec<String>>,
     max_log_size: i64,
+    pip_local_dependencies: Option<Vec<String>>,
+    additional_python_paths: Option<Vec<String>>,
 }
 
 fn extract_error_value(log_lines: &str) -> serde_json::Value {
@@ -1606,7 +1623,9 @@ lazy_static! {
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_python_job(
     WorkerConfig { base_internal_url, base_url, disable_nuser, disable_nsjail, .. }: &WorkerConfig,
-    envs @ Envs { nsjail_path, python_path, path_env, max_log_size, .. }: &Envs,
+    envs @ Envs {
+        nsjail_path, python_path, path_env, max_log_size, additional_python_paths, ..
+    }: &Envs,
     requirements_o: Option<String>,
     job_dir: &str,
     worker_dir: &str,
@@ -1622,7 +1641,8 @@ async fn handle_python_job(
 ) -> error::Result<serde_json::Value> {
     create_dependencies_dir(job_dir).await;
 
-    let mut additional_python_paths: Vec<String> = vec![];
+    let mut additional_python_paths: Vec<String> =
+        additional_python_paths.to_owned().unwrap_or_else(|| vec![]);
 
     let requirements = match requirements_o {
         Some(r) => r,
@@ -1729,6 +1749,15 @@ async fn handle_python_job(
     } else {
         ""
     };
+    let spread = if sig.star_kwargs {
+        "args = kwargs".to_string()
+    } else {
+        sig.args
+            .into_iter()
+            .map(|x| format!("args[\"{}\"] = kwargs[\"{}\"]", x.name, x.name))
+            .join("\n")
+    };
+
     let wrapper_content: String = format!(
         r#"
 import json
@@ -1745,9 +1774,11 @@ with open("args.json") as f:
 for k, v in list(kwargs.items()):
     if v == '<function call>':
         del kwargs[k]
+args = {{}}
+{spread}
 {transforms}
 try:
-    res = inner_script.main(**kwargs)
+    res = inner_script.main(**args)
     res_json = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
     with open("result.json", 'w') as f:
         f.write(res_json)
@@ -2101,7 +2132,14 @@ async fn pip_compile(
     requirements: &str,
     logs: &mut String,
     job_dir: &str,
-    Envs { pip_extra_index_url, pip_index_url, pip_trusted_host, max_log_size, .. }: &Envs,
+    Envs {
+        pip_extra_index_url,
+        pip_index_url,
+        pip_trusted_host,
+        max_log_size,
+        pip_local_dependencies,
+        ..
+    }: &Envs,
     db: &Pool<Postgres>,
     timeout: i32,
 ) -> error::Result<String> {
@@ -2109,6 +2147,15 @@ async fn pip_compile(
     set_logs(logs, job_id, db).await;
     logs.push_str(&format!("\ncontent of requirements:\n{}", requirements));
     let file = "requirements.in";
+    let requirements = if let Some(pip_local_dependencies) = pip_local_dependencies {
+        let deps = pip_local_dependencies.clone();
+        requirements
+            .lines()
+            .filter(|s| !deps.contains(&s.to_string()))
+            .join("\n")
+    } else {
+        requirements.to_string()
+    };
     write_file(job_dir, file, &requirements).await?;
 
     let mut args = vec!["-q", "--no-header", file, "--resolver=backtracking"];

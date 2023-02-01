@@ -30,6 +30,7 @@
 	export let filter: string[] | undefined = undefined
 	export let noDynamicToggle = false
 	export let flexWrap = false
+	export let noDelete = false
 
 	let clazz: string = ''
 	export { clazz as class }
@@ -59,7 +60,9 @@
 		let lkeys = Object.keys(schema?.properties ?? {})
 		if (schema?.properties && JSON.stringify(lkeys) != JSON.stringify(keys)) {
 			keys = lkeys
-			removeExtraKey()
+			if (!noDelete) {
+				removeExtraKey()
+			}
 		}
 	}
 </script>

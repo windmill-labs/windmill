@@ -1,9 +1,7 @@
 <script lang="ts">
 	import { Loader2 } from 'lucide-svelte'
-	import { parse } from 'path'
 	import { onMount } from 'svelte'
 	import type { AppInput } from '../../inputType'
-	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 

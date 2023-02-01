@@ -19,6 +19,7 @@
 		let interval = setInterval(async () => {
 			attempt += 1
 			if ((await WorkspaceService.getSettings({ workspace: $workspaceStore! })).customer_id) {
+				clearInterval(interval)
 				goto('/workspace_settings?tab=premium')
 			} else if (attempt > 10) {
 				sendUserToast('Subscription upgrade failed. Contact contact@windmill.dev', true)
@@ -41,7 +42,9 @@
 			You will be redirected to the workspace settings page in 5 seconds...
 		</p>
 	{:else}
-		<p class="text-sm my-6 text-gray-600"> Waiting for your upgrade to be processed... </p>
+		<p class="text-sm my-6 text-gray-600 w-full text-center">
+			Waiting for your upgrade to be processed...
+		</p>
 	{/if}
 
 	<div class="block m-auto w-20">

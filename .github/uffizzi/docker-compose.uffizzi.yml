@@ -14,13 +14,13 @@ services:
 
   windmill:
     image: '${WINDMILL_IMAGE}'
-    privileged: false
-    restart: unless-stopped
     ports:
       - 8000:8000
+    entrypoint: ['/bin/sh', '-c']
+    command: 'echo ${OAUTH_JSON_BASE64} | base64 --decode > /usr/src/app/oauth.json && ./windmill'
     environment:
       - DATABASE_URL=postgres://postgres:changeme@localhost/windmill?sslmode=disable
-      - BASE_URL=http://localhost
+      - BASE_URL=${EXPECTED_URL}
       - BASE_INTERNAL_URL=http://localhost:8000
       - RUST_LOG=info
       - NUM_WORKERS=3
@@ -28,12 +28,16 @@ services:
       - DENO_PATH=/usr/bin/deno
       - PYTHON_PATH=/usr/local/bin/python3
       - METRICS_ADDR=false
+      - OAUTH_JSON_BASE64=${OAUTH_JSON_BASE64}
     volumes:
       - worker_dependency_cache:/tmp/windmill/cache
+    deploy:
+      resources:
+        limits:
+          memory: 250M
 
   lsp:
     image: '${LSP_IMAGE}'
-    restart: unless-stopped
     ports:
       - 3001:3001
 

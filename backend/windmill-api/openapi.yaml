@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.60.0
+  version: 1.61.1
   title: Windmill API
 
   contact:
@@ -2456,6 +2456,44 @@ paths:
           schema:
             type: integer
         - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/IncludeHeader"
+        - $ref: "#/components/parameters/QueueLimit"
+
+      requestBody:
+        description: script args
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScriptArgs"
+
+      responses:
+        "200":
+          description: job result
+          content:
+            application/json:
+              schema: {}
+
+  /w/{workspace}/jobs/run_wait_result/f/{path}:
+    post:
+      summary: run flow by path and wait until completion
+      operationId: runWaitResultFlowByPath
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+        - name: scheduled_for
+          description: when to schedule this job (leave empty for immediate run)
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: scheduled_in_secs
+          description: schedule the script to execute in the number of seconds starting now
+          in: query
+          schema:
+            type: integer
         - $ref: "#/components/parameters/IncludeHeader"
         - $ref: "#/components/parameters/QueueLimit"
 
