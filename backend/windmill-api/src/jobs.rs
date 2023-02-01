@@ -270,6 +270,14 @@ pub struct RunJobQuery {
     queue_limit: Option<i64>,
 }
 
+lazy_static::lazy_static! {
+    static ref INCLUDE_HEADERS: Vec<String> = std::env::var("INCLUDE_HEADERS")
+        .ok().map(|x| x
+        .split(',')
+        .map(|s| s.to_string())
+        .collect()).unwrap_or_default();
+}
+
 impl RunJobQuery {
     async fn get_scheduled_for<'c>(
         &self,
@@ -290,11 +298,14 @@ impl RunJobQuery {
         headers: HeaderMap,
         mut args: serde_json::Map<String, serde_json::Value>,
     ) -> serde_json::Map<String, serde_json::Value> {
-        self.include_header
+        let whitelist = self
+            .include_header
             .as_ref()
             .map(|s| s.split(",").map(|s| s.to_string()).collect::<Vec<_>>())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        whitelist
             .iter()
+            .chain(INCLUDE_HEADERS.iter())
             .for_each(|h| {
                 if let Some(v) = headers.get(h) {
                     args.insert(

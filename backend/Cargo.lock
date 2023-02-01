@@ -4682,6 +4682,7 @@ dependencies = [
  "hmac",
  "hyper",
  "itertools",
+ "lazy_static",
  "magic-crypt",
  "mime_guess",
  "rand 0.8.5",
