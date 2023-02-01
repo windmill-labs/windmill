@@ -443,6 +443,10 @@ pub async fn run_worker(
         .and_then(|x| x.parse::<i32>().ok())
         .unwrap_or(100);
 
+    let additional_python_paths = std::env::var("ADDITIONAL_PYTHON_PATHS")
+        .ok()
+        .map(|x| x.split(':').map(|x| x.to_string()).collect());
+
     let envs = Envs {
         deno_path,
         go_path,
@@ -457,6 +461,7 @@ pub async fn run_worker(
         deno_flags,
         deno_auth_tokens,
         pip_local_dependencies,
+        additional_python_paths,
     };
     WORKER_STARTED.inc();
 
@@ -768,6 +773,7 @@ struct Envs {
     deno_flags: Option<Vec<String>>,
     max_log_size: i64,
     pip_local_dependencies: Option<Vec<String>>,
+    additional_python_paths: Option<Vec<String>>,
 }
 
 fn extract_error_value(log_lines: &str) -> serde_json::Value {
@@ -1617,7 +1623,9 @@ lazy_static! {
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_python_job(
     WorkerConfig { base_internal_url, base_url, disable_nuser, disable_nsjail, .. }: &WorkerConfig,
-    envs @ Envs { nsjail_path, python_path, path_env, max_log_size, .. }: &Envs,
+    envs @ Envs {
+        nsjail_path, python_path, path_env, max_log_size, additional_python_paths, ..
+    }: &Envs,
     requirements_o: Option<String>,
     job_dir: &str,
     worker_dir: &str,
@@ -1633,7 +1641,8 @@ async fn handle_python_job(
 ) -> error::Result<serde_json::Value> {
     create_dependencies_dir(job_dir).await;
 
-    let mut additional_python_paths: Vec<String> = vec![];
+    let mut additional_python_paths: Vec<String> =
+        additional_python_paths.to_owned().unwrap_or_else(|| vec![]);
 
     let requirements = match requirements_o {
         Some(r) => r,
