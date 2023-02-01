@@ -328,11 +328,11 @@
 			if (!modules.length) {
 				items.push(createVirtualNode(branchParent, 'Empty branch', edgesLabel[i]))
 			} else {
-				modules.forEach((module) => {
+				modules.forEach((module, j) => {
 					const item = getConvertedFlowModule(
 						module,
 						items.length ? items : numberToChars(branch.node.id),
-						edgesLabel[i],
+						j == 0 ? edgesLabel[i] : undefined,
 						insideLoop
 					)
 					item && items.push(item)
@@ -419,7 +419,8 @@
 						arrow: true,
 						animate: false,
 						noHandle: false,
-						label: node.edgeLabel
+						label:
+							node.edgeLabel + pid + numberToChars(charsToNumber(pid)) + '   ' + numberToChars(-2)
 						// type: 'smoothstep'
 					})
 				}
@@ -434,13 +435,14 @@
 		edgesLabel?: string,
 		offset?: number
 	): Node {
+		const id = -idGenerator.next().value - 1 + (offset ?? 0)
 		return {
-			id: -idGenerator.next().value - 1 + (offset ?? 0),
+			id,
 			position: { x: -1, y: -1 },
 			data: {
 				html: `
 				<div class="w-full max-h-full text-center ellipsize-multi-line text-2xs [-webkit-line-clamp:2] px-1">
-					${label}
+					${label} ${numberToChars(id)} + ${id}
 				</div>
 			`
 			},
