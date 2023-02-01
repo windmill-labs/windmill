@@ -42,11 +42,6 @@
 	{/if}
 
 	<div
-		on:pointerdown={(e) => {
-			if ($mode === 'preview') {
-				e?.stopPropagation()
-			}
-		}}
 		class={classNames(
 			'border h-full bg-white',
 			selected && $mode !== 'preview' ? 'border-blue-500' : 'border-white',
