@@ -8,7 +8,11 @@ use axum::{
 };
 use hyper::StatusCode;
 use serde::Serialize;
-use tokio::{select, sync::mpsc};
+use tokio::{
+    select,
+    sync::mpsc,
+    time::{interval, Interval},
+};
 
 use crate::db::DB;
 
@@ -54,7 +58,7 @@ pub struct WebhookShared {
 }
 
 impl WebhookShared {
-    pub fn new(mut shutdown_rx: tokio::sync::broadcast::Receiver<()>) -> Self {
+    pub fn new(mut shutdown_rx: tokio::sync::broadcast::Receiver<()>, db: DB) -> Self {
         let (tx, mut rx) = mpsc::unbounded_channel::<(String, WebhookMessage)>();
         let _process = tokio::spawn(async move {
             let client = reqwest::Client::builder()
@@ -62,18 +66,54 @@ impl WebhookShared {
                 .timeout(Duration::from_secs(5))
                 .build()
                 .unwrap();
+            let cache = retainer::Cache::new();
+            let mut cache_purge_interval = interval(Duration::from_secs(30));
+
             loop {
                 select! {
                     biased;
                     _ = shutdown_rx.recv() => break,
                     r = rx.recv() => match r {
-                        Some((url, message)) => {
+                        Some((workspace_id, message)) => {
+                            let url_guard = match cache.get(&workspace_id).await {
+                                Some(guard) => {
+                                    guard
+                                },
+                                None => {
+                                    let Ok(Some(webhook)) =
+                                        sqlx::query_scalar!(
+                                            "SELECT webhook FROM workspace_settings WHERE workspace_id = $1",
+                                            workspace_id
+                                        )
+                                        .fetch_one(
+                                            &db,
+                                        )
+                                        .await else {
+                                            // If you've come here to figure out what went wrong - this may just be a symptom of someone deleting their
+                                            // workspace hook while their messages were still in queue - this is fine, and why this is "only" a warning.
+                                            // If this happens otherwise, there's probably something wrong with the DB (connection)!
+
+                                            // Just in case this happens too frequently: Change the above let to only do check for Ok() (and promote this to an appropriate error)
+                                            // Then check for Some() below and handle appropriately
+                                            tracing::warn!("Webhook Message to send - but cannot find webhook for workspace!");
+                                            continue;
+                                        };
+                                    cache.insert(workspace_id.clone(), webhook, Duration::from_secs(30)).await;
+                                    cache.get(&workspace_id).await.unwrap()
+                                }
+                            };
+                            let url = url_guard.value();
                             let timer = WEBHOOK_REQUEST_COUNT.start_timer();
                             let _ = client.post(url).json(&message).send().await;
                             timer.stop_and_record();
+                            drop(url_guard);
                         },
                         None => break,
-                    }
+                    },
+                    _ = futures::future::poll_fn(|cx| cache_purge_interval.poll_tick(cx)) => {
+                        tracing::trace!("Puring Webhook Cache");
+                        cache.purge(10, 0.50).await;
+                    },
                 }
             }
         });
@@ -84,16 +124,16 @@ impl WebhookShared {
 
 #[derive(Clone)]
 pub struct WebhookUtil {
-    webhook: Option<String>,
+    workspace_id: Option<String>,
     shared: Extension<WebhookShared>,
 }
 
 impl WebhookUtil {
     pub fn send_message(&self, message: WebhookMessage) {
-        let Some(webhook) = &self.webhook else {
+        let Some(workspace_id) = &self.workspace_id else {
             return;
         };
-        let _ = self.shared.channel.send((webhook.clone(), message));
+        let _ = self.shared.channel.send((workspace_id.clone(), message));
     }
 }
 
@@ -120,28 +160,6 @@ where
             None
         };
 
-        let webhook = sqlx::query_scalar!(
-            "SELECT webhook FROM workspace_settings WHERE workspace_id = $1",
-            workspace_id
-        )
-        .fetch_one(
-            &Extension::<DB>::from_request_parts(parts, state)
-                .await
-                .map_err(|_| {
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "Could not aquire DB while retrieving webhook".to_owned(),
-                    )
-                })?
-                .0,
-        )
-        .await
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Could not execute DB query".to_owned(),
-            )
-        })?;
         let shared = Extension::<WebhookShared>::from_request_parts(parts, state)
             .await
             .map_err(|_| {
@@ -151,6 +169,6 @@ where
                 )
             })?;
 
-        Ok(Self { webhook, shared })
+        Ok(Self { workspace_id, shared })
     }
 }

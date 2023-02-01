@@ -109,7 +109,7 @@ pub async fn run_server(
         ))))
         .layer(Extension(http_client))
         .layer(CookieManagerLayer::new())
-        .layer(Extension(WebhookShared::new(rx.resubscribe())));
+        .layer(Extension(WebhookShared::new(rx.resubscribe(), db.clone())));
     // build our application with a route
     let app = Router::new()
         .nest(
