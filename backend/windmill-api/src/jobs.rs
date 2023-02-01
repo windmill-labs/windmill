@@ -103,7 +103,9 @@ async fn get_result_by_id(
     Query(ResultByIdQuery { skip_direct }): Query<ResultByIdQuery>,
     Path((w_id, flow_id, node_id)): Path<(String, String, String)>,
 ) -> windmill_common::error::JsonResult<serde_json::Value> {
+    tracing::error!("get_result_by_id_bef: {:?} {:?}", flow_id, node_id);
     let res = windmill_queue::get_result_by_id(db, skip_direct, w_id, flow_id, node_id).await?;
+    tracing::error!("get_result_by_id: {:?}", res);
     Ok(Json(res))
 }
 

@@ -136,10 +136,10 @@ where
                 .0,
         )
         .await
-        .map_err(|_| {
+        .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                "Could not execute DB query".to_owned(),
+                format!("Could not execute DB query {:?}", e),
             )
         })?;
         let shared = Extension::<WebhookShared>::from_request_parts(parts, state)

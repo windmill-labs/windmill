@@ -307,6 +307,19 @@ async fn op_get_id(args: Vec<String>) -> Result<Option<serde_json::Value>, anyho
     let node_id = &args[4];
 
     let client = windmill_api_client::create_client(base_url, token.clone());
+    let err = client
+        .result_by_id(workspace, flow_job_id, node_id, Some(true))
+        .await
+        .err()
+        .unwrap();
+    let res = match err {
+        windmill_api_client::Error::UnexpectedResponse(e) => {
+            tracing::error!("{:?}", e.text().await);
+            anyhow::anyhow!("bar")
+        }
+        _ => anyhow::anyhow!("foo"),
+    };
+    tracing::error!("{:?}", res);
     let result = client
         .result_by_id(workspace, flow_job_id, node_id, Some(true))
         .await
