@@ -123,7 +123,7 @@
 			return flowModuleToBranch(
 				module,
 				branches,
-				['Default', ...module.value.branches.map((x) => `If ${truncateRev(x.expr, 20)}`)],
+				['Default', ...module.value.branches.map((x) => `${truncateRev(x.expr, 20)}`)],
 				parent,
 				insideLoop
 			)
@@ -419,8 +419,7 @@
 						arrow: true,
 						animate: false,
 						noHandle: false,
-						label:
-							node.edgeLabel + pid + numberToChars(charsToNumber(pid)) + '   ' + numberToChars(-2)
+						label: node.edgeLabel
 						// type: 'smoothstep'
 					})
 				}
@@ -442,7 +441,7 @@
 			data: {
 				html: `
 				<div class="w-full max-h-full text-center ellipsize-multi-line text-2xs [-webkit-line-clamp:2] px-1">
-					${label} ${numberToChars(id)} + ${id}
+					${label}
 				</div>
 			`
 			},
