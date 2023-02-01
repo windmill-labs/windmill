@@ -123,7 +123,7 @@
 			return flowModuleToBranch(
 				module,
 				branches,
-				['Default', ...module.value.branches.map((x) => `If ${truncateRev(x.expr, 20)}`)],
+				['Default', ...module.value.branches.map((x) => `${truncateRev(x.expr, 20)}`)],
 				parent,
 				insideLoop
 			)
@@ -328,11 +328,11 @@
 			if (!modules.length) {
 				items.push(createVirtualNode(branchParent, 'Empty branch', edgesLabel[i]))
 			} else {
-				modules.forEach((module) => {
+				modules.forEach((module, j) => {
 					const item = getConvertedFlowModule(
 						module,
 						items.length ? items : numberToChars(branch.node.id),
-						edgesLabel[i],
+						j == 0 ? edgesLabel[i] : undefined,
 						insideLoop
 					)
 					item && items.push(item)
@@ -434,8 +434,9 @@
 		edgesLabel?: string,
 		offset?: number
 	): Node {
+		const id = -idGenerator.next().value - 1 + (offset ?? 0)
 		return {
-			id: -idGenerator.next().value - 1 + (offset ?? 0),
+			id,
 			position: { x: -1, y: -1 },
 			data: {
 				html: `
