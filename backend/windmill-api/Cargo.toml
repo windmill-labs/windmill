@@ -70,3 +70,4 @@ cookie.workspace = true
 sha2.workspace = true
 urlencoding.workspace = true
 async-stripe.workspace = true
+lazy_static.workspace = true
