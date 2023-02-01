@@ -180,6 +180,9 @@ export function emptyFlowModuleState(): FlowModuleState {
 const aCharCode = 'a'.charCodeAt(0)
 
 export function numberToChars(n: number, skipTilde: boolean = false) {
+	if (n < 0) {
+		return "-" + numberToChars(-n, skipTilde)
+	}
 	var b = [n],
 		sp,
 		out,
@@ -207,6 +210,9 @@ export function numberToChars(n: number, skipTilde: boolean = false) {
 }
 
 export function charsToNumber(n: string): number {
+	if (n.charAt(0) == '-') {
+		return charsToNumber(n.slice(1)) * -1
+	}
 	let b = Math.pow(27, n.length - 1)
 	let res = 0
 	for (let c of n) {
