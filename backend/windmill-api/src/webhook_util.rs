@@ -8,11 +8,7 @@ use axum::{
 };
 use hyper::StatusCode;
 use serde::Serialize;
-use tokio::{
-    select,
-    sync::mpsc,
-    time::{interval, Interval},
-};
+use tokio::{select, sync::mpsc, time::interval};
 
 use crate::db::DB;
 
@@ -80,7 +76,7 @@ impl WebhookShared {
                                     guard
                                 },
                                 None => {
-                                    let Ok(Some(webhook)) =
+                                    let Ok(webook_opt) =
                                         sqlx::query_scalar!(
                                             "SELECT webhook FROM workspace_settings WHERE workspace_id = $1",
                                             workspace_id
@@ -89,24 +85,20 @@ impl WebhookShared {
                                             &db,
                                         )
                                         .await else {
-                                            // If you've come here to figure out what went wrong - this may just be a symptom of someone deleting their
-                                            // workspace hook while their messages were still in queue - this is fine, and why this is "only" a warning.
-                                            // If this happens otherwise, there's probably something wrong with the DB (connection)!
-
-                                            // Just in case this happens too frequently: Change the above let to only do check for Ok() (and promote this to an appropriate error)
-                                            // Then check for Some() below and handle appropriately
-                                            tracing::warn!("Webhook Message to send - but cannot find webhook for workspace!");
+                                            tracing::error!("Webhook Message to send - but cannot get workspace settings! Workspace: {workspace_id}");
                                             continue;
                                         };
-                                    cache.insert(workspace_id.clone(), webhook, Duration::from_secs(30)).await;
+                                    cache.insert(workspace_id.clone(), webook_opt, Duration::from_secs(30)).await;
                                     cache.get(&workspace_id).await.unwrap()
                                 }
                             };
-                            let url = url_guard.value();
-                            let timer = WEBHOOK_REQUEST_COUNT.start_timer();
-                            let _ = client.post(url).json(&message).send().await;
-                            timer.stop_and_record();
-                            drop(url_guard);
+                            let webook_opt = url_guard.value();
+                            if let Some(url) = webook_opt {
+                                let timer = WEBHOOK_REQUEST_COUNT.start_timer();
+                                let _ = client.post(url).json(&message).send().await;
+                                timer.stop_and_record();
+                                drop(url_guard);
+                            }
                         },
                         None => break,
                     },

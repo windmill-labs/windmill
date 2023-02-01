@@ -84,11 +84,20 @@
 	}
 
 	async function editWebhook(): Promise<void> {
-		await WorkspaceService.editWebhook({
-			workspace: $workspaceStore!,
-			requestBody: { webhook }
-		})
-		sendUserToast(`webhook set to ${webhook}`)
+		// in JS, an empty string is also falsy
+		if (webhook) {
+			await WorkspaceService.editWebhook({
+				workspace: $workspaceStore!,
+				requestBody: { webhook }
+			})
+			sendUserToast(`webhook set to ${webhook}`)
+		} else {
+			await WorkspaceService.editWebhook({
+				workspace: $workspaceStore!,
+				requestBody: { webhook: undefined }
+			})
+			sendUserToast(`webhook removed`)
+		}
 	}
 
 	async function loadSettings(): Promise<void> {
