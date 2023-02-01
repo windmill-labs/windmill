@@ -42,6 +42,15 @@
 	{/if}
 
 	<div
+		on:pointerdown={(e) => {
+			// Removed in https://github.com/windmill-labs/windmill/pull/1171
+			// In case of a bug, try stopping propagation on the native event
+			// and dispatch a custom event: `e?.stopPropagation(); dispatch('select');`
+
+			// if ($mode === 'preview') {
+			// 	e?.stopPropagation()
+			// }
+		}}
 		class={classNames(
 			'border h-full bg-white',
 			selected && $mode !== 'preview' ? 'border-blue-500' : 'border-white',
