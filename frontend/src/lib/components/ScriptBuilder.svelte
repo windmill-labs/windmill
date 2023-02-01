@@ -84,6 +84,7 @@
 				}
 			})
 			sendUserToast(`Success! New script version created with hash ${newHash}`)
+			await goto(`/scripts/edit/${newHash}?step=2`)
 			goto(`/scripts/get/${newHash}`)
 		} catch (error) {
 			sendUserToast(`Impossible to save the script: ${error.body}`, true)
