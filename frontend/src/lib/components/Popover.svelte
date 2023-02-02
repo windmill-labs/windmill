@@ -5,6 +5,7 @@
 	export let placement: PopoverPlacement = 'auto'
 	export let notClickable = false
 	export let popupClass = ''
+	export let disablePopup = false
 	export let disapperTimoout = 100
 
 	const [popperRef, popperContent] = createPopperActions({ placement })
@@ -20,7 +21,12 @@
 	const extraOpts = {
 		modifiers: [
 			betterPreventOverflow({ padding: 10 }),
-			{ name: 'offset', options: { offset: [8, 8] } },
+			{
+				name: 'offset',
+				options: {
+					offset: [8, 8]
+				}
+			},
 			{
 				name: 'arrow',
 				options: {
@@ -62,7 +68,7 @@
 		<slot />
 	</button>
 {/if}
-{#if showTooltip}
+{#if showTooltip && !disablePopup}
 	<div
 		use:popperContent={extraOpts}
 		on:mouseenter={open}
