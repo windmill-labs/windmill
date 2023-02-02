@@ -85,7 +85,7 @@ export function schemaToInputsSpec(
 	}, {})
 }
 
-export const displayData: Partial<Record<AppComponent['type'], { name: string; icon: any }>> = {
+export const displayData: Record<AppComponent['type'], { name: string; icon: any }> = {
 	displaycomponent: {
 		name: 'Result',
 		icon: Monitor
@@ -114,7 +114,10 @@ export const displayData: Partial<Record<AppComponent['type'], { name: string; i
 		name: 'Bar/Line Chart',
 		icon: BarChart4
 	},
-
+	htmlcomponent: {
+		name: 'HTML',
+		icon: Code2
+	},
 	vegalitecomponent: {
 		name: 'Vega Lite',
 		icon: PieChart
