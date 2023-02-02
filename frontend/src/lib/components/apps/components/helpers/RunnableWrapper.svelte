@@ -9,7 +9,7 @@
 	export let componentInput: AppInput | undefined
 	export let id: string
 	export let result: any = undefined
-	export let initializing = true
+	export let initializing: boolean = true
 
 	export let extraQueryParams: Record<string, any> = {}
 	export let autoRefresh: boolean = true
@@ -20,8 +20,8 @@
 	export let runnableClass = ''
 
 	const { staticExporter, noBackend } = getContext<AppEditorContext>('AppEditorContext')
-	
-	$: if(initializing && result) {
+
+	$: if (initializing && result) {
 		initializing = false
 	}
 
