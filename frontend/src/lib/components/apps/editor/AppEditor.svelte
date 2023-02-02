@@ -39,6 +39,7 @@
 	export let initialMode: EditorMode = 'dnd'
 	export let policy: Policy
 	export let summary: string
+	export let fromHub: boolean = false
 
 	const appStore = writable<App>(app)
 	const worldStore = writable<World | undefined>(undefined)
@@ -54,6 +55,7 @@
 	})
 
 	const runnableComponents = writable<Record<string, () => Promise<void>>>({})
+	const errorByComponent = writable<Record<string, { error: string; componentId: string }>>({})
 
 	setContext<AppEditorContext>('AppEditorContext', {
 		worldStore,
@@ -72,7 +74,9 @@
 		isEditor: true,
 		jobs: writable([]),
 		staticExporter: writable({}),
-		noBackend: false
+		noBackend: false,
+		errorByComponent,
+		openDebugRun: writable(undefined)
 	})
 
 	let timeout: NodeJS.Timeout | undefined = undefined
@@ -122,7 +126,7 @@
 {#if !$userStore?.operator}
 	<UnsavedConfirmationModal />
 	{#if initialMode !== 'preview'}
-		<AppEditorHeader {policy} />
+		<AppEditorHeader {policy} {fromHub} />
 	{/if}
 
 	{#if previewing}

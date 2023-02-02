@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::sync::Arc;
+use std::{str::FromStr, sync::Arc};
 
 use crate::{
     db::{UserDB, DB},
@@ -20,13 +20,14 @@ use axum::{
     body::StreamBody,
     extract::{Extension, Path, Query},
     headers,
-    response::IntoResponse,
+    response::{IntoResponse, Redirect},
     routing::{delete, get, post},
     Json, Router,
 };
+use stripe::CustomerId;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
-    error::{Error, JsonResult, Result},
+    error::{to_anyhow, Error, JsonResult, Result},
     flows::Flow,
     scripts::{Schema, Script, ScriptLang},
     utils::{paginate, rd_string, require_admin, Pagination},
@@ -54,6 +55,7 @@ pub fn workspaced_service() -> Router {
         .route("/tarball", get(tarball_workspace))
         .route("/premium_info", get(premium_info))
         .route("/checkout", get(stripe_checkout))
+        .route("/billing_portal", get(stripe_portal))
 }
 pub fn global_service() -> Router {
     Router::new()
@@ -86,6 +88,8 @@ pub struct WorkspaceSettings {
     pub slack_email: String,
     pub auto_invite_domain: Option<String>,
     pub auto_invite_operator: Option<bool>,
+    pub customer_id: Option<String>,
+    pub plan: Option<String>,
 }
 
 #[derive(FromRow, Serialize, Debug)]
@@ -205,44 +209,147 @@ async fn premium_info(
     Ok(Json(row))
 }
 
-async fn stripe_checkout(authed: Authed, Extension(base_url): Extension<Arc<BaseUrl>>) {
-    #[cfg(feature = "enterprise")]
+#[derive(Deserialize)]
+struct PlanQuery {
+    plan: String,
+}
+
+async fn stripe_checkout(
+    authed: Authed,
+    Path(w_id): Path<String>,
+    Query(plan): Query<PlanQuery>,
+    Extension(base_url): Extension<Arc<BaseUrl>>,
+) -> Result<Redirect> {
+    // #[cfg(feature = "enterprise")]
     {
+        require_admin(authed.is_admin, &authed.username)?;
+
         let client = stripe::Client::new(std::env::var("STRIPE_KEY").expect("STRIPE_KEY"));
-        let success_rd = format!(
-            "{}/workspace_settings?session={{CHECKOUT_SESSION_ID}}",
-            base_url.0
-        );
-        let failure_rd = format!("{}/workspace_settings", base_url.0);
+        let success_rd = format!("{}/workspace_settings/checkout?success=true", base_url.0);
+        let failure_rd = format!("{}/workspace_settings/checkout?success=false", base_url.0);
         let checkout_session = {
             let mut params = stripe::CreateCheckoutSession::new(&failure_rd, &success_rd);
             params.mode = Some(stripe::CheckoutSessionMode::Subscription);
-            params.line_items = Some(vec![
-                stripe::CreateCheckoutSessionLineItems {
-                    quantity: None,
-                    price: Some("price_1MQzMHGU3NdFi9eLWFC7IXEv".to_string()),
-                    ..Default::default()
-                },
-                stripe::CreateCheckoutSessionLineItems {
-                    quantity: None,
-                    price: Some("price_1MR2BZGU3NdFi9eLNRuibxPx".to_string()),
-                    ..Default::default()
-                },
-            ]);
+            params.line_items = match plan.plan.as_str() {
+                "team" => Some(vec![
+                    stripe::CreateCheckoutSessionLineItems {
+                        quantity: Some(1),
+                        price: Some("price_1MUlrWGU3NdFi9eLE9GBZhoY".to_string()),
+                        ..Default::default()
+                    },
+                    stripe::CreateCheckoutSessionLineItems {
+                        quantity: None,
+                        price: Some("price_1MUlreGU3NdFi9eLi6sOyvVa".to_string()),
+                        ..Default::default()
+                    },
+                    stripe::CreateCheckoutSessionLineItems {
+                        quantity: None,
+                        price: Some("price_1MUlrlGU3NdFi9eLFLggSXZV".to_string()),
+                        ..Default::default()
+                    },
+                    stripe::CreateCheckoutSessionLineItems {
+                        quantity: None,
+                        price: Some("price_1MUlr3GU3NdFi9eLbZYFjR9p".to_string()),
+                        ..Default::default()
+                    },
+                ]),
+                // "enterprise" => Some(vec![
+                //     stripe::CreateCheckoutSessionLineItems {
+                //         quantity: None,
+                //         price: Some("price_1MSdf6GU3NdFi9eLJFRkntlx".to_string()),
+                //         ..Default::default()
+                //     },
+                //     stripe::CreateCheckoutSessionLineItems {
+                //         quantity: None,
+                //         price: Some("price_1MShsNGU3NdFi9eLJMEZUW8b".to_string()),
+                //         ..Default::default()
+                //     },
+                // ]),
+                _ => Err(Error::BadRequest("invalid plan".to_string()))?,
+            };
             params.customer_email = Some(&authed.email);
-            params.client_reference_id = Some("foo");
+            params.client_reference_id = Some(&w_id);
             stripe::CheckoutSession::create(&client, params)
                 .await
                 .unwrap()
         };
-
-        println!(
-            "created a {}  at {}",
-            checkout_session.payment_status,
-            checkout_session.url.unwrap()
-        );
+        let uri = checkout_session
+            .url
+            .ok_or_else(|| Error::InternalErr(format!("stripe checkout redirect issue")))?;
+        Ok(Redirect::to(&uri))
     }
 }
+
+async fn stripe_portal(
+    authed: Authed,
+    Path(w_id): Path<String>,
+    Extension(db): Extension<DB>,
+    Extension(base_url): Extension<Arc<BaseUrl>>,
+) -> Result<Redirect> {
+    require_admin(authed.is_admin, &authed.username)?;
+    let customer_id = sqlx::query_scalar!(
+        "SELECT customer_id FROM workspace_settings WHERE workspace_id = $1",
+        w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .ok_or_else(|| Error::InternalErr(format!("no customer id for workspace {}", w_id)))?;
+    let client = stripe::Client::new(std::env::var("STRIPE_KEY").expect("STRIPE_KEY"));
+    let success_rd = format!("{}/workspace_settings?tab=premium", base_url.0);
+    let portal_session = {
+        let customer_id = CustomerId::from_str(&customer_id).unwrap();
+        let mut params = stripe::CreateBillingPortalSession::new(customer_id);
+        params.return_url = Some(&success_rd);
+        stripe::BillingPortalSession::create(&client, params)
+            .await
+            .map_err(to_anyhow)?
+    };
+    Ok(Redirect::to(&portal_session.url))
+}
+
+// async fn stripe_usage(
+//     authed: Authed,
+//     Path(w_id): Path<String>,
+//     Extension(db): Extension<DB>,
+//     Extension(base_url): Extension<Arc<BaseUrl>>,
+// ) -> Result<Redirect> {
+//     require_admin(authed.is_admin, &authed.username)?;
+//     let customer_id = sqlx::query_scalar!(
+//         "SELECT customer_id FROM workspace_settings WHERE workspace_id = $1",
+//         w_id
+//     )
+//     .fetch_one(&db)
+//     .await?
+//     .ok_or_else(|| Error::InternalErr(format!("no customer id for workspace {}", w_id)))?;
+//     let client = stripe::Client::new(std::env::var("STRIPE_KEY").expect("STRIPE_KEY"));
+//     let success_rd = format!("{}/workspace_settings?tab=premium", base_url.0);
+//     let portal_session = {
+//         let customer_id = CustomerId::from_str(&customer_id).unwrap();
+//         let subscriptions = stripe::Subscription::list(
+//             &client,
+//             stripe::ListSubscriptions { customer: Some(customer_id), ..Default::default() },
+//         )
+//         .await
+//         .map_err(to_anyhow)?
+//         .data[0];
+//         let getUsage =
+//             stripe::SubscriptionItem::list(
+//                 &client,
+//                 stripe::ListSubscriptionItems {
+//                     subscription: subscription.id,
+//                     ..Default::default()
+//                 },
+//             )
+//             .await
+//             .map_err(to_anyhow)
+//         };
+//         let mut params = stripe::ListSubscriptionItems::new(customer_id);
+//         params.return_url = Some(&success_rd);
+//         stripe::BillingPortalSession::create(&client, params)
+//             .await
+//             .map_err(to_anyhow)?
+//     };
+// }
 
 async fn exists_workspace(
     authed: Authed,

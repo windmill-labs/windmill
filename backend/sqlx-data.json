@@ -548,6 +548,16 @@
           "name": "auto_invite_operator",
           "ordinal": 6,
           "type_info": "Bool"
+        },
+        {
+          "name": "customer_id",
+          "ordinal": 7,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "plan",
+          "ordinal": 8,
+          "type_info": "Varchar"
         }
       ],
       "nullable": [
@@ -556,6 +566,8 @@
         true,
         true,
         false,
+        true,
+        true,
         true,
         true
       ],
@@ -1759,23 +1771,6 @@
     },
     "query": "\n                UPDATE queue\n                   SET flow_status = JSONB_SET(\n                                     JSONB_SET(flow_status, ARRAY['modules', $1::TEXT], $2),\n                                                            ARRAY['step'], $3)\n                 WHERE id = $4\n                  "
   },
-  "53f2836a652d34aafe6ffb266a092d7390212bc5532dcc226529a61a53deec42": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Varchar",
-          "Varchar",
-          "Varchar",
-          "Text",
-          "Bool"
-        ]
-      }
-    },
-    "query": "INSERT INTO token\n            (workspace_id, token, owner, label, expiration, super_admin)\n            VALUES ($1, $2, $3, $4, now() + ($5 || ' seconds')::interval, $6)"
-  },
   "541ebd3bac65431237cf3b882dfdcd61ca97c253d9754d05bba59fda89841067": {
     "describe": {
       "columns": [
@@ -1845,6 +1840,16 @@
           "name": "auto_invite_operator",
           "ordinal": 6,
           "type_info": "Bool"
+        },
+        {
+          "name": "customer_id",
+          "ordinal": 7,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "plan",
+          "ordinal": 8,
+          "type_info": "Varchar"
         }
       ],
       "nullable": [
@@ -1853,6 +1858,8 @@
         true,
         true,
         false,
+        true,
+        true,
         true,
         true
       ],
@@ -2063,6 +2070,26 @@
       }
     },
     "query": "DELETE FROM group_ WHERE name = $1 AND workspace_id = $2"
+  },
+  "5ba4b87528ad49f17d72b53c3db30f5ca4b3b0b0afbd5d9721c8b5d692af601b": {
+    "describe": {
+      "columns": [
+        {
+          "name": "count",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT COUNT(id) FROM queue WHERE email = $1"
   },
   "5c377fffc224a06f693c125f4c13b0a9ccfc217190ba6cf78246294bbc6c93bc": {
     "describe": {
@@ -4077,6 +4104,26 @@
     },
     "query": "\n            SELECT resume_id, approver\n            FROM resume_job\n            WHERE job = $1\n            "
   },
+  "b053117536c067095e2fb2864ce5af33f84b22c24c92fcb870f37f0501f8ea9a": {
+    "describe": {
+      "columns": [
+        {
+          "name": "count",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT COUNT(id) FROM queue WHERE running = true AND email = $1"
+  },
   "b05c5f62ef4aa21d33369130cced0e9d7d128727eb58a9be7ae69cbb16bcbb27": {
     "describe": {
       "columns": [],
@@ -4563,6 +4610,26 @@
       }
     },
     "query": "UPDATE schedule SET script_path = $1 WHERE script_path = $2 AND workspace_id = $3 AND is_flow IS false RETURNING *"
+  },
+  "c07c9276945663d062cf0ff5b3323be681a0e2cb07a457ea9aede2daeff551cc": {
+    "describe": {
+      "columns": [
+        {
+          "name": "customer_id",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT customer_id FROM workspace_settings WHERE workspace_id = $1"
   },
   "c1149f74ef0cca4a48be80f523d339d78e8e20e2bfacac9ad1b6b75c5ae370fb": {
     "describe": {
@@ -5555,6 +5622,24 @@
       }
     },
     "query": "DELETE FROM password WHERE email = $1"
+  },
+  "e9c0e331c16312bf086b17c91466c5389d41454fd3f18d73c2e9554845ee9a72": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Varchar",
+          "Varchar",
+          "Text",
+          "Bool",
+          "Varchar"
+        ]
+      }
+    },
+    "query": "INSERT INTO token\n            (workspace_id, token, owner, label, expiration, super_admin, email)\n            VALUES ($1, $2, $3, $4, now() + ($5 || ' seconds')::interval, $6, $7)"
   },
   "ea8ebb8d972fe99c960b5a69f794ee2b57bfb1914bf370c5b10313e45fa9b65f": {
     "describe": {

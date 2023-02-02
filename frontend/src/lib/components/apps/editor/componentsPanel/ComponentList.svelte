@@ -39,7 +39,8 @@
 				'piechartcomponent',
 				'displaycomponent',
 				'scatterchartcomponent',
-				'vegalitecomponent'
+				'vegalitecomponent',
+				'plotlycomponent'
 			],
 			'3:10-6:10': ['tablecomponent']
 		}
@@ -55,7 +56,10 @@
 	function addComponent(appComponent: AppComponent) {
 		$dirtyStore = true
 		const grid = $app.grid ?? []
-		const id = getNextId(grid.map((gridItem) => gridItem.data.id))
+		const id = getNextId(
+			grid.map((gridItem) => gridItem.data.id),
+			true
+		)
 
 		appComponent.id = id
 

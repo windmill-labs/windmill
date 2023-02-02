@@ -35,16 +35,24 @@
 		Loader2,
 		MoreVertical,
 		Pencil,
+		SlidersHorizontal,
 		Smartphone
 	} from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { appToHubUrl, classNames, copyToClipboard, sendUserToast } from '../../../utils'
-	import type { AppInput } from '../inputType'
+	import type {
+		AppInput,
+		ConnectedAppInput,
+		RowAppInput,
+		StaticAppInput,
+		UserAppInput
+	} from '../inputType'
 	import type { AppComponent, AppEditorContext } from '../types'
 	import { toStatic } from '../utils'
 	import AppExportButton from './AppExportButton.svelte'
+	import AppInputs from './AppInputs.svelte'
 	import PanelSection from './settingsPanel/common/PanelSection.svelte'
 
 	async function hash(message) {
@@ -56,27 +64,60 @@
 	}
 
 	export let policy: Policy
+	export let fromHub: boolean = false
 
-	const { app, summary, mode, breakpoint, appPath, jobs, staticExporter } =
-		getContext<AppEditorContext>('AppEditorContext')
+	const {
+		app,
+		summary,
+		mode,
+		breakpoint,
+		appPath,
+		jobs,
+		staticExporter,
+		errorByComponent,
+		openDebugRun
+	} = getContext<AppEditorContext>('AppEditorContext')
+
 	const loading = {
 		publish: false,
 		save: false
 	}
 
+	$: if ($openDebugRun == undefined) {
+		$openDebugRun = (componentId: string) => {
+			jobsDrawerOpen = true
+
+			const job = $jobs.find((job) => job.component === componentId)
+			if (job) {
+				selectedJobId = job.job
+			}
+		}
+	}
+
 	let newPath: string = ''
 	let pathError: string | undefined = undefined
-
 	let appExport: AppExportButton
 
 	let saveDrawerOpen = false
 	let jobsDrawerOpen = false
 	let publishDrawerOpen = false
+	let inputsDrawerOpen = fromHub
 
 	function closeSaveDrawer() {
 		saveDrawerOpen = false
 	}
 
+	function collectStaticFields(
+		fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
+	) {
+		return Object.fromEntries(
+			Object.entries(fields ?? {})
+				.filter(([k, v]) => v.type == 'static')
+				.map(([k, v]) => {
+					return [k, v['value']]
+				})
+		)
+	}
 	async function computeTriggerables() {
 		const allTriggers = await Promise.all(
 			$app.grid
@@ -90,13 +131,7 @@
 				})
 				.map(async (input) => {
 					if (input?.type == 'runnable') {
-						const staticInputs = Object.fromEntries(
-							Object.entries(input.fields ?? {})
-								.filter(([k, v]) => v.type == 'static')
-								.map(([k, v]) => {
-									return [k, v['value']]
-								})
-						)
+						const staticInputs = collectStaticFields(input.fields)
 						if (input.runnable?.type == 'runnableByName') {
 							let hex = await hash(input.runnable.inlineScript?.content)
 							return [`rawscript/${hex}`, staticInputs]
@@ -108,8 +143,16 @@
 					}
 					return []
 				})
+				.concat(
+					Object.values($app.hiddenInlineScripts).map(async (v) => {
+						let hex = await hash(v.inlineScript?.content)
+						const staticInputs = collectStaticFields(v.fields)
+						return [`rawscript/${hex}`, staticInputs]
+					})
+				)
 		)
-		policy.triggerables = Object.fromEntries(allTriggers)
+		policy.triggerables = Object.fromEntries(allTriggers.filter((x) => x.length > 0))
+
 		policy.on_behalf_of = `u/${$userStore?.username}`
 		policy.on_behalf_of_email = $userStore?.email
 	}
@@ -183,6 +226,7 @@
 	let testIsLoading = false
 
 	$: selectedJobId && testJobLoader?.watchJob(selectedJobId)
+	$: hasErrors = Object.keys($errorByComponent).length > 0
 </script>
 
 <TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job />
@@ -207,6 +251,12 @@
 	</DrawerContent>
 </Drawer>
 
+<Drawer bind:open={inputsDrawerOpen} size="600px">
+	<DrawerContent title="App inputs configuration" on:close={() => (inputsDrawerOpen = false)}>
+		<AppInputs />
+	</DrawerContent>
+</Drawer>
+
 <Drawer bind:open={jobsDrawerOpen} size="900px">
 	<DrawerContent noPadding title="Debug Runs" on:close={() => (jobsDrawerOpen = false)}>
 		<Splitpanes class="!overflow-visible">
@@ -218,10 +268,13 @@
 								{#each $jobs ?? [] as { job, component } (job)}
 									<!-- svelte-ignore a11y-click-events-have-key-events -->
 									<div
-										class="{classNames(
+										class={classNames(
 											'border flex gap-1 truncate justify-between flex-row w-full items-center p-2 rounded-md cursor-pointer hover:bg-blue-50 hover:text-blue-400',
-											selectedJobId == job ? 'bg-blue-100 text-blue-600' : ''
-										)},"
+											$errorByComponent[job] ? 'border border-red-500 bg-red-100' : '',
+											selectedJobId == job && !$errorByComponent[component]
+												? 'bg-blue-100 text-blue-600'
+												: ''
+										)}
 										on:click={() => (selectedJobId = job)}
 									>
 										<span class="text-xs truncate">{job}</span>
@@ -243,12 +296,14 @@
 						{:else}
 							<div class="flex flex-col h-full w-full gap-4 mb-4">
 								{#if job?.['running']}
-									<div class="flex flex-row-reverse w-full"
-										><Button
+									<div class="flex flex-row-reverse w-full">
+										<Button
 											color="red"
 											variant="border"
-											on:click={() => testJobLoader?.cancelJob()}>Cancel</Button
+											on:click={() => testJobLoader?.cancelJob()}
 										>
+											Cancel
+										</Button>
 									</div>
 								{/if}
 								<div class="p-2">
@@ -434,9 +489,17 @@
 			<MoreVertical size={20} />
 		</Dropdown>
 		<span class="hidden md:inline">
+			<Button on:click={() => (inputsDrawerOpen = true)} color="light" size="xs" variant="border">
+				<span class="flex gap-2">
+					<SlidersHorizontal size={14} />
+					App inputs
+				</span>
+			</Button>
+		</span>
+		<span class="hidden md:inline">
 			<Button
 				on:click={() => (jobsDrawerOpen = true)}
-				color="light"
+				color={hasErrors ? 'red' : 'light'}
 				size="xs"
 				variant="border"
 				startIcon={{ icon: faBug }}

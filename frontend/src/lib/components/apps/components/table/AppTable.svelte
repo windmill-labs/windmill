@@ -19,7 +19,13 @@
 	export let configuration: Record<string, AppInput>
 	export let actionButtons: (BaseAppComponent & ButtonComponent)[]
 
-	export const staticOutputs: string[] = ['selectedRow', 'loading', 'result', 'search']
+	export const staticOutputs: string[] = [
+		'selectedRow',
+		'loading',
+		'result',
+		'search',
+		'selectedRowIndex'
+	]
 
 	type T = Record<string, any>
 
@@ -52,6 +58,7 @@
 		if (selectedRowIndex !== rowIndex) {
 			selectedRowIndex = rowIndex
 			outputs?.selectedRow.set(row.original)
+			outputs?.selectedRowIndex.set(rowIndex)
 		}
 	}
 
@@ -114,6 +121,7 @@
 	$: search === 'By Component' && (filteredResult = searchInResult(result ?? [], searchValue))
 	$: (search === 'By Runnable' || search === 'Disabled') && (filteredResult = result ?? [])
 	$: outputs = $worldStore?.outputsById[id] as {
+		selectedRowIndex: Output<number>
 		selectedRow: Output<any>
 		search: Output<string>
 	}
@@ -203,18 +211,20 @@
 
 								{#if actionButtons.length > 0}
 									<td
-										class="flex w-full flex-row gap-2 p-4"
+										class="p-2 "
 										on:click={() => toggleRow(row, rowIndex)}
 									>
-										{#each actionButtons as actionButton, actionIndex (actionIndex)}
-											<AppButton
-												noWFull
-												{...actionButton}
-												extraQueryParams={{ row: row.original }}
-												bind:componentInput={actionButton.componentInput}
-												bind:staticOutputs={$staticOutputsStore[actionButton.id]}
-											/>
-										{/each}
+											<div class="center-center h-full w-full flex-wrap gap-1">
+												{#each actionButtons as actionButton, actionIndex (actionIndex)}
+													<AppButton
+														noWFull
+														{...actionButton}
+														extraQueryParams={{ row: row.original }}
+														bind:componentInput={actionButton.componentInput}
+														bind:staticOutputs={$staticOutputsStore[actionButton.id]}
+													/>
+												{/each}
+											</div>
 									</td>
 								{/if}
 							</tr>

@@ -262,7 +262,7 @@ mod suspend_resume {
                 // print_job(second, &db).await;
 
                 let tx = db.begin().await.unwrap();
-                let (tx, token) = windmill_worker::create_token_for_owner(tx, "test-workspace", "u/test-user", "", 100).await.unwrap();
+                let (tx, token) = windmill_worker::create_token_for_owner(tx, "test-workspace", "u/test-user", "", 100, "").await.unwrap();
                 tx.commit().await.unwrap();
                 let secret = reqwest::get(format!(
                     "http://localhost:{port}/api/w/test-workspace/jobs/job_signature/{second}/0?token={token}&approver=ruben"
@@ -365,7 +365,7 @@ mod suspend_resume {
                 let second = completed.next().await.unwrap();
 
                 let tx = db.begin().await.unwrap();
-                let (tx, token) = windmill_worker::create_token_for_owner(tx, "test-workspace", "u/test-user", "", 100).await.unwrap();
+                let (tx, token) = windmill_worker::create_token_for_owner(tx, "test-workspace", "u/test-user", "", 100, "").await.unwrap();
                 tx.commit().await.unwrap();
                 let secret = reqwest::get(format!(
                     "http://localhost:{port}/api/w/test-workspace/jobs/job_signature/{second}/0?token={token}"
@@ -395,7 +395,7 @@ mod suspend_resume {
         let result = completed_job(flow, &db).await.result.unwrap();
 
         assert_eq!(
-            json!( {"error": {"name": "InternalErr", "message": "{\"message\":\"Job canceled: approval request disapproved by unknown\",\"name\":\"Canceled\",\"reason\":\"approval request disapproved\",\"canceler\":\"unknown\"}"}}),
+            json!( {"error": {"name": "Canceled", "reason": "approval request disapproved", "message": "Job canceled: approval request disapproved by unknown", "canceler": "unknown"}}),
             result
         );
     }

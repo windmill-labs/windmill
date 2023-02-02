@@ -30,6 +30,7 @@
 	export let filter: string[] | undefined = undefined
 	export let noDynamicToggle = false
 	export let flexWrap = false
+	export let noDelete = false
 
 	let clazz: string = ''
 	export { clazz as class }
@@ -43,23 +44,32 @@
 
 	function removeExtraKey() {
 		Object.keys(args ?? {}).forEach((key) => {
-			if (!Object.keys(schema?.properties ?? {}).includes(key)) {
+			if (!keys.includes(key)) {
 				delete args[key]
 				delete inputCheck[key]
+				console.log('DELETED', key)
 			}
 		})
 	}
 
-	$: schema?.properties && removeExtraKey()
-
 	let pickForField: string | undefined
 	let itemPicker: ItemPicker | undefined = undefined
 	let variableEditor: VariableEditor | undefined = undefined
+	let keys: string[] = []
+	$: {
+		let lkeys = Object.keys(schema?.properties ?? {})
+		if (schema?.properties && JSON.stringify(lkeys) != JSON.stringify(keys)) {
+			keys = lkeys
+			if (!noDelete) {
+				removeExtraKey()
+			}
+		}
+	}
 </script>
 
 <div class="w-full {clazz} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 gap-y-2' : ''}">
-	{#if Object.keys(schema?.properties ?? {}).length > 0}
-		{#each Object.keys(schema?.properties ?? {}) as argName, i (argName)}
+	{#if keys.length > 0}
+		{#each keys as argName, i (argName)}
 			{#if !filter || filter.includes(argName)}
 				<div transition:slide|local>
 					{#if inputTransform}

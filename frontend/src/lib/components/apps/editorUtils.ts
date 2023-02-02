@@ -149,6 +149,39 @@ def main():
 	}	
 `
 	},
+	plotlycomponent: {
+		deno:
+			`
+export async function main() {
+	return {
+		type: 'bar',
+		x: [1, 2, 3, 4],
+		y: [5, 10, 2, 8],
+		marker: {
+			color: '#C8A2C8',
+			line: {
+				width: 2.5				  
+			}
+		}
+	};
+}			  
+`,
+		python3:
+			`
+def main():
+	return {
+		"type": "bar",
+		"x": [1, 2, 3, 4],
+		"y": [5, 10, 2, 8],
+		"marker": {
+			"color": "#C8A2C8",
+			"line": {
+				"width": 2.5				  
+			}
+		}
+	}	
+`
+	},
 	piechartcomponent: {
 		deno:
 			`export async function main() {

@@ -4,7 +4,7 @@
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
-	import { initFlow } from '$lib/components/flows/flowStore'
+	import { importFlowStore, initFlow } from '$lib/components/flows/flowStore'
 	import { FlowService, type Flow } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { decodeState, emptySchema, sendUserToast } from '$lib/utils'
@@ -36,7 +36,11 @@
 		}
 
 		let state = initialState ? decodeState(initialState) : undefined
-		if (!templatePath && !hubId && state) {
+		if ($importFlowStore) {
+			flow = $importFlowStore
+			$importFlowStore = undefined
+			sendUserToast('Flow loaded from JSON')
+		} else if (!templatePath && !hubId && state) {
 			sendUserToast('Flow restored from draft')
 			flow = state.flow
 			state?.selectedId && (selectedId = state?.selectedId)

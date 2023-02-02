@@ -59,7 +59,9 @@
 		isEditor,
 		jobs: writable([]),
 		staticExporter: writable({}),
-		noBackend
+		noBackend,
+		errorByComponent: writable({}),
+		openDebugRun: writable(undefined)
 	})
 
 	let mounted = false
@@ -74,8 +76,10 @@
 </script>
 
 <div class="relative">
-	<div class="{$$props.class} {lockedClasses} h-full max-h-[calc(100%-41px)] overflow-auto 
-	w-full {app.fullscreen ? '' : 'max-w-6xl'} mx-auto">
+	<div
+		class="{$$props.class} {lockedClasses} h-full max-h-[calc(100%-41px)] overflow-auto 
+	w-full {app.fullscreen ? '' : 'max-w-6xl'} mx-auto"
+	>
 		{#if $appStore.grid}
 			<div class={classNames('mx-auto pb-4', width)}>
 				<GridEditor {policy} />
@@ -86,10 +90,10 @@
 		<!-- svelte-ignore a11y-click-events-have-key-events -->
 		<div
 			transition:fade|local={{ duration: 200, easing: cubicOut }}
-			on:click={() => isLocked = false}
+			on:click={() => (isLocked = false)}
 			class="absolute inset-0 center-center bg-black/20 z-50 backdrop-blur-[1px] cursor-pointer"
 		>
-			<Button on:click={() => isLocked = false}>
+			<Button on:click={() => (isLocked = false)}>
 				Unlock preview
 				<Unlock size={18} class="ml-1" strokeWidth={2.5} />
 			</Button>

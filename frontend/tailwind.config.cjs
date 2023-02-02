@@ -244,7 +244,6 @@ const config = {
 					padding: `${theme('spacing.1')} ${theme('spacing.2')}`,
 					border: `1px solid ${theme('colors.gray.300')}`,
 					borderRadius: theme('borderRadius.md'),
-					boxShadow: theme('boxShadow.sm'),
 					'&:focus': {
 						'--tw-ring-color': theme('colors.indigo.100'),
 						'--tw-ring-offset-shadow':

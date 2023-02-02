@@ -8,7 +8,6 @@
 	import Select from 'svelte-select'
 	import AppConnect from './AppConnect.svelte'
 	import ResourceEditor from './ResourceEditor.svelte'
-	import { truncate } from '$lib/utils'
 
 	const dispatch = createEventDispatcher()
 	let resources: Resource[] = []

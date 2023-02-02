@@ -25,6 +25,7 @@ export type NumberInputComponent = BaseComponent<'numberinputcomponent'>
 export type SliderComponent = BaseComponent<'slidercomponent'>
 export type HtmlComponent = BaseComponent<'htmlcomponent'>
 export type VegaLiteComponent = BaseComponent<'vegalitecomponent'>
+export type PlotlyComponent = BaseComponent<'plotlycomponent'>
 export type TimeseriesComponent = BaseComponent<'timeseriescomponent'>
 export type ButtonComponent = BaseComponent<'buttoncomponent'> & {
 	recomputeIds: string[] | undefined
@@ -107,6 +108,7 @@ export type AppComponent = BaseAppComponent &
 		| FormComponent
 		| FormButtonComponent
 		| VegaLiteComponent
+		| PlotlyComponent
 	)
 
 export type ComponentSet = {
@@ -172,9 +174,13 @@ export type AppEditorContext = {
 	isEditor: boolean
 	jobs: Writable<{ job: string; component: string }[]>
 	noBackend: boolean
+	errorByComponent: Writable<Record<string, { error: string; componentId: string }>>
+	openDebugRun: Writable<((componentID: string) => void) | undefined>
 }
 
 export type EditorMode = 'dnd' | 'preview'
 export type EditorBreakpoint = 'sm' | 'lg'
+
+export const IS_APP_PUBLIC_CONTEXT_KEY = 'isAppPublicContext' as const
 
 type ComponentID = string

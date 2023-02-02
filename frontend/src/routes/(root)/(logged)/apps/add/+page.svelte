@@ -74,6 +74,7 @@
 					on_behalf_of_email: $userStore?.email,
 					execution_mode: Policy.execution_mode.PUBLISHER
 				}}
+				fromHub={hubId != null}
 			/>
 		{/key}
 	</div>

@@ -1,11 +1,9 @@
 <script lang="ts">
 	import type { AppInput } from '../../inputType'
-	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
-	export let configuration: Record<string, AppInput>
 
 	export const staticOutputs: string[] = ['result', 'loading']
 

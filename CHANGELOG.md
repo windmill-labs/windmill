@@ -1,6 +1,71 @@
 # Changelog
 
 
+## [1.61.1](https://github.com/windmill-labs/windmill/compare/v1.61.0...v1.61.1) (2023-01-31)
+
+
+### Bug Fixes
+
+* **backend:** compile issue ([df8cc1f](https://github.com/windmill-labs/windmill/commit/df8cc1f2482b3d8b1530cdaef1361303ff5cadff))
+
+## [1.61.0](https://github.com/windmill-labs/windmill/compare/v1.60.0...v1.61.0) (2023-01-31)
+
+
+### Features
+
+* add openapi viewer ([#1094](https://github.com/windmill-labs/windmill/issues/1094)) ([1337811](https://github.com/windmill-labs/windmill/commit/1337811438d48e23133f68e9157bd185d5fe4a82))
+* add PIP_LOCAL_DEPENDENCIES ([b7db4c7](https://github.com/windmill-labs/windmill/commit/b7db4c78c4629f1fd2dfd7a338f783b16f07b24d))
+* add QUEUE_LIMIT_WAIT_RESULT ([51a8810](https://github.com/windmill-labs/windmill/commit/51a8810aa0a9ab7702df459dd270278d42bd3899))
+* add resource and resource type from json ([080ecb0](https://github.com/windmill-labs/windmill/commit/080ecb04d7a08d035fe07f179975b52bc0f77297))
+* add sql as a valid type in Python ([0172587](https://github.com/windmill-labs/windmill/commit/0172587b129ce54d96dc99336a1f56c66ebdbef5))
+* add sync webhook for flows ([f377c84](https://github.com/windmill-labs/windmill/commit/f377c84f5a2148a2bbb7c16e93f13e1d85ceb17e))
+* **backend:** add queue_limit + configurable timeout + fix timeout cancel ([eef3bab](https://github.com/windmill-labs/windmill/commit/eef3bab6e4d9f1af1435db868c707a692558ab74))
+* **deno:** add support for DENO_AUTH_TOKENS ([832ddab](https://github.com/windmill-labs/windmill/commit/832ddabdf2239521368e5f96df144abce0db31c2))
+* **deno:** allow overriding deno sandboxing with DENO_FLAGS' ([7f40373](https://github.com/windmill-labs/windmill/commit/7f40373fd64005d87972854a565c6cf521232982))
+* **frontend:** Add app inputs configurations ([#1142](https://github.com/windmill-labs/windmill/issues/1142)) ([3ed16b8](https://github.com/windmill-labs/windmill/commit/3ed16b88a42e4db6e12f8557c5bbaa2d832b1c17))
+* **frontend:** Add app preview lock ([#1127](https://github.com/windmill-labs/windmill/issues/1127)) ([6a88e8c](https://github.com/windmill-labs/windmill/commit/6a88e8c4f4d6fa5c393ce27b2040784a74a73b06))
+* **frontend:** Add copy button option to app text display component ([#1090](https://github.com/windmill-labs/windmill/issues/1090)) ([bdfc38d](https://github.com/windmill-labs/windmill/commit/bdfc38d954a3c5548fb7f9ee6f80f741eff8cb67))
+* **frontend:** Add default codes to app editor ([#1099](https://github.com/windmill-labs/windmill/issues/1099)) ([c50c740](https://github.com/windmill-labs/windmill/commit/c50c7406f267b480af2a01b47e3fcfa1d763db7a))
+* **frontend:** Add HTML result rendering ([#1160](https://github.com/windmill-labs/windmill/issues/1160)) ([c01bf70](https://github.com/windmill-labs/windmill/commit/c01bf70f62680a4b77812ac6eb64aca2b15d9a8d))
+* **frontend:** Add more integration icons ([#1097](https://github.com/windmill-labs/windmill/issues/1097)) ([2191e85](https://github.com/windmill-labs/windmill/commit/2191e852318f069489f77a4f1c44aadf248c7f53))
+* **frontend:** add plotly support ([a4f8f9e](https://github.com/windmill-labs/windmill/commit/a4f8f9e1cf80395d5cd1229c8dd5dda244e2ba7f))
+* **frontend:** add selectedRowIndex to the table outputs ([#1145](https://github.com/windmill-labs/windmill/issues/1145)) ([f05f9e4](https://github.com/windmill-labs/windmill/commit/f05f9e4edb928e7a8e3e66a62de9c6487684a14b))
+* **frontend:** Add Supabase resource ([#1107](https://github.com/windmill-labs/windmill/issues/1107)) ([12b00a8](https://github.com/windmill-labs/windmill/commit/12b00a808d1f12827a7bc26518cc6f972bdde917))
+* **frontend:** add support for background scripts + add FormButtonCo… ([#1124](https://github.com/windmill-labs/windmill/issues/1124)) ([e969af9](https://github.com/windmill-labs/windmill/commit/e969af9e44d1b4409064080e8662552ee3e262e8))
+* **frontend:** Add surreal db logo ([#1102](https://github.com/windmill-labs/windmill/issues/1102)) ([d811675](https://github.com/windmill-labs/windmill/commit/d81167588227f2cc433aab64551d96d21a589c5b))
+* **frontend:** Add tooltip to app recompute ([#1122](https://github.com/windmill-labs/windmill/issues/1122)) ([4dfdf37](https://github.com/windmill-labs/windmill/commit/4dfdf374af358ef46ee8057373546719c6570067))
+* **frontend:** add vega-lite component ([bd79938](https://github.com/windmill-labs/windmill/commit/bd79938bed6da3875a4a2dd72dad14dedbf25ddf))
+* **frontend:** Display error as an icon in order to avoid clutter wh… ([#1143](https://github.com/windmill-labs/windmill/issues/1143)) ([22b8fed](https://github.com/windmill-labs/windmill/commit/22b8fed9d904a37aae66f6d957f4987f6ca9955c))
+* **frontend:** Open debug runs from component ([#1155](https://github.com/windmill-labs/windmill/issues/1155)) ([73bc13b](https://github.com/windmill-labs/windmill/commit/73bc13bb7d4b1eb25a3a726ac9e6bb80120a495f))
+* **frontend:** Update app table component styles ([#1100](https://github.com/windmill-labs/windmill/issues/1100)) ([172b5db](https://github.com/windmill-labs/windmill/commit/172b5dba8f4c3aaf11569c72313ad74845c668a6))
+* **python:** add support for extra args in python ([772c768](https://github.com/windmill-labs/windmill/commit/772c768cda094f208a5efb7aab03eee3a8f38f68))
+
+
+### Bug Fixes
+
+* **frontend:** Add default value for text, number and date input + fix issues with number input + add date input in the settings panel ([#1135](https://github.com/windmill-labs/windmill/issues/1135)) ([8f90602](https://github.com/windmill-labs/windmill/commit/8f906026b3203702c3b6a30bcac9fb2aca985c29))
+* **frontend:** Add highlight to selected workspace ([#1159](https://github.com/windmill-labs/windmill/issues/1159)) ([f221a6c](https://github.com/windmill-labs/windmill/commit/f221a6c17f145d0c42f7faf785c37f4037308973))
+* **frontend:** add missing condition to properly select first row ([#1128](https://github.com/windmill-labs/windmill/issues/1128)) ([3d873ed](https://github.com/windmill-labs/windmill/commit/3d873ed51c769005981a8d8dfb95faa3ca33bb83))
+* **frontend:** App form component display ([#1096](https://github.com/windmill-labs/windmill/issues/1096)) ([339742c](https://github.com/windmill-labs/windmill/commit/339742ca77dd0fda19d5a262617e42c341ef5871))
+* **frontend:** App script list panel overflow ([#1101](https://github.com/windmill-labs/windmill/issues/1101)) ([7bc59d9](https://github.com/windmill-labs/windmill/commit/7bc59d9d2650b623a2b481a727ffc495b4216f22))
+* **frontend:** App table action button cell ([#1149](https://github.com/windmill-labs/windmill/issues/1149)) ([e989662](https://github.com/windmill-labs/windmill/commit/e98966283dd9b57cc07da34876a90d19210c2927))
+* **frontend:** App table header z-index ([#1120](https://github.com/windmill-labs/windmill/issues/1120)) ([59c4cc2](https://github.com/windmill-labs/windmill/commit/59c4cc2058f86deea793b61de59e2936e50e5577))
+* **frontend:** Check if hiddenInlineScripts are undefined before iterating over them ([#1134](https://github.com/windmill-labs/windmill/issues/1134)) ([71a443e](https://github.com/windmill-labs/windmill/commit/71a443e3c56d2b8c951de6e3701a411ad1a0ce34))
+* **frontend:** fix first row selection ([#1125](https://github.com/windmill-labs/windmill/issues/1125)) ([6c9daf7](https://github.com/windmill-labs/windmill/commit/6c9daf70021859dcd7cef717bc3acdfa88cffd02))
+* **frontend:** Fix id generation when a second action ([#1110](https://github.com/windmill-labs/windmill/issues/1110)) ([4f86981](https://github.com/windmill-labs/windmill/commit/4f869811fee73826b2b10965241d2d8dba59dc2a))
+* **frontend:** Make sure AppSelect items are an array ([#1144](https://github.com/windmill-labs/windmill/issues/1144)) ([24b1fa0](https://github.com/windmill-labs/windmill/commit/24b1fa0ae327c984841f9ed8b163b3fccc6da258))
+* **frontend:** Make sure that old apps are rendering properly ([#1132](https://github.com/windmill-labs/windmill/issues/1132)) ([a78486d](https://github.com/windmill-labs/windmill/commit/a78486d7e08f76e22406063288b35e9030974d7a))
+* **frontend:** Playwright ([#1108](https://github.com/windmill-labs/windmill/issues/1108)) ([f0435f5](https://github.com/windmill-labs/windmill/commit/f0435f5f81941c5b49500003aa27956d627daadb))
+* **frontend:** Prepare app scripts code for export ([#1123](https://github.com/windmill-labs/windmill/issues/1123)) ([173093a](https://github.com/windmill-labs/windmill/commit/173093a40321f6ad35bf766a5554b21cea388771))
+* **frontend:** Prevent modal from hijacking all keypress event ([#1136](https://github.com/windmill-labs/windmill/issues/1136)) ([aa6de3b](https://github.com/windmill-labs/windmill/commit/aa6de3bb5746b9d99c8e3a52e6a9fff10d97bc6a))
+* **frontend:** Revert component input panel change ([#1092](https://github.com/windmill-labs/windmill/issues/1092)) ([0419e7e](https://github.com/windmill-labs/windmill/commit/0419e7e1c9239fd3cbc49acf82a73e9c01938153))
+* **frontend:** Runnable table overflow ([#1119](https://github.com/windmill-labs/windmill/issues/1119)) ([462adbe](https://github.com/windmill-labs/windmill/commit/462adbe42f823646413a5003fd71f3dd473c0728))
+* **frontend:** Select the first row by default, and remove the abilit… ([#1121](https://github.com/windmill-labs/windmill/issues/1121)) ([3c483f5](https://github.com/windmill-labs/windmill/commit/3c483f533759b9b4e589055dbddb31f294bea8fa))
+* **frontend:** Show app builder header always on top ([#1118](https://github.com/windmill-labs/windmill/issues/1118)) ([631a3da](https://github.com/windmill-labs/windmill/commit/631a3da17f05a3d29defdf96a50d7e96a9f8baad))
+* **frontend:** Update app scripts pane ([#1146](https://github.com/windmill-labs/windmill/issues/1146)) ([18f30c8](https://github.com/windmill-labs/windmill/commit/18f30c8286f8240158643ade8b0ef4607a80fbb0))
+* **frontend:** Use absolute path on connect images ([#1095](https://github.com/windmill-labs/windmill/issues/1095)) ([43e069e](https://github.com/windmill-labs/windmill/commit/43e069eb96c0af7d3a1fe1db4f4b69f8e31e7438))
+* improvements for error handling as first step of flow ([b77c239](https://github.com/windmill-labs/windmill/commit/b77c239f307a37777acb083b0cdb5c0d214a9dd8))
+
 ## [1.60.0](https://github.com/windmill-labs/windmill/compare/v1.59.0...v1.60.0) (2023-01-11)
 
 

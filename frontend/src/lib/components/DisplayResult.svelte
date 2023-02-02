@@ -7,11 +7,13 @@
 	import autosize from 'svelte-autosize'
 
 	export let result: any
+	export let requireHtmlApproval = false
 
 	let resultKind:
 		| 'json'
 		| 'table-col'
 		| 'table-row'
+		| 'html'
 		| 'png'
 		| 'file'
 		| 'jpeg'
@@ -19,9 +21,11 @@
 		| 'error'
 		| 'approval'
 		| undefined
+
 	$: resultKind = inferResultKind(result)
 
 	let forceJson = false
+	let enableHtml = false
 
 	function isRectangularArray(obj: any) {
 		if (!Array.isArray(obj) || obj.length == 0) {
@@ -53,6 +57,8 @@
 					return 'table-row'
 				} else if (keys.map((k) => Array.isArray(result[k])).reduce((a, b) => a && b)) {
 					return 'table-col'
+				} else if (keys.length == 1 && keys[0] == 'html') {
+					return 'html'
 				} else if (keys.length == 1 && keys[0] == 'png') {
 					return 'png'
 				} else if (keys.length == 1 && keys[0] == 'jpeg') {
@@ -119,6 +125,34 @@
 					</tbody>
 				</TableCustom>
 			</div>
+		{:else if !forceJson && resultKind == 'html'}
+			<div class="h-full">
+				{#if !requireHtmlApproval || enableHtml}
+					{@html result.html}
+				{:else}
+					<div class="font-main text-sm">
+						<div class="flex flex-col">
+							<div class="bg-red-400 py-1 rounded-t text-white font-bold text-center">
+								Warning
+							</div>
+							<p
+								class="text-gray-600 mb-2 text-left border-2 !border-t-0 rounded-b border-red-400 overflow-auto p-1"
+							>Rendering HTML can expose you to <a href="https://owasp.org/www-community/attacks/xss/" target="_blank" rel="noreferrer" class="hover:underline">XSS attacks</a>.
+Only enable it if you trust the author of the script.
+							</p>
+						</div>
+						<div class="center-center">
+							<Button
+								size="sm"
+								color="dark"
+								on:click={() => enableHtml = true}
+							>
+								Enable HTML rendering
+							</Button>
+						</div>
+					</div>
+				{/if}
+			</div>
 		{:else if !forceJson && resultKind == 'png'}
 			<div class="h-full"
 				><img alt="png rendered" class="w-auto h-full" src="data:image/png;base64,{result.png}" />
@@ -142,7 +176,7 @@
 				>
 			</div>
 		{:else if !forceJson && resultKind == 'error'}<div>
-				<span class="text-red-500 font-semibold text-sm"
+				<span class="text-red-500 font-semibold text-sm whitespace-pre-wrap"
 					>{result.error.name}: {result.error.message}</span
 				>
 				<pre class="text-sm whitespace-pre-wrap text-gray-900">{result.error.stack ?? ''}</pre>

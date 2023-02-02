@@ -411,7 +411,8 @@
 
 		model.updateOptions(updateOptions)
 		editor = meditor.create(divEl as HTMLDivElement, {
-			...editorConfig(model, code, lang, automaticLayout, fixedOverflowWidgets)
+			...editorConfig(model, code, lang, automaticLayout, fixedOverflowWidgets),
+			tabSize: lang == 'python' ? 4 : 2
 		})
 
 		let timeoutModel: NodeJS.Timeout | undefined = undefined

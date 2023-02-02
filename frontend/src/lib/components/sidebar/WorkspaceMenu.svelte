@@ -30,8 +30,10 @@
 			<table class="w-full">
 				{#each $userWorkspaces as workspace}
 					<tr
-						class="text-xs cursor-pointer hover:bg-gray-100"
+						class="text-xs 
+						{$workspaceStore === workspace.id ? 'cursor-default bg-blue-50' : 'cursor-pointer hover:bg-gray-100'}"
 						on:click={() => {
+							if($workspaceStore === workspace.id) { return }
 							switchWorkspace(workspace.id)
 							close()
 						}}

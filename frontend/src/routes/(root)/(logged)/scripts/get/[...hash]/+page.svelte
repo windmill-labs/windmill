@@ -9,7 +9,8 @@
 		defaultIfEmptyString,
 		scriptToHubUrl,
 		copyToClipboard,
-		emptyString
+		emptyString,
+		encodeState
 	} from '$lib/utils'
 	import {
 		faPlay,
@@ -207,7 +208,7 @@
 					</Button>
 					{#if !$userStore?.operator}
 						<Button
-							href={`/scripts/edit/${script.hash}?step=2`}
+							href={`/scripts/edit/${script.hash}?step=2&args=${encodeState(args)}`}
 							color="blue"
 							size="md"
 							startIcon={{ icon: faEdit }}
@@ -444,8 +445,8 @@
 				</h3>
 				<Skeleton {loading} layout={[[8.5]]} />
 				<Tabs selected="uuid">
-					<Tab value="uuid">UUID</Tab>
-					<Tab value="result">Result</Tab>
+					<Tab value="uuid">UUID/Async</Tab>
+					<Tab value="result">Result/Sync</Tab>
 					<svelte:fragment slot="content">
 						{#each Object.keys(webhooks) as key}
 							<TabContent value={key}>

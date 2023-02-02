@@ -152,7 +152,7 @@
 							<td>
 								<div class="inline-flex gap-2">
 									<Button
-										href={`/runs/${path}`}
+										href={`/runs/${script_path}`}
 										size="xs"
 										startIcon={{ icon: faList }}
 										color="light"

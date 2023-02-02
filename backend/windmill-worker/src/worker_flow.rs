@@ -427,8 +427,10 @@ pub async fn update_flow_status_after_job_completion(
             "Flow job canceled".to_string()
         } else if stop_early {
             format!("Flow job stopped early because of a stop early predicate returning true")
+        } else if success {
+            "Flow job completed with success".to_string()
         } else {
-            "Flow job completed".to_string()
+            "Flow job completed with error".to_string()
         };
         if flow_job.canceled {
             add_completed_job_error(
@@ -986,7 +988,7 @@ async fn push_next_flow_job(
                 let success = false;
                 let skipped = false;
                 let logs = "Timed out waiting to be resumed".to_string();
-                let result = json!({ "error": logs });
+                let result = json!({ "error": {"message": logs, "name": "SuspendedTimeout"}});
                 let _uuid =
                     add_completed_job(db, &flow_job, success, skipped, result, logs).await?;
 
@@ -1881,6 +1883,7 @@ async fn get_transform_context(
         &flow_job.permissioned_as,
         "transform-input",
         10,
+        &flow_job.email,
     )
     .await?;
     //we need to commit asap otherwise the token won't be valid for auth to check outside of this transaction

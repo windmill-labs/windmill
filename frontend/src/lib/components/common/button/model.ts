@@ -20,12 +20,27 @@ export namespace ButtonType {
 		xl: 'text-xl'
 	} as const
 
-	export const SpacingClasses: Record<ButtonType.Size, string> = {
-		xs: 'px-3 py-1.5',
-		sm: 'px-3 py-1.5',
-		md: 'px-3 py-1.5',
-		lg: 'px-4 py-2',
-		xl: 'px-4 py-2'
+	export const SpacingClasses: Record<ButtonType.Size, Record<ButtonType.Variant, string>> = {
+		xs: {
+			border: 'px-3 py-[6px]',
+			contained: 'px-3 py-[7px]'
+		},
+		sm: {
+			border: 'px-3 py-[6px]',
+			contained: 'px-3 py-[7px]'
+		},
+		md: {
+			border: 'px-3 py-[6px]',
+			contained: 'px-3 py-[7px]'
+		},
+		lg: {
+			border: 'px-4 py-[8px]',
+			contained: 'px-4 py-[9px]'
+		},
+		xl: {
+			border: 'px-4 py-[8px]',
+			contained: 'px-4 py-[9px]'
+		},
 	} as const
 
 	export const IconScale: Record<ButtonType.Size, number> = {

@@ -8,6 +8,7 @@
 
 use std::{collections::HashMap, str::FromStr};
 
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres, Transaction};
 use tracing::{instrument, Instrument};
@@ -44,6 +45,7 @@ lazy_static::lazy_static! {
 }
 
 const MAX_FREE_EXECS: i32 = 1000;
+const MAX_FREE_CONCURRENT_RUNS: i32 = 3;
 
 pub async fn cancel_job<'c>(
     username: &str,
@@ -80,7 +82,32 @@ pub async fn cancel_job<'c>(
     Ok((tx, job_option))
 }
 
-pub async fn pull(db: &Pool<Postgres>) -> windmill_common::error::Result<Option<QueuedJob>> {
+pub async fn pull(
+    db: &Pool<Postgres>,
+    whitelist_workspaces: Option<Vec<String>>,
+    blacklist_workspaces: Option<Vec<String>>,
+) -> windmill_common::error::Result<Option<QueuedJob>> {
+    let mut workspaces_filter = String::new();
+    if let Some(whitelist) = whitelist_workspaces {
+        workspaces_filter.push_str(&format!(
+            " AND workspace_id IN ({})",
+            whitelist
+                .into_iter()
+                .map(|x| format!("'{x}'"))
+                .collect::<Vec<String>>()
+                .join(",")
+        ));
+    }
+    if let Some(blacklist) = blacklist_workspaces {
+        workspaces_filter.push_str(&format!(
+            " AND workspace_id NOT IN ({})",
+            blacklist
+                .into_iter()
+                .map(|x| format!("'{x}'"))
+                .collect::<Vec<String>>()
+                .join(",")
+        ));
+    }
     /* Jobs can be started if they:
      * - haven't been started before,
      *   running = false
@@ -88,7 +115,7 @@ pub async fn pull(db: &Pool<Postgres>) -> windmill_common::error::Result<Option<
      *   suspend_until is non-null
      *   and suspend = 0 when the resume messages are received
      *   or suspend_until <= now() if it has timed out */
-    let job: Option<QueuedJob> = sqlx::query_as::<_, QueuedJob>(
+    let job: Option<QueuedJob> = sqlx::query_as::<_, QueuedJob>(&format!(
         "UPDATE queue
             SET running = true
               , started_at = coalesce(started_at, now())
@@ -97,17 +124,17 @@ pub async fn pull(db: &Pool<Postgres>) -> windmill_common::error::Result<Option<
             WHERE id = (
                 SELECT id
                 FROM queue
-                WHERE (    running = false
+                WHERE ((running = false
                        AND scheduled_for <= now())
                    OR (suspend_until IS NOT NULL
                        AND (   suspend <= 0
-                            OR suspend_until <= now()))
+                            OR suspend_until <= now()))) {workspaces_filter}
                 ORDER BY scheduled_for
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
             )
-            RETURNING *",
-    )
+            RETURNING *"
+    ))
     .fetch_optional(db)
     .await?;
 
@@ -317,10 +344,38 @@ pub async fn push<'c>(
                     .fetch_optional(&mut tx)
                     .await?
                     .unwrap_or(false);
-            if !is_super_admin && usage > MAX_FREE_EXECS {
-                return Err(error::Error::BadRequest(format!(
+
+            if !is_super_admin {
+                if usage > MAX_FREE_EXECS {
+                    return Err(error::Error::BadRequest(format!(
                     "User {email} has exceeded the free usage limit of {MAX_FREE_EXECS} that applies outside of premium workspaces."
                 )));
+                }
+                let in_queue =
+                    sqlx::query_scalar!("SELECT COUNT(id) FROM queue WHERE email = $1", email)
+                        .fetch_one(&mut tx)
+                        .await?
+                        .unwrap_or(0);
+
+                if in_queue > MAX_FREE_EXECS.into() {
+                    return Err(error::Error::BadRequest(format!(
+                    "User {email} has exceeded the jobs in queue limit of {MAX_FREE_EXECS} that applies outside of premium workspaces."
+                )));
+                }
+
+                let concurrent_runs = sqlx::query_scalar!(
+                    "SELECT COUNT(id) FROM queue WHERE running = true AND email = $1",
+                    email
+                )
+                .fetch_one(&mut tx)
+                .await?
+                .unwrap_or(0);
+
+                if concurrent_runs > MAX_FREE_CONCURRENT_RUNS.into() {
+                    return Err(error::Error::BadRequest(format!(
+                    "User {email} has exceeded the concurrent runs limit of {MAX_FREE_CONCURRENT_RUNS} that applies outside of premium workspaces."
+                )));
+                }
             }
         }
     }
@@ -351,7 +406,9 @@ pub async fn push<'c>(
                 )
             }
             JobPayload::ScriptHub { path } => {
-                let script = get_hub_script(path.clone(), email).await?;
+                let script = get_hub_script(path.clone(), email)
+                    .await
+                    .context("error fetching hub script")?;
                 (
                     None,
                     Some(path),
