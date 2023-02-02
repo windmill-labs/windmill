@@ -82,7 +82,32 @@ pub async fn cancel_job<'c>(
     Ok((tx, job_option))
 }
 
-pub async fn pull(db: &Pool<Postgres>) -> windmill_common::error::Result<Option<QueuedJob>> {
+pub async fn pull(
+    db: &Pool<Postgres>,
+    whitelist_workspaces: Option<Vec<String>>,
+    blacklist_workspaces: Option<Vec<String>>,
+) -> windmill_common::error::Result<Option<QueuedJob>> {
+    let mut workspaces_filter = String::new();
+    if let Some(whitelist) = whitelist_workspaces {
+        workspaces_filter.push_str(&format!(
+            " AND workspace_id IN ({})",
+            whitelist
+                .into_iter()
+                .map(|x| format!("'{x}'"))
+                .collect::<Vec<String>>()
+                .join(",")
+        ));
+    }
+    if let Some(blacklist) = blacklist_workspaces {
+        workspaces_filter.push_str(&format!(
+            " AND workspace_id NOT IN ({})",
+            blacklist
+                .into_iter()
+                .map(|x| format!("'{x}'"))
+                .collect::<Vec<String>>()
+                .join(",")
+        ));
+    }
     /* Jobs can be started if they:
      * - haven't been started before,
      *   running = false
@@ -90,7 +115,7 @@ pub async fn pull(db: &Pool<Postgres>) -> windmill_common::error::Result<Option<
      *   suspend_until is non-null
      *   and suspend = 0 when the resume messages are received
      *   or suspend_until <= now() if it has timed out */
-    let job: Option<QueuedJob> = sqlx::query_as::<_, QueuedJob>(
+    let job: Option<QueuedJob> = sqlx::query_as::<_, QueuedJob>(&format!(
         "UPDATE queue
             SET running = true
               , started_at = coalesce(started_at, now())
@@ -99,17 +124,17 @@ pub async fn pull(db: &Pool<Postgres>) -> windmill_common::error::Result<Option<
             WHERE id = (
                 SELECT id
                 FROM queue
-                WHERE (    running = false
+                WHERE ((running = false
                        AND scheduled_for <= now())
                    OR (suspend_until IS NOT NULL
                        AND (   suspend <= 0
-                            OR suspend_until <= now()))
+                            OR suspend_until <= now()))) {workspaces_filter}
                 ORDER BY scheduled_for
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
             )
-            RETURNING *",
-    )
+            RETURNING *"
+    ))
     .fetch_optional(db)
     .await?;
 
