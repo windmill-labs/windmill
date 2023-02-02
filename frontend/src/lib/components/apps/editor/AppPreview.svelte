@@ -75,9 +75,9 @@
 	$: lockedClasses = isLocked ? '!max-h-[400px] overflow-hidden pointer-events-none' : ''
 </script>
 
-<div class="relative">
+<div class="relative h-[calc(100vh-41px)] overflow-auto">
 	<div
-		class="{$$props.class} {lockedClasses} h-full max-h-[calc(100%-41px)] overflow-auto 
+		class="{$$props.class} {lockedClasses} h-full 
 	w-full {app.fullscreen ? '' : 'max-w-6xl'} mx-auto"
 	>
 		{#if $appStore.grid}

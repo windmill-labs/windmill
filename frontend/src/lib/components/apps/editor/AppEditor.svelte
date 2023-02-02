@@ -186,7 +186,7 @@
 									<span>Settings</span>
 								</div>
 							</Tab>
-							<svelte:fragment slot="content">
+							<div slot="content" class="h-full overflow-y-auto pb-4">
 								<TabContent class="overflow-auto" value="settings">
 									{#if $selectedComponent !== undefined}
 										<SettingsPanel />
@@ -197,7 +197,7 @@
 								<TabContent value="insert">
 									<ComponentList />
 								</TabContent>
-							</svelte:fragment>
+							</div>
 						</Tabs>
 						{#if $connectingInput.opened}
 							<div
