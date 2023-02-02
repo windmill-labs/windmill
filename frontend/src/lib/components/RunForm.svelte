@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import {
-		copyToClipboard,
 		decodeArgs,
 		defaultIfEmptyString,
 		displayDaysAgo,
@@ -11,7 +10,7 @@
 	} from '$lib/utils'
 	import { slide } from 'svelte/transition'
 
-	import { faChevronDown, faChevronUp, faClipboard } from '@fortawesome/free-solid-svg-icons'
+	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
 	import SchemaForm from './SchemaForm.svelte'
 	import type { Schema } from '$lib/common'
 	import { Badge, Button } from './common'
@@ -20,7 +19,7 @@
 	import { userStore } from '$lib/stores'
 	import Tooltip from './Tooltip.svelte'
 	import CliHelpBox from './CliHelpBox.svelte'
-	import { Icon } from 'svelte-awesome'
+	import InlineCodeCopy from './InlineCodeCopy.svelte'
 
 	export let runnable:
 		| {
@@ -220,11 +219,7 @@
 	</Button>
 	{#if viewCliOptions}
 		<div transition:slide class="mt-2 px-4 pt-2">
-			<pre class="bg-gray-700 text-gray-100 p-2  font-mono text-sm whitespace-pre-wrap"
-				>{cliCommand} <span on:click={() => copyToClipboard(cliCommand)} class="cursor-pointer ml-2"
-					><Icon data={faClipboard} /></span
-				></pre
-			>
+			<InlineCodeCopy content={cliCommand} />
 			<CliHelpBox />
 		</div>
 	{/if}
