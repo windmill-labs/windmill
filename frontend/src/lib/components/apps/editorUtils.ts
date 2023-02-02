@@ -110,49 +110,44 @@ const DEFAULT_CODES: Partial<Record<AppComponent['type'], Record<'deno' | 'pytho
 	},
 	vegalitecomponent: {
 		deno:
-			`
-			export async function main() {
-				return {
-					data: {
-					values: [
-						{ a: "A", b: 28 },
-						{ a: "B", b: 55 },
-						{ a: "C", b: 43 },
-						{ a: "D", b: 91 },
-					],
-					},
-					mark: "bar",
-					encoding: {
-						x: { field: "a", type: "ordinal" },
-						y: { field: "b", type: "quantitative" },
-					},
-				};
-			}			  
-`,
+			`export async function main() {
+	return {
+		data: {
+			values: [
+				{ a: "A", b: 28 },
+				{ a: "B", b: 55 },
+				{ a: "C", b: 43 },
+				{ a: "D", b: 91 },
+			],
+		},
+		mark: "bar",
+		encoding: {
+			x: { field: "a", type: "ordinal" },
+			y: { field: "b", type: "quantitative" },
+		},
+	}
+}`,
 		python3:
-			`
-def main():
+			`def main():
 	return {
 		"data": {
-		"values": [
-			{ "a": "A", "b": 28 },
-			{ "a": "B", "b": 55 },
-			{ "a": "C", "b": 43 },
-			{ "a": "D", "b": 91 },
-		],
+			"values": [
+				{ "a": "A", "b": 28 },
+				{ "a": "B", "b": 55 },
+				{ "a": "C", "b": 43 },
+				{ "a": "D", "b": 91 },
+			],
 		},
-			"mark": "bar",
+		"mark": "bar",
 		"encoding": {
 			"x": { "field": "a", "type": "ordinal" },
 			"y": { "field": "b", "type": "quantitative" },
 		},
-	}	
-`
+	}`
 	},
 	plotlycomponent: {
 		deno:
-			`
-export async function main() {
+			`export async function main() {
 	return {
 		type: 'bar',
 		x: [1, 2, 3, 4],
@@ -164,11 +159,9 @@ export async function main() {
 			}
 		}
 	};
-}			  
-`,
+}`,
 		python3:
-			`
-def main():
+			`def main():
 	return {
 		"type": "bar",
 		"x": [1, 2, 3, 4],
@@ -179,8 +172,7 @@ def main():
 				"width": 2.5				  
 			}
 		}
-	}	
-`
+	}`
 	},
 	piechartcomponent: {
 		deno:
