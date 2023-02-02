@@ -28,7 +28,9 @@
 				style="height: {h}px; width: {w}px"
 				class="p-0"
 				title="sandbox"
-				srcdoc={result ? '<scr' + `ipt src="/tailwind.css"></script>` + result : 'No html'}
+				srcdoc={result
+					? '<scr' + `ipt type="application/javascript" src="/tailwind.js"></script>` + result
+					: 'No html'}
 			/>
 		{/key}
 	</RunnableWrapper>
