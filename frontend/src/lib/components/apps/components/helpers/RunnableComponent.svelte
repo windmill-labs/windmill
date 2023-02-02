@@ -24,7 +24,7 @@
 	export let defaultUserInput = false
 	export let flexWrap = false
 	export let wrapperClass = ''
-	export let initializing: boolean | undefined
+	export let initializing: boolean | undefined = undefined
 
 	const {
 		worldStore,
