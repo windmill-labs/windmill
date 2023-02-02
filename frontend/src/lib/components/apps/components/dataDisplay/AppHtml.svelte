@@ -1,10 +1,21 @@
+<script context="module">
+	import { displayData } from '../../utils'
+
+	import { Code2 } from 'lucide-svelte'
+
+	// displayData['htmlcomponent'] = {
+	// 	name: 'HTML',
+	// 	icon: Code2
+	// }
+</script>
+
 <script lang="ts">
 	import type { AppInput } from '../../inputType'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
-	export let initializing
+	export let initializing: boolean
 
 	export const staticOutputs: string[] = ['result', 'loading']
 
