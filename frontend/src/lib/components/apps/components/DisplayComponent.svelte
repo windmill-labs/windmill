@@ -7,6 +7,7 @@
 
 	export let id: string
 	export let componentInput: AppInput | undefined
+	export let initializing
 
 	const requireHtmlApproval = getContext<boolean | undefined>(IS_APP_PUBLIC_CONTEXT_KEY)
 	let result: any = undefined
@@ -14,7 +15,7 @@
 	export const staticOutputs: string[] = ['result', 'loading']
 </script>
 
-<RunnableWrapper flexWrap bind:result bind:componentInput {id}>
+<RunnableWrapper flexWrap bind:componentInput {id} bind:initializing bind:result>
 	<div class="w-full border-b px-2 text-xs p-1 font-semibold bg-gray-500 text-white rounded-t-sm">
 		Results
 	</div>

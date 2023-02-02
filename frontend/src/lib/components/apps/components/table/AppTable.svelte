@@ -18,6 +18,7 @@
 	export let componentInput: AppInput | undefined
 	export let configuration: Record<string, AppInput>
 	export let actionButtons: (BaseAppComponent & ButtonComponent)[]
+	export let initializing
 
 	export const staticOutputs: string[] = [
 		'selectedRow',
@@ -135,7 +136,7 @@
 
 <InputValue {id} input={configuration.search} bind:value={search} />
 
-<RunnableWrapper flexWrap bind:componentInput {id} bind:result>
+<RunnableWrapper flexWrap bind:componentInput {id} bind:initializing bind:result>
 	{#if Array.isArray(result) && result.every(isObject)}
 		<div class="border border-gray-300 shadow-sm divide-y divide-gray-300  flex flex-col h-full">
 			{#if search !== 'Disabled'}

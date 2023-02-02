@@ -430,6 +430,12 @@ pub async fn run_worker(
     let pip_local_dependencies = std::env::var("PIP_LOCAL_DEPENDENCIES")
         .ok()
         .map(|x| x.split(',').map(|x| x.to_string()).collect());
+    let whitelist_workspaces = std::env::var("WHITELIST_WORKSPACES")
+        .ok()
+        .map(|x| x.split(',').map(|x| x.to_string()).collect());
+    let blacklist_workspaces = std::env::var("BLACKLIST_WORKSPACES")
+        .ok()
+        .map(|x| x.split(',').map(|x| x.to_string()).collect());
 
     let pip_local_dependencies = if pip_local_dependencies == Some(vec!["".to_string()]) {
         None
@@ -526,7 +532,7 @@ pub async fn run_worker(
                         .await
                         .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string())))
                     },
-                    (job, timer) = {let timer = worker_pull_duration.start_timer(); pull(&db).map(|x| (x, timer)) } => {
+                    (job, timer) = {let timer = worker_pull_duration.start_timer(); pull(&db, whitelist_workspaces.clone(), blacklist_workspaces.clone()).map(|x| (x, timer)) } => {
                         drop(timer);
                         (false, job)
                     },

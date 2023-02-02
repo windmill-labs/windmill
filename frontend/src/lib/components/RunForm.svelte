@@ -18,6 +18,8 @@
 	import Toggle from './Toggle.svelte'
 	import { userStore } from '$lib/stores'
 	import Tooltip from './Tooltip.svelte'
+	import CliHelpBox from './CliHelpBox.svelte'
+	import InlineCodeCopy from './InlineCodeCopy.svelte'
 
 	export let runnable:
 		| {
@@ -55,10 +57,15 @@
 
 	export let isValid = true
 
-	// Run later
 	let viewOptions = false
+	let viewCliOptions = false
+
 	let scheduledForStr: string | undefined
 	let invisible_to_owner: false
+
+	$: cliCommand = `wmill ${runnable?.kind} run ${runnable?.path} ${Object.entries(args)
+		.map(([k, v]) => `-i ${k}=${JSON.stringify(v)}`)
+		.join(' ')}`
 </script>
 
 <div class="max-w-6xl">
@@ -171,7 +178,7 @@
 				<div class="flex items-center gap-1">
 					<Toggle
 						options={{
-							right: `run only visible to you`
+							right: `make run invisible to others`
 						}}
 						bind:checked={invisible_to_owner}
 					/>
@@ -199,5 +206,21 @@
 		>
 			{buttonText}
 		</Button>
+	{/if}
+
+	<div class="my-10" />
+	<Button
+		color="light"
+		size="sm"
+		endIcon={{ icon: viewCliOptions ? faChevronUp : faChevronDown }}
+		on:click={() => (viewCliOptions = !viewCliOptions)}
+	>
+		Run it from the CLI
+	</Button>
+	{#if viewCliOptions}
+		<div transition:slide class="mt-2 px-4 pt-2">
+			<InlineCodeCopy content={cliCommand} />
+			<CliHelpBox />
+		</div>
 	{/if}
 </div>
