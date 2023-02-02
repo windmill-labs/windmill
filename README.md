@@ -312,6 +312,8 @@ upcoming CLI tool.
 | PIP_LOCAL_DEPENDENCIES    | None                   | Specify dependencies that are installed locally and do not need to be solved nor installed again                                                                                                   |
 | ADDITIONAL_PYTHON_PATHS   | None                   | Specify python paths (separated by a :) to be appended to the PYTHONPATH of the python jobs. To be used with PIP_LOCAL_DEPENDENCIES to use python codebases within Windmill                        | Worker                |
 | INCLUDE_HEADERS           | None                   | Whitelist of headers that are passed to jobs as args (separated by a comma)                                                                                                                        | Server                |
+| WHITELIST_WORKSPACES      | None                   | Whitelist of workspaces this worker takes job from                                                                                                                                                 | Worker                |
+| BLACKLIST_WORKSPACES      | None                   | Blacklist of workspaces this worker takes job from                                                                                                                                                 | Worker                |
 
 
 
