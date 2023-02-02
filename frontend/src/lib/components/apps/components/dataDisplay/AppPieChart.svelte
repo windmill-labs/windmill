@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { Doughnut, Pie } from 'svelte-chartjs'
-
 	import {
 		Chart as ChartJS,
 		Title,
@@ -19,6 +18,7 @@
 	export let id: string
 	export let componentInput: AppInput | undefined
 	export let configuration: Record<string, AppInput>
+	export let initializing
 
 	export const staticOutputs: string[] = ['loading', 'result']
 
@@ -65,7 +65,7 @@
 <InputValue {id} input={configuration.theme} bind:value={theme} />
 <InputValue {id} input={configuration.doughnutStyle} bind:value={doughnut} />
 
-<RunnableWrapper flexWrap autoRefresh bind:componentInput {id} bind:result>
+<RunnableWrapper flexWrap autoRefresh bind:componentInput {id} bind:initializing bind:result>
 	{#if result}
 		{#if doughnut}
 			<Doughnut {data} {options} />

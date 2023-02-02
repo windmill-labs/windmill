@@ -1,11 +1,13 @@
 <script lang="ts">
-	import { classNames } from '$lib/utils'
 	import { getContext } from 'svelte'
+	import { fade } from 'svelte/transition';
+	import { classNames } from '$lib/utils'
+	import type { AppComponent, AppEditorContext } from '../types'
+	import { Loader2 } from 'lucide-svelte'
 	import BarChartComponent from '../components/dataDisplay/AppBarChart.svelte'
 	import DisplayComponent from '../components/DisplayComponent.svelte'
 	import TableComponent from '../components/table/AppTable.svelte'
 	import TextComponent from '../components/dataDisplay/AppText.svelte'
-	import type { AppComponent, AppEditorContext } from '../types'
 	import ButtonComponent from '../components/buttons/AppButton.svelte'
 	import PieChartComponent from '../components/dataDisplay/AppPieChart.svelte'
 	import SelectComponent from '../components/selectInputs/AppSelect.svelte'
@@ -28,8 +30,9 @@
 	export let locked: boolean = false
 	export let pointerdown: boolean = false
 
-	let hover = false
 	const { staticOutputs, mode, connectingInput } = getContext<AppEditorContext>('AppEditorContext')
+	let hover = false
+	let initializing
 </script>
 
 <div
@@ -64,54 +67,63 @@
 		{#if component.type === 'displaycomponent'}
 			<DisplayComponent
 				{...component}
+				bind:initializing
 				bind:componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
 			/>
 		{:else if component.type === 'barchartcomponent'}
 			<BarChartComponent
 				{...component}
+				bind:initializing
 				bind:componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
 			/>
 		{:else if component.type === 'timeseriescomponent'}
 			<AppTimeseries
 				{...component}
+				bind:initializing
 				bind:componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
 			/>
 		{:else if component.type === 'htmlcomponent'}
 			<AppHtml
 				{...component}
+				bind:initializing
 				bind:componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
 			/>
 		{:else if component.type === 'vegalitecomponent'}
 			<VegaLiteHtml
 				{...component}
+				bind:initializing
 				bind:componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
 			/>
 		{:else if component.type === 'plotlycomponent'}
 			<PlotlyHtml
 				{...component}
+				bind:initializing
 				bind:componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
 			/>
 		{:else if component.type === 'scatterchartcomponent'}
 			<AppScatterChart
 				{...component}
+				bind:initializing
 				bind:componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
 			/>
 		{:else if component.type === 'piechartcomponent'}
 			<PieChartComponent
 				{...component}
+				bind:initializing
 				bind:staticOutputs={$staticOutputs[component.id]}
 				bind:componentInput={component.componentInput}
 			/>
 		{:else if component.type === 'tablecomponent'}
 			<TableComponent
 				{...component}
+				bind:initializing
 				bind:staticOutputs={$staticOutputs[component.id]}
 				bind:componentInput={component.componentInput}
 				bind:actionButtons={component.actionButtons}
@@ -119,6 +131,7 @@
 		{:else if component.type === 'textcomponent'}
 			<TextComponent
 				{...component}
+				bind:initializing
 				bind:componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
 			/>
@@ -165,3 +178,12 @@
 		{/if}
 	</div>
 </div>
+{#if initializing}
+	<div
+		out:fade={{ duration: 200 }}
+		class="absolute inset-0 center-center flex-col bg-white text-gray-600 border"
+	>
+		<Loader2 class="animate-spin" size={16} />
+		<span class="text-xs mt-1">Loading</span>
+	</div>
+{/if}

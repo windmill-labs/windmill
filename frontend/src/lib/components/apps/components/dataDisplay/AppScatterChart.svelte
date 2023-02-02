@@ -1,6 +1,5 @@
 <script lang="ts">
 	import zoomPlugin from 'chartjs-plugin-zoom'
-
 	import {
 		Chart as ChartJS,
 		Title,
@@ -12,7 +11,6 @@
 		CategoryScale,
 		BarElement
 	} from 'chart.js'
-
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import type { AppInput } from '../../inputType'
 	import Scatter from 'svelte-chartjs/Scatter.svelte'
@@ -21,6 +19,7 @@
 	export let id: string
 	export let componentInput: AppInput | undefined
 	export let configuration: Record<string, AppInput>
+	export let initializing
 
 	let zoomable = false
 	let pannable = false
@@ -70,7 +69,7 @@
 <InputValue {id} input={configuration.zoomable} bind:value={zoomable} />
 <InputValue {id} input={configuration.pannable} bind:value={pannable} />
 
-<RunnableWrapper flexWrap autoRefresh bind:componentInput {id} bind:result>
+<RunnableWrapper flexWrap autoRefresh bind:componentInput {id} bind:initializing bind:result>
 	{#if result}
 		<Scatter {data} {options} />
 	{/if}

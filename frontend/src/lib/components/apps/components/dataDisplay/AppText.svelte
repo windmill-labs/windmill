@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Clipboard } from 'lucide-svelte'
-import { copyToClipboard } from '../../../../utils'
+	import { copyToClipboard } from '../../../../utils'
 	import Button from '../../../common/button/Button.svelte'
 	import Popover from '../../../Popover.svelte'
 	import type { AppInput } from '../../inputType'
@@ -13,6 +13,7 @@ import { copyToClipboard } from '../../../../utils'
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = 'left'
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let configuration: Record<string, AppInput>
+	export let initializing
 
 	export const staticOutputs: string[] = ['result', 'loading']
 
@@ -59,7 +60,7 @@ import { copyToClipboard } from '../../../../utils'
 <InputValue {id} input={configuration.style} bind:value={style} />
 <InputValue {id} input={configuration.copyButton} bind:value={copyButton} />
 
-<RunnableWrapper flexWrap bind:componentInput {id} bind:result>
+<RunnableWrapper flexWrap bind:componentInput {id} bind:initializing bind:result>
 	<AlignWrapper {horizontalAlignment} {verticalAlignment}>
 		{#if !result || result === ''}
 			<div class="text-gray-400 bg-gray-100 flex justify-center items-center h-full w-full">

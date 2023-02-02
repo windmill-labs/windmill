@@ -115,7 +115,7 @@ export const displayData: Record<AppComponent['type'], { name: string; icon: any
 		icon: BarChart4
 	},
 	htmlcomponent: {
-		name: 'Html',
+		name: 'HTML',
 		icon: Code2
 	},
 	vegalitecomponent: {
@@ -143,7 +143,7 @@ export const displayData: Record<AppComponent['type'], { name: string; icon: any
 		icon: ToggleLeft
 	},
 	textinputcomponent: {
-		name: 'Text input',
+		name: 'Text Input',
 		icon: TextCursorInput
 	},
 	imagecomponent: {
@@ -155,11 +155,11 @@ export const displayData: Record<AppComponent['type'], { name: string; icon: any
 		icon: FormInput
 	},
 	radiocomponent: {
-		name: 'Radio button',
+		name: 'Radio Button',
 		icon: CircleDot
 	},
 	runformcomponent: {
-		name: 'Run form',
+		name: 'Run Form',
 		icon: Play
 	},
 	selectcomponent: {
@@ -179,7 +179,7 @@ export const displayData: Record<AppComponent['type'], { name: string; icon: any
 		icon: Lock
 	},
 	dateinputcomponent: {
-		name: 'Date input',
+		name: 'Date Input',
 		icon: Calendar
 	}
 }
