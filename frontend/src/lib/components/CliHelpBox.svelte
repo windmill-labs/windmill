@@ -10,7 +10,7 @@
 	$: workspace = $userWorkspaces.find((e) => e.id === $workspaceStore)
 	$: workspaceName = workspace?.name
 	$: workspaceId = workspace?.id
-	$: url = `${$page.url.protocol}//${$page.url.hostname}`
+	$: url = `${$page.url.protocol}//${$page.url.hostname}/`
 </script>
 
 <div class="text-sm mt-2 flex">
