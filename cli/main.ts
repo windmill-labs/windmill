@@ -13,7 +13,7 @@ import sync from "./sync.ts";
 import { tryResolveVersion } from "./context.ts";
 import { GlobalOptions } from "./types.ts";
 
-const VERSION = "v1.61.1";
+const VERSION = "v1.62.0";
 
 let command: any = new Command()
   .name("wmill")
