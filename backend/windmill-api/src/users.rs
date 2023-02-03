@@ -915,9 +915,9 @@ pub async fn require_owner_of_path(
                 )));
             }
         } else if splitted[0] == "g" {
-            return crate::groups::require_is_owner(w_id, username, groups, splitted[1], db).await;
+            return crate::groups::require_is_owner(splitted[1], username, groups, w_id, db).await;
         } else if splitted[0] == "f" {
-            return crate::folders::require_is_owner(w_id, username, groups, splitted[1], db).await;
+            return crate::folders::require_is_owner(splitted[1], username, groups, w_id, db).await;
         }
     }
     Err(Error::BadRequest(format!("not recognized owner kind")))
