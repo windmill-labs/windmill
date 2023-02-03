@@ -8,13 +8,14 @@ import variable from "./variable.ts";
 import push from "./push.ts";
 import pull from "./pull.ts";
 import hub from "./hub.ts";
-// import folder from "./folder.ts";
+import folder from "./folder.ts";
+import sync from "./sync.ts";
 import { tryResolveVersion } from "./context.ts";
 import { GlobalOptions } from "./types.ts";
 
 const VERSION = "v1.61.1";
 
-const command = new Command()
+let command: any = new Command()
   .name("wmill")
   .description("A simple CLI tool for windmill.")
   .globalOption(
@@ -32,10 +33,9 @@ const command = new Command()
   .command("resource", resource)
   .command("user", user)
   .command("variable", variable)
-  .command("push", push)
-  .command("pull", pull)
   .command("hub", hub)
-  // .command("folder", folder)
+  .command("folder", folder)
+  .command("sync", sync)
   .command("version", "Show version information")
   .action(async (opts) => {
     console.log("CLI build against " + VERSION);
@@ -60,6 +60,12 @@ const command = new Command()
       provider: new DenoLandProvider({ name: "wmill" }),
     }),
   );
+
+if (Number.parseInt(VERSION.replace("v", "").replace(".", "")) > 1700) {
+  command = command
+    .command("push", push)
+    .command("pull", pull);
+}
 
 try {
   await command.parse(Deno.args);

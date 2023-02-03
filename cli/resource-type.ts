@@ -1,65 +1,129 @@
 // deno-lint-ignore-file no-explicit-any
-import { GlobalOptions } from "./types.ts";
+import {
+  Difference,
+  GlobalOptions,
+  PushDiffs,
+  Resource as ResourceI,
+  setValueByPath,
+} from "./types.ts";
 import { requireLogin, resolveWorkspace } from "./context.ts";
-import { colors, Command, ResourceService, Table } from "./deps.ts";
+import {
+  colors,
+  Command,
+  EditResourceType,
+  microdiff,
+  ResourceService,
+  ResourceType,
+  Table,
+} from "./deps.ts";
+import { Any, decoverto, model, property } from "./decoverto.ts";
 
-type ResourceTypeFile = {
+@model()
+export class ResourceTypeFile implements ResourceI, PushDiffs {
+  @property(Any)
   schema?: any;
+  @property(() => String)
   description?: string;
-};
+
+  async push(workspace: string, remotePath: string): Promise<void> {
+    let existing: ResourceType | undefined;
+    try {
+      existing = await ResourceService.getResourceType({
+        workspace,
+        path: remotePath,
+      });
+    } catch {
+      existing = undefined;
+    }
+    this.pushDiffs(
+      workspace,
+      remotePath,
+      microdiff(existing ?? {}, this, { cyclesFix: false }),
+    );
+  }
+
+  async pushDiffs(
+    workspace: string,
+    remotePath: string,
+    diffs: Difference[],
+  ): Promise<void> {
+    if (
+      await ResourceService.existsResourceType({
+        workspace: workspace,
+        path: remotePath,
+      })
+    ) {
+      if (
+        (await ResourceService.listResourceType({ workspace })).findIndex((x) =>
+          x.name === remotePath
+        ) === -1
+      ) {
+        console.log(
+          "Resource type " + remotePath +
+            " is already taken for the current workspace, but cannot be updated. Is this a conflict with starter?",
+        );
+        return;
+      }
+      console.log(
+        colors.yellow(
+          `Applying ${diffs.length} diffs to existing resource type...`,
+        ),
+      );
+      const changeset: EditResourceType = {};
+      for (const diff of diffs) {
+        if (
+          diff.type !== "REMOVE" &&
+          (
+            diff.path.length !== 1 ||
+            !["schema", "description"].includes(diff.path[0] as string)
+          )
+        ) {
+          throw new Error("Invalid resource type diff with path " + diff.path);
+        }
+        if (diff.type === "CREATE" || diff.type === "CHANGE") {
+          setValueByPath(changeset, diff.path, diff.value);
+        } else if (diff.type === "REMOVE") {
+          setValueByPath(changeset, diff.path, null);
+        }
+      }
+
+      const hasChanges = Object.values(changeset).some((v) =>
+        v !== null && typeof v !== "undefined"
+      );
+      if (!hasChanges) {
+        console.log(colors.yellow("! Skipping empty changeset"));
+        return;
+      }
+
+      await ResourceService.updateResourceType({
+        workspace: workspace,
+        path: remotePath,
+        requestBody: changeset,
+      });
+    } else {
+      console.log(colors.yellow("Creating new resource type..."));
+      await ResourceService.createResourceType({
+        workspace: workspace,
+        requestBody: {
+          name: remotePath,
+          description: this.description,
+          schema: this.schema,
+          workspace_id: workspace,
+        },
+      });
+    }
+  }
+}
 
 export async function pushResourceType(
   workspace: string,
   filePath: string,
   name: string,
 ) {
-  const data: ResourceTypeFile = JSON.parse(await Deno.readTextFile(filePath));
-  await pushResourceTypeDef(workspace, name, data);
-}
-
-export async function pushResourceTypeDef(
-  workspace: string,
-  name: string,
-  data: ResourceTypeFile,
-) {
-  if (
-    await ResourceService.existsResourceType({
-      workspace: workspace,
-      path: name,
-    })
-  ) {
-    console.log(colors.yellow("Updating existing resource type..."));
-    if (
-      (await ResourceService.listResourceType({ workspace })).findIndex((x) =>
-        x.name === name
-      ) === -1
-    ) {
-      console.log(
-        "Resource type " + name +
-          " is already taken for the current workspace, but cannot be updated. Is this a conflict with starter?",
-      );
-      return;
-    }
-    await ResourceService.updateResourceType({
-      workspace: workspace,
-      path: name,
-      requestBody: {
-        description: data.description,
-        schema: data.schema,
-      },
-    });
-  } else {
-    console.log(colors.yellow("Creating new resource type..."));
-    await ResourceService.createResourceType({
-      workspace: workspace,
-      requestBody: {
-        name: name,
-        description: data.description,
-        schema: data.schema,
-        workspace_id: workspace,
-      },
-    });
-  }
+  const data: ResourceTypeFile = decoverto.type(ResourceTypeFile).rawToInstance(
+    await Deno.readTextFile(filePath),
+  );
+  await data.push(workspace, name);
 }
 
 type PushOptions = GlobalOptions;

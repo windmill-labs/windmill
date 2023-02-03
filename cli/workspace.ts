@@ -11,14 +11,31 @@ import {
   Table,
   WorkspaceService,
 } from "./deps.ts";
-import { requireLogin } from "./context.ts";
+import { decoverto, model, property } from "./decoverto.ts";
 
-export type Workspace = {
+@model()
+export class Workspace {
+  @property(() => String)
   remote: string;
+  @property(() => String)
   workspaceId: string;
+  @property(() => String)
   name: string;
+  @property(() => String)
   token: string;
-};
+
+  constructor(
+    remote: string,
+    workspaceId: string,
+    name: string,
+    token: string,
+  ) {
+    this.remote = remote;
+    this.workspaceId = workspaceId;
+    this.name = name;
+    this.token = token;
+  }
+}
 
 function makeWorkspaceStream(
   readable: ReadableStream<Uint8Array>,
@@ -33,7 +50,9 @@ function makeWorkspaceStream(
             if (line.length <= 2) {
               return;
             }
-            controller.enqueue(JSON.parse(line) as Workspace);
+            const workspace = decoverto.type(Workspace).rawToInstance(line);
+            workspace.remote = new URL(workspace.remote).toString(); // add trailing slash in all cases!
+            controller.enqueue(workspace);
           } catch {
             /* ignore */
           }
@@ -42,14 +61,17 @@ function makeWorkspaceStream(
     );
 }
 
-async function allWorkspaces(): Promise<Workspace[]> {
-  try {
-    const file = await Deno.open((await getRootStore()) + "remotes.ndjson", {
-      write: false,
-      read: true,
-    });
-    const workspaceStream = makeWorkspaceStream(file.readable);
+export async function getWorkspaceStream() {
+  const file = await Deno.open((await getRootStore()) + "remotes.ndjson", {
+    write: false,
+    read: true,
+  });
+  return makeWorkspaceStream(file.readable);
+}
 
+export async function allWorkspaces(): Promise<Workspace[]> {
+  try {
+    const workspaceStream = await getWorkspaceStream();
     const workspaces: Workspace[] = [];
     for await (const workspace of workspaceStream) {
       workspaces.push(workspace);
@@ -87,8 +109,7 @@ export async function getActiveWorkspace(
 export async function getWorkspaceByName(
   workspaceName: string,
 ): Promise<Workspace | undefined> {
-  const file = await Deno.open((await getRootStore()) + "remotes.ndjson");
-  const workspaceStream = makeWorkspaceStream(file.readable);
+  const workspaceStream = await getWorkspaceStream();
   for await (const workspace of workspaceStream) {
     if (workspace.name === workspaceName) {
       return workspace;
@@ -185,6 +206,7 @@ export async function add(
       remote = new URL(await Input.prompt("Enter the Remote URL")).toString();
     }
   }
+  remote = new URL(remote).toString(); // add trailing slash in all cases!
 
   let token = await tryGetLoginInfo(opts);
   while (!token) {
@@ -192,7 +214,10 @@ export async function add(
   }
 
   if (opts.create) {
-    setClient(token, remote.endsWith('/') ? remote.substring(0, remote.length - 1) : remote);
+    setClient(
+      token,
+      remote.endsWith("/") ? remote.substring(0, remote.length - 1) : remote,
+    );
 
     if (
       !await WorkspaceService.existsWorkspace({
@@ -224,6 +249,7 @@ export async function add(
 }
 
 export async function addWorkspace(workspace: Workspace) {
+  workspace.remote = new URL(workspace.remote).toString(); // add trailing slash in all cases!
   const file = await Deno.open((await getRootStore()) + "remotes.ndjson", {
     append: true,
     write: true,
@@ -234,7 +260,7 @@ export async function addWorkspace(workspace: Workspace) {
   file.close();
 }
 
-async function remove(_opts: GlobalOptions, name: string) {
+export async function removeWorkspace(name: string) {
   const orgWorkspaces = await allWorkspaces();
   await Deno.writeTextFile(
     (await getRootStore()) + "remotes.ndjson",
@@ -243,6 +269,10 @@ async function remove(_opts: GlobalOptions, name: string) {
       .map((x) => JSON.stringify(x))
       .join("\n"),
   );
+}
+
+async function remove(_opts: GlobalOptions, name: string) {
+  await removeWorkspace(name);
   console.log(colors.green.underline("Succesfully removed workspace!"));
 }
 
