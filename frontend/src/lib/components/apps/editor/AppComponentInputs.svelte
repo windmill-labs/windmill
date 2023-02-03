@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { ConnectedAppInput, RowAppInput, StaticAppInput, UserAppInput } from '../inputType'
-	import type { AppComponent } from '../types'
+	import type { AppComponent } from './Component.svelte'
 	import InputsSpecsEditor from './settingsPanel/InputsSpecsEditor.svelte'
 
 	export let fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>

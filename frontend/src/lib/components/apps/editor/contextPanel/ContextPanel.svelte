@@ -1,10 +1,8 @@
 <script lang="ts">
-	import { page } from '$app/stores'
 	import { classNames } from '$lib/utils'
 	import { getContext } from 'svelte'
-	import { key } from 'svelte-awesome/icons'
 	import type { AppEditorContext } from '../../types'
-	import { displayData } from '../../utils'
+	import { components } from '../Component.svelte'
 	import PanelSection from '../settingsPanel/common/PanelSection.svelte'
 	import ComponentOutputViewer from './ComponentOutputViewer.svelte'
 
@@ -31,7 +29,7 @@
 		const component = $app.grid.find((c) => c?.data?.id === componentId)
 
 		if (component?.data.type) {
-			return displayData[component?.data.type].name
+			return components[component?.data.type].name
 		} else if (componentId == 'ctx') {
 			return 'Context'
 		} else if (componentId.startsWith('bg_')) {

@@ -46,7 +46,7 @@ declare module 'svelte-grid' {
 		default: { item: ItemLayout; dataItem: Item<T> & { data: AppComponent } }
 	}
 
-	export default class Grid<T = {}> extends SvelteComponentTyped<Props<T>, {}, Slots<T>> {}
+	export default class Grid<T = {}> extends SvelteComponentTyped<Props<T>, {}, Slots<T>> { }
 }
 
 declare module 'svelte-grid/build/helper/index.mjs' {

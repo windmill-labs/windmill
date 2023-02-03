@@ -8,7 +8,7 @@
 		AlignStartHorizontal,
 		AlignStartVertical
 	} from 'lucide-svelte'
-	import type { AppComponent } from '../../types'
+	import type { AppComponent } from '../Component.svelte'
 	import PanelSection from './common/PanelSection.svelte'
 
 	export let component: AppComponent

@@ -7,7 +7,7 @@
 
 	export let id: string
 	export let componentInput: AppInput | undefined
-	export let initializing
+	export let initializing: boolean | undefined = undefined
 
 	const requireHtmlApproval = getContext<boolean | undefined>(IS_APP_PUBLIC_CONTEXT_KEY)
 	let result: any = undefined
