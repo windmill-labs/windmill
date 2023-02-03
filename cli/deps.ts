@@ -1,31 +1,31 @@
 // windmill
-export { setClient } from "https://deno.land/x/windmill@v1.57.1/mod.ts";
-export * from "https://deno.land/x/windmill@v1.57.1/windmill-api/index.ts";
+export { setClient } from "https://deno.land/x/windmill@v1.61.1/mod.ts";
+export * from "https://deno.land/x/windmill@v1.61.1/windmill-api/index.ts";
 
 // cliffy
-export { Command } from "https://deno.land/x/cliffy@v0.25.6/command/command.ts";
-export { Table } from "https://deno.land/x/cliffy@v0.25.6/table/table.ts";
-export { colors } from "https://deno.land/x/cliffy@v0.25.6/ansi/colors.ts";
-export { Secret } from "https://deno.land/x/cliffy@v0.25.6/prompt/secret.ts";
-export { Select } from "https://deno.land/x/cliffy@v0.25.6/prompt/select.ts";
-export { Confirm } from "https://deno.land/x/cliffy@v0.25.6/prompt/confirm.ts";
-export { Input } from "https://deno.land/x/cliffy@v0.25.6/prompt/input.ts";
+export { Command } from "https://deno.land/x/cliffy@v0.25.7/command/command.ts";
+export { Table } from "https://deno.land/x/cliffy@v0.25.7/table/table.ts";
+export { colors } from "https://deno.land/x/cliffy@v0.25.7/ansi/colors.ts";
+export { Secret } from "https://deno.land/x/cliffy@v0.25.7/prompt/secret.ts";
+export { Select } from "https://deno.land/x/cliffy@v0.25.7/prompt/select.ts";
+export { Confirm } from "https://deno.land/x/cliffy@v0.25.7/prompt/confirm.ts";
+export { Input } from "https://deno.land/x/cliffy@v0.25.7/prompt/input.ts";
 export {
   DenoLandProvider,
   UpgradeCommand,
-} from "https://deno.land/x/cliffy@v0.25.6/command/upgrade/mod.ts";
+} from "https://deno.land/x/cliffy@v0.25.7/command/upgrade/mod.ts";
 
 // std
-export { Untar } from "https://deno.land/std@0.170.0/archive/untar.ts";
-export * as path from "https://deno.land/std@0.170.0/path/mod.ts";
-export { ensureDir } from "https://deno.land/std@0.170.0/fs/ensure_dir.ts";
+export { Untar } from "https://deno.land/std@0.176.0/archive/untar.ts";
+export * as path from "https://deno.land/std@0.176.0/path/mod.ts";
+export { ensureDir } from "https://deno.land/std@0.176.0/fs/ensure_dir.ts";
 export {
   copy,
   readAll,
   readerFromStreamReader,
-} from "https://deno.land/std@0.170.0/streams/mod.ts";
-export { DelimiterStream } from "https://deno.land/std@0.170.0/streams/mod.ts";
-export { iterateReader } from "https://deno.land/std@0.170.0/streams/iterate_reader.ts";
+} from "https://deno.land/std@0.176.0/streams/mod.ts";
+export { DelimiterStream } from "https://deno.land/std@0.176.0/streams/mod.ts";
+export { iterateReader } from "https://deno.land/std@0.176.0/streams/iterate_reader.ts";
 
 // other
 export { getAvailablePort } from "https://deno.land/x/port@1.0.0/mod.ts";
