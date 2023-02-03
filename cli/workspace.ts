@@ -272,7 +272,7 @@ export async function removeWorkspace(name: string) {
 }
 
 async function remove(_opts: GlobalOptions, name: string) {
-  removeWorkspace(name);
+  await removeWorkspace(name);
   console.log(colors.green.underline("Succesfully removed workspace!"));
 }
 
