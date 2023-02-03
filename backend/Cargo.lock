@@ -4685,6 +4685,7 @@ dependencies = [
  "lazy_static",
  "magic-crypt",
  "mime_guess",
+ "prometheus",
  "rand 0.8.5",
  "reqwest",
  "retainer",

@@ -32,6 +32,7 @@ use crate::{
     db::{UserDB, DB},
     schedule::clear_schedule,
     users::{require_owner_of_path, Authed},
+    webhook_util::{WebhookMessage, WebhookShared},
 };
 
 pub fn workspaced_service() -> Router {
@@ -181,6 +182,7 @@ async fn check_path_conflict<'c>(
 async fn create_flow(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
     Json(nf): Json<NewFlow>,
 ) -> Result<(StatusCode, String)> {
@@ -221,6 +223,10 @@ async fn create_flow(
     .await?;
 
     tx.commit().await?;
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::CreateFlow { workspace: w_id.clone(), path: nf.path.clone() },
+    );
 
     let tx = user_db.begin(&authed).await?;
     let (dependency_job_uuid, mut tx) = push(
@@ -280,6 +286,7 @@ async fn update_flow(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
+    Extension(webhook): Extension<WebhookShared>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Json(nf): Json<NewFlow>,
 ) -> Result<String> {
@@ -368,6 +375,14 @@ async fn update_flow(
     .await?;
 
     tx.commit().await?;
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::UpdateFlow {
+            workspace: w_id.clone(),
+            old_path: flow_path.to_owned(),
+            new_path: nf.path.clone(),
+        },
+    );
 
     let tx = user_db.begin(&authed).await?;
     let (dependency_job_uuid, mut tx) = push(
@@ -450,6 +465,7 @@ async fn exists_flow_by_path(
 async fn archive_flow_by_path(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
     let path = path.to_path();
@@ -474,6 +490,10 @@ async fn archive_flow_by_path(
     )
     .await?;
     tx.commit().await?;
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::ArchiveFlow { workspace: w_id, path: path.to_owned() },
+    );
 
     Ok(format!("Flow {path} archived"))
 }

@@ -47,9 +47,14 @@
 	let nbDisplayed = 30
 	let plan: string | undefined = undefined
 	let customer_id: string | undefined = undefined
+	let webhook: string | undefined = undefined
 	let tab =
-		($page.url.searchParams.get('tab') as 'users' | 'slack' | 'premium' | 'export_delete') ??
-		'users'
+		($page.url.searchParams.get('tab') as
+			| 'users'
+			| 'slack'
+			| 'premium'
+			| 'export_delete'
+			| 'webhook') ?? 'users'
 
 	// function getDropDownItems(username: string): DropdownItem[] {
 	// 	return [
@@ -84,6 +89,23 @@
 		sendUserToast(`slack command script set to ${scriptPath}`)
 	}
 
+	async function editWebhook(): Promise<void> {
+		// in JS, an empty string is also falsy
+		if (webhook) {
+			await WorkspaceService.editWebhook({
+				workspace: $workspaceStore!,
+				requestBody: { webhook }
+			})
+			sendUserToast(`webhook set to ${webhook}`)
+		} else {
+			await WorkspaceService.editWebhook({
+				workspace: $workspaceStore!,
+				requestBody: { webhook: undefined }
+			})
+			sendUserToast(`webhook removed`)
+		}
+	}
+
 	async function loadSettings(): Promise<void> {
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
 		team_name = settings.slack_name
@@ -93,6 +115,7 @@
 		plan = settings.plan
 		customer_id = settings.customer_id
 		initialPath = scriptPath
+		webhook = settings.webhook
 	}
 
 	async function listUsers(): Promise<void> {
@@ -189,7 +212,7 @@
 				<Tab size="md" value="users">
 					<div class="flex gap-2 items-center my-1"> Users & Invites </div>
 				</Tab>
-				<Tab size="md" value="slack">
+        <Tab size="md" value="slack">
 					<div class="flex gap-2 items-center my-1"> Slack Command </div>
 				</Tab>
 				{#if isCloudHosted()}
@@ -197,11 +220,14 @@
 						<div class="flex gap-2 items-center my-1"> Premium Plans </div>
 					</Tab>
 				{/if}
-				<Tab size="md" value="export_delete">
-					<div class="flex gap-2 items-center my-1"> Export & Delete Workspace </div>
-				</Tab>
-			</Tabs>
-		</div>
+        <Tab size="md" value="export_delete">
+          <div class="flex gap-2 items-center my-1"> Export & Delete Workspace </div>
+        </Tab>
+        <Tab size="md" value="webhook">
+          <div class="flex gap-2 items-center my-1">Webhook for CLI Sync</div>
+        </Tab>
+      </Tabs>
+    </div>
 		{#if tab == 'users'}
 			<PageHeader title="Members ({users?.length ?? ''})" primary={false} />
 
@@ -684,6 +710,29 @@
 						Delete workspace (superadmin)
 					</Button>
 				{/if}
+			</div>
+		{:else if tab == 'webhook'}
+			<PageHeader title="Webhook for CLI Sync" primary={false} />
+
+			<div class="mt-2"
+				><Alert type="info" title="Send events to an external service"
+					>Connect your windmill workspace to an external service to sync or get notified about any
+					changes</Alert
+				></div
+			>
+
+			<h3 class="mt-5 text-gray-700"
+				>URL to send requests to<Tooltip>
+					This URL will be POSTed to with a JSON body depending on the type of event. The type is
+					indicated by the <pre>type</pre> field. The other fields are dependent on the type.
+				</Tooltip>
+			</h3>
+
+			<div class="flex gap-2">
+				<input class="justify-start" type="text" bind:value={webhook} />
+				<Button color="blue" btnClasses="justify-end" size="md" on:click={editWebhook}
+					>Set Webhook</Button
+				>
 			</div>
 		{/if}
 	{:else}
