@@ -21,6 +21,7 @@ use crate::{
     oauth2::{build_oauth_clients, SlackVerifier},
     tracing_init::{MyMakeSpan, MyOnResponse},
     users::{Authed, OptAuthed},
+    webhook_util::WebhookShared,
 };
 
 mod apps;
@@ -42,6 +43,7 @@ mod tracing_init;
 mod users;
 mod utils;
 mod variables;
+mod webhook_util;
 mod worker_ping;
 mod workspaces;
 
@@ -106,7 +108,8 @@ pub async fn run_server(
             std::env::var("COOKIE_DOMAIN").ok(),
         ))))
         .layer(Extension(http_client))
-        .layer(CookieManagerLayer::new());
+        .layer(CookieManagerLayer::new())
+        .layer(Extension(WebhookShared::new(rx.resubscribe(), db.clone())));
     // build our application with a route
     let app = Router::new()
         .nest(

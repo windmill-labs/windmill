@@ -9,6 +9,7 @@
 use crate::{
     db::{UserDB, DB},
     users::{require_owner_of_path, Authed},
+    webhook_util::{WebhookMessage, WebhookShared},
 };
 use axum::{
     extract::{Extension, Path, Query},
@@ -263,6 +264,7 @@ async fn check_path_conflict<'c>(
 async fn create_resource(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
     Json(resource): Json<CreateResource>,
 ) -> Result<(StatusCode, String)> {
@@ -293,6 +295,11 @@ async fn create_resource(
     .await?;
     tx.commit().await?;
 
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::CreateResource { workspace: w_id, path: resource.path.clone() },
+    );
+
     Ok((
         StatusCode::CREATED,
         format!("resource {} created", resource.path),
@@ -302,6 +309,7 @@ async fn create_resource(
 async fn delete_resource(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
     let path = path.to_path();
@@ -333,12 +341,18 @@ async fn delete_resource(
     .await?;
     tx.commit().await?;
 
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::DeleteResource { workspace: w_id, path: path.to_owned() },
+    );
+
     Ok(format!("resource {} deleted", path))
 }
 
 async fn update_resource(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(ns): Json<EditResource>,
@@ -400,6 +414,15 @@ async fn update_resource(
     .await?;
     tx.commit().await?;
 
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::UpdateResource {
+            workspace: w_id,
+            old_path: path.to_owned(),
+            new_path: npath.clone(),
+        },
+    );
+
     Ok(format!("resource {} updated (npath: {:?})", path, npath))
 }
 
@@ -411,6 +434,7 @@ struct UpdateResource {
 async fn update_resource_value(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(nv): Json<UpdateResource>,
 ) -> Result<String> {
@@ -436,6 +460,14 @@ async fn update_resource_value(
     )
     .await?;
     tx.commit().await?;
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::UpdateResource {
+            workspace: w_id,
+            old_path: path.to_owned(),
+            new_path: path.to_owned(),
+        },
+    );
 
     Ok(format!("value of resource {} updated", path))
 }
@@ -513,6 +545,7 @@ async fn exists_resource_type(
 async fn create_resource_type(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
     Json(resource_type): Json<CreateResourceType>,
 ) -> Result<(StatusCode, String)> {
@@ -542,6 +575,11 @@ async fn create_resource_type(
     )
     .await?;
     tx.commit().await?;
+
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::CreateResourceType { name: resource_type.name.clone() },
+    );
 
     Ok((
         StatusCode::CREATED,
@@ -574,6 +612,7 @@ async fn check_rt_path_conflict<'c>(
 async fn delete_resource_type(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
@@ -598,6 +637,10 @@ async fn delete_resource_type(
     )
     .await?;
     tx.commit().await?;
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::DeleteResourceType { name: name.clone() },
+    );
 
     Ok(format!("resource_type {} deleted", name))
 }
@@ -605,6 +648,7 @@ async fn delete_resource_type(
 async fn update_resource_type(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,
     Json(ns): Json<EditResourceType>,
 ) -> Result<String> {
@@ -634,6 +678,10 @@ async fn update_resource_type(
     )
     .await?;
     tx.commit().await?;
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::UpdateResourceType { name: name.clone() },
+    );
 
     Ok(format!("resource_type {} updated", name))
 }

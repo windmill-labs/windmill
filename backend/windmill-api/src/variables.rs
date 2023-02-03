@@ -12,6 +12,7 @@ use crate::{
     db::{UserDB, DB},
     oauth2::{AllClients, _refresh_token},
     users::{require_owner_of_path, Authed},
+    webhook_util::{WebhookMessage, WebhookShared},
     BaseUrl,
 };
 /*
@@ -224,6 +225,7 @@ async fn check_path_conflict<'c>(
 async fn create_variable(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
     Json(variable): Json<CreateVariable>,
 ) -> Result<(StatusCode, String)> {
@@ -265,6 +267,11 @@ async fn create_variable(
 
     tx.commit().await?;
 
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::CreateVariable { workspace: w_id, path: variable.path.clone() },
+    );
+
     Ok((
         StatusCode::CREATED,
         format!("variable {} created", variable.path),
@@ -274,6 +281,7 @@ async fn create_variable(
 async fn delete_variable(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
     let path = path.to_path();
@@ -306,6 +314,11 @@ async fn delete_variable(
 
     tx.commit().await?;
 
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::DeleteVariable { workspace: w_id, path: path.to_owned() },
+    );
+
     Ok(format!("variable {} deleted", path))
 }
 
@@ -320,6 +333,7 @@ struct EditVariable {
 async fn update_variable(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(ns): Json<EditVariable>,
@@ -404,6 +418,15 @@ async fn update_variable(
     )
     .await?;
     tx.commit().await?;
+
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::UpdateVariable {
+            workspace: w_id,
+            old_path: path.to_owned(),
+            new_path: npath.clone(),
+        },
+    );
 
     Ok(format!("variable {} updated (npath: {:?})", path, npath))
 }

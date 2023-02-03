@@ -14,6 +14,7 @@ use crate::{
     db::{UserDB, DB},
     schedule::clear_schedule,
     users::{require_owner_of_path, Authed},
+    webhook_util::{WebhookMessage, WebhookShared},
 };
 use axum::{
     extract::{Extension, Path, Query},
@@ -184,6 +185,7 @@ fn hash_script(ns: &NewScript) -> i64 {
 async fn create_script(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(ns): Json<NewScript>,
@@ -400,6 +402,14 @@ async fn create_script(
             Some([("hash", hash.to_string().as_str())].into()),
         )
         .await?;
+        webhook.send_message(
+            w_id.clone(),
+            WebhookMessage::UpdateScript {
+                workspace: w_id,
+                path: ns.path.clone(),
+                hash: hash.to_string(),
+            },
+        );
     } else {
         audit_log(
             &mut tx,
@@ -417,6 +427,14 @@ async fn create_script(
             ),
         )
         .await?;
+        webhook.send_message(
+            w_id.clone(),
+            WebhookMessage::CreateScript {
+                workspace: w_id,
+                path: ns.path.clone(),
+                hash: hash.to_string(),
+            },
+        );
     }
 
     tx.commit().await?;
@@ -600,6 +618,7 @@ async fn get_deployment_status(
 
 async fn archive_script_by_path(
     authed: Authed,
+    Extension(webhook): Extension<WebhookShared>,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
@@ -626,6 +645,10 @@ async fn archive_script_by_path(
     )
     .await?;
     tx.commit().await?;
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::DeleteScript { workspace: w_id, hash: hash.to_string() },
+    );
 
     Ok(())
 }
@@ -633,6 +656,7 @@ async fn archive_script_by_path(
 async fn archive_script_by_hash(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
     Path((w_id, hash)): Path<(String, ScriptHash)>,
 ) -> JsonResult<Script> {
     let mut tx = user_db.begin(&authed).await?;
@@ -657,12 +681,18 @@ async fn archive_script_by_hash(
     .await?;
     tx.commit().await?;
 
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::DeleteScript { workspace: w_id, hash: hash.to_string() },
+    );
+
     Ok(Json(script))
 }
 
 async fn delete_script_by_hash(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Path((w_id, hash)): Path<(String, ScriptHash)>,
 ) -> JsonResult<Script> {
@@ -690,6 +720,11 @@ async fn delete_script_by_hash(
     )
     .await?;
     tx.commit().await?;
+
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::DeleteScript { workspace: w_id, hash: hash.to_string() },
+    );
 
     Ok(Json(script))
 }
