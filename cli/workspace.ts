@@ -50,9 +50,9 @@ function makeWorkspaceStream(
             if (line.length <= 2) {
               return;
             }
-            controller.enqueue(
-              decoverto.type(Workspace).rawToInstance(line) as Workspace,
-            );
+            const workspace = decoverto.type(Workspace).rawToInstance(line);
+            workspace.remote = new URL(workspace.remote).toString(); // add trailing slash in all cases!
+            controller.enqueue(workspace);
           } catch {
             /* ignore */
           }
@@ -206,6 +206,7 @@ export async function add(
       remote = new URL(await Input.prompt("Enter the Remote URL")).toString();
     }
   }
+  remote = new URL(remote).toString(); // add trailing slash in all cases!
 
   let token = await tryGetLoginInfo(opts);
   while (!token) {
@@ -213,7 +214,10 @@ export async function add(
   }
 
   if (opts.create) {
-    setClient(token, remote.endsWith('/') ? remote.substring(0, remote.length - 1) : remote);
+    setClient(
+      token,
+      remote.endsWith("/") ? remote.substring(0, remote.length - 1) : remote,
+    );
 
     if (
       !await WorkspaceService.existsWorkspace({
@@ -245,6 +249,7 @@ export async function add(
 }
 
 export async function addWorkspace(workspace: Workspace) {
+  workspace.remote = new URL(workspace.remote).toString(); // add trailing slash in all cases!
   const file = await Deno.open((await getRootStore()) + "remotes.ndjson", {
     append: true,
     write: true,
