@@ -1,6 +1,26 @@
 # Changelog
 
 
+## [1.62.0](https://github.com/windmill-labs/windmill/compare/v1.61.1...v1.62.0) (2023-02-03)
+
+
+### Features
+
+* add INCLUDE_HEADERS env variable to pass value from request headers ([0921ba0](https://github.com/windmill-labs/windmill/commit/0921ba008535e945f2ec3255728c2e8c1f4c36dc))
+* add WHITELIST_WORKSPACES and BLACKLIST_WORKSPACES ([99568ea](https://github.com/windmill-labs/windmill/commit/99568eaa473d57123a7dde4007f8812e0053fb3f))
+* Add workspace webhook ([#1158](https://github.com/windmill-labs/windmill/issues/1158)) ([b9ac60f](https://github.com/windmill-labs/windmill/commit/b9ac60f8bb0662e364606c4b7b8a6e3c1e7e4041))
+* adding worker_busy ([23007f7](https://github.com/windmill-labs/windmill/commit/23007f7a71630fc2040e1be39db83ba56689e3c4))
+* **cli:** 2-Way sync ([#1071](https://github.com/windmill-labs/windmill/issues/1071)) ([cdd1619](https://github.com/windmill-labs/windmill/commit/cdd16195aeaf32e1f1d0648f48e4843954d16d9c))
+* **frontend:** App initial loading animations ([#1176](https://github.com/windmill-labs/windmill/issues/1176)) ([3305481](https://github.com/windmill-labs/windmill/commit/3305481d5d4ce598ceb57256cea851869cdaf25e))
+* **python:** add ADDITIONAL_PYTHON_PATHS ([14b32be](https://github.com/windmill-labs/windmill/commit/14b32be8b229372c57a167fd74cb958a96f0e8e6))
+
+
+### Bug Fixes
+
+* **frontend:** Render popups above components in app editor ([#1171](https://github.com/windmill-labs/windmill/issues/1171)) ([bc8d1a3](https://github.com/windmill-labs/windmill/commit/bc8d1a375ec7886357ce0ef5971bb35013c94d61))
+* **frontend:** Various fixes and improvements ([#1177](https://github.com/windmill-labs/windmill/issues/1177)) ([9f5500c](https://github.com/windmill-labs/windmill/commit/9f5500c1965ea50796d3bf289c0f9e0c929427f4))
+* navigate to new script page before saving script ([f171cd8](https://github.com/windmill-labs/windmill/commit/f171cd8b7c46677173572bac256cbb489a1b8526))
+
 ## [1.61.1](https://github.com/windmill-labs/windmill/compare/v1.61.0...v1.61.1) (2023-01-31)
 
 
