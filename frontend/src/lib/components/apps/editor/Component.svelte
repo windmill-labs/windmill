@@ -28,7 +28,10 @@
 	  1. add the the type to the union below
 	  2. add the component to the components record
 	  3. add the comoonent to one of the components set (buttons, inputs, display)
-	  4. (optionally) add the default code associated to it in DEFAULT_CODES
+	  4. add the component in the svelte if switch
+	  5. (optionally) add the default code associated to it in DEFAULT_CODES
+
+	  To look at a full example in this file, Ctrl+f "plotlycomponent"
 	*/
 	export type TextComponent = BaseComponent<'textcomponent'>
 	export type TextInputComponent = BaseComponent<'textinputcomponent'>
