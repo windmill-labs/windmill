@@ -1,60 +1,33 @@
 <script lang="ts">
 	import { slide } from 'svelte/transition'
 	import Icon from 'svelte-awesome'
-	import type { AppComponent, AppEditorContext, GridItem } from '../../types'
-	import { displayData } from '../../utils'
-	import { componentSets } from './data'
+	import type { AppEditorContext, GridItem } from '../../types'
 
 	import gridHelp from 'svelte-grid/build/helper/index.mjs'
 	import { getContext, onMount } from 'svelte'
 	import { getNextId } from '$lib/components/flows/flowStateUtils'
-	import type { Size } from 'svelte-grid'
 	import { faAngleDown } from '@fortawesome/free-solid-svg-icons'
 	import { isOpenStore } from './store'
 	import { gridColumns } from '../../gridUtils'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
+	import {
+		components as componentsRecord,
+		componentSets,
+		getRecommendedDimensionsByComponent,
+		type AppComponent
+	} from '../Component.svelte'
 
 	const { app, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
 
-	function getRecommendedDimensionsByComponent(
-		componentType: AppComponent['type'],
-		column: number
-	): Size {
-		// Dimensions key formula: <mobile width>:<mobile height>-<desktop width>:<desktop height>
-		const dimensions: Record<`${number}:${number}-${number}:${number}`, AppComponent['type'][]> = {
-			'1:1-3:1': ['textcomponent'],
-			'1:1-2:1': ['buttoncomponent', 'checkboxcomponent'],
-			'1:2-1:2': ['htmlcomponent'],
-			'2:1-3:1': [
-				'textinputcomponent',
-				'numberinputcomponent',
-				'selectcomponent',
-				'passwordinputcomponent',
-				'dateinputcomponent'
-			],
-			'3:5-6:5': ['formcomponent'],
-			'2:8-6:8': [
-				'timeseriescomponent',
-				'barchartcomponent',
-				'piechartcomponent',
-				'displaycomponent',
-				'scatterchartcomponent'
-			],
-			'3:10-6:10': ['tablecomponent']
-		}
-		// Finds the key that is associated with the component type and extracts the dimensions from it
-		const [dimension] = Object.entries(dimensions).find(([_, value]) =>
-			value.includes(componentType)
-		) || ['2:1-2:1']
-
-		const size = dimension.split('-')[column === 3 ? 0 : 1].split(':')
-		return { w: +size[0], h: +size[1] }
-	}
-
-	function addComponent(appComponent: AppComponent) {
+	function addComponent(appComponentType: AppComponent['type']) {
 		$dirtyStore = true
 		const grid = $app.grid ?? []
-		const id = getNextId(grid.map((gridItem) => gridItem.data.id))
+		const id = getNextId(
+			grid.map((gridItem) => gridItem.data.id),
+			true
+		)
+
+		const appComponent = componentsRecord[appComponentType].data
 
 		appComponent.id = id
 
@@ -117,13 +90,13 @@
 						{#each components as item}
 							<button
 								on:click={() => addComponent(item)}
-								title={displayData[item.type].name}
+								title={componentsRecord[item].name}
 								class="border w-24 shadow-sm h-16 p-2 flex flex-col gap-2 items-center
 									justify-center bg-white rounded-md hover:bg-gray-100 duration-200"
 							>
-								<svelte:component this={displayData[item.type].icon} />
+								<svelte:component this={componentsRecord[item].icon} />
 								<div class="text-xs w-full text-center ellipsize">
-									{displayData[item.type].name}
+									{componentsRecord[item].name}
 								</div>
 							</button>
 						{/each}

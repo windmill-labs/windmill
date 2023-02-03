@@ -1,0 +1,53 @@
+version: '3.7'
+
+x-uffizzi:
+  ingress:
+    service: windmill
+    port: 8000
+
+services:
+  db:
+    image: postgres:14
+    environment:
+      POSTGRES_PASSWORD: changeme
+      POSTGRES_DB: windmill
+
+  windmill:
+    image: '${WINDMILL_IMAGE}'
+    ports:
+      - 8000:8000
+    entrypoint: ['/bin/sh', '-c']
+    command: 'echo ${OAUTH_JSON_BASE64} | base64 --decode > /usr/src/app/oauth.json && ./windmill'
+    environment:
+      - DATABASE_URL=postgres://postgres:changeme@localhost/windmill?sslmode=disable
+      - BASE_URL=${EXPECTED_URL}
+      - BASE_INTERNAL_URL=http://localhost:8000
+      - RUST_LOG=info
+      - NUM_WORKERS=3
+      - KEEP_JOB_DIR=false
+      - DENO_PATH=/usr/bin/deno
+      - PYTHON_PATH=/usr/local/bin/python3
+      - METRICS_ADDR=false
+      - OAUTH_JSON_BASE64=${OAUTH_JSON_BASE64}
+    volumes:
+      - worker_dependency_cache:/tmp/windmill/cache
+    deploy:
+      resources:
+        limits:
+          memory: 250M
+
+  lsp:
+    image: '${LSP_IMAGE}'
+    ports:
+      - 3001:3001
+
+  # caddy:
+  #   image: caddy:2.5.2-alpine
+  #   restart: unless-stopped
+  #   volumes:
+  #     - ./.github/uffizzi/caddy:/etc/caddy
+  #   environment:
+  #     - BASE_URL=localhost
+
+volumes:
+  worker_dependency_cache:

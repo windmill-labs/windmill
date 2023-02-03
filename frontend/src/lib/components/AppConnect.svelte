@@ -30,6 +30,19 @@
 				'Create an API key',
 				'Copy your key'
 			]
+		},
+		supabase: {
+			img: '/supabase_connect.png',
+			instructions: ['Go to the API Settings of your app to find the project URL and key']
+		},
+
+		square: {
+			img: '/square_connect.gif',
+			instructions: [
+				'Go to <a href="https://developer.squareup.com/apps" target="_blank" rel=”noopener noreferrer”>https://developer.squareup.com/apps</a>',
+				'In the left pane, choose Credentials',
+				'At the top of the page, choose Production mode for a production access token or Sandbox mode for a Sandbox access token.'
+			]
 		}
 	}
 </script>
@@ -126,6 +139,7 @@
 		const availableRts = await ResourceService.listResourceTypeNames({
 			workspace: $workspaceStore!
 		})
+
 		connectsManual = availableRts
 			.filter((x) => !Object.keys(connects ?? {}).includes(x))
 			.map((x) => [
@@ -141,6 +155,7 @@
 	async function next() {
 		if (step == 1 && manual) {
 			step += 1
+			args = {}
 		} else if (step == 1 && !manual) {
 			const url = new URL(`/api/oauth/connect/${resource_type}`, $page.url.origin)
 			url.searchParams.append('scopes', scopes.join('+'))
@@ -383,9 +398,6 @@
 				namePlaceholder="my_{resource_type}"
 				kind="resource"
 			/>
-			<h2 class="mt-4 mb-2">Description</h2>
-
-			<textarea type="text" autocomplete="off" use:autosize bind:value={description} />
 
 			{#if apiTokenApps[resource_type]}
 				<h2 class="mt-4 mb-2">Instructions</h2>
@@ -399,16 +411,21 @@
 					</ol>
 				</div>
 				{#if apiTokenApps[resource_type].img}
-					<div class="mt-4 w-full">
-						<img class="max-h-96 m-auto" alt="connect" src={apiTokenApps[resource_type].img} />
+					<div class="mt-4 w-full overflow-hidden">
+						<img class="m-auto  max-h-60" alt="connect" src={apiTokenApps[resource_type].img} />
 					</div>
 				{/if}
 			{/if}
 
-			<h2 class="mt-8">Value</h2>
+			<h2 class="mt-4">Value</h2>
 			<div class="mt-4">
-				<ApiConnectForm password={key ?? ''} {resource_type} bind:args bind:isValid />
+				{#key resource_type}
+					<ApiConnectForm password={key ?? ''} {resource_type} bind:args bind:isValid />
+				{/key}
 			</div>
+
+			<h2 class="mt-4 mb-2">Description</h2>
+			<textarea type="text" autocomplete="off" use:autosize bind:value={description} />
 		{:else}
 			<Path
 				initialPath=""

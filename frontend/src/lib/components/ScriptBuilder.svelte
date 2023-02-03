@@ -6,7 +6,7 @@
 	import { inferArgs } from '$lib/infer'
 	import { initialCode, isInitialCode } from '$lib/script_helpers'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { encodeState, sendUserToast, setQueryWithoutLoad } from '$lib/utils'
+	import { emptySchema, encodeState, sendUserToast, setQueryWithoutLoad } from '$lib/utils'
 	import Path from './Path.svelte'
 	import RadioButton from './RadioButton.svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
@@ -58,9 +58,17 @@
 		try {
 			$dirtyStore = false
 			localStorage.removeItem(script.path)
-			if (!script.schema) {
+
+			script.schema = script.schema ?? emptySchema()
+			try {
 				await inferArgs(script.language, script.content, script.schema)
+			} catch (error) {
+				sendUserToast(
+					`Impossible to infer the schema. Assuming this is a script without main function`,
+					true
+				)
 			}
+
 			const newHash = await ScriptService.createScript({
 				workspace: $workspaceStore!,
 				requestBody: {
@@ -76,6 +84,7 @@
 				}
 			})
 			sendUserToast(`Success! New script version created with hash ${newHash}`)
+			await goto(`/scripts/edit/${newHash}?step=2`)
 			goto(`/scripts/get/${newHash}`)
 		} catch (error) {
 			sendUserToast(`Impossible to save the script: ${error.body}`, true)
@@ -84,7 +93,14 @@
 
 	async function changeStep(step: number) {
 		if (step > 1) {
-			await inferArgs(script.language, script.content, script.schema)
+			script.schema = script.schema ?? emptySchema()
+			try {
+				await inferArgs(script.language, script.content, script.schema)
+			} catch (error) {
+				console.info(
+					'Impossible to infer the schema. Assuming this is a script without main function'
+				)
+			}
 		}
 		goto(`?step=${step}`)
 	}

@@ -10,10 +10,11 @@
 	} from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import { Repeat } from 'lucide-svelte'
+	import { Repeat, Square } from 'lucide-svelte'
 
 	const dispatch = createEventDispatcher()
 	export let trigger = false
+	export let stop = false
 </script>
 
 <Menu noMinW placement="bottom-start" let:close>
@@ -34,7 +35,7 @@
 			role="menuitem"
 			tabindex="-1"
 		>
-			<Icon data={faCode} scale={0.8} class="mr-1" />
+			<Icon data={faCode} scale={0.8} class="mr-2" />
 			Action (Script)
 		</button>
 		{#if trigger}
@@ -47,12 +48,12 @@
 				role="menuitem"
 				tabindex="-1"
 			>
-				<Icon data={faBolt} scale={0.8} class="mr-1" />
+				<Icon data={faBolt} scale={0.8} class="mr-2" />
 				Trigger (Script)
 			</button>
 		{/if}
 		<button
-			class="w-full text-left p-2 hover:bg-gray-100"
+			class="w-full text-left gap-1 p-2 hover:bg-gray-100"
 			on:click={() => {
 				close()
 				dispatch('new', 'approval')
@@ -60,18 +61,18 @@
 			role="menuitem"
 			tabindex="-1"
 		>
-			<Icon data={faCheck} scale={0.8} class="mr-1" />
+			<Icon data={faCheck} class="mr-1.5" scale={0.8} />
 			Approval (Script)
 		</button>
 		<button
-			class="w-full inline-flex gap-1 text-left p-2 hover:bg-gray-100"
+			class="w-full inline-flex text-left p-2 hover:bg-gray-100"
 			on:click={() => {
 				close()
 				dispatch('new', 'forloop')
 			}}
 			role="menuitem"
 		>
-			<span>
+			<span class="mr-2">
 				<Repeat size={14} />
 			</span>
 
@@ -86,7 +87,7 @@
 			}}
 			role="menuitem"
 		>
-			<Icon data={faCodeBranch} scale={0.8} class="mr-1" />
+			<Icon data={faCodeBranch} scale={0.8} class="mr-2" />
 			Branch to one
 		</button>
 
@@ -98,7 +99,7 @@
 			}}
 			role="menuitem"
 		>
-			<Icon data={faCodeBranch} scale={0.8} class="mr-1" />
+			<Icon data={faCodeBranch} scale={0.8} class="mr-2" />
 			Branch to all
 		</button>
 
@@ -110,8 +111,21 @@
 			}}
 			role="menuitem"
 		>
-			<Icon data={faBarsStaggered} scale={0.8} class="mr-1" />
+			<Icon data={faBarsStaggered} scale={0.8} class="mr-2" />
 			Flow
 		</button>
+		{#if stop}
+			<button
+				class="w-full text-left p-2 hover:bg-gray-100 inline-flex gap-2.5"
+				on:click={() => {
+					close()
+					dispatch('new', 'end')
+				}}
+				role="menuitem"
+			>
+				<Square size={14} />
+				End Flow
+			</button>
+		{/if}
 	</div>
 </Menu>

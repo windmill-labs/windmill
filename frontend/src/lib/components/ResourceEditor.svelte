@@ -13,6 +13,7 @@
 	import SimpleEditor from './SimpleEditor.svelte'
 	import { faSave } from '@fortawesome/free-solid-svg-icons'
 	import SchemaForm from './SchemaForm.svelte'
+	import Toggle from './Toggle.svelte'
 
 	let path = ''
 	let initialPath = ''
@@ -26,7 +27,7 @@
 	let args: Record<string, any> = {}
 	let can_write = true
 	let loadingSchema = false
-
+	let linkedVars: string[] = []
 	let drawer: Drawer
 
 	let rawCode: string | undefined = undefined
@@ -38,6 +39,7 @@
 		path = p
 		resourceToEdit = undefined
 		resourceSchema = undefined
+		viewJsonSchema = false
 		loadingSchema = true
 		drawer.openDrawer?.()
 		resourceToEdit = await ResourceService.getResource({ workspace: $workspaceStore!, path: p })
@@ -48,6 +50,9 @@
 		can_write =
 			resourceToEdit.workspace_id == $workspaceStore &&
 			canWrite(p, resourceToEdit.extra_perms ?? {}, $userStore)
+		linkedVars = Object.entries(args)
+			.filter(([_, v]) => typeof v == 'string' && v == `$var:${initialPath}`)
+			.map(([k, _]) => k)
 	}
 
 	async function editResource(): Promise<void> {
@@ -58,7 +63,7 @@
 				requestBody: { path, value: args, description }
 			})
 			sendUserToast(`Updated resource at ${path}`)
-			dispatch('refresh')
+			dispatch('refresh', path)
 			drawer.closeDrawer?.()
 		} else {
 			throw Error('Cannot edit undefined resourceToEdit')
@@ -100,6 +105,24 @@
 			jsonError = e.message
 		}
 	}
+
+	$: linkedVars.length > 0 && path && updateArgsFromLinkedVars()
+
+	function updateArgsFromLinkedVars() {
+		linkedVars.forEach((k) => {
+			args[k] = `$var:${path}`
+		})
+	}
+	let viewJsonSchema = false
+
+	function switchTab(asJson: boolean) {
+		viewJsonSchema = asJson
+		if (asJson) {
+			rawCode = JSON.stringify(args, null, 2)
+		} else {
+			parseJson()
+		}
+	}
 </script>
 
 <Drawer bind:this={drawer} size="800px">
@@ -125,21 +148,21 @@
 						kind="resource"
 					/>
 				</div>
-				<h3>Description <Required required={false} /> </h3>
-				<textarea
-					type="text"
-					disabled={!can_write}
-					use:autosize
-					bind:value={description}
-					placeholder={DESCRIPTION_PLACEHOLDER}
-				/>
-
-				<h3 class="mt-4">Value</h3>
+				<div class="flex w-full justify-between max-w-lg items-center mt-4">
+					<h3>Value</h3>
+					<Toggle
+						on:change={(e) => switchTab(e.detail)}
+						options={{
+							right: 'As JSON'
+						}}
+					/>
+				</div>
 				<div class="text-sm">
 					{#if loadingSchema}
 						<Skeleton layout={[[4]]} />
-					{:else if resourceSchema && resourceSchema?.properties}
+					{:else if !viewJsonSchema && resourceSchema && resourceSchema?.properties}
 						<SchemaForm
+							noDelete
 							disabled={!can_write}
 							compact
 							schema={resourceSchema}
@@ -149,10 +172,13 @@
 					{:else if !can_write}
 						<input type="text" disabled value={rawCode} />
 					{:else}
-						<p class="italic text-gray-500 text-xs mb-4"
-							>No corresponding resource type found in your workspace for {selectedResourceType}.
-							Define the value in JSON directly</p
-						>
+						{#if !viewJsonSchema}
+							<p class="italic text-gray-500 text-xs mb-4"
+								>No corresponding resource type found in your workspace for {selectedResourceType}.
+								Define the value in JSON directly</p
+							>
+						{/if}
+
 						{#if !emptyString(jsonError)}<span
 								class="text-red-400 text-xs mb-1 flex flex-row-reverse">{jsonError}</span
 							>{:else}<div class="py-2" />{/if}
@@ -167,6 +193,14 @@
 						</div>
 					{/if}
 				</div>
+				<h3 class="mt-4">Description <Required required={false} /> </h3>
+				<textarea
+					type="text"
+					disabled={!can_write}
+					use:autosize
+					bind:value={description}
+					placeholder={DESCRIPTION_PLACEHOLDER}
+				/>
 			</div>
 		</div>
 		<svelte:fragment slot="actions">

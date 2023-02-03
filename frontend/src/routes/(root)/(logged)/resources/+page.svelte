@@ -40,6 +40,9 @@
 	import ListFilters from '$lib/components/home/ListFilters.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import autosize from 'svelte-autosize'
+	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
+	import { convert } from '@redocly/json-to-json-schema'
+	import Portal from 'svelte-portal'
 
 	type ResourceW = ListableResource & { canWrite: boolean }
 	type ResourceTypeW = ResourceType & { canWrite: boolean }
@@ -200,9 +203,46 @@
 		}
 	})
 
+	function openInferrer(): void {
+		inferrer?.openDrawer?.()
+	}
+
 	let disableCustomPrefix = false
 	let tab: 'workspace' | 'types' | 'states' = 'workspace'
+
+	let inferrer: Drawer | undefined = undefined
+	let inferrerJson = ''
+
+	function inferJson(): void {
+		try {
+			newResourceType.schema = {
+				$schema: undefined,
+				required: [],
+				properties: {},
+				...convert(JSON.parse(inferrerJson))
+			}
+		} catch (e) {
+			sendUserToast(`Invalid JSON: ${e}`, true)
+		}
+		inferrer?.closeDrawer?.()
+	}
 </script>
+
+<Portal>
+	<Drawer bind:this={inferrer} size="800px">
+		<DrawerContent title="Import app from JSON" on:close={() => inferrer?.toggleDrawer?.()}>
+			<SimpleEditor
+				bind:code={inferrerJson}
+				lang="json"
+				class="h-full"
+				fixedOverflowWidgets={false}
+			/>
+			<svelte:fragment slot="actions">
+				<Button size="sm" on:click={inferJson}>Infer</Button>
+			</svelte:fragment>
+		</DrawerContent>
+	</Drawer>
+</Portal>
 
 <Drawer bind:this={resourceTypeViewer} size="800px">
 	<DrawerContent title={resourceTypeViewerObj.rt} on:close={resourceTypeViewer.closeDrawer}>
@@ -259,6 +299,11 @@
 			>
 			<div>
 				<div class="mb-1 font-semibold text-gray-700">Schema</div>
+				<div class="mb-2 w-full flex flex-row-reverse">
+					<Button on:click={openInferrer} size="sm" color="dark" variant="border"
+						>Infer schema from a json value</Button
+					>
+				</div>
 				<SchemaEditor bind:schema={newResourceType.schema} />
 			</div>
 		</div>

@@ -29,7 +29,7 @@ use windmill_common::{
     flows::FlowValue,
     oauth2::HmacSha256,
     scripts::{ScriptHash, ScriptLang},
-    users::owner_to_token_owner,
+    users::username_to_permissioned_as,
     utils::{not_found_if_none, now_from_db, paginate, require_admin, Pagination, StripPath},
 };
 use windmill_queue::{get_queued_job, push, JobKind, JobPayload, QueuedJob, RawCode};
@@ -38,7 +38,7 @@ use crate::{
     db::{UserDB, DB},
     users::{require_owner_of_path, Authed},
     variables::get_workspace_key,
-    BaseUrl,
+    BaseUrl, QueueLimitWaitResult, TimeoutWaitResult,
 };
 
 pub fn workspaced_service() -> Router {
@@ -52,6 +52,10 @@ pub fn workspaced_service() -> Router {
         .route(
             "/run_wait_result/h/:hash",
             post(run_wait_result_job_by_hash),
+        )
+        .route(
+            "/run_wait_result/f/*script_path",
+            post(run_wait_result_flow_by_path),
         )
         .route("/run/h/:hash", post(run_job_by_hash))
         .route("/run/preview", post(run_preview_job))
@@ -263,6 +267,15 @@ pub struct RunJobQuery {
     parent_job: Option<Uuid>,
     include_header: Option<String>,
     invisible_to_owner: Option<bool>,
+    queue_limit: Option<i64>,
+}
+
+lazy_static::lazy_static! {
+    static ref INCLUDE_HEADERS: Vec<String> = std::env::var("INCLUDE_HEADERS")
+        .ok().map(|x| x
+        .split(',')
+        .map(|s| s.to_string())
+        .collect()).unwrap_or_default();
 }
 
 impl RunJobQuery {
@@ -285,11 +298,14 @@ impl RunJobQuery {
         headers: HeaderMap,
         mut args: serde_json::Map<String, serde_json::Value>,
     ) -> serde_json::Map<String, serde_json::Value> {
-        self.include_header
+        let whitelist = self
+            .include_header
             .as_ref()
             .map(|s| s.split(",").map(|s| s.to_string()).collect::<Vec<_>>())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        whitelist
             .iter()
+            .chain(INCLUDE_HEADERS.iter())
             .for_each(|h| {
                 if let Some(v) = headers.get(h) {
                     args.insert(
@@ -1139,7 +1155,7 @@ pub async fn run_flow_by_path(
         args,
         &authed.username,
         &authed.email,
-        owner_to_token_owner(&authed.username, false),
+        username_to_permissioned_as(&authed.username),
         scheduled_for,
         None,
         run_query.parent_job,
@@ -1174,7 +1190,7 @@ pub async fn run_job_by_path(
         args,
         &authed.username,
         &authed.email,
-        owner_to_token_owner(&authed.username, false),
+        username_to_permissioned_as(&authed.username),
         scheduled_for,
         None,
         run_query.parent_job,
@@ -1188,16 +1204,66 @@ pub async fn run_job_by_path(
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
+struct Guard {
+    done: bool,
+    id: Uuid,
+    w_id: String,
+    db: UserDB,
+    authed: Authed,
+}
+
+impl Drop for Guard {
+    fn drop(&mut self) {
+        if !&self.done {
+            let id = self.id;
+            let username = self.authed.username.clone();
+            let w_id = self.w_id.clone();
+            let db = self.db.clone();
+            let authed = self.authed.clone();
+
+            tracing::info!("http connection broke, marking job {id} as canceled");
+            tokio::spawn(async move {
+                let tx = db.begin(&authed).await.ok();
+                if let Some(mut tx) = tx {
+                    let _ = sqlx::query!(
+                "UPDATE queue SET canceled = true, canceled_reason = 'http connection broke', canceled_by = $1 WHERE id = $2 AND workspace_id = $3",
+                username,
+                id,
+                w_id
+            )
+            .execute(&mut tx)
+            .await;
+                    let _ = tx.commit().await;
+                }
+            });
+        }
+    }
+}
+
 async fn run_wait_result<T>(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    timeout: i32,
     uuid: Uuid,
     Path((w_id, _)): Path<(String, T)>,
 ) -> error::JsonResult<serde_json::Value> {
     let mut result = None;
-    for i in 0..48 {
+    let iters = if timeout <= 0 {
+        20
+    } else if timeout <= 1 {
+        timeout * 10
+    } else {
+        10 + ((timeout - 1) * 2)
+    };
+    let mut g = Guard {
+        done: false,
+        id: uuid,
+        w_id: w_id.clone(),
+        db: user_db.clone(),
+        authed: authed.clone(),
+    };
+    for i in 0..iters {
         let mut tx = user_db.clone().begin(&authed).await?;
-
         result = sqlx::query_scalar!(
             "SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2",
             uuid,
@@ -1206,6 +1272,7 @@ async fn run_wait_result<T>(
         .fetch_optional(&mut tx)
         .await?
         .flatten();
+        drop(tx);
 
         if result.is_some() {
             break;
@@ -1214,20 +1281,45 @@ async fn run_wait_result<T>(
         tokio::time::sleep(core::time::Duration::from_millis(delay)).await;
     }
     if let Some(result) = result {
+        g.done = true;
         Ok(Json(result))
     } else {
-        Err(Error::ExecutionErr("timeout after 20s".to_string()))
+        Err(Error::ExecutionErr(format!("timeout after {}s", timeout)))
     }
 }
 
+pub async fn check_queue_too_long(db: DB, queue_limit: Option<i64>) -> error::Result<()> {
+    if let Some(limit) = queue_limit {
+        let count = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM queue WHERE  canceled = false AND (scheduled_for <= now()
+        OR (suspend_until IS NOT NULL
+            AND (   suspend <= 0
+                 OR suspend_until <= now())))",
+        )
+        .fetch_one(&db)
+        .await?
+        .unwrap_or(0);
+
+        if count > queue_limit.unwrap() {
+            return Err(Error::InternalErr(format!(
+                "Number of queued job is too high: {count} > {limit}"
+            )));
+        }
+    }
+    Ok(())
+}
 pub async fn run_wait_result_job_by_path(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Extension(timeout): Extension<Arc<TimeoutWaitResult>>,
+    Extension(queue_limit): Extension<Arc<QueueLimitWaitResult>>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
     Json(args): Json<Option<serde_json::Map<String, serde_json::Value>>>,
 ) -> error::JsonResult<serde_json::Value> {
+    check_queue_too_long(db, queue_limit.0.or(run_query.queue_limit)).await?;
     let script_path = script_path.to_path();
     let mut tx = user_db.clone().begin(&authed).await?;
     let job_payload = script_path_to_payload(script_path, &mut tx, &w_id).await?;
@@ -1242,7 +1334,7 @@ pub async fn run_wait_result_job_by_path(
         args,
         &authed.username,
         &authed.email,
-        owner_to_token_owner(&authed.username, false),
+        username_to_permissioned_as(&authed.username),
         scheduled_for,
         None,
         run_query.parent_job,
@@ -1254,17 +1346,28 @@ pub async fn run_wait_result_job_by_path(
     .await?;
     tx.commit().await?;
 
-    run_wait_result(authed, Extension(user_db), uuid, Path((w_id, script_path))).await
+    run_wait_result(
+        authed,
+        Extension(user_db),
+        timeout.0,
+        uuid,
+        Path((w_id, script_path)),
+    )
+    .await
 }
 
 pub async fn run_wait_result_job_by_hash(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Extension(timeout): Extension<Arc<TimeoutWaitResult>>,
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
     Json(args): Json<Option<serde_json::Map<String, serde_json::Value>>>,
 ) -> error::JsonResult<serde_json::Value> {
+    check_queue_too_long(db, run_query.queue_limit).await?;
+
     let hash = script_hash.0;
     let mut tx = user_db.clone().begin(&authed).await?;
     let path = get_path_for_hash(&mut tx, &w_id, hash).await?;
@@ -1278,7 +1381,7 @@ pub async fn run_wait_result_job_by_hash(
         args,
         &authed.username,
         &authed.email,
-        owner_to_token_owner(&authed.username, false),
+        username_to_permissioned_as(&authed.username),
         scheduled_for,
         None,
         run_query.parent_job,
@@ -1290,7 +1393,61 @@ pub async fn run_wait_result_job_by_hash(
     .await?;
     tx.commit().await?;
 
-    run_wait_result(authed, Extension(user_db), uuid, Path((w_id, script_hash))).await
+    run_wait_result(
+        authed,
+        Extension(user_db),
+        timeout.0,
+        uuid,
+        Path((w_id, script_hash)),
+    )
+    .await
+}
+
+pub async fn run_wait_result_flow_by_path(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Extension(timeout): Extension<Arc<TimeoutWaitResult>>,
+    Path((w_id, flow_path)): Path<(String, StripPath)>,
+    Query(run_query): Query<RunJobQuery>,
+    headers: HeaderMap,
+    Json(args): Json<Option<serde_json::Map<String, serde_json::Value>>>,
+) -> error::JsonResult<serde_json::Value> {
+    check_queue_too_long(db, run_query.queue_limit).await?;
+
+    let flow_path = flow_path.to_path();
+    let mut tx = user_db.clone().begin(&authed).await?;
+    let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
+    let args = run_query.add_include_headers(headers, args.unwrap_or_default());
+
+    let (uuid, tx) = push(
+        tx,
+        &w_id,
+        JobPayload::Flow(flow_path.to_string()),
+        args,
+        &authed.username,
+        &authed.email,
+        username_to_permissioned_as(&authed.username),
+        scheduled_for,
+        None,
+        run_query.parent_job,
+        false,
+        false,
+        None,
+        !run_query.invisible_to_owner.unwrap_or(false),
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    run_wait_result(
+        authed,
+        Extension(user_db),
+        timeout.0,
+        uuid,
+        Path((w_id, flow_path)),
+    )
+    .await
 }
 
 // a similar function exists on the worker
@@ -1332,7 +1489,7 @@ async fn run_preview_job(
         args,
         &authed.username,
         &authed.email,
-        owner_to_token_owner(&authed.username, false),
+        username_to_permissioned_as(&authed.username),
         scheduled_for,
         None,
         None,
@@ -1365,7 +1522,7 @@ async fn run_preview_flow_job(
         args,
         &authed.username,
         &authed.email,
-        owner_to_token_owner(&authed.username, false),
+        username_to_permissioned_as(&authed.username),
         scheduled_for,
         None,
         None,
@@ -1400,7 +1557,7 @@ pub async fn run_job_by_hash(
         args,
         &authed.username,
         &authed.email,
-        owner_to_token_owner(&authed.username, false),
+        username_to_permissioned_as(&authed.username),
         scheduled_for,
         None,
         run_query.parent_job,

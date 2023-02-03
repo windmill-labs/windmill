@@ -21,13 +21,22 @@
 	export let autoRefresh: boolean = true
 	export let result: any = undefined
 	export let forceSchemaDisplay: boolean = false
-	export let noMinH = false
 	export let defaultUserInput = false
 	export let flexWrap = false
 	export let wrapperClass = ''
+	export let initializing: boolean | undefined = undefined
 
-	const { worldStore, runnableComponents, workspace, appPath, isEditor, jobs, noBackend } =
-		getContext<AppEditorContext>('AppEditorContext')
+	const {
+		worldStore,
+		runnableComponents,
+		workspace,
+		appPath,
+		isEditor,
+		jobs,
+		noBackend,
+		errorByComponent,
+		mode
+	} = getContext<AppEditorContext>('AppEditorContext')
 
 	onMount(() => {
 		if (autoRefresh) {
@@ -41,7 +50,6 @@
 	let args: Record<string, any> = {}
 	let testIsLoading = false
 	let runnableInputValues: Record<string, any> = {}
-
 	let executeTimeout: NodeJS.Timeout | undefined = undefined
 
 	function setDebouncedExecute() {
@@ -245,7 +253,19 @@
 	export async function runComponent() {
 		await executeComponent()
 	}
+
 	let lastStartedAt: number = Date.now()
+
+	function recordError(error: string) {
+		if (testJob) {
+			$errorByComponent[testJob.id] = {
+				error: error,
+				componentId: id
+			}
+		}
+	}
+
+	$: result?.error && recordError(result.error)
 </script>
 
 {#each Object.entries(fields ?? {}) as [key, v]}
@@ -268,6 +288,15 @@
 				lastStartedAt = startedAt
 				outputs.result?.set(testJob?.result)
 				result = testJob.result
+
+				const previousJobId = Object.keys($errorByComponent).find(
+					(key) => $errorByComponent[key].componentId === id
+				)
+
+				if (previousJobId && !result?.error) {
+					delete $errorByComponent[previousJobId]
+					$errorByComponent = $errorByComponent
+				}
 			}
 		}
 	}}
@@ -277,7 +306,7 @@
 />
 
 <div class="h-full flex relative flex-row flex-wrap {wrapperClass}">
-	{#if autoRefresh === true}
+	{#if !initializing && autoRefresh === true}
 		<div class="flex absolute top-1 right-1">
 			<RefreshButton componentId={id} />
 		</div>
@@ -299,16 +328,21 @@
 		<Alert type="warning" size="xs" class="mt-2 px-1" title="Missing runnable">
 			Please select a runnable
 		</Alert>
-	{:else if result?.error}
+	{:else if result?.error && $mode === 'preview'}
 		<div class="p-2">
 			<Alert type="error" title="Error during execution">
-				See "Debug Runs" on the top right for more details
-				<pre title={result.error} class=" mt-2 text-2xs whitespace-pre-wrap">{result.error}</pre>
+				<div class="flex flex-col gap-2">
+					An error occured, please contact the app author.
+					<span class="font-semibold">Job id: {testJob?.id}</span>
+					<pre class=" whitespace-pre-wrap text-gray-900 bg-white border w-full p-4 text-xs"
+						>{JSON.stringify(result.error, null, 4)}
+				</pre>
+				</div>
 			</Alert>
 			<slot />
 		</div>
 	{:else}
-		<div class="grow min-w-1/2 {noMinH ? '' : 'min-h-[66%]'}">
+		<div class="block grow max-h-full">
 			<slot />
 		</div>
 	{/if}

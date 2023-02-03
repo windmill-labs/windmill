@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import { ScriptService, type FlowModule, type Job } from '$lib/gen'
+	import { ScriptService, type FlowModule, type InputTransform, type Job } from '$lib/gen'
 	import { getScriptByPath, sendUserToast, truncateRev } from '$lib/utils'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import RunForm from './RunForm.svelte'
@@ -8,7 +8,7 @@
 	import LogViewer from './LogViewer.svelte'
 	import DisplayResult from './DisplayResult.svelte'
 	import Button from './common/button/Button.svelte'
-	import { flowStateStore } from './flows/flowState'
+	import { flowStateStore, testStepStore } from './flows/flowState'
 	import { flowStore } from './flows/flowStore'
 	import { workspaceStore } from '$lib/stores'
 	import { Loader2 } from 'lucide-svelte'
@@ -21,7 +21,18 @@
 	let testIsLoading = false
 	let testJob: Job | undefined = undefined
 
-	let stepArgs: Record<string, any> = {}
+	let stepArgs: Record<string, any> | undefined =
+		$testStepStore[mod.id] ??
+		Object.entries(mod.value['input_transforms'] ?? {}).reduce((acc, [k, v]) => {
+			let t = v as InputTransform
+			if (t.type == 'static') {
+				acc[k] = t.value
+				return acc
+			}
+			return acc
+		}, {})
+
+	$: $testStepStore[mod.id] = stepArgs
 
 	export function runTestWithStepArgs() {
 		runTest(stepArgs)
@@ -66,11 +77,12 @@
 		{/if}
 
 		<RunForm
+			noVariablePicker
 			loading={testIsLoading}
 			runnable={{ summary: mod.summary ?? '', schema, description: '' }}
 			runAction={(_, args) => runTest(args)}
 			schedulable={false}
-			buttonText="Test just this step (Ctrl+Enter)"
+			buttonText="Test (Ctrl+Enter)"
 			detailed={false}
 			topButton
 			bind:args={stepArgs}

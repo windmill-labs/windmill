@@ -115,11 +115,11 @@
 				Copy as flow inputs and test args
 			</Button>
 		</svelte:fragment>
-		<h3 class="mt-2">Derived inputs schema</h3>
+		<h3 class="my-2 mt-8">Derived schema</h3>
 		<div class="box p-2">
 			<SchemaViewer schema={jsonSchema} />
 		</div>
-		<h3 class="mt-2">Test args</h3>
-		<SchemaForm class="h-full pt-4" schema={$flowStore.schema} args={$previewArgs} />
+		<h3 class="mt-8">Test args</h3>
+		<SchemaForm class="pt-4" schema={$flowStore.schema} args={$previewArgs} />
 	</DrawerContent>
 </Drawer>

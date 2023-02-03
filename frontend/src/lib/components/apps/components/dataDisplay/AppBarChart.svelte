@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { Bar, Line } from 'svelte-chartjs'
-
 	import {
 		Chart as ChartJS,
 		Title,
@@ -12,7 +11,6 @@
 		CategoryScale,
 		BarElement
 	} from 'chart.js'
-
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import type { AppInput } from '../../inputType'
 	import InputValue from '../helpers/InputValue.svelte'
@@ -20,6 +18,7 @@
 	export let id: string
 	export let componentInput: AppInput | undefined
 	export let configuration: Record<string, AppInput>
+	export let initializing: boolean | undefined = undefined
 
 	export const staticOutputs: string[] = ['loading', 'result']
 
@@ -71,7 +70,7 @@
 <InputValue {id} input={configuration.theme} bind:value={theme} />
 <InputValue {id} input={configuration.line} bind:value={lineChart} />
 
-<RunnableWrapper flexWrap autoRefresh bind:componentInput {id} bind:result>
+<RunnableWrapper flexWrap autoRefresh bind:componentInput {id} bind:initializing bind:result>
 	{#if result}
 		{#if lineChart}
 			<Line {data} {options} />

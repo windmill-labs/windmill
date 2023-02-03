@@ -2,18 +2,21 @@
 	import { browser } from '$app/environment'
 	import { page } from '$app/stores'
 	import AppPreview from '$lib/components/apps/editor/AppPreview.svelte'
-	import type { EditorBreakpoint } from '$lib/components/apps/types'
+	import { IS_APP_PUBLIC_CONTEXT_KEY, type EditorBreakpoint } from '$lib/components/apps/types'
 
 	import { Alert, Skeleton } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
 	import { AppService, AppWithLastVersion, GlobalUserInfo, UserService } from '$lib/gen'
 	import { userStore } from '$lib/stores'
+	import { setContext } from 'svelte'
 	import github from 'svelte-highlight/styles/github'
 	import { writable } from 'svelte/store'
 
 	let app: AppWithLastVersion | undefined = undefined
 	let user: GlobalUserInfo | undefined = undefined
 	let notExists = false
+
+	setContext(IS_APP_PUBLIC_CONTEXT_KEY, true)
 
 	async function loadApp() {
 		try {
@@ -69,7 +72,11 @@
 	<div class="border rounded-md p-2 w-full">
 		<AppPreview
 			noBackend={false}
-			context={{ email: $userStore?.email, username: $userStore?.username }}
+			context={{
+				email: $userStore?.email,
+				username: $userStore?.username,
+				query: Object.fromEntries($page.url.searchParams.entries())
+			}}
 			workspace={$page.params.workspace}
 			summary={app.summary}
 			app={app.value}

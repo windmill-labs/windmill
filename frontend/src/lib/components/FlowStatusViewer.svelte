@@ -13,7 +13,7 @@
 	import Tabs from './common/tabs/Tabs.svelte'
 	import { FlowGraph, type GraphModuleState } from './graph'
 	import ModuleStatus from './ModuleStatus.svelte'
-	import { displayDate, isOwner, pluralize, truncateRev } from '$lib/utils'
+	import { displayDate, emptyString, isOwner, pluralize, truncateRev } from '$lib/utils'
 	import JobArgs from './JobArgs.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
@@ -180,7 +180,11 @@
 				<FlowPreviewStatus {job} />
 				{#if `result` in job}
 					<div class="w-full h-full">
-						<FlowJobResult result={job.result} logs={job.logs ?? ''} />
+						<FlowJobResult
+							loading={job['running'] == true}
+							result={job.result}
+							logs={job.logs ?? ''}
+						/>
 					</div>
 				{:else if job.flow_status?.modules?.[job?.flow_status?.step]?.type === FlowStatusModule.type.WAITING_FOR_EVENTS}
 					<div class="w-full h-full mt-2 text-sm text-gray-600">
@@ -226,14 +230,21 @@
 					<div class="flex flex-col gap-1">
 						{#each innerModules as mod, i (mod.id)}
 							{#if mod.type == FlowStatusModule.type.IN_PROGRESS}
+								{@const rawMod = job.raw_flow?.modules[i]}
+
 								<div
 									><span class="inline-flex gap-1"
 										><Badge color="indigo">{mod.id}</Badge>
-										{#if job.raw_flow?.modules[i]?.summary}
-											<span class="font-medium text-gray-900">
-												{job.raw_flow?.modules[i]?.summary ?? ''}
-											</span>
-										{/if}
+										<span class="font-medium text-gray-900">
+											{#if !emptyString(rawMod?.summary)}
+												{rawMod?.summary ?? ''}
+											{:else if rawMod?.value.type == 'script'}
+												{rawMod.value.path ?? ''}
+											{:else if rawMod?.value.type}
+												{rawMod?.value.type}
+											{/if}
+										</span>
+
 										<Loader2 class="animate-spin" /></span
 									></div
 								>
@@ -444,7 +455,13 @@
 					{#if selectedNode}
 						{@const node = localFlowModuleStates[selectedNode]}
 						{#if selectedNode == 'end'}
-							<FlowJobResult noBorder col result={job['result'] ?? {}} logs={job.logs ?? ''} />
+							<FlowJobResult
+								loading={job['running']}
+								noBorder
+								col
+								result={job['result']}
+								logs={job.logs ?? ''}
+							/>
 						{:else if selectedNode == 'start'}
 							{#if job.args}
 								<div class="p-2">
@@ -471,7 +488,13 @@
 									</div>
 								{/if}
 							</div>
-							<FlowJobResult noBorder col result={node.result ?? {}} logs={node.logs ?? ''} />
+							<FlowJobResult
+								loading={job['running'] == true}
+								noBorder
+								col
+								result={node.result}
+								logs={node.logs ?? ''}
+							/>
 						{:else}
 							<p class="p-2 text-gray-600 italic"
 								>The execution of this node has no information attached to it. The job likely did

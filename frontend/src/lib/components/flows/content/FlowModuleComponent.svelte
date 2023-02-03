@@ -112,6 +112,9 @@
 		const panesTop = panes.getBoundingClientRect().top
 		totalTopGap = panesTop - wrapperTop
 	})
+
+	let isScript = true
+	$: isScript != (value.type === 'script') && (isScript = value.type === 'script')
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -161,7 +164,7 @@
 				style="max-height: calc(100% - {totalTopGap}px) !important;"
 			>
 				<Splitpanes horizontal>
-					<Pane size={value.type === 'script' ? 30 : 50} minSize={20}>
+					<Pane size={isScript ? 30 : 50} minSize={20}>
 						{#if value.type === 'rawscript'}
 							<div class="h-full">
 								<Editor
@@ -195,7 +198,7 @@
 							<FlowPathViewer path={value.path} />
 						{/if}
 					</Pane>
-					<Pane size={value.type === 'script' ? 70 : 50} minSize={20}>
+					<Pane size={isScript ? 70 : 50} minSize={20}>
 						<Tabs bind:selected>
 							<Tab value="inputs"><span class="font-semibold">Step Input</span></Tab>
 							<Tab value="test"><span class="font-semibold text-md">Test this step</span></Tab>

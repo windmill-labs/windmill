@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Clipboard } from 'lucide-svelte'
-import { copyToClipboard } from '../../../../utils'
+	import { copyToClipboard } from '../../../../utils'
 	import Button from '../../../common/button/Button.svelte'
 	import Popover from '../../../Popover.svelte'
 	import type { AppInput } from '../../inputType'
@@ -13,6 +13,7 @@ import { copyToClipboard } from '../../../../utils'
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = 'left'
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let configuration: Record<string, AppInput>
+	export let initializing: boolean | undefined = undefined
 
 	export const staticOutputs: string[] = ['result', 'loading']
 
@@ -59,7 +60,7 @@ import { copyToClipboard } from '../../../../utils'
 <InputValue {id} input={configuration.style} bind:value={style} />
 <InputValue {id} input={configuration.copyButton} bind:value={copyButton} />
 
-<RunnableWrapper flexWrap bind:componentInput {id} bind:result>
+<RunnableWrapper flexWrap bind:componentInput {id} bind:initializing bind:result>
 	<AlignWrapper {horizontalAlignment} {verticalAlignment}>
 		{#if !result || result === ''}
 			<div class="text-gray-400 bg-gray-100 flex justify-center items-center h-full w-full">
@@ -67,25 +68,15 @@ import { copyToClipboard } from '../../../../utils'
 			</div>
 		{:else}
 			<div class="flex flex-wrap gap-2">
-				<svelte:element
-					this={component}
-					class="whitespace-pre-wrap {classes}"
-					style={extraStyle}
-				>
+				<svelte:element this={component} class="whitespace-pre-wrap {classes}" style={extraStyle}>
 					{String(result)}
 				</svelte:element>
 				{#if copyButton && result}
 					<Popover notClickable>
-						<Button
-							size="xs"
-							btnClasses="!px-2"
-							on:click={() => copyToClipboard(result)}
-						>
+						<Button size="xs" btnClasses="!px-2" on:click={() => copyToClipboard(result)}>
 							<Clipboard size={14} strokeWidth={2} />
 						</Button>
-						<svelte:fragment slot="text">
-							Copy to clipboard
-						</svelte:fragment>
+						<svelte:fragment slot="text">Copy to clipboard</svelte:fragment>
 					</Popover>
 				{/if}
 			</div>

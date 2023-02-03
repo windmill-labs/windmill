@@ -42,7 +42,7 @@ def main(no_default: str,
     # the return value is then parsed and can be retrieved by other scripts conveniently
     return {"splitted": name.split(), "user": user, "state": new_state}
 `
-export const DENO_INIT_CODE = `// Ctrl+space to cache dependencies on imports hover, Ctrl+S to format.
+export const DENO_INIT_CODE = `// Ctrl+. to cache dependencies on imports hover, Ctrl+S to format.
 
 // import { toWords } from "npm:number-to-words@1"
 // import * as wmill from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts"
@@ -87,10 +87,11 @@ import (
 
 // connect the error parameter to 'previous_result.error'
 
-func main(error string) (interface{}, error) {
-	fmt.Println(error)
-	fmt.Println("job", os.Getenv("WM_JOB_ID"))
-  return x, nil
+func main(message string, name string) (interface{}, error) {
+	fmt.Println(message)
+	fmt.Println(name)
+	fmt.Println("flow id that failed", os.Getenv("WM_FLOW_JOB_ID"))
+  return message, nil
 }
 `
 
@@ -101,14 +102,13 @@ export async function main(x: string) {
 }
 `
 
-export const DENO_FAILURE_MODULE_CODE = `
-// connect the error parameter to 'previous_result.error'
+export const DENO_FAILURE_MODULE_CODE = `// flow is considered recovered and a success unless an exception is thrown
 
-export async function main(error: string) {
-  const job = Deno.env.get("WM_JOB_ID")
-  console.log("error", error)
-  console.log("job", job)
-  return { error, job }
+export async function main(message: string, name: string) {
+  const flow_id = Deno.env.get("WM_FLOW_JOB_ID")
+  console.log("message", message)
+  console.log("name",name)
+  return { message, flow_id }
 }
 `
 
@@ -119,14 +119,13 @@ def main(x: str):
 `
 
 export const PYTHON_FAILURE_MODULE_CODE = `import os
+# flow is considered recovered and a success unless an exception is raised
 
-# connect the error parameter to 'previous_result.error'
-
-def main(error: str):
-  job = os.environ.get("WM_JOB_ID")
-  print("error", error)
-  print("job", job)
-  return error, job
+def main(message: str, name: str):
+  flow_id = os.environ.get("WM_FLOW_JOB_ID")
+  print("message", message)
+  print("name", name)
+  return message, flow_id
 `
 
 export const POSTGRES_INIT_CODE = `import {

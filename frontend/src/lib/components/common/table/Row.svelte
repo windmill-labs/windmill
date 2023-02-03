@@ -40,7 +40,7 @@ first-of-type:rounded-t-md last-of-type:rounded-b-md {color}"
 		</div>
 	</a>
 	{#if $$slots.badges}
-		<div class="w-32 hidden md:flex flex-row gap-1 items-start flex-wrap">
+		<div class="hidden md:flex flex-row gap-1 items-start flex-wrap">
 			<slot name="badges" />
 		</div>
 	{/if}

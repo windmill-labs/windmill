@@ -71,6 +71,7 @@
 	}
 
 	async function inferSchema(code: string) {
+		schema = schema ?? emptySchema()
 		let isDefault: string[] = []
 		Object.entries(args).forEach(([k, v]) => {
 			if (schema.properties[k].default == v) {

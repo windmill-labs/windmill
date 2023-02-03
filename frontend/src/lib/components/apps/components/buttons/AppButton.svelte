@@ -27,6 +27,7 @@
 	let color: ButtonType.Color
 	let size: ButtonType.Size
 	let runnableComponent: RunnableComponent
+	let disabled: boolean | undefined = undefined
 
 	let isLoading: boolean = false
 	let ownClick: boolean = false
@@ -50,11 +51,22 @@
 	})
 
 	$: loading = isLoading && ownClick
+	let errors: Record<string, string> = {}
+	$: errorsMessage = Object.values(errors)
+		.filter((x) => x != '')
+		.join('\n')
 </script>
 
 <InputValue {id} input={configuration.label} bind:value={labelValue} />
 <InputValue {id} input={configuration.color} bind:value={color} />
 <InputValue {id} input={configuration.size} bind:value={size} />
+<InputValue
+	row={extraQueryParams['row']}
+	{id}
+	input={configuration.disabled}
+	bind:value={disabled}
+	bind:error={errors.disabled}
+/>
 
 <RunnableWrapper
 	flexWrap
@@ -65,16 +77,20 @@
 	autoRefresh={false}
 >
 	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
+		{#if errorsMessage}
+			<div class="text-red-500 text-xs">{errorsMessage}</div>
+		{/if}
 		<Button
+			{disabled}
 			on:pointerdown={(e) => {
 				e?.stopPropagation()
 				window.dispatchEvent(new Event('pointerup'))
 			}}
-			on:click={(e) => {
+			on:click={async (e) => {
 				e?.stopPropagation()
 				e?.preventDefault()
 				ownClick = true
-				runnableComponent?.runComponent()
+				await runnableComponent?.runComponent()
 
 				if (recomputeIds) {
 					recomputeIds.forEach((id) => {

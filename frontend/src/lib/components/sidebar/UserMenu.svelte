@@ -1,15 +1,17 @@
 <script lang="ts">
+	import { goto } from '$app/navigation'
 	import { logout } from '$lib/logout'
 
-	import { userStore, usersWorkspaceStore, superadmin, usageStore } from '$lib/stores'
-	import { classNames, isCloudHosted } from '$lib/utils'
 	import {
-		faAngleDoubleDown,
-		faCrown,
-		faHardHat,
-		faPlay,
-		faUser
-	} from '@fortawesome/free-solid-svg-icons'
+		userStore,
+		usersWorkspaceStore,
+		superadmin,
+		usageStore,
+		workspaceStore,
+		premiumStore
+	} from '$lib/stores'
+	import { classNames, isCloudHosted } from '$lib/utils'
+	import { faCrown, faHardHat, faUser } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 
 	import Icon from 'svelte-awesome'
@@ -19,7 +21,7 @@
 	export let isCollapsed: boolean = false
 </script>
 
-<Menu placement="bottom-start">
+<Menu let:close placement="bottom-start">
 	<button
 		slot="trigger"
 		type="button"
@@ -94,12 +96,44 @@
 				Sign out
 			</button>
 		</div>
-		{#if isCloudHosted()}
-			<div class="py-1" role="none">
-				<span class="text-gray-700 block w-full text-left px-4 py-2 text-sm"
-					>{$usageStore}/1000 free-tier executions</span
-				>
-			</div>
+		{#if isCloudHosted() && $premiumStore}
+			{#if !$premiumStore.premium}
+				<div class="py-1" role="none">
+					<span class="text-gray-700 block w-full text-left px-4 py-2 text-sm"
+						>{$usageStore}/1000 free-tier executions</span
+					>
+					<div class="w-full bg-gray-200 h-1">
+						<div class="bg-blue-400 h-1" style="width: {Math.min($usageStore, 1000) / 10}%" />
+					</div>
+					{#if $userStore?.is_admin}
+						<button
+							type="button"
+							class="text-gray-700 block font-normal w-full text-left px-4 py-2 text-sm hover:bg-gray-100 hover:text-gray-900"
+							role="menuitem"
+							tabindex="-1"
+							on:click={() => {
+								close()
+								goto('/workspace_settings?tab=premium')
+							}}
+						>
+							Upgrade
+						</button>
+					{/if}
+				</div>
+			{:else}
+				<div class="py-1" role="none">
+					<button
+						type="button"
+						class="text-gray-700 block font-normal w-full text-left px-4 py-2 text-sm hover:bg-gray-100 hover:text-gray-900"
+						role="menuitem"
+						tabindex="-1"
+						on:click={() => {
+							close()
+							goto('/workspace_settings?tab=premium')
+						}}>Premium plan</button
+					>
+				</div>
+			{/if}
 		{/if}
 	</div>
 </Menu>

@@ -3,12 +3,11 @@ name: "bash run script"
 mode: ONCE
 hostname: "bash"
 log_level: ERROR
-time_limit: 300
 
-rlimit_as: 2048
+rlimit_as: 4096
 rlimit_cpu: 1000
-rlimit_fsize: 1024
-rlimit_nofile: 64
+rlimit_fsize: 1000
+rlimit_nofile: 10000
 
 cwd: "/tmp"
 
@@ -55,7 +54,7 @@ mount {
 	dst: "/tmp"
 	fstype: "tmpfs"
 	rw: true
-    options: "size=500000000"
+    options: "size=800000000"
 }
 
 mount {
@@ -87,4 +86,4 @@ iface_no_lo: true
 
 {SHARED_MOUNT}
 
-
+envar: "HOME=/tmp"

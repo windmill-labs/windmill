@@ -18,6 +18,14 @@ pub fn default_false() -> bool {
     false
 }
 
+pub fn default_null() -> serde_json::Value {
+    serde_json::Value::Null
+}
+
+pub fn default_empty_string() -> String {
+    String::new()
+}
+
 pub fn default_id() -> String {
     rd_string(6)
 }

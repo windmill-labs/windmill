@@ -33,7 +33,7 @@
 	let monacoTemplate: TemplateEditor | undefined = undefined
 	let argInput: ArgInput | undefined = undefined
 
-	let inputCat: InputCat = computeInputCat(
+	$: inputCat = computeInputCat(
 		schema.properties[argName].type,
 		schema.properties[argName].format,
 		schema.properties[argName].items?.type,
@@ -60,7 +60,11 @@
 		}
 
 		if (isCodeInjection(rawValue)) {
-			arg.expr = getDefaultExpr(argName, previousModuleId, `\`${rawValue}\``)
+			arg.expr = getDefaultExpr(
+				argName,
+				previousModuleId,
+				`\`${rawValue.toString().replaceAll('`', '\\`')}\``
+			)
 			arg.type = 'javascript'
 			propertyType = 'static'
 		} else {
@@ -117,9 +121,13 @@
 	const openBracket = '${'
 	const closeBracket = '}'
 
-	$: schema.properties[argName].default &&
-		!arg?.value &&
-		monacoTemplate?.setCode(schema.properties[argName].default)
+	function setDefaultCode() {
+		if (!arg?.value) {
+			monacoTemplate?.setCode(schema.properties[argName].default)
+		}
+	}
+
+	$: schema.properties[argName].default && setDefaultCode()
 </script>
 
 {#if arg != undefined}
@@ -157,7 +165,7 @@
 									argName,
 									previousModuleId,
 									staticTemplate
-										? `\`${arg?.value ?? ''}\``
+										? `\`${arg?.value.toString().replaceAll('`', '\\`') ?? ''}\``
 										: arg.value
 										? JSON.stringify(arg?.value, null, 4)
 										: ''
@@ -172,6 +180,7 @@
 							if (staticTemplate) {
 								if (arg) {
 									arg.value = codeToStaticTemplate(arg.expr)
+									arg.expr = undefined
 								}
 								setPropertyType(arg?.value)
 							} else {
@@ -269,7 +278,6 @@
 				bind:itemsType={schema.properties[argName].items}
 				properties={schema.properties[argName].properties}
 				displayHeader={false}
-				bind:inputCat
 				{variableEditor}
 				{itemPicker}
 				bind:pickForField

@@ -8,7 +8,6 @@
 	import Select from 'svelte-select'
 	import AppConnect from './AppConnect.svelte'
 	import ResourceEditor from './ResourceEditor.svelte'
-	import { truncate } from '$lib/utils'
 
 	const dispatch = createEventDispatcher()
 	let resources: Resource[] = []
@@ -46,7 +45,16 @@
 	bind:this={appConnect}
 />
 
-<ResourceEditor bind:this={resourceEditor} on:refresh={() => loadResources(resourceType)} />
+<ResourceEditor
+	bind:this={resourceEditor}
+	on:refresh={async (e) => {
+		await loadResources(resourceType)
+		console.log(e)
+		if (e.detail) {
+			value = e.detail
+		}
+	}}
+/>
 
 <div class="flex flex-row gap-x-1 w-full">
 	<Select

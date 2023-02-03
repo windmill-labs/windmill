@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.60.0
+  version: 1.61.1
   title: Windmill API
 
   contact:
@@ -879,6 +879,10 @@ paths:
                     type: string
                   auto_invite_operator:
                     type: boolean
+                  plan:
+                    type: string
+                  customer_id:
+                    type: string
 
   /w/{workspace}/workspaces/premium_info:
     get:
@@ -2424,6 +2428,45 @@ paths:
             type: integer
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/IncludeHeader"
+        - $ref: "#/components/parameters/QueueLimit"
+
+      requestBody:
+        description: script args
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScriptArgs"
+
+      responses:
+        "200":
+          description: job result
+          content:
+            application/json:
+              schema: {}
+
+  /w/{workspace}/jobs/run_wait_result/f/{path}:
+    post:
+      summary: run flow by path and wait until completion
+      operationId: runWaitResultFlowByPath
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+        - name: scheduled_for
+          description: when to schedule this job (leave empty for immediate run)
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: scheduled_in_secs
+          description: schedule the script to execute in the number of seconds starting now
+          in: query
+          schema:
+            type: integer
+        - $ref: "#/components/parameters/IncludeHeader"
+        - $ref: "#/components/parameters/QueueLimit"
 
       requestBody:
         description: script args
@@ -4458,6 +4501,13 @@ components:
       description: |
         List of headers's keys (separated with ',') whove value are added to the args
         Header's key lowercased and '-'' replaced to '_' such that 'Content-Type' becomes the 'content_type' arg key
+      in: query
+      schema:
+        type: string
+    QueueLimit:
+      name: queue_limit
+      description: |
+        The maximum size of the queue for which the request would get rejected if that job would push it above that limit
       in: query
       schema:
         type: string

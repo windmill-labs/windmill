@@ -177,7 +177,16 @@ impl AuthCache {
                                         })
                                     }
                                 } else {
-                                    None
+                                    let groups = vec![];
+                                    let folders = vec![];
+                                    Some(Authed {
+                                        email: email
+                                            .unwrap_or_else(|| "missing@email.xyz".to_string()),
+                                        username: owner,
+                                        is_admin: super_admin,
+                                        groups,
+                                        folders,
+                                    })
                                 }
                             }
                             (_, Some(email), super_admin) => {

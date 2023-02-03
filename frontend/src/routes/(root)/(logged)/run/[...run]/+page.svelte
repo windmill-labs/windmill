@@ -1,7 +1,14 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { JobService, Job } from '$lib/gen'
-	import { canWrite, encodeState, forLater, sendUserToast, truncateHash } from '$lib/utils'
+	import {
+		canWrite,
+		displayDate,
+		encodeState,
+		forLater,
+		sendUserToast,
+		truncateHash
+	} from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
 	import {
@@ -161,7 +168,11 @@
 				{@const editHref = `${stem}/edit/${route}${
 					isScript
 						? `?step=2${job?.args ? `&args=${encodeURIComponent(encodeState(job?.args))}` : ''}`
-						: `${job?.args ? `?args=${encodeURIComponent(encodeState(job?.args))}` : ''}`
+						: `${
+								job?.args
+									? `?args=${encodeURIComponent(encodeState(job?.args))}&nodraft=true`
+									: '?nodraft=true'
+						  }`
 				}`}
 				{@const isRunning = job && 'running' in job && job.running}
 				{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
@@ -298,7 +309,9 @@
 			</div>
 		</div>
 
-		{#if job?.job_kind !== 'flow' && job?.job_kind !== 'flowpreview'}
+		{#if job?.['scheduled_for'] && forLater(job?.['scheduled_for'])}
+			<h2 class="mt-10">Scheduled to be executed later: {displayDate(job?.['scheduled_for'])}</h2>
+		{:else if job?.job_kind !== 'flow' && job?.job_kind !== 'flowpreview'}
 			<!-- Logs and outputs-->
 			<div class="mr-2 sm:mr-0 mt-12">
 				<Tabs bind:selected={viewTab}>

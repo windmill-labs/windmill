@@ -12,7 +12,10 @@ use itertools::Itertools;
 use lazy_static::lazy_static;
 use regex::Regex;
 use sqlx::{Pool, Postgres, Transaction};
-use std::{borrow::Borrow, collections::HashMap, io, panic, process::Stdio, time::Duration};
+use std::{
+    borrow::Borrow, collections::HashMap, io, os::unix::process::ExitStatusExt, panic,
+    process::Stdio, time::Duration,
+};
 use tracing::{trace_span, Instrument};
 use uuid::Uuid;
 
@@ -25,7 +28,7 @@ use windmill_common::{
 };
 use windmill_queue::{canceled_job_to_result, get_queued_job, pull, JobKind, QueuedJob};
 
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 
 use tokio::{
     fs::{metadata, symlink, DirBuilder, File},
@@ -46,7 +49,7 @@ use futures::{
 use async_recursion::async_recursion;
 
 use crate::{
-    jobs::{add_completed_job, add_completed_job_error, error_to_result},
+    jobs::{add_completed_job, add_completed_job_error},
     worker_flow::{
         handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress,
     },
@@ -130,7 +133,7 @@ async fn copy_cache_to_bucket_as_tar(bucket: &str) {
         .current_dir(ROOT_CACHE_DIR)
         .arg("-c")
         .arg("-f")
-        .arg(format!("{ROOT_CACHE_DIR}/{TAR_CACHE_FILENAME}"))
+        .arg(format!("{ROOT_CACHE_DIR}{TAR_CACHE_FILENAME}"))
         .args(&["pip", "go", "deno"])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -178,7 +181,7 @@ async fn copy_cache_from_bucket_as_tar(bucket: &str) -> bool {
     match Command::new("rclone")
         .arg("copyto")
         .arg(format!(":s3,env_auth=true:{bucket}/{TAR_CACHE_FILENAME}"))
-        .arg(format!("{ROOT_CACHE_DIR}/{TAR_CACHE_FILENAME}"))
+        .arg(format!("{ROOT_CACHE_DIR}{TAR_CACHE_FILENAME}"))
         .arg("--size-only")
         .arg("--fast-list")
         .stdin(Stdio::null())
@@ -231,29 +234,27 @@ pub async fn create_token_for_owner<'c>(
     owner: &str,
     label: &str,
     expires_in: i32,
-    username: &str,
+    email: &str,
 ) -> error::Result<(Transaction<'c, Postgres>, String)> {
     // TODO: Bad implementation. We should not have access to this DB here.
     let token: String = rd_string(30);
-    let is_super_admin = username.contains('@')
-        && sqlx::query_scalar!(
-            "SELECT super_admin FROM password WHERE email = $1",
-            owner.split_once('/').map(|x| x.1).unwrap_or("")
-        )
-        .fetch_optional(&mut tx)
-        .await?
-        .unwrap_or(false);
+    let is_super_admin = owner.contains('@')
+        && sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", owner)
+            .fetch_optional(&mut tx)
+            .await?
+            .unwrap_or(false);
 
     sqlx::query_scalar!(
         "INSERT INTO token
-            (workspace_id, token, owner, label, expiration, super_admin)
-            VALUES ($1, $2, $3, $4, now() + ($5 || ' seconds')::interval, $6)",
+            (workspace_id, token, owner, label, expiration, super_admin, email)
+            VALUES ($1, $2, $3, $4, now() + ($5 || ' seconds')::interval, $6, $7)",
         &w_id,
         token,
         owner,
         label,
         expires_in.to_string(),
-        is_super_admin
+        is_super_admin,
+        email
     )
     .execute(&mut tx)
     .await?;
@@ -277,7 +278,6 @@ const NSJAIL_CONFIG_RUN_DENO_CONTENT: &str = include_str!("../nsjail/run.deno.co
 
 const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
 
-const MAX_LOG_SIZE: u32 = 200000;
 const GO_REQ_SPLITTER: &str = "//go.sum";
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 
@@ -404,6 +404,13 @@ pub async fn run_worker(
     )
     .expect("register prometheus metric");
 
+    let worker_busy: prometheus::IntGauge = prometheus::register_int_gauge!(prometheus::Opts::new(
+        "worker_busy",
+        "Is the worker busy executing a job?",
+    )
+    .const_label("name", &worker_name))
+    .unwrap();
+
     let mut jobs_executed = 0;
 
     let deno_path = std::env::var("DENO_PATH").unwrap_or_else(|_| "/usr/bin/deno".to_string());
@@ -416,12 +423,42 @@ pub async fn run_worker(
     let pip_index_url = std::env::var("PIP_INDEX_URL").ok();
     let pip_extra_index_url = std::env::var("PIP_EXTRA_INDEX_URL").ok();
     let pip_trusted_host = std::env::var("PIP_TRUSTED_HOST").ok();
+    let deno_auth_tokens = std::env::var("DENO_AUTH_TOKENS")
+        .ok()
+        .map(|x| format!(";{x}"))
+        .unwrap_or_else(|| String::new());
+    let max_log_size = std::env::var("MAX_LOG_SIZE")
+        .ok()
+        .and_then(|x| x.parse::<i64>().ok())
+        .unwrap_or(500000);
+    let deno_flags = std::env::var("DENO_FLAGS")
+        .ok()
+        .map(|x| x.split(' ').map(|x| x.to_string()).collect());
+    let pip_local_dependencies = std::env::var("PIP_LOCAL_DEPENDENCIES")
+        .ok()
+        .map(|x| x.split(',').map(|x| x.to_string()).collect());
+    let whitelist_workspaces = std::env::var("WHITELIST_WORKSPACES")
+        .ok()
+        .map(|x| x.split(',').map(|x| x.to_string()).collect());
+    let blacklist_workspaces = std::env::var("BLACKLIST_WORKSPACES")
+        .ok()
+        .map(|x| x.split(',').map(|x| x.to_string()).collect());
+
+    let pip_local_dependencies = if pip_local_dependencies == Some(vec!["".to_string()]) {
+        None
+    } else {
+        pip_local_dependencies
+    };
 
     #[cfg(feature = "enterprise")]
     let tar_cache_rate = std::env::var("TAR_CACHE_RATE")
         .ok()
         .and_then(|x| x.parse::<i32>().ok())
         .unwrap_or(100);
+
+    let additional_python_paths = std::env::var("ADDITIONAL_PYTHON_PATHS")
+        .ok()
+        .map(|x| x.split(':').map(|x| x.to_string()).collect());
 
     let envs = Envs {
         deno_path,
@@ -433,6 +470,11 @@ pub async fn run_worker(
         pip_index_url,
         pip_extra_index_url,
         pip_trusted_host,
+        max_log_size,
+        deno_flags,
+        deno_auth_tokens,
+        pip_local_dependencies,
+        additional_python_paths,
     };
     WORKER_STARTED.inc();
 
@@ -452,11 +494,14 @@ pub async fn run_worker(
     let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<Uuid>(5);
 
     loop {
+        worker_busy.set(0);
+
         uptime_metric.inc_by(
             ((Instant::now() - start_time).as_millis() - uptime_metric.get() as u128)
                 .try_into()
                 .unwrap(),
         );
+
         let do_break = async {
             if last_ping.elapsed().as_secs() > NUM_SECS_ENV_CHECK {
                 sqlx::query!(
@@ -497,7 +542,9 @@ pub async fn run_worker(
                         .await
                         .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string())))
                     },
-                    (job, timer) = {let timer = worker_pull_duration.start_timer(); pull(&db).map(|x| (x, timer)) } => {
+                    (job, timer) = {
+                        let timer = worker_pull_duration.start_timer(); 
+                        pull(&db, whitelist_workspaces.clone(), blacklist_workspaces.clone()).map(|x| (x, timer)) } => {
                         drop(timer);
                         (false, job)
                     },
@@ -507,6 +554,7 @@ pub async fn run_worker(
                 return true;
             }
 
+            worker_busy.set(1);
             match next_job {
                 Ok(Some(job)) => {
                     let label_values = [
@@ -567,11 +615,11 @@ pub async fn run_worker(
                         &job.permissioned_as,
                         "ephemeral-script",
                         timeout * 2,
-                        &job.created_by,
+                        &job.email,
                     )
                     .await.expect("could not create job token");
                     tx.commit().await.expect("could not commit job token");
-                    let job_client = windmill_api_client::create_client(&worker_config.base_url, token.clone());
+                    let job_client = windmill_api_client::create_client(&worker_config.base_internal_url, token.clone());
                     let is_flow = job.job_kind == JobKind::Flow || job.job_kind == JobKind::FlowPreview || job.job_kind == JobKind::FlowDependencies;
 
                     if let Some(err) = handle_queued_job(
@@ -647,26 +695,29 @@ async fn handle_job_error(
     keep_job_dir: bool,
     base_internal_url: &str,
 ) {
-    add_completed_job_error(
-        db,
-        &job,
-        format!("Unexpected error during job execution:\n{err}"),
-        &err,
-        metrics.clone(),
-    )
-    .await
-    .map(|(_, m)| m)
-    .unwrap_or_else(|_| Map::new());
+    let err = match err {
+        Error::JsonErr(err) => err,
+        _ => json!({"message": err.to_string(), "name": "InternalErr"}),
+    };
+
+    let update_job_future = || {
+        add_completed_job_error(
+            db,
+            &job,
+            format!("Unexpected error during job execution:\n{err}"),
+            err.clone(),
+            metrics.clone(),
+        )
+    };
 
     if job.is_flow_step || job.job_kind == JobKind::FlowPreview || job.job_kind == JobKind::Flow {
         let (flow, job_status_to_update) = if let Some(parent_job_id) = job.parent_job {
+            let _ = update_job_future().await;
             (parent_job_id, job.id)
         } else {
             (job.id, Uuid::nil())
         };
 
-        let mut output_map = serde_json::Map::new();
-        error_to_result(&mut output_map, &err);
         let updated_flow = update_flow_status_after_job_completion(
             db,
             client,
@@ -674,7 +725,7 @@ async fn handle_job_error(
             &job_status_to_update,
             &job.workspace_id,
             false,
-            serde_json::Value::Object(output_map),
+            json!({ "error": err }),
             metrics.clone(),
             unrecoverable,
             same_worker_tx,
@@ -684,9 +735,8 @@ async fn handle_job_error(
             None,
         )
         .await;
-        if let Err(err) = updated_flow {
-            println!("error updating flow status: {}", err);
 
+        if let Err(err) = updated_flow {
             if let Some(parent_job_id) = job.parent_job {
                 if let Ok(mut tx) = db.begin().await {
                     if let Ok(Some(parent_job)) =
@@ -696,7 +746,7 @@ async fn handle_job_error(
                             db,
                             &parent_job,
                             format!("Unexpected error during flow job error handling:\n{err}"),
-                            err,
+                            json!({"message": err.to_string(), "name": "InternalErr"}),
                             metrics.clone(),
                         )
                         .await;
@@ -705,7 +755,10 @@ async fn handle_job_error(
             }
         }
     }
-    tracing::error!(job_id = %job.id, err = err.alt(), "error handling job: {} {} {}", job.id, job.workspace_id, job.created_by);
+    if job.parent_job.is_none() {
+        let _ = update_job_future().await;
+    }
+    tracing::error!(job_id = %job.id, "error handling job: {err:#?} {} {} {}", job.id, job.workspace_id, job.created_by);
 }
 
 async fn insert_initial_ping(
@@ -735,8 +788,16 @@ struct Envs {
     pip_index_url: Option<String>,
     pip_extra_index_url: Option<String>,
     pip_trusted_host: Option<String>,
+    deno_auth_tokens: String,
+    deno_flags: Option<Vec<String>>,
+    max_log_size: i64,
+    pip_local_dependencies: Option<Vec<String>>,
+    additional_python_paths: Option<Vec<String>>,
 }
 
+fn extract_error_value(log_lines: &str) -> serde_json::Value {
+    return json!({"message": log_lines.to_string().trim().to_string(), "name": "ExecutionErr"});
+}
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_queued_job(
     job: QueuedJob,
@@ -754,7 +815,7 @@ async fn handle_queued_job(
     base_internal_url: &str,
 ) -> windmill_common::error::Result<()> {
     if job.canceled {
-        return Err(Error::ExecutionErr(canceled_job_to_result(&job)))?;
+        return Err(Error::JsonErr(canceled_job_to_result(&job)))?;
     }
     if let Some(e) = job.pre_run_error {
         return Err(Error::ExecutionErr(e));
@@ -857,32 +918,36 @@ async fn handle_queued_job(
                     }
                 }
                 Err(e) => {
-                    let error_message = match e {
+                    let error_value = match e {
                         Error::ExitStatus(_) => {
-                            let last_10_log_lines = logs
-                                .lines()
-                                .skip(logs.lines().count().max(13) - 13)
-                                .join("\n")
-                                .to_string()
-                                .replace("\n\n", "\n");
+                            let res = read_result(job_dir).await.ok();
 
-                            let log_lines = last_10_log_lines
-                                .split("CODE EXECUTION ---")
-                                .last()
-                                .unwrap_or(&logs);
-                            format!("Error during execution of the script:\n{}", log_lines)
+                            if res.is_some() && res.clone().unwrap().is_object() {
+                                res.unwrap()
+                            } else {
+                                let last_10_log_lines = logs
+                                    .lines()
+                                    .skip(logs.lines().count().max(13) - 13)
+                                    .join("\n")
+                                    .to_string()
+                                    .replace("\n\n", "\n");
+
+                                let log_lines = last_10_log_lines
+                                    .split("CODE EXECUTION ---")
+                                    .last()
+                                    .unwrap_or(&logs);
+
+                                extract_error_value(log_lines)
+                            }
                         }
-                        err @ _ => format!("error before termination: {err:#?}"),
+                        err @ _ => {
+                            json!({"message": format!("error during execution of the script:\n{}", err), "name": "ExecutionErr"})
+                        }
                     };
 
-                    let (_, output_map) = add_completed_job_error(
-                        db,
-                        &job,
-                        logs,
-                        error_message,
-                        Some(metrics.clone()),
-                    )
-                    .await?;
+                    let result =
+                        add_completed_job_error(db, &job, logs, error_value, Some(metrics.clone()))
+                            .await?;
                     if job.is_flow_step {
                         if let Some(parent_job) = job.parent_job {
                             update_flow_status_after_job_completion(
@@ -892,7 +957,7 @@ async fn handle_queued_job(
                                 &job.id,
                                 &job.workspace_id,
                                 false,
-                                serde_json::Value::Object(output_map),
+                                result,
                                 Some(metrics),
                                 false,
                                 same_worker_tx,
@@ -922,6 +987,7 @@ async fn write_file(dir: &str, path: &str, content: &str) -> error::Result<File>
 
 #[async_recursion]
 async fn transform_json_value(
+    name: &str,
     client: &windmill_api_client::Client,
     workspace: &str,
     v: Value,
@@ -932,32 +998,32 @@ async fn transform_json_value(
             let v = client
                 .get_variable(workspace, path, Some(true))
                 .await
-                .map_err(to_anyhow)
+                .map_err(|_| Error::NotFound(format!("Variable {path} not found for `{name}`")))
                 .map(|v| v.into_inner())?
                 .value
-                .map_or_else(
-                    || Err(Error::NotFound(format!("Variable {path} not found"))),
-                    |e| Ok(e),
-                )?;
+                .unwrap_or_else(|| String::new());
             Ok(Value::String(v))
         }
         Value::String(y) if y.starts_with("$res:") => {
             let path = y.strip_prefix("$res:").unwrap();
             if path.split("/").count() < 2 {
-                return Err(Error::InternalErr(
-                    format!("invalid resource path: {path}",),
-                ));
+                return Err(Error::InternalErr(format!(
+                    "Argument `{name}` is an invalid resource path: {path}",
+                )));
             }
             let v = client
                 .get_resource_value(workspace, path)
                 .await
-                .map_err(|_| Error::NotFound(format!("Resource {path} not found")))?
+                .map_err(|_| Error::NotFound(format!("Resource {path} not found for `{name}`")))?
                 .into_inner();
-            transform_json_value(client, workspace, v).await
+            transform_json_value(name, client, workspace, v).await
         }
         Value::Object(mut m) => {
             for (a, b) in m.clone().into_iter() {
-                m.insert(a, transform_json_value(client, workspace, b).await?);
+                m.insert(
+                    a.clone(),
+                    transform_json_value(&a, client, workspace, b).await?,
+                );
             }
             Ok(Value::Object(m))
         }
@@ -1120,7 +1186,7 @@ mount {{
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_go_job(
     WorkerConfig { base_internal_url, disable_nuser, disable_nsjail, base_url, .. }: &WorkerConfig,
-    Envs { nsjail_path, go_path, path_env, home_env, .. }: &Envs,
+    Envs { nsjail_path, go_path, path_env, home_env, max_log_size, .. }: &Envs,
     logs: &mut String,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -1158,6 +1224,7 @@ async fn handle_go_job(
         job_dir,
         db,
         timeout,
+        *max_log_size,
         go_path,
         true,
         skip_go_mod,
@@ -1278,7 +1345,7 @@ func Run(req Req) (interface{{}}, error){{
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?;
-        handle_child(&job.id, db, logs, timeout, build_go).await?;
+        handle_child(&job.id, db, logs, timeout, *max_log_size, build_go).await?;
 
         Command::new(nsjail_path)
             .current_dir(job_dir)
@@ -1304,14 +1371,14 @@ func Run(req Req) (interface{{}}, error){{
             .stderr(Stdio::piped())
             .spawn()?
     };
-    handle_child(&job.id, db, logs, timeout, child).await?;
+    handle_child(&job.id, db, logs, timeout, *max_log_size, child).await?;
     read_result(job_dir).await
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_bash_job(
     WorkerConfig { base_internal_url, disable_nuser, disable_nsjail, base_url, .. }: &WorkerConfig,
-    Envs { nsjail_path, path_env, home_env, .. }: &Envs,
+    Envs { nsjail_path, path_env, home_env, max_log_size, .. }: &Envs,
     logs: &mut String,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -1383,7 +1450,7 @@ async fn handle_bash_job(
             .stderr(Stdio::piped())
             .spawn()?
     };
-    handle_child(&job.id, db, logs, timeout, child).await?;
+    handle_child(&job.id, db, logs, timeout, *max_log_size, child).await?;
     //for now bash jobs have an empty result object
     Ok(serde_json::json!(logs
         .lines()
@@ -1403,7 +1470,7 @@ fn capitalize(s: &str) -> String {
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_deno_job(
     WorkerConfig { base_internal_url, base_url, disable_nuser, disable_nsjail, .. }: &WorkerConfig,
-    Envs { nsjail_path, deno_path, path_env, .. }: &Envs,
+    Envs { nsjail_path, deno_path, path_env, max_log_size, deno_auth_tokens, deno_flags, .. }: &Envs,
     logs: &mut String,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -1446,16 +1513,30 @@ async function run() {{
     await Deno.writeTextFile("result.json", res_json);
     Deno.exit(0);
 }}
-run();
+run().catch(async (e) => {{
+    await Deno.writeTextFile("result.json", JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
+    Deno.exit(1);
+}});
 "#,
     );
     write_file(job_dir, "main.ts", &wrapper_content).await?;
+    let w_id = job.workspace_id.clone();
+    let import_map = format!(
+        r#"{{
+        "imports": {{
+          "/": "{base_internal_url}/api/w/{w_id}/scripts/raw/p/",
+          "./": "./"
+        }}
+      }}"#
+    );
+    write_file(job_dir, "import_map.json", &import_map).await?;
     let mut reserved_variables = get_reserved_variables(job, &token, &base_url, db).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
     let hostname_base = base_url.split("://").last().unwrap_or("localhost");
     let hostname_internal = base_internal_url.split("://").last().unwrap_or("localhost");
-    let deno_auth_tokens = format!("{token}@{hostname_base};{token}@{hostname_internal}");
+    let deno_auth_tokens =
+        format!("{token}@{hostname_base};{token}@{hostname_internal}{deno_auth_tokens}",);
     let child = async {
         Ok(if !disable_nsjail {
             let _ = write_file(
@@ -1477,9 +1558,16 @@ run();
             if lockfile.is_some() {
                 args.push("--lock=/tmp/lock.json");
             }
+            args.push("--import-map");
+            args.push("/tmp/import_map.json");
             args.push("--unstable");
-            args.push("--v8-flags=--max-heap-size=2048");
-            args.push("-A");
+            if let Some(deno_flags) = deno_flags {
+                for flag in deno_flags {
+                    args.push(flag);
+                }
+            } else {
+                args.push("-A");
+            }
             args.push("/tmp/main.ts");
 
             Command::new(nsjail_path)
@@ -1496,13 +1584,18 @@ run();
         } else {
             let mut args = Vec::new();
             let script_path = format!("{job_dir}/main.ts");
+            let import_map_path = format!("{job_dir}/import_map.json");
             args.push("run");
-            if lockfile.is_some() {
-                args.push("--lock=/tmp/lock.json");
-            }
+            args.push("--import-map");
+            args.push(&import_map_path);
             args.push("--unstable");
-            args.push("--v8-flags=--max-heap-size=2048");
-            args.push("-A");
+            if let Some(deno_flags) = deno_flags {
+                for flag in deno_flags {
+                    args.push(flag);
+                }
+            } else {
+                args.push("-A");
+            }
             args.push(&script_path);
             Command::new(deno_path)
                 .current_dir(job_dir)
@@ -1521,7 +1614,7 @@ run();
     }
     .instrument(trace_span!("create_deno_jail"))
     .await?;
-    handle_child(&job.id, db, logs, timeout, child).await?;
+    handle_child(&job.id, db, logs, timeout, *max_log_size, child).await?;
     read_result(job_dir).await
 }
 
@@ -1532,7 +1625,7 @@ async fn create_args_and_out_file(
     job_dir: &str,
 ) -> Result<(), Error> {
     let args = if let Some(args) = &job.args {
-        Some(transform_json_value(client, &job.workspace_id, args.clone()).await?)
+        Some(transform_json_value("args", client, &job.workspace_id, args.clone()).await?)
     } else {
         None
     };
@@ -1549,7 +1642,9 @@ lazy_static! {
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_python_job(
     WorkerConfig { base_internal_url, base_url, disable_nuser, disable_nsjail, .. }: &WorkerConfig,
-    envs @ Envs { nsjail_path, python_path, path_env, .. }: &Envs,
+    envs @ Envs {
+        nsjail_path, python_path, path_env, max_log_size, additional_python_paths, ..
+    }: &Envs,
     requirements_o: Option<String>,
     job_dir: &str,
     worker_dir: &str,
@@ -1565,7 +1660,8 @@ async fn handle_python_job(
 ) -> error::Result<serde_json::Value> {
     create_dependencies_dir(job_dir).await;
 
-    let mut additional_python_paths: Vec<String> = vec![];
+    let mut additional_python_paths: Vec<String> =
+        additional_python_paths.to_owned().unwrap_or_else(|| vec![]);
 
     let requirements = match requirements_o {
         Some(r) => r,
@@ -1672,12 +1768,23 @@ async fn handle_python_job(
     } else {
         ""
     };
+    let spread = if sig.star_kwargs {
+        "args = kwargs".to_string()
+    } else {
+        sig.args
+            .into_iter()
+            .map(|x| format!("args[\"{}\"] = kwargs[\"{}\"]", x.name, x.name))
+            .join("\n")
+    };
+
     let wrapper_content: String = format!(
         r#"
 import json
 {import_loader}
 {import_base64}
 {import_datetime}
+import traceback
+import sys
 
 inner_script = __import__("inner")
 
@@ -1686,11 +1793,21 @@ with open("args.json") as f:
 for k, v in list(kwargs.items()):
     if v == '<function call>':
         del kwargs[k]
+args = {{}}
+{spread}
 {transforms}
-res = inner_script.main(**kwargs)
-res_json = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
-with open("result.json", 'w') as f:
-    f.write(res_json)
+try:
+    res = inner_script.main(**args)
+    res_json = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
+    with open("result.json", 'w') as f:
+        f.write(res_json)
+except Exception as e:
+    exc_type, exc_value, exc_traceback = sys.exc_info()
+    tb = traceback.format_tb(exc_traceback)
+    with open("result.json", 'w') as f:
+        err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:])  }}, separators=(',', ':'), default=str).replace('\n', '')
+        f.write(err_json)
+        sys.exit(1)
 "#,
     );
     write_file(job_dir, "main.py", &wrapper_content).await?;
@@ -1770,7 +1887,7 @@ mount {{
             .spawn()?
     };
 
-    handle_child(&job.id, db, logs, timeout, child).await?;
+    handle_child(&job.id, db, logs, timeout, *max_log_size, child).await?;
     read_result(job_dir).await
 }
 
@@ -1966,7 +2083,7 @@ async fn generate_deno_lock(
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     timeout: i32,
-    Envs { deno_path, .. }: &Envs,
+    Envs { deno_path, max_log_size, .. }: &Envs,
 ) -> error::Result<String> {
     let _ = write_file(job_dir, "main.ts", code).await?;
 
@@ -1984,7 +2101,7 @@ async fn generate_deno_lock(
         .stderr(Stdio::piped())
         .spawn()?;
 
-    handle_child(job_id, db, logs, timeout, child).await?;
+    handle_child(job_id, db, logs, timeout, *max_log_size, child).await?;
 
     let path_lock = format!("{job_dir}/lock.json");
     let mut file = File::open(path_lock).await?;
@@ -2015,6 +2132,7 @@ async fn capture_dependency_job(
                 job_dir,
                 db,
                 timeout,
+                envs.max_log_size,
                 &envs.go_path,
                 false,
                 false,
@@ -2033,7 +2151,14 @@ async fn pip_compile(
     requirements: &str,
     logs: &mut String,
     job_dir: &str,
-    Envs { pip_extra_index_url, pip_index_url, pip_trusted_host, .. }: &Envs,
+    Envs {
+        pip_extra_index_url,
+        pip_index_url,
+        pip_trusted_host,
+        max_log_size,
+        pip_local_dependencies,
+        ..
+    }: &Envs,
     db: &Pool<Postgres>,
     timeout: i32,
 ) -> error::Result<String> {
@@ -2041,6 +2166,15 @@ async fn pip_compile(
     set_logs(logs, job_id, db).await;
     logs.push_str(&format!("\ncontent of requirements:\n{}", requirements));
     let file = "requirements.in";
+    let requirements = if let Some(pip_local_dependencies) = pip_local_dependencies {
+        let deps = pip_local_dependencies.clone();
+        requirements
+            .lines()
+            .filter(|s| !deps.contains(&s.to_string()))
+            .join("\n")
+    } else {
+        requirements.to_string()
+    };
     write_file(job_dir, file, &requirements).await?;
 
     let mut args = vec!["-q", "--no-header", file, "--resolver=backtracking"];
@@ -2059,7 +2193,7 @@ async fn pip_compile(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
-    handle_child(job_id, db, logs, timeout, child)
+    handle_child(job_id, db, logs, timeout, *max_log_size, child)
         .await
         .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
     let path_lock = format!("{job_dir}/requirements.txt");
@@ -2081,6 +2215,7 @@ async fn install_go_dependencies(
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     timeout: i32,
+    max_log_size: i64,
     go_path: &str,
     preview: bool,
     skip_go_mod: bool,
@@ -2094,7 +2229,7 @@ async fn install_go_dependencies(
             .stderr(Stdio::piped())
             .spawn()?;
 
-        handle_child(job_id, db, logs, timeout, child).await?;
+        handle_child(job_id, db, logs, timeout, max_log_size, child).await?;
     }
     let child = Command::new(go_path)
         .current_dir(job_dir)
@@ -2102,7 +2237,7 @@ async fn install_go_dependencies(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
-    handle_child(job_id, db, logs, timeout, child)
+    handle_child(job_id, db, logs, timeout, max_log_size, child)
         .await
         .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
 
@@ -2184,6 +2319,7 @@ async fn handle_child(
     db: &Pool<Postgres>,
     logs: &mut String,
     timeout: i32,
+    max_log_size: i64,
     mut child: Child,
 ) -> error::Result<()> {
     let timeout = Duration::from_secs(u64::try_from(timeout).expect("invalid timeout"));
@@ -2275,7 +2411,7 @@ async fn handle_child(
     /* a future that reads output from the child and appends to the database */
     let lines = async move {
         /* log_remaining is zero when output limit was reached */
-        let mut log_remaining = (MAX_LOG_SIZE as usize).saturating_sub(logs.chars().count());
+        let mut log_remaining = (max_log_size as usize).saturating_sub(logs.chars().count());
         let mut result = io::Result::Ok(());
         let mut output = output;
         /* `do_write` resolves the task, but does not contain the Result.
@@ -2306,7 +2442,7 @@ async fn handle_child(
                             tracing::info!(%job_id, "Too many logs lines for job {job_id}");
                             let _ = set_too_many_logs.send(true);
                             joined.push_str(&format!(
-                                "Job logs or result reached character limit of {MAX_LOG_SIZE}; killing job."
+                                "Job logs or result reached character limit of {max_log_size}; killing job."
                             ));
                             /* stop reading and drop our streams fairly quickly */
                             break;
@@ -2390,18 +2526,21 @@ async fn handle_child(
     kill_tx.send(()).expect("send should always work");
 
     match wait_result {
-        _ if *too_many_logs.borrow() => Err(Error::ExecutionErr(
-            "logs or result reached limit".to_string(),
-        )),
+        _ if *too_many_logs.borrow() => Err(Error::ExecutionErr(format!(
+            "logs or result reached limit. Set MAX_LOG_SIZE higher (current: {max_log_size})"
+        ))),
         Ok(Ok(status)) => {
             if status.success() {
                 Ok(())
             } else if let Some(code) = status.code() {
                 Err(error::Error::ExitStatus(code))
             } else {
-                Err(error::Error::ExecutionErr(
-                    "process terminated by signal".to_string(),
-                ))
+                Err(error::Error::ExecutionErr(format!(
+                    "process terminated by signal: {:#?}, stopped_signal: {:#?}, core_dumped: {}",
+                    status.signal(),
+                    status.stopped_signal(),
+                    status.core_dumped()
+                )))
             }
         }
         Ok(Err(kill_reason)) => Err(Error::ExecutionErr(format!(
@@ -2568,7 +2707,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, timeout: i32, base_url: &str) {
             &job.permissioned_as,
             "ephemeral-zombie-jobs",
             timeout * 2,
-            &job.created_by,
+            &job.email,
         )
         .await
         .expect("could not create job token");
@@ -2601,6 +2740,7 @@ async fn handle_python_reqs(
         pip_extra_index_url,
         pip_trusted_host,
         nsjail_path,
+        max_log_size,
         ..
     }: &Envs,
     job: &QueuedJob,
@@ -2695,7 +2835,7 @@ async fn handle_python_reqs(
                 .spawn()?
         };
 
-        let child = handle_child(&job.id, db, logs, timeout, child).await;
+        let child = handle_child(&job.id, db, logs, timeout, *max_log_size, child).await;
         tracing::info!(
             worker_name = %worker_name,
             job_id = %job.id,

@@ -7,11 +7,13 @@
 	import autosize from 'svelte-autosize'
 
 	export let result: any
+	export let requireHtmlApproval = false
 
 	let resultKind:
 		| 'json'
 		| 'table-col'
 		| 'table-row'
+		| 'html'
 		| 'png'
 		| 'file'
 		| 'jpeg'
@@ -19,9 +21,11 @@
 		| 'error'
 		| 'approval'
 		| undefined
+
 	$: resultKind = inferResultKind(result)
 
 	let forceJson = false
+	let enableHtml = false
 
 	function isRectangularArray(obj: any) {
 		if (!Array.isArray(obj) || obj.length == 0) {
@@ -53,13 +57,15 @@
 					return 'table-row'
 				} else if (keys.map((k) => Array.isArray(result[k])).reduce((a, b) => a && b)) {
 					return 'table-col'
+				} else if (keys.length == 1 && keys[0] == 'html') {
+					return 'html'
 				} else if (keys.length == 1 && keys[0] == 'png') {
 					return 'png'
 				} else if (keys.length == 1 && keys[0] == 'jpeg') {
 					return 'jpeg'
 				} else if (keys.length == 1 && keys[0] == 'file') {
 					return 'file'
-				} else if (keys.length == 1 && keys[0] == 'error' && typeof result['error'] == 'string') {
+				} else if (keys.length == 1 && keys[0] == 'error') {
 					return 'error'
 				} else if (
 					keys.length == 3 &&
@@ -96,7 +102,7 @@
 						</div>
 						{#if Array.isArray(result[col])}
 							{#each result[col] as item}
-								<div class="px-12 text-left  whitespace-nowrap">
+								<div class="px-12 text-left text-xs whitespace-nowrap">
 									{typeof item === 'string' ? item : JSON.stringify(item)}
 								</div>
 							{/each}
@@ -105,19 +111,47 @@
 				{/each}
 			</div>
 		{:else if !forceJson && resultKind == 'table-row'}<div
-				class="grid grid-flow-col-dense border border-gray-200 rounded-md "
+				class="grid grid-flow-col-dense border border-gray-200 "
 			>
 				<TableCustom>
 					<tbody slot="body">
 						{#each asListOfList(result) as row}
 							<tr>
 								{#each row as v}
-									<td>{truncate(JSON.stringify(v), 200) ?? ''}</td>
+									<td class="!text-xs">{truncate(JSON.stringify(v), 200) ?? ''}</td>
 								{/each}
 							</tr>
 						{/each}
 					</tbody>
 				</TableCustom>
+			</div>
+		{:else if !forceJson && resultKind == 'html'}
+			<div class="h-full">
+				{#if !requireHtmlApproval || enableHtml}
+					{@html result.html}
+				{:else}
+					<div class="font-main text-sm">
+						<div class="flex flex-col">
+							<div class="bg-red-400 py-1 rounded-t text-white font-bold text-center">
+								Warning
+							</div>
+							<p
+								class="text-gray-600 mb-2 text-left border-2 !border-t-0 rounded-b border-red-400 overflow-auto p-1"
+							>Rendering HTML can expose you to <a href="https://owasp.org/www-community/attacks/xss/" target="_blank" rel="noreferrer" class="hover:underline">XSS attacks</a>.
+Only enable it if you trust the author of the script.
+							</p>
+						</div>
+						<div class="center-center">
+							<Button
+								size="sm"
+								color="dark"
+								on:click={() => enableHtml = true}
+							>
+								Enable HTML rendering
+							</Button>
+						</div>
+					</div>
+				{/if}
 			</div>
 		{:else if !forceJson && resultKind == 'png'}
 			<div class="h-full"
@@ -141,8 +175,11 @@
 					>Download</a
 				>
 			</div>
-		{:else if !forceJson && resultKind == 'error'}<div
-				><pre class="text-sm text-red-500 whitespace-pre-wrap">{result.error}</pre>
+		{:else if !forceJson && resultKind == 'error'}<div>
+				<span class="text-red-500 font-semibold text-sm whitespace-pre-wrap"
+					>{result.error.name}: {result.error.message}</span
+				>
+				<pre class="text-sm whitespace-pre-wrap text-gray-900">{result.error.stack ?? ''}</pre>
 			</div>
 		{:else if !forceJson && resultKind == 'approval'}<div class="flex flex-col gap-1 mx-4">
 				<Button

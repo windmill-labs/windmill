@@ -74,6 +74,7 @@ jobs:
             ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ steps.metalocal.outputs.tags }}
             ${{ steps.meta.outputs.tags }}
+            registry.uffizzi.com/windmill-lsp:60d
           labels: ${{ steps.metalocal.outputs.labels }}
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
           cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max

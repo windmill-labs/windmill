@@ -151,7 +151,7 @@ export interface DropdownItem {
 
 export function emptySchema() {
 	return {
-		$schema: 'https://json-schema.org/draft/2020-12/schema',
+		$schema: 'https://json-schema.org/draft/2020-12/schema' as string | undefined,
 		properties: {},
 		required: [],
 		type: 'object'
@@ -621,7 +621,7 @@ export function scriptLangToEditorLang(
 }
 
 export async function copyToClipboard(value?: string, sendToast = true): Promise<boolean> {
-	if(!value) { return false }
+	if (!value) { return false }
 
 	let success = false
 	if (navigator?.clipboard) {
@@ -655,7 +655,7 @@ export function addWhitespaceBeforeCapitals(word?: string): string {
 }
 
 export function isCloudHosted(): boolean {
-	return get(page).url.hostname == 'app.windmill.dev'
+	return (get(page)?.url?.hostname == 'app.windmill.dev')
 }
 
 export function isObject(obj: any) {

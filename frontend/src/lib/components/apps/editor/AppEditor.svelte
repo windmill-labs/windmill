@@ -32,12 +32,14 @@
 	import { fly } from 'svelte/transition'
 	import type { Policy } from '$lib/gen'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
+	import { page } from '$app/stores'
 
 	export let app: App
 	export let path: string
 	export let initialMode: EditorMode = 'dnd'
 	export let policy: Policy
 	export let summary: string
+	export let fromHub: boolean = false
 
 	const appStore = writable<App>(app)
 	const worldStore = writable<World | undefined>(undefined)
@@ -53,6 +55,7 @@
 	})
 
 	const runnableComponents = writable<Record<string, () => Promise<void>>>({})
+	const errorByComponent = writable<Record<string, { error: string; componentId: string }>>({})
 
 	setContext<AppEditorContext>('AppEditorContext', {
 		worldStore,
@@ -71,7 +74,9 @@
 		isEditor: true,
 		jobs: writable([]),
 		staticExporter: writable({}),
-		noBackend: false
+		noBackend: false,
+		errorByComponent,
+		openDebugRun: writable(undefined)
 	})
 
 	let timeout: NodeJS.Timeout | undefined = undefined
@@ -95,7 +100,11 @@
 		mounted = true
 	})
 
-	$: context = { email: $userStore?.email, username: $userStore?.username }
+	$: context = {
+		email: $userStore?.email,
+		username: $userStore?.username,
+		query: Object.fromEntries($page.url.searchParams.entries())
+	}
 
 	$: mounted && ($worldStore = buildWorld($staticOutputs, $worldStore, context))
 	$: previewing = $mode === 'preview'
@@ -117,7 +126,7 @@
 {#if !$userStore?.operator}
 	<UnsavedConfirmationModal />
 	{#if initialMode !== 'preview'}
-		<AppEditorHeader {policy} />
+		<AppEditorHeader {policy} {fromHub} />
 	{/if}
 
 	{#if previewing}
@@ -177,7 +186,7 @@
 									<span>Settings</span>
 								</div>
 							</Tab>
-							<svelte:fragment slot="content">
+							<div slot="content" class="h-full overflow-y-auto pb-4">
 								<TabContent class="overflow-auto" value="settings">
 									{#if $selectedComponent !== undefined}
 										<SettingsPanel />
@@ -188,12 +197,12 @@
 								<TabContent value="insert">
 									<ComponentList />
 								</TabContent>
-							</svelte:fragment>
+							</div>
 						</Tabs>
 						{#if $connectingInput.opened}
 							<div
 								class="fixed top-32  p-2 z-50 flex justify-center items-center"
-								transition:fly={{ duration: 100, y: -100 }}
+								transition:fly|local={{ duration: 100, y: -100 }}
 							>
 								<Alert title="Connecting" type="info">
 									<div class="flex gap-2 flex-col">

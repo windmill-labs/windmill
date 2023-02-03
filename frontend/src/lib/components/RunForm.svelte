@@ -18,6 +18,8 @@
 	import Toggle from './Toggle.svelte'
 	import { userStore } from '$lib/stores'
 	import Tooltip from './Tooltip.svelte'
+	import CliHelpBox from './CliHelpBox.svelte'
+	import InlineCodeCopy from './InlineCodeCopy.svelte'
 
 	export let runnable:
 		| {
@@ -45,6 +47,7 @@
 	export let autofocus = false
 	export let topButton = false
 	export let loading = false
+	export let noVariablePicker = false
 
 	export let args: Record<string, any> = decodeArgs($page.url.searchParams.get('args') ?? undefined)
 
@@ -54,10 +57,15 @@
 
 	export let isValid = true
 
-	// Run later
 	let viewOptions = false
+	let viewCliOptions = false
+
 	let scheduledForStr: string | undefined
 	let invisible_to_owner: false
+
+	$: cliCommand = `wmill ${runnable?.kind} run ${runnable?.path} ${Object.entries(args)
+		.map(([k, v]) => `-i ${k}=${JSON.stringify(v)}`)
+		.join(' ')}`
 </script>
 
 <div class="max-w-6xl">
@@ -117,57 +125,60 @@
 		{#if !runnable.schema.properties || Object.keys(runnable.schema.properties).length === 0}
 			<div class="text-sm p-4">No arguments</div>
 		{:else}
-			<SchemaForm {autofocus} schema={runnable.schema} bind:isValid bind:args />
+			<SchemaForm {noVariablePicker} {autofocus} schema={runnable.schema} bind:isValid bind:args />
 		{/if}
 	{:else}
 		<div class="text-xs text-gray-600">No schema</div>
 	{/if}
-	{#if viewOptions}
-		<div transition:slide class="mt-6">
-			<h2>Run later</h2>
-			<div class="border rounded-md p-3 pt-4">
-				<div class="flex flex-row items-end">
-					<div class="w-max md:w-2/3 mt-2 mb-1">
-						<label for="run-time" />
-						<input
-							class="inline-block"
-							type="datetime-local"
-							id="run-time"
-							name="run-scheduled-time"
-							bind:value={scheduledForStr}
-							min={getToday().toISOString().slice(0, 16)}
-						/>
-					</div>
+	{#if schedulable}
+		<div class="flex gap-2 items-start flex-wrap justify-between mt-2 md:mt-6 mb-6">
+			<div class="flex flex-col">
+				<div>
 					<Button
-						variant="border"
-						color="blue"
+						color="light"
 						size="sm"
-						btnClasses="mx-2 mb-1"
-						on:click={() => {
-							scheduledForStr = undefined
-						}}
+						endIcon={{ icon: viewOptions ? faChevronUp : faChevronDown }}
+						on:click={() => (viewOptions = !viewOptions)}
 					>
-						Clear
+						Schedule to run later
 					</Button>
 				</div>
+				{#if viewOptions}
+					<div transition:slide class="mt-6">
+						<div class="border rounded-md p-3 pt-4">
+							<div class="flex flex-row items-end">
+								<div class="w-max md:w-2/3 mt-2 mb-1">
+									<label for="run-time" />
+									<input
+										class="inline-block"
+										type="datetime-local"
+										id="run-time"
+										name="run-scheduled-time"
+										bind:value={scheduledForStr}
+										min={getToday().toISOString().slice(0, 16)}
+									/>
+								</div>
+								<Button
+									variant="border"
+									color="blue"
+									size="sm"
+									btnClasses="mx-2 mb-1"
+									on:click={() => {
+										scheduledForStr = undefined
+									}}
+								>
+									Clear
+								</Button>
+							</div>
+						</div>
+					</div>
+				{/if}
 			</div>
-		</div>
-	{/if}
-	{#if schedulable}
-		<div class="flex gap-2 items-center flex-wrap justify-between mt-2 md:mt-6 mb-6">
-			<Button
-				color="light"
-				size="sm"
-				endIcon={{ icon: viewOptions ? faChevronUp : faChevronDown }}
-				on:click={() => (viewOptions = !viewOptions)}
-			>
-				Schedule to run later
-			</Button>
 			{#if runnable?.path?.startsWith(`u/${$userStore?.username}`) != true && (runnable?.path?.split('/')?.length ?? 0) > 2}
 				<div class="flex items-center gap-1">
 					<Toggle
 						options={{
-							right: `run only visible to you`
+							right: `make run invisible to others`
 						}}
 						bind:checked={invisible_to_owner}
 					/>
@@ -183,7 +194,7 @@
 					disabled={!isValid}
 					on:click={() => runAction(scheduledForStr, args, invisible_to_owner)}
 				>
-					{scheduledForStr ? 'Schedule run to a later time' : buttonText}
+					{scheduledForStr ? 'Schedule to run later' : buttonText}
 				</Button>
 			</div>
 		</div>
@@ -195,5 +206,21 @@
 		>
 			{buttonText}
 		</Button>
+	{/if}
+
+	<div class="my-10" />
+	<Button
+		color="light"
+		size="sm"
+		endIcon={{ icon: viewCliOptions ? faChevronUp : faChevronDown }}
+		on:click={() => (viewCliOptions = !viewCliOptions)}
+	>
+		Run it from the CLI
+	</Button>
+	{#if viewCliOptions}
+		<div transition:slide class="mt-2 px-4 pt-2">
+			<InlineCodeCopy content={cliCommand} />
+			<CliHelpBox />
+		</div>
 	{/if}
 </div>

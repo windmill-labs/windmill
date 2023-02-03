@@ -69,7 +69,7 @@
 				</span>
 			</div>
 			<div>
-				<FlowModuleSchemaMap bind:modules={module.value.default} />
+				<FlowModuleSchemaMap parentType="branchone" bind:modules={module.value.default} />
 			</div>
 
 			{#each module.value.branches ?? [] as branch, branchIndex (branchIndex)}
@@ -108,7 +108,7 @@
 					</div>
 
 					<div>
-						<FlowModuleSchemaMap bind:modules={branch.modules} />
+						<FlowModuleSchemaMap parentType="branchone" bind:modules={branch.modules} />
 					</div>
 				</div>
 			{/each}

@@ -80,7 +80,7 @@ pub fn parse_python_signature(code: &str) -> error::Result<MainArgSignature> {
         let def_arg_start = params.args.len() - params.defaults.len();
         Ok(MainArgSignature {
             star_args: params.vararg.is_some(),
-            star_kwargs: params.vararg.is_some(),
+            star_kwargs: params.kwarg.is_some(),
             args: params
                 .args
                 .into_iter()
@@ -104,6 +104,7 @@ pub fn parse_python_signature(code: &str) -> error::Result<MainArgSignature> {
                             "bytes" => Typ::Bytes,
                             "datetime" => Typ::Datetime,
                             "datetime.datetime" => Typ::Datetime,
+                            "Sql" | "sql" => Typ::Sql,
                             _ => Typ::Resource(id),
                         },
                         _ => Typ::Unknown,
@@ -135,7 +136,10 @@ fn to_value(et: &ExprKind) -> Option<serde_json::Value> {
                 .into_iter()
                 .zip(values)
                 .map(|(k, v)| {
-                    let key = to_value(&k.node)
+                    let key = k
+                        .as_ref()
+                        .map(|x| x.node.clone())
+                        .and_then(|n| to_value(&n))
                         .and_then(|x| match x {
                             serde_json::Value::String(s) => Some(s),
                             _ => None,
@@ -174,11 +178,14 @@ fn constant_to_value(c: &Constant) -> serde_json::Value {
 
 static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_map! {
     "psycopg2" => "psycopg2-binary",
-    "psycopg" => "psycopg[binary]",
+    "psycopg" => "psycopg[binary, pool]",
     "yaml" => "pyyaml",
     "git" => "GitPython",
     "u" => "requests",
-    "f" => "requests"
+    "f" => "requests",
+    "shopify" => "ShopifyAPI",
+    "seleniumwire" => "selenium-wire",
+    "openbb-terminal" => "openbb[all]",
 };
 
 fn replace_import(x: String) -> String {
@@ -190,13 +197,13 @@ fn replace_import(x: String) -> String {
 }
 
 lazy_static! {
-    static ref RE: Regex = Regex::new(r"^\#(\S+)$").unwrap();
+    static ref RE: Regex = Regex::new(r"^\#\s?(\S+)$").unwrap();
 }
 
 pub fn parse_python_imports(code: &str) -> error::Result<Vec<String>> {
     let find_requirements = code
         .lines()
-        .find_position(|x| x.starts_with("#requirements:"));
+        .find_position(|x| x.starts_with("#requirements:") || x.starts_with("# requirements:"));
     if let Some((pos, _)) = find_requirements {
         let lines = code
             .lines()

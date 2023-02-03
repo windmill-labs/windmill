@@ -109,12 +109,10 @@
 				console.error(err)
 			}
 		}
-		console.debug('cancelled')
 	}
 
 	export async function clearCurrentJob() {
 		if (currentId) {
-			console.debug('clear')
 			job = undefined
 			await cancelJob()
 		}
@@ -180,7 +178,6 @@
 
 	async function syncer(id: string): Promise<void> {
 		if (currentId != id) {
-			console.debug('stop')
 			return
 		}
 		syncIteration++
@@ -195,6 +192,6 @@
 	}
 
 	onDestroy(async () => {
-		await clearCurrentJob()
+		currentId = undefined
 	})
 </script>

@@ -22,20 +22,7 @@
 
 	let selectedId: string = 'settings-graph'
 
-	let flow: Flow = {
-		path: $page.params.path,
-		summary: '',
-		edited_by: '',
-		edited_at: '',
-		value: { modules: [] },
-		archived: false,
-		extra_perms: {},
-		schema: emptySchema()
-	}
-
 	let initialPath: string = ''
-
-	initFlow(flow)
 
 	async function loadFlow(): Promise<void> {
 		loading = true
