@@ -72,7 +72,6 @@ export class VariableFile implements Resource, PushDiffs {
       );
       const changeset: EditVariable = {};
       for (const diff of diffs) {
-        console.log(diff.path[0] in ["path"]);
         if (
           diff.type !== "REMOVE" &&
           (

@@ -74,7 +74,7 @@ export async function requireLogin(opts: GlobalOptions) {
     await UserService.globalWhoami();
   } catch {
     console.log(
-      "! Could reach API given existing credentials. Attempting to reauth...",
+      "! Could not reach API given existing credentials. Attempting to reauth...",
     );
     const newToken = await loginInteractive(workspace.remote);
     if (!newToken) {
