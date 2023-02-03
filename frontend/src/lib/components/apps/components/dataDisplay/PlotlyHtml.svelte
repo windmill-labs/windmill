@@ -2,12 +2,12 @@
 	import { Loader2 } from 'lucide-svelte'
 	import { onMount } from 'svelte'
 	import type { AppInput } from '../../inputType'
-	import InputValue from '../helpers/InputValue.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
 	export let configuration: Record<string, AppInput>
+	export let initializing: boolean | undefined = undefined
 
 	export const staticOutputs: string[] = ['result', 'loading']
 
@@ -41,7 +41,7 @@
 </script>
 
 <div class="w-full h-full" bind:clientHeight={h} bind:clientWidth={w}>
-	<RunnableWrapper flexWrap bind:componentInput {id} bind:result>
+	<RunnableWrapper flexWrap bind:componentInput {id} bind:initializing bind:result>
 		{#if !Plotly}
 			<div class="p-2">
 				<Loader2 class="animate-spin" />

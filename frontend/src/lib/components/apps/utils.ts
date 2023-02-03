@@ -2,31 +2,11 @@ import type { Schema } from '$lib/common'
 import { FlowService, ScriptService } from '$lib/gen'
 import { inferArgs } from '$lib/infer'
 import { emptySchema } from '$lib/utils'
-import {
-	BarChart4,
-	Binary,
-	CircleDot,
-	FormInput,
-	Inspect,
-	List,
-	Monitor,
-	PieChart,
-	Play,
-	Table2,
-	Image,
-	TextCursorInput,
-	Type,
-	Lock,
-	Calendar,
-	ToggleLeft,
-	GripHorizontal,
-	Code2,
-	SlidersHorizontal,
-	PlusSquare
-} from 'lucide-svelte'
+import type { AppComponent } from './editor/Component.svelte'
+
 import type { AppInput, InputType, ResultAppInput, StaticAppInput } from './inputType'
 import type { Output } from './rx'
-import type { App, AppComponent, GridItem } from './types'
+import type { App, GridItem } from './types'
 
 export async function loadSchema(
 	workspace: string,
@@ -85,104 +65,7 @@ export function schemaToInputsSpec(
 	}, {})
 }
 
-export const displayData: Record<AppComponent['type'], { name: string; icon: any }> = {
-	displaycomponent: {
-		name: 'Result',
-		icon: Monitor
-	},
-	textcomponent: {
-		name: 'Text',
-		icon: Type
-	},
-	buttoncomponent: {
-		name: 'Button',
-		icon: Inspect
-	},
-	formcomponent: {
-		name: 'Form',
-		icon: FormInput
-	},
-	formbuttoncomponent: {
-		name: 'Modal Form',
-		icon: PlusSquare
-	},
-	piechartcomponent: {
-		name: 'Pie Chart',
-		icon: PieChart
-	},
-	barchartcomponent: {
-		name: 'Bar/Line Chart',
-		icon: BarChart4
-	},
-	htmlcomponent: {
-		name: 'Html',
-		icon: Code2
-	},
-	vegalitecomponent: {
-		name: 'Vega Lite',
-		icon: PieChart
-	},
-	plotlycomponent: {
-		name: 'Plotly',
-		icon: PieChart
-	},
-	timeseriescomponent: {
-		name: 'Timeseries',
-		icon: GripHorizontal
-	},
-	scatterchartcomponent: {
-		name: 'Scatter Chart',
-		icon: GripHorizontal
-	},
-	tablecomponent: {
-		name: 'Table',
-		icon: Table2
-	},
-	checkboxcomponent: {
-		name: 'Toggle',
-		icon: ToggleLeft
-	},
-	textinputcomponent: {
-		name: 'Text input',
-		icon: TextCursorInput
-	},
-	imagecomponent: {
-		name: 'Image',
-		icon: Image
-	},
-	inputcomponent: {
-		name: 'Input',
-		icon: FormInput
-	},
-	radiocomponent: {
-		name: 'Radio button',
-		icon: CircleDot
-	},
-	runformcomponent: {
-		name: 'Run form',
-		icon: Play
-	},
-	selectcomponent: {
-		name: 'Select',
-		icon: List
-	},
-	numberinputcomponent: {
-		name: 'Number',
-		icon: Binary
-	},
-	slidercomponent: {
-		name: 'Slider',
-		icon: SlidersHorizontal
-	},
-	passwordinputcomponent: {
-		name: 'Password',
-		icon: Lock
-	},
-	dateinputcomponent: {
-		name: 'Date input',
-		icon: Calendar
-	}
-}
+
 
 export function accessPropertyByPath<T>(object: T, path: string): T | undefined {
 	// convert indexes to properties

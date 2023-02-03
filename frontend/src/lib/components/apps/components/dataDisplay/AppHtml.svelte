@@ -4,6 +4,7 @@
 
 	export let id: string
 	export let componentInput: AppInput | undefined
+	export let initializing: boolean | undefined = undefined
 
 	export const staticOutputs: string[] = ['result', 'loading']
 
@@ -20,14 +21,16 @@
 	bind:clientHeight={h}
 	bind:clientWidth={w}
 >
-	<RunnableWrapper autoRefresh flexWrap bind:componentInput {id} bind:result>
+	<RunnableWrapper autoRefresh flexWrap bind:componentInput {id} bind:initializing bind:result>
 		{#key result}
 			<iframe
 				frameborder="0"
 				style="height: {h}px; width: {w}px"
 				class="p-0"
 				title="sandbox"
-				srcdoc={result ? '<scr' + `ipt src="/tailwind.css"></script>` + result : 'No html'}
+				srcdoc={result
+					? '<scr' + `ipt type="application/javascript" src="/tailwind.js"></script>` + result
+					: 'No html'}
 			/>
 		{/key}
 	</RunnableWrapper>

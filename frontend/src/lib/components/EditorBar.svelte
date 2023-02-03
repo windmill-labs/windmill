@@ -29,6 +29,8 @@
 	import PickHubScript from './flows/pickers/PickHubScript.svelte'
 	import ToggleHubWorkspace from './ToggleHubWorkspace.svelte'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
+	import Popover from './Popover.svelte'
+	import Kbd from './common/kbd/Kbd.svelte'
 
 	export let lang: 'python3' | 'deno' | 'go' | 'bash'
 	export let editor: Editor
@@ -225,121 +227,137 @@
 <ResourceEditor bind:this={resourceEditor} on:refresh={resourcePicker.openDrawer} />
 <VariableEditor bind:this={variableEditor} on:create={variablePicker.openDrawer} />
 
-<div class="flex flex-row justify-between items-center overflow-hidden w-full px-1">
-	<div class="flex flex-row divide-x items-center">
-		<div class="mx-2">
-			{#if validCode}
-				<Badge color="green">Inputs</Badge>
-			{:else}
-				<Badge color="red">Inputs</Badge>
-			{/if}
-		</div>
-		<div>
-			<Button
-				color="light"
-				btnClasses="mr-1 !font-medium"
-				on:click={contextualVariablePicker.openDrawer}
-				size="xs"
-				spacingSize="md"
-				startIcon={{ icon: faDollarSign }}
-				{iconOnly}
-			>
-				+Context Var
-			</Button>
-		</div>
-		<div>
-			<Button
-				color="light"
-				btnClasses="mx-1 !font-medium"
-				on:click={variablePicker.openDrawer}
-				size="xs"
-				spacingSize="md"
-				startIcon={{ icon: faDollarSign }}
-				{iconOnly}
-			>
-				+Variable
-			</Button>
-		</div>
-		<div>
-			<Button
-				btnClasses="mx-1 !font-medium"
-				size="xs"
-				spacingSize="md"
-				color="light"
-				on:click={resourcePicker.openDrawer}
-				{iconOnly}
-				startIcon={{ icon: faCube }}
-			>
-				+Resource
-			</Button>
-		</div>
-		<div>
-			<Button
-				btnClasses="mx-1 !font-medium"
-				size="xs"
-				spacingSize="md"
-				color="light"
-				on:click={editor.clearContent}
-				{iconOnly}
-				startIcon={{ icon: faRotateLeft }}
-			>
-				Reset
-			</Button>
-		</div>
-		<div>
-			<Button
-				btnClasses="!font-medium"
-				size="xs"
-				spacingSize="md"
-				color="light"
-				on:click={editor.reloadWebsocket}
-				startIcon={{ icon: faRotate }}
-			>
-				{#if !iconOnly}
-					Assistant
-				{/if}
-				<span class="ml-1 -my-1">
-					{#if lang == 'deno'}
-						(<span class={websocketAlive.deno ? 'green' : 'text-red-700'}>Deno</span>)
-					{:else if lang == 'go'}
-						(<span class={websocketAlive.go ? 'green' : 'text-red-700'}>Go</span>)
-					{:else if lang == 'python3'}
-						(<span class={websocketAlive.pyright ? 'green' : 'text-red-700'}>Pyright</span>
-						<span class={websocketAlive.black ? 'green' : 'text-red-700'}>Black</span>)
+<div class="flex justify-between items-center overflow-y-auto w-full p-1">
+	<div class="flex items-center">
+		<Badge color={validCode ? 'green' : 'red'} class="min-w-[60px] mr-3">
+			{validCode ? 'Valid' : 'Invalid'}
+		</Badge>
+		<div class="flex items-center divide-x">
+			<Popover notClickable placement="bottom" disapperTimoout={0} class="pr-1" disablePopup={!iconOnly}>
+				<Button
+					color="light"
+					btnClasses="!font-medium !h-full"
+					on:click={contextualVariablePicker.openDrawer}
+					size="xs"
+					spacingSize="md"
+					startIcon={{ icon: faDollarSign }}
+					{iconOnly}
+				>
+					+Context Var
+				</Button>
+				<svelte:fragment slot="text">
+					Add context variable
+				</svelte:fragment>
+			</Popover>
+			<Popover notClickable placement="bottom" disapperTimoout={0} class="px-1" disablePopup={!iconOnly}>
+				<Button
+					color="light"
+					btnClasses="!font-medium !h-full"
+					on:click={variablePicker.openDrawer}
+					size="xs"
+					spacingSize="md"
+					startIcon={{ icon: faDollarSign }}
+					{iconOnly}
+				>
+					+Variable
+				</Button>
+				<svelte:fragment slot="text">
+					Add variable
+				</svelte:fragment>
+			</Popover>
+			<Popover notClickable placement="bottom" disapperTimoout={0} class="px-1" disablePopup={!iconOnly}>
+				<Button
+					btnClasses="!font-medium !h-full"
+					size="xs"
+					spacingSize="md"
+					color="light"
+					on:click={resourcePicker.openDrawer}
+					{iconOnly}
+					startIcon={{ icon: faCube }}
+				>
+					+Resource
+				</Button>
+				<svelte:fragment slot="text">
+					Add resource
+				</svelte:fragment>
+			</Popover>
+			<Popover notClickable placement="bottom" disapperTimoout={0} class="px-1" disablePopup={!iconOnly}>
+				<Button
+					btnClasses="!font-medium !h-full"
+					size="xs"
+					spacingSize="md"
+					color="light"
+					on:click={editor.clearContent}
+					{iconOnly}
+					startIcon={{ icon: faRotateLeft }}
+				>
+					Reset
+				</Button>
+				<svelte:fragment slot="text">
+					Reset
+				</svelte:fragment>
+			</Popover>
+			<Popover notClickable placement="bottom" disapperTimoout={0} class="px-1" disablePopup={!iconOnly}>
+				<Button
+					btnClasses="!font-medium !h-full"
+					size="xs"
+					spacingSize="md"
+					color="light"
+					on:click={editor.reloadWebsocket}
+					startIcon={{ icon: faRotate }}
+				>
+					{#if !iconOnly}
+						Assistant
 					{/if}
-				</span>
-			</Button></div
-		>
-		<div>
-			<Button
-				btnClasses="!font-medium"
-				size="xs"
-				spacingSize="md"
-				color="light"
-				on:click={editor.format}
-				startIcon={{ icon: faBroom }}
-			>
-				{#if !iconOnly}
+					<span class="ml-1 -my-1">
+						{#if lang == 'deno'}
+							(<span class={websocketAlive.deno ? 'green' : 'text-red-700'}>Deno</span>)
+						{:else if lang == 'go'}
+							(<span class={websocketAlive.go ? 'green' : 'text-red-700'}>Go</span>)
+						{:else if lang == 'python3'}
+							(<span class={websocketAlive.pyright ? 'green' : 'text-red-700'}>Pyright</span>
+							<span class={websocketAlive.black ? 'green' : 'text-red-700'}>Black</span>)
+						{/if}
+					</span>
+				</Button>
+				<svelte:fragment slot="text">
+					Reload assistant
+				</svelte:fragment>
+			</Popover>
+			<Popover notClickable placement="bottom" disapperTimoout={0} class="px-1" disablePopup={!iconOnly}>
+				<Button
+					btnClasses="!font-medium"
+					size="xs"
+					spacingSize="md"
+					color="light"
+					on:click={editor.format}
+					{iconOnly}
+					startIcon={{ icon: faBroom }}
+				>
 					Format (Ctrl+S)
-				{/if}
-			</Button></div
-		>
-	</div>
-	<div class="py-1">
-		<div>
-			<Button
-				btnClasses="mx-1 !font-medium"
-				size="xs"
-				spacingSize="md"
-				color="light"
-				on:click={scriptPicker.openDrawer}
-				{iconOnly}
-				startIcon={{ icon: faEye }}
-			>
-				Script
-			</Button>
+				</Button>
+				<svelte:fragment slot="text">
+					Format <Kbd class="!text-gray-800">Ctrl</Kbd> + <Kbd class="!text-gray-800">S</Kbd>
+				</svelte:fragment>
+			</Popover>
 		</div>
 	</div>
+	<Popover notClickable placement="bottom" disapperTimoout={0} class="px-1" disablePopup={!iconOnly}>
+		<Button
+			btnClasses="!font-medium"
+			size="xs"
+			spacingSize="md"
+			color="light"
+			on:click={scriptPicker.openDrawer}
+			{iconOnly}
+			startIcon={{ icon: faEye }}
+		>
+			Script
+		</Button>
+		<svelte:fragment slot="text">
+			Script
+		</svelte:fragment>
+	</Popover>
 </div>
 
 <style>

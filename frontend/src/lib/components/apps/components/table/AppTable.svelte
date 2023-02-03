@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { getContext, onMount } from 'svelte'
 	import type { Output } from '../../rx'
-	import type { AppEditorContext, BaseAppComponent, ButtonComponent } from '../../types'
+	import type { AppEditorContext, BaseAppComponent } from '../../types'
 	import InputValue from '../helpers/InputValue.svelte'
 	import type { AppInput } from '../../inputType'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
@@ -13,11 +13,13 @@
 	import AppTableFooter from './AppTableFooter.svelte'
 	import { tableOptions } from './tableOptions'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import type { ButtonComponent } from '../../editor/Component.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
 	export let configuration: Record<string, AppInput>
 	export let actionButtons: (BaseAppComponent & ButtonComponent)[]
+	export let initializing: boolean | undefined = undefined
 
 	export const staticOutputs: string[] = [
 		'selectedRow',
@@ -135,7 +137,7 @@
 
 <InputValue {id} input={configuration.search} bind:value={search} />
 
-<RunnableWrapper flexWrap bind:componentInput {id} bind:result>
+<RunnableWrapper flexWrap bind:componentInput {id} bind:initializing bind:result>
 	{#if Array.isArray(result) && result.every(isObject)}
 		<div class="border border-gray-300 shadow-sm divide-y divide-gray-300  flex flex-col h-full">
 			{#if search !== 'Disabled'}
@@ -210,21 +212,18 @@
 								{/each}
 
 								{#if actionButtons.length > 0}
-									<td
-										class="p-2 "
-										on:click={() => toggleRow(row, rowIndex)}
-									>
-											<div class="center-center h-full w-full flex-wrap gap-1">
-												{#each actionButtons as actionButton, actionIndex (actionIndex)}
-													<AppButton
-														noWFull
-														{...actionButton}
-														extraQueryParams={{ row: row.original }}
-														bind:componentInput={actionButton.componentInput}
-														bind:staticOutputs={$staticOutputsStore[actionButton.id]}
-													/>
-												{/each}
-											</div>
+									<td class="p-2 " on:click={() => toggleRow(row, rowIndex)}>
+										<div class="center-center h-full w-full flex-wrap gap-1">
+											{#each actionButtons as actionButton, actionIndex (actionIndex)}
+												<AppButton
+													noWFull
+													{...actionButton}
+													extraQueryParams={{ row: row.original }}
+													bind:componentInput={actionButton.componentInput}
+													bind:staticOutputs={$staticOutputsStore[actionButton.id]}
+												/>
+											{/each}
+										</div>
 									</td>
 								{/if}
 							</tr>

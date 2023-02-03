@@ -24,6 +24,7 @@
 	export let defaultUserInput = false
 	export let flexWrap = false
 	export let wrapperClass = ''
+	export let initializing: boolean | undefined = undefined
 
 	const {
 		worldStore,
@@ -305,7 +306,7 @@
 />
 
 <div class="h-full flex relative flex-row flex-wrap {wrapperClass}">
-	{#if autoRefresh === true}
+	{#if !initializing && autoRefresh === true}
 		<div class="flex absolute top-1 right-1">
 			<RefreshButton componentId={id} />
 		</div>

@@ -6,7 +6,8 @@
 	import { faPlus, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
-	import type { ButtonComponent, AppEditorContext, BaseAppComponent } from '../../types'
+	import type { AppEditorContext, BaseAppComponent } from '../../types'
+	import type { ButtonComponent } from '../Component.svelte'
 	import PanelSection from './common/PanelSection.svelte'
 	import TableActionLabel from './TableActionLabel.svelte'
 

@@ -49,10 +49,11 @@
 		StaticAppInput,
 		UserAppInput
 	} from '../inputType'
-	import type { AppComponent, AppEditorContext } from '../types'
+	import type { AppEditorContext } from '../types'
 	import { toStatic } from '../utils'
 	import AppExportButton from './AppExportButton.svelte'
 	import AppInputs from './AppInputs.svelte'
+	import type { AppComponent } from './Component.svelte'
 	import PanelSection from './settingsPanel/common/PanelSection.svelte'
 
 	async function hash(message) {

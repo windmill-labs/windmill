@@ -9,6 +9,7 @@
 	export let componentInput: AppInput | undefined
 	export let id: string
 	export let result: any = undefined
+	export let initializing: boolean = true
 
 	export let extraQueryParams: Record<string, any> = {}
 	export let autoRefresh: boolean = true
@@ -19,6 +20,10 @@
 	export let runnableClass = ''
 
 	const { staticExporter, noBackend } = getContext<AppEditorContext>('AppEditorContext')
+
+	$: if (initializing && result) {
+		initializing = false
+	}
 
 	if (noBackend && componentInput?.type == 'runnable') {
 		result = componentInput?.['value']
@@ -46,6 +51,7 @@
 		{id}
 		{extraQueryParams}
 		{forceSchemaDisplay}
+		{initializing}
 		wrapperClass={runnableClass}
 	>
 		<slot />

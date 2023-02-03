@@ -1,6 +1,5 @@
 <script lang="ts">
-	import type { AppComponent } from '../types'
-	import { displayData } from '../utils'
+	import { components, type AppComponent } from './Component.svelte'
 	import InputsSpecsEditor from './settingsPanel/InputsSpecsEditor.svelte'
 
 	export let component: AppComponent
@@ -11,7 +10,7 @@
 	<div class="mb-8">
 		<div class="flex justify-between mb-4">
 			<span class="text-sm font-bold">{component.id}</span>
-			<span class="text-sm font-bold">{displayData[component.type].name}</span>
+			<span class="text-sm font-bold">{components[component.type].name}</span>
 		</div>
 
 		{#if resourceOnly && Object.keys(component.componentInput.fields).filter((fieldKey) => {

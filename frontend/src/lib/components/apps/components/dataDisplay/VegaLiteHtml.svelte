@@ -8,6 +8,7 @@
 	export let id: string
 	export let componentInput: AppInput | undefined
 	export let configuration: Record<string, AppInput>
+	export let initializing: boolean | undefined = undefined
 
 	export const staticOutputs: string[] = ['result', 'loading']
 
@@ -52,7 +53,7 @@
 <InputValue {id} input={configuration.canvas} bind:value={canvas} />
 
 <div class="w-full h-full" bind:clientHeight={h} bind:clientWidth={w}>
-	<RunnableWrapper flexWrap bind:componentInput {id} bind:result>
+	<RunnableWrapper flexWrap bind:componentInput {id} bind:initializing bind:result>
 		{#if !vegaEmbed}
 			<div class="p-2">
 				<Loader2 class="animate-spin" />

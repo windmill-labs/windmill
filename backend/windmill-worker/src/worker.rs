@@ -404,6 +404,13 @@ pub async fn run_worker(
     )
     .expect("register prometheus metric");
 
+    let worker_busy: prometheus::IntGauge = prometheus::register_int_gauge!(prometheus::Opts::new(
+        "worker_busy",
+        "Is the worker busy executing a job?",
+    )
+    .const_label("name", &worker_name))
+    .unwrap();
+
     let mut jobs_executed = 0;
 
     let deno_path = std::env::var("DENO_PATH").unwrap_or_else(|_| "/usr/bin/deno".to_string());
@@ -428,6 +435,12 @@ pub async fn run_worker(
         .ok()
         .map(|x| x.split(' ').map(|x| x.to_string()).collect());
     let pip_local_dependencies = std::env::var("PIP_LOCAL_DEPENDENCIES")
+        .ok()
+        .map(|x| x.split(',').map(|x| x.to_string()).collect());
+    let whitelist_workspaces = std::env::var("WHITELIST_WORKSPACES")
+        .ok()
+        .map(|x| x.split(',').map(|x| x.to_string()).collect());
+    let blacklist_workspaces = std::env::var("BLACKLIST_WORKSPACES")
         .ok()
         .map(|x| x.split(',').map(|x| x.to_string()).collect());
 
@@ -481,11 +494,14 @@ pub async fn run_worker(
     let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<Uuid>(5);
 
     loop {
+        worker_busy.set(0);
+
         uptime_metric.inc_by(
             ((Instant::now() - start_time).as_millis() - uptime_metric.get() as u128)
                 .try_into()
                 .unwrap(),
         );
+
         let do_break = async {
             if last_ping.elapsed().as_secs() > NUM_SECS_ENV_CHECK {
                 sqlx::query!(
@@ -526,7 +542,9 @@ pub async fn run_worker(
                         .await
                         .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string())))
                     },
-                    (job, timer) = {let timer = worker_pull_duration.start_timer(); pull(&db).map(|x| (x, timer)) } => {
+                    (job, timer) = {
+                        let timer = worker_pull_duration.start_timer(); 
+                        pull(&db, whitelist_workspaces.clone(), blacklist_workspaces.clone()).map(|x| (x, timer)) } => {
                         drop(timer);
                         (false, job)
                     },
@@ -536,6 +554,7 @@ pub async fn run_worker(
                 return true;
             }
 
+            worker_busy.set(1);
             match next_job {
                 Ok(Some(job)) => {
                     let label_values = [

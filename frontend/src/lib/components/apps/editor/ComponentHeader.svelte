@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
-	import type { AppComponent, AppEditorContext } from '../types'
+	import type { AppEditorContext } from '../types'
 	import { Anchor, Bug, Move } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { Alert, Button } from '$lib/components/common'
+	import type { AppComponent } from './Component.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
