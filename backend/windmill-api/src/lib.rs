@@ -21,7 +21,7 @@ use crate::{
     oauth2::{build_oauth_clients, SlackVerifier},
     tracing_init::{MyMakeSpan, MyOnResponse},
     users::{Authed, OptAuthed},
-    webhook_util::{WebhookShared, WebhookUtil},
+    webhook_util::WebhookShared,
 };
 
 mod apps;
@@ -150,8 +150,7 @@ pub async fn run_server(
                         .nest("/flows", flows::workspaced_service())
                         .nest("/capture", capture::workspaced_service())
                         .nest("/favorites", favorite::workspaced_service())
-                        .nest("/folders", folders::workspaced_service())
-                        .route_layer(from_extractor::<WebhookUtil>()),
+                        .nest("/folders", folders::workspaced_service()),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(

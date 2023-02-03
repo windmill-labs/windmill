@@ -12,7 +12,7 @@ use crate::{
     jobs::script_path_to_payload,
     users::{require_owner_of_path, Authed, OptAuthed},
     variables::build_crypt,
-    webhook_util::{WebhookMessage, WebhookUtil},
+    webhook_util::{WebhookMessage, WebhookShared},
 };
 use axum::{
     extract::{Extension, Json, Path, Query},
@@ -311,7 +311,7 @@ async fn get_secret_id(
 async fn create_app(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
-    webhook: WebhookUtil,
+    Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
     Json(app): Json<CreateApp>,
 ) -> Result<(StatusCode, String)> {
@@ -360,10 +360,10 @@ async fn create_app(
     .await?;
 
     tx.commit().await?;
-    webhook.send_message(WebhookMessage::CreateApp {
-        workspace: w_id.clone(),
-        path: app.path.clone(),
-    });
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::CreateApp { workspace: w_id, path: app.path.clone() },
+    );
 
     Ok((StatusCode::CREATED, app.path))
 }
@@ -402,7 +402,7 @@ pub async fn get_hub_app_by_id(
 async fn delete_app(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
-    webhook: WebhookUtil,
+    Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
     let path = path.to_path();
@@ -426,8 +426,10 @@ async fn delete_app(
     )
     .await?;
     tx.commit().await?;
-    webhook
-        .send_message(WebhookMessage::DeleteApp { workspace: w_id.clone(), path: path.to_owned() });
+    webhook.send_message(
+        w_id.clone().clone(),
+        WebhookMessage::DeleteApp { workspace: w_id, path: path.to_owned() },
+    );
 
     Ok(format!("app {} deleted", path))
 }
@@ -435,7 +437,7 @@ async fn delete_app(
 async fn update_app(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
-    webhook: WebhookUtil,
+    Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(ns): Json<EditApp>,
@@ -525,11 +527,14 @@ async fn update_app(
     )
     .await?;
     tx.commit().await?;
-    webhook.send_message(WebhookMessage::UpdateApp {
-        workspace: w_id.clone(),
-        old_path: path.to_owned(),
-        new_path: npath.clone(),
-    });
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::UpdateApp {
+            workspace: w_id,
+            old_path: path.to_owned(),
+            new_path: npath.clone(),
+        },
+    );
 
     Ok(format!("app {} updated (npath: {:?})", path, npath))
 }
