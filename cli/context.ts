@@ -1,10 +1,12 @@
 // deno-lint-ignore-file no-explicit-any
-import { colors, setClient } from "./deps.ts";
-import { tryGetLoginInfo } from "./login.ts";
+import { colors, setClient, UserService } from "./deps.ts";
+import { loginInteractive, tryGetLoginInfo } from "./login.ts";
 import { GlobalOptions } from "./types.ts";
 import {
+  addWorkspace,
   getActiveWorkspace,
   getWorkspaceByName,
+  removeWorkspace,
   Workspace,
 } from "./workspace.ts";
 
@@ -67,6 +69,27 @@ export async function requireLogin(opts: GlobalOptions) {
   }
 
   setClient(token, workspace.remote.substring(0, workspace.remote.length - 1));
+
+  try {
+    await UserService.globalWhoami();
+  } catch {
+    console.log(
+      "! Could not reach API given existing credentials. Attempting to reauth...",
+    );
+    const newToken = await loginInteractive(workspace.remote);
+    if (!newToken) {
+      throw new Error("Could not reauth");
+    }
+    removeWorkspace(workspace.name);
+    workspace.token = newToken;
+    addWorkspace(workspace);
+
+    setClient(
+      token,
+      workspace.remote.substring(0, workspace.remote.length - 1),
+    );
+    await UserService.globalWhoami();
+  }
 }
 
 export async function tryResolveVersion(

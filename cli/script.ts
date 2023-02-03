@@ -2,20 +2,52 @@
 import { GlobalOptions } from "./types.ts";
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import {
+  colors,
+  Command,
   JobService,
+  readAll,
   Script,
-} from "https://deno.land/x/windmill@v1.50.0/windmill-api/index.ts";
-import { colors, Command, readAll, ScriptService, Table } from "./deps.ts";
+  ScriptService,
+  Table,
+} from "./deps.ts";
+import { Any, array, decoverto, model, property } from "./decoverto.ts";
 
-type ScriptFile = {
+@model()
+export class ScriptFile {
+  @property(() => String)
   parent_hash?: string;
+  @property(() => String)
   summary: string;
+  @property(() => String)
   description: string;
+  @property(Any)
   schema?: any;
+  @property(() => Boolean)
   is_template?: boolean;
+  @property(array(() => String))
   lock?: Array<string>;
+  @property({
+    toInstance: (data) => {
+      if (data == null) return data;
+
+      if (
+        data === "script" || data === "failure" || data === "trigger" ||
+        data === "command" || data === "approvial"
+      ) {
+        return data;
+      }
+
+      throw new Error("Invalid kind " + data);
+    },
+    toPlain: (data) => data,
+  })
   kind?: "script" | "failure" | "trigger" | "command" | "approval";
-};
+
+  constructor(summary: string, description: string) {
+    this.summary = summary;
+    this.description = description;
+  }
+}
 
 type PushOptions = GlobalOptions;
 async function push(
@@ -48,10 +80,12 @@ async function push(
 }
 
 export async function findContentFile(filePath: string) {
+  console.log("Searching " + filePath);
   const candidates = [
     filePath.replace(".script.json", ".ts"),
     filePath.replace(".script.json", ".py"),
     filePath.replace(".script.json", ".go"),
+    filePath.replace(".script.json", ".sh"),
   ];
   const validCandidates = (
     await Promise.all(
@@ -79,23 +113,35 @@ export async function findContentFile(filePath: string) {
   return validCandidates[0];
 }
 
+export function inferContentTypeFromFilePath(
+  contentPath: string,
+): "python3" | "deno" | "go" | "bash" {
+  let language = contentPath.substring(contentPath.lastIndexOf("."));
+  if (language == ".ts") language = "deno";
+  if (language == ".py") language = "python3";
+  if (language == ".sh") language = "bash";
+  if (language == ".go") language = "go";
+  if (
+    language != "python3" && language != "deno" && language != "go" &&
+    language != "bash"
+  ) {
+    throw new Error("Invalid language: " + language);
+  }
+  return language;
+}
+
 export async function pushScript(
   filePath: string,
   contentPath: string,
   workspace: string,
   remotePath: string,
 ) {
-  const data: ScriptFile = JSON.parse(await Deno.readTextFile(filePath));
+  const data = decoverto.type(ScriptFile).rawToInstance(
+    await Deno.readTextFile(filePath),
+  );
   const content = await Deno.readTextFile(contentPath);
 
-  let language = contentPath.substring(contentPath.lastIndexOf("."));
-  if (language == ".ts") language = "deno";
-  if (language == ".py") language = "python3";
-  if (language == ".go") language = "go";
-  if (language != "python3" && language != "deno" && language != "go") {
-    throw new Error("Invalid language: " + language);
-  }
-
+  const language = inferContentTypeFromFilePath(contentPath);
   let parent_hash = data.parent_hash;
   if (!parent_hash) {
     try {

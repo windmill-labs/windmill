@@ -1,16 +1,145 @@
 // deno-lint-ignore-file no-explicit-any
-import { GlobalOptions } from "./types.ts";
+import {
+  Difference,
+  GlobalOptions,
+  PushDiffs,
+  Resource,
+  setValueByPath,
+} from "./types.ts";
 import {
   colors,
   Command,
   Flow,
+  FlowModule,
   FlowService,
   JobService,
-  OpenFlow,
+  microdiff,
+  OpenFlowWPath,
   Table,
 } from "./deps.ts";
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import { resolve, track_job } from "./script.ts";
+import { Any, array, decoverto, model, property } from "./decoverto.ts";
+
+@model()
+export class FlowValueFilePart {
+  @property(array(Any))
+  modules: Array<FlowModule>;
+  @property(Any)
+  failure_module?: FlowModule;
+  @property(() => Boolean)
+  same_worker?: boolean;
+
+  constructor(modules: Array<FlowModule>) {
+    this.modules = modules;
+  }
+}
+
+// this is effectively "OpenFlow" but a copy as it is accepted by the CLI
+@model()
+export class FlowFile implements Resource, PushDiffs {
+  @property(() => String)
+  summary: string;
+  @property(() => String)
+  description?: string;
+  @property(() => FlowValueFilePart)
+  value: FlowValueFilePart;
+  @property(Any)
+  schema?: any;
+
+  constructor(summary: string, value: FlowValueFilePart) {
+    this.summary = summary;
+    this.value = value;
+  }
+  async pushDiffs(
+    workspace: string,
+    remotePath: string,
+    diffs: Difference[],
+  ): Promise<void> {
+    if (
+      await FlowService.existsFlowByPath({
+        workspace: workspace,
+        path: remotePath,
+      })
+    ) {
+      console.log(
+        colors.bold.yellow(
+          `Applying ${diffs.length} diffs to existing flow...`,
+        ),
+      );
+
+      // TODO: Make these optional in backend (not path ofc)
+      const changeset: OpenFlowWPath = {
+        path: remotePath,
+        summary: this.summary,
+        value: this.value,
+        description: this.description, // This is OpenAPIed as optional, but isn't
+        schema: this.schema, // Same
+      };
+      for (const diff of diffs) {
+        if (
+          diff.type !== "REMOVE" &&
+          (
+            diff.path[0] !== "value" && (
+              diff.path.length !== 1 ||
+              !["summary", "description", "schema"].includes(
+                diff.path[0] as string,
+              )
+            )
+          )
+        ) {
+          throw new Error("Invalid flow diff with path " + diff.path);
+        }
+        if (diff.type === "CREATE" || diff.type === "CHANGE") {
+          setValueByPath(changeset, diff.path, diff.value);
+        } else if (diff.type === "REMOVE") {
+          setValueByPath(changeset, diff.path, null);
+        }
+      }
+      const hasChanges = Object.values(changeset).some((v) =>
+        v !== null && typeof v !== "undefined"
+      );
+      if (!hasChanges) {
+        console.log(colors.yellow("! Skipping empty changeset"));
+        return;
+      }
+
+      await FlowService.updateFlow({
+        workspace: workspace,
+        path: remotePath,
+        requestBody: changeset,
+      });
+    } else {
+      console.log(colors.bold.yellow("Creating new flow..."));
+      await FlowService.createFlow({
+        workspace: workspace,
+        requestBody: {
+          path: remotePath,
+          summary: this.summary,
+          value: this.value,
+          schema: this.schema,
+          description: this.description,
+        },
+      });
+    }
+  }
+  async push(workspace: string, remotePath: string): Promise<void> {
+    let remote: Flow | undefined;
+    try {
+      remote = await FlowService.getFlowByPath({
+        workspace,
+        path: remotePath,
+      });
+    } catch {
+      remote = undefined;
+    }
+    await this.pushDiffs(
+      workspace,
+      remotePath,
+      microdiff(remote ?? {}, this, { cyclesFix: false }),
+    );
+  }
+}
 
 type Options = GlobalOptions;
 
@@ -30,38 +159,10 @@ export async function pushFlow(
   workspace: string,
   remotePath: string,
 ) {
-  const data: OpenFlow = JSON.parse(await Deno.readTextFile(filePath));
-  if (
-    await FlowService.existsFlowByPath({
-      workspace: workspace,
-      path: remotePath,
-    })
-  ) {
-    console.log(colors.bold.yellow("Updating existing flow..."));
-    await FlowService.updateFlow({
-      workspace: workspace,
-      path: remotePath,
-      requestBody: {
-        path: remotePath,
-        summary: data.summary,
-        value: data.value,
-        schema: data.schema,
-        description: data.description,
-      },
-    });
-  } else {
-    console.log(colors.bold.yellow("Creating new flow..."));
-    await FlowService.createFlow({
-      workspace: workspace,
-      requestBody: {
-        path: remotePath,
-        summary: data.summary,
-        value: data.value,
-        schema: data.schema,
-        description: data.description,
-      },
-    });
-  }
+  const data = decoverto.type(FlowFile).rawToInstance(
+    await Deno.readTextFile(filePath),
+  );
+  await data.push(workspace, remotePath);
 }
 
 async function list(opts: GlobalOptions & { showArchived?: boolean }) {

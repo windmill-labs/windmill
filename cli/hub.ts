@@ -1,6 +1,6 @@
 import { Command } from "./deps.ts";
 import { requireLogin, resolveWorkspace } from "./context.ts";
-import { pushResourceTypeDef } from "./resource-type.ts";
+import { ResourceTypeFile } from "./resource-type.ts";
 import { GlobalOptions } from "./types.ts";
 
 async function pull(opts: GlobalOptions) {
@@ -56,14 +56,10 @@ async function pull(opts: GlobalOptions) {
     const x of list
   ) {
     console.log("syncing " + x.name);
-    await pushResourceTypeDef(
-      workspace.workspaceId,
-      x.name,
-      {
-        description: x.description,
-        schema: JSON.parse(x.schema),
-      },
-    );
+    const f = new ResourceTypeFile();
+    f.description = x.description;
+    f.schema = JSON.parse(x.schema);
+    await f.push(workspace.workspaceId, x.name);
   }
 }
 

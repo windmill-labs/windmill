@@ -1,7 +1,22 @@
 // deno-lint-ignore-file no-explicit-any
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
-import { GlobalOptions } from "./types.ts";
-import { colors, Command, Table, VariableService } from "./deps.ts";
+import {
+  Difference,
+  GlobalOptions,
+  PushDiffs,
+  Resource,
+  setValueByPath,
+} from "./types.ts";
+import {
+  colors,
+  Command,
+  EditVariable,
+  ListableVariable,
+  microdiff,
+  Table,
+  VariableService,
+} from "./deps.ts";
+import { decoverto, model, property } from "./decoverto.ts";
 
 async function list(opts: GlobalOptions) {
   const workspace = await resolveWorkspace(opts);
@@ -26,13 +41,100 @@ async function list(opts: GlobalOptions) {
     .render();
 }
 
-type VariableFile = {
+@model()
+export class VariableFile implements Resource, PushDiffs {
+  @property(() => String)
   value: string;
+  @property(() => Boolean)
   is_secret: boolean;
+  @property(() => String)
   description: string;
+  @property(() => Number)
   account?: number;
+  @property(() => Boolean)
   is_oauth?: boolean;
-};
+
+  constructor(value: string, is_secret: boolean, description: string) {
+    this.value = value;
+    this.is_secret = is_secret;
+    this.description = description;
+  }
+  async pushDiffs(
+    workspace: string,
+    remotePath: string,
+    diffs: Difference[],
+  ): Promise<void> {
+    if (await VariableService.existsVariable({ workspace, path: remotePath })) {
+      console.log(
+        colors.bold.yellow(
+          `Applying ${diffs.length} diffs to existing variable...`,
+        ),
+      );
+      const changeset: EditVariable = {};
+      for (const diff of diffs) {
+        if (
+          diff.type !== "REMOVE" &&
+          (
+            diff.path.length !== 1 ||
+            !["path", "value", "is_secret", "description"].includes(
+              diff.path[0] as string,
+            )
+          )
+        ) {
+          throw new Error("Invalid variable diff with path " + diff.path);
+        }
+        if (diff.type === "CREATE" || diff.type === "CHANGE") {
+          setValueByPath(changeset, diff.path, diff.value);
+        } else if (diff.type === "REMOVE") {
+          setValueByPath(changeset, diff.path, null);
+        }
+      }
+
+      const hasChanges = Object.values(changeset).some((v) =>
+        v !== null && typeof v !== "undefined"
+      );
+      if (!hasChanges) {
+        console.log(colors.yellow("! Skipping empty changeset"));
+        return;
+      }
+
+      await VariableService.updateVariable({
+        workspace,
+        path: remotePath,
+        requestBody: changeset,
+      });
+    } else {
+      console.log(colors.yellow("Creating new variable..."));
+      await VariableService.createVariable({
+        workspace,
+        requestBody: {
+          path: remotePath,
+          description: this.description,
+          is_secret: this.is_secret,
+          value: this.value,
+          account: this.account,
+          is_oauth: this.is_oauth,
+        },
+      });
+    }
+  }
+  async push(workspace: string, remotePath: string): Promise<void> {
+    let existing: ListableVariable | undefined;
+    try {
+      existing = await VariableService.getVariable({
+        workspace: workspace,
+        path: remotePath,
+      });
+    } catch {
+      existing = undefined;
+    }
+    await this.pushDiffs(
+      workspace,
+      remotePath,
+      microdiff(existing ?? {}, this, { cyclesFix: false }),
+    );
+  }
+}
 
 async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
   const workspace = await resolveWorkspace(opts);
@@ -58,72 +160,10 @@ export async function pushVariable(
   filePath: string,
   remotePath: string,
 ) {
-  const data: VariableFile = JSON.parse(await Deno.readTextFile(filePath));
-  if (await VariableService.existsVariable({ workspace, path: remotePath })) {
-    const existing = await VariableService.getVariable({
-      workspace: workspace,
-      path: remotePath,
-    });
-    if (existing.is_oauth != data.is_oauth) {
-      console.log(
-        colors.red.underline.bold(
-          "Remote variable at " +
-            remotePath +
-            " exists & has a different oauth state. This cannot be updated. If you wish to do this anyways, consider deleting the remote resource.",
-        ),
-      );
-      return;
-    }
-
-    if (existing.account != data.account) {
-      console.log(
-        colors.red.underline.bold(
-          "Remote variable at " +
-            remotePath +
-            " exists & has a different account state. This cannot be updated. If you wish to do this anyways, consider deleting the remote resource.",
-        ),
-      );
-      return;
-    }
-
-    if (existing.is_secret && !data.is_secret) {
-      console.log(
-        colors.red.underline.bold(
-          "Remote variable at " +
-            remotePath +
-            " exists & is secret. Variables cannot be updated to be no longer secret. If you wish to do this anyways, consider deleting the remote resource.",
-        ),
-      );
-      return;
-    }
-
-    const actual_secret = data.is_secret ? true : undefined;
-
-    console.log(colors.yellow("Updating existing variable..."));
-    await VariableService.updateVariable({
-      workspace,
-      path: remotePath,
-      requestBody: {
-        description: data.description,
-        is_secret: actual_secret,
-        path: remotePath,
-        value: data.value,
-      },
-    });
-  } else {
-    console.log(colors.yellow("Creating new variable..."));
-    await VariableService.createVariable({
-      workspace,
-      requestBody: {
-        path: remotePath,
-        description: data.description,
-        is_secret: data.is_secret,
-        value: data.value,
-        account: data.account,
-        is_oauth: data.is_oauth,
-      },
-    });
-  }
+  const data = decoverto.type(VariableFile).rawToInstance(
+    await Deno.readTextFile(filePath),
+  );
+  await data.push(workspace, remotePath);
 }
 
 const command = new Command()
