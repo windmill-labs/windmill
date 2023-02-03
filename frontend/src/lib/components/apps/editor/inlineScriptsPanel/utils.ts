@@ -1,5 +1,6 @@
 import type { Runnable } from "../../inputType"
-import type { AppComponent, GridItem } from "../../types"
+import type { GridItem } from "../../types"
+import type { AppComponent } from "../Component.svelte";
 
 export interface AppScriptsList {
 	inline: { name: string; id: string }[],
@@ -30,11 +31,11 @@ export function getAppScripts(grid: GridItem[]) {
 		}
 
 		return acc
-	}, {inline: [], imported: []} as AppScriptsList)
+	}, { inline: [], imported: [] } as AppScriptsList)
 }
 
 function processRunnable(runnable: Runnable, id: string, list: AppScriptsList) {
-	if(runnable?.type === undefined) { return }
+	if (runnable?.type === undefined) { return }
 	const type: keyof AppScriptsList = runnable.type === 'runnableByPath' ? 'imported' : 'inline'
 	list[type].push({
 		name: runnable[runnable.type === 'runnableByPath' ? 'path' : 'name'],

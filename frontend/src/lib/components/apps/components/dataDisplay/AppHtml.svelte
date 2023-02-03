@@ -4,7 +4,7 @@
 
 	export let id: string
 	export let componentInput: AppInput | undefined
-	export let initializing: boolean
+	export let initializing: boolean | undefined = undefined
 
 	export const staticOutputs: string[] = ['result', 'loading']
 

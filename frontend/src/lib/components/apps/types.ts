@@ -2,6 +2,7 @@ import type { Schema } from '$lib/common'
 import type { Preview } from '$lib/gen'
 import type { FilledItem } from 'svelte-grid'
 import type { Writable } from 'svelte/store'
+import type { AppComponent } from './editor/Component.svelte'
 import type {
 	AppInput,
 	ConnectedAppInput,
@@ -13,46 +14,6 @@ import type {
 } from './inputType'
 import type { World } from './rx'
 
-type BaseComponent<T extends string> = {
-	type: T
-}
-
-export type TextComponent = BaseComponent<'textcomponent'>
-export type TextInputComponent = BaseComponent<'textinputcomponent'>
-export type PasswordInputComponent = BaseComponent<'passwordinputcomponent'>
-export type DateInputComponent = BaseComponent<'dateinputcomponent'>
-export type NumberInputComponent = BaseComponent<'numberinputcomponent'>
-export type SliderComponent = BaseComponent<'slidercomponent'>
-export type HtmlComponent = BaseComponent<'htmlcomponent'>
-export type VegaLiteComponent = BaseComponent<'vegalitecomponent'>
-export type PlotlyComponent = BaseComponent<'plotlycomponent'>
-export type TimeseriesComponent = BaseComponent<'timeseriescomponent'>
-export type ButtonComponent = BaseComponent<'buttoncomponent'> & {
-	recomputeIds: string[] | undefined
-}
-
-export type FormComponent = BaseComponent<'formcomponent'> & {
-	recomputeIds: string[] | undefined
-}
-
-export type FormButtonComponent = BaseComponent<'formbuttoncomponent'> & {
-	recomputeIds: string[] | undefined
-}
-
-export type RunFormComponent = BaseComponent<'runformcomponent'>
-export type BarChartComponent = BaseComponent<'barchartcomponent'>
-export type PieChartComponent = BaseComponent<'piechartcomponent'>
-export type ScatterChartComponent = BaseComponent<'scatterchartcomponent'>
-export type TableComponent = BaseComponent<'tablecomponent'> & {
-	actionButtons: (BaseAppComponent & ButtonComponent)[]
-}
-
-export type DisplayComponent = BaseComponent<'displaycomponent'>
-export type ImageComponent = BaseComponent<'imagecomponent'>
-export type InputComponent = BaseComponent<'inputcomponent'>
-export type SelectComponent = BaseComponent<'selectcomponent'>
-export type CheckboxComponent = BaseComponent<'checkboxcomponent'>
-export type RadioComponent = BaseComponent<'radiocomponent'>
 
 export type HorizontalAlignment = 'left' | 'center' | 'right'
 export type VerticalAlignment = 'top' | 'center' | 'bottom'
@@ -82,38 +43,11 @@ export interface BaseAppComponent extends Partial<Aligned> {
 	softWrap?: boolean
 }
 
-export type AppComponent = BaseAppComponent &
-	(
-		| RunFormComponent
-		| DisplayComponent
-		| TextInputComponent
-		| PasswordInputComponent
-		| DateInputComponent
-		| NumberInputComponent
-		| SliderComponent
-		| BarChartComponent
-		| TimeseriesComponent
-		| HtmlComponent
-		| TableComponent
-		| TextComponent
-		| TableComponent
-		| ButtonComponent
-		| PieChartComponent
-		| ScatterChartComponent
-		| ImageComponent
-		| InputComponent
-		| SelectComponent
-		| CheckboxComponent
-		| RadioComponent
-		| FormComponent
-		| FormButtonComponent
-		| VegaLiteComponent
-		| PlotlyComponent
-	)
+
 
 export type ComponentSet = {
 	title: string
-	components: AppComponent[]
+	components: AppComponent['type'][]
 }
 
 type SectionID = string

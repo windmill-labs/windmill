@@ -7,8 +7,8 @@
 	import { capitalize, emptySchema } from '$lib/utils'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { fly } from 'svelte/transition'
-	import { defaultCode } from '../../editorUtils'
 	import type { AppEditorContext } from '../../types'
+	import { defaultCode } from '../Component.svelte'
 
 	export let name: string
 	export let id: string

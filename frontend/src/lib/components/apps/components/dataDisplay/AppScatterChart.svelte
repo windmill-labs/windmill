@@ -19,7 +19,7 @@
 	export let id: string
 	export let componentInput: AppInput | undefined
 	export let configuration: Record<string, AppInput>
-	export let initializing
+	export let initializing: boolean | undefined = undefined
 
 	let zoomable = false
 	let pannable = false

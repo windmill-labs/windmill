@@ -2,13 +2,13 @@
 	import { getContext, afterUpdate } from 'svelte'
 	import type { AppEditorContext } from '../types'
 	import Grid from 'svelte-grid'
-	import ComponentEditor from './ComponentEditor.svelte'
 	import { classNames } from '$lib/utils'
 	import { columnConfiguration, disableDrag, enableDrag, isFixed, toggleFixed } from '../gridUtils'
 
 	import RecomputeAllComponents from './RecomputeAllComponents.svelte'
 	import type { Policy } from '$lib/gen'
 	import HiddenComponent from '../components/HiddenComponent.svelte'
+	import Component from './Component.svelte'
 
 	export let policy: Policy
 
@@ -102,11 +102,11 @@
 	}
 
 	afterUpdate(() => {
-		if($selectedComponent) {
+		if ($selectedComponent) {
 			const parents = document.querySelectorAll<HTMLElement>('.svlt-grid-item')
 			parents.forEach((parent) => {
 				const hasActiveChild = !!parent.querySelector('.active-grid-item')
-				if(hasActiveChild) {
+				if (hasActiveChild) {
 					parent.style.setProperty('z-index', '100')
 				} else {
 					parent.style.removeProperty('z-index')
@@ -170,7 +170,7 @@
 							gridComponent.data.card ? 'border border-gray-100' : ''
 						)}
 					>
-						<ComponentEditor
+						<Component
 							{pointerdown}
 							bind:component={gridComponent.data}
 							selected={$selectedComponent === dataItem.data.id}
