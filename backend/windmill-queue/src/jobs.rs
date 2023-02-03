@@ -45,7 +45,7 @@ lazy_static::lazy_static! {
 }
 
 const MAX_FREE_EXECS: i32 = 1000;
-const MAX_FREE_CONCURRENT_RUNS: i32 = 3;
+const MAX_FREE_CONCURRENT_RUNS: i32 = 15;
 
 pub async fn cancel_job<'c>(
     username: &str,
