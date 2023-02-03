@@ -1790,12 +1790,13 @@ inner_script = __import__("inner")
 
 with open("args.json") as f:
     kwargs = json.load(f, strict=False)
-for k, v in list(kwargs.items()):
-    if v == '<function call>':
-        del kwargs[k]
 args = {{}}
 {spread}
 {transforms}
+for k, v in list(args.items()):
+    if v == '<function call>':
+        del args[k]
+
 try:
     res = inner_script.main(**args)
     res_json = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
