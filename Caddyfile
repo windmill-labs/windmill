@@ -1,4 +1,9 @@
-{$BASE_URL} {
+
+{
+        auto_https off
+}
+
+http://{$BASE_URL} {
         bind {$ADDRESS}
         reverse_proxy /ws/* http://lsp:3001
         reverse_proxy /* http://windmill:8000
