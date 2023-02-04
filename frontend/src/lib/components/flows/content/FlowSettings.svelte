@@ -129,7 +129,7 @@
 							them to the next step. <br /><br />Beware that the `./shared` folder is not preserved
 							across suspends and sleeps.
 						</Alert>
-						<span class="my-2 text-sm font-bold">Shared Directoryr</span>
+						<span class="my-2 text-sm font-bold">Shared Directory</span>
 						<Toggle
 							bind:checked={$flowStore.value.same_worker}
 							options={{
