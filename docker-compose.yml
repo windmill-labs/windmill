@@ -20,29 +20,41 @@ services:
       timeout: 5s
       retries: 5
 
-  windmill:
+  windmill_server:
     image: ghcr.io/windmill-labs/windmill:main
-    # Set privileged to true if enabling nsjail
-    privileged: false
+    deploy:
+      replicas: 1
     restart: unless-stopped
     ports:
       - 8000:8000
     environment:
       - DATABASE_URL=postgres://postgres:${DB_PASSWORD}@db/windmill?sslmode=disable
       - BASE_URL=http://${WM_BASE_URL}
+      - RUST_LOG=info
+      ## You can set the number of workers to > 0 and not need any separate worker service
+      - NUM_WORKERS=0
+      - DISABLE_SERVER=false
+      - METRICS_ADDR=false
+    depends_on:
+      db:
+        condition: service_healthy
+
+  windmill_worker:
+    image: ghcr.io/windmill-labs/windmill:main
+    deploy:
+      replicas: 3
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgres://postgres:${DB_PASSWORD}@db/windmill?sslmode=disable
+      - BASE_URL=http://${WM_BASE_URL}
       - BASE_INTERNAL_URL=http://localhost:8000
       - RUST_LOG=info
-      - NUM_WORKERS=3
+      - NUM_WORKERS=1
+      - DISABLE_SERVER=true
       - KEEP_JOB_DIR=false
       - DENO_PATH=/usr/bin/deno
       - PYTHON_PATH=/usr/local/bin/python3
       - METRICS_ADDR=false
-      # for ease of use, nsjail which provide isolation in untrusted environment is disabled by default. 
-      # To enable it, uncomment the following line, set the container as privileged and
-      # rebuild the image with nsjail=true or use the enterprise edition
-      # - DISABLE_NSJAIL=false
-      # - DISABLE_NUSER=false
-      # - NSJAIL_PATH=nsjail
     depends_on:
       db:
         condition: service_healthy
