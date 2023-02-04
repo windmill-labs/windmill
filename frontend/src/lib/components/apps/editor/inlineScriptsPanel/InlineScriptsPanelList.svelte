@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Badge, Button } from '$lib/components/common'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
+	import { Plus } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import type { AppEditorContext } from '../../types'
 	import { getAllScriptNames } from '../../utils'
@@ -61,6 +62,7 @@
 	}
 </script>
 
+<div class="mb-0 pb-0 pl-2 sticky top-0 bg-white border-b text-xs font-semibold">Runnables</div>
 <div bind:this={list} class="min-h-full flex flex-col gap-4">
 	<PanelSection title="Inline scripts" smallPadding>
 		<div class="flex flex-col gap-2 w-full">
@@ -105,7 +107,7 @@
 		</div>
 	</PanelSection>
 
-	<PanelSection title="Imported scripts" smallPadding>
+	<PanelSection title="Workspace/Hub" smallPadding>
 		<div class="flex flex-col gap-2 w-full">
 			{#if runnables.imported.length > 0}
 				<div class="flex gap-2 flex-col ">
@@ -122,7 +124,7 @@
 					{/each}
 				</div>
 			{:else}
-				<div class="text-sm text-gray-500">No items</div>
+				<div class="text-sm text-gray-500">No imported scripts/flows</div>
 			{/if}
 		</div>
 	</PanelSection>
@@ -134,8 +136,8 @@
 		smallPadding
 	>
 		<svelte:fragment slot="action">
-			<Button size="xs" color="dark" startIcon={{ icon: faPlus }} on:click={createBackgroundScript}>
-				Add
+			<Button size="xs" color="dark" variant="border" on:click={createBackgroundScript}
+				><Plus size={14} />
 			</Button>
 		</svelte:fragment>
 		<div class="flex flex-col gap-2 w-full">

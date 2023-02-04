@@ -97,7 +97,7 @@
 								{#if previewIsLoading}
 									<Loader2 class="animate-spin" />
 								{:else}
-									Test to see the result here'
+									Test to see the result here
 								{/if}
 							</div>
 						{/if}

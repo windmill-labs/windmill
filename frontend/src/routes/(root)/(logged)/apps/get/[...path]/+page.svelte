@@ -22,7 +22,7 @@
 </script>
 
 {#if app}
-	<div class="border rounded-md p-2 w-full">
+	<div class="w-full">
 		<AppPreview
 			context={{
 				email: $userStore?.email,

@@ -65,6 +65,8 @@
 		}
 	}
 
+	$: adminsInstance = workspaces?.find((x) => x.id == 'admins')
+
 	onMount(() => {
 		loadInvites()
 		loadWorkspaces()
@@ -83,13 +85,25 @@
 	</h2>
 
 	{#if $superadmin}
-		<div class="flex flex-row-reverse pb-4">
+		<div class="flex flex-row-reverse pb-2">
 			<Toggle
 				bind:checked={list_all_as_super_admin}
-				options={{ right: 'List all as superadmin' }}
+				options={{ right: 'List all workspaces as superadmin' }}
 			/>
 		</div>
 	{/if}
+
+	{#if adminsInstance}
+		<Button
+			btnClasses="w-full mt-2 mb-4"
+			color="light"
+			size="sm"
+			href="/user/switch_to_admins{rd ? `?rd=${encodeURIComponent(rd)}` : ''}"
+			variant="border"
+			>Manage Windmill on the workspace for superadmins
+		</Button>
+	{/if}
+
 	{#if workspaces && $usersWorkspaceStore}
 		{#if workspaces.length == 0}
 			<p class="text-sm text-gray-600 mt-2">
@@ -97,7 +111,7 @@
 				workspace.
 			</p>
 		{/if}
-		{#each workspaces as workspace}
+		{#each workspaces.filter((x) => x.id != 'admins') as workspace}
 			<label class="block pb-2">
 				<button
 					class="block w-full mx-auto py-1 px-2 rounded-md border border-gray-300 
@@ -135,6 +149,7 @@
 			<Skeleton layout={[[2], 0.5]} />
 		{/each}
 	{/if}
+
 	<div class="flex flex-row-reverse  pt-4">
 		<Button
 			size="sm"

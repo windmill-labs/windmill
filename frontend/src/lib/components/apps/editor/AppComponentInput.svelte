@@ -7,7 +7,7 @@
 </script>
 
 {#if component?.componentInput?.type === 'runnable' && Object.keys(component?.componentInput?.fields ?? {}).length > 0}
-	<div class="mb-8">
+	<div class="mb-8 border p-2">
 		<div class="flex justify-between mb-4">
 			<span class="text-sm font-bold">{component.id}</span>
 			<span class="text-sm font-bold">{components[component.type].name}</span>
@@ -21,7 +21,7 @@
 				}
 				return false
 			}).length === 0}
-			<span class="text-sm">No resource input</span>
+			<span class="text-sm text-gray-600">No resource input</span>
 		{:else}
 			<InputsSpecsEditor
 				id={component.id}
