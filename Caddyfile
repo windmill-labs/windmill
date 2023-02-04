@@ -8,3 +8,8 @@ http://{$BASE_URL} {
         reverse_proxy /ws/* http://lsp:3001
         reverse_proxy /* http://windmill:8000
 }
+
+https://{$BASE_URL}  {  
+  bind {$ADDRESS}
+  reverse_proxy /ws/* http://localhost:3001
+}

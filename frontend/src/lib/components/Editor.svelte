@@ -298,8 +298,9 @@
 			}
 		}
 
+		const wsProtocol = $page.url.protocol == 'https:' ? 'wss' : 'ws'
 		if (lang == 'typescript') {
-			await connectToLanguageServer(`wss://${$page.url.host}/ws/deno`, 'deno', {
+			await connectToLanguageServer(`${wsProtocol}://${$page.url.host}/ws/deno`, 'deno', {
 				certificateStores: null,
 				enablePaths: [],
 				config: null,
@@ -330,7 +331,7 @@
 				}
 			})
 		} else if (lang === 'python') {
-			await connectToLanguageServer(`wss://${$page.url.host}/ws/pyright`, 'pyright', {
+			await connectToLanguageServer(`${wsProtocol}://${$page.url.host}/ws/pyright`, 'pyright', {
 				executionEnvironments: [
 					{
 						root: '/tmp/pyright',
@@ -341,7 +342,7 @@
 				]
 			})
 
-			connectToLanguageServer(`wss://${$page.url.host}/ws/black`, 'black', {
+			connectToLanguageServer(`${wsProtocol}://${$page.url.host}/ws/black`, 'black', {
 				formatters: {
 					black: {
 						command: 'black',
@@ -353,7 +354,7 @@
 				}
 			})
 		} else if (lang === 'go') {
-			connectToLanguageServer(`wss://${$page.url.host}/ws/go`, 'go', {
+			connectToLanguageServer(`${wsProtocol}://${$page.url.host}/ws/go`, 'go', {
 				'build.allowImplicitNetworkAccess': true
 			})
 		}
