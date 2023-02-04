@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { classNames } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 
 	export let options: {

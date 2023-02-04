@@ -117,7 +117,7 @@
 			icon: Type,
 			dims: '1:1-3:1',
 			data: {
-				softWrap: true,
+				softWrap: false,
 				horizontalAlignment: 'left',
 				verticalAlignment: 'top',
 				id: '',
@@ -191,6 +191,11 @@
 						fieldType: 'boolean',
 						type: 'eval',
 						expr: 'false'
+					},
+					fillContainer: {
+						fieldType: 'boolean',
+						type: 'static',
+						value: false
 					}
 				},
 

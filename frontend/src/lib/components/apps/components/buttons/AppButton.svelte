@@ -28,6 +28,7 @@
 	let size: ButtonType.Size
 	let runnableComponent: RunnableComponent
 	let disabled: boolean | undefined = undefined
+	let fillContainer: boolean | undefined = undefined
 
 	let isLoading: boolean = false
 	let ownClick: boolean = false
@@ -67,6 +68,7 @@
 	bind:value={disabled}
 	bind:error={errors.disabled}
 />
+<InputValue {id} input={configuration.fillContainer} bind:value={fillContainer} />
 
 <RunnableWrapper
 	flexWrap
@@ -81,6 +83,7 @@
 			<div class="text-red-500 text-xs">{errorsMessage}</div>
 		{/if}
 		<Button
+			btnClasses={fillContainer ? 'w-full h-full' : ''}
 			{disabled}
 			on:pointerdown={(e) => {
 				e?.stopPropagation()
