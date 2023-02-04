@@ -258,6 +258,8 @@ pub struct CompletedJob {
     pub is_skipped: bool,
     pub email: String,
     pub visible_to_owner: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mem_peak: Option<i32>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -487,6 +489,7 @@ async fn list_jobs(
             "email",
             "visible_to_owner",
             "suspend",
+            "mem_peak",
         ],
     );
     let sqlc = list_completed_jobs_query(
@@ -521,6 +524,7 @@ async fn list_jobs(
             "email",
             "visible_to_owner",
             "null as suspend",
+            "mem_peak",
         ],
     );
     let sql = format!(
@@ -998,6 +1002,7 @@ struct UnifiedJob {
     email: String,
     visible_to_owner: bool,
     suspend: Option<i32>,
+    mem_peak: Option<i32>,
 }
 
 impl From<UnifiedJob> for Job {
@@ -1032,6 +1037,7 @@ impl From<UnifiedJob> for Job {
                 is_skipped: uj.is_skipped,
                 email: uj.email,
                 visible_to_owner: uj.visible_to_owner,
+                mem_peak: uj.mem_peak,
             }),
             "QueuedJob" => Job::QueuedJob(QueuedJob {
                 workspace_id: uj.workspace_id,
@@ -1064,6 +1070,7 @@ impl From<UnifiedJob> for Job {
                 email: uj.email,
                 visible_to_owner: uj.visible_to_owner,
                 suspend: uj.suspend,
+                mem_peak: uj.mem_peak,
             }),
             t => panic!("job type {} not valid", t),
         }
@@ -1582,6 +1589,7 @@ pub struct JobUpdate {
     pub running: Option<bool>,
     pub completed: Option<bool>,
     pub new_logs: Option<String>,
+    pub mem_peak: Option<i32>,
 }
 
 async fn get_job_update(
@@ -1591,8 +1599,8 @@ async fn get_job_update(
 ) -> error::JsonResult<JobUpdate> {
     let mut tx = db.begin().await?;
 
-    let logs = query_scalar!(
-        "SELECT substr(logs, $1) as logs FROM queue WHERE workspace_id = $2 AND id = $3",
+    let record = sqlx::query!(
+        "SELECT substr(logs, $1) as logs, mem_peak FROM queue WHERE workspace_id = $2 AND id = $3",
         log_offset,
         &w_id,
         &id
@@ -1600,12 +1608,13 @@ async fn get_job_update(
     .fetch_optional(&mut tx)
     .await?;
 
-    if let Some(logs) = logs {
+    if let Some(record) = record {
         tx.commit().await?;
         Ok(Json(JobUpdate {
             running: if !running { Some(true) } else { None },
             completed: None,
-            new_logs: logs,
+            new_logs: record.logs,
+            mem_peak: record.mem_peak,
         }))
     } else {
         let logs = query_scalar!(
@@ -1623,6 +1632,7 @@ async fn get_job_update(
             running: Some(false),
             completed: Some(true),
             new_logs: logs,
+            mem_peak: record.map(|r| r.mem_peak).flatten(),
         }))
     }
 }
@@ -1740,6 +1750,7 @@ async fn list_completed_jobs(
             "is_skipped",
             "email",
             "visible_to_owner",
+            "mem_peak",
         ],
     )
     .sql()?;

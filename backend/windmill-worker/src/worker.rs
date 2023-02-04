@@ -35,8 +35,7 @@ use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     process::{Child, Command},
     sync::{
-        mpsc::{self, Sender},
-        oneshot, watch,
+        mpsc::{self, Sender},  watch,
     },
     time::{interval, sleep, Instant, MissedTickBehavior},
 };
@@ -1345,7 +1344,7 @@ func Run(req Req) (interface{{}}, error){{
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?;
-        handle_child(&job.id, db, logs, timeout, *max_log_size, build_go).await?;
+        handle_child(&job.id, db, logs, timeout, *max_log_size, build_go, false).await?;
 
         Command::new(nsjail_path)
             .current_dir(job_dir)
@@ -1371,7 +1370,7 @@ func Run(req Req) (interface{{}}, error){{
             .stderr(Stdio::piped())
             .spawn()?
     };
-    handle_child(&job.id, db, logs, timeout, *max_log_size, child).await?;
+    handle_child(&job.id, db, logs, timeout, *max_log_size, child, !disable_nsjail).await?;
     read_result(job_dir).await
 }
 
@@ -1450,7 +1449,7 @@ async fn handle_bash_job(
             .stderr(Stdio::piped())
             .spawn()?
     };
-    handle_child(&job.id, db, logs, timeout, *max_log_size, child).await?;
+    handle_child(&job.id, db, logs, timeout, *max_log_size, child, !disable_nsjail).await?;
     //for now bash jobs have an empty result object
     Ok(serde_json::json!(logs
         .lines()
@@ -1614,7 +1613,7 @@ run().catch(async (e) => {{
     }
     .instrument(trace_span!("create_deno_jail"))
     .await?;
-    handle_child(&job.id, db, logs, timeout, *max_log_size, child).await?;
+    handle_child(&job.id, db, logs, timeout, *max_log_size, child, !disable_nsjail).await?;
     read_result(job_dir).await
 }
 
@@ -1888,7 +1887,7 @@ mount {{
             .spawn()?
     };
 
-    handle_child(&job.id, db, logs, timeout, *max_log_size, child).await?;
+    handle_child(&job.id, db, logs, timeout, *max_log_size, child, !disable_nsjail).await?;
     read_result(job_dir).await
 }
 
@@ -2194,7 +2193,7 @@ async fn pip_compile(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
-    handle_child(job_id, db, logs, timeout, *max_log_size, child)
+    handle_child(job_id, db, logs, timeout, *max_log_size, child, false)
         .await
         .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
     let path_lock = format!("{job_dir}/requirements.txt");
@@ -2230,7 +2229,7 @@ async fn install_go_dependencies(
             .stderr(Stdio::piped())
             .spawn()?;
 
-        handle_child(job_id, db, logs, timeout, max_log_size, child).await?;
+        handle_child(job_id, db, logs, timeout, max_log_size, child, false).await?;
     }
     let child = Command::new(go_path)
         .current_dir(job_dir)
@@ -2238,7 +2237,7 @@ async fn install_go_dependencies(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
-    handle_child(job_id, db, logs, timeout, max_log_size, child)
+    handle_child(job_id, db, logs, timeout, max_log_size, child, false)
         .await
         .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
 
@@ -2308,6 +2307,30 @@ async fn get_reserved_variables(
         .collect())
 }
 
+async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {
+    if pid.is_none() {
+        return -1
+    }
+    let pid = if nsjail {
+        // This is a bit hacky, but the process id of the nsjail process is the pid of nsjail + 1. 
+        // Ideally, we would get the number from fork() itself. This works in MOST cases.
+        pid.unwrap() + 1
+    } else {
+        pid.unwrap()
+    };
+    
+    if let Ok(file) = File::open(format!("/proc/{}/status", pid)).await {
+        let mut lines = BufReader::new(file).lines();
+        while let Some(line) = lines.next_line().await.unwrap_or(None) {
+            if line.starts_with("VmPeak:") {
+                return line.split_whitespace().nth(1).and_then(|s| s.parse::<i32>().ok()).unwrap_or(-1);
+            };
+        }
+        -2
+    } else {
+        -3
+    }
+}
 /// - wait until child exits and return with exit status
 /// - read lines from stdout and stderr and append them to the "queue"."logs"
 ///   quitting early if output exceedes MAX_LOG_SIZE characters (not bytes)
@@ -2322,17 +2345,17 @@ async fn handle_child(
     timeout: i32,
     max_log_size: i64,
     mut child: Child,
+    nsjail: bool,
 ) -> error::Result<()> {
     let timeout = Duration::from_secs(u64::try_from(timeout).expect("invalid timeout"));
-    let ping_interval = Duration::from_secs(5);
-    let cancel_check_interval = Duration::from_millis(500);
+    let update_job_interval = Duration::from_millis(500);
     let write_logs_delay = Duration::from_millis(500);
 
-    if let Some(pid) = child.id() {
+    let pid = child.id();
+    if let Some(pid) = pid {
         //set the highest oom priority
         let mut file = File::create(format!("/proc/{pid}/oom_score_adj")).await?;
         let _ = file.write_all(b"1000").await;
-        tracing::info!("set oom_score_adj to 1000 for pid {}", pid);
     } else {
         tracing::info!("could not get child pid");
     }
@@ -2345,17 +2368,20 @@ async fn handle_child(
 
     /* the cancellation future is polled on by `wait_on_child` while
      * waiting for the child to exit normally */
-    let cancel_check = async {
+    let update_job = async {
         let db = db.clone();
 
-        let mut interval = interval(cancel_check_interval);
+        let mut interval = interval(update_job_interval);
         interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
         loop {
             tokio::select!(
                 _ = rx.recv() => break,
                 _ = interval.tick() => {
-                    if sqlx::query_scalar!("SELECT canceled FROM queue WHERE id = $1", job_id)
+                    let mem_peak = get_mem_peak(pid, nsjail).await;
+                    tracing::info!("{job_id} still running. mem peak: {}kB", mem_peak);
+                    let mem_peak = if mem_peak > 0 { Some(mem_peak) } else { None };
+                    if sqlx::query_scalar!("UPDATE queue SET mem_peak = $1, last_ping = now() WHERE id = $2 RETURNING canceled", mem_peak, job_id)
                         .fetch_optional(&db)
                         .await
                         .map(|v| Some(true) == v)
@@ -2385,7 +2411,7 @@ async fn handle_child(
             biased;
             result = child.wait() => return result.map(Ok),
             Ok(()) = too_many_logs.changed() => KillReason::TooManyLogs,
-            _ = cancel_check => KillReason::Cancelled,
+            _ = update_job => KillReason::Cancelled,
             _ = sleep(timeout) => KillReason::Timeout,
         };
         tx.send(()).await.expect("rx should never be dropped");
@@ -2508,31 +2534,8 @@ async fn handle_child(
         }
     }.instrument(trace_span!("child_lines"));
 
-    /* a stream updating "queue"."last_ping" at an interval */
 
-    let (kill_tx, mut kill_rx) = oneshot::channel::<()>();
-
-    let mut interval = interval(ping_interval);
-    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
-
-    let db1 = db.clone();
-    tokio::spawn(async move {
-        loop {
-            tokio::select! {
-                _ = interval.tick() => {
-                    if let Err(err) = sqlx::query!("UPDATE queue SET last_ping = now() WHERE id = $1", job_id)
-                        .execute(&db1)
-                    .await
-            {
-                tracing::error!(%job_id, %err, "error setting last ping for job {job_id}: {err}");
-                    };
-                },
-                _ = (&mut kill_rx) => return,
-            }
-        }
-    });
     let (wait_result, _) = tokio::join!(wait_on_child, lines);
-    kill_tx.send(()).expect("send should always work");
 
     match wait_result {
         _ if *too_many_logs.borrow() => Err(Error::ExecutionErr(format!(
@@ -2844,7 +2847,7 @@ async fn handle_python_reqs(
                 .spawn()?
         };
 
-        let child = handle_child(&job.id, db, logs, timeout, *max_log_size, child).await;
+        let child = handle_child(&job.id, db, logs, timeout, *max_log_size, child, false).await;
         tracing::info!(
             worker_name = %worker_name,
             job_id = %job.id,

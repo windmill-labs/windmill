@@ -77,6 +77,12 @@ pub async fn add_completed_job(
             None
         };
 
+    let mem_peak = sqlx::query_scalar!("SELECT mem_peak FROM queue WHERE id = $1", &queued_job.id)
+        .fetch_optional(db)
+        .await
+        .ok()
+        .flatten()
+        .flatten();
     let mut tx = db.begin().await?;
     let job_id = queued_job.id.clone();
     sqlx::query!(
@@ -109,9 +115,10 @@ pub async fn add_completed_job(
                    , language
                    , email
                    , visible_to_owner
+                   , mem_peak
                 )
             VALUES ($1, $2, $3, $4, $5, $6, COALESCE($26, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE($6, now()))))*1000), $7, $8, $9,\
-                    $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $27, $28)
+                    $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $27, $28, $29)
          ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12)",
         queued_job.workspace_id,
         queued_job.id,
@@ -140,7 +147,8 @@ pub async fn add_completed_job(
         queued_job.language: ScriptLang,
         duration: Option<i64>,
         queued_job.email,
-        queued_job.visible_to_owner
+        queued_job.visible_to_owner,
+        mem_peak
     )
     .execute(&mut tx)
     .await

@@ -671,6 +671,8 @@ pub struct QueuedJob {
     pub visible_to_owner: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suspend: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mem_peak: Option<i32>,
 }
 
 impl QueuedJob {

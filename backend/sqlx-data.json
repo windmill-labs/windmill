@@ -117,17 +117,25 @@
     },
     "query": "SELECT script_path FROM queue WHERE id = $1"
   },
-  "062859f1d0e5cfba3115f4241115753b86a4ad239708851c998ff5620ebca5b8": {
+  "0715955b7e98cc669a88eca6556cd46b7f9c07fcf32a24f85b69720b54e6e95f": {
     "describe": {
-      "columns": [],
-      "nullable": [],
+      "columns": [
+        {
+          "name": "mem_peak",
+          "ordinal": 0,
+          "type_info": "Int4"
+        }
+      ],
+      "nullable": [
+        true
+      ],
       "parameters": {
         "Left": [
           "Uuid"
         ]
       }
     },
-    "query": "UPDATE queue SET last_ping = now() WHERE id = $1"
+    "query": "SELECT mem_peak FROM queue WHERE id = $1"
   },
   "07551a32c49da8c0693dd39c6a63b5b2a596ccc0e52e8918160604a5e133dd32": {
     "describe": {
@@ -408,28 +416,6 @@
       }
     },
     "query": "INSERT INTO password(email, verified, password_hash, login_type, super_admin, name, company)\n    VALUES ($1, $2, $3, 'password', $4, $5, $6)"
-  },
-  "11eb4dd4a2c9b0b759294dde5e8b505c5a4391aa0d8cb629c665711ee0fc04a0": {
-    "describe": {
-      "columns": [
-        {
-          "name": "logs",
-          "ordinal": 0,
-          "type_info": "Text"
-        }
-      ],
-      "nullable": [
-        null
-      ],
-      "parameters": {
-        "Left": [
-          "Int4",
-          "Text",
-          "Uuid"
-        ]
-      }
-    },
-    "query": "SELECT substr(logs, $1) as logs FROM queue WHERE workspace_id = $2 AND id = $3"
   },
   "122090a0f89e5248a0a0f199ebd24582fdb302883aebd2da187ac0084e767ea3": {
     "describe": {
@@ -1494,6 +1480,74 @@
       }
     },
     "query": "UPDATE app SET versions = array_append(versions, $1) WHERE id = $2"
+  },
+  "41659beec0e8d6d95258a728e8e4b2b929045a05bd0cfb2293031c0e4a62f04e": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Uuid",
+          "Uuid",
+          "Varchar",
+          "Timestamptz",
+          "Timestamptz",
+          "Bool",
+          "Int8",
+          "Varchar",
+          "Jsonb",
+          "Jsonb",
+          "Text",
+          "Text",
+          "Text",
+          "Bool",
+          "Varchar",
+          "Text",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "script",
+                  "preview",
+                  "flow",
+                  "dependencies",
+                  "flowpreview",
+                  "script_hub",
+                  "identity",
+                  "flowdependencies"
+                ]
+              },
+              "name": "job_kind"
+            }
+          },
+          "Varchar",
+          "Varchar",
+          "Jsonb",
+          "Jsonb",
+          "Bool",
+          "Bool",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "python3",
+                  "deno",
+                  "go",
+                  "bash"
+                ]
+              },
+              "name": "script_lang"
+            }
+          },
+          "Numeric",
+          "Varchar",
+          "Bool",
+          "Int4"
+        ]
+      }
+    },
+    "query": "INSERT INTO completed_job AS cj\n                   ( workspace_id\n                   , id\n                   , parent_job\n                   , created_by\n                   , created_at\n                   , started_at\n                   , duration_ms\n                   , success\n                   , script_hash\n                   , script_path\n                   , args\n                   , result\n                   , logs\n                   , raw_code\n                   , raw_lock\n                   , canceled\n                   , canceled_by\n                   , canceled_reason\n                   , job_kind\n                   , schedule_path\n                   , permissioned_as\n                   , flow_status\n                   , raw_flow\n                   , is_flow_step\n                   , is_skipped\n                   , language\n                   , email\n                   , visible_to_owner\n                   , mem_peak\n                )\n            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($26, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE($6, now()))))*1000), $7, $8, $9,$10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $27, $28, $29)\n         ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12)"
   },
   "42e1b5634a9e51247115fa73f85a97b1467c913d012cac9c45bb6a349082dc71": {
     "describe": {
@@ -2983,6 +3037,27 @@
     },
     "query": "INSERT INTO usage (id, is_workspace, month_, usage) \n                    VALUES ($1, false, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 0) \n                    ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + 1 \n                    RETURNING usage.usage"
   },
+  "8b221f0d08f3304364e56f5c4894fea42975b03d21904655d724a35163413d29": {
+    "describe": {
+      "columns": [
+        {
+          "name": "canceled",
+          "ordinal": 0,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Int4",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "UPDATE queue SET mem_peak = $1, last_ping = now() WHERE id = $2 RETURNING canceled"
+  },
   "8c11511a74a41a65f448249a00ebe6964a61d00c2f7b4875a55e64741bf1f0ca": {
     "describe": {
       "columns": [
@@ -3857,73 +3932,6 @@
     },
     "query": "UPDATE flow SET dependency_job = $1 WHERE path = $2 AND workspace_id = $3"
   },
-  "a46d97b0c65bbbcc29022c2d010a4853541987a58f0098f9c2e3fd6e40b11a52": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Uuid",
-          "Uuid",
-          "Varchar",
-          "Timestamptz",
-          "Timestamptz",
-          "Bool",
-          "Int8",
-          "Varchar",
-          "Jsonb",
-          "Jsonb",
-          "Text",
-          "Text",
-          "Text",
-          "Bool",
-          "Varchar",
-          "Text",
-          {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "script",
-                  "preview",
-                  "flow",
-                  "dependencies",
-                  "flowpreview",
-                  "script_hub",
-                  "identity",
-                  "flowdependencies"
-                ]
-              },
-              "name": "job_kind"
-            }
-          },
-          "Varchar",
-          "Varchar",
-          "Jsonb",
-          "Jsonb",
-          "Bool",
-          "Bool",
-          {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "python3",
-                  "deno",
-                  "go",
-                  "bash"
-                ]
-              },
-              "name": "script_lang"
-            }
-          },
-          "Numeric",
-          "Varchar",
-          "Bool"
-        ]
-      }
-    },
-    "query": "INSERT INTO completed_job AS cj\n                   ( workspace_id\n                   , id\n                   , parent_job\n                   , created_by\n                   , created_at\n                   , started_at\n                   , duration_ms\n                   , success\n                   , script_hash\n                   , script_path\n                   , args\n                   , result\n                   , logs\n                   , raw_code\n                   , raw_lock\n                   , canceled\n                   , canceled_by\n                   , canceled_reason\n                   , job_kind\n                   , schedule_path\n                   , permissioned_as\n                   , flow_status\n                   , raw_flow\n                   , is_flow_step\n                   , is_skipped\n                   , language\n                   , email\n                   , visible_to_owner\n                )\n            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($26, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE($6, now()))))*1000), $7, $8, $9,$10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $27, $28)\n         ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12)"
-  },
   "a6145b0482c9e5da245059a80b1563cad20318fd2dd8aef33f9ca97de1826b8b": {
     "describe": {
       "columns": [],
@@ -4370,6 +4378,34 @@
       }
     },
     "query": "SELECT label, concat(substring(token for 10)) as token_prefix, expiration, created_at, last_used_at FROM token WHERE email = $1\n         ORDER BY created_at DESC"
+  },
+  "b69f747eae8b13a0a8d6914a3a7ad322554fcfe62cd28c5f0a475f18dd770d61": {
+    "describe": {
+      "columns": [
+        {
+          "name": "logs",
+          "ordinal": 0,
+          "type_info": "Text"
+        },
+        {
+          "name": "mem_peak",
+          "ordinal": 1,
+          "type_info": "Int4"
+        }
+      ],
+      "nullable": [
+        null,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Int4",
+          "Text",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "SELECT substr(logs, $1) as logs, mem_peak FROM queue WHERE workspace_id = $2 AND id = $3"
   },
   "b7dd791cd69748ef51b7520f505c0c8bb1b4014a273476eddfecf1ab658a18b4": {
     "describe": {

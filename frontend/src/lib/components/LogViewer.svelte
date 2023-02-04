@@ -5,6 +5,7 @@
 	export let content: string | undefined
 	export let isLoading: boolean
 	export let duration: number | undefined = undefined
+	export let mem: number | undefined = undefined
 
 	let scroll = true
 	let div: HTMLElement | null = null
@@ -49,6 +50,11 @@
 			<Loader2 class="animate-spin absolute top-2 left-2" />
 		{:else if duration}
 			<span class="absolute text-xs text-gray-500 top-2 left-2">took {duration}ms</span>
+		{/if}
+		{#if mem}
+			<span class="absolute text-xs text-gray-500 top-2 left-36"
+				>mem peak: {(mem / 1024).toPrecision(4)}MB</span
+			>
 		{/if}
 		<pre class="whitespace-pre-wrap break-words bg-gray-50 text-xs w-full p-2"
 			>{#if content}<span>{content}</span>{:else if !isLoading}<span class="text-gray-600"
