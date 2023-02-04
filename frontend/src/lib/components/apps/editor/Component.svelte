@@ -187,15 +187,16 @@
 						optionValuesKey: 'buttonSizeOptions',
 						value: 'xs'
 					},
+					fillContainer: {
+						fieldType: 'boolean',
+						type: 'static',
+						onlyStatic: true,
+						value: false
+					},
 					disabled: {
 						fieldType: 'boolean',
 						type: 'eval',
 						expr: 'false'
-					},
-					fillContainer: {
-						fieldType: 'boolean',
-						type: 'static',
-						value: false
 					}
 				},
 
