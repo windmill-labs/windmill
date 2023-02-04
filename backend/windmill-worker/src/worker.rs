@@ -2328,6 +2328,14 @@ async fn handle_child(
     let cancel_check_interval = Duration::from_millis(500);
     let write_logs_delay = Duration::from_millis(500);
 
+    if let Some(pid) = child.id() {
+        //set the highest oom priority
+        let mut file = File::create(format!("/proc/{pid}/oom_score_adj")).await?;
+        let _ = file.write_all(b"1000").await;
+        tracing::info!("set oom_score_adj to 1000 for pid {}", pid);
+    } else {
+        tracing::info!("could not get child pid");
+    }
     let (set_too_many_logs, mut too_many_logs) = watch::channel::<bool>(false);
 
     let output = child_joined_output_stream(&mut child);
