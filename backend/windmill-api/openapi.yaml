@@ -3292,6 +3292,8 @@ paths:
                     type: boolean
                   new_logs:
                     type: string
+                  mem_peak:
+                    type: integer
 
   /w/{workspace}/jobs/completed/get/{id}:
     get:
@@ -4790,6 +4792,8 @@ components:
           type: string
         visible_to_owner:
           type: boolean
+        mem_peak:
+          type: integer
       required:
         - id
         - running
@@ -4876,6 +4880,8 @@ components:
           type: string
         visible_to_owner:
           type: boolean
+        mem_peak:
+          type: integer
       required:
         - id
         - created_by

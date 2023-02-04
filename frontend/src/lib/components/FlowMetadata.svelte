@@ -2,14 +2,15 @@
 	import type { Job } from '$lib/gen'
 	import JobStatus from '$lib/components/JobStatus.svelte'
 	import Icon from 'svelte-awesome'
-	import { displayDaysAgo } from '$lib/utils'
+	import { displayDate, displayDaysAgo } from '$lib/utils'
 	import {
 		faCalendar,
 		faClock,
 		faRobot,
 		faScroll,
 		faUser,
-		faBarsStaggered
+		faBarsStaggered,
+		faMemory
 	} from '@fortawesome/free-solid-svg-icons'
 	import ScheduleEditor from './ScheduleEditor.svelte'
 	import { onDestroy, onMount } from 'svelte'
@@ -39,16 +40,31 @@
 		<Icon class="text-gray-700" data={faClock} scale={SMALL_ICON_SCALE} /><span
 			class="mx-2 text-2xs text-gray-600"
 		>
-			{#key time}
-				Received job {displayDaysAgo(job.created_at ?? '')}
-			{/key}</span
+			{#if job['success'] != undefined}
+				Received job: {displayDate(job.created_at ?? '')}
+			{:else}
+				{#key time}
+					Received job {displayDaysAgo(job.created_at ?? '')}
+				{/key}
+			{/if}</span
 		>
 	</div>
 	{#if job && 'started_at' in job && job.started_at}
 		<div>
 			<Icon class="text-gray-700" data={faClock} scale={SMALL_ICON_SCALE} /><span class="mx-2">
-				{#key time}
-					Started {displayDaysAgo(job.started_at ?? '')}{/key}</span
+				{#if job['success'] != undefined}
+					Started: {displayDate(job.started_at ?? '')}
+				{:else}
+					{#key time}
+						Started {displayDaysAgo(job.started_at ?? '')}{/key}
+				{/if}
+			</span>
+		</div>
+	{/if}
+	{#if job && job['mem_peak']}
+		<div>
+			<Icon class="text-gray-700" data={faMemory} scale={SMALL_ICON_SCALE} /><span class="mx-2">
+				Mem peak: {(job['mem_peak'] / 1024).toPrecision(5)}MB</span
 			>
 		</div>
 	{/if}

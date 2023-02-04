@@ -82,6 +82,7 @@
 					<Pane class="relative">
 						<LogViewer
 							duration={previewJob?.['duration_ms']}
+							mem={previewJob?.['mem_peak']}
 							content={previewJob?.logs}
 							isLoading={previewIsLoading}
 						/>
