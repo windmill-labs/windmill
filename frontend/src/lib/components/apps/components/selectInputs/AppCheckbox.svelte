@@ -16,8 +16,8 @@
 
 	export const staticOutputs: string[] = ['result']
 
+	let defaultValue: boolean | undefined = undefined
 	let labelValue: string = 'Default label'
-	let value: boolean = false
 
 	// As the checkbox is a special case and has no input
 	// we need to manually set the output
@@ -25,9 +25,12 @@
 	$: outputs = $worldStore?.outputsById[id] as {
 		result: Output<boolean>
 	}
+
+	$: defaultValue != undefined && outputs.result.set(defaultValue)
 </script>
 
 <InputValue {id} input={configuration.label} bind:value={labelValue} />
+<InputValue {id} input={configuration.defaultValue} bind:value={defaultValue} />
 
 <AlignWrapper {horizontalAlignment} {verticalAlignment}>
 	<Toggle
@@ -35,7 +38,7 @@
 			e?.stopPropagation()
 			window.dispatchEvent(new Event('pointerup'))
 		}}
-		bind:value
+		checked={defaultValue}
 		options={{ right: labelValue }}
 		on:change={(e) => {
 			outputs.result.set(e.detail)

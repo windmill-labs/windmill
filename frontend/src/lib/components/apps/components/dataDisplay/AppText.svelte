@@ -67,7 +67,7 @@
 				No text
 			</div>
 		{:else}
-			<div class="flex flex-wrap gap-2">
+			<div class="flex flex-wrap gap-2 overflow-auto">
 				<svelte:element this={component} class="whitespace-pre-wrap {classes}" style={extraStyle}>
 					{String(result)}
 				</svelte:element>
