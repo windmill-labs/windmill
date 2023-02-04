@@ -14,43 +14,51 @@
 <Alert type="info" title="Configurations">
 	In order to properly configure the app, you need to fill in the inputs below.
 </Alert>
-<Toggle bind:checked={resourceOnly} options={{ right: 'Resource only' }} />
-{#each $lazyGrid as gridItem (gridItem.data.id)}
-	{#if gridItem.data.type === 'tablecomponent'}
+<div class="mt-2 flex flex-row-reverse">
+	<Toggle bind:checked={resourceOnly} options={{ right: 'Resource only' }} />
+</div>
+<div class="gap-4 flex flex-col pt-4">
+	{#each $lazyGrid as gridItem (gridItem.data.id)}
 		<div>
-			<AppComponentInput bind:component={gridItem.data} {resourceOnly} />
-			<div class="ml-4 mt-4">
-				{#each gridItem.data.actionButtons as actionButton (actionButton.id)}
-					<AppComponentInput bind:component={actionButton.data} {resourceOnly} />
-				{/each}
-			</div>
+			{#if gridItem.data.type === 'tablecomponent'}
+				<div>
+					<AppComponentInput bind:component={gridItem.data} {resourceOnly} />
+					<div class="ml-4 mt-4">
+						{#each gridItem.data.actionButtons as actionButton (actionButton.id)}
+							<AppComponentInput bind:component={actionButton.data} {resourceOnly} />
+						{/each}
+					</div>
+				</div>
+			{:else}
+				<AppComponentInput bind:component={gridItem.data} {resourceOnly} />
+			{/if}
 		</div>
-	{:else}
-		<AppComponentInput bind:component={gridItem.data} {resourceOnly} />
-	{/if}
-{/each}
+	{/each}
+</div>
 
 {#if $app?.hiddenInlineScripts?.length > 0}
-	<span class="font-bold text-sm">Background script inputs</span>
-	<div class="gap-4 flex flex-col">
+	<div class="font-bold text-lg">Background script inputs</div>
+	<div class="gap-4 flex flex-col pt-4">
 		{#each $app?.hiddenInlineScripts ?? [] as script, index (script.name)}
-			<span class="text-sm">{script.name}</span>
+			<div class="border p-2">
+				<div class="text-sm font-bold">{script.name}</div>
 
-			{#if resourceOnly && Object.keys(script.fields).filter((fieldKey) => {
-					const fields = script.fields
-					const field = fields[fieldKey]
-					return field.fieldType === 'object' && field.format?.startsWith('resource-')
-				}).length === 0}
-				<span class="text-sm">No resource input</span>
-			{:else}
-				<InputsSpecsEditor
-					id={`bg_${index}`}
-					shouldCapitalize={false}
-					bind:inputSpecs={script.fields}
-					userInputEnabled={false}
-					{resourceOnly}
-				/>
-			{/if}
+				{#if resourceOnly && Object.keys(script.fields).filter((fieldKey) => {
+						const fields = script.fields
+						const field = fields[fieldKey]
+						return field.fieldType === 'object' && field.format?.startsWith('resource-')
+					}).length === 0}
+					<span class="text-sm text-gray-600">No resource input</span>
+				{:else}
+					<InputsSpecsEditor
+						id={`bg_${index}`}
+						shouldCapitalize={false}
+						bind:inputSpecs={script.fields}
+						userInputEnabled={false}
+						{resourceOnly}
+					/>
+				{/if}
+			</div>
 		{/each}
 	</div>
 {/if}

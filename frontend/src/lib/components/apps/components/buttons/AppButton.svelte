@@ -105,7 +105,9 @@
 			{color}
 			{loading}
 		>
-			{labelValue}
+			<span class="truncate">
+				{labelValue}
+			</span>
 		</Button>
 	</AlignWrapper>
 </RunnableWrapper>

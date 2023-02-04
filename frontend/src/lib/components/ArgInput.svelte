@@ -166,7 +166,7 @@
 			<FieldHeader {label} {required} {type} {contentEncoding} {format} {itemsType} />
 		{/if}
 		{#if editableSchema}
-			<div class="my-1 text-xs border-solid border border-gray-400 rounded p-2">
+			<div class="my-1 text-xs border-solid border border-gray-400">
 				<span
 					class="underline"
 					on:click={() => {

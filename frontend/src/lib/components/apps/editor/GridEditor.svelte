@@ -116,11 +116,12 @@
 	})
 </script>
 
-<div class="pb-2 relative z-20">
+<div class="pb-2 relative w-full z-20">
 	<div
-		class="w-full flex justify-between border-b {$connectingInput?.opened
+		class="w-full sticky  top-0 flex justify-between border-l border-r border-b {$connectingInput?.opened
 			? ''
-			: 'bg-gray-50 '}px-4 py-2 items-center gap-4"
+			: 'bg-gray-50 '} px-4 py-2 items-center gap-4"
+		style="z-index: 1000;"
 	>
 		<h2 class="truncate">{$summary}</h2>
 		{#if !$connectingInput.opened}
@@ -131,7 +132,7 @@
 		>
 	</div>
 	<div
-		class="px-4 pt-4 {$connectingInput?.opened ? '' : ''}"
+		class="px-4 pt-4 overflow-auto {$connectingInput?.opened ? '' : ''}"
 		on:pointerdown={onpointerdown}
 		on:pointerleave={onpointerup}
 		on:pointerup={onpointerup}

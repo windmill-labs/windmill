@@ -157,7 +157,7 @@
 										: 'max-w-6xl'}"
 								>
 									{#if $appStore.grid}
-										<div class={classNames('p-4 mx-auto', width)}>
+										<div class={classNames('pb-4 mx-auto', width)}>
 											<GridEditor {policy} />
 										</div>
 									{/if}

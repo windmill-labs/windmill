@@ -67,8 +67,8 @@
 				No text
 			</div>
 		{:else}
-			<div class="flex flex-wrap gap-2 overflow-auto">
-				<svelte:element this={component} class="whitespace-pre-wrap {classes}" style={extraStyle}>
+			<div class="flex flex-wrap gap-2 pb-0.5 overflow-x-auto">
+				<svelte:element this={component} class="whitespace-pre-wrap  {classes}" style={extraStyle}>
 					{String(result)}
 				</svelte:element>
 				{#if copyButton && result}

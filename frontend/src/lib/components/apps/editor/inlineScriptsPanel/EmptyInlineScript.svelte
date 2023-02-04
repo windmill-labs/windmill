@@ -56,7 +56,7 @@
 	const langs = ['deno', 'python3', 'go', 'bash'] as Script.language[]
 </script>
 
-<div class="flex flex-col p-4 gap-2 text-sm" in:fly={{ duration: 50 }}>
+<div class="flex flex-col px-4 py-2 gap-2 text-sm" in:fly={{ duration: 50 }}>
 	Please choose a language:
 	<div class="flex gap-2 flex-row flex-wrap">
 		{#each langs as lang}
