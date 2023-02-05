@@ -218,6 +218,9 @@
 												<AppButton
 													noWFull
 													{...actionButton}
+													preclickAction={async () => {
+														toggleRow(row, rowIndex)
+													}}
 													extraQueryParams={{ row: row.original }}
 													bind:componentInput={actionButton.componentInput}
 													bind:staticOutputs={$staticOutputsStore[actionButton.id]}
