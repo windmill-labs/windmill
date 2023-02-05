@@ -27,12 +27,24 @@
 </svelte:head>
 
 <slot />
-<SvelteToast options={toastOptions} />
+
+<div class="wrap">
+	<SvelteToast options={toastOptions} />
+</div>
 
 <style>
 	:root {
 		--toastBackground: #eff6ff;
 		--toastBarBackground: #eff6ff;
 		--toastColor: #123456;
+	}
+
+	.wrap {
+		display: contents;
+		font-family: 'Inter', sans-serif;
+		font-size: 0.875rem;
+	}
+	.wrap :global(strong) {
+		font-weight: 600;
 	}
 </style>

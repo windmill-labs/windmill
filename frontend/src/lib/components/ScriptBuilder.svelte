@@ -83,7 +83,7 @@
 					kind: script.kind
 				}
 			})
-			sendUserToast(`Success! New script version created with hash ${newHash}`)
+			sendUserToast(`New script created at hash ${newHash}`)
 			await goto(`/scripts/edit/${newHash}?step=2`)
 			goto(`/scripts/get/${newHash}?workspace_id=${$workspaceStore}`)
 		} catch (error) {

@@ -112,7 +112,7 @@
 				await createSchedule(flow.path)
 			}
 		}
-		sendUserToast(`Success! flow saved at ${$flowStore.path}`)
+		sendUserToast(`Flow saved at ${$flowStore.path}`)
 		goto(`/flows/get/${$flowStore.path}?workspace_id=${$workspaceStore}`)
 	}
 
