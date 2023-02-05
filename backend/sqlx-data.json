@@ -3450,6 +3450,27 @@
     },
     "query": "UPDATE schedule SET path = $1, script_path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow IS true RETURNING *"
   },
+  "913c634de21d46b8841f8a7c25c408da7c572f9e685db6351848cbf6e9253efc": {
+    "describe": {
+      "columns": [
+        {
+          "name": "canceled",
+          "ordinal": 0,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Int4",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "UPDATE queue SET mem_peak = GREATEST($1, mem_peak), last_ping = now() WHERE id = $2 RETURNING canceled"
+  },
   "924e1d5cbb682db0d6121dd911f38cf8948d0e59ca47428daa4f43fce686ba80": {
     "describe": {
       "columns": [
@@ -4147,27 +4168,6 @@
       }
     },
     "query": "\n            SELECT resume_id, approver\n            FROM resume_job\n            WHERE job = $1\n            "
-  },
-  "b020869f68b5f2febbb28e8d2ba08e126cb2038d7d94ae74d47824a0cf7d7655": {
-    "describe": {
-      "columns": [
-        {
-          "name": "canceled",
-          "ordinal": 0,
-          "type_info": "Bool"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Int4",
-          "Uuid"
-        ]
-      }
-    },
-    "query": "UPDATE queue SET mem_peak = COALESCE($1, mem_peak), last_ping = now() WHERE id = $2 RETURNING canceled"
   },
   "b053117536c067095e2fb2864ce5af33f84b22c24c92fcb870f37f0501f8ea9a": {
     "describe": {

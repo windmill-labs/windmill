@@ -2322,7 +2322,7 @@ async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {
     if let Ok(file) = File::open(format!("/proc/{}/status", pid)).await {
         let mut lines = BufReader::new(file).lines();
         while let Some(line) = lines.next_line().await.unwrap_or(None) {
-            if line.starts_with("VmPeak:") {
+            if line.starts_with("VmHWM:") {
                 return line.split_whitespace().nth(1).and_then(|s| s.parse::<i32>().ok()).unwrap_or(-1);
             };
         }
