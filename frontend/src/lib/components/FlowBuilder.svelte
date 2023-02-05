@@ -113,7 +113,7 @@
 			}
 		}
 		sendUserToast(`Success! flow saved at ${$flowStore.path}`)
-		goto(`/flows/get/${$flowStore.path}`)
+		goto(`/flows/get/${$flowStore.path}?workspace_id=${$workspaceStore}`)
 	}
 
 	let timeout: NodeJS.Timeout | undefined = undefined

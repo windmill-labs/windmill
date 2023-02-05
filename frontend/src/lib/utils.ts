@@ -475,7 +475,7 @@ export function scriptPathToHref(path: string): string {
 	if (path.startsWith('hub/')) {
 		return 'https://hub.windmill.dev/from_version/' + path.substring(4)
 	} else {
-		return `/scripts/get/${path}`
+		return `/scripts/get/${path}?workspace_id=${get(workspaceStore)}`
 	}
 }
 

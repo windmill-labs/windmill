@@ -31,7 +31,7 @@
 			script = await ScriptService.getScriptByHash({ workspace: $workspaceStore!, hash })
 			if (script.schema == undefined) {
 				script.schema = emptySchema()
-				inferArgs(script.language, script.content, script.schema)
+				await inferArgs(script.language, script.content, script.schema)
 				script = script
 			}
 			if (script.path && script.archived) {
@@ -119,7 +119,8 @@
 									disabled={script == undefined}
 									btnClasses="mr-4"
 									variant="border"
-									href="/scripts/get/{script?.hash}">View script</Button
+									href="/scripts/get/{script?.hash}?workspace_id={$workspaceStore}"
+									>View script</Button
 								>
 							</div>
 							<div>

@@ -94,7 +94,7 @@
 									disabled={flow == undefined}
 									btnClasses="mr-4"
 									variant="border"
-									href="/flows/get/{flow?.path}">View flow</Button
+									href="/flows/get/{flow?.path}?workspace_id={$workspaceStore}">View flow</Button
 								>
 							</div>
 							<div>

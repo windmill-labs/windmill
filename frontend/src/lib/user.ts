@@ -4,7 +4,7 @@ import { superadmin, type UserExt } from './stores.js'
 
 export async function refreshSuperadmin(): Promise<void> {
     if (get(superadmin) == undefined) {
-        UserService.globalWhoami().then((x) => {
+        await UserService.globalWhoami().then((x) => {
             if (x.super_admin) {
                 superadmin.set(x.email)
             } else {

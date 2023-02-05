@@ -65,6 +65,11 @@
 
 	let shareModal: ShareModal
 
+	let queryId = $page.url.searchParams.get('workspace_id')
+	if (queryId && queryId != $workspaceStore) {
+		$workspaceStore = $page.url.searchParams.get('workspace_id')!
+	}
+
 	$: loading = !script
 	$: if ($workspaceStore) {
 		loadScript($page.params.hash)
@@ -182,7 +187,7 @@
 <MoveDrawer
 	bind:this={moveDrawer}
 	on:update={async (e) => {
-		await goto('/scripts/get/' + e.detail)
+		await goto('/scripts/get/' + e.detail + `?workspace_id=${$workspaceStore}`)
 		loadScript($page.params.hash)
 	}}
 />
@@ -327,14 +332,17 @@
 						variant="contained"
 						size="xs"
 						startIcon={{ icon: faArrowLeft }}
-						href="/scripts/get/{script.parent_hashes[0]}"
+						href="/scripts/get/{script.parent_hashes[0]}?workspace_id={$workspaceStore}"
 					>
 						<svelte:fragment slot="main">
 							Previous version ({script.parent_hashes.length})
 						</svelte:fragment>
 
 						{#each script.parent_hashes as hash}
-							<ButtonPopupItem href="/scripts/get/{hash}" btnClasses="!m-0">
+							<ButtonPopupItem
+								href="/scripts/get/{hash}?workspace_id={$workspaceStore}"
+								btnClasses="!m-0"
+							>
 								{hash}
 							</ButtonPopupItem>
 						{/each}
@@ -354,7 +362,9 @@
 					{#if topHash}
 						<Alert type="warning" title="Not HEAD">
 							This hash is not HEAD (latest non-archived version at this path) :
-							<a href="/scripts/get/{topHash}">Go to the HEAD of this path</a>
+							<a href="/scripts/get/{topHash}?workspace_id={$workspaceStore}"
+								>Go to the HEAD of this path</a
+							>
 						</Alert>
 					{/if}
 					{#if script.archived && !topHash}

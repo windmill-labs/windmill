@@ -277,7 +277,7 @@
 					{/if}
 					{job.script_path ?? (job.job_kind == 'dependencies' ? 'lock dependencies' : 'No path')}
 					{#if job.script_hash}
-						<a href="/scripts/get/{job.script_hash}"
+						<a href="/scripts/get/{job.script_hash}?workspace_id={workspace_id}}"
 							><Badge color="gray">{truncateHash(job.script_hash)}</Badge></a
 						>
 					{/if}
