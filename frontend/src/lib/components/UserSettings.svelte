@@ -162,7 +162,7 @@
 					>
 						<div>
 							Added token: <button on:click={() => copyToClipboard(newToken ?? '')} class="inline"
-								>{truncate(newToken ?? '', 10, '****')} <Icon data={faClipboard} />
+								>{newToken} <Icon data={faClipboard} />
 							</button>
 						</div>
 						<div class="pt-1 text-xs ml-2">
