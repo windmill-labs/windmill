@@ -2381,7 +2381,7 @@ async fn handle_child(
                     let mem_peak = get_mem_peak(pid, nsjail).await;
                     tracing::info!("{job_id} still running. mem peak: {}kB", mem_peak);
                     let mem_peak = if mem_peak > 0 { Some(mem_peak) } else { None };
-                    if sqlx::query_scalar!("UPDATE queue SET mem_peak = $1, last_ping = now() WHERE id = $2 RETURNING canceled", mem_peak, job_id)
+                    if sqlx::query_scalar!("UPDATE queue SET mem_peak = GREATEST($1, mem_peak), last_ping = now() WHERE id = $2 RETURNING canceled", mem_peak, job_id)
                         .fetch_optional(&db)
                         .await
                         .map(|v| Some(true) == v)

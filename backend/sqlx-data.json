@@ -3037,27 +3037,6 @@
     },
     "query": "INSERT INTO usage (id, is_workspace, month_, usage) \n                    VALUES ($1, false, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 0) \n                    ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + 1 \n                    RETURNING usage.usage"
   },
-  "8b221f0d08f3304364e56f5c4894fea42975b03d21904655d724a35163413d29": {
-    "describe": {
-      "columns": [
-        {
-          "name": "canceled",
-          "ordinal": 0,
-          "type_info": "Bool"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Int4",
-          "Uuid"
-        ]
-      }
-    },
-    "query": "UPDATE queue SET mem_peak = $1, last_ping = now() WHERE id = $2 RETURNING canceled"
-  },
   "8c11511a74a41a65f448249a00ebe6964a61d00c2f7b4875a55e64741bf1f0ca": {
     "describe": {
       "columns": [
@@ -4168,6 +4147,27 @@
       }
     },
     "query": "\n            SELECT resume_id, approver\n            FROM resume_job\n            WHERE job = $1\n            "
+  },
+  "b020869f68b5f2febbb28e8d2ba08e126cb2038d7d94ae74d47824a0cf7d7655": {
+    "describe": {
+      "columns": [
+        {
+          "name": "canceled",
+          "ordinal": 0,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Int4",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "UPDATE queue SET mem_peak = COALESCE($1, mem_peak), last_ping = now() WHERE id = $2 RETURNING canceled"
   },
   "b053117536c067095e2fb2864ce5af33f84b22c24c92fcb870f37f0501f8ea9a": {
     "describe": {
