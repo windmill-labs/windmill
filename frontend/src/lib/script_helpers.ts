@@ -4,12 +4,7 @@ export const PYTHON_INIT_CODE = `import os
 import wmill
 
 # You can import any package from PyPI, even if the assistant complains
-
-"""
-Use Cmd/Ctrl + S to autoformat the code. Reset content in the bar to start from a clean template.
-The client is used to interact with windmill itself through its standard API.
-One can explore the methods available through autocompletion of \`wmill.XXX\`.
-"""
+# Ctrl+S to format the code. Autocompletion available.
 
 def main(no_default: str,
          name = "Nicolas Bourbaki",
@@ -17,18 +12,15 @@ def main(no_default: str,
          obj: dict = {"even": "dicts"},
          l: list = ["or", "lists!"],
          file_: bytes = bytes(0)):
-    """A main function is required for the script to be able to accept arguments.
-    Types are recommended."""
+
     print(f"Hello World and a warm welcome especially to {name}")
     print("and its acolytes..", age, obj, l, len(file_))
-    # retrieve variables, including secrets by querying the windmill platform.
-    # secret fetching is audited by windmill.
 
+    # retrieve variables, resources, states using the wmill client
     try:
-      secret = wmill.get_variable("f/examples/secret")
+    	secret = wmill.get_variable("f/examples/secret")
     except:
-      secret = "No secret yet at f/examples/secret !"
-
+    	secret = "No secret yet at f/examples/secret !"
     print(f"The variable at \`f/examples/secret\`: {secret}")
     
     # Get last state of this script execution by the same trigger/user
@@ -37,9 +29,10 @@ def main(no_default: str,
     new_state["foo"] += 1
     wmill.set_state(new_state)
 
-    # fetch reserved variables as environment variables
+    # fetch context variables
     user = os.environ.get("WM_USERNAME")
-    # the return value is then parsed and can be retrieved by other scripts conveniently
+
+    # return value is converted to JSON
     return {"splitted": name.split(), "user": user, "state": new_state}
 `
 export const DENO_INIT_CODE = `// Ctrl+. to cache dependencies on imports hover, Ctrl+S to format.
@@ -115,17 +108,17 @@ export async function main(message: string, name: string) {
 export const PYTHON_INIT_CODE_CLEAR = `#import wmill
 
 def main(x: str):
-  return x
+	return x
 `
 
 export const PYTHON_FAILURE_MODULE_CODE = `import os
 # flow is considered recovered and a success unless an exception is raised
 
 def main(message: str, name: str):
-  flow_id = os.environ.get("WM_FLOW_JOB_ID")
-  print("message", message)
-  print("name", name)
-  return message, flow_id
+	flow_id = os.environ.get("WM_FLOW_JOB_ID")
+	print("message", message)
+	print("name", name)
+	return message, flow_id
 `
 
 export const POSTGRES_INIT_CODE = `import {
@@ -162,8 +155,7 @@ export async function main(
   return query.rows;
 }`;
 
-export const BASH_INIT_CODE = `
-# arguments of the form X="$I" are parsed as parameters X of type string
+export const BASH_INIT_CODE = `# arguments of the form X="$I" are parsed as parameters X of type string
 msg="$1"
 
 # the last line of the stdout is the return value
@@ -241,57 +233,57 @@ export async function main(approver?: string) {
 const ALL_INITIAL_CODE = [PYTHON_INIT_CODE, PYTHON_INIT_CODE_TRIGGER, DENO_INIT_CODE, POSTGRES_INIT_CODE, DENO_INIT_CODE_TRIGGER, DENO_INIT_CODE_CLEAR, PYTHON_INIT_CODE_CLEAR, DENO_INIT_CODE_APPROVAL, DENO_FAILURE_MODULE_CODE]
 
 export function isInitialCode(content: string): boolean {
-  for (const code of ALL_INITIAL_CODE) {
-    if (content === code) {
-      return true
-    }
-  }
-  return false
+	for (const code of ALL_INITIAL_CODE) {
+		if (content === code) {
+			return true
+		}
+	}
+	return false
 }
 
 export function initialCode(language: 'deno' | 'python3' | 'go' | 'bash', kind: Script.kind, subkind: 'pgsql' | 'mysql' | 'flow' | 'script' | undefined): string {
-  if (language === 'deno') {
-    if (kind === 'trigger') {
-      return DENO_INIT_CODE_TRIGGER
-    } else if (kind === 'script') {
-      if (subkind === 'flow') {
-        return DENO_INIT_CODE_CLEAR
-      }
-      else if (subkind === 'pgsql') {
-        return POSTGRES_INIT_CODE
-      }
-      else if (subkind === 'mysql') {
-        return MYSQL_INIT_CODE
-      } else {
-        return DENO_INIT_CODE
-      }
-    } else if (kind === 'failure') {
-      return DENO_FAILURE_MODULE_CODE
-    } else if (kind === 'approval') {
-      return DENO_INIT_CODE_APPROVAL
-    }
-    else {
-      return DENO_INIT_CODE
-    }
-  } else if (language === 'python3') {
-    if (subkind === 'flow') {
-      return PYTHON_INIT_CODE_CLEAR
-    } else if (kind === 'failure') {
-      return PYTHON_FAILURE_MODULE_CODE
-    } else if (kind === 'trigger') {
-      return PYTHON_INIT_CODE_TRIGGER
-    } else {
-      return PYTHON_INIT_CODE
-    }
-  } else if (language == 'bash') {
-    return BASH_INIT_CODE
-  } else {
-    if (kind === 'failure') {
-      return GO_FAILURE_MODULE_CODE
-    } else if (kind === 'trigger') {
-      return GO_INIT_CODE_TRIGGER
-    } else {
-      return GO_INIT_CODE
-    }
-  }
+	if (language === 'deno') {
+		if (kind === 'trigger') {
+			return DENO_INIT_CODE_TRIGGER
+		} else if (kind === 'script') {
+			if (subkind === 'flow') {
+				return DENO_INIT_CODE_CLEAR
+			}
+			else if (subkind === 'pgsql') {
+				return POSTGRES_INIT_CODE
+			}
+			else if (subkind === 'mysql') {
+				return MYSQL_INIT_CODE
+			} else {
+				return DENO_INIT_CODE
+			}
+		} else if (kind === 'failure') {
+			return DENO_FAILURE_MODULE_CODE
+		} else if (kind === 'approval') {
+			return DENO_INIT_CODE_APPROVAL
+		}
+		else {
+			return DENO_INIT_CODE
+		}
+	} else if (language === 'python3') {
+		if (subkind === 'flow') {
+			return PYTHON_INIT_CODE_CLEAR
+		} else if (kind === 'failure') {
+			return PYTHON_FAILURE_MODULE_CODE
+		} else if (kind === 'trigger') {
+			return PYTHON_INIT_CODE_TRIGGER
+		} else {
+			return PYTHON_INIT_CODE
+		}
+	} else if (language == 'bash') {
+		return BASH_INIT_CODE
+	} else {
+		if (kind === 'failure') {
+			return GO_FAILURE_MODULE_CODE
+		} else if (kind === 'trigger') {
+			return GO_INIT_CODE_TRIGGER
+		} else {
+			return GO_INIT_CODE
+		}
+	}
 }
