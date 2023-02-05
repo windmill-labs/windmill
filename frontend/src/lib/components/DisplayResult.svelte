@@ -20,6 +20,7 @@
 		| 'gif'
 		| 'error'
 		| 'approval'
+		| 'svg'
 		| undefined
 
 	$: resultKind = inferResultKind(result)
@@ -61,6 +62,8 @@
 					return 'html'
 				} else if (keys.length == 1 && keys[0] == 'png') {
 					return 'png'
+				} else if (keys.length == 1 && keys[0] == 'svg') {
+					return 'svg'
 				} else if (keys.length == 1 && keys[0] == 'jpeg') {
 					return 'jpeg'
 				} else if (keys.length == 1 && keys[0] == 'file') {
@@ -137,16 +140,16 @@
 							</div>
 							<p
 								class="text-gray-600 mb-2 text-left border-2 !border-t-0 rounded-b border-red-400 overflow-auto p-1"
-							>Rendering HTML can expose you to <a href="https://owasp.org/www-community/attacks/xss/" target="_blank" rel="noreferrer" class="hover:underline">XSS attacks</a>.
-Only enable it if you trust the author of the script.
+								>Rendering HTML can expose you to <a
+									href="https://owasp.org/www-community/attacks/xss/"
+									target="_blank"
+									rel="noreferrer"
+									class="hover:underline">XSS attacks</a
+								>. Only enable it if you trust the author of the script.
 							</p>
 						</div>
 						<div class="center-center">
-							<Button
-								size="sm"
-								color="dark"
-								on:click={() => enableHtml = true}
-							>
+							<Button size="sm" color="dark" on:click={() => (enableHtml = true)}>
 								Enable HTML rendering
 							</Button>
 						</div>
@@ -165,6 +168,11 @@ Only enable it if you trust the author of the script.
 					src="data:image/jpeg;base64,{result.jpeg}"
 				/>
 			</div>
+		{:else if !forceJson && resultKind == 'svg'}
+			<div
+				><a download="windmill.svg" href="data:text/plain;base64,{btoa(result.svg)}">Download</a>
+			</div>
+			<div class="h-full overflow-auto">{@html result.svg} </div>
 		{:else if !forceJson && resultKind == 'gif'}
 			<div class="h-full"
 				><img alt="gif rendered" class="w-auto h-full" src="data:image/gif;base64,{result.gif}" />
