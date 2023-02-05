@@ -63,19 +63,19 @@
 </script>
 
 <div class="mb-0 pb-0 pl-2 sticky top-0 bg-white border-b text-xs font-semibold">Runnables</div>
-<div bind:this={list} class="min-h-full flex flex-col gap-4">
+<div bind:this={list} class="grow flex flex-col gap-4">
 	<PanelSection title="Inline scripts" smallPadding>
 		<div class="flex flex-col gap-2 w-full">
 			{#if runnables.inline.length > 0}
-				<div class="flex gap-2 flex-col ">
+				<div class="flex gap-1 flex-col ">
 					{#each runnables.inline as { name, id }, index (index)}
 						<button
 							id={PREFIX + id}
-							class="border flex gap-1 truncate font-normal justify-between w-full items-center p-2 rounded-sm duration-200 
+							class="border flex gap-1 truncate font-normal justify-between w-full items-center py-1 px-2 rounded-sm duration-200 
 							{selectedScriptComponentId === id ? 'border-blue-500 bg-blue-100' : 'hover:bg-blue-50'}"
 							on:click={() => selectInlineScript(id)}
 						>
-							<span class="text-xs truncate">{name}</span>
+							<span class="text-2xs truncate">{name}</span>
 							<div>
 								<Badge color="dark-indigo">{id}</Badge>
 							</div>
@@ -85,16 +85,16 @@
 			{/if}
 
 			{#if $app.unusedInlineScripts?.length > 0}
-				<div class="flex gap-2 flex-col ">
+				<div class="flex gap-1 flex-col ">
 					{#each $app.unusedInlineScripts as unusedInlineScript, index (index)}
 						{@const id = `unused-${index}`}
 						<button
 							id={PREFIX + id}
-							class="border flex gap-1 truncate font-normal justify-between w-full items-center p-2 rounded-sm duration-200 
+							class="border flex gap-1 truncate font-normal justify-between w-full items-center py-1 px-2 rounded-sm duration-200 
 							{selectedScriptComponentId === id ? 'border-blue-500 bg-blue-100' : 'hover:bg-blue-50'}"
 							on:click={() => selectInlineScript(id)}
 						>
-							<span class="text-xs truncate">{unusedInlineScript.name}</span>
+							<span class="text-2xs truncate">{unusedInlineScript.name}</span>
 							<Badge color="red">Detached</Badge>
 						</button>
 					{/each}
@@ -108,21 +108,19 @@
 	</PanelSection>
 
 	<PanelSection title="Workspace/Hub" smallPadding>
-		<div class="flex flex-col gap-2 w-full">
+		<div class="flex flex-col gap-1 w-full">
 			{#if runnables.imported.length > 0}
-				<div class="flex gap-2 flex-col ">
-					{#each runnables.imported as { name, id }, index (index)}
-						<button
-							id={PREFIX + id}
-							class="border flex gap-1 truncate font-normal justify-between w-full items-center p-2 rounded-sm duration-200 
+				{#each runnables.imported as { name, id }, index (index)}
+					<button
+						id={PREFIX + id}
+						class="border flex gap-1 truncate font-normal justify-between w-full items-center py-1 px-2 rounded-sm duration-200 
 							{selectedScriptComponentId === id ? 'border-blue-500 bg-blue-100' : 'hover:bg-blue-50'}"
-							on:click={() => selectInlineScript(id)}
-						>
-							<span class="text-xs truncate">{name}</span>
-							<Badge color="dark-indigo">{id}</Badge>
-						</button>
-					{/each}
-				</div>
+						on:click={() => selectInlineScript(id)}
+					>
+						<span class="text-2xs truncate">{name}</span>
+						<Badge color="dark-indigo">{id}</Badge>
+					</button>
+				{/each}
 			{:else}
 				<div class="text-sm text-gray-500">No imported scripts/flows</div>
 			{/if}
@@ -140,22 +138,20 @@
 				><Plus size={14} />
 			</Button>
 		</svelte:fragment>
-		<div class="flex flex-col gap-2 w-full">
+		<div class="flex flex-col gap-1 w-full">
 			{#if $app.hiddenInlineScripts?.length > 0}
-				<div class="flex gap-2 flex-col ">
-					{#each $app.hiddenInlineScripts as { name }, index (index)}
-						{@const id = `bg_${index}`}
-						<button
-							id={PREFIX + id}
-							class="border flex gap-1 truncate font-normal justify-between w-full items-center p-2 rounded-sm duration-200 
+				{#each $app.hiddenInlineScripts as { name }, index (index)}
+					{@const id = `bg_${index}`}
+					<button
+						id={PREFIX + id}
+						class="border flex gap-1 truncate font-normal justify-between w-full items-center py-1 px-2 rounded-sm duration-200 
 							{selectedScriptComponentId === id ? 'border-blue-500 bg-blue-100' : 'hover:bg-blue-50'}"
-							on:click={() => selectInlineScript(id)}
-						>
-							<span class="text-xs truncate">{name}</span>
-							<Badge color="yellow">Background</Badge>
-						</button>
-					{/each}
-				</div>
+						on:click={() => selectInlineScript(id)}
+					>
+						<span class="text-2xs truncate">{name}</span>
+						<Badge color="dark-indigo">{id}</Badge>
+					</button>
+				{/each}
 			{:else}
 				<div class="text-sm text-gray-500">No items</div>
 			{/if}

@@ -8,7 +8,8 @@
 	import InlineScriptEditor from './InlineScriptEditor.svelte'
 	import EmptyInlineScript from './EmptyInlineScript.svelte'
 
-	const { lazyGrid, app, staticOutputs } = getContext<AppEditorContext>('AppEditorContext')
+	const { lazyGrid, app, staticOutputs, runnableComponents } =
+		getContext<AppEditorContext>('AppEditorContext')
 
 	let selectedScriptComponentId: string | undefined = undefined
 </script>
@@ -68,6 +69,7 @@
 								$app.hiddenInlineScripts = [...$app.hiddenInlineScripts]
 
 								delete $staticOutputs[`bg_${index}`]
+								delete $runnableComponents[`bg_${index}`]
 								$staticOutputs = $staticOutputs
 							}}
 						/>
