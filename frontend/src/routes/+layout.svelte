@@ -11,7 +11,7 @@
 
 	// Default toast options
 	const toastOptions = {
-		duration: 10000, // duration of progress bar tween to the `next` value
+		duration: 5000, // duration of progress bar tween to the `next` value
 		initial: 1, // initial progress bar value
 		next: 0, // next progress value
 		pausable: true, // pause progress bar tween on mouse hover

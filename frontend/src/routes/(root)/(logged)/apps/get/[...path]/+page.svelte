@@ -14,6 +14,11 @@
 		app = await AppService.getAppByPath({ workspace: $workspaceStore!, path: $page.params.path })
 	}
 
+	let queryId = $page.url.searchParams.get('workspace_id')
+	if (queryId && queryId != $workspaceStore) {
+		$workspaceStore = $page.url.searchParams.get('workspace_id')!
+	}
+
 	$: if ($workspaceStore) {
 		loadApp()
 	}

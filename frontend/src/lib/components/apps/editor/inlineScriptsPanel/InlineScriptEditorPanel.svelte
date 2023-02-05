@@ -4,6 +4,7 @@
 	import FlowModuleScript from '$lib/components/flows/content/FlowModuleScript.svelte'
 	import FlowPathViewer from '$lib/components/flows/content/FlowPathViewer.svelte'
 	import { inferArgs } from '$lib/infer'
+	import { workspaceStore } from '$lib/stores'
 	import { emptySchema, getScriptByPath } from '$lib/utils'
 	import { faCodeBranch, faExternalLinkAlt, faEye, faPen } from '@fortawesome/free-solid-svg-icons'
 	import type { AppInput, ResultAppInput } from '../../inputType'
@@ -120,7 +121,8 @@
 							startIcon={{ icon: faEye }}
 							endIcon={{ icon: faExternalLinkAlt }}
 							target="_blank"
-							href="/flows/get/{componentInput?.['runnable']?.path}">Details page</Button
+							href="/flows/get/{componentInput?.['runnable']?.path}?workspace_id={$workspaceStore}"
+							>Details page</Button
 						>
 					</div>
 					<FlowPathViewer path={componentInput.runnable.path} />

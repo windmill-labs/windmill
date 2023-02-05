@@ -91,7 +91,7 @@
 			{/if}
 
 			<Button
-				href="/flows/get/{path}"
+				href="/flows/get/{path}?workspace_id={$workspaceStore}"
 				color="light"
 				variant="border"
 				size="xs"
@@ -118,7 +118,7 @@
 				{
 					displayName: 'View flow',
 					icon: faEye,
-					href: `/flows/get/${path}`
+					href: `/flows/get/${path}?workspace_id=${$workspaceStore}`
 				},
 				{
 					displayName: 'Edit',

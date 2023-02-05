@@ -110,7 +110,7 @@
 			{/if}
 
 			<Button
-				href="/scripts/get/{hash}"
+				href="/scripts/get/{hash}?workspace_id={$workspaceStore}"
 				color="light"
 				variant="border"
 				size="xs"
@@ -136,7 +136,7 @@
 				{
 					displayName: 'View script',
 					icon: faEye,
-					href: `/scripts/get/${hash}`
+					href: `/scripts/get/${hash}?workspace_id=${$workspaceStore}`
 				},
 
 				{
