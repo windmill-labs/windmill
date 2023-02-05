@@ -47,7 +47,6 @@
 			if (!keys.includes(key)) {
 				delete args[key]
 				delete inputCheck[key]
-				console.log('DELETED', key)
 			}
 		})
 	}
