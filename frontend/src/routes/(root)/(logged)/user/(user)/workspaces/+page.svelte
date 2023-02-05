@@ -95,12 +95,12 @@
 
 	{#if adminsInstance}
 		<Button
-			btnClasses="w-full mt-2 mb-4"
+			btnClasses="w-full mt-2 mb-4 truncate"
 			color="light"
 			size="sm"
 			href="/user/switch_to_admins{rd ? `?rd=${encodeURIComponent(rd)}` : ''}"
 			variant="border"
-			>Manage Windmill on the workspace for superadmins
+			>Manage Windmill on the superadmins workspace
 		</Button>
 	{/if}
 
@@ -201,7 +201,7 @@
 			</div>
 		</div>
 	{/each}
-	<div class="flex justify-between items-center mt-10 flex-wrap">
+	<div class="flex justify-between items-center mt-10 flex-wrap gap-2">
 		{#if $superadmin}
 			<Button variant="border" size="sm" on:click={superadminSettings.openDrawer}>
 				<Icon data={faCrown} class="mr-1" scale={1} />
