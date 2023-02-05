@@ -18,6 +18,7 @@
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let noWFull = false
+	export let preclickAction: (() => Promise<void>) | undefined = undefined
 
 	export const staticOutputs: string[] = ['loading', 'result']
 
@@ -90,6 +91,9 @@
 				window.dispatchEvent(new Event('pointerup'))
 			}}
 			on:click={async (e) => {
+				if (preclickAction) {
+					await preclickAction()
+				}
 				e?.stopPropagation()
 				e?.preventDefault()
 				ownClick = true

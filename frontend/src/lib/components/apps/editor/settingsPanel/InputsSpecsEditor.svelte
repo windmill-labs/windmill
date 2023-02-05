@@ -67,7 +67,7 @@
 										/>
 										<svelte:fragment slot="text">Static</svelte:fragment>
 									</Popover>
-									{#if rowColumns}
+									<!-- {#if rowColumns}
 										<Popover placement="bottom" notClickable disapperTimoout={0}>
 											<ToggleButton
 												position="center"
@@ -81,7 +81,7 @@
 											</ToggleButton>
 											<svelte:fragment slot="text">Column</svelte:fragment>
 										</Popover>
-									{/if}
+									{/if} -->
 									{#if userInputEnabled && !input.format?.startsWith('resource-')}
 										<Popover placement="bottom" notClickable disapperTimoout={0}>
 											<ToggleButton
