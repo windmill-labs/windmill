@@ -14,7 +14,7 @@
 	import CenteredPage from './CenteredPage.svelte'
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
-	import { Button } from './common'
+	import { Button, Kbd } from './common'
 	import { faChevronDown, faChevronUp, faPen, faSave } from '@fortawesome/free-solid-svg-icons'
 	import Breadcrumb from './common/breadcrumb/Breadcrumb.svelte'
 	import Toggle from './Toggle.svelte'
@@ -104,8 +104,17 @@
 		}
 		goto(`?step=${step}`)
 	}
+
 	$: kind = script.kind as 'script' | 'trigger' | 'approval' | undefined
+
+	function onKeyDown(event: KeyboardEvent) {
+		if (event.key == 'Enter' && step == 1) {
+			changeStep(2)
+		}
+	}
 </script>
+
+<svelte:window on:keydown={onKeyDown} />
 
 {#if !$userStore?.operator}
 	<UnsavedConfirmationModal />
@@ -168,11 +177,11 @@
 					<Button
 						size="sm"
 						variant={step == 1 ? 'contained' : 'border'}
-						btnClasses={step == 3 ? 'invisible' : ''}
+						btnClasses={step == 3 ? 'invisible' : 'inline-flex gap-2'}
 						disabled={step === 1 && pathError !== ''}
 						on:click={() => changeStep(step + 1)}
 					>
-						Next
+						Next {#if step == 1}<Kbd>Enter</Kbd>{/if}
 					</Button>
 					<Button
 						size="sm"
@@ -189,7 +198,7 @@
 		<!-- metadata -->
 		{#if step === 1}
 			<CenteredPage>
-				<h2 class="border-b pb-1 mt-4 mb-2">Path</h2>
+				<h2 class="border-b pb-1 mt-8 mb-2">Path</h2>
 				<Path
 					bind:this={pathC}
 					bind:error={pathError}
@@ -199,14 +208,14 @@
 					namePlaceholder="my_script"
 					kind="script"
 				/>
-				<h2 class="border-b pb-1 mt-8 mb-4">Summary</h2>
+				<h2 class="border-b pb-1 mt-12 mb-4">Summary</h2>
 				<input
 					type="text"
 					bind:this={summaryC}
 					bind:value={script.summary}
 					placeholder="A short summary of the script displayed when the script is listed"
 				/>
-				<h2 class="border-b pb-1 mt-8 mb-6">Language</h2>
+				<h2 class="border-b pb-1 mt-12 mb-6">Language</h2>
 				<div class="flex flex-row gap-2 flex-wrap">
 					{#each langs as [label, lang]}
 						{@const isPicked = script.language == lang && template == 'script'}
@@ -221,7 +230,7 @@
 								initContent(lang, script.kind, template)
 							}}
 						>
-							<LanguageIcon {lang} /><span class="ml-2">{label}</span>
+							<LanguageIcon {lang} /><span class="ml-2 py-4">{label}</span>
 						</Button>
 					{/each}
 					<Button
@@ -235,7 +244,7 @@
 							initContent(script.language, script.kind, template)
 						}}
 					>
-						<LanguageIcon lang="pgsql" /><span class="ml-2">PostgreSQL</span>
+						<LanguageIcon lang="pgsql" /><span class="ml-2 py-4">PostgreSQL</span>
 					</Button>
 					<Button
 						size="sm"
@@ -248,11 +257,10 @@
 							initContent(script.language, script.kind, template)
 						}}
 					>
-						<LanguageIcon lang="mysql" /><span class="ml-2">MySQL</span>
+						<LanguageIcon lang="mysql" /><span class="ml-2 py-4">MySQL</span>
 					</Button>
 				</div>
-				<h2 class="border-b pb-1 mt-8 mb-4">Advanced</h2>
-				<div class="mb-4">
+				<div class="mt-16 mb-4">
 					<Button
 						color="light"
 						size="sm"
