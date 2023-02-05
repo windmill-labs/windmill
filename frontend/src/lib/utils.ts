@@ -464,8 +464,6 @@ export function setInputCat(
 		return 'yaml'
 	} else if (type == 'string' && contentEncoding == 'base64') {
 		return 'base64'
-	} else if (type == 'string' && format?.startsWith('resource')) {
-		return 'resource-string'
 	} else {
 		return 'string'
 	}
