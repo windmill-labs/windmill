@@ -34,7 +34,11 @@
 	}
 
 	function resourceToValue() {
-		value = `$res:${path}`
+		if (path) {
+			value = `$res:${path}`
+		} else {
+			value = undefined
+		}
 	}
 
 	function isResource() {

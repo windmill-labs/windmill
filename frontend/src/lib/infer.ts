@@ -67,7 +67,6 @@ function argSigToJsonSchemaType(
 	oldS: SchemaProperty
 ): void {
 
-
 	const newS: SchemaProperty = { type: '', description: '' }
 	if (t === 'int') {
 		newS.type = 'integer'
@@ -128,4 +127,7 @@ function argSigToJsonSchemaType(
 		}
 	}
 	Object.assign(oldS, newS)
+	if (oldS.format?.startsWith('resource-') && newS.type != 'object') {
+		oldS.format = undefined
+	}
 }

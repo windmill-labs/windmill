@@ -70,7 +70,6 @@
 		['None', 'none'],
 		['File (base64)', 'base64'],
 		['Enum', 'enum'],
-		['Resource Path', 'resource'],
 		['Format', 'format'],
 		['Pattern', 'pattern']
 	]}
