@@ -1,23 +1,19 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { logout } from '$lib/logout'
-
 	import {
 		userStore,
 		usersWorkspaceStore,
 		superadmin,
 		usageStore,
-		workspaceStore,
 		premiumStore
 	} from '$lib/stores'
 	import { classNames, isCloudHosted } from '$lib/utils'
 	import { faCrown, faHardHat, faUser } from '@fortawesome/free-solid-svg-icons'
-	import { createEventDispatcher } from 'svelte'
-
 	import Icon from 'svelte-awesome'
 	import Menu from '../common/menu/Menu.svelte'
+	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from './settings'
 
-	let dispatch = createEventDispatcher()
 	export let isCollapsed: boolean = false
 </script>
 
@@ -63,8 +59,7 @@
 
 		<div class="py-1" role="none">
 			<a
-				on:click={() => dispatch('user-settings')}
-				href="#user-settings"
+				href={USER_SETTINGS_HASH}
 				class="text-gray-700 block px-4 py-2 text-sm hover:bg-gray-100 hover:text-gray-900"
 				role="menuitem"
 				tabindex="-1"
@@ -75,8 +70,7 @@
 		{#if $superadmin}
 			<div class="py-1" role="none">
 				<a
-					on:click={() => dispatch('superadmin-settings')}
-					href="#superadmin-settings"
+					href={SUPERADMIN_SETTINGS_HASH}
 					class="text-gray-700 block px-4 py-2 text-sm hover:bg-gray-100 hover:text-gray-900"
 					role="menuitem"
 					tabindex="-1"
