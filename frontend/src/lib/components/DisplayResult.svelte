@@ -21,6 +21,7 @@
 		| 'error'
 		| 'approval'
 		| 'svg'
+		| 'filename'
 		| undefined
 
 	$: resultKind = inferResultKind(result)
@@ -70,6 +71,8 @@
 					return 'file'
 				} else if (keys.length == 1 && keys[0] == 'error') {
 					return 'error'
+				} else if (keys.length === 2 && keys.includes('file') && keys.includes('filename')) {
+					return 'filename'
 				} else if (
 					keys.length == 3 &&
 					keys.includes('resume') &&
@@ -182,6 +185,12 @@
 				><a download="windmill.file" href="data:application/octet-stream;base64,{result.file}"
 					>Download</a
 				>
+			</div>
+		{:else if !forceJson && resultKind === 'filename'}
+			<div>
+				<a download={result.filename} href="data:application/octet-stream;base64,{result.file}">
+					Download
+				</a>
 			</div>
 		{:else if !forceJson && resultKind == 'error'}<div>
 				<span class="text-red-500 font-semibold text-sm whitespace-pre-wrap"
