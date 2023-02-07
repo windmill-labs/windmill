@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Embed demo</title>
+    <link href="/style.css" rel="stylesheet">
+    <link href="/tailwind.css" rel="stylesheet">
+  </head>
+  <body>
+    <div id="app"></div>
+    <script src="/appviewer.iife.js">
+    </script>    
+    </script>
+    <script>
+            loadApp(document.getElementById("app"), {
+    "grid": [
+        {
+            "3": {
+                "h": 2,
+                "w": 1,
+                "x": 0,
+                "y": 0,
+                "max": {
+                    "h": 100,
+                    "w": 3
+                },
+                "min": {
+                    "h": 1,
+                    "w": 1
+                },
+                "fixed": false,
+                "draggable": true,
+                "resizable": true,
+                "customDragger": false,
+                "customResizer": false
+            },
+            "12": {
+                "h": 5,
+                "w": 3,
+                "x": 0,
+                "y": 0,
+                "id": "a",
+                "max": {
+                    "h": 100,
+                    "w": 12
+                },
+                "min": {
+                    "h": 1,
+                    "w": 1
+                },
+                "fixed": false,
+                "draggable": true,
+                "resizable": true,
+                "customDragger": false,
+                "customResizer": false
+            },
+            "id": "a",
+            "data": {
+                "id": "a",
+                "card": false,
+                "type": "htmlcomponent",
+                "softWrap": false,
+                "configuration": {},
+                "componentInput": {
+                    "eval": "<img\n\tsrc=\"https://images.unsplash.com/photo-1554629947-334ff61d85dc?ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&amp;ixlib=rb-1.2.1&amp;auto=format&amp;fit=crop&amp;w=1024&amp;h=1280&amp;q=80\"\n>\n<div class=\"absolute top-4 left-2  text-white\">\n\tHello ${ctx.username}\n</div>\t\t\t\n",
+                    "type": "template",
+                    "value": "<img\n\tsrc=\"https://images.unsplash.com/photo-1554629947-334ff61d85dc?ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&amp;ixlib=rb-1.2.1&amp;auto=format&amp;fit=crop&amp;w=1024&amp;h=1280&amp;q=80\"\n>\n<div class=\"absolute top-4 left-2  text-white\">\n\tHello ${ctx.username}\n</div>\t\t\t\n",
+                    "fieldType": "template"
+                }
+            }
+        },
+        {
+            "3": {
+                "h": 10,
+                "w": 3,
+                "x": 0,
+                "y": 2,
+                "max": {
+                    "h": 100,
+                    "w": 3
+                },
+                "min": {
+                    "h": 1,
+                    "w": 1
+                },
+                "fixed": false,
+                "draggable": true,
+                "resizable": true,
+                "customDragger": false,
+                "customResizer": false
+            },
+            "12": {
+                "h": 10,
+                "w": 6,
+                "x": 3,
+                "y": 0,
+                "id": "b",
+                "max": {
+                    "h": 100,
+                    "w": 12
+                },
+                "min": {
+                    "h": 1,
+                    "w": 1
+                },
+                "fixed": false,
+                "draggable": true,
+                "resizable": true,
+                "customDragger": false,
+                "customResizer": false
+            },
+            "id": "b",
+            "data": {
+                "id": "b",
+                "card": true,
+                "type": "tablecomponent",
+                "actionButtons": [],
+                "configuration": {
+                    "search": {
+                        "type": "static",
+                        "value": "Disabled",
+                        "fieldType": "select",
+                        "onlyStatic": true,
+                        "optionValuesKey": "tableSearchOptions"
+                    }
+                },
+                "componentInput": {
+                    "type": "static",
+                    "value": [
+                        {
+                            "id": 1,
+                            "age": 42,
+                            "name": "A cell with a long name"
+                        },
+                        {
+                            "id": 2,
+                            "age": 84,
+                            "name": "A briefer cell"
+                        }
+                    ],
+                    "fieldType": "array",
+                    "subFieldType": "object"
+                }
+            }
+        },
+        {
+            "3": {
+                "h": 8,
+                "w": 2,
+                "x": 0,
+                "y": 12,
+                "max": {
+                    "h": 100,
+                    "w": 3
+                },
+                "min": {
+                    "h": 1,
+                    "w": 1
+                },
+                "fixed": false,
+                "draggable": true,
+                "resizable": true,
+                "customDragger": false,
+                "customResizer": false
+            },
+            "12": {
+                "h": 8,
+                "w": 6,
+                "x": 0,
+                "y": 10,
+                "max": {
+                    "h": 100,
+                    "w": 12
+                },
+                "min": {
+                    "h": 1,
+                    "w": 1
+                },
+                "fixed": false,
+                "draggable": true,
+                "resizable": true,
+                "customDragger": false,
+                "customResizer": false
+            },
+            "id": "c",
+            "data": {
+                "id": "c",
+                "card": true,
+                "type": "scatterchartcomponent",
+                "configuration": {
+                    "pannable": {
+                        "type": "static",
+                        "value": false,
+                        "fieldType": "boolean",
+                        "onlyStatic": true
+                    },
+                    "zoomable": {
+                        "type": "static",
+                        "value": false,
+                        "fieldType": "boolean",
+                        "onlyStatic": true
+                    }
+                },
+                "componentInput": {
+                    "type": "static",
+                    "value": [
+                        {
+                            "data": [
+                                {
+                                    "x": 25,
+                                    "y": 50
+                                },
+                                {
+                                    "x": 23,
+                                    "y": 23
+                                },
+                                {
+                                    "x": 12,
+                                    "y": 37
+                                }
+                            ],
+                            "label": "foo",
+                            "backgroundColor": "rgb(255, 12, 137)"
+                        },
+                        {
+                            "data": [
+                                {
+                                    "x": 32,
+                                    "y": 32
+                                },
+                                {
+                                    "x": 25,
+                                    "y": 42
+                                },
+                                {
+                                    "x": 3,
+                                    "y": 27
+                                }
+                            ],
+                            "label": "foobar",
+                            "backgroundColor": "orange"
+                        }
+                    ],
+                    "fieldType": "array",
+                    "subFieldType": "object"
+                }
+            }
+        },
+        {
+            "3": {
+                "h": 8,
+                "w": 2,
+                "x": 0,
+                "y": 20,
+                "max": {
+                    "h": 100,
+                    "w": 3
+                },
+                "min": {
+                    "h": 1,
+                    "w": 1
+                },
+                "fixed": false,
+                "draggable": true,
+                "resizable": true,
+                "customDragger": false,
+                "customResizer": false
+            },
+            "12": {
+                "h": 8,
+                "w": 6,
+                "x": 6,
+                "y": 10,
+                "id": "d",
+                "max": {
+                    "h": 100,
+                    "w": 12
+                },
+                "min": {
+                    "h": 1,
+                    "w": 1
+                },
+                "fixed": false,
+                "draggable": true,
+                "resizable": true,
+                "customDragger": false,
+                "customResizer": false
+            },
+            "id": "d",
+            "data": {
+                "id": "d",
+                "card": false,
+                "type": "displaycomponent",
+                "configuration": {},
+                "componentInput": {
+                    "type": "connected",
+                    "value": {
+                        "foo": 42
+                    },
+                    "fields": {
+                        "x": {
+                            "type": "connected",
+                            "value": "gooo",
+                            "visible": true,
+                            "fieldType": "string",
+                            "connection": {
+                                "path": "result",
+                                "componentId": "e"
+                            }
+                        }
+                    },
+                    "runnable": {
+                        "name": "Inline Script 1",
+                        "type": "runnableByName",
+                        "inlineScript": {
+                            "path": "/inline-script/Inline Script 1",
+                            "schema": {
+                                "type": "object",
+                                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                                "required": [
+                                    "x"
+                                ],
+                                "properties": {
+                                    "x": {
+                                        "type": "string",
+                                        "default": null,
+                                        "description": ""
+                                    }
+                                }
+                            },
+                            "content": "// import * as wmill from \"https://deno.land/x/windmill@v1.57.1/mod.ts\"\n\nexport async function main(x: string) {\n  return x\n}\n",
+                            "language": "deno"
+                        }
+                    },
+                    "fieldType": "object",
+                    "connection": {
+                        "path": "result",
+                        "componentId": "e"
+                    }
+                }
+            }
+        },
+        {
+            "3": {
+                "h": 1,
+                "w": 2,
+                "x": 1,
+                "y": 0,
+                "max": {
+                    "h": 100,
+                    "w": 3
+                },
+                "min": {
+                    "h": 1,
+                    "w": 1
+                },
+                "fixed": false,
+                "draggable": true,
+                "resizable": true,
+                "customDragger": false,
+                "customResizer": false
+            },
+            "12": {
+                "h": 1,
+                "w": 3,
+                "x": 9,
+                "y": 0,
+                "id": "e",
+                "max": {
+                    "h": 100,
+                    "w": 12
+                },
+                "min": {
+                    "h": 1,
+                    "w": 1
+                },
+                "fixed": false,
+                "draggable": true,
+                "resizable": true,
+                "customDragger": false,
+                "customResizer": false
+            },
+            "id": "e",
+            "data": {
+                "id": "e",
+                "card": false,
+                "type": "textinputcomponent",
+                "softWrap": true,
+                "configuration": {
+                    "placeholder": {
+                        "type": "static",
+                        "value": "Type...",
+                        "fieldType": "text",
+                        "onlyStatic": true
+                    }
+                },
+                "verticalAlignment": "center"
+            }
+        },
+        {
+            "3": {
+                "h": 1,
+                "w": 2,
+                "x": 1,
+                "y": 1,
+                "max": {
+                    "h": 100,
+                    "w": 3
+                },
+                "min": {
+                    "h": 1,
+                    "w": 1
+                },
+                "fixed": false,
+                "draggable": true,
+                "resizable": true,
+                "customDragger": false,
+                "customResizer": false
+            },
+            "12": {
+                "h": 1,
+                "w": 3,
+                "x": 9,
+                "y": 1,
+                "max": {
+                    "h": 100,
+                    "w": 12
+                },
+                "min": {
+                    "h": 1,
+                    "w": 1
+                },
+                "fixed": false,
+                "draggable": true,
+                "resizable": true,
+                "customDragger": false,
+                "customResizer": false
+            },
+            "id": "f",
+            "data": {
+                "id": "f",
+                "card": false,
+                "type": "passwordinputcomponent",
+                "softWrap": true,
+                "configuration": {
+                    "placeholder": {
+                        "type": "static",
+                        "value": "Password",
+                        "fieldType": "text",
+                        "onlyStatic": true
+                    }
+                },
+                "verticalAlignment": "center"
+            }
+        },
+        {
+            "3": {
+                "h": 1,
+                "w": 2,
+                "x": 0,
+                "y": 28,
+                "max": {
+                    "h": 100,
+                    "w": 3
+                },
+                "min": {
+                    "h": 1,
+                    "w": 1
+                },
+                "fixed": false,
+                "draggable": true,
+                "resizable": true,
+                "customDragger": false,
+                "customResizer": false
+            },
+            "12": {
+                "h": 1,
+                "w": 3,
+                "x": 9,
+                "y": 2,
+                "max": {
+                    "h": 100,
+                    "w": 12
+                },
+                "min": {
+                    "h": 1,
+                    "w": 1
+                },
+                "fixed": false,
+                "draggable": true,
+                "resizable": true,
+                "customDragger": false,
+                "customResizer": false
+            },
+            "id": "g",
+            "data": {
+                "id": "g",
+                "card": false,
+                "type": "dateinputcomponent",
+                "softWrap": true,
+                "configuration": {
+                    "maxDate": {
+                        "type": "static",
+                        "value": "",
+                        "fieldType": "date"
+                    },
+                    "minDate": {
+                        "type": "static",
+                        "value": "",
+                        "fieldType": "date"
+                    }
+                },
+                "verticalAlignment": "center"
+            }
+        },
+        {
+            "3": {
+                "h": 1,
+                "w": 1,
+                "x": 2,
+                "y": 12,
+                "max": {
+                    "h": 100,
+                    "w": 3
+                },
+                "min": {
+                    "h": 1,
+                    "w": 1
+                },
+                "fixed": false,
+                "draggable": true,
+                "resizable": true,
+                "customDragger": false,
+                "customResizer": false
+            },
+            "12": {
+                "h": 1,
+                "w": 2,
+                "x": 9,
+                "y": 3,
+                "max": {
+                    "h": 100,
+                    "w": 12
+                },
+                "min": {
+                    "h": 1,
+                    "w": 1
+                },
+                "fixed": false,
+                "draggable": true,
+                "resizable": true,
+                "customDragger": false,
+                "customResizer": false
+            },
+            "id": "h",
+            "data": {
+                "id": "h",
+                "card": false,
+                "type": "checkboxcomponent",
+                "softWrap": true,
+                "configuration": {
+                    "label": {
+                        "type": "static",
+                        "value": "Label",
+                        "fieldType": "text"
+                    }
+                },
+                "verticalAlignment": "center",
+                "horizontalAlignment": "center"
+            }
+        },
+        {
+            "3": {
+                "h": 1,
+                "w": 2,
+                "x": 0,
+                "y": 29,
+                "max": {
+                    "h": 100,
+                    "w": 3
+                },
+                "min": {
+                    "h": 1,
+                    "w": 1
+                },
+                "fixed": false,
+                "draggable": true,
+                "resizable": true,
+                "customDragger": false,
+                "customResizer": false
+            },
+            "12": {
+                "h": 1,
+                "w": 3,
+                "x": 9,
+                "y": 4,
+                "max": {
+                    "h": 100,
+                    "w": 12
+                },
+                "min": {
+                    "h": 1,
+                    "w": 1
+                },
+                "fixed": false,
+                "draggable": true,
+                "resizable": true,
+                "customDragger": false,
+                "customResizer": false
+            },
+            "id": "i",
+            "data": {
+                "id": "i",
+                "card": false,
+                "type": "selectcomponent",
+                "softWrap": true,
+                "configuration": {
+                    "items": {
+                        "type": "static",
+                        "value": [
+                            {
+                                "label": "Foo",
+                                "value": "foo"
+                            },
+                            {
+                                "label": "Bar",
+                                "value": "bar"
+                            }
+                        ],
+                        "fieldType": "array",
+                        "subFieldType": "object"
+                    },
+                    "itemKey": {
+                        "type": "static",
+                        "value": "value",
+                        "fieldType": "text"
+                    }
+                },
+                "verticalAlignment": "center"
+            }
+        },
+        {
+            "3": {
+                "h": 1,
+                "w": 1,
+                "x": 2,
+                "y": 13,
+                "max": {
+                    "h": 100,
+                    "w": 3
+                },
+                "min": {
+                    "h": 1,
+                    "w": 1
+                },
+                "fixed": false,
+                "draggable": true,
+                "resizable": true,
+                "customDragger": false,
+                "customResizer": false
+            },
+            "12": {
+                "h": 1,
+                "w": 2,
+                "x": 0,
+                "y": 5,
+                "max": {
+                    "h": 100,
+                    "w": 12
+                },
+                "min": {
+                    "h": 1,
+                    "w": 1
+                },
+                "fixed": false,
+                "draggable": true,
+                "resizable": true,
+                "customDragger": false,
+                "customResizer": false
+            },
+            "id": "j",
+            "data": {
+                "id": "j",
+                "card": false,
+                "type": "buttoncomponent",
+                "softWrap": true,
+                "configuration": {
+                    "size": {
+                        "type": "static",
+                        "value": "xs",
+                        "fieldType": "select",
+                        "onlyStatic": true,
+                        "optionValuesKey": "buttonSizeOptions"
+                    },
+                    "color": {
+                        "type": "static",
+                        "value": "blue",
+                        "fieldType": "select",
+                        "onlyStatic": true,
+                        "optionValuesKey": "buttonColorOptions"
+                    },
+                    "label": {
+                        "type": "static",
+                        "value": "Press me",
+                        "fieldType": "text"
+                    }
+                },
+                "componentInput": {
+                    "type": "runnable",
+                    "fields": {},
+                    "fieldType": "any"
+                },
+                "verticalAlignment": "center",
+                "horizontalAlignment": "center"
+            }
+        },
+        {
+            "3": {
+                "h": 5,
+                "w": 3,
+                "x": 0,
+                "y": 30,
+                "max": {
+                    "h": 100,
+                    "w": 3
+                },
+                "min": {
+                    "h": 1,
+                    "w": 1
+                },
+                "fixed": false,
+                "draggable": true,
+                "resizable": true,
+                "customDragger": false,
+                "customResizer": false
+            },
+            "12": {
+                "h": 5,
+                "w": 6,
+                "x": 0,
+                "y": 18,
+                "id": "k",
+                "max": {
+                    "h": 100,
+                    "w": 12
+                },
+                "min": {
+                    "h": 1,
+                    "w": 1
+                },
+                "fixed": false,
+                "draggable": true,
+                "resizable": true,
+                "customDragger": false,
+                "customResizer": false
+            },
+            "id": "k",
+            "data": {
+                "id": "k",
+                "card": true,
+                "type": "formcomponent",
+                "configuration": {
+                    "size": {
+                        "type": "static",
+                        "value": "xs",
+                        "fieldType": "select",
+                        "onlyStatic": true,
+                        "optionValuesKey": "buttonSizeOptions"
+                    },
+                    "color": {
+                        "type": "static",
+                        "value": "dark",
+                        "fieldType": "select",
+                        "onlyStatic": true,
+                        "optionValuesKey": "buttonColorOptions"
+                    },
+                    "label": {
+                        "type": "static",
+                        "value": "Submit",
+                        "fieldType": "text"
+                    }
+                },
+                "componentInput": {
+                    "type": "runnable",
+                    "fields": {
+                        "x": {
+                            "type": "user",
+                            "value": null,
+                            "visible": true,
+                            "fieldType": "string"
+                        },
+                        "y": {
+                            "type": "user",
+                            "value": null,
+                            "visible": true,
+                            "fieldType": "string"
+                        }
+                    },
+                    "runnable": {
+                        "name": "Inline Script 0",
+                        "type": "runnableByName",
+                        "inlineScript": {
+                            "path": "/inline-script/Inline Script 0",
+                            "schema": {
+                                "type": "object",
+                                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                                "required": [
+                                    "x",
+                                    "y"
+                                ],
+                                "properties": {
+                                    "x": {
+                                        "type": "string",
+                                        "default": null,
+                                        "description": ""
+                                    },
+                                    "y": {
+                                        "type": "string",
+                                        "default": null,
+                                        "description": ""
+                                    }
+                                }
+                            },
+                            "content": "// import * as wmill from \"https://deno.land/x/windmill@v1.57.1/mod.ts\"\n\nexport async function main(x: string, y: string) {\n  return x\n}\n",
+                            "language": "deno"
+                        }
+                    },
+                    "fieldType": "any"
+                },
+                "horizontalAlignment": "center"
+            }
+        }
+    ],
+    "fullscreen": false,
+    "unusedInlineScripts": []
+})
+    </script>
+  </body>
+</html>

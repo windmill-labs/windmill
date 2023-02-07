@@ -4,6 +4,7 @@
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
+		"build-embed": "vite build -c vite.embed.config.js",
 		"preview": "vite preview",
 		"check": "svelte-check --tsconfig ./tsconfig.json --threshold warning",
 		"check:watch": "svelte-check --tsconfig ./tsconfig.json --watch",
