@@ -9,7 +9,7 @@ import {
 	UserService,
 	type Flow,
 	type User
-} from '$lib/gen'
+} from '$lib/gen/index'
 import { toast } from '@zerodevx/svelte-toast'
 import type { Schema, SupportedLanguage } from './common'
 import { hubScripts, workspaceStore, type UserExt } from './stores'

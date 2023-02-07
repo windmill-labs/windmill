@@ -12,19 +12,24 @@
 		EditorMode
 	} from '../types'
 	import GridEditor from './GridEditor.svelte'
-	import { classNames } from '$lib/utils'
+	import { classNames } from '../../../utils'
 	import type { Policy } from '$lib/gen'
 	import Button from '../../common/button/Button.svelte'
 	import { Unlock } from 'lucide-svelte'
 
-	export let app: App
-	export let appPath: string
-	export let breakpoint: Writable<EditorBreakpoint>
-	export let policy: Policy
-	export let summary: string
-	export let workspace: string
-	export let isEditor: boolean
-	export let context: Record<string, any>
+	export let app: App = {
+		grid: [],
+		fullscreen: false,
+		unusedInlineScripts: [],
+		hiddenInlineScripts: []
+	}
+	export let appPath: string = ''
+	export let breakpoint: Writable<EditorBreakpoint> = writable('lg')
+	export let policy: Policy = {}
+	export let summary: string = ''
+	export let workspace: string = 'workspace'
+	export let isEditor: boolean = false
+	export let context: Record<string, any> = {}
 	export let noBackend: boolean = false
 	export let isLocked = false
 

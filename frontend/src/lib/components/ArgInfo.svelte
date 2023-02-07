@@ -1,8 +1,6 @@
 <script lang="ts">
 	import { truncate } from '$lib/utils'
 	import Tooltip from './Tooltip.svelte'
-	import json from 'svelte-highlight/languages/json'
-	import { Highlight } from 'svelte-highlight'
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import Drawer from './common/drawer/Drawer.svelte'

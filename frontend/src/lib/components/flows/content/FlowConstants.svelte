@@ -3,13 +3,13 @@
 	import FlowCard from '../common/FlowCard.svelte'
 	import { Alert, Badge } from '$lib/components/common'
 	import type { FlowModule, FlowModuleValue, InputTransform, PathScript, RawScript } from '$lib/gen'
-	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { flowStateStore } from '../flowState'
 	import { setContext } from 'svelte'
 	import type { PropPickerWrapperContext } from '../propPicker/PropPickerWrapper.svelte'
 	import { writable } from 'svelte/store'
 	import { slide } from 'svelte/transition'
 	import Toggle from '../../Toggle.svelte'
+	import SchemaFormTransform from '$lib/components/SchemaFormTransform.svelte'
 
 	let hideOptional = false
 
@@ -37,7 +37,7 @@
 				] as [Record<string, InputTransform>, string[], FlowModule]
 		)
 		.filter(([i, f, m]) => f.length > 0)
-	
+
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
 		focusProp: () => {},
 		propPickerConfig: writable(undefined),
@@ -47,11 +47,7 @@
 
 <div class="min-h-full">
 	<FlowCard title="All Static Inputs">
-		<Toggle
-			slot="header"
-			bind:checked={hideOptional}
-			options={{left: 'Hide optional inputs'}}
-		/>
+		<Toggle slot="header" bind:checked={hideOptional} options={{ left: 'Hide optional inputs' }} />
 		<div class="min-h-full flex-1">
 			<Alert type="info" title="Static Inputs" class="m-4"
 				>This page centralizes the static inputs of every steps. It is akin to a file containing all
@@ -80,9 +76,8 @@
 							<Badge large color="indigo">{m.id}</Badge>
 						</h2>
 
-						<SchemaForm
+						<SchemaFormTransform
 							noDynamicToggle
-							inputTransform
 							{filter}
 							class="mt-2"
 							schema={$flowStateStore[m.id]?.schema ?? {}}

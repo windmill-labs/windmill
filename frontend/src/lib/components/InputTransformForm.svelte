@@ -8,7 +8,6 @@
 	import DynamicInputHelpBox from './flows/content/DynamicInputHelpBox.svelte'
 	import type { PropPickerWrapperContext } from './flows/propPicker/PropPickerWrapper.svelte'
 	import { codeToStaticTemplate, getDefaultExpr, isCodeInjection } from './flows/utils'
-	import SimpleEditor from './SimpleEditor.svelte'
 	import { Button, ToggleButton, ToggleButtonGroup } from './common'
 	import { faCode } from '@fortawesome/free-solid-svg-icons'
 	import type VariableEditor from './VariableEditor.svelte'
@@ -17,6 +16,7 @@
 	import TemplateEditor from './TemplateEditor.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { setInputCat as computeInputCat } from '$lib/utils'
+	import JavascriptEditor from './JavascriptEditor.svelte'
 
 	export let schema: Schema
 	export let arg: InputTransform | any
@@ -29,7 +29,7 @@
 	export let itemPicker: ItemPicker | undefined = undefined
 	export let noDynamicToggle = false
 
-	let monaco: SimpleEditor | undefined = undefined
+	let monaco: JavascriptEditor | undefined = undefined
 	let monacoTemplate: TemplateEditor | undefined = undefined
 	let argInput: ArgInput | undefined = undefined
 
@@ -284,7 +284,7 @@
 			/>
 		{:else if arg.expr != undefined}
 			<div class="border rounded mt-2 border-gray-300">
-				<SimpleEditor
+				<JavascriptEditor
 					bind:this={monaco}
 					bind:code={arg.expr}
 					{extraLib}

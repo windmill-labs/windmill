@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
-	import { classNames } from '$lib/utils'
+	import { classNames } from '../../../utils'
 	import Icon from 'svelte-awesome'
 	import { ButtonType } from './model'
-	import { goto } from '$app/navigation'
+	// import { goto } from '$app/navigation'
 	import { Loader2 } from 'lucide-svelte'
 
 	export let size: ButtonType.Size = 'md'
@@ -93,7 +93,7 @@
 					window.open(href, target)
 				} else {
 					loading = true
-					await goto(href)
+					// await goto(href)
 					loading = false
 				}
 			}

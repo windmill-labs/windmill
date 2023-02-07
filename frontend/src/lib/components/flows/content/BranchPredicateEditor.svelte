@@ -3,11 +3,11 @@
 	import { getContext } from 'svelte'
 	import { flowStore } from '../flowStore'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
-	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 
 	import { flowStateStore } from '../flowState'
 	import { getStepPropPicker } from '../previousResults'
 	import type { FlowEditorContext } from '../types'
+	import JavascriptEditor from '$lib/components/JavascriptEditor.svelte'
 
 	export let branch: {
 		summary?: string
@@ -18,7 +18,7 @@
 	export let previousModule: FlowModule | undefined
 
 	const { previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
-	let editor: SimpleEditor | undefined = undefined
+	let editor: JavascriptEditor | undefined = undefined
 
 	$: stepPropPicker = getStepPropPicker(
 		$flowStateStore,
@@ -40,7 +40,7 @@
 	}}
 >
 	<div class="border border-gray-400">
-		<SimpleEditor
+		<JavascriptEditor
 			bind:this={editor}
 			lang="javascript"
 			bind:code={branch.expr}

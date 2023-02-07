@@ -3,8 +3,8 @@
 
 	import { getContext } from 'svelte'
 	import type { AppEditorContext } from '$lib/components/apps/types'
-	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { buildExtraLib } from '$lib/components/apps/utils'
+	import JavascriptEditor from '$lib/components/JavascriptEditor.svelte'
 
 	export let componentInput: EvalAppInput | undefined
 	export let id: string
@@ -22,7 +22,7 @@
 
 {#if componentInput?.type === 'eval'}
 	<div class="border border-gray-300 ">
-		<SimpleEditor
+		<JavascriptEditor
 			lang="javascript"
 			bind:code={componentInput.expr}
 			shouldBindKey={false}

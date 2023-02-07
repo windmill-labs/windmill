@@ -7,7 +7,6 @@
 	import ModulePreview from '$lib/components/ModulePreview.svelte'
 	import { createScriptFromInlineScript, fork } from '$lib/components/flows/flowStateUtils'
 	import { flowStore } from '$lib/components/flows/flowStore'
-	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { RawScript, type FlowModule, type PathFlow, type PathScript } from '$lib/gen'
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
@@ -27,6 +26,7 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import FlowModuleSleep from './FlowModuleSleep.svelte'
 	import FlowPathViewer from './FlowPathViewer.svelte'
+	import SchemaFormTransform from '$lib/components/SchemaFormTransform.svelte'
 
 	const { selectedId, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -211,9 +211,8 @@
 										pickableProperties={stepPropPicker.pickableProperties}
 										error={failureModule}
 									>
-										<SchemaForm
+										<SchemaFormTransform
 											schema={$flowStateStore[$selectedId]?.schema ?? {}}
-											inputTransform={true}
 											previousModuleId={previousModule?.id}
 											bind:args={value.input_transforms}
 											bind:extraLib={stepPropPicker.extraLib}

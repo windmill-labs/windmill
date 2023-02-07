@@ -7,11 +7,9 @@
 	import { slide } from 'svelte/transition'
 	import ArgInput from './ArgInput.svelte'
 	import { Button } from './common'
-	import InputTransformForm from './InputTransformForm.svelte'
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
 
-	export let inputTransform = false
 	export let schema: Schema
 	export let args: Record<string, InputTransform | any> = {}
 	export let disabledArgs: string[] = []
@@ -19,16 +17,13 @@
 
 	export let editableSchema = false
 	export let isValid: boolean = true
-	export let extraLib: string = 'missing extraLib'
 	export let autofocus = false
-	export let previousModuleId: string | undefined = undefined
 
 	export let shouldHideNoInputs: boolean = false
 	export let compact = false
 	export let password: string | undefined = undefined
 	export let noVariablePicker = false
 	export let filter: string[] | undefined = undefined
-	export let noDynamicToggle = false
 	export let flexWrap = false
 	export let noDelete = false
 
@@ -71,20 +66,7 @@
 		{#each keys as argName, i (argName)}
 			{#if !filter || filter.includes(argName)}
 				<div transition:slide|local>
-					{#if inputTransform}
-						<InputTransformForm
-							{previousModuleId}
-							bind:arg={args[argName]}
-							bind:schema
-							bind:argName
-							bind:inputCheck={inputCheck[argName]}
-							bind:extraLib
-							{variableEditor}
-							{itemPicker}
-							bind:pickForField
-							{noDynamicToggle}
-						/>
-					{:else if typeof args == 'object'}
+					{#if typeof args == 'object'}
 						<ArgInput
 							autofocus={i == 0 && autofocus}
 							label={argName}
@@ -125,11 +107,7 @@
 		bind:this={itemPicker}
 		pickCallback={(path, _) => {
 			if (pickForField) {
-				if (inputTransform) {
-					args[pickForField].value = '$var:' + path
-				} else {
-					args[pickForField] = '$var:' + path
-				}
+				args[pickForField] = '$var:' + path
 			}
 		}}
 		itemName="Variable"

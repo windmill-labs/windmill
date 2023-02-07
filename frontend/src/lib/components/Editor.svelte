@@ -19,7 +19,6 @@
 	import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
 
-	import { buildWorkerDefinition } from 'monaco-editor-workers'
 	import type {
 		Disposable,
 		DocumentUri,
@@ -90,13 +89,7 @@
 	const uri = `file:///tmp/monaco/${hash}.${langToExt(lang)}`
 
 	if (browser) {
-		if (dev) {
-			buildWorkerDefinition(
-				'../../../node_modules/monaco-editor-workers/dist/workers',
-				import.meta.url,
-				false
-			)
-		} else {
+		if (!dev) {
 			// @ts-ignore
 			self.MonacoEnvironment = {
 				getWorker: function (_moduleId: any, label: string) {
@@ -408,6 +401,14 @@
 	}
 
 	async function loadMonaco() {
+		if (dev) {
+			let { buildWorkerDefinition } = await import('monaco-editor-workers')
+			buildWorkerDefinition(
+				'../../../node_modules/monaco-editor-workers/dist/workers',
+				import.meta.url,
+				false
+			)
+		}
 		const model = meditor.createModel(code, lang, mUri.parse(uri))
 
 		model.updateOptions(updateOptions)

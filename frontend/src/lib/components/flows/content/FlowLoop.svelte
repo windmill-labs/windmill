@@ -3,7 +3,6 @@
 	import FlowCard from '../common/FlowCard.svelte'
 	import type { FlowEditorContext } from '../types'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
@@ -16,6 +15,7 @@
 	import { flowStateStore } from '../flowState'
 	import { flowStore } from '../flowStore'
 	import FlowModuleSleep from './FlowModuleSleep.svelte'
+	import JavascriptEditor from '$lib/components/JavascriptEditor.svelte'
 
 	const { previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -23,7 +23,7 @@
 	export let parentModule: FlowModule | undefined
 	export let previousModule: FlowModule | undefined
 
-	let editor: SimpleEditor | undefined = undefined
+	let editor: JavascriptEditor | undefined = undefined
 	let selected: string = 'early-stop'
 
 	$: stepPropPicker = getStepPropPicker(
@@ -62,7 +62,7 @@
 									editor?.insertAtCursor(detail)
 								}}
 							>
-								<SimpleEditor
+								<JavascriptEditor
 									bind:this={editor}
 									lang="javascript"
 									bind:code={mod.value.iterator.expr}

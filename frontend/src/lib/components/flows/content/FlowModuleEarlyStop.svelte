@@ -1,15 +1,15 @@
 <script lang="ts">
-	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import PropPickerWrapper from '$lib/components/flows/propPicker/PropPickerWrapper.svelte'
 	import type { FlowModule } from '$lib/gen'
 	import { flowStateStore } from '../flowState'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { NEVER_TESTED_THIS_FAR } from '../utils'
+	import JavascriptEditor from '$lib/components/JavascriptEditor.svelte'
 
 	export let flowModule: FlowModule
 
-	let editor: SimpleEditor | undefined = undefined
+	let editor: JavascriptEditor | undefined = undefined
 
 	$: isStopAfterIfEnabled = Boolean(flowModule.stop_after_if)
 
@@ -59,7 +59,7 @@
 						editor?.insertAtCursor(detail)
 					}}
 				>
-					<SimpleEditor
+					<JavascriptEditor
 						bind:this={editor}
 						lang="javascript"
 						bind:code={flowModule.stop_after_if.expr}
