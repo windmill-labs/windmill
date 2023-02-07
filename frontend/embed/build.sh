@@ -1,3 +1,4 @@
+mkdir -p dist
 npm run build-embed
 cp static/Inter-Variable.ttf dist
 cp static/tailwind.js dist
