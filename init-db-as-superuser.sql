@@ -2,7 +2,7 @@ DO
 $do$
 BEGIN
     IF EXISTS (
-        select usesuper from pg_user where usename = CURRENT_USER AND usesuper = 't') 
+        select usesuper from pg_user where (usename = CURRENT_USER AND usesuper = 't')) OR (CURRENT_USER = 'cloudsqlsuperuser') 
     AND NOT EXISTS (
         SELECT
         FROM   pg_catalog.pg_roles
@@ -35,7 +35,7 @@ $do$;
 DO
 $do$
 BEGIN
-    IF EXISTS (select usesuper from pg_user where usename = CURRENT_USER AND usesuper = 't')
+    IF EXISTS (select usesuper from pg_user where usename = CURRENT_USER AND usesuper = 't') OR (CURRENT_USER = 'cloudsqlsuperuser') 
     AND NOT EXISTS (
         SELECT
         FROM   pg_catalog.pg_roles
