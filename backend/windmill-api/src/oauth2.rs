@@ -34,7 +34,7 @@ use tower_cookies::{Cookie, Cookies};
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::utils::{not_found_if_none, now_from_db};
 
-use crate::users::{truncate_token, Authed};
+use crate::users::{truncate_token, Authed, NEW_USER_WEBHOOK};
 use crate::workspaces::invite_user_to_all_auto_invite_worspaces;
 use crate::{
     db::{UserDB, DB},
@@ -961,6 +961,7 @@ async fn login_callback(
                 Some([("method", &client_name[..])].into()),
             )
             .await?;
+
             let demo_exists =
                 sqlx::query_scalar!("SELECT EXISTS(SELECT 1 FROM workspace WHERE id = 'demo')")
                     .fetch_one(&mut tx)
@@ -982,6 +983,16 @@ async fn login_callback(
             }
         }
         tx.commit().await?;
+
+        if let Some(new_user_webhook) = NEW_USER_WEBHOOK.clone() {
+            let _ = http_client
+                .post(&new_user_webhook)
+                .json(&serde_json::json!({"email" : &email, "event": "oauth_signup"}))
+                .send()
+                .await
+                .map_err(|e| tracing::error!("Error sending new user webhook: {}", e.to_string()));
+        }
+
         Ok("Successfully logged in".to_string())
     } else {
         Err(error::Error::BadRequest(format!(

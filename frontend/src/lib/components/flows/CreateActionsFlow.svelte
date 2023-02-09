@@ -13,8 +13,8 @@
 	let pendingJson: string
 
 	async function importJson() {
-		await goto('/flows/add')
 		$importFlowStore = JSON.parse(pendingJson)
+		await goto('/flows/add')
 		drawer?.closeDrawer?.()
 	}
 </script>

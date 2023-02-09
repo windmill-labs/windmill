@@ -22,6 +22,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import { charsToNumber, numberToChars } from '../flows/utils'
 
+	export let success: boolean | undefined = undefined
 	export let modules: FlowModule[] | undefined = []
 	export let failureModule: FlowModule | undefined = undefined
 	export let minHeight: number = 0
@@ -119,7 +120,13 @@
 		} else if (type === 'forloopflow') {
 			return flowModuleToLoop(module.value.modules, module, parent)
 		} else if (type === 'branchone') {
-			const branches = [module.value.default, ...module.value.branches.map((b) => b.modules)]
+			const branches = [
+				{ summary: 'Default branch', modules: module.value.default },
+				...module.value.branches.map((b, i) => ({
+					summary: b.summary ?? 'Branch ' + (i + 1),
+					modules: b.modules
+				}))
+			]
 			return flowModuleToBranch(
 				module,
 				branches,
@@ -128,7 +135,10 @@
 				insideLoop
 			)
 		} else if (type === 'branchall') {
-			const branches = module.value.branches.map((b) => b.modules)
+			const branches = module.value.branches.map((b, i) => ({
+				summary: b.summary ?? `Branch ${i + 1}`,
+				modules: b.modules
+			}))
 			return flowModuleToBranch(module, branches, [], parent, insideLoop)
 		} else if (type === 'flow') {
 			return flowModuleToNode(
@@ -188,6 +198,17 @@
 				return 'rgb(255, 208, 193)'
 			default:
 				return '#fff'
+		}
+	}
+
+	function getResultColor(): string | undefined {
+		switch (success) {
+			case true:
+				return getStateColor(FlowStatusModule.type.SUCCESS)
+			case false:
+				return getStateColor(FlowStatusModule.type.FAILURE)
+			default:
+				return undefined
 		}
 	}
 	function flowModuleToNode(
@@ -297,7 +318,7 @@
 
 	function flowModuleToBranch(
 		module: FlowModule,
-		branches: FlowModule[][],
+		branches: { summary: string; modules: FlowModule[] }[],
 		edgesLabel: string[],
 		parent: string | NestedNodes | undefined = undefined,
 		insideLoop: boolean = false
@@ -323,18 +344,12 @@
 		if (branches.length == 0) {
 			branch.items.push([createVirtualNode(branchParent, 'No branches')])
 		}
-		branches.forEach((modules, i) => {
+		branches.forEach(({ summary, modules }, i) => {
 			const items: NestedNodes = []
-			if (!modules.length) {
-				items.push(createVirtualNode(branchParent, 'Empty branch', edgesLabel[i]))
-			} else {
+			items.push(createVirtualNode(branchParent, summary, edgesLabel[i]))
+			if (modules.length) {
 				modules.forEach((module, j) => {
-					const item = getConvertedFlowModule(
-						module,
-						items.length ? items : numberToChars(branch.node.id),
-						j == 0 ? edgesLabel[i] : undefined,
-						insideLoop
-					)
+					const item = getConvertedFlowModule(module, items, undefined, insideLoop)
 					item && items.push(item)
 				})
 			}
@@ -431,7 +446,7 @@
 	function createVirtualNode(
 		parentIds: string[],
 		label: string,
-		edgesLabel?: string,
+		edgeLabel?: string,
 		offset?: number
 	): Node {
 		const id = -idGenerator.next().value - 1 + (offset ?? 0)
@@ -448,14 +463,15 @@
 			width: NODE.width,
 			height: NODE.height,
 			borderColor: selectedNode == label ? 'black' : '#999',
-			bgColor: selectedNode == label ? '#f5f5f5' : '#d4e4ff',
+			bgColor: label == 'Result' ? getResultColor() : selectedNode == label ? '#f5f5f5' : '#d4e4ff',
 			parentIds,
 			clickCallback: (node) => {
 				if (!notSelectable) {
 					selectedNode = label
 				}
 				dispatch('click', label)
-			}
+			},
+			edgeLabel
 		}
 	}
 

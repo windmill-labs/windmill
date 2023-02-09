@@ -96,7 +96,7 @@
 		<input
 			type="text"
 			bind:value={summary}
-			placeholder="A short summary displayed when it is listed"
+			placeholder="Short summary to be displayed when listed"
 			disabled={!own}
 		/>
 
