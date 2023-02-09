@@ -30,7 +30,7 @@ Open-source developer infrastructure for internal tools. Self-hostable alternati
 
 **Hub**: <https://hub.windmill.dev>
 
-**Contributor's guide**: <https://docs.windmill.dev/docs/contributors_guide>
+**Contributor's guide**: <https://docs.windmill.dev/docs/misc/contributing>
 
 **Roadmap**: <https://github.com/orgs/windmill-labs/projects/2>
 
@@ -175,7 +175,7 @@ back to the database is ~50ms. A typical lightweight deno job will take around
 
 We only provide docker-compose setup here. For more advanced setups, like
 compiling from source or using without a postgres super user, see
-[documentation](https://docs.windmill.dev/docs/how-tos/self_host)
+[documentation](https://docs.windmill.dev/docs/advanced/self_host)
 
 ### Docker compose
 
@@ -195,7 +195,8 @@ From there, you can create other users (do not forget to change the password!)
 
 ### Kubernetes (k8s) and Helm charts
 
-We publish helm charts at: <https://github.com/windmill-labs/windmill-helm-charts>
+We publish helm charts at:
+<https://github.com/windmill-labs/windmill-helm-charts>
 
 ### Commercial license
 
@@ -231,12 +232,13 @@ the following format:
 
 and mount it at `/usr/src/app/oauth.json`.
 
-The redirect url for the oauth clients is: `<instance_url>/user/login_callback/<client>`
+The redirect url for the oauth clients is:
+`<instance_url>/user/login_callback/<client>`
 
 [The list of all possible "connect an app" oauth clients](https://github.com/windmill-labs/windmill/blob/main/backend/oauth_connect.json)
 
 To add more "connect an app" OAuth clients to the Windmill project, read the
-[Contributor's guide](https://docs.windmill.dev/docs/contributors_guide). We
+[Contributor's guide](https://docs.windmill.dev/docs/misc/contributing). We
 welcome contributions!
 
 You may also add your own custom OAuth2 IdP and OAuth2 Resource provider:
@@ -309,15 +311,12 @@ upcoming CLI tool.
 | QUEUE_LIMIT_WAIT_RESULT   | None                   | The number of max jobs in the queue before rejecting immediately the request in 'run_wait_result' endpoint. Takes precedence on the query arg. If none is specified, there are no limit.           | Worker                |
 | DENO_AUTH_TOKENS          | None                   | Custom DENO_AUTH_TOKENS to pass to worker to allow the use of private modules                                                                                                                      | Worker                |
 | DENO_FLAGS                | None                   | Override the flags passed to deno (default --allow-all) to tighten permissions. Minimum permissions needed are "--allow-read=args.json --allow-write=result.json"                                  | Worker                |
-| PIP_LOCAL_DEPENDENCIES    | None                   | Specify dependencies that are installed locally and do not need to be solved nor installed again                                                                                                   |
+| PIP_LOCAL_DEPENDENCIES    | None                   | Specify dependencies that are installed locally and do not need to be solved nor installed again                                                                                                   |                       |
 | ADDITIONAL_PYTHON_PATHS   | None                   | Specify python paths (separated by a :) to be appended to the PYTHONPATH of the python jobs. To be used with PIP_LOCAL_DEPENDENCIES to use python codebases within Windmill                        | Worker                |
 | INCLUDE_HEADERS           | None                   | Whitelist of headers that are passed to jobs as args (separated by a comma)                                                                                                                        | Server                |
 | WHITELIST_WORKSPACES      | None                   | Whitelist of workspaces this worker takes job from                                                                                                                                                 | Worker                |
 | BLACKLIST_WORKSPACES      | None                   | Blacklist of workspaces this worker takes job from                                                                                                                                                 | Worker                |
 | NEW_USER_WEBHOOK          | None                   | Webhook to notify of a new user added, signup/invite. Can hook back to windmill to send emails                                                                                                     | Server                |
-
-
-
 
 ## Run a local dev setup
 
