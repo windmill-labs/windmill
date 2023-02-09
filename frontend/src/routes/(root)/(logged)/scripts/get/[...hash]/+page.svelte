@@ -448,7 +448,7 @@
 					<Tooltip>
 						Pass the input as a json payload, the token as a Bearer token or as query arg
 						`?token=XXX` and pass as header: 'Content-Type: application/json'
-						<a href="https://docs.windmill.dev/docs/getting_started/webhooks" class="text-blue-500">
+						<a href="https://docs.windmill.dev/docs/core_concepts/webhooks" class="text-blue-500">
 							See docs
 						</a>
 					</Tooltip>
