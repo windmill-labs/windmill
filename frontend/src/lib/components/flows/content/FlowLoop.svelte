@@ -50,7 +50,7 @@
 						Iterator expression
 						<Tooltip>
 							List to iterate over. For more information see the
-							<a href="https://docs.windmill.dev/docs/getting_started/flows#for-loops">docs.</a>
+							<a href="https://docs.windmill.dev/docs/getting_started/flows_quickstart">docs.</a>
 						</Tooltip>
 					</div>
 					{#if mod.value.iterator.type == 'javascript'}
