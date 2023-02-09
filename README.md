@@ -30,7 +30,7 @@ Open-source developer infrastructure for internal tools. Self-hostable alternati
 
 **Hub**: <https://hub.windmill.dev>
 
-**Contributor's guide**: <https://docs.windmill.dev/docs/contributors_guide>
+**Contributor's guide**: <https://docs.windmill.dev/docs/misc/contributing/>
 
 **Roadmap**: <https://github.com/orgs/windmill-labs/projects/2>
 
@@ -236,7 +236,7 @@ The redirect url for the oauth clients is: `<instance_url>/user/login_callback/<
 [The list of all possible "connect an app" oauth clients](https://github.com/windmill-labs/windmill/blob/main/backend/oauth_connect.json)
 
 To add more "connect an app" OAuth clients to the Windmill project, read the
-[Contributor's guide](https://docs.windmill.dev/docs/contributors_guide). We
+[Contributor's guide](https://docs.windmill.dev/docs/misc/contributing/). We
 welcome contributions!
 
 You may also add your own custom OAuth2 IdP and OAuth2 Resource provider:
