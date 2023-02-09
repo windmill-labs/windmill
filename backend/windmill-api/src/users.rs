@@ -26,6 +26,7 @@ use axum::{
 };
 use hyper::{header::LOCATION, StatusCode};
 use rand::rngs::OsRng;
+use reqwest::Client;
 use retainer::Cache;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -1270,10 +1271,15 @@ async fn delete_user(
     Ok(format!("email {} deleted", &email_to_delete))
 }
 
+lazy_static::lazy_static! {
+    pub static ref NEW_USER_WEBHOOK: Option<String> = std::env::var("NEW_USER_WEBHOOK").ok();
+}
+
 async fn create_user(
     Authed { email, .. }: Authed,
     Extension(db): Extension<DB>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
+    Extension(http_client): Extension<Client>,
     Json(nu): Json<NewUser>,
 ) -> Result<(StatusCode, String)> {
     let mut tx = db.begin().await?;
@@ -1305,6 +1311,16 @@ async fn create_user(
     )
     .await?;
     tx.commit().await?;
+
+    if let Some(new_user_webhook) = NEW_USER_WEBHOOK.clone() {
+        let _ = http_client
+            .post(&new_user_webhook)
+            .json(&serde_json::json!({"email" : &nu.email, "name": &nu.name, "event": "new_user"}))
+            .send()
+            .await
+            .map_err(|e| tracing::error!("Error sending new user webhook: {}", e.to_string()));
+    }
+
     invite_user_to_all_auto_invite_worspaces(&db, &nu.email).await?;
 
     Ok((StatusCode::CREATED, format!("email {} created", nu.email)))

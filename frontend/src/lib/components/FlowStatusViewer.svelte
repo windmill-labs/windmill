@@ -164,6 +164,14 @@
 	let selected: 'graph' | 'sequence' = 'graph'
 
 	let payload: string = '"a test payload in json"'
+
+	function isSuccess(arg: any): boolean | undefined {
+		if (arg == undefined) {
+			return undefined
+		} else {
+			return arg == true
+		}
+	}
 </script>
 
 {#if job}
@@ -437,6 +445,7 @@
 					</div>
 
 					<FlowGraph
+						success={isSuccess(job?.['success'])}
 						flowModuleStates={localFlowModuleStates}
 						on:click={(e) => {
 							if (e.detail.id) {

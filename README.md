@@ -314,6 +314,7 @@ upcoming CLI tool.
 | INCLUDE_HEADERS           | None                   | Whitelist of headers that are passed to jobs as args (separated by a comma)                                                                                                                        | Server                |
 | WHITELIST_WORKSPACES      | None                   | Whitelist of workspaces this worker takes job from                                                                                                                                                 | Worker                |
 | BLACKLIST_WORKSPACES      | None                   | Blacklist of workspaces this worker takes job from                                                                                                                                                 | Worker                |
+| NEW_USER_WEBHOOK          | None                   | Webhook to notify of a new user added, signup/invite. Can hook back to windmill to send emails                                                                                                     | Server                |
 
 
 
