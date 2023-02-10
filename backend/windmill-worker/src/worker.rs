@@ -1774,7 +1774,7 @@ async fn handle_python_job(
     } else {
         sig.args
             .into_iter()
-            .map(|x| format!("args[\"{}\"] = kwargs[\"{}\"]", x.name, x.name))
+            .map(|x| format!("args[\"{}\"] = kwargs.get(\"{}\")", x.name, x.name))
             .join("\n")
     };
 
