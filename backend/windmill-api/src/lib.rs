@@ -52,36 +52,27 @@ mod workspaces;
 pub const GIT_VERSION: &str =
     git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 
-pub struct BaseUrl(String);
-pub struct IsSecure(bool);
-pub struct CookieDomain(Option<String>);
-pub struct CloudHosted(bool);
-pub struct ContentSecurityPolicy(String);
-pub struct TimeoutWaitResult(i32);
-pub struct QueueLimitWaitResult(Option<i64>);
-
 pub use users::delete_expired_items_perdiodically;
 
 lazy_static::lazy_static! {
-
-
-    pub static ref BASE_INTERAL_URL: String = std::env::var("BASE_INTERNAL_URL").unwrap_or_else(|_| "http://localhost:8000".to_string());
+    pub static ref BASE_INTERNAL_URL: String = std::env::var("BASE_INTERNAL_URL").unwrap_or_else(|_| "http://localhost:8000".to_string());
     pub static ref BASE_URL: String = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost".to_string());
-    static ref COOKIE_DOMAIN: Option<String> = std::env::var("COOKIE_DOMAIN").ok();
 
 
-    static ref SLACK_SIGNING_SECRET: Option<SlackVerifier> = std::env::var("SLACK_SIGNING_SECRET")
+    pub static ref COOKIE_DOMAIN: Option<String> = std::env::var("COOKIE_DOMAIN").ok();
+
+    pub static ref SLACK_SIGNING_SECRET: Option<SlackVerifier> = std::env::var("SLACK_SIGNING_SECRET")
         .ok()
         .map(|x| SlackVerifier::new(x).unwrap());
 
         static ref SERVE_CSP: String = std::env::var("SERVE_CSP").unwrap_or("".to_owned());
         static ref IS_SECURE: bool = BASE_URL.starts_with("https://");
 
-    static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
+    pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
         .user_agent("windmill/beta")
         .build().unwrap();
 
-    static ref OAUTH_CLIENTS: Option<AllClients> = build_oauth_clients(&BASE_URL)
+    pub static ref OAUTH_CLIENTS: Option<AllClients> = build_oauth_clients(&BASE_URL)
         .map_err(|e| tracing::error!("Error building oauth clients: {}", e))
         .ok();
 }
@@ -120,21 +111,7 @@ pub async fn run_server(
                     "/w/:workspace_id",
                     Router::new()
                         .nest("/scripts", scripts::workspaced_service())
-                        .nest(
-                            "/jobs",
-                            jobs::workspaced_service()
-                                .layer(Extension(Arc::new(TimeoutWaitResult(
-                                    std::env::var("TIMEOUT_WAIT_RESULT")
-                                        .ok()
-                                        .and_then(|x| x.parse().ok())
-                                        .unwrap_or(20),
-                                ))))
-                                .layer(Extension(Arc::new(QueueLimitWaitResult(
-                                    std::env::var("QUEUE_LIMIT_WAIT_RESULT")
-                                        .ok()
-                                        .and_then(|x| x.parse().ok()),
-                                )))),
-                        )
+                        .nest("/jobs", jobs::workspaced_service())
                         .nest(
                             "/users",
                             users::workspaced_service().layer(Extension(argon2.clone())),

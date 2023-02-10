@@ -4755,6 +4755,7 @@ dependencies = [
  "hex",
  "hmac",
  "hyper",
+ "lazy_static",
  "prometheus",
  "rand 0.8.5",
  "reqwest",

@@ -41,3 +41,4 @@ hyper = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, optional = true }
+lazy_static.workspace = true
