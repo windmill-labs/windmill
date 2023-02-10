@@ -47,7 +47,7 @@ services:
     environment:
       - DATABASE_URL=postgres://postgres:${DB_PASSWORD}@db/windmill?sslmode=disable
       - BASE_URL=http://${WM_BASE_URL}
-      - BASE_INTERNAL_URL=http://localhost:8000
+      - BASE_INTERNAL_URL=http://windmill_server:8000
       - RUST_LOG=info
       - NUM_WORKERS=1
       - DISABLE_SERVER=true
