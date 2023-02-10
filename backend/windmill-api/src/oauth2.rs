@@ -29,7 +29,6 @@ use oauth2::{Client as OClient, *};
 use reqwest::Client;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
-use tokio::{fs::File, io::AsyncReadExt};
 use tower_cookies::{Cookie, Cookies};
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::utils::{not_found_if_none, now_from_db};
@@ -48,7 +47,7 @@ use windmill_common::oauth2::*;
 
 use windmill_queue::JobPayload;
 
-use std::str;
+use std::{fs, str};
 
 pub fn global_service() -> Router {
     Router::new()
@@ -111,7 +110,7 @@ pub struct AllClients {
     pub slack: Option<OClient>,
 }
 
-pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
+pub fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
     let connect_configs = serde_json::from_str::<HashMap<String, OAuthConfig>>(include_str!(
         "../../oauth_connect.json"
     ))?;
@@ -119,14 +118,12 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
         "../../oauth_login.json"
     ))?;
 
-    let mut content = String::new();
     let path = "./oauth.json";
-    if std::path::Path::new(path).exists() {
-        let mut file = File::open(path).await?;
-        file.read_to_string(&mut content).await?;
+    let content = if std::path::Path::new(path).exists() {
+        fs::read_to_string(path).map_err(to_anyhow)?
     } else {
-        content.push_str("{}");
-    }
+        "{}".to_string()
+    };
 
     let oauths: HashMap<String, OAuthClient> =
         match serde_json::from_str::<HashMap<String, OAuthClient>>(&content) {

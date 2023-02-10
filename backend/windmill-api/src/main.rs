@@ -50,7 +50,7 @@ async fn main() -> anyhow::Result<()> {
 
         let server_f = async {
             if server_mode {
-                windmill_api::run_server(db.clone(), addr, base_url, rx.resubscribe()).await?;
+                windmill_api::run_server(db.clone(), addr, rx.resubscribe()).await?;
             }
             Ok(()) as anyhow::Result<()>
         };

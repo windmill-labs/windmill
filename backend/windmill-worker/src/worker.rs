@@ -287,8 +287,6 @@ pub struct Metrics {
 
 #[derive(Clone, Debug)]
 pub struct WorkerConfig {
-    pub base_internal_url: String,
-    pub base_url: String,
     pub disable_nuser: bool,
     pub disable_nsjail: bool,
     pub keep_job_dir: bool,
@@ -314,6 +312,11 @@ lazy_static::lazy_static! {
         "worker_uptime",
         "Total number of milliseconds since the worker has started"
     );
+
+    static ref TIMEOUT: i32 = std::env::var("TIMEOUT")
+        .ok()
+        .and_then(|x| x.parse::<i32>().ok())
+        .unwrap_or(windmill_common::DEFAULT_TIMEOUT);
 }
 
 //only matter if CLOUD_HOSTED
@@ -622,7 +625,7 @@ pub async fn run_worker(
                     )
                     .await.expect("could not create job token");
                     tx.commit().await.expect("could not commit job token");
-                    let job_client = windmill_api_client::create_client(&worker_config.base_internal_url, token.clone());
+                    let job_client = windmill_api_client::create_client(&BASE_INTERNAL_URL, token.clone());
                     let is_flow = job.job_kind == JobKind::Flow || job.job_kind == JobKind::FlowPreview || job.job_kind == JobKind::FlowDependencies;
 
                     if let Some(err) = handle_queued_job(

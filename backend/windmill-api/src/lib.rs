@@ -6,15 +6,17 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use crate::oauth2::AllClients;
 use argon2::Argon2;
 use axum::{middleware::from_extractor, routing::get, Extension, Router};
 use db::DB;
 use git_version::git_version;
+use reqwest::Client;
 use std::{net::SocketAddr, sync::Arc};
 use tower::ServiceBuilder;
 use tower_cookies::CookieManagerLayer;
 use tower_http::trace::TraceLayer;
-use windmill_common::{error::to_anyhow, utils::rd_string};
+use windmill_common::utils::rd_string;
 
 use crate::{
     db::UserDB,
@@ -60,10 +62,33 @@ pub struct QueueLimitWaitResult(Option<i64>);
 
 pub use users::delete_expired_items_perdiodically;
 
+lazy_static::lazy_static! {
+
+
+    pub static ref BASE_INTERAL_URL: String = std::env::var("BASE_INTERNAL_URL").unwrap_or_else(|_| "http://localhost:8000".to_string());
+    pub static ref BASE_URL: String = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost".to_string());
+    static ref COOKIE_DOMAIN: Option<String> = std::env::var("COOKIE_DOMAIN").ok();
+
+
+    static ref SLACK_SIGNING_SECRET: Option<SlackVerifier> = std::env::var("SLACK_SIGNING_SECRET")
+        .ok()
+        .map(|x| SlackVerifier::new(x).unwrap());
+
+        static ref SERVE_CSP: String = std::env::var("SERVE_CSP").unwrap_or("".to_owned());
+        static ref IS_SECURE: bool = BASE_URL.starts_with("https://");
+
+    static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
+        .user_agent("windmill/beta")
+        .build().unwrap();
+
+    static ref OAUTH_CLIENTS: Option<AllClients> = build_oauth_clients(&BASE_URL)
+        .map_err(|e| tracing::error!("Error building oauth clients: {}", e))
+        .ok();
+}
+
 pub async fn run_server(
     db: DB,
     addr: SocketAddr,
-    base_url: String,
     mut rx: tokio::sync::broadcast::Receiver<()>,
 ) -> anyhow::Result<()> {
     let user_db = UserDB::new(db.clone());
@@ -73,16 +98,7 @@ pub async fn run_server(
         std::env::var("SUPERADMIN_SECRET").ok(),
     ));
     let argon2 = Arc::new(Argon2::default());
-    let basic_clients = Arc::new(build_oauth_clients(&base_url).await?);
-    let slack_verifier = Arc::new(
-        std::env::var("SLACK_SIGNING_SECRET")
-            .ok()
-            .map(|x| SlackVerifier::new(x).unwrap()),
-    );
-    let http_client = reqwest::ClientBuilder::new()
-        .user_agent("windmill/beta")
-        .build()
-        .map_err(to_anyhow)?;
+
     let middleware_stack = ServiceBuilder::new()
         .layer(
             TraceLayer::new_for_http()
@@ -93,21 +109,6 @@ pub async fn run_server(
         .layer(Extension(db.clone()))
         .layer(Extension(user_db))
         .layer(Extension(auth_cache.clone()))
-        .layer(Extension(basic_clients))
-        .layer(Extension(Arc::new(BaseUrl(base_url.to_string()))))
-        .layer(Extension(Arc::new(ContentSecurityPolicy(
-            std::env::var("SERVE_CSP").unwrap_or("".to_owned()),
-        ))))
-        .layer(Extension(Arc::new(CloudHosted(
-            std::env::var("CLOUD_HOSTED").is_ok(),
-        ))))
-        .layer(Extension(Arc::new(IsSecure(
-            base_url.starts_with("https://"),
-        ))))
-        .layer(Extension(Arc::new(CookieDomain(
-            std::env::var("COOKIE_DOMAIN").ok(),
-        ))))
-        .layer(Extension(http_client))
         .layer(CookieManagerLayer::new())
         .layer(Extension(WebhookShared::new(rx.resubscribe(), db.clone())));
     // build our application with a route
@@ -174,10 +175,7 @@ pub async fn run_server(
                     "/auth",
                     users::make_unauthed_service().layer(Extension(argon2)),
                 )
-                .nest(
-                    "/oauth",
-                    oauth2::global_service().layer(Extension(slack_verifier)),
-                )
+                .nest("/oauth", oauth2::global_service())
                 .route("/version", get(git_v))
                 .route("/openapi.yaml", get(openapi)),
         )

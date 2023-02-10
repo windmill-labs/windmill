@@ -52,10 +52,6 @@ async fn main() -> anyhow::Result<()> {
     let (tx, rx) = tokio::sync::broadcast::channel::<()>(3);
     let shutdown_signal = windmill_common::shutdown_signal(tx);
 
-    let base_url = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost".to_string());
-
-    let base_internal_url =
-        std::env::var("BASE_INTERNAL_URL").unwrap_or_else(|_| "http://localhost:8000".to_string());
     let timeout = std::env::var("TIMEOUT")
         .ok()
         .and_then(|x| x.parse::<i32>().ok())
@@ -64,15 +60,13 @@ async fn main() -> anyhow::Result<()> {
     if server_mode || num_workers > 0 {
         let addr = SocketAddr::from(([0, 0, 0, 0], 8000));
 
-        let base_url2 = base_url.clone();
         let server_f = async {
             if server_mode {
-                windmill_api::run_server(db.clone(), addr, base_url, rx.resubscribe()).await?;
+                windmill_api::run_server(db.clone(), addr, rx.resubscribe()).await?;
             }
             Ok(()) as anyhow::Result<()>
         };
 
-        let base_url = base_url2.clone();
         let workers_f = async {
             if num_workers > 0 {
                 let sleep_queue = std::env::var("SLEEP_QUEUE")
@@ -125,13 +119,7 @@ Windmill Community Edition {GIT_VERSION}
                     timeout,
                     num_workers,
                     sleep_queue,
-                    WorkerConfig {
-                        disable_nsjail,
-                        disable_nuser,
-                        base_internal_url,
-                        base_url,
-                        keep_job_dir,
-                    },
+                    WorkerConfig { disable_nsjail, disable_nuser, keep_job_dir },
                     rx.resubscribe(),
                     sync_bucket,
                     license_key,
