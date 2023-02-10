@@ -32,6 +32,7 @@ use sqlx::{Postgres, Transaction};
 use tokio::{fs::File, io::AsyncReadExt};
 use tower_cookies::{Cookie, Cookies};
 use windmill_audit::{audit_log, ActionKind};
+use windmill_common::users::username_to_permissioned_as;
 use windmill_common::utils::{not_found_if_none, now_from_db};
 
 use crate::users::{truncate_token, Authed, NEW_USER_WEBHOOK};
@@ -657,14 +658,26 @@ async fn connect_slack_callback(
     )
     .execute(&mut tx)
     .await?;
+    sqlx::query_as!(
+        Group,
+        "INSERT INTO group_ (workspace_id, name, summary, extra_perms) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+        w_id,
+        "slack",
+        "The group slack commands act on belhalf of",
+        serde_json::json!({username_to_permissioned_as(&authed.username): true})
+    )
+    .execute(&mut tx)
+    .await?;
+
     sqlx::query!(
         "INSERT INTO folder
-                (workspace_id, name, owners, extra_perms)
-                VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+                (workspace_id, name, display_name, owners, extra_perms)
+                VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING",
         &w_id,
         "slack_bot",
-        &[],
-        serde_json::json!({})
+        "Slack bot",
+        &["g/slack".to_string()],
+        serde_json::json!({"g/slack": true})
     )
     .execute(&mut tx)
     .await?;
