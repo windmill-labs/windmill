@@ -307,7 +307,7 @@
 					>Webhook<Tooltip>
 						Pass the input as a json payload, the token as a Bearer token or as query arg
 						`?token=XXX` and pass as header: 'Content-Type: application/json <a
-							href="https://docs.windmill.dev/docs/getting_started/webhooks">See docs</a
+							href="https://docs.windmill.dev/docs/core_concepts/webhooks">See docs</a
 						></Tooltip
 					></h2
 				>

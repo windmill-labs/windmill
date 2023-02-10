@@ -178,8 +178,8 @@
 			/>
 			<div class="ml-2">
 				<Tooltip>
-					Arguments can be edited either using the wizard, or by editing their json-schema
-					<a href="https://docs.windmill.dev/docs/reference/script_arguments_reference">docs</a>
+					Arguments can be edited either using the wizard, or by editing their JSON Schema, 
+					<a href="https://docs.windmill.dev/docs/reference/#script-parameters-to-json-schema">see docs</a>
 				</Tooltip>
 			</div>
 		</div>

@@ -1638,6 +1638,21 @@
     },
     "query": "SELECT app.id, app.path, app.summary, app.versions, app.policy,\n        app.extra_perms, app_version.value, \n        app_version.created_at, app_version.created_by from app, app_version \n        WHERE app_version.id = $1 AND app.id = app_version.app_id AND app.workspace_id = $2"
   },
+  "44ded7852b72f50099ff6508a7d13cab73c92ba1d07f2304a3bd3f890fcf3b19": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Text",
+          "Jsonb"
+        ]
+      }
+    },
+    "query": "INSERT INTO group_ (workspace_id, name, summary, extra_perms) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING"
+  },
   "453501fbd61efd26647baf9b6ef702ce0bc2e920914e9f08fe5f2a5f4ab03f02": {
     "describe": {
       "columns": [
@@ -3527,6 +3542,22 @@
     },
     "query": "SELECT value from resource WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter')"
   },
+  "95ebdfaf0510b9cad861568cd25d479759d4ea3c3ff4e136aad13a3521525372": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Varchar",
+          "VarcharArray",
+          "Jsonb"
+        ]
+      }
+    },
+    "query": "INSERT INTO folder\n                (workspace_id, name, display_name, owners, extra_perms)\n                VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING"
+  },
   "9681c348429f5e647ab55a4a54933faa64018f8539a143641f10d14ddd3a09c4": {
     "describe": {
       "columns": [
@@ -5125,21 +5156,6 @@
       }
     },
     "query": "SELECT count(path) FROM app WHERE path LIKE 'f/' || $1 || '%'  AND workspace_id = $2"
-  },
-  "d444e1c1e12a82e9aee5c2ffc4d1d3841bd41dd71344ab155c9842b45bcf30b6": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Varchar",
-          "VarcharArray",
-          "Jsonb"
-        ]
-      }
-    },
-    "query": "INSERT INTO folder\n                (workspace_id, name, owners, extra_perms)\n                VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING"
   },
   "d47bff7d6b54cd6da8bb330f7321c37af5dcbd76f9acad73b5ba1b8a4afb5091": {
     "describe": {
