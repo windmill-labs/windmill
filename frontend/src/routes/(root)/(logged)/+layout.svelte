@@ -19,7 +19,6 @@
 	import FavoriteMenu from '$lib/components/sidebar/FavoriteMenu.svelte'
 
 	OpenAPI.WITH_CREDENTIALS = true
-
 	let menuOpen = false
 	let isCollapsed = false
 	let userSettings: UserSettings
