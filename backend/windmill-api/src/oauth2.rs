@@ -96,6 +96,7 @@ pub struct OAuthConfig {
     extra_params: Option<HashMap<String, String>>,
     extra_params_callback: Option<HashMap<String, String>>,
     req_body_auth: Option<bool>,
+    pkce: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -215,6 +216,7 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
                 extra_params: None,
                 extra_params_callback: None,
                 req_body_auth: None,
+                pkce: None,
             },
             v.clone(),
             false,
@@ -1111,14 +1113,19 @@ fn oauth_redirect(
     }
 
     let mut auth_url = client.authorize_url(&state);
-
-    if let Some(extra_params) = extra_params {
+    {
         let mut query_string = auth_url.query_pairs_mut();
-        for (key, value) in extra_params {
+
+        let pkce = PkceCodeVerifierS256::new_random();
+        for (key, value) in pkce.authorize_url_params() {
             query_string.append_pair(&key, &value);
         }
+        if let Some(extra_params) = extra_params {
+            for (key, value) in extra_params {
+                query_string.append_pair(&key, &value);
+            }
+        }
     }
-
     set_cookie(&state, cookies, is_secure);
     Ok(Redirect::to(auth_url.as_str()))
 }
