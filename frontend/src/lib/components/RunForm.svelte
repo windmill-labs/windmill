@@ -48,6 +48,7 @@
 	export let topButton = false
 	export let loading = false
 	export let noVariablePicker = false
+	export let viewCliRun = false
 
 	export let args: Record<string, any> = decodeArgs($page.url.searchParams.get('args') ?? undefined)
 
@@ -208,19 +209,21 @@
 		</Button>
 	{/if}
 
-	<div class="my-10" />
-	<Button
-		color="light"
-		size="sm"
-		endIcon={{ icon: viewCliOptions ? faChevronUp : faChevronDown }}
-		on:click={() => (viewCliOptions = !viewCliOptions)}
-	>
-		Run it from the CLI
-	</Button>
-	{#if viewCliOptions}
-		<div transition:slide class="mt-2 px-4 pt-2">
-			<InlineCodeCopy content={cliCommand} />
-			<CliHelpBox />
-		</div>
+	{#if viewCliRun}
+		<div class="my-10" />
+		<Button
+			color="light"
+			size="sm"
+			endIcon={{ icon: viewCliOptions ? faChevronUp : faChevronDown }}
+			on:click={() => (viewCliOptions = !viewCliOptions)}
+		>
+			Run it from the CLI
+		</Button>
+		{#if viewCliOptions}
+			<div transition:slide class="mt-2 px-4 pt-2">
+				<InlineCodeCopy content={cliCommand} />
+				<CliHelpBox />
+			</div>
+		{/if}
 	{/if}
 </div>
