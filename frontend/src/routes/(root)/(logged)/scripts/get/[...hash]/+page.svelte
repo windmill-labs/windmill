@@ -390,6 +390,7 @@
 						runnable={script}
 						runAction={runScript}
 						bind:args
+						viewCliRun
 					/>
 				</div>
 				{#if !emptyString(script.description)}
