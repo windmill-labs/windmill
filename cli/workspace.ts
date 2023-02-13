@@ -203,7 +203,12 @@ export async function add(
       remote = url.toString();
     } catch {
       // not a url
-      remote = new URL(await Input.prompt("Enter the Remote URL")).toString();
+      remote = new URL(
+        await Input.prompt({
+          message: "Enter the Remote URL",
+          suggestions: ["https://app.windmill.dev/"],
+        }),
+      ).toString();
     }
   }
   remote = new URL(remote).toString(); // add trailing slash in all cases!
