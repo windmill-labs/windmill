@@ -63,8 +63,9 @@ https://user-images.githubusercontent.com/275584/218350457-bc2fdc3b-e667-4da5-a2
   - [How to self-host](#how-to-self-host)
     - [Docker compose](#docker-compose)
     - [Kubernetes (k8s) and Helm charts](#kubernetes-k8s-and-helm-charts)
+    - [Postgres without superuser](#postgres-without-superuser)
     - [Commercial license](#commercial-license)
-    - [OAuth for self-hosting (very optional)](#oauth-for-self-hosting-very-optional)
+    - [OAuth for self-hosting](#oauth-for-self-hosting)
     - [Resource types](#resource-types)
   - [Environment Variables](#environment-variables)
   - [Run a local dev setup](#run-a-local-dev-setup)
@@ -205,10 +206,6 @@ compiling from source or using without a postgres super user, see
 
 Go to http://localhost et voilà :)
 
-For older kernels < 4.18, set `DISABLE_NUSER=true` as env variable, otherwise
-nsjail will not be able to launch the isolated scripts.
-
-To disable nsjail altogether, set `DISABLE_NSJAIL=true`.
 
 The default super-admin user is: admin@windmill.dev / changeme
 
@@ -218,6 +215,12 @@ From there, you can create other users (do not forget to change the password!)
 
 We publish helm charts at:
 <https://github.com/windmill-labs/windmill-helm-charts>
+
+### Postgres without superuser
+
+If you do not want, or cannot (for instance, in AWS Aurora or Cloud sql) use a postgres superuser,
+you can run `./init-db-as-superuser.sql` to init the required users for windmill.
+
 
 ### Commercial license
 
@@ -229,14 +232,14 @@ comfortable with AGPLv3.
 To re-expose any Windmill parts to your users as a feature of your product, or
 to build a feature on top of Windmill, to comply with AGPLv3 your product must
 be AGPLv3 or you must get a commercial license. Contact us at
-<license@windmill.dev> if you have any doubts.
+<ruben@windmill.dev> if you have any doubts.
 
 In addition, a commercial license grants you a dedicated engineer to transition
 your current infrastructure to Windmill, support with tight SLA, audit logs
 export features, SSO, unlimited users creation, advanced permission managing
 features such as groups and the ability to create more than one workspace.
 
-### OAuth for self-hosting (very optional)
+### OAuth for self-hosting
 
 To get the same oauth integrations as Windmill Cloud, mount `oauth.json` with
 the following format:
@@ -291,9 +294,8 @@ You may also add your own custom OAuth2 IdP and OAuth2 Resource provider:
 ### Resource types
 
 You will also want to import all the approved resource types from
-[WindmillHub](https://hub.windmill.dev). There is no automatic way to do this
-automatically currently, but it will be possible using a command with the
-upcoming CLI tool.
+[WindmillHub](https://hub.windmill.dev). A setup script will prompt
+you to have it being synced automatically everyday.
 
 ## Environment Variables
 
