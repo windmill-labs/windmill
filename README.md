@@ -24,7 +24,7 @@ Open-source developer infrastructure for internal tools. Self-hostable alternati
 
 **Try it (personal workspaces are free forever)**: <https://app.windmill.dev>
 
-**Documentation**: <https://docs.windmill.dev>
+**Documentation**: <https://www.windmill.dev>
 
 **Discord**: <https://discord.gg/V7PM2YHsPB>
 
@@ -43,14 +43,13 @@ mirrors, and support: contact ruben@windmill.dev.
 
 # Windmill
 
-<p align="center">
-<b>Disclaimer: </b>Windmill is in <b>BETA</b>. It is secure to run in production but we are still <a href="https://github.com/orgs/windmill-labs/projects/2">improving the product fast<a/>.
-</p>
 
-![Windmill Screenshot](./imgs/windmill-flow.png)
-![Windmill Screenshot](./imgs/windmill.png)
+Windmill is <b>fully open-sourced (AGPLv3)</b>
 
-Windmill is <b>fully open-sourced (AGPLv3)</b>:
+
+![Windmill Diagram](/imgs/stacks.svg)
+
+https://raw.githubusercontent.com/windmill-labs/windmill/main/imgs/main.mp4
 
 - [Windmill](#windmill)
   - [Main Concepts](#main-concepts)
@@ -58,7 +57,7 @@ Windmill is <b>fully open-sourced (AGPLv3)</b>:
   - [Layout](#layout)
   - [Stack](#stack)
   - [Security](#security)
-    - [Sandboxing and workload isolation](#sandboxing-and-workload-isolation)
+    - [Sandboxing](#sandboxing)
     - [Secrets, credentials and sensitive values](#secrets-credentials-and-sensitive-values)
   - [Performance](#performance)
   - [Architecture](#architecture)
@@ -83,6 +82,35 @@ Windmill is <b>fully open-sourced (AGPLv3)</b>:
    solves a specific task. Here sending an email with SMTP. The code can be
    defined in the provided Web IDE or synchronized with your own github repo:
    ![Step 1](./imgs/windmill-editor.png)
+
+```typescript
+import * as wmill from "https://deno.land/x/windmill@v1.62.0/mod.ts"
+//import any dependency  from npm
+
+import cowsay from 'npm:cowsay@1.5.0'
+
+export async function main(
+    a: number,
+    // unions generate enums
+    b: "my" | "enum",
+    // default parameters prefill the field 
+    d = "default arg",
+    // nested objects work c = { nested: "object" }, 
+    // permissioned and typed json
+    db: wmill.Resource<"postgresql">) {
+
+    const email = Deno.env.get('WM_EMAIL')
+    // variables are permissioned and by path
+    let variable = await wmill.getVariable('f/company-folder/my_secret')
+    const lastTimeRun = await wmill.getState()
+    // logs are printed and always inspectable
+    console.log(cowsay.say({ text: "hello " + email + " " + lastTimeRun }))
+    await wmill.setState(Date.now())
+
+    // return is serialized as JSON
+    return { foo: d, variable };
+}
+```
 
 2. Your scripts parameters are automatically parsed and generate a frontend.
    ![Step 2](./imgs/windmill-run.png) ![Step 3](./imgs/windmill-result.png)
@@ -135,7 +163,7 @@ scripts from your own github repo. See
 
 ## Security
 
-### Sandboxing and workload isolation
+### Sandboxing
 
 Windmill uses [nsjail](https://github.com/google/nsjail) on top of the deno
 sandboxing. It is production multi-tenant grade secure. Do not take our word for
