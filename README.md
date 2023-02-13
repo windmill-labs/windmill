@@ -43,13 +43,11 @@ mirrors, and support: contact ruben@windmill.dev.
 
 # Windmill
 
-
 Windmill is <b>fully open-sourced (AGPLv3)</b>
-
 
 ![Windmill Diagram](/imgs/stacks.svg)
 
-https://raw.githubusercontent.com/windmill-labs/windmill/main/imgs/main.mp4
+https://user-images.githubusercontent.com/275584/218350457-bc2fdc3b-e667-4da5-a2bd-3bacc1f0ec79.mp4
 
 - [Windmill](#windmill)
   - [Main Concepts](#main-concepts)
