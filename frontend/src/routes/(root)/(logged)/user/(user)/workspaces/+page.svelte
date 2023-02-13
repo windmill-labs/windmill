@@ -98,7 +98,12 @@
 			btnClasses="w-full mt-2 mb-4 truncate"
 			color="light"
 			size="sm"
-			href="/user/switch_to_admins{rd ? `?rd=${encodeURIComponent(rd)}` : ''}"
+			on:click={async () => {
+				workspaceStore.set('admins')
+				loading = true
+				await goto(rd ?? '/')
+				loading = false
+			}}
 			variant="border"
 			>Manage Windmill on the superadmins workspace
 		</Button>
