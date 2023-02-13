@@ -60,8 +60,6 @@ https://user-images.githubusercontent.com/275584/218350457-bc2fdc3b-e667-4da5-a2
     - [Secrets, credentials and sensitive values](#secrets-credentials-and-sensitive-values)
   - [Performance](#performance)
   - [Architecture](#architecture)
-    - [Big-picture Architecture](#big-picture-architecture)
-    - [Technical Architecture](#technical-architecture)
   - [How to self-host](#how-to-self-host)
     - [Docker compose](#docker-compose)
     - [Kubernetes (k8s) and Helm charts](#kubernetes-k8s-and-helm-charts)
@@ -190,13 +188,7 @@ back to the database is ~50ms. A typical lightweight deno job will take around
 
 <p align="center">
 
-### Big-picture Architecture
-
 <img src="./imgs/diagram.svg">
-
-### Technical Architecture
-
-<img src="./imgs/architecture.svg">
 
 </p>
 
