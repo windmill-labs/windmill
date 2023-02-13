@@ -13,7 +13,6 @@ use crate::{
     oauth2::{AllClients, _refresh_token},
     users::{require_owner_of_path, Authed},
     webhook_util::{WebhookMessage, WebhookShared},
-    BaseUrl,
 };
 /*
  * Author: Ruben Fiszel
@@ -54,7 +53,6 @@ pub fn workspaced_service() -> Router {
 
 async fn list_contextual_variables(
     Path(w_id): Path<String>,
-    Extension(base_url): Extension<Arc<BaseUrl>>,
     Authed { username, email, .. }: Authed,
 ) -> JsonResult<Vec<ContextualVariable>> {
     Ok(Json(
@@ -65,7 +63,6 @@ async fn list_contextual_variables(
             &username,
             "017e0ad5-f499-73b6-5488-92a61c5196dd",
             format!("u/{username}").as_str(),
-            &base_url.0,
             Some("u/user/script_path".to_string()),
             Some("017e0ad5-f499-73b6-5488-92a61c5196dd".to_string()),
             Some("u/user/encapsulating_flow_path".to_string()),

@@ -9,58 +9,41 @@
 use axum::{
     body::{self, BoxBody},
     extract::OriginalUri,
-    http::{header, response::Builder, Response},
+    http::{header, Response},
     response::IntoResponse,
-    Extension,
 };
 
-use crate::{CloudHosted, ContentSecurityPolicy, IsSecure};
+use hyper::Uri;
 use mime_guess::mime;
 use rust_embed::RustEmbed;
-use std::sync::Arc;
 
 // static_handler is a handler that serves static files from the
-pub async fn static_handler(
-    Extension(is_secure): Extension<Arc<IsSecure>>,
-    Extension(is_cloud_hosted): Extension<Arc<CloudHosted>>,
-    Extension(csp): Extension<Arc<ContentSecurityPolicy>>,
-    OriginalUri(original_uri): OriginalUri,
-) -> StaticFile {
-    let path = original_uri.path().trim_start_matches('/').to_string();
-    StaticFile(path, is_secure.0, is_cloud_hosted.0, csp)
+pub async fn static_handler(OriginalUri(original_uri): OriginalUri) -> StaticFile {
+    StaticFile(original_uri)
 }
 
 #[derive(RustEmbed)]
 #[folder = "../../frontend/build/"]
 struct Asset;
-pub struct StaticFile(
-    pub String,
-    pub bool,
-    pub bool,
-    pub Arc<ContentSecurityPolicy>,
-);
+pub struct StaticFile(Uri);
 
 impl IntoResponse for StaticFile {
     fn into_response(self) -> Response<BoxBody> {
-        let path = self.0;
-        let can_set_security_headers = self.1 && self.2;
-        let csp = self.3;
-        serve_path(path, can_set_security_headers, csp)
+        let path = self.0.path().trim_start_matches('/');
+        serve_path(path)
     }
 }
 
-fn serve_path(
-    path: String,
-    can_set_security_headers: bool,
-    csp: Arc<ContentSecurityPolicy>,
-) -> Response<BoxBody> {
+const TWO_HUNDRED: &str = "200.html";
+
+fn serve_path(path: &str) -> Response<BoxBody> {
     if path.starts_with("api/") {
         return Response::builder()
             .status(404)
             .body(body::boxed(body::Empty::new()))
             .unwrap();
     }
-    match Asset::get(path.as_str()) {
+    match Asset::get(path) {
         Some(content) => {
             let body = body::boxed(body::Full::from(content.data));
             let mime = mime_guess::from_path(path).first_or_octet_stream();
@@ -75,26 +58,12 @@ fn serve_path(
                 res = res.header(header::CACHE_CONTROL, "no-cache, no-store, must-revalidate");
             }
 
-            if can_set_security_headers {
-                res = set_security_headers(res, csp);
-            }
             res.body(body).unwrap()
         }
-        None if path.as_str().starts_with("_app/") => Response::builder()
+        None if path.starts_with("_app/") => Response::builder()
             .status(404)
             .body(body::boxed(body::Empty::new()))
             .unwrap(),
-        None => serve_path("200.html".to_owned(), can_set_security_headers, csp),
+        None => serve_path(TWO_HUNDRED),
     }
-}
-
-fn set_security_headers(mut res: Builder, csp: Arc<ContentSecurityPolicy>) -> Builder {
-    res = res.header("X-Frame-Options", "DENY");
-    res = res.header("X-Content-Type-Options", "nosniff");
-
-    if !csp.0.is_empty() {
-        res = res.header("Content-Security-Policy", &csp.0);
-    }
-
-    res
 }

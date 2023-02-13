@@ -40,9 +40,8 @@ use crate::{
     db::{UserDB, DB},
     variables::{build_crypt, encrypt},
     workspaces::WorkspaceSettings,
-    BaseUrl,
 };
-use crate::{CookieDomain, IsSecure};
+use crate::{BASE_URL, IS_SECURE, OAUTH_CLIENTS, SLACK_SIGNING_SECRET};
 use windmill_common::error::{self, to_anyhow, Error};
 use windmill_common::oauth2::*;
 
@@ -286,12 +285,10 @@ pub struct SlackBotToken {
 async fn connect(
     Path(client_name): Path<String>,
     Query(query): Query<HashMap<String, String>>,
-    Extension(clients): Extension<Arc<AllClients>>,
-    Extension(is_secure): Extension<Arc<IsSecure>>,
     cookies: Cookies,
 ) -> error::Result<Redirect> {
     let mut query = query.clone();
-    let connects = &clients.connects;
+    let connects = &OAUTH_CLIENTS.connects;
     let scopes = query
         .get("scopes")
         .map(|x| x.split('+').map(|x| x.to_owned()).collect());
@@ -307,7 +304,7 @@ async fn connect(
         cookies,
         scopes,
         extra_params,
-        is_secure.0,
+        *IS_SECURE,
     )
 }
 
@@ -410,12 +407,8 @@ async fn list_connects(
     ))
 }
 
-async fn connect_slack(
-    Extension(clients): Extension<Arc<AllClients>>,
-    Extension(is_secure): Extension<Arc<IsSecure>>,
-    cookies: Cookies,
-) -> error::Result<Redirect> {
-    let mut client = clients
+async fn connect_slack(cookies: Cookies) -> error::Result<Redirect> {
+    let mut client = OAUTH_CLIENTS
         .slack
         .as_ref()
         .ok_or_else(|| error::Error::BadRequest("slack client not setup".to_string()))?
@@ -426,7 +419,7 @@ async fn connect_slack(
     client.add_scope("commands");
     let url = client.authorize_url(&state);
 
-    set_cookie(&state, cookies, is_secure.0);
+    set_cookie(&state, cookies, *IS_SECURE);
     Ok(Redirect::to(url.as_str()))
 }
 
@@ -468,14 +461,9 @@ async fn disconnect_slack(
     Ok(format!("slack disconnected"))
 }
 
-async fn login(
-    Extension(clients): Extension<Arc<AllClients>>,
-    Extension(is_secure): Extension<Arc<IsSecure>>,
-    Path(client_name): Path<String>,
-    cookies: Cookies,
-) -> error::Result<Redirect> {
-    let clients = &clients.logins;
-    oauth_redirect(clients, client_name, cookies, None, None, is_secure.0)
+async fn login(Path(client_name): Path<String>, cookies: Cookies) -> error::Result<Redirect> {
+    let clients = &OAUTH_CLIENTS.logins;
+    oauth_redirect(clients, client_name, cookies, None, None, *IS_SECURE)
 }
 
 #[derive(Deserialize)]
@@ -757,16 +745,14 @@ where
 
 async fn slack_command(
     SlackSig { sig, ts }: SlackSig,
-    Extension(slack_verifier): Extension<Arc<Option<SlackVerifier>>>,
     Extension(db): Extension<DB>,
-    Extension(base_url): Extension<Arc<BaseUrl>>,
     body: Bytes,
 ) -> error::Result<String> {
     let form: SlackCommand = serde_urlencoded::from_bytes(&body)
         .map_err(|_| error::Error::BadRequest("invalid payload".to_string()))?;
 
     let body = String::from_utf8_lossy(&body);
-    if slack_verifier
+    if SLACK_SIGNING_SECRET
         .as_ref()
         .as_ref()
         .map(|sv| sv.verify(&ts, &body, &sig).ok())
@@ -824,7 +810,7 @@ async fn slack_command(
             )
             .await?;
             tx.commit().await?;
-            let url = base_url.0.to_owned();
+            let url = BASE_URL.to_owned();
             return Ok(format!(
                 "Job launched. See details at {url}/run/{uuid}?workspace={}",
                 &settings.workspace_id
@@ -849,14 +835,11 @@ pub struct UserInfo {
 async fn login_callback(
     Path(client_name): Path<String>,
     cookies: Cookies,
-    Extension(clients): Extension<Arc<AllClients>>,
     Extension(db): Extension<DB>,
     Extension(http_client): Extension<Client>,
-    Extension(is_secure): Extension<Arc<IsSecure>>,
-    Extension(cookie_domain): Extension<Arc<CookieDomain>>,
     Json(callback): Json<OAuthCallback>,
 ) -> error::Result<String> {
-    let client_w_config = &clients
+    let client_w_config = &OAUTH_CLIENTS
         .logins
         .get(&client_name)
         .ok_or_else(|| error::Error::BadRequest("invalid client".to_string()))?;
@@ -909,15 +892,7 @@ async fn login_callback(
         if let Some((email, login_type, super_admin)) = login {
             let login_type = serde_json::json!(login_type);
             if login_type == client_name {
-                crate::users::create_session_token(
-                    &email,
-                    super_admin,
-                    &mut tx,
-                    cookies,
-                    is_secure.0,
-                    &cookie_domain.as_ref().0,
-                )
-                .await?;
+                crate::users::create_session_token(&email, super_admin, &mut tx, cookies).await?;
             } else {
                 return Err(error::Error::BadRequest(format!(
                     "an user with the email associated to this login exists but with a different \
@@ -952,15 +927,7 @@ async fn login_callback(
             tx.commit().await?;
             invite_user_to_all_auto_invite_worspaces(&db, &email).await?;
             tx = db.begin().await?;
-            crate::users::create_session_token(
-                &email,
-                false,
-                &mut tx,
-                cookies,
-                is_secure.0,
-                &cookie_domain.as_ref().0,
-            )
-            .await?;
+            crate::users::create_session_token(&email, false, &mut tx, cookies).await?;
             audit_log(
                 &mut tx,
                 &email,

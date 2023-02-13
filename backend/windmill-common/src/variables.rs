@@ -8,6 +8,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::BASE_URL;
+
 #[derive(Serialize, Clone)]
 
 pub struct ContextualVariable {
@@ -66,7 +68,6 @@ pub fn get_reserved_variables(
     username: &str,
     job_id: &str,
     permissioned_as: &str,
-    base_url: &str,
     path: Option<String>,
     flow_id: Option<String>,
     flow_path: Option<String>,
@@ -114,7 +115,7 @@ pub fn get_reserved_variables(
         },
         ContextualVariable {
             name: "WM_BASE_URL".to_string(),
-            value: base_url.to_string(),
+            value: BASE_URL.clone(),
             description: "base url of this instance".to_string(),
         },
         ContextualVariable {

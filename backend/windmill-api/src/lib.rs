@@ -55,7 +55,6 @@ pub const GIT_VERSION: &str =
 pub use users::delete_expired_items_perdiodically;
 
 lazy_static::lazy_static! {
-    pub static ref BASE_INTERNAL_URL: String = std::env::var("BASE_INTERNAL_URL").unwrap_or_else(|_| "http://localhost:8000".to_string());
     pub static ref BASE_URL: String = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost".to_string());
 
 
@@ -72,9 +71,9 @@ lazy_static::lazy_static! {
         .user_agent("windmill/beta")
         .build().unwrap();
 
-    pub static ref OAUTH_CLIENTS: Option<AllClients> = build_oauth_clients(&BASE_URL)
+    pub static ref OAUTH_CLIENTS: AllClients = build_oauth_clients(&BASE_URL)
         .map_err(|e| tracing::error!("Error building oauth clients: {}", e))
-        .ok();
+        .unwrap();
 }
 
 pub async fn run_server(

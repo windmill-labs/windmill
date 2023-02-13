@@ -1315,10 +1315,10 @@ pub async fn check_queue_too_long(db: DB, queue_limit: Option<i64>) -> error::Re
 }
 
 lazy_static::lazy_static! {
-    pub static ref QUEUE_LIMIT_WAIT_RESULT: Option<i32> = std::env::var("QUEUE_LIMIT_WAIT_RESULT")
+    pub static ref QUEUE_LIMIT_WAIT_RESULT: Option<i64> = std::env::var("QUEUE_LIMIT_WAIT_RESULT")
         .ok()
         .and_then(|x| x.parse().ok());
-    pub static ref TIMEOUT_WAIT_RESULT: Option<i32> = std::env::var("TIMEOUT_WAIT_RESULT")
+    pub static ref TIMEOUT_WAIT_RESULT: i32 = std::env::var("TIMEOUT_WAIT_RESULT")
         .ok()
         .and_then(|x| x.parse().ok())
         .unwrap_or(20);
@@ -1332,7 +1332,7 @@ pub async fn run_wait_result_job_by_path(
     headers: HeaderMap,
     Json(args): Json<Option<serde_json::Map<String, serde_json::Value>>>,
 ) -> error::JsonResult<serde_json::Value> {
-    check_queue_too_long(db, QUEUE_LIMIT.or(run_query.queue_limit)).await?;
+    check_queue_too_long(db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
     let script_path = script_path.to_path();
     let mut tx = user_db.clone().begin(&authed).await?;
     let job_payload = script_path_to_payload(script_path, &mut tx, &w_id).await?;
@@ -1362,7 +1362,7 @@ pub async fn run_wait_result_job_by_path(
     run_wait_result(
         authed,
         Extension(user_db),
-        timeout.0,
+        *TIMEOUT_WAIT_RESULT,
         uuid,
         Path((w_id, script_path)),
     )
@@ -1408,7 +1408,7 @@ pub async fn run_wait_result_job_by_hash(
     run_wait_result(
         authed,
         Extension(user_db),
-        timeout.0,
+        *TIMEOUT_WAIT_RESULT,
         uuid,
         Path((w_id, script_hash)),
     )
@@ -1454,7 +1454,7 @@ pub async fn run_wait_result_flow_by_path(
     run_wait_result(
         authed,
         Extension(user_db),
-        timeout.0,
+        *TIMEOUT_WAIT_RESULT,
         uuid,
         Path((w_id, flow_path)),
     )

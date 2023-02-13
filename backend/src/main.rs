@@ -10,10 +10,10 @@ use std::net::SocketAddr;
 
 use git_version::git_version;
 use sqlx::{Pool, Postgres};
-use windmill_common::utils::rd_string;
-use windmill_worker::WorkerConfig;
+use windmill_common::{utils::rd_string, PORT};
 
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
+const DEFAULT_NUM_WORKERS: usize = 3;
 
 mod ee;
 
@@ -24,11 +24,11 @@ async fn main() -> anyhow::Result<()> {
     windmill_common::tracing_init::initialize_tracing();
 
     let num_workers = std::env::var("NUM_WORKERS")
-        .ok()
-        .and_then(|x| x.parse::<i32>().ok())
-        .unwrap_or(windmill_common::DEFAULT_NUM_WORKERS as i32);
+    .ok()
+    .and_then(|x| x.parse::<i32>().ok())
+    .unwrap_or(DEFAULT_NUM_WORKERS as i32);
 
-    let metrics_addr: Option<SocketAddr> = std::env::var("METRICS_ADDR")
+        let metrics_addr: Option<SocketAddr> = std::env::var("METRICS_ADDR")
         .ok()
         .map(|s| {
             s.parse::<bool>()
@@ -37,6 +37,7 @@ async fn main() -> anyhow::Result<()> {
         })
         .transpose()?
         .flatten();
+
 
     let server_mode = !std::env::var("DISABLE_SERVER")
         .ok()
@@ -52,13 +53,8 @@ async fn main() -> anyhow::Result<()> {
     let (tx, rx) = tokio::sync::broadcast::channel::<()>(3);
     let shutdown_signal = windmill_common::shutdown_signal(tx);
 
-    let timeout = std::env::var("TIMEOUT")
-        .ok()
-        .and_then(|x| x.parse::<i32>().ok())
-        .unwrap_or(windmill_common::DEFAULT_TIMEOUT);
-
     if server_mode || num_workers > 0 {
-        let addr = SocketAddr::from(([0, 0, 0, 0], 8000));
+        let addr = SocketAddr::from(([0, 0, 0, 0], PORT));
 
         let server_f = async {
             if server_mode {
@@ -69,35 +65,13 @@ async fn main() -> anyhow::Result<()> {
 
         let workers_f = async {
             if num_workers > 0 {
-                let sleep_queue = std::env::var("SLEEP_QUEUE")
-                    .ok()
-                    .and_then(|x| x.parse::<u64>().ok())
-                    .unwrap_or(windmill_common::DEFAULT_SLEEP_QUEUE);
-                let disable_nuser = std::env::var("DISABLE_NUSER")
-                    .ok()
-                    .and_then(|x| x.parse::<bool>().ok())
-                    .unwrap_or(false);
-                let disable_nsjail = std::env::var("DISABLE_NSJAIL")
-                    .ok()
-                    .and_then(|x| x.parse::<bool>().ok())
-                    .unwrap_or(true);
-                let keep_job_dir = std::env::var("KEEP_JOB_DIR")
-                    .ok()
-                    .and_then(|x| x.parse::<bool>().ok())
-                    .unwrap_or(false);
-                let license_key = std::env::var("LICENSE_KEY").ok();
-                let sync_bucket = std::env::var("S3_CACHE_BUCKET")
-                    .ok()
-                    .map(|e| Some(e))
-                    .unwrap_or(None);
-
                 #[cfg(feature = "enterprise")]
                 tracing::info!(
-                        "
+                    "
 ##############################
-Windmill Enterprise Edition {GIT_VERSION} LICENSE_KEY: {license_key:?}, S3_CACHE_BUCKET: {sync_bucket:?}
+Windmill Enterprise Edition {GIT_VERSION}
 ##############################"
-                    );
+                );
 
                 #[cfg(not(feature = "enterprise"))]
                 tracing::info!(
@@ -107,22 +81,11 @@ Windmill Community Edition {GIT_VERSION}
 ##############################"
                 );
 
-                tracing::info!(
-                    "DISABLE_NSJAIL: {disable_nsjail}, DISABLE_NUSER: {disable_nuser}, BASE_URL: \
-                     {base_url}, SLEEP_QUEUE: {sleep_queue}, NUM_WORKERS: {num_workers}, TIMEOUT: \
-                     {timeout}, KEEP_JOB_DIR: {keep_job_dir}"
-                );
-
                 run_workers(
                     db.clone(),
                     addr,
-                    timeout,
                     num_workers,
-                    sleep_queue,
-                    WorkerConfig { disable_nsjail, disable_nuser, keep_job_dir },
                     rx.resubscribe(),
-                    sync_bucket,
-                    license_key,
                 )
                 .await?;
             }
@@ -132,7 +95,7 @@ Windmill Community Edition {GIT_VERSION}
         let base_url = base_url2;
         let monitor_f = async {
             if server_mode {
-                monitor_db(&db, timeout, base_url, rx.resubscribe());
+                monitor_db(&db, base_url, rx.resubscribe());
             }
             Ok(()) as anyhow::Result<()>
         };
@@ -153,8 +116,6 @@ Windmill Community Edition {GIT_VERSION}
 
 pub fn monitor_db(
     db: &Pool<Postgres>,
-    timeout: i32,
-    base_url: String,
     rx: tokio::sync::broadcast::Receiver<()>,
 ) {
     let db1 = db.clone();
@@ -163,7 +124,7 @@ pub fn monitor_db(
     let rx2 = rx.resubscribe();
 
     tokio::spawn(async move {
-        windmill_worker::handle_zombie_jobs_periodically(&db1, timeout, &base_url, rx).await
+        windmill_worker::handle_zombie_jobs_periodically(&db1,  rx).await
     });
     tokio::spawn(async move { windmill_api::delete_expired_items_perdiodically(&db2, rx2).await });
 }
@@ -174,11 +135,16 @@ pub async fn run_workers(
     timeout: i32,
     num_workers: i32,
     sleep_queue: u64,
-    worker_config: WorkerConfig,
     rx: tokio::sync::broadcast::Receiver<()>,
-    mut periodic_script: Option<String>,
     license_key: Option<String>,
 ) -> anyhow::Result<()> {
+    tracing::info!(
+        "Workers starting {:#?}",
+        serde_json::json!({DISABLE_NSJAIL: disable_nsjail, DISABLE_NUSER: disable_nuser, BASE_URL: 
+            base_url, SLEEP_QUEUE: sleep_queue, NUM_WORKERS: num_workers, TIMEOUT: 
+            timeout, KEEP_JOB_DIR: keep_job_dir})
+    );
+
     #[cfg(feature = "enterprise")]
     ee::verify_license_key(license_key)?;
 
@@ -187,7 +153,7 @@ pub async fn run_workers(
         panic!("License key is required ONLY for the enterprise edition");
     }
     #[cfg(not(feature = "enterprise"))]
-    if !worker_config.disable_nsjail {
+    if ! {
         tracing::warn!(
             "NSJAIL to sandbox process in untrusted environments is an enterprise feature but allowed to be used for testing purposes"
         );
@@ -211,24 +177,9 @@ pub async fn run_workers(
         let worker_name = format!("dt-worker-{}-{}", &instance_name, rd_string(5));
         let ip = ip.clone();
         let rx = rx.resubscribe();
-        let worker_config = worker_config.clone();
-        let wp = periodic_script.take();
         handles.push(tokio::spawn(monitor.instrument(async move {
             tracing::info!(addr = %addr.to_string(), worker = %worker_name, "starting worker");
-            windmill_worker::run_worker(
-                &db1,
-                timeout,
-                &instance_name,
-                worker_name,
-                i as u64,
-                num_workers as u64,
-                &ip,
-                sleep_queue,
-                worker_config,
-                wp,
-                rx,
-            )
-            .await
+            windmill_worker::run_worker(&db1, &instance_name, worker_name, i as u64, &ip, rx).await
         })));
     }
 

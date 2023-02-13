@@ -24,7 +24,7 @@ use windmill_common::{
     flows::{FlowModuleValue, FlowValue},
     scripts::{ScriptHash, ScriptLang},
     utils::rd_string,
-    variables,
+    variables, BASE_URL, PORT,
 };
 use windmill_queue::{canceled_job_to_result, get_queued_job, pull, JobKind, QueuedJob, CLOUD_HOSTED};
 
@@ -285,14 +285,91 @@ pub struct Metrics {
     pub worker_execution_failed: prometheus::IntCounter,
 }
 
-#[derive(Clone, Debug)]
-pub struct WorkerConfig {
-    pub disable_nuser: bool,
-    pub disable_nsjail: bool,
-    pub keep_job_dir: bool,
-}
+
+pub const DEFAULT_TIMEOUT: u16 = 300;
+pub const DEFAULT_SLEEP_QUEUE: u64 = 50;
 
 lazy_static::lazy_static! {
+    
+
+    pub static ref BASE_INTERNAL_URL: String = std::env::var("BASE_INTERNAL_URL").unwrap_or_else(|_| format!("http://localhost:{}", PORT.to_string()));
+
+    static ref SLEEP_QUEUE: u64 = std::env::var("SLEEP_QUEUE")
+    .ok()
+    .and_then(|x| x.parse::<u64>().ok())
+    .unwrap_or(DEFAULT_SLEEP_QUEUE);
+
+    static ref DISABLE_NUSER: bool = std::env::var("DISABLE_NUSER")
+    .ok()
+    .and_then(|x| x.parse::<bool>().ok())
+    .unwrap_or(false);
+
+    static ref DISABLE_NSJAIL: bool = std::env::var("DISABLE_NSJAIL")
+    .ok()
+    .and_then(|x| x.parse::<bool>().ok())
+    .unwrap_or(true);
+
+    pub static ref KEEP_JOB_DIR: bool = std::env::var("KEEP_JOB_DIR")
+    .ok()
+    .and_then(|x| x.parse::<bool>().ok())
+    .unwrap_or(false);
+
+    static ref S3_CACHE_BUCKET: Option<String> = std::env::var("S3_CACHE_BUCKET")
+    .ok()
+    .map(|e| Some(e))
+    .unwrap_or(None);
+
+
+    static ref DENO_PATH: String = std::env::var("DENO_PATH").unwrap_or_else(|_| "/usr/bin/deno".to_string());
+    static ref GO_PATH: String = std::env::var("GO_PATH").unwrap_or_else(|_| "/usr/bin/go".to_string());
+    static ref PYTHON_PATH: String =
+        std::env::var("PYTHON_PATH").unwrap_or_else(|_| "/usr/local/bin/python3".to_string());
+    static ref NSJAIL_PATH: String = std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
+    static ref PATH_ENV: String = std::env::var("PATH").unwrap_or_else(|_| String::new());
+    static ref HOME_ENV: String = std::env::var("HOME").unwrap_or_else(|_| String::new());
+    static ref PIP_INDEX_URL: Option<String> = std::env::var("PIP_INDEX_URL").ok();
+    static ref PIP_EXTRA_INDEX_URL: Option<String> = std::env::var("PIP_EXTRA_INDEX_URL").ok();
+    static ref PIP_TRUSTED_HOST: Option<String> = std::env::var("PIP_TRUSTED_HOST").ok();
+    static ref DENO_AUTH_TOKENS: String = std::env::var("DENO_AUTH_TOKENS")
+        .ok()
+        .map(|x| format!(";{x}"))
+        .unwrap_or_else(|| String::new());
+
+    
+
+
+    static ref DENO_FLAGS: Option<Vec<String>> = std::env::var("DENO_FLAGS")
+        .ok()
+        .map(|x| x.split(' ').map(|x| x.to_string()).collect());
+        
+    static ref PIP_LOCAL_DEPENDENCIES: Option<Vec<String>> = {
+        let pip_local_dependencies = std::env::var("PIP_LOCAL_DEPENDENCIES")
+            .ok()
+            .map(|x| x.split(',').map(|x| x.to_string()).collect());
+        if pip_local_dependencies == Some(vec!["".to_string()]) {
+            None
+        } else {
+            pip_local_dependencies
+        }
+    
+    };
+    static ref WHITELIST_WORKSPACES: Option<Vec<String>> = std::env::var("WHITELIST_WORKSPACES")
+        .ok()
+        .map(|x| x.split(',').map(|x| x.to_string()).collect());
+    static ref BLACKLIST_WORKSPACES: Option<Vec<String>>  = std::env::var("BLACKLIST_WORKSPACES")
+        .ok()
+        .map(|x| x.split(',').map(|x| x.to_string()).collect());
+
+    static ref TAR_CACHE_RATE: i32 = std::env::var("TAR_CACHE_RATE")
+        .ok()
+        .and_then(|x| x.parse::<i32>().ok())
+        .unwrap_or(100);
+
+    static ref ADDITIONAL_PYTHON_PATHS: Option<Vec<String>> = std::env::var("ADDITIONAL_PYTHON_PATHS")
+        .ok()
+        .map(|x| x.split(':').map(|x| x.to_string()).collect());
+
+
     static ref WORKER_STARTED: prometheus::IntGauge = prometheus::register_int_gauge!(
         "worker_started",
         "Total number of workers started."
@@ -313,10 +390,16 @@ lazy_static::lazy_static! {
         "Total number of milliseconds since the worker has started"
     );
 
-    static ref TIMEOUT: i32 = std::env::var("TIMEOUT")
+    static ref TIMEOUT: u16 = std::env::var("TIMEOUT")
         .ok()
-        .and_then(|x| x.parse::<i32>().ok())
-        .unwrap_or(windmill_common::DEFAULT_TIMEOUT);
+        .and_then(|x| x.parse::<u16>().ok())
+        .unwrap_or(DEFAULT_TIMEOUT as u16);
+    static ref TIMEOUT_DURATION: Duration = Duration::from_secs(*TIMEOUT as u64);
+
+
+    static ref ZOMBIE_JOB_TIMEOUT: String = (*TIMEOUT as u32 * 5).to_string();
+
+    static ref SESSION_TOKEN_EXPIRY: i32 = (*TIMEOUT as i32) * 2;
 }
 
 //only matter if CLOUD_HOSTED
@@ -327,15 +410,10 @@ const MAX_RESULT_SIZE: usize = 1024 * 1024 * 2; // 2MB
 #[tracing::instrument(level = "trace")]
 pub async fn run_worker(
     db: &Pool<Postgres>,
-    timeout: i32,
     worker_instance: &str,
     worker_name: String,
     i_worker: u64,
-    num_workers: u64,
     ip: &str,
-    sleep_queue: u64,
-    worker_config: WorkerConfig,
-    sync_bucket: Option<String>,
     mut rx: tokio::sync::broadcast::Receiver<()>,
 ) {
     tracing::info!("Starting worker {worker_instance} {worker_name}, version: {GIT_VERSION}");
@@ -420,68 +498,7 @@ pub async fn run_worker(
 
     let mut jobs_executed = 0;
 
-    let deno_path = std::env::var("DENO_PATH").unwrap_or_else(|_| "/usr/bin/deno".to_string());
-    let go_path = std::env::var("GO_PATH").unwrap_or_else(|_| "/usr/bin/go".to_string());
-    let python_path =
-        std::env::var("PYTHON_PATH").unwrap_or_else(|_| "/usr/local/bin/python3".to_string());
-    let nsjail_path = std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
-    let path_env = std::env::var("PATH").unwrap_or_else(|_| String::new());
-    let home_env = std::env::var("HOME").unwrap_or_else(|_| String::new());
-    let pip_index_url = std::env::var("PIP_INDEX_URL").ok();
-    let pip_extra_index_url = std::env::var("PIP_EXTRA_INDEX_URL").ok();
-    let pip_trusted_host = std::env::var("PIP_TRUSTED_HOST").ok();
-    let deno_auth_tokens = std::env::var("DENO_AUTH_TOKENS")
-        .ok()
-        .map(|x| format!(";{x}"))
-        .unwrap_or_else(|| String::new());
 
-    
-
-
-    let deno_flags = std::env::var("DENO_FLAGS")
-        .ok()
-        .map(|x| x.split(' ').map(|x| x.to_string()).collect());
-    let pip_local_dependencies = std::env::var("PIP_LOCAL_DEPENDENCIES")
-        .ok()
-        .map(|x| x.split(',').map(|x| x.to_string()).collect());
-    let whitelist_workspaces = std::env::var("WHITELIST_WORKSPACES")
-        .ok()
-        .map(|x| x.split(',').map(|x| x.to_string()).collect());
-    let blacklist_workspaces = std::env::var("BLACKLIST_WORKSPACES")
-        .ok()
-        .map(|x| x.split(',').map(|x| x.to_string()).collect());
-
-    let pip_local_dependencies = if pip_local_dependencies == Some(vec!["".to_string()]) {
-        None
-    } else {
-        pip_local_dependencies
-    };
-
-    #[cfg(feature = "enterprise")]
-    let tar_cache_rate = std::env::var("TAR_CACHE_RATE")
-        .ok()
-        .and_then(|x| x.parse::<i32>().ok())
-        .unwrap_or(100);
-
-    let additional_python_paths = std::env::var("ADDITIONAL_PYTHON_PATHS")
-        .ok()
-        .map(|x| x.split(':').map(|x| x.to_string()).collect());
-
-    let envs = Envs {
-        deno_path,
-        go_path,
-        python_path,
-        nsjail_path,
-        path_env,
-        home_env,
-        pip_index_url,
-        pip_extra_index_url,
-        pip_trusted_host,
-        deno_flags,
-        deno_auth_tokens,
-        pip_local_dependencies,
-        additional_python_paths,
-    };
     WORKER_STARTED.inc();
 
     #[cfg(feature = "enterprise")]
@@ -550,7 +567,7 @@ pub async fn run_worker(
                     },
                     (job, timer) = {
                         let timer = worker_pull_duration.start_timer(); 
-                        pull(&db, whitelist_workspaces.clone(), blacklist_workspaces.clone()).map(|x| (x, timer)) } => {
+                        pull(&db, WHITELIST_WORKSPACES.clone(), BLACKLIST_WORKSPACES.clone()).map(|x| (x, timer)) } => {
                         drop(timer);
                         (false, job)
                     },
@@ -620,7 +637,7 @@ pub async fn run_worker(
                         &job.workspace_id,
                         &job.permissioned_as,
                         "ephemeral-script",
-                        timeout * 2,
+                        *SESSION_TOKEN_EXPIRY,
                         &job.email,
                     )
                     .await.expect("could not create job token");
@@ -633,15 +650,11 @@ pub async fn run_worker(
                         db,
                         &job_client,
                         token,
-                        timeout,
                         &worker_name,
                         &worker_dir,
                         &job_dir,
-                        &worker_config,
                         metrics.clone(),
-                        &envs,
                         same_worker_tx.clone(),
-                        &worker_config.base_internal_url,
                     )
                     .await
                     .err()
@@ -654,15 +667,13 @@ pub async fn run_worker(
                             Some(metrics),
                             false,
                             same_worker_tx.clone(),
-                            &worker_dir,
-                            !worker_config.keep_job_dir,
-                            &worker_config.base_internal_url,
+                            &worker_dir
                         )
                         .await;
                     };
 
 
-                    if !worker_config.keep_job_dir && !(is_flow && same_worker) {
+                    if !*KEEP_JOB_DIR && !(is_flow && same_worker) {
                         let _ = tokio::fs::remove_dir_all(job_dir).await;
                     }
                 }
@@ -671,7 +682,7 @@ pub async fn run_worker(
                     let _timer = worker_sleep_duration
                         .start_timer();
 
-                    tokio::time::sleep(Duration::from_millis(sleep_queue * num_workers)).await;
+                    tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE)).await;
 
                 }
                 Err(err) => {
@@ -698,8 +709,6 @@ async fn handle_job_error(
     unrecoverable: bool,
     same_worker_tx: Sender<Uuid>,
     worker_dir: &str,
-    keep_job_dir: bool,
-    base_internal_url: &str,
 ) {
     let err = match err {
         Error::JsonErr(err) => err,
@@ -736,8 +745,6 @@ async fn handle_job_error(
             unrecoverable,
             same_worker_tx,
             worker_dir,
-            keep_job_dir,
-            base_internal_url,
             None,
         )
         .await;
@@ -784,21 +791,6 @@ async fn insert_initial_ping(
     .expect("insert worker_ping initial value");
 }
 
-struct Envs {
-    deno_path: String,
-    go_path: String,
-    python_path: String,
-    nsjail_path: String,
-    path_env: String,
-    home_env: String,
-    pip_index_url: Option<String>,
-    pip_extra_index_url: Option<String>,
-    pip_trusted_host: Option<String>,
-    deno_auth_tokens: String,
-    deno_flags: Option<Vec<String>>,
-    pip_local_dependencies: Option<Vec<String>>,
-    additional_python_paths: Option<Vec<String>>,
-}
 
 fn extract_error_value(log_lines: &str) -> serde_json::Value {
     return json!({"message": log_lines.to_string().trim().to_string(), "name": "ExecutionErr"});
@@ -809,15 +801,11 @@ async fn handle_queued_job(
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &windmill_api_client::Client,
     token: String,
-    timeout: i32,
     worker_name: &str,
     worker_dir: &str,
     job_dir: &str,
-    worker_config: &WorkerConfig,
     metrics: Metrics,
-    envs: &Envs,
     same_worker_tx: Sender<Uuid>,
-    base_internal_url: &str,
 ) -> windmill_common::error::Result<()> {
     if job.canceled {
         return Err(Error::JsonErr(canceled_job_to_result(&job)))?;
@@ -836,7 +824,6 @@ async fn handle_queued_job(
                 args,
                 same_worker_tx,
                 worker_dir,
-                base_internal_url,
             )
             .await?;
         }
@@ -865,10 +852,10 @@ async fn handle_queued_job(
             logs.push_str(&format!("job {} on worker {}\n", &job.id, &worker_name));
             let result = match job.job_kind {
                 JobKind::Dependencies => {
-                    handle_dependency_job(&job, &mut logs, job_dir, db, timeout, &envs).await
+                    handle_dependency_job(&job, &mut logs, job_dir, db).await
                 }
                 JobKind::FlowDependencies => {
-                    handle_flow_dependency_job(&job, &mut logs, job_dir, db, timeout, &envs)
+                    handle_flow_dependency_job(&job, &mut logs, job_dir, db)
                         .await
                         .map(|()| Value::Null)
                 }
@@ -889,9 +876,6 @@ async fn handle_queued_job(
                         job_dir,
                         worker_dir,
                         &mut logs,
-                        timeout,
-                        worker_config,
-                        envs,
                     )
                     .await
                 }
@@ -914,8 +898,6 @@ async fn handle_queued_job(
                                 false,
                                 same_worker_tx.clone(),
                                 worker_dir,
-                                worker_config.keep_job_dir,
-                                &worker_config.base_internal_url,
                                 None,
                             )
                             .await?;
@@ -967,8 +949,6 @@ async fn handle_queued_job(
                                 false,
                                 same_worker_tx,
                                 worker_dir,
-                                worker_config.keep_job_dir,
-                                &worker_config.base_internal_url,
                                 None,
                             )
                             .await?;
@@ -1045,9 +1025,6 @@ async fn handle_code_execution_job(
     job_dir: &str,
     worker_dir: &str,
     logs: &mut String,
-    timeout: i32,
-    worker_config: &WorkerConfig,
-    envs: &Envs,
 ) -> error::Result<serde_json::Value> {
     let (inner_content, requirements_o, language) = match job.job_kind {
         JobKind::Preview | JobKind::Script_Hub => (
@@ -1109,8 +1086,6 @@ mount {{
         }
         Some(ScriptLang::Python3) => {
             handle_python_job(
-                worker_config,
-                envs,
                 requirements_o,
                 job_dir,
                 worker_dir,
@@ -1120,7 +1095,6 @@ mount {{
                 db,
                 client,
                 token,
-                timeout,
                 &inner_content,
                 &shared_mount,
             )
@@ -1128,8 +1102,6 @@ mount {{
         }
         Some(ScriptLang::Deno) => {
             handle_deno_job(
-                worker_config,
-                envs,
                 logs,
                 job,
                 db,
@@ -1137,7 +1109,6 @@ mount {{
                 token,
                 job_dir,
                 &inner_content,
-                timeout,
                 &shared_mount,
                 requirements_o,
             )
@@ -1145,15 +1116,12 @@ mount {{
         }
         Some(ScriptLang::Go) => {
             handle_go_job(
-                worker_config,
-                envs,
                 logs,
                 job,
                 db,
                 client,
                 token,
                 &inner_content,
-                timeout,
                 job_dir,
                 requirements_o,
                 &shared_mount,
@@ -1162,14 +1130,11 @@ mount {{
         }
         Some(ScriptLang::Bash) => {
             handle_bash_job(
-                worker_config,
-                envs,
                 logs,
                 job,
                 db,
                 token,
                 &inner_content,
-                timeout,
                 job_dir,
                 &shared_mount,
             )
@@ -1190,15 +1155,12 @@ mount {{
 
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_go_job(
-    WorkerConfig { base_internal_url, disable_nuser, disable_nsjail, base_url, .. }: &WorkerConfig,
-    Envs { nsjail_path, go_path, path_env, home_env, .. }: &Envs,
     logs: &mut String,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &windmill_api_client::Client,
     token: String,
     inner_content: &str,
-    timeout: i32,
     job_dir: &str,
     requirements_o: Option<String>,
     shared_mount: &str,
@@ -1228,8 +1190,6 @@ async fn handle_go_job(
         logs,
         job_dir,
         db,
-        timeout,
-        go_path,
         true,
         skip_go_mod,
     )
@@ -1324,71 +1284,68 @@ func Run(req Req) (interface{{}}, error){{
             write_file(&format!("{job_dir}/inner"), "runner.go", &runner_content).await?;
         }
     }
-    let mut reserved_variables = get_reserved_variables(job, &token, &base_url, db).await?;
+    let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
-    let child = if !disable_nsjail {
+    let child = if !*DISABLE_NSJAIL {
         let _ = write_file(
             job_dir,
             "run.config.proto",
             &NSJAIL_CONFIG_RUN_GO_CONTENT
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CACHE_DIR}", GO_CACHE_DIR)
-                .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string())
+                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount),
         )
         .await?;
-        let build_go = Command::new(go_path)
+        let build_go = Command::new(GO_PATH.as_str())
             .current_dir(job_dir)
             .env_clear()
-            .env("PATH", path_env)
-            .env("BASE_INTERNAL_URL", base_internal_url)
+            .env("PATH", PATH_ENV.as_str())
+            .env("BASE_INTERNAL_URL", BASE_INTERNAL_URL.as_str())
             .env("GOPATH", GO_CACHE_DIR)
-            .env("HOME", home_env)
+            .env("HOME", HOME_ENV.as_str())
             .args(vec!["build", "main.go"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?;
-        handle_child(&job.id, db, logs, timeout,  build_go, false).await?;
+        handle_child(&job.id, db, logs,  build_go, false).await?;
 
-        Command::new(nsjail_path)
+        Command::new(NSJAIL_PATH.as_str())
             .current_dir(job_dir)
             .env_clear()
             .envs(reserved_variables)
-            .env("PATH", path_env)
-            .env("BASE_INTERNAL_URL", base_internal_url)
+            .env("PATH", PATH_ENV.as_str())
+            .env("BASE_INTERNAL_URL", BASE_INTERNAL_URL.as_str())
             .args(vec!["--config", "run.config.proto", "--", "/tmp/go/main"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?
     } else {
-        Command::new(go_path)
+        Command::new(GO_PATH.as_str())
             .current_dir(job_dir)
             .env_clear()
             .envs(reserved_variables)
-            .env("PATH", path_env)
-            .env("BASE_INTERNAL_URL", base_internal_url)
+            .env("PATH", PATH_ENV.as_str())
+            .env("BASE_INTERNAL_URL", BASE_INTERNAL_URL.as_str())
             .env("GOPATH", GO_CACHE_DIR)
-            .env("HOME", home_env)
+            .env("HOME", HOME_ENV.as_str())
             .args(vec!["run", "main.go"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?
     };
-    handle_child(&job.id, db, logs, timeout, child, !disable_nsjail).await?;
+    handle_child(&job.id, db, logs, child, !*DISABLE_NSJAIL).await?;
     read_result(job_dir).await
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_bash_job(
-    WorkerConfig { base_internal_url, disable_nuser, disable_nsjail, base_url, .. }: &WorkerConfig,
-    Envs { nsjail_path, path_env, home_env,  .. }: &Envs,
     logs: &mut String,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     token: String,
     content: &str,
-    timeout: i32,
     job_dir: &str,
     shared_mount: &str,
 ) -> Result<serde_json::Value, Error> {
@@ -1396,7 +1353,7 @@ async fn handle_bash_job(
     set_logs(logs, &job.id, db).await;
     write_file(job_dir, "main.sh", content).await?;
 
-    let mut reserved_variables = get_reserved_variables(job, &token, &base_url, db).await?;
+    let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
     let hm = match job.args {
@@ -1417,24 +1374,24 @@ async fn handle_bash_job(
         .collect::<Vec<String>>();
     let args = args_owned.iter().map(|s| &s[..]).collect::<Vec<&str>>();
 
-    let child = if !disable_nsjail {
+    let child = if !*DISABLE_NSJAIL {
         let _ = write_file(
             job_dir,
             "run.config.proto",
             &NSJAIL_CONFIG_RUN_BASH_CONTENT
                 .replace("{JOB_DIR}", job_dir)
-                .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string())
+                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount),
         )
         .await?;
         let mut cmd_args = vec!["--config", "run.config.proto", "--", "/bin/sh", "main.sh"];
         cmd_args.extend(args);
-        Command::new(nsjail_path)
+        Command::new(NSJAIL_PATH.as_str())
             .current_dir(job_dir)
             .env_clear()
             .envs(reserved_variables)
-            .env("PATH", path_env)
-            .env("BASE_INTERNAL_URL", base_internal_url)
+            .env("PATH", PATH_ENV.as_str())
+            .env("BASE_INTERNAL_URL", BASE_INTERNAL_URL.as_str())
             .args(cmd_args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -1446,15 +1403,15 @@ async fn handle_bash_job(
             .current_dir(job_dir)
             .env_clear()
             .envs(reserved_variables)
-            .env("PATH", path_env)
-            .env("BASE_INTERNAL_URL", base_internal_url)
-            .env("HOME", home_env)
+            .env("PATH", PATH_ENV.as_str())
+            .env("BASE_INTERNAL_URL", BASE_INTERNAL_URL.as_str())
+            .env("HOME", HOME_ENV.as_str())
             .args(cmd_args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?
     };
-    handle_child(&job.id, db, logs, timeout, child, !disable_nsjail).await?;
+    handle_child(&job.id, db, logs,  child, !*DISABLE_NSJAIL).await?;
     //for now bash jobs have an empty result object
     Ok(serde_json::json!(logs
         .lines()
@@ -1473,8 +1430,6 @@ fn capitalize(s: &str) -> String {
 
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_deno_job(
-    WorkerConfig { base_internal_url, base_url, disable_nuser, disable_nsjail, .. }: &WorkerConfig,
-    Envs { nsjail_path, deno_path, path_env,  deno_auth_tokens, deno_flags, .. }: &Envs,
     logs: &mut String,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -1482,7 +1437,6 @@ async fn handle_deno_job(
     token: String,
     job_dir: &str,
     inner_content: &String,
-    timeout: i32,
     shared_mount: &str,
     lockfile: Option<String>,
 ) -> error::Result<serde_json::Value> {
@@ -1525,6 +1479,7 @@ run().catch(async (e) => {{
     );
     write_file(job_dir, "main.ts", &wrapper_content).await?;
     let w_id = job.workspace_id.clone();
+    let base_internal_url = BASE_INTERNAL_URL.as_str();
     let import_map = format!(
         r#"{{
         "imports": {{
@@ -1534,22 +1489,23 @@ run().catch(async (e) => {{
       }}"#
     );
     write_file(job_dir, "import_map.json", &import_map).await?;
-    let mut reserved_variables = get_reserved_variables(job, &token, &base_url, db).await?;
+    let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
-    let hostname_base = base_url.split("://").last().unwrap_or("localhost");
-    let hostname_internal = base_internal_url.split("://").last().unwrap_or("localhost");
+    let hostname_base = BASE_URL.split("://").last().unwrap_or("localhost");
+    let hostname_internal = BASE_INTERNAL_URL.split("://").last().unwrap_or("localhost");
+    let deno_auth_tokens_base = DENO_AUTH_TOKENS.as_str();
     let deno_auth_tokens =
-        format!("{token}@{hostname_base};{token}@{hostname_internal}{deno_auth_tokens}",);
+        format!("{token}@{hostname_base};{token}@{hostname_internal}{deno_auth_tokens_base}",);
     let child = async {
-        Ok(if !disable_nsjail {
+        Ok(if !*DISABLE_NSJAIL {
             let _ = write_file(
                 job_dir,
                 "run.config.proto",
                 &NSJAIL_CONFIG_RUN_DENO_CONTENT
                     .replace("{JOB_DIR}", job_dir)
                     .replace("{CACHE_DIR}", DENO_CACHE_DIR)
-                    .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string())
+                    .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                     .replace("{SHARED_MOUNT}", shared_mount),
             )
             .await?;
@@ -1557,7 +1513,7 @@ run().catch(async (e) => {{
             args.push("--config");
             args.push("run.config.proto");
             args.push("--");
-            args.push(deno_path);
+            args.push(DENO_PATH.as_str());
             args.push("run");
             if lockfile.is_some() {
                 args.push("--lock=/tmp/lock.json");
@@ -1565,7 +1521,7 @@ run().catch(async (e) => {{
             args.push("--import-map");
             args.push("/tmp/import_map.json");
             args.push("--unstable");
-            if let Some(deno_flags) = deno_flags {
+            if let Some(deno_flags) = DENO_FLAGS.as_ref() {
                 for flag in deno_flags {
                     args.push(flag);
                 }
@@ -1574,11 +1530,11 @@ run().catch(async (e) => {{
             }
             args.push("/tmp/main.ts");
 
-            Command::new(nsjail_path)
+            Command::new(NSJAIL_PATH.as_str())
                 .current_dir(job_dir)
                 .env_clear()
                 .envs(reserved_variables)
-                .env("PATH", path_env)
+                .env("PATH", PATH_ENV.as_str())
                 .env("DENO_AUTH_TOKENS", deno_auth_tokens)
                 .env("BASE_INTERNAL_URL", base_internal_url)
                 .args(args)
@@ -1593,7 +1549,7 @@ run().catch(async (e) => {{
             args.push("--import-map");
             args.push(&import_map_path);
             args.push("--unstable");
-            if let Some(deno_flags) = deno_flags {
+            if let Some(deno_flags) = DENO_FLAGS.as_ref() {
                 for flag in deno_flags {
                     args.push(flag);
                 }
@@ -1601,11 +1557,11 @@ run().catch(async (e) => {{
                 args.push("-A");
             }
             args.push(&script_path);
-            Command::new(deno_path)
+            Command::new(DENO_PATH.as_str())
                 .current_dir(job_dir)
                 .env_clear()
                 .envs(reserved_variables)
-                .env("PATH", path_env)
+                .env("PATH", PATH_ENV.as_str())
                 .env("DENO_DIR", DENO_CACHE_DIR)
                 .env("DENO_AUTH_TOKENS", deno_auth_tokens)
                 .env("BASE_INTERNAL_URL", base_internal_url)
@@ -1618,7 +1574,7 @@ run().catch(async (e) => {{
     }
     .instrument(trace_span!("create_deno_jail"))
     .await?;
-    handle_child(&job.id, db, logs, timeout,  child, !disable_nsjail).await?;
+    handle_child(&job.id, db, logs, child, !*DISABLE_NSJAIL).await?;
     read_result(job_dir).await
 }
 
@@ -1645,10 +1601,6 @@ lazy_static! {
 
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_python_job(
-    WorkerConfig { base_internal_url, base_url, disable_nuser, disable_nsjail, .. }: &WorkerConfig,
-    envs @ Envs {
-        nsjail_path, python_path, path_env,  additional_python_paths, ..
-    }: &Envs,
     requirements_o: Option<String>,
     job_dir: &str,
     worker_dir: &str,
@@ -1658,14 +1610,13 @@ async fn handle_python_job(
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &windmill_api_client::Client,
     token: String,
-    timeout: i32,
     inner_content: &String,
     shared_mount: &str,
 ) -> error::Result<serde_json::Value> {
     create_dependencies_dir(job_dir).await;
 
     let mut additional_python_paths: Vec<String> =
-        additional_python_paths.to_owned().unwrap_or_else(|| vec![]);
+        ADDITIONAL_PYTHON_PATHS.to_owned().unwrap_or_else(|| vec![]);
 
     let requirements = match requirements_o {
         Some(r) => r,
@@ -1674,7 +1625,7 @@ async fn handle_python_job(
             if requirements.is_empty() {
                 "".to_string()
             } else {
-                pip_compile(&job.id, &requirements, logs, job_dir, envs, db, timeout)
+                pip_compile(&job.id, &requirements, logs, job_dir, db)
                     .await
                     .map_err(|e| {
                         Error::ExecutionErr(format!("pip compile failed: {}", e.to_string()))
@@ -1684,14 +1635,14 @@ async fn handle_python_job(
     };
 
     if requirements.len() > 0 {
-        if !disable_nsjail {
+        if !*DISABLE_NSJAIL {
             let _ = write_file(
                 job_dir,
                 "download.config.proto",
                 &NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT
                     .replace("{WORKER_DIR}", &worker_dir)
                     .replace("{CACHE_DIR}", PIP_CACHE_DIR)
-                    .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
+                    .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
             )
             .await?;
         }
@@ -1701,12 +1652,9 @@ async fn handle_python_job(
                 .split("\n")
                 .filter(|x| !x.starts_with("--"))
                 .collect(),
-            envs,
             job,
             logs,
             db,
-            timeout,
-            disable_nsjail.clone(),
             worker_name,
             job_dir,
         )
@@ -1817,9 +1765,9 @@ except Exception as e:
     );
     write_file(job_dir, "main.py", &wrapper_content).await?;
 
-    let mut reserved_variables = get_reserved_variables(job, &token, &base_url, db).await?;
+    let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
     let additional_python_paths_folders = additional_python_paths.iter().join(":");
-    if !disable_nsjail {
+    if !*DISABLE_NSJAIL {
         let shared_deps = additional_python_paths
             .into_iter()
             .map(|pp| {
@@ -1840,7 +1788,7 @@ mount {{
             "run.config.proto",
             &NSJAIL_CONFIG_RUN_PYTHON3_CONTENT
                 .replace("{JOB_DIR}", job_dir)
-                .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string())
+                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{SHARED_DEPENDENCIES}", shared_deps.as_str())
                 .replace(
@@ -1860,19 +1808,19 @@ mount {{
         "started python code execution {}",
         job.id
     );
-    let child = if !disable_nsjail {
-        Command::new(nsjail_path)
+    let child = if !*DISABLE_NSJAIL {
+        Command::new(NSJAIL_PATH.as_str())
             .current_dir(job_dir)
             .env_clear()
             // inject PYTHONPATH here - for some reason I had to do it in nsjail conf
             .envs(reserved_variables)
-            .env("PATH", path_env)
-            .env("BASE_INTERNAL_URL", base_internal_url)
+            .env("PATH", PATH_ENV.as_str())
+            .env("BASE_INTERNAL_URL", BASE_INTERNAL_URL.as_str())
             .args(vec![
                 "--config",
                 "run.config.proto",
                 "--",
-                python_path,
+                PYTHON_PATH.as_str(),
                 "-u",
                 "/tmp/main.py",
             ])
@@ -1880,19 +1828,19 @@ mount {{
             .stderr(Stdio::piped())
             .spawn()?
     } else {
-        Command::new(python_path)
+        Command::new(PYTHON_PATH.as_str())
             .current_dir(job_dir)
             .env_clear()
             .envs(reserved_variables)
-            .env("PATH", path_env)
-            .env("BASE_INTERNAL_URL", base_internal_url)
+            .env("PATH", PATH_ENV.as_str())
+            .env("BASE_INTERNAL_URL", BASE_INTERNAL_URL.as_str())
             .args(vec!["-u", "main.py"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?
     };
 
-    handle_child(&job.id, db, logs, timeout, child, !disable_nsjail).await?;
+    handle_child(&job.id, db, logs, child, !*DISABLE_NSJAIL).await?;
     read_result(job_dir).await
 }
 
@@ -1922,8 +1870,6 @@ async fn handle_dependency_job(
     logs: &mut String,
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
-    timeout: i32,
-    envs: &Envs,
 ) -> error::Result<serde_json::Value> {
     let content = capture_dependency_job(
         &job.id,
@@ -1938,9 +1884,7 @@ async fn handle_dependency_job(
             .unwrap_or_else(|| "no raw code"),
         logs,
         job_dir,
-        db,
-        timeout,
-        envs,
+        db
     )
     .await;
     match content {
@@ -1975,8 +1919,6 @@ async fn handle_flow_dependency_job(
     logs: &mut String,
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
-    timeout: i32,
-    envs: &Envs,
 ) -> error::Result<()> {
     let path = job.script_path.clone().ok_or_else(|| {
         error::Error::InternalErr(
@@ -2007,8 +1949,6 @@ async fn handle_flow_dependency_job(
             logs,
             job_dir,
             db,
-            timeout,
-            envs,
         )
         .await;
         match new_lock {
@@ -2071,67 +2011,64 @@ async fn handle_flow_dependency_job(
     Ok(())
 }
 
-#[cfg(not(feature = "deno-lock"))]
-async fn generate_deno_lock(
-    _job_id: &Uuid,
-    _code: &str,
-    _logs: &mut String,
-    _job_dir: &str,
-    _db: &sqlx::Pool<sqlx::Postgres>,
-    _timeout: i32,
-    _envs: &Envs,
-) -> error::Result<String> {
-    Ok(String::new())
-}
+// #[cfg(not(feature = "deno-lock"))]
+// async fn generate_deno_lock(
+//     _job_id: &Uuid,
+//     _code: &str,
+//     _logs: &mut String,
+//     _job_dir: &str,
+//     _db: &sqlx::Pool<sqlx::Postgres>,
+//     _timeout: i32,
+// ) -> error::Result<String> {
+//     Ok(String::new())
+// }
 
-#[cfg(feature = "deno-lock")]
-async fn generate_deno_lock(
-    job_id: &Uuid,
-    code: &str,
-    logs: &mut String,
-    job_dir: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
-    timeout: i32,
-    Envs { deno_path,  .. }: &Envs,
-) -> error::Result<String> {
-    let _ = write_file(job_dir, "main.ts", code).await?;
+// #[cfg(feature = "deno-lock")]
+// async fn generate_deno_lock(
+//     job_id: &Uuid,
+//     code: &str,
+//     logs: &mut String,
+//     job_dir: &str,
+//     db: &sqlx::Pool<sqlx::Postgres>,
+//     timeout: i32,
+// ) -> error::Result<String> {
+//     let _ = write_file(job_dir, "main.ts", code).await?;
 
-    let child = Command::new(deno_path)
-        .current_dir(job_dir)
-        .args(vec![
-            "cache",
-            "--unstable",
-            "--lock=lock.json",
-            "--lock-write",
-            "main.ts",
-        ])
-        .env("NO_COLOR", "1")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
+//     let child = Command::new(deno_path)
+//         .current_dir(job_dir)
+//         .args(vec![
+//             "cache",
+//             "--unstable",
+//             "--lock=lock.json",
+//             "--lock-write",
+//             "main.ts",
+//         ])
+//         .env("NO_COLOR", "1")
+//         .stdout(Stdio::piped())
+//         .stderr(Stdio::piped())
+//         .spawn()?;
 
-    handle_child(job_id, db, logs, timeout, * child).await?;
+//     handle_child(job_id, db, logs, timeout, child).await?;
 
-    let path_lock = format!("{job_dir}/lock.json");
-    let mut file = File::open(path_lock).await?;
-    let mut req_content = "".to_string();
-    file.read_to_string(&mut req_content).await?;
-    Ok(req_content)
-}
+//     let path_lock = format!("{job_dir}/lock.json");
+//     let mut file = File::open(path_lock).await?;
+//     let mut req_content = "".to_string();
+//     file.read_to_string(&mut req_content).await?;
+//     Ok(req_content)
+// }
+
 async fn capture_dependency_job(
     job_id: &Uuid,
     job_language: &ScriptLang,
     job_raw_code: &str,
     logs: &mut String,
     job_dir: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
-    timeout: i32,
-    envs: &Envs,
+    db: &sqlx::Pool<sqlx::Postgres>
 ) -> error::Result<String> {
     match job_language {
         ScriptLang::Python3 => {
             create_dependencies_dir(job_dir).await;
-            pip_compile(job_id, job_raw_code, logs, job_dir, envs, db, timeout).await
+            pip_compile(job_id, job_raw_code, logs, job_dir, db ).await
         }
         ScriptLang::Go => {
             install_go_dependencies(
@@ -2140,15 +2077,14 @@ async fn capture_dependency_job(
                 logs,
                 job_dir,
                 db,
-                timeout,
-                &envs.go_path,
                 false,
                 false,
             )
             .await
         }
         ScriptLang::Deno => {
-            generate_deno_lock(job_id, job_raw_code, logs, job_dir, db, timeout, &envs).await
+            Ok(String::new())
+            // generate_deno_lock(job_id, job_raw_code, logs, job_dir, db, timeout).await
         }
         ScriptLang::Bash => Ok("".to_owned()),
     }
@@ -2159,22 +2095,13 @@ async fn pip_compile(
     requirements: &str,
     logs: &mut String,
     job_dir: &str,
-    Envs {
-        pip_extra_index_url,
-        pip_index_url,
-        pip_trusted_host,
-        
-        pip_local_dependencies,
-        ..
-    }: &Envs,
     db: &Pool<Postgres>,
-    timeout: i32,
 ) -> error::Result<String> {
     logs.push_str(&format!("\nresolving dependencies..."));
     set_logs(logs, job_id, db).await;
     logs.push_str(&format!("\ncontent of requirements:\n{}", requirements));
     let file = "requirements.in";
-    let requirements = if let Some(pip_local_dependencies) = pip_local_dependencies {
+    let requirements = if let Some(pip_local_dependencies) = PIP_LOCAL_DEPENDENCIES.as_ref() {
         let deps = pip_local_dependencies.clone();
         requirements
             .lines()
@@ -2186,13 +2113,13 @@ async fn pip_compile(
     write_file(job_dir, file, &requirements).await?;
 
     let mut args = vec!["-q", "--no-header", file, "--resolver=backtracking"];
-    if let Some(url) = pip_extra_index_url {
+    if let Some(url) = PIP_EXTRA_INDEX_URL.as_ref() {
         args.extend(["--extra-index-url", url]);
     }
-    if let Some(url) = pip_index_url {
+    if let Some(url) = PIP_INDEX_URL.as_ref() {
         args.extend(["--index-url", url]);
     }
-    if let Some(host) = pip_trusted_host {
+    if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
         args.extend(["--trusted-host", host]);
     }
     let child = Command::new("pip-compile")
@@ -2201,7 +2128,7 @@ async fn pip_compile(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
-    handle_child(job_id, db, logs, timeout, child, false)
+    handle_child(job_id, db, logs,  child, false)
         .await
         .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
     let path_lock = format!("{job_dir}/requirements.txt");
@@ -2222,8 +2149,6 @@ async fn install_go_dependencies(
     logs: &mut String,
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
-    timeout: i32,
-    go_path: &str,
     preview: bool,
     skip_go_mod: bool,
 ) -> error::Result<String> {
@@ -2236,15 +2161,15 @@ async fn install_go_dependencies(
             .stderr(Stdio::piped())
             .spawn()?;
 
-        handle_child(job_id, db, logs, timeout,  child, false).await?;
+        handle_child(job_id, db, logs,   child, false).await?;
     }
-    let child = Command::new(go_path)
+    let child = Command::new(GO_PATH.as_str())
         .current_dir(job_dir)
         .args(vec!["mod", "tidy"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
-    handle_child(job_id, db, logs, timeout,  child, false)
+    handle_child(job_id, db, logs,  child, false)
         .await
         .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
 
@@ -2283,7 +2208,6 @@ async fn gen_go_mymod(code: &str, job_dir: &str) -> error::Result<()> {
 async fn get_reserved_variables(
     job: &QueuedJob,
     token: &str,
-    base_url: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
 ) -> Result<HashMap<String, String>, Error> {
     let flow_path = if let Some(uuid) = job.parent_job {
@@ -2302,7 +2226,7 @@ async fn get_reserved_variables(
         &job.created_by,
         &job.id.to_string(),
         &job.permissioned_as,
-        base_url,
+
         job.script_path.clone(),
         job.parent_job.map(|x| x.to_string()),
         flow_path,
@@ -2349,11 +2273,9 @@ async fn handle_child(
     job_id: &Uuid,
     db: &Pool<Postgres>,
     logs: &mut String,
-    timeout: i32,
     mut child: Child,
     nsjail: bool,
 ) -> error::Result<()> {
-    let timeout = Duration::from_secs(u64::try_from(timeout).expect("invalid timeout"));
     let update_job_interval = Duration::from_millis(500);
     let write_logs_delay = Duration::from_millis(500);
 
@@ -2418,7 +2340,7 @@ async fn handle_child(
             result = child.wait() => return result.map(Ok),
             Ok(()) = too_many_logs.changed() => KillReason::TooManyLogs,
             _ = update_job => KillReason::Cancelled,
-            _ = sleep(timeout) => KillReason::Timeout,
+            _ = sleep(*TIMEOUT_DURATION) => KillReason::Timeout,
         };
         tx.send(()).await.expect("rx should never be dropped");
         drop(tx);
@@ -2434,7 +2356,7 @@ async fn handle_child(
                         WHERE id = $2
                     "#,
                 )
-                .bind(format!("duration > {}", timeout.as_secs()))
+                .bind(format!("duration > {}", TIMEOUT_DURATION.as_secs()))
                 .bind(job_id)
                 .execute(&db)
                 .await
@@ -2664,12 +2586,10 @@ async fn append_logs(job_id: uuid::Uuid, logs: impl AsRef<str>, db: impl Borrow<
 
 pub async fn handle_zombie_jobs_periodically(
     db: &Pool<Postgres>,
-    timeout: i32,
-    base_url: &str,
     mut rx: tokio::sync::broadcast::Receiver<()>,
 ) {
     loop {
-        handle_zombie_jobs(db, timeout, base_url).await;
+        handle_zombie_jobs(db).await;
 
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_secs(60))    => (),
@@ -2681,10 +2601,10 @@ pub async fn handle_zombie_jobs_periodically(
     }
 }
 
-async fn handle_zombie_jobs(db: &Pool<Postgres>, timeout: i32, base_url: &str) {
+async fn handle_zombie_jobs(db: &Pool<Postgres>) {
     let restarted = sqlx::query!(
             "UPDATE queue SET running = false WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 AND same_worker = false RETURNING id, workspace_id, last_ping",
-            (timeout * 5).to_string(),
+            *ZOMBIE_JOB_TIMEOUT,
             JobKind::Flow: JobKind,
         )
         .fetch_all(db)
@@ -2705,7 +2625,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, timeout: i32, base_url: &str) {
     let timeouts = sqlx::query_as::<_, QueuedJob>(
             "SELECT * FROM queue WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 AND same_worker = true",
         )
-        .bind((timeout * 5).to_string())
+        .bind(ZOMBIE_JOB_TIMEOUT.as_str())
         .bind(JobKind::Flow)
         .fetch_all(db)
         .await
@@ -2729,13 +2649,13 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, timeout: i32, base_url: &str) {
             &job.workspace_id,
             &job.permissioned_as,
             "ephemeral-zombie-jobs",
-            timeout * 2,
+            *SESSION_TOKEN_EXPIRY,
             &job.email,
         )
         .await
         .expect("could not create job token");
         tx.commit().await.expect("could not commit job token");
-        let client = windmill_api_client::create_client(base_url, token.clone());
+        let client = windmill_api_client::create_client(&BASE_INTERNAL_URL, token.clone());
 
         let _ = handle_job_error(
             db,
@@ -2745,10 +2665,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, timeout: i32, base_url: &str) {
             None,
             true,
             same_worker_tx_never_used,
-            "",
-            true,
-            &std::env::var("BASE_INTERNAL_URL")
-                .unwrap_or_else(|_| "http://localhost:8000".to_string()),
+            ""
         )
         .await;
     }
@@ -2756,34 +2673,22 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, timeout: i32, base_url: &str) {
 
 async fn handle_python_reqs(
     requirements: Vec<&str>,
-    Envs {
-        python_path,
-        path_env,
-        pip_index_url,
-        pip_extra_index_url,
-        pip_trusted_host,
-        nsjail_path,
-        
-        ..
-    }: &Envs,
     job: &QueuedJob,
     logs: &mut String,
     db: &sqlx::Pool<sqlx::Postgres>,
-    timeout: i32,
-    disable_nsjail: bool,
     worker_name: &str,
     job_dir: &str,
 ) -> error::Result<Vec<String>> {
     let mut req_paths: Vec<String> = vec![];
-    let mut vars = vec![("PATH", path_env)];
-    if !disable_nsjail {
-        if let Some(url) = pip_extra_index_url {
+    let mut vars = vec![("PATH", PATH_ENV.as_str())];
+    if !*DISABLE_NSJAIL {
+        if let Some(url) = PIP_EXTRA_INDEX_URL.as_ref() {
             vars.push(("EXTRA_INDEX_URL", url));
         }
-        if let Some(url) = pip_index_url {
+        if let Some(url) = PIP_INDEX_URL.as_ref() {
             vars.push(("INDEX_URL", url));
         }
-        if let Some(host) = pip_trusted_host {
+        if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
             vars.push(("TRUSTED_HOST", host));
         }
     };
@@ -2806,7 +2711,7 @@ async fn handle_python_reqs(
             "started setup python dependencies"
         );
 
-        let child = if !disable_nsjail {
+        let child = if !*DISABLE_NSJAIL {
             tracing::info!(
                 worker_name = %worker_name,
                 job_id = %job.id,
@@ -2817,7 +2722,7 @@ async fn handle_python_reqs(
             let req = req.to_string();
             vars.push(("REQ", &req));
             vars.push(("TARGET", &venv_p));
-            Command::new(nsjail_path)
+            Command::new(NSJAIL_PATH.as_str())
                 .current_dir(job_dir)
                 .env_clear()
                 .envs(vars)
@@ -2840,25 +2745,25 @@ async fn handle_python_reqs(
                 "-t",
                 venv_p.as_str(),
             ];
-            if let Some(url) = pip_extra_index_url {
-                args.extend(["--extra-index-url", &url]);
+            if let Some(url) = PIP_EXTRA_INDEX_URL.as_ref() {
+                args.extend(["--extra-index-url", url]);
             }
-            if let Some(url) = pip_index_url {
-                args.extend(["--index-url", &url]);
+            if let Some(url) = PIP_INDEX_URL.as_ref() {
+                args.extend(["--index-url", url]);
             }
-            if let Some(host) = pip_trusted_host {
+            if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
                 args.extend(["--trusted-host", &host]);
             }
-            Command::new(python_path)
+            Command::new(PYTHON_PATH.as_str())
                 .env_clear()
-                .env("PATH", path_env)
+                .env("PATH", PATH_ENV.as_str())
                 .args(args)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .spawn()?
         };
 
-        let child = handle_child(&job.id, db, logs, timeout, child, false).await;
+        let child = handle_child(&job.id, db, logs, child, false).await;
         tracing::info!(
             worker_name = %worker_name,
             job_id = %job.id,

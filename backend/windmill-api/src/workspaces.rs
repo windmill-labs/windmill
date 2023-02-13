@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::{str::FromStr, sync::Arc};
+use std::str::FromStr;
 
 use crate::{
     db::{UserDB, DB},
@@ -14,7 +14,7 @@ use crate::{
     resources::{Resource, ResourceType},
     users::{Authed, WorkspaceInvite, NEW_USER_WEBHOOK},
     utils::require_super_admin,
-    BaseUrl,
+    BASE_URL,
 };
 use axum::{
     body::StreamBody,
@@ -226,15 +226,14 @@ async fn stripe_checkout(
     authed: Authed,
     Path(w_id): Path<String>,
     Query(plan): Query<PlanQuery>,
-    Extension(base_url): Extension<Arc<BaseUrl>>,
 ) -> Result<Redirect> {
     // #[cfg(feature = "enterprise")]
     {
         require_admin(authed.is_admin, &authed.username)?;
 
         let client = stripe::Client::new(std::env::var("STRIPE_KEY").expect("STRIPE_KEY"));
-        let success_rd = format!("{}/workspace_settings/checkout?success=true", base_url.0);
-        let failure_rd = format!("{}/workspace_settings/checkout?success=false", base_url.0);
+        let success_rd = format!("{}/workspace_settings/checkout?success=true", *BASE_URL);
+        let failure_rd = format!("{}/workspace_settings/checkout?success=false", *BASE_URL);
         let checkout_session = {
             let mut params = stripe::CreateCheckoutSession::new(&failure_rd, &success_rd);
             params.mode = Some(stripe::CheckoutSessionMode::Subscription);
@@ -292,7 +291,6 @@ async fn stripe_portal(
     authed: Authed,
     Path(w_id): Path<String>,
     Extension(db): Extension<DB>,
-    Extension(base_url): Extension<Arc<BaseUrl>>,
 ) -> Result<Redirect> {
     require_admin(authed.is_admin, &authed.username)?;
     let customer_id = sqlx::query_scalar!(
@@ -303,7 +301,7 @@ async fn stripe_portal(
     .await?
     .ok_or_else(|| Error::InternalErr(format!("no customer id for workspace {}", w_id)))?;
     let client = stripe::Client::new(std::env::var("STRIPE_KEY").expect("STRIPE_KEY"));
-    let success_rd = format!("{}/workspace_settings?tab=premium", base_url.0);
+    let success_rd = format!("{}/workspace_settings?tab=premium", *BASE_URL);
     let portal_session = {
         let customer_id = CustomerId::from_str(&customer_id).unwrap();
         let mut params = stripe::CreateBillingPortalSession::new(customer_id);
