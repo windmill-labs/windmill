@@ -5381,6 +5381,18 @@
     },
     "query": "SELECT content FROM script WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter') AND\n         created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND archived = false AND (workspace_id = $2 OR workspace_id = 'starter'))"
   },
+  "dcf9e4087732c830278603a47eb1efe99bea1f2ad8770ed3f7dee349b6ec7a3e": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE password SET first_time_user = false WHERE email = $1"
+  },
   "dd466b6a6b51c1802935fbed6be221f9d945711a2f389d377713e9698a8c2638": {
     "describe": {
       "columns": [],

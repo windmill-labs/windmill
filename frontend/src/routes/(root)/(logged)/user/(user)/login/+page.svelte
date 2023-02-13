@@ -69,6 +69,13 @@
 	}
 
 	function redirectUser() {
+		const firstTimeCookie =
+			document.cookie.match('(^|;)\\s*first_time\\s*=\\s*([^;]+)')?.pop() || '0'
+		if (Number(firstTimeCookie) > 0 && email === 'admin@windmill.dev') {
+			goto('/user/first-time')
+			return
+		}
+
 		if (rd?.startsWith('http')) {
 			goto(rd)
 			return
