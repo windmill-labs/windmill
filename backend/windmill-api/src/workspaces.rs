@@ -17,6 +17,7 @@ use crate::{
     BaseUrl,
 };
 use axum::{
+    async_trait,
     body::StreamBody,
     extract::{Extension, Path, Query},
     headers,
@@ -1052,10 +1053,43 @@ struct ScriptMetadata {
     lock: Vec<String>,
 }
 
+struct TarArchive(tokio_tar::Builder<File>);
+
+#[async_trait]
+trait ArchiveImpl {
+    async fn write_to_archive(&mut self, content: &str, path: &str) -> Result<()>;
+    async fn finish(&mut self) -> Result<()>;
+}
+
+#[async_trait]
+impl ArchiveImpl for TarArchive {
+    async fn write_to_archive(&mut self, content: &str, path: &str) -> Result<()> {
+        let bytes = content.as_bytes();
+        let mut header = tokio_tar::Header::new_gnu();
+        header.set_size(bytes.len() as u64);
+        header.set_mtime(0);
+        header.set_uid(0);
+        header.set_gid(0);
+        header.set_mode(0o777);
+        header.set_cksum();
+        self.0.append_data(&mut header, path, bytes).await?;
+        Ok(())
+    }
+    async fn finish(&mut self) -> Result<()> {
+        Ok(self.0.finish().await?)
+    }
+}
+
+#[derive(Deserialize)]
+struct ArchiveQueryParams {
+    archive_type: String,
+}
+
 async fn tarball_workspace(
     authed: Authed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
+    Query(ArchiveQueryParams { archive_type }): Query<ArchiveQueryParams>,
 ) -> Result<([(headers::HeaderName, String); 2], impl IntoResponse)> {
     require_admin(authed.is_admin, &authed.username)?;
 
@@ -1064,7 +1098,10 @@ async fn tarball_workspace(
     let name = format!("windmill-{w_id}.tar");
     let file_path = tmp_dir.path().join(&name);
     let file = File::create(&file_path).await?;
-    let mut a = tokio_tar::Builder::new(file);
+    let mut archive: Box<dyn ArchiveImpl> = match archive_type.as_str() {
+        "tar" | /* no query string is empty string */ "" => Ok(Box::new(TarArchive(tokio_tar::Builder::new(file)))),
+        t => Err(Error::BadRequest(format!("Invalid Archive Type {t}"))),
+    }?;
 
     {
         let folders = sqlx::query_as::<_, Folder>("SELECT * FROM folder WHERE workspace_id = $1")
@@ -1073,12 +1110,12 @@ async fn tarball_workspace(
             .await?;
 
         for folder in folders {
-            write_to_archive(
-                serde_json::to_string_pretty(&folder).unwrap(),
-                format!("f/{}/folder.meta.json", folder.name),
-                &mut a,
-            )
-            .await?;
+            archive
+                .write_to_archive(
+                    &serde_json::to_string_pretty(&folder).unwrap(),
+                    &format!("f/{}/folder.meta.json", folder.name),
+                )
+                .await?;
         }
     }
 
@@ -1099,7 +1136,9 @@ async fn tarball_workspace(
                 ScriptLang::Go => "go",
                 ScriptLang::Bash => "sh",
             };
-            write_to_archive(script.content, format!("{}.{}", script.path, ext), &mut a).await?;
+            archive
+                .write_to_archive(&script.content, &format!("{}.{}", script.path, ext))
+                .await?;
 
             let lock = script
                 .lock
@@ -1115,7 +1154,9 @@ async fn tarball_workspace(
                 lock,
             };
             let metadata_str = serde_json::to_string_pretty(&metadata).unwrap();
-            write_to_archive(metadata_str, format!("{}.script.json", script.path), &mut a).await?;
+            archive
+                .write_to_archive(&metadata_str, &format!("{}.script.json", script.path))
+                .await?;
         }
     }
 
@@ -1130,12 +1171,9 @@ async fn tarball_workspace(
 
         for resource in resources {
             let resource_str = serde_json::to_string_pretty(&resource).unwrap();
-            write_to_archive(
-                resource_str,
-                format!("{}.resource.json", resource.path),
-                &mut a,
-            )
-            .await?;
+            archive
+                .write_to_archive(&resource_str, &format!("{}.resource.json", resource.path))
+                .await?;
         }
     }
 
@@ -1150,12 +1188,12 @@ async fn tarball_workspace(
 
         for resource_type in resource_types {
             let resource_str = serde_json::to_string_pretty(&resource_type).unwrap();
-            write_to_archive(
-                resource_str,
-                format!("{}.resource-type.json", resource_type.name),
-                &mut a,
-            )
-            .await?;
+            archive
+                .write_to_archive(
+                    &resource_str,
+                    &format!("{}.resource-type.json", resource_type.name),
+                )
+                .await?;
         }
     }
 
@@ -1169,7 +1207,9 @@ async fn tarball_workspace(
 
         for flow in flows {
             let flow_str = serde_json::to_string_pretty(&flow).unwrap();
-            write_to_archive(flow_str, format!("{}.flow.json", flow.path), &mut a).await?;
+            archive
+                .write_to_archive(&flow_str, &format!("{}.flow.json", flow.path))
+                .await?;
         }
     }
 
@@ -1183,10 +1223,12 @@ async fn tarball_workspace(
 
         for var in variables {
             let flow_str = serde_json::to_string_pretty(&var).unwrap();
-            write_to_archive(flow_str, format!("{}.variable.json", var.path), &mut a).await?;
+            archive
+                .write_to_archive(&flow_str, &format!("{}.variable.json", var.path))
+                .await?;
         }
     }
-    a.into_inner().await?;
+    archive.finish().await?;
 
     let file = tokio::fs::File::open(file_path).await?;
 
@@ -1202,21 +1244,4 @@ async fn tarball_workspace(
     ];
 
     Ok((headers, body))
-}
-
-async fn write_to_archive(
-    content: String,
-    path: String,
-    a: &mut tokio_tar::Builder<File>,
-) -> Result<()> {
-    let bytes = content.as_bytes();
-    let mut header = tokio_tar::Header::new_gnu();
-    header.set_size(bytes.len() as u64);
-    header.set_mtime(0);
-    header.set_uid(0);
-    header.set_gid(0);
-    header.set_mode(0o777);
-    header.set_cksum();
-    a.append_data(&mut header, path, bytes).await?;
-    Ok(())
 }
