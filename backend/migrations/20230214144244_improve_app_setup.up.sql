@@ -881,7 +881,7 @@ VALUES
                         "fieldType": "text"
                     },
                     "disabled": {
-                        "expr": "false",
+                        "expr": "g.result == \"\" || i.result == \"\"",
                         "type": "eval",
                         "fieldType": "boolean"
                     },
