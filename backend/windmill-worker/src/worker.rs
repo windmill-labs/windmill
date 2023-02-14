@@ -424,7 +424,6 @@ pub async fn run_worker(
         );
     }
 
-    tracing::info!("Starting worker {worker_instance} {worker_name}, version: {GIT_VERSION}");
     let start_time = Instant::now();
 
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
