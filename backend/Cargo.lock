@@ -555,16 +555,6 @@ checksum = "6245d59a3e82a7fc217c5828a6692dbc6dfb63a0c8c90495621f7b9d79704a0e"
 
 [[package]]
 name = "cookie"
-version = "0.16.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e859cd57d0710d9e06c381b550c06e76992472a8c6d527aecd2fc673dcc231fb"
-dependencies = [
- "time 0.3.17",
- "version_check",
-]
-
-[[package]]
-name = "cookie"
 version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7efb37c3e1ccb1ff97164ad95ac1606e8ccd35b3fa0a7d99a304c7f4a428cc24"
@@ -4054,7 +4044,7 @@ checksum = "40f38d941a2ffd8402b36e02ae407637a9caceb693aaf2edc910437db0f36984"
 dependencies = [
  "async-trait",
  "axum-core",
- "cookie 0.17.0",
+ "cookie",
  "futures-util",
  "http",
  "parking_lot 0.12.1",
@@ -4714,7 +4704,7 @@ dependencies = [
  "axum",
  "base64 0.21.0",
  "chrono",
- "cookie 0.16.2",
+ "cookie",
  "cron",
  "futures",
  "git-version",
