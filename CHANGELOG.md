@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.63.1](https://github.com/windmill-labs/windmill/compare/v1.63.0...v1.63.1) (2023-02-14)
+
+
+### Bug Fixes
+
+* update hub sync script ([03eb144](https://github.com/windmill-labs/windmill/commit/03eb1444c4a5dfbd170ba8d200784e530ca2f771))
+
 ## [1.63.0](https://github.com/windmill-labs/windmill/compare/v1.62.0...v1.63.0) (2023-02-14)
 
 
