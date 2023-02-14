@@ -17,7 +17,6 @@ use crate::{
     BaseUrl,
 };
 use axum::{
-    async_trait,
     body::StreamBody,
     extract::{Extension, Path, Query},
     headers,
@@ -1053,50 +1052,49 @@ struct ScriptMetadata {
     lock: Vec<String>,
 }
 
-struct TarArchive(tokio_tar::Builder<File>);
-struct ZipArchive(async_zip::write::ZipFileWriter<File>);
-
-#[async_trait]
-trait ArchiveImpl {
-    async fn write_to_archive(&mut self, content: &str, path: &str) -> Result<()>;
-    async fn finish(&mut self) -> Result<()>;
+enum ArchiveImpl {
+    Zip(async_zip::write::ZipFileWriter<File>),
+    Tar(tokio_tar::Builder<File>),
 }
 
-#[async_trait]
-impl ArchiveImpl for TarArchive {
+impl ArchiveImpl {
     async fn write_to_archive(&mut self, content: &str, path: &str) -> Result<()> {
-        let bytes = content.as_bytes();
-        let mut header = tokio_tar::Header::new_gnu();
-        header.set_size(bytes.len() as u64);
-        header.set_mtime(0);
-        header.set_uid(0);
-        header.set_gid(0);
-        header.set_mode(0o777);
-        header.set_cksum();
-        self.0.append_data(&mut header, path, bytes).await?;
-        Ok(())
-    }
-    async fn finish(&mut self) -> Result<()> {
-        Ok(self.0.finish().await?)
-    }
-}
-
-#[async_trait]
-impl ArchiveImpl for ZipArchive {
-    async fn write_to_archive(&mut self, content: &str, path: &str) -> Result<()> {
-        let bytes = content.as_bytes();
-        let header =
-            async_zip::ZipEntryBuilder::new(path.to_owned(), async_zip::Compression::Deflate)
+        match self {
+            ArchiveImpl::Tar(t) => {
+                let bytes = content.as_bytes();
+                let mut header = tokio_tar::Header::new_gnu();
+                header.set_size(bytes.len() as u64);
+                header.set_mtime(0);
+                header.set_uid(0);
+                header.set_gid(0);
+                header.set_mode(0o777);
+                header.set_cksum();
+                t.append_data(&mut header, path, bytes).await?;
+            }
+            ArchiveImpl::Zip(z) => {
+                let bytes = content.as_bytes();
+                let header = async_zip::ZipEntryBuilder::new(
+                    path.to_owned(),
+                    async_zip::Compression::Deflate,
+                )
                 .last_modification_date(Default::default())
                 .build();
-        self.0
-            .write_entry_whole(header, content.as_bytes())
-            .await
-            .map_err(to_anyhow)?;
+                z.write_entry_whole(header, content.as_bytes())
+                    .await
+                    .map_err(to_anyhow)?;
+            }
+        }
         Ok(())
     }
-    async fn finish(&mut self) -> Result<()> {
-        Ok(self.0.close().await.map_err(to_anyhow)?.sync_all().await?)
+    async fn finish(self) -> Result<()> {
+        match self {
+            ArchiveImpl::Tar(t) => t.into_inner().await?,
+            ArchiveImpl::Zip(z) => z.close().await.map_err(to_anyhow)?,
+        }
+        .sync_all()
+        .await?;
+
+        Ok(())
     }
 }
 
@@ -1111,7 +1109,6 @@ async fn tarball_workspace(
     Path(w_id): Path<String>,
     Query(ArchiveQueryParams { archive_type }): Query<ArchiveQueryParams>,
 ) -> Result<([(headers::HeaderName, String); 2], impl IntoResponse)> {
-    let archive_type = "".to_owned();
     require_admin(authed.is_admin, &authed.username)?;
 
     let tmp_dir = TempDir::new_in(".")?;
@@ -1119,11 +1116,11 @@ async fn tarball_workspace(
     let name = format!("windmill-{w_id}.tar");
     let file_path = tmp_dir.path().join(&name);
     let file = File::create(&file_path).await?;
-    let mut archive: Box<dyn ArchiveImpl> = match archive_type.as_str() {
-        "tar" | /* no query string is empty string */ "" => Ok(Box::new(TarArchive(tokio_tar::Builder::new(file)))),
+    let mut archive = match archive_type.as_str() {
+        "tar" | /* no query string is empty string */ "" => Ok(ArchiveImpl::Tar(tokio_tar::Builder::new(file))),
+        "zip" => Ok(ArchiveImpl::Zip(async_zip::write::ZipFileWriter::new(file))),
         t => Err(Error::BadRequest(format!("Invalid Archive Type {t}"))),
     }?;
-
     {
         let folders = sqlx::query_as::<_, Folder>("SELECT * FROM folder WHERE workspace_id = $1")
             .bind(&w_id)
