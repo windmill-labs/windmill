@@ -30,6 +30,7 @@
 	let runnableComponent: RunnableComponent
 	let disabled: boolean | undefined = undefined
 	let fillContainer: boolean | undefined = undefined
+	let goto: string | undefined = undefined
 
 	let isLoading: boolean = false
 	let ownClick: boolean = false
@@ -60,6 +61,7 @@
 </script>
 
 <InputValue {id} input={configuration.label} bind:value={labelValue} />
+<InputValue {id} input={configuration.goto} bind:value={goto} />
 <InputValue {id} input={configuration.color} bind:value={color} />
 <InputValue {id} input={configuration.size} bind:value={size} />
 <InputValue
@@ -78,6 +80,7 @@
 	{id}
 	{extraQueryParams}
 	autoRefresh={false}
+	{goto}
 >
 	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
 		{#if errorsMessage}
