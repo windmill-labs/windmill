@@ -4,7 +4,7 @@
 	import { sendUserToast, validateUsername } from '$lib/utils'
 	import { logoutWithRedirect } from '$lib/logout'
 	import { page } from '$app/stores'
-	import { switchWorkspace, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { switchWorkspace, usersWorkspaceStore } from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { Button } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -97,7 +97,7 @@
 		})
 	})
 
-	let isDomainAllowed = false
+	let isDomainAllowed: undefined | boolean = undefined
 
 	$: domain = $usersWorkspaceStore?.email.split('@')[1]
 
@@ -140,7 +140,7 @@
 			that he has visibility on</Tooltip
 		>
 	</div>
-	{#if !isDomainAllowed}
+	{#if isDomainAllowed == false}
 		<div class="text-gray-600 text-sm mb-4 mt-2">{domain} domain not allowed for auto-invite</div>
 	{/if}
 	<div class="flex flex-wrap flex-row justify-between pt-10 gap-1">
