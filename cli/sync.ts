@@ -6,9 +6,7 @@ import {
   colors,
   Command,
   Confirm,
-  copy,
   ensureDir,
-  iterateReader,
   microdiff,
   nanoid,
   objectHash,
@@ -938,7 +936,8 @@ async function pushRaw(opts: GlobalOptions, dir?: string) {
 const command = new Command()
   .command("init")
   .description(
-    "Initialize this folder as sync root for the currently selected workspace & remote.",
+    "Initialize this folder as sync root for the currently selected workspace & remote." +
+      "\nBegin by initializing state tracking using `init` & add files you want to track using `add`. `push` & `pull` will then use local state to accurately track changes required on the remote.",
   )
   .action(init as any)
   .command("add")
@@ -946,14 +945,18 @@ const command = new Command()
   .arguments("<path:string>")
   .action(add as any)
   .command("pull")
-  .description("Pull any remote changes and apply them locally")
+  .description(
+    "Pull any remote changes and apply them locally. Use --raw for usage without local state tracking.",
+  )
   .option("--raw", "Pull without using state.")
   .option("--raw-override", "Always override local files with remote.", {
     depends: ["raw"],
   })
   .action(pull as any)
   .command("push")
-  .description("Push any local changes and apply them remotely")
+  .description(
+    "Push any local changes and apply them remotely. Use --raw for usage without local state tracking.",
+  )
   .option("--raw", "Push without using state.")
   .action(push as any);
 
