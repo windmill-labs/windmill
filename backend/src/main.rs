@@ -65,6 +65,7 @@ async fn main() -> anyhow::Result<()> {
 
         let server_f = async {
             if server_mode {
+                tracing::info!(addr = %addr, "starting server");
                 windmill_api::run_server(db.clone(), addr, rx.resubscribe()).await?;
             }
             Ok(()) as anyhow::Result<()>
@@ -128,7 +129,6 @@ Windmill Community Edition {GIT_VERSION}
 
                 run_workers(
                     db.clone(),
-                    addr,
                     rx.resubscribe(),
                     num_workers,
                     base_internal_url.clone(),
@@ -194,7 +194,6 @@ pub fn monitor_db(
 
 pub async fn run_workers(
     db: Pool<Postgres>,
-    addr: SocketAddr,
     rx: tokio::sync::broadcast::Receiver<()>,
     num_workers: i32,
     base_internal_url: String,
@@ -228,7 +227,7 @@ pub async fn run_workers(
         let rx = rx.resubscribe();
         let base_internal_url = base_internal_url.clone();
         handles.push(tokio::spawn(monitor.instrument(async move {
-            tracing::info!(addr = %addr.to_string(), worker = %worker_name, "starting worker");
+            tracing::info!(worker = %worker_name, "starting worker");
             windmill_worker::run_worker(
                 &db1,
                 &instance_name,

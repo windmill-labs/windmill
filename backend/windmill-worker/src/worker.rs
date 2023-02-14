@@ -7,7 +7,6 @@
  */
 
 use const_format::concatcp;
-use git_version::git_version;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -278,7 +277,6 @@ const NSJAIL_CONFIG_RUN_DENO_CONTENT: &str = include_str!("../nsjail/run.deno.co
 const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
 
 const GO_REQ_SPLITTER: &str = "//go.sum";
-const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 
 #[derive(Clone)]
 pub struct Metrics {
