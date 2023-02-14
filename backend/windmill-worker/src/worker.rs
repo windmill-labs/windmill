@@ -521,6 +521,8 @@ pub async fn run_worker(
 
     let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<Uuid>(5);
 
+    tracing::info!(worker = %worker_name, "listening for jobs");
+
     loop {
         worker_busy.set(0);
 

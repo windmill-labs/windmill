@@ -65,7 +65,6 @@ async fn main() -> anyhow::Result<()> {
 
         let server_f = async {
             if server_mode {
-                tracing::info!(addr = %addr, "starting server");
                 windmill_api::run_server(db.clone(), addr, rx.resubscribe()).await?;
             }
             Ok(()) as anyhow::Result<()>
