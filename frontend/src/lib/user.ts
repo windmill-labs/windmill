@@ -1,7 +1,7 @@
 import { get } from "svelte/store";
 import { type User, UserService } from "$lib/gen";
 import { superadmin, type UserExt } from "./stores.js";
-import { logout } from "./logout.js";
+import { goto } from "$app/navigation";
 
 export async function refreshSuperadmin(): Promise<void> {
   if (get(superadmin) == undefined) {
@@ -14,7 +14,7 @@ export async function refreshSuperadmin(): Promise<void> {
       }
     } catch {
       superadmin.set(false);
-      await logout();
+      goto("/user/logout");
     }
   }
 }
