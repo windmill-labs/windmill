@@ -22,7 +22,7 @@ import {
   inferTypeFromPath,
   setValueByPath,
 } from "./types.ts";
-import { downloadTar } from "./pull.ts";
+import { downloadZip } from "./pull.ts";
 import { FolderFile } from "./folder.ts";
 import { ResourceTypeFile } from "./resource-type.ts";
 import {
@@ -203,28 +203,23 @@ async function updateStateFromRemote(
   state: State,
   callback: (filename: string) => PromiseLike<boolean> | boolean,
 ) {
-  const untar = await downloadTar(workspace);
-  if (!untar) throw new Error("Failed to pull Tar");
+  const zipDir = await downloadZip(workspace);
+  if (!zipDir) throw new Error("Failed to pull Zip");
 
-  const decoder = new TextDecoder();
-  for await (const entry of untar) {
-    const id = state.tracked.get(entry.fileName);
+  for await (const entry of Deno.readDir(zipDir)) {
+    if (entry.isDirectory) continue;
+    const id = state.tracked.get(entry.name);
     if (id) {
-      let val = "";
-      for await (const e of iterateReader(entry)) {
-        const tmp = decoder.decode(e);
-        val += tmp;
-      }
-
-      if (entry.fileName.endsWith(".json")) {
+      const val = await Deno.readTextFile(path.resolve(zipDir, entry.name));
+      if (entry.name.endsWith(".json")) {
         const parsed = JSON.parse(val);
-        const typed = inferTypeFromPath(entry.fileName, parsed);
+        const typed = inferTypeFromPath(entry.name, parsed);
 
         const oldHash = state.hashes.get(id);
         const newHash = objectHash(typed);
 
         if (!oldHash || oldHash !== newHash) {
-          if (!await callback(entry.fileName)) {
+          if (!await callback(entry.name)) {
             return; // notice that we are not saving
           }
           state.hashes.set(id, newHash);
@@ -650,13 +645,12 @@ async function pullRaw(
 ) {
   const workspace = await resolveWorkspace(opts);
 
-  const untar = await downloadTar(workspace);
-  if (!untar) return;
+  const zipDir = await downloadZip(workspace);
+  if (!zipDir) return;
 
-  for await (const entry of untar) {
-    console.log(entry.fileName);
-    const filePath = path.resolve(dir, entry.fileName);
-    if (entry.type === "directory") {
+  for await (const entry of Deno.readDir(zipDir)) {
+    const filePath = path.resolve(dir, entry.name);
+    if (entry.isDirectory) {
       await ensureDir(filePath);
       continue;
     }
@@ -681,10 +675,7 @@ async function pullRaw(
         }
       }
     }
-    const file = await Deno.open(filePath, { write: true, create: true });
-    const len = await copy(entry, file);
-    await file.truncate(len);
-    file.close();
+    await Deno.copyFile(path.resolve(zipDir, entry.name), filePath);
   }
   console.log(colors.green("Done. Wrote all files to disk."));
 }

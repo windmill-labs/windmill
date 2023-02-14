@@ -18,6 +18,7 @@ const VERSION = "v1.62.0";
 let command: any = new Command()
   .name("wmill")
   .description("A simple CLI tool for windmill.")
+  .action(() => command.showHelp())
   .globalOption(
     "--workspace <workspace:string>",
     "Specify the target workspace. This overrides the default workspace.",

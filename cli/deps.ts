@@ -16,7 +16,6 @@ export {
 } from "https://deno.land/x/cliffy@v0.25.7/command/upgrade/mod.ts";
 
 // std
-export { Untar } from "https://deno.land/std@0.176.0/archive/untar.ts";
 export * as path from "https://deno.land/std@0.176.0/path/mod.ts";
 export { ensureDir } from "https://deno.land/std@0.176.0/fs/ensure_dir.ts";
 export {
@@ -38,3 +37,4 @@ export {
   default as microdiff,
 } from "https://deno.land/x/microdiff@v1.3.1/index.ts";
 export { default as objectHash } from "https://deno.land/x/object_hash@2.0.3.1/mod.ts";
+export * as zip from "https://deno.land/x/zip@v1.2.5/mod.ts";
