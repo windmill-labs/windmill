@@ -64,7 +64,6 @@ lazy_static::lazy_static! {
         .ok()
         .map(|x| SlackVerifier::new(x).unwrap());
 
-        static ref SERVE_CSP: String = std::env::var("SERVE_CSP").unwrap_or("".to_owned());
         static ref IS_SECURE: bool = BASE_URL.starts_with("https://");
 
     pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
