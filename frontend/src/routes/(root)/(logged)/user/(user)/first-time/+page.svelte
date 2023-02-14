@@ -17,9 +17,8 @@
 
 <CenteredModal title="Welcome to Windmill">
 	<p class="text-center text-lg mt-4">
-		This is a brand new instance. In the superadmins workspace, there is an app to setup an account
-		and configure syncing the resource types of this instance with the hub periodically. Go there?
-		You can always go back to this app by going to the superadmins workspace.
+		This is a brand new instance. Go the superadmins app to setup the default superadmin user and
+		enable hub resource type sync?
 	</p>
 	<div class="flex flex-row justify-between pt-4 gap-x-1">
 		<Button variant="border" size="sm" on:click={decline}>Skip setup</Button>

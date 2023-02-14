@@ -18,6 +18,7 @@
 	export let defaultUserInput = false
 	export let flexWrap = false
 	export let runnableClass = ''
+	export let goto: string | undefined = undefined
 
 	const { staticExporter, noBackend } = getContext<AppEditorContext>('AppEditorContext')
 
@@ -41,6 +42,7 @@
 	<slot />
 {:else if componentInput.type === 'runnable' && isRunnableDefined()}
 	<RunnableComponent
+		gotoUrl={goto}
 		{flexWrap}
 		{defaultUserInput}
 		bind:this={runnableComponent}

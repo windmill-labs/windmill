@@ -199,6 +199,12 @@
 						fieldType: 'boolean',
 						type: 'eval',
 						expr: 'false'
+					},
+					goto: {
+						tooltip: 'Go to an url on success if not empty',
+						fieldType: 'text',
+						type: 'static',
+						value: ''
 					}
 				},
 
@@ -239,6 +245,12 @@
 						value: 'xs',
 						onlyStatic: true,
 						optionValuesKey: 'buttonSizeOptions'
+					},
+					goto: {
+						tooltip: 'Go to an url on success if not empty',
+						fieldType: 'text',
+						type: 'static',
+						value: ''
 					}
 				},
 
