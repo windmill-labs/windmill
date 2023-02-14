@@ -28,7 +28,7 @@
 		} else {
 			sendUserToast('Missing code or state as query params', true)
 		}
-		goto('/workspace_settings')
+		goto('/workspace_settings?tab=slack')
 	})
 </script>
 

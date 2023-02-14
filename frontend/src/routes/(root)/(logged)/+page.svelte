@@ -12,7 +12,7 @@
 	import PickHubFlow from '$lib/components/flows/pickers/PickHubFlow.svelte'
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import { Building, Globe2 } from 'lucide-svelte'
+	import { Building, ExternalLink, Globe2 } from 'lucide-svelte'
 
 	import ItemsList from '$lib/components/home/ItemsList.svelte'
 	import CreateActionsApp from '$lib/components/flows/CreateActionsApp.svelte'
@@ -172,18 +172,7 @@
 
 <div>
 	<div class="max-w-6xl mx-auto px-4 sm:px-6 md:px-8 h-fit-content">
-		{#if $workspaceStore == 'demo'}
-			<div class="my-4" />
-			<Alert title="Demo workspace">All users get an invitation to this workspace.</Alert>
-		{:else if $workspaceStore == 'starter'}
-			<div class="my-4" />
-
-			<Alert title="Starter workspace">
-				The starter workspace has all its elements (variables, resources, scripts, flows) shared
-				across all other workspaces. Useful to seed workspace with common elements within your
-				organization.
-			</Alert>
-		{:else if $workspaceStore == 'admins'}
+		{#if $workspaceStore == 'admins'}
 			<div class="my-4" />
 
 			<Alert title="Admins workspace">
@@ -236,11 +225,23 @@
 		<div class="flex flex-col gap-y-16">
 			<div class="flex flex-col">
 				{#if tab == 'hubscripts'}
-					<PickHubScript bind:filter on:pick={(e) => viewCode(e.detail)} />
+					<PickHubScript bind:filter on:pick={(e) => viewCode(e.detail)}
+						><Button target="_blank" href="https://hub.windmill.dev" variant="border" color="dark"
+							>Go to Hub</Button
+						></PickHubScript
+					>
 				{:else if tab == 'hubflows'}
-					<PickHubFlow bind:filter on:pick={(e) => viewFlow(e.detail)} />
+					<PickHubFlow bind:filter on:pick={(e) => viewFlow(e.detail)}
+						><Button target="_blank" href="https://hub.windmill.dev" variant="border" color="dark"
+							>Go to Hub</Button
+						></PickHubFlow
+					>
 				{:else if tab == 'hubapps'}
-					<PickHubApp bind:filter on:pick={(e) => viewApp(e.detail)} />
+					<PickHubApp bind:filter on:pick={(e) => viewApp(e.detail)}
+						><Button target="_blank" href="https://hub.windmill.dev" variant="border" color="dark"
+							>Go to Hub</Button
+						></PickHubApp
+					>
 				{/if}
 			</div>
 		</div>

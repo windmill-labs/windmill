@@ -165,7 +165,7 @@
 									argName,
 									previousModuleId,
 									staticTemplate
-										? `\`${arg?.value.toString().replaceAll('`', '\\`') ?? ''}\``
+										? `\`${arg?.value?.toString().replaceAll('`', '\\`') ?? ''}\``
 										: arg.value
 										? JSON.stringify(arg?.value, null, 4)
 										: ''

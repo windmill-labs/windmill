@@ -51,6 +51,7 @@ pub async fn update_flow_status_after_job_completion(
     same_worker_tx: Sender<Uuid>,
     worker_dir: &str,
     stop_early_override: Option<bool>,
+    base_internal_url: &str,
 ) -> error::Result<()> {
     tracing::debug!("UPDATE FLOW STATUS: {flow:?} {success} {result:?} {w_id}");
 
@@ -119,7 +120,8 @@ pub async fn update_flow_status_after_job_completion(
 
         let stop_early = success
             && if let Some(expr) = r.stop_early_expr.clone() {
-                compute_bool_from_expr(expr, &r.args, result.clone(), None, None).await?
+                compute_bool_from_expr(expr, &r.args, result.clone(), None, None, base_internal_url)
+                    .await?
             } else {
                 false
             };
@@ -458,6 +460,7 @@ pub async fn update_flow_status_after_job_completion(
             result.clone(),
             same_worker_tx.clone(),
             worker_dir,
+            base_internal_url,
         )
         .await
         {
@@ -499,6 +502,7 @@ pub async fn update_flow_status_after_job_completion(
                 } else {
                     None
                 },
+                base_internal_url,
             )
             .await?);
         }
@@ -579,6 +583,7 @@ async fn compute_bool_from_expr(
     result: serde_json::Value,
     by_id: Option<IdContext>,
     creds: Option<EvalCreds>,
+    base_internal_url: &str,
 ) -> error::Result<bool> {
     let flow_input = flow_args.clone().unwrap_or_else(|| json!({}));
     match eval_timeout(
@@ -591,6 +596,7 @@ async fn compute_bool_from_expr(
         .into(),
         creds,
         by_id,
+        base_internal_url,
     )
     .await?
     {
@@ -670,6 +676,7 @@ async fn transform_input(
     resumes: &[Value],
     approvers: Vec<String>,
     by_id: &IdContext,
+    base_internal_url: &str,
 ) -> windmill_common::error::Result<Map<String, serde_json::Value>> {
     let mut mapped = serde_json::Map::new();
 
@@ -713,6 +720,7 @@ async fn transform_input(
                     context,
                     Some(EvalCreds { workspace: workspace.to_string(), token: token.to_string() }),
                     Some(by_id.clone()),
+                    base_internal_url,
                 )
                 .await
                 .map_err(|e| {
@@ -737,6 +745,7 @@ pub async fn handle_flow(
     last_result: serde_json::Value,
     same_worker_tx: Sender<Uuid>,
     worker_dir: &str,
+    base_internal_url: &str,
 ) -> anyhow::Result<()> {
     let value = flow_job
         .raw_flow
@@ -759,6 +768,7 @@ pub async fn handle_flow(
         last_result,
         same_worker_tx,
         worker_dir,
+        base_internal_url,
     )
     .await?;
     Ok(())
@@ -775,6 +785,7 @@ async fn push_next_flow_job(
     mut last_result: serde_json::Value,
     same_worker_tx: Sender<Uuid>,
     worker_dir: &str,
+    base_internal_url: &str,
 ) -> error::Result<()> {
     let mut i = usize::try_from(status.step)
         .with_context(|| format!("invalid module index {}", status.step))?;
@@ -804,6 +815,7 @@ async fn push_next_flow_job(
             same_worker_tx,
             worker_dir,
             None,
+            base_internal_url,
         )
         .await;
     }
@@ -843,6 +855,7 @@ async fn push_next_flow_job(
                         .into(),
                         None,
                         None,
+                        base_internal_url,
                     )
                     .await
                     .map_err(|e| {
@@ -1107,6 +1120,7 @@ async fn push_next_flow_job(
                 resume_messages.as_slice(),
                 approvers,
                 by_id,
+                base_internal_url,
             )
             .await
         }
@@ -1146,6 +1160,7 @@ async fn push_next_flow_job(
         &status_module,
         last_result.clone(),
         previous_id,
+        base_internal_url,
     )
     .await?;
     tx.commit().await?;
@@ -1487,6 +1502,7 @@ async fn compute_next_flow_transform<'c>(
     status_module: &FlowStatusModule,
     last_result: serde_json::Value,
     previous_id: String,
+    base_internal_url: &str,
 ) -> error::Result<(sqlx::Transaction<'c, sqlx::Postgres>, NextFlowTransform)> {
     match &module.value {
         FlowModuleValue::Identity => Ok((
@@ -1558,6 +1574,7 @@ async fn compute_next_flow_transform<'c>(
                         token,
                         flow_job.workspace_id.clone(),
                         Some(by_id),
+                        base_internal_url,
                     )
                     .await?
                     .into_array()
@@ -1686,6 +1703,7 @@ async fn compute_next_flow_transform<'c>(
                                 workspace: flow_job.workspace_id.clone(),
                                 token: token.to_string(),
                             }),
+                            base_internal_url,
                         )
                         .await?;
 
@@ -1886,6 +1904,7 @@ async fn evaluate_with<F>(
     token: String,
     workspace: String,
     by_id: Option<IdContext>,
+    base_internal_url: &str,
 ) -> anyhow::Result<serde_json::Value>
 where
     F: FnOnce() -> Vec<(String, serde_json::Value)>,
@@ -1893,7 +1912,14 @@ where
     match transform {
         InputTransform::Static { value } => Ok(value),
         InputTransform::Javascript { expr } => {
-            eval_timeout(expr, vars(), Some(EvalCreds { workspace, token }), by_id).await
+            eval_timeout(
+                expr,
+                vars(),
+                Some(EvalCreds { workspace, token }),
+                by_id,
+                base_internal_url,
+            )
+            .await
         }
     }
 }

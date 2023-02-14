@@ -3,7 +3,6 @@
 	import { page } from '$app/stores'
 	import { faGithub, faGitlab, faGoogle, faMicrosoft } from '@fortawesome/free-brands-svg-icons'
 	import { onMount } from 'svelte'
-	import { slide } from 'svelte/transition'
 	import { OauthService, UserService, WorkspaceService } from '$lib/gen'
 	import { clearStores, usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
 	import { isCloudHosted, sendUserToast } from '$lib/utils'
@@ -69,6 +68,13 @@
 	}
 
 	function redirectUser() {
+		const firstTimeCookie =
+			document.cookie.match('(^|;)\\s*first_time\\s*=\\s*([^;]+)')?.pop() || '0'
+		if (Number(firstTimeCookie) > 0 && email === 'admin@windmill.dev') {
+			goto('/user/first-time')
+			return
+		}
+
 		if (rd?.startsWith('http')) {
 			goto(rd)
 			return
@@ -122,6 +128,11 @@
 
 <!-- Enable submit form on enter -->
 <CenteredModal title="Login">
+	{#if isCloudHosted()}
+		<div class="text-center -mt-4">
+			<span class=" text-gray-600 text-sm">Login or sign up with any of the methods below</span>
+		</div>
+	{/if}
 	<div class="justify-center text-center flex flex-col">
 		{#if !logins}
 			{#each Array(4) as _}
@@ -168,7 +179,7 @@
 		</Button>
 	</div>
 	{#if showPassword}
-		<div transition:slide>
+		<div>
 			{#if isCloudHosted()}
 				<p class="text-xs text-gray-500 italic pb-6">
 					To get credentials without the OAuth providers above, send an email at

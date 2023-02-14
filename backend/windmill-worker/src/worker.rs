@@ -24,7 +24,7 @@ use windmill_common::{
     flows::{FlowModuleValue, FlowValue},
     scripts::{ScriptHash, ScriptLang},
     utils::rd_string,
-    variables, BASE_URL, PORT,
+    variables, BASE_URL,
 };
 use windmill_queue::{canceled_job_to_result, get_queued_job, pull, JobKind, QueuedJob, CLOUD_HOSTED};
 
@@ -292,7 +292,6 @@ pub const DEFAULT_SLEEP_QUEUE: u64 = 50;
 lazy_static::lazy_static! {
     
 
-    pub static ref BASE_INTERNAL_URL: String = std::env::var("BASE_INTERNAL_URL").unwrap_or_else(|_| format!("http://localhost:{}", PORT.to_string()));
 
     static ref SLEEP_QUEUE: u64 = std::env::var("SLEEP_QUEUE")
     .ok()
@@ -415,7 +414,16 @@ pub async fn run_worker(
     i_worker: u64,
     ip: &str,
     mut rx: tokio::sync::broadcast::Receiver<()>,
+    base_internal_url: &str,
 ) {
+
+    #[cfg(not(feature = "enterprise"))]
+    if !*DISABLE_NSJAIL {
+        tracing::warn!(
+            "NSJAIL to sandbox process in untrusted environments is an enterprise feature but allowed to be used for testing purposes"
+        );
+    }
+
     tracing::info!("Starting worker {worker_instance} {worker_name}, version: {GIT_VERSION}");
     let start_time = Instant::now();
 
@@ -642,7 +650,7 @@ pub async fn run_worker(
                     )
                     .await.expect("could not create job token");
                     tx.commit().await.expect("could not commit job token");
-                    let job_client = windmill_api_client::create_client(&BASE_INTERNAL_URL, token.clone());
+                    let job_client = windmill_api_client::create_client(base_internal_url, token.clone());
                     let is_flow = job.job_kind == JobKind::Flow || job.job_kind == JobKind::FlowPreview || job.job_kind == JobKind::FlowDependencies;
 
                     if let Some(err) = handle_queued_job(
@@ -655,6 +663,7 @@ pub async fn run_worker(
                         &job_dir,
                         metrics.clone(),
                         same_worker_tx.clone(),
+                        base_internal_url
                     )
                     .await
                     .err()
@@ -667,7 +676,8 @@ pub async fn run_worker(
                             Some(metrics),
                             false,
                             same_worker_tx.clone(),
-                            &worker_dir
+                            &worker_dir,
+                            base_internal_url
                         )
                         .await;
                     };
@@ -709,6 +719,7 @@ async fn handle_job_error(
     unrecoverable: bool,
     same_worker_tx: Sender<Uuid>,
     worker_dir: &str,
+    base_internal_url: &str,
 ) {
     let err = match err {
         Error::JsonErr(err) => err,
@@ -746,6 +757,7 @@ async fn handle_job_error(
             same_worker_tx,
             worker_dir,
             None,
+            base_internal_url
         )
         .await;
 
@@ -806,6 +818,7 @@ async fn handle_queued_job(
     job_dir: &str,
     metrics: Metrics,
     same_worker_tx: Sender<Uuid>,
+    base_internal_url: &str
 ) -> windmill_common::error::Result<()> {
     if job.canceled {
         return Err(Error::JsonErr(canceled_job_to_result(&job)))?;
@@ -824,6 +837,7 @@ async fn handle_queued_job(
                 args,
                 same_worker_tx,
                 worker_dir,
+                base_internal_url
             )
             .await?;
         }
@@ -876,6 +890,7 @@ async fn handle_queued_job(
                         job_dir,
                         worker_dir,
                         &mut logs,
+                        base_internal_url
                     )
                     .await
                 }
@@ -899,6 +914,7 @@ async fn handle_queued_job(
                                 same_worker_tx.clone(),
                                 worker_dir,
                                 None,
+                                base_internal_url
                             )
                             .await?;
                         }
@@ -950,6 +966,7 @@ async fn handle_queued_job(
                                 same_worker_tx,
                                 worker_dir,
                                 None,
+                                base_internal_url
                             )
                             .await?;
                         }
@@ -1025,6 +1042,7 @@ async fn handle_code_execution_job(
     job_dir: &str,
     worker_dir: &str,
     logs: &mut String,
+    base_internal_url: &str
 ) -> error::Result<serde_json::Value> {
     let (inner_content, requirements_o, language) = match job.job_kind {
         JobKind::Preview | JobKind::Script_Hub => (
@@ -1097,6 +1115,7 @@ mount {{
                 token,
                 &inner_content,
                 &shared_mount,
+                base_internal_url
             )
             .await
         }
@@ -1111,6 +1130,7 @@ mount {{
                 &inner_content,
                 &shared_mount,
                 requirements_o,
+                base_internal_url
             )
             .await
         }
@@ -1125,6 +1145,7 @@ mount {{
                 job_dir,
                 requirements_o,
                 &shared_mount,
+                base_internal_url
             )
             .await
         }
@@ -1137,6 +1158,7 @@ mount {{
                 &inner_content,
                 job_dir,
                 &shared_mount,
+                base_internal_url
             )
             .await
         }
@@ -1164,6 +1186,7 @@ async fn handle_go_job(
     job_dir: &str,
     requirements_o: Option<String>,
     shared_mount: &str,
+    base_internal_url: &str,
 ) -> Result<serde_json::Value, Error> {
     //go does not like executing modules at temp root
     let job_dir = &format!("{job_dir}/go");
@@ -1302,7 +1325,7 @@ func Run(req Req) (interface{{}}, error){{
             .current_dir(job_dir)
             .env_clear()
             .env("PATH", PATH_ENV.as_str())
-            .env("BASE_INTERNAL_URL", BASE_INTERNAL_URL.as_str())
+            .env("BASE_INTERNAL_URL", base_internal_url)
             .env("GOPATH", GO_CACHE_DIR)
             .env("HOME", HOME_ENV.as_str())
             .args(vec!["build", "main.go"])
@@ -1316,7 +1339,7 @@ func Run(req Req) (interface{{}}, error){{
             .env_clear()
             .envs(reserved_variables)
             .env("PATH", PATH_ENV.as_str())
-            .env("BASE_INTERNAL_URL", BASE_INTERNAL_URL.as_str())
+            .env("BASE_INTERNAL_URL", base_internal_url)
             .args(vec!["--config", "run.config.proto", "--", "/tmp/go/main"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -1327,7 +1350,7 @@ func Run(req Req) (interface{{}}, error){{
             .env_clear()
             .envs(reserved_variables)
             .env("PATH", PATH_ENV.as_str())
-            .env("BASE_INTERNAL_URL", BASE_INTERNAL_URL.as_str())
+            .env("BASE_INTERNAL_URL", base_internal_url)
             .env("GOPATH", GO_CACHE_DIR)
             .env("HOME", HOME_ENV.as_str())
             .args(vec!["run", "main.go"])
@@ -1348,6 +1371,7 @@ async fn handle_bash_job(
     content: &str,
     job_dir: &str,
     shared_mount: &str,
+    base_internal_url: &str,
 ) -> Result<serde_json::Value, Error> {
     logs.push_str("\n\n--- BASH CODE EXECUTION ---\n");
     set_logs(logs, &job.id, db).await;
@@ -1391,7 +1415,7 @@ async fn handle_bash_job(
             .env_clear()
             .envs(reserved_variables)
             .env("PATH", PATH_ENV.as_str())
-            .env("BASE_INTERNAL_URL", BASE_INTERNAL_URL.as_str())
+            .env("BASE_INTERNAL_URL", base_internal_url)
             .args(cmd_args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -1404,7 +1428,7 @@ async fn handle_bash_job(
             .env_clear()
             .envs(reserved_variables)
             .env("PATH", PATH_ENV.as_str())
-            .env("BASE_INTERNAL_URL", BASE_INTERNAL_URL.as_str())
+            .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())
             .args(cmd_args)
             .stdout(Stdio::piped())
@@ -1439,6 +1463,7 @@ async fn handle_deno_job(
     inner_content: &String,
     shared_mount: &str,
     lockfile: Option<String>,
+    base_internal_url: &str
 ) -> error::Result<serde_json::Value> {
     logs.push_str("\n\n--- DENO CODE EXECUTION ---\n");
     set_logs(logs, &job.id, db).await;
@@ -1479,7 +1504,6 @@ run().catch(async (e) => {{
     );
     write_file(job_dir, "main.ts", &wrapper_content).await?;
     let w_id = job.workspace_id.clone();
-    let base_internal_url = BASE_INTERNAL_URL.as_str();
     let import_map = format!(
         r#"{{
         "imports": {{
@@ -1493,7 +1517,7 @@ run().catch(async (e) => {{
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
     let hostname_base = BASE_URL.split("://").last().unwrap_or("localhost");
-    let hostname_internal = BASE_INTERNAL_URL.split("://").last().unwrap_or("localhost");
+    let hostname_internal = base_internal_url.split("://").last().unwrap_or("localhost");
     let deno_auth_tokens_base = DENO_AUTH_TOKENS.as_str();
     let deno_auth_tokens =
         format!("{token}@{hostname_base};{token}@{hostname_internal}{deno_auth_tokens_base}",);
@@ -1612,6 +1636,7 @@ async fn handle_python_job(
     token: String,
     inner_content: &String,
     shared_mount: &str,
+    base_internal_url: &str
 ) -> error::Result<serde_json::Value> {
     create_dependencies_dir(job_dir).await;
 
@@ -1725,7 +1750,7 @@ async fn handle_python_job(
     } else {
         sig.args
             .into_iter()
-            .map(|x| format!("args[\"{}\"] = kwargs[\"{}\"]", x.name, x.name))
+            .map(|x| format!("args[\"{}\"] = kwargs.get(\"{}\")", x.name, x.name))
             .join("\n")
     };
 
@@ -1815,7 +1840,7 @@ mount {{
             // inject PYTHONPATH here - for some reason I had to do it in nsjail conf
             .envs(reserved_variables)
             .env("PATH", PATH_ENV.as_str())
-            .env("BASE_INTERNAL_URL", BASE_INTERNAL_URL.as_str())
+            .env("BASE_INTERNAL_URL", base_internal_url)
             .args(vec![
                 "--config",
                 "run.config.proto",
@@ -1833,7 +1858,7 @@ mount {{
             .env_clear()
             .envs(reserved_variables)
             .env("PATH", PATH_ENV.as_str())
-            .env("BASE_INTERNAL_URL", BASE_INTERNAL_URL.as_str())
+            .env("BASE_INTERNAL_URL", base_internal_url)
             .args(vec!["-u", "main.py"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -2587,9 +2612,10 @@ async fn append_logs(job_id: uuid::Uuid, logs: impl AsRef<str>, db: impl Borrow<
 pub async fn handle_zombie_jobs_periodically(
     db: &Pool<Postgres>,
     mut rx: tokio::sync::broadcast::Receiver<()>,
+    base_internal_url: &str,
 ) {
     loop {
-        handle_zombie_jobs(db).await;
+        handle_zombie_jobs(db, base_internal_url).await;
 
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_secs(60))    => (),
@@ -2601,7 +2627,7 @@ pub async fn handle_zombie_jobs_periodically(
     }
 }
 
-async fn handle_zombie_jobs(db: &Pool<Postgres>) {
+async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str) {
     let restarted = sqlx::query!(
             "UPDATE queue SET running = false WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 AND same_worker = false RETURNING id, workspace_id, last_ping",
             *ZOMBIE_JOB_TIMEOUT,
@@ -2655,7 +2681,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>) {
         .await
         .expect("could not create job token");
         tx.commit().await.expect("could not commit job token");
-        let client = windmill_api_client::create_client(&BASE_INTERNAL_URL, token.clone());
+        let client = windmill_api_client::create_client(base_internal_url, token.clone());
 
         let _ = handle_job_error(
             db,
@@ -2665,7 +2691,8 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>) {
             None,
             true,
             same_worker_tx_never_used,
-            ""
+            "",
+            base_internal_url,
         )
         .await;
     }

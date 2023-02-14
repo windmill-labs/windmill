@@ -913,7 +913,17 @@ fn spawn_test_worker(
     let i_worker: u64 = Default::default();
     let ip: &str = Default::default();
     let future = async move {
-        windmill_worker::run_worker(&db, worker_instance, worker_name, i_worker, ip, rx).await
+        let base_internal_url = format!("http://localhost:{}", port);
+        windmill_worker::run_worker(
+            &db,
+            worker_instance,
+            worker_name,
+            i_worker,
+            ip,
+            rx,
+            &base_internal_url,
+        )
+        .await
     };
 
     (tx, tokio::task::spawn(future))

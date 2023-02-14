@@ -1091,7 +1091,7 @@ fn set_cookie(state: &State, cookies: Cookies, is_secure: bool) {
     let csrf = state.to_base64();
     let mut cookie = Cookie::new("csrf", csrf);
     cookie.set_secure(is_secure);
-    cookie.set_same_site(cookie::SameSite::Lax);
+    cookie.set_same_site(Some(cookie::SameSite::Lax));
     cookie.set_http_only(true);
     cookie.set_path("/");
     cookies.add(cookie);

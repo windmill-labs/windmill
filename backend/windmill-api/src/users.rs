@@ -1567,15 +1567,15 @@ async fn login(
 ) -> Result<String> {
     let mut tx = db.begin().await?;
 
-    let email_w_h: Option<(String, String, bool)> = sqlx::query_as(
-        "SELECT email, password_hash, super_admin FROM password WHERE email = $1 AND login_type = \
+    let email_w_h: Option<(String, String, bool, bool)> = sqlx::query_as(
+        "SELECT email, password_hash, super_admin, first_time_user FROM password WHERE email = $1 AND login_type = \
          'password'",
     )
     .bind(&email)
     .fetch_optional(&mut tx)
     .await?;
 
-    if let Some((email, hash, super_admin)) = email_w_h {
+    if let Some((email, hash, super_admin, first_time_user)) = email_w_h {
         let parsed_hash =
             PasswordHash::new(&hash).map_err(|e| Error::InternalErr(e.to_string()))?;
         if argon2
@@ -1584,7 +1584,27 @@ async fn login(
         {
             Err(Error::BadRequest("Invalid login".to_string()))
         } else {
+            if first_time_user {
+                sqlx::query_scalar!(
+                    "UPDATE password SET first_time_user = false WHERE email = $1",
+                    &email
+                )
+                .execute(&mut tx)
+                .await?;
+                let mut c = Cookie::new("first_time", "1");
+                if let Some(domain) = COOKIE_DOMAIN.as_ref() {
+                    c.set_domain(domain);
+                }
+                c.set_secure(false);
+                c.set_expires(time::OffsetDateTime::now_utc() + time::Duration::minutes(15));
+                c.set_http_only(false);
+                c.set_path("/");
+
+                cookies.add(c);
+            }
+
             let token = create_session_token(&email, super_admin, &mut tx, cookies).await?;
+
             tx.commit().await?;
             Ok(token)
         }
@@ -1614,7 +1634,7 @@ pub async fn create_session_token<'c>(
     .await?;
     let mut cookie = Cookie::new(COOKIE_NAME, token.clone());
     cookie.set_secure(*IS_SECURE);
-    cookie.set_same_site(cookie::SameSite::Lax);
+    cookie.set_same_site(Some(cookie::SameSite::Lax));
     cookie.set_http_only(true);
     cookie.set_path(COOKIE_PATH);
     if COOKIE_DOMAIN.is_some() {

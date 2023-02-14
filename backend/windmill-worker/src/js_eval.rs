@@ -17,8 +17,6 @@ use tokio::{sync::oneshot, time::timeout};
 use uuid::Uuid;
 use windmill_common::{error::Error, flow_status::JobResult};
 
-use crate::BASE_INTERNAL_URL;
-
 pub struct EvalCreds {
     pub workspace: String,
     pub token: String,
@@ -36,9 +34,11 @@ pub async fn eval_timeout(
     env: Vec<(String, serde_json::Value)>,
     creds: Option<EvalCreds>,
     by_id: Option<IdContext>,
+    base_internal_url: &str,
 ) -> anyhow::Result<serde_json::Value> {
     let expr2 = expr.clone();
     let (sender, mut receiver) = oneshot::channel::<IsolateHandle>();
+    let base_internal_url: String = base_internal_url.to_string();
     timeout(
         std::time::Duration::from_millis(2000),
         tokio::task::spawn_blocking(move || {
@@ -86,7 +86,14 @@ pub async fn eval_timeout(
 
             let expr = replace_with_await_result(expr);
 
-            let r = runtime.block_on(eval(&mut js_runtime, &expr, env, creds, by_id))?;
+            let r = runtime.block_on(eval(
+                &mut js_runtime,
+                &expr,
+                env,
+                creds,
+                by_id,
+                &base_internal_url,
+            ))?;
 
             Ok(r) as anyhow::Result<Value>
         }),
@@ -145,6 +152,7 @@ async fn eval(
     env: Vec<(String, serde_json::Value)>,
     creds: Option<EvalCreds>,
     by_id: Option<IdContext>,
+    base_internal_url: &str,
 ) -> anyhow::Result<serde_json::Value> {
     let expr = expr.trim();
     let expr = format!(
@@ -217,7 +225,7 @@ async function resource(path) {{
     return await Deno.core.opAsync("op_resource", [workspace, path, token, base_url]);
 }}
         "#,
-            *BASE_INTERNAL_URL,
+            base_internal_url,
         );
         (api_code, by_id_code)
     } else {
@@ -339,7 +347,7 @@ mod tests {
         let code = "value.test + params.test";
 
         let mut runtime = JsRuntime::new(RuntimeOptions::default());
-        let res = eval(&mut runtime, code, env, None, None).await?;
+        let res = eval(&mut runtime, code, env, None, None, String::new().as_str()).await?;
         assert_eq!(res, json!(4));
         Ok(())
     }
@@ -352,7 +360,7 @@ mod tests {
 multiline template`";
 
         let mut runtime = JsRuntime::new(RuntimeOptions::default());
-        let res = eval(&mut runtime, code, env, None, None).await?;
+        let res = eval(&mut runtime, code, env, None, None, String::new().as_str()).await?;
         assert_eq!(res, json!("my 5\nmultiline template"));
         Ok(())
     }
@@ -365,7 +373,7 @@ multiline template`";
         ];
         let code = r#"params.test"#;
 
-        let res = eval_timeout(code.to_string(), env, None, None).await?;
+        let res = eval_timeout(code.to_string(), env, None, None, String::new().as_str()).await?;
         assert_eq!(res, json!(2));
         Ok(())
     }

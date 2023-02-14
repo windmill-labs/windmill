@@ -123,7 +123,7 @@
 			const branches = [
 				{ summary: 'Default branch', modules: module.value.default },
 				...module.value.branches.map((b, i) => ({
-					summary: b.summary ?? 'Branch ' + (i + 1),
+					summary: defaultIfEmptyString(b.summary, 'Branch ' + (i + 1)),
 					modules: b.modules
 				}))
 			]
@@ -136,7 +136,7 @@
 			)
 		} else if (type === 'branchall') {
 			const branches = module.value.branches.map((b, i) => ({
-				summary: b.summary ?? `Branch ${i + 1}`,
+				summary: defaultIfEmptyString(b.summary, `Branch ${i + 1}`),
 				modules: b.modules
 			}))
 			return flowModuleToBranch(module, branches, [], parent, insideLoop)

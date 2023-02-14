@@ -28,14 +28,9 @@ pub mod tracing_init;
 
 pub const DEFAULT_MAX_CONNECTIONS_SERVER: u32 = 50;
 pub const DEFAULT_MAX_CONNECTIONS_WORKER: u32 = 3;
-const DEFAULT_PORT: u16 = 8000;
 
 lazy_static::lazy_static! {
     pub static ref BASE_URL: String = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost".to_string());
-    pub static ref PORT: u8 =  std::env::var("PORT")
-    .ok()
-    .and_then(|x| x.parse::<u8>().ok())
-    .unwrap_or(DEFAULT_PORT as u8);
 }
 
 #[cfg(feature = "tokio")]

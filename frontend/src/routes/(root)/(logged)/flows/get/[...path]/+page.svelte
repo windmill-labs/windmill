@@ -292,6 +292,7 @@
 						runnable={flow}
 						runAction={runFlow}
 						bind:args
+						viewCliRun
 					/>
 				</div>
 				{#if !emptyString(flow.description)}
