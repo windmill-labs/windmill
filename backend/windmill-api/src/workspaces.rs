@@ -1054,6 +1054,7 @@ struct ScriptMetadata {
 }
 
 struct TarArchive(tokio_tar::Builder<File>);
+struct ZipArchive(async_zip::write::ZipFileWriter<File>);
 
 #[async_trait]
 trait ArchiveImpl {
@@ -1080,6 +1081,25 @@ impl ArchiveImpl for TarArchive {
     }
 }
 
+#[async_trait]
+impl ArchiveImpl for ZipArchive {
+    async fn write_to_archive(&mut self, content: &str, path: &str) -> Result<()> {
+        let bytes = content.as_bytes();
+        let header =
+            async_zip::ZipEntryBuilder::new(path.to_owned(), async_zip::Compression::Deflate)
+                .last_modification_date(Default::default())
+                .build();
+        self.0
+            .write_entry_whole(header, content.as_bytes())
+            .await
+            .map_err(to_anyhow)?;
+        Ok(())
+    }
+    async fn finish(&mut self) -> Result<()> {
+        Ok(self.0.close().await.map_err(to_anyhow)?.sync_all().await?)
+    }
+}
+
 #[derive(Deserialize)]
 struct ArchiveQueryParams {
     archive_type: String,
@@ -1091,6 +1111,7 @@ async fn tarball_workspace(
     Path(w_id): Path<String>,
     Query(ArchiveQueryParams { archive_type }): Query<ArchiveQueryParams>,
 ) -> Result<([(headers::HeaderName, String); 2], impl IntoResponse)> {
+    let archive_type = "".to_owned();
     require_admin(authed.is_admin, &authed.username)?;
 
     let tmp_dir = TempDir::new_in(".")?;
