@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto } from '$app/navigation'
 	import type { Schema } from '$lib/common'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
@@ -25,6 +26,7 @@
 	export let flexWrap = false
 	export let wrapperClass = ''
 	export let initializing: boolean | undefined = undefined
+	export let gotoUrl: string | undefined = undefined
 
 	const {
 		worldStore,
@@ -297,6 +299,7 @@
 					delete $errorByComponent[previousJobId]
 					$errorByComponent = $errorByComponent
 				}
+				gotoUrl && gotoUrl != '' && result?.error == undefined && goto(gotoUrl)
 			}
 		}
 	}}

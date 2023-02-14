@@ -26,6 +26,7 @@
 	let color: ButtonType.Color
 	let size: ButtonType.Size
 	let runnableComponent: RunnableComponent
+	let goto: string | undefined = undefined
 
 	let isLoading: boolean = false
 
@@ -48,6 +49,7 @@
 	})
 </script>
 
+<InputValue {id} input={configuration.goto} bind:value={goto} />
 <InputValue {id} input={configuration.label} bind:value={labelValue} />
 <InputValue {id} input={configuration.color} bind:value={color} />
 <InputValue {id} input={configuration.size} bind:value={size} />
@@ -57,6 +59,7 @@
 	bind:runnableComponent
 	bind:componentInput
 	{id}
+	{goto}
 	{extraQueryParams}
 	autoRefresh={false}
 	forceSchemaDisplay={true}

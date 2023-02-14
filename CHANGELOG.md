@@ -1,6 +1,28 @@
 # Changelog
 
 
+## [1.63.1](https://github.com/windmill-labs/windmill/compare/v1.63.0...v1.63.1) (2023-02-14)
+
+
+### Bug Fixes
+
+* update hub sync script ([03eb144](https://github.com/windmill-labs/windmill/commit/03eb1444c4a5dfbd170ba8d200784e530ca2f771))
+
+## [1.63.0](https://github.com/windmill-labs/windmill/compare/v1.62.0...v1.63.0) (2023-02-14)
+
+
+### Features
+
+* add mem peak info ([f584062](https://github.com/windmill-labs/windmill/commit/f584062f13aa7da8e767fd35de1aef7bbb67c3c8))
+* **frontend:** Minimal support for custom filenames ([#1190](https://github.com/windmill-labs/windmill/issues/1190)) ([b03b3be](https://github.com/windmill-labs/windmill/commit/b03b3be154efb0984f9623c27acc05617f125bc5))
+* **worker:** set oom_adj to 1000 to prioritize killing subprocess ([265fbc5](https://github.com/windmill-labs/windmill/commit/265fbc5835d029d510a794e171392884cb20bdae))
+
+
+### Bug Fixes
+
+* **python:** return none if argument is missing ([3f2754b](https://github.com/windmill-labs/windmill/commit/3f2754b3305f6cb65373d532ff0db6020bf07e45))
+* Update references to the docs ([#1191](https://github.com/windmill-labs/windmill/issues/1191)) ([a574270](https://github.com/windmill-labs/windmill/commit/a574270bc259f423c984259cd7d9a6d91b77815c))
+
 ## [1.62.0](https://github.com/windmill-labs/windmill/compare/v1.61.1...v1.62.0) (2023-02-03)
 
 

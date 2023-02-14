@@ -139,6 +139,7 @@
 			detailed={false}
 			runnable={flow}
 			runAction={runFlow}
+			viewCliRun
 		/>
 	{:else}
 		<Skeleton layout={[2, [3], 1, [2], 4, [4], 3, [8]]} />

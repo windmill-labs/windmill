@@ -2,6 +2,7 @@
 	import { userStore } from '$lib/stores'
 	import { Users } from 'lucide-svelte'
 	import Badge from './common/badge/Badge.svelte'
+	import Popover from './Popover.svelte'
 	import Tooltip from './Tooltip.svelte'
 
 	export let extraPerms: Record<string, boolean> = {}
@@ -50,10 +51,9 @@
 
 {#if kind === 'read' || kind === 'write'}
 	<Badge capitalize color="blue" baseClass="border border-blue-200 flex gap-1 items-center">
-		<Users size={12} />
-		{kind}
-		{#if reason}
-			<Tooltip><span class="normal-case">{reason}</span></Tooltip>
-		{/if}
+		<Popover notClickable>
+			<Users size={12} />
+			<span slot="text">{kind == 'read' ? 'Shared & read-only' : 'Read & Write'} {reason}</span>
+		</Popover>
 	</Badge>
 {/if}
