@@ -7,7 +7,6 @@
 	import { workspaceStore } from '$lib/stores'
 	import { emptySchema, getScriptByPath } from '$lib/utils'
 	import { faCodeBranch, faExternalLinkAlt, faEye, faPen } from '@fortawesome/free-solid-svg-icons'
-	import { onMount } from 'svelte'
 	import type { AppInput, RunnableByPath } from '../../inputType'
 	import { clearResultAppInput, schemaToInputsSpec } from '../../utils'
 	import EmptyInlineScript from './EmptyInlineScript.svelte'
