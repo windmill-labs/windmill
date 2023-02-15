@@ -192,6 +192,7 @@
 				bind:this={runForm}
 				runnable={script}
 				runAction={runScript}
+				viewCliRun
 			/>
 		{/if}
 	{:else}

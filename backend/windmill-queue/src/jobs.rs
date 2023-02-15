@@ -9,6 +9,7 @@
 use std::{collections::HashMap, str::FromStr};
 
 use anyhow::Context;
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres, Transaction};
 use tracing::{instrument, Instrument};
@@ -16,7 +17,7 @@ use ulid::Ulid;
 use uuid::Uuid;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
-    error::{self, to_anyhow, Error},
+    error::{self, Error},
     flow_status::{FlowStatus, JobResult, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL},
     flows::{FlowModule, FlowModuleValue, FlowValue},
     scripts::{get_full_hub_script_by_path, HubScript, ScriptHash, ScriptLang},
@@ -24,6 +25,10 @@ use windmill_common::{
 };
 
 lazy_static::lazy_static! {
+    pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
+        .user_agent("windmill/beta")
+        .build().unwrap();
+
     // TODO: these aren't synced, they should be moved into the queue abstraction once/if that happens.
     static ref QUEUE_PUSH_COUNT: prometheus::IntCounter = prometheus::register_int_counter!(
         "queue_push_count",
@@ -406,7 +411,7 @@ pub async fn push<'c>(
                 )
             }
             JobPayload::ScriptHub { path } => {
-                let script = get_hub_script(path.clone(), email)
+                let script = get_hub_script(&HTTP_CLIENT, path.clone(), email)
                     .await
                     .context("error fetching hub script")?;
                 (
@@ -610,17 +615,14 @@ pub fn canceled_job_to_result(job: &QueuedJob) -> serde_json::Value {
     serde_json::json!({"message": format!("Job canceled: {reason} by {canceler}"), "name": "Canceled", "reason": reason, "canceler": canceler})
 }
 
-pub async fn get_hub_script(path: String, email: &str) -> error::Result<HubScript> {
-    get_full_hub_script_by_path(
-        email,
-        StripPath(path),
-        reqwest::ClientBuilder::new()
-            .user_agent("windmill/beta")
-            .build()
-            .map_err(to_anyhow)?,
-    )
-    .await
-    .map(|e| e)
+pub async fn get_hub_script(
+    client: &reqwest::Client,
+    path: String,
+    email: &str,
+) -> error::Result<HubScript> {
+    get_full_hub_script_by_path(email, StripPath(path), client)
+        .await
+        .map(|e| e)
 }
 
 #[derive(Debug, sqlx::FromRow, Serialize, Clone)]

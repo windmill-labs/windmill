@@ -20,7 +20,6 @@
 	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 
 	OpenAPI.WITH_CREDENTIALS = true
-
 	let menuOpen = false
 	let isCollapsed = false
 	let userSettings: UserSettings

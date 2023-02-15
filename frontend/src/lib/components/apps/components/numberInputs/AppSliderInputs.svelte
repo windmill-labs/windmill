@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Badge } from '$lib/components/common'
-	import Range from '$lib/components/Range.svelte'
+	import RangeSlider from 'svelte-range-slider-pips'
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
@@ -14,33 +14,36 @@
 	export const staticOutputs: string[] = ['result']
 
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
-	let value: number
+	let values: [number] = [0]
 	let min = 0
 	let max = 42
+	let step = 1
 
 	$: outputs = $worldStore?.outputsById[id] as {
 		result: Output<number | null>
 	}
-	$: if (value || !value) {
+	$: if (values) {
 		// Disallow 'e' character in numbers
 		// if(value && value.toString().includes('e')) {
 		// 	value = +value.toString().replaceAll('e', '')
 		// }
-		const num = isNaN(+value) ? null : +value
+		const num = isNaN(+values[0]) ? null : +values[0]
 		outputs?.result.set(num)
 	}
 </script>
 
+<InputValue {id} input={configuration.step} bind:value={step} />
 <InputValue {id} input={configuration.min} bind:value={min} />
 <InputValue {id} input={configuration.max} bind:value={max} />
+<InputValue {id} input={configuration.defaultValue} bind:value={values[0]} />
 
 <AlignWrapper {verticalAlignment}>
-	<div class="flex w-full gap-1 px-1">
+	<div class="flex items-center w-full gap-1 px-1">
 		<span>{min}</span>
-		<div class="grow ">
-			<Range bind:value {min} {max} />
+		<div class="grow" on:pointerdown|stopPropagation>
+			<RangeSlider {step} min={min ?? 0} max={max ?? 1} bind:values />
 		</div>
 		<span>{max}</span>
-		<span class="mx-2"><Badge large color="blue">{value}</Badge></span>
+		<span class="mx-2"><Badge large color="blue">{values[0]}</Badge></span>
 	</div>
 </AlignWrapper>

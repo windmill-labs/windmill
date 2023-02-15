@@ -8,8 +8,6 @@
 
 use std::{collections::HashMap, fmt::Debug};
 
-use std::sync::Arc;
-
 use anyhow::Context;
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
@@ -29,26 +27,25 @@ use oauth2::{Client as OClient, *};
 use reqwest::Client;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
-use tokio::{fs::File, io::AsyncReadExt};
 use tower_cookies::{Cookie, Cookies};
 use windmill_audit::{audit_log, ActionKind};
+use windmill_common::users::username_to_permissioned_as;
 use windmill_common::utils::{not_found_if_none, now_from_db};
 
-use crate::users::{truncate_token, Authed};
+use crate::users::{truncate_token, Authed, NEW_USER_WEBHOOK};
 use crate::workspaces::invite_user_to_all_auto_invite_worspaces;
 use crate::{
     db::{UserDB, DB},
     variables::{build_crypt, encrypt},
     workspaces::WorkspaceSettings,
-    BaseUrl,
 };
-use crate::{CookieDomain, IsSecure};
+use crate::{BASE_URL, HTTP_CLIENT, IS_SECURE, OAUTH_CLIENTS, SLACK_SIGNING_SECRET};
 use windmill_common::error::{self, to_anyhow, Error};
 use windmill_common::oauth2::*;
 
 use windmill_queue::JobPayload;
 
-use std::str;
+use std::{fs, str};
 
 pub fn global_service() -> Router {
     Router::new()
@@ -111,7 +108,7 @@ pub struct AllClients {
     pub slack: Option<OClient>,
 }
 
-pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
+pub fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
     let connect_configs = serde_json::from_str::<HashMap<String, OAuthConfig>>(include_str!(
         "../../oauth_connect.json"
     ))?;
@@ -119,14 +116,12 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
         "../../oauth_login.json"
     ))?;
 
-    let mut content = String::new();
     let path = "./oauth.json";
-    if std::path::Path::new(path).exists() {
-        let mut file = File::open(path).await?;
-        file.read_to_string(&mut content).await?;
+    let content = if std::path::Path::new(path).exists() {
+        fs::read_to_string(path).map_err(to_anyhow)?
     } else {
-        content.push_str("{}");
-    }
+        "{}".to_string()
+    };
 
     let oauths: HashMap<String, OAuthClient> =
         match serde_json::from_str::<HashMap<String, OAuthClient>>(&content) {
@@ -288,12 +283,10 @@ pub struct SlackBotToken {
 async fn connect(
     Path(client_name): Path<String>,
     Query(query): Query<HashMap<String, String>>,
-    Extension(clients): Extension<Arc<AllClients>>,
-    Extension(is_secure): Extension<Arc<IsSecure>>,
     cookies: Cookies,
 ) -> error::Result<Redirect> {
     let mut query = query.clone();
-    let connects = &clients.connects;
+    let connects = &OAUTH_CLIENTS.connects;
     let scopes = query
         .get("scopes")
         .map(|x| x.split('+').map(|x| x.to_owned()).collect());
@@ -309,7 +302,7 @@ async fn connect(
         cookies,
         scopes,
         extra_params,
-        is_secure.0,
+        *IS_SECURE,
     )
 }
 
@@ -376,11 +369,9 @@ async fn delete_account(
     Ok(format!("Deleted account id {id}"))
 }
 
-async fn list_logins(
-    Extension(clients): Extension<Arc<AllClients>>,
-) -> error::JsonResult<Vec<String>> {
+async fn list_logins() -> error::JsonResult<Vec<String>> {
     Ok(Json(
-        clients
+        OAUTH_CLIENTS
             .logins
             .keys()
             .map(|x| x.to_owned())
@@ -393,11 +384,9 @@ struct ScopesAndParams {
     scopes: Vec<String>,
     extra_params: Option<HashMap<String, String>>,
 }
-async fn list_connects(
-    Extension(clients): Extension<Arc<AllClients>>,
-) -> error::JsonResult<HashMap<String, ScopesAndParams>> {
+async fn list_connects() -> error::JsonResult<HashMap<String, ScopesAndParams>> {
     Ok(Json(
-        (&clients.connects)
+        (&OAUTH_CLIENTS.connects)
             .into_iter()
             .map(|(k, v)| {
                 (
@@ -412,12 +401,8 @@ async fn list_connects(
     ))
 }
 
-async fn connect_slack(
-    Extension(clients): Extension<Arc<AllClients>>,
-    Extension(is_secure): Extension<Arc<IsSecure>>,
-    cookies: Cookies,
-) -> error::Result<Redirect> {
-    let mut client = clients
+async fn connect_slack(cookies: Cookies) -> error::Result<Redirect> {
+    let mut client = OAUTH_CLIENTS
         .slack
         .as_ref()
         .ok_or_else(|| error::Error::BadRequest("slack client not setup".to_string()))?
@@ -428,7 +413,7 @@ async fn connect_slack(
     client.add_scope("commands");
     let url = client.authorize_url(&state);
 
-    set_cookie(&state, cookies, is_secure.0);
+    set_cookie(&state, cookies, *IS_SECURE);
     Ok(Redirect::to(url.as_str()))
 }
 
@@ -470,14 +455,9 @@ async fn disconnect_slack(
     Ok(format!("slack disconnected"))
 }
 
-async fn login(
-    Extension(clients): Extension<Arc<AllClients>>,
-    Extension(is_secure): Extension<Arc<IsSecure>>,
-    Path(client_name): Path<String>,
-    cookies: Cookies,
-) -> error::Result<Redirect> {
-    let clients = &clients.logins;
-    oauth_redirect(clients, client_name, cookies, None, None, is_secure.0)
+async fn login(Path(client_name): Path<String>, cookies: Cookies) -> error::Result<Redirect> {
+    let clients = &OAUTH_CLIENTS.logins;
+    oauth_redirect(clients, client_name, cookies, None, None, *IS_SECURE)
 }
 
 #[derive(Deserialize)]
@@ -488,13 +468,11 @@ async fn refresh_token(
     authed: Authed,
     Path((w_id, id)): Path<(String, i32)>,
     Extension(user_db): Extension<UserDB>,
-    Extension(clients): Extension<Arc<AllClients>>,
-    Extension(http_client): Extension<Client>,
     Json(VariablePath { path }): Json<VariablePath>,
 ) -> error::Result<String> {
     let tx = user_db.begin(&authed).await?;
 
-    _refresh_token(tx, &path, w_id, id, clients, http_client).await?;
+    _refresh_token(tx, &path, w_id, id).await?;
 
     Ok(format!("Token at path {path} refreshed"))
 }
@@ -504,8 +482,6 @@ pub async fn _refresh_token<'c>(
     path: &str,
     w_id: String,
     id: i32,
-    clients: Arc<AllClients>,
-    http_client: Client,
 ) -> error::Result<String> {
     let account = sqlx::query!(
         "SELECT client, refresh_token FROM account WHERE workspace_id = $1 AND id = $2",
@@ -515,14 +491,14 @@ pub async fn _refresh_token<'c>(
     .fetch_optional(&mut tx)
     .await?;
     let account = not_found_if_none(account, "Account", &id.to_string())?;
-    let client = (&clients
+    let client = (&OAUTH_CLIENTS
         .connects
         .get(&account.client)
         .ok_or_else(|| error::Error::BadRequest("invalid client".to_string()))?
         .client)
         .to_owned();
 
-    let token = _exchange_token(client, &account.refresh_token, http_client).await;
+    let token = _exchange_token(client, &account.refresh_token).await;
 
     if let Err(token_err) = token {
         sqlx::query!(
@@ -580,14 +556,10 @@ pub async fn _refresh_token<'c>(
     Ok(token_str)
 }
 
-async fn _exchange_token(
-    client: OClient,
-    refresh_token: &str,
-    http_client: Client,
-) -> Result<TokenResponse, Error> {
+async fn _exchange_token(client: OClient, refresh_token: &str) -> Result<TokenResponse, Error> {
     let token_json = client
         .exchange_refresh_token(&RefreshToken::from(refresh_token.clone()))
-        .with_client(&http_client)
+        .with_client(&HTTP_CLIENT)
         .execute::<serde_json::Value>()
         .await
         .map_err(to_anyhow)?;
@@ -608,11 +580,9 @@ pub struct OAuthCallback {
 async fn connect_callback(
     cookies: Cookies,
     Path(client_name): Path<String>,
-    Extension(clients): Extension<Arc<AllClients>>,
-    Extension(http_client): Extension<Client>,
     Json(callback): Json<OAuthCallback>,
 ) -> error::JsonResult<TokenResponse> {
-    let client_w_scopes = &clients
+    let client_w_scopes = OAUTH_CLIENTS
         .connects
         .get(&client_name)
         .ok_or_else(|| error::Error::BadRequest("invalid client".to_string()))?;
@@ -620,7 +590,7 @@ async fn connect_callback(
     let client = client_w_scopes.client.to_owned();
     let extra_params = client_w_scopes.extra_params_callback.clone();
     let token_response =
-        exchange_code::<TokenResponse>(callback, &cookies, client, &http_client, extra_params)
+        exchange_code::<TokenResponse>(callback, &cookies, client, &HTTP_CLIENT, extra_params)
             .await?;
 
     Ok(Json(token_response))
@@ -631,17 +601,15 @@ async fn connect_slack_callback(
     authed: Authed,
     cookies: Cookies,
     Extension(user_db): Extension<UserDB>,
-    Extension(clients): Extension<Arc<AllClients>>,
-    Extension(http_client): Extension<Client>,
     Json(callback): Json<OAuthCallback>,
 ) -> error::Result<String> {
-    let client = clients
+    let client = OAUTH_CLIENTS
         .slack
         .as_ref()
         .ok_or_else(|| error::Error::BadRequest("slack client not setup".to_string()))?
         .to_owned();
     let token =
-        exchange_code::<SlackTokenResponse>(callback, &cookies, client, &http_client, None).await?;
+        exchange_code::<SlackTokenResponse>(callback, &cookies, client, &HTTP_CLIENT, None).await?;
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -657,14 +625,26 @@ async fn connect_slack_callback(
     )
     .execute(&mut tx)
     .await?;
+    sqlx::query_as!(
+        Group,
+        "INSERT INTO group_ (workspace_id, name, summary, extra_perms) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+        w_id,
+        "slack",
+        "The group slack commands act on belhalf of",
+        serde_json::json!({username_to_permissioned_as(&authed.username): true})
+    )
+    .execute(&mut tx)
+    .await?;
+
     sqlx::query!(
         "INSERT INTO folder
-                (workspace_id, name, owners, extra_perms)
-                VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+                (workspace_id, name, display_name, owners, extra_perms)
+                VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING",
         &w_id,
         "slack_bot",
-        &[],
-        serde_json::json!({})
+        "Slack bot",
+        &["g/slack".to_string()],
+        serde_json::json!({"g/slack": true})
     )
     .execute(&mut tx)
     .await?;
@@ -747,16 +727,14 @@ where
 
 async fn slack_command(
     SlackSig { sig, ts }: SlackSig,
-    Extension(slack_verifier): Extension<Arc<Option<SlackVerifier>>>,
     Extension(db): Extension<DB>,
-    Extension(base_url): Extension<Arc<BaseUrl>>,
     body: Bytes,
 ) -> error::Result<String> {
     let form: SlackCommand = serde_urlencoded::from_bytes(&body)
         .map_err(|_| error::Error::BadRequest("invalid payload".to_string()))?;
 
     let body = String::from_utf8_lossy(&body);
-    if slack_verifier
+    if SLACK_SIGNING_SECRET
         .as_ref()
         .as_ref()
         .map(|sv| sv.verify(&ts, &body, &sig).ok())
@@ -814,7 +792,7 @@ async fn slack_command(
             )
             .await?;
             tx.commit().await?;
-            let url = base_url.0.to_owned();
+            let url = BASE_URL.to_owned();
             return Ok(format!(
                 "Job launched. See details at {url}/run/{uuid}?workspace={}",
                 &settings.workspace_id
@@ -839,31 +817,27 @@ pub struct UserInfo {
 async fn login_callback(
     Path(client_name): Path<String>,
     cookies: Cookies,
-    Extension(clients): Extension<Arc<AllClients>>,
     Extension(db): Extension<DB>,
-    Extension(http_client): Extension<Client>,
-    Extension(is_secure): Extension<Arc<IsSecure>>,
-    Extension(cookie_domain): Extension<Arc<CookieDomain>>,
     Json(callback): Json<OAuthCallback>,
 ) -> error::Result<String> {
-    let client_w_config = &clients
+    let client_w_config = &OAUTH_CLIENTS
         .logins
         .get(&client_name)
         .ok_or_else(|| error::Error::BadRequest("invalid client".to_string()))?;
     let client = client_w_config.client.to_owned();
     let token_res =
-        exchange_code::<TokenResponse>(callback, &cookies, client, &http_client, None).await;
+        exchange_code::<TokenResponse>(callback, &cookies, client, &HTTP_CLIENT, None).await;
 
     if let Ok(token) = token_res {
         let token = &token.access_token.to_string();
         let userinfo_url = client_w_config.userinfo_url.as_ref().ok_or_else(|| {
             Error::BadConfig(format!("Missing userinfo_url in client {client_name}"))
         })?;
-        let user = http_get_user_info::<UserInfo>(&http_client, userinfo_url, token).await?;
+        let user = http_get_user_info::<UserInfo>(&HTTP_CLIENT, userinfo_url, token).await?;
 
         let email = match client_name.as_str() {
             "github" => http_get_user_info::<Vec<GHEmailInfo>>(
-                &http_client,
+                &HTTP_CLIENT,
                 "https://api.github.com/user/emails",
                 token,
             )
@@ -899,15 +873,7 @@ async fn login_callback(
         if let Some((email, login_type, super_admin)) = login {
             let login_type = serde_json::json!(login_type);
             if login_type == client_name {
-                crate::users::create_session_token(
-                    &email,
-                    super_admin,
-                    &mut tx,
-                    cookies,
-                    is_secure.0,
-                    &cookie_domain.as_ref().0,
-                )
-                .await?;
+                crate::users::create_session_token(&email, super_admin, &mut tx, cookies).await?;
             } else {
                 return Err(error::Error::BadRequest(format!(
                     "an user with the email associated to this login exists but with a different \
@@ -942,15 +908,7 @@ async fn login_callback(
             tx.commit().await?;
             invite_user_to_all_auto_invite_worspaces(&db, &email).await?;
             tx = db.begin().await?;
-            crate::users::create_session_token(
-                &email,
-                false,
-                &mut tx,
-                cookies,
-                is_secure.0,
-                &cookie_domain.as_ref().0,
-            )
-            .await?;
+            crate::users::create_session_token(&email, false, &mut tx, cookies).await?;
             audit_log(
                 &mut tx,
                 &email,
@@ -961,6 +919,7 @@ async fn login_callback(
                 Some([("method", &client_name[..])].into()),
             )
             .await?;
+
             let demo_exists =
                 sqlx::query_scalar!("SELECT EXISTS(SELECT 1 FROM workspace WHERE id = 'demo')")
                     .fetch_one(&mut tx)
@@ -982,6 +941,16 @@ async fn login_callback(
             }
         }
         tx.commit().await?;
+
+        if let Some(new_user_webhook) = NEW_USER_WEBHOOK.clone() {
+            let _ = HTTP_CLIENT
+                .post(&new_user_webhook)
+                .json(&serde_json::json!({"email" : &email, "event": "oauth_signup"}))
+                .send()
+                .await
+                .map_err(|e| tracing::error!("Error sending new user webhook: {}", e.to_string()));
+        }
+
         Ok("Successfully logged in".to_string())
     } else {
         Err(error::Error::BadRequest(format!(
@@ -1103,7 +1072,7 @@ fn set_cookie(state: &State, cookies: Cookies, is_secure: bool) {
     let csrf = state.to_base64();
     let mut cookie = Cookie::new("csrf", csrf);
     cookie.set_secure(is_secure);
-    cookie.set_same_site(cookie::SameSite::Lax);
+    cookie.set_same_site(Some(cookie::SameSite::Lax));
     cookie.set_http_only(true);
     cookie.set_path("/");
     cookies.add(cookie);

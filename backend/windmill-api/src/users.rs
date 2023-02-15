@@ -13,7 +13,7 @@ use crate::{
     folders::get_folders_for_user,
     utils::require_super_admin,
     workspaces::invite_user_to_all_auto_invite_worspaces,
-    CookieDomain, IsSecure,
+    COOKIE_DOMAIN, IS_SECURE,
 };
 use argon2::{password_hash::SaltString, Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use axum::{
@@ -26,6 +26,7 @@ use axum::{
 };
 use hyper::{header::LOCATION, StatusCode};
 use rand::rngs::OsRng;
+use reqwest::Client;
 use retainer::Cache;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -720,14 +721,12 @@ async fn logout(
     Tokened { token }: Tokened,
     cookies: Cookies,
     Extension(db): Extension<DB>,
-    Extension(cookie_domain): Extension<Arc<CookieDomain>>,
     Query(LogoutQuery { rd }): Query<LogoutQuery>,
 ) -> Result<Response> {
     let mut cookie = Cookie::new(COOKIE_NAME, "");
     cookie.set_path(COOKIE_PATH);
-    let domain = cookie_domain.0.clone();
-    if domain.is_some() {
-        cookie.set_domain(domain.clone().unwrap());
+    if COOKIE_DOMAIN.is_some() {
+        cookie.set_domain(COOKIE_DOMAIN.clone().unwrap());
     }
     cookies.remove(cookie);
     let mut tx = db.begin().await?;
@@ -1270,10 +1269,15 @@ async fn delete_user(
     Ok(format!("email {} deleted", &email_to_delete))
 }
 
+lazy_static::lazy_static! {
+    pub static ref NEW_USER_WEBHOOK: Option<String> = std::env::var("NEW_USER_WEBHOOK").ok();
+}
+
 async fn create_user(
     Authed { email, .. }: Authed,
     Extension(db): Extension<DB>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
+    Extension(http_client): Extension<Client>,
     Json(nu): Json<NewUser>,
 ) -> Result<(StatusCode, String)> {
     let mut tx = db.begin().await?;
@@ -1305,6 +1309,16 @@ async fn create_user(
     )
     .await?;
     tx.commit().await?;
+
+    if let Some(new_user_webhook) = NEW_USER_WEBHOOK.clone() {
+        let _ = http_client
+            .post(&new_user_webhook)
+            .json(&serde_json::json!({"email" : &nu.email, "name": &nu.name, "event": "new_user"}))
+            .send()
+            .await
+            .map_err(|e| tracing::error!("Error sending new user webhook: {}", e.to_string()));
+    }
+
     invite_user_to_all_auto_invite_worspaces(&db, &nu.email).await?;
 
     Ok((StatusCode::CREATED, format!("email {} created", nu.email)))
@@ -1549,21 +1563,19 @@ async fn login(
     cookies: Cookies,
     Extension(db): Extension<DB>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
-    Extension(is_secure): Extension<Arc<IsSecure>>,
-    Extension(cookie_domain): Extension<Arc<CookieDomain>>,
     Json(Login { email, password }): Json<Login>,
 ) -> Result<String> {
     let mut tx = db.begin().await?;
 
-    let email_w_h: Option<(String, String, bool)> = sqlx::query_as(
-        "SELECT email, password_hash, super_admin FROM password WHERE email = $1 AND login_type = \
+    let email_w_h: Option<(String, String, bool, bool)> = sqlx::query_as(
+        "SELECT email, password_hash, super_admin, first_time_user FROM password WHERE email = $1 AND login_type = \
          'password'",
     )
     .bind(&email)
     .fetch_optional(&mut tx)
     .await?;
 
-    if let Some((email, hash, super_admin)) = email_w_h {
+    if let Some((email, hash, super_admin, first_time_user)) = email_w_h {
         let parsed_hash =
             PasswordHash::new(&hash).map_err(|e| Error::InternalErr(e.to_string()))?;
         if argon2
@@ -1572,15 +1584,27 @@ async fn login(
         {
             Err(Error::BadRequest("Invalid login".to_string()))
         } else {
-            let token = create_session_token(
-                &email,
-                super_admin,
-                &mut tx,
-                cookies,
-                is_secure.0,
-                &cookie_domain.as_ref().0,
-            )
-            .await?;
+            if first_time_user {
+                sqlx::query_scalar!(
+                    "UPDATE password SET first_time_user = false WHERE email = $1",
+                    &email
+                )
+                .execute(&mut tx)
+                .await?;
+                let mut c = Cookie::new("first_time", "1");
+                if let Some(domain) = COOKIE_DOMAIN.as_ref() {
+                    c.set_domain(domain);
+                }
+                c.set_secure(false);
+                c.set_expires(time::OffsetDateTime::now_utc() + time::Duration::minutes(15));
+                c.set_http_only(false);
+                c.set_path("/");
+
+                cookies.add(c);
+            }
+
+            let token = create_session_token(&email, super_admin, &mut tx, cookies).await?;
+
             tx.commit().await?;
             Ok(token)
         }
@@ -1594,8 +1618,6 @@ pub async fn create_session_token<'c>(
     super_admin: bool,
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
     cookies: Cookies,
-    is_secure: bool,
-    domain: &Option<String>,
 ) -> Result<String> {
     let token = rd_string(30);
     sqlx::query!(
@@ -1611,12 +1633,12 @@ pub async fn create_session_token<'c>(
     .execute(tx)
     .await?;
     let mut cookie = Cookie::new(COOKIE_NAME, token.clone());
-    cookie.set_secure(is_secure);
-    cookie.set_same_site(cookie::SameSite::Lax);
+    cookie.set_secure(*IS_SECURE);
+    cookie.set_same_site(Some(cookie::SameSite::Lax));
     cookie.set_http_only(true);
     cookie.set_path(COOKIE_PATH);
-    if domain.is_some() {
-        cookie.set_domain(domain.clone().unwrap());
+    if COOKIE_DOMAIN.is_some() {
+        cookie.set_domain(COOKIE_DOMAIN.clone().unwrap());
     }
     let mut expire: OffsetDateTime = time::OffsetDateTime::now_utc();
     expire += time::Duration::days(3);

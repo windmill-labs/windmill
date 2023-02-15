@@ -1,9 +1,7 @@
 DO
 $do$
 BEGIN
-    IF EXISTS (
-        select usesuper from pg_user where usename = CURRENT_USER AND usesuper = 't') 
-    AND NOT EXISTS (
+    IF NOT EXISTS (
         SELECT
         FROM   pg_catalog.pg_roles
         WHERE  rolname = 'windmill_user') THEN
@@ -35,8 +33,7 @@ $do$;
 DO
 $do$
 BEGIN
-    IF EXISTS (select usesuper from pg_user where usename = CURRENT_USER AND usesuper = 't')
-    AND NOT EXISTS (
+    IF NOT EXISTS (
         SELECT
         FROM   pg_catalog.pg_roles
         WHERE  rolname = 'windmill_admin') THEN

@@ -54,7 +54,7 @@
 								<input
 									type="text"
 									bind:value={$flowStore.summary}
-									placeholder="A short summary of the flow displayed when the flow is listed"
+									placeholder="Short summary to be displayed when listed"
 									id="flow-summary"
 								/>
 							</label>
@@ -69,7 +69,7 @@
 										class="text-sm"
 										id="inp"
 										bind:value={$flowStore.description}
-										placeholder="A description to help users understand what this flow does and how to use it."
+										placeholder="What this flow does and how to use it."
 										rows="3"
 									/>
 								</span>

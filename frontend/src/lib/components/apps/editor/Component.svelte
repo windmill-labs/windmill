@@ -39,6 +39,7 @@
 	export type DateInputComponent = BaseComponent<'dateinputcomponent'>
 	export type NumberInputComponent = BaseComponent<'numberinputcomponent'>
 	export type SliderComponent = BaseComponent<'slidercomponent'>
+	export type RangeComponent = BaseComponent<'rangecomponent'>
 	export type HtmlComponent = BaseComponent<'htmlcomponent'>
 	export type VegaLiteComponent = BaseComponent<'vegalitecomponent'>
 	export type PlotlyComponent = BaseComponent<'plotlycomponent'>
@@ -74,6 +75,7 @@
 			| DateInputComponent
 			| NumberInputComponent
 			| SliderComponent
+			| RangeComponent
 			| BarChartComponent
 			| TimeseriesComponent
 			| HtmlComponent
@@ -197,6 +199,12 @@
 						fieldType: 'boolean',
 						type: 'eval',
 						expr: 'false'
+					},
+					goto: {
+						tooltip: 'Go to an url on success if not empty',
+						fieldType: 'text',
+						type: 'static',
+						value: ''
 					}
 				},
 
@@ -237,6 +245,12 @@
 						value: 'xs',
 						onlyStatic: true,
 						optionValuesKey: 'buttonSizeOptions'
+					},
+					goto: {
+						tooltip: 'Go to an url on success if not empty',
+						fieldType: 'text',
+						type: 'static',
+						value: ''
 					}
 				},
 
@@ -700,7 +714,7 @@
 		slidercomponent: {
 			name: 'Slider',
 			icon: SlidersHorizontal,
-			dims: '2:1-2:1',
+			dims: '4:1-4:1',
 			data: {
 				softWrap: true,
 				verticalAlignment: 'center',
@@ -717,6 +731,63 @@
 					max: {
 						type: 'static',
 						value: 42,
+						fieldType: 'number',
+						onlyStatic: true
+					},
+					defaultValue: {
+						type: 'static',
+						value: 20,
+						fieldType: 'number',
+						onlyStatic: true
+					},
+					step: {
+						type: 'static',
+						value: 1,
+						fieldType: 'number',
+						onlyStatic: true
+					}
+				},
+				card: false
+			}
+		},
+		rangecomponent: {
+			name: 'Range',
+			icon: SlidersHorizontal,
+			dims: '4:2-4:2',
+			data: {
+				softWrap: true,
+				verticalAlignment: 'center',
+				id: '',
+				type: 'rangecomponent',
+				componentInput: undefined,
+				configuration: {
+					min: {
+						type: 'static',
+						value: 0,
+						fieldType: 'number',
+						onlyStatic: true
+					},
+					max: {
+						type: 'static',
+						value: 42,
+						fieldType: 'number',
+						onlyStatic: true
+					},
+					defaultLow: {
+						type: 'static',
+						value: 10,
+						fieldType: 'number',
+						onlyStatic: true
+					},
+					defaultHigh: {
+						type: 'static',
+						value: 20,
+						fieldType: 'number',
+						onlyStatic: true
+					},
+					step: {
+						type: 'static',
+						value: 1,
 						fieldType: 'number',
 						onlyStatic: true
 					}
@@ -784,6 +855,7 @@
 			'passwordinputcomponent',
 			'numberinputcomponent',
 			'slidercomponent',
+			'rangecomponent',
 			'dateinputcomponent',
 			'checkboxcomponent',
 			'selectcomponent'
@@ -1168,6 +1240,7 @@
 	import VegaLiteHtml from '../components/dataDisplay/VegaLiteHtml.svelte'
 	import PlotlyHtml from '../components/dataDisplay/PlotlyHtml.svelte'
 	import { defaultAlignement } from './componentsPanel/componentDefaultProps'
+	import AppRangeInput from '../components/numberInputs/AppRangeInput.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -1318,6 +1391,8 @@
 			<AppNumberInput {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{:else if component.type === 'slidercomponent'}
 			<AppSliderInputs {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+		{:else if component.type === 'rangecomponent'}
+			<AppRangeInput {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{/if}
 	</div>
 </div>

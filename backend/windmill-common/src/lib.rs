@@ -26,11 +26,12 @@ pub mod variables;
 #[cfg(feature = "tracing_init")]
 pub mod tracing_init;
 
-pub const DEFAULT_NUM_WORKERS: usize = 3;
-pub const DEFAULT_TIMEOUT: i32 = 300;
-pub const DEFAULT_SLEEP_QUEUE: u64 = 50;
 pub const DEFAULT_MAX_CONNECTIONS_SERVER: u32 = 50;
 pub const DEFAULT_MAX_CONNECTIONS_WORKER: u32 = 3;
+
+lazy_static::lazy_static! {
+    pub static ref BASE_URL: String = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost".to_string());
+}
 
 #[cfg(feature = "tokio")]
 pub async fn shutdown_signal(tx: tokio::sync::broadcast::Sender<()>) -> anyhow::Result<()> {
