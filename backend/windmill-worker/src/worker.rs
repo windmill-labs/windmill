@@ -506,7 +506,7 @@ pub async fn run_worker(
     WORKER_STARTED.inc();
 
     #[cfg(feature = "enterprise")]
-    if let Some(ref s) = sync_bucket.clone() {
+    if let Some(ref s) = S3_CACHE_BUCKET.clone() {
         // We try to download the entire cache as a tar, it is much faster over S3
         if !copy_cache_from_bucket_as_tar(&s).await {
             // We revert to copying the cache from the bucket
@@ -547,10 +547,10 @@ pub async fn run_worker(
 
             #[cfg(feature = "enterprise")]
             if last_sync.elapsed().as_secs() > NUM_SECS_SYNC {
-                if let Some(ref s) = sync_bucket.clone() {
+                if let Some(ref s) = S3_CACHE_BUCKET.clone() {
                     copy_cache_from_bucket(&s).await;
                     copy_cache_to_bucket(&s).await;
-                    if rand::thread_rng().gen_range(0..tar_cache_rate) == 1 {
+                    if rand::thread_rng().gen_range(0..*TAR_CACHE_RATE) == 1 {
                         copy_cache_to_bucket_as_tar(&s).await;
                     }
                 }
