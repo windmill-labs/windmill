@@ -52,7 +52,8 @@
 				switchWorkspace(localStorage.getItem('workspace')?.toString())
 			}
 		} else {
-			await logoutWithRedirect($page.url.pathname + $page.url.search)
+			const url = $page.url
+			await logoutWithRedirect(url.href.replace(url.origin, ''))
 		}
 	}
 
