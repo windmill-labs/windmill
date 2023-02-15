@@ -25,7 +25,8 @@
 	export function closeDrawer() {
 		drawer?.closeDrawer()
 		const index = $page.url.href.lastIndexOf('#')
-		const hashRemoved = $page.url.href.slice(0, index)
+		const href = $page.url.href
+		const hashRemoved = index === -1 ? href : href.slice(0, index)
 		goto(hashRemoved)
 	}
 
