@@ -14,7 +14,7 @@
 	const { app, selectedComponent, lazyGrid } = getContext<AppEditorContext>('AppEditorContext')
 	let list: HTMLElement
 
-	function selectInlineScript(id: string) {
+	function selectScript(id: string) {
 		selectedScriptComponentId = id
 		if (!id.startsWith('unused-') || !id.startsWith('bg_')) {
 			$selectedComponent = selectedScriptComponentId
@@ -24,18 +24,9 @@
 	$: runnables = getAppScripts($lazyGrid)
 
 	// When selected component changes, update selectedScriptComponentId
-	$: if (selectedComponent) {
+	$: if ($selectedComponent != selectedScriptComponentId) {
 		selectedScriptComponentId = $selectedComponent
 	}
-
-	// Doesn't work for some reason
-	// $: if (selectedScriptComponentId) {
-	// 	const selected = document.getElementById(PREFIX + selectedScriptComponentId)
-	// 	if(selected) {
-	// 		const top = selected.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop
-	// 		list.scrollTo({ top, behavior: 'smooth' })
-	// 	}
-	// }
 
 	function createBackgroundScript() {
 		let index = 0
@@ -58,7 +49,7 @@
 			fields: {}
 		})
 		$app.hiddenInlineScripts = $app.hiddenInlineScripts
-		selectInlineScript(`bg_${$app.hiddenInlineScripts.length - 1}`)
+		selectScript(`bg_${$app.hiddenInlineScripts.length - 1}`)
 	}
 </script>
 
@@ -73,7 +64,7 @@
 							id={PREFIX + id}
 							class="border flex gap-1 truncate font-normal justify-between w-full items-center py-1 px-2 rounded-sm duration-200 
 							{selectedScriptComponentId === id ? 'border-blue-500 bg-blue-100' : 'hover:bg-blue-50'}"
-							on:click={() => selectInlineScript(id)}
+							on:click={() => selectScript(id)}
 						>
 							<span class="text-2xs truncate">{name}</span>
 							<div>
@@ -92,7 +83,7 @@
 							id={PREFIX + id}
 							class="border flex gap-1 truncate font-normal justify-between w-full items-center py-1 px-2 rounded-sm duration-200 
 							{selectedScriptComponentId === id ? 'border-blue-500 bg-blue-100' : 'hover:bg-blue-50'}"
-							on:click={() => selectInlineScript(id)}
+							on:click={() => selectScript(id)}
 						>
 							<span class="text-2xs truncate">{unusedInlineScript.name}</span>
 							<Badge color="red">Detached</Badge>
@@ -115,7 +106,7 @@
 						id={PREFIX + id}
 						class="border flex gap-1 truncate font-normal justify-between w-full items-center py-1 px-2 rounded-sm duration-200 
 							{selectedScriptComponentId === id ? 'border-blue-500 bg-blue-100' : 'hover:bg-blue-50'}"
-						on:click={() => selectInlineScript(id)}
+						on:click={() => selectScript(id)}
 					>
 						<span class="text-2xs truncate">{name}</span>
 						<Badge color="dark-indigo">{id}</Badge>
@@ -146,7 +137,7 @@
 						id={PREFIX + id}
 						class="border flex gap-1 truncate font-normal justify-between w-full items-center py-1 px-2 rounded-sm duration-200 
 							{selectedScriptComponentId === id ? 'border-blue-500 bg-blue-100' : 'hover:bg-blue-50'}"
-						on:click={() => selectInlineScript(id)}
+						on:click={() => selectScript(id)}
 					>
 						<span class="text-2xs truncate">{name}</span>
 						<Badge color="dark-indigo">{id}</Badge>
