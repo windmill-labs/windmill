@@ -6,11 +6,9 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::sync::Arc;
-
 use crate::{
     db::{UserDB, DB},
-    oauth2::{AllClients, _refresh_token},
+    oauth2::_refresh_token,
     users::{require_owner_of_path, Authed},
     webhook_util::{WebhookMessage, WebhookShared},
 };
@@ -36,7 +34,6 @@ use windmill_common::{
 };
 
 use magic_crypt::{MagicCrypt256, MagicCryptTrait};
-use reqwest::Client;
 use serde::Deserialize;
 use sqlx::{Postgres, Transaction};
 
@@ -108,8 +105,6 @@ async fn get_variable(
     Extension(user_db): Extension<UserDB>,
     Query(q): Query<GetVariableQuery>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    Extension(clients): Extension<Arc<AllClients>>,
-    Extension(http_client): Extension<Client>,
 ) -> JsonResult<ListableVariable> {
     let path = path.to_path();
     let mut tx = user_db.begin(&authed).await?;
@@ -148,17 +143,7 @@ async fn get_variable(
         let value = variable.value.unwrap_or_else(|| "".to_string());
         ListableVariable {
             value: if variable.is_expired.unwrap_or(false) && variable.account.is_some() {
-                Some(
-                    _refresh_token(
-                        tx,
-                        &variable.path,
-                        w_id,
-                        variable.account.unwrap(),
-                        clients,
-                        http_client,
-                    )
-                    .await?,
-                )
+                Some(_refresh_token(tx, &variable.path, w_id, variable.account.unwrap()).await?)
             } else if !value.is_empty() && decrypt_secret {
                 let mc = build_crypt(&mut tx, &w_id).await?;
                 tx.commit().await?;

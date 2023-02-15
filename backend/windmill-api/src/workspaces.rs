@@ -14,7 +14,7 @@ use crate::{
     resources::{Resource, ResourceType},
     users::{Authed, WorkspaceInvite, NEW_USER_WEBHOOK},
     utils::require_super_admin,
-    BASE_URL,
+    BASE_URL, HTTP_CLIENT,
 };
 use axum::{
     body::StreamBody,
@@ -24,7 +24,6 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
-use reqwest::Client;
 use stripe::CustomerId;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
@@ -924,7 +923,6 @@ pub async fn invite_user_to_all_auto_invite_worspaces(db: &DB, email: &str) -> R
 async fn invite_user(
     Authed { username, is_admin, .. }: Authed,
     Extension(db): Extension<DB>,
-    Extension(http_client): Extension<Client>,
     Path(w_id): Path<String>,
     Json(nu): Json<NewWorkspaceInvite>,
 ) -> Result<(StatusCode, String)> {
@@ -947,7 +945,7 @@ async fn invite_user(
     tx.commit().await?;
 
     if let Some(new_user_webhook) = NEW_USER_WEBHOOK.clone() {
-        let _ = http_client
+        let _ = &HTTP_CLIENT
             .post(&new_user_webhook)
             .json(&serde_json::json!({"email" : &nu.email, "event": "new_invite"}))
             .send()

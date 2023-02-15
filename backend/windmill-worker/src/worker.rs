@@ -316,7 +316,6 @@ lazy_static::lazy_static! {
     .map(|e| Some(e))
     .unwrap_or(None);
 
-
     static ref DENO_PATH: String = std::env::var("DENO_PATH").unwrap_or_else(|_| "/usr/bin/deno".to_string());
     static ref GO_PATH: String = std::env::var("GO_PATH").unwrap_or_else(|_| "/usr/bin/go".to_string());
     static ref PYTHON_PATH: String =

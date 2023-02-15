@@ -8,8 +8,6 @@
 
 use std::{collections::HashMap, fmt::Debug};
 
-use std::sync::Arc;
-
 use anyhow::Context;
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
@@ -41,7 +39,7 @@ use crate::{
     variables::{build_crypt, encrypt},
     workspaces::WorkspaceSettings,
 };
-use crate::{BASE_URL, IS_SECURE, OAUTH_CLIENTS, SLACK_SIGNING_SECRET};
+use crate::{BASE_URL, HTTP_CLIENT, IS_SECURE, OAUTH_CLIENTS, SLACK_SIGNING_SECRET};
 use windmill_common::error::{self, to_anyhow, Error};
 use windmill_common::oauth2::*;
 
@@ -371,11 +369,9 @@ async fn delete_account(
     Ok(format!("Deleted account id {id}"))
 }
 
-async fn list_logins(
-    Extension(clients): Extension<Arc<AllClients>>,
-) -> error::JsonResult<Vec<String>> {
+async fn list_logins() -> error::JsonResult<Vec<String>> {
     Ok(Json(
-        clients
+        OAUTH_CLIENTS
             .logins
             .keys()
             .map(|x| x.to_owned())
@@ -388,11 +384,9 @@ struct ScopesAndParams {
     scopes: Vec<String>,
     extra_params: Option<HashMap<String, String>>,
 }
-async fn list_connects(
-    Extension(clients): Extension<Arc<AllClients>>,
-) -> error::JsonResult<HashMap<String, ScopesAndParams>> {
+async fn list_connects() -> error::JsonResult<HashMap<String, ScopesAndParams>> {
     Ok(Json(
-        (&clients.connects)
+        (&OAUTH_CLIENTS.connects)
             .into_iter()
             .map(|(k, v)| {
                 (
@@ -474,13 +468,11 @@ async fn refresh_token(
     authed: Authed,
     Path((w_id, id)): Path<(String, i32)>,
     Extension(user_db): Extension<UserDB>,
-    Extension(clients): Extension<Arc<AllClients>>,
-    Extension(http_client): Extension<Client>,
     Json(VariablePath { path }): Json<VariablePath>,
 ) -> error::Result<String> {
     let tx = user_db.begin(&authed).await?;
 
-    _refresh_token(tx, &path, w_id, id, clients, http_client).await?;
+    _refresh_token(tx, &path, w_id, id).await?;
 
     Ok(format!("Token at path {path} refreshed"))
 }
@@ -490,8 +482,6 @@ pub async fn _refresh_token<'c>(
     path: &str,
     w_id: String,
     id: i32,
-    clients: Arc<AllClients>,
-    http_client: Client,
 ) -> error::Result<String> {
     let account = sqlx::query!(
         "SELECT client, refresh_token FROM account WHERE workspace_id = $1 AND id = $2",
@@ -501,14 +491,14 @@ pub async fn _refresh_token<'c>(
     .fetch_optional(&mut tx)
     .await?;
     let account = not_found_if_none(account, "Account", &id.to_string())?;
-    let client = (&clients
+    let client = (&OAUTH_CLIENTS
         .connects
         .get(&account.client)
         .ok_or_else(|| error::Error::BadRequest("invalid client".to_string()))?
         .client)
         .to_owned();
 
-    let token = _exchange_token(client, &account.refresh_token, http_client).await;
+    let token = _exchange_token(client, &account.refresh_token).await;
 
     if let Err(token_err) = token {
         sqlx::query!(
@@ -566,14 +556,10 @@ pub async fn _refresh_token<'c>(
     Ok(token_str)
 }
 
-async fn _exchange_token(
-    client: OClient,
-    refresh_token: &str,
-    http_client: Client,
-) -> Result<TokenResponse, Error> {
+async fn _exchange_token(client: OClient, refresh_token: &str) -> Result<TokenResponse, Error> {
     let token_json = client
         .exchange_refresh_token(&RefreshToken::from(refresh_token.clone()))
-        .with_client(&http_client)
+        .with_client(&HTTP_CLIENT)
         .execute::<serde_json::Value>()
         .await
         .map_err(to_anyhow)?;
@@ -594,11 +580,9 @@ pub struct OAuthCallback {
 async fn connect_callback(
     cookies: Cookies,
     Path(client_name): Path<String>,
-    Extension(clients): Extension<Arc<AllClients>>,
-    Extension(http_client): Extension<Client>,
     Json(callback): Json<OAuthCallback>,
 ) -> error::JsonResult<TokenResponse> {
-    let client_w_scopes = &clients
+    let client_w_scopes = OAUTH_CLIENTS
         .connects
         .get(&client_name)
         .ok_or_else(|| error::Error::BadRequest("invalid client".to_string()))?;
@@ -606,7 +590,7 @@ async fn connect_callback(
     let client = client_w_scopes.client.to_owned();
     let extra_params = client_w_scopes.extra_params_callback.clone();
     let token_response =
-        exchange_code::<TokenResponse>(callback, &cookies, client, &http_client, extra_params)
+        exchange_code::<TokenResponse>(callback, &cookies, client, &HTTP_CLIENT, extra_params)
             .await?;
 
     Ok(Json(token_response))
@@ -617,17 +601,15 @@ async fn connect_slack_callback(
     authed: Authed,
     cookies: Cookies,
     Extension(user_db): Extension<UserDB>,
-    Extension(clients): Extension<Arc<AllClients>>,
-    Extension(http_client): Extension<Client>,
     Json(callback): Json<OAuthCallback>,
 ) -> error::Result<String> {
-    let client = clients
+    let client = OAUTH_CLIENTS
         .slack
         .as_ref()
         .ok_or_else(|| error::Error::BadRequest("slack client not setup".to_string()))?
         .to_owned();
     let token =
-        exchange_code::<SlackTokenResponse>(callback, &cookies, client, &http_client, None).await?;
+        exchange_code::<SlackTokenResponse>(callback, &cookies, client, &HTTP_CLIENT, None).await?;
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -836,7 +818,6 @@ async fn login_callback(
     Path(client_name): Path<String>,
     cookies: Cookies,
     Extension(db): Extension<DB>,
-    Extension(http_client): Extension<Client>,
     Json(callback): Json<OAuthCallback>,
 ) -> error::Result<String> {
     let client_w_config = &OAUTH_CLIENTS
@@ -845,18 +826,18 @@ async fn login_callback(
         .ok_or_else(|| error::Error::BadRequest("invalid client".to_string()))?;
     let client = client_w_config.client.to_owned();
     let token_res =
-        exchange_code::<TokenResponse>(callback, &cookies, client, &http_client, None).await;
+        exchange_code::<TokenResponse>(callback, &cookies, client, &HTTP_CLIENT, None).await;
 
     if let Ok(token) = token_res {
         let token = &token.access_token.to_string();
         let userinfo_url = client_w_config.userinfo_url.as_ref().ok_or_else(|| {
             Error::BadConfig(format!("Missing userinfo_url in client {client_name}"))
         })?;
-        let user = http_get_user_info::<UserInfo>(&http_client, userinfo_url, token).await?;
+        let user = http_get_user_info::<UserInfo>(&HTTP_CLIENT, userinfo_url, token).await?;
 
         let email = match client_name.as_str() {
             "github" => http_get_user_info::<Vec<GHEmailInfo>>(
-                &http_client,
+                &HTTP_CLIENT,
                 "https://api.github.com/user/emails",
                 token,
             )
@@ -962,7 +943,7 @@ async fn login_callback(
         tx.commit().await?;
 
         if let Some(new_user_webhook) = NEW_USER_WEBHOOK.clone() {
-            let _ = http_client
+            let _ = HTTP_CLIENT
                 .post(&new_user_webhook)
                 .json(&serde_json::json!({"email" : &email, "event": "oauth_signup"}))
                 .send()
