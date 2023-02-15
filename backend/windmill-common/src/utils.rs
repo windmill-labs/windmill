@@ -74,7 +74,7 @@ pub fn not_found_if_none<T, U: AsRef<str>>(opt: Option<T>, kind: &str, name: U) 
 
 #[cfg(feature = "reqwest")]
 pub async fn list_elems_from_hub(
-    http_client: reqwest::Client,
+    http_client: &reqwest::Client,
     url: &str,
     email: &str,
 ) -> Result<serde_json::Value> {
@@ -88,7 +88,7 @@ pub async fn list_elems_from_hub(
 
 #[cfg(feature = "reqwest")]
 pub async fn http_get_from_hub(
-    http_client: reqwest::Client,
+    http_client: &reqwest::Client,
     url: &str,
     email: &str,
     plain: bool,

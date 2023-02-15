@@ -13,7 +13,7 @@ use crate::{
     folders::get_folders_for_user,
     utils::require_super_admin,
     workspaces::invite_user_to_all_auto_invite_worspaces,
-    CookieDomain, IsSecure,
+    COOKIE_DOMAIN, IS_SECURE,
 };
 use argon2::{password_hash::SaltString, Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use axum::{
@@ -721,14 +721,12 @@ async fn logout(
     Tokened { token }: Tokened,
     cookies: Cookies,
     Extension(db): Extension<DB>,
-    Extension(cookie_domain): Extension<Arc<CookieDomain>>,
     Query(LogoutQuery { rd }): Query<LogoutQuery>,
 ) -> Result<Response> {
     let mut cookie = Cookie::new(COOKIE_NAME, "");
     cookie.set_path(COOKIE_PATH);
-    let domain = cookie_domain.0.clone();
-    if domain.is_some() {
-        cookie.set_domain(domain.clone().unwrap());
+    if COOKIE_DOMAIN.is_some() {
+        cookie.set_domain(COOKIE_DOMAIN.clone().unwrap());
     }
     cookies.remove(cookie);
     let mut tx = db.begin().await?;
@@ -1565,8 +1563,6 @@ async fn login(
     cookies: Cookies,
     Extension(db): Extension<DB>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
-    Extension(is_secure): Extension<Arc<IsSecure>>,
-    Extension(cookie_domain): Extension<Arc<CookieDomain>>,
     Json(Login { email, password }): Json<Login>,
 ) -> Result<String> {
     let mut tx = db.begin().await?;
@@ -1596,7 +1592,7 @@ async fn login(
                 .execute(&mut tx)
                 .await?;
                 let mut c = Cookie::new("first_time", "1");
-                if let Some(domain) = cookie_domain.as_ref().0.clone() {
+                if let Some(domain) = COOKIE_DOMAIN.as_ref() {
                     c.set_domain(domain);
                 }
                 c.set_secure(false);
@@ -1607,15 +1603,8 @@ async fn login(
                 cookies.add(c);
             }
 
-            let token = create_session_token(
-                &email,
-                super_admin,
-                &mut tx,
-                cookies,
-                is_secure.0,
-                &cookie_domain.as_ref().0,
-            )
-            .await?;
+            let token = create_session_token(&email, super_admin, &mut tx, cookies).await?;
+
             tx.commit().await?;
             Ok(token)
         }
@@ -1629,8 +1618,6 @@ pub async fn create_session_token<'c>(
     super_admin: bool,
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
     cookies: Cookies,
-    is_secure: bool,
-    domain: &Option<String>,
 ) -> Result<String> {
     let token = rd_string(30);
     sqlx::query!(
@@ -1646,12 +1633,12 @@ pub async fn create_session_token<'c>(
     .execute(tx)
     .await?;
     let mut cookie = Cookie::new(COOKIE_NAME, token.clone());
-    cookie.set_secure(is_secure);
+    cookie.set_secure(*IS_SECURE);
     cookie.set_same_site(Some(cookie::SameSite::Lax));
     cookie.set_http_only(true);
     cookie.set_path(COOKIE_PATH);
-    if domain.is_some() {
-        cookie.set_domain(domain.clone().unwrap());
+    if COOKIE_DOMAIN.is_some() {
+        cookie.set_domain(COOKIE_DOMAIN.clone().unwrap());
     }
     let mut expire: OffsetDateTime = time::OffsetDateTime::now_utc();
     expire += time::Duration::days(3);
