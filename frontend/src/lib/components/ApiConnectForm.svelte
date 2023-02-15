@@ -1,7 +1,9 @@
 <script lang="ts">
-	import { ResourceService } from '$lib/gen'
+	import { JobService, Preview, ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { emptySchema, emptyString } from '$lib/utils'
+	import { emptySchema, emptyString, sendUserToast } from '$lib/utils'
+	import { Loader2 } from 'lucide-svelte'
+	import Button from './common/button/Button.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import Toggle from './Toggle.svelte'
@@ -57,16 +59,55 @@
 			parseJson()
 		}
 	}
+
+	let loading = false
+	async function testConnection() {
+		loading = true
+		const job = await JobService.runScriptPreview({
+			workspace: $workspaceStore!,
+			requestBody: {
+				language: 'deno' as Preview.language,
+				content: `
+import { Client } from 'https://deno.land/x/postgres/mod.ts'
+export async function main(args: any) {
+	const client = new Client("postgres://" + args.user + ":" + args.password + "@" + args.host + ":" + args.port + "/" + args.dbname + "?sslmode=" + args.sslmode)
+	await client.connect()
+	return 'Connection successful'
+}
+				`,
+				args: {
+					args
+				}
+			}
+		})
+		await new Promise((r) => setTimeout(r, 3000))
+		loading = false
+		const testResult = await JobService.getCompletedJob({
+			workspace: $workspaceStore!,
+			id: job
+		})
+		if (testResult) {
+			sendUserToast(
+				testResult.success ? testResult.result : testResult.result?.['error']?.['message'],
+				!testResult.success
+			)
+		}
+	}
 </script>
 
 {#if !notFound}
-	<div class="w-full flex flex-row-reverse">
+	<div class="w-full flex gap-4 flex-row-reverse">
 		<Toggle
 			on:change={(e) => switchTab(e.detail)}
 			options={{
 				right: 'As JSON'
 			}}
 		/>
+		{#if resource_type == 'postgresql'}
+			<Button size="sm" on:click={testConnection}
+				>{#if loading}<Loader2 class="animate-spin mr-2" />{/if} Test connection</Button
+			>
+		{/if}
 	</div>
 {:else}
 	<p class="italic text-gray-500 text-xs mb-4"
