@@ -20,6 +20,7 @@
 	import { WindmillIcon } from '$lib/components/icons'
 	import { onMount } from 'svelte'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
+	import { USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 
 	let invites: WorkspaceInvite[] = []
 	let list_all_as_super_admin: boolean = false
@@ -29,6 +30,10 @@
 	let superadminSettings: SuperadminSettings
 
 	const rd = $page.url.searchParams.get('rd')
+
+	$: if(userSettings && $page.url.hash === USER_SETTINGS_HASH) {
+		userSettings.openDrawer()
+	}
 
 	async function loadInvites() {
 		try {
