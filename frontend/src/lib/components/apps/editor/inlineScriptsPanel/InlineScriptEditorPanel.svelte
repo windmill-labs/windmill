@@ -7,10 +7,12 @@
 	import { workspaceStore } from '$lib/stores'
 	import { emptySchema, getScriptByPath } from '$lib/utils'
 	import { faCodeBranch, faExternalLinkAlt, faEye, faPen } from '@fortawesome/free-solid-svg-icons'
-	import type { AppInput, ResultAppInput } from '../../inputType'
-	import { clearResultAppInput } from '../../utils'
+	import { onMount } from 'svelte'
+	import type { AppInput, RunnableByPath } from '../../inputType'
+	import { clearResultAppInput, schemaToInputsSpec } from '../../utils'
 	import EmptyInlineScript from './EmptyInlineScript.svelte'
 	import InlineScriptEditor from './InlineScriptEditor.svelte'
+	import { computeFields } from './utils'
 
 	export let componentInput: AppInput | undefined
 	export let id: string
@@ -39,6 +41,26 @@
 
 	let drawerFlowViewer: Drawer
 	let flowPath: string = ''
+
+	async function refreshScript(x: RunnableByPath) {
+		let { schema } = await getScriptByPath(x.path)
+		if (JSON.stringify(x.schema) != JSON.stringify(schema)) {
+			x.schema = schema
+			if (componentInput?.type == 'runnable') {
+				componentInput.fields = computeFields(schema, false, componentInput.fields)
+			}
+			componentInput = componentInput
+		}
+	}
+
+	$: if (
+		componentInput &&
+		componentInput.type == 'runnable' &&
+		componentInput?.runnable?.type === 'runnableByPath' &&
+		componentInput.runnable.runType == 'script'
+	) {
+		refreshScript(componentInput.runnable)
+	}
 </script>
 
 <Drawer bind:this={drawerFlowViewer} size="1200px">
