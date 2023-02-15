@@ -40,7 +40,7 @@
 				}
 			} else {
 				if (!$page.url.pathname.startsWith('/user/')) {
-					goto(`/user/workspaces?rd=${encodeURIComponent($page.url.pathname + $page.url.search)}`)
+					goto(`/user/workspaces?rd=${encodeURIComponent($page.url.href.replace($page.url.origin, ''))}`)
 				}
 				let user = await UserService.globalWhoami()
 				console.log(`Welcome back ${user.email}`)
@@ -48,7 +48,8 @@
 		} catch (e) {
 			console.error(e)
 			if ($page.url.pathname != '/user/login') {
-				await logoutWithRedirect($page.url.pathname + $page.url.search)
+				const url = $page.url
+				await logoutWithRedirect(url.href.replace(url.origin, ''))
 			}
 		}
 	}
@@ -79,9 +80,10 @@
 				}
 
 				if (status == '401') {
-					const pathName = $page.url.pathname
-					if (pathName != '/user/login') {
-						logoutWithRedirect(pathName + $page.url.search)
+					const url = $page.url
+					console.log('UNAUTHORIZED', url, url.href.replace(url.origin, ''));
+					if (url.pathname != '/user/login') {
+						logoutWithRedirect(url.href.replace(url.origin, ''))
 						return
 					}
 				} else if (status == '403') {

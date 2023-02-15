@@ -1,9 +1,8 @@
 <script lang="ts">
 	import { usersWorkspaceStore } from '$lib/stores'
-
 	import type { TruncatedToken, NewToken } from '$lib/gen'
 	import { UserService, SettingsService } from '$lib/gen'
-	import { displayDate, sendUserToast, getToday, copyToClipboard, truncate } from '$lib/utils'
+	import { displayDate, sendUserToast, copyToClipboard } from '$lib/utils'
 	import { faClipboard, faPlus } from '@fortawesome/free-solid-svg-icons'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { Button } from '$lib/components/common'
@@ -21,6 +20,8 @@
 
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
+	import { page } from '$app/stores'
+	import { goto } from '$app/navigation'
 
 	let drawer: Drawer
 
@@ -33,6 +34,13 @@
 
 	export function toggleDrawer() {
 		drawer?.toggleDrawer()
+	}
+
+	export function closeDrawer() {
+		drawer?.closeDrawer()
+		const index = $page.url.href.lastIndexOf('#')
+		const hashRemoved = $page.url.href.slice(0, index)
+		goto(hashRemoved)
 	}
 
 	async function setPassword(): Promise<void> {
@@ -81,7 +89,7 @@
 </script>
 
 <Drawer bind:this={drawer} size="800px">
-	<DrawerContent title="User Settings" on:close={drawer.toggleDrawer}>
+	<DrawerContent title="User Settings" on:close={closeDrawer}>
 		<div class="flex flex-col h-full">
 			<div>
 				<div class="text-xs pt-1 pb-2 text-gray-500 ">

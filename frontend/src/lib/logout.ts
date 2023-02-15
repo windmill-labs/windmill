@@ -10,6 +10,7 @@ export async function logoutWithRedirect(rd?: string): Promise<void> {
 		const error = document.cookie.includes('token')
 			? `error=${encodeURIComponent('You have been logged out because your session has expired.')}&`
 			: ''
+		console.log({rd});
 		goto(`/user/login?${error}${rd ? 'rd=' + encodeURIComponent(rd) : ''}`, { replaceState: true })
 	} else {
 		goto('/user/login', { replaceState: true })
