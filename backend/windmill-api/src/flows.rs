@@ -7,7 +7,6 @@
  */
 
 use hyper::StatusCode;
-use reqwest::Client;
 use sql_builder::prelude::*;
 
 use axum::{
@@ -33,6 +32,7 @@ use crate::{
     schedule::clear_schedule,
     users::{require_owner_of_path, Authed},
     webhook_util::{WebhookMessage, WebhookShared},
+    HTTP_CLIENT,
 };
 
 pub fn workspaced_service() -> Router {
@@ -111,12 +111,9 @@ async fn list_flows(
     Ok(Json(rows))
 }
 
-async fn list_hub_flows(
-    Authed { email, .. }: Authed,
-    Extension(http_client): Extension<Client>,
-) -> JsonResult<serde_json::Value> {
+async fn list_hub_flows(Authed { email, .. }: Authed) -> JsonResult<serde_json::Value> {
     let flows = list_elems_from_hub(
-        http_client,
+        &HTTP_CLIENT,
         "https://hub.windmill.dev/searchFlowData?approved=true",
         &email,
     )
@@ -145,10 +142,9 @@ async fn list_paths(
 pub async fn get_hub_flow_by_id(
     Authed { email, .. }: Authed,
     Path(id): Path<i32>,
-    Extension(http_client): Extension<Client>,
 ) -> JsonResult<serde_json::Value> {
     let value = http_get_from_hub(
-        http_client,
+        &HTTP_CLIENT,
         &format!("https://hub.windmill.dev/flows/{id}/json"),
         &email,
         false,
