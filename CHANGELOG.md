@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.63.2](https://github.com/windmill-labs/windmill/compare/v1.63.1...v1.63.2) (2023-02-15)
+
+
+### Bug Fixes
+
+* **psql:** update pg client ([a2fbc57](https://github.com/windmill-labs/windmill/commit/a2fbc5702509bb259bae106baa9a6146360ec5dd))
+
 ## [1.63.1](https://github.com/windmill-labs/windmill/compare/v1.63.0...v1.63.1) (2023-02-14)
 
 
