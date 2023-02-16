@@ -356,6 +356,13 @@ async function updateStateFromRemote(
           if (!await callback(entry.path)) {
             return; // notice that we are not saving
           }
+
+          try {
+            await Deno.stat(entry.path);
+          } catch {
+            await ensureDir(path.dirname(e.path));
+            await Deno.writeTextFile(e.path, "{}");
+          }
           state.hashes.set(objectHash(e.path), newHash);
 
           const encoded = CONTENT_ENCODER.encode(typed);
@@ -376,6 +383,12 @@ async function updateStateFromRemote(
           { create: true },
         );
         state.contentFiles.set(objectHash(e.path), fileName);
+        try {
+          await Deno.stat(entry.path);
+        } catch {
+          await ensureDir(path.dirname(e.path));
+          await Deno.writeTextFile(e.path, "");
+        }
       }
     }
   }
