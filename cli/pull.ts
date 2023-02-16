@@ -29,11 +29,13 @@ export async function downloadZip(
     return undefined;
   }
   const tempFilePath = await Deno.makeTempFile();
-  const tempFile = await Deno.open(tempFilePath, { createNew: true });
+  const tempFile = await Deno.open(tempFilePath, {
+    write: true,
+  });
   await zipResponse.body?.pipeTo(tempFile.writable);
-  tempFile.close();
   const dir = await Deno.makeTempDir();
   await zip.decompress(tempFilePath, dir);
+  // await Deno.remove(tempFilePath);
   return dir;
 }
 

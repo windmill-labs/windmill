@@ -7,11 +7,13 @@ import {
   Command,
   Confirm,
   ensureDir,
+  gitignore_parser,
   microdiff,
   nanoid,
   objectHash,
   path,
   ScriptService,
+  zip,
 } from "./deps.ts";
 import {
   Difference,
@@ -57,17 +59,13 @@ export class Tracked {
       return this.#content_cache;
     }
 
-    if (!this.#parent.stateRoot) {
-      throw new Error("Parent uninitialized");
-    }
-
     const f = this.#parent.contentFile(this.#id);
     if (!f) {
       return undefined;
     }
 
     const data = await Deno.readFile(
-      path.join(this.#parent.stateRoot, ".wmill", f),
+      State.getInternalWmillFolder(f),
     );
     const content = CONTENT_ENCODER.decode(data);
     this.#content_cache = content;
@@ -104,8 +102,6 @@ export class State {
   @property(() => String)
   remoteUrl: string;
 
-  stateRoot?: string;
-
   constructor(
     hashes: Map<TrackedId, string>,
     tracked: Map<string, TrackedId>,
@@ -140,40 +136,89 @@ export class State {
     return this.contentFiles.get(id);
   }
 
-  public get(path: string): Tracked {
+  public get(path: string): Tracked | undefined {
     const id = this.tracked.get(path);
-    if (!id) {
-      throw new Error("Could not resolve path " + path);
+    if (id) {
+      return new Tracked(id, this, path);
     }
-    return new Tracked(id, this, path);
+    return undefined;
+  }
+
+  public static getInternalWmillFolder(...subpath: string[]): string {
+    return path.join(Deno.cwd(), ".wmill", ...subpath);
+  }
+
+  public async *getFiles(): AsyncGenerator<{
+    localFile: string | undefined;
+    stateFile: Tracked | undefined;
+    isIgnored: boolean;
+    path: string;
+  }> {
+    // not sure why the auto-typing doesn't work here, see <https://www.npmjs.com/package/gitignore-parser> (a @types package is available...)
+    const ignore: {
+      accepts(file: string): boolean;
+      denies(file: string): boolean;
+    } = gitignore_parser.compile(
+      await Deno.readTextFile(".wmillignore"),
+    );
+    const t2 = new Map(this.tracked);
+    for await (const file of Deno.readDir(Deno.cwd())) {
+      const isIgnored = ignore.accepts(file.name);
+      const stateFile = this.get(file.name);
+      if (stateFile) {
+        t2.delete(file.name);
+      }
+      let localFile: string | undefined;
+      try {
+        localFile = await Deno.readTextFile(file.name);
+      } catch {
+        localFile = undefined;
+      }
+      yield { path: file.name, isIgnored, stateFile, localFile };
+    }
+
+    const final_arr: {
+      localFile: string | undefined;
+      stateFile: Tracked | undefined;
+      isIgnored: boolean;
+      path: string;
+    }[] = [];
+    t2.forEach((v, k) => {
+      final_arr.push({
+        path: k,
+        isIgnored: ignore.accepts(k),
+        localFile: undefined,
+        stateFile: new Tracked(v, this, k),
+      });
+    }, this);
+
+    for (const o of final_arr) {
+      yield o;
+    }
   }
 
   public async save(): Promise<void> {
-    if (!this.stateRoot) {
-      throw new Error("Uninitialized state root");
-    }
     const encoder = new cbor.Encoder({});
     const plain = decoverto.type(State).instanceToPlain(this);
     const result: Uint8Array = encoder.encode(plain, {});
-    await Deno.writeFile(path.join(this.stateRoot, ".wmill", "main"), result, {
+    await Deno.writeFile(State.getInternalWmillFolder("main"), result, {
       create: true,
     });
   }
 
-  public static async loadState(dir: string): Promise<State> {
-    const source = await Deno.readFile(path.join(dir, ".wmill", "main"));
+  public static async loadState(): Promise<State> {
+    const source = await Deno.readFile(this.getInternalWmillFolder("main"));
     const encoder = new cbor.Encoder({});
     const raw = encoder.decode(source);
     const state = decoverto.type(State).plainToInstance(
       raw,
     );
-    state.stateRoot = dir;
     return Object.freeze(state);
   }
 }
 
 async function getState(opts: GlobalOptions) {
-  const existingState = await State.loadState(Deno.cwd());
+  const existingState = await State.loadState();
 
   const workspaceStream = await getWorkspaceStream();
   const reader = workspaceStream.getReader();
@@ -226,7 +271,7 @@ async function updateStateFromRemote(
 
           const fileName = nanoid();
           await Deno.writeFile(
-            path.join(state.stateRoot!, ".wmill", fileName),
+            State.getInternalWmillFolder(fileName),
             encoded,
             { create: true },
           );
@@ -235,7 +280,7 @@ async function updateStateFromRemote(
       } else {
         const fileName = nanoid();
         await Deno.writeTextFile(
-          path.join(state.stateRoot!, ".wmill", fileName),
+          State.getInternalWmillFolder(fileName),
           val,
           { create: true },
         );
@@ -275,7 +320,7 @@ async function pull(
   for await (const diff of diffs) {
     await applyDiff(
       diff.diff,
-      path.join(state.stateRoot!, diff.localPath),
+      path.join(Deno.cwd(), diff.localPath),
     );
   }
   console.log(colors.green.underline("Done! All changes applied."));
@@ -308,18 +353,20 @@ async function pull(
   }
 
   async function copyNonJsonFiles(state: State): Promise<void> {
-    for (const t of state.tracked.keys()) {
-      if (t.endsWith(".json")) {
+    for await (
+      const { path, localFile, stateFile, isIgnored } of state.getFiles()
+    ) {
+      if (path.endsWith(".json") || isIgnored || !localFile || !stateFile) {
         continue;
       }
-      const entry = state.get(t);
 
-      const target = await Deno.open(entry.path, { create: true, write: true });
+      const target = await Deno.open(stateFile.path, {
+        create: true,
+        write: true,
+      });
       const source = await Deno.open(
-        path.join(
-          state.stateRoot!,
-          ".wmill",
-          state.contentFile(entry.getId())!,
+        State.getInternalWmillFolder(
+          state.contentFile(stateFile.getId())!,
         ),
         {
           read: true,
@@ -332,24 +379,18 @@ async function pull(
 }
 
 async function* diffState(state: State): AsyncGenerator<StateDiff, void, void> {
-  for (const t of state.tracked.keys()) {
-    if (!t.endsWith(".json")) {
+  for await (
+    const { path, localFile, stateFile, isIgnored } of state.getFiles()
+  ) {
+    if (!path.endsWith(".json") || isIgnored) {
       continue;
     }
-    const entry = state.get(t);
-    let fileText;
-    try {
-      fileText = await Deno.readTextFile(
-        path.join(state.stateRoot!, entry.path),
-      );
-    } catch {
-      fileText = "{}";
-    }
+    const fileText = localFile ?? "{}";
     const old = JSON.parse(fileText);
     const fileHash = objectHash(old);
 
-    if (fileHash !== entry.getHash()) {
-      const stateContent = await entry.getContent() as any;
+    if (fileHash !== stateFile?.getHash()) {
+      const stateContent = await stateFile?.getContent() as any;
 
       const diff = microdiff(
         old,
@@ -357,7 +398,19 @@ async function* diffState(state: State): AsyncGenerator<StateDiff, void, void> {
         { cyclesFix: false },
       );
 
-      yield new StateDiff(entry.getId(), entry.path, diff);
+      let finalStateFile: Tracked;
+      if (!stateFile) {
+        state.add(path);
+        const l = state.get(path);
+        if (!l) {
+          throw new Error("??? Newly tracked file not tracked");
+        }
+        finalStateFile = l;
+      } else {
+        finalStateFile = stateFile;
+      }
+
+      yield new StateDiff(finalStateFile.getId(), finalStateFile.path, diff);
     }
   }
 }
@@ -407,7 +460,7 @@ async function push(opts: GlobalOptions & { raw: boolean }) {
     let fileJSON;
     try {
       fileJSON = JSON.parse(
-        await Deno.readTextFile(path.join(state.stateRoot!, e.path)),
+        await Deno.readTextFile(path.join(Deno.cwd(), e.path)),
       );
     } catch {
       fileJSON = {};
@@ -437,32 +490,27 @@ async function push(opts: GlobalOptions & { raw: boolean }) {
     return;
   }
 
-  for (const p of state.tracked.keys()) {
-    if (!p.endsWith(".json")) continue;
-    const entry = state.get(p);
-    let fileJSON;
-    try {
-      fileJSON = JSON.parse(
-        await Deno.readTextFile(path.join(state.stateRoot!, entry.path)),
-      );
-    } catch {
-      fileJSON = {};
-    }
-    const file = inferTypeFromPath(entry.path, fileJSON);
-    const eContent =
-      (inferTypeFromPath(entry.path, await entry.getContent())) ?? {};
+  for await (
+    const { path, isIgnored, stateFile, localFile } of state.getFiles()
+  ) {
+    if (!path.endsWith(".json") || isIgnored || !stateFile) continue;
+
+    const fileJSON = JSON.parse(localFile ?? "{}");
+    const file = inferTypeFromPath(path, fileJSON);
+    const eContent = (inferTypeFromPath(path, await stateFile.getContent())) ??
+      {};
 
     const fileHash = objectHash(file);
     const eHash = objectHash(eContent);
 
     if (fileHash !== eHash) {
-      const remotePath = entry.path.split(".")[0];
-      const type = getTypeStrFromPath(entry.path);
+      const remotePath = stateFile.path.split(".")[0];
+      const type = getTypeStrFromPath(stateFile.path);
       if (type === "script") {
         // Diffing makes no sense for scripts - instead fetch parent hash & check hash again.
         // If hash is still missmatched - create new script as child.
         const typed = decoverto.type(ScriptFile).plainToInstance(file);
-        const contentPath = await findContentFile(entry.path);
+        const contentPath = await findContentFile(stateFile.path);
         const language = inferContentTypeFromFilePath(contentPath);
         const content = await Deno.readTextFile(contentPath);
         try {
@@ -570,50 +618,9 @@ class StateDiff {
   }
 }
 
-async function add(opts: GlobalOptions, path: string) {
-  const state = await getState(opts);
-
-  // TODO: Automatically check whether this path exists either locally or on the remote
-  state.add(path);
-
-  if (path.endsWith(".script.json")) {
-    try {
-      const f = await findContentFile(path);
-      state.add(f);
-    } catch {
-      const workspace = await resolveWorkspace(opts);
-      await requireLogin(opts);
-      try {
-        const old = await ScriptService.getScriptByPath({
-          workspace: workspace.workspaceId,
-          path: path.split(".")[0],
-        });
-        if (old.language === "python3") {
-          state.add(path.replace(".script.json", ".py"));
-        } else if (old.language === "bash") {
-          state.add(path.replace(".script.json", ".sh"));
-        } else if (old.language === "deno") {
-          state.add(path.replace(".script.json", ".ts"));
-        } else if (old.language === "go") {
-          state.add(path.replace(".script.json", ".go"));
-        } else {
-          throw new Error("Remote returned invalid language?! " + old.language);
-        }
-      } catch {
-        throw new Error(
-          "Could not infer script language from local or remote. Exiting.",
-        );
-      }
-    }
-  }
-
-  await state.save();
-}
-
 async function init(opts: GlobalOptions) {
-  const root = Deno.cwd();
   try {
-    await Deno.mkdir(path.join(root, ".wmill"));
+    await Deno.mkdir(State.getInternalWmillFolder());
   } catch {
     console.log(
       colors.red(
@@ -622,6 +629,11 @@ async function init(opts: GlobalOptions) {
     );
     return;
   }
+
+  await Deno.writeTextFile(
+    ".wmillignore",
+    "# Write any ignores here as you see fit. Same syntax as .gitignore.",
+  );
 
   const workspace = await resolveWorkspace(opts);
 
@@ -632,7 +644,6 @@ async function init(opts: GlobalOptions) {
     workspace.workspaceId,
     workspace.remote,
   );
-  newState.stateRoot = root;
 
   await newState.save();
 }
@@ -940,10 +951,6 @@ const command = new Command()
       "\nBegin by initializing state tracking using `init` & add files you want to track using `add`. `push` & `pull` will then use local state to accurately track changes required on the remote.",
   )
   .action(init as any)
-  .command("add")
-  .description("Add a local file for tracking")
-  .arguments("<path:string>")
-  .action(add as any)
   .command("pull")
   .description(
     "Pull any remote changes and apply them locally. Use --raw for usage without local state tracking.",
