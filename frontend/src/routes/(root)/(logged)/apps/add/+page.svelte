@@ -49,7 +49,12 @@
 			goto('?', { replaceState: true })
 		} else if (hubId) {
 			const hub = await AppService.getHubAppById({ id: Number(hubId) })
-			value = hub.app.value
+			value = {
+				hiddenInlineScripts: [],
+				unusedInlineScripts: [],
+				fullscreen: false,
+				...hub.app.value
+			}
 			summary = hub.app.summary
 			sendUserToast('App loaded from Hub')
 			goto('?', { replaceState: true })
