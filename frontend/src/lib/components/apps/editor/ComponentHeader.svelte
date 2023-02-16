@@ -6,6 +6,7 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { Alert, Button } from '$lib/components/common'
 	import type { AppComponent } from './Component.svelte'
+	import type { Output } from '../rx'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -15,13 +16,27 @@
 
 	const dispatch = createEventDispatcher()
 
-	const { errorByComponent, openDebugRun } = getContext<AppEditorContext>('AppEditorContext')
+	const { errorByComponent, openDebugRun, focusedGrid, worldStore } =
+		getContext<AppEditorContext>('AppEditorContext')
 
 	$: error = Object.values($errorByComponent).find((e) => e.componentId === component.id)
 
 	function openDebugRuns() {
 		if ($openDebugRun) {
 			$openDebugRun(component.id)
+		}
+	}
+
+	function onFocus() {
+		const outputs = $worldStore?.outputsById[component.id] as {
+			selectedTabIndex: Output<number>
+		}
+
+		const subGridIndex = outputs.selectedTabIndex.peak()
+
+		$focusedGrid = {
+			parentComponentId: component.id,
+			subGridIndex: subGridIndex ?? 0
 		}
 	}
 </script>
@@ -38,6 +53,20 @@
 >
 	{component.id}
 </span>
+
+{#if component.subGrids}
+	<button
+		title={`Id: ${component.id}`}
+		class={classNames(
+			'px-2 text-2xs font-bold w-fit absolute shadow bottom-0 left-0 border z-50 ',
+			'bg-blue-500 border-blue-500 text-white hover:bg-blue-800'
+		)}
+		style="padding-top: 1px; padding-bottom: 1px;"
+		on:click={onFocus}
+	>
+		Focus grid
+	</button>
+{/if}
 
 {#if pointerdown || selected || hover}
 	<button

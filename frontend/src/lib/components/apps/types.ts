@@ -14,7 +14,6 @@ import type {
 } from './inputType'
 import type { World } from './rx'
 
-
 export type HorizontalAlignment = 'left' | 'center' | 'right'
 export type VerticalAlignment = 'top' | 'center' | 'bottom'
 
@@ -41,9 +40,8 @@ export interface BaseAppComponent extends Partial<Aligned> {
 	 * *For example when the component has a popup like `Select`*
 	 */
 	softWrap?: boolean
+	subGrids?: GridItem[][]
 }
-
-
 
 export type ComponentSet = {
 	title: string
@@ -110,7 +108,10 @@ export type AppEditorContext = {
 	noBackend: boolean
 	errorByComponent: Writable<Record<string, { error: string; componentId: string }>>
 	openDebugRun: Writable<((componentID: string) => void) | undefined>
+	focusedGrid: Writable<FocusedGrid | undefined>
 }
+
+export type FocusedGrid = { parentComponentId: string; subGridIndex: number }
 
 export type EditorMode = 'dnd' | 'preview'
 export type EditorBreakpoint = 'sm' | 'lg'

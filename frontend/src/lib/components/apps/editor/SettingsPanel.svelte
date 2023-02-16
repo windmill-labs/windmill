@@ -14,6 +14,14 @@
 		<ComponentPanel bind:component={gridItem.data} />
 	{:else if gridItem.data.type === 'tablecomponent'}
 		<TablePanel bind:component={gridItem.data} />
+	{:else if gridItem.data.subGrids}
+		{#each gridItem.data.subGrids as subGrid}
+			{#each subGrid as subGridItem (subGridItem.data.id)}
+				{#if subGridItem.data.id === $selectedComponent}
+					<ComponentPanel bind:component={subGridItem.data} />
+				{/if}
+			{/each}
+		{/each}
 	{/if}
 {/each}
 

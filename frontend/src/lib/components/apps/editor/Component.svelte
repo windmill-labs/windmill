@@ -16,7 +16,8 @@
 		GripHorizontal,
 		Code2,
 		SlidersHorizontal,
-		PlusSquare
+		PlusSquare,
+		ListOrdered
 	} from 'lucide-svelte'
 	import type { Size } from 'svelte-grid'
 
@@ -66,6 +67,7 @@
 	export type SelectComponent = BaseComponent<'selectcomponent'>
 	export type CheckboxComponent = BaseComponent<'checkboxcomponent'>
 	export type RadioComponent = BaseComponent<'radiocomponent'>
+	export type TabsComponent = BaseComponent<'tabscomponent'>
 
 	export type AppComponent = BaseAppComponent &
 		(
@@ -91,6 +93,7 @@
 			| FormButtonComponent
 			| VegaLiteComponent
 			| PlotlyComponent
+			| TabsComponent
 		)
 
 	// Dimensions key formula: <mobile width>:<mobile height>-<desktop width>:<desktop height>
@@ -845,6 +848,26 @@
 				},
 				card: false
 			}
+		},
+		tabscomponent: {
+			name: 'Tabs',
+			icon: ListOrdered,
+			dims: '4:4-4:4',
+			data: {
+				softWrap: true,
+				verticalAlignment: 'center',
+				id: '',
+				type: 'tabscomponent',
+				configuration: {},
+				componentInput: {
+					type: 'static',
+					fieldType: 'array',
+					subFieldType: 'text',
+					value: ['First Tab', 'Second Tab']
+				},
+				card: false,
+				subGrids: [[], []]
+			}
 		}
 	}
 
@@ -879,7 +902,8 @@
 			'barchartcomponent',
 			'scatterchartcomponent',
 			'timeseriescomponent',
-			'displaycomponent'
+			'displaycomponent',
+			'tabscomponent'
 		]
 	}
 
@@ -1241,6 +1265,7 @@
 	import PlotlyHtml from '../components/dataDisplay/PlotlyHtml.svelte'
 	import { defaultAlignement } from './componentsPanel/componentDefaultProps'
 	import AppRangeInput from '../components/numberInputs/AppRangeInput.svelte'
+	import AppTabs from '../components/AppTabs.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -1393,6 +1418,8 @@
 			<AppSliderInputs {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{:else if component.type === 'rangecomponent'}
 			<AppRangeInput {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+		{:else if component.type === 'tabscomponent'}
+			<AppTabs {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{/if}
 	</div>
 </div>

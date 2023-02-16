@@ -76,7 +76,8 @@
 		jobs,
 		staticExporter,
 		errorByComponent,
-		openDebugRun
+		openDebugRun,
+		focusedGrid
 	} = getContext<AppEditorContext>('AppEditorContext')
 
 	const loading = {
@@ -458,6 +459,19 @@
 			</ToggleButtonGroup>
 		</div>
 	</div>
+	<Badge
+		color="indigo"
+		on:click={() => {
+			$focusedGrid = undefined
+		}}
+	>
+		{#if $focusedGrid === undefined}
+			Main grid
+		{:else}
+			{`Grid ${$focusedGrid.parentComponentId} - ${$focusedGrid.subGridIndex}`}
+		{/if}
+	</Badge>
+
 	<div class="flex flex-row gap-2 justify-end items-center overflow-visible">
 		<Dropdown
 			placement="bottom-end"

@@ -20,11 +20,14 @@
 		staticOutputs,
 		runnableComponents,
 		lazyGrid,
-		summary
+		summary,
+		focusedGrid
 	} = getContext<AppEditorContext>('AppEditorContext')
 
 	// The drag is disabled when the user is connecting an input
-	$: setAllDrags($mode === 'preview' || $connectingInput.opened)
+	// or when the user is previewing the app
+	// or when the focused grid is a subgrid
+	$: setAllDrags($mode === 'preview' || $connectingInput.opened || $focusedGrid !== undefined)
 
 	function setAllDrags(enable: boolean) {
 		if (enable) {
@@ -101,6 +104,12 @@
 		pointerdown = false
 	}
 
+	function onclick() {
+		if ($focusedGrid !== undefined) {
+			$focusedGrid = undefined
+		}
+	}
+
 	afterUpdate(() => {
 		if ($selectedComponent) {
 			const parents = document.querySelectorAll<HTMLElement>('.svlt-grid-item')
@@ -127,12 +136,13 @@
 		{#if !$connectingInput.opened}
 			<RecomputeAllComponents />
 		{/if}
-		<div class="text-2xs text-gray-600"
-			>{policy.on_behalf_of ? `on behalf of ${policy.on_behalf_of_email}` : ''}</div
-		>
+		<div class="text-2xs text-gray-600">
+			{policy.on_behalf_of ? `on behalf of ${policy.on_behalf_of_email}` : ''}
+		</div>
 	</div>
+
 	<div
-		class="px-4 pt-4 overflow-auto {$connectingInput?.opened ? '' : ''}"
+		class={classNames("px-4 pt-4 overflow-auto {$connectingInput?.opened ? '' : ''}")}
 		on:pointerdown={onpointerdown}
 		on:pointerleave={onpointerup}
 		on:pointerup={onpointerup}

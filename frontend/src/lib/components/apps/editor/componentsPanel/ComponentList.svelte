@@ -17,16 +17,10 @@
 		type AppComponent
 	} from '../Component.svelte'
 
-	const { app, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, selectedComponent, focusedGrid } = getContext<AppEditorContext>('AppEditorContext')
 
-	function addComponent(appComponentType: AppComponent['type']) {
-		$dirtyStore = true
-		const grid = $app.grid ?? []
-		const id = getNextId(
-			grid.map((gridItem) => gridItem.data.id),
-			true
-		)
-
+	// The grid is needed to find a space for the new component
+	function createNewGridItem(grid: GridItem[], id: string, appComponentType: string): GridItem {
 		const appComponent = componentsRecord[appComponentType].data
 
 		appComponent.id = id
@@ -62,9 +56,45 @@
 			newItem[column] = { ...newItem[column], ...position }
 		})
 
-		$app.grid = [...grid, newItem]
+		return newItem
+	}
 
-		$selectedComponent = id
+	function addComponent(appComponentType: AppComponent['type']): void {
+		// When a new component is added, we need to mark the app as dirty,
+		// so a confirmation modal will appear if the user tries to leave the page
+		$dirtyStore = true
+
+		const grid = $app.grid ?? []
+
+		const gridItemIds = grid
+			.map((gridItem: GridItem) => {
+				const subGrids = gridItem.data.subGrids ?? []
+				return [
+					gridItem.data.id,
+					...subGrids.map((subGrid: GridItem[]) =>
+						subGrid.map((gridItem: GridItem) => gridItem.data.id)
+					)
+				]
+			})
+			.flat(2)
+
+		const id = getNextId(gridItemIds, true)
+
+		if ($focusedGrid) {
+			const { parentComponentId, subGridIndex } = $focusedGrid
+
+			const gridItemIndex = $app.grid.findIndex((gridItem) => gridItem.id === parentComponentId)
+			const subGrids = $app.grid[gridItemIndex].data.subGrids ?? []
+			const newItem = createNewGridItem(subGrids[subGridIndex] ?? [], id, appComponentType)
+			const subGrid = subGrids[subGridIndex] ?? []
+
+			$app.grid[gridItemIndex].data.subGrids[subGridIndex] = [...subGrid, newItem]
+			$selectedComponent = id
+		} else {
+			const newItem = createNewGridItem(grid, id, appComponentType)
+			$app.grid = [...grid, newItem]
+			$selectedComponent = id
+		}
 	}
 
 	onMount(() => {

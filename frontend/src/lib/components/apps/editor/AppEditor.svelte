@@ -10,7 +10,8 @@
 		AppEditorContext,
 		ConnectingInput,
 		EditorBreakpoint,
-		EditorMode
+		EditorMode,
+		FocusedGrid
 	} from '../types'
 	import AppEditorHeader from './AppEditorHeader.svelte'
 	import GridEditor from './GridEditor.svelte'
@@ -57,6 +58,8 @@
 	const runnableComponents = writable<Record<string, () => Promise<void>>>({})
 	const errorByComponent = writable<Record<string, { error: string; componentId: string }>>({})
 
+	const focusedGrid = writable<FocusedGrid | undefined>(undefined)
+
 	setContext<AppEditorContext>('AppEditorContext', {
 		worldStore,
 		staticOutputs,
@@ -76,7 +79,8 @@
 		staticExporter: writable({}),
 		noBackend: false,
 		errorByComponent,
-		openDebugRun: writable(undefined)
+		openDebugRun: writable(undefined),
+		focusedGrid
 	})
 
 	let timeout: NodeJS.Timeout | undefined = undefined

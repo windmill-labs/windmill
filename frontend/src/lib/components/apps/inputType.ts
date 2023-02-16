@@ -34,13 +34,10 @@ export type UserInput<U> = {
 	value: U | undefined
 }
 
-
-
 export type EvalInput = {
 	type: 'eval'
 	expr: string
 }
-
 
 export type RowInput = {
 	type: 'row'
@@ -76,7 +73,7 @@ export type Runnable = RunnableByPath | RunnableByName | undefined
 // Runnable input, set by the developer in the component panel
 export type ResultInput = {
 	runnable: Runnable
-	fields: Record<string, (StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput)>
+	fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
 	type: 'runnable'
 	value?: any
 }
@@ -111,11 +108,11 @@ export type AppInput =
 	| AppInputSpec<'object', Record<string | number, any>>
 	| AppInputSpec<'object', string>
 	| (AppInputSpec<'select', string> & {
-		/**
-		 * One of the keys of `staticValues` from `lib/components/apps/editor/componentsPanel/componentStaticValues`
-		 */
-		optionValuesKey: keyof typeof staticValues
-	})
+			/**
+			 * One of the keys of `staticValues` from `lib/components/apps/editor/componentsPanel/componentStaticValues`
+			 */
+			optionValuesKey: keyof typeof staticValues
+	  })
 	| AppInputSpec<'array', string[], 'text'>
 	| AppInputSpec<'array', string[], 'textarea'>
 	| AppInputSpec<'array', number[], 'number'>
@@ -125,8 +122,8 @@ export type AppInput =
 	| AppInputSpec<'array', string[], 'datetime'>
 	| AppInputSpec<'array', object[], 'object'>
 	| (AppInputSpec<'array', string[], 'select'> & {
-		optionValuesKey: keyof typeof staticValues
-	})
+			optionValuesKey: keyof typeof staticValues
+	  })
 
 export type RowAppInput = Extract<AppInput, { type: 'row' }>
 export type StaticAppInput = Extract<AppInput, { type: 'static' }>
