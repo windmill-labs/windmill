@@ -16,7 +16,8 @@
 		GripHorizontal,
 		Code2,
 		SlidersHorizontal,
-		PlusSquare
+		PlusSquare,
+		Smile
 	} from 'lucide-svelte'
 	import type { Size } from 'svelte-grid'
 
@@ -25,7 +26,7 @@
 	}
 
 	/* 	How to add a new Svelte Component:
-	  1. add the the type to the union below
+	  1. add the type to the union below
 	  2. add the component to the components record
 	  3. add the comoonent to one of the components set (buttons, inputs, display)
 	  4. add the component in the svelte if switch
@@ -66,6 +67,7 @@
 	export type SelectComponent = BaseComponent<'selectcomponent'>
 	export type CheckboxComponent = BaseComponent<'checkboxcomponent'>
 	export type RadioComponent = BaseComponent<'radiocomponent'>
+	export type IconComponent = BaseComponent<'iconcomponent'>
 
 	export type AppComponent = BaseAppComponent &
 		(
@@ -91,6 +93,7 @@
 			| FormButtonComponent
 			| VegaLiteComponent
 			| PlotlyComponent
+			| IconComponent
 		)
 
 	// Dimensions key formula: <mobile width>:<mobile height>-<desktop width>:<desktop height>
@@ -99,7 +102,7 @@
 		{ name: string; icon: any; dims: `${number}:${number}-${number}:${number}`; data: AppComponent }
 	> = {
 		displaycomponent: {
-			name: 'Result',
+			name: 'Rich Result',
 			icon: Monitor,
 			dims: '2:8-6:8',
 			data: {
@@ -817,7 +820,7 @@
 			}
 		},
 		dateinputcomponent: {
-			name: 'Date Input',
+			name: 'Date',
 			icon: Calendar,
 			dims: '2:1-3:1',
 			data: {
@@ -845,7 +848,45 @@
 				},
 				card: false
 			}
-		}
+		},
+		iconcomponent: {
+			name: 'Icon',
+			icon: Smile,
+			dims: '1:3-1:2',
+			data: {
+				softWrap: false,
+				horizontalAlignment: 'center',
+				verticalAlignment: 'center',
+				id: '',
+				type: 'iconcomponent',
+				componentInput: undefined,
+				configuration: {
+					iconName: {
+						type: 'static',
+						value: 'Smile',
+						fieldType: 'icon-select',
+					},
+					color: {
+						type: 'static',
+						value: 'currentColor',
+						fieldType: 'text'
+					},
+					size: {
+						type: 'static',
+						value: 24,
+						fieldType: 'number',
+						onlyStatic: true
+					},
+					strokeWidth: {
+						type: 'static',
+						value: 2,
+						fieldType: 'number',
+						onlyStatic: true
+					},
+				},
+				card: false
+			}
+		},
 	}
 
 	const inputs: ComponentSet = {
@@ -870,16 +911,17 @@
 	const display: ComponentSet = {
 		title: 'Display',
 		components: [
+			'textcomponent',
+			'iconcomponent',
 			'htmlcomponent',
+			'tablecomponent',
+			'barchartcomponent',
+			'piechartcomponent',
 			'vegalitecomponent',
 			'plotlycomponent',
-			'textcomponent',
-			'tablecomponent',
-			'piechartcomponent',
-			'barchartcomponent',
 			'scatterchartcomponent',
 			'timeseriescomponent',
-			'displaycomponent'
+			'displaycomponent',
 		]
 	}
 
@@ -1195,6 +1237,13 @@
 			"backgroundColor": "orange"
 		}
 	]`
+		},
+		iconcomponent: {
+			deno: `export async function main() {
+	return "smile";
+}`,
+			python3: `def main():
+	return "smile"`
 		}
 	} as const
 
@@ -1241,6 +1290,7 @@
 	import PlotlyHtml from '../components/dataDisplay/PlotlyHtml.svelte'
 	import { defaultAlignement } from './componentsPanel/componentDefaultProps'
 	import AppRangeInput from '../components/numberInputs/AppRangeInput.svelte'
+	import AppIcon from '../components/dataDisplay/AppIcon.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -1393,6 +1443,8 @@
 			<AppSliderInputs {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{:else if component.type === 'rangecomponent'}
 			<AppRangeInput {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+		{:else if component.type === 'iconcomponent'}
+			<AppIcon {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{/if}
 	</div>
 </div>
