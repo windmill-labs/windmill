@@ -1,11 +1,11 @@
 // deno-lint-ignore-file no-explicit-any
 import { GlobalOptions } from "./types.ts";
-import { colors, Command, zip } from "./deps.ts";
+import { colors, Command, JSZip } from "./deps.ts";
 import { Workspace } from "./workspace.ts";
 
 export async function downloadZip(
   workspace: Workspace,
-): Promise<string | undefined> {
+): Promise<JSZip | undefined> {
   const requestHeaders: HeadersInit = new Headers();
   requestHeaders.set("Authorization", "Bearer " + workspace.token);
   requestHeaders.set("Content-Type", "application/octet-stream");
@@ -28,15 +28,8 @@ export async function downloadZip(
     console.log(await zipResponse.text());
     return undefined;
   }
-  const tempFilePath = await Deno.makeTempFile();
-  const tempFile = await Deno.open(tempFilePath, {
-    write: true,
-  });
-  await zipResponse.body?.pipeTo(tempFile.writable);
-  const dir = await Deno.makeTempDir();
-  await zip.decompress(tempFilePath, dir);
-  // await Deno.remove(tempFilePath);
-  return dir;
+  const blob = await zipResponse.blob();
+  return await JSZip.loadAsync(blob);
 }
 
 async function stub(

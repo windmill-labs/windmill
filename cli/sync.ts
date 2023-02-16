@@ -8,12 +8,12 @@ import {
   Confirm,
   ensureDir,
   gitignore_parser,
+  JSZip,
   microdiff,
   nanoid,
   objectHash,
   path,
   ScriptService,
-  zip,
 } from "./deps.ts";
 import {
   Difference,
@@ -34,6 +34,7 @@ import {
 import { ResourceFile } from "./resource.ts";
 import { FlowFile } from "./flow.ts";
 import { VariableFile } from "./variable.ts";
+import { file } from "../../.cache/deno/npm/registry.npmjs.org/jszip/3.7.1/index.d.ts";
 
 type TrackedId = string;
 const TrackedId = String;
@@ -41,15 +42,13 @@ const TrackedId = String;
 const CONTENT_ENCODER: cbor.Encoder = new cbor.Encoder({ pack: true });
 
 export class Tracked {
-  #id: TrackedId;
   #parent: State;
 
   path: string;
 
   #content_cache?: string;
 
-  constructor(id: TrackedId, parent: State, path: string) {
-    this.#id = id;
+  constructor(parent: State, path: string) {
     this.#parent = parent;
     this.path = path;
   }
@@ -59,7 +58,7 @@ export class Tracked {
       return this.#content_cache;
     }
 
-    const f = this.#parent.contentFile(this.#id);
+    const f = this.#parent.stateContentFor(this.path);
     if (!f) {
       return undefined;
     }
@@ -72,12 +71,133 @@ export class Tracked {
     return content;
   }
 
-  getHash(): string {
-    return this.#parent.hashes.get(this.#id)!;
+  getHash(): string | undefined {
+    return this.#parent.hashes.get(objectHash(this.path));
   }
+}
 
-  getId(): TrackedId {
-    return this.#id;
+type DynFSElement = {
+  isDirectory: boolean;
+  path: string;
+  getContentBytes(): Promise<Uint8Array>;
+  getContentText(): Promise<string>;
+  getChildren(): AsyncIterable<DynFSElement>;
+};
+
+async function FSFSElement(p: string): Promise<DynFSElement> {
+  function _internal_element(
+    p: string,
+    isDir: boolean,
+  ): DynFSElement {
+    return {
+      isDirectory: isDir,
+      path: p,
+      async *getChildren(): AsyncIterable<DynFSElement> {
+        for await (const e of Deno.readDir(p)) {
+          yield _internal_element(path.join(p, e.name), e.isDirectory);
+        }
+      },
+      async getContentBytes(): Promise<Uint8Array> {
+        return await Deno.readFile(p);
+      },
+      async getContentText(): Promise<string> {
+        return await Deno.readTextFile(p);
+      },
+    };
+  }
+  return _internal_element(p, (await Deno.stat(p)).isDirectory);
+}
+
+function ZipFSElement(zip: JSZip): DynFSElement {
+  function _internal_file(p: string, f: JSZip.JSZipObject): DynFSElement {
+    return {
+      isDirectory: false,
+      path: p,
+      // deno-lint-ignore require-yield
+      async *getChildren(): AsyncIterable<DynFSElement> {
+        throw new Error("Cannot get children of file");
+      },
+      async getContentBytes(): Promise<Uint8Array> {
+        return await f.async("uint8array");
+      },
+      async getContentText(): Promise<string> {
+        return await f.async("text");
+      },
+    };
+  }
+  function _internal_folder(p: string, zip: JSZip): DynFSElement {
+    return {
+      isDirectory: true,
+      path: p,
+      async *getChildren(): AsyncIterable<DynFSElement> {
+        for (const filename in zip.files) {
+          const file = zip.files[filename];
+          const totalPath = path.join(p, filename);
+          if (file.dir) {
+            const e = zip.folder(file.name)!;
+            yield _internal_folder(totalPath, e);
+          } else {
+            yield _internal_file(totalPath, file);
+          }
+        }
+      },
+      async getContentBytes(): Promise<Uint8Array> {
+        throw new Error("Cannot get content of folder");
+      },
+      async getContentText(): Promise<string> {
+        throw new Error("Cannot get content of folder");
+      },
+    };
+  }
+  return _internal_folder("./", zip);
+}
+
+async function* readDirRecursiveWithIgnore(
+  ignore: (path: string) => boolean,
+  root: DynFSElement,
+): AsyncGenerator<
+  {
+    path: string;
+    ignored: boolean;
+    isDirectory: boolean;
+    getContentBytes(): Promise<Uint8Array>;
+    getContentText(): Promise<string>;
+  }
+> {
+  const stack: {
+    path: string;
+    isDirectory: boolean;
+    ignored: boolean;
+    c(): AsyncIterable<DynFSElement>;
+    getContentBytes(): Promise<Uint8Array>;
+    getContentText(): Promise<string>;
+  }[] = [{
+    path: root.path,
+    ignored: ignore(root.path),
+    isDirectory: root.isDirectory,
+    c: root.getChildren,
+    getContentBytes(): Promise<Uint8Array> {
+      throw undefined;
+    },
+    getContentText(): Promise<string> {
+      throw undefined;
+    },
+  }];
+
+  while (stack.length > 0) {
+    const e = stack.pop()!;
+    yield e;
+    if (!e.isDirectory) continue;
+    for await (const e2 of e.c()) {
+      stack.push({
+        path: e2.path,
+        ignored: e.ignored || ignore(e2.path),
+        isDirectory: e2.isDirectory,
+        getContentBytes: e2.getContentBytes,
+        getContentText: e2.getContentText,
+        c: e2.getChildren,
+      });
+    }
   }
 }
 
@@ -93,9 +213,6 @@ export class State {
   @property(map(() => TrackedId, () => String, { shape: MapShape.Object }))
   contentFiles: Map<TrackedId, string>;
 
-  @property(map(() => String, () => TrackedId, { shape: MapShape.Object }))
-  tracked: Map<string, TrackedId>;
-
   @property(() => String)
   workspaceId: string;
 
@@ -104,44 +221,25 @@ export class State {
 
   constructor(
     hashes: Map<TrackedId, string>,
-    tracked: Map<string, TrackedId>,
     contentFiles: Map<TrackedId, string>,
     workspaceId: string,
     remoteUrl: string,
   ) {
     this.hashes = hashes;
-    this.tracked = tracked;
     this.contentFiles = contentFiles;
     this.workspaceId = workspaceId;
     this.remoteUrl = remoteUrl;
   }
 
-  add(path: string) {
-    if (this.tracked.get(path)) {
-      throw new Error("Cannot newly track already tracked paths");
-    } else {
-      this.tracked.set(path, nanoid());
-    }
+  public stateContentFor(path: string) {
+    const hashOfPath = objectHash(path);
+    const file = this.contentFiles.get(hashOfPath);
+    return file;
   }
 
-  public forget(path: string) {
-    const id = this.tracked.get(path);
-    if (id) {
-      this.tracked.delete(path);
-      this.hashes.delete(id);
-    }
-  }
-
-  public contentFile(id: TrackedId): string | undefined {
-    return this.contentFiles.get(id);
-  }
-
-  public get(path: string): Tracked | undefined {
-    const id = this.tracked.get(path);
-    if (id) {
-      return new Tracked(id, this, path);
-    }
-    return undefined;
+  public get(path: string): Tracked {
+    // TODO: Normalize path
+    return new Tracked(this, path);
   }
 
   public static getInternalWmillFolder(...subpath: string[]): string {
@@ -150,7 +248,7 @@ export class State {
 
   public async *getFiles(): AsyncGenerator<{
     localFile: string | undefined;
-    stateFile: Tracked | undefined;
+    stateFile: Tracked;
     isIgnored: boolean;
     path: string;
   }> {
@@ -161,39 +259,27 @@ export class State {
     } = gitignore_parser.compile(
       await Deno.readTextFile(".wmillignore"),
     );
-    const t2 = new Map(this.tracked);
-    for await (const file of Deno.readDir(Deno.cwd())) {
-      const isIgnored = ignore.accepts(file.name);
-      const stateFile = this.get(file.name);
-      if (stateFile) {
-        t2.delete(file.name);
+    const base = Deno.cwd();
+    for await (
+      const { ignored, path, getContentText, isDirectory }
+        of readDirRecursiveWithIgnore(
+          ignore.denies,
+          await FSFSElement(base),
+        )
+    ) {
+      if (isDirectory || path.includes(".wmill")) {
+        continue;
       }
+      const path2 = path.substring(base.length + 1);
+      // TODO: Fix relative to root, this should be relative to the folder
+      const stateFile = this.get(path2);
       let localFile: string | undefined;
       try {
-        localFile = await Deno.readTextFile(file.name);
+        localFile = await getContentText();
       } catch {
         localFile = undefined;
       }
-      yield { path: file.name, isIgnored, stateFile, localFile };
-    }
-
-    const final_arr: {
-      localFile: string | undefined;
-      stateFile: Tracked | undefined;
-      isIgnored: boolean;
-      path: string;
-    }[] = [];
-    t2.forEach((v, k) => {
-      final_arr.push({
-        path: k,
-        isIgnored: ignore.accepts(k),
-        localFile: undefined,
-        stateFile: new Tracked(v, this, k),
-      });
-    }, this);
-
-    for (const o of final_arr) {
-      yield o;
+      yield { path: path2, isIgnored: ignored, stateFile, localFile };
     }
   }
 
@@ -249,23 +335,28 @@ async function updateStateFromRemote(
   const zipDir = await downloadZip(workspace);
   if (!zipDir) throw new Error("Failed to pull Zip");
 
-  for await (const entry of Deno.readDir(zipDir)) {
-    if (entry.isDirectory) continue;
-    const id = state.tracked.get(entry.name);
-    if (id) {
-      const val = await Deno.readTextFile(path.resolve(zipDir, entry.name));
-      if (entry.name.endsWith(".json")) {
+  for await (
+    const entry of readDirRecursiveWithIgnore(
+      (_) => false,
+      ZipFSElement(zipDir),
+    )
+  ) {
+    if (entry.isDirectory || entry.ignored) continue;
+    const e = state.get(entry.path);
+    if (e) {
+      const val = await entry.getContentText();
+      if (entry.path.endsWith(".json")) {
         const parsed = JSON.parse(val);
-        const typed = inferTypeFromPath(entry.name, parsed);
+        const typed = inferTypeFromPath(entry.path, parsed);
 
-        const oldHash = state.hashes.get(id);
+        const oldHash = e.getHash();
         const newHash = objectHash(typed);
 
         if (!oldHash || oldHash !== newHash) {
-          if (!await callback(entry.name)) {
+          if (!await callback(entry.path)) {
             return; // notice that we are not saving
           }
-          state.hashes.set(id, newHash);
+          state.hashes.set(objectHash(e.path), newHash);
 
           const encoded = CONTENT_ENCODER.encode(typed);
 
@@ -275,7 +366,7 @@ async function updateStateFromRemote(
             encoded,
             { create: true },
           );
-          state.contentFiles.set(id, fileName);
+          state.contentFiles.set(objectHash(e.path), fileName);
         }
       } else {
         const fileName = nanoid();
@@ -284,7 +375,7 @@ async function updateStateFromRemote(
           val,
           { create: true },
         );
-        state.contentFiles.set(id, fileName);
+        state.contentFiles.set(objectHash(e.path), fileName);
       }
     }
   }
@@ -305,6 +396,7 @@ async function pull(
   }
 
   const state = await getState(opts);
+  console.log(state);
 
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
@@ -324,6 +416,7 @@ async function pull(
     );
   }
   console.log(colors.green.underline("Done! All changes applied."));
+  console.log(state);
 
   async function applyDiff(diffs: Difference[], file: string) {
     ensureDir(path.dirname(file));
@@ -356,7 +449,7 @@ async function pull(
     for await (
       const { path, localFile, stateFile, isIgnored } of state.getFiles()
     ) {
-      if (path.endsWith(".json") || isIgnored || !localFile || !stateFile) {
+      if (path.endsWith(".json") || isIgnored || !localFile) {
         continue;
       }
 
@@ -366,7 +459,7 @@ async function pull(
       });
       const source = await Deno.open(
         State.getInternalWmillFolder(
-          state.contentFile(stateFile.getId())!,
+          state.stateContentFor(stateFile.path)!,
         ),
         {
           read: true,
@@ -389,8 +482,8 @@ async function* diffState(state: State): AsyncGenerator<StateDiff, void, void> {
     const old = JSON.parse(fileText);
     const fileHash = objectHash(old);
 
-    if (fileHash !== stateFile?.getHash()) {
-      const stateContent = await stateFile?.getContent() as any;
+    if (fileHash !== stateFile.getHash()) {
+      const stateContent = await stateFile.getContent() as any;
 
       const diff = microdiff(
         old,
@@ -398,19 +491,7 @@ async function* diffState(state: State): AsyncGenerator<StateDiff, void, void> {
         { cyclesFix: false },
       );
 
-      let finalStateFile: Tracked;
-      if (!stateFile) {
-        state.add(path);
-        const l = state.get(path);
-        if (!l) {
-          throw new Error("??? Newly tracked file not tracked");
-        }
-        finalStateFile = l;
-      } else {
-        finalStateFile = stateFile;
-      }
-
-      yield new StateDiff(finalStateFile.getId(), finalStateFile.path, diff);
+      yield new StateDiff(stateFile.path, diff);
     }
   }
 }
@@ -493,7 +574,7 @@ async function push(opts: GlobalOptions & { raw: boolean }) {
   for await (
     const { path, isIgnored, stateFile, localFile } of state.getFiles()
   ) {
-    if (!path.endsWith(".json") || isIgnored || !stateFile) continue;
+    if (!path.endsWith(".json") || isIgnored) continue;
 
     const fileJSON = JSON.parse(localFile ?? "{}");
     const file = inferTypeFromPath(path, fileJSON);
@@ -603,16 +684,13 @@ async function push(opts: GlobalOptions & { raw: boolean }) {
 }
 
 class StateDiff {
-  trackedId: TrackedId;
   localPath: string;
   diff: Difference[];
 
   constructor(
-    trackedId: TrackedId,
     localPath: string,
     diff: Difference[],
   ) {
-    this.trackedId = trackedId;
     this.localPath = localPath;
     this.diff = diff;
   }
@@ -640,7 +718,6 @@ async function init(opts: GlobalOptions) {
   const newState = new State(
     new Map(),
     new Map(),
-    new Map(),
     workspace.workspaceId,
     workspace.remote,
   );
@@ -657,6 +734,8 @@ async function pullRaw(
   const zipDir = await downloadZip(workspace);
   if (!zipDir) return;
 
+  // TODO use ZipFSElement & readDirRecursiveWithIgnore here
+  // TODO also remember to read content via entry methods now instead of direct I/O
   for await (const entry of Deno.readDir(zipDir)) {
     const filePath = path.resolve(dir, entry.name);
     if (entry.isDirectory) {
