@@ -11,7 +11,7 @@
 					.filter((worker) => {
 						const date = new Date().getTime() - 300 * 60
 						const ping_at = new Date(worker.ping_at).getTime()
-						return ping_at > date
+						return worker.ip != 'unretrievable IP' && ping_at > date
 					})
 					.map((worker) => worker.ip)
 			)
