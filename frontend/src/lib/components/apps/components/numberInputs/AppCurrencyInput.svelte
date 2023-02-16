@@ -6,6 +6,7 @@
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputDefaultValue from '../helpers/InputDefaultValue.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
+	import CurrencyInput from '@canutin/svelte-currency-input'
 
 	export let id: string
 	export let configuration: Record<string, AppInput>
@@ -13,49 +14,51 @@
 	export const staticOutputs: string[] = ['result']
 
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
-	let input: HTMLInputElement
 
 	let defaultValue: number | undefined = undefined
-	let placeholder: string | undefined = undefined
 
-	let min: number | undefined = undefined
-	let max: number | undefined = undefined
-	let step = 1
+	let isNegativeAllowed: boolean | undefined = undefined
+	let currency: string | undefined = undefined
+	let locale: string | undefined = undefined
+	let value: number | undefined = undefined
 
 	$: outputs = $worldStore?.outputsById[id] as {
 		result: Output<number | null>
 	}
 
 	function handleInput() {
-		const value = input?.value
-		const num = isNaN(+value) ? null : +value
-		outputs?.result.set(num)
+		outputs?.result.set(value ?? null)
 	}
 
-	$: input && handleInput()
+	function handleDefault() {
+		value = defaultValue
+	}
+
+	$: value && handleInput()
+
+	$: defaultValue && handleDefault()
 </script>
 
-<InputValue {id} input={configuration.step} bind:value={step} />
-<InputValue {id} input={configuration.min} bind:value={min} />
-<InputValue {id} input={configuration.max} bind:value={max} />
-<InputValue {id} input={configuration.placeholder} bind:value={placeholder} />
 <InputValue {id} input={configuration.defaultValue} bind:value={defaultValue} />
-<InputDefaultValue bind:input {defaultValue} />
+<InputValue {id} input={configuration.isNegativeAllowed} bind:value={isNegativeAllowed} />
+<InputValue {id} input={configuration.currency} bind:value={currency} />
+<InputValue {id} input={configuration.locale} bind:value={locale} />
 
 <AlignWrapper {verticalAlignment}>
-	<input
-		bind:this={input}
-		on:input={handleInput}
-		on:focus={(e) => {
-			e?.stopPropagation()
-			window.dispatchEvent(new Event('pointerup'))
-		}}
-		{min}
-		{max}
-		{step}
-		type="number"
-		inputmode="numeric"
-		pattern="\d*"
-		{placeholder}
-	/>
+	{#key isNegativeAllowed}
+		{#key locale}
+			{#key currency}
+				<CurrencyInput
+					inputClasses={{ formatted: 'p-0' }}
+					bind:value
+					{currency}
+					{locale}
+					on:focus={(e) => {
+						e?.stopPropagation()
+					}}
+					{isNegativeAllowed}
+				/>
+			{/key}
+		{/key}
+	{/key}
 </AlignWrapper>

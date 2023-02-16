@@ -417,7 +417,7 @@
 					</div>
 				{/if}
 			{/if}
-			{#if resource_type == 'postgresql' || resource_type == 'mysql'}
+			{#if resource_type == 'postgresql' || resource_type == 'mysql' || resource_type == 'mongodb'}
 				<WhitelistIp />
 			{/if}
 
