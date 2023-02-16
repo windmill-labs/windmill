@@ -13,7 +13,7 @@ use crate::{
     folders::get_folders_for_user,
     utils::require_super_admin,
     workspaces::invite_user_to_all_auto_invite_worspaces,
-    COOKIE_DOMAIN, IS_SECURE,
+    COOKIE_DOMAIN, HTTP_CLIENT, IS_SECURE,
 };
 use argon2::{password_hash::SaltString, Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use axum::{
@@ -26,7 +26,6 @@ use axum::{
 };
 use hyper::{header::LOCATION, StatusCode};
 use rand::rngs::OsRng;
-use reqwest::Client;
 use retainer::Cache;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -1277,7 +1276,6 @@ async fn create_user(
     Authed { email, .. }: Authed,
     Extension(db): Extension<DB>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
-    Extension(http_client): Extension<Client>,
     Json(nu): Json<NewUser>,
 ) -> Result<(StatusCode, String)> {
     let mut tx = db.begin().await?;
@@ -1311,7 +1309,7 @@ async fn create_user(
     tx.commit().await?;
 
     if let Some(new_user_webhook) = NEW_USER_WEBHOOK.clone() {
-        let _ = http_client
+        let _ = HTTP_CLIENT
             .post(&new_user_webhook)
             .json(&serde_json::json!({"email" : &nu.email, "name": &nu.name, "event": "new_user"}))
             .send()
