@@ -7,7 +7,7 @@
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 
-	export const staticOutputs: string[] = ['loading', 'result']
+	export const staticOutputs: string[] = ['result']
 	export let id: string
 	export let configuration: Record<string, AppInput>
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
@@ -25,13 +25,22 @@
 		result: Output<string | undefined>
 	}
 
+	let value = undefined
+
+	$: items && handleItems()
+
+	function handleItems() {
+		if (items?.[0]?.['value'] != value) {
+			value = items?.[0]?.['value']
+			outputs?.result.set(value)
+		}
+	}
+
 	function onChange(e: CustomEvent) {
 		e?.stopPropagation()
 		window.dispatchEvent(new Event('pointerup'))
 		outputs?.result.set(e.detail?.[itemKey] || undefined)
 	}
-	let value = undefined
-	$: items?.[0]?.['value'] != value && (value = items?.[0]?.['value'])
 </script>
 
 <InputValue {id} input={configuration.label} bind:value={label} />
