@@ -2,6 +2,7 @@
 	import { classNames } from '$lib/utils'
 	import { getContext } from 'svelte'
 	import Grid from 'svelte-grid'
+	import Portal from 'svelte-portal'
 	import { columnConfiguration, isFixed, toggleFixed } from '../gridUtils'
 	import type { AppEditorContext, GridItem } from '../types'
 	import Component from './Component.svelte'
@@ -12,7 +13,8 @@
 		getContext<AppEditorContext>('AppEditorContext')
 
 	let pointerdown = false
-	const onpointerdown = () => {
+	const onpointerdown = (e) => {
+		e.stopPropagation()
 		pointerdown = true
 	}
 	const onpointerup = () => {
@@ -40,7 +42,7 @@
 <div class="pb-2 relative w-full z-20">
 	<div
 		class="px-4 pt-4 overflow-auto {$connectingInput?.opened ? '' : ''}"
-		on:pointerdown={onpointerdown}
+		on:pointerdown|stopPropagation={onpointerdown}
 		on:pointerleave={onpointerup}
 		on:pointerup={onpointerup}
 	>
