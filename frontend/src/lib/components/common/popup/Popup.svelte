@@ -21,9 +21,7 @@
 	const stateMachine = createStateMachine(states, {
 		to: {
 			closed: ({ previousState, currentState }) => {
-				const activeElem = document.activeElement
-				const revert = popup?.contains(activeElem) || ref?.contains(activeElem)
-				return revert ? previousState : currentState
+				return isFocusContained() ? previousState : currentState
 			}
 		}
 	})
@@ -47,8 +45,13 @@
 		focusableElements.forEach((el) => {
 			el.tabIndex = -1
 			el.addEventListener('click', openFocusIn)
-			el.addEventListener('blur', closed)
+			el.addEventListener('blur', conditionalClosed)
 		})
+	}
+
+	function isFocusContained() {
+		const activeElem = document.activeElement
+		return popup?.contains(activeElem) || ref?.contains(activeElem)
 	}
 
 	function closed() {
@@ -60,6 +63,10 @@
 			stateMachine.setState('closed')
 		}
 	}
+	function conditionalClosed() {
+		if(isFocusContained()) return;
+		closed()
+	}
 	function openFocusOut() {
 		stateMachine.setState('open-focus-out')
 	}
@@ -70,22 +77,25 @@
 	function keyDown(event: KeyboardEvent & { currentTarget: EventTarget & Window }) {
 		const modifiers = ['Shift', 'Control', 'Command', 'Alt']
 		// Prevent closing the popup when the only key pressed is a modifier key
-		if (modifiers.includes(event.key) || $stateMachine.currentState === 'closed') return
+		if (modifiers.includes(event.key) || $stateMachine.currentState === 'closed') return;
 		if (event.key === 'Escape') {
 			return (<HTMLElement>document.activeElement)?.blur()
 		}
-		if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
+		
+		const prev = ['Up', 'Left']
+		const next = ['Down', 'Right']
+		if (![...prev, ...next].some(dir => `Arrow${dir}` === event.key)) return;
 
 		event.preventDefault()
 
 		if (popup?.contains(document.activeElement)) {
 			const index = focusableElements.findIndex((elem) => elem === document.activeElement)
-			if (index === -1) return
+			if (index === -1) return;
 
 			let targetIndex: number | undefined = undefined
-			if (event.key === 'ArrowUp') {
+			if (prev.some(dir => `Arrow${dir}` === event.key)) {
 				targetIndex = index === 0 ? focusableElements.length - 1 : index - 1
-			} else if (event.key === 'ArrowDown') {
+			} else if (next.some(dir => `Arrow${dir}` === event.key)) {
 				targetIndex = index + 1 === focusableElements.length ? 0 : index + 1
 			}
 			if (targetIndex !== undefined) {
@@ -109,7 +119,7 @@
 
 	function removeAllListeners() {
 		focusableElements?.forEach((el) => el.removeEventListener('click', openFocusIn))
-		focusableElements?.forEach((el) => el.removeEventListener('blur', closed))
+		focusableElements?.forEach((el) => el.removeEventListener('blur', conditionalClosed))
 		if(!ref) return;
 		openOn.forEach((action) => ref!.removeEventListener(action, openFocusOut))
 		closeOn.forEach((action) => ref!.removeEventListener(action, closed))
