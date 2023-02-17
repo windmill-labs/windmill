@@ -217,6 +217,24 @@
 						fieldType: 'text',
 						type: 'static',
 						value: ''
+					},
+					beforeIcon: {
+						type: 'static',
+						value: undefined,
+						fieldType: 'icon-select',
+						onlyStatic: true
+					},
+					afterIcon: {
+						type: 'static',
+						value: undefined,
+						fieldType: 'icon-select',
+						onlyStatic: true
+					},
+					triggerOnAppLoad: {
+						type: 'static',
+						value: false,
+						fieldType: 'boolean',
+						onlyStatic: true
 					}
 				},
 

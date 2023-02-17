@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { AppInput } from '../../inputType'
 	import { AlignWrapper, InputValue, RunnableWrapper } from '../helpers'
-	import { toKebabCase } from '../../utils'
+	import { loadIcon } from '../icon'
 
 	export let id: string
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = 'left'
@@ -15,23 +15,11 @@
 	let strokeWidth: number
 	let iconComponent: any
 
-	$: icon && loadIcon(icon)
+	$: icon && handleIcon()
 
-	async function loadIcon(name: string) {
-		try {
-			if (name) {
-				name = toKebabCase(name).replace(/([a-z])(\d)/i, '$1-$2')
-				iconComponent = (
-					await import(
-						`../../../../../../node_modules/lucide-svelte/dist/svelte/icons/${name}.svelte`
-					)
-				).default
-			} else {
-				iconComponent = undefined
-			}
-		} catch (error) {
-			console.error(error)
-			iconComponent = undefined
+	async function handleIcon() {
+		if (icon) {
+			iconComponent = await loadIcon(icon)
 		}
 	}
 </script>
