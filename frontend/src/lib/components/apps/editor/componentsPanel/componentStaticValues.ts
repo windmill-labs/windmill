@@ -10,5 +10,4 @@ export const staticValues = {
 	textStyleOptions: ['Title', 'Subtitle', 'Body', 'Label', 'Caption'],
 	currencyOptions: ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY', 'CNY', 'INR', 'BRL'],
 	localeOptions: ['en-US', 'en-GB', 'en-IE', 'de-DE', 'fr-FR', 'br-FR', 'ja-JP', 'pt-TL', 'fr-CA', 'en-CA']
-
 } as const
