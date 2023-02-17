@@ -61,7 +61,8 @@
 		staticExporter: writable({}),
 		noBackend,
 		errorByComponent: writable({}),
-		openDebugRun: writable(undefined)
+		openDebugRun: writable(undefined),
+		focusedGrid: writable(undefined)
 	})
 
 	let mounted = false
