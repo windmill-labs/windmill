@@ -23,8 +23,9 @@
 	async function loadIcon(name: string) {
 		try {
 			if(name) {
+				name = toKebabCase(name).replace(/([a-z])(\d)/i, '$1-$2')
 				iconComponent = (await import(
-					`../../../../../../node_modules/lucide-svelte/dist/svelte/icons/${toKebabCase(name)}.svelte`
+					`../../../../../../node_modules/lucide-svelte/dist/svelte/icons/${name}.svelte`
 				)).default
 			} else {
 				iconComponent = undefined

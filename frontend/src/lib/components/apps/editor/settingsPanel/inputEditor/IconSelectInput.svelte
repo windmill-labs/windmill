@@ -3,7 +3,6 @@
 	import { Loader2 } from 'lucide-svelte'
 	import { Popup } from '../../../../common'
 	import { fade } from 'svelte/transition'
-	import Popover from '../../../../Popover.svelte'
 
 	export let componentInput: StaticInput<string> & Extract<AppInput, { fieldType: 'icon-select' }>
 	let anchor: HTMLElement
@@ -31,7 +30,8 @@
 	}
 
 	function formatName(name?: string) {
-		return name?.replace(/([A-Z])/g, ' $1').trim() || ''
+		// Inserts space before capital letters and numbers
+		return name?.replace(/([A-Z])/g, ' $1').trim().replace(/([a-z])(\d)/i, '$1 $2') || ''
 	}
 </script>
 
@@ -57,10 +57,7 @@
 							<button
 								type="button"
 								title={formatedLabel}
-								on:click={() => {
-									componentInput.value = label
-									anchor.focus()
-								}}
+								on:click={() => componentInput.value = label}
 								transition:fade|local={{ duration: 200 }}
 								class="w-full center-center flex-col font-normal p-1 
 								hover:bg-gray-100 focus:bg-gray-100 rounded duration-200 
