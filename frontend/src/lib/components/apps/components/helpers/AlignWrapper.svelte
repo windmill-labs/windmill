@@ -1,30 +1,29 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
+	import type { HorizontalAlignment, VerticalAlignment } from '../../types'
 
-	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
+	export let horizontalAlignment: HorizontalAlignment | undefined = undefined
+	export let verticalAlignment: VerticalAlignment | undefined = undefined
 	export let noWFull = false
 
-	function tailwindHorizontalAlignment(horizontalAlignment) {
-		switch (horizontalAlignment) {
-			case 'left':
-				return 'justify-start'
-			case 'center':
-				return 'justify-center'
-			case 'right':
-				return 'justify-end'
+	function tailwindHorizontalAlignment(alignment?: HorizontalAlignment) {
+		if(!alignment) return '';
+		const classes: Record<HorizontalAlignment, string> = {
+			left: 'justify-start',
+			center: 'justify-center',
+			right: 'justify-end',
 		}
+		return classes[alignment]
 	}
 
-	function tailwindVerticalAlignment(verticalAlignment) {
-		switch (verticalAlignment) {
-			case 'top':
-				return 'items-start'
-			case 'center':
-				return 'items-center'
-			case 'bottom':
-				return 'items-end'
+	function tailwindVerticalAlignment(alignment?: VerticalAlignment) {
+		if(!alignment) return '';
+		const classes: Record<VerticalAlignment, string> = {
+			top: 'items-start',
+			center: 'items-center',
+			bottom: 'items-end',
 		}
+		return classes[alignment]
 	}
 
 	$: classes = classNames(
@@ -32,7 +31,8 @@
 		noWFull ? '' : 'w-full',
 		tailwindHorizontalAlignment(horizontalAlignment),
 		tailwindVerticalAlignment(verticalAlignment),
-		verticalAlignment ? 'h-full' : ''
+		verticalAlignment ? 'h-full' : '',
+		$$props.class || ''
 	)
 </script>
 
