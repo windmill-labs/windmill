@@ -2,7 +2,7 @@
 
 <script lang="ts">
 	import { onDestroy } from 'svelte'
-	import { slide, type TransitionConfig,  } from 'svelte/transition'
+	import { slide, type TransitionConfig } from 'svelte/transition'
 	import { createPopperActions, type PopperOptions } from 'svelte-popperjs'
 	import { clickOutside } from '../../../utils'
 	import { createStateMachine } from '../../../stateMachine'
@@ -64,7 +64,7 @@
 		}
 	}
 	function conditionalClosed() {
-		if(isFocusContained()) return;
+		if (isFocusContained()) return
 		closed()
 	}
 	function openFocusOut() {
@@ -77,25 +77,25 @@
 	function keyDown(event: KeyboardEvent & { currentTarget: EventTarget & Window }) {
 		const modifiers = ['Shift', 'Control', 'Command', 'Alt']
 		// Prevent closing the popup when the only key pressed is a modifier key
-		if (modifiers.includes(event.key) || $stateMachine.currentState === 'closed') return;
+		if (modifiers.includes(event.key) || $stateMachine.currentState === 'closed') return
 		if (event.key === 'Escape') {
 			return (<HTMLElement>document.activeElement)?.blur()
 		}
-		
+
 		const prev = ['Up', 'Left']
 		const next = ['Down', 'Right']
-		if (![...prev, ...next].some(dir => `Arrow${dir}` === event.key)) return;
+		if (![...prev, ...next].some((dir) => `Arrow${dir}` === event.key)) return
 
 		event.preventDefault()
 
 		if (popup?.contains(document.activeElement)) {
 			const index = focusableElements.findIndex((elem) => elem === document.activeElement)
-			if (index === -1) return;
+			if (index === -1) return
 
 			let targetIndex: number | undefined = undefined
-			if (prev.some(dir => `Arrow${dir}` === event.key)) {
+			if (prev.some((dir) => `Arrow${dir}` === event.key)) {
 				targetIndex = index === 0 ? focusableElements.length - 1 : index - 1
-			} else if (next.some(dir => `Arrow${dir}` === event.key)) {
+			} else if (next.some((dir) => `Arrow${dir}` === event.key)) {
 				targetIndex = index + 1 === focusableElements.length ? 0 : index + 1
 			}
 			if (targetIndex !== undefined) {
@@ -112,7 +112,7 @@
 	}
 
 	function addRefListeners() {
-		if(!ref) return;
+		if (!ref) return
 		openOn.forEach((action) => ref!.addEventListener(action, openFocusOut))
 		closeOn.forEach((action) => ref!.addEventListener(action, closed))
 	}
@@ -120,7 +120,7 @@
 	function removeAllListeners() {
 		focusableElements?.forEach((el) => el.removeEventListener('click', openFocusIn))
 		focusableElements?.forEach((el) => el.removeEventListener('blur', conditionalClosed))
-		if(!ref) return;
+		if (!ref) return
 		openOn.forEach((action) => ref!.removeEventListener(action, openFocusOut))
 		closeOn.forEach((action) => ref!.removeEventListener(action, closed))
 	}
@@ -134,7 +134,7 @@
 		}, 0)
 	}
 
-	$: if(ref) {
+	$: if (ref) {
 		popperRef(ref)
 		addRefListeners()
 	}

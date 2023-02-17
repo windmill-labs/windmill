@@ -132,7 +132,7 @@
 		>
 	</div>
 	<div
-		class="px-4 pt-4 overflow-auto {$connectingInput?.opened ? '' : ''}"
+		class="px-4 pt-4  overflow-visible {$connectingInput?.opened ? '' : ''}"
 		on:pointerdown={onpointerdown}
 		on:pointerleave={onpointerup}
 		on:pointerup={onpointerup}
