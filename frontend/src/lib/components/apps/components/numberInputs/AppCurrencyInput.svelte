@@ -4,9 +4,8 @@
 	import type { Output } from '../../rx'
 	import type { AppEditorContext } from '../../types'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
-	import InputDefaultValue from '../helpers/InputDefaultValue.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
-	import CurrencyInput from '@canutin/svelte-currency-input'
+	import CurrencyInput from './CurrencyInput.svelte'
 
 	export let id: string
 	export let configuration: Record<string, AppInput>
@@ -32,11 +31,12 @@
 
 	function handleDefault() {
 		value = defaultValue
+		handleInput()
 	}
 
-	$: value && handleInput()
+	$: value != undefined && handleInput()
 
-	$: defaultValue && handleDefault()
+	$: defaultValue != undefined && handleDefault()
 </script>
 
 <InputValue {id} input={configuration.defaultValue} bind:value={defaultValue} />
@@ -49,7 +49,7 @@
 		{#key locale}
 			{#key currency}
 				<CurrencyInput
-					inputClasses={{ formatted: 'p-0' }}
+					inputClasses={{ formatted: 'p-0', wrapper: 'w-full', formattedZero: 'text-black' }}
 					bind:value
 					{currency}
 					{locale}

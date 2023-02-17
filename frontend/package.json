@@ -60,7 +60,6 @@
 	},
 	"type": "module",
 	"dependencies": {
-		"@canutin/svelte-currency-input": "^0.8.0",
 		"@fortawesome/free-brands-svg-icons": "^6.2.1",
 		"@fortawesome/free-solid-svg-icons": "^6.2.1",
 		"@leeoniya/ufuzzy": "^0.9.1",
