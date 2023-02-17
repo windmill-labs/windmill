@@ -15,9 +15,7 @@
 
 	const { worldStore, connectingInput, selectedComponent } =
 		getContext<AppEditorContext>('AppEditorContext')
-	let label: string
-	let items: string[]
-	let itemKey: string
+	let items: { label: string; value: any }[]
 	let multiple: boolean = false
 	let placeholder: string = 'Select an item'
 
@@ -25,13 +23,23 @@
 		result: Output<string | undefined>
 	}
 
-	let value = undefined
+	let value: string | undefined = undefined
 
 	$: items && handleItems()
 
+	let listItems: { label: string; value: string }[] = []
+
 	function handleItems() {
+		listItems = Array.isArray(items)
+			? items.map((item) => {
+					return {
+						label: item.label,
+						value: JSON.stringify(item.value)
+					}
+			  })
+			: []
 		if (items?.[0]?.['value'] != value) {
-			value = items?.[0]?.['value']
+			value = JSON.stringify(items?.[0]?.['value'])
 			outputs?.result.set(value)
 		}
 	}
@@ -39,13 +47,11 @@
 	function onChange(e: CustomEvent) {
 		e?.stopPropagation()
 		window.dispatchEvent(new Event('pointerup'))
-		outputs?.result.set(e.detail?.[itemKey] || undefined)
+		outputs?.result.set(JSON.parse(e.detail?.['value']) || undefined)
 	}
 </script>
 
-<InputValue {id} input={configuration.label} bind:value={label} />
 <InputValue {id} input={configuration.items} bind:value={items} />
-<InputValue {id} input={configuration.itemKey} bind:value={itemKey} />
 <InputValue {id} input={configuration.multiple} bind:value={multiple} />
 <InputValue {id} input={configuration.placeholder} bind:value={placeholder} />
 
@@ -56,7 +62,7 @@
 			{multiple}
 			on:clear={onChange}
 			on:change={onChange}
-			items={Array.isArray(items) ? items : []}
+			items={listItems}
 			{value}
 			{placeholder}
 			on:click={() => {

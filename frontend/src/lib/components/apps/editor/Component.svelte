@@ -687,11 +687,6 @@
 							{ value: 'bar', label: 'Bar' }
 						]
 					},
-					itemKey: {
-						type: 'static',
-						fieldType: 'text',
-						value: 'value'
-					},
 					multiple: {
 						type: 'static',
 						fieldType: 'boolean',
