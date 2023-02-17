@@ -8,12 +8,11 @@
 	export let configuration: Record<string, AppInput>
 	export let horizontalAlignment: HorizontalAlignment | undefined = undefined
 	export let verticalAlignment: VerticalAlignment | undefined = undefined
-	let position: 'horizontal' | 'vertical' = 'horizontal'
+	export let position: 'horizontal' | 'vertical'
 	let size = 2
 	let color = '#00000060'
 </script>
 
-<InputValue {id} input={configuration.position} bind:value={position} />
 <InputValue {id} input={configuration.size} bind:value={size} />
 <InputValue {id} input={configuration.color} bind:value={color} />
 
