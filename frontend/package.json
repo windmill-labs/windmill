@@ -1,6 +1,6 @@
 {
 	"name": "windmill",
-	"version": "1.62.0",
+	"version": "1.64.0",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -61,6 +61,7 @@
 	},
 	"type": "module",
 	"dependencies": {
+		"@canutin/svelte-currency-input": "^0.8.0",
 		"@fortawesome/free-brands-svg-icons": "^6.2.1",
 		"@fortawesome/free-solid-svg-icons": "^6.2.1",
 		"@leeoniya/ufuzzy": "^0.9.1",

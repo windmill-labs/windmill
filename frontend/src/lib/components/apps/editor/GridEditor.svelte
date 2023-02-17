@@ -125,7 +125,7 @@
 	})
 </script>
 
-<div class="pb-2 relative w-full z-20">
+<div class="pb-2 relative w-full z-20 overflow-visible border">
 	<div
 		class="w-full sticky  top-0 flex justify-between border-l border-r border-b {$connectingInput?.opened
 			? ''

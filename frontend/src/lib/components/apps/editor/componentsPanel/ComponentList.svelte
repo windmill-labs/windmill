@@ -78,7 +78,7 @@
 			})
 			.flat(2)
 
-		const id = getNextId(gridItemIds, true)
+		const id = getNextId(gridItemIds)
 
 		if ($focusedGrid) {
 			const { parentComponentId, subGridIndex } = $focusedGrid

@@ -17,7 +17,8 @@
 		Code2,
 		SlidersHorizontal,
 		PlusSquare,
-		ListOrdered
+		ListOrdered,
+		DollarSign
 	} from 'lucide-svelte'
 	import type { Size } from 'svelte-grid'
 
@@ -39,6 +40,7 @@
 	export type PasswordInputComponent = BaseComponent<'passwordinputcomponent'>
 	export type DateInputComponent = BaseComponent<'dateinputcomponent'>
 	export type NumberInputComponent = BaseComponent<'numberinputcomponent'>
+	export type CurrencyComponent = BaseComponent<'currencycomponent'>
 	export type SliderComponent = BaseComponent<'slidercomponent'>
 	export type RangeComponent = BaseComponent<'rangecomponent'>
 	export type HtmlComponent = BaseComponent<'htmlcomponent'>
@@ -76,6 +78,7 @@
 			| PasswordInputComponent
 			| DateInputComponent
 			| NumberInputComponent
+			| CurrencyComponent
 			| SliderComponent
 			| RangeComponent
 			| BarChartComponent
@@ -682,6 +685,18 @@
 						type: 'static',
 						fieldType: 'text',
 						value: 'value'
+					},
+					multiple: {
+						type: 'static',
+						fieldType: 'boolean',
+						value: false,
+						onlyStatic: true
+					},
+					placeholder: {
+						type: 'static',
+						fieldType: 'text',
+						value: 'Select an item',
+						onlyStatic: true
 					}
 				},
 				card: false,
@@ -709,6 +724,64 @@
 						type: 'static',
 						value: undefined,
 						fieldType: 'number'
+					},
+					min: {
+						type: 'static',
+						value: undefined,
+						fieldType: 'number',
+						onlyStatic: true
+					},
+					max: {
+						type: 'static',
+						value: undefined,
+						fieldType: 'number',
+						onlyStatic: true
+					},
+					step: {
+						type: 'static',
+						value: 1,
+						fieldType: 'number',
+						onlyStatic: true
+					}
+				},
+				card: false
+			}
+		},
+		currencycomponent: {
+			name: 'Currency',
+			icon: DollarSign,
+			dims: '2:1-3:1',
+			data: {
+				softWrap: true,
+				verticalAlignment: 'center',
+				id: '',
+				type: 'currencycomponent',
+				componentInput: undefined,
+				configuration: {
+					defaultValue: {
+						type: 'static',
+						value: undefined,
+						fieldType: 'number'
+					},
+					isNegativeAllowed: {
+						type: 'static',
+						value: false,
+						fieldType: 'boolean',
+						onlyStatic: true
+					},
+					currency: {
+						type: 'static',
+						value: 'USD',
+						fieldType: 'select',
+						onlyStatic: true,
+						optionValuesKey: 'currencyOptions'
+					},
+					locale: {
+						type: 'static',
+						value: 'en-US',
+						fieldType: 'select',
+						onlyStatic: true,
+						optionValuesKey: 'localeOptions'
 					}
 				},
 				card: false
@@ -877,6 +950,7 @@
 			'textinputcomponent',
 			'passwordinputcomponent',
 			'numberinputcomponent',
+			'currencycomponent',
 			'slidercomponent',
 			'rangecomponent',
 			'dateinputcomponent',
@@ -1266,6 +1340,7 @@
 	import { defaultAlignement } from './componentsPanel/componentDefaultProps'
 	import AppRangeInput from '../components/numberInputs/AppRangeInput.svelte'
 	import AppTabs from '../components/AppTabs.svelte'
+	import AppCurrencyInput from '../components/numberInputs/AppCurrencyInput.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -1414,6 +1489,8 @@
 			/>
 		{:else if component.type === 'numberinputcomponent'}
 			<AppNumberInput {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+		{:else if component.type === 'currencycomponent'}
+			<AppCurrencyInput {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{:else if component.type === 'slidercomponent'}
 			<AppSliderInputs {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{:else if component.type === 'rangecomponent'}

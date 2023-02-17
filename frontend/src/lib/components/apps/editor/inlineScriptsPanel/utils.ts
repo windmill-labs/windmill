@@ -1,10 +1,45 @@
-import type { Runnable } from "../../inputType"
+import type { Schema } from "$lib/common";
+import type { AppInputs, Runnable } from "../../inputType"
 import type { GridItem } from "../../types"
+import { fieldTypeToTsType, schemaToInputsSpec } from "../../utils";
 import type { AppComponent } from "../Component.svelte";
 
 export interface AppScriptsList {
 	inline: { name: string; id: string }[],
 	imported: { name: string; id: string }[]
+}
+
+// When the schema is loaded, we need to update the inputs spec
+// in order to render the inputs the component panel
+export function computeFields(schema: Schema, defaultUserInput: boolean, fields: AppInputs) {
+	let schemaCopy: Schema = JSON.parse(JSON.stringify(schema))
+
+	const result = {}
+	const newInputs = schemaToInputsSpec(schemaCopy, defaultUserInput)
+	if (!fields) {
+		return newInputs
+	}
+	Object.keys(newInputs).forEach((key) => {
+		const newInput = newInputs[key]
+		const oldInput = fields[key]
+
+		// If the input is not present in the old inputs, add it
+		if (oldInput === undefined) {
+			result[key] = newInput
+		} else {
+			if (
+				fieldTypeToTsType(newInput.fieldType) !== fieldTypeToTsType(oldInput.fieldType) ||
+				newInput.format !== oldInput.format ||
+				newInput.subFieldType !== oldInput.subFieldType
+			) {
+				result[key] = newInput
+			} else {
+				result[key] = oldInput
+			}
+		}
+	})
+
+	return result
 }
 
 export function getAppScripts(grid: GridItem[]) {

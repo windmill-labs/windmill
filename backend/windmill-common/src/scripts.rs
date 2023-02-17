@@ -210,7 +210,7 @@ pub fn to_hex_string(i: &i64) -> String {
 pub async fn get_hub_script_by_path(
     email: &str,
     path: StripPath,
-    http_client: reqwest::Client,
+    http_client: &reqwest::Client,
 ) -> crate::error::Result<String> {
     use crate::{
         error::{to_anyhow, Error},
@@ -239,7 +239,7 @@ pub async fn get_hub_script_by_path(
 pub async fn get_full_hub_script_by_path(
     email: &str,
     path: StripPath,
-    http_client: reqwest::Client,
+    http_client: &reqwest::Client,
 ) -> crate::error::Result<HubScript> {
     use crate::{
         error::{to_anyhow, Error},
