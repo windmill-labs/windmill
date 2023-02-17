@@ -18,6 +18,10 @@
 	let defaultValue: number | undefined = undefined
 	let placeholder: string | undefined = undefined
 
+	let min: number | undefined = undefined
+	let max: number | undefined = undefined
+	let step = 1
+
 	$: outputs = $worldStore?.outputsById[id] as {
 		result: Output<number | null>
 	}
@@ -31,6 +35,9 @@
 	$: input && handleInput()
 </script>
 
+<InputValue {id} input={configuration.step} bind:value={step} />
+<InputValue {id} input={configuration.min} bind:value={min} />
+<InputValue {id} input={configuration.max} bind:value={max} />
 <InputValue {id} input={configuration.placeholder} bind:value={placeholder} />
 <InputValue {id} input={configuration.defaultValue} bind:value={defaultValue} />
 <InputDefaultValue bind:input {defaultValue} />
@@ -43,6 +50,9 @@
 			e?.stopPropagation()
 			window.dispatchEvent(new Event('pointerup'))
 		}}
+		{min}
+		{max}
+		{step}
 		type="number"
 		inputmode="numeric"
 		pattern="\d*"

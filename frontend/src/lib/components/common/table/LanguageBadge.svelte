@@ -4,6 +4,7 @@
 	import type { BadgeColor } from '../badge/model'
 	import Badge from '../badge/Badge.svelte'
 	import { LanguageIcon } from '../languageIcons'
+	import Popover from '$lib/components/Popover.svelte'
 
 	export let language: Script.language
 
@@ -33,8 +34,13 @@
 	color={colorByLanguage}
 	baseClass={classNames(baseClassByLanguage, 'flex gap-1 items-center')}
 >
-	<LanguageIcon lang={language} width={12} height={12} />
-	<span class="hidden lg:inline">
-		{languageLabel}
-	</span>
+	<Popover notClickable>
+		<LanguageIcon lang={language} width={12} height={12} />
+		<span slot="text">
+			{languageLabel}
+		</span>
+	</Popover>
+
+	<!-- <span class="hidden xl:inline">
+	</span> -->
 </Badge>

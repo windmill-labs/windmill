@@ -25,9 +25,8 @@ import { type Resource } from "./mod.ts"
 export function pgClient(
     db: Resource<"postgresql">
 ) {
-    db.database = db.dbname
-    db.hostname = db.host
-    return new Client(db)
+    const databaseUrl = 'postgresql://' + db.user + ':' + db.password + '@' + db.host + ':' + db.port + '/' + db.dbname + '?sslmode=' + db.sslmode
+    return new Client(databaseUrl)
 }
 
 /**

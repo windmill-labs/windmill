@@ -3,11 +3,10 @@ name = "windmill-worker"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
-default-run = "worker"
 
-[[bin]]
-name = "worker"
-path = "./src/main.rs"
+[lib]
+name = "windmill_worker"
+path = "src/lib.rs"
 
 [features]
 default = []

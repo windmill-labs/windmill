@@ -3,7 +3,6 @@
 	import { page } from '$app/stores'
 	import { faGithub, faGitlab, faGoogle, faMicrosoft } from '@fortawesome/free-brands-svg-icons'
 	import { onMount } from 'svelte'
-	import { slide } from 'svelte/transition'
 	import { OauthService, UserService, WorkspaceService } from '$lib/gen'
 	import { clearStores, usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
 	import { isCloudHosted, sendUserToast } from '$lib/utils'
@@ -83,7 +82,11 @@
 		if ($workspaceStore) {
 			goto(rd ?? '/')
 		} else {
-			goto(`/user/workspaces${rd ? `?rd=${encodeURIComponent(rd)}` : ''}`)
+			if(rd?.startsWith('/user/workspaces')) {
+				goto(rd)
+			} else {
+				goto(`/user/workspaces${rd ? `?rd=${encodeURIComponent(rd)}` : ''}`)
+			}
 		}
 	}
 
@@ -122,13 +125,18 @@
 		goto('/api/oauth/login/' + provider)
 	}
 
-	if (error) {
+	$: if (error) {
 		sendUserToast(error, true)
 	}
 </script>
 
 <!-- Enable submit form on enter -->
 <CenteredModal title="Login">
+	{#if isCloudHosted()}
+		<div class="text-center -mt-4">
+			<span class=" text-gray-600 text-sm">Login or sign up with any of the methods below</span>
+		</div>
+	{/if}
 	<div class="justify-center text-center flex flex-col">
 		{#if !logins}
 			{#each Array(4) as _}
@@ -175,7 +183,7 @@
 		</Button>
 	</div>
 	{#if showPassword}
-		<div transition:slide>
+		<div>
 			{#if isCloudHosted()}
 				<p class="text-xs text-gray-500 italic pb-6">
 					To get credentials without the OAuth providers above, send an email at
@@ -198,12 +206,14 @@
 
 	{#if isCloudHosted()}
 		<p class="text-2xs text-gray-500 italic mt-10 text-center">
-			By logging in, you agree to our <a
-				href="https://docs.windmill.dev/terms_of_service"
-				target="_blank">Terms of Service</a
-			>
-			and
-			<a href="https://docs.windmill.dev/privacy_policy" target="_blank">Privacy Policy</a>
+			By logging in, you agree to our 
+			<a href="https://docs.windmill.dev/terms_of_service" target="_blank" rel="noreferrer">
+				Terms of Service
+			</a>
+			and 
+			<a href="https://docs.windmill.dev/privacy_policy" target="_blank" rel="noreferrer">
+				Privacy Policy
+			</a>
 		</p>
 	{/if}
 </CenteredModal>

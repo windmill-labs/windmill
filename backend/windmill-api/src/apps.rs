@@ -13,6 +13,7 @@ use crate::{
     users::{require_owner_of_path, Authed, OptAuthed},
     variables::build_crypt,
     webhook_util::{WebhookMessage, WebhookShared},
+    HTTP_CLIENT,
 };
 use axum::{
     extract::{Extension, Json, Path, Query},
@@ -21,7 +22,6 @@ use axum::{
 };
 use hyper::StatusCode;
 use magic_crypt::MagicCryptTrait;
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
@@ -368,12 +368,9 @@ async fn create_app(
     Ok((StatusCode::CREATED, app.path))
 }
 
-async fn list_hub_apps(
-    Authed { email, .. }: Authed,
-    Extension(http_client): Extension<Client>,
-) -> JsonResult<serde_json::Value> {
+async fn list_hub_apps(Authed { email, .. }: Authed) -> JsonResult<serde_json::Value> {
     let flows = list_elems_from_hub(
-        http_client,
+        &HTTP_CLIENT,
         "https://hub.windmill.dev/searchUiData?approved=true",
         &email,
     )
@@ -384,10 +381,9 @@ async fn list_hub_apps(
 pub async fn get_hub_app_by_id(
     Authed { email, .. }: Authed,
     Path(id): Path<i32>,
-    Extension(http_client): Extension<Client>,
 ) -> JsonResult<serde_json::Value> {
     let value = http_get_from_hub(
-        http_client,
+        &HTTP_CLIENT,
         &format!("https://hub.windmill.dev/apps/{id}/json"),
         &email,
         false,

@@ -13,7 +13,7 @@ async function pull(opts: GlobalOptions) {
     return;
   }
 
-  await requireLogin(opts);
+  const userInfo = await requireLogin(opts);
   const list: {
     id: number;
     name: string;
@@ -26,6 +26,12 @@ async function pull(opts: GlobalOptions) {
     comments: never[];
   }[] = await fetch(
     "https://hub.windmill.dev/resource_types/list",
+    {
+      headers: {
+        "Accept": "application/json",
+        "X-email": userInfo.email,
+      },
+    },
   )
     .then((r) => r.json())
     .then((list: { id: number; name: string }[]) =>

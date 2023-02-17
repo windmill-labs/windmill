@@ -22,10 +22,7 @@
 	function addComponent(appComponentType: AppComponent['type']) {
 		$dirtyStore = true
 		const grid = $app.grid ?? []
-		const id = getNextId(
-			grid.map((gridItem) => gridItem.data.id),
-			true
-		)
+		const id = getNextId(grid.map((gridItem) => gridItem.data.id))
 
 		const appComponent = componentsRecord[appComponentType].data
 

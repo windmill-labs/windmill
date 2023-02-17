@@ -18,6 +18,8 @@
 	let label: string
 	let items: string[]
 	let itemKey: string
+	let multiple: boolean = false
+	let placeholder: string = 'Select an item'
 
 	$: outputs = $worldStore?.outputsById[id] as {
 		result: Output<string | undefined>
@@ -35,24 +37,30 @@
 <InputValue {id} input={configuration.label} bind:value={label} />
 <InputValue {id} input={configuration.items} bind:value={items} />
 <InputValue {id} input={configuration.itemKey} bind:value={itemKey} />
+<InputValue {id} input={configuration.multiple} bind:value={multiple} />
+<InputValue {id} input={configuration.placeholder} bind:value={placeholder} />
 
 <AlignWrapper {horizontalAlignment} {verticalAlignment}>
-	<Select
-		--height="34px"
-		class="select"
-		on:clear={onChange}
-		on:change={onChange}
-		on:focus={(e) => {
-			e?.stopPropagation()
-			window.dispatchEvent(new Event('pointerup'))
-		}}
-		items={Array.isArray(items) ? items : []}
-		{value}
-		placeholder="Select an item"
-		on:click={() => {
-			if (!$connectingInput.opened) {
-				$selectedComponent = id
-			}
-		}}
-	/>
+	<div class="app-select w-full" style="height: 34px" on:pointerdown|stopPropagation>
+		<Select
+			--height="34px"
+			{multiple}
+			on:clear={onChange}
+			on:change={onChange}
+			items={Array.isArray(items) ? items : []}
+			{value}
+			{placeholder}
+			on:click={() => {
+				if (!$connectingInput.opened) {
+					$selectedComponent = id
+				}
+			}}
+		/>
+	</div>
 </AlignWrapper>
+
+<style global>
+	.app-select .value-container {
+		@apply p-0 !important;
+	}
+</style>

@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.62.0"
+version = "1.64.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -19,7 +19,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.62.0"
+version = "1.64.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -87,7 +87,7 @@ chrono = { version = "^0", features = ["serde"] }
 tracing = "^0"
 tracing-subscriber = { version = "^0", features = ["env-filter", "json"] }
 prometheus = { version = "^0", default-features = false }
-cookie = { version = "0.16.2" }
+cookie = { version = "0.17.0" }
 phf = { version = "0.11", features = ["macros"] }
 rust-embed = "^6"
 mime_guess = "^2"
@@ -125,7 +125,7 @@ async-recursion = "^1"
 swc_common = "^0"
 swc_ecma_parser = "^0"
 swc_ecma_ast = "^0"
-base64 = "^0"
+base64 = "0.21.0"
 unicode-general-category = "^0"
 hmac = "0.12.1"
 sha2 = "0.10.6"

@@ -8,10 +8,6 @@ edition.workspace = true
 name = "windmill_api"
 path = "src/lib.rs"
 
-[[bin]]
-name = "windmill_api"
-path = "src/main.rs"
-
 [features]
 enterprise = ["windmill-queue/enterprise"]
 

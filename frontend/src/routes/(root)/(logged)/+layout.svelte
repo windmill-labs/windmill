@@ -17,9 +17,9 @@
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 	import { page } from '$app/stores'
 	import FavoriteMenu from '$lib/components/sidebar/FavoriteMenu.svelte'
+	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 
 	OpenAPI.WITH_CREDENTIALS = true
-
 	let menuOpen = false
 	let isCollapsed = false
 	let userSettings: UserSettings
@@ -27,6 +27,12 @@
 
 	if ($page.status == 404) {
 		goto('/user/login')
+	}
+
+	$: if(userSettings && $page.url.hash === USER_SETTINGS_HASH) {
+		userSettings.openDrawer()
+	} else if(superadminSettings && $page.url.hash === SUPERADMIN_SETTINGS_HASH) {
+		superadminSettings.openDrawer()
 	}
 
 	beforeNavigate(() => {
@@ -173,10 +179,7 @@
 
 						<div class="px-2 py-4 space-y-2 border-y border-gray-500">
 							<WorkspaceMenu />
-							<UserMenu
-								on:user-settings={() => userSettings.openDrawer()}
-								on:superadmin-settings={() => superadminSettings.openDrawer()}
-							/>
+							<UserMenu />
 							<FavoriteMenu {favoriteLinks} />
 						</div>
 
@@ -212,11 +215,7 @@
 				</button>
 				<div class="px-2 py-4 space-y-2 border-y border-gray-500">
 					<WorkspaceMenu {isCollapsed} />
-					<UserMenu
-						on:user-settings={userSettings.openDrawer}
-						on:superadmin-settings={() => superadminSettings.openDrawer()}
-						{isCollapsed}
-					/>
+					<UserMenu {isCollapsed} />
 					<FavoriteMenu {favoriteLinks} />
 				</div>
 				<SidebarContent {isCollapsed} />

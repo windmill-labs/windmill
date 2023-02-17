@@ -6,8 +6,6 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::sync::Arc;
-
 use anyhow::Context;
 use axum::{
     extract::{FromRequest, Json, Path, Query},
@@ -38,7 +36,7 @@ use crate::{
     db::{UserDB, DB},
     users::{require_owner_of_path, Authed},
     variables::get_workspace_key,
-    BaseUrl, QueueLimitWaitResult, TimeoutWaitResult,
+    BASE_URL,
 };
 
 pub fn workspaced_service() -> Router {
@@ -925,16 +923,16 @@ pub async fn get_resume_urls(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, job_id, resume_id)): Path<(String, Uuid, u32)>,
     Query(approver): Query<QueryApprover>,
-    Extension(base_url): Extension<Arc<BaseUrl>>,
 ) -> error::JsonResult<ResumeUrls> {
     let key = get_workspace_key(&w_id, &mut user_db.begin(&authed).await?).await?;
     let signature = create_signature(key, job_id, resume_id, approver.approver.clone())?;
-    let base_url = base_url.0.clone();
     let approver = approver
         .approver
         .as_ref()
         .map(|x| format!("?approver={}", encode(x)))
         .unwrap_or_else(String::new);
+
+    let base_url = BASE_URL.as_str();
     let res = ResumeUrls {
         approvalPage: format!(
             "{base_url}/approve/{w_id}/{job_id}/{resume_id}/{signature}{approver}"
@@ -1315,18 +1313,26 @@ pub async fn check_queue_too_long(db: DB, queue_limit: Option<i64>) -> error::Re
     }
     Ok(())
 }
+
+lazy_static::lazy_static! {
+    pub static ref QUEUE_LIMIT_WAIT_RESULT: Option<i64> = std::env::var("QUEUE_LIMIT_WAIT_RESULT")
+        .ok()
+        .and_then(|x| x.parse().ok());
+    pub static ref TIMEOUT_WAIT_RESULT: i32 = std::env::var("TIMEOUT_WAIT_RESULT")
+        .ok()
+        .and_then(|x| x.parse().ok())
+        .unwrap_or(20);
+}
 pub async fn run_wait_result_job_by_path(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
-    Extension(timeout): Extension<Arc<TimeoutWaitResult>>,
-    Extension(queue_limit): Extension<Arc<QueueLimitWaitResult>>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
     Json(args): Json<Option<serde_json::Map<String, serde_json::Value>>>,
 ) -> error::JsonResult<serde_json::Value> {
-    check_queue_too_long(db, queue_limit.0.or(run_query.queue_limit)).await?;
+    check_queue_too_long(db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
     let script_path = script_path.to_path();
     let mut tx = user_db.clone().begin(&authed).await?;
     let job_payload = script_path_to_payload(script_path, &mut tx, &w_id).await?;
@@ -1356,7 +1362,7 @@ pub async fn run_wait_result_job_by_path(
     run_wait_result(
         authed,
         Extension(user_db),
-        timeout.0,
+        *TIMEOUT_WAIT_RESULT,
         uuid,
         Path((w_id, script_path)),
     )
@@ -1367,7 +1373,6 @@ pub async fn run_wait_result_job_by_hash(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
-    Extension(timeout): Extension<Arc<TimeoutWaitResult>>,
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
@@ -1403,7 +1408,7 @@ pub async fn run_wait_result_job_by_hash(
     run_wait_result(
         authed,
         Extension(user_db),
-        timeout.0,
+        *TIMEOUT_WAIT_RESULT,
         uuid,
         Path((w_id, script_hash)),
     )
@@ -1414,7 +1419,6 @@ pub async fn run_wait_result_flow_by_path(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
-    Extension(timeout): Extension<Arc<TimeoutWaitResult>>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
@@ -1450,7 +1454,7 @@ pub async fn run_wait_result_flow_by_path(
     run_wait_result(
         authed,
         Extension(user_db),
-        timeout.0,
+        *TIMEOUT_WAIT_RESULT,
         uuid,
         Path((w_id, flow_path)),
     )

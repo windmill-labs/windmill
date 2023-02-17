@@ -62,6 +62,7 @@
 	import ApiConnectForm from './ApiConnectForm.svelte'
 	import SearchItems from './SearchItems.svelte'
 	import autosize from 'svelte-autosize'
+	import WhitelistIp from './WhitelistIp.svelte'
 
 	export let newPageOAuth = false
 
@@ -415,6 +416,9 @@
 						<img class="m-auto  max-h-60" alt="connect" src={apiTokenApps[resource_type].img} />
 					</div>
 				{/if}
+			{/if}
+			{#if resource_type == 'postgresql' || resource_type == 'mysql' || resource_type == 'mongodb'}
+				<WhitelistIp />
 			{/if}
 
 			<h2 class="mt-4">Value</h2>
