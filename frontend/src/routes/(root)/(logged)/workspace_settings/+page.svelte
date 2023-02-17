@@ -212,7 +212,7 @@
 				<Tab size="md" value="users">
 					<div class="flex gap-2 items-center my-1"> Users & Invites </div>
 				</Tab>
-        <Tab size="md" value="slack">
+				<Tab size="md" value="slack">
 					<div class="flex gap-2 items-center my-1"> Slack Command </div>
 				</Tab>
 				{#if isCloudHosted()}
@@ -220,14 +220,14 @@
 						<div class="flex gap-2 items-center my-1"> Premium Plans </div>
 					</Tab>
 				{/if}
-        <Tab size="md" value="export_delete">
-          <div class="flex gap-2 items-center my-1"> Export & Delete Workspace </div>
-        </Tab>
-        <Tab size="md" value="webhook">
-          <div class="flex gap-2 items-center my-1">Webhook for CLI Sync</div>
-        </Tab>
-      </Tabs>
-    </div>
+				<Tab size="md" value="export_delete">
+					<div class="flex gap-2 items-center my-1"> Export & Delete Workspace </div>
+				</Tab>
+				<Tab size="md" value="webhook">
+					<div class="flex gap-2 items-center my-1">Webhook for CLI Sync</div>
+				</Tab>
+			</Tabs>
+		</div>
 		{#if tab == 'users'}
 			<PageHeader title="Members ({users?.length ?? ''})" primary={false} />
 
@@ -660,8 +660,12 @@
 		{:else if tab == 'export_delete'}
 			<PageHeader title="Export workspace" primary={false} />
 			<div class="flex justify-start">
-				<Button size="sm" href="/api/w/{$workspaceStore ?? ''}/workspaces/tarball" target="_blank">
-					Export workspace as tarball
+				<Button
+					size="sm"
+					href="/api/w/{$workspaceStore ?? ''}/workspaces/tarball?archive_type=zip"
+					target="_blank"
+				>
+					Export workspace as zip file
 				</Button>
 			</div>
 
