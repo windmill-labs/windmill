@@ -1032,7 +1032,7 @@ async function pushRaw(opts: GlobalOptions, dir?: string) {
         remotePath,
       );
     } else {
-      typed.push(workspace.workspaceId, remotePath);
+      await typed.push(workspace.workspaceId, remotePath);
     }
   }
   console.log(colors.underline.bold.green("Successfully Pushed all files."));
