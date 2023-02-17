@@ -68,7 +68,7 @@
 									select(label)
 									close()
 								}}
-								transition:fade|local={{ duration: 200 }}
+								in:fade|local={{ duration: 200 }}
 								class="w-full center-center flex-col font-normal p-1 
 								hover:bg-gray-100 focus:bg-gray-100 rounded duration-200 
 								{label === componentInput.value ? 'text-blue-600 bg-blue-50 pointer-events-none' : ''}"
@@ -78,6 +78,13 @@
 									{formatedLabel}
 								</span>
 							</button>
+						{:else}
+							<div
+								in:fade|local={{ duration: 200, delay: 210 }}
+								class="col-span-4 text-center text-gray-700 text-sm p-2"
+							>
+								No icons match your search
+							</div>
 						{/each}
 					</div>
 				{:else}
