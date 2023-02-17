@@ -17,7 +17,8 @@
 		Code2,
 		SlidersHorizontal,
 		PlusSquare,
-		DollarSign
+		DollarSign,
+		SeparatorHorizontal
 	} from 'lucide-svelte'
 	import type { Size } from 'svelte-grid'
 
@@ -68,6 +69,7 @@
 	export type SelectComponent = BaseComponent<'selectcomponent'>
 	export type CheckboxComponent = BaseComponent<'checkboxcomponent'>
 	export type RadioComponent = BaseComponent<'radiocomponent'>
+	export type DividerComponent = BaseComponent<'dividercomponent'>
 
 	export type AppComponent = BaseAppComponent &
 		(
@@ -94,6 +96,7 @@
 			| FormButtonComponent
 			| VegaLiteComponent
 			| PlotlyComponent
+			| DividerComponent
 		)
 
 	// Dimensions key formula: <mobile width>:<mobile height>-<desktop width>:<desktop height>
@@ -918,6 +921,40 @@
 				},
 				card: false
 			}
+		},
+		dividercomponent: {
+			name: 'Divider',
+			icon: SeparatorHorizontal,
+			dims: '3:1-12:1',
+			data: {
+				verticalAlignment: 'center',
+				horizontalAlignment: 'center',
+				id: '',
+				type: 'dividercomponent',
+				componentInput: undefined,
+				configuration: {
+					position: {
+						type: 'static',
+						value: 'horizontal',
+						fieldType: 'select',
+						onlyStatic: true,
+						optionValuesKey: 'positionOptions'
+					},
+					size: {
+						type: 'static',
+						value: 2,
+						fieldType: 'number',
+						onlyStatic: true,
+					},
+					color: {
+						type: 'static',
+						value: '#00000060',
+						fieldType: 'text',
+						onlyStatic: true,
+					},
+				},
+				card: false
+			}
 		}
 	}
 
@@ -953,7 +990,8 @@
 			'barchartcomponent',
 			'scatterchartcomponent',
 			'timeseriescomponent',
-			'displaycomponent'
+			'displaycomponent',
+			'dividercomponent'
 		]
 	}
 
@@ -1316,6 +1354,7 @@
 	import { defaultAlignement } from './componentsPanel/componentDefaultProps'
 	import AppRangeInput from '../components/numberInputs/AppRangeInput.svelte'
 	import AppCurrencyInput from '../components/numberInputs/AppCurrencyInput.svelte'
+	import AppDivider from '../components/AppDivider.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -1468,6 +1507,8 @@
 			<AppCurrencyInput {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{:else if component.type === 'slidercomponent'}
 			<AppSliderInputs {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+		{:else if component.type === 'dividercomponent'}
+			<AppDivider {...component} />
 		{:else if component.type === 'rangecomponent'}
 			<AppRangeInput {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{/if}

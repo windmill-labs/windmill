@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
+	import type { HorizontalAlignment, VerticalAlignment } from '../../types'
 
-	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
-	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
+	export let horizontalAlignment: HorizontalAlignment | undefined = undefined
+	export let verticalAlignment: VerticalAlignment | undefined = undefined
 	export let noWFull = false
 
 	function tailwindHorizontalAlignment(horizontalAlignment) {
