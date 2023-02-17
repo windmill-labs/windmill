@@ -861,7 +861,7 @@
 				type: 'iconcomponent',
 				componentInput: undefined,
 				configuration: {
-					iconName: {
+					icon: {
 						type: 'static',
 						value: 'Smile',
 						fieldType: 'icon-select',

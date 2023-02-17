@@ -208,3 +208,7 @@ function clearAndUpper(text: string) {
 export function toPascalCase(text: string) {
 	return text.replace(/(^\w|-\w)/g, clearAndUpper);
 }
+
+export function toKebabCase(text: string) {
+	return text.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
+}

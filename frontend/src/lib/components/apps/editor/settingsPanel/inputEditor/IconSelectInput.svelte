@@ -29,11 +29,15 @@
 			.map(([key, icon]) => ({ label: key, icon }))
 		loading = false
 	}
+
+	function formatName(name?: string) {
+		return name?.replace(/([A-Z])/g, ' $1').trim() || ''
+	}
 </script>
 
 <input
 	readonly
-	value={componentInput.value}
+	value={formatName(componentInput.value)}
 	bind:this={anchor}
 	on:click={getData}
 />
@@ -49,7 +53,7 @@
 					<input bind:value={search} type="text" placeholder="Search" class="col-span-4 mb-2">
 					<div class="grid gap-1 grid-cols-4 max-h-[300px] overflow-auto">
 						{#each filteredItems as {label, icon}}
-							{@const formatedLabel = label.replace(/([A-Z])/g, ' $1').trim()}
+							{@const formatedLabel = formatName(label)}
 							<button
 								type="button"
 								title={formatedLabel}
