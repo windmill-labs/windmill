@@ -17,7 +17,9 @@
 		Code2,
 		SlidersHorizontal,
 		PlusSquare,
-		DollarSign
+		DollarSign,
+		SeparatorHorizontal,
+		SeparatorVertical
 	} from 'lucide-svelte'
 	import type { Size } from 'svelte-grid'
 
@@ -68,6 +70,8 @@
 	export type SelectComponent = BaseComponent<'selectcomponent'>
 	export type CheckboxComponent = BaseComponent<'checkboxcomponent'>
 	export type RadioComponent = BaseComponent<'radiocomponent'>
+	export type HorizontalDividerComponent = BaseComponent<'horizontaldividercomponent'>
+	export type VerticalDividerComponent = BaseComponent<'verticaldividercomponent'>
 
 	export type AppComponent = BaseAppComponent &
 		(
@@ -94,6 +98,8 @@
 			| FormButtonComponent
 			| VegaLiteComponent
 			| PlotlyComponent
+			| HorizontalDividerComponent
+			| VerticalDividerComponent
 		)
 
 	// Dimensions key formula: <mobile width>:<mobile height>-<desktop width>:<desktop height>
@@ -918,7 +924,59 @@
 				},
 				card: false
 			}
-		}
+		},
+		horizontaldividercomponent: {
+			name: 'Divider X',
+			icon: SeparatorHorizontal,
+			dims: '3:1-12:1',
+			data: {
+				verticalAlignment: 'center',
+				id: '',
+				type: 'horizontaldividercomponent',
+				componentInput: undefined,
+				configuration: {
+					size: {
+						type: 'static',
+						value: 2,
+						fieldType: 'number',
+						onlyStatic: true,
+					},
+					color: {
+						type: 'static',
+						value: '#00000060',
+						fieldType: 'text',
+						onlyStatic: true,
+					},
+				},
+				card: false
+			}
+		},
+		verticaldividercomponent: {
+			name: 'Divider Y',
+			icon: SeparatorVertical,
+			dims: '1:4-1:6',
+			data: {
+				horizontalAlignment: 'center',
+				id: '',
+				type: 'verticaldividercomponent',
+				componentInput: undefined,
+				configuration: {
+					size: {
+						type: 'static',
+						value: 2,
+						fieldType: 'number',
+						onlyStatic: true,
+					},
+					color: {
+						type: 'static',
+						value: '#00000060',
+						fieldType: 'text',
+						onlyStatic: true,
+					},
+				},
+				card: false
+			}
+		},
 	}
 
 	const inputs: ComponentSet = {
@@ -953,7 +1011,9 @@
 			'barchartcomponent',
 			'scatterchartcomponent',
 			'timeseriescomponent',
-			'displaycomponent'
+			'displaycomponent',
+			'horizontaldividercomponent',
+			'verticaldividercomponent',
 		]
 	}
 
@@ -1316,6 +1376,7 @@
 	import { defaultAlignement } from './componentsPanel/componentDefaultProps'
 	import AppRangeInput from '../components/numberInputs/AppRangeInput.svelte'
 	import AppCurrencyInput from '../components/numberInputs/AppCurrencyInput.svelte'
+	import AppDivider from '../components/AppDivider.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -1468,6 +1529,10 @@
 			<AppCurrencyInput {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{:else if component.type === 'slidercomponent'}
 			<AppSliderInputs {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+		{:else if component.type === 'horizontaldividercomponent'}
+			<AppDivider {...component} position="horizontal" />
+		{:else if component.type === 'verticaldividercomponent'}
+			<AppDivider {...component} position="vertical" />
 		{:else if component.type === 'rangecomponent'}
 			<AppRangeInput {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{/if}
