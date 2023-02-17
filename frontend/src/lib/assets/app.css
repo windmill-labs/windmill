@@ -23,6 +23,9 @@
 		display: none !important;
 	}
 
+	.svelte-select-list {
+		z-index: 1000 !important;
+	}
 	.nowrap pre code.hljs {
 		whitespace: normal !important;
 	}
