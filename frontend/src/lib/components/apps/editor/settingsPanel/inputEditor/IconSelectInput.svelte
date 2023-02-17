@@ -33,16 +33,23 @@
 		// Inserts space before capital letters and numbers
 		return name?.replace(/([A-Z])/g, ' $1').trim().replace(/([a-z])(\d)/i, '$1 $2') || ''
 	}
+
+	function select(label: string) {
+		componentInput.value = label;
+		if((document.activeElement as HTMLElement)?.blur) {
+			(document.activeElement as HTMLElement).blur()
+		}
+	}
 </script>
 
 <input
 	readonly
 	value={formatName(componentInput.value)}
 	bind:this={anchor}
-	on:click={getData}
+	on:focus={getData}
 />
 {#if anchor}
-	<Popup ref={anchor} options={{ placement: 'bottom' }} transition={fade}>
+	<Popup ref={anchor} options={{ placement: 'bottom' }} transition={fade} let:close>
 		<div class="max-w-xs shadow-[0_10px_40px_-5px_rgba(0,0,0,0.25)] bg-white rounded-md p-2">
 			{#if loading}
 				<div class="center-center p-2">
@@ -57,7 +64,10 @@
 							<button
 								type="button"
 								title={formatedLabel}
-								on:click={() => componentInput.value = label}
+								on:click={() => {
+									select(label)
+									close()
+								}}
 								transition:fade|local={{ duration: 200 }}
 								class="w-full center-center flex-col font-normal p-1 
 								hover:bg-gray-100 focus:bg-gray-100 rounded duration-200 

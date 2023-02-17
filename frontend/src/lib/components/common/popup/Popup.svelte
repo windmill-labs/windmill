@@ -156,7 +156,7 @@
 	{#if $stateMachine.currentState !== 'closed'}
 		<div transition:transition|local={{ duration: 200 }} class={outerClasses}>
 			<div class={innerClasses}>
-				<slot />
+				<slot close={closed} />
 			</div>
 		</div>
 	{/if}
