@@ -147,6 +147,7 @@
 <svelte:window on:keydown={keyDown} />
 
 <div
+	class="z-50"
 	bind:this={popup}
 	use:popperContent={options}
 	use:clickOutside

@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { Button, type ButtonType } from '$lib/components/common'
-	import { Loader2 } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
@@ -9,6 +8,7 @@
 	import InputValue from '../helpers/InputValue.svelte'
 	import type RunnableComponent from '../helpers/RunnableComponent.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
+	import { loadIcon } from '../icon'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -34,11 +34,35 @@
 
 	let isLoading: boolean = false
 	let ownClick: boolean = false
+	let triggerOnAppLoad = false
+
+	let beforeIcon: undefined | string = undefined
+	let afterIcon: undefined | string = undefined
+
+	let beforeIconComponent: any
+	let afterIconComponent: any
+
+	$: beforeIcon && handleBeforeIcon()
+	$: afterIcon && handleAfterIcon()
+
+	async function handleBeforeIcon() {
+		if (beforeIcon) {
+			beforeIconComponent = await loadIcon(beforeIcon)
+		}
+	}
+
+	async function handleAfterIcon() {
+		if (afterIcon) {
+			afterIconComponent = await loadIcon(afterIcon)
+		}
+	}
 
 	$: outputs = $worldStore?.outputsById[id] as {
 		result: Output<Array<any>>
 		loading: Output<boolean>
 	}
+
+	$: triggerOnAppLoad && runnableComponent?.runComponent()
 
 	$: if (outputs?.loading != undefined) {
 		outputs.loading.set(false, true)
@@ -64,6 +88,10 @@
 <InputValue {id} input={configuration.goto} bind:value={goto} />
 <InputValue {id} input={configuration.color} bind:value={color} />
 <InputValue {id} input={configuration.size} bind:value={size} />
+<InputValue {id} input={configuration.beforeIcon} bind:value={beforeIcon} />
+<InputValue {id} input={configuration.afterIcon} bind:value={afterIcon} />
+<InputValue {id} input={configuration.triggerOnAppLoad} bind:value={triggerOnAppLoad} />
+
 <InputValue
 	row={extraQueryParams['row']}
 	{id}
@@ -112,8 +140,14 @@
 			{color}
 			{loading}
 		>
-			<span class="truncate">
-				{labelValue}
+			<span class="truncate inline-flex gap-2 items-center">
+				{#if beforeIconComponent}
+					<svelte:component this={beforeIconComponent} size={14} />
+				{/if}
+				<div>{labelValue}</div>
+				{#if afterIconComponent}
+					<svelte:component this={afterIconComponent} size={14} />
+				{/if}
 			</span>
 		</Button>
 	</AlignWrapper>
