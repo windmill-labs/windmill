@@ -1113,7 +1113,11 @@ async fn tarball_workspace(
 
     let tmp_dir = TempDir::new_in(".")?;
 
-    let name = format!("windmill-{w_id}.tar");
+    let name = match archive_type.as_str() {
+        "tar" | "" => Ok(format!("windmill-{w_id}.tar")),
+        "zip" => Ok(format!("windmill-{w_id}.zip")),
+        t => Err(Error::BadRequest(format!("Invalid Archive Type {t}"))),
+    }?;
     let file_path = tmp_dir.path().join(&name);
     let file = File::create(&file_path).await?;
     let mut archive = match archive_type.as_str() {
