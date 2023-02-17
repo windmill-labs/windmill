@@ -200,3 +200,15 @@ export function getAllScriptNames(app: App): string[] {
 
 	return [...names, ...unusedNames, ...backgroundNames]
 }
+
+function clearAndUpper(text: string) {
+	return text.replace(/-/, "").toUpperCase();
+}
+
+export function toPascalCase(text: string) {
+	return text.replace(/(^\w|-\w)/g, clearAndUpper);
+}
+
+export function toKebabCase(text: string) {
+	return text.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
+}
