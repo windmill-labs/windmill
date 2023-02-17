@@ -130,6 +130,7 @@
 	} else {
 		setTimeout(() => {
 			getFocusableElements()
+			getInstance()?.update()
 		}, 0)
 	}
 
