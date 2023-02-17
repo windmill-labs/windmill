@@ -1,24 +1,41 @@
 <script lang="ts">
-	import type { AppInput } from '../inputType'
+	import { classNames } from '$lib/utils'
 	import type { HorizontalAlignment, VerticalAlignment } from '../types'
-	import AlignWrapper from './helpers/AlignWrapper.svelte'
-	import InputValue from './helpers/InputValue.svelte'
 
-	export let id: string
-	export let configuration: Record<string, AppInput>
 	export let horizontalAlignment: HorizontalAlignment | undefined = undefined
 	export let verticalAlignment: VerticalAlignment | undefined = undefined
-	export let position: 'horizontal' | 'vertical'
-	let size = 2
-	let color = '#00000060'
+	export let noWFull = false
+
+	function tailwindHorizontalAlignment(alignment?: HorizontalAlignment) {
+		if (!alignment) return ''
+		const classes: Record<HorizontalAlignment, string> = {
+			left: 'justify-start',
+			center: 'justify-center',
+			right: 'justify-end'
+		}
+		return classes[alignment]
+	}
+
+	function tailwindVerticalAlignment(alignment?: VerticalAlignment) {
+		if (!alignment) return ''
+		const classes: Record<VerticalAlignment, string> = {
+			top: 'items-start',
+			center: 'items-center',
+			bottom: 'items-end'
+		}
+		return classes[alignment]
+	}
+
+	$: classes = classNames(
+		'flex z-auto',
+		noWFull ? '' : 'w-full',
+		tailwindHorizontalAlignment(horizontalAlignment),
+		tailwindVerticalAlignment(verticalAlignment),
+		verticalAlignment ? 'h-full' : '',
+		$$props.class || ''
+	)
 </script>
 
-<InputValue {id} input={configuration.size} bind:value={size} />
-<InputValue {id} input={configuration.color} bind:value={color} />
-
-<AlignWrapper {horizontalAlignment} {verticalAlignment} class="h-full">
-	<div
-		class="rounded-full {position === 'horizontal' ? 'w-full' : 'h-full'}"
-		style="{position === 'horizontal' ? 'height' : 'width'}: {size}px; background-color: {color}"
-	></div>
-</AlignWrapper>
+<div class={classes}>
+	<slot />
+</div>

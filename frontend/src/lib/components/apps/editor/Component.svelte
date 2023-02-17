@@ -17,6 +17,7 @@
 		Code2,
 		SlidersHorizontal,
 		PlusSquare,
+		Smile,
 		DollarSign,
 		SeparatorHorizontal,
 		SeparatorVertical
@@ -28,7 +29,7 @@
 	}
 
 	/* 	How to add a new Svelte Component:
-	  1. add the the type to the union below
+	  1. add the type to the union below
 	  2. add the component to the components record
 	  3. add the comoonent to one of the components set (buttons, inputs, display)
 	  4. add the component in the svelte if switch
@@ -70,6 +71,7 @@
 	export type SelectComponent = BaseComponent<'selectcomponent'>
 	export type CheckboxComponent = BaseComponent<'checkboxcomponent'>
 	export type RadioComponent = BaseComponent<'radiocomponent'>
+	export type IconComponent = BaseComponent<'iconcomponent'>
 	export type HorizontalDividerComponent = BaseComponent<'horizontaldividercomponent'>
 	export type VerticalDividerComponent = BaseComponent<'verticaldividercomponent'>
 
@@ -98,6 +100,7 @@
 			| FormButtonComponent
 			| VegaLiteComponent
 			| PlotlyComponent
+			| IconComponent
 			| HorizontalDividerComponent
 			| VerticalDividerComponent
 		)
@@ -108,7 +111,7 @@
 		{ name: string; icon: any; dims: `${number}:${number}-${number}:${number}`; data: AppComponent }
 	> = {
 		displaycomponent: {
-			name: 'Result',
+			name: 'Rich Result',
 			icon: Monitor,
 			dims: '2:8-6:8',
 			data: {
@@ -896,7 +899,7 @@
 			}
 		},
 		dateinputcomponent: {
-			name: 'Date Input',
+			name: 'Date',
 			icon: Calendar,
 			dims: '2:1-3:1',
 			data: {
@@ -925,6 +928,44 @@
 				card: false
 			}
 		},
+		iconcomponent: {
+			name: 'Icon',
+			icon: Smile,
+			dims: '1:3-1:2',
+			data: {
+				softWrap: false,
+				horizontalAlignment: 'center',
+				verticalAlignment: 'center',
+				id: '',
+				type: 'iconcomponent',
+				componentInput: undefined,
+				configuration: {
+					icon: {
+						type: 'static',
+						value: 'Smile',
+						fieldType: 'icon-select'
+					},
+					color: {
+						type: 'static',
+						value: 'currentColor',
+						fieldType: 'text'
+					},
+					size: {
+						type: 'static',
+						value: 24,
+						fieldType: 'number',
+						onlyStatic: true
+					},
+					strokeWidth: {
+						type: 'static',
+						value: 2,
+						fieldType: 'number',
+						onlyStatic: true
+					}
+				},
+				card: false
+			}
+		},
 		horizontaldividercomponent: {
 			name: 'Divider X',
 			icon: SeparatorHorizontal,
@@ -939,14 +980,14 @@
 						type: 'static',
 						value: 2,
 						fieldType: 'number',
-						onlyStatic: true,
+						onlyStatic: true
 					},
 					color: {
 						type: 'static',
 						value: '#00000060',
 						fieldType: 'text',
-						onlyStatic: true,
-					},
+						onlyStatic: true
+					}
 				},
 				card: false
 			}
@@ -965,18 +1006,18 @@
 						type: 'static',
 						value: 2,
 						fieldType: 'number',
-						onlyStatic: true,
+						onlyStatic: true
 					},
 					color: {
 						type: 'static',
 						value: '#00000060',
 						fieldType: 'text',
-						onlyStatic: true,
-					},
+						onlyStatic: true
+					}
 				},
 				card: false
 			}
-		},
+		}
 	}
 
 	const inputs: ComponentSet = {
@@ -1002,18 +1043,19 @@
 	const display: ComponentSet = {
 		title: 'Display',
 		components: [
+			'textcomponent',
+			'iconcomponent',
 			'htmlcomponent',
+			'tablecomponent',
+			'barchartcomponent',
+			'piechartcomponent',
 			'vegalitecomponent',
 			'plotlycomponent',
-			'textcomponent',
-			'tablecomponent',
-			'piechartcomponent',
-			'barchartcomponent',
 			'scatterchartcomponent',
 			'timeseriescomponent',
 			'displaycomponent',
 			'horizontaldividercomponent',
-			'verticaldividercomponent',
+			'verticaldividercomponent'
 		]
 	}
 
@@ -1329,6 +1371,13 @@
 			"backgroundColor": "orange"
 		}
 	]`
+		},
+		iconcomponent: {
+			deno: `export async function main() {
+	return "smile";
+}`,
+			python3: `def main():
+	return "smile"`
 		}
 	} as const
 
@@ -1375,6 +1424,7 @@
 	import PlotlyHtml from '../components/dataDisplay/PlotlyHtml.svelte'
 	import { defaultAlignement } from './componentsPanel/componentDefaultProps'
 	import AppRangeInput from '../components/numberInputs/AppRangeInput.svelte'
+	import AppIcon from '../components/dataDisplay/AppIcon.svelte'
 	import AppCurrencyInput from '../components/numberInputs/AppCurrencyInput.svelte'
 	import AppDivider from '../components/AppDivider.svelte'
 
@@ -1535,6 +1585,8 @@
 			<AppDivider {...component} position="vertical" />
 		{:else if component.type === 'rangecomponent'}
 			<AppRangeInput {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+		{:else if component.type === 'iconcomponent'}
+			<AppIcon {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{/if}
 	</div>
 </div>
