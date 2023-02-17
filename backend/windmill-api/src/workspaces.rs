@@ -1072,7 +1072,6 @@ impl ArchiveImpl {
                 t.append_data(&mut header, path, bytes).await?;
             }
             ArchiveImpl::Zip(z) => {
-                let bytes = content.as_bytes();
                 let header = async_zip::ZipEntryBuilder::new(
                     path.to_owned(),
                     async_zip::Compression::Deflate,
@@ -1100,7 +1099,7 @@ impl ArchiveImpl {
 
 #[derive(Deserialize)]
 struct ArchiveQueryParams {
-    archive_type: String,
+    archive_type: Option<String>,
 }
 
 async fn tarball_workspace(
@@ -1113,17 +1112,17 @@ async fn tarball_workspace(
 
     let tmp_dir = TempDir::new_in(".")?;
 
-    let name = match archive_type.as_str() {
-        "tar" | "" => Ok(format!("windmill-{w_id}.tar")),
-        "zip" => Ok(format!("windmill-{w_id}.zip")),
-        t => Err(Error::BadRequest(format!("Invalid Archive Type {t}"))),
+    let name = match archive_type.as_deref() {
+        Some("tar") | None => Ok(format!("windmill-{w_id}.tar")),
+        Some("zip") => Ok(format!("windmill-{w_id}.zip")),
+        Some(t) => Err(Error::BadRequest(format!("Invalid Archive Type {t}"))),
     }?;
     let file_path = tmp_dir.path().join(&name);
     let file = File::create(&file_path).await?;
-    let mut archive = match archive_type.as_str() {
-        "tar" | /* no query string is empty string */ "" => Ok(ArchiveImpl::Tar(tokio_tar::Builder::new(file))),
-        "zip" => Ok(ArchiveImpl::Zip(async_zip::write::ZipFileWriter::new(file))),
-        t => Err(Error::BadRequest(format!("Invalid Archive Type {t}"))),
+    let mut archive = match archive_type.as_deref() {
+        Some("tar") | None => Ok(ArchiveImpl::Tar(tokio_tar::Builder::new(file))),
+        Some("zip") => Ok(ArchiveImpl::Zip(async_zip::write::ZipFileWriter::new(file))),
+        Some(t) => Err(Error::BadRequest(format!("Invalid Archive Type {t}"))),
     }?;
     {
         let folders = sqlx::query_as::<_, Folder>("SELECT * FROM folder WHERE workspace_id = $1")
