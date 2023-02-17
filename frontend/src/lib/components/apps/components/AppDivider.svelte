@@ -16,7 +16,7 @@
 <InputValue {id} input={configuration.size} bind:value={size} />
 <InputValue {id} input={configuration.color} bind:value={color} />
 
-<AlignWrapper {horizontalAlignment} {verticalAlignment}>
+<AlignWrapper {horizontalAlignment} {verticalAlignment} class="h-full">
 	<div
 		class="rounded-full {position === 'horizontal' ? 'w-full' : 'h-full'}"
 		style="{position === 'horizontal' ? 'height' : 'width'}: {size}px; background-color: {color}"

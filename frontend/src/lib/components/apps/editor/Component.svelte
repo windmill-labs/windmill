@@ -931,7 +931,6 @@
 			dims: '3:1-12:1',
 			data: {
 				verticalAlignment: 'center',
-				horizontalAlignment: 'center',
 				id: '',
 				type: 'horizontaldividercomponent',
 				componentInput: undefined,
@@ -957,7 +956,6 @@
 			icon: SeparatorVertical,
 			dims: '1:4-1:6',
 			data: {
-				verticalAlignment: 'center',
 				horizontalAlignment: 'center',
 				id: '',
 				type: 'verticaldividercomponent',
