@@ -34,7 +34,6 @@ import {
 import { ResourceFile } from "./resource.ts";
 import { FlowFile } from "./flow.ts";
 import { VariableFile } from "./variable.ts";
-import { file } from "../../.cache/deno/npm/registry.npmjs.org/jszip/3.7.1/index.d.ts";
 
 type TrackedId = string;
 const TrackedId = String;
@@ -271,7 +270,6 @@ export class State {
         continue;
       }
       const path2 = path.substring(base.length + 1);
-      // TODO: Fix relative to root, this should be relative to the folder
       const stateFile = this.get(path2);
       let localFile: string | undefined;
       try {
@@ -387,7 +385,7 @@ async function updateStateFromRemote(
           await Deno.stat(entry.path);
         } catch {
           await ensureDir(path.dirname(e.path));
-          await Deno.writeTextFile(e.path, "");
+          await Deno.writeTextFile(e.path, "tmp_file");
         }
       }
     }
@@ -404,7 +402,7 @@ async function pull(
     opts2.override = opts2.rawOverride;
     opts2.raw = undefined;
     opts2.rawOverride = undefined;
-    await pullRaw(opts2, Deno.cwd());
+    await pullRaw(opts2);
     return;
   }
 
@@ -740,7 +738,6 @@ async function init(opts: GlobalOptions) {
 
 async function pullRaw(
   opts: GlobalOptions & { override: boolean },
-  dir: string,
 ) {
   const workspace = await resolveWorkspace(opts);
 
@@ -749,8 +746,13 @@ async function pullRaw(
 
   // TODO use ZipFSElement & readDirRecursiveWithIgnore here
   // TODO also remember to read content via entry methods now instead of direct I/O
-  for await (const entry of Deno.readDir(zipDir)) {
-    const filePath = path.resolve(dir, entry.name);
+  for await (
+    const entry of readDirRecursiveWithIgnore(
+      (_) => false,
+      ZipFSElement(zipDir),
+    )
+  ) {
+    const filePath = entry.path;
     if (entry.isDirectory) {
       await ensureDir(filePath);
       continue;
@@ -776,7 +778,7 @@ async function pullRaw(
         }
       }
     }
-    await Deno.copyFile(path.resolve(zipDir, entry.name), filePath);
+    await Deno.writeFile(filePath, await entry.getContentBytes());
   }
   console.log(colors.green("Done. Wrote all files to disk."));
 }
