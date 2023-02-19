@@ -117,13 +117,13 @@
 								<div class="mb-2">
 									<div class="mt-1 font-semibold">{id}</div>
 									{#if $app?.css?.[type]?.[id]}
-										<span class="text-xs">style</span>
+										<span class="text-xs">Style</span>
 										<input
 											type="text"
 											on:focus={() => (isCustom[type] = true)}
 											bind:value={$app.css[type][id].style}
 										/>
-										<span class="text-xs">class</span>
+										<span class="text-xs">Tailwind classes</span>
 										<input
 											type="text"
 											on:focus={() => (isCustom[type] = true)}
