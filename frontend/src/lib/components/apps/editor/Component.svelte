@@ -23,6 +23,7 @@
 		SeparatorVertical
 	} from 'lucide-svelte'
 	import type { Size } from 'svelte-grid'
+	import { twMerge } from 'tailwind-merge'
 
 	type BaseComponent<T extends string> = {
 		type: T
@@ -108,7 +109,13 @@
 	// Dimensions key formula: <mobile width>:<mobile height>-<desktop width>:<desktop height>
 	export const components: Record<
 		AppComponent['type'],
-		{ name: string; icon: any; dims: `${number}:${number}-${number}:${number}`; data: AppComponent }
+		{
+			name: string
+			icon: any
+			dims: `${number}:${number}-${number}:${number}`
+			data: AppComponent
+			cssIds?: string[]
+		}
 	> = {
 		displaycomponent: {
 			name: 'Rich Result',
@@ -123,6 +130,7 @@
 					value: { foo: 42 }
 				},
 				configuration: {},
+				customCss: {},
 				card: false
 			}
 		},
@@ -130,6 +138,7 @@
 			name: 'Text',
 			icon: Type,
 			dims: '1:1-3:1',
+			cssIds: ['text'],
 			data: {
 				softWrap: false,
 				horizontalAlignment: 'left',
@@ -149,18 +158,15 @@
 						optionValuesKey: 'textStyleOptions',
 						value: 'Body'
 					},
-					extraStyle: {
-						type: 'static',
-						fieldType: 'text',
-						value: '',
-						tooltip: 'CSS rules like "color: blue;"'
-					},
 					copyButton: {
 						type: 'static',
 						value: false,
 						fieldType: 'boolean',
 						onlyStatic: true
 					}
+				},
+				customCss: {
+					text: { class: '', style: '' }
 				},
 				card: false
 			}
@@ -169,6 +175,7 @@
 			name: 'Button',
 			icon: Inspect,
 			dims: '1:1-2:1',
+			cssIds: ['button'],
 			data: {
 				...defaultAlignement,
 				softWrap: true,
@@ -237,7 +244,9 @@
 						onlyStatic: true
 					}
 				},
-
+				customCss: {
+					button: { style: '', class: '' }
+				},
 				card: false
 			}
 		},
@@ -283,7 +292,7 @@
 						value: ''
 					}
 				},
-
+				customCss: {},
 				card: true
 			}
 		},
@@ -324,7 +333,7 @@
 						optionValuesKey: 'buttonSizeOptions'
 					}
 				},
-
+				customCss: {},
 				card: true
 			}
 		},
@@ -355,6 +364,7 @@
 					fieldType: 'object',
 					value: { data: [25, 50, 25], labels: ['Pie', 'Charts', '<3'] }
 				},
+				customCss: {},
 				card: true
 			}
 		},
@@ -385,6 +395,7 @@
 					fieldType: 'object',
 					value: { data: [25, 50, 25], labels: ['Bar', 'Charts', '<3'] }
 				},
+				customCss: {},
 				card: true
 			}
 		},
@@ -407,6 +418,7 @@
 </h1>`
 				},
 				configuration: {},
+				customCss: {},
 				card: false
 			}
 		},
@@ -446,6 +458,7 @@
 						tooltip: 'use the canvas renderer instead of the svg one for more interactive plots'
 					}
 				},
+				customCss: {},
 				card: false
 			}
 		},
@@ -473,6 +486,7 @@
 					}
 				},
 				configuration: {},
+				customCss: {},
 				card: false
 			}
 		},
@@ -546,6 +560,7 @@
 						}
 					]
 				},
+				customCss: {},
 				card: true
 			}
 		},
@@ -595,6 +610,7 @@
 						}
 					]
 				},
+				customCss: {},
 				card: true
 			}
 		},
@@ -631,6 +647,7 @@
 						}
 					]
 				},
+				customCss: {},
 				card: true,
 				actionButtons: []
 			}
@@ -657,6 +674,7 @@
 						fieldType: 'boolean'
 					}
 				},
+				customCss: {},
 				card: false
 			}
 		},
@@ -683,6 +701,7 @@
 						fieldType: 'text'
 					}
 				},
+				customCss: {},
 				card: false
 			}
 		},
@@ -718,6 +737,7 @@
 						onlyStatic: true
 					}
 				},
+				customCss: {},
 				card: false,
 				softWrap: true
 			}
@@ -763,6 +783,7 @@
 						onlyStatic: true
 					}
 				},
+				customCss: {},
 				card: false
 			}
 		},
@@ -803,6 +824,7 @@
 						optionValuesKey: 'localeOptions'
 					}
 				},
+				customCss: {},
 				card: false
 			}
 		},
@@ -842,6 +864,7 @@
 						onlyStatic: true
 					}
 				},
+				customCss: {},
 				card: false
 			}
 		},
@@ -887,6 +910,7 @@
 						onlyStatic: true
 					}
 				},
+				customCss: {},
 				card: false
 			}
 		},
@@ -908,6 +932,7 @@
 						onlyStatic: true
 					}
 				},
+				customCss: {},
 				card: false
 			}
 		},
@@ -938,6 +963,7 @@
 						fieldType: 'date'
 					}
 				},
+				customCss: {},
 				card: false
 			}
 		},
@@ -976,6 +1002,7 @@
 						onlyStatic: true
 					}
 				},
+				customCss: {},
 				card: false
 			}
 		},
@@ -1002,6 +1029,7 @@
 						onlyStatic: true
 					}
 				},
+				customCss: {},
 				card: false
 			}
 		},
@@ -1028,6 +1056,7 @@
 						onlyStatic: true
 					}
 				},
+				customCss: {},
 				card: false
 			}
 		}
@@ -1446,7 +1475,8 @@
 	export let locked: boolean = false
 	export let pointerdown: boolean = false
 
-	const { staticOutputs, mode, connectingInput } = getContext<AppEditorContext>('AppEditorContext')
+	const { staticOutputs, mode, connectingInput, app } =
+		getContext<AppEditorContext>('AppEditorContext')
 	let hover = false
 	let initializing: boolean | undefined = undefined
 </script>
@@ -1469,15 +1499,17 @@
 			// 	e?.stopPropagation()
 			// }
 		}}
-		class={classNames(
-			'border h-full bg-white',
-			selected && $mode !== 'preview' ? 'border-blue-500' : 'border-white',
+		class={twMerge(
+			'h-full bg-white/40',
+			selected && $mode !== 'preview' ? 'border border-blue-500' : '',
 			!selected && $mode !== 'preview' && !component.card ? 'border-gray-100' : '',
 			$mode !== 'preview' && !$connectingInput.opened ? 'hover:border-blue-500' : '',
 			component.softWrap ? '' : 'overflow-auto',
 			$mode != 'preview' ? 'cursor-pointer' : '',
-			'relative z-auto'
+			'relative z-auto',
+			$app.css?.['app']?.['component']?.class
 		)}
+		style={$app.css?.['app']?.['component']?.style}
 	>
 		{#if component.type === 'displaycomponent'}
 			<AppDisplayComponent

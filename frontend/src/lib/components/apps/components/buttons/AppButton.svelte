@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Button, type ButtonType } from '$lib/components/common'
-	import { getContext } from 'svelte'
+	import { getContext, onMount } from 'svelte'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppEditorContext } from '../../types'
@@ -9,6 +9,7 @@
 	import type RunnableComponent from '../helpers/RunnableComponent.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import { loadIcon } from '../icon'
+	import { twMerge } from 'tailwind-merge'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -19,10 +20,11 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let noWFull = false
 	export let preclickAction: (() => Promise<void>) | undefined = undefined
+	export let customCss: Record<'button', { class: string; style: string }> | undefined = undefined
 
 	export const staticOutputs: string[] = ['loading', 'result']
 
-	const { runnableComponents, worldStore } = getContext<AppEditorContext>('AppEditorContext')
+	const { runnableComponents, worldStore, app } = getContext<AppEditorContext>('AppEditorContext')
 
 	let labelValue: string
 	let color: ButtonType.Color
@@ -115,7 +117,12 @@
 			<div class="text-red-500 text-xs">{errorsMessage}</div>
 		{/if}
 		<Button
-			btnClasses={fillContainer ? 'w-full h-full' : ''}
+			btnClasses={twMerge(
+				$app.css?.['buttoncomponent']?.['button']?.class,
+				customCss?.button?.class,
+				fillContainer ? 'w-full h-full' : ''
+			)}
+			style={[$app.css?.['buttoncomponent']?.['button']?.style, customCss?.button?.style].join(';')}
 			{disabled}
 			on:pointerdown={(e) => {
 				e?.stopPropagation()
