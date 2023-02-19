@@ -57,6 +57,7 @@ declare module 'svelte-grid' {
 		Props<T>,
 		{
 			pointerup: CustomEvent<{ id: string }>
+			mount: CustomEvent<>
 		},
 		Slots<T>
 	> { }

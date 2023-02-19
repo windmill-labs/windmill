@@ -1,6 +1,7 @@
 <script lang="ts">
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
 	import { onMount, setContext } from 'svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { writable } from 'svelte/store'
@@ -20,9 +21,9 @@
 	import { Alert, Button, Tab } from '$lib/components/common'
 	import ComponentList from './componentsPanel/ComponentList.svelte'
 	import Icon from 'svelte-awesome'
-	import { faPlus, faSliders } from '@fortawesome/free-solid-svg-icons'
+	import { faCode, faPlus, faSliders } from '@fortawesome/free-solid-svg-icons'
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
-	import { classNames, encodeState } from '$lib/utils'
+	import { encodeState } from '$lib/utils'
 	import AppPreview from './AppPreview.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 
@@ -33,6 +34,7 @@
 	import type { Policy } from '$lib/gen'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { page } from '$app/stores'
+	import CssSettings from './componentsPanel/CssSettings.svelte'
 
 	export let app: App
 	export let path: string
@@ -130,17 +132,24 @@
 	{/if}
 
 	{#if previewing}
-		<AppPreview
-			workspace={$workspaceStore ?? ''}
-			summary={$summaryStore}
-			app={$appStore}
-			appPath={path}
-			{breakpoint}
-			{policy}
-			isEditor
-			{context}
-			noBackend={false}
-		/>
+		<SplitPanesWrapper>
+			<div
+				class={twMerge('bg-gray-100 h-full w-full', $appStore.css?.['app']?.['viewer']?.class)}
+				style={$appStore.css?.['app']?.['viewer']?.style}
+			>
+				<AppPreview
+					workspace={$workspaceStore ?? ''}
+					summary={$summaryStore}
+					app={$appStore}
+					appPath={path}
+					{breakpoint}
+					{policy}
+					isEditor
+					{context}
+					noBackend={false}
+				/>
+			</div>
+		</SplitPanesWrapper>
 	{:else}
 		<SplitPanesWrapper>
 			<Splitpanes class="max-w-full overflow-hidden">
@@ -152,15 +161,23 @@
 						<Splitpanes horizontal>
 							<Pane size={$connectingInput?.opened ? 100 : 70}>
 								<div
-									class="bg-gray-100 relative  w-full h-full overflow-auto {app.fullscreen
-										? ''
-										: 'max-w-6xl'}"
+									class={twMerge(
+										'bg-gray-100 h-full w-full',
+										$appStore.css?.['app']?.['viewer']?.class
+									)}
+									style={$appStore.css?.['app']?.['viewer']?.style}
 								>
-									{#if $appStore.grid}
-										<div class={classNames('pb-4 mx-auto', width)}>
-											<GridEditor {policy} />
-										</div>
-									{/if}
+									<div
+										class="relative  mx-auto w-full h-full overflow-auto {app.fullscreen
+											? ''
+											: 'max-w-6xl'}"
+									>
+										{#if $appStore.grid}
+											<div class={width}>
+												<GridEditor {policy} />
+											</div>
+										{/if}
+									</div>
 								</div>
 							</Pane>
 							<Pane size={$connectingInput?.opened ? 0 : 30}>
@@ -186,6 +203,12 @@
 									<span>Settings</span>
 								</div>
 							</Tab>
+							<Tab value="css" size="xs">
+								<div class="m-1 flex flex-row gap-2">
+									<Icon data={faCode} />
+									<span>CSS</span>
+								</div>
+							</Tab>
 							<div slot="content" class="h-full overflow-y-auto pb-4">
 								<TabContent class="overflow-auto" value="settings">
 									{#if $selectedComponent !== undefined}
@@ -196,6 +219,9 @@
 								</TabContent>
 								<TabContent value="insert">
 									<ComponentList />
+								</TabContent>
+								<TabContent value="css">
+									<CssSettings />
 								</TabContent>
 							</div>
 						</Tabs>
