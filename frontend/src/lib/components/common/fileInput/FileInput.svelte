@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { createEventDispatcher } from "svelte"
 	import { FileUp } from "lucide-svelte"
+	import Button from "../../common/button/Button.svelte"
+	import { faTrash } from "@fortawesome/free-solid-svg-icons"
 
 	let c = ''
 	export { c as class }
@@ -19,19 +21,18 @@
 			return;
 		}
 
-		files = []
+		if(!multiple || !files) {
+			files = []
+		}
 		for(let i = 0; i < fileList.length; i++) {
 			const file = fileList.item(i);
 			if(file) files.push(file);
 		}
+		// Needs to be reset so the same file can be selected 
+		// multiple times in a row
+		input.value = ''
 
-		if(convertToBase64) {
-			const promises = files.map(fileToBase64);
-			const b64s = await Promise.all(promises);
-			dispatch('change', b64s);
-		} else {
-			dispatch('change', files);
-		}
+		dispatchChange()
 	}
 
 	async function fileToBase64(file: File): Promise<string> {
@@ -43,24 +44,52 @@
 			reader.readAsDataURL(file);
 		})
 	}
+
+	function removeFile(index: number) {
+		if(!files) return;
+		files.splice(index, 1)
+		files = files.length ? files : undefined
+		dispatchChange()
+	}
+
+	async function dispatchChange() {
+		files = files
+
+		if(convertToBase64 && files) {
+			const promises = files.map(fileToBase64);
+			const b64s = await Promise.all(promises);
+			dispatch('change', b64s);
+		} else {
+			dispatch('change', files);
+		}
+	}
 </script>
 
 <button
 	class="relative center-center flex-col text-center font-medium text-gray-600 
 	border-2 border-dashed border-gray-400 hover:border-blue-500 
 	focus-within:border-blue-500 hover:bg-blue-50 focus-within:bg-blue-50 
-	duration-200 p-1 {c ?? ''}"
+	duration-200 rounded-lg p-1 {c ?? ''}"
 >
 	{#if !hideIcon && !files}
 		<FileUp size={36} class="mb-2" />
 	{/if}
 	{#if files}
-		<div class="text-center">
-			Selected file{files.length > 1 ? 's' : ''}:
+		<div class="max-h-full overflow-auto">
+			<div class="mb-2">Selected file{files.length > 1 ? 's' : ''}:</div>
 			<ul>
-				{#each files as {name}}
-					<li class="font-normal text-sm">
-						{name}
+				{#each files as {name}, i}
+					<li class="flex justify-between items-center font-normal text-sm mb-1 px-2">
+						<span class="pr-2 ellipsize">{name}</span>
+						<Button
+							size="xs"
+							color="red"
+							variant="border"
+							iconOnly
+							btnClasses="!relative !z-20 bg-transparent"
+							startIcon={{ icon: faTrash }}
+							on:click={() => removeFile(i)}
+						/>
 					</li>
 				{/each}
 			</ul>
@@ -71,7 +100,7 @@
 		</slot>
 	{/if}
 	<input
-		class="!absolute !inset-0 !opacity-0"
+		class="!absolute !inset-0 !z-10 !opacity-0"
 		type="file"
 		bind:this={input}
 		on:change={({currentTarget}) => {onChange(currentTarget.files)}}
