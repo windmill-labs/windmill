@@ -3,7 +3,14 @@ const plugin = require('tailwindcss/plugin')
 /** @type {import('tailwindcss').Config} */
 const config = {
 	content: ['./src/**/*.{html,js,svelte,ts}'],
-	safelist: ['hljs', 'splitpanes__pane', 'splitpanes__splitter'],
+	safelist: [
+		'hljs',
+		'splitpanes__pane',
+		'splitpanes__splitter',
+		{
+			pattern: /.*/
+		}
+	],
 	theme: {
 		colors: {
 			current: 'currentcolor',
@@ -237,26 +244,26 @@ const config = {
 					color: theme('colors.blue.500')
 				},
 				'input,input[type="text"],input[type="email"],input[type="url"],input[type="password"],input[type="number"],input[type="date"],input[type="datetime-local"],input[type="month"],input[type="search"],input[type="tel"],input[type="time"],input[type="week"],textarea:not(.monaco-mouse-cursor-text),select':
-				{
-					display: 'block',
-					fontSize: theme('fontSize.sm'),
-					width: '100%',
-					padding: `${theme('spacing.1')} ${theme('spacing.2')}`,
-					border: `1px solid ${theme('colors.gray.300')}`,
-					borderRadius: theme('borderRadius.md'),
-					'&:focus': {
-						'--tw-ring-color': theme('colors.indigo.100'),
-						'--tw-ring-offset-shadow':
-							'var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color)',
-						'--tw-ring-shadow':
-							'var(--tw-ring-inset) 0 0 0 calc(3px + var(--tw-ring-offset-width)) var(--tw-ring-color)',
-						boxShadow:
-							'var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000)'
+					{
+						display: 'block',
+						fontSize: theme('fontSize.sm'),
+						width: '100%',
+						padding: `${theme('spacing.1')} ${theme('spacing.2')}`,
+						border: `1px solid ${theme('colors.gray.300')}`,
+						borderRadius: theme('borderRadius.md'),
+						'&:focus': {
+							'--tw-ring-color': theme('colors.indigo.100'),
+							'--tw-ring-offset-shadow':
+								'var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color)',
+							'--tw-ring-shadow':
+								'var(--tw-ring-inset) 0 0 0 calc(3px + var(--tw-ring-offset-width)) var(--tw-ring-color)',
+							boxShadow:
+								'var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000)'
+						},
+						'&:disabled,[disabled]': {
+							backgroundColor: theme('colors.gray.100') + ' !important'
+						}
 					},
-					'&:disabled,[disabled]': {
-						backgroundColor: theme('colors.gray.100') + ' !important'
-					}
-				},
 				'button:disabled,button[disabled=true],a:disabled,a[disabled=true]': {
 					pointerEvents: 'none',
 					cursor: 'default',

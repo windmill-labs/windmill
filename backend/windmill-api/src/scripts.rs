@@ -6,7 +6,6 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use reqwest::Client;
 use sql_builder::prelude::*;
 use windmill_audit::{audit_log, ActionKind};
 
@@ -15,6 +14,7 @@ use crate::{
     schedule::clear_schedule,
     users::{require_owner_of_path, Authed},
     webhook_util::{WebhookMessage, WebhookShared},
+    HTTP_CLIENT,
 };
 use axum::{
     extract::{Extension, Path, Query},
@@ -163,12 +163,9 @@ async fn list_scripts(
     Ok(Json(rows))
 }
 
-async fn list_hub_scripts(
-    Authed { email, .. }: Authed,
-    Extension(http_client): Extension<Client>,
-) -> JsonResult<serde_json::Value> {
+async fn list_hub_scripts(Authed { email, .. }: Authed) -> JsonResult<serde_json::Value> {
     let asks = list_elems_from_hub(
-        http_client,
+        &HTTP_CLIENT,
         "https://hub.windmill.dev/searchData?approved=true",
         &email,
     )
@@ -442,21 +439,16 @@ async fn create_script(
     Ok((StatusCode::CREATED, format!("{}", hash)))
 }
 
-pub async fn get_hub_script_by_path(
-    authed: Authed,
-    Path(path): Path<StripPath>,
-    Extension(http_client): Extension<Client>,
-) -> Result<String> {
-    windmill_common::scripts::get_hub_script_by_path(&authed.email, path, http_client).await
+pub async fn get_hub_script_by_path(authed: Authed, Path(path): Path<StripPath>) -> Result<String> {
+    windmill_common::scripts::get_hub_script_by_path(&authed.email, path, &HTTP_CLIENT).await
 }
 
 pub async fn get_full_hub_script_by_path(
     Authed { email, .. }: Authed,
     Path(path): Path<StripPath>,
-    Extension(http_client): Extension<Client>,
 ) -> JsonResult<HubScript> {
     Ok(Json(
-        windmill_common::scripts::get_full_hub_script_by_path(&email, path, http_client).await?,
+        windmill_common::scripts::get_full_hub_script_by_path(&email, path, &HTTP_CLIENT).await?,
     ))
 }
 

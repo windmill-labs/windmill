@@ -7,10 +7,10 @@
 	import { AppService, type CompletedJob } from '$lib/gen'
 	import { defaultIfEmptyString, emptySchema, sendUserToast } from '$lib/utils'
 	import { getContext, onMount } from 'svelte'
+	import { computeFields } from '../../editor/inlineScriptsPanel/utils'
 	import type { AppInputs, Runnable } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppEditorContext } from '../../types'
-	import { fieldTypeToTsType, schemaToInputsSpec } from '../../utils'
 	import InputValue from './InputValue.svelte'
 	import RefreshButton from './RefreshButton.svelte'
 
@@ -113,7 +113,7 @@
 			if (inlineScript) {
 				const newSchema = inlineScript.schema
 
-				const newFields = reloadInputs(newSchema)
+				const newFields = computeFields(newSchema, defaultUserInput, fields)
 
 				if (JSON.stringify(newFields) !== JSON.stringify(fields)) {
 					setTimeout(() => {
@@ -122,39 +122,6 @@
 				}
 			}
 		}
-	}
-
-	// When the schema is loaded, we need to update the inputs spec
-	// in order to render the inputs the component panel
-	function reloadInputs(schema: Schema) {
-		let schemaCopy: Schema = JSON.parse(JSON.stringify(schema))
-
-		const result = {}
-		const newInputs = schemaToInputsSpec(schemaCopy, defaultUserInput)
-		if (!fields) {
-			return newInputs
-		}
-		Object.keys(newInputs).forEach((key) => {
-			const newInput = newInputs[key]
-			const oldInput = fields[key]
-
-			// If the input is not present in the old inputs, add it
-			if (oldInput === undefined) {
-				result[key] = newInput
-			} else {
-				if (
-					fieldTypeToTsType(newInput.fieldType) !== fieldTypeToTsType(oldInput.fieldType) ||
-					newInput.format !== oldInput.format ||
-					newInput.subFieldType !== oldInput.subFieldType
-				) {
-					result[key] = newInput
-				} else {
-					result[key] = oldInput
-				}
-			}
-		})
-
-		return result
 	}
 
 	$: schemaStripped = runnable && stripSchema(fields)

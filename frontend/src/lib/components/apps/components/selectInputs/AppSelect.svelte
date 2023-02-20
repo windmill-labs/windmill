@@ -7,7 +7,7 @@
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 
-	export const staticOutputs: string[] = ['loading', 'result']
+	export const staticOutputs: string[] = ['result']
 	export let id: string
 	export let configuration: Record<string, AppInput>
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
@@ -15,44 +15,67 @@
 
 	const { worldStore, connectingInput, selectedComponent } =
 		getContext<AppEditorContext>('AppEditorContext')
-	let label: string
-	let items: string[]
-	let itemKey: string
+	let items: { label: string; value: any }[]
+	let multiple: boolean = false
+	let placeholder: string = 'Select an item'
 
 	$: outputs = $worldStore?.outputsById[id] as {
 		result: Output<string | undefined>
 	}
 
+	let value: string | undefined = undefined
+
+	$: items && handleItems()
+
+	let listItems: { label: string; value: string }[] = []
+
+	function handleItems() {
+		listItems = Array.isArray(items)
+			? items.map((item) => {
+					return {
+						label: item.label,
+						value: JSON.stringify(item.value)
+					}
+			  })
+			: []
+		if (items?.[0]?.['value'] != value) {
+			value = JSON.stringify(items?.[0]?.['value'])
+			outputs?.result.set(value)
+		}
+	}
+
 	function onChange(e: CustomEvent) {
 		e?.stopPropagation()
 		window.dispatchEvent(new Event('pointerup'))
-		outputs?.result.set(e.detail?.[itemKey] || undefined)
+		outputs?.result.set(JSON.parse(e.detail?.['value']) || undefined)
 	}
-	let value = undefined
-	$: items?.[0]?.['value'] != value && (value = items?.[0]?.['value'])
 </script>
 
-<InputValue {id} input={configuration.label} bind:value={label} />
 <InputValue {id} input={configuration.items} bind:value={items} />
-<InputValue {id} input={configuration.itemKey} bind:value={itemKey} />
+<InputValue {id} input={configuration.multiple} bind:value={multiple} />
+<InputValue {id} input={configuration.placeholder} bind:value={placeholder} />
 
 <AlignWrapper {horizontalAlignment} {verticalAlignment}>
-	<Select
-		--height="34px"
-		class="select"
-		on:clear={onChange}
-		on:change={onChange}
-		on:focus={(e) => {
-			e?.stopPropagation()
-			window.dispatchEvent(new Event('pointerup'))
-		}}
-		items={Array.isArray(items) ? items : []}
-		{value}
-		placeholder="Select an item"
-		on:click={() => {
-			if (!$connectingInput.opened) {
-				$selectedComponent = id
-			}
-		}}
-	/>
+	<div class="app-select w-full" style="height: 34px" on:pointerdown|stopPropagation>
+		<Select
+			--height="34px"
+			{multiple}
+			on:clear={onChange}
+			on:change={onChange}
+			items={listItems}
+			{value}
+			{placeholder}
+			on:click={() => {
+				if (!$connectingInput.opened) {
+					$selectedComponent = id
+				}
+			}}
+		/>
+	</div>
 </AlignWrapper>
+
+<style global>
+	.app-select .value-container {
+		@apply p-0 !important;
+	}
+</style>

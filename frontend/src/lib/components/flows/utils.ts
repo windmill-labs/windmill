@@ -179,9 +179,9 @@ export function emptyFlowModuleState(): FlowModuleState {
 
 const aCharCode = 'a'.charCodeAt(0)
 
-export function numberToChars(n: number, skipTilde: boolean = false) {
+export function numberToChars(n: number) {
 	if (n < 0) {
-		return "-" + numberToChars(-n, skipTilde)
+		return "-" + numberToChars(-n)
 	}
 	var b = [n],
 		sp,
@@ -190,12 +190,11 @@ export function numberToChars(n: number, skipTilde: boolean = false) {
 		div
 
 	sp = 0
-	const basisInc = skipTilde ? -1 : 0
 	while (sp < b.length) {
-		if (b[sp] > (25 + basisInc)) {
-			div = Math.floor(b[sp] / (27 + basisInc))
+		if (b[sp] > (25)) {
+			div = Math.floor(b[sp] / (26))
 			b[sp + 1] = div - 1
-			b[sp] %= (27 + basisInc)
+			b[sp] %= (26)
 		}
 		sp += 1
 	}
@@ -203,7 +202,7 @@ export function numberToChars(n: number, skipTilde: boolean = false) {
 	out = ''
 	for (i = 0; i < b.length; i += 1) {
 		let charCode = aCharCode + b[i]
-		out = (b[i] == 26 ? "-" : String.fromCharCode(charCode)) + out
+		out = String.fromCharCode(charCode) + out
 	}
 
 	return out

@@ -8,6 +8,8 @@
 	import { WindmillIcon } from '$lib/components/icons'
 	import { AppService, AppWithLastVersion, GlobalUserInfo, UserService } from '$lib/gen'
 	import { userStore } from '$lib/stores'
+	import { twMerge } from 'tailwind-merge'
+
 	import { setContext } from 'svelte'
 	import github from 'svelte-highlight/styles/github'
 	import { writable } from 'svelte/store'
@@ -69,7 +71,10 @@
 		</Alert></div
 	>
 {:else if app}
-	<div class="border rounded-md p-2 w-full">
+	<div
+		class={twMerge('bg-gray-100 min-h-screen w-full', app?.value.css?.['app']?.['viewer']?.class)}
+		style={app?.value.css?.['app']?.['viewer']?.style}
+	>
 		<AppPreview
 			noBackend={false}
 			context={{

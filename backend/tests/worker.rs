@@ -6,10 +6,8 @@ use windmill_common::{
     flow_status::{FlowStatus, FlowStatusModule},
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform},
     scripts::ScriptLang,
-    DEFAULT_SLEEP_QUEUE,
 };
 use windmill_queue::{get_queued_job, JobPayload, RawCode};
-use windmill_worker::WorkerConfig;
 
 async fn initialize_tracing() {
     use std::sync::Once;
@@ -89,14 +87,7 @@ impl ApiServer {
         let addr = sock.local_addr().unwrap();
         drop(sock);
 
-        let task = tokio::task::spawn({
-            windmill_api::run_server(
-                db.clone(),
-                addr,
-                format!("http://localhost:{}", addr.port()),
-                rx,
-            )
-        });
+        let task = tokio::task::spawn(windmill_api::run_server(db.clone(), addr, rx));
 
         return Self { addr, tx, task };
     }
@@ -917,43 +908,20 @@ fn spawn_test_worker(
 ) {
     let (tx, rx) = tokio::sync::broadcast::channel(1);
     let db = db.to_owned();
-    let timeout = 4_000;
     let worker_instance: &str = "test worker instance";
     let worker_name: String = next_worker_name();
     let i_worker: u64 = Default::default();
-    let num_workers: u64 = 2;
     let ip: &str = Default::default();
-    let sleep_queue: u64 = DEFAULT_SLEEP_QUEUE / num_workers;
-    let port = port;
-    let worker_config = WorkerConfig {
-        base_internal_url: format!("http://localhost:{port}"),
-        base_url: format!("http://localhost:{port}"),
-        disable_nuser: std::env::var("DISABLE_NUSER")
-            .ok()
-            .and_then(|x| x.parse::<bool>().ok())
-            .unwrap_or(false),
-        disable_nsjail: std::env::var("DISABLE_NSJAIL")
-            .ok()
-            .and_then(|x| x.parse::<bool>().ok())
-            .unwrap_or(false),
-        keep_job_dir: std::env::var("KEEP_JOB_DIR")
-            .ok()
-            .and_then(|x| x.parse::<bool>().ok())
-            .unwrap_or(false),
-    };
     let future = async move {
+        let base_internal_url = format!("http://localhost:{}", port);
         windmill_worker::run_worker(
             &db,
-            timeout,
             worker_instance,
             worker_name,
             i_worker,
-            num_workers,
             ip,
-            sleep_queue,
-            worker_config,
-            None,
             rx,
+            &base_internal_url,
         )
         .await
     };

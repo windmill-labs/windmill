@@ -35,6 +35,10 @@ export interface BaseAppComponent extends Partial<Aligned> {
 		}
 	>
 	card: boolean | undefined
+	customCss?: Record<string, {
+		class: string
+		style: string
+	}>
 	/**
 	 * If `true` then the wrapper will allow items to flow outside of it's borders.
 	 *
@@ -81,6 +85,7 @@ export type App = {
 		inlineScript: InlineScript | undefined
 		fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
 	}>
+	css?: Record<'viewer' | 'grid' | AppComponent['type'], Record<string, { style?: string, class?: string }>>
 }
 
 export type ConnectingInput = {

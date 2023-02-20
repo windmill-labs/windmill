@@ -12,10 +12,12 @@ export const isOpenStore = {
 		let newItems = {}
 		items.forEach(item => newItems = { ...newItems, ...item })
 		store.update(last => ({ ...newItems, ...last }))
-		
+
 	},
 	toggle: (id: string) => {
 		store.update(last => ({ ...last, [id]: !last[id] }))
 	},
 	reset: () => store.set({})
 }
+
+export const isOpenStoreCss = writable<Record<string, boolean>>({})

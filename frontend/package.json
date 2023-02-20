@@ -1,6 +1,6 @@
 {
 	"name": "windmill",
-	"version": "1.63.1",
+	"version": "1.64.0",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -33,7 +33,6 @@
 		"eslint": "^8.28.0",
 		"eslint-config-prettier": "^8.6.0",
 		"eslint-plugin-svelte3": "^4.0.0",
-		"lucide-svelte": "^0.104.0",
 		"openapi-typescript-codegen": "^0.23.0",
 		"path-browserify": "^1.0.1",
 		"postcss": "^8.4.18",
@@ -71,6 +70,7 @@
 		"chartjs-plugin-zoom": "^2.0.0",
 		"date-fns": "^2.29.3",
 		"highlight.js": "^11.7.0",
+		"lucide-svelte": "^0.115.0",
 		"monaco-editor": "0.33.0",
 		"monaco-editor-workers": "0.33.0",
 		"monaco-languageclient": "2.1.0",
@@ -79,6 +79,7 @@
 		"svelte-chartjs": "^3.1.0",
 		"svelte-portal": "^2.2.0",
 		"svelte-select": "^5.0.2",
+		"tailwind-merge": "^1.9.1",
 		"vscode-ws-jsonrpc": "^2.0.1"
 	},
 	"peerDependencies": {

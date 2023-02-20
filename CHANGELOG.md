@@ -1,6 +1,20 @@
 # Changelog
 
 
+## [1.64.0](https://github.com/windmill-labs/windmill/compare/v1.63.2...v1.64.0) (2023-02-16)
+
+
+### Features
+
+* **frontend:** Trigger settings drawer with URL hash ([#1185](https://github.com/windmill-labs/windmill/issues/1185)) ([8445697](https://github.com/windmill-labs/windmill/commit/8445697e31394ac11f3b8aa10af1546cc9c0041c))
+
+## [1.63.2](https://github.com/windmill-labs/windmill/compare/v1.63.1...v1.63.2) (2023-02-15)
+
+
+### Bug Fixes
+
+* **psql:** update pg client ([a2fbc57](https://github.com/windmill-labs/windmill/commit/a2fbc5702509bb259bae106baa9a6146360ec5dd))
+
 ## [1.63.1](https://github.com/windmill-labs/windmill/compare/v1.63.0...v1.63.1) (2023-02-14)
 
 

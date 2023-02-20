@@ -13,6 +13,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "adler"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f26201604c87b1e01bd3d98f8d5d9a8fcbb815e8cedb41ffccbeb4bf593a35fe"
+
+[[package]]
 name = "aes"
 version = "0.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -105,6 +111,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-compression"
+version = "0.3.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "942c7cd7ae39e91bde4820d74132e9862e62c2f386c3aa90ccf55949f5bad63a"
+dependencies = [
+ "bzip2",
+ "flate2",
+ "futures-core",
+ "memchr",
+ "pin-project-lite",
+ "tokio",
+ "xz2",
+ "zstd",
+ "zstd-safe",
+]
+
+[[package]]
 name = "async-lock"
 version = "2.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -187,6 +210,21 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "async_zip"
+version = "0.0.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c50d29ab7e2f9e808cca1a69ea56a36f4ff216f54a41a23aae1fd4afc05cc020"
+dependencies = [
+ "async-compression",
+ "chrono",
+ "crc32fast",
+ "log",
+ "pin-project",
+ "thiserror",
+ "tokio",
 ]
 
 [[package]]
@@ -413,6 +451,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "89b2fd2a0dcf38d7971e2194b6b6eebab45ae01067456a7fd93d5547a61b70be"
 
 [[package]]
+name = "bzip2"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bdb116a6ef3f6c3698828873ad02c3014b3c85cadb88496095628e3ef1e347f8"
+dependencies = [
+ "bzip2-sys",
+ "libc",
+]
+
+[[package]]
+name = "bzip2-sys"
+version = "0.1.11+1.0.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "736a955f3fa7875102d57c82b8cac37ec45224a07fd32d58f9f7a186b6cd4cdc"
+dependencies = [
+ "cc",
+ "libc",
+ "pkg-config",
+]
+
+[[package]]
 name = "cargo-lock"
 version = "8.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -466,9 +525,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.1.4"
+version = "4.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f13b9c79b5d1dd500d20ef541215a6423c75829ef43117e1b4d17fd8af0b5d76"
+checksum = "ec0b0588d44d4d63a87dbd75c136c166bbfd9a86a31cb89e09906521c7d3f5e3"
 dependencies = [
  "bitflags",
  "clap_derive",
@@ -614,6 +673,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9cace84e55f07e7301bae1c519df89cdad8cc3cd868413d3fdbdeca9ff3db484"
 
 [[package]]
+name = "crc32fast"
+version = "1.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b540bd8bc810d3885c6ea91e2018302f68baba2129ab3e88f32389ee9370880d"
+dependencies = [
+ "cfg-if",
+]
+
+[[package]]
 name = "cron"
 version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -661,9 +729,9 @@ dependencies = [
 
 [[package]]
 name = "cxx"
-version = "1.0.90"
+version = "1.0.91"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "90d59d9acd2a682b4e40605a242f6670eaa58c5957471cbf85e8aa6a0b97a5e8"
+checksum = "86d3488e7665a7a483b57e25bdd90d0aeb2bc7608c8d0346acf2ad3f1caf1d62"
 dependencies = [
  "cc",
  "cxxbridge-flags",
@@ -673,9 +741,9 @@ dependencies = [
 
 [[package]]
 name = "cxx-build"
-version = "1.0.90"
+version = "1.0.91"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ebfa40bda659dd5c864e65f4c9a2b0aff19bea56b017b9b77c73d3766a453a38"
+checksum = "48fcaf066a053a41a81dfb14d57d99738b767febb8b735c3016e469fac5da690"
 dependencies = [
  "cc",
  "codespan-reporting",
@@ -688,15 +756,15 @@ dependencies = [
 
 [[package]]
 name = "cxxbridge-flags"
-version = "1.0.90"
+version = "1.0.91"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "457ce6757c5c70dc6ecdbda6925b958aae7f959bda7d8fb9bde889e34a09dc03"
+checksum = "a2ef98b8b717a829ca5603af80e1f9e2e48013ab227b68ef37872ef84ee479bf"
 
 [[package]]
 name = "cxxbridge-macro"
-version = "1.0.90"
+version = "1.0.91"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ebf883b7aacd7b2aeb2a7b338648ee19f57c140d4ee8e52c68979c6b2f7f2263"
+checksum = "086c685979a698443656e5cf7856c95c642295a38599f12fb1ff76fb28d19892"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1000,6 +1068,16 @@ name = "fixedbitset"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ce7134b9999ecaf8bcd65542e436736ef32ddca1b3e06094cb6ec5755203b80"
+
+[[package]]
+name = "flate2"
+version = "1.0.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a8a2db397cb1c8772f31494cb8917e48cd1e64f0fa7efac59fbd741a0a8ce841"
+dependencies = [
+ "crc32fast",
+ "miniz_oxide",
+]
 
 [[package]]
 name = "fnv"
@@ -1825,6 +1903,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "lzma-sys"
+version = "0.1.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5fda04ab3764e6cde78b9974eec4f779acaba7c4e84b36eca3cf77c581b85d27"
+dependencies = [
+ "cc",
+ "libc",
+ "pkg-config",
+]
+
+[[package]]
 name = "magic-crypt"
 version = "3.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1903,6 +1992,15 @@ name = "minimal-lexical"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
+
+[[package]]
+name = "miniz_oxide"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b275950c28b37e794e8c55d88aeb5e139d0ce23fdbbeda68f8d7174abdf9e8fa"
+dependencies = [
+ "adler",
+]
 
 [[package]]
 name = "mio"
@@ -2072,9 +2170,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.17.0"
+version = "1.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f61fba1741ea2b3d6a1e3178721804bb716a68a6aeba1149b5d52e3d464ea66"
+checksum = "b7e5500299e16ebb147ae15a00a942af264cf3688f47923b8fc2cd5858f23ad3"
 
 [[package]]
 name = "opaque-debug"
@@ -2905,7 +3003,7 @@ dependencies = [
 [[package]]
 name = "rustpython-ast"
 version = "0.2.0"
-source = "git+https://github.com/RustPython/RustPython#1fd557d549cd72e7da83608b99e5464273abd4b3"
+source = "git+https://github.com/RustPython/RustPython#3c4f04f3aa457d386815b94bfc17564ad40cbc89"
 dependencies = [
  "num-bigint",
  "rustpython-compiler-core",
@@ -2914,7 +3012,7 @@ dependencies = [
 [[package]]
 name = "rustpython-compiler-core"
 version = "0.2.0"
-source = "git+https://github.com/RustPython/RustPython#1fd557d549cd72e7da83608b99e5464273abd4b3"
+source = "git+https://github.com/RustPython/RustPython#3c4f04f3aa457d386815b94bfc17564ad40cbc89"
 dependencies = [
  "bincode",
  "bitflags",
@@ -2931,7 +3029,7 @@ dependencies = [
 [[package]]
 name = "rustpython-parser"
 version = "0.2.0"
-source = "git+https://github.com/RustPython/RustPython#1fd557d549cd72e7da83608b99e5464273abd4b3"
+source = "git+https://github.com/RustPython/RustPython#3c4f04f3aa457d386815b94bfc17564ad40cbc89"
 dependencies = [
  "ahash",
  "anyhow",
@@ -4668,7 +4766,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.63.1"
+version = "1.64.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -4695,12 +4793,13 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.63.1"
+version = "1.64.0"
 dependencies = [
  "anyhow",
  "argon2",
  "async-oauth2",
  "async-stripe",
+ "async_zip",
  "axum",
  "base64 0.21.0",
  "chrono",
@@ -4749,7 +4848,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.63.1"
+version = "1.64.0"
 dependencies = [
  "base64 0.21.0",
  "chrono",
@@ -4764,7 +4863,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.63.1"
+version = "1.64.0"
 dependencies = [
  "chrono",
  "serde",
@@ -4777,7 +4876,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.63.1"
+version = "1.64.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -4785,6 +4884,7 @@ dependencies = [
  "hex",
  "hmac",
  "hyper",
+ "lazy_static",
  "prometheus",
  "rand 0.8.5",
  "reqwest",
@@ -4801,7 +4901,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.63.1"
+version = "1.64.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -4809,7 +4909,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.63.1"
+version = "1.64.0"
 dependencies = [
  "anyhow",
  "itertools",
@@ -4823,7 +4923,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.63.1"
+version = "1.64.0"
 dependencies = [
  "anyhow",
  "itertools",
@@ -4835,7 +4935,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.63.1"
+version = "1.64.0"
 dependencies = [
  "anyhow",
  "itertools",
@@ -4850,7 +4950,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.63.1"
+version = "1.64.0"
 dependencies = [
  "anyhow",
  "deno_core",
@@ -4864,7 +4964,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.63.1"
+version = "1.64.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4887,7 +4987,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.63.1"
+version = "1.64.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -5020,7 +5120,46 @@ dependencies = [
 ]
 
 [[package]]
+name = "xz2"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "388c44dc09d76f1536602ead6d325eb532f5c122f17782bd57fb47baeeb767e2"
+dependencies = [
+ "lzma-sys",
+]
+
+[[package]]
 name = "zeroize"
 version = "1.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c394b5bd0c6f669e7275d9c20aa90ae064cb22e75a1cad54e1b34088034b149f"
+
+[[package]]
+name = "zstd"
+version = "0.11.2+zstd.1.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "20cc960326ece64f010d2d2107537f26dc589a6573a316bd5b1dba685fa5fde4"
+dependencies = [
+ "zstd-safe",
+]
+
+[[package]]
+name = "zstd-safe"
+version = "5.0.2+zstd.1.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d2a5585e04f9eea4b2a3d1eca508c4dee9592a89ef6f450c11719da0726f4db"
+dependencies = [
+ "libc",
+ "zstd-sys",
+]
+
+[[package]]
+name = "zstd-sys"
+version = "2.0.7+zstd.1.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "94509c3ba2fe55294d752b79842c530ccfab760192521df74a081a78d2b3c7f5"
+dependencies = [
+ "cc",
+ "libc",
+ "pkg-config",
+]

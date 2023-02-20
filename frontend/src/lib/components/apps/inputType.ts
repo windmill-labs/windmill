@@ -8,6 +8,7 @@ export type InputType =
 	| 'number'
 	| 'boolean'
 	| 'select'
+	| 'icon-select'
 	| 'date'
 	| 'time'
 	| 'datetime'
@@ -58,7 +59,7 @@ export type TemplateInput = {
 	type: 'template'
 }
 
-type RunnableByPath = {
+export type RunnableByPath = {
 	path: string
 	schema: any
 	runType: 'script' | 'flow' | 'hubscript'
@@ -116,6 +117,7 @@ export type AppInput =
 		 */
 		optionValuesKey: keyof typeof staticValues
 	})
+	| AppInputSpec<'icon-select', string>
 	| AppInputSpec<'array', string[], 'text'>
 	| AppInputSpec<'array', string[], 'textarea'>
 	| AppInputSpec<'array', number[], 'number'>

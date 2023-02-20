@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.63.1"
+version = "1.64.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -19,7 +19,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.63.1"
+version = "1.64.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -28,7 +28,11 @@ name = "windmill"
 path = "./src/main.rs"
 
 [features]
-enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise"]
+enterprise = [
+    "windmill-worker/enterprise",
+    "windmill-queue/enterprise",
+    "windmill-api/enterprise",
+]
 
 [dependencies]
 anyhow.workspace = true
@@ -144,4 +148,8 @@ serde_derive = "1.0.147"
 const_format = { version = "0.2", features = ["rust_1_64", "rust_1_51"] }
 dyn-iter = "0.2.0"
 rsa = "0.7.2"
-async-stripe = { version = "0.14", features = ["runtime-tokio-hyper", "checkout"] }
+async-stripe = { version = "0.14", features = [
+    "runtime-tokio-hyper",
+    "checkout",
+] }
+async_zip = { version = "0.0.11", features = ["full"] }

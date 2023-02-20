@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::{str::FromStr, sync::Arc};
+use std::str::FromStr;
 
 use crate::{
     db::{UserDB, DB},
@@ -14,7 +14,7 @@ use crate::{
     resources::{Resource, ResourceType},
     users::{Authed, WorkspaceInvite, NEW_USER_WEBHOOK},
     utils::require_super_admin,
-    BaseUrl,
+    BASE_URL, HTTP_CLIENT,
 };
 use axum::{
     body::StreamBody,
@@ -24,7 +24,6 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
-use reqwest::Client;
 use stripe::CustomerId;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
@@ -226,15 +225,14 @@ async fn stripe_checkout(
     authed: Authed,
     Path(w_id): Path<String>,
     Query(plan): Query<PlanQuery>,
-    Extension(base_url): Extension<Arc<BaseUrl>>,
 ) -> Result<Redirect> {
     // #[cfg(feature = "enterprise")]
     {
         require_admin(authed.is_admin, &authed.username)?;
 
         let client = stripe::Client::new(std::env::var("STRIPE_KEY").expect("STRIPE_KEY"));
-        let success_rd = format!("{}/workspace_settings/checkout?success=true", base_url.0);
-        let failure_rd = format!("{}/workspace_settings/checkout?success=false", base_url.0);
+        let success_rd = format!("{}/workspace_settings/checkout?success=true", *BASE_URL);
+        let failure_rd = format!("{}/workspace_settings/checkout?success=false", *BASE_URL);
         let checkout_session = {
             let mut params = stripe::CreateCheckoutSession::new(&failure_rd, &success_rd);
             params.mode = Some(stripe::CheckoutSessionMode::Subscription);
@@ -292,7 +290,6 @@ async fn stripe_portal(
     authed: Authed,
     Path(w_id): Path<String>,
     Extension(db): Extension<DB>,
-    Extension(base_url): Extension<Arc<BaseUrl>>,
 ) -> Result<Redirect> {
     require_admin(authed.is_admin, &authed.username)?;
     let customer_id = sqlx::query_scalar!(
@@ -303,7 +300,7 @@ async fn stripe_portal(
     .await?
     .ok_or_else(|| Error::InternalErr(format!("no customer id for workspace {}", w_id)))?;
     let client = stripe::Client::new(std::env::var("STRIPE_KEY").expect("STRIPE_KEY"));
-    let success_rd = format!("{}/workspace_settings?tab=premium", base_url.0);
+    let success_rd = format!("{}/workspace_settings?tab=premium", *BASE_URL);
     let portal_session = {
         let customer_id = CustomerId::from_str(&customer_id).unwrap();
         let mut params = stripe::CreateBillingPortalSession::new(customer_id);
@@ -926,7 +923,6 @@ pub async fn invite_user_to_all_auto_invite_worspaces(db: &DB, email: &str) -> R
 async fn invite_user(
     Authed { username, is_admin, .. }: Authed,
     Extension(db): Extension<DB>,
-    Extension(http_client): Extension<Client>,
     Path(w_id): Path<String>,
     Json(nu): Json<NewWorkspaceInvite>,
 ) -> Result<(StatusCode, String)> {
@@ -949,7 +945,7 @@ async fn invite_user(
     tx.commit().await?;
 
     if let Some(new_user_webhook) = NEW_USER_WEBHOOK.clone() {
-        let _ = http_client
+        let _ = &HTTP_CLIENT
             .post(&new_user_webhook)
             .json(&serde_json::json!({"email" : &nu.email, "event": "new_invite"}))
             .send()
@@ -1052,20 +1048,78 @@ struct ScriptMetadata {
     lock: Vec<String>,
 }
 
+enum ArchiveImpl {
+    Zip(async_zip::write::ZipFileWriter<File>),
+    Tar(tokio_tar::Builder<File>),
+}
+
+impl ArchiveImpl {
+    async fn write_to_archive(&mut self, content: &str, path: &str) -> Result<()> {
+        match self {
+            ArchiveImpl::Tar(t) => {
+                let bytes = content.as_bytes();
+                let mut header = tokio_tar::Header::new_gnu();
+                header.set_size(bytes.len() as u64);
+                header.set_mtime(0);
+                header.set_uid(0);
+                header.set_gid(0);
+                header.set_mode(0o777);
+                header.set_cksum();
+                t.append_data(&mut header, path, bytes).await?;
+            }
+            ArchiveImpl::Zip(z) => {
+                let header = async_zip::ZipEntryBuilder::new(
+                    path.to_owned(),
+                    async_zip::Compression::Deflate,
+                )
+                .last_modification_date(Default::default())
+                .build();
+                z.write_entry_whole(header, content.as_bytes())
+                    .await
+                    .map_err(to_anyhow)?;
+            }
+        }
+        Ok(())
+    }
+    async fn finish(self) -> Result<()> {
+        match self {
+            ArchiveImpl::Tar(t) => t.into_inner().await?,
+            ArchiveImpl::Zip(z) => z.close().await.map_err(to_anyhow)?,
+        }
+        .sync_all()
+        .await?;
+
+        Ok(())
+    }
+}
+
+#[derive(Deserialize)]
+struct ArchiveQueryParams {
+    archive_type: Option<String>,
+}
+
 async fn tarball_workspace(
     authed: Authed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
+    Query(ArchiveQueryParams { archive_type }): Query<ArchiveQueryParams>,
 ) -> Result<([(headers::HeaderName, String); 2], impl IntoResponse)> {
     require_admin(authed.is_admin, &authed.username)?;
 
     let tmp_dir = TempDir::new_in(".")?;
 
-    let name = format!("windmill-{w_id}.tar");
+    let name = match archive_type.as_deref() {
+        Some("tar") | None => Ok(format!("windmill-{w_id}.tar")),
+        Some("zip") => Ok(format!("windmill-{w_id}.zip")),
+        Some(t) => Err(Error::BadRequest(format!("Invalid Archive Type {t}"))),
+    }?;
     let file_path = tmp_dir.path().join(&name);
     let file = File::create(&file_path).await?;
-    let mut a = tokio_tar::Builder::new(file);
-
+    let mut archive = match archive_type.as_deref() {
+        Some("tar") | None => Ok(ArchiveImpl::Tar(tokio_tar::Builder::new(file))),
+        Some("zip") => Ok(ArchiveImpl::Zip(async_zip::write::ZipFileWriter::new(file))),
+        Some(t) => Err(Error::BadRequest(format!("Invalid Archive Type {t}"))),
+    }?;
     {
         let folders = sqlx::query_as::<_, Folder>("SELECT * FROM folder WHERE workspace_id = $1")
             .bind(&w_id)
@@ -1073,12 +1127,12 @@ async fn tarball_workspace(
             .await?;
 
         for folder in folders {
-            write_to_archive(
-                serde_json::to_string_pretty(&folder).unwrap(),
-                format!("f/{}/folder.meta.json", folder.name),
-                &mut a,
-            )
-            .await?;
+            archive
+                .write_to_archive(
+                    &serde_json::to_string_pretty(&folder).unwrap(),
+                    &format!("f/{}/folder.meta.json", folder.name),
+                )
+                .await?;
         }
     }
 
@@ -1099,7 +1153,9 @@ async fn tarball_workspace(
                 ScriptLang::Go => "go",
                 ScriptLang::Bash => "sh",
             };
-            write_to_archive(script.content, format!("{}.{}", script.path, ext), &mut a).await?;
+            archive
+                .write_to_archive(&script.content, &format!("{}.{}", script.path, ext))
+                .await?;
 
             let lock = script
                 .lock
@@ -1115,7 +1171,9 @@ async fn tarball_workspace(
                 lock,
             };
             let metadata_str = serde_json::to_string_pretty(&metadata).unwrap();
-            write_to_archive(metadata_str, format!("{}.script.json", script.path), &mut a).await?;
+            archive
+                .write_to_archive(&metadata_str, &format!("{}.script.json", script.path))
+                .await?;
         }
     }
 
@@ -1130,12 +1188,9 @@ async fn tarball_workspace(
 
         for resource in resources {
             let resource_str = serde_json::to_string_pretty(&resource).unwrap();
-            write_to_archive(
-                resource_str,
-                format!("{}.resource.json", resource.path),
-                &mut a,
-            )
-            .await?;
+            archive
+                .write_to_archive(&resource_str, &format!("{}.resource.json", resource.path))
+                .await?;
         }
     }
 
@@ -1150,12 +1205,12 @@ async fn tarball_workspace(
 
         for resource_type in resource_types {
             let resource_str = serde_json::to_string_pretty(&resource_type).unwrap();
-            write_to_archive(
-                resource_str,
-                format!("{}.resource-type.json", resource_type.name),
-                &mut a,
-            )
-            .await?;
+            archive
+                .write_to_archive(
+                    &resource_str,
+                    &format!("{}.resource-type.json", resource_type.name),
+                )
+                .await?;
         }
     }
 
@@ -1169,7 +1224,9 @@ async fn tarball_workspace(
 
         for flow in flows {
             let flow_str = serde_json::to_string_pretty(&flow).unwrap();
-            write_to_archive(flow_str, format!("{}.flow.json", flow.path), &mut a).await?;
+            archive
+                .write_to_archive(&flow_str, &format!("{}.flow.json", flow.path))
+                .await?;
         }
     }
 
@@ -1183,10 +1240,12 @@ async fn tarball_workspace(
 
         for var in variables {
             let flow_str = serde_json::to_string_pretty(&var).unwrap();
-            write_to_archive(flow_str, format!("{}.variable.json", var.path), &mut a).await?;
+            archive
+                .write_to_archive(&flow_str, &format!("{}.variable.json", var.path))
+                .await?;
         }
     }
-    a.into_inner().await?;
+    archive.finish().await?;
 
     let file = tokio::fs::File::open(file_path).await?;
 
@@ -1202,21 +1261,4 @@ async fn tarball_workspace(
     ];
 
     Ok((headers, body))
-}
-
-async fn write_to_archive(
-    content: String,
-    path: String,
-    a: &mut tokio_tar::Builder<File>,
-) -> Result<()> {
-    let bytes = content.as_bytes();
-    let mut header = tokio_tar::Header::new_gnu();
-    header.set_size(bytes.len() as u64);
-    header.set_mtime(0);
-    header.set_uid(0);
-    header.set_gid(0);
-    header.set_mode(0o777);
-    header.set_cksum();
-    a.append_data(&mut header, path, bytes).await?;
-    Ok(())
 }

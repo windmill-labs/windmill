@@ -7,6 +7,9 @@
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import type { AppEditorContext } from '../../types'
+	import { getContext } from 'svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -14,10 +17,12 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let configuration: Record<string, AppInput>
 	export let initializing: boolean | undefined = undefined
+	export let customCss: Record<'text', { class: string; style: string }> | undefined = undefined
 
 	export const staticOutputs: string[] = ['result', 'loading']
 
-	let extraStyle: string | undefined = undefined
+	const { app } = getContext<AppEditorContext>('AppEditorContext')
+
 	let result: string | undefined = undefined
 	let style: 'Title' | 'Subtitle' | 'Body' | 'Caption' | 'Label' | undefined = undefined
 	let copyButton: boolean
@@ -56,7 +61,6 @@
 	$: style && (classes = getClasses())
 </script>
 
-<InputValue {id} input={configuration.extraStyle} bind:value={extraStyle} />
 <InputValue {id} input={configuration.style} bind:value={style} />
 <InputValue {id} input={configuration.copyButton} bind:value={copyButton} />
 
@@ -68,7 +72,16 @@
 			</div>
 		{:else}
 			<div class="flex flex-wrap gap-2 pb-0.5 overflow-x-auto">
-				<svelte:element this={component} class="whitespace-pre-wrap  {classes}" style={extraStyle}>
+				<svelte:element
+					this={component}
+					class={twMerge(
+						'whitespace-pre-wrap',
+						$app.css?.['textcomponent']?.['text']?.class,
+						customCss?.text?.class,
+						classes
+					)}
+					style={[$app.css?.['textcomponent']?.['text']?.style, customCss?.text?.style].join(';')}
+				>
 					{String(result)}
 				</svelte:element>
 				{#if copyButton && result}

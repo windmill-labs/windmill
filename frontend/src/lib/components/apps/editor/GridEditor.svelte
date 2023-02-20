@@ -4,6 +4,7 @@
 	import Grid from 'svelte-grid'
 	import { classNames } from '$lib/utils'
 	import { columnConfiguration, disableDrag, enableDrag, isFixed, toggleFixed } from '../gridUtils'
+	import { twMerge } from 'tailwind-merge'
 
 	import RecomputeAllComponents from './RecomputeAllComponents.svelte'
 	import type { Policy } from '$lib/gen'
@@ -114,9 +115,10 @@
 			})
 		}
 	})
+	let mounted = false
 </script>
 
-<div class="pb-2 relative w-full z-20">
+<div class="relative w-full z-20 overflow-visible">
 	<div
 		class="w-full sticky  top-0 flex justify-between border-l border-r border-b {$connectingInput?.opened
 			? ''
@@ -132,12 +134,14 @@
 		>
 	</div>
 	<div
-		class="px-4 pt-4 overflow-auto {$connectingInput?.opened ? '' : ''}"
+		style={$app.css?.['app']?.['grid']?.style}
+		class={twMerge('px-4 pt-4 pb-2  overflow-visible', $app.css?.['app']?.['grid']?.class ?? '')}
 		on:pointerdown={onpointerdown}
 		on:pointerleave={onpointerup}
 		on:pointerup={onpointerup}
 	>
 		<Grid
+			fillSpace={false}
 			bind:items={$app.grid}
 			let:dataItem
 			rowHeight={36}

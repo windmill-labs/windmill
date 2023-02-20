@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
-	import { classNames } from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import { ButtonType } from './model'
 	import { goto } from '$app/navigation'
 	import { Loader2 } from 'lucide-svelte'
+
+	import { twMerge } from 'tailwind-merge'
 
 	export let size: ButtonType.Size = 'md'
 	export let spacingSize: ButtonType.Size = size
@@ -23,6 +24,7 @@
 	export let buttonType: 'button' | 'submit' | 'reset' = 'button'
 	export let loading = false
 	export let title: string | undefined = undefined
+	export let style: string = ''
 
 	const dispatch = createEventDispatcher()
 	// Order of classes: border, border modifier, bg, bg modifier, text, text modifier, everything else
@@ -64,13 +66,13 @@
 
 	$: buttonProps = {
 		id,
-		class: classNames(
+		class: twMerge(
 			colorVariants?.[color]?.[variant],
 			variant === 'border' ? 'border' : '',
 			ButtonType.FontSizeClasses[size],
 			ButtonType.SpacingClasses[spacingSize][variant],
 			'focus:ring-2 font-semibold',
-			'duration-200 rounded-md',
+			'rounded-md',
 			'justify-center items-center text-center whitespace-nowrap inline-flex',
 			btnClasses,
 			disabled ? '!bg-gray-300 !text-gray-600 !cursor-not-allowed' : ''
@@ -101,11 +103,8 @@
 	}
 
 	$: isSmall = size === 'xs' || size === 'sm'
-	$: startIconClass = classNames(
-		iconOnly ? undefined : isSmall ? 'mr-1' : 'mr-2',
-		startIcon?.classes
-	)
-	$: endIconClass = classNames(iconOnly ? undefined : isSmall ? 'ml-1' : 'ml-2', endIcon?.classes)
+	$: startIconClass = twMerge(iconOnly ? undefined : isSmall ? 'mr-1' : 'mr-2', startIcon?.classes)
+	$: endIconClass = twMerge(iconOnly ? undefined : isSmall ? 'ml-1' : 'ml-2', endIcon?.classes)
 </script>
 
 <svelte:element
@@ -118,6 +117,7 @@
 	{...buttonProps}
 	disabled={disabled || loading}
 	type="submit"
+	{style}
 >
 	{#if loading}
 		<Loader2 class="animate-spin mr-1" size={14} />

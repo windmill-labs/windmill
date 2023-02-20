@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { UserService, SettingsService, GlobalUserInfo } from '$lib/gen'
-
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import InviteGlobalUser from '$lib/components/InviteGlobalUser.svelte'
-	import { Alert, Badge, Drawer, DrawerContent } from '$lib/components/common'
-	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import { Badge, Drawer, DrawerContent } from '$lib/components/common'
 	import { sendUserToast } from '$lib/utils'
 	import SearchItems from './SearchItems.svelte'
+	import { page } from '$app/stores'
+	import { goto } from '$app/navigation'
 
 	let drawer: Drawer
 	let filter = ''
@@ -20,6 +20,14 @@
 
 	export function toggleDrawer() {
 		drawer?.toggleDrawer?.()
+	}
+
+	export function closeDrawer() {
+		drawer?.closeDrawer()
+		const index = $page.url.href.lastIndexOf('#')
+		const href = $page.url.href
+		const hashRemoved = index === -1 ? href : href.slice(0, index)
+		goto(hashRemoved)
 	}
 
 	let version: string | undefined
@@ -43,7 +51,7 @@
 />
 
 <Drawer bind:this={drawer} on:open={listUsers} size="900px">
-	<DrawerContent overflow_y={false} title="Superadmin Settings" on:close={drawer.closeDrawer}>
+	<DrawerContent overflow_y={false} title="Superadmin Settings" on:close={closeDrawer}>
 		<div class="flex flex-col h-full">
 			<div>
 				<div class="text-xs pt-1 text-gray-500 ">
