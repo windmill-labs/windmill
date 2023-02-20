@@ -75,18 +75,19 @@
 		<FileUp size={36} class="mb-2" />
 	{/if}
 	{#if files}
-		<div class="max-h-full overflow-auto">
-			<div class="mb-2">Selected file{files.length > 1 ? 's' : ''}:</div>
-			<ul>
+		<div class="w-full max-h-full overflow-auto px-6">
+			<div class="text-center mb-2 px-2">Selected file{files.length > 1 ? 's' : ''}:</div>
+			<ul class="relative z-20 max-w-[250px] bg-white rounded-lg overflow-hidden mx-auto">
 				{#each files as {name}, i}
-					<li class="flex justify-between items-center font-normal text-sm mb-1 px-2">
+					<li class="flex justify-between items-center font-normal text-sm
+					hover:bg-gray-300/20 duration-200 py-1 px-2 cursor-default">
 						<span class="pr-2 ellipsize">{name}</span>
 						<Button
 							size="xs"
 							color="red"
 							variant="border"
 							iconOnly
-							btnClasses="!relative !z-20 bg-transparent"
+							btnClasses="bg-transparent"
 							startIcon={{ icon: faTrash }}
 							on:click={() => removeFile(i)}
 						/>
@@ -100,8 +101,9 @@
 		</slot>
 	{/if}
 	<input
-		class="!absolute !inset-0 !z-10 !opacity-0"
+		class="!absolute !inset-0 !z-10 !opacity-0 !cursor-pointer"
 		type="file"
+		title={files ? `${files.length} file${files.length > 1 ? 's' : ''} chosen` : 'No file chosen'}
 		bind:this={input}
 		on:change={({currentTarget}) => {onChange(currentTarget.files)}}
 		{accept}
