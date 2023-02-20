@@ -261,10 +261,10 @@ export class State {
     const base = Deno.cwd();
     for await (
       const { ignored, path, getContentText, isDirectory }
-        of readDirRecursiveWithIgnore(
-          ignore.denies,
-          await FSFSElement(base),
-        )
+      of readDirRecursiveWithIgnore(
+        ignore.denies,
+        await FSFSElement(base),
+      )
     ) {
       if (isDirectory || path.includes(".wmill")) {
         continue;
@@ -767,11 +767,14 @@ async function pullRaw(
         exists = false;
       }
       if (exists) {
+        if (await Deno.readTextFileSync(filePath) === await entry.getContentText()) {
+          continue;
+        }
         if (
           !(await Confirm.prompt(
             "Conflict at " +
-              filePath +
-              " do you want to override the local version?",
+            filePath +
+            " do you want to override the local version?",
           ))
         ) {
           continue;
@@ -832,7 +835,7 @@ async function pushRawFindCandidateFiles(
                   namespaceName,
                   path: path + "folder.meta.json",
                 });
-              } catch {}
+              } catch { }
             }
 
             while (stack.length > 0) {
@@ -845,8 +848,8 @@ async function pushRawFindCandidateFiles(
                     namespaceKind: e.name == "g"
                       ? "group"
                       : e.name == "u"
-                      ? "user"
-                      : "folder",
+                        ? "user"
+                        : "folder",
                     namespaceName: namespaceName,
                   });
                 } else {
@@ -898,7 +901,7 @@ async function pushRaw(opts: GlobalOptions, dir?: string) {
   console.log(
     colors.blue(
       "Found " + (normal.length + resourceTypes.length + folders.length) +
-        " candidates",
+      " candidates",
     ),
   );
   for (const resourceType of resourceTypes) {
@@ -977,8 +980,8 @@ async function pushRaw(opts: GlobalOptions, dir?: string) {
       console.log(
         colors.yellow(
           "Found resource type file at " +
-            candidate.path +
-            " this appears to be inside a path folder. Resource types are not addressed by path. Place them at the root or inside only an organizational folder. Ignoring this file!",
+          candidate.path +
+          " this appears to be inside a path folder. Resource types are not addressed by path. Place them at the root or inside only an organizational folder. Ignoring this file!",
         ),
       );
       continue;
@@ -1042,7 +1045,7 @@ const command = new Command()
   .command("init")
   .description(
     "Initialize this folder as sync root for the currently selected workspace & remote." +
-      "\nBegin by initializing state tracking using `init` & add files you want to track using `add`. `push` & `pull` will then use local state to accurately track changes required on the remote.",
+    "\nBegin by initializing state tracking using `init` & add files you want to track using `add`. `push` & `pull` will then use local state to accurately track changes required on the remote.",
   )
   .action(init as any)
   .command("pull")
