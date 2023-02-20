@@ -191,7 +191,7 @@ export async function add(
   }
 
   if (!workspaceId) {
-    workspaceId = await Input.prompt("Enter the ID of this workspace");
+    workspaceId = await Input.prompt({ message: "Enter the ID of this workspace", default: workspaceName, suggestions: [workspaceName] });
   }
 
   if (!remote) {
@@ -207,6 +207,7 @@ export async function add(
         await Input.prompt({
           message: "Enter the Remote URL",
           suggestions: ["https://app.windmill.dev/"],
+          default: "https://app.windmill.dev/"
         }),
       ).toString();
     }

@@ -781,6 +781,7 @@ async function pullRaw(
         }
       }
     }
+    console.log("Writing " + filePath)
     await Deno.writeFile(filePath, await entry.getContentBytes());
   }
   console.log(colors.green("Done. Wrote all files to disk."));
