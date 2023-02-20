@@ -20,7 +20,8 @@
 		Smile,
 		DollarSign,
 		SeparatorHorizontal,
-		SeparatorVertical
+		SeparatorVertical,
+		Paperclip
 	} from 'lucide-svelte'
 	import type { Size } from 'svelte-grid'
 	import { twMerge } from 'tailwind-merge'
@@ -75,6 +76,7 @@
 	export type IconComponent = BaseComponent<'iconcomponent'>
 	export type HorizontalDividerComponent = BaseComponent<'horizontaldividercomponent'>
 	export type VerticalDividerComponent = BaseComponent<'verticaldividercomponent'>
+	export type FileInputComponent = BaseComponent<'fileinputcomponent'>
 
 	export type AppComponent = BaseAppComponent &
 		(
@@ -104,6 +106,7 @@
 			| IconComponent
 			| HorizontalDividerComponent
 			| VerticalDividerComponent
+			| FileInputComponent
 		)
 
 	// Dimensions key formula: <mobile width>:<mobile height>-<desktop width>:<desktop height>
@@ -1059,7 +1062,43 @@
 				customCss: {},
 				card: false
 			}
-		}
+		},
+		fileinputcomponent: {
+			name: 'File Input',
+			icon: Paperclip,
+			dims: '3:4-6:4',
+			data: {
+				id: '',
+				type: 'fileinputcomponent',
+				componentInput: undefined,
+				configuration: {
+					acceptedFileTypes: {
+						type: 'static',
+						value: [
+							'image/*',
+							'application/pdf'
+						],
+						fieldType: 'array',
+						onlyStatic: true
+					},
+					allowMultiple: {
+						type: 'static',
+						value: false,
+						fieldType: 'boolean',
+						tooltip: 'If allowed, the user will be able to select more than one file',
+						onlyStatic: true
+					},
+					text: {
+						type: 'static',
+						value: 'Drag and drop files or click to select them',
+						fieldType: 'text',
+						onlyStatic: true
+					},
+				},
+				customCss: {},
+				card: false
+			}
+		},
 	}
 
 	const inputs: ComponentSet = {
@@ -1072,6 +1111,7 @@
 			'slidercomponent',
 			'rangecomponent',
 			'dateinputcomponent',
+			'fileinputcomponent',
 			'checkboxcomponent',
 			'selectcomponent'
 		]
@@ -1441,7 +1481,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import { fade } from 'svelte/transition'
-	import { classNames } from '$lib/utils'
 	import type { AppEditorContext, BaseAppComponent, ComponentSet } from '../types'
 	import { Loader2 } from 'lucide-svelte'
 	import AppBarChart from '../components/dataDisplay/AppBarChart.svelte'
@@ -1469,6 +1508,7 @@
 	import AppIcon from '../components/dataDisplay/AppIcon.svelte'
 	import AppCurrencyInput from '../components/numberInputs/AppCurrencyInput.svelte'
 	import AppDivider from '../components/AppDivider.svelte'
+	import AppFileInput from '../components/otherInputs/AppFileInput.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -1632,6 +1672,8 @@
 			<AppRangeInput {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{:else if component.type === 'iconcomponent'}
 			<AppIcon {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+		{:else if component.type === 'fileinputcomponent'}
+			<AppFileInput {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{/if}
 	</div>
 </div>
