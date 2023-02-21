@@ -126,9 +126,7 @@ export function getTypeStrFromPath(
   | "app" {
   const parsed = path.parse(p);
   if (parsed.ext !== ".json") {
-    throw new Error(
-      "Cannot infer type of non-json file " + JSON.stringify(parsed),
-    );
+    return 'script'
   }
 
   if (parsed.name === "folder.meta") {

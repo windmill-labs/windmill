@@ -1264,9 +1264,9 @@ async fn tarball_workspace(
         .await?;
 
         for var in variables {
-            let flow_str = &to_string_without_metadata(&var).unwrap();
+            let var_str = &to_string_without_metadata(&var).unwrap();
             archive
-                .write_to_archive(&flow_str, &format!("{}.variable.json", var.path))
+                .write_to_archive(&var_str, &format!("{}.variable.json", var.path))
                 .await?;
         }
     }
@@ -1284,9 +1284,9 @@ async fn tarball_workspace(
         .await?;
 
         for app in apps {
-            let flow_str = &to_string_pretty(&app).unwrap();
+            let app_str = &to_string_without_metadata(&app).unwrap();
             archive
-                .write_to_archive(&flow_str, &format!("{}.app.json", app.path))
+                .write_to_archive(&app_str, &format!("{}.app.json", app.path))
                 .await?;
         }
     }
