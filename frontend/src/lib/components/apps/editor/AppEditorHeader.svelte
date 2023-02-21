@@ -22,6 +22,7 @@
 	import {
 		faBug,
 		faClipboard,
+		faCode,
 		faExternalLink,
 		faFileExport,
 		faGlobe,

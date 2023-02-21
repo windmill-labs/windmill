@@ -209,12 +209,13 @@ async fn create_variable(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
+    Query(AlreadyEncrypted { already_encrypted }): Query<AlreadyEncrypted>,
     Json(variable): Json<CreateVariable>,
 ) -> Result<(StatusCode, String)> {
     let mut tx = user_db.begin(&authed).await?;
 
     check_path_conflict(&mut tx, &w_id, &variable.path).await?;
-    let value = if variable.is_secret {
+    let value = if variable.is_secret && !already_encrypted.unwrap_or(false) {
         let mc = build_crypt(&mut tx, &w_id).await?;
         encrypt(&mc, &variable.value)
     } else {
@@ -312,12 +313,18 @@ struct EditVariable {
     description: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct AlreadyEncrypted {
+    already_encrypted: Option<bool>,
+}
+
 async fn update_variable(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    Query(AlreadyEncrypted { already_encrypted }): Query<AlreadyEncrypted>,
     Json(ns): Json<EditVariable>,
 ) -> Result<String> {
     use sql_builder::prelude::*;
@@ -343,7 +350,7 @@ async fn update_variable(
         .await?
         .unwrap_or(false);
 
-        let value = if is_secret {
+        let value = if is_secret && !already_encrypted.unwrap_or(false) {
             let mc = build_crypt(&mut tx, &w_id).await?;
             encrypt(&mc, &nvalue)
         } else {

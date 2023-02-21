@@ -168,6 +168,20 @@
 			<Recompute bind:recomputeIds={component.recomputeIds} ownId={component.id} />
 		{/if}
 
+		{#if Object.keys(component.customCss ?? {}).length > 0}
+			<PanelSection title="Custom CSS">
+				{#each Object.entries(component.customCss ?? {}) as [key, value]}
+					<div class="mb-2">
+						<div class="mt-1 font-semibold">{key}</div>
+						<span class="text-xs">Style</span>
+						<input type="text" bind:value={value.style} />
+						<span class="text-xs">Tailwind classes</span>
+						<input type="text" bind:value={value.class} />
+					</div>
+				{/each}
+			</PanelSection>
+		{/if}
+
 		<PanelSection title="Danger zone">
 			<Button
 				size="xs"

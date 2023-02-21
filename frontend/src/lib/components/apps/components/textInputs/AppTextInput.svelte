@@ -36,6 +36,7 @@
 
 <AlignWrapper {verticalAlignment}>
 	<input
+		class="mx-0.5"
 		on:focus={(e) => {
 			e?.stopPropagation()
 			window.dispatchEvent(new Event('pointerup'))

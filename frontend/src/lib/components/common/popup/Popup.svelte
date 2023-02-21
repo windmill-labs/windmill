@@ -1,41 +1,40 @@
 <svelte:options accessors />
 
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte'
-	import { slide } from 'svelte/transition'
+	import { onDestroy } from 'svelte'
+	import { slide, type TransitionConfig } from 'svelte/transition'
 	import { createPopperActions, type PopperOptions } from 'svelte-popperjs'
 	import { clickOutside } from '../../../utils'
 	import { createStateMachine } from '../../../stateMachine'
 
-	export let ref: HTMLElement
-	export let options: PopperOptions<any> = { placement: 'auto' }
+	export let ref: HTMLElement | undefined
+	export let options: PopperOptions<any> = { placement: 'auto', strategy: 'fixed' }
 	/** Events on the reference element */
 	export let openOn: (keyof HTMLElementEventMap)[] = ['focus']
 	/** Events on the reference element */
 	export let closeOn: (keyof HTMLElementEventMap)[] = ['blur']
 	export let innerClasses = ''
 	export let outerClasses = ''
+	export let transition: (node: Element, params?: Record<string, any>) => TransitionConfig = slide
 
 	const states = ['closed', 'open-focus-in', 'open-focus-out'] as const
 	const stateMachine = createStateMachine(states, {
 		to: {
 			closed: ({ previousState, currentState }) => {
-				const activeElem = document.activeElement
-				const revert = popup.contains(activeElem) || ref.contains(activeElem)
-				return revert ? previousState : currentState
+				return isFocusContained() ? previousState : currentState
 			}
 		}
 	})
 
-	const [popperRef, popperContent] = createPopperActions()
-	let popup: HTMLElement
+	const [popperRef, popperContent, getInstance] = createPopperActions()
+	let popup: HTMLElement | undefined
 	let focusableElements: HTMLElement[]
 
 	function getFocusableElements() {
 		let elements: HTMLElement[] = []
 
 		popup
-			.querySelectorAll<HTMLElement>(
+			?.querySelectorAll<HTMLElement>(
 				'a[href], button, input, textarea, select, details, [tabindex]:not([tabindex="-1"])'
 			)
 			.forEach((elem) => elements.push(elem))
@@ -46,8 +45,13 @@
 		focusableElements.forEach((el) => {
 			el.tabIndex = -1
 			el.addEventListener('click', openFocusIn)
-			el.addEventListener('blur', closed)
+			el.addEventListener('blur', conditionalClosed)
 		})
+	}
+
+	function isFocusContained() {
+		const activeElem = document.activeElement
+		return popup?.contains(activeElem) || ref?.contains(activeElem)
 	}
 
 	function closed() {
@@ -58,6 +62,10 @@
 		} else {
 			stateMachine.setState('closed')
 		}
+	}
+	function conditionalClosed() {
+		if (isFocusContained()) return
+		closed()
 	}
 	function openFocusOut() {
 		stateMachine.setState('open-focus-out')
@@ -73,18 +81,21 @@
 		if (event.key === 'Escape') {
 			return (<HTMLElement>document.activeElement)?.blur()
 		}
-		if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
+
+		const prev = ['Up', 'Left']
+		const next = ['Down', 'Right']
+		if (![...prev, ...next].some((dir) => `Arrow${dir}` === event.key)) return
 
 		event.preventDefault()
 
-		if (popup.contains(document.activeElement)) {
+		if (popup?.contains(document.activeElement)) {
 			const index = focusableElements.findIndex((elem) => elem === document.activeElement)
 			if (index === -1) return
 
 			let targetIndex: number | undefined = undefined
-			if (event.key === 'ArrowUp') {
+			if (prev.some((dir) => `Arrow${dir}` === event.key)) {
 				targetIndex = index === 0 ? focusableElements.length - 1 : index - 1
-			} else if (event.key === 'ArrowDown') {
+			} else if (next.some((dir) => `Arrow${dir}` === event.key)) {
 				targetIndex = index + 1 === focusableElements.length ? 0 : index + 1
 			}
 			if (targetIndex !== undefined) {
@@ -101,15 +112,17 @@
 	}
 
 	function addRefListeners() {
-		openOn.forEach((action) => ref.addEventListener(action, openFocusOut))
-		closeOn.forEach((action) => ref.addEventListener(action, closed))
+		if (!ref) return
+		openOn.forEach((action) => ref!.addEventListener(action, openFocusOut))
+		closeOn.forEach((action) => ref!.addEventListener(action, closed))
 	}
 
 	function removeAllListeners() {
 		focusableElements?.forEach((el) => el.removeEventListener('click', openFocusIn))
-		focusableElements?.forEach((el) => el.removeEventListener('blur', closed))
-		openOn.forEach((action) => ref.removeEventListener(action, openFocusOut))
-		closeOn.forEach((action) => ref.removeEventListener(action, closed))
+		focusableElements?.forEach((el) => el.removeEventListener('blur', conditionalClosed))
+		if (!ref) return
+		openOn.forEach((action) => ref!.removeEventListener(action, openFocusOut))
+		closeOn.forEach((action) => ref!.removeEventListener(action, closed))
 	}
 
 	$: if ($stateMachine.currentState === 'closed') {
@@ -117,13 +130,16 @@
 	} else {
 		setTimeout(() => {
 			getFocusableElements()
+			getInstance()?.update()
 		}, 0)
 	}
 
-	onMount(() => {
+	$: if (ref) {
 		popperRef(ref)
 		addRefListeners()
-	})
+	}
+
+	$: $$slots.default && getInstance()?.update()
 
 	onDestroy(removeAllListeners)
 </script>
@@ -131,6 +147,7 @@
 <svelte:window on:keydown={keyDown} />
 
 <div
+	class="z-50"
 	bind:this={popup}
 	use:popperContent={options}
 	use:clickOutside
@@ -139,9 +156,9 @@
 	aria-expanded={$stateMachine.currentState !== 'closed'}
 >
 	{#if $stateMachine.currentState !== 'closed'}
-		<div transition:slide|local={{ duration: 200 }} class={outerClasses}>
+		<div transition:transition|local={{ duration: 200 }} class={outerClasses}>
 			<div class={innerClasses}>
-				<slot />
+				<slot close={closed} />
 			</div>
 		</div>
 	{/if}

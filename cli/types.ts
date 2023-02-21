@@ -6,6 +6,7 @@ import { ScriptFile } from "./script.ts";
 import { VariableFile } from "./variable.ts";
 import { path } from "./deps.ts";
 import { FolderFile } from "./folder.ts";
+import { AppFile } from "./apps.ts";
 
 // TODO: Remove this & replace with a "pull" that lets the object either pull the remote version or return undefined.
 // Then combine those with diffing, which then gives the new push impl
@@ -90,7 +91,8 @@ export function inferTypeFromPath(
   | FlowFile
   | ResourceFile
   | ResourceTypeFile
-  | FolderFile {
+  | FolderFile
+  | AppFile {
   const typeEnding = getTypeStrFromPath(p);
 
   if (typeEnding === "folder") {
@@ -105,6 +107,8 @@ export function inferTypeFromPath(
     return decoverto.type(ResourceFile).plainToInstance(obj);
   } else if (typeEnding === "resource-type") {
     return decoverto.type(ResourceTypeFile).plainToInstance(obj);
+  } else if (typeEnding === "app") {
+    return decoverto.type(AppFile).plainToInstance(obj);
   } else {
     throw new Error("infer type unreachable");
   }
@@ -112,7 +116,14 @@ export function inferTypeFromPath(
 
 export function getTypeStrFromPath(
   p: string,
-): "script" | "variable" | "flow" | "resource" | "resource-type" | "folder" {
+):
+  | "script"
+  | "variable"
+  | "flow"
+  | "resource"
+  | "resource-type"
+  | "folder"
+  | "app" {
   const parsed = path.parse(p);
   if (parsed.ext !== ".json") {
     throw new Error(
@@ -128,7 +139,7 @@ export function getTypeStrFromPath(
   if (
     typeEnding === "script" || typeEnding === "variable" ||
     typeEnding === "flow" || typeEnding === "resource" ||
-    typeEnding === "resource-type"
+    typeEnding === "resource-type" || typeEnding === "app"
   ) {
     return typeEnding;
   } else {

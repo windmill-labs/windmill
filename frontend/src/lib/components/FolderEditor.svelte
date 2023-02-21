@@ -168,7 +168,8 @@
 													path: name,
 													kind: 'folder',
 													requestBody: {
-														owner: owner_name
+														owner: owner_name,
+														write: true
 													}
 												})
 											} else if (role == 'writer') {

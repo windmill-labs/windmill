@@ -18,16 +18,23 @@
 		SlidersHorizontal,
 		PlusSquare,
 		ListOrdered,
-		DollarSign
 	} from 'lucide-svelte'
 	import type { Size } from '@windmill-labs/svelte-grid'
+	import{
+		Smile,
+		DollarSign,
+		SeparatorHorizontal,
+		SeparatorVertical,
+		Paperclip
+	} from 'lucide-svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	type BaseComponent<T extends string> = {
 		type: T
 	}
 
 	/* 	How to add a new Svelte Component:
-	  1. add the the type to the union below
+	  1. add the type to the union below
 	  2. add the component to the components record
 	  3. add the comoonent to one of the components set (buttons, inputs, display)
 	  4. add the component in the svelte if switch
@@ -69,6 +76,10 @@
 	export type SelectComponent = BaseComponent<'selectcomponent'>
 	export type CheckboxComponent = BaseComponent<'checkboxcomponent'>
 	export type RadioComponent = BaseComponent<'radiocomponent'>
+	export type IconComponent = BaseComponent<'iconcomponent'>
+	export type HorizontalDividerComponent = BaseComponent<'horizontaldividercomponent'>
+	export type VerticalDividerComponent = BaseComponent<'verticaldividercomponent'>
+	export type FileInputComponent = BaseComponent<'fileinputcomponent'>
 	export type TabsComponent = BaseComponent<'tabscomponent'>
 
 	export type AppComponent = BaseAppComponent &
@@ -97,15 +108,25 @@
 			| VegaLiteComponent
 			| PlotlyComponent
 			| TabsComponent
+			| IconComponent
+			| HorizontalDividerComponent
+			| VerticalDividerComponent
+			| FileInputComponent
 		)
 
 	// Dimensions key formula: <mobile width>:<mobile height>-<desktop width>:<desktop height>
 	export const components: Record<
 		AppComponent['type'],
-		{ name: string; icon: any; dims: `${number}:${number}-${number}:${number}`; data: AppComponent }
+		{
+			name: string
+			icon: any
+			dims: `${number}:${number}-${number}:${number}`
+			data: AppComponent
+			cssIds?: string[]
+		}
 	> = {
 		displaycomponent: {
-			name: 'Result',
+			name: 'Rich Result',
 			icon: Monitor,
 			dims: '2:8-6:8',
 			data: {
@@ -117,6 +138,7 @@
 					value: { foo: 42 }
 				},
 				configuration: {},
+				customCss: {},
 				card: false
 			}
 		},
@@ -124,6 +146,7 @@
 			name: 'Text',
 			icon: Type,
 			dims: '1:1-3:1',
+			cssIds: ['text'],
 			data: {
 				softWrap: false,
 				horizontalAlignment: 'left',
@@ -143,18 +166,15 @@
 						optionValuesKey: 'textStyleOptions',
 						value: 'Body'
 					},
-					extraStyle: {
-						type: 'static',
-						fieldType: 'text',
-						value: '',
-						tooltip: 'CSS rules like "color: blue;"'
-					},
 					copyButton: {
 						type: 'static',
 						value: false,
 						fieldType: 'boolean',
 						onlyStatic: true
 					}
+				},
+				customCss: {
+					text: { class: '', style: '' }
 				},
 				card: false
 			}
@@ -163,6 +183,7 @@
 			name: 'Button',
 			icon: Inspect,
 			dims: '1:1-2:1',
+			cssIds: ['button'],
 			data: {
 				...defaultAlignement,
 				softWrap: true,
@@ -211,9 +232,29 @@
 						fieldType: 'text',
 						type: 'static',
 						value: ''
+					},
+					beforeIcon: {
+						type: 'static',
+						value: undefined,
+						fieldType: 'icon-select',
+						onlyStatic: true
+					},
+					afterIcon: {
+						type: 'static',
+						value: undefined,
+						fieldType: 'icon-select',
+						onlyStatic: true
+					},
+					triggerOnAppLoad: {
+						type: 'static',
+						value: false,
+						fieldType: 'boolean',
+						onlyStatic: true
 					}
 				},
-
+				customCss: {
+					button: { style: '', class: '' }
+				},
 				card: false
 			}
 		},
@@ -259,7 +300,7 @@
 						value: ''
 					}
 				},
-
+				customCss: {},
 				card: true
 			}
 		},
@@ -300,7 +341,7 @@
 						optionValuesKey: 'buttonSizeOptions'
 					}
 				},
-
+				customCss: {},
 				card: true
 			}
 		},
@@ -331,6 +372,7 @@
 					fieldType: 'object',
 					value: { data: [25, 50, 25], labels: ['Pie', 'Charts', '<3'] }
 				},
+				customCss: {},
 				card: true
 			}
 		},
@@ -361,6 +403,7 @@
 					fieldType: 'object',
 					value: { data: [25, 50, 25], labels: ['Bar', 'Charts', '<3'] }
 				},
+				customCss: {},
 				card: true
 			}
 		},
@@ -383,6 +426,7 @@
 </h1>`
 				},
 				configuration: {},
+				customCss: {},
 				card: false
 			}
 		},
@@ -422,6 +466,7 @@
 						tooltip: 'use the canvas renderer instead of the svg one for more interactive plots'
 					}
 				},
+				customCss: {},
 				card: false
 			}
 		},
@@ -449,6 +494,7 @@
 					}
 				},
 				configuration: {},
+				customCss: {},
 				card: false
 			}
 		},
@@ -522,6 +568,7 @@
 						}
 					]
 				},
+				customCss: {},
 				card: true
 			}
 		},
@@ -571,6 +618,7 @@
 						}
 					]
 				},
+				customCss: {},
 				card: true
 			}
 		},
@@ -607,6 +655,7 @@
 						}
 					]
 				},
+				customCss: {},
 				card: true,
 				actionButtons: []
 			}
@@ -633,6 +682,7 @@
 						fieldType: 'boolean'
 					}
 				},
+				customCss: {},
 				card: false
 			}
 		},
@@ -659,6 +709,7 @@
 						fieldType: 'text'
 					}
 				},
+				customCss: {},
 				card: false
 			}
 		},
@@ -681,11 +732,6 @@
 							{ value: 'bar', label: 'Bar' }
 						]
 					},
-					itemKey: {
-						type: 'static',
-						fieldType: 'text',
-						value: 'value'
-					},
 					multiple: {
 						type: 'static',
 						fieldType: 'boolean',
@@ -699,6 +745,7 @@
 						onlyStatic: true
 					}
 				},
+				customCss: {},
 				card: false,
 				softWrap: true
 			}
@@ -744,6 +791,7 @@
 						onlyStatic: true
 					}
 				},
+				customCss: {},
 				card: false
 			}
 		},
@@ -784,6 +832,7 @@
 						optionValuesKey: 'localeOptions'
 					}
 				},
+				customCss: {},
 				card: false
 			}
 		},
@@ -823,6 +872,7 @@
 						onlyStatic: true
 					}
 				},
+				customCss: {},
 				card: false
 			}
 		},
@@ -868,6 +918,7 @@
 						onlyStatic: true
 					}
 				},
+				customCss: {},
 				card: false
 			}
 		},
@@ -889,11 +940,12 @@
 						onlyStatic: true
 					}
 				},
+				customCss: {},
 				card: false
 			}
 		},
 		dateinputcomponent: {
-			name: 'Date Input',
+			name: 'Date',
 			icon: Calendar,
 			dims: '2:1-3:1',
 			data: {
@@ -919,6 +971,7 @@
 						fieldType: 'date'
 					}
 				},
+				customCss: {},
 				card: false
 			}
 		},
@@ -942,6 +995,135 @@
 				subGrids: [[], []]
 			}
 		}
+		iconcomponent: {
+			name: 'Icon',
+			icon: Smile,
+			dims: '1:3-1:2',
+			data: {
+				softWrap: false,
+				horizontalAlignment: 'center',
+				verticalAlignment: 'center',
+				id: '',
+				type: 'iconcomponent',
+				componentInput: undefined,
+				configuration: {
+					icon: {
+						type: 'static',
+						value: 'Smile',
+						fieldType: 'icon-select'
+					},
+					color: {
+						type: 'static',
+						value: 'currentColor',
+						fieldType: 'text'
+					},
+					size: {
+						type: 'static',
+						value: 24,
+						fieldType: 'number',
+						onlyStatic: true
+					},
+					strokeWidth: {
+						type: 'static',
+						value: 2,
+						fieldType: 'number',
+						onlyStatic: true
+					}
+				},
+				customCss: {},
+				card: false
+			}
+		},
+		horizontaldividercomponent: {
+			name: 'Divider X',
+			icon: SeparatorHorizontal,
+			dims: '3:1-12:1',
+			data: {
+				verticalAlignment: 'center',
+				id: '',
+				type: 'horizontaldividercomponent',
+				componentInput: undefined,
+				configuration: {
+					size: {
+						type: 'static',
+						value: 2,
+						fieldType: 'number',
+						onlyStatic: true
+					},
+					color: {
+						type: 'static',
+						value: '#00000060',
+						fieldType: 'text',
+						onlyStatic: true
+					}
+				},
+				customCss: {},
+				card: false
+			}
+		},
+		verticaldividercomponent: {
+			name: 'Divider Y',
+			icon: SeparatorVertical,
+			dims: '1:4-1:6',
+			data: {
+				horizontalAlignment: 'center',
+				id: '',
+				type: 'verticaldividercomponent',
+				componentInput: undefined,
+				configuration: {
+					size: {
+						type: 'static',
+						value: 2,
+						fieldType: 'number',
+						onlyStatic: true
+					},
+					color: {
+						type: 'static',
+						value: '#00000060',
+						fieldType: 'text',
+						onlyStatic: true
+					}
+				},
+				customCss: {},
+				card: false
+			}
+		},
+		fileinputcomponent: {
+			name: 'File Input',
+			icon: Paperclip,
+			dims: '3:4-6:4',
+			data: {
+				id: '',
+				type: 'fileinputcomponent',
+				componentInput: undefined,
+				configuration: {
+					acceptedFileTypes: {
+						type: 'static',
+						value: [
+							'image/*',
+							'application/pdf'
+						],
+						fieldType: 'array',
+						onlyStatic: true
+					},
+					allowMultiple: {
+						type: 'static',
+						value: false,
+						fieldType: 'boolean',
+						tooltip: 'If allowed, the user will be able to select more than one file',
+						onlyStatic: true
+					},
+					text: {
+						type: 'static',
+						value: 'Drag and drop files or click to select them',
+						fieldType: 'text',
+						onlyStatic: true
+					},
+				},
+				customCss: {},
+				card: false
+			}
+		},
 	}
 
 	const inputs: ComponentSet = {
@@ -954,6 +1136,7 @@
 			'slidercomponent',
 			'rangecomponent',
 			'dateinputcomponent',
+			'fileinputcomponent',
 			'checkboxcomponent',
 			'selectcomponent'
 		]
@@ -967,17 +1150,20 @@
 	const display: ComponentSet = {
 		title: 'Display',
 		components: [
+			'textcomponent',
+			'iconcomponent',
 			'htmlcomponent',
+			'tablecomponent',
+			'barchartcomponent',
+			'piechartcomponent',
 			'vegalitecomponent',
 			'plotlycomponent',
-			'textcomponent',
-			'tablecomponent',
-			'piechartcomponent',
-			'barchartcomponent',
 			'scatterchartcomponent',
 			'timeseriescomponent',
 			'displaycomponent',
-			'tabscomponent'
+			'tabscomponent',
+			'horizontaldividercomponent',
+			'verticaldividercomponent'
 		]
 	}
 
@@ -1293,6 +1479,13 @@
 			"backgroundColor": "orange"
 		}
 	]`
+		},
+		iconcomponent: {
+			deno: `export async function main() {
+	return "smile";
+}`,
+			python3: `def main():
+	return "smile"`
 		}
 	} as const
 
@@ -1314,7 +1507,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import { fade } from 'svelte/transition'
-	import { classNames } from '$lib/utils'
 	import type { AppEditorContext, BaseAppComponent, ComponentSet } from '../types'
 	import { Loader2 } from 'lucide-svelte'
 	import AppBarChart from '../components/dataDisplay/AppBarChart.svelte'
@@ -1340,14 +1532,18 @@
 	import { defaultAlignement } from './componentsPanel/componentDefaultProps'
 	import AppRangeInput from '../components/numberInputs/AppRangeInput.svelte'
 	import AppTabs from '../components/AppTabs.svelte'
+	import AppIcon from '../components/dataDisplay/AppIcon.svelte'
 	import AppCurrencyInput from '../components/numberInputs/AppCurrencyInput.svelte'
+	import AppDivider from '../components/AppDivider.svelte'
+	import AppFileInput from '../components/otherInputs/AppFileInput.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
 	export let locked: boolean = false
 	export let pointerdown: boolean = false
 
-	const { staticOutputs, mode, connectingInput } = getContext<AppEditorContext>('AppEditorContext')
+	const { staticOutputs, mode, connectingInput, app } =
+		getContext<AppEditorContext>('AppEditorContext')
 	let hover = false
 	let initializing: boolean | undefined = undefined
 </script>
@@ -1370,15 +1566,17 @@
 			// 	e?.stopPropagation()
 			// }
 		}}
-		class={classNames(
-			'border h-full bg-white',
-			selected && $mode !== 'preview' ? 'border-blue-500' : 'border-white',
+		class={twMerge(
+			'h-full bg-white/40',
+			selected && $mode !== 'preview' ? 'border border-blue-500' : '',
 			!selected && $mode !== 'preview' && !component.card ? 'border-gray-100' : '',
 			$mode !== 'preview' && !$connectingInput.opened ? 'hover:border-blue-500' : '',
 			component.softWrap ? '' : 'overflow-auto',
 			$mode != 'preview' ? 'cursor-pointer' : '',
-			'relative z-auto'
+			'relative z-auto',
+			$app.css?.['app']?.['component']?.class
 		)}
+		style={$app.css?.['app']?.['component']?.style}
 	>
 		{#if component.type === 'displaycomponent'}
 			<AppDisplayComponent
@@ -1493,10 +1691,18 @@
 			<AppCurrencyInput {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{:else if component.type === 'slidercomponent'}
 			<AppSliderInputs {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+		{:else if component.type === 'horizontaldividercomponent'}
+			<AppDivider {...component} position="horizontal" />
+		{:else if component.type === 'verticaldividercomponent'}
+			<AppDivider {...component} position="vertical" />
 		{:else if component.type === 'rangecomponent'}
 			<AppRangeInput {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{:else if component.type === 'tabscomponent'}
 			<AppTabs {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+		{:else if component.type === 'iconcomponent'}
+			<AppIcon {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+		{:else if component.type === 'fileinputcomponent'}
+			<AppFileInput {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{/if}
 	</div>
 </div>

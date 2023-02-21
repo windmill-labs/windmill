@@ -6,7 +6,9 @@
 	import { Skeleton } from '$lib/components/common'
 	import { AppService, AppWithLastVersion } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
+	import { classNames } from '$lib/utils'
 	import { writable } from 'svelte/store'
+	import { twMerge } from 'tailwind-merge'
 
 	let app: AppWithLastVersion | undefined = undefined
 
@@ -27,7 +29,10 @@
 </script>
 
 {#if app}
-	<div class="w-full">
+	<div
+		class={twMerge('bg-gray-100 min-h-screen w-full', app?.value.css?.['app']?.['viewer']?.class)}
+		style={app?.value.css?.['app']?.['viewer']?.style}
+	>
 		<AppPreview
 			context={{
 				email: $userStore?.email,

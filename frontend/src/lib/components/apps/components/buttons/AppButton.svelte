@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { Button, type ButtonType } from '$lib/components/common'
-	import { Loader2 } from 'lucide-svelte'
-	import { getContext } from 'svelte'
+	import { getContext, onMount } from 'svelte'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppEditorContext } from '../../types'
@@ -9,6 +8,8 @@
 	import InputValue from '../helpers/InputValue.svelte'
 	import type RunnableComponent from '../helpers/RunnableComponent.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
+	import { loadIcon } from '../icon'
+	import { twMerge } from 'tailwind-merge'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -19,10 +20,11 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let noWFull = false
 	export let preclickAction: (() => Promise<void>) | undefined = undefined
+	export let customCss: Record<'button', { class: string; style: string }> | undefined = undefined
 
 	export const staticOutputs: string[] = ['loading', 'result']
 
-	const { runnableComponents, worldStore } = getContext<AppEditorContext>('AppEditorContext')
+	const { runnableComponents, worldStore, app } = getContext<AppEditorContext>('AppEditorContext')
 
 	let labelValue: string
 	let color: ButtonType.Color
@@ -34,11 +36,35 @@
 
 	let isLoading: boolean = false
 	let ownClick: boolean = false
+	let triggerOnAppLoad = false
+
+	let beforeIcon: undefined | string = undefined
+	let afterIcon: undefined | string = undefined
+
+	let beforeIconComponent: any
+	let afterIconComponent: any
+
+	$: beforeIcon && handleBeforeIcon()
+	$: afterIcon && handleAfterIcon()
+
+	async function handleBeforeIcon() {
+		if (beforeIcon) {
+			beforeIconComponent = await loadIcon(beforeIcon)
+		}
+	}
+
+	async function handleAfterIcon() {
+		if (afterIcon) {
+			afterIconComponent = await loadIcon(afterIcon)
+		}
+	}
 
 	$: outputs = $worldStore?.outputsById[id] as {
 		result: Output<Array<any>>
 		loading: Output<boolean>
 	}
+
+	$: triggerOnAppLoad && runnableComponent?.runComponent()
 
 	$: if (outputs?.loading != undefined) {
 		outputs.loading.set(false, true)
@@ -64,6 +90,10 @@
 <InputValue {id} input={configuration.goto} bind:value={goto} />
 <InputValue {id} input={configuration.color} bind:value={color} />
 <InputValue {id} input={configuration.size} bind:value={size} />
+<InputValue {id} input={configuration.beforeIcon} bind:value={beforeIcon} />
+<InputValue {id} input={configuration.afterIcon} bind:value={afterIcon} />
+<InputValue {id} input={configuration.triggerOnAppLoad} bind:value={triggerOnAppLoad} />
+
 <InputValue
 	row={extraQueryParams['row']}
 	{id}
@@ -87,7 +117,12 @@
 			<div class="text-red-500 text-xs">{errorsMessage}</div>
 		{/if}
 		<Button
-			btnClasses={fillContainer ? 'w-full h-full' : ''}
+			btnClasses={twMerge(
+				$app.css?.['buttoncomponent']?.['button']?.class,
+				customCss?.button?.class,
+				fillContainer ? 'w-full h-full' : ''
+			)}
+			style={[$app.css?.['buttoncomponent']?.['button']?.style, customCss?.button?.style].join(';')}
 			{disabled}
 			on:pointerdown={(e) => {
 				e?.stopPropagation()
@@ -112,8 +147,14 @@
 			{color}
 			{loading}
 		>
-			<span class="truncate">
-				{labelValue}
+			<span class="truncate inline-flex gap-2 items-center">
+				{#if beforeIconComponent}
+					<svelte:component this={beforeIconComponent} size={14} />
+				{/if}
+				<div>{labelValue}</div>
+				{#if afterIconComponent}
+					<svelte:component this={afterIconComponent} size={14} />
+				{/if}
 			</span>
 		</Button>
 	</AlignWrapper>

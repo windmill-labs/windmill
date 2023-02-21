@@ -8,6 +8,7 @@ export type InputType =
 	| 'number'
 	| 'boolean'
 	| 'select'
+	| 'icon-select'
 	| 'date'
 	| 'time'
 	| 'datetime'
@@ -113,6 +114,7 @@ export type AppInput =
 			 */
 			optionValuesKey: keyof typeof staticValues
 	  })
+	| AppInputSpec<'icon-select', string>
 	| AppInputSpec<'array', string[], 'text'>
 	| AppInputSpec<'array', string[], 'textarea'>
 	| AppInputSpec<'array', number[], 'number'>

@@ -91,7 +91,8 @@ func SetVariable(path string, value string) error {
 	if err != nil {
 		return err
 	}
-	res, err := client.Client.UpdateVariableWithResponse(context.Background(), client.Workspace, path, api.EditVariable{Value: &value})
+	f := false
+	res, err := client.Client.UpdateVariableWithResponse(context.Background(), client.Workspace, path, &api.UpdateVariableParams{AlreadyEncrypted: &f}, api.EditVariable{Value: &value})
 	if err != nil {
 		return err
 	}

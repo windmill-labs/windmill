@@ -35,6 +35,74 @@
     },
     "query": "SELECT app.id FROM app\n        WHERE app.path = $1 AND app.workspace_id = $2"
   },
+  "023fffd0a042a28b5be991169a506aff92f64f84e49b4c041cd369b045c31e73": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int8"
+        },
+        {
+          "name": "path",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "summary",
+          "ordinal": 2,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "versions",
+          "ordinal": 3,
+          "type_info": "Int8Array"
+        },
+        {
+          "name": "policy",
+          "ordinal": 4,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "extra_perms",
+          "ordinal": 5,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "value",
+          "ordinal": 6,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 7,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "created_by",
+          "ordinal": 8,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT app.id, app.path, app.summary, app.versions, app.policy,\n            app.extra_perms, app_version.value, \n            app_version.created_at, app_version.created_by from app, app_version \n            WHERE app.workspace_id = $1 AND app_version.id = app.versions[array_upper(app.versions, 1)]"
+  },
   "0355b53b1d45955ca56b2829372ce9c656d7f0ad7b8d0709161047f0d8cdc4f4": {
     "describe": {
       "columns": [

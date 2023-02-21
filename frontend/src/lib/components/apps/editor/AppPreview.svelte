@@ -82,7 +82,7 @@
 	w-full {app.fullscreen ? '' : 'max-w-6xl'} mx-auto"
 	>
 		{#if $appStore.grid}
-			<div class={classNames('mx-auto pb-4', width)}>
+			<div class={classNames('mx-auto', width)}>
 				<GridEditor {policy} />
 			</div>
 		{/if}
