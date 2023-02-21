@@ -1098,6 +1098,28 @@ struct ArchiveQueryParams {
     archive_type: Option<String>,
 }
 
+#[inline]
+pub fn to_string_without_metadata<T>(value: &T) -> Result<String>
+where
+    T: ?Sized + Serialize,
+{
+    let value = serde_json::to_value(value).map_err(to_anyhow)?;
+    value
+        .as_object()
+        .map(|obj| {
+            let mut obj = obj.clone();
+            for key in ["workspace_id", "path", "name"] {
+                if obj.contains_key(key) {
+                    obj.remove(key);
+                }
+            }
+
+            serde_json::to_string_pretty(&obj).ok()
+        })
+        .flatten()
+        .ok_or_else(|| Error::BadRequest("Impossible to serialize value".to_string()))
+}
+
 async fn tarball_workspace(
     authed: Authed,
     Extension(db): Extension<DB>,
@@ -1129,7 +1151,7 @@ async fn tarball_workspace(
         for folder in folders {
             archive
                 .write_to_archive(
-                    &serde_json::to_string_pretty(&folder).unwrap(),
+                    &to_string_without_metadata(&folder).unwrap(),
                     &format!("f/{}/folder.meta.json", folder.name),
                 )
                 .await?;
@@ -1187,7 +1209,7 @@ async fn tarball_workspace(
         .await?;
 
         for resource in resources {
-            let resource_str = serde_json::to_string_pretty(&resource).unwrap();
+            let resource_str = &to_string_without_metadata(&resource).unwrap();
             archive
                 .write_to_archive(&resource_str, &format!("{}.resource.json", resource.path))
                 .await?;
@@ -1204,7 +1226,7 @@ async fn tarball_workspace(
         .await?;
 
         for resource_type in resource_types {
-            let resource_str = serde_json::to_string_pretty(&resource_type).unwrap();
+            let resource_str = &to_string_without_metadata(&resource_type).unwrap();
             archive
                 .write_to_archive(
                     &resource_str,
@@ -1223,7 +1245,7 @@ async fn tarball_workspace(
         .await?;
 
         for flow in flows {
-            let flow_str = serde_json::to_string_pretty(&flow).unwrap();
+            let flow_str = &to_string_without_metadata(&flow).unwrap();
             archive
                 .write_to_archive(&flow_str, &format!("{}.flow.json", flow.path))
                 .await?;
@@ -1232,14 +1254,14 @@ async fn tarball_workspace(
 
     {
         let variables = sqlx::query_as::<_, ExportableListableVariable>(
-            "SELECT *, false as is_expired FROM variable WHERE workspace_id = $1 AND is_secret = false",
+            "SELECT *, false as is_expired FROM variable WHERE workspace_id = $1",
         )
         .bind(&w_id)
         .fetch_all(&db)
         .await?;
 
         for var in variables {
-            let flow_str = serde_json::to_string_pretty(&var).unwrap();
+            let flow_str = &to_string_without_metadata(&var).unwrap();
             archive
                 .write_to_archive(&flow_str, &format!("{}.variable.json", var.path))
                 .await?;
