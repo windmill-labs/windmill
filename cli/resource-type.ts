@@ -60,7 +60,7 @@ export class ResourceTypeFile implements ResourceI, PushDiffs {
       ) {
         console.log(
           "Resource type " + remotePath +
-            " is already taken for the current workspace, but cannot be updated. Is this a conflict with starter?",
+          " is already taken for the current workspace, but cannot be updated. Is this a conflict with starter?",
         );
         return;
       }
@@ -69,6 +69,7 @@ export class ResourceTypeFile implements ResourceI, PushDiffs {
           `Applying ${diffs.length} diffs to existing resource type...`,
         ),
       );
+      console.log(JSON.stringify(diffs, null, 2));
       const changeset: EditResourceType = {};
       for (const diff of diffs) {
         if (
