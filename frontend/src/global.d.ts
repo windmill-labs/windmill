@@ -9,7 +9,7 @@ declare namespace svelte.JSX {
 	}
 }
 
-declare module 'svelte-grid' {
+declare module '@windmill-labs/svelte-grid' {
 	import type { SvelteComponentTyped } from 'svelte'
 
 	export interface Size {
@@ -37,7 +37,7 @@ declare module 'svelte-grid' {
 
 	export interface Props<T> {
 		fillSpace?: boolean
-		items: FilledItem<T>[],
+		items: FilledItem<T>[]
 		rowHeight: number
 		cols: [number, number][]
 		gap?: [number, number]
@@ -59,11 +59,11 @@ declare module 'svelte-grid' {
 			pointerup: CustomEvent<{ id: string }>
 		},
 		Slots<T>
-	> { }
+	> {}
 }
 
-declare module 'svelte-grid/build/helper/index.mjs' {
-	import { ItemLayout } from 'svelte-grid'
+declare module '@windmill-labs/svelte-grid/build/helper/index.mjs' {
+	import { ItemLayout } from '@windmill-labs/svelte-grid'
 
 	const x: {
 		normalize(items: any[], col: any): unknown[]

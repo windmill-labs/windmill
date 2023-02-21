@@ -1,6 +1,6 @@
 import type { Schema } from '$lib/common'
 import type { Preview } from '$lib/gen'
-import type { FilledItem } from 'svelte-grid'
+import type { FilledItem } from '@windmill-labs/svelte-grid'
 import type { Writable } from 'svelte/store'
 import type { AppComponent } from './editor/Component.svelte'
 import type {

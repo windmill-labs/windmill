@@ -20,7 +20,7 @@
 		ListOrdered,
 		DollarSign
 	} from 'lucide-svelte'
-	import type { Size } from 'svelte-grid'
+	import type { Size } from '@windmill-labs/svelte-grid'
 
 	type BaseComponent<T extends string> = {
 		type: T

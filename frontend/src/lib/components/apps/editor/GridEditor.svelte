@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { getContext, afterUpdate } from 'svelte'
 	import type { AppEditorContext } from '../types'
-	import Grid from 'svelte-grid'
+	import Grid from '@windmill-labs/svelte-grid'
 	import { classNames } from '$lib/utils'
 	import { columnConfiguration, disableDrag, enableDrag, isFixed, toggleFixed } from '../gridUtils'
 
