@@ -97,16 +97,19 @@ export class VariableFile implements Resource, PushDiffs {
         console.log(colors.yellow("! Skipping empty changeset"));
         return;
       }
-
       await VariableService.updateVariable({
         workspace,
         path: remotePath,
+        alreadyEncrypted: true,
         requestBody: changeset,
       });
+
+      console.log(changeset);
     } else {
       console.log(colors.yellow("Creating new variable..."));
       await VariableService.createVariable({
         workspace,
+        alreadyEncrypted: true,
         requestBody: {
           path: remotePath,
           description: this.description,

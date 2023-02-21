@@ -79,6 +79,61 @@ async function push(
   console.log(colors.bold.underline.green("Script successfully pushed"));
 }
 
+export async function handleFile(path: string, content: string, workspace: string): Promise<boolean> {
+  if (path.endsWith(".ts") || path.endsWith(".py") || path.endsWith(".go") || path.endsWith(".sh")) {
+    const remotePath = path.substring(0, path.length - 3);
+    const metaPath = remotePath + ".script.json";
+    let typed = undefined
+    try {
+      await Deno.stat(metaPath)
+      typed = JSON.parse(await Deno.readTextFile(metaPath))
+      typed = decoverto.type(ScriptFile).plainToInstance(typed);
+    } catch { }
+    const language = inferContentTypeFromFilePath(path);
+    try {
+      const remote = await ScriptService.getScriptByPath({
+        workspace,
+        path: remotePath,
+      });
+      await ScriptService.createScript({
+        workspace,
+        requestBody: {
+          content,
+          description: typed.description,
+          language,
+          path: remotePath,
+          summary: typed.summary,
+          is_template: typed.is_template,
+          kind: typed.kind,
+          lock: undefined,
+          parent_hash: remote.hash,
+          schema: typed.schema,
+        },
+      });
+
+    } catch {
+      // no parent hash
+      await ScriptService.createScript({
+        workspace: workspace,
+        requestBody: {
+          content,
+          description: typed.description,
+          language,
+          path: remotePath,
+          summary: typed.summary,
+          is_template: typed.is_template,
+          kind: typed.kind,
+          lock: undefined,
+          parent_hash: undefined,
+          schema: typed.schema,
+        },
+      });
+    }
+    return true
+  }
+  return false
+}
+
 export async function findContentFile(filePath: string) {
   console.log("Searching " + filePath);
   const candidates = [
@@ -104,7 +159,7 @@ export async function findContentFile(filePath: string) {
   if (validCandidates.length > 1) {
     throw new Error(
       "No content path given and more then one candidate found: " +
-        validCandidates.join(", "),
+      validCandidates.join(", "),
     );
   }
   if (validCandidates.length < 1) {
