@@ -1075,6 +1075,7 @@ impl ArchiveImpl {
                     async_zip::Compression::Deflate,
                 )
                 .last_modification_date(Default::default())
+                .unix_permissions(0o777)
                 .build();
                 z.write_entry_whole(header, content.as_bytes())
                     .await
