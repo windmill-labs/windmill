@@ -9,6 +9,7 @@
 use std::str::FromStr;
 
 use crate::{
+    apps::AppWithLastVersion,
     db::{UserDB, DB},
     folders::Folder,
     resources::{Resource, ResourceType},
@@ -24,6 +25,7 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
+use serde_json::to_string_pretty;
 use stripe::CustomerId;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
@@ -1264,6 +1266,26 @@ async fn tarball_workspace(
             let flow_str = &to_string_without_metadata(&var).unwrap();
             archive
                 .write_to_archive(&flow_str, &format!("{}.variable.json", var.path))
+                .await?;
+        }
+    }
+
+    {
+        let apps = sqlx::query_as!(
+            AppWithLastVersion,
+            "SELECT app.id, app.path, app.summary, app.versions, app.policy,
+            app.extra_perms, app_version.value, 
+            app_version.created_at, app_version.created_by from app, app_version 
+            WHERE app.workspace_id = $1 AND app_version.id = app.versions[array_upper(app.versions, 1)]",
+            &w_id
+        )
+        .fetch_all(&db)
+        .await?;
+
+        for app in apps {
+            let flow_str = &to_string_pretty(&app).unwrap();
+            archive
+                .write_to_archive(&flow_str, &format!("{}.app.json", app.path))
                 .await?;
         }
     }

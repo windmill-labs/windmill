@@ -406,6 +406,17 @@ async function pull(
     return;
   }
 
+  try {
+    await Deno.stat(State.getInternalWmillFolder("main"))
+  } catch {
+    console.log(
+      colors.yellow(
+        "No state file found, creating empty state folder at .wmill",
+      ),
+    );
+    init()
+  }
+
   const state = await getState(opts);
   console.log(state);
 
