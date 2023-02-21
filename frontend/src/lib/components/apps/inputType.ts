@@ -35,6 +35,12 @@ export type UserInput<U> = {
 	value: U | undefined
 }
 
+// Input can be uploaded with a file selector
+export type UploadInput = {
+	type: 'upload'
+	value: string
+}
+
 export type EvalInput = {
 	type: 'eval'
 	expr: string
@@ -85,6 +91,7 @@ type AppInputSpec<T extends InputType, U, V extends InputType = never> = (
 	| UserInput<U>
 	| RowInput
 	| EvalInput
+	| UploadInput
 	| ResultInput
 	| TemplateInput
 ) &
@@ -94,6 +101,27 @@ type InputConfiguration<T extends InputType, U, V extends InputType> = {
 	fieldType: T
 	subFieldType?: V
 	format?: string | undefined
+	fileUpload?: {
+		/** Use `*` to accept anything. */
+		accept: string
+		/**
+		 * Controls if user is allowed to select multiple files.
+		 * @default false
+		 */
+		multiple?: boolean
+		/**
+		 * Controls if the uploaded file(s) will be returned as `Base64` strings.
+		 * @default false
+		 */
+		base64?: boolean
+	}
+}
+
+type StaticOptions = {
+	/**
+	 * One of the keys of `staticValues` from `lib/components/apps/editor/componentsPanel/componentStaticValues`
+	 */
+	optionValuesKey: keyof typeof staticValues
 }
 
 export type AppInput =
@@ -114,6 +142,7 @@ export type AppInput =
 			 */
 			optionValuesKey: keyof typeof staticValues
 	  })
+	| (AppInputSpec<'select', string> & StaticOptions)
 	| AppInputSpec<'icon-select', string>
 	| AppInputSpec<'array', string[], 'text'>
 	| AppInputSpec<'array', string[], 'textarea'>
@@ -126,6 +155,7 @@ export type AppInput =
 	| (AppInputSpec<'array', string[], 'select'> & {
 			optionValuesKey: keyof typeof staticValues
 	  })
+	| (AppInputSpec<'array', string[], 'select'> & StaticOptions)
 
 export type RowAppInput = Extract<AppInput, { type: 'row' }>
 export type StaticAppInput = Extract<AppInput, { type: 'static' }>
@@ -133,5 +163,6 @@ export type ConnectedAppInput = Extract<AppInput, { type: 'connected' }>
 export type UserAppInput = Extract<AppInput, { type: 'user' }>
 export type ResultAppInput = Extract<AppInput, { type: 'runnable' }>
 export type EvalAppInput = Extract<AppInput, { type: 'eval' }>
+export type UploadAppInput = Extract<AppInput, { type: 'upload' }>
 
 export type AppInputs = Record<string, AppInput>

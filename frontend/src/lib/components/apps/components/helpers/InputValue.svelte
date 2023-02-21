@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { isCodeInjection } from '$lib/components/flows/utils'
 	import { getContext } from 'svelte'
-	import type { AppInput, EvalAppInput } from '../../inputType'
+	import type { AppInput, EvalAppInput, UploadAppInput } from '../../inputType'
 	import type { AppEditorContext } from '../../types'
 	import { accessPropertyByPath } from '../../utils'
 
@@ -29,6 +29,8 @@
 			setTimeout(() => (value = getValue(input)), 0)
 		} else if (input.type == 'eval') {
 			setTimeout(() => ((value = evalExpr(input as EvalAppInput)), 0))
+		} else if (input.type == 'upload') {
+			setTimeout(() => ((value = (input as UploadAppInput).value), 0))
 		} else {
 			setTimeout(() => (value = undefined), 0)
 		}

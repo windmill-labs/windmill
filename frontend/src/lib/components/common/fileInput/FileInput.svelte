@@ -7,9 +7,10 @@
 	let c = ''
 	export { c as class }
 	export let accept = '*'
-	export let multiple = true
+	export let multiple = false
 	export let convertToBase64 = false
 	export let hideIcon = false
+	export let iconSize = 36
 	const dispatch = createEventDispatcher()
 	let input: HTMLInputElement
 	let files: File[] | undefined = undefined
@@ -72,11 +73,15 @@
 	duration-200 rounded-lg p-1 {c ?? ''}"
 >
 	{#if !hideIcon && !files}
-		<FileUp size={36} class="mb-2" />
+		<FileUp size={iconSize} class="mb-2" />
 	{/if}
 	{#if files}
 		<div class="w-full max-h-full overflow-auto px-6">
-			<div class="text-center mb-2 px-2">Selected file{files.length > 1 ? 's' : ''}:</div>
+			<slot name="selected-title">
+				<div class="text-center mb-2 px-2">
+					Selected file{files.length > 1 ? 's' : ''}:
+				</div>
+			</slot>
 			<ul class="relative z-20 max-w-[250px] bg-white rounded-lg overflow-hidden mx-auto">
 				{#each files as {name}, i}
 					<li class="flex justify-between items-center font-normal text-sm
@@ -97,7 +102,7 @@
 		</div>
 	{:else}
 		<slot>
-			<span>Drag and drop files</span>
+			<span>Drag and drop {multiple ? 'files' : 'a file'}</span>
 		</slot>
 	{/if}
 	<input

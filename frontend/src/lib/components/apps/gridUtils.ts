@@ -7,9 +7,12 @@ const Breakpoints = {
 	lg: 1024
 }
 
+const WIDE_GRID_COLUMNS = 12 as const;
+const NARROW_GRID_COLUMNS = 3 as const;
+
 const columnConfiguration: ColumnConfiguration = [
-	[Breakpoints.lg, 12],
-	[Breakpoints.sm, 3]
+	[Breakpoints.lg, WIDE_GRID_COLUMNS],
+	[Breakpoints.sm, NARROW_GRID_COLUMNS]
 ]
 
 const gridColumns = columnConfiguration.map((value) => value[1])
@@ -51,6 +54,8 @@ function enableDrag(component: GridItem): GridItem {
 
 export {
 	gridColumns,
+	WIDE_GRID_COLUMNS,
+	NARROW_GRID_COLUMNS,
 	columnConfiguration,
 	disableDrag,
 	enableDrag,
