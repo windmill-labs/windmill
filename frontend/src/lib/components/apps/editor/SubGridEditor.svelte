@@ -12,7 +12,8 @@
 		getContext<AppEditorContext>('AppEditorContext')
 
 	let pointerdown = false
-	const onpointerdown = () => {
+	const onpointerdown = (e) => {
+		e.stopPropagation()
 		pointerdown = true
 	}
 	const onpointerup = () => {
@@ -41,8 +42,8 @@
 
 <div class="pb-2 relative w-full z-20 subgrid" bind:this={container}>
 	<div
-		class=" px-4 pt-4 overflow-auto {$connectingInput?.opened ? '' : ''}"
-		on:pointerdown={onpointerdown}
+		class="px-4 pt-4 overflow-auto {$connectingInput?.opened ? '' : ''}"
+		on:pointerdown|stopPropagation={onpointerdown}
 		on:pointerleave={onpointerup}
 		on:pointerup={onpointerup}
 	>

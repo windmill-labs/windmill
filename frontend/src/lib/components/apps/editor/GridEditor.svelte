@@ -142,7 +142,7 @@
 	</div>
 
 	<div
-		class={classNames("px-4 pt-4 overflow-auto {$connectingInput?.opened ? '' : ''}")}
+		class={classNames('px-4 pt-4 overflow-auto')}
 		on:pointerdown={onpointerdown}
 		on:pointerleave={onpointerup}
 		on:pointerup={onpointerup}

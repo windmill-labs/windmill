@@ -41,14 +41,16 @@
 <InputValue {id} input={configuration.gridContent} bind:value={gridContent} />
 
 <RunnableWrapper flexWrap bind:componentInput {id} bind:initializing bind:result>
-	<Tabs bind:selected>
-		{#each result ?? [] as res}
-			<Tab value={res}>
-				<span class="font-semibold">{res}</span>
-			</Tab>
-		{/each}
-	</Tabs>
-	{#if subGrids && subGrids[selectedIndex]}
-		<SubGridEditor bind:subGrid={subGrids[selectedIndex]} />
-	{/if}
+	<div class="subgrid">
+		<Tabs bind:selected>
+			{#each result ?? [] as res}
+				<Tab value={res}>
+					<span class="font-semibold">{res}</span>
+				</Tab>
+			{/each}
+		</Tabs>
+		{#if subGrids && subGrids[selectedIndex]}
+			<SubGridEditor bind:subGrid={subGrids[selectedIndex]} />
+		{/if}
+	</div>
 </RunnableWrapper>
