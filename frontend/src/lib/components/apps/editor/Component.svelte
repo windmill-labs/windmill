@@ -17,10 +17,10 @@
 		Code2,
 		SlidersHorizontal,
 		PlusSquare,
-		ListOrdered,
+		ListOrdered
 	} from 'lucide-svelte'
 	import type { Size } from '@windmill-labs/svelte-grid'
-	import{
+	import {
 		Smile,
 		DollarSign,
 		SeparatorHorizontal,
@@ -994,7 +994,7 @@
 				card: false,
 				subGrids: [[], []]
 			}
-		}
+		},
 		iconcomponent: {
 			name: 'Icon',
 			icon: Smile,
@@ -1099,10 +1099,7 @@
 				configuration: {
 					acceptedFileTypes: {
 						type: 'static',
-						value: [
-							'image/*',
-							'application/pdf'
-						],
+						value: ['image/*', 'application/pdf'],
 						fieldType: 'array',
 						onlyStatic: true
 					},
@@ -1118,12 +1115,12 @@
 						value: 'Drag and drop files or click to select them',
 						fieldType: 'text',
 						onlyStatic: true
-					},
+					}
 				},
 				customCss: {},
 				card: false
 			}
-		},
+		}
 	}
 
 	const inputs: ComponentSet = {
@@ -1546,6 +1543,7 @@
 		getContext<AppEditorContext>('AppEditorContext')
 	let hover = false
 	let initializing: boolean | undefined = undefined
+	let componentContainerHeight: number = 0
 </script>
 
 <div
@@ -1577,6 +1575,7 @@
 			$app.css?.['app']?.['component']?.class
 		)}
 		style={$app.css?.['app']?.['component']?.style}
+		bind:clientHeight={componentContainerHeight}
 	>
 		{#if component.type === 'displaycomponent'}
 			<AppDisplayComponent
@@ -1698,7 +1697,11 @@
 		{:else if component.type === 'rangecomponent'}
 			<AppRangeInput {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{:else if component.type === 'tabscomponent'}
-			<AppTabs {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+			<AppTabs
+				{...component}
+				bind:staticOutputs={$staticOutputs[component.id]}
+				{componentContainerHeight}
+			/>
 		{:else if component.type === 'iconcomponent'}
 			<AppIcon {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{:else if component.type === 'fileinputcomponent'}

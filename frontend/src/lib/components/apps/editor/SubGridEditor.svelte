@@ -7,6 +7,7 @@
 	import Component from './Component.svelte'
 
 	export let subGrid: GridItem[]
+	export let containerHeight: number
 
 	const { app, connectingInput, selectedComponent } =
 		getContext<AppEditorContext>('AppEditorContext')
@@ -40,12 +41,13 @@
 	let container
 </script>
 
-<div class="pb-2 relative w-full z-20 subgrid" bind:this={container}>
+<div class="pb-2 relative w-full z-20 subgrid " bind:this={container}>
 	<div
-		class="px-4 pt-4 overflow-auto {$connectingInput?.opened ? '' : ''}"
+		class="px-4 pt-4 overflow-auto  {$connectingInput?.opened ? '' : ''}"
 		on:pointerdown|stopPropagation={onpointerdown}
 		on:pointerleave={onpointerup}
 		on:pointerup={onpointerup}
+		style="height: {containerHeight}px;"
 	>
 		<div>
 			<Grid

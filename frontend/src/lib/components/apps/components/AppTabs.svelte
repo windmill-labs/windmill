@@ -13,6 +13,7 @@
 	export let initializing: boolean | undefined = undefined
 	export let configuration: Record<string, AppInput>
 	export let subGrids: GridItem[][] | undefined = undefined
+	export let componentContainerHeight: number
 
 	export const staticOutputs: string[] = ['loading', 'result', 'selectedTabIndex']
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
@@ -36,12 +37,13 @@
 	}
 
 	$: selectedIndex >= 0 && handleTabSelection()
+	let tabHeight: number = 0
 </script>
 
 <InputValue {id} input={configuration.gridContent} bind:value={gridContent} />
 
 <RunnableWrapper flexWrap bind:componentInput {id} bind:initializing bind:result>
-	<div class="subgrid">
+	<div bind:clientHeight={tabHeight}>
 		<Tabs bind:selected>
 			{#each result ?? [] as res}
 				<Tab value={res}>
@@ -49,8 +51,11 @@
 				</Tab>
 			{/each}
 		</Tabs>
-		{#if subGrids && subGrids[selectedIndex]}
-			<SubGridEditor bind:subGrid={subGrids[selectedIndex]} />
-		{/if}
 	</div>
+	{#if subGrids && subGrids[selectedIndex]}
+		<SubGridEditor
+			bind:subGrid={subGrids[selectedIndex]}
+			containerHeight={componentContainerHeight - tabHeight}
+		/>
+	{/if}
 </RunnableWrapper>
