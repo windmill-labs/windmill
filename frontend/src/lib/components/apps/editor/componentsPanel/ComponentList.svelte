@@ -3,6 +3,7 @@
 	import Icon from 'svelte-awesome'
 	import type { AppEditorContext, GridItem } from '../../types'
 
+	import gridHelp from '@windmill-labs/svelte-grid/src/utils/helper'
 	import { getContext, onMount } from 'svelte'
 	import { getNextId } from '$lib/components/flows/flowStateUtils'
 	import { faAngleDown } from '@fortawesome/free-solid-svg-icons'
@@ -15,7 +16,6 @@
 		getRecommendedDimensionsByComponent,
 		type AppComponent
 	} from '../Component.svelte'
-	import gridHelp from '../../grid_temp/utils/helper'
 
 	const { app, selectedComponent, focusedGrid } = getContext<AppEditorContext>('AppEditorContext')
 

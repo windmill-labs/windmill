@@ -35,16 +35,18 @@
 			fComponent = toggleFixed(fComponent)
 		}
 	}
+
+	let container
 </script>
 
-<div class="pb-2 relative w-full z-20">
+<div class="pb-2 relative w-full z-20 subgrid" bind:this={container}>
 	<div
 		class=" px-4 pt-4 overflow-auto {$connectingInput?.opened ? '' : ''}"
 		on:pointerdown={onpointerdown}
 		on:pointerleave={onpointerup}
 		on:pointerup={onpointerup}
 	>
-		<div class="subgrid">
+		<div>
 			<Grid
 				bind:items={subGrid}
 				let:dataItem
@@ -52,6 +54,7 @@
 				cols={columnConfiguration}
 				fastStart={true}
 				gap={[4, 2]}
+				scroller={container}
 			>
 				{#each subGrid as gridComponent (gridComponent.id)}
 					{#if gridComponent.data.id === dataItem.data.id}
