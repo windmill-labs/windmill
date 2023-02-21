@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [1.65.0](https://github.com/windmill-labs/windmill/compare/v1.64.0...v1.65.0) (2023-02-21)
+
+
+### Features
+
+* **apps:** add asJson for customcss ([71d6dad](https://github.com/windmill-labs/windmill/commit/71d6dad37cc239952ce7799609c02474b0b1fc81))
+* **apps:** add custom css for apps ([7f00e1c](https://github.com/windmill-labs/windmill/commit/7f00e1c1a8f2e905b0677d82ba547f55dc23b3e0))
+* **backend:** Zip Workspace Export ([#1201](https://github.com/windmill-labs/windmill/issues/1201)) ([5d109b3](https://github.com/windmill-labs/windmill/commit/5d109b3cd4b7749788f9cb9fcbe1949c45eedf1f))
+* **frontend:** Add divider app component ([#1209](https://github.com/windmill-labs/windmill/issues/1209)) ([c33e79e](https://github.com/windmill-labs/windmill/commit/c33e79e0b8d5ba1103d87fdd47fcd0e1071e19de))
+* **frontend:** Add file input app component ([#1211](https://github.com/windmill-labs/windmill/issues/1211)) ([d4b6d69](https://github.com/windmill-labs/windmill/commit/d4b6d691264bf21e4e2c97548aaad9aa80678a6b))
+* **frontend:** Add icon app component ([#1207](https://github.com/windmill-labs/windmill/issues/1207)) ([e4791c2](https://github.com/windmill-labs/windmill/commit/e4791c2b7e3a0e6b90c37bc1200f9cd0ab3b6845))
+
 ## [1.64.0](https://github.com/windmill-labs/windmill/compare/v1.63.2...v1.64.0) (2023-02-16)
 
 
