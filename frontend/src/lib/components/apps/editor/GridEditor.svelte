@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext, afterUpdate } from 'svelte'
-	import type { AppEditorContext } from '../types'
+	import type { AppEditorContext, GridItem } from '../types'
 	import Grid from '@windmill-labs/svelte-grid'
 	import { classNames } from '$lib/utils'
 	import { columnConfiguration, disableDrag, enableDrag, isFixed, toggleFixed } from '../gridUtils'
@@ -31,11 +31,19 @@
 	$: setAllDrags($mode === 'preview' || $connectingInput.opened || $focusedGrid !== undefined)
 
 	function setAllDrags(enable: boolean) {
-		if (enable) {
-			$app.grid.map((gridItem) => disableDrag(gridItem))
-		} else {
-			$app.grid.map((gridItem) => enableDrag(gridItem))
-		}
+		const fct = enable ? disableDrag : enableDrag
+
+		$app.grid.map((gridItem) => {
+			const disabledGridItem = fct(gridItem)
+
+			if (disabledGridItem.data.subGrids) {
+				disabledGridItem.data.subGrids = disabledGridItem.data.subGrids.map((subgrid: GridItem[]) =>
+					subgrid.map((subgridItem: GridItem) => fct(subgridItem))
+				)
+			}
+
+			return disabledGridItem
+		})
 	}
 
 	function removeGridElement(component) {

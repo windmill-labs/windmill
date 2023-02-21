@@ -16,9 +16,14 @@
 		<TablePanel bind:component={gridItem.data} />
 	{:else if gridItem.data.subGrids}
 		{#each gridItem.data.subGrids as subGrid}
-			{#each subGrid as subGridItem (subGridItem.data.id)}
+			{#each subGrid as subGridItem, index (subGridItem.data.id)}
 				{#if subGridItem.data.id === $selectedComponent}
-					<ComponentPanel bind:component={subGridItem.data} />
+					<ComponentPanel
+						bind:component={subGridItem.data}
+						onDelete={() => {
+							subGrid.splice(index, 1)
+						}}
+					/>
 				{/if}
 			{/each}
 		{/each}

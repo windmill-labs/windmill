@@ -13,16 +13,13 @@
 		getContext<AppEditorContext>('AppEditorContext')
 
 	let pointerdown = false
+
 	const onpointerdown = (e) => {
-		e.stopPropagation()
 		pointerdown = true
 	}
+
 	const onpointerup = () => {
 		pointerdown = false
-	}
-
-	function removeGridElement(data: any): void {
-		throw new Error('Function not implemented.')
 	}
 
 	function selectComponent(id: string) {
@@ -41,7 +38,7 @@
 	let container
 </script>
 
-<div class="pb-2 relative w-full z-20 subgrid " bind:this={container}>
+<div class="relative w-full subgrid " bind:this={container}>
 	<div
 		class="px-4 pt-4 overflow-auto  {$connectingInput?.opened ? '' : ''}"
 		on:pointerdown|stopPropagation={onpointerdown}
@@ -94,7 +91,6 @@
 								bind:component={gridComponent.data}
 								selected={$selectedComponent === dataItem.data.id}
 								locked={isFixed(gridComponent)}
-								on:delete={() => removeGridElement(gridComponent.data)}
 								on:lock={() => lock(gridComponent)}
 							/>
 						</div>
