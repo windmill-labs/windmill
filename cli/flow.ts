@@ -76,6 +76,7 @@ export class FlowFile implements Resource, PushDiffs {
         description: this.description, // This is OpenAPIed as optional, but isn't
         schema: this.schema, // Same
       };
+      const base_changeset = { ...changeset };
       for (const diff of diffs) {
         if (
           diff.type !== "REMOVE" &&
@@ -107,7 +108,10 @@ export class FlowFile implements Resource, PushDiffs {
       await FlowService.updateFlow({
         workspace: workspace,
         path: remotePath,
-        requestBody: changeset,
+        requestBody: {
+          ...changeset,
+          ...base_changeset,
+        },
       });
     } else {
       console.log(colors.bold.yellow("Creating new flow..."));

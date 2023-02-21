@@ -1,43 +1,35 @@
 // deno-lint-ignore-file no-explicit-any
 import { GlobalOptions } from "./types.ts";
-import { colors, Command, readerFromStreamReader, Untar } from "./deps.ts";
+import { colors, Command, JSZip } from "./deps.ts";
 import { Workspace } from "./workspace.ts";
 
-export async function downloadTar(
+export async function downloadZip(
   workspace: Workspace,
-): Promise<Untar | undefined> {
+): Promise<JSZip | undefined> {
   const requestHeaders: HeadersInit = new Headers();
   requestHeaders.set("Authorization", "Bearer " + workspace.token);
   requestHeaders.set("Content-Type", "application/octet-stream");
 
-  const tarResponse = await fetch(
+  const zipResponse = await fetch(
     workspace.remote + "api/w/" + workspace.workspaceId +
-      "/workspaces/tarball",
+      "/workspaces/tarball?archive_type=zip",
     {
       headers: requestHeaders,
       method: "GET",
     },
   );
 
-  if (!tarResponse.ok) {
+  if (!zipResponse.ok) {
     console.log(
       colors.red(
-        "Failed to request tarball from API " + tarResponse.statusText,
+        "Failed to request tarball from API " + zipResponse.statusText,
       ),
     );
-    console.log(await tarResponse.text());
+    console.log(await zipResponse.text());
     return undefined;
   }
-
-  const streamReader = tarResponse.body?.getReader();
-  if (!streamReader) {
-    console.log(colors.red("Failed to read tar request body"));
-    return undefined;
-  }
-  console.log(colors.yellow("Streaming tarball to disk..."));
-  const denoReader = readerFromStreamReader(streamReader);
-  const untar = new Untar(denoReader);
-  return untar;
+  const blob = await zipResponse.blob();
+  return await JSZip.loadAsync(blob);
 }
 
 async function stub(
