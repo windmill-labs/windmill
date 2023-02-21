@@ -21,7 +21,8 @@
 		DollarSign,
 		SeparatorHorizontal,
 		SeparatorVertical,
-		Paperclip
+		Paperclip,
+		Image
 	} from 'lucide-svelte'
 	import type { Size } from 'svelte-grid'
 	import { twMerge } from 'tailwind-merge'
@@ -107,19 +108,25 @@
 			| HorizontalDividerComponent
 			| VerticalDividerComponent
 			| FileInputComponent
+			| ImageComponent
 		)
 
-	// Dimensions key formula: <mobile width>:<mobile height>-<desktop width>:<desktop height>
-	export const components: Record<
-		AppComponent['type'],
-		{
+		export type AppComponentDimensions =
+			`${IntRange<1, typeof NARROW_GRID_COLUMNS>}:${number}-${IntRange<1, typeof WIDE_GRID_COLUMNS>}:${number}`
+
+		export type AppComponentConfig = {
 			name: string
 			icon: any
-			dims: `${number}:${number}-${number}:${number}`
+			/**
+			 * Dimensions key formula:
+			 * [**mobile width**]:[**mobile height**]-[**desktop width**]:[**desktop height**]
+			 */
+			dims: AppComponentDimensions
 			data: AppComponent
 			cssIds?: string[]
 		}
-	> = {
+
+		export const components: Record<AppComponent['type'], AppComponentConfig> = {
 		displaycomponent: {
 			name: 'Rich Result',
 			icon: Monitor,
@@ -834,7 +841,7 @@
 		slidercomponent: {
 			name: 'Slider',
 			icon: SlidersHorizontal,
-			dims: '4:1-4:1',
+			dims: '3:1-4:1',
 			data: {
 				softWrap: true,
 				verticalAlignment: 'center',
@@ -874,7 +881,7 @@
 		rangecomponent: {
 			name: 'Range',
 			icon: SlidersHorizontal,
-			dims: '4:2-4:2',
+			dims: '3:2-4:2',
 			data: {
 				softWrap: true,
 				verticalAlignment: 'center',
@@ -1099,6 +1106,49 @@
 				card: false
 			}
 		},
+		imagecomponent: {
+			name: 'Image',
+			icon: Image,
+			dims: '3:4-5:4',
+			data: {
+				id: '',
+				type: 'imagecomponent',
+				componentInput: undefined,
+				configuration: {
+					source: {
+						type: 'static',
+						value: '/logo.svg',
+						fieldType: 'text',
+						fileUpload: {
+							accept: 'image/*',
+							base64: true
+						}
+					},
+					imageFit: {
+						fieldType: 'select',
+						type: 'static',
+						onlyStatic: true,
+						optionValuesKey: 'objectFitOptions',
+						value: 'contain'
+					},
+					altText: {
+						type: 'static',
+						value: '',
+						fieldType: 'text',
+						onlyStatic: true,
+						tooltip: 'This text will appear if the image can\'t be loaded for any reason'
+					},
+					customStyles: {
+						type: 'static',
+						value: '',
+						fieldType: 'textarea',
+						onlyStatic: true,
+					},
+				},
+				customCss: {},
+				card: false
+			}
+		},
 	}
 
 	const inputs: ComponentSet = {
@@ -1127,6 +1177,7 @@
 		components: [
 			'textcomponent',
 			'iconcomponent',
+			'imagecomponent',
 			'htmlcomponent',
 			'tablecomponent',
 			'barchartcomponent',
@@ -1509,6 +1560,9 @@
 	import AppCurrencyInput from '../components/numberInputs/AppCurrencyInput.svelte'
 	import AppDivider from '../components/AppDivider.svelte'
 	import AppFileInput from '../components/otherInputs/AppFileInput.svelte'
+	import type { IntRange } from '../../../common'
+	import type { NARROW_GRID_COLUMNS, WIDE_GRID_COLUMNS } from '../gridUtils'
+	import AppImage from '../components/dataDisplay/AppImage.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -1674,6 +1728,8 @@
 			<AppIcon {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{:else if component.type === 'fileinputcomponent'}
 			<AppFileInput {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+		{:else if component.type === 'imagecomponent'}
+			<AppImage {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{/if}
 	</div>
 </div>

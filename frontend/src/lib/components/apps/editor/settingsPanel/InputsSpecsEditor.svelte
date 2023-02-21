@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Badge, ToggleButton, ToggleButtonGroup } from '$lib/components/common'
 	import { addWhitespaceBeforeCapitals, capitalize } from '$lib/utils'
-	import { faArrowRight, faPen, faTableCells, faUser } from '@fortawesome/free-solid-svg-icons'
+	import { faArrowRight, faPen, faUpload, faUser } from '@fortawesome/free-solid-svg-icons'
 	import { fieldTypeToTsType } from '../../utils'
 	import InputsSpecEditor from './InputsSpecEditor.svelte'
 	import { getContext } from 'svelte'
@@ -92,6 +92,18 @@
 												iconOnly
 											/>
 											<svelte:fragment slot="text">User Input</svelte:fragment>
+										</Popover>
+									{/if}
+									{#if 'fileUpload' in inputSpecs[inputSpecKey]}
+										<Popover placement="bottom" notClickable disapperTimoout={0}>
+											<ToggleButton
+												position="center"
+												value="upload"
+												startIcon={{ icon: faUpload }}
+												size="xs"
+												iconOnly
+											/>
+											<svelte:fragment slot="text">Upload</svelte:fragment>
 										</Popover>
 									{/if}
 									<Popover placement="bottom" notClickable disapperTimoout={0}>
