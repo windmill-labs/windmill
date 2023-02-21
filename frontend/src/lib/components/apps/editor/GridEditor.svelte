@@ -10,7 +10,6 @@
 	import type { Policy } from '$lib/gen'
 	import HiddenComponent from '../components/HiddenComponent.svelte'
 	import Component from './Component.svelte'
-	import { underline } from 'svelte-awesome/icons'
 
 	export let policy: Policy
 
