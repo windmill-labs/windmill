@@ -27,6 +27,13 @@ export type Schema = {
 
 export type Meta = { ownerKind: OwnerKind; owner: string; name: string }
 
+type Enumerate<N extends number, Acc extends number[] = []> = Acc['length'] extends N
+  ? Acc[number]
+  : Enumerate<N, [...Acc, Acc['length']]>
+
+/** An inclusive range of integer numbers */
+export type IntRange<F extends number, T extends number> = F | Exclude<Enumerate<T>, Enumerate<F>> | T
+
 export function pathToMeta(path: string): Meta {
 	const splitted = path.split('/')
 	let ownerKind: OwnerKind
