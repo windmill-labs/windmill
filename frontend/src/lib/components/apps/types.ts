@@ -10,6 +10,7 @@ import type {
 	EvalAppInput,
 	RowAppInput,
 	StaticAppInput,
+	UploadAppInput,
 	UserAppInput
 } from './inputType'
 import type { World } from './rx'
@@ -23,16 +24,25 @@ export type Aligned = {
 	verticalAlignment: VerticalAlignment
 }
 
+export interface GeneralAppInput {
+	onlyStatic?: boolean
+	evaluatedValue?: boolean
+	tooltip?: string
+}
+
 export interface BaseAppComponent extends Partial<Aligned> {
 	id: ComponentID
 	componentInput: AppInput | undefined
 	configuration: Record<
 		string,
-		(StaticAppInput | ConnectedAppInput | UserAppInput | RowAppInput | EvalAppInput) & {
-			onlyStatic?: boolean
-			evaluatedValue?: boolean
-			tooltip?: string
-		}
+		GeneralAppInput & (
+			StaticAppInput
+			| ConnectedAppInput
+			| UserAppInput
+			| RowAppInput
+			| EvalAppInput
+			| UploadAppInput
+		)
 	>
 	card: boolean | undefined
 	customCss?: Record<string, {

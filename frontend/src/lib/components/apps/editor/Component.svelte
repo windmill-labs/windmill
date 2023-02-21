@@ -1119,6 +1119,10 @@
 						type: 'static',
 						value: '/logo.svg',
 						fieldType: 'text',
+						fileUpload: {
+							accept: 'image/*',
+							base64: true
+						}
 					},
 					imageFit: {
 						fieldType: 'select',
