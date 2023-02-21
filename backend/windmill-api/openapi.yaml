@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.64.0
+  version: 1.65.0
   title: Windmill API
 
   contact:
@@ -1092,6 +1092,10 @@ paths:
         - variable
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: already_encrypted
+          in: query
+          schema:
+            type: boolean
       requestBody:
         description: new variable
         required: true
@@ -1133,6 +1137,10 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
+        - name: already_encrypted
+          in: query
+          schema:
+            type: boolean
       requestBody:
         description: updated variable
         required: true

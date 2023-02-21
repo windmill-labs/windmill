@@ -13,11 +13,12 @@ import sync from "./sync.ts";
 import { tryResolveVersion } from "./context.ts";
 import { GlobalOptions } from "./types.ts";
 
-const VERSION = "v1.64.0";
+const VERSION = "v1.65.0";
 
 let command: any = new Command()
   .name("wmill")
   .description("A simple CLI tool for windmill.")
+  .action(() => command.showHelp())
   .globalOption(
     "--workspace <workspace:string>",
     "Specify the target workspace. This overrides the default workspace.",

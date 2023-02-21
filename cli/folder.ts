@@ -105,12 +105,13 @@ export class FolderFile implements Resource, PushDiffs {
         requestBody: changeset,
       });
     } else {
-      console.log(colors.bold.yellow("Creating new folder..."));
+      console.log(colors.bold.yellow("Creating new folder: " + remotePath));
+      console.log(this.owners, this.extra_perms)
       await FolderService.createFolder({
         workspace: workspace,
         requestBody: {
           name: remotePath,
-          extra_perms: this.extra_perms,
+          extra_perms: Object.fromEntries(this.extra_perms?.entries() ?? []),
           owners: this.owners,
         },
       });
