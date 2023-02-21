@@ -78,7 +78,8 @@
 		staticExporter,
 		errorByComponent,
 		openDebugRun,
-		focusedGrid
+		focusedGrid,
+		selectedComponent
 	} = getContext<AppEditorContext>('AppEditorContext')
 
 	const loading = {
@@ -230,6 +231,13 @@
 
 	$: selectedJobId && testJobLoader?.watchJob(selectedJobId)
 	$: hasErrors = Object.keys($errorByComponent).length > 0
+
+	$: if (
+		$focusedGrid?.parentComponentId &&
+		$focusedGrid?.parentComponentId !== $selectedComponent
+	) {
+		$focusedGrid = undefined
+	}
 </script>
 
 <TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job />
@@ -460,16 +468,11 @@
 			</ToggleButtonGroup>
 		</div>
 	</div>
-	<Badge
-		color="indigo"
-		on:click={() => {
-			$focusedGrid = undefined
-		}}
-	>
+	<Badge color="indigo">
 		{#if $focusedGrid === undefined}
-			Main grid
+			Main grid selected
 		{:else}
-			{`Grid ${$focusedGrid.parentComponentId} - ${$focusedGrid.subGridIndex}`}
+			{`Sub grid: ${$focusedGrid.parentComponentId} - Sub Index: ${$focusedGrid.subGridIndex}`}
 		{/if}
 	</Badge>
 

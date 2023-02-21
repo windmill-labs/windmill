@@ -10,6 +10,7 @@
 	import type { Policy } from '$lib/gen'
 	import HiddenComponent from '../components/HiddenComponent.svelte'
 	import Component from './Component.svelte'
+	import { underline } from 'svelte-awesome/icons'
 
 	export let policy: Policy
 
@@ -28,7 +29,7 @@
 	// The drag is disabled when the user is connecting an input
 	// or when the user is previewing the app
 	// or when the focused grid is a subgrid
-	$: setAllDrags($mode === 'preview' || $connectingInput.opened || $focusedGrid !== undefined)
+	$: setAllDrags($mode === 'preview' || $connectingInput.opened)
 
 	function setAllDrags(enable: boolean) {
 		const fct = enable ? disableDrag : enableDrag

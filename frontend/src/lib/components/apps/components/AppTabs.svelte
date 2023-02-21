@@ -16,7 +16,8 @@
 	export let componentContainerHeight: number
 
 	export const staticOutputs: string[] = ['loading', 'result', 'selectedTabIndex']
-	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
+	const { worldStore, focusedGrid, selectedComponent } =
+		getContext<AppEditorContext>('AppEditorContext')
 
 	let result: string[] | undefined = undefined
 	let gridContent: string[] | undefined = undefined
@@ -38,6 +39,15 @@
 
 	$: selectedIndex >= 0 && handleTabSelection()
 	let tabHeight: number = 0
+
+	function onFocus() {
+		$focusedGrid = {
+			parentComponentId: id,
+			subGridIndex: selectedIndex ?? 0
+		}
+	}
+
+	$: $selectedComponent === id && selectedIndex >= 0 && onFocus()
 </script>
 
 <InputValue {id} input={configuration.gridContent} bind:value={gridContent} />
