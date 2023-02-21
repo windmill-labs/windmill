@@ -109,17 +109,22 @@
 			| FileInputComponent
 		)
 
-	// Dimensions key formula: <mobile width>:<mobile height>-<desktop width>:<desktop height>
-	export const components: Record<
-		AppComponent['type'],
-		{
+		export type AppComponentDimensions =
+			`${IntRange<1, typeof NARROW_GRID_COLUMNS>}:${number}-${IntRange<1, typeof WIDE_GRID_COLUMNS>}:${number}`
+
+		export type AppComponentConfig = {
 			name: string
 			icon: any
-			dims: `${number}:${number}-${number}:${number}`
+			/**
+			 * Dimensions key formula:
+			 * [**mobile width**]:[**mobile height**]-[**desktop width**]:[**desktop height**]
+			 */
+			dims: AppComponentDimensions
 			data: AppComponent
 			cssIds?: string[]
 		}
-	> = {
+
+		export const components: Record<AppComponent['type'], AppComponentConfig> = {
 		displaycomponent: {
 			name: 'Rich Result',
 			icon: Monitor,
@@ -834,7 +839,7 @@
 		slidercomponent: {
 			name: 'Slider',
 			icon: SlidersHorizontal,
-			dims: '4:1-4:1',
+			dims: '3:1-4:1',
 			data: {
 				softWrap: true,
 				verticalAlignment: 'center',
@@ -874,7 +879,7 @@
 		rangecomponent: {
 			name: 'Range',
 			icon: SlidersHorizontal,
-			dims: '4:2-4:2',
+			dims: '3:2-4:2',
 			data: {
 				softWrap: true,
 				verticalAlignment: 'center',
@@ -1509,6 +1514,8 @@
 	import AppCurrencyInput from '../components/numberInputs/AppCurrencyInput.svelte'
 	import AppDivider from '../components/AppDivider.svelte'
 	import AppFileInput from '../components/otherInputs/AppFileInput.svelte'
+	import type { IntRange } from '../../../common'
+	import type { NARROW_GRID_COLUMNS, WIDE_GRID_COLUMNS } from '../gridUtils'
 
 	export let component: AppComponent
 	export let selected: boolean
