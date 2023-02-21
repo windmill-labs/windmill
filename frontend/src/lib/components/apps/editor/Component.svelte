@@ -21,7 +21,8 @@
 		DollarSign,
 		SeparatorHorizontal,
 		SeparatorVertical,
-		Paperclip
+		Paperclip,
+		Image
 	} from 'lucide-svelte'
 	import type { Size } from 'svelte-grid'
 	import { twMerge } from 'tailwind-merge'
@@ -107,6 +108,7 @@
 			| HorizontalDividerComponent
 			| VerticalDividerComponent
 			| FileInputComponent
+			| ImageComponent
 		)
 
 		export type AppComponentDimensions =
@@ -1104,6 +1106,45 @@
 				card: false
 			}
 		},
+		imagecomponent: {
+			name: 'Image',
+			icon: Image,
+			dims: '3:4-5:4',
+			data: {
+				id: '',
+				type: 'imagecomponent',
+				componentInput: undefined,
+				configuration: {
+					source: {
+						type: 'static',
+						value: '/logo.svg',
+						fieldType: 'text',
+					},
+					imageFit: {
+						fieldType: 'select',
+						type: 'static',
+						onlyStatic: true,
+						optionValuesKey: 'objectFitOptions',
+						value: 'contain'
+					},
+					altText: {
+						type: 'static',
+						value: '',
+						fieldType: 'text',
+						onlyStatic: true,
+						tooltip: 'This text will appear if the image can\'t be loaded for any reason'
+					},
+					customStyles: {
+						type: 'static',
+						value: '',
+						fieldType: 'textarea',
+						onlyStatic: true,
+					},
+				},
+				customCss: {},
+				card: false
+			}
+		},
 	}
 
 	const inputs: ComponentSet = {
@@ -1132,6 +1173,7 @@
 		components: [
 			'textcomponent',
 			'iconcomponent',
+			'imagecomponent',
 			'htmlcomponent',
 			'tablecomponent',
 			'barchartcomponent',
@@ -1516,6 +1558,7 @@
 	import AppFileInput from '../components/otherInputs/AppFileInput.svelte'
 	import type { IntRange } from '../../../common'
 	import type { NARROW_GRID_COLUMNS, WIDE_GRID_COLUMNS } from '../gridUtils'
+	import AppImage from '../components/dataDisplay/AppImage.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -1681,6 +1724,8 @@
 			<AppIcon {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{:else if component.type === 'fileinputcomponent'}
 			<AppFileInput {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+		{:else if component.type === 'imagecomponent'}
+			<AppImage {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{/if}
 	</div>
 </div>
