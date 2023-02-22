@@ -113,12 +113,6 @@
 		pointerdown = false
 	}
 
-	function onclick() {
-		if ($focusedGrid !== undefined) {
-			$focusedGrid = undefined
-		}
-	}
-
 	afterUpdate(() => {
 		if ($selectedComponent) {
 			const parents = document.querySelectorAll<HTMLElement>('.svlt-grid-item')

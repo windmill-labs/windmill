@@ -22,7 +22,6 @@
 	import {
 		faBug,
 		faClipboard,
-		faCode,
 		faExternalLink,
 		faFileExport,
 		faGlobe,
@@ -231,13 +230,6 @@
 
 	$: selectedJobId && testJobLoader?.watchJob(selectedJobId)
 	$: hasErrors = Object.keys($errorByComponent).length > 0
-
-	$: if (
-		$focusedGrid?.parentComponentId &&
-		$focusedGrid?.parentComponentId !== $selectedComponent
-	) {
-		$focusedGrid = undefined
-	}
 </script>
 
 <TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job />

@@ -22,6 +22,7 @@
 						bind:component={subGridItem.data}
 						onDelete={() => {
 							subGrid.splice(index, 1)
+							subGrid = subGrid
 						}}
 					/>
 				{/if}

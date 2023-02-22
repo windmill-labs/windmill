@@ -51,7 +51,6 @@
 </script>
 
 <InputValue {id} input={configuration.gridContent} bind:value={gridContent} />
-
 <RunnableWrapper flexWrap bind:componentInput {id} bind:initializing bind:result>
 	<div bind:clientHeight={tabHeight}>
 		<Tabs bind:selected>
@@ -66,6 +65,9 @@
 		<SubGridEditor
 			bind:subGrid={subGrids[selectedIndex]}
 			containerHeight={componentContainerHeight - tabHeight}
+			on:focus={() => {
+				$selectedComponent = id
+			}}
 		/>
 	{/if}
 </RunnableWrapper>

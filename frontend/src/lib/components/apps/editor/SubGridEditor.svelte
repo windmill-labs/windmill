@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
-	import { getContext } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import Grid from '@windmill-labs/svelte-grid'
 	import { columnConfiguration, isFixed, toggleFixed } from '../gridUtils'
 	import type { AppEditorContext, GridItem } from '../types'
@@ -9,12 +9,21 @@
 	export let subGrid: GridItem[]
 	export let containerHeight: number
 
-	const { app, connectingInput, selectedComponent } =
+	const dispatch = createEventDispatcher()
+
+	const { app, connectingInput, selectedComponent, focusedGrid } =
 		getContext<AppEditorContext>('AppEditorContext')
 
 	let pointerdown = false
 
+	let onComponent: string | undefined = undefined
+
 	const onpointerdown = (e) => {
+		if (onComponent === undefined) {
+			dispatch('focus')
+		} else {
+			onComponent = undefined
+		}
 		pointerdown = true
 	}
 
@@ -23,6 +32,7 @@
 	}
 
 	function selectComponent(id: string) {
+		onComponent = id
 		if (!$connectingInput.opened) {
 			$selectedComponent = id
 		}
@@ -35,7 +45,30 @@
 		}
 	}
 
+	// @ts-ignore
 	let container
+
+	$: if ($focusedGrid?.parentComponentId !== $selectedComponent) {
+		const gridItemIds = $app.grid
+			.map((gridItem: GridItem) => {
+				if (gridItem.data.id === $focusedGrid?.parentComponentId) {
+					const subGrids = gridItem.data.subGrids ?? []
+					return [
+						gridItem.data.id,
+						...subGrids.map((subGrid: GridItem[]) =>
+							subGrid.map((gridItem: GridItem) => gridItem.data.id)
+						)
+					]
+				} else {
+					return []
+				}
+			})
+			.flat(2)
+
+		if (!gridItemIds.includes($selectedComponent)) {
+			$focusedGrid = undefined
+		}
+	}
 </script>
 
 <div class="relative w-full subgrid " bind:this={container}>

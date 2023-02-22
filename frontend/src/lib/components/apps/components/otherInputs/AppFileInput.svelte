@@ -35,7 +35,9 @@
 		accept={acceptedFileTypes?.length ? acceptedFileTypes?.join(', ') : undefined}
 		multiple={allowMultiple}
 		convertToBase64
-		on:change={({detail}) => {handleChange(detail)}}
+		on:change={({ detail }) => {
+			handleChange(detail)
+		}}
 		class="w-full h-full"
 	>
 		{text}
