@@ -25,7 +25,6 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
-use serde_json::to_string_pretty;
 use stripe::CustomerId;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
@@ -1075,6 +1074,7 @@ impl ArchiveImpl {
                     async_zip::Compression::Deflate,
                 )
                 .last_modification_date(Default::default())
+                .unix_permissions(0o777)
                 .build();
                 z.write_entry_whole(header, content.as_bytes())
                     .await
@@ -1110,7 +1110,20 @@ where
         .as_object()
         .map(|obj| {
             let mut obj = obj.clone();
-            for key in ["workspace_id", "path", "name"] {
+            for key in [
+                "workspace_id",
+                "path",
+                "name",
+                "versions",
+                "id",
+                "created_at",
+                "updated_at",
+                "created_by",
+                "updated_by",
+                "edited_at",
+                "edited_by",
+                "archived",
+            ] {
                 if obj.contains_key(key) {
                     obj.remove(key);
                 }
@@ -1263,9 +1276,9 @@ async fn tarball_workspace(
         .await?;
 
         for var in variables {
-            let flow_str = &to_string_without_metadata(&var).unwrap();
+            let var_str = &to_string_without_metadata(&var).unwrap();
             archive
-                .write_to_archive(&flow_str, &format!("{}.variable.json", var.path))
+                .write_to_archive(&var_str, &format!("{}.variable.json", var.path))
                 .await?;
         }
     }
@@ -1283,9 +1296,9 @@ async fn tarball_workspace(
         .await?;
 
         for app in apps {
-            let flow_str = &to_string_pretty(&app).unwrap();
+            let app_str = &to_string_without_metadata(&app).unwrap();
             archive
-                .write_to_archive(&flow_str, &format!("{}.app.json", app.path))
+                .write_to_archive(&app_str, &format!("{}.app.json", app.path))
                 .await?;
         }
     }

@@ -11,7 +11,7 @@ use sql_builder::prelude::*;
 
 use axum::{
     extract::{Extension, Path, Query},
-    routing::{get, post},
+    routing::{delete, get, post},
     Json, Router,
 };
 use sql_builder::SqlBuilder;
@@ -41,6 +41,7 @@ pub fn workspaced_service() -> Router {
         .route("/create", post(create_flow))
         .route("/update/*path", post(update_flow))
         .route("/archive/*path", post(archive_flow_by_path))
+        .route("/delete/*path", delete(delete_flow_by_path))
         .route("/get/*path", get(get_flow_by_path))
         .route("/exists/*path", get(exists_flow_by_path))
         .route("/list_paths", get(list_paths))
@@ -446,8 +447,7 @@ async fn exists_flow_by_path(
     let path = path.to_path();
 
     let exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM flow WHERE path = $1 AND (workspace_id = $2 OR workspace_id \
-         = 'starter'))",
+        "SELECT EXISTS(SELECT 1 FROM flow WHERE path = $1 AND workspace_id = $2)",
         path,
         w_id
     )
@@ -492,6 +492,42 @@ async fn archive_flow_by_path(
     );
 
     Ok(format!("Flow {path} archived"))
+}
+
+async fn delete_flow_by_path(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> Result<String> {
+    let path = path.to_path();
+    let mut tx = user_db.begin(&authed).await?;
+
+    sqlx::query!(
+        "DELETE FROM flow WHERE path = $1 AND workspace_id = $2",
+        path,
+        &w_id
+    )
+    .execute(&mut tx)
+    .await?;
+
+    audit_log(
+        &mut tx,
+        &authed.username,
+        "flows.delete",
+        ActionKind::Delete,
+        &w_id,
+        Some(path),
+        Some([("workspace", w_id.as_str())].into()),
+    )
+    .await?;
+    tx.commit().await?;
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::DeleteFlow { workspace: w_id, path: path.to_owned() },
+    );
+
+    Ok(format!("Flow {path} deleted"))
 }
 
 #[cfg(test)]

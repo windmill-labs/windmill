@@ -67,7 +67,7 @@
 		can_write =
 			$userStore != undefined &&
 			(folder?.owners.includes('u/' + $userStore.username) ||
-				($userStore.is_admin ?? false) ||
+				($userStore.is_admin ?? false) || ($userStore.is_super_admin ?? false) ||
 				$userStore.pgroups.findIndex((x) => folder?.owners.includes(x)) != -1)
 
 		perms = Array.from(

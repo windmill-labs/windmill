@@ -10,7 +10,6 @@ import {
   colors,
   Command,
   Flow,
-  FlowModule,
   FlowService,
   JobService,
   microdiff,
@@ -19,21 +18,8 @@ import {
 } from "./deps.ts";
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import { resolve, track_job } from "./script.ts";
-import { Any, array, decoverto, model, property } from "./decoverto.ts";
+import { Any, decoverto, model, property } from "./decoverto.ts";
 
-@model()
-export class FlowValueFilePart {
-  @property(array(Any))
-  modules: Array<FlowModule>;
-  @property(Any)
-  failure_module?: FlowModule;
-  @property(() => Boolean)
-  same_worker?: boolean;
-
-  constructor(modules: Array<FlowModule>) {
-    this.modules = modules;
-  }
-}
 
 // this is effectively "OpenFlow" but a copy as it is accepted by the CLI
 @model()
@@ -42,13 +28,13 @@ export class FlowFile implements Resource, PushDiffs {
   summary: string;
   @property(() => String)
   description?: string;
-  @property(() => FlowValueFilePart)
-  value: FlowValueFilePart;
+  @property(Any)
+  value: any;
   @property(Any)
   schema?: any;
 
-  constructor(summary: string, value: FlowValueFilePart) {
-    this.summary = summary;
+  constructor(value: any, summary?: string) {
+    this.summary = summary ?? "";
     this.value = value;
   }
   async pushDiffs(
@@ -64,7 +50,7 @@ export class FlowFile implements Resource, PushDiffs {
     ) {
       console.log(
         colors.bold.yellow(
-          `Applying ${diffs.length} diffs to existing flow...`,
+          `Applying ${diffs.length} diffs to existing flow... ${remotePath}`,
         ),
       );
 
@@ -101,17 +87,17 @@ export class FlowFile implements Resource, PushDiffs {
         v !== null && typeof v !== "undefined"
       );
       if (!hasChanges) {
-        console.log(colors.yellow("! Skipping empty changeset"));
         return;
       }
 
+      const update = {
+        ...changeset,
+        ...base_changeset,
+      }
       await FlowService.updateFlow({
         workspace: workspace,
         path: remotePath,
-        requestBody: {
-          ...changeset,
-          ...base_changeset,
-        },
+        requestBody: update,
       });
     } else {
       console.log(colors.bold.yellow("Creating new flow..."));
@@ -135,6 +121,7 @@ export class FlowFile implements Resource, PushDiffs {
         path: remotePath,
       });
     } catch {
+
       remote = undefined;
     }
     await this.pushDiffs(

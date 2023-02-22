@@ -17,6 +17,7 @@ export class AppFile implements Resource, PushDiffs {
   @property(Any)
   policy: Policy;
 
+
   constructor(value: string, summary: string, policy: Policy) {
     this.value = value;
     this.summary = summary;
@@ -64,7 +65,6 @@ export class AppFile implements Resource, PushDiffs {
         v !== null && typeof v !== "undefined"
       );
       if (!hasChanges) {
-        console.log(colors.yellow("! Skipping empty changeset"));
         return;
       }
 
@@ -74,7 +74,7 @@ export class AppFile implements Resource, PushDiffs {
         requestBody: changeset,
       });
     } else {
-      console.log(colors.yellow("Creating new app..."));
+      console.log(colors.yellow.bold("Creating new app..."));
       await AppService.createApp({
         workspace,
         requestBody: {

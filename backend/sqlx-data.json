@@ -1832,6 +1832,19 @@
     },
     "query": "UPDATE variable SET path = $1 WHERE path = $2 AND workspace_id = $3"
   },
+  "4a0211a4964e4d9943982be146c44ecbc5c7d8a6e93946304fe3d6994296abc8": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM flow WHERE path = $1 AND workspace_id = $2"
+  },
   "4de3ba6930b91c639f9f3939dab7b3ab35aa792484e4ccb8084c336a2ec60f45": {
     "describe": {
       "columns": [],
@@ -3995,27 +4008,6 @@
       }
     },
     "query": "SELECT webhook FROM workspace_settings WHERE workspace_id = $1"
-  },
-  "a38059dc3574da498ce986c916b6d385b1f18d5bd659ef13c43fafa9daff6bda": {
-    "describe": {
-      "columns": [
-        {
-          "name": "exists",
-          "ordinal": 0,
-          "type_info": "Bool"
-        }
-      ],
-      "nullable": [
-        null
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT EXISTS(SELECT 1 FROM flow WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter'))"
   },
   "a4326cb3dba79f850b46c5ab88d948f9a0b07f8bfdc8f7611cf0702efdee1324": {
     "describe": {
