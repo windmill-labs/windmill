@@ -9,12 +9,14 @@
 		LinearScale,
 		PointElement,
 		CategoryScale,
-		BarElement
+		BarElement,
+		type Point
 	} from 'chart.js'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import type { AppInput } from '../../inputType'
 	import Scatter from 'svelte-chartjs/Scatter.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
+	import type { ChartOptions, ChartData } from 'chart.js'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -59,11 +61,11 @@
 				}
 			}
 		}
-	}
+	} as ChartOptions<'scatter'>
 
 	$: data = {
 		datasets: result ?? []
-	}
+	} as ChartData<'scatter', (number | Point)[], unknown>
 </script>
 
 <InputValue {id} input={configuration.zoomable} bind:value={zoomable} />

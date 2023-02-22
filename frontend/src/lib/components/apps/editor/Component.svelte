@@ -17,6 +17,11 @@
 		Code2,
 		SlidersHorizontal,
 		PlusSquare,
+		ListOrdered,
+		Box
+	} from 'lucide-svelte'
+	import type { Size } from '@windmill-labs/svelte-grid'
+	import {
 		Smile,
 		DollarSign,
 		SeparatorHorizontal,
@@ -24,7 +29,6 @@
 		Paperclip,
 		Image
 	} from 'lucide-svelte'
-	import type { Size } from 'svelte-grid'
 	import { twMerge } from 'tailwind-merge'
 
 	type BaseComponent<T extends string> = {
@@ -78,6 +82,8 @@
 	export type HorizontalDividerComponent = BaseComponent<'horizontaldividercomponent'>
 	export type VerticalDividerComponent = BaseComponent<'verticaldividercomponent'>
 	export type FileInputComponent = BaseComponent<'fileinputcomponent'>
+	export type TabsComponent = BaseComponent<'tabscomponent'>
+	export type ContainerComponent = BaseComponent<'containercomponent'>
 
 	export type AppComponent = BaseAppComponent &
 		(
@@ -104,6 +110,8 @@
 			| FormButtonComponent
 			| VegaLiteComponent
 			| PlotlyComponent
+			| TabsComponent
+			| ContainerComponent
 			| IconComponent
 			| HorizontalDividerComponent
 			| VerticalDividerComponent
@@ -111,22 +119,24 @@
 			| ImageComponent
 		)
 
-		export type AppComponentDimensions =
-			`${IntRange<1, typeof NARROW_GRID_COLUMNS>}:${number}-${IntRange<1, typeof WIDE_GRID_COLUMNS>}:${number}`
+	export type AppComponentDimensions = `${IntRange<
+		1,
+		typeof NARROW_GRID_COLUMNS
+	>}:${number}-${IntRange<1, typeof WIDE_GRID_COLUMNS>}:${number}`
 
-		export type AppComponentConfig = {
-			name: string
-			icon: any
-			/**
-			 * Dimensions key formula:
-			 * [**mobile width**]:[**mobile height**]-[**desktop width**]:[**desktop height**]
-			 */
-			dims: AppComponentDimensions
-			data: AppComponent
-			cssIds?: string[]
-		}
+	export type AppComponentConfig = {
+		name: string
+		icon: any
+		/**
+		 * Dimensions key formula:
+		 * [**mobile width**]:[**mobile height**]-[**desktop width**]:[**desktop height**]
+		 */
+		dims: AppComponentDimensions
+		data: AppComponent
+		cssIds?: string[]
+	}
 
-		export const components: Record<AppComponent['type'], AppComponentConfig> = {
+	export const components: Record<AppComponent['type'], AppComponentConfig> = {
 		displaycomponent: {
 			name: 'Rich Result',
 			icon: Monitor,
@@ -142,6 +152,26 @@
 				configuration: {},
 				customCss: {},
 				card: false
+			}
+		},
+		containercomponent: {
+			name: 'Container',
+			icon: Box,
+			dims: '2:8-6:8',
+			data: {
+				softWrap: true,
+				verticalAlignment: 'center',
+				id: '',
+				type: 'containercomponent',
+				configuration: {},
+				componentInput: {
+					type: 'static',
+					fieldType: 'array',
+					subFieldType: 'text',
+					value: ['First Tab', 'Second Tab']
+				},
+				card: false,
+				subGrids: [[]]
 			}
 		},
 		textcomponent: {
@@ -977,6 +1007,26 @@
 				card: false
 			}
 		},
+		tabscomponent: {
+			name: 'Tabs',
+			icon: ListOrdered,
+			dims: '2:8-6:8',
+			data: {
+				softWrap: true,
+				verticalAlignment: 'center',
+				id: '',
+				type: 'tabscomponent',
+				configuration: {},
+				componentInput: {
+					type: 'static',
+					fieldType: 'array',
+					subFieldType: 'text',
+					value: ['First Tab', 'Second Tab']
+				},
+				card: false,
+				subGrids: [[], []]
+			}
+		},
 		iconcomponent: {
 			name: 'Icon',
 			icon: Smile,
@@ -1081,10 +1131,7 @@
 				configuration: {
 					acceptedFileTypes: {
 						type: 'static',
-						value: [
-							'image/*',
-							'application/pdf'
-						],
+						value: ['image/*', 'application/pdf'],
 						fieldType: 'array',
 						onlyStatic: true
 					},
@@ -1100,7 +1147,7 @@
 						value: 'Drag and drop files or click to select them',
 						fieldType: 'text',
 						onlyStatic: true
-					},
+					}
 				},
 				customCss: {},
 				card: false
@@ -1136,19 +1183,19 @@
 						value: '',
 						fieldType: 'text',
 						onlyStatic: true,
-						tooltip: 'This text will appear if the image can\'t be loaded for any reason'
+						tooltip: "This text will appear if the image can't be loaded for any reason"
 					},
 					customStyles: {
 						type: 'static',
 						value: '',
 						fieldType: 'textarea',
-						onlyStatic: true,
-					},
+						onlyStatic: true
+					}
 				},
 				customCss: {},
 				card: false
 			}
-		},
+		}
 	}
 
 	const inputs: ComponentSet = {
@@ -1187,6 +1234,8 @@
 			'scatterchartcomponent',
 			'timeseriescomponent',
 			'displaycomponent',
+			'tabscomponent',
+			'containercomponent',
 			'horizontaldividercomponent',
 			'verticaldividercomponent'
 		]
@@ -1556,6 +1605,7 @@
 	import PlotlyHtml from '../components/dataDisplay/PlotlyHtml.svelte'
 	import { defaultAlignement } from './componentsPanel/componentDefaultProps'
 	import AppRangeInput from '../components/numberInputs/AppRangeInput.svelte'
+	import AppTabs from '../components/AppTabs.svelte'
 	import AppIcon from '../components/dataDisplay/AppIcon.svelte'
 	import AppCurrencyInput from '../components/numberInputs/AppCurrencyInput.svelte'
 	import AppDivider from '../components/AppDivider.svelte'
@@ -1563,6 +1613,8 @@
 	import type { IntRange } from '../../../common'
 	import type { NARROW_GRID_COLUMNS, WIDE_GRID_COLUMNS } from '../gridUtils'
 	import AppImage from '../components/dataDisplay/AppImage.svelte'
+	import { set_data } from 'svelte/internal'
+	import AppContainer from '../components/AppContainer.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -1573,6 +1625,7 @@
 		getContext<AppEditorContext>('AppEditorContext')
 	let hover = false
 	let initializing: boolean | undefined = undefined
+	let componentContainerHeight: number = 0
 </script>
 
 <div
@@ -1604,6 +1657,7 @@
 			$app.css?.['app']?.['component']?.class
 		)}
 		style={$app.css?.['app']?.['component']?.style}
+		bind:clientHeight={componentContainerHeight}
 	>
 		{#if component.type === 'displaycomponent'}
 			<AppDisplayComponent
@@ -1724,6 +1778,18 @@
 			<AppDivider {...component} position="vertical" />
 		{:else if component.type === 'rangecomponent'}
 			<AppRangeInput {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+		{:else if component.type === 'tabscomponent'}
+			<AppTabs
+				{...component}
+				bind:staticOutputs={$staticOutputs[component.id]}
+				{componentContainerHeight}
+			/>
+		{:else if component.type === 'containercomponent'}
+			<AppContainer
+				{...component}
+				bind:staticOutputs={$staticOutputs[component.id]}
+				{componentContainerHeight}
+			/>
 		{:else if component.type === 'iconcomponent'}
 			<AppIcon {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{:else if component.type === 'fileinputcomponent'}

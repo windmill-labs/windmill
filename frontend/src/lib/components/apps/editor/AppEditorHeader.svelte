@@ -22,7 +22,6 @@
 	import {
 		faBug,
 		faClipboard,
-		faCode,
 		faExternalLink,
 		faFileExport,
 		faGlobe,
@@ -37,7 +36,8 @@
 		MoreVertical,
 		Pencil,
 		SlidersHorizontal,
-		Smartphone
+		Smartphone,
+		X
 	} from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
@@ -77,7 +77,9 @@
 		jobs,
 		staticExporter,
 		errorByComponent,
-		openDebugRun
+		openDebugRun,
+		focusedGrid,
+		selectedComponent
 	} = getContext<AppEditorContext>('AppEditorContext')
 
 	const loading = {
@@ -459,6 +461,22 @@
 			</ToggleButtonGroup>
 		</div>
 	</div>
+	{#if $focusedGrid !== undefined}
+		<Badge color="indigo">
+			<div class="flex flex-row gap-2 justify-center items-center">
+				<div>{`Sub grid: ${$focusedGrid.parentComponentId} (${$focusedGrid.subGridIndex})`}</div>
+				<button
+					on:click={() => {
+						$focusedGrid = undefined
+						$selectedComponent = undefined
+					}}
+				>
+					<X size={14} />
+				</button>
+			</div>
+		</Badge>
+	{/if}
+
 	<div class="flex flex-row gap-2 justify-end items-center overflow-visible">
 		<Dropdown
 			placement="bottom-end"
