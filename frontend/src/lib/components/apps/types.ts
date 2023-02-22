@@ -2,7 +2,7 @@ import type { Schema } from '$lib/common'
 import type { Preview } from '$lib/gen'
 import type { FilledItem } from 'svelte-grid'
 import type { Writable } from 'svelte/store'
-import type { AppComponent } from './editor/Component.svelte'
+import type { AppComponent, components } from './editor/Component.svelte'
 import type {
 	AppInput,
 	ConnectedAppInput,
@@ -30,6 +30,34 @@ export interface GeneralAppInput {
 	tooltip?: string
 }
 
+const comp = {
+	textcomponent: {
+		name: 'Text',
+		data: {
+			configuration: {
+				style: {
+					fieldType: 'select',
+					type: 'static',
+					onlyStatic: true,
+					optionValuesKey: 'textStyleOptions',
+					value: 'Body'
+				},
+			},
+			customCss: {
+				text: { class: '', style: '' }
+			},
+			card: false
+		}
+	}
+} as const
+
+type compCss = keyof typeof components['textcomponent']['data']['customCss']
+
+export type ComponentCustomCSS<T extends string = string> = Record<T, {
+	class: string
+	style: string
+}>
+
 export interface BaseAppComponent extends Partial<Aligned> {
 	id: ComponentID
 	componentInput: AppInput | undefined
@@ -45,10 +73,7 @@ export interface BaseAppComponent extends Partial<Aligned> {
 		)
 	>
 	card: boolean | undefined
-	customCss?: Record<string, {
-		class: string
-		style: string
-	}>
+	customCss?: ComponentCustomCSS
 	/**
 	 * If `true` then the wrapper will allow items to flow outside of it's borders.
 	 *

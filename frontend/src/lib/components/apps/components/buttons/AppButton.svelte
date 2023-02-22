@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { Button, type ButtonType } from '$lib/components/common'
-	import { getContext, onMount } from 'svelte'
+	import { getContext } from 'svelte'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
-	import type { AppEditorContext } from '../../types'
+	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 	import type RunnableComponent from '../helpers/RunnableComponent.svelte'
@@ -20,7 +20,7 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let noWFull = false
 	export let preclickAction: (() => Promise<void>) | undefined = undefined
-	export let customCss: Record<'button', { class: string; style: string }> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'button'> | undefined = undefined
 
 	export const staticOutputs: string[] = ['loading', 'result']
 
@@ -119,10 +119,10 @@
 		<Button
 			btnClasses={twMerge(
 				$app.css?.['buttoncomponent']?.['button']?.class,
-				customCss?.button?.class,
+				customCss?.button.class,
 				fillContainer ? 'w-full h-full' : ''
 			)}
-			style={[$app.css?.['buttoncomponent']?.['button']?.style, customCss?.button?.style].join(';')}
+			style={[$app.css?.['buttoncomponent']?.['button']?.style, customCss?.button.style].join(';')}
 			{disabled}
 			on:pointerdown={(e) => {
 				e?.stopPropagation()

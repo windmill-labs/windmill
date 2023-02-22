@@ -8,7 +8,7 @@
 	import InputValue from '../helpers/InputValue.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import type { AppEditorContext } from '../../types'
+	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
 	import { getContext } from 'svelte'
 
 	export let id: string
@@ -17,7 +17,7 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let configuration: Record<string, AppInput>
 	export let initializing: boolean | undefined = undefined
-	export let customCss: Record<'text', { class: string; style: string }> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'text'> | undefined = undefined
 
 	export const staticOutputs: string[] = ['result', 'loading']
 

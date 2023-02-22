@@ -123,7 +123,7 @@
 			 */
 			dims: AppComponentDimensions
 			data: AppComponent
-			cssIds?: string[]
+			cssIds?: Readonly<string[]>
 		}
 
 		export const components: Record<AppComponent['type'], AppComponentConfig> = {
@@ -177,7 +177,7 @@
 				},
 				customCss: {
 					text: { class: '', style: '' }
-				},
+				} as const,
 				card: false
 			}
 		},
@@ -256,7 +256,7 @@
 				},
 				customCss: {
 					button: { style: '', class: '' }
-				},
+				} as const,
 				card: false
 			}
 		},
