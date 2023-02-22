@@ -25,7 +25,6 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
-use serde_json::to_string_pretty;
 use stripe::CustomerId;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{

@@ -511,7 +511,6 @@ async function push(opts: GlobalOptions & { raw: boolean, yes: boolean }) {
         remotePath = parts[0];
       }
     }
-    console.log(diffs)
     return file.pushDiffs(workspace, remotePath, diffs);
   }
 }

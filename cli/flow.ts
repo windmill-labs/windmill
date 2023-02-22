@@ -48,10 +48,6 @@ export class FlowFile implements Resource, PushDiffs {
         path: remotePath,
       })
     ) {
-      console.log({
-        workspace: workspace,
-        path: remotePath,
-      })
       console.log(
         colors.bold.yellow(
           `Applying ${diffs.length} diffs to existing flow... ${remotePath}`,
@@ -126,6 +122,7 @@ export class FlowFile implements Resource, PushDiffs {
         path: remotePath,
       });
     } catch {
+
       remote = undefined;
     }
     await this.pushDiffs(
