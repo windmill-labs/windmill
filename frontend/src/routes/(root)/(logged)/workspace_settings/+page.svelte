@@ -716,7 +716,7 @@
 				{/if}
 			</div>
 		{:else if tab == 'webhook'}
-			<PageHeader title="Webhook for CLI Sync" primary={false} />
+			<PageHeader title="Webhook on changes" primary={false} />
 
 			<div class="mt-2"
 				><Alert type="info" title="Send events to an external service"

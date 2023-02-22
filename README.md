@@ -37,7 +37,6 @@ https://user-images.githubusercontent.com/275584/218350457-bc2fdc3b-e667-4da5-a2
   - [Show me some actual script code](#show-me-some-actual-script-code)
   - [CLI](#cli)
     - [Running scripts locally](#running-scripts-locally)
-  - [Layout](#layout)
   - [Stack](#stack)
   - [Security](#security)
     - [Sandboxing](#sandboxing)
@@ -123,13 +122,6 @@ scripts from local files, github repos and to run scripts and flows on the insta
 ### Running scripts locally
 
 You can run your script locally easily, you simply need to pass the right environment variables for the `wmill` client library to fetch resource and variables from your instance if necessary. See more: <https://docs.windmill.dev/docs/advanced/local_development/>
-
-## Layout
-
-- `backend/`: Rust backend
-- `frontend`: Svelte frontend
-- `lsp/`: Lsp asssistant for the monaco editor
-- `<lang>-client/`: Windmill client for the given `<lang>`
 
 ## Stack
 
@@ -375,4 +367,4 @@ running options.
 
 ## Copyright
 
-Windmill Labs, Inc 2022
+Windmill Labs, Inc 2023
