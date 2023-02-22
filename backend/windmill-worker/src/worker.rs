@@ -1051,8 +1051,7 @@ async fn handle_code_execution_job(
             job.language.to_owned(),
         ),
         JobKind::Script => sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>)>(
-            "SELECT content, lock, language FROM script WHERE hash = $1 AND (workspace_id = $2 OR \
-                                    workspace_id = 'starter')",
+            "SELECT content, lock, language FROM script WHERE hash = $1 AND workspace_id = $2",
         )
         .bind(&job.script_hash.unwrap_or(ScriptHash(0)).0)
         .bind(&job.workspace_id)

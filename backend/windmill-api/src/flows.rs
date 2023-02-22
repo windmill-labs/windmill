@@ -82,7 +82,7 @@ async fn list_flows(
         )
         .order_desc("favorite.path IS NOT NULL")
         .order_by("edited_at", lq.order_desc.unwrap_or(true))
-        .and_where("o.workspace_id = ? OR o.workspace_id = 'starter'".bind(&w_id))
+        .and_where("o.workspace_id = ?".bind(&w_id))
         .offset(offset)
         .limit(per_page)
         .clone();
@@ -427,13 +427,12 @@ async fn get_flow_by_path(
     let path = path.to_path();
     let mut tx = user_db.begin(&authed).await?;
 
-    let flow_o = sqlx::query_as::<_, Flow>(
-        "SELECT * FROM flow WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter')",
-    )
-    .bind(path)
-    .bind(w_id)
-    .fetch_optional(&mut tx)
-    .await?;
+    let flow_o =
+        sqlx::query_as::<_, Flow>("SELECT * FROM flow WHERE path = $1 AND workspace_id = $2")
+            .bind(path)
+            .bind(w_id)
+            .fetch_optional(&mut tx)
+            .await?;
     tx.commit().await?;
 
     let flow = not_found_if_none(flow_o, "Flow", path)?;

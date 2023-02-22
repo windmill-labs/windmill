@@ -170,7 +170,7 @@ async fn list_apps(
         )
         .order_desc("favorite.path IS NOT NULL")
         .order_by("app_version.created_at", true)
-        .and_where("app.workspace_id = ? OR app.workspace_id = 'starter'".bind(&w_id))
+        .and_where("app.workspace_id = ?".bind(&w_id))
         .offset(offset)
         .limit(per_page)
         .clone();

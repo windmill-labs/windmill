@@ -389,8 +389,7 @@ pub async fn push<'c>(
         match job_payload {
             JobPayload::ScriptHash { hash, path } => {
                 let language = sqlx::query_scalar!(
-                    "SELECT language as \"language: ScriptLang\" FROM script WHERE hash = $1 AND \
-                 (workspace_id = $2 OR workspace_id = 'starter')",
+                    "SELECT language as \"language: ScriptLang\" FROM script WHERE hash = $1 AND workspace_id = $2",
                     hash.0,
                     workspace_id
                 )
@@ -441,11 +440,10 @@ pub async fn push<'c>(
             ),
             JobPayload::FlowDependencies { path } => {
                 let value_json = sqlx::query_scalar!(
-                "SELECT value FROM flow WHERE path = $1 AND (workspace_id = $2 OR workspace_id = \
-                 'starter')",
-                path,
-                workspace_id
-            )
+                    "SELECT value FROM flow WHERE path = $1 AND workspace_id = $2",
+                    path,
+                    workspace_id
+                )
                 .fetch_optional(&mut tx)
                 .await?
                 .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", path)))?;
@@ -468,8 +466,7 @@ pub async fn push<'c>(
             }
             JobPayload::Flow(flow) => {
                 let value_json = sqlx::query_scalar!(
-                "SELECT value FROM flow WHERE path = $1 AND (workspace_id = $2 OR workspace_id = \
-                 'starter')",
+                "SELECT value FROM flow WHERE path = $1 AND workspace_id = $2",
                 flow,
                 workspace_id
             )

@@ -94,6 +94,7 @@ export class FlowFile implements Resource, PushDiffs {
         ...changeset,
         ...base_changeset,
       }
+      console.log(update);
       await FlowService.updateFlow({
         workspace: workspace,
         path: remotePath,
