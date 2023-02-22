@@ -111,7 +111,7 @@ async fn list_scripts(
         )
         .order_desc("favorite.path IS NOT NULL")
         .order_by("created_at", lq.order_desc.unwrap_or(true))
-        .and_where("o.workspace_id = ? OR o.workspace_id = 'starter'".bind(&w_id))
+        .and_where("o.workspace_id = ?".bind(&w_id))
         .offset(offset)
         .limit(per_page)
         .clone();
@@ -120,7 +120,7 @@ async fn list_scripts(
         sqlb.and_where_eq(
             "created_at",
             "(select max(created_at) from script where o.path = path 
-            AND (workspace_id = ? OR workspace_id = 'starter'))"
+            AND workspace_id = ?)"
                 .bind(&w_id),
         );
     } else {
@@ -461,9 +461,9 @@ async fn get_script_by_path(
     let mut tx = user_db.begin(&authed).await?;
 
     let script_o = sqlx::query_as::<_, Script>(
-        "SELECT * FROM script WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter') \
+        "SELECT * FROM script WHERE path = $1 AND workspace_id = $2 \
          AND created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND \
-         (workspace_id = $2 OR workspace_id = 'starter'))",
+         workspace_id = $2)",
     )
     .bind(path)
     .bind(w_id)
@@ -502,11 +502,12 @@ async fn raw_script_by_path(
     let mut tx = user_db.begin(&authed).await?;
 
     let content_o = sqlx::query_scalar!(
-        "SELECT content FROM script WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter') \
+        "SELECT content FROM script WHERE path = $1 AND workspace_id = $2 \
          AND
          created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND archived = false AND \
-         (workspace_id = $2 OR workspace_id = 'starter'))",
-         path, w_id
+         workspace_id = $2)",
+        path,
+        w_id
     )
     .fetch_optional(&mut tx)
     .await?;
@@ -523,10 +524,8 @@ async fn exists_script_by_path(
     let path = path.to_path();
 
     let exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND (workspace_id = $2 OR \
-         workspace_id = 'starter') AND
-         created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND (workspace_id = $2 \
-         OR workspace_id = 'starter')))",
+        "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND workspace_id = $2 AND
+         created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2))",
         path,
         w_id
     )
@@ -542,13 +541,12 @@ async fn get_script_by_hash_internal<'c>(
     workspace_id: &str,
     hash: &ScriptHash,
 ) -> Result<Script> {
-    let script_o = sqlx::query_as::<_, Script>(
-        "SELECT * FROM script WHERE hash = $1 AND (workspace_id = $2 OR workspace_id = 'starter')",
-    )
-    .bind(hash)
-    .bind(workspace_id)
-    .fetch_optional(db)
-    .await?;
+    let script_o =
+        sqlx::query_as::<_, Script>("SELECT * FROM script WHERE hash = $1 AND workspace_id = $2")
+            .bind(hash)
+            .bind(workspace_id)
+            .fetch_optional(db)
+            .await?;
 
     let script = not_found_if_none(script_o, "Script", hash.to_string())?;
     Ok(script)
@@ -594,8 +592,7 @@ async fn get_deployment_status(
     let mut tx = user_db.begin(&authed).await?;
     let status_o: Option<DeploymentStatus> = sqlx::query_as!(
         DeploymentStatus,
-        "SELECT lock, lock_error_logs FROM script WHERE hash = $1 AND (workspace_id = $2 OR \
-         workspace_id = 'starter')",
+        "SELECT lock, lock_error_logs FROM script WHERE hash = $1 AND workspace_id = $2",
         hash.0,
         w_id,
     )
