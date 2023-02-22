@@ -17,7 +17,6 @@
 	import { Button, Kbd } from './common'
 	import { faChevronDown, faChevronUp, faPen, faSave } from '@fortawesome/free-solid-svg-icons'
 	import Breadcrumb from './common/breadcrumb/Breadcrumb.svelte'
-	import Toggle from './Toggle.svelte'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 	import type { SupportedLanguage } from '$lib/common'
 
@@ -84,7 +83,7 @@
 				}
 			})
 			sendUserToast(`New script created at hash ${newHash}`)
-			await goto(`/scripts/edit/${newHash}?step=2`)
+			history.replaceState(history.state, '', `/scripts/edit/${newHash}?step=2`)
 			goto(`/scripts/get/${newHash}?workspace_id=${$workspaceStore}`)
 		} catch (error) {
 			sendUserToast(`Impossible to save the script: ${error.body}`, true)
