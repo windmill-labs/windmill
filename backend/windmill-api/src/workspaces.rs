@@ -1121,6 +1121,7 @@ where
                 "created_by",
                 "updated_by",
                 "edited_at",
+                "archived",
             ] {
                 if obj.contains_key(key) {
                     obj.remove(key);
