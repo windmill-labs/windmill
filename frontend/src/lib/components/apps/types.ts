@@ -30,33 +30,12 @@ export interface GeneralAppInput {
 	tooltip?: string
 }
 
-const comp = {
-	textcomponent: {
-		name: 'Text',
-		data: {
-			configuration: {
-				style: {
-					fieldType: 'select',
-					type: 'static',
-					onlyStatic: true,
-					optionValuesKey: 'textStyleOptions',
-					value: 'Body'
-				},
-			},
-			customCss: {
-				text: { class: '', style: '' }
-			},
-			card: false
-		}
-	}
-} as const
-
-type compCss = keyof typeof components['textcomponent']['data']['customCss']
-
-export type ComponentCustomCSS<T extends string = string> = Record<T, {
+export type ComponentCssProperty = {
 	class: string
 	style: string
-}>
+}
+
+export type ComponentCustomCSS<T extends string = string> = Record<T, ComponentCssProperty>
 
 export interface BaseAppComponent extends Partial<Aligned> {
 	id: ComponentID
@@ -120,7 +99,7 @@ export type App = {
 		inlineScript: InlineScript | undefined
 		fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
 	}>
-	css?: Record<'viewer' | 'grid' | AppComponent['type'], Record<string, { style?: string, class?: string }>>
+	css?: Record<'viewer' | 'grid' | AppComponent['type'], ComponentCustomCSS>
 }
 
 export type ConnectingInput = {

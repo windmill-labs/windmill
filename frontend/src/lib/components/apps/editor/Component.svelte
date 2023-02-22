@@ -123,7 +123,6 @@
 			 */
 			dims: AppComponentDimensions
 			data: AppComponent
-			cssIds?: Readonly<string[]>
 		}
 
 		export const components: Record<AppComponent['type'], AppComponentConfig> = {
@@ -140,7 +139,10 @@
 					value: { foo: 42 }
 				},
 				configuration: {},
-				customCss: {},
+				customCss: {
+					header: { class: '', style: '' },
+					container: { class: '', style: '' },
+				} as const,
 				card: false
 			}
 		},
@@ -148,7 +150,6 @@
 			name: 'Text',
 			icon: Type,
 			dims: '1:1-3:1',
-			cssIds: ['text'],
 			data: {
 				softWrap: false,
 				horizontalAlignment: 'left',
@@ -185,7 +186,6 @@
 			name: 'Button',
 			icon: Inspect,
 			dims: '1:1-2:1',
-			cssIds: ['button'],
 			data: {
 				...defaultAlignement,
 				softWrap: true,

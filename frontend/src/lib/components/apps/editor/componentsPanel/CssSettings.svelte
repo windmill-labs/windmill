@@ -8,6 +8,14 @@
 	import { components, type AppComponent } from '../Component.svelte'
 	import ListItem from './ListItem.svelte'
 	import { isOpenStore } from './store'
+	import CssProperty from './CssProperty.svelte'
+
+	interface CustomCSSEntry {
+		type: 'app' | AppComponent['type'];
+		name: string;
+		icon: any;
+		ids: string[];
+	}
 
 	const TITLE_PREFIX = 'Css.' as const
 	const { app } = getContext<AppEditorContext>('AppEditorContext')
@@ -36,22 +44,20 @@
 		}
 	}
 
-	const entries: { type: 'app' | AppComponent['type']; name: string; icon: any; ids: string[] }[] =
-		[
-			{
-				type: 'app' as 'app' | AppComponent['type'],
-				name: 'App',
-				icon: LayoutDashboardIcon,
-				ids: ['viewer', 'grid', 'component']
-			}
-		].concat(
-			Object.entries(components).map((c) => ({
-				type: c[1].data.type as 'app' | AppComponent['type'],
-				name: c[1].name,
-				icon: c[1].icon,
-				ids: c[1].cssIds ?? []
-			}))
-		)
+	const entries: CustomCSSEntry[] = [
+		{
+			type: 'app',
+			name: 'App',
+			icon: LayoutDashboardIcon,
+			ids: ['viewer', 'grid', 'component']
+		},
+		...Object.values(components).map(({ name, icon, data: { type, customCss }}) => ({
+			type,
+			name,
+			icon,
+			ids: Object.keys(customCss ?? {}) ?? []
+		}))
+	]
 	let isCustom: Record<string, boolean> = Object.fromEntries(
 		Object.keys(entries).map((k) => [k, false])
 	)
@@ -80,7 +86,7 @@
 
 	onMount(() => {
 		isOpenStore.addItems(
-			[{name: 'App'}, ...Object.values(components)].map(component => {
+			[{ name: 'App' }, ...Object.values(components)].map(component => {
 				return { [TITLE_PREFIX + component.name]: false }
 			})
 		)
@@ -118,32 +124,12 @@
 						<div class="pb-2">
 							{#each ids as id}
 								<div class="mb-3">
-									<div class="text-sm font-semibold text-gray-500 capitalize pt-2">
-										{id}
-									</div>
-									{#if $app?.css?.[type]?.[id]}
-										<div class="border-l border-gray-400/80 py-1 pl-3.5 mt-1 ml-0.5">
-											<label class="block pb-2">
-												<div class="text-xs font-medium pb-0.5">
-													Style
-												</div>
-												<input
-													type="text"
-													on:focus={() => (isCustom[type] = true)}
-													bind:value={$app.css[type][id].style}
-												/>
-											</label>
-											<label class="block">
-												<div class="text-xs font-medium pb-0.5">
-													Tailwind classes
-												</div>
-												<input
-													type="text"
-													on:focus={() => (isCustom[type] = true)}
-													bind:value={$app.css[type][id].class}
-												/>
-											</label>
-										</div>
+									{#if $app?.css?.[type][id]}
+										<CssProperty
+											name={id}
+											bind:value={$app.css[type][id]}
+											on:focus={() => (isCustom[type] = true)}
+										/>
 									{/if}
 								</div>
 							{/each}
