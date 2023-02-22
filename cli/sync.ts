@@ -239,7 +239,7 @@ async function pull(
   await requireLogin(opts);
 
 
-  console.log("Computing diff local vs remote ...");
+  console.log(colors.gray("Computing the files to update locally to match remote (taking .wmillignore into account)"));
   const remote = ZipFSElement((await downloadZip(workspace))!)
   const local = await FSFSElement(path.join(Deno.cwd(), opts.raw ? "" : ".wmill"))
   const changes = await compareDynFSElement(remote, local, await ignoreF(), opts.raw)
@@ -437,8 +437,10 @@ async function push(opts: GlobalOptions & { raw: boolean, yes: boolean, skipPull
 
   if (!opts.raw) {
     if (!opts.skipPull) {
-      console.log("You need to be up-to-date before pushing, pulling first.")
+      console.log(colors.gray("You need to be up-to-date before pushing, pulling first."))
       await pull(opts)
+      console.log(colors.green("Pull done, now pushing."))
+      console.log()
     }
   }
 
@@ -446,12 +448,12 @@ async function push(opts: GlobalOptions & { raw: boolean, yes: boolean, skipPull
   await requireLogin(opts);
 
 
-  console.log("Computing diff remote vs local ...");
+  console.log(colors.gray("Computing the files to update on the remote to match local (taking .wmillignore into account)"));
   const remote = ZipFSElement((await downloadZip(workspace))!)
   const local = await FSFSElement(path.join(Deno.cwd(), ""))
   const changes = await compareDynFSElement(local, remote, await ignoreF(), opts.raw)
 
-  console.log(`local -> remote: ${changes.length} changes to apply`);
+  console.log(`remote <- local: ${changes.length} changes to apply`);
   if (changes.length > 0) {
 
     prettyChanges(changes)
@@ -466,8 +468,14 @@ async function push(opts: GlobalOptions & { raw: boolean, yes: boolean, skipPull
       const stateTarget = path.join(Deno.cwd(), ".wmill", change.path)
       if (change.name === "edited") {
         if (await handleScriptMetadata(change.path, workspace.workspaceId, alreadySynced)) {
+          if (!opts.raw) {
+            await Deno.writeTextFile(stateTarget, change.after);
+          }
           continue
         } else if (await handleFile(change.path, change.after, workspace.workspaceId, alreadySynced)) {
+          if (!opts.raw) {
+            await Deno.writeTextFile(stateTarget, change.after);
+          }
           continue
         }
         if (!opts.raw) {
