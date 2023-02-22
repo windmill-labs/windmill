@@ -192,8 +192,8 @@ async function compareDynFSElement(
     if (m2[k] === undefined) {
       changes.push({ name: "added", path: k, content: v });
     } else if (m2[k] != v) {
-      console.log(m2[k], v)
-      Deno.exit(1)
+      // await Deno.writeTextFile("/tmp/k", m2[k])
+      // await Deno.writeTextFile("/tmp/v", v)
       changes.push({ name: "edited", path: k, after: v, before: m2[k] });
     }
   }
@@ -216,9 +216,9 @@ async function ignoreF() {
     } = gitignore_parser.compile(
       await Deno.readTextFile(".wmillignore"),
     );
-    return ignore.denies
+    return (p: string) => p.startsWith(".wmill") || ignore.denies(p);
   } catch (e) {
-    return () => false
+    return (p: string) => p.startsWith(".wmill");
   }
 }
 
@@ -255,12 +255,15 @@ async function pull(
       const target = path.join(Deno.cwd(), change.path);
       const stateTarget = path.join(Deno.cwd(), ".wmill", change.path)
       if (change.name === "edited") {
-        if (await Deno.readTextFile(target) !== change.before && !opts.yes) {
-          console.log(colors.red(`Conflict detected on ${change.path}\nBoth local and remote have been modified.`))
-          if (await Confirm.prompt("Preserve local (push to change remote and avoid seeing this again)?")) {
-            continue;
+
+        try {
+          if (await Deno.readTextFile(target) !== change.before && !opts.yes) {
+            console.log(colors.red(`Conflict detected on ${change.path}\nBoth local and remote have been modified.`))
+            if (await Confirm.prompt("Preserve local (push to change remote and avoid seeing this again)?")) {
+              continue;
+            }
           }
-        }
+        } catch { }
         if (change.path.endsWith(".json")) {
           const diffs =
             microdiff(
@@ -269,6 +272,7 @@ async function pull(
               { cyclesFix: false },
             )
 
+          console.log(diffs)
           console.log(`Editing ${getTypeStrFromPath(change.path)} json ${change.path}`)
           await applyDiff(
             diffs,
@@ -385,7 +389,7 @@ async function push(opts: GlobalOptions & { raw: boolean, yes: boolean }) {
 
   console.log("Computing diff local vs remote ...");
   const remote = ZipFSElement((await downloadZip(workspace))!)
-  const local = await FSFSElement(path.join(Deno.cwd(), opts.raw ? "" : ".wmill"))
+  const local = await FSFSElement(path.join(Deno.cwd(), ""))
   const changes = await compareDynFSElement(local, remote, await ignoreF(), opts.raw)
 
   console.log(`${changes.length} changes to apply`);
