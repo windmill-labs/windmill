@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.66.1](https://github.com/windmill-labs/windmill/compare/v1.66.0...v1.66.1) (2023-02-22)
+
+
+### Bug Fixes
+
+* **cli:** delete workspace instead of archiving them ([70dfc8b](https://github.com/windmill-labs/windmill/commit/70dfc8b8d0293d80da7db14caa1b9eb0ed67653d))
+
 ## [1.66.0](https://github.com/windmill-labs/windmill/compare/v1.65.0...v1.66.0) (2023-02-22)
 
 
