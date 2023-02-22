@@ -386,12 +386,14 @@ function removeSuffix(str: string, suffix: string) {
   return str.slice(0, str.length - suffix.length);
 }
 
-async function push(opts: GlobalOptions & { raw: boolean, yes: boolean }) {
+async function push(opts: GlobalOptions & { raw: boolean, yes: boolean, skipPull: boolean }) {
 
 
   if (!opts.raw) {
-    console.log("You need to be up-to-date before pushing, pulling first.")
-    await pull(opts)
+    if (!opts.skipPull) {
+      console.log("You need to be up-to-date before pushing, pulling first.")
+      await pull(opts)
+    }
   }
 
   const workspace = await resolveWorkspace(opts);
@@ -549,8 +551,9 @@ const command = new Command()
   .description(
     "Push any local changes and apply them remotely. Use --raw for usage without local state tracking.",
   )
-  .option("--yes", "Pull without needing confirmation")
-  .option("--raw", "Pull without using state, just overwrite.")
+  .option("--skip-pull", "Push without pulling first")
+  .option("--yes", "Push without needing confirmation")
+  .option("--raw", "Push without using state, just overwrite.")
   .action(push as any);
 
 export default command;
