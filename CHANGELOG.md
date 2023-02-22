@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [1.67.0](https://github.com/windmill-labs/windmill/compare/v1.66.1...v1.67.0) (2023-02-22)
+
+
+### Features
+
+* **frontend:** Add app sub grids ([#1208](https://github.com/windmill-labs/windmill/issues/1208)) ([dbc59e9](https://github.com/windmill-labs/windmill/commit/dbc59e952143ee5813780ad13794cef4e036911c))
+
+
+### Bug Fixes
+
+* **cli:** add --fail-conflicts to ci push ([0085b46](https://github.com/windmill-labs/windmill/commit/0085b46c1e3b8267fcafcb06ce72b4d820e49df5))
+
 ## [1.66.1](https://github.com/windmill-labs/windmill/compare/v1.66.0...v1.66.1) (2023-02-22)
 
 
