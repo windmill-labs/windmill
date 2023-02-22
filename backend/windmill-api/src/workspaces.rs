@@ -1111,7 +1111,7 @@ where
         .as_object()
         .map(|obj| {
             let mut obj = obj.clone();
-            for key in ["workspace_id", "path", "name"] {
+            for key in ["workspace_id", "path", "name", "versions"] {
                 if obj.contains_key(key) {
                     obj.remove(key);
                 }

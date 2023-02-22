@@ -1,4 +1,4 @@
-import { Any, model, property, array } from "./decoverto.ts";
+import { Any, model, property } from "./decoverto.ts";
 import {
   AppService,
   AppWithLastVersion,
@@ -16,14 +16,11 @@ export class AppFile implements Resource, PushDiffs {
   summary: string;
   @property(Any)
   policy: Policy;
-  @property(array(() => Number))
-  versions: number[];
 
-  constructor(value: string, summary: string, policy: Policy, versions: number[]) {
+  constructor(value: string, summary: string, policy: Policy) {
     this.value = value;
     this.summary = summary;
     this.policy = policy;
-    this.versions = versions;
   }
   async pushDiffs(
     workspace: string,
@@ -41,7 +38,6 @@ export class AppFile implements Resource, PushDiffs {
         summary?: string | undefined;
         value?: any;
         policy?: Policy | undefined;
-        versions?: number[] | undefined;
       } = {};
       for (const diff of diffs) {
         if (
