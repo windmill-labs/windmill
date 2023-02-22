@@ -19,5 +19,3 @@ export const isOpenStore = {
 	},
 	reset: () => store.set({})
 }
-
-export const isOpenStoreCss = writable<Record<string, boolean>>({})
