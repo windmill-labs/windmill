@@ -59,6 +59,7 @@ pub struct NewFlow {
 #[derive(Deserialize, Serialize, Debug, Clone, Default)]
 pub struct FlowValue {
     pub modules: Vec<FlowModule>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     pub failure_module: Option<FlowModule>,
     #[serde(default)]
@@ -152,7 +153,9 @@ pub struct FlowModule {
     #[serde(alias = "input_transform")]
     pub input_transforms: HashMap<String, InputTransform>,
     pub value: FlowModuleValue,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_after_if: Option<StopAfterIf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suspend: Option<Suspend>,
@@ -245,7 +248,9 @@ pub enum FlowModuleValue {
         #[serde(alias = "input_transform")]
         input_transforms: HashMap<String, InputTransform>,
         content: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
         lock: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         path: Option<String>,
         language: ScriptLang,
     },
