@@ -106,7 +106,8 @@
 		<div>
 			<Icon class="text-gray-700" data={faUser} scale={SMALL_ICON_SCALE} /><span class="mx-2">
 				By {job.created_by}
-				{#if job.permissioned_as !== `u/${job.created_by}`}but permissioned as {job.permissioned_as}{/if}
+				{#if job.permissioned_as !== `u/${job.created_by}` && job.permissioned_as != job.created_by}but
+					permissioned as {job.permissioned_as}{/if}
 			</span>
 		</div>
 	</div>
