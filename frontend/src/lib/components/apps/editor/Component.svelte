@@ -17,7 +17,8 @@
 		Code2,
 		SlidersHorizontal,
 		PlusSquare,
-		ListOrdered
+		ListOrdered,
+		Box
 	} from 'lucide-svelte'
 	import type { Size } from '@windmill-labs/svelte-grid'
 	import {
@@ -82,6 +83,7 @@
 	export type VerticalDividerComponent = BaseComponent<'verticaldividercomponent'>
 	export type FileInputComponent = BaseComponent<'fileinputcomponent'>
 	export type TabsComponent = BaseComponent<'tabscomponent'>
+	export type ContainerComponent = BaseComponent<'containercomponent'>
 
 	export type AppComponent = BaseAppComponent &
 		(
@@ -109,6 +111,7 @@
 			| VegaLiteComponent
 			| PlotlyComponent
 			| TabsComponent
+			| ContainerComponent
 			| IconComponent
 			| HorizontalDividerComponent
 			| VerticalDividerComponent
@@ -149,6 +152,26 @@
 				configuration: {},
 				customCss: {},
 				card: false
+			}
+		},
+		containercomponent: {
+			name: 'Container',
+			icon: Box,
+			dims: '2:8-6:8',
+			data: {
+				softWrap: true,
+				verticalAlignment: 'center',
+				id: '',
+				type: 'containercomponent',
+				configuration: {},
+				componentInput: {
+					type: 'static',
+					fieldType: 'array',
+					subFieldType: 'text',
+					value: ['First Tab', 'Second Tab']
+				},
+				card: false,
+				subGrids: [[]]
 			}
 		},
 		textcomponent: {
@@ -1212,6 +1235,7 @@
 			'timeseriescomponent',
 			'displaycomponent',
 			'tabscomponent',
+			'containercomponent',
 			'horizontaldividercomponent',
 			'verticaldividercomponent'
 		]
@@ -1589,6 +1613,8 @@
 	import type { IntRange } from '../../../common'
 	import type { NARROW_GRID_COLUMNS, WIDE_GRID_COLUMNS } from '../gridUtils'
 	import AppImage from '../components/dataDisplay/AppImage.svelte'
+	import { set_data } from 'svelte/internal'
+	import AppContainer from '../components/AppContainer.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -1754,6 +1780,12 @@
 			<AppRangeInput {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{:else if component.type === 'tabscomponent'}
 			<AppTabs
+				{...component}
+				bind:staticOutputs={$staticOutputs[component.id]}
+				{componentContainerHeight}
+			/>
+		{:else if component.type === 'containercomponent'}
+			<AppContainer
 				{...component}
 				bind:staticOutputs={$staticOutputs[component.id]}
 				{componentContainerHeight}

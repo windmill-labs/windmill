@@ -36,7 +36,8 @@
 		MoreVertical,
 		Pencil,
 		SlidersHorizontal,
-		Smartphone
+		Smartphone,
+		X
 	} from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
@@ -460,13 +461,21 @@
 			</ToggleButtonGroup>
 		</div>
 	</div>
-	<Badge color="indigo">
-		{#if $focusedGrid === undefined}
-			Main grid selected
-		{:else}
-			{`Sub grid: ${$focusedGrid.parentComponentId} - Sub Index: ${$focusedGrid.subGridIndex}`}
-		{/if}
-	</Badge>
+	{#if $focusedGrid !== undefined}
+		<Badge color="indigo">
+			<div class="flex flex-row gap-2 justify-center items-center">
+				<div>{`Sub grid: ${$focusedGrid.parentComponentId} (${$focusedGrid.subGridIndex})`}</div>
+				<button
+					on:click={() => {
+						$focusedGrid = undefined
+						$selectedComponent = undefined
+					}}
+				>
+					<X size={14} />
+				</button>
+			</div>
+		</Badge>
+	{/if}
 
 	<div class="flex flex-row gap-2 justify-end items-center overflow-visible">
 		<Dropdown

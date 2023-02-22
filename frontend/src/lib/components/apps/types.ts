@@ -34,14 +34,15 @@ export interface BaseAppComponent extends Partial<Aligned> {
 	componentInput: AppInput | undefined
 	configuration: Record<
 		string,
-		GeneralAppInput & (
-			StaticAppInput
-			| ConnectedAppInput
-			| UserAppInput
-			| RowAppInput
-			| EvalAppInput
-			| UploadAppInput
-		)
+		GeneralAppInput &
+			(
+				| StaticAppInput
+				| ConnectedAppInput
+				| UserAppInput
+				| RowAppInput
+				| EvalAppInput
+				| UploadAppInput
+			)
 	>
 	card: boolean | undefined
 	customCss?: Record<
