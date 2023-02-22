@@ -20,36 +20,19 @@ Open-source developer infrastructure for internal tools. Self-hostable alternati
 </a>
 </p>
 
----
+<p align="center">
+  <a href="https://app.windmill.dev">Try it</a> - <a href="https://docs.windmill.dev/docs/intro/">Docs</a> - <a href="https://discord.gg/V7PM2YHsPB">Discord</a> - <a href="https://hub.windmill.dev">Hub</a> - <a href="https://docs.windmill.dev/docs/misc/contributing">Contributor's guide</a>
+</p>
 
-**Try it (personal workspaces are free forever)**: <https://app.windmill.dev>
+# Windmill - Turn scripts into workflows and UIs that you can share and run at scale
 
-**Documentation**: <https://www.windmill.dev>
-
-**Discord**: <https://discord.gg/V7PM2YHsPB>
-
-**Hub**: <https://hub.windmill.dev>
-
-**Contributor's guide**: <https://docs.windmill.dev/docs/misc/contributing>
-
-**Roadmap**: <https://github.com/orgs/windmill-labs/projects/2>
-
-You can show your support for the project by starring this repo.
-
-Windmill Labs offers commercial licenses, an enterprise edition, local hub
-mirrors, and support: contact ruben@windmill.dev.
-
----
-
-# Windmill
-
-Windmill is <b>fully open-sourced (AGPLv3)</b>
+Windmill is <b>fully open-sourced (AGPLv3)</b> and Windmill Labs offers dedicated instance and commercial support and licenses.
 
 ![Windmill Diagram](/imgs/stacks.svg)
 
 https://user-images.githubusercontent.com/275584/218350457-bc2fdc3b-e667-4da5-a2bd-3bacc1f0ec79.mp4
 
-- [Windmill](#windmill)
+- [Windmill - Turn scripts into workflows and UIs that you can share and run at scale](#windmill---turn-scripts-into-workflows-and-uis-that-you-can-share-and-run-at-scale)
   - [Main Concepts](#main-concepts)
   - [Show me some actual script code](#show-me-some-actual-script-code)
   - [CLI](#cli)
