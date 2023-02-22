@@ -256,7 +256,7 @@ async function pull(
     }
 
     const conflicts = []
-    console.log(`Applying changes to files ...`);
+    console.log(colors.gray(`Applying changes to files ...`));
     for await (const change of changes) {
       const target = path.join(Deno.cwd(), change.path);
       const stateTarget = path.join(Deno.cwd(), ".wmill", change.path)
@@ -462,7 +462,7 @@ async function push(opts: GlobalOptions & { raw: boolean, yes: boolean, skipPull
     ) {
       return
     }
-    console.log(`Applying changes to files ...`);
+    console.log(colors.gray(`Applying changes to files ...`));
     const alreadySynced: string[] = []
     for await (const change of changes) {
       const stateTarget = path.join(Deno.cwd(), ".wmill", change.path)
