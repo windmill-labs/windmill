@@ -22,7 +22,8 @@
 		faCodeFork,
 		faClipboard,
 		faChevronUp,
-		faChevronDown
+		faChevronDown,
+		faTrash
 	} from '@fortawesome/free-solid-svg-icons'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -83,6 +84,12 @@
 	async function archiveFlow(): Promise<void> {
 		await FlowService.archiveFlowByPath({ workspace: $workspaceStore!, path })
 		loadFlow()
+	}
+
+	async function deleteFlow(): Promise<void> {
+		await FlowService.deleteFlowByPath({ workspace: $workspaceStore!, path })
+		sendUserToast('Flow deleted')
+		goto('/')
 	}
 
 	async function setScheduleEnabled(path: string, enabled: boolean): Promise<void> {
@@ -415,6 +422,16 @@
 							disabled={flow.archived || !can_write}
 						>
 							Archive
+						</Button>
+						<Button
+							on:click={() => flow?.path && deleteFlow()}
+							variant="border"
+							color="red"
+							size="md"
+							startIcon={{ icon: faTrash }}
+							disabled={flow.archived || !can_write}
+						>
+							Delete
 						</Button>
 					</div>
 				{/if}

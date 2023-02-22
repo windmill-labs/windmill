@@ -2716,6 +2716,23 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/flows/delete/{path}:
+    delete:
+      summary: delete flow by path
+      operationId: deleteFlowByPath
+      tags:
+        - flow
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: flow delete
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/apps/list:
     get:
       summary: list all available apps

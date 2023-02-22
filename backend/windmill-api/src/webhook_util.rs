@@ -24,6 +24,7 @@ pub enum WebhookMessage {
     CreateFlow { workspace: String, path: String },
     UpdateFlow { workspace: String, old_path: String, new_path: String },
     ArchiveFlow { workspace: String, path: String },
+    DeleteFlow { workspace: String, path: String },
     CreateFolder { workspace: String, name: String },
     UpdateFolder { workspace: String, name: String },
     DeleteFolder { workspace: String, name: String },

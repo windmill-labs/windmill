@@ -17,7 +17,8 @@
 		faFileExport,
 		faList,
 		faPlay,
-		faShare
+		faShare,
+		faTrashAlt
 	} from '@fortawesome/free-solid-svg-icons'
 	import { MoreVertical } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
@@ -41,6 +42,16 @@
 			sendUserToast(`Archived flow ${path}`)
 		} catch (err) {
 			sendUserToast(`Could not archive this flow ${err.body}`, true)
+		}
+	}
+
+	async function deleteFlow(path: string): Promise<void> {
+		try {
+			await FlowService.deleteFlowByPath({ workspace: $workspaceStore!, path })
+			dispatch('change')
+			sendUserToast(`Deleted flow ${path}`)
+		} catch (err) {
+			sendUserToast(`Could not delete this flow ${err.body}`, true)
 		}
 	}
 	let scheduleEditor: ScheduleEditor
@@ -163,6 +174,15 @@
 					icon: faArchive,
 					action: () => {
 						path ? archiveFlow(path) : null
+					},
+					type: 'delete',
+					disabled: !canWrite
+				},
+				{
+					displayName: 'Delete',
+					icon: faTrashAlt,
+					action: () => {
+						path ? deleteFlow(path) : null
 					},
 					type: 'delete',
 					disabled: !canWrite
