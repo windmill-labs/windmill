@@ -34,7 +34,7 @@ import { FlowFile } from "./flow.ts";
 import { VariableFile } from "./variable.ts";
 import { handleFile } from "./script.ts";
 import { equal } from "https://deno.land/x/equal/mod.ts";
-
+import { diffCharacters } from "https://deno.land/x/diff/mod.ts";
 type DynFSElement = {
   isDirectory: boolean;
   path: string;
@@ -227,7 +227,7 @@ async function ignoreF() {
 }
 
 async function pull(
-  opts: GlobalOptions & { raw: boolean; yes: boolean },
+  opts: GlobalOptions & { raw: boolean; yes: boolean, failConflicts: boolean },
 ) {
 
 
@@ -250,10 +250,12 @@ async function pull(
 
     prettyChanges(changes)
     if (
-      !opts.yes && !(await Confirm.prompt({ message: `Do you want to apply these ${changes.length} changes?`, default: true }))
+      !opts.yes && !opts.raw && !(await Confirm.prompt({ message: `Do you want to apply these ${changes.length} changes?`, default: true }))
     ) {
       return
     }
+
+    const conflicts = []
     console.log(`Applying changes to files ...`);
     for await (const change of changes) {
       const target = path.join(Deno.cwd(), change.path);
@@ -261,10 +263,20 @@ async function pull(
       if (change.name === "edited") {
 
         try {
-          if (await Deno.readTextFile(target) !== change.before && !opts.yes) {
+          const currentLocal = await Deno.readTextFile(target)
+          if (currentLocal !== change.before) {
             console.log(colors.red(`Conflict detected on ${change.path}\nBoth local and remote have been modified.`))
-            if (await Confirm.prompt("Preserve local (push to change remote and avoid seeing this again)?")) {
+            if (opts.failConflicts) {
+              conflicts.push({ local: currentLocal, change, path: change.path })
               continue;
+            } else if (opts.yes) {
+              console.log(colors.red(`Override local version with remote since --yes was passed and no --fail-conflicts.`))
+            }
+            else {
+              showConflict(change.path, currentLocal, change.after)
+              if (await Confirm.prompt("Preserve local (push to change remote and avoid seeing this again)?")) {
+                continue;
+              }
             }
           }
         } catch { }
@@ -313,10 +325,44 @@ async function pull(
         }
       }
     }
+    if (opts.failConflicts) {
+      if (conflicts.length > 0) {
+        console.error(colors.red(`Conflicts were found`))
+        console.log("Conflicts:")
+        for (const conflict of conflicts) {
+          showConflict(conflict.path, conflict.local, conflict.change.after)
+        }
+        console.log(colors.red(`Please resolve theses conflicts manually by either:
+  - reverting the content back to its remote (\`wmill pull\` and refuse to preserve local when prompted)
+  - pushing the changes with \`wmill push --skip-pull\` to override wmill with all your local changes
+`))
+        Deno.exit(1)
+      }
+    }
     console.log(colors.green.underline(`Done! All ${changes.length} changes applied locally.`));
   }
 
 
+  function showConflict(path: string, local: string, remote: string) {
+    console.log(colors.yellow(`- ${path}`))
+
+    let finalString = "";
+    for (const character of diffCharacters(local, remote)) {
+      if (character.wasRemoved) {
+        // print red if removed without newline
+        finalString += `\x1b[31m${character.character}\x1b[0m`;
+      } else if (character.wasAdded) {
+        // print green if added
+        finalString += `\x1b[32m${character.character}\x1b[0m`;
+      } else {
+        // print white if unchanged
+        finalString += `\x1b[37m${character.character}\x1b[0m`;
+      }
+    }
+    console.log(finalString);
+    console.log("\x1b[31mlocal\x1b[31m - \x1b[32mremote\x1b[32m")
+    console.log()
+  }
   async function applyDiff(diffs: Difference[], file: string) {
     ensureDir(path.dirname(file));
     let json;
@@ -386,7 +432,7 @@ function removeSuffix(str: string, suffix: string) {
   return str.slice(0, str.length - suffix.length);
 }
 
-async function push(opts: GlobalOptions & { raw: boolean, yes: boolean, skipPull: boolean }) {
+async function push(opts: GlobalOptions & { raw: boolean, yes: boolean, skipPull: boolean, failConflicts: boolean }) {
 
 
   if (!opts.raw) {
@@ -547,6 +593,7 @@ const command = new Command()
   .description(
     "Pull any remote changes and apply them locally. Use --raw for usage without local state tracking.",
   )
+  .option("--fail-conflicts", "Error on conflicts (both remote and local have changes on the same item)")
   .option("--yes", "Pull without needing confirmation")
   .option("--raw", "Pull without using state, just overwrite.")
   .action(pull as any)
@@ -554,6 +601,7 @@ const command = new Command()
   .description(
     "Push any local changes and apply them remotely. Use --raw for usage without local state tracking.",
   )
+  .option("--fail-conflicts", "Error on conflicts (both remote and local have changes on the same item)")
   .option("--skip-pull", "Push without pulling first")
   .option("--yes", "Push without needing confirmation")
   .option("--raw", "Push without using state, just overwrite.")

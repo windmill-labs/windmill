@@ -40,7 +40,11 @@
 				}
 			} else {
 				if (!$page.url.pathname.startsWith('/user/')) {
-					goto(`/user/workspaces?rd=${encodeURIComponent($page.url.href.replace($page.url.origin, ''))}`)
+					goto(
+						`/user/workspaces?rd=${encodeURIComponent(
+							$page.url.href.replace($page.url.origin, '')
+						)}`
+					)
 				}
 				let user = await UserService.globalWhoami()
 				console.log(`Welcome back ${user.email}`)
@@ -67,7 +71,10 @@
 					return
 				}
 				// Unhandled errors from Monaco Editor don't logout the user
-				if (monacoEditorUnhandledErrors.includes(message)) {
+				if (
+					monacoEditorUnhandledErrors.includes(message) ||
+					message.startsWith('Failed to fetch dynamically imported')
+				) {
 					console.warn(message)
 					return
 				}
@@ -81,7 +88,7 @@
 
 				if (status == '401') {
 					const url = $page.url
-					console.log('UNAUTHORIZED', url, url.href.replace(url.origin, ''));
+					console.log('UNAUTHORIZED', url, url.href.replace(url.origin, ''))
 					if (url.pathname != '/user/login') {
 						logoutWithRedirect(url.href.replace(url.origin, ''))
 						return
