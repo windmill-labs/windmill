@@ -53,6 +53,7 @@ https://user-images.githubusercontent.com/275584/218350457-bc2fdc3b-e667-4da5-a2
   - [Main Concepts](#main-concepts)
   - [Show me some actual script code](#show-me-some-actual-script-code)
   - [CLI](#cli)
+    - [Running scripts locally](#running-scripts-locally)
   - [Layout](#layout)
   - [Stack](#stack)
   - [Security](#security)
@@ -130,10 +131,15 @@ export async function main(
 ## CLI
 
 We have a powerful CLI to interact with the windmill platform and sync your
-scripts from your own github repo. See
+scripts from local files, github repos and to run scripts and flows on the instance from local commands. See
 [more details](https://github.com/windmill-labs/windmill/tree/main/cli)
 
 ![CLI Screencast](./cli/vhs/output/setup.gif)
+
+
+### Running scripts locally
+
+You can run your script locally easily, you simply need to pass the right environment variables for the `wmill` client library to fetch resource and variables from your instance if necessary. See more: <https://docs.windmill.dev/docs/advanced/local_development/>
 
 ## Layout
 

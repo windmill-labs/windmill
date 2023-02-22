@@ -28,12 +28,25 @@ Flow Steps and Logs will be streamed during execution automatically.
 The CLI can push specifications to a windmill instance. See the
 [examples/](./examples/) folder for formats.
 
-### Pushing a folder
+## Switch to a different workspace
 
-You can push all files in a folder at once using `wmill push` Files MUST be
-named resource_name.\<type\>.json. They will be pushed to the remote path they
-are in, for example the file `u/admin/fib/fib.script.json` will be pushed as a
-script to u/admin/fib/fib.
+```
+wmill workspace switch <workspace_name>
+```
+
+## Sync a workspace
+
+### Pull
+
+```
+wmill sync pull
+```
+
+### Push
+
+```
+wmill sync push
+```
 
 ### Pushing individual files
 
