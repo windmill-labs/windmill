@@ -80,7 +80,6 @@ export class ResourceFile implements Resource2, PushDiffs {
         v !== null && typeof v !== "undefined"
       );
       if (!hasChanges) {
-        console.log(colors.yellow("! Skipping empty changeset"));
         return;
       }
 

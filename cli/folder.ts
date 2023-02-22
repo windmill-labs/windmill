@@ -95,7 +95,6 @@ export class FolderFile implements Resource, PushDiffs {
         v !== null && typeof v !== "undefined"
       );
       if (!hasChanges) {
-        console.log(colors.yellow("! Skipping empty changeset"));
         return;
       }
 

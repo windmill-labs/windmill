@@ -17,6 +17,7 @@ export class AppFile implements Resource, PushDiffs {
   @property(Any)
   policy: Policy;
 
+
   constructor(value: string, summary: string, policy: Policy) {
     this.value = value;
     this.summary = summary;
@@ -64,7 +65,6 @@ export class AppFile implements Resource, PushDiffs {
         v !== null && typeof v !== "undefined"
       );
       if (!hasChanges) {
-        console.log(colors.yellow("! Skipping empty changeset"));
         return;
       }
 
