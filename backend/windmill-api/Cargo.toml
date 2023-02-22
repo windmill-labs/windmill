@@ -9,7 +9,7 @@ name = "windmill_api"
 path = "src/lib.rs"
 
 [features]
-enterprise = ["windmill-queue/enterprise"]
+enterprise = ["windmill-queue/enterprise", "async-stripe"]
 
 [dependencies]
 windmill-queue.workspace = true
@@ -65,7 +65,7 @@ hmac.workspace = true
 cookie.workspace = true
 sha2.workspace = true
 urlencoding.workspace = true
-async-stripe.workspace = true
+async-stripe = { workspace = true, optional = true }
 lazy_static.workspace = true
 prometheus.workspace = true
 async_zip.workspace = true
