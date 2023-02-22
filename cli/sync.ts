@@ -245,7 +245,7 @@ async function pull(
   const changes = await compareDynFSElement(remote, local, await ignoreF(), opts.raw)
 
 
-  console.log(`${changes.length} changes to apply`);
+  console.log(`remote -> local: ${changes.length} changes to apply`);
   if (changes.length > 0) {
 
     prettyChanges(changes)
@@ -276,7 +276,6 @@ async function pull(
               { cyclesFix: false },
             )
 
-          console.log(diffs)
           console.log(`Editing ${getTypeStrFromPath(change.path)} json ${change.path}`)
           await applyDiff(
             diffs,
@@ -389,20 +388,22 @@ function removeSuffix(str: string, suffix: string) {
 
 async function push(opts: GlobalOptions & { raw: boolean, yes: boolean }) {
 
+
   if (!opts.raw) {
-    await ensureDir(path.join(Deno.cwd(), ".wmill"));
+    console.log("You need to be up-to-date before pushing, pulling first.")
+    await pull(opts)
   }
 
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
 
-  console.log("Computing diff local vs remote ...");
+  console.log("Computing diff remote vs local ...");
   const remote = ZipFSElement((await downloadZip(workspace))!)
   const local = await FSFSElement(path.join(Deno.cwd(), ""))
   const changes = await compareDynFSElement(local, remote, await ignoreF(), opts.raw)
 
-  console.log(`${changes.length} changes to apply`);
+  console.log(`local -> remote: ${changes.length} changes to apply`);
   if (changes.length > 0) {
 
     prettyChanges(changes)
@@ -464,29 +465,30 @@ async function push(opts: GlobalOptions & { raw: boolean, yes: boolean }) {
         }
         console.log(`Deleting ${getTypeStrFromPath(change.path)} ${change.path}`)
         const typ = getTypeStrFromPath(change.path)
+        const workspaceId = workspace.workspaceId;
         switch (typ) {
           case "script": {
-            const script = await ScriptService.getScriptByPath({ workspace: workspace.name, path: removeSuffix(change.path, ".script.json") })
-            await ScriptService.deleteScriptByHash({ workspace: workspace.name, hash: script.hash })
+            const script = await ScriptService.getScriptByPath({ workspace: workspaceId, path: removeSuffix(change.path, ".script.json") })
+            await ScriptService.deleteScriptByHash({ workspace: workspaceId, hash: script.hash })
             break;
           }
           case "folder":
-            await FolderService.deleteFolder({ workspace: workspace.name, name: change.path.split('/')[1] })
+            await FolderService.deleteFolder({ workspace: workspaceId, name: change.path.split('/')[1] })
             break;
           case "resource":
-            await ResourceService.deleteResource({ workspace: workspace.name, path: removeSuffix(change.path, ".resource.json") })
+            await ResourceService.deleteResource({ workspace: workspaceId, path: removeSuffix(change.path, ".resource.json") })
             break;
           case "resource-type":
-            await ResourceService.deleteResourceType({ workspace: workspace.name, path: removeSuffix(change.path, ".resource-type.json") })
+            await ResourceService.deleteResourceType({ workspace: workspaceId, path: removeSuffix(change.path, ".resource-type.json") })
             break
           case "flow":
-            await FlowService.archiveFlowByPath({ workspace: workspace.name, path: removeSuffix(change.path, ".flow.json") })
+            await FlowService.archiveFlowByPath({ workspace: workspaceId, path: removeSuffix(change.path, ".flow.json") })
             break
           case "app":
-            await AppService.deleteApp({ workspace: workspace.name, path: removeSuffix(change.path, ".app.json") })
+            await AppService.deleteApp({ workspace: workspaceId, path: removeSuffix(change.path, ".app.json") })
             break
           case "variable":
-            await VariableService.deleteVariable({ workspace: workspace.name, path: removeSuffix(change.path, ".variable.json") })
+            await VariableService.deleteVariable({ workspace: workspaceId, path: removeSuffix(change.path, ".variable.json") })
             break
           default:
             break;
