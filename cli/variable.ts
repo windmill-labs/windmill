@@ -105,7 +105,7 @@ export class VariableFile implements Resource, PushDiffs {
 
       console.log(changeset);
     } else {
-      console.log(colors.yellow("Creating new variable..."));
+      console.log(colors.yellow.bold("Creating new variable..."));
       await VariableService.createVariable({
         workspace,
         alreadyEncrypted: true,
