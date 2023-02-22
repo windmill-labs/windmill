@@ -26,6 +26,7 @@ import { downloadZip } from "./pull.ts";
 import { FolderFile } from "./folder.ts";
 import { ResourceTypeFile } from "./resource-type.ts";
 import {
+  handleScriptMetadata,
   ScriptFile,
 } from "./script.ts";
 import { ResourceFile } from "./resource.ts";
@@ -195,7 +196,8 @@ async function compareDynFSElement(
       await Deno.writeTextFile("/tmp/k", m2[k])
       await Deno.writeTextFile("/tmp/v", v)
       console.log(k)
-      Deno.exit(1)
+      if (k.includes("variable"))
+        Deno.exit(1)
       changes.push({ name: "edited", path: k, after: v, before: m2[k] });
     }
   }
@@ -306,7 +308,7 @@ async function pull(
         }
       }
     }
-    console.log(colors.green.underline(`Done! All ${changes.length} changes applied locally.`));
+    console.log(colors.green.underline(`Done! All ${changes.length} changes pushed to the remote.`));
   }
 
 
@@ -404,12 +406,13 @@ async function push(opts: GlobalOptions & { raw: boolean, yes: boolean }) {
       return
     }
     console.log(`Applying changes to files ...`);
+    const alreadySynced: string[] = []
     for await (const change of changes) {
       const stateTarget = path.join(Deno.cwd(), ".wmill", change.path)
       if (change.name === "edited") {
-        if (change.path.endsWith(".script.json")) {
+        if (await handleScriptMetadata(change.path, workspace.workspaceId, alreadySynced)) {
           continue
-        } else if (await handleFile(change.path, change.after, workspace.workspaceId)) {
+        } else if (await handleFile(change.path, change.after, workspace.workspaceId, alreadySynced)) {
           continue
         }
         if (!opts.raw) {
@@ -431,7 +434,7 @@ async function push(opts: GlobalOptions & { raw: boolean, yes: boolean }) {
       } else if (change.name === "added") {
         if (change.path.endsWith(".script.json")) {
           continue
-        } else if (await handleFile(change.path, change.content, workspace.workspaceId)) {
+        } else if (await handleFile(change.path, change.content, workspace.workspaceId, alreadySynced)) {
           continue
         }
         if (!opts.raw) {
