@@ -401,6 +401,7 @@
 		const edges: Edge[] = []
 		nodes.forEach((node) => {
 			node.parentIds.forEach((pid, i) => {
+				console.log(charsToNumber(pid), pid)
 				// skip virtual nodes such as collect result
 				if (errorHandlers[pid] && node.id < 900 && nodes.find((x) => x.id == errorHandlers[pid])) {
 					edges.push({
