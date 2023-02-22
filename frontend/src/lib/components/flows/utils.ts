@@ -212,12 +212,12 @@ export function charsToNumber(n: string): number {
 	if (n.charAt(0) == '-') {
 		return charsToNumber(n.slice(1)) * -1
 	}
-	let b = Math.pow(27, n.length - 1)
+	let b = Math.pow(26, n.length - 1)
 	let res = 0
 	for (let c of n) {
-		let charCode = (c == '-' || c == '_') ? aCharCode + 26 : c.charCodeAt(0)
+		let charCode = (c == '-' || c == '_') ? aCharCode + 25 : c.charCodeAt(0)
 		res += (charCode - aCharCode + 1) * b
-		b = b / 27
+		b = b / 26
 	}
 	return res - 1
 }
