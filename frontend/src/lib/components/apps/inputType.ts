@@ -46,7 +46,6 @@ export type EvalInput = {
 	expr: string
 }
 
-
 export type RowInput = {
 	type: 'row'
 	column: string
@@ -81,7 +80,7 @@ export type Runnable = RunnableByPath | RunnableByName | undefined
 // Runnable input, set by the developer in the component panel
 export type ResultInput = {
 	runnable: Runnable
-	fields: Record<string, (StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput)>
+	fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
 	type: 'runnable'
 	value?: any
 }
@@ -101,16 +100,16 @@ type AppInputSpec<T extends InputType, U, V extends InputType = never> = (
 type InputConfiguration<T extends InputType, U, V extends InputType> = {
 	fieldType: T
 	subFieldType?: V
-	format?: string | undefined,
+	format?: string | undefined
 	fileUpload?: {
 		/** Use `*` to accept anything. */
 		accept: string
-		/** 
+		/**
 		 * Controls if user is allowed to select multiple files.
 		 * @default false
 		 */
 		multiple?: boolean
-		/** 
+		/**
 		 * Controls if the uploaded file(s) will be returned as `Base64` strings.
 		 * @default false
 		 */
@@ -137,6 +136,12 @@ export type AppInput =
 	| AppInputSpec<'any', any>
 	| AppInputSpec<'object', Record<string | number, any>>
 	| AppInputSpec<'object', string>
+	| (AppInputSpec<'select', string> & {
+			/**
+			 * One of the keys of `staticValues` from `lib/components/apps/editor/componentsPanel/componentStaticValues`
+			 */
+			optionValuesKey: keyof typeof staticValues
+	  })
 	| (AppInputSpec<'select', string> & StaticOptions)
 	| AppInputSpec<'icon-select', string>
 	| AppInputSpec<'array', string[], 'text'>
@@ -147,6 +152,9 @@ export type AppInput =
 	| AppInputSpec<'array', string[], 'time'>
 	| AppInputSpec<'array', string[], 'datetime'>
 	| AppInputSpec<'array', object[], 'object'>
+	| (AppInputSpec<'array', string[], 'select'> & {
+			optionValuesKey: keyof typeof staticValues
+	  })
 	| (AppInputSpec<'array', string[], 'select'> & StaticOptions)
 
 export type RowAppInput = Extract<AppInput, { type: 'row' }>

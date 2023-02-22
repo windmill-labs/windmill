@@ -11,6 +11,7 @@
 		CategoryScale,
 		BarElement
 	} from 'chart.js'
+	import type { ChartOptions } from 'chart.js'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import type { AppInput } from '../../inputType'
 	import InputValue from '../helpers/InputValue.svelte'
@@ -45,7 +46,18 @@
 		theme3: ['#e74a3b', '#4e73df', '#1cc88a', '#36b9cc', '#f6c23e']
 	}[theme]
 
-	const options = {
+	const lineOptions: ChartOptions<'line'> = {
+		responsive: true,
+		animation: false,
+		maintainAspectRatio: false,
+		plugins: {
+			legend: {
+				display: false
+			}
+		}
+	}
+
+	const barOptions: ChartOptions<'bar'> = {
 		responsive: true,
 		animation: false,
 		maintainAspectRatio: false,
@@ -73,9 +85,9 @@
 <RunnableWrapper flexWrap autoRefresh bind:componentInput {id} bind:initializing bind:result>
 	{#if result}
 		{#if lineChart}
-			<Line {data} {options} />
+			<Line {data} options={lineOptions} />
 		{:else}
-			<Bar {data} {options} />
+			<Bar {data} options={barOptions} />
 		{/if}
 	{/if}
 </RunnableWrapper>

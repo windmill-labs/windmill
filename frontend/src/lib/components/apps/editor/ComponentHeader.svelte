@@ -6,6 +6,7 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { Alert, Button } from '$lib/components/common'
 	import type { AppComponent } from './Component.svelte'
+	import type { Output } from '../rx'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -15,7 +16,8 @@
 
 	const dispatch = createEventDispatcher()
 
-	const { errorByComponent, openDebugRun } = getContext<AppEditorContext>('AppEditorContext')
+	const { errorByComponent, openDebugRun, focusedGrid, worldStore } =
+		getContext<AppEditorContext>('AppEditorContext')
 
 	$: error = Object.values($errorByComponent).find((e) => e.componentId === component.id)
 

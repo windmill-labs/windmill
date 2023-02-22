@@ -1,6 +1,6 @@
 import type { Schema } from '$lib/common'
 import type { Preview } from '$lib/gen'
-import type { FilledItem } from 'svelte-grid'
+import type { FilledItem } from '@windmill-labs/svelte-grid'
 import type { Writable } from 'svelte/store'
 import type { AppComponent } from './editor/Component.svelte'
 import type {
@@ -14,7 +14,6 @@ import type {
 	UserAppInput
 } from './inputType'
 import type { World } from './rx'
-
 
 export type HorizontalAlignment = 'left' | 'center' | 'right'
 export type VerticalAlignment = 'top' | 'center' | 'bottom'
@@ -35,29 +34,32 @@ export interface BaseAppComponent extends Partial<Aligned> {
 	componentInput: AppInput | undefined
 	configuration: Record<
 		string,
-		GeneralAppInput & (
-			StaticAppInput
-			| ConnectedAppInput
-			| UserAppInput
-			| RowAppInput
-			| EvalAppInput
-			| UploadAppInput
-		)
+		GeneralAppInput &
+			(
+				| StaticAppInput
+				| ConnectedAppInput
+				| UserAppInput
+				| RowAppInput
+				| EvalAppInput
+				| UploadAppInput
+			)
 	>
 	card: boolean | undefined
-	customCss?: Record<string, {
-		class: string
-		style: string
-	}>
+	customCss?: Record<
+		string,
+		{
+			class: string
+			style: string
+		}
+	>
 	/**
 	 * If `true` then the wrapper will allow items to flow outside of it's borders.
 	 *
 	 * *For example when the component has a popup like `Select`*
 	 */
 	softWrap?: boolean
+	subGrids?: GridItem[][]
 }
-
-
 
 export type ComponentSet = {
 	title: string
@@ -95,7 +97,10 @@ export type App = {
 		inlineScript: InlineScript | undefined
 		fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
 	}>
-	css?: Record<'viewer' | 'grid' | AppComponent['type'], Record<string, { style?: string, class?: string }>>
+	css?: Record<
+		'viewer' | 'grid' | AppComponent['type'],
+		Record<string, { style?: string; class?: string }>
+	>
 }
 
 export type ConnectingInput = {
@@ -125,7 +130,10 @@ export type AppEditorContext = {
 	noBackend: boolean
 	errorByComponent: Writable<Record<string, { error: string; componentId: string }>>
 	openDebugRun: Writable<((componentID: string) => void) | undefined>
+	focusedGrid: Writable<FocusedGrid | undefined>
 }
+
+export type FocusedGrid = { parentComponentId: string; subGridIndex: number }
 
 export type EditorMode = 'dnd' | 'preview'
 export type EditorBreakpoint = 'sm' | 'lg'
