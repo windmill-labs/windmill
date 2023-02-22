@@ -97,7 +97,7 @@ export class ResourceFile implements Resource2, PushDiffs {
         );
       }
 
-      console.log(colors.yellow("Creating new resource..."));
+      console.log(colors.yellow.bold("Creating new resource..."));
       await ResourceService.createResource({
         workspace: workspace,
         requestBody: {

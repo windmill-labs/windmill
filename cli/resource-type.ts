@@ -100,7 +100,7 @@ export class ResourceTypeFile implements ResourceI, PushDiffs {
         requestBody: changeset,
       });
     } else {
-      console.log(colors.yellow("Creating new resource type..."));
+      console.log(colors.yellow.bold("Creating new resource type..."));
       await ResourceService.createResourceType({
         workspace: workspace,
         requestBody: {

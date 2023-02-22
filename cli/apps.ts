@@ -74,7 +74,7 @@ export class AppFile implements Resource, PushDiffs {
         requestBody: changeset,
       });
     } else {
-      console.log(colors.yellow("Creating new app..."));
+      console.log(colors.yellow.bold("Creating new app..."));
       await AppService.createApp({
         workspace,
         requestBody: {
