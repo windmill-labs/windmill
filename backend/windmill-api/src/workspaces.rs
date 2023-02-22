@@ -1110,7 +1110,18 @@ where
         .as_object()
         .map(|obj| {
             let mut obj = obj.clone();
-            for key in ["workspace_id", "path", "name", "versions"] {
+            for key in [
+                "workspace_id",
+                "path",
+                "name",
+                "versions",
+                "id",
+                "created_at",
+                "updated_at",
+                "created_by",
+                "updated_by",
+                "edited_at",
+            ] {
                 if obj.contains_key(key) {
                     obj.remove(key);
                 }

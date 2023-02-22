@@ -94,7 +94,6 @@ export class VariableFile implements Resource, PushDiffs {
         v !== null && typeof v !== "undefined"
       );
       if (!hasChanges) {
-        console.log(colors.yellow("! Skipping empty changeset"));
         return;
       }
       await VariableService.updateVariable({

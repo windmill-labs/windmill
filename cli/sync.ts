@@ -192,8 +192,10 @@ async function compareDynFSElement(
     if (m2[k] === undefined) {
       changes.push({ name: "added", path: k, content: v });
     } else if (m2[k] != v) {
-      // await Deno.writeTextFile("/tmp/k", m2[k])
-      // await Deno.writeTextFile("/tmp/v", v)
+      await Deno.writeTextFile("/tmp/k", m2[k])
+      await Deno.writeTextFile("/tmp/v", v)
+      console.log(k)
+      // Deno.exit(1)
       changes.push({ name: "edited", path: k, after: v, before: m2[k] });
     }
   }
@@ -510,6 +512,10 @@ async function push(opts: GlobalOptions & { raw: boolean, yes: boolean }) {
       } else {
         remotePath = parts[0];
       }
+    }
+    if (diffs.length === 0) {
+      console.log("No diffs to apply to " + remotePath)
+      return;
     }
     return file.pushDiffs(workspace, remotePath, diffs);
   }
