@@ -1101,7 +1101,7 @@ struct ArchiveQueryParams {
 }
 
 #[inline]
-pub fn to_string_without_metadata<T>(value: &T) -> Result<String>
+pub fn to_string_without_metadata<T>(value: &T, preserve_extra_perms: bool) -> Result<String>
 where
     T: ?Sized + Serialize,
 {
@@ -1127,6 +1127,10 @@ where
                 if obj.contains_key(key) {
                     obj.remove(key);
                 }
+            }
+
+            if !preserve_extra_perms && obj.contains_key("extra_perms") {
+                obj.remove("extra_perms");
             }
 
             serde_json::to_string_pretty(&obj).ok()
@@ -1166,7 +1170,7 @@ async fn tarball_workspace(
         for folder in folders {
             archive
                 .write_to_archive(
-                    &to_string_without_metadata(&folder).unwrap(),
+                    &to_string_without_metadata(&folder, true).unwrap(),
                     &format!("f/{}/folder.meta.json", folder.name),
                 )
                 .await?;
@@ -1224,7 +1228,7 @@ async fn tarball_workspace(
         .await?;
 
         for resource in resources {
-            let resource_str = &to_string_without_metadata(&resource).unwrap();
+            let resource_str = &to_string_without_metadata(&resource, false).unwrap();
             archive
                 .write_to_archive(&resource_str, &format!("{}.resource.json", resource.path))
                 .await?;
@@ -1241,7 +1245,7 @@ async fn tarball_workspace(
         .await?;
 
         for resource_type in resource_types {
-            let resource_str = &to_string_without_metadata(&resource_type).unwrap();
+            let resource_str = &to_string_without_metadata(&resource_type, false).unwrap();
             archive
                 .write_to_archive(
                     &resource_str,
@@ -1260,7 +1264,7 @@ async fn tarball_workspace(
         .await?;
 
         for flow in flows {
-            let flow_str = &to_string_without_metadata(&flow).unwrap();
+            let flow_str = &to_string_without_metadata(&flow, false).unwrap();
             archive
                 .write_to_archive(&flow_str, &format!("{}.flow.json", flow.path))
                 .await?;
@@ -1276,7 +1280,7 @@ async fn tarball_workspace(
         .await?;
 
         for var in variables {
-            let var_str = &to_string_without_metadata(&var).unwrap();
+            let var_str = &to_string_without_metadata(&var, false).unwrap();
             archive
                 .write_to_archive(&var_str, &format!("{}.variable.json", var.path))
                 .await?;
@@ -1296,7 +1300,7 @@ async fn tarball_workspace(
         .await?;
 
         for app in apps {
-            let app_str = &to_string_without_metadata(&app).unwrap();
+            let app_str = &to_string_without_metadata(&app, false).unwrap();
             archive
                 .write_to_archive(&app_str, &format!("{}.app.json", app.path))
                 .await?;
