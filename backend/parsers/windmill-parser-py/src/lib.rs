@@ -17,10 +17,8 @@ use serde_json::json;
 use windmill_common::error;
 use windmill_parser::{json_to_typ, Arg, MainArgSignature, Typ};
 
-use rustpython_parser::{
-    ast::{Constant, ExprKind, Located, StmtKind},
-    parser,
-};
+use rustpython_parser as parser;
+use rustpython_parser::ast::{Constant, ExprKind, Located, StmtKind};
 
 const DEF_MAIN: &str = "def main(";
 const FUNCTION_CALL: &str = "<function call>";
