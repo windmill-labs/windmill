@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.67.1](https://github.com/windmill-labs/windmill/compare/v1.67.0...v1.67.1) (2023-02-22)
+
+
+### Bug Fixes
+
+* **cli:** coloring nits ([3fa24ad](https://github.com/windmill-labs/windmill/commit/3fa24adad0a07ba2f469c545b28251b035efdf90))
+
 ## [1.67.0](https://github.com/windmill-labs/windmill/compare/v1.66.1...v1.67.0) (2023-02-22)
 
 
