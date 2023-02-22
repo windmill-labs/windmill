@@ -33,7 +33,7 @@ import { ResourceFile } from "./resource.ts";
 import { FlowFile } from "./flow.ts";
 import { VariableFile } from "./variable.ts";
 import { handleFile } from "./script.ts";
-
+import { equal } from "https://deno.land/x/equal/mod.ts";
 
 type DynFSElement = {
   isDirectory: boolean;
@@ -192,12 +192,12 @@ async function compareDynFSElement(
   for (const [k, v] of Object.entries(m1)) {
     if (m2[k] === undefined) {
       changes.push({ name: "added", path: k, content: v });
-    } else if (m2[k] != v) {
-      await Deno.writeTextFile("/tmp/k", m2[k])
-      await Deno.writeTextFile("/tmp/v", v)
-      console.log(k)
-      if (k.includes("variable"))
-        Deno.exit(1)
+    } else if (m2[k] != v && (!k.endsWith(".json") || !equal(JSON.parse(v), JSON.parse(m2[k])))) {
+      // await Deno.writeTextFile("/tmp/k", m2[k])
+      // await Deno.writeTextFile("/tmp/v", v)
+      // console.log(k)
+      // if (k.includes("flow"))
+      //   Deno.exit(1)
       changes.push({ name: "edited", path: k, after: v, before: m2[k] });
     }
   }
@@ -245,7 +245,7 @@ async function pull(
   const changes = await compareDynFSElement(remote, local, await ignoreF(), opts.raw)
 
 
-  console.log(`${changes.length} changes to apply`);
+  console.log(`remote -> local: ${changes.length} changes to apply`);
   if (changes.length > 0) {
 
     prettyChanges(changes)
@@ -276,7 +276,6 @@ async function pull(
               { cyclesFix: false },
             )
 
-          console.log(diffs)
           console.log(`Editing ${getTypeStrFromPath(change.path)} json ${change.path}`)
           await applyDiff(
             diffs,
@@ -301,10 +300,16 @@ async function pull(
           await Deno.copyFile(target, stateTarget);
         }
       } else if (change.name === "deleted") {
-        console.log(`Deleting ${getTypeStrFromPath(change.path)} ${change.path}`)
-        await Deno.remove(target)
-        if (!opts.raw) {
-          await Deno.remove(stateTarget);
+        try {
+          console.log(`Deleting ${getTypeStrFromPath(change.path)} ${change.path}`)
+          await Deno.remove(target)
+          if (!opts.raw) {
+            await Deno.remove(stateTarget);
+          }
+        } catch (e) {
+          if (!opts.raw) {
+            await Deno.remove(stateTarget);
+          }
         }
       }
     }
@@ -381,22 +386,26 @@ function removeSuffix(str: string, suffix: string) {
   return str.slice(0, str.length - suffix.length);
 }
 
-async function push(opts: GlobalOptions & { raw: boolean, yes: boolean }) {
+async function push(opts: GlobalOptions & { raw: boolean, yes: boolean, skipPull: boolean }) {
+
 
   if (!opts.raw) {
-    await ensureDir(path.join(Deno.cwd(), ".wmill"));
+    if (!opts.skipPull) {
+      console.log("You need to be up-to-date before pushing, pulling first.")
+      await pull(opts)
+    }
   }
 
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
 
-  console.log("Computing diff local vs remote ...");
+  console.log("Computing diff remote vs local ...");
   const remote = ZipFSElement((await downloadZip(workspace))!)
   const local = await FSFSElement(path.join(Deno.cwd(), ""))
   const changes = await compareDynFSElement(local, remote, await ignoreF(), opts.raw)
 
-  console.log(`${changes.length} changes to apply`);
+  console.log(`local -> remote: ${changes.length} changes to apply`);
   if (changes.length > 0) {
 
     prettyChanges(changes)
@@ -458,29 +467,30 @@ async function push(opts: GlobalOptions & { raw: boolean, yes: boolean }) {
         }
         console.log(`Deleting ${getTypeStrFromPath(change.path)} ${change.path}`)
         const typ = getTypeStrFromPath(change.path)
+        const workspaceId = workspace.workspaceId;
         switch (typ) {
           case "script": {
-            const script = await ScriptService.getScriptByPath({ workspace: workspace.name, path: removeSuffix(change.path, ".script.json") })
-            await ScriptService.deleteScriptByHash({ workspace: workspace.name, hash: script.hash })
+            const script = await ScriptService.getScriptByPath({ workspace: workspaceId, path: removeSuffix(change.path, ".script.json") })
+            await ScriptService.deleteScriptByHash({ workspace: workspaceId, hash: script.hash })
             break;
           }
           case "folder":
-            await FolderService.deleteFolder({ workspace: workspace.name, name: change.path.split('/')[1] })
+            await FolderService.deleteFolder({ workspace: workspaceId, name: change.path.split('/')[1] })
             break;
           case "resource":
-            await ResourceService.deleteResource({ workspace: workspace.name, path: removeSuffix(change.path, ".resource.json") })
+            await ResourceService.deleteResource({ workspace: workspaceId, path: removeSuffix(change.path, ".resource.json") })
             break;
           case "resource-type":
-            await ResourceService.deleteResourceType({ workspace: workspace.name, path: removeSuffix(change.path, ".resource-type.json") })
+            await ResourceService.deleteResourceType({ workspace: workspaceId, path: removeSuffix(change.path, ".resource-type.json") })
             break
           case "flow":
-            await FlowService.archiveFlowByPath({ workspace: workspace.name, path: removeSuffix(change.path, ".flow.json") })
+            await FlowService.archiveFlowByPath({ workspace: workspaceId, path: removeSuffix(change.path, ".flow.json") })
             break
           case "app":
-            await AppService.deleteApp({ workspace: workspace.name, path: removeSuffix(change.path, ".app.json") })
+            await AppService.deleteApp({ workspace: workspaceId, path: removeSuffix(change.path, ".app.json") })
             break
           case "variable":
-            await VariableService.deleteVariable({ workspace: workspace.name, path: removeSuffix(change.path, ".variable.json") })
+            await VariableService.deleteVariable({ workspace: workspaceId, path: removeSuffix(change.path, ".variable.json") })
             break
           default:
             break;
@@ -523,7 +533,8 @@ async function push(opts: GlobalOptions & { raw: boolean, yes: boolean }) {
     try {
       await file.pushDiffs(workspace, remotePath, diffs);
     } catch (e) {
-      console.error("Failing to apply diffs to " + remotePath, e)
+      console.error("Failing to apply diffs to " + remotePath)
+      console.error(e.body)
     }
   }
 }
@@ -540,8 +551,9 @@ const command = new Command()
   .description(
     "Push any local changes and apply them remotely. Use --raw for usage without local state tracking.",
   )
-  .option("--yes", "Pull without needing confirmation")
-  .option("--raw", "Pull without using state, just overwrite.")
+  .option("--skip-pull", "Push without pulling first")
+  .option("--yes", "Push without needing confirmation")
+  .option("--raw", "Push without using state, just overwrite.")
   .action(push as any);
 
 export default command;

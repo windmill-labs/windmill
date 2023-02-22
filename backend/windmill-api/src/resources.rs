@@ -142,7 +142,7 @@ async fn list_resources(
         .join("account")
         .on("variable.account = account.id AND account.workspace_id = variable.workspace_id")
         .order_by("path", true)
-        .and_where("resource.workspace_id = ? OR resource.workspace_id = 'starter'".bind(&w_id))
+        .and_where("resource.workspace_id = ?".bind(&w_id))
         .offset(offset)
         .limit(per_page)
         .clone();
@@ -187,7 +187,7 @@ async fn get_resource(
         FROM resource
         LEFT JOIN variable ON variable.path = resource.path AND variable.workspace_id = resource.workspace_id
         LEFT JOIN account ON variable.account = account.id AND account.workspace_id = resource.workspace_id
-        WHERE resource.path = $1 AND (resource.workspace_id = $2 OR resource.workspace_id = 'starter')",
+        WHERE resource.path = $1 AND resource.workspace_id = $2",
         path.to_owned(),
         &w_id
     )
@@ -226,8 +226,7 @@ async fn get_resource_value(
     let mut tx = user_db.begin(&authed).await?;
 
     let value_o = sqlx::query_scalar!(
-        "SELECT value from resource WHERE path = $1 AND (workspace_id = $2 OR workspace_id = \
-         'starter')",
+        "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
         path.to_owned(),
         &w_id
     )
@@ -478,7 +477,7 @@ async fn list_resource_types(
 ) -> JsonResult<Vec<ResourceType>> {
     let rows = sqlx::query_as!(
         ResourceType,
-        "SELECT * from resource_type WHERE (workspace_id = $1 OR workspace_id = 'starter' OR workspace_id = 'admins') ORDER \
+        "SELECT * from resource_type WHERE (workspace_id = $1 OR workspace_id = 'admins') ORDER \
          BY name",
         &w_id
     )
@@ -493,7 +492,7 @@ async fn list_resource_types_names(
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<String>> {
     let rows = sqlx::query_scalar!(
-        "SELECT name from resource_type WHERE (workspace_id = $1 OR workspace_id = 'starter' OR workspace_id = 'admins') \
+        "SELECT name from resource_type WHERE (workspace_id = $1 OR workspace_id = 'admins') \
          ORDER BY name",
         &w_id
     )
@@ -512,8 +511,7 @@ async fn get_resource_type(
 
     let resource_type_o = sqlx::query_as!(
         ResourceType,
-        "SELECT * from resource_type WHERE name = $1 AND (workspace_id = $2 OR workspace_id = \
-         'starter' OR workspace_id = 'admins')",
+        "SELECT * from resource_type WHERE name = $1 AND (workspace_id = $2 OR workspace_id = 'admins')",
         &name,
         &w_id
     )
@@ -530,8 +528,7 @@ async fn exists_resource_type(
     Path((w_id, name)): Path<(String, String)>,
 ) -> JsonResult<bool> {
     let exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM resource_type WHERE name = $1 AND (workspace_id = $2 OR workspace_id = \
-            'starter' OR workspace_id = 'admins'))",
+        "SELECT EXISTS(SELECT 1 FROM resource_type WHERE name = $1 AND (workspace_id = $2 OR workspace_id = 'admins'))",
         name,
         w_id
     )

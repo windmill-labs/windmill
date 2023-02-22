@@ -152,8 +152,7 @@ pub async fn get_path_for_hash<'c>(
     hash: i64,
 ) -> error::Result<String> {
     let path = sqlx::query_scalar!(
-        "select path from script where hash = $1 AND (workspace_id = $2 OR workspace_id = \
-         'starter')",
+        "select path from script where hash = $1 AND workspace_id = $2",
         hash,
         w_id
     )
