@@ -1,5 +1,6 @@
 import { GlobalOptions } from "./types.ts";
 import { colors, getAvailablePort, Secret, Select } from "./deps.ts";
+import { open } from 'https://deno.land/x/open/index.ts';
 
 export async function loginInteractive(remote: string) {
   let token: string | undefined;
@@ -47,13 +48,18 @@ export async function browserLogin(
   }
 
   const server = Deno.listen({ transport: "tcp", port });
-  console.log(`Login by going to ${baseUrl}user/cli?port=${port}`);
+  const url = `${baseUrl}user/cli?port=${port}`
+  console.log(`Login by going to ${url}`);
+  try {
+    open(url)
+    console.log("Opened browser for you");
+  } catch { }
   const firstConnection = await server.accept();
   const httpFirstConnection = Deno.serveHttp(firstConnection);
   const firstRequest = (await httpFirstConnection.nextRequest())!;
   const params = new URL(firstRequest.request.url!).searchParams;
   const token = params.get("token");
-  const _workspace = params.get("workspace");
+  // const _workspace = params.get("workspace");
   await firstRequest?.respondWith(
     Response.redirect(baseUrl + "user/cli-success", 302),
   );

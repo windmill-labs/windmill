@@ -1121,6 +1121,7 @@ where
                 "created_by",
                 "updated_by",
                 "edited_at",
+                "edited_by",
                 "archived",
             ] {
                 if obj.contains_key(key) {

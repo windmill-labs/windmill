@@ -195,7 +195,7 @@ async function compareDynFSElement(
       await Deno.writeTextFile("/tmp/k", m2[k])
       await Deno.writeTextFile("/tmp/v", v)
       console.log(k)
-      // Deno.exit(1)
+      Deno.exit(1)
       changes.push({ name: "edited", path: k, after: v, before: m2[k] });
     }
   }
@@ -489,7 +489,7 @@ async function push(opts: GlobalOptions & { raw: boolean, yes: boolean }) {
   }
 
 
-  function applyDiff(
+  async function applyDiff(
     workspace: string,
     remotePath: string,
     file:
@@ -517,7 +517,11 @@ async function push(opts: GlobalOptions & { raw: boolean, yes: boolean }) {
       console.log("No diffs to apply to " + remotePath)
       return;
     }
-    return file.pushDiffs(workspace, remotePath, diffs);
+    try {
+      await file.pushDiffs(workspace, remotePath, diffs);
+    } catch (e) {
+      console.error("Failing to apply diffs to " + remotePath, e)
+    }
   }
 }
 
