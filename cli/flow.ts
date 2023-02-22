@@ -178,16 +178,14 @@ async function list(opts: GlobalOptions & { showArchived?: boolean }) {
   }
 
   new Table()
-    .header(["path", "summary", "edited at", "edited by"])
+    .header(["path", "summary", "edited by"])
     .padding(2)
     .border(true)
     .body(
       total.map((x) => [
         x.path,
         x.summary,
-        x.edited_at,
         x.edited_by,
-        x.description ?? "-",
       ]),
     )
     .render();
