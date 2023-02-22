@@ -1,6 +1,22 @@
 # Changelog
 
 
+## [1.66.1](https://github.com/windmill-labs/windmill/compare/v1.66.0...v1.66.1) (2023-02-22)
+
+
+### Bug Fixes
+
+* **cli:** delete workspace instead of archiving them ([70dfc8b](https://github.com/windmill-labs/windmill/commit/70dfc8b8d0293d80da7db14caa1b9eb0ed67653d))
+
+## [1.66.0](https://github.com/windmill-labs/windmill/compare/v1.65.0...v1.66.0) (2023-02-22)
+
+
+### Features
+
+* add delete flows ([e81f7bd](https://github.com/windmill-labs/windmill/commit/e81f7bd7239b73710da2a4ddec0da7805c13da06))
+* CLI refactor v1 ([e31d2ae](https://github.com/windmill-labs/windmill/commit/e31d2ae27f886e774ffc429eea80057f4f9f4213))
+* **frontend:** Add image app component ([#1213](https://github.com/windmill-labs/windmill/issues/1213)) ([a4b773a](https://github.com/windmill-labs/windmill/commit/a4b773af294554c5787f02ebda363c8d9a3eff1b))
+
 ## [1.65.0](https://github.com/windmill-labs/windmill/compare/v1.64.0...v1.65.0) (2023-02-21)
 
 
