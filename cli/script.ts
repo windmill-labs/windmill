@@ -266,16 +266,14 @@ async function list(opts: GlobalOptions & { showArchived?: boolean }) {
   }
 
   new Table()
-    .header(["path", "hash", "kind", "language", "created at", "created by"])
+    .header(["path", "summary", "language", "created by"])
     .padding(2)
     .border(true)
     .body(
       total.map((x) => [
         x.path,
-        x.hash,
-        x.kind,
+        x.summary,
         x.language,
-        x.created_at,
         x.created_by,
       ]),
     )
