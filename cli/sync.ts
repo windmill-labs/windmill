@@ -313,7 +313,7 @@ async function pull(
         }
       }
     }
-    console.log(colors.green.underline(`Done! All ${changes.length} changes pushed to the remote.`));
+    console.log(colors.green.underline(`Done! All ${changes.length} changes applied locally.`));
   }
 
 
@@ -484,7 +484,7 @@ async function push(opts: GlobalOptions & { raw: boolean, yes: boolean, skipPull
             await ResourceService.deleteResourceType({ workspace: workspaceId, path: removeSuffix(change.path, ".resource-type.json") })
             break
           case "flow":
-            await FlowService.archiveFlowByPath({ workspace: workspaceId, path: removeSuffix(change.path, ".flow.json") })
+            await FlowService.deleteFlowByPath({ workspace: workspaceId, path: removeSuffix(change.path, ".flow.json") })
             break
           case "app":
             await AppService.deleteApp({ workspace: workspaceId, path: removeSuffix(change.path, ".app.json") })
@@ -495,9 +495,12 @@ async function push(opts: GlobalOptions & { raw: boolean, yes: boolean, skipPull
           default:
             break;
         }
+        try {
+          Deno.remove(stateTarget)
+        } catch { }
       }
     }
-    console.log(colors.green.underline(`Done! All ${changes.length} changes applied locally.`));
+    console.log(colors.green.underline(`Done! All ${changes.length} changes pushed to the remote workspace.`));
 
   }
 
