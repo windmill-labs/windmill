@@ -171,6 +171,9 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 				subFieldType: 'text',
 				value: ['First Tab', 'Second Tab']
 			},
+			customCss: {
+				container: { class: '', style: '' },
+			} as const,
 			card: false,
 			subGrids: [[]]
 		}

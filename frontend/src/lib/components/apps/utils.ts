@@ -3,10 +3,9 @@ import { FlowService, ScriptService } from '$lib/gen'
 import { inferArgs } from '$lib/infer'
 import { emptySchema } from '$lib/utils'
 import type { AppComponent } from './editor/component'
-
 import type { AppInput, InputType, ResultAppInput, StaticAppInput } from './inputType'
 import type { Output } from './rx'
-import type { App, GridItem } from './types'
+import type { App, ComponentCustomCSS, GridItem } from './types'
 
 export async function loadSchema(
 	workspace: string,
@@ -211,4 +210,27 @@ export function toPascalCase(text: string) {
 
 export function toKebabCase(text: string) {
 	return text.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
+}
+
+export function concatCustomStyles<T extends string = string>(
+	appCss?: ComponentCustomCSS<T>,
+	componentCss?: ComponentCustomCSS<T>
+) {
+	const customStyle: Record<string, string> = {}
+	if(componentCss) {
+		Object.keys(componentCss).forEach(key => {
+			const k = key as keyof typeof componentCss
+	
+			// This is the general style of the component type
+			const appStyle = appCss?.[k]?.style?.trim() || ''
+			const appEnding = appStyle?.endsWith(';') || !appStyle ? ' ' : '; '
+			
+			// This is the custom style of the component instance
+			const compStyle = componentCss[k]?.style?.trim() || ''
+			const compEnding = compStyle?.endsWith(';') || !compStyle ? ' ' : ';'
+	
+			customStyle[k] = (appStyle + appEnding + compStyle + compEnding).trim()
+		})
+	}
+	return customStyle as Record<T, string>
 }

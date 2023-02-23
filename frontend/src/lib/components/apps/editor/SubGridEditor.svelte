@@ -2,12 +2,16 @@
 	import { classNames } from '$lib/utils'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Grid from '@windmill-labs/svelte-grid'
+	import { twMerge } from 'tailwind-merge'
 	import { columnConfiguration, isFixed, toggleFixed } from '../gridUtils'
 	import type { AppEditorContext, GridItem } from '../types'
 	import Component from './component/Component.svelte'
 
 	export let subGrid: GridItem[]
 	export let containerHeight: number
+	let classes = ''
+	export { classes as class}
+	export let style = ''
 
 	const dispatch = createEventDispatcher()
 
@@ -73,11 +77,14 @@
 
 <div class="relative w-full subgrid " bind:this={container}>
 	<div
-		class="px-4 pt-4 overflow-auto  {$connectingInput?.opened ? '' : ''}"
+		class={twMerge(
+			'px-4 pt-4 overflow-auto',
+			classes ?? '',
+		)}
 		on:pointerdown|stopPropagation={onpointerdown}
 		on:pointerleave={onpointerup}
 		on:pointerup={onpointerup}
-		style="height: {containerHeight}px;"
+		style="height: {containerHeight}px; {style ?? ''}"
 	>
 		<div>
 			<Grid
