@@ -13,7 +13,7 @@
 	import AppTableFooter from './AppTableFooter.svelte'
 	import { tableOptions } from './tableOptions'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
-	import type { ButtonComponent } from '../../../editor/Component.svelte'
+	import type { ButtonComponent } from '../../../editor/component'
 
 	export let id: string
 	export let componentInput: AppInput | undefined

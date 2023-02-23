@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import type { AppEditorContext } from '../types'
-	import type { TableComponent } from './Component.svelte'
+	import type { TableComponent } from './component'
 	import ComponentPanel from './settingsPanel/ComponentPanel.svelte'
 
 	export let component: TableComponent
