@@ -12,24 +12,22 @@
 	function listAllSubGrids(root: GridItem[]): FocusedGrid[] {
 		const subGrids: FocusedGrid[] = []
 
-		function findSubGrids(a: GridItem): void {
-			if (a.data.subGrids) {
-				for (const subGrid of a.data.subGrids) {
-					subGrids.push({
-						parentComponentId: a.id,
-						subGridIndex: a.data.subGrids.indexOf(subGrid)
-					})
-					for (const innerA of subGrid) {
-						findSubGrids(innerA)
+		function findSubGrids(gridItem: GridItem): void {
+			if (gridItem.data.subGrids) {
+				for (const subGrid of gridItem.data.subGrids) {
+					if (gridItem.id !== component?.id) {
+						subGrids.push({
+							parentComponentId: gridItem.id,
+							subGridIndex: gridItem.data.subGrids.indexOf(subGrid)
+						})
 					}
+
+					subGrid.forEach(findSubGrids)
 				}
 			}
 		}
 
-		for (const a of root) {
-			findSubGrids(a)
-		}
-
+		root.forEach(findSubGrids)
 		return subGrids.flat()
 	}
 
