@@ -12,7 +12,7 @@ export async function downloadZip(
 
   const zipResponse = await fetch(
     workspace.remote + "api/w/" + workspace.workspaceId +
-      "/workspaces/tarball?archive_type=zip",
+    "/workspaces/tarball?archive_type=zip",
     {
       headers: requestHeaders,
       method: "GET",
@@ -25,8 +25,7 @@ export async function downloadZip(
         "Failed to request tarball from API " + zipResponse.statusText,
       ),
     );
-    console.log(await zipResponse.text());
-    return undefined;
+    throw new Error(await zipResponse.text());
   }
   const blob = await zipResponse.blob();
   return await JSZip.loadAsync(blob);

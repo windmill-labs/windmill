@@ -142,7 +142,7 @@ async function push(opts: Options, filePath: string, remotePath: string) {
   await requireLogin(opts);
 
   await pushFlow(filePath, workspace.remote, remotePath);
-  console.log(colors.bold.underline.green("Flow successfully pushed"));
+  console.log(colors.bold.underline.green("Flow pushed"));
 }
 
 export async function pushFlow(
