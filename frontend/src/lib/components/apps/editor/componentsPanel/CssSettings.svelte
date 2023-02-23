@@ -1,17 +1,23 @@
 <script lang="ts">
+	import { onMount, getContext } from 'svelte'
+	import { LayoutDashboardIcon, MousePointer2, CurlyBraces } from 'lucide-svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { emptyString } from '$lib/utils'
-	import { faAngleDown } from '@fortawesome/free-solid-svg-icons'
-	import { LayoutDashboardIcon } from 'lucide-svelte'
-	import { getContext } from 'svelte'
-	import Icon from 'svelte-awesome'
-	import { slide } from 'svelte/transition'
+	import { Tab, TabContent, Tabs } from '../../../common'
 	import type { AppEditorContext } from '../../types'
 	import { components, type AppComponent } from '../Component.svelte'
-	import { isOpenStoreCss } from './store'
+	import ListItem from './ListItem.svelte'
+	import { isOpenStore } from './store'
+	import CssProperty from './CssProperty.svelte'
 
+	interface CustomCSSEntry {
+		type: 'app' | AppComponent['type'];
+		name: string;
+		icon: any;
+		ids: string[];
+	}
+
+	const TITLE_PREFIX = 'Css.' as const
 	const { app } = getContext<AppEditorContext>('AppEditorContext')
 
 	let rawCode = ''
@@ -38,28 +44,23 @@
 		}
 	}
 
-	const entries: { type: 'app' | AppComponent['type']; name: string; icon: any; ids: string[] }[] =
-		[
-			{
-				type: 'app' as 'app' | AppComponent['type'],
-				name: 'App',
-				icon: LayoutDashboardIcon,
-				ids: ['viewer', 'grid', 'component']
-			}
-		].concat(
-			Object.entries(components).map((c) => ({
-				type: c[1].data.type as 'app' | AppComponent['type'],
-				name: c[1].name,
-				icon: c[1].icon,
-				ids: c[1].cssIds ?? []
-			}))
-		)
+	const entries: CustomCSSEntry[] = [
+		{
+			type: 'app',
+			name: 'App',
+			icon: LayoutDashboardIcon,
+			ids: ['viewer', 'grid', 'component']
+		},
+		...Object.values(components).map(({ name, icon, data: { type, customCss }}) => ({
+			type,
+			name,
+			icon,
+			ids: Object.keys(customCss ?? {}) ?? []
+		}))
+	]
 	let isCustom: Record<string, boolean> = Object.fromEntries(
 		Object.keys(entries).map((k) => [k, false])
 	)
-	if (Object.keys($isOpenStoreCss).length == 0) {
-		$isOpenStoreCss = Object.fromEntries(Object.keys(entries).map((k) => [k, false]))
-	}
 
 	let newCss = $app.css ?? {}
 	entries.forEach((e) => {
@@ -82,73 +83,78 @@
 	})
 	//@ts-ignore
 	$app.css = newCss
+
+	onMount(() => {
+		isOpenStore.addItems(
+			[{ name: 'App' }, ...Object.values(components)].map(component => {
+				return { [TITLE_PREFIX + component.name]: false }
+			})
+		)
+	})
 </script>
 
-<div class="flex flex-row-reverse px-2">
-	<Toggle
-		on:change={(e) => switchTab(e.detail)}
-		options={{
-			right: 'As JSON'
-		}}
-	/>
-</div>
-
-{#if !viewJsonSchema}
-	<div class="flex flex-col gap-2 p-1">
-		{#each entries as { type, name, icon, ids }}
-			{#if ids.length > 0}
-				<div>
-					<button
-						on:click|preventDefault={() => ($isOpenStoreCss[type] = !$isOpenStoreCss[type])}
-						class="w-full flex justify-between items-center px-1 py-1 
-				rounded-sm duration-200 hover:bg-gray-100"
-					>
-						<h3 class="inline-flex gap-2  {isCustom[type] ? 'text-gray-800' : 'text-gray-500'}"
-							>{name} <svelte:component this={icon} />
-						</h3>
-						<Icon
-							data={faAngleDown}
-							class="rotate-0 duration-300 {$isOpenStoreCss[type] ? '!rotate-180' : ''}"
-						/>
-					</button>
-					{#if $isOpenStoreCss[type]}
-						<div transition:slide|local={{ duration: 300 }} class="flex flex-col px-2 border">
+<Tabs
+	selected="ui"
+	on:selected={(e) => switchTab(e.detail === 'json')}
+	class="relative"
+>
+	<Tab value="ui" size="xs" class="grow">
+		<div class="m-1 center-center">
+			<MousePointer2 size={16} />
+			<span class="pl-1">UI</span>
+		</div>
+	</Tab>
+	<Tab value="json" size="xs" class="grow">
+		<div class="m-1 center-center">
+			<CurlyBraces size={16} />
+			<span class="pl-1">JSON</span>
+		</div>
+	</Tab>
+	<div slot="content" class="h-full overflow-y-auto">
+		<TabContent value="ui">
+			{#each entries as { type, name, icon, ids }}
+				{#if ids.length > 0}
+					<ListItem title={name} prefix={TITLE_PREFIX}>
+						<div slot="title" class="flex items-center">
+							<svelte:component this={icon} size={18} />
+							<span class="ml-1">
+								{name}
+							</span>
+						</div>
+						<div class="pb-2">
 							{#each ids as id}
-								<div class="mb-2">
-									<div class="mt-1 font-semibold">{id}</div>
-									{#if $app?.css?.[type]?.[id]}
-										<span class="text-xs">Style</span>
-										<input
-											type="text"
+								<div class="mb-3">
+									{#if $app?.css?.[type][id]}
+										<CssProperty
+											name={id}
+											bind:value={$app.css[type][id]}
 											on:focus={() => (isCustom[type] = true)}
-											bind:value={$app.css[type][id].style}
-										/>
-										<span class="text-xs">Tailwind classes</span>
-										<input
-											type="text"
-											on:focus={() => (isCustom[type] = true)}
-											bind:value={$app.css[type][id].class}
 										/>
 									{/if}
 								</div>
 							{/each}
 						</div>
-					{/if}
-				</div>
+					</ListItem>
+				{/if}
+			{/each}
+		</TabContent>
+		<TabContent value="json">
+			{#if !emptyString(jsonError)}
+				<span class="text-red-400 text-xs mb-1 flex flex-row-reverse">
+					{jsonError}
+				</span>
+			{:else}
+				<div class="py-2" />
 			{/if}
-		{/each}
+			<div class="h-full w-full py-1">
+				<SimpleEditor
+					autoHeight
+					class="editor"
+					lang="json"
+					bind:code={rawCode}
+					fixedOverflowWidgets={false}
+				/>
+			</div>
+		</TabContent>
 	</div>
-{:else}
-	{#if !emptyString(jsonError)}<span class="text-red-400 text-xs mb-1 flex flex-row-reverse"
-			>{jsonError}</span
-		>{:else}<div class="py-2" />{/if}
-	<div class="h-full w-full border p-1 rounded">
-		<SimpleEditor
-			autoHeight
-			class="editor"
-			lang="json"
-			bind:code={rawCode}
-			fixedOverflowWidgets={false}
-		/>
-	</div>
-{/if}
+</Tabs>

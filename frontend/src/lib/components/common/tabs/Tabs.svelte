@@ -41,7 +41,7 @@
 			$$props.class
 		)}
 	>
-		<slot />
+		<slot {selected} />
 	</div>
 </div>
 <slot name="content" />

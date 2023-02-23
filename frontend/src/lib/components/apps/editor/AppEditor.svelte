@@ -194,21 +194,21 @@
 				</Pane>
 				<Pane size={21} minSize={5} maxSize={33}>
 					<div class="relative flex flex-col h-full">
-						<Tabs bind:selected={selectedTab}>
-							<Tab value="insert" size="xs">
-								<div class="m-1 flex flex-row gap-2">
+						<Tabs bind:selected={selectedTab} class="!border-b-2 !border-gray-200">
+							<Tab value="insert" size="xs" class="grow">
+								<div class="m-1 center-center gap-2">
 									<Icon data={faPlus} />
 									<span>Insert</span>
 								</div>
 							</Tab>
-							<Tab value="settings" size="xs">
-								<div class="m-1 flex flex-row gap-2">
+							<Tab value="settings" size="xs" class="grow">
+								<div class="m-1 center-center gap-2">
 									<Icon data={faSliders} />
 									<span>Settings</span>
 								</div>
 							</Tab>
-							<Tab value="css" size="xs">
-								<div class="m-1 flex flex-row gap-2">
+							<Tab value="css" size="xs" class="grow">
+								<div class="m-1 center-center gap-2">
 									<Icon data={faCode} />
 									<span>CSS</span>
 								</div>
@@ -218,7 +218,9 @@
 									{#if $selectedComponent !== undefined}
 										<SettingsPanel />
 									{:else}
-										<div class="p-2 min-w-[150px] text-sm">No component selected.</div>
+										<div class="min-w-[150px] text-sm text-gray-500 text-center py-8 px-2">
+											Select a component to see the settings&nbsp;for&nbsp;it
+										</div>
 									{/if}
 								</TabContent>
 								<TabContent value="insert">

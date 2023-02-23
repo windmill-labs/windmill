@@ -18,6 +18,7 @@
 	import RunnableInputEditor from './inputEditor/RunnableInputEditor.svelte'
 	import TemplateEditor from '$lib/components/TemplateEditor.svelte'
 	import type { AppComponent } from '../Component.svelte'
+	import CssProperty from '../componentsPanel/CssProperty.svelte'
 
 	export let component: AppComponent | undefined
 	export let onDelete: (() => void) | undefined = undefined
@@ -170,14 +171,12 @@
 
 		{#if Object.keys(component.customCss ?? {}).length > 0}
 			<PanelSection title="Custom CSS">
-				{#each Object.entries(component.customCss ?? {}) as [key, value]}
-					<div class="mb-2">
-						<div class="mt-1 font-semibold">{key}</div>
-						<span class="text-xs">Style</span>
-						<input type="text" bind:value={value.style} />
-						<span class="text-xs">Tailwind classes</span>
-						<input type="text" bind:value={value.class} />
-					</div>
+				{#each Object.keys(component.customCss ?? {}) as name}
+					{#if component?.customCss?.[name]}
+						<div class="mb-2">
+							<CssProperty {name} bind:value={component.customCss[name]} />
+						</div>
+					{/if}
 				{/each}
 			</PanelSection>
 		{/if}
