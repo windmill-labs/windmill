@@ -59,7 +59,7 @@
 			</div>
 		{/if}
 	{:else if componentInput.fieldType === 'array'}
-		<ArrayStaticInputEditor bind:componentInput />
+		<ArrayStaticInputEditor bind:componentInput on:deleteArrayItem />
 	{:else}
 		<input type="text" placeholder="Static value" bind:value={componentInput.value} />
 	{/if}

@@ -1,61 +1,15 @@
 <script lang="ts">
 	import type { AppEditorContext, GridItem } from '../../types'
-	import gridHelp from '@windmill-labs/svelte-grid/src/utils/helper'
 	import { getContext, onMount } from 'svelte'
 	import { getNextId } from '$lib/components/flows/flowStateUtils'
 	import { isOpenStore } from './store'
-	import { gridColumns } from '../../gridUtils'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
-	import {
-		components as componentsRecord,
-		COMPONENT_SETS,
-		getRecommendedDimensionsByComponent,
-		type AppComponent
-	} from '../component'
+	import { components as componentsRecord, COMPONENT_SETS, type AppComponent } from '../component'
 	import ListItem from './ListItem.svelte'
+	import { insertNewGridItem, createNewGridItem, getNextGridItemId } from '../../utils'
 
 	const TITLE_PREFIX = 'Component.' as const
 	const { app, selectedComponent, focusedGrid } = getContext<AppEditorContext>('AppEditorContext')
-
-	// The grid is needed to find a space for the new component
-	function createNewGridItem(grid: GridItem[], id: string, appComponentType: string): GridItem {
-		const appComponent = componentsRecord[appComponentType].data
-
-		appComponent.id = id
-
-		const newComponent = {
-			fixed: false,
-			resizable: true,
-			draggable: true,
-			customDragger: false,
-			customResizer: false,
-			x: 0,
-			y: 0
-		}
-
-		let newData: AppComponent = JSON.parse(JSON.stringify(appComponent))
-
-		const newItem: GridItem = {
-			data: newData,
-			id: id
-		}
-
-		gridColumns.forEach((column) => {
-			const rec = getRecommendedDimensionsByComponent(appComponent.type, column)
-
-			newItem[column] = {
-				...newComponent,
-				min: { w: 1, h: 1 },
-				max: { w: column, h: 100 },
-				w: rec.w,
-				h: rec.h
-			}
-			const position = gridHelp.findSpace(newItem, grid, column) as { x: number; y: number }
-			newItem[column] = { ...newItem[column], ...position }
-		})
-
-		return newItem
-	}
 
 	function addComponent(appComponentType: AppComponent['type']): void {
 		// When a new component is added, we need to mark the app as dirty,
@@ -63,36 +17,20 @@
 		$dirtyStore = true
 
 		const grid = $app.grid ?? []
+		const id = getNextGridItemId(grid)
 
-		const gridItemIds = grid
-			.map((gridItem: GridItem) => {
-				const subGrids = gridItem.data.subGrids ?? []
-				return [
-					gridItem.data.id,
-					...subGrids.map((subGrid: GridItem[]) =>
-						subGrid.map((gridItem: GridItem) => gridItem.data.id)
-					)
-				]
-			})
-			.flat(2)
-
-		const id = getNextId(gridItemIds)
+		const data = componentsRecord[appComponentType].data
 
 		if ($focusedGrid) {
 			const { parentComponentId, subGridIndex } = $focusedGrid
 
-			const gridItemIndex = $app.grid.findIndex((gridItem) => gridItem.id === parentComponentId)
-			const subGrids = $app.grid[gridItemIndex].data.subGrids ?? []
-			const newItem = createNewGridItem(subGrids[subGridIndex] ?? [], id, appComponentType)
-			const subGrid = subGrids[subGridIndex] ?? []
-
-			$app.grid[gridItemIndex].data.subGrids[subGridIndex] = [...subGrid, newItem]
-			$selectedComponent = id
+			$app.grid = insertNewGridItem($app.grid, parentComponentId, subGridIndex, id, data)
 		} else {
-			const newItem = createNewGridItem(grid, id, appComponentType)
+			const newItem = createNewGridItem(grid, id, data)
 			$app.grid = [...grid, newItem]
-			$selectedComponent = id
 		}
+
+		$selectedComponent = id
 	}
 
 	onMount(() => {
@@ -119,9 +57,7 @@
 				{/each}
 			</div>
 		{:else}
-			<div class="text-xs text-gray-500 py-1 px-2">
-				There are no components in this group yet
-			</div>
+			<div class="text-xs text-gray-500 py-1 px-2"> There are no components in this group yet </div>
 		{/if}
 	</ListItem>
 {/each}

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { faTrashAlt } from '@fortawesome/free-solid-svg-icons'
+	import { faCopy, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { AppEditorContext } from '../../types'
 	import PanelSection from './common/PanelSection.svelte'
@@ -10,7 +10,14 @@
 	import ConnectedInputEditor from './inputEditor/ConnectedInputEditor.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { capitalize, classNames } from '$lib/utils'
-	import { buildExtraLib, fieldTypeToTsType } from '../../utils'
+	import {
+		buildExtraLib,
+		createNewGridItem,
+		fieldTypeToTsType,
+		findParent,
+		getNextGridItemId,
+		insertNewGridItem
+	} from '../../utils'
 	import Recompute from './Recompute.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ComponentInputTypeEditor from './ComponentInputTypeEditor.svelte'
@@ -19,13 +26,39 @@
 	import TemplateEditor from '$lib/components/TemplateEditor.svelte'
 	import type { AppComponent } from '../component'
 	import CssProperty from '../componentsPanel/CssProperty.svelte'
+	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 
 	export let component: AppComponent | undefined
 	export let onDelete: (() => void) | undefined = undefined
 	export let rowColumns = false
 
-	const { app, staticOutputs, runnableComponents, selectedComponent, worldStore } =
+	const { app, staticOutputs, runnableComponents, selectedComponent, worldStore, focusedGrid } =
 		getContext<AppEditorContext>('AppEditorContext')
+
+	function duplicateElement(id: string) {
+		const parent = findParent($app.grid, id)
+
+		if (!parent) {
+			return
+		}
+
+		const data: AppComponent = JSON.parse(JSON.stringify(parent.data))
+		$dirtyStore = true
+
+		const grid = $app.grid ?? []
+		const newId = getNextGridItemId(grid)
+
+		if ($focusedGrid) {
+			const { parentComponentId, subGridIndex } = $focusedGrid
+
+			$app.grid = insertNewGridItem($app.grid, parentComponentId, subGridIndex, newId, data)
+		} else {
+			const newItem = createNewGridItem(grid, newId, data)
+			$app.grid = [...grid, newItem]
+		}
+
+		$selectedComponent = newId
+	}
 
 	function removeGridElement() {
 		$selectedComponent = undefined
@@ -107,7 +140,18 @@
 
 				<div class="flex flex-col w-full gap-2 my-2">
 					{#if component.componentInput.type === 'static'}
-						<StaticInputEditor bind:componentInput={component.componentInput} />
+						<StaticInputEditor
+							bind:componentInput={component.componentInput}
+							on:deleteArrayItem={(e) => {
+								if (component?.type === 'tabscomponent') {
+									const deletedIndex = e.detail.index
+
+									if (component.subGrids) {
+										component.subGrids.splice(deletedIndex, 1)
+									}
+								}
+							}}
+						/>
 					{:else if component.componentInput.type === 'template' && component.componentInput !== undefined}
 						<div class="py-1 min-h-[28px]  rounded border border-1 border-gray-500">
 							<TemplateEditor fontSize={12} bind:code={component.componentInput.eval} {extraLib} />
@@ -180,6 +224,22 @@
 				{/each}
 			</PanelSection>
 		{/if}
+
+		<PanelSection title="Duplicate">
+			<Button
+				size="xs"
+				color="blue"
+				variant="border"
+				startIcon={{ icon: faCopy }}
+				on:click={() => {
+					if (component) {
+						duplicateElement(component.id)
+					}
+				}}
+			>
+				Duplicate component: {component.id}
+			</Button>
+		</PanelSection>
 
 		<PanelSection title="Danger zone">
 			<Button
