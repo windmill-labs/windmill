@@ -1,6 +1,20 @@
 # Changelog
 
 
+## [1.69.0](https://github.com/windmill-labs/windmill/compare/v1.68.0...v1.69.0) (2023-02-23)
+
+
+### Features
+
+* **frontend:** Duplicate component ([#1228](https://github.com/windmill-labs/windmill/issues/1228)) ([089a6b6](https://github.com/windmill-labs/windmill/commit/089a6b6ae52e8d28dd15e2f9a6ad900c5853d0a1))
+* **frontend:** Properly delete tab content ([#1227](https://github.com/windmill-labs/windmill/issues/1227)) ([857ee5f](https://github.com/windmill-labs/windmill/commit/857ee5f318466d12bf0d41515451798df087ab74))
+* **frontend:** Support deeply nested components ([#1225](https://github.com/windmill-labs/windmill/issues/1225)) ([6ad876e](https://github.com/windmill-labs/windmill/commit/6ad876ebb45a934b7a4dc980cf38a5228d7d11f1))
+
+
+### Bug Fixes
+
+* **cli:** .wmillignore whitelist behavior ([d543650](https://github.com/windmill-labs/windmill/commit/d543650b313c434e794ad800aefe4aeda83c0fed))
+
 ## [1.68.0](https://github.com/windmill-labs/windmill/compare/v1.67.4...v1.68.0) (2023-02-23)
 
 

@@ -212,7 +212,7 @@ async function compareDynFSElement(
 }
 
 const isNotWmillFile = (p: string, isDirectory: boolean) => {
-  if (p == "./" || p == "" || p == "u" || p == "f" || p == "g" || p.endsWith("/")) {
+  if (p.endsWith("/")) {
     return false
   }
   if (isDirectory) {
@@ -231,6 +231,9 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
   }
 }
 
+const isWhitelisted = (p: string) => {
+  return p == "./" || p == "" || p == "u" || p == "f" || p == "g"
+}
 async function ignoreF() {
   try {
     const ignore: {
@@ -239,9 +242,12 @@ async function ignoreF() {
     } = gitignore_parser.compile(
       await Deno.readTextFile(".wmillignore"),
     );
-    return (p: string, isDirectory: boolean) => isNotWmillFile(p, isDirectory) || ignore.denies(p);
+
+    return (p: string, isDirectory: boolean) => {
+      return !isWhitelisted(p) && (isNotWmillFile(p, isDirectory) || ignore.denies(p));
+    }
   } catch (e) {
-    return isNotWmillFile
+    return (p: string, isDirectory: boolean) => !isWhitelisted(p) && isNotWmillFile(p, isDirectory)
   }
 }
 
