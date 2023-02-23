@@ -7,7 +7,7 @@
 	import { getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
 	import type { AppEditorContext, BaseAppComponent } from '../../types'
-	import type { ButtonComponent } from '../Component.svelte'
+	import type { ButtonComponent } from '../component'
 	import PanelSection from './common/PanelSection.svelte'
 	import TableActionLabel from './TableActionLabel.svelte'
 

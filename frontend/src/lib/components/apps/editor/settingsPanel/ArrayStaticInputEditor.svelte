@@ -47,7 +47,7 @@
 			<div class="flex flex-row gap-2 items-center relative">
 				<SubTypeEditor bind:componentInput bind:value />
 
-				<div class="absolute top-4 right-4">
+				<div class="absolute top-1 right-1">
 					<Button
 						size="xs"
 						color="light"

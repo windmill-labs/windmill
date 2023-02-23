@@ -1,7 +1,7 @@
 <script lang="ts">
-	import type { ConnectedAppInput, RowAppInput, StaticAppInput, UserAppInput } from '../inputType'
-	import type { InlineScript } from '../types'
-	import RunnableComponent from './helpers/RunnableComponent.svelte'
+	import type { ConnectedAppInput, RowAppInput, StaticAppInput, UserAppInput } from '../../inputType'
+	import type { InlineScript } from '../../types'
+	import RunnableComponent from './RunnableComponent.svelte'
 
 	export let id: string
 	export let name: string

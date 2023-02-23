@@ -17,7 +17,7 @@
 	import AlignmentEditor from './AlignmentEditor.svelte'
 	import RunnableInputEditor from './inputEditor/RunnableInputEditor.svelte'
 	import TemplateEditor from '$lib/components/TemplateEditor.svelte'
-	import type { AppComponent } from '../Component.svelte'
+	import type { AppComponent } from '../component'
 	import CssProperty from '../componentsPanel/CssProperty.svelte'
 
 	export let component: AppComponent | undefined
