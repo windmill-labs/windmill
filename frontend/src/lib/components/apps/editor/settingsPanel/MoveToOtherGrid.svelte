@@ -2,21 +2,23 @@
 	import { Button } from '$lib/components/common'
 	import { faCopy } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
-	import type { AppEditorContext, GridItem } from '../../types'
-	import { findParent } from '../../utils'
+	import type { AppEditorContext, FocusedGrid, GridItem } from '../../types'
 	import type { AppComponent } from '../component'
 
 	export let component: AppComponent | undefined
 
-	const { app } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, focusedGrid } = getContext<AppEditorContext>('AppEditorContext')
 
-	function listAllSubGrids(root: GridItem[]): GridItem[][] {
-		const subGrids: GridItem[][] = []
+	function listAllSubGrids(root: GridItem[]): FocusedGrid[] {
+		const subGrids: FocusedGrid[] = []
 
 		function findSubGrids(a: GridItem): void {
 			if (a.data.subGrids) {
 				for (const subGrid of a.data.subGrids) {
-					subGrids.push(subGrid)
+					subGrids.push({
+						parentComponentId: a.id,
+						subGridIndex: a.data.subGrids.indexOf(subGrid)
+					})
 					for (const innerA of subGrid) {
 						findSubGrids(innerA)
 					}
@@ -28,7 +30,7 @@
 			findSubGrids(a)
 		}
 
-		return subGrids
+		return subGrids.flat()
 	}
 
 	function moveComponent(
@@ -38,55 +40,46 @@
 		targetId: string,
 		targetSubGridIndex: number
 	): GridItem[] {
-		const parent = findParent(root, id)
-
-		if (!parent) {
-			throw new Error(`Parent A object with ID ${id} not found.`)
-		}
-
-		const currentSubGrid = parent.data.subGrids[currentSubGridIndex]
-
-		if (!currentSubGrid) {
-			throw new Error(
-				`Sub-grid with index ${currentSubGridIndex} not found for parent A object with ID ${id}.`
-			)
-		}
-
-		const targetParentA = findParent(root, targetId)
-
-		if (!targetParentA) {
-			throw new Error(`Target parent A object with ID ${targetId} not found.`)
-		}
-		const targetSubGrid = targetParentA.data.subGrids[targetSubGridIndex]
-
-		if (!targetSubGrid) {
-			throw new Error(
-				`Target sub-grid with index ${targetSubGridIndex} not found for parent A object with ID ${targetId}.`
-			)
-		}
-
-		const index = currentSubGrid.findIndex((a) => a.id === id)
-
-		if (index === -1) {
-			throw new Error(`A object with ID ${id} not found in current sub-grid.`)
-		}
-
-		const removedA = currentSubGrid.splice(index, 1)[0]
-		targetSubGrid.push(removedA)
-
 		return root
 	}
-	$: x = listAllSubGrids($app.grid)
-	$: console.log(x)
+
+	$: availableGrids = listAllSubGrids($app.grid)
+
+	function onMove() {
+		if (component) {
+			const [targetId, targetSubGridIndex] = (
+				document.getElementById('move-to-grid') as HTMLSelectElement
+			).value.split(':')
+
+			if ($focusedGrid) {
+				$app.grid = moveComponent(
+					$app.grid,
+					component.id,
+					$focusedGrid?.subGridIndex,
+					targetId,
+					parseInt(targetSubGridIndex)
+				)
+			}
+		}
+	}
 </script>
 
 {#if component}
+	<select id="move-to-grid" class="w-full">
+		<option value="main"> Main grid </option>
+		{#each availableGrids as grid}
+			<option value={grid.parentComponentId + ':' + grid.subGridIndex}>
+				{grid.parentComponentId} - {grid.subGridIndex}
+			</option>
+		{/each}
+	</select>
 	<Button
 		size="xs"
 		color="dark"
 		startIcon={{ icon: faCopy }}
 		on:click={() => {
 			if (component) {
+				onMove()
 			}
 		}}
 	>

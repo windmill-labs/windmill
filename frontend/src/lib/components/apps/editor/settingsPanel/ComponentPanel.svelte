@@ -14,7 +14,7 @@
 		buildExtraLib,
 		createNewGridItem,
 		fieldTypeToTsType,
-		findParent,
+		findNodeById,
 		getNextGridItemId,
 		insertNewGridItem
 	} from '../../utils'
@@ -38,13 +38,13 @@
 		getContext<AppEditorContext>('AppEditorContext')
 
 	function duplicateElement(id: string) {
-		const parent = findParent($app.grid, id)
+		const node = findNodeById($app.grid, id)
 
-		if (!parent) {
+		if (!node) {
 			return
 		}
 
-		const data: AppComponent = JSON.parse(JSON.stringify(parent.data))
+		const data: AppComponent = JSON.parse(JSON.stringify(node.data))
 		$dirtyStore = true
 
 		const grid = $app.grid ?? []
