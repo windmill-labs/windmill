@@ -27,6 +27,7 @@
 	import type { AppComponent } from '../component'
 	import CssProperty from '../componentsPanel/CssProperty.svelte'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
+	import MoveToOtherGrid from './MoveToOtherGrid.svelte'
 
 	export let component: AppComponent | undefined
 	export let onDelete: (() => void) | undefined = undefined
@@ -228,8 +229,7 @@
 		<PanelSection title="Duplicate">
 			<Button
 				size="xs"
-				color="blue"
-				variant="border"
+				color="dark"
 				startIcon={{ icon: faCopy }}
 				on:click={() => {
 					if (component) {
@@ -239,6 +239,10 @@
 			>
 				Duplicate component: {component.id}
 			</Button>
+		</PanelSection>
+
+		<PanelSection title="Move to other grid">
+			<MoveToOtherGrid bind:component />
 		</PanelSection>
 
 		<PanelSection title="Danger zone">

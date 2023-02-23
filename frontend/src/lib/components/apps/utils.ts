@@ -311,8 +311,12 @@ function recursiveGetIds(gridItem: GridItem): string[] {
 	return [gridItem.data.id, ...subGridIds]
 }
 
+export function getGridItemIds(grid: GridItem[]): string[] {
+	return grid.map(recursiveGetIds).flat()
+}
+
 export function getNextGridItemId(grid: GridItem[] = []): string {
-	const gridItemIds = grid.map(recursiveGetIds).flat()
+	const gridItemIds = getGridItemIds(grid)
 	const id = getNextId(gridItemIds)
 	return id
 }
