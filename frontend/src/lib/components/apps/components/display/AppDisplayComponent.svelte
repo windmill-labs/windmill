@@ -2,9 +2,9 @@
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
-	import type { AppInput } from '../inputType'
-	import { IS_APP_PUBLIC_CONTEXT_KEY, type AppEditorContext, type ComponentCustomCSS } from '../types'
-	import RunnableWrapper from './helpers/RunnableWrapper.svelte'
+	import type { AppInput } from '../../inputType'
+	import { IS_APP_PUBLIC_CONTEXT_KEY, type AppEditorContext, type ComponentCustomCSS } from '../../types'
+	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined

@@ -47,7 +47,11 @@
 	function onChange(e: CustomEvent) {
 		e?.stopPropagation()
 		window.dispatchEvent(new Event('pointerup'))
-		outputs?.result.set(JSON.parse(e.detail?.['value']) || undefined)
+		let result: any = undefined
+		try {
+			result = JSON.parse(e.detail?.['value'])
+		} catch (_) {}
+		outputs?.result.set(result)
 	}
 </script>
 
@@ -76,6 +80,6 @@
 
 <style global>
 	.app-select .value-container {
-		@apply p-0 !important;
+		padding: 0 !important;
 	}
 </style>

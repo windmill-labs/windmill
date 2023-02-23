@@ -18,7 +18,7 @@
 		SlidersHorizontal,
 		PlusSquare,
 		ListOrdered,
-		Box
+		BoxSelect
 	} from 'lucide-svelte'
 	import type { Size } from '@windmill-labs/svelte-grid'
 	import {
@@ -158,7 +158,7 @@
 		},
 		containercomponent: {
 			name: 'Container',
-			icon: Box,
+			icon: BoxSelect,
 			dims: '2:8-6:8',
 			data: {
 				softWrap: true,
@@ -1198,6 +1198,21 @@
 		}
 	}
 
+	const layout: ComponentSet = {
+		title: 'Layout',
+		components: [
+			'tabscomponent',
+			'containercomponent',
+			'horizontaldividercomponent',
+			'verticaldividercomponent'
+		]
+	}
+
+	const buttons: ComponentSet = {
+		title: 'Buttons',
+		components: ['buttoncomponent', 'formcomponent', 'formbuttoncomponent']
+	}
+
 	const inputs: ComponentSet = {
 		title: 'Inputs',
 		components: [
@@ -1212,11 +1227,6 @@
 			'checkboxcomponent',
 			'selectcomponent'
 		]
-	}
-
-	const buttons: ComponentSet = {
-		title: 'Buttons',
-		components: ['buttoncomponent', 'formcomponent', 'formbuttoncomponent']
 	}
 
 	const display: ComponentSet = {
@@ -1234,14 +1244,10 @@
 			'scatterchartcomponent',
 			'timeseriescomponent',
 			'displaycomponent',
-			'tabscomponent',
-			'containercomponent',
-			'horizontaldividercomponent',
-			'verticaldividercomponent'
 		]
 	}
 
-	const componentSets = [buttons, inputs, display]
+	const componentSets = [layout, buttons, inputs, display]
 
 	const DEFAULT_CODES: Partial<Record<AppComponent['type'], Record<'deno' | 'python3', string>>> = {
 		tablecomponent: {
@@ -1583,38 +1589,39 @@
 	import { fade } from 'svelte/transition'
 	import type { AppEditorContext, BaseAppComponent, ComponentSet } from '../types'
 	import { Loader2 } from 'lucide-svelte'
-	import AppBarChart from '../components/dataDisplay/AppBarChart.svelte'
-	import AppDisplayComponent from '../components/AppDisplayComponent.svelte'
-	import AppTable from '../components/table/AppTable.svelte'
-	import AppText from '../components/dataDisplay/AppText.svelte'
-	import AppButton from '../components/buttons/AppButton.svelte'
-	import AppPieChart from '../components/dataDisplay/AppPieChart.svelte'
-	import AppSelect from '../components/selectInputs/AppSelect.svelte'
-	import AppCheckbox from '../components/selectInputs/AppCheckbox.svelte'
-	import AppTextInput from '../components/textInputs/AppTextInput.svelte'
-	import AppNumberInput from '../components/numberInputs/AppNumberInput.svelte'
-	import AppDateInput from '../components/dateInputs/AppDateInput.svelte'
-	import ComponentHeader from './ComponentHeader.svelte'
-	import AppForm from '../components/form/AppForm.svelte'
-	import AppScatterChart from '../components/dataDisplay/AppScatterChart.svelte'
-	import AppTimeseries from '../components/dataDisplay/AppTimeseries.svelte'
-	import AppHtml from '../components/dataDisplay/AppHtml.svelte'
-	import AppSliderInputs from '../components/numberInputs/AppSliderInputs.svelte'
-	import AppFormButton from '../components/form/AppFormButton.svelte'
-	import VegaLiteHtml from '../components/dataDisplay/VegaLiteHtml.svelte'
-	import PlotlyHtml from '../components/dataDisplay/PlotlyHtml.svelte'
-	import { defaultAlignement } from './componentsPanel/componentDefaultProps'
-	import AppRangeInput from '../components/numberInputs/AppRangeInput.svelte'
-	import AppTabs from '../components/AppTabs.svelte'
-	import AppIcon from '../components/dataDisplay/AppIcon.svelte'
-	import AppCurrencyInput from '../components/numberInputs/AppCurrencyInput.svelte'
-	import AppDivider from '../components/AppDivider.svelte'
-	import AppFileInput from '../components/otherInputs/AppFileInput.svelte'
 	import type { IntRange } from '../../../common'
 	import type { NARROW_GRID_COLUMNS, WIDE_GRID_COLUMNS } from '../gridUtils'
-	import AppImage from '../components/dataDisplay/AppImage.svelte'
-	import { set_data } from 'svelte/internal'
-	import AppContainer from '../components/AppContainer.svelte'
+	import { defaultAlignement } from './componentsPanel/componentDefaultProps'
+	import ComponentHeader from './ComponentHeader.svelte'
+	import {
+		AppBarChart,
+		AppDisplayComponent,
+		AppTable,
+		AppText,
+		AppButton,
+		AppPieChart,
+		AppSelect,
+		AppCheckbox,
+		AppTextInput,
+		AppNumberInput,
+		AppDateInput,
+		AppForm,
+		AppScatterChart,
+		AppTimeseries,
+		AppHtml,
+		AppSliderInputs,
+		AppFormButton,
+		VegaLiteHtml,
+		PlotlyHtml,
+		AppRangeInput,
+		AppTabs,
+		AppIcon,
+		AppCurrencyInput,
+		AppDivider,
+		AppFileInput,
+		AppImage,
+		AppContainer
+	} from '../components'
 
 	export let component: AppComponent
 	export let selected: boolean

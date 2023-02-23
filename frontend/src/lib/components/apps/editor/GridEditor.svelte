@@ -8,7 +8,7 @@
 
 	import RecomputeAllComponents from './RecomputeAllComponents.svelte'
 	import type { Policy } from '$lib/gen'
-	import HiddenComponent from '../components/HiddenComponent.svelte'
+	import HiddenComponent from '../components/helpers/HiddenComponent.svelte'
 	import Component from './Component.svelte'
 
 	export let policy: Policy
