@@ -1,112 +1,15 @@
 <script lang="ts">
 	import type { AppEditorContext, GridItem } from '../../types'
-	import gridHelp from '@windmill-labs/svelte-grid/src/utils/helper'
 	import { getContext, onMount } from 'svelte'
 	import { getNextId } from '$lib/components/flows/flowStateUtils'
 	import { isOpenStore } from './store'
-	import { gridColumns } from '../../gridUtils'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
-	import {
-		components as componentsRecord,
-		COMPONENT_SETS,
-		getRecommendedDimensionsByComponent,
-		type AppComponent
-	} from '../component'
+	import { components as componentsRecord, COMPONENT_SETS, type AppComponent } from '../component'
 	import ListItem from './ListItem.svelte'
+	import { insertNewGridItem, createNewGridItem, getNextGridItemId } from '../../utils'
 
 	const TITLE_PREFIX = 'Component.' as const
 	const { app, selectedComponent, focusedGrid } = getContext<AppEditorContext>('AppEditorContext')
-
-	// The grid is needed to find a space for the new component
-	function createNewGridItem(grid: GridItem[], id: string, appComponentType: string): GridItem {
-		const appComponent = componentsRecord[appComponentType].data
-
-		appComponent.id = id
-
-		const newComponent = {
-			fixed: false,
-			resizable: true,
-			draggable: true,
-			customDragger: false,
-			customResizer: false,
-			x: 0,
-			y: 0
-		}
-
-		let newData: AppComponent = JSON.parse(JSON.stringify(appComponent))
-
-		const newItem: GridItem = {
-			data: newData,
-			id: id
-		}
-
-		gridColumns.forEach((column) => {
-			const rec = getRecommendedDimensionsByComponent(appComponent.type, column)
-
-			newItem[column] = {
-				...newComponent,
-				min: { w: 1, h: 1 },
-				max: { w: column, h: 100 },
-				w: rec.w,
-				h: rec.h
-			}
-			const position = gridHelp.findSpace(newItem, grid, column) as { x: number; y: number }
-			newItem[column] = { ...newItem[column], ...position }
-		})
-
-		return newItem
-	}
-	function recursiveGetIds(gridItem: GridItem): string[] {
-		const subGrids = gridItem.data.subGrids ?? []
-		const subGridIds = subGrids
-			.map((subGrid: GridItem[]) => subGrid.map(recursiveGetIds))
-			.flat(Infinity)
-		return [gridItem.data.id, ...subGridIds]
-	}
-
-	function findParent(root: GridItem[], id: string): GridItem | undefined {
-		for (const a of root) {
-			if (a.id === id) {
-				return a
-			}
-
-			if (a.data.subGrids) {
-				// Recursively search the sub-grids
-				for (const subGrid of a.data.subGrids) {
-					const result = findParent(subGrid, id)
-					if (result) {
-						return result
-					}
-				}
-			}
-		}
-
-		return undefined
-	}
-
-	function insertNewGridItem(
-		root: GridItem[],
-		id: string,
-		subGridIndex: number,
-		appComponentType: string,
-		newId: string
-	): GridItem[] {
-		const parentA = findParent(root, id)
-
-		if (!parentA) {
-			throw new Error(`Parent A object with ID ${id} not found.`)
-		}
-
-		const subGrid = parentA.data.subGrids[subGridIndex]
-
-		if (!subGrid) {
-			throw new Error(`Sub-grid with index ${subGridIndex} not found.`)
-		}
-
-		const newItem = createNewGridItem(subGrid ?? [], newId, appComponentType)
-		subGrid.push(newItem)
-		return root
-	}
 
 	function addComponent(appComponentType: AppComponent['type']): void {
 		// When a new component is added, we need to mark the app as dirty,
@@ -114,21 +17,16 @@
 		$dirtyStore = true
 
 		const grid = $app.grid ?? []
-		const gridItemIds = grid.map(recursiveGetIds).flat()
-		const id = getNextId(gridItemIds)
+		const id = getNextGridItemId(grid)
+
+		const data = componentsRecord[appComponentType].data
 
 		if ($focusedGrid) {
 			const { parentComponentId, subGridIndex } = $focusedGrid
 
-			$app.grid = insertNewGridItem(
-				$app.grid,
-				parentComponentId,
-				subGridIndex,
-				appComponentType,
-				id
-			)
+			$app.grid = insertNewGridItem($app.grid, parentComponentId, subGridIndex, id, data)
 		} else {
-			const newItem = createNewGridItem(grid, id, appComponentType)
+			const newItem = createNewGridItem(grid, id, data)
 			$app.grid = [...grid, newItem]
 		}
 
