@@ -25,6 +25,7 @@
 	export let defaultUserInput = false
 	export let flexWrap = false
 	export let wrapperClass = ''
+	export let wrapperStyle = ''
 	export let initializing: boolean | undefined = undefined
 	export let gotoUrl: string | undefined = undefined
 
@@ -275,7 +276,7 @@
 	bind:this={testJobLoader}
 />
 
-<div class="h-full flex relative flex-row flex-wrap {wrapperClass}">
+<div class="h-full flex relative flex-row flex-wrap {wrapperClass}" style={wrapperStyle}>
 	{#if !initializing && autoRefresh === true}
 		<div class="flex absolute top-1 right-1">
 			<RefreshButton componentId={id} />

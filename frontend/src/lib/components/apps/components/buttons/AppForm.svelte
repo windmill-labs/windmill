@@ -5,7 +5,8 @@
 	import { Icon } from 'svelte-awesome'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
-	import type { AppEditorContext } from '../../types'
+	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
+	import { concatCustomCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 	import type RunnableComponent from '../helpers/RunnableComponent.svelte'
@@ -17,10 +18,11 @@
 	export let recomputeIds: string[] | undefined = undefined
 	export let extraQueryParams: Record<string, any> = {}
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
+	export let customCss: ComponentCustomCSS<'container' | 'button'> | undefined = undefined
 
 	export const staticOutputs: string[] = ['loading', 'result']
 
-	const { runnableComponents, worldStore } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, runnableComponents, worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
 	let labelValue: string = 'Default label'
 	let color: ButtonType.Color
@@ -47,6 +49,8 @@
 			isLoading = value
 		}
 	})
+
+	$: css = concatCustomCss($app.css?.formcomponent, customCss)
 </script>
 
 <InputValue {id} input={configuration.goto} bind:value={goto} />
@@ -63,10 +67,14 @@
 	{extraQueryParams}
 	autoRefresh={false}
 	forceSchemaDisplay={true}
-	runnableClass="!block"
+	runnableClass="!block {css?.container.class ?? ''}"
+	runnableStyle={css?.container.style}
 >
 	<AlignWrapper {horizontalAlignment}>
-		<div class="flex flex-col gap-2 px-4 w-full">
+		<div
+			class="flex flex-col gap-2 px-4 w-full {css?.container.class ?? ''}"
+			style={css?.container.style ?? ''}
+		>
 			<div>
 				{#if noInputs}
 					<div class="text-gray-600 italic text-sm my-4">
@@ -84,7 +92,8 @@
 				{#if !noInputs}
 					<Button
 						loading={isLoading}
-						btnClasses="my-1"
+						btnClasses="my-1 {css?.button.class ?? ''}"
+						style={css?.button.style ?? ''}
 						on:pointerdown={(e) => {
 							e?.stopPropagation()
 							window.dispatchEvent(new Event('pointerup'))

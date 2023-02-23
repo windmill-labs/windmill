@@ -5,7 +5,7 @@ import { emptySchema } from '$lib/utils'
 import type { AppComponent } from './editor/component'
 import type { AppInput, InputType, ResultAppInput, StaticAppInput } from './inputType'
 import type { Output } from './rx'
-import type { App, ComponentCustomCSS, GridItem } from './types'
+import type { App, ComponentCssProperty, ComponentCustomCSS, GridItem } from './types'
 
 export async function loadSchema(
 	workspace: string,
@@ -212,25 +212,32 @@ export function toKebabCase(text: string) {
 	return text.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
 }
 
-export function concatCustomStyles<T extends string = string>(
+export function concatCustomCss<T extends string = string>(
 	appCss?: ComponentCustomCSS<T>,
 	componentCss?: ComponentCustomCSS<T>
-) {
-	const customStyle: Record<string, string> = {}
-	if(componentCss) {
-		Object.keys(componentCss).forEach(key => {
-			const k = key as keyof typeof componentCss
-	
-			// This is the general style of the component type
-			const appStyle = appCss?.[k]?.style?.trim() || ''
-			const appEnding = appStyle?.endsWith(';') || !appStyle ? ' ' : '; '
-			
-			// This is the custom style of the component instance
-			const compStyle = componentCss[k]?.style?.trim() || ''
-			const compEnding = compStyle?.endsWith(';') || !compStyle ? ' ' : ';'
-	
-			customStyle[k] = (appStyle + appEnding + compStyle + compEnding).trim()
-		})
-	}
-	return customStyle as Record<T, string>
+): Record<T, ComponentCssProperty> | undefined {
+	if(!componentCss) return undefined;
+
+	const customStyle = {} as Record<T, ComponentCssProperty>;
+	Object.keys(componentCss).forEach(key => {
+		const k = key as keyof typeof componentCss;
+
+		// This is the general style of the component type
+		const appStyle = appCss?.[k]?.style?.trim() || '';
+		const appEnding = appStyle?.endsWith(';') || !appStyle ? ' ' : '; ';
+		
+		// This is the custom style of the component instance
+		const compStyle = componentCss[k]?.style?.trim() || '';
+		const compEnding = compStyle?.endsWith(';') || !compStyle ? ' ' : ';';
+
+		customStyle[k] = {
+			style: (appStyle + appEnding + compStyle + compEnding).trim(),
+			class: [
+				appCss?.[k]?.class?.trim() || '',
+				componentCss[k]?.class?.trim() || ''
+			].join(' ').trim()
+		}
+	});
+
+	return customStyle;
 }

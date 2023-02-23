@@ -3,7 +3,7 @@
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppInput } from '../../inputType'
 	import type { AppEditorContext, ComponentCustomCSS, GridItem } from '../../types'
-	import { concatCustomStyles } from '../../utils'
+	import { concatCustomCss } from '../../utils'
 	import InputValue from '../helpers/InputValue.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 
@@ -30,7 +30,7 @@
 
 	$: $selectedComponent === id && onFocus()
 	
-	$: style = concatCustomStyles($app.css?.containercomponent, customCss)
+	$: css = concatCustomCss($app.css?.containercomponent, customCss)
 </script>
 
 <InputValue {id} input={configuration.gridContent} bind:value={gridContent} />
@@ -38,11 +38,8 @@
 	{#if subGrids && subGrids[0]}
 		<SubGridEditor
 			bind:subGrid={subGrids[0]}
-			class={[
-				$app.css?.containercomponent?.container?.class,
-				customCss?.container?.class
-			].join(' ')}
-			style={style.container}
+			class={css?.container.class ?? ''}
+			style={css?.container.style ?? ''}
 			containerHeight={componentContainerHeight}
 			on:focus={() => {
 				$selectedComponent = id

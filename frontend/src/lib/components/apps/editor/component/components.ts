@@ -334,7 +334,10 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 					value: ''
 				}
 			},
-			customCss: {},
+			customCss: {
+				container: { class: '', style: '' },
+				button: { class: '', style: '' },
+			} as const,
 			card: true
 		}
 	},
