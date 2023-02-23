@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { Tab, Tabs } from '$lib/components/common'
 	import { getContext } from 'svelte'
-	import SubGridEditor from '../editor/SubGridEditor.svelte'
-	import type { AppInput } from '../inputType'
-	import type { Output } from '../rx'
-	import type { AppEditorContext, GridItem } from '../types'
-	import InputValue from './helpers/InputValue.svelte'
-	import RunnableWrapper from './helpers/RunnableWrapper.svelte'
+	import SubGridEditor from '../../editor/SubGridEditor.svelte'
+	import type { AppInput } from '../../inputType'
+	import type { Output } from '../../rx'
+	import type { AppEditorContext, GridItem } from '../../types'
+	import InputValue from '../helpers/InputValue.svelte'
+	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined

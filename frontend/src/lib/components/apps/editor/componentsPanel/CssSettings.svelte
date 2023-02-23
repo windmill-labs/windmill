@@ -5,10 +5,10 @@
 	import { emptyString } from '$lib/utils'
 	import { Tab, TabContent, Tabs } from '../../../common'
 	import type { AppEditorContext } from '../../types'
-	import { components, type AppComponent } from '../Component.svelte'
 	import ListItem from './ListItem.svelte'
 	import { isOpenStore } from './store'
 	import CssProperty from './CssProperty.svelte'
+	import { components, type AppComponent } from '../component'
 
 	interface CustomCSSEntry {
 		type: 'app' | AppComponent['type'];

@@ -2,7 +2,7 @@ import type { Schema } from '$lib/common'
 import type { Preview } from '$lib/gen'
 import type { FilledItem } from '@windmill-labs/svelte-grid'
 import type { Writable } from 'svelte/store'
-import type { AppComponent, components } from './editor/Component.svelte'
+import type { AppComponent } from './editor/component/components'
 import type {
 	AppInput,
 	ConnectedAppInput,
@@ -64,7 +64,7 @@ export interface BaseAppComponent extends Partial<Aligned> {
 
 export type ComponentSet = {
 	title: string
-	components: AppComponent['type'][]
+	components: Readonly<AppComponent['type'][]>
 }
 
 type SectionID = string

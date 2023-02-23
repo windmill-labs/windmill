@@ -5,8 +5,7 @@
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { Alert, Button } from '$lib/components/common'
-	import type { AppComponent } from './Component.svelte'
-	import type { Output } from '../rx'
+	import type { AppComponent } from './component'
 
 	export let component: AppComponent
 	export let selected: boolean

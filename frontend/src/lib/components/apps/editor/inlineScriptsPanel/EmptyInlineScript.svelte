@@ -12,7 +12,7 @@
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { fly } from 'svelte/transition'
 	import type { AppEditorContext } from '../../types'
-	import { defaultCode } from '../Component.svelte'
+	import { defaultCode } from '../component'
 	import InlineScriptList from '../settingsPanel/mainInput/InlineScriptList.svelte'
 	import WorkspaceScriptList from '../settingsPanel/mainInput/WorkspaceScriptList.svelte'
 

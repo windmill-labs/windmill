@@ -2,7 +2,7 @@
 	import { classNames } from '$lib/utils'
 	import { getContext } from 'svelte'
 	import type { AppEditorContext } from '../../types'
-	import { components } from '../Component.svelte'
+	import { components } from '../component'
 	import PanelSection from '../settingsPanel/common/PanelSection.svelte'
 	import ComponentOutputViewer from './ComponentOutputViewer.svelte'
 

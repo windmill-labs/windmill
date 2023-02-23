@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import type { AppInput } from '../../inputType'
-	import type { Output } from '../../rx'
-	import type { AppEditorContext } from '../../types'
-	import AlignWrapper from '../helpers/AlignWrapper.svelte'
-	import InputValue from '../helpers/InputValue.svelte'
+	import type { AppInput } from '../../../inputType'
+	import type { Output } from '../../../rx'
+	import type { AppEditorContext } from '../../../types'
+	import AlignWrapper from '../../helpers/AlignWrapper.svelte'
+	import InputValue from '../../helpers/InputValue.svelte'
 	import CurrencyInput from './CurrencyInput.svelte'
 
 	export let id: string
