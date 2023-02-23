@@ -2,7 +2,7 @@ import type { Schema } from '$lib/common'
 import type { Preview } from '$lib/gen'
 import type { FilledItem } from '@windmill-labs/svelte-grid'
 import type { Writable } from 'svelte/store'
-import type { AppComponent } from './editor/Component.svelte'
+import type { AppComponent, components } from './editor/Component.svelte'
 import type {
 	AppInput,
 	ConnectedAppInput,
@@ -29,6 +29,13 @@ export interface GeneralAppInput {
 	tooltip?: string
 }
 
+export type ComponentCssProperty = {
+	class: string
+	style: string
+}
+
+export type ComponentCustomCSS<T extends string = string> = Record<T, ComponentCssProperty>
+
 export interface BaseAppComponent extends Partial<Aligned> {
 	id: ComponentID
 	componentInput: AppInput | undefined
@@ -45,13 +52,7 @@ export interface BaseAppComponent extends Partial<Aligned> {
 			)
 	>
 	card: boolean | undefined
-	customCss?: Record<
-		string,
-		{
-			class: string
-			style: string
-		}
-	>
+	customCss?: ComponentCustomCSS
 	/**
 	 * If `true` then the wrapper will allow items to flow outside of it's borders.
 	 *
@@ -97,10 +98,7 @@ export type App = {
 		inlineScript: InlineScript | undefined
 		fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
 	}>
-	css?: Record<
-		'viewer' | 'grid' | AppComponent['type'],
-		Record<string, { style?: string; class?: string }>
-	>
+	css?: Record<'viewer' | 'grid' | AppComponent['type'], ComponentCustomCSS>
 }
 
 export type ConnectingInput = {
