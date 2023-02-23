@@ -2,7 +2,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { faCopy, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
-	import type { AppEditorContext } from '../../types'
+	import type { AppEditorContext, GridItem } from '../../types'
 	import PanelSection from './common/PanelSection.svelte'
 	import InputsSpecsEditor from './InputsSpecsEditor.svelte'
 	import TableActions from './TableActions.svelte'
@@ -30,8 +30,9 @@
 	import MoveToOtherGrid from './MoveToOtherGrid.svelte'
 
 	export let component: AppComponent | undefined
-	export let onDelete: (() => void) | undefined = undefined
 	export let rowColumns = false
+	export let gridItems: GridItem[] | undefined = undefined
+	export let onDelete: (() => void) | undefined = undefined
 
 	const { app, staticOutputs, runnableComponents, selectedComponent, worldStore, focusedGrid } =
 		getContext<AppEditorContext>('AppEditorContext')
@@ -63,46 +64,36 @@
 
 	function removeGridElement() {
 		$selectedComponent = undefined
-		if (onDelete && component) {
+		if (component) {
+			if (gridItems) {
+				gridItems = gridItems.filter((gridComponent) => gridComponent.data.id !== component?.id)
+			}
+
 			delete $staticOutputs[component.id]
 			$staticOutputs = $staticOutputs
 
 			delete $runnableComponents[component.id]
 			$runnableComponents = $runnableComponents
 
-			onDelete()
-			// Delete static inputs
-		} else {
-			if (component) {
-				$app.grid = $app.grid.filter((gridComponent) => gridComponent.data.id !== component?.id)
+			if (
+				component.componentInput?.type === 'runnable' &&
+				component.componentInput?.runnable?.type === 'runnableByName'
+			) {
+				const { name, inlineScript } = component.componentInput.runnable
 
-				// Delete static inputs
-				delete $staticOutputs[component.id]
-				$staticOutputs = $staticOutputs
+				if (inlineScript) {
+					if (!$app.unusedInlineScripts) {
+						$app.unusedInlineScripts = []
+					}
 
-				delete $runnableComponents[component.id]
-				$runnableComponents = $runnableComponents
-			}
-		}
-
-		if (
-			component &&
-			component.componentInput?.type === 'runnable' &&
-			component.componentInput?.runnable?.type === 'runnableByName'
-		) {
-			const { name, inlineScript } = component.componentInput.runnable
-
-			if (inlineScript) {
-				if (!$app.unusedInlineScripts) {
-					$app.unusedInlineScripts = []
+					$app.unusedInlineScripts.push({
+						name,
+						inlineScript
+					})
 				}
-
-				$app.unusedInlineScripts.push({
-					name,
-					inlineScript
-				})
 			}
 		}
+		onDelete?.()
 	}
 
 	$: extraLib =

@@ -161,16 +161,17 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 		dims: '2:8-6:8',
 		data: {
 			softWrap: true,
-			verticalAlignment: 'center',
 			id: '',
 			type: 'containercomponent',
-			configuration: {},
-			componentInput: {
-				type: 'static',
-				fieldType: 'array',
-				subFieldType: 'text',
-				value: ['First Tab', 'Second Tab']
+			configuration: {
+				noPadding: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					onlyStatic: true
+				}
 			},
+			componentInput: undefined,
 			card: false,
 			subGrids: [[]]
 		}
@@ -1012,16 +1013,24 @@ Hello \${ctx.username}
 		dims: '2:8-6:8',
 		data: {
 			softWrap: true,
-			verticalAlignment: 'center',
 			id: '',
 			type: 'tabscomponent',
-			configuration: {},
-			componentInput: {
-				type: 'static',
-				fieldType: 'array',
-				subFieldType: 'text',
-				value: ['First Tab', 'Second Tab']
+			configuration: {
+				noPadding: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					onlyStatic: true
+				},
+				tabs: {
+					type: 'static',
+					fieldType: 'array',
+					subFieldType: 'text',
+					value: ['First Tab', 'Second Tab'],
+					onlyStatic: true
+				}
 			},
+			componentInput: undefined,
 			card: false,
 			subGrids: [[], []]
 		}
