@@ -17,9 +17,7 @@
 		<TablePanel bind:component={gridItem.data} />
 	{:else if gridItem.data.subGrids}
 		{#each gridItem.data.subGrids as subGrid}
-			{#each subGrid as subGridItem (subGridItem.data.id)}
-				<svelte:self gridItems={subGrid} />
-			{/each}
+			<svelte:self bind:gridItems={subGrid} />
 		{/each}
 	{/if}
 {/each}
