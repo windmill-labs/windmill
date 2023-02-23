@@ -124,10 +124,8 @@ pub async fn get_latest_hash_for_path<'c>(
     script_path: &str,
 ) -> error::Result<scripts::ScriptHash> {
     let script_hash_o = sqlx::query_scalar!(
-        "select hash from script where path = $1 AND (workspace_id = $2 OR workspace_id = \
-         'starter') AND
-    created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND (workspace_id = $2 OR \
-         workspace_id = 'starter')) AND
+        "select hash from script where path = $1 AND workspace_id = $2 AND
+    created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2) AND
     deleted = false",
         script_path,
         w_id

@@ -6,8 +6,11 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+#[cfg(enterprise)]
 use std::str::FromStr;
 
+#[cfg(enterprise)]
+use crate::BASE_URL;
 use crate::{
     apps::AppWithLastVersion,
     db::{UserDB, DB},
@@ -15,16 +18,19 @@ use crate::{
     resources::{Resource, ResourceType},
     users::{Authed, WorkspaceInvite, NEW_USER_WEBHOOK},
     utils::require_super_admin,
-    BASE_URL, HTTP_CLIENT,
+    HTTP_CLIENT,
 };
+#[cfg(enterprise)]
+use axum::response::Redirect;
 use axum::{
     body::StreamBody,
     extract::{Extension, Path, Query},
     headers,
-    response::{IntoResponse, Redirect},
+    response::IntoResponse,
     routing::{delete, get, post},
     Json, Router,
 };
+#[cfg(enterprise)]
 use stripe::CustomerId;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
@@ -43,7 +49,7 @@ use tokio::fs::File;
 use tokio_util::io::ReaderStream;
 
 pub fn workspaced_service() -> Router {
-    Router::new()
+    let router = Router::new()
         .route("/list_pending_invites", get(list_pending_invites))
         .route("/update", post(edit_workspace))
         .route("/archive", post(archive_workspace))
@@ -55,9 +61,16 @@ pub fn workspaced_service() -> Router {
         .route("/edit_webhook", post(edit_webhook))
         .route("/edit_auto_invite", post(edit_auto_invite))
         .route("/tarball", get(tarball_workspace))
-        .route("/premium_info", get(premium_info))
-        .route("/checkout", get(stripe_checkout))
-        .route("/billing_portal", get(stripe_portal))
+        .route("/premium_info", get(premium_info));
+
+    #[cfg(enterprise)]
+    let router = {
+        router
+            .route("/checkout", get(stripe_checkout))
+            .route("/billing_portal", get(stripe_portal));
+    };
+
+    router
 }
 pub fn global_service() -> Router {
     Router::new()
@@ -217,11 +230,13 @@ async fn premium_info(
     Ok(Json(row))
 }
 
+#[cfg(enterprise)]
 #[derive(Deserialize)]
 struct PlanQuery {
     plan: String,
 }
 
+#[cfg(enterprise)]
 async fn stripe_checkout(
     authed: Authed,
     Path(w_id): Path<String>,
@@ -287,6 +302,7 @@ async fn stripe_checkout(
     }
 }
 
+#[cfg(enterprise)]
 async fn stripe_portal(
     authed: Authed,
     Path(w_id): Path<String>,
@@ -660,19 +676,19 @@ async fn create_workspace(
     .execute(&mut tx)
     .await?;
 
-    let mc = magic_crypt::new_magic_crypt!(key, 256);
-    sqlx::query!(
-        "INSERT INTO variable
-            (workspace_id, path, value, is_secret, description)
-            VALUES ($1, 'g/all/pretty_secret', $2, true, 'This item is secret'), 
-                ($3, 'g/all/not_secret', $4, false, 'This item is not secret')",
-        nw.id,
-        crate::variables::encrypt(&mc, "pretty secret value"),
-        nw.id,
-        "finland does not actually exist",
-    )
-    .execute(&mut tx)
-    .await?;
+    // let mc = magic_crypt::new_magic_crypt!(key, 256);
+    // sqlx::query!(
+    //     "INSERT INTO variable
+    //         (workspace_id, path, value, is_secret, description)
+    //         VALUES ($1, 'g/all/pretty_secret', $2, true, 'This item is secret'),
+    //             ($3, 'g/all/not_secret', $4, false, 'This item is not secret')",
+    //     nw.id,
+    //     crate::variables::encrypt(&mc, "pretty secret value"),
+    //     nw.id,
+    //     "finland does not actually exist",
+    // )
+    // .execute(&mut tx)
+    // .await?;
 
     sqlx::query!(
         "INSERT INTO usr
@@ -1101,7 +1117,7 @@ struct ArchiveQueryParams {
 }
 
 #[inline]
-pub fn to_string_without_metadata<T>(value: &T) -> Result<String>
+pub fn to_string_without_metadata<T>(value: &T, preserve_extra_perms: bool) -> Result<String>
 where
     T: ?Sized + Serialize,
 {
@@ -1127,6 +1143,10 @@ where
                 if obj.contains_key(key) {
                     obj.remove(key);
                 }
+            }
+
+            if !preserve_extra_perms && obj.contains_key("extra_perms") {
+                obj.remove("extra_perms");
             }
 
             serde_json::to_string_pretty(&obj).ok()
@@ -1166,7 +1186,7 @@ async fn tarball_workspace(
         for folder in folders {
             archive
                 .write_to_archive(
-                    &to_string_without_metadata(&folder).unwrap(),
+                    &to_string_without_metadata(&folder, true).unwrap(),
                     &format!("f/{}/folder.meta.json", folder.name),
                 )
                 .await?;
@@ -1224,7 +1244,7 @@ async fn tarball_workspace(
         .await?;
 
         for resource in resources {
-            let resource_str = &to_string_without_metadata(&resource).unwrap();
+            let resource_str = &to_string_without_metadata(&resource, false).unwrap();
             archive
                 .write_to_archive(&resource_str, &format!("{}.resource.json", resource.path))
                 .await?;
@@ -1241,7 +1261,7 @@ async fn tarball_workspace(
         .await?;
 
         for resource_type in resource_types {
-            let resource_str = &to_string_without_metadata(&resource_type).unwrap();
+            let resource_str = &to_string_without_metadata(&resource_type, false).unwrap();
             archive
                 .write_to_archive(
                     &resource_str,
@@ -1260,7 +1280,7 @@ async fn tarball_workspace(
         .await?;
 
         for flow in flows {
-            let flow_str = &to_string_without_metadata(&flow).unwrap();
+            let flow_str = &to_string_without_metadata(&flow, false).unwrap();
             archive
                 .write_to_archive(&flow_str, &format!("{}.flow.json", flow.path))
                 .await?;
@@ -1276,7 +1296,7 @@ async fn tarball_workspace(
         .await?;
 
         for var in variables {
-            let var_str = &to_string_without_metadata(&var).unwrap();
+            let var_str = &to_string_without_metadata(&var, false).unwrap();
             archive
                 .write_to_archive(&var_str, &format!("{}.variable.json", var.path))
                 .await?;
@@ -1296,7 +1316,7 @@ async fn tarball_workspace(
         .await?;
 
         for app in apps {
-            let app_str = &to_string_without_metadata(&app).unwrap();
+            let app_str = &to_string_without_metadata(&app, false).unwrap();
             archive
                 .write_to_archive(&app_str, &format!("{}.app.json", app.path))
                 .await?;

@@ -105,7 +105,6 @@ export class FolderFile implements Resource, PushDiffs {
       });
     } else {
       console.log(colors.bold.yellow("Creating new folder: " + remotePath));
-      console.log(this.owners, this.extra_perms)
       await FolderService.createFolder({
         workspace: workspace,
         requestBody: {

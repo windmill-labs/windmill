@@ -85,7 +85,7 @@ async fn list_variables(
          from variable
          LEFT JOIN account ON variable.account = account.id AND account.workspace_id = variable.workspace_id
          LEFT JOIN resource ON resource.path = variable.path AND resource.workspace_id = variable.workspace_id
-         WHERE variable.workspace_id = $1 OR (is_secret IS NOT TRUE AND variable.workspace_id = 'starter') ORDER BY path",
+         WHERE variable.workspace_id = $1 ORDER BY path",
     )
     .bind(&w_id)
     .fetch_all(&mut tx)
@@ -116,8 +116,7 @@ async fn get_variable(
         from variable
         LEFT JOIN account ON variable.account = account.id
         LEFT JOIN resource ON resource.path = variable.path AND resource.workspace_id = variable.workspace_id
-        WHERE variable.path = $1 AND (variable.workspace_id = $2 OR (is_secret IS NOT TRUE AND \
-         variable.workspace_id = 'starter')) 
+        WHERE variable.path = $1 AND variable.workspace_id = $2
         LIMIT 1",
     )
     .bind(&path)

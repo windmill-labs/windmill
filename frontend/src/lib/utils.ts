@@ -39,7 +39,7 @@ export function daysAgo(someDate: Date): number {
 }
 
 export function secondsAgo(date: Date) {
-	return Math.floor((new Date().getTime() - date.getTime()) / 1000)
+	return Math.max(0, Math.floor((new Date().getTime() - date.getTime()) / 1000))
 }
 
 export function displayDaysAgo(dateString: string): string {
@@ -255,8 +255,13 @@ export function allTrue(dict: { [id: string]: boolean }): boolean {
 	return Object.values(dict).every(Boolean)
 }
 
+function subtractSeconds(date: Date, seconds: number): Date {
+	date.setSeconds(date.getSeconds() - seconds);
+	return date;
+}
+
 export function forLater(scheduledString: string): boolean {
-	return new Date() < new Date(scheduledString)
+	return new Date() < subtractSeconds(new Date(scheduledString), 5)
 }
 
 export function elapsedSinceSecs(date: string): number {

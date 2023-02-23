@@ -1,6 +1,6 @@
 import type { Schema } from '$lib/common'
 import type { Preview } from '$lib/gen'
-import type { FilledItem } from 'svelte-grid'
+import type { FilledItem } from '@windmill-labs/svelte-grid'
 import type { Writable } from 'svelte/store'
 import type { AppComponent, components } from './editor/Component.svelte'
 import type {
@@ -14,7 +14,6 @@ import type {
 	UserAppInput
 } from './inputType'
 import type { World } from './rx'
-
 
 export type HorizontalAlignment = 'left' | 'center' | 'right'
 export type VerticalAlignment = 'top' | 'center' | 'bottom'
@@ -42,14 +41,15 @@ export interface BaseAppComponent extends Partial<Aligned> {
 	componentInput: AppInput | undefined
 	configuration: Record<
 		string,
-		GeneralAppInput & (
-			StaticAppInput
-			| ConnectedAppInput
-			| UserAppInput
-			| RowAppInput
-			| EvalAppInput
-			| UploadAppInput
-		)
+		GeneralAppInput &
+			(
+				| StaticAppInput
+				| ConnectedAppInput
+				| UserAppInput
+				| RowAppInput
+				| EvalAppInput
+				| UploadAppInput
+			)
 	>
 	card: boolean | undefined
 	customCss?: ComponentCustomCSS
@@ -59,9 +59,8 @@ export interface BaseAppComponent extends Partial<Aligned> {
 	 * *For example when the component has a popup like `Select`*
 	 */
 	softWrap?: boolean
+	subGrids?: GridItem[][]
 }
-
-
 
 export type ComponentSet = {
 	title: string
@@ -129,7 +128,10 @@ export type AppEditorContext = {
 	noBackend: boolean
 	errorByComponent: Writable<Record<string, { error: string; componentId: string }>>
 	openDebugRun: Writable<((componentID: string) => void) | undefined>
+	focusedGrid: Writable<FocusedGrid | undefined>
 }
+
+export type FocusedGrid = { parentComponentId: string; subGridIndex: number }
 
 export type EditorMode = 'dnd' | 'preview'
 export type EditorBreakpoint = 'sm' | 'lg'

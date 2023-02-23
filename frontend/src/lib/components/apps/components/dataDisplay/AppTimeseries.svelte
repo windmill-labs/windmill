@@ -12,12 +12,14 @@
 		CategoryScale,
 		BarElement,
 		TimeScale,
-		LogarithmicScale
+		LogarithmicScale,
+		type Point
 	} from 'chart.js'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import type { AppInput } from '../../inputType'
-	import Scatter from 'svelte-chartjs/Scatter.svelte'
+	import { Scatter } from 'svelte-chartjs'
 	import InputValue from '../helpers/InputValue.svelte'
+	import type { ChartOptions, ChartData } from 'chart.js'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -73,11 +75,11 @@
 				type: logarithmicScale ? 'logarithmic' : 'linear'
 			}
 		}
-	}
+	} as ChartOptions<'scatter'>
 
 	$: data = {
 		datasets: result ?? []
-	}
+	} as ChartData<'scatter', (number | Point)[], unknown>
 </script>
 
 <InputValue {id} input={configuration.logarithmicScale} bind:value={logarithmicScale} />

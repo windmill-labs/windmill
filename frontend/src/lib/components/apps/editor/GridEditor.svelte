@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { getContext, afterUpdate } from 'svelte'
-	import type { AppEditorContext } from '../types'
-	import Grid from 'svelte-grid'
+	import type { AppEditorContext, GridItem } from '../types'
+	import Grid from '@windmill-labs/svelte-grid'
 	import { classNames } from '$lib/utils'
 	import { columnConfiguration, disableDrag, enableDrag, isFixed, toggleFixed } from '../gridUtils'
 	import { twMerge } from 'tailwind-merge'
@@ -21,18 +21,29 @@
 		staticOutputs,
 		runnableComponents,
 		lazyGrid,
-		summary
+		summary,
+		focusedGrid
 	} = getContext<AppEditorContext>('AppEditorContext')
 
 	// The drag is disabled when the user is connecting an input
+	// or when the user is previewing the app
+	// or when the focused grid is a subgrid
 	$: setAllDrags($mode === 'preview' || $connectingInput.opened)
 
 	function setAllDrags(enable: boolean) {
-		if (enable) {
-			$app.grid.map((gridItem) => disableDrag(gridItem))
-		} else {
-			$app.grid.map((gridItem) => enableDrag(gridItem))
-		}
+		const fct = enable ? disableDrag : enableDrag
+
+		$app.grid.map((gridItem) => {
+			const disabledGridItem = fct(gridItem)
+
+			if (disabledGridItem.data.subGrids) {
+				disabledGridItem.data.subGrids = disabledGridItem.data.subGrids.map((subgrid: GridItem[]) =>
+					subgrid.map((subgridItem: GridItem) => fct(subgridItem))
+				)
+			}
+
+			return disabledGridItem
+		})
 	}
 
 	function removeGridElement(component) {
@@ -129,10 +140,11 @@
 		{#if !$connectingInput.opened}
 			<RecomputeAllComponents />
 		{/if}
-		<div class="text-2xs text-gray-600"
-			>{policy.on_behalf_of ? `on behalf of ${policy.on_behalf_of_email}` : ''}</div
-		>
+		<div class="text-2xs text-gray-600">
+			{policy.on_behalf_of ? `on behalf of ${policy.on_behalf_of_email}` : ''}
+		</div>
 	</div>
+
 	<div
 		style={$app.css?.['app']?.['grid']?.style}
 		class={twMerge('px-4 pt-4 pb-2  overflow-visible', $app.css?.['app']?.['grid']?.class ?? '')}

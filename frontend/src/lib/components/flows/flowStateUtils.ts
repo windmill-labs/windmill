@@ -1,5 +1,12 @@
 import type { Schema } from '$lib/common'
-import { Script, ScriptService, type FlowModule, type PathFlow, type PathScript, type RawScript } from '$lib/gen'
+import {
+	Script,
+	ScriptService,
+	type FlowModule,
+	type PathFlow,
+	type PathScript,
+	type RawScript
+} from '$lib/gen'
 import { initialCode } from '$lib/script_helpers'
 import { userStore, workspaceStore } from '$lib/stores'
 import { getScriptByPath } from '$lib/utils'
@@ -20,7 +27,11 @@ export async function loadFlowModuleState(flowModule: FlowModule): Promise<FlowM
 	try {
 		const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
 
-		if (flowModule.value.type == 'script' || flowModule.value.type == 'rawscript' || flowModule.value.type == 'flow') {
+		if (
+			flowModule.value.type == 'script' ||
+			flowModule.value.type == 'rawscript' ||
+			flowModule.value.type == 'flow'
+		) {
 			flowModule.value.input_transforms = input_transforms
 		}
 		return { schema, previewResult: NEVER_TESTED_THIS_FAR }
@@ -77,7 +88,7 @@ export async function pickScript(
 export async function pickFlow(
 	path: string,
 	summary: string,
-	id: string,
+	id: string
 ): Promise<[FlowModule & { value: PathFlow }, FlowModuleState]> {
 	const flowModule: FlowModule & { value: PathFlow } = {
 		id,
@@ -156,7 +167,7 @@ export async function createFlow(id: string): Promise<[FlowModule, FlowModuleSta
 		value: {
 			type: 'flow',
 			path: '',
-			input_transforms: {},
+			input_transforms: {}
 		},
 		summary: ''
 	}

@@ -557,7 +557,7 @@ async fn has_failure_module<'c>(
     flow: Uuid,
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
 ) -> Result<bool, Error> {
-    sqlx::query_scalar(
+    sqlx::query_scalar::<_, Option<bool>>(
         "
     SELECT raw_flow->'failure_module' != 'null'::jsonb
       FROM queue
@@ -568,6 +568,7 @@ async fn has_failure_module<'c>(
     .fetch_one(tx)
     .await
     .map_err(|e| Error::InternalErr(format!("error during retrieval of has_failure_module: {e}")))
+    .map(|v| v.unwrap_or(false))
 }
 
 fn next_retry(retry: &Retry, status: &RetryStatus) -> Option<(u16, Duration)> {

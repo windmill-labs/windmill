@@ -26,14 +26,15 @@ import { downloadZip } from "./pull.ts";
 import { FolderFile } from "./folder.ts";
 import { ResourceTypeFile } from "./resource-type.ts";
 import {
+  handleScriptMetadata,
   ScriptFile,
 } from "./script.ts";
 import { ResourceFile } from "./resource.ts";
 import { FlowFile } from "./flow.ts";
 import { VariableFile } from "./variable.ts";
 import { handleFile } from "./script.ts";
-
-
+import { equal } from "https://deno.land/x/equal/mod.ts";
+import { diffCharacters } from "https://deno.land/x/diff/mod.ts";
 type DynFSElement = {
   isDirectory: boolean;
   path: string;
@@ -111,7 +112,7 @@ function ZipFSElement(zip: JSZip): DynFSElement {
 }
 
 async function* readDirRecursiveWithIgnore(
-  ignore: (path: string) => boolean,
+  ignore: (path: string, isDirectory: boolean) => boolean,
   root: DynFSElement,
 ): AsyncGenerator<
   {
@@ -131,7 +132,7 @@ async function* readDirRecursiveWithIgnore(
     getContentText(): Promise<string>;
   }[] = [{
     path: root.path,
-    ignored: ignore(root.path),
+    ignored: ignore(root.path, root.isDirectory),
     isDirectory: root.isDirectory,
     c: root.getChildren,
     getContentBytes(): Promise<Uint8Array> {
@@ -149,7 +150,7 @@ async function* readDirRecursiveWithIgnore(
     for await (const e2 of e.c()) {
       stack.push({
         path: e2.path,
-        ignored: e.ignored || ignore(e2.path),
+        ignored: e.ignored || ignore(e2.path, e2.isDirectory),
         isDirectory: e2.isDirectory,
         getContentBytes: e2.getContentBytes,
         getContentText: e2.getContentText,
@@ -165,7 +166,7 @@ type Edit = { name: "edited"; path: string; before: string; after: string; };
 
 type Change = Added | Deleted | Edit;
 
-async function elementsToMap(els: DynFSElement, ignore: (path: string) => boolean): Promise<{ [key: string]: string }> {
+async function elementsToMap(els: DynFSElement, ignore: (path: string, isDirectory: boolean) => boolean): Promise<{ [key: string]: string }> {
   const map: { [key: string]: string } = {};
   for await (const entry of readDirRecursiveWithIgnore(
     ignore,
@@ -179,7 +180,7 @@ async function elementsToMap(els: DynFSElement, ignore: (path: string) => boolea
 }
 async function compareDynFSElement(
   els1: DynFSElement, els2: DynFSElement,
-  ignore: (path: string) => boolean,
+  ignore: (path: string, isDirectory: boolean) => boolean,
   raw: boolean
 ): Promise<Change[]> {
 
@@ -191,11 +192,12 @@ async function compareDynFSElement(
   for (const [k, v] of Object.entries(m1)) {
     if (m2[k] === undefined) {
       changes.push({ name: "added", path: k, content: v });
-    } else if (m2[k] != v) {
-      await Deno.writeTextFile("/tmp/k", m2[k])
-      await Deno.writeTextFile("/tmp/v", v)
-      console.log(k)
-      Deno.exit(1)
+    } else if (m2[k] != v && (!k.endsWith(".json") || !equal(JSON.parse(v), JSON.parse(m2[k])))) {
+      // await Deno.writeTextFile("/tmp/k", m2[k])
+      // await Deno.writeTextFile("/tmp/v", v)
+      // console.log(k)
+      // if (k.includes("flow"))
+      //   Deno.exit(1)
       changes.push({ name: "edited", path: k, after: v, before: m2[k] });
     }
   }
@@ -209,6 +211,25 @@ async function compareDynFSElement(
   return changes
 }
 
+const isNotWmillFile = (p: string, isDirectory: boolean) => {
+  if (p == "./" || p == "" || p == "u" || p == "f" || p == "g" || p.endsWith("/")) {
+    return false
+  }
+  if (isDirectory) {
+    return !p.startsWith("u/") && !p.startsWith("f/") && !p.startsWith("g/")
+  }
+
+  try {
+    const typ = getTypeStrFromPath(p)
+    if (typ == 'resource-type') {
+      return p.includes('/')
+    } else {
+      return !p.startsWith("u/") && !p.startsWith("f/") && !p.startsWith("g/")
+    }
+  } catch {
+    return true
+  }
+}
 
 async function ignoreF() {
   try {
@@ -218,14 +239,14 @@ async function ignoreF() {
     } = gitignore_parser.compile(
       await Deno.readTextFile(".wmillignore"),
     );
-    return (p: string) => p.startsWith(".wmill") || ignore.denies(p);
+    return (p: string, isDirectory: boolean) => isNotWmillFile(p, isDirectory) || ignore.denies(p);
   } catch (e) {
-    return (p: string) => p.startsWith(".wmill");
+    return isNotWmillFile
   }
 }
 
 async function pull(
-  opts: GlobalOptions & { raw: boolean; yes: boolean },
+  opts: GlobalOptions & { raw: boolean; yes: boolean, failConflicts: boolean },
 ) {
 
 
@@ -237,32 +258,44 @@ async function pull(
   await requireLogin(opts);
 
 
-  console.log("Computing diff local vs remote ...");
+  console.log(colors.gray("Computing the files to update locally to match remote (taking .wmillignore into account)"));
   const remote = ZipFSElement((await downloadZip(workspace))!)
   const local = await FSFSElement(path.join(Deno.cwd(), opts.raw ? "" : ".wmill"))
   const changes = await compareDynFSElement(remote, local, await ignoreF(), opts.raw)
 
 
-  console.log(`${changes.length} changes to apply`);
+  console.log(`remote -> local: ${changes.length} changes to apply`);
   if (changes.length > 0) {
 
     prettyChanges(changes)
     if (
-      !opts.yes && !(await Confirm.prompt({ message: `Do you want to apply these ${changes.length} changes?`, default: true }))
+      !opts.yes && !opts.raw && !(await Confirm.prompt({ message: `Do you want to apply these ${changes.length} changes?`, default: true }))
     ) {
       return
     }
-    console.log(`Applying changes to files ...`);
+
+    const conflicts = []
+    console.log(colors.gray(`Applying changes to files ...`));
     for await (const change of changes) {
       const target = path.join(Deno.cwd(), change.path);
       const stateTarget = path.join(Deno.cwd(), ".wmill", change.path)
       if (change.name === "edited") {
 
         try {
-          if (await Deno.readTextFile(target) !== change.before && !opts.yes) {
+          const currentLocal = await Deno.readTextFile(target)
+          if (currentLocal !== change.before) {
             console.log(colors.red(`Conflict detected on ${change.path}\nBoth local and remote have been modified.`))
-            if (await Confirm.prompt("Preserve local (push to change remote and avoid seeing this again)?")) {
+            if (opts.failConflicts) {
+              conflicts.push({ local: currentLocal, change, path: change.path })
               continue;
+            } else if (opts.yes) {
+              console.log(colors.red(`Override local version with remote since --yes was passed and no --fail-conflicts.`))
+            }
+            else {
+              showConflict(change.path, currentLocal, change.after)
+              if (await Confirm.prompt("Preserve local (push to change remote and avoid seeing this again)?")) {
+                continue;
+              }
             }
           }
         } catch { }
@@ -274,7 +307,6 @@ async function pull(
               { cyclesFix: false },
             )
 
-          console.log(diffs)
           console.log(`Editing ${getTypeStrFromPath(change.path)} json ${change.path}`)
           await applyDiff(
             diffs,
@@ -299,17 +331,57 @@ async function pull(
           await Deno.copyFile(target, stateTarget);
         }
       } else if (change.name === "deleted") {
-        console.log(`Deleting ${getTypeStrFromPath(change.path)} ${change.path}`)
-        await Deno.remove(target)
-        if (!opts.raw) {
-          await Deno.remove(stateTarget);
+        try {
+          console.log(`Deleting ${getTypeStrFromPath(change.path)} ${change.path}`)
+          await Deno.remove(target)
+          if (!opts.raw) {
+            await Deno.remove(stateTarget);
+          }
+        } catch (e) {
+          if (!opts.raw) {
+            await Deno.remove(stateTarget);
+          }
         }
+      }
+    }
+    if (opts.failConflicts) {
+      if (conflicts.length > 0) {
+        console.error(colors.red(`Conflicts were found`))
+        console.log("Conflicts:")
+        for (const conflict of conflicts) {
+          showConflict(conflict.path, conflict.local, conflict.change.after)
+        }
+        console.log(colors.red(`Please resolve theses conflicts manually by either:
+  - reverting the content back to its remote (\`wmill pull\` and refuse to preserve local when prompted)
+  - pushing the changes with \`wmill push --skip-pull\` to override wmill with all your local changes
+`))
+        Deno.exit(1)
       }
     }
     console.log(colors.green.underline(`Done! All ${changes.length} changes applied locally.`));
   }
 
 
+  function showConflict(path: string, local: string, remote: string) {
+    console.log(colors.yellow(`- ${path}`))
+
+    let finalString = "";
+    for (const character of diffCharacters(local, remote)) {
+      if (character.wasRemoved) {
+        // print red if removed without newline
+        finalString += `\x1b[31m${character.character}\x1b[0m`;
+      } else if (character.wasAdded) {
+        // print green if added
+        finalString += `\x1b[32m${character.character}\x1b[0m`;
+      } else {
+        // print white if unchanged
+        finalString += `\x1b[37m${character.character}\x1b[0m`;
+      }
+    }
+    console.log(finalString);
+    console.log("\x1b[31mlocal\x1b[31m - \x1b[32mremote\x1b[32m")
+    console.log()
+  }
   async function applyDiff(diffs: Difference[], file: string) {
     ensureDir(path.dirname(file));
     let json;
@@ -379,22 +451,28 @@ function removeSuffix(str: string, suffix: string) {
   return str.slice(0, str.length - suffix.length);
 }
 
-async function push(opts: GlobalOptions & { raw: boolean, yes: boolean }) {
+async function push(opts: GlobalOptions & { raw: boolean, yes: boolean, skipPull: boolean, failConflicts: boolean }) {
+
 
   if (!opts.raw) {
-    await ensureDir(path.join(Deno.cwd(), ".wmill"));
+    if (!opts.skipPull) {
+      console.log(colors.gray("You need to be up-to-date before pushing, pulling first."))
+      await pull(opts)
+      console.log(colors.green("Pull done, now pushing."))
+      console.log()
+    }
   }
 
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
 
-  console.log("Computing diff local vs remote ...");
+  console.log(colors.gray("Computing the files to update on the remote to match local (taking .wmillignore into account)"));
   const remote = ZipFSElement((await downloadZip(workspace))!)
   const local = await FSFSElement(path.join(Deno.cwd(), ""))
   const changes = await compareDynFSElement(local, remote, await ignoreF(), opts.raw)
 
-  console.log(`${changes.length} changes to apply`);
+  console.log(`remote <- local: ${changes.length} changes to apply`);
   if (changes.length > 0) {
 
     prettyChanges(changes)
@@ -403,13 +481,20 @@ async function push(opts: GlobalOptions & { raw: boolean, yes: boolean }) {
     ) {
       return
     }
-    console.log(`Applying changes to files ...`);
+    console.log(colors.gray(`Applying changes to files ...`));
+    const alreadySynced: string[] = []
     for await (const change of changes) {
       const stateTarget = path.join(Deno.cwd(), ".wmill", change.path)
       if (change.name === "edited") {
-        if (change.path.endsWith(".script.json")) {
+        if (await handleScriptMetadata(change.path, workspace.workspaceId, alreadySynced)) {
+          if (!opts.raw) {
+            await Deno.writeTextFile(stateTarget, change.after);
+          }
           continue
-        } else if (await handleFile(change.path, change.after, workspace.workspaceId)) {
+        } else if (await handleFile(change.path, change.after, workspace.workspaceId, alreadySynced)) {
+          if (!opts.raw) {
+            await Deno.writeTextFile(stateTarget, change.after);
+          }
           continue
         }
         if (!opts.raw) {
@@ -431,7 +516,7 @@ async function push(opts: GlobalOptions & { raw: boolean, yes: boolean }) {
       } else if (change.name === "added") {
         if (change.path.endsWith(".script.json")) {
           continue
-        } else if (await handleFile(change.path, change.content, workspace.workspaceId)) {
+        } else if (await handleFile(change.path, change.content, workspace.workspaceId, alreadySynced)) {
           continue
         }
         if (!opts.raw) {
@@ -455,36 +540,40 @@ async function push(opts: GlobalOptions & { raw: boolean, yes: boolean }) {
         }
         console.log(`Deleting ${getTypeStrFromPath(change.path)} ${change.path}`)
         const typ = getTypeStrFromPath(change.path)
+        const workspaceId = workspace.workspaceId;
         switch (typ) {
           case "script": {
-            const script = await ScriptService.getScriptByPath({ workspace: workspace.name, path: removeSuffix(change.path, ".script.json") })
-            await ScriptService.deleteScriptByHash({ workspace: workspace.name, hash: script.hash })
+            const script = await ScriptService.getScriptByPath({ workspace: workspaceId, path: removeSuffix(change.path, ".script.json") })
+            await ScriptService.deleteScriptByHash({ workspace: workspaceId, hash: script.hash })
             break;
           }
           case "folder":
-            await FolderService.deleteFolder({ workspace: workspace.name, name: change.path.split('/')[1] })
+            await FolderService.deleteFolder({ workspace: workspaceId, name: change.path.split('/')[1] })
             break;
           case "resource":
-            await ResourceService.deleteResource({ workspace: workspace.name, path: removeSuffix(change.path, ".resource.json") })
+            await ResourceService.deleteResource({ workspace: workspaceId, path: removeSuffix(change.path, ".resource.json") })
             break;
           case "resource-type":
-            await ResourceService.deleteResourceType({ workspace: workspace.name, path: removeSuffix(change.path, ".resource-type.json") })
+            await ResourceService.deleteResourceType({ workspace: workspaceId, path: removeSuffix(change.path, ".resource-type.json") })
             break
           case "flow":
-            await FlowService.archiveFlowByPath({ workspace: workspace.name, path: removeSuffix(change.path, ".flow.json") })
+            await FlowService.deleteFlowByPath({ workspace: workspaceId, path: removeSuffix(change.path, ".flow.json") })
             break
           case "app":
-            await AppService.deleteApp({ workspace: workspace.name, path: removeSuffix(change.path, ".app.json") })
+            await AppService.deleteApp({ workspace: workspaceId, path: removeSuffix(change.path, ".app.json") })
             break
           case "variable":
-            await VariableService.deleteVariable({ workspace: workspace.name, path: removeSuffix(change.path, ".variable.json") })
+            await VariableService.deleteVariable({ workspace: workspaceId, path: removeSuffix(change.path, ".variable.json") })
             break
           default:
             break;
         }
+        try {
+          Deno.remove(stateTarget)
+        } catch { }
       }
     }
-    console.log(colors.green.underline(`Done! All ${changes.length} changes applied locally.`));
+    console.log(colors.green.underline(`Done! All ${changes.length} changes pushed to the remote workspace.`));
 
   }
 
@@ -520,7 +609,8 @@ async function push(opts: GlobalOptions & { raw: boolean, yes: boolean }) {
     try {
       await file.pushDiffs(workspace, remotePath, diffs);
     } catch (e) {
-      console.error("Failing to apply diffs to " + remotePath, e)
+      console.error("Failing to apply diffs to " + remotePath)
+      console.error(e.body)
     }
   }
 }
@@ -530,6 +620,7 @@ const command = new Command()
   .description(
     "Pull any remote changes and apply them locally. Use --raw for usage without local state tracking.",
   )
+  .option("--fail-conflicts", "Error on conflicts (both remote and local have changes on the same item)")
   .option("--yes", "Pull without needing confirmation")
   .option("--raw", "Pull without using state, just overwrite.")
   .action(pull as any)
@@ -537,8 +628,10 @@ const command = new Command()
   .description(
     "Push any local changes and apply them remotely. Use --raw for usage without local state tracking.",
   )
-  .option("--yes", "Pull without needing confirmation")
-  .option("--raw", "Pull without using state, just overwrite.")
+  .option("--fail-conflicts", "Error on conflicts (both remote and local have changes on the same item)")
+  .option("--skip-pull", "Push without pulling first")
+  .option("--yes", "Push without needing confirmation")
+  .option("--raw", "Push without using state, just overwrite.")
   .action(push as any);
 
 export default command;

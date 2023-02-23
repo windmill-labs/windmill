@@ -124,6 +124,45 @@
     },
     "query": "DELETE FROM queue WHERE workspace_id = $1 AND id = $2 RETURNING 1"
   },
+  "03d63d2e64b012f624d2731b5bcb8849c74a9474777be61edf0ed43ddda07ef3": {
+    "describe": {
+      "columns": [
+        {
+          "name": "workspace_id",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "name",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "schema",
+          "ordinal": 2,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "description",
+          "ordinal": 3,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        true,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT * from resource_type WHERE name = $1 AND (workspace_id = $2 OR workspace_id = 'admins')"
+  },
   "0473482de2910768dbe1cd4569cf157c91939150ea176f44bcce68eb68dbdeb9": {
     "describe": {
       "columns": [
@@ -429,45 +468,6 @@
     },
     "query": "DELETE FROM workspace_settings WHERE workspace_id = $1"
   },
-  "0f6af40e79a3f44ce84bd127a8af9216c82e71acf8bf4df12b078020c90d7d9d": {
-    "describe": {
-      "columns": [
-        {
-          "name": "workspace_id",
-          "ordinal": 0,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "name",
-          "ordinal": 1,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "schema",
-          "ordinal": 2,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "description",
-          "ordinal": 3,
-          "type_info": "Text"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        true,
-        true
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT * from resource_type WHERE name = $1 AND (workspace_id = $2 OR workspace_id = 'starter' OR workspace_id = 'admins')"
-  },
   "11b1586acdfc180c5a077861ee1f7201fcbcec9d0ebada464f9d952c9c3e400d": {
     "describe": {
       "columns": [],
@@ -564,6 +564,27 @@
       }
     },
     "query": "INSERT INTO variable\n            (workspace_id, path, value, is_secret, description)\n            VALUES ($1, 'g/all/pretty_secret', $2, true, 'This item is secret'), \n                ($3, 'g/all/not_secret', $4, false, 'This item is not secret')"
+  },
+  "163f00eb8b1a489d5f382cdba22a5744e88a8e6f1532d7cb02af560f5f5d49f7": {
+    "describe": {
+      "columns": [
+        {
+          "name": "value",
+          "ordinal": 0,
+          "type_info": "Jsonb"
+        }
+      ],
+      "nullable": [
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT value from resource WHERE path = $1 AND workspace_id = $2"
   },
   "1730f39fd1793d45fbb41b21389c61296a3ff7489ae12f52a19f9543173ac597": {
     "describe": {
@@ -1053,27 +1074,6 @@
     },
     "query": "SELECT canceled FROM queue WHERE id = $1"
   },
-  "255aafff962738317f3227ae4eb871830d89b4c12c73d8dbabe6836da124e54d": {
-    "describe": {
-      "columns": [
-        {
-          "name": "path",
-          "ordinal": 0,
-          "type_info": "Varchar"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Int8",
-          "Text"
-        ]
-      }
-    },
-    "query": "select path from script where hash = $1 AND (workspace_id = $2 OR workspace_id = 'starter')"
-  },
   "2685d46490744f3f98718ca79a9a8f7c14628e09483b90831d151f99f561a983": {
     "describe": {
       "columns": [
@@ -1209,39 +1209,6 @@
       }
     },
     "query": "SELECT flow_status, parent_job FROM completed_job WHERE id = $1 AND workspace_id = $2 UNION ALL SELECT flow_status, parent_job FROM queue WHERE id = $1 AND workspace_id = $2 "
-  },
-  "2e11e3ef361c41e6e055dd4805cb9d5e45eaa486e35fc5f01dae311189d6800f": {
-    "describe": {
-      "columns": [
-        {
-          "name": "language: ScriptLang",
-          "ordinal": 0,
-          "type_info": {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "python3",
-                  "deno",
-                  "go",
-                  "bash"
-                ]
-              },
-              "name": "script_lang"
-            }
-          }
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Int8",
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT language as \"language: ScriptLang\" FROM script WHERE hash = $1 AND (workspace_id = $2 OR workspace_id = 'starter')"
   },
   "2e4115bb2e6c8c85ad1492ad135d6b0454b342126cb5fa17e58caf71b32ee755": {
     "describe": {
@@ -1427,6 +1394,27 @@
       }
     },
     "query": "SELECT workspace_id, name, display_name, owners, extra_perms FROM folder WHERE name = $1 AND workspace_id = $2"
+  },
+  "39bae7dff750565183ac3893b51a8846d7db2f130a6795b54ef94acc232dec8b": {
+    "describe": {
+      "columns": [
+        {
+          "name": "exists",
+          "ordinal": 0,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT EXISTS(SELECT 1 FROM resource_type WHERE name = $1 AND (workspace_id = $2 OR workspace_id = 'admins'))"
   },
   "39f1b99319f48acb95fd4247f70baaf7a38062aa8b4f70fac10215edbbd2d41c": {
     "describe": {
@@ -1790,6 +1778,26 @@
       }
     },
     "query": "\n            UPDATE queue\n               SET flow_status = JSONB_SET(flow_status, ARRAY['modules', $1::TEXT], $2)\n             WHERE id = $3\n            "
+  },
+  "480a20b0dc7b8c577620a5582e1ec5b101150b91de5a898618d525dd7b76e45a": {
+    "describe": {
+      "columns": [
+        {
+          "name": "name",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT name from resource_type WHERE (workspace_id = $1 OR workspace_id = 'admins') ORDER BY name"
   },
   "4815068e6d833e918613d324b5d694c479d039576cabb88d5be8894f171c3b4e": {
     "describe": {
@@ -2177,27 +2185,6 @@
     },
     "query": "SELECT is_flow FROM schedule WHERE path = $1 AND workspace_id = $2"
   },
-  "5767e6a8f94f571a78bed0c0423882060c7d417fdabb30cff6c86cb1c5f46df9": {
-    "describe": {
-      "columns": [
-        {
-          "name": "exists",
-          "ordinal": 0,
-          "type_info": "Bool"
-        }
-      ],
-      "nullable": [
-        null
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT EXISTS(SELECT 1 FROM resource_type WHERE name = $1 AND (workspace_id = $2 OR workspace_id = 'starter' OR workspace_id = 'admins'))"
-  },
   "576b00c515ee7cbf628b1881596d8a03c1c506b309e39a0048a3a8fe18f37070": {
     "describe": {
       "columns": [],
@@ -2381,6 +2368,39 @@
     },
     "query": "SELECT EXISTS(SELECT 1 FROM usr WHERE username = $1 AND workspace_id = $2)"
   },
+  "637ead7701775609c772c9985450273b942202cdf9017ce6b5ba612e66ce3875": {
+    "describe": {
+      "columns": [
+        {
+          "name": "language: ScriptLang",
+          "ordinal": 0,
+          "type_info": {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "python3",
+                  "deno",
+                  "go",
+                  "bash"
+                ]
+              },
+              "name": "script_lang"
+            }
+          }
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT language as \"language: ScriptLang\" FROM script WHERE hash = $1 AND workspace_id = $2"
+  },
   "63f330e98051ae9d0cf5617a553f769cc98b05fdc8643839b504023b26f38aab": {
     "describe": {
       "columns": [],
@@ -2393,6 +2413,27 @@
       }
     },
     "query": "UPDATE flow SET archived = true WHERE path = $1 AND workspace_id = $2"
+  },
+  "64920b845c0ce81fb99497c03b249bb6cb06581079b5fc5bea5ddd8e7a895b79": {
+    "describe": {
+      "columns": [
+        {
+          "name": "path",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Text"
+        ]
+      }
+    },
+    "query": "select path from script where hash = $1 AND workspace_id = $2"
   },
   "64d2318064711c2cfbaf7c5c2b02d92cc98ac8e33eb560b829c462c3159115eb": {
     "describe": {
@@ -2467,6 +2508,27 @@
       }
     },
     "query": "UPDATE workspace SET deleted = false WHERE id = $1"
+  },
+  "6b1ea6f39c6f41a093112418ac4c1b69a57de50fdeb4bdcd8d4cab0553af42ea": {
+    "describe": {
+      "columns": [
+        {
+          "name": "value",
+          "ordinal": 0,
+          "type_info": "Jsonb"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT value FROM flow WHERE path = $1 AND workspace_id = $2"
   },
   "6c63bbcb45d3f51eccaea52ec862700e1f1c2426d823abd951e1eea4fd9b85aa": {
     "describe": {
@@ -2834,6 +2896,93 @@
     },
     "query": "SELECT name FROM group_ WHERE workspace_id = $1 ORDER BY name desc"
   },
+  "7f443f5be90622eed3e878ada0ae8ca71902adb88861bc8a39713fc8942e652c": {
+    "describe": {
+      "columns": [
+        {
+          "name": "workspace_id",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "path",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "value",
+          "ordinal": 2,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "description",
+          "ordinal": 3,
+          "type_info": "Text"
+        },
+        {
+          "name": "resource_type",
+          "ordinal": 4,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "extra_perms",
+          "ordinal": 5,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "is_expired",
+          "ordinal": 6,
+          "type_info": "Bool"
+        },
+        {
+          "name": "is_refreshed",
+          "ordinal": 7,
+          "type_info": "Bool"
+        },
+        {
+          "name": "refresh_error",
+          "ordinal": 8,
+          "type_info": "Text"
+        },
+        {
+          "name": "is_linked",
+          "ordinal": 9,
+          "type_info": "Bool"
+        },
+        {
+          "name": "is_oauth?",
+          "ordinal": 10,
+          "type_info": "Bool"
+        },
+        {
+          "name": "account",
+          "ordinal": 11,
+          "type_info": "Int4"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        true,
+        true,
+        false,
+        false,
+        null,
+        null,
+        true,
+        null,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT resource.*, (now() > account.expires_at) as is_expired, account.refresh_token != '' as is_refreshed,\n        account.refresh_error,\n        variable.path IS NOT NULL as is_linked,\n        variable.is_oauth as \"is_oauth?\",\n        variable.account\n        FROM resource\n        LEFT JOIN variable ON variable.path = resource.path AND variable.workspace_id = resource.workspace_id\n        LEFT JOIN account ON variable.account = account.id AND account.workspace_id = resource.workspace_id\n        WHERE resource.path = $1 AND resource.workspace_id = $2"
+  },
   "7fcffd77d0957cff4dff7aa822f7bcab9ec10563738e47ab02657baa9b29179d": {
     "describe": {
       "columns": [],
@@ -3046,44 +3195,6 @@
       }
     },
     "query": "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2"
-  },
-  "8971be3b27108d2e9bda18ac718c62c67c063b9e5195842cd008803584ccf93c": {
-    "describe": {
-      "columns": [
-        {
-          "name": "workspace_id",
-          "ordinal": 0,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "name",
-          "ordinal": 1,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "schema",
-          "ordinal": 2,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "description",
-          "ordinal": 3,
-          "type_info": "Text"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        true,
-        true
-      ],
-      "parameters": {
-        "Left": [
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT * from resource_type WHERE (workspace_id = $1 OR workspace_id = 'starter' OR workspace_id = 'admins') ORDER BY name"
   },
   "8974baa530cf20156d9931123f0e046dd626e7763b54c4d0089a33bb417906f8": {
     "describe": {
@@ -3301,27 +3412,6 @@
       }
     },
     "query": "\n            SELECT raw_flow->'modules'->$1::int->'stop_after_if'->>'expr' as stop_early_expr,\n            (raw_flow->'modules'->$1::int->'stop_after_if'->>'skip_if_stopped')::bool as skip_if_stopped,\n            args \n            FROM queue\n             WHERE id = $2\n            "
-  },
-  "8d631abe38ae964edb357217463a2c1617d4b3b18a7ed0724ad1c65b95980a2c": {
-    "describe": {
-      "columns": [
-        {
-          "name": "value",
-          "ordinal": 0,
-          "type_info": "Jsonb"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT value FROM flow WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter')"
   },
   "8d678edbc19a195ef4c26c2deb4bb2bd6dbe9253356f1cd617f5522d8d65c238": {
     "describe": {
@@ -3601,27 +3691,6 @@
       }
     },
     "query": "UPDATE workspace_settings SET auto_invite_domain = $1, auto_invite_operator = $2 WHERE workspace_id = $3"
-  },
-  "9490a4388f43e45e32911f1129e623f2d73ce2da7a948fe134bea1c87cdbefd1": {
-    "describe": {
-      "columns": [
-        {
-          "name": "value",
-          "ordinal": 0,
-          "type_info": "Jsonb"
-        }
-      ],
-      "nullable": [
-        true
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT value from resource WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter')"
   },
   "95ebdfaf0510b9cad861568cd25d479759d4ea3c3ff4e136aad13a3521525372": {
     "describe": {
@@ -3912,6 +3981,27 @@
       }
     },
     "query": "INSERT INTO app\n            (workspace_id, path, summary, policy, versions)\n            VALUES ($1, $2, $3, $4, '{}') RETURNING id"
+  },
+  "a17260a1f1ee02e786690994d98c84ddf81e2eeb883f895c9cfc47e144d422cb": {
+    "describe": {
+      "columns": [
+        {
+          "name": "content",
+          "ordinal": 0,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT content FROM script WHERE path = $1 AND workspace_id = $2 AND\n         created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND archived = false AND workspace_id = $2)"
   },
   "a227548b6604c56bfc15eb780bd8ee72a89dc6701a50f5048e928bd87baa7b9a": {
     "describe": {
@@ -4498,26 +4588,43 @@
     },
     "query": "SELECT substr(logs, $1) as logs, mem_peak FROM queue WHERE workspace_id = $2 AND id = $3"
   },
-  "b7dd791cd69748ef51b7520f505c0c8bb1b4014a273476eddfecf1ab658a18b4": {
+  "b8d392ccfcccafe0c19511b3567bc11779b1052b0948c410468a8aeba1d26d33": {
     "describe": {
       "columns": [
         {
-          "name": "hash",
+          "name": "workspace_id",
           "ordinal": 0,
-          "type_info": "Int8"
+          "type_info": "Varchar"
+        },
+        {
+          "name": "name",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "schema",
+          "ordinal": 2,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "description",
+          "ordinal": 3,
+          "type_info": "Text"
         }
       ],
       "nullable": [
-        false
+        false,
+        false,
+        true,
+        true
       ],
       "parameters": {
         "Left": [
-          "Text",
           "Text"
         ]
       }
     },
-    "query": "select hash from script where path = $1 AND (workspace_id = $2 OR workspace_id = 'starter') AND\n    created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter')) AND\n    deleted = false"
+    "query": "SELECT * from resource_type WHERE (workspace_id = $1 OR workspace_id = 'admins') ORDER BY name"
   },
   "b9468b9e16f55db11b33d8e9793e6e3ae6c5add6ca02414140adb724120a6800": {
     "describe": {
@@ -4532,93 +4639,6 @@
       }
     },
     "query": "\n       UPDATE capture\n          SET payload = $3\n        WHERE workspace_id = $1\n          AND path = $2\n        "
-  },
-  "b9e968d522558b8ca2bd24d345768ba864a766e10dd79864b9d601254bb2d612": {
-    "describe": {
-      "columns": [
-        {
-          "name": "workspace_id",
-          "ordinal": 0,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "path",
-          "ordinal": 1,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "value",
-          "ordinal": 2,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "description",
-          "ordinal": 3,
-          "type_info": "Text"
-        },
-        {
-          "name": "resource_type",
-          "ordinal": 4,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "extra_perms",
-          "ordinal": 5,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "is_expired",
-          "ordinal": 6,
-          "type_info": "Bool"
-        },
-        {
-          "name": "is_refreshed",
-          "ordinal": 7,
-          "type_info": "Bool"
-        },
-        {
-          "name": "refresh_error",
-          "ordinal": 8,
-          "type_info": "Text"
-        },
-        {
-          "name": "is_linked",
-          "ordinal": 9,
-          "type_info": "Bool"
-        },
-        {
-          "name": "is_oauth?",
-          "ordinal": 10,
-          "type_info": "Bool"
-        },
-        {
-          "name": "account",
-          "ordinal": 11,
-          "type_info": "Int4"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        true,
-        true,
-        false,
-        false,
-        null,
-        null,
-        true,
-        null,
-        false,
-        true
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT resource.*, (now() > account.expires_at) as is_expired, account.refresh_token != '' as is_refreshed,\n        account.refresh_error,\n        variable.path IS NOT NULL as is_linked,\n        variable.is_oauth as \"is_oauth?\",\n        variable.account\n        FROM resource\n        LEFT JOIN variable ON variable.path = resource.path AND variable.workspace_id = resource.workspace_id\n        LEFT JOIN account ON variable.account = account.id AND account.workspace_id = resource.workspace_id\n        WHERE resource.path = $1 AND (resource.workspace_id = $2 OR resource.workspace_id = 'starter')"
   },
   "bb56e61c7cfb09c0a28fb3226dfe91704c70d9fe15eda18e6889adfd7496f80b": {
     "describe": {
@@ -5052,6 +5072,27 @@
     },
     "query": "INSERT INTO group_\n            VALUES ($1, 'all', 'The group that always contains all users of this workspace')"
   },
+  "cb9b85cba9feec1ed8543718fba2856cf1aed6239ed9a2173ebb66f4a2697df2": {
+    "describe": {
+      "columns": [
+        {
+          "name": "hash",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "select hash from script where path = $1 AND workspace_id = $2 AND\n    created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2) AND\n    deleted = false"
+  },
   "cc34f0298cfdaffe892a286e6b4390c287d33298e3342ccd1e10d48a9c3cc5c0": {
     "describe": {
       "columns": [
@@ -5420,27 +5461,6 @@
     },
     "query": "SELECT * FROM group_ WHERE name = $1 AND workspace_id = $2"
   },
-  "dcf921bf9cc7dcd9122e65b2d624a9cbbecab7275ce6b5060f4c632c53b546ae": {
-    "describe": {
-      "columns": [
-        {
-          "name": "content",
-          "ordinal": 0,
-          "type_info": "Text"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT content FROM script WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter') AND\n         created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND archived = false AND (workspace_id = $2 OR workspace_id = 'starter'))"
-  },
   "dcf9e4087732c830278603a47eb1efe99bea1f2ad8770ed3f7dee349b6ec7a3e": {
     "describe": {
       "columns": [],
@@ -5571,6 +5591,33 @@
     },
     "query": "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms) VALUES ($1, $2, $3, $4, $5)"
   },
+  "e3ac59fcf6193007a21c808a275d3d84fd76e44f9240f4292c5c1208096b8563": {
+    "describe": {
+      "columns": [
+        {
+          "name": "lock",
+          "ordinal": 0,
+          "type_info": "Text"
+        },
+        {
+          "name": "lock_error_logs",
+          "ordinal": 1,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        true,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT lock, lock_error_logs FROM script WHERE hash = $1 AND workspace_id = $2"
+  },
   "e3eeda2e19bfbfd5aadd71c40774f7e93c8479a777fdb2828607b1db36361726": {
     "describe": {
       "columns": [],
@@ -5583,26 +5630,6 @@
       }
     },
     "query": "INSERT INTO usr_to_group\n            VALUES ($1, 'all', $2)"
-  },
-  "e3fbad80527771f63390fb1ab203bd3d0c058627b92f32f5c6f3e2856ab24e47": {
-    "describe": {
-      "columns": [
-        {
-          "name": "name",
-          "ordinal": 0,
-          "type_info": "Varchar"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT name from resource_type WHERE (workspace_id = $1 OR workspace_id = 'starter' OR workspace_id = 'admins') ORDER BY name"
   },
   "e5231634fbb37d45e5cf3e5dfb39cb829d224caad1c3ca1712d0fc4c495aa4fc": {
     "describe": {
@@ -5636,27 +5663,6 @@
       }
     },
     "query": "DELETE FROM workspace_invite WHERE workspace_id = $1"
-  },
-  "e587299612077e6de39b5a501aa8a736cae4a21f11853f8ae66a610b4e65f49e": {
-    "describe": {
-      "columns": [
-        {
-          "name": "exists",
-          "ordinal": 0,
-          "type_info": "Bool"
-        }
-      ],
-      "nullable": [
-        null
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter') AND\n         created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter')))"
   },
   "e5a130478c8a581412f786b430c2c166c489faccbd0d9b448f8e7ad57559e605": {
     "describe": {
@@ -5821,6 +5827,27 @@
       }
     },
     "query": "INSERT INTO token\n            (workspace_id, token, owner, label, expiration, super_admin, email)\n            VALUES ($1, $2, $3, $4, now() + ($5 || ' seconds')::interval, $6, $7)"
+  },
+  "ea2b88dc050aec038641ea37399d68d4385c5bdc721d1351609f27ca45e4dbdc": {
+    "describe": {
+      "columns": [
+        {
+          "name": "exists",
+          "ordinal": 0,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND workspace_id = $2 AND\n         created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2))"
   },
   "ea8ebb8d972fe99c960b5a69f794ee2b57bfb1914bf370c5b10313e45fa9b65f": {
     "describe": {
@@ -6216,33 +6243,6 @@
       }
     },
     "query": "INSERT INTO usage (id, is_workspace, month_, usage) \n                VALUES ($1, true, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 0) \n                ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + $2"
-  },
-  "f7906298e4204ad55ec84021bb2461f369386493519637279f1188227230c580": {
-    "describe": {
-      "columns": [
-        {
-          "name": "lock",
-          "ordinal": 0,
-          "type_info": "Text"
-        },
-        {
-          "name": "lock_error_logs",
-          "ordinal": 1,
-          "type_info": "Text"
-        }
-      ],
-      "nullable": [
-        true,
-        true
-      ],
-      "parameters": {
-        "Left": [
-          "Int8",
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT lock, lock_error_logs FROM script WHERE hash = $1 AND (workspace_id = $2 OR workspace_id = 'starter')"
   },
   "f7f2598ac824e9b5719b96b1d1873ad728f7f786c7f447df6cac3e65d5a53bf1": {
     "describe": {

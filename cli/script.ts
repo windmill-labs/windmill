@@ -79,8 +79,21 @@ async function push(
   console.log(colors.bold.underline.green("Script successfully pushed"));
 }
 
-export async function handleFile(path: string, content: string, workspace: string): Promise<boolean> {
+export async function handleScriptMetadata(path: string, workspace: string, alreadySynced: string[]): Promise<boolean> {
+  if (path.endsWith(".script.json")) {
+    const contentPath = await findContentFile(path)
+    return handleFile(contentPath, await Deno.readTextFile(contentPath), workspace, alreadySynced)
+  } else {
+    return false
+  }
+}
+
+export async function handleFile(path: string, content: string, workspace: string, alreadySynced: string[]): Promise<boolean> {
   if (path.endsWith(".ts") || path.endsWith(".py") || path.endsWith(".go") || path.endsWith(".sh")) {
+    if (alreadySynced.includes(path)) {
+      return true
+    }
+    alreadySynced.push(path)
     const remotePath = path.substring(0, path.length - 3);
     const metaPath = remotePath + ".script.json";
     let typed = undefined
@@ -90,6 +103,7 @@ export async function handleFile(path: string, content: string, workspace: strin
       typed = decoverto.type(ScriptFile).plainToInstance(typed);
     } catch { }
     const language = inferContentTypeFromFilePath(path);
+
     try {
       const remote = await ScriptService.getScriptByPath({
         workspace,
@@ -105,12 +119,12 @@ export async function handleFile(path: string, content: string, workspace: strin
           summary: typed.summary,
           is_template: typed.is_template,
           kind: typed.kind,
-          lock: undefined,
+          lock: typed.lock,
           parent_hash: remote.hash,
           schema: typed.schema,
         },
       });
-
+      console.log(colors.yellow.bold(`Creating script with a parent ${remotePath}`))
     } catch {
       // no parent hash
       await ScriptService.createScript({
@@ -123,11 +137,13 @@ export async function handleFile(path: string, content: string, workspace: strin
           summary: typed.summary,
           is_template: typed.is_template,
           kind: typed.kind,
-          lock: undefined,
+          lock: typed.lock,
           parent_hash: undefined,
           schema: typed.schema,
         },
       });
+      console.log(colors.yellow.bold(`Creating script without parent ${remotePath}`))
+
     }
     return true
   }
@@ -135,7 +151,6 @@ export async function handleFile(path: string, content: string, workspace: strin
 }
 
 export async function findContentFile(filePath: string) {
-  console.log("Searching " + filePath);
   const candidates = [
     filePath.replace(".script.json", ".ts"),
     filePath.replace(".script.json", ".py"),
@@ -251,16 +266,14 @@ async function list(opts: GlobalOptions & { showArchived?: boolean }) {
   }
 
   new Table()
-    .header(["path", "hash", "kind", "language", "created at", "created by"])
+    .header(["path", "summary", "language", "created by"])
     .padding(2)
     .border(true)
     .body(
       total.map((x) => [
         x.path,
-        x.hash,
-        x.kind,
+        x.summary,
         x.language,
-        x.created_at,
         x.created_by,
       ]),
     )

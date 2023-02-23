@@ -26,7 +26,7 @@
 		result: Output<boolean>
 	}
 
-	$: defaultValue != undefined && outputs.result.set(defaultValue)
+	$: defaultValue != undefined && outputs?.result.set(defaultValue)
 </script>
 
 <InputValue {id} input={configuration.label} bind:value={labelValue} />

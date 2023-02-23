@@ -1,6 +1,62 @@
 # Changelog
 
 
+## [1.67.4](https://github.com/windmill-labs/windmill/compare/v1.67.3...v1.67.4) (2023-02-23)
+
+
+### Bug Fixes
+
+* **backend:** workflow check for has_failure_module ([e54dc3f](https://github.com/windmill-labs/windmill/commit/e54dc3ff97e4454a15b9efe25cc12f6c9e1e176b))
+
+## [1.67.3](https://github.com/windmill-labs/windmill/compare/v1.67.2...v1.67.3) (2023-02-23)
+
+
+### Bug Fixes
+
+* **cli:** ignone non wmill looking files ([ec57c59](https://github.com/windmill-labs/windmill/commit/ec57c5977f122b629a07e05bc3551662d518ce30))
+
+## [1.67.2](https://github.com/windmill-labs/windmill/compare/v1.67.1...v1.67.2) (2023-02-23)
+
+
+### Bug Fixes
+
+* **cli:** ignone non wmill looking files ([969e89f](https://github.com/windmill-labs/windmill/commit/969e89f8bbc10f6712920321b70ede35f19ab9ed))
+
+## [1.67.1](https://github.com/windmill-labs/windmill/compare/v1.67.0...v1.67.1) (2023-02-22)
+
+
+### Bug Fixes
+
+* **cli:** coloring nits ([3fa24ad](https://github.com/windmill-labs/windmill/commit/3fa24adad0a07ba2f469c545b28251b035efdf90))
+
+## [1.67.0](https://github.com/windmill-labs/windmill/compare/v1.66.1...v1.67.0) (2023-02-22)
+
+
+### Features
+
+* **frontend:** Add app sub grids ([#1208](https://github.com/windmill-labs/windmill/issues/1208)) ([dbc59e9](https://github.com/windmill-labs/windmill/commit/dbc59e952143ee5813780ad13794cef4e036911c))
+
+
+### Bug Fixes
+
+* **cli:** add --fail-conflicts to ci push ([0085b46](https://github.com/windmill-labs/windmill/commit/0085b46c1e3b8267fcafcb06ce72b4d820e49df5))
+
+## [1.66.1](https://github.com/windmill-labs/windmill/compare/v1.66.0...v1.66.1) (2023-02-22)
+
+
+### Bug Fixes
+
+* **cli:** delete workspace instead of archiving them ([70dfc8b](https://github.com/windmill-labs/windmill/commit/70dfc8b8d0293d80da7db14caa1b9eb0ed67653d))
+
+## [1.66.0](https://github.com/windmill-labs/windmill/compare/v1.65.0...v1.66.0) (2023-02-22)
+
+
+### Features
+
+* add delete flows ([e81f7bd](https://github.com/windmill-labs/windmill/commit/e81f7bd7239b73710da2a4ddec0da7805c13da06))
+* CLI refactor v1 ([e31d2ae](https://github.com/windmill-labs/windmill/commit/e31d2ae27f886e774ffc429eea80057f4f9f4213))
+* **frontend:** Add image app component ([#1213](https://github.com/windmill-labs/windmill/issues/1213)) ([a4b773a](https://github.com/windmill-labs/windmill/commit/a4b773af294554c5787f02ebda363c8d9a3eff1b))
+
 ## [1.65.0](https://github.com/windmill-labs/windmill/compare/v1.64.0...v1.65.0) (2023-02-21)
 
 
