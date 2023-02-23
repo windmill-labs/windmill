@@ -1638,9 +1638,9 @@ checksum = "30e22bd8629359895450b59ea7a776c850561b96a3b1d31321c1949d9e6c9146"
 
 [[package]]
 name = "is-macro"
-version = "0.2.1"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c068d4c6b922cd6284c609cfa6dec0e41615c9c5a1a4ba729a970d8daba05fb"
+checksum = "8a7d079e129b77477a49c5c4f1cfe9ce6c2c909ef52520693e8e811a714c7b20"
 dependencies = [
  "Inflector",
  "pmutil",
@@ -3003,7 +3003,7 @@ dependencies = [
 [[package]]
 name = "rustpython-ast"
 version = "0.2.0"
-source = "git+https://github.com/RustPython/RustPython#edf5995a1e4c366976304ca05432dd27c913054e"
+source = "git+https://github.com/RustPython/RustPython#4a579b5752355de4e9efc63f9c1351c12ae90556"
 dependencies = [
  "num-bigint",
  "rustpython-compiler-core",
@@ -3012,7 +3012,7 @@ dependencies = [
 [[package]]
 name = "rustpython-compiler-core"
 version = "0.2.0"
-source = "git+https://github.com/RustPython/RustPython#edf5995a1e4c366976304ca05432dd27c913054e"
+source = "git+https://github.com/RustPython/RustPython#4a579b5752355de4e9efc63f9c1351c12ae90556"
 dependencies = [
  "bincode",
  "bitflags",
@@ -3029,7 +3029,7 @@ dependencies = [
 [[package]]
 name = "rustpython-parser"
 version = "0.2.0"
-source = "git+https://github.com/RustPython/RustPython#edf5995a1e4c366976304ca05432dd27c913054e"
+source = "git+https://github.com/RustPython/RustPython#4a579b5752355de4e9efc63f9c1351c12ae90556"
 dependencies = [
  "ahash",
  "anyhow",
@@ -3636,9 +3636,9 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "string_cache"
-version = "0.8.5"
+version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fcac566e671100a4d4c4a2fb55ceb6c3d3554b9d4fb30b70ddacde3c96ac7986"
+checksum = "213494b7a2b503146286049378ce02b482200519accc31872ee8be91fa820a08"
 dependencies = [
  "new_debug_unreachable",
  "once_cell",
@@ -3823,9 +3823,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "1.0.107"
+version = "1.0.108"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f4064b5b16e03ae50984a5a8ed5d4f8803e6bc1fd170a3cda91a1be4b18e3f5"
+checksum = "d56e159d99e6c2b93995d171050271edb50ecc5288fbc7cc17de8fdce4e58c14"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4766,7 +4766,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.67.0"
+version = "1.67.2"
 dependencies = [
  "anyhow",
  "axum",
@@ -4793,7 +4793,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.67.0"
+version = "1.67.2"
 dependencies = [
  "anyhow",
  "argon2",
@@ -4848,7 +4848,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.67.0"
+version = "1.67.2"
 dependencies = [
  "base64 0.21.0",
  "chrono",
@@ -4863,7 +4863,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.67.0"
+version = "1.67.2"
 dependencies = [
  "chrono",
  "serde",
@@ -4876,7 +4876,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.67.0"
+version = "1.67.2"
 dependencies = [
  "anyhow",
  "axum",
@@ -4901,7 +4901,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.67.0"
+version = "1.67.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -4909,7 +4909,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.67.0"
+version = "1.67.2"
 dependencies = [
  "anyhow",
  "itertools",
@@ -4923,7 +4923,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.67.0"
+version = "1.67.2"
 dependencies = [
  "anyhow",
  "itertools",
@@ -4935,7 +4935,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.67.0"
+version = "1.67.2"
 dependencies = [
  "anyhow",
  "itertools",
@@ -4950,7 +4950,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.67.0"
+version = "1.67.2"
 dependencies = [
  "anyhow",
  "deno_core",
@@ -4964,7 +4964,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.67.0"
+version = "1.67.2"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4987,7 +4987,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.67.0"
+version = "1.67.2"
 dependencies = [
  "anyhow",
  "async-recursion",
