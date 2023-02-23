@@ -200,7 +200,10 @@
 			<AppRangeInput {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{:else if component.type === 'tabscomponent'}
 			<AppTabs
-				{...component}
+				id={component.id}
+				configuration={component.configuration}
+				tabs={component.tabs}
+				bind:subGrids={component.subGrids}
 				bind:staticOutputs={$staticOutputs[component.id]}
 				{componentContainerHeight}
 			/>

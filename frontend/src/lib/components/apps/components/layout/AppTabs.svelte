@@ -12,13 +12,12 @@
 	export let configuration: Record<string, AppInput>
 	export let subGrids: GridItem[][] | undefined = undefined
 	export let componentContainerHeight: number
+	export let tabs: string[]
 
 	export const staticOutputs: string[] = ['selectedTabIndex']
 	const { worldStore, focusedGrid, selectedComponent } =
 		getContext<AppEditorContext>('AppEditorContext')
 
-	let tabs: string[] | undefined = undefined
-	let gridContent: string[] | undefined = undefined
 	let selected: string = ''
 	let noPadding: boolean | undefined = undefined
 
@@ -46,20 +45,9 @@
 		}
 	}
 
-	let previousTabs: string[] | undefined = tabs
-	$: {
-		if (tabs && previousTabs && tabs.length < previousTabs.length) {
-			let missingTabIndex = tabs.findIndex((tab) => !previousTabs?.includes(tab))
-		} else if ((tabs?.length ?? 0) > (previousTabs?.length ?? 0)) {
-			// subGrids = [...(subGrids ?? []), []]
-		}
-		previousTabs = tabs
-	}
-
 	$: $selectedComponent === id && selectedIndex >= 0 && onFocus()
 </script>
 
-<InputValue {id} input={configuration.gridContent} bind:value={gridContent} />
 <InputValue {id} input={configuration.tabs} bind:value={tabs} />
 <InputValue {id} input={configuration.noPadding} bind:value={noPadding} />
 
