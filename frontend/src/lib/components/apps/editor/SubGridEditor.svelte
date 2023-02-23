@@ -8,6 +8,7 @@
 
 	export let subGrid: GridItem[]
 	export let containerHeight: number
+	export let noPadding = false
 
 	const dispatch = createEventDispatcher()
 
@@ -73,7 +74,8 @@
 
 <div class="relative w-full subgrid " bind:this={container}>
 	<div
-		class="px-4 pt-4 overflow-auto  {$connectingInput?.opened ? '' : ''}"
+		class:px-2={!noPadding}
+		class="py-2 overflow-auto  {$connectingInput?.opened ? '' : ''}"
 		on:pointerdown|stopPropagation={onpointerdown}
 		on:pointerleave={onpointerup}
 		on:pointerup={onpointerup}

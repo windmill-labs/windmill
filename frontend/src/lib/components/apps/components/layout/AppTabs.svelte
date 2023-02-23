@@ -6,27 +6,26 @@
 	import type { Output } from '../../rx'
 	import type { AppEditorContext, GridItem } from '../../types'
 	import InputValue from '../helpers/InputValue.svelte'
-	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 
 	export let id: string
-	export let componentInput: AppInput | undefined
-	export let initializing: boolean | undefined = undefined
+
 	export let configuration: Record<string, AppInput>
 	export let subGrids: GridItem[][] | undefined = undefined
 	export let componentContainerHeight: number
 
-	export const staticOutputs: string[] = ['loading', 'result', 'selectedTabIndex']
+	export const staticOutputs: string[] = ['selectedTabIndex']
 	const { worldStore, focusedGrid, selectedComponent } =
 		getContext<AppEditorContext>('AppEditorContext')
 
-	let result: string[] | undefined = undefined
+	let tabs: string[]
 	let gridContent: string[] | undefined = undefined
 	let selected: string = ''
+	let noPadding: boolean | undefined = undefined
 
-	$: selectedIndex = result?.indexOf(selected) ?? -1
+	$: selectedIndex = tabs?.indexOf(selected) ?? -1
 
-	$: if (result && selected === '') {
-		selected = result[0]
+	$: if (tabs && selected === '') {
+		selected = tabs[0]
 	}
 
 	$: outputs = $worldStore?.outputsById[id] as {
@@ -51,10 +50,13 @@
 </script>
 
 <InputValue {id} input={configuration.gridContent} bind:value={gridContent} />
-<RunnableWrapper flexWrap bind:componentInput {id} bind:initializing bind:result>
+<InputValue {id} input={configuration.tabs} bind:value={tabs} />
+<InputValue {id} input={configuration.noPadding} bind:value={noPadding} />
+
+<div>
 	<div bind:clientHeight={tabHeight}>
 		<Tabs bind:selected>
-			{#each result ?? [] as res}
+			{#each tabs ?? [] as res}
 				<Tab value={res}>
 					<span class="font-semibold">{res}</span>
 				</Tab>
@@ -63,6 +65,7 @@
 	</div>
 	{#if subGrids && subGrids[selectedIndex]}
 		<SubGridEditor
+			{noPadding}
 			bind:subGrid={subGrids[selectedIndex]}
 			containerHeight={componentContainerHeight - tabHeight}
 			on:focus={() => {
@@ -70,4 +73,4 @@
 			}}
 		/>
 	{/if}
-</RunnableWrapper>
+</div>
