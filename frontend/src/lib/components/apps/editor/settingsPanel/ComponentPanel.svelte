@@ -42,7 +42,7 @@
 			return
 		}
 
-		const data = JSON.parse(JSON.stringify(parent.data))
+		const data: AppComponent = JSON.parse(JSON.stringify(parent.data))
 		$dirtyStore = true
 
 		const grid = $app.grid ?? []

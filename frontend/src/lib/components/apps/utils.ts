@@ -244,7 +244,7 @@ export function insertNewGridItem(
 	id: string,
 	subGridIndex: number,
 	newId: string,
-	data
+	data: AppComponent
 ): GridItem[] {
 	const parentA = findParent(root, id)
 
@@ -264,7 +264,7 @@ export function insertNewGridItem(
 }
 
 // The grid is needed to find a space for the new component
-export function createNewGridItem(grid: GridItem[], id: string, data): GridItem {
+export function createNewGridItem(grid: GridItem[], id: string, data: AppComponent): GridItem {
 	const appComponent = data
 
 	appComponent.id = id
