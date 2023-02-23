@@ -137,7 +137,7 @@ async function push(opts: PushOptions, filePath: string, name: string) {
   console.log(colors.bold.yellow("Pushing resource..."));
 
   await pushResourceType(workspace.workspaceId, filePath, name);
-  console.log(colors.bold.underline.green("Resource successfully pushed"));
+  console.log(colors.bold.underline.green("Resource pushed"));
 }
 
 async function list(opts: GlobalOptions) {

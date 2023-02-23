@@ -76,7 +76,7 @@ async function push(
 
   await requireLogin(opts);
   await pushScript(filePath, contentPath, workspace.workspaceId, remotePath);
-  console.log(colors.bold.underline.green("Script successfully pushed"));
+  console.log(colors.bold.underline.green(`Script ${remotePath} pushed`));
 }
 
 export async function handleScriptMetadata(path: string, workspace: string, alreadySynced: string[]): Promise<boolean> {

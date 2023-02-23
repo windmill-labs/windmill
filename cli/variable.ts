@@ -154,7 +154,7 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
   console.log(colors.bold.yellow("Pushing variable..."));
 
   await pushVariable(workspace.workspaceId, filePath, remotePath);
-  console.log(colors.bold.underline.green("Variable successfully pushed"));
+  console.log(colors.bold.underline.green(`Variable ${remotePath} pushed`));
 }
 
 export async function pushVariable(
