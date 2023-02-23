@@ -1,19 +1,19 @@
 <script lang="ts">
 	import { getContext, onMount } from 'svelte'
-	import type { Output } from '../../rx'
-	import type { AppEditorContext, BaseAppComponent } from '../../types'
-	import InputValue from '../helpers/InputValue.svelte'
-	import type { AppInput } from '../../inputType'
-	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
+	import type { Output } from '../../../rx'
+	import type { AppEditorContext, BaseAppComponent } from '../../../types'
+	import InputValue from '../../helpers/InputValue.svelte'
+	import type { AppInput } from '../../../inputType'
+	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import { writable } from 'svelte/store'
 	import { createSvelteTable, flexRender, type TableOptions } from '@tanstack/svelte-table'
-	import AppButton from '../buttons/AppButton.svelte'
+	import AppButton from '../../buttons/AppButton.svelte'
 	import { classNames, isObject } from '$lib/utils'
-	import DebouncedInput from '../helpers/DebouncedInput.svelte'
+	import DebouncedInput from '../../helpers/DebouncedInput.svelte'
 	import AppTableFooter from './AppTableFooter.svelte'
 	import { tableOptions } from './tableOptions'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
-	import type { ButtonComponent } from '../../editor/Component.svelte'
+	import type { ButtonComponent } from '../../../editor/component'
 
 	export let id: string
 	export let componentInput: AppInput | undefined

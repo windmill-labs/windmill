@@ -1,5 +1,6 @@
 export { default as AlignWrapper } from './AlignWrapper.svelte'
 export { default as DebouncedInput } from './DebouncedInput.svelte'
+export { default as HiddenComponent } from './HiddenComponent.svelte'
 export { default as InputDefaultValue } from './InputDefaultValue.svelte'
 export { default as InputValue } from './InputValue.svelte'
 export { default as MissingConnectionWarning } from './MissingConnectionWarning.svelte'

@@ -2,7 +2,7 @@ import type { Schema } from "$lib/common";
 import type { AppInputs, Runnable } from "../../inputType"
 import type { GridItem } from "../../types"
 import { fieldTypeToTsType, schemaToInputsSpec } from "../../utils";
-import type { AppComponent } from "../Component.svelte";
+import type { AppComponent } from "../component";
 
 export interface AppScriptsList {
 	inline: { name: string; id: string }[],

@@ -4,7 +4,7 @@
 	import Grid from '@windmill-labs/svelte-grid'
 	import { columnConfiguration, isFixed, toggleFixed } from '../gridUtils'
 	import type { AppEditorContext, GridItem } from '../types'
-	import Component from './Component.svelte'
+	import Component from './component/Component.svelte'
 
 	export let subGrid: GridItem[]
 	export let containerHeight: number

@@ -2,7 +2,7 @@ import type { Schema } from '$lib/common'
 import { FlowService, ScriptService } from '$lib/gen'
 import { inferArgs } from '$lib/infer'
 import { emptySchema } from '$lib/utils'
-import type { AppComponent } from './editor/Component.svelte'
+import type { AppComponent } from './editor/component'
 
 import type { AppInput, InputType, ResultAppInput, StaticAppInput } from './inputType'
 import type { Output } from './rx'

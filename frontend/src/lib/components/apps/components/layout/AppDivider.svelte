@@ -1,8 +1,8 @@
 <script lang="ts">
-	import type { AppInput } from '../inputType'
-	import type { HorizontalAlignment, VerticalAlignment } from '../types'
-	import AlignWrapper from './helpers/AlignWrapper.svelte'
-	import InputValue from './helpers/InputValue.svelte'
+	import type { AppInput } from '../../inputType'
+	import type { HorizontalAlignment, VerticalAlignment } from '../../types'
+	import AlignWrapper from '../helpers/AlignWrapper.svelte'
+	import InputValue from '../helpers/InputValue.svelte'
 
 	export let id: string
 	export let configuration: Record<string, AppInput>

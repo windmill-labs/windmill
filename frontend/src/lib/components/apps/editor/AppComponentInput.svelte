@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { components, type AppComponent } from './Component.svelte'
+	import { components, type AppComponent } from './component'
 	import InputsSpecsEditor from './settingsPanel/InputsSpecsEditor.svelte'
 
 	export let component: AppComponent

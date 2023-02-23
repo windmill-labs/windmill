@@ -8,10 +8,10 @@
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 	import {
 		components as componentsRecord,
-		componentSets,
+		COMPONENT_SETS,
 		getRecommendedDimensionsByComponent,
 		type AppComponent
-	} from '../Component.svelte'
+	} from '../component'
 	import ListItem from './ListItem.svelte'
 
 	const TITLE_PREFIX = 'Component.' as const
@@ -96,11 +96,11 @@
 	}
 
 	onMount(() => {
-		isOpenStore.addItems(componentSets.map((set) => ({ [TITLE_PREFIX + set.title]: true })))
+		isOpenStore.addItems(COMPONENT_SETS.map((set) => ({ [TITLE_PREFIX + set.title]: true })))
 	})
 </script>
 
-{#each componentSets as { title, components }, index (index)}
+{#each COMPONENT_SETS as { title, components }, index (index)}
 	<ListItem {title} prefix={TITLE_PREFIX}>
 		{#if components.length}
 			<div class="flex flex-wrap gap-2 py-2">

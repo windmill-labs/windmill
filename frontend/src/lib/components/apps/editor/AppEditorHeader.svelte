@@ -54,7 +54,7 @@
 	import { toStatic } from '../utils'
 	import AppExportButton from './AppExportButton.svelte'
 	import AppInputs from './AppInputs.svelte'
-	import type { AppComponent } from './Component.svelte'
+	import type { AppComponent } from './component/components'
 	import PanelSection from './settingsPanel/common/PanelSection.svelte'
 
 	async function hash(message) {
