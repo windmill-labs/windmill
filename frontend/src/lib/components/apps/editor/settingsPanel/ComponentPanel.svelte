@@ -107,7 +107,18 @@
 
 				<div class="flex flex-col w-full gap-2 my-2">
 					{#if component.componentInput.type === 'static'}
-						<StaticInputEditor bind:componentInput={component.componentInput} />
+						<StaticInputEditor
+							bind:componentInput={component.componentInput}
+							on:deleteArrayItem={(e) => {
+								if (component?.type === 'tabscomponent') {
+									const deletedIndex = e.detail.index
+
+									if (component.subGrids) {
+										component.subGrids.splice(deletedIndex, 1)
+									}
+								}
+							}}
+						/>
 					{:else if component.componentInput.type === 'template' && component.componentInput !== undefined}
 						<div class="py-1 min-h-[28px]  rounded border border-1 border-gray-500">
 							<TemplateEditor fontSize={12} bind:code={component.componentInput.eval} {extraLib} />
