@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import { faPlus, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
+	import { createEventDispatcher } from 'svelte'
 	import type { StaticAppInput } from '../../inputType'
 	import { staticValues } from '../componentsPanel/componentStaticValues'
 	import SubTypeEditor from './SubTypeEditor.svelte'
@@ -8,6 +9,7 @@
 	type ArrayComponentInput = Extract<StaticAppInput, { fieldType: 'array' }>
 
 	export let componentInput: ArrayComponentInput
+	const dispatch = createEventDispatcher()
 
 	function addElementByType() {
 		if (componentInput.subFieldType && componentInput.value) {
@@ -36,6 +38,9 @@
 	function deleteElementByType(index: number) {
 		if (componentInput.value) {
 			componentInput.value.splice(index, 1)
+
+			dispatch('deleteArrayItem', { index })
+
 			componentInput = componentInput
 		}
 	}
