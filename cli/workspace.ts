@@ -151,7 +151,11 @@ async function switchC(opts: GlobalOptions, workspaceName: string) {
 
   const all = await allWorkspaces();
   if (all.findIndex((x) => x.name === workspaceName) === -1) {
-    console.log(colors.red.bold("! This workspace name does not exist."));
+    console.log(colors.red.bold(`! This workspace profile ${workspaceName} does not exist locally.`));
+    console.log("available workspace profiles:")
+    for (const w of all) {
+      console.log('  - ' + w.name)
+    }
     return;
   }
 
@@ -254,7 +258,7 @@ export async function add(
     remote: remote,
     workspaceId: workspaceId,
     token: token,
-  });
+  }, opts);
   await Deno.writeTextFile(
     (await getRootStore()) + "/activeWorkspace",
     workspaceName,
@@ -262,7 +266,7 @@ export async function add(
   console.log(colors.green.underline(`Added workspace ${workspaceName} for ${workspaceId} on ${remote}!`));
 }
 
-export async function addWorkspace(workspace: Workspace) {
+export async function addWorkspace(workspace: Workspace, opts: any) {
   workspace.remote = new URL(workspace.remote).toString(); // add trailing slash in all cases!
   const file = await Deno.open((await getRootStore()) + "remotes.ndjson", {
     append: true,
@@ -270,16 +274,18 @@ export async function addWorkspace(workspace: Workspace) {
     read: true,
     create: true,
   });
-  await removeWorkspace(workspace.name, true);
+  await removeWorkspace(workspace.name, true, opts);
   await file.write(new TextEncoder().encode(JSON.stringify(workspace) + "\n"));
   file.close();
 }
 
-export async function removeWorkspace(name: string, silent: boolean) {
+export async function removeWorkspace(name: string, silent: boolean, opts: any) {
   const orgWorkspaces = await allWorkspaces();
   if (orgWorkspaces.findIndex((x) => x.name === name) === -1) {
     if (!silent) {
-      console.log(colors.red.bold(`! Workspace ${name} does not exist`));
+      console.log(colors.red.bold(`! Workspace profile ${name} does not exist locally`));
+      console.log("available workspace profiles:")
+      await list(opts)
     }
     return;
   }
@@ -299,7 +305,7 @@ export async function removeWorkspace(name: string, silent: boolean) {
 }
 
 async function remove(_opts: GlobalOptions, name: string) {
-  await removeWorkspace(name, false);
+  await removeWorkspace(name, false, _opts);
 }
 
 const command = new Command()
