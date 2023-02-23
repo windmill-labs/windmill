@@ -30,7 +30,8 @@
 
 	export let component: AppComponent | undefined
 	export let rowColumns = false
-	export let gridItems: GridItem[]
+	export let gridItems: GridItem[] | undefined = undefined
+	export let onDelete: (() => void) | undefined = undefined
 
 	const { app, staticOutputs, runnableComponents, selectedComponent, worldStore, focusedGrid } =
 		getContext<AppEditorContext>('AppEditorContext')
@@ -63,7 +64,9 @@
 	function removeGridElement() {
 		$selectedComponent = undefined
 		if (component) {
-			gridItems = gridItems.filter((gridComponent) => gridComponent.data.id !== component?.id)
+			if (gridItems) {
+				gridItems = gridItems.filter((gridComponent) => gridComponent.data.id !== component?.id)
+			}
 
 			delete $staticOutputs[component.id]
 			$staticOutputs = $staticOutputs
@@ -89,6 +92,7 @@
 				}
 			}
 		}
+		onDelete?.()
 	}
 
 	$: extraLib =
