@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.67.4](https://github.com/windmill-labs/windmill/compare/v1.67.3...v1.67.4) (2023-02-23)
+
+
+### Bug Fixes
+
+* **backend:** workflow check for has_failure_module ([e54dc3f](https://github.com/windmill-labs/windmill/commit/e54dc3ff97e4454a15b9efe25cc12f6c9e1e176b))
+
 ## [1.67.3](https://github.com/windmill-labs/windmill/compare/v1.67.2...v1.67.3) (2023-02-23)
 
 
