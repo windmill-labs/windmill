@@ -27,6 +27,7 @@
 	import type { AppComponent } from '../component'
 	import CssProperty from '../componentsPanel/CssProperty.svelte'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
+	import GridTab from './GridTab.svelte'
 
 	export let component: AppComponent | undefined
 	export let rowColumns = false
@@ -193,6 +194,10 @@
 					userInputEnabled={false}
 				/>
 			</PanelSection>
+		{/if}
+
+		{#if component.type === 'tabscomponent' && Array.isArray(component.subGrids)}
+			<GridTab id={component.id} bind:tabs={component.tabs} bind:subGrids={component.subGrids} />
 		{/if}
 
 		{#if component.type === 'tablecomponent' && Array.isArray(component.actionButtons)}

@@ -73,7 +73,9 @@ export type IconComponent = BaseComponent<'iconcomponent'>
 export type HorizontalDividerComponent = BaseComponent<'horizontaldividercomponent'>
 export type VerticalDividerComponent = BaseComponent<'verticaldividercomponent'>
 export type FileInputComponent = BaseComponent<'fileinputcomponent'>
-export type TabsComponent = BaseComponent<'tabscomponent'>
+export type TabsComponent = BaseComponent<'tabscomponent'> & {
+	tabs: string[]
+}
 export type ContainerComponent = BaseComponent<'containercomponent'>
 
 export type AppComponent = BaseAppComponent &
@@ -1021,18 +1023,12 @@ Hello \${ctx.username}
 					fieldType: 'boolean',
 					value: false,
 					onlyStatic: true
-				},
-				tabs: {
-					type: 'static',
-					fieldType: 'array',
-					subFieldType: 'text',
-					value: ['First Tab', 'Second Tab'],
-					onlyStatic: true
 				}
 			},
 			componentInput: undefined,
 			card: false,
-			subGrids: [[], []]
+			subGrids: [[], []],
+			tabs: ['First tab', 'Second tab']
 		}
 	},
 	iconcomponent: {
