@@ -112,7 +112,7 @@ function ZipFSElement(zip: JSZip): DynFSElement {
 }
 
 async function* readDirRecursiveWithIgnore(
-  ignore: (path: string) => boolean,
+  ignore: (path: string, isDirectory: boolean) => boolean,
   root: DynFSElement,
 ): AsyncGenerator<
   {
@@ -132,7 +132,7 @@ async function* readDirRecursiveWithIgnore(
     getContentText(): Promise<string>;
   }[] = [{
     path: root.path,
-    ignored: ignore(root.path),
+    ignored: ignore(root.path, root.isDirectory),
     isDirectory: root.isDirectory,
     c: root.getChildren,
     getContentBytes(): Promise<Uint8Array> {
@@ -150,7 +150,7 @@ async function* readDirRecursiveWithIgnore(
     for await (const e2 of e.c()) {
       stack.push({
         path: e2.path,
-        ignored: e.ignored || ignore(e2.path),
+        ignored: e.ignored || ignore(e2.path, e2.isDirectory),
         isDirectory: e2.isDirectory,
         getContentBytes: e2.getContentBytes,
         getContentText: e2.getContentText,
@@ -166,7 +166,7 @@ type Edit = { name: "edited"; path: string; before: string; after: string; };
 
 type Change = Added | Deleted | Edit;
 
-async function elementsToMap(els: DynFSElement, ignore: (path: string) => boolean): Promise<{ [key: string]: string }> {
+async function elementsToMap(els: DynFSElement, ignore: (path: string, isDirectory: boolean) => boolean): Promise<{ [key: string]: string }> {
   const map: { [key: string]: string } = {};
   for await (const entry of readDirRecursiveWithIgnore(
     ignore,
@@ -180,7 +180,7 @@ async function elementsToMap(els: DynFSElement, ignore: (path: string) => boolea
 }
 async function compareDynFSElement(
   els1: DynFSElement, els2: DynFSElement,
-  ignore: (path: string) => boolean,
+  ignore: (path: string, isDirectory: boolean) => boolean,
   raw: boolean
 ): Promise<Change[]> {
 
@@ -211,10 +211,14 @@ async function compareDynFSElement(
   return changes
 }
 
-const isNotWmillFile = (p: string) => {
-  if (p == "./") {
+const isNotWmillFile = (p: string, isDirectory: boolean) => {
+  if (p == "./" || p == "" || p == "u" || p == "f" || p == "g" || p.endsWith("/")) {
     return false
   }
+  if (isDirectory) {
+    return !p.startsWith("u/") && !p.startsWith("f/") && !p.startsWith("g/")
+  }
+
   try {
     const typ = getTypeStrFromPath(p)
     if (typ == 'resource-type') {
@@ -235,7 +239,7 @@ async function ignoreF() {
     } = gitignore_parser.compile(
       await Deno.readTextFile(".wmillignore"),
     );
-    return (p: string) => isNotWmillFile(p) || ignore.denies(p);
+    return (p: string, isDirectory: boolean) => isNotWmillFile(p, isDirectory) || ignore.denies(p);
   } catch (e) {
     return isNotWmillFile
   }
