@@ -676,19 +676,19 @@ async fn create_workspace(
     .execute(&mut tx)
     .await?;
 
-    let mc = magic_crypt::new_magic_crypt!(key, 256);
-    sqlx::query!(
-        "INSERT INTO variable
-            (workspace_id, path, value, is_secret, description)
-            VALUES ($1, 'g/all/pretty_secret', $2, true, 'This item is secret'), 
-                ($3, 'g/all/not_secret', $4, false, 'This item is not secret')",
-        nw.id,
-        crate::variables::encrypt(&mc, "pretty secret value"),
-        nw.id,
-        "finland does not actually exist",
-    )
-    .execute(&mut tx)
-    .await?;
+    // let mc = magic_crypt::new_magic_crypt!(key, 256);
+    // sqlx::query!(
+    //     "INSERT INTO variable
+    //         (workspace_id, path, value, is_secret, description)
+    //         VALUES ($1, 'g/all/pretty_secret', $2, true, 'This item is secret'),
+    //             ($3, 'g/all/not_secret', $4, false, 'This item is not secret')",
+    //     nw.id,
+    //     crate::variables::encrypt(&mc, "pretty secret value"),
+    //     nw.id,
+    //     "finland does not actually exist",
+    // )
+    // .execute(&mut tx)
+    // .await?;
 
     sqlx::query!(
         "INSERT INTO usr
