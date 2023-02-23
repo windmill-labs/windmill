@@ -1,6 +1,19 @@
 # Changelog
 
 
+## [1.68.0](https://github.com/windmill-labs/windmill/compare/v1.67.4...v1.68.0) (2023-02-23)
+
+
+### Features
+
+* **frontend:** Add more app component CSS customisation ([#1218](https://github.com/windmill-labs/windmill/issues/1218)) ([6044e3b](https://github.com/windmill-labs/windmill/commit/6044e3b6ef92e89b8f15f38bc2d0986ec64105d5))
+
+
+### Bug Fixes
+
+* **cli:** better ergonomics around workspace add ([40c12e6](https://github.com/windmill-labs/windmill/commit/40c12e6139c7b42d7ab169bab2dd37f8b43bea06))
+* **cli:** better ergonomics around workspaces ([3b7160e](https://github.com/windmill-labs/windmill/commit/3b7160e84aa454bdb5f343da99cfd97a6b319937))
+
 ## [1.67.4](https://github.com/windmill-labs/windmill/compare/v1.67.3...v1.67.4) (2023-02-23)
 
 
