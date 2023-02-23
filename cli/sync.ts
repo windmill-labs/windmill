@@ -211,6 +211,21 @@ async function compareDynFSElement(
   return changes
 }
 
+const isNotWmillFile = (p: string) => {
+  if (p == "./") {
+    return false
+  }
+  try {
+    const typ = getTypeStrFromPath(p)
+    if (typ == 'resource-type') {
+      return p.includes('/')
+    } else {
+      return !p.startsWith("u/") && !p.startsWith("f/") && !p.startsWith("g/")
+    }
+  } catch {
+    return true
+  }
+}
 
 async function ignoreF() {
   try {
@@ -220,9 +235,9 @@ async function ignoreF() {
     } = gitignore_parser.compile(
       await Deno.readTextFile(".wmillignore"),
     );
-    return (p: string) => p.startsWith(".wmill") || ignore.denies(p);
+    return (p: string) => isNotWmillFile(p) || ignore.denies(p);
   } catch (e) {
-    return (p: string) => p.startsWith(".wmill");
+    return isNotWmillFile
   }
 }
 

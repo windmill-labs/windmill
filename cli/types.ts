@@ -125,7 +125,7 @@ export function getTypeStrFromPath(
   | "folder"
   | "app" {
   const parsed = path.parse(p);
-  if (parsed.ext !== ".json") {
+  if (parsed.ext == ".go" || parsed.ext == ".ts" || parsed.ext == ".sh" || parsed.ext == ".py") {
     return 'script'
   }
 
