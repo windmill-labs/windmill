@@ -303,7 +303,7 @@ export function createNewGridItem(grid: GridItem[], id: string, data: AppCompone
 	return newItem
 }
 
-function recursiveGetIds(gridItem: GridItem): string[] {
+export function recursiveGetIds(gridItem: GridItem): string[] {
 	const subGrids = gridItem.data.subGrids ?? []
 	const subGridIds = subGrids
 		.map((subGrid: GridItem[]) => subGrid.map(recursiveGetIds))
