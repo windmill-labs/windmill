@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.67.3](https://github.com/windmill-labs/windmill/compare/v1.67.2...v1.67.3) (2023-02-23)
+
+
+### Bug Fixes
+
+* **cli:** ignone non wmill looking files ([ec57c59](https://github.com/windmill-labs/windmill/commit/ec57c5977f122b629a07e05bc3551662d518ce30))
+
 ## [1.67.2](https://github.com/windmill-labs/windmill/compare/v1.67.1...v1.67.2) (2023-02-23)
 
 
