@@ -5,10 +5,10 @@
 	import InputsSpecsEditor from './settingsPanel/InputsSpecsEditor.svelte'
 	import SettingsPanelRec from './SettingsPanelRec.svelte'
 
-	const { selectedComponent, lazyGrid, app } = getContext<AppEditorContext>('AppEditorContext')
+	const { selectedComponent, app } = getContext<AppEditorContext>('AppEditorContext')
 </script>
 
-<SettingsPanelRec bind:gridItems={$lazyGrid} />
+<SettingsPanelRec bind:gridItems={$app.grid} />
 
 {#each $app?.hiddenInlineScripts ?? [] as script, index (script.name)}
 	{#if $selectedComponent === `bg_${index}`}

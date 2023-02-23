@@ -17,7 +17,7 @@
 	const { worldStore, focusedGrid, selectedComponent } =
 		getContext<AppEditorContext>('AppEditorContext')
 
-	let tabs: string[]
+	let tabs: string[] | undefined = undefined
 	let gridContent: string[] | undefined = undefined
 	let selected: string = ''
 	let noPadding: boolean | undefined = undefined
@@ -44,6 +44,16 @@
 			parentComponentId: id,
 			subGridIndex: selectedIndex ?? 0
 		}
+	}
+
+	let previousTabs: string[] | undefined = tabs
+	$: {
+		if (tabs && previousTabs && tabs.length < previousTabs.length) {
+			let missingTabIndex = tabs.findIndex((tab) => !previousTabs?.includes(tab))
+		} else if ((tabs?.length ?? 0) > (previousTabs?.length ?? 0)) {
+			// subGrids = [...(subGrids ?? []), []]
+		}
+		previousTabs = tabs
 	}
 
 	$: $selectedComponent === id && selectedIndex >= 0 && onFocus()
