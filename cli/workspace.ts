@@ -151,7 +151,11 @@ async function switchC(opts: GlobalOptions, workspaceName: string) {
 
   const all = await allWorkspaces();
   if (all.findIndex((x) => x.name === workspaceName) === -1) {
-    console.log(colors.red.bold("! This workspace name does not exist."));
+    console.log(colors.red.bold(`! This workspace profile ${workspaceName} does not exist locally.`));
+    console.log("available workspace profiles:")
+    for (const w of all) {
+      console.log('  - ' + w.name)
+    }
     return;
   }
 
@@ -184,12 +188,6 @@ export async function add(
     workspaceName = await Input.prompt("Name this workspace:");
   }
 
-  const all = await allWorkspaces();
-  if (all.findIndex((x) => x.name === workspaceName) !== -1) {
-    console.log(colors.red.bold("! Workspace name already exists"));
-    return;
-  }
-
   if (!workspaceId) {
     workspaceId = await Input.prompt({ message: "Enter the ID of this workspace", default: workspaceName, suggestions: [workspaceName] });
   }
@@ -219,18 +217,24 @@ export async function add(
     token = await loginInteractive(remote);
   }
 
+  setClient(
+    token,
+    remote.endsWith("/") ? remote.substring(0, remote.length - 1) : remote,
+  );
+  let alreadyExists = false
+  try {
+    alreadyExists = await WorkspaceService.existsWorkspace({
+      requestBody: { id: workspaceId },
+    })
+  } catch (e) {
+    console.log(colors.red.bold("! Credentials or instance is invalid. Aborting."));
+    throw e
+  }
   if (opts.create) {
-    setClient(
-      token,
-      remote.endsWith("/") ? remote.substring(0, remote.length - 1) : remote,
-    );
-
     if (
-      !await WorkspaceService.existsWorkspace({
-        requestBody: { id: workspaceId },
-      })
+      !alreadyExists
     ) {
-      console.log(colors.yellow("Workspace does not exist. Creating..."));
+      console.log(colors.yellow(`Workspace at id ${workspaceId} on ${remote} does not exist. Creating...`));
       await WorkspaceService.createWorkspace({
         requestBody: {
           id: workspaceId,
@@ -239,6 +243,14 @@ export async function add(
         },
       });
     }
+  } else if (!alreadyExists) {
+    console.log(colors.red.bold(`! Workspace at id ${workspaceId} on ${remote} does not exist. Re-run with --create to create it. Aborting.`));
+    console.log("On that instance and with those credentials, the workspaces that you can access are:")
+    const workspaces = await WorkspaceService.listWorkspaces()
+    for (const workspace of workspaces) {
+      console.log(`- ${workspace.id} (name: ${workspace.name})`)
+    }
+    Deno.exit(1);
   }
 
   await addWorkspace({
@@ -246,28 +258,40 @@ export async function add(
     remote: remote,
     workspaceId: workspaceId,
     token: token,
-  });
+  }, opts);
   await Deno.writeTextFile(
     (await getRootStore()) + "/activeWorkspace",
     workspaceName,
   );
-  console.log(colors.green.underline("Succesfully added workspace!"));
+  console.log(colors.green.underline(`Added workspace ${workspaceName} for ${workspaceId} on ${remote}!`));
 }
 
-export async function addWorkspace(workspace: Workspace) {
+export async function addWorkspace(workspace: Workspace, opts: any) {
   workspace.remote = new URL(workspace.remote).toString(); // add trailing slash in all cases!
   const file = await Deno.open((await getRootStore()) + "remotes.ndjson", {
     append: true,
     write: true,
-    read: false,
+    read: true,
     create: true,
   });
+  await removeWorkspace(workspace.name, true, opts);
   await file.write(new TextEncoder().encode(JSON.stringify(workspace) + "\n"));
   file.close();
 }
 
-export async function removeWorkspace(name: string) {
+export async function removeWorkspace(name: string, silent: boolean, opts: any) {
   const orgWorkspaces = await allWorkspaces();
+  if (orgWorkspaces.findIndex((x) => x.name === name) === -1) {
+    if (!silent) {
+      console.log(colors.red.bold(`! Workspace profile ${name} does not exist locally`));
+      console.log("available workspace profiles:")
+      await list(opts)
+    }
+    return;
+  }
+  if (silent) {
+    console.log(colors.yellow(`Replacing existing workspace ${name}`))
+  }
   await Deno.writeTextFile(
     (await getRootStore()) + "remotes.ndjson",
     orgWorkspaces
@@ -275,11 +299,13 @@ export async function removeWorkspace(name: string) {
       .map((x) => JSON.stringify(x))
       .join("\n"),
   );
+  if (!silent) {
+    console.log(colors.green.underline(`Succesfully removed workspace ${name}!`));
+  }
 }
 
 async function remove(_opts: GlobalOptions, name: string) {
-  await removeWorkspace(name);
-  console.log(colors.green.underline("Succesfully removed workspace!"));
+  await removeWorkspace(name, false, _opts);
 }
 
 const command = new Command()
