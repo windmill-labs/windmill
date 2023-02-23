@@ -56,6 +56,57 @@
 
 		return newItem
 	}
+	function recursiveGetIds(gridItem: GridItem): string[] {
+		const subGrids = gridItem.data.subGrids ?? []
+		const subGridIds = subGrids
+			.map((subGrid: GridItem[]) => subGrid.map(recursiveGetIds))
+			.flat(Infinity)
+		return [gridItem.data.id, ...subGridIds]
+	}
+
+	function findParent(root: GridItem[], id: string): GridItem | undefined {
+		for (const a of root) {
+			if (a.id === id) {
+				return a
+			}
+
+			if (a.data.subGrids) {
+				// Recursively search the sub-grids
+				for (const subGrid of a.data.subGrids) {
+					const result = findParent(subGrid, id)
+					if (result) {
+						return result
+					}
+				}
+			}
+		}
+
+		return undefined
+	}
+
+	function insertNewGridItem(
+		root: GridItem[],
+		id: string,
+		subGridIndex: number,
+		appComponentType: string,
+		newId: string
+	): GridItem[] {
+		const parentA = findParent(root, id)
+
+		if (!parentA) {
+			throw new Error(`Parent A object with ID ${id} not found.`)
+		}
+
+		const subGrid = parentA.data.subGrids[subGridIndex]
+
+		if (!subGrid) {
+			throw new Error(`Sub-grid with index ${subGridIndex} not found.`)
+		}
+
+		const newItem = createNewGridItem(subGrid ?? [], newId, appComponentType)
+		subGrid.push(newItem)
+		return root
+	}
 
 	function addComponent(appComponentType: AppComponent['type']): void {
 		// When a new component is added, we need to mark the app as dirty,
@@ -63,36 +114,25 @@
 		$dirtyStore = true
 
 		const grid = $app.grid ?? []
-
-		const gridItemIds = grid
-			.map((gridItem: GridItem) => {
-				const subGrids = gridItem.data.subGrids ?? []
-				return [
-					gridItem.data.id,
-					...subGrids.map((subGrid: GridItem[]) =>
-						subGrid.map((gridItem: GridItem) => gridItem.data.id)
-					)
-				]
-			})
-			.flat(2)
-
+		const gridItemIds = grid.map(recursiveGetIds).flat()
 		const id = getNextId(gridItemIds)
 
 		if ($focusedGrid) {
 			const { parentComponentId, subGridIndex } = $focusedGrid
 
-			const gridItemIndex = $app.grid.findIndex((gridItem) => gridItem.id === parentComponentId)
-			const subGrids = $app.grid[gridItemIndex].data.subGrids ?? []
-			const newItem = createNewGridItem(subGrids[subGridIndex] ?? [], id, appComponentType)
-			const subGrid = subGrids[subGridIndex] ?? []
-
-			$app.grid[gridItemIndex].data.subGrids[subGridIndex] = [...subGrid, newItem]
-			$selectedComponent = id
+			$app.grid = insertNewGridItem(
+				$app.grid,
+				parentComponentId,
+				subGridIndex,
+				appComponentType,
+				id
+			)
 		} else {
 			const newItem = createNewGridItem(grid, id, appComponentType)
 			$app.grid = [...grid, newItem]
-			$selectedComponent = id
 		}
+
+		$selectedComponent = id
 	}
 
 	onMount(() => {
@@ -119,9 +159,7 @@
 				{/each}
 			</div>
 		{:else}
-			<div class="text-xs text-gray-500 py-1 px-2">
-				There are no components in this group yet
-			</div>
+			<div class="text-xs text-gray-500 py-1 px-2"> There are no components in this group yet </div>
 		{/if}
 	</ListItem>
 {/each}
