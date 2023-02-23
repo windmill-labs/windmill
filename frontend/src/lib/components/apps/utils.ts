@@ -239,6 +239,23 @@ export function findNodeById(root: GridItem[], id: string): GridItem | undefined
 	return undefined
 }
 
+export function deleteNodeById(root: GridItem[], id: string): void {
+	for (const a of root) {
+		if (a.id === id) {
+			root.splice(root.indexOf(a), 1)
+			return
+		}
+
+		if (a.data.subGrids) {
+			for (const subGrid of a.data.subGrids) {
+				deleteNodeById(subGrid, id)
+			}
+		}
+	}
+
+	return undefined
+}
+
 export function insertNewGridItem(
 	root: GridItem[],
 	id: string,
