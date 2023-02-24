@@ -54,6 +54,14 @@ export function allItems(grid: GridItem[], subgrids: Record<string, GridItem[]> 
 	return [...grid, ...Object.values(subgrids).flat()]
 }
 
+export function allItemsWithParent(grid: GridItem[], subgrids: Record<string, GridItem[]> | undefined): [GridItem, string | undefined][] {
+	const items: [GridItem, string | undefined][] = grid.map((item) => [item, undefined])
+	if (subgrids == undefined) {
+		return items
+	}
+	return [...items, ...Object.entries(subgrids).flatMap(([k, v]) => v.map((g) => [g, k] as [GridItem, string]))]
+}
+
 export async function loadSchema(
 	workspace: string,
 	path: string,
