@@ -465,6 +465,14 @@ pub async fn run_worker(
     )
     .expect("register prometheus metric");
 
+    let worker_execution_duration_counter = prometheus::register_int_counter!(prometheus::opts!(
+        "worker_execution_duration_counter",
+        "Total number of milliseconds spent executing jobs"
+    )
+        .const_label("name", &worker_name))
+        .expect("register prometheus metric");
+
+
     let worker_sleep_duration = prometheus::register_histogram!(prometheus::HistogramOpts::new(
         "worker_sleep_duration",
         "Duration sleeping waiting for job",
@@ -472,12 +480,28 @@ pub async fn run_worker(
     .const_label("name", &worker_name),)
     .expect("register prometheus metric");
 
+
+    let worker_sleep_duration_counter = prometheus::register_int_counter!(prometheus::opts!(
+        "worker_execution_sleep_counter",
+        "Total number of milliseconds spent sleeping between pulling jobs from the queue"
+    )
+        .const_label("name", &worker_name))
+        .expect("register prometheus metric");
+
+
     let worker_pull_duration = prometheus::register_histogram!(prometheus::HistogramOpts::new(
         "worker_pull_duration",
         "Duration pulling next job",
     )
     .const_label("name", &worker_name),)
     .expect("register prometheus metric");
+
+    let worker_pull_duration_counter = prometheus::register_int_counter!(prometheus::opts!(
+        "worker_pull_sleep_counter",
+        "Total number of milliseconds spent pulling jobs (if growing large the db is undersized)"
+    )
+        .const_label("name", &worker_name))
+        .expect("register prometheus metric");
 
     let worker_execution_failed = prometheus::register_int_counter_vec!(
         prometheus::Opts::new("worker_execution_failed", "Number of failed jobs",)
@@ -573,7 +597,9 @@ pub async fn run_worker(
                     },
                     (job, timer) = {
                         let timer = worker_pull_duration.start_timer(); 
-                        pull(&db, WHITELIST_WORKSPACES.clone(), BLACKLIST_WORKSPACES.clone()).map(|x| (x, timer)) } => {
+                        let instant = Instant::now();
+                        pull(&db, WHITELIST_WORKSPACES.clone(), BLACKLIST_WORKSPACES.clone()).map(|x| (x, timer))` } => {
+                        worker_pull_duration_counter.inc_by((elapsed.as_millis() as i64).try_into().unwrap());
                         drop(timer);
                         (false, job)
                     },
