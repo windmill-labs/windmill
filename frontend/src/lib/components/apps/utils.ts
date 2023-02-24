@@ -47,6 +47,13 @@ export function deleteComponent(
 
 */
 
+export function allItems(grid: GridItem[], subgrids: Record<string, GridItem[]> | undefined): GridItem[] {
+	if (subgrids == undefined) {
+		return grid
+	}
+	return [...grid, ...Object.values(subgrids).flat()]
+}
+
 export async function loadSchema(
 	workspace: string,
 	path: string,

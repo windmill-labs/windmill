@@ -24,7 +24,6 @@
 
 	export let component: AppComponent | undefined
 	export let rowColumns = false
-	export let gridItems: GridItem[] | undefined
 	export let onDelete: (() => void) | undefined = undefined
 
 	const { app, staticOutputs, runnableComponents, selectedComponent, worldStore, focusedGrid } =
