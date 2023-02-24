@@ -20,13 +20,18 @@
 	import { Scatter } from 'svelte-chartjs'
 	import InputValue from '../helpers/InputValue.svelte'
 	import type { ChartOptions, ChartData } from 'chart.js'
+	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
+	import { getContext } from 'svelte'
+	import { concatCustomCss } from '../../utils'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
 	export let configuration: Record<string, AppInput>
 	export let initializing: boolean | undefined = undefined
+	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
 
 	export const staticOutputs: string[] = ['loading', 'result']
+	const { app } = getContext<AppEditorContext>('AppEditorContext')
 
 	let logarithmicScale = false
 	let zoomable = false
@@ -80,6 +85,8 @@
 	$: data = {
 		datasets: result ?? []
 	} as ChartData<'scatter', (number | Point)[], unknown>
+	
+	$: css = concatCustomCss($app.css?.timeseriescomponent, customCss)
 </script>
 
 <InputValue {id} input={configuration.logarithmicScale} bind:value={logarithmicScale} />
@@ -87,7 +94,9 @@
 <InputValue {id} input={configuration.pannable} bind:value={pannable} />
 
 <RunnableWrapper flexWrap autoRefresh bind:componentInput {id} bind:initializing bind:result>
-	{#if result}
-		<Scatter {data} {options} />
-	{/if}
+	<div class="w-full h-full {css?.container.class ?? ''}" style={css?.container.style ?? ''}>
+		{#if result}
+			<Scatter {data} {options} />
+		{/if}
+	</div>
 </RunnableWrapper>

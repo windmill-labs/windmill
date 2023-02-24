@@ -470,7 +470,9 @@ Hello \${ctx.username}
 </h1>`
 			},
 			configuration: {},
-			customCss: {},
+			customCss: {
+				container: { class: '', style: '' },
+			} as const,
 			card: false
 		}
 	},
@@ -612,7 +614,9 @@ Hello \${ctx.username}
 					}
 				]
 			},
-			customCss: {},
+			customCss: {
+				container: { class: '', style: '' },
+			} as const,
 			card: true
 		}
 	},
