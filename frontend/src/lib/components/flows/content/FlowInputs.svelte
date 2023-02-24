@@ -142,12 +142,12 @@
 								dispatch('new', { language: RawScript.language.DENO, kind, subkind: 'pgsql' })}
 						/>
 
-						<FlowScriptPicker
+						<!-- <FlowScriptPicker
 							label={`MySQL`}
 							lang="mysql"
 							on:click={() =>
 								dispatch('new', { language: RawScript.language.DENO, kind, subkind: 'mysql' })}
-						/>
+						/> -->
 					{/if}
 				{/if}
 			</div>
