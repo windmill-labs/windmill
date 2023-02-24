@@ -22,10 +22,13 @@
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 	import GridTab from './GridTab.svelte'
 	import { duplicateGridItem } from '../appUtils'
+	import { deleteGridItem } from '../appUtils'
 
-	export let component: AppComponent | undefined
+	export let component: AppComponent
 	export let rowColumns = false
 	export let onDelete: (() => void) | undefined = undefined
+	export let parent: string | undefined
+	export let noGrid = false
 
 	const { app, staticOutputs, runnableComponents, selectedComponent, worldStore, focusedGrid } =
 		getContext<AppEditorContext>('AppEditorContext')
@@ -35,17 +38,23 @@
 	}
 
 	function removeGridElement() {
-		/*
 		$selectedComponent = undefined
 		$focusedGrid = undefined
-		if (component) {
-			deleteComponent(gridItems, component, $app, $staticOutputs, $runnableComponents)
+		if (component && !noGrid) {
+			let ids = deleteGridItem($app, component, parent)
+			for (const key in ids) {
+				delete $staticOutputs[key]
+				delete $runnableComponents[key]
+			}
 		}
+
+		delete $staticOutputs[component.id]
+		delete $runnableComponents[component.id]
+		$app = $app
 		$staticOutputs = $staticOutputs
 		$runnableComponents = $runnableComponents
 
 		onDelete?.()
-		*/
 	}
 
 	$: extraLib =
