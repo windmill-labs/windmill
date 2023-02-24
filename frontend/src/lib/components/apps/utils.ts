@@ -16,8 +16,14 @@ import type { Output } from './rx'
 import type { App, GridItem } from './types'
 import { getNextId } from '../flows/flowStateUtils'
 
-export function deleteComponent(parentItems: GridItem[] | undefined, component: AppComponent, app: App, staticOutputs: Record<string, any>, runnableComponents: Record<string, any>) {
-	(component.subGrids ?? []).forEach((subgrid) => {
+export function deleteComponent(
+	parentItems: GridItem[] | undefined,
+	component: AppComponent,
+	app: App,
+	staticOutputs: Record<string, any>,
+	runnableComponents: Record<string, any>
+) {
+	;(component.subGrids ?? []).forEach((subgrid) => {
 		if (subgrid) {
 			subgrid.forEach((item) => {
 				console.log(item)
@@ -267,6 +273,7 @@ export function findParent(root: GridItem[], id: string): GridItem | undefined {
 
 		if (a.data.subGrids) {
 			// Recursively search the sub-grids
+
 			for (const subGrid of a.data.subGrids) {
 				const result = findParent(subGrid, id)
 				if (result) {

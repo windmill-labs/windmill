@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { getContext } from 'svelte'
 	import type { AppEditorContext, GridItem } from '../types'
 
 	import ComponentPanel from './settingsPanel/ComponentPanel.svelte'

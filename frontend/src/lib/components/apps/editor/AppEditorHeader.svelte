@@ -468,7 +468,6 @@
 				<button
 					on:click={() => {
 						$focusedGrid = undefined
-						$selectedComponent = undefined
 					}}
 				>
 					<X size={14} />
