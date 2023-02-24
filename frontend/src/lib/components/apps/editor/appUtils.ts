@@ -1,6 +1,6 @@
 import { getNextId } from '$lib/components/flows/flowStateUtils'
 import type { App, FocusedGrid, GridItem } from '../types'
-import { getRecommendedDimensionsByComponent, type AppComponent } from './component'
+import { Component, getRecommendedDimensionsByComponent, type AppComponent } from './component'
 import gridHelp from '@windmill-labs/svelte-grid/src/utils/helper'
 import { gridColumns } from '../gridUtils'
 
@@ -117,32 +117,48 @@ export function insertNewGridItem(
 	return id
 }
 
-export function deleteGridItem(app: App, id: string) {
-	const index = app.grid.findIndex((item) => item.id === id)
-	if (index !== -1) {
-		app.grid.splice(index, 1)
-		return
-	}
 
-	const gridItem = findGridItem(app, id)
-	const keys = Object.keys(app.subgrids ?? {})
 
-	if (app.subgrids) {
-		if (keys.includes(id)) {
-			for (let i = 0; i < gridItem?.data.numberOfSubgrids; i++) {
-				delete app.subgrids[`${id}-${i}`]
-			}
-		} else {
-			for (const key of keys) {
-				const subgrid = app.subgrids[key]
-				const index = subgrid.findIndex((item) => item.id === id)
-				if (index !== -1) {
-					subgrid.splice(index, 1)
-					return
+export function getAllSubgridsAndComponentIds(app: App, component: AppComponent): [string[], string[]] {
+	const subgrids: string[] = []
+	let components: string[] = [component.id]
+	if (app.subgrids && component.numberOfSubgrids) {
+		for (let i = 0; i < component.numberOfSubgrids; i++) {
+			const subgrid = app.subgrids[`${component.id}-${i}`]
+			if (subgrid) {
+				for (const item of subgrid) {
+					let [recSubgrids, recComponents] = getAllSubgridsAndComponentIds(app, item.data)
+					subgrids.push(...recSubgrids)
+					components.push(...recComponents)
 				}
 			}
 		}
 	}
+	return [subgrids, components]
+}
+
+export function deleteGridItem(app: App, component: AppComponent, parent: string | undefined): string[] {
+	let [subgrids, components] = getAllSubgridsAndComponentIds(app, component)
+	if (app.subgrids) {
+		subgrids.forEach((id) => {
+			delete app.subgrids![id]
+		})
+	}
+	if (!parent) {
+		let index = app.grid.findIndex((x) => x.id == component.id)
+		if (index > -1) {
+			app.grid.splice(index, 1)
+		}
+	} else {
+		let grid = app.subgrids![parent]
+		let index = grid.findIndex((x) => x.id == component.id)
+		if (index > -1) {
+			grid.splice(index, 1)
+		}
+	}
+
+	return components
+
 }
 
 export function duplicateGridItem(
