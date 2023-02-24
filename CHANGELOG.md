@@ -1,6 +1,21 @@
 # Changelog
 
 
+## [1.69.2](https://github.com/windmill-labs/windmill/compare/v1.69.1...v1.69.2) (2023-02-24)
+
+
+### Bug Fixes
+
+* **app:** fix all nested behavior ([dd28308](https://github.com/windmill-labs/windmill/commit/dd28308c3cf1877ba3f19dcd2bd20bf1c7896a99))
+* **frontend:** delete grid item ([008c30f](https://github.com/windmill-labs/windmill/commit/008c30fcaad64af512407f9889a9881fafac0868))
+* **frontend:** duplicate ([483407c](https://github.com/windmill-labs/windmill/commit/483407cdf0e1ed61de180a904934e950fed4adc3))
+* **frontend:** Fix findGridItem ([a8295d0](https://github.com/windmill-labs/windmill/commit/a8295d0b5acd08cec42b7939d907df5c25132644))
+* **frontend:** Fix findGridItem ([5bb77ed](https://github.com/windmill-labs/windmill/commit/5bb77edf45740a75e969b1bef31580271c9d5505))
+* **frontend:** Fix next id ([8ddcf4d](https://github.com/windmill-labs/windmill/commit/8ddcf4d9c1a8d6dd20ee241a3f308811c49e58f1))
+* **frontend:** gridtab ([fa105b4](https://github.com/windmill-labs/windmill/commit/fa105b4caeaa2d0e9704a48f6caf8d846839c23e))
+* **frontend:** rewrote utils ([ea1b2c2](https://github.com/windmill-labs/windmill/commit/ea1b2c29b95282df347ef9c5973917fa3880e843))
+* **frontend:** wip ([33ebe2d](https://github.com/windmill-labs/windmill/commit/33ebe2da8e81476be62a2567d5012573a8a010b6))
+
 ## [1.69.1](https://github.com/windmill-labs/windmill/compare/v1.69.0...v1.69.1) (2023-02-24)
 
 
