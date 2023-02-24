@@ -6,11 +6,9 @@
 	import type { AppEditorContext, GridItem } from '../types'
 	import Component from './component/Component.svelte'
 
-	export let subGrid: GridItem[]
 	export let containerHeight: number
 	export let noPadding = false
-	export let parentId: string
-	export let index: number
+	export let id: string
 
 	const dispatch = createEventDispatcher()
 

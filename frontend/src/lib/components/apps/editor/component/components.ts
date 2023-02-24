@@ -175,7 +175,7 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 			},
 			componentInput: undefined,
 			card: false,
-			subGrids: [[]]
+			subgrids: 1
 		}
 	},
 	textcomponent: {
@@ -1027,7 +1027,7 @@ Hello \${ctx.username}
 			},
 			componentInput: undefined,
 			card: false,
-			subGrids: [[], []],
+			subgrids: 2,
 			tabs: ['First tab', 'Second tab']
 		}
 	},
