@@ -95,17 +95,28 @@
 			}}
 			on:keypress
 		>
+			<Badge color="dark-indigo">
+				{component.id}
+			</Badge>
+
+			<div>
+				<TableActionLabel componentInput={component.configuration.label} />
+			</div>
 			<div>
 				<Button variant="border" color="red" on:click={() => deleteComponent(component.id)}>
 					<Icon class="h-3" data={faTrashAlt} />
 				</Button>
 			</div>
-			<div>
-				<TableActionLabel componentInput={component.configuration.label} />
-			</div>
-			<Badge color="dark-indigo">
-				{component.id}
-			</Badge>
 		</div>
 	{/each}
+	<div class="w-full">
+		<Button
+			btnClasses="w-full"
+			color="light"
+			variant="border"
+			startIcon={{ icon: faPlus }}
+			on:click={addComponent}
+			iconOnly
+		/>
+	</div>
 </PanelSection>

@@ -241,7 +241,7 @@
 			bind:error={pathError}
 			bind:path={newPath}
 			initialPath=""
-			namePlaceholder="my_app"
+			namePlaceholder="app"
 			kind="app"
 		/>
 

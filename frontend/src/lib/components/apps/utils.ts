@@ -20,13 +20,14 @@ export function deleteComponent(parentItems: GridItem[] | undefined, component: 
 	(component.subGrids ?? []).forEach((subgrid) => {
 		if (subgrid) {
 			subgrid.forEach((item) => {
+				console.log(item)
 				if (item.data) {
+					console.log(item.data)
 					deleteComponent(undefined, item.data, app, staticOutputs, runnableComponents)
 				}
 			})
 		}
 	})
-
 	if (parentItems) {
 		let index = parentItems.findIndex((item) => item.data?.id === component.id)
 		if (index != -1) {
@@ -345,7 +346,7 @@ export function createNewGridItem(grid: GridItem[], id: string, data: AppCompone
 export function recursiveGetIds(gridItem: GridItem): string[] {
 	const subGrids = gridItem.data.subGrids ?? []
 	const subGridIds = subGrids
-		.map((subGrid: GridItem[]) => subGrid.map(recursiveGetIds))
+		.map((subGrid: GridItem[]) => subGrid?.map(recursiveGetIds) ?? [])
 		.flat(Infinity)
 	return [gridItem.data.id, ...subGridIds]
 }
