@@ -17,11 +17,11 @@ function findGridItemById(
 
 		if (subGrids) {
 			const numberOfSubgrids = gridItem.data.numberOfSubgrids
-			const subgrids = subGrids[gridItem.id]
-			if (numberOfSubgrids && subgrids) {
+
+			if (numberOfSubgrids) {
 				for (let i = 0; i < numberOfSubgrids; i++) {
-					const subgrid = subgrids[`${gridItem.id}-${i}`]
-					const found = findGridItemById([subgrid], subGrids, id)
+					const subgrid = subGrids[`${gridItem.id}-${i}`]
+					const found = findGridItemById(subgrid, subGrids, id)
 
 					if (found) {
 						return found
