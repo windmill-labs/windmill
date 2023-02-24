@@ -123,3 +123,31 @@ export function insertNewGridItem(
 
 	return id
 }
+
+export function deleteGridItem(app: App, id: string) {
+	const index = app.grid.findIndex((item) => item.id === id)
+	if (index !== -1) {
+		app.grid.splice(index, 1)
+		return
+	}
+
+	const gridItem = findGridItem(app, id)
+	const keys = Object.keys(app.subgrids ?? {})
+
+	if (app.subgrids) {
+		if (keys.includes(id)) {
+			for (let i = 0; i < gridItem?.data.numberOfSubgrids; i++) {
+				delete app.subgrids[`${id}-${i}`]
+			}
+		} else {
+			for (const key of keys) {
+				const subgrid = app.subgrids[key]
+				const index = subgrid.findIndex((item) => item.id === id)
+				if (index !== -1) {
+					subgrid.splice(index, 1)
+					return
+				}
+			}
+		}
+	}
+}
