@@ -1,6 +1,17 @@
 # Changelog
 
 
+## [1.69.1](https://github.com/windmill-labs/windmill/compare/v1.69.0...v1.69.1) (2023-02-24)
+
+
+### Bug Fixes
+
+* **deno:** remove mysql support waiting for deno fix ([dd7e8c7](https://github.com/windmill-labs/windmill/commit/dd7e8c742c83f6a1d13e4343ca626c0b5efc06fb))
+* **deno:** remove mysql support waiting for deno fix ([2f78132](https://github.com/windmill-labs/windmill/commit/2f78132e081bdf3d7468e022f0e981ebfa52cfb3))
+* **frontend:** containers and tab fixes v1 ([27cac3f](https://github.com/windmill-labs/windmill/commit/27cac3ffe69c4dac160e9e55ffd1eb8ea348d487))
+* **frontend:** containers and tab fixes v1 ([705703a](https://github.com/windmill-labs/windmill/commit/705703a5e2f2dc7ceb4c215221f72bf624799841))
+* **frontend:** containers and tab fixes v1 ([fac31c6](https://github.com/windmill-labs/windmill/commit/fac31c6628b289ad6aae92434e312c4be281a4d2))
+
 ## [1.69.0](https://github.com/windmill-labs/windmill/compare/v1.68.0...v1.69.0) (2023-02-23)
 
 
