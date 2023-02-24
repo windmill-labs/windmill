@@ -3,6 +3,7 @@ import type { App, FocusedGrid, GridItem } from '../types'
 import { Component, getRecommendedDimensionsByComponent, type AppComponent } from './component'
 import gridHelp from '@windmill-labs/svelte-grid/src/utils/helper'
 import { gridColumns } from '../gridUtils'
+import { allItems } from '../utils'
 
 function findGridItemById(
 	root: GridItem[],
@@ -38,19 +39,9 @@ export function findGridItem(app: App, id: string): GridItem | undefined {
 }
 
 export function getNextGridItemId(app: App): string {
-	const subgridsKeys = app.subgrids ? Object.keys(app.subgrids) : []
-
-	const newArr = subgridsKeys.map((element) => {
-		const matches = element.match(/^([a-z]+)-\d+$/i)
-		if (matches) {
-			return matches[1]
-		}
-		return element
-	})
-
-	const uniqueArr = [...new Set(newArr)]
-	const mainGridItemsIds = app.grid.map((item) => item.id)
-	const id = getNextId([...mainGridItemsIds, ...uniqueArr])
+	const subgridsKeys = allItems(app.grid, app.subgrids).map((x) => x.id)
+	const withoutDash = subgridsKeys.map((element) => element.split('-')[0])
+	const id = getNextId([...new Set(withoutDash)])
 
 	return id
 }
