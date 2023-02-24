@@ -5,13 +5,14 @@
 	import { Icon } from 'svelte-awesome'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
-	import type { AppEditorContext } from '../../types'
+	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 	import type RunnableComponent from '../helpers/RunnableComponent.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import Portal from 'svelte-portal'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
+	import { concatCustomCss } from '../../utils'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -20,10 +21,11 @@
 	export let extraQueryParams: Record<string, any> = {}
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
+	export let customCss: ComponentCustomCSS<'button' | 'popup'> | undefined = undefined
 
 	export const staticOutputs: string[] = ['loading', 'result']
 
-	const { runnableComponents, worldStore } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, runnableComponents, worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
 	let labelValue: string = 'Default label'
 	let color: ButtonType.Color
@@ -35,6 +37,8 @@
 	let ownClick: boolean = false
 
 	let errors: Record<string, string> = {}
+	let open: boolean = false
+	
 	$: errorsMessage = Object.values(errors)
 		.filter((x) => x != '')
 		.join('\n')
@@ -61,8 +65,8 @@
 	})
 
 	$: loading = isLoading && ownClick
-
-	let open: boolean = false
+	
+	$: css = concatCustomCss($app?.css?.formbuttoncomponent, customCss)
 </script>
 
 <InputValue {id} input={configuration.label} bind:value={labelValue} />
@@ -80,6 +84,8 @@
 	<Modal
 		{open}
 		title={labelValue}
+		class={css?.popup.class}
+		style={css?.popup.style}
 		on:canceled={() => {
 			open = false
 		}}
@@ -149,6 +155,8 @@
 		{disabled}
 		{size}
 		{color}
+		btnClasses={css?.button.class ?? ''}
+		style={css?.button.style ?? ''}
 		on:click={(e) => {
 			open = true
 		}}

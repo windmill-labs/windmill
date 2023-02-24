@@ -378,7 +378,10 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 					optionValuesKey: 'buttonSizeOptions'
 				}
 			},
-			customCss: {},
+			customCss: {
+				button: { class: '', style: '' },
+				popup: { class: '', style: '' },
+			} as const,
 			card: true
 		}
 	},

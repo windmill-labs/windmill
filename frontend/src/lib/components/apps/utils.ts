@@ -7,6 +7,7 @@ import type { App, ComponentCssProperty, ComponentCustomCSS, GridItem } from './
 import { getRecommendedDimensionsByComponent } from './editor/component'
 import { gridColumns } from './gridUtils'
 import gridHelp from '@windmill-labs/svelte-grid/src/utils/helper'
+import { twMerge } from 'tailwind-merge'
 
 import type { AppInput, InputType, ResultAppInput, StaticAppInput } from './inputType'
 import type { Output } from './rx'
@@ -333,10 +334,10 @@ export function concatCustomCss<T extends string = string>(
 
 		customStyle[k] = {
 			style: (appStyle + appEnding + compStyle + compEnding).trim(),
-			class: [
-				appCss?.[k]?.class?.trim() || '',
-				componentCss[k]?.class?.trim() || ''
-			].join(' ').trim()
+			class: twMerge(
+				appCss?.[k]?.class,
+				componentCss[k]?.class
+			)
 		}
 	});
 
