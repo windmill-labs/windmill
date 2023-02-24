@@ -259,6 +259,9 @@ export function toKebabCase(text: string) {
 }
 
 export function findParent(root: GridItem[], id: string): GridItem | undefined {
+	if (!root) {
+		return undefined
+	}
 	for (const a of root) {
 		if (a.id === id) {
 			return a
