@@ -152,7 +152,7 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 			configuration: {},
 			customCss: {
 				header: { class: '', style: '' },
-				container: { class: '', style: '' },
+				container: { class: '', style: '' }
 			} as const,
 			card: false
 		}
@@ -175,7 +175,7 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 			},
 			componentInput: undefined,
 			card: false,
-			subgrids: 1
+			numberOfSubgrids: 1
 		}
 	},
 	textcomponent: {
@@ -1027,7 +1027,7 @@ Hello \${ctx.username}
 			},
 			componentInput: undefined,
 			card: false,
-			subgrids: 2,
+			numberOfSubgrids: 2,
 			tabs: ['First tab', 'Second tab']
 		}
 	},
