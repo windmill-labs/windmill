@@ -21,7 +21,6 @@ export function deleteComponent(parentItems: GridItem[] | undefined, component: 
 		if (subgrid) {
 			subgrid.forEach((item) => {
 				if (item.data) {
-					console.log(item.data)
 					deleteComponent(undefined, item.data, app, staticOutputs, runnableComponents)
 				}
 			})
@@ -276,6 +275,8 @@ export function findParent(root: GridItem[], id: string): GridItem | undefined {
 				}
 			}
 		}
+
+
 	}
 
 	return undefined

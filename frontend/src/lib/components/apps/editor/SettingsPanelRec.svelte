@@ -3,6 +3,7 @@
 	import type { AppEditorContext, GridItem } from '../types'
 
 	import ComponentPanel from './settingsPanel/ComponentPanel.svelte'
+	import SettingsPanelList from './SettingsPanelList.svelte'
 	import TablePanel from './TablePanel.svelte'
 
 	const { selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
@@ -17,9 +18,7 @@
 		{:else if gridItem.data.type === 'tablecomponent'}
 			<TablePanel bind:component={gridItem.data} />
 		{:else if gridItem.data.subGrids}
-			{#each gridItem.data.subGrids as subGrid}
-				<svelte:self bind:gridItems={subGrid} />
-			{/each}
+			<SettingsPanelList bind:subgrids={gridItem.data.subGrids} />
 		{/if}
 	{/each}
 {/if}
