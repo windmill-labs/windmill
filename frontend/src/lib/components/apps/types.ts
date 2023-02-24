@@ -42,14 +42,14 @@ export interface BaseAppComponent extends Partial<Aligned> {
 	configuration: Record<
 		string,
 		GeneralAppInput &
-			(
-				| StaticAppInput
-				| ConnectedAppInput
-				| UserAppInput
-				| RowAppInput
-				| EvalAppInput
-				| UploadAppInput
-			)
+		(
+			| StaticAppInput
+			| ConnectedAppInput
+			| UserAppInput
+			| RowAppInput
+			| EvalAppInput
+			| UploadAppInput
+		)
 	>
 	card: boolean | undefined
 	customCss?: ComponentCustomCSS
@@ -59,7 +59,7 @@ export interface BaseAppComponent extends Partial<Aligned> {
 	 * *For example when the component has a popup like `Select`*
 	 */
 	softWrap?: boolean
-	subGrids?: GridItem[][]
+	subgrids?: number
 }
 
 export type ComponentSet = {
@@ -99,6 +99,7 @@ export type App = {
 		fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
 	}>
 	css?: Record<'viewer' | 'grid' | AppComponent['type'], ComponentCustomCSS>
+	subgrids?: Record<string, GridItem[]>
 }
 
 export type ConnectingInput = {

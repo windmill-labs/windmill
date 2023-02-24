@@ -9,7 +9,6 @@
 	export let selectedScriptComponentId: string | undefined = undefined
 </script>
 
-{gridItems}
 {#if gridItems}
 	{#each gridItems as gridComponent, index (index)}
 		{#if gridComponent.data}
@@ -19,10 +18,10 @@
 					bind:componentInput={gridComponent.data.componentInput}
 				/>
 			{:else if gridComponent.data.subGrids}
-				<!-- <InlineScriptEditorList
+				<InlineScriptEditorList
 					{selectedScriptComponentId}
 					bind:subgrids={gridComponent.data.subGrids}
-				/> -->
+				/>
 			{/if}
 
 			{#if gridComponent.data.type === 'tablecomponent'}
