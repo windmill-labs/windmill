@@ -217,7 +217,7 @@
 			<PanelSection title="Custom CSS">
 				{#each Object.keys(component.customCss ?? {}) as name}
 					{#if component?.customCss?.[name]}
-						<div class="mb-2">
+						<div class="w-full mb-2">
 							<CssProperty {name} bind:value={component.customCss[name]} />
 						</div>
 					{/if}

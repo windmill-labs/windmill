@@ -1,8 +1,16 @@
 <script lang="ts">
+	import { X } from "lucide-svelte"
+	import { fade } from "svelte/transition"
 	import type { ComponentCssProperty } from "../../types"
 
 	export let name: string
 	export let value: ComponentCssProperty | undefined
+
+	function reset(property: keyof ComponentCssProperty) {
+		if(value) {
+			value[property] = ''
+		}
+	}
 </script>
 
 <div class="text-sm font-semibold text-gray-500 capitalize pt-2">
@@ -14,21 +22,47 @@
 			<div class="text-xs font-medium pb-0.5">
 				Style
 			</div>
-			<input
-				type="text"
-				bind:value={value.style}
-				on:focus
-			/>
+			<div class="relative">
+				<input
+					type="text"
+					class="!pr-7"
+					bind:value={value.style}
+					on:focus
+				/>
+				{#if value?.style}
+					<button
+						transition:fade={{ duration: 100 }}
+						class="absolute z-10 top-1.5 right-1 rounded-full p-1 duration-200 hover:bg-gray-200"
+						aria-label="Remove styles"
+						on:click={() => reset('style')}
+					>
+						<X size={14} />
+					</button>
+				{/if}
+			</div>
 		</label>
 		<label class="block">
 			<div class="text-xs font-medium pb-0.5">
 				Tailwind classes
 			</div>
-			<input
-				type="text"
-				bind:value={value.class}
-				on:focus
-			/>
+			<div class="relative">
+				<input
+					type="text"
+					class="!pr-7"
+					bind:value={value.class}
+					on:focus
+				/>
+				{#if value?.class}
+					<button
+						transition:fade={{ duration: 100 }}
+						class="absolute z-10 top-1.5 right-1 rounded-full p-1 duration-200 hover:bg-gray-200"
+						aria-label="Remove classes"
+						on:click={() => reset('class')}
+					>
+						<X size={14} />
+					</button>
+				{/if}
+			</div>
 		</label>
 	</div>
 {/if}
