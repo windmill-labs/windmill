@@ -23,7 +23,7 @@
 
 	$: selectedIndex = tabs?.indexOf(selected) ?? -1
 
-	$: if (tabs && selected === '') {
+	$: if ((tabs && selected === '') || !tabs.includes(selected)) {
 		selected = tabs[0]
 	}
 
