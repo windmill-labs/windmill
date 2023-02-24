@@ -21,6 +21,7 @@ function findGridItemById(
 				for (let i = 0; i < numberOfSubgrids; i++) {
 					const subgrid = subgrids[`${gridItem.id}-${i}`]
 					const found = findGridItemById([subgrid], subGrids, id)
+
 					if (found) {
 						return found
 					}
@@ -37,19 +38,11 @@ export function findGridItem(app: App, id: string): GridItem | undefined {
 }
 
 export function getNextGridItemId(app: App): string {
-	const subgridsKeys = app.subgrids ? Object.keys(app.subgrids) : []
+	const all: string[] = []
 
-	const newArr = subgridsKeys.map((element) => {
-		const matches = element.match(/^([a-z]+)-\d+$/i)
-		if (matches) {
-			return matches[1]
-		}
-		return element
-	})
-
-	const uniqueArr = [...new Set(newArr)]
-	const mainGridItemsIds = app.grid.map((item) => item.id)
-	const id = getNextId([...mainGridItemsIds, ...uniqueArr])
+	const newArr = all.map((element) => element.split('-')[0])
+	const k: string[] = [...new Set(newArr)]
+	const id = getNextId(k)
 
 	return id
 }
@@ -154,7 +147,7 @@ export function deleteGridItem(app: App, id: string) {
 
 export function duplicateGridItem(
 	app: App,
-	focusedGrid: FocusedGrid,
+	focusedGrid: FocusedGrid | undefined,
 	id: string
 ): string | undefined {
 	const gridItem = findGridItem(app, id)

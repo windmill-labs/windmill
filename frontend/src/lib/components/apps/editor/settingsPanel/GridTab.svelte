@@ -2,22 +2,29 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { faPlus, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
-	import type { AppEditorContext, GridItem } from '../../types'
-	//import { deleteComponent } from '../../utils'
+	import type { AppEditorContext } from '../../types'
+	import type { AppComponent } from '../component'
 	import PanelSection from './common/PanelSection.svelte'
 
 	export let tabs: string[]
-	export let subGrids: GridItem[][]
+	export let component: AppComponent
 
-	const { runnableComponents, staticOutputs, app, focusedGrid } =
-		getContext<AppEditorContext>('AppEditorContext')
+	const { app } = getContext<AppEditorContext>('AppEditorContext')
 
 	function addTab() {
-		tabs = [...tabs, `Tab ${tabs.length + 1}`]
-		subGrids = [...subGrids, []]
+		const numberOfTabs = tabs.length
+		tabs = [...tabs, `Tab ${numberOfTabs + 1}`]
+
+		if (!$app.subgrids) {
+			$app.subgrids = {}
+		}
+
+		$app.subgrids[`${component.id}-${numberOfTabs}`] = []
+		component.numberOfSubgrids = tabs.length
 	}
 
 	function deleteSubgrid(index: number) {
+		/*
 		$focusedGrid = undefined
 		subGrids[index].forEach((x) => {
 			//deleteComponent(undefined, x.data, $app, $staticOutputs, $runnableComponents)
@@ -29,6 +36,7 @@
 		$app.grid = $app.grid
 		$staticOutputs = $staticOutputs
 		$runnableComponents = $runnableComponents
+		*/
 	}
 </script>
 
