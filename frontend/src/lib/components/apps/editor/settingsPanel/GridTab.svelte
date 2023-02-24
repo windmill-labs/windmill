@@ -1,28 +1,31 @@
 <script lang="ts">
-	import { Badge } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { classNames } from '$lib/utils'
 	import { faPlus, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
-	import { Icon } from 'svelte-awesome'
 	import type { AppEditorContext, GridItem } from '../../types'
+	import { deleteComponent } from '../../utils'
 	import PanelSection from './common/PanelSection.svelte'
-	import TableActionLabel from './TableActionLabel.svelte'
 
 	export let tabs: string[]
-	export let id: string
 	export let subGrids: GridItem[][]
 
-	const { selectedComponent, staticOutputs } = getContext<AppEditorContext>('AppEditorContext')
+	const { runnableComponents, staticOutputs, app } =
+		getContext<AppEditorContext>('AppEditorContext')
 
 	function addTab() {
 		tabs = [...tabs, `Tab ${tabs.length + 1}`]
 		subGrids = [...subGrids, []]
 	}
 
-	function deleteComponent(id: number) {
-		tabs = tabs.filter((x, i) => i !== id)
-		subGrids = subGrids.filter((x, i) => i !== id)
+	function deleteSubgrid(index: number) {
+		subGrids[index].forEach((x) => {
+			deleteComponent(undefined, x.data, $app, $staticOutputs, $runnableComponents)
+		})
+		tabs.splice(index, 1)
+		subGrids.splice(index, 1)
+		tabs = tabs
+		subGrids = subGrids
+		$app = $app
 	}
 </script>
 
@@ -52,10 +55,7 @@
 						color="light"
 						variant="border"
 						on:click={() => {
-							tabs.splice(index, 1)
-							subGrids.splice(index, 1)
-							tabs = tabs
-							subGrids = subGrids
+							deleteSubgrid(index)
 						}}
 						iconOnly
 						btnClasses="!text-red-500"

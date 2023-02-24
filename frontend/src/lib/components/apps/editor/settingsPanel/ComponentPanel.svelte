@@ -13,6 +13,7 @@
 	import {
 		buildExtraLib,
 		createNewGridItem,
+		deleteComponent,
 		fieldTypeToTsType,
 		findParent,
 		getNextGridItemId,
@@ -65,34 +66,12 @@
 	function removeGridElement() {
 		$selectedComponent = undefined
 		if (component) {
-			if (gridItems) {
-				gridItems = gridItems.filter((gridComponent) => gridComponent.data.id !== component?.id)
-			}
-
-			delete $staticOutputs[component.id]
-			$staticOutputs = $staticOutputs
-
-			delete $runnableComponents[component.id]
-			$runnableComponents = $runnableComponents
-
-			if (
-				component.componentInput?.type === 'runnable' &&
-				component.componentInput?.runnable?.type === 'runnableByName'
-			) {
-				const { name, inlineScript } = component.componentInput.runnable
-
-				if (inlineScript) {
-					if (!$app.unusedInlineScripts) {
-						$app.unusedInlineScripts = []
-					}
-
-					$app.unusedInlineScripts.push({
-						name,
-						inlineScript
-					})
-				}
-			}
+			deleteComponent(gridItems, component, $app, $staticOutputs, $runnableComponents)
 		}
+		gridItems = gridItems
+		$staticOutputs = $staticOutputs
+		$runnableComponents = $runnableComponents
+
 		onDelete?.()
 	}
 
@@ -197,7 +176,7 @@
 		{/if}
 
 		{#if component.type === 'tabscomponent' && Array.isArray(component.subGrids)}
-			<GridTab id={component.id} bind:tabs={component.tabs} bind:subGrids={component.subGrids} />
+			<GridTab bind:tabs={component.tabs} bind:subGrids={component.subGrids} />
 		{/if}
 
 		{#if component.type === 'tablecomponent' && Array.isArray(component.actionButtons)}
