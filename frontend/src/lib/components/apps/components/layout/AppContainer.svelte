@@ -7,12 +7,12 @@
 
 	export let id: string
 	export let configuration: Record<string, AppInput>
-	export let subGrids: GridItem[][] | undefined = undefined
 	export let componentContainerHeight: number
+
 	let noPadding: boolean | undefined = undefined
 
 	export const staticOutputs: string[] = []
-	const { focusedGrid, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, focusedGrid, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
 
 	let gridContent: string[] | undefined = undefined
 
@@ -27,15 +27,13 @@
 </script>
 
 <InputValue {id} input={configuration.noPadding} bind:value={noPadding} />
-
 <InputValue {id} input={configuration.gridContent} bind:value={gridContent} />
-{#if subGrids && subGrids[0]}
+
+{#if $app.subgrids?.[`${id}-0`]}
 	<SubGridEditor
 		{noPadding}
-		bind:subGrid={subGrids[0]}
+		bind:subGrid={$app.subgrids[`${id}-0`]}
 		containerHeight={componentContainerHeight}
-		parentId={id}
-		index={0}
 		on:focus={() => {
 			$selectedComponent = id
 		}}

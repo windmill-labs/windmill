@@ -1,0 +1,125 @@
+import { getNextId } from '$lib/components/flows/flowStateUtils'
+import type { App, FocusedGrid, GridItem } from '../types'
+import { getRecommendedDimensionsByComponent, type AppComponent } from './component'
+import gridHelp from '@windmill-labs/svelte-grid/src/utils/helper'
+import { gridColumns } from '../gridUtils'
+
+function findGridItemById(
+	root: GridItem[],
+	subGrids: Record<string, GridItem[]> | undefined,
+	id: string
+): GridItem | undefined {
+	for (const gridItem of root) {
+		if (gridItem.id === id) {
+			return gridItem
+		}
+
+		if (subGrids) {
+			const numberOfSubgrids = gridItem.data.numberOfSubgrids
+			const subgrids = subGrids[gridItem.id]
+			if (numberOfSubgrids && subgrids) {
+				for (let i = 0; i < numberOfSubgrids; i++) {
+					const subgrid = subgrids[`${gridItem.id}-${i}`]
+					const found = findGridItemById([subgrid], subGrids, id)
+					if (found) {
+						return found
+					}
+				}
+			}
+		}
+	}
+
+	return undefined
+}
+
+export function findGridItem(app: App, id: string): GridItem | undefined {
+	return findGridItemById(app.grid, app.subgrids, id)
+}
+
+export function getNextGridItemId(app: App): string {
+	const subgridsKeys = app.subgrids ? Object.keys(app.subgrids) : []
+
+	const newArr = subgridsKeys.map((element) => {
+		const matches = element.match(/^([a-z]+)-\d+$/i)
+		if (matches) {
+			return matches[1]
+		}
+		return element
+	})
+
+	const uniqueArr = [...new Set(newArr)]
+	const mainGridItemsIds = app.grid.map((item) => item.id)
+	const id = getNextId([...mainGridItemsIds, ...uniqueArr])
+
+	return id
+}
+
+export function createNewGridItem(grid: GridItem[], id: string, data: AppComponent): GridItem {
+	const appComponent = data
+
+	appComponent.id = id
+
+	const newComponent = {
+		fixed: false,
+		resizable: true,
+		draggable: true,
+		customDragger: false,
+		customResizer: false,
+		x: 0,
+		y: 0
+	}
+
+	let newData: AppComponent = JSON.parse(JSON.stringify(appComponent))
+
+	const newItem: GridItem = {
+		data: newData,
+		id: id
+	}
+
+	gridColumns.forEach((column) => {
+		const rec = getRecommendedDimensionsByComponent(appComponent.type, column)
+
+		newItem[column] = {
+			...newComponent,
+			min: { w: 1, h: 1 },
+			max: { w: column, h: 100 },
+			w: rec.w,
+			h: rec.h
+		}
+		const position = gridHelp.findSpace(newItem, grid, column) as { x: number; y: number }
+		newItem[column] = { ...newItem[column], ...position }
+	})
+
+	return newItem
+}
+
+export function insertNewGridItem(
+	app: App,
+	data: AppComponent,
+	focusedGrid: FocusedGrid | undefined
+) {
+	const id = getNextGridItemId(app)
+
+	if (!focusedGrid) {
+		const newItem = createNewGridItem(app.grid, id, data)
+		app.grid.push(newItem)
+	} else {
+		const { parentComponentId, subGridIndex } = focusedGrid
+
+		if (!app.subgrids) {
+			app.subgrids = {}
+		}
+
+		const subGrid = app.subgrids[`${parentComponentId}-${subGridIndex}`] ?? []
+		const newItem = createNewGridItem(subGrid, id, data)
+		const key = `${parentComponentId}-${subGridIndex ?? 0}`
+
+		if (!app.subgrids[key]) {
+			app.subgrids[key] = [newItem]
+		} else {
+			app.subgrids[key].push(newItem)
+		}
+	}
+
+	return id
+}

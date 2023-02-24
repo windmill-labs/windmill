@@ -42,14 +42,14 @@ export interface BaseAppComponent extends Partial<Aligned> {
 	configuration: Record<
 		string,
 		GeneralAppInput &
-		(
-			| StaticAppInput
-			| ConnectedAppInput
-			| UserAppInput
-			| RowAppInput
-			| EvalAppInput
-			| UploadAppInput
-		)
+			(
+				| StaticAppInput
+				| ConnectedAppInput
+				| UserAppInput
+				| RowAppInput
+				| EvalAppInput
+				| UploadAppInput
+			)
 	>
 	card: boolean | undefined
 	customCss?: ComponentCustomCSS
@@ -59,7 +59,8 @@ export interface BaseAppComponent extends Partial<Aligned> {
 	 * *For example when the component has a popup like `Select`*
 	 */
 	softWrap?: boolean
-	subgrids?: number
+	// Number of subgrids
+	numberOfSubgrids?: number
 }
 
 export type ComponentSet = {
@@ -133,7 +134,6 @@ export type AppEditorContext = {
 }
 
 export type FocusedGrid = { parentComponentId: string; subGridIndex: number }
-
 export type EditorMode = 'dnd' | 'preview'
 export type EditorBreakpoint = 'sm' | 'lg'
 

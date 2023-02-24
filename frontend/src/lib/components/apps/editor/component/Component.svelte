@@ -203,7 +203,6 @@
 				id={component.id}
 				configuration={component.configuration}
 				tabs={component.tabs}
-				bind:subGrids={component.subGrids}
 				bind:staticOutputs={$staticOutputs[component.id]}
 				{componentContainerHeight}
 			/>
