@@ -8,7 +8,7 @@
 	import { emptySchema, getScriptByPath } from '$lib/utils'
 	import { faCodeBranch, faExternalLinkAlt, faEye, faPen } from '@fortawesome/free-solid-svg-icons'
 	import type { AppInput, RunnableByPath } from '../../inputType'
-	import { clearResultAppInput, schemaToInputsSpec } from '../../utils'
+	import { clearResultAppInput } from '../../utils'
 	import EmptyInlineScript from './EmptyInlineScript.svelte'
 	import InlineScriptEditor from './InlineScriptEditor.svelte'
 	import { computeFields } from './utils'
