@@ -204,7 +204,7 @@
 					bind:path={script.path}
 					{initialPath}
 					on:enter={() => changeStep(2)}
-					namePlaceholder="my_script"
+					namePlaceholder="script"
 					kind="script"
 				/>
 				<h2 class="border-b pb-1 mt-12 mb-4">Summary</h2>

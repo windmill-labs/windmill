@@ -42,12 +42,7 @@
 				<svelte:fragment slot="content">
 					<TabContent value="settings-metadata" class="p-4 h-full">
 						<div class="overflow-auto h-full">
-							<Path
-								bind:path={$flowStore.path}
-								{initialPath}
-								namePlaceholder="my_flow"
-								kind="flow"
-							/>
+							<Path bind:path={$flowStore.path} {initialPath} namePlaceholder="flow" kind="flow" />
 
 							<label class="block my-4">
 								<span class="text-gray-700 text-sm">Summary <Required required={false} /></span>

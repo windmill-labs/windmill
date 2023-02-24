@@ -180,7 +180,7 @@
 					bind:error={pathError}
 					bind:path
 					{initialPath}
-					namePlaceholder={'my_schedule'}
+					namePlaceholder="schedule"
 					kind="schedule"
 				/>
 				<div class="mb-8" />

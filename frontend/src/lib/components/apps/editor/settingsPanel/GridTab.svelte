@@ -9,7 +9,7 @@
 	export let tabs: string[]
 	export let subGrids: GridItem[][]
 
-	const { runnableComponents, staticOutputs, app } =
+	const { runnableComponents, staticOutputs, app, focusedGrid } =
 		getContext<AppEditorContext>('AppEditorContext')
 
 	function addTab() {
@@ -18,6 +18,7 @@
 	}
 
 	function deleteSubgrid(index: number) {
+		$focusedGrid = undefined
 		subGrids[index].forEach((x) => {
 			deleteComponent(undefined, x.data, $app, $staticOutputs, $runnableComponents)
 		})
@@ -25,22 +26,13 @@
 		subGrids.splice(index, 1)
 		tabs = tabs
 		subGrids = subGrids
-		$app = $app
+		$app.grid = $app.grid
+		$staticOutputs = $staticOutputs
+		$runnableComponents = $runnableComponents
 	}
 </script>
 
 <PanelSection title={`Tabs ${tabs.length > 0 ? `(${tabs.length})` : ''}`}>
-	<svelte:fragment slot="action">
-		<Button
-			size="xs"
-			color="light"
-			variant="border"
-			startIcon={{ icon: faPlus }}
-			on:click={addTab}
-			iconOnly
-		/>
-	</svelte:fragment>
-
 	{#if tabs.length == 0}
 		<span class="text-xs text-gray-500">No Tabs</span>
 	{/if}
@@ -64,5 +56,13 @@
 				</div>
 			</div>
 		{/each}
+		<Button
+			size="xs"
+			color="light"
+			variant="border"
+			startIcon={{ icon: faPlus }}
+			on:click={addTab}
+			iconOnly
+		/>
 	</div>
 </PanelSection>
