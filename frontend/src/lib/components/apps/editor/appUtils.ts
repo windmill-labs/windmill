@@ -151,3 +151,20 @@ export function deleteGridItem(app: App, id: string) {
 		}
 	}
 }
+
+export function duplicateGridItem(
+	app: App,
+	focusedGrid: FocusedGrid,
+	id: string
+): string | undefined {
+	const gridItem = findGridItem(app, id)
+	if (gridItem) {
+		const newId = getNextGridItemId(app)
+		const newItem = JSON.parse(JSON.stringify(gridItem))
+		newItem.id = newId
+		newItem.data.id = newId
+
+		return insertNewGridItem(app, newItem.data, focusedGrid)
+	}
+	return undefined
+}
