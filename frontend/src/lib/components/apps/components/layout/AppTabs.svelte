@@ -63,6 +63,8 @@
 	</div>
 	{#if subGrids && subGrids[selectedIndex]}
 		<SubGridEditor
+			parentId={id}
+			index={selectedIndex}
 			{noPadding}
 			bind:subGrid={subGrids[selectedIndex]}
 			containerHeight={componentContainerHeight - tabHeight}

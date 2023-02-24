@@ -34,6 +34,8 @@
 		{noPadding}
 		bind:subGrid={subGrids[0]}
 		containerHeight={componentContainerHeight}
+		parentId={id}
+		index={0}
 		on:focus={() => {
 			$selectedComponent = id
 		}}

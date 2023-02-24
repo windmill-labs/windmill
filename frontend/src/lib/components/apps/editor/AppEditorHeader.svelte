@@ -467,8 +467,8 @@
 				<div>{`Sub grid: ${$focusedGrid.parentComponentId} (${$focusedGrid.subGridIndex})`}</div>
 				<button
 					on:click={() => {
-						$focusedGrid = undefined
 						$selectedComponent = undefined
+						$focusedGrid = undefined
 					}}
 				>
 					<X size={14} />
