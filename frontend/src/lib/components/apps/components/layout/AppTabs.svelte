@@ -9,7 +9,6 @@
 
 	export let id: string
 	export let configuration: Record<string, AppInput>
-	export let subGrids: GridItem[][] | undefined = undefined
 	export let componentContainerHeight: number
 	export let tabs: string[]
 
