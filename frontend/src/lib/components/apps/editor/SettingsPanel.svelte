@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import type { AppEditorContext } from '../types'
-	import { allItems } from '../utils'
+	import { allItems, allItemsWithParent } from '../utils'
 	import PanelSection from './settingsPanel/common/PanelSection.svelte'
 	import ComponentPanel from './settingsPanel/ComponentPanel.svelte'
 	import InputsSpecsEditor from './settingsPanel/InputsSpecsEditor.svelte'
@@ -10,9 +10,9 @@
 	const { selectedComponent, app } = getContext<AppEditorContext>('AppEditorContext')
 </script>
 
-{#each allItems($app.grid, $app.subgrids) as gridItem (gridItem.data.id)}
+{#each allItemsWithParent($app.grid, $app.subgrids) as [gridItem, parent] (gridItem.data.id)}
 	{#if gridItem.data.id === $selectedComponent}
-		<ComponentPanel bind:component={gridItem.data} />
+		<ComponentPanel {parent} bind:component={gridItem.data} />
 	{:else if gridItem.data.type === 'tablecomponent'}
 		<TablePanel bind:component={gridItem.data} />
 	{/if}
