@@ -34,7 +34,7 @@
 						transition:fade={{ duration: 100 }}
 						class="absolute z-10 top-1.5 right-1 rounded-full p-1 duration-200 hover:bg-gray-200"
 						aria-label="Remove styles"
-						on:click={() => reset('style')}
+						on:click|preventDefault|stopPropagation={() => reset('style')}
 					>
 						<X size={14} />
 					</button>
@@ -57,7 +57,7 @@
 						transition:fade={{ duration: 100 }}
 						class="absolute z-10 top-1.5 right-1 rounded-full p-1 duration-200 hover:bg-gray-200"
 						aria-label="Remove classes"
-						on:click={() => reset('class')}
+						on:click|preventDefault|stopPropagation={() => reset('class')}
 					>
 						<X size={14} />
 					</button>

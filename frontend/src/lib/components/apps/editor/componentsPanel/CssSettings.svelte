@@ -9,17 +9,23 @@
 	import { isOpenStore } from './store'
 	import CssProperty from './CssProperty.svelte'
 	import { components, type AppComponent } from '../component'
+	import { slide } from 'svelte/transition'
+
+	const STATIC_ELEMENTS = [ 'app' ] as const
+	const TITLE_PREFIX = 'Css.' as const
+
+	type CustomCSSType = typeof STATIC_ELEMENTS[number] | AppComponent['type'];
 
 	interface CustomCSSEntry {
-		type: 'app' | AppComponent['type'];
+		type: CustomCSSType;
 		name: string;
 		icon: any;
 		ids: string[];
 	}
 
-	const TITLE_PREFIX = 'Css.' as const
 	const { app } = getContext<AppEditorContext>('AppEditorContext')
 
+	let showUnused = false
 	let rawCode = ''
 	let viewJsonSchema = false
 
@@ -84,6 +90,18 @@
 	//@ts-ignore
 	$app.css = newCss
 
+	$: staticComponents = entries.filter(({type}) => STATIC_ELEMENTS.includes(type as any))
+	$: usedComponents = Object.keys(
+		$app.grid.reduce((acc, {data}) => {
+			acc[data.type] = true
+			return acc
+		}, {})
+	).map(type => entries.find(entry => entry.type === type))
+	.filter(Boolean) as CustomCSSEntry[]
+	$: unusedComponents = entries.filter(({type}) => {
+		return !STATIC_ELEMENTS.includes(type as any) && !usedComponents.find(entry => entry.type === type)
+	})
+
 	onMount(() => {
 		isOpenStore.addItems(
 			[{ name: 'App' }, ...Object.values(components)].map(component => {
@@ -112,7 +130,7 @@
 	</Tab>
 	<div slot="content" class="h-full overflow-y-auto">
 		<TabContent value="ui">
-			{#each entries as { type, name, icon, ids }}
+			{#each [...staticComponents, ...usedComponents] as { type, name, icon, ids }}
 				{#if ids.length > 0}
 					<ListItem title={name} prefix={TITLE_PREFIX}>
 						<div slot="title" class="flex items-center">
@@ -137,6 +155,45 @@
 					</ListItem>
 				{/if}
 			{/each}
+			<div class="px-1 my-4">
+				<button
+					on:click|preventDefault|stopPropagation={() => {
+						showUnused = !showUnused
+					}}
+					class="w-full text-xs text-gray-500 text-center font-medium hover:underline p-2"
+				>
+					{showUnused ? 'Hide' : 'Show'} unused components
+				</button>
+			</div>
+			{#if showUnused}
+				<div transition:slide={{ duration: 300 }}>
+					{#each unusedComponents as { type, name, icon, ids }}
+						{#if ids.length > 0}
+							<ListItem title={name} prefix={TITLE_PREFIX}>
+								<div slot="title" class="flex items-center">
+									<svelte:component this={icon} size={18} />
+									<span class="ml-1">
+										{name}
+									</span>
+								</div>
+								<div class="pb-2">
+									{#each ids as id}
+										<div class="mb-3">
+											{#if $app?.css?.[type][id]}
+												<CssProperty
+													name={id}
+													bind:value={$app.css[type][id]}
+													on:focus={() => (isCustom[type] = true)}
+												/>
+											{/if}
+										</div>
+									{/each}
+								</div>
+							</ListItem>
+						{/if}
+					{/each}
+				</div>
+			{/if}
 		</TabContent>
 		<TabContent value="json">
 			{#if !emptyString(jsonError)}
