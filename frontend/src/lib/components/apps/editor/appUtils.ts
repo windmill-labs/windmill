@@ -38,11 +38,19 @@ export function findGridItem(app: App, id: string): GridItem | undefined {
 }
 
 export function getNextGridItemId(app: App): string {
-	const all: string[] = []
+	const subgridsKeys = app.subgrids ? Object.keys(app.subgrids) : []
 
-	const newArr = all.map((element) => element.split('-')[0])
-	const k: string[] = [...new Set(newArr)]
-	const id = getNextId(k)
+	const newArr = subgridsKeys.map((element) => {
+		const matches = element.match(/^([a-z]+)-\d+$/i)
+		if (matches) {
+			return matches[1]
+		}
+		return element
+	})
+
+	const uniqueArr = [...new Set(newArr)]
+	const mainGridItemsIds = app.grid.map((item) => item.id)
+	const id = getNextId([...mainGridItemsIds, ...uniqueArr])
 
 	return id
 }
@@ -117,9 +125,10 @@ export function insertNewGridItem(
 	return id
 }
 
-
-
-export function getAllSubgridsAndComponentIds(app: App, component: AppComponent): [string[], string[]] {
+export function getAllSubgridsAndComponentIds(
+	app: App,
+	component: AppComponent
+): [string[], string[]] {
 	const subgrids: string[] = []
 	let components: string[] = [component.id]
 	if (app.subgrids && component.numberOfSubgrids) {
@@ -137,7 +146,11 @@ export function getAllSubgridsAndComponentIds(app: App, component: AppComponent)
 	return [subgrids, components]
 }
 
-export function deleteGridItem(app: App, component: AppComponent, parent: string | undefined): string[] {
+export function deleteGridItem(
+	app: App,
+	component: AppComponent,
+	parent: string | undefined
+): string[] {
 	let [subgrids, components] = getAllSubgridsAndComponentIds(app, component)
 	if (app.subgrids) {
 		subgrids.forEach((id) => {
@@ -158,7 +171,6 @@ export function deleteGridItem(app: App, component: AppComponent, parent: string
 	}
 
 	return components
-
 }
 
 export function duplicateGridItem(
