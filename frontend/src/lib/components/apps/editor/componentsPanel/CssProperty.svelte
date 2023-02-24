@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { X } from "lucide-svelte"
 	import { fade } from "svelte/transition"
+	import { addWhitespaceBeforeCapitals } from "../../../../utils"
 	import type { ComponentCssProperty } from "../../types"
 
 	export let name: string
@@ -14,7 +15,7 @@
 </script>
 
 <div class="text-sm font-semibold text-gray-500 capitalize pt-2">
-	{name}
+	{addWhitespaceBeforeCapitals(name)}
 </div>
 {#if value}
 	<div class="border-l border-gray-400/80 py-1 pl-3.5 mt-1 ml-0.5">

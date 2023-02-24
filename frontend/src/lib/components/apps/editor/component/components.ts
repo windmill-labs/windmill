@@ -666,7 +666,9 @@ Hello \${ctx.username}
 					}
 				]
 			},
-			customCss: {},
+			customCss: {
+				container: { class: '', style: '' },
+			} as const,
 			card: true
 		}
 	},
