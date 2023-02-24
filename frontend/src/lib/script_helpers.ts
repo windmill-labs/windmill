@@ -95,22 +95,22 @@ export async function main(
   return query.rows;
 }`
 
-// export const MYSQL_INIT_CODE = `import {
-//   mySql,
-//   type Resource
-// } from "https://deno.land/x/windmill@v${__pkg__.version}/mysql.ts";
+export const MYSQL_INIT_CODE = `import {
+  mySql,
+  type Resource
+} from "https://deno.land/x/windmill@v${__pkg__.version}/mysql.ts";
 
-// // MySQL parameterized statement. No SQL injection is possible.
-// export async function main(
-//   db: Resource<"mysql">,
-//   key: number,
-//   value: string,
-// ) {
-//   const query = await mySql(
-//     db
-//   )\`INSERT INTO demo VALUES (\${key}, \${value})\`;
-//   return query.rows;
-// }`;
+// MySQL parameterized statement. No SQL injection is possible.
+export async function main(
+  db: Resource<"mysql">,
+  key: number,
+  value: string,
+) {
+  const query = await mySql(
+    db
+  )\`INSERT INTO demo VALUES (\${key}, \${value})\`;
+  return query.rows;
+}`;
 
 export const BASH_INIT_CODE = `# arguments of the form X="$I" are parsed as parameters X of type string
 msg="$1"
