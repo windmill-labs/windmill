@@ -13,6 +13,7 @@
 
 	const STATIC_ELEMENTS = [ 'app' ] as const
 	const TITLE_PREFIX = 'Css.' as const
+	const SHOW_UNUSED_ID = 'Setting.ShowUnused' as const
 
 	type CustomCSSType = typeof STATIC_ELEMENTS[number] | AppComponent['type'];
 
@@ -108,6 +109,7 @@
 				return { [TITLE_PREFIX + component.name]: false }
 			})
 		)
+		isOpenStore.addItems([{ [SHOW_UNUSED_ID]: false }])
 	})
 </script>
 
@@ -157,16 +159,14 @@
 			{/each}
 			<div class="px-1 my-4">
 				<button
-					on:click|preventDefault|stopPropagation={() => {
-						showUnused = !showUnused
-					}}
+					on:click|preventDefault|stopPropagation={() => isOpenStore.toggle(SHOW_UNUSED_ID)}
 					class="w-full text-xs text-gray-500 text-center font-medium hover:underline p-2"
 				>
 					{showUnused ? 'Hide' : 'Show'} unused components
 				</button>
 			</div>
-			{#if showUnused}
-				<div transition:slide={{ duration: 300 }}>
+			{#if $isOpenStore[SHOW_UNUSED_ID]}
+				<div transition:slide|local={{ duration: 300 }}>
 					{#each unusedComponents as { type, name, icon, ids }}
 						{#if ids.length > 0}
 							<ListItem title={name} prefix={TITLE_PREFIX}>
