@@ -31,7 +31,9 @@
 		getContext<AppEditorContext>('AppEditorContext')
 
 	function duplicateElement(id: string) {
-		$selectedComponent = duplicateGridItem($app, $focusedGrid, id)
+		$dirtyStore = true
+		const newId = duplicateGridItem($app, $focusedGrid, id)
+		$selectedComponent = newId
 	}
 
 	function removeGridElement() {
@@ -52,16 +54,6 @@
 		component?.componentInput?.type === 'template' && $worldStore
 			? buildExtraLib($worldStore?.outputsById ?? {}, component?.id, false)
 			: undefined
-
-	/*
-			
-			
-			
-					{#if component.type === 'tabscomponent' && Array.isArray(component.subGrids)}
-			<GridTab bind:tabs={component.tabs} bind:subGrids={component.subGrids} />
-		{/if}
-
-			*/
 </script>
 
 {#if component}
@@ -145,6 +137,10 @@
 					userInputEnabled={false}
 				/>
 			</PanelSection>
+		{/if}
+
+		{#if component.type === 'tabscomponent'}
+			<GridTab bind:tabs={component.tabs} {component} />
 		{/if}
 
 		{#if component.type === 'tablecomponent' && Array.isArray(component.actionButtons)}
