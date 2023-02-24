@@ -10,15 +10,7 @@
 	import ConnectedInputEditor from './inputEditor/ConnectedInputEditor.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { capitalize, classNames } from '$lib/utils'
-	import {
-		buildExtraLib,
-		createNewGridItem,
-		deleteComponent,
-		fieldTypeToTsType,
-		findParent,
-		getNextGridItemId,
-		insertNewGridItem
-	} from '../../utils'
+	import { buildExtraLib, fieldTypeToTsType } from '../../utils'
 	import Recompute from './Recompute.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ComponentInputTypeEditor from './ComponentInputTypeEditor.svelte'
@@ -39,7 +31,8 @@
 		getContext<AppEditorContext>('AppEditorContext')
 
 	function duplicateElement(id: string) {
-		const parent = findParent($app.grid, id)
+		/*
+		const parent = findGridItem($app.grid, id)
 
 		if (!parent) {
 			return
@@ -61,9 +54,11 @@
 		}
 
 		$selectedComponent = newId
+		*/
 	}
 
 	function removeGridElement() {
+		/*
 		$selectedComponent = undefined
 		$focusedGrid = undefined
 		if (component) {
@@ -73,12 +68,23 @@
 		$runnableComponents = $runnableComponents
 
 		onDelete?.()
+		*/
 	}
 
 	$: extraLib =
 		component?.componentInput?.type === 'template' && $worldStore
 			? buildExtraLib($worldStore?.outputsById ?? {}, component?.id, false)
 			: undefined
+
+	/*
+			
+			
+			
+					{#if component.type === 'tabscomponent' && Array.isArray(component.subGrids)}
+			<GridTab bind:tabs={component.tabs} bind:subGrids={component.subGrids} />
+		{/if}
+
+			*/
 </script>
 
 {#if component}
@@ -162,10 +168,6 @@
 					userInputEnabled={false}
 				/>
 			</PanelSection>
-		{/if}
-
-		{#if component.type === 'tabscomponent' && Array.isArray(component.subGrids)}
-			<GridTab bind:tabs={component.tabs} bind:subGrids={component.subGrids} />
 		{/if}
 
 		{#if component.type === 'tablecomponent' && Array.isArray(component.actionButtons)}

@@ -1,34 +1,20 @@
 <script lang="ts">
-	import type { AppEditorContext, GridItem } from '../../types'
+	import type { AppEditorContext } from '../../types'
 	import { getContext, onMount } from 'svelte'
-	import { getNextId } from '$lib/components/flows/flowStateUtils'
 	import { isOpenStore } from './store'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 	import { components as componentsRecord, COMPONENT_SETS, type AppComponent } from '../component'
 	import ListItem from './ListItem.svelte'
-	import { insertNewGridItem, createNewGridItem, getNextGridItemId } from '../../utils'
+	import { insertNewGridItem } from '../appUtils'
 
 	const TITLE_PREFIX = 'Component.' as const
 	const { app, selectedComponent, focusedGrid } = getContext<AppEditorContext>('AppEditorContext')
 
 	function addComponent(appComponentType: AppComponent['type']): void {
-		// When a new component is added, we need to mark the app as dirty,
-		// so a confirmation modal will appear if the user tries to leave the page
 		$dirtyStore = true
 
-		const grid = $app.grid ?? []
-		const id = getNextGridItemId(grid)
-
 		const data = componentsRecord[appComponentType].data
-
-		if ($focusedGrid) {
-			const { parentComponentId, subGridIndex } = $focusedGrid
-
-			$app.grid = insertNewGridItem($app.grid, parentComponentId, subGridIndex, id, data)
-		} else {
-			const newItem = createNewGridItem(grid, id, data)
-			$app.grid = [...grid, newItem]
-		}
+		const id = insertNewGridItem($app, data, $focusedGrid)
 
 		$selectedComponent = id
 	}
