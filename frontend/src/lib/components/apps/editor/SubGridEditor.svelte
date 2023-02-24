@@ -8,7 +8,8 @@
 
 	export let containerHeight: number
 	export let noPadding = false
-	export let id: string
+	//export let id: string
+	export let subGrid: GridItem[] = []
 
 	const dispatch = createEventDispatcher()
 
@@ -36,10 +37,12 @@
 		onComponent = id
 		if (!$connectingInput.opened) {
 			$selectedComponent = id
+			/*
 			$focusedGrid = {
 				parentComponentId: parentId,
 				subGridIndex: index
 			}
+			*/
 		}
 	}
 

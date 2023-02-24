@@ -3,7 +3,7 @@
 	import { faPlus, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { AppEditorContext, GridItem } from '../../types'
-	import { deleteComponent } from '../../utils'
+	//import { deleteComponent } from '../../utils'
 	import PanelSection from './common/PanelSection.svelte'
 
 	export let tabs: string[]
@@ -20,7 +20,7 @@
 	function deleteSubgrid(index: number) {
 		$focusedGrid = undefined
 		subGrids[index].forEach((x) => {
-			deleteComponent(undefined, x.data, $app, $staticOutputs, $runnableComponents)
+			//deleteComponent(undefined, x.data, $app, $staticOutputs, $runnableComponents)
 		})
 		tabs.splice(index, 1)
 		subGrids.splice(index, 1)
