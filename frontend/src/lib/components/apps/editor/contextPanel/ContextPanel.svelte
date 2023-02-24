@@ -2,7 +2,7 @@
 	import { classNames } from '$lib/utils'
 	import { getContext } from 'svelte'
 	import type { AppEditorContext } from '../../types'
-	import { findParent } from '../../utils'
+	import { findNodeById } from '../../utils'
 	import { components } from '../component'
 	import PanelSection from '../settingsPanel/common/PanelSection.svelte'
 	import ComponentOutputViewer from './ComponentOutputViewer.svelte'
@@ -27,7 +27,7 @@
 	}
 
 	function getComponentNameById(componentId: string) {
-		const component = findParent($app.grid, componentId)
+		const component = findNodeById($app.grid, componentId)
 
 		if (component?.data.type) {
 			return components[component?.data.type].name
