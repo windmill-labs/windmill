@@ -6,7 +6,8 @@
 	import InlineScriptsPanelList from './InlineScriptsPanelList.svelte'
 	import InlineScriptEditor from './InlineScriptEditor.svelte'
 	import EmptyInlineScript from './EmptyInlineScript.svelte'
-	import InlineScriptEditorRec from './InlineScriptEditorRec.svelte'
+	import { allItems } from '../../utils'
+	import InlineScriptEditorPanel from './InlineScriptEditorPanel.svelte'
 
 	const { app, staticOutputs, runnableComponents } =
 		getContext<AppEditorContext>('AppEditorContext')
@@ -24,7 +25,25 @@
 				<span class="p-2 text-sm text-gray-600">Select a script on the left panel</span>
 			{/if}
 
-			<InlineScriptEditorRec {selectedScriptComponentId} bind:gridItems={$app.grid} />
+			{#each allItems($app.grid, $app.subgrids) as gridItem (gridItem.data.id)}
+				{#if gridItem.data.id === selectedScriptComponentId}
+					<InlineScriptEditorPanel
+						id={gridItem.data.id}
+						bind:componentInput={gridItem.data.componentInput}
+					/>
+				{/if}
+
+				{#if gridItem.data.type === 'tablecomponent'}
+					{#each gridItem.data.actionButtons as actionButton, index (index)}
+						{#if actionButton.id === selectedScriptComponentId}
+							<InlineScriptEditorPanel
+								id={actionButton.id}
+								bind:componentInput={actionButton.componentInput}
+							/>
+						{/if}
+					{/each}
+				{/if}
+			{/each}
 			{#each $app.unusedInlineScripts as unusedInlineScript, index (index)}
 				{#if `unused-${index}` === selectedScriptComponentId}
 					<InlineScriptEditor
