@@ -46,6 +46,7 @@
 	}
 
 	$: $selectedComponent === id && selectedIndex >= 0 && onFocus()
+	$: console.log(subGrids)
 </script>
 
 <InputValue {id} input={configuration.tabs} bind:value={tabs} />
