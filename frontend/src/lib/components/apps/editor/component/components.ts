@@ -445,7 +445,9 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 				fieldType: 'object',
 				value: { data: [25, 50, 25], labels: ['Bar', 'Charts', '<3'] }
 			},
-			customCss: {},
+			customCss: {
+				container: { class: '', style: '' },
+			} as const,
 			card: true
 		}
 	},

@@ -162,7 +162,7 @@
 					on:click|preventDefault|stopPropagation={() => isOpenStore.toggle(SHOW_UNUSED_ID)}
 					class="w-full text-xs text-gray-500 text-center font-medium hover:underline p-2"
 				>
-					{showUnused ? 'Hide' : 'Show'} unused components
+					{$isOpenStore[SHOW_UNUSED_ID] ? 'Hide' : 'Show'} unused components
 				</button>
 			</div>
 			{#if $isOpenStore[SHOW_UNUSED_ID]}

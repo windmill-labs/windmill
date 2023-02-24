@@ -15,13 +15,18 @@
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import type { AppInput } from '../../inputType'
 	import InputValue from '../helpers/InputValue.svelte'
+	import { concatCustomCss } from '../../utils'
+	import { getContext } from 'svelte'
+	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
 	export let configuration: Record<string, AppInput>
 	export let initializing: boolean | undefined = undefined
+	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
 
 	export const staticOutputs: string[] = ['loading', 'result']
+	const { app } = getContext<AppEditorContext>('AppEditorContext')
 
 	ChartJS.register(
 		Title,
@@ -77,17 +82,21 @@
 			}
 		]
 	}
+
+	$: css = concatCustomCss($app.css?.barchartcomponent, customCss)
 </script>
 
 <InputValue {id} input={configuration.theme} bind:value={theme} />
 <InputValue {id} input={configuration.line} bind:value={lineChart} />
 
 <RunnableWrapper flexWrap autoRefresh bind:componentInput {id} bind:initializing bind:result>
-	{#if result}
-		{#if lineChart}
-			<Line {data} options={lineOptions} />
-		{:else}
-			<Bar {data} options={barOptions} />
+	<div class="w-full h-full {css?.container.class ?? ''}" style={css?.container.style ?? ''}>
+		{#if result}
+			{#if lineChart}
+				<Line {data} options={lineOptions} />
+			{:else}
+				<Bar {data} options={barOptions} />
+			{/if}
 		{/if}
-	{/if}
+	</div>
 </RunnableWrapper>
