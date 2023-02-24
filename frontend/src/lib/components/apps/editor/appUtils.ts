@@ -92,25 +92,26 @@ export function insertNewGridItem(
 ) {
 	const id = getNextGridItemId(app)
 
+	if (!app.subgrids) {
+		app.subgrids = {}
+	}
+
 	if (!focusedGrid) {
 		const newItem = createNewGridItem(app.grid, id, data)
 		app.grid.push(newItem)
 	} else {
 		const { parentComponentId, subGridIndex } = focusedGrid
 
-		if (!app.subgrids) {
-			app.subgrids = {}
-		}
-
-		const subGrid = app.subgrids[`${parentComponentId}-${subGridIndex}`] ?? []
-		const newItem = createNewGridItem(subGrid, id, data)
 		const key = `${parentComponentId}-${subGridIndex ?? 0}`
 
-		if (!app.subgrids[key]) {
-			app.subgrids[key] = [newItem]
-		} else {
-			app.subgrids[key].push(newItem)
-		}
+		const subGrid = app.subgrids[key] ?? []
+		subGrid.push(createNewGridItem(subGrid, id, data))
+		app.subgrids[key] = subGrid
+
+
+	}
+	for (let i = 0; i < (data.numberOfSubgrids ?? 0); i++) {
+		app.subgrids[`${id}-${i}`] = []
 	}
 
 	return id
@@ -124,8 +125,10 @@ export function getAllSubgridsAndComponentIds(
 	let components: string[] = [component.id]
 	if (app.subgrids && component.numberOfSubgrids) {
 		for (let i = 0; i < component.numberOfSubgrids; i++) {
-			const subgrid = app.subgrids[`${component.id}-${i}`]
+			const key = `${component.id}-${i}`
+			const subgrid = app.subgrids[key]
 			if (subgrid) {
+				subgrids.push(key)
 				for (const item of subgrid) {
 					let [recSubgrids, recComponents] = getAllSubgridsAndComponentIds(app, item.data)
 					subgrids.push(...recSubgrids)

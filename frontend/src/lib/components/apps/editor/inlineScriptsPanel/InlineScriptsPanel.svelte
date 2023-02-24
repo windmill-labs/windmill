@@ -25,7 +25,7 @@
 				<span class="p-2 text-sm text-gray-600">Select a script on the left panel</span>
 			{/if}
 
-			{#each allItems($app.grid, $app.subgrids) as gridItem (gridItem.data.id)}
+			{#each $app.grid as gridItem (gridItem.data.id)}
 				{#if gridItem.data.id === selectedScriptComponentId}
 					<InlineScriptEditorPanel
 						id={gridItem.data.id}
@@ -44,6 +44,31 @@
 					{/each}
 				{/if}
 			{/each}
+
+			{#if $app.subgrids}
+				{#each Object.keys($app.subgrids ?? {}) as key (key)}
+					{#each $app.subgrids[key] as gridItem (gridItem.data.id)}
+						{#if gridItem.data.id === selectedScriptComponentId}
+							<InlineScriptEditorPanel
+								id={gridItem.data.id}
+								bind:componentInput={gridItem.data.componentInput}
+							/>
+						{/if}
+
+						{#if gridItem.data.type === 'tablecomponent'}
+							{#each gridItem.data.actionButtons as actionButton, index (index)}
+								{#if actionButton.id === selectedScriptComponentId}
+									<InlineScriptEditorPanel
+										id={actionButton.id}
+										bind:componentInput={actionButton.componentInput}
+									/>
+								{/if}
+							{/each}
+						{/if}
+					{/each}
+				{/each}
+			{/if}
+
 			{#each $app.unusedInlineScripts as unusedInlineScript, index (index)}
 				{#if `unused-${index}` === selectedScriptComponentId}
 					<InlineScriptEditor

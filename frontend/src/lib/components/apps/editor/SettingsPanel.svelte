@@ -8,7 +8,6 @@
 	import TablePanel from './TablePanel.svelte'
 
 	const { selectedComponent, app } = getContext<AppEditorContext>('AppEditorContext')
-	$: subgridKeys = Object.keys($app.subgrids ?? {})
 </script>
 
 {#each $app.grid as gridItem (gridItem.data.id)}
@@ -20,7 +19,7 @@
 {/each}
 
 {#if $app.subgrids}
-	{#each subgridKeys as key (key)}
+	{#each Object.keys($app.subgrids ?? {}) as key (key)}
 		{#each $app.subgrids[key] as gridItem (gridItem.data.id)}
 			{#if gridItem.data.id === $selectedComponent}
 				<ComponentPanel parent={key} bind:component={gridItem.data} />
