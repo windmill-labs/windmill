@@ -16,16 +16,7 @@ import type { Output } from './rx'
 import type { App, GridItem } from './types'
 import { getNextId } from '../flows/flowStateUtils'
 
-export function deleteComponent(parentItems: GridItem[] | undefined, component: AppComponent, app: App, staticOutputs: Record<string, any>, runnableComponents: Record<string, any>) {
-	(component.subGrids ?? []).forEach((subgrid) => {
-		if (subgrid) {
-			subgrid.forEach((item) => {
-				if (item.data) {
-					deleteComponent(undefined, item.data, app, staticOutputs, runnableComponents)
-				}
-			})
-		}
-	})
+export function deleteComponent(subgrid: string | undefined, component: AppComponent, app: App, staticOutputs: Record<string, any>, runnableComponents: Record<string, any>) {
 	if (parentItems) {
 		let index = parentItems.findIndex((item) => item.data?.id === component.id)
 		if (index != -1) {
