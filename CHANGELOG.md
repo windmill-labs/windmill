@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.69.3](https://github.com/windmill-labs/windmill/compare/v1.69.2...v1.69.3) (2023-02-24)
+
+
+### Bug Fixes
+
+* **deno:** fix denoify buffer handling ([c2e5afd](https://github.com/windmill-labs/windmill/commit/c2e5afd4e07fb63375832f308da8c744616ee188))
+
 ## [1.69.2](https://github.com/windmill-labs/windmill/compare/v1.69.1...v1.69.2) (2023-02-24)
 
 
