@@ -21,6 +21,7 @@
 	import CssProperty from '../componentsPanel/CssProperty.svelte'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 	import GridTab from './GridTab.svelte'
+	import { duplicateGridItem } from '../appUtils'
 
 	export let component: AppComponent | undefined
 	export let rowColumns = false
@@ -30,30 +31,7 @@
 		getContext<AppEditorContext>('AppEditorContext')
 
 	function duplicateElement(id: string) {
-		/*
-		const parent = findGridItem($app.grid, id)
-
-		if (!parent) {
-			return
-		}
-
-		const data: AppComponent = JSON.parse(JSON.stringify(parent.data))
-		$dirtyStore = true
-
-		const grid = $app.grid ?? []
-		const newId = getNextGridItemId(grid)
-
-		if ($focusedGrid) {
-			const { parentComponentId, subGridIndex } = $focusedGrid
-
-			$app.grid = insertNewGridItem($app.grid, parentComponentId, subGridIndex, newId, data)
-		} else {
-			const newItem = createNewGridItem(grid, newId, data)
-			$app.grid = [...grid, newItem]
-		}
-
-		$selectedComponent = newId
-		*/
+		$selectedComponent = duplicateGridItem($app, $focusedGrid, id)
 	}
 
 	function removeGridElement() {
