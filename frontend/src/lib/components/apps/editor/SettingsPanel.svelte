@@ -8,15 +8,28 @@
 	import TablePanel from './TablePanel.svelte'
 
 	const { selectedComponent, app } = getContext<AppEditorContext>('AppEditorContext')
+	$: subgridKeys = Object.keys($app.subgrids ?? {})
 </script>
 
-{#each allItemsWithParent($app.grid, $app.subgrids) as [gridItem, parent] (gridItem.data.id)}
+{#each $app.grid as gridItem (gridItem.data.id)}
 	{#if gridItem.data.id === $selectedComponent}
-		<ComponentPanel {parent} bind:component={gridItem.data} />
+		<ComponentPanel parent={undefined} bind:component={gridItem.data} />
 	{:else if gridItem.data.type === 'tablecomponent'}
 		<TablePanel bind:component={gridItem.data} />
 	{/if}
 {/each}
+
+{#if $app.subgrids}
+	{#each subgridKeys as key (key)}
+		{#each $app.subgrids[key] as gridItem (gridItem.data.id)}
+			{#if gridItem.data.id === $selectedComponent}
+				<ComponentPanel parent={key} bind:component={gridItem.data} />
+			{:else if gridItem.data.type === 'tablecomponent'}
+				<TablePanel bind:component={gridItem.data} />
+			{/if}
+		{/each}
+	{/each}
+{/if}
 
 {#each $app?.hiddenInlineScripts ?? [] as script, index (script.name)}
 	{#if $selectedComponent === `bg_${index}`}

@@ -3,13 +3,15 @@
 	import { faPlus, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { AppEditorContext } from '../../types'
+	import { deleteGridItem } from '../appUtils'
 	import type { AppComponent } from '../component'
 	import PanelSection from './common/PanelSection.svelte'
 
 	export let tabs: string[]
 	export let component: AppComponent
 
-	const { app } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, staticOutputs, runnableComponents } =
+		getContext<AppEditorContext>('AppEditorContext')
 
 	function addTab() {
 		const numberOfTabs = tabs.length
@@ -24,19 +26,17 @@
 	}
 
 	function deleteSubgrid(index: number) {
-		/*
-		$focusedGrid = undefined
-		subGrids[index].forEach((x) => {
-			//deleteComponent(undefined, x.data, $app, $staticOutputs, $runnableComponents)
-		})
 		tabs.splice(index, 1)
-		subGrids.splice(index, 1)
 		tabs = tabs
-		subGrids = subGrids
-		$app.grid = $app.grid
-		$staticOutputs = $staticOutputs
-		$runnableComponents = $runnableComponents
-		*/
+		let subgrid = `${component.id}-${index}`
+		for (const item of $app!.subgrids![subgrid]) {
+			const components = deleteGridItem($app, item.data, subgrid)
+			for (const key in components) {
+				delete $staticOutputs[key]
+				delete $runnableComponents[key]
+			}
+		}
+		delete $app!.subgrids![subgrid]
 	}
 </script>
 
