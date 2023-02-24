@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { getContext } from 'svelte'
 	import type { AppEditorContext, GridItem } from '../types'
 
 	import ComponentPanel from './settingsPanel/ComponentPanel.svelte'
@@ -13,7 +13,7 @@
 {#if gridItems}
 	{#each gridItems as gridItem (gridItem.data.id)}
 		{#if gridItem.data.id === $selectedComponent}
-			<ComponentPanel bind:gridItems bind:component={gridItem.data} />
+			<ComponentPanel {gridItems} bind:component={gridItem.data} />
 		{:else if gridItem.data.type === 'tablecomponent'}
 			<TablePanel bind:component={gridItem.data} />
 		{:else if gridItem.data.subGrids}
