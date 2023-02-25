@@ -47,19 +47,28 @@ export function deleteComponent(
 
 */
 
-export function allItems(grid: GridItem[], subgrids: Record<string, GridItem[]> | undefined): GridItem[] {
+export function allItems(
+	grid: GridItem[],
+	subgrids: Record<string, GridItem[]> | undefined
+): GridItem[] {
 	if (subgrids == undefined) {
 		return grid
 	}
 	return [...grid, ...Object.values(subgrids).flat()]
 }
 
-export function allItemsWithParent(grid: GridItem[], subgrids: Record<string, GridItem[]> | undefined): [GridItem, string | undefined][] {
+export function allItemsWithParent(
+	grid: GridItem[],
+	subgrids: Record<string, GridItem[]> | undefined
+): [GridItem, string | undefined][] {
 	const items: [GridItem, string | undefined][] = grid.map((item) => [item, undefined])
 	if (subgrids == undefined) {
 		return items
 	}
-	return [...items, ...Object.entries(subgrids).flatMap(([k, v]) => v.map((g) => [g, k] as [GridItem, string]))]
+	return [
+		...items,
+		...Object.entries(subgrids).flatMap(([k, v]) => v.map((g) => [g, k] as [GridItem, string]))
+	]
 }
 
 export async function loadSchema(
