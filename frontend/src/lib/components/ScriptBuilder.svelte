@@ -245,7 +245,7 @@
 					>
 						<LanguageIcon lang="pgsql" /><span class="ml-2 py-4">PostgreSQL</span>
 					</Button>
-					<Button
+					<!-- <Button
 						size="sm"
 						variant="border"
 						color={template == 'mysql' ? 'blue' : 'dark'}
@@ -257,7 +257,7 @@
 						}}
 					>
 						<LanguageIcon lang="mysql" /><span class="ml-2 py-4">MySQL</span>
-					</Button>
+					</Button> -->
 				</div>
 				<div class="mt-16 mb-4">
 					<Button

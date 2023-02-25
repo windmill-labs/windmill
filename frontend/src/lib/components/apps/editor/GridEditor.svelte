@@ -37,8 +37,8 @@
 			const disabledGridItem = fct(gridItem)
 
 			if (disabledGridItem.data.subGrids) {
-				disabledGridItem.data.subGrids = disabledGridItem.data.subGrids.map((subgrid: GridItem[]) =>
-					subgrid.map((subgridItem: GridItem) => fct(subgridItem))
+				disabledGridItem.data.subGrids = disabledGridItem.data.subGrids.map(
+					(subgrid: GridItem[]) => subgrid?.map((subgridItem: GridItem) => fct(subgridItem)) ?? []
 				)
 			}
 
@@ -87,6 +87,7 @@
 	function selectComponent(id: string) {
 		if (!$connectingInput.opened) {
 			$selectedComponent = id
+			$focusedGrid = undefined
 		}
 	}
 
