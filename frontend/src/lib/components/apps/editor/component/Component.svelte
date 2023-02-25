@@ -35,6 +35,7 @@
 		AppContainer
 	} from '../../components'
 	import type { AppComponent } from './components'
+	import AppAggridTable from '../../components/display/table/AppAggridTable.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -142,6 +143,13 @@
 				bind:staticOutputs={$staticOutputs[component.id]}
 				bind:componentInput={component.componentInput}
 				bind:actionButtons={component.actionButtons}
+			/>
+		{:else if component.type === 'aggridcomponent'}
+			<AppAggridTable
+				{...component}
+				bind:initializing
+				bind:staticOutputs={$staticOutputs[component.id]}
+				bind:componentInput={component.componentInput}
 			/>
 		{:else if component.type === 'textcomponent'}
 			<AppText

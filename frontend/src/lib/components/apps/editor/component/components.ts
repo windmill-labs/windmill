@@ -63,6 +63,7 @@ export type ScatterChartComponent = BaseComponent<'scatterchartcomponent'>
 export type TableComponent = BaseComponent<'tablecomponent'> & {
 	actionButtons: (BaseAppComponent & ButtonComponent)[]
 }
+export type AggridComponent = BaseComponent<'aggridcomponent'>
 export type DisplayComponent = BaseComponent<'displaycomponent'>
 export type ImageComponent = BaseComponent<'imagecomponent'>
 export type InputComponent = BaseComponent<'inputcomponent'>
@@ -110,6 +111,7 @@ export type AppComponent = BaseAppComponent &
 		| VerticalDividerComponent
 		| FileInputComponent
 		| ImageComponent
+		| AggridComponent
 	)
 
 export type AppComponentDimensions = `${IntRange<
@@ -692,6 +694,48 @@ Hello \${ctx.username}
 			customCss: {},
 			card: true,
 			actionButtons: []
+		}
+	},
+	aggridcomponent: {
+		name: 'AgGrid Table',
+		icon: Table2,
+		dims: '3:10-6:10',
+		data: {
+			id: '',
+			type: 'aggridcomponent',
+			configuration: {
+				columnDefs: {
+					type: 'static',
+					fieldType: 'array',
+					subFieldType: 'object',
+					value: [{ field: 'id' }, { field: 'name', editable: true }, { field: 'age' }]
+				},
+				allEditable: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					onlyStatic: true
+				}
+			},
+			componentInput: {
+				type: 'static',
+				fieldType: 'array',
+				subFieldType: 'object',
+				value: [
+					{
+						id: 1,
+						name: 'A cell with a long name',
+						age: 42
+					},
+					{
+						id: 2,
+						name: 'A briefer cell',
+						age: 84
+					}
+				]
+			},
+			customCss: {},
+			card: true,
 		}
 	},
 	checkboxcomponent: {
