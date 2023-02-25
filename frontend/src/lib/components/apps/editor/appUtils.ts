@@ -88,9 +88,10 @@ export function createNewGridItem(grid: GridItem[], id: string, data: AppCompone
 export function insertNewGridItem(
 	app: App,
 	data: AppComponent,
-	focusedGrid: FocusedGrid | undefined
+	focusedGrid: FocusedGrid | undefined,
+	keepId?: boolean
 ) {
-	const id = getNextGridItemId(app)
+	const id = keepId ? data.id : getNextGridItemId(app)
 
 	if (!app.subgrids) {
 		app.subgrids = {}
