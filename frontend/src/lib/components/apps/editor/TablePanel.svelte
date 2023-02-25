@@ -11,6 +11,8 @@
 {#each component.actionButtons as actionButton (actionButton.id)}
 	{#if actionButton.id === $selectedComponent}
 		<ComponentPanel
+			parent={undefined}
+			noGrid
 			rowColumns
 			bind:component={actionButton}
 			onDelete={() => {

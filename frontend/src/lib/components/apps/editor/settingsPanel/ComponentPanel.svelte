@@ -10,15 +10,7 @@
 	import ConnectedInputEditor from './inputEditor/ConnectedInputEditor.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { capitalize, classNames } from '$lib/utils'
-	import {
-		buildExtraLib,
-		createNewGridItem,
-		deleteComponent,
-		fieldTypeToTsType,
-		findParent,
-		getNextGridItemId,
-		insertNewGridItem
-	} from '../../utils'
+	import { buildExtraLib, fieldTypeToTsType } from '../../utils'
 	import Recompute from './Recompute.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ComponentInputTypeEditor from './ComponentInputTypeEditor.svelte'
@@ -29,46 +21,38 @@
 	import CssProperty from '../componentsPanel/CssProperty.svelte'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 	import GridTab from './GridTab.svelte'
+	import { duplicateGridItem } from '../appUtils'
+	import { deleteGridItem } from '../appUtils'
 
-	export let component: AppComponent | undefined
+	export let component: AppComponent
 	export let rowColumns = false
-	export let gridItems: GridItem[] | undefined = undefined
 	export let onDelete: (() => void) | undefined = undefined
+	export let parent: string | undefined
+	export let noGrid = false
 
 	const { app, staticOutputs, runnableComponents, selectedComponent, worldStore, focusedGrid } =
 		getContext<AppEditorContext>('AppEditorContext')
 
 	function duplicateElement(id: string) {
-		const parent = findParent($app.grid, id)
-
-		if (!parent) {
-			return
-		}
-
-		const data: AppComponent = JSON.parse(JSON.stringify(parent.data))
 		$dirtyStore = true
-
-		const grid = $app.grid ?? []
-		const newId = getNextGridItemId(grid)
-
-		if ($focusedGrid) {
-			const { parentComponentId, subGridIndex } = $focusedGrid
-
-			$app.grid = insertNewGridItem($app.grid, parentComponentId, subGridIndex, newId, data)
-		} else {
-			const newItem = createNewGridItem(grid, newId, data)
-			$app.grid = [...grid, newItem]
-		}
-
+		const newId = duplicateGridItem($app, $focusedGrid, id)
 		$selectedComponent = newId
 	}
 
 	function removeGridElement() {
 		$selectedComponent = undefined
-		if (component) {
-			deleteComponent(gridItems, component, $app, $staticOutputs, $runnableComponents)
+		$focusedGrid = undefined
+		if (component && !noGrid) {
+			let ids = deleteGridItem($app, component, parent)
+			for (const key of ids) {
+				delete $staticOutputs[key]
+				delete $runnableComponents[key]
+			}
 		}
-		gridItems = gridItems
+
+		delete $staticOutputs[component.id]
+		delete $runnableComponents[component.id]
+		$app = $app
 		$staticOutputs = $staticOutputs
 		$runnableComponents = $runnableComponents
 
@@ -111,18 +95,7 @@
 
 				<div class="flex flex-col w-full gap-2 my-2">
 					{#if component.componentInput.type === 'static'}
-						<StaticInputEditor
-							bind:componentInput={component.componentInput}
-							on:deleteArrayItem={(e) => {
-								if (component?.type === 'tabscomponent') {
-									const deletedIndex = e.detail.index
-
-									if (component.subGrids) {
-										component.subGrids.splice(deletedIndex, 1)
-									}
-								}
-							}}
-						/>
+						<StaticInputEditor bind:componentInput={component.componentInput} />
 					{:else if component.componentInput.type === 'template' && component.componentInput !== undefined}
 						<div class="py-1 min-h-[28px]  rounded border border-1 border-gray-500">
 							<TemplateEditor fontSize={12} bind:code={component.componentInput.eval} {extraLib} />
@@ -175,8 +148,8 @@
 			</PanelSection>
 		{/if}
 
-		{#if component.type === 'tabscomponent' && Array.isArray(component.subGrids)}
-			<GridTab bind:tabs={component.tabs} bind:subGrids={component.subGrids} />
+		{#if component.type === 'tabscomponent'}
+			<GridTab bind:tabs={component.tabs} {component} />
 		{/if}
 
 		{#if component.type === 'tablecomponent' && Array.isArray(component.actionButtons)}

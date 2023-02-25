@@ -8,14 +8,12 @@
 	import InputValue from '../helpers/InputValue.svelte'
 
 	export let id: string
-
 	export let configuration: Record<string, AppInput>
-	export let subGrids: GridItem[][] | undefined = undefined
 	export let componentContainerHeight: number
 	export let tabs: string[]
 
 	export const staticOutputs: string[] = ['selectedTabIndex']
-	const { worldStore, focusedGrid, selectedComponent } =
+	const { app, worldStore, focusedGrid, selectedComponent } =
 		getContext<AppEditorContext>('AppEditorContext')
 
 	let selected: string = ''
@@ -36,6 +34,7 @@
 	}
 
 	$: selectedIndex >= 0 && handleTabSelection()
+
 	let tabHeight: number = 0
 
 	function onFocus() {
@@ -61,10 +60,10 @@
 			{/each}
 		</Tabs>
 	</div>
-	{#if subGrids && subGrids[selectedIndex]}
+	{#if $app.subgrids?.[`${id}-${selectedIndex}`]}
 		<SubGridEditor
+			bind:subGrid={$app.subgrids[`${id}-${selectedIndex}`]}
 			{noPadding}
-			bind:subGrid={subGrids[selectedIndex]}
 			containerHeight={componentContainerHeight - tabHeight}
 			on:focus={() => {
 				$selectedComponent = id

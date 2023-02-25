@@ -152,7 +152,7 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 			configuration: {},
 			customCss: {
 				header: { class: '', style: '' },
-				container: { class: '', style: '' },
+				container: { class: '', style: '' }
 			} as const,
 			card: false
 		}
@@ -175,7 +175,7 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 			},
 			componentInput: undefined,
 			card: false,
-			subGrids: [[]]
+			numberOfSubgrids: 1
 		}
 	},
 	textcomponent: {
@@ -810,19 +810,16 @@ Hello \${ctx.username}
 					type: 'static',
 					value: undefined,
 					fieldType: 'number',
-					onlyStatic: true
 				},
 				max: {
 					type: 'static',
 					value: undefined,
 					fieldType: 'number',
-					onlyStatic: true
 				},
 				step: {
 					type: 'static',
 					value: 1,
 					fieldType: 'number',
-					onlyStatic: true
 				}
 			},
 			customCss: {},
@@ -891,19 +888,16 @@ Hello \${ctx.username}
 					type: 'static',
 					value: 42,
 					fieldType: 'number',
-					onlyStatic: true
 				},
 				defaultValue: {
 					type: 'static',
 					value: 20,
 					fieldType: 'number',
-					onlyStatic: true
 				},
 				step: {
 					type: 'static',
 					value: 1,
 					fieldType: 'number',
-					onlyStatic: true
 				}
 			},
 			customCss: {},
@@ -925,31 +919,26 @@ Hello \${ctx.username}
 					type: 'static',
 					value: 0,
 					fieldType: 'number',
-					onlyStatic: true
 				},
 				max: {
 					type: 'static',
 					value: 42,
 					fieldType: 'number',
-					onlyStatic: true
 				},
 				defaultLow: {
 					type: 'static',
 					value: 10,
 					fieldType: 'number',
-					onlyStatic: true
 				},
 				defaultHigh: {
 					type: 'static',
 					value: 20,
 					fieldType: 'number',
-					onlyStatic: true
 				},
 				step: {
 					type: 'static',
 					value: 1,
 					fieldType: 'number',
-					onlyStatic: true
 				}
 			},
 			customCss: {},
@@ -1027,7 +1016,7 @@ Hello \${ctx.username}
 			},
 			componentInput: undefined,
 			card: false,
-			subGrids: [[], []],
+			numberOfSubgrids: 2,
 			tabs: ['First tab', 'Second tab']
 		}
 	},

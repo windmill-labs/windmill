@@ -5,11 +5,12 @@
 	import { columnConfiguration, isFixed, toggleFixed } from '../gridUtils'
 	import type { AppEditorContext, GridItem } from '../types'
 	import Component from './component/Component.svelte'
-	import { findParent } from '../utils'
+	import { findGridItem } from './appUtils'
 
-	export let subGrid: GridItem[]
 	export let containerHeight: number
 	export let noPadding = false
+	//export let id: string
+	export let subGrid: GridItem[] = []
 
 	const dispatch = createEventDispatcher()
 
@@ -37,11 +38,17 @@
 		onComponent = id
 		if (!$connectingInput.opened) {
 			$selectedComponent = id
+			/*
+			$focusedGrid = {
+				parentComponentId: parentId,
+				subGridIndex: index
+			}
+			*/
 		}
 	}
 
 	function lock(gridComponent: GridItem) {
-		let fComponent = findParent($app.grid, gridComponent.data.id)
+		let fComponent = findGridItem($app, gridComponent.data.id)
 		if (fComponent) {
 			fComponent = toggleFixed(fComponent)
 		}
@@ -49,28 +56,6 @@
 
 	// @ts-ignore
 	let container
-
-	$: if ($focusedGrid?.parentComponentId !== $selectedComponent) {
-		const gridItemIds = $app.grid
-			.map((gridItem: GridItem) => {
-				if (gridItem.data.id === $focusedGrid?.parentComponentId) {
-					const subGrids = gridItem.data.subGrids ?? []
-					return [
-						gridItem.data.id,
-						...subGrids.map((subGrid: GridItem[]) =>
-							subGrid.map((gridItem: GridItem) => gridItem.data.id)
-						)
-					]
-				} else {
-					return []
-				}
-			})
-			.flat(2)
-
-		if (!gridItemIds.includes($selectedComponent)) {
-			$focusedGrid = undefined
-		}
-	}
 </script>
 
 <div class="relative w-full subgrid " bind:this={container}>
