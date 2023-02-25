@@ -23,17 +23,24 @@
 			return
 		}
 
+		$selectedComponent = undefined
+
 		const data: AppComponent = JSON.parse(JSON.stringify(node.data))
 		$dirtyStore = true
 
 		deleteGridItem($app, data, parent)
 
-		const newId = insertNewGridItem($app, data, {
-			parentComponentId: targetId,
-			subGridIndex: targetSubGridIndex
-		})
+		insertNewGridItem(
+			$app,
+			data,
+			{
+				parentComponentId: targetId,
+				subGridIndex: targetSubGridIndex
+			},
+			true
+		)
 
-		$selectedComponent = newId
+		$selectedComponent = id
 	}
 
 	$: availableGrids = listAllSubGrids($app)
@@ -68,10 +75,10 @@
 
 {#if component}
 	<select id="move-to-grid" class="w-full">
-		<option value="main-grid"> Main grid </option>
+		<option value="main-grid" disabled={parent === undefined}> Main grid </option>
 
 		{#each availableGrids as grid}
-			<option value={grid}>
+			<option value={grid} disabled={grid === parent || grid.startsWith(component.id)}>
 				{grid}
 			</option>
 		{/each}
@@ -87,5 +94,6 @@
 		}}
 	>
 		Move component: {component.id}
+		{parent}
 	</Button>
 {/if}

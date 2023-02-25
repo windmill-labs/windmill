@@ -88,9 +88,10 @@ export function createNewGridItem(grid: GridItem[], id: string, data: AppCompone
 export function insertNewGridItem(
 	app: App,
 	data: AppComponent,
-	focusedGrid: FocusedGrid | undefined
+	focusedGrid: FocusedGrid | undefined,
+	keepId?: boolean
 ) {
-	const id = getNextGridItemId(app)
+	const id = keepId ? data.id : getNextGridItemId(app)
 
 	if (!app.subgrids) {
 		app.subgrids = {}
@@ -107,8 +108,6 @@ export function insertNewGridItem(
 		const subGrid = app.subgrids[key] ?? []
 		subGrid.push(createNewGridItem(subGrid, id, data))
 		app.subgrids[key] = subGrid
-
-
 	}
 	for (let i = 0; i < (data.numberOfSubgrids ?? 0); i++) {
 		app.subgrids[`${id}-${i}`] = []
