@@ -9,27 +9,33 @@
 
 	export let component: AppComponent | undefined
 	export let parent: string | undefined
+	let selectedOption: string
 
-	const { app, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
+	const { app } = getContext<AppEditorContext>('AppEditorContext')
 
 	function listAllSubGrids(app: App) {
 		return app.subgrids ? Object.keys(app.subgrids) : []
 	}
 
-	function moveComponent(id: string, targetId: string, targetSubGridIndex: number) {
+	function findAndDelete(id: string) {
 		const node = findGridItem($app, id)
 
 		if (!node) {
 			return
 		}
 
-		$selectedComponent = undefined
-
 		const data: AppComponent = JSON.parse(JSON.stringify(node.data))
 		$dirtyStore = true
 
 		deleteGridItem($app, data, parent)
+		return data
+	}
 
+	function insertComponentInSubGrid(
+		data: AppComponent,
+		targetId: string,
+		targetSubGridIndex: number
+	) {
 		insertNewGridItem(
 			$app,
 			data,
@@ -39,48 +45,51 @@
 			},
 			true
 		)
-
-		$selectedComponent = id
+		$app.grid = [...$app.grid]
 	}
 
-	$: availableGrids = listAllSubGrids($app)
+	function insertComponentInMainGrid(data: AppComponent) {
+		const newComponent = createNewGridItem($app.grid, data.id, data)
+		$app.grid = [...$app.grid, newComponent]
+	}
 
-	function onMove() {
-		if (component) {
-			const [targetId, targetSubGridIndex] = (
-				document.getElementById('move-to-grid') as HTMLSelectElement
-			).value.split('-')
+	function onMove(component: AppComponent) {
+		const data = findAndDelete(component.id)
 
-			if (targetId !== 'main' && targetSubGridIndex !== 'grid') {
-				moveComponent(component.id, targetId, parseInt(targetSubGridIndex))
-			} else {
-				const node = findGridItem($app, component.id)
+		if (!data) {
+			return
+		}
 
-				if (!node) {
-					return
-				}
-
-				const data: AppComponent = JSON.parse(JSON.stringify(node.data))
-				$dirtyStore = true
-
-				deleteGridItem($app, component, parent)
-
-				const newComponent = createNewGridItem($app.grid, component.id, data)
-				$app.grid = [...$app.grid, newComponent]
-				$selectedComponent = newComponent.id
-			}
+		if (selectedOption !== 'main-grid') {
+			const [targetId, targetSubGridIndex] = selectedOption.split('-')
+			insertComponentInSubGrid(data, targetId, parseInt(targetSubGridIndex))
+		} else {
+			insertComponentInMainGrid(data)
 		}
 	}
+
+	const defaultOption = {
+		label: 'Main grid',
+		value: 'main-grid',
+		disabled: parent === undefined
+	}
+	$: availableGrids = listAllSubGrids($app)
+	$: options = availableGrids
+		? [
+				defaultOption,
+				...availableGrids?.map((grid) => ({
+					label: grid,
+					value: grid,
+					disabled: grid === parent || (component && grid.startsWith(component.id))
+				}))
+		  ]
+		: [defaultOption]
 </script>
 
-{#if component}
-	<select id="move-to-grid" class="w-full">
-		<option value="main-grid" disabled={parent === undefined}> Main grid </option>
-
-		{#each availableGrids as grid}
-			<option value={grid} disabled={grid === parent || grid.startsWith(component.id)}>
-				{grid}
-			</option>
+{#if component && !options.every((option) => option.disabled)}
+	<select bind:value={selectedOption} class="w-full">
+		{#each options as option}
+			<option value={option.value} disabled={option.disabled}>{option.label}</option>
 		{/each}
 	</select>
 	<Button
@@ -89,11 +98,12 @@
 		startIcon={{ icon: faCopy }}
 		on:click={() => {
 			if (component) {
-				onMove()
+				onMove(component)
 			}
 		}}
 	>
 		Move component: {component.id}
-		{parent}
 	</Button>
+{:else}
+	<p class="text-gray-500 text-sm">No grids available</p>
 {/if}
