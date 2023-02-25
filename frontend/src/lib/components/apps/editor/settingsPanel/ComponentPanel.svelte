@@ -35,7 +35,7 @@
 
 	function duplicateElement(id: string) {
 		$dirtyStore = true
-		const newId = duplicateGridItem($app, $focusedGrid, id)
+		const newId = duplicateGridItem($app, parent, id)
 		$selectedComponent = newId
 	}
 
