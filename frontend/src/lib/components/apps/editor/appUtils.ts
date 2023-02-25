@@ -168,15 +168,20 @@ export function deleteGridItem(
 
 export function duplicateGridItem(
 	app: App,
-	focusedGrid: FocusedGrid | undefined,
+	parent: string | undefined,
 	id: string
 ): string | undefined {
 	const gridItem = findGridItem(app, id)
+
 	if (gridItem) {
 		const newId = getNextGridItemId(app)
 		const newItem = JSON.parse(JSON.stringify(gridItem))
 		newItem.id = newId
 		newItem.data.id = newId
+
+		let focusedGrid = parent
+			? { parentComponentId: parent.split('-')[0], subGridIndex: Number(parent.split('-')[1]) }
+			: undefined
 
 		return insertNewGridItem(app, newItem.data, focusedGrid)
 	}
