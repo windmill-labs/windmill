@@ -66,6 +66,7 @@
 		"@popperjs/core": "^2.11.6",
 		"@redocly/json-to-json-schema": "^0.0.1",
 		"@tanstack/svelte-table": "^8.7.6",
+		"ag-grid-svelte": "^0.1.4",
 		"async-mutex": "^0.4.0",
 		"chart.js": "^3.9.1",
 		"chartjs-adapter-date-fns": "^3.0.0",
