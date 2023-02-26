@@ -82,4 +82,7 @@
 	.app-select .value-container {
 		padding: 0 !important;
 	}
+	.svelte-select-list {
+		z-index: 1000 !important;
+	}
 </style>
