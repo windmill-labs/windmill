@@ -51,7 +51,7 @@
 <InputValue {id} input={configuration.noPadding} bind:value={noPadding} />
 
 <div>
-	<div bind:clientHeight={tabHeight}>
+	<div bind:clientHeight={tabHeight} on:pointerdown|stopPropagation>
 		<Tabs bind:selected>
 			{#each tabs ?? [] as res}
 				<Tab value={res}>
@@ -60,14 +60,17 @@
 			{/each}
 		</Tabs>
 	</div>
-	{#if $app.subgrids?.[`${id}-${selectedIndex}`]}
-		<SubGridEditor
-			bind:subGrid={$app.subgrids[`${id}-${selectedIndex}`]}
-			{noPadding}
-			containerHeight={componentContainerHeight - tabHeight}
-			on:focus={() => {
-				$selectedComponent = id
-			}}
-		/>
+	{#if $app.subgrids}
+		{#each tabs ?? [] as res, i}
+			<SubGridEditor
+				visible={i === selectedIndex}
+				bind:subGrid={$app.subgrids[`${id}-${i}`]}
+				{noPadding}
+				containerHeight={componentContainerHeight - tabHeight}
+				on:focus={() => {
+					$selectedComponent = id
+				}}
+			/>
+		{/each}
 	{/if}
 </div>

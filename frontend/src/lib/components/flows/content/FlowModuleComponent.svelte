@@ -22,6 +22,7 @@
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
 	import FlowRetries from './FlowRetries.svelte'
 	import { getStepPropPicker } from '../previousResults'
+	import { deepEqual } from 'fast-equals'
 
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
@@ -87,12 +88,12 @@
 			const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
 			validCode = true
 			setTimeout(() => {
-				if (JSON.stringify(value.input_transforms) !== JSON.stringify(input_transforms)) {
+				if (!deepEqual(value.input_transforms, input_transforms)) {
 					inputTransforms = input_transforms
 				}
 			})
 
-			if (JSON.stringify(schema) !== JSON.stringify($flowStateStore[flowModule.id]?.schema)) {
+			if (!deepEqual(schema, $flowStateStore[flowModule.id]?.schema)) {
 				if (!$flowStateStore[flowModule.id]) {
 					$flowStateStore[flowModule.id] = { schema }
 				} else {

@@ -69,7 +69,6 @@
 <InputValue {id} input={configuration.color} bind:value={color} />
 <InputValue {id} input={configuration.size} bind:value={size} />
 <InputValue
-	row={extraQueryParams['row']}
 	{id}
 	input={configuration.disabled}
 	bind:value={disabled}
