@@ -138,8 +138,18 @@
 
 	export function setCode(ncode: string): void {
 		code = ncode
-		if (editor) {
-			editor.setValue(ncode)
+		if (editor?.getModel()) {
+			// editor.setValue(ncode)
+			editor.pushUndoStop()
+
+			editor.executeEdits('set', [
+				{
+					range: editor.getModel()!.getFullModelRange(), // full range
+					text: ncode
+				}
+			])
+
+			editor.pushUndoStop()
 		}
 	}
 
