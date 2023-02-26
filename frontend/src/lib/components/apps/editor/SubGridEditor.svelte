@@ -10,6 +10,7 @@
 	export let noPadding = false
 	//export let id: string
 	export let subGrid: GridItem[] = []
+	export let visible: boolean = true
 
 	const dispatch = createEventDispatcher()
 
@@ -57,7 +58,7 @@
 	let container
 </script>
 
-<div class="relative w-full subgrid " bind:this={container}>
+<div class="relative w-full subgrid {visible ? 'visible' : 'invisible h-0 '}" bind:this={container}>
 	<div
 		class:px-2={!noPadding}
 		class="py-2 overflow-auto  {$connectingInput?.opened ? '' : ''}"
@@ -108,7 +109,7 @@
 						>
 							<Component
 								{pointerdown}
-								bind:component={gridComponent.data}
+								bind:pComponent={gridComponent.data}
 								selected={$selectedComponent === dataItem.data.id}
 								locked={isFixed(gridComponent)}
 								on:lock={() => lock(gridComponent)}

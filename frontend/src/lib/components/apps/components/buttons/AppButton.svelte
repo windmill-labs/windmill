@@ -95,7 +95,6 @@
 <InputValue {id} input={configuration.triggerOnAppLoad} bind:value={triggerOnAppLoad} />
 
 <InputValue
-	row={extraQueryParams['row']}
 	{id}
 	input={configuration.disabled}
 	bind:value={disabled}

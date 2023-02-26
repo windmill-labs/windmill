@@ -13,8 +13,7 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export const staticOutputs: string[] = ['result']
 
-	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
-	let values: [number] = [0]
+	const { worldStore, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
 	let min = 0
 	let max = 42
 	let step = 1
@@ -22,7 +21,12 @@
 	$: outputs = $worldStore?.outputsById[id] as {
 		result: Output<number | null>
 	}
-	$: if (values) {
+
+	let values: [number] = [outputs?.result.peak() ?? 0]
+
+	$: values && handleValues()
+
+	function handleValues() {
 		// Disallow 'e' character in numbers
 		// if(value && value.toString().includes('e')) {
 		// 	value = +value.toString().replaceAll('e', '')
@@ -40,7 +44,7 @@
 <AlignWrapper {verticalAlignment}>
 	<div class="flex items-center w-full gap-1 px-1">
 		<span>{min}</span>
-		<div class="grow" on:pointerdown|stopPropagation>
+		<div class="grow" on:pointerdown|stopPropagation={() => ($selectedComponent = id)}>
 			<RangeSlider {step} min={min ?? 0} max={max ?? 1} bind:values />
 		</div>
 		<span>{max}</span>
