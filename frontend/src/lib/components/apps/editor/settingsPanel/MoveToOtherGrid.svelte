@@ -4,7 +4,13 @@
 	import { faCopy } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { App, AppEditorContext } from '../../types'
-	import { createNewGridItem, deleteGridItem, findGridItem, insertNewGridItem } from '../appUtils'
+	import {
+		createNewGridItem,
+		deleteGridItem,
+		findGridItem,
+		getAllSubgridsAndComponentIds,
+		insertNewGridItem
+	} from '../appUtils'
 	import type { AppComponent } from '../component'
 
 	export let component: AppComponent | undefined
@@ -73,6 +79,9 @@
 		value: 'main-grid',
 		disabled: parent === undefined
 	}
+
+	const [subgrids] = component ? getAllSubgridsAndComponentIds($app, component) : [[], []]
+
 	$: availableGrids = listAllSubGrids($app)
 	$: options = availableGrids
 		? [
@@ -80,7 +89,10 @@
 				...availableGrids?.map((grid) => ({
 					label: grid,
 					value: grid,
-					disabled: grid === parent || (component && grid.startsWith(component.id))
+					disabled:
+						grid === parent ||
+						(component && grid.startsWith(component.id)) ||
+						subgrids.includes(grid)
 				}))
 		  ]
 		: [defaultOption]
