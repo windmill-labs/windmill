@@ -9,7 +9,7 @@
           "lock": "",
           "path": null,
           "type": "rawscript",
-          "content": "// import * as wmill from \"https://deno.land/x/windmill@v1.50.0/mod.ts\"\n\nexport async function main(x: string) {\n  console.log(\"Hello from Deno! The argument x is \" + x);\n  return x;\n}\n",
+          "content": "// import * as wmill from \"https://deno.land/x/windmill@v1.69.3/mod.ts\"\n\nexport async function main(x: string) {\n  console.log(\"Hello from Deno! The argument x is \" + x);\n  return x;\n}\n",
           "language": "deno",
           "input_transforms": {
             "x": {
