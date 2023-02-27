@@ -8,6 +8,16 @@
 
 * **cli:** make cli resilient to systems without openable browsers ([c051ffe](https://github.com/windmill-labs/windmill/commit/c051ffeb42c1cff609f93da7745036ea722e17d4))
 * **frontend:** Disable move in nested subgrid ([#1238](https://github.com/windmill-labs/windmill/issues/1238)) ([70eab30](https://github.com/windmill-labs/windmill/commit/70eab303bd45111ae198d9b710bfd6f9f59e53b0))
+* **frontend:** Fix inline scripts list ([#1240](https://github.com/windmill-labs/windmill/issues/1240)) ([97602ac](https://github.com/windmill-labs/windmill/commit/97602ac6db1404d36d160a431ffcea6c0f567a48))
+* **frontend:** Fix subgrid lock ([#1232](https://github.com/windmill-labs/windmill/issues/1232)) ([8ee9d67](https://github.com/windmill-labs/windmill/commit/8ee9d67f4faa91446338b41c664ef91913eb8b81))
+
+## [1.70.1](https://github.com/windmill-labs/windmill/compare/v1.70.0...v1.70.1) (2023-02-27)
+
+
+### Bug Fixes
+
+* **cli:** make cli resilient to systems without openable browsers ([c051ffe](https://github.com/windmill-labs/windmill/commit/c051ffeb42c1cff609f93da7745036ea722e17d4))
+* **frontend:** Disable move in nested subgrid ([#1238](https://github.com/windmill-labs/windmill/issues/1238)) ([70eab30](https://github.com/windmill-labs/windmill/commit/70eab303bd45111ae198d9b710bfd6f9f59e53b0))
 * **frontend:** Fix subgrid lock ([#1232](https://github.com/windmill-labs/windmill/issues/1232)) ([8ee9d67](https://github.com/windmill-labs/windmill/commit/8ee9d67f4faa91446338b41c664ef91913eb8b81))
 
 ## [1.70.0](https://github.com/windmill-labs/windmill/compare/v1.69.3...v1.70.0) (2023-02-27)
