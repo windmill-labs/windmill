@@ -51,7 +51,7 @@
 		UserAppInput
 	} from '../inputType'
 	import type { AppEditorContext } from '../types'
-	import { toStatic } from '../utils'
+	import { allItems, toStatic } from '../utils'
 	import AppExportButton from './AppExportButton.svelte'
 	import AppInputs from './AppInputs.svelte'
 	import type { AppComponent } from './component/components'
@@ -124,7 +124,7 @@
 	}
 	async function computeTriggerables() {
 		const allTriggers = await Promise.all(
-			$app.grid
+			allItems($app.grid, $app.subgrids)
 				.flatMap((x) => {
 					let c = x.data as AppComponent
 					let r: (AppInput | undefined)[] = [c.componentInput]
