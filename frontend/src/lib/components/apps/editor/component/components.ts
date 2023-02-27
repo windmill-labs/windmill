@@ -813,7 +813,9 @@ Hello \${ctx.username}
 					fieldType: 'text'
 				}
 			},
-			customCss: {},
+			customCss: {
+				input: { class: '', style: '' }
+			} as const,
 			card: false
 		}
 	},
