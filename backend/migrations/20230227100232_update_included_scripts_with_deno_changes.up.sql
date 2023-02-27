@@ -1165,18 +1165,3 @@ VALUES
 }') RETURNING id)
 UPDATE app SET versions = ARRAY((select id from _insert)), policy =  '{ "execution_mode": "viewer", "triggerables": {} }'
  WHERE workspace_id = 'admins' AND path = 'g/all/setup_app';
-
-UPDATE script SET content = 'import wmill from "https://deno.land/x/wmill@v1.69.3/main.ts";
-export async function main() {
-  await run(
-    "workspace", "add", "__automation", "admins", Deno.env.get("BASE_INTERNAL_URL") + "/", "--token", Deno.env.get("WM_TOKEN"));
-
-  await run("hub", "pull");
-}
-
-async function run(...cmd: string[]) {
-  console.log("Running \"" + cmd.join('' '') + "\"");
-  await wmill.parse(cmd);
-}', summary = 'Synchronize Hub Resource types with admins workspace',
-description = 'Basic administrative script to sync latest resource types from hub to share to every workspace. Recommended to run at least once. On a schedule by default.'
-WHERE hash = -28028598712388162 AND workspace_id = 'admins';
