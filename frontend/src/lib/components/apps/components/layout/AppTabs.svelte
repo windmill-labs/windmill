@@ -31,6 +31,15 @@
 
 	function handleTabSelection() {
 		outputs?.selectedTabIndex.set(selectedIndex)
+		if ($selectedComponent != id) {
+			$selectedComponent = id
+		}
+		if ($focusedGrid?.parentComponentId != id || $focusedGrid?.subGridIndex != selectedIndex) {
+			$focusedGrid = {
+				parentComponentId: id,
+				subGridIndex: selectedIndex
+			}
+		}
 	}
 
 	$: selectedIndex >= 0 && handleTabSelection()
