@@ -36,6 +36,8 @@
 {#if $app.subgrids?.[`${id}-0`]}
 	<SubGridEditor
 		{noPadding}
+		class={css?.container.class}
+		style={css?.container.style}
 		bind:subGrid={$app.subgrids[`${id}-0`]}
 		containerHeight={componentContainerHeight}
 		on:focus={() => {
