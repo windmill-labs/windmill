@@ -59,7 +59,10 @@
 	let container
 </script>
 
-<div class="relative w-full subgrid {visible ? 'visible' : 'invisible h-0 '}" bind:this={container}>
+<div
+	class="relative w-full subgrid {visible ? 'visible' : 'invisible h-0 overflow-hidden'}"
+	bind:this={container}
+>
 	<div
 		class:px-2={!noPadding}
 		class="py-2 overflow-auto  {$connectingInput?.opened ? '' : ''}"
