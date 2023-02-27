@@ -1,11 +1,11 @@
-import type { Schema } from "$lib/common";
-import type { AppInputs, Runnable } from "../../inputType"
-import type { GridItem } from "../../types"
-import { fieldTypeToTsType, schemaToInputsSpec } from "../../utils";
-import type { AppComponent } from "../component";
+import type { Schema } from '$lib/common'
+import type { AppInputs, Runnable } from '../../inputType'
+import type { GridItem } from '../../types'
+import { fieldTypeToTsType, schemaToInputsSpec } from '../../utils'
+import type { AppComponent } from '../component'
 
 export interface AppScriptsList {
-	inline: { name: string; id: string }[],
+	inline: { name: string; id: string }[]
 	imported: { name: string; id: string }[]
 }
 
@@ -42,35 +42,47 @@ export function computeFields(schema: Schema, defaultUserInput: boolean, fields:
 	return result
 }
 
-export function getAppScripts(grid: GridItem[]) {
-	return grid.reduce((acc, gridComponent) => {
-		const component: AppComponent = gridComponent.data
-		const componentInput = component.componentInput
+function processGridItemRunnable(gridItem: GridItem, list: AppScriptsList): AppScriptsList {
+	const component: AppComponent = gridItem.data
+	const componentInput = component.componentInput
+	if (component.type === 'tablecomponent') {
+		component.actionButtons.forEach((actionButton) => {
+			if (actionButton.componentInput?.type !== 'runnable') {
+				return
+			}
+			processRunnable(actionButton.componentInput.runnable, actionButton.id, list)
+		})
+	}
+	if (componentInput?.type === 'runnable') {
+		processRunnable(componentInput.runnable, gridItem.id, list)
+	}
+	return list
+}
 
-		if (component.type === 'tablecomponent') {
-			component.actionButtons.forEach((actionButton) => {
-				if (actionButton.componentInput?.type !== 'runnable') { return }
-				processRunnable(
-					actionButton.componentInput.runnable,
-					actionButton.id,
-					acc
-				)
+export function getAppScripts(
+	lazyGrid: GridItem[],
+	subgrids: Record<string, GridItem[]> | undefined
+): AppScriptsList {
+	const scriptsList = lazyGrid.reduce(
+		(acc, gridComponent) => processGridItemRunnable(gridComponent, acc),
+		{ inline: [], imported: [] } as AppScriptsList
+	)
+
+	if (subgrids) {
+		Object.values(subgrids).forEach((subgrid: GridItem[]) => {
+			subgrid.forEach((subgridComponent: GridItem) => {
+				processGridItemRunnable(subgridComponent, scriptsList)
 			})
-		}
-		if (componentInput?.type === 'runnable') {
-			processRunnable(
-				componentInput.runnable,
-				gridComponent.id,
-				acc
-			)
-		}
+		})
+	}
 
-		return acc
-	}, { inline: [], imported: [] } as AppScriptsList)
+	return scriptsList
 }
 
 function processRunnable(runnable: Runnable, id: string, list: AppScriptsList) {
-	if (runnable?.type === undefined) { return }
+	if (runnable?.type === undefined) {
+		return
+	}
 	const type: keyof AppScriptsList = runnable.type === 'runnableByPath' ? 'imported' : 'inline'
 	list[type].push({
 		name: runnable[runnable.type === 'runnableByPath' ? 'path' : 'name'],
