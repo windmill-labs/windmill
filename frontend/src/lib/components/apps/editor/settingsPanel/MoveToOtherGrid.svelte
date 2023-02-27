@@ -80,8 +80,7 @@
 		disabled: parent === undefined
 	}
 
-	const [subgrids] = component ? getAllSubgridsAndComponentIds($app, component) : [[], []]
-
+	$: [subgrids] = component ? getAllSubgridsAndComponentIds($app, component) : [[], []]
 	$: availableGrids = listAllSubGrids($app)
 	$: options = availableGrids
 		? [
@@ -89,10 +88,7 @@
 				...availableGrids?.map((grid) => ({
 					label: grid,
 					value: grid,
-					disabled:
-						grid === parent ||
-						(component && grid.startsWith(component.id)) ||
-						subgrids.includes(grid)
+					disabled: grid === parent || subgrids.includes(grid)
 				}))
 		  ]
 		: [defaultOption]
