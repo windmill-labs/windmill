@@ -14,8 +14,12 @@
 	let jsonViewer: Drawer
 </script>
 
-<Drawer bind:this={jsonViewer} size="800px">
+<Drawer
+	bind:this={jsonViewer}
+	size="800px"
+	customPosition={{ drawer: '!top-0', overlay: 'top-0', placement: 'top' }}
+>
 	<DrawerContent title="Argument Details" on:close={jsonViewer.toggleDrawer} />
 </Drawer>
 
-<button on:click={jsonViewer.toggleDrawer}>Show JSON</button>
+<button on:click={jsonViewer.toggleDrawer}>Open drawer</button>

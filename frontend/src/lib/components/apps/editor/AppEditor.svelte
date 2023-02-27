@@ -126,7 +126,7 @@
 
 {#if $connectingInput.opened}
 	<div
-		class="absolute  w-full h-screen bg-black border-2 bg-opacity-25 z-20 flex justify-center items-center"
+		class="absolute w-full h-screen bg-black border-2 bg-opacity-25 z-20 flex justify-center items-center"
 	/>
 {/if}
 {#if !$userStore?.operator}
