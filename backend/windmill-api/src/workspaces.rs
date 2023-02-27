@@ -6,10 +6,10 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-#[cfg(enterprise)]
+#[cfg(feature = "enterprise")]
 use std::str::FromStr;
 
-#[cfg(enterprise)]
+#[cfg(feature = "enterprise")]
 use crate::BASE_URL;
 use crate::{
     apps::AppWithLastVersion,
@@ -20,7 +20,7 @@ use crate::{
     utils::require_super_admin,
     HTTP_CLIENT,
 };
-#[cfg(enterprise)]
+#[cfg(feature = "enterprise")]
 use axum::response::Redirect;
 use axum::{
     body::StreamBody,
@@ -30,7 +30,7 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
-#[cfg(enterprise)]
+#[cfg(feature = "enterprise")]
 use stripe::CustomerId;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
@@ -63,12 +63,13 @@ pub fn workspaced_service() -> Router {
         .route("/tarball", get(tarball_workspace))
         .route("/premium_info", get(premium_info));
 
-    #[cfg(enterprise)]
-    let router = {
-        router
-            .route("/checkout", get(stripe_checkout))
-            .route("/billing_portal", get(stripe_portal));
-    };
+    #[cfg(feature = "enterprise")]
+    tracing::info!("stripe enabled");
+
+    #[cfg(feature = "enterprise")]
+    let router = router
+        .route("/checkout", get(stripe_checkout))
+        .route("/billing_portal", get(stripe_portal));
 
     router
 }
@@ -230,13 +231,13 @@ async fn premium_info(
     Ok(Json(row))
 }
 
-#[cfg(enterprise)]
+#[cfg(feature = "enterprise")]
 #[derive(Deserialize)]
 struct PlanQuery {
     plan: String,
 }
 
-#[cfg(enterprise)]
+#[cfg(feature = "enterprise")]
 async fn stripe_checkout(
     authed: Authed,
     Path(w_id): Path<String>,
@@ -302,7 +303,7 @@ async fn stripe_checkout(
     }
 }
 
-#[cfg(enterprise)]
+#[cfg(feature = "enterprise")]
 async fn stripe_portal(
     authed: Authed,
     Path(w_id): Path<String>,
