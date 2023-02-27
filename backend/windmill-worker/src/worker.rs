@@ -595,11 +595,11 @@ pub async fn run_worker(
                         .await
                         .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string())))
                     },
-                    (job, timer) = {
+                    (job, timer, instant) = {
                         let timer = worker_pull_duration.start_timer(); 
-                        let instant = Instant::now();
-                        pull(&db, WHITELIST_WORKSPACES.clone(), BLACKLIST_WORKSPACES.clone()).map(|x| (x, timer))` } => {
-                        worker_pull_duration_counter.inc_by((elapsed.as_millis() as i64).try_into().unwrap());
+                        let instant = Instant::now().to_owned();
+                        pull(&db, WHITELIST_WORKSPACES.clone(), BLACKLIST_WORKSPACES.clone()).map(|x| (x, timer, instant)) } => {
+                        worker_pull_duration_counter.inc_by((instant.elapsed().as_millis() as i64).try_into().unwrap());
                         drop(timer);
                         (false, job)
                     },
