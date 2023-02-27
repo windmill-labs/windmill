@@ -13,11 +13,17 @@
 	function getIconComponent(name: string) {
 		return APP_TO_ICON_COMPONENT[name] || APP_TO_ICON_COMPONENT[name.split('_')[0]]
 	}
+
+	$: filtersAndSelected = selectedFilter
+		? filters.includes(selectedFilter)
+			? filters
+			: [selectedFilter, ...filters]
+		: filters
 </script>
 
-{#if Array.isArray(filters) && filters.length > 0}
+{#if Array.isArray(filtersAndSelected) && filtersAndSelected.length > 0}
 	<div class="gap-2 w-full flex flex-wrap my-4">
-		{#each filters as filter (filter)}
+		{#each filtersAndSelected as filter (filter)}
 			<div in:fade={{ duration: 50 }} animate:flip={{ duration: 100 }}>
 				<Badge
 					class={classNames(
