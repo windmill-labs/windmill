@@ -383,7 +383,7 @@ lazy_static::lazy_static! {
     .unwrap();
     static ref WORKER_UPTIME_OPTS: prometheus::Opts = prometheus::opts!(
         "worker_uptime",
-        "Total number of milliseconds since the worker has started"
+        "Total number of seconds since the worker has started"
     );
 
     static ref TIMEOUT: u16 = std::env::var("TIMEOUT")
@@ -445,15 +445,11 @@ pub async fn run_worker(
 
     insert_initial_ping(worker_instance, &worker_name, ip, db).await;
 
-    let uptime_metric = prometheus::register_int_counter!(WORKER_UPTIME_OPTS
+    let uptime_metric = prometheus::register_counter!(WORKER_UPTIME_OPTS
         .clone()
         .const_label("name", &worker_name))
     .unwrap();
-    uptime_metric.inc_by(
-        ((Instant::now() - start_time).as_millis() - uptime_metric.get() as u128)
-            .try_into()
-            .unwrap(),
-    );
+
 
     let worker_execution_duration = prometheus::register_histogram_vec!(
         prometheus::HistogramOpts::new(
@@ -465,9 +461,9 @@ pub async fn run_worker(
     )
     .expect("register prometheus metric");
 
-    let worker_execution_duration_counter = prometheus::register_int_counter!(prometheus::opts!(
+    let worker_execution_duration_counter = prometheus::register_counter!(prometheus::opts!(
         "worker_execution_duration_counter",
-        "Total number of milliseconds spent executing jobs"
+        "Total number of seconds spent executing jobs"
     )
         .const_label("name", &worker_name))
         .expect("register prometheus metric");
@@ -481,9 +477,9 @@ pub async fn run_worker(
     .expect("register prometheus metric");
 
 
-    let worker_sleep_duration_counter = prometheus::register_int_counter!(prometheus::opts!(
+    let worker_sleep_duration_counter = prometheus::register_counter!(prometheus::opts!(
         "worker_execution_sleep_counter",
-        "Total number of milliseconds spent sleeping between pulling jobs from the queue"
+        "Total number of seconds spent sleeping between pulling jobs from the queue"
     )
         .const_label("name", &worker_name))
         .expect("register prometheus metric");
@@ -496,9 +492,9 @@ pub async fn run_worker(
     .const_label("name", &worker_name),)
     .expect("register prometheus metric");
 
-    let worker_pull_duration_counter = prometheus::register_int_counter!(prometheus::opts!(
+    let worker_pull_duration_counter = prometheus::register_counter!(prometheus::opts!(
         "worker_pull_sleep_counter",
-        "Total number of milliseconds spent pulling jobs (if growing large the db is undersized)"
+        "Total number of seconds spent pulling jobs (if growing large the db is undersized)"
     )
         .const_label("name", &worker_name))
         .expect("register prometheus metric");
@@ -550,10 +546,11 @@ pub async fn run_worker(
         worker_busy.set(0);
 
         uptime_metric.inc_by(
-            ((Instant::now() - start_time).as_millis() - uptime_metric.get() as u128)
+            (((Instant::now() - start_time).as_millis() as f64)/1000.0 - uptime_metric.get())
                 .try_into()
                 .unwrap(),
         );
+
 
         let do_break = async {
             if last_ping.elapsed().as_secs() > NUM_SECS_ENV_CHECK {
@@ -595,12 +592,11 @@ pub async fn run_worker(
                         .await
                         .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string())))
                     },
-                    (job, timer, instant) = {
+                    (job, timer) = {
                         let timer = worker_pull_duration.start_timer(); 
-                        let instant = Instant::now().to_owned();
-                        pull(&db, WHITELIST_WORKSPACES.clone(), BLACKLIST_WORKSPACES.clone()).map(|x| (x, timer, instant)) } => {
-                        worker_pull_duration_counter.inc_by((instant.elapsed().as_millis() as i64).try_into().unwrap());
-                        drop(timer);
+                        pull(&db, WHITELIST_WORKSPACES.clone(), BLACKLIST_WORKSPACES.clone()).map(|x| (x, timer)) } => {
+                        let duration_pull_s = timer.stop_and_record();
+                        worker_pull_duration_counter.inc_by(duration_pull_s);
                         (false, job)
                     },
                 }
@@ -706,6 +702,8 @@ pub async fn run_worker(
                         .await;
                     };
 
+                    let duration = _timer.stop_and_record();
+                    worker_execution_duration_counter.inc_by(duration);
 
                     if !*KEEP_JOB_DIR && !(is_flow && same_worker) {
                         let _ = tokio::fs::remove_dir_all(job_dir).await;
@@ -715,9 +713,9 @@ pub async fn run_worker(
 
                     let _timer = worker_sleep_duration
                         .start_timer();
-
                     tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE)).await;
-
+                    let duration = _timer.stop_and_record();
+                    worker_sleep_duration_counter.inc_by(duration);
                 }
                 Err(err) => {
                     tracing::error!(worker = %worker_name, "run_worker: pulling jobs: {}", err);
