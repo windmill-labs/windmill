@@ -21,7 +21,7 @@
 		}
 	}
 
-	$: runnables = getAppScripts($lazyGrid)
+	$: runnables = getAppScripts($lazyGrid, $app.subgrids)
 
 	// When selected component changes, update selectedScriptComponentId
 	$: if ($selectedComponent != selectedScriptComponentId) {

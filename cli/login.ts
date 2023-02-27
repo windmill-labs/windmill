@@ -51,9 +51,11 @@ export async function browserLogin(
   const url = `${baseUrl}user/cli?port=${port}`
   console.log(`Login by going to ${url}`);
   try {
-    open(url)
+    await open(url)
     console.log("Opened browser for you");
-  } catch { }
+  } catch {
+    console.error(`Failed to open browser, please navigate to ${url}`)
+  }
   const firstConnection = await server.accept();
   const httpFirstConnection = Deno.serveHttp(firstConnection);
   const firstRequest = (await httpFirstConnection.nextRequest())!;

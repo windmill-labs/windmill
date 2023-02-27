@@ -255,9 +255,9 @@ checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
 
 [[package]]
 name = "axum"
-version = "0.6.8"
+version = "0.6.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2bd379e511536bad07447f899300aa526e9bae8e6f66dc5e5ca45d7587b7c1ec"
+checksum = "6137c6234afb339e75e764c866e3594900f0211e1315d33779f269bbe2ec6967"
 dependencies = [
  "async-trait",
  "axum-core",
@@ -282,7 +282,7 @@ dependencies = [
  "sync_wrapper",
  "tokio",
  "tower",
- "tower-http 0.3.5",
+ "tower-http",
  "tower-layer",
  "tower-service",
 ]
@@ -324,9 +324,9 @@ checksum = "a4a4ddaa51a5bc52a6948f74c06d20aaaddb71924eab79b8c97a8c556e942d6a"
 
 [[package]]
 name = "base64ct"
-version = "1.5.3"
+version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b645a089122eccb6111b4f81cbc1a49f5900ac4666bb93ac027feaecf15607bf"
+checksum = "8c3c1a368f70d6cf7302d78f8f7093da241fb8e8807c05cc9e51a125895a6d5b"
 
 [[package]]
 name = "better_scoped_tls"
@@ -581,9 +581,9 @@ dependencies = [
 
 [[package]]
 name = "const-oid"
-version = "0.9.1"
+version = "0.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cec318a675afcb6a1ea1d4340e2d377e56e47c266f28043ceccbf4412ddfdd3b"
+checksum = "520fbf3c07483f94e3e3ca9d0cfd913d7718ef2483d2cfd91c0d9e91474ab913"
 
 [[package]]
 name = "const_format"
@@ -619,7 +619,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7efb37c3e1ccb1ff97164ad95ac1606e8ccd35b3fa0a7d99a304c7f4a428cc24"
 dependencies = [
  "percent-encoding",
- "time 0.3.19",
+ "time 0.3.20",
  "version_check",
 ]
 
@@ -2799,15 +2799,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "remove_dir_all"
-version = "0.5.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3acd125665422973a33ac9d3dd2df85edad0f4ae9b00dafb1a05e43a9f5ef8e7"
-dependencies = [
- "winapi",
-]
-
-[[package]]
 name = "reqwest"
 version = "0.11.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3003,7 +2994,7 @@ dependencies = [
 [[package]]
 name = "rustpython-ast"
 version = "0.2.0"
-source = "git+https://github.com/RustPython/RustPython#f51764f8d0c33e8e3b423e8a80dba00926715360"
+source = "git+https://github.com/RustPython/RustPython#351d464448607413dc12de6905f1165f8d45af54"
 dependencies = [
  "num-bigint",
  "rustpython-compiler-core",
@@ -3012,7 +3003,7 @@ dependencies = [
 [[package]]
 name = "rustpython-compiler-core"
 version = "0.2.0"
-source = "git+https://github.com/RustPython/RustPython#f51764f8d0c33e8e3b423e8a80dba00926715360"
+source = "git+https://github.com/RustPython/RustPython#351d464448607413dc12de6905f1165f8d45af54"
 dependencies = [
  "bincode",
  "bitflags",
@@ -3029,7 +3020,7 @@ dependencies = [
 [[package]]
 name = "rustpython-parser"
 version = "0.2.0"
-source = "git+https://github.com/RustPython/RustPython#f51764f8d0c33e8e3b423e8a80dba00926715360"
+source = "git+https://github.com/RustPython/RustPython#351d464448607413dc12de6905f1165f8d45af54"
 dependencies = [
  "ahash",
  "anyhow",
@@ -3083,9 +3074,9 @@ dependencies = [
 
 [[package]]
 name = "schemars"
-version = "0.8.11"
+version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a5fb6c61f29e723026dc8e923d94c694313212abbecbbe5f55a7748eec5b307"
+checksum = "02c613288622e5f0c3fdc5dbd4db1c5fbe752746b1d1a56a0630b78fd00de44f"
 dependencies = [
  "chrono",
  "dyn-clone",
@@ -3097,9 +3088,9 @@ dependencies = [
 
 [[package]]
 name = "schemars_derive"
-version = "0.8.11"
+version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f188d036977451159430f3b8dc82ec76364a42b7e289c2b18a9a18f4470058e9"
+checksum = "109da1e6b197438deb6db99952990c7f959572794b80ff93707d55a232545e7c"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3840,16 +3831,15 @@ checksum = "2047c6ded9c721764247e62cd3b03c09ffc529b2ba5b10ec482ae507a4a70160"
 
 [[package]]
 name = "tempfile"
-version = "3.3.0"
+version = "3.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5cdb1ef4eaeeaddc8fbd371e5017057064af0911902ef36b39801f67cc6d79e4"
+checksum = "af18f7ae1acd354b992402e9ec5864359d693cd8a79dcbef59f76891701c1e95"
 dependencies = [
  "cfg-if",
  "fastrand",
- "libc",
  "redox_syscall",
- "remove_dir_all",
- "winapi",
+ "rustix",
+ "windows-sys 0.42.0",
 ]
 
 [[package]]
@@ -3926,9 +3916,9 @@ dependencies = [
 
 [[package]]
 name = "time"
-version = "0.3.19"
+version = "0.3.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "53250a3b3fed8ff8fd988587d8925d26a83ac3845d9e03b220b37f34c2b8d6c2"
+checksum = "cd0cbfecb4d19b5ea75bb31ad904eb5b9fa13f21079c3b92017ebdf4999a5890"
 dependencies = [
  "itoa",
  "serde",
@@ -3944,9 +3934,9 @@ checksum = "2e153e1f1acaef8acc537e68b44906d2db6436e2b35ac2c6b42640fff91f00fd"
 
 [[package]]
 name = "time-macros"
-version = "0.2.7"
+version = "0.2.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a460aeb8de6dcb0f381e1ee05f1cd56fcf5a5f6eb8187ff3d8f0b11078d38b7c"
+checksum = "fd80a657e71da814b8e5d60d3374fc6d35045062245d80224748ae522dd76f36"
 dependencies = [
  "time-core",
 ]
@@ -4153,25 +4143,6 @@ dependencies = [
 
 [[package]]
 name = "tower-http"
-version = "0.3.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f873044bf02dd1e8239e9c1293ea39dad76dc594ec16185d0a1bf31d8dc8d858"
-dependencies = [
- "bitflags",
- "bytes",
- "futures-core",
- "futures-util",
- "http",
- "http-body",
- "http-range-header",
- "pin-project-lite",
- "tower",
- "tower-layer",
- "tower-service",
-]
-
-[[package]]
-name = "tower-http"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d1d42a9b3f3ec46ba828e8d376aec14592ea199f70a06a548587ecd1c4ab658"
@@ -4184,6 +4155,7 @@ dependencies = [
  "http-body",
  "http-range-header",
  "pin-project-lite",
+ "tower",
  "tower-layer",
  "tower-service",
  "tracing",
@@ -4784,7 +4756,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.69.2"
+version = "1.70.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -4811,7 +4783,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.69.2"
+version = "1.70.1"
 dependencies = [
  "anyhow",
  "argon2",
@@ -4844,13 +4816,13 @@ dependencies = [
  "sql-builder",
  "sqlx",
  "tempfile",
- "time 0.3.19",
+ "time 0.3.20",
  "tokio",
  "tokio-tar",
  "tokio-util",
  "tower",
  "tower-cookies",
- "tower-http 0.4.0",
+ "tower-http",
  "tracing",
  "tracing-subscriber",
  "urlencoding",
@@ -4866,7 +4838,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.69.2"
+version = "1.70.1"
 dependencies = [
  "base64 0.21.0",
  "chrono",
@@ -4881,7 +4853,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.69.2"
+version = "1.70.1"
 dependencies = [
  "chrono",
  "serde",
@@ -4894,7 +4866,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.69.2"
+version = "1.70.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -4919,7 +4891,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.69.2"
+version = "1.70.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -4927,7 +4899,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.69.2"
+version = "1.70.1"
 dependencies = [
  "anyhow",
  "itertools",
@@ -4941,7 +4913,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.69.2"
+version = "1.70.1"
 dependencies = [
  "anyhow",
  "itertools",
@@ -4953,7 +4925,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.69.2"
+version = "1.70.1"
 dependencies = [
  "anyhow",
  "itertools",
@@ -4968,7 +4940,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.69.2"
+version = "1.70.1"
 dependencies = [
  "anyhow",
  "deno_core",
@@ -4982,7 +4954,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.69.2"
+version = "1.70.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5005,7 +4977,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.69.2"
+version = "1.70.1"
 dependencies = [
  "anyhow",
  "async-recursion",

@@ -739,6 +739,18 @@ Hello \${ctx.username}
 					fieldType: 'boolean',
 					value: false,
 					onlyStatic: true
+				},
+				pagination: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					onlyStatic: true
+				},
+				pageSize: {
+					type: 'static',
+					fieldType: 'number',
+					value: 10,
+					onlyStatic: true
 				}
 			},
 			componentInput: {

@@ -36,7 +36,6 @@
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { page } from '$app/stores'
 	import CssSettings from './componentsPanel/CssSettings.svelte'
-	import { findGridItem } from './appUtils'
 
 	export let app: App
 	export let path: string
