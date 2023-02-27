@@ -63,6 +63,7 @@ export type ScatterChartComponent = BaseComponent<'scatterchartcomponent'>
 export type TableComponent = BaseComponent<'tablecomponent'> & {
 	actionButtons: (BaseAppComponent & ButtonComponent)[]
 }
+export type AggridComponent = BaseComponent<'aggridcomponent'>
 export type DisplayComponent = BaseComponent<'displaycomponent'>
 export type ImageComponent = BaseComponent<'imagecomponent'>
 export type InputComponent = BaseComponent<'inputcomponent'>
@@ -110,6 +111,7 @@ export type AppComponent = BaseAppComponent &
 		| VerticalDividerComponent
 		| FileInputComponent
 		| ImageComponent
+		| AggridComponent
 	)
 
 export type AppComponentDimensions = `${IntRange<
@@ -152,7 +154,7 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 			configuration: {},
 			customCss: {
 				header: { class: '', style: '' },
-				container: { class: '', style: '' },
+				container: { class: '', style: '' }
 			} as const,
 			card: false
 		}
@@ -175,7 +177,7 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 			},
 			componentInput: undefined,
 			card: false,
-			subGrids: [[]]
+			numberOfSubgrids: 1
 		}
 	},
 	textcomponent: {
@@ -694,6 +696,48 @@ Hello \${ctx.username}
 			actionButtons: []
 		}
 	},
+	aggridcomponent: {
+		name: 'AgGrid Table',
+		icon: Table2,
+		dims: '3:10-6:10',
+		data: {
+			id: '',
+			type: 'aggridcomponent',
+			configuration: {
+				columnDefs: {
+					type: 'static',
+					fieldType: 'array',
+					subFieldType: 'object',
+					value: [{ field: 'id' }, { field: 'name', editable: true }, { field: 'age' }]
+				},
+				allEditable: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					onlyStatic: true
+				}
+			},
+			componentInput: {
+				type: 'static',
+				fieldType: 'array',
+				subFieldType: 'object',
+				value: [
+					{
+						id: 1,
+						name: 'A cell with a long name',
+						age: 42
+					},
+					{
+						id: 2,
+						name: 'A briefer cell',
+						age: 84
+					}
+				]
+			},
+			customCss: {},
+			card: true,
+		}
+	},
 	checkboxcomponent: {
 		name: 'Toggle',
 		icon: ToggleLeft,
@@ -810,19 +854,16 @@ Hello \${ctx.username}
 					type: 'static',
 					value: undefined,
 					fieldType: 'number',
-					onlyStatic: true
 				},
 				max: {
 					type: 'static',
 					value: undefined,
 					fieldType: 'number',
-					onlyStatic: true
 				},
 				step: {
 					type: 'static',
 					value: 1,
 					fieldType: 'number',
-					onlyStatic: true
 				}
 			},
 			customCss: {},
@@ -891,19 +932,16 @@ Hello \${ctx.username}
 					type: 'static',
 					value: 42,
 					fieldType: 'number',
-					onlyStatic: true
 				},
 				defaultValue: {
 					type: 'static',
 					value: 20,
 					fieldType: 'number',
-					onlyStatic: true
 				},
 				step: {
 					type: 'static',
 					value: 1,
 					fieldType: 'number',
-					onlyStatic: true
 				}
 			},
 			customCss: {},
@@ -925,31 +963,26 @@ Hello \${ctx.username}
 					type: 'static',
 					value: 0,
 					fieldType: 'number',
-					onlyStatic: true
 				},
 				max: {
 					type: 'static',
 					value: 42,
 					fieldType: 'number',
-					onlyStatic: true
 				},
 				defaultLow: {
 					type: 'static',
 					value: 10,
 					fieldType: 'number',
-					onlyStatic: true
 				},
 				defaultHigh: {
 					type: 'static',
 					value: 20,
 					fieldType: 'number',
-					onlyStatic: true
 				},
 				step: {
 					type: 'static',
 					value: 1,
 					fieldType: 'number',
-					onlyStatic: true
 				}
 			},
 			customCss: {},
@@ -1027,7 +1060,7 @@ Hello \${ctx.username}
 			},
 			componentInput: undefined,
 			card: false,
-			subGrids: [[], []],
+			numberOfSubgrids: 2,
 			tabs: ['First tab', 'Second tab']
 		}
 	},

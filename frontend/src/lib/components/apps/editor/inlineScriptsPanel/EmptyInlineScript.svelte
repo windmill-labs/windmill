@@ -164,13 +164,13 @@
 				createInlineScriptByLanguage(Script.language.DENO, name, 'pgsql')
 			}}
 		/>
-		<FlowScriptPicker
+		<!-- <FlowScriptPicker
 			label={`MySQL`}
 			lang="mysql"
 			on:click={() => {
 				createInlineScriptByLanguage(Script.language.DENO, name, 'mysql')
 			}}
-		/>
+		/> -->
 	</div>
 
 	<div class="mt-4">

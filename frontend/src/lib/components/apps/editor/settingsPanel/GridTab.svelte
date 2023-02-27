@@ -2,33 +2,48 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { faPlus, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
-	import type { AppEditorContext, GridItem } from '../../types'
-	import { deleteComponent } from '../../utils'
+	import type { AppEditorContext } from '../../types'
+	import { deleteGridItem } from '../appUtils'
+	import type { AppComponent } from '../component'
 	import PanelSection from './common/PanelSection.svelte'
 
 	export let tabs: string[]
-	export let subGrids: GridItem[][]
+	export let component: AppComponent
 
-	const { runnableComponents, staticOutputs, app, focusedGrid } =
+	const { app, staticOutputs, runnableComponents } =
 		getContext<AppEditorContext>('AppEditorContext')
 
 	function addTab() {
-		tabs = [...tabs, `Tab ${tabs.length + 1}`]
-		subGrids = [...subGrids, []]
+		const numberOfTabs = tabs.length
+		tabs = [...tabs, `Tab ${numberOfTabs + 1}`]
+
+		if (!$app.subgrids) {
+			$app.subgrids = {}
+		}
+
+		$app.subgrids[`${component.id}-${numberOfTabs}`] = []
+		component.numberOfSubgrids = tabs.length
 	}
 
 	function deleteSubgrid(index: number) {
-		$focusedGrid = undefined
-		subGrids[index].forEach((x) => {
-			deleteComponent(undefined, x.data, $app, $staticOutputs, $runnableComponents)
-		})
-		tabs.splice(index, 1)
-		subGrids.splice(index, 1)
-		tabs = tabs
-		subGrids = subGrids
-		$app.grid = $app.grid
+		let subgrid = `${component.id}-${index}`
+		for (const item of $app!.subgrids![subgrid]) {
+			const components = deleteGridItem($app, item.data, subgrid)
+			console.log(components)
+			for (const key in components) {
+				delete $staticOutputs[key]
+				delete $runnableComponents[key]
+			}
+		}
 		$staticOutputs = $staticOutputs
 		$runnableComponents = $runnableComponents
+		for (let i = index; i < tabs.length - 1; i++) {
+			$app!.subgrids![`${component.id}-${i}`] = $app!.subgrids![`${component.id}-${i + 1}`]
+		}
+		tabs.splice(index, 1)
+		tabs = tabs
+		component.numberOfSubgrids = tabs.length
+		$app = $app
 	}
 </script>
 

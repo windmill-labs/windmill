@@ -101,6 +101,7 @@
 
 	onMount(() => {
 		inferSchema(code)
+		loadPastTests()
 	})
 </script>
 

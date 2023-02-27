@@ -8,10 +8,11 @@
 	import { emptySchema, getScriptByPath } from '$lib/utils'
 	import { faCodeBranch, faExternalLinkAlt, faEye, faPen } from '@fortawesome/free-solid-svg-icons'
 	import type { AppInput, RunnableByPath } from '../../inputType'
-	import { clearResultAppInput, schemaToInputsSpec } from '../../utils'
+	import { clearResultAppInput } from '../../utils'
 	import EmptyInlineScript from './EmptyInlineScript.svelte'
 	import InlineScriptEditor from './InlineScriptEditor.svelte'
 	import { computeFields } from './utils'
+	import { deepEqual } from 'fast-equals'
 
 	export let componentInput: AppInput | undefined
 	export let id: string
@@ -43,7 +44,7 @@
 
 	async function refreshScript(x: RunnableByPath) {
 		let { schema } = await getScriptByPath(x.path)
-		if (JSON.stringify(x.schema) != JSON.stringify(schema)) {
+		if (!deepEqual(x.schema, schema)) {
 			x.schema = schema
 			if (componentInput?.type == 'runnable') {
 				componentInput.fields = computeFields(schema, false, componentInput.fields)

@@ -37,13 +37,17 @@
 			const disabledGridItem = fct(gridItem)
 
 			if (disabledGridItem.data.subGrids) {
-				disabledGridItem.data.subGrids = disabledGridItem.data.subGrids.map((subgrid: GridItem[]) =>
-					subgrid.map((subgridItem: GridItem) => fct(subgridItem))
+				disabledGridItem.data.subGrids = disabledGridItem.data.subGrids.map(
+					(subgrid: GridItem[]) => subgrid?.map((subgridItem: GridItem) => fct(subgridItem)) ?? []
 				)
 			}
 
 			return disabledGridItem
 		})
+
+		Object.values($app.subgrids ?? {}).map(
+			(subgrid: GridItem[]) => subgrid?.map((subgridItem: GridItem) => fct(subgridItem)) ?? []
+		)
 	}
 
 	function removeGridElement(component) {
@@ -87,6 +91,7 @@
 	function selectComponent(id: string) {
 		if (!$connectingInput.opened) {
 			$selectedComponent = id
+			$focusedGrid = undefined
 		}
 	}
 
@@ -126,7 +131,6 @@
 			})
 		}
 	})
-	let mounted = false
 </script>
 
 <div class="relative w-full z-20 overflow-visible">
@@ -151,8 +155,13 @@
 		on:pointerdown={onpointerdown}
 		on:pointerleave={onpointerup}
 		on:pointerup={onpointerup}
+		on:click={() => {
+			$selectedComponent = undefined
+			$focusedGrid = undefined
+		}}
 	>
 		<Grid
+			onTopId={$selectedComponent}
 			fillSpace={false}
 			bind:items={$app.grid}
 			let:dataItem
@@ -165,13 +174,11 @@
 				{#if gridComponent.data.id === dataItem.data.id}
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
 					{#if $connectingInput.opened}
-						{#if $connectingInput.opened}
-							<div
-								on:pointerenter={() => ($connectingInput.hoveredComponent = gridComponent.data.id)}
-								on:pointerleave={() => ($connectingInput.hoveredComponent = undefined)}
-								class="absolute  w-full h-full bg-black border-2 bg-opacity-25 z-20 flex justify-center items-center"
-							/>
-						{/if}
+						<div
+							on:pointerenter={() => ($connectingInput.hoveredComponent = gridComponent.data.id)}
+							on:pointerleave={() => ($connectingInput.hoveredComponent = undefined)}
+							class="absolute  w-full h-full bg-black border-2 bg-opacity-25 z-20 flex justify-center items-center"
+						/>
 						<div
 							style="transform: translate(-50%, -50%);"
 							class="absolute w-fit justify-center bg-indigo-500/90 left-[50%] top-[50%] z-50 px-6 rounded border text-white py-2 text-5xl center-center"
@@ -180,6 +187,7 @@
 					{/if}
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
 					<div
+						on:click|stopPropagation
 						on:pointerdown={() => selectComponent(dataItem.data.id)}
 						class={classNames(
 							'h-full w-full center-center',
@@ -189,7 +197,7 @@
 					>
 						<Component
 							{pointerdown}
-							bind:component={gridComponent.data}
+							bind:pComponent={gridComponent.data}
 							selected={$selectedComponent === dataItem.data.id}
 							locked={isFixed(gridComponent)}
 							on:delete={() => removeGridElement(gridComponent.data)}

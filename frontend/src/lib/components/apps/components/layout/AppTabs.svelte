@@ -8,14 +8,12 @@
 	import InputValue from '../helpers/InputValue.svelte'
 
 	export let id: string
-
 	export let configuration: Record<string, AppInput>
-	export let subGrids: GridItem[][] | undefined = undefined
 	export let componentContainerHeight: number
 	export let tabs: string[]
 
 	export const staticOutputs: string[] = ['selectedTabIndex']
-	const { worldStore, focusedGrid, selectedComponent } =
+	const { app, worldStore, focusedGrid, selectedComponent } =
 		getContext<AppEditorContext>('AppEditorContext')
 
 	let selected: string = ''
@@ -36,6 +34,7 @@
 	}
 
 	$: selectedIndex >= 0 && handleTabSelection()
+
 	let tabHeight: number = 0
 
 	function onFocus() {
@@ -52,7 +51,7 @@
 <InputValue {id} input={configuration.noPadding} bind:value={noPadding} />
 
 <div>
-	<div bind:clientHeight={tabHeight}>
+	<div bind:clientHeight={tabHeight} on:pointerdown|stopPropagation>
 		<Tabs bind:selected>
 			{#each tabs ?? [] as res}
 				<Tab value={res}>
@@ -61,14 +60,17 @@
 			{/each}
 		</Tabs>
 	</div>
-	{#if subGrids && subGrids[selectedIndex]}
-		<SubGridEditor
-			{noPadding}
-			bind:subGrid={subGrids[selectedIndex]}
-			containerHeight={componentContainerHeight - tabHeight}
-			on:focus={() => {
-				$selectedComponent = id
-			}}
-		/>
+	{#if $app.subgrids}
+		{#each tabs ?? [] as res, i}
+			<SubGridEditor
+				visible={i === selectedIndex}
+				bind:subGrid={$app.subgrids[`${id}-${i}`]}
+				{noPadding}
+				containerHeight={componentContainerHeight - tabHeight}
+				on:focus={() => {
+					$selectedComponent = id
+				}}
+			/>
+		{/each}
 	{/if}
 </div>

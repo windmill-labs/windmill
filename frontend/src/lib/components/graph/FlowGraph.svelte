@@ -234,8 +234,9 @@
 			inline: ''
 		}
 		const wrapperWidth = lang ? 'w-[calc(100%-70px)]' : 'w-[calc(100%-50px)]'
-		let nodeId = id ?? numberToChars(idGenerator.next().value - 1)
-
+		let generatedId = idGenerator.next().value
+		let nodeId = id ?? numberToChars(generatedId - 1)
+		// console.log(id, generatedId, nodeId, charsToNumber(nodeId))
 		return {
 			id: charsToNumber(nodeId),
 			position: { x: -1, y: -1 },
@@ -376,6 +377,7 @@
 	}
 
 	function layoutNodes(nodes: Node[]): { nodes: Node[]; height: number } {
+		// console.log('layoutNodes', nodes)
 		const stratify = dagStratify().id(({ id }: Node) => numberToChars(id))
 		const dag = stratify(nodes)
 
@@ -401,7 +403,6 @@
 		const edges: Edge[] = []
 		nodes.forEach((node) => {
 			node.parentIds.forEach((pid, i) => {
-				console.log(charsToNumber(pid), pid)
 				// skip virtual nodes such as collect result
 				if (errorHandlers[pid] && node.id < 900 && nodes.find((x) => x.id == errorHandlers[pid])) {
 					edges.push({

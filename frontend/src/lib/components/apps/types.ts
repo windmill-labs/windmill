@@ -59,7 +59,8 @@ export interface BaseAppComponent extends Partial<Aligned> {
 	 * *For example when the component has a popup like `Select`*
 	 */
 	softWrap?: boolean
-	subGrids?: GridItem[][]
+	// Number of subgrids
+	numberOfSubgrids?: number
 }
 
 export type ComponentSet = {
@@ -99,6 +100,7 @@ export type App = {
 		fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
 	}>
 	css?: Record<'viewer' | 'grid' | AppComponent['type'], ComponentCustomCSS>
+	subgrids?: Record<string, GridItem[]>
 }
 
 export type ConnectingInput = {
@@ -132,7 +134,6 @@ export type AppEditorContext = {
 }
 
 export type FocusedGrid = { parentComponentId: string; subGridIndex: number }
-
 export type EditorMode = 'dnd' | 'preview'
 export type EditorBreakpoint = 'sm' | 'lg'
 

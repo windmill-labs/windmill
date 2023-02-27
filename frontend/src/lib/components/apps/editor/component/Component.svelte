@@ -5,6 +5,8 @@
 	import { twMerge } from 'tailwind-merge'
 	import type { AppEditorContext } from '../../types'
 	import ComponentHeader from '../ComponentHeader.svelte'
+	import { deepEqual } from 'fast-equals'
+
 	import {
 		AppBarChart,
 		AppDisplayComponent,
@@ -35,8 +37,9 @@
 		AppContainer
 	} from '../../components'
 	import type { AppComponent } from './components'
+	import AppAggridTable from '../../components/display/table/AppAggridTable.svelte'
 
-	export let component: AppComponent
+	export let pComponent: AppComponent
 	export let selected: boolean
 	export let locked: boolean = false
 	export let pointerdown: boolean = false
@@ -46,6 +49,11 @@
 	let hover = false
 	let initializing: boolean | undefined = undefined
 	let componentContainerHeight: number = 0
+
+	let component = JSON.parse(JSON.stringify(pComponent))
+	$: if (pComponent && !deepEqual(pComponent, component)) {
+		component = JSON.parse(JSON.stringify(pComponent))
+	}
 </script>
 
 <div
@@ -143,6 +151,13 @@
 				bind:componentInput={component.componentInput}
 				bind:actionButtons={component.actionButtons}
 			/>
+		{:else if component.type === 'aggridcomponent'}
+			<AppAggridTable
+				{...component}
+				bind:initializing
+				bind:staticOutputs={$staticOutputs[component.id]}
+				bind:componentInput={component.componentInput}
+			/>
 		{:else if component.type === 'textcomponent'}
 			<AppText
 				{...component}
@@ -200,10 +215,7 @@
 			<AppRangeInput {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{:else if component.type === 'tabscomponent'}
 			<AppTabs
-				id={component.id}
-				configuration={component.configuration}
-				tabs={component.tabs}
-				bind:subGrids={component.subGrids}
+				{...component}
 				bind:staticOutputs={$staticOutputs[component.id]}
 				{componentContainerHeight}
 			/>

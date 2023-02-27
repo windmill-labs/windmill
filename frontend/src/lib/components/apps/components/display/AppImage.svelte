@@ -3,7 +3,7 @@
 	import type { AppInput } from '../../inputType'
 	import InputValue from '../helpers/InputValue.svelte'
 
-	type FitOption = typeof staticValues['objectFitOptions'][number]
+	type FitOption = (typeof staticValues)['objectFitOptions'][number]
 
 	export let id: string
 	export let configuration: Record<string, AppInput>
@@ -12,7 +12,7 @@
 	const fit: Record<FitOption, string> = {
 		cover: 'object-cover',
 		contain: 'object-contain',
-		fill: 'object-fill',
+		fill: 'object-fill'
 	}
 
 	let source: string | undefined = undefined
@@ -27,8 +27,9 @@
 <InputValue {id} input={configuration.customStyles} bind:value={customStyles} />
 
 <img
+	on:pointerdown|preventDefault
 	src={source}
 	alt={altText}
 	style={customStyles}
 	class="w-full h-full {fit[imageFit || 'cover']}"
->
+/>

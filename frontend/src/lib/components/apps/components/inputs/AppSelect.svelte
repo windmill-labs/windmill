@@ -23,7 +23,13 @@
 		result: Output<string | undefined>
 	}
 
-	let value: string | undefined = undefined
+	// $: outputs && handleOutputs()
+
+	// function handleOutputs() {
+	// 	value = outputs.result.peak()
+	// }
+
+	let value: string | undefined = outputs?.result.peak()
 
 	$: items && handleItems()
 
@@ -38,9 +44,15 @@
 					}
 			  })
 			: []
-		if (items?.[0]?.['value'] != value) {
-			value = JSON.stringify(items?.[0]?.['value'])
-			outputs?.result.set(value)
+		const valuePeak = outputs?.result.peak()
+		if (!valuePeak) {
+			const value0 = items?.[0]?.['value']
+			if (value0 != value && !items.includes(value0)) {
+				value = JSON.stringify(value0)
+				outputs?.result.set(value0)
+			}
+		} else {
+			value = valuePeak
 		}
 	}
 
@@ -74,6 +86,12 @@
 					$selectedComponent = id
 				}
 			}}
+			on:focus={() => {
+				$selectedComponent = id
+			}}
+			floatingConfig={{
+				strategy: 'fixed'
+			}}
 		/>
 	</div>
 </AlignWrapper>
@@ -81,5 +99,8 @@
 <style global>
 	.app-select .value-container {
 		padding: 0 !important;
+	}
+	.svelte-select-list {
+		z-index: 1000 !important;
 	}
 </style>
