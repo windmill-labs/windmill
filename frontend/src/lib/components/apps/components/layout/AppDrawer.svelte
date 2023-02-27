@@ -14,12 +14,16 @@
 	let jsonViewer: Drawer
 </script>
 
-<Drawer
-	bind:this={jsonViewer}
-	size="800px"
-	customPosition={{ drawer: '!top-0', overlay: 'top-0', placement: 'top' }}
->
-	<DrawerContent title="Argument Details" on:close={jsonViewer.toggleDrawer} />
-</Drawer>
+{#if jsonViewer?.isOpen()}
+	<div class="relative">
+		<Drawer
+			bind:this={jsonViewer}
+			size="800px"
+			customPosition={{ drawer: '!top-0 z-0 ', overlay: 'top-0', placement: 'top' }}
+		>
+			<DrawerContent title="Argument Details" on:close={jsonViewer.toggleDrawer} />
+		</Drawer>
+	</div>
+{/if}
 
 <button on:click={jsonViewer.toggleDrawer}>Open drawer</button>
