@@ -1,4 +1,5 @@
 const plugin = require('tailwindcss/plugin')
+const colors = require('tailwindcss/colors')
 
 /** @type {import('tailwindcss').Config} */
 const config = {
@@ -13,6 +14,7 @@ const config = {
 	],
 	theme: {
 		colors: {
+			...colors,
 			current: 'currentcolor',
 			transparent: 'transparent',
 			white: '#ffffff',
