@@ -1,6 +1,21 @@
 # Changelog
 
 
+## [1.70.0](https://github.com/windmill-labs/windmill/compare/v1.69.3...v1.70.0) (2023-02-27)
+
+
+### Features
+
+* **apps:** add ag grid ([b690d80](https://github.com/windmill-labs/windmill/commit/b690d801d4aa5695ee558e81d1ed114074dfcb83))
+* **frontend:** move to other grid ([#1230](https://github.com/windmill-labs/windmill/issues/1230)) ([104e4ac](https://github.com/windmill-labs/windmill/commit/104e4ac5e790c30e6fb6b27726776693038d4f19))
+
+
+### Bug Fixes
+
+* app setup and sync now uses 1.69.3 ([d38aff2](https://github.com/windmill-labs/windmill/commit/d38aff2fe228f23eb18c3991392928c064e6aca2))
+* **frontend:** Fix duplication ([#1237](https://github.com/windmill-labs/windmill/issues/1237)) ([e87f4fc](https://github.com/windmill-labs/windmill/commit/e87f4fc44b847a573f5acafc0348fbcbfcb2258f))
+* **frontend:** fix graph viewer id assignment ([e1f686d](https://github.com/windmill-labs/windmill/commit/e1f686d8508cfc1f73c43be08facc44217ca8de0))
+
 ## [1.69.3](https://github.com/windmill-labs/windmill/compare/v1.69.2...v1.69.3) (2023-02-24)
 
 
