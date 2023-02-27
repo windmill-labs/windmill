@@ -478,7 +478,7 @@ pub async fn run_worker(
 
 
     let worker_sleep_duration_counter = prometheus::register_counter!(prometheus::opts!(
-        "worker_execution_sleep_counter",
+        "worker_sleep_duration_counter",
         "Total number of seconds spent sleeping between pulling jobs from the queue"
     )
         .const_label("name", &worker_name))
@@ -493,7 +493,7 @@ pub async fn run_worker(
     .expect("register prometheus metric");
 
     let worker_pull_duration_counter = prometheus::register_counter!(prometheus::opts!(
-        "worker_pull_sleep_counter",
+        "worker_pull_duration_counter",
         "Total number of seconds spent pulling jobs (if growing large the db is undersized)"
     )
         .const_label("name", &worker_name))
