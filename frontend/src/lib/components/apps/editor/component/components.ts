@@ -784,7 +784,9 @@ Hello \${ctx.username}
 					fieldType: 'boolean'
 				}
 			},
-			customCss: {},
+			customCss: {
+				text: { class: '', style: '' }
+			} as const,
 			card: false
 		}
 	},
