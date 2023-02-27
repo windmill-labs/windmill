@@ -23,6 +23,7 @@
 	import GridTab from './GridTab.svelte'
 	import { duplicateGridItem } from '../appUtils'
 	import { deleteGridItem } from '../appUtils'
+	import MoveToOtherGrid from './MoveToOtherGrid.svelte'
 
 	export let component: AppComponent
 	export let rowColumns = false
@@ -35,7 +36,7 @@
 
 	function duplicateElement(id: string) {
 		$dirtyStore = true
-		const newId = duplicateGridItem($app, $focusedGrid, id)
+		const newId = duplicateGridItem($app, parent, id)
 		$selectedComponent = newId
 	}
 
@@ -176,8 +177,7 @@
 		<PanelSection title="Duplicate">
 			<Button
 				size="xs"
-				color="blue"
-				variant="border"
+				color="dark"
 				startIcon={{ icon: faCopy }}
 				on:click={() => {
 					if (component) {
@@ -187,6 +187,10 @@
 			>
 				Duplicate component: {component.id}
 			</Button>
+		</PanelSection>
+
+		<PanelSection title="Move to other grid">
+			<MoveToOtherGrid bind:component {parent} />
 		</PanelSection>
 
 		<PanelSection title="Danger zone">

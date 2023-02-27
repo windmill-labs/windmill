@@ -10,21 +10,17 @@
 	export let input: AppInput
 	export let value: T
 	export let id: string | undefined = undefined
-	export let row: Record<string, any> | undefined = {}
 	export let error: string = ''
-
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
 	$: state = $worldStore?.state
-	$: input && $worldStore && row && handleConnection()
+	$: input && $worldStore && handleConnection()
 	$: input && input.type == 'template' && $state && (value = getValue(input))
 	$: input && input.type == 'eval' && $state && (value = evalExpr(input))
 
 	function handleConnection() {
 		if (input.type === 'connected') {
 			$worldStore?.connect<any>(input, onValueChange)
-		} else if (input.type === 'row') {
-			setTimeout(() => (value = row?.[input['column']]), 0)
 		} else if (input.type === 'static' || input.type == 'template') {
 			setTimeout(() => (value = getValue(input)), 0)
 		} else if (input.type == 'eval') {
@@ -57,7 +53,6 @@
 						Object.fromEntries(Object.entries(value ?? {}).map((x) => [x[0], x[1].peak()]))
 					]
 				})
-				.concat(row ? [['row', row]] : [])
 		)
 	}
 

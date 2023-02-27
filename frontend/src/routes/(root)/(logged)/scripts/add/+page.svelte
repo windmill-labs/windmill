@@ -11,8 +11,6 @@
 	// Default
 	let schema: Schema = emptySchema()
 
-	let nodraft = $page.url.searchParams.get('nodraft')
-
 	const templatePath = $page.url.searchParams.get('template')
 	const hubPath = $page.url.searchParams.get('hub')
 
@@ -73,4 +71,4 @@
 	$dirtyStore = true
 </script>
 
-<ScriptBuilder {script} />
+<ScriptBuilder lockedLanguage={templatePath != null || hubPath != null} {script} />

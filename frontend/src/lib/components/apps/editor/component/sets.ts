@@ -39,6 +39,7 @@ const display: ComponentSet = {
 		'imagecomponent',
 		'htmlcomponent',
 		'tablecomponent',
+		'aggridcomponent',
 		'barchartcomponent',
 		'piechartcomponent',
 		'vegalitecomponent',

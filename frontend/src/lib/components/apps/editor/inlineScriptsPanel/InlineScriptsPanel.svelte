@@ -6,7 +6,6 @@
 	import InlineScriptsPanelList from './InlineScriptsPanelList.svelte'
 	import InlineScriptEditor from './InlineScriptEditor.svelte'
 	import EmptyInlineScript from './EmptyInlineScript.svelte'
-	import { allItems } from '../../utils'
 	import InlineScriptEditorPanel from './InlineScriptEditorPanel.svelte'
 
 	const { app, staticOutputs, runnableComponents } =

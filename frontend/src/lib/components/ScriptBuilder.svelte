@@ -24,6 +24,7 @@
 	export let initialPath: string = ''
 	export let template: 'pgsql' | 'mysql' | 'script' = 'script'
 	export let initialArgs: Record<string, any> = {}
+	export let lockedLanguage = false
 
 	const langs: [string, SupportedLanguage][] = [
 		['Typescript', Script.language.DENO],
@@ -214,7 +215,13 @@
 					bind:value={script.summary}
 					placeholder="Short summary to be displayed when listed"
 				/>
+
 				<h2 class="border-b pb-1 mt-12 mb-6">Language</h2>
+				{#if lockedLanguage}
+					<div class="text-sm text-gray-600 italic mb-2">
+						As a forked script, the language '{script.language}' cannot be modified.
+					</div>
+				{/if}
 				<div class="flex flex-row gap-2 flex-wrap">
 					{#each langs as [label, lang]}
 						{@const isPicked = script.language == lang && template == 'script'}
@@ -228,6 +235,7 @@
 								template = 'script'
 								initContent(lang, script.kind, template)
 							}}
+							disabled={lockedLanguage}
 						>
 							<LanguageIcon {lang} /><span class="ml-2 py-4">{label}</span>
 						</Button>
@@ -237,6 +245,7 @@
 						variant="border"
 						color={template == 'pgsql' ? 'blue' : 'dark'}
 						btnClasses={template == 'pgsql' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+						disabled={lockedLanguage}
 						on:click={() => {
 							script.language = Script.language.DENO
 							template = 'pgsql'
