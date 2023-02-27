@@ -44,7 +44,7 @@ declare module '@windmill-labs/svelte-grid' {
 		fastStart?: boolean
 		throttleUpdate?: number
 		throttleResize?: number
-
+		onTopId?: string
 		scroller?: undefined
 		sensor?: number
 	}
@@ -60,7 +60,7 @@ declare module '@windmill-labs/svelte-grid' {
 			mount: CustomEvent<>
 		},
 		Slots<T>
-	> {}
+	> { }
 }
 
 declare module '@windmill-labs/svelte-grid/build/helper/index.mjs' {

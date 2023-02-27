@@ -7,11 +7,14 @@
 	import type { AppEditorContext, GridItem } from '../types'
 	import Component from './component/Component.svelte'
 
-	export let subGrid: GridItem[]
 	export let containerHeight: number
 	let classes = ''
-	export { classes as class}
+	export { classes as class }
 	export let style = ''
+	export let noPadding = false
+	//export let id: string
+	export let subGrid: GridItem[] = []
+	export let visible: boolean = true
 
 	const dispatch = createEventDispatcher()
 
@@ -39,6 +42,12 @@
 		onComponent = id
 		if (!$connectingInput.opened) {
 			$selectedComponent = id
+			/*
+			$focusedGrid = {
+				parentComponentId: parentId,
+				subGridIndex: index
+			}
+			*/
 		}
 	}
 
@@ -51,36 +60,11 @@
 
 	// @ts-ignore
 	let container
-
-	$: if ($focusedGrid?.parentComponentId !== $selectedComponent) {
-		const gridItemIds = $app.grid
-			.map((gridItem: GridItem) => {
-				if (gridItem.data.id === $focusedGrid?.parentComponentId) {
-					const subGrids = gridItem.data.subGrids ?? []
-					return [
-						gridItem.data.id,
-						...subGrids.map((subGrid: GridItem[]) =>
-							subGrid.map((gridItem: GridItem) => gridItem.data.id)
-						)
-					]
-				} else {
-					return []
-				}
-			})
-			.flat(2)
-
-		if (!gridItemIds.includes($selectedComponent)) {
-			$focusedGrid = undefined
-		}
-	}
 </script>
 
-<div class="relative w-full subgrid " bind:this={container}>
+<div class="relative w-full subgrid {visible ? 'visible' : 'invisible h-0 '}" bind:this={container}>
 	<div
-		class={twMerge(
-			'px-4 pt-4 overflow-auto',
-			classes ?? '',
-		)}
+		class={twMerge('py-2 overflow-auto', classes ?? '', noPadding ? 'px-0' : 'px-2')}
 		on:pointerdown|stopPropagation={onpointerdown}
 		on:pointerleave={onpointerup}
 		on:pointerup={onpointerup}
@@ -128,7 +112,7 @@
 						>
 							<Component
 								{pointerdown}
-								bind:component={gridComponent.data}
+								bind:pComponent={gridComponent.data}
 								selected={$selectedComponent === dataItem.data.id}
 								locked={isFixed(gridComponent)}
 								on:lock={() => lock(gridComponent)}

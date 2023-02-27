@@ -240,12 +240,7 @@
 
 {#each Object.entries(fields ?? {}) as [key, v]}
 	{#if v.type != 'static' && v.type != 'user'}
-		<InputValue
-			{id}
-			input={fields[key]}
-			bind:value={runnableInputValues[key]}
-			row={extraQueryParams['row'] ?? {}}
-		/>
+		<InputValue {id} input={fields[key]} bind:value={runnableInputValues[key]} />
 	{/if}
 {/each}
 

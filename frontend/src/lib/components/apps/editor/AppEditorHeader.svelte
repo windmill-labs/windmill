@@ -241,7 +241,7 @@
 			bind:error={pathError}
 			bind:path={newPath}
 			initialPath=""
-			namePlaceholder="my_app"
+			namePlaceholder="app"
 			kind="app"
 		/>
 
@@ -467,8 +467,8 @@
 				<div>{`Sub grid: ${$focusedGrid.parentComponentId} (${$focusedGrid.subGridIndex})`}</div>
 				<button
 					on:click={() => {
-						$focusedGrid = undefined
 						$selectedComponent = undefined
+						$focusedGrid = undefined
 					}}
 				>
 					<X size={14} />

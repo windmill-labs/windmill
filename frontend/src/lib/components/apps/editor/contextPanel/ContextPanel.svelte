@@ -2,6 +2,7 @@
 	import { classNames } from '$lib/utils'
 	import { getContext } from 'svelte'
 	import type { AppEditorContext } from '../../types'
+	import { findGridItem } from '../appUtils'
 	import { components } from '../component'
 	import PanelSection from '../settingsPanel/common/PanelSection.svelte'
 	import ComponentOutputViewer from './ComponentOutputViewer.svelte'
@@ -26,7 +27,7 @@
 	}
 
 	function getComponentNameById(componentId: string) {
-		const component = $app.grid.find((c) => c?.data?.id === componentId)
+		const component = findGridItem($app, componentId)
 
 		if (component?.data.type) {
 			return components[component?.data.type].name

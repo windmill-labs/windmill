@@ -144,7 +144,7 @@
 						disabled={!can_write}
 						bind:path
 						{initialPath}
-						namePlaceholder="my_resource"
+						namePlaceholder="resource"
 						kind="resource"
 					/>
 				</div>

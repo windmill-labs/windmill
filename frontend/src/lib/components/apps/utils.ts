@@ -8,10 +8,33 @@ import { getRecommendedDimensionsByComponent } from './editor/component'
 import { gridColumns } from './gridUtils'
 import gridHelp from '@windmill-labs/svelte-grid/src/utils/helper'
 import { twMerge } from 'tailwind-merge'
-
 import type { AppInput, InputType, ResultAppInput, StaticAppInput } from './inputType'
 import type { Output } from './rx'
 import { getNextId } from '../flows/flowStateUtils'
+
+export function allItems(
+	grid: GridItem[],
+	subgrids: Record<string, GridItem[]> | undefined
+): GridItem[] {
+	if (subgrids == undefined) {
+		return grid
+	}
+	return [...grid, ...Object.values(subgrids).flat()]
+}
+
+export function allItemsWithParent(
+	grid: GridItem[],
+	subgrids: Record<string, GridItem[]> | undefined
+): [GridItem, string | undefined][] {
+	const items: [GridItem, string | undefined][] = grid.map((item) => [item, undefined])
+	if (subgrids == undefined) {
+		return items
+	}
+	return [
+		...items,
+		...Object.entries(subgrids).flatMap(([k, v]) => v.map((g) => [g, k] as [GridItem, string]))
+	]
+}
 
 export async function loadSchema(
 	workspace: string,
@@ -318,28 +341,25 @@ export function concatCustomCss<T extends string = string>(
 	appCss?: ComponentCustomCSS<T>,
 	componentCss?: ComponentCustomCSS<T>
 ): Record<T, ComponentCssProperty> | undefined {
-	if(!componentCss) return undefined;
+	if (!componentCss) return undefined
 
-	const customStyle = {} as Record<T, ComponentCssProperty>;
-	Object.keys(componentCss).forEach(key => {
-		const k = key as keyof typeof componentCss;
+	const customStyle = {} as Record<T, ComponentCssProperty>
+	Object.keys(componentCss).forEach((key) => {
+		const k = key as keyof typeof componentCss
 
 		// This is the general style of the component type
-		const appStyle = appCss?.[k]?.style?.trim() || '';
-		const appEnding = appStyle?.endsWith(';') || !appStyle ? ' ' : '; ';
-		
+		const appStyle = appCss?.[k]?.style?.trim() || ''
+		const appEnding = appStyle?.endsWith(';') || !appStyle ? ' ' : '; '
+
 		// This is the custom style of the component instance
-		const compStyle = componentCss[k]?.style?.trim() || '';
-		const compEnding = compStyle?.endsWith(';') || !compStyle ? ' ' : ';';
+		const compStyle = componentCss[k]?.style?.trim() || ''
+		const compEnding = compStyle?.endsWith(';') || !compStyle ? ' ' : ';'
 
 		customStyle[k] = {
 			style: (appStyle + appEnding + compStyle + compEnding).trim(),
-			class: twMerge(
-				appCss?.[k]?.class,
-				componentCss[k]?.class
-			)
+			class: twMerge(appCss?.[k]?.class, componentCss[k]?.class)
 		}
-	});
+	})
 
-	return customStyle;
+	return customStyle
 }

@@ -22,6 +22,7 @@
 	import Tooltip from './Tooltip.svelte'
 	import FolderEditor from './FolderEditor.svelte'
 	import GroupEditor from './GroupEditor.svelte'
+	import { random_adj } from './random_positive_adjetive'
 
 	type PathKind = 'resource' | 'script' | 'variable' | 'flow' | 'schedule' | 'app'
 	let meta: Meta | undefined = undefined
@@ -69,15 +70,23 @@
 
 	export async function reset() {
 		if (path == '' || path == 'u//') {
-			meta = { ownerKind: 'user', name: namePlaceholder, owner: '' }
+			meta = {
+				ownerKind: 'user',
+				name: random_adj() + '_' + namePlaceholder,
+				owner: ''
+			}
 
 			meta.owner = $userStore!.username.split('@')[0]
 
-			let i = 1
-			while (await pathExists(metaToPath(meta), kind)) {
-				meta.name = `${namePlaceholder}_${i}`
-				i += 1
+			let newMeta = { ...meta }
+			while (await pathExists(metaToPath(newMeta), kind)) {
+				disabled = true
+				error = 'finding an available name...'
+				newMeta.name = random_adj() + '_' + namePlaceholder
 			}
+			error = ''
+			disabled = false
+			meta = newMeta
 			path = metaToPath(meta)
 		} else {
 			meta = pathToMeta(path)

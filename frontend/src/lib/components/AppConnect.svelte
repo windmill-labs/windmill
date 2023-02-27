@@ -396,7 +396,7 @@
 				bind:error={pathError}
 				bind:path
 				initialPath=""
-				namePlaceholder="my_{resource_type}"
+				namePlaceholder="{resource_type}"
 				kind="resource"
 			/>
 
@@ -433,7 +433,7 @@
 		{:else}
 			<Path
 				initialPath=""
-				namePlaceholder="my_{resource_type}"
+				namePlaceholder="{resource_type}"
 				bind:error={pathError}
 				bind:path
 				kind="resource"

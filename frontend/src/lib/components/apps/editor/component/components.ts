@@ -63,6 +63,7 @@ export type ScatterChartComponent = BaseComponent<'scatterchartcomponent'>
 export type TableComponent = BaseComponent<'tablecomponent'> & {
 	actionButtons: (BaseAppComponent & ButtonComponent)[]
 }
+export type AggridComponent = BaseComponent<'aggridcomponent'>
 export type DisplayComponent = BaseComponent<'displaycomponent'>
 export type ImageComponent = BaseComponent<'imagecomponent'>
 export type InputComponent = BaseComponent<'inputcomponent'>
@@ -73,7 +74,9 @@ export type IconComponent = BaseComponent<'iconcomponent'>
 export type HorizontalDividerComponent = BaseComponent<'horizontaldividercomponent'>
 export type VerticalDividerComponent = BaseComponent<'verticaldividercomponent'>
 export type FileInputComponent = BaseComponent<'fileinputcomponent'>
-export type TabsComponent = BaseComponent<'tabscomponent'>
+export type TabsComponent = BaseComponent<'tabscomponent'> & {
+	tabs: string[]
+}
 export type ContainerComponent = BaseComponent<'containercomponent'>
 
 export type AppComponent = BaseAppComponent &
@@ -108,6 +111,7 @@ export type AppComponent = BaseAppComponent &
 		| VerticalDividerComponent
 		| FileInputComponent
 		| ImageComponent
+		| AggridComponent
 	)
 
 export type AppComponentDimensions = `${IntRange<
@@ -150,7 +154,7 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 			configuration: {},
 			customCss: {
 				header: { class: '', style: '' },
-				container: { class: '', style: '' },
+				container: { class: '', style: '' }
 			} as const,
 			card: false
 		}
@@ -161,21 +165,22 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 		dims: '2:8-6:8',
 		data: {
 			softWrap: true,
-			verticalAlignment: 'center',
 			id: '',
 			type: 'containercomponent',
-			configuration: {},
-			componentInput: {
-				type: 'static',
-				fieldType: 'array',
-				subFieldType: 'text',
-				value: ['First Tab', 'Second Tab']
+			configuration: {
+				noPadding: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					onlyStatic: true
+				}
 			},
 			customCss: {
-				container: { class: '', style: '' },
+				container: { class: '', style: '' }
 			} as const,
+			componentInput: undefined,
 			card: false,
-			subGrids: [[]]
+			numberOfSubgrids: 1
 		}
 	},
 	textcomponent: {
@@ -336,7 +341,7 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 			},
 			customCss: {
 				container: { class: '', style: '' },
-				button: { class: '', style: '' },
+				button: { class: '', style: '' }
 			} as const,
 			card: true
 		}
@@ -380,7 +385,7 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 			},
 			customCss: {
 				button: { class: '', style: '' },
-				popup: { class: '', style: '' },
+				popup: { class: '', style: '' }
 			} as const,
 			card: true
 		}
@@ -413,7 +418,7 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 				value: { data: [25, 50, 25], labels: ['Pie', 'Charts', '<3'] }
 			},
 			customCss: {
-				container: { class: '', style: '' },
+				container: { class: '', style: '' }
 			} as const,
 			card: true
 		}
@@ -446,7 +451,7 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 				value: { data: [25, 50, 25], labels: ['Bar', 'Charts', '<3'] }
 			},
 			customCss: {
-				container: { class: '', style: '' },
+				container: { class: '', style: '' }
 			} as const,
 			card: true
 		}
@@ -471,7 +476,7 @@ Hello \${ctx.username}
 			},
 			configuration: {},
 			customCss: {
-				container: { class: '', style: '' },
+				container: { class: '', style: '' }
 			} as const,
 			card: false
 		}
@@ -615,7 +620,7 @@ Hello \${ctx.username}
 				]
 			},
 			customCss: {
-				container: { class: '', style: '' },
+				container: { class: '', style: '' }
 			} as const,
 			card: true
 		}
@@ -667,7 +672,7 @@ Hello \${ctx.username}
 				]
 			},
 			customCss: {
-				container: { class: '', style: '' },
+				container: { class: '', style: '' }
 			} as const,
 			card: true
 		}
@@ -709,10 +714,52 @@ Hello \${ctx.username}
 				container: { class: '', style: '' },
 				tableHeader: { class: '', style: '' },
 				tableBody: { class: '', style: '' },
-				tableFooter: { class: '', style: '' },
+				tableFooter: { class: '', style: '' }
 			} as const,
 			card: true,
 			actionButtons: []
+		}
+	},
+	aggridcomponent: {
+		name: 'AgGrid Table',
+		icon: Table2,
+		dims: '3:10-6:10',
+		data: {
+			id: '',
+			type: 'aggridcomponent',
+			configuration: {
+				columnDefs: {
+					type: 'static',
+					fieldType: 'array',
+					subFieldType: 'object',
+					value: [{ field: 'id' }, { field: 'name', editable: true }, { field: 'age' }]
+				},
+				allEditable: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					onlyStatic: true
+				}
+			},
+			componentInput: {
+				type: 'static',
+				fieldType: 'array',
+				subFieldType: 'object',
+				value: [
+					{
+						id: 1,
+						name: 'A cell with a long name',
+						age: 42
+					},
+					{
+						id: 2,
+						name: 'A briefer cell',
+						age: 84
+					}
+				]
+			},
+			customCss: {},
+			card: true
 		}
 	},
 	checkboxcomponent: {
@@ -830,20 +877,17 @@ Hello \${ctx.username}
 				min: {
 					type: 'static',
 					value: undefined,
-					fieldType: 'number',
-					onlyStatic: true
+					fieldType: 'number'
 				},
 				max: {
 					type: 'static',
 					value: undefined,
-					fieldType: 'number',
-					onlyStatic: true
+					fieldType: 'number'
 				},
 				step: {
 					type: 'static',
 					value: 1,
-					fieldType: 'number',
-					onlyStatic: true
+					fieldType: 'number'
 				}
 			},
 			customCss: {},
@@ -911,20 +955,17 @@ Hello \${ctx.username}
 				max: {
 					type: 'static',
 					value: 42,
-					fieldType: 'number',
-					onlyStatic: true
+					fieldType: 'number'
 				},
 				defaultValue: {
 					type: 'static',
 					value: 20,
-					fieldType: 'number',
-					onlyStatic: true
+					fieldType: 'number'
 				},
 				step: {
 					type: 'static',
 					value: 1,
-					fieldType: 'number',
-					onlyStatic: true
+					fieldType: 'number'
 				}
 			},
 			customCss: {},
@@ -945,32 +986,27 @@ Hello \${ctx.username}
 				min: {
 					type: 'static',
 					value: 0,
-					fieldType: 'number',
-					onlyStatic: true
+					fieldType: 'number'
 				},
 				max: {
 					type: 'static',
 					value: 42,
-					fieldType: 'number',
-					onlyStatic: true
+					fieldType: 'number'
 				},
 				defaultLow: {
 					type: 'static',
 					value: 10,
-					fieldType: 'number',
-					onlyStatic: true
+					fieldType: 'number'
 				},
 				defaultHigh: {
 					type: 'static',
 					value: 20,
-					fieldType: 'number',
-					onlyStatic: true
+					fieldType: 'number'
 				},
 				step: {
 					type: 'static',
 					value: 1,
-					fieldType: 'number',
-					onlyStatic: true
+					fieldType: 'number'
 				}
 			},
 			customCss: {},
@@ -1036,18 +1072,20 @@ Hello \${ctx.username}
 		dims: '2:8-6:8',
 		data: {
 			softWrap: true,
-			verticalAlignment: 'center',
 			id: '',
 			type: 'tabscomponent',
-			configuration: {},
-			componentInput: {
-				type: 'static',
-				fieldType: 'array',
-				subFieldType: 'text',
-				value: ['First Tab', 'Second Tab']
+			configuration: {
+				noPadding: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					onlyStatic: true
+				}
 			},
+			componentInput: undefined,
 			card: false,
-			subGrids: [[], []]
+			numberOfSubgrids: 2,
+			tabs: ['First tab', 'Second tab']
 		}
 	},
 	iconcomponent: {
