@@ -5,6 +5,7 @@
 	import { columnConfiguration, isFixed, toggleFixed } from '../gridUtils'
 	import type { AppEditorContext, GridItem } from '../types'
 	import Component from './component/Component.svelte'
+	import { findGridItem } from './appUtils'
 
 	export let containerHeight: number
 	export let noPadding = false
@@ -48,7 +49,7 @@
 	}
 
 	function lock(gridComponent: GridItem) {
-		let fComponent = $app.grid.find((c) => c.id === gridComponent.id)
+		let fComponent = findGridItem($app, gridComponent.data.id)
 		if (fComponent) {
 			fComponent = toggleFixed(fComponent)
 		}
