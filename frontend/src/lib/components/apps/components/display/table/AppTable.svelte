@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { getContext, onMount } from 'svelte'
 	import type { Output } from '../../../rx'
-	import type { AppEditorContext, BaseAppComponent } from '../../../types'
+	import type { AppEditorContext, BaseAppComponent, ComponentCustomCSS } from '../../../types'
 	import InputValue from '../../helpers/InputValue.svelte'
 	import type { AppInput } from '../../../inputType'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
@@ -14,12 +14,17 @@
 	import { tableOptions } from './tableOptions'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import type { ButtonComponent } from '../../../editor/component'
+	import { concatCustomCss } from '../../../utils'
+	import { twMerge } from 'tailwind-merge'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
 	export let configuration: Record<string, AppInput>
 	export let actionButtons: (BaseAppComponent & ButtonComponent)[]
 	export let initializing: boolean | undefined = undefined
+	export let customCss:
+		| ComponentCustomCSS<'container' | 'tableHeader' | 'tableBody' | 'tableFooter'>
+		| undefined = undefined
 
 	export const staticOutputs: string[] = [
 		'selectedRow',
@@ -51,8 +56,11 @@
 
 	let table = createSvelteTable(options)
 
-	const { worldStore, staticOutputs: staticOutputsStore } =
-		getContext<AppEditorContext>('AppEditorContext')
+	const {
+		app,
+		worldStore,
+		staticOutputs: staticOutputsStore
+	} = getContext<AppEditorContext>('AppEditorContext')
 
 	let selectedRowIndex = -1
 
@@ -133,13 +141,22 @@
 	}
 
 	$: result && rerender()
+
+	$: css = concatCustomCss($app.css?.tablecomponent, customCss)
 </script>
 
 <InputValue {id} input={configuration.search} bind:value={search} />
 
 <RunnableWrapper flexWrap bind:componentInput {id} bind:initializing bind:result>
 	{#if Array.isArray(result) && result.every(isObject)}
-		<div class="border border-gray-300 shadow-sm divide-y divide-gray-300  flex flex-col h-full">
+		<div
+			class={twMerge(
+				'border border-gray-300 shadow-sm divide-y divide-gray-300 h-full',
+				css?.container.class ?? '',
+				'flex flex-col'
+			)}
+			style={css?.container.style ?? ''}
+		>
 			{#if search !== 'Disabled'}
 				<div class="px-2 py-1">
 					<div class="flex items-center">
@@ -152,7 +169,14 @@
 
 			<div class="overflow-x-auto flex-1 w-full">
 				<table class="relative w-full border-b border-b-gray-200">
-					<thead class="sticky top-0 z-40 bg-gray-50 text-left">
+					<thead
+						class={twMerge(
+							'bg-gray-50 text-left',
+							css?.tableHeader.class ?? '',
+							'sticky top-0 z-40'
+						)}
+						style={css?.tableHeader.style ?? ''}
+					>
 						{#each $table.getHeaderGroups() as headerGroup}
 							<tr class="divide-x">
 								{#each headerGroup.headers as header}
@@ -178,7 +202,10 @@
 							</tr>
 						{/each}
 					</thead>
-					<tbody class="divide-y divide-gray-200 bg-white ">
+					<tbody
+						class={twMerge('divide-y divide-gray-200 bg-white', css?.tableBody.class ?? '')}
+						style={css?.tableBody.style ?? ''}
+					>
 						{#each $table.getRowModel().rows as row, rowIndex (row.id)}
 							<tr
 								class={classNames(
@@ -235,7 +262,13 @@
 				</table>
 			</div>
 
-			<AppTableFooter paginationEnabled={pagination} {result} {table} />
+			<AppTableFooter
+				paginationEnabled={pagination}
+				{result}
+				{table}
+				class={css?.tableFooter.class}
+				style={css?.tableFooter.style}
+			/>
 		</div>
 	{:else if result != undefined}
 		<Alert title="Parsing issues" type="error" size="xs">

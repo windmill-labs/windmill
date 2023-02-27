@@ -705,7 +705,12 @@ Hello \${ctx.username}
 					}
 				]
 			},
-			customCss: {},
+			customCss: {
+				container: { class: '', style: '' },
+				tableHeader: { class: '', style: '' },
+				tableBody: { class: '', style: '' },
+				tableFooter: { class: '', style: '' },
+			} as const,
 			card: true,
 			actionButtons: []
 		}
