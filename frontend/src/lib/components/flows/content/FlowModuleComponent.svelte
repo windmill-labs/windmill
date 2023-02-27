@@ -71,8 +71,7 @@
 				flowModule.id,
 				$flowStore,
 				$previewArgs,
-				false,
-				true
+				false
 		  )
 
 	function onKeyDown(event: KeyboardEvent) {
@@ -120,6 +119,7 @@
 
 <svelte:window on:keydown={onKeyDown} />
 
+{previousModule?.id}
 {#if value}
 	<div class="h-full" bind:this={wrapper} bind:clientWidth={width}>
 		<FlowCard bind:flowModule>
