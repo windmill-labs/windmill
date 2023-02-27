@@ -1,6 +1,6 @@
 import { getNextId } from '$lib/components/flows/flowStateUtils'
 import type { App, FocusedGrid, GridItem } from '../types'
-import { Component, getRecommendedDimensionsByComponent, type AppComponent } from './component'
+import { getRecommendedDimensionsByComponent, type AppComponent } from './component'
 import gridHelp from '@windmill-labs/svelte-grid/src/utils/helper'
 import { gridColumns } from '../gridUtils'
 import { allItems } from '../utils'
@@ -10,27 +10,11 @@ function findGridItemById(
 	subGrids: Record<string, GridItem[]> | undefined,
 	id: string
 ): GridItem | undefined {
-	for (const gridItem of root) {
+	for (const gridItem of allItems(root, subGrids)) {
 		if (gridItem.id === id) {
 			return gridItem
 		}
-
-		if (subGrids) {
-			const numberOfSubgrids = gridItem.data.numberOfSubgrids
-
-			if (numberOfSubgrids) {
-				for (let i = 0; i < numberOfSubgrids; i++) {
-					const subgrid = subGrids[`${gridItem.id}-${i}`] ?? []
-					const found = findGridItemById(subgrid, subGrids, id)
-
-					if (found) {
-						return found
-					}
-				}
-			}
-		}
 	}
-
 	return undefined
 }
 
