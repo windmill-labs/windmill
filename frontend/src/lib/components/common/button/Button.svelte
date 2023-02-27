@@ -29,6 +29,11 @@
 	const dispatch = createEventDispatcher()
 	// Order of classes: border, border modifier, bg, bg modifier, text, text modifier, everything else
 	const colorVariants: Record<ButtonType.Color, Record<ButtonType.Variant, string>> = {
+		none: {
+			border: '',
+			contained: ''
+		},
+
 		blue: {
 			border:
 				'border-frost-500 hover:border-frost-700 focus:border-frost-700 bg-white hover:bg-frost-100 focus:bg-frost-100 text-frost-500 hover:text-frost-700 focus:text-frost-700 focus:ring-frost-300',
