@@ -69,7 +69,6 @@
 	)
 
 	let newCss = $app.css ?? {}
-	console.log(newCss)
 	entries.forEach((e) => {
 		if (!newCss[e.type]) {
 			isCustom[e.type] = true
@@ -77,7 +76,7 @@
 		}
 		e.ids.forEach((id) => {
 			if (!newCss[e.type][id]) {
-				newCss[e.type][id] = { style: '', class: '', sdhjbas: '' }
+				newCss[e.type][id] = components?.[e.type]?.data?.customCss?.[id] ?? { class: '', style: '' }
 			}
 		})
 		e.ids
