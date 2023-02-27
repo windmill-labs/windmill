@@ -54,7 +54,7 @@ export async function browserLogin(
     await open(url)
     console.log("Opened browser for you");
   } catch {
-    console.error(`Failed to open browser, please navgiate to ${url}`)
+    console.error(`Failed to open browser, please navigate to ${url}`)
   }
   const firstConnection = await server.accept();
   const httpFirstConnection = Deno.serveHttp(firstConnection);
