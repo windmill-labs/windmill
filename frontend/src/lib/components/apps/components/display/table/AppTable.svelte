@@ -152,10 +152,10 @@
 		<div
 			class={twMerge(
 				'border border-gray-300 shadow-sm divide-y divide-gray-300 h-full',
-				css?.container.class ?? '',
+				css?.container?.class ?? '',
 				'flex flex-col'
 			)}
-			style={css?.container.style ?? ''}
+			style={css?.container?.style ?? ''}
 		>
 			{#if search !== 'Disabled'}
 				<div class="px-2 py-1">
@@ -172,10 +172,10 @@
 					<thead
 						class={twMerge(
 							'bg-gray-50 text-left',
-							css?.tableHeader.class ?? '',
+							css?.tableHeader?.class ?? '',
 							'sticky top-0 z-40'
 						)}
-						style={css?.tableHeader.style ?? ''}
+						style={css?.tableHeader?.style ?? ''}
 					>
 						{#each $table.getHeaderGroups() as headerGroup}
 							<tr class="divide-x">
@@ -203,8 +203,8 @@
 						{/each}
 					</thead>
 					<tbody
-						class={twMerge('divide-y divide-gray-200 bg-white', css?.tableBody.class ?? '')}
-						style={css?.tableBody.style ?? ''}
+						class={twMerge('divide-y divide-gray-200 bg-white', css?.tableBody?.class ?? '')}
+						style={css?.tableBody?.style ?? ''}
 					>
 						{#each $table.getRowModel().rows as row, rowIndex (row.id)}
 							<tr

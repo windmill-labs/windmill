@@ -11,22 +11,21 @@
 	import { components, type AppComponent } from '../component'
 	import { slide } from 'svelte/transition'
 
-	const STATIC_ELEMENTS = [ 'app' ] as const
+	const STATIC_ELEMENTS = ['app'] as const
 	const TITLE_PREFIX = 'Css.' as const
 	const SHOW_UNUSED_ID = 'Setting.ShowUnused' as const
 
-	type CustomCSSType = typeof STATIC_ELEMENTS[number] | AppComponent['type'];
+	type CustomCSSType = (typeof STATIC_ELEMENTS)[number] | AppComponent['type']
 
 	interface CustomCSSEntry {
-		type: CustomCSSType;
-		name: string;
-		icon: any;
-		ids: string[];
+		type: CustomCSSType
+		name: string
+		icon: any
+		ids: string[]
 	}
 
 	const { app } = getContext<AppEditorContext>('AppEditorContext')
 
-	let showUnused = false
 	let rawCode = ''
 	let viewJsonSchema = false
 
@@ -58,7 +57,7 @@
 			icon: LayoutDashboardIcon,
 			ids: ['viewer', 'grid', 'component']
 		},
-		...Object.values(components).map(({ name, icon, data: { type, customCss }}) => ({
+		...Object.values(components).map(({ name, icon, data: { type, customCss } }) => ({
 			type,
 			name,
 			icon,
@@ -70,6 +69,7 @@
 	)
 
 	let newCss = $app.css ?? {}
+	console.log(newCss)
 	entries.forEach((e) => {
 		if (!newCss[e.type]) {
 			isCustom[e.type] = true
@@ -77,7 +77,7 @@
 		}
 		e.ids.forEach((id) => {
 			if (!newCss[e.type][id]) {
-				newCss[e.type][id] = { style: '', class: '' }
+				newCss[e.type][id] = { style: '', class: '', sdhjbas: '' }
 			}
 		})
 		e.ids
@@ -91,21 +91,24 @@
 	//@ts-ignore
 	$app.css = newCss
 
-	$: staticComponents = entries.filter(({type}) => STATIC_ELEMENTS.includes(type as any))
+	$: staticComponents = entries.filter(({ type }) => STATIC_ELEMENTS.includes(type as any))
 	$: usedComponents = Object.keys(
-		$app.grid.reduce((acc, {data}) => {
+		$app.grid.reduce((acc, { data }) => {
 			acc[data.type] = true
 			return acc
 		}, {})
-	).map(type => entries.find(entry => entry.type === type))
-	.filter(Boolean) as CustomCSSEntry[]
-	$: unusedComponents = entries.filter(({type}) => {
-		return !STATIC_ELEMENTS.includes(type as any) && !usedComponents.find(entry => entry.type === type)
+	)
+		.map((type) => entries.find((entry) => entry.type === type))
+		.filter(Boolean) as CustomCSSEntry[]
+	$: unusedComponents = entries.filter(({ type }) => {
+		return (
+			!STATIC_ELEMENTS.includes(type as any) && !usedComponents.find((entry) => entry.type === type)
+		)
 	})
 
 	onMount(() => {
 		isOpenStore.addItems(
-			[{ name: 'App' }, ...Object.values(components)].map(component => {
+			[{ name: 'App' }, ...Object.values(components)].map((component) => {
 				return { [TITLE_PREFIX + component.name]: false }
 			})
 		)
@@ -113,11 +116,7 @@
 	})
 </script>
 
-<Tabs
-	selected="ui"
-	on:selected={(e) => switchTab(e.detail === 'json')}
-	class="relative"
->
+<Tabs selected="ui" on:selected={(e) => switchTab(e.detail === 'json')} class="relative">
 	<Tab value="ui" size="xs" class="grow">
 		<div class="m-1 center-center">
 			<MousePointer2 size={16} />
@@ -180,6 +179,7 @@
 									{#each ids as id}
 										<div class="mb-3">
 											{#if $app?.css?.[type][id]}
+												{JSON.stringify($app.css[type][id])}
 												<CssProperty
 													name={id}
 													bind:value={$app.css[type][id]}

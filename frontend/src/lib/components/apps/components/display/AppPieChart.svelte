@@ -73,7 +73,7 @@
 <InputValue {id} input={configuration.doughnutStyle} bind:value={doughnut} />
 
 <RunnableWrapper flexWrap autoRefresh bind:componentInput {id} bind:initializing bind:result>
-	<div class="w-full h-full {css?.container.class ?? ''}" style={css?.container.style ?? ''}>
+	<div class="w-full h-full {css?.container?.class ?? ''}" style={css?.container?.style ?? ''}>
 		{#if result}
 			{#if doughnut}
 				<Doughnut {data} {options} />

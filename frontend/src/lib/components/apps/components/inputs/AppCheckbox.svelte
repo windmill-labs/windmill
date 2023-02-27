@@ -44,8 +44,8 @@
 		}}
 		checked={defaultValue}
 		options={{ right: labelValue }}
-		textClass={css?.text.class ?? ''}
-		textStyle={css?.text.style ?? ''}
+		textClass={css?.text?.class ?? ''}
+		textStyle={css?.text?.style ?? ''}
 		on:change={(e) => {
 			outputs.result.set(e.detail)
 		}}

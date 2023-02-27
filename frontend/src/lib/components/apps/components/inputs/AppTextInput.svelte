@@ -40,8 +40,8 @@
 
 <AlignWrapper {verticalAlignment}>
 	<input
-		class="mx-0.5 {css?.input.class ?? ''}"
-		style={css?.input.style ?? ''}
+		class="mx-0.5 {css?.input?.class ?? ''}"
+		style={css?.input?.style ?? ''}
 		on:focus={(e) => {
 			e?.stopPropagation()
 			window.dispatchEvent(new Event('pointerup'))

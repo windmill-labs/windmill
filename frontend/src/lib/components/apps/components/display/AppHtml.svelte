@@ -16,7 +16,7 @@
 	let result: string | undefined = undefined
 	let h: number | undefined = undefined
 	let w: number | undefined = undefined
-	
+
 	$: css = concatCustomCss($app.css?.htmlcomponent, customCss)
 </script>
 
@@ -32,8 +32,8 @@
 		{#key result}
 			<iframe
 				frameborder="0"
-				style="height: {h}px; width: {w}px; {css?.container.style ?? ''}"
-				class="p-0 {css?.container.class ?? ''}"
+				style="height: {h}px; width: {w}px; {css?.container?.style ?? ''}"
+				class="p-0 {css?.container?.class ?? ''}"
 				title="sandbox"
 				srcdoc={result
 					? '<scr' + `ipt type="application/javascript" src="/tailwind.js"></script>` + result

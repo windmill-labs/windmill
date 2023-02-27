@@ -85,7 +85,7 @@
 	$: data = {
 		datasets: result ?? []
 	} as ChartData<'scatter', (number | Point)[], unknown>
-	
+
 	$: css = concatCustomCss($app.css?.timeseriescomponent, customCss)
 </script>
 
@@ -94,7 +94,7 @@
 <InputValue {id} input={configuration.pannable} bind:value={pannable} />
 
 <RunnableWrapper flexWrap autoRefresh bind:componentInput {id} bind:initializing bind:result>
-	<div class="w-full h-full {css?.container.class ?? ''}" style={css?.container.style ?? ''}>
+	<div class="w-full h-full {css?.container?.class ?? ''}" style={css?.container?.style ?? ''}>
 		{#if result}
 			<Scatter {data} {options} />
 		{/if}

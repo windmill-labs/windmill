@@ -67,13 +67,13 @@
 	{extraQueryParams}
 	autoRefresh={false}
 	forceSchemaDisplay={true}
-	runnableClass="!block {css?.container.class ?? ''}"
+	runnableClass="!block"
 	runnableStyle={css?.container.style}
 >
 	<AlignWrapper {horizontalAlignment}>
 		<div
-			class="flex flex-col gap-2 px-4 w-full {css?.container.class ?? ''}"
-			style={css?.container.style ?? ''}
+			class="flex flex-col gap-2 px-4 w-full {css?.container?.class ?? ''}"
+			style={css?.container?.style ?? ''}
 		>
 			<div>
 				{#if noInputs}
@@ -92,8 +92,8 @@
 				{#if !noInputs}
 					<Button
 						loading={isLoading}
-						btnClasses="my-1 {css?.button.class ?? ''}"
-						style={css?.button.style ?? ''}
+						btnClasses="my-1 {css?.button?.class ?? ''}"
+						style={css?.button?.style ?? ''}
 						on:pointerdown={(e) => {
 							e?.stopPropagation()
 							window.dispatchEvent(new Event('pointerup'))

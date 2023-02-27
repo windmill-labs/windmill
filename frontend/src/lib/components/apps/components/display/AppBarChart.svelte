@@ -90,7 +90,7 @@
 <InputValue {id} input={configuration.line} bind:value={lineChart} />
 
 <RunnableWrapper flexWrap autoRefresh bind:componentInput {id} bind:initializing bind:result>
-	<div class="w-full h-full {css?.container.class ?? ''}" style={css?.container.style ?? ''}>
+	<div class="w-full h-full {css?.container?.class ?? ''}" style={css?.container?.style ?? ''}>
 		{#if result}
 			{#if lineChart}
 				<Line {data} options={lineOptions} />

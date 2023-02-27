@@ -38,7 +38,7 @@
 
 	let errors: Record<string, string> = {}
 	let open: boolean = false
-	
+
 	$: errorsMessage = Object.values(errors)
 		.filter((x) => x != '')
 		.join('\n')
@@ -65,7 +65,7 @@
 	})
 
 	$: loading = isLoading && ownClick
-	
+
 	$: css = concatCustomCss($app?.css?.formbuttoncomponent, customCss)
 </script>
 
@@ -154,8 +154,8 @@
 		{disabled}
 		{size}
 		{color}
-		btnClasses={css?.button.class ?? ''}
-		style={css?.button.style ?? ''}
+		btnClasses={css?.button?.class ?? ''}
+		style={css?.button?.style ?? ''}
 		on:click={(e) => {
 			open = true
 		}}

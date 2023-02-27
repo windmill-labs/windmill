@@ -8,6 +8,7 @@
 	import Select from 'svelte-select'
 	import AppConnect from './AppConnect.svelte'
 	import ResourceEditor from './ResourceEditor.svelte'
+	import { SELECT_INPUT_DEFAULT_STYLE } from '../defaults'
 
 	const dispatch = createEventDispatcher()
 	let resources: Resource[] = []
@@ -59,12 +60,13 @@
 <div class="flex flex-row gap-x-1 w-full">
 	<Select
 		listAutoWidth={false}
-		--height="34px"
 		value={collection.find((x) => x.value == value)}
 		bind:justValue={value}
 		items={collection}
 		class="text-clip grow min-w-0"
 		placeholder="{resourceType} resource"
+		inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
+		containerStyles={SELECT_INPUT_DEFAULT_STYLE.containerStyles}
 	/>
 	{#if value && value != ''}
 		<Button variant="border" size="xs" on:click={() => resourceEditor?.initEdit?.(value ?? '')}>

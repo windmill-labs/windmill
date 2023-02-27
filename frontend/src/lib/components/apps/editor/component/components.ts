@@ -851,7 +851,9 @@ Hello \${ctx.username}
 					onlyStatic: true
 				}
 			},
-			customCss: {},
+			customCss: {
+				input: { style: '' }
+			} as const,
 			card: false,
 			softWrap: true
 		}
