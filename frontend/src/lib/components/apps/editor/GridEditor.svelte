@@ -10,6 +10,8 @@
 	import type { Policy } from '$lib/gen'
 	import HiddenComponent from '../components/helpers/HiddenComponent.svelte'
 	import Component from './component/Component.svelte'
+	import { Drawer, DrawerContent } from '$lib/components/common'
+	let jsonViewer: Drawer
 
 	export let policy: Policy
 
@@ -149,9 +151,10 @@
 		</div>
 	</div>
 
+	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<div
 		style={$app.css?.['app']?.['grid']?.style}
-		class={twMerge('px-4 pt-4 pb-2  overflow-visible', $app.css?.['app']?.['grid']?.class ?? '')}
+		class={twMerge('px-4 pt-4 pb-2 overflow-visible', $app.css?.['app']?.['grid']?.class ?? '')}
 		on:pointerdown={onpointerdown}
 		on:pointerleave={onpointerup}
 		on:pointerup={onpointerup}
@@ -160,6 +163,13 @@
 			$focusedGrid = undefined
 		}}
 	>
+		<div class="relative">
+			<Drawer bind:this={jsonViewer} size="800px" customPosition="!left-60 !right-60 !top-[41px]">
+				<DrawerContent title="Argument Details" on:close={jsonViewer.toggleDrawer} />
+			</Drawer>
+			<button on:click={jsonViewer.toggleDrawer}>Show JSON</button>
+		</div>
+
 		<Grid
 			onTopId={$selectedComponent}
 			fillSpace={false}

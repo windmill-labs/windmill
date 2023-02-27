@@ -27,7 +27,8 @@ import {
 	SeparatorHorizontal,
 	SeparatorVertical,
 	Paperclip,
-	Image
+	Image,
+	SidebarClose
 } from 'lucide-svelte'
 import type { BaseAppComponent } from '../../types'
 
@@ -78,6 +79,7 @@ export type TabsComponent = BaseComponent<'tabscomponent'> & {
 	tabs: string[]
 }
 export type ContainerComponent = BaseComponent<'containercomponent'>
+export type DrawerComponent = BaseComponent<'drawercomponent'>
 
 export type AppComponent = BaseAppComponent &
 	(
@@ -112,6 +114,7 @@ export type AppComponent = BaseAppComponent &
 		| FileInputComponent
 		| ImageComponent
 		| AggridComponent
+		| DrawerComponent
 	)
 
 export type AppComponentDimensions = `${IntRange<
@@ -735,7 +738,7 @@ Hello \${ctx.username}
 				]
 			},
 			customCss: {},
-			card: true,
+			card: true
 		}
 	},
 	checkboxcomponent: {
@@ -853,17 +856,17 @@ Hello \${ctx.username}
 				min: {
 					type: 'static',
 					value: undefined,
-					fieldType: 'number',
+					fieldType: 'number'
 				},
 				max: {
 					type: 'static',
 					value: undefined,
-					fieldType: 'number',
+					fieldType: 'number'
 				},
 				step: {
 					type: 'static',
 					value: 1,
-					fieldType: 'number',
+					fieldType: 'number'
 				}
 			},
 			customCss: {},
@@ -931,17 +934,17 @@ Hello \${ctx.username}
 				max: {
 					type: 'static',
 					value: 42,
-					fieldType: 'number',
+					fieldType: 'number'
 				},
 				defaultValue: {
 					type: 'static',
 					value: 20,
-					fieldType: 'number',
+					fieldType: 'number'
 				},
 				step: {
 					type: 'static',
 					value: 1,
-					fieldType: 'number',
+					fieldType: 'number'
 				}
 			},
 			customCss: {},
@@ -962,27 +965,27 @@ Hello \${ctx.username}
 				min: {
 					type: 'static',
 					value: 0,
-					fieldType: 'number',
+					fieldType: 'number'
 				},
 				max: {
 					type: 'static',
 					value: 42,
-					fieldType: 'number',
+					fieldType: 'number'
 				},
 				defaultLow: {
 					type: 'static',
 					value: 10,
-					fieldType: 'number',
+					fieldType: 'number'
 				},
 				defaultHigh: {
 					type: 'static',
 					value: 20,
-					fieldType: 'number',
+					fieldType: 'number'
 				},
 				step: {
 					type: 'static',
 					value: 1,
-					fieldType: 'number',
+					fieldType: 'number'
 				}
 			},
 			customCss: {},
@@ -1231,6 +1234,27 @@ Hello \${ctx.username}
 			},
 			customCss: {},
 			card: false
+		}
+	},
+	drawercomponent: {
+		name: 'Drawer',
+		icon: SidebarClose,
+		dims: '2:8-6:8',
+		data: {
+			softWrap: true,
+			id: '',
+			type: 'drawercomponent',
+			configuration: {
+				noPadding: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					onlyStatic: true
+				}
+			},
+			componentInput: undefined,
+			card: false,
+			numberOfSubgrids: 1
 		}
 	}
 }
