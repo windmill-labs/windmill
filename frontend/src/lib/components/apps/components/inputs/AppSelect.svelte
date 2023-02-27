@@ -47,12 +47,12 @@
 		const valuePeak = outputs?.result.peak()
 		if (!valuePeak) {
 			const value0 = items?.[0]?.['value']
-			if (value0 != value && !items.includes(value0)) {
+			if (value0 != value) {
 				value = JSON.stringify(value0)
 				outputs?.result.set(value0)
 			}
 		} else {
-			value = valuePeak
+			value = JSON.stringify(valuePeak)
 		}
 	}
 
