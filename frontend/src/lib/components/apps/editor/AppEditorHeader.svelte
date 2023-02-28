@@ -293,7 +293,7 @@
 				</PanelSection>
 			</Pane>
 			<Pane size={75}>
-				<div class="h-full w-full overflow-hidden">
+				<div class="h-full w-full overflow-auto">
 					{#if selectedJobId}
 						{#if !job}
 							<Skeleton layout={[[40]]} />
