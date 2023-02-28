@@ -1296,15 +1296,11 @@ Hello \${ctx.username}
 					fieldType: 'text',
 					onlyStatic: true,
 					tooltip: "This text will appear if the image can't be loaded for any reason"
-				},
-				customStyles: {
-					type: 'static',
-					value: '',
-					fieldType: 'textarea',
-					onlyStatic: true
 				}
 			},
-			customCss: {},
+			customCss: {
+				image: { class: '', style: '' }
+			} as const,
 			card: false
 		}
 	}

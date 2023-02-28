@@ -1,6 +1,10 @@
 <script lang="ts">
+	import { getContext } from 'svelte'
+	import { twMerge } from 'tailwind-merge'
 	import type { staticValues } from '../../editor/componentsPanel/componentStaticValues'
 	import type { AppInput } from '../../inputType'
+	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
+	import { concatCustomCss } from '../../utils'
 	import InputValue from '../helpers/InputValue.svelte'
 
 	type FitOption = (typeof staticValues)['objectFitOptions'][number]
@@ -8,7 +12,9 @@
 	export let id: string
 	export let configuration: Record<string, AppInput>
 	export const staticOutputs: string[] = ['loading']
+	export let customCss: ComponentCustomCSS<'image'> | undefined = undefined
 
+	const { app } = getContext<AppEditorContext>('AppEditorContext')
 	const fit: Record<FitOption, string> = {
 		cover: 'object-cover',
 		contain: 'object-contain',
@@ -18,18 +24,18 @@
 	let source: string | undefined = undefined
 	let imageFit: FitOption | undefined = undefined
 	let altText: string | undefined = undefined
-	let customStyles: string | undefined = undefined
+
+	$: css = concatCustomCss($app.css?.imagecomponent, customCss)
 </script>
 
 <InputValue {id} input={configuration.source} bind:value={source} />
 <InputValue {id} input={configuration.imageFit} bind:value={imageFit} />
 <InputValue {id} input={configuration.altText} bind:value={altText} />
-<InputValue {id} input={configuration.customStyles} bind:value={customStyles} />
 
 <img
 	on:pointerdown|preventDefault
 	src={source}
 	alt={altText}
-	style={customStyles}
-	class="w-full h-full {fit[imageFit || 'cover']}"
+	style={css?.image?.style ?? ''}
+	class={twMerge(`w-full h-full ${fit[imageFit || 'cover']}`, css?.image?.class ?? '')}
 />
