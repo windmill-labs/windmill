@@ -178,6 +178,9 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 					onlyStatic: true
 				}
 			},
+			customCss: {
+				container: { class: '', style: '' }
+			} as const,
 			componentInput: undefined,
 			card: false,
 			numberOfSubgrids: 1
@@ -339,7 +342,10 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 					value: ''
 				}
 			},
-			customCss: {},
+			customCss: {
+				container: { class: '', style: '' },
+				button: { class: '', style: '' }
+			} as const,
 			card: true
 		}
 	},
@@ -380,7 +386,10 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 					optionValuesKey: 'buttonSizeOptions'
 				}
 			},
-			customCss: {},
+			customCss: {
+				button: { class: '', style: '' },
+				popup: { class: '', style: '' }
+			} as const,
 			card: true
 		}
 	},
@@ -411,7 +420,9 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 				fieldType: 'object',
 				value: { data: [25, 50, 25], labels: ['Pie', 'Charts', '<3'] }
 			},
-			customCss: {},
+			customCss: {
+				container: { class: '', style: '' }
+			} as const,
 			card: true
 		}
 	},
@@ -442,7 +453,9 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 				fieldType: 'object',
 				value: { data: [25, 50, 25], labels: ['Bar', 'Charts', '<3'] }
 			},
-			customCss: {},
+			customCss: {
+				container: { class: '', style: '' }
+			} as const,
 			card: true
 		}
 	},
@@ -465,7 +478,9 @@ Hello \${ctx.username}
 </h1>`
 			},
 			configuration: {},
-			customCss: {},
+			customCss: {
+				container: { class: '', style: '' }
+			} as const,
 			card: false
 		}
 	},
@@ -607,7 +622,9 @@ Hello \${ctx.username}
 					}
 				]
 			},
-			customCss: {},
+			customCss: {
+				container: { class: '', style: '' }
+			} as const,
 			card: true
 		}
 	},
@@ -657,7 +674,9 @@ Hello \${ctx.username}
 					}
 				]
 			},
-			customCss: {},
+			customCss: {
+				container: { class: '', style: '' }
+			} as const,
 			card: true
 		}
 	},
@@ -694,7 +713,12 @@ Hello \${ctx.username}
 					}
 				]
 			},
-			customCss: {},
+			customCss: {
+				container: { class: '', style: '' },
+				tableHeader: { class: '', style: '' },
+				tableBody: { class: '', style: '' },
+				tableFooter: { class: '', style: '' }
+			} as const,
 			card: true,
 			actionButtons: []
 		}
@@ -717,6 +741,18 @@ Hello \${ctx.username}
 					type: 'static',
 					fieldType: 'boolean',
 					value: false,
+					onlyStatic: true
+				},
+				pagination: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					onlyStatic: true
+				},
+				pageSize: {
+					type: 'static',
+					fieldType: 'number',
+					value: 10,
 					onlyStatic: true
 				}
 			},
@@ -763,7 +799,9 @@ Hello \${ctx.username}
 					fieldType: 'boolean'
 				}
 			},
-			customCss: {},
+			customCss: {
+				text: { class: '', style: '' }
+			} as const,
 			card: false
 		}
 	},
@@ -790,7 +828,9 @@ Hello \${ctx.username}
 					fieldType: 'text'
 				}
 			},
-			customCss: {},
+			customCss: {
+				input: { class: '', style: '' }
+			} as const,
 			card: false
 		}
 	},
@@ -826,7 +866,9 @@ Hello \${ctx.username}
 					onlyStatic: true
 				}
 			},
-			customCss: {},
+			customCss: {
+				input: { style: '' }
+			} as const,
 			card: false,
 			softWrap: true
 		}

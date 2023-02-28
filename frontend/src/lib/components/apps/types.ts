@@ -30,8 +30,8 @@ export interface GeneralAppInput {
 }
 
 export type ComponentCssProperty = {
-	class: string
-	style: string
+	class?: string
+	style?: string
 }
 
 export type ComponentCustomCSS<T extends string = string> = Record<T, ComponentCssProperty>

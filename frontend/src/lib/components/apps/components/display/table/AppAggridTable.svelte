@@ -65,6 +65,8 @@
 	let columnDefs: any = undefined
 
 	let allEditable: boolean | undefined = undefined
+	let pagination: boolean | undefined = undefined
+	let pageSize: number | undefined = 10
 
 	function onCellValueChanged(event) {
 		if (result) {
@@ -79,6 +81,8 @@
 
 <InputValue {id} input={configuration.columnDefs} bind:value={columnDefs} />
 <InputValue {id} input={configuration.allEditable} bind:value={allEditable} />
+<InputValue {id} input={configuration.pagination} bind:value={pagination} />
+<InputValue {id} input={configuration.pageSize} bind:value={pageSize} />
 
 <RunnableWrapper flexWrap bind:componentInput {id} bind:initializing bind:result>
 	{#if Array.isArray(result) && result.every(isObject)}
@@ -95,11 +99,15 @@
 				style:width="{clientWidth}px"
 				class="ag-theme-alpine"
 			>
-				<AgGridSvelte
-					bind:rowData={result}
-					{columnDefs}
-					defaultColDef={{ flex: 1, editable: allEditable, onCellValueChanged }}
-				/>
+				{#key pagination}
+					<AgGridSvelte
+						bind:rowData={result}
+						{columnDefs}
+						{pagination}
+						paginationPageSize={pageSize}
+						defaultColDef={{ flex: 1, editable: allEditable, onCellValueChanged }}
+					/>
+				{/key}
 			</div>
 		</div>
 	{:else if result != undefined}

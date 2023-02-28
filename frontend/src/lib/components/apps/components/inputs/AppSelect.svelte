@@ -3,17 +3,20 @@
 	import Select from 'svelte-select'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
-	import type { AppEditorContext } from '../../types'
+	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
+	import { concatCustomCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
+	import { SELECT_INPUT_DEFAULT_STYLE } from '../../../../defaults'
 
 	export const staticOutputs: string[] = ['result']
 	export let id: string
 	export let configuration: Record<string, AppInput>
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
+	export let customCss: ComponentCustomCSS<'input'> | undefined = undefined
 
-	const { worldStore, connectingInput, selectedComponent } =
+	const { app, worldStore, connectingInput, selectedComponent } =
 		getContext<AppEditorContext>('AppEditorContext')
 	let items: { label: string; value: any }[]
 	let multiple: boolean = false
@@ -47,12 +50,12 @@
 		const valuePeak = outputs?.result.peak()
 		if (!valuePeak) {
 			const value0 = items?.[0]?.['value']
-			if (value0 != value && !items.includes(value0)) {
+			if (value0 != value) {
 				value = JSON.stringify(value0)
 				outputs?.result.set(value0)
 			}
 		} else {
-			value = valuePeak
+			value = JSON.stringify(valuePeak)
 		}
 	}
 
@@ -65,6 +68,8 @@
 		} catch (_) {}
 		outputs?.result.set(result)
 	}
+
+	$: css = concatCustomCss($app.css?.selectcomponent, customCss)
 </script>
 
 <InputValue {id} input={configuration.items} bind:value={items} />
@@ -72,13 +77,15 @@
 <InputValue {id} input={configuration.placeholder} bind:value={placeholder} />
 
 <AlignWrapper {horizontalAlignment} {verticalAlignment}>
-	<div class="app-select w-full" style="height: 34px" on:pointerdown|stopPropagation>
+	<div class="app-select w-full mx-0.5" style="height: 34px" on:pointerdown|stopPropagation>
 		<Select
-			--height="34px"
 			{multiple}
 			on:clear={onChange}
 			on:change={onChange}
 			items={listItems}
+			class={css?.input?.class ?? ''}
+			inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
+			containerStyles={SELECT_INPUT_DEFAULT_STYLE.containerStyles + css?.input.style}
 			{value}
 			{placeholder}
 			on:click={() => {

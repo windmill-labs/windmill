@@ -3,49 +3,14 @@ import { FlowService, ScriptService } from '$lib/gen'
 import { inferArgs } from '$lib/infer'
 import { emptySchema } from '$lib/utils'
 import type { AppComponent } from './editor/component'
-
+import type { App, ComponentCssProperty, ComponentCustomCSS, GridItem } from './types'
+import { getRecommendedDimensionsByComponent } from './editor/component'
+import { gridColumns } from './gridUtils'
+import gridHelp from '@windmill-labs/svelte-grid/src/utils/helper'
+import { twMerge } from 'tailwind-merge'
 import type { AppInput, InputType, ResultAppInput, StaticAppInput } from './inputType'
 import type { Output } from './rx'
-import type { App, GridItem } from './types'
-
-/*
-export function deleteComponent(
-	subgrid: string | undefined,
-	component: AppComponent,
-	app: App,
-	staticOutputs: Record<string, any>,
-	runnableComponents: Record<string, any>
-) {
-	if (parentItems) {
-		let index = parentItems.findIndex((item) => item.data?.id === component.id)
-		if (index != -1) {
-			parentItems.splice(index, 1)
-		}
-	}
-
-	delete staticOutputs[component.id]
-	delete runnableComponents[component.id]
-
-	if (
-		component.componentInput?.type === 'runnable' &&
-		component.componentInput?.runnable?.type === 'runnableByName'
-	) {
-		const { name, inlineScript } = component.componentInput.runnable
-
-		if (inlineScript) {
-			if (!app.unusedInlineScripts) {
-				app.unusedInlineScripts = []
-			}
-
-			app.unusedInlineScripts.push({
-				name,
-				inlineScript
-			})
-		}
-	}
-}
-
-*/
+import { getNextId } from '../flows/flowStateUtils'
 
 export function allItems(
 	grid: GridItem[],
@@ -272,4 +237,129 @@ export function toPascalCase(text: string) {
 
 export function toKebabCase(text: string) {
 	return text.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()
+}
+
+export function findParent(root: GridItem[], id: string): GridItem | undefined {
+	for (const a of root) {
+		if (a.id === id) {
+			return a
+		}
+
+		if (a.data.subGrids) {
+			// Recursively search the sub-grids
+			for (const subGrid of a.data.subGrids) {
+				const result = findParent(subGrid, id)
+				if (result) {
+					return result
+				}
+			}
+		}
+	}
+
+	return undefined
+}
+
+export function insertNewGridItem(
+	root: GridItem[],
+	id: string,
+	subGridIndex: number,
+	newId: string,
+	data: AppComponent
+): GridItem[] {
+	const parentA = findParent(root, id)
+
+	if (!parentA) {
+		throw new Error(`Parent A object with ID ${id} not found.`)
+	}
+
+	const subGrid = parentA.data.subGrids[subGridIndex]
+
+	if (!subGrid) {
+		throw new Error(`Sub-grid with index ${subGridIndex} not found.`)
+	}
+
+	const newItem = createNewGridItem(subGrid ?? [], newId, data)
+	subGrid.push(newItem)
+	return root
+}
+
+// The grid is needed to find a space for the new component
+export function createNewGridItem(grid: GridItem[], id: string, data: AppComponent): GridItem {
+	const appComponent = data
+
+	appComponent.id = id
+
+	const newComponent = {
+		fixed: false,
+		resizable: true,
+		draggable: true,
+		customDragger: false,
+		customResizer: false,
+		x: 0,
+		y: 0
+	}
+
+	let newData: AppComponent = JSON.parse(JSON.stringify(appComponent))
+
+	const newItem: GridItem = {
+		data: newData,
+		id: id
+	}
+
+	gridColumns.forEach((column) => {
+		const rec = getRecommendedDimensionsByComponent(appComponent.type, column)
+
+		newItem[column] = {
+			...newComponent,
+			min: { w: 1, h: 1 },
+			max: { w: column, h: 100 },
+			w: rec.w,
+			h: rec.h
+		}
+		const position = gridHelp.findSpace(newItem, grid, column) as { x: number; y: number }
+		newItem[column] = { ...newItem[column], ...position }
+	})
+
+	return newItem
+}
+
+function recursiveGetIds(gridItem: GridItem): string[] {
+	const subGrids = gridItem.data.subGrids ?? []
+	const subGridIds = subGrids
+		.map((subGrid: GridItem[]) => subGrid.map(recursiveGetIds))
+		.flat(Infinity)
+	return [gridItem.data.id, ...subGridIds]
+}
+
+export function getNextGridItemId(grid: GridItem[] = []): string {
+	const gridItemIds = grid.map(recursiveGetIds).flat()
+	const id = getNextId(gridItemIds)
+	return id
+}
+
+export function concatCustomCss<T extends string = string>(
+	appCss?: ComponentCustomCSS<T>,
+	componentCss?: ComponentCustomCSS<T>
+): Record<T, ComponentCssProperty> | undefined {
+	if (!componentCss) return undefined
+
+	const customStyle = {} as Record<T, ComponentCssProperty>
+	Object.keys(componentCss).forEach((key) => {
+		const k = key as keyof typeof componentCss
+
+		// This is the general style of the component type
+		const appStyle = appCss?.[k]?.style?.trim() || ''
+		const appEnding = appStyle?.endsWith(';') || !appStyle ? ' ' : '; '
+
+		// This is the custom style of the component instance
+		const compStyle = componentCss[k]?.style?.trim() || ''
+		const compEnding = compStyle?.endsWith(';') || !compStyle ? ' ' : ';'
+
+		customStyle[k] = {
+			style: (appStyle + appEnding + compStyle + compEnding).trim(),
+			class: twMerge(appCss?.[k]?.class, componentCss[k]?.class)
+		}
+	})
+
+	return customStyle
 }
