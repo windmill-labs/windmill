@@ -1,10 +1,9 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
 	import type { Preview } from '$lib/gen'
-	import { faTrash } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher, getContext, onMount } from 'svelte'
 	import type { AppEditorContext, InlineScript } from '../../types'
-	import { CheckCircle, Code2, Maximize2, Trash2, X } from 'lucide-svelte'
+	import { CheckCircle, Maximize2, Trash2, X } from 'lucide-svelte'
 	import InlineScriptEditorDrawer from './InlineScriptEditorDrawer.svelte'
 	import { inferArgs } from '$lib/infer'
 	import type { Schema } from '$lib/common'

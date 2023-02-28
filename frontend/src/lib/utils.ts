@@ -511,6 +511,14 @@ export async function getScriptByPath(path: string): Promise<{
 	}
 }
 
+export async function getLatestHashForScript(path: string): Promise<string> {
+	const script = await ScriptService.getScriptByPath({
+		workspace: get(workspaceStore)!,
+		path: path ?? ''
+	})
+	return script.hash
+}
+
 export async function loadHubScripts() {
 	try {
 		const scripts = (await ScriptService.listHubScripts()).asks ?? []

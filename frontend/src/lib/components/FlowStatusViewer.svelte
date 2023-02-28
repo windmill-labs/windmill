@@ -96,7 +96,7 @@
 				localFlowModuleStates?.[innerModules?.[i - 1]?.id ?? '']?.type ==
 					FlowStatusModule.type.SUCCESS
 			) {
-				localFlowModuleStates[mod.id ?? ''] = { type: mod.type }
+				localFlowModuleStates[mod.id ?? ''] = { type: mod.type, args: job?.args }
 			} else if (
 				mod.type === FlowStatusModule.type.WAITING_FOR_EXECUTOR &&
 				localFlowModuleStates[mod.id ?? '']?.scheduled_for == undefined
@@ -109,7 +109,8 @@
 						type: mod.type,
 						scheduled_for: 'scheduled for ' + displayDate(job?.['scheduled_for'], true),
 						job_id: job?.id,
-						parent_module: mod['parent_module']
+						parent_module: mod['parent_module'],
+						args: job?.args
 					}
 				})
 			}
@@ -329,10 +330,12 @@
 											type: FlowStatusModule.type.IN_PROGRESS,
 											logs: e.detail.logs,
 											job_id: e.detail.id,
+											args: e.detail.args,
 											iteration_total: flowJobIds?.flowJobs.length
 										}
 									} else {
 										localFlowModuleStates[flowJobIds.moduleId] = {
+											args: e.detail.args,
 											type: e.detail.success
 												? FlowStatusModule.type.SUCCESS
 												: FlowStatusModule.type.FAILURE,
@@ -397,10 +400,12 @@
 												localFlowModuleStates[mod.id] = {
 													type: FlowStatusModule.type.IN_PROGRESS,
 													logs: e.detail.logs,
+													args: e.detail.args,
 													parent_module: mod['parent_module']
 												}
 											} else {
 												localFlowModuleStates[mod.id] = {
+													args: e.detail.args,
 													type: e.detail.success
 														? FlowStatusModule.type.SUCCESS
 														: FlowStatusModule.type.FAILURE,
@@ -497,7 +502,9 @@
 									</div>
 								{/if}
 							</div>
-							<
+							<div class="px-1 border-b border-black">
+								<JobArgs args={node.args} />
+							</div>
 							<FlowJobResult
 								loading={job['running'] == true}
 								noBorder

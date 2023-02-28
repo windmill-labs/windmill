@@ -51,6 +51,7 @@ export type GraphItem = Node | Loop | Branch
 
 export type GraphModuleState = {
 	type: FlowStatusModule.type
+	args: any
 	logs?: string
 	result?: any
 	scheduled_for?: string

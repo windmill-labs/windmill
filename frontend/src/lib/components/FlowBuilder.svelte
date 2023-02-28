@@ -13,6 +13,7 @@
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { OFFSET } from './CronInput.svelte'
 	import FlowGraphViewer from './FlowGraphViewer.svelte'
+	import ScriptEditorDrawer from './flows/content/ScriptEditorDrawer.svelte'
 	import FlowEditor from './flows/FlowEditor.svelte'
 	import { flowStateStore } from './flows/flowState'
 	import { flowStore } from './flows/flowStore'
@@ -145,6 +146,7 @@
 
 	const scheduleStore = writable<Schedule>({ args: {}, cron: '', enabled: false })
 	const previewArgsStore = writable<Record<string, any>>(initialArgs)
+	const scriptEditorDrawer = writable<ScriptEditorDrawer | undefined>(undefined)
 
 	function select(selectedId: string) {
 		selectedIdStore.set(selectedId)
@@ -154,7 +156,8 @@
 		selectedId: selectedIdStore,
 		schedule: scheduleStore,
 		select,
-		previewArgs: previewArgsStore
+		previewArgs: previewArgsStore,
+		scriptEditorDrawer
 	})
 
 	async function loadSchedule() {
@@ -181,6 +184,7 @@
 </script>
 
 {#if !$userStore?.operator}
+	<ScriptEditorDrawer bind:this={$scriptEditorDrawer} />
 	<UnsavedConfirmationModal />
 
 	<Drawer bind:this={flowViewer} size="75%">
