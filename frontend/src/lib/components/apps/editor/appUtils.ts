@@ -93,7 +93,7 @@ export function insertNewGridItem(
 		subGrid.push(createNewGridItem(subGrid, id, data))
 		app.subgrids[key] = subGrid
 	}
-	// We only want to reset subgris when we are not duplicating or moving
+	// We only want to set subgrids when we are not moving
 	if (!keepId) {
 		for (let i = 0; i < (data.numberOfSubgrids ?? 0); i++) {
 			app.subgrids[`${id}-${i}`] = []
