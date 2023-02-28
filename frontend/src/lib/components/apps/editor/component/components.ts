@@ -1094,7 +1094,9 @@ Hello \${ctx.username}
 					fieldType: 'date'
 				}
 			},
-			customCss: {},
+			customCss: {
+				input: { class: '', style: '' }
+			} as const,
 			card: false
 		}
 	},

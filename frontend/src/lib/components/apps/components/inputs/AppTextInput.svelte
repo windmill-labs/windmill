@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
+	import { twMerge } from 'tailwind-merge'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
@@ -41,7 +42,7 @@
 
 <AlignWrapper {verticalAlignment}>
 	<input
-		class="mx-0.5 {css?.input?.class ?? ''}"
+		class={twMerge('mx-0.5', css?.input?.class ?? '')}
 		style={css?.input?.style ?? ''}
 		on:focus={(e) => {
 			e?.stopPropagation()
