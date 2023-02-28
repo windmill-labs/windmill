@@ -1,4 +1,4 @@
-import { Command, DenoLandProvider, UpgradeCommand } from "./deps.ts";
+import { Command, CompletionsCommand, DenoLandProvider, UpgradeCommand } from "./deps.ts";
 import flow from "./flow.ts";
 import script from "./script.ts";
 import workspace from "./workspace.ts";
@@ -60,7 +60,8 @@ let command: any = new Command()
       ],
       provider: new DenoLandProvider({ name: "wmill" }),
     }),
-  );
+  )
+  .command("completions", new CompletionsCommand());
 
 if (Number.parseInt(VERSION.replace("v", "").replace(".", "")) > 1700) {
   command = command
