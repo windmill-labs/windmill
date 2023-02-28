@@ -14,7 +14,7 @@ export {
   DenoLandProvider,
   UpgradeCommand,
 } from "https://deno.land/x/cliffy@v0.25.7/command/upgrade/mod.ts";
-
+export { CompletionsCommand } from "https://deno.land/x/cliffy@v0.25.7/command/completions/mod.ts";
 // std
 export * as path from "https://deno.land/std@0.176.0/path/mod.ts";
 export { ensureDir } from "https://deno.land/std@0.176.0/fs/ensure_dir.ts";

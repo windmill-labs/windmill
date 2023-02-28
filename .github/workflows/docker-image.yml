@@ -182,7 +182,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push privately
-        uses: docker/build-push-action@v3
+        uses: docker/build-push-action@v4
         if: github.event_name != 'pull_request'
         with:
           context: .
@@ -222,7 +222,7 @@ jobs:
           password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           
       - name: Build and push privately
-        uses: docker/build-push-action@v3
+        uses: docker/build-push-action@v4
         if: github.event_name != 'pull_request'
         with:
           context: .
