@@ -175,6 +175,9 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 					onlyStatic: true
 				}
 			},
+			customCss: {
+				container: { class: '', style: '' }
+			} as const,
 			componentInput: undefined,
 			card: false,
 			numberOfSubgrids: 1
@@ -336,7 +339,10 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 					value: ''
 				}
 			},
-			customCss: {},
+			customCss: {
+				container: { class: '', style: '' },
+				button: { class: '', style: '' }
+			} as const,
 			card: true
 		}
 	},
@@ -377,7 +383,10 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 					optionValuesKey: 'buttonSizeOptions'
 				}
 			},
-			customCss: {},
+			customCss: {
+				button: { class: '', style: '' },
+				popup: { class: '', style: '' }
+			} as const,
 			card: true
 		}
 	},
@@ -408,7 +417,9 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 				fieldType: 'object',
 				value: { data: [25, 50, 25], labels: ['Pie', 'Charts', '<3'] }
 			},
-			customCss: {},
+			customCss: {
+				container: { class: '', style: '' }
+			} as const,
 			card: true
 		}
 	},
@@ -439,7 +450,9 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 				fieldType: 'object',
 				value: { data: [25, 50, 25], labels: ['Bar', 'Charts', '<3'] }
 			},
-			customCss: {},
+			customCss: {
+				container: { class: '', style: '' }
+			} as const,
 			card: true
 		}
 	},
@@ -462,7 +475,9 @@ Hello \${ctx.username}
 </h1>`
 			},
 			configuration: {},
-			customCss: {},
+			customCss: {
+				container: { class: '', style: '' }
+			} as const,
 			card: false
 		}
 	},
@@ -604,7 +619,9 @@ Hello \${ctx.username}
 					}
 				]
 			},
-			customCss: {},
+			customCss: {
+				container: { class: '', style: '' }
+			} as const,
 			card: true
 		}
 	},
@@ -654,7 +671,9 @@ Hello \${ctx.username}
 					}
 				]
 			},
-			customCss: {},
+			customCss: {
+				container: { class: '', style: '' }
+			} as const,
 			card: true
 		}
 	},
@@ -691,7 +710,12 @@ Hello \${ctx.username}
 					}
 				]
 			},
-			customCss: {},
+			customCss: {
+				container: { class: '', style: '' },
+				tableHeader: { class: '', style: '' },
+				tableBody: { class: '', style: '' },
+				tableFooter: { class: '', style: '' }
+			} as const,
 			card: true,
 			actionButtons: []
 		}
@@ -747,7 +771,7 @@ Hello \${ctx.username}
 				]
 			},
 			customCss: {},
-			card: true,
+			card: true
 		}
 	},
 	checkboxcomponent: {
@@ -772,7 +796,9 @@ Hello \${ctx.username}
 					fieldType: 'boolean'
 				}
 			},
-			customCss: {},
+			customCss: {
+				text: { class: '', style: '' }
+			} as const,
 			card: false
 		}
 	},
@@ -799,7 +825,9 @@ Hello \${ctx.username}
 					fieldType: 'text'
 				}
 			},
-			customCss: {},
+			customCss: {
+				input: { class: '', style: '' }
+			} as const,
 			card: false
 		}
 	},
@@ -835,7 +863,9 @@ Hello \${ctx.username}
 					onlyStatic: true
 				}
 			},
-			customCss: {},
+			customCss: {
+				input: { style: '' }
+			} as const,
 			card: false,
 			softWrap: true
 		}
@@ -865,17 +895,17 @@ Hello \${ctx.username}
 				min: {
 					type: 'static',
 					value: undefined,
-					fieldType: 'number',
+					fieldType: 'number'
 				},
 				max: {
 					type: 'static',
 					value: undefined,
-					fieldType: 'number',
+					fieldType: 'number'
 				},
 				step: {
 					type: 'static',
 					value: 1,
-					fieldType: 'number',
+					fieldType: 'number'
 				}
 			},
 			customCss: {},
@@ -943,17 +973,17 @@ Hello \${ctx.username}
 				max: {
 					type: 'static',
 					value: 42,
-					fieldType: 'number',
+					fieldType: 'number'
 				},
 				defaultValue: {
 					type: 'static',
 					value: 20,
-					fieldType: 'number',
+					fieldType: 'number'
 				},
 				step: {
 					type: 'static',
 					value: 1,
-					fieldType: 'number',
+					fieldType: 'number'
 				}
 			},
 			customCss: {},
@@ -974,27 +1004,27 @@ Hello \${ctx.username}
 				min: {
 					type: 'static',
 					value: 0,
-					fieldType: 'number',
+					fieldType: 'number'
 				},
 				max: {
 					type: 'static',
 					value: 42,
-					fieldType: 'number',
+					fieldType: 'number'
 				},
 				defaultLow: {
 					type: 'static',
 					value: 10,
-					fieldType: 'number',
+					fieldType: 'number'
 				},
 				defaultHigh: {
 					type: 'static',
 					value: 20,
-					fieldType: 'number',
+					fieldType: 'number'
 				},
 				step: {
 					type: 'static',
 					value: 1,
-					fieldType: 'number',
+					fieldType: 'number'
 				}
 			},
 			customCss: {},
