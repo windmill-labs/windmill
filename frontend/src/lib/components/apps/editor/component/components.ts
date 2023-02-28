@@ -1035,7 +1035,11 @@ Hello \${ctx.username}
 					fieldType: 'number'
 				}
 			},
-			customCss: {},
+			customCss: {
+				handles: { style: '' },
+				limits: { class: '', style: '' },
+				values: { class: '', style: '' }
+			} as const,
 			card: false
 		}
 	},
