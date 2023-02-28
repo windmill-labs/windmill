@@ -6,7 +6,10 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::{collections::HashMap, str::FromStr};
+use std::{
+    collections::{HashMap, VecDeque},
+    str::FromStr,
+};
 
 use anyhow::Context;
 use reqwest::Client;
@@ -150,6 +153,38 @@ pub async fn pull(
     Ok(job)
 }
 
+pub async fn find_recursively_downward(
+    db: &Pool<Postgres>,
+    w_id: &str,
+    flow_id: Uuid,
+    node_id: &str,
+) -> windmill_common::error::Result<Option<JobResult>> {
+    let mut bfs_stack = VecDeque::new();
+    bfs_stack.push_back(flow_id);
+    while bfs_stack.len() > 0 {
+        let parent_id = bfs_stack.pop_front().unwrap();
+        let job = sqlx::query_scalar!(
+            "SELECT flow_status FROM completed_job WHERE id = $1 AND workspace_id = $2",
+            parent_id,
+            w_id
+        )
+        .fetch_optional(db)
+        .await?
+        .flatten();
+        if let Some(r) = job {
+            let status_o = serde_json::from_value::<FlowStatus>(r).ok();
+            let result_id = status_o.and_then(|status| {
+                status
+                    .modules
+                    .iter()
+                    .find(|m| m.id() == node_id)
+                    .and_then(|m| m.job_result())
+            });
+            return Ok(result_id);
+        }
+    }
+    Ok(None)
+}
 pub async fn get_result_by_id(
     db: Pool<Postgres>,
     mut skip_direct: bool,
@@ -159,6 +194,7 @@ pub async fn get_result_by_id(
 ) -> error::Result<serde_json::Value> {
     let mut result_id: Option<JobResult> = None;
     let mut parent_id = Uuid::from_str(&flow_id).ok();
+    let mut lparent_id = parent_id.clone();
     while result_id.is_none() && parent_id.is_some() {
         if !skip_direct {
             let r = sqlx::query!(
@@ -174,6 +210,7 @@ pub async fn get_result_by_id(
                     .as_ref()
                     .ok_or_else(|| Error::InternalErr(format!("requiring a flow status value")))?
                     .to_owned();
+                lparent_id = parent_id;
                 parent_id = r.parent_job;
                 let status_o = serde_json::from_value::<FlowStatus>(value).ok();
                 result_id = status_o.and_then(|status| {
@@ -195,9 +232,16 @@ pub async fn get_result_by_id(
             .fetch_optional(&db)
             .await?
             .flatten();
+            lparent_id = parent_id;
             parent_id = q_parent;
             skip_direct = false
         }
+    }
+    // we could not find the node going upward from the flow by looking at all the jobs (in progress or completed)
+    // we now look downward from the flow root to the all the children completed job for a job that might hide itself
+    // in a deep non-direct parent job such as in nested branches
+    if result_id.is_none() && lparent_id.is_some() {
+        result_id = find_recursively_downward(&db, &w_id, lparent_id.unwrap(), &node_id).await?;
     }
     let result_id = windmill_common::utils::not_found_if_none(
         result_id,
