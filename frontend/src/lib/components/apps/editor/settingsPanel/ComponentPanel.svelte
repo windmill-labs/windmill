@@ -31,8 +31,15 @@
 	export let parent: string | undefined
 	export let noGrid = false
 
-	const { app, staticOutputs, runnableComponents, selectedComponent, worldStore, focusedGrid } =
-		getContext<AppEditorContext>('AppEditorContext')
+	const {
+		app,
+		staticOutputs,
+		runnableComponents,
+		selectedComponent,
+		worldStore,
+		focusedGrid,
+		stateId
+	} = getContext<AppEditorContext>('AppEditorContext')
 
 	function duplicateElement(id: string) {
 		$dirtyStore = true
@@ -110,31 +117,35 @@
 						/>
 					{/if}
 				</div>
-				{#if component.componentInput?.type === 'runnable' && Object.keys(component.componentInput.fields ?? {}).length > 0}
-					<div class="border w-full">
-						<PanelSection
-							smallPadding
-							title={`Runnable Inputs (${
-								Object.keys(component.componentInput.fields ?? {}).length
-							})`}
-						>
-							<svelte:fragment slot="action">
-								<Tooltip>
-									The runnable inputs of a button component are not settable by the user. They must
-									be defined statically or connected.
-								</Tooltip>
-							</svelte:fragment>
+				{#key $stateId}
+					{#if component.componentInput?.type === 'runnable'}
+						{#if Object.keys(component.componentInput.fields ?? {}).length > 0}
+							<div class="border w-full">
+								<PanelSection
+									smallPadding
+									title={`Runnable Inputs (${
+										Object.keys(component.componentInput.fields ?? {}).length
+									})`}
+								>
+									<svelte:fragment slot="action">
+										<Tooltip>
+											The runnable inputs of a button component are not settable by the user. They
+											must be defined statically or connected.
+										</Tooltip>
+									</svelte:fragment>
 
-							<InputsSpecsEditor
-								id={component.id}
-								shouldCapitalize={false}
-								bind:inputSpecs={component.componentInput.fields}
-								userInputEnabled={component.type !== 'buttoncomponent'}
-								{rowColumns}
-							/>
-						</PanelSection>
-					</div>
-				{/if}
+									<InputsSpecsEditor
+										id={component.id}
+										shouldCapitalize={false}
+										bind:inputSpecs={component.componentInput.fields}
+										userInputEnabled={component.type !== 'buttoncomponent'}
+										{rowColumns}
+									/>
+								</PanelSection>
+							</div>
+						{/if}
+					{/if}
+				{/key}
 			</PanelSection>
 		{/if}
 

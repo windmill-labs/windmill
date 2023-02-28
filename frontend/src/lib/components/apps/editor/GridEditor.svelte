@@ -36,7 +36,7 @@
 		$app.grid.map((gridItem) => {
 			const disabledGridItem = fct(gridItem)
 
-			if (disabledGridItem.data.subGrids) {
+			if (disabledGridItem?.data?.subGrids) {
 				disabledGridItem.data.subGrids = disabledGridItem.data.subGrids.map(
 					(subgrid: GridItem[]) => subgrid?.map((subgridItem: GridItem) => fct(subgridItem)) ?? []
 				)
@@ -106,7 +106,7 @@
 			intervalId = setTimeout(() => {
 				lazyGrid.set($app.grid)
 				intervalId = undefined
-			}, 100)
+			}, 500)
 		}
 	}
 
@@ -198,7 +198,7 @@
 					>
 						<Component
 							{pointerdown}
-							bind:pComponent={gridComponent.data}
+							bind:component={gridComponent.data}
 							selected={$selectedComponent === dataItem.data.id}
 							locked={isFixed(gridComponent)}
 							on:delete={() => removeGridElement(gridComponent.data)}
