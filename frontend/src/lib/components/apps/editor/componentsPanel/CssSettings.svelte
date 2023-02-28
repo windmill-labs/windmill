@@ -178,7 +178,6 @@
 									{#each ids as id}
 										<div class="mb-3">
 											{#if $app?.css?.[type][id]}
-												{JSON.stringify($app.css[type][id])}
 												<CssProperty
 													name={id}
 													bind:value={$app.css[type][id]}
