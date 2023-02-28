@@ -103,7 +103,6 @@ export function getStepPropPicker(
 	flow: Flow,
 	args: any,
 	include_node: boolean,
-	approvers: boolean = false
 ): StepPropPicker {
 	const flowInput = getFlowInput(dfs(parentModule?.id, flow), flowState, args, flow.schema)
 

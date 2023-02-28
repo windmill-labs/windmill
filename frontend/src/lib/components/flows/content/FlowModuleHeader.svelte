@@ -1,12 +1,15 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
 	import type { FlowModule } from '$lib/gen'
-	import { faCodeBranch, faSave } from '@fortawesome/free-solid-svg-icons'
-	import { createEventDispatcher } from 'svelte'
+	import { faCodeBranch, faPen, faSave } from '@fortawesome/free-solid-svg-icons'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import { Bed, PhoneIncoming, Repeat, Square } from 'lucide-svelte'
 	import Popover from '../../Popover.svelte'
+	import type { FlowEditorContext } from '../types'
+	import { getLatestHashForScript, sendUserToast } from '$lib/utils'
 
 	export let module: FlowModule
+	const { scriptEditorDrawer } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const dispatch = createEventDispatcher()
 
@@ -62,6 +65,27 @@
 	{/if}
 	{#if module.value.type === 'script'}
 		<div class="w-2" />
+		{#if !module.value.path.startsWith('hub/')}
+			<Button
+				size="xs"
+				color="light"
+				variant="border"
+				on:click={async () => {
+					if (module.value.type == 'script') {
+						const hash = module.value.hash ?? (await getLatestHashForScript(module.value.path))
+						$scriptEditorDrawer?.openDrawer(hash, () => {
+							dispatch('reload')
+							sendUserToast('Script has been updated')
+						})
+					}
+				}}
+				startIcon={{ icon: faPen }}
+				iconOnly={false}
+				disabled={module.value.hash != undefined}
+			>
+				Edit {#if module.value.hash != undefined} (locked hash){/if}
+			</Button>
+		{/if}
 		<Button
 			size="xs"
 			color="light"

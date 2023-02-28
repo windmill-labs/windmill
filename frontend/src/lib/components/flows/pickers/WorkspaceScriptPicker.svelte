@@ -85,7 +85,7 @@
 			</div>
 		{/if}
 		{#if displayLock}
-			<div class="flex flex-row-reverse">
+			<div class="flex flex-row-reverse mb-1">
 				<Toggle
 					bind:checked={lockHash}
 					options={{ left: 'Latest version', right: 'Lock current hash permanently' }}

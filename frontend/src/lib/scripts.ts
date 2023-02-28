@@ -5,7 +5,7 @@ import { inferArgs } from './infer'
 import { workspaceStore } from './stores'
 import { emptySchema } from './utils'
 
-export async function loadSchema(path: string): Promise<Schema> {
+export async function loadSchema(path: string, hash?: string): Promise<Schema> {
 	if (path.startsWith('hub/')) {
 		const { content, language, schema } = await ScriptService.getHubScriptByPath({ path })
 		if (language == 'deno') {
@@ -15,6 +15,12 @@ export async function loadSchema(path: string): Promise<Schema> {
 		} else {
 			return schema ?? emptySchema()
 		}
+	} else if (hash) {
+		const script = await ScriptService.getScriptByHash({
+			workspace: get(workspaceStore)!,
+			hash
+		})
+		return script.schema
 	} else {
 		const script = await ScriptService.getScriptByPath({
 			workspace: get(workspaceStore)!,

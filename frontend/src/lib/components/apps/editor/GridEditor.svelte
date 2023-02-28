@@ -135,7 +135,7 @@
 
 <div class="relative w-full z-20 overflow-visible">
 	<div
-		class="w-full sticky  top-0 flex justify-between border-l border-r border-b {$connectingInput?.opened
+		class="w-full sticky top-0 flex justify-between border-l border-r border-b {$connectingInput?.opened
 			? ''
 			: 'bg-gray-50 '} px-4 py-2 items-center gap-4"
 		style="z-index: 1000;"
@@ -149,9 +149,10 @@
 		</div>
 	</div>
 
+	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<div
 		style={$app.css?.['app']?.['grid']?.style}
-		class={twMerge('px-4 pt-4 pb-2  overflow-visible', $app.css?.['app']?.['grid']?.class ?? '')}
+		class={twMerge('px-4 pt-4 pb-2 overflow-visible', $app.css?.['app']?.['grid']?.class ?? '')}
 		on:pointerdown={onpointerdown}
 		on:pointerleave={onpointerup}
 		on:pointerup={onpointerup}

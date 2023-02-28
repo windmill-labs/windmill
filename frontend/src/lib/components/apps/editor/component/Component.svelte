@@ -38,6 +38,7 @@
 	} from '../../components'
 	import type { AppComponent } from './components'
 	import AppAggridTable from '../../components/display/table/AppAggridTable.svelte'
+	import AppDrawer from '../../components/layout/AppDrawer.svelte'
 
 	export let pComponent: AppComponent
 	export let selected: boolean
@@ -232,6 +233,8 @@
 			<AppFileInput {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{:else if component.type === 'imagecomponent'}
 			<AppImage {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+		{:else if component.type === 'drawercomponent'}
+			<AppDrawer {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{/if}
 	</div>
 </div>
