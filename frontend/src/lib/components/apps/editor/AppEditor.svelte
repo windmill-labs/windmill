@@ -84,7 +84,8 @@
 		noBackend: false,
 		errorByComponent,
 		openDebugRun: writable(undefined),
-		focusedGrid
+		focusedGrid,
+		toggleTopLevelDrawer: () => appDrawer.toggleDrawer()
 	})
 
 	let timeout: NodeJS.Timeout | undefined = undefined
@@ -124,10 +125,6 @@
 	} else {
 		selectedTab = 'insert'
 	}
-
-	let appHeight: number
-	let appWidth: number
-	$: console.log({ appHeight })
 </script>
 
 {#if $connectingInput.opened}
@@ -182,19 +179,15 @@
 											'relative mx-auto w-full h-full overflow-auto',
 											app.fullscreen ? '' : 'max-w-6xl'
 										)}
-										bind:clientHeight={appHeight}
-										bind:clientWidth={appWidth}
 									>
 										{#if $appStore.grid}
 											<div class={width}>
 												<GridEditor {policy} />
 											</div>
 
-											<Drawer bind:this={appDrawer} size="800px" open={true}>
+											<Drawer bind:this={appDrawer} size="800px">
 												<DrawerContent title="Argument Details" on:close={appDrawer.toggleDrawer}>
-													<div class="h-full bg-red-500">
-														<span>test</span>
-													</div>
+													<div id="app-editor-top-level-drawer" />
 												</DrawerContent>
 											</Drawer>
 										{/if}
