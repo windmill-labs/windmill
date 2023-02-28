@@ -39,6 +39,7 @@
 	import type { AppComponent } from './components'
 	import AppAggridTable from '../../components/display/table/AppAggridTable.svelte'
 	import AppDrawer from '../../components/layout/AppDrawer.svelte'
+	import AppSplitpanes from '../../components/layout/AppSplitpanes.svelte'
 
 	export let pComponent: AppComponent
 	export let selected: boolean
@@ -222,6 +223,12 @@
 			/>
 		{:else if component.type === 'containercomponent'}
 			<AppContainer
+				{...component}
+				bind:staticOutputs={$staticOutputs[component.id]}
+				{componentContainerHeight}
+			/>
+		{:else if component.type === 'splitpanescomponent'}
+			<AppSplitpanes
 				{...component}
 				bind:staticOutputs={$staticOutputs[component.id]}
 				{componentContainerHeight}

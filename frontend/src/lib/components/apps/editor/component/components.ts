@@ -80,6 +80,7 @@ export type TabsComponent = BaseComponent<'tabscomponent'> & {
 }
 export type ContainerComponent = BaseComponent<'containercomponent'>
 export type DrawerComponent = BaseComponent<'drawercomponent'>
+export type SplitPanesComponent = BaseComponent<'splitpanescomponent'>
 
 export type AppComponent = BaseAppComponent &
 	(
@@ -115,6 +116,7 @@ export type AppComponent = BaseAppComponent &
 		| ImageComponent
 		| AggridComponent
 		| DrawerComponent
+		| SplitPanesComponent
 	)
 
 export type AppComponentDimensions = `${IntRange<
@@ -1335,6 +1337,37 @@ Hello \${ctx.username}
 			componentInput: undefined,
 			card: false,
 			numberOfSubgrids: 1
+		}
+	},
+	splitpanescomponent: {
+		name: 'Split Panes',
+		icon: BoxSelect,
+		dims: '2:8-6:8',
+		data: {
+			softWrap: true,
+			id: '',
+			type: 'splitpanescomponent',
+			configuration: {
+				noPadding: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					onlyStatic: true
+				},
+				orientation: {
+					fieldType: 'select',
+					type: 'static',
+					onlyStatic: true,
+					optionValuesKey: 'splitPanesOrientationOptions',
+					value: 'horizontal'
+				}
+			},
+			customCss: {
+				container: { class: '', style: '' }
+			} as const,
+			componentInput: undefined,
+			card: false,
+			numberOfSubgrids: 2
 		}
 	}
 }
