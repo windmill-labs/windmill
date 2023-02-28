@@ -17,6 +17,9 @@
 	import AppEditorHeader from './AppEditorHeader.svelte'
 	import GridEditor from './GridEditor.svelte'
 
+	import { Drawer, DrawerContent } from '$lib/components/common'
+	let appDrawer: Drawer
+
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 	import { Alert, Button, Tab } from '$lib/components/common'
@@ -24,7 +27,7 @@
 	import Icon from 'svelte-awesome'
 	import { faCode, faPlus, faSliders } from '@fortawesome/free-solid-svg-icons'
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
-	import { encodeState } from '$lib/utils'
+	import { classNames, encodeState } from '$lib/utils'
 	import AppPreview from './AppPreview.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 
@@ -59,7 +62,6 @@
 
 	const runnableComponents = writable<Record<string, () => Promise<void>>>({})
 	const errorByComponent = writable<Record<string, { error: string; componentId: string }>>({})
-
 	const focusedGrid = writable<FocusedGrid | undefined>(undefined)
 
 	setContext<AppEditorContext>('AppEditorContext', {
@@ -122,6 +124,10 @@
 	} else {
 		selectedTab = 'insert'
 	}
+
+	let appHeight: number
+	let appWidth: number
+	$: console.log({ appHeight })
 </script>
 
 {#if $connectingInput.opened}
@@ -172,14 +178,25 @@
 									style={$appStore.css?.['app']?.['viewer']?.style}
 								>
 									<div
-										class="relative  mx-auto w-full h-full overflow-auto {app.fullscreen
-											? ''
-											: 'max-w-6xl'}"
+										class={classNames(
+											'relative mx-auto w-full h-full overflow-auto',
+											app.fullscreen ? '' : 'max-w-6xl'
+										)}
+										bind:clientHeight={appHeight}
+										bind:clientWidth={appWidth}
 									>
 										{#if $appStore.grid}
 											<div class={width}>
 												<GridEditor {policy} />
 											</div>
+
+											<Drawer bind:this={appDrawer} size="800px" open={true}>
+												<DrawerContent title="Argument Details" on:close={appDrawer.toggleDrawer}>
+													<div class="h-full bg-red-500">
+														<span>test</span>
+													</div>
+												</DrawerContent>
+											</Drawer>
 										{/if}
 									</div>
 								</div>

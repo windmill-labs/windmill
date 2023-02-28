@@ -88,7 +88,7 @@
 
 <style>
 	.drawer {
-		position: fixed;
+		position: absolute;
 		top: 0;
 		left: 0;
 		height: 100%;
@@ -106,7 +106,7 @@
 	}
 
 	.overlay {
-		position: fixed;
+		position: absolute;
 		top: 0;
 		left: 0;
 		width: 100%;
@@ -127,7 +127,7 @@
 	}
 
 	.panel {
-		position: fixed;
+		position: absolute;
 		width: 100%;
 		background: white;
 		z-index: 3;

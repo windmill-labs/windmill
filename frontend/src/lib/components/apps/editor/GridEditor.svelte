@@ -10,8 +10,6 @@
 	import type { Policy } from '$lib/gen'
 	import HiddenComponent from '../components/helpers/HiddenComponent.svelte'
 	import Component from './component/Component.svelte'
-	import { Drawer, DrawerContent } from '$lib/components/common'
-	let jsonViewer: Drawer
 
 	export let policy: Policy
 
@@ -137,7 +135,7 @@
 
 <div class="relative w-full z-20 overflow-visible">
 	<div
-		class="w-full sticky  top-0 flex justify-between border-l border-r border-b {$connectingInput?.opened
+		class="w-full sticky top-0 flex justify-between border-l border-r border-b {$connectingInput?.opened
 			? ''
 			: 'bg-gray-50 '} px-4 py-2 items-center gap-4"
 		style="z-index: 1000;"
@@ -163,13 +161,6 @@
 			$focusedGrid = undefined
 		}}
 	>
-		<div class="relative">
-			<Drawer bind:this={jsonViewer} size="800px" customPosition="!left-60 !right-60 !top-[41px]">
-				<DrawerContent title="Argument Details" on:close={jsonViewer.toggleDrawer} />
-			</Drawer>
-			<button on:click={jsonViewer.toggleDrawer}>Show JSON</button>
-		</div>
-
 		<Grid
 			onTopId={$selectedComponent}
 			fillSpace={false}
