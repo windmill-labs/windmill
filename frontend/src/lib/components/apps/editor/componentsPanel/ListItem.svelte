@@ -10,7 +10,7 @@
 	$: isOpen = $isOpenStore[storeTitle]
 </script>
 
-<section class="mt-1 mb-2 px-1">
+<section class="pt-1 pb-2 px-1">
 	<button
 		on:click|preventDefault={() => isOpenStore.toggle(storeTitle)}
 		class="w-full flex justify-between items-center text-gray-700 px-2 py-1 

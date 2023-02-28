@@ -2,12 +2,16 @@
 	import { classNames } from '$lib/utils'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Grid from '@windmill-labs/svelte-grid'
+	import { twMerge } from 'tailwind-merge'
 	import { columnConfiguration, isFixed, toggleFixed } from '../gridUtils'
 	import type { AppEditorContext, GridItem } from '../types'
 	import Component from './component/Component.svelte'
 	import { findGridItem } from './appUtils'
 
 	export let containerHeight: number
+	let classes = ''
+	export { classes as class }
+	export let style = ''
 	export let noPadding = false
 	//export let id: string
 	export let subGrid: GridItem[] = []
@@ -64,12 +68,11 @@
 	bind:this={container}
 >
 	<div
-		class:px-2={!noPadding}
-		class="py-2 overflow-auto  {$connectingInput?.opened ? '' : ''}"
+		class={twMerge('py-2 overflow-auto', classes ?? '', noPadding ? 'px-0' : 'px-2')}
 		on:pointerdown|stopPropagation={onpointerdown}
 		on:pointerleave={onpointerup}
 		on:pointerup={onpointerup}
-		style="height: {containerHeight}px;"
+		style="height: {containerHeight}px; {style ?? ''}"
 	>
 		<div>
 			<Grid
