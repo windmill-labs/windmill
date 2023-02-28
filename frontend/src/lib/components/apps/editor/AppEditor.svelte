@@ -24,7 +24,7 @@
 	import Icon from 'svelte-awesome'
 	import { faCode, faPlus, faSliders } from '@fortawesome/free-solid-svg-icons'
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
-	import { encodeState } from '$lib/utils'
+	import { classNames, encodeState } from '$lib/utils'
 	import AppPreview from './AppPreview.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 
@@ -59,7 +59,6 @@
 
 	const runnableComponents = writable<Record<string, () => Promise<void>>>({})
 	const errorByComponent = writable<Record<string, { error: string; componentId: string }>>({})
-
 	const focusedGrid = writable<FocusedGrid | undefined>(undefined)
 
 	setContext<AppEditorContext>('AppEditorContext', {
@@ -126,7 +125,7 @@
 
 {#if $connectingInput.opened}
 	<div
-		class="absolute  w-full h-screen bg-black border-2 bg-opacity-25 z-20 flex justify-center items-center"
+		class="absolute w-full h-screen bg-black border-2 bg-opacity-25 z-20 flex justify-center items-center"
 	/>
 {/if}
 {#if !$userStore?.operator}
@@ -172,14 +171,17 @@
 									style={$appStore.css?.['app']?.['viewer']?.style}
 								>
 									<div
-										class="relative  mx-auto w-full h-full overflow-auto {app.fullscreen
-											? ''
-											: 'max-w-6xl'}"
+										class={classNames(
+											'relative mx-auto w-full h-full overflow-auto',
+											app.fullscreen ? '' : 'max-w-6xl'
+										)}
 									>
 										{#if $appStore.grid}
 											<div class={width}>
 												<GridEditor {policy} />
 											</div>
+
+											<div id="app-editor-top-level-drawer" />
 										{/if}
 									</div>
 								</div>

@@ -6,7 +6,8 @@ const layout: ComponentSet = {
 		'tabscomponent',
 		'containercomponent',
 		'horizontaldividercomponent',
-		'verticaldividercomponent'
+		'verticaldividercomponent',
+		'drawercomponent'
 	]
 } as const
 
@@ -46,7 +47,7 @@ const display: ComponentSet = {
 		'plotlycomponent',
 		'scatterchartcomponent',
 		'timeseriescomponent',
-		'displaycomponent',
+		'displaycomponent'
 	]
 } as const
 

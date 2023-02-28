@@ -36,6 +36,7 @@
 {#if $app.subgrids?.[`${id}-0`]}
 	<SubGridEditor
 		{noPadding}
+		{id}
 		class={css?.container.class}
 		style={css?.container.style}
 		bind:subGrid={$app.subgrids[`${id}-0`]}

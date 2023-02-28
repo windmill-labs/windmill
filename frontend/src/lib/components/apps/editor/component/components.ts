@@ -27,7 +27,8 @@ import {
 	SeparatorHorizontal,
 	SeparatorVertical,
 	Paperclip,
-	Image
+	Image,
+	SidebarClose
 } from 'lucide-svelte'
 import type { BaseAppComponent } from '../../types'
 
@@ -78,6 +79,7 @@ export type TabsComponent = BaseComponent<'tabscomponent'> & {
 	tabs: string[]
 }
 export type ContainerComponent = BaseComponent<'containercomponent'>
+export type DrawerComponent = BaseComponent<'drawercomponent'>
 
 export type AppComponent = BaseAppComponent &
 	(
@@ -112,6 +114,7 @@ export type AppComponent = BaseAppComponent &
 		| FileInputComponent
 		| ImageComponent
 		| AggridComponent
+		| DrawerComponent
 	)
 
 export type AppComponentDimensions = `${IntRange<
@@ -1273,6 +1276,65 @@ Hello \${ctx.username}
 			},
 			customCss: {},
 			card: false
+		}
+	},
+	drawercomponent: {
+		name: 'Drawer',
+		icon: SidebarClose,
+		dims: '1:1-2:1',
+		data: {
+			softWrap: true,
+			id: '',
+			type: 'drawercomponent',
+			horizontalAlignment: 'center',
+			verticalAlignment: 'center',
+			configuration: {
+				noPadding: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					onlyStatic: true
+				},
+				drawerTitle: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'Drawer title',
+					onlyStatic: true
+				},
+				label: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'Press me'
+				},
+				color: {
+					fieldType: 'select',
+					type: 'static',
+					onlyStatic: true,
+					optionValuesKey: 'buttonColorOptions',
+					value: 'blue'
+				},
+				size: {
+					fieldType: 'select',
+					type: 'static',
+					onlyStatic: true,
+					optionValuesKey: 'buttonSizeOptions',
+					value: 'xs'
+				},
+				fillContainer: {
+					fieldType: 'boolean',
+					type: 'static',
+					onlyStatic: true,
+					value: false
+				},
+				disabled: {
+					fieldType: 'boolean',
+					type: 'eval',
+					expr: 'false'
+				}
+			},
+			componentInput: undefined,
+			card: false,
+			numberOfSubgrids: 1
 		}
 	}
 }
