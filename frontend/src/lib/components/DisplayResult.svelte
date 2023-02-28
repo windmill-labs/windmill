@@ -2,9 +2,10 @@
 	import { Highlight } from 'svelte-highlight'
 	import { json } from 'svelte-highlight/languages'
 	import TableCustom from './TableCustom.svelte'
-	import { truncate } from '$lib/utils'
-	import { Button } from './common'
+	import { copyToClipboard, truncate } from '$lib/utils'
+	import { Button, Drawer, DrawerContent } from './common'
 	import autosize from 'svelte-autosize'
+	import { ClipboardCopy } from 'lucide-svelte'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -86,7 +87,24 @@
 		return 'json'
 	}
 	let payload = ''
+
+	let jsonViewer: Drawer
 </script>
+
+<Drawer bind:this={jsonViewer} size="900px">
+	<DrawerContent title="Expanded Result" on:close={jsonViewer.closeDrawer}>
+		<svelte:fragment slot="actions">
+			<Button
+				on:click={() => copyToClipboard(JSON.stringify(result, null, 4))}
+				color="light"
+				size="xs"
+			>
+				<div class="flex gap-2 items-center">Copy to clipboard <ClipboardCopy /> </div>
+			</Button>
+		</svelte:fragment>
+		<Highlight language={json} code={JSON.stringify(result, null, 4).replace(/\\n/g, '\n')} />
+	</DrawerContent>
+</Drawer>
 
 <div class="inline-highlight">
 	{#if result != undefined}
@@ -94,8 +112,11 @@
 			<div class="mb-2 text-gray-500 text-sm bg-gray-50/20">
 				as JSON&nbsp;<input type="checkbox" bind:checked={forceJson} /></div
 			>{/if}{#if typeof result == 'object' && Object.keys(result).length > 0}<div
-				class="mb-2 text-sm text-gray-700"
-				>The result keys are: <b>{truncate(Object.keys(result).join(', '), 50)}</b></div
+				class="mb-2 text-sm text-gray-700 relative"
+				>The result keys are: <b>{truncate(Object.keys(result).join(', '), 50)}</b>
+				<div class="text-gray-500 text-sm  absolute top-0 right-2">
+					<button on:click={jsonViewer.openDrawer}>Expand JSON</button>
+				</div></div
 			>{/if}{#if !forceJson && resultKind == 'table-col'}<div
 				class="grid grid-flow-col-dense border border-gray-200 rounded-md "
 			>
@@ -223,10 +244,8 @@
 					><a rel="noreferrer" target="_blank" href={result['approvalPage']}>Approval Page</a></div
 				>
 			</div>
-		{:else}<Highlight
-				language={json}
-				code={JSON.stringify(result, null, 4).replace(/\\n/g, '\n')}
-			/>
+		{:else}
+			<Highlight language={json} code={JSON.stringify(result, null, 4).replace(/\\n/g, '\n')} />
 		{/if}
 	{:else}
 		<div class="text-gray-500 text-sm">No result</div>

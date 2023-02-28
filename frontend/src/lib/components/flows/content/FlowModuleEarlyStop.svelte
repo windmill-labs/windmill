@@ -57,6 +57,7 @@
 					pickableProperties={undefined}
 					on:select={({ detail }) => {
 						editor?.insertAtCursor(detail)
+						editor?.focus()
 					}}
 				>
 					<SimpleEditor

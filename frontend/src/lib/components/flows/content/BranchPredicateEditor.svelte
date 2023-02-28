@@ -27,8 +27,7 @@
 		parentModule.id,
 		$flowStore,
 		$previewArgs,
-		false,
-		true
+		false
 	)
 </script>
 
@@ -37,6 +36,7 @@
 	pickableProperties={stepPropPicker.pickableProperties}
 	on:select={({ detail }) => {
 		editor?.insertAtCursor(detail)
+		editor?.focus()
 	}}
 >
 	<div class="border border-gray-400">

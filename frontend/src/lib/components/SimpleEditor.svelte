@@ -110,6 +110,10 @@
 		}
 	}
 
+	export function focus() {
+		editor?.focus()
+	}
+
 	let width = 0
 	async function loadMonaco() {
 		model = meditor.createModel(code, lang, mUri.parse(uri))

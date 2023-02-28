@@ -103,7 +103,7 @@
 					}
 				}
 			} else {
-				console.log('Caught unhandled promise rejection without message', event)
+				console.error('Caught unhandled promise rejection without message', event.reason, event)
 			}
 		}
 		loadUser()

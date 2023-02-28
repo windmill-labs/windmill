@@ -33,8 +33,7 @@
 		mod.id,
 		$flowStore,
 		$previewArgs,
-		false,
-		true
+		false
 	)
 </script>
 
@@ -60,6 +59,7 @@
 								pickableProperties={stepPropPicker.pickableProperties}
 								on:select={({ detail }) => {
 									editor?.insertAtCursor(detail)
+									editor?.focus()
 								}}
 							>
 								<SimpleEditor
