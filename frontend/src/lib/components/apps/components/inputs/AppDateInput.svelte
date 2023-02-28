@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
+	import { twMerge } from 'tailwind-merge'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
-	import type { AppEditorContext } from '../../types'
+	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
+	import { concatCustomCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputDefaultValue from '../helpers/InputDefaultValue.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
@@ -12,8 +14,9 @@
 	export let inputType: 'date' | 'time' | 'datetime-local'
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export const staticOutputs: string[] = ['result']
+	export let customCss: ComponentCustomCSS<'input'> | undefined = undefined
 
-	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, worldStore } = getContext<AppEditorContext>('AppEditorContext')
 	let input: HTMLInputElement
 	let labelValue: string = 'Title'
 	let minValue: string = ''
@@ -29,6 +32,8 @@
 	}
 
 	$: input && handleInput()
+
+	$: css = concatCustomCss($app.css?.dateinputcomponent, customCss)
 </script>
 
 <InputValue {id} input={configuration.label} bind:value={labelValue} />
@@ -46,6 +51,7 @@
 		min={minValue}
 		max={maxValue}
 		placeholder="Type..."
-		class="h-full"
+		class={twMerge('mx-0.5', css?.input?.class ?? '')}
+		style={css?.input?.style ?? ''}
 	/>
 </AlignWrapper>

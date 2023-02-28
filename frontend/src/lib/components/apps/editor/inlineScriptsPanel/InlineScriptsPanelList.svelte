@@ -53,7 +53,11 @@
 	}
 </script>
 
-<div class="mb-0 pb-0 pl-2 sticky top-0 bg-white border-b text-xs font-semibold">Runnables</div>
+<div
+	class="sticky top-0 py-0.5 px-2 text-center bg-gray-200 text-gray-500 text-2xs font-bold tracking-wide border-b border-gray-300"
+>
+	RUNNABLES
+</div>
 <div bind:this={list} class="grow flex flex-col gap-4">
 	<PanelSection title="Inline scripts" smallPadding>
 		<div class="flex flex-col gap-2 w-full">

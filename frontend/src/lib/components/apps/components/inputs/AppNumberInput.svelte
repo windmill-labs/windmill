@@ -2,7 +2,8 @@
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
-	import type { AppEditorContext } from '../../types'
+	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
+	import { concatCustomCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputDefaultValue from '../helpers/InputDefaultValue.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
@@ -11,8 +12,9 @@
 	export let configuration: Record<string, AppInput>
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export const staticOutputs: string[] = ['result']
+	export let customCss: ComponentCustomCSS<'input'> | undefined = undefined
 
-	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, worldStore } = getContext<AppEditorContext>('AppEditorContext')
 	let input: HTMLInputElement
 
 	let defaultValue: number | undefined = undefined
@@ -33,6 +35,8 @@
 	}
 
 	$: input && handleInput()
+
+	$: css = concatCustomCss($app.css?.numberinputcomponent, customCss)
 </script>
 
 <InputValue {id} input={configuration.step} bind:value={step} />
@@ -44,6 +48,8 @@
 
 <AlignWrapper {verticalAlignment}>
 	<input
+		class="mx-0.5 {css?.input?.class ?? ''}"
+		style={css?.input?.style ?? ''}
 		bind:this={input}
 		on:input={handleInput}
 		on:focus={(e) => {

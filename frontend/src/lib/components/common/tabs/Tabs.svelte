@@ -9,11 +9,14 @@
 	import { setContext } from 'svelte'
 	import { writable, type Writable } from 'svelte/store'
 	import { createEventDispatcher } from 'svelte'
-	import { classNames } from '$lib/utils'
+	import { twMerge } from 'tailwind-merge'
 
 	const dispatch = createEventDispatcher()
 
 	export let selected: string
+	let c = ''
+	export { c as class }
+	export let style = ''
 
 	$: selected && updateSelected()
 
@@ -36,10 +39,8 @@
 
 <div class="overflow-x-auto">
 	<div
-		class={classNames(
-			'border-b border-gray-200 flex flex-row whitespace-nowrap  scrollbar-hidden',
-			$$props.class
-		)}
+		class={twMerge('border-b border-gray-200 flex flex-row whitespace-nowrap  scrollbar-hidden', c)}
+		{style}
 	>
 		<slot {selected} />
 	</div>
