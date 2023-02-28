@@ -2,7 +2,8 @@
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../../inputType'
 	import type { Output } from '../../../rx'
-	import type { AppEditorContext } from '../../../types'
+	import type { AppEditorContext, ComponentCustomCSS } from '../../../types'
+	import { concatCustomCss } from '../../../utils'
 	import AlignWrapper from '../../helpers/AlignWrapper.svelte'
 	import InputValue from '../../helpers/InputValue.svelte'
 	import CurrencyInput from './CurrencyInput.svelte'
@@ -11,8 +12,9 @@
 	export let configuration: Record<string, AppInput>
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export const staticOutputs: string[] = ['result']
+	export let customCss: ComponentCustomCSS<'input'> | undefined = undefined
 
-	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
 	let defaultValue: number | undefined = undefined
 
@@ -37,6 +39,8 @@
 	$: value != undefined && handleInput()
 
 	$: defaultValue != undefined && handleDefault()
+
+	$: css = concatCustomCss($app.css?.currencycomponent, customCss)
 </script>
 
 <InputValue {id} input={configuration.defaultValue} bind:value={defaultValue} />
@@ -49,7 +53,12 @@
 		{#key locale}
 			{#key currency}
 				<CurrencyInput
-					inputClasses={{ formatted: 'p-0', wrapper: 'w-full', formattedZero: 'text-black' }}
+					inputClasses={{
+						formatted: 'p-0 ' + css?.input?.class,
+						wrapper: 'w-full',
+						formattedZero: 'text-black ' + css?.input?.class
+					}}
+					style={css?.input?.style}
 					bind:value
 					{currency}
 					{locale}

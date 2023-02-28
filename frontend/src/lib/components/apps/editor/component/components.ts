@@ -951,7 +951,9 @@ Hello \${ctx.username}
 					optionValuesKey: 'localeOptions'
 				}
 			},
-			customCss: {},
+			customCss: {
+				input: { class: '', style: '' }
+			} as const,
 			card: false
 		}
 	},

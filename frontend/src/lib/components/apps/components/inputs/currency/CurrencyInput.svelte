@@ -35,6 +35,7 @@
 	export let isNegativeAllowed: boolean = true
 	export let fractionDigits: number = DEFAULT_FRACTION_DIGITS
 	export let inputClasses: InputClasses | null = null
+	export let style: string = ''
 
 	// Formats value as: e.g. $1,523.00 | -$1,523.00
 	const formatCurrency = (
@@ -175,6 +176,7 @@
 			? inputClasses?.formattedNegative ?? DEFAULT_CLASS_FORMATTED_NEGATIVE
 			: ''}
 		"
+		{style}
 		type="text"
 		inputmode="numeric"
 		name={`formatted-${name}`}
