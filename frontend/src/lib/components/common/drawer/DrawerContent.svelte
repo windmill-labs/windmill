@@ -3,7 +3,6 @@
 	import { faClose } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import { Icon } from 'svelte-awesome'
-	import Button from '../button/Button.svelte'
 
 	export let title: string | undefined = undefined
 	export let overflow_y = true

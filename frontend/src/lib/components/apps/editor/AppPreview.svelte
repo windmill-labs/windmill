@@ -76,6 +76,8 @@
 	$: lockedClasses = isLocked ? '!max-h-[400px] overflow-hidden pointer-events-none' : ''
 </script>
 
+<div id="app-editor-top-level-drawer" />
+
 <div class="relative">
 	<div
 		class="{$$props.class} {lockedClasses} h-full 
@@ -87,6 +89,7 @@
 			</div>
 		{/if}
 	</div>
+
 	{#if isLocked}
 		<!-- svelte-ignore a11y-click-events-have-key-events -->
 		<div

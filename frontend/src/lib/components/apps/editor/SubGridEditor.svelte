@@ -13,17 +13,18 @@
 	export { classes as class }
 	export let style = ''
 	export let noPadding = false
-	//export let id: string
 	export let subGrid: GridItem[] = []
 	export let visible: boolean = true
+	export let id: string
 
 	const dispatch = createEventDispatcher()
 
 	const { app, connectingInput, selectedComponent, focusedGrid } =
 		getContext<AppEditorContext>('AppEditorContext')
 
-	let pointerdown = false
+	$: highlight = id === $focusedGrid?.parentComponentId && $selectedComponent !== id
 
+	let pointerdown = false
 	let onComponent: string | undefined = undefined
 
 	const onpointerdown = (e) => {
@@ -64,11 +65,16 @@
 </script>
 
 <div
-	class="relative w-full subgrid {visible ? 'visible' : 'invisible h-0 overflow-hidden'}"
+	class="relative w-full subgrid {visible ? 'visible' : 'invisible h-0 overflow-hidden'} 	"
 	bind:this={container}
 >
 	<div
-		class={twMerge('py-2 overflow-auto', classes ?? '', noPadding ? 'px-0' : 'px-2')}
+		class={twMerge(
+			'py-2 overflow-auto',
+			classes ?? '',
+			noPadding ? 'px-0' : 'px-2',
+			highlight ? 'border-indigo-500 border border-dashed' : ''
+		)}
 		on:pointerdown|stopPropagation={onpointerdown}
 		on:pointerleave={onpointerup}
 		on:pointerup={onpointerup}
