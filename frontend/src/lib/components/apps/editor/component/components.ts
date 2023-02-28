@@ -1116,6 +1116,12 @@ Hello \${ctx.username}
 					onlyStatic: true
 				}
 			},
+			customCss: {
+				tabRow: { class: '', style: '' },
+				allTabs: { class: '', style: '' },
+				selectedTab: { class: '', style: '' },
+				container: { class: '', style: '' }
+			} as const,
 			componentInput: undefined,
 			card: false,
 			numberOfSubgrids: 2,

@@ -4,13 +4,17 @@
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
-	import type { AppEditorContext, GridItem } from '../../types'
+	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
+	import { concatCustomCss } from '../../utils'
 	import InputValue from '../helpers/InputValue.svelte'
 
 	export let id: string
 	export let configuration: Record<string, AppInput>
 	export let componentContainerHeight: number
 	export let tabs: string[]
+	export let customCss:
+		| ComponentCustomCSS<'tabRow' | 'tabs' | 'selectedTab' | 'container'>
+		| undefined = undefined
 
 	export const staticOutputs: string[] = ['selectedTabIndex']
 	const { app, worldStore, focusedGrid, selectedComponent } =
@@ -54,6 +58,8 @@
 	}
 
 	$: $selectedComponent === id && selectedIndex >= 0 && onFocus()
+
+	$: css = concatCustomCss($app.css?.tabscomponent, customCss)
 </script>
 
 <InputValue {id} input={configuration.tabs} bind:value={tabs} />
@@ -61,9 +67,15 @@
 
 <div>
 	<div bind:clientHeight={tabHeight} on:pointerdown|stopPropagation>
-		<Tabs bind:selected>
+		<Tabs bind:selected class={css?.tabRow?.class} style={css?.tabRow?.style}>
 			{#each tabs ?? [] as res}
-				<Tab value={res}>
+				<Tab
+					value={res}
+					class={css?.tabs?.class}
+					style={css?.tabs?.style}
+					selectedClass={css?.selectedTab?.class}
+					selectedStyle={css?.selectedTab?.style}
+				>
 					<span class="font-semibold">{res}</span>
 				</Tab>
 			{/each}
@@ -75,6 +87,8 @@
 				visible={i === selectedIndex}
 				bind:subGrid={$app.subgrids[`${id}-${i}`]}
 				{noPadding}
+				class={css?.container?.class}
+				style={css?.container?.style}
 				containerHeight={componentContainerHeight - tabHeight}
 				on:focus={() => {
 					$selectedComponent = id
