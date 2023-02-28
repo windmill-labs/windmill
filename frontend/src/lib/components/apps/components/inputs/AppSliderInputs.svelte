@@ -61,15 +61,7 @@
 			{min}
 		</span>
 		<div class="grow" on:pointerdown|stopPropagation={() => ($selectedComponent = id)}>
-			<RangeSlider
-				bind:slider
-				bind:values
-				{step}
-				min={min ?? 0}
-				max={max ?? 1}
-				pips
-				hoverable={false}
-			/>
+			<RangeSlider bind:slider bind:values {step} min={min ?? 0} max={max ?? 1} />
 		</div>
 		<span class={css?.limits?.class ?? ''} style={css?.limits?.style ?? ''}>
 			{max}

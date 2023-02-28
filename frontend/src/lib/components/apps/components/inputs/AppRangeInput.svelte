@@ -55,16 +55,7 @@
 				{min}
 			</span>
 			<div class="grow" on:pointerdown|stopPropagation>
-				<RangeSlider
-					bind:slider
-					bind:values
-					{step}
-					min={min ?? 0}
-					max={max ?? 1}
-					range
-					pips
-					hoverable={false}
-				/>
+				<RangeSlider bind:slider bind:values {step} min={min ?? 0} max={max ?? 1} range />
 				<!-- <RangeSlider {step} range min={min ?? 0} max={max ?? 1} bind:values /> -->
 			</div>
 			<span class={css?.limits?.class ?? ''} style={css?.limits?.style ?? ''}>
