@@ -12,7 +12,12 @@
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
 	import { flowStateStore } from '../flowState'
-	import { schemaToObject, scriptLangToEditorLang } from '$lib/utils'
+	import {
+		getLatestHashForScript,
+		getScriptByPath,
+		schemaToObject,
+		scriptLangToEditorLang
+	} from '$lib/utils'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import { afterUpdate, getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
@@ -71,8 +76,7 @@
 				flowModule.id,
 				$flowStore,
 				$previewArgs,
-				false,
-				true
+				false
 		  )
 
 	function onKeyDown(event: KeyboardEvent) {
@@ -116,6 +120,8 @@
 
 	let isScript = true
 	$: isScript != (value.type === 'script') && (isScript = value.type === 'script')
+
+	let forceReload = 0
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -134,6 +140,16 @@
 						const [module, state] = await fork(flowModule)
 						flowModule = module
 						$flowStateStore[module.id] = state
+					}}
+					on:reload={async () => {
+						if (flowModule.value.type == 'script') {
+							console.log('reload')
+							if (flowModule.value.hash != undefined) {
+								flowModule.value.hash = await getLatestHashForScript(flowModule.value.path)
+							}
+							forceReload++
+							await reload(flowModule)
+						}
 					}}
 					on:createScriptFromInlineScript={async () => {
 						const [module, state] = await createScriptFromInlineScript(
@@ -194,7 +210,9 @@
 								/>
 							</div>
 						{:else if value.type === 'script'}
-							<FlowModuleScript path={value.path} hash={value.hash} />
+							{#key forceReload}
+								<FlowModuleScript path={value.path} hash={value.hash} />
+							{/key}
 						{:else if value.type === 'flow'}
 							<FlowPathViewer path={value.path} />
 						{/if}
