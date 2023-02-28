@@ -131,7 +131,6 @@ export type AppEditorContext = {
 	errorByComponent: Writable<Record<string, { error: string; componentId: string }>>
 	openDebugRun: Writable<((componentID: string) => void) | undefined>
 	focusedGrid: Writable<FocusedGrid | undefined>
-	toggleTopLevelDrawer: () => void
 }
 
 export type FocusedGrid = { parentComponentId: string; subGridIndex: number }

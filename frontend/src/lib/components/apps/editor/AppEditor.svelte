@@ -17,9 +17,6 @@
 	import AppEditorHeader from './AppEditorHeader.svelte'
 	import GridEditor from './GridEditor.svelte'
 
-	import { Drawer, DrawerContent } from '$lib/components/common'
-	let appDrawer: Drawer
-
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 	import { Alert, Button, Tab } from '$lib/components/common'
@@ -84,8 +81,7 @@
 		noBackend: false,
 		errorByComponent,
 		openDebugRun: writable(undefined),
-		focusedGrid,
-		toggleTopLevelDrawer: () => appDrawer.toggleDrawer()
+		focusedGrid
 	})
 
 	let timeout: NodeJS.Timeout | undefined = undefined
@@ -185,11 +181,7 @@
 												<GridEditor {policy} />
 											</div>
 
-											<Drawer bind:this={appDrawer} size="800px">
-												<DrawerContent title="Argument Details" on:close={appDrawer.toggleDrawer}>
-													<div id="app-editor-top-level-drawer" />
-												</DrawerContent>
-											</Drawer>
+											<div id="app-editor-top-level-drawer" />
 										{/if}
 									</div>
 								</div>

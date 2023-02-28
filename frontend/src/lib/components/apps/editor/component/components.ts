@@ -1292,6 +1292,12 @@ Hello \${ctx.username}
 					fieldType: 'boolean',
 					value: false,
 					onlyStatic: true
+				},
+				drawerTitle: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'Drawer title',
+					onlyStatic: true
 				}
 			},
 			componentInput: undefined,
