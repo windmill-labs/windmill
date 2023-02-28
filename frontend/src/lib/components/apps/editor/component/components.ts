@@ -1281,7 +1281,7 @@ Hello \${ctx.username}
 	drawercomponent: {
 		name: 'Drawer',
 		icon: SidebarClose,
-		dims: '2:8-6:8',
+		dims: '1:1-2:1',
 		data: {
 			softWrap: true,
 			id: '',

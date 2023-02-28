@@ -69,7 +69,7 @@
 <InputValue {id} input={configuration.fillContainer} bind:value={fillContainer} />
 
 <Portal target="#app-editor-top-level-drawer">
-	<Drawer bind:this={appDrawer} size="800px" alwaysOpen>
+	<Drawer bind:this={appDrawer} size="800px" alwaysOpen positionClass="!absolute">
 		<DrawerContent title={drawerTitle} on:close={appDrawer.toggleDrawer}>
 			{#if $app.subgrids?.[`${id}-0`]}
 				<SubGridEditor
