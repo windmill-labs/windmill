@@ -42,14 +42,14 @@ export interface BaseAppComponent extends Partial<Aligned> {
 	configuration: Record<
 		string,
 		GeneralAppInput &
-			(
-				| StaticAppInput
-				| ConnectedAppInput
-				| UserAppInput
-				| RowAppInput
-				| EvalAppInput
-				| UploadAppInput
-			)
+		(
+			| StaticAppInput
+			| ConnectedAppInput
+			| UserAppInput
+			| RowAppInput
+			| EvalAppInput
+			| UploadAppInput
+		)
 	>
 	card: boolean | undefined
 	customCss?: ComponentCustomCSS
@@ -131,6 +131,7 @@ export type AppEditorContext = {
 	errorByComponent: Writable<Record<string, { error: string; componentId: string }>>
 	openDebugRun: Writable<((componentID: string) => void) | undefined>
 	focusedGrid: Writable<FocusedGrid | undefined>
+	stateId: Writable<number>
 }
 
 export type FocusedGrid = { parentComponentId: string; subGridIndex: number }
