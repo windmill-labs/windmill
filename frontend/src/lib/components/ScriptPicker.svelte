@@ -11,6 +11,7 @@
 	import { Button, Drawer, DrawerContent } from './common'
 	import HighlightCode from './HighlightCode.svelte'
 	import FlowPathViewer from './flows/content/FlowPathViewer.svelte'
+	import { SELECT_INPUT_DEFAULT_STYLE } from '../defaults'
 
 	export let initialPath: string | undefined = undefined
 	export let scriptPath: string | undefined = undefined
@@ -87,6 +88,8 @@
 			bind:justValue={scriptPath}
 			{items}
 			placeholder="Pick a {itemKind}"
+			inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
+			containerStyles={SELECT_INPUT_DEFAULT_STYLE.containerStyles}
 		/>
 	{/if}
 

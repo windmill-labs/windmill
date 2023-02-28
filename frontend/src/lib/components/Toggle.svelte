@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export let options: {
 		left?: string
@@ -7,6 +8,8 @@
 	} = {}
 	export let checked: boolean = false
 	export let disabled = false
+	export let textClass = ''
+	export let textStyle = ''
 
 	export let size: 'sm' | 'xs' = 'sm'
 	const id = (Math.random() + 1).toString(36).substring(10)
@@ -22,7 +25,13 @@
 	>
 		{#if Boolean(options?.left)}
 			<span
-				class="mr-2 text-sm font-medium duration-200 {disabled ? 'text-gray-600' : 'text-gray-900'}"
+				class={twMerge(
+					'ml-2 font-medium duration-200',
+					disabled ? 'text-gray-500' : 'text-gray-900',
+					size === 'xs' ? 'text-xs' : 'text-sm',
+					textClass
+				)}
+				style={textStyle}
 			>
 				{options?.left}
 			</span>
@@ -51,9 +60,13 @@
 		</div>
 		{#if Boolean(options?.right)}
 			<span
-				class="ml-2 text-sm font-medium duration-200
-				{disabled ? 'text-gray-500' : 'text-gray-900'} 
-				{size === 'xs' ? 'text-xs' : 'text-sm'}"
+				class={twMerge(
+					'ml-2 font-medium duration-200',
+					disabled ? 'text-gray-500' : 'text-gray-900',
+					size === 'xs' ? 'text-xs' : 'text-sm',
+					textClass
+				)}
+				style={textStyle}
 			>
 				{options?.right}
 			</span>

@@ -14,13 +14,18 @@
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import type { AppInput } from '../../inputType'
 	import InputValue from '../helpers/InputValue.svelte'
+	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
+	import { concatCustomCss } from '../../utils'
+	import { getContext } from 'svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
 	export let configuration: Record<string, AppInput>
 	export let initializing: boolean | undefined = undefined
+	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
 
 	export const staticOutputs: string[] = ['loading', 'result']
+	const { app } = getContext<AppEditorContext>('AppEditorContext')
 
 	ChartJS.register(
 		Title,
@@ -60,17 +65,21 @@
 			}
 		]
 	}
+
+	$: css = concatCustomCss($app.css?.piechartcomponent, customCss)
 </script>
 
 <InputValue {id} input={configuration.theme} bind:value={theme} />
 <InputValue {id} input={configuration.doughnutStyle} bind:value={doughnut} />
 
 <RunnableWrapper flexWrap autoRefresh bind:componentInput {id} bind:initializing bind:result>
-	{#if result}
-		{#if doughnut}
-			<Doughnut {data} {options} />
-		{:else}
-			<Pie {data} {options} />
+	<div class="w-full h-full {css?.container?.class ?? ''}" style={css?.container?.style ?? ''}>
+		{#if result}
+			{#if doughnut}
+				<Doughnut {data} {options} />
+			{:else}
+				<Pie {data} {options} />
+			{/if}
 		{/if}
-	{/if}
+	</div>
 </RunnableWrapper>

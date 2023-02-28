@@ -18,6 +18,7 @@
 	export let defaultUserInput = false
 	export let flexWrap = false
 	export let runnableClass = ''
+	export let runnableStyle = ''
 	export let goto: string | undefined = undefined
 
 	const { staticExporter, noBackend } = getContext<AppEditorContext>('AppEditorContext')
@@ -55,6 +56,7 @@
 		{forceSchemaDisplay}
 		{initializing}
 		wrapperClass={runnableClass}
+		wrapperStyle={runnableStyle}
 	>
 		<slot />
 	</RunnableComponent>

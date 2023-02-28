@@ -4,6 +4,7 @@
 	import type { Table } from '@tanstack/svelte-table'
 	import { ChevronLeft, ChevronRight } from 'lucide-svelte'
 	import type { Readable } from 'svelte/store'
+	import { twMerge } from 'tailwind-merge'
 	import { tableOptions } from './tableOptions'
 
 	type T = Record<string, any>
@@ -11,6 +12,9 @@
 	export let result: Array<T>
 	export let paginationEnabled: boolean = false
 	export let table: Readable<Table<T>>
+	let c = ''
+	export { c as class }
+	export let style = ''
 
 	function downloadResultAsJSON() {
 		const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(result))
@@ -23,7 +27,10 @@
 	}
 </script>
 
-<div class="px-2 py-1 text-xs flex flex-row gap-2 items-center justify-between">
+<div
+	class={twMerge('px-2 py-1 text-xs gap-2 items-center justify-between', c, 'flex flex-row')}
+	{style}
+>
 	{#if paginationEnabled && result.length > (tableOptions.initialState?.pagination?.pageSize ?? 25)}
 		<div class="flex items-center gap-2 flex-row">
 			<Button

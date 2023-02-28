@@ -3,7 +3,8 @@
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
-	import type { AppEditorContext } from '../../types'
+	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
+	import { concatCustomCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 
@@ -11,8 +12,9 @@
 	export let configuration: Record<string, AppInput>
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
+	export let customCss: ComponentCustomCSS<'text'> | undefined = undefined
 
-	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
 	export const staticOutputs: string[] = ['result']
 
@@ -27,6 +29,8 @@
 	}
 
 	$: defaultValue != undefined && outputs?.result.set(defaultValue)
+
+	$: css = concatCustomCss($app.css?.checkboxcomponent, customCss)
 </script>
 
 <InputValue {id} input={configuration.label} bind:value={labelValue} />
@@ -40,6 +44,8 @@
 		}}
 		checked={defaultValue}
 		options={{ right: labelValue }}
+		textClass={css?.text?.class ?? ''}
+		textStyle={css?.text?.style ?? ''}
 		on:change={(e) => {
 			outputs.result.set(e.detail)
 		}}
