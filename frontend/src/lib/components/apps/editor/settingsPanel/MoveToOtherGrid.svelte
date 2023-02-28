@@ -15,6 +15,7 @@
 
 	export let component: AppComponent | undefined
 	export let parent: string | undefined
+
 	let selectedOption: string
 
 	const { app } = getContext<AppEditorContext>('AppEditorContext')
@@ -31,9 +32,12 @@
 		}
 
 		const data: AppComponent = JSON.parse(JSON.stringify(node.data))
+		const shouldKeepSubGrid = data.numberOfSubgrids ? data.numberOfSubgrids >= 1 : false
+
 		$dirtyStore = true
 
-		deleteGridItem($app, data, parent)
+		deleteGridItem($app, data, parent, shouldKeepSubGrid)
+
 		return data
 	}
 
@@ -42,15 +46,13 @@
 		targetId: string,
 		targetSubGridIndex: number
 	) {
-		insertNewGridItem(
-			$app,
-			data,
-			{
-				parentComponentId: targetId,
-				subGridIndex: targetSubGridIndex
-			},
-			true
-		)
+		const focusedGrid = {
+			parentComponentId: targetId,
+			subGridIndex: targetSubGridIndex
+		}
+
+		insertNewGridItem($app, data, focusedGrid, true)
+
 		$app.grid = [...$app.grid]
 	}
 

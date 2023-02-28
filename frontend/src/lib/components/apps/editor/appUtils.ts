@@ -93,8 +93,11 @@ export function insertNewGridItem(
 		subGrid.push(createNewGridItem(subGrid, id, data))
 		app.subgrids[key] = subGrid
 	}
-	for (let i = 0; i < (data.numberOfSubgrids ?? 0); i++) {
-		app.subgrids[`${id}-${i}`] = []
+	// We only want to set subgrids when we are not moving
+	if (!keepId) {
+		for (let i = 0; i < (data.numberOfSubgrids ?? 0); i++) {
+			app.subgrids[`${id}-${i}`] = []
+		}
 	}
 
 	return id
@@ -126,10 +129,11 @@ export function getAllSubgridsAndComponentIds(
 export function deleteGridItem(
 	app: App,
 	component: AppComponent,
-	parent: string | undefined
+	parent: string | undefined,
+	shouldKeepSubGrid: boolean
 ): string[] {
 	let [subgrids, components] = getAllSubgridsAndComponentIds(app, component)
-	if (app.subgrids) {
+	if (app.subgrids && !shouldKeepSubGrid) {
 		subgrids.forEach((id) => {
 			delete app.subgrids![id]
 		})
