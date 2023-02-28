@@ -1311,7 +1311,9 @@ async fn create_user(
     if let Some(new_user_webhook) = NEW_USER_WEBHOOK.clone() {
         let _ = HTTP_CLIENT
             .post(&new_user_webhook)
-            .json(&serde_json::json!({"email" : &nu.email, "name": &nu.name, "event": "new_user"}))
+            .json(
+                &serde_json::json!({"email" : &nu.email, "name": &nu.name, "event": "global_add"}),
+            )
             .send()
             .await
             .map_err(|e| tracing::error!("Error sending new user webhook: {}", e.to_string()));
