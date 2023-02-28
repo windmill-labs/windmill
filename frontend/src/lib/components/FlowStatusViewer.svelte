@@ -497,6 +497,7 @@
 									</div>
 								{/if}
 							</div>
+							<
 							<FlowJobResult
 								loading={job['running'] == true}
 								noBorder

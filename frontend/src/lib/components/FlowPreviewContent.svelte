@@ -149,7 +149,7 @@
 	</div>
 	<FlowProgressBar {job} bind:reset={jobProgressReset} />
 
-	<div class="overflow-y-auto grow  divide-y divide-gray-600 ">
+	<div class="overflow-y-auto grow  divide-y divide-gray-600 pr-4">
 		<div class="max-h-1/2 overflow-auto border-b border-gray-700">
 			<SchemaForm
 				noVariablePicker
