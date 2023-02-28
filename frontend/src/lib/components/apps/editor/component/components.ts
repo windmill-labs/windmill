@@ -1193,7 +1193,10 @@ Hello \${ctx.username}
 					onlyStatic: true
 				}
 			},
-			customCss: {},
+			customCss: {
+				container: { class: '', style: '' },
+				divider: { class: '', style: '' }
+			} as const,
 			card: false
 		}
 	},
@@ -1220,7 +1223,10 @@ Hello \${ctx.username}
 					onlyStatic: true
 				}
 			},
-			customCss: {},
+			customCss: {
+				container: { class: '', style: '' },
+				divider: { class: '', style: '' }
+			} as const,
 			card: false
 		}
 	},
