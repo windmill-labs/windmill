@@ -965,7 +965,7 @@ async fn invite_user(
     if let Some(new_user_webhook) = NEW_USER_WEBHOOK.clone() {
         let _ = &HTTP_CLIENT
             .post(&new_user_webhook)
-            .json(&serde_json::json!({"email" : &nu.email, "event": "new_invite"}))
+            .json(&serde_json::json!({"email" : &nu.email, "event": "workspace_invite"}))
             .send()
             .await
             .map_err(|e| tracing::error!("Error sending new user webhook: {}", e.to_string()));
@@ -1001,6 +1001,15 @@ async fn add_user(
     .await?;
 
     tx.commit().await?;
+
+    if let Some(new_user_webhook) = NEW_USER_WEBHOOK.clone() {
+        let _ = HTTP_CLIENT
+            .post(&new_user_webhook)
+            .json(&serde_json::json!({"email" : &nu.email, "event": "workspace_add"}))
+            .send()
+            .await
+            .map_err(|e| tracing::error!("Error sending new user webhook: {}", e.to_string()));
+    }
 
     Ok((
         StatusCode::CREATED,
