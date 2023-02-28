@@ -28,7 +28,7 @@
 	function deleteSubgrid(index: number) {
 		let subgrid = `${component.id}-${index}`
 		for (const item of $app!.subgrids![subgrid]) {
-			const components = deleteGridItem($app, item.data, subgrid)
+			const components = deleteGridItem($app, item.data, subgrid, false)
 			console.log(components)
 			for (const key in components) {
 				delete $staticOutputs[key]
