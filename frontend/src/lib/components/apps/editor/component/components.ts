@@ -908,7 +908,9 @@ Hello \${ctx.username}
 					fieldType: 'number'
 				}
 			},
-			customCss: {},
+			customCss: {
+				input: { class: '', style: '' }
+			} as const,
 			card: false
 		}
 	},
