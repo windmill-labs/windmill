@@ -180,11 +180,21 @@ pub async fn find_recursively_downward(
                     .find(|m| m.id() == node_id)
                     .and_then(|m| m.job_result())
             });
-            return Ok(result_id);
+            if result_id.is_some() {
+                return Ok(result_id);
+            } else {
+                status_o.and_then(|status| {
+                    status
+                        .modules
+                        .iter()
+                        .and_then(|m| m.successful_flow_jobs)
+                        .for_each(|f| bfs_stack.push_back(f));
+            });
         }
     }
     Ok(None)
 }
+
 pub async fn get_result_by_id(
     db: Pool<Postgres>,
     mut skip_direct: bool,

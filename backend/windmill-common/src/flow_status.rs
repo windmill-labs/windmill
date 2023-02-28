@@ -152,6 +152,13 @@ impl FlowStatusModule {
         }
     }
 
+    pub fn successful_flow_jobs(&self) -> Option<Vec<Uuid>> {
+        match self {
+            FlowStatusModule::Success { flow_jobs, .. } => flow_jobs.clone(),
+            _ => None,
+        }
+    }
+
     pub fn job_result(&self) -> Option<JobResult> {
         self.flow_jobs()
             .map(JobResult::ListJob)
