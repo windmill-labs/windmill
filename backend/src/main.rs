@@ -60,6 +60,60 @@ async fn main() -> anyhow::Result<()> {
     let (tx, rx) = tokio::sync::broadcast::channel::<()>(3);
     let shutdown_signal = windmill_common::shutdown_signal(tx);
 
+    #[cfg(feature = "enterprise")]
+    tracing::info!(
+        "
+##############################
+Windmill Enterprise Edition {GIT_VERSION}
+##############################"
+    );
+
+    #[cfg(not(feature = "enterprise"))]
+    tracing::info!(
+        "
+##############################
+Windmill Community Edition {GIT_VERSION}
+##############################"
+    );
+
+    display_config(vec![
+        "DISABLE_NSJAIL",
+        "DISABLE_SERVER",
+        "NUM_WORKERS",
+        "METRICS_ADDR",
+        "JSON_FMT",
+        "BASE_URL",
+        "BASE_INTERNAL_URL",
+        "TIMEOUT",
+        "SLEEP_QUEUE",
+        "MAX_LOG_SIZE",
+        "PORT",
+        "KEEP_JOB_DIR",
+        "S3_CACHE_BUCKET",
+        "TAR_CACHE_RATE",
+        "COOKIE_DOMAIN",
+        "PYTHON_PATH",
+        "DENO_PATH",
+        "GO_PATH",
+        "PIP_INDEX_URL",
+        "PIP_EXTRA_INDEX_URL",
+        "PIP_TRUSTED_HOST",
+        "PATH",
+        "HOME",
+        "DATABASE_CONNECTIONS",
+        "TIMEOUT_WAIT_RESULT",
+        "QUEUE_LIMIT_WAIT_RESULT",
+        "DENO_AUTH_TOKENS",
+        "DENO_FLAGS",
+        "PIP_LOCAL_DEPENDENCIES",
+        "ADDITIONAL_PYTHON_PATHS",
+        "INCLUDE_HEADERS",
+        "WHITELIST_WORKSPACES",
+        "BLACKLIST_WORKSPACES",
+        "NEW_USER_WEBHOOK",
+        "CLOUD_HOSTED",
+    ]);
+
     if server_mode || num_workers > 0 {
         let addr = SocketAddr::from(([0, 0, 0, 0], port));
 
@@ -72,60 +126,6 @@ async fn main() -> anyhow::Result<()> {
 
         let workers_f = async {
             if num_workers > 0 {
-                #[cfg(feature = "enterprise")]
-                tracing::info!(
-                    "
-##############################
-Windmill Enterprise Edition {GIT_VERSION}
-##############################"
-                );
-
-                #[cfg(not(feature = "enterprise"))]
-                tracing::info!(
-                    "
-##############################
-Windmill Community Edition {GIT_VERSION}
-##############################"
-                );
-
-                display_config(vec![
-                    "DISABLE_NSJAIL",
-                    "DISABLE_SERVER",
-                    "NUM_WORKERS",
-                    "METRICS_ADDR",
-                    "JSON_FMT",
-                    "BASE_URL",
-                    "BASE_INTERNAL_URL",
-                    "TIMEOUT",
-                    "SLEEP_QUEUE",
-                    "MAX_LOG_SIZE",
-                    "PORT",
-                    "KEEP_JOB_DIR",
-                    "S3_CACHE_BUCKET",
-                    "TAR_CACHE_RATE",
-                    "COOKIE_DOMAIN",
-                    "PYTHON_PATH",
-                    "DENO_PATH",
-                    "GO_PATH",
-                    "PIP_INDEX_URL",
-                    "PIP_EXTRA_INDEX_URL",
-                    "PIP_TRUSTED_HOST",
-                    "PATH",
-                    "HOME",
-                    "DATABASE_CONNECTIONS",
-                    "TIMEOUT_WAIT_RESULT",
-                    "QUEUE_LIMIT_WAIT_RESULT",
-                    "DENO_AUTH_TOKENS",
-                    "DENO_FLAGS",
-                    "PIP_LOCAL_DEPENDENCIES",
-                    "ADDITIONAL_PYTHON_PATHS",
-                    "INCLUDE_HEADERS",
-                    "WHITELIST_WORKSPACES",
-                    "BLACKLIST_WORKSPACES",
-                    "NEW_USER_WEBHOOK",
-                    "CLOUD_HOSTED",
-                ]);
-
                 run_workers(
                     db.clone(),
                     rx.resubscribe(),

@@ -39,6 +39,7 @@
 	export function closeDrawer() {
 		drawer?.closeDrawer()
 		const index = $page.url.href.lastIndexOf('#')
+		if (index === -1) return
 		const hashRemoved = $page.url.href.slice(0, index)
 		goto(hashRemoved)
 	}
