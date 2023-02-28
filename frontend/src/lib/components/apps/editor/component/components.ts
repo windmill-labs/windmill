@@ -1061,7 +1061,9 @@ Hello \${ctx.username}
 					onlyStatic: true
 				}
 			},
-			customCss: {},
+			customCss: {
+				input: { class: '', style: '' }
+			} as const,
 			card: false
 		}
 	},

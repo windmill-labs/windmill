@@ -14,6 +14,7 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export const staticOutputs: string[] = ['result']
 	export let customCss: ComponentCustomCSS<'input'> | undefined = undefined
+	export let appCssKey: 'textinputcomponent' | 'passwordinputcomponent' = 'textinputcomponent'
 
 	const { app, worldStore } = getContext<AppEditorContext>('AppEditorContext')
 	let input: HTMLInputElement
@@ -31,7 +32,7 @@
 
 	$: input && handleInput()
 
-	$: css = concatCustomCss($app.css?.textinputcomponent, customCss)
+	$: css = concatCustomCss($app.css?.[appCssKey], customCss)
 </script>
 
 <InputValue {id} input={configuration.placeholder} bind:value={placeholder} />

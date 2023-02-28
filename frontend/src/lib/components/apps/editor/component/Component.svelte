@@ -192,6 +192,7 @@
 		{:else if component.type === 'passwordinputcomponent'}
 			<AppTextInput
 				inputType="password"
+				appCssKey="passwordinputcomponent"
 				{...component}
 				bind:staticOutputs={$staticOutputs[component.id]}
 			/>
