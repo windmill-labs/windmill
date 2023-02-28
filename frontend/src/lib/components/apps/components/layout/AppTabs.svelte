@@ -72,6 +72,7 @@
 	{#if $app.subgrids}
 		{#each tabs ?? [] as res, i}
 			<SubGridEditor
+				{id}
 				visible={i === selectedIndex}
 				bind:subGrid={$app.subgrids[`${id}-${i}`]}
 				{noPadding}
