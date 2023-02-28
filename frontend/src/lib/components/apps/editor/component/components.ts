@@ -1286,6 +1286,8 @@ Hello \${ctx.username}
 			softWrap: true,
 			id: '',
 			type: 'drawercomponent',
+			horizontalAlignment: 'center',
+			verticalAlignment: 'center',
 			configuration: {
 				noPadding: {
 					type: 'static',
@@ -1298,6 +1300,36 @@ Hello \${ctx.username}
 					fieldType: 'text',
 					value: 'Drawer title',
 					onlyStatic: true
+				},
+				label: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'Press me'
+				},
+				color: {
+					fieldType: 'select',
+					type: 'static',
+					onlyStatic: true,
+					optionValuesKey: 'buttonColorOptions',
+					value: 'blue'
+				},
+				size: {
+					fieldType: 'select',
+					type: 'static',
+					onlyStatic: true,
+					optionValuesKey: 'buttonSizeOptions',
+					value: 'xs'
+				},
+				fillContainer: {
+					fieldType: 'boolean',
+					type: 'static',
+					onlyStatic: true,
+					value: false
+				},
+				disabled: {
+					fieldType: 'boolean',
+					type: 'eval',
+					expr: 'false'
 				}
 			},
 			componentInput: undefined,
