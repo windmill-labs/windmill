@@ -1259,7 +1259,9 @@ Hello \${ctx.username}
 					onlyStatic: true
 				}
 			},
-			customCss: {},
+			customCss: {
+				container: { class: '', style: '' }
+			} as const,
 			card: false
 		}
 	},
