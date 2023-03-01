@@ -20,7 +20,7 @@ use ulid::Ulid;
 use uuid::Uuid;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
-    error::{self, Error},
+    error::{self, to_anyhow, Error},
     flow_status::{FlowStatus, JobResult, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL},
     flows::{FlowModule, FlowModuleValue, FlowValue},
     scripts::{get_full_hub_script_by_path, HubScript, ScriptHash, ScriptLang},
@@ -164,7 +164,8 @@ pub async fn find_recursively_downward(
     while bfs_stack.len() > 0 {
         let parent_id = bfs_stack.pop_front().unwrap();
         let job = sqlx::query_scalar!(
-            "SELECT flow_status FROM completed_job WHERE id = $1 AND workspace_id = $2",
+            "SELECT flow_status FROM completed_job WHERE id = $1 AND workspace_id = $2 
+            UNION ALL SELECT flow_status FROM queue WHERE id = $1 AND workspace_id = $2 ",
             parent_id,
             w_id
         )
@@ -172,24 +173,16 @@ pub async fn find_recursively_downward(
         .await?
         .flatten();
         if let Some(r) = job {
-            let status_o = serde_json::from_value::<FlowStatus>(r).ok();
-            let result_id = status_o.and_then(|status| {
-                status
-                    .modules
-                    .iter()
-                    .find(|m| m.id() == node_id)
-                    .and_then(|m| m.job_result())
-            });
-            if result_id.is_some() {
-                return Ok(result_id);
-            } else {
-                status_o.and_then(|status| {
-                    status
-                        .modules
-                        .iter()
-                        .and_then(|m| m.successful_flow_jobs)
-                        .for_each(|f| bfs_stack.push_back(f));
-            });
+            let status = serde_json::from_value::<FlowStatus>(r).map_err(to_anyhow)?;
+            for m in status.modules.iter() {
+                let id = m.id();
+                if id == node_id {
+                    return Ok(m.job_result());
+                }
+                if let Some(job_id) = m.job() {
+                    bfs_stack.push_back(job_id);
+                }
+            }
         }
     }
     Ok(None)
@@ -208,7 +201,8 @@ pub async fn get_result_by_id(
     while result_id.is_none() && parent_id.is_some() {
         if !skip_direct {
             let r = sqlx::query!(
-                "SELECT flow_status, parent_job FROM completed_job WHERE id = $1 AND workspace_id = $2 UNION ALL SELECT flow_status, parent_job FROM queue WHERE id = $1 AND workspace_id = $2 ",
+                "SELECT flow_status, parent_job FROM completed_job WHERE id = $1 AND workspace_id = $2 
+                UNION ALL SELECT flow_status, parent_job FROM queue WHERE id = $1 AND workspace_id = $2 ",
                 parent_id.unwrap(),
                 w_id,
             )
