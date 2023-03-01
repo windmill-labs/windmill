@@ -93,9 +93,8 @@
 		}}
 	>
 		<RunnableWrapper
-			defaultUserInput
 			bind:runnableComponent
-			bind:componentInput
+			{componentInput}
 			{id}
 			{extraQueryParams}
 			autoRefresh={false}

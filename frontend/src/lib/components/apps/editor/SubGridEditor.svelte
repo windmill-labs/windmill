@@ -117,7 +117,7 @@
 						>
 							<Component
 								{pointerdown}
-								bind:component={gridComponent.data}
+								component={gridComponent.data}
 								selected={$selectedComponent === dataItem.data.id}
 								locked={isFixed(gridComponent)}
 								on:lock={() => lock(gridComponent)}

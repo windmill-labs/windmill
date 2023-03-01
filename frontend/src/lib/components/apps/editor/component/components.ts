@@ -82,8 +82,12 @@ export type TabsComponent = BaseComponent<'tabscomponent'> & {
 }
 export type ContainerComponent = BaseComponent<'containercomponent'>
 export type DrawerComponent = BaseComponent<'drawercomponent'>
-export type VerticalSplitPanesComponent = BaseComponent<'verticalsplitpanescomponent'>
-export type HorizontalSplitPanesComponent = BaseComponent<'horizontalsplitpanescomponent'>
+export type VerticalSplitPanesComponent = BaseComponent<'verticalsplitpanescomponent'> & {
+	panes: number[]
+}
+export type HorizontalSplitPanesComponent = BaseComponent<'horizontalsplitpanescomponent'> & {
+	panes: number[]
+}
 
 export type AppComponent = BaseAppComponent &
 	(
@@ -1386,12 +1390,6 @@ Hello \${ctx.username}
 					fieldType: 'boolean',
 					value: false,
 					onlyStatic: true
-				},
-				numberOfPanes: {
-					type: 'static',
-					fieldType: 'number',
-					value: 2,
-					onlyStatic: true
 				}
 			},
 			customCss: {
@@ -1399,6 +1397,7 @@ Hello \${ctx.username}
 			} as const,
 			componentInput: undefined,
 			card: false,
+			panes: [50, 50],
 			numberOfSubgrids: 2
 		}
 	},
@@ -1417,18 +1416,13 @@ Hello \${ctx.username}
 					value: false,
 					onlyStatic: true
 				},
-				numberOfPanes: {
-					type: 'static',
-					fieldType: 'number',
-					value: 2,
-					onlyStatic: true
-				}
 			},
 			customCss: {
 				container: { class: '', style: '' }
 			} as const,
 			componentInput: undefined,
 			card: false,
+			panes: [50, 50],
 			numberOfSubgrids: 2
 		}
 	}

@@ -105,7 +105,7 @@
 <RunnableWrapper
 	flexWrap
 	bind:runnableComponent
-	bind:componentInput
+	{componentInput}
 	{id}
 	{extraQueryParams}
 	autoRefresh={false}

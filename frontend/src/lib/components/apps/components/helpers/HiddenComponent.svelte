@@ -1,5 +1,10 @@
 <script lang="ts">
-	import type { ConnectedAppInput, RowAppInput, StaticAppInput, UserAppInput } from '../../inputType'
+	import type {
+		ConnectedAppInput,
+		RowAppInput,
+		StaticAppInput,
+		UserAppInput
+	} from '../../inputType'
 	import type { InlineScript } from '../../types'
 	import RunnableComponent from './RunnableComponent.svelte'
 
@@ -15,7 +20,7 @@
 
 <RunnableComponent
 	{id}
-	bind:fields
+	{fields}
 	bind:result
 	runnable={{
 		name,

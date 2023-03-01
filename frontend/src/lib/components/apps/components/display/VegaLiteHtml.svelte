@@ -52,7 +52,7 @@
 <InputValue {id} input={configuration.canvas} bind:value={canvas} />
 
 <div class="w-full h-full" bind:clientHeight={h} bind:clientWidth={w}>
-	<RunnableWrapper flexWrap bind:componentInput {id} bind:initializing bind:result>
+	<RunnableWrapper flexWrap {componentInput} {id} bind:initializing bind:result>
 		<div on:pointerdown bind:this={divEl} />
 	</RunnableWrapper>
 </div>

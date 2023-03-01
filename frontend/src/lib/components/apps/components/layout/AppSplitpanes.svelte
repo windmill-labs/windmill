@@ -11,15 +11,14 @@
 	export let configuration: Record<string, AppInput>
 	export let componentContainerHeight: number
 	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
-	export let numberOfSubgrids: number | undefined = undefined
 	export let horizontal: boolean = false
+	export let panes: number[]
 
 	export const staticOutputs: string[] = []
 
 	const { app, focusedGrid, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
 
 	let noPadding: boolean | undefined = undefined
-	let numberOfPanes: number = Number(numberOfSubgrids) ?? 0
 
 	function onFocus() {
 		$focusedGrid = {
@@ -28,33 +27,13 @@
 		}
 	}
 
-	$: paneSizes = []
-
-	$: if (numberOfPanes !== paneSizes.length) {
-		for (let i = numberOfPanes; i < paneSizes.length; i++) {
-			if ($app.subgrids && $app.subgrids?.[`${id}-${i}`]) {
-				delete $app.subgrids[`${id}-${i}`]
-			}
-		}
-
-		numberOfSubgrids = numberOfPanes
-		paneSizes = Array.from({ length: numberOfPanes }, (_, i) => paneSizes?.[i - 1] ?? 20)
-
-		for (let i = 0; i < numberOfPanes; i++) {
-			if ($app.subgrids && !$app.subgrids?.[`${id}-${i}`]) {
-				$app.subgrids[`${id}-${i}`] = []
-			}
-		}
-	}
-
 	$: $selectedComponent === id && onFocus()
 	$: css = concatCustomCss($app.css?.containercomponent, customCss)
 </script>
 
 <InputValue {id} input={configuration.noPadding} bind:value={noPadding} />
-<InputValue {id} input={configuration.numberOfPanes} bind:value={numberOfPanes} />
 
-<div on:pointerdown|stopPropagation>
+<div class="h-full w-full" on:pointerdown|stopPropagation>
 	<Splitpanes {horizontal}>
 		{#each paneSizes as paneSize, index}
 			<Pane bind:size={paneSize} minSize={20}>

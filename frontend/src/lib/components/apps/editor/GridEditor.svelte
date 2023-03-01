@@ -20,7 +20,6 @@
 		connectingInput,
 		staticOutputs,
 		runnableComponents,
-		lazyGrid,
 		summary,
 		focusedGrid
 	} = getContext<AppEditorContext>('AppEditorContext')
@@ -95,21 +94,6 @@
 		}
 	}
 
-	$: $app.grid && recomputeLazyGrid()
-
-	let intervalId: NodeJS.Timeout | undefined = undefined
-	function recomputeLazyGrid() {
-		{
-			if (intervalId) {
-				clearTimeout(intervalId)
-			}
-			intervalId = setTimeout(() => {
-				lazyGrid.set($app.grid)
-				intervalId = undefined
-			}, 500)
-		}
-	}
-
 	let pointerdown = false
 	const onpointerdown = () => {
 		pointerdown = true
@@ -172,7 +156,7 @@
 				fastStart={true}
 				gap={[4, 2]}
 			>
-				{#each $lazyGrid as gridComponent (gridComponent.id)}
+				{#each $app.grid as gridComponent (gridComponent.id)}
 					{#if gridComponent?.data?.id && gridComponent?.data?.id === dataItem?.data?.id}
 						<!-- svelte-ignore a11y-click-events-have-key-events -->
 						{#if $connectingInput.opened}
@@ -199,7 +183,7 @@
 						>
 							<Component
 								{pointerdown}
-								bind:component={gridComponent.data}
+								component={gridComponent.data}
 								selected={$selectedComponent === dataItem.data.id}
 								locked={isFixed(gridComponent)}
 								on:delete={() => removeGridElement(gridComponent.data)}
@@ -225,7 +209,7 @@
 				id={`bg_${index}`}
 				inlineScript={script.inlineScript}
 				name={script.name}
-				bind:fields={script.fields}
+				fields={script.fields}
 				bind:staticOutputs={$staticOutputs[`bg_${index}`]}
 			/>
 		{/if}

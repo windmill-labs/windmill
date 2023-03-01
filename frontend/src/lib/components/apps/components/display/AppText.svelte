@@ -64,7 +64,7 @@
 <InputValue {id} input={configuration.style} bind:value={style} />
 <InputValue {id} input={configuration.copyButton} bind:value={copyButton} />
 
-<RunnableWrapper flexWrap bind:componentInput {id} bind:initializing bind:result>
+<RunnableWrapper flexWrap {componentInput} {id} bind:initializing bind:result>
 	<AlignWrapper {horizontalAlignment} {verticalAlignment}>
 		{#if !result || result === ''}
 			<div class="text-gray-400 bg-gray-100 flex justify-center items-center h-full w-full">
