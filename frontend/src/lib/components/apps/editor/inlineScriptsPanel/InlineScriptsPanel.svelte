@@ -21,7 +21,9 @@
 		</Pane>
 		<Pane size={75}>
 			{#if !selectedScriptComponentId}
-				<span class="p-2 text-sm text-gray-600">Select a script on the left panel</span>
+				<div class="text-sm text-gray-500 text-center py-8 px-2">
+					Select a script on the left panel
+				</div>
 			{/if}
 
 			{#each $app.grid as gridItem (gridItem.data.id)}

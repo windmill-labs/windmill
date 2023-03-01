@@ -1,16 +1,19 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
+	import { twMerge } from 'tailwind-merge'
 	import { FileInput } from '../../../common'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
-	import type { AppEditorContext } from '../../types'
+	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
+	import { concatCustomCss } from '../../utils'
 	import InputValue from '../helpers/InputValue.svelte'
 
 	export let id: string
 	export let configuration: Record<string, AppInput>
 	export const staticOutputs: string[] = ['result']
+	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
 
-	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
 	let acceptedFileTypes: string[] | undefined = undefined
 	let allowMultiple: boolean | undefined = undefined
@@ -24,6 +27,8 @@
 	async function handleChange(files: string[] | undefined) {
 		outputs?.result.set(files)
 	}
+
+	$: css = concatCustomCss($app.css?.fileinputcomponent, customCss)
 </script>
 
 <InputValue {id} input={configuration.acceptedFileTypes} bind:value={acceptedFileTypes} />
@@ -38,7 +43,8 @@
 		on:change={({ detail }) => {
 			handleChange(detail)
 		}}
-		class="w-full h-full"
+		class={twMerge('w-full h-full', css?.container?.class)}
+		style={css?.container?.style}
 	>
 		{text}
 	</FileInput>

@@ -85,7 +85,7 @@
 			items={listItems}
 			class={css?.input?.class ?? ''}
 			inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-			containerStyles={SELECT_INPUT_DEFAULT_STYLE.containerStyles + css?.input.style}
+			containerStyles={SELECT_INPUT_DEFAULT_STYLE.containerStyles + css?.input?.style}
 			{value}
 			{placeholder}
 			on:click={() => {

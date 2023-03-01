@@ -6,6 +6,7 @@
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import { AppService, type CompletedJob } from '$lib/gen'
 	import { defaultIfEmptyString, emptySchema, sendUserToast } from '$lib/utils'
+	import { deepEqual } from 'fast-equals'
 	import { getContext, onMount } from 'svelte'
 	import { computeFields } from '../../editor/inlineScriptsPanel/utils'
 	import type { AppInputs, Runnable } from '../../inputType'
@@ -38,7 +39,8 @@
 		jobs,
 		noBackend,
 		errorByComponent,
-		mode
+		mode,
+		stateId
 	} = getContext<AppEditorContext>('AppEditorContext')
 
 	onMount(() => {
@@ -113,13 +115,11 @@
 			// Inline scripts directly provide the schema
 			if (inlineScript) {
 				const newSchema = inlineScript.schema
-
 				const newFields = computeFields(newSchema, defaultUserInput, fields)
 
-				if (JSON.stringify(newFields) !== JSON.stringify(fields)) {
-					setTimeout(() => {
-						fields = newFields
-					}, 0)
+				if (!deepEqual(newFields, fields)) {
+					fields = newFields
+					$stateId++
 				}
 			}
 		}

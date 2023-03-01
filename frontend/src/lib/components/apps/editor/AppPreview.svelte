@@ -62,7 +62,8 @@
 		noBackend,
 		errorByComponent: writable({}),
 		openDebugRun: writable(undefined),
-		focusedGrid: writable(undefined)
+		focusedGrid: writable(undefined),
+		stateId: writable(0)
 	})
 
 	let mounted = false
