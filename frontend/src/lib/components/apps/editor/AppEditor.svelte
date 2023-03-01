@@ -65,7 +65,6 @@
 		worldStore,
 		staticOutputs,
 		app: appStore,
-		lazyGrid: writable([]),
 		summary: summaryStore,
 		selectedComponent,
 		mode,

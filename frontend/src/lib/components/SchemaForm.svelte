@@ -84,7 +84,7 @@
 							bind:pickForField
 							{noDynamicToggle}
 						/>
-					{:else if typeof args == 'object'}
+					{:else if typeof args == 'object' && schema?.properties[argName]}
 						<ArgInput
 							autofocus={i == 0 && autofocus}
 							label={argName}

@@ -62,10 +62,10 @@ function processGridItemRunnable(gridItem: GridItem, list: AppScriptsList): AppS
 }
 
 export function getAppScripts(
-	lazyGrid: GridItem[],
+	grid: GridItem[],
 	subgrids: Record<string, GridItem[]> | undefined
 ): AppScriptsList {
-	const scriptsList = lazyGrid.reduce(
+	const scriptsList = grid.reduce(
 		(acc, gridComponent) => processGridItemRunnable(gridComponent, acc),
 		{ inline: [], imported: [] } as AppScriptsList
 	)

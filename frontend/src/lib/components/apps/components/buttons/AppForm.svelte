@@ -22,7 +22,8 @@
 
 	export const staticOutputs: string[] = ['loading', 'result']
 
-	const { app, runnableComponents, worldStore } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, runnableComponents, worldStore, stateId } =
+		getContext<AppEditorContext>('AppEditorContext')
 
 	let labelValue: string = 'Default label'
 	let color: ButtonType.Color
@@ -33,7 +34,8 @@
 	let isLoading: boolean = false
 
 	$: noInputs =
-		componentInput?.type != 'runnable' || Object.keys(componentInput?.fields ?? {}).length == 0
+		$stateId != undefined &&
+		(componentInput?.type != 'runnable' || Object.keys(componentInput?.fields ?? {}).length == 0)
 
 	$: outputs = $worldStore?.outputsById[id] as {
 		result: Output<Array<any>>
@@ -59,9 +61,8 @@
 <InputValue {id} input={configuration.size} bind:value={size} />
 
 <RunnableWrapper
-	defaultUserInput
 	bind:runnableComponent
-	bind:componentInput
+	{componentInput}
 	{id}
 	{goto}
 	{extraQueryParams}

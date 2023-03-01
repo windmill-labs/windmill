@@ -15,6 +15,7 @@
 	import { deepEqual } from 'fast-equals'
 
 	export let componentInput: AppInput | undefined
+	export let defaultUserInput = false
 	export let id: string
 
 	async function fork(path: string) {
@@ -73,9 +74,12 @@
 	{#if componentInput?.runnable?.type === 'runnableByName' && componentInput?.runnable?.name !== undefined}
 		{#if componentInput.runnable.inlineScript}
 			<InlineScriptEditor
+				{defaultUserInput}
 				{id}
 				bind:inlineScript={componentInput.runnable.inlineScript}
 				bind:name={componentInput.runnable.name}
+				bind:fields={componentInput.fields}
+				syncFields
 				on:delete={() => {
 					if (componentInput && componentInput.type == 'runnable') {
 						componentInput = clearResultAppInput(componentInput)
