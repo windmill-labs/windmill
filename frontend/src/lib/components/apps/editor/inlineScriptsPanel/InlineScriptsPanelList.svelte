@@ -11,7 +11,7 @@
 	const PREFIX = 'script-selector-' as const
 
 	export let selectedScriptComponentId: string | undefined = undefined
-	const { app, selectedComponent, lazyGrid } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
 	let list: HTMLElement
 
 	function selectScript(id: string) {
@@ -21,7 +21,7 @@
 		}
 	}
 
-	$: runnables = getAppScripts($lazyGrid, $app.subgrids)
+	$: runnables = getAppScripts($app.grid, $app.subgrids)
 
 	// When selected component changes, update selectedScriptComponentId
 	$: if ($selectedComponent != selectedScriptComponentId) {

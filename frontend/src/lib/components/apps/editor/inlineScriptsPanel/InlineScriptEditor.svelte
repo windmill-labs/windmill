@@ -13,14 +13,20 @@
 	import { emptySchema, scriptLangToEditorLang } from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import Popover from '../../../Popover.svelte'
+	import { computeFields } from './utils'
+	import { deepEqual } from 'fast-equals'
+	import type { AppInput } from '../../inputType'
 
 	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
 
 	export let inlineScript: InlineScript
 	export let name: string | undefined = undefined
 	export let id: string
+	export let defaultUserInput: boolean = false
+	export let fields: Record<string, AppInput> = {}
+	export let syncFields: boolean = false
 
-	const { runnableComponents } = getContext<AppEditorContext>('AppEditorContext')
+	const { runnableComponents, stateId } = getContext<AppEditorContext>('AppEditorContext')
 
 	let editor: Editor
 	let validCode = true
@@ -52,6 +58,18 @@
 	})
 	const dispatch = createEventDispatcher()
 	let runLoading = false
+
+	async function loadSchemaAndInputsByName() {
+		if (syncFields) {
+			const newSchema = inlineScript.schema
+			const newFields = computeFields(newSchema, defaultUserInput, fields)
+
+			if (!deepEqual(newFields, fields)) {
+				fields = newFields
+				$stateId++
+			}
+		}
+	}
 </script>
 
 <InlineScriptEditorDrawer {editor} bind:this={inlineScriptEditorDrawer} bind:inlineScript />
@@ -151,6 +169,7 @@
 					await inferInlineScriptSchema(inlineScript?.language, e.detail, inlineScript.schema)
 					if (JSON.stringify(inlineScript.schema) != oldSchema) {
 						inlineScript = inlineScript
+						loadSchemaAndInputsByName()
 					}
 				}
 			}}

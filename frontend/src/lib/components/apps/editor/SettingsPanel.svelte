@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import type { AppEditorContext } from '../types'
-	import { allItems, allItemsWithParent } from '../utils'
 	import PanelSection from './settingsPanel/common/PanelSection.svelte'
 	import ComponentPanel from './settingsPanel/ComponentPanel.svelte'
 	import InputsSpecsEditor from './settingsPanel/InputsSpecsEditor.svelte'
@@ -10,20 +9,20 @@
 	const { selectedComponent, app } = getContext<AppEditorContext>('AppEditorContext')
 </script>
 
-{#each $app.grid as gridItem (gridItem.data.id)}
-	{#if gridItem.data.id === $selectedComponent}
+{#each $app.grid as gridItem (gridItem?.data?.id)}
+	{#if gridItem?.data?.id === $selectedComponent}
 		<ComponentPanel parent={undefined} bind:component={gridItem.data} />
-	{:else if gridItem.data.type === 'tablecomponent'}
+	{:else if gridItem?.data?.type === 'tablecomponent'}
 		<TablePanel bind:component={gridItem.data} />
 	{/if}
 {/each}
 
 {#if $app.subgrids}
 	{#each Object.keys($app.subgrids ?? {}) as key (key)}
-		{#each $app.subgrids[key] as gridItem (gridItem.data.id)}
-			{#if gridItem.data.id === $selectedComponent}
+		{#each $app.subgrids[key] as gridItem (gridItem?.data?.id)}
+			{#if gridItem?.data?.id === $selectedComponent}
 				<ComponentPanel parent={key} bind:component={gridItem.data} />
-			{:else if gridItem.data.type === 'tablecomponent'}
+			{:else if gridItem?.data?.type === 'tablecomponent'}
 				<TablePanel bind:component={gridItem.data} />
 			{/if}
 		{/each}

@@ -6,7 +6,7 @@
 	import AppComponentInput from './AppComponentInput.svelte'
 	import InputsSpecsEditor from './settingsPanel/InputsSpecsEditor.svelte'
 
-	const { app, lazyGrid } = getContext<AppEditorContext>('AppEditorContext')
+	const { app } = getContext<AppEditorContext>('AppEditorContext')
 
 	let resourceOnly: boolean = true
 </script>
@@ -18,9 +18,9 @@
 	<Toggle bind:checked={resourceOnly} options={{ right: 'Resource only' }} />
 </div>
 <div class="gap-4 flex flex-col pt-4">
-	{#each $lazyGrid as gridItem (gridItem.data.id)}
+	{#each $app.grid as gridItem (gridItem.data.id)}
 		<div>
-			{#if gridItem.data.type === 'tablecomponent'}
+			{#if gridItem?.data?.type === 'tablecomponent'}
 				<div>
 					<AppComponentInput bind:component={gridItem.data} {resourceOnly} />
 					<div class="ml-4 mt-4">

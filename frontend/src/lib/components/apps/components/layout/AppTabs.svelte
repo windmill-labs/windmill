@@ -62,7 +62,6 @@
 	$: css = concatCustomCss($app.css?.tabscomponent, customCss)
 </script>
 
-<InputValue {id} input={configuration.tabs} bind:value={tabs} />
 <InputValue {id} input={configuration.noPadding} bind:value={noPadding} />
 
 <div>

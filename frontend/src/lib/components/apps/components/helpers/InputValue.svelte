@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { isCodeInjection } from '$lib/components/flows/utils'
+	import { deepEqual } from 'fast-equals'
 	import { getContext } from 'svelte'
 	import type { AppInput, EvalAppInput, UploadAppInput } from '../../inputType'
 	import type { AppEditorContext } from '../../types'
@@ -11,24 +12,33 @@
 	export let value: T
 	export let id: string | undefined = undefined
 	export let error: string = ''
+
+	let lastInput = input ? JSON.parse(JSON.stringify(input)) : undefined
+
+	$: if (input && !deepEqual(input, lastInput)) {
+		lastInput = JSON.parse(JSON.stringify(input))
+	}
+
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
 	$: state = $worldStore?.state
-	$: input && $worldStore && handleConnection()
-	$: input && input.type == 'template' && $state && (value = getValue(input))
-	$: input && input.type == 'eval' && $state && (value = evalExpr(input))
+
+	$: lastInput && $worldStore && handleConnection()
+	$: lastInput && lastInput.type == 'template' && $state && (value = getValue(lastInput))
+	$: lastInput && lastInput.type == 'eval' && $state && (value = evalExpr(lastInput))
 
 	function handleConnection() {
-		if (input.type === 'connected') {
-			$worldStore?.connect<any>(input, onValueChange)
-		} else if (input.type === 'static' || input.type == 'template') {
-			setTimeout(() => (value = getValue(input)), 0)
-		} else if (input.type == 'eval') {
-			setTimeout(() => ((value = evalExpr(input as EvalAppInput)), 0))
-		} else if (input.type == 'upload') {
-			setTimeout(() => ((value = (input as UploadAppInput).value), 0))
+		// console.log('handle connection', id, lastInput)
+		if (lastInput.type === 'connected') {
+			$worldStore?.connect<any>(lastInput, onValueChange)
+		} else if (lastInput.type === 'static' || lastInput.type == 'template') {
+			value = getValue(lastInput)
+		} else if (lastInput.type == 'eval') {
+			value = evalExpr(lastInput as EvalAppInput)
+		} else if (lastInput.type == 'upload') {
+			value = (lastInput as UploadAppInput).value
 		} else {
-			setTimeout(() => (value = undefined), 0)
+			value = undefined
 		}
 	}
 
@@ -98,8 +108,8 @@
 	}
 
 	function onValueChange(newValue: any): void {
-		if (input.type === 'connected' && newValue !== undefined && newValue !== null) {
-			const { connection } = input
+		if (lastInput.type === 'connected' && newValue !== undefined && newValue !== null) {
+			const { connection } = lastInput
 
 			if (!connection) {
 				// No connection

@@ -49,6 +49,11 @@
 	let hover = false
 	let initializing: boolean | undefined = undefined
 	let componentContainerHeight: number = 0
+
+	// let component = JSON.parse(JSON.stringify({ conf }))
+	// $: if (!deepEqual(component, pComponent)) {
+	// 	component = JSON.parse(JSON.stringify(pComponent))
+	// }
 </script>
 
 <div
@@ -84,151 +89,246 @@
 	>
 		{#if component.type === 'displaycomponent'}
 			<AppDisplayComponent
-				{...component}
+				id={component.id}
+				customCss={component.customCss}
 				bind:initializing
-				bind:componentInput={component.componentInput}
+				componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
 			/>
 		{:else if component.type === 'barchartcomponent'}
 			<AppBarChart
-				{...component}
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
 				bind:initializing
-				bind:componentInput={component.componentInput}
+				componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
 			/>
 		{:else if component.type === 'timeseriescomponent'}
 			<AppTimeseries
-				{...component}
+				id={component.id}
+				customCss={component.customCss}
+				configuration={component.configuration}
 				bind:initializing
-				bind:componentInput={component.componentInput}
+				componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
 			/>
 		{:else if component.type === 'htmlcomponent'}
 			<AppHtml
-				{...component}
+				id={component.id}
+				customCss={component.customCss}
 				bind:initializing
-				bind:componentInput={component.componentInput}
+				componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
 			/>
 		{:else if component.type === 'vegalitecomponent'}
 			<VegaLiteHtml
-				{...component}
+				configuration={component.configuration}
+				id={component.id}
 				bind:initializing
-				bind:componentInput={component.componentInput}
+				componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
 			/>
 		{:else if component.type === 'plotlycomponent'}
 			<PlotlyHtml
-				{...component}
+				id={component.id}
 				bind:initializing
-				bind:componentInput={component.componentInput}
+				componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
 			/>
 		{:else if component.type === 'scatterchartcomponent'}
 			<AppScatterChart
-				{...component}
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
 				bind:initializing
-				bind:componentInput={component.componentInput}
+				componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
 			/>
 		{:else if component.type === 'piechartcomponent'}
 			<AppPieChart
-				{...component}
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
 				bind:initializing
 				bind:staticOutputs={$staticOutputs[component.id]}
-				bind:componentInput={component.componentInput}
+				componentInput={component.componentInput}
 			/>
 		{:else if component.type === 'tablecomponent'}
 			<AppTable
-				{...component}
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
 				bind:initializing
 				bind:staticOutputs={$staticOutputs[component.id]}
-				bind:componentInput={component.componentInput}
+				componentInput={component.componentInput}
 				bind:actionButtons={component.actionButtons}
 			/>
 		{:else if component.type === 'aggridcomponent'}
 			<AppAggridTable
-				{...component}
+				id={component.id}
+				configuration={component.configuration}
 				bind:initializing
 				bind:staticOutputs={$staticOutputs[component.id]}
-				bind:componentInput={component.componentInput}
+				componentInput={component.componentInput}
 			/>
 		{:else if component.type === 'textcomponent'}
 			<AppText
-				{...component}
+				id={component.id}
+				configuration={component.configuration}
+				customCss={component.customCss}
 				bind:initializing
-				bind:componentInput={component.componentInput}
+				componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
 			/>
 		{:else if component.type === 'buttoncomponent'}
 			<AppButton
-				{...component}
-				bind:componentInput={component.componentInput}
+				id={component.id}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
 			/>
 		{:else if component.type === 'selectcomponent'}
-			<AppSelect {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+			<AppSelect
+				id={component.id}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				bind:staticOutputs={$staticOutputs[component.id]}
+			/>
 		{:else if component.type === 'formcomponent'}
 			<AppForm
-				{...component}
-				bind:componentInput={component.componentInput}
+				id={component.id}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
 			/>
 		{:else if component.type === 'formbuttoncomponent'}
 			<AppFormButton
-				{...component}
-				bind:componentInput={component.componentInput}
+				id={component.id}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
 			/>
 		{:else if component.type === 'checkboxcomponent'}
-			<AppCheckbox {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+			<AppCheckbox
+				id={component.id}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				bind:staticOutputs={$staticOutputs[component.id]}
+			/>
 		{:else if component.type === 'textinputcomponent'}
-			<AppTextInput {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+			<AppTextInput
+				id={component.id}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				bind:staticOutputs={$staticOutputs[component.id]}
+			/>
 		{:else if component.type === 'passwordinputcomponent'}
 			<AppTextInput
+				configuration={component.configuration}
 				inputType="password"
 				appCssKey="passwordinputcomponent"
-				{...component}
+				id={component.id}
+				customCss={component.customCss}
 				bind:staticOutputs={$staticOutputs[component.id]}
 			/>
 		{:else if component.type === 'dateinputcomponent'}
 			<AppDateInput
+				configuration={component.configuration}
 				inputType="date"
-				{...component}
+				id={component.id}
+				customCss={component.customCss}
 				bind:staticOutputs={$staticOutputs[component.id]}
 			/>
 		{:else if component.type === 'numberinputcomponent'}
-			<AppNumberInput {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+			<AppNumberInput
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				bind:staticOutputs={$staticOutputs[component.id]}
+			/>
 		{:else if component.type === 'currencycomponent'}
-			<AppCurrencyInput {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+			<AppCurrencyInput
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				bind:staticOutputs={$staticOutputs[component.id]}
+			/>
 		{:else if component.type === 'slidercomponent'}
-			<AppSliderInputs {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+			<AppSliderInputs
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				bind:staticOutputs={$staticOutputs[component.id]}
+			/>
 		{:else if component.type === 'horizontaldividercomponent'}
-			<AppDivider {...component} position="horizontal" />
+			<AppDivider
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				position="horizontal"
+			/>
 		{:else if component.type === 'verticaldividercomponent'}
-			<AppDivider {...component} position="vertical" />
+			<AppDivider
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				position="vertical"
+			/>
 		{:else if component.type === 'rangecomponent'}
-			<AppRangeInput {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+			<AppRangeInput
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				bind:staticOutputs={$staticOutputs[component.id]}
+			/>
 		{:else if component.type === 'tabscomponent'}
 			<AppTabs
-				{...component}
+				configuration={component.configuration}
+				id={component.id}
+				tabs={component.tabs}
+				customCss={component.customCss}
 				bind:staticOutputs={$staticOutputs[component.id]}
 				{componentContainerHeight}
 			/>
 		{:else if component.type === 'containercomponent'}
 			<AppContainer
-				{...component}
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
 				bind:staticOutputs={$staticOutputs[component.id]}
 				{componentContainerHeight}
 			/>
 		{:else if component.type === 'iconcomponent'}
-			<AppIcon {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+			<AppIcon
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				bind:staticOutputs={$staticOutputs[component.id]}
+			/>
 		{:else if component.type === 'fileinputcomponent'}
-			<AppFileInput {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+			<AppFileInput
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				bind:staticOutputs={$staticOutputs[component.id]}
+			/>
 		{:else if component.type === 'imagecomponent'}
-			<AppImage {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+			<AppImage
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				bind:staticOutputs={$staticOutputs[component.id]}
+			/>
 		{:else if component.type === 'drawercomponent'}
-			<AppDrawer {...component} />
+			<AppDrawer
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+			/>
 		{:else if component.type === 'mapcomponent'}
 			<AppMap {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{/if}

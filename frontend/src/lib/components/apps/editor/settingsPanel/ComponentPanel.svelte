@@ -113,7 +113,8 @@
 					{:else if component.componentInput?.type === 'runnable' && component.componentInput !== undefined}
 						<RunnableInputEditor
 							bind:appInput={component.componentInput}
-							defaultUserInput={component.type == 'formcomponent'}
+							defaultUserInput={component.type == 'formcomponent' ||
+								component.type == 'formbuttoncomponent'}
 						/>
 					{/if}
 				</div>

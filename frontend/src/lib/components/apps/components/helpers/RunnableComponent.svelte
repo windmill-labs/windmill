@@ -6,9 +6,7 @@
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import { AppService, type CompletedJob } from '$lib/gen'
 	import { defaultIfEmptyString, emptySchema, sendUserToast } from '$lib/utils'
-	import { deepEqual } from 'fast-equals'
 	import { getContext, onMount } from 'svelte'
-	import { computeFields } from '../../editor/inlineScriptsPanel/utils'
 	import type { AppInputs, Runnable } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppEditorContext } from '../../types'
@@ -23,7 +21,6 @@
 	export let autoRefresh: boolean = true
 	export let result: any = undefined
 	export let forceSchemaDisplay: boolean = false
-	export let defaultUserInput = false
 	export let flexWrap = false
 	export let wrapperClass = ''
 	export let wrapperStyle = ''
@@ -107,27 +104,9 @@
 
 	$: outputs?.loading?.set(testIsLoading)
 
-	$: runnable?.type === 'runnableByName' && loadSchemaAndInputsByName()
+	$: schemaStripped = stripSchema(fields, $stateId)
 
-	async function loadSchemaAndInputsByName() {
-		if (runnable?.type === 'runnableByName') {
-			const { inlineScript } = runnable
-			// Inline scripts directly provide the schema
-			if (inlineScript) {
-				const newSchema = inlineScript.schema
-				const newFields = computeFields(newSchema, defaultUserInput, fields)
-
-				if (!deepEqual(newFields, fields)) {
-					fields = newFields
-					$stateId++
-				}
-			}
-		}
-	}
-
-	$: schemaStripped = runnable && stripSchema(fields)
-
-	function stripSchema(inputs: AppInputs): Schema {
+	function stripSchema(inputs: AppInputs, s: any): Schema {
 		let schema =
 			runnable?.type == 'runnableByName' ? runnable.inlineScript?.schema : runnable?.schema
 		try {
@@ -272,11 +251,6 @@
 />
 
 <div class="h-full flex relative flex-row flex-wrap {wrapperClass}" style={wrapperStyle}>
-	{#if !initializing && autoRefresh === true}
-		<div class="flex absolute top-1 right-1">
-			<RefreshButton componentId={id} />
-		</div>
-	{/if}
 	{#if schemaStripped && Object.keys(schemaStripped?.properties ?? {}).length > 0 && (autoRefresh || forceSchemaDisplay)}
 		<div class="px-2 h-fit min-h-0">
 			<SchemaForm
@@ -310,6 +284,11 @@
 	{:else}
 		<div class="block grow w-full max-h-full">
 			<slot />
+		</div>
+	{/if}
+	{#if !initializing && autoRefresh === true}
+		<div class="flex absolute top-1 right-1 z-50">
+			<RefreshButton componentId={id} />
 		</div>
 	{/if}
 </div>
