@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { faCopy, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
+	import { faChevronDown, faChevronUp, faCopy, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { AppEditorContext, GridItem } from '../../types'
 	import PanelSection from './common/PanelSection.svelte'
@@ -25,6 +25,7 @@
 	import { deleteGridItem } from '../appUtils'
 	import MoveToOtherGrid from './MoveToOtherGrid.svelte'
 	import GridPane from './GridPane.svelte'
+	import { slide } from 'svelte/transition'
 
 	export let component: AppComponent
 	export let rowColumns = false
@@ -67,6 +68,8 @@
 
 		onDelete?.()
 	}
+
+	let viewCssOptions = false
 
 	$: extraLib =
 		component?.componentInput?.type === 'template' && $worldStore
@@ -177,13 +180,27 @@
 
 		{#if Object.keys(component.customCss ?? {}).length > 0}
 			<PanelSection title="Custom CSS">
-				{#each Object.keys(component.customCss ?? {}) as name}
-					{#if component?.customCss?.[name]}
-						<div class="w-full mb-2">
-							<CssProperty {name} bind:value={component.customCss[name]} />
-						</div>
-					{/if}
-				{/each}
+				<div slot="action">
+					<Button
+						color="light"
+						size="xs"
+						endIcon={{ icon: viewCssOptions ? faChevronUp : faChevronDown }}
+						on:click={() => (viewCssOptions = !viewCssOptions)}
+					>
+						{viewCssOptions ? 'Hide' : 'Show'}
+					</Button>
+				</div>
+				{#if viewCssOptions}
+					<div transition:slide>
+						{#each Object.keys(component.customCss ?? {}) as name}
+							{#if component?.customCss?.[name]}
+								<div class="w-full mb-2">
+									<CssProperty {name} bind:value={component.customCss[name]} />
+								</div>
+							{/if}
+						{/each}
+					</div>
+				{/if}
 			</PanelSection>
 		{/if}
 
