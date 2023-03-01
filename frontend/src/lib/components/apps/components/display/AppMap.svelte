@@ -16,7 +16,7 @@
 	export const staticOutputs: string[] = ['loading']
 	export let customCss: ComponentCustomCSS<'map'> | undefined = undefined
 
-	const { app } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, stateId } = getContext<AppEditorContext>('AppEditorContext')
 	let map: Map
 	let mapElement: HTMLDivElement
 
@@ -58,6 +58,8 @@
 			const lonLat = toLonLat(center)
 			;(configuration.longitude as StaticInput<number>).value = lonLat[0]
 			;(configuration.latitude as StaticInput<number>).value = lonLat[1]
+
+			$stateId++
 		})
 	})
 
@@ -69,8 +71,10 @@
 <InputValue {id} input={configuration.zoom} bind:value={zoom} />
 <InputValue {id} input={configuration.markers} bind:value={markers} />
 
-<div
-	bind:this={mapElement}
-	class={twMerge(`w-full h-full`, css?.map?.class ?? '')}
-	style={css?.map?.style ?? ''}
-/>
+<div on:pointerdown|stopPropagation class="h-full w-full">
+	<div
+		bind:this={mapElement}
+		class={twMerge(`w-full h-full`, css?.map?.class ?? '')}
+		style={css?.map?.style ?? ''}
+	/>
+</div>
