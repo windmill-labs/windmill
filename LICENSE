@@ -8,5 +8,9 @@ or belonging to one of the below cases:
 
 The files under backend/ are AGPL Licensed.
 The files under frontend/ are AGPL Licensed.
-The files under python-client/ are Apache 2.0 Licensed.
-The files under community/ are Apache 2.0 Licensed.
+The files under python-client/ deno-client/ go-client/ are Apache 2.0 Licensed.
+
+The openapi files, including the OpenFlow spec is Apache 2.0 Licensed.
+
+All third party components incorporated into the Windmill Software are licensed under the
+original license provided by the owner of the applicable component.
