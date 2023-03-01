@@ -12,8 +12,8 @@
 	import { Point } from 'ol/geom'
 
 	interface Marker {
-		lon: number | string
-		lat: number | string
+		lon: number
+		lat: number
 		title?: string
 		radius?: number
 		color?: string
@@ -67,22 +67,34 @@
 			.filter((l) => l.getProperties().name === LAYER_NAME[name])
 	}
 
+	function getMarkerArray(): Marker[] | undefined {
+		let array: Marker[] | undefined = undefined
+		if (typeof markers === 'string') {
+			try {
+				array = JSON.parse(markers)
+			} catch (e) {
+				return undefined
+			}
+		} else {
+			array = markers
+		}
+		return array?.filter((m) => !isNaN(+m.lat) && !isNaN(+m.lon))
+	}
+
 	function createMarkerLayers() {
-		const markerArray = Array.isArray(markers) ? markers : JSON.parse(markers ?? '[]')
+		const markerArray = getMarkerArray()
 		return markerArray?.map((m) => {
 			return new VectorLayer({
 				properties: {
 					name: LAYER_NAME.MARKER
 				},
 				source: new VectorSource({
-					features: markerArray
-						?.filter((m) => !isNaN(+m.lat) && !isNaN(+m.lon))
-						?.map((m) => {
-							return new Feature({
-								geometry: new Point([+m.lon, +m.lat]),
-								name: m.title
-							})
+					features: [
+						new Feature({
+							geometry: new Point([+m.lon, +m.lat]),
+							name: m.title
 						})
+					]
 				}),
 				style: {
 					'circle-radius': m.radius ?? 7,
