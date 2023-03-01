@@ -11,81 +11,74 @@
 	export let configuration: Record<string, AppInput>
 	export let componentContainerHeight: number
 	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
+	export let numberOfSubgrids: number | undefined = undefined
+	export let horizontal: boolean = false
+
 	export const staticOutputs: string[] = []
 
 	const { app, focusedGrid, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
 
 	let noPadding: boolean | undefined = undefined
-	let orientation: 'horizontal' | 'vertical' = 'horizontal'
-	let paneSelected = 0
+	let numberOfPanes: number = Number(numberOfSubgrids) ?? 0
 
 	function onFocus() {
 		$focusedGrid = {
 			parentComponentId: id,
-			subGridIndex: paneSelected
+			subGridIndex: 0
+		}
+	}
+
+	$: paneSizes = []
+
+	$: if (numberOfPanes !== paneSizes.length) {
+		for (let i = numberOfPanes; i < paneSizes.length; i++) {
+			if ($app.subgrids && $app.subgrids?.[`${id}-${i}`]) {
+				delete $app.subgrids[`${id}-${i}`]
+			}
+		}
+
+		numberOfSubgrids = numberOfPanes
+		paneSizes = Array.from({ length: numberOfPanes }, (_, i) => paneSizes?.[i - 1] ?? 20)
+
+		for (let i = 0; i < numberOfPanes; i++) {
+			if ($app.subgrids && !$app.subgrids?.[`${id}-${i}`]) {
+				$app.subgrids[`${id}-${i}`] = []
+			}
 		}
 	}
 
 	$: $selectedComponent === id && onFocus()
-
 	$: css = concatCustomCss($app.css?.containercomponent, customCss)
-
-	let firstSize = 50
-	let secondSize = 50
-	$: firstContainerHeight =
-		orientation === 'horizontal'
-			? (componentContainerHeight * firstSize) / 100
-			: componentContainerHeight
-
-	$: secondContainerHeight =
-		orientation === 'horizontal'
-			? (componentContainerHeight * secondSize) / 100
-			: componentContainerHeight
 </script>
 
 <InputValue {id} input={configuration.noPadding} bind:value={noPadding} />
-<InputValue {id} input={configuration.orientation} bind:value={orientation} />
+<InputValue {id} input={configuration.numberOfPanes} bind:value={numberOfPanes} />
 
 <div on:pointerdown|stopPropagation>
-	<Splitpanes horizontal={orientation === 'horizontal'}>
-		<Pane bind:size={firstSize} minSize={20}>
-			{#if $app.subgrids?.[`${id}-0`]}
-				<SubGridEditor
-					{noPadding}
-					{id}
-					class={css?.container.class}
-					style={css?.container.style}
-					bind:subGrid={$app.subgrids[`${id}-0`]}
-					containerHeight={firstContainerHeight}
-					on:focus={() => {
-						$selectedComponent = id
-						$focusedGrid = {
-							parentComponentId: id,
-							subGridIndex: 0
-						}
-					}}
-				/>
-			{/if}
-		</Pane>
-
-		<Pane bind:size={secondSize} minSize={20}>
-			{#if $app.subgrids?.[`${id}-1`]}
-				<SubGridEditor
-					{noPadding}
-					{id}
-					class={css?.container.class}
-					style={css?.container.style}
-					bind:subGrid={$app.subgrids[`${id}-1`]}
-					containerHeight={secondContainerHeight}
-					on:focus={() => {
-						$selectedComponent = id
-						$focusedGrid = {
-							parentComponentId: id,
-							subGridIndex: 1
-						}
-					}}
-				/>
-			{/if}
-		</Pane>
+	<Splitpanes {horizontal}>
+		{#each paneSizes as paneSize, index}
+			<Pane bind:size={paneSize} minSize={20}>
+				{#if $app.subgrids?.[`${id}-${index}`]}
+					<SubGridEditor
+						{noPadding}
+						{id}
+						shouldHighlight={$focusedGrid?.subGridIndex === index}
+						class={css?.container.class}
+						style={css?.container.style}
+						bind:subGrid={$app.subgrids[`${id}-${index}`]}
+						containerHeight={horizontal
+							? (componentContainerHeight * paneSize) / 100
+							: componentContainerHeight}
+						on:focus={() => {
+							$selectedComponent = id
+							$focusedGrid = {
+								parentComponentId: id,
+								subGridIndex: index
+							}
+						}}
+					/>
+				{/if}
+			</Pane>
+		{/each}
 	</Splitpanes>
 </div>

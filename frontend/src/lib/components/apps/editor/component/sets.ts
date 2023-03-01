@@ -8,7 +8,8 @@ const layout: ComponentSet = {
 		'horizontaldividercomponent',
 		'verticaldividercomponent',
 		'drawercomponent',
-		'verticalsplitpanescomponent'
+		'verticalsplitpanescomponent',
+		'horizontalsplitpanescomponent'
 	]
 } as const
 

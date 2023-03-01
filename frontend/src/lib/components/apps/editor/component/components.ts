@@ -28,7 +28,9 @@ import {
 	SeparatorVertical,
 	Paperclip,
 	Image,
-	SidebarClose
+	SidebarClose,
+	FlipHorizontal,
+	FlipVertical
 } from 'lucide-svelte'
 import type { BaseAppComponent } from '../../types'
 
@@ -81,6 +83,7 @@ export type TabsComponent = BaseComponent<'tabscomponent'> & {
 export type ContainerComponent = BaseComponent<'containercomponent'>
 export type DrawerComponent = BaseComponent<'drawercomponent'>
 export type VerticalSplitPanesComponent = BaseComponent<'verticalsplitpanescomponent'>
+export type HorizontalSplitPanesComponent = BaseComponent<'horizontalsplitpanescomponent'>
 
 export type AppComponent = BaseAppComponent &
 	(
@@ -117,6 +120,7 @@ export type AppComponent = BaseAppComponent &
 		| AggridComponent
 		| DrawerComponent
 		| VerticalSplitPanesComponent
+		| HorizontalSplitPanesComponent
 	)
 
 export type AppComponentDimensions = `${IntRange<
@@ -1370,12 +1374,42 @@ Hello \${ctx.username}
 	},
 	verticalsplitpanescomponent: {
 		name: 'Vertical Split Panes',
-		icon: BoxSelect,
+		icon: FlipHorizontal,
 		dims: '2:8-6:8',
 		data: {
 			softWrap: true,
 			id: '',
 			type: 'verticalsplitpanescomponent',
+			configuration: {
+				noPadding: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					onlyStatic: true
+				},
+				numberOfPanes: {
+					type: 'static',
+					fieldType: 'number',
+					value: 2,
+					onlyStatic: true
+				}
+			},
+			customCss: {
+				container: { class: '', style: '' }
+			} as const,
+			componentInput: undefined,
+			card: false,
+			numberOfSubgrids: 2
+		}
+	},
+	horizontalsplitpanescomponent: {
+		name: 'Horizontal Split Panes',
+		icon: FlipVertical,
+		dims: '2:8-6:8',
+		data: {
+			softWrap: true,
+			id: '',
+			type: 'horizontalsplitpanescomponent',
 			configuration: {
 				noPadding: {
 					type: 'static',
