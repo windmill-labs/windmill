@@ -173,7 +173,7 @@
 				gap={[4, 2]}
 			>
 				{#each $lazyGrid as gridComponent (gridComponent.id)}
-					{#if gridComponent.data.id === dataItem.data.id}
+					{#if gridComponent?.data?.id && gridComponent?.data?.id === dataItem?.data?.id}
 						<!-- svelte-ignore a11y-click-events-have-key-events -->
 						{#if $connectingInput.opened}
 							<div
