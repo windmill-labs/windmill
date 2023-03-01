@@ -49,8 +49,6 @@
 	let hover = false
 	let initializing: boolean | undefined = undefined
 	let componentContainerHeight: number = 0
-
-	$: console.log('component', component)
 </script>
 
 <div

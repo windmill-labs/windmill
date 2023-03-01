@@ -44,17 +44,19 @@ export function computeFields(schema: Schema, defaultUserInput: boolean, fields:
 
 function processGridItemRunnable(gridItem: GridItem, list: AppScriptsList): AppScriptsList {
 	const component: AppComponent = gridItem.data
-	const componentInput = component.componentInput
-	if (component.type === 'tablecomponent') {
-		component.actionButtons.forEach((actionButton) => {
-			if (actionButton.componentInput?.type !== 'runnable') {
-				return
-			}
-			processRunnable(actionButton.componentInput.runnable, actionButton.id, list)
-		})
-	}
-	if (componentInput?.type === 'runnable') {
-		processRunnable(componentInput.runnable, gridItem.id, list)
+	if (component) {
+		const componentInput = component.componentInput
+		if (component.type === 'tablecomponent') {
+			component.actionButtons.forEach((actionButton) => {
+				if (actionButton.componentInput?.type !== 'runnable') {
+					return
+				}
+				processRunnable(actionButton.componentInput.runnable, actionButton.id, list)
+			})
+		}
+		if (componentInput?.type === 'runnable') {
+			processRunnable(componentInput.runnable, gridItem.id, list)
+		}
 	}
 	return list
 }
