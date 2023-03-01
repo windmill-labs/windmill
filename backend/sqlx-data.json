@@ -550,21 +550,6 @@
     },
     "query": "SELECT * FROM workspace LIMIT $1 OFFSET $2"
   },
-  "15de975d9be141c9ed9647935a508492aabbbddbf986d5c5c0f0c415293c432d": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Varchar",
-          "Varchar",
-          "Varchar"
-        ]
-      }
-    },
-    "query": "INSERT INTO variable\n            (workspace_id, path, value, is_secret, description)\n            VALUES ($1, 'g/all/pretty_secret', $2, true, 'This item is secret'), \n                ($3, 'g/all/not_secret', $4, false, 'This item is not secret')"
-  },
   "163f00eb8b1a489d5f382cdba22a5744e88a8e6f1532d7cb02af560f5f5d49f7": {
     "describe": {
       "columns": [
@@ -659,6 +644,27 @@
       }
     },
     "query": "SELECT * FROM workspace_settings WHERE workspace_id = $1"
+  },
+  "176afff6dfceac701d499663f15fb7f569fd9d449406df4c5ecc811414429d42": {
+    "describe": {
+      "columns": [
+        {
+          "name": "flow_status",
+          "ordinal": 0,
+          "type_info": "Jsonb"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT flow_status FROM completed_job WHERE id = $1 AND workspace_id = $2 \n            UNION ALL SELECT flow_status FROM queue WHERE id = $1 AND workspace_id = $2 "
   },
   "187a27d18f78f068319a0ec684f71a76c49dd09c5c74c2c777e35233c4f5a281": {
     "describe": {
@@ -1182,33 +1188,6 @@
       }
     },
     "query": "UPDATE script SET archived = true WHERE hash = $1 AND workspace_id = $2"
-  },
-  "2be0cfd075df9624ccbcbe5fd645e0a5c25460c2d01493f86dcdd9b2b71f6181": {
-    "describe": {
-      "columns": [
-        {
-          "name": "flow_status",
-          "ordinal": 0,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "parent_job",
-          "ordinal": 1,
-          "type_info": "Uuid"
-        }
-      ],
-      "nullable": [
-        null,
-        null
-      ],
-      "parameters": {
-        "Left": [
-          "Uuid",
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT flow_status, parent_job FROM completed_job WHERE id = $1 AND workspace_id = $2 UNION ALL SELECT flow_status, parent_job FROM queue WHERE id = $1 AND workspace_id = $2 "
   },
   "2e4115bb2e6c8c85ad1492ad135d6b0454b342126cb5fa17e58caf71b32ee755": {
     "describe": {
@@ -3677,6 +3656,33 @@
       }
     },
     "query": "SELECT is_admin FROM usr where username = $1 AND workspace_id = $2 AND disabled = false"
+  },
+  "92ce38eaaef9e793a49788bf3b7fc88340e83da57b785364a477f08c776f66f3": {
+    "describe": {
+      "columns": [
+        {
+          "name": "flow_status",
+          "ordinal": 0,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "parent_job",
+          "ordinal": 1,
+          "type_info": "Uuid"
+        }
+      ],
+      "nullable": [
+        null,
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT flow_status, parent_job FROM completed_job WHERE id = $1 AND workspace_id = $2 \n                UNION ALL SELECT flow_status, parent_job FROM queue WHERE id = $1 AND workspace_id = $2 "
   },
   "930ad84a4db26fa6d2c8447d447099e944a0ea7b1266b4d02cee620fe3d761a5": {
     "describe": {
