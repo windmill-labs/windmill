@@ -28,7 +28,8 @@ import {
 	SeparatorVertical,
 	Paperclip,
 	Image,
-	SidebarClose
+	SidebarClose,
+	MapPin
 } from 'lucide-svelte'
 import type { BaseAppComponent } from '../../types'
 
@@ -80,6 +81,7 @@ export type TabsComponent = BaseComponent<'tabscomponent'> & {
 }
 export type ContainerComponent = BaseComponent<'containercomponent'>
 export type DrawerComponent = BaseComponent<'drawercomponent'>
+export type MapComponent = BaseComponent<'mapcomponent'>
 
 export type AppComponent = BaseAppComponent &
 	(
@@ -115,6 +117,7 @@ export type AppComponent = BaseAppComponent &
 		| ImageComponent
 		| AggridComponent
 		| DrawerComponent
+		| MapComponent
 	)
 
 export type AppComponentDimensions = `${IntRange<
@@ -1364,6 +1367,42 @@ Hello \${ctx.username}
 			componentInput: undefined,
 			card: false,
 			numberOfSubgrids: 1
+		}
+	},
+	mapcomponent: {
+		name: 'Map',
+		icon: MapPin,
+		dims: '3:6-6:10',
+		data: {
+			id: '',
+			type: 'mapcomponent',
+			componentInput: undefined,
+			configuration: {
+				longitude: {
+					fieldType: 'number',
+					type: 'static',
+					value: 15
+				},
+				latitude: {
+					fieldType: 'number',
+					type: 'static',
+					value: 50
+				},
+				zoom: {
+					fieldType: 'number',
+					type: 'static',
+					value: 3
+				},
+				markers: {
+					fieldType: 'array',
+					type: 'static',
+					value: []
+				}
+			},
+			customCss: {
+				map: { class: '', style: '' }
+			} as const,
+			card: false
 		}
 	}
 }

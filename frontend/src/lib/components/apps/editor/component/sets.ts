@@ -38,6 +38,7 @@ const display: ComponentSet = {
 		'textcomponent',
 		'iconcomponent',
 		'imagecomponent',
+		'mapcomponent',
 		'htmlcomponent',
 		'tablecomponent',
 		'aggridcomponent',

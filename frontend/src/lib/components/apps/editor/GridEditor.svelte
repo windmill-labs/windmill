@@ -24,11 +24,12 @@
 		summary,
 		focusedGrid
 	} = getContext<AppEditorContext>('AppEditorContext')
+	let shiftKey = false
 
 	// The drag is disabled when the user is connecting an input
 	// or when the user is previewing the app
 	// or when the focused grid is a subgrid
-	$: setAllDrags($mode === 'preview' || $connectingInput.opened)
+	$: setAllDrags(shiftKey || $mode === 'preview' || $connectingInput.opened)
 
 	function setAllDrags(enable: boolean) {
 		const fct = enable ? disableDrag : enableDrag
@@ -133,11 +134,17 @@
 	})
 </script>
 
+<svelte:window
+	on:keydown={(e) => {
+		console.log(e.shiftKey, e.key)
+		shiftKey = e.shiftKey
+	}}
+/>
 <div class="relative w-full z-20 overflow-visible">
 	<div
-		class="w-full sticky top-0 flex justify-between border-l border-r border-b {$connectingInput?.opened
+		class="w-full sticky top-0 flex justify-between border-b {$connectingInput?.opened
 			? ''
-			: 'bg-gray-50 '} px-4 py-2 items-center gap-4"
+			: 'bg-gray-50 '} px-4 py-1 items-center gap-4"
 		style="z-index: 1000;"
 	>
 		<h2 class="truncate">{$summary}</h2>

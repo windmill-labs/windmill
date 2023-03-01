@@ -34,6 +34,7 @@
 		"eslint": "^8.28.0",
 		"eslint-config-prettier": "^8.6.0",
 		"eslint-plugin-svelte3": "^4.0.0",
+		"ol": "^7.2.2",
 		"openapi-typescript-codegen": "^0.23.0",
 		"path-browserify": "^1.0.1",
 		"postcss": "^8.4.18",
