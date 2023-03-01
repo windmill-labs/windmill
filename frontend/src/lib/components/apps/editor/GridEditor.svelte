@@ -161,7 +161,7 @@
 			$focusedGrid = undefined
 		}}
 	>
-		<div class={!$focusedGrid ? 'border-indigo-600 border-2 border-dashed' : ''}>
+		<div class={!$focusedGrid && $mode !== 'preview' ? 'border-gray-400 border border-dashed' : ''}>
 			<Grid
 				onTopId={$selectedComponent}
 				fillSpace={false}

@@ -46,44 +46,46 @@
 <InputValue {id} input={configuration.noPadding} bind:value={noPadding} />
 <InputValue {id} input={configuration.orientation} bind:value={orientation} />
 
-<Splitpanes horizontal={orientation === 'horizontal'}>
-	<Pane bind:size={firstSize} minSize={20}>
-		{#if $app.subgrids?.[`${id}-0`]}
-			<SubGridEditor
-				{noPadding}
-				{id}
-				class={css?.container.class}
-				style={css?.container.style}
-				bind:subGrid={$app.subgrids[`${id}-0`]}
-				containerHeight={firstContainerHeight}
-				on:focus={() => {
-					$selectedComponent = id
-					$focusedGrid = {
-						parentComponentId: id,
-						subGridIndex: 0
-					}
-				}}
-			/>
-		{/if}
-	</Pane>
+<div on:pointerdown|stopPropagation>
+	<Splitpanes horizontal={orientation === 'horizontal'}>
+		<Pane bind:size={firstSize} minSize={20}>
+			{#if $app.subgrids?.[`${id}-0`]}
+				<SubGridEditor
+					{noPadding}
+					{id}
+					class={css?.container.class}
+					style={css?.container.style}
+					bind:subGrid={$app.subgrids[`${id}-0`]}
+					containerHeight={firstContainerHeight}
+					on:focus={() => {
+						$selectedComponent = id
+						$focusedGrid = {
+							parentComponentId: id,
+							subGridIndex: 0
+						}
+					}}
+				/>
+			{/if}
+		</Pane>
 
-	<Pane bind:size={secondSize} minSize={20}>
-		{#if $app.subgrids?.[`${id}-1`]}
-			<SubGridEditor
-				{noPadding}
-				{id}
-				class={css?.container.class}
-				style={css?.container.style}
-				bind:subGrid={$app.subgrids[`${id}-1`]}
-				containerHeight={secondContainerHeight}
-				on:focus={() => {
-					$selectedComponent = id
-					$focusedGrid = {
-						parentComponentId: id,
-						subGridIndex: 1
-					}
-				}}
-			/>
-		{/if}
-	</Pane>
-</Splitpanes>
+		<Pane bind:size={secondSize} minSize={20}>
+			{#if $app.subgrids?.[`${id}-1`]}
+				<SubGridEditor
+					{noPadding}
+					{id}
+					class={css?.container.class}
+					style={css?.container.style}
+					bind:subGrid={$app.subgrids[`${id}-1`]}
+					containerHeight={secondContainerHeight}
+					on:focus={() => {
+						$selectedComponent = id
+						$focusedGrid = {
+							parentComponentId: id,
+							subGridIndex: 1
+						}
+					}}
+				/>
+			{/if}
+		</Pane>
+	</Splitpanes>
+</div>

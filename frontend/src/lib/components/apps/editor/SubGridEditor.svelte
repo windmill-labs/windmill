@@ -16,13 +16,14 @@
 	export let subGrid: GridItem[] = []
 	export let visible: boolean = true
 	export let id: string
+	export let shouldHighlight: boolean = true
 
 	const dispatch = createEventDispatcher()
 
-	const { app, connectingInput, selectedComponent, focusedGrid } =
+	const { app, connectingInput, selectedComponent, focusedGrid, mode } =
 		getContext<AppEditorContext>('AppEditorContext')
 
-	$: highlight = id === $focusedGrid?.parentComponentId
+	$: highlight = id === $focusedGrid?.parentComponentId && shouldHighlight
 
 	let pointerdown = false
 	let onComponent: string | undefined = undefined
@@ -75,7 +76,9 @@
 		on:pointerup={onpointerup}
 		style="height: {containerHeight}px; {style ?? ''}"
 	>
-		<div class={highlight ? 'border-indigo-600 border-2 border-dashed' : ''}>
+		<div
+			class={highlight && $mode !== 'preview' ? 'border-gray-400 border border-dashed h-full' : ''}
+		>
 			<Grid
 				bind:items={subGrid}
 				let:dataItem

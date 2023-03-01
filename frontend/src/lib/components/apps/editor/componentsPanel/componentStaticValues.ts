@@ -22,5 +22,5 @@ export const staticValues = {
 		'en-CA'
 	],
 	objectFitOptions: ['contain', 'cover', 'fill'],
-	splitPanesOrientationOptions: ['horizontal', 'vertical']
+	splitPanelOptions: ['2', '3', '4']
 } as const

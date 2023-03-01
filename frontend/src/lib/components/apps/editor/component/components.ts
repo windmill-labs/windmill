@@ -80,7 +80,7 @@ export type TabsComponent = BaseComponent<'tabscomponent'> & {
 }
 export type ContainerComponent = BaseComponent<'containercomponent'>
 export type DrawerComponent = BaseComponent<'drawercomponent'>
-export type SplitPanesComponent = BaseComponent<'splitpanescomponent'>
+export type VerticalSplitPanesComponent = BaseComponent<'verticalsplitpanescomponent'>
 
 export type AppComponent = BaseAppComponent &
 	(
@@ -116,7 +116,7 @@ export type AppComponent = BaseAppComponent &
 		| ImageComponent
 		| AggridComponent
 		| DrawerComponent
-		| SplitPanesComponent
+		| VerticalSplitPanesComponent
 	)
 
 export type AppComponentDimensions = `${IntRange<
@@ -1368,14 +1368,14 @@ Hello \${ctx.username}
 			numberOfSubgrids: 1
 		}
 	},
-	splitpanescomponent: {
-		name: 'Split Panes',
+	verticalsplitpanescomponent: {
+		name: 'Vertical Split Panes',
 		icon: BoxSelect,
 		dims: '2:8-6:8',
 		data: {
 			softWrap: true,
 			id: '',
-			type: 'splitpanescomponent',
+			type: 'verticalsplitpanescomponent',
 			configuration: {
 				noPadding: {
 					type: 'static',
@@ -1383,12 +1383,11 @@ Hello \${ctx.username}
 					value: false,
 					onlyStatic: true
 				},
-				orientation: {
-					fieldType: 'select',
+				numberOfPanes: {
 					type: 'static',
-					onlyStatic: true,
-					optionValuesKey: 'splitPanesOrientationOptions',
-					value: 'horizontal'
+					fieldType: 'number',
+					value: 2,
+					onlyStatic: true
 				}
 			},
 			customCss: {
