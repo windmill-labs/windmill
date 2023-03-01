@@ -13,9 +13,9 @@
 	export let id: string | undefined = undefined
 	export let error: string = ''
 
-	let lastInput = JSON.parse(JSON.stringify(input))
+	let lastInput = input ? JSON.parse(JSON.stringify(input)) : undefined
 
-	$: if (!deepEqual(input, lastInput)) {
+	$: if (input && !deepEqual(input, lastInput)) {
 		lastInput = JSON.parse(JSON.stringify(input))
 	}
 
@@ -28,7 +28,7 @@
 	$: lastInput && lastInput.type == 'eval' && $state && (value = evalExpr(lastInput))
 
 	function handleConnection() {
-		console.log('handle connection', id, lastInput)
+		// console.log('handle connection', id, lastInput)
 		if (lastInput.type === 'connected') {
 			$worldStore?.connect<any>(lastInput, onValueChange)
 		} else if (lastInput.type === 'static' || lastInput.type == 'template') {
