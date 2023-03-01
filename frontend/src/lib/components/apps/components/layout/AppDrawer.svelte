@@ -70,7 +70,13 @@
 
 <Portal target="#app-editor-top-level-drawer">
 	<Drawer bind:this={appDrawer} size="800px" alwaysOpen positionClass="!absolute">
-		<DrawerContent title={drawerTitle} on:close={appDrawer.toggleDrawer}>
+		<DrawerContent
+			title={drawerTitle}
+			on:close={() => {
+				appDrawer?.toggleDrawer()
+				$focusedGrid = undefined
+			}}
+		>
 			{#if $app.subgrids?.[`${id}-0`]}
 				<SubGridEditor
 					{noPadding}
