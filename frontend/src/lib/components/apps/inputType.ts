@@ -1,3 +1,4 @@
+import type { ReadFileAs } from '../common/fileInput/model'
 import type { staticValues } from './editor/componentsPanel/componentStaticValues'
 import type { InlineScript } from './types'
 
@@ -110,10 +111,10 @@ type InputConfiguration<T extends InputType, U, V extends InputType> = {
 		 */
 		multiple?: boolean
 		/**
-		 * Controls if the uploaded file(s) will be returned as `Base64` strings.
+		 * Controls if the uploaded file(s) will be converted or not.
 		 * @default false
 		 */
-		base64?: boolean
+		convertTo?: ReadFileAs
 	}
 }
 

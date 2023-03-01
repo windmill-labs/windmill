@@ -1286,7 +1286,7 @@ Hello \${ctx.username}
 					fieldType: 'text',
 					fileUpload: {
 						accept: 'image/*',
-						base64: true
+						convertTo: 'base64'
 					}
 				},
 				imageFit: {
@@ -1396,7 +1396,27 @@ Hello \${ctx.username}
 				markers: {
 					fieldType: 'array',
 					type: 'static',
-					value: []
+					subFieldType: 'object',
+					fileUpload: {
+						accept: 'application/json',
+						convertTo: 'text'
+					},
+					value: [
+						{
+							lon: 12.496366,
+							lat: 41.902783,
+							title: 'Rome',
+							radius: 7,
+							color: '#dc2626',
+							strokeWidth: 3,
+							strokeColor: '#fca5a5'
+						},
+						{
+							lon: -0.136439,
+							lat: 51.507359,
+							title: 'London'
+						}
+					]
 				}
 			},
 			customCss: {

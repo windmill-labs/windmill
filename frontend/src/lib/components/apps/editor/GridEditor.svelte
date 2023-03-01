@@ -89,6 +89,10 @@
 	}
 
 	function selectComponent(id: string) {
+		// Component selection is handled manually in the Map component (pointerdown
+		// event propagation is stopped to enable paning).
+		// Update the 'selectComponent()' function as well when this is updated.
+
 		if (!$connectingInput.opened) {
 			$selectedComponent = id
 			$focusedGrid = undefined
