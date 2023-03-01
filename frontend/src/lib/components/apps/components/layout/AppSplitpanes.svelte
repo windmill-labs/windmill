@@ -29,13 +29,15 @@
 
 	$: $selectedComponent === id && onFocus()
 	$: css = concatCustomCss($app.css?.containercomponent, customCss)
+
+	$: sumedup = panes.map((x) => (x / panes.reduce((a, b) => a + b, 0)) * 100)
 </script>
 
 <InputValue {id} input={configuration.noPadding} bind:value={noPadding} />
 
-<div class="h-full w-full" on:pointerdown|stopPropagation>
+<div class="h-full w-full border" on:pointerdown|stopPropagation>
 	<Splitpanes {horizontal}>
-		{#each paneSizes as paneSize, index}
+		{#each sumedup as paneSize, index}
 			<Pane bind:size={paneSize} minSize={20}>
 				{#if $app.subgrids?.[`${id}-${index}`]}
 					<SubGridEditor

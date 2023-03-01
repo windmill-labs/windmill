@@ -30,16 +30,18 @@
 
 <InputValue {id} input={configuration.noPadding} bind:value={noPadding} />
 
-{#if $app.subgrids?.[`${id}-0`]}
-	<SubGridEditor
-		{noPadding}
-		{id}
-		class={css?.container.class}
-		style={css?.container.style}
-		bind:subGrid={$app.subgrids[`${id}-0`]}
-		containerHeight={componentContainerHeight}
-		on:focus={() => {
-			$selectedComponent = id
-		}}
-	/>
-{/if}
+<div class="border">
+	{#if $app.subgrids?.[`${id}-0`]}
+		<SubGridEditor
+			{noPadding}
+			{id}
+			class={css?.container.class}
+			style={css?.container.style}
+			bind:subGrid={$app.subgrids[`${id}-0`]}
+			containerHeight={componentContainerHeight}
+			on:focus={() => {
+				$selectedComponent = id
+			}}
+		/>
+	{/if}
+</div>

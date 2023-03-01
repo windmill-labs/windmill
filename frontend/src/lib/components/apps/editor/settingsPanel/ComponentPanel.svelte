@@ -24,6 +24,7 @@
 	import { duplicateGridItem } from '../appUtils'
 	import { deleteGridItem } from '../appUtils'
 	import MoveToOtherGrid from './MoveToOtherGrid.svelte'
+	import GridPane from './GridPane.svelte'
 
 	export let component: AppComponent
 	export let rowColumns = false
@@ -163,9 +164,9 @@
 
 		{#if component.type === 'tabscomponent'}
 			<GridTab bind:tabs={component.tabs} {component} />
-		{/if}
-
-		{#if component.type === 'tablecomponent' && Array.isArray(component.actionButtons)}
+		{:else if component.type === 'verticalsplitpanescomponent' || component.type === 'horizontalsplitpanescomponent'}
+			<GridPane bind:panes={component.panes} {component} />
+		{:else if component.type === 'tablecomponent' && Array.isArray(component.actionButtons)}
 			<TableActions id={component.id} bind:components={component.actionButtons} />
 		{/if}
 

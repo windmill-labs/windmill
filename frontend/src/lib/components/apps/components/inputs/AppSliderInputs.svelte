@@ -58,13 +58,13 @@
 <AlignWrapper {verticalAlignment}>
 	<div class="flex items-center w-full gap-1 px-1">
 		<span class={css?.limits?.class ?? ''} style={css?.limits?.style ?? ''}>
-			{min}
+			{+min}
 		</span>
 		<div class="grow" on:pointerdown|stopPropagation={() => ($selectedComponent = id)}>
-			<RangeSlider bind:slider bind:values {step} min={min ?? 0} max={max ?? 1} />
+			<RangeSlider bind:slider bind:values {step} min={+min} max={+max} />
 		</div>
 		<span class={css?.limits?.class ?? ''} style={css?.limits?.style ?? ''}>
-			{max}
+			{+max}
 		</span>
 		<span class="mx-2">
 			<span
