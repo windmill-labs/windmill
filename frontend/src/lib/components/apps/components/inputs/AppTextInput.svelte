@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
+	import { twMerge } from 'tailwind-merge'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
@@ -14,6 +15,7 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export const staticOutputs: string[] = ['result']
 	export let customCss: ComponentCustomCSS<'input'> | undefined = undefined
+	export let appCssKey: 'textinputcomponent' | 'passwordinputcomponent' = 'textinputcomponent'
 
 	const { app, worldStore } = getContext<AppEditorContext>('AppEditorContext')
 	let input: HTMLInputElement
@@ -31,7 +33,7 @@
 
 	$: input && handleInput()
 
-	$: css = concatCustomCss($app.css?.textinputcomponent, customCss)
+	$: css = concatCustomCss($app.css?.[appCssKey], customCss)
 </script>
 
 <InputValue {id} input={configuration.placeholder} bind:value={placeholder} />
@@ -40,7 +42,7 @@
 
 <AlignWrapper {verticalAlignment}>
 	<input
-		class="mx-0.5 {css?.input?.class ?? ''}"
+		class={twMerge('mx-0.5', css?.input?.class ?? '')}
 		style={css?.input?.style ?? ''}
 		on:focus={(e) => {
 			e?.stopPropagation()

@@ -22,7 +22,7 @@
 	const { app, connectingInput, selectedComponent, focusedGrid } =
 		getContext<AppEditorContext>('AppEditorContext')
 
-	$: highlight = id === $focusedGrid?.parentComponentId && $selectedComponent !== id
+	$: highlight = id === $focusedGrid?.parentComponentId
 
 	let pointerdown = false
 	let onComponent: string | undefined = undefined
@@ -69,18 +69,13 @@
 	bind:this={container}
 >
 	<div
-		class={twMerge(
-			'py-2 overflow-auto',
-			classes ?? '',
-			noPadding ? 'px-0' : 'px-2',
-			highlight ? 'border-indigo-500 border border-dashed' : ''
-		)}
+		class={twMerge('py-2 overflow-auto', classes ?? '', noPadding ? 'px-0' : 'px-2')}
 		on:pointerdown|stopPropagation={onpointerdown}
 		on:pointerleave={onpointerup}
 		on:pointerup={onpointerup}
 		style="height: {containerHeight}px; {style ?? ''}"
 	>
-		<div>
+		<div class={highlight ? 'border-indigo-600 border-2 border-dashed' : ''}>
 			<Grid
 				bind:items={subGrid}
 				let:dataItem
@@ -91,17 +86,14 @@
 				scroller={container}
 			>
 				{#each subGrid as gridComponent (gridComponent.id)}
-					{#if gridComponent.data.id === dataItem.data.id}
+					{#if gridComponent?.data?.id && gridComponent?.data?.id === dataItem?.data?.id}
 						<!-- svelte-ignore a11y-click-events-have-key-events -->
 						{#if $connectingInput.opened}
-							{#if $connectingInput.opened}
-								<div
-									on:pointerenter={() =>
-										($connectingInput.hoveredComponent = gridComponent.data.id)}
-									on:pointerleave={() => ($connectingInput.hoveredComponent = undefined)}
-									class="absolute w-full h-full bg-black border-2 bg-opacity-25 z-20 flex justify-center items-center"
-								/>
-							{/if}
+							<div
+								on:pointerenter={() => ($connectingInput.hoveredComponent = gridComponent.data.id)}
+								on:pointerleave={() => ($connectingInput.hoveredComponent = undefined)}
+								class="absolute w-full h-full bg-black border-2 bg-opacity-25 z-20 flex justify-center items-center"
+							/>
 							<div
 								style="transform: translate(-50%, -50%);"
 								class="absolute w-fit justify-center bg-indigo-500/90 left-[50%] top-[50%] z-50 px-6 rounded border text-white py-2 text-5xl center-center"
@@ -122,7 +114,7 @@
 						>
 							<Component
 								{pointerdown}
-								bind:pComponent={gridComponent.data}
+								bind:component={gridComponent.data}
 								selected={$selectedComponent === dataItem.data.id}
 								locked={isFixed(gridComponent)}
 								on:lock={() => lock(gridComponent)}

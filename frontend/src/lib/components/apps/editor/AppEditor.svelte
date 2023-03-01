@@ -81,7 +81,8 @@
 		noBackend: false,
 		errorByComponent,
 		openDebugRun: writable(undefined),
-		focusedGrid
+		focusedGrid,
+		stateId: writable(0)
 	})
 
 	let timeout: NodeJS.Timeout | undefined = undefined

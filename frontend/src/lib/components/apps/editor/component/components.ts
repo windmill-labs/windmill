@@ -913,7 +913,9 @@ Hello \${ctx.username}
 					fieldType: 'number'
 				}
 			},
-			customCss: {},
+			customCss: {
+				input: { class: '', style: '' }
+			} as const,
 			card: false
 		}
 	},
@@ -954,7 +956,9 @@ Hello \${ctx.username}
 					optionValuesKey: 'localeOptions'
 				}
 			},
-			customCss: {},
+			customCss: {
+				input: { class: '', style: '' }
+			} as const,
 			card: false
 		}
 	},
@@ -991,7 +995,11 @@ Hello \${ctx.username}
 					fieldType: 'number'
 				}
 			},
-			customCss: {},
+			customCss: {
+				handle: { style: '' },
+				limits: { class: '', style: '' },
+				value: { class: '', style: '' }
+			} as const,
 			card: false
 		}
 	},
@@ -1032,7 +1040,11 @@ Hello \${ctx.username}
 					fieldType: 'number'
 				}
 			},
-			customCss: {},
+			customCss: {
+				handles: { style: '' },
+				limits: { class: '', style: '' },
+				values: { class: '', style: '' }
+			} as const,
 			card: false
 		}
 	},
@@ -1054,7 +1066,9 @@ Hello \${ctx.username}
 					onlyStatic: true
 				}
 			},
-			customCss: {},
+			customCss: {
+				input: { class: '', style: '' }
+			} as const,
 			card: false
 		}
 	},
@@ -1085,7 +1099,9 @@ Hello \${ctx.username}
 					fieldType: 'date'
 				}
 			},
-			customCss: {},
+			customCss: {
+				input: { class: '', style: '' }
+			} as const,
 			card: false
 		}
 	},
@@ -1105,6 +1121,12 @@ Hello \${ctx.username}
 					onlyStatic: true
 				}
 			},
+			customCss: {
+				tabRow: { class: '', style: '' },
+				allTabs: { class: '', style: '' },
+				selectedTab: { class: '', style: '' },
+				container: { class: '', style: '' }
+			} as const,
 			componentInput: undefined,
 			card: false,
 			numberOfSubgrids: 2,
@@ -1146,7 +1168,10 @@ Hello \${ctx.username}
 					onlyStatic: true
 				}
 			},
-			customCss: {},
+			customCss: {
+				container: { class: '', style: '' },
+				icon: { class: '', style: '' }
+			} as const,
 			card: false
 		}
 	},
@@ -1173,7 +1198,10 @@ Hello \${ctx.username}
 					onlyStatic: true
 				}
 			},
-			customCss: {},
+			customCss: {
+				container: { class: '', style: '' },
+				divider: { class: '', style: '' }
+			} as const,
 			card: false
 		}
 	},
@@ -1200,7 +1228,10 @@ Hello \${ctx.username}
 					onlyStatic: true
 				}
 			},
-			customCss: {},
+			customCss: {
+				container: { class: '', style: '' },
+				divider: { class: '', style: '' }
+			} as const,
 			card: false
 		}
 	},
@@ -1233,7 +1264,9 @@ Hello \${ctx.username}
 					onlyStatic: true
 				}
 			},
-			customCss: {},
+			customCss: {
+				container: { class: '', style: '' }
+			} as const,
 			card: false
 		}
 	},
@@ -1268,15 +1301,11 @@ Hello \${ctx.username}
 					fieldType: 'text',
 					onlyStatic: true,
 					tooltip: "This text will appear if the image can't be loaded for any reason"
-				},
-				customStyles: {
-					type: 'static',
-					value: '',
-					fieldType: 'textarea',
-					onlyStatic: true
 				}
 			},
-			customCss: {},
+			customCss: {
+				image: { class: '', style: '' }
+			} as const,
 			card: false
 		}
 	},

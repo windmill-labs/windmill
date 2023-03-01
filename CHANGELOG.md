@@ -1,6 +1,25 @@
 # Changelog
 
 
+## [1.71.0](https://github.com/windmill-labs/windmill/compare/v1.70.1...v1.71.0) (2023-02-28)
+
+
+### Features
+
+* **backend:** use counter for sleep/execution/pull durations ([e568690](https://github.com/windmill-labs/windmill/commit/e56869092a03fec4703ddd9ef65c89edb8122962))
+* **cli:** add autocompletions ([287b2db](https://github.com/windmill-labs/windmill/commit/287b2db22f7b56e90bcd0c4727c00096695c2e0d))
+* **frontend:** App drawer ([#1246](https://github.com/windmill-labs/windmill/issues/1246)) ([8a0d115](https://github.com/windmill-labs/windmill/commit/8a0d1158c4d7e970cb91e1adf4838e5efdbb39ff))
+* **frontend:** drawer for editing workspace scripts in flows ([6adc875](https://github.com/windmill-labs/windmill/commit/6adc87561070d8aceaba1838008cd7e6be2e2660))
+
+
+### Bug Fixes
+
+* **frontend:** Add more app custom css ([#1229](https://github.com/windmill-labs/windmill/issues/1229)) ([a4e4d18](https://github.com/windmill-labs/windmill/commit/a4e4d188ad10443dd0b7f104389594efc768dc59))
+* **frontend:** Add more app custom css ([#1247](https://github.com/windmill-labs/windmill/issues/1247)) ([1bb5ed9](https://github.com/windmill-labs/windmill/commit/1bb5ed9ae01fd7998b06833b6222e5dd5d774d35))
+* **frontend:** display currently selected filter even if not in list ([42d1cd6](https://github.com/windmill-labs/windmill/commit/42d1cd6456620ba917c560c87d736dc93634adff))
+* **frontend:** Fix deeply nested move ([#1245](https://github.com/windmill-labs/windmill/issues/1245)) ([a67f10e](https://github.com/windmill-labs/windmill/commit/a67f10eeb6fdb44bbb3a510badcc5ad0ae187a2b))
+* **frontend:** invisible subgrids have h-0 + app policies fix ([2244e83](https://github.com/windmill-labs/windmill/commit/2244e83b9da803a4cf46ab0825d7cb6cb0e24872))
+
 ## [1.70.1](https://github.com/windmill-labs/windmill/compare/v1.70.0...v1.70.1) (2023-02-27)
 
 

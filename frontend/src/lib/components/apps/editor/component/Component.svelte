@@ -5,7 +5,6 @@
 	import { twMerge } from 'tailwind-merge'
 	import type { AppEditorContext } from '../../types'
 	import ComponentHeader from '../ComponentHeader.svelte'
-	import { deepEqual } from 'fast-equals'
 
 	import {
 		AppBarChart,
@@ -41,7 +40,7 @@
 	import AppDrawer from '../../components/layout/AppDrawer.svelte'
 	import AppSplitpanes from '../../components/layout/AppSplitpanes.svelte'
 
-	export let pComponent: AppComponent
+	export let component: AppComponent
 	export let selected: boolean
 	export let locked: boolean = false
 	export let pointerdown: boolean = false
@@ -51,11 +50,6 @@
 	let hover = false
 	let initializing: boolean | undefined = undefined
 	let componentContainerHeight: number = 0
-
-	let component = JSON.parse(JSON.stringify(pComponent))
-	$: if (pComponent && !deepEqual(pComponent, component)) {
-		component = JSON.parse(JSON.stringify(pComponent))
-	}
 </script>
 
 <div
@@ -194,6 +188,7 @@
 		{:else if component.type === 'passwordinputcomponent'}
 			<AppTextInput
 				inputType="password"
+				appCssKey="passwordinputcomponent"
 				{...component}
 				bind:staticOutputs={$staticOutputs[component.id]}
 			/>
@@ -240,7 +235,7 @@
 		{:else if component.type === 'imagecomponent'}
 			<AppImage {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{:else if component.type === 'drawercomponent'}
-			<AppDrawer {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+			<AppDrawer {...component} />
 		{/if}
 	</div>
 </div>
