@@ -145,7 +145,7 @@ fn add_closing_bracket(s: &str) -> String {
     s
 }
 
-const SPLIT_PAT: &str = ";\n";
+const SPLIT_PAT: &str = ";";
 async fn eval(
     context: &mut JsRuntime,
     expr: &str,
@@ -154,14 +154,21 @@ async fn eval(
     by_id: Option<IdContext>,
     base_internal_url: &str,
 ) -> anyhow::Result<serde_json::Value> {
-    let expr = expr.trim();
-    let expr = format!(
-        "{}\nreturn {};",
-        expr.split(SPLIT_PAT)
-            .take(expr.split(SPLIT_PAT).count() - 1)
-            .join("\n"),
-        expr.split(SPLIT_PAT).last().unwrap_or_else(|| "")
-    );
+    let exprs = expr
+        .trim()
+        .split(SPLIT_PAT)
+        .map(|x| x.trim())
+        .filter(|x| !x.is_empty())
+        .collect::<Vec<&str>>();
+    let expr = if exprs.is_empty() {
+        "return undefined;".to_string()
+    } else {
+        format!(
+            "{};\n    return {};",
+            exprs.iter().take(exprs.len() - 1).join(";\n"),
+            exprs.last().unwrap()
+        )
+    };
     let (api_code, by_id_code) = if let Some(EvalCreds { workspace, token }) = creds {
         let by_id_code = if let Some(by_id) = by_id {
             format!(
@@ -198,12 +205,12 @@ const results = new Proxy({{}}, {{
                     .into_iter()
                     .map(|(k, v)| {
                         let v_str = match v {
-                            JobResult::SingleJob(x) => x.to_string(),
+                            JobResult::SingleJob(x) => format!("\"{x}\""),
                             JobResult::ListJob(x) => {
-                                format!("[{}]", x.iter().map(|x| x.to_string()).join(","))
+                                format!("[{}]", x.iter().map(|x| format!("\"{x}\"")).join(","))
                             }
                         };
-                        format!("\"{k}\": \"{v_str}\"")
+                        format!("\"{k}\": {v_str}")
                     })
                     .join(","),
                 by_id.previous_id,
