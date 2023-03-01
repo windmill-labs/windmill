@@ -69,8 +69,8 @@
 <div class="w-full {clazz} {flexWrap ? 'flex flex-row flex-wrap gap-x-6 gap-y-2' : ''}">
 	{#if keys.length > 0}
 		{#each keys as argName, i (argName)}
-			{#if !filter || filter.includes(argName)}
-				<div transition:slide|local>
+			{#if (!filter || filter.includes(argName)) && Object.keys(schema.properties ?? {}).includes(argName)}
+				<div transition:slide>
 					{#if inputTransform}
 						<InputTransformForm
 							{previousModuleId}

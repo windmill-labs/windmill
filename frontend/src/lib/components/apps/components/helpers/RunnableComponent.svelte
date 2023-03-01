@@ -251,11 +251,6 @@
 />
 
 <div class="h-full flex relative flex-row flex-wrap {wrapperClass}" style={wrapperStyle}>
-	{#if !initializing && autoRefresh === true}
-		<div class="flex absolute top-1 right-1">
-			<RefreshButton componentId={id} />
-		</div>
-	{/if}
 	{#if schemaStripped && Object.keys(schemaStripped?.properties ?? {}).length > 0 && (autoRefresh || forceSchemaDisplay)}
 		<div class="px-2 h-fit min-h-0">
 			<SchemaForm
@@ -289,6 +284,11 @@
 	{:else}
 		<div class="block grow w-full max-h-full">
 			<slot />
+		</div>
+	{/if}
+	{#if !initializing && autoRefresh === true}
+		<div class="flex absolute top-1 right-1 z-50">
+			<RefreshButton componentId={id} />
 		</div>
 	{/if}
 </div>
