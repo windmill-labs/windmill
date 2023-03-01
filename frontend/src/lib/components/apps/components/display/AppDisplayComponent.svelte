@@ -3,7 +3,11 @@
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { AppInput } from '../../inputType'
-	import { IS_APP_PUBLIC_CONTEXT_KEY, type AppEditorContext, type ComponentCustomCSS } from '../../types'
+	import {
+		IS_APP_PUBLIC_CONTEXT_KEY,
+		type AppEditorContext,
+		type ComponentCustomCSS
+	} from '../../types'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 
 	export let id: string
@@ -18,19 +22,23 @@
 	export const staticOutputs: string[] = ['result', 'loading']
 </script>
 
-<RunnableWrapper flexWrap bind:componentInput {id} bind:initializing bind:result>
-	<div class={twMerge(
-		'w-full border-b px-2 text-xs p-1 font-semibold bg-gray-500 text-white rounded-t-sm',
-		$app.css?.['displaycomponent']?.['header']?.class,
-		customCss?.header?.class
-	)}>
+<RunnableWrapper flexWrap {componentInput} {id} bind:initializing bind:result>
+	<div
+		class={twMerge(
+			'w-full border-b px-2 text-xs p-1 font-semibold bg-gray-500 text-white rounded-t-sm',
+			$app.css?.['displaycomponent']?.['header']?.class,
+			customCss?.header?.class
+		)}
+	>
 		Results
 	</div>
-	<div class={twMerge(
-		'p-2',
-		$app.css?.['displaycomponent']?.['container']?.class,
-		customCss?.container?.class
-	)}>
+	<div
+		class={twMerge(
+			'p-2',
+			$app.css?.['displaycomponent']?.['container']?.class,
+			customCss?.container?.class
+		)}
+	>
 		<DisplayResult {result} {requireHtmlApproval} />
 	</div>
 </RunnableWrapper>

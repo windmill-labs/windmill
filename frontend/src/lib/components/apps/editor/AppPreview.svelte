@@ -45,7 +45,6 @@
 	setContext<AppEditorContext>('AppEditorContext', {
 		worldStore,
 		staticOutputs,
-		lazyGrid: writable(app.grid),
 		app: appStore,
 		summary: writable(summary),
 		selectedComponent,

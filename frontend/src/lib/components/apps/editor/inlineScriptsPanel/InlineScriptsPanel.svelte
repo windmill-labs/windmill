@@ -26,15 +26,17 @@
 				</div>
 			{/if}
 
-			{#each $app.grid as gridItem (gridItem.data.id)}
-				{#if gridItem.data.id === selectedScriptComponentId}
+			{#each $app.grid as gridItem (gridItem?.data?.id)}
+				{#if gridItem?.data?.id === selectedScriptComponentId}
 					<InlineScriptEditorPanel
+						defaultUserInput={gridItem.data.type == 'formcomponent' ||
+							gridItem.data.type == 'buttonformcomponent'}
 						id={gridItem.data.id}
 						bind:componentInput={gridItem.data.componentInput}
 					/>
 				{/if}
 
-				{#if gridItem.data.type === 'tablecomponent'}
+				{#if gridItem?.data?.type === 'tablecomponent'}
 					{#each gridItem.data.actionButtons as actionButton, index (index)}
 						{#if actionButton.id === selectedScriptComponentId}
 							<InlineScriptEditorPanel
@@ -48,15 +50,17 @@
 
 			{#if $app.subgrids}
 				{#each Object.keys($app.subgrids ?? {}) as key (key)}
-					{#each $app.subgrids[key] as gridItem (gridItem.data.id)}
-						{#if gridItem.data.id === selectedScriptComponentId}
+					{#each $app.subgrids[key] as gridItem (gridItem?.data?.id)}
+						{#if gridItem?.data?.id === selectedScriptComponentId}
 							<InlineScriptEditorPanel
+								defaultUserInput={gridItem.data.type == 'formcomponent' ||
+									gridItem.data.type == 'buttonformcomponent'}
 								id={gridItem.data.id}
 								bind:componentInput={gridItem.data.componentInput}
 							/>
 						{/if}
 
-						{#if gridItem.data.type === 'tablecomponent'}
+						{#if gridItem?.data?.type === 'tablecomponent'}
 							{#each gridItem.data.actionButtons as actionButton, index (index)}
 								{#if actionButton.id === selectedScriptComponentId}
 									<InlineScriptEditorPanel

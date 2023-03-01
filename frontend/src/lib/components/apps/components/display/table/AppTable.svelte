@@ -147,7 +147,7 @@
 
 <InputValue {id} input={configuration.search} bind:value={search} />
 
-<RunnableWrapper flexWrap bind:componentInput {id} bind:initializing bind:result>
+<RunnableWrapper flexWrap {componentInput} {id} bind:initializing bind:result>
 	{#if Array.isArray(result) && result.every(isObject)}
 		<div
 			class={twMerge(

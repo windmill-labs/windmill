@@ -50,6 +50,7 @@
 	>
 		{#each panels as [componentId, outputs] (componentId)}
 			{#if outputs.length > 0 && $worldStore?.outputsById[componentId]}
+				{@const name = getComponentNameById(componentId)}
 				<div>
 					<div
 						class="flex {$connectingInput?.opened
@@ -75,7 +76,7 @@
 								'bg-gray-500 text-white'
 							)}
 						>
-							{getComponentNameById(componentId)}
+							{name}
 						</span>
 					</div>
 
@@ -92,7 +93,9 @@
 							{#key $connectingInput?.opened}
 								<ComponentOutputViewer
 									outputs={$connectingInput?.opened && $selectedComponent === componentId
-										? ['search']
+										? name == 'Table'
+											? ['search']
+											: []
 										: outputs}
 									{componentId}
 									on:select={({ detail }) => {

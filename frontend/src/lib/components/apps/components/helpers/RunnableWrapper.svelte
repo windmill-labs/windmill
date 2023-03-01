@@ -15,7 +15,6 @@
 	export let autoRefresh: boolean = true
 	export let runnableComponent: RunnableComponent | undefined = undefined
 	export let forceSchemaDisplay: boolean = false
-	export let defaultUserInput = false
 	export let flexWrap = false
 	export let runnableClass = ''
 	export let runnableStyle = ''
@@ -45,9 +44,8 @@
 	<RunnableComponent
 		gotoUrl={goto}
 		{flexWrap}
-		{defaultUserInput}
 		bind:this={runnableComponent}
-		bind:fields={componentInput.fields}
+		fields={componentInput.fields}
 		bind:result
 		runnable={componentInput.runnable}
 		{autoRefresh}
