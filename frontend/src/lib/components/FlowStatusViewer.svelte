@@ -505,6 +505,7 @@
 							<div class="px-1 border-b border-black">
 								<JobArgs args={node.args} />
 							</div>
+
 							<FlowJobResult
 								loading={job['running'] == true}
 								noBorder
