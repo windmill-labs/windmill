@@ -153,18 +153,16 @@
 				{/key}
 			</PanelSection>
 		{/if}
-		{#key $stateId}
-			{#if Object.values(component.configuration).length > 0}
-				<PanelSection title={`Configuration (${Object.values(component.configuration).length})`}>
-					<InputsSpecsEditor
-						{rowColumns}
-						id={component.id}
-						bind:inputSpecs={component.configuration}
-						userInputEnabled={false}
-					/>
-				</PanelSection>
-			{/if}
-		{/key}
+		{#if Object.values(component.configuration).length > 0}
+			<PanelSection title={`Configuration (${Object.values(component.configuration).length})`}>
+				<InputsSpecsEditor
+					{rowColumns}
+					id={component.id}
+					bind:inputSpecs={component.configuration}
+					userInputEnabled={false}
+				/>
+			</PanelSection>
+		{/if}
 
 		{#if component.type === 'tabscomponent'}
 			<GridTab bind:tabs={component.tabs} {component} />

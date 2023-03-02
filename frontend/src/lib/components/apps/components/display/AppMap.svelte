@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { getContext, onMount } from 'svelte'
 	import { concatCustomCss } from '../../utils'
-	import type { AppInput, StaticInput } from '../../inputType'
+	import type { AppInput } from '../../inputType'
 	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
 	import { InputValue } from '../helpers'
 	import { twMerge } from 'tailwind-merge'
@@ -11,6 +11,8 @@
 	import { Vector as VectorLayer, Tile as TileLayer } from 'ol/layer'
 	import { Point } from 'ol/geom'
 	import { defaults as defaultControls } from 'ol/control'
+	import { findGridItem } from '../../editor/appUtils'
+	import type { Output } from '../../rx'
 
 	interface Marker {
 		lon: number
@@ -28,11 +30,19 @@
 
 	export let id: string
 	export let configuration: Record<string, AppInput>
-	export const staticOutputs: string[] = ['loading']
+	export const staticOutputs: string[] = ['mapRegion']
 	export let customCss: ComponentCustomCSS<'map'> | undefined = undefined
 
-	const { app, stateId, selectedComponent, connectingInput, focusedGrid } =
+	const { app, worldStore, selectedComponent, connectingInput, focusedGrid } =
 		getContext<AppEditorContext>('AppEditorContext')
+
+	$: outputs = $worldStore?.outputsById[id] as {
+		mapRegion: Output<{
+			topLeft: { lat: number; lon: number }
+			bottomRight: { lat: number; lon: number }
+		}>
+	}
+
 	let map: Map
 	let mapElement: HTMLDivElement
 
@@ -133,23 +143,49 @@
 				attribution: false
 			})
 		})
-		map.on('moveend', () => {
-			const z = map.getView().getZoom()
-			if (z) {
-				;(configuration.zoom as StaticInput<number>).value = z
-			}
-			const center = map.getView().getCenter()
-			if (!center) {
-				return
-			}
-			;(configuration.longitude as StaticInput<number>).value = center[0]
-			;(configuration.latitude as StaticInput<number>).value = center[1]
-
-			$stateId++
-		})
+		updateRegionOutput()
 	})
 
 	$: css = concatCustomCss($app.css?.mapcomponent, customCss)
+	$: gridItem = findGridItem($app, id)
+
+	function updateRegionOutput() {
+		if (map) {
+			let extent = map.getView().calculateExtent(map.getSize())
+			const [left, bottom, right, top] = extent
+
+			if (outputs.mapRegion) {
+				outputs.mapRegion.set({
+					topLeft: { lat: top, lon: left },
+					bottomRight: { lat: bottom, lon: right }
+				})
+			}
+		}
+	}
+
+	function handleSyncRegion() {
+		const z = map.getView().getZoom()
+
+		updateRegionOutput()
+
+		if (!gridItem) {
+			return
+		}
+
+		if (z) {
+			gridItem.data.configuration.zoom.value = z
+		}
+
+		const center = map.getView().getCenter()
+		if (!center) {
+			return
+		}
+
+		if (gridItem) {
+			gridItem.data.configuration.longitude.value = center[0]
+			gridItem.data.configuration.latitude.value = center[1]
+		}
+	}
 </script>
 
 <InputValue {id} input={configuration.longitude} bind:value={longitude} />
@@ -157,12 +193,21 @@
 <InputValue {id} input={configuration.zoom} bind:value={zoom} />
 <InputValue {id} input={configuration.markers} bind:value={markers} />
 
-<div
-	on:pointerdown|stopPropagation={selectComponent}
-	bind:this={mapElement}
-	class={twMerge(`w-full h-full`, css?.map?.class ?? '')}
-	style={css?.map?.style ?? ''}
-/>
+<div class="relative h-full w-full">
+	<div
+		on:pointerdown|stopPropagation={selectComponent}
+		bind:this={mapElement}
+		class={twMerge(`w-full h-full`, css?.map?.class ?? '')}
+		style={css?.map?.style ?? ''}
+	/>
+
+	<div
+		class="absolute bottom-0 left-0 px-1 py-0.5 bg-indigo-500 text-white text-2xs"
+		on:pointerdown={handleSyncRegion}
+	>
+		Set region
+	</div>
+</div>
 
 <style global lang="postcss">
 	.ol-overlaycontainer-stopevent {
