@@ -39,7 +39,7 @@
 	<FileInput
 		accept={acceptedFileTypes?.length ? acceptedFileTypes?.join(', ') : undefined}
 		multiple={allowMultiple}
-		convertToBase64
+		convertTo="base64"
 		on:change={({ detail }) => {
 			handleChange(detail)
 		}}

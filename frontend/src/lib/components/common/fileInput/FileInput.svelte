@@ -4,13 +4,14 @@
 	import Button from '../../common/button/Button.svelte'
 	import { faTrash } from '@fortawesome/free-solid-svg-icons'
 	import { twMerge } from 'tailwind-merge'
+	import type { ReadFileAs } from './model'
 
 	let c = ''
 	export { c as class }
 	export let style = ''
 	export let accept = '*'
 	export let multiple = false
-	export let convertToBase64 = false
+	export let convertTo: ReadFileAs | undefined = undefined
 	export let hideIcon = false
 	export let iconSize = 36
 	const dispatch = createEventDispatcher()
@@ -38,13 +39,29 @@
 		dispatchChange()
 	}
 
-	async function fileToBase64(file: File): Promise<string> {
+	async function convertFile(file: File): Promise<string | ArrayBuffer | null> {
 		return new Promise((resolve) => {
+			if (!convertTo) {
+				return resolve(null)
+			}
 			const reader = new FileReader()
 			reader.onloadend = () => {
-				resolve(reader.result as string)
+				resolve(reader.result)
 			}
-			reader.readAsDataURL(file)
+			switch (convertTo) {
+				case 'buffer':
+					reader.readAsArrayBuffer(file)
+					break
+				case 'binary':
+					reader.readAsBinaryString(file)
+					break
+				case 'base64':
+					reader.readAsDataURL(file)
+					break
+				case 'text':
+					reader.readAsText(file)
+					break
+			}
 		})
 	}
 
@@ -58,10 +75,10 @@
 	async function dispatchChange() {
 		files = files
 
-		if (convertToBase64 && files) {
-			const promises = files.map(fileToBase64)
-			const b64s = await Promise.all(promises)
-			dispatch('change', b64s)
+		if (convertTo && files) {
+			const promises = files.map(convertFile)
+			const converted = await Promise.all(promises)
+			dispatch('change', converted)
 		} else {
 			dispatch('change', files)
 		}

@@ -5,7 +5,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import type { AppEditorContext } from '../../types'
 	import ComponentHeader from '../ComponentHeader.svelte'
-
+	import type { AppComponent } from './components'
 	import {
 		AppBarChart,
 		AppDisplayComponent,
@@ -33,12 +33,12 @@
 		AppDivider,
 		AppFileInput,
 		AppImage,
-		AppContainer
+		AppContainer,
+		AppAggridTable,
+		AppDrawer,
+		AppMap,
+		AppSplitpanes
 	} from '../../components'
-	import type { AppComponent } from './components'
-	import AppAggridTable from '../../components/display/table/AppAggridTable.svelte'
-	import AppDrawer from '../../components/layout/AppDrawer.svelte'
-	import AppSplitpanes from '../../components/layout/AppSplitpanes.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -375,6 +375,8 @@
 				id={component.id}
 				customCss={component.customCss}
 			/>
+		{:else if component.type === 'mapcomponent'}
+			<AppMap {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{/if}
 	</div>
 </div>

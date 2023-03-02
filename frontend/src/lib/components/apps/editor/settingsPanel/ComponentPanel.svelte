@@ -154,7 +154,6 @@
 				{/key}
 			</PanelSection>
 		{/if}
-
 		{#if Object.values(component.configuration).length > 0}
 			<PanelSection title={`Configuration (${Object.values(component.configuration).length})`}>
 				<InputsSpecsEditor

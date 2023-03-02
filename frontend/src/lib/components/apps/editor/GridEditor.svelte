@@ -88,6 +88,10 @@
 	}
 
 	function selectComponent(id: string) {
+		// Component selection is handled manually in the Map component (pointerdown
+		// event propagation is stopped to enable paning).
+		// Update the 'selectComponent()' function as well when this is updated.
+
 		if (!$connectingInput.opened) {
 			$selectedComponent = id
 			$focusedGrid = undefined
@@ -119,9 +123,9 @@
 
 <div class="relative w-full z-20 overflow-visible">
 	<div
-		class="w-full sticky top-0 flex justify-between border-l border-r border-b {$connectingInput?.opened
+		class="w-full sticky top-0 flex justify-between border-b {$connectingInput?.opened
 			? ''
-			: 'bg-gray-50 '} px-4 py-2 items-center gap-4"
+			: 'bg-gray-50 '} px-4 py-1 items-center gap-4"
 		style="z-index: 1000;"
 	>
 		<h2 class="truncate">{$summary}</h2>

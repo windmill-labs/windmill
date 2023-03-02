@@ -12,6 +12,9 @@
 	const dispatch = createEventDispatcher()
 
 	function addElementByType() {
+		if (!Array.isArray(componentInput.value)) {
+			componentInput.value = []
+		}
 		if (componentInput.subFieldType && componentInput.value) {
 			if (componentInput.subFieldType === 'boolean') {
 				componentInput.value.push(false)
@@ -47,7 +50,7 @@
 </script>
 
 <div class="flex gap-2 flex-col mt-2">
-	{#if componentInput.value}
+	{#if Array.isArray(componentInput.value)}
 		{#each componentInput.value as value, index (index)}
 			<div class="flex flex-row gap-2 items-center relative">
 				<SubTypeEditor bind:componentInput bind:value />
@@ -65,13 +68,8 @@
 				</div>
 			</div>
 		{/each}
-		<Button
-			size="xs"
-			color="light"
-			startIcon={{ icon: faPlus }}
-			on:click={() => addElementByType()}
-		>
-			Add
-		</Button>
 	{/if}
+	<Button size="xs" color="light" startIcon={{ icon: faPlus }} on:click={() => addElementByType()}>
+		Add
+	</Button>
 </div>
