@@ -31,7 +31,8 @@ import {
 	SidebarClose,
 	MapPin,
 	FlipHorizontal,
-	FlipVertical
+	FlipVertical,
+	FileText
 } from 'lucide-svelte'
 import type { BaseAppComponent } from '../../types'
 
@@ -90,6 +91,7 @@ export type VerticalSplitPanesComponent = BaseComponent<'verticalsplitpanescompo
 export type HorizontalSplitPanesComponent = BaseComponent<'horizontalsplitpanescomponent'> & {
 	panes: number[]
 }
+export type PdfComponent = BaseComponent<'pdfcomponent'>
 
 export type AppComponent = BaseAppComponent &
 	(
@@ -127,6 +129,7 @@ export type AppComponent = BaseAppComponent &
 		| MapComponent
 		| VerticalSplitPanesComponent
 		| HorizontalSplitPanesComponent
+		| PdfComponent
 	)
 
 export type AppComponentDimensions = `${IntRange<
@@ -1493,6 +1496,31 @@ Hello \${ctx.username}
 			card: false,
 			panes: [50, 50],
 			numberOfSubgrids: 2
+		}
+	},
+	pdfcomponent: {
+		name: 'PDF',
+		icon: FileText,
+		dims: '3:8-8:12',
+		data: {
+			id: '',
+			type: 'pdfcomponent',
+			componentInput: undefined,
+			configuration: {
+				source: {
+					type: 'static',
+					value: '/logo.svg',
+					fieldType: 'text',
+					fileUpload: {
+						accept: 'application/pdf',
+						convertTo: 'buffer'
+					}
+				}
+			},
+			customCss: {
+				container: { class: '', style: '' }
+			} as const,
+			card: false
 		}
 	}
 }
