@@ -29,6 +29,7 @@ import {
 	Paperclip,
 	Image,
 	SidebarClose,
+	MapPin,
 	FlipHorizontal,
 	FlipVertical
 } from 'lucide-svelte'
@@ -82,6 +83,7 @@ export type TabsComponent = BaseComponent<'tabscomponent'> & {
 }
 export type ContainerComponent = BaseComponent<'containercomponent'>
 export type DrawerComponent = BaseComponent<'drawercomponent'>
+export type MapComponent = BaseComponent<'mapcomponent'>
 export type VerticalSplitPanesComponent = BaseComponent<'verticalsplitpanescomponent'> & {
 	panes: number[]
 }
@@ -122,6 +124,7 @@ export type AppComponent = BaseAppComponent &
 		| ImageComponent
 		| AggridComponent
 		| DrawerComponent
+		| MapComponent
 		| VerticalSplitPanesComponent
 		| HorizontalSplitPanesComponent
 	)
@@ -1303,7 +1306,7 @@ Hello \${ctx.username}
 					fieldType: 'text',
 					fileUpload: {
 						accept: 'image/*',
-						base64: true
+						convertTo: 'base64'
 					}
 				},
 				imageFit: {
@@ -1386,6 +1389,62 @@ Hello \${ctx.username}
 			numberOfSubgrids: 1
 		}
 	},
+	mapcomponent: {
+		name: 'Map',
+		icon: MapPin,
+		dims: '3:6-6:10',
+		data: {
+			id: '',
+			type: 'mapcomponent',
+			componentInput: undefined,
+			configuration: {
+				longitude: {
+					fieldType: 'number',
+					type: 'static',
+					value: 15
+				},
+				latitude: {
+					fieldType: 'number',
+					type: 'static',
+					value: 50
+				},
+				zoom: {
+					fieldType: 'number',
+					type: 'static',
+					value: 3
+				},
+				markers: {
+					fieldType: 'array',
+					type: 'static',
+					subFieldType: 'object',
+					fileUpload: {
+						accept: 'application/json',
+						convertTo: 'text'
+					},
+					value: [
+						{
+							lon: 12.496366,
+							lat: 41.902783,
+							title: 'Rome',
+							radius: 7,
+							color: '#dc2626',
+							strokeWidth: 3,
+							strokeColor: '#fca5a5'
+						},
+						{
+							lon: -0.136439,
+							lat: 51.507359,
+							title: 'London'
+						}
+					]
+				}
+			},
+			customCss: {
+				map: { class: '', style: '' }
+			} as const,
+			card: false
+		}
+	},
 	verticalsplitpanescomponent: {
 		name: 'Vertical Split Panes',
 		icon: FlipHorizontal,
@@ -1425,7 +1484,7 @@ Hello \${ctx.username}
 					fieldType: 'boolean',
 					value: false,
 					onlyStatic: true
-				},
+				}
 			},
 			customCss: {
 				container: { class: '', style: '' }
