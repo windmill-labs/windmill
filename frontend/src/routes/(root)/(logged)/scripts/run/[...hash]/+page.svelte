@@ -193,6 +193,7 @@
 				runnable={script}
 				runAction={runScript}
 				viewCliRun
+				isFlow={false}
 			/>
 		{/if}
 	{:else}
