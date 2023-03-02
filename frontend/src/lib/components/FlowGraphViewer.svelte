@@ -97,7 +97,9 @@
 			class="w-full border-r border-b border-t border-gray-400 min-h-[150px] p-2 overflow-auto hidden sm:block"
 		>
 			{#if stepDetail == undefined}
-				<span class="font-black text-lg w-full my-4">
+				<SchemaViewer schema={flow?.schema} />
+
+				<span class="font-black text-lg w-full my-4 mt-14">
 					<span>Click on a step to see its details</span>
 				</span>
 			{:else if stepDetail == 'Input'}
