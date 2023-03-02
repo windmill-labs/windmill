@@ -4,7 +4,6 @@
 	import { workspaceStore } from '$lib/stores'
 	import { allTrue } from '$lib/utils'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
-	import { slide } from 'svelte/transition'
 	import ArgInput from './ArgInput.svelte'
 	import { Button } from './common'
 	import InputTransformForm from './InputTransformForm.svelte'

@@ -110,7 +110,7 @@
 			<div class="w-full">
 				<div class="flex flex-col mt-6 mb-2 w-full">
 					<div
-						class="flex flex-row-reverse w-full flex-wrap md:flex-nowrap justify-between gap-x-1"
+						class="flex flex-row-reverse w-full flex-wrap md:flex-nowrap justify-between gap-x-1 gap-y-2"
 					>
 						<div class="flex flex-row">
 							<div>

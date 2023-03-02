@@ -12,9 +12,9 @@
 
 <div
 	class:border={!noBorder}
-	class="grid {!col ? 'grid-cols-2' : 'grid-rows-2'} shadow  border-gray-400 h-full"
+	class="grid {!col ? 'grid-cols-2' : 'grid-rows-2'} shadow  border-gray-400 h-full max-h-screen"
 >
-	<div class="bg-white max-h-80 h-full p-1 overflow-auto relative">
+	<div class="bg-white {col ? '' : 'max-h-80'} h-full p-1 overflow-auto relative">
 		<span class="text-gray-500">Result</span>
 		{#if result}
 			<DisplayResult {result} />
@@ -24,7 +24,7 @@
 			<div class="text-gray-400">No result (result is undefined)</div>
 		{/if}
 	</div>
-	<div class="overflow-auto max-h-80 h-full relative">
+	<div class="overflow-auto {col ? '' : 'max-h-80'} h-full relative">
 		<LogViewer content={logs ?? ''} isLoading={false} />
 	</div>
 </div>
