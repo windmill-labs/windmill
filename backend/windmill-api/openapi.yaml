@@ -3337,6 +3337,22 @@ paths:
               schema:
                 $ref: "#/components/schemas/CompletedJob"
 
+  /w/{workspace}/jobs/completed/get_result/{id}:
+    get:
+      summary: get completed job result
+      operationId: getCompletedJobResult
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: result
+          content:
+            application/json:
+              schema: {}
+
   /w/{workspace}/jobs/completed/delete/{id}:
     post:
       summary: delete completed job (erase content but keep run id)
