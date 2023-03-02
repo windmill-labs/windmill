@@ -46,10 +46,20 @@
 		interval && clearInterval(interval)
 	})
 
+	function displayIfRecent(date: Date): string {
+		const d = new Date(date)
+		const now = new Date()
+		const diff = now.getTime() - d.getTime()
+		if (diff < 1000 * 600) {
+			return `(${displayDaysAgo(d.toString())})`
+		} else {
+			return ''
+		}
+	}
 	function endedDate(started_at: string, duration_ms: number): string {
 		const started = new Date(started_at)
 		started.setMilliseconds(started.getMilliseconds() + duration_ms)
-		return displayDaysAgo(started.toString())
+		return `${displayDate(started)} ${displayIfRecent(started)}`
 	}
 </script>
 
