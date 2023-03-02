@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use git_version::git_version;
 use sqlx::{Pool, Postgres};
@@ -15,6 +15,7 @@ use windmill_common::utils::rd_string;
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 const DEFAULT_NUM_WORKERS: usize = 3;
 const DEFAULT_PORT: u16 = 8000;
+const DEFAULT_SERVER_BIND_ADDR: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
 
 mod ee;
 
@@ -38,6 +39,11 @@ async fn main() -> anyhow::Result<()> {
         })
         .transpose()?
         .flatten();
+
+    let server_bind_address: IpAddr = std::env::var("SERVER_BIND_ADDR")
+        .ok()
+        .and_then(|x| x.parse().ok() )
+        .unwrap_or(IpAddr::from(DEFAULT_SERVER_BIND_ADDR));
 
     let port: u16 = std::env::var("PORT")
         .ok()
@@ -87,6 +93,7 @@ Windmill Community Edition {GIT_VERSION}
         "TIMEOUT",
         "SLEEP_QUEUE",
         "MAX_LOG_SIZE",
+        "SERVER_BIND_ADDR",
         "PORT",
         "KEEP_JOB_DIR",
         "S3_CACHE_BUCKET",
@@ -115,7 +122,7 @@ Windmill Community Edition {GIT_VERSION}
     ]);
 
     if server_mode || num_workers > 0 {
-        let addr = SocketAddr::from(([0, 0, 0, 0], port));
+        let addr = SocketAddr::from((server_bind_address, port));
 
         let server_f = async {
             if server_mode {
