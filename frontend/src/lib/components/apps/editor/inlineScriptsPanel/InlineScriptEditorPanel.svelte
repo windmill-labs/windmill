@@ -62,6 +62,12 @@
 	) {
 		refreshScript(componentInput.runnable)
 	}
+
+	function deleteInlineScript() {
+		if (componentInput && componentInput.type == 'runnable') {
+			componentInput = clearResultAppInput(componentInput)
+		}
+	}
 </script>
 
 <Drawer bind:this={drawerFlowViewer} size="1200px">
@@ -80,16 +86,13 @@
 				bind:name={componentInput.runnable.name}
 				bind:fields={componentInput.fields}
 				syncFields
-				on:delete={() => {
-					if (componentInput && componentInput.type == 'runnable') {
-						componentInput = clearResultAppInput(componentInput)
-					}
-				}}
+				on:delete={deleteInlineScript}
 			/>
 		{:else}
 			<EmptyInlineScript
 				{id}
 				name={componentInput.runnable.name}
+				on:delete={deleteInlineScript}
 				on:new={(e) => {
 					if (
 						componentInput &&

@@ -12,6 +12,16 @@
 		getContext<AppEditorContext>('AppEditorContext')
 
 	let selectedScriptComponentId: string | undefined = undefined
+
+	function deleteBackgroundScript(index: number) {
+		// remove the script from the array at the index
+		$app.hiddenInlineScripts.splice(index, 1)
+		$app.hiddenInlineScripts = [...$app.hiddenInlineScripts]
+
+		delete $staticOutputs[`bg_${index}`]
+		delete $runnableComponents[`bg_${index}`]
+		$staticOutputs = $staticOutputs
+	}
 </script>
 
 <SplitPanesWrapper>
@@ -95,20 +105,13 @@
 							id={`bg_${index}`}
 							bind:inlineScript={hiddenInlineScript.inlineScript}
 							bind:name={hiddenInlineScript.name}
-							on:delete={() => {
-								// remove the script from the array at the index
-								$app.hiddenInlineScripts.splice(index, 1)
-								$app.hiddenInlineScripts = [...$app.hiddenInlineScripts]
-
-								delete $staticOutputs[`bg_${index}`]
-								delete $runnableComponents[`bg_${index}`]
-								$staticOutputs = $staticOutputs
-							}}
+							on:delete={() => deleteBackgroundScript(index)}
 						/>
 					{:else}
 						<EmptyInlineScript
 							id={`b_${index}`}
 							name={hiddenInlineScript.name}
+							on:delete={() => deleteBackgroundScript(index)}
 							on:new={(e) => {
 								hiddenInlineScript.inlineScript = e.detail
 							}}

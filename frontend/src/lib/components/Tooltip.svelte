@@ -13,7 +13,7 @@
 <Popover notClickable {placement} class={wrapperClass}>
 	<Icon
 		class="{light
-			? 'text-gray-300'
+			? 'text-gray-400'
 			: ' text-gray-500'} font-thin inline-block align-middle w-4 {$$props.class}"
 		data={faInfoCircle}
 		{scale}

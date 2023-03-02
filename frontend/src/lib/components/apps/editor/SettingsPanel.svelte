@@ -21,6 +21,7 @@
 {#each $app?.hiddenInlineScripts ?? [] as script, index (script.name)}
 	{#if $selectedComponent === `bg_${index}`}
 		<PanelSection title={`Background script inputs`}>
+			{Object.keys(script)}
 			<InputsSpecsEditor
 				id={`bg_${index}`}
 				shouldCapitalize={false}
