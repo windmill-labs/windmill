@@ -44,6 +44,30 @@
 					fieldType: 'boolean',
 					type: 'eval',
 					expr: 'false'
+				},
+				goto: {
+					tooltip: 'Go to an url on success if not empty',
+					fieldType: 'text',
+					type: 'static',
+					value: ''
+				},
+				gotoNewTab: {
+					tooltip: 'Go to create a new tab',
+					fieldType: 'boolean',
+					type: 'static',
+					value: true
+				},
+				beforeIcon: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'icon-select',
+					onlyStatic: true
+				},
+				afterIcon: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'icon-select',
+					onlyStatic: true
 				}
 			},
 			componentInput: {
@@ -54,6 +78,9 @@
 				value: undefined
 			},
 			recomputeIds: undefined,
+			customCss: {
+				button: { style: '', class: '' }
+			} as const,
 			card: false
 		}
 

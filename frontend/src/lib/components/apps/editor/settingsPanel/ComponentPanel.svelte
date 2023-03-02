@@ -32,6 +32,7 @@
 	export let onDelete: (() => void) | undefined = undefined
 	export let parent: string | undefined
 	export let noGrid = false
+	export let duplicateMoveAllowed = true
 
 	const {
 		app,
@@ -204,24 +205,26 @@
 			</PanelSection>
 		{/if}
 
-		<PanelSection title="Duplicate">
-			<Button
-				size="xs"
-				color="dark"
-				startIcon={{ icon: faCopy }}
-				on:click={() => {
-					if (component) {
-						duplicateElement(component.id)
-					}
-				}}
-			>
-				Duplicate component: {component.id}
-			</Button>
-		</PanelSection>
+		{#if duplicateMoveAllowed}
+			<PanelSection title="Duplicate">
+				<Button
+					size="xs"
+					color="dark"
+					startIcon={{ icon: faCopy }}
+					on:click={() => {
+						if (component) {
+							duplicateElement(component.id)
+						}
+					}}
+				>
+					Duplicate component: {component.id}
+				</Button>
+			</PanelSection>
 
-		<PanelSection title="Move to other grid">
-			<MoveToOtherGrid bind:component {parent} />
-		</PanelSection>
+			<PanelSection title="Move to other grid">
+				<MoveToOtherGrid bind:component {parent} />
+			</PanelSection>
+		{/if}
 
 		<PanelSection title="Danger zone">
 			<Button
