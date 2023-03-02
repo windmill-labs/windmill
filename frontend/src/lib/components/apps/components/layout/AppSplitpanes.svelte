@@ -6,6 +6,7 @@
 	import { concatCustomCss } from '../../utils'
 	import InputValue from '../helpers/InputValue.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import { deepEqual } from 'fast-equals'
 
 	export let id: string
 	export let configuration: Record<string, AppInput>
@@ -30,15 +31,21 @@
 	$: $selectedComponent === id && onFocus()
 	$: css = concatCustomCss($app.css?.containercomponent, customCss)
 
-	$: sumedup = panes.map((x) => (x / panes.reduce((a, b) => a + b, 0)) * 100)
+	let sumedup = [50, 50]
+	$: {
+		let ns = panes.map((x) => (x / panes.reduce((a, b) => a + b, 0)) * 100)
+		if (!deepEqual(ns, sumedup)) {
+			sumedup = ns
+		}
+	}
 </script>
 
 <InputValue {id} input={configuration.noPadding} bind:value={noPadding} />
 
 <div class="h-full w-full border" on:pointerdown|stopPropagation>
 	<Splitpanes {horizontal}>
-		{#each sumedup as paneSize, index}
-			<Pane bind:size={paneSize}>
+		{#each sumedup as paneSize, index (index)}
+			<Pane size={paneSize}>
 				{#if $app.subgrids?.[`${id}-${index}`]}
 					<SubGridEditor
 						noYPadding
@@ -50,7 +57,7 @@
 						bind:subGrid={$app.subgrids[`${id}-${index}`]}
 						containerHeight={horizontal
 							? (componentContainerHeight * paneSize) / 100 - 1
-							: componentContainerHeight}
+							: componentContainerHeight - 8}
 						on:focus={() => {
 							$selectedComponent = id
 							$focusedGrid = {
