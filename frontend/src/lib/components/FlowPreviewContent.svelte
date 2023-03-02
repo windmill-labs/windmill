@@ -21,7 +21,6 @@
 
 	export let jobId: string | undefined = undefined
 	export let job: Job | undefined = undefined
-	let isValid: boolean = true
 	let isRunning: boolean = false
 	let jobProgressReset: () => void
 
@@ -105,7 +104,6 @@
 
 		{#if isRunning}
 			<Button
-				disabled={!isValid}
 				color="red"
 				on:click={async () => {
 					isRunning = false
@@ -132,7 +130,6 @@
 				color="blue"
 				size="sm"
 				btnClasses="w-full max-w-lg"
-				disabled={!isValid}
 				on:click={() => runPreview($previewArgs)}
 			>
 				Test flow <Kbd class="ml-2">Ctrl+Enter</Kbd>
@@ -156,7 +153,6 @@
 				compact
 				class="py-4 max-w-3xl"
 				schema={$flowStore.schema}
-				bind:isValid
 				bind:args={$previewArgs}
 			/>
 		</div>

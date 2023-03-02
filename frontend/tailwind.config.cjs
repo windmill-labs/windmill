@@ -8,9 +8,13 @@ const config = {
 		'hljs',
 		'splitpanes__pane',
 		'splitpanes__splitter',
-		{
-			pattern: /.*/
-		}
+		...(process.env.NODE_ENV === 'production'
+			? [
+					{
+						pattern: /.*/
+					}
+			  ]
+			: [])
 	],
 	theme: {
 		colors: {
