@@ -192,7 +192,7 @@ async function list(opts: GlobalOptions & { showArchived?: boolean }) {
 }
 async function run(
   opts: GlobalOptions & {
-    input: string[];
+    data?: string;
     silent: boolean;
   },
   path: string,
@@ -200,7 +200,8 @@ async function run(
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  const input = await resolve(opts.input);
+  const input = opts.data ? await resolve(opts.data) : {};
+
 
   const id = await JobService.runFlowByPath({
     workspace: workspace.workspaceId,
@@ -236,6 +237,7 @@ async function run(
 
   if (!opts.silent) {
     console.log(colors.green.underline.bold("Flow ran to completion"));
+    console.log()
   }
   const jobInfo = await JobService.getCompletedJob({
     workspace: workspace.workspaceId,
@@ -257,8 +259,8 @@ const command = new Command()
   .command("run", "run a flow by path.")
   .arguments("<path:string>")
   .option(
-    "-i --input [inputs...:string]",
-    "Inputs specified as JSON objects or simply as <name>=<value>. Supports file inputs using @<filename> and stdin using @- these also need to be formatted as JSON. Later inputs override earlier ones.",
+    "-d --data <data:string>",
+    "Inputs specified as a JSON string or a file using @<filename> or stdin using @-.",
   )
   .option(
     "-s --silent",

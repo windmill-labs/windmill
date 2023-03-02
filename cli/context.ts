@@ -23,7 +23,7 @@ async function tryResolveWorkspace(
   { isError: false; value: Workspace } | { isError: true; error: string }
 > {
   const cache = (opts as any).__secret_workspace;
-  if (cache) return cache;
+  if (cache) return { isError: false, value: cache };
 
   if (opts.workspace) {
     const e = await getWorkspaceByName(opts.workspace);
@@ -53,7 +53,6 @@ export async function resolveWorkspace(
 ): Promise<Workspace> {
   const res = await tryResolveWorkspace(opts);
   if (res.isError) {
-    console.log(res.error);
     return Deno.exit(-1);
   } else {
     return res.value;
@@ -62,8 +61,8 @@ export async function resolveWorkspace(
 
 export async function requireLogin(opts: GlobalOptions): Promise<GlobalUserInfo> {
   const workspace = await resolveWorkspace(opts);
-
   let token = await tryGetLoginInfo(opts);
+
   if (!token) {
     token = workspace.token;
   }
@@ -80,9 +79,9 @@ export async function requireLogin(opts: GlobalOptions): Promise<GlobalUserInfo>
     if (!newToken) {
       throw new Error("Could not reauth");
     }
-    removeWorkspace(workspace.name);
+    removeWorkspace(workspace.name, false, opts);
     workspace.token = newToken;
-    addWorkspace(workspace);
+    addWorkspace(workspace, opts);
 
     setClient(
       token,

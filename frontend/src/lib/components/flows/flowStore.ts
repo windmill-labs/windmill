@@ -108,5 +108,4 @@ export async function copyFirstStepSchema() {
 		}
 		return flow
 	})
-	sendUserToast('Copied first step schema as flow input schema')
 }
