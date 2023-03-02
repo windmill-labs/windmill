@@ -49,6 +49,7 @@
 	export let loading = false
 	export let noVariablePicker = false
 	export let viewCliRun = false
+	export let isFlow: boolean
 
 	export let args: Record<string, any> = decodeArgs($page.url.searchParams.get('args') ?? undefined)
 
@@ -64,9 +65,9 @@
 	let scheduledForStr: string | undefined
 	let invisible_to_owner: false
 
-	$: cliCommand = `wmill ${runnable?.kind} run ${runnable?.path} ${Object.entries(args)
-		.map(([k, v]) => `-i ${k}=${JSON.stringify(v)}`)
-		.join(' ')}`
+	$: cliCommand = `wmill ${isFlow ? 'flow' : 'script'} run ${runnable?.path} -d '${JSON.stringify(
+		args
+	)}'`
 </script>
 
 <div class="max-w-6xl">

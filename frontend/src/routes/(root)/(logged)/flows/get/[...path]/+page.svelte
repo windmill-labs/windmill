@@ -300,6 +300,7 @@
 						runAction={runFlow}
 						bind:args
 						viewCliRun
+						isFlow
 					/>
 				</div>
 				{#if !emptyString(flow.description)}

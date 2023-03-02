@@ -11,6 +11,7 @@ import {
   Table,
 } from "./deps.ts";
 import { Any, array, decoverto, model, property } from "./decoverto.ts";
+import { writeAllSync } from "https://deno.land/std@0.176.0/streams/mod.ts";
 
 @model()
 export class ScriptFile {
@@ -280,50 +281,27 @@ async function list(opts: GlobalOptions & { showArchived?: boolean }) {
     .render();
 }
 
-export async function resolve(inputs: string[]): Promise<Record<string, any>> {
-  let result = {};
-
-  if (!inputs) {
-    return result;
+export async function resolve(input: string): Promise<Record<string, any>> {
+  if (!input) {
+    throw new Error("No data given");
   }
 
-  for (const input of inputs) {
-    let data: string;
-    if (input.startsWith("@")) {
-      if (input == "@-") {
-        data = new TextDecoder().decode(await readAll(Deno.stdin));
-      } else {
-        data = await Deno.readTextFile(input.substring(1));
-      }
-    } else {
-      if (input.startsWith("{")) {
-        data = input;
-      } else {
-        const key = input.split("=", 1)[0];
-        const value = input.substring(key.length + 1);
-        let o;
-        try {
-          o = JSON.parse(value);
-        } catch {
-          o = value;
-        }
-        data = JSON.stringify(Object.fromEntries([[key, o]]));
-      }
-    }
-    let jsonObj;
-    try {
-      jsonObj = JSON.parse(data);
-    } catch {
-      jsonObj = data;
-    }
-    result = { ...result, ...jsonObj };
+  if (input == "@-") {
+    input = new TextDecoder().decode(await readAll(Deno.stdin));
+  } if (input[0] == "@") {
+    input = await Deno.readTextFile(input.substring(1));
   }
-  return result;
+  try {
+    return JSON.parse(input);
+  } catch (e) {
+    console.error("Impossible to parse input as JSON", input)
+    throw e
+  }
 }
 
 async function run(
   opts: GlobalOptions & {
-    input: string[];
+    data?: string;
     silent: boolean;
   },
   path: string,
@@ -331,7 +309,8 @@ async function run(
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  const input = await resolve(opts.input);
+
+  const input = opts.data ? await resolve(opts.data) : {};
   const id = await JobService.runScriptByPath({
     workspace: workspace.workspaceId,
     path,
@@ -364,7 +343,9 @@ export async function track_job(workspace: string, id: string) {
     const result = await JobService.getCompletedJob({ workspace, id });
 
     console.log(result.logs);
+    console.log()
     console.log(colors.bold.underline.green("Job Completed"));
+    console.log()
     return;
   } catch {
     /* ignore */
@@ -403,7 +384,7 @@ export async function track_job(workspace: string, id: string) {
     }
 
     if (updates.new_logs) {
-      console.log(updates.new_logs);
+      writeAllSync(Deno.stdout, new TextEncoder().encode(updates.new_logs));
       logOffset += updates.new_logs.length;
     }
 
@@ -426,12 +407,15 @@ export async function track_job(workspace: string, id: string) {
     if ((final_job.logs?.length ?? -1) > logOffset) {
       console.log(final_job.logs!.substring(logOffset));
     }
-
+    console.log("\n")
     if (final_job.success) {
       console.log(colors.bold.underline.green("Job Completed"));
+
     } else {
       console.log(colors.bold.underline.red("Job Completed"));
     }
+    console.log()
+
   } catch {
     console.log("Job appears to have completed, but no data can be retrieved");
   }
@@ -466,8 +450,8 @@ const command = new Command()
   .command("run", "run a script by path")
   .arguments("<path:string>")
   .option(
-    "-i --input [inputs...:string]",
-    "Inputs specified as JSON objects or simply as <name>=<value>. Supports file inputs using @<filename> and stdin using @- these also need to be formatted as JSON. Later inputs override earlier ones.",
+    "-d --data <data:string>",
+    "Inputs specified as a JSON string or a file using @<filename> or stdin using @-.",
   )
   .option(
     "-s --silent",
