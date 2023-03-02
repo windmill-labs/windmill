@@ -874,6 +874,11 @@ Hello \${ctx.username}
 					fieldType: 'text',
 					value: 'Select an item',
 					onlyStatic: true
+				},
+				defaultValue: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'object'
 				}
 			},
 			customCss: {
