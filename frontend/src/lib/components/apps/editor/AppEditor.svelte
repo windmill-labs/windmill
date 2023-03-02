@@ -164,6 +164,10 @@
 						<Splitpanes horizontal>
 							<Pane size={$connectingInput?.opened ? 100 : 70}>
 								<div
+									on:pointerdown={(e) => {
+										$selectedComponent = undefined
+										$focusedGrid = undefined
+									}}
 									class={twMerge(
 										'bg-gray-100 h-full w-full',
 										$appStore.css?.['app']?.['viewer']?.class
@@ -177,7 +181,7 @@
 										)}
 									>
 										{#if $appStore.grid}
-											<div class={width}>
+											<div on:pointerdown|stopPropagation class={width}>
 												<GridEditor {policy} />
 											</div>
 
