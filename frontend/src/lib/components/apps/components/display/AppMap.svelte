@@ -33,7 +33,7 @@
 	export const staticOutputs: string[] = ['mapRegion']
 	export let customCss: ComponentCustomCSS<'map'> | undefined = undefined
 
-	const { app, worldStore, selectedComponent, connectingInput, focusedGrid } =
+	const { app, worldStore, selectedComponent, connectingInput, focusedGrid, mode } =
 		getContext<AppEditorContext>('AppEditorContext')
 
 	$: outputs = $worldStore?.outputsById[id] as {
@@ -200,12 +200,14 @@
 		style={css?.map?.style ?? ''}
 	/>
 
-	<div
-		class="absolute bottom-0 left-0 px-1 py-0.5 bg-indigo-500 text-white text-2xs"
-		on:pointerdown={handleSyncRegion}
-	>
-		Set region
-	</div>
+	{#if $mode !== 'preview'}
+		<div
+			class="absolute bottom-0 left-0 px-1 py-0.5 bg-indigo-500 text-white text-2xs"
+			on:pointerdown={handleSyncRegion}
+		>
+			Set region
+		</div>
+	{/if}
 </div>
 
 <style global lang="postcss">
