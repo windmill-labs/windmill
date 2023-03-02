@@ -26,6 +26,7 @@
 	export let wrapperStyle = ''
 	export let initializing: boolean | undefined = undefined
 	export let gotoUrl: string | undefined = undefined
+	export let gotoNewTab: boolean | undefined = undefined
 
 	const {
 		worldStore,
@@ -241,7 +242,13 @@
 					delete $errorByComponent[previousJobId]
 					$errorByComponent = $errorByComponent
 				}
-				gotoUrl && gotoUrl != '' && result?.error == undefined && goto(gotoUrl)
+				if (gotoUrl && gotoUrl != '' && result?.error == undefined) {
+					if (gotoNewTab) {
+						window.open(gotoUrl, '_blank')
+					} else {
+						goto(gotoUrl)
+					}
+				}
 			}
 		}
 	}}

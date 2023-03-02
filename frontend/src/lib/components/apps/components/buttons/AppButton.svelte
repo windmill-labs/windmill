@@ -10,6 +10,7 @@
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import { loadIcon } from '../icon'
 	import { twMerge } from 'tailwind-merge'
+	import { goto } from '$app/navigation'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -32,7 +33,8 @@
 	let runnableComponent: RunnableComponent
 	let disabled: boolean | undefined = undefined
 	let fillContainer: boolean | undefined = undefined
-	let goto: string | undefined = undefined
+	let gotoUrl: string | undefined = undefined
+	let gotoNewTab: boolean | undefined = undefined
 
 	let isLoading: boolean = false
 	let ownClick: boolean = false
@@ -87,7 +89,7 @@
 </script>
 
 <InputValue {id} input={configuration.label} bind:value={labelValue} />
-<InputValue {id} input={configuration.goto} bind:value={goto} />
+<InputValue {id} input={configuration.goto} bind:value={gotoUrl} />
 <InputValue {id} input={configuration.color} bind:value={color} />
 <InputValue {id} input={configuration.size} bind:value={size} />
 <InputValue {id} input={configuration.beforeIcon} bind:value={beforeIcon} />
@@ -101,6 +103,7 @@
 	bind:error={errors.disabled}
 />
 <InputValue {id} input={configuration.fillContainer} bind:value={fillContainer} />
+<InputValue {id} input={configuration.gotoNewTab} bind:value={gotoNewTab} />
 
 <RunnableWrapper
 	flexWrap
@@ -109,7 +112,8 @@
 	{id}
 	{extraQueryParams}
 	autoRefresh={false}
-	{goto}
+	goto={gotoUrl}
+	{gotoNewTab}
 >
 	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
 		{#if errorsMessage}
@@ -134,7 +138,18 @@
 				e?.stopPropagation()
 				e?.preventDefault()
 				ownClick = true
-				await runnableComponent?.runComponent()
+
+				if (!runnableComponent) {
+					if (gotoUrl) {
+						if (gotoNewTab) {
+							window.open(gotoUrl, '_blank')
+						} else {
+							goto(gotoUrl)
+						}
+					}
+				} else {
+					await runnableComponent?.runComponent()
+				}
 
 				if (recomputeIds) {
 					recomputeIds.forEach((id) => {

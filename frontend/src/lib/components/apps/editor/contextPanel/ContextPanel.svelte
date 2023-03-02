@@ -29,7 +29,7 @@
 	function getComponentNameById(componentId: string) {
 		const component = findGridItem($app, componentId)
 
-		if (component?.data.type) {
+		if (component?.data?.type) {
 			return components[component?.data.type].name
 		} else if (componentId == 'ctx') {
 			return 'Context'
