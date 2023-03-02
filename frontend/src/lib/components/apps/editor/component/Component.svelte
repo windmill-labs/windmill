@@ -39,7 +39,6 @@
 	import AppAggridTable from '../../components/display/table/AppAggridTable.svelte'
 	import AppDrawer from '../../components/layout/AppDrawer.svelte'
 	import AppSplitpanes from '../../components/layout/AppSplitpanes.svelte'
-	import { deepEqual } from 'fast-equals'
 
 	export let component: AppComponent
 	export let selected: boolean
