@@ -8,7 +8,6 @@
 	import { setContext } from 'svelte'
 	import type { PropPickerWrapperContext } from '../propPicker/PropPickerWrapper.svelte'
 	import { writable } from 'svelte/store'
-	import { slide } from 'svelte/transition'
 	import Toggle from '../../Toggle.svelte'
 
 	let hideOptional = false
@@ -37,7 +36,7 @@
 				] as [Record<string, InputTransform>, string[], FlowModule]
 		)
 		.filter(([i, f, m]) => f.length > 0)
-	
+
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
 		focusProp: () => {},
 		propPickerConfig: writable(undefined),
@@ -47,11 +46,7 @@
 
 <div class="min-h-full">
 	<FlowCard title="All Static Inputs">
-		<Toggle
-			slot="header"
-			bind:checked={hideOptional}
-			options={{left: 'Hide optional inputs'}}
-		/>
+		<Toggle slot="header" bind:checked={hideOptional} options={{ left: 'Hide optional inputs' }} />
 		<div class="min-h-full flex-1">
 			<Alert type="info" title="Static Inputs" class="m-4"
 				>This page centralizes the static inputs of every steps. It is akin to a file containing all
@@ -74,7 +69,7 @@
 			{/if}
 			{#each steps as [args, filter, m] (m.id)}
 				{#if filter.length > 0}
-					<div transition:slide class="relative h-full border-t p-4">
+					<div class="relative h-full border-t p-4">
 						<h2 class="sticky w-full top-0 z-10 inline-flex items-center bg-white py-2">
 							<span class="mr-4">{m.summary || m.value['path'] || 'Inline script'}</span>
 							<Badge large color="indigo">{m.id}</Badge>
