@@ -137,7 +137,7 @@
 	{#if previewing}
 		<SplitPanesWrapper>
 			<div
-				class={twMerge('bg-gray-100 h-full w-full', $appStore.css?.['app']?.['viewer']?.class)}
+				class={twMerge('h-full w-full', $appStore.css?.['app']?.['viewer']?.class)}
 				style={$appStore.css?.['app']?.['viewer']?.style}
 			>
 				<AppPreview
