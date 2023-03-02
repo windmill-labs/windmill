@@ -13,6 +13,7 @@
 	export { classes as class }
 	export let style = ''
 	export let noPadding = false
+	export let noYPadding = false
 	export let subGrid: GridItem[] = []
 	export let visible: boolean = true
 	export let id: string
@@ -70,7 +71,12 @@
 	bind:this={container}
 >
 	<div
-		class={twMerge('py-2 overflow-auto', classes ?? '', noPadding ? 'px-0' : 'px-2')}
+		class={twMerge(
+			'overflow-auto',
+			noYPadding ? '' : 'py-2',
+			classes ?? '',
+			noPadding ? 'px-0' : 'px-2'
+		)}
 		on:pointerdown|stopPropagation={onpointerdown}
 		on:pointerleave={onpointerup}
 		on:pointerup={onpointerup}

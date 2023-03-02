@@ -38,9 +38,10 @@
 <div class="h-full w-full border" on:pointerdown|stopPropagation>
 	<Splitpanes {horizontal}>
 		{#each sumedup as paneSize, index}
-			<Pane bind:size={paneSize} minSize={20}>
+			<Pane bind:size={paneSize}>
 				{#if $app.subgrids?.[`${id}-${index}`]}
 					<SubGridEditor
+						noYPadding
 						{noPadding}
 						{id}
 						shouldHighlight={$focusedGrid?.subGridIndex === index}
@@ -48,7 +49,7 @@
 						style={css?.container.style}
 						bind:subGrid={$app.subgrids[`${id}-${index}`]}
 						containerHeight={horizontal
-							? (componentContainerHeight * paneSize) / 100
+							? (componentContainerHeight * paneSize) / 100 - 1
 							: componentContainerHeight}
 						on:focus={() => {
 							$selectedComponent = id
