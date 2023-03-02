@@ -38,6 +38,7 @@
 	import type { AppComponent } from './components'
 	import AppAggridTable from '../../components/display/table/AppAggridTable.svelte'
 	import AppDrawer from '../../components/layout/AppDrawer.svelte'
+	import AppSplitpanes from '../../components/layout/AppSplitpanes.svelte'
 	import { deepEqual } from 'fast-equals'
 
 	export let component: AppComponent
@@ -176,6 +177,8 @@
 		{:else if component.type === 'textcomponent'}
 			<AppText
 				id={component.id}
+				verticalAlignment={component.verticalAlignment}
+				horizontalAlignment={component.horizontalAlignment}
 				configuration={component.configuration}
 				customCss={component.customCss}
 				bind:initializing
@@ -185,6 +188,8 @@
 		{:else if component.type === 'buttoncomponent'}
 			<AppButton
 				id={component.id}
+				verticalAlignment={component.verticalAlignment}
+				horizontalAlignment={component.horizontalAlignment}
 				configuration={component.configuration}
 				customCss={component.customCss}
 				componentInput={component.componentInput}
@@ -193,6 +198,8 @@
 		{:else if component.type === 'selectcomponent'}
 			<AppSelect
 				id={component.id}
+				verticalAlignment={component.verticalAlignment}
+				horizontalAlignment={component.horizontalAlignment}
 				configuration={component.configuration}
 				customCss={component.customCss}
 				bind:staticOutputs={$staticOutputs[component.id]}
@@ -200,6 +207,7 @@
 		{:else if component.type === 'formcomponent'}
 			<AppForm
 				id={component.id}
+				horizontalAlignment={component.horizontalAlignment}
 				configuration={component.configuration}
 				customCss={component.customCss}
 				componentInput={component.componentInput}
@@ -208,6 +216,8 @@
 		{:else if component.type === 'formbuttoncomponent'}
 			<AppFormButton
 				id={component.id}
+				verticalAlignment={component.verticalAlignment}
+				horizontalAlignment={component.horizontalAlignment}
 				configuration={component.configuration}
 				customCss={component.customCss}
 				componentInput={component.componentInput}
@@ -216,6 +226,8 @@
 		{:else if component.type === 'checkboxcomponent'}
 			<AppCheckbox
 				id={component.id}
+				verticalAlignment={component.verticalAlignment}
+				horizontalAlignment={component.horizontalAlignment}
 				configuration={component.configuration}
 				customCss={component.customCss}
 				bind:staticOutputs={$staticOutputs[component.id]}
@@ -223,12 +235,14 @@
 		{:else if component.type === 'textinputcomponent'}
 			<AppTextInput
 				id={component.id}
+				verticalAlignment={component.verticalAlignment}
 				configuration={component.configuration}
 				customCss={component.customCss}
 				bind:staticOutputs={$staticOutputs[component.id]}
 			/>
 		{:else if component.type === 'passwordinputcomponent'}
 			<AppTextInput
+				verticalAlignment={component.verticalAlignment}
 				configuration={component.configuration}
 				inputType="password"
 				appCssKey="passwordinputcomponent"
@@ -238,6 +252,7 @@
 			/>
 		{:else if component.type === 'dateinputcomponent'}
 			<AppDateInput
+				verticalAlignment={component.verticalAlignment}
 				configuration={component.configuration}
 				inputType="date"
 				id={component.id}
@@ -246,6 +261,7 @@
 			/>
 		{:else if component.type === 'numberinputcomponent'}
 			<AppNumberInput
+				verticalAlignment={component.verticalAlignment}
 				configuration={component.configuration}
 				id={component.id}
 				customCss={component.customCss}
@@ -253,6 +269,7 @@
 			/>
 		{:else if component.type === 'currencycomponent'}
 			<AppCurrencyInput
+				verticalAlignment={component.verticalAlignment}
 				configuration={component.configuration}
 				id={component.id}
 				customCss={component.customCss}
@@ -260,6 +277,7 @@
 			/>
 		{:else if component.type === 'slidercomponent'}
 			<AppSliderInputs
+				verticalAlignment={component.verticalAlignment}
 				configuration={component.configuration}
 				id={component.id}
 				customCss={component.customCss}
@@ -267,6 +285,8 @@
 			/>
 		{:else if component.type === 'horizontaldividercomponent'}
 			<AppDivider
+				verticalAlignment={component.verticalAlignment}
+				horizontalAlignment={component.horizontalAlignment}
 				configuration={component.configuration}
 				id={component.id}
 				customCss={component.customCss}
@@ -274,6 +294,8 @@
 			/>
 		{:else if component.type === 'verticaldividercomponent'}
 			<AppDivider
+				verticalAlignment={component.verticalAlignment}
+				horizontalAlignment={component.horizontalAlignment}
 				configuration={component.configuration}
 				id={component.id}
 				customCss={component.customCss}
@@ -281,6 +303,7 @@
 			/>
 		{:else if component.type === 'rangecomponent'}
 			<AppRangeInput
+				verticalAlignment={component.verticalAlignment}
 				configuration={component.configuration}
 				id={component.id}
 				customCss={component.customCss}
@@ -303,8 +326,29 @@
 				bind:staticOutputs={$staticOutputs[component.id]}
 				{componentContainerHeight}
 			/>
+		{:else if component.type === 'verticalsplitpanescomponent'}
+			<AppSplitpanes
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				panes={component.panes}
+				bind:staticOutputs={$staticOutputs[component.id]}
+				{componentContainerHeight}
+			/>
+		{:else if component.type === 'horizontalsplitpanescomponent'}
+			<AppSplitpanes
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				panes={component.panes}
+				bind:staticOutputs={$staticOutputs[component.id]}
+				{componentContainerHeight}
+				horizontal={true}
+			/>
 		{:else if component.type === 'iconcomponent'}
 			<AppIcon
+				verticalAlignment={component.verticalAlignment}
+				horizontalAlignment={component.horizontalAlignment}
 				configuration={component.configuration}
 				id={component.id}
 				customCss={component.customCss}
@@ -326,6 +370,8 @@
 			/>
 		{:else if component.type === 'drawercomponent'}
 			<AppDrawer
+				verticalAlignment={component.verticalAlignment}
+				horizontalAlignment={component.horizontalAlignment}
 				configuration={component.configuration}
 				id={component.id}
 				customCss={component.customCss}

@@ -16,8 +16,6 @@
 	export const staticOutputs: string[] = []
 	const { app, focusedGrid, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
 
-	let gridContent: string[] | undefined = undefined
-
 	function onFocus() {
 		$focusedGrid = {
 			parentComponentId: id,
@@ -31,18 +29,19 @@
 </script>
 
 <InputValue {id} input={configuration.noPadding} bind:value={noPadding} />
-<InputValue {id} input={configuration.gridContent} bind:value={gridContent} />
 
-{#if $app.subgrids?.[`${id}-0`]}
-	<SubGridEditor
-		{noPadding}
-		{id}
-		class={css?.container.class}
-		style={css?.container.style}
-		bind:subGrid={$app.subgrids[`${id}-0`]}
-		containerHeight={componentContainerHeight}
-		on:focus={() => {
-			$selectedComponent = id
-		}}
-	/>
-{/if}
+<div class="border">
+	{#if $app.subgrids?.[`${id}-0`]}
+		<SubGridEditor
+			{noPadding}
+			{id}
+			class={css?.container.class}
+			style={css?.container.style}
+			bind:subGrid={$app.subgrids[`${id}-0`]}
+			containerHeight={componentContainerHeight}
+			on:focus={() => {
+				$selectedComponent = id
+			}}
+		/>
+	{/if}
+</div>

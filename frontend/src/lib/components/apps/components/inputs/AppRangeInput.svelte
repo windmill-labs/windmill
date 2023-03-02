@@ -52,14 +52,21 @@
 	<div class="flex flex-col w-full">
 		<div class="flex items-center w-full gap-1 px-1">
 			<span class={css?.limits?.class ?? ''} style={css?.limits?.style ?? ''}>
-				{min}
+				{+min}
 			</span>
 			<div class="grow" on:pointerdown|stopPropagation>
-				<RangeSlider bind:slider bind:values {step} min={min ?? 0} max={max ?? 1} range />
+				<RangeSlider
+					bind:slider
+					bind:values
+					{step}
+					min={!min ? 0 : +min}
+					max={!max ? 1 : +max}
+					range
+				/>
 				<!-- <RangeSlider {step} range min={min ?? 0} max={max ?? 1} bind:values /> -->
 			</div>
 			<span class={css?.limits?.class ?? ''} style={css?.limits?.style ?? ''}>
-				{max}
+				{+max}
 			</span>
 		</div>
 		<div class="flex justify-between px-1">
