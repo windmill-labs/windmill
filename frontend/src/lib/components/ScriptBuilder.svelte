@@ -83,7 +83,6 @@
 					kind: script.kind
 				}
 			})
-			sendUserToast(`New script created at hash ${newHash}`)
 			history.replaceState(history.state, '', `/scripts/edit/${newHash}?step=2`)
 			goto(`/scripts/get/${newHash}?workspace_id=${$workspaceStore}`)
 		} catch (error) {
