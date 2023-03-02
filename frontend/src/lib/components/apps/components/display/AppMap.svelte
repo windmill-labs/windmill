@@ -164,13 +164,12 @@
 	}
 
 	function handleSyncRegion() {
-		const z = map.getView().getZoom()
-
-		updateRegionOutput()
-
-		if (!gridItem) {
+		if (!map || !gridItem) {
 			return
 		}
+
+		const z = map.getView().getZoom()
+		updateRegionOutput()
 
 		if (z) {
 			gridItem.data.configuration.zoom.value = z
