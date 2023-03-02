@@ -19,6 +19,7 @@
 	export let runnableClass = ''
 	export let runnableStyle = ''
 	export let goto: string | undefined = undefined
+	export let gotoNewTab: boolean | undefined = undefined
 
 	const { staticExporter, noBackend } = getContext<AppEditorContext>('AppEditorContext')
 
@@ -43,6 +44,7 @@
 {:else if componentInput.type === 'runnable' && isRunnableDefined()}
 	<RunnableComponent
 		gotoUrl={goto}
+		{gotoNewTab}
 		{flexWrap}
 		bind:this={runnableComponent}
 		fields={componentInput.fields}

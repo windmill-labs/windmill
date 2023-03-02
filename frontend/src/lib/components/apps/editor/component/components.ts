@@ -106,7 +106,6 @@ export type AppComponent = BaseAppComponent &
 		| HtmlComponent
 		| TableComponent
 		| TextComponent
-		| TableComponent
 		| ButtonComponent
 		| PieChartComponent
 		| ScatterChartComponent
@@ -287,6 +286,12 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 					fieldType: 'text',
 					type: 'static',
 					value: ''
+				},
+				gotoNewTab: {
+					tooltip: 'Go to create a new tab',
+					fieldType: 'boolean',
+					type: 'static',
+					value: true
 				},
 				beforeIcon: {
 					type: 'static',

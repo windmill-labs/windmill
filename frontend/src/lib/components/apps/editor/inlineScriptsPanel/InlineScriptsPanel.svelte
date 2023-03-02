@@ -26,11 +26,11 @@
 				</div>
 			{/if}
 
-			{#each $app.grid as gridItem (gridItem?.data?.id)}
-				{#if gridItem?.data?.id === selectedScriptComponentId}
+			{#each $app.grid as gridItem, index (gridItem?.data?.id ?? index)}
+				{#if gridItem?.data?.id && gridItem.data.id === selectedScriptComponentId}
 					<InlineScriptEditorPanel
-						defaultUserInput={gridItem.data.type == 'formcomponent' ||
-							gridItem.data.type == 'buttonformcomponent'}
+						defaultUserInput={gridItem?.data?.type == 'formcomponent' ||
+							gridItem?.data?.type == 'buttonformcomponent'}
 						id={gridItem.data.id}
 						bind:componentInput={gridItem.data.componentInput}
 					/>
@@ -51,10 +51,10 @@
 			{#if $app.subgrids}
 				{#each Object.keys($app.subgrids ?? {}) as key (key)}
 					{#each $app.subgrids[key] as gridItem (gridItem?.data?.id)}
-						{#if gridItem?.data?.id === selectedScriptComponentId}
+						{#if gridItem?.data?.id && gridItem.data.id === selectedScriptComponentId}
 							<InlineScriptEditorPanel
-								defaultUserInput={gridItem.data.type == 'formcomponent' ||
-									gridItem.data.type == 'buttonformcomponent'}
+								defaultUserInput={gridItem.data?.type == 'formcomponent' ||
+									gridItem.data?.type == 'buttonformcomponent'}
 								id={gridItem.data.id}
 								bind:componentInput={gridItem.data.componentInput}
 							/>
