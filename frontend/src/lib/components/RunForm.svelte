@@ -145,7 +145,7 @@
 					</Button>
 				</div>
 				{#if viewOptions}
-					<div transition:slide class="mt-6">
+					<div transition:slide|local class="mt-6">
 						<div class="border rounded-md p-3 pt-4">
 							<div class="flex flex-row items-end">
 								<div class="w-max md:w-2/3 mt-2 mb-1">
@@ -220,7 +220,7 @@
 			Run it from the CLI
 		</Button>
 		{#if viewCliOptions}
-			<div transition:slide class="mt-2 px-4 pt-2">
+			<div transition:slide|local class="mt-2 px-4 pt-2">
 				<InlineCodeCopy content={cliCommand} />
 				<CliHelpBox />
 			</div>
