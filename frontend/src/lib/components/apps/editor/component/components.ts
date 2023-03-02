@@ -29,7 +29,9 @@ import {
 	Paperclip,
 	Image,
 	SidebarClose,
-	MapPin
+	MapPin,
+	FlipHorizontal,
+	FlipVertical
 } from 'lucide-svelte'
 import type { BaseAppComponent } from '../../types'
 
@@ -82,6 +84,12 @@ export type TabsComponent = BaseComponent<'tabscomponent'> & {
 export type ContainerComponent = BaseComponent<'containercomponent'>
 export type DrawerComponent = BaseComponent<'drawercomponent'>
 export type MapComponent = BaseComponent<'mapcomponent'>
+export type VerticalSplitPanesComponent = BaseComponent<'verticalsplitpanescomponent'> & {
+	panes: number[]
+}
+export type HorizontalSplitPanesComponent = BaseComponent<'horizontalsplitpanescomponent'> & {
+	panes: number[]
+}
 
 export type AppComponent = BaseAppComponent &
 	(
@@ -118,6 +126,8 @@ export type AppComponent = BaseAppComponent &
 		| AggridComponent
 		| DrawerComponent
 		| MapComponent
+		| VerticalSplitPanesComponent
+		| HorizontalSplitPanesComponent
 	)
 
 export type AppComponentDimensions = `${IntRange<
@@ -867,6 +877,11 @@ Hello \${ctx.username}
 					fieldType: 'text',
 					value: 'Select an item',
 					onlyStatic: true
+				},
+				defaultValue: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'object'
 				}
 			},
 			customCss: {
@@ -1423,6 +1438,56 @@ Hello \${ctx.username}
 				map: { class: '', style: '' }
 			} as const,
 			card: false
+		}
+	},
+	verticalsplitpanescomponent: {
+		name: 'Vertical Split Panes',
+		icon: FlipHorizontal,
+		dims: '2:8-6:8',
+		data: {
+			softWrap: true,
+			id: '',
+			type: 'verticalsplitpanescomponent',
+			configuration: {
+				noPadding: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					onlyStatic: true
+				}
+			},
+			customCss: {
+				container: { class: '', style: '' }
+			} as const,
+			componentInput: undefined,
+			card: false,
+			panes: [50, 50],
+			numberOfSubgrids: 2
+		}
+	},
+	horizontalsplitpanescomponent: {
+		name: 'Horizontal Split Panes',
+		icon: FlipVertical,
+		dims: '2:8-6:8',
+		data: {
+			softWrap: true,
+			id: '',
+			type: 'horizontalsplitpanescomponent',
+			configuration: {
+				noPadding: {
+					type: 'static',
+					fieldType: 'boolean',
+					value: false,
+					onlyStatic: true
+				}
+			},
+			customCss: {
+				container: { class: '', style: '' }
+			} as const,
+			componentInput: undefined,
+			card: false,
+			panes: [50, 50],
+			numberOfSubgrids: 2
 		}
 	}
 }

@@ -213,7 +213,7 @@
 		<div class="my-10" />
 		<Button
 			color="light"
-			size="sm"
+			size="xs"
 			endIcon={{ icon: viewCliOptions ? faChevronUp : faChevronDown }}
 			on:click={() => (viewCliOptions = !viewCliOptions)}
 		>

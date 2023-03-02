@@ -13,16 +13,18 @@
 	export { classes as class }
 	export let style = ''
 	export let noPadding = false
+	export let noYPadding = false
 	export let subGrid: GridItem[] = []
 	export let visible: boolean = true
 	export let id: string
+	export let shouldHighlight: boolean = true
 
 	const dispatch = createEventDispatcher()
 
-	const { app, connectingInput, selectedComponent, focusedGrid } =
+	const { app, connectingInput, selectedComponent, focusedGrid, mode } =
 		getContext<AppEditorContext>('AppEditorContext')
 
-	$: highlight = id === $focusedGrid?.parentComponentId
+	$: highlight = id === $focusedGrid?.parentComponentId && shouldHighlight
 
 	let pointerdown = false
 	let onComponent: string | undefined = undefined
@@ -69,13 +71,20 @@
 	bind:this={container}
 >
 	<div
-		class={twMerge('py-2 overflow-auto', classes ?? '', noPadding ? 'px-0' : 'px-2')}
+		class={twMerge(
+			'overflow-auto',
+			noYPadding ? '' : 'py-2',
+			classes ?? '',
+			noPadding ? 'px-0' : 'px-2'
+		)}
 		on:pointerdown|stopPropagation={onpointerdown}
 		on:pointerleave={onpointerup}
 		on:pointerup={onpointerup}
 		style="height: {containerHeight}px; {style ?? ''}"
 	>
-		<div class={highlight ? 'border-indigo-600 border-2 border-dashed' : ''}>
+		<div
+			class={highlight && $mode !== 'preview' ? 'border-gray-400 border border-dashed h-full' : ''}
+		>
 			<Grid
 				bind:items={subGrid}
 				let:dataItem

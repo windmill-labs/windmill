@@ -70,11 +70,21 @@
 	}
 
 	$: css = concatCustomCss($app.css?.selectcomponent, customCss)
+
+	let defaultValue: any = undefined
+
+	$: {
+		if (defaultValue) {
+			value = JSON.stringify(defaultValue)
+			outputs?.result.set(defaultValue)
+		}
+	}
 </script>
 
 <InputValue {id} input={configuration.items} bind:value={items} />
 <InputValue {id} input={configuration.multiple} bind:value={multiple} />
 <InputValue {id} input={configuration.placeholder} bind:value={placeholder} />
+<InputValue {id} input={configuration.defaultValue} bind:value={defaultValue} />
 
 <AlignWrapper {horizontalAlignment} {verticalAlignment}>
 	<div class="app-select w-full mx-0.5" style="height: 34px" on:pointerdown|stopPropagation>

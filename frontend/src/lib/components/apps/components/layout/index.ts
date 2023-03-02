@@ -1,4 +1,5 @@
 export { default as AppContainer } from './AppContainer.svelte'
 export { default as AppDivider } from './AppDivider.svelte'
 export { default as AppDrawer } from './AppDrawer.svelte'
+export { default as AppSplitpanes } from './AppSplitpanes.svelte'
 export { default as AppTabs } from './AppTabs.svelte'
