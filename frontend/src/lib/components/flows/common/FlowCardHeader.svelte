@@ -61,6 +61,9 @@
 						>
 					{/if}
 					<input bind:value={flowModule.summary} placeholder="Summary" class="w-full grow" />
+				{:else if flowModule?.value.type === 'flow'}
+					<Badge color="indigo" capitalize>flow</Badge>
+					<input bind:value={flowModule.summary} placeholder="Summary" class="w-full grow" />
 				{/if}
 			</div>
 		</span>

@@ -295,28 +295,38 @@ impl RunJobQuery {
     fn add_include_headers(
         &self,
         headers: HeaderMap,
-        mut args: serde_json::Map<String, serde_json::Value>,
+        args: serde_json::Map<String, serde_json::Value>,
     ) -> serde_json::Map<String, serde_json::Value> {
-        let whitelist = self
-            .include_header
-            .as_ref()
-            .map(|s| s.split(",").map(|s| s.to_string()).collect::<Vec<_>>())
-            .unwrap_or_default();
-        whitelist
-            .iter()
-            .chain(INCLUDE_HEADERS.iter())
-            .for_each(|h| {
-                if let Some(v) = headers.get(h) {
-                    args.insert(
-                        h.to_string().to_lowercase().replace('-', "_"),
-                        serde_json::Value::String(v.to_str().unwrap().to_string()),
-                    );
-                }
-            });
-        args
+        return add_include_headers(&self.include_header, headers, args);
     }
 }
 
+pub fn add_include_headers(
+    include_header: &Option<String>,
+    headers: HeaderMap,
+    mut args: serde_json::Map<String, serde_json::Value>,
+) -> serde_json::Map<String, serde_json::Value> {
+    if include_header.is_none() {
+        return args;
+    }
+    let whitelist = include_header
+        .as_ref()
+        .map(|s| s.split(",").map(|s| s.to_string()).collect::<Vec<_>>())
+        .unwrap_or_default();
+
+    whitelist
+        .iter()
+        .chain(INCLUDE_HEADERS.iter())
+        .for_each(|h| {
+            if let Some(v) = headers.get(h) {
+                args.insert(
+                    h.to_string().to_lowercase().replace('-', "_"),
+                    serde_json::Value::String(v.to_str().unwrap().to_string()),
+                );
+            }
+        });
+    args
+}
 #[derive(Deserialize)]
 pub struct ListQueueQuery {
     pub script_path_start: Option<String>,
@@ -1775,6 +1785,7 @@ async fn get_completed_job(
     .fetch_optional(&db)
     .await?;
 
+    tracing::info!("job_o: {:?}", job_o);
     let job = not_found_if_none(job_o, "Completed Job", id.to_string())?;
     Ok(Json(job))
 }

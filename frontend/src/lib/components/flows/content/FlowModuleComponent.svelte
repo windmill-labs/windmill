@@ -12,12 +12,7 @@
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
 	import { flowStateStore } from '../flowState'
-	import {
-		getLatestHashForScript,
-		getScriptByPath,
-		schemaToObject,
-		scriptLangToEditorLang
-	} from '$lib/utils'
+	import { getLatestHashForScript, schemaToObject, scriptLangToEditorLang } from '$lib/utils'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import { afterUpdate, getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
