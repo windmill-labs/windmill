@@ -55,6 +55,9 @@
 				emptySchema()
 			)
 		}
+		if (inlineScript.schema) {
+			loadSchemaAndInputsByName()
+		}
 	})
 	const dispatch = createEventDispatcher()
 	let runLoading = false
