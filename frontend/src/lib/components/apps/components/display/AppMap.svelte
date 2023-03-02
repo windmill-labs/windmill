@@ -154,7 +154,7 @@
 			let extent = map.getView().calculateExtent(map.getSize())
 			const [left, bottom, right, top] = extent
 
-			if (outputs.mapRegion) {
+			if (outputs?.mapRegion) {
 				outputs.mapRegion.set({
 					topLeft: { lat: top, lon: left },
 					bottomRight: { lat: bottom, lon: right }
