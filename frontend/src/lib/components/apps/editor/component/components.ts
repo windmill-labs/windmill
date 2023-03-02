@@ -1509,7 +1509,7 @@ Hello \${ctx.username}
 			configuration: {
 				source: {
 					type: 'static',
-					value: '/logo.svg',
+					value: '/file.pdf',
 					fieldType: 'text',
 					fileUpload: {
 						accept: 'application/pdf',

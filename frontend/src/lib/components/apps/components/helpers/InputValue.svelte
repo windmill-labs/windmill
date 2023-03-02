@@ -17,6 +17,10 @@
 
 	$: if (input && !deepEqual(input, lastInput)) {
 		lastInput = JSON.parse(JSON.stringify(input))
+		// Needed because of file uploads
+		if (input?.['value'] instanceof ArrayBuffer) {
+			lastInput.value = input?.['value']
+		}
 	}
 
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
