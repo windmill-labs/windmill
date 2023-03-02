@@ -95,6 +95,8 @@
 							id={`bg_${index}`}
 							bind:inlineScript={hiddenInlineScript.inlineScript}
 							bind:name={hiddenInlineScript.name}
+							bind:fields={hiddenInlineScript.fields}
+							syncFields
 							on:delete={() => {
 								// remove the script from the array at the index
 								$app.hiddenInlineScripts.splice(index, 1)

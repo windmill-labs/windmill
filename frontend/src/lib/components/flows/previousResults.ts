@@ -18,21 +18,30 @@ type StepPropPicker = {
 
 type ModuleBranches = FlowModule[][]
 
+function getSubModules(flowModule: FlowModule): ModuleBranches {
+	if (flowModule.value.type === 'forloopflow') {
+		return [flowModule.value.modules]
+	} else if (flowModule.value.type === 'branchall') {
+		return flowModule.value.branches.map((branch) => branch.modules)
+	} else if (flowModule.value.type == 'branchone') {
+		return [
+			...flowModule.value.branches.map((branch) => branch.modules),
+			flowModule.value.default
+		]
+	}
+	return []
+}
+
+function getAllSubmodules(flowModule: FlowModule): ModuleBranches {
+	return getSubModules(flowModule).map((modules) => {
+		return modules.map((module) => {
+			return [module, ...getAllSubmodules(module).flat()]
+		}).flat()
+	})
+}
+
 function dfs(id: string | undefined, flow: Flow, getParents: boolean = true): FlowModule[] {
 	if (id === undefined) {
-		return []
-	}
-	function getSubModules(flowModule: FlowModule): ModuleBranches {
-		if (flowModule.value.type === 'forloopflow') {
-			return [flowModule.value.modules]
-		} else if (flowModule.value.type === 'branchall') {
-			return flowModule.value.branches.map((branch) => branch.modules)
-		} else if (flowModule.value.type == 'branchone') {
-			return [
-				...flowModule.value.branches.map((branch) => branch.modules),
-				flowModule.value.default
-			]
-		}
 		return []
 	}
 
@@ -106,7 +115,15 @@ export function getStepPropPicker(
 ): StepPropPicker {
 	const flowInput = getFlowInput(dfs(parentModule?.id, flow), flowState, args, flow.schema)
 
-	const previousIds = dfs(id, flow, false).map((x) => x.id)
+	const previousIds = dfs(id, flow, false).map((x) => {
+		let submodules = getAllSubmodules(x).flat().map((x) => x.id)
+
+		if (submodules.includes(id)) {
+			return [x.id]
+		} else {
+			return [x.id, ...submodules]
+		}
+	}).flat()
 	if (!include_node) {
 		previousIds.shift()
 	}

@@ -299,9 +299,8 @@ async fn op_get_result(args: Vec<String>) -> Result<serde_json::Value, anyhow::E
     let base_url = &args[3];
     let client = windmill_api_client::create_client(base_url, token.clone());
     let result = client
-        .get_completed_job(workspace, &id.parse()?)
+        .get_completed_job_result(workspace, &id.parse()?)
         .await?
-        .result
         .clone();
     Ok(serde_json::json!(result))
 }

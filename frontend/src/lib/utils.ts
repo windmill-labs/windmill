@@ -64,17 +64,16 @@ export function displayDaysAgo(dateString: string): string {
 	}
 }
 
-export function displayDate(dateString: string | undefined, displaySecond = false): string {
+export function displayDate(dateString: string | Date | undefined, displaySecond = false): string {
 	const date = new Date(dateString ?? '')
 	if (date.toString() === 'Invalid Date') {
 		return ''
 	} else {
-		return `${date.getFullYear()}/${date.getMonth() + 1
-			}/${date.getDate()} at ${date.toLocaleTimeString([], {
-				hour: '2-digit',
-				minute: '2-digit',
-				second: displaySecond ? '2-digit' : undefined
-			})}`
+		return `${date.toLocaleTimeString([], {
+			hour: '2-digit',
+			minute: '2-digit',
+			second: displaySecond ? '2-digit' : undefined
+		})} ${date.getDate()}/${date.getMonth() + 1}`
 	}
 }
 

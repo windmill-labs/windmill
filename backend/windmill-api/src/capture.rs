@@ -7,11 +7,12 @@
  */
 
 use axum::{
-    extract::{Extension, Path},
+    extract::{Extension, Path, Query},
     routing::{get, post, put},
     Json, Router,
 };
-use hyper::StatusCode;
+use hyper::{HeaderMap, StatusCode};
+use serde::Deserialize;
 use windmill_common::{
     error::{JsonResult, Result},
     utils::{not_found_if_none, StripPath},
@@ -19,6 +20,7 @@ use windmill_common::{
 
 use crate::{
     db::{UserDB, DB},
+    jobs::add_include_headers,
     users::Authed,
 };
 
@@ -83,13 +85,21 @@ pub async fn new_payload(
     Ok(StatusCode::CREATED)
 }
 
+#[derive(Deserialize, Clone)]
+pub struct IncludeHeaderQuery {
+    include_header: Option<String>,
+}
+
 pub async fn update_payload(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    Json(payload): Json<serde_json::Value>,
+    Query(run_query): Query<IncludeHeaderQuery>,
+    headers: HeaderMap,
+    Json(args): Json<Option<serde_json::Map<String, serde_json::Value>>>,
 ) -> Result<StatusCode> {
     let mut tx = db.begin().await?;
 
+    let args = add_include_headers(&run_query.include_header, headers, args.unwrap_or_default());
     sqlx::query!(
         "
        UPDATE capture
@@ -99,7 +109,7 @@ pub async fn update_payload(
         ",
         &w_id,
         &path.to_path(),
-        &payload,
+        serde_json::json!(args),
     )
     .execute(&mut tx)
     .await?;
