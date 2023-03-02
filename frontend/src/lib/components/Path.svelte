@@ -277,15 +277,19 @@
 			folderCreated = undefined
 		}}
 	>
-		<div class="flex flex-row">
-			<input class="mr-2" placeholder="New folder name" bind:value={newFolderName} />
-			<Button size="md" startIcon={{ icon: faPlus }} disabled={!newFolderName} on:click={addFolder}>
-				New&nbsp;folder
-			</Button>
-		</div>
-
-		{#if folderCreated}
-			<div class="mt-8" />
+		{#if !folderCreated}
+			<div class="flex flex-row">
+				<input class="mr-2" placeholder="New folder name" bind:value={newFolderName} />
+				<Button
+					size="md"
+					startIcon={{ icon: faPlus }}
+					disabled={!newFolderName}
+					on:click={addFolder}
+				>
+					New&nbsp;folder
+				</Button>
+			</div>
+		{:else}
 			<FolderEditor name={folderCreated} />
 		{/if}
 	</DrawerContent>
