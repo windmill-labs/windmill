@@ -49,6 +49,7 @@
 	export let loading = false
 	export let noVariablePicker = false
 	export let viewCliRun = false
+	export let isFlow: boolean
 
 	export let args: Record<string, any> = decodeArgs($page.url.searchParams.get('args') ?? undefined)
 
@@ -64,9 +65,9 @@
 	let scheduledForStr: string | undefined
 	let invisible_to_owner: false
 
-	$: cliCommand = `wmill ${runnable?.kind} run ${runnable?.path} ${Object.entries(args)
-		.map(([k, v]) => `-i ${k}=${JSON.stringify(v)}`)
-		.join(' ')}`
+	$: cliCommand = `wmill ${isFlow ? 'flow' : 'script'} run ${runnable?.path} -d '${JSON.stringify(
+		args
+	)}'`
 </script>
 
 <div class="max-w-6xl">
@@ -145,7 +146,7 @@
 					</Button>
 				</div>
 				{#if viewOptions}
-					<div transition:slide class="mt-6">
+					<div transition:slide|local class="mt-6">
 						<div class="border rounded-md p-3 pt-4">
 							<div class="flex flex-row items-end">
 								<div class="w-max md:w-2/3 mt-2 mb-1">
@@ -220,7 +221,7 @@
 			Run it from the CLI
 		</Button>
 		{#if viewCliOptions}
-			<div transition:slide class="mt-2 px-4 pt-2">
+			<div transition:slide|local class="mt-2 px-4 pt-2">
 				<InlineCodeCopy content={cliCommand} />
 				<CliHelpBox />
 			</div>

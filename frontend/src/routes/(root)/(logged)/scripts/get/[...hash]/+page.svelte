@@ -391,6 +391,7 @@
 						runAction={runScript}
 						bind:args
 						viewCliRun
+						isFlow={false}
 					/>
 				</div>
 				{#if !emptyString(script.description)}

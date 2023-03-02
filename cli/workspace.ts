@@ -9,9 +9,11 @@ import {
   Input,
   setClient,
   Table,
+  UserService,
   WorkspaceService,
 } from "./deps.ts";
 import { decoverto, model, property } from "./decoverto.ts";
+import { requireLogin } from "./context.ts";
 
 @model()
 export class Workspace {
@@ -308,6 +310,11 @@ async function remove(_opts: GlobalOptions, name: string) {
   await removeWorkspace(name, false, _opts);
 }
 
+async function whoami(_opts: GlobalOptions) {
+  await requireLogin(_opts)
+  console.log(await UserService.globalWhoami())
+}
+
 const command = new Command()
   .description("workspace related commands")
   .action(list as any)
@@ -335,6 +342,9 @@ const command = new Command()
   .command("remove")
   .description("Remove a workspace")
   .arguments("<workspace_name:string>")
-  .action(remove as any);
+  .action(remove as any)
+  .command("whoami")
+  .description("Show the currently active user")
+  .action(whoami as any);
 
 export default command;

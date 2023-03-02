@@ -86,6 +86,7 @@
 			detailed={false}
 			topButton
 			bind:args={stepArgs}
+			isFlow={false}
 		/>
 		{#if testIsLoading}
 			<Button on:click={testJobLoader?.cancelJob} btnClasses="w-full mt-4" color="red" size="sm">
