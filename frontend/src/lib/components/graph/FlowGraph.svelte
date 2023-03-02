@@ -451,7 +451,7 @@
 		edgeLabel?: string,
 		offset?: number
 	): Node {
-		const id = -idGenerator.next().value - 1 + (offset ?? 0)
+		const id = -idGenerator.next().value - 2 + (offset ?? 0)
 		return {
 			id,
 			position: { x: -1, y: -1 },
@@ -471,6 +471,7 @@
 				if (!notSelectable) {
 					selectedNode = label
 				}
+				console.log('clickCallback', label, node)
 				dispatch('click', label)
 			},
 			edgeLabel

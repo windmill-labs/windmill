@@ -7,7 +7,7 @@
 	import InsertModuleButton from './InsertModuleButton.svelte'
 	import FlowBranchOneMap from './FlowBranchOneMap.svelte'
 	import FlowBranchAllMap from './FlowBranchAllMap.svelte'
-	import { faCodeBranch, faLongArrowDown } from '@fortawesome/free-solid-svg-icons'
+	import { faBarsStaggered, faCodeBranch, faLongArrowDown } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
 	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
@@ -111,6 +111,8 @@
 						<Square size={16} />
 					{:else if mod.value.type === 'identity'}
 						<Icon data={faLongArrowDown} scale={1.1} />
+					{:else if mod.value.type === 'flow'}
+						<Icon data={faBarsStaggered} scale={1.0} />
 					{:else if mod.value.type === 'script'}
 						{#if mod.value.path.startsWith('hub/')}
 							<div>
