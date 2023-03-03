@@ -915,9 +915,7 @@ Hello \${ctx.username}
 					type: 'static',
 					fieldType: 'array',
 					subFieldType: 'text',
-					value: [
-						"Foo", "Bar"
-					]
+					value: ['Foo', 'Bar']
 				},
 				placeholder: {
 					type: 'static',
@@ -1549,6 +1547,11 @@ Hello \${ctx.username}
 						accept: 'application/pdf',
 						convertTo: 'buffer'
 					}
+				},
+				zoom: {
+					fieldType: 'number',
+					type: 'static',
+					value: 100
 				}
 			},
 			customCss: {

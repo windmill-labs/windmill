@@ -21,6 +21,7 @@
 	const resizeObserver = new ResizeObserver(() => debouncedRender(true, true))
 
 	let source: string | ArrayBuffer | undefined = undefined
+	let zoomConfig: number | undefined = undefined
 	let wrapper: HTMLDivElement | undefined = undefined
 	let error: string | undefined = undefined
 	let doc: PDFDocumentProxy | undefined = undefined
@@ -37,6 +38,10 @@
 	$: wrapper && loadDocument(source)
 	$: wideView = controlsWidth && controlsWidth > 450
 	$: wrapper && resizeObserver.observe(wrapper)
+	$: if (zoomConfig) {
+		zoom = minMax(zoomConfig / 100, 0.3, 5)
+		renderPdf(false, true)
+	}
 
 	async function resetDoc() {
 		await doc?.destroy()
@@ -172,6 +177,7 @@
 </script>
 
 <InputValue {id} input={configuration.source} bind:value={source} />
+<InputValue {id} input={configuration.zoom} bind:value={zoomConfig} />
 
 <div class="relative w-full h-full bg-gray-100">
 	{#if source}
