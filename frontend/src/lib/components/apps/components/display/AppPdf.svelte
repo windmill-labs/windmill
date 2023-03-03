@@ -270,7 +270,7 @@
 		<div
 			bind:this={wrapper}
 			on:scroll={throttledScroll}
-			class={twMerge('w-full overflow-auto', css?.container?.class ?? '')}
+			class={twMerge('w-full overflow-auto bg-gray-100', css?.container?.class ?? '')}
 			style="padding-top: {controlsHeight ?? 0}px; {css?.container?.style ?? ''}"
 		/>
 	{/if}
