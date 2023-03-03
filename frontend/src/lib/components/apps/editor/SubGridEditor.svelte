@@ -21,7 +21,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	const { app, connectingInput, selectedComponent, focusedGrid, mode } =
+	const { app, connectingInput, selectedComponent, focusedGrid, mode, parentWidth } =
 		getContext<AppEditorContext>('AppEditorContext')
 
 	$: highlight = id === $focusedGrid?.parentComponentId && shouldHighlight
@@ -82,9 +82,7 @@
 		on:pointerup={onpointerup}
 		style="height: {containerHeight}px; {style ?? ''}"
 	>
-		<div
-			class={highlight && $mode !== 'preview' ? 'border-gray-400 border border-dashed h-full' : ''}
-		>
+		<div class={highlight && $mode !== 'preview' ? 'border-gray-400  border border-dashed' : ''}>
 			<Grid
 				bind:items={subGrid}
 				let:dataItem
@@ -93,6 +91,7 @@
 				fastStart={true}
 				gap={[4, 2]}
 				scroller={container}
+				parentWidth={$parentWidth - 17}
 			>
 				{#each subGrid as gridComponent (gridComponent.id)}
 					{#if gridComponent?.data?.id && gridComponent?.data?.id === dataItem?.data?.id}

@@ -1,6 +1,6 @@
 {
 	"name": "windmill",
-	"version": "1.71.0",
+	"version": "1.72.0",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -25,7 +25,7 @@
 		"@types/vscode": "~1.74.0",
 		"@typescript-eslint/eslint-plugin": "^5.49.0",
 		"@typescript-eslint/parser": "^5.48.0",
-		"@windmill-labs/svelte-grid": "^5.1.5",
+		"@windmill-labs/svelte-grid": "^5.1.6",
 		"@windmill-labs/svelvet": "^4.0.20",
 		"@zerodevx/svelte-toast": "^0.8.1",
 		"autoprefixer": "^10.4.13",

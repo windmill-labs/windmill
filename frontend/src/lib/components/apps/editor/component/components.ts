@@ -73,6 +73,7 @@ export type DisplayComponent = BaseComponent<'displaycomponent'>
 export type ImageComponent = BaseComponent<'imagecomponent'>
 export type InputComponent = BaseComponent<'inputcomponent'>
 export type SelectComponent = BaseComponent<'selectcomponent'>
+export type MultiSelectComponent = BaseComponent<'multiselectcomponent'>
 export type CheckboxComponent = BaseComponent<'checkboxcomponent'>
 export type RadioComponent = BaseComponent<'radiocomponent'>
 export type IconComponent = BaseComponent<'iconcomponent'>
@@ -112,6 +113,7 @@ export type AppComponent = BaseAppComponent &
 		| PieChartComponent
 		| ScatterChartComponent
 		| SelectComponent
+		| MultiSelectComponent
 		| CheckboxComponent
 		| FormComponent
 		| FormButtonComponent
@@ -874,7 +876,7 @@ Hello \${ctx.username}
 						{ value: 'bar', label: 'Bar' }
 					]
 				},
-				multiple: {
+				create: {
 					type: 'static',
 					fieldType: 'boolean',
 					value: false,
@@ -890,6 +892,38 @@ Hello \${ctx.username}
 					type: 'static',
 					value: undefined,
 					fieldType: 'object'
+				}
+			},
+			customCss: {
+				input: { style: '' }
+			} as const,
+			card: false,
+			softWrap: true
+		}
+	},
+	multiselectcomponent: {
+		name: 'MultiSelect',
+		icon: List,
+		dims: '2:1-3:1',
+		data: {
+			verticalAlignment: 'center',
+			id: '',
+			type: 'multiselectcomponent',
+			componentInput: undefined,
+			configuration: {
+				items: {
+					type: 'static',
+					fieldType: 'array',
+					subFieldType: 'text',
+					value: [
+						"Foo", "Bar"
+					]
+				},
+				placeholder: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'Select items',
+					onlyStatic: true
 				}
 			},
 			customCss: {

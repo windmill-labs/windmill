@@ -81,7 +81,8 @@
 		errorByComponent,
 		openDebugRun: writable(undefined),
 		focusedGrid,
-		stateId: writable(0)
+		stateId: writable(0),
+		parentWidth: writable(0)
 	})
 
 	let timeout: NodeJS.Timeout | undefined = undefined
@@ -200,20 +201,20 @@
 				</Pane>
 				<Pane size={21} minSize={5} maxSize={33}>
 					<div class="relative flex flex-col h-full">
-						<Tabs bind:selected={selectedTab} class="!border-b-2 !border-gray-200">
-							<Tab value="insert" size="xs" class="grow">
+						<Tabs bind:selected={selectedTab} class="!border-b-2 !border-gray-200 !h-full">
+							<Tab value="insert" size="xs">
 								<div class="m-1 center-center gap-2">
 									<Icon data={faPlus} />
 									<span>Insert</span>
 								</div>
 							</Tab>
-							<Tab value="settings" size="xs" class="grow">
+							<Tab value="settings" size="xs">
 								<div class="m-1 center-center gap-2">
 									<Icon data={faSliders} />
 									<span>Settings</span>
 								</div>
 							</Tab>
-							<Tab value="css" size="xs" class="grow">
+							<Tab value="css" size="xs">
 								<div class="m-1 center-center gap-2">
 									<Icon data={faCode} />
 									<span>CSS</span>

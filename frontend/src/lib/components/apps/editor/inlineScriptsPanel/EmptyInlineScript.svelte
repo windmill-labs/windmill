@@ -7,7 +7,7 @@
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
 	import { capitalize, emptySchema, getScriptByPath } from '$lib/utils'
-	import { faCodeBranch } from '@fortawesome/free-solid-svg-icons'
+	import { faCodeBranch, faTrash } from '@fortawesome/free-solid-svg-icons'
 	import { Building, Globe2 } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { fly } from 'svelte/transition'
@@ -176,12 +176,22 @@
 	<div class="mt-4">
 		<Button
 			on:click={() => picker?.openDrawer()}
-			size="sm"
+			size="xs"
 			color="blue"
 			startIcon={{ icon: faCodeBranch }}
 			btnClasses="truncate"
 		>
 			or fork a detached/Workspace/Hub script
+		</Button>
+		<Button
+			on:click={() => dispatch('delete')}
+			size="xs"
+			color="red"
+			variant="border"
+			startIcon={{ icon: faTrash }}
+			btnClasses="truncate"
+		>
+			Delete
 		</Button>
 	</div>
 </div>

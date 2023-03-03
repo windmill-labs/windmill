@@ -62,7 +62,8 @@
 		errorByComponent: writable({}),
 		openDebugRun: writable(undefined),
 		focusedGrid: writable(undefined),
-		stateId: writable(0)
+		stateId: writable(0),
+		parentWidth: writable(0)
 	})
 
 	let mounted = false

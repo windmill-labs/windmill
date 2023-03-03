@@ -54,9 +54,9 @@
 </script>
 
 <div
-	class="sticky top-0 py-0.5 px-2 text-center bg-gray-200 text-gray-500 text-2xs font-bold tracking-wide border-b border-gray-300"
+	class="sticky top-0 py-0.5 px-2 text-left bg-gray-50 text-gray-800 text-xs font-semibold tracking-wide border-b border-gray-300"
 >
-	RUNNABLES
+	Runnables
 </div>
 <div bind:this={list} class="grow flex flex-col gap-4">
 	<PanelSection title="Inline scripts" smallPadding>
@@ -129,9 +129,12 @@
 		smallPadding
 	>
 		<svelte:fragment slot="action">
-			<Button size="xs" color="dark" variant="border" on:click={createBackgroundScript}
-				><Plus size={14} />
-			</Button>
+			<button
+				class="rounded-full bg-gray-100 hover:bg-gray-200 p-1 border border-gray-200"
+				on:click={createBackgroundScript}
+			>
+				<Plus size={14} class="text-gray-500" />
+			</button>
 		</svelte:fragment>
 		<div class="flex flex-col gap-1 w-full">
 			{#if $app.hiddenInlineScripts?.length > 0}

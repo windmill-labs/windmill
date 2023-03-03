@@ -18,25 +18,18 @@
 
 	const { app, worldStore, connectingInput, selectedComponent } =
 		getContext<AppEditorContext>('AppEditorContext')
-	let items: { label: string; value: any }[]
-	let multiple: boolean = false
+	let items: { label: string; value: any; created?: boolean }[]
 	let placeholder: string = 'Select an item'
 
 	$: outputs = $worldStore?.outputsById[id] as {
-		result: Output<string | undefined>
+		result: Output<any | undefined>
 	}
-
-	// $: outputs && handleOutputs()
-
-	// function handleOutputs() {
-	// 	value = outputs.result.peak()
-	// }
 
 	let value: string | undefined = outputs?.result.peak()
 
 	$: items && handleItems()
 
-	let listItems: { label: string; value: string }[] = []
+	let listItems: { label: string; value: string; created?: boolean }[] = []
 
 	function handleItems() {
 		listItems = Array.isArray(items)
@@ -47,21 +40,22 @@
 					}
 			  })
 			: []
-		const valuePeak = outputs?.result.peak()
-		if (!valuePeak) {
-			const value0 = items?.[0]?.['value']
-			if (value0 != value) {
-				value = JSON.stringify(value0)
-				outputs?.result.set(value0)
-			}
-		} else {
-			value = JSON.stringify(valuePeak)
+		if (defaultValue) {
+			value = JSON.stringify(defaultValue)
 		}
 	}
 
 	function onChange(e: CustomEvent) {
 		e?.stopPropagation()
 		window.dispatchEvent(new Event('pointerup'))
+
+		if (create) {
+			listItems = listItems.map((i) => {
+				delete i.created
+				return i
+			})
+		}
+
 		let result: any = undefined
 		try {
 			result = JSON.parse(e.detail?.['value'])
@@ -73,23 +67,40 @@
 
 	let defaultValue: any = undefined
 
-	$: {
+	function handleFilter(e) {
+		if (create) {
+			if (e.detail.length === 0 && filterText.length > 0) {
+				const prev = listItems.filter((i) => !i.created)
+				listItems = [
+					...prev,
+					{ value: JSON.stringify(filterText), label: filterText, created: true }
+				]
+			}
+		}
+	}
+
+	$: defaultValue && handleDefault()
+
+	function handleDefault() {
 		if (defaultValue) {
 			value = JSON.stringify(defaultValue)
 			outputs?.result.set(defaultValue)
 		}
 	}
+	let create = false
+	let filterText = ''
 </script>
 
 <InputValue {id} input={configuration.items} bind:value={items} />
-<InputValue {id} input={configuration.multiple} bind:value={multiple} />
 <InputValue {id} input={configuration.placeholder} bind:value={placeholder} />
 <InputValue {id} input={configuration.defaultValue} bind:value={defaultValue} />
+<InputValue {id} input={configuration.create} bind:value={create} />
 
 <AlignWrapper {horizontalAlignment} {verticalAlignment}>
 	<div class="app-select w-full mx-0.5" style="height: 34px" on:pointerdown|stopPropagation>
 		<Select
-			{multiple}
+			bind:filterText
+			on:filter={handleFilter}
 			on:clear={onChange}
 			on:change={onChange}
 			items={listItems}
@@ -109,7 +120,15 @@
 			floatingConfig={{
 				strategy: 'fixed'
 			}}
-		/>
+		>
+			<div slot="item" let:item>
+				{#if create}
+					{item.created ? 'Add new: ' : ''}
+				{/if}
+
+				{item.label}
+			</div>
+		</Select>
 	</div>
 </AlignWrapper>
 
