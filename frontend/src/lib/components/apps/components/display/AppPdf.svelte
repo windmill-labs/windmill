@@ -7,9 +7,10 @@
 	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import InputValue from '../helpers/InputValue.svelte'
-	import { throttle } from '../../../../utils'
+	import { debounce, throttle } from '../../../../utils'
 	import { Button } from '../../../common'
 	import { Download, Loader2, ZoomIn, ZoomOut } from 'lucide-svelte'
+	import { fade } from 'svelte/transition'
 
 	export let id: string
 	export let configuration: Record<string, AppInput>
@@ -17,6 +18,7 @@
 	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
 
 	const { app } = getContext<AppEditorContext>('AppEditorContext')
+	const resizeObserver = new ResizeObserver(() => debouncedRender(true, true))
 
 	let source: string | ArrayBuffer | undefined = undefined
 	let wrapper: HTMLDivElement | undefined = undefined
@@ -34,6 +36,7 @@
 	}
 	$: wrapper && loadDocument(source)
 	$: wideView = controlsWidth && controlsWidth > 450
+	$: wrapper && resizeObserver.observe(wrapper)
 
 	async function resetDoc() {
 		await doc?.destroy()
@@ -57,14 +60,18 @@
 		}
 	}
 
-	async function renderPdf(scaleToViewport = true) {
+	const debouncedRender = debounce(renderPdf, 300)
+	async function renderPdf(scaleToViewport = true, resizing = false) {
 		if (!(doc && wrapper)) {
 			return
 		}
-		while (wrapper?.firstChild) {
+		while (wrapper.firstChild) {
 			wrapper.removeChild(wrapper.firstChild)
 		}
-		pages = []
+		if (!resizing) {
+			pages = []
+		}
+		const nextPages: typeof pages = []
 		const { width } = wrapper.getBoundingClientRect()
 
 		for (let i = 0; i < doc.numPages; i++) {
@@ -75,7 +82,7 @@
 				continue
 			}
 			const page = await doc.getPage(i + 1)
-			pages.push(page)
+			nextPages.push(page)
 			let viewport = page.getViewport({ scale: zoom ?? 1 })
 			if (scaleToViewport) {
 				if (width && viewport.width > width) {
@@ -90,7 +97,7 @@
 			await page.render({ canvasContext, viewport }).promise
 			wrapper.appendChild(canvas)
 		}
-		pages = pages
+		pages = [...nextPages]
 	}
 
 	function scrollToPage(page: number) {
@@ -245,7 +252,10 @@
 				</div>
 			</div>
 		{:else}
-			<div class="center-center flex-col w-full h-full text-center text-sm text-gray-600">
+			<div
+				out:fade={{ duration: 200 }}
+				class="absolute inset-0 center-center flex-col text-center text-sm bg-white text-gray-600"
+			>
 				<Loader2 class="animate-spin mb-2" />
 				Loading PDF
 			</div>

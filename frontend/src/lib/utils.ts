@@ -674,6 +674,16 @@ export function isObject(obj: any) {
 	return typeof obj === 'object'
 }
 
+export function debounce(func: (...args: any[]) => any, wait: number) {
+	let timeout: any
+	return function (...args: any[]) {
+		// @ts-ignore
+		const context = this
+		clearTimeout(timeout)
+		timeout = setTimeout(() => func.apply(context, args), wait)
+	}
+}
+
 export function throttle<T>(func: (...args: any[]) => T, wait: number) {
 	let timeout: any
 	return function (...args: any[]) {
