@@ -9,6 +9,7 @@
 	import type { PropPickerWrapperContext } from '../propPicker/PropPickerWrapper.svelte'
 	import { writable } from 'svelte/store'
 	import Toggle from '../../Toggle.svelte'
+	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
 
 	let hideOptional = false
 
@@ -75,9 +76,8 @@
 							<Badge large color="indigo">{m.id}</Badge>
 						</h2>
 
-						<SchemaForm
+						<InputTransformSchemaForm
 							noDynamicToggle
-							inputTransform
 							{filter}
 							class="mt-2"
 							schema={$flowStateStore[m.id]?.schema ?? {}}

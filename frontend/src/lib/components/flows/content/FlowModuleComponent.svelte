@@ -28,6 +28,7 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import FlowModuleSleep from './FlowModuleSleep.svelte'
 	import FlowPathViewer from './FlowPathViewer.svelte'
+	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
 
 	const { selectedId, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -225,9 +226,8 @@
 										pickableProperties={stepPropPicker.pickableProperties}
 										error={failureModule}
 									>
-										<SchemaForm
+										<InputTransformSchemaForm
 											schema={$flowStateStore[$selectedId]?.schema ?? {}}
-											inputTransform={true}
 											previousModuleId={previousModule?.id}
 											bind:args={value.input_transforms}
 											bind:extraLib={stepPropPicker.extraLib}
