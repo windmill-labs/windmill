@@ -1,6 +1,6 @@
 # Developing
 
-## Starting the Development Server
+## Starting The Development Server
 
 Once you've created a project and installed dependencies with `npm install` (or
 `pnpm install` or `yarn`), start a development server:
@@ -17,7 +17,7 @@ In the root folder:
 
 ```bash
 docker build . -t windmill
-docker-compose up db server
+docker-compose up db windmill_server windmill_worker
 ```
 
 ### 2. Backend is run by cargo
@@ -25,9 +25,9 @@ docker-compose up db server
 **Prerequisites**
 
 - Install Rust [as explained on the website](https://www.rust-lang.org/tools/install).
-- Install llvm 
+- Install llvm
 
-  **on OSX:**
+  **On OSX:**
   ```bash
   brew install llvm caddy gsed
   
@@ -36,7 +36,20 @@ docker-compose up db server
   
   # now, restart your shell. You should now have the `lld` binary on your PATH.
   ```
-  
+- To test that you have Rust and Cargo installed run `cargo --version`
+
+- In your terminal, go to the backend directory and run `cargo build`
+- Run `cargo run`
+
+**Known issue on M1 Mac while running `cargo build`**
+- You may encounter `linking with cc failed` build time error.
+- To solve this run:
+  ```bash
+  echo 'export RUSTFLAGS="-L/opt/homebrew/opt/libomp/lib"' >> ~/.zshrc
+  source ~/.zshrc
+  ```
+
+
 **Do a Frontend Build**
 
 In order to run the backend, you need to have a frontend build inside `frontend/build/`.
@@ -55,6 +68,14 @@ npm run generate-backend-client
 npm run build
 # now, you'll have a `frontend/build` folder.
 ```
+
+**Known issue while running `npm run build`**
+- You may encounter `FATAL ERROR: Ineffective mark-compacts near heap limit Allocation failed - JavaScript heap out of memory` error.
+- To solve this run:
+```bash
+export NODE_OPTIONS=--max_old_space_size=8096
+```
+- run `npm run build` again
 
 In the root folder:
 
@@ -82,7 +103,7 @@ sudo caddy run --config ./Caddyfile
 
 and then go to <http://localhost>
 
-### Backend is run by remote!
+### 3. Backend is run by remote!
 
 ```bash
 sudo caddy run --config ./CaddyfileRemote
@@ -119,8 +140,8 @@ Recommended config for VS Code:
 
 ```json
 "[svelte]": {
-        "editor.defaultFormatter": "esbenp.prettier-vscode"
-    }
+"editor.defaultFormatter": "esbenp.prettier-vscode"
+}
 ```
 
 - turn _format on save_ on
