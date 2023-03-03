@@ -18,11 +18,13 @@
 	export const staticOutputs: string[] = ['loading']
 	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
 
-	const { app } = getContext<AppEditorContext>('AppEditorContext')
-	const resizeObserver = new ResizeObserver(() => debouncedRender(true, true))
+	const { app, mode } = getContext<AppEditorContext>('AppEditorContext')
+	// const resizeObserver = new ResizeObserver(() => {
+	// 	console.log('debounced render')
+	// 	debouncedRender(true, true)
+	// })
 
 	let source: string | ArrayBuffer | undefined = undefined
-	// let zoomConfig: number | undefined = undefined
 	let wrapper: HTMLDivElement | undefined = undefined
 	let error: string | undefined = undefined
 	let doc: PDFDocumentProxy | undefined = undefined
@@ -37,13 +39,13 @@
 		resetDoc()
 		error = 'Set the "Source" attribute of the PDF component'
 	}
+	$: {
+		zoom = minMax(zoom, 10, 500)
+		renderPdf(false, true)
+	}
 	$: wrapper && loadDocument(source)
 	$: wideView = controlsWidth && controlsWidth > 450
-	$: wrapper && resizeObserver.observe(wrapper)
-	// $: if (zoomConfig) {
-	// 	zoom = minMax(zoomConfig / 100, 0.3, 5)
-	// 	renderPdf(false, true)
-	// }
+	// $: wrapper && resizeObserver.observe(wrapper)
 
 	async function resetDoc() {
 		await doc?.destroy()
@@ -68,7 +70,7 @@
 		}
 	}
 
-	const debouncedRender = debounce(renderPdf, 300)
+	// const debouncedRender = debounce(renderPdf, 300)
 	async function renderPdf(scaleToViewport = true, resizing = false) {
 		if (!(doc && wrapper)) {
 			return
@@ -92,6 +94,7 @@
 			nextPages.push(page)
 			let viewport = page.getViewport({ scale: zoom / 100 })
 			if (scaleToViewport && width && viewport.width > width) {
+				console.log('scaling to viewport')
 				zoom = (width / viewport.width) * 100
 				viewport = page.getViewport({
 					scale: zoom
@@ -111,9 +114,6 @@
 		wrapper.scrollTo({
 			top: scrollPosition * wrapper.scrollHeight
 		})
-		if (gridItem) {
-			gridItem.data.configuration.zoom.value = zoom
-		}
 	}
 
 	function scrollToPage(page: number) {
@@ -144,16 +144,6 @@
 			page = i + 1
 		}
 		pageNumber = page
-	}
-
-	async function zoomPdf(dir?: 'in' | 'out') {
-		if (!dir) {
-			zoom = 100
-		} else {
-			const value = dir === 'in' ? zoom + 10 : zoom - 10
-			zoom = minMax(value, 30, 500)
-		}
-		await renderPdf(false, true)
 	}
 
 	async function downloadPdf() {
@@ -196,7 +186,7 @@
 			>
 				<div class="flex justify-start items-center px-2 text-gray-600 text-sm">
 					<Button
-						on:click={() => zoomPdf('out')}
+						on:click={() => (zoom -= 10)}
 						disabled={!doc}
 						size="xs"
 						color="light"
@@ -209,7 +199,7 @@
 					</Button>
 					{#if wideView}
 						<Button
-							on:click={() => zoomPdf()}
+							on:click={() => (zoom = 100)}
 							disabled={!doc}
 							size="xs"
 							color="light"
@@ -222,7 +212,7 @@
 						</Button>
 					{/if}
 					<Button
-						on:click={() => zoomPdf('in')}
+						on:click={() => (zoom += 10)}
 						disabled={!doc}
 						size="xs"
 						color="light"
@@ -286,10 +276,19 @@
 	{/if}
 	{#if error}
 		<div
-			class="absolute inset-0 z-10 center-center 
+			class="absolute inset-0 z-20 center-center 
 		bg-gray-100 text-center text-gray-600 text-sm"
 		>
 			{error}
 		</div>
+	{/if}
+
+	{#if $mode !== 'preview'}
+		<button
+			class="fixed z-10 bottom-0 left-0 px-1 py-0.5 bg-indigo-500 text-white text-2xs"
+			on:click={() => gridItem && (gridItem.data.configuration.zoom.value = zoom)}
+		>
+			Set zoom
+		</button>
 	{/if}
 </div>
