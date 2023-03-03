@@ -3,7 +3,7 @@
 	import type { Preview } from '$lib/gen'
 	import { createEventDispatcher, getContext, onMount } from 'svelte'
 	import type { AppEditorContext, InlineScript } from '../../types'
-	import { CheckCircle, Maximize2, Trash2, X } from 'lucide-svelte'
+	import { CornerDownLeft, Maximize2, Plus, Trash2, X } from 'lucide-svelte'
 	import InlineScriptEditorDrawer from './InlineScriptEditorDrawer.svelte'
 	import { inferArgs } from '$lib/infer'
 	import type { Schema } from '$lib/common'
@@ -11,11 +11,11 @@
 	import { fly } from 'svelte/transition'
 	import Editor from '$lib/components/Editor.svelte'
 	import { emptySchema, scriptLangToEditorLang } from '$lib/utils'
-	import Tooltip from '$lib/components/Tooltip.svelte'
 	import Popover from '../../../Popover.svelte'
 	import { computeFields } from './utils'
 	import { deepEqual } from 'fast-equals'
 	import type { AppInput } from '../../inputType'
+	import Kbd from '$lib/components/common/kbd/Kbd.svelte'
 
 	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
 
@@ -73,6 +73,8 @@
 			}
 		}
 	}
+
+	let isMac = navigator.userAgent.indexOf('Mac OS X') !== -1
 </script>
 
 <InlineScriptEditorDrawer {editor} bind:this={inlineScriptEditorDrawer} bind:inlineScript />
@@ -80,30 +82,25 @@
 <div class="h-full flex flex-col gap-1" transition:fly|local={{ duration: 50 }}>
 	<div class="flex justify-between w-full gap-2 px-2 pt-1 flex-row items-center">
 		{#if name !== undefined}
-			<input bind:value={name} placeholder="Inline script name" />
+			<input bind:value={name} placeholder="Inline script name" class="!text-xs !rounded-xs" />
 		{/if}
 		<div class="flex w-full flex-row gap-2 items-center justify-end">
 			{#if validCode}
-				<Badge color="green" baseClass="!p-0 !h-[30px] aspect-square center-center">
-					<CheckCircle size={16} />
-				</Badge>
+				<Badge color="green" baseClass="!text-2xs">Valid</Badge>
 			{:else}
-				<Badge color="red" baseClass="!p-0 !h-[30px] aspect-square center-center">
-					<X size={16} />
-				</Badge>
+				<Badge color="red" baseClass="!text-2xs">Invalid</Badge>
 			{/if}
 
 			{#if id.startsWith('unused-') || id.startsWith('bg_')}
 				<Popover notClickable placement="bottom">
 					<Button
 						size="xs"
-						color="red"
-						variant="border"
-						btnClasses="!px-1.5"
+						color="light"
+						btnClasses="!px-2 !bg-red-100 hover:!bg-red-200"
 						aria-label="Delete"
 						on:click={() => dispatch('delete')}
 					>
-						<Trash2 size={16} />
+						<Trash2 size={14} class="text-red-800" />
 					</Button>
 					<svelte:fragment slot="text">Delete</svelte:fragment>
 				</Popover>
@@ -111,41 +108,62 @@
 			<Popover notClickable placement="bottom">
 				<Button
 					size="xs"
-					color="blue"
-					variant="border"
-					btnClasses="!px-1.5"
+					color="light"
+					btnClasses="!px-2 !bg-gray-100 hover:!bg-gray-200"
 					aria-label="Open full editor"
 					on:click={() => {
 						inlineScriptEditorDrawer?.openDrawer()
 					}}
 				>
-					<Maximize2 size={16} />
+					<Maximize2 size={14} />
 				</Button>
 				<svelte:fragment slot="text">Open full editor</svelte:fragment>
 			</Popover>
 			<Button
 				variant="border"
 				size="xs"
-				color="blue"
+				color="light"
+				btnClasses="!px-2 !py-1"
 				on:click={async () => {
 					editor.format()
 				}}
 			>
-				Format&nbsp;<Tooltip placement="bottom">Ctrl+S</Tooltip>
+				<div class="flex flex-row gap-1 items-center">
+					Format
+
+					<div class="flex flex-row items-center">
+						<Kbd>{isMac ? '⌘' : 'CTRL'}</Kbd>
+						<Plus size={12} />
+						<Kbd>S</Kbd>
+					</div>
+				</div>
 			</Button>
 			{#if $runnableComponents[id] != undefined}
 				<Button
 					loading={runLoading}
 					size="xs"
-					color="blue"
+					color="dark"
+					variant="border"
+					btnClasses="!px-2 !py-1 !bg-gray-700 !text-white hover:!bg-gray-900"
 					on:click={async () => {
 						runLoading = true
 						await $runnableComponents[id]?.()
 						runLoading = false
 					}}
 				>
-					Run&nbsp;
-					<Tooltip light placement="bottom">Ctrl+Enter</Tooltip>
+					<div class="flex flex-row gap-1 items-center">
+						Run
+
+						<div class="flex flex-row items-center">
+							<Kbd>{isMac ? '⌘' : 'CTRL'}</Kbd>
+							<Plus size={12} />
+							<Kbd>
+								<div class="h-4 flex items-center justify-center">
+									<CornerDownLeft size={10} />
+								</div>
+							</Kbd>
+						</div>
+					</div>
 				</Button>
 			{/if}
 		</div>
