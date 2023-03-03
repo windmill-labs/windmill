@@ -242,16 +242,28 @@
 									<td class="p-2 " on:click={() => toggleRow(row, rowIndex)}>
 										<div class="center-center h-full w-full flex-wrap gap-1">
 											{#each actionButtons as actionButton, actionIndex (actionIndex)}
-												<AppButton
-													noWFull
-													{...actionButton}
-													preclickAction={async () => {
-														toggleRow(row, rowIndex)
-													}}
-													extraQueryParams={{ row: row.original }}
-													bind:componentInput={actionButton.componentInput}
-													bind:staticOutputs={$staticOutputsStore[actionButton.id]}
-												/>
+												{#if rowIndex == 0}
+													<AppButton
+														noWFull
+														{...actionButton}
+														preclickAction={async () => {
+															toggleRow(row, rowIndex)
+														}}
+														extraQueryParams={{ row: row.original }}
+														bind:componentInput={actionButton.componentInput}
+														bind:staticOutputs={$staticOutputsStore[actionButton.id]}
+													/>
+												{:else}
+													<AppButton
+														noWFull
+														{...actionButton}
+														preclickAction={async () => {
+															toggleRow(row, rowIndex)
+														}}
+														extraQueryParams={{ row: row.original }}
+														bind:componentInput={actionButton.componentInput}
+													/>
+												{/if}
 											{/each}
 										</div>
 									</td>
