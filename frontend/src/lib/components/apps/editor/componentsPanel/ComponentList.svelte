@@ -1,13 +1,11 @@
 <script lang="ts">
 	import type { AppEditorContext } from '../../types'
-	import { getContext, onMount } from 'svelte'
-	import { isOpenStore } from './store'
+	import { getContext } from 'svelte'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 	import { components as componentsRecord, COMPONENT_SETS, type AppComponent } from '../component'
 	import ListItem from './ListItem.svelte'
 	import { insertNewGridItem } from '../appUtils'
 
-	const TITLE_PREFIX = 'Component.' as const
 	const { app, selectedComponent, focusedGrid } = getContext<AppEditorContext>('AppEditorContext')
 
 	function addComponent(appComponentType: AppComponent['type']): void {
@@ -19,31 +17,52 @@
 		$selectedComponent = id
 	}
 
-	onMount(() => {
-		isOpenStore.addItems(COMPONENT_SETS.map((set) => ({ [TITLE_PREFIX + set.title]: true })))
-	})
+	let search = ''
+
+	// Filter COMPONENT_SETS by search
+	$: componentsFiltered = COMPONENT_SETS.map((set) => ({
+		...set,
+		components: set.components.filter((component) => {
+			const name = componentsRecord[component].name.toLowerCase()
+			return name.includes(search.toLowerCase())
+		})
+	}))
 </script>
 
-{#each COMPONENT_SETS as { title, components }, index (index)}
-	<ListItem {title} prefix={TITLE_PREFIX}>
-		{#if components.length}
-			<div class="flex flex-wrap gap-2 py-2">
-				{#each components as item}
-					<button
-						on:click={() => addComponent(item)}
-						title={componentsRecord[item].name}
-						class="border w-24 shadow-sm h-16 p-2 flex flex-col gap-2 items-center
+<section class="p-2 sticky bg-white border-b w-full h-12 z-20 top-0">
+	<input
+		bind:value={search}
+		class="w-full border border-gray-300 rounded-xs"
+		placeholder="Search components..."
+	/>
+</section>
+
+{#if componentsFiltered.reduce((acc, { components }) => acc + components.length, 0) === 0}
+	<div class="text-xs text-gray-500 py-1 px-2"> No components found </div>
+{:else}
+	{#each componentsFiltered as { title, components }, index (index)}
+		<ListItem title={`${title} (${components.length})`}>
+			{#if components.length}
+				<div class="flex flex-wrap gap-2 py-2">
+					{#each components as item}
+						<button
+							on:click={() => addComponent(item)}
+							title={componentsRecord[item].name}
+							class="border w-24 shadow-sm h-16 p-2 flex flex-col gap-2 items-center
 							justify-center bg-white rounded-md hover:bg-gray-100 duration-200"
-					>
-						<svelte:component this={componentsRecord[item].icon} />
-						<div class="text-xs w-full text-center ellipsize">
-							{componentsRecord[item].name}
-						</div>
-					</button>
-				{/each}
-			</div>
-		{:else}
-			<div class="text-xs text-gray-500 py-1 px-2"> There are no components in this group yet </div>
-		{/if}
-	</ListItem>
-{/each}
+						>
+							<svelte:component this={componentsRecord[item].icon} />
+							<div class="text-xs w-full text-center ellipsize">
+								{componentsRecord[item].name}
+							</div>
+						</button>
+					{/each}
+				</div>
+			{:else}
+				<div class="text-xs text-gray-500 py-1 px-2">
+					There are no components in this group yet
+				</div>
+			{/if}
+		</ListItem>
+	{/each}
+{/if}
