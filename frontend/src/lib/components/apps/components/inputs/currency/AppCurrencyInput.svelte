@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
+	import { twMerge } from 'tailwind-merge'
 	import type { AppInput } from '../../../inputType'
 	import type { Output } from '../../../rx'
 	import type { AppEditorContext, ComponentCustomCSS } from '../../../types'
@@ -54,9 +55,9 @@
 			{#key currency}
 				<CurrencyInput
 					inputClasses={{
-						formatted: 'p-0 ' + css?.input?.class,
-						wrapper: 'w-full',
-						formattedZero: 'text-black ' + css?.input?.class
+						formatted: twMerge('px-2 w-full py-1.5 windmillapp', css?.input?.class),
+						wrapper: 'w-full windmillapp',
+						formattedZero: twMerge('text-black windmillapp ', css?.input?.class)
 					}}
 					style={css?.input?.style}
 					bind:value
