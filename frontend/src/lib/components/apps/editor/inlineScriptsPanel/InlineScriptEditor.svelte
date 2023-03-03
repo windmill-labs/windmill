@@ -55,6 +55,9 @@
 				emptySchema()
 			)
 		}
+		if (inlineScript.schema) {
+			loadSchemaAndInputsByName()
+		}
 	})
 	const dispatch = createEventDispatcher()
 	let runLoading = false
@@ -71,7 +74,7 @@
 		}
 	}
 
-	let isMac = navigator.userAgent.indexOf('Mac OS X') != -1
+	let isMac = navigator.userAgent.indexOf('Mac OS X') !== -1
 </script>
 
 <InlineScriptEditorDrawer {editor} bind:this={inlineScriptEditorDrawer} bind:inlineScript />

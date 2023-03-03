@@ -82,16 +82,10 @@
 	}
 
 	function connectProperty(rawValue: string) {
-		if (isStaticTemplate(inputCat)) {
-			arg.value = `\$\{${rawValue}}`
-			setPropertyType(arg.value)
-			monacoTemplate?.setCode(arg.value)
-		} else {
-			arg.expr = getDefaultExpr(undefined, previousModuleId, rawValue)
-			arg.type = 'javascript'
-			propertyType = 'javascript'
-			monaco?.setCode(arg.expr)
-		}
+		arg.expr = getDefaultExpr(undefined, previousModuleId, rawValue)
+		arg.type = 'javascript'
+		propertyType = 'javascript'
+		monaco?.setCode(arg.expr)
 	}
 
 	function onFocus() {

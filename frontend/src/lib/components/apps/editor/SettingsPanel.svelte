@@ -5,7 +5,7 @@
 	import PanelSection from './settingsPanel/common/PanelSection.svelte'
 	import InputsSpecsEditor from './settingsPanel/InputsSpecsEditor.svelte'
 
-	const { selectedComponent, app } = getContext<AppEditorContext>('AppEditorContext')
+	const { selectedComponent, app, stateId } = getContext<AppEditorContext>('AppEditorContext')
 </script>
 
 {#if $app.grid}
@@ -21,13 +21,14 @@
 {#each $app?.hiddenInlineScripts ?? [] as script, index (script.name)}
 	{#if $selectedComponent === `bg_${index}`}
 		<PanelSection title={`Background script inputs`}>
-			{Object.keys(script)}
-			<InputsSpecsEditor
-				id={`bg_${index}`}
-				shouldCapitalize={false}
-				bind:inputSpecs={script.fields}
-				userInputEnabled={false}
-			/>
+			{#key $stateId}
+				<InputsSpecsEditor
+					id={`bg_${index}`}
+					shouldCapitalize={false}
+					bind:inputSpecs={script.fields}
+					userInputEnabled={false}
+				/>
+			{/key}
 		</PanelSection>
 	{/if}
 {/each}

@@ -17,7 +17,7 @@
 </script>
 
 <div class="flex flex-row space-x-2">
-	{#if module.value.type === 'script' || module.value.type === 'rawscript'}
+	{#if module.value.type === 'script' || module.value.type === 'rawscript' || module.value.type == 'flow'}
 		<Popover
 			placement="bottom"
 			class="center-center rounded border p-2 
