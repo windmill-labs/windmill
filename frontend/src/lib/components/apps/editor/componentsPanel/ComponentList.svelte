@@ -5,6 +5,7 @@
 	import { components as componentsRecord, COMPONENT_SETS, type AppComponent } from '../component'
 	import ListItem from './ListItem.svelte'
 	import { insertNewGridItem } from '../appUtils'
+	import { X } from 'lucide-svelte'
 
 	const { app, selectedComponent, focusedGrid } = getContext<AppEditorContext>('AppEditorContext')
 
@@ -30,11 +31,21 @@
 </script>
 
 <section class="p-2 sticky bg-white border-b w-full h-12 z-20 top-0">
-	<input
-		bind:value={search}
-		class="w-full border border-gray-300 rounded-sm"
-		placeholder="Search components..."
-	/>
+	<div class="relative">
+		<input
+			bind:value={search}
+			class="px-2 py-1 border border-gray-300 rounded-sm {search ? 'pr-8' : ''}"
+			placeholder="Search components..."
+		/>
+		{#if search}
+			<button
+				class="absolute right-2 top-1/2 transform -translate-y-1/2 hover:bg-gray-200 rounded-full p-0.5"
+				on:click|stopPropagation|preventDefault={() => (search = '')}
+			>
+				<X size="14" />
+			</button>
+		{/if}
+	</div>
 </section>
 
 {#if componentsFiltered.reduce((acc, { components }) => acc + components.length, 0) === 0}

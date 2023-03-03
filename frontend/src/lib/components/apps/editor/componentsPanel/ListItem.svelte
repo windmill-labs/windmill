@@ -11,7 +11,7 @@
 </script>
 
 <section class="pt-1 pb-2 px-1">
-	{#if prefix}
+	{#if prefix !== undefined}
 		<button
 			on:click|preventDefault={() => isOpenStore.toggle(storeTitle)}
 			class="w-full flex justify-between items-center text-gray-700 px-2 py-1 
@@ -35,5 +35,8 @@
 				{title}
 			</slot>
 		</h1>
+		<div class="px-2">
+			<slot />
+		</div>
 	{/if}
 </section>

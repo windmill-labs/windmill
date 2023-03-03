@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
+	import { X } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import type { AppEditorContext } from '../../types'
 	import { findGridItem } from '../appUtils'
@@ -60,11 +61,21 @@
 	<div
 		class="overflow-auto min-w-[150px] border-t w-full relative flex flex-col gap-4 px-2 pt-4 pb-2"
 	>
-		<input
-			bind:value={search}
-			class="w-full px-2 py-1 border border-gray-300 rounded-sm"
-			placeholder="Search outputs..."
-		/>
+		<div class="relative">
+			<input
+				bind:value={search}
+				class="px-2 py-1 border border-gray-300 rounded-sm {search ? 'pr-8' : ''}"
+				placeholder="Search outputs..."
+			/>
+			{#if search}
+				<button
+					class="absolute right-2 top-1/2 transform -translate-y-1/2 hover:bg-gray-200 rounded-full p-0.5"
+					on:click|stopPropagation|preventDefault={() => (search = '')}
+				>
+					<X size="14" />
+				</button>
+			{/if}
+		</div>
 		{#each filteredPanels as [componentId, outputs] (componentId)}
 			{#if outputs.length > 0 && $worldStore?.outputsById[componentId]}
 				{@const name = getComponentNameById(componentId)}
