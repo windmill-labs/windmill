@@ -64,6 +64,8 @@
 
 	// @ts-ignore
 	let container
+
+	// $: containerHeight = subGrid.map((item) => columnConfiguration.map((c) => item[c[1]].h))
 </script>
 
 <div

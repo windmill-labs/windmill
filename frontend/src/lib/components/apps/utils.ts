@@ -4,13 +4,11 @@ import { inferArgs } from '$lib/infer'
 import { emptySchema } from '$lib/utils'
 import type { AppComponent } from './editor/component'
 import type { App, ComponentCssProperty, ComponentCustomCSS, GridItem } from './types'
-import { getRecommendedDimensionsByComponent } from './editor/component'
-import { gridColumns } from './gridUtils'
-import gridHelp from '@windmill-labs/svelte-grid/src/utils/helper'
 import { twMerge } from 'tailwind-merge'
 import type { AppInput, InputType, ResultAppInput, StaticAppInput } from './inputType'
 import type { Output } from './rx'
 import { getNextId } from '../flows/flowStateUtils'
+import { createNewGridItem } from './editor/appUtils'
 
 export function allItems(
 	grid: GridItem[],
@@ -283,45 +281,6 @@ export function insertNewGridItem(
 	return root
 }
 
-// The grid is needed to find a space for the new component
-export function createNewGridItem(grid: GridItem[], id: string, data: AppComponent): GridItem {
-	const appComponent = data
-
-	appComponent.id = id
-
-	const newComponent = {
-		fixed: false,
-		resizable: true,
-		draggable: true,
-		customDragger: false,
-		customResizer: false,
-		x: 0,
-		y: 0
-	}
-
-	let newData: AppComponent = JSON.parse(JSON.stringify(appComponent))
-
-	const newItem: GridItem = {
-		data: newData,
-		id: id
-	}
-
-	gridColumns.forEach((column) => {
-		const rec = getRecommendedDimensionsByComponent(appComponent.type, column)
-
-		newItem[column] = {
-			...newComponent,
-			min: { w: 1, h: 1 },
-			max: { w: column, h: 100 },
-			w: rec.w,
-			h: rec.h
-		}
-		const position = gridHelp.findSpace(newItem, grid, column) as { x: number; y: number }
-		newItem[column] = { ...newItem[column], ...position }
-	})
-
-	return newItem
-}
 
 function recursiveGetIds(gridItem: GridItem): string[] {
 	const subGrids = gridItem.data.subGrids ?? []

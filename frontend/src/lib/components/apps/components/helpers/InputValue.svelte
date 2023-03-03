@@ -23,12 +23,26 @@
 
 	$: state = $worldStore?.state
 
-	$: lastInput && $worldStore && handleConnection()
-	$: lastInput && lastInput.type == 'template' && $state && (value = getValue(lastInput))
-	$: lastInput && lastInput.type == 'eval' && $state && (value = evalExpr(lastInput))
+	let timeout: NodeJS.Timeout | undefined = undefined
+	const debounce_ms = 50
+	function debounce(cb: () => void) {
+		if (timeout) {
+			clearTimeout(timeout)
+		}
+		timeout = setTimeout(cb, debounce_ms)
+	}
+
+	$: lastInput && $worldStore && debounce(handleConnection)
+	$: lastInput &&
+		lastInput.type == 'template' &&
+		$state &&
+		debounce(() => (value = getValue(lastInput)))
+	$: lastInput &&
+		lastInput.type == 'eval' &&
+		$state &&
+		debounce(() => (value = evalExpr(lastInput)))
 
 	function handleConnection() {
-		// console.log('handle connection', id, lastInput)
 		if (lastInput.type === 'connected') {
 			$worldStore?.connect<any>(lastInput, onValueChange)
 		} else if (lastInput.type === 'static' || lastInput.type == 'template') {
@@ -108,6 +122,7 @@
 	}
 
 	function onValueChange(newValue: any): void {
+		console.log('newValue', newValue, id)
 		if (lastInput.type === 'connected' && newValue !== undefined && newValue !== null) {
 			const { connection } = lastInput
 

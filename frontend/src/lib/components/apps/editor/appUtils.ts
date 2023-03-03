@@ -36,11 +36,8 @@ export function createNewGridItem(grid: GridItem[], id: string, data: AppCompone
 	appComponent.id = id
 
 	const newComponent = {
-		fixed: false,
 		resizable: true,
 		draggable: true,
-		customDragger: false,
-		customResizer: false,
 		x: 0,
 		y: 0
 	}
@@ -60,7 +57,10 @@ export function createNewGridItem(grid: GridItem[], id: string, data: AppCompone
 			min: { w: 1, h: 1 },
 			max: { w: column, h: 100 },
 			w: rec.w,
-			h: rec.h
+			h: rec.h,
+			customDragger: false,
+			customResizer: false,
+			fixed: false
 		}
 		const position = gridHelp.findSpace(newItem, grid, column) as { x: number; y: number }
 		newItem[column] = { ...newItem[column], ...position }
