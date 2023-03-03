@@ -191,7 +191,7 @@
 					</Button>
 				</div>
 				{#if viewCssOptions}
-					<div transition:slide>
+					<div transition:slide|local>
 						{#each Object.keys(component.customCss ?? {}) as name}
 							{#if component?.customCss?.[name]}
 								<div class="w-full mb-2">
