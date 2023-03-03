@@ -836,6 +836,7 @@ impl RunJob {
             /* scheduled_for_o */ None,
             /* schedule_path */ None,
             /* parent_job */ None,
+            /* root job  */ None,
             /* is_flow_step */ false,
             /* running */ false,
             None,

@@ -125,7 +125,7 @@ pub enum FlowStatusModule {
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum JobResult {
     SingleJob(Uuid),
     ListJob(Vec<Uuid>),

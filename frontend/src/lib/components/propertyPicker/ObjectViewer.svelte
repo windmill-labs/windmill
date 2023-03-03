@@ -58,7 +58,11 @@
 			</span>
 		{/if}
 		{#if level == 0 && topBrackets}<span class="h-0">{openBracket}</span>{/if}
-		<ul class="w-full">
+		<ul
+			class={`w-full ${
+				level === 0 ? 'border-none pl-2' : 'border-l border-dotted border-gray-200 pl-2'
+			}`}
+		>
 			{#each keys as key, index}
 				<li class="pt-1">
 					<button on:click={() => selectProp(key, key)} class="whitespace-nowrap">
@@ -88,7 +92,7 @@
 						<button
 							class="val {pureViewer
 								? 'cursor-auto'
-								: ''} rounded hover:bg-blue-100 {getTypeAsString(json[key])}"
+								: ''} rounded px-1 hover:bg-blue-100 {getTypeAsString(json[key])}"
 							on:click={() => selectProp(key, json[key])}
 						>
 							{#if json[key] === NEVER_TESTED_THIS_FAR}
@@ -134,8 +138,6 @@
 <style>
 	ul {
 		list-style: none;
-		padding-left: 1rem;
-		border-left: 1px dotted lightgray;
 		@apply text-sm;
 	}
 

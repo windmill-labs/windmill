@@ -315,7 +315,7 @@ async fn op_get_id(args: Vec<String>) -> Result<Option<serde_json::Value>, anyho
 
     let client = windmill_api_client::create_client(base_url, token.clone());
     let result = client
-        .result_by_id(workspace, flow_job_id, node_id, Some(true))
+        .result_by_id(workspace, flow_job_id, node_id)
         .await
         .map_or(None, |e| Some(e.into_inner()));
 
