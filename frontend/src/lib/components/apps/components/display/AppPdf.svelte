@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, tick } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { getDocument, type PDFDocumentProxy, type PDFPageProxy } from 'pdfjs-dist'
 	import 'pdfjs-dist/build/pdf.worker.entry'
@@ -9,7 +9,7 @@
 	import InputValue from '../helpers/InputValue.svelte'
 	import { throttle } from '../../../../utils'
 	import { Button } from '../../../common'
-	import { Download, ZoomIn, ZoomOut } from 'lucide-svelte'
+	import { Download, Loader2, ZoomIn, ZoomOut } from 'lucide-svelte'
 
 	export let id: string
 	export let configuration: Record<string, AppInput>
@@ -32,7 +32,8 @@
 		resetDoc()
 		error = 'Set the "Source" attribute of the PDF component'
 	}
-	$: loadDocument(source)
+	$: wrapper && loadDocument(source)
+	$: console.log(wrapper)
 	$: wideView = controlsWidth && controlsWidth > 450
 
 	async function resetDoc() {
@@ -48,6 +49,7 @@
 			await resetDoc()
 			doc = await getDocument(src).promise
 			pageNumber = zoom = 1
+			await tick()
 			await renderPdf()
 			error = undefined
 		} catch (err) {
@@ -58,7 +60,7 @@
 	}
 
 	async function renderPdf(scaleToViewport = true) {
-		if (!doc) {
+		if (!(doc && wrapper)) {
 			return
 		}
 		while (wrapper?.firstChild) {
@@ -68,16 +70,17 @@
 		for (let i = 0; i < doc.numPages; i++) {
 			const canvas = document.createElement('canvas')
 			const canvasContext = canvas.getContext('2d')
-			if (!(canvasContext && wrapper)) {
-				console.error('Could not get canvas context for page ' + i)
+			if (!canvasContext) {
+				console.warn('Could not get canvas context for PDF page ' + i)
 				continue
 			}
 			const page = await doc.getPage(i + 1)
 			pages.push(page)
-			let viewport = page.getViewport({ scale: zoom })
+			let viewport = page.getViewport({ scale: zoom ?? 1 })
 			if (scaleToViewport) {
-				const { width } = wrapper.getBoundingClientRect()
-				if (viewport.width > width) {
+				const width = wrapper.getBoundingClientRect().width
+				console.log(wrapper.clientWidth, wrapper.getBoundingClientRect())
+				if (width && viewport.width > width) {
 					viewport = page.getViewport({
 						scale: width / viewport.width
 					})
@@ -85,8 +88,9 @@
 			}
 			canvas.height = viewport.height
 			canvas.width = viewport.width
+			console.log(viewport.width, viewport.height, canvas.width, canvas.height)
 			canvas.classList.add('mx-auto', 'my-4', 'shadow-sm')
-			page.render({ canvasContext, viewport })
+			await page.render({ canvasContext, viewport }).promise
 			wrapper.appendChild(canvas)
 		}
 		pages = pages
@@ -122,9 +126,13 @@
 		pageNumber = page
 	}
 
-	async function zoomPdf(dir: 'in' | 'out') {
-		const value = dir === 'in' ? zoom + 0.1 : zoom - 0.1
-		zoom = minMax(value, 0.3, 5)
+	async function zoomPdf(dir?: 'in' | 'out') {
+		if (!dir) {
+			zoom = 1
+		} else {
+			const value = dir === 'in' ? zoom + 0.1 : zoom - 0.1
+			zoom = minMax(value, 0.3, 5)
+		}
 		await renderPdf(false)
 	}
 
@@ -157,12 +165,12 @@
 
 <div class="relative w-full h-full bg-gray-100">
 	{#if source}
-		{#if pages[0]}
+		{#if pages?.length}
 			<div
 				bind:clientWidth={controlsWidth}
 				bind:clientHeight={controlsHeight}
 				class="sticky w-full top-0 flex {wideView
-					? 'justify-center gap-6'
+					? 'justify-center gap-14'
 					: '!justify-between'} overflow-x-auto bg-white border mx-auto py-1"
 			>
 				<div class="flex justify-start items-center px-2 text-gray-600 text-sm">
@@ -179,9 +187,18 @@
 						<ZoomOut size={16} />
 					</Button>
 					{#if wideView}
-						<span class="w-[50px] px-1 py-1 text-center border border-l-0 border-gray-300 bg-white">
+						<Button
+							on:click={() => zoomPdf()}
+							disabled={!doc}
+							size="xs"
+							color="light"
+							variant="border"
+							title="Reset zoom"
+							aria-label="Reset zoom"
+							btnClasses="!w-[50px] !font-medium !rounded-none !border-l-0 !px-1"
+						>
 							{(zoom * 100).toFixed(0)}%
-						</span>
+						</Button>
 					{/if}
 					<Button
 						on:click={() => zoomPdf('in')}
@@ -204,6 +221,7 @@
 						min="1"
 						max={pages.length}
 						value={pageNumber}
+						disabled={!doc}
 						type="number"
 						class="!w-[45px] !px-1 !py-0"
 					/>
@@ -229,6 +247,11 @@
 					</Button>
 				</div>
 			</div>
+		{:else}
+			<div class="center-center flex-col w-full h-full text-center text-sm text-gray-600">
+				<Loader2 class="animate-spin mb-2" />
+				Loading PDF
+			</div>
 		{/if}
 		<div
 			bind:this={wrapper}
@@ -242,7 +265,7 @@
 		/>
 	{/if}
 	{#if error}
-		<div class="absolute inset-0 z-10 center-center text-center text-gray-600 text-sm">
+		<div class="absolute inset-0 z-10 bg-gray-100 center-center text-center text-gray-600 text-sm">
 			{error}
 		</div>
 	{/if}
