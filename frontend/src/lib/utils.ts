@@ -184,7 +184,7 @@ export function removeItemAll<T>(arr: T[], value: T) {
 }
 
 export async function isOwner(path: string, user: UserExt, workspace: string): Promise<boolean> {
-	if (user.is_admin && ((workspace == 'starter' || workspace == 'admin') && user.is_super_admin)) {
+	if (user.is_admin && (workspace == 'starter' || workspace == 'admin') && user.is_super_admin) {
 		return true
 	} else if (workspace == 'starter' || workspace == 'admin') {
 		return false
@@ -255,8 +255,8 @@ export function allTrue(dict: { [id: string]: boolean }): boolean {
 }
 
 function subtractSeconds(date: Date, seconds: number): Date {
-	date.setSeconds(date.getSeconds() - seconds);
-	return date;
+	date.setSeconds(date.getSeconds() - seconds)
+	return date
 }
 
 export function forLater(scheduledString: string): boolean {
@@ -484,7 +484,7 @@ export function scriptPathToHref(path: string): string {
 export async function getScriptByPath(path: string): Promise<{
 	content: string
 	language: SupportedLanguage
-	schema: any,
+	schema: any
 	description: string
 }> {
 	if (path.startsWith('hub/')) {
@@ -549,7 +549,6 @@ export async function loadHubFlows() {
 	}
 }
 
-
 export async function loadHubApps() {
 	try {
 		const apps = (await AppService.listHubApps()).apps ?? []
@@ -582,7 +581,6 @@ export function flowToHubUrl(flow: Flow): URL {
 	url.searchParams.append('flow', encodeState(openFlow))
 	return url
 }
-
 
 export function appToHubUrl(staticApp: any): URL {
 	const url = new URL('https://hub.windmill.dev/apps/add')
@@ -631,7 +629,9 @@ export function scriptLangToEditorLang(
 }
 
 export async function copyToClipboard(value?: string, sendToast = true): Promise<boolean> {
-	if (!value) { return false }
+	if (!value) {
+		return false
+	}
 
 	let success = false
 	if (navigator?.clipboard) {
@@ -660,14 +660,29 @@ export function capitalize(word: string): string {
 }
 
 export function addWhitespaceBeforeCapitals(word?: string): string {
-	if (!word) { return '' }
+	if (!word) {
+		return ''
+	}
 	return word.replace(/([A-Z])/g, ' $1').trim()
 }
 
 export function isCloudHosted(): boolean {
-	return (get(page)?.url?.hostname == 'app.windmill.dev')
+	return get(page)?.url?.hostname == 'app.windmill.dev'
 }
 
 export function isObject(obj: any) {
 	return typeof obj === 'object'
+}
+
+export function throttle<T>(func: (...args: any[]) => T, wait: number) {
+	let timeout: any
+	return function (...args: any[]) {
+		if (!timeout) {
+			timeout = setTimeout(() => {
+				timeout = null
+				// @ts-ignore
+				func.apply(this, args)
+			}, wait)
+		}
+	}
 }
