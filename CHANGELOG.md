@@ -1,6 +1,26 @@
 # Changelog
 
 
+## [1.72.0](https://github.com/windmill-labs/windmill/compare/v1.71.0...v1.72.0) (2023-03-02)
+
+
+### Features
+
+* **backend:** get_result_by_id do a downward pass to find node at any depth ([#1249](https://github.com/windmill-labs/windmill/issues/1249)) ([4c913dc](https://github.com/windmill-labs/windmill/commit/4c913dc4b6be03571a015c97a13829adffb61479))
+* **frontend:** Add app map component ([#1251](https://github.com/windmill-labs/windmill/issues/1251)) ([ed25d9f](https://github.com/windmill-labs/windmill/commit/ed25d9f186d9925f75404cb193a025d8a41c4540))
+* **frontend:** app splitpanes ([#1248](https://github.com/windmill-labs/windmill/issues/1248)) ([f4d79ee](https://github.com/windmill-labs/windmill/commit/f4d79ee2633e6cdab0fa2410108b31cfa77e10da))
+
+
+### Bug Fixes
+
+* **backend:** improve result retrieval ([c4463bb](https://github.com/windmill-labs/windmill/commit/c4463bb029907f3c8d77abb194f872aae7876bf6))
+* **backend:** incorrect get_result_by_id for  list_result job ([2a75cd2](https://github.com/windmill-labs/windmill/commit/2a75cd250ea5e01849fc8bbb69bf44f147d0acb8))
+* **cli:** fix workspace option + run script/flow + whoami ([35ea2b2](https://github.com/windmill-labs/windmill/commit/35ea2b27b12159c68c8507ec1f8686028c975387))
+* **frontend:** background script not showing inputs ([55eb48c](https://github.com/windmill-labs/windmill/commit/55eb48c55332431304cedbf3bcbbbcff61ec3645))
+* **frontend:** fix table bindings ([2679386](https://github.com/windmill-labs/windmill/commit/2679386bf87a56352269911bd89e52df5ee9f314))
+* **frontend:** rework app reactivity ([94b20d2](https://github.com/windmill-labs/windmill/commit/94b20d2f5e3b551974c57ea82b6e3dc16e97b9b8))
+* **frontend:** rework app reactivity ([1753cb7](https://github.com/windmill-labs/windmill/commit/1753cb7da658f47be974c15da82c71a8e19309a6))
+
 ## [1.71.0](https://github.com/windmill-labs/windmill/compare/v1.70.1...v1.71.0) (2023-02-28)
 
 
