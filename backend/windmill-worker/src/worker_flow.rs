@@ -326,6 +326,21 @@ pub async fn update_flow_status_after_job_completion(
             )
             .execute(&mut tx)
             .await?;
+
+            if let Some(job_result) = new_status.job_result() {
+                sqlx::query!(
+                    "
+            UPDATE queue
+               SET leaf_jobs = JSONB_SET(coalesce(leaf_jobs, '{}'::jsonb), ARRAY[$1::TEXT], $2)
+             WHERE COALESCE((SELECT root_job FROM queue WHERE id = $3), $3) = id
+            ",
+                    new_status.id(),
+                    json!(job_result),
+                    flow
+                )
+                .execute(&mut tx)
+                .await?;
+            }
         }
     }
 
@@ -1237,6 +1252,7 @@ async fn push_next_flow_job(
             Ok(v) => (Some(v), None),
             Err(e) => (None, Some(e)),
         };
+        let root_job = flow_job.root_job.or_else(|| Some(flow_job.id));
         let (uuid, inner_tx) = push(
             tx,
             &flow_job.workspace_id,
@@ -1248,6 +1264,7 @@ async fn push_next_flow_job(
             scheduled_for_o,
             flow_job.schedule_path.clone(),
             Some(flow_job.id),
+            root_job,
             true,
             continue_on_same_worker,
             err,

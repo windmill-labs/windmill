@@ -2538,11 +2538,6 @@ paths:
           required: true
           schema:
             type: string
-        - name: skip_direct
-          description: Skip checking that the node is part of the given flow.
-          in: query
-          schema:
-            type: boolean
       responses:
         "200":
           description: job result

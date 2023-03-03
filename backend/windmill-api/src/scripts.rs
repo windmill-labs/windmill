@@ -377,6 +377,7 @@ async fn create_script(
             None,
             None,
             None,
+            None,
             false,
             false,
             None,

@@ -6,10 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::{
-    collections::{HashMap, VecDeque},
-    str::FromStr,
-};
+use std::collections::HashMap;
 
 use anyhow::Context;
 use reqwest::Client;
@@ -20,7 +17,7 @@ use ulid::Ulid;
 use uuid::Uuid;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
-    error::{self, to_anyhow, Error},
+    error::{self, Error},
     flow_status::{FlowStatus, JobResult, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL},
     flows::{FlowModule, FlowModuleValue, FlowValue},
     scripts::{get_full_hub_script_by_path, HubScript, ScriptHash, ScriptLang},
@@ -153,102 +150,26 @@ pub async fn pull(
     Ok(job)
 }
 
-pub async fn find_recursively_downward(
-    db: &Pool<Postgres>,
-    w_id: &str,
-    flow_id: Uuid,
-    node_id: &str,
-) -> windmill_common::error::Result<Option<JobResult>> {
-    let mut bfs_stack = VecDeque::new();
-    bfs_stack.push_back(flow_id);
-    while bfs_stack.len() > 0 {
-        let parent_id = bfs_stack.pop_front().unwrap();
-        let job = sqlx::query_scalar!(
-            "SELECT flow_status FROM completed_job WHERE id = $1 AND workspace_id = $2 
-            UNION ALL SELECT flow_status FROM queue WHERE id = $1 AND workspace_id = $2 ",
-            parent_id,
-            w_id
-        )
-        .fetch_optional(db)
-        .await?
-        .flatten();
-        if let Some(r) = job {
-            let status = serde_json::from_value::<FlowStatus>(r).map_err(to_anyhow)?;
-            for m in status.modules.iter() {
-                let id = m.id();
-                if id == node_id {
-                    return Ok(m.job_result());
-                }
-                if let Some(job_id) = m.job() {
-                    bfs_stack.push_back(job_id);
-                }
-            }
-        }
-    }
-    Ok(None)
-}
-
 pub async fn get_result_by_id(
     db: Pool<Postgres>,
-    mut skip_direct: bool,
     w_id: String,
-    flow_id: String,
+    flow_id: Uuid,
     node_id: String,
 ) -> error::Result<serde_json::Value> {
-    let mut result_id: Option<JobResult> = None;
-    let mut parent_id = Uuid::from_str(&flow_id).ok();
-    let mut lparent_id = parent_id.clone();
-    while result_id.is_none() && parent_id.is_some() {
-        if !skip_direct {
-            let r = sqlx::query!(
-                "SELECT flow_status, parent_job FROM completed_job WHERE id = $1 AND workspace_id = $2 
-                UNION ALL SELECT flow_status, parent_job FROM queue WHERE id = $1 AND workspace_id = $2 ",
-                parent_id.unwrap(),
-                w_id,
-            )
-            .fetch_optional(&db)
-            .await?;
-            if let Some(r) = r {
-                let value = r
-                    .flow_status
-                    .as_ref()
-                    .ok_or_else(|| Error::InternalErr(format!("requiring a flow status value")))?
-                    .to_owned();
-                lparent_id = parent_id;
-                parent_id = r.parent_job;
-                let status_o = serde_json::from_value::<FlowStatus>(value).ok();
-                result_id = status_o.and_then(|status| {
-                    status
-                        .modules
-                        .iter()
-                        .find(|m| m.id() == node_id)
-                        .and_then(|m| m.job_result())
-                });
-            } else {
-                parent_id = None;
-            }
-        } else {
-            let q_parent = sqlx::query_scalar!(
-                "SELECT parent_job FROM completed_job WHERE id = $1 AND workspace_id = $2 UNION ALL SELECT parent_job FROM queue WHERE id = $1 AND workspace_id = $2",
-                parent_id.unwrap(),
-                w_id,
-            )
-            .fetch_optional(&db)
-            .await?
-            .flatten();
-            lparent_id = parent_id;
-            parent_id = q_parent;
-            skip_direct = false
-        }
-    }
-    // we could not find the node going upward from the flow by looking at all the jobs (in progress or completed)
-    // we now look downward from the flow root to the all the children completed job for a job that might hide itself
-    // in a deep non-direct parent job such as in nested branches
-    if result_id.is_none() && lparent_id.is_some() {
-        result_id = find_recursively_downward(&db, &w_id, lparent_id.unwrap(), &node_id).await?;
-    }
+    let job_result: Option<JobResult> = sqlx::query_scalar!(
+        "SELECT leaf_jobs->$1::text FROM queue WHERE COALESCE((SELECT root_job FROM queue WHERE id = $2), $2) = id AND workspace_id = $3",
+        node_id,
+        flow_id,
+        w_id,
+    )
+    .fetch_optional(&db)
+    .await?
+    .flatten()
+    .map(|x| serde_json::from_value(x).ok())
+    .flatten();
+
     let result_id = windmill_common::utils::not_found_if_none(
-        result_id,
+        job_result,
         "Flow result by id",
         format!("{}, {}", flow_id, node_id),
     )?;
@@ -330,6 +251,7 @@ pub async fn push<'c>(
     scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
     schedule_path: Option<String>,
     parent_job: Option<Uuid>,
+    root_job: Option<Uuid>,
     is_flow_step: bool,
     mut same_worker: bool,
     pre_run_error: Option<&windmill_common::error::Error>,
@@ -582,12 +504,13 @@ pub async fn push<'c>(
         .unwrap_or_else(|| (None, None));
 
     let flow_status = raw_flow.as_ref().map(FlowStatus::new);
+
     let uuid = sqlx::query_scalar!(
         "INSERT INTO queue
             (workspace_id, id, running, parent_job, created_by, permissioned_as, scheduled_for, 
                 script_hash, script_path, raw_code, raw_lock, args, job_kind, schedule_path, raw_flow, \
-         flow_status, is_flow_step, language, started_at, same_worker, pre_run_error, email, visible_to_owner)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22) \
+         flow_status, is_flow_step, language, started_at, same_worker, pre_run_error, email, visible_to_owner, root_job)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22, $23) \
          RETURNING id",
         workspace_id,
         job_id,
@@ -610,7 +533,8 @@ pub async fn push<'c>(
         same_worker,
         pre_run_error.map(|e| e.to_string()),
         email,
-        visible_to_owner
+        visible_to_owner,
+        root_job
     )
     .fetch_one(&mut tx)
     .await
@@ -723,6 +647,10 @@ pub struct QueuedJob {
     pub suspend: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mem_peak: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root_job: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub leaf_jobs: Option<serde_json::Value>,
 }
 
 impl QueuedJob {

@@ -785,6 +785,7 @@ async fn slack_command(
                 None,
                 None,
                 None,
+                None,
                 false,
                 false,
                 None,
