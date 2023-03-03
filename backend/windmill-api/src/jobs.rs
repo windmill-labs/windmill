@@ -102,10 +102,9 @@ pub fn global_service() -> Router {
 
 async fn get_result_by_id(
     Extension(db): Extension<DB>,
-    Query(ResultByIdQuery { skip_direct }): Query<ResultByIdQuery>,
-    Path((w_id, flow_id, node_id)): Path<(String, String, String)>,
+    Path((w_id, flow_id, node_id)): Path<(String, Uuid, String)>,
 ) -> windmill_common::error::JsonResult<serde_json::Value> {
-    let res = windmill_queue::get_result_by_id(db, skip_direct, w_id, flow_id, node_id).await?;
+    let res = windmill_queue::get_result_by_id(db, w_id, flow_id, node_id).await?;
     Ok(Json(res))
 }
 
@@ -175,11 +174,6 @@ async fn get_job(
     let job = not_found_if_none(job_o, "Job", id.to_string())?;
     tx.commit().await?;
     Ok(Json(job))
-}
-
-#[derive(Deserialize)]
-pub struct ResultByIdQuery {
-    pub skip_direct: bool,
 }
 
 pub async fn get_job_by_id<'c>(
@@ -1078,6 +1072,8 @@ impl From<UnifiedJob> for Job {
                 visible_to_owner: uj.visible_to_owner,
                 suspend: uj.suspend,
                 mem_peak: uj.mem_peak,
+                root_job: None,
+                leaf_jobs: None,
             }),
             t => panic!("job type {} not valid", t),
         }
@@ -1173,6 +1169,7 @@ pub async fn run_flow_by_path(
         scheduled_for,
         None,
         run_query.parent_job,
+        run_query.parent_job,
         false,
         false,
         None,
@@ -1207,6 +1204,7 @@ pub async fn run_job_by_path(
         username_to_permissioned_as(&authed.username),
         scheduled_for,
         None,
+        run_query.parent_job,
         run_query.parent_job,
         false,
         false,
@@ -1360,6 +1358,7 @@ pub async fn run_wait_result_job_by_path(
         scheduled_for,
         None,
         run_query.parent_job,
+        run_query.parent_job,
         false,
         false,
         None,
@@ -1406,6 +1405,7 @@ pub async fn run_wait_result_job_by_hash(
         scheduled_for,
         None,
         run_query.parent_job,
+        run_query.parent_job,
         false,
         false,
         None,
@@ -1450,6 +1450,7 @@ pub async fn run_wait_result_flow_by_path(
         username_to_permissioned_as(&authed.username),
         scheduled_for,
         None,
+        run_query.parent_job,
         run_query.parent_job,
         false,
         false,
@@ -1513,6 +1514,7 @@ async fn run_preview_job(
         scheduled_for,
         None,
         None,
+        None,
         false,
         false,
         None,
@@ -1544,6 +1546,7 @@ async fn run_preview_flow_job(
         &authed.email,
         username_to_permissioned_as(&authed.username),
         scheduled_for,
+        None,
         None,
         None,
         false,
@@ -1580,6 +1583,7 @@ pub async fn run_job_by_hash(
         username_to_permissioned_as(&authed.username),
         scheduled_for,
         None,
+        run_query.parent_job,
         run_query.parent_job,
         false,
         false,
