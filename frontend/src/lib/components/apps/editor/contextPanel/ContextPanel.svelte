@@ -42,13 +42,30 @@
 	$: panels = [['ctx', ['email', 'username', 'query']] as [string, string[]]].concat(
 		Object.entries($staticOutputs)
 	)
+
+	let search = ''
+
+	// filter out outputs that don't match the search by name (computed by getComponentNameById) and id
+	// The output should be [string, string[]][]
+	$: filteredPanels = panels.filter(([componentId, outputs]) => {
+		const name = getComponentNameById(componentId)
+		return (
+			name.toLowerCase().includes(search.toLowerCase()) ||
+			componentId.toLowerCase().includes(search.toLowerCase())
+		)
+	})
 </script>
 
 <PanelSection noPadding titlePadding="px-4 pt-2" title="Outputs">
 	<div
 		class="overflow-auto min-w-[150px] border-t w-full relative flex flex-col gap-4 px-2 pt-4 pb-2"
 	>
-		{#each panels as [componentId, outputs] (componentId)}
+		<input
+			bind:value={search}
+			class="w-full px-2 py-1 border border-gray-300 rounded-sm"
+			placeholder="Search outputs..."
+		/>
+		{#each filteredPanels as [componentId, outputs] (componentId)}
 			{#if outputs.length > 0 && $worldStore?.outputsById[componentId]}
 				{@const name = getComponentNameById(componentId)}
 				<div>

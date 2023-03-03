@@ -32,7 +32,7 @@
 <section class="p-2 sticky bg-white border-b w-full h-12 z-20 top-0">
 	<input
 		bind:value={search}
-		class="w-full border border-gray-300 rounded-xs"
+		class="w-full border border-gray-300 rounded-sm"
 		placeholder="Search components..."
 	/>
 </section>
