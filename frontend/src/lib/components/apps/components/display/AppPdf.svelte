@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext, tick } from 'svelte'
+	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { getDocument, type PDFDocumentProxy, type PDFPageProxy } from 'pdfjs-dist'
 	import 'pdfjs-dist/build/pdf.worker.entry'
@@ -33,7 +33,6 @@
 		error = 'Set the "Source" attribute of the PDF component'
 	}
 	$: wrapper && loadDocument(source)
-	$: console.log(wrapper)
 	$: wideView = controlsWidth && controlsWidth > 450
 
 	async function resetDoc() {
@@ -49,7 +48,6 @@
 			await resetDoc()
 			doc = await getDocument(src).promise
 			pageNumber = zoom = 1
-			await tick()
 			await renderPdf()
 			error = undefined
 		} catch (err) {
@@ -67,6 +65,8 @@
 			wrapper.removeChild(wrapper.firstChild)
 		}
 		pages = []
+		const { width } = wrapper.getBoundingClientRect()
+
 		for (let i = 0; i < doc.numPages; i++) {
 			const canvas = document.createElement('canvas')
 			const canvasContext = canvas.getContext('2d')
@@ -78,8 +78,6 @@
 			pages.push(page)
 			let viewport = page.getViewport({ scale: zoom ?? 1 })
 			if (scaleToViewport) {
-				const width = wrapper.getBoundingClientRect().width
-				console.log(wrapper.clientWidth, wrapper.getBoundingClientRect())
 				if (width && viewport.width > width) {
 					viewport = page.getViewport({
 						scale: width / viewport.width
@@ -88,7 +86,6 @@
 			}
 			canvas.height = viewport.height
 			canvas.width = viewport.width
-			console.log(viewport.width, viewport.height, canvas.width, canvas.height)
 			canvas.classList.add('mx-auto', 'my-4', 'shadow-sm')
 			await page.render({ canvasContext, viewport }).promise
 			wrapper.appendChild(canvas)
@@ -256,16 +253,15 @@
 		<div
 			bind:this={wrapper}
 			on:scroll={throttledScroll}
-			class={twMerge(
-				'w-full h-full overflow-auto',
-				css?.container?.class ?? '',
-				error ? 'hidden' : ''
-			)}
+			class={twMerge('w-full h-full overflow-auto', css?.container?.class ?? '')}
 			style={css?.container?.style ?? ''}
 		/>
 	{/if}
 	{#if error}
-		<div class="absolute inset-0 z-10 bg-gray-100 center-center text-center text-gray-600 text-sm">
+		<div
+			class="absolute inset-0 z-10 center-center 
+		bg-gray-100 text-center text-gray-600 text-sm"
+		>
 			{error}
 		</div>
 	{/if}
