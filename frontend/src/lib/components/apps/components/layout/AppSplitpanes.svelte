@@ -45,7 +45,7 @@
 <div class="h-full w-full border" on:pointerdown|stopPropagation>
 	<Splitpanes {horizontal}>
 		{#each sumedup as paneSize, index (index)}
-			<Pane size={paneSize}>
+			<Pane size={paneSize} minSize={20}>
 				{#if $app.subgrids?.[`${id}-${index}`]}
 					<SubGridEditor
 						noYPadding

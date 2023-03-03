@@ -33,6 +33,8 @@
 		selectedTabIndex: Output<number | null>
 	}
 
+	$: outputs?.selectedTabIndex && handleOutputs()
+
 	function handleTabSelection() {
 		outputs?.selectedTabIndex.set(selectedIndex)
 		if ($selectedComponent != id) {
@@ -60,6 +62,10 @@
 	$: $selectedComponent === id && selectedIndex >= 0 && onFocus()
 
 	$: css = concatCustomCss($app.css?.tabscomponent, customCss)
+
+	function handleOutputs() {
+		outputs?.selectedTabIndex.set(outputs.selectedTabIndex.peak())
+	}
 </script>
 
 <InputValue {id} input={configuration.noPadding} bind:value={noPadding} />

@@ -39,6 +39,7 @@
 		AppMap,
 		AppSplitpanes
 	} from '../../components'
+	import AppMultiSelect from '../../components/inputs/AppMultiSelect.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -196,6 +197,15 @@
 			/>
 		{:else if component.type === 'selectcomponent'}
 			<AppSelect
+				id={component.id}
+				verticalAlignment={component.verticalAlignment}
+				horizontalAlignment={component.horizontalAlignment}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				bind:staticOutputs={$staticOutputs[component.id]}
+			/>
+		{:else if component.type === 'multiselectcomponent'}
+			<AppMultiSelect
 				id={component.id}
 				verticalAlignment={component.verticalAlignment}
 				horizontalAlignment={component.horizontalAlignment}

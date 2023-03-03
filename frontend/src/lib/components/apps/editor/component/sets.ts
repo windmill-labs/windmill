@@ -30,7 +30,8 @@ const inputs: ComponentSet = {
 		'dateinputcomponent',
 		'fileinputcomponent',
 		'checkboxcomponent',
-		'selectcomponent'
+		'selectcomponent',
+		'multiselectcomponent',
 	]
 } as const
 
