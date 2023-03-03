@@ -65,13 +65,12 @@
 		if (!(doc && wrapper)) {
 			return
 		}
-		while (wrapper.firstChild) {
-			wrapper.removeChild(wrapper.firstChild)
-		}
+		const scrollPosition = wrapper.scrollTop / wrapper.scrollHeight
 		if (!resizing) {
 			pages = []
 		}
 		const nextPages: typeof pages = []
+		const nextChildren: HTMLCanvasElement[] = []
 		const { width } = wrapper.getBoundingClientRect()
 
 		for (let i = 0; i < doc.numPages; i++) {
@@ -95,9 +94,16 @@
 			canvas.width = viewport.width
 			canvas.classList.add('mx-auto', 'my-4', 'shadow-sm')
 			await page.render({ canvasContext, viewport }).promise
-			wrapper.appendChild(canvas)
+			nextChildren.push(canvas)
+		}
+		while (wrapper.firstChild) {
+			wrapper.removeChild(wrapper.firstChild)
 		}
 		pages = [...nextPages]
+		wrapper.append(...nextChildren)
+		wrapper.scrollTo({
+			top: scrollPosition * wrapper.scrollHeight
+		})
 	}
 
 	function scrollToPage(page: number) {
@@ -137,7 +143,7 @@
 			const value = dir === 'in' ? zoom + 0.1 : zoom - 0.1
 			zoom = minMax(value, 0.3, 5)
 		}
-		await renderPdf(false)
+		await renderPdf(false, true)
 	}
 
 	async function downloadPdf() {
