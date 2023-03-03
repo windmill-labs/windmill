@@ -85,6 +85,7 @@ pub async fn push_scheduled_job<'c>(
         Some(next),
         Some(schedule.path.clone()),
         None,
+        None,
         false,
         false,
         None,

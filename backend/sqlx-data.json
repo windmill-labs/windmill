@@ -645,27 +645,6 @@
     },
     "query": "SELECT * FROM workspace_settings WHERE workspace_id = $1"
   },
-  "176afff6dfceac701d499663f15fb7f569fd9d449406df4c5ecc811414429d42": {
-    "describe": {
-      "columns": [
-        {
-          "name": "flow_status",
-          "ordinal": 0,
-          "type_info": "Jsonb"
-        }
-      ],
-      "nullable": [
-        null
-      ],
-      "parameters": {
-        "Left": [
-          "Uuid",
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT flow_status FROM completed_job WHERE id = $1 AND workspace_id = $2 \n            UNION ALL SELECT flow_status FROM queue WHERE id = $1 AND workspace_id = $2 "
-  },
   "187a27d18f78f068319a0ec684f71a76c49dd09c5c74c2c777e35233c4f5a281": {
     "describe": {
       "columns": [
@@ -825,75 +804,6 @@
       }
     },
     "query": "\n        SELECT id, flow_status, suspend, script_path\n        FROM queue\n        WHERE id = $1\n        "
-  },
-  "1e35c39bc786d638252e5483ca4efae9a041f7e845341f8bfd715ddd9e899499": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Uuid"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Uuid",
-          "Bool",
-          "Uuid",
-          "Varchar",
-          "Varchar",
-          "Timestamptz",
-          "Int8",
-          "Varchar",
-          "Text",
-          "Text",
-          "Jsonb",
-          {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "script",
-                  "preview",
-                  "flow",
-                  "dependencies",
-                  "flowpreview",
-                  "script_hub",
-                  "identity",
-                  "flowdependencies"
-                ]
-              },
-              "name": "job_kind"
-            }
-          },
-          "Varchar",
-          "Jsonb",
-          "Jsonb",
-          "Bool",
-          {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "python3",
-                  "deno",
-                  "go",
-                  "bash"
-                ]
-              },
-              "name": "script_lang"
-            }
-          },
-          "Bool",
-          "Text",
-          "Varchar",
-          "Bool"
-        ]
-      }
-    },
-    "query": "INSERT INTO queue\n            (workspace_id, id, running, parent_job, created_by, permissioned_as, scheduled_for, \n                script_hash, script_path, raw_code, raw_lock, args, job_kind, schedule_path, raw_flow, flow_status, is_flow_step, language, started_at, same_worker, pre_run_error, email, visible_to_owner)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22) RETURNING id"
   },
   "1eaf8d677d520c7f2f303a731de6b6d939918e41ad0d1c748d80db3fd33cb9d3": {
     "describe": {
@@ -1175,6 +1085,20 @@
       }
     },
     "query": "SELECT set_config('session.folders_read', $1, true)"
+  },
+  "2a3ebe1b0eae5b2164894321e138cc4dc0293788aeb98d05d95d18dfc708d6a6": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Jsonb",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            UPDATE queue\n               SET leaf_jobs = JSONB_SET(coalesce(leaf_jobs, '{}'::jsonb), ARRAY[$1::TEXT], $2)\n             WHERE COALESCE((SELECT root_job FROM queue WHERE id = $3), $3) = id\n            "
   },
   "2a4be8334db7d39f3d954193a8b0169cc4a4a07e081d2fa61d8764879d6a8ff5": {
     "describe": {
@@ -3657,33 +3581,6 @@
     },
     "query": "SELECT is_admin FROM usr where username = $1 AND workspace_id = $2 AND disabled = false"
   },
-  "92ce38eaaef9e793a49788bf3b7fc88340e83da57b785364a477f08c776f66f3": {
-    "describe": {
-      "columns": [
-        {
-          "name": "flow_status",
-          "ordinal": 0,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "parent_job",
-          "ordinal": 1,
-          "type_info": "Uuid"
-        }
-      ],
-      "nullable": [
-        null,
-        null
-      ],
-      "parameters": {
-        "Left": [
-          "Uuid",
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT flow_status, parent_job FROM completed_job WHERE id = $1 AND workspace_id = $2 \n                UNION ALL SELECT flow_status, parent_job FROM queue WHERE id = $1 AND workspace_id = $2 "
-  },
   "930ad84a4db26fa6d2c8447d447099e944a0ea7b1266b4d02cee620fe3d761a5": {
     "describe": {
       "columns": [],
@@ -4009,6 +3906,76 @@
     },
     "query": "SELECT content FROM script WHERE path = $1 AND workspace_id = $2 AND\n         created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND archived = false AND workspace_id = $2)"
   },
+  "a1c41bbeb2d64fa1e7dfd2ed053191a1de5d786ae8c22e225e450865ecac94e9": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Uuid",
+          "Bool",
+          "Uuid",
+          "Varchar",
+          "Varchar",
+          "Timestamptz",
+          "Int8",
+          "Varchar",
+          "Text",
+          "Text",
+          "Jsonb",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "script",
+                  "preview",
+                  "flow",
+                  "dependencies",
+                  "flowpreview",
+                  "script_hub",
+                  "identity",
+                  "flowdependencies"
+                ]
+              },
+              "name": "job_kind"
+            }
+          },
+          "Varchar",
+          "Jsonb",
+          "Jsonb",
+          "Bool",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "python3",
+                  "deno",
+                  "go",
+                  "bash"
+                ]
+              },
+              "name": "script_lang"
+            }
+          },
+          "Bool",
+          "Text",
+          "Varchar",
+          "Bool",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "INSERT INTO queue\n            (workspace_id, id, running, parent_job, created_by, permissioned_as, scheduled_for, \n                script_hash, script_path, raw_code, raw_lock, args, job_kind, schedule_path, raw_flow, flow_status, is_flow_step, language, started_at, same_worker, pre_run_error, email, visible_to_owner, root_job)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22, $23) RETURNING id"
+  },
   "a227548b6604c56bfc15eb780bd8ee72a89dc6701a50f5048e928bd87baa7b9a": {
     "describe": {
       "columns": [
@@ -4118,6 +4085,28 @@
       }
     },
     "query": "UPDATE flow SET dependency_job = $1 WHERE path = $2 AND workspace_id = $3"
+  },
+  "a5f9fb82791103e2bbaf9cb6d87e8c50495d12d87f8ed83382068203a8dd7a67": {
+    "describe": {
+      "columns": [
+        {
+          "name": "?column?",
+          "ordinal": 0,
+          "type_info": "Jsonb"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Uuid",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT leaf_jobs->$1::text FROM queue WHERE COALESCE((SELECT root_job FROM queue WHERE id = $2), $2) = id AND workspace_id = $3"
   },
   "a6145b0482c9e5da245059a80b1563cad20318fd2dd8aef33f9ca97de1826b8b": {
     "describe": {
@@ -4874,27 +4863,6 @@
       }
     },
     "query": "SELECT result FROM completed_job WHERE id = $1"
-  },
-  "c2d0e44faab6981a21ca28dfd6f4eef9dfcafb471852e701c0bbc8ae11344325": {
-    "describe": {
-      "columns": [
-        {
-          "name": "parent_job",
-          "ordinal": 0,
-          "type_info": "Uuid"
-        }
-      ],
-      "nullable": [
-        null
-      ],
-      "parameters": {
-        "Left": [
-          "Uuid",
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT parent_job FROM completed_job WHERE id = $1 AND workspace_id = $2 UNION ALL SELECT parent_job FROM queue WHERE id = $1 AND workspace_id = $2"
   },
   "c2d6cb56c1dea4498e2aab9ea9301dbbaa127602a38f57f5add4108fdc209b1a": {
     "describe": {
