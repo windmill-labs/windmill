@@ -131,6 +131,7 @@ export type AppEditorContext = {
 	openDebugRun: Writable<((componentID: string) => void) | undefined>
 	focusedGrid: Writable<FocusedGrid | undefined>
 	stateId: Writable<number>
+	parentWidth: Writable<number>
 }
 
 export type FocusedGrid = { parentComponentId: string; subGridIndex: number }

@@ -21,7 +21,8 @@
 		staticOutputs,
 		runnableComponents,
 		summary,
-		focusedGrid
+		focusedGrid,
+		parentWidth
 	} = getContext<AppEditorContext>('AppEditorContext')
 
 	// The drag is disabled when the user is connecting an input
@@ -148,6 +149,7 @@
 			$selectedComponent = undefined
 			$focusedGrid = undefined
 		}}
+		bind:clientWidth={$parentWidth}
 	>
 		<div class={!$focusedGrid && $mode !== 'preview' ? 'border-gray-400 border border-dashed' : ''}>
 			<Grid

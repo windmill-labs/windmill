@@ -47,6 +47,7 @@ declare module '@windmill-labs/svelte-grid' {
 		onTopId?: string
 		scroller?: undefined
 		sensor?: number
+		parentWidth?: number
 	}
 
 	export interface Slots<T> {
