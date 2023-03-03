@@ -17,12 +17,12 @@
 	)}
 >
 	<div class="flex justify-between flex-wrap items-center w-full gap-1">
-		<div class="text-sm inline-flex items-center font-extrabold {titlePadding}">
+		<div class="text-sm inline-flex items-center font-extrabold {titlePadding} gap-1">
 			<span class="truncate">
 				{title}
 			</span>
 			{#if tooltip}
-				<Tooltip>
+				<Tooltip light>
 					{tooltip}
 				</Tooltip>
 			{/if}

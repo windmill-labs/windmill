@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
+	import { X } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import type { AppEditorContext } from '../../types'
 	import { findGridItem } from '../appUtils'
@@ -42,13 +43,40 @@
 	$: panels = [['ctx', ['email', 'username', 'query']] as [string, string[]]].concat(
 		Object.entries($staticOutputs)
 	)
+
+	let search = ''
+
+	// filter out outputs that don't match the search by name (computed by getComponentNameById) and id
+	// The output should be [string, string[]][]
+	$: filteredPanels = panels.filter(([componentId, outputs]) => {
+		const name = getComponentNameById(componentId)
+		return (
+			name.toLowerCase().includes(search.toLowerCase()) ||
+			componentId.toLowerCase().includes(search.toLowerCase())
+		)
+	})
 </script>
 
 <PanelSection noPadding titlePadding="px-4 pt-2 pb-0.5" title="Outputs">
 	<div
 		class="overflow-auto min-w-[150px] border-t w-full relative flex flex-col gap-4 px-2 pt-4 pb-2"
 	>
-		{#each panels as [componentId, outputs] (componentId)}
+		<div class="relative">
+			<input
+				bind:value={search}
+				class="px-2 py-1 border border-gray-300 rounded-sm {search ? 'pr-8' : ''}"
+				placeholder="Search outputs..."
+			/>
+			{#if search}
+				<button
+					class="absolute right-2 top-1/2 transform -translate-y-1/2 hover:bg-gray-200 rounded-full p-0.5"
+					on:click|stopPropagation|preventDefault={() => (search = '')}
+				>
+					<X size="14" />
+				</button>
+			{/if}
+		</div>
+		{#each filteredPanels as [componentId, outputs] (componentId)}
 			{#if outputs.length > 0 && $worldStore?.outputsById[componentId]}
 				{@const name = getComponentNameById(componentId)}
 				<div>
