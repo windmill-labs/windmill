@@ -44,7 +44,7 @@
 	)
 </script>
 
-<PanelSection noPadding titlePadding="px-4 pt-2" title="Outputs">
+<PanelSection noPadding titlePadding="px-4 pt-2 pb-0.5" title="Outputs">
 	<div
 		class="overflow-auto min-w-[150px] border-t w-full relative flex flex-col gap-4 px-2 pt-4 pb-2"
 	>
@@ -62,18 +62,18 @@
 								? undefined
 								: () => ($selectedComponent = componentId)}
 							class={classNames(
-								'px-2 text-2xs py-0.5 border border-gray-300 font-bold rounded-t-sm w-fit',
+								'px-2 text-2xs py-0.5 border-t border-x font-bold rounded-t-sm w-fit',
 								$selectedComponent === componentId
-									? ' bg-indigo-500 text-white'
-									: 'bg-gray-200 text-gray-500'
+									? ' bg-blue-500 text-white border-blue-500'
+									: 'bg-gray-100 text-gray-500 border-gray-200'
 							)}
 						>
 							{componentId}
 						</button>
 						<span
 							class={classNames(
-								'px-1 text-2xs py-0.5 font-bold rounded-t-sm w-fit',
-								'bg-gray-500 text-white'
+								'px-1 text-2xs py-0.5 font-semibold rounded-t-sm w-fit',
+								'bg-gray-700 text-white'
 							)}
 						>
 							{name}
