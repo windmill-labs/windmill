@@ -11,6 +11,7 @@
 	import { Button } from '../../../common'
 	import { Download, Loader2, ZoomIn, ZoomOut } from 'lucide-svelte'
 	import { fade } from 'svelte/transition'
+	import { findGridItem } from '../../editor/appUtils'
 
 	export let id: string
 	export let configuration: Record<string, AppInput>
@@ -21,16 +22,17 @@
 	const resizeObserver = new ResizeObserver(() => debouncedRender(true, true))
 
 	let source: string | ArrayBuffer | undefined = undefined
-	let zoomConfig: number | undefined = undefined
+	// let zoomConfig: number | undefined = undefined
 	let wrapper: HTMLDivElement | undefined = undefined
 	let error: string | undefined = undefined
 	let doc: PDFDocumentProxy | undefined = undefined
 	let pages: PDFPageProxy[] = []
-	let zoom = 1
+	let zoom = 100
 	let controlsWidth: number | undefined = undefined
 	let controlsHeight: number | undefined = undefined
 	let pageNumber = 1
 
+	$: gridItem = findGridItem($app, id)
 	$: if (!source) {
 		resetDoc()
 		error = 'Set the "Source" attribute of the PDF component'
@@ -38,10 +40,10 @@
 	$: wrapper && loadDocument(source)
 	$: wideView = controlsWidth && controlsWidth > 450
 	$: wrapper && resizeObserver.observe(wrapper)
-	$: if (zoomConfig) {
-		zoom = minMax(zoomConfig / 100, 0.3, 5)
-		renderPdf(false, true)
-	}
+	// $: if (zoomConfig) {
+	// 	zoom = minMax(zoomConfig / 100, 0.3, 5)
+	// 	renderPdf(false, true)
+	// }
 
 	async function resetDoc() {
 		await doc?.destroy()
@@ -55,7 +57,8 @@
 		try {
 			await resetDoc()
 			doc = await getDocument(src).promise
-			pageNumber = zoom = 1
+			pageNumber = 1
+			zoom = 100
 			await renderPdf()
 			error = undefined
 		} catch (err) {
@@ -87,13 +90,12 @@
 			}
 			const page = await doc.getPage(i + 1)
 			nextPages.push(page)
-			let viewport = page.getViewport({ scale: zoom ?? 1 })
-			if (scaleToViewport) {
-				if (width && viewport.width > width) {
-					viewport = page.getViewport({
-						scale: width / viewport.width
-					})
-				}
+			let viewport = page.getViewport({ scale: zoom / 100 })
+			if (scaleToViewport && width && viewport.width > width) {
+				zoom = (width / viewport.width) * 100
+				viewport = page.getViewport({
+					scale: zoom
+				})
 			}
 			canvas.height = viewport.height
 			canvas.width = viewport.width
@@ -109,6 +111,9 @@
 		wrapper.scrollTo({
 			top: scrollPosition * wrapper.scrollHeight
 		})
+		if (gridItem) {
+			gridItem.data.configuration.zoom.value = zoom
+		}
 	}
 
 	function scrollToPage(page: number) {
@@ -143,10 +148,10 @@
 
 	async function zoomPdf(dir?: 'in' | 'out') {
 		if (!dir) {
-			zoom = 1
+			zoom = 100
 		} else {
-			const value = dir === 'in' ? zoom + 0.1 : zoom - 0.1
-			zoom = minMax(value, 0.3, 5)
+			const value = dir === 'in' ? zoom + 10 : zoom - 10
+			zoom = minMax(value, 30, 500)
 		}
 		await renderPdf(false, true)
 	}
@@ -177,7 +182,7 @@
 </script>
 
 <InputValue {id} input={configuration.source} bind:value={source} />
-<InputValue {id} input={configuration.zoom} bind:value={zoomConfig} />
+<InputValue {id} input={configuration.zoom} bind:value={zoom} />
 
 <div class="relative w-full h-full bg-gray-100">
 	{#if source}
@@ -185,7 +190,7 @@
 			<div
 				bind:clientWidth={controlsWidth}
 				bind:clientHeight={controlsHeight}
-				class="sticky w-full top-0 flex {wideView
+				class="fixed w-full top-0 flex {wideView
 					? 'justify-center gap-14'
 					: '!justify-between'} overflow-x-auto bg-white border mx-auto py-1"
 			>
@@ -213,7 +218,7 @@
 							aria-label="Reset zoom"
 							btnClasses="!w-[50px] !font-medium !rounded-none !border-l-0 !px-1"
 						>
-							{(zoom * 100).toFixed(0)}%
+							{zoom.toFixed(0)}%
 						</Button>
 					{/if}
 					<Button
@@ -275,8 +280,8 @@
 		<div
 			bind:this={wrapper}
 			on:scroll={throttledScroll}
-			class={twMerge('w-full h-full overflow-auto', css?.container?.class ?? '')}
-			style={css?.container?.style ?? ''}
+			class={twMerge('w-full overflow-auto', css?.container?.class ?? '')}
+			style="padding-top: {controlsHeight ?? 0}px; {css?.container?.style ?? ''}"
 		/>
 	{/if}
 	{#if error}
