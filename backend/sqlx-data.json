@@ -1319,27 +1319,6 @@
     },
     "query": "SELECT EXISTS(SELECT 1 FROM resource_type WHERE name = $1 AND (workspace_id = $2 OR workspace_id = 'admins'))"
   },
-  "39e423f16f2ffb74df27760345a5340f2f89409f2a16247ac92a1949181d0cf0": {
-    "describe": {
-      "columns": [
-        {
-          "name": "leaf_jobs",
-          "ordinal": 0,
-          "type_info": "Jsonb"
-        }
-      ],
-      "nullable": [
-        true
-      ],
-      "parameters": {
-        "Left": [
-          "Uuid",
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT leaf_jobs FROM queue WHERE id = (SELECT root_job FROM queue WHERE id = $1) AND workspace_id = $2"
-  },
   "39f1b99319f48acb95fd4247f70baaf7a38062aa8b4f70fac10215edbbd2d41c": {
     "describe": {
       "columns": [],
@@ -1837,28 +1816,6 @@
       }
     },
     "query": "DELETE FROM usr_to_group WHERE group_ = $1 AND workspace_id = $2"
-  },
-  "52a96fa4034dec3edb0655c1cd125e6dacc63c10bbc6c0ea1789809807d720a3": {
-    "describe": {
-      "columns": [
-        {
-          "name": "?column?",
-          "ordinal": 0,
-          "type_info": "Jsonb"
-        }
-      ],
-      "nullable": [
-        null
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Uuid",
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT leaf_jobs->$1::text FROM queue WHERE id = $2 AND workspace_id = $3"
   },
   "52c8b4350235bdaab4df79e517d5e42a61a4e1e209d120b2c8bb31ebb7ce1e56": {
     "describe": {
@@ -2627,27 +2584,6 @@
       }
     },
     "query": "SELECT EXISTS(SELECT 1 FROM usr WHERE workspace_id = $1 AND username = $2)"
-  },
-  "7165e50c7de4437ea1969aae4db51dfe040ce3b2f8dcf7eb123831697fcdbfd0": {
-    "describe": {
-      "columns": [
-        {
-          "name": "leaf_jobs",
-          "ordinal": 0,
-          "type_info": "Jsonb"
-        }
-      ],
-      "nullable": [
-        true
-      ],
-      "parameters": {
-        "Left": [
-          "Uuid",
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT leaf_jobs FROM queue WHERE id = $1 AND workspace_id = $2"
   },
   "72098030cab635723a9cecf8b3b1448e69a8afd68342850ef6376352d2897723": {
     "describe": {
@@ -3791,26 +3727,6 @@
     },
     "query": "UPDATE schedule SET enabled = $1, email = $2 WHERE path = $3 AND workspace_id = $4 RETURNING *"
   },
-  "971175f6169857c3e1cdc08ac8aeed57300b7792e1797a9cdd73c9b3967cd7b9": {
-    "describe": {
-      "columns": [
-        {
-          "name": "root_job",
-          "ordinal": 0,
-          "type_info": "Uuid"
-        }
-      ],
-      "nullable": [
-        true
-      ],
-      "parameters": {
-        "Left": [
-          "Uuid"
-        ]
-      }
-    },
-    "query": "SELECT root_job FROM queue WHERE id = $1"
-  },
   "97e364c703bdcdfb5345810659cbe0477a28b8199ef0b297f9a22c88a43b6b5c": {
     "describe": {
       "columns": [
@@ -4894,6 +4810,26 @@
     },
     "query": "UPDATE schedule SET script_path = $1 WHERE script_path = $2 AND workspace_id = $3 AND is_flow IS false RETURNING *"
   },
+  "c07c9276945663d062cf0ff5b3323be681a0e2cb07a457ea9aede2daeff551cc": {
+    "describe": {
+      "columns": [
+        {
+          "name": "customer_id",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT customer_id FROM workspace_settings WHERE workspace_id = $1"
+  },
   "c1149f74ef0cca4a48be80f523d339d78e8e20e2bfacac9ad1b6b75c5ae370fb": {
     "describe": {
       "columns": [],
@@ -5847,20 +5783,6 @@
       }
     },
     "query": "DELETE FROM password WHERE email = $1"
-  },
-  "e990488d2238fe229a213c975102b85ea2e159142bb2d34bc83835322496f2b9": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Jsonb",
-          "Uuid"
-        ]
-      }
-    },
-    "query": "\n            UPDATE queue\n               SET leaf_jobs = JSONB_SET(coalesce(leaf_jobs, '{}'::jsonb), ARRAY[$1::TEXT], $2)\n             WHERE (SELECT root_job FROM queue WHERE id = $3) = id\n            "
   },
   "e9c0e331c16312bf086b17c91466c5389d41454fd3f18d73c2e9554845ee9a72": {
     "describe": {
