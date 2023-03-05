@@ -1,6 +1,6 @@
 export const NODE = {
-	width: 300,
-	height: 35,
+	width: 275,
+	height: 34,
 	gap: {
 		horizontal: 40,
 		vertical: 50

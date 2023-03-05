@@ -56,6 +56,5 @@
 	/* Flow graph viewer -> Svelvet library internal class overwrite */
 	.Node {
 		display: flex !important;
-		cursor: pointer !important;
 	}
 }

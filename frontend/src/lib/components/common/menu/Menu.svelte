@@ -7,10 +7,10 @@
 	import { onMount } from 'svelte'
 
 	export let noMinW = false
-	let show = false
+	export let show = false
 	let menu: HTMLDivElement
 
-	type Alignment = 'start' | 'end'
+	type Alignment = 'start' | 'end' | 'center'
 	type Side = 'top' | 'bottom'
 	type Placement = `${Side}-${Alignment}`
 
@@ -45,6 +45,7 @@
 	})
 
 	const placementsClasses = {
+		'bottom-center': 'origin-top-left left-1/2 transform -translate-x-1/2',
 		'bottom-start': 'origin-top-left left-0',
 		'bottom-end': 'origin-top-right right-0',
 		'top-start': 'origin-bottom-left left-0 bottom-0',
@@ -52,7 +53,7 @@
 	}
 </script>
 
-<div class="relative" bind:this={menu}>
+<div class="relative z-10" bind:this={menu}>
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<div
 		on:click|stopPropagation={() => {

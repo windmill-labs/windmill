@@ -452,13 +452,17 @@
 					<FlowGraph
 						success={isSuccess(job?.['success'])}
 						flowModuleStates={localFlowModuleStates}
-						on:click={(e) => {
-							if (e.detail.id) {
+						on:select={(e) => {
+							if (typeof e.detail == 'string') {
+								if (e.detail == 'Input') {
+									selectedNode = 'start'
+								} else if (e.detail == 'Result') {
+									selectedNode = 'end'
+								} else {
+									selectedNode = e.detail
+								}
+							} else {
 								selectedNode = e.detail.id
-							} else if (e.detail == 'Result') {
-								selectedNode = 'end'
-							} else if (e.detail == 'Input') {
-								selectedNode = 'start'
 							}
 						}}
 						modules={job.raw_flow?.modules ?? []}

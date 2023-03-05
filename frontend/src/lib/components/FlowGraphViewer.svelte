@@ -79,14 +79,13 @@
 </Drawer>
 <div class="grid grid-cols-3 w-full">
 	<div
-		bind:clientHeight={topHeight}
 		class="{noSide
 			? 'col-span-3'
-			: 'sm:col-span-2 col-span-3'} w-full border border-gray-400 h-screen"
+			: 'sm:col-span-2 col-span-3'} w-full border border-gray-400 max-h-screen"
 		class:overflow-auto={overflowAuto}
 	>
 		<FlowGraph
-			minHeight={topHeight}
+			minHeight={400}
 			modules={flow?.value?.modules}
 			failureModule={flow?.value?.failure_module}
 			on:click={(e) => (stepDetail = e.detail)}

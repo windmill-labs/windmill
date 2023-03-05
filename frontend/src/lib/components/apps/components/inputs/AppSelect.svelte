@@ -9,6 +9,7 @@
 	import InputValue from '../helpers/InputValue.svelte'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '../../../../defaults'
 	import { twMerge } from 'tailwind-merge'
+	import Portal from 'svelte-portal'
 
 	export const staticOutputs: string[] = ['result']
 	export let id: string
