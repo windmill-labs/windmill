@@ -20,7 +20,7 @@
 
 	let loading = false
 
-	let selectedId: string = 'settings-graph'
+	let selectedId: string = 'settings-metadata'
 
 	let initialPath: string = ''
 

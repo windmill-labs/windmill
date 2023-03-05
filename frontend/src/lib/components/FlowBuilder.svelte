@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
-	import { page } from '$app/stores'
 	import { FlowService, ScheduleService, type Flow } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { encodeState, formatCron, loadHubScripts, sendUserToast } from '$lib/utils'
@@ -8,11 +7,10 @@
 	import { setContext } from 'svelte'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
-	import { Button, Drawer, DrawerContent } from './common'
+	import { Button } from './common'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { OFFSET } from './CronInput.svelte'
-	import FlowGraphViewer from './FlowGraphViewer.svelte'
 	import ScriptEditorDrawer from './flows/content/ScriptEditorDrawer.svelte'
 	import FlowEditor from './flows/FlowEditor.svelte'
 	import { flowStateStore } from './flows/flowState'
@@ -154,7 +152,6 @@
 	setContext<FlowEditorContext>('FlowEditorContext', {
 		selectedId: selectedIdStore,
 		schedule: scheduleStore,
-		select,
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer
 	})
@@ -178,21 +175,11 @@
 	$: initialPath && $workspaceStore && loadSchedule()
 
 	loadHubScripts()
-
-	let flowViewer: Drawer
 </script>
 
 {#if !$userStore?.operator}
 	<ScriptEditorDrawer bind:this={$scriptEditorDrawer} />
 	<UnsavedConfirmationModal />
-
-	<Drawer bind:this={flowViewer} size="75%">
-		<DrawerContent title="View Graph" on:close={flowViewer.closeDrawer} noPadding>
-			<div class="overflow-hidden h-full w-full">
-				<FlowGraphViewer flow={$flowStore} />
-			</div>
-		</DrawerContent>
-	</Drawer>
 
 	<div class="flex flex-col flex-1 h-screen">
 		<!-- Nav between steps-->
@@ -201,16 +188,6 @@
 		>
 			<div class="flex flex-row">
 				<FlowImportExportMenu />
-				<Button
-					btnClasses="inline-flex"
-					startIcon={{ icon: faEye }}
-					variant="border"
-					color="light"
-					size="sm"
-					on:click={flowViewer.openDrawer}
-				>
-					Graph
-				</Button>
 			</div>
 			<div class="gap-1 flex-row hidden md:flex shrink overflow-hidden">
 				{#if $scheduleStore.enabled}

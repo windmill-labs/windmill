@@ -10,7 +10,6 @@
 	import FlowSchedules from './FlowSchedules.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { Alert } from '$lib/components/common'
-	import { FlowGraph } from '$lib/components/graph'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import autosize from 'svelte-autosize'
@@ -25,8 +24,6 @@
 
 	export let initialPath: string
 
-	let topHeight = 0
-
 	$: url = `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run/f/${$flowStore?.path}`
 </script>
 
@@ -37,7 +34,6 @@
 				<Tab value="settings-metadata">Metadata</Tab>
 				<Tab value="settings-schedule">Schedule</Tab>
 				<Tab value="settings-same-worker">Shared Directory</Tab>
-				<Tab value="settings-graph">Graph</Tab>
 
 				<svelte:fragment slot="content">
 					<TabContent value="settings-metadata" class="p-4 h-full">
@@ -89,18 +85,22 @@
 											</a>
 										</li>
 										<li class="mt-2">
-											<div class="flex flex-row gap-2">
-												2. Use a trigger script and schedule this flow to run as frequently as
-												needed and compare a state persisted in Windmill to the state of the
-												external system. If a difference is detected, then the rest of the flow is
-												triggered. Oftentimes, the second step of a flow is a for-loop that will
-												iterate over every elements. When using a trigger, a default schedule will
-												be created.
-												<img
-													class="shadow-lg border rounded"
-													alt="static button"
-													src="/trigger_button.png"
-												/>
+											<div class="flex flex-col gap-2">
+												<p>
+													2. Use a trigger script and schedule this flow to run as frequently as
+													needed and compare a state persisted in Windmill to the state of the
+													external system. If a difference is detected, then the rest of the flow is
+													triggered. Oftentimes, the second step of a flow is a for-loop that will
+													iterate over every elements. When using a trigger, a default schedule will
+													be created.
+												</p>
+												<div>
+													<img
+														class="shadow-lg border rounded"
+														alt="static button"
+														src="/trigger_button.png"
+													/>
+												</div>
 											</div>
 										</li></ul
 									>
@@ -131,26 +131,6 @@
 								right: 'Shared Directory on `./shared`'
 							}}
 						/>
-					</TabContent>
-					<TabContent value="settings-graph">
-						<div
-							bind:clientHeight={topHeight}
-							class="max-w-full w-full overflow-hidden h-screen bg-gray-50"
-						>
-							{#if $flowStore.value.modules}
-								<FlowGraph
-									on:click={(e) => {
-										if (e.detail.id) {
-											$selectedId = e.detail.id
-										}
-									}}
-									minHeight={topHeight}
-									modules={$flowStore.value.modules}
-									failureModule={$flowStore.value.failure_module}
-									notSelectable
-								/>
-							{/if}
-						</div>
 					</TabContent>
 				</svelte:fragment>
 			</Tabs>

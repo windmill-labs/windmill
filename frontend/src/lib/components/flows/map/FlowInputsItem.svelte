@@ -5,12 +5,11 @@
 	import Icon from 'svelte-awesome'
 	import { faFlagCheckered } from '@fortawesome/free-solid-svg-icons'
 
-	const { select, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 </script>
 
 <FlowModuleSchemaItem
-	on:click={() => select('inputs')}
-	hasLine
+	on:click={() => ($selectedId = 'inputs')}
 	selected={$selectedId === 'inputs'}
 	bold
 	label="Flow Input"
