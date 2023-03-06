@@ -16,7 +16,7 @@
 
 {#if $selectedId?.startsWith('settings')}
 	<FlowSettings {initialPath} />
-{:else if $selectedId === 'inputs'}
+{:else if $selectedId === 'Input'}
 	<FlowInput />
 {:else if $selectedId === 'constants'}
 	<FlowConstants />

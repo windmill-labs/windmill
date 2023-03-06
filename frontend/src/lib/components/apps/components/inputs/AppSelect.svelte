@@ -8,6 +8,8 @@
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '../../../../defaults'
+	import { twMerge } from 'tailwind-merge'
+	import Portal from 'svelte-portal'
 
 	export const staticOutputs: string[] = ['result']
 	export let id: string
@@ -97,16 +99,19 @@
 <InputValue {id} input={configuration.create} bind:value={create} />
 
 <AlignWrapper {horizontalAlignment} {verticalAlignment}>
-	<div class="app-select w-full mx-0.5" style="height: 34px" on:pointerdown|stopPropagation>
+	<div class="app-select w-full mx-0.5" style="height: 34px;" on:pointerdown|stopPropagation>
 		<Select
+			--border-radius="0"
+			--border-color="#999"
 			bind:filterText
 			on:filter={handleFilter}
 			on:clear={onChange}
 			on:change={onChange}
 			items={listItems}
-			class={css?.input?.class ?? ''}
 			inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-			containerStyles={SELECT_INPUT_DEFAULT_STYLE.containerStyles + css?.input?.style}
+			containerStyles={'border-color: #999;' +
+				SELECT_INPUT_DEFAULT_STYLE.containerStyles +
+				css?.input?.style}
 			{value}
 			{placeholder}
 			on:click={() => {

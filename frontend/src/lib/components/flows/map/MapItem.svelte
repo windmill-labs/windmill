@@ -3,23 +3,35 @@
 	import { createEventDispatcher, getContext } from 'svelte'
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
 	import type { FlowModule } from '$lib/gen'
-	import FlowModuleSchemaMap from './FlowModuleSchemaMap.svelte'
 	import InsertModuleButton from './InsertModuleButton.svelte'
-	import FlowBranchOneMap from './FlowBranchOneMap.svelte'
-	import FlowBranchAllMap from './FlowBranchAllMap.svelte'
 	import { faBarsStaggered, faCodeBranch, faLongArrowDown } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
 	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
-	import { Building, Repeat, Square } from 'lucide-svelte'
+	import { Building, GitBranchPlus, Repeat, Square } from 'lucide-svelte'
+	import type { Writable } from 'svelte/store'
 
 	export let mod: FlowModule
-	export let index: number
+	export let trigger: boolean
+	export let insertable: boolean
+	export let insertableEnd = false
+	export let annotation: string | undefined = undefined
+	export let branchable: boolean = false
+	export let bgColor: string = ''
+	export let modules: FlowModule[]
 
-	const { select, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+	$: idx = modules.findIndex((m) => m.id === mod.id)
+
+	const { selectedId } = getContext<{ selectedId: Writable<string> }>('FlowGraphContext')
 	const dispatch = createEventDispatcher<{
 		delete: CustomEvent<MouseEvent>
-		insert: 'script' | 'forloop' | 'branchone' | 'branchall'
+		insert: {
+			modules: FlowModule[]
+			index: number
+			detail: 'script' | 'forloop' | 'branchone' | 'branchall'
+		}
+		select: string
+		newBranch: { module: FlowModule }
 	}>()
 
 	$: itemProps = {
@@ -33,109 +45,130 @@
 	function onDelete(event: CustomEvent<MouseEvent>) {
 		dispatch('delete', event)
 	}
+	let openMenu: boolean | undefined = undefined
+	let openMenu2: boolean | undefined = undefined
 </script>
 
 {#if mod}
-	<InsertModuleButton trigger={index == 0} on:new={(e) => dispatch('insert', e.detail)} />
+	{#if insertable}
+		<div
+			class="{openMenu ? 'z-10' : ''} w-7 absolute -top-9 left-[50%] right-[50%] -translate-x-1/2"
+		>
+			<InsertModuleButton
+				bind:open={openMenu}
+				{trigger}
+				on:new={(e) => {
+					dispatch('insert', { modules, index: idx, detail: e.detail })
+				}}
+			/>
+		</div>
+	{/if}
 	{#if mod.value.type === 'forloopflow'}
-		<li class="w-full">
-			<FlowModuleSchemaItem
-				deletable
-				label={mod.summary || 'For loop'}
-				id={mod.id}
-				on:delete={onDelete}
-				on:click={() => select(mod.id)}
-				{...itemProps}
-			>
-				<div slot="icon">
-					<Repeat size={16} />
-				</div>
-			</FlowModuleSchemaItem>
-			<div class="flex flex-row w-full">
-				<div class="w-7 shrink-0 line" />
-				<div class="grow my-1 min-w-0">
-					<div class="w-full">
-						<FlowModuleSchemaMap bind:modules={mod.value.modules} />
-					</div>
-				</div>
+		<FlowModuleSchemaItem
+			deletable={insertable}
+			label={mod.summary || 'For loop'}
+			id={mod.id}
+			on:delete={onDelete}
+			on:click={() => dispatch('select', mod.id)}
+			{...itemProps}
+			{bgColor}
+		>
+			<div slot="icon">
+				<Repeat size={16} />
 			</div>
-		</li>
+		</FlowModuleSchemaItem>
 	{:else if mod.value.type === 'branchone'}
-		<li>
-			<FlowModuleSchemaItem
-				deletable
-				on:delete={onDelete}
-				on:click={() => select(mod.id)}
-				{...itemProps}
-				id={mod.id}
-				label={mod.summary || 'Run one branch'}
-			>
-				<div slot="icon">
-					<Icon data={faCodeBranch} scale={1} />
-				</div>
-			</FlowModuleSchemaItem>
-			<FlowBranchOneMap bind:module={mod} />
-		</li>
+		<FlowModuleSchemaItem
+			deletable={insertable}
+			on:delete={onDelete}
+			on:click={() => dispatch('select', mod.id)}
+			{...itemProps}
+			id={mod.id}
+			label={mod.summary || 'Run one branch'}
+			{bgColor}
+		>
+			<div slot="icon">
+				<Icon data={faCodeBranch} scale={1} />
+			</div>
+		</FlowModuleSchemaItem>
 	{:else if mod.value.type === 'branchall'}
-		<li>
-			<FlowModuleSchemaItem
-				deletable
-				on:delete={onDelete}
-				on:click={() => select(mod.id)}
-				id={mod.id}
-				{...itemProps}
-				label={mod.summary || 'Run all branches'}
-			>
-				<div slot="icon">
-					<Icon data={faCodeBranch} scale={1} />
-				</div>
-			</FlowModuleSchemaItem>
-			<FlowBranchAllMap bind:module={mod} />
-		</li>
+		<FlowModuleSchemaItem
+			deletable={insertable}
+			on:delete={onDelete}
+			on:click={() => dispatch('select', mod.id)}
+			id={mod.id}
+			{...itemProps}
+			label={mod.summary || 'Run all branches'}
+			{bgColor}
+		>
+			<div slot="icon">
+				<Icon data={faCodeBranch} scale={1} />
+			</div>
+		</FlowModuleSchemaItem>
 	{:else}
-		<li>
-			<FlowModuleSchemaItem
-				on:click={() => select(mod.id)}
-				on:delete={onDelete}
-				deletable
-				id={mod.id}
-				{...itemProps}
-				label={mod.summary ||
-					(`path` in mod.value ? mod.value.path : undefined) ||
-					(mod.value.type === 'rawscript' ? `Inline ${mod.value.language}` : 'To be defined')}
-			>
-				<div slot="icon">
-					{#if mod.value.type === 'rawscript'}
-						<LanguageIcon lang={mod.value.language} width={16} height={16} />
-					{:else if mod.summary == 'Terminate flow'}
-						<Square size={16} />
-					{:else if mod.value.type === 'identity'}
-						<Icon data={faLongArrowDown} scale={1.1} />
-					{:else if mod.value.type === 'flow'}
-						<Icon data={faBarsStaggered} scale={1.0} />
-					{:else if mod.value.type === 'script'}
-						{#if mod.value.path.startsWith('hub/')}
-							<div>
-								<IconedResourceType
-									width="20px"
-									height="20px"
-									name={mod.value.path.split('/')[2]}
-									silent={true}
-								/>
-							</div>
-						{:else}
-							<Building size={14} />
-						{/if}
+		<FlowModuleSchemaItem
+			on:click={() => dispatch('select', mod.id)}
+			on:delete={onDelete}
+			deletable={insertable}
+			id={mod.id}
+			{...itemProps}
+			modType={mod.value.type}
+			{bgColor}
+			label={mod.summary ||
+				(`path` in mod.value ? mod.value.path : undefined) ||
+				(mod.value.type === 'rawscript' ? `Inline ${mod.value.language}` : 'To be defined')}
+		>
+			<div slot="icon">
+				{#if mod.value.type === 'rawscript'}
+					<LanguageIcon lang={mod.value.language} width={16} height={16} />
+				{:else if mod.summary == 'Terminate flow'}
+					<Square size={16} />
+				{:else if mod.value.type === 'identity'}
+					<Icon data={faLongArrowDown} scale={1.1} />
+				{:else if mod.value.type === 'flow'}
+					<Icon data={faBarsStaggered} scale={1.0} />
+				{:else if mod.value.type === 'script'}
+					{#if mod.value.path.startsWith('hub/')}
+						<div>
+							<IconedResourceType
+								width="20px"
+								height="20px"
+								name={mod.value.path.split('/')[2]}
+								silent={true}
+							/>
+						</div>
+					{:else}
+						<Building size={14} />
 					{/if}
-				</div>
-			</FlowModuleSchemaItem>
-		</li>
+				{/if}
+			</div>
+		</FlowModuleSchemaItem>
+	{/if}
+	{#if insertable && insertableEnd}
+		<div
+			class="{openMenu2 ? 'z-10' : ''} w-7 absolute top-11 left-[50%] right-[50%] -translate-x-1/2"
+		>
+			<InsertModuleButton
+				bind:open={openMenu2}
+				{trigger}
+				on:new={(e) => {
+					dispatch('insert', { modules, index: idx + 1, detail: e.detail })
+				}}
+			/>
+		</div>
+	{/if}
+
+	{#if insertable && branchable}
+		<div class="w-7 absolute top-11 left-[60%] right-[40%] -translate-x-1/2">
+			<button
+				on:click={() => {
+					dispatch('newBranch', { module: mod })
+				}}
+				type="button"
+				class=" text-gray-900 bg-white border mx-0.5 rotate-180 border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
+			>
+				<GitBranchPlus size={12} />
+			</button>
+		</div>
 	{/if}
 {/if}
-
-<style>
-	.line {
-		background: repeating-linear-gradient(to bottom, transparent 0 4px, rgb(120, 120, 120) 4px 8px)
-			50%/1px 100% no-repeat;
-	}
-</style>

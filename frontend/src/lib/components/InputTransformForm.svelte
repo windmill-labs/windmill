@@ -206,9 +206,7 @@
 						value="javascript"
 						startIcon={{ icon: faCode }}
 						size="xs"
-					>
-						Dynamic (JS)
-					</ToggleButton>
+					/>
 				</ToggleButtonGroup>
 				<Button
 					variant="contained"

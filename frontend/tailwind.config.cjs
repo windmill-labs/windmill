@@ -50,6 +50,7 @@ const config = {
 			orange: {
 				100: '#ffedd5',
 				200: '#ffedd5',
+				300: '#FDC089',
 				400: '#fb923c',
 				500: '#f97316',
 				600: '#ea580c',
@@ -249,7 +250,7 @@ const config = {
 				a: {
 					color: theme('colors.blue.500')
 				},
-				'input,input[type="text"],input[type="email"],input[type="url"],input[type="password"],input[type="number"],input[type="date"],input[type="datetime-local"],input[type="month"],input[type="search"],input[type="tel"],input[type="time"],input[type="week"],textarea:not(.monaco-mouse-cursor-text),select':
+				'input:not(.windmillapp),input[type="text"]:not(.windmillapp),input[type="email"]:not(.windmillapp),input[type="url"]:not(.windmillapp),input[type="password"]:not(.windmillapp),input[type="number"]:not(.windmillapp),input[type="date"]:not(.windmillapp),input[type="datetime-local"]:not(.windmillapp),input[type="month"]:not(.windmillapp),input[type="search"]:not(.windmillapp),input[type="tel"]:not(.windmillapp),input[type="time"]:not(.windmillapp),input[type="week"]:not(.windmillapp),textarea:not(.windmillapp):not(.monaco-mouse-cursor-text),select:not(.windmillapp)':
 					{
 						display: 'block',
 						fontSize: theme('fontSize.sm'),

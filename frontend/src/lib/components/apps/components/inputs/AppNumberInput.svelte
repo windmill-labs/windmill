@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
+	import { twMerge } from 'tailwind-merge'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
@@ -48,7 +49,10 @@
 
 <AlignWrapper {verticalAlignment}>
 	<input
-		class="mx-0.5 {css?.input?.class ?? ''}"
+		class={twMerge(
+			'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2 mx-0.5',
+			css?.input?.class ?? ''
+		)}
 		style={css?.input?.style ?? ''}
 		bind:this={input}
 		on:input={handleInput}

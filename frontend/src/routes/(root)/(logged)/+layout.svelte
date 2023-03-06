@@ -29,9 +29,9 @@
 		goto('/user/login')
 	}
 
-	$: if(userSettings && $page.url.hash === USER_SETTINGS_HASH) {
+	$: if (userSettings && $page.url.hash === USER_SETTINGS_HASH) {
 		userSettings.openDrawer()
-	} else if(superadminSettings && $page.url.hash === SUPERADMIN_SETTINGS_HASH) {
+	} else if (superadminSettings && $page.url.hash === SUPERADMIN_SETTINGS_HASH) {
 		superadminSettings.openDrawer()
 	}
 
@@ -87,8 +87,16 @@
 		]
 	}
 
+	function pathInAppMode(pathname: string | undefined): boolean {
+		if (!pathname) return false
+		return (
+			pathname.startsWith('/apps') ||
+			pathname.startsWith('/flows/add') ||
+			pathname.startsWith('/flows/edit')
+		)
+	}
 	afterNavigate((n) => {
-		if (n.to?.url.pathname.startsWith('/apps') && innerWidth >= 768) {
+		if (pathInAppMode(n.to?.url.pathname) && innerWidth >= 768) {
 			isCollapsed = true
 		}
 	})
@@ -98,10 +106,7 @@
 	function changeCollapsed() {
 		if (innerWidth < 1248 && innerWidth >= 768) {
 			isCollapsed = true
-		} else if (
-			(innerWidth >= 1248 || innerWidth < 768) &&
-			!$page.url.pathname.startsWith('/apps')
-		) {
+		} else if ((innerWidth >= 1248 || innerWidth < 768) && !pathInAppMode($page.url.pathname)) {
 			isCollapsed = false
 		}
 	}

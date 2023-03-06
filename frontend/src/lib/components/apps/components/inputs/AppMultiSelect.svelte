@@ -61,12 +61,16 @@
 	<div class="app-select w-full mx-0.5" style="height: 34px" on:pointerdown|stopPropagation>
 		{#if !value || Array.isArray(value)}
 			<Select
+				--border-radius="0"
+				--border-color="#999"
 				multiple
 				on:change={(e) => e.stopPropagation()}
 				{items}
 				class={css?.input?.class ?? ''}
 				inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-				containerStyles={SELECT_INPUT_DEFAULT_STYLE.containerStyles + css?.input?.style}
+				containerStyles={'border-color: #999;' +
+					SELECT_INPUT_DEFAULT_STYLE.containerStyles +
+					css?.input?.style}
 				bind:value
 				{placeholder}
 				on:click={() => {

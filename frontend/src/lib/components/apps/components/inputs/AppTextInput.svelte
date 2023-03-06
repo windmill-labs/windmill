@@ -42,7 +42,10 @@
 
 <AlignWrapper {verticalAlignment}>
 	<input
-		class={twMerge('mx-0.5', css?.input?.class ?? '')}
+		class={twMerge(
+			'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2 mx-0.5',
+			css?.input?.class ?? ''
+		)}
 		style={css?.input?.style ?? ''}
 		on:focus={(e) => {
 			e?.stopPropagation()

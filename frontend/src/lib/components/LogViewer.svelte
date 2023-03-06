@@ -42,7 +42,7 @@
 				<button on:click={logViewer.openDrawer}>Expand</button>
 				<div class="py-2 pr-2 text-xs flex gap-2 items-center">
 					Auto scroll
-					<input type="checkbox" bind:checked={scroll} />
+					<input class="windmillapp" type="checkbox" bind:checked={scroll} />
 				</div>
 			</div>
 		</div>
