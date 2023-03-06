@@ -54,7 +54,12 @@
 			<span class={css?.limits?.class ?? ''} style={css?.limits?.style ?? ''}>
 				{+min}
 			</span>
-			<div class="grow" on:pointerdown|stopPropagation>
+			<div
+				class="grow"
+				style="--range-handle-focus: {'#7e9abd'}; --range-handle: {'#7e9abd'}; {css?.bar?.style ??
+					''}"
+				on:pointerdown|stopPropagation
+			>
 				<RangeSlider
 					bind:slider
 					bind:values

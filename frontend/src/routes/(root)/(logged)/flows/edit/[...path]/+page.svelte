@@ -4,7 +4,7 @@
 	import { page } from '$app/stores'
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import { workspaceStore } from '$lib/stores'
-	import { decodeArgs, decodeState, emptySchema, sendUserToast } from '$lib/utils'
+	import { decodeArgs, decodeState, sendUserToast } from '$lib/utils'
 	import { initFlow } from '$lib/components/flows/flowStore'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 	import { goto } from '$app/navigation'
