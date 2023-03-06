@@ -61,7 +61,7 @@
 	<div
 		class="overflow-auto min-w-[150px] border-t w-full relative flex flex-col gap-4 px-2 pt-4 pb-2"
 	>
-		<div class="relative">
+		<div class="relative {$connectingInput?.opened ? 'bg-white z-50' : ''}">
 			<input
 				bind:value={search}
 				class="px-2 py-1 border border-gray-300 rounded-sm {search ? 'pr-8' : ''}"

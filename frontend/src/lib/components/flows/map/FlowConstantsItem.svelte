@@ -4,7 +4,7 @@
 	import { classNames } from '$lib/utils'
 	import { DollarSign } from 'lucide-svelte'
 
-	const { select, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	$: settingsClass = classNames(
 		'border w-full rounded-sm p-2 bg-white border-gray-400 text-sm cursor-pointer flex items-center',
@@ -12,7 +12,7 @@
 	)
 </script>
 
-<button on:click={() => select('constants')} class={settingsClass}>
+<button on:click={() => ($selectedId = 'constants')} class={settingsClass}>
 	<DollarSign size={16} />
 	<span class="text-xs flex flex-row justify-between w-full gap-2 items-center truncate ml-1">
 		All Static Inputs

@@ -5,14 +5,18 @@
 	import { flowStore } from './flowStore'
 	import WindmillIcon from '../icons/WindmillIcon.svelte'
 	import { Skeleton } from '../common'
+	import { getContext } from 'svelte'
+	import type { FlowEditorContext } from './types'
 
 	export let initialPath: string
 	export let loading: boolean
+
+	let size = 50
 </script>
 
 <div class="h-full overflow-hidden border-t">
 	<Splitpanes>
-		<Pane size={20} minSize={15} class="h-full">
+		<Pane {size} minSize={15} class="h-full">
 			<div class="grow overflow-auto bg-gray h-full bg-gray-50 relative">
 				{#if loading}
 					<div class="p-2 pt-10">
@@ -21,11 +25,11 @@
 						{/each}
 					</div>
 				{:else if $flowStore.value.modules}
-					<FlowModuleSchemaMap bind:modules={$flowStore.value.modules} root />
+					<FlowModuleSchemaMap bind:modules={$flowStore.value.modules} />
 				{/if}
 			</div>
 		</Pane>
-		<Pane size={80} minSize={40}>
+		<Pane class="drop-shadow-2xl" size={100 - size} minSize={40}>
 			{#if loading}
 				<div class="w-full h-full ">
 					<div class="block m-auto mt-40 w-10">

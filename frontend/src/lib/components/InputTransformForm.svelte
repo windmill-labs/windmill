@@ -206,9 +206,7 @@
 						value="javascript"
 						startIcon={{ icon: faCode }}
 						size="xs"
-					>
-						Dynamic (JS)
-					</ToggleButton>
+					/>
 				</ToggleButtonGroup>
 				<Button
 					variant="contained"
@@ -299,6 +297,4 @@
 			Not recognized input type {argName}
 		{/if}
 	</div>
-{:else}
-	<p class="text-sm text-gray-700">Argument at {argName} is undefined</p>
 {/if}

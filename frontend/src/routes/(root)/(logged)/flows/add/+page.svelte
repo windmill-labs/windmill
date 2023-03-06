@@ -55,7 +55,7 @@
 				flow.path = `u/${$userStore?.username}/${oldPath[oldPath.length - 1]}`
 				flow = flow
 				goto('?', { replaceState: true })
-				selectedId = 'settings-graph'
+				selectedId = 'settings-metadata'
 			} else if (hubId) {
 				const hub = await FlowService.getHubFlowById({ id: Number(hubId) })
 				delete hub['comments']
@@ -63,7 +63,7 @@
 				Object.assign(flow, hub.flow)
 				flow = flow
 				goto('?', { replaceState: true })
-				selectedId = 'settings-graph'
+				selectedId = 'settings-metadata'
 			}
 		}
 		await initFlow(flow)

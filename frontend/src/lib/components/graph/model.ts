@@ -1,40 +1,9 @@
 import type { FlowStatusModule } from "$lib/gen"
+import type { UserNodeType } from "./svelvet/types";
 
-export interface SvelvetNode<T = any> {
-	id: number;
-	position: { x: number, y: number };
-	data: T;
-	width: number;
-	height: number;
-	bgColor?: string;
-	fontSize?: number;
-	borderColor?: string;
-	parentNode?: number;
-	childNodes?: number[];
-	borderRadius?: number;
-	textColor?: string;
-	clickCallback?: Function;
-	image?: boolean;
-	src?: string;
-	sourcePosition?: 'left' | 'right' | 'top' | 'bottom';
-	targetPosition?: 'left' | 'right' | 'top' | 'bottom';
-}
-export interface Edge {
-	id: string;
-	source: number;
-	target: number;
-	label?: string;
-	labelBgColor?: string;
-	labelTextColor?: string;
-	edgeColor?: string;
-	type?: string;
-	animate?: boolean;
-	noHandle?: boolean;
-	arrow?: boolean;
-}
 export type ModuleHost = 'workspace' | 'inline' | 'hub'
 
-export type Node = SvelvetNode & { parentIds: string[], edgeLabel?: string, host?: ModuleHost }
+export type Node = UserNodeType & { parentIds: string[], edgeLabel?: string, host?: ModuleHost, type: 'node', loopDepth: number }
 
 export type Loop = {
 	type: 'loop',
@@ -43,6 +12,7 @@ export type Loop = {
 
 export type Branch = {
 	node: Node,
+	nodeEnd: Node,
 	type: 'branch',
 	items: NestedNodes[]
 }
@@ -64,7 +34,7 @@ export type GraphModuleState = {
 export type NestedNodes = GraphItem[]
 
 export function isNode(item: GraphItem | NestedNodes | undefined): item is Node {
-	return typeof item?.['id'] === 'number'
+	return item?.['type'] === 'node'
 }
 
 export function isLoop(item: GraphItem | NestedNodes | undefined): item is Loop {

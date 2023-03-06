@@ -40,7 +40,7 @@ pub async fn eval_timeout(
     let (sender, mut receiver) = oneshot::channel::<IsolateHandle>();
     let base_internal_url: String = base_internal_url.to_string();
     timeout(
-        std::time::Duration::from_millis(2000),
+        std::time::Duration::from_millis(3000),
         tokio::task::spawn_blocking(move || {
             let mut ops = vec![];
 
@@ -104,7 +104,7 @@ pub async fn eval_timeout(
             isolate.terminate_execution();
         };
         Error::ExecutionErr(format!(
-            "The expression of evaluation `{expr2}` took too long to execute (>2000ms)"
+            "The expression of evaluation `{expr2}` took too long to execute (>3000ms)"
         ))
     })??
 }
