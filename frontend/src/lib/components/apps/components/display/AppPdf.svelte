@@ -7,12 +7,11 @@
 	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import InputValue from '../helpers/InputValue.svelte'
-	import { debounce, throttle } from '../../../../utils'
+	import { throttle } from '../../../../utils'
 	import { Button } from '../../../common'
 	import { Download, Loader2, MoveHorizontal, ZoomIn, ZoomOut } from 'lucide-svelte'
 	import { fade } from 'svelte/transition'
 	import { findGridItem } from '../../editor/appUtils'
-	import { Page } from 'svelte-pdfjs'
 
 	export let id: string
 	export let configuration: Record<string, AppInput>
@@ -20,10 +19,6 @@
 	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
 
 	const { app, mode, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
-	// const resizeObserver = new ResizeObserver(() => {
-	// 	console.log('debounced render')
-	// 	debouncedRender(true, true)
-	// })
 
 	let source: string | ArrayBuffer | undefined = undefined
 	let wrapper: HTMLDivElement | undefined = undefined
@@ -41,11 +36,10 @@
 	}
 	$: {
 		zoom = minMax(zoom, 10, 500)
-		// renderPdf(false, true)
+		renderPdf(false, true)
 	}
 	$: wrapper && loadDocument(source)
 	$: wideView = controlsWidth && controlsWidth > 450
-	// $: wrapper && resizeObserver.observe(wrapper)
 
 	async function resetDoc() {
 		await doc?.destroy()
@@ -61,7 +55,7 @@
 			doc = await getDocument(src).promise
 			pageNumber = 1
 			zoom = 100
-			// await renderPdf()
+			await renderPdf()
 			error = undefined
 		} catch (err) {
 			await resetDoc()
@@ -70,12 +64,7 @@
 		}
 	}
 
-	// const debouncedRender = debounce(renderPdf, 300)
-	async function renderPdf(
-		scaleToViewport = true,
-		resizing = false,
-		maxZoom: number | undefined = undefined
-	) {
+	async function renderPdf(scaleToViewport = true, resizing = false) {
 		if (!(doc && wrapper)) {
 			return
 		}
@@ -126,6 +115,7 @@
 		if (!offset) {
 			return
 		}
+		//                           controlsHeight + 2px border + half of the top margin
 		const padding = (controlsHeight ? controlsHeight + 2 : 0) + 8
 		wrapper?.scrollTo({
 			top: offset - padding
@@ -150,7 +140,7 @@
 		pageNumber = page
 	}
 
-	function syncZoomValue() {
+	async function syncZoomValue() {
 		const gridItem = findGridItem($app, id)
 		if (gridItem) {
 			gridItem.data.configuration.zoom.value = zoom
@@ -192,7 +182,9 @@
 			<div
 				bind:clientWidth={controlsWidth}
 				bind:clientHeight={controlsHeight}
-				class="fixed w-[calc(100%-2px)] top-[1px] flex {wideView
+				class="fixed flex {$mode !== 'preview'
+					? 'w-[calc(100%-2px)] top-[1px]'
+					: 'w-full top-0'} {wideView
 					? 'justify-center gap-14'
 					: '!justify-between'} overflow-x-auto bg-white border mx-auto py-1"
 			>
@@ -296,13 +288,7 @@
 			on:scroll={throttledScroll}
 			class={twMerge('w-full overflow-auto bg-gray-100', css?.container?.class ?? '')}
 			style="padding-top: {controlsHeight ?? 0}px; {css?.container?.style ?? ''}"
-		>
-			{#if doc}
-				{#each Array.from({ length: doc.numPages }, (_, i) => i + 1) as num}
-					<Page {num} />
-				{/each}
-			{/if}
-		</div>
+		/>
 	{/if}
 	{#if $mode !== 'preview' && $selectedComponent === id}
 		<button
