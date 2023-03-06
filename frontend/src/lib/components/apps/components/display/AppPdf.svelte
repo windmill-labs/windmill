@@ -25,7 +25,7 @@
 	let error: string | undefined = undefined
 	let doc: PDFDocumentProxy | undefined = undefined
 	let pages: PDFPageProxy[] = []
-	let zoom = 100
+	let zoom: number | undefined = undefined
 	let controlsWidth: number | undefined = undefined
 	let controlsHeight: number | undefined = undefined
 	let pageNumber = 1
@@ -34,16 +34,23 @@
 		resetDoc()
 		error = 'Set the "Source" attribute of the PDF component'
 	}
-	$: {
-		zoom = minMax(zoom, 10, 500)
-		renderPdf(false, true)
-	}
+	$: zoom && handleZoom()
 	$: wrapper && loadDocument(source)
 	$: wideView = controlsWidth && controlsWidth > 450
 
 	async function resetDoc() {
 		await doc?.destroy()
 		doc = undefined
+	}
+
+	function handleZoom() {
+		if (zoom && wrapper) {
+			try {
+				renderPdf(false)
+			} catch (err) {
+				error = err?.message ?? (typeof err === 'string' ? err : 'Error loading PDF')
+			}
+		}
 	}
 
 	async function loadDocument(src: string | ArrayBuffer | undefined) {
@@ -54,8 +61,7 @@
 			await resetDoc()
 			doc = await getDocument(src).promise
 			pageNumber = 1
-			zoom = 100
-			await renderPdf()
+			await renderPdf(false, false)
 			error = undefined
 		} catch (err) {
 			await resetDoc()
@@ -65,7 +71,7 @@
 	}
 
 	async function renderPdf(scaleToViewport = true, resizing = false) {
-		if (!(doc && wrapper)) {
+		if (!(doc && wrapper && zoom)) {
 			return
 		}
 		const scrollPosition = wrapper.scrollTop / wrapper.scrollHeight
@@ -180,7 +186,7 @@
 <InputValue {id} input={configuration.zoom} bind:value={zoom} />
 
 <div class="relative w-full h-full bg-gray-100">
-	{#if source}
+	{#if source && zoom}
 		{#if pages?.length}
 			<div
 				bind:clientWidth={controlsWidth}
@@ -193,7 +199,7 @@
 			>
 				<div class="flex justify-start items-center px-2 text-gray-600 text-sm">
 					<Button
-						on:click={() => (zoom -= 10)}
+						on:click={() => zoom && (zoom -= 10)}
 						disabled={!doc}
 						size="xs"
 						color="light"
@@ -231,7 +237,7 @@
 						<MoveHorizontal size={16} />
 					</Button>
 					<Button
-						on:click={() => (zoom += 10)}
+						on:click={() => zoom && (zoom += 10)}
 						disabled={!doc}
 						size="xs"
 						color="light"
