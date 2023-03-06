@@ -147,7 +147,6 @@
 	})
 
 	$: css = concatCustomCss($app.css?.mapcomponent, customCss)
-	$: gridItem = findGridItem($app, id)
 
 	function updateRegionOutput() {
 		if (map) {
@@ -164,6 +163,8 @@
 	}
 
 	function handleSyncRegion() {
+		const gridItem = findGridItem($app, id)
+
 		if (!map || !gridItem) {
 			return
 		}
