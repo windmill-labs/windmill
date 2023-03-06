@@ -228,6 +228,12 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 					value: false,
 					fieldType: 'boolean',
 					onlyStatic: true
+				},
+				fitContent: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean',
+					onlyStatic: true
 				}
 			},
 			customCss: {
@@ -912,9 +918,7 @@ Hello \${ctx.username}
 					type: 'static',
 					fieldType: 'array',
 					subFieldType: 'text',
-					value: [
-						"Foo", "Bar"
-					]
+					value: ['Foo', 'Bar']
 				},
 				placeholder: {
 					type: 'static',

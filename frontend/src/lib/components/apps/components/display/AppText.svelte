@@ -27,6 +27,7 @@
 	let result: string | undefined = undefined
 	let style: 'Title' | 'Subtitle' | 'Body' | 'Caption' | 'Label' | undefined = undefined
 	let copyButton: boolean
+	let fitContent = false
 
 	function getComponent() {
 		switch (style) {
@@ -64,9 +65,10 @@
 
 <InputValue {id} input={configuration.style} bind:value={style} />
 <InputValue {id} input={configuration.copyButton} bind:value={copyButton} />
+<InputValue {id} input={configuration.fitContent} bind:value={fitContent} />
 
 <RunnableWrapper flexWrap {componentInput} {id} bind:initializing bind:result>
-	<ResizeWrapper {id}>
+	<ResizeWrapper {id} shouldWrap={fitContent}>
 		<AlignWrapper {horizontalAlignment} {verticalAlignment}>
 			{#if !result || result === ''}
 				<div class="text-gray-400 bg-gray-100 flex justify-center items-center h-full w-full">
