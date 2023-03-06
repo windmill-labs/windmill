@@ -2,11 +2,12 @@
 	import { Badge } from '$lib/components/common'
 	import type { FlowModule } from '$lib/gen'
 	import { classNames } from '$lib/utils'
+	import { faBolt } from '@fortawesome/free-solid-svg-icons'
 	import { X } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
+	import { Icon } from 'svelte-awesome'
 	import InsertModuleButton from './InsertModuleButton.svelte'
 
-	export let trigger = false
 	export let label: string
 	export let modules: FlowModule[] | undefined
 	export let index: number
@@ -20,7 +21,7 @@
 
 	const dispatch = createEventDispatcher<{
 		insert: {
-			detail: 'script' | 'forloop' | 'branchone' | 'branchall'
+			detail: 'script' | 'forloop' | 'branchone' | 'branchall' | 'trigger'
 			modules: FlowModule[]
 			index: number
 		}
@@ -33,6 +34,7 @@
 {#if insertable && deleteBranch}
 	<div class="w-7 absolute -top-10 left-[50%] right-[50%] -translate-x-1/2">
 		<button
+			title="Delete branch"
 			on:click|stopPropagation={() => {
 				dispatch('deleteBranch', deleteBranch)
 			}}
@@ -79,7 +81,7 @@
 	</div>
 </div>
 
-{#if insertable && modules}
+{#if insertable && modules && (label != 'Input' || modules.length > 0)}
 	<div
 		class="{openMenu ? 'z-10' : ''} w-7 absolute {whereInsert == 'after'
 			? 'top-12'
@@ -87,12 +89,29 @@
 	>
 		<InsertModuleButton
 			bind:open={openMenu}
-			{trigger}
+			trigger={label == 'Input'}
 			on:new={(e) => {
 				if (modules) {
 					dispatch('insert', { modules, index, detail: e.detail })
 				}
 			}}
 		/>
+	</div>
+{/if}
+
+{#if insertable && modules && label == 'Input'}
+	<div class="w-7 absolute top-12 left-[65%] right-[35%] -translate-x-1/2">
+		<button
+			title="Add a Trigger"
+			on:click={() => {
+				if (modules) {
+					dispatch('insert', { modules, index: 0, detail: 'trigger' })
+				}
+			}}
+			type="button"
+			class=" text-gray-900 bg-white border mx-0.5 rotate-180 border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
+		>
+			<Icon data={faBolt} scale={0.8} />
+		</button>
 	</div>
 {/if}

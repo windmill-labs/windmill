@@ -161,6 +161,7 @@
 	{#if insertable && branchable}
 		<div class="w-7 absolute top-11 left-[60%] right-[40%] -translate-x-1/2">
 			<button
+				title="Add branch"
 				on:click={() => {
 					dispatch('newBranch', { module: mod })
 				}}
