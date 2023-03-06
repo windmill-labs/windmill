@@ -167,7 +167,7 @@
 	{#if showOptions}
 		<ul
 			class="options"
-			transition:fly={{ duration: 200, y: 5 }}
+			transition:fly|local={{ duration: 200, y: 5 }}
 			on:mousedown|preventDefault={handleOptionMousedown}
 		>
 			{#each filtered as option}

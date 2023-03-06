@@ -15,6 +15,7 @@
 	export let startIcon: ButtonType.Icon | undefined = undefined
 	export let endIcon: ButtonType.Icon | undefined = undefined
 	export let spacingSize: ButtonType.Size = size
+	export let loading = false
 
 	let ref: ButtonType.Element
 
@@ -33,6 +34,7 @@
 <div class="flex justy-start items-center">
 	{#if $$slots.main}
 		<Button
+			{loading}
 			{...commonProps}
 			{href}
 			{target}

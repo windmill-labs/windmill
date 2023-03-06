@@ -1052,6 +1052,7 @@ Hello \${ctx.username}
 				}
 			},
 			customCss: {
+				bar: { style: '' },
 				handle: { style: '' },
 				limits: { class: '', style: '' },
 				value: { class: '', style: '' }
@@ -1098,6 +1099,7 @@ Hello \${ctx.username}
 			},
 			customCss: {
 				handles: { style: '' },
+				bar: { style: '' },
 				limits: { class: '', style: '' },
 				values: { class: '', style: '' }
 			} as const,

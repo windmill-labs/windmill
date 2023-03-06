@@ -26,7 +26,7 @@
 					<input type="text" class="!pr-7" bind:value={value.style} on:focus />
 					{#if value?.style}
 						<button
-							transition:fade={{ duration: 100 }}
+							transition:fade|local={{ duration: 100 }}
 							class="absolute z-10 top-1.5 right-1 rounded-full p-1 duration-200 hover:bg-gray-200"
 							aria-label="Remove styles"
 							on:click|preventDefault|stopPropagation={() => reset('style')}
@@ -44,7 +44,7 @@
 					<input type="text" class="!pr-7" bind:value={value.class} on:focus />
 					{#if value?.class}
 						<button
-							transition:fade={{ duration: 100 }}
+							transition:fade|local={{ duration: 100 }}
 							class="absolute z-10 top-1.5 right-1 rounded-full p-1 duration-200 hover:bg-gray-200"
 							aria-label="Remove classes"
 							on:click|preventDefault|stopPropagation={() => reset('class')}

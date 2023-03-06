@@ -7,7 +7,7 @@
 	import { setContext } from 'svelte'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
-	import { Button } from './common'
+	import { Button, ButtonPopup, ButtonPopupItem } from './common'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { OFFSET } from './CronInput.svelte'
@@ -25,8 +25,6 @@
 	export let selectedId: string | undefined
 	export let initialArgs: Record<string, any> = {}
 	export let loading = false
-
-	let pathError = ''
 
 	async function createSchedule(path: string) {
 		const { cron, args, enabled } = $scheduleStore
@@ -49,7 +47,10 @@
 		}
 	}
 
-	async function saveFlow(): Promise<void> {
+	let loadingSave = false
+
+	async function saveFlow(leave: boolean): Promise<void> {
+		loadingSave = true
 		const flow = cleanInputs($flowStore)
 		const { cron, args, enabled } = $scheduleStore
 		$dirtyStore = false
@@ -111,7 +112,12 @@
 				await createSchedule(flow.path)
 			}
 		}
-		goto(`/flows/get/${$flowStore.path}?workspace_id=${$workspaceStore}`)
+		loadingSave = false
+		if (leave) {
+			goto(`/flows/get/${$flowStore.path}?workspace_id=${$workspaceStore}`)
+		} else if (initialPath !== $flowStore.path) {
+			goto(`/flows/edit/${$flowStore.path}?workspace_id=${$workspaceStore}`)
+		}
 	}
 
 	let timeout: NodeJS.Timeout | undefined = undefined
@@ -139,7 +145,7 @@
 		}, 500)
 	}
 
-	const selectedIdStore = writable<string>(selectedId)
+	const selectedIdStore = writable<string>(selectedId ?? 'settings-metadata')
 
 	const scheduleStore = writable<Schedule>({ args: {}, cron: '', enabled: false })
 	const previewArgsStore = writable<Record<string, any>>(initialArgs)
@@ -237,12 +243,22 @@
 			<div class="flex flex-row space-x-2">
 				<FlowPreviewButtons />
 				<div class="center-center">
-					<Button
-						disabled={pathError != ''}
-						startIcon={{ icon: faSave }}
+					<ButtonPopup
+						loading={loadingSave}
 						size="sm"
-						on:click={saveFlow}>Save</Button
+						startIcon={{ icon: faSave }}
+						on:click={() => saveFlow(false)}
 					>
+						<svelte:fragment slot="main">Save</svelte:fragment>
+						<ButtonPopupItem on:click={() => saveFlow(true)}>Save and exit</ButtonPopupItem>
+						{#if initialPath != ''}
+							<ButtonPopupItem
+								on:click={() => {
+									window.open(`/flows/add?template=${initialPath}`)
+								}}>Fork</ButtonPopupItem
+							>
+						{/if}
+					</ButtonPopup>
 				</div>
 			</div>
 		</div>
