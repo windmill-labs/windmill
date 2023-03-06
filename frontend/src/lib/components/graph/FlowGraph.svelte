@@ -69,7 +69,7 @@
 			createVirtualNode(
 				getParentIds(),
 				'Input',
-				modules.length == 0 ? modules : undefined,
+				modules,
 				'after',
 				undefined,
 				undefined,
