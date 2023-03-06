@@ -290,7 +290,7 @@
 			bind:this={wrapper}
 			on:scroll={throttledScroll}
 			class={twMerge('w-full h-full overflow-auto', css?.container?.class ?? '', 'bg-gray-100')}
-			style="margin-top: {controlsHeight ?? 0}px; {css?.container?.style ?? ''}"
+			style="padding-top: {controlsHeight ?? 0}px; {css?.container?.style ?? ''}"
 		/>
 	{/if}
 	{#if $mode !== 'preview' && $selectedComponent === id}
