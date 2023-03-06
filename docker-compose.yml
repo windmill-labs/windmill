@@ -38,7 +38,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    volumes:
+    # volumes:
       # - ./oauth.json/:/usr/src/app/oauth.json
       
   windmill_worker:
