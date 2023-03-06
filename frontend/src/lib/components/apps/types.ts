@@ -53,7 +53,12 @@ export interface BaseAppComponent extends Partial<Aligned> {
 	>
 	card: boolean | undefined
 	customCss?: ComponentCustomCSS
-
+	/**
+	 * If `true` then the wrapper will allow items to flow outside of it's borders.
+	 *
+	 * *For example when the component has a popup like `Select`*
+	 */
+	softWrap?: boolean
 	// Number of subgrids
 	numberOfSubgrids?: number
 }
