@@ -454,11 +454,19 @@
 		const stratify = dagStratify().id(({ id }: Node) => id)
 		const dag = stratify(nodes)
 
-		const layout = sugiyama()
-			.decross(decrossOpt().large('medium'))
-			.coord(coordCenter())
-			.nodeSize(() => [NODE.width + NODE.gap.horizontal, NODE.height + NODE.gap.vertical])
-		const boxSize = layout(dag)
+		let boxSize: any
+		try {
+			const layout = sugiyama()
+				.decross(decrossOpt())
+				.coord(coordCenter())
+				.nodeSize(() => [NODE.width + NODE.gap.horizontal, NODE.height + NODE.gap.vertical])
+			boxSize = layout(dag)
+		} catch {
+			const layout = sugiyama()
+				.coord(coordCenter())
+				.nodeSize(() => [NODE.width + NODE.gap.horizontal, NODE.height + NODE.gap.vertical])
+			boxSize = layout(dag)
+		}
 		return {
 			nodes: dag.descendants().map((des) => ({
 				...des.data,
