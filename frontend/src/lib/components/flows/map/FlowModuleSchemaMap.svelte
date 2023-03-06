@@ -153,7 +153,6 @@
 			}
 
 			module.value.branches.splice(index - 1, 1)
-			module = { ...module }
 		}
 	}
 </script>
