@@ -112,10 +112,11 @@
 	function scrollToPage(page: number) {
 		page = pageNumber = minMax(page, 1, pages.length)
 		const offset = (wrapper?.children.item(page - 1) as HTMLCanvasElement | null)?.offsetTop
+		// debugger
 		if (!offset) {
 			return
 		}
-		//                           controlsHeight + 2px border + half of the top margin
+		//                       controlsHeight + 2px border + half of the top margin
 		const padding = (controlsHeight ? controlsHeight + 2 : 0) + 8
 		wrapper?.scrollTo({
 			top: offset - padding
@@ -244,7 +245,7 @@
 				</div>
 				<div class="center-center px-2 text-gray-600 text-sm">
 					<input
-						on:input|stopPropagation={({ currentTarget }) => {
+						on:input={({ currentTarget }) => {
 							scrollToPage(currentTarget.valueAsNumber)
 						}}
 						min="1"
@@ -288,8 +289,8 @@
 		<div
 			bind:this={wrapper}
 			on:scroll={throttledScroll}
-			class={twMerge('w-full overflow-auto bg-gray-100', css?.container?.class ?? '')}
-			style="padding-top: {controlsHeight ?? 0}px; {css?.container?.style ?? ''}"
+			class={twMerge('w-full h-full overflow-auto', css?.container?.class ?? '', 'bg-gray-100')}
+			style="margin-top: {controlsHeight ?? 0}px; {css?.container?.style ?? ''}"
 		/>
 	{/if}
 	{#if $mode !== 'preview' && $selectedComponent === id}
