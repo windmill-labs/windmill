@@ -140,10 +140,11 @@
 			return flowModuleToLoop(modules, module, parent, loopDepth)
 		} else if (type === 'branchone') {
 			const branches = [
-				{ summary: 'Default branch', modules: module.value.default },
+				{ summary: 'Default Branch', modules: module.value.default, removable: false },
 				...module.value.branches.map((b, i) => ({
 					summary: defaultIfEmptyString(b.summary, 'Branch ' + (i + 1)),
-					modules: b.modules
+					modules: b.modules,
+					removable: true
 				}))
 			]
 			return flowModuleToBranch(
@@ -158,7 +159,8 @@
 		} else if (type === 'branchall') {
 			const branches = module.value.branches.map((b, i) => ({
 				summary: defaultIfEmptyString(b.summary, `Branch ${i + 1}`),
-				modules: b.modules
+				modules: b.modules,
+				removable: true
 			}))
 			return flowModuleToBranch(module, modules, branches, [], parent, loopDepth, true)
 		}
@@ -345,7 +347,7 @@
 	function flowModuleToBranch(
 		module: FlowModule,
 		modules: FlowModule[],
-		branches: { summary: string; modules: FlowModule[] }[],
+		branches: { summary: string; modules: FlowModule[]; removable: boolean }[],
 		edgesLabel: string[],
 		parent: string | NestedNodes | undefined = undefined,
 		loopDepth: number,
@@ -380,7 +382,7 @@
 			])
 		}
 
-		branches.forEach(({ summary, modules }, i) => {
+		branches.forEach(({ summary, modules, removable }, i) => {
 			const items: NestedNodes = []
 			items.push(
 				createVirtualNode(
@@ -393,7 +395,7 @@
 					loopDepth,
 					0,
 					false,
-					{ module, index: i }
+					removable ? { module, index: i } : undefined
 				)
 			)
 			if (modules.length) {
@@ -454,11 +456,19 @@
 		const stratify = dagStratify().id(({ id }: Node) => id)
 		const dag = stratify(nodes)
 
-		const layout = sugiyama()
-			.decross(decrossOpt().large('medium'))
-			.coord(coordCenter())
-			.nodeSize(() => [NODE.width + NODE.gap.horizontal, NODE.height + NODE.gap.vertical])
-		const boxSize = layout(dag)
+		let boxSize: any
+		try {
+			const layout = sugiyama()
+				.decross(decrossOpt())
+				.coord(coordCenter())
+				.nodeSize(() => [NODE.width + NODE.gap.horizontal, NODE.height + NODE.gap.vertical])
+			boxSize = layout(dag)
+		} catch {
+			const layout = sugiyama()
+				.coord(coordCenter())
+				.nodeSize(() => [NODE.width + NODE.gap.horizontal, NODE.height + NODE.gap.vertical])
+			boxSize = layout(dag)
+		}
 		return {
 			nodes: dag.descendants().map((des) => ({
 				...des.data,
