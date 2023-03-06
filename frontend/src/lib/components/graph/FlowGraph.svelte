@@ -35,6 +35,7 @@
 	export let initialZoom: number | undefined = 1.0
 
 	export let insertable = false
+	export let moving: string | undefined = undefined
 
 	setContext<{ selectedId: Writable<string | undefined> }>('FlowGraphContext', { selectedId })
 
@@ -50,6 +51,7 @@
 
 	$: {
 		rebuildOnChange
+		moving
 		width && height && minHeight && $selectedId && flowModuleStates
 		nodes = edges = []
 		errorHandlers = {}
@@ -69,7 +71,7 @@
 			createVirtualNode(
 				getParentIds(),
 				'Input',
-				modules.length == 0 ? modules : undefined,
+				modules,
 				'after',
 				undefined,
 				undefined,
@@ -246,7 +248,8 @@
 						branchable,
 						bgColor: getStateColor(flowModuleStates?.[mod.id]?.type),
 						annotation,
-						modules
+						modules,
+						moving
 					},
 					cb: (e: string, detail: any) => {
 						if (e == 'delete') {
@@ -262,6 +265,8 @@
 							dispatch('insert', detail)
 						} else if (e == 'newBranch') {
 							dispatch('newBranch', detail)
+						} else if (e == 'move') {
+							dispatch('move', { module: mod, modules })
 						}
 					}
 				}
@@ -572,7 +577,8 @@
 						selectable,
 						whereInsert,
 						deleteBranch,
-						id: mid
+						id: mid,
+						moving
 					},
 					cb: (e: string, detail: any) => {
 						if (e == 'insert') {
