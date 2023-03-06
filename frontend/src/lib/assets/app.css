@@ -50,6 +50,18 @@
 	.Template-editor span.mtk20 {
 		color: black !important;
 	}
+
+	::-webkit-scrollbar {
+		width: 9px;
+		height: 9px;
+	}
+	::-webkit-scrollbar-track {
+		background: transparent;
+	}
+	::-webkit-scrollbar-thumb {
+		background-color: rgba(155, 155, 155, 0.5);
+		border: transparent;
+	}
 }
 
 @layer components {

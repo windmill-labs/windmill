@@ -148,7 +148,7 @@
 			{/if}
 		</div>
 		{#if !noDynamicToggle}
-			<div class="flex flex-row gap-x-4 gap-y-1 flex-wrap">
+			<div class="flex flex-row gap-x-4 gap-y-1 flex-wrap z-10">
 				<ToggleButtonGroup
 					bind:selected={propertyType}
 					on:selected={(e) => {
@@ -190,10 +190,10 @@
 				>
 					{#if isStaticTemplate(inputCat)}
 						<ToggleButton light position="left" value="static" size="xs">
-							{'${} '}Template &nbsp; <Tooltip
-								>Write javascript expressions between "{openBracket}" and "{closeBracket}". You may
-								refer to contextual objects like 'flow_input', or 'result' or functions like
-								'resource' and 'variable'
+							{'${} '}&nbsp;
+							<Tooltip
+								>Write text or surround javascript with "{openBracket}" and "{closeBracket}". Use
+								`result` to connect to another node's output.
 							</Tooltip></ToggleButton
 						>
 					{:else}
@@ -206,7 +206,11 @@
 						value="javascript"
 						startIcon={{ icon: faCode }}
 						size="xs"
-					/>
+						>&nbsp;<Tooltip
+							>Write javascript expressions directly, using 'flow_input' or 'result'. You can use
+							multiline javascript.
+						</Tooltip></ToggleButton
+					>
 				</ToggleButtonGroup>
 				<Button
 					variant="contained"

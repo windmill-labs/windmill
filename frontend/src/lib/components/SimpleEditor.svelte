@@ -209,7 +209,7 @@
 	})
 </script>
 
-<div bind:this={divEl} class="{$$props.class} editor" bind:clientWidth={width} />
+<div bind:this={divEl} class="{$$props.class ?? ''} editor" bind:clientWidth={width} />
 
 <style>
 	.editor {

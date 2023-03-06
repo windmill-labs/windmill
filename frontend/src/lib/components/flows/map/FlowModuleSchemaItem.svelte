@@ -4,7 +4,7 @@
 	import { classNames } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import { fade } from 'svelte/transition'
-	import { Bed, PhoneIncoming, Repeat, Square, X } from 'lucide-svelte'
+	import { Bed, Move, PhoneIncoming, Repeat, Square, X } from 'lucide-svelte'
 
 	export let selected: boolean = false
 	export let deletable: boolean = false
@@ -95,13 +95,22 @@
 	{#if deletable}
 		<button
 			class="absolute -top-2 -right-2 rounded-full h-4 w-4 trash center-center 
-			border-[1.5px] border-gray-700 bg-white duration-150 hover:bg-red-400 hover:text-white 
-			hover:border-red-700 {selected ? '' : '!hidden'}"
+	border-[1.5px] border-gray-700 bg-white duration-150 hover:bg-red-400 hover:text-white 
+	hover:border-red-700 {selected ? '' : '!hidden'}"
 			on:click|preventDefault|stopPropagation={(event) =>
 				dispatch('delete', { event, id, type: modType })}
 		>
 			<X size={12} strokeWidth={2} />
 		</button>
+
+		<!-- <button
+			class="absolute -top-2 right-10 rounded-full h-4 w-4 trash center-center 
+border-[1.5px] border-gray-700 bg-white duration-150 hover:bg-blue-400 hover:text-white 
+hover:border-blue-700 {selected ? '' : '!hidden'}"
+			on:click|preventDefault|stopPropagation={(event) => dispatch('move', { module })}
+		>
+			<Move size={12} strokeWidth={2} />
+		</button> -->
 	{/if}
 </div>
 
