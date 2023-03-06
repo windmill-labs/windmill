@@ -262,6 +262,10 @@
 							dispatch('insert', detail)
 						} else if (e == 'newBranch') {
 							dispatch('newBranch', detail)
+						} else if (e == 'movefrom') {
+							dispatch('moveto', detail)
+						} else if (e == 'moveto') {
+							dispatch('movefrom', detail)
 						}
 					}
 				}

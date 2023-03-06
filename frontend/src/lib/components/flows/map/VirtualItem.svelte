@@ -81,7 +81,7 @@
 	</div>
 </div>
 
-{#if insertable && modules && (label != 'Input' || modules.length > 0)}
+{#if insertable && modules && (label != 'Input' || modules.length == 0)}
 	<div
 		class="{openMenu ? 'z-10' : ''} w-7 absolute {whereInsert == 'after'
 			? 'top-12'

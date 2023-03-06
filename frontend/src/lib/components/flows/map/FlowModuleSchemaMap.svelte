@@ -159,7 +159,7 @@
 	}
 </script>
 
-<div class="flex flex-col h-full relative">
+<div class="flex flex-col h-full relative -pt-1">
 	<div
 		class="z-10 sticky inline-flex flex-col gap-2 top-0 bg-gray-50 flex-initial p-2 items-center border-b border-gray-300"
 	>

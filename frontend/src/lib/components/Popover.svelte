@@ -49,22 +49,11 @@
 </script>
 
 {#if notClickable}
-	<span
-		use:popperRef
-		on:mouseenter={open}
-		on:mouseleave={close}
-		class={$$props.class}
-	>
+	<span use:popperRef on:mouseenter={open} on:mouseleave={close} class={$$props.class}>
 		<slot />
 	</span>
 {:else}
-	<button
-		use:popperRef
-		on:mouseenter={open}
-		on:mouseleave={close}
-		on:click
-		class={$$props.class}
-	>
+	<button use:popperRef on:mouseenter={open} on:mouseleave={close} on:click class={$$props.class}>
 		<slot />
 	</button>
 {/if}
