@@ -30,7 +30,7 @@
 	let controlsHeight: number | undefined = undefined
 	let pageNumber = 1
 
-	$: if (!source) {
+	$: if (source == '') {
 		resetDoc()
 		error = 'Set the "Source" attribute of the PDF component'
 	}
@@ -148,7 +148,7 @@
 			gridItem.data.configuration.zoom.value = zoom
 		}
 
-		$app = { ...$app }
+		$app = $app
 	}
 
 	async function downloadPdf() {
