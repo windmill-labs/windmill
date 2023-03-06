@@ -9,16 +9,17 @@
 	import InputValue from '../helpers/InputValue.svelte'
 	import { debounce, throttle } from '../../../../utils'
 	import { Button } from '../../../common'
-	import { Download, Loader2, ZoomIn, ZoomOut } from 'lucide-svelte'
+	import { Download, Loader2, MoveHorizontal, ZoomIn, ZoomOut } from 'lucide-svelte'
 	import { fade } from 'svelte/transition'
 	import { findGridItem } from '../../editor/appUtils'
+	import { Page } from 'svelte-pdfjs'
 
 	export let id: string
 	export let configuration: Record<string, AppInput>
 	export const staticOutputs: string[] = ['loading']
 	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
 
-	const { app, mode } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, mode, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
 	// const resizeObserver = new ResizeObserver(() => {
 	// 	console.log('debounced render')
 	// 	debouncedRender(true, true)
@@ -34,14 +35,13 @@
 	let controlsHeight: number | undefined = undefined
 	let pageNumber = 1
 
-	$: gridItem = findGridItem($app, id)
 	$: if (!source) {
 		resetDoc()
 		error = 'Set the "Source" attribute of the PDF component'
 	}
 	$: {
 		zoom = minMax(zoom, 10, 500)
-		renderPdf(false, true)
+		// renderPdf(false, true)
 	}
 	$: wrapper && loadDocument(source)
 	$: wideView = controlsWidth && controlsWidth > 450
@@ -61,7 +61,7 @@
 			doc = await getDocument(src).promise
 			pageNumber = 1
 			zoom = 100
-			await renderPdf()
+			// await renderPdf()
 			error = undefined
 		} catch (err) {
 			await resetDoc()
@@ -71,7 +71,11 @@
 	}
 
 	// const debouncedRender = debounce(renderPdf, 300)
-	async function renderPdf(scaleToViewport = true, resizing = false) {
+	async function renderPdf(
+		scaleToViewport = true,
+		resizing = false,
+		maxZoom: number | undefined = undefined
+	) {
 		if (!(doc && wrapper)) {
 			return
 		}
@@ -82,6 +86,13 @@
 		const nextPages: typeof pages = []
 		const nextChildren: HTMLCanvasElement[] = []
 		const { width } = wrapper.getBoundingClientRect()
+		let scale = zoom / 100
+		if (scaleToViewport) {
+			const firstViewport = (await doc.getPage(1)).getViewport({ scale: 1 })
+			// Rounded to the first integer that is a multiple of 10 and is less than the viewport width
+			zoom = Math.floor((width / firstViewport.width) * 10) * 10
+			scale = zoom / 100
+		}
 
 		for (let i = 0; i < doc.numPages; i++) {
 			const canvas = document.createElement('canvas')
@@ -92,14 +103,7 @@
 			}
 			const page = await doc.getPage(i + 1)
 			nextPages.push(page)
-			let viewport = page.getViewport({ scale: zoom / 100 })
-			if (scaleToViewport && width && viewport.width > width) {
-				console.log('scaling to viewport')
-				zoom = (width / viewport.width) * 100
-				viewport = page.getViewport({
-					scale: zoom
-				})
-			}
+			const viewport = page.getViewport({ scale })
 			canvas.height = viewport.height
 			canvas.width = viewport.width
 			canvas.classList.add('mx-auto', 'my-4', 'shadow-sm')
@@ -146,6 +150,14 @@
 		pageNumber = page
 	}
 
+	function syncZoomValue() {
+		const gridItem = findGridItem($app, id)
+		if (gridItem) {
+			gridItem.data.configuration.zoom.value = zoom
+		}
+		console.log(gridItem?.data.configuration.zoom.value)
+	}
+
 	async function downloadPdf() {
 		if (!doc) {
 			return
@@ -180,7 +192,7 @@
 			<div
 				bind:clientWidth={controlsWidth}
 				bind:clientHeight={controlsHeight}
-				class="fixed w-full top-0 flex {wideView
+				class="fixed w-[calc(100%-2px)] top-[1px] flex {wideView
 					? 'justify-center gap-14'
 					: '!justify-between'} overflow-x-auto bg-white border mx-auto py-1"
 			>
@@ -211,6 +223,18 @@
 							{zoom.toFixed(0)}%
 						</Button>
 					{/if}
+					<Button
+						on:click={() => renderPdf(true, true)}
+						disabled={!doc}
+						size="xs"
+						color="light"
+						variant="border"
+						title="Scale to viewport"
+						aria-label="Scale to viewport"
+						btnClasses="!rounded-none !border-l-0 !px-2"
+					>
+						<MoveHorizontal size={16} />
+					</Button>
 					<Button
 						on:click={() => (zoom += 10)}
 						disabled={!doc}
@@ -272,7 +296,22 @@
 			on:scroll={throttledScroll}
 			class={twMerge('w-full overflow-auto bg-gray-100', css?.container?.class ?? '')}
 			style="padding-top: {controlsHeight ?? 0}px; {css?.container?.style ?? ''}"
-		/>
+		>
+			{#if doc}
+				{#each Array.from({ length: doc.numPages }, (_, i) => i + 1) as num}
+					<Page {num} />
+				{/each}
+			{/if}
+		</div>
+	{/if}
+	{#if $mode !== 'preview' && $selectedComponent === id}
+		<button
+			class="fixed z-10 bottom-0 left-0 px-2 py-0.5 bg-indigo-500/90 
+			hover:bg-indigo-500 focus:bg-indigo-500 duration-200 text-white text-2xs"
+			on:click={syncZoomValue}
+		>
+			Sync zoom value
+		</button>
 	{/if}
 	{#if error}
 		<div
@@ -281,14 +320,5 @@
 		>
 			{error}
 		</div>
-	{/if}
-
-	{#if $mode !== 'preview'}
-		<button
-			class="fixed z-10 bottom-0 left-0 px-1 py-0.5 bg-indigo-500 text-white text-2xs"
-			on:click={() => gridItem && (gridItem.data.configuration.zoom.value = zoom)}
-		>
-			Set zoom
-		</button>
 	{/if}
 </div>
