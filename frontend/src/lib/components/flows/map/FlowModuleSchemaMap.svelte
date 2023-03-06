@@ -147,12 +147,14 @@
 
 	function removeBranch(module: FlowModule, index: number) {
 		if (module.value.type === 'branchone' || module.value.type === 'branchall') {
-			if (module.value.branches[index]?.modules) {
-				const leaves = dfs(module.value.branches[index].modules, (mod) => mod.id)
+			const offset = module.value.type === 'branchone' ? 1 : 0
+
+			if (module.value.branches[index - offset]?.modules) {
+				const leaves = dfs(module.value.branches[index - offset].modules, (mod) => mod.id)
 				leaves.forEach((leafId: string) => deleteFlowStateById(leafId))
 			}
 
-			module.value.branches.splice(index - 1, 1)
+			module.value.branches.splice(index - offset, 1)
 		}
 	}
 </script>
