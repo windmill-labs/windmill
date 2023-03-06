@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
-	import { FlowService, ScheduleService, type Flow } from '$lib/gen'
+	import { FlowService, ScheduleService, type Flow, type FlowModule } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { encodeState, formatCron, loadHubScripts, sendUserToast } from '$lib/utils'
 	import { faCalendarAlt, faEye, faPen, faSave } from '@fortawesome/free-solid-svg-icons'
@@ -144,6 +144,7 @@
 	const scheduleStore = writable<Schedule>({ args: {}, cron: '', enabled: false })
 	const previewArgsStore = writable<Record<string, any>>(initialArgs)
 	const scriptEditorDrawer = writable<ScriptEditorDrawer | undefined>(undefined)
+	const moving = writable<{ module: FlowModule; modules: FlowModule[] } | undefined>(undefined)
 
 	function select(selectedId: string) {
 		selectedIdStore.set(selectedId)
@@ -153,7 +154,8 @@
 		selectedId: selectedIdStore,
 		schedule: scheduleStore,
 		previewArgs: previewArgsStore,
-		scriptEditorDrawer
+		scriptEditorDrawer,
+		moving
 	})
 
 	async function loadSchedule() {

@@ -5,6 +5,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import { Bed, Move, PhoneIncoming, Repeat, Square, X } from 'lucide-svelte'
+	import type { FlowModule } from '$lib/gen'
 
 	export let selected: boolean = false
 	export let deletable: boolean = false
@@ -103,14 +104,14 @@
 			<X size={12} strokeWidth={2} />
 		</button>
 
-		<!-- <button
+		<button
 			class="absolute -top-2 right-10 rounded-full h-4 w-4 trash center-center 
 border-[1.5px] border-gray-700 bg-white duration-150 hover:bg-blue-400 hover:text-white 
 hover:border-blue-700 {selected ? '' : '!hidden'}"
-			on:click|preventDefault|stopPropagation={(event) => dispatch('move', { module })}
+			on:click|preventDefault|stopPropagation={(event) => dispatch('move')}
 		>
 			<Move size={12} strokeWidth={2} />
-		</button> -->
+		</button>
 	{/if}
 </div>
 

@@ -3,7 +3,7 @@
 	import type { FlowModule } from '$lib/gen'
 	import { classNames } from '$lib/utils'
 	import { faBolt } from '@fortawesome/free-solid-svg-icons'
-	import { X } from 'lucide-svelte'
+	import { ClipboardCopy, X } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { Icon } from 'svelte-awesome'
 	import InsertModuleButton from './InsertModuleButton.svelte'
@@ -18,10 +18,11 @@
 	export let whereInsert: 'before' | 'after' = 'after'
 	export let deleteBranch: { module: FlowModule; index: number } | undefined = undefined
 	export let id: string | undefined = undefined
+	export let moving: string | undefined = undefined
 
 	const dispatch = createEventDispatcher<{
 		insert: {
-			detail: 'script' | 'forloop' | 'branchone' | 'branchall' | 'trigger'
+			detail: 'script' | 'forloop' | 'branchone' | 'branchall' | 'trigger' | 'move'
 			modules: FlowModule[]
 			index: number
 		}
@@ -87,15 +88,30 @@
 			? 'top-12'
 			: '-top-10'} left-[50%] right-[50%] -translate-x-1/2"
 	>
-		<InsertModuleButton
-			bind:open={openMenu}
-			trigger={label == 'Input'}
-			on:new={(e) => {
-				if (modules) {
-					dispatch('insert', { modules, index, detail: e.detail })
-				}
-			}}
-		/>
+		{#if moving}
+			<button
+				title="Add branch"
+				on:click={() => {
+					if (modules) {
+						dispatch('insert', { modules, index, detail: 'move' })
+					}
+				}}
+				type="button"
+				class=" text-gray-900 bg-white border mx-0.5  border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
+			>
+				<ClipboardCopy size={12} />
+			</button>
+		{:else}
+			<InsertModuleButton
+				bind:open={openMenu}
+				trigger={label == 'Input'}
+				on:new={(e) => {
+					if (modules) {
+						dispatch('insert', { modules, index, detail: e.detail })
+					}
+				}}
+			/>
+		{/if}
 	</div>
 {/if}
 
