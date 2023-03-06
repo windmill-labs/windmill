@@ -38,7 +38,9 @@ services:
     depends_on:
       db:
         condition: service_healthy
-
+    volumes:
+      # - ./oauth.json/:/usr/src/app/oauth.json
+      
   windmill_worker:
     image: ghcr.io/windmill-labs/windmill:main
     deploy:
@@ -61,7 +63,6 @@ services:
     # to mount the worker folder to debug,, KEEP_JOB_DIR=true and mount /tmp/windmill
     volumes:
       - worker_dependency_cache:/tmp/windmill/cache
-      # - ./oauth.json/:/usr/src/app/oauth.json
 
   lsp:
     image: ghcr.io/windmill-labs/windmill-lsp:latest
