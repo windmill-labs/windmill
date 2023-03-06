@@ -24,7 +24,7 @@
 
 	let idToRemove: string | undefined = undefined
 
-	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectedId, moving } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	async function insertNewModuleAtIndex(
 		modules: FlowModule[],
@@ -81,41 +81,6 @@
 		})
 	}
 
-	// async function insertModule(
-	// 	modules: FlowModule[],
-	// 	id: string,
-	// 	kind: string,
-	// 	where: 'before' | 'after'
-	// ): Promise<FlowModule[]> {
-	// 	console.log(modules, id, kind, where)
-	// 	const index = modules.findIndex((mod) => mod.id == id)
-	// 	if (index != -1) {
-	// 		console.log('INSERTING', modules, index)
-	// 		return await insertNewModuleAtIndex(modules, index + (where == 'after' ? 1 : 0), kind as any)
-	// 	}
-	// 	return await Promise.all(
-	// 		modules.map(async (mod) => {
-	// 			if (mod.value.type == 'forloopflow') {
-	// 				mod.value.modules = await insertModule(mod.value.modules, id, kind, where)
-	// 			} else if (mod.value.type == 'branchall') {
-	// 				mod.value.branches = await Promise.all(
-	// 					mod.value.branches.map(async (branch) => {
-	// 						branch.modules = await insertModule(branch.modules, id, kind, where)
-	// 						return branch
-	// 					})
-	// 				)
-	// 			} else if (mod.value.type == 'branchone') {
-	// 				mod.value.branches = await Promismod.value.branches.map((branch) => {
-	// 					branch.modules = await insertModule(branch.modules, id, kind, where)
-	// 					return branch
-	// 				})
-	// 				mod.value.default = await insertModule(mod.value.default, id, kind, where)
-	// 			}
-	// 			return mod
-	// 		})
-	// 	)
-	// }
-
 	$: confirmationModalOpen = idToRemove !== undefined
 
 	$: sidebarMode == 'graph' ? (sidebarSize = 40) : (sidebarSize = 20)
@@ -171,6 +136,7 @@
 		<FlowGraph
 			insertable
 			{minHeight}
+			moving={$moving?.module.id}
 			rebuildOnChange={$flowStore}
 			maxHeight={minHeight}
 			modules={$flowStore.value?.modules}
@@ -187,7 +153,14 @@
 			}}
 			on:insert={async ({ detail }) => {
 				if (detail.modules) {
-					await insertNewModuleAtIndex(detail.modules, detail.index ?? 0, detail.detail)
+					if ($moving) {
+						let indexToRemove = $moving.modules.findIndex((m) => $moving?.module?.id == m.id)
+						$moving.modules.splice(indexToRemove, 1)
+						detail.modules.splice(detail.index, 0, $moving.module)
+						$moving = undefined
+					} else {
+						await insertNewModuleAtIndex(detail.modules, detail.index ?? 0, detail.detail)
+					}
 					$flowStore = $flowStore
 					$selectedId = detail.modules[detail.index ?? 0].id
 				}
@@ -203,6 +176,16 @@
 					await removeBranch(detail.module, detail.index)
 					$flowStore = $flowStore
 					$selectedId = detail.module.id
+				}
+			}}
+			on:move={async ({ detail }) => {
+				if (!$moving || $moving.module.id !== detail.module.id) {
+					if (detail.module && detail.modules) {
+						console.log('MOVE+')
+						$moving = { module: detail.module, modules: detail.modules }
+					}
+				} else {
+					$moving = undefined
 				}
 			}}
 		/>
