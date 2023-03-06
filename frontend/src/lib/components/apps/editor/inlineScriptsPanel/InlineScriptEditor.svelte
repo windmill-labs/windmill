@@ -131,9 +131,8 @@
 				<div class="flex flex-row gap-1 items-center">
 					Format
 
-					<div class="flex flex-row items-center">
+					<div class="flex flex-row items-center gap-1">
 						<Kbd>{isMac ? '⌘' : 'CTRL'}</Kbd>
-						<Plus size={12} />
 						<Kbd>S</Kbd>
 					</div>
 				</div>
@@ -154,9 +153,8 @@
 					<div class="flex flex-row gap-1 items-center">
 						Run
 
-						<div class="flex flex-row items-center">
+						<div class="flex flex-row items-center gap-1">
 							<Kbd>{isMac ? '⌘' : 'CTRL'}</Kbd>
-							<Plus size={12} />
 							<Kbd>
 								<div class="h-4 flex items-center justify-center">
 									<CornerDownLeft size={10} />

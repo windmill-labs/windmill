@@ -10,6 +10,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
 	import { getContext } from 'svelte'
+	import ResizeWrapper from '../helpers/ResizeWrapper.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -65,34 +66,36 @@
 <InputValue {id} input={configuration.copyButton} bind:value={copyButton} />
 
 <RunnableWrapper flexWrap {componentInput} {id} bind:initializing bind:result>
-	<AlignWrapper {horizontalAlignment} {verticalAlignment}>
-		{#if !result || result === ''}
-			<div class="text-gray-400 bg-gray-100 flex justify-center items-center h-full w-full">
-				No text
-			</div>
-		{:else}
-			<div class="flex flex-wrap gap-2 pb-0.5 overflow-x-auto">
-				<svelte:element
-					this={component}
-					class={twMerge(
-						'whitespace-pre-wrap',
-						$app.css?.['textcomponent']?.['text']?.class,
-						customCss?.text?.class,
-						classes
-					)}
-					style={[$app.css?.['textcomponent']?.['text']?.style, customCss?.text?.style].join(';')}
-				>
-					{String(result)}
-				</svelte:element>
-				{#if copyButton && result}
-					<Popover notClickable>
-						<Button size="xs" btnClasses="!px-2" on:click={() => copyToClipboard(result)}>
-							<Clipboard size={14} strokeWidth={2} />
-						</Button>
-						<svelte:fragment slot="text">Copy to clipboard</svelte:fragment>
-					</Popover>
-				{/if}
-			</div>
-		{/if}
-	</AlignWrapper>
+	<ResizeWrapper {id}>
+		<AlignWrapper {horizontalAlignment} {verticalAlignment}>
+			{#if !result || result === ''}
+				<div class="text-gray-400 bg-gray-100 flex justify-center items-center h-full w-full">
+					No text
+				</div>
+			{:else}
+				<div class="flex flex-wrap gap-2 pb-0.5 overflow-x-auto">
+					<svelte:element
+						this={component}
+						class={twMerge(
+							'whitespace-pre-wrap',
+							$app.css?.['textcomponent']?.['text']?.class,
+							customCss?.text?.class,
+							classes
+						)}
+						style={[$app.css?.['textcomponent']?.['text']?.style, customCss?.text?.style].join(';')}
+					>
+						{String(result)}
+					</svelte:element>
+					{#if copyButton && result}
+						<Popover notClickable>
+							<Button size="xs" btnClasses="!px-2" on:click={() => copyToClipboard(result)}>
+								<Clipboard size={14} strokeWidth={2} />
+							</Button>
+							<svelte:fragment slot="text">Copy to clipboard</svelte:fragment>
+						</Popover>
+					{/if}
+				</div>
+			{/if}
+		</AlignWrapper>
+	</ResizeWrapper>
 </RunnableWrapper>

@@ -2,10 +2,12 @@
 	import { goto } from '$app/navigation'
 	import type { Schema } from '$lib/common'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import Popover from '$lib/components/Popover.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import { AppService, type CompletedJob } from '$lib/gen'
-	import { defaultIfEmptyString, emptySchema, sendUserToast } from '$lib/utils'
+	import { classNames, defaultIfEmptyString, emptySchema, sendUserToast } from '$lib/utils'
+	import { Bug } from 'lucide-svelte'
 	import { getContext, onMount } from 'svelte'
 	import type { AppInputs, Runnable } from '../../inputType'
 	import type { Output } from '../../rx'
@@ -276,16 +278,28 @@
 			Please select a runnable
 		</Alert>
 	{:else if result?.error && $mode === 'preview'}
-		<div class="p-2">
-			<Alert type="error" title="Error during execution">
-				<div class="flex flex-col gap-2">
-					An error occured, please contact the app author.
-					<span class="font-semibold">Job id: {testJob?.id}</span>
-					<pre class=" whitespace-pre-wrap text-gray-900 bg-white border w-full p-4 text-xs"
-						>{JSON.stringify(result.error, null, 4)}
-				</pre>
-				</div>
-			</Alert>
+		<div
+			title="Error"
+			class={classNames(
+				'text-red-500 px-1 text-2xs py-0.5 font-bold w-fit absolute border border-red-500 -bottom-2  shadow left-1/2 transform -translate-x-1/2 z-50 cursor-pointer',
+				'bg-red-100/80'
+			)}
+		>
+			<Popover notClickable placement="bottom" popupClass="!bg-white border w-96">
+				<Bug size={14} />
+				<span slot="text">
+					<div class="bg-white">
+						<Alert type="error" title="Error during execution">
+							<div class="flex flex-col gap-2">
+								An error occured, please contact the app author.
+								<span class="font-semibold">Job id: {testJob?.id}</span>
+							</div>
+						</Alert>
+					</div>
+				</span>
+			</Popover>
+		</div>
+		<div class="block grow w-full max-h-full">
 			<slot />
 		</div>
 	{:else}
