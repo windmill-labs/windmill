@@ -140,12 +140,14 @@
 		pageNumber = page
 	}
 
-	async function syncZoomValue() {
+	function syncZoomValue() {
 		const gridItem = findGridItem($app, id)
-		if (gridItem) {
+
+		if (gridItem && gridItem.data.configuration.zoom.value !== zoom) {
 			gridItem.data.configuration.zoom.value = zoom
 		}
-		console.log(gridItem?.data.configuration.zoom.value)
+
+		$app = { ...$app }
 	}
 
 	async function downloadPdf() {
@@ -294,7 +296,7 @@
 		<button
 			class="fixed z-10 bottom-0 left-0 px-2 py-0.5 bg-indigo-500/90 
 			hover:bg-indigo-500 focus:bg-indigo-500 duration-200 text-white text-2xs"
-			on:click={syncZoomValue}
+			on:click={() => syncZoomValue()}
 		>
 			Sync zoom value
 		</button>
