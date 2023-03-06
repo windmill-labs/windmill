@@ -51,6 +51,7 @@ const display: ComponentSet = {
 		'plotlycomponent',
 		'scatterchartcomponent',
 		'timeseriescomponent',
+		'pdfcomponent',
 		'displaycomponent'
 	]
 } as const
