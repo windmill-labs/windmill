@@ -81,7 +81,6 @@
 			selected && $mode !== 'preview' ? 'border border-blue-500' : '',
 			!selected && $mode !== 'preview' && !component.card ? 'border-gray-100' : '',
 			$mode !== 'preview' && !$connectingInput.opened ? 'hover:border-blue-500' : '',
-			component.softWrap ? '' : 'overflow-auto',
 			$mode != 'preview' ? 'cursor-pointer' : '',
 			'relative z-auto',
 			$app.css?.['app']?.['component']?.class

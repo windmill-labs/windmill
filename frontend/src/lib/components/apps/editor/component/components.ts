@@ -181,7 +181,6 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 		icon: BoxSelect,
 		dims: '2:8-6:8',
 		data: {
-			softWrap: true,
 			id: '',
 			type: 'containercomponent',
 			configuration: {
@@ -205,7 +204,6 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 		icon: Type,
 		dims: '1:1-3:1',
 		data: {
-			softWrap: false,
 			horizontalAlignment: 'left',
 			verticalAlignment: 'top',
 			id: '',
@@ -248,7 +246,7 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 		dims: '1:1-2:1',
 		data: {
 			...defaultAlignement,
-			softWrap: true,
+
 			id: '',
 			type: 'buttoncomponent',
 			componentInput: {
@@ -490,7 +488,6 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 		icon: Code2,
 		dims: '1:2-1:2',
 		data: {
-			softWrap: false,
 			id: '',
 			type: 'htmlcomponent',
 			componentInput: {
@@ -515,7 +512,6 @@ Hello \${ctx.username}
 		icon: PieChart,
 		dims: '2:8-6:8',
 		data: {
-			softWrap: false,
 			id: '',
 			type: 'vegalitecomponent',
 			componentInput: {
@@ -555,7 +551,6 @@ Hello \${ctx.username}
 		icon: PieChart,
 		dims: '2:8-6:8',
 		data: {
-			softWrap: false,
 			id: '',
 			type: 'plotlycomponent',
 			componentInput: {
@@ -809,7 +804,7 @@ Hello \${ctx.username}
 		dims: '1:1-2:1',
 		data: {
 			...defaultAlignement,
-			softWrap: true,
+
 			id: '',
 			type: 'checkboxcomponent',
 			componentInput: undefined,
@@ -836,7 +831,6 @@ Hello \${ctx.username}
 		icon: TextCursorInput,
 		dims: '2:1-2:1',
 		data: {
-			softWrap: true,
 			verticalAlignment: 'center',
 			id: '',
 			type: 'textinputcomponent',
@@ -900,8 +894,7 @@ Hello \${ctx.username}
 			customCss: {
 				input: { style: '' }
 			} as const,
-			card: false,
-			softWrap: true
+			card: false
 		}
 	},
 	multiselectcomponent: {
@@ -930,8 +923,7 @@ Hello \${ctx.username}
 			customCss: {
 				input: { style: '' }
 			} as const,
-			card: false,
-			softWrap: true
+			card: false
 		}
 	},
 	numberinputcomponent: {
@@ -939,7 +931,6 @@ Hello \${ctx.username}
 		icon: Binary,
 		dims: '2:1-3:1',
 		data: {
-			softWrap: true,
 			verticalAlignment: 'center',
 			id: '',
 			type: 'numberinputcomponent',
@@ -983,7 +974,6 @@ Hello \${ctx.username}
 		icon: DollarSign,
 		dims: '2:1-3:1',
 		data: {
-			softWrap: true,
 			verticalAlignment: 'center',
 			id: '',
 			type: 'currencycomponent',
@@ -1026,7 +1016,6 @@ Hello \${ctx.username}
 		icon: SlidersHorizontal,
 		dims: '3:1-4:1',
 		data: {
-			softWrap: true,
 			verticalAlignment: 'center',
 			id: '',
 			type: 'slidercomponent',
@@ -1067,7 +1056,6 @@ Hello \${ctx.username}
 		icon: SlidersHorizontal,
 		dims: '3:2-4:2',
 		data: {
-			softWrap: true,
 			verticalAlignment: 'center',
 			id: '',
 			type: 'rangecomponent',
@@ -1112,7 +1100,6 @@ Hello \${ctx.username}
 		icon: Lock,
 		dims: '2:1-3:1',
 		data: {
-			softWrap: true,
 			verticalAlignment: 'center',
 			id: '',
 			type: 'passwordinputcomponent',
@@ -1136,7 +1123,6 @@ Hello \${ctx.username}
 		icon: Calendar,
 		dims: '2:1-3:1',
 		data: {
-			softWrap: true,
 			verticalAlignment: 'center',
 			id: '',
 			type: 'dateinputcomponent',
@@ -1169,7 +1155,6 @@ Hello \${ctx.username}
 		icon: ListOrdered,
 		dims: '2:8-6:8',
 		data: {
-			softWrap: true,
 			id: '',
 			type: 'tabscomponent',
 			configuration: {
@@ -1197,7 +1182,6 @@ Hello \${ctx.username}
 		icon: Smile,
 		dims: '1:3-1:2',
 		data: {
-			softWrap: false,
 			horizontalAlignment: 'center',
 			verticalAlignment: 'center',
 			id: '',
@@ -1373,7 +1357,6 @@ Hello \${ctx.username}
 		icon: SidebarClose,
 		dims: '1:1-2:1',
 		data: {
-			softWrap: true,
 			id: '',
 			type: 'drawercomponent',
 			horizontalAlignment: 'center',
@@ -1488,7 +1471,6 @@ Hello \${ctx.username}
 		icon: FlipHorizontal,
 		dims: '2:8-6:8',
 		data: {
-			softWrap: true,
 			id: '',
 			type: 'verticalsplitpanescomponent',
 			configuration: {
@@ -1513,7 +1495,6 @@ Hello \${ctx.username}
 		icon: FlipVertical,
 		dims: '2:8-6:8',
 		data: {
-			softWrap: true,
 			id: '',
 			type: 'horizontalsplitpanescomponent',
 			configuration: {

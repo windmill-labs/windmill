@@ -42,23 +42,18 @@ export interface BaseAppComponent extends Partial<Aligned> {
 	configuration: Record<
 		string,
 		GeneralAppInput &
-		(
-			| StaticAppInput
-			| ConnectedAppInput
-			| UserAppInput
-			| RowAppInput
-			| EvalAppInput
-			| UploadAppInput
-		)
+			(
+				| StaticAppInput
+				| ConnectedAppInput
+				| UserAppInput
+				| RowAppInput
+				| EvalAppInput
+				| UploadAppInput
+			)
 	>
 	card: boolean | undefined
 	customCss?: ComponentCustomCSS
-	/**
-	 * If `true` then the wrapper will allow items to flow outside of it's borders.
-	 *
-	 * *For example when the component has a popup like `Select`*
-	 */
-	softWrap?: boolean
+
 	// Number of subgrids
 	numberOfSubgrids?: number
 }

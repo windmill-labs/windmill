@@ -299,7 +299,7 @@
 				</span>
 			</Popover>
 		</div>
-		<div class="block grow w-full max-h-full">
+		<div class="block grow w-full max-h-full border border-red-300 bg-red-50 relative">
 			<slot />
 		</div>
 	{:else}
