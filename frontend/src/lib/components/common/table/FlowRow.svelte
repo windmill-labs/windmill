@@ -22,6 +22,7 @@
 	} from '@fortawesome/free-solid-svg-icons'
 	import { MoreVertical } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
+	import Badge from '../badge/Badge.svelte'
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
 
@@ -31,7 +32,7 @@
 	export let shareModal: ShareModal
 	export let moveDrawer: MoveDrawer
 
-	let { summary, path, extra_perms, canWrite, workspace_id } = flow
+	let { summary, path, extra_perms, canWrite, workspace_id, archived } = flow
 
 	const dispatch = createEventDispatcher()
 
@@ -70,11 +71,15 @@
 >
 	<svelte:fragment slot="badges">
 		<SharedBadge {canWrite} extraPerms={extra_perms} />
+
+		{#if archived}
+			<Badge color="red" baseClass="border">archived</Badge>
+		{/if}
 	</svelte:fragment>
 	<svelte:fragment slot="actions">
 		<span class="hidden md:inline-flex gap-x-1">
 			{#if !$userStore?.operator}
-				{#if canWrite}
+				{#if canWrite && !archived}
 					<div>
 						<Button
 							color="light"
@@ -135,7 +140,7 @@
 					displayName: 'Edit',
 					icon: faEdit,
 					href: `/flows/edit/${path}?nodraft=true`,
-					disabled: !canWrite
+					disabled: !canWrite || archived
 				},
 				{
 					displayName: 'Use as template/Fork',
@@ -153,14 +158,15 @@
 					action: () => {
 						moveDrawer.openDrawer(path, summary, 'flow')
 					},
-					disabled: !canWrite
+					disabled: !canWrite || archived
 				},
 				{
 					displayName: 'Schedule',
 					icon: faCalendarAlt,
 					action: () => {
 						scheduleEditor.openNew(true, path)
-					}
+					},
+					disabled: archived
 				},
 				{
 					displayName: canWrite ? 'Share' : 'See Permissions',
@@ -176,7 +182,7 @@
 						path ? archiveFlow(path) : null
 					},
 					type: 'delete',
-					disabled: !canWrite
+					disabled: !canWrite || archived
 				},
 				{
 					displayName: 'Delete',

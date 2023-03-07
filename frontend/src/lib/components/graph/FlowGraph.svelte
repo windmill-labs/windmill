@@ -36,6 +36,7 @@
 
 	export let insertable = false
 	export let moving: string | undefined = undefined
+	export let scroll = false
 
 	setContext<{ selectedId: Writable<string | undefined> }>('FlowGraphContext', { selectedId })
 
@@ -480,7 +481,7 @@
 				id: des.data.id,
 				position: {
 					x: des.x
-						? des.data.loopDepth * 50 + des.x + width - boxSize.width / 2 - NODE.width / 2
+						? des.data.loopDepth * 50 + des.x + width / 2 - boxSize.width / 2 - NODE.width / 2
 						: 0,
 					y: des.y || 0
 				}
@@ -646,19 +647,17 @@
 
 <div bind:clientWidth={width} class="w-full h-full overflow-hidden relative">
 	{#if width && height}
-		{#key width}
-			<Svelvet
-				highlightEdges={false}
-				locked
-				initialLocation={{ x: width * (initialZoom ?? 1), y: height / 2 }}
-				{initialZoom}
-				{nodes}
-				{width}
-				{edges}
-				{height}
-				background={false}
-				bgColor="rgb(249 250 251)"
-			/>
-		{/key}
+		<Svelvet
+			highlightEdges={false}
+			locked
+			{initialZoom}
+			{nodes}
+			{width}
+			{edges}
+			{height}
+			{scroll}
+			background={false}
+			bgColor="rgb(249 250 251)"
+		/>
 	{/if}
 </div>

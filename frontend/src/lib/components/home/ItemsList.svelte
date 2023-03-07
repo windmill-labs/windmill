@@ -7,6 +7,7 @@
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import { Code2, LayoutDashboard } from 'lucide-svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 
 	export let filter = ''
 
@@ -51,6 +52,7 @@
 	async function loadScripts(): Promise<void> {
 		const loadedScripts = await ScriptService.listScripts({
 			workspace: $workspaceStore!,
+			showArchived: archived ? true : undefined,
 			perPage: 300
 		})
 
@@ -68,7 +70,12 @@
 	}
 
 	async function loadFlows(): Promise<void> {
-		flows = (await FlowService.listFlows({ workspace: $workspaceStore! })).map((x: Flow) => {
+		flows = (
+			await FlowService.listFlows({
+				workspace: $workspaceStore!,
+				showArchived: archived ? true : undefined
+			})
+		).map((x: Flow) => {
 			return {
 				canWrite:
 					canWrite(x.path, x.extra_perms, $userStore) &&
@@ -140,7 +147,11 @@
 		if ($userStore && $workspaceStore) {
 			loadScripts()
 			loadFlows()
-			loadApps()
+			if (!archived) {
+				loadApps()
+			} else {
+				apps = []
+			}
 		}
 	}
 
@@ -200,6 +211,8 @@
 	}
 
 	$: items && resetScroll()
+
+	let archived = false
 </script>
 
 <SearchItems
@@ -284,8 +297,12 @@
 			</button>
 		</div>
 	</div>
-
-	<ListFilters bind:selectedFilter={ownerFilter} filters={owners} />
+	<div class="relative">
+		<ListFilters bind:selectedFilter={ownerFilter} filters={owners} />
+		<div class="absolute -bottom-2 right-0">
+			<Toggle size="xs" bind:checked={archived} options={{ right: 'show archived' }} /></div
+		>
+	</div>
 	<div>
 		{#if filteredItems == undefined}
 			<div class="mt-4" />

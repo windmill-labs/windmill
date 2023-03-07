@@ -135,6 +135,7 @@
 	<div class="flex-auto grow" bind:clientHeight={minHeight}>
 		<FlowGraph
 			insertable
+			scroll
 			{minHeight}
 			moving={$moving?.module.id}
 			rebuildOnChange={$flowStore}
@@ -157,12 +158,13 @@
 						let indexToRemove = $moving.modules.findIndex((m) => $moving?.module?.id == m.id)
 						$moving.modules.splice(indexToRemove, 1)
 						detail.modules.splice(detail.index, 0, $moving.module)
+						$selectedId = $moving.module.id
 						$moving = undefined
 					} else {
 						await insertNewModuleAtIndex(detail.modules, detail.index ?? 0, detail.detail)
+						$selectedId = detail.modules[detail.index ?? 0].id
 					}
 					$flowStore = $flowStore
-					$selectedId = detail.modules[detail.index ?? 0].id
 				}
 			}}
 			on:newBranch={async ({ detail }) => {
