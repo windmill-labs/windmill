@@ -6,10 +6,14 @@
 	import ListItem from './ListItem.svelte'
 	import { insertNewGridItem } from '../appUtils'
 	import { X } from 'lucide-svelte'
+	import { push } from '$lib/history'
 
-	const { app, selectedComponent, focusedGrid } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, selectedComponent, focusedGrid, history } =
+		getContext<AppEditorContext>('AppEditorContext')
 
 	function addComponent(appComponentType: AppComponent['type']): void {
+		push(history, $app)
+
 		$dirtyStore = true
 
 		const data = componentsRecord[appComponentType].data

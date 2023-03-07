@@ -40,62 +40,75 @@
 	// stores (state) within stores, so that we cannot access values from everywhere
 	//   const { widthStore, heightStore, nodesStore, derivedEdges } = svelvetStore;
 
+	let error = ''
 	// sets the state of the store to the values passed in from the Svelvet Component on initial render
 	onMount(() => {
-		// sanitize user input
-		let output = sanitizeUserNodesAndEdges(nodes, edges)
-		const userNodes = output['userNodes']
-		const userEdges = output['userEdges']
+		try {
+			// sanitize user input
+			let output = sanitizeUserNodesAndEdges(nodes, edges)
+			const userNodes = output['userNodes']
+			const userEdges = output['userEdges']
 
-		// set canvas related stores. you need to do this before setting node/edge related stores because
-		// initializing nodes/edges might read relevant options from the store.
-		store.widthStore.set(width)
-		store.heightStore.set(height)
-		store.backgroundStore.set(background)
-		store.movementStore.set(movement)
-		const optionsObj = { snap, snapTo } // TODO: rename to snap
-		store.options.set(optionsObj) //
-		store.nodeCreate.set(nodeCreate)
-		store.boundary.set(boundary)
-		store.collapsibleOption.set(collapsible)
-		store.lockedOption.set(locked)
-		store.editableOption.set(editable)
-		store.resizableOption.set(resizable)
-		store.highlightEdgesOption.set(highlightEdges)
+			// set canvas related stores. you need to do this before setting node/edge related stores because
+			// initializing nodes/edges might read relevant options from the store.
+			store.widthStore.set(width)
+			store.heightStore.set(height)
+			store.backgroundStore.set(background)
+			store.movementStore.set(movement)
+			const optionsObj = { snap, snapTo } // TODO: rename to snap
+			store.options.set(optionsObj) //
+			store.nodeCreate.set(nodeCreate)
+			store.boundary.set(boundary)
+			store.collapsibleOption.set(collapsible)
+			store.lockedOption.set(locked)
+			store.editableOption.set(editable)
+			store.resizableOption.set(resizable)
+			store.highlightEdgesOption.set(highlightEdges)
 
-		// make sure that all canvas options are compatible
-		sanitizeCanvasOptions(store)
-		// set node/edge related stores
-		populateSvelvetStoreFromUserInput(canvasId, userNodes, userEdges)
+			// make sure that all canvas options are compatible
+			sanitizeCanvasOptions(store)
+			// set node/edge related stores
+			populateSvelvetStoreFromUserInput(canvasId, userNodes, userEdges)
+			error = ''
+		} catch (e) {
+			error = 'There was an error displaying the flow. Please report the error.' + e.message
+			console.error(e)
+		}
 	})
 	// // enables data reactivity. TODO: this needs to be added back in
 	// Probably need to use findStore, not create store
 	afterUpdate(() => {
-		// sanitize user input
-		let output = sanitizeUserNodesAndEdges(nodes, edges)
-		const userNodes = output['userNodes']
-		const userEdges = output['userEdges']
+		try {
+			// sanitize user input
+			let output = sanitizeUserNodesAndEdges(nodes, edges)
+			const userNodes = output['userNodes']
+			const userEdges = output['userEdges']
 
-		// set canvas related stores. you need to do this before setting node/edge related stores because
-		// initializing nodes/edges might read relevant options from the store.
-		store.widthStore.set(width)
-		store.heightStore.set(height)
-		store.backgroundStore.set(background)
-		store.movementStore.set(movement)
-		const optionsObj = { snap, snapTo } // TODO: rename to snap
-		store.options.set(optionsObj) //
-		store.nodeCreate.set(nodeCreate)
-		store.boundary.set(boundary)
-		store.collapsibleOption.set(collapsible)
-		store.lockedOption.set(locked)
-		store.editableOption.set(editable)
-		store.resizableOption.set(resizable)
-		store.highlightEdgesOption.set(highlightEdges)
+			// set canvas related stores. you need to do this before setting node/edge related stores because
+			// initializing nodes/edges might read relevant options from the store.
+			store.widthStore.set(width)
+			store.heightStore.set(height)
+			store.backgroundStore.set(background)
+			store.movementStore.set(movement)
+			const optionsObj = { snap, snapTo } // TODO: rename to snap
+			store.options.set(optionsObj) //
+			store.nodeCreate.set(nodeCreate)
+			store.boundary.set(boundary)
+			store.collapsibleOption.set(collapsible)
+			store.lockedOption.set(locked)
+			store.editableOption.set(editable)
+			store.resizableOption.set(resizable)
+			store.highlightEdgesOption.set(highlightEdges)
 
-		// make sure that all canvas options are compatible
-		sanitizeCanvasOptions(store)
-		// set node/edge related stores
-		populateSvelvetStoreFromUserInput(canvasId, userNodes, userEdges)
+			// make sure that all canvas options are compatible
+			sanitizeCanvasOptions(store)
+			// set node/edge related stores
+			populateSvelvetStoreFromUserInput(canvasId, userNodes, userEdges)
+			error = ''
+		} catch (e) {
+			error = 'There was an error displaying the flow. Please report the error.' + e.message
+			console.error(e)
+		}
 	})
 </script>
 
@@ -104,16 +117,20 @@
 	class="Svelvet"
 	style={`width: ${width}px; height: ${height}px; background-color: ${bgColor};`}
 >
-	<GraphView
-		{scroll}
-		{canvasId}
-		{width}
-		{height}
-		{initialLocation}
-		{initialZoom}
-		{boundary}
-		{minimap}
-	/>
+	{#if error != ''}
+		<div class="error text-red-600 center-center p-4">{error}</div>
+	{:else}
+		<GraphView
+			{scroll}
+			{canvasId}
+			{width}
+			{height}
+			{initialLocation}
+			{initialZoom}
+			{boundary}
+			{minimap}
+		/>
+	{/if}
 </div>
 
 <style>

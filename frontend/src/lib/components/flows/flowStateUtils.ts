@@ -2,6 +2,7 @@ import type { Schema } from '$lib/common'
 import {
 	Script,
 	ScriptService,
+	type Flow,
 	type FlowModule,
 	type PathFlow,
 	type PathScript,
@@ -10,9 +11,8 @@ import {
 import { initialCode } from '$lib/script_helpers'
 import { userStore, workspaceStore } from '$lib/stores'
 import { getScriptByPath } from '$lib/utils'
-import { get } from 'svelte/store'
-import { flowStateStore, type FlowModuleState } from './flowState'
-import { flowStore } from './flowStore'
+import { get, type Writable } from 'svelte/store'
+import type { FlowModuleState, FlowState } from './flowState'
 import {
 	charsToNumber,
 	emptyFlowModuleState,
@@ -56,8 +56,7 @@ export function getNextId(currentKeys: string[]): string {
 }
 
 // Computes the next available id
-export function nextId(): string {
-	const flowState = get(flowStateStore)
+export function nextId(flowState: FlowState): string {
 
 	const max = Object.keys(flowState).reduce((acc, key) => {
 		if (key === 'failure' || key.includes('branch') || key.includes('loop')) {
@@ -209,9 +208,9 @@ async function createInlineScriptModuleFromPath(
 	}
 }
 
-export function emptyModule(flow?: boolean): FlowModule {
+export function emptyModule(flowState: FlowState, flow?: boolean): FlowModule {
 	return {
-		id: nextId(),
+		id: nextId(flowState),
 		value: { type: 'identity', flow }
 	}
 }
@@ -219,9 +218,9 @@ export function emptyModule(flow?: boolean): FlowModule {
 export async function createScriptFromInlineScript(
 	flowModule: FlowModule,
 	suffix: string,
-	schema: Schema
+	schema: Schema,
+	flow: Flow
 ): Promise<[FlowModule & { value: PathScript }, FlowModuleState]> {
-	const flow = get(flowStore)
 	const user = get(userStore)
 
 	if (flowModule.value.type != 'rawscript') {
@@ -259,7 +258,7 @@ export async function createScriptFromInlineScript(
 	return pickScript(availablePath, flowModule.summary ?? '', flowModule.id, hash)
 }
 
-export function deleteFlowStateById(id: string) {
+export function deleteFlowStateById(id: string, flowStateStore: Writable<FlowState>) {
 	flowStateStore.update((fss) => {
 		delete fss[id]
 		return fss

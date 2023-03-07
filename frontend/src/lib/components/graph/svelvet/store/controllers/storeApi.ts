@@ -40,7 +40,6 @@ import {
   populateNodesStore,
   populateEdgesStore,
   populateResizeNodeStore,
-  populatePotentialAnchorStore,
 } from './util';
 import { populateCollapsibleStore } from '../../collapsible/controllers/util';
 
@@ -122,9 +121,7 @@ export function populateSvelvetStoreFromUserInput(
   //populate resize Store
   if (get(store.resizableOption))
     populateResizeNodeStore(store, nodes, canvasId);
-  //populate potential anchors if "node create" feature is turned on
-  if (get(store.nodeCreate))
-    populatePotentialAnchorStore(store, nodes, canvasId);
+
   // populatate collapsible objects if "collapsible" feature is turned on
   if (get(store.collapsibleOption))
     populateCollapsibleStore(store, nodes, edges, canvasId);

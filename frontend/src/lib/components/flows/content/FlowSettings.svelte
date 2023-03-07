@@ -3,7 +3,6 @@
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 
-	import { flowStore } from '$lib/components/flows/flowStore'
 	import Path from '$lib/components/Path.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import FlowCard from '../common/FlowCard.svelte'
@@ -20,7 +19,7 @@
 	import { Icon } from 'svelte-awesome'
 	import { faClipboard } from '@fortawesome/free-solid-svg-icons'
 
-	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectedId, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let initialPath: string
 

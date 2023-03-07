@@ -4,12 +4,12 @@
 	import Icon from 'svelte-awesome'
 	import { faBug } from '@fortawesome/free-solid-svg-icons'
 	import { classNames, emptySchema } from '$lib/utils'
-	import { flowStateStore, type FlowModuleState } from '../flowState'
+	import type { FlowModuleState } from '../flowState'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { flowStore } from '../flowStore'
 	import { NEVER_TESTED_THIS_FAR } from '../utils'
 
-	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectedId, flowStateStore, flowStore } =
+		getContext<FlowEditorContext>('FlowEditorContext')
 
 	function onToggle() {
 		if ($flowStore?.value?.failure_module) {

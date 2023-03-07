@@ -1,7 +1,6 @@
 /** this is where we create our node store */
 import type { NodeType } from '../../store/types/types';
 import { writable, derived, get, readable } from 'svelte/store';
-import { getPotentialAnchors } from '../../interactiveNodes/controllers/util';
 import { stores } from '../../store/models/store';
 import { getAnchors, getEdgeById } from '../../edges/controllers/util';
 import { getResizeNodes } from '../../resizableNodes/controllers/util';
@@ -40,7 +39,7 @@ export class Node implements NodeType {
     public childNodes: string[],
     public className: string,
     public clickCallback: Function
-  ) {}
+  ) { }
 
   /**
    * setPositionFromMovement will update the positionX and positionY of the Node when user drags a Node around on the canvas, reflect the changes in real time in the nodesStore, and also cascade the changes to all relative elements like Anchors and Edges.
@@ -178,11 +177,7 @@ export class Node implements NodeType {
       resizeNode.delete();
     }
 
-    // delete the potential anchors
-    const potentialAnchorsArr = getPotentialAnchors(store, { nodeId: this.id });
-    for (const potentialAnchor of potentialAnchorsArr) {
-      potentialAnchor.delete();
-    }
+
   }
 
   /**

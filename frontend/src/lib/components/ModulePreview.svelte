@@ -8,13 +8,16 @@
 	import LogViewer from './LogViewer.svelte'
 	import DisplayResult from './DisplayResult.svelte'
 	import Button from './common/button/Button.svelte'
-	import { flowStateStore, testStepStore } from './flows/flowState'
-	import { flowStore } from './flows/flowStore'
 	import { workspaceStore } from '$lib/stores'
 	import { Loader2 } from 'lucide-svelte'
+	import { getContext } from 'svelte'
+	import type { FlowEditorContext } from './flows/types'
 
 	export let mod: FlowModule
 	export let schema: Schema
+
+	const { flowStore, flowStateStore, testStepStore } =
+		getContext<FlowEditorContext>('FlowEditorContext')
 
 	// Test
 	let testJobLoader: TestJobLoader

@@ -13,13 +13,13 @@
 		pickScript
 	} from '$lib/components/flows/flowStateUtils'
 	import FlowInputs from './FlowInputs.svelte'
-	import { flowStateStore } from '../flowState'
 	import { Alert } from '$lib/components/common'
 	import FlowInputsFlow from './FlowInputsFlow.svelte'
 	import FlowBranchesAllWrapper from './FlowBranchesAllWrapper.svelte'
 	import FlowBranchesOneWrapper from './FlowBranchesOneWrapper.svelte'
 
-	const { selectedId, schedule } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectedId, schedule, flowStateStore } =
+		getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let flowModule: FlowModule
 

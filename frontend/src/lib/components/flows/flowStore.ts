@@ -1,21 +1,12 @@
 import type { Flow, FlowModule, ForloopFlow, InputTransform } from '$lib/gen'
-import { sendUserToast } from '$lib/utils'
-import { get, writable, derived } from 'svelte/store'
-import { flowStateStore, initFlowState, type FlowState } from './flowState'
+import { get, writable, type Writable } from 'svelte/store'
+import { initFlowState, type FlowState } from './flowState'
 import { numberToChars } from './utils'
 
 export type FlowMode = 'push' | 'pull'
 
 export const importFlowStore = writable<Flow | undefined>(undefined)
-export const flowStore = writable<Flow>({
-	summary: '',
-	value: { modules: [] },
-	path: '',
-	edited_at: '',
-	edited_by: '',
-	archived: false,
-	extra_perms: {}
-})
+
 
 export function dfs<T>(modules: FlowModule[], f: (x: FlowModule) => T): T[] {
 	let result: T[] = []
@@ -37,7 +28,7 @@ export function dfs<T>(modules: FlowModule[], f: (x: FlowModule) => T): T[] {
 }
 
 
-export async function initFlow(flow: Flow) {
+export async function initFlow(flow: Flow, flowStore: Writable<Flow>, flowStateStore: Writable<FlowState>) {
 	let counter = 0
 	for (const mod of flow.value.modules) {
 		migrateFlowModule(mod)
@@ -53,7 +44,7 @@ export async function initFlow(flow: Flow) {
 		}
 	}
 
-	await initFlowState(flow)
+	await initFlowState(flow, flowStateStore)
 	flowStore.set(flow)
 
 	function migrateFlowModule(mod: FlowModule) {
@@ -89,8 +80,7 @@ export async function initFlow(flow: Flow) {
 	}
 }
 
-export async function copyFirstStepSchema() {
-	const flowState = get(flowStateStore)
+export async function copyFirstStepSchema(flowState: FlowState, flowStore: Writable<Flow>) {
 	flowStore.update((flow) => {
 		const firstModuleId = flow.value.modules[0]?.id
 

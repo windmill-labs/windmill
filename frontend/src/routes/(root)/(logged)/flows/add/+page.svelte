@@ -4,10 +4,12 @@
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
+	import type { FlowState } from '$lib/components/flows/flowState'
 	import { importFlowStore, initFlow } from '$lib/components/flows/flowStore'
 	import { FlowService, type Flow } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { decodeState, emptySchema, sendUserToast } from '$lib/utils'
+	import { writable } from 'svelte/store'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
 
@@ -21,6 +23,18 @@
 
 	let selectedId: string = 'settings-metadata'
 	let loading = false
+
+	export const flowStore = writable<Flow>({
+		summary: '',
+		value: { modules: [] },
+		path: '',
+		edited_at: '',
+		edited_by: '',
+		archived: false,
+		extra_perms: {},
+		schema: emptySchema()
+	})
+	const flowStateStore = writable<FlowState>({})
 
 	async function loadFlow() {
 		loading = true
@@ -66,7 +80,7 @@
 				selectedId = 'settings-metadata'
 			}
 		}
-		await initFlow(flow)
+		await initFlow(flow, flowStore, flowStateStore)
 		loading = false
 	}
 
@@ -75,4 +89,4 @@
 	$dirtyStore = true
 </script>
 
-<FlowBuilder {selectedId} {loading} />
+<FlowBuilder {flowStore} {flowStateStore} {selectedId} {loading} />

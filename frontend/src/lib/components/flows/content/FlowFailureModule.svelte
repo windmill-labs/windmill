@@ -1,6 +1,9 @@
 <script lang="ts">
-	import { flowStore } from '../flowStore'
+	import { getContext } from 'svelte'
+	import type { FlowEditorContext } from '../types'
 	import FlowModuleWrapper from './FlowModuleWrapper.svelte'
+
+	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 </script>
 
 {#if $flowStore.value.failure_module}

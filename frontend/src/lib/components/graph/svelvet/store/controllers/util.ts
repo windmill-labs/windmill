@@ -8,7 +8,6 @@ import {
 import {
   dynamicCbCreator,
   fixedCbCreator,
-  potentialAnchorCbCreator,
 } from '../../edges/controllers/anchorCbDev';
 
 import type { AnchorType, AnchorCbType } from '../../edges/types/types';
@@ -27,7 +26,6 @@ import { Anchor } from '../../edges/models/Anchor';
 import { Node } from '../../nodes/models/Node';
 import { Edge } from '../../edges/models/Edge';
 import { writable, derived, get, readable } from 'svelte/store';
-import { PotentialAnchor } from '../../interactiveNodes/models/PotentialAnchor';
 import { getEdgeById, getAnchors } from '../../edges/controllers/util';
 
 /**
@@ -191,69 +189,6 @@ function findUserNodeById(
   return null;
 }
 
-/**
- * Creates potential anchor based on the user input data in userNode
- * @param positionCb positionCb should be a function that takes 4 arguments (x,y,width,height) and returns a 3-array [x,y,angle] that represents the x,y position of the anchor as well as it's angle with respect to it's node.
- * @param store An object containing the state of the Svelvet component. You can access the following through `store`: nodesStore, edgesStore, anchorsStore, etc.
- * @param userNode The array of userNodes (NOT the same as Node object)
- * @param canvasId The canvasId of the Svelvet component that holds the Anchors
- * @returns A PotentialAnchor object with default placeholder values for its positionX, positionY, and angle
- */
-export function createPotentialAnchor(
-  positionCb: Function,
-  store: StoreType,
-  nodeId: string,
-  canvasId: string
-) {
-  const anchorId = pkStringGenerator();
-  const fixedCb = potentialAnchorCbCreator(store, anchorId, nodeId, positionCb);
-  // Create a new anchor. The
-  const anchor = new PotentialAnchor(
-    anchorId,
-    nodeId,
-    fixedCb,
-    -1, // dummy variables for x,y,angle for now
-    -1, // dummy variables for x,y,angle for now
-    0, // dummy variables for x,y,angle for now
-    canvasId
-  );
-  // return
-  return anchor;
-}
-
-/**
- * Populates potentialAnchorsStore
- * @param store An object containing the state of the Svelvet component. You can access the following through `store`: nodesStore, edgesStore, anchorsStore, etc.
- * @param nodes An array of nodes with UserNodeType
- * @param canvasId The canvasId of the Svelvet component that holds the potential anchors
- */
-export function populatePotentialAnchorStore(
-  store: StoreType,
-  nodes: UserNodeType[],
-  canvasId: string
-) {
-  // anchorsStore will populated and eventaully synchronized to store.anchorsStore
-  const potentialAnchorsStore: { [key: string]: PotentialAnchorType } = {};
-  // iterate through user nodes and create four anchors per node
-  for (let i = 0; i < nodes.length; i++) {
-    const userNode = nodes[i];
-
-    // create 4 potentialAnchors
-    for (let cb of [topCb, bottomCb, rightCb, leftCb]) {
-      const anchor = createPotentialAnchor(cb, store, userNode.id, canvasId);
-      // store potential anchors
-      potentialAnchorsStore[anchor.id] = anchor;
-    }
-  }
-
-  //populates the anchorsStore
-  store.potentialAnchorsStore.set(potentialAnchorsStore);
-
-  // set potentialAnchor positions. We can only set potentialAnchor positions after anchorsStore and nodesStore
-  // has been populated. TODO: maybe add a check to see that anchorsStore and NodesStore populated?
-  const potentialAnchors = Object.values(get(store.potentialAnchorsStore));
-  for (const potentialAnchor of potentialAnchors) potentialAnchor.callback();
-}
 
 /**
  * Populates the anchorsStore. This will overwrite any data in the AnchorsStore.

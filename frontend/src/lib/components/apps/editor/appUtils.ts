@@ -31,6 +31,7 @@ export function getNextGridItemId(app: App): string {
 }
 
 export function createNewGridItem(grid: GridItem[], id: string, data: AppComponent): GridItem {
+
 	const appComponent = data
 
 	appComponent.id = id

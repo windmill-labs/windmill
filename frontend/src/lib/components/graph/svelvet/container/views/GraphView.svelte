@@ -10,8 +10,6 @@
 	import Node from '../../nodes/views/Node.svelte'
 
 	import { findStore } from '../../store/controllers/storeApi'
-	import PotentialAnchor from '../../interactiveNodes/views/PotentialAnchor.svelte'
-	import TemporaryEdge from '../../interactiveNodes/views/TemporaryEdge.svelte'
 	import { determineD3Instance, zoomInit } from '../..//d3/controllers/d3'
 
 	import { filterByCollapsible } from '../../collapsible/controllers/util'
@@ -249,10 +247,6 @@
 				{:else}
 					<SimpleBezierEdge edgeId={edge.id} {canvasId} />
 				{/if}
-			{/each}
-
-			{#each tempEdges as temporaryEdge}
-				<TemporaryEdge {temporaryEdge} />
 			{/each}
 
 			<!-- {#each filteredAnchors as anchor} -->

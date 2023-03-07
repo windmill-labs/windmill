@@ -3,9 +3,13 @@
 
 	import SchemaEditor from '$lib/components/SchemaEditor.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
+	import { getContext } from 'svelte'
 	import FlowCard from '../common/FlowCard.svelte'
-	import { copyFirstStepSchema, flowStore } from '../flowStore'
+	import { copyFirstStepSchema } from '../flowStore'
+	import type { FlowEditorContext } from '../types'
 	import CapturePayload from './CapturePayload.svelte'
+
+	const { flowStore, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let capturePayload: CapturePayload
 </script>
@@ -29,7 +33,7 @@
 				size="sm"
 				disabled={$flowStore.value.modules.length === 0 ||
 					$flowStore.value.modules[0].value.type == 'identity'}
-				on:click={copyFirstStepSchema}
+				on:click={() => copyFirstStepSchema($flowStateStore, flowStore)}
 			>
 				First step's inputs
 			</Button>
