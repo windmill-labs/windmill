@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext, afterUpdate } from 'svelte'
-	import type { AppEditorContext, GridItem } from '../types'
+	import type { App, AppEditorContext, GridItem } from '../types'
 	import Grid from '@windmill-labs/svelte-grid'
 	import { classNames } from '$lib/utils'
 	import { columnConfiguration, disableDrag, enableDrag, isFixed, toggleFixed } from '../gridUtils'
@@ -10,6 +10,8 @@
 	import type { Policy } from '$lib/gen'
 	import HiddenComponent from '../components/helpers/HiddenComponent.svelte'
 	import Component from './component/Component.svelte'
+	import { deepEqual } from 'fast-equals'
+	import { push } from '$lib/history'
 
 	export let policy: Policy
 
@@ -22,7 +24,8 @@
 		runnableComponents,
 		summary,
 		focusedGrid,
-		parentWidth
+		parentWidth,
+		history
 	} = getContext<AppEditorContext>('AppEditorContext')
 
 	// The drag is disabled when the user is connecting an input
@@ -100,11 +103,16 @@
 	}
 
 	let pointerdown = false
+	let lastapp: App | undefined = undefined
 	const onpointerdown = () => {
+		lastapp = JSON.parse(JSON.stringify($app))
 		pointerdown = true
 	}
 	const onpointerup = () => {
 		pointerdown = false
+		if (!deepEqual(lastapp, $app)) {
+			push(history, lastapp, false, true)
+		}
 	}
 
 	afterUpdate(() => {

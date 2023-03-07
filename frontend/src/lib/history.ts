@@ -33,10 +33,11 @@ export function redo<T>(history: History<T>): T {
     return nhistory.history[nhistory.index]
 }
 
-export function push<T>(history: History<T>, value: T, noSetIndex: boolean = false) {
+export function push<T>(history: History<T>, value: T, noSetIndex: boolean = false, skipCopy: boolean = false) {
     history.update((history) => {
         history.history = JSON.parse(JSON.stringify(history.history.slice(0, history.index + 1)))
-        history.history.push(JSON.parse(JSON.stringify(value)))
+        const toPush = skipCopy ? value : JSON.parse(JSON.stringify(value))
+        history.history.push(toPush)
         if (!noSetIndex) {
             history.index = history.history.length - 1
         }
