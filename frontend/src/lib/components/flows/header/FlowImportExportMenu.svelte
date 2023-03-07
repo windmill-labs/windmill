@@ -5,10 +5,13 @@
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
 
 	import { faFileExport } from '@fortawesome/free-solid-svg-icons'
+	import { getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { Button } from '../../common'
-	import { flowStore } from '../flowStore'
+	import type { FlowEditorContext } from '../types'
 	import { cleanInputs } from '../utils'
+
+	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let jsonViewerDrawer: Drawer
 </script>

@@ -8,30 +8,29 @@
 		deleteFlowStateById,
 		emptyModule
 	} from '$lib/components/flows/flowStateUtils'
-	import { flowStateStore } from '../flowState'
 	import type { FlowModule } from '$lib/gen'
-	import RemoveStepConfirmationModal from '../content/RemoveStepConfirmationModal.svelte'
 	import { emptyFlowModuleState } from '../utils'
 	import FlowSettingsItem from './FlowSettingsItem.svelte'
 	import FlowConstantsItem from './FlowConstantsItem.svelte'
 
-	import { dfs, flowStore } from '../flowStore'
+	import { dfs } from '../flowStore'
 	import { FlowGraph } from '$lib/components/graph'
 	import FlowErrorHandlerItem from './FlowErrorHandlerItem.svelte'
+	import { push } from '$lib/history'
 
 	export let modules: FlowModule[] | undefined
 	export let sidebarSize: number | undefined = undefined
 
-	let idToRemove: string | undefined = undefined
-
-	const { selectedId, moving } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectedId, moving, history, flowStateStore, flowStore } =
+		getContext<FlowEditorContext>('FlowEditorContext')
 
 	async function insertNewModuleAtIndex(
 		modules: FlowModule[],
 		index: number,
 		kind: 'script' | 'forloop' | 'branchone' | 'branchall' | 'flow' | 'trigger' | 'approval' | 'end'
 	): Promise<FlowModule[]> {
-		var module = emptyModule(kind == 'flow')
+		push(history, $flowStore)
+		var module = emptyModule($flowStateStore, kind == 'flow')
 		var state = emptyFlowModuleState()
 		if (kind == 'forloop') {
 			;[module, state] = await createLoop(module.id)
@@ -59,7 +58,7 @@
 		if (index != -1) {
 			const [removed] = modules.splice(index, 1)
 			const leaves = dfs([removed], (mod) => mod.id)
-			leaves.forEach((leafId: string) => deleteFlowStateById(leafId))
+			leaves.forEach((leafId: string) => deleteFlowStateById(leafId, flowStateStore))
 			return modules
 		}
 		return modules.map((mod) => {
@@ -81,8 +80,6 @@
 		})
 	}
 
-	$: confirmationModalOpen = idToRemove !== undefined
-
 	$: sidebarMode == 'graph' ? (sidebarSize = 40) : (sidebarSize = 20)
 
 	let sidebarMode: 'list' | 'graph' = 'graph'
@@ -101,6 +98,8 @@
 		}
 	}
 	async function addBranch(module: FlowModule) {
+		push(history, $flowStore)
+
 		if (module.value.type === 'branchone' || module.value.type === 'branchall') {
 			module.value.branches.splice(module.value.branches.length, 0, {
 				summary: '',
@@ -111,12 +110,14 @@
 	}
 
 	function removeBranch(module: FlowModule, index: number) {
+		push(history, $flowStore)
+
 		if (module.value.type === 'branchone' || module.value.type === 'branchall') {
 			const offset = module.value.type === 'branchone' ? 1 : 0
 
 			if (module.value.branches[index - offset]?.modules) {
 				const leaves = dfs(module.value.branches[index - offset].modules, (mod) => mod.id)
-				leaves.forEach((leafId: string) => deleteFlowStateById(leafId))
+				leaves.forEach((leafId: string) => deleteFlowStateById(leafId, flowStateStore))
 			}
 
 			module.value.branches.splice(index - offset, 1)
@@ -144,17 +145,15 @@
 			{selectedId}
 			on:delete={({ detail }) => {
 				let e = detail.detail
-				if (e.event.shiftKey || e.type == 'identity') {
-					selectNextId(e.id)
-					removeAtId($flowStore.value.modules, e.id)
-					$flowStore = $flowStore
-				} else {
-					idToRemove = e.id
-				}
+				push(history, $flowStore)
+				selectNextId(e.id)
+				removeAtId($flowStore.value.modules, e.id)
+				$flowStore = $flowStore
 			}}
 			on:insert={async ({ detail }) => {
 				if (detail.modules) {
 					if ($moving) {
+						push(history, $flowStore)
 						let indexToRemove = $moving.modules.findIndex((m) => $moving?.module?.id == m.id)
 						$moving.modules.splice(indexToRemove, 1)
 						detail.modules.splice(detail.index, 0, $moving.module)
@@ -198,18 +197,3 @@
 		<FlowErrorHandlerItem />
 	</div>
 </div>
-
-<RemoveStepConfirmationModal
-	bind:open={confirmationModalOpen}
-	on:canceled={() => {
-		idToRemove = undefined
-	}}
-	on:confirmed={() => {
-		if (idToRemove !== undefined) {
-			selectNextId(idToRemove)
-			removeAtId($flowStore.value.modules, idToRemove)
-			$flowStore = $flowStore
-			idToRemove = undefined
-		}
-	}}
-/>

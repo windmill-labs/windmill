@@ -734,14 +734,10 @@ async fn slack_command(
         .map_err(|_| error::Error::BadRequest("invalid payload".to_string()))?;
 
     let body = String::from_utf8_lossy(&body);
-    if SLACK_SIGNING_SECRET
-        .as_ref()
-        .as_ref()
-        .map(|sv| sv.verify(&ts, &body, &sig).ok())
-        .flatten()
-        .is_none()
-    {
-        return Err(error::Error::BadRequest("verification failed".to_owned()));
+    if let Some(sv) = SLACK_SIGNING_SECRET.as_ref() {
+        if sv.verify(&ts, &body, &sig).ok().is_none() {
+            return Err(error::Error::BadRequest("verification failed".to_owned()));
+        }
     }
 
     let mut tx = db.begin().await?;

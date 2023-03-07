@@ -3,10 +3,9 @@
 	import { getContext } from 'svelte'
 	import { classNames } from '$lib/utils'
 	import { Badge } from '$lib/components/common'
-	import { flowStore } from '../flowStore'
 	import { SlidersHorizontal } from 'lucide-svelte'
 
-	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectedId, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	$: settingsClass = classNames(
 		'border w-full rounded-sm p-2 bg-white border-gray-400 text-sm cursor-pointer flex items-center',

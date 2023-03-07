@@ -5,13 +5,12 @@
 	import { Button, Kbd } from './common'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import { dfs, flowStore } from './flows/flowStore'
+	import { dfs } from './flows/flowStore'
 	import type { FlowEditorContext } from './flows/types'
 	import { runFlowPreview } from './flows/utils'
 	import SchemaForm from './SchemaForm.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'
-	import { flowStateStore } from './flows/flowState'
 	import CapturePayload from './flows/content/CapturePayload.svelte'
 	import { Loader2 } from 'lucide-svelte'
 
@@ -24,7 +23,8 @@
 	let isRunning: boolean = false
 	let jobProgressReset: () => void
 
-	const { selectedId, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectedId, previewArgs, flowStateStore, flowStore } =
+		getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
 
 	function sliceModules(modules: FlowModule[], upTo: number, idOrders: string[]): FlowModule[] {

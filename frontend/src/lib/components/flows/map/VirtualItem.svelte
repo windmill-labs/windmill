@@ -93,7 +93,11 @@
 				title="Add branch"
 				on:click={() => {
 					if (modules) {
-						dispatch('insert', { modules, index, detail: 'move' })
+						dispatch('insert', {
+							modules,
+							index,
+							detail: 'move'
+						})
 					}
 				}}
 				type="button"
@@ -107,7 +111,11 @@
 				trigger={label == 'Input'}
 				on:new={(e) => {
 					if (modules) {
-						dispatch('insert', { modules, index, detail: e.detail })
+						dispatch('insert', {
+							modules,
+							index: whereInsert == 'after' ? index : index - 1,
+							detail: e.detail
+						})
 					}
 				}}
 			/>

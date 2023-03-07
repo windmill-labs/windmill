@@ -26,6 +26,7 @@
 	import MoveToOtherGrid from './MoveToOtherGrid.svelte'
 	import GridPane from './GridPane.svelte'
 	import { slide } from 'svelte/transition'
+	import { push } from '$lib/history'
 
 	export let component: AppComponent
 	export let rowColumns = false
@@ -41,16 +42,19 @@
 		selectedComponent,
 		worldStore,
 		focusedGrid,
-		stateId
+		stateId,
+		history
 	} = getContext<AppEditorContext>('AppEditorContext')
 
 	function duplicateElement(id: string) {
+		push(history, $app)
 		$dirtyStore = true
 		const newId = duplicateGridItem($app, parent, id)
 		$selectedComponent = newId
 	}
 
 	function removeGridElement() {
+		push(history, $app)
 		$selectedComponent = undefined
 		$focusedGrid = undefined
 		if (component && !noGrid) {

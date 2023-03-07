@@ -1,11 +1,9 @@
 <script lang="ts">
 	import type { FlowModule } from '$lib/gen'
 	import { getContext } from 'svelte'
-	import { flowStore } from '../flowStore'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 
-	import { flowStateStore } from '../flowState'
 	import { getStepPropPicker } from '../previousResults'
 	import type { FlowEditorContext } from '../types'
 
@@ -17,7 +15,9 @@
 	export let parentModule: FlowModule
 	export let previousModule: FlowModule | undefined
 
-	const { previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { previewArgs, flowStateStore, flowStore } =
+		getContext<FlowEditorContext>('FlowEditorContext')
+
 	let editor: SimpleEditor | undefined = undefined
 
 	$: stepPropPicker = getStepPropPicker(

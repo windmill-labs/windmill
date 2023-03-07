@@ -1,17 +1,17 @@
 <script lang="ts">
-	import { dfs, flowStore } from '$lib/components/flows/flowStore'
+	import { dfs } from '$lib/components/flows/flowStore'
 	import FlowCard from '../common/FlowCard.svelte'
 	import { Alert, Badge } from '$lib/components/common'
 	import type { FlowModule, FlowModuleValue, InputTransform, PathScript, RawScript } from '$lib/gen'
-	import SchemaForm from '$lib/components/SchemaForm.svelte'
-	import { flowStateStore } from '../flowState'
-	import { setContext } from 'svelte'
+	import { getContext, setContext } from 'svelte'
 	import type { PropPickerWrapperContext } from '../propPicker/PropPickerWrapper.svelte'
 	import { writable } from 'svelte/store'
 	import Toggle from '../../Toggle.svelte'
 	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
+	import type { FlowEditorContext } from '../types'
 
 	let hideOptional = false
+	const { flowStateStore, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	$: steps = (
 		dfs($flowStore.value.modules, (x) => x)

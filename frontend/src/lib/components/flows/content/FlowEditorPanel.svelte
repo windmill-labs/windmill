@@ -6,18 +6,19 @@
 	import FlowSettings from './FlowSettings.svelte'
 	import FlowInput from './FlowInput.svelte'
 	import FlowFailureModule from './FlowFailureModule.svelte'
-	import { flowStore } from '../flowStore'
 	import FlowConstants from './FlowConstants.svelte'
 
 	export let initialPath: string
 
-	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectedId, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 </script>
 
 {#if $selectedId?.startsWith('settings')}
 	<FlowSettings {initialPath} />
 {:else if $selectedId === 'Input'}
 	<FlowInput />
+{:else if $selectedId === 'Result'}
+	<p class="p-4 text-gray-600">Nothing to show about the result node. Happy flow building!</p>
 {:else if $selectedId === 'constants'}
 	<FlowConstants />
 {:else if $selectedId === 'failure'}

@@ -13,11 +13,11 @@
 	import type { FlowModule } from '$lib/gen/models/FlowModule'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { getStepPropPicker } from '../previousResults'
-	import { flowStateStore } from '../flowState'
-	import { flowStore } from '../flowStore'
+
 	import FlowModuleSleep from './FlowModuleSleep.svelte'
 
-	const { previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { previewArgs, flowStateStore, flowStore } =
+		getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let mod: FlowModule
 	export let parentModule: FlowModule | undefined

@@ -25,6 +25,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { AppService, Job, Policy } from '$lib/gen'
+	import { redo, undo } from '$lib/history'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import {
 		faBug,
@@ -42,8 +43,10 @@
 		Loader2,
 		MoreVertical,
 		Pencil,
+		Redo,
 		SlidersHorizontal,
 		Smartphone,
+		Undo,
 		X
 	} from 'lucide-svelte'
 	import { getContext } from 'svelte'
@@ -86,7 +89,8 @@
 		errorByComponent,
 		openDebugRun,
 		focusedGrid,
-		selectedComponent
+		selectedComponent,
+		history
 	} = getContext<AppEditorContext>('AppEditorContext')
 
 	const loading = {
@@ -423,6 +427,32 @@
 >
 	<div class="min-w-64 w-64">
 		<input type="text" placeholder="App summary" class="text-sm w-full" bind:value={$summary} />
+	</div>
+	<div class="flex gap-1">
+		<Button
+			title="Undo"
+			disabled={$history.index == 0}
+			variant="border"
+			color="dark"
+			size="xs"
+			on:click={async () => {
+				$app = undo(history, $app)
+			}}
+		>
+			<Undo size={14} />
+		</Button>
+		<Button
+			title="Redo"
+			disabled={$history.index == $history.history.length - 1}
+			variant="border"
+			color="dark"
+			size="xs"
+			on:click={async () => {
+				$app = redo(history)
+			}}
+		>
+			<Redo size={14} />
+		</Button>
 	</div>
 	<div class="flex gap-4 items-center grow justify-center">
 		<div>

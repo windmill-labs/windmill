@@ -4,9 +4,9 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { emptyString } from '$lib/utils'
 	import { getContext } from 'svelte'
-	import { flowStore } from '../flowStore'
 	import type { FlowEditorContext } from '../types'
-	const { schedule } = getContext<FlowEditorContext>('FlowEditorContext')
+
+	const { schedule, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 </script>
 
 <CronInput bind:schedule={$schedule.cron} />

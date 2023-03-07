@@ -1,5 +1,6 @@
 import type { Schema } from '$lib/common'
 import type { Preview } from '$lib/gen'
+import type { History } from '$lib/history'
 import type { FilledItem } from '@windmill-labs/svelte-grid'
 import type { Writable } from 'svelte/store'
 import type { AppComponent } from './editor/component/components'
@@ -132,6 +133,7 @@ export type AppEditorContext = {
 	focusedGrid: Writable<FocusedGrid | undefined>
 	stateId: Writable<number>
 	parentWidth: Writable<number>
+	history: History<App>
 }
 
 export type FocusedGrid = { parentComponentId: string; subGridIndex: number }
