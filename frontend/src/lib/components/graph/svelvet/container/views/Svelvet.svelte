@@ -31,6 +31,7 @@
 	export let editable: boolean = false
 	export let resizable: boolean = true
 	export let highlightEdges: boolean = true
+	export let scroll: boolean = false
 
 	// generates a unique string for each svelvet component's unique store instance
 	// creates a store that uses the unique sting as the key to create and look up the corresponding store
@@ -103,7 +104,16 @@
 	class="Svelvet"
 	style={`width: ${width}px; height: ${height}px; background-color: ${bgColor};`}
 >
-	<GraphView {canvasId} {width} {height} {initialLocation} {initialZoom} {boundary} {minimap} />
+	<GraphView
+		{scroll}
+		{canvasId}
+		{width}
+		{height}
+		{initialLocation}
+		{initialZoom}
+		{boundary}
+		{minimap}
+	/>
 </div>
 
 <style>

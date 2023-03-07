@@ -1,5 +1,6 @@
 // import { zoom, zoomTransform } from 'd3-zoom';
 // import { select, selectAll } from 'd3-selection';
+import type { ZoomBehavior } from 'd3-zoom';
 import { get } from 'svelte/store';
 
 export function zoomInit(
@@ -54,7 +55,7 @@ export function zoomInit(
 // create d3 instance conditionally based on boundary prop
 export function determineD3Instance(
   boundary,
-  d3,
+  d3: { zoom: () => ZoomBehavior<any, any> },
   nodeSelected,
   width,
   height,
@@ -65,7 +66,7 @@ export function determineD3Instance(
   canvasId,
   d3Scale,
   handleZoom
-) {
+): ZoomBehavior<any, any> {
   if (boundary) {
     return d3
       .zoom()

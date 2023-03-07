@@ -42,7 +42,8 @@
 		canWrite,
 		lock_error_logs,
 		kind,
-		workspace_id
+		workspace_id,
+		archived
 	} = script
 
 	const dispatch = createEventDispatcher()
@@ -76,13 +77,17 @@
 			<Badge color="gray" baseClass="border">{capitalize(kind)}</Badge>
 		{/if}
 
+		{#if archived}
+			<Badge color="red" baseClass="border">archived</Badge>
+		{/if}
+
 		<LanguageBadge {language} />
 	</svelte:fragment>
 
 	<svelte:fragment slot="actions">
 		<span class="hidden md:inline-flex gap-x-1">
 			{#if !$userStore?.operator}
-				{#if canWrite}
+				{#if canWrite && !archived}
 					<div>
 						<Button
 							color="light"
@@ -143,13 +148,13 @@
 					displayName: 'Edit',
 					icon: faEdit,
 					href: `/scripts/edit/${hash}`,
-					disabled: !canWrite
+					disabled: !canWrite || archived
 				},
 				{
 					displayName: 'Edit code',
 					icon: faEdit,
 					href: `/scripts/edit/${hash}?step=2`,
-					disabled: !canWrite
+					disabled: !canWrite || archived
 				},
 				{
 					displayName: 'Use as template',
@@ -162,7 +167,7 @@
 					action: () => {
 						moveDrawer.openDrawer(path, summary, 'script')
 					},
-					disabled: !canWrite
+					disabled: !canWrite || archived
 				},
 				{
 					displayName: 'View runs',
@@ -174,14 +179,16 @@
 					icon: faCalendarAlt,
 					action: () => {
 						scheduleEditor.openNew(false, path)
-					}
+					},
+					disabled: archived
 				},
 				{
 					displayName: canWrite ? 'Share' : 'See Permissions',
 					icon: faShare,
 					action: () => {
 						shareModal.openDrawer && shareModal.openDrawer(path, 'script')
-					}
+					},
+					disabled: archived
 				},
 				{
 					displayName: 'Archive',
@@ -190,7 +197,7 @@
 						path ? archiveScript(path) : null
 					},
 					type: 'delete',
-					disabled: !canWrite
+					disabled: !canWrite || archived
 				}
 			]}
 		>
