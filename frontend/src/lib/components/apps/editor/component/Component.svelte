@@ -195,6 +195,7 @@
 				customCss={component.customCss}
 				componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
+				recomputeIds={component.recomputeIds}
 			/>
 		{:else if component.type === 'selectcomponent'}
 			<AppSelect
@@ -222,6 +223,7 @@
 				customCss={component.customCss}
 				componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
+				recomputeIds={component.recomputeIds}
 			/>
 		{:else if component.type === 'formbuttoncomponent'}
 			<AppFormButton
@@ -232,6 +234,7 @@
 				customCss={component.customCss}
 				componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
+				recomputeIds={component.recomputeIds}
 			/>
 		{:else if component.type === 'checkboxcomponent'}
 			<AppCheckbox

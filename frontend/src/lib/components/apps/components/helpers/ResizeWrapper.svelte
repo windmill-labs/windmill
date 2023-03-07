@@ -19,8 +19,6 @@
 			gridItem = gridItem
 		}
 	}
-
-	$: console.log(shouldWrap)
 </script>
 
 {#if shouldWrap}
