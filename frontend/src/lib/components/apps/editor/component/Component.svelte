@@ -37,7 +37,8 @@
 		AppAggridTable,
 		AppDrawer,
 		AppMap,
-		AppSplitpanes
+		AppSplitpanes,
+		AppPdf
 	} from '../../components'
 	import AppMultiSelect from '../../components/inputs/AppMultiSelect.svelte'
 
@@ -386,7 +387,19 @@
 				customCss={component.customCss}
 			/>
 		{:else if component.type === 'mapcomponent'}
-			<AppMap {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+			<AppMap
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				bind:staticOutputs={$staticOutputs[component.id]}
+			/>
+		{:else if component.type === 'pdfcomponent'}
+			<AppPdf
+				configuration={component.configuration}
+				id={component.id}
+				customCss={component.customCss}
+				bind:staticOutputs={$staticOutputs[component.id]}
+			/>
 		{/if}
 	</div>
 </div>

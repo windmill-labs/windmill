@@ -52,7 +52,7 @@
 				})
 				Object.assign(flow, template)
 				const oldPath = flow.path.split('/')
-				flow.path = `u/${$userStore?.username}/${oldPath[oldPath.length - 1]}`
+				flow.path = `u/${$userStore?.username.split('@')[0]}/${oldPath[oldPath.length - 1]}_fork`
 				flow = flow
 				goto('?', { replaceState: true })
 				selectedId = 'settings-metadata'

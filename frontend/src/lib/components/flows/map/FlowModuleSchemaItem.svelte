@@ -36,7 +36,7 @@
 		{#if retry}
 			<Popover notClickable>
 				<div
-					transition:fade={{ duration: 200 }}
+					transition:fade|local={{ duration: 200 }}
 					class="center-center rounded border bg-white border-gray-400 text-gray-700 px-1 py-0.5"
 				>
 					<Repeat size={14} />
@@ -47,7 +47,7 @@
 		{#if earlyStop}
 			<Popover notClickable>
 				<div
-					transition:fade={{ duration: 200 }}
+					transition:fade|local={{ duration: 200 }}
 					class="center-center bg-white rounded border border-gray-400 text-gray-700 px-1 py-0.5"
 				>
 					<Square size={14} />
@@ -58,7 +58,7 @@
 		{#if suspend}
 			<Popover notClickable>
 				<div
-					transition:fade={{ duration: 200 }}
+					transition:fade|local={{ duration: 200 }}
 					class="center-center bg-white rounded border border-gray-400 text-gray-700 px-1 py-0.5"
 				>
 					<PhoneIncoming size={14} />
@@ -69,7 +69,7 @@
 		{#if sleep}
 			<Popover notClickable>
 				<div
-					transition:fade={{ duration: 200 }}
+					transition:fade|local={{ duration: 200 }}
 					class="center-center bg-white rounded border border-gray-400 text-gray-700 px-1 py-0.5"
 				>
 					<Bed size={14} />

@@ -14,7 +14,7 @@
 	import CenteredPage from './CenteredPage.svelte'
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
-	import { Button, Kbd } from './common'
+	import { Button, ButtonPopup, ButtonPopupItem, Kbd } from './common'
 	import { faChevronDown, faChevronUp, faPen, faSave } from '@fortawesome/free-solid-svg-icons'
 	import Breadcrumb from './common/breadcrumb/Breadcrumb.svelte'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
@@ -54,7 +54,9 @@
 		script.content = initialCode(language, kind, template)
 	}
 
-	async function editScript(): Promise<void> {
+	let loadingSave = false
+	async function editScript(leave: boolean): Promise<void> {
+		loadingSave = true
 		try {
 			$dirtyStore = false
 			localStorage.removeItem(script.path)
@@ -83,11 +85,17 @@
 					kind: script.kind
 				}
 			})
-			history.replaceState(history.state, '', `/scripts/edit/${newHash}?step=2`)
-			goto(`/scripts/get/${newHash}?workspace_id=${$workspaceStore}`)
+			if (leave) {
+				history.replaceState(history.state, '', `/scripts/edit/${newHash}?step=2`)
+				goto(`/scripts/get/${newHash}?workspace_id=${$workspaceStore}`)
+			} else {
+				await goto(`/scripts/edit/${newHash}?step=2`)
+				script.hash = newHash
+			}
 		} catch (error) {
-			sendUserToast(`Impossible to save the script: ${error.body}`, true)
+			sendUserToast(`Impossible to save the script: ${error.body || error.message}`, true)
 		}
+		loadingSave = false
 	}
 
 	async function changeStep(step: number) {
@@ -182,14 +190,24 @@
 					>
 						Next {#if step == 1}<Kbd>Enter</Kbd>{/if}
 					</Button>
-					<Button
+					<ButtonPopup
+						loading={loadingSave}
 						size="sm"
 						variant={step == 1 ? 'border' : 'contained'}
 						disabled={step === 1 && pathError !== ''}
-						btnClasses={step == 1 && initialPath == '' ? 'invisible' : ''}
 						startIcon={{ icon: faSave }}
-						on:click={editScript}>Save</Button
+						on:click={() => editScript(false)}
 					>
+						<svelte:fragment slot="main">Save</svelte:fragment>
+						<ButtonPopupItem on:click={() => editScript(true)}>Save and exit</ButtonPopupItem>
+						{#if initialPath != ''}
+							<ButtonPopupItem
+								on:click={() => {
+									window.open(`/scripts/add?template=${initialPath}`)
+								}}>Fork</ButtonPopupItem
+							>
+						{/if}
+					</ButtonPopup>
 				</div>
 			</div>
 		</div>

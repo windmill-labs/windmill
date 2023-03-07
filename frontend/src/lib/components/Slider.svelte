@@ -12,5 +12,5 @@
 	{#if !view}<ChevronDown />{:else}<ChevronUp />{/if}</Button
 >
 {#if view}
-	<div class="my-4 px-2" transition:slide><slot /></div>
+	<div class="my-4 px-2" transition:slide|local><slot /></div>
 {/if}

@@ -13,7 +13,8 @@
 	export let configuration: Record<string, AppInput>
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export const staticOutputs: string[] = ['result']
-	export let customCss: ComponentCustomCSS<'handle' | 'limits' | 'value'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'handle' | 'limits' | 'value' | 'bar'> | undefined =
+		undefined
 
 	const { app, worldStore, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
 	let min = 0
@@ -60,7 +61,12 @@
 		<span class={css?.limits?.class ?? ''} style={css?.limits?.style ?? ''}>
 			{+min}
 		</span>
-		<div class="grow" on:pointerdown|stopPropagation={() => ($selectedComponent = id)}>
+		<div
+			class="grow"
+			style="--range-handle-focus: {'#7e9abd'}; --range-handle: {'#7e9abd'}; {css?.bar?.style ??
+				''}"
+			on:pointerdown|stopPropagation={() => ($selectedComponent = id)}
+		>
 			<RangeSlider bind:slider bind:values {step} min={+min} max={+max} />
 		</div>
 		<span class={css?.limits?.class ?? ''} style={css?.limits?.style ?? ''}>

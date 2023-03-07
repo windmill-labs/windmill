@@ -1,7 +1,14 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
-	import { Alert, Badge, Drawer, DrawerContent } from '$lib/components/common'
+	import {
+		Alert,
+		Badge,
+		ButtonPopup,
+		ButtonPopupItem,
+		Drawer,
+		DrawerContent
+	} from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
@@ -537,14 +544,31 @@
 		>
 			<span class="hidden md:inline">Publish</span>
 		</Button>
-		<Button
-			loading={loading.save}
-			startIcon={{ icon: faSave }}
-			on:click={save}
-			color="dark"
-			size="xs"
-		>
-			<span class="hidden md:inline">Save</span>
-		</Button>
+		{#if appPath == ''}
+			<Button
+				loading={loading.save}
+				startIcon={{ icon: faSave }}
+				on:click={save}
+				color="dark"
+				size="xs"
+			>
+				<span class="hidden md:inline">Save</span>
+			</Button>
+		{:else}
+			<ButtonPopup
+				loading={loading.save}
+				startIcon={{ icon: faSave }}
+				on:click={save}
+				color="dark"
+				size="xs"
+			>
+				<svelte:fragment slot="main">Save</svelte:fragment>
+				<ButtonPopupItem
+					on:click={() => {
+						window.open(`/apps/add?template=${appPath}`)
+					}}>Fork</ButtonPopupItem
+				>
+			</ButtonPopup>
+		{/if}
 	</div>
 </div>

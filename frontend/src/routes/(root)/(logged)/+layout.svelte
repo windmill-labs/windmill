@@ -92,7 +92,9 @@
 		return (
 			pathname.startsWith('/apps') ||
 			pathname.startsWith('/flows/add') ||
-			pathname.startsWith('/flows/edit')
+			pathname.startsWith('/flows/edit') ||
+			pathname.startsWith('/scripts/add') ||
+			pathname.startsWith('/scripts/edit')
 		)
 	}
 	afterNavigate((n) => {

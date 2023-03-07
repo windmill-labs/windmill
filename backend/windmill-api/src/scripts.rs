@@ -123,6 +123,7 @@ async fn list_scripts(
             AND workspace_id = ?)"
                 .bind(&w_id),
         );
+        sqlb.and_where_eq("archived", true);
     } else {
         sqlb.and_where_eq("archived", false);
     }
