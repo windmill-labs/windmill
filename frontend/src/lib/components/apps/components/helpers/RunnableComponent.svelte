@@ -52,12 +52,13 @@
 		}
 	})
 
-	let args: Record<string, any> = {}
+	let args: Record<string, any> | undefined = undefined
 	let testIsLoading = false
 	let runnableInputValues: Record<string, any> = {}
 	let executeTimeout: NodeJS.Timeout | undefined = undefined
 
 	function setDebouncedExecute() {
+		console.log('EXECUTE')
 		executeTimeout && clearTimeout(executeTimeout)
 		executeTimeout = setTimeout(() => {
 			executeComponent(true)
@@ -85,9 +86,8 @@
 	}
 
 	$: fields && (lazyStaticValues = computeStaticValues())
-	$: runnableInputValues &&
-		extraQueryParams &&
-		args &&
+	$: console.log(runnableInputValues, extraQueryParams, args, autoRefresh, testJobLoader)
+	$: (runnableInputValues || extraQueryParams || args) &&
 		autoRefresh &&
 		testJobLoader &&
 		setDebouncedExecute()
@@ -164,7 +164,7 @@
 				if (field?.type == 'static' && fields[k]) {
 					staticRunnableInputs[k] = field.value
 				} else if (field?.type == 'user') {
-					nonStaticRunnableInputs[k] = args[k]
+					nonStaticRunnableInputs[k] = args?.[k]
 				} else {
 					nonStaticRunnableInputs[k] = runnableInputValues[k]
 				}

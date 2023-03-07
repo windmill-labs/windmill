@@ -128,7 +128,6 @@
 	function onValueChange(newValue: any): void {
 		if (lastInput.type === 'connected' && newValue !== undefined && newValue !== null) {
 			const { connection } = lastInput
-
 			if (!connection) {
 				// No connection
 				return
