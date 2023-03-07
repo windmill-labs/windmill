@@ -242,7 +242,50 @@
 
 	$: selectedJobId && testJobLoader?.watchJob(selectedJobId)
 	$: hasErrors = Object.keys($errorByComponent).length > 0
+
+	function onKeyDown(event: KeyboardEvent) {
+		switch (event.key) {
+			case 'Z':
+				if (event.ctrlKey) {
+					$app = redo(history)
+					event.preventDefault()
+				}
+				break
+			case 'z':
+				if (event.ctrlKey) {
+					$app = undo(history, $app)
+					event.preventDefault()
+				}
+				break
+			case 's':
+				if (event.ctrlKey) {
+					save()
+					event.preventDefault()
+				}
+				break
+			// case 'ArrowDown': {
+			// 	let ids = generateIds()
+			// 	let idx = ids.indexOf($selectedIdStore)
+			// 	if (idx > -1 && idx < ids.length - 1) {
+			// 		$selectedIdStore = ids[idx + 1]
+			// 		event.preventDefault()
+			// 	}
+			// 	break
+			// }
+			// case 'ArrowUp': {
+			// 	let ids = generateIds()
+			// 	let idx = ids.indexOf($selectedIdStore)
+			// 	if (idx > 0 && idx < ids.length) {
+			// 		$selectedIdStore = ids[idx - 1]
+			// 		event.preventDefault()
+			// 	}
+			// 	break
+			// }
+		}
+	}
 </script>
+
+<svelte:window on:keydown={onKeyDown} />
 
 <TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job />
 

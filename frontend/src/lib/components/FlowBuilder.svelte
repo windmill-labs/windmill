@@ -16,6 +16,7 @@
 	import ScriptEditorDrawer from './flows/content/ScriptEditorDrawer.svelte'
 	import FlowEditor from './flows/FlowEditor.svelte'
 	import type { FlowState } from './flows/flowState'
+	import { dfs } from './flows/flowStore'
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import { loadFlowSchedule, type Schedule } from './flows/scheduleUtils'
@@ -193,7 +194,59 @@
 	$: initialPath && $workspaceStore && loadSchedule()
 
 	loadHubScripts()
+
+	function onKeyDown(event: KeyboardEvent) {
+		switch (event.key) {
+			case 'Z':
+				if (event.ctrlKey) {
+					$flowStore = redo(history)
+					event.preventDefault()
+				}
+				break
+			case 'z':
+				if (event.ctrlKey) {
+					$flowStore = undo(history, $flowStore)
+					$selectedIdStore = 'Input'
+					event.preventDefault()
+				}
+				break
+			case 's':
+				if (event.ctrlKey) {
+					saveFlow(false)
+					event.preventDefault()
+				}
+				break
+			case 'ArrowDown': {
+				let ids = generateIds()
+				let idx = ids.indexOf($selectedIdStore)
+				if (idx > -1 && idx < ids.length - 1) {
+					$selectedIdStore = ids[idx + 1]
+					event.preventDefault()
+				}
+				break
+			}
+			case 'ArrowUp': {
+				let ids = generateIds()
+				let idx = ids.indexOf($selectedIdStore)
+				if (idx > 0 && idx < ids.length) {
+					$selectedIdStore = ids[idx - 1]
+					event.preventDefault()
+				}
+				break
+			}
+		}
+	}
+
+	function generateIds() {
+		return [
+			'settings-metadata',
+			'constants',
+			...dfs($flowStore.value.modules, (module) => module.id)
+		]
+	}
 </script>
+
+<svelte:window on:keydown={onKeyDown} />
 
 {#if !$userStore?.operator}
 	<ScriptEditorDrawer bind:this={$scriptEditorDrawer} />
@@ -208,7 +261,7 @@
 				<FlowImportExportMenu />
 				<div class="flex gap-1">
 					<Button
-						title="Undo"
+						title="Undo (Ctrl + z)"
 						disabled={$history.index == 0}
 						variant="border"
 						color="dark"
@@ -221,7 +274,7 @@
 						<Undo size={14} />
 					</Button>
 					<Button
-						title="Redo"
+						title="Redo (Ctrl + Shift + z)"
 						disabled={$history.index == $history.history.length - 1}
 						variant="border"
 						color="dark"
