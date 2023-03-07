@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.73.1](https://github.com/windmill-labs/windmill/compare/v1.73.0...v1.73.1) (2023-03-07)
+
+
+### Bug Fixes
+
+* **frontend:** load flow is not initialized ([719d475](https://github.com/windmill-labs/windmill/commit/719d4752621d462b1cfaa0d27930fba7586be779))
+
 ## [1.73.0](https://github.com/windmill-labs/windmill/compare/v1.72.0...v1.73.0) (2023-03-07)
 
 
