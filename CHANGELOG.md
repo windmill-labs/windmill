@@ -1,6 +1,27 @@
 # Changelog
 
 
+## [1.73.0](https://github.com/windmill-labs/windmill/compare/v1.72.0...v1.73.0) (2023-03-07)
+
+
+### Features
+
+* **frontend:** add a way to automatically resize ([#1259](https://github.com/windmill-labs/windmill/issues/1259)) ([24f58ef](https://github.com/windmill-labs/windmill/commit/24f58efd9994a2201c1b1d9bbfb11734c57068e3))
+* **frontend:** add ability to move nodes ([614fb50](https://github.com/windmill-labs/windmill/commit/614fb5022aa7d5428fb96b7ee3a20794edd1e9d3))
+* **frontend:** Add app PDF viewer ([#1254](https://github.com/windmill-labs/windmill/issues/1254)) ([3e5d09e](https://github.com/windmill-labs/windmill/commit/3e5d09ef0b5619186bee5ec6d442cbfd12a6e8d5))
+* **frontend:** add fork/save buttons + consistent styling for slider/range ([9e9f8ef](https://github.com/windmill-labs/windmill/commit/9e9f8efb8ee389ea75e99b67ef720756959ca737))
+* **frontend:** add history to flows and apps ([9e4d90a](https://github.com/windmill-labs/windmill/commit/9e4d90ad37a57ff1f515eea0c82cf603649e915d))
+* **frontend:** Fix object viewer style ([#1255](https://github.com/windmill-labs/windmill/issues/1255)) ([94f1aad](https://github.com/windmill-labs/windmill/commit/94f1aadef2b09ac1962478f11b27cc708b8328f1))
+* **frontend:** refactor entire flow builder UX ([2ac51b0](https://github.com/windmill-labs/windmill/commit/2ac51b0af08bdef7ce3c7e874e9983b9fc00478a))
+
+
+### Bug Fixes
+
+* **frontend:** arginput + apppreview fixes ([e2c4545](https://github.com/windmill-labs/windmill/commit/e2c45452401022b00285b21551ffaf35a114be33))
+* **frontend:** fix app map reactivity ([#1260](https://github.com/windmill-labs/windmill/issues/1260)) ([2557e13](https://github.com/windmill-labs/windmill/commit/2557e136bd0df1a023819b7d9b2235e30d7140b6))
+* **frontend:** fix branch deletion ([#1261](https://github.com/windmill-labs/windmill/issues/1261)) ([a999eb2](https://github.com/windmill-labs/windmill/commit/a999eb21121a7c0010621448324e0c77caf2b3f6))
+* **frontend:** Side menu z-index issue ([#1265](https://github.com/windmill-labs/windmill/issues/1265)) ([c638897](https://github.com/windmill-labs/windmill/commit/c638897fdcd58f55b0929f91641b21a6f9d25ead))
+
 ## [1.72.0](https://github.com/windmill-labs/windmill/compare/v1.71.0...v1.72.0) (2023-03-02)
 
 
