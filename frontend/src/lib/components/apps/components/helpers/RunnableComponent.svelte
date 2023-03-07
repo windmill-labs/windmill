@@ -106,7 +106,6 @@
 	}
 
 	$: outputs?.loading?.set(testIsLoading)
-
 	$: schemaStripped = stripSchema(fields, $stateId)
 
 	function stripSchema(inputs: AppInputs, s: any): Schema {
