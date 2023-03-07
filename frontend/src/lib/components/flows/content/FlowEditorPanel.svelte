@@ -17,6 +17,8 @@
 	<FlowSettings {initialPath} />
 {:else if $selectedId === 'Input'}
 	<FlowInput />
+{:else if $selectedId === 'Result'}
+	<p class="p-4 text-gray-600">Nothing to show about the result node. Happy flow building!</p>
 {:else if $selectedId === 'constants'}
 	<FlowConstants />
 {:else if $selectedId === 'failure'}

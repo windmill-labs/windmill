@@ -177,7 +177,7 @@
 				style="max-height: calc(100% - {totalTopGap}px) !important;"
 			>
 				<Splitpanes horizontal>
-					<Pane size={isScript ? 30 : 50} minSize={20}>
+					<Pane class="-z-10" size={isScript ? 30 : 50} minSize={20}>
 						{#if value.type === 'rawscript'}
 							<div class="h-full">
 								<Editor
