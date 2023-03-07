@@ -53,7 +53,7 @@
 	}
 </script>
 
-<div class="relative z-10" bind:this={menu}>
+<div class="relative" bind:this={menu}>
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<div
 		on:click|stopPropagation={() => {
@@ -63,7 +63,7 @@
 			}
 			show = !show
 		}}
-		class="cursor-pointer hover:bg-gray-100/30"
+		class="relative cursor-pointer hover:bg-gray-100/30"
 	>
 		<slot class="triggerable" name="trigger" />
 	</div>
