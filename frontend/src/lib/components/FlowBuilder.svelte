@@ -215,6 +215,7 @@
 						size="xs"
 						on:click={async () => {
 							$flowStore = undo(history, $flowStore)
+							$selectedIdStore = 'Input'
 						}}
 					>
 						<Undo size={14} />
