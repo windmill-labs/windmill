@@ -101,7 +101,7 @@ export function accessPropertyByPath<T>(object: T, path: string): T | undefined 
 
 	for (let i = 0, depth = a.length; i < depth; ++i) {
 		let key = a[i]
-		if (object[key]) {
+		if (object[key] != undefined) {
 			object = object[key]
 		} else {
 			// Value not found
