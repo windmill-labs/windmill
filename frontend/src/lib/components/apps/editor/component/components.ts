@@ -231,6 +231,12 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 					value: false,
 					fieldType: 'boolean',
 					onlyStatic: true
+				},
+				fitContent: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean',
+					onlyStatic: true
 				}
 			},
 			customCss: {

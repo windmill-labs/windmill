@@ -64,11 +64,11 @@
 
 	let selectedRowIndex = -1
 
-	function toggleRow(row: Record<string, any>, rowIndex: number) {
-		if (selectedRowIndex !== rowIndex) {
+	function toggleRow(row: Record<string, any>, rowIndex: number, force: boolean = false) {
+		if (selectedRowIndex !== rowIndex || force) {
 			selectedRowIndex = rowIndex
-			outputs?.selectedRow.set(row.original)
-			outputs?.selectedRowIndex.set(rowIndex)
+			outputs?.selectedRow.set(row.original, force)
+			outputs?.selectedRowIndex.set(rowIndex, force)
 		}
 	}
 
@@ -138,6 +138,9 @@
 
 	function rerender() {
 		table = createSvelteTable(options)
+		if (result) {
+			toggleRow({ original: result[0] }, 0, true)
+		}
 	}
 
 	$: result && rerender()

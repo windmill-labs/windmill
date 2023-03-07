@@ -47,7 +47,7 @@
 	export let locked: boolean = false
 	export let pointerdown: boolean = false
 
-	const { staticOutputs, mode, connectingInput, app } =
+	const { staticOutputs, mode, connectingInput, app, errorByComponent } =
 		getContext<AppEditorContext>('AppEditorContext')
 	let hover = false
 	let initializing: boolean | undefined = undefined
@@ -57,6 +57,9 @@
 	// $: if (!deepEqual(component, pComponent)) {
 	// 	component = JSON.parse(JSON.stringify(pComponent))
 	// }
+
+	$: componentWithErrors = Object.values($errorByComponent).map((e) => e.componentId)
+	$: hasError = componentWithErrors.includes(component.id)
 </script>
 
 <div
@@ -82,7 +85,7 @@
 			selected && $mode !== 'preview' ? 'border border-blue-500' : '',
 			!selected && $mode !== 'preview' && !component.card ? 'border-gray-100' : '',
 			$mode !== 'preview' && !$connectingInput.opened ? 'hover:border-blue-500' : '',
-			component.softWrap ? '' : 'overflow-auto',
+			component.softWrap || hasError ? '' : 'overflow-auto',
 			$mode != 'preview' ? 'cursor-pointer' : '',
 			'relative z-auto',
 			$app.css?.['app']?.['component']?.class
@@ -195,6 +198,7 @@
 				customCss={component.customCss}
 				componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
+				recomputeIds={component.recomputeIds}
 			/>
 		{:else if component.type === 'selectcomponent'}
 			<AppSelect
@@ -222,6 +226,7 @@
 				customCss={component.customCss}
 				componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
+				recomputeIds={component.recomputeIds}
 			/>
 		{:else if component.type === 'formbuttoncomponent'}
 			<AppFormButton
@@ -232,6 +237,7 @@
 				customCss={component.customCss}
 				componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
+				recomputeIds={component.recomputeIds}
 			/>
 		{:else if component.type === 'checkboxcomponent'}
 			<AppCheckbox
@@ -405,7 +411,7 @@
 </div>
 {#if initializing}
 	<div
-		out:fade={{ duration: 200 }}
+		out:fade|local={{ duration: 200 }}
 		class="absolute inset-0 center-center flex-col bg-white text-gray-600 border"
 	>
 		<Loader2 class="animate-spin" size={16} />
