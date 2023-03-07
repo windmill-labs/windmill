@@ -164,7 +164,6 @@
 
 	function handleSyncRegion() {
 		const gridItem = findGridItem($app, id)
-
 		if (!map || !gridItem) {
 			return
 		}

@@ -86,6 +86,33 @@
 	$: errorsMessage = Object.values(errors)
 		.filter((x) => x != '')
 		.join('\n')
+
+	async function handleClick(event: CustomEvent) {
+		event?.stopPropagation()
+		event?.preventDefault()
+
+		if (preclickAction) {
+			await preclickAction()
+		}
+
+		ownClick = true
+
+		if (!runnableComponent) {
+			if (gotoUrl) {
+				if (gotoNewTab) {
+					window.open(gotoUrl, '_blank')
+				} else {
+					goto(gotoUrl)
+				}
+			}
+		} else {
+			await runnableComponent?.runComponent()
+		}
+
+		if (recomputeIds) {
+			await Promise.all(recomputeIds.map((id) => $runnableComponents?.[id]?.()))
+		}
+	}
 </script>
 
 <InputValue {id} input={configuration.label} bind:value={labelValue} />
@@ -131,32 +158,7 @@
 				e?.stopPropagation()
 				window.dispatchEvent(new Event('pointerup'))
 			}}
-			on:click={async (e) => {
-				if (preclickAction) {
-					await preclickAction()
-				}
-				e?.stopPropagation()
-				e?.preventDefault()
-				ownClick = true
-
-				if (!runnableComponent) {
-					if (gotoUrl) {
-						if (gotoNewTab) {
-							window.open(gotoUrl, '_blank')
-						} else {
-							goto(gotoUrl)
-						}
-					}
-				} else {
-					await runnableComponent?.runComponent()
-				}
-
-				if (recomputeIds) {
-					recomputeIds.forEach((id) => {
-						$runnableComponents[id]?.()
-					})
-				}
-			}}
+			on:click={handleClick}
 			{size}
 			{color}
 			{loading}

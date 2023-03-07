@@ -118,7 +118,6 @@
 	function scrollToPage(page: number) {
 		page = pageNumber = minMax(page, 1, pages.length)
 		const offset = (wrapper?.children.item(page - 1) as HTMLCanvasElement | null)?.offsetTop
-		// debugger
 		if (!offset) {
 			return
 		}

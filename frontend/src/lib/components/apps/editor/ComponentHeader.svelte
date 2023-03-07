@@ -15,8 +15,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	const { errorByComponent, openDebugRun, focusedGrid, worldStore } =
-		getContext<AppEditorContext>('AppEditorContext')
+	const { errorByComponent, openDebugRun } = getContext<AppEditorContext>('AppEditorContext')
 
 	$: error = Object.values($errorByComponent).find((e) => e.componentId === component.id)
 
