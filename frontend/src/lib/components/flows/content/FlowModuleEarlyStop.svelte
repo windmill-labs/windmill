@@ -3,9 +3,12 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import PropPickerWrapper from '$lib/components/flows/propPicker/PropPickerWrapper.svelte'
 	import type { FlowModule } from '$lib/gen'
-	import { flowStateStore } from '../flowState'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { NEVER_TESTED_THIS_FAR } from '../utils'
+	import type { FlowEditorContext } from '../types'
+	import { getContext } from 'svelte'
+
+	const { flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let flowModule: FlowModule
 

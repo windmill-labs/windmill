@@ -2,7 +2,6 @@ import { rightCb, leftCb, topCb, bottomCb } from './anchorCbUser'; // these are 
 import type { AnchorCbType } from '../../edges/types/types';
 import type { StoreType } from '../../store/types/types';
 
-import { getPotentialAnchorById } from '../../interactiveNodes/controllers/util';
 
 import { getAnchors } from './util';
 import { getNodeById } from '../../nodes/controllers/util';
@@ -145,26 +144,5 @@ export function dynamicCbCreator(
     // if the anchor changed position, then do operation for other anchor
     // otherwise, don't do anything. This check is so we don't have an infinite loop
     if (prevAngle !== anchorSelf.angle) anchorOther.callback();
-  }
-}
-
-export function potentialAnchorCbCreator(
-  store: StoreType,
-  potentialAnchorId: string,
-  userNodeId: string,
-  positionCb: Function // positionCb should be a function that takes 4 arguments (x,y,width,height) and returns a 3-array [x,y,angle] that represents the x,y position of the anchor as well as it's angle with respect to it's node.
-) {
-  return fixedCb;
-
-  function fixedCb() {
-    // get the two anchors
-    const potentialAnchor = getPotentialAnchorById(store, potentialAnchorId);
-    const node = getNodeById(store, userNodeId);
-    const { positionX, positionY, width, height } = node;
-    const [x, y, angle] = positionCb(positionX, positionY, width, height);
-    potentialAnchor.positionX = x;
-    potentialAnchor.positionY = y;
-    potentialAnchor.angle = angle;
-    // potential anchors don't have partners so we can end here
   }
 }

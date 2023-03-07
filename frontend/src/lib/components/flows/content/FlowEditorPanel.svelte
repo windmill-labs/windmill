@@ -6,12 +6,11 @@
 	import FlowSettings from './FlowSettings.svelte'
 	import FlowInput from './FlowInput.svelte'
 	import FlowFailureModule from './FlowFailureModule.svelte'
-	import { flowStore } from '../flowStore'
 	import FlowConstants from './FlowConstants.svelte'
 
 	export let initialPath: string
 
-	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectedId, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 </script>
 
 {#if $selectedId?.startsWith('settings')}

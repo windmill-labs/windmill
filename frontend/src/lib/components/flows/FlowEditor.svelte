@@ -2,7 +2,6 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import FlowEditorPanel from './content/FlowEditorPanel.svelte'
 	import FlowModuleSchemaMap from './map/FlowModuleSchemaMap.svelte'
-	import { flowStore } from './flowStore'
 	import WindmillIcon from '../icons/WindmillIcon.svelte'
 	import { Skeleton } from '../common'
 	import { getContext } from 'svelte'
@@ -10,6 +9,8 @@
 
 	export let initialPath: string
 	export let loading: boolean
+
+	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let size = 50
 </script>

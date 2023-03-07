@@ -8,7 +8,6 @@
 
 	import { CaptureService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { flowStore } from '../flowStore'
 
 	import { convert } from '@redocly/json-to-json-schema'
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
@@ -19,7 +18,7 @@
 	import { faClipboard } from '@fortawesome/free-solid-svg-icons'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 
-	const { previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { previewArgs, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let drawer: Drawer
 	let interval: NodeJS.Timeout | undefined = undefined

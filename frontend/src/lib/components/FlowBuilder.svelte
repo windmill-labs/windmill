@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { FlowService, ScheduleService, type Flow, type FlowModule } from '$lib/gen'
+	import { initHistory, redo, undo } from '$lib/history'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { encodeState, formatCron, loadHubScripts, sendUserToast } from '$lib/utils'
 	import { faCalendarAlt, faEye, faPen, faSave } from '@fortawesome/free-solid-svg-icons'
+	import { Redo, Undo } from 'lucide-svelte'
 	import { setContext } from 'svelte'
-	import { writable } from 'svelte/store'
+	import { writable, type Writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Button, ButtonPopup, ButtonPopupItem } from './common'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
@@ -13,8 +15,7 @@
 	import { OFFSET } from './CronInput.svelte'
 	import ScriptEditorDrawer from './flows/content/ScriptEditorDrawer.svelte'
 	import FlowEditor from './flows/FlowEditor.svelte'
-	import { flowStateStore } from './flows/flowState'
-	import { flowStore } from './flows/flowStore'
+	import type { FlowState } from './flows/flowState'
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import { loadFlowSchedule, type Schedule } from './flows/scheduleUtils'
@@ -25,6 +26,8 @@
 	export let selectedId: string | undefined
 	export let initialArgs: Record<string, any> = {}
 	export let loading = false
+	export let flowStore: Writable<Flow>
+	export let flowStateStore: Writable<FlowState>
 
 	async function createSchedule(path: string) {
 		const { cron, args, enabled } = $scheduleStore
@@ -151,6 +154,9 @@
 	const previewArgsStore = writable<Record<string, any>>(initialArgs)
 	const scriptEditorDrawer = writable<ScriptEditorDrawer | undefined>(undefined)
 	const moving = writable<{ module: FlowModule; modules: FlowModule[] } | undefined>(undefined)
+	const history = initHistory($flowStore)
+
+	const testStepStore = writable<Record<string, any>>({})
 
 	function select(selectedId: string) {
 		selectedIdStore.set(selectedId)
@@ -161,7 +167,11 @@
 		schedule: scheduleStore,
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
-		moving
+		moving,
+		history,
+		flowStateStore,
+		flowStore,
+		testStepStore
 	})
 
 	async function loadSchedule() {
@@ -194,9 +204,36 @@
 		<div
 			class="justify-between flex flex-row w-full items-center pl-2.5 pr-6  space-x-4 overflow-x-auto scrollbar-hidden max-h-12 h-full"
 		>
-			<div class="flex flex-row">
+			<div class="flex flex-row gap-4 items-center">
 				<FlowImportExportMenu />
+				<div class="flex gap-1">
+					<Button
+						title="Undo"
+						disabled={$history.index == 0}
+						variant="border"
+						color="dark"
+						size="xs"
+						on:click={async () => {
+							$flowStore = undo(history, $flowStore)
+						}}
+					>
+						<Undo size={14} />
+					</Button>
+					<Button
+						title="Redo"
+						disabled={$history.index == $history.history.length - 1}
+						variant="border"
+						color="dark"
+						size="xs"
+						on:click={async () => {
+							$flowStore = redo(history)
+						}}
+					>
+						<Redo size={14} />
+					</Button>
+				</div>
 			</div>
+
 			<div class="gap-1 flex-row hidden md:flex shrink overflow-hidden">
 				{#if $scheduleStore.enabled}
 					<Button

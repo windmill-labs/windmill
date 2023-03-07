@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
+	import { push } from '$lib/history'
 	import { faCopy } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { App, AppEditorContext } from '../../types'
@@ -18,7 +19,7 @@
 
 	let selectedOption: string
 
-	const { app } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, history } = getContext<AppEditorContext>('AppEditorContext')
 
 	function listAllSubGrids(app: App) {
 		return app.subgrids ? Object.keys(app.subgrids) : []
@@ -46,6 +47,7 @@
 		targetId: string,
 		targetSubGridIndex: number
 	) {
+		push(history, $app)
 		const focusedGrid = {
 			parentComponentId: targetId,
 			subGridIndex: targetSubGridIndex
@@ -62,6 +64,7 @@
 	}
 
 	function onMove(component: AppComponent) {
+		push(history, $app)
 		const data = findAndDelete(component.id)
 
 		if (!data) {

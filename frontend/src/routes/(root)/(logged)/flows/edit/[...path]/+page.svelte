@@ -4,10 +4,12 @@
 	import { page } from '$app/stores'
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import { workspaceStore } from '$lib/stores'
-	import { decodeArgs, decodeState, sendUserToast } from '$lib/utils'
+	import { decodeArgs, decodeState, emptySchema, sendUserToast } from '$lib/utils'
 	import { initFlow } from '$lib/components/flows/flowStore'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 	import { goto } from '$app/navigation'
+	import { writable } from 'svelte/store'
+	import type { FlowState } from '$lib/components/flows/flowState'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
 	const initialState = nodraft ? undefined : localStorage.getItem(`flow-${$page.params.path}`)
@@ -17,6 +19,18 @@
 	if (nodraft) {
 		goto('?', { replaceState: true })
 	}
+
+	export const flowStore = writable<Flow>({
+		summary: '',
+		value: { modules: [] },
+		path: '',
+		edited_at: '',
+		edited_by: '',
+		archived: false,
+		extra_perms: {},
+		schema: emptySchema()
+	})
+	const flowStateStore = writable<FlowState>({})
 
 	let loading = false
 
@@ -38,7 +52,6 @@
 		}
 		initialPath = flow.path
 
-		await initFlow(flow)
 		loading = false
 		selectedId = stateLoadedFromUrl?.selectedId
 		$dirtyStore = false
@@ -51,4 +64,4 @@
 	}
 </script>
 
-<FlowBuilder {initialPath} {selectedId} {initialArgs} {loading} />
+<FlowBuilder {flowStore} {flowStateStore} {initialPath} {selectedId} {initialArgs} {loading} />

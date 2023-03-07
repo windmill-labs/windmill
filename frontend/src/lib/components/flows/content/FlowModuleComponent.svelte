@@ -6,12 +6,10 @@
 	import EditorBar from '$lib/components/EditorBar.svelte'
 	import ModulePreview from '$lib/components/ModulePreview.svelte'
 	import { createScriptFromInlineScript, fork } from '$lib/components/flows/flowStateUtils'
-	import { flowStore } from '$lib/components/flows/flowStore'
-	import SchemaForm from '$lib/components/SchemaForm.svelte'
+
 	import { RawScript, type FlowModule, type PathFlow, type PathScript } from '$lib/gen'
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
-	import { flowStateStore } from '../flowState'
 	import { getLatestHashForScript, schemaToObject, scriptLangToEditorLang } from '$lib/utils'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import { afterUpdate, getContext } from 'svelte'
@@ -30,7 +28,8 @@
 	import FlowPathViewer from './FlowPathViewer.svelte'
 	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
 
-	const { selectedId, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectedId, previewArgs, flowStateStore, flowStore } =
+		getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let flowModule: FlowModule
 	export let failureModule: boolean = false
@@ -151,7 +150,8 @@
 						const [module, state] = await createScriptFromInlineScript(
 							flowModule,
 							$selectedId,
-							$flowStateStore[flowModule.id].schema
+							$flowStateStore[flowModule.id].schema,
+							$flowStore
 						)
 						flowModule = module
 						$flowStateStore[module.id] = state
@@ -166,7 +166,7 @@
 						{editor}
 						lang={value['language'] ?? 'deno'}
 						{websocketAlive}
-						iconOnly={width < 768}
+						iconOnly={width < 850}
 					/>
 				</div>
 			{/if}

@@ -426,12 +426,12 @@
 			nodeEnd: createVirtualNode(
 				bitems.map((i) => getParentIds(i)).flat(),
 				branchall ? 'Collect result of each branch' : 'Result of the chosen branch',
-				undefined,
+				modules,
 				'after',
 				undefined,
 				0,
 				loopDepth,
-				0,
+				modules.findIndex((m) => m.id == module.id) + 1,
 				true,
 				undefined,
 				module.id

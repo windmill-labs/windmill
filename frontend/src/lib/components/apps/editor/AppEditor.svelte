@@ -36,6 +36,7 @@
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { page } from '$app/stores'
 	import CssSettings from './componentsPanel/CssSettings.svelte'
+	import { initHistory } from '$lib/history'
 
 	export let app: App
 	export let path: string
@@ -56,6 +57,7 @@
 		input: undefined,
 		hoveredComponent: undefined
 	})
+	const history = initHistory(app)
 
 	const runnableComponents = writable<Record<string, () => Promise<void>>>({})
 	const errorByComponent = writable<Record<string, { error: string; componentId: string }>>({})
@@ -82,7 +84,8 @@
 		openDebugRun: writable(undefined),
 		focusedGrid,
 		stateId: writable(0),
-		parentWidth: writable(0)
+		parentWidth: writable(0),
+		history
 	})
 
 	let timeout: NodeJS.Timeout | undefined = undefined

@@ -1,6 +1,6 @@
 import type { Schema } from '$lib/common'
 import type { Flow, FlowModule, FlowStatusModule } from '$lib/gen'
-import { writable } from 'svelte/store'
+import type { Writable } from 'svelte/store'
 import { loadFlowModuleState } from './flowStateUtils'
 import { emptyFlowModuleState } from './utils'
 
@@ -17,10 +17,9 @@ export type FlowState = Record<string, FlowModuleState>
  * It contains data loaded that are not contained in a Flow object i.e. schemas.
  * We also hold the data of the results of a test job, ran by the user.
  */
-export const flowStateStore = writable<FlowState>({})
-export const testStepStore = writable<Record<string, any>>({})
 
-export async function initFlowState(flow: Flow) {
+
+export async function initFlowState(flow: Flow, flowStateStore: Writable<FlowState>) {
 	const modulesState: FlowState = {}
 
 	await mapFlowModules(flow.value.modules, modulesState)

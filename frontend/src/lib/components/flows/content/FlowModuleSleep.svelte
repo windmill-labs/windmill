@@ -7,14 +7,13 @@
 	import type { FlowModule } from '$lib/gen'
 	import { emptySchema } from '$lib/utils'
 	import { getContext } from 'svelte'
-	import { flowStateStore } from '../flowState'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import type { FlowEditorContext } from '../types'
 
 	export let flowModule: FlowModule
 	export let previousModuleId: string | undefined
 
-	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectedId, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let schema = emptySchema()
 	schema.properties['sleep'] = {
