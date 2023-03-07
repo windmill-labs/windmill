@@ -50,8 +50,9 @@
 				path: $page.params.path
 			})
 		}
-		initialPath = flow.path
 
+		await initFlow(flow, flowStore, flowStateStore)
+		initialPath = flow.path
 		loading = false
 		selectedId = stateLoadedFromUrl?.selectedId
 		$dirtyStore = false
