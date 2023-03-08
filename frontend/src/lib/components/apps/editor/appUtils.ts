@@ -184,7 +184,7 @@ export function findAvailableSpace(
 ) {
 	if (gridItem) {
 		const breakpoint = editorBreakpoint === 'sm' ? 3 : 12
-		const maxHeight = Math.max(12, parentGridItem ? parentGridItem[breakpoint].h - 1 : 0)
+		const maxHeight = parentGridItem ? parentGridItem[breakpoint].h - 1 : 12
 		const maxWidth = 12
 
 		const availableSpace = {
