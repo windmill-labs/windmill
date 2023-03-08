@@ -11,17 +11,38 @@
 	import { SELECT_INPUT_DEFAULT_STYLE } from '../defaults'
 
 	const dispatch = createEventDispatcher()
-	let resources: Resource[] = []
 
 	export let initialValue: string | undefined = undefined
 	export let value: string | undefined = initialValue
 	export let resourceType: string | undefined = undefined
 
+	let valueSelect =
+		initialValue || value
+			? {
+					value: value ?? initialValue,
+					label: value ?? initialValue
+			  }
+			: undefined
+
+	let collection = [valueSelect]
+
 	async function loadResources(resourceType: string | undefined) {
-		const v = value
-		resources = await ResourceService.listResource({ workspace: $workspaceStore!, resourceType })
-		value = v
+		const nc = (
+			await ResourceService.listResource({
+				workspace: $workspaceStore!,
+				resourceType
+			})
+		).map((x) => ({
+			value: x.path,
+			label: x.path
+		}))
+
+		if (!nc.find((x) => x.value == value) && (initialValue || value)) {
+			nc.push({ value: value ?? initialValue!, label: value ?? initialValue! })
+		}
+		collection = nc
 	}
+
 	$: {
 		if ($workspaceStore) {
 			loadResources(resourceType)
@@ -29,10 +50,6 @@
 	}
 	$: dispatch('change', value)
 
-	$: collection = resources.map((x) => ({
-		value: x.path,
-		label: x.path
-	}))
 	let appConnect: AppConnect
 	let resourceEditor: ResourceEditor
 </script>
@@ -50,18 +67,24 @@
 	bind:this={resourceEditor}
 	on:refresh={async (e) => {
 		await loadResources(resourceType)
-		console.log(e)
 		if (e.detail) {
 			value = e.detail
+			valueSelect = { value: e.detail, label: e.detail }
 		}
 	}}
 />
 
 <div class="flex flex-row gap-x-1 w-full">
 	<Select
-		listAutoWidth={false}
-		value={collection.find((x) => x.value == value)}
-		bind:justValue={value}
+		value={valueSelect}
+		on:change={(e) => {
+			value = e.detail.value
+			valueSelect = e.detail
+		}}
+		on:clear={() => {
+			value = undefined
+			valueSelect = undefined
+		}}
 		items={collection}
 		class="text-clip grow min-w-0"
 		placeholder="{resourceType} resource"
