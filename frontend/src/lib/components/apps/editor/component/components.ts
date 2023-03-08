@@ -1217,7 +1217,7 @@ Hello \${ctx.username}
 				color: {
 					type: 'static',
 					value: 'currentColor',
-					fieldType: 'text'
+					fieldType: 'color'
 				},
 				size: {
 					type: 'static',
