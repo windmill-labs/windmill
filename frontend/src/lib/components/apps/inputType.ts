@@ -10,6 +10,7 @@ export type InputType =
 	| 'boolean'
 	| 'select'
 	| 'icon-select'
+	| 'color'
 	| 'date'
 	| 'time'
 	| 'datetime'
@@ -145,6 +146,7 @@ export type AppInput =
 	  })
 	| (AppInputSpec<'select', string> & StaticOptions)
 	| AppInputSpec<'icon-select', string>
+	| AppInputSpec<'color', string>
 	| AppInputSpec<'array', string[], 'text'>
 	| AppInputSpec<'array', string[], 'textarea'>
 	| AppInputSpec<'array', number[], 'number'>

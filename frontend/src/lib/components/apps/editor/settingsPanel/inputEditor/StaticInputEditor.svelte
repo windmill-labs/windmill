@@ -8,6 +8,7 @@
 	import { getContext } from 'svelte'
 	import type { AppEditorContext } from '$lib/components/apps/types'
 	import IconSelectInput from './IconSelectInput.svelte'
+	import ColorInput from './ColorInput.svelte'
 
 	export let componentInput: StaticAppInput | undefined
 
@@ -35,6 +36,8 @@
 		</select>
 	{:else if componentInput.fieldType === 'icon-select'}
 		<IconSelectInput bind:componentInput />
+	{:else if componentInput.fieldType === 'color'}
+		<ColorInput bind:componentInput />
 	{:else if componentInput.fieldType === 'object'}
 		{#if componentInput?.format?.startsWith('resource-')}
 			<ResourcePicker
