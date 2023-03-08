@@ -58,6 +58,8 @@
 		<button
 			class="absolute right-2 top-1/2 transform -translate-y-1/2 hover:bg-gray-200 rounded-full p-0.5"
 			on:click|stopPropagation|preventDefault={() => (componentInput.value = undefined)}
+			title="Clear"
+			aria-label="Clear"
 		>
 			<X size="14" />
 		</button>
