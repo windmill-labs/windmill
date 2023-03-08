@@ -17,6 +17,7 @@
 	export let configuration: Record<string, AppInput>
 	export const staticOutputs: string[] = ['loading']
 	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
+	export let render: boolean
 
 	const { app, mode, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
 
@@ -184,135 +185,137 @@
 <InputValue {id} input={configuration.source} bind:value={source} />
 <InputValue {id} input={configuration.zoom} bind:value={zoom} />
 
-<div class="relative w-full h-full bg-gray-100">
-	{#if source && zoom}
-		{#if pages?.length}
-			<div
-				bind:clientWidth={controlsWidth}
-				bind:clientHeight={controlsHeight}
-				class="fixed flex {$mode !== 'preview'
-					? 'w-[calc(100%-2px)] top-[1px]'
-					: 'w-full top-0'} {wideView
-					? 'justify-center gap-14'
-					: '!justify-between'} overflow-x-auto bg-white border mx-auto py-1"
-			>
-				<div class="flex justify-start items-center px-2 text-gray-600 text-sm">
-					<Button
-						on:click={() => zoom && (zoom -= 10)}
-						disabled={!doc}
-						size="xs"
-						color="light"
-						variant="border"
-						title="Zoom out"
-						aria-label="Zoom out"
-						btnClasses="!rounded-r-none !px-2"
-					>
-						<ZoomOut size={16} />
-					</Button>
-					{#if wideView}
+{#if render}
+	<div class="relative w-full h-full bg-gray-100">
+		{#if source && zoom}
+			{#if pages?.length}
+				<div
+					bind:clientWidth={controlsWidth}
+					bind:clientHeight={controlsHeight}
+					class="fixed flex {$mode !== 'preview'
+						? 'w-[calc(100%-2px)] top-[1px]'
+						: 'w-full top-0'} {wideView
+						? 'justify-center gap-14'
+						: '!justify-between'} overflow-x-auto bg-white border mx-auto py-1"
+				>
+					<div class="flex justify-start items-center px-2 text-gray-600 text-sm">
 						<Button
-							on:click={() => (zoom = 100)}
+							on:click={() => zoom && (zoom -= 10)}
 							disabled={!doc}
 							size="xs"
 							color="light"
 							variant="border"
-							title="Reset zoom"
-							aria-label="Reset zoom"
-							btnClasses="!w-[50px] !font-medium !rounded-none !border-l-0 !px-1"
+							title="Zoom out"
+							aria-label="Zoom out"
+							btnClasses="!rounded-r-none !px-2"
 						>
-							{zoom.toFixed(0)}%
+							<ZoomOut size={16} />
 						</Button>
-					{/if}
-					<Button
-						on:click={() => renderPdf(true, true)}
-						disabled={!doc}
-						size="xs"
-						color="light"
-						variant="border"
-						title="Scale to viewport"
-						aria-label="Scale to viewport"
-						btnClasses="!rounded-none !border-l-0 !px-2"
-					>
-						<MoveHorizontal size={16} />
-					</Button>
-					<Button
-						on:click={() => zoom && (zoom += 10)}
-						disabled={!doc}
-						size="xs"
-						color="light"
-						variant="border"
-						title="Zoom in"
-						aria-label="Zoom in"
-						btnClasses="!rounded-l-none !px-2 !border-l-0"
-					>
-						<ZoomIn size={16} />
-					</Button>
-				</div>
-				<div class="center-center px-2 text-gray-600 text-sm">
-					<input
-						on:input={({ currentTarget }) => {
-							scrollToPage(currentTarget.valueAsNumber)
-						}}
-						min="1"
-						max={pages.length}
-						value={pageNumber}
-						disabled={!doc}
-						type="number"
-						class="!w-[45px] !px-1 !py-0"
-					/>
-					<span class="whitespace-nowrap pl-1">
-						/ {pages.length}
-					</span>
-				</div>
-				<div class="flex justify-end items-center px-2 text-gray-600 text-sm">
-					<Button
-						on:click={downloadPdf}
-						disabled={!doc}
-						size="xs"
-						color="light"
-						variant="border"
-						title="Download PDF"
-						aria-label="Download PDF"
-						btnClasses="!font-medium !px-2"
-					>
 						{#if wideView}
-							<span class="mr-1"> Download </span>
+							<Button
+								on:click={() => (zoom = 100)}
+								disabled={!doc}
+								size="xs"
+								color="light"
+								variant="border"
+								title="Reset zoom"
+								aria-label="Reset zoom"
+								btnClasses="!w-[50px] !font-medium !rounded-none !border-l-0 !px-1"
+							>
+								{zoom.toFixed(0)}%
+							</Button>
 						{/if}
-						<Download size={16} />
-					</Button>
+						<Button
+							on:click={() => renderPdf(true, true)}
+							disabled={!doc}
+							size="xs"
+							color="light"
+							variant="border"
+							title="Scale to viewport"
+							aria-label="Scale to viewport"
+							btnClasses="!rounded-none !border-l-0 !px-2"
+						>
+							<MoveHorizontal size={16} />
+						</Button>
+						<Button
+							on:click={() => zoom && (zoom += 10)}
+							disabled={!doc}
+							size="xs"
+							color="light"
+							variant="border"
+							title="Zoom in"
+							aria-label="Zoom in"
+							btnClasses="!rounded-l-none !px-2 !border-l-0"
+						>
+							<ZoomIn size={16} />
+						</Button>
+					</div>
+					<div class="center-center px-2 text-gray-600 text-sm">
+						<input
+							on:input={({ currentTarget }) => {
+								scrollToPage(currentTarget.valueAsNumber)
+							}}
+							min="1"
+							max={pages.length}
+							value={pageNumber}
+							disabled={!doc}
+							type="number"
+							class="!w-[45px] !px-1 !py-0"
+						/>
+						<span class="whitespace-nowrap pl-1">
+							/ {pages.length}
+						</span>
+					</div>
+					<div class="flex justify-end items-center px-2 text-gray-600 text-sm">
+						<Button
+							on:click={downloadPdf}
+							disabled={!doc}
+							size="xs"
+							color="light"
+							variant="border"
+							title="Download PDF"
+							aria-label="Download PDF"
+							btnClasses="!font-medium !px-2"
+						>
+							{#if wideView}
+								<span class="mr-1"> Download </span>
+							{/if}
+							<Download size={16} />
+						</Button>
+					</div>
 				</div>
-			</div>
-		{:else}
+			{:else}
+				<div
+					out:fade={{ duration: 200 }}
+					class="absolute inset-0 center-center flex-col text-center text-sm bg-white text-gray-600"
+				>
+					<Loader2 class="animate-spin mb-2" />
+					Loading PDF
+				</div>
+			{/if}
 			<div
-				out:fade={{ duration: 200 }}
-				class="absolute inset-0 center-center flex-col text-center text-sm bg-white text-gray-600"
+				bind:this={wrapper}
+				on:scroll={throttledScroll}
+				class={twMerge('w-full h-full overflow-auto', css?.container?.class ?? '', 'bg-gray-100')}
+				style="padding-top: {controlsHeight ?? 0}px; {css?.container?.style ?? ''}"
+			/>
+		{/if}
+		{#if $mode !== 'preview' && $selectedComponent === id}
+			<button
+				class="fixed z-10 bottom-0 left-0 px-2 py-0.5 bg-indigo-500/90 
+			hover:bg-indigo-500 focus:bg-indigo-500 duration-200 text-white text-2xs"
+				on:click={() => syncZoomValue()}
 			>
-				<Loader2 class="animate-spin mb-2" />
-				Loading PDF
+				Sync zoom value
+			</button>
+		{/if}
+		{#if error}
+			<div
+				class="absolute inset-0 z-20 center-center 
+		bg-gray-100 text-center text-gray-600 text-sm"
+			>
+				{error}
 			</div>
 		{/if}
-		<div
-			bind:this={wrapper}
-			on:scroll={throttledScroll}
-			class={twMerge('w-full h-full overflow-auto', css?.container?.class ?? '', 'bg-gray-100')}
-			style="padding-top: {controlsHeight ?? 0}px; {css?.container?.style ?? ''}"
-		/>
-	{/if}
-	{#if $mode !== 'preview' && $selectedComponent === id}
-		<button
-			class="fixed z-10 bottom-0 left-0 px-2 py-0.5 bg-indigo-500/90 
-			hover:bg-indigo-500 focus:bg-indigo-500 duration-200 text-white text-2xs"
-			on:click={() => syncZoomValue()}
-		>
-			Sync zoom value
-		</button>
-	{/if}
-	{#if error}
-		<div
-			class="absolute inset-0 z-20 center-center 
-		bg-gray-100 text-center text-gray-600 text-sm"
-		>
-			{error}
-		</div>
-	{/if}
-</div>
+	</div>
+{/if}

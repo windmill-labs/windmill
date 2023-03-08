@@ -25,6 +25,7 @@
 	export let customCss:
 		| ComponentCustomCSS<'container' | 'tableHeader' | 'tableBody' | 'tableFooter'>
 		| undefined = undefined
+	export let render: boolean
 
 	export const staticOutputs: string[] = [
 		'selectedRow',
@@ -150,7 +151,7 @@
 
 <InputValue {id} input={configuration.search} bind:value={search} />
 
-<RunnableWrapper flexWrap {componentInput} {id} bind:initializing bind:result>
+<RunnableWrapper {render} flexWrap {componentInput} {id} bind:initializing bind:result>
 	{#if Array.isArray(result) && result.every(isObject)}
 		<div
 			class={twMerge(
@@ -247,6 +248,7 @@
 											{#each actionButtons as actionButton, actionIndex (actionIndex)}
 												{#if rowIndex == 0}
 													<AppButton
+														{render}
 														noWFull
 														{...actionButton}
 														preclickAction={async () => {
@@ -258,6 +260,7 @@
 													/>
 												{:else}
 													<AppButton
+														{render}
 														noWFull
 														{...actionButton}
 														preclickAction={async () => {

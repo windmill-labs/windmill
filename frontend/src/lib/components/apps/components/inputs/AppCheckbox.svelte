@@ -13,6 +13,7 @@
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let customCss: ComponentCustomCSS<'text'> | undefined = undefined
+	export let render: boolean
 
 	const { app, worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
@@ -36,7 +37,7 @@
 <InputValue {id} input={configuration.label} bind:value={labelValue} />
 <InputValue {id} input={configuration.defaultValue} bind:value={defaultValue} />
 
-<AlignWrapper {horizontalAlignment} {verticalAlignment}>
+<AlignWrapper {render} {horizontalAlignment} {verticalAlignment}>
 	<Toggle
 		on:pointerdown={(e) => {
 			e?.stopPropagation()

@@ -18,6 +18,7 @@
 	export let verticalAlignment: VerticalAlignment | undefined = undefined
 	export let customCss: ComponentCustomCSS<'container' | 'divider'> | undefined = undefined
 	export let position: 'horizontal' | 'vertical'
+	export let render: boolean
 
 	const { app } = getContext<AppEditorContext>('AppEditorContext')
 	let size = 2
@@ -34,6 +35,7 @@
 	{verticalAlignment}
 	class={twMerge(css?.container?.class, 'h-full')}
 	style={css?.container?.style}
+	{render}
 >
 	<div
 		class={twMerge(

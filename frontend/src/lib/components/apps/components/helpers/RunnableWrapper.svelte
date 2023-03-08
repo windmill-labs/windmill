@@ -20,6 +20,7 @@
 	export let runnableStyle = ''
 	export let goto: string | undefined = undefined
 	export let gotoNewTab: boolean | undefined = undefined
+	export let render: boolean
 
 	const { staticExporter, noBackend } = getContext<AppEditorContext>('AppEditorContext')
 
@@ -57,10 +58,11 @@
 		{initializing}
 		wrapperClass={runnableClass}
 		wrapperStyle={runnableStyle}
+		{render}
 	>
 		<slot />
 	</RunnableComponent>
-{:else}
+{:else if render}
 	<NonRunnableComponent bind:result {id} {componentInput}>
 		<slot />
 	</NonRunnableComponent>

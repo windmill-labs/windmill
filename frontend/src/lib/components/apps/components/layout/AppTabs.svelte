@@ -15,6 +15,7 @@
 	export let customCss:
 		| ComponentCustomCSS<'tabRow' | 'tabs' | 'selectedTab' | 'container'>
 		| undefined = undefined
+	export let render: boolean
 
 	export const staticOutputs: string[] = ['selectedTabIndex']
 	const { app, worldStore, focusedGrid, selectedComponent } =
@@ -90,7 +91,7 @@
 		{#each tabs ?? [] as res, i}
 			<SubGridEditor
 				{id}
-				visible={i === selectedIndex}
+				visible={render && i === selectedIndex}
 				bind:subGrid={$app.subgrids[`${id}-${i}`]}
 				{noPadding}
 				class={css?.container?.class}

@@ -29,6 +29,7 @@
 	export let configuration: Record<string, AppInput>
 	export let initializing: boolean | undefined = undefined
 	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
+	export let render: boolean
 
 	export const staticOutputs: string[] = ['loading', 'result']
 	const { app } = getContext<AppEditorContext>('AppEditorContext')
@@ -93,7 +94,7 @@
 <InputValue {id} input={configuration.zoomable} bind:value={zoomable} />
 <InputValue {id} input={configuration.pannable} bind:value={pannable} />
 
-<RunnableWrapper flexWrap autoRefresh {componentInput} {id} bind:initializing bind:result>
+<RunnableWrapper {render} flexWrap autoRefresh {componentInput} {id} bind:initializing bind:result>
 	<div class="w-full h-full {css?.container?.class ?? ''}" style={css?.container?.style ?? ''}>
 		{#if result}
 			<Scatter {data} {options} />

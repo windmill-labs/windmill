@@ -14,6 +14,7 @@
 	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
 	export let horizontal: boolean = false
 	export let panes: number[]
+	export let render: boolean
 
 	export const staticOutputs: string[] = []
 
@@ -48,6 +49,7 @@
 			<Pane size={paneSize} minSize={20}>
 				{#if $app.subgrids?.[`${id}-${index}`]}
 					<SubGridEditor
+						visible={render}
 						noYPadding
 						{noPadding}
 						{id}

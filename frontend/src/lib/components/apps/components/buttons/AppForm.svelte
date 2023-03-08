@@ -19,6 +19,7 @@
 	export let extraQueryParams: Record<string, any> = {}
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 	export let customCss: ComponentCustomCSS<'container' | 'button'> | undefined = undefined
+	export let render: boolean
 
 	export const staticOutputs: string[] = ['loading', 'result']
 
@@ -61,6 +62,7 @@
 <InputValue {id} input={configuration.size} bind:value={size} />
 
 <RunnableWrapper
+	{render}
 	bind:runnableComponent
 	{componentInput}
 	{id}

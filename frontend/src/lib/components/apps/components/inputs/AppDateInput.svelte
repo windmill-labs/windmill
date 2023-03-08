@@ -15,6 +15,7 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export const staticOutputs: string[] = ['result']
 	export let customCss: ComponentCustomCSS<'input'> | undefined = undefined
+	export let render: boolean
 
 	const { app, worldStore } = getContext<AppEditorContext>('AppEditorContext')
 	let input: HTMLInputElement
@@ -43,7 +44,7 @@
 
 <InputDefaultValue bind:input {defaultValue} />
 
-<AlignWrapper {verticalAlignment}>
+<AlignWrapper {render} {verticalAlignment}>
 	<input
 		type={inputType}
 		bind:this={input}

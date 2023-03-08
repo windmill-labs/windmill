@@ -8,7 +8,6 @@
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '../../../../defaults'
-	import { stopPropagation } from 'ol/events/Event'
 
 	export const staticOutputs: string[] = ['result']
 	export let id: string
@@ -16,6 +15,7 @@
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let customCss: ComponentCustomCSS<'input'> | undefined = undefined
+	export let render: boolean
 
 	const { app, worldStore, connectingInput, selectedComponent } =
 		getContext<AppEditorContext>('AppEditorContext')
@@ -57,7 +57,7 @@
 <InputValue {id} input={configuration.items} bind:value={labels} />
 <InputValue {id} input={configuration.placeholder} bind:value={placeholder} />
 
-<AlignWrapper {horizontalAlignment} {verticalAlignment}>
+<AlignWrapper {render} {horizontalAlignment} {verticalAlignment}>
 	<div class="app-select w-full mx-0.5" style="height: 34px" on:pointerdown|stopPropagation>
 		{#if !value || Array.isArray(value)}
 			<Select

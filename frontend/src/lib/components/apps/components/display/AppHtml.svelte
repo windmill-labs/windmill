@@ -9,6 +9,7 @@
 	export let componentInput: AppInput | undefined
 	export let initializing: boolean | undefined = undefined
 	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
+	export let render: boolean
 
 	export const staticOutputs: string[] = ['result', 'loading']
 	const { app } = getContext<AppEditorContext>('AppEditorContext')
@@ -28,7 +29,15 @@
 	bind:clientHeight={h}
 	bind:clientWidth={w}
 >
-	<RunnableWrapper autoRefresh flexWrap {componentInput} {id} bind:initializing bind:result>
+	<RunnableWrapper
+		{render}
+		autoRefresh
+		flexWrap
+		{componentInput}
+		{id}
+		bind:initializing
+		bind:result
+	>
 		{#key result}
 			<iframe
 				frameborder="0"

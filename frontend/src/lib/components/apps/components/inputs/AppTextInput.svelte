@@ -16,6 +16,7 @@
 	export const staticOutputs: string[] = ['result']
 	export let customCss: ComponentCustomCSS<'input'> | undefined = undefined
 	export let appCssKey: 'textinputcomponent' | 'passwordinputcomponent' = 'textinputcomponent'
+	export let render: boolean
 
 	const { app, worldStore } = getContext<AppEditorContext>('AppEditorContext')
 	let input: HTMLInputElement
@@ -40,7 +41,7 @@
 <InputValue {id} input={configuration.defaultValue} bind:value={defaultValue} />
 <InputDefaultValue bind:input {defaultValue} />
 
-<AlignWrapper {verticalAlignment}>
+<AlignWrapper {render} {verticalAlignment}>
 	<input
 		class={twMerge(
 			'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2 mx-0.5',
