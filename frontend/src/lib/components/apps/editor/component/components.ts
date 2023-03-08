@@ -1258,7 +1258,7 @@ Hello \${ctx.username}
 				color: {
 					type: 'static',
 					value: '#00000060',
-					fieldType: 'text',
+					fieldType: 'color',
 					onlyStatic: true
 				}
 			},
@@ -1288,7 +1288,7 @@ Hello \${ctx.username}
 				color: {
 					type: 'static',
 					value: '#00000060',
-					fieldType: 'text',
+					fieldType: 'color',
 					onlyStatic: true
 				}
 			},

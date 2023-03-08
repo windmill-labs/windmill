@@ -44,7 +44,9 @@
 		height: 14px !important;
 		border-radius: 7px !important;
 		margin-top: 0 !important;
+		background-color: #fafafa !important;
 		border: 1px solid #2e2e2eaf !important;
 		top: -2px !important;
+		box-shadow: 0 2px 6px -2px rgba(0, 0, 0, 0.5) !important;
 	}
 </style>
