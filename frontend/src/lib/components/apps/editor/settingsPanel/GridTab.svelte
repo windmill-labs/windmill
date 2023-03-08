@@ -51,9 +51,9 @@
 	{#if tabs.length == 0}
 		<span class="text-xs text-gray-500">No Tabs</span>
 	{/if}
-	<div class="flex gap-2 flex-col mt-2">
+	<div class="w-full flex gap-2 flex-col mt-2">
 		{#each tabs as value, index (index)}
-			<div class="flex flex-row gap-2 items-center relative">
+			<div class="w-full flex flex-row gap-2 items-center relative">
 				<input type="text" bind:value />
 
 				<div class="absolute top-1 right-1">

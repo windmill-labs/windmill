@@ -471,13 +471,14 @@
 	<div class="min-w-64 w-64">
 		<input type="text" placeholder="App summary" class="text-sm w-full" bind:value={$summary} />
 	</div>
-	<div class="flex gap-1">
+	<div class="flex">
 		<Button
 			title="Undo"
 			disabled={$history.index == 0}
 			variant="border"
-			color="dark"
+			color="light"
 			size="xs"
+			btnClasses="!min-h-[30px] !rounded-r-none"
 			on:click={async () => {
 				$app = undo(history, $app)
 			}}
@@ -488,8 +489,9 @@
 			title="Redo"
 			disabled={$history.index == $history.history.length - 1}
 			variant="border"
-			color="dark"
+			color="light"
 			size="xs"
+			btnClasses="!min-h-[30px] !rounded-l-none !border-r-0"
 			on:click={async () => {
 				$app = redo(history)
 			}}
@@ -529,7 +531,7 @@
 				<ToggleButton position="left" value={false} size="xs">
 					<div class="flex gap-1 justify-start items-center">
 						<AlignHorizontalSpaceAround size={14} />
-						<Tooltip light>
+						<Tooltip light class="mb-0.5">
 							The max width is 1168px and the content stay centered instead of taking the full page
 							width
 						</Tooltip>
