@@ -7,6 +7,7 @@
 	import type { AppEditorContext, GridItem } from '../types'
 	import Component from './component/Component.svelte'
 	import { expandGriditem, findAvailableSpace, findGridItem } from './appUtils'
+	import { push } from '$lib/history'
 
 	export let containerHeight: number
 	let classes = ''
@@ -21,8 +22,16 @@
 
 	const dispatch = createEventDispatcher()
 
-	const { app, connectingInput, selectedComponent, focusedGrid, mode, parentWidth, breakpoint } =
-		getContext<AppEditorContext>('AppEditorContext')
+	const {
+		app,
+		connectingInput,
+		selectedComponent,
+		focusedGrid,
+		mode,
+		parentWidth,
+		breakpoint,
+		history
+	} = getContext<AppEditorContext>('AppEditorContext')
 
 	$: highlight = id === $focusedGrid?.parentComponentId && shouldHighlight
 
@@ -135,6 +144,8 @@
 									if (!parentGridItem) {
 										return
 									}
+
+									push(history, $app)
 
 									expandGriditem(subGrid, gridComponent, $breakpoint, parentGridItem)
 									$app = { ...$app }

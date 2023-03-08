@@ -211,6 +211,7 @@
 									}
 								}}
 								on:expand={() => {
+									push(history, $app)
 									expandGriditem($app.grid, gridComponent, $breakpoint)
 									$app = { ...$app }
 								}}
