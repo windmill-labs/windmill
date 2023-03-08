@@ -12,6 +12,7 @@
 	export let configuration: Record<string, AppInput>
 	export const staticOutputs: string[] = []
 	export let customCss: ComponentCustomCSS<'container' | 'icon'> | undefined = undefined
+	export let render: boolean
 
 	const { app } = getContext<AppEditorContext>('AppEditorContext')
 
@@ -38,6 +39,7 @@
 <InputValue {id} input={configuration.strokeWidth} bind:value={strokeWidth} />
 
 <AlignWrapper
+	{render}
 	{horizontalAlignment}
 	{verticalAlignment}
 	class={css?.container?.class ?? ''}

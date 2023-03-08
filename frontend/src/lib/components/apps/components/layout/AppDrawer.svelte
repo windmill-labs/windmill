@@ -16,6 +16,7 @@
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let noWFull = false
+	export let render: boolean
 
 	const { app, focusedGrid, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
 
@@ -69,7 +70,7 @@
 <InputValue {id} input={configuration.fillContainer} bind:value={fillContainer} />
 
 <Portal target="#app-editor-top-level-drawer">
-	<Drawer bind:this={appDrawer} size="800px" alwaysOpen positionClass="!absolute">
+	<Drawer let:open bind:this={appDrawer} size="800px" alwaysOpen positionClass="!absolute">
 		<DrawerContent
 			title={drawerTitle}
 			on:close={() => {
@@ -79,6 +80,7 @@
 		>
 			{#if $app.subgrids?.[`${id}-0`]}
 				<SubGridEditor
+					visible={open && render}
 					{noPadding}
 					{id}
 					class={css?.container.class}

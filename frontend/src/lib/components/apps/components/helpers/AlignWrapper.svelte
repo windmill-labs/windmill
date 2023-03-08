@@ -8,6 +8,7 @@
 	let c = ''
 	export { c as class }
 	export let style = ''
+	export let render: boolean = true
 
 	function tailwindHorizontalAlignment(alignment?: HorizontalAlignment) {
 		if (!alignment) return ''
@@ -39,6 +40,8 @@
 	)
 </script>
 
-<div class={classes} {style}>
-	<slot />
-</div>
+{#if render}
+	<div class={classes} {style}>
+		<slot />
+	</div>
+{/if}

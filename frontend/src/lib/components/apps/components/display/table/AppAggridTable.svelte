@@ -17,16 +17,13 @@
 	export let componentInput: AppInput | undefined
 	export let configuration: Record<string, AppInput>
 	export let initializing: boolean | undefined = undefined
+	export let render: boolean
 
 	export const staticOutputs: string[] = ['selectedRow', 'loading', 'result', 'selectedRowIndex']
 
 	let result: Record<string, any>[] | undefined = undefined
 
-	const {
-		worldStore,
-		staticOutputs: staticOutputsStore,
-		selectedComponent
-	} = getContext<AppEditorContext>('AppEditorContext')
+	const { worldStore, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
 
 	let selectedRowIndex = -1
 
@@ -84,7 +81,7 @@
 <InputValue {id} input={configuration.pagination} bind:value={pagination} />
 <InputValue {id} input={configuration.pageSize} bind:value={pageSize} />
 
-<RunnableWrapper flexWrap {componentInput} {id} bind:initializing bind:result>
+<RunnableWrapper {render} flexWrap {componentInput} {id} bind:initializing bind:result>
 	{#if Array.isArray(result) && result.every(isObject)}
 		<div
 			class="border border-gray-300 shadow-sm divide-y divide-gray-300  flex flex-col h-full"

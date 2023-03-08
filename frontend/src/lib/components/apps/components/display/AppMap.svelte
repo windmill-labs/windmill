@@ -32,6 +32,7 @@
 	export let configuration: Record<string, AppInput>
 	export const staticOutputs: string[] = ['mapRegion']
 	export let customCss: ComponentCustomCSS<'map'> | undefined = undefined
+	export let render: boolean
 
 	const { app, worldStore, selectedComponent, connectingInput, focusedGrid, mode } =
 		getContext<AppEditorContext>('AppEditorContext')
@@ -192,23 +193,25 @@
 <InputValue {id} input={configuration.zoom} bind:value={zoom} />
 <InputValue {id} input={configuration.markers} bind:value={markers} />
 
-<div class="relative h-full w-full">
-	<div
-		on:pointerdown|stopPropagation={selectComponent}
-		bind:this={mapElement}
-		class={twMerge(`w-full h-full`, css?.map?.class ?? '')}
-		style={css?.map?.style ?? ''}
-	/>
-
-	{#if $mode !== 'preview'}
+{#if render}
+	<div class="relative h-full w-full">
 		<div
-			class="absolute bottom-0 left-0 px-1 py-0.5 bg-indigo-500 text-white text-2xs"
-			on:pointerdown={handleSyncRegion}
-		>
-			Set region
-		</div>
-	{/if}
-</div>
+			on:pointerdown|stopPropagation={selectComponent}
+			bind:this={mapElement}
+			class={twMerge(`w-full h-full`, css?.map?.class ?? '')}
+			style={css?.map?.style ?? ''}
+		/>
+
+		{#if $mode !== 'preview'}
+			<div
+				class="absolute bottom-0 left-0 px-1 py-0.5 bg-indigo-500 text-white text-2xs"
+				on:pointerdown={handleSyncRegion}
+			>
+				Set region
+			</div>
+		{/if}
+	</div>
+{/if}
 
 <style global lang="postcss">
 	.ol-overlaycontainer-stopevent {

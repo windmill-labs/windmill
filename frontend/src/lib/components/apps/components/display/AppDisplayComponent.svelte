@@ -14,6 +14,7 @@
 	export let componentInput: AppInput | undefined
 	export let initializing: boolean | undefined = undefined
 	export let customCss: ComponentCustomCSS<'header' | 'container'> | undefined = undefined
+	export let render: boolean
 
 	const requireHtmlApproval = getContext<boolean | undefined>(IS_APP_PUBLIC_CONTEXT_KEY)
 	const { app } = getContext<AppEditorContext>('AppEditorContext')
@@ -22,7 +23,7 @@
 	export const staticOutputs: string[] = ['result', 'loading']
 </script>
 
-<RunnableWrapper flexWrap {componentInput} {id} bind:initializing bind:result>
+<RunnableWrapper {render} flexWrap {componentInput} {id} bind:initializing bind:result>
 	<div
 		class={twMerge(
 			'w-full border-b px-2 text-xs p-1 font-semibold bg-gray-500 text-white rounded-t-sm',

@@ -7,6 +7,7 @@
 	export let componentInput: AppInput | undefined
 	// export let configuration: Record<string, AppInput>
 	export let initializing: boolean | undefined = undefined
+	export let render: boolean
 
 	export const staticOutputs: string[] = ['result', 'loading']
 
@@ -40,7 +41,7 @@
 </script>
 
 <div class="w-full h-full" bind:clientHeight={h} bind:clientWidth={w}>
-	<RunnableWrapper flexWrap {componentInput} {id} bind:initializing bind:result>
+	<RunnableWrapper {render} flexWrap {componentInput} {id} bind:initializing bind:result>
 		<div on:pointerdown bind:this={divEl} />
 	</RunnableWrapper>
 </div>

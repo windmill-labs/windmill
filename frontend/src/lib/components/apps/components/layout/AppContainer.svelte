@@ -10,6 +10,7 @@
 	export let configuration: Record<string, AppInput>
 	export let componentContainerHeight: number
 	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
+	export let render: boolean
 
 	let noPadding: boolean | undefined = undefined
 
@@ -33,6 +34,7 @@
 <div class="border">
 	{#if $app.subgrids?.[`${id}-0`]}
 		<SubGridEditor
+			visible={render}
 			{noPadding}
 			{id}
 			class={css?.container.class}

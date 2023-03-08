@@ -22,6 +22,7 @@
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let customCss: ComponentCustomCSS<'button' | 'popup'> | undefined = undefined
+	export let render: boolean
 
 	export const staticOutputs: string[] = ['loading', 'result']
 
@@ -93,6 +94,7 @@
 		}}
 	>
 		<RunnableWrapper
+			{render}
 			bind:runnableComponent
 			{componentInput}
 			{id}

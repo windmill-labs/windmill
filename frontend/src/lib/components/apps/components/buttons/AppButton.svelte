@@ -22,6 +22,7 @@
 	export let noWFull = false
 	export let preclickAction: (() => Promise<void>) | undefined = undefined
 	export let customCss: ComponentCustomCSS<'button'> | undefined = undefined
+	export let render: boolean
 
 	export const staticOutputs: string[] = ['loading', 'result']
 
@@ -141,6 +142,7 @@
 	autoRefresh={false}
 	goto={gotoUrl}
 	{gotoNewTab}
+	{render}
 >
 	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
 		{#if errorsMessage}

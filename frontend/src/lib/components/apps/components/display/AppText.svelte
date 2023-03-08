@@ -19,6 +19,7 @@
 	export let configuration: Record<string, AppInput>
 	export let initializing: boolean | undefined = undefined
 	export let customCss: ComponentCustomCSS<'text'> | undefined = undefined
+	export let render: boolean
 
 	export const staticOutputs: string[] = ['result', 'loading']
 
@@ -67,7 +68,7 @@
 <InputValue {id} input={configuration.copyButton} bind:value={copyButton} />
 <InputValue {id} input={configuration.fitContent} bind:value={fitContent} />
 
-<RunnableWrapper flexWrap {componentInput} {id} bind:initializing bind:result>
+<RunnableWrapper {render} flexWrap {componentInput} {id} bind:initializing bind:result>
 	<ResizeWrapper {id} shouldWrap={fitContent}>
 		<AlignWrapper {horizontalAlignment} {verticalAlignment}>
 			{#if !result || result === ''}

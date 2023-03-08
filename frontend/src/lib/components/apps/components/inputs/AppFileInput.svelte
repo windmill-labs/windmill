@@ -12,6 +12,7 @@
 	export let configuration: Record<string, AppInput>
 	export const staticOutputs: string[] = ['result']
 	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
+	export let render: boolean
 
 	const { app, worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
@@ -35,17 +36,19 @@
 <InputValue {id} input={configuration.allowMultiple} bind:value={allowMultiple} />
 <InputValue {id} input={configuration.text} bind:value={text} />
 
-<div class="w-full h-full p-1">
-	<FileInput
-		accept={acceptedFileTypes?.length ? acceptedFileTypes?.join(', ') : undefined}
-		multiple={allowMultiple}
-		convertTo="base64"
-		on:change={({ detail }) => {
-			handleChange(detail)
-		}}
-		class={twMerge('w-full h-full', css?.container?.class)}
-		style={css?.container?.style}
-	>
-		{text}
-	</FileInput>
-</div>
+{#if render}
+	<div class="w-full h-full p-1">
+		<FileInput
+			accept={acceptedFileTypes?.length ? acceptedFileTypes?.join(', ') : undefined}
+			multiple={allowMultiple}
+			convertTo="base64"
+			on:change={({ detail }) => {
+				handleChange(detail)
+			}}
+			class={twMerge('w-full h-full', css?.container?.class)}
+			style={css?.container?.style}
+		>
+			{text}
+		</FileInput>
+	</div>
+{/if}
