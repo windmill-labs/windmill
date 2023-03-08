@@ -16,18 +16,17 @@
 
 	let Plotly
 	onMount(async () => {
-		if (divEl) {
-			//@ts-ignore
-			await import('https://cdn.plot.ly/plotly-2.18.0.min.js')
+		//@ts-ignore
+		await import('https://cdn.plot.ly/plotly-2.18.0.min.js')
 
-			Plotly = window['Plotly']
-		}
+		Plotly = window['Plotly']
 	})
 
 	let h: number | undefined = undefined
 	let w: number | undefined = undefined
 
 	$: Plotly &&
+		render &&
 		result &&
 		divEl &&
 		h &&
