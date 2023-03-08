@@ -86,7 +86,7 @@
 	<div class="overlay {$$props.positionClass}" on:click={handleClickAway} />
 	<div class="panel {placement} {$$props.positionClass}" class:size>
 		{#if open || !timeout || alwaysOpen}
-			<slot />
+			<slot {open} />
 		{/if}
 	</div>
 </aside>

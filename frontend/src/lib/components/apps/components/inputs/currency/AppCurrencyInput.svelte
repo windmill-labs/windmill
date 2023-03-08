@@ -14,6 +14,7 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export const staticOutputs: string[] = ['result']
 	export let customCss: ComponentCustomCSS<'input'> | undefined = undefined
+	export let render: boolean
 
 	const { app, worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
@@ -49,7 +50,7 @@
 <InputValue {id} input={configuration.currency} bind:value={currency} />
 <InputValue {id} input={configuration.locale} bind:value={locale} />
 
-<AlignWrapper {verticalAlignment}>
+<AlignWrapper {render} {verticalAlignment}>
 	{#key isNegativeAllowed}
 		{#key locale}
 			{#key currency}

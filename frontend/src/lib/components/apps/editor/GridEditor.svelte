@@ -198,6 +198,7 @@
 							)}
 						>
 							<Component
+								render={true}
 								{pointerdown}
 								component={gridComponent.data}
 								selected={$selectedComponent === dataItem.data.id}

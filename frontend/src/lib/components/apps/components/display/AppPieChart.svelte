@@ -23,6 +23,7 @@
 	export let configuration: Record<string, AppInput>
 	export let initializing: boolean | undefined = undefined
 	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
+	export let render: boolean
 
 	export const staticOutputs: string[] = ['loading', 'result']
 	const { app } = getContext<AppEditorContext>('AppEditorContext')
@@ -72,7 +73,7 @@
 <InputValue {id} input={configuration.theme} bind:value={theme} />
 <InputValue {id} input={configuration.doughnutStyle} bind:value={doughnut} />
 
-<RunnableWrapper flexWrap autoRefresh {componentInput} {id} bind:initializing bind:result>
+<RunnableWrapper {render} flexWrap autoRefresh {componentInput} {id} bind:initializing bind:result>
 	<div class="w-full h-full {css?.container?.class ?? ''}" style={css?.container?.style ?? ''}>
 		{#if result}
 			{#if doughnut}

@@ -46,6 +46,7 @@
 	export let selected: boolean
 	export let locked: boolean = false
 	export let pointerdown: boolean = false
+	export let render: boolean
 
 	const { staticOutputs, mode, connectingInput, app, errorByComponent } =
 		getContext<AppEditorContext>('AppEditorContext')
@@ -109,6 +110,7 @@
 				bind:initializing
 				componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
+				{render}
 			/>
 		{:else if component.type === 'barchartcomponent'}
 			<AppBarChart
@@ -118,6 +120,7 @@
 				bind:initializing
 				componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
+				{render}
 			/>
 		{:else if component.type === 'timeseriescomponent'}
 			<AppTimeseries
@@ -127,6 +130,7 @@
 				bind:initializing
 				componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
+				{render}
 			/>
 		{:else if component.type === 'htmlcomponent'}
 			<AppHtml
@@ -135,6 +139,7 @@
 				bind:initializing
 				componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
+				{render}
 			/>
 		{:else if component.type === 'vegalitecomponent'}
 			<VegaLiteHtml
@@ -143,6 +148,7 @@
 				bind:initializing
 				componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
+				{render}
 			/>
 		{:else if component.type === 'plotlycomponent'}
 			<PlotlyHtml
@@ -150,6 +156,7 @@
 				bind:initializing
 				componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
+				{render}
 			/>
 		{:else if component.type === 'scatterchartcomponent'}
 			<AppScatterChart
@@ -159,6 +166,7 @@
 				bind:initializing
 				componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
+				{render}
 			/>
 		{:else if component.type === 'piechartcomponent'}
 			<AppPieChart
@@ -168,6 +176,7 @@
 				bind:initializing
 				bind:staticOutputs={$staticOutputs[component.id]}
 				componentInput={component.componentInput}
+				{render}
 			/>
 		{:else if component.type === 'tablecomponent'}
 			<AppTable
@@ -178,6 +187,7 @@
 				bind:staticOutputs={$staticOutputs[component.id]}
 				componentInput={component.componentInput}
 				bind:actionButtons={component.actionButtons}
+				{render}
 			/>
 		{:else if component.type === 'aggridcomponent'}
 			<AppAggridTable
@@ -186,6 +196,7 @@
 				bind:initializing
 				bind:staticOutputs={$staticOutputs[component.id]}
 				componentInput={component.componentInput}
+				{render}
 			/>
 		{:else if component.type === 'textcomponent'}
 			<AppText
@@ -197,6 +208,7 @@
 				bind:initializing
 				componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
+				{render}
 			/>
 		{:else if component.type === 'buttoncomponent'}
 			<AppButton
@@ -208,6 +220,7 @@
 				componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
 				recomputeIds={component.recomputeIds}
+				{render}
 			/>
 		{:else if component.type === 'selectcomponent'}
 			<AppSelect
@@ -217,6 +230,7 @@
 				configuration={component.configuration}
 				customCss={component.customCss}
 				bind:staticOutputs={$staticOutputs[component.id]}
+				{render}
 			/>
 		{:else if component.type === 'multiselectcomponent'}
 			<AppMultiSelect
@@ -226,6 +240,7 @@
 				configuration={component.configuration}
 				customCss={component.customCss}
 				bind:staticOutputs={$staticOutputs[component.id]}
+				{render}
 			/>
 		{:else if component.type === 'formcomponent'}
 			<AppForm
@@ -236,6 +251,7 @@
 				componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
 				recomputeIds={component.recomputeIds}
+				{render}
 			/>
 		{:else if component.type === 'formbuttoncomponent'}
 			<AppFormButton
@@ -247,6 +263,7 @@
 				componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
 				recomputeIds={component.recomputeIds}
+				{render}
 			/>
 		{:else if component.type === 'checkboxcomponent'}
 			<AppCheckbox
@@ -256,6 +273,7 @@
 				configuration={component.configuration}
 				customCss={component.customCss}
 				bind:staticOutputs={$staticOutputs[component.id]}
+				{render}
 			/>
 		{:else if component.type === 'textinputcomponent'}
 			<AppTextInput
@@ -264,6 +282,7 @@
 				configuration={component.configuration}
 				customCss={component.customCss}
 				bind:staticOutputs={$staticOutputs[component.id]}
+				{render}
 			/>
 		{:else if component.type === 'passwordinputcomponent'}
 			<AppTextInput
@@ -274,6 +293,7 @@
 				id={component.id}
 				customCss={component.customCss}
 				bind:staticOutputs={$staticOutputs[component.id]}
+				{render}
 			/>
 		{:else if component.type === 'dateinputcomponent'}
 			<AppDateInput
@@ -283,6 +303,7 @@
 				id={component.id}
 				customCss={component.customCss}
 				bind:staticOutputs={$staticOutputs[component.id]}
+				{render}
 			/>
 		{:else if component.type === 'numberinputcomponent'}
 			<AppNumberInput
@@ -291,6 +312,7 @@
 				id={component.id}
 				customCss={component.customCss}
 				bind:staticOutputs={$staticOutputs[component.id]}
+				{render}
 			/>
 		{:else if component.type === 'currencycomponent'}
 			<AppCurrencyInput
@@ -299,6 +321,7 @@
 				id={component.id}
 				customCss={component.customCss}
 				bind:staticOutputs={$staticOutputs[component.id]}
+				{render}
 			/>
 		{:else if component.type === 'slidercomponent'}
 			<AppSliderInputs
@@ -307,6 +330,7 @@
 				id={component.id}
 				customCss={component.customCss}
 				bind:staticOutputs={$staticOutputs[component.id]}
+				{render}
 			/>
 		{:else if component.type === 'horizontaldividercomponent'}
 			<AppDivider
@@ -316,6 +340,7 @@
 				id={component.id}
 				customCss={component.customCss}
 				position="horizontal"
+				{render}
 			/>
 		{:else if component.type === 'verticaldividercomponent'}
 			<AppDivider
@@ -325,6 +350,7 @@
 				id={component.id}
 				customCss={component.customCss}
 				position="vertical"
+				{render}
 			/>
 		{:else if component.type === 'rangecomponent'}
 			<AppRangeInput
@@ -333,6 +359,7 @@
 				id={component.id}
 				customCss={component.customCss}
 				bind:staticOutputs={$staticOutputs[component.id]}
+				{render}
 			/>
 		{:else if component.type === 'tabscomponent'}
 			<AppTabs
@@ -342,6 +369,7 @@
 				customCss={component.customCss}
 				bind:staticOutputs={$staticOutputs[component.id]}
 				{componentContainerHeight}
+				{render}
 			/>
 		{:else if component.type === 'containercomponent'}
 			<AppContainer
@@ -350,6 +378,7 @@
 				customCss={component.customCss}
 				bind:staticOutputs={$staticOutputs[component.id]}
 				{componentContainerHeight}
+				{render}
 			/>
 		{:else if component.type === 'verticalsplitpanescomponent'}
 			<AppSplitpanes
@@ -359,6 +388,7 @@
 				panes={component.panes}
 				bind:staticOutputs={$staticOutputs[component.id]}
 				{componentContainerHeight}
+				{render}
 			/>
 		{:else if component.type === 'horizontalsplitpanescomponent'}
 			<AppSplitpanes
@@ -369,6 +399,7 @@
 				bind:staticOutputs={$staticOutputs[component.id]}
 				{componentContainerHeight}
 				horizontal={true}
+				{render}
 			/>
 		{:else if component.type === 'iconcomponent'}
 			<AppIcon
@@ -378,6 +409,7 @@
 				id={component.id}
 				customCss={component.customCss}
 				bind:staticOutputs={$staticOutputs[component.id]}
+				{render}
 			/>
 		{:else if component.type === 'fileinputcomponent'}
 			<AppFileInput
@@ -385,6 +417,7 @@
 				id={component.id}
 				customCss={component.customCss}
 				bind:staticOutputs={$staticOutputs[component.id]}
+				{render}
 			/>
 		{:else if component.type === 'imagecomponent'}
 			<AppImage
@@ -392,6 +425,7 @@
 				id={component.id}
 				customCss={component.customCss}
 				bind:staticOutputs={$staticOutputs[component.id]}
+				{render}
 			/>
 		{:else if component.type === 'drawercomponent'}
 			<AppDrawer
@@ -400,6 +434,7 @@
 				configuration={component.configuration}
 				id={component.id}
 				customCss={component.customCss}
+				{render}
 			/>
 		{:else if component.type === 'mapcomponent'}
 			<AppMap
@@ -407,6 +442,7 @@
 				id={component.id}
 				customCss={component.customCss}
 				bind:staticOutputs={$staticOutputs[component.id]}
+				{render}
 			/>
 		{:else if component.type === 'pdfcomponent'}
 			<AppPdf
@@ -414,6 +450,7 @@
 				id={component.id}
 				customCss={component.customCss}
 				bind:staticOutputs={$staticOutputs[component.id]}
+				{render}
 			/>
 		{/if}
 	</div>

@@ -13,6 +13,7 @@
 	export let configuration: Record<string, AppInput>
 	export const staticOutputs: string[] = ['loading']
 	export let customCss: ComponentCustomCSS<'image'> | undefined = undefined
+	export let render: boolean
 
 	const { app } = getContext<AppEditorContext>('AppEditorContext')
 	const fit: Record<FitOption, string> = {
@@ -32,10 +33,12 @@
 <InputValue {id} input={configuration.imageFit} bind:value={imageFit} />
 <InputValue {id} input={configuration.altText} bind:value={altText} />
 
-<img
-	on:pointerdown|preventDefault
-	src={source}
-	alt={altText}
-	style={css?.image?.style ?? ''}
-	class={twMerge(`w-full h-full ${fit[imageFit || 'cover']}`, css?.image?.class ?? '')}
-/>
+{#if render}
+	<img
+		on:pointerdown|preventDefault
+		src={source}
+		alt={altText}
+		style={css?.image?.style ?? ''}
+		class={twMerge(`w-full h-full ${fit[imageFit || 'cover']}`, css?.image?.class ?? '')}
+	/>
+{/if}

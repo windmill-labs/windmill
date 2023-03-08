@@ -29,6 +29,7 @@
 	export let initializing: boolean | undefined = undefined
 	export let gotoUrl: string | undefined = undefined
 	export let gotoNewTab: boolean | undefined = undefined
+	export let render: boolean
 
 	const {
 		worldStore,
@@ -258,57 +259,59 @@
 	bind:this={testJobLoader}
 />
 
-<div class="h-full flex relative flex-row flex-wrap {wrapperClass}" style={wrapperStyle}>
-	{#if schemaStripped && Object.keys(schemaStripped?.properties ?? {}).length > 0 && (autoRefresh || forceSchemaDisplay)}
-		<div class="px-2 h-fit min-h-0">
-			<SchemaForm
-				{flexWrap}
-				schema={schemaStripped}
-				bind:args
-				{disabledArgs}
-				shouldHideNoInputs
-				noVariablePicker
-			/>
-		</div>
-	{/if}
+{#if render}
+	<div class="h-full flex relative flex-row flex-wrap {wrapperClass}" style={wrapperStyle}>
+		{#if schemaStripped && Object.keys(schemaStripped?.properties ?? {}).length > 0 && (autoRefresh || forceSchemaDisplay)}
+			<div class="px-2 h-fit min-h-0">
+				<SchemaForm
+					{flexWrap}
+					schema={schemaStripped}
+					bind:args
+					{disabledArgs}
+					shouldHideNoInputs
+					noVariablePicker
+				/>
+			</div>
+		{/if}
 
-	{#if !runnable && autoRefresh}
-		<Alert type="warning" size="xs" class="mt-2 px-1" title="Missing runnable">
-			Please select a runnable
-		</Alert>
-	{:else if result?.error && $mode === 'preview'}
-		<div
-			title="Error"
-			class={classNames(
-				'text-red-500 px-1 text-2xs py-0.5 font-bold w-fit absolute border border-red-500 -bottom-2  shadow left-1/2 transform -translate-x-1/2 z-50 cursor-pointer',
-				'bg-red-100/80'
-			)}
-		>
-			<Popover notClickable placement="bottom" popupClass="!bg-white border w-96">
-				<Bug size={14} />
-				<span slot="text">
-					<div class="bg-white">
-						<Alert type="error" title="Error during execution">
-							<div class="flex flex-col gap-2">
-								An error occured, please contact the app author.
-								<span class="font-semibold">Job id: {testJob?.id}</span>
-							</div>
-						</Alert>
-					</div>
-				</span>
-			</Popover>
-		</div>
-		<div class="block grow w-full max-h-full border border-red-300 bg-red-50 relative">
-			<slot />
-		</div>
-	{:else}
-		<div class="block grow w-full max-h-full">
-			<slot />
-		</div>
-	{/if}
-	{#if !initializing && autoRefresh === true}
-		<div class="flex absolute top-1 right-1 z-50">
-			<RefreshButton componentId={id} />
-		</div>
-	{/if}
-</div>
+		{#if !runnable && autoRefresh}
+			<Alert type="warning" size="xs" class="mt-2 px-1" title="Missing runnable">
+				Please select a runnable
+			</Alert>
+		{:else if result?.error && $mode === 'preview'}
+			<div
+				title="Error"
+				class={classNames(
+					'text-red-500 px-1 text-2xs py-0.5 font-bold w-fit absolute border border-red-500 -bottom-2  shadow left-1/2 transform -translate-x-1/2 z-50 cursor-pointer',
+					'bg-red-100/80'
+				)}
+			>
+				<Popover notClickable placement="bottom" popupClass="!bg-white border w-96">
+					<Bug size={14} />
+					<span slot="text">
+						<div class="bg-white">
+							<Alert type="error" title="Error during execution">
+								<div class="flex flex-col gap-2">
+									An error occured, please contact the app author.
+									<span class="font-semibold">Job id: {testJob?.id}</span>
+								</div>
+							</Alert>
+						</div>
+					</span>
+				</Popover>
+			</div>
+			<div class="block grow w-full max-h-full border border-red-300 bg-red-50 relative">
+				<slot />
+			</div>
+		{:else}
+			<div class="block grow w-full max-h-full">
+				<slot />
+			</div>
+		{/if}
+		{#if !initializing && autoRefresh === true}
+			<div class="flex absolute top-1 right-1 z-50">
+				<RefreshButton componentId={id} />
+			</div>
+		{/if}
+	</div>
+{/if}

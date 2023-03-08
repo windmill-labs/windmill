@@ -15,6 +15,7 @@
 	export const staticOutputs: string[] = ['result']
 	export let customCss: ComponentCustomCSS<'handle' | 'limits' | 'value' | 'bar'> | undefined =
 		undefined
+	export let render: boolean
 
 	const { app, worldStore, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
 	let min = 0
@@ -56,7 +57,7 @@
 <InputValue {id} input={configuration.max} bind:value={max} />
 <InputValue {id} input={configuration.defaultValue} bind:value={values[0]} />
 
-<AlignWrapper {verticalAlignment}>
+<AlignWrapper {render} {verticalAlignment}>
 	<div class="flex items-center w-full gap-1 px-1">
 		<span class={css?.limits?.class ?? ''} style={css?.limits?.style ?? ''}>
 			{+min}

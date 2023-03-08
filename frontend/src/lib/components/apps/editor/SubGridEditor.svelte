@@ -123,6 +123,7 @@
 							)}
 						>
 							<Component
+								render={visible}
 								{pointerdown}
 								component={gridComponent.data}
 								selected={$selectedComponent === dataItem.data.id}
