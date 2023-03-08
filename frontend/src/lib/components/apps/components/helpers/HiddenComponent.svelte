@@ -19,6 +19,7 @@
 </script>
 
 <RunnableComponent
+	render={false}
 	{id}
 	{fields}
 	bind:result
