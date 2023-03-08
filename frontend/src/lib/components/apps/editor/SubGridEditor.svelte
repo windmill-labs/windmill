@@ -6,7 +6,7 @@
 	import { columnConfiguration, isFixed, toggleFixed } from '../gridUtils'
 	import type { AppEditorContext, GridItem } from '../types'
 	import Component from './component/Component.svelte'
-	import { findGridItem } from './appUtils'
+	import { findAvailableSpace, findGridItem } from './appUtils'
 
 	export let containerHeight: number
 	let classes = ''
@@ -21,7 +21,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	const { app, connectingInput, selectedComponent, focusedGrid, mode, parentWidth } =
+	const { app, connectingInput, selectedComponent, focusedGrid, mode, parentWidth, breakpoint } =
 		getContext<AppEditorContext>('AppEditorContext')
 
 	$: highlight = id === $focusedGrid?.parentComponentId && shouldHighlight
@@ -128,6 +128,35 @@
 								selected={$selectedComponent === dataItem.data.id}
 								locked={isFixed(gridComponent)}
 								on:lock={() => lock(gridComponent)}
+								on:expand={() => {
+									const parentGridItem = findGridItem($app, id)
+
+									if (!parentGridItem) {
+										return
+									}
+
+									const availableSpace = findAvailableSpace(
+										subGrid,
+										gridComponent,
+										$breakpoint,
+										parentGridItem
+									)
+
+									if (!availableSpace) {
+										return
+									}
+
+									const { left, right, top, bottom } = availableSpace
+									const width = $breakpoint === 'sm' ? 3 : 12
+									const previousGridItem = JSON.parse(JSON.stringify(gridComponent[width]))
+
+									gridComponent[width].x = previousGridItem.x - left
+									gridComponent[width].y = previousGridItem.y - top
+									gridComponent[width].w = previousGridItem.w + left + right
+									gridComponent[width].h = previousGridItem.h + top + bottom
+
+									$app = { ...$app }
+								}}
 							/>
 						</div>
 					{/if}

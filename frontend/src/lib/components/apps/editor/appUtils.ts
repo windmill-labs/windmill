@@ -1,5 +1,5 @@
 import { getNextId } from '$lib/components/flows/flowStateUtils'
-import type { App, FocusedGrid, GridItem } from '../types'
+import type { App, EditorBreakpoint, FocusedGrid, GridItem } from '../types'
 import { getRecommendedDimensionsByComponent, type AppComponent } from './component'
 import gridHelp from '@windmill-labs/svelte-grid/src/utils/helper'
 import { gridColumns } from '../gridUtils'
@@ -31,7 +31,6 @@ export function getNextGridItemId(app: App): string {
 }
 
 export function createNewGridItem(grid: GridItem[], id: string, data: AppComponent): GridItem {
-
 	const appComponent = data
 
 	appComponent.id = id
@@ -175,4 +174,103 @@ export function duplicateGridItem(
 		return insertNewGridItem(app, newItem.data, focusedGrid)
 	}
 	return undefined
+}
+
+export function findAvailableSpace(
+	grid: GridItem[],
+	gridItem: GridItem,
+	editorBreakpoint: EditorBreakpoint,
+	parentGridItem: GridItem | undefined = undefined
+) {
+	if (gridItem) {
+		const breakpoint = editorBreakpoint === 'sm' ? 3 : 12
+		const maxHeight = Math.max(12, parentGridItem ? parentGridItem[breakpoint].h - 1 : 0)
+		const maxWidth = 12
+
+		const availableSpace = {
+			left: 0,
+			right: 0,
+			top: 0,
+			bottom: 0
+		}
+
+		const items = grid.map((item) => {
+			return {
+				id: item.id,
+				x: item[breakpoint].x,
+				y: item[breakpoint].y,
+				w: item[breakpoint].w,
+				h: item[breakpoint].h
+			}
+		})
+
+		const item = items.find((item) => item.id === gridItem.id)
+
+		if (!item) {
+			return availableSpace
+		}
+
+		if (item.x > 0) {
+			for (let x = item.x - 1; x >= 0; x--) {
+				const itemToCheck = { ...item, x, w: 1 }
+				const isItemInWay = items.some((item) => isOverlapping(item, itemToCheck))
+
+				if (isItemInWay) {
+					break
+				} else {
+					availableSpace.left++
+				}
+			}
+		}
+
+		if (item.x + item.w < maxWidth) {
+			for (let x = item.x + item.w; x < maxWidth; x++) {
+				const itemToCheck = { ...item, x, w: 1 }
+				const isItemInWay = items.some((item) => isOverlapping(item, itemToCheck))
+
+				if (isItemInWay) {
+					break
+				} else {
+					availableSpace.right++
+				}
+			}
+		}
+
+		if (item.y > 0) {
+			for (let y = item.y - 1; y >= 0; y--) {
+				const itemToCheck = { ...item, h: 1, y }
+				const isItemInWay = items.some((item) => isOverlapping(item, itemToCheck))
+
+				if (isItemInWay) {
+					break
+				} else {
+					availableSpace.top++
+				}
+			}
+		}
+
+		if (item.y + item.h < maxHeight) {
+			for (let y = item.y + item.h; y < maxHeight; y++) {
+				const itemToCheck = { ...item, h: 1, y }
+				const isItemInWay = items.some((item) => isOverlapping(item, itemToCheck))
+
+				if (isItemInWay) {
+					break
+				} else {
+					availableSpace.bottom++
+				}
+			}
+		}
+
+		return availableSpace
+	}
+}
+
+function isOverlapping(item1: any, item2: any) {
+	return (
+		item1.x < item2.x + item2.w &&
+		item1.x + item1.w > item2.x &&
+		item1.y < item2.y + item2.h &&
+		item1.y + item1.h > item2.y
+	)
 }
