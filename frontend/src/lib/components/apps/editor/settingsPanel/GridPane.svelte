@@ -53,9 +53,9 @@
 	{#if panes.length == 0}
 		<span class="text-xs text-gray-500">No panes</span>
 	{/if}
-	<div class="flex gap-2 flex-col mt-2">
+	<div class="w-full flex gap-2 flex-col mt-2">
 		{#each panes as value, index (index)}
-			<div class="flex flex-row gap-2 items-center relative">
+			<div class="w-full flex flex-row gap-2 items-center relative">
 				<input type="number" bind:value />
 
 				<div class="absolute top-1 right-1">

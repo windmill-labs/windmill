@@ -1,12 +1,14 @@
 <script lang="ts">
 	import type { AppEditorContext } from '../../types'
 	import { getContext } from 'svelte'
+	import { fade, slide } from 'svelte/transition'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 	import { components as componentsRecord, COMPONENT_SETS, type AppComponent } from '../component'
 	import ListItem from './ListItem.svelte'
 	import { insertNewGridItem } from '../appUtils'
 	import { X } from 'lucide-svelte'
 	import { push } from '$lib/history'
+	import { flip } from 'svelte/animate'
 
 	const { app, selectedComponent, focusedGrid, history } =
 		getContext<AppEditorContext>('AppEditorContext')
@@ -34,7 +36,7 @@
 	}))
 </script>
 
-<section class="p-2 sticky bg-white border-b w-full h-12 z-20 top-0">
+<section class="p-2 sticky bg-white w-full z-20 top-0">
 	<div class="relative">
 		<input
 			bind:value={search}
@@ -52,32 +54,41 @@
 	</div>
 </section>
 
-{#if componentsFiltered.reduce((acc, { components }) => acc + components.length, 0) === 0}
-	<div class="text-xs text-gray-500 py-1 px-2"> No components found </div>
-{:else}
-	{#each componentsFiltered as { title, components }, index (index)}
-		<ListItem title={`${title} (${components.length})`}>
-			{#if components.length}
-				<div class="flex flex-wrap gap-2 py-2">
-					{#each components as item}
-						<button
-							on:click={() => addComponent(item)}
-							title={componentsRecord[item].name}
-							class="border w-24 shadow-sm h-16 p-2 flex flex-col gap-2 items-center
-							justify-center bg-white rounded-md hover:bg-gray-100 duration-200"
-						>
-							<svelte:component this={componentsRecord[item].icon} />
-							<div class="text-xs w-full text-center ellipsize">
-								{componentsRecord[item].name}
+<div class="relative">
+	{#if componentsFiltered.reduce((acc, { components }) => acc + components.length, 0) === 0}
+		<div
+			in:fade|local={{ duration: 50, delay: 50 }}
+			out:fade|local={{ duration: 50 }}
+			class="absolute left-0 top-0 w-full text-sm text-gray-500 text-center py-6 px-2"
+		>
+			No components found
+		</div>
+	{:else}
+		<div in:fade|local={{ duration: 50, delay: 50 }} out:fade|local={{ duration: 50 }}>
+			{#each componentsFiltered as { title, components }, index (index)}
+				{#if components.length}
+					<div transition:slide|local={{ duration: 300 }}>
+						<ListItem title={`${title} (${components.length})`}>
+							<div class="flex flex-wrap gap-2 py-2">
+								{#each components as item (item)}
+									<button
+										animate:flip={{ duration: 300 }}
+										on:click={() => addComponent(item)}
+										title={componentsRecord[item].name}
+										class="border w-24 shadow-sm h-16 p-2 flex flex-col gap-2 items-center
+										justify-center bg-white rounded-md hover:bg-gray-100 duration-200"
+									>
+										<svelte:component this={componentsRecord[item].icon} />
+										<div class="text-xs w-full text-center ellipsize">
+											{componentsRecord[item].name}
+										</div>
+									</button>
+								{/each}
 							</div>
-						</button>
-					{/each}
-				</div>
-			{:else}
-				<div class="text-xs text-gray-500 py-1 px-2">
-					There are no components in this group yet
-				</div>
-			{/if}
-		</ListItem>
-	{/each}
-{/if}
+						</ListItem>
+					</div>
+				{/if}
+			{/each}
+		</div>
+	{/if}
+</div>

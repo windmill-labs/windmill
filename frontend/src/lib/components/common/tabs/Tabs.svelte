@@ -16,6 +16,7 @@
 	export let selected: string
 	let c = ''
 	export { c as class }
+	export let wrapperClass = ''
 	export let style = ''
 
 	$: selected && updateSelected()
@@ -37,7 +38,7 @@
 	}
 </script>
 
-<div class="overflow-x-auto">
+<div class="overflow-x-auto {wrapperClass}">
 	<div
 		class={twMerge('border-b border-gray-200 flex flex-row whitespace-nowrap  scrollbar-hidden', c)}
 		{style}
