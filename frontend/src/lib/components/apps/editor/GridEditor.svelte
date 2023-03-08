@@ -12,6 +12,7 @@
 	import Component from './component/Component.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { push } from '$lib/history'
+	import { expandGriditem, findAvailableSpace, findGridItem } from './appUtils'
 
 	export let policy: Policy
 
@@ -25,7 +26,8 @@
 		summary,
 		focusedGrid,
 		parentWidth,
-		history
+		history,
+		breakpoint
 	} = getContext<AppEditorContext>('AppEditorContext')
 
 	// The drag is disabled when the user is connecting an input
@@ -203,10 +205,15 @@
 								locked={isFixed(gridComponent)}
 								on:delete={() => removeGridElement(gridComponent.data)}
 								on:lock={() => {
-									let fComponent = $app.grid.find((c) => c.id === gridComponent.id)
-									if (fComponent) {
-										fComponent = toggleFixed(fComponent)
+									const gridItem = findGridItem($app, gridComponent.data.id)
+									if (gridItem) {
+										toggleFixed(gridItem)
 									}
+								}}
+								on:expand={() => {
+									push(history, $app)
+									expandGriditem($app.grid, gridComponent, $breakpoint)
+									$app = { ...$app }
 								}}
 							/>
 						</div>

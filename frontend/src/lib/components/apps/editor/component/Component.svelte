@@ -69,7 +69,16 @@
 	class="h-full flex flex-col w-full component"
 >
 	{#if $mode !== 'preview'}
-		<ComponentHeader {hover} {pointerdown} {component} {selected} on:delete on:lock {locked} />
+		<ComponentHeader
+			{hover}
+			{pointerdown}
+			{component}
+			{selected}
+			on:delete
+			on:lock
+			on:expand
+			{locked}
+		/>
 	{/if}
 
 	<div

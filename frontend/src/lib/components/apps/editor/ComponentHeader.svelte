@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 	import type { AppEditorContext } from '../types'
-	import { Anchor, Bug, Move } from 'lucide-svelte'
+	import { Anchor, Bug, Expand, Move } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { Alert, Button } from '$lib/components/common'
@@ -54,6 +54,17 @@
 		{:else}
 			<Anchor aria-label="Lock position" size={14} />
 		{/if}
+	</button>
+	<button
+		title="Position locking"
+		class={classNames(
+			'text-gray-800 px-1 text-2xs py-0.5 font-bold w-fit shadow border border-gray-300 absolute  -top-1  right-[0.5rem] z-50 cursor-pointer',
+			' hover:bg-gray-300',
+			selected ? 'bg-gray-200/80' : 'bg-gray-200/80'
+		)}
+		on:click={() => dispatch('expand')}
+	>
+		<Expand aria-label="Lock position" size={14} />
 	</button>
 {/if}
 
