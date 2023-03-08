@@ -76,67 +76,81 @@
 				</button>
 			{/if}
 		</div>
-		{#each filteredPanels as [componentId, outputs] (componentId)}
-			<div animate:flip={{ duration: 300 }} transition:fade|local={{ duration: 100 }}>
-				{#if outputs.length > 0 && $worldStore?.outputsById[componentId]}
-					{@const name = getComponentNameById(componentId)}
-					<div>
-						<div
-							class="flex {$connectingInput?.opened
-								? 'bg-white z-50'
-								: ''} flex-row justify-between w-full"
-						>
-							<button
-								on:click|stopPropagation|preventDefault={$connectingInput.opened
-									? undefined
-									: () => ($selectedComponent = componentId)}
+		<div class="relative">
+			{#each filteredPanels as [componentId, outputs] (componentId)}
+				<div
+					animate:flip={{ duration: 300 }}
+					in:fade|local={{ duration: 100, delay: 50 }}
+					out:fade|local={{ duration: 100 }}
+				>
+					{#if outputs.length > 0 && $worldStore?.outputsById[componentId]}
+						{@const name = getComponentNameById(componentId)}
+						<div>
+							<div
+								class="flex {$connectingInput?.opened
+									? 'bg-white z-50'
+									: ''} flex-row justify-between w-full"
+							>
+								<button
+									on:click|stopPropagation|preventDefault={$connectingInput.opened
+										? undefined
+										: () => ($selectedComponent = componentId)}
+									class={classNames(
+										'px-2 text-2xs py-0.5 border-t border-x font-bold rounded-t-sm w-fit',
+										$selectedComponent === componentId
+											? ' bg-indigo-500/90 text-white border-indigo-500/90'
+											: 'bg-gray-100 text-gray-500 border-gray-200'
+									)}
+								>
+									{componentId}
+								</button>
+								<span
+									class={classNames(
+										'px-1 text-2xs py-0.5 font-semibold rounded-t-sm w-fit',
+										'bg-gray-700 text-white'
+									)}
+								>
+									{name}
+								</span>
+							</div>
+							<div
 								class={classNames(
-									'px-2 text-2xs py-0.5 border-t border-x font-bold rounded-t-sm w-fit',
-									$selectedComponent === componentId
-										? ' bg-indigo-500/90 text-white border-indigo-500/90'
-										: 'bg-gray-100 text-gray-500 border-gray-200'
+									$connectingInput?.opened ? 'bg-white z-50' : '',
+									`w-full py-2 grow border relative break-all `,
+									$selectedComponent === componentId ? 'border border-indigo-500/90 ' : '',
+									$connectingInput.hoveredComponent === componentId
+										? 'outline outline-indigo-500/90'
+										: ''
 								)}
 							>
-								{componentId}
-							</button>
-							<span
-								class={classNames(
-									'px-1 text-2xs py-0.5 font-semibold rounded-t-sm w-fit',
-									'bg-gray-700 text-white'
-								)}
-							>
-								{name}
-							</span>
-						</div>
-						<div
-							class={classNames(
-								$connectingInput?.opened ? 'bg-white z-50' : '',
-								`w-full py-2 grow border relative break-all `,
-								$selectedComponent === componentId ? 'border border-indigo-500/90 ' : '',
-								$connectingInput.hoveredComponent === componentId
-									? 'outline outline-indigo-500/90'
-									: ''
-							)}
-						>
-							{#key $selectedComponent}
-								{#key $connectingInput?.opened}
-									<ComponentOutputViewer
-										outputs={$connectingInput?.opened && $selectedComponent === componentId
-											? name == 'Table'
-												? ['search']
-												: []
-											: outputs}
-										{componentId}
-										on:select={({ detail }) => {
-											connectInput(componentId, detail)
-										}}
-									/>
+								{#key $selectedComponent}
+									{#key $connectingInput?.opened}
+										<ComponentOutputViewer
+											outputs={$connectingInput?.opened && $selectedComponent === componentId
+												? name == 'Table'
+													? ['search']
+													: []
+												: outputs}
+											{componentId}
+											on:select={({ detail }) => {
+												connectInput(componentId, detail)
+											}}
+										/>
+									{/key}
 								{/key}
-							{/key}
+							</div>
 						</div>
-					</div>
-				{/if}
-			</div>
-		{/each}
+					{/if}
+				</div>
+			{:else}
+				<div
+					in:fade|local={{ duration: 50, delay: 100 }}
+					out:fade|local={{ duration: 50 }}
+					class="absolute left-0 top-0 w-full text-sm text-gray-500 text-center py-4 px-2"
+				>
+					No outputs found
+				</div>
+			{/each}
+		</div>
 	</div>
 </PanelSection>
