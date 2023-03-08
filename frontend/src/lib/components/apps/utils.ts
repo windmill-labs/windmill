@@ -237,65 +237,6 @@ export function toKebabCase(text: string) {
 	return text.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()
 }
 
-export function findParent(root: GridItem[], id: string): GridItem | undefined {
-	for (const a of root) {
-		if (a.id === id) {
-			return a
-		}
-
-		if (a.data.subGrids) {
-			// Recursively search the sub-grids
-			for (const subGrid of a.data.subGrids) {
-				const result = findParent(subGrid, id)
-				if (result) {
-					return result
-				}
-			}
-		}
-	}
-
-	return undefined
-}
-
-export function insertNewGridItem(
-	root: GridItem[],
-	id: string,
-	subGridIndex: number,
-	newId: string,
-	data: AppComponent
-): GridItem[] {
-	const parentA = findParent(root, id)
-
-	if (!parentA) {
-		throw new Error(`Parent A object with ID ${id} not found.`)
-	}
-
-	const subGrid = parentA.data.subGrids[subGridIndex]
-
-	if (!subGrid) {
-		throw new Error(`Sub-grid with index ${subGridIndex} not found.`)
-	}
-
-	const newItem = createNewGridItem(subGrid ?? [], newId, data)
-	subGrid.push(newItem)
-	return root
-}
-
-
-function recursiveGetIds(gridItem: GridItem): string[] {
-	const subGrids = gridItem.data.subGrids ?? []
-	const subGridIds = subGrids
-		.map((subGrid: GridItem[]) => subGrid.map(recursiveGetIds))
-		.flat(Infinity)
-	return [gridItem.data.id, ...subGridIds]
-}
-
-export function getNextGridItemId(grid: GridItem[] = []): string {
-	const gridItemIds = grid.map(recursiveGetIds).flat()
-	const id = getNextId(gridItemIds)
-	return id
-}
-
 export function concatCustomCss<T extends string = string>(
 	appCss?: ComponentCustomCSS<T>,
 	componentCss?: ComponentCustomCSS<T>
