@@ -166,11 +166,11 @@
 			{loading}
 		>
 			<span class="truncate inline-flex gap-2 items-center">
-				{#if beforeIconComponent}
+				{#if beforeIcon && beforeIconComponent}
 					<svelte:component this={beforeIconComponent} size={14} />
 				{/if}
 				<div>{labelValue}</div>
-				{#if afterIconComponent}
+				{#if afterIcon && afterIconComponent}
 					<svelte:component this={afterIconComponent} size={14} />
 				{/if}
 			</span>
