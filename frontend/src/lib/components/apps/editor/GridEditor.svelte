@@ -12,7 +12,7 @@
 	import Component from './component/Component.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { push } from '$lib/history'
-	import { findAvailableSpace, findGridItem } from './appUtils'
+	import { expandGriditem, findAvailableSpace, findGridItem } from './appUtils'
 
 	export let policy: Policy
 
@@ -211,22 +211,7 @@
 									}
 								}}
 								on:expand={() => {
-									const availableSpace = findAvailableSpace($app.grid, gridComponent, $breakpoint)
-									const gridItem = findGridItem($app, gridComponent.data.id)
-
-									if (!gridItem || !availableSpace) {
-										return
-									}
-
-									const { left, right, top, bottom } = availableSpace
-									const width = $breakpoint === 'sm' ? 3 : 12
-									const previousGridItem = JSON.parse(JSON.stringify(gridItem[width]))
-
-									gridItem[width].x = previousGridItem.x - left
-									gridItem[width].y = previousGridItem.y - top
-									gridItem[width].w = previousGridItem.w + left + right
-									gridItem[width].h = previousGridItem.h + top + bottom
-
+									expandGriditem($app.grid, gridComponent, $breakpoint)
 									$app = { ...$app }
 								}}
 							/>

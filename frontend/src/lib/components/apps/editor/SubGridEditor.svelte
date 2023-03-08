@@ -6,7 +6,7 @@
 	import { columnConfiguration, isFixed, toggleFixed } from '../gridUtils'
 	import type { AppEditorContext, GridItem } from '../types'
 	import Component from './component/Component.svelte'
-	import { findAvailableSpace, findGridItem } from './appUtils'
+	import { expandGriditem, findAvailableSpace, findGridItem } from './appUtils'
 
 	export let containerHeight: number
 	let classes = ''
@@ -136,26 +136,7 @@
 										return
 									}
 
-									const availableSpace = findAvailableSpace(
-										subGrid,
-										gridComponent,
-										$breakpoint,
-										parentGridItem
-									)
-
-									if (!availableSpace) {
-										return
-									}
-
-									const { left, right, top, bottom } = availableSpace
-									const width = $breakpoint === 'sm' ? 3 : 12
-									const previousGridItem = JSON.parse(JSON.stringify(gridComponent[width]))
-
-									gridComponent[width].x = previousGridItem.x - left
-									gridComponent[width].y = previousGridItem.y - top
-									gridComponent[width].w = previousGridItem.w + left + right
-									gridComponent[width].h = previousGridItem.h + top + bottom
-
+									expandGriditem(subGrid, gridComponent, $breakpoint, parentGridItem)
 									$app = { ...$app }
 								}}
 							/>

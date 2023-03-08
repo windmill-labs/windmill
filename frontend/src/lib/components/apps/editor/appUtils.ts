@@ -176,12 +176,19 @@ export function duplicateGridItem(
 	return undefined
 }
 
+type AvailableSpace = {
+	left: number
+	right: number
+	top: number
+	bottom: number
+}
+
 export function findAvailableSpace(
 	grid: GridItem[],
 	gridItem: GridItem,
 	editorBreakpoint: EditorBreakpoint,
 	parentGridItem: GridItem | undefined = undefined
-) {
+): AvailableSpace | undefined {
 	if (gridItem) {
 		const breakpoint = editorBreakpoint === 'sm' ? 3 : 12
 		const maxHeight = parentGridItem ? parentGridItem[breakpoint].h - 1 : 12
@@ -273,4 +280,26 @@ function isOverlapping(item1: any, item2: any) {
 		item1.y < item2.y + item2.h &&
 		item1.y + item1.h > item2.y
 	)
+}
+
+export function expandGriditem(
+	grid: GridItem[],
+	gridComponent: GridItem,
+	$breakpoint: EditorBreakpoint,
+	parentGridItem: GridItem | undefined = undefined
+) {
+	const availableSpace = findAvailableSpace(grid, gridComponent, $breakpoint, parentGridItem)
+
+	if (!availableSpace) {
+		return
+	}
+
+	const { left, right, top, bottom } = availableSpace
+	const width = $breakpoint === 'sm' ? 3 : 12
+	const previousGridItem = JSON.parse(JSON.stringify(gridComponent[width]))
+
+	gridComponent[width].x = previousGridItem.x - left
+	gridComponent[width].y = previousGridItem.y - top
+	gridComponent[width].w = previousGridItem.w + left + right
+	gridComponent[width].h = previousGridItem.h + top + bottom
 }
