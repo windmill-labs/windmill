@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { AppInput, StaticInput } from '../../../inputType'
-	import { Loader2 } from 'lucide-svelte'
+	import { Loader2, X } from 'lucide-svelte'
 	import { Popup } from '../../../../common'
 
 	export let componentInput: StaticInput<string> & Extract<AppInput, { fieldType: 'icon-select' }>
@@ -46,7 +46,23 @@
 	}
 </script>
 
-<input readonly value={formatName(componentInput.value)} bind:this={anchor} on:focus={getData} />
+<div class="relative">
+	<input
+		readonly
+		value={formatName(componentInput.value)}
+		bind:this={anchor}
+		on:focus={getData}
+		class="pr-8"
+	/>
+	{#if componentInput.value}
+		<button
+			class="absolute right-2 top-1/2 transform -translate-y-1/2 hover:bg-gray-200 rounded-full p-0.5"
+			on:click|stopPropagation|preventDefault={() => (componentInput.value = undefined)}
+		>
+			<X size="14" />
+		</button>
+	{/if}
+</div>
 {#if anchor}
 	<Popup ref={anchor} options={{ placement: 'bottom' }} let:close>
 		<div class="max-w-xs shadow-[0_10px_40px_-5px_rgba(0,0,0,0.25)] bg-white rounded-md p-2">

@@ -21,12 +21,10 @@
 	let strokeWidth: number
 	let iconComponent: any
 
-	$: icon && handleIcon()
+	$: handleIcon(icon)
 
-	async function handleIcon() {
-		if (icon) {
-			iconComponent = await loadIcon(icon)
-		}
+	async function handleIcon(i?: string) {
+		iconComponent = i ? await loadIcon(i) : undefined
 	}
 
 	$: css = concatCustomCss($app.css?.iconcomponent, customCss)
@@ -43,7 +41,7 @@
 	class={css?.container?.class ?? ''}
 	style={css?.container?.style ?? ''}
 >
-	{#if iconComponent}
+	{#if icon && iconComponent}
 		<svelte:component
 			this={iconComponent}
 			size={size || 24}
