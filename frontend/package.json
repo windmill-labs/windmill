@@ -85,7 +85,7 @@
 		"monaco-languageclient": "2.1.0",
 		"monaco-yaml": "^4.0.2",
 		"svelte-autosize": "^1.0.1",
-		"svelte-chartjs": "^3.1.0",
+		"svelte-chartjs": "^3.1.2",
 		"svelte-portal": "^2.2.0",
 		"svelte-select": "^5.3.1",
 		"tailwind-merge": "^1.9.1",
