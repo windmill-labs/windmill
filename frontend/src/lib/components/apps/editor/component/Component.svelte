@@ -397,7 +397,6 @@
 				id={component.id}
 				customCss={component.customCss}
 				panes={component.panes}
-				bind:staticOutputs={$staticOutputs[component.id]}
 				{componentContainerHeight}
 				{render}
 			/>
@@ -407,7 +406,6 @@
 				id={component.id}
 				customCss={component.customCss}
 				panes={component.panes}
-				bind:staticOutputs={$staticOutputs[component.id]}
 				{componentContainerHeight}
 				horizontal={true}
 				{render}

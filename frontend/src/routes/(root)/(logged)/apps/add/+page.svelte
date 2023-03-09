@@ -33,8 +33,6 @@
 		goto('?', { replaceState: true })
 	}
 
-	loadApp()
-
 	let policy: Policy = {
 		on_behalf_of: $userStore?.username.includes('@')
 			? $userStore?.username
@@ -42,12 +40,19 @@
 		on_behalf_of_email: $userStore?.email,
 		execution_mode: Policy.execution_mode.PUBLISHER
 	}
+
+	loadApp()
+
 	async function loadApp() {
 		if (importJson) {
 			sendUserToast('Loaded from raw JSON')
-			summary = importJson.summary
-			value = importJson.value
-			policy = importJson.policy
+			if ('value' in importJson) {
+				summary = importJson.summary
+				value = importJson.value
+				policy = importJson.policy
+			} else {
+				value = importJson
+			}
 		} else if (templatePath) {
 			const template = await AppService.getAppByPath({
 				workspace: $workspaceStore!,
