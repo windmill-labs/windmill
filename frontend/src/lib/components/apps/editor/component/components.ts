@@ -32,7 +32,8 @@ import {
 	MapPin,
 	FlipHorizontal,
 	FlipVertical,
-	FileText
+	FileText,
+	AtSignIcon
 } from 'lucide-svelte'
 import type { BaseAppComponent } from '../../types'
 
@@ -43,6 +44,7 @@ type BaseComponent<T extends string> = {
 export type TextComponent = BaseComponent<'textcomponent'>
 export type TextInputComponent = BaseComponent<'textinputcomponent'>
 export type PasswordInputComponent = BaseComponent<'passwordinputcomponent'>
+export type EmailInputComponent = BaseComponent<'emailinputcomponent'>
 export type DateInputComponent = BaseComponent<'dateinputcomponent'>
 export type NumberInputComponent = BaseComponent<'numberinputcomponent'>
 export type CurrencyComponent = BaseComponent<'currencycomponent'>
@@ -99,6 +101,7 @@ export type AppComponent = BaseAppComponent &
 		| DisplayComponent
 		| TextInputComponent
 		| PasswordInputComponent
+		| EmailInputComponent
 		| DateInputComponent
 		| NumberInputComponent
 		| CurrencyComponent
@@ -1128,6 +1131,35 @@ Hello \${ctx.username}
 					value: 'Password',
 					fieldType: 'text',
 					onlyStatic: true
+				}
+			},
+			customCss: {
+				input: { class: '', style: '' }
+			} as const,
+			card: false
+		}
+	},
+	emailinputcomponent: {
+		name: 'Email Input',
+		icon: AtSignIcon,
+		dims: '2:1-3:1',
+		data: {
+			softWrap: true,
+			verticalAlignment: 'center',
+			id: '',
+			type: 'emailinputcomponent',
+			componentInput: undefined,
+			configuration: {
+				placeholder: {
+					type: 'static',
+					value: 'Email',
+					fieldType: 'text',
+					onlyStatic: true
+				},
+				defaultValue: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'text'
 				}
 			},
 			customCss: {
