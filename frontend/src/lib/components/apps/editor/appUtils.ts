@@ -193,12 +193,12 @@ type GridItemPosition = {
 
 export function findItemsAround(
 	grid: GridItem[],
-	gridItem: GridItem,
+	gridItemId: string,
 	editorBreakpoint: EditorBreakpoint,
 	direction: 'left' | 'right' | 'top' | 'bottom',
 	parentGridItem: GridItem | undefined = undefined
 ): string | undefined {
-	if (gridItem) {
+	if (gridItemId) {
 		const breakpoint = editorBreakpoint === 'sm' ? 3 : 12
 		const maxHeight = parentGridItem ? parentGridItem[breakpoint].h - 1 : 12
 		const maxWidth = 12
@@ -213,7 +213,7 @@ export function findItemsAround(
 			}
 		})
 
-		const item = items.find((item) => item.id === gridItem.id)
+		const item = items.find((item) => item.id === gridItemId)
 
 		if (!item) {
 			return undefined

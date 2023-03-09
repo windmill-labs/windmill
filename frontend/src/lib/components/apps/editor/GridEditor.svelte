@@ -140,12 +140,7 @@
 		}
 
 		if ($selectedComponent && directions[e.keyCode]) {
-			const gridItem = findGridItem($app, $selectedComponent)
-			if (!gridItem) {
-				return
-			}
-
-			const id = findItemsAround($app.grid, gridItem, $breakpoint, directions[e.keyCode])
+			const id = findItemsAround($app.grid, $selectedComponent, $breakpoint, directions[e.keyCode])
 
 			if (id) {
 				$selectedComponent = id
