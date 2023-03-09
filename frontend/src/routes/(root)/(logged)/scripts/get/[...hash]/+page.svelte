@@ -55,6 +55,7 @@
 	import { Loader2 } from 'lucide-svelte'
 	import { slide } from 'svelte/transition'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
+	import { DEFAULT_WEBHOOK_TYPE } from '$lib/consts'
 
 	let userSettings: UserSettings
 	let script: Script | undefined
@@ -75,11 +76,11 @@
 		loadScript($page.params.hash)
 	}
 	$: webhooks = {
-		uuid: {
+		async: {
 			hash: `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run/h/${script?.hash}`,
 			path: `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run/p/${script?.path}`
 		},
-		result: {
+		sync: {
 			hash: `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run_wait_result/h/${script?.hash}`,
 			path: `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run_wait_result/p/${script?.path}`
 		}
@@ -456,9 +457,9 @@
 					</Tooltip>
 				</h3>
 				<Skeleton {loading} layout={[[8.5]]} />
-				<Tabs selected="uuid">
-					<Tab value="uuid">UUID/Async</Tab>
-					<Tab value="result">Result/Sync</Tab>
+				<Tabs selected={DEFAULT_WEBHOOK_TYPE}>
+					<Tab value="async">UUID/Async</Tab>
+					<Tab value="sync">Result/Sync</Tab>
 					<svelte:fragment slot="content">
 						{#each Object.keys(webhooks) as key}
 							<TabContent value={key}>
