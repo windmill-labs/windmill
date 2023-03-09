@@ -168,7 +168,11 @@
 		)
 		policy.triggerables = Object.fromEntries(allTriggers.filter((x) => x.length > 0))
 
-		policy.on_behalf_of = `u/${$userStore?.username}`
+		if (!$userStore?.username?.includes('@')) {
+			policy.on_behalf_of = `u/${$userStore?.username}`
+		} else {
+			policy.on_behalf_of = $userStore?.email
+		}
 		policy.on_behalf_of_email = $userStore?.email
 	}
 	async function createApp(path: string) {
