@@ -1,7 +1,5 @@
 <script lang="ts">
 	import { onMount, setContext } from 'svelte'
-	import { fade } from 'svelte/transition'
-	import { cubicOut } from 'svelte/easing'
 	import { writable, type Writable } from 'svelte/store'
 	import { buildWorld, type World } from '../rx'
 	import type {
@@ -73,10 +71,19 @@
 		mounted = true
 	})
 
-	$: mounted && ($worldStore = buildWorld($staticOutputs, $worldStore, context))
+	let ncontext = context
+
+	function hashchange(e: HashChangeEvent) {
+		ncontext.hash = e.newURL.split('#')[1]
+		ncontext = ncontext
+	}
+
+	$: mounted && ($worldStore = buildWorld($staticOutputs, $worldStore, ncontext))
 	$: width = $breakpoint === 'sm' ? 'max-w-[640px]' : 'w-full '
 	$: lockedClasses = isLocked ? '!max-h-[400px] overflow-hidden pointer-events-none' : ''
 </script>
+
+<svelte:window on:hashchange={hashchange} />
 
 <div id="app-editor-top-level-drawer" />
 

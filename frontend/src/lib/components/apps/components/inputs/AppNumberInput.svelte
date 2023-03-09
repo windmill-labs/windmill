@@ -15,7 +15,7 @@
 	export let customCss: ComponentCustomCSS<'input'> | undefined = undefined
 	export let render: boolean
 
-	const { app, worldStore } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, worldStore, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
 
 	let defaultValue: number | undefined = undefined
 	let placeholder: string | undefined = undefined
@@ -49,6 +49,7 @@
 <AlignWrapper {render} {verticalAlignment}>
 	<input
 		on:pointerdown|stopPropagation
+		on:focus={() => ($selectedComponent = id)}
 		class={twMerge(
 			'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2 mx-0.5',
 			css?.input?.class ?? ''
