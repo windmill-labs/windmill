@@ -12,7 +12,8 @@
 	import Component from './component/Component.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { push } from '$lib/history'
-	import { expandGriditem, findGridItem, findItemsAround } from './appUtils'
+	import { expandGriditem, findGridItem } from './appUtils'
+	import ComponentNavigation from './component/ComponentNavigation.svelte'
 
 	export let policy: Policy
 
@@ -130,26 +131,9 @@
 			})
 		}
 	})
-
-	function onKeyDown(e) {
-		const directions = {
-			38: 'top',
-			40: 'bottom',
-			37: 'left',
-			39: 'right'
-		}
-
-		if ($selectedComponent && directions[e.keyCode]) {
-			const id = findItemsAround($app.grid, $selectedComponent, $breakpoint, directions[e.keyCode])
-
-			if (id) {
-				$selectedComponent = id
-			}
-		}
-	}
 </script>
 
-<svelte:window on:keydown={onKeyDown} />
+<ComponentNavigation />
 
 <div class="relative w-full z-20 overflow-visible">
 	<div

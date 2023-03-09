@@ -7,8 +7,6 @@ import type { App, ComponentCssProperty, ComponentCustomCSS, GridItem } from './
 import { twMerge } from 'tailwind-merge'
 import type { AppInput, InputType, ResultAppInput, StaticAppInput } from './inputType'
 import type { Output } from './rx'
-import { getNextId } from '../flows/flowStateUtils'
-import { createNewGridItem } from './editor/appUtils'
 
 export function allItems(
 	grid: GridItem[],
