@@ -60,28 +60,31 @@
 </script>
 
 <PanelSection noPadding titlePadding="px-4 pt-2 pb-0.5" title="Outputs">
-	<div class="overflow-auto h-full min-w-[150px] w-full relative flex flex-col gap-4 p-2">
-		<div class="relative {$connectingInput?.opened ? 'bg-white z-50' : ''}">
-			<input
-				bind:value={search}
-				class="px-2 py-1 border border-gray-300 rounded-sm {search ? 'pr-8' : ''}"
-				placeholder="Search outputs..."
-			/>
-			{#if search}
-				<button
-					class="absolute right-2 top-1/2 transform -translate-y-1/2 hover:bg-gray-200 rounded-full p-0.5"
-					on:click|stopPropagation|preventDefault={() => (search = '')}
-				>
-					<X size="14" />
-				</button>
-			{/if}
+	<div class="overflow-auto h-full min-w-[150px] w-full relative flex flex-col">
+		<div class="sticky z-50 top-0 left-0 w-full bg-white px-2 pb-2">
+			<div class="relative">
+				<input
+					bind:value={search}
+					class="px-2 py-1 border border-gray-300 rounded-sm {search ? 'pr-8' : ''}"
+					placeholder="Search outputs..."
+				/>
+				{#if search}
+					<button
+						class="absolute right-2 top-1/2 transform -translate-y-1/2 hover:bg-gray-200 rounded-full p-0.5"
+						on:click|stopPropagation|preventDefault={() => (search = '')}
+					>
+						<X size="14" />
+					</button>
+				{/if}
+			</div>
 		</div>
-		<div class="relative">
+		<div class="relative p-2">
 			{#each filteredPanels as [componentId, outputs] (componentId)}
 				<div
 					animate:flip={{ duration: 300 }}
 					in:fade|local={{ duration: 100, delay: 50 }}
 					out:fade|local={{ duration: 100 }}
+					class="pb-2"
 				>
 					{#if outputs.length > 0 && $worldStore?.outputsById[componentId]}
 						{@const name = getComponentNameById(componentId)}

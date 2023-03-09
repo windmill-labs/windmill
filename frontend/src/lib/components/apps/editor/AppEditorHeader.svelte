@@ -7,7 +7,8 @@
 		ButtonPopup,
 		ButtonPopupItem,
 		Drawer,
-		DrawerContent
+		DrawerContent,
+		UndoRedo
 	} from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
@@ -475,34 +476,16 @@
 	<div class="min-w-64 w-64">
 		<input type="text" placeholder="App summary" class="text-sm w-full" bind:value={$summary} />
 	</div>
-	<div class="flex">
-		<Button
-			title="Undo"
-			disabled={$history.index == 0}
-			variant="border"
-			color="light"
-			size="xs"
-			btnClasses="!min-h-[30px] !rounded-r-none"
-			on:click={async () => {
-				$app = undo(history, $app)
-			}}
-		>
-			<Undo size={14} />
-		</Button>
-		<Button
-			title="Redo"
-			disabled={$history.index == $history.history.length - 1}
-			variant="border"
-			color="light"
-			size="xs"
-			btnClasses="!min-h-[30px] !rounded-l-none !border-r-0"
-			on:click={async () => {
-				$app = redo(history)
-			}}
-		>
-			<Redo size={14} />
-		</Button>
-	</div>
+	<UndoRedo
+		undoProps={{ disabled: $history.index === 0 }}
+		redoProps={{ disabled: $history.index === $history.history.length - 1 }}
+		on:undo={() => {
+			$app = undo(history, $app)
+		}}
+		on:redo={() => {
+			$app = redo(history)
+		}}
+	/>
 	<div class="flex gap-4 items-center grow justify-center">
 		<div>
 			<ToggleButtonGroup bind:selected={$mode}>
