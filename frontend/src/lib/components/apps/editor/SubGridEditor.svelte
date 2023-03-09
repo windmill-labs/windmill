@@ -8,7 +8,6 @@
 	import Component from './component/Component.svelte'
 	import { expandGriditem, findGridItem } from './appUtils'
 	import { push } from '$lib/history'
-	import ComponentNavigation from './component/ComponentNavigation.svelte'
 
 	export let containerHeight: number
 	let classes = ''
@@ -75,8 +74,6 @@
 	// @ts-ignore
 	let container
 </script>
-
-<ComponentNavigation parentId={id} {subGrid} />
 
 <div
 	class="relative w-full subgrid {visible ? 'visible' : 'invisible h-0 overflow-hidden'} 	"

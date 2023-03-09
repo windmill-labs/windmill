@@ -37,6 +37,7 @@
 	import { page } from '$app/stores'
 	import CssSettings from './componentsPanel/CssSettings.svelte'
 	import { initHistory } from '$lib/history'
+	import ComponentNavigation from './component/ComponentNavigation.svelte'
 
 	export let app: App
 	export let path: string
@@ -185,6 +186,8 @@
 										)}
 									>
 										{#if $appStore.grid}
+											<ComponentNavigation />
+
 											<div on:pointerdown|stopPropagation class={width}>
 												<GridEditor {policy} />
 											</div>

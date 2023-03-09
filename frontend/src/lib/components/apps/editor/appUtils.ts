@@ -18,6 +18,21 @@ function findGridItemById(
 	return undefined
 }
 
+export function findGridItemParentId(app: App, id: string): string | undefined {
+	const gridItem = app.grid.find((x) => x.id === id)
+	if (gridItem) {
+		return undefined
+	} else {
+		for (const key in app.subgrids) {
+			const subGrid = app.subgrids[key]
+			const gridItem = subGrid.find((x) => x.id === id)
+			if (gridItem) {
+				return key.split('-')[0]
+			}
+		}
+	}
+}
+
 export function findGridItem(app: App, id: string): GridItem | undefined {
 	return findGridItemById(app.grid, app.subgrids, id)
 }

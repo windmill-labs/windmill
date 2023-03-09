@@ -13,7 +13,6 @@
 	import { deepEqual } from 'fast-equals'
 	import { push } from '$lib/history'
 	import { expandGriditem, findGridItem } from './appUtils'
-	import ComponentNavigation from './component/ComponentNavigation.svelte'
 
 	export let policy: Policy
 
@@ -132,8 +131,6 @@
 		}
 	})
 </script>
-
-<ComponentNavigation />
 
 <div class="relative w-full z-20 overflow-visible">
 	<div

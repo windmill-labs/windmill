@@ -1,59 +1,78 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import type { AppEditorContext, EditorBreakpoint, GridItem } from '../../types'
-	import { findGridItem } from '../appUtils'
-
-	export let parentId: string | undefined = undefined
-	export let subGrid: GridItem[] | undefined = undefined
+	import { findGridItemParentId } from '../appUtils'
 
 	const { app, selectedComponent, breakpoint } = getContext<AppEditorContext>('AppEditorContext')
+
+	function getSortedGridItems(parentId: string | undefined): GridItem[] {
+		if (!parentId) {
+			return sortGridItems($app.grid, $breakpoint)
+		}
+
+		if (!$app.subgrids) {
+			return []
+		}
+
+		return sortGridItems($app.subgrids[`${parentId}-0`], $breakpoint)
+	}
 
 	function keydown(event: KeyboardEvent) {
 		if (!$selectedComponent) {
 			return
 		}
 
-		const gridItem = findGridItem($app, $selectedComponent)
+		const parentId = findGridItemParentId($app, $selectedComponent)
 
-		// With subgrids, we need to check if the selected component is the subgrid itself
-		if (subGrid && !subGrid.find((item) => item.id === $selectedComponent)) {
-			return
-		}
-
-		if (gridItem) {
-			if (event.key === 'Escape') {
+		switch (event.key) {
+			case 'Escape':
 				$selectedComponent = undefined
-			} else if (event.key === 'ArrowUp' && parentId) {
-				$selectedComponent = parentId
-			} else if (
-				$app.subgrids &&
-				event.key === 'ArrowDown' &&
-				gridItem.data.numberOfSubgrids &&
-				gridItem.data.numberOfSubgrids >= 1
-			) {
-				const subgrid = $app.subgrids[`${gridItem.data.id}-0`]
-				if (subgrid) {
+				break
+
+			case 'ArrowUp':
+				if (parentId) {
+					$selectedComponent = parentId
+				}
+				break
+
+			case 'ArrowDown': {
+				if ($app.subgrids) {
+					const subgrid = $app.subgrids[`${$selectedComponent}-0`]
+
+					if (!subgrid) {
+						return
+					}
+
 					const sortedGridItems = sortGridItems(subgrid, $breakpoint)
 					if (sortedGridItems) {
 						$selectedComponent = sortedGridItems[0].id
 					}
 				}
-			} else {
-				const grid = subGrid ?? $app.grid
+				break
+			}
 
-				const sortedGridItems = sortGridItems(grid, $breakpoint)
+			case 'ArrowRight': {
+				const sortedGridItems = getSortedGridItems(parentId)
 				const currentIndex = sortedGridItems.findIndex((item) => item.id === $selectedComponent)
 
-				if (event.key === 'ArrowRight') {
-					if (currentIndex !== -1 && currentIndex < sortedGridItems.length - 1) {
-						$selectedComponent = sortedGridItems[currentIndex + 1].id
-					}
-				} else if (event.key === 'ArrowLeft') {
-					if (currentIndex !== -1 && currentIndex > 0) {
-						$selectedComponent = sortedGridItems[currentIndex - 1].id
-					}
+				if (currentIndex !== -1 && currentIndex < sortedGridItems.length - 1) {
+					$selectedComponent = sortedGridItems[currentIndex + 1].id
 				}
+				break
 			}
+
+			case 'ArrowLeft': {
+				const sortedGridItems = getSortedGridItems(parentId)
+				const currentIndex = sortedGridItems.findIndex((item) => item.id === $selectedComponent)
+
+				if (currentIndex !== -1 && currentIndex > 0) {
+					$selectedComponent = sortedGridItems[currentIndex - 1].id
+				}
+				break
+			}
+
+			default:
+				break
 		}
 	}
 
