@@ -1,5 +1,6 @@
 import type { AppInput } from './inputType'
 import { writable, type Writable } from 'svelte/store'
+import { deepEqual } from 'fast-equals'
 
 export interface Subscriber<T> {
 	next(v: T)
@@ -153,7 +154,7 @@ export function settableOutput<T>(state: Writable<number>, previousValue: T): Ou
 	}
 
 	function set(x: T, force: boolean = false) {
-		if (value != x || force) {
+		if (!deepEqual(value, x) || force) {
 			state.update((x) => x + 1)
 
 			value = x
