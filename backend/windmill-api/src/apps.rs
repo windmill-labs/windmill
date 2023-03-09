@@ -313,9 +313,12 @@ async fn create_app(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
-    Json(app): Json<CreateApp>,
+    Json(mut app): Json<CreateApp>,
 ) -> Result<(StatusCode, String)> {
     let mut tx = user_db.begin(&authed).await?;
+
+    app.policy.on_behalf_of = Some(username_to_permissioned_as(&authed.username));
+    app.policy.on_behalf_of_email = Some(authed.email);
 
     let id = sqlx::query_scalar!(
         "INSERT INTO app
@@ -463,7 +466,9 @@ async fn update_app(
             sqlb.set_str("summary", nsummary);
         }
 
-        if let Some(npolicy) = ns.policy {
+        if let Some(mut npolicy) = ns.policy {
+            npolicy.on_behalf_of = Some(username_to_permissioned_as(&authed.username));
+            npolicy.on_behalf_of_email = Some(authed.email);
             sqlb.set(
                 "policy",
                 &format!(
