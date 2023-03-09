@@ -139,6 +139,8 @@ async function list(opts: GlobalOptions) {
       }),
     )
     .render();
+
+  console.log('Active: ' + colors.green.bold(activeName || 'none'))
 }
 
 async function switchC(opts: GlobalOptions, workspaceName: string) {
@@ -313,6 +315,8 @@ async function remove(_opts: GlobalOptions, name: string) {
 async function whoami(_opts: GlobalOptions) {
   await requireLogin(_opts)
   console.log(await UserService.globalWhoami())
+  const activeName = await getActiveWorkspaceName(_opts);
+  console.log('Active: ' + colors.green.bold(activeName || 'none'))
 }
 
 const command = new Command()

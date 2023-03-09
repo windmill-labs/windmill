@@ -134,7 +134,6 @@
 	/>
 {/if}
 {#if !$userStore?.operator}
-	<UnsavedConfirmationModal />
 	{#if initialMode !== 'preview'}
 		<AppEditorHeader {policy} {fromHub} />
 	{/if}

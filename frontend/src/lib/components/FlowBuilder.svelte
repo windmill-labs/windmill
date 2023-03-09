@@ -4,14 +4,12 @@
 	import { initHistory, redo, undo } from '$lib/history'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { encodeState, formatCron, loadHubScripts, sendUserToast } from '$lib/utils'
-	import { faCalendarAlt, faEye, faPen, faSave } from '@fortawesome/free-solid-svg-icons'
-	import { Redo, Undo } from 'lucide-svelte'
+	import { faCalendarAlt, faPen, faSave } from '@fortawesome/free-solid-svg-icons'
 	import { setContext } from 'svelte'
 	import { writable, type Writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Button, ButtonPopup, ButtonPopupItem, UndoRedo } from './common'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
-	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { OFFSET } from './CronInput.svelte'
 	import ScriptEditorDrawer from './flows/content/ScriptEditorDrawer.svelte'
 	import FlowEditor from './flows/FlowEditor.svelte'
@@ -250,7 +248,6 @@
 
 {#if !$userStore?.operator}
 	<ScriptEditorDrawer bind:this={$scriptEditorDrawer} />
-	<UnsavedConfirmationModal />
 
 	<div class="flex flex-col flex-1 h-screen">
 		<!-- Nav between steps-->

@@ -468,6 +468,27 @@
     },
     "query": "DELETE FROM workspace_settings WHERE workspace_id = $1"
   },
+  "0e7d95f4913e5775651971d741a3b5c1ef5dfe079be5325abe2866d39a7fe5fb": {
+    "describe": {
+      "columns": [
+        {
+          "name": "path",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM script WHERE path = $1 AND workspace_id = $2 RETURNING path"
+  },
   "11b1586acdfc180c5a077861ee1f7201fcbcec9d0ebada464f9d952c9c3e400d": {
     "describe": {
       "columns": [],
