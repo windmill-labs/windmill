@@ -18,7 +18,8 @@
 		faFileExport,
 		faList,
 		faPlay,
-		faShare
+		faShare,
+		faTrashAlt
 	} from '@fortawesome/free-solid-svg-icons'
 	import { MoreVertical } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
@@ -32,6 +33,7 @@
 	export let starred: boolean
 	export let shareModal: ShareModal
 	export let moveDrawer: MoveDrawer
+	export let deleteConfirmedCallback: (() => void) | undefined
 
 	let {
 		summary,
@@ -212,9 +214,15 @@
 					: [
 							{
 								displayName: 'Delete',
-								icon: faArchive,
-								action: () => {
-									path ? deleteScript(path) : null
+								icon: faTrashAlt,
+								action: (event) => {
+									if (event?.shiftKey) {
+										deleteScript(path)
+									} else {
+										deleteConfirmedCallback = () => {
+											deleteScript(path)
+										}
+									}
 								},
 								type: dlt,
 								disabled: !canWrite

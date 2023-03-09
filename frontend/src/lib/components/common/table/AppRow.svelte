@@ -24,6 +24,7 @@
 	export let starred: boolean
 	export let shareModal: ShareModal
 	export let moveDrawer: MoveDrawer
+	export let deleteConfirmedCallback: (() => void) | undefined
 
 	let { summary, path, extra_perms, canWrite, workspace_id } = app
 
@@ -120,9 +121,16 @@
 				{
 					displayName: 'Delete',
 					icon: faTrashAlt,
-					action: async () => {
-						await AppService.deleteApp({ workspace: $workspaceStore ?? '', path })
-						dispatch('change')
+					action: async (event) => {
+						if (event?.shiftKey) {
+							await AppService.deleteApp({ workspace: $workspaceStore ?? '', path })
+							dispatch('change')
+						} else {
+							deleteConfirmedCallback = async () => {
+								await AppService.deleteApp({ workspace: $workspaceStore ?? '', path })
+								dispatch('change')
+							}
+						}
 					},
 					type: 'delete',
 					disabled: !canWrite
