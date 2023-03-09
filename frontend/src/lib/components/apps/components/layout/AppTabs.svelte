@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Tab, Tabs } from '$lib/components/common'
-	import { getContext } from 'svelte'
+	import { getContext, onMount } from 'svelte'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
@@ -21,26 +21,18 @@
 	const { app, worldStore, focusedGrid, selectedComponent } =
 		getContext<AppEditorContext>('AppEditorContext')
 
-	let selected: string = ''
+	let selected: string = tabs[0]
 	let noPadding: boolean | undefined = undefined
-
-	$: selectedIndex = tabs?.indexOf(selected) ?? -1
-
-	$: if ((tabs && selected === '') || !tabs.includes(selected)) {
-		selected = tabs[0]
-	}
-
-	$: outputs = $worldStore?.outputsById[id] as {
-		selectedTabIndex: Output<number | null>
-	}
-
-	$: outputs?.selectedTabIndex && handleOutputs()
+	let tabHeight: number = 0
 
 	function handleTabSelection() {
-		outputs?.selectedTabIndex.set(selectedIndex)
+		const selectedIndex = tabs?.indexOf(selected)
+		outputs?.selectedTabIndex.set(selectedIndex, true)
+
 		if ($selectedComponent != id) {
 			$selectedComponent = id
 		}
+
 		if ($focusedGrid?.parentComponentId != id || $focusedGrid?.subGridIndex != selectedIndex) {
 			$focusedGrid = {
 				parentComponentId: id,
@@ -49,24 +41,23 @@
 		}
 	}
 
-	$: selectedIndex >= 0 && handleTabSelection()
-
-	let tabHeight: number = 0
-
-	function onFocus() {
-		$focusedGrid = {
-			parentComponentId: id,
-			subGridIndex: selectedIndex ?? 0
-		}
+	$: selected && outputs?.selectedTabIndex && handleTabSelection()
+	$: outputs = $worldStore?.outputsById[id] as {
+		selectedTabIndex: Output<number | null>
 	}
 
-	$: $selectedComponent === id && selectedIndex >= 0 && onFocus()
+	$: selectedIndex = tabs?.indexOf(selected) ?? -1
+
+	$: outputs?.selectedTabIndex.subscribe({
+		next: (value) => {
+			if (selectedIndex !== value && value !== null) {
+				selectedIndex = value
+				selected = tabs[selectedIndex]
+			}
+		}
+	})
 
 	$: css = concatCustomCss($app.css?.tabscomponent, customCss)
-
-	function handleOutputs() {
-		outputs?.selectedTabIndex.set(outputs.selectedTabIndex.peak())
-	}
 </script>
 
 <InputValue {id} input={configuration.noPadding} bind:value={noPadding} />

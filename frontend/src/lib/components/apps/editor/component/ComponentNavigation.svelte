@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import type { AppEditorContext, EditorBreakpoint, GridItem } from '../../types'
-	import { findGridItemParentId } from '../appUtils'
+	import { findGridItem, findGridItemParentId } from '../appUtils'
 
 	const { app, selectedComponent, breakpoint, worldStore } =
 		getContext<AppEditorContext>('AppEditorContext')
+
+	$: outputs = $selectedComponent ? $worldStore?.outputsById[$selectedComponent] : undefined
 
 	function getSortedGridItems(parentId: string | undefined): GridItem[] {
 		if (!parentId) {
@@ -15,17 +17,18 @@
 			return []
 		}
 
-		const index = getIndex(parentId)
+		const index = getSubIndex(parentId)
 
 		return sortGridItems($app.subgrids[`${parentId}-${index}`], $breakpoint)
 	}
 
-	function getIndex(parentId: string): number {
-		if (!parentId) {
+	function getSubIndex(id: string | undefined): number {
+		if (!id) {
 			return 0
 		}
 
-		const outputs = $worldStore?.outputsById[parentId]
+		const outputs = $worldStore?.outputsById[id]
+
 		let index = outputs?.selectedTabIndex ? outputs.selectedTabIndex.peak() : 0
 		if (index === undefined) {
 			index = 0
@@ -46,18 +49,21 @@
 				$selectedComponent = undefined
 				break
 
-			case 'ArrowUp':
+			case 'ArrowUp': {
 				if (parentId) {
 					$selectedComponent = parentId
+				} else {
+					$selectedComponent = undefined
 				}
 				break
+			}
 
 			case 'ArrowDown': {
 				if ($app.subgrids) {
-					const index = getIndex($selectedComponent)
+					const index = getSubIndex($selectedComponent)
 					const subgrid = $app.subgrids[`${$selectedComponent}-${index}`]
 
-					if (!subgrid) {
+					if (!subgrid || subgrid.length === 0) {
 						return
 					}
 
@@ -71,22 +77,37 @@
 			}
 
 			case 'ArrowRight': {
-				const sortedGridItems = getSortedGridItems(parentId)
-				const currentIndex = sortedGridItems.findIndex((item) => item.id === $selectedComponent)
+				const index = getSubIndex($selectedComponent)
+				const gridItem = findGridItem($app, $selectedComponent)
 
-				if (currentIndex !== -1 && currentIndex < sortedGridItems.length - 1) {
-					$selectedComponent = sortedGridItems[currentIndex + 1].id
+				if (index < gridItem?.data.numberOfSubgrids - 1) {
+					outputs?.selectedTabIndex?.set(index + 1)
+				} else {
+					const sortedGridItems = getSortedGridItems(parentId)
+					const currentIndex = sortedGridItems.findIndex((item) => item.id === $selectedComponent)
+
+					if (currentIndex !== -1 && currentIndex < sortedGridItems.length - 1) {
+						$selectedComponent = sortedGridItems[currentIndex + 1].id
+					}
 				}
+
 				break
 			}
 
 			case 'ArrowLeft': {
-				const sortedGridItems = getSortedGridItems(parentId)
-				const currentIndex = sortedGridItems.findIndex((item) => item.id === $selectedComponent)
+				const index = getSubIndex($selectedComponent)
 
-				if (currentIndex !== -1 && currentIndex > 0) {
-					$selectedComponent = sortedGridItems[currentIndex - 1].id
+				if (index > 0) {
+					outputs?.selectedTabIndex?.set(index - 1)
+				} else {
+					const sortedGridItems = getSortedGridItems(parentId)
+					const currentIndex = sortedGridItems.findIndex((item) => item.id === $selectedComponent)
+
+					if (currentIndex !== -1 && currentIndex > 0) {
+						$selectedComponent = sortedGridItems[currentIndex - 1].id
+					}
 				}
+
 				break
 			}
 
