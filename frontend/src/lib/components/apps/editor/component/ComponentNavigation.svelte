@@ -38,7 +38,7 @@
 		)
 	}
 
-	function left(event) {
+	function left(event: KeyboardEvent) {
 		if (!$componentControl[$selectedComponent!]?.left?.()) {
 			const sortedGridItems = getSortedGridItemsOfGrid()
 			const currentIndex = sortedGridItems.findIndex((item) => item.id === $selectedComponent)
@@ -46,13 +46,12 @@
 			if (currentIndex !== -1 && currentIndex > 0) {
 				$selectedComponent = sortedGridItems[currentIndex - 1].id
 			}
-			event.preventDefault()
-		} else {
-			event.preventDefault()
 		}
+
+		event.preventDefault()
 	}
 
-	function right(event) {
+	function right(event: KeyboardEvent) {
 		let r = $componentControl[$selectedComponent!]?.right?.()
 		if (!r) {
 			const sortedGridItems = getSortedGridItemsOfGrid()
@@ -61,13 +60,12 @@
 			if (currentIndex !== -1 && currentIndex < sortedGridItems.length - 1) {
 				$selectedComponent = sortedGridItems[currentIndex + 1].id
 			}
-			event.preventDefault()
-		} else {
-			event.preventDefault()
 		}
+
+		event.preventDefault()
 	}
 
-	function down(event) {
+	function down(event: KeyboardEvent) {
 		if (!$focusedGrid) {
 			$selectedComponent = getSortedGridItemsOfChildren()[0]?.id
 		} else if ($app.subgrids) {
