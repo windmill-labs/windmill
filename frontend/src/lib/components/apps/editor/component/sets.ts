@@ -23,6 +23,7 @@ const inputs: ComponentSet = {
 	components: [
 		'textinputcomponent',
 		'passwordinputcomponent',
+		'emailinputcomponent',
 		'numberinputcomponent',
 		'currencycomponent',
 		'slidercomponent',
