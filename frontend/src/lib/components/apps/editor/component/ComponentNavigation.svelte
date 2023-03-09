@@ -15,19 +15,22 @@
 			return []
 		}
 
-		const index = getIndex()
+		const index = getIndex(parentId)
+
 		return sortGridItems($app.subgrids[`${parentId}-${index}`], $breakpoint)
 	}
 
-	function getIndex(): number {
-		if (!$selectedComponent) {
+	function getIndex(parentId: string): number {
+		if (!parentId) {
 			return 0
 		}
-		const outputs = $worldStore?.outputsById[$selectedComponent]
+
+		const outputs = $worldStore?.outputsById[parentId]
 		let index = outputs?.selectedTabIndex ? outputs.selectedTabIndex.peak() : 0
 		if (index === undefined) {
 			index = 0
 		}
+
 		return index
 	}
 
@@ -51,7 +54,7 @@
 
 			case 'ArrowDown': {
 				if ($app.subgrids) {
-					const index = getIndex()
+					const index = getIndex($selectedComponent)
 					const subgrid = $app.subgrids[`${$selectedComponent}-${index}`]
 
 					if (!subgrid) {
@@ -59,6 +62,7 @@
 					}
 
 					const sortedGridItems = sortGridItems(subgrid, $breakpoint)
+
 					if (sortedGridItems) {
 						$selectedComponent = sortedGridItems[0].id
 					}
