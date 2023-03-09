@@ -7,6 +7,7 @@
 	import InputValue from '../helpers/InputValue.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { deepEqual } from 'fast-equals'
+	import type { Output } from '../../rx'
 
 	export let id: string
 	export let configuration: Record<string, AppInput>
@@ -16,9 +17,10 @@
 	export let panes: number[]
 	export let render: boolean
 
-	export const staticOutputs: string[] = []
+	export const staticOutputs: string[] = ['selectedTabIndex']
 
-	const { app, focusedGrid, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, focusedGrid, selectedComponent, worldStore } =
+		getContext<AppEditorContext>('AppEditorContext')
 
 	let noPadding: boolean | undefined = undefined
 
@@ -29,8 +31,23 @@
 		}
 	}
 
+	$: outputs = $worldStore?.outputsById[id] as {
+		selectedTabIndex: Output<number | null>
+	}
+
 	$: $selectedComponent === id && onFocus()
 	$: css = concatCustomCss($app.css?.containercomponent, customCss)
+
+	$: outputs?.selectedTabIndex.subscribe({
+		next: (value) => {
+			if (value !== null) {
+				$focusedGrid = {
+					parentComponentId: id,
+					subGridIndex: value
+				}
+			}
+		}
+	})
 
 	let sumedup = [50, 50]
 	$: {
