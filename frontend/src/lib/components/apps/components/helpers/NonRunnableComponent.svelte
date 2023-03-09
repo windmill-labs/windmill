@@ -1,5 +1,7 @@
 <script lang="ts">
+	import { Loader2 } from 'lucide-svelte'
 	import { getContext } from 'svelte'
+	import { fade } from 'svelte/transition'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppEditorContext } from '../../types'
@@ -8,6 +10,7 @@
 	export let componentInput: AppInput
 	export let id: string
 	export let result: any
+	export let render: boolean
 
 	// Sync the result to the output
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
@@ -32,4 +35,16 @@
 	<InputValue {id} input={componentInput} bind:value={result} />
 {/if}
 
-<slot />
+{#if render}
+	<slot />
+{:else}
+	<div class="w-full h-full">
+		<div
+			out:fade|local={{ duration: 50 }}
+			class="absolute inset-0 center-center flex-col bg-white text-gray-600 border"
+		>
+			<Loader2 class="animate-spin" size={16} />
+			<span class="text-xs mt-1">Loading</span>
+		</div>
+	</div>
+{/if}
