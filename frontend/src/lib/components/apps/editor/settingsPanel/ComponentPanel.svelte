@@ -80,7 +80,19 @@
 		component?.componentInput?.type === 'template' && $worldStore
 			? buildExtraLib($worldStore?.outputsById ?? {}, component?.id, false)
 			: undefined
+
+	function keydown(event: KeyboardEvent) {
+		switch (event.key) {
+			case 'Delete': {
+				removeGridElement()
+				event.stopPropagation()
+				break
+			}
+		}
+	}
 </script>
+
+<svelte:window on:keydown={keydown} />
 
 {#if component}
 	<div class="flex flex-col min-w-[150px] w-full divide-y">

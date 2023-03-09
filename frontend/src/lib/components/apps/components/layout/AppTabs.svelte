@@ -75,7 +75,7 @@
 	$: selected && handleTabSelection()
 
 	$: outputs = $worldStore?.outputsById[id] as {
-		selectedTabIndex: Output<number | null>
+		selectedTabIndex: Output<number>
 	}
 
 	$: selectedIndex = tabs?.indexOf(selected) ?? -1

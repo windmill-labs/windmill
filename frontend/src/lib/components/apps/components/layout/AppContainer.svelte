@@ -31,7 +31,7 @@
 
 <InputValue {id} input={configuration.noPadding} bind:value={noPadding} />
 
-<div class="border">
+<div>
 	{#if $app.subgrids?.[`${id}-0`]}
 		<SubGridEditor
 			visible={render}
