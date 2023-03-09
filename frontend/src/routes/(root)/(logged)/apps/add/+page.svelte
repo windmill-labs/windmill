@@ -36,7 +36,9 @@
 	loadApp()
 
 	let policy: Policy = {
-		on_behalf_of: `u/${$userStore?.username}`,
+		on_behalf_of: $userStore?.username.includes('@')
+			? $userStore?.username
+			: `u/${$userStore?.username}`,
 		on_behalf_of_email: $userStore?.email,
 		execution_mode: Policy.execution_mode.PUBLISHER
 	}
