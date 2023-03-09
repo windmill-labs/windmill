@@ -14,11 +14,11 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export const staticOutputs: string[] = ['result']
 	export let customCss: ComponentCustomCSS<'input'> | undefined = undefined
-	export let appCssKey: 'textinputcomponent' | 'passwordinputcomponent' | 'emailcomponent' =
+	export let appCssKey: 'textinputcomponent' | 'passwordinputcomponent' | 'emailinputcomponent' =
 		'textinputcomponent'
 	export let render: boolean
 
-	const { app, worldStore } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, worldStore, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
 
 	let placeholder: string | undefined = undefined
 	let defaultValue: string | undefined = undefined
@@ -51,6 +51,7 @@
 			)}
 			style={css?.input?.style ?? ''}
 			on:pointerdown|stopPropagation
+			on:focus={() => ($selectedComponent = id)}
 			type="password"
 			bind:value
 			{placeholder}
@@ -63,6 +64,7 @@
 			)}
 			style={css?.input?.style ?? ''}
 			on:pointerdown|stopPropagation
+			on:focus={() => ($selectedComponent = id)}
 			type="text"
 			bind:value
 			{placeholder}
@@ -75,6 +77,7 @@
 			)}
 			style={css?.input?.style ?? ''}
 			on:pointerdown|stopPropagation
+			on:focus={() => ($selectedComponent = id)}
 			type="email"
 			bind:value
 			{placeholder}

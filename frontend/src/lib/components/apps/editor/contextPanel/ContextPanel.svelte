@@ -42,7 +42,7 @@
 			return 'Table action'
 		}
 	}
-	$: panels = [['ctx', ['email', 'username', 'query']] as [string, string[]]].concat(
+	$: panels = [['ctx', ['email', 'username', 'query', 'hash']] as [string, string[]]].concat(
 		Object.entries($staticOutputs)
 	)
 

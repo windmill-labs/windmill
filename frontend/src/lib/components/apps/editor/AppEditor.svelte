@@ -33,7 +33,6 @@
 	import SettingsPanel from './SettingsPanel.svelte'
 	import { fly } from 'svelte/transition'
 	import type { Policy } from '$lib/gen'
-	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { page } from '$app/stores'
 	import CssSettings from './componentsPanel/CssSettings.svelte'
 	import { initHistory } from '$lib/history'
@@ -45,7 +44,6 @@
 	export let summary: string
 	export let fromHub: boolean = false
 
-	console.log('app', app)
 	const appStore = writable<App>(app)
 	const worldStore = writable<World | undefined>(undefined)
 	const staticOutputs = writable<Record<string, string[]>>({})
@@ -110,10 +108,16 @@
 		mounted = true
 	})
 
-	$: context = {
+	let context = {
 		email: $userStore?.email,
 		username: $userStore?.username,
-		query: Object.fromEntries($page.url.searchParams.entries())
+		query: Object.fromEntries($page.url.searchParams.entries()),
+		hash: $page.url.hash
+	}
+
+	function hashchange(e: HashChangeEvent) {
+		context.hash = e.newURL.split('#')[1]
+		context = context
 	}
 
 	$: mounted && ($worldStore = buildWorld($staticOutputs, $worldStore, context))
@@ -127,6 +131,8 @@
 		selectedTab = 'insert'
 	}
 </script>
+
+<svelte:window on:hashchange={hashchange} />
 
 {#if $connectingInput.opened}
 	<div

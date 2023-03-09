@@ -16,7 +16,7 @@
 	export let customCss: ComponentCustomCSS<'input'> | undefined = undefined
 	export let render: boolean
 
-	const { app, worldStore } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, worldStore, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
 	let labelValue: string = 'Title'
 	let minValue: string = ''
 	let maxValue: string = ''
@@ -46,6 +46,7 @@
 <AlignWrapper {render} {verticalAlignment}>
 	{#if inputType === 'date'}
 		<input
+			on:focus={() => ($selectedComponent = id)}
 			on:pointerdown|stopPropagation
 			type="date"
 			bind:value
