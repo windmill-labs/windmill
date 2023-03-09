@@ -3,7 +3,7 @@
 	import { fade } from 'svelte/transition'
 	import { Loader2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
-	import type { AppEditorContext, GridItem } from '../../types'
+	import type { AppEditorContext } from '../../types'
 	import ComponentHeader from '../ComponentHeader.svelte'
 	import type { AppComponent } from './components'
 	import {
@@ -41,21 +41,23 @@
 		AppPdf
 	} from '../../components'
 	import AppMultiSelect from '../../components/inputs/AppMultiSelect.svelte'
-	import ComponentNavigation from './ComponentNavigation.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
 	export let locked: boolean = false
 	export let pointerdown: boolean = false
 	export let render: boolean
-	export let parentId: string | undefined = undefined
-	export let subGrid: GridItem[] | undefined = undefined
 
 	const { staticOutputs, mode, connectingInput, app, errorByComponent } =
 		getContext<AppEditorContext>('AppEditorContext')
 	let hover = false
 	let initializing: boolean | undefined = undefined
 	let componentContainerHeight: number = 0
+
+	// let component = JSON.parse(JSON.stringify({ conf }))
+	// $: if (!deepEqual(component, pComponent)) {
+	// 	component = JSON.parse(JSON.stringify(pComponent))
+	// }
 
 	$: componentWithErrors = Object.values($errorByComponent).map((e) => e.componentId)
 	$: hasError = componentWithErrors.includes(component.id)
@@ -81,7 +83,7 @@
 
 	<div
 		on:pointerdown={(e) => {
-			// Removed in https://github[x].com/windmill-labs/windmill/pull/1171
+			// Removed in https://github.com/windmill-labs/windmill/pull/1171
 			// In case of a bug, try stopping propagation on the native event
 			// and dispatch a custom event: `e?.stopPropagation(); dispatch('select');`
 			// if ($mode === 'preview') {
