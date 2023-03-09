@@ -45,6 +45,7 @@
 	export let summary: string
 	export let fromHub: boolean = false
 
+	console.log('app', app)
 	const appStore = writable<App>(app)
 	const worldStore = writable<World | undefined>(undefined)
 	const staticOutputs = writable<Record<string, string[]>>({})
@@ -204,7 +205,7 @@
 				</Pane>
 				<Pane size={21} minSize={5} maxSize={33}>
 					<div class="relative flex flex-col h-full">
-						<Tabs bind:selected={selectedTab} class="!border-b-2 !border-gray-200 !h-full">
+						<Tabs bind:selected={selectedTab} wrapperClass="!h-[40px]" class="!h-full">
 							<Tab value="insert" size="xs">
 								<div class="m-1 center-center gap-2">
 									<Icon data={faPlus} />

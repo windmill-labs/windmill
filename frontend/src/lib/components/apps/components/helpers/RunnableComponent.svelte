@@ -7,8 +7,9 @@
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import { AppService, type CompletedJob } from '$lib/gen'
 	import { classNames, defaultIfEmptyString, emptySchema, sendUserToast } from '$lib/utils'
-	import { Bug } from 'lucide-svelte'
+	import { Bug, Loader2 } from 'lucide-svelte'
 	import { getContext, onMount } from 'svelte'
+	import { fade } from 'svelte/transition'
 	import type { AppInputs, Runnable } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppEditorContext } from '../../types'
@@ -59,7 +60,6 @@
 	let executeTimeout: NodeJS.Timeout | undefined = undefined
 
 	function setDebouncedExecute() {
-		console.log('EXECUTE')
 		executeTimeout && clearTimeout(executeTimeout)
 		executeTimeout = setTimeout(() => {
 			executeComponent(true)
@@ -87,7 +87,6 @@
 	}
 
 	$: fields && (lazyStaticValues = computeStaticValues())
-	$: console.log(runnableInputValues, extraQueryParams, args, autoRefresh, testJobLoader)
 	$: (runnableInputValues || extraQueryParams || args) &&
 		autoRefresh &&
 		testJobLoader &&
@@ -314,4 +313,6 @@
 			</div>
 		{/if}
 	</div>
+{:else}
+	<div class="w-full h-full" />
 {/if}

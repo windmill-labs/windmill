@@ -9,7 +9,7 @@
 	import { setContext } from 'svelte'
 	import { writable, type Writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
-	import { Button, ButtonPopup, ButtonPopupItem } from './common'
+	import { Button, ButtonPopup, ButtonPopupItem, UndoRedo } from './common'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { OFFSET } from './CronInput.svelte'
@@ -259,33 +259,17 @@
 		>
 			<div class="flex flex-row gap-4 items-center">
 				<FlowImportExportMenu />
-				<div class="flex gap-1">
-					<Button
-						title="Undo (Ctrl + z)"
-						disabled={$history.index == 0}
-						variant="border"
-						color="dark"
-						size="xs"
-						on:click={async () => {
-							$flowStore = undo(history, $flowStore)
-							$selectedIdStore = 'Input'
-						}}
-					>
-						<Undo size={14} />
-					</Button>
-					<Button
-						title="Redo (Ctrl + Shift + z)"
-						disabled={$history.index == $history.history.length - 1}
-						variant="border"
-						color="dark"
-						size="xs"
-						on:click={async () => {
-							$flowStore = redo(history)
-						}}
-					>
-						<Redo size={14} />
-					</Button>
-				</div>
+				<UndoRedo
+					undoProps={{ disabled: $history.index === 0 }}
+					redoProps={{ disabled: $history.index === $history.history.length - 1 }}
+					on:undo={() => {
+						$flowStore = undo(history, $flowStore)
+						$selectedIdStore = 'Input'
+					}}
+					on:redo={() => {
+						$flowStore = redo(history)
+					}}
+				/>
 			</div>
 
 			<div class="gap-1 flex-row hidden md:flex shrink overflow-hidden">

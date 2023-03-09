@@ -7,7 +7,8 @@
 		ButtonPopup,
 		ButtonPopupItem,
 		Drawer,
-		DrawerContent
+		DrawerContent,
+		UndoRedo
 	} from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
@@ -159,7 +160,7 @@
 					return []
 				})
 				.concat(
-					Object.values($app.hiddenInlineScripts).map(async (v) => {
+					Object.values($app.hiddenInlineScripts ?? {}).map(async (v) => {
 						let hex = await hash(v.inlineScript?.content)
 						const staticInputs = collectStaticFields(v.fields)
 						return [`rawscript/${hex}`, staticInputs]
@@ -168,7 +169,11 @@
 		)
 		policy.triggerables = Object.fromEntries(allTriggers.filter((x) => x.length > 0))
 
-		policy.on_behalf_of = `u/${$userStore?.username}`
+		if (!$userStore?.username?.includes('@')) {
+			policy.on_behalf_of = `u/${$userStore?.username}`
+		} else {
+			policy.on_behalf_of = $userStore?.email
+		}
 		policy.on_behalf_of_email = $userStore?.email
 	}
 	async function createApp(path: string) {
@@ -471,32 +476,16 @@
 	<div class="min-w-64 w-64">
 		<input type="text" placeholder="App summary" class="text-sm w-full" bind:value={$summary} />
 	</div>
-	<div class="flex gap-1">
-		<Button
-			title="Undo"
-			disabled={$history.index == 0}
-			variant="border"
-			color="dark"
-			size="xs"
-			on:click={async () => {
-				$app = undo(history, $app)
-			}}
-		>
-			<Undo size={14} />
-		</Button>
-		<Button
-			title="Redo"
-			disabled={$history.index == $history.history.length - 1}
-			variant="border"
-			color="dark"
-			size="xs"
-			on:click={async () => {
-				$app = redo(history)
-			}}
-		>
-			<Redo size={14} />
-		</Button>
-	</div>
+	<UndoRedo
+		undoProps={{ disabled: $history.index === 0 }}
+		redoProps={{ disabled: $history.index === $history.history.length - 1 }}
+		on:undo={() => {
+			$app = undo(history, $app)
+		}}
+		on:redo={() => {
+			$app = redo(history)
+		}}
+	/>
 	<div class="flex gap-4 items-center grow justify-center">
 		<div>
 			<ToggleButtonGroup bind:selected={$mode}>
@@ -529,7 +518,7 @@
 				<ToggleButton position="left" value={false} size="xs">
 					<div class="flex gap-1 justify-start items-center">
 						<AlignHorizontalSpaceAround size={14} />
-						<Tooltip light>
+						<Tooltip light class="mb-0.5">
 							The max width is 1168px and the content stay centered instead of taking the full page
 							width
 						</Tooltip>
