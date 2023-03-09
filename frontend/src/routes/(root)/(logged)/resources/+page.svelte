@@ -74,8 +74,6 @@
 		types: true
 	}
 
-	$: open = Boolean(deleteConfirmedCallback)
-
 	$: owners = Array.from(
 		new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
 	).sort()
@@ -647,7 +645,7 @@
 />
 
 <ConfirmationModal
-	{open}
+	open={Boolean(deleteConfirmedCallback)}
 	title="Remove resource"
 	confirmationText="Remove"
 	on:canceled={() => {
