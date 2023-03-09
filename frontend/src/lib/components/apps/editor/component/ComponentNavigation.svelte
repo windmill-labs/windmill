@@ -15,6 +15,11 @@
 
 		const gridItem = findGridItem($app, $selectedComponent)
 
+		// With subgrids, we need to check if the selected component is the subgrid itself
+		if (subGrid && !subGrid.find((item) => item.id === $selectedComponent)) {
+			return
+		}
+
 		if (gridItem) {
 			if (event.key === 'Escape') {
 				$selectedComponent = undefined
