@@ -183,6 +183,96 @@ type AvailableSpace = {
 	bottom: number
 }
 
+type GridItemPosition = {
+	id: string
+	x: number
+	y: number
+	w: number
+	h: number
+}
+
+export function findItemsAround(
+	grid: GridItem[],
+	gridItem: GridItem,
+	editorBreakpoint: EditorBreakpoint,
+	direction: 'left' | 'right' | 'top' | 'bottom',
+	parentGridItem: GridItem | undefined = undefined
+): string | undefined {
+	if (gridItem) {
+		const breakpoint = editorBreakpoint === 'sm' ? 3 : 12
+		const maxHeight = parentGridItem ? parentGridItem[breakpoint].h - 1 : 12
+		const maxWidth = 12
+
+		const items: Array<GridItemPosition> = grid.map((item) => {
+			return {
+				id: item.id,
+				x: item[breakpoint].x,
+				y: item[breakpoint].y,
+				w: item[breakpoint].w,
+				h: item[breakpoint].h
+			}
+		})
+
+		const item = items.find((item) => item.id === gridItem.id)
+
+		if (!item) {
+			return undefined
+		}
+
+		if (direction === 'left') {
+			if (item.x > 0) {
+				for (let x = item.x - 1; x >= 0; x--) {
+					const itemToCheck = { ...item, x, w: 1 }
+					const itemInTheWay = items.find((item) => isOverlapping(item, itemToCheck))
+
+					if (itemInTheWay) {
+						return itemInTheWay.id
+					}
+				}
+			}
+		}
+
+		if (direction === 'right') {
+			if (item.x + item.w < maxWidth) {
+				for (let x = item.x + item.w; x < maxWidth; x++) {
+					const itemToCheck = { ...item, x, w: 1 }
+					const itemInTheWay = items.find((item) => isOverlapping(item, itemToCheck))
+
+					if (itemInTheWay) {
+						return itemInTheWay.id
+					}
+				}
+			}
+		}
+
+		if (direction === 'top') {
+			if (item.y > 0) {
+				for (let y = item.y - 1; y >= 0; y--) {
+					const itemToCheck = { ...item, h: 1, y }
+					const itemInTheWay = items.find((item) => isOverlapping(item, itemToCheck))
+
+					if (itemInTheWay) {
+						return itemInTheWay.id
+					}
+				}
+			}
+		}
+
+		if (direction === 'bottom') {
+			if (item.y + item.h < maxHeight) {
+				for (let y = item.y + item.h; y < maxHeight; y++) {
+					const itemToCheck = { ...item, h: 1, y }
+					const itemInTheWay = items.find((item) => isOverlapping(item, itemToCheck))
+
+					if (itemInTheWay) {
+						return itemInTheWay.id
+					}
+				}
+			}
+		}
+	}
+}
+
 export function findAvailableSpace(
 	grid: GridItem[],
 	gridItem: GridItem,
