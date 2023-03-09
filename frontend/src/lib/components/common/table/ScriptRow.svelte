@@ -53,7 +53,15 @@
 		dispatch('change')
 		sendUserToast(`Archived script ${path}`)
 	}
+
+	async function deleteScript(path: string): Promise<void> {
+		await ScriptService.deleteScriptByPath({ workspace: $workspaceStore!, path })
+		dispatch('change')
+		sendUserToast(`Delete script ${path}`)
+	}
 	let scheduleEditor: ScheduleEditor
+
+	const dlt: 'delete' = 'delete'
 </script>
 
 <ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
@@ -198,7 +206,20 @@
 					},
 					type: 'delete',
 					disabled: !canWrite || archived
-				}
+				},
+				...($userStore?.is_admin || $userStore?.is_super_admin
+					? []
+					: [
+							{
+								displayName: 'Delete',
+								icon: faArchive,
+								action: () => {
+									path ? deleteScript(path) : null
+								},
+								type: dlt,
+								disabled: !canWrite
+							}
+					  ])
 			]}
 		>
 			<MoreVertical size={20} />
