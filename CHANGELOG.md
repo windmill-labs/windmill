@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.74.2](https://github.com/windmill-labs/windmill/compare/v1.74.1...v1.74.2) (2023-03-09)
+
+
+### Bug Fixes
+
+* **frontend:** fix splitpanes navigation ([#1276](https://github.com/windmill-labs/windmill/issues/1276)) ([8d5c5b8](https://github.com/windmill-labs/windmill/commit/8d5c5b88a35d7a3bad1d8ddf2d940026825241eb))
+
 ## [1.74.1](https://github.com/windmill-labs/windmill/compare/v1.74.0...v1.74.1) (2023-03-09)
 
 
