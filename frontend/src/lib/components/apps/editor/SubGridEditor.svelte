@@ -6,7 +6,7 @@
 	import { columnConfiguration, isFixed, toggleFixed } from '../gridUtils'
 	import type { AppEditorContext, GridItem } from '../types'
 	import Component from './component/Component.svelte'
-	import { expandGriditem, findGridItem } from './appUtils'
+	import { expandGriditem, findGridItem, findItemsAround } from './appUtils'
 	import { push } from '$lib/history'
 
 	export let containerHeight: number
@@ -75,7 +75,26 @@
 	let container
 
 	// $: containerHeight = subGrid.map((item) => columnConfiguration.map((c) => item[c[1]].h))
+
+	function onKeyDown(e) {
+		const directions = {
+			38: 'top',
+			40: 'bottom',
+			37: 'left',
+			39: 'right'
+		}
+
+		if ($selectedComponent && directions[e.keyCode]) {
+			const id = findItemsAround(subGrid, $selectedComponent, $breakpoint, directions[e.keyCode])
+
+			if (id) {
+				$selectedComponent = id
+			}
+		}
+	}
 </script>
+
+<svelte:window on:keydown={onKeyDown} />
 
 <div
 	class="relative w-full subgrid {visible ? 'visible' : 'invisible h-0 overflow-hidden'} 	"
