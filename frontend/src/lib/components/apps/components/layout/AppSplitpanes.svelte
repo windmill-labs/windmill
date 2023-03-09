@@ -43,10 +43,12 @@
 			return false
 		},
 		right: () => {
-			if ($focusedGrid?.subGridIndex) {
+			// subGridIndex can be 0
+			if ($focusedGrid?.subGridIndex !== undefined) {
 				const index = $focusedGrid?.subGridIndex ?? 0
+
 				if (index < panes.length - 1) {
-					$focusedGrid.subGridIndex = index - 1
+					$focusedGrid.subGridIndex = index + 1
 					return true
 				}
 			}
