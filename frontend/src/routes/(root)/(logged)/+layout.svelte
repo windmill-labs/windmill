@@ -202,7 +202,10 @@
 				isCollapsed ? 'md:w-12' : 'md:w-40'
 			)}
 		>
-			<div class="flex-1 flex flex-col min-h-0 h-screen shadow-lg bg-[#2e3440]">
+			<div
+				id="welcome-tutorial-4-wrapper"
+				class="flex-1 flex flex-col min-h-0 h-screen shadow-lg bg-[#2e3440]"
+			>
 				<button
 					on:click={() => {
 						goto('/')

@@ -43,6 +43,7 @@
 		"postcss-load-config": "^4.0.1",
 		"prettier": "^2.8.3",
 		"prettier-plugin-svelte": "^2.9.0",
+		"shepherd.js": "^10.0.1",
 		"simple-svelte-autocomplete": "^2.5.1",
 		"stylelint-config-recommended": "^9.0.0",
 		"svelte": "^3.55.1",

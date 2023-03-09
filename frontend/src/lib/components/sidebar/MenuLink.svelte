@@ -10,6 +10,7 @@
 	export let icon: IconDefinition
 	export let isCollapsed: boolean
 	export let disabled: boolean = false
+	export let id: string = ''
 
 	let isSelected = false
 
@@ -33,6 +34,7 @@
 			$$props.class
 		)}
 		target={href.includes('http') ? '_blank' : null}
+		{id}
 	>
 		<Icon
 			data={icon}

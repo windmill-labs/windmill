@@ -16,7 +16,7 @@
 	const dispatch = createEventDispatcher()
 </script>
 
-<span class="{$$props.class} z-auto">
+<span class="{$$props.class ?? ''} z-auto">
 	<label
 		for={id}
 		class="inline-flex items-center mt-2 duration-200 {disabled

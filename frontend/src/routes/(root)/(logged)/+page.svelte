@@ -12,7 +12,7 @@
 	import PickHubFlow from '$lib/components/flows/pickers/PickHubFlow.svelte'
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import { Building, ExternalLink, Globe2 } from 'lucide-svelte'
+	import { Building, Globe2 } from 'lucide-svelte'
 
 	import ItemsList from '$lib/components/home/ItemsList.svelte'
 	import CreateActionsApp from '$lib/components/flows/CreateActionsApp.svelte'
@@ -20,6 +20,7 @@
 	import AppPreview from '$lib/components/apps/editor/AppPreview.svelte'
 	import { writable } from 'svelte/store'
 	import type { EditorBreakpoint } from '$lib/components/apps/types'
+	import { Tour } from '../../../lib/components/tutorial'
 
 	type Tab = 'hubscripts' | 'hubflows' | 'hubapps' | 'workspace'
 
@@ -62,6 +63,7 @@
 	}
 </script>
 
+<Tour tutorial="welcome" />
 <Drawer bind:this={codeViewer} size="900px">
 	<DrawerContent title={codeViewerObj?.summary ?? ''} on:close={codeViewer.closeDrawer}>
 		<svelte:fragment slot="actions">
@@ -181,7 +183,7 @@
 			</Alert>
 		{/if}
 		<PageHeader title="Home">
-			<div class="flex flex-row gap-4 flex-wrap justify-end items-center">
+			<div id="welcome-tutorial-2" class="flex flex-row gap-4 flex-wrap justify-end items-center">
 				{#if !$userStore?.operator}
 					<span class="text-sm text-gray-500">Create a new:</span>
 					<CreateActionsScript />
@@ -192,7 +194,7 @@
 		</PageHeader>
 
 		{#if !$userStore?.operator}
-			<div class="w-full overflow-auto scrollbar-hidden">
+			<div id="welcome-tutorial-3" class="w-full">
 				<Tabs bind:selected={tab}>
 					<Tab size="md" value="workspace">
 						<div class="flex gap-2 items-center my-1">

@@ -242,68 +242,73 @@
 />
 
 <CenteredPage>
-	<div class="flex flex-wrap gap-2 items-center justify-between w-full">
-		<div class="flex justify-start">
-			<ToggleButtonGroup bind:selected={itemKind}>
-				<ToggleButton light position="left" value="all" size="sm">All</ToggleButton>
-				<ToggleButton light position="center" value="script" size="sm">
-					<div class="flex gap-1 items-center">
-						<Code2 size={16} />
-						Scripts
-					</div>
-				</ToggleButton>
-				<ToggleButton light position="center" value="flow" size="sm">
-					<div class="flex gap-1 items-center">
-						<Icon data={faBarsStaggered} scale={0.8} class="mr-1" />
-						Flows
-					</div>
-				</ToggleButton>
-				<ToggleButton light position="right" value="app" size="sm">
-					<div class="flex gap-1 items-center">
-						<LayoutDashboard size={16} />
-						Apps
-					</div>
-				</ToggleButton>
-			</ToggleButtonGroup>
+	<div id="welcome-tutorial-1">
+		<div class="flex flex-wrap gap-2 items-center justify-between w-full">
+			<div class="flex justify-start">
+				<ToggleButtonGroup bind:selected={itemKind}>
+					<ToggleButton light position="left" value="all" size="sm">All</ToggleButton>
+					<ToggleButton light position="center" value="script" size="sm">
+						<div class="flex gap-1 items-center">
+							<Code2 size={16} />
+							Scripts
+						</div>
+					</ToggleButton>
+					<ToggleButton light position="center" value="flow" size="sm">
+						<div class="flex gap-1 items-center">
+							<Icon data={faBarsStaggered} scale={0.8} class="mr-1" />
+							Flows
+						</div>
+					</ToggleButton>
+					<ToggleButton light position="right" value="app" size="sm">
+						<div class="flex gap-1 items-center">
+							<LayoutDashboard size={16} />
+							Apps
+						</div>
+					</ToggleButton>
+				</ToggleButtonGroup>
+			</div>
+			<div class="relative text-gray-600 grow min-w-[100px]">
+				<!-- svelte-ignore a11y-autofocus -->
+				<input
+					autofocus
+					placeholder="Search Scripts, Flows & Apps"
+					bind:value={filter}
+					class="bg-white !h-10 !px-4 !pr-10 !rounded-lg text-sm focus:outline-none"
+				/>
+				<button type="submit" class="absolute right-0 top-0 mt-3 mr-4">
+					<svg
+						class="h-4 w-4 fill-current"
+						xmlns="http://www.w3.org/2000/svg"
+						xmlns:xlink="http://www.w3.org/1999/xlink"
+						version="1.1"
+						id="Capa_1"
+						x="0px"
+						y="0px"
+						viewBox="0 0 56.966 56.966"
+						style="enable-background:new 0 0 56.966 56.966;"
+						xml:space="preserve"
+						width="512px"
+						height="512px"
+					>
+						<path
+							d="M55.146,51.887L41.588,37.786c3.486-4.144,5.396-9.358,5.396-14.786c0-12.682-10.318-23-23-23s-23,10.318-23,23  s10.318,23,23,23c4.761,0,9.298-1.436,13.177-4.162l13.661,14.208c0.571,0.593,1.339,0.92,2.162,0.92  c0.779,0,1.518-0.297,2.079-0.837C56.255,54.982,56.293,53.08,55.146,51.887z M23.984,6c9.374,0,17,7.626,17,17s-7.626,17-17,17  s-17-7.626-17-17S14.61,6,23.984,6z"
+						/>
+					</svg>
+				</button>
+			</div>
 		</div>
-
-		<div class="relative text-gray-600 grow min-w-[100px]">
-			<!-- svelte-ignore a11y-autofocus -->
-			<input
-				autofocus
-				placeholder="Search Scripts, Flows & Apps"
-				bind:value={filter}
-				class="bg-white !h-10 !px-4 !pr-10 !rounded-lg text-sm focus:outline-none"
-			/>
-			<button type="submit" class="absolute right-0 top-0 mt-3 mr-4">
-				<svg
-					class="h-4 w-4 fill-current"
-					xmlns="http://www.w3.org/2000/svg"
-					xmlns:xlink="http://www.w3.org/1999/xlink"
-					version="1.1"
-					id="Capa_1"
-					x="0px"
-					y="0px"
-					viewBox="0 0 56.966 56.966"
-					style="enable-background:new 0 0 56.966 56.966;"
-					xml:space="preserve"
-					width="512px"
-					height="512px"
-				>
-					<path
-						d="M55.146,51.887L41.588,37.786c3.486-4.144,5.396-9.358,5.396-14.786c0-12.682-10.318-23-23-23s-23,10.318-23,23  s10.318,23,23,23c4.761,0,9.298-1.436,13.177-4.162l13.661,14.208c0.571,0.593,1.339,0.92,2.162,0.92  c0.779,0,1.518-0.297,2.079-0.837C56.255,54.982,56.293,53.08,55.146,51.887z M23.984,6c9.374,0,17,7.626,17,17s-7.626,17-17,17  s-17-7.626-17-17S14.61,6,23.984,6z"
-					/>
-				</svg>
-			</button>
+		<div class="relative flex justify-between items-start">
+			<ListFilters bind:selectedFilter={ownerFilter} filters={owners} />
+			{#if !loading}
+				<Toggle
+					size="xs"
+					bind:checked={archived}
+					options={{ right: 'Show archived' }}
+					class="pt-2"
+					textClass="whitespace-nowrap"
+				/>
+			{/if}
 		</div>
-	</div>
-	<div class="relative">
-		<ListFilters bind:selectedFilter={ownerFilter} filters={owners} />
-		{#if !loading}
-			<div class="absolute -bottom-2 right-0 bg-white/90">
-				<Toggle size="xs" bind:checked={archived} options={{ right: 'Show archived' }} /></div
-			>
-		{/if}
 	</div>
 	<div>
 		{#if filteredItems == undefined}
@@ -315,7 +320,7 @@
 		{:else if filteredItems.length === 0}
 			<NoItemFound />
 		{:else}
-			<div class="border rounded-md divide-y divide-gray-200">
+			<ul class="border rounded-md divide-y divide-gray-200">
 				<!-- <VirtualList {items} let:item bind:start bind:end> -->
 				{#each (items ?? []).slice(0, nbDisplayed) as item, i (item.type + '/' + item.path + (item.summary ?? ''))}
 					{#if item.type == 'script'}
@@ -348,7 +353,7 @@
 					{/if}
 				{/each}
 				<!-- </VirtualList> -->
-			</div>
+			</ul>
 			{#if items && items?.length > 30}
 				<span class="text-xs"
 					>{nbDisplayed} items out of {items.length}

@@ -21,7 +21,7 @@
 	}[kind]
 </script>
 
-<div
+<li
 	class="hover:bg-gray-50 w-full inline-flex items-center p-4 gap-4 first-of-type:!border-t-0 
 first-of-type:rounded-t-md last-of-type:rounded-b-md {color}"
 >
@@ -61,4 +61,4 @@ first-of-type:rounded-t-md last-of-type:rounded-b-md {color}"
 			/>
 		</div>
 	{/if}
-</div>
+</li>

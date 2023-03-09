@@ -18,7 +18,7 @@
 
 	const mainMenuLinks = [
 		{ label: 'Home', href: '/', icon: faHomeAlt },
-		{ label: 'Runs', href: '/runs', icon: faPlay },
+		{ label: 'Runs', href: '/runs', icon: faPlay, id: 'welcome-tutorial-4' },
 		{ label: 'Variables', href: '/variables', icon: faDollarSign, disabled: $userStore?.operator },
 		{ label: 'Resources', href: '/resources', icon: faCubes, disabled: $userStore?.operator }
 	]
