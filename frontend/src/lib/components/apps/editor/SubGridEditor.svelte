@@ -6,7 +6,7 @@
 	import { columnConfiguration, isFixed, toggleFixed } from '../gridUtils'
 	import type { AppEditorContext, GridItem } from '../types'
 	import Component from './component/Component.svelte'
-	import { expandGriditem, findAvailableSpace, findGridItem } from './appUtils'
+	import { expandGriditem, findGridItem } from './appUtils'
 	import { push } from '$lib/history'
 
 	export let containerHeight: number
@@ -73,8 +73,6 @@
 
 	// @ts-ignore
 	let container
-
-	// $: containerHeight = subGrid.map((item) => columnConfiguration.map((c) => item[c[1]].h))
 </script>
 
 <div
