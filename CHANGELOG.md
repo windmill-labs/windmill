@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [1.74.1](https://github.com/windmill-labs/windmill/compare/v1.74.0...v1.74.1) (2023-03-09)
+
+
+### Bug Fixes
+
+* **apps:** proper reactivity for non rendered static components ([ae53baf](https://github.com/windmill-labs/windmill/commit/ae53bafaf6777f928113f84b2c6ed6a2ed341844))
+* **ci:** make windmill compile again by pinning swc deps ([2ea15d5](https://github.com/windmill-labs/windmill/commit/2ea15d5035e5e15473968db3c0501a4dddff5cd0))
+
 ## [1.74.0](https://github.com/windmill-labs/windmill/compare/v1.73.1...v1.74.0) (2023-03-09)
 
 
