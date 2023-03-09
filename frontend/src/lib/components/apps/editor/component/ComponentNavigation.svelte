@@ -3,7 +3,8 @@
 	import type { AppEditorContext, EditorBreakpoint, GridItem } from '../../types'
 	import { findGridItemParentId } from '../appUtils'
 
-	const { app, selectedComponent, breakpoint } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, selectedComponent, breakpoint, worldStore } =
+		getContext<AppEditorContext>('AppEditorContext')
 
 	function getSortedGridItems(parentId: string | undefined): GridItem[] {
 		if (!parentId) {
@@ -14,7 +15,20 @@
 			return []
 		}
 
-		return sortGridItems($app.subgrids[`${parentId}-0`], $breakpoint)
+		const index = getIndex()
+		return sortGridItems($app.subgrids[`${parentId}-${index}`], $breakpoint)
+	}
+
+	function getIndex(): number {
+		if (!$selectedComponent) {
+			return 0
+		}
+		const outputs = $worldStore?.outputsById[$selectedComponent]
+		let index = outputs?.selectedTabIndex ? outputs.selectedTabIndex.peak() : 0
+		if (index === undefined) {
+			index = 0
+		}
+		return index
 	}
 
 	function keydown(event: KeyboardEvent) {
@@ -37,7 +51,8 @@
 
 			case 'ArrowDown': {
 				if ($app.subgrids) {
-					const subgrid = $app.subgrids[`${$selectedComponent}-0`]
+					const index = getIndex()
+					const subgrid = $app.subgrids[`${$selectedComponent}-${index}`]
 
 					if (!subgrid) {
 						return
