@@ -10,7 +10,7 @@
 	export let tabs: string[]
 	export let component: AppComponent
 
-	const { app, staticOutputs, runnableComponents } =
+	const { app, staticOutputs, runnableComponents, focusedGrid } =
 		getContext<AppEditorContext>('AppEditorContext')
 
 	function addTab() {

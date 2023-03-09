@@ -85,7 +85,8 @@
 		focusedGrid,
 		stateId: writable(0),
 		parentWidth: writable(0),
-		history
+		history,
+		componentControl: writable({})
 	})
 
 	let timeout: NodeJS.Timeout | undefined = undefined

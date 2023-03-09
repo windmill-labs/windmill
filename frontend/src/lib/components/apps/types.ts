@@ -43,14 +43,14 @@ export interface BaseAppComponent extends Partial<Aligned> {
 	configuration: Record<
 		string,
 		GeneralAppInput &
-			(
-				| StaticAppInput
-				| ConnectedAppInput
-				| UserAppInput
-				| RowAppInput
-				| EvalAppInput
-				| UploadAppInput
-			)
+		(
+			| StaticAppInput
+			| ConnectedAppInput
+			| UserAppInput
+			| RowAppInput
+			| EvalAppInput
+			| UploadAppInput
+		)
 	>
 	card: boolean | undefined
 	customCss?: ComponentCustomCSS
@@ -134,6 +134,7 @@ export type AppEditorContext = {
 	stateId: Writable<number>
 	parentWidth: Writable<number>
 	history: History<App>
+	componentControl: Writable<Record<string, { left?: () => boolean; right?: () => boolean }>>
 }
 
 export type FocusedGrid = { parentComponentId: string; subGridIndex: number }
