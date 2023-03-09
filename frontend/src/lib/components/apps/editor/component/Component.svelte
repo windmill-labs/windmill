@@ -284,6 +284,17 @@
 				bind:staticOutputs={$staticOutputs[component.id]}
 				{render}
 			/>
+		{:else if component.type === 'emailinputcomponent'}
+			<AppTextInput
+				verticalAlignment={component.verticalAlignment}
+				configuration={component.configuration}
+				inputType="email"
+				appCssKey="emailinputcomponent"
+				id={component.id}
+				customCss={component.customCss}
+				bind:staticOutputs={$staticOutputs[component.id]}
+				{render}
+			/>
 		{:else if component.type === 'passwordinputcomponent'}
 			<AppTextInput
 				verticalAlignment={component.verticalAlignment}

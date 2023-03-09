@@ -6,7 +6,6 @@
 	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
-	import InputDefaultValue from '../helpers/InputDefaultValue.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 
 	export let id: string
@@ -17,26 +16,26 @@
 	export let render: boolean
 
 	const { app, worldStore } = getContext<AppEditorContext>('AppEditorContext')
-	let input: HTMLInputElement
 
 	let defaultValue: number | undefined = undefined
 	let placeholder: string | undefined = undefined
+	let value: number | undefined = undefined
 
 	let min: number | undefined = undefined
 	let max: number | undefined = undefined
 	let step = 1
 
 	$: outputs = $worldStore?.outputsById[id] as {
-		result: Output<number | null>
+		result: Output<number | undefined>
 	}
 
-	function handleInput() {
-		const value = input?.value
-		const num = isNaN(+value) ? null : +value
-		outputs?.result.set(num)
-	}
+	$: handleDefault(defaultValue)
 
-	$: input && handleInput()
+	$: outputs?.result.set(value)
+
+	function handleDefault(defaultValue: number | undefined) {
+		value = defaultValue
+	}
 
 	$: css = concatCustomCss($app.css?.numberinputcomponent, customCss)
 </script>
@@ -46,21 +45,16 @@
 <InputValue {id} input={configuration.max} bind:value={max} />
 <InputValue {id} input={configuration.placeholder} bind:value={placeholder} />
 <InputValue {id} input={configuration.defaultValue} bind:value={defaultValue} />
-<InputDefaultValue bind:input {defaultValue} />
 
 <AlignWrapper {render} {verticalAlignment}>
 	<input
+		on:pointerdown|stopPropagation
 		class={twMerge(
 			'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2 mx-0.5',
 			css?.input?.class ?? ''
 		)}
 		style={css?.input?.style ?? ''}
-		bind:this={input}
-		on:input={handleInput}
-		on:focus={(e) => {
-			e?.stopPropagation()
-			window.dispatchEvent(new Event('pointerup'))
-		}}
+		bind:value
 		{min}
 		{max}
 		{step}
