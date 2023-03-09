@@ -138,8 +138,6 @@
 								component={gridComponent.data}
 								selected={$selectedComponent === dataItem.data.id}
 								locked={isFixed(gridComponent)}
-								parentId={id}
-								{subGrid}
 								on:lock={() => lock(gridComponent)}
 								on:expand={() => {
 									const parentGridItem = findGridItem($app, id)
