@@ -18,7 +18,7 @@
 	export let render: boolean
 
 	export const staticOutputs: string[] = ['selectedTabIndex']
-	const { app, worldStore, focusedGrid, selectedComponent } =
+	const { app, worldStore, focusedGrid, selectedComponent, componentControl } =
 		getContext<AppEditorContext>('AppEditorContext')
 
 	let selected: string = tabs[0]
@@ -41,21 +41,44 @@
 		}
 	}
 
-	$: selected && outputs?.selectedTabIndex && handleTabSelection()
+	$: $selectedComponent === id && focusGrid()
+
+	function focusGrid() {
+		const selectedIndex = tabs?.indexOf(selected)
+		if ($focusedGrid?.parentComponentId != id || $focusedGrid?.subGridIndex != selectedIndex) {
+			$focusedGrid = {
+				parentComponentId: id,
+				subGridIndex: selectedIndex
+			}
+		}
+	}
+
+	$componentControl[id] = {
+		left: () => {
+			const index = tabs.indexOf(selected)
+			if (index > 0) {
+				selected = tabs[index - 1]
+				return true
+			}
+			return false
+		},
+		right: () => {
+			const index = tabs.indexOf(selected)
+			if (index < tabs.length - 1) {
+				selected = tabs[index + 1]
+				return true
+			}
+			return false
+		}
+	}
+
+	$: selected && handleTabSelection()
+
 	$: outputs = $worldStore?.outputsById[id] as {
 		selectedTabIndex: Output<number | null>
 	}
 
 	$: selectedIndex = tabs?.indexOf(selected) ?? -1
-
-	$: outputs?.selectedTabIndex.subscribe({
-		next: (value) => {
-			if (selectedIndex !== value && value !== null) {
-				selectedIndex = value
-				selected = tabs[selectedIndex]
-			}
-		}
-	})
 
 	$: css = concatCustomCss($app.css?.tabscomponent, customCss)
 </script>

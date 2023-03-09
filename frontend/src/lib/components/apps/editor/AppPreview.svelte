@@ -62,7 +62,8 @@
 		focusedGrid: writable(undefined),
 		stateId: writable(0),
 		parentWidth: writable(0),
-		history: writable<any>(undefined)
+		history: writable<any>(undefined),
+		componentControl: writable({})
 	})
 
 	let mounted = false
