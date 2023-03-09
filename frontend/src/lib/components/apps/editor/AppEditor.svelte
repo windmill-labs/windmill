@@ -45,6 +45,7 @@
 	export let summary: string
 	export let fromHub: boolean = false
 
+	console.log('app', app)
 	const appStore = writable<App>(app)
 	const worldStore = writable<World | undefined>(undefined)
 	const staticOutputs = writable<Record<string, string[]>>({})

@@ -159,7 +159,7 @@
 					return []
 				})
 				.concat(
-					Object.values($app.hiddenInlineScripts).map(async (v) => {
+					Object.values($app.hiddenInlineScripts ?? {}).map(async (v) => {
 						let hex = await hash(v.inlineScript?.content)
 						const staticInputs = collectStaticFields(v.fields)
 						return [`rawscript/${hex}`, staticInputs]

@@ -35,10 +35,17 @@
 
 	loadApp()
 
+	let policy: Policy = {
+		on_behalf_of: `u/${$userStore?.username}`,
+		on_behalf_of_email: $userStore?.email,
+		execution_mode: Policy.execution_mode.PUBLISHER
+	}
 	async function loadApp() {
 		if (importJson) {
 			sendUserToast('Loaded from raw JSON')
-			value = importJson
+			summary = importJson.summary
+			value = importJson.value
+			policy = importJson.policy
 		} else if (templatePath) {
 			const template = await AppService.getAppByPath({
 				workspace: $workspaceStore!,
@@ -70,17 +77,7 @@
 {#if value}
 	<div class="h-screen">
 		{#key value}
-			<AppEditor
-				{summary}
-				app={value}
-				path={''}
-				policy={{
-					on_behalf_of: `u/${$userStore?.username}`,
-					on_behalf_of_email: $userStore?.email,
-					execution_mode: Policy.execution_mode.PUBLISHER
-				}}
-				fromHub={hubId != null}
-			/>
+			<AppEditor {summary} app={value} path={''} {policy} fromHub={hubId != null} />
 		{/key}
 	</div>
 {/if}

@@ -60,7 +60,6 @@
 	let executeTimeout: NodeJS.Timeout | undefined = undefined
 
 	function setDebouncedExecute() {
-		console.log('EXECUTE')
 		executeTimeout && clearTimeout(executeTimeout)
 		executeTimeout = setTimeout(() => {
 			executeComponent(true)
@@ -88,7 +87,6 @@
 	}
 
 	$: fields && (lazyStaticValues = computeStaticValues())
-	$: console.log(runnableInputValues, extraQueryParams, args, autoRefresh, testJobLoader)
 	$: (runnableInputValues || extraQueryParams || args) &&
 		autoRefresh &&
 		testJobLoader &&
