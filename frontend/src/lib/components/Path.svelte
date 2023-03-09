@@ -409,8 +409,8 @@
 		{/if}
 	</div>
 
-	<div class="flex-row flex justify-between">
-		<div><span class="font-mono text-sm">{path}</span></div>
+	<div class="flex-row flex justify-between w-full">
+		<div><span class="font-mono text-sm break-all">{path}</span></div>
 		<div class="text-red-600 text-2xs">{error}</div>
 	</div>
 </div>

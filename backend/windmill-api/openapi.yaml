@@ -2278,7 +2278,7 @@ paths:
 
   /w/{workspace}/scripts/delete/h/{hash}:
     post:
-      summary: delete script by hash (erase content but keep hash)
+      summary: delete script by hash (erase content but keep hash, require admin)
       operationId: deleteScriptByHash
       tags:
         - script
@@ -2292,6 +2292,23 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Script"
+
+  /w/{workspace}/scripts/delete/p/{path}:
+    post:
+      summary: delete all scripts at a given path (require admin)
+      operationId: deleteScriptByPath
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: script path
+          content:
+            application/json:
+              schema:
+                type: string
 
   /w/{workspace}/scripts/get/p/{path}:
     get:

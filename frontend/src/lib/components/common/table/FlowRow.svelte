@@ -31,6 +31,7 @@
 	export let starred: boolean
 	export let shareModal: ShareModal
 	export let moveDrawer: MoveDrawer
+	export let deleteConfirmedCallback: (() => void) | undefined
 
 	let { summary, path, extra_perms, canWrite, workspace_id, archived } = flow
 
@@ -187,8 +188,14 @@
 				{
 					displayName: 'Delete',
 					icon: faTrashAlt,
-					action: () => {
-						path ? deleteFlow(path) : null
+					action: (event) => {
+						if (event?.shiftKey) {
+							deleteFlow(path)
+						} else {
+							deleteConfirmedCallback = () => {
+								deleteFlow(path)
+							}
+						}
 					},
 					type: 'delete',
 					disabled: !canWrite
