@@ -84,6 +84,7 @@
 
 {#if insertable && modules && (label != 'Input' || modules.length == 0)}
 	<div
+		id="flow-tutorial-2"
 		class="{openMenu ? 'z-10' : ''} w-7 absolute {whereInsert == 'after'
 			? 'top-12'
 			: '-top-10'} left-[50%] right-[50%] -translate-x-1/2"

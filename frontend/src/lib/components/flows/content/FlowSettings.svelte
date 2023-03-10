@@ -29,7 +29,7 @@
 <div class="h-full overflow-hidden">
 	<FlowCard title="Settings">
 		<div class="h-full flex-1">
-			<Tabs bind:selected={$selectedId}>
+			<Tabs bind:selected={$selectedId} id="flow-tutorial-3">
 				<Tab value="settings-metadata">Metadata</Tab>
 				<Tab value="settings-schedule">Schedule</Tab>
 				<Tab value="settings-same-worker">Shared Directory</Tab>

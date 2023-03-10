@@ -4,8 +4,7 @@
 	import { initHistory, redo, undo } from '$lib/history'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { encodeState, formatCron, loadHubScripts, sendUserToast } from '$lib/utils'
-	import { faCalendarAlt, faEye, faPen, faSave } from '@fortawesome/free-solid-svg-icons'
-	import { Redo, Undo } from 'lucide-svelte'
+	import { faCalendarAlt, faPen, faSave } from '@fortawesome/free-solid-svg-icons'
 	import { setContext } from 'svelte'
 	import { writable, type Writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
@@ -22,6 +21,7 @@
 	import { loadFlowSchedule, type Schedule } from './flows/scheduleUtils'
 	import type { FlowEditorContext } from './flows/types'
 	import { cleanInputs } from './flows/utils'
+	import { Tour } from './tutorial'
 
 	export let initialPath: string = ''
 	export let selectedId: string | undefined
@@ -29,6 +29,7 @@
 	export let loading = false
 	export let flowStore: Writable<Flow>
 	export let flowStateStore: Writable<FlowState>
+	export let tour = false
 
 	async function createSchedule(path: string) {
 		const { cron, args, enabled } = $scheduleStore
@@ -247,6 +248,10 @@
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
+
+{#if tour}
+	<Tour tutorial="flow" />
+{/if}
 
 {#if !$userStore?.operator}
 	<ScriptEditorDrawer bind:this={$scriptEditorDrawer} />

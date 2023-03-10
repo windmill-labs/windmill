@@ -133,7 +133,7 @@
 		<FlowConstantsItem />
 	</div>
 
-	<div class="flex-auto grow" bind:clientHeight={minHeight}>
+	<div id="flow-tutorial-1" class="flex-auto grow" bind:clientHeight={minHeight}>
 		<FlowGraph
 			insertable
 			scroll

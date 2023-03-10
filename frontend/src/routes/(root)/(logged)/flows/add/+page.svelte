@@ -89,4 +89,4 @@
 	$dirtyStore = true
 </script>
 
-<FlowBuilder {flowStore} {flowStateStore} {selectedId} {loading} />
+<FlowBuilder {flowStore} {flowStateStore} {selectedId} {loading} tour />

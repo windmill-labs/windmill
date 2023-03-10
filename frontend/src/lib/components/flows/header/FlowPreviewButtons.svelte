@@ -35,7 +35,7 @@
 	let is_owner = false
 </script>
 
-<div class="flex flex-row-reverse justify-between items-center gap-x-2">
+<div id="flow-tutorial-4" class="flex flex-row-reverse justify-between items-center gap-x-2">
 	<Button
 		on:click={() => {
 			previewMode = 'whole'

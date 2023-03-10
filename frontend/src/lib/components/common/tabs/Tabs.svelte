@@ -18,6 +18,7 @@
 	export { c as class }
 	export let wrapperClass = ''
 	export let style = ''
+	export let id = ''
 
 	$: selected && updateSelected()
 
@@ -42,6 +43,7 @@
 	<div
 		class={twMerge('border-b border-gray-200 flex flex-row whitespace-nowrap  scrollbar-hidden', c)}
 		{style}
+		{id}
 	>
 		<slot {selected} />
 	</div>
