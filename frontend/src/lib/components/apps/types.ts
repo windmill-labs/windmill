@@ -137,7 +137,7 @@ export type AppViewerContext = {
 }
 
 export type AppEditorContext = {
-	history: History<App>
+	history: History<App> | undefined
 	componentControl: Writable<Record<string, { left?: () => boolean; right?: () => boolean }>>
 	pickVariableCallback: Writable<((path: string) => void) | undefined>
 }

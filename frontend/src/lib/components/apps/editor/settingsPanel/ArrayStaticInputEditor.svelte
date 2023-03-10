@@ -22,6 +22,8 @@
 				componentInput.value.push(0)
 			} else if (componentInput.subFieldType === 'object') {
 				componentInput.value.push({})
+			} else if (componentInput.subFieldType === 'labeledresource') {
+				componentInput.value.push({ value: '', label: '' })
 			} else if (
 				componentInput.subFieldType === 'text' ||
 				componentInput.subFieldType === 'textarea' ||

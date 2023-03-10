@@ -32,6 +32,7 @@ const inputs: ComponentSet = {
 		'fileinputcomponent',
 		'checkboxcomponent',
 		'selectcomponent',
+		'resourceselectcomponent',
 		'multiselectcomponent',
 	]
 } as const

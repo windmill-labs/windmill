@@ -471,8 +471,8 @@
 		<input type="text" placeholder="App summary" class="text-sm w-full" bind:value={$summary} />
 	</div>
 	<UndoRedo
-		undoProps={{ disabled: $history.index === 0 }}
-		redoProps={{ disabled: $history.index === $history.history.length - 1 }}
+		undoProps={{ disabled: $history?.index === 0 }}
+		redoProps={{ disabled: $history && $history?.index === $history.history.length - 1 }}
 		on:undo={() => {
 			$app = undo(history, $app)
 		}}

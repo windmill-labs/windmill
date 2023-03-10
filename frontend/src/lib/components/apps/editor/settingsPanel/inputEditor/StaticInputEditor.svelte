@@ -39,6 +39,24 @@
 		</select>
 	{:else if componentInput.fieldType === 'icon-select'}
 		<IconSelectInput bind:componentInput />
+	{:else if componentInput.fieldType === 'labeledresource'}
+		{#if componentInput?.value && typeof componentInput?.value == 'object' && 'label' in componentInput?.value}
+			<div class="flex flex-col gap-1 w-full">
+				<input placeholder="Label" type="text" bind:value={componentInput.value['label']} />
+				<ResourcePicker
+					initialValue={componentInput.value?.['value']?.split('$res:')[1] || ''}
+					on:change={(e) => {
+						let path = e.detail
+
+						if (componentInput && path) {
+							componentInput.value['value'] = `$res:${path}`
+						}
+					}}
+				/>
+			</div>
+		{:else}
+			Inconsistent labeled resource object
+		{/if}
 	{:else if componentInput.fieldType === 'color'}
 		<ColorInput bind:componentInput />
 	{:else if componentInput.fieldType === 'object'}

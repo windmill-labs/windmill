@@ -11,10 +11,11 @@
 	import HiddenComponent from '../components/helpers/HiddenComponent.svelte'
 	import Component from './component/Component.svelte'
 	import { deepEqual } from 'fast-equals'
-	import { push } from '$lib/history'
+	import { push, type History } from '$lib/history'
 	import { expandGriditem, findGridItem } from './appUtils'
 
 	export let policy: Policy
+	export let history: History<App> | undefined = undefined
 
 	const {
 		selectedComponent,
@@ -28,8 +29,6 @@
 		parentWidth,
 		breakpoint
 	} = getContext<AppViewerContext>('AppViewerContext')
-
-	const { history } = getContext<AppEditorContext>('AppEditorContext')
 
 	// The drag is disabled when the user is connecting an input
 	// or when the user is previewing the app
@@ -108,13 +107,17 @@
 	let pointerdown = false
 	let lastapp: App | undefined = undefined
 	const onpointerdown = () => {
-		lastapp = JSON.parse(JSON.stringify($app))
-		pointerdown = true
+		if (history) {
+			lastapp = JSON.parse(JSON.stringify($app))
+			pointerdown = true
+		}
 	}
 	const onpointerup = () => {
-		pointerdown = false
-		if (!deepEqual(lastapp, $app)) {
-			push(history, lastapp, false, true)
+		if (history) {
+			pointerdown = false
+			if (!deepEqual(lastapp, $app)) {
+				push(history, lastapp, false, true)
+			}
 		}
 	}
 
