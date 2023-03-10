@@ -13,7 +13,7 @@
 		getContext<AppEditorContext>('AppEditorContext')
 
 	let tempGridItem: GridItem | undefined = undefined
-	let copyStarted: boolean = false
+	let copiedGridItemId: string | undefined = undefined
 
 	function getSortedGridItemsOfChildren(): GridItem[] {
 		if (!$focusedGrid) {
@@ -116,14 +116,15 @@
 			return
 		}
 
-		copyStarted = true
+		copiedGridItemId = $selectedComponent
 	}
 
 	function handleCut(event: KeyboardEvent) {
-		copyStarted = false
 		if (!$selectedComponent) {
 			return
 		}
+
+		copiedGridItemId = undefined
 
 		const gridItem = findGridItem($app, $selectedComponent)
 
@@ -142,9 +143,9 @@
 	}
 
 	function handlePaste(event: KeyboardEvent) {
-		if (copyStarted && $selectedComponent) {
+		if (copiedGridItemId) {
 			const parent = $focusedGrid ? $focusedGrid.parentComponentId : undefined
-			duplicateGridItem($app, parent, $selectedComponent)
+			duplicateGridItem($app, parent, copiedGridItemId)
 		} else if (tempGridItem) {
 			insertNewGridItem($app, tempGridItem.data, $focusedGrid, true)
 			tempGridItem = undefined
@@ -179,19 +180,19 @@
 			}
 
 			case 'c':
-				if (event.ctrlKey) {
+				if (event.ctrlKey || event.metaKey) {
 					handleCopy(event)
 				}
 				break
 
 			case 'v':
-				if (event.ctrlKey) {
+				if (event.ctrlKey || event.metaKey) {
 					handlePaste(event)
 				}
 				break
 
 			case 'x':
-				if (event.ctrlKey) {
+				if (event.ctrlKey || event.metaKey) {
 					handleCut(event)
 				}
 				break
