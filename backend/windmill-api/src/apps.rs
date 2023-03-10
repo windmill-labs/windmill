@@ -733,6 +733,9 @@ fn build_args(
     path: String,
     args: &Map<String, Value>,
 ) -> Result<Map<String, Value>> {
+    // disallow var and res access in args coming from the user for security reasons
+    args.into_iter()
+        .try_for_each(|x| disallow_var_res_access(x.1))?;
     let static_args = policy
         .triggerables
         .get(&path)
@@ -752,4 +755,21 @@ fn build_args(
         args.insert(k.to_string(), v.to_owned());
     }
     Ok(args)
+}
+
+fn disallow_var_res_access(args: &serde_json::Value) -> Result<()> {
+    match args {
+        Value::Object(v) => v.into_iter().try_for_each(|x| disallow_var_res_access(x.1)),
+        Value::Array(arr) => arr.into_iter().try_for_each(|v| disallow_var_res_access(v)),
+        Value::String(s) => {
+            if s.starts_with("$var:") || s.starts_with("$res:") {
+                Err(Error::BadRequest(format!(
+                    "For security reasons, variable or resource access is not allowed as dynamic argument"
+                )))
+            } else {
+                Ok(())
+            }
+        }
+        _ => Ok(()),
+    }
 }

@@ -3,7 +3,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import type { AppInput } from '../../../inputType'
 	import type { Output } from '../../../rx'
-	import type { AppEditorContext, ComponentCustomCSS } from '../../../types'
+	import type { AppViewerContext, ComponentCustomCSS } from '../../../types'
 	import { concatCustomCss } from '../../../utils'
 	import AlignWrapper from '../../helpers/AlignWrapper.svelte'
 	import InputValue from '../../helpers/InputValue.svelte'
@@ -16,7 +16,7 @@
 	export let customCss: ComponentCustomCSS<'input'> | undefined = undefined
 	export let render: boolean
 
-	const { app, worldStore } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
 	let defaultValue: number | undefined = undefined
 

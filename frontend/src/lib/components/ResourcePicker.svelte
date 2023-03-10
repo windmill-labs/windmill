@@ -58,6 +58,7 @@
 	on:refresh={async (e) => {
 		await loadResources(resourceType)
 		value = e.detail
+		valueSelect = { value: e.detail, label: e.detail }
 	}}
 	newPageOAuth
 	bind:this={appConnect}

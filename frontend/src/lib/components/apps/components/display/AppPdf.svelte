@@ -4,7 +4,7 @@
 	import { getDocument, type PDFDocumentProxy, type PDFPageProxy } from 'pdfjs-dist'
 	import 'pdfjs-dist/build/pdf.worker.entry'
 	import type { AppInput } from '../../inputType'
-	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import InputValue from '../helpers/InputValue.svelte'
 	import { throttle } from '../../../../utils'
@@ -19,7 +19,7 @@
 	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
 	export let render: boolean
 
-	const { app, mode, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, mode, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 
 	let source: string | ArrayBuffer | undefined = undefined
 	let wrapper: HTMLDivElement | undefined = undefined

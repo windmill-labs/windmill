@@ -6,7 +6,7 @@
 	import { faPlus, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
-	import type { AppEditorContext, BaseAppComponent } from '../../types'
+	import type { AppViewerContext, BaseAppComponent } from '../../types'
 	import type { ButtonComponent } from '../component'
 	import PanelSection from './common/PanelSection.svelte'
 	import TableActionLabel from './TableActionLabel.svelte'
@@ -14,7 +14,7 @@
 	export let components: (BaseAppComponent & ButtonComponent)[]
 	export let id: string
 
-	const { selectedComponent, staticOutputs } = getContext<AppEditorContext>('AppEditorContext')
+	const { selectedComponent, staticOutputs } = getContext<AppViewerContext>('AppViewerContext')
 
 	function addComponent() {
 		const actionId = getNextId(components.map((x) => x.id.split('_')[1]))

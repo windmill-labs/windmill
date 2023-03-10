@@ -5,7 +5,7 @@
 	import type { AppInput } from '../../inputType'
 	import {
 		IS_APP_PUBLIC_CONTEXT_KEY,
-		type AppEditorContext,
+		type AppViewerContext,
 		type ComponentCustomCSS
 	} from '../../types'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
@@ -17,7 +17,7 @@
 	export let render: boolean
 
 	const requireHtmlApproval = getContext<boolean | undefined>(IS_APP_PUBLIC_CONTEXT_KEY)
-	const { app } = getContext<AppEditorContext>('AppEditorContext')
+	const { app } = getContext<AppViewerContext>('AppViewerContext')
 	let result: any = undefined
 
 	export const staticOutputs: string[] = ['result', 'loading']

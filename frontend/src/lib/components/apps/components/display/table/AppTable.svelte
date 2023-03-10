@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { getContext, onMount } from 'svelte'
 	import type { Output } from '../../../rx'
-	import type { AppEditorContext, BaseAppComponent, ComponentCustomCSS } from '../../../types'
+	import type { AppViewerContext, BaseAppComponent, ComponentCustomCSS } from '../../../types'
 	import InputValue from '../../helpers/InputValue.svelte'
 	import type { AppInput } from '../../../inputType'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
@@ -61,7 +61,7 @@
 		app,
 		worldStore,
 		staticOutputs: staticOutputsStore
-	} = getContext<AppEditorContext>('AppEditorContext')
+	} = getContext<AppViewerContext>('AppViewerContext')
 
 	let selectedRowIndex = -1
 

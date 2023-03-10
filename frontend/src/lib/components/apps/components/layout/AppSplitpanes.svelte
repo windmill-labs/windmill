@@ -2,7 +2,7 @@
 	import { getContext } from 'svelte'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppInput } from '../../inputType'
-	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
+	import type { AppEditorContext, AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import InputValue from '../helpers/InputValue.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -16,8 +16,9 @@
 	export let panes: number[]
 	export let render: boolean
 
-	const { app, focusedGrid, selectedComponent, componentControl } =
-		getContext<AppEditorContext>('AppEditorContext')
+	const { app, focusedGrid, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
+
+	const { componentControl } = getContext<AppEditorContext>('AppEditorContext')
 
 	let noPadding: boolean | undefined = undefined
 

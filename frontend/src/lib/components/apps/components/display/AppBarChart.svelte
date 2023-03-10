@@ -17,7 +17,7 @@
 	import InputValue from '../helpers/InputValue.svelte'
 	import { concatCustomCss } from '../../utils'
 	import { getContext } from 'svelte'
-	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -27,7 +27,7 @@
 	export let render: boolean
 
 	export const staticOutputs: string[] = ['loading', 'result']
-	const { app } = getContext<AppEditorContext>('AppEditorContext')
+	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
 	ChartJS.register(
 		Title,

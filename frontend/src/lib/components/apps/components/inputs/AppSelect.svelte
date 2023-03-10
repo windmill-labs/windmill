@@ -3,7 +3,7 @@
 	import Select from 'svelte-select'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
-	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
@@ -18,7 +18,7 @@
 	export let render: boolean
 
 	const { app, worldStore, connectingInput, selectedComponent } =
-		getContext<AppEditorContext>('AppEditorContext')
+		getContext<AppViewerContext>('AppViewerContext')
 	let items: { label: string; value: any; created?: boolean }[]
 	let placeholder: string = 'Select an item'
 

@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import type { AppEditorContext, GridItem } from '../types'
+	import type { AppViewerContext, GridItem } from '../types'
 	import ComponentPanel from './settingsPanel/ComponentPanel.svelte'
 
-	const { selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
+	const { selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 	export let gridItems: GridItem[]
 	export let parent: string | undefined
 </script>

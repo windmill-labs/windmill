@@ -3,12 +3,12 @@
 	import { faArrowRight, faCode, faPen } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../inputType'
-	import type { AppEditorContext } from '../../types'
+	import type { AppViewerContext } from '../../types'
 
 	export let componentInput: AppInput
 	export let disableStatic: boolean = false
 
-	const { onchange } = getContext<AppEditorContext>('AppEditorContext')
+	const { onchange } = getContext<AppViewerContext>('AppViewerContext')
 
 	$: if (componentInput.fieldType == 'template' && componentInput.type == 'static') {
 		//@ts-ignore

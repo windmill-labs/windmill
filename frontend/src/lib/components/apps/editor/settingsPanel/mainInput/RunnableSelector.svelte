@@ -7,7 +7,7 @@
 	import type { ResultAppInput } from '$lib/components/apps/inputType'
 	import WorkspaceScriptList from './WorkspaceScriptList.svelte'
 	import WorkspaceFlowList from './WorkspaceFlowList.svelte'
-	import type { AppEditorContext, GridItem, InlineScript } from '$lib/components/apps/types'
+	import type { AppViewerContext, GridItem, InlineScript } from '$lib/components/apps/types'
 	import { getContext } from 'svelte'
 	import type { Schema } from '$lib/common'
 	import { getAllScriptNames, loadSchema, schemaToInputsSpec } from '$lib/components/apps/utils'
@@ -22,7 +22,7 @@
 	let filter: string = ''
 	let picker: Drawer
 
-	const { app, workspace } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, workspace } = getContext<AppViewerContext>('AppViewerContext')
 
 	async function loadSchemaFromTriggerable(
 		path: string,

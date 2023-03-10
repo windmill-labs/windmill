@@ -3,7 +3,7 @@
 	import { Plus } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import Tooltip from '../../../Tooltip.svelte'
-	import type { AppEditorContext } from '../../types'
+	import type { AppViewerContext } from '../../types'
 	import { getAllScriptNames } from '../../utils'
 	import PanelSection from '../settingsPanel/common/PanelSection.svelte'
 	import { getAppScripts } from './utils'
@@ -11,7 +11,7 @@
 	const PREFIX = 'script-selector-' as const
 
 	export let selectedScriptComponentId: string | undefined = undefined
-	const { app, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 
 	function selectScript(id: string) {
 		selectedScriptComponentId = id
