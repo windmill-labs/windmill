@@ -4,6 +4,7 @@
 	import { buildWorld, type World } from '../rx'
 	import type {
 		App,
+		AppEditorContext,
 		AppViewerContext,
 		ConnectingInput,
 		EditorBreakpoint,
@@ -62,6 +63,12 @@
 		focusedGrid: writable(undefined),
 		stateId: writable(0),
 		parentWidth: writable(0)
+	})
+
+	setContext<AppEditorContext>('AppEditorContext', {
+		history: undefined,
+		componentControl: writable({}),
+		pickVariableCallback: writable(undefined)
 	})
 
 	let mounted = false

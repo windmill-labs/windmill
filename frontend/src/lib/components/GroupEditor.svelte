@@ -234,6 +234,14 @@
 											name,
 											requestBody: { username: member_name }
 										})
+										await GranularAclService.removeGranularAcls({
+											workspace: $workspaceStore ?? '',
+											path: name,
+											kind: 'group_',
+											requestBody: {
+												owner: 'u/' + member_name
+											}
+										})
 										loadGroup()
 									}}>remove</button
 								>

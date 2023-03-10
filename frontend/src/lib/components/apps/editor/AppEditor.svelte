@@ -212,7 +212,7 @@
 											<ComponentNavigation />
 
 											<div on:pointerdown|stopPropagation class={width}>
-												<GridEditor {history} {policy} />
+												<GridEditor {policy} />
 											</div>
 
 											<div id="app-editor-top-level-drawer" />
