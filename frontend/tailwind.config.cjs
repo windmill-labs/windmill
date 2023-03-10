@@ -7,16 +7,17 @@ const config = {
 		'hljs',
 		'splitpanes__pane',
 		'splitpanes__splitter',
+
 		...(process.env.NODE_ENV === 'production'
 			? [
-					{ pattern: /^m(\w?)-/ },
-					{ pattern: /^p(\w?)-/ },
-					{ pattern: /^shadow-/ },
-					{ pattern: /^rounded-/ },
-					{ pattern: /^text-/, variants: ['hover', 'active', 'focus'] },
-					{ pattern: /^bg-/, variants: ['hover', 'active', 'focus'] },
-					{ pattern: /^border-/, variants: ['hover', 'active', 'focus'] },
-					{ pattern: /^ring-/, variants: ['hover', 'active', 'focus'] }
+					{ pattern: /^m(\w?)-.*$/ },
+					{ pattern: /^p(\w?)-.*$/ },
+					{ pattern: /^shadow-.*$/ },
+					{ pattern: /^rounded-.*$/ },
+					{ pattern: /^text-[^/]*$/, variants: ['hover', 'active', 'focus'] },
+					{ pattern: /^bg-[^/]*$/, variants: ['hover', 'active', 'focus'] },
+					{ pattern: /^border-[^/]*$/, variants: ['hover', 'active', 'focus'] },
+					{ pattern: /^ring-[^/]*$/, variants: ['hover', 'active', 'focus'] }
 			  ]
 			: [])
 	],
