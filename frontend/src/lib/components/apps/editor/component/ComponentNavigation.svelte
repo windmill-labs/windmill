@@ -12,6 +12,9 @@
 	const { app, selectedComponent, breakpoint, componentControl, focusedGrid } =
 		getContext<AppEditorContext>('AppEditorContext')
 
+	let tempGridItem: GridItem | undefined = undefined
+	let copyStarted: boolean = false
+
 	function getSortedGridItemsOfChildren(): GridItem[] {
 		if (!$focusedGrid) {
 			return sortGridItemsPosition($app.grid, $breakpoint)
@@ -112,11 +115,12 @@
 		if (!$selectedComponent) {
 			return
 		}
-		localStorage.setItem('copiedGridItem', $selectedComponent)
-		localStorage.removeItem('cutGridItem')
+
+		copyStarted = true
 	}
 
 	function handleCut(event: KeyboardEvent) {
+		copyStarted = false
 		if (!$selectedComponent) {
 			return
 		}
@@ -127,8 +131,9 @@
 			return
 		}
 
-		localStorage.setItem('cutGridItem', JSON.stringify(gridItem))
-		localStorage.removeItem('copiedGridItem')
+		// Store the grid item in a temp variable so we can paste it later
+		tempGridItem = gridItem
+
 		const parent = $focusedGrid ? $focusedGrid.parentComponentId : undefined
 
 		deleteGridItem($app, gridItem.data, parent, true)
@@ -137,21 +142,15 @@
 	}
 
 	function handlePaste(event: KeyboardEvent) {
-		const copied = localStorage.getItem('copiedGridItem')
-		const cut = localStorage.getItem('cutGridItem')
-
-		if (copied) {
+		if (copyStarted && $selectedComponent) {
 			const parent = $focusedGrid ? $focusedGrid.parentComponentId : undefined
-			duplicateGridItem($app, parent, copied)
-		} else if (cut) {
-			const gridItem = JSON.parse(cut)
-			insertNewGridItem($app, gridItem.data, $focusedGrid, true)
+			duplicateGridItem($app, parent, $selectedComponent)
+		} else if (tempGridItem) {
+			insertNewGridItem($app, tempGridItem.data, $focusedGrid, true)
+			tempGridItem = undefined
 		}
 
 		$app = { ...$app }
-
-		localStorage.removeItem('copiedGridItem')
-		localStorage.removeItem('cutGridItem')
 	}
 
 	function keydown(event: KeyboardEvent) {
