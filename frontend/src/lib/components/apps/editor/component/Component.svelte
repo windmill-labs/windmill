@@ -222,7 +222,7 @@
 				recomputeIds={component.recomputeIds}
 				{render}
 			/>
-		{:else if component.type === 'selectcomponent'}
+		{:else if component.type === 'selectcomponent' || component.type === 'resourceselectcomponent'}
 			<AppSelect
 				id={component.id}
 				verticalAlignment={component.verticalAlignment}

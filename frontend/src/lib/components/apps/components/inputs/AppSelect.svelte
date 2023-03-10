@@ -43,6 +43,8 @@
 			: []
 		if (defaultValue) {
 			value = JSON.stringify(defaultValue)
+		} else if (listItems.length > 0) {
+			value = listItems[0]?.value
 		}
 	}
 
