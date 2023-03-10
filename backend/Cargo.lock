@@ -4892,6 +4892,7 @@ dependencies = [
  "lazy_static",
  "phf",
  "regex",
+ "serde_json",
  "unicode-general-category",
  "windmill-common",
  "windmill-parser",
