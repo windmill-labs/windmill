@@ -20,7 +20,8 @@
 	import AppPreview from '$lib/components/apps/editor/AppPreview.svelte'
 	import { writable } from 'svelte/store'
 	import type { EditorBreakpoint } from '$lib/components/apps/types'
-	import { Tour } from '../../../lib/components/tutorial'
+	import { Tour, tourStore } from '../../../lib/components/tutorial'
+	import { onMount } from 'svelte'
 
 	type Tab = 'hubscripts' | 'hubflows' | 'hubapps' | 'workspace'
 
@@ -61,9 +62,12 @@
 		appViewerApp = hub
 		appViewer.openDrawer?.()
 	}
+
+	onMount(tourStore.initiateTours)
 </script>
 
 <Tour tutorial="welcome" />
+
 <Drawer bind:this={codeViewer} size="900px">
 	<DrawerContent title={codeViewerObj?.summary ?? ''} on:close={codeViewer.closeDrawer}>
 		<svelte:fragment slot="actions">

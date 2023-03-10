@@ -1,7 +1,6 @@
 <script lang="ts">
-	import { onMount } from 'svelte'
 	import Shepherd from 'shepherd.js'
-	import { steps, type TutorialName } from './'
+	import { steps, tourStore, type TutorialName } from './'
 
 	export let tutorial: TutorialName
 	/**
@@ -13,7 +12,12 @@
 	}
 	let tour: Shepherd.Tour | undefined
 
-	onMount(() => {
+	$: $tourStore.includes(tutorial) && initiate()
+
+	function initiate() {
+		if (!tourStore.isTourActive(tutorial)) {
+			return
+		}
 		tour?.cancel()
 		tour = new Shepherd.Tour({
 			tourName: tutorial,
@@ -42,8 +46,13 @@
 				}
 			})
 		})
+		;['complete', 'cancel'].forEach((event) => {
+			tour?.on(event, () => {
+				tourStore.markTourAsDone(tutorial)
+			})
+		})
 		tour.start()
-	})
+	}
 </script>
 
 <style global>
