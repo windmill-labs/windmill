@@ -64,7 +64,11 @@
 			No components found
 		</div>
 	{:else}
-		<div in:fade|local={{ duration: 50, delay: 50 }} out:fade|local={{ duration: 50 }}>
+		<div
+			id="app-tutorial-1"
+			in:fade|local={{ duration: 50, delay: 50 }}
+			out:fade|local={{ duration: 50 }}
+		>
 			{#each componentsFiltered as { title, components }, index (index)}
 				{#if components.length}
 					<div transition:slide|local={{ duration: 300 }}>

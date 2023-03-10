@@ -77,7 +77,7 @@
 {#if value}
 	<div class="h-screen">
 		{#key value}
-			<AppEditor {summary} app={value} path={''} {policy} fromHub={hubId != null} />
+			<AppEditor {summary} app={value} path={''} {policy} fromHub={hubId != null} tour />
 		{/key}
 	</div>
 {/if}

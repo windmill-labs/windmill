@@ -37,6 +37,7 @@
 	import { page } from '$app/stores'
 	import CssSettings from './componentsPanel/CssSettings.svelte'
 	import { initHistory } from '$lib/history'
+	import { Tour } from '../../tutorial'
 
 	export let app: App
 	export let path: string
@@ -44,6 +45,7 @@
 	export let policy: Policy
 	export let summary: string
 	export let fromHub: boolean = false
+	export let tour: boolean = false
 
 	console.log('app', app)
 	const appStore = writable<App>(app)
@@ -128,6 +130,10 @@
 	}
 </script>
 
+{#if tour}
+	<Tour tutorial="app" />
+{/if}
+
 {#if $connectingInput.opened}
 	<div
 		class="absolute w-full h-screen bg-black border-2 bg-opacity-25 z-20 flex justify-center items-center"
@@ -173,6 +179,7 @@
 										$selectedComponent = undefined
 										$focusedGrid = undefined
 									}}
+									id="app-tutorial-3"
 									class={twMerge(
 										'bg-gray-100 h-full w-full',
 										$appStore.css?.['app']?.['viewer']?.class
@@ -196,7 +203,7 @@
 								</div>
 							</Pane>
 							<Pane size={$connectingInput?.opened ? 0 : 30}>
-								<div class="relative h-full w-full">
+								<div id="app-tutorial-4" class="relative h-full w-full">
 									<InlineScriptsPanel />
 								</div>
 							</Pane>

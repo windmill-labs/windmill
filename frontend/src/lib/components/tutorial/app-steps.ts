@@ -4,8 +4,8 @@ export default (tour: Shepherd.Tour) => {
 	const steps: object[] | Shepherd.Step[] = [
 		{
 			id: 'welcome',
-			text: `<div class="text-xl font-bold mb-6">Windmill Script Builder</div>
-			<p class="mb-6">Build scripts with out own web editor, then use them anywhere in your flows, apps or as standalone computations with their auto-generated UI.</p>`,
+			text: `<div class="text-xl font-bold mb-6">Windmill App Editor</div>
+			<p class="mb-6">Build your own UI quick and easy with drag-and-drop components. Connect your scripts and data to them and deploy a fully functioning application.</p>`,
 			buttons: [
 				{
 					text: 'See by myself',
@@ -21,13 +21,13 @@ export default (tour: Shepherd.Tour) => {
 			]
 		},
 		{
-			id: 'editor',
-			text: `<div class="text-xl font-bold mb-2">Web editor</div>
-			<p class="mb-2">Code directly from the web editor.</p>`,
+			id: 'components',
+			text: `<div class="text-xl font-bold mb-2">Components</div>
+			<p class="mb-2">Click to add and move them around by dragging. Configure the inputs, settings and styling, even with Tailwind classes.</p>`,
 			cancelIcon: {
 				enabled: true
 			},
-			attachTo: { element: '#app-tutorial-1', on: 'bottom-start' },
+			attachTo: { element: '#app-tutorial-1', on: 'left-start' },
 			highlightClass: 'shepherd-highlighted-element',
 			scrollTo: false,
 			buttons: [
@@ -43,13 +43,13 @@ export default (tour: Shepherd.Tour) => {
 			]
 		},
 		{
-			id: 'preview',
-			text: `<div class="text-xl font-bold mb-2">UI preview</div>
-			<p class="mb-2">Preview the user interface generated from the signature of the script.</p>`,
+			id: 'outputs',
+			text: `<div class="text-xl font-bold mb-2">Outputs</div>
+			<p class="mb-2">Each component has their outputs, which can be used to easily hook into the app state.</p>`,
 			cancelIcon: {
 				enabled: true
 			},
-			attachTo: { element: '#app-tutorial-2', on: 'left-start' },
+			attachTo: { element: '#app-tutorial-2', on: 'right-start' },
 			highlightClass: 'shepherd-highlighted-element',
 			scrollTo: false,
 			buttons: [
@@ -66,12 +66,12 @@ export default (tour: Shepherd.Tour) => {
 		},
 		{
 			id: 'parameters',
-			text: `<div class="text-xl font-bold mb-2">Parameters</div>
-			<p class="mb-2">Add variables, resources and configure your script.</p>`,
+			text: `<div class="text-xl font-bold mb-2">Canvas</div>
+			<p class="mb-2">It allows you to position, scale and group the components.</p>`,
 			cancelIcon: {
 				enabled: true
 			},
-			attachTo: { element: '#app-tutorial-3', on: 'bottom-start' },
+			attachTo: { element: '#app-tutorial-3', on: 'bottom' },
 			highlightClass: 'shepherd-highlighted-element',
 			scrollTo: false,
 			buttons: [
@@ -88,12 +88,12 @@ export default (tour: Shepherd.Tour) => {
 		},
 		{
 			id: 'test',
-			text: `<div class="text-xl font-bold mb-2">Test script</div>
-			<p class="mb-2">Time to try your work! Test the script and iterate as much as you want.</p>`,
+			text: `<div class="text-xl font-bold mb-2">Runnable editor</div>
+			<p class="mb-2">Here you can create, edit and manage the scripts of your app.</p>`,
 			cancelIcon: {
 				enabled: true
 			},
-			attachTo: { element: '#app-tutorial-4', on: 'left-start' },
+			attachTo: { element: '#app-tutorial-4', on: 'top-start' },
 			highlightClass: 'shepherd-highlighted-element',
 			scrollTo: false,
 			buttons: [

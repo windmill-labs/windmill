@@ -78,7 +78,7 @@
 				{/if}
 			</div>
 		</div>
-		<div class="relative p-2">
+		<div id="app-tutorial-2" class="relative p-2">
 			{#each filteredPanels as [componentId, outputs] (componentId)}
 				<div
 					animate:flip={{ duration: 300 }}
