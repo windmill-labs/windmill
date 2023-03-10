@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext, afterUpdate } from 'svelte'
+	import { getContext, afterUpdate, setContext } from 'svelte'
 	import type { App, AppEditorContext, AppViewerContext, GridItem } from '../types'
 	import Grid from '@windmill-labs/svelte-grid'
 	import { classNames } from '$lib/utils'
@@ -15,7 +15,6 @@
 	import { expandGriditem, findGridItem } from './appUtils'
 
 	export let policy: Policy
-	export let history: History<App> | undefined = undefined
 
 	const {
 		selectedComponent,
@@ -29,6 +28,8 @@
 		parentWidth,
 		breakpoint
 	} = getContext<AppViewerContext>('AppViewerContext')
+
+	const { history } = getContext<AppEditorContext>('AppEditorContext')
 
 	// The drag is disabled when the user is connecting an input
 	// or when the user is previewing the app
