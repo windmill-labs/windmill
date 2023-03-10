@@ -114,6 +114,7 @@ export async function main(
 
 export const BASH_INIT_CODE = `# arguments of the form X="$I" are parsed as parameters X of type string
 msg="$1"
+dflt="\${2:-default value}"
 
 # the last line of the stdout is the return value
 echo "Hello $msg"

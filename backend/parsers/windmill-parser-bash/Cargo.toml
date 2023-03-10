@@ -17,3 +17,4 @@ itertools.workspace = true
 anyhow.workspace = true
 regex.workspace = true
 lazy_static.workspace = true
+serde_json.workspace = true
