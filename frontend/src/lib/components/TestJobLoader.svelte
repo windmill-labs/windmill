@@ -186,9 +186,9 @@
 		syncIteration++
 		await loadTestJob(id)
 		let nextIteration = 50
-		if (syncIteration == ITERATIONS_BEFORE_SLOW_REFRESH) {
+		if (syncIteration > ITERATIONS_BEFORE_SLOW_REFRESH) {
 			nextIteration = 500
-		} else if (syncIteration == ITERATIONS_BEFORE_SUPER_SLOW_REFRESH) {
+		} else if (syncIteration > ITERATIONS_BEFORE_SUPER_SLOW_REFRESH) {
 			nextIteration = 2000
 		}
 		setTimeout(() => syncer(id), nextIteration)
