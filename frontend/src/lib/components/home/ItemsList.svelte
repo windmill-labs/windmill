@@ -2,7 +2,7 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { AppService, FlowService, ListableApp, Script, ScriptService, type Flow } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { Skeleton, ToggleButton, ToggleButtonGroup } from '$lib/components/common'
+	import { Alert, Badge, Skeleton, ToggleButton, ToggleButtonGroup } from '$lib/components/common'
 	import { canWrite } from '$lib/utils'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import type uFuzzy from '@leeoniya/ufuzzy'
@@ -21,6 +21,7 @@
 	import { Icon } from 'svelte-awesome'
 	import { faBarsStaggered } from '@fortawesome/free-solid-svg-icons'
 	import MoveDrawer from '../MoveDrawer.svelte'
+	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 
 	type TableItem<T, U extends 'script' | 'flow' | 'app'> = T & {
 		canWrite: boolean
@@ -48,6 +49,8 @@
 	let loading = true
 
 	let nbDisplayed = 30
+
+	export let deleteConfirmedCallback: (() => void) | undefined = undefined
 
 	async function loadScripts(): Promise<void> {
 		const loadedScripts = await ScriptService.listScripts({
@@ -325,6 +328,7 @@
 				{#each (items ?? []).slice(0, nbDisplayed) as item, i (item.type + '/' + item.path + (item.summary ?? ''))}
 					{#if item.type == 'script'}
 						<ScriptRow
+							bind:deleteConfirmedCallback
 							starred={item.starred ?? false}
 							marked={item.marked}
 							on:change={loadScripts}
@@ -334,6 +338,7 @@
 						/>
 					{:else if item.type == 'flow'}
 						<FlowRow
+							bind:deleteConfirmedCallback
 							starred={item.starred ?? false}
 							marked={item.marked}
 							on:change={loadFlows}
@@ -343,6 +348,7 @@
 						/>
 					{:else if item.type == 'app'}
 						<AppRow
+							bind:deleteConfirmedCallback
 							starred={item.starred ?? false}
 							marked={item.marked}
 							on:change={loadApps}
@@ -364,3 +370,29 @@
 		{/if}
 	</div>
 </CenteredPage>
+
+<ConfirmationModal
+	open={Boolean(deleteConfirmedCallback)}
+	title="Remove"
+	confirmationText="Remove"
+	on:canceled={() => {
+		deleteConfirmedCallback = undefined
+	}}
+	on:confirmed={() => {
+		if (deleteConfirmedCallback) {
+			deleteConfirmedCallback()
+		}
+		deleteConfirmedCallback = undefined
+	}}
+>
+	<div class="flex flex-col w-full space-y-4">
+		<span>Are you sure you want to remove it?</span>
+		<Alert type="info" title="Bypass confirmation">
+			<div>
+				You can press
+				<Badge color="dark-gray">SHIFT</Badge>
+				while removing to bypass confirmation.
+			</div>
+		</Alert>
+	</div>
+</ConfirmationModal>

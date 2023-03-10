@@ -1,9 +1,7 @@
 <script lang="ts">
-	import { Loader2 } from 'lucide-svelte'
 	import { getContext, onMount } from 'svelte'
-	import { fade } from 'svelte/transition'
 	import type { AppInput } from '../../inputType'
-	import type { AppEditorContext } from '../../types'
+	import type { AppViewerContext } from '../../types'
 	import { isScriptByNameDefined, isScriptByPathDefined } from '../../utils'
 	import NonRunnableComponent from './NonRunnableComponent.svelte'
 	import RunnableComponent from './RunnableComponent.svelte'
@@ -24,7 +22,7 @@
 	export let gotoNewTab: boolean | undefined = undefined
 	export let render: boolean
 
-	const { staticExporter, noBackend } = getContext<AppEditorContext>('AppEditorContext')
+	const { staticExporter, noBackend } = getContext<AppViewerContext>('AppViewerContext')
 
 	$: if (initializing && result) {
 		initializing = false
@@ -64,18 +62,8 @@
 	>
 		<slot />
 	</RunnableComponent>
-{:else if render}
-	<NonRunnableComponent bind:result {id} {componentInput}>
+{:else}
+	<NonRunnableComponent {render} bind:result {id} {componentInput}>
 		<slot />
 	</NonRunnableComponent>
-{:else if !render}
-	<div class="w-full h-full">
-		<div
-			out:fade|local={{ duration: 50 }}
-			class="absolute inset-0 center-center flex-col bg-white text-gray-600 border"
-		>
-			<Loader2 class="animate-spin" size={16} />
-			<span class="text-xs mt-1">Loading</span>
-		</div>
-	</div>
 {/if}

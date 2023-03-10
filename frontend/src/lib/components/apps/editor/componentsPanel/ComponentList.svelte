@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { AppEditorContext } from '../../types'
+	import type { AppEditorContext, AppViewerContext } from '../../types'
 	import { getContext } from 'svelte'
 	import { fade, slide } from 'svelte/transition'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
@@ -10,8 +10,9 @@
 	import { push } from '$lib/history'
 	import { flip } from 'svelte/animate'
 
-	const { app, selectedComponent, focusedGrid, history } =
-		getContext<AppEditorContext>('AppEditorContext')
+	const { app, selectedComponent, focusedGrid } = getContext<AppViewerContext>('AppViewerContext')
+
+	const { history } = getContext<AppEditorContext>('AppEditorContext')
 
 	function addComponent(appComponentType: AppComponent['type']): void {
 		push(history, $app)

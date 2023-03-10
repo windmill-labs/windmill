@@ -27,7 +27,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { AppService, Job, Policy } from '$lib/gen'
 	import { redo, undo } from '$lib/history'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import {
 		faBug,
 		faClipboard,
@@ -61,7 +61,7 @@
 		StaticAppInput,
 		UserAppInput
 	} from '../inputType'
-	import type { AppEditorContext } from '../types'
+	import type { AppEditorContext, AppViewerContext } from '../types'
 	import { allItems, toStatic } from '../utils'
 	import AppExportButton from './AppExportButton.svelte'
 	import AppInputs from './AppInputs.svelte'
@@ -90,9 +90,10 @@
 		errorByComponent,
 		openDebugRun,
 		focusedGrid,
-		selectedComponent,
-		history
-	} = getContext<AppEditorContext>('AppEditorContext')
+		selectedComponent
+	} = getContext<AppViewerContext>('AppViewerContext')
+
+	const { history } = getContext<AppEditorContext>('AppEditorContext')
 
 	const loading = {
 		publish: false,
@@ -168,13 +169,6 @@
 				)
 		)
 		policy.triggerables = Object.fromEntries(allTriggers.filter((x) => x.length > 0))
-
-		if (!$userStore?.username?.includes('@')) {
-			policy.on_behalf_of = `u/${$userStore?.username}`
-		} else {
-			policy.on_behalf_of = $userStore?.email
-		}
-		policy.on_behalf_of_email = $userStore?.email
 	}
 	async function createApp(path: string) {
 		await computeTriggerables()

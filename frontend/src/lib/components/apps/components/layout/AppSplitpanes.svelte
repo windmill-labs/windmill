@@ -2,7 +2,7 @@
 	import { getContext } from 'svelte'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppInput } from '../../inputType'
-	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
+	import type { AppEditorContext, AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import InputValue from '../helpers/InputValue.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -16,9 +16,9 @@
 	export let panes: number[]
 	export let render: boolean
 
-	export const staticOutputs: string[] = []
+	const { app, focusedGrid, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 
-	const { app, focusedGrid, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
+	const { componentControl } = getContext<AppEditorContext>('AppEditorContext')
 
 	let noPadding: boolean | undefined = undefined
 
@@ -31,6 +31,31 @@
 
 	$: $selectedComponent === id && onFocus()
 	$: css = concatCustomCss($app.css?.containercomponent, customCss)
+
+	$componentControl[id] = {
+		left: () => {
+			if ($focusedGrid?.subGridIndex) {
+				const index = $focusedGrid?.subGridIndex ?? 0
+				if (index > 0) {
+					$focusedGrid.subGridIndex = index - 1
+					return true
+				}
+			}
+			return false
+		},
+		right: () => {
+			// subGridIndex can be 0
+			if ($focusedGrid?.subGridIndex !== undefined) {
+				const index = $focusedGrid?.subGridIndex ?? 0
+
+				if (index < panes.length - 1) {
+					$focusedGrid.subGridIndex = index + 1
+					return true
+				}
+			}
+			return false
+		}
+	}
 
 	let sumedup = [50, 50]
 	$: {

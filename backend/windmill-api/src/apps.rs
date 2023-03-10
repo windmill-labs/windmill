@@ -313,9 +313,12 @@ async fn create_app(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
-    Json(app): Json<CreateApp>,
+    Json(mut app): Json<CreateApp>,
 ) -> Result<(StatusCode, String)> {
     let mut tx = user_db.begin(&authed).await?;
+
+    app.policy.on_behalf_of = Some(username_to_permissioned_as(&authed.username));
+    app.policy.on_behalf_of_email = Some(authed.email);
 
     let id = sqlx::query_scalar!(
         "INSERT INTO app
@@ -463,7 +466,9 @@ async fn update_app(
             sqlb.set_str("summary", nsummary);
         }
 
-        if let Some(npolicy) = ns.policy {
+        if let Some(mut npolicy) = ns.policy {
+            npolicy.on_behalf_of = Some(username_to_permissioned_as(&authed.username));
+            npolicy.on_behalf_of_email = Some(authed.email);
             sqlb.set(
                 "policy",
                 &format!(
@@ -728,6 +733,9 @@ fn build_args(
     path: String,
     args: &Map<String, Value>,
 ) -> Result<Map<String, Value>> {
+    // disallow var and res access in args coming from the user for security reasons
+    args.into_iter()
+        .try_for_each(|x| disallow_var_res_access(x.1))?;
     let static_args = policy
         .triggerables
         .get(&path)
@@ -747,4 +755,21 @@ fn build_args(
         args.insert(k.to_string(), v.to_owned());
     }
     Ok(args)
+}
+
+fn disallow_var_res_access(args: &serde_json::Value) -> Result<()> {
+    match args {
+        Value::Object(v) => v.into_iter().try_for_each(|x| disallow_var_res_access(x.1)),
+        Value::Array(arr) => arr.into_iter().try_for_each(|v| disallow_var_res_access(v)),
+        Value::String(s) => {
+            if s.starts_with("$var:") || s.starts_with("$res:") {
+                Err(Error::BadRequest(format!(
+                    "For security reasons, variable or resource access is not allowed as dynamic argument"
+                )))
+            } else {
+                Ok(())
+            }
+        }
+        _ => Ok(()),
+    }
 }

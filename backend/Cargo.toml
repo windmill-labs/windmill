@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.73.1"
+version = "1.74.2"
 authors.workspace = true
 edition.workspace = true
 
@@ -19,7 +19,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.73.1"
+version = "1.74.2"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -123,8 +123,8 @@ regex = "^1"
 deno_core = "^0"
 async-recursion = "^1"
 swc_common = "^0"
-swc_ecma_parser = "^0"
-swc_ecma_ast = "^0"
+swc_ecma_parser = "0.128.2"
+swc_ecma_ast = "0.98.1"
 base64 = "0.21.0"
 unicode-general-category = "^0"
 hmac = "0.12.1"

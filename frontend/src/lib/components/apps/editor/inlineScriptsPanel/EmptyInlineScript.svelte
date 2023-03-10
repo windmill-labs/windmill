@@ -11,7 +11,7 @@
 	import { Building, Globe2 } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { fly } from 'svelte/transition'
-	import type { AppEditorContext } from '../../types'
+	import type { AppViewerContext } from '../../types'
 	import { defaultCode } from '../component'
 	import InlineScriptList from '../settingsPanel/mainInput/InlineScriptList.svelte'
 	import WorkspaceScriptList from '../settingsPanel/mainInput/WorkspaceScriptList.svelte'
@@ -23,7 +23,7 @@
 	let filter: string = ''
 	let picker: Drawer
 
-	const { appPath, app } = getContext<AppEditorContext>('AppEditorContext')
+	const { appPath, app } = getContext<AppViewerContext>('AppViewerContext')
 	const dispatch = createEventDispatcher()
 
 	async function inferInlineScriptSchema(

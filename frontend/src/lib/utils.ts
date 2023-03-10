@@ -131,7 +131,6 @@ export function clickOutside(node: Node): { destroy(): void } {
 	}
 }
 
-export type DropdownType = 'action' | 'delete'
 
 export interface DropdownItem {
 	// If a DropdownItem has an action, it will be declared as a button
@@ -143,7 +142,7 @@ export interface DropdownItem {
 	href?: string
 	separatorTop?: boolean
 	separatorBottom?: boolean
-	type?: DropdownType
+	type?: 'action' | 'delete'
 	disabled?: boolean
 	icon?: any | undefined
 }

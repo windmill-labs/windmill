@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext, afterUpdate } from 'svelte'
-	import type { App, AppEditorContext, GridItem } from '../types'
+	import type { App, AppEditorContext, AppViewerContext, GridItem } from '../types'
 	import Grid from '@windmill-labs/svelte-grid'
 	import { classNames } from '$lib/utils'
 	import { columnConfiguration, disableDrag, enableDrag, isFixed, toggleFixed } from '../gridUtils'
@@ -12,7 +12,7 @@
 	import Component from './component/Component.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { push } from '$lib/history'
-	import { expandGriditem, findAvailableSpace, findGridItem } from './appUtils'
+	import { expandGriditem, findGridItem } from './appUtils'
 
 	export let policy: Policy
 
@@ -26,9 +26,10 @@
 		summary,
 		focusedGrid,
 		parentWidth,
-		history,
 		breakpoint
-	} = getContext<AppEditorContext>('AppEditorContext')
+	} = getContext<AppViewerContext>('AppViewerContext')
+
+	const { history } = getContext<AppEditorContext>('AppEditorContext')
 
 	// The drag is disabled when the user is connecting an input
 	// or when the user is previewing the app
@@ -179,13 +180,14 @@
 							<div
 								on:pointerenter={() => ($connectingInput.hoveredComponent = gridComponent.data.id)}
 								on:pointerleave={() => ($connectingInput.hoveredComponent = undefined)}
-								class="absolute  w-full h-full bg-black border-2 bg-opacity-25 z-20 flex justify-center items-center"
+								class="absolute w-full h-full bg-black border-2 bg-opacity-25 z-20 flex justify-center items-center"
 							/>
 							<div
 								style="transform: translate(-50%, -50%);"
 								class="absolute w-fit justify-center bg-indigo-500/90 left-[50%] top-[50%] z-50 px-6 rounded border text-white py-2 text-5xl center-center"
-								>{dataItem.data.id}</div
 							>
+								{dataItem.data.id}
+							</div>
 						{/if}
 						<!-- svelte-ignore a11y-click-events-have-key-events -->
 						<div

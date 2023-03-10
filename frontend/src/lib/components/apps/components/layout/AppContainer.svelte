@@ -2,7 +2,7 @@
 	import { getContext } from 'svelte'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppInput } from '../../inputType'
-	import type { AppEditorContext, ComponentCustomCSS, GridItem } from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS, GridItem } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import InputValue from '../helpers/InputValue.svelte'
 
@@ -15,7 +15,7 @@
 	let noPadding: boolean | undefined = undefined
 
 	export const staticOutputs: string[] = []
-	const { app, focusedGrid, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, focusedGrid, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 
 	function onFocus() {
 		$focusedGrid = {
@@ -31,7 +31,7 @@
 
 <InputValue {id} input={configuration.noPadding} bind:value={noPadding} />
 
-<div class="border">
+<div>
 	{#if $app.subgrids?.[`${id}-0`]}
 		<SubGridEditor
 			visible={render}

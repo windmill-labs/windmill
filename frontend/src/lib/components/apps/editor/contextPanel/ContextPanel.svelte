@@ -4,14 +4,14 @@
 	import { getContext } from 'svelte'
 	import { flip } from 'svelte/animate'
 	import { fade } from 'svelte/transition'
-	import type { AppEditorContext } from '../../types'
+	import type { AppViewerContext } from '../../types'
 	import { findGridItem } from '../appUtils'
 	import { components } from '../component'
 	import PanelSection from '../settingsPanel/common/PanelSection.svelte'
 	import ComponentOutputViewer from './ComponentOutputViewer.svelte'
 
 	const { connectingInput, staticOutputs, worldStore, selectedComponent, app } =
-		getContext<AppEditorContext>('AppEditorContext')
+		getContext<AppViewerContext>('AppViewerContext')
 
 	function connectInput(componentId: string, path: string) {
 		if ($connectingInput) {
@@ -42,7 +42,7 @@
 			return 'Table action'
 		}
 	}
-	$: panels = [['ctx', ['email', 'username', 'query']] as [string, string[]]].concat(
+	$: panels = [['ctx', ['email', 'username', 'query', 'hash']] as [string, string[]]].concat(
 		Object.entries($staticOutputs)
 	)
 

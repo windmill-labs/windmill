@@ -8,7 +8,7 @@
 	import InputValue from '../helpers/InputValue.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { getContext } from 'svelte'
 	import ResizeWrapper from '../helpers/ResizeWrapper.svelte'
 
@@ -23,7 +23,7 @@
 
 	export const staticOutputs: string[] = ['result', 'loading']
 
-	const { app } = getContext<AppEditorContext>('AppEditorContext')
+	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
 	let result: string | undefined = undefined
 	let style: 'Title' | 'Subtitle' | 'Body' | 'Caption' | 'Label' | undefined = undefined

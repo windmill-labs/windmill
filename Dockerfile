@@ -73,7 +73,7 @@ ARG features=""
 
 COPY --from=planner /windmill/recipe.json recipe.json
 
-RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo chef cook --release --features "$features" --recipe-path recipe.json
+RUN CARGO_NET_GIT_FETCH_WITH_CLI=true RUST_BACKTRACE=1 cargo chef cook --release --features "$features" --recipe-path recipe.json
 
 COPY ./openflow.openapi.yaml /openflow.openapi.yaml
 COPY ./backend ./

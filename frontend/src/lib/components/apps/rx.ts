@@ -1,5 +1,6 @@
 import type { AppInput } from './inputType'
 import { writable, type Writable } from 'svelte/store'
+import { deepEqual } from 'fast-equals'
 
 export interface Subscriber<T> {
 	next(v: T)
@@ -32,9 +33,11 @@ export function buildWorld(
 	const state = writable(0)
 
 	const outputsById: Record<string, Record<string, Output<any>>> = {
-		ctx: Object.fromEntries(Object.entries(context).map(([k, v]) => {
-			return [k, newWorld.newOutput('ctx', k, state, v)]
-		}))
+		ctx: Object.fromEntries(
+			Object.entries(context).map(([k, v]) => {
+				return [k, newWorld.newOutput('ctx', k, state, v)]
+			})
+		)
 	}
 	for (const [k, outputs] of Object.entries(components)) {
 		outputsById[k] = {}
@@ -60,7 +63,7 @@ export function buildObservableWorld() {
 		if (inputSpec.type === 'static') {
 			return {
 				peak: () => inputSpec.value,
-				next: () => { }
+				next: () => {}
 			}
 		} else if (inputSpec.type === 'connected') {
 			const input = cachedInput(next)
@@ -70,7 +73,7 @@ export function buildObservableWorld() {
 			if (!connection) {
 				return {
 					peak: () => undefined,
-					next: () => { }
+					next: () => {}
 				}
 			}
 
@@ -84,7 +87,7 @@ export function buildObservableWorld() {
 				console.warn('Observable at ' + componentId + '.' + p + ' not found')
 				return {
 					peak: () => undefined,
-					next: () => { }
+					next: () => {}
 				}
 			}
 
@@ -94,7 +97,7 @@ export function buildObservableWorld() {
 		} else if (inputSpec.type === 'user') {
 			return {
 				peak: () => inputSpec.value,
-				next: () => { }
+				next: () => {}
 			}
 		} else {
 			throw Error('Unknown input type ' + inputSpec)
@@ -151,7 +154,7 @@ export function settableOutput<T>(state: Writable<number>, previousValue: T): Ou
 	}
 
 	function set(x: T, force: boolean = false) {
-		if (value != x || force) {
+		if (!deepEqual(value, x) || force) {
 			state.update((x) => x + 1)
 
 			value = x

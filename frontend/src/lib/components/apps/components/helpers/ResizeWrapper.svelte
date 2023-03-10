@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import { findGridItem } from '../../editor/appUtils'
-	import type { AppEditorContext } from '../../types'
+	import type { AppViewerContext } from '../../types'
 
 	export let id: string
 	export let shouldWrap: boolean = false
-	const { app, breakpoint } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, breakpoint } = getContext<AppViewerContext>('AppViewerContext')
 
 	$: gridItem = findGridItem($app, id)
 

@@ -3,7 +3,7 @@
 	import { fade } from 'svelte/transition'
 	import { Loader2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
-	import type { AppEditorContext } from '../../types'
+	import type { AppViewerContext } from '../../types'
 	import ComponentHeader from '../ComponentHeader.svelte'
 	import type { AppComponent } from './components'
 	import {
@@ -49,7 +49,7 @@
 	export let render: boolean
 
 	const { staticOutputs, mode, connectingInput, app, errorByComponent } =
-		getContext<AppEditorContext>('AppEditorContext')
+		getContext<AppViewerContext>('AppViewerContext')
 	let hover = false
 	let initializing: boolean | undefined = undefined
 	let componentContainerHeight: number = 0
@@ -284,6 +284,17 @@
 				bind:staticOutputs={$staticOutputs[component.id]}
 				{render}
 			/>
+		{:else if component.type === 'emailinputcomponent'}
+			<AppTextInput
+				verticalAlignment={component.verticalAlignment}
+				configuration={component.configuration}
+				inputType="email"
+				appCssKey="emailinputcomponent"
+				id={component.id}
+				customCss={component.customCss}
+				bind:staticOutputs={$staticOutputs[component.id]}
+				{render}
+			/>
 		{:else if component.type === 'passwordinputcomponent'}
 			<AppTextInput
 				verticalAlignment={component.verticalAlignment}
@@ -386,7 +397,6 @@
 				id={component.id}
 				customCss={component.customCss}
 				panes={component.panes}
-				bind:staticOutputs={$staticOutputs[component.id]}
 				{componentContainerHeight}
 				{render}
 			/>
@@ -396,7 +406,6 @@
 				id={component.id}
 				customCss={component.customCss}
 				panes={component.panes}
-				bind:staticOutputs={$staticOutputs[component.id]}
 				{componentContainerHeight}
 				horizontal={true}
 				{render}

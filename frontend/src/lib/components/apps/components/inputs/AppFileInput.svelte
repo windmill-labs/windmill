@@ -4,7 +4,7 @@
 	import { FileInput } from '../../../common'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
-	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import InputValue from '../helpers/InputValue.svelte'
 
@@ -14,7 +14,7 @@
 	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
 	export let render: boolean
 
-	const { app, worldStore } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
 	let acceptedFileTypes: string[] | undefined = undefined
 	let allowMultiple: boolean | undefined = undefined

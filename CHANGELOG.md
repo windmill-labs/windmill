@@ -1,6 +1,41 @@
 # Changelog
 
 
+## [1.74.2](https://github.com/windmill-labs/windmill/compare/v1.74.1...v1.74.2) (2023-03-09)
+
+
+### Bug Fixes
+
+* **frontend:** fix splitpanes navigation ([#1276](https://github.com/windmill-labs/windmill/issues/1276)) ([8d5c5b8](https://github.com/windmill-labs/windmill/commit/8d5c5b88a35d7a3bad1d8ddf2d940026825241eb))
+
+## [1.74.1](https://github.com/windmill-labs/windmill/compare/v1.74.0...v1.74.1) (2023-03-09)
+
+
+### Bug Fixes
+
+* **apps:** proper reactivity for non rendered static components ([ae53baf](https://github.com/windmill-labs/windmill/commit/ae53bafaf6777f928113f84b2c6ed6a2ed341844))
+* **ci:** make windmill compile again by pinning swc deps ([2ea15d5](https://github.com/windmill-labs/windmill/commit/2ea15d5035e5e15473968db3c0501a4dddff5cd0))
+
+## [1.74.0](https://github.com/windmill-labs/windmill/compare/v1.73.1...v1.74.0) (2023-03-09)
+
+
+### Features
+
+* add delete by path for scripts ([0c2cf92](https://github.com/windmill-labs/windmill/commit/0c2cf92dd3df9610e649f15e23921a4ca0d94e6a))
+* **frontend:** Add color picker input to app ([#1270](https://github.com/windmill-labs/windmill/issues/1270)) ([88e537a](https://github.com/windmill-labs/windmill/commit/88e537ad1fb4c207f38fbe951c82106bef6491a3))
+* **frontend:** add expand ([#1268](https://github.com/windmill-labs/windmill/issues/1268)) ([b854ee3](https://github.com/windmill-labs/windmill/commit/b854ee34393534bde104e2e6f606108fd66d38dc))
+* **frontend:** add hash to ctx in apps ([b1a45b1](https://github.com/windmill-labs/windmill/commit/b1a45b1e708aa6f19f8be9c949507083e044f2d8))
+* **frontend:** Add key navigation in app editor ([#1273](https://github.com/windmill-labs/windmill/issues/1273)) ([6b0fb75](https://github.com/windmill-labs/windmill/commit/6b0fb75d23e2151c88b07814139d203c1bd0578d))
+
+
+### Bug Fixes
+
+* **cli:** improve visibility of the active workspace ([e6344da](https://github.com/windmill-labs/windmill/commit/e6344dac6d1be04b46231fa8ef8579fd12ca8f37))
+* **frontend:** add confirmation modal to delete script/flow/app ([a4adcb5](https://github.com/windmill-labs/windmill/commit/a4adcb5192c11f7bf47a0d259825e474779378d7))
+* **frontend:** Clean up app editor ([#1267](https://github.com/windmill-labs/windmill/issues/1267)) ([0a5e181](https://github.com/windmill-labs/windmill/commit/0a5e181a3aa966fb8211bee0d9174fc16353b31f))
+* **frontend:** Minor changes ([#1272](https://github.com/windmill-labs/windmill/issues/1272)) ([3b6ae0c](https://github.com/windmill-labs/windmill/commit/3b6ae0cc49461b858d9cfff79eae9a7569465235))
+* **frontend:** simplify input bindings ([b2de531](https://github.com/windmill-labs/windmill/commit/b2de531a46e4b120d7106d361b727746bec516dd))
+
 ## [1.73.1](https://github.com/windmill-labs/windmill/compare/v1.73.0...v1.73.1) (2023-03-07)
 
 

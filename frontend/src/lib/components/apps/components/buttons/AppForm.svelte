@@ -5,7 +5,7 @@
 	import { Icon } from 'svelte-awesome'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
-	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
@@ -24,7 +24,7 @@
 	export const staticOutputs: string[] = ['loading', 'result']
 
 	const { app, runnableComponents, worldStore, stateId } =
-		getContext<AppEditorContext>('AppEditorContext')
+		getContext<AppViewerContext>('AppViewerContext')
 
 	let labelValue: string = 'Default label'
 	let color: ButtonType.Color

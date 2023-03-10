@@ -70,6 +70,7 @@ pub fn workspaced_service() -> Router {
         .route("/exists/p/*path", get(exists_script_by_path))
         .route("/archive/h/:hash", post(archive_script_by_hash))
         .route("/delete/h/:hash", post(delete_script_by_hash))
+        .route("/delete/p/*path", post(delete_script_by_path))
         .route("/get/h/:hash", get(get_script_by_hash))
         .route("/raw/h/:hash", get(raw_script_by_hash))
         .route("/deployment_status/h/:hash", get(get_deployment_status))
@@ -715,6 +716,46 @@ async fn delete_script_by_hash(
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::DeleteScript { workspace: w_id, hash: hash.to_string() },
+    );
+
+    Ok(Json(script))
+}
+
+async fn delete_script_by_path(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<String> {
+    let mut tx = user_db.begin(&authed).await?;
+    let path = path.to_path();
+
+    require_admin(authed.is_admin, &authed.username)?;
+    let script = sqlx::query_scalar!(
+        "DELETE FROM script WHERE path = $1 AND workspace_id = $2 RETURNING path",
+        path,
+        w_id
+    )
+    .fetch_one(&db)
+    .await
+    .map_err(|e| Error::InternalErr(format!("deleting script by path {w_id}: {e}")))?;
+
+    audit_log(
+        &mut tx,
+        &authed.username,
+        "scripts.delete",
+        ActionKind::Delete,
+        &w_id,
+        Some(&path),
+        Some([("workspace", w_id.as_str())].into()),
+    )
+    .await?;
+    tx.commit().await?;
+
+    webhook.send_message(
+        w_id.clone(),
+        WebhookMessage::DeleteScriptPath { workspace: w_id, path: path.to_string() },
     );
 
     Ok(Json(script))

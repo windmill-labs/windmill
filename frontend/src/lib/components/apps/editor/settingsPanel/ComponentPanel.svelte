@@ -2,7 +2,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { faChevronDown, faChevronUp, faCopy, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
-	import type { AppEditorContext } from '../../types'
+	import type { AppEditorContext, AppViewerContext } from '../../types'
 	import PanelSection from './common/PanelSection.svelte'
 	import InputsSpecsEditor from './InputsSpecsEditor.svelte'
 	import TableActions from './TableActions.svelte'
@@ -42,9 +42,10 @@
 		selectedComponent,
 		worldStore,
 		focusedGrid,
-		stateId,
-		history
-	} = getContext<AppEditorContext>('AppEditorContext')
+		stateId
+	} = getContext<AppViewerContext>('AppViewerContext')
+
+	const { history } = getContext<AppEditorContext>('AppEditorContext')
 
 	function duplicateElement(id: string) {
 		push(history, $app)
@@ -80,7 +81,19 @@
 		component?.componentInput?.type === 'template' && $worldStore
 			? buildExtraLib($worldStore?.outputsById ?? {}, component?.id, false)
 			: undefined
+
+	function keydown(event: KeyboardEvent) {
+		switch (event.key) {
+			case 'Delete': {
+				removeGridElement()
+				event.stopPropagation()
+				break
+			}
+		}
+	}
 </script>
+
+<svelte:window on:keydown={keydown} />
 
 {#if component}
 	<div class="flex flex-col min-w-[150px] w-full divide-y">

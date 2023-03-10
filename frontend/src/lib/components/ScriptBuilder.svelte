@@ -12,7 +12,6 @@
 	import ScriptEditor from './ScriptEditor.svelte'
 	import ScriptSchema from './ScriptSchema.svelte'
 	import CenteredPage from './CenteredPage.svelte'
-	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
 	import { Button, ButtonPopup, ButtonPopupItem, Kbd } from './common'
 	import { faChevronDown, faChevronUp, faPen, faSave } from '@fortawesome/free-solid-svg-icons'
@@ -121,10 +120,7 @@
 	}
 </script>
 
-<svelte:window on:keydown={onKeyDown} />
-
 {#if !$userStore?.operator}
-	<UnsavedConfirmationModal />
 	<div class="flex flex-col h-screen">
 		<!-- Nav between steps-->
 		<div class="flex flex-col w-full px-2 py-1  border-b shadow-sm">
@@ -361,3 +357,5 @@
 {:else}
 	Script Builder not available to operators
 {/if}
+
+<svelte:window on:keydown={onKeyDown} />

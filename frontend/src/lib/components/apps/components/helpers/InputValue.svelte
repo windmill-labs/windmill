@@ -3,7 +3,7 @@
 	import { deepEqual } from 'fast-equals'
 	import { getContext } from 'svelte'
 	import type { AppInput, EvalAppInput, UploadAppInput } from '../../inputType'
-	import type { AppEditorContext } from '../../types'
+	import type { AppViewerContext } from '../../types'
 	import { accessPropertyByPath } from '../../utils'
 
 	type T = string | number | boolean | Record<string | number, any> | undefined
@@ -23,7 +23,7 @@
 		}
 	}
 
-	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
+	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
 	$: state = $worldStore?.state
 

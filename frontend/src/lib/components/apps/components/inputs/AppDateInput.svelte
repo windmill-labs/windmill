@@ -3,37 +3,38 @@
 	import { twMerge } from 'tailwind-merge'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
-	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
-	import InputDefaultValue from '../helpers/InputDefaultValue.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 
 	export let id: string
 	export let configuration: Record<string, AppInput>
-	export let inputType: 'date' | 'time' | 'datetime-local'
+	export let inputType: 'date'
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export const staticOutputs: string[] = ['result']
 	export let customCss: ComponentCustomCSS<'input'> | undefined = undefined
 	export let render: boolean
 
-	const { app, worldStore } = getContext<AppEditorContext>('AppEditorContext')
-	let input: HTMLInputElement
+	const { app, worldStore, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 	let labelValue: string = 'Title'
 	let minValue: string = ''
 	let maxValue: string = ''
 	let defaultValue: string | undefined = undefined
 
+	let value: string | undefined = undefined
+
 	$: outputs = $worldStore?.outputsById[id] as {
-		result: Output<string>
+		result: Output<string | undefined>
 	}
 
-	function handleInput() {
-		outputs?.result.set(input.value)
+	$: handleDefault(defaultValue)
+
+	$: outputs?.result.set(value)
+
+	function handleDefault(defaultValue: string | undefined) {
+		value = defaultValue
 	}
-
-	$: input && handleInput()
-
 	$: css = concatCustomCss($app.css?.dateinputcomponent, customCss)
 </script>
 
@@ -42,17 +43,18 @@
 <InputValue {id} input={configuration.maxDate} bind:value={maxValue} />
 <InputValue {id} input={configuration.defaultValue} bind:value={defaultValue} />
 
-<InputDefaultValue bind:input {defaultValue} />
-
 <AlignWrapper {render} {verticalAlignment}>
-	<input
-		type={inputType}
-		bind:this={input}
-		on:input={handleInput}
-		min={minValue}
-		max={maxValue}
-		placeholder="Type..."
-		class={twMerge('mx-0.5', css?.input?.class ?? '')}
-		style={css?.input?.style ?? ''}
-	/>
+	{#if inputType === 'date'}
+		<input
+			on:focus={() => ($selectedComponent = id)}
+			on:pointerdown|stopPropagation
+			type="date"
+			bind:value
+			min={minValue}
+			max={maxValue}
+			placeholder="Type..."
+			class={twMerge('mx-0.5', css?.input?.class ?? '')}
+			style={css?.input?.style ?? ''}
+		/>
+	{/if}
 </AlignWrapper>

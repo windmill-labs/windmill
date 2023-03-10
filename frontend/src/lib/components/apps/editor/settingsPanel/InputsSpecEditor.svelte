@@ -1,4 +1,5 @@
 <script lang="ts">
+	import VariableEditor from '$lib/components/VariableEditor.svelte'
 	import type {
 		ConnectedAppInput,
 		EvalAppInput,

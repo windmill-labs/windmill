@@ -2,7 +2,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import type { Preview } from '$lib/gen'
 	import { createEventDispatcher, getContext, onMount } from 'svelte'
-	import type { AppEditorContext, InlineScript } from '../../types'
+	import type { AppViewerContext, InlineScript } from '../../types'
 	import { CornerDownLeft, Maximize2, Plus, Trash2, X } from 'lucide-svelte'
 	import InlineScriptEditorDrawer from './InlineScriptEditorDrawer.svelte'
 	import { inferArgs } from '$lib/infer'
@@ -26,7 +26,7 @@
 	export let fields: Record<string, AppInput> = {}
 	export let syncFields: boolean = false
 
-	const { runnableComponents, stateId } = getContext<AppEditorContext>('AppEditorContext')
+	const { runnableComponents, stateId } = getContext<AppViewerContext>('AppViewerContext')
 
 	let editor: Editor
 	let validCode = true

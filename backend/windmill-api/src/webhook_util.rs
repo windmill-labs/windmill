@@ -37,6 +37,7 @@ pub enum WebhookMessage {
     CreateScript { workspace: String, path: String, hash: String },
     UpdateScript { workspace: String, path: String, hash: String },
     DeleteScript { workspace: String, hash: String },
+    DeleteScriptPath { workspace: String, path: String },
     CreateVariable { workspace: String, path: String },
     UpdateVariable { workspace: String, old_path: String, new_path: String },
     DeleteVariable { workspace: String, path: String },

@@ -2,7 +2,7 @@
 	import { getContext } from 'svelte'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppInput } from '../../inputType'
-	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import InputValue from '../helpers/InputValue.svelte'
 	import Portal from 'svelte-portal'
 	import { concatCustomCss } from '../../utils'
@@ -18,7 +18,7 @@
 	export let noWFull = false
 	export let render: boolean
 
-	const { app, focusedGrid, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, focusedGrid, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 
 	let gridContent: string[] | undefined = undefined
 	let noPadding: boolean | undefined = undefined

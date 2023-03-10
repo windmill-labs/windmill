@@ -2,7 +2,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { faPlus, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
-	import type { AppEditorContext } from '../../types'
+	import type { AppViewerContext } from '../../types'
 	import { deleteGridItem } from '../appUtils'
 	import type { AppComponent } from '../component'
 	import PanelSection from './common/PanelSection.svelte'
@@ -10,8 +10,8 @@
 	export let tabs: string[]
 	export let component: AppComponent
 
-	const { app, staticOutputs, runnableComponents } =
-		getContext<AppEditorContext>('AppEditorContext')
+	const { app, staticOutputs, runnableComponents, focusedGrid } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	function addTab() {
 		const numberOfTabs = tabs.length

@@ -640,8 +640,6 @@ mod tests {
                 "type": "script",
                 "path": "test"
               },
-              "stop_after_if": null,
-              "summary": null
             },
             {
               "id": "b",
@@ -650,15 +648,12 @@ mod tests {
                 "input_transforms": {},
                 "type": "rawscript",
                 "content": "test",
-                "lock": null,
-                "path": null,
                 "language": "deno"
               },
               "stop_after_if": {
                   "expr": "foo = 'bar'",
                   "skip_if_stopped": false
-              },
-              "summary": null
+              }
             },
             {
               "id": "c",
@@ -680,8 +675,7 @@ mod tests {
               "stop_after_if": {
                   "expr": "previous.isEmpty()",
                   "skip_if_stopped": false,
-              },
-              "summary": null
+              }
             }
           ],
           "failure_module": {
@@ -695,8 +689,7 @@ mod tests {
             "stop_after_if": {
                 "expr": "previous.isEmpty()",
                 "skip_if_stopped": false
-            },
-            "summary": null
+            }
           }
         });
         assert_eq!(dbg!(serde_json::json!(fv)), dbg!(expect));

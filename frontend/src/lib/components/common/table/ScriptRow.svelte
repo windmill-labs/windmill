@@ -18,7 +18,8 @@
 		faFileExport,
 		faList,
 		faPlay,
-		faShare
+		faShare,
+		faTrashAlt
 	} from '@fortawesome/free-solid-svg-icons'
 	import { MoreVertical } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
@@ -32,6 +33,7 @@
 	export let starred: boolean
 	export let shareModal: ShareModal
 	export let moveDrawer: MoveDrawer
+	export let deleteConfirmedCallback: (() => void) | undefined
 
 	let {
 		summary,
@@ -53,7 +55,15 @@
 		dispatch('change')
 		sendUserToast(`Archived script ${path}`)
 	}
+
+	async function deleteScript(path: string): Promise<void> {
+		await ScriptService.deleteScriptByPath({ workspace: $workspaceStore!, path })
+		dispatch('change')
+		sendUserToast(`Delete script ${path}`)
+	}
 	let scheduleEditor: ScheduleEditor
+
+	const dlt: 'delete' = 'delete'
 </script>
 
 <ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
@@ -198,7 +208,26 @@
 					},
 					type: 'delete',
 					disabled: !canWrite || archived
-				}
+				},
+				...($userStore?.is_admin || $userStore?.is_super_admin
+					? []
+					: [
+							{
+								displayName: 'Delete',
+								icon: faTrashAlt,
+								action: (event) => {
+									if (event?.shiftKey) {
+										deleteScript(path)
+									} else {
+										deleteConfirmedCallback = () => {
+											deleteScript(path)
+										}
+									}
+								},
+								type: dlt,
+								disabled: !canWrite
+							}
+					  ])
 			]}
 		>
 			<MoreVertical size={20} />
