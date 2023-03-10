@@ -4,7 +4,7 @@
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
-	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
+	import type { AppEditorContext, AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import InputValue from '../helpers/InputValue.svelte'
 
@@ -18,8 +18,10 @@
 	export let render: boolean
 
 	export const staticOutputs: string[] = ['selectedTabIndex']
-	const { app, worldStore, focusedGrid, selectedComponent, componentControl } =
-		getContext<AppEditorContext>('AppEditorContext')
+	const { app, worldStore, focusedGrid, selectedComponent } =
+		getContext<AppViewerContext>('AppViewerContext')
+
+	const { componentControl } = getContext<AppEditorContext>('AppEditorContext')
 
 	let selected: string = tabs[0]
 	let noPadding: boolean | undefined = undefined

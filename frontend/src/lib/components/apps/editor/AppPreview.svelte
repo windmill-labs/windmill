@@ -4,7 +4,7 @@
 	import { buildWorld, type World } from '../rx'
 	import type {
 		App,
-		AppEditorContext,
+		AppViewerContext,
 		ConnectingInput,
 		EditorBreakpoint,
 		EditorMode
@@ -40,7 +40,7 @@
 
 	const runnableComponents = writable<Record<string, () => Promise<void>>>({})
 
-	setContext<AppEditorContext>('AppEditorContext', {
+	setContext<AppViewerContext>('AppViewerContext', {
 		worldStore,
 		staticOutputs,
 		app: appStore,
@@ -61,9 +61,7 @@
 		openDebugRun: writable(undefined),
 		focusedGrid: writable(undefined),
 		stateId: writable(0),
-		parentWidth: writable(0),
-		history: writable<any>(undefined),
-		componentControl: writable({})
+		parentWidth: writable(0)
 	})
 
 	let mounted = false

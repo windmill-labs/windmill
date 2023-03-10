@@ -12,7 +12,7 @@
 	import { fade } from 'svelte/transition'
 	import type { AppInputs, Runnable } from '../../inputType'
 	import type { Output } from '../../rx'
-	import type { AppEditorContext } from '../../types'
+	import type { AppViewerContext } from '../../types'
 	import InputValue from './InputValue.svelte'
 	import RefreshButton from './RefreshButton.svelte'
 
@@ -43,7 +43,7 @@
 		errorByComponent,
 		mode,
 		stateId
-	} = getContext<AppEditorContext>('AppEditorContext')
+	} = getContext<AppViewerContext>('AppViewerContext')
 
 	onMount(() => {
 		if (autoRefresh) {

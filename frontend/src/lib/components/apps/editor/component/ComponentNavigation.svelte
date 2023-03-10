@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import type { AppEditorContext, EditorBreakpoint, GridItem } from '../../types'
+	import type { AppEditorContext, AppViewerContext, EditorBreakpoint, GridItem } from '../../types'
 	import { findGridItemParentId } from '../appUtils'
 
-	const { app, selectedComponent, breakpoint, componentControl, focusedGrid } =
-		getContext<AppEditorContext>('AppEditorContext')
+	const { app, selectedComponent, breakpoint, focusedGrid } =
+		getContext<AppViewerContext>('AppViewerContext')
+
+	const { componentControl } = getContext<AppEditorContext>('AppEditorContext')
 
 	function getSortedGridItemsOfChildren(): GridItem[] {
 		if (!$focusedGrid) {

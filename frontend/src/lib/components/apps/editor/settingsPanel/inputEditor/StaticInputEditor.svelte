@@ -6,28 +6,31 @@
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import JsonEditor from './JsonEditor.svelte'
 	import { getContext } from 'svelte'
-	import type { AppEditorContext } from '$lib/components/apps/types'
+	import type { AppEditorContext, AppViewerContext } from '$lib/components/apps/types'
 	import IconSelectInput from './IconSelectInput.svelte'
 	import ColorInput from './ColorInput.svelte'
+	import { Icon } from 'svelte-awesome'
+	import { faDollarSign } from '@fortawesome/free-solid-svg-icons'
 
 	export let componentInput: StaticAppInput | undefined
 
-	const { onchange } = getContext<AppEditorContext>('AppEditorContext')
+	const { onchange } = getContext<AppViewerContext>('AppViewerContext')
+	const { pickVariableCallback } = getContext<AppEditorContext>('AppEditorContext')
 
 	$: componentInput && onchange?.()
 </script>
 
 {#if componentInput?.type === 'static'}
 	{#if componentInput.fieldType === 'number'}
-		<input type="number" bind:value={componentInput.value} />
+		<input on:keydown|stopPropagation type="number" bind:value={componentInput.value} />
 	{:else if componentInput.fieldType === 'textarea'}
-		<textarea bind:value={componentInput.value} />
+		<textarea on:keydown|stopPropagation bind:value={componentInput.value} />
 	{:else if componentInput.fieldType === 'date'}
-		<input type="date" bind:value={componentInput.value} />
+		<input on:keydown|stopPropagation type="date" bind:value={componentInput.value} />
 	{:else if componentInput.fieldType === 'boolean'}
 		<Toggle bind:checked={componentInput.value} />
 	{:else if componentInput.fieldType === 'select'}
-		<select bind:value={componentInput.value}>
+		<select on:keydown|stopPropagation on:keydown|stopPropagation bind:value={componentInput.value}>
 			{#each staticValues[componentInput.optionValuesKey] || [] as option}
 				<option value={option}>
 					{option}
@@ -64,6 +67,25 @@
 	{:else if componentInput.fieldType === 'array'}
 		<ArrayStaticInputEditor bind:componentInput on:deleteArrayItem />
 	{:else}
-		<input type="text" placeholder="Static value" bind:value={componentInput.value} />
+		<div class="flex gap-1">
+			<input
+				on:keydown|stopPropagation
+				type="text"
+				placeholder="Static value"
+				bind:value={componentInput.value}
+			/>
+			<!-- svelte-ignore a11y-click-events-have-key-events -->
+			<div
+				class="min-w-min min-h-[34px] items-center leading-4 px-3 text-gray-600 cursor-pointer border border-gray-700 rounded center-center"
+				on:click={() => {
+					$pickVariableCallback = (variable) => {
+						if (componentInput) {
+							componentInput.value = `$var:${variable}`
+						}
+					}
+				}}
+				><Icon data={faDollarSign} />
+			</div>
+		</div>
 	{/if}
 {/if}

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext, afterUpdate } from 'svelte'
-	import type { App, AppEditorContext, GridItem } from '../types'
+	import type { App, AppEditorContext, AppViewerContext, GridItem } from '../types'
 	import Grid from '@windmill-labs/svelte-grid'
 	import { classNames } from '$lib/utils'
 	import { columnConfiguration, disableDrag, enableDrag, isFixed, toggleFixed } from '../gridUtils'
@@ -26,9 +26,10 @@
 		summary,
 		focusedGrid,
 		parentWidth,
-		history,
 		breakpoint
-	} = getContext<AppEditorContext>('AppEditorContext')
+	} = getContext<AppViewerContext>('AppViewerContext')
+
+	const { history } = getContext<AppEditorContext>('AppEditorContext')
 
 	// The drag is disabled when the user is connecting an input
 	// or when the user is previewing the app

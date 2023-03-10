@@ -2,7 +2,7 @@
 	import type { EvalAppInput } from '../../../inputType'
 
 	import { getContext } from 'svelte'
-	import type { AppEditorContext } from '$lib/components/apps/types'
+	import type { AppViewerContext } from '$lib/components/apps/types'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { buildExtraLib } from '$lib/components/apps/utils'
 
@@ -10,7 +10,7 @@
 	export let id: string
 	export let hasRows: boolean = false
 
-	const { onchange, worldStore } = getContext<AppEditorContext>('AppEditorContext')
+	const { onchange, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
 	$: componentInput && onchange?.()
 

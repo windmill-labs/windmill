@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
-	import type { AppEditorContext } from '../types'
+	import type { AppViewerContext } from '../types'
 	import { Anchor, Bug, Expand, Move } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Popover from '$lib/components/Popover.svelte'
@@ -15,7 +15,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	const { errorByComponent, openDebugRun } = getContext<AppEditorContext>('AppEditorContext')
+	const { errorByComponent, openDebugRun } = getContext<AppViewerContext>('AppViewerContext')
 
 	$: error = Object.values($errorByComponent).find((e) => e.componentId === component.id)
 

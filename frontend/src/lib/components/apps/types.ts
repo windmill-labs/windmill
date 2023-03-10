@@ -3,6 +3,7 @@ import type { Preview } from '$lib/gen'
 import type { History } from '$lib/history'
 import type { FilledItem } from '@windmill-labs/svelte-grid'
 import type { Writable } from 'svelte/store'
+import type VariableEditor from '../VariableEditor.svelte'
 import type { AppComponent } from './editor/component/components'
 import type {
 	AppInput,
@@ -111,7 +112,7 @@ export type ConnectingInput = {
 	hoveredComponent: string | undefined
 }
 
-export type AppEditorContext = {
+export type AppViewerContext = {
 	worldStore: Writable<World | undefined>
 	staticOutputs: Writable<Record<string, string[]>>
 	app: Writable<App>
@@ -133,8 +134,12 @@ export type AppEditorContext = {
 	focusedGrid: Writable<FocusedGrid | undefined>
 	stateId: Writable<number>
 	parentWidth: Writable<number>
+}
+
+export type AppEditorContext = {
 	history: History<App>
 	componentControl: Writable<Record<string, { left?: () => boolean; right?: () => boolean }>>
+	pickVariableCallback: Writable<((path: string) => void) | undefined>
 }
 
 export type FocusedGrid = { parentComponentId: string; subGridIndex: number }
