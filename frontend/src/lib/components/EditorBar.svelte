@@ -232,8 +232,14 @@
 		<Badge color={validCode ? 'green' : 'red'} class="min-w-[60px] mr-3">
 			{validCode ? 'Valid' : 'Invalid'}
 		</Badge>
-		<div class="flex items-center divide-x">
-			<Popover notClickable placement="bottom" disapperTimoout={0} class="pr-1" disablePopup={!iconOnly}>
+		<div id="script-tutorial-3" class="flex items-center divide-x">
+			<Popover
+				notClickable
+				placement="bottom"
+				disapperTimoout={0}
+				class="pr-1"
+				disablePopup={!iconOnly}
+			>
 				<Button
 					color="light"
 					btnClasses="!font-medium !h-full"
@@ -245,11 +251,15 @@
 				>
 					+Context Var
 				</Button>
-				<svelte:fragment slot="text">
-					Add context variable
-				</svelte:fragment>
+				<svelte:fragment slot="text">Add context variable</svelte:fragment>
 			</Popover>
-			<Popover notClickable placement="bottom" disapperTimoout={0} class="px-1" disablePopup={!iconOnly}>
+			<Popover
+				notClickable
+				placement="bottom"
+				disapperTimoout={0}
+				class="px-1"
+				disablePopup={!iconOnly}
+			>
 				<Button
 					color="light"
 					btnClasses="!font-medium !h-full"
@@ -261,11 +271,15 @@
 				>
 					+Variable
 				</Button>
-				<svelte:fragment slot="text">
-					Add variable
-				</svelte:fragment>
+				<svelte:fragment slot="text">Add variable</svelte:fragment>
 			</Popover>
-			<Popover notClickable placement="bottom" disapperTimoout={0} class="px-1" disablePopup={!iconOnly}>
+			<Popover
+				notClickable
+				placement="bottom"
+				disapperTimoout={0}
+				class="px-1"
+				disablePopup={!iconOnly}
+			>
 				<Button
 					btnClasses="!font-medium !h-full"
 					size="xs"
@@ -277,11 +291,15 @@
 				>
 					+Resource
 				</Button>
-				<svelte:fragment slot="text">
-					Add resource
-				</svelte:fragment>
+				<svelte:fragment slot="text">Add resource</svelte:fragment>
 			</Popover>
-			<Popover notClickable placement="bottom" disapperTimoout={0} class="px-1" disablePopup={!iconOnly}>
+			<Popover
+				notClickable
+				placement="bottom"
+				disapperTimoout={0}
+				class="px-1"
+				disablePopup={!iconOnly}
+			>
 				<Button
 					btnClasses="!font-medium !h-full"
 					size="xs"
@@ -293,11 +311,15 @@
 				>
 					Reset
 				</Button>
-				<svelte:fragment slot="text">
-					Reset
-				</svelte:fragment>
+				<svelte:fragment slot="text">Reset</svelte:fragment>
 			</Popover>
-			<Popover notClickable placement="bottom" disapperTimoout={0} class="px-1" disablePopup={!iconOnly}>
+			<Popover
+				notClickable
+				placement="bottom"
+				disapperTimoout={0}
+				class="px-1"
+				disablePopup={!iconOnly}
+			>
 				<Button
 					btnClasses="!font-medium !h-full"
 					size="xs"
@@ -320,11 +342,15 @@
 						{/if}
 					</span>
 				</Button>
-				<svelte:fragment slot="text">
-					Reload assistant
-				</svelte:fragment>
+				<svelte:fragment slot="text">Reload assistant</svelte:fragment>
 			</Popover>
-			<Popover notClickable placement="bottom" disapperTimoout={0} class="px-1" disablePopup={!iconOnly}>
+			<Popover
+				notClickable
+				placement="bottom"
+				disapperTimoout={0}
+				class="px-1"
+				disablePopup={!iconOnly}
+			>
 				<Button
 					btnClasses="!font-medium"
 					size="xs"
@@ -342,7 +368,13 @@
 			</Popover>
 		</div>
 	</div>
-	<Popover notClickable placement="bottom" disapperTimoout={0} class="px-1" disablePopup={!iconOnly}>
+	<Popover
+		notClickable
+		placement="bottom"
+		disapperTimoout={0}
+		class="px-1"
+		disablePopup={!iconOnly}
+	>
 		<Button
 			btnClasses="!font-medium"
 			size="xs"
@@ -354,9 +386,7 @@
 		>
 			Script
 		</Button>
-		<svelte:fragment slot="text">
-			Script
-		</svelte:fragment>
+		<svelte:fragment slot="text">Script</svelte:fragment>
 	</Popover>
 </div>
 

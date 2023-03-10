@@ -17,6 +17,7 @@
 	import { Button, Kbd } from './common'
 	import SplitPanesWrapper from './splitPanes/SplitPanesWrapper.svelte'
 	import WindmillIcon from './icons/WindmillIcon.svelte'
+	import { Tour } from './tutorial'
 
 	// Exported
 	export let schema: Schema = emptySchema()
@@ -27,6 +28,7 @@
 	export let initialArgs: Record<string, any> = {}
 	export let fixedOverflowWidgets = true
 	export let noSyncFromGithub = false
+	export let tour = false
 
 	let websocketAlive = { pyright: false, black: false, deno: false, go: false }
 
@@ -114,6 +116,10 @@
 
 <svelte:window on:keydown={onKeyDown} />
 
+{#if tour}
+	<Tour tutorial="script" />
+{/if}
+
 <div class="border-b-2 shadow-sm px-1 pr-4" bind:clientWidth={width}>
 	<div class="flex justify-between space-x-2">
 		<EditorBar
@@ -146,6 +152,7 @@
 	<Splitpanes class="!overflow-visible">
 		<Pane size={60} minSize={10} class="!overflow-visible">
 			<div
+				id="script-tutorial-1"
 				class="pl-2 h-full !overflow-visible"
 				on:mouseleave={() => {
 					inferSchema(code)
@@ -180,7 +187,7 @@
 		</Pane>
 		<Pane size={40} minSize={10}>
 			<div class="flex flex-col h-full">
-				<div class="px-2 w-full border-b py-1">
+				<div id="script-tutorial-4" class="px-2 w-full border-b py-1">
 					{#if testIsLoading}
 						<Button on:click={testJobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
 							<WindmillIcon
@@ -211,7 +218,7 @@
 				</div>
 				<Splitpanes horizontal class="!max-h-[calc(100%-43px)]">
 					<Pane size={33}>
-						<div class="px-2">
+						<div id="script-tutorial-2" class="px-2">
 							<div class="break-words relative font-sans">
 								<SchemaForm compact {schema} bind:args bind:isValid />
 							</div>

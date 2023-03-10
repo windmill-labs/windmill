@@ -350,6 +350,7 @@
 				lang={script.language}
 				{initialArgs}
 				{kind}
+				tour
 			/>
 		{:else if step === 3}
 			<CenteredPage>

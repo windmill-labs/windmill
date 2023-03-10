@@ -8,7 +8,7 @@
 	 * If the index of a step is added to a tour, the custom footer will not be added
 	 * (ie. the steps won't be shown and the buttons won't be positioned)
 	 */
-	const noCustomFooter: Partial<Record<TutorialName, number[]>> = {
+	const noPageNumber: Partial<Record<TutorialName, number[]>> = {
 		welcome: [0]
 	}
 	let tour: Shepherd.Tour | undefined
@@ -25,7 +25,7 @@
 		})
 		tour.addSteps(steps[tutorial](tour))
 		tour.steps.forEach((step, i) => {
-			if (noCustomFooter[tutorial]?.includes(i)) {
+			if (noPageNumber[tutorial]?.includes(i)) {
 				return
 			}
 			step.on('show', () => {
