@@ -34,7 +34,7 @@ use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     process::{Child, Command},
     sync::{
-        mpsc::{self, Sender},  watch,
+        mpsc::{self, Sender},  watch, broadcast,
     },
     time::{interval, sleep, Instant, MissedTickBehavior},
 };
@@ -2354,11 +2354,14 @@ async fn handle_child(
         tracing::info!("could not get child pid");
     }
     let (set_too_many_logs, mut too_many_logs) = watch::channel::<bool>(false);
+    let (tx, mut rx) = broadcast::channel::<()>(3);
+    let mut rx2 = tx.subscribe();
+
 
     let output = child_joined_output_stream(&mut child);
+
     let job_id = job_id.clone();
 
-    let (tx, mut rx) = mpsc::channel::<()>(1);
 
     /* the cancellation future is polled on by `wait_on_child` while
      * waiting for the child to exit normally */
@@ -2417,10 +2420,10 @@ async fn handle_child(
             biased;
             result = child.wait() => return result.map(Ok),
             Ok(()) = too_many_logs.changed() => KillReason::TooManyLogs,
-            _ = update_job => KillReason::Cancelled,
             _ = sleep(*TIMEOUT_DURATION) => KillReason::Timeout,
+            _ = update_job => KillReason::Cancelled,
         };
-        tx.send(()).await.expect("rx should never be dropped");
+        tx.send(()).expect("rx should never be dropped");
         drop(tx);
 
         let set_reason = async {
@@ -2443,7 +2446,7 @@ async fn handle_child(
                 }
             }
         };
-
+        
         /* send SIGKILL and reap child process */
         let (_, kill) = future::join(set_reason, child.kill()).await;
         kill.map(|()| Err(kill_reason))
@@ -2459,12 +2462,13 @@ async fn handle_child(
         /* log_remaining is zero when output limit was reached */
         let mut log_remaining = max_log_size.saturating_sub(logs.chars().count());
         let mut result = io::Result::Ok(());
-        let mut output = output;
+        let mut output = output.take_until(rx2.recv()).boxed();
         /* `do_write` resolves the task, but does not contain the Result.
          * It's useful to know if the task completed. */
         let (mut do_write, mut write_result) = tokio::spawn(ready(())).remote_handle();
 
-        while let Some(line) = output.by_ref().next().await {
+        while let Some(line) =  output.by_ref().next().await {
+
             let do_write_ = do_write.shared();
 
             let mut read_lines = stream::once(async { line })
@@ -2479,11 +2483,14 @@ async fn handle_child(
             let mut joined = String::new();
 
             while let Some(line) = read_lines.next().await {
+
                 match line {
                     Ok(_) if log_remaining == 0 => (),
                     Ok(line) => {
+                        if line.is_empty() {
+                            continue;
+                        }
                         append_with_limit(&mut joined, &line, &mut log_remaining);
-
                         if log_remaining == 0 {
                             tracing::info!(%job_id, "Too many logs lines for job {job_id}");
                             let _ = set_too_many_logs.send(true);
@@ -2503,6 +2510,7 @@ async fn handle_child(
 
             logs.push_str(&joined);
 
+
             /* Ensure the last flush completed before starting a new one.
              *
              * This shouldn't pause since `take_until()` reads lines until `do_write`
@@ -2519,8 +2527,7 @@ async fn handle_child(
                 panic::resume_unwind(p);
             }
 
-            (do_write, write_result) =
-                tokio::spawn(append_logs(job_id, joined, db.clone())).remote_handle();
+            (do_write, write_result) = tokio::spawn(append_logs(job_id, joined, db.clone())).remote_handle();
 
             if let Err(err) = result {
                 tracing::error!(%job_id, %err, "error reading output for job {job_id}: {err}");
@@ -2530,6 +2537,7 @@ async fn handle_child(
             if *set_too_many_logs.borrow() {
                 break;
             }
+
         }
 
         /* drop our end of the pipe */
