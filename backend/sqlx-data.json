@@ -5040,6 +5040,18 @@
     },
     "query": "\n        SELECT id, flow_status, suspend, script_path\n        FROM queue\n        WHERE id = ( SELECT parent_job FROM queue WHERE id = $1 UNION ALL SELECT parent_job FROM completed_job WHERE id = $1)\n        FOR UPDATE\n        "
   },
+  "c9d97800eb0ec87df8e8959b283dacb2c6cce422365ed394375641488ceb6b65": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE worker_ping SET ping_at = now() WHERE worker = $1"
+  },
   "cac594031a21b4806de9c4616317d3541522ef9712a83ecff7bd8b5f6e870748": {
     "describe": {
       "columns": [],
