@@ -220,18 +220,23 @@
 			return
 		}
 		loading.save = true
-		await computeTriggerables()
-		await AppService.updateApp({
-			workspace: $workspaceStore!,
-			path: $page.params.path,
-			requestBody: {
-				value: $app!,
-				summary: $summary,
-				policy
-			}
-		})
-		loading.save = false
-		sendUserToast('App saved')
+		try {
+			await computeTriggerables()
+			await AppService.updateApp({
+				workspace: $workspaceStore!,
+				path: $page.params.path,
+				requestBody: {
+					value: $app!,
+					summary: $summary,
+					policy
+				}
+			})
+			sendUserToast('App saved')
+			loading.save = false
+		} catch (e) {
+			loading.save = false
+			throw e
+		}
 	}
 
 	let selectedJobId: string | undefined = undefined

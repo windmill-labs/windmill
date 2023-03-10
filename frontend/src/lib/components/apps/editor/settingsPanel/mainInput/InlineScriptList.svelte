@@ -19,6 +19,7 @@
 <div class="w-full flex mt-1 items-center gap-2">
 	<slot />
 	<input
+		on:keydown|stopPropagation
 		type="text"
 		placeholder="Search inline scripts"
 		bind:value={filter}

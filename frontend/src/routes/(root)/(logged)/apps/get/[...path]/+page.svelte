@@ -3,17 +3,20 @@
 	import AppPreview from '$lib/components/apps/editor/AppPreview.svelte'
 	import type { EditorBreakpoint } from '$lib/components/apps/types'
 
-	import { Skeleton } from '$lib/components/common'
+	import { Button, Skeleton } from '$lib/components/common'
 	import { AppService, AppWithLastVersion } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { classNames } from '$lib/utils'
+	import { canWrite } from '$lib/utils'
+	import { faPen } from '@fortawesome/free-solid-svg-icons'
 	import { writable } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'
 
 	let app: AppWithLastVersion | undefined = undefined
+	let can_write = false
 
 	async function loadApp() {
 		app = await AppService.getAppByPath({ workspace: $workspaceStore!, path: $page.params.path })
+		can_write = canWrite(app?.path, app?.extra_perms!, $userStore)
 	}
 
 	let queryId = $page.url.searchParams.get('workspace_id')
@@ -49,6 +52,13 @@
 			isEditor={false}
 			noBackend={false}
 		/>
+		{#if can_write}
+			<div class="absolute bottom-4 z-20 right-4">
+				<Button size="sm" startIcon={{ icon: faPen }} variant="border" href="/apps/edit/{app.path}"
+					>Edit</Button
+				>
+			</div>
+		{/if}
 	</div>
 {:else}
 	<Skeleton layout={[10]} />

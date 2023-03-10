@@ -42,7 +42,12 @@
 	{:else if componentInput.fieldType === 'labeledresource'}
 		{#if componentInput?.value && typeof componentInput?.value == 'object' && 'label' in componentInput?.value}
 			<div class="flex flex-col gap-1 w-full">
-				<input placeholder="Label" type="text" bind:value={componentInput.value['label']} />
+				<input
+					on:keydown|stopPropagation
+					placeholder="Label"
+					type="text"
+					bind:value={componentInput.value['label']}
+				/>
 				<ResourcePicker
 					initialValue={componentInput.value?.['value']?.split('$res:')[1] || ''}
 					on:change={(e) => {
