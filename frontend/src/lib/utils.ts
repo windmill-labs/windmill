@@ -3,7 +3,6 @@ import { goto } from '$app/navigation'
 import {
 	AppService,
 	FlowService,
-	FolderService,
 	Script,
 	ScriptService,
 	UserService,
@@ -234,6 +233,7 @@ export function canWrite(
 	if (user.folders.findIndex((x) => path.startsWith('f/' + x)) != -1) {
 		return true
 	}
+
 	return false
 }
 

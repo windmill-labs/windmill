@@ -13,7 +13,7 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
 	import { Button, Kbd, Skeleton } from '$lib/components/common'
-	import { faEye, faPlay, faScroll } from '@fortawesome/free-solid-svg-icons'
+	import { faEye, faPen, faPlay } from '@fortawesome/free-solid-svg-icons'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 
 	const path = $page.params.path
@@ -87,9 +87,21 @@
 					<div
 						class="flex flex-row-reverse w-full flex-wrap md:flex-nowrap justify-between gap-x-1"
 					>
-						<div class="flex flex-row">
-							<div>
+						<div class="flex flex-row gap-4">
+							{#if !$userStore?.operator && can_write}
+								<div>
+									<Button
+										size="sm"
+										startIcon={{ icon: faPen }}
+										disabled={flow == undefined}
+										variant="border"
+										href="/flows/edit/{flow?.path}">Edit</Button
+									>
+								</div>
+							{/if}
+							<div class="md:pr-4">
 								<Button
+									size="sm"
 									startIcon={{ icon: faEye }}
 									disabled={flow == undefined}
 									btnClasses="mr-4"
