@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import type { AppEditorContext } from '../types'
+	import type { AppViewerContext } from '../types'
 	import GridPanel from './GridPanel.svelte'
 	import PanelSection from './settingsPanel/common/PanelSection.svelte'
 	import InputsSpecsEditor from './settingsPanel/InputsSpecsEditor.svelte'
 
-	const { selectedComponent, app, stateId } = getContext<AppEditorContext>('AppEditorContext')
+	const { selectedComponent, app, stateId } = getContext<AppViewerContext>('AppViewerContext')
 </script>
 
 {#if $app.grid}

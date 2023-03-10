@@ -4,7 +4,7 @@
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { emptyString } from '$lib/utils'
 	import { Tab, TabContent, Tabs } from '../../../common'
-	import type { AppEditorContext } from '../../types'
+	import type { AppViewerContext } from '../../types'
 	import ListItem from './ListItem.svelte'
 	import { isOpenStore } from './store'
 	import CssProperty from './CssProperty.svelte'
@@ -24,7 +24,7 @@
 		ids: string[]
 	}
 
-	const { app } = getContext<AppEditorContext>('AppEditorContext')
+	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
 	let rawCode = ''
 	let viewJsonSchema = false

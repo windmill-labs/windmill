@@ -4,7 +4,7 @@
 	import { fade } from 'svelte/transition'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
-	import type { AppEditorContext } from '../../types'
+	import type { AppViewerContext } from '../../types'
 	import InputValue from './InputValue.svelte'
 
 	export let componentInput: AppInput
@@ -13,7 +13,7 @@
 	export let render: boolean
 
 	// Sync the result to the output
-	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
+	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
 	$: outputs = $worldStore?.outputsById[id] as {
 		loading: Output<boolean>

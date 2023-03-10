@@ -2,7 +2,7 @@
 	import { getContext, onMount } from 'svelte'
 	import { concatCustomCss } from '../../utils'
 	import type { AppInput } from '../../inputType'
-	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { InputValue } from '../helpers'
 	import { twMerge } from 'tailwind-merge'
 	import { Map, View, Feature } from 'ol'
@@ -35,7 +35,7 @@
 	export let render: boolean
 
 	const { app, worldStore, selectedComponent, connectingInput, focusedGrid, mode } =
-		getContext<AppEditorContext>('AppEditorContext')
+		getContext<AppViewerContext>('AppViewerContext')
 
 	$: outputs = $worldStore?.outputsById[id] as {
 		mapRegion: Output<{

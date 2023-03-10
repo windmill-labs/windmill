@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { getContext, afterUpdate } from 'svelte'
-	import type { App, AppEditorContext, GridItem } from '../types'
+	import { getContext, afterUpdate, setContext } from 'svelte'
+	import type { App, AppEditorContext, AppViewerContext, GridItem } from '../types'
 	import Grid from '@windmill-labs/svelte-grid'
 	import { classNames } from '$lib/utils'
 	import { columnConfiguration, disableDrag, enableDrag, isFixed, toggleFixed } from '../gridUtils'
@@ -11,7 +11,7 @@
 	import HiddenComponent from '../components/helpers/HiddenComponent.svelte'
 	import Component from './component/Component.svelte'
 	import { deepEqual } from 'fast-equals'
-	import { push } from '$lib/history'
+	import { push, type History } from '$lib/history'
 	import { expandGriditem, findGridItem } from './appUtils'
 
 	export let policy: Policy
@@ -26,9 +26,10 @@
 		summary,
 		focusedGrid,
 		parentWidth,
-		history,
 		breakpoint
-	} = getContext<AppEditorContext>('AppEditorContext')
+	} = getContext<AppViewerContext>('AppViewerContext')
+
+	const { history } = getContext<AppEditorContext>('AppEditorContext')
 
 	// The drag is disabled when the user is connecting an input
 	// or when the user is previewing the app
@@ -107,13 +108,17 @@
 	let pointerdown = false
 	let lastapp: App | undefined = undefined
 	const onpointerdown = () => {
-		lastapp = JSON.parse(JSON.stringify($app))
-		pointerdown = true
+		if (history) {
+			lastapp = JSON.parse(JSON.stringify($app))
+			pointerdown = true
+		}
 	}
 	const onpointerup = () => {
-		pointerdown = false
-		if (!deepEqual(lastapp, $app)) {
-			push(history, lastapp, false, true)
+		if (history) {
+			pointerdown = false
+			if (!deepEqual(lastapp, $app)) {
+				push(history, lastapp, false, true)
+			}
 		}
 	}
 

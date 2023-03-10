@@ -4,11 +4,11 @@
 	import { faClose, faEdit } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { ResultAppInput } from '../../inputType'
-	import type { AppEditorContext } from '../../types'
+	import type { AppViewerContext } from '../../types'
 	import { clearResultAppInput } from '../../utils'
 	import InlineScriptEditorDrawer from '../inlineScriptsPanel/InlineScriptEditorDrawer.svelte'
 
-	const { app } = getContext<AppEditorContext>('AppEditorContext')
+	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
 	export let appInput: ResultAppInput
 	let inlineScriptEditorDrawer: InlineScriptEditorDrawer

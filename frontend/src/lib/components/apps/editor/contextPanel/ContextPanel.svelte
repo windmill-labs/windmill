@@ -1,18 +1,15 @@
 <script lang="ts">
-	import { classNames } from '$lib/utils'
 	import { X } from 'lucide-svelte'
 	import { getContext } from 'svelte'
-	import { flip } from 'svelte/animate'
-	import { fade, slide } from 'svelte/transition'
-	import type { AppEditorContext } from '../../types'
+
+	import type { AppViewerContext } from '../../types'
 	import { findGridItem } from '../appUtils'
 	import { components } from '../component'
 	import PanelSection from '../settingsPanel/common/PanelSection.svelte'
 	import ComponentOutput from './ComponentOutput.svelte'
-	import ComponentOutputViewer from './ComponentOutputViewer.svelte'
 
 	const { connectingInput, staticOutputs, worldStore, selectedComponent, app } =
-		getContext<AppEditorContext>('AppEditorContext')
+		getContext<AppViewerContext>('AppViewerContext')
 
 	const manualyOpenedIds = new Set<string>()
 

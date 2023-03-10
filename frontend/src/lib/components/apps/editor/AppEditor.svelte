@@ -4,11 +4,12 @@
 	import { twMerge } from 'tailwind-merge'
 
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { writable } from 'svelte/store'
+	import { writable, type Writable } from 'svelte/store'
 	import { buildWorld, type World } from '../rx'
 	import type {
 		App,
 		AppEditorContext,
+		AppViewerContext,
 		ConnectingInput,
 		EditorBreakpoint,
 		EditorMode,
@@ -32,11 +33,13 @@
 
 	import SettingsPanel from './SettingsPanel.svelte'
 	import { fly } from 'svelte/transition'
-	import type { Policy } from '$lib/gen'
+	import { VariableService, type Policy } from '$lib/gen'
 	import { page } from '$app/stores'
 	import CssSettings from './componentsPanel/CssSettings.svelte'
 	import { initHistory } from '$lib/history'
 	import ComponentNavigation from './component/ComponentNavigation.svelte'
+	import ItemPicker from '$lib/components/ItemPicker.svelte'
+	import VariableEditor from '$lib/components/VariableEditor.svelte'
 
 	export let app: App
 	export let path: string
@@ -62,8 +65,9 @@
 	const runnableComponents = writable<Record<string, () => Promise<void>>>({})
 	const errorByComponent = writable<Record<string, { error: string; componentId: string }>>({})
 	const focusedGrid = writable<FocusedGrid | undefined>(undefined)
+	const pickVariableCallback: Writable<((path: string) => void) | undefined> = writable(undefined)
 
-	setContext<AppEditorContext>('AppEditorContext', {
+	setContext<AppViewerContext>('AppViewerContext', {
 		worldStore,
 		staticOutputs,
 		app: appStore,
@@ -84,9 +88,13 @@
 		openDebugRun: writable(undefined),
 		focusedGrid,
 		stateId: writable(0),
-		parentWidth: writable(0),
+		parentWidth: writable(0)
+	})
+
+	setContext<AppEditorContext>('AppEditorContext', {
 		history,
-		componentControl: writable({})
+		componentControl: writable({}),
+		pickVariableCallback
 	})
 
 	let timeout: NodeJS.Timeout | undefined = undefined
@@ -132,6 +140,14 @@
 	} else {
 		selectedTab = 'insert'
 	}
+
+	let itemPicker: ItemPicker | undefined = undefined
+
+	$: if ($pickVariableCallback) {
+		itemPicker?.openDrawer()
+	}
+
+	let variableEditor: VariableEditor | undefined = undefined
 </script>
 
 <svelte:window on:hashchange={hashchange} />
@@ -284,3 +300,36 @@
 {:else}
 	App editor not available to operators
 {/if}
+
+<ItemPicker
+	bind:this={itemPicker}
+	pickCallback={(path, _) => {
+		$pickVariableCallback?.(path)
+	}}
+	itemName="Variable"
+	extraField="path"
+	loadItems={async () =>
+		(await VariableService.listVariable({ workspace: $workspaceStore ?? '' })).map((x) => ({
+			name: x.path,
+			...x
+		}))}
+>
+	<div
+		slot="submission"
+		class="flex flex-row-reverse w-full bg-white border-t border-gray-200 rounded-bl-lg rounded-br-lg"
+	>
+		<Button
+			variant="border"
+			color="blue"
+			size="sm"
+			startIcon={{ icon: faPlus }}
+			on:click={() => {
+				variableEditor?.initNew?.()
+			}}
+		>
+			New variable
+		</Button>
+	</div>
+</ItemPicker>
+
+<VariableEditor bind:this={variableEditor} />

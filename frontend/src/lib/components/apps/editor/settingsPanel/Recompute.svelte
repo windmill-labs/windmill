@@ -1,13 +1,13 @@
 <script lang="ts">
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { getContext } from 'svelte'
-	import type { AppEditorContext } from '../../types'
+	import type { AppViewerContext } from '../../types'
 	import PanelSection from './common/PanelSection.svelte'
 
 	export let recomputeIds: string[] | undefined = undefined
 	export let ownId: string
 
-	const { runnableComponents } = getContext<AppEditorContext>('AppEditorContext')
+	const { runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 
 	function onChange(
 		event: Event & {

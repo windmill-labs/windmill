@@ -3,11 +3,11 @@
 	import { faRefresh } from '@fortawesome/free-solid-svg-icons'
 	import { RefreshCcw, RefreshCw } from 'lucide-svelte'
 	import { getContext } from 'svelte'
-	import type { AppEditorContext } from '../../types'
+	import type { AppViewerContext } from '../../types'
 
 	export let componentId: string
 
-	const { runnableComponents, worldStore } = getContext<AppEditorContext>('AppEditorContext')
+	const { runnableComponents, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
 	async function refresh() {
 		window.dispatchEvent(new Event('pointerup'))

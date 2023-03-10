@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { components } from '../component'
 	import { getContext } from 'svelte'
-	import type { AppEditorContext, GridItem } from '../../types'
+	import type { AppViewerContext, GridItem } from '../../types'
 	import ComponentOutputViewer from './ComponentOutputViewer.svelte'
 
 	export let gridItem: GridItem
 
-	const { app, staticOutputs, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, staticOutputs, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 	const name = getComponentNameById(gridItem.id)
 
 	function getComponentNameById(componentId: string) {

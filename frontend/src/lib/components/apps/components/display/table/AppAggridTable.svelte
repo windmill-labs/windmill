@@ -5,7 +5,7 @@
 
 	import { getContext, onMount } from 'svelte'
 	import type { Output } from '../../../rx'
-	import type { AppEditorContext } from '../../../types'
+	import type { AppViewerContext } from '../../../types'
 	import InputValue from '../../helpers/InputValue.svelte'
 	import type { AppInput } from '../../../inputType'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
@@ -23,7 +23,7 @@
 
 	let result: Record<string, any>[] | undefined = undefined
 
-	const { worldStore, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
+	const { worldStore, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 
 	let selectedRowIndex = -1
 

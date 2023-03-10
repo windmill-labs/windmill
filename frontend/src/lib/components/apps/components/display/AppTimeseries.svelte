@@ -20,7 +20,7 @@
 	import { Scatter } from 'svelte-chartjs'
 	import InputValue from '../helpers/InputValue.svelte'
 	import type { ChartOptions, ChartData } from 'chart.js'
-	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { getContext } from 'svelte'
 	import { concatCustomCss } from '../../utils'
 
@@ -32,7 +32,7 @@
 	export let render: boolean
 
 	export const staticOutputs: string[] = ['loading', 'result']
-	const { app } = getContext<AppEditorContext>('AppEditorContext')
+	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
 	let logarithmicScale = false
 	let zoomable = false

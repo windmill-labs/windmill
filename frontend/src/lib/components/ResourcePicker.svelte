@@ -58,6 +58,7 @@
 	on:refresh={async (e) => {
 		await loadResources(resourceType)
 		value = e.detail
+		valueSelect = { value: e.detail, label: e.detail }
 	}}
 	newPageOAuth
 	bind:this={appConnect}
@@ -87,7 +88,7 @@
 		}}
 		items={collection}
 		class="text-clip grow min-w-0"
-		placeholder="{resourceType} resource"
+		placeholder="{resourceType ?? 'any'} resource"
 		inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
 		containerStyles={SELECT_INPUT_DEFAULT_STYLE.containerStyles}
 	/>

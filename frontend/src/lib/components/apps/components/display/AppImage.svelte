@@ -3,7 +3,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import type { staticValues } from '../../editor/componentsPanel/componentStaticValues'
 	import type { AppInput } from '../../inputType'
-	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import InputValue from '../helpers/InputValue.svelte'
 
@@ -15,7 +15,7 @@
 	export let customCss: ComponentCustomCSS<'image'> | undefined = undefined
 	export let render: boolean
 
-	const { app } = getContext<AppEditorContext>('AppEditorContext')
+	const { app } = getContext<AppViewerContext>('AppViewerContext')
 	const fit: Record<FitOption, string> = {
 		cover: 'object-cover',
 		contain: 'object-contain',

@@ -4,7 +4,7 @@
 	import { push } from '$lib/history'
 	import { faCopy } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
-	import type { App, AppEditorContext } from '../../types'
+	import type { App, AppEditorContext, AppViewerContext } from '../../types'
 	import {
 		createNewGridItem,
 		deleteGridItem,
@@ -19,7 +19,8 @@
 
 	let selectedOption: string
 
-	const { app, history } = getContext<AppEditorContext>('AppEditorContext')
+	const { app } = getContext<AppViewerContext>('AppViewerContext')
+	const { history } = getContext<AppEditorContext>('AppEditorContext')
 
 	function listAllSubGrids(app: App) {
 		return app.subgrids ? Object.keys(app.subgrids) : []

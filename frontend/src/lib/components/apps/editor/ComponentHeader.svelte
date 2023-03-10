@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
-	import type { AppEditorContext } from '../types'
+	import type { AppViewerContext } from '../types'
 	import { Anchor, Bug, Expand, Move } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Popover from '$lib/components/Popover.svelte'
@@ -15,7 +15,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	const { errorByComponent, openDebugRun } = getContext<AppEditorContext>('AppEditorContext')
+	const { errorByComponent, openDebugRun } = getContext<AppViewerContext>('AppViewerContext')
 
 	$: error = Object.values($errorByComponent).find((e) => e.componentId === component.id)
 
@@ -56,15 +56,15 @@
 		{/if}
 	</button>
 	<button
-		title="Position locking"
+		title="Expand"
 		class={classNames(
-			'text-gray-800 px-1 text-2xs py-0.5 font-bold w-fit shadow border border-gray-300 absolute  -top-1  right-[0.5rem] z-50 cursor-pointer',
+			'text-gray-800 px-1 text-2xs py-0.5 font-bold w-fit shadow border border-gray-300 absolute  -top-1  right-[4.5rem] z-50 cursor-pointer',
 			' hover:bg-gray-300',
 			selected ? 'bg-gray-200/80' : 'bg-gray-200/80'
 		)}
 		on:click={() => dispatch('expand')}
 	>
-		<Expand aria-label="Lock position" size={14} />
+		<Expand aria-label="Expand position" size={14} />
 	</button>
 {/if}
 
@@ -73,7 +73,7 @@
 		title="Move"
 		on:mousedown|stopPropagation|capture
 		class={classNames(
-			'text-gray-600 px-1 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute border border-gray-300 -top-1 shadow right-[4.5rem] z-50 cursor-move',
+			'text-gray-600 px-1 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute border border-gray-300 -top-1 shadow right-[0.5rem] z-50 cursor-move',
 			'bg-gray-200/80'
 		)}
 	>

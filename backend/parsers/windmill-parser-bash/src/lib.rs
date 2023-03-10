@@ -1,6 +1,8 @@
 #![allow(non_snake_case)] // TODO: switch to parse_* function naming
 
+use anyhow::anyhow;
 use regex::Regex;
+use serde_json::json;
 
 use std::collections::HashMap;
 use windmill_parser::{Arg, MainArgSignature, Typ};
@@ -17,19 +19,32 @@ pub fn parse_bash_sig(code: &str) -> windmill_common::error::Result<MainArgSigna
     }
 }
 
+lazy_static::lazy_static! {
+    static ref RE: Regex = Regex::new(r#"(?m)^(\w+)="\$(?:(\d+)|\{(\d+):-(.*)\})"$"#).unwrap();
+}
+
 fn parse_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
-    let mut hm = HashMap::new();
-    let re = Regex::new(r#"(?m)^(\w+)="\$(\d+)"$"#).unwrap();
-    for cap in re.captures_iter(code) {
-        hm.insert(cap[2].parse::<i32>()?, cap[1].to_string());
+    let mut hm: HashMap<i32, (String, Option<String>)> = HashMap::new();
+    for cap in RE.captures_iter(code) {
+        hm.insert(
+            cap.get(2)
+                .or(cap.get(3))
+                .and_then(|x| x.as_str().parse::<i32>().ok())
+                .ok_or_else(|| anyhow!("Impossible to parse arg digit"))?,
+            (
+                cap[1].to_string(),
+                cap.get(4).map(|x| x.as_str().to_string()),
+            ),
+        );
     }
     let mut args = vec![];
     for i in 1..20 {
         if hm.contains_key(&i) {
+            let (name, default) = hm.get(&i).unwrap();
             args.push(Arg {
-                name: hm[&i].clone(),
+                name: name.clone(),
                 typ: Typ::Str(None),
-                default: None,
+                default: default.clone().map(|x| json!(x)),
                 otyp: None,
                 has_default: false,
             });
@@ -43,6 +58,8 @@ fn parse_file(code: &str) -> anyhow::Result<Option<Vec<Arg>>> {
 #[cfg(test)]
 mod tests {
 
+    use serde_json::json;
+
     use super::*;
 
     #[test]
@@ -50,8 +67,7 @@ mod tests {
         let code = r#"
 token="$1"
 image="$2"
-digest="${3:-latest}"
-foo="$4"
+digest="${3:-latest with spaces}"
 
 "#;
         //println!("{}", serde_json::to_string()?);
@@ -73,6 +89,13 @@ foo="$4"
                         name: "image".to_string(),
                         typ: Typ::Str(None),
                         default: None,
+                        has_default: false
+                    },
+                    Arg {
+                        otyp: None,
+                        name: "digest".to_string(),
+                        typ: Typ::Str(None),
+                        default: Some(json!("latest with spaces")),
                         has_default: false
                     }
                 ]

@@ -14,7 +14,7 @@
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import type { AppInput } from '../../inputType'
 	import InputValue from '../helpers/InputValue.svelte'
-	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import { getContext } from 'svelte'
 
@@ -26,7 +26,7 @@
 	export let render: boolean
 
 	export const staticOutputs: string[] = ['loading', 'result']
-	const { app } = getContext<AppEditorContext>('AppEditorContext')
+	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
 	ChartJS.register(
 		Title,

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../inputType'
-	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 
@@ -12,7 +12,7 @@
 	export let render: boolean
 
 	export const staticOutputs: string[] = ['result', 'loading']
-	const { app } = getContext<AppEditorContext>('AppEditorContext')
+	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
 	let result: string | undefined = undefined
 	let h: number | undefined = undefined
