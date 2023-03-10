@@ -1,21 +1,27 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import type { AppEditorContext, EditorBreakpoint, GridItem } from '../../types'
-	import { findGridItemParentId } from '../appUtils'
+	import {
+		deleteGridItem,
+		duplicateGridItem,
+		findGridItem,
+		findGridItemParentId,
+		insertNewGridItem
+	} from '../appUtils'
 
 	const { app, selectedComponent, breakpoint, componentControl, focusedGrid } =
 		getContext<AppEditorContext>('AppEditorContext')
 
 	function getSortedGridItemsOfChildren(): GridItem[] {
 		if (!$focusedGrid) {
-			return sortGridItems($app.grid, $breakpoint)
+			return sortGridItemsPosition($app.grid, $breakpoint)
 		}
 
 		if (!$app.subgrids) {
 			return []
 		}
 
-		return sortGridItems(
+		return sortGridItemsPosition(
 			$app.subgrids[`${$focusedGrid.parentComponentId}-${$focusedGrid.subGridIndex}`],
 			$breakpoint
 		)
@@ -23,14 +29,14 @@
 
 	function getSortedGridItemsOfGrid(): GridItem[] {
 		if ($app.grid.find((item) => item.id === $selectedComponent)) {
-			return sortGridItems($app.grid, $breakpoint)
+			return sortGridItemsPosition($app.grid, $breakpoint)
 		}
 
 		if (!$app.subgrids) {
 			return []
 		}
 
-		return sortGridItems(
+		return sortGridItemsPosition(
 			Object.values($app.subgrids ?? {}).find((grid) =>
 				grid.find((item) => item.id === $selectedComponent)
 			) ?? [],
@@ -77,7 +83,7 @@
 				return
 			}
 
-			const sortedGridItems = sortGridItems(subgrid, $breakpoint)
+			const sortedGridItems = sortGridItemsPosition(subgrid, $breakpoint)
 
 			if (sortedGridItems) {
 				$selectedComponent = sortedGridItems[0].id
@@ -86,23 +92,76 @@
 		}
 	}
 
+	function handleEscape(event: KeyboardEvent) {
+		$selectedComponent = undefined
+		event.preventDefault()
+	}
+
+	function handleArrowUp(event: KeyboardEvent) {
+		if (!$selectedComponent) return
+		let parentId = findGridItemParentId($app, $selectedComponent)
+		if (parentId) {
+			$selectedComponent = parentId
+		} else {
+			$selectedComponent = undefined
+			$focusedGrid = undefined
+		}
+	}
+
+	function handleCopy(event: KeyboardEvent) {
+		if (!$selectedComponent) {
+			return
+		}
+		localStorage.setItem('copiedGridItem', $selectedComponent)
+		localStorage.removeItem('cutGridItem')
+	}
+
+	function handleCut(event: KeyboardEvent) {
+		if (!$selectedComponent) {
+			return
+		}
+
+		const gridItem = findGridItem($app, $selectedComponent)
+
+		if (!gridItem) {
+			return
+		}
+
+		localStorage.setItem('cutGridItem', JSON.stringify(gridItem))
+		localStorage.removeItem('copiedGridItem')
+		const parent = $focusedGrid ? $focusedGrid.parentComponentId : undefined
+
+		deleteGridItem($app, gridItem.data, parent, true)
+
+		$app = { ...$app }
+	}
+
+	function handlePaste(event: KeyboardEvent) {
+		const copied = localStorage.getItem('copiedGridItem')
+		const cut = localStorage.getItem('cutGridItem')
+
+		if (copied) {
+			const parent = $focusedGrid ? $focusedGrid.parentComponentId : undefined
+			duplicateGridItem($app, parent, copied)
+		} else if (cut) {
+			const gridItem = JSON.parse(cut)
+			insertNewGridItem($app, gridItem.data, $focusedGrid, true)
+		}
+
+		$app = { ...$app }
+
+		localStorage.removeItem('copiedGridItem')
+		localStorage.removeItem('cutGridItem')
+	}
+
 	function keydown(event: KeyboardEvent) {
 		switch (event.key) {
 			case 'Escape':
-				$selectedComponent = undefined
-				event.preventDefault()
+				handleEscape(event)
 				break
 
 			case 'ArrowUp': {
-				if (!$selectedComponent) return
-				let parentId = findGridItemParentId($app, $selectedComponent)
-				if (parentId) {
-					$selectedComponent = parentId
-				} else {
-					$selectedComponent = undefined
-					$focusedGrid = undefined
-				}
-				break
+				handleArrowUp(event)
 			}
 
 			case 'ArrowDown': {
@@ -120,12 +179,30 @@
 				break
 			}
 
+			case 'c':
+				if (event.ctrlKey) {
+					handleCopy(event)
+				}
+				break
+
+			case 'v':
+				if (event.ctrlKey) {
+					handlePaste(event)
+				}
+				break
+
+			case 'x':
+				if (event.ctrlKey) {
+					handleCut(event)
+				}
+				break
+
 			default:
 				break
 		}
 	}
 
-	function sortGridItems(gridItems: GridItem[], breakpoint: EditorBreakpoint): GridItem[] {
+	function sortGridItemsPosition(gridItems: GridItem[], breakpoint: EditorBreakpoint): GridItem[] {
 		return gridItems.sort((a: GridItem, b: GridItem) => {
 			const width = breakpoint === 'lg' ? 12 : 3
 
