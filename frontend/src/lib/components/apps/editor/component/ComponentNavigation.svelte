@@ -68,6 +68,7 @@
 	function down(event: KeyboardEvent) {
 		if (!$focusedGrid) {
 			$selectedComponent = getSortedGridItemsOfChildren()[0]?.id
+			event.preventDefault()
 		} else if ($app.subgrids) {
 			const index = $focusedGrid?.subGridIndex ?? 0
 			const subgrid = $app.subgrids[`${$selectedComponent}-${index}`]
