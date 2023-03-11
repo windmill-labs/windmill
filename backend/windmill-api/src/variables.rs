@@ -26,6 +26,7 @@ use axum::{
     Json, Router,
 };
 use hyper::StatusCode;
+use serde_json::Value;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{Error, JsonResult, Result},
@@ -378,9 +379,26 @@ async fn update_variable(
             if !authed.is_admin {
                 require_owner_of_path(&w_id, &authed.username, &authed.groups, &path, &db).await?;
             }
+            let mut v = sqlx::query_scalar!(
+                "SELECT value FROM resource  WHERE path = $1 AND workspace_id = $2",
+                path,
+                w_id
+            )
+            .fetch_one(&mut tx)
+            .await?;
+
+            if let Some(old_v) = v {
+                v = Some(replace_path(
+                    old_v,
+                    &format!("$var:{path}"),
+                    &format!("$var:{npath}"),
+                ))
+            }
+
             sqlx::query!(
-                "UPDATE resource SET path = $1 WHERE path = $2 AND workspace_id = $3",
+                "UPDATE resource SET path = $1, value = $2 WHERE path = $3 AND workspace_id = $4",
                 npath,
+                v,
                 path,
                 w_id
             )
@@ -417,6 +435,23 @@ async fn update_variable(
     );
 
     Ok(format!("variable {} updated (npath: {:?})", path, npath))
+}
+
+fn replace_path(v: serde_json::Value, path: &str, npath: &str) -> Value {
+    match v {
+        Value::Object(v) => Value::Object(
+            v.into_iter()
+                .map(|(k, v)| (k, replace_path(v, path, npath)))
+                .collect(),
+        ),
+        Value::Array(arr) => Value::Array(
+            arr.into_iter()
+                .map(|v| replace_path(v, path, npath))
+                .collect(),
+        ),
+        Value::String(s) if s == path => Value::String(npath.to_owned()),
+        _ => v,
+    }
 }
 
 pub async fn build_crypt<'c>(

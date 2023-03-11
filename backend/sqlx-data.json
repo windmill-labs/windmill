@@ -2984,20 +2984,6 @@
     },
     "query": "UPDATE group_ SET summary = $1 WHERE name = $2 AND workspace_id = $3"
   },
-  "83fc9bf32b9b40987feff61fea82e20613e74efb7bf8ba52485566667ccf2284": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Text",
-          "Text"
-        ]
-      }
-    },
-    "query": "UPDATE resource SET path = $1 WHERE path = $2 AND workspace_id = $3"
-  },
   "8543f029d9784234e4c6a6dcd7b03e62d544b98be261334ee210594e0bb839f2": {
     "describe": {
       "columns": [
@@ -3167,6 +3153,21 @@
       }
     },
     "query": "INSERT INTO usage (id, is_workspace, month_, usage) \n                    VALUES ($1, false, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 0) \n                    ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + 1 \n                    RETURNING usage.usage"
+  },
+  "8c0131a9cc61f2daa258d49767242bcaab6bb34a977ff7fb0c18aa9202d11f47": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Jsonb",
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE resource SET path = $1, value = $2 WHERE path = $3 AND workspace_id = $4"
   },
   "8c11511a74a41a65f448249a00ebe6964a61d00c2f7b4875a55e64741bf1f0ca": {
     "describe": {
@@ -4696,6 +4697,27 @@
       }
     },
     "query": "SELECT null FROM queue WHERE id = $1 FOR UPDATE"
+  },
+  "be1de9116b18a40681cb8c5ec7578fd7c5f7ce77f7af63f766c2899d85fe0bef": {
+    "describe": {
+      "columns": [
+        {
+          "name": "value",
+          "ordinal": 0,
+          "type_info": "Jsonb"
+        }
+      ],
+      "nullable": [
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT value FROM resource  WHERE path = $1 AND workspace_id = $2"
   },
   "be7a99a5bb6858323ca61dd51077010f51ba58ae76b9a413339255024dcb524d": {
     "describe": {
