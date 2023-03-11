@@ -51,11 +51,7 @@ export class ResourceFile implements Resource2, PushDiffs {
       };
       for (const diff of diffs) {
         if (diff.path[0] === "is_oauth") {
-          console.log(
-            colors.yellow(
-              "! is_oauth has been removed in newer versions. Ignoring.",
-            ),
-          );
+          //is_oauth is not updatable
           continue;
         }
         if (

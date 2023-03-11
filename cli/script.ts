@@ -106,16 +106,21 @@ export async function handleFile(path: string, content: string, workspace: strin
     } catch { }
     const language = inferContentTypeFromFilePath(path);
 
+    let remote = undefined
     try {
-      const remote = await ScriptService.getScriptByPath({
+      remote = await ScriptService.getScriptByPath({
         workspace,
         path: remotePath,
       });
-
-      if (typed.description === remote.description && content === remote.content && typed.summary === remote.summary && typed.is_template === remote.is_template && typed.kind == remote.kind && typed.lock == remote.lock && JSON.stringify(typed.schema) == JSON.stringify(remote.schema)) {
-        console.log(colors.yellow.bold(`Skipping script ${remotePath}`))
+    } catch { }
+    
+    if (remote) {
+      if (typed.description === remote.description && content === remote.content && typed.summary === remote.summary && typed.is_template === remote.is_template && typed.kind == remote.kind && remote?.lock == typed.lock?.join('\n') && JSON.stringify(typed.schema) == JSON.stringify(remote.schema)) {
+        console.log(colors.yellow(`No change to push for script ${remotePath}, skipping`))
         return true
       }
+
+
       await ScriptService.createScript({
         workspace,
         requestBody: {
@@ -133,7 +138,7 @@ export async function handleFile(path: string, content: string, workspace: strin
       });
 
       console.log(colors.yellow.bold(`Creating script with a parent ${remotePath}`))
-    } catch {
+    } else {
       // no parent hash
       await ScriptService.createScript({
         workspace: workspace,
