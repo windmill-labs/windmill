@@ -1,7 +1,8 @@
 <script lang="ts">
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	export let code: string
-	export let value: any
+	export let value: any = undefined
+	export let error = ''
 
 	function parseJson() {
 		try {
@@ -11,7 +12,6 @@
 			error = e.message
 		}
 	}
-	let error = ''
 	$: code && parseJson()
 </script>
 

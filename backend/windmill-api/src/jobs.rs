@@ -334,6 +334,8 @@ pub struct ListQueueQuery {
     pub order_desc: Option<bool>,
     pub job_kinds: Option<String>,
     pub suspended: Option<bool>,
+    // filter by matching a subset of the args using base64 encoded json subset
+    pub args: Option<String>,
 }
 
 fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> SqlBuilder {
@@ -376,11 +378,16 @@ fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> Sq
             sqlb.and_where_eq("suspend", 0);
         }
     }
+
     if let Some(jk) = &lq.job_kinds {
         sqlb.and_where_in(
             "job_kind",
             &jk.split(',').into_iter().map(quote).collect::<Vec<_>>(),
         );
+    }
+
+    if let Some(args) = &lq.args {
+        sqlb.and_where("args @> ?".bind(&args.replace("'", "''")));
     }
 
     sqlb
@@ -462,6 +469,7 @@ async fn list_jobs(
             order_desc: Some(true),
             job_kinds: lq.job_kinds,
             suspended: lq.suspended,
+            args: lq.args,
         },
         &[
             "'QueuedJob' as typ",
@@ -1136,14 +1144,14 @@ where
         struct InPayload {
             payload: Option<String>,
         }
-
-        fn decode_payload<D: DeserializeOwned, T: AsRef<[u8]>>(t: T) -> anyhow::Result<D> {
-            let vec = base64::engine::general_purpose::URL_SAFE
-                .decode(t)
-                .context("invalid base64")?;
-            serde_json::from_slice(vec.as_slice()).context("invalid json")
-        }
     }
+}
+
+fn decode_payload<D: DeserializeOwned, T: AsRef<[u8]>>(t: T) -> anyhow::Result<D> {
+    let vec = base64::engine::general_purpose::URL_SAFE
+        .decode(t)
+        .context("invalid base64")?;
+    serde_json::from_slice(vec.as_slice()).context("invalid json")
 }
 pub async fn run_flow_by_path(
     authed: Authed,
@@ -1706,6 +1714,15 @@ fn list_completed_jobs_query(
         );
     }
 
+    if let Some(args) = &lq.args {
+        sqlb.and_where("args @> ?".bind(&args.replace("'", "''")));
+    }
+
+    if let Some(result) = &lq.result {
+        sqlb.and_where("result @> ?".bind(&result.replace("'", "''")));
+    }
+
+    tracing::info!("{:?}", sqlb.sql());
     sqlb
 }
 #[derive(Deserialize, Clone)]
@@ -1723,6 +1740,10 @@ pub struct ListCompletedQuery {
     pub is_skipped: Option<bool>,
     pub is_flow_step: Option<bool>,
     pub suspended: Option<bool>,
+    // filter by matching a subset of the args using base64 encoded json subset
+    pub args: Option<String>,
+    // filter by matching a subset of the result using base64 encoded json subset
+    pub result: Option<String>,
 }
 
 async fn list_completed_jobs(

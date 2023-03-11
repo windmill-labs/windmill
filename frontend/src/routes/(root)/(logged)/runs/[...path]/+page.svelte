@@ -18,6 +18,8 @@
 	import Icon from 'svelte-awesome'
 	import AutoComplete from 'simple-svelte-autocomplete'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
+	import Slider from '$lib/components/Slider.svelte'
+	import JsonEditor from '$lib/components/apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
 
 	let jobs: Job[] | undefined
 	let error: Error | undefined
@@ -55,6 +57,16 @@
 
 	$: ($workspaceStore && loadJobs(createdBefore)) || (path && success && isSkipped && jobKinds)
 
+	let filterTimeout: NodeJS.Timeout | undefined = undefined
+	function debounceSyncer() {
+		filterTimeout && clearTimeout(filterTimeout)
+		filterTimeout = setTimeout(() => {
+			loadJobs(createdBefore)
+		}, 500)
+	}
+
+	$: (true || argFilter || resultFilter) && debounceSyncer()
+
 	async function fetchJobs(
 		createdBefore: string | undefined,
 		createdAfter: string | undefined
@@ -67,7 +79,13 @@
 			jobKinds,
 			success,
 			isSkipped,
-			isFlowStep: jobKindsCat != 'all' ? false : undefined
+			isFlowStep: jobKindsCat != 'all' ? false : undefined,
+			args:
+				argFilter && argFilter != '{}' && argFilter != '' && argError == '' ? argFilter : undefined,
+			result:
+				resultFilter && resultFilter != '{}' && resultFilter != '' && resultError == ''
+					? resultFilter
+					: undefined
 		})
 	}
 
@@ -89,7 +107,7 @@
 	}
 
 	async function syncer() {
-		if (jobs && createdBefore === undefined) {
+		if (sync && jobs && createdBefore === undefined) {
 			const reversedJobs = [...jobs].reverse()
 			const lastIndex = reversedJobs.findIndex((x) => x.type == Job.type.QUEUED_JOB) - 1
 			let ts = lastIndex >= 0 ? reversedJobs[lastIndex].created_at : undefined
@@ -110,9 +128,17 @@
 		}
 	}
 
+	let sync = true
 	onMount(() => {
 		loadPaths()
 		intervalId = setInterval(syncer, 5000)
+		document.addEventListener('visibilitychange', () => {
+			if (document.hidden) {
+				sync = false
+			} else {
+				sync = true
+			}
+		})
 	})
 
 	let paths: string[] = []
@@ -146,6 +172,12 @@
 	function onSearchPathChange() {
 		goto(`/runs/${searchPath}?${$page.url.searchParams.toString()}`)
 	}
+
+	let argFilter: any = undefined
+	let resultFilter: any = undefined
+
+	let argError = ''
+	let resultError = ''
 </script>
 
 <CenteredPage>
@@ -210,28 +242,47 @@
 					<input type="text" value={maxTs ?? 'zoom x axis to set max'} disabled />
 				</div>
 			</div>
-			<div class="flex flex-row gap-x-2 mb-2 w-full">
-				{#key path}
-					<AutoComplete
-						items={paths}
-						value={path}
-						bind:selectedItem={searchPath}
-						placeholder="Search by path of script/flow"
-					/>
-				{/key}
-				<Button
-					variant="border"
-					on:click={() => {
-						minTs = undefined
-						maxTs = undefined
-						goto('/runs?' + $page.url.searchParams.toString())
-						fetchJobs(createdBefore, undefined)
-					}}
-					size="xs"
+			<div class="grid grid-cols-1 md:grid-cols-3 gap-2 mb-2 w-full flex-wrap">
+				<div>
+					<div class="flex flex-row gap-x-2">
+						{#key path}
+							<AutoComplete
+								items={paths}
+								value={path}
+								bind:selectedItem={searchPath}
+								placeholder="Search by path"
+							/>
+						{/key}
+						<Button
+							variant="border"
+							on:click={() => {
+								minTs = undefined
+								maxTs = undefined
+								goto('/runs?' + $page.url.searchParams.toString())
+								fetchJobs(createdBefore, undefined)
+							}}
+							size="xs"
+						>
+							<Icon data={faSearchMinus} />
+						</Button>
+					</div>
+				</div>
+				<div
+					><Slider
+						text="Filter by args"
+						tooltip={'Filter by a json being a subset of the args. Try \'{"foo": "bar"}\''}
+						><JsonEditor bind:error={argError} bind:code={argFilter} /></Slider
+					></div
 				>
-					<Icon data={faSearchMinus} />
-				</Button>
+				<div
+					><Slider
+						text="Filter by result"
+						tooltip={'Filter by a json being a subset of the result. Try \'{"foo": "bar"}\''}
+						><JsonEditor bind:error={resultError} bind:code={resultFilter} /></Slider
+					></div
+				>
 			</div>
+
 			<Skeleton loading={!jobs} layout={[[6], 1, [6], 1, [6], 1, [6], 1, [6]]} />
 
 			{#if jobs}
