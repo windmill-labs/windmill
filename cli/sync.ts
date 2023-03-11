@@ -33,8 +33,8 @@ import { ResourceFile } from "./resource.ts";
 import { FlowFile } from "./flow.ts";
 import { VariableFile } from "./variable.ts";
 import { handleFile } from "./script.ts";
-import { equal } from "https://deno.land/x/equal/mod.ts";
-import { diffCharacters } from "https://deno.land/x/diff/mod.ts";
+import { equal } from "https://deno.land/x/equal@v1.5.0/mod.ts";
+import { diffCharacters } from "https://deno.land/x/diff@v0.3.5/mod.ts";
 type DynFSElement = {
   isDirectory: boolean;
   path: string;
@@ -179,13 +179,13 @@ async function elementsToMap(els: DynFSElement, ignore: (path: string, isDirecto
   return map;
 }
 async function compareDynFSElement(
-  els1: DynFSElement, els2: DynFSElement,
+  els1: DynFSElement, els2: DynFSElement | undefined,
   ignore: (path: string, isDirectory: boolean) => boolean,
-  raw: boolean
 ): Promise<Change[]> {
 
-  const [m1, m2] = raw ? [await elementsToMap(els1, ignore), {}] :
-    await Promise.all([elementsToMap(els1, ignore), elementsToMap(els2, ignore)]);
+  const [m1, m2] = els2
+    ? await Promise.all([elementsToMap(els1, ignore), elementsToMap(els2, ignore)])
+    : [await elementsToMap(els1, ignore), {}];
 
   const changes: Change[] = [];
 
@@ -266,8 +266,8 @@ async function pull(
 
   console.log(colors.gray("Computing the files to update locally to match remote (taking .wmillignore into account)"));
   const remote = ZipFSElement((await downloadZip(workspace))!)
-  const local = await FSFSElement(path.join(Deno.cwd(), opts.raw ? "" : ".wmill"))
-  const changes = await compareDynFSElement(remote, local, await ignoreF(), opts.raw)
+  const local = opts.raw ? undefined : await FSFSElement(path.join(Deno.cwd(), opts.raw ? "" : ".wmill"))
+  const changes = await compareDynFSElement(remote, local, await ignoreF())
 
 
   console.log(`remote -> local: ${changes.length} changes to apply`);
@@ -289,7 +289,7 @@ async function pull(
 
         try {
           const currentLocal = await Deno.readTextFile(target)
-          if (currentLocal !== change.before) {
+          if (currentLocal !== change.before && currentLocal !== change.after) {
             console.log(colors.red(`Conflict detected on ${change.path}\nBoth local and remote have been modified.`))
             if (opts.failConflicts) {
               conflicts.push({ local: currentLocal, change, path: change.path })
@@ -459,7 +459,6 @@ function removeSuffix(str: string, suffix: string) {
 
 async function push(opts: GlobalOptions & { raw: boolean, yes: boolean, skipPull: boolean, failConflicts: boolean }) {
 
-
   if (!opts.raw) {
     if (!opts.skipPull) {
       console.log(colors.gray("You need to be up-to-date before pushing, pulling first."))
@@ -474,9 +473,9 @@ async function push(opts: GlobalOptions & { raw: boolean, yes: boolean, skipPull
 
 
   console.log(colors.gray("Computing the files to update on the remote to match local (taking .wmillignore into account)"));
-  const remote = ZipFSElement((await downloadZip(workspace))!)
+  const remote = opts.raw ? undefined : ZipFSElement((await downloadZip(workspace))!)
   const local = await FSFSElement(path.join(Deno.cwd(), ""))
-  const changes = await compareDynFSElement(local, remote, await ignoreF(), opts.raw)
+  const changes = await compareDynFSElement(local, remote, await ignoreF())
 
   console.log(`remote <- local: ${changes.length} changes to apply`);
   if (changes.length > 0) {
@@ -575,7 +574,7 @@ async function push(opts: GlobalOptions & { raw: boolean, yes: boolean, skipPull
             break;
         }
         try {
-          Deno.remove(stateTarget)
+          await Deno.remove(stateTarget)
         } catch { }
       }
     }
@@ -616,7 +615,7 @@ async function push(opts: GlobalOptions & { raw: boolean, yes: boolean, skipPull
       await file.pushDiffs(workspace, remotePath, diffs);
     } catch (e) {
       console.error("Failing to apply diffs to " + remotePath)
-      console.error(e.body)
+      console.error(JSON.stringify(e))
     }
   }
 }
@@ -635,7 +634,7 @@ const command = new Command()
     "Push any local changes and apply them remotely. Use --raw for usage without local state tracking.",
   )
   .option("--fail-conflicts", "Error on conflicts (both remote and local have changes on the same item)")
-  .option("--skip-pull", "Push without pulling first")
+  .option("--skip-pull", "Push without pulling first (you have pulled prior)")
   .option("--yes", "Push without needing confirmation")
   .option("--raw", "Push without using state, just overwrite.")
   .action(push as any);

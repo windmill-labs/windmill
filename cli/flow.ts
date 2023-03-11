@@ -94,6 +94,7 @@ export class FlowFile implements Resource, PushDiffs {
         ...changeset,
         ...base_changeset,
       }
+
       await FlowService.updateFlow({
         workspace: workspace,
         path: remotePath,
@@ -114,20 +115,11 @@ export class FlowFile implements Resource, PushDiffs {
     }
   }
   async push(workspace: string, remotePath: string): Promise<void> {
-    let remote: Flow | undefined;
-    try {
-      remote = await FlowService.getFlowByPath({
-        workspace,
-        path: remotePath,
-      });
-    } catch {
 
-      remote = undefined;
-    }
     await this.pushDiffs(
       workspace,
       remotePath,
-      microdiff(remote ?? {}, this, { cyclesFix: false }),
+      microdiff({}, this, { cyclesFix: false }),
     );
   }
 }

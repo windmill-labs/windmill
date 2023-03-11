@@ -13,7 +13,6 @@ import {
   EditResourceType,
   microdiff,
   ResourceService,
-  ResourceType,
   Table,
 } from "./deps.ts";
 import { Any, decoverto, model, property } from "./decoverto.ts";
@@ -26,19 +25,10 @@ export class ResourceTypeFile implements ResourceI, PushDiffs {
   description?: string;
 
   async push(workspace: string, remotePath: string): Promise<void> {
-    let existing: ResourceType | undefined;
-    try {
-      existing = await ResourceService.getResourceType({
-        workspace,
-        path: remotePath,
-      });
-    } catch {
-      existing = undefined;
-    }
-    this.pushDiffs(
+    await this.pushDiffs(
       workspace,
       remotePath,
-      microdiff(existing ?? {}, this, { cyclesFix: false }),
+      microdiff({}, this, { cyclesFix: false }),
     );
   }
 
@@ -65,8 +55,8 @@ export class ResourceTypeFile implements ResourceI, PushDiffs {
         return;
       }
       console.log(
-        colors.yellow(
-          `Applying ${diffs.length} diffs to existing resource type...`,
+        colors.yellow.bold(
+          `Applying ${diffs.length} diffs to existing resource type... ${remotePath}`,
         ),
       );
       const changeset: EditResourceType = {};
