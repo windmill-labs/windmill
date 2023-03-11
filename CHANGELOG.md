@@ -1,6 +1,23 @@
 # Changelog
 
 
+## [1.75.0](https://github.com/windmill-labs/windmill/compare/v1.74.2...v1.75.0) (2023-03-11)
+
+
+### Features
+
+* add filter jobs by args or result ([3b44f9a](https://github.com/windmill-labs/windmill/commit/3b44f9a72ca0466a44963a4b9657a0ee59b44753))
+* **apps:** add resource picker ([8681e83](https://github.com/windmill-labs/windmill/commit/8681e83b574141acbf7e5a389a9e8a4f340336d1))
+* **bash:** add default argument handling for bash ([1d5c194](https://github.com/windmill-labs/windmill/commit/1d5c194f09ffba963d52e418c5954843d84ae337))
+* **frontend-apps:** add variable picker for static string input on apps ([bc440f8](https://github.com/windmill-labs/windmill/commit/bc440f8d4154ce464c0e027d93b7a0a3b76d782e))
+* **frontend:** make runs filters synced with query args ([61a5e1f](https://github.com/windmill-labs/windmill/commit/61a5e1f1accc988628b785b3b9be04c4ea719874))
+
+
+### Bug Fixes
+
+* **backend:** add killpill for lines reading ([7c825c2](https://github.com/windmill-labs/windmill/commit/7c825c212dd0f1e8be427eabd9a9756303241d1b))
+* **cli:** many small fixes ([ce32370](https://github.com/windmill-labs/windmill/commit/ce323709a94d27fb24214719180ea1aafc66d646))
+
 ## [1.74.2](https://github.com/windmill-labs/windmill/compare/v1.74.1...v1.74.2) (2023-03-09)
 
 
