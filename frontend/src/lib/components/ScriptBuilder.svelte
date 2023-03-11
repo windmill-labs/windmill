@@ -38,7 +38,7 @@
 	let summaryC: HTMLInputElement | undefined = undefined
 	let pathC: Path | undefined = undefined
 
-	$: setQueryWithoutLoad($page.url, 'state', encodeState(script))
+	$: setQueryWithoutLoad($page.url, [{ key: 'state', value: encodeState(script) }])
 	$: step = Number($page.url.searchParams.get('step')) || 1
 
 	if (script.content == '') {

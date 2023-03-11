@@ -327,8 +327,8 @@ pub struct ListQueueQuery {
     pub script_path_exact: Option<String>,
     pub script_hash: Option<String>,
     pub created_by: Option<String>,
-    pub created_before: Option<chrono::DateTime<chrono::Utc>>,
-    pub created_after: Option<chrono::DateTime<chrono::Utc>>,
+    pub started_before: Option<chrono::DateTime<chrono::Utc>>,
+    pub started_after: Option<chrono::DateTime<chrono::Utc>>,
     pub running: Option<bool>,
     pub parent_job: Option<String>,
     pub order_desc: Option<bool>,
@@ -364,11 +364,11 @@ fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> Sq
     if let Some(pj) = &lq.parent_job {
         sqlb.and_where_eq("parent_job", "?".bind(pj));
     }
-    if let Some(dt) = &lq.created_before {
-        sqlb.and_where_lt("created_at", format!("to_timestamp({})", dt.timestamp()));
+    if let Some(dt) = &lq.started_before {
+        sqlb.and_where_le("started_at", format!("to_timestamp({})", dt.timestamp()));
     }
-    if let Some(dt) = &lq.created_after {
-        sqlb.and_where_gt("created_at", format!("to_timestamp({})", dt.timestamp()));
+    if let Some(dt) = &lq.started_after {
+        sqlb.and_where_ge("started_at", format!("to_timestamp({})", dt.timestamp()));
     }
 
     if let Some(s) = &lq.suspended {
@@ -462,8 +462,8 @@ async fn list_jobs(
             script_path_exact: lq.script_path_exact,
             script_hash: lq.script_hash,
             created_by: lq.created_by,
-            created_before: lq.created_before,
-            created_after: lq.created_after,
+            started_before: lq.started_before,
+            started_after: lq.started_after,
             running: None,
             parent_job: lq.parent_job,
             order_desc: Some(true),
@@ -1695,11 +1695,11 @@ fn list_completed_jobs_query(
     if let Some(pj) = &lq.parent_job {
         sqlb.and_where_eq("parent_job", "?".bind(pj));
     }
-    if let Some(dt) = &lq.created_before {
-        sqlb.and_where_lt("created_at", format!("to_timestamp({})", dt.timestamp()));
+    if let Some(dt) = &lq.started_before {
+        sqlb.and_where_le("started_at", format!("to_timestamp({})", dt.timestamp()));
     }
-    if let Some(dt) = &lq.created_after {
-        sqlb.and_where_gt("created_at", format!("to_timestamp({})", dt.timestamp()));
+    if let Some(dt) = &lq.started_after {
+        sqlb.and_where_ge("started_at", format!("to_timestamp({})", dt.timestamp()));
     }
     if let Some(sk) = &lq.is_skipped {
         sqlb.and_where_eq("is_skipped", sk);
@@ -1731,8 +1731,8 @@ pub struct ListCompletedQuery {
     pub script_path_exact: Option<String>,
     pub script_hash: Option<String>,
     pub created_by: Option<String>,
-    pub created_before: Option<chrono::DateTime<chrono::Utc>>,
-    pub created_after: Option<chrono::DateTime<chrono::Utc>>,
+    pub started_before: Option<chrono::DateTime<chrono::Utc>>,
+    pub started_after: Option<chrono::DateTime<chrono::Utc>>,
     pub success: Option<bool>,
     pub parent_job: Option<String>,
     pub order_desc: Option<bool>,
