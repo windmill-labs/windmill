@@ -3168,8 +3168,8 @@ paths:
         - $ref: "#/components/parameters/ScriptExactPath"
         - $ref: "#/components/parameters/ScriptStartPath"
         - $ref: "#/components/parameters/ScriptExactHash"
-        - $ref: "#/components/parameters/CreatedBefore"
-        - $ref: "#/components/parameters/CreatedAfter"
+        - $ref: "#/components/parameters/StartedBefore"
+        - $ref: "#/components/parameters/StartedAfter"
         - $ref: "#/components/parameters/Success"
         - $ref: "#/components/parameters/JobKinds"
         - $ref: "#/components/parameters/Suspended"
@@ -3200,8 +3200,8 @@ paths:
         - $ref: "#/components/parameters/ScriptExactPath"
         - $ref: "#/components/parameters/ScriptStartPath"
         - $ref: "#/components/parameters/ScriptExactHash"
-        - $ref: "#/components/parameters/CreatedBefore"
-        - $ref: "#/components/parameters/CreatedAfter"
+        - $ref: "#/components/parameters/StartedBefore"
+        - $ref: "#/components/parameters/StartedAfter"
         - $ref: "#/components/parameters/Success"
         - $ref: "#/components/parameters/JobKinds"
         - $ref: "#/components/parameters/ArgsFilter"
@@ -3239,8 +3239,8 @@ paths:
         - $ref: "#/components/parameters/ScriptExactPath"
         - $ref: "#/components/parameters/ScriptStartPath"
         - $ref: "#/components/parameters/ScriptExactHash"
-        - $ref: "#/components/parameters/CreatedBefore"
-        - $ref: "#/components/parameters/CreatedAfter"
+        - $ref: "#/components/parameters/StartedBefore"
+        - $ref: "#/components/parameters/StartedAfter"
         - $ref: "#/components/parameters/JobKinds"
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/ResultFilter"
@@ -4620,15 +4620,15 @@ components:
       in: query
       schema:
         type: string
-    CreatedBefore:
-      name: created_before
+    StartedBefore:
+      name: started_before
       description: filter on created before (inclusive) timestamp
       in: query
       schema:
         type: string
         format: date-time
-    CreatedAfter:
-      name: created_after
+    StartedAfter:
+      name: started_after
       description: filter on created after (exclusive) timestamp
       in: query
       schema:

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte'
 	import { JobService, Job, CompletedJob, ScriptService, FlowService } from '$lib/gen'
-	import { setQuery } from '$lib/utils'
+	import { setQuery, setQueryWithoutLoad } from '$lib/utils'
 
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/utils'
@@ -24,7 +24,6 @@
 	let jobs: Job[] | undefined
 	let error: Error | undefined
 	let intervalId: NodeJS.Timer | undefined
-	let createdBefore: string | undefined = $page.url.searchParams.get('createdBefore') ?? undefined
 
 	let success: boolean | undefined =
 		$page.url.searchParams.get('success') != undefined
@@ -34,6 +33,11 @@
 		$page.url.searchParams.get('is_skipped') != undefined
 			? $page.url.searchParams.get('is_skipped') == 'true'
 			: false
+
+	let argFilter: any = $page.url.searchParams.get('arg') ?? undefined
+	let resultFilter: any = $page.url.searchParams.get('result') ?? undefined
+	let minTs = $page.url.searchParams.get('min_ts') ?? undefined
+	let maxTs = $page.url.searchParams.get('max_ts') ?? undefined
 
 	let nbOfJobs = 30
 
@@ -55,26 +59,26 @@
 		}
 	}
 
-	$: ($workspaceStore && loadJobs(createdBefore)) || (path && success && isSkipped && jobKinds)
+	$: ($workspaceStore && loadJobs()) || (path && success && isSkipped && jobKinds)
 
 	let filterTimeout: NodeJS.Timeout | undefined = undefined
 	function debounceSyncer() {
 		filterTimeout && clearTimeout(filterTimeout)
 		filterTimeout = setTimeout(() => {
-			loadJobs(createdBefore)
-		}, 500)
+			loadJobs()
+		}, 1000)
 	}
 
 	$: (true || argFilter || resultFilter) && debounceSyncer()
 
 	async function fetchJobs(
-		createdBefore: string | undefined,
-		createdAfter: string | undefined
+		startedBefore: string | undefined,
+		startedAfter: string | undefined
 	): Promise<Job[]> {
 		return JobService.listJobs({
 			workspace: $workspaceStore!,
-			createdBefore,
-			createdAfter,
+			startedBefore,
+			startedAfter,
 			scriptPathExact: path === '' ? undefined : path,
 			jobKinds,
 			success,
@@ -89,9 +93,10 @@
 		})
 	}
 
-	async function loadJobs(createdBefore: string | undefined): Promise<void> {
+	async function loadJobs(): Promise<void> {
+		jobs = undefined
 		try {
-			const newJobs = await fetchJobs(createdBefore, undefined)
+			const newJobs = await fetchJobs(maxTs, minTs)
 			jobs = newJobs
 		} catch (err) {
 			sendUserToast(`There was a problem fetching jobs: ${err}`, true)
@@ -107,7 +112,7 @@
 	}
 
 	async function syncer() {
-		if (sync && jobs && createdBefore === undefined) {
+		if (sync && jobs && maxTs == undefined) {
 			const reversedJobs = [...jobs].reverse()
 			const lastIndex = reversedJobs.findIndex((x) => x.type == Job.type.QUEUED_JOB) - 1
 			let ts = lastIndex >= 0 ? reversedJobs[lastIndex].created_at : undefined
@@ -148,11 +153,23 @@
 		const npaths_flows = await FlowService.listFlowPaths({ workspace: $workspaceStore ?? '' })
 		paths = npaths_scripts.concat(npaths_flows).sort()
 	}
-	async function syncCatWithURL() {
-		await setQuery($page.url, 'job_kinds', jobKindsCat)
+
+	function syncWithUrl(arg: string, value: string) {
+		setQueryWithoutLoad($page.url, [{ key: arg, value }])
 	}
 
-	$: jobKindsCat && syncCatWithURL()
+	async function syncTsWithURL(minTs?: string, maxTs?: string) {
+		console.log(minTs, maxTs)
+		setQueryWithoutLoad($page.url, [
+			{ key: 'min_ts', value: minTs },
+			{ key: 'max_ts', value: maxTs }
+		])
+	}
+
+	$: syncWithUrl('job_kinds', jobKindsCat)
+	$: syncWithUrl('arg', argFilter)
+	$: syncWithUrl('result', resultFilter)
+	$: syncTsWithURL(minTs, maxTs)
 
 	$: completedJobs =
 		jobs?.filter((x) => x.type == 'CompletedJob').map((x) => x as CompletedJob) ?? []
@@ -164,17 +181,12 @@
 	})
 	let searchPath = ''
 	$: searchPath = path
-	let minTs = undefined
-	let maxTs = undefined
 
 	$: searchPath && onSearchPathChange()
 
 	function onSearchPathChange() {
 		goto(`/runs/${searchPath}?${$page.url.searchParams.toString()}`)
 	}
-
-	let argFilter: any = undefined
-	let resultFilter: any = undefined
 
 	let argError = ''
 	let resultError = ''
@@ -254,12 +266,14 @@
 							/>
 						{/key}
 						<Button
+							title="Clear path and time filters"
 							variant="border"
-							on:click={() => {
+							on:click={async () => {
 								minTs = undefined
 								maxTs = undefined
-								goto('/runs?' + $page.url.searchParams.toString())
-								fetchJobs(createdBefore, undefined)
+								jobs = undefined
+								await goto('/runs?' + $page.url.searchParams.toString())
+								loadJobs()
 							}}
 							size="xs"
 						>
@@ -269,14 +283,14 @@
 				</div>
 				<div
 					><Slider
-						text="Filter by args"
+						text="Filter by args {argFilter ? '(set)' : ''}"
 						tooltip={'Filter by a json being a subset of the args. Try \'{"foo": "bar"}\''}
 						><JsonEditor bind:error={argError} bind:code={argFilter} /></Slider
 					></div
 				>
 				<div
 					><Slider
-						text="Filter by result"
+						text="Filter by result {resultFilter ? '(set)' : ''}"
 						tooltip={'Filter by a json being a subset of the result. Try \'{"foo": "bar"}\''}
 						><JsonEditor bind:error={resultError} bind:code={resultFilter} /></Slider
 					></div
