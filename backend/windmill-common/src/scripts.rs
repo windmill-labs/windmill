@@ -7,7 +7,7 @@
  */
 
 use std::{
-    fmt::Display,
+    fmt::{self, Display},
     hash::{Hash, Hasher},
 };
 
@@ -101,6 +101,18 @@ pub enum ScriptKind {
     Failure,
     Script,
     Approval,
+}
+
+impl Display for ScriptKind {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        fmt.write_str(match self {
+            ScriptKind::Trigger => "trigger",
+            ScriptKind::Failure => "failure",
+            ScriptKind::Script => "script",
+            ScriptKind::Approval => "approval",
+        })?;
+        Ok(())
+    }
 }
 
 #[derive(Serialize)]

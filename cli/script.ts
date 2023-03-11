@@ -42,6 +42,7 @@ export class ScriptFile {
     },
     toPlain: (data) => data,
   })
+  @property(() => String)
   kind?: "script" | "failure" | "trigger" | "command" | "approval";
 
   constructor(summary: string, description: string) {
@@ -110,6 +111,11 @@ export async function handleFile(path: string, content: string, workspace: strin
         workspace,
         path: remotePath,
       });
+
+      if (typed.description === remote.description && content === remote.content && typed.summary === remote.summary && typed.is_template === remote.is_template && typed.kind == remote.kind && typed.lock == remote.lock && JSON.stringify(typed.schema) == JSON.stringify(remote.schema)) {
+        console.log(colors.yellow.bold(`Skipping script ${remotePath}`))
+        return true
+      }
       await ScriptService.createScript({
         workspace,
         requestBody: {
@@ -123,8 +129,9 @@ export async function handleFile(path: string, content: string, workspace: strin
           lock: typed.lock,
           parent_hash: remote.hash,
           schema: typed.schema,
-        },
+        }
       });
+
       console.log(colors.yellow.bold(`Creating script with a parent ${remotePath}`))
     } catch {
       // no parent hash
@@ -144,7 +151,6 @@ export async function handleFile(path: string, content: string, workspace: strin
         },
       });
       console.log(colors.yellow.bold(`Creating script without parent ${remotePath}`))
-
     }
     return true
   }

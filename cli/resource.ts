@@ -43,7 +43,7 @@ export class ResourceFile implements Resource2, PushDiffs {
       })
     ) {
       console.log(
-        colors.yellow(`Applying ${diffs.length} diffs to existing resource...`),
+        colors.yellow.bold(`Applying ${diffs.length} diffs to existing resource... ${remotePath}`),
       );
 
       const changeset: EditResource = {
@@ -64,9 +64,10 @@ export class ResourceFile implements Resource2, PushDiffs {
             diff.path[0] !== "value" && (
               diff.path.length !== 1 ||
               diff.path[0] !== "description"
-            )
+            ) && diff.path[0] !== "resource_type"
           )
         ) {
+          console.log(colors.red("Invalid variable diff with path " + diff.path));
           throw new Error("Invalid folder diff with path " + diff.path);
         }
         if (diff.type === "CREATE" || diff.type === "CHANGE") {
@@ -110,19 +111,10 @@ export class ResourceFile implements Resource2, PushDiffs {
     }
   }
   async push(workspace: string, remotePath: string): Promise<void> {
-    let existing: Resource | undefined;
-    try {
-      existing = await ResourceService.getResource({
-        workspace,
-        path: remotePath,
-      });
-    } catch {
-      existing = undefined;
-    }
     await this.pushDiffs(
       workspace,
       remotePath,
-      microdiff(existing ?? {}, this, { cyclesFix: false }),
+      microdiff({}, this, { cyclesFix: false }),
     );
   }
 }

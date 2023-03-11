@@ -1,7 +1,6 @@
 import { Any, model, property } from "./decoverto.ts";
 import {
   AppService,
-  AppWithLastVersion,
   colors,
   microdiff,
   Policy,
@@ -31,7 +30,7 @@ export class AppFile implements Resource, PushDiffs {
     if (await AppService.existsApp({ workspace, path: remotePath })) {
       console.log(
         colors.bold.yellow(
-          `Applying ${diffs.length} diffs to existing app...`,
+          `Applying ${diffs.length} diffs to existing app... ${remotePath}`,
         ),
       );
       const changeset: {
@@ -87,19 +86,10 @@ export class AppFile implements Resource, PushDiffs {
     }
   }
   async push(workspace: string, remotePath: string): Promise<void> {
-    let existing: AppWithLastVersion | undefined;
-    try {
-      existing = await AppService.getAppByPath({
-        workspace: workspace,
-        path: remotePath,
-      });
-    } catch {
-      existing = undefined;
-    }
     await this.pushDiffs(
       workspace,
       remotePath,
-      microdiff(existing ?? {}, this, { cyclesFix: false }),
+      microdiff({}, this, { cyclesFix: false }),
     );
   }
 }
