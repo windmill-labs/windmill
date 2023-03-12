@@ -7,6 +7,7 @@
 	import { ChevronDown, ChevronRight, FolderOpen } from 'lucide-svelte'
 	import { isIdInsideGriditem } from '../appUtils'
 	import { slide } from 'svelte/transition'
+	import SubGridOutput from './SubGridOutput.svelte'
 
 	export let gridItem: GridItem
 	export let first: boolean = false
@@ -41,16 +42,6 @@
 		(_, i) => `${gridItem.id}-${i}`
 	)
 
-	function getSubgridName(name: string) {
-		if (name === 'Tabs') {
-			return 'Tab'
-		} else if (name === 'Horizontal Split Panes') {
-			return 'Pane'
-		} else if (name === 'Vertical Split Panes') {
-			return 'Pane'
-		}
-	}
-
 	$: insideGrid = isIdInsideGriditem($app, gridItem, $selectedComponent)
 	$: isSelected = $selectedComponent === gridItem.id
 	$: opened = insideGrid || isSelected || manuallyOpened
@@ -75,7 +66,7 @@
 	<div
 		class={classNames(
 			'flex items-center justify-between p-1 cursor-pointer hover:bg-indigo-100 hover:text-indigo-500 border-b',
-			isSelected ? 'bg-indigo-50 ' : 'bg-white',
+			isSelected ? 'bg-indigo-200' : 'bg-white',
 			first ? 'border-t' : '',
 			nested ? 'border-l' : ''
 		)}
@@ -84,7 +75,7 @@
 		<div
 			class={classNames(
 				'text-2xs ml-0.5 font-bold px-2 py-0.5 rounded-sm',
-				isSelected ? 'bg-indigo-500 text-white' : ' bg-indigo-200'
+				isSelected ? 'bg-indigo-500 text-white' : ' bg-indigo-50'
 			)}
 		>
 			{gridItem.id}
@@ -108,37 +99,7 @@
 			</div>
 
 			<div>
-				{#each subGrids as subGridId, index}
-					<div class="ml-2 my-2">
-						{#if subGrids.length > 1}
-							<div
-								class="px-1 py-0.5 flex justify-between items-center font-semibold bg-black text-xs text-white w-fit	 "
-							>
-								<div class="text-xs">
-									{getSubgridName(name)}
-									{index + 1}
-								</div>
-							</div>
-						{/if}
-						{#if $app.subgrids && $app.subgrids[subGridId].length > 0}
-							{#each $app.subgrids[subGridId] as subGridItem, index}
-								{#if subGridItem}
-									<div>
-										<svelte:self
-											gridItem={subGridItem}
-											first={index === 0}
-											nested
-											parentId={gridItem.id}
-											{expanded}
-										/>
-									</div>
-								{/if}
-							{/each}
-						{:else}
-							<div class="text-xs text-gray-500 border-y border-l p-1">No components</div>
-						{/if}
-					</div>
-				{/each}
+				<SubGridOutput {name} {expanded} {subGrids} parentId={gridItem.id} />
 			</div>
 		</div>
 	{/if}
