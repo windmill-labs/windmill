@@ -96,7 +96,8 @@
 				{
 					displayName: 'Edit',
 					icon: faPen,
-					href: `/apps/edit/${path}?nodraft=true`
+					href: `/apps/edit/${path}?nodraft=true`,
+					disabled: !canWrite
 				},
 				{
 					displayName: 'Use as template',

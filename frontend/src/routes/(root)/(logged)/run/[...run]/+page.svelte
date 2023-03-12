@@ -281,7 +281,7 @@
 							><Badge color="gray">{truncateHash(job.script_hash)}</Badge></a
 						>
 					{/if}
-					{#if job && 'job_kind' in job}<Badge color="blue">{job.job_kind}</Badge>
+					{#if job && 'job_kind' in job}<Badge baseClass="ml-2" color="blue">{job.job_kind}</Badge>
 					{/if}
 					{#if !job.visible_to_owner}<Badge color="red"
 							>only visible to you <Tooltip

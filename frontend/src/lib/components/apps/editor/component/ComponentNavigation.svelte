@@ -1,19 +1,24 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import type { AppEditorContext, EditorBreakpoint, GridItem } from '../../types'
 	import {
 		deleteGridItem,
-		duplicateGridItem,
 		findGridItem,
-		findGridItemParentId,
+		findGridItemParentGrid,
+		getAllSubgridsAndComponentIds,
+		getGridItems,
 		insertNewGridItem
 	} from '../appUtils'
+	import type { AppEditorContext, AppViewerContext, EditorBreakpoint, GridItem } from '../../types'
+	import { push } from '$lib/history'
+	import { sendUserToast } from '$lib/utils'
 
-	const { app, selectedComponent, breakpoint, componentControl, focusedGrid } =
-		getContext<AppEditorContext>('AppEditorContext')
+	const { app, selectedComponent, breakpoint, focusedGrid } =
+		getContext<AppViewerContext>('AppViewerContext')
+
+	const { componentControl, history } = getContext<AppEditorContext>('AppEditorContext')
 
 	let tempGridItem: GridItem | undefined = undefined
-	let copiedGridItemId: string | undefined = undefined
+	let copiedGridItem: GridItem | undefined = undefined
 
 	function getSortedGridItemsOfChildren(): GridItem[] {
 		if (!$focusedGrid) {
@@ -97,12 +102,13 @@
 
 	function handleEscape(event: KeyboardEvent) {
 		$selectedComponent = undefined
+		$focusedGrid = undefined
 		event.preventDefault()
 	}
 
 	function handleArrowUp(event: KeyboardEvent) {
 		if (!$selectedComponent) return
-		let parentId = findGridItemParentId($app, $selectedComponent)
+		let parentId = findGridItemParentGrid($app, $selectedComponent)?.split('-')[0]
 		if (parentId) {
 			$selectedComponent = parentId
 		} else {
@@ -115,18 +121,18 @@
 		if (!$selectedComponent) {
 			return
 		}
-
-		copiedGridItemId = $selectedComponent
+		tempGridItem = undefined
+		copiedGridItem = findGridItem($app, $selectedComponent)
 	}
 
 	function handleCut(event: KeyboardEvent) {
 		if (!$selectedComponent) {
 			return
 		}
-
-		copiedGridItemId = undefined
+		push(history, $app)
 
 		const gridItem = findGridItem($app, $selectedComponent)
+		copiedGridItem = gridItem
 
 		if (!gridItem) {
 			return
@@ -134,24 +140,38 @@
 
 		// Store the grid item in a temp variable so we can paste it later
 		tempGridItem = gridItem
-
-		const parent = $focusedGrid ? $focusedGrid.parentComponentId : undefined
-
-		deleteGridItem($app, gridItem.data, parent, true)
-
-		$app = { ...$app }
 	}
 
 	function handlePaste(event: KeyboardEvent) {
-		if (copiedGridItemId) {
-			const parent = $focusedGrid ? $focusedGrid.parentComponentId : undefined
-			duplicateGridItem($app, parent, copiedGridItemId)
-		} else if (tempGridItem) {
+		push(history, $app)
+
+		if (tempGridItem) {
+			if (
+				$focusedGrid &&
+				getAllSubgridsAndComponentIds($app, tempGridItem.data)[0].includes(
+					`${$focusedGrid.parentComponentId}-${$focusedGrid.subGridIndex}`
+				)
+			) {
+				sendUserToast('Cannot paste a component into itself', true)
+				return
+			}
+			let parentGrid = findGridItemParentGrid($app, tempGridItem.data.id)
+			const grid = parentGrid ? $app.subgrids![parentGrid] : $app.grid
+			let idx = grid.findIndex((item) => {
+				return item.id == tempGridItem!.data.id
+			})
+			if (idx > -1) {
+				grid.splice(idx, 1)
+			}
+
 			insertNewGridItem($app, tempGridItem.data, $focusedGrid, true)
+			copiedGridItem = tempGridItem
 			tempGridItem = undefined
+		} else if (copiedGridItem) {
+			insertNewGridItem($app, copiedGridItem.data, $focusedGrid, false)
 		}
 
-		$app = { ...$app }
+		$app = $app
 	}
 
 	function keydown(event: KeyboardEvent) {

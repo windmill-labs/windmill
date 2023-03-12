@@ -2,13 +2,12 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import type { Preview } from '$lib/gen'
 	import { createEventDispatcher, getContext, onMount } from 'svelte'
-	import type { AppEditorContext, InlineScript } from '../../types'
+	import type { AppViewerContext, InlineScript } from '../../types'
 	import { CornerDownLeft, Maximize2, Plus, Trash2, X } from 'lucide-svelte'
 	import InlineScriptEditorDrawer from './InlineScriptEditorDrawer.svelte'
 	import { inferArgs } from '$lib/infer'
 	import type { Schema } from '$lib/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import { fly } from 'svelte/transition'
 	import Editor from '$lib/components/Editor.svelte'
 	import { emptySchema, scriptLangToEditorLang } from '$lib/utils'
 	import Popover from '../../../Popover.svelte'
@@ -26,7 +25,7 @@
 	export let fields: Record<string, AppInput> = {}
 	export let syncFields: boolean = false
 
-	const { runnableComponents, stateId } = getContext<AppEditorContext>('AppEditorContext')
+	const { runnableComponents, stateId } = getContext<AppViewerContext>('AppViewerContext')
 
 	let editor: Editor
 	let validCode = true
@@ -82,7 +81,12 @@
 <div class="h-full flex flex-col gap-1">
 	<div class="flex justify-between w-full gap-2 px-2 pt-1 flex-row items-center">
 		{#if name !== undefined}
-			<input bind:value={name} placeholder="Inline script name" class="!text-xs !rounded-xs" />
+			<input
+				on:keydown|stopPropagation
+				bind:value={name}
+				placeholder="Inline script name"
+				class="!text-xs !rounded-xs"
+			/>
 		{/if}
 		<div class="flex w-full flex-row gap-2 items-center justify-end">
 			{#if validCode}

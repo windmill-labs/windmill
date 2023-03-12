@@ -74,7 +74,8 @@ export type AggridComponent = BaseComponent<'aggridcomponent'>
 export type DisplayComponent = BaseComponent<'displaycomponent'>
 export type ImageComponent = BaseComponent<'imagecomponent'>
 export type InputComponent = BaseComponent<'inputcomponent'>
-export type SelectComponent = BaseComponent<'selectcomponent'>
+export type SelectComponent = BaseComponent<'resourceselectcomponent'>
+export type ResourceSelectComponent = BaseComponent<'selectcomponent'>
 export type MultiSelectComponent = BaseComponent<'multiselectcomponent'>
 export type CheckboxComponent = BaseComponent<'checkboxcomponent'>
 export type RadioComponent = BaseComponent<'radiocomponent'>
@@ -116,6 +117,7 @@ export type AppComponent = BaseAppComponent &
 		| PieChartComponent
 		| ScatterChartComponent
 		| SelectComponent
+		| ResourceSelectComponent
 		| MultiSelectComponent
 		| CheckboxComponent
 		| FormComponent
@@ -911,7 +913,7 @@ Hello \${ctx.username}
 		}
 	},
 	multiselectcomponent: {
-		name: 'MultiSelect',
+		name: 'Multi Select',
 		icon: List,
 		dims: '2:1-3:1',
 		data: {
@@ -930,6 +932,36 @@ Hello \${ctx.username}
 					type: 'static',
 					fieldType: 'text',
 					value: 'Select items',
+					onlyStatic: true
+				}
+			},
+			customCss: {
+				input: { style: '' }
+			} as const,
+			card: false,
+			softWrap: true
+		}
+	},
+	resourceselectcomponent: {
+		name: 'Resource Select',
+		icon: List,
+		dims: '2:1-3:1',
+		data: {
+			verticalAlignment: 'center',
+			id: '',
+			type: 'resourceselectcomponent',
+			componentInput: undefined,
+			configuration: {
+				items: {
+					type: 'static',
+					fieldType: 'array',
+					subFieldType: 'labeledresource',
+					value: []
+				},
+				placeholder: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'Select an item',
 					onlyStatic: true
 				}
 			},

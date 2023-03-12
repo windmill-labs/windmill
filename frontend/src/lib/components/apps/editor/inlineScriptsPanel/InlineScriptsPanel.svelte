@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import type { AppEditorContext } from '../../types'
+	import type { AppViewerContext } from '../../types'
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import InlineScriptsPanelList from './InlineScriptsPanelList.svelte'
@@ -9,7 +9,7 @@
 	import InlineScriptEditorPanel from './InlineScriptEditorPanel.svelte'
 
 	const { app, staticOutputs, runnableComponents } =
-		getContext<AppEditorContext>('AppEditorContext')
+		getContext<AppViewerContext>('AppViewerContext')
 
 	let selectedScriptComponentId: string | undefined = undefined
 

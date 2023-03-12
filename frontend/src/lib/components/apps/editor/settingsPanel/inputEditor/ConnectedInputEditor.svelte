@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { AppEditorContext } from '../../../types'
+	import type { AppViewerContext } from '../../../types'
 	import { Badge, Button } from '$lib/components/common'
 	import { faArrowRight, faClose } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
@@ -7,7 +7,7 @@
 
 	export let componentInput: ConnectedAppInput
 
-	const { connectingInput } = getContext<AppEditorContext>('AppEditorContext')
+	const { connectingInput } = getContext<AppViewerContext>('AppViewerContext')
 
 	function applyConnection() {
 		if (

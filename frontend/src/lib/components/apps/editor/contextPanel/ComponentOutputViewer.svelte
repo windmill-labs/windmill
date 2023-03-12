@@ -2,12 +2,12 @@
 	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
 	import { getContext } from 'svelte'
 	import type { Output } from '../../rx'
-	import type { AppEditorContext } from '../../types'
+	import type { AppViewerContext } from '../../types'
 
 	export let outputs: string[] = []
 	export let componentId: string
 
-	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
+	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
 	let object = {}
 

@@ -3,7 +3,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import type { AppInput } from '../../inputType'
 	import type {
-		AppEditorContext,
+		AppViewerContext,
 		ComponentCustomCSS,
 		HorizontalAlignment,
 		VerticalAlignment
@@ -20,7 +20,7 @@
 	export let position: 'horizontal' | 'vertical'
 	export let render: boolean
 
-	const { app } = getContext<AppEditorContext>('AppEditorContext')
+	const { app } = getContext<AppViewerContext>('AppViewerContext')
 	let size = 2
 	let color = '#00000060'
 

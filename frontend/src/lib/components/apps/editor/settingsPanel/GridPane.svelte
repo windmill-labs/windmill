@@ -2,7 +2,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { faPlus, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
-	import type { AppEditorContext } from '../../types'
+	import type { AppViewerContext } from '../../types'
 	import { deleteGridItem } from '../appUtils'
 	import type { AppComponent } from '../component'
 	import PanelSection from './common/PanelSection.svelte'
@@ -11,7 +11,7 @@
 	export let component: AppComponent
 
 	const { app, staticOutputs, runnableComponents } =
-		getContext<AppEditorContext>('AppEditorContext')
+		getContext<AppViewerContext>('AppViewerContext')
 
 	function addTab() {
 		const numberOfPanes = panes.length
@@ -56,7 +56,7 @@
 	<div class="w-full flex gap-2 flex-col mt-2">
 		{#each panes as value, index (index)}
 			<div class="w-full flex flex-row gap-2 items-center relative">
-				<input type="number" bind:value />
+				<input on:keydown|stopPropagation type="number" bind:value />
 
 				<div class="absolute top-1 right-1">
 					<Button

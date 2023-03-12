@@ -11,7 +11,6 @@ import {
   colors,
   Command,
   EditVariable,
-  ListableVariable,
   microdiff,
   Table,
   VariableService,
@@ -67,7 +66,7 @@ export class VariableFile implements Resource, PushDiffs {
     if (await VariableService.existsVariable({ workspace, path: remotePath })) {
       console.log(
         colors.bold.yellow(
-          `Applying ${diffs.length} diffs to existing variable...`,
+          `Applying ${diffs.length} diffs to existing variable... ${remotePath}`,
         ),
       );
       const changeset: EditVariable = {};
@@ -76,11 +75,12 @@ export class VariableFile implements Resource, PushDiffs {
           diff.type !== "REMOVE" &&
           (
             diff.path.length !== 1 ||
-            !["path", "value", "is_secret", "description"].includes(
+            !["path", "value", "is_secret", "description", "account", "is_oauth"].includes(
               diff.path[0] as string,
             )
           )
         ) {
+          console.log(colors.red("Invalid variable diff with path " + diff.path));
           throw new Error("Invalid variable diff with path " + diff.path);
         }
         if (diff.type === "CREATE" || diff.type === "CHANGE") {
@@ -96,6 +96,7 @@ export class VariableFile implements Resource, PushDiffs {
       if (!hasChanges) {
         return;
       }
+
       await VariableService.updateVariable({
         workspace,
         path: remotePath,
@@ -103,7 +104,6 @@ export class VariableFile implements Resource, PushDiffs {
         requestBody: changeset,
       });
 
-      console.log(changeset);
     } else {
       console.log(colors.yellow.bold("Creating new variable..."));
       await VariableService.createVariable({
@@ -121,19 +121,10 @@ export class VariableFile implements Resource, PushDiffs {
     }
   }
   async push(workspace: string, remotePath: string): Promise<void> {
-    let existing: ListableVariable | undefined;
-    try {
-      existing = await VariableService.getVariable({
-        workspace: workspace,
-        path: remotePath,
-      });
-    } catch {
-      existing = undefined;
-    }
     await this.pushDiffs(
       workspace,
       remotePath,
-      microdiff(existing ?? {}, this, { cyclesFix: false }),
+      microdiff({}, this, { cyclesFix: false }),
     );
   }
 }

@@ -72,14 +72,14 @@ return {
 	},
 	displaycomponent: {
 		deno: `export async function main() {
-return {
-	"foo": 42
-}
+	return {
+		"foo": 42
+	}
 }`,
 		python3: `def main():
-return {
-	"foo": 42
-}`
+	return {
+		"foo": 42
+	}`
 	},
 	htmlcomponent: {
 		deno: `export async function main() {

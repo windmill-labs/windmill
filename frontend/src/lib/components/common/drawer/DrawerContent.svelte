@@ -3,6 +3,7 @@
 	import { faClose } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import { Icon } from 'svelte-awesome'
+	import CloseButton from '../CloseButton.svelte'
 
 	export let title: string | undefined = undefined
 	export let overflow_y = true
@@ -15,12 +16,7 @@
 <div class="flex flex-col divide-y h-screen max-h-screen">
 	<div class="flex justify-between w-wull items-center px-2 py-2 ">
 		<div class="flex items-center gap-2">
-			<button
-				on:click={() => dispatch('close')}
-				class="hover:bg-gray-200 bg-gray-100 rounded-full w-8 h-8 flex items-center justify-center transition-all"
-			>
-				<Icon data={faClose} class="text-gray-500" />
-			</button>
+			<CloseButton on:close />
 
 			<span class="font-semibold truncate text-gray-800">{title}</span>
 		</div>

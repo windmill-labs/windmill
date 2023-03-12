@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { Tab, Tabs } from '$lib/components/common'
 	import { getContext, onMount } from 'svelte'
+	import { initOutput } from '../../editor/appUtils'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
-	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
+	import type { AppEditorContext, AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import InputValue from '../helpers/InputValue.svelte'
 
@@ -18,12 +19,20 @@
 	export let render: boolean
 
 	export const staticOutputs: string[] = ['selectedTabIndex']
-	const { app, worldStore, focusedGrid, selectedComponent, componentControl } =
-		getContext<AppEditorContext>('AppEditorContext')
+	const { app, worldStore, focusedGrid, selectedComponent } =
+		getContext<AppViewerContext>('AppViewerContext')
+
+	const { componentControl } = getContext<AppEditorContext>('AppEditorContext')
 
 	let selected: string = tabs[0]
 	let noPadding: boolean | undefined = undefined
 	let tabHeight: number = 0
+
+	$: outputs = $worldStore
+		? initOutput($worldStore, id, {
+				selectedTabIndex: 0
+		  })
+		: undefined
 
 	function handleTabSelection() {
 		const selectedIndex = tabs?.indexOf(selected)
@@ -74,10 +83,6 @@
 
 	$: selected && handleTabSelection()
 
-	$: outputs = $worldStore?.outputsById[id] as {
-		selectedTabIndex: Output<number>
-	}
-
 	$: selectedIndex = tabs?.indexOf(selected) ?? -1
 
 	$: css = concatCustomCss($app.css?.tabscomponent, customCss)
@@ -86,7 +91,7 @@
 <InputValue {id} input={configuration.noPadding} bind:value={noPadding} />
 
 <div>
-	<div bind:clientHeight={tabHeight} on:pointerdown|stopPropagation>
+	<div bind:clientHeight={tabHeight}>
 		<Tabs bind:selected class={css?.tabRow?.class} style={css?.tabRow?.style}>
 			{#each tabs ?? [] as res}
 				<Tab

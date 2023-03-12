@@ -3,7 +3,7 @@
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
-	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 	import type RunnableComponent from '../helpers/RunnableComponent.svelte'
@@ -26,7 +26,7 @@
 
 	export const staticOutputs: string[] = ['loading', 'result']
 
-	const { runnableComponents, worldStore, app } = getContext<AppEditorContext>('AppEditorContext')
+	const { runnableComponents, worldStore, app } = getContext<AppViewerContext>('AppViewerContext')
 
 	let labelValue: string
 	let color: ButtonType.Color

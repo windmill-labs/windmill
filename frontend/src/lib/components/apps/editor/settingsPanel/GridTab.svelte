@@ -1,8 +1,10 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
+	import CloseButton from '$lib/components/common/CloseButton.svelte'
 	import { faPlus, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
+	import { CrossIcon } from 'lucide-svelte'
 	import { getContext } from 'svelte'
-	import type { AppEditorContext } from '../../types'
+	import type { AppViewerContext } from '../../types'
 	import { deleteGridItem } from '../appUtils'
 	import type { AppComponent } from '../component'
 	import PanelSection from './common/PanelSection.svelte'
@@ -11,7 +13,7 @@
 	export let component: AppComponent
 
 	const { app, staticOutputs, runnableComponents, focusedGrid } =
-		getContext<AppEditorContext>('AppEditorContext')
+		getContext<AppViewerContext>('AppViewerContext')
 
 	function addTab() {
 		const numberOfTabs = tabs.length
@@ -54,20 +56,10 @@
 	<div class="w-full flex gap-2 flex-col mt-2">
 		{#each tabs as value, index (index)}
 			<div class="w-full flex flex-row gap-2 items-center relative">
-				<input type="text" bind:value />
+				<input on:keydown|stopPropagation type="text" bind:value />
 
-				<div class="absolute top-1 right-1">
-					<Button
-						size="xs"
-						color="light"
-						variant="border"
-						on:click={() => {
-							deleteSubgrid(index)
-						}}
-						iconOnly
-						btnClasses="!text-red-500"
-						startIcon={{ icon: faTrashAlt }}
-					/>
+				<div class="absolute right-1">
+					<CloseButton noBg on:close={() => deleteSubgrid(index)} />
 				</div>
 			</div>
 		{/each}

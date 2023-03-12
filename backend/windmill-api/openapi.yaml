@@ -3168,12 +3168,14 @@ paths:
         - $ref: "#/components/parameters/ScriptExactPath"
         - $ref: "#/components/parameters/ScriptStartPath"
         - $ref: "#/components/parameters/ScriptExactHash"
-        - $ref: "#/components/parameters/CreatedBefore"
-        - $ref: "#/components/parameters/CreatedAfter"
+        - $ref: "#/components/parameters/StartedBefore"
+        - $ref: "#/components/parameters/StartedAfter"
         - $ref: "#/components/parameters/Success"
         - $ref: "#/components/parameters/JobKinds"
         - $ref: "#/components/parameters/Suspended"
         - $ref: "#/components/parameters/Running"
+        - $ref: "#/components/parameters/ArgsFilter"
+        - $ref: "#/components/parameters/ResultFilter"
       responses:
         "200":
           description: All available queued jobs
@@ -3198,10 +3200,12 @@ paths:
         - $ref: "#/components/parameters/ScriptExactPath"
         - $ref: "#/components/parameters/ScriptStartPath"
         - $ref: "#/components/parameters/ScriptExactHash"
-        - $ref: "#/components/parameters/CreatedBefore"
-        - $ref: "#/components/parameters/CreatedAfter"
+        - $ref: "#/components/parameters/StartedBefore"
+        - $ref: "#/components/parameters/StartedAfter"
         - $ref: "#/components/parameters/Success"
         - $ref: "#/components/parameters/JobKinds"
+        - $ref: "#/components/parameters/ArgsFilter"
+        - $ref: "#/components/parameters/ResultFilter"
         - name: is_skipped
           description: is the job skipped
           in: query
@@ -3235,9 +3239,11 @@ paths:
         - $ref: "#/components/parameters/ScriptExactPath"
         - $ref: "#/components/parameters/ScriptStartPath"
         - $ref: "#/components/parameters/ScriptExactHash"
-        - $ref: "#/components/parameters/CreatedBefore"
-        - $ref: "#/components/parameters/CreatedAfter"
+        - $ref: "#/components/parameters/StartedBefore"
+        - $ref: "#/components/parameters/StartedAfter"
         - $ref: "#/components/parameters/JobKinds"
+        - $ref: "#/components/parameters/ArgsFilter"
+        - $ref: "#/components/parameters/ResultFilter"
         - name: is_skipped
           description: is the job skipped
           in: query
@@ -4614,15 +4620,15 @@ components:
       in: query
       schema:
         type: string
-    CreatedBefore:
-      name: created_before
+    StartedBefore:
+      name: started_before
       description: filter on created before (inclusive) timestamp
       in: query
       schema:
         type: string
         format: date-time
-    CreatedAfter:
-      name: created_after
+    StartedAfter:
+      name: started_after
       description: filter on created after (exclusive) timestamp
       in: query
       schema:
@@ -4646,6 +4652,19 @@ components:
       in: query
       schema:
         type: boolean
+    ArgsFilter:
+      name: args
+      description: filter on jobs containing those args as a json subset (@> in postgres)
+      in: query
+      schema:
+        type: string
+
+    ResultFilter:
+      name: result
+      description: filter on jobs containing those result as a json subset (@> in postgres)
+      in: query
+      schema:
+        type: string
     After:
       name: after
       description: filter on created after (exclusive) timestamp

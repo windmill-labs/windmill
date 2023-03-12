@@ -5,7 +5,7 @@
 	import { fieldTypeToTsType } from '../../utils'
 	import InputsSpecEditor from './InputsSpecEditor.svelte'
 	import { getContext } from 'svelte'
-	import type { AppEditorContext, BaseAppComponent } from '../../types'
+	import type { AppViewerContext, BaseAppComponent } from '../../types'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 
@@ -16,7 +16,7 @@
 	export let rowColumns = false
 	export let resourceOnly = false
 
-	const { connectingInput } = getContext<AppEditorContext>('AppEditorContext')
+	const { connectingInput } = getContext<AppViewerContext>('AppViewerContext')
 </script>
 
 {#if inputSpecs}

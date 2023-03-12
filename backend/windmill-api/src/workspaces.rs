@@ -1073,6 +1073,7 @@ struct ScriptMetadata {
     schema: Option<Schema>,
     is_template: bool,
     lock: Vec<String>,
+    kind: String,
 }
 
 enum ArchiveImpl {
@@ -1235,6 +1236,7 @@ async fn tarball_workspace(
                 description: script.description,
                 schema: script.schema,
                 is_template: script.is_template,
+                kind: script.kind.to_string(),
                 lock,
             };
             let metadata_str = serde_json::to_string_pretty(&metadata).unwrap();

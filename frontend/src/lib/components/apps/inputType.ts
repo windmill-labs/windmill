@@ -17,6 +17,7 @@ export type InputType =
 	| 'object'
 	| 'array'
 	| 'any'
+	| 'labeledresource'
 
 // Connection to an output of another component
 // defined by the id of the component and the path of the output
@@ -139,11 +140,11 @@ export type AppInput =
 	| AppInputSpec<'object', Record<string | number, any>>
 	| AppInputSpec<'object', string>
 	| (AppInputSpec<'select', string> & {
-			/**
-			 * One of the keys of `staticValues` from `lib/components/apps/editor/componentsPanel/componentStaticValues`
-			 */
-			optionValuesKey: keyof typeof staticValues
-	  })
+		/**
+		 * One of the keys of `staticValues` from `lib/components/apps/editor/componentsPanel/componentStaticValues`
+		 */
+		optionValuesKey: keyof typeof staticValues
+	})
 	| (AppInputSpec<'select', string> & StaticOptions)
 	| AppInputSpec<'icon-select', string>
 	| AppInputSpec<'color', string>
@@ -156,9 +157,12 @@ export type AppInput =
 	| AppInputSpec<'array', string[], 'datetime'>
 	| AppInputSpec<'array', object[], 'object'>
 	| (AppInputSpec<'array', string[], 'select'> & {
-			optionValuesKey: keyof typeof staticValues
-	  })
+		optionValuesKey: keyof typeof staticValues
+	})
 	| (AppInputSpec<'array', string[], 'select'> & StaticOptions)
+	| AppInputSpec<'array', object[], 'labeledresource'>
+	| AppInputSpec<'labeledresource', object>
+
 
 export type RowAppInput = Extract<AppInput, { type: 'row' }>
 export type StaticAppInput = Extract<AppInput, { type: 'static' }>

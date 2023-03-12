@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { getContext, onMount } from 'svelte'
 	import type { AppInput } from '../../inputType'
-	import type { AppEditorContext } from '../../types'
+	import type { AppViewerContext } from '../../types'
 	import { isScriptByNameDefined, isScriptByPathDefined } from '../../utils'
 	import NonRunnableComponent from './NonRunnableComponent.svelte'
 	import RunnableComponent from './RunnableComponent.svelte'
@@ -22,7 +22,7 @@
 	export let gotoNewTab: boolean | undefined = undefined
 	export let render: boolean
 
-	const { staticExporter, noBackend } = getContext<AppEditorContext>('AppEditorContext')
+	const { staticExporter, noBackend } = getContext<AppViewerContext>('AppViewerContext')
 
 	$: if (initializing && result) {
 		initializing = false

@@ -81,7 +81,7 @@
 	$: key =
 		apiTokenApps[resource_type]?.key ??
 		(args != undefined
-			? Object.keys(args).filter((x) => ['token', 'password', 'api_key'].includes(x))[0]
+			? Object.keys(args).filter((x) => ['token', 'password', 'api_key', 'key'].includes(x))[0]
 			: undefined)
 
 	let scopes: string[] = []
@@ -259,6 +259,7 @@
 			args['token'] == '' &&
 			args['password'] == '' &&
 			args['api_key'] == '' &&
+			args['key'] == '' &&
 			key != undefined) ||
 		(step == 3 && pathError != '') ||
 		!isValid
@@ -396,7 +397,7 @@
 				bind:error={pathError}
 				bind:path
 				initialPath=""
-				namePlaceholder="{resource_type}"
+				namePlaceholder={resource_type}
 				kind="resource"
 			/>
 
@@ -433,7 +434,7 @@
 		{:else}
 			<Path
 				initialPath=""
-				namePlaceholder="{resource_type}"
+				namePlaceholder={resource_type}
 				bind:error={pathError}
 				bind:path
 				kind="resource"

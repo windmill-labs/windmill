@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../inputType'
-	import type { AppEditorContext, ComponentCustomCSS } from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import { AlignWrapper, InputValue } from '../helpers'
 	import { loadIcon } from '../icon'
@@ -14,7 +14,7 @@
 	export let customCss: ComponentCustomCSS<'container' | 'icon'> | undefined = undefined
 	export let render: boolean
 
-	const { app } = getContext<AppEditorContext>('AppEditorContext')
+	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
 	let icon: string | undefined = undefined
 	let size: number

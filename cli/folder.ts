@@ -1,4 +1,4 @@
-import { colors, Command, Folder, FolderService, microdiff } from "./deps.ts";
+import { colors, Command, FolderService, microdiff } from "./deps.ts";
 import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import {
   Difference,
@@ -22,7 +22,9 @@ export class FolderFile implements Resource, PushDiffs {
   owners: Array<string> | undefined;
   @property(map(() => String, () => Boolean, { shape: MapShape.Object }))
   extra_perms: Map<string, boolean> | undefined;
-
+  @property(() => String)
+  display_name: string| undefined;
+  
   async push(workspace: string, remotePath: string): Promise<void> {
     if (remotePath.startsWith("/")) {
       remotePath = remotePath.substring(1);
@@ -31,16 +33,10 @@ export class FolderFile implements Resource, PushDiffs {
       remotePath = remotePath.substring(2);
     }
 
-    let existing: Folder | undefined;
-    try {
-      existing = await FolderService.getFolder({ workspace, name: remotePath });
-    } catch {
-      existing = undefined;
-    }
     await this.pushDiffs(
       workspace,
       remotePath,
-      microdiff(existing ?? {}, this, { cyclesFix: false }),
+      microdiff({}, this, { cyclesFix: false }),
     );
   }
 
@@ -66,22 +62,24 @@ export class FolderFile implements Resource, PushDiffs {
     if (exists) {
       console.log(
         colors.bold.yellow(
-          `Applying ${diffs.length} diffs to existing folder...`,
+          `Applying ${diffs.length} diffs to existing folder... ${remotePath}`,
         ),
       );
 
       const changeset: {
         owners?: string[] | undefined;
         extra_perms?: any;
+        display_name?: string | undefined;
       } = {};
       for (const diff of diffs) {
         if (
           diff.type !== "REMOVE" &&
           (
             diff.path.length !== 1 ||
-            !["owners", "extra_perms"].includes(diff.path[0] as string)
+            !["owners", "extra_perms", "display_name"].includes(diff.path[0] as string)
           )
         ) {
+          console.log(diff.path)
           throw new Error("Invalid folder diff with path " + diff.path);
         }
         if (diff.type === "CREATE" || diff.type === "CHANGE") {
@@ -97,11 +95,10 @@ export class FolderFile implements Resource, PushDiffs {
       if (!hasChanges) {
         return;
       }
-
       await FolderService.updateFolder({
         workspace: workspace,
         name: remotePath,
-        requestBody: changeset,
+        requestBody: {...changeset, extra_perms: changeset.extra_perms ? Object.fromEntries(this.extra_perms?.entries() ?? []) : undefined}
       });
     } else {
       console.log(colors.bold.yellow("Creating new folder: " + remotePath));

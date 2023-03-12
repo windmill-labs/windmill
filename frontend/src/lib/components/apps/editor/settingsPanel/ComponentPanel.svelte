@@ -2,7 +2,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { faChevronDown, faChevronUp, faCopy, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
-	import type { AppEditorContext } from '../../types'
+	import type { AppEditorContext, AppViewerContext } from '../../types'
 	import PanelSection from './common/PanelSection.svelte'
 	import InputsSpecsEditor from './InputsSpecsEditor.svelte'
 	import TableActions from './TableActions.svelte'
@@ -19,14 +19,12 @@
 	import TemplateEditor from '$lib/components/TemplateEditor.svelte'
 	import type { AppComponent } from '../component'
 	import CssProperty from '../componentsPanel/CssProperty.svelte'
-	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 	import GridTab from './GridTab.svelte'
-	import { duplicateGridItem } from '../appUtils'
 	import { deleteGridItem } from '../appUtils'
-	import MoveToOtherGrid from './MoveToOtherGrid.svelte'
 	import GridPane from './GridPane.svelte'
 	import { slide } from 'svelte/transition'
 	import { push } from '$lib/history'
+	import Kbd from '$lib/components/common/kbd/Kbd.svelte'
 
 	export let component: AppComponent
 	export let rowColumns = false
@@ -42,16 +40,10 @@
 		selectedComponent,
 		worldStore,
 		focusedGrid,
-		stateId,
-		history
-	} = getContext<AppEditorContext>('AppEditorContext')
+		stateId
+	} = getContext<AppViewerContext>('AppViewerContext')
 
-	function duplicateElement(id: string) {
-		push(history, $app)
-		$dirtyStore = true
-		const newId = duplicateGridItem($app, parent, id)
-		$selectedComponent = newId
-	}
+	const { history } = getContext<AppEditorContext>('AppEditorContext')
 
 	function removeGridElement() {
 		push(history, $app)
@@ -95,7 +87,7 @@
 <svelte:window on:keydown={keydown} />
 
 {#if component}
-	<div class="flex flex-col min-w-[150px] w-full divide-y">
+	<div class="flex min-h-full flex-col min-w-[150px] w-full divide-y">
 		{#if component.componentInput}
 			<PanelSection
 				smallPadding
@@ -194,6 +186,8 @@
 			<Recompute bind:recomputeIds={component.recomputeIds} ownId={component.id} />
 		{/if}
 
+		<div class="grow shrink" />
+
 		{#if Object.keys(component.customCss ?? {}).length > 0}
 			<PanelSection title="Custom CSS">
 				<div slot="action">
@@ -221,8 +215,20 @@
 		{/if}
 
 		{#if duplicateMoveAllowed}
-			<PanelSection title="Duplicate">
-				<Button
+			<PanelSection title="Copy/Move">
+				<div slot="action">
+					<Button size="xs" color="red" variant="border" on:click={removeGridElement}>
+						Delete&nbsp;&nbsp;
+						<Kbd>Del</Kbd>
+					</Button>
+				</div>
+				<div class="flex flex-col">
+					<div
+						><span class="text-gray-600 text-xs mr-2">Copy:</span><Kbd>CTRL+C</Kbd> + <Kbd
+							>CTRL+V</Kbd
+						></div
+					>
+					<!-- <Button
 					size="xs"
 					color="dark"
 					startIcon={{ icon: faCopy }}
@@ -233,24 +239,19 @@
 					}}
 				>
 					Duplicate component: {component.id}
-				</Button>
-			</PanelSection>
-
-			<PanelSection title="Move to other grid">
-				<MoveToOtherGrid bind:component {parent} />
+				</Button> -->
+					<div
+						><span class="text-gray-600 text-xs mr-2">Move:</span><Kbd>CTRL+X</Kbd> + <Kbd
+							>CTRL+V</Kbd
+						></div
+					>
+					<div
+						><span class="text-gray-600 text-xs mr-2">Navigate:</span><Kbd>&leftarrow;</Kbd><Kbd
+							>&uparrow;</Kbd
+						><Kbd>&rightarrow;</Kbd><Kbd>ESC</Kbd></div
+					>
+				</div>
 			</PanelSection>
 		{/if}
-
-		<PanelSection title="Danger zone">
-			<Button
-				size="xs"
-				color="red"
-				variant="border"
-				startIcon={{ icon: faTrashAlt }}
-				on:click={removeGridElement}
-			>
-				Delete component: {component.id}
-			</Button>
-		</PanelSection>
 	</div>
 {/if}

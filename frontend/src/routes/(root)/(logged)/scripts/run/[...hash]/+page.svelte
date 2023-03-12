@@ -17,7 +17,7 @@
 	import RunForm from '$lib/components/RunForm.svelte'
 	import { Alert, Badge, Button, Kbd, Skeleton } from '$lib/components/common'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
-	import { faPlay, faScroll } from '@fortawesome/free-solid-svg-icons'
+	import { faEye, faPen, faPlay, faScroll } from '@fortawesome/free-solid-svg-icons'
 
 	$: hash = $page.params.hash
 	let script: Script | undefined
@@ -112,15 +112,25 @@
 					<div
 						class="flex flex-row-reverse w-full flex-wrap md:flex-nowrap justify-between gap-x-1 gap-y-2"
 					>
-						<div class="flex flex-row">
-							<div>
+						<div class="flex flex-row gap-4">
+							{#if !$userStore?.operator && can_write}
+								<div>
+									<Button
+										size="sm"
+										startIcon={{ icon: faPen }}
+										disabled={script == undefined}
+										variant="border"
+										href="/scripts/edit/{script?.hash}?step=2">Edit</Button
+									>
+								</div>
+							{/if}
+							<div class="md:pr-4">
 								<Button
-									startIcon={{ icon: faScroll }}
+									size="sm"
+									startIcon={{ icon: faEye }}
 									disabled={script == undefined}
-									btnClasses="mr-4"
 									variant="border"
-									href="/scripts/get/{script?.hash}?workspace_id={$workspaceStore}"
-									>View script</Button
+									href="/scripts/get/{script?.hash}?workspace_id={$workspaceStore}">View</Button
 								>
 							</div>
 							<div>

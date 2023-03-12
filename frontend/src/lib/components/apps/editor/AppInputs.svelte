@@ -2,11 +2,11 @@
 	import { Alert } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { getContext } from 'svelte'
-	import type { AppEditorContext } from '../types'
+	import type { AppViewerContext } from '../types'
 	import AppComponentInput from './AppComponentInput.svelte'
 	import InputsSpecsEditor from './settingsPanel/InputsSpecsEditor.svelte'
 
-	const { app } = getContext<AppEditorContext>('AppEditorContext')
+	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
 	let resourceOnly: boolean = true
 </script>
