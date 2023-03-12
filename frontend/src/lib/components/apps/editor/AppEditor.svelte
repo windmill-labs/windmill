@@ -250,7 +250,7 @@
 								</div>
 							</Tab>
 							<div slot="content" class="h-full overflow-y-auto pb-4">
-								<TabContent class="overflow-auto" value="settings">
+								<TabContent class="overflow-auto h-full" value="settings">
 									{#if $selectedComponent !== undefined}
 										<SettingsPanel />
 									{:else}

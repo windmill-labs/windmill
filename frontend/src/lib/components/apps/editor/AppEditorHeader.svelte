@@ -491,12 +491,12 @@
 				<ToggleButton position="left" value="dnd" size="xs">
 					<div class="inline-flex gap-1 items-center">
 						<Pencil size={14} />
-						<span class="hidden md:inline">Editor</span>
+						<span class="hidden lg:inline">Editor</span>
 					</div>
 				</ToggleButton>
 				<ToggleButton position="right" value="preview" size="xs">
 					<div class="inline-flex gap-1 items-center">
-						<Eye size={14} /> <span class="hidden md:inline">Preview</span>
+						<Eye size={14} /> <span class="hidden lg:inline">Preview</span>
 					</div>
 				</ToggleButton>
 			</ToggleButtonGroup>
@@ -530,19 +530,21 @@
 		</div>
 	</div>
 	{#if $focusedGrid !== undefined}
-		<Badge color="indigo">
-			<div class="flex flex-row gap-2 justify-center items-center">
-				<div>{`Sub grid: ${$focusedGrid.parentComponentId} (${$focusedGrid.subGridIndex})`}</div>
-				<button
-					on:click={() => {
-						$selectedComponent = undefined
-						$focusedGrid = undefined
-					}}
-				>
-					<X size={14} />
-				</button>
-			</div>
-		</Badge>
+		<div class="hidden lg:block">
+			<Badge color="indigo">
+				<div class="flex flex-row gap-2 justify-center items-center">
+					<div>{`Sub grid: ${$focusedGrid.parentComponentId} (${$focusedGrid.subGridIndex})`}</div>
+					<button
+						on:click={() => {
+							$selectedComponent = undefined
+							$focusedGrid = undefined
+						}}
+					>
+						<X size={14} />
+					</button>
+				</div>
+			</Badge>
+		</div>
 	{/if}
 
 	<div class="flex flex-row gap-2 justify-end items-center overflow-visible">
@@ -592,7 +594,7 @@
 				variant="border"
 				startIcon={{ icon: faBug }}
 			>
-				<span class="hidden md:inline">Debug Runs</span>
+				<span class="hidden xl:inline">Debug Runs</span>
 			</Button>
 		</span>
 		<AppExportButton bind:this={appExport} />
@@ -603,7 +605,7 @@
 			variant="border"
 			startIcon={{ icon: faExternalLink }}
 		>
-			<span class="hidden md:inline">Publish</span>
+			<span class="hidden xl:inline">Publish</span>
 		</Button>
 		{#if appPath == ''}
 			<Button

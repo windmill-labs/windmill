@@ -8,7 +8,6 @@
 	import { inferArgs } from '$lib/infer'
 	import type { Schema } from '$lib/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import { fly } from 'svelte/transition'
 	import Editor from '$lib/components/Editor.svelte'
 	import { emptySchema, scriptLangToEditorLang } from '$lib/utils'
 	import Popover from '../../../Popover.svelte'
