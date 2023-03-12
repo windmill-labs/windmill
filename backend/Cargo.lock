@@ -1123,9 +1123,9 @@ dependencies = [
 
 [[package]]
 name = "futures"
-version = "0.3.26"
+version = "0.3.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13e2792b0ff0340399d58445b88fd9770e3489eff258a4cbc1523418f12abf84"
+checksum = "531ac96c6ff5fd7c62263c5e3c67a603af4fcaee2e1a0ae5565ba3a11e69e549"
 dependencies = [
  "futures-channel",
  "futures-core",
@@ -1138,9 +1138,9 @@ dependencies = [
 
 [[package]]
 name = "futures-channel"
-version = "0.3.26"
+version = "0.3.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e5317663a9089767a1ec00a487df42e0ca174b61b4483213ac24448e4664df5"
+checksum = "164713a5a0dcc3e7b4b1ed7d3b433cabc18025386f9339346e8daf15963cf7ac"
 dependencies = [
  "futures-core",
  "futures-sink",
@@ -1148,15 +1148,15 @@ dependencies = [
 
 [[package]]
 name = "futures-core"
-version = "0.3.26"
+version = "0.3.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec90ff4d0fe1f57d600049061dc6bb68ed03c7d2fbd697274c41805dcb3f8608"
+checksum = "86d7a0c1aa76363dac491de0ee99faf6941128376f1cf96f07db7603b7de69dd"
 
 [[package]]
 name = "futures-executor"
-version = "0.3.26"
+version = "0.3.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8de0a35a6ab97ec8869e32a2473f4b1324459e14c29275d14b10cb1fd19b50e"
+checksum = "1997dd9df74cdac935c76252744c1ed5794fac083242ea4fe77ef3ed60ba0f83"
 dependencies = [
  "futures-core",
  "futures-task",
@@ -1176,9 +1176,9 @@ dependencies = [
 
 [[package]]
 name = "futures-io"
-version = "0.3.26"
+version = "0.3.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bfb8371b6fb2aeb2d280374607aeabfc99d95c72edfe51692e42d3d7f0d08531"
+checksum = "89d422fa3cbe3b40dca574ab087abb5bc98258ea57eea3fd6f1fa7162c778b91"
 
 [[package]]
 name = "futures-lite"
@@ -1197,9 +1197,9 @@ dependencies = [
 
 [[package]]
 name = "futures-macro"
-version = "0.3.26"
+version = "0.3.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "95a73af87da33b5acf53acfebdc339fe592ecf5357ac7c0a7734ab9d8c876a70"
+checksum = "3eb14ed937631bd8b8b8977f2c198443447a8355b6e3ca599f38c975e5a963b6"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1208,21 +1208,21 @@ dependencies = [
 
 [[package]]
 name = "futures-sink"
-version = "0.3.26"
+version = "0.3.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f310820bb3e8cfd46c80db4d7fb8353e15dfff853a127158425f31e0be6c8364"
+checksum = "ec93083a4aecafb2a80a885c9de1f0ccae9dbd32c2bb54b0c3a65690e0b8d2f2"
 
 [[package]]
 name = "futures-task"
-version = "0.3.26"
+version = "0.3.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dcf79a1bf610b10f42aea489289c5a2c478a786509693b80cd39c44ccd936366"
+checksum = "fd65540d33b37b16542a0438c12e6aeead10d4ac5d05bd3f805b8f35ab592879"
 
 [[package]]
 name = "futures-util"
-version = "0.3.26"
+version = "0.3.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c1d6de3acfef38d2be4b1f543f553131788603495be83da675e180c8d6b7bd1"
+checksum = "3ef6b17e481503ec85211fed8f39d1970f128935ca1f814cd32ac4a6842e84ab"
 dependencies = [
  "futures-channel",
  "futures-core",
@@ -1503,9 +1503,9 @@ checksum = "c4a1e36c821dbe04574f602848a19f742f4fb3c98d40449f11bcad18d6b17421"
 
 [[package]]
 name = "hyper"
-version = "0.14.24"
+version = "0.14.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e011372fa0b68db8350aa7a248930ecc7839bf46d8485577d69f117a75f164c"
+checksum = "cc5e554ff619822309ffd57d8734d77cd5ce6238bc956f037ea06c58238c9899"
 dependencies = [
  "bytes",
  "futures-channel",
@@ -2953,7 +2953,7 @@ dependencies = [
 [[package]]
 name = "rustpython-ast"
 version = "0.2.0"
-source = "git+https://github.com/RustPython/RustPython#87728c44527272ece739cddbb4942ad7e176dd79"
+source = "git+https://github.com/RustPython/RustPython#415cdb1ef9b832fbca858a05f6894087e133dd31"
 dependencies = [
  "num-bigint",
  "rustpython-compiler-core",
@@ -2962,7 +2962,7 @@ dependencies = [
 [[package]]
 name = "rustpython-compiler-core"
 version = "0.2.0"
-source = "git+https://github.com/RustPython/RustPython#87728c44527272ece739cddbb4942ad7e176dd79"
+source = "git+https://github.com/RustPython/RustPython#415cdb1ef9b832fbca858a05f6894087e133dd31"
 dependencies = [
  "bitflags",
  "bstr",
@@ -2975,7 +2975,7 @@ dependencies = [
 [[package]]
 name = "rustpython-parser"
 version = "0.2.0"
-source = "git+https://github.com/RustPython/RustPython#87728c44527272ece739cddbb4942ad7e176dd79"
+source = "git+https://github.com/RustPython/RustPython#415cdb1ef9b832fbca858a05f6894087e133dd31"
 dependencies = [
  "ahash",
  "anyhow",
@@ -3667,9 +3667,9 @@ dependencies = [
 
 [[package]]
 name = "swc_common"
-version = "0.29.35"
+version = "0.29.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d515be281f603cb97afaa89896aca5e5c748fde11c7f926e35cdaa8ff8da705"
+checksum = "5005cd73617e18592faa31298225b26f1c407b84a681d67efb735c3d3458e101"
 dependencies = [
  "ahash",
  "ast_node",
@@ -4052,9 +4052,9 @@ checksum = "3ab8ed2edee10b50132aed5f331333428b011c99402b5a534154ed15746f9622"
 
 [[package]]
 name = "toml_edit"
-version = "0.19.4"
+version = "0.19.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a1eb0622d28f4b9c90adc4ea4b2b46b47663fde9ac5fafcb14a1369d5508825"
+checksum = "7082a95d48029677a28f181e5f6422d0c8339ad8396a39d3f33d62a90c1f6c30"
 dependencies = [
  "indexmap",
  "toml_datetime",
@@ -4274,7 +4274,7 @@ checksum = "497961ef93d974e23eb6f433eb5fe1b7930b659f06d12dec6fc44a8f554c0bba"
 [[package]]
 name = "typify"
 version = "0.0.11-dev"
-source = "git+https://github.com/oxidecomputer/typify#18e7faf1957812626e3bf459e20fbe16785de2d4"
+source = "git+https://github.com/oxidecomputer/typify#d1cae0f7d5115782c9557a46396dae786ad5f592"
 dependencies = [
  "typify-impl",
  "typify-macro",
@@ -4283,7 +4283,7 @@ dependencies = [
 [[package]]
 name = "typify-impl"
 version = "0.0.11-dev"
-source = "git+https://github.com/oxidecomputer/typify#18e7faf1957812626e3bf459e20fbe16785de2d4"
+source = "git+https://github.com/oxidecomputer/typify#d1cae0f7d5115782c9557a46396dae786ad5f592"
 dependencies = [
  "heck",
  "log",
@@ -4301,7 +4301,7 @@ dependencies = [
 [[package]]
 name = "typify-macro"
 version = "0.0.11-dev"
-source = "git+https://github.com/oxidecomputer/typify#18e7faf1957812626e3bf459e20fbe16785de2d4"
+source = "git+https://github.com/oxidecomputer/typify#d1cae0f7d5115782c9557a46396dae786ad5f592"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4742,7 +4742,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.74.2"
+version = "1.75.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -4769,7 +4769,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.74.2"
+version = "1.75.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -4824,7 +4824,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.74.2"
+version = "1.75.0"
 dependencies = [
  "base64 0.21.0",
  "chrono",
@@ -4839,7 +4839,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.74.2"
+version = "1.75.0"
 dependencies = [
  "chrono",
  "serde",
@@ -4852,7 +4852,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.74.2"
+version = "1.75.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -4877,7 +4877,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.74.2"
+version = "1.75.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -4885,7 +4885,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.74.2"
+version = "1.75.0"
 dependencies = [
  "anyhow",
  "itertools",
@@ -4900,7 +4900,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.74.2"
+version = "1.75.0"
 dependencies = [
  "anyhow",
  "itertools",
@@ -4912,7 +4912,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.74.2"
+version = "1.75.0"
 dependencies = [
  "anyhow",
  "itertools",
@@ -4927,7 +4927,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.74.2"
+version = "1.75.0"
 dependencies = [
  "anyhow",
  "deno_core",
@@ -4941,7 +4941,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.74.2"
+version = "1.75.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4964,7 +4964,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.74.2"
+version = "1.75.0"
 dependencies = [
  "anyhow",
  "async-recursion",
