@@ -309,7 +309,6 @@ export function expandGriditem(
 ) {
 	const availableSpace = findAvailableSpace(grid, gridComponent, $breakpoint, parentGridItem)
 
-	console.log(availableSpace)
 	if (!availableSpace) {
 		return
 	}
