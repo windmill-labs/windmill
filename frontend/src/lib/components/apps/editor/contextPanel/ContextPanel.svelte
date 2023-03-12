@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { X } from 'lucide-svelte'
+	import Button from '$lib/components/common/button/Button.svelte'
+	import { Expand, Maximize, Minimize, Shrink, X } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 
 	import type { AppViewerContext } from '../../types'
@@ -55,6 +56,12 @@
 			componentId.toLowerCase().includes(search.toLowerCase())
 		)
 	})
+
+	let expanded = false
+
+	function toggleExpanded() {
+		expanded = !expanded
+	}
 </script>
 
 <PanelSection noPadding titlePadding="px-4 pt-2 pb-0.5" title="Outputs">
@@ -77,8 +84,18 @@
 			</div>
 		</div>
 
+		<div class="p-1 ">
+			<Button on:click={toggleExpanded} color="light" size="xs">
+				{#if !expanded}
+					<Maximize size="14" />
+				{:else}
+					<Minimize size="14" />
+				{/if}
+			</Button>
+		</div>
+
 		{#each $app.grid as gridItem, index}
-			<ComponentOutput {gridItem} first={index === 0} />
+			<ComponentOutput {gridItem} first={index === 0} {expanded} />
 		{/each}
 	</div>
 </PanelSection>

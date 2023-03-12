@@ -4,7 +4,7 @@
 	import type { AppViewerContext, GridItem } from '../../types'
 	import ComponentOutputViewer from './ComponentOutputViewer.svelte'
 	import { classNames } from '$lib/utils'
-	import { ChevronDown, ChevronRight, Lock } from 'lucide-svelte'
+	import { ChevronDown, ChevronRight, FolderOpen } from 'lucide-svelte'
 	import { isIdInsideGriditem } from '../appUtils'
 	import { slide } from 'svelte/transition'
 
@@ -12,6 +12,7 @@
 	export let first: boolean = false
 	export let nested: boolean = false
 	export let parentId: string | undefined = undefined
+	export let expanded: boolean = false
 
 	const { app, staticOutputs, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 	const name = getComponentNameById(gridItem.id)
@@ -29,6 +30,12 @@
 	}
 
 	let manuallyOpened = false
+
+	$: if (expanded) {
+		manuallyOpened = true
+	} else {
+		manuallyOpened = false
+	}
 
 	$: subGrids = Array.from({ length: gridItem.data.numberOfSubgrids }).map(
 		(_, i) => `${gridItem.id}-${i}`
@@ -87,7 +94,7 @@
 			{#if !opened && !manuallyOpened}
 				<ChevronRight size={14} />
 			{:else if manuallyOpened}
-				<Lock size={14} />
+				<FolderOpen size={14} />
 			{:else}
 				<ChevronDown size={14} />
 			{/if}
@@ -122,6 +129,7 @@
 											first={index === 0}
 											nested
 											parentId={gridItem.id}
+											{expanded}
 										/>
 									</div>
 								{/if}
