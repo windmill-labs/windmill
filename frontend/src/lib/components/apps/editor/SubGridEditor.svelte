@@ -136,11 +136,11 @@
 									if (!parentGridItem) {
 										return
 									}
-
+									$selectedComponent = gridComponent.data.id
 									push(history, $app)
 
 									expandGriditem(subGrid, gridComponent, $breakpoint, parentGridItem)
-									$app = { ...$app }
+									$app = $app
 								}}
 							/>
 						</div>

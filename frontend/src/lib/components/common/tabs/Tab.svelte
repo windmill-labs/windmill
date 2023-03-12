@@ -35,6 +35,7 @@
 	)}
 	style={`${style} ${$selected?.startsWith(value) ? selectedStyle : ''}`}
 	on:click={() => update(value)}
+	on:pointerdown|stopPropagation
 >
 	<slot />
 </div>

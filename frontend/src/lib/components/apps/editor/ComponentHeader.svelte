@@ -41,13 +41,14 @@
 
 {#if pointerdown || selected || hover}
 	<button
-		title="Position locking"
+		title="Lock Position"
 		class={classNames(
 			'text-gray-800 px-1 text-2xs py-0.5 font-bold w-fit shadow border border-gray-300 absolute  -top-1  right-[2.5rem] z-50 cursor-pointer',
 			' hover:bg-gray-300',
 			selected ? 'bg-gray-200/80' : 'bg-gray-200/80'
 		)}
 		on:click={() => dispatch('lock')}
+		on:pointerdown|stopPropagation
 	>
 		{#if locked}
 			<Anchor aria-label="Unlock position" size={14} class="text-orange-500" />
@@ -63,6 +64,7 @@
 			selected ? 'bg-gray-200/80' : 'bg-gray-200/80'
 		)}
 		on:click={() => dispatch('expand')}
+		on:pointerdown|stopPropagation
 	>
 		<Expand aria-label="Expand position" size={14} />
 	</button>
