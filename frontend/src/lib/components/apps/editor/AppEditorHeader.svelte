@@ -18,6 +18,7 @@
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import Dropdown from '$lib/components/Dropdown.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
+	import { idMutex } from '$lib/components/flows/flowStateUtils'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
@@ -247,7 +248,10 @@
 	$: selectedJobId && testJobLoader?.watchJob(selectedJobId)
 	$: hasErrors = Object.keys($errorByComponent).length > 0
 
+	let lock = false
 	function onKeyDown(event: KeyboardEvent) {
+		if (lock) return
+		lock = true
 		switch (event.key) {
 			case 'Z':
 				if (event.ctrlKey) {
@@ -258,6 +262,7 @@
 			case 'z':
 				if (event.ctrlKey) {
 					$app = undo(history, $app)
+
 					event.preventDefault()
 				}
 				break
@@ -286,6 +291,7 @@
 			// 	break
 			// }
 		}
+		lock = false
 	}
 </script>
 
@@ -513,20 +519,22 @@
 		</div>
 
 		<div class="hidden lg:block">
-			<ToggleButtonGroup bind:selected={$app.fullscreen}>
-				<ToggleButton position="left" value={false} size="xs">
-					<div class="flex gap-1 justify-start items-center">
-						<AlignHorizontalSpaceAround size={14} />
-						<Tooltip light class="mb-0.5">
-							The max width is 1168px and the content stay centered instead of taking the full page
-							width
-						</Tooltip>
-					</div>
-				</ToggleButton>
-				<ToggleButton position="right" value={true} size="xs">
-					<Expand size={14} />
-				</ToggleButton>
-			</ToggleButtonGroup>
+			{#if $app}
+				<ToggleButtonGroup bind:selected={$app.fullscreen}>
+					<ToggleButton position="left" value={false} size="xs">
+						<div class="flex gap-1 justify-start items-center">
+							<AlignHorizontalSpaceAround size={14} />
+							<Tooltip light class="mb-0.5">
+								The max width is 1168px and the content stay centered instead of taking the full
+								page width
+							</Tooltip>
+						</div>
+					</ToggleButton>
+					<ToggleButton position="right" value={true} size="xs">
+						<Expand size={14} />
+					</ToggleButton>
+				</ToggleButtonGroup>
+			{/if}
 		</div>
 	</div>
 	{#if $focusedGrid !== undefined}
