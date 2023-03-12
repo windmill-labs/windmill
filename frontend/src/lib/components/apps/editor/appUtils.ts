@@ -33,6 +33,17 @@ export function findGridItemParentId(app: App, id: string): string | undefined {
 	}
 }
 
+export function isIdInsideGriditem(app: App, gridItem: GridItem, id: string | undefined): boolean {
+	const path: string[] = []
+	let currentId = id
+	while (currentId) {
+		path.push(currentId)
+		currentId = findGridItemParentId(app, currentId)
+	}
+
+	return path.includes(gridItem.id)
+}
+
 export function findGridItem(app: App, id: string): GridItem | undefined {
 	return findGridItemById(app.grid, app.subgrids, id)
 }

@@ -8,10 +8,7 @@
 	import PanelSection from '../settingsPanel/common/PanelSection.svelte'
 	import ComponentOutput from './ComponentOutput.svelte'
 
-	const { connectingInput, staticOutputs, worldStore, selectedComponent, app } =
-		getContext<AppViewerContext>('AppViewerContext')
-
-	const manualyOpenedIds = new Set<string>()
+	const { connectingInput, staticOutputs, app } = getContext<AppViewerContext>('AppViewerContext')
 
 	function connectInput(componentId: string, path: string) {
 		if ($connectingInput) {

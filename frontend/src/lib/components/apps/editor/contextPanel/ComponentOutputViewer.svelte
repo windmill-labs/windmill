@@ -30,6 +30,4 @@
 
 {#if Object.keys(object).length > 0}
 	<ObjectViewer json={object} on:select topBrackets={false} />
-{:else}
-	<div class="text-xs text-gray-500 px-4">No outputs</div>
 {/if}
