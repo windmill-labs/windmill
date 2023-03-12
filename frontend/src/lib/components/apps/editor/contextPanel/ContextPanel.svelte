@@ -77,8 +77,8 @@
 			</div>
 		</div>
 
-		{#each $app.grid as gridItem}
-			<ComponentOutput {gridItem} />
+		{#each $app.grid as gridItem, index}
+			<ComponentOutput {gridItem} first={index === 0} />
 		{/each}
 	</div>
 </PanelSection>

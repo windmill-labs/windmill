@@ -3,12 +3,15 @@
 	import { getContext } from 'svelte'
 	import type { AppViewerContext, GridItem } from '../../types'
 	import ComponentOutputViewer from './ComponentOutputViewer.svelte'
-	import { classNames, pluralize } from '$lib/utils'
-	import { ArrowDown, ArrowRight, ChevronDown, ChevronRight } from 'lucide-svelte'
+	import { classNames } from '$lib/utils'
+	import { ChevronDown, ChevronRight, Lock } from 'lucide-svelte'
 	import { isIdInsideGriditem } from '../appUtils'
+	import { slide } from 'svelte/transition'
 
 	export let gridItem: GridItem
+	export let first: boolean = false
 	export let nested: boolean = false
+	export let parentId: string | undefined = undefined
 
 	const { app, staticOutputs, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 	const name = getComponentNameById(gridItem.id)
@@ -40,47 +43,69 @@
 			return 'Pane'
 		}
 	}
-	$: x = isIdInsideGriditem($app, gridItem, $selectedComponent)
 
-	$: opened = manuallyOpened || x
+	$: insideGrid = isIdInsideGriditem($app, gridItem, $selectedComponent)
+	$: isSelected = $selectedComponent === gridItem.id
+	$: opened = insideGrid || isSelected || manuallyOpened
+
+	function onHeaderClick() {
+		if (manuallyOpened) {
+			if (parentId) {
+				$selectedComponent = parentId
+			} else {
+				$selectedComponent = undefined
+			}
+			manuallyOpened = false
+		} else {
+			$selectedComponent = gridItem.id
+			manuallyOpened = true
+		}
+	}
 </script>
 
 {#if $staticOutputs[gridItem.id] || gridItem.data.numberOfSubgrids > 1}
-	<div class="flex flex-col">
+	<!-- svelte-ignore a11y-click-events-have-key-events -->
+	<div
+		class={classNames(
+			'flex items-center justify-between p-1 cursor-pointer hover:bg-indigo-100 hover:text-indigo-500 border-b',
+			isSelected ? 'bg-indigo-50 ' : 'bg-white',
+			first ? 'border-t' : '',
+			nested ? 'border-l' : ''
+		)}
+		on:click={onHeaderClick}
+	>
 		<div
 			class={classNames(
-				'flex items-center justify-between p-1 border-y',
-				opened ? 'bg-gray-200' : 'bg-gray-50'
+				'text-2xs ml-0.5 font-bold px-2 py-0.5 rounded-sm',
+				isSelected ? 'bg-indigo-500 text-white' : ' bg-indigo-200'
 			)}
 		>
-			<div
-				class={classNames(
-					'text-2xs ml-0.5 font-bold px-2 py-0.5',
-					$selectedComponent === gridItem.id ? 'bg-indigo-500 text-white' : ' bg-indigo-200'
-				)}
-			>
-				{gridItem.id}
-			</div>
-			<div class="text-xs font-bold flex flex-row gap-2 items-center">
-				{getComponentNameById(gridItem.id)}
-				{#if !opened}
-					<ChevronRight size={14} />
-				{:else}
-					<ChevronDown size={14} />
-				{/if}
-			</div>
+			{gridItem.id}
 		</div>
-		{#if x || opened}
-			<div class="py-1">
+		<div class="text-2xs font-bold flex flex-row gap-2 items-center">
+			{getComponentNameById(gridItem.id)}
+			{#if !opened && !manuallyOpened}
+				<ChevronRight size={14} />
+			{:else if manuallyOpened}
+				<Lock size={14} />
+			{:else}
+				<ChevronDown size={14} />
+			{/if}
+		</div>
+	</div>
+
+	{#if opened}
+		<div class={classNames('border-b', nested ? 'border-l' : '')} transition:slide|local>
+			<div class={classNames('py-1')}>
 				<ComponentOutputViewer componentId={gridItem.id} outputs={$staticOutputs[gridItem.id]} />
 			</div>
 
-			<div class={nested ? 'border-b' : ''}>
+			<div>
 				{#each subGrids as subGridId, index}
-					<div class="ml-2 mb-2">
+					<div class="ml-2 my-2">
 						{#if subGrids.length > 1}
 							<div
-								class="px-1 py-0.5 flex justify-between items-center font-semibold bg-gray-600 text-xs text-white w-fit	 "
+								class="px-1 py-0.5 flex justify-between items-center font-semibold bg-black text-xs text-white w-fit	 "
 							>
 								<div class="text-xs">
 									{getSubgridName(name)}
@@ -89,10 +114,15 @@
 							</div>
 						{/if}
 						{#if $app.subgrids && $app.subgrids[subGridId].length > 0}
-							{#each $app.subgrids[subGridId] as subGridItem}
+							{#each $app.subgrids[subGridId] as subGridItem, index}
 								{#if subGridItem}
-									<div class="border-l">
-										<svelte:self gridItem={subGridItem} nested />
+									<div>
+										<svelte:self
+											gridItem={subGridItem}
+											first={index === 0}
+											nested
+											parentId={gridItem.id}
+										/>
 									</div>
 								{/if}
 							{/each}
@@ -102,6 +132,6 @@
 					</div>
 				{/each}
 			</div>
-		{/if}
-	</div>
+		</div>
+	{/if}
 {/if}
