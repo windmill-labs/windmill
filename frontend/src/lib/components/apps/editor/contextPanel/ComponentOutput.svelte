@@ -84,10 +84,8 @@
 			{getComponentNameById(gridItem.id)}
 			{#if !opened && !manuallyOpened}
 				<ChevronRight size={14} />
-			{:else if manuallyOpened}
-				<FolderOpen size={14} />
 			{:else}
-				<ChevronDown size={14} />
+				<ChevronDown size={14} class={manuallyOpened ? 'text-indigo-500 ' : ''} />
 			{/if}
 		</div>
 	</div>

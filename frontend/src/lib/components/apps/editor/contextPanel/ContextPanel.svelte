@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { Expand, Maximize, Minimize, Shrink, X } from 'lucide-svelte'
+	import { Maximize, Minimize, X } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 
 	import type { AppViewerContext } from '../../types'

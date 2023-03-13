@@ -7,31 +7,18 @@
 	import ComponentOutput from './ComponentOutput.svelte'
 
 	export let name: string | undefined = undefined
-	export let parentId: string | undefined = undefined
+	export let parentId: string
 	export let expanded: boolean = false
 	export let subGrids: string[]
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	function getSubgridName(name: string) {
-		if (name === 'Tabs') {
-			return 'Tab'
-		} else if (name === 'Horizontal Split Panes') {
-			return 'Pane'
-		} else if (name === 'Vertical Split Panes') {
-			return 'Pane'
-		}
-	}
-
 	let selected = 0
 
-	$: outputs = parentId
-		? ($worldStore?.outputsById[parentId] as {
-				selectedTabIndex: Output<number>
-		  })
-		: undefined
+	$: outputs = $worldStore?.outputsById[parentId] as {
+		selectedTabIndex: Output<number>
+	}
 
-	// Set selected every time the output changes
 	$: if (outputs?.selectedTabIndex) {
 		outputs.selectedTabIndex.subscribe({
 			next: (value) => {
@@ -55,7 +42,7 @@
 				}}
 			>
 				<div class="text-xs">
-					{name ? getSubgridName(name) : 'Should implement'}
+					{name ? name : 'Should implement'}
 					{index + 1}
 				</div>
 			</div>
