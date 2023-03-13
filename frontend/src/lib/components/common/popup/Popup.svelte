@@ -16,6 +16,7 @@
 	export let innerClasses = ''
 	export let outerClasses = ''
 	export let transition: (node: Element, params?: Record<string, any>) => TransitionConfig = slide
+	export { openFocusIn as open, closed as close }
 
 	const states = ['closed', 'open-focus-in', 'open-focus-out'] as const
 	const stateMachine = createStateMachine(states, {
@@ -158,7 +159,7 @@
 	{#if $stateMachine.currentState !== 'closed'}
 		<div transition:transition|local={{ duration: 200 }} class={outerClasses}>
 			<div class={innerClasses}>
-				<slot close={closed} />
+				<slot open={openFocusIn} close={closed} />
 			</div>
 		</div>
 	{/if}

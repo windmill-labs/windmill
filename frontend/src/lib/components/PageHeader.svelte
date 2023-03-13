@@ -11,7 +11,7 @@
 		<span class="flex items-center space-x-2 mb-2">
 			<h1>{title}</h1>
 			{#if tooltip}
-				<Tooltip>{tooltip}</Tooltip>
+				<Tooltip scale={0.9}>{tooltip}</Tooltip>
 			{/if}
 		</span>
 	{:else}

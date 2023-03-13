@@ -23,6 +23,7 @@
 	import FolderEditor from './FolderEditor.svelte'
 	import GroupEditor from './GroupEditor.svelte'
 	import { random_adj } from './random_positive_adjetive'
+	import Badge from './common/badge/Badge.svelte'
 
 	type PathKind = 'resource' | 'script' | 'variable' | 'flow' | 'schedule' | 'app'
 	let meta: Meta | undefined = undefined
@@ -306,7 +307,7 @@
 		{#if meta != undefined}
 			<div class="flex gap-4 shrink">
 				<label class="block">
-					<span class="text-gray-700 text-sm whitespace-nowrap">&nbsp;</span>
+					<span class="text-gray-700 text-sm whitespace-nowrap">Owner</span>
 
 					<ToggleButtonGroup
 						class="mt-0.5"
@@ -409,8 +410,26 @@
 		{/if}
 	</div>
 
-	<div class="flex-row flex justify-between w-full">
-		<div><span class="font-mono text-sm break-all">{path}</span></div>
+	<div class="flex flex-col w-full mt-4">
+		<div class="flex justify-start w-full">
+			<Badge
+				color="gray"
+				class="center-center !bg-gray-300 !text-gray-600 !w-[70px] !h-[24px] rounded-r-none"
+			>
+				Full path
+			</Badge>
+			<input
+				type="text"
+				readonly
+				value={path}
+				size={path?.length || 50}
+				class="font-mono !text-xs max-w-[calc(100%-70px)] !w-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none"
+				on:focus={({ currentTarget }) => {
+					currentTarget.select()
+				}}
+			/>
+			<!-- <span class="font-mono text-sm break-all">{path}</span> -->
+		</div>
 		<div class="text-red-600 text-2xs">{error}</div>
 	</div>
 </div>
