@@ -130,7 +130,6 @@ export function clickOutside(node: Node): { destroy(): void } {
 	}
 }
 
-
 export interface DropdownItem {
 	// If a DropdownItem has an action, it will be declared as a button
 	// If a DropdownItem has no action and an href, it will be declared as a link
@@ -297,11 +296,14 @@ export async function setQuery(url: URL, key: string, value: string): Promise<vo
 }
 
 let debounced: NodeJS.Timeout | undefined = undefined
-export function setQueryWithoutLoad(url: URL, args: { key: string, value: string | null | undefined }[], bounceTime?: number): void {
+export function setQueryWithoutLoad(
+	url: URL,
+	args: { key: string; value: string | null | undefined }[],
+	bounceTime?: number
+): void {
 	debounced && clearTimeout(debounced)
 	debounced = setTimeout(() => {
 		const nurl = new URL(url.toString())
-		console.log(url.toString())
 		for (const { key, value } of args) {
 			if (value) {
 				nurl.searchParams.set(key, value)

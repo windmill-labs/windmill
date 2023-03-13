@@ -17,7 +17,7 @@
 
 <div class="flex flex-col w-full">
 	<div class="border border-gray-300 w-full">
-		<SimpleEditor autoHeight lang="json" bind:code />
+		<SimpleEditor on:change autoHeight lang="json" bind:code />
 	</div>
 	{#if error != ''}
 		<span class="text-red-600 text-xs">{error}</span>
