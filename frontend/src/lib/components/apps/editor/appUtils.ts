@@ -47,7 +47,6 @@ export function getNextGridItemId(app: App): string {
 }
 
 export function createNewGridItem(grid: GridItem[], id: string, data: AppComponent): GridItem {
-
 	const newComponent = {
 		resizable: true,
 		draggable: true,
@@ -105,7 +104,6 @@ export function insertNewGridItem(
 		app.subgrids = {}
 	}
 
-
 	// We only want to set subgrids when we are not moving
 	if (!keepId) {
 		for (let i = 0; i < (data.numberOfSubgrids ?? 0); i++) {
@@ -113,8 +111,9 @@ export function insertNewGridItem(
 		}
 	}
 
-
-	const key = focusedGrid ? `${focusedGrid?.parentComponentId}-${focusedGrid?.subGridIndex ?? 0}` : undefined
+	const key = focusedGrid
+		? `${focusedGrid?.parentComponentId}-${focusedGrid?.subGridIndex ?? 0}`
+		: undefined
 	let grid = focusedGrid ? app.subgrids[key!] : app.grid
 
 	const newItem = createNewGridItem(grid, id, data)
@@ -176,8 +175,6 @@ export function deleteGridItem(
 
 	return components
 }
-
-
 
 type AvailableSpace = {
 	left: number
@@ -286,11 +283,17 @@ function isOverlapping(item1: any, item2: any) {
 }
 
 type Outputtable<Type> = {
-	-readonly [Property in keyof Type]: Output<Type[Property]>;
-};
+	-readonly [Property in keyof Type]: Output<Type[Property]>
+}
 
-
-export function initOutput<I extends Record<string, any>>(world: World, id: string, init: I): Outputtable<I> {
+export function initOutput<I extends Record<string, any>>(
+	world: World | undefined,
+	id: string,
+	init: I
+): Outputtable<I> {
+	if (!world) {
+		return {} as any
+	}
 	const output = world.outputsById[id] as Outputtable<I>
 	if (init) {
 		for (const key in init) {

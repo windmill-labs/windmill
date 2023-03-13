@@ -92,7 +92,11 @@
 		let isPointerUp = detail.isPointerUp
 		let citems: FilledItem<T>[]
 		if (isPointerUp) {
-			citems = JSON.parse(JSON.stringify(initItems))
+			try {
+				citems = JSON.parse(JSON.stringify(initItems))
+			} catch (e) {
+				citems = JSON.parse(JSON.stringify(items))
+			}
 			initItems = undefined
 		} else {
 			if (initItems == undefined) {

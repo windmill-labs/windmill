@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
 	import { classNames } from '$lib/utils'
 	import { X } from 'lucide-svelte'
 	import { getContext } from 'svelte'
@@ -10,7 +11,7 @@
 	import PanelSection from '../settingsPanel/common/PanelSection.svelte'
 	import ComponentOutputViewer from './ComponentOutputViewer.svelte'
 
-	const { connectingInput, staticOutputs, worldStore, selectedComponent, app } =
+	const { connectingInput, staticOutputs, worldStore, selectedComponent, app, state } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	function connectInput(componentId: string, path: string) {
@@ -155,5 +156,12 @@
 				</div>
 			{/each}
 		</div>
+		<PanelSection noPadding titlePadding="px-4 pt-2 pb-0.5" title="State">
+			<div class="mx-2 px-1 border w-full mb-8">
+				{#key $state}
+					<ObjectViewer json={$state} />
+				{/key}
+			</div>
+		</PanelSection>
 	</div>
 </PanelSection>

@@ -3,6 +3,7 @@
 	import { Button, Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
 	import FlowScriptPicker from '$lib/components/flows/pickers/FlowScriptPicker.svelte'
 	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { Script, type Preview } from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
@@ -145,7 +146,29 @@
 </Drawer>
 
 <div class="flex flex-col px-4 py-2 gap-2 text-sm" in:fly={{ duration: 50 }}>
-	<div>Choose a language:</div>
+	<div class="mt-4 flex justify-between gap-8 mb-2">
+		<div class="font-bold items-baseline">Choose a language:</div>
+		<div class="flex gap-2">
+			<Button
+				on:click={() => picker?.openDrawer()}
+				size="xs"
+				color="blue"
+				startIcon={{ icon: faCodeBranch }}
+				btnClasses="truncate"
+			>
+				fork a detached script
+			</Button>
+			<Button
+				on:click={() => dispatch('delete')}
+				size="xs"
+				color="red"
+				variant="border"
+				btnClasses="truncate"
+			>
+				Cancel
+			</Button>
+		</div>
+	</div>
 	<div class="flex gap-2 flex-row flex-wrap">
 		{#each langs as lang}
 			<FlowScriptPicker
@@ -164,6 +187,7 @@
 				createInlineScriptByLanguage(Script.language.DENO, name, 'pgsql')
 			}}
 		/>
+
 		<!-- <FlowScriptPicker
 			label={`MySQL`}
 			lang="mysql"
@@ -172,26 +196,34 @@
 			}}
 		/> -->
 	</div>
+	<div>
+		<div class="text-xs mb-1 mt-2"
+			>Frontend only script:&nbsp;<Tooltip
+				>Frontend scripts are executed in the browser and can manipulate the app context directly</Tooltip
+			></div
+		>
+		<FlowScriptPicker
+			label={`JavaScript`}
+			lang="javascript"
+			on:click={() => {
+				const newInlineScript = {
+					content: `// read outputs and ctx
+console.log(ctx.email)
 
-	<div class="mt-4">
-		<Button
-			on:click={() => picker?.openDrawer()}
-			size="xs"
-			color="blue"
-			startIcon={{ icon: faCodeBranch }}
-			btnClasses="truncate"
-		>
-			or fork a detached/Workspace/Hub script
-		</Button>
-		<Button
-			on:click={() => dispatch('delete')}
-			size="xs"
-			color="red"
-			variant="border"
-			startIcon={{ icon: faTrash }}
-			btnClasses="truncate"
-		>
-			Delete
-		</Button>
+// access a global state store
+if (!state.foo) { state.foo = 0 }
+state.foo += 1
+
+// you can also navigate to another page
+//await goto("?foo=bar")
+
+return state.foo`,
+					language: 'frontend',
+					path: 'frontend script',
+					schema: undefined
+				}
+				dispatch('new', newInlineScript)
+			}}
+		/>
 	</div>
 </div>
