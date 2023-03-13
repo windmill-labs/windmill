@@ -2,15 +2,15 @@ import type { FilledItem } from "../types";
 
 export const makeMatrix: (w: number, h: number) => any[][] = (rows, cols) => Array.from(Array(rows), () => new Array(cols)); // make 2d array
 
-export function makeMatrixFromItems<T>(items: FilledItem<T>[], _row, _col): FilledItem<T>[][] {
-  let matrix = makeMatrix(_row, _col);
+export function makeMatrixFromItems<T>(items: FilledItem<T>[], row: number, col: number): FilledItem<T>[][] {
+  let matrix = makeMatrix(row, col);
 
   for (var i = 0; i < items.length; i++) {
-    const value = items[i][_col];
+    const value = items[i][col];
     if (value) {
       const { x, y, h } = value;
       const id = items[i].id;
-      const w = Math.min(_col, value.w);
+      const w = Math.min(col, value.w);
 
       for (var j = y; j < y + h; j++) {
         const row = matrix[j];
