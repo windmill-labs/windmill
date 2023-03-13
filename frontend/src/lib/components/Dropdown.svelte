@@ -2,9 +2,10 @@
 	import type { DropdownItem } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import { MoreHorizontal } from 'lucide-svelte'
+	import { MoreVertical } from 'lucide-svelte'
 	import { Button, Menu } from './common'
 	import { goto } from '$app/navigation'
+	import { twMerge } from 'tailwind-merge'
 
 	type Alignment = 'start' | 'end'
 	type Side = 'top' | 'bottom'
@@ -13,15 +14,24 @@
 	export let dropdownItems: DropdownItem[]
 	export let name: string | undefined = undefined
 	export let placement: Placement = 'bottom-start'
-	export let btnClasses = '!text-blue-500 bg-transparent'
+	export let btnClasses = ''
+	$: buttonClass = twMerge('!border-0 bg-transparent !p-[6px]', btnClasses)
 
 	const dispatch = createEventDispatcher()
 </script>
 
 <Menu {placement} let:close>
-	<Button nonCaptureEvent color="light" size="xs" {btnClasses} {...$$restProps} slot="trigger">
+	<Button
+		nonCaptureEvent
+		color="dark"
+		variant="border"
+		size="xs"
+		btnClasses={buttonClass}
+		{...$$restProps}
+		slot="trigger"
+	>
 		{#if !$$slots.default}
-			<MoreHorizontal size={20} />
+			<MoreVertical size={20} />
 		{:else}
 			<slot />
 		{/if}

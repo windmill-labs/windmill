@@ -63,7 +63,7 @@
 			}
 			show = !show
 		}}
-		class="relative cursor-pointer hover:bg-gray-100/30"
+		class="relative"
 	>
 		<slot class="triggerable" name="trigger" />
 	</div>
