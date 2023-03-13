@@ -372,8 +372,8 @@
 			{:else}
 				<TableCustom>
 					<tr slot="header-row">
-						<th>path</th>
 						<th />
+						<th>path</th>
 						<th>resource type</th>
 						<th>description</th>
 						<th />
@@ -383,6 +383,9 @@
 						{#if filteredItems}
 							{#each filteredItems as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, marked, is_refreshed }}
 								<tr>
+									<td class="!px-0 text-center">
+										<SharedBadge {canWrite} extraPerms={extra_perms} />
+									</td>
 									<td>
 										<a
 											class="break-all"
@@ -391,7 +394,6 @@
 											>{#if marked}{@html marked}{:else}{path}{/if}</a
 										>
 									</td>
-									<td><SharedBadge {canWrite} extraPerms={extra_perms} /></td>
 									<td class="px-2"
 										><a
 											href="#{name}"

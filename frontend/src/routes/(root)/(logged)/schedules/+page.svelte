@@ -77,6 +77,7 @@
 		{:else}
 			<TableCustom>
 				<tr slot="header-row">
+					<th class="!px-0" />
 					<th>Schedule</th>
 					<th>Script/Flow</th>
 					<th>schedule</th>
@@ -89,12 +90,16 @@
 				<tbody slot="body">
 					{#each schedules as { path, error, edited_by, edited_at, schedule, offset_, enabled, script_path, is_flow, extra_perms, canWrite }}
 						<tr class={enabled ? '' : 'bg-gray-50'}>
-							<td class="max-w-sm"
-								><button
-									class="break-words text-left text-sm text-blue-600 font-normal"
-									on:click={() => scheduleEditor?.openEdit(path, is_flow)}>{path}</button
-								>
+							<td class="!px-0 text-center">
 								<SharedBadge {canWrite} extraPerms={extra_perms} />
+							</td>
+							<td class="max-w-sm">
+								<button
+									class="break-words text-left text-sm text-blue-600 font-normal"
+									on:click={() => scheduleEditor?.openEdit(path, is_flow)}
+								>
+									{path}
+								</button>
 							</td>
 							<td
 								><div class="inline-flex flex-row gap-x-2 align-middle w-full"

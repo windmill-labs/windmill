@@ -81,6 +81,7 @@
 	<div class="relative mb-20">
 		<TableCustom>
 			<tr slot="header-row">
+				<th class="!px-0" />
 				<th>Name</th>
 				<th>Summary</th>
 				<th>Members</th>
@@ -96,6 +97,9 @@
 				{:else}
 					{#each groups as { name, summary, extra_perms, canWrite }}
 						<tr>
+							<td class="!px-0 text-center">
+								<SharedBadge {canWrite} extraPerms={extra_perms} />
+							</td>
 							<td>
 								<a
 									href="#{name}"
@@ -105,9 +109,6 @@
 									}}
 									>{name}
 								</a>
-								<div>
-									<SharedBadge {canWrite} extraPerms={extra_perms} />
-								</div>
 							</td>
 							<td>{summary ?? ''}</td>
 							<td><GroupInfo {name} /></td>
