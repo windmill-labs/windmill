@@ -1,6 +1,22 @@
 # Changelog
 
 
+## [1.76.0](https://github.com/windmill-labs/windmill/compare/v1.75.0...v1.76.0) (2023-03-13)
+
+
+### Features
+
+* **frontend:** add frontend (JS)  scripts to apps ([f0b1b1f](https://github.com/windmill-labs/windmill/commit/f0b1b1f752731ba434b960a75624118152f53c00))
+* **frontend:** Copy, Cut and Paste ([#1279](https://github.com/windmill-labs/windmill/issues/1279)) ([82c139e](https://github.com/windmill-labs/windmill/commit/82c139ed0992be401e250cfb7ecc0fca61b76772))
+* **frontend:** disabled for action buttons can now depend on row ([75f87e7](https://github.com/windmill-labs/windmill/commit/75f87e7e1117a9c12afcf626379e94b134a9a493))
+* **frontend:** improve drag-n-drop behavior ([cfd489a](https://github.com/windmill-labs/windmill/commit/cfd489a55059e7b6843f99bab261c70b3852e6a2))
+
+
+### Bug Fixes
+
+* **backend:** improve worker ping api ([c958480](https://github.com/windmill-labs/windmill/commit/c958480ce83844a989f58dd5a70eb288582e2194))
+* **frontend:** General fixes and updates ([#1281](https://github.com/windmill-labs/windmill/issues/1281)) ([3e5a179](https://github.com/windmill-labs/windmill/commit/3e5a179eb8cd8001f49c92305141dade1571e20f))
+
 ## [1.75.0](https://github.com/windmill-labs/windmill/compare/v1.74.2...v1.75.0) (2023-03-11)
 
 
