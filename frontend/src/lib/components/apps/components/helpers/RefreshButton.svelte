@@ -1,7 +1,5 @@
 <script lang="ts">
-	import Button from '$lib/components/common/button/Button.svelte'
-	import { faRefresh } from '@fortawesome/free-solid-svg-icons'
-	import { RefreshCcw, RefreshCw } from 'lucide-svelte'
+	import { RefreshCw } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import type { AppViewerContext } from '../../types'
 

@@ -5,7 +5,7 @@
 	import Button from '../../common/button/Button.svelte'
 	import type { AppViewerContext } from '../types'
 
-	const { runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
+	const { runnableComponents, app } = getContext<AppViewerContext>('AppViewerContext')
 	let loading: boolean = false
 	let timeout: NodeJS.Timer | undefined = undefined
 	let interval: number | undefined = undefined
@@ -36,6 +36,12 @@
 		loading = true
 		Promise.all(
 			Object.keys($runnableComponents).map((id) => {
+				if (id.startsWith('bg_')) {
+					let index = parseInt(id.split('_')[1])
+					if (!$app.hiddenInlineScripts[index]?.autoRefresh) {
+						return
+					}
+				}
 				return $runnableComponents?.[id]?.()
 			})
 		).finally(() => {

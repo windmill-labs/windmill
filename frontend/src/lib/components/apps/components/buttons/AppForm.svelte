@@ -23,8 +23,7 @@
 
 	export const staticOutputs: string[] = ['loading', 'result']
 
-	const { app, runnableComponents, worldStore, stateId } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, stateId } = getContext<AppViewerContext>('AppViewerContext')
 
 	let labelValue: string = 'Default label'
 	let color: ButtonType.Color
@@ -62,6 +61,7 @@
 <InputValue {id} input={configuration.size} bind:value={size} />
 
 <RunnableWrapper
+	{recomputeIds}
 	{render}
 	bind:runnableComponent
 	{componentInput}
@@ -103,12 +103,6 @@
 						}}
 						on:click={() => {
 							runnableComponent?.runComponent()
-
-							if (recomputeIds) {
-								recomputeIds.forEach((id) => {
-									$runnableComponents[id]?.()
-								})
-							}
 						}}
 						{size}
 						{color}

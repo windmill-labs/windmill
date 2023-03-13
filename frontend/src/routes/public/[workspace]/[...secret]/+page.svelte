@@ -71,27 +71,29 @@
 		</Alert></div
 	>
 {:else if app}
-	<div
-		class={twMerge('min-h-screen h-full w-full', app?.value.css?.['app']?.['viewer']?.class)}
-		style={app?.value.css?.['app']?.['viewer']?.style}
-	>
-		<AppPreview
-			noBackend={false}
-			context={{
-				email: $userStore?.email,
-				username: $userStore?.username,
-				query: Object.fromEntries($page.url.searchParams.entries()),
-				hash: $page.url.hash
-			}}
-			workspace={$page.params.workspace}
-			summary={app.summary}
-			app={app.value}
-			appPath={app.path}
-			{breakpoint}
-			policy={app.policy}
-			isEditor={false}
-		/>
-	</div>
+	{#key app}
+		<div
+			class={twMerge('min-h-screen h-full w-full', app?.value.css?.['app']?.['viewer']?.class)}
+			style={app?.value.css?.['app']?.['viewer']?.style}
+		>
+			<AppPreview
+				noBackend={false}
+				context={{
+					email: $userStore?.email,
+					username: $userStore?.username,
+					query: Object.fromEntries($page.url.searchParams.entries()),
+					hash: $page.url.hash
+				}}
+				workspace={$page.params.workspace}
+				summary={app.summary}
+				app={app.value}
+				appPath={app.path}
+				{breakpoint}
+				policy={app.policy}
+				isEditor={false}
+			/>
+		</div>
+	{/key}
 {:else}
 	<Skeleton layout={[[4], 0.5, [50]]} />
 {/if}

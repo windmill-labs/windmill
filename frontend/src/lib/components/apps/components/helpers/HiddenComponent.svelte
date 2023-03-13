@@ -12,6 +12,7 @@
 	export let name: string
 	export let inlineScript: InlineScript | undefined
 	export let fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
+	export let autoRefresh: boolean = false
 
 	let result: any = undefined
 
@@ -22,6 +23,7 @@
 	render={false}
 	{id}
 	{fields}
+	{autoRefresh}
 	bind:result
 	runnable={{
 		name,
@@ -29,6 +31,7 @@
 		type: 'runnableByName'
 	}}
 	wrapperClass="hidden"
+	recomputable
 >
 	<slot />
 </RunnableComponent>
