@@ -50,7 +50,7 @@
 	let anima
 
 	const inActivate = () => {
-		if (shadowElement && shadow) {
+		if (shadowElement && shadow != undefined) {
 			let subgrid = shadowElement.closest('.subgrid')
 			let irect = shadowElement.getBoundingClientRect()
 			let shadowBound

@@ -1722,7 +1722,6 @@ fn list_completed_jobs_query(
         sqlb.and_where("result @> ?".bind(&result.replace("'", "''")));
     }
 
-    tracing::info!("{:?}", sqlb.sql());
     sqlb
 }
 #[derive(Deserialize, Clone)]

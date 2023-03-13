@@ -5,6 +5,7 @@
 	import type { AppInput, EvalAppInput, UploadAppInput } from '../../inputType'
 	import type { AppViewerContext } from '../../types'
 	import { accessPropertyByPath } from '../../utils'
+	import { computeGlobalContext, eval_like } from './eval'
 
 	type T = string | number | boolean | Record<string | number, any> | undefined
 
@@ -24,13 +25,13 @@
 		}
 	}
 
-	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { worldStore, state } = getContext<AppViewerContext>('AppViewerContext')
 
-	$: state = $worldStore?.state
+	$: stateId = $worldStore?.state
 
 	let timeout: NodeJS.Timeout | undefined = undefined
 	const debounce_ms = 50
-	function debounce(cb: () => void) {
+	function debounce(cb: () => Promise<void>) {
 		if (timeout) {
 			clearTimeout(timeout)
 		}
@@ -40,20 +41,22 @@
 	$: lastInput && $worldStore && debounce(handleConnection)
 	$: lastInput &&
 		lastInput.type == 'template' &&
+		$stateId &&
 		$state &&
-		debounce(() => (value = getValue(lastInput)))
+		debounce(async () => (value = await getValue(lastInput)))
 	$: lastInput &&
 		lastInput.type == 'eval' &&
-		$state &&
-		debounce(() => (value = evalExpr(lastInput)))
+		$stateId &&
+		state &&
+		debounce(async () => (value = await evalExpr(lastInput)))
 
-	function handleConnection() {
+	async function handleConnection() {
 		if (lastInput.type === 'connected') {
 			$worldStore?.connect<any>(lastInput, onValueChange)
 		} else if (lastInput.type === 'static' || lastInput.type == 'template') {
-			value = getValue(lastInput)
+			value = await getValue(lastInput)
 		} else if (lastInput.type == 'eval') {
-			value = evalExpr(lastInput as EvalAppInput)
+			value = await evalExpr(lastInput as EvalAppInput)
 		} else if (lastInput.type == 'upload') {
 			value = (lastInput as UploadAppInput).value
 		} else {
@@ -61,9 +64,14 @@
 		}
 	}
 
-	function evalExpr(input: EvalAppInput) {
+	async function evalExpr(input: EvalAppInput) {
 		try {
-			const r = eval_like(input.expr, computeGlobalContext())
+			const r = await eval_like(
+				input.expr,
+				computeGlobalContext($worldStore, id, extraContext),
+				true,
+				$state
+			)
 			error = ''
 			return r
 		} catch (e) {
@@ -72,26 +80,15 @@
 		}
 	}
 
-	function computeGlobalContext() {
-		return {
-			...Object.fromEntries(
-				Object.entries($worldStore?.outputsById ?? {})
-					.filter(([k, _]) => k != id)
-					.map(([key, value]) => {
-						return [
-							key,
-							Object.fromEntries(Object.entries(value ?? {}).map((x) => [x[0], x[1].peak()]))
-						]
-					})
-			),
-			...extraContext
-		}
-	}
-
-	export function getValue(input: AppInput) {
+	async function getValue(input: AppInput) {
 		if (input.type === 'template' && isCodeInjection(input.eval)) {
 			try {
-				const r = eval_like('`' + input.eval + '`', computeGlobalContext())
+				const r = await eval_like(
+					'`' + input.eval + '`',
+					computeGlobalContext($worldStore, id, extraContext),
+					true,
+					$state
+				)
 				error = ''
 				return r
 			} catch (e) {
@@ -102,31 +99,6 @@
 		} else if (input.type === 'template') {
 			return input.eval
 		}
-	}
-
-	function create_context_function_template(eval_string, context) {
-		return `
-  return function (context) {
-    "use strict";
-    ${
-			Object.keys(context).length > 0
-				? `let ${Object.keys(context).map((key) => ` ${key} = context['${key}']`)};`
-				: ``
-		}
-    return ${eval_string};
-  }                                                                                                                   
-  `
-	}
-
-	function make_context_evaluator(eval_string, context) {
-		let template = create_context_function_template(eval_string, context)
-		let functor = Function(template)
-		return functor()
-	}
-
-	function eval_like(text, context = {}) {
-		let evaluator = make_context_evaluator(text, context)
-		return evaluator(context)
 	}
 
 	function onValueChange(newValue: any): void {
