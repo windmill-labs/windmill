@@ -1,40 +1,34 @@
 <script lang="ts">
-	import Button from '$lib/components/common/button/Button.svelte'
-	import { classNames } from '$lib/utils'
-	import { Maximize, Minimize, X } from 'lucide-svelte'
-	import { getContext } from 'svelte'
+	import { X } from 'lucide-svelte'
+	import { getContext, setContext } from 'svelte'
+	import { writable } from 'svelte/store'
+	import { slide } from 'svelte/transition'
 
 	import type { AppViewerContext } from '../../types'
-	import { connectInput, findGridItem, sortGridItemsPosition } from '../appUtils'
-	import { components } from '../component'
+	import { connectInput, sortGridItemsPosition } from '../appUtils'
 	import PanelSection from '../settingsPanel/common/PanelSection.svelte'
 	import ComponentOutput from './ComponentOutput.svelte'
 	import ComponentOutputViewer from './ComponentOutputViewer.svelte'
+	import MinMaxButton from './components/MinMaxButton.svelte'
+	import OutputHeader from './components/OutputHeader.svelte'
 
-	const { staticOutputs, app, breakpoint, connectingInput, selectedComponent } =
-		getContext<AppViewerContext>('AppViewerContext')
-
-	function getComponentNameById(componentId: string) {
-		const component = findGridItem($app, componentId)
-
-		if (component?.data?.type) {
-			return components[component?.data.type].name
-		} else if (componentId == 'ctx') {
-			return 'Context'
-		} else if (componentId.startsWith('bg_')) {
-			return 'Background'
-		} else {
-			return 'Table action'
-		}
-	}
+	const { app, breakpoint, connectingInput } = getContext<AppViewerContext>('AppViewerContext')
 
 	function toggleExpanded() {
 		expanded = !expanded
 	}
 
-	let search = ''
+	let search = writable<string>('')
 	let expanded = false
+	let ctxOpened = true
 
+	setContext('searchCtx', {
+		search
+	})
+
+	$: expanded && !ctxOpened && (ctxOpened = true)
+
+	/**
 	$: panels = [['ctx', ['email', 'username', 'query', 'hash']] as [string, string[]]].concat(
 		Object.entries($staticOutputs)
 	)
@@ -47,23 +41,25 @@
 			name.toLowerCase().includes(search.toLowerCase()) ||
 			componentId.toLowerCase().includes(search.toLowerCase())
 		)
+
 	})
+	*/
 </script>
 
 <PanelSection noPadding titlePadding="px-4 pt-2 pb-0.5" title="Outputs">
 	<div style="z-index:1000;" class="bg-white">
 		<div class="overflow-auto h-full min-w-[150px] w-full relative flex flex-col">
-			<div class="sticky z-50 top-0 left-0 w-full bg-white px-2 pb-2">
+			<div class="sticky z-50 top-0 left-0 w-full bg-white p-2">
 				<div class="relative">
 					<input
-						bind:value={search}
+						bind:value={$search}
 						class="px-2 py-1 border border-gray-300 rounded-sm {search ? 'pr-8' : ''}"
 						placeholder="Search outputs..."
 					/>
 					{#if search}
 						<button
 							class="absolute right-2 top-1/2 transform -translate-y-1/2 hover:bg-gray-200 rounded-full p-0.5"
-							on:click|stopPropagation|preventDefault={() => (search = '')}
+							on:click|stopPropagation|preventDefault={() => ($search = '')}
 						>
 							<X size="14" />
 						</button>
@@ -72,30 +68,32 @@
 			</div>
 
 			<div class="p-1 ">
-				<Button on:click={toggleExpanded} color="light" size="xs">
-					{#if !expanded}
-						<Maximize size="14" />
-					{:else}
-						<Minimize size="14" />
-					{/if}
-				</Button>
+				<MinMaxButton on:click={toggleExpanded} {expanded} />
 			</div>
 
-			<div
-				class={classNames(
-					'text-2xs ml-0.5 font-bold px-2 py-0.5 rounded-sm',
-					$selectedComponent === 'ctx' ? 'bg-indigo-500 text-white' : ' bg-indigo-50'
-				)}
-			>
-				ctx
-			</div>
-			<ComponentOutputViewer
-				componentId={'ctx'}
-				outputs={['email', 'username', 'query', 'hash']}
-				on:select={({ detail }) => {
-					$connectingInput = connectInput($connectingInput, 'ctx', detail)
+			<OutputHeader
+				open={ctxOpened}
+				manuallyOpen={false}
+				on:click={() => {
+					ctxOpened = !ctxOpened
 				}}
+				id={'ctx'}
+				name={'App Context'}
+				first={true}
+				nested={true}
 			/>
+
+			{#if ctxOpened}
+				<div class="my-1" transition:slide|local>
+					<ComponentOutputViewer
+						componentId={'ctx'}
+						outputs={['email', 'username', 'query', 'hash']}
+						on:select={({ detail }) => {
+							$connectingInput = connectInput($connectingInput, 'ctx', detail)
+						}}
+					/>
+				</div>
+			{/if}
 
 			{#each sortGridItemsPosition($app.grid, $breakpoint) as gridItem, index}
 				<ComponentOutput {gridItem} first={index === 0} {expanded} />

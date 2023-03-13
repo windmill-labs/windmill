@@ -4,10 +4,10 @@
 	import type { AppViewerContext, GridItem } from '../../types'
 	import ComponentOutputViewer from './ComponentOutputViewer.svelte'
 	import { classNames } from '$lib/utils'
-	import { ChevronDown, ChevronRight, Lock } from 'lucide-svelte'
 	import { connectInput, isIdInsideGriditem } from '../appUtils'
 	import { slide } from 'svelte/transition'
 	import SubGridOutput from './SubGridOutput.svelte'
+	import OutputHeader from './components/OutputHeader.svelte'
 
 	export let gridItem: GridItem
 	export let first: boolean = false
@@ -63,35 +63,15 @@
 </script>
 
 {#if $staticOutputs[gridItem.id] || gridItem.data.numberOfSubgrids > 1}
-	<!-- svelte-ignore a11y-click-events-have-key-events -->
-	<div
-		class={classNames(
-			'flex items-center justify-between p-1 cursor-pointer hover:bg-indigo-100 hover:text-indigo-500 border-b',
-			isSelected ? 'bg-indigo-200' : 'bg-white',
-			first ? 'border-t' : '',
-			nested ? 'border-l' : ''
-		)}
+	<OutputHeader
+		open={opened}
+		manuallyOpen={manuallyOpened}
 		on:click={onHeaderClick}
-	>
-		<div
-			class={classNames(
-				'text-2xs ml-0.5 font-bold px-2 py-0.5 rounded-sm',
-				isSelected ? 'bg-indigo-500 text-white' : ' bg-indigo-50'
-			)}
-		>
-			{gridItem.id}
-		</div>
-		<div class="text-2xs font-bold flex flex-row gap-2 items-center">
-			{getComponentNameById(gridItem.id)}
-			{#if !opened && !manuallyOpened}
-				<ChevronRight size={14} />
-			{:else if manuallyOpened}
-				<Lock size={14} class="text-orange-600" />
-			{:else}
-				<ChevronDown size={14} />
-			{/if}
-		</div>
-	</div>
+		id={gridItem.id}
+		name={getComponentNameById(gridItem.id)}
+		{first}
+		{nested}
+	/>
 
 	{#if opened}
 		<div class={classNames('border-b', nested ? 'border-l' : '')} transition:slide|local>
