@@ -8,13 +8,35 @@
 	export let name: string
 	export let first: boolean = false
 	export let nested: boolean = false
+	export let color: 'blue' | 'indigo' = 'indigo'
+
+	const hoverColor = {
+		blue: 'hover:bg-blue-300 hover:text-blue-600',
+		indigo: 'hover:bg-indigo-300 hover:text-indigo-600'
+	}
+
+	const openBackground = {
+		blue: 'bg-blue-50',
+		indigo: 'bg-indigo-50'
+	}
+
+	const manuallyOpenColor = {
+		blue: 'text-blue-600',
+		indigo: 'text-indigo-600'
+	}
+
+	const idClass = {
+		blue: 'bg-blue-500 text-white',
+		indigo: 'bg-indigo-500 text-white'
+	}
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <div
 	class={classNames(
-		'flex items-center justify-between p-1 cursor-pointer hover:bg-indigo-100 hover:text-indigo-500 border-b',
-		open ? 'bg-indigo-200' : 'bg-white',
+		'flex items-center justify-between p-1 cursor-pointer border-b',
+		hoverColor[color],
+		open && !manuallyOpen ? openBackground[color] : 'bg-white',
 		first ? 'border-t' : '',
 		nested ? 'border-l' : ''
 	)}
@@ -23,7 +45,7 @@
 	<div
 		class={classNames(
 			'text-2xs ml-0.5 font-bold px-2 py-0.5 rounded-sm',
-			open ? 'bg-indigo-500 text-white' : ' bg-indigo-50'
+			open ? idClass[color] : ' bg-gray-100'
 		)}
 	>
 		{id}
@@ -33,7 +55,7 @@
 		{#if !open && !manuallyOpen}
 			<ChevronRight size={14} />
 		{:else if manuallyOpen}
-			<ChevronDown size={14} class="text-indigo-600" strokeWidth={4} />
+			<ChevronDown size={14} class={manuallyOpenColor[color]} strokeWidth={4} />
 		{:else}
 			<ChevronDown size={14} />
 		{/if}

@@ -386,3 +386,26 @@ export function connectInput(
 
 	return connectingInput
 }
+
+export function recursivelyFilterKeyInJSON(
+	json: object,
+	search: string,
+	extraSearch?: string | undefined
+): object {
+	let filteredJSON = {}
+	Object.keys(json).forEach((key) => {
+		if (
+			key.toLowerCase().includes(search.toLowerCase()) ||
+			extraSearch?.toLowerCase().includes(search.toLowerCase())
+		) {
+			filteredJSON[key] = json[key]
+		} else if (typeof json[key] === 'object') {
+			const res = recursivelyFilterKeyInJSON(json[key], search, extraSearch)
+
+			if (Object.keys(res).length !== 0) {
+				filteredJSON[key] = res
+			}
+		}
+	})
+	return filteredJSON
+}

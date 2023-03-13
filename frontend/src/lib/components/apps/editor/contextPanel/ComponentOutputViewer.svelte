@@ -4,6 +4,7 @@
 	import type { Writable } from 'svelte/store'
 	import type { Output } from '../../rx'
 	import type { AppViewerContext } from '../../types'
+	import { recursivelyFilterKeyInJSON } from '../appUtils'
 
 	export let outputs: string[] = []
 	export let componentId: string
@@ -29,22 +30,7 @@
 	$: $worldStore?.outputsById[componentId] &&
 		subscribeToAllOutputs($worldStore.outputsById[componentId])
 
-	function recursivelyFilterKeyInJSON(json: object, search: string): object {
-		let filteredJSON = {}
-		Object.keys(json).forEach((key) => {
-			if (
-				key.toLowerCase().includes(search.toLowerCase()) ||
-				componentId.toLowerCase().includes(search.toLowerCase())
-			) {
-				filteredJSON[key] = json[key]
-			} else if (typeof json[key] === 'object') {
-				filteredJSON[key] = recursivelyFilterKeyInJSON(json[key], search)
-			}
-		})
-		return filteredJSON
-	}
-
-	$: filtered = recursivelyFilterKeyInJSON(object, $search)
+	$: filtered = recursivelyFilterKeyInJSON(object, $search, componentId)
 </script>
 
 {#if Object.keys(filtered).length > 0}
