@@ -107,9 +107,9 @@
 			</tr>
 			<tbody slot="body">
 				{#if folders === undefined}
-					{#each new Array(6) as _}
+					{#each new Array(4) as _}
 						<tr>
-							<td colspan="4">
+							<td colspan="9">
 								<Skeleton layout={[[2]]} />
 							</td>
 						</tr>
@@ -176,6 +176,3 @@
 		</TableCustom>
 	</div>
 </CenteredPage>
-
-<style>
-</style>

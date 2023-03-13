@@ -18,7 +18,7 @@
 {#if tabular}
 	{#each order as key}
 		<td class="text-center">
-			{usage[key] ?? 0}
+			{usage[key] ?? ''}
 		</td>
 	{/each}
 {:else}

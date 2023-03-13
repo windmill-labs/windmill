@@ -89,11 +89,13 @@
 			</tr>
 			<tbody slot="body">
 				{#if groups === undefined}
-					<tr>
-						<td colspan="4">
-							<Skeleton layout={[[2]]} />
-						</td>
-					</tr>
+					{#each new Array(4) as _}
+						<tr>
+							<td colspan="5">
+								<Skeleton layout={[[2]]} />
+							</td>
+						</tr>
+					{/each}
 				{:else}
 					{#each groups as { name, summary, extra_perms, canWrite }}
 						<tr>
