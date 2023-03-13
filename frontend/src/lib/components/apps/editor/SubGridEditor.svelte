@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 	import { createEventDispatcher, getContext } from 'svelte'
-	import Grid from '@windmill-labs/svelte-grid'
 	import { twMerge } from 'tailwind-merge'
 	import { columnConfiguration, isFixed, toggleFixed } from '../gridUtils'
 	import type { AppEditorContext, AppViewerContext, GridItem } from '../types'
 	import Component from './component/Component.svelte'
 	import { expandGriditem, findGridItem } from './appUtils'
 	import { push } from '$lib/history'
+	import Grid from '../svelte-grid/Grid.svelte'
 
 	export let containerHeight: number
 	let classes = ''
@@ -63,6 +63,7 @@
 		if (fComponent) {
 			fComponent = toggleFixed(fComponent)
 		}
+		$app = $app
 	}
 
 	// @ts-ignore

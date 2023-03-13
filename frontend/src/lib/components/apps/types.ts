@@ -1,9 +1,8 @@
 import type { Schema } from '$lib/common'
 import type { Preview } from '$lib/gen'
 import type { History } from '$lib/history'
-import type { FilledItem } from '@windmill-labs/svelte-grid'
+
 import type { Writable } from 'svelte/store'
-import type VariableEditor from '../VariableEditor.svelte'
 import type { AppComponent } from './editor/component/components'
 import type {
 	AppInput,
@@ -16,6 +15,7 @@ import type {
 	UserAppInput
 } from './inputType'
 import type { World } from './rx'
+import type { FilledItem } from './svelte-grid/types'
 
 export type HorizontalAlignment = 'left' | 'center' | 'right'
 export type VerticalAlignment = 'top' | 'center' | 'bottom'

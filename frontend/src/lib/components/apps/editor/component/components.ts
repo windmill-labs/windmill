@@ -1,4 +1,3 @@
-import type { Size } from '@windmill-labs/svelte-grid'
 import type { IntRange } from '../../../../common'
 import type { NARROW_GRID_COLUMNS, WIDE_GRID_COLUMNS } from '../../gridUtils'
 import { defaultAlignement } from '../componentsPanel/componentDefaultProps'
@@ -36,6 +35,7 @@ import {
 	AtSignIcon
 } from 'lucide-svelte'
 import type { BaseAppComponent } from '../../types'
+import type { Size } from '../../svelte-grid/types'
 
 type BaseComponent<T extends string> = {
 	type: T
