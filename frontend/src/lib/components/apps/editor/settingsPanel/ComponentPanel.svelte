@@ -40,7 +40,8 @@
 		selectedComponent,
 		worldStore,
 		focusedGrid,
-		stateId
+		stateId,
+		state
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const { history } = getContext<AppEditorContext>('AppEditorContext')
@@ -70,7 +71,7 @@
 
 	$: extraLib =
 		component?.componentInput?.type === 'template' && $worldStore
-			? buildExtraLib($worldStore?.outputsById ?? {}, component?.id, false)
+			? buildExtraLib($worldStore?.outputsById ?? {}, component?.id, false, $state, false)
 			: undefined
 
 	function keydown(event: KeyboardEvent) {

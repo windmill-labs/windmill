@@ -9,9 +9,7 @@
 			...new Set(
 				workers
 					.filter((worker) => {
-						const date = new Date().getTime() - 300 * 60
-						const ping_at = new Date(worker.ping_at).getTime()
-						return worker.ip != 'unretrievable IP' && ping_at > date
+						return worker.ip != 'unretrievable IP' && worker.last_ping && worker.last_ping < 300
 					})
 					.map((worker) => worker.ip)
 			)
