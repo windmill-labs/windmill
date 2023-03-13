@@ -414,7 +414,7 @@
 		<div class="flex justify-start w-full">
 			<Badge
 				color="gray"
-				class="center-center !bg-gray-300 !text-gray-600 !w-[70px] !h-[30px] rounded-r-none"
+				class="center-center !bg-gray-300 !text-gray-600 !w-[70px] !h-[24px] rounded-r-none"
 			>
 				Full path
 			</Badge>
@@ -423,7 +423,7 @@
 				readonly
 				value={path}
 				size={path?.length || 50}
-				class="font-mono text-sm max-w-[calc(100%-70px)] !w-auto !border-l-0 !rounded-l-none"
+				class="font-mono !text-xs max-w-[calc(100%-70px)] !w-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none"
 				on:focus={({ currentTarget }) => {
 					currentTarget.select()
 				}}
