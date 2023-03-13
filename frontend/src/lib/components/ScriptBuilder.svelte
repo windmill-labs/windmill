@@ -17,6 +17,7 @@
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 	import type { SupportedLanguage } from '$lib/common'
 	import Tooltip from './Tooltip.svelte'
+	import SettingSection from './SettingSection.svelte'
 
 	export let script: Script
 	export let initialPath: string = ''
@@ -300,37 +301,38 @@
 						<LanguageIcon lang="mysql" /><span class="ml-2 py-2">MySQL</span>
 					</Button> -->
 				</div>
-				<h3 class="border-b pb-1 mt-12 mb-4">
-					Script kind
-					<Tooltip scale={0.9} class="mb-0.5">
-						Tag this script as having a specific purpose inside flows. If it won't be used in flows,
-						you don't have to worry about this.
-					</Tooltip>
-				</h3>
-				<div class="flex flex-wrap gap-2">
-					{#each scriptKindOptions as { value, title, desc }}
-						{@const isPicked = script.kind === value}
-						<Button
-							size="sm"
-							variant="border"
-							color={isPicked ? 'blue' : 'dark'}
-							btnClasses="font-medium {isPicked ? '!bg-blue-50/75' : ''}"
-							on:click={() => {
-								template = 'script'
-								script.kind = value
-								initContent(script.language, value, template)
-							}}
-							disabled={lockedLanguage}
-						>
-							{title}
-							{#if desc}
-								<Tooltip class="mb-0.5 ml-1">
-									{desc}
-								</Tooltip>
-							{/if}
-						</Button>
-					{/each}
-				</div>
+				<SettingSection
+					title="Script kind"
+					element="h3"
+					tooltip="Tag this script as having a specific purpose inside flows. If it won't be used in flows,
+				you don't have to worry about this."
+					accordion
+				>
+					<div class="flex flex-wrap gap-2">
+						{#each scriptKindOptions as { value, title, desc }}
+							{@const isPicked = script.kind === value}
+							<Button
+								size="sm"
+								variant="border"
+								color={isPicked ? 'blue' : 'dark'}
+								btnClasses="font-medium {isPicked ? '!bg-blue-50/75' : ''}"
+								on:click={() => {
+									template = 'script'
+									script.kind = value
+									initContent(script.language, value, template)
+								}}
+								disabled={lockedLanguage}
+							>
+								{title}
+								{#if desc}
+									<Tooltip class="mb-0.5 ml-1">
+										{desc}
+									</Tooltip>
+								{/if}
+							</Button>
+						{/each}
+					</div>
+				</SettingSection>
 			</CenteredPage>
 		{:else if step === 2}
 			<ScriptEditor
