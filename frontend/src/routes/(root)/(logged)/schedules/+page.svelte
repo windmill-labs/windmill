@@ -162,7 +162,6 @@
 									</Button>
 									<Dropdown
 										placement="bottom-end"
-										btnClasses="!text-gray-700"
 										dropdownItems={[
 											{
 												displayName: enabled ? 'Disable' : 'Enable',
@@ -206,9 +205,7 @@
 												}
 											}
 										]}
-									>
-										<MoreVertical size={20} />
-									</Dropdown>
+									/>
 								</div>
 							</td>
 						</tr>

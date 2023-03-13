@@ -327,9 +327,7 @@
 												  ]
 												: [])
 										]}
-									>
-										<MoreVertical size={20} />
-									</Dropdown>
+									/>
 								</td>
 							</tr>
 						{/each}
