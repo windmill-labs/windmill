@@ -162,21 +162,24 @@ export function toStatic(
 export function buildExtraLib(
 	components: Record<string, Record<string, Output<any>>>,
 	idToExclude: string,
-	hasRows: boolean
+	hasRows: boolean,
+	state: Record<string, any>,
+	goto: boolean
 ): string {
-	return (
-		Object.entries(components)
-			.filter(([k, v]) => k != idToExclude)
-			.map(([k, v]) => [k, Object.fromEntries(Object.entries(v).map(([k, v]) => [k, v.peak()]))])
-			.map(
-				([k, v]) => `
-
-declare const ${k} = ${JSON.stringify(v)};
-
+	const cs = Object.entries(components)
+		.filter(([k, v]) => k != idToExclude)
+		.map(([k, v]) => [k, Object.fromEntries(Object.entries(v).map(([k, v]) => [k, v.peak()]))])
+		.map(
+			([k, v]) => `declare const ${k}: ${JSON.stringify(v)};
 `
-			)
-			.join('\n') + (hasRows ? 'declare const row: Record<string, any>;' : '')
-	)
+		)
+		.join('\n')
+
+	return `${cs}
+${hasRows ? 'declare const row: Record<string, any>;' : ''}
+${goto ? 'declare const goto: async (path: string) => void)' : ''}
+declare const state: ${JSON.stringify(state)};
+`
 }
 
 export function getAllScriptNames(app: App): string[] {

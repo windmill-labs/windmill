@@ -10,13 +10,13 @@
 	export let id: string
 	export let hasRows: boolean = false
 
-	const { onchange, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { onchange, worldStore, state } = getContext<AppViewerContext>('AppViewerContext')
 
 	$: componentInput && onchange?.()
 
 	$: extraLib =
 		componentInput?.expr && $worldStore
-			? buildExtraLib($worldStore?.outputsById ?? {}, id, hasRows)
+			? buildExtraLib($worldStore?.outputsById ?? {}, id, hasRows, $state, false)
 			: undefined
 </script>
 

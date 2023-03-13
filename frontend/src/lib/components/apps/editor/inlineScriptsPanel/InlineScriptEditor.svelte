@@ -27,7 +27,7 @@
 	export let fields: Record<string, AppInput> = {}
 	export let syncFields: boolean = false
 
-	const { runnableComponents, stateId, worldStore } =
+	const { runnableComponents, stateId, worldStore, state } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	let editor: Editor
@@ -82,7 +82,7 @@
 
 	$: extraLib =
 		inlineScript.language == 'frontend' && worldStore
-			? buildExtraLib($worldStore?.outputsById ?? {}, id, false)
+			? buildExtraLib($worldStore?.outputsById ?? {}, id, false, $state, true)
 			: undefined
 </script>
 
