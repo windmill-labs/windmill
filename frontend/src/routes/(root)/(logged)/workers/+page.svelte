@@ -12,25 +12,35 @@
 	let groupedWorkers: [string, WorkerPing[]][] = []
 	let intervalId: NodeJS.Timer | undefined
 
-	$: filteredWorkers = workers.filter((x) => elapsedSinceSecs(x.ping_at) < 300)
+	$: filteredWorkers = workers.filter((x) => (x.last_ping ?? 0) < 300)
 	$: groupedWorkers = groupBy(filteredWorkers, (wp: WorkerPing) => wp.worker_instance)
+
+	let timeSinceLastPing = 0
 
 	async function loadWorkers(): Promise<void> {
 		try {
 			workers = await WorkerService.listWorkers({ perPage: 100 })
+			timeSinceLastPing = 0
 		} catch (err) {
 			sendUserToast(`Could not load workers: ${err}`, true)
 		}
 	}
 
+	let secondInterval: NodeJS.Timer | undefined = undefined
 	onMount(() => {
 		loadWorkers()
 		intervalId = setInterval(loadWorkers, 5000)
+		secondInterval = setInterval(() => {
+			timeSinceLastPing += 1
+		}, 1000)
 	})
 
 	onDestroy(() => {
 		if (intervalId) {
 			clearInterval(intervalId)
+		}
+		if (secondInterval) {
+			clearInterval(secondInterval)
 		}
 	})
 </script>
@@ -54,20 +64,24 @@
 		<TableCustom>
 			<tr slot="header-row">
 				<th>Worker</th>
-				<th>Last ping at</th>
+				<th>Last ping</th>
 				<th>Worker start</th>
 				<th>Nb of jobs executed</th>
 				<th>Liveness</th>
 			</tr>
 			<tbody slot="body">
 				{#if workers}
-					{#each workers as { worker, ping_at, started_at, jobs_executed }}
+					{#each workers as { worker, last_ping, started_at, jobs_executed }}
 						<tr>
 							<td class="py-1">{worker}</td>
-							<td class="py-1">{elapsedSinceSecs(ping_at)}s ago</td>
+							<td class="py-1"
+								>{last_ping != undefined ? last_ping + timeSinceLastPing : -1}s ago</td
+							>
 							<td class="py-1">{displayDate(started_at)}</td>
 							<td class="py-1">{jobs_executed}</td>
-							<td class="py-1">{elapsedSinceSecs(ping_at) < 60 ? 'Alive' : 'Dead'}</td>
+							<td class="py-1"
+								>{last_ping != undefined ? (last_ping < 60 ? 'Alive' : 'Dead') : 'Unknown'}</td
+							>
 						</tr>
 					{/each}
 				{/if}
