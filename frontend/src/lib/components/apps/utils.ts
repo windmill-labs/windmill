@@ -177,7 +177,7 @@ export function buildExtraLib(
 
 	return `${cs}
 ${hasRows ? 'declare const row: Record<string, any>;' : ''}
-${goto ? 'declare const goto: async (path: string) => void)' : ''}
+${goto ? 'declare const goto: async (path: string, newTab?: boolean) => void)' : ''}
 declare const state: ${JSON.stringify(state)};
 `
 }

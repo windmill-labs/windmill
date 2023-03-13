@@ -1,4 +1,5 @@
 import { goto } from '$app/navigation'
+import { sendUserToast } from '$lib/utils'
 import type { World } from '../../rx'
 
 export function computeGlobalContext(
@@ -45,9 +46,24 @@ function make_context_evaluator(
 	return functor()
 }
 
-export async function eval_like(text, context = {}, noReturn: boolean = true, state: any = {}) {
+export async function eval_like(
+	text,
+	context = {},
+	noReturn: boolean,
+	state: any,
+	editor: boolean
+) {
 	let evaluator = make_context_evaluator(text, context, noReturn)
-	return await evaluator(context, state, async (x) => {
-		await goto(x)
+	return await evaluator(context, state, async (x, newTab) => {
+		if (newTab || editor) {
+			if (!newTab) {
+				sendUserToast(
+					'In editor mode, `goto` opens a new tab to prevent losing your work. To test the redirection , use the preview mode.'
+				)
+			}
+			window.open(x, '_blank')
+		} else {
+			await goto(x)
+		}
 	})
 }

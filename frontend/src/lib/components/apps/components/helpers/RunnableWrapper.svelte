@@ -21,6 +21,7 @@
 	export let goto: string | undefined = undefined
 	export let gotoNewTab: boolean | undefined = undefined
 	export let render: boolean
+	export let recomputeIds: string[] = []
 
 	const { staticExporter, noBackend } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -44,6 +45,7 @@
 	<slot />
 {:else if componentInput.type === 'runnable' && isRunnableDefined()}
 	<RunnableComponent
+		{recomputeIds}
 		gotoUrl={goto}
 		{gotoNewTab}
 		{flexWrap}

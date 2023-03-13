@@ -100,6 +100,7 @@ export type App = {
 		name: string
 		inlineScript: InlineScript | undefined
 		fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
+		autoRefresh?: boolean
 	}>
 	css?: Record<'viewer' | 'grid' | AppComponent['type'], ComponentCustomCSS>
 	subgrids?: Record<string, GridItem[]>

@@ -25,7 +25,7 @@
 		}
 	}
 
-	const { worldStore, state } = getContext<AppViewerContext>('AppViewerContext')
+	const { worldStore, state, mode } = getContext<AppViewerContext>('AppViewerContext')
 
 	$: stateId = $worldStore?.state
 
@@ -70,7 +70,8 @@
 				input.expr,
 				computeGlobalContext($worldStore, id, extraContext),
 				true,
-				$state
+				$state,
+				$mode == 'dnd'
 			)
 			error = ''
 			return r
@@ -87,7 +88,8 @@
 					'`' + input.eval + '`',
 					computeGlobalContext($worldStore, id, extraContext),
 					true,
-					$state
+					$state,
+					$mode == 'dnd'
 				)
 				error = ''
 				return r

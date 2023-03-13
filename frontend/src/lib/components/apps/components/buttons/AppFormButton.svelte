@@ -94,6 +94,7 @@
 		}}
 	>
 		<RunnableWrapper
+			{recomputeIds}
 			{render}
 			bind:runnableComponent
 			{componentInput}
@@ -127,12 +128,6 @@
 						}}
 						on:click={async () => {
 							await runnableComponent?.runComponent()
-
-							if (recomputeIds) {
-								recomputeIds.forEach((id) => {
-									$runnableComponents[id]?.()
-								})
-							}
 
 							open = false
 						}}
