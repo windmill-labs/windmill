@@ -558,7 +558,7 @@
 	<div class="flex flex-row gap-2 justify-end items-center overflow-visible">
 		<Dropdown
 			placement="bottom-end"
-			btnClasses="!text-gray-700 !bg-transparent hover:!bg-gray-400/20 !p-[6px] hidden lg:block"
+			btnClasses="hidden lg:block"
 			dropdownItems={[
 				{
 					displayName: 'JSON',
@@ -583,9 +583,7 @@
 					}
 				}
 			]}
-		>
-			<MoreVertical size={20} />
-		</Dropdown>
+		/>
 		<span class="hidden md:inline">
 			<Button on:click={() => (inputsDrawerOpen = true)} color="light" size="xs" variant="border">
 				<span class="flex gap-2">

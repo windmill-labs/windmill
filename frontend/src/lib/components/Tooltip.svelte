@@ -18,5 +18,7 @@
 		data={faInfoCircle}
 		{scale}
 	/>
-	<span slot="text"> <slot /> </span>
+	<svelte:fragment slot="text">
+		<slot />
+	</svelte:fragment>
 </Popover>

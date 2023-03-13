@@ -81,6 +81,7 @@
 	<div class="relative mb-20">
 		<TableCustom>
 			<tr slot="header-row">
+				<th class="!px-0" />
 				<th>Name</th>
 				<th>Summary</th>
 				<th>Members</th>
@@ -88,14 +89,19 @@
 			</tr>
 			<tbody slot="body">
 				{#if groups === undefined}
-					<tr>
-						<td colspan="4">
-							<Skeleton layout={[[2]]} />
-						</td>
-					</tr>
+					{#each new Array(4) as _}
+						<tr>
+							<td colspan="5">
+								<Skeleton layout={[[2]]} />
+							</td>
+						</tr>
+					{/each}
 				{:else}
 					{#each groups as { name, summary, extra_perms, canWrite }}
 						<tr>
+							<td class="!px-0 text-center">
+								<SharedBadge {canWrite} extraPerms={extra_perms} />
+							</td>
 							<td>
 								<a
 									href="#{name}"
@@ -105,9 +111,6 @@
 									}}
 									>{name}
 								</a>
-								<div>
-									<SharedBadge {canWrite} extraPerms={extra_perms} />
-								</div>
 							</td>
 							<td>{summary ?? ''}</td>
 							<td><GroupInfo {name} /></td>

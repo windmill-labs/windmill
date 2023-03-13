@@ -9,6 +9,7 @@
 	export let href = ''
 	export let rounded = false
 	export let dismissable = false
+	export let wrapperClass = ''
 	export let baseClass = 'text-center'
 	export let capitalize = false
 	export let icon: BadgeIconProps | undefined = undefined
@@ -56,7 +57,11 @@
 	const handleHide = () => (hidden = !hidden)
 </script>
 
-<span on:click on:keydown class="inline-flex justify-center items-center whitespace-nowrap">
+<span
+	on:click
+	on:keydown
+	class="inline-flex justify-center items-center whitespace-nowrap {wrapperClass}"
+>
 	<svelte:element
 		this={href ? 'a' : 'span'}
 		{href}

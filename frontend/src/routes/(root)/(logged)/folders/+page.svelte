@@ -95,15 +95,21 @@
 	<div class="relative mb-20">
 		<TableCustom>
 			<tr slot="header-row">
+				<th class="!px-0" />
 				<th>Name</th>
-				<th>Usage</th>
+				<th class="!text-center">Scripts</th>
+				<th class="!text-center">Flows</th>
+				<th class="!text-center">Apps</th>
+				<th class="!text-center">Schedules</th>
+				<th class="!text-center">Variables</th>
+				<th class="!text-center">Resources</th>
 				<th>Participants</th>
 			</tr>
 			<tbody slot="body">
 				{#if folders === undefined}
-					{#each new Array(6) as _}
+					{#each new Array(4) as _}
 						<tr>
-							<td colspan="4">
+							<td colspan="9">
 								<Skeleton layout={[[2]]} />
 							</td>
 						</tr>
@@ -117,6 +123,9 @@
 
 					{#each folders as { name, extra_perms, owners, canWrite }}
 						<tr>
+							<td class="!px-0 text-center">
+								<SharedBadge {canWrite} extraPerms={extra_perms} />
+							</td>
 							<td>
 								<a
 									href="#{name}"
@@ -126,11 +135,8 @@
 									}}
 									>{name}
 								</a>
-								<div>
-									<SharedBadge {canWrite} extraPerms={extra_perms} />
-								</div>
 							</td>
-							<td><FolderUsageInfo {name} /></td>
+							<FolderUsageInfo {name} tabular />
 
 							<td><FolderInfo members={computeMembers(owners, extra_perms)} /></td>
 							<td>
@@ -170,6 +176,3 @@
 		</TableCustom>
 	</div>
 </CenteredPage>
-
-<style>
-</style>
