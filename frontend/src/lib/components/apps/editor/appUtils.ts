@@ -1,5 +1,5 @@
 import { getNextId } from '$lib/components/flows/flowStateUtils'
-import type { App, EditorBreakpoint, FocusedGrid, GridItem } from '../types'
+import type { App, ConnectingInput, EditorBreakpoint, FocusedGrid, GridItem } from '../types'
 import { getRecommendedDimensionsByComponent, type AppComponent } from './component'
 import gridHelp from '@windmill-labs/svelte-grid/src/utils/helper'
 import { gridColumns } from '../gridUtils'
@@ -39,7 +39,7 @@ export function isIdInsideGriditem(app: App, gridItem: GridItem, id: string | un
 	let currentId = id
 	while (currentId) {
 		path.push(currentId)
-		currentId = findGridItemParentId(app, currentId)
+		currentId = findGridItemParentGrid(app, currentId)?.split('-')[0]
 	}
 
 	return path.includes(gridItem.id)
@@ -58,7 +58,6 @@ export function getNextGridItemId(app: App): string {
 }
 
 export function createNewGridItem(grid: GridItem[], id: string, data: AppComponent): GridItem {
-
 	const newComponent = {
 		resizable: true,
 		draggable: true,
@@ -116,7 +115,6 @@ export function insertNewGridItem(
 		app.subgrids = {}
 	}
 
-
 	// We only want to set subgrids when we are not moving
 	if (!keepId) {
 		for (let i = 0; i < (data.numberOfSubgrids ?? 0); i++) {
@@ -124,8 +122,9 @@ export function insertNewGridItem(
 		}
 	}
 
-
-	const key = focusedGrid ? `${focusedGrid?.parentComponentId}-${focusedGrid?.subGridIndex ?? 0}` : undefined
+	const key = focusedGrid
+		? `${focusedGrid?.parentComponentId}-${focusedGrid?.subGridIndex ?? 0}`
+		: undefined
 	let grid = focusedGrid ? app.subgrids[key!] : app.grid
 
 	const newItem = createNewGridItem(grid, id, data)
@@ -187,8 +186,6 @@ export function deleteGridItem(
 
 	return components
 }
-
-
 
 type AvailableSpace = {
 	left: number
@@ -297,11 +294,14 @@ function isOverlapping(item1: any, item2: any) {
 }
 
 type Outputtable<Type> = {
-	-readonly [Property in keyof Type]: Output<Type[Property]>;
-};
+	-readonly [Property in keyof Type]: Output<Type[Property]>
+}
 
-
-export function initOutput<I extends Record<string, any>>(world: World, id: string, init: I): Outputtable<I> {
+export function initOutput<I extends Record<string, any>>(
+	world: World,
+	id: string,
+	init: I
+): Outputtable<I> {
 	const output = world.outputsById[id] as Outputtable<I>
 	if (init) {
 		for (const key in init) {
@@ -332,4 +332,54 @@ export function expandGriditem(
 	item.y = item.y - top
 	item.w = item.w + left + right
 	item.h = item.h + top + bottom
+}
+
+export function sortGridItemsPosition(
+	gridItems: GridItem[],
+	breakpoint: EditorBreakpoint
+): GridItem[] {
+	return gridItems.sort((a: GridItem, b: GridItem) => {
+		const width = breakpoint === 'lg' ? 12 : 3
+
+		const aX = a[width].x
+		const aY = a[width].y
+		const bX = b[width].x
+		const bY = b[width].y
+
+		if (aY < bY) {
+			return -1
+		} else if (aY > bY) {
+			return 1
+		} else {
+			if (aX < bX) {
+				return -1
+			} else if (aX > bX) {
+				return 1
+			} else {
+				return 0
+			}
+		}
+	})
+}
+
+export function connectInput(
+	connectingInput: ConnectingInput,
+	componentId: string,
+	path: string
+): ConnectingInput {
+	if (connectingInput) {
+		connectingInput = {
+			opened: false,
+			input: {
+				connection: {
+					componentId,
+					path
+				},
+				type: 'connected'
+			},
+			hoveredComponent: undefined
+		}
+	}
+
+	return connectingInput
 }

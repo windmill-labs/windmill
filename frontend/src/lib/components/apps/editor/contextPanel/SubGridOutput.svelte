@@ -4,6 +4,7 @@
 	import { slide } from 'svelte/transition'
 	import type { Output } from '../../rx'
 	import type { AppViewerContext } from '../../types'
+	import { connectInput, sortGridItemsPosition } from '../appUtils'
 	import ComponentOutput from './ComponentOutput.svelte'
 
 	export let name: string | undefined = undefined
@@ -11,7 +12,8 @@
 	export let expanded: boolean = false
 	export let subGrids: string[]
 
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, connectingInput, breakpoint, worldStore } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	let selected = 0
 
@@ -51,10 +53,16 @@
 		{#if selected === index || name !== 'Tabs'}
 			<div transition:slide|local>
 				{#if $app.subgrids && $app.subgrids[subGridId].length > 0}
-					{#each $app.subgrids[subGridId] as subGridItem, index}
-						{#if subGridItem}
-							<ComponentOutput gridItem={subGridItem} first={index === 0} nested {expanded} />
-						{/if}
+					{#each sortGridItemsPosition($app.subgrids[subGridId], $breakpoint) as subGridItem, index}
+						<ComponentOutput
+							gridItem={subGridItem}
+							first={index === 0}
+							nested
+							{expanded}
+							on:select={({ detail }) => {
+								$connectingInput = connectInput($connectingInput, subGridItem.id, detail)
+							}}
+						/>
 					{/each}
 				{:else}
 					<div class="text-xs text-gray-500 border-y border-l p-1">No components</div>

@@ -4,8 +4,8 @@
 	import type { AppViewerContext, GridItem } from '../../types'
 	import ComponentOutputViewer from './ComponentOutputViewer.svelte'
 	import { classNames } from '$lib/utils'
-	import { ChevronDown, ChevronRight, FolderOpen } from 'lucide-svelte'
-	import { isIdInsideGriditem } from '../appUtils'
+	import { ChevronDown, ChevronRight, Lock } from 'lucide-svelte'
+	import { connectInput, isIdInsideGriditem } from '../appUtils'
 	import { slide } from 'svelte/transition'
 	import SubGridOutput from './SubGridOutput.svelte'
 
@@ -15,7 +15,8 @@
 	export let parentId: string | undefined = undefined
 	export let expanded: boolean = false
 
-	const { app, staticOutputs, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, staticOutputs, selectedComponent, connectingInput } =
+		getContext<AppViewerContext>('AppViewerContext')
 	const name = getComponentNameById(gridItem.id)
 
 	function getComponentNameById(componentId: string) {
@@ -84,16 +85,24 @@
 			{getComponentNameById(gridItem.id)}
 			{#if !opened && !manuallyOpened}
 				<ChevronRight size={14} />
+			{:else if manuallyOpened}
+				<Lock size={14} class="text-orange-600" />
 			{:else}
-				<ChevronDown size={14} class={manuallyOpened ? 'text-indigo-500 ' : ''} />
+				<ChevronDown size={14} />
 			{/if}
 		</div>
 	</div>
 
 	{#if opened}
 		<div class={classNames('border-b', nested ? 'border-l' : '')} transition:slide|local>
-			<div class={classNames('py-1')}>
-				<ComponentOutputViewer componentId={gridItem.id} outputs={$staticOutputs[gridItem.id]} />
+			<div class="py-1">
+				<ComponentOutputViewer
+					componentId={gridItem.id}
+					outputs={$staticOutputs[gridItem.id]}
+					on:select={({ detail }) => {
+						$connectingInput = connectInput($connectingInput, gridItem.id, detail)
+					}}
+				/>
 			</div>
 
 			<div>
