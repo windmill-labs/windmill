@@ -56,7 +56,7 @@
 	<div class="w-full flex gap-2 flex-col mt-2">
 		{#each panes as value, index (index)}
 			<div class="w-full flex flex-row gap-2 items-center relative">
-				<input type="number" bind:value />
+				<input on:keydown|stopPropagation type="number" bind:value />
 
 				<div class="absolute top-1 right-1">
 					<Button

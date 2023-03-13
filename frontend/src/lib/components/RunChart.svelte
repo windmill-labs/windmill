@@ -45,7 +45,7 @@
 				label: 'Failed',
 				data:
 					failed?.map((job) => ({
-						x: job.created_at as any,
+						x: job.started_at as any,
 						y: job.duration_ms,
 						id: job.id,
 						path: job.script_path
@@ -57,7 +57,7 @@
 				label: 'Successful',
 				data:
 					success?.map((job) => ({
-						x: job.created_at as any,
+						x: job.started_at as any,
 						y: job.duration_ms,
 						id: job.id,
 						path: job.script_path
@@ -71,7 +71,10 @@
 			enabled: true,
 			modifierKey: 'ctrl' as 'ctrl',
 			onPanComplete: ({ chart }) => {
-				dispatch('zoom', { min: new Date(chart.scales.x.min), max: new Date(chart.scales.x.max) })
+				dispatch('zoom', {
+					min: addSeconds(new Date(chart.scales.x.min), -1),
+					max: addSeconds(new Date(chart.scales.x.max), 1)
+				})
 			}
 		},
 		zoom: {
@@ -80,13 +83,32 @@
 			},
 			mode: 'x' as 'x',
 			onZoom: ({ chart }) => {
-				dispatch('zoom', { min: new Date(chart.scales.x.min), max: new Date(chart.scales.x.max) })
+				dispatch('zoom', {
+					min: addSeconds(new Date(chart.scales.x.min), -1),
+					max: addSeconds(new Date(chart.scales.x.max), 1)
+				})
 			}
 		}
 	}
 
 	function getPath(x: any): string {
 		return x.path
+	}
+
+	$: minTime = getMinTime(jobs)
+
+	function addSeconds(date: Date, seconds: number): Date {
+		date.setTime(date.getTime() + seconds * 1000)
+		return date
+	}
+	function getMinTime(jobs: CompletedJob[] | undefined): Date {
+		return addSeconds(new Date(jobs?.[jobs?.length - 1]?.started_at ?? new Date().toString()), -15)
+	}
+
+	$: maxTime = getMaxTime(jobs)
+
+	function getMaxTime(jobs: CompletedJob[] | undefined): Date {
+		return addSeconds(new Date(jobs?.[0]?.started_at ?? new Date().toString()), 15)
 	}
 </script>
 
@@ -115,7 +137,8 @@
 					display: false
 				},
 				type: 'time',
-				min: jobs?.[jobs?.length - 1]?.created_at ?? new Date().toString()
+				min: minTime,
+				max: maxTime
 			},
 			y: {
 				grid: {

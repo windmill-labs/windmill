@@ -171,10 +171,9 @@
 <CenteredPage>
 	{#if flow}
 		<div class="prose-sm mx-auto mt-6">
-			<div class="flex flex-row w-full justify-between item-center">
-				<h1 class="mb-1 truncate">
-					{defaultIfEmptyString(flow.summary, flow.path)}
-				</h1>
+			<div
+				class="flex flex-row-reverse w-full flex-wrap md:flex-nowrap justify-between gap-x-2 gap-y-4"
+			>
 				<div class="flex flex-row-reverse gap-2 h-full">
 					<Button
 						href="/flows/run/{path}"
@@ -198,7 +197,7 @@
 						</Button>
 						<Button
 							href="/flows/add?template={flow.path}"
-							variant="contained"
+							variant="border"
 							color="blue"
 							size="md"
 							startIcon={{ icon: faCodeFork }}
@@ -206,10 +205,19 @@
 							Fork
 						</Button>
 					{/if}
-					<Button href="/runs/{flow.path}" color="blue" size="md" startIcon={{ icon: faList }}>
+					<Button
+						href="/runs/{flow.path}"
+						variant="border"
+						color="blue"
+						size="md"
+						startIcon={{ icon: faList }}
+					>
 						View runs
 					</Button>
 				</div>
+				<h1 class="mb-1 truncate grow">
+					{defaultIfEmptyString(flow.summary, flow.path)}
+				</h1>
 			</div>
 			{#if !emptyString(flow.summary)}
 				<span class="text-lg font-semibold">{flow.path}</span>
@@ -218,7 +226,7 @@
 	{/if}
 	<ShareModal bind:this={shareModal} />
 
-	<div class="grid grid-cols-1 gap-6 max-w-7xl pb-6 mt-2">
+	<div class="grid grid-cols-1 gap-6 max-w-7xl pb-6">
 		<Skeleton
 			loading={!flow}
 			layout={[[{ h: 1.5, w: 40 }], 1, [4], 2.25, [{ h: 1.5, w: 30 }], 1, [10]]}

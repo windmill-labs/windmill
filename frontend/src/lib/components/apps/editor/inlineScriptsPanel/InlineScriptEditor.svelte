@@ -8,7 +8,6 @@
 	import { inferArgs } from '$lib/infer'
 	import type { Schema } from '$lib/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import { fly } from 'svelte/transition'
 	import Editor from '$lib/components/Editor.svelte'
 	import { emptySchema, scriptLangToEditorLang } from '$lib/utils'
 	import Popover from '../../../Popover.svelte'
@@ -82,7 +81,12 @@
 <div class="h-full flex flex-col gap-1">
 	<div class="flex justify-between w-full gap-2 px-2 pt-1 flex-row items-center">
 		{#if name !== undefined}
-			<input bind:value={name} placeholder="Inline script name" class="!text-xs !rounded-xs" />
+			<input
+				on:keydown|stopPropagation
+				bind:value={name}
+				placeholder="Inline script name"
+				class="!text-xs !rounded-xs"
+			/>
 		{/if}
 		<div class="flex w-full flex-row gap-2 items-center justify-end">
 			{#if validCode}

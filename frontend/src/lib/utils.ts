@@ -3,7 +3,6 @@ import { goto } from '$app/navigation'
 import {
 	AppService,
 	FlowService,
-	FolderService,
 	Script,
 	ScriptService,
 	UserService,
@@ -234,6 +233,7 @@ export function canWrite(
 	if (user.folders.findIndex((x) => path.startsWith('f/' + x)) != -1) {
 		return true
 	}
+
 	return false
 }
 
@@ -297,17 +297,25 @@ export async function setQuery(url: URL, key: string, value: string): Promise<vo
 }
 
 let debounced: NodeJS.Timeout | undefined = undefined
-export function setQueryWithoutLoad(url: URL, key: string, value: string): void {
+export function setQueryWithoutLoad(url: URL, args: { key: string, value: string | null | undefined }[], bounceTime?: number): void {
 	debounced && clearTimeout(debounced)
 	debounced = setTimeout(() => {
 		const nurl = new URL(url.toString())
-		nurl.searchParams.set(key, value)
+		console.log(url.toString())
+		for (const { key, value } of args) {
+			if (value) {
+				nurl.searchParams.set(key, value)
+			} else {
+				nurl.searchParams.delete(key)
+			}
+		}
+
 		try {
 			history.replaceState(history.state, '', nurl.toString())
 		} catch (e) {
 			console.error(e)
 		}
-	}, 200)
+	}, bounceTime ?? 200)
 }
 
 export function groupBy<T>(

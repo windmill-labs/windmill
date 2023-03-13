@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte'
 	import { JobService, Job, CompletedJob, ScriptService, FlowService } from '$lib/gen'
-	import { setQuery } from '$lib/utils'
+	import { setQuery, setQueryWithoutLoad } from '$lib/utils'
 
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/utils'
@@ -18,11 +18,12 @@
 	import Icon from 'svelte-awesome'
 	import AutoComplete from 'simple-svelte-autocomplete'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
+	import Slider from '$lib/components/Slider.svelte'
+	import JsonEditor from '$lib/components/apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
 
 	let jobs: Job[] | undefined
 	let error: Error | undefined
 	let intervalId: NodeJS.Timer | undefined
-	let createdBefore: string | undefined = $page.url.searchParams.get('createdBefore') ?? undefined
 
 	let success: boolean | undefined =
 		$page.url.searchParams.get('success') != undefined
@@ -32,6 +33,11 @@
 		$page.url.searchParams.get('is_skipped') != undefined
 			? $page.url.searchParams.get('is_skipped') == 'true'
 			: false
+
+	let argFilter: any = $page.url.searchParams.get('arg') ?? undefined
+	let resultFilter: any = $page.url.searchParams.get('result') ?? undefined
+	let minTs = $page.url.searchParams.get('min_ts') ?? undefined
+	let maxTs = $page.url.searchParams.get('max_ts') ?? undefined
 
 	let nbOfJobs = 30
 
@@ -53,27 +59,44 @@
 		}
 	}
 
-	$: ($workspaceStore && loadJobs(createdBefore)) || (path && success && isSkipped && jobKinds)
+	$: ($workspaceStore && loadJobs()) || (path && success && isSkipped && jobKinds)
+
+	let filterTimeout: NodeJS.Timeout | undefined = undefined
+	function debounceSyncer() {
+		filterTimeout && clearTimeout(filterTimeout)
+		filterTimeout = setTimeout(() => {
+			loadJobs()
+		}, 1000)
+	}
+
+	$: (true || argFilter || resultFilter) && debounceSyncer()
 
 	async function fetchJobs(
-		createdBefore: string | undefined,
-		createdAfter: string | undefined
+		startedBefore: string | undefined,
+		startedAfter: string | undefined
 	): Promise<Job[]> {
 		return JobService.listJobs({
 			workspace: $workspaceStore!,
-			createdBefore,
-			createdAfter,
+			startedBefore,
+			startedAfter,
 			scriptPathExact: path === '' ? undefined : path,
 			jobKinds,
 			success,
 			isSkipped,
-			isFlowStep: jobKindsCat != 'all' ? false : undefined
+			isFlowStep: jobKindsCat != 'all' ? false : undefined,
+			args:
+				argFilter && argFilter != '{}' && argFilter != '' && argError == '' ? argFilter : undefined,
+			result:
+				resultFilter && resultFilter != '{}' && resultFilter != '' && resultError == ''
+					? resultFilter
+					: undefined
 		})
 	}
 
-	async function loadJobs(createdBefore: string | undefined): Promise<void> {
+	async function loadJobs(): Promise<void> {
+		jobs = undefined
 		try {
-			const newJobs = await fetchJobs(createdBefore, undefined)
+			const newJobs = await fetchJobs(maxTs, minTs)
 			jobs = newJobs
 		} catch (err) {
 			sendUserToast(`There was a problem fetching jobs: ${err}`, true)
@@ -89,7 +112,7 @@
 	}
 
 	async function syncer() {
-		if (jobs && createdBefore === undefined) {
+		if (sync && jobs && maxTs == undefined) {
 			const reversedJobs = [...jobs].reverse()
 			const lastIndex = reversedJobs.findIndex((x) => x.type == Job.type.QUEUED_JOB) - 1
 			let ts = lastIndex >= 0 ? reversedJobs[lastIndex].created_at : undefined
@@ -110,9 +133,17 @@
 		}
 	}
 
+	let sync = true
 	onMount(() => {
 		loadPaths()
 		intervalId = setInterval(syncer, 5000)
+		document.addEventListener('visibilitychange', () => {
+			if (document.hidden) {
+				sync = false
+			} else {
+				sync = true
+			}
+		})
 	})
 
 	let paths: string[] = []
@@ -122,11 +153,23 @@
 		const npaths_flows = await FlowService.listFlowPaths({ workspace: $workspaceStore ?? '' })
 		paths = npaths_scripts.concat(npaths_flows).sort()
 	}
-	async function syncCatWithURL() {
-		await setQuery($page.url, 'job_kinds', jobKindsCat)
+
+	function syncWithUrl(arg: string, value: string) {
+		setQueryWithoutLoad($page.url, [{ key: arg, value }])
 	}
 
-	$: jobKindsCat && syncCatWithURL()
+	async function syncTsWithURL(minTs?: string, maxTs?: string) {
+		console.log(minTs, maxTs)
+		setQueryWithoutLoad($page.url, [
+			{ key: 'min_ts', value: minTs },
+			{ key: 'max_ts', value: maxTs }
+		])
+	}
+
+	$: syncWithUrl('job_kinds', jobKindsCat)
+	$: syncWithUrl('arg', argFilter)
+	$: syncWithUrl('result', resultFilter)
+	$: syncTsWithURL(minTs, maxTs)
 
 	$: completedJobs =
 		jobs?.filter((x) => x.type == 'CompletedJob').map((x) => x as CompletedJob) ?? []
@@ -138,14 +181,15 @@
 	})
 	let searchPath = ''
 	$: searchPath = path
-	let minTs = undefined
-	let maxTs = undefined
 
 	$: searchPath && onSearchPathChange()
 
 	function onSearchPathChange() {
 		goto(`/runs/${searchPath}?${$page.url.searchParams.toString()}`)
 	}
+
+	let argError = ''
+	let resultError = ''
 </script>
 
 <CenteredPage>
@@ -210,28 +254,49 @@
 					<input type="text" value={maxTs ?? 'zoom x axis to set max'} disabled />
 				</div>
 			</div>
-			<div class="flex flex-row gap-x-2 mb-2 w-full">
-				{#key path}
-					<AutoComplete
-						items={paths}
-						value={path}
-						bind:selectedItem={searchPath}
-						placeholder="Search by path of script/flow"
-					/>
-				{/key}
-				<Button
-					variant="border"
-					on:click={() => {
-						minTs = undefined
-						maxTs = undefined
-						goto('/runs?' + $page.url.searchParams.toString())
-						fetchJobs(createdBefore, undefined)
-					}}
-					size="xs"
+			<div class="grid grid-cols-1 md:grid-cols-3 gap-2 mb-2 w-full flex-wrap">
+				<div>
+					<div class="flex flex-row gap-x-2">
+						{#key path}
+							<AutoComplete
+								items={paths}
+								value={path}
+								bind:selectedItem={searchPath}
+								placeholder="Search by path"
+							/>
+						{/key}
+						<Button
+							title="Clear path and time filters"
+							variant="border"
+							on:click={async () => {
+								minTs = undefined
+								maxTs = undefined
+								jobs = undefined
+								await goto('/runs?' + $page.url.searchParams.toString())
+								loadJobs()
+							}}
+							size="xs"
+						>
+							<Icon data={faSearchMinus} />
+						</Button>
+					</div>
+				</div>
+				<div
+					><Slider
+						text="Filter by args {argFilter ? '(set)' : ''}"
+						tooltip={'Filter by a json being a subset of the args. Try \'{"foo": "bar"}\''}
+						><JsonEditor bind:error={argError} bind:code={argFilter} /></Slider
+					></div
 				>
-					<Icon data={faSearchMinus} />
-				</Button>
+				<div
+					><Slider
+						text="Filter by result {resultFilter ? '(set)' : ''}"
+						tooltip={'Filter by a json being a subset of the result. Try \'{"foo": "bar"}\''}
+						><JsonEditor bind:error={resultError} bind:code={resultFilter} /></Slider
+					></div
+				>
 			</div>
+
 			<Skeleton loading={!jobs} layout={[[6], 1, [6], 1, [6], 1, [6], 1, [6]]} />
 
 			{#if jobs}

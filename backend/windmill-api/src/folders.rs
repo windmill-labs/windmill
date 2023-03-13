@@ -16,10 +16,9 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
-use itertools::Itertools;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
-    error::{self, Error, JsonResult, Result},
+    error::{self, to_anyhow, Error, JsonResult, Result},
     users::username_to_permissioned_as,
     utils::{not_found_if_none, paginate, Pagination},
 };
@@ -262,13 +261,26 @@ async fn update_folder(
     sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
 
     if let Some(display_name) = ng.display_name {
-        sqlb.set("display_name", display_name);
+        sqlb.set("display_name", "?".bind(&display_name));
     }
     if let Some(owners) = ng.owners {
-        sqlb.set_str("owners", format!("{{{}}}", owners.into_iter().join(",")));
+        sqlb.set(
+            "owners",
+            "?".bind(&format!(
+                "{{{}}}",
+                owners
+                    .iter()
+                    .map(|x| format!("\"{x}\""))
+                    .collect::<Vec<_>>()
+                    .join(","),
+            )),
+        );
     }
     if let Some(extra_perms) = ng.extra_perms {
-        sqlb.set_str("extra_perms", extra_perms.to_string());
+        sqlb.set(
+            "extra_perms",
+            "?".bind(&serde_json::to_string(&extra_perms).map_err(to_anyhow)?),
+        );
     }
 
     sqlb.returning("*");

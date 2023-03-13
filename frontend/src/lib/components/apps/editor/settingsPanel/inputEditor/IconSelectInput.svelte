@@ -73,7 +73,13 @@
 					<Loader2 class="animate-spin" size={18} />
 				</div>
 			{:else if filteredItems}
-				<input bind:value={search} type="text" placeholder="Search" class="col-span-4 mb-2" />
+				<input
+					on:keydown|stopPropagation
+					bind:value={search}
+					type="text"
+					placeholder="Search"
+					class="col-span-4 mb-2"
+				/>
 				<div class="grid gap-1 grid-cols-4 max-h-[300px] overflow-auto">
 					{#each filteredItems as { label, icon }}
 						{@const formatedLabel = formatName(label)}

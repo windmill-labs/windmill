@@ -341,7 +341,7 @@
 				undefined,
 				1000,
 				loopDepth,
-				0,
+				modules.findIndex((m) => m.id == module.id) + 1,
 				true,
 				undefined,
 				module.id

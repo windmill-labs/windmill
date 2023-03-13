@@ -327,13 +327,15 @@ pub struct ListQueueQuery {
     pub script_path_exact: Option<String>,
     pub script_hash: Option<String>,
     pub created_by: Option<String>,
-    pub created_before: Option<chrono::DateTime<chrono::Utc>>,
-    pub created_after: Option<chrono::DateTime<chrono::Utc>>,
+    pub started_before: Option<chrono::DateTime<chrono::Utc>>,
+    pub started_after: Option<chrono::DateTime<chrono::Utc>>,
     pub running: Option<bool>,
     pub parent_job: Option<String>,
     pub order_desc: Option<bool>,
     pub job_kinds: Option<String>,
     pub suspended: Option<bool>,
+    // filter by matching a subset of the args using base64 encoded json subset
+    pub args: Option<String>,
 }
 
 fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> SqlBuilder {
@@ -362,11 +364,11 @@ fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> Sq
     if let Some(pj) = &lq.parent_job {
         sqlb.and_where_eq("parent_job", "?".bind(pj));
     }
-    if let Some(dt) = &lq.created_before {
-        sqlb.and_where_lt("created_at", format!("to_timestamp({})", dt.timestamp()));
+    if let Some(dt) = &lq.started_before {
+        sqlb.and_where_le("started_at", format!("to_timestamp({})", dt.timestamp()));
     }
-    if let Some(dt) = &lq.created_after {
-        sqlb.and_where_gt("created_at", format!("to_timestamp({})", dt.timestamp()));
+    if let Some(dt) = &lq.started_after {
+        sqlb.and_where_ge("started_at", format!("to_timestamp({})", dt.timestamp()));
     }
 
     if let Some(s) = &lq.suspended {
@@ -376,11 +378,16 @@ fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> Sq
             sqlb.and_where_eq("suspend", 0);
         }
     }
+
     if let Some(jk) = &lq.job_kinds {
         sqlb.and_where_in(
             "job_kind",
             &jk.split(',').into_iter().map(quote).collect::<Vec<_>>(),
         );
+    }
+
+    if let Some(args) = &lq.args {
+        sqlb.and_where("args @> ?".bind(&args.replace("'", "''")));
     }
 
     sqlb
@@ -455,13 +462,14 @@ async fn list_jobs(
             script_path_exact: lq.script_path_exact,
             script_hash: lq.script_hash,
             created_by: lq.created_by,
-            created_before: lq.created_before,
-            created_after: lq.created_after,
+            started_before: lq.started_before,
+            started_after: lq.started_after,
             running: None,
             parent_job: lq.parent_job,
             order_desc: Some(true),
             job_kinds: lq.job_kinds,
             suspended: lq.suspended,
+            args: lq.args,
         },
         &[
             "'QueuedJob' as typ",
@@ -1136,14 +1144,14 @@ where
         struct InPayload {
             payload: Option<String>,
         }
-
-        fn decode_payload<D: DeserializeOwned, T: AsRef<[u8]>>(t: T) -> anyhow::Result<D> {
-            let vec = base64::engine::general_purpose::URL_SAFE
-                .decode(t)
-                .context("invalid base64")?;
-            serde_json::from_slice(vec.as_slice()).context("invalid json")
-        }
     }
+}
+
+fn decode_payload<D: DeserializeOwned, T: AsRef<[u8]>>(t: T) -> anyhow::Result<D> {
+    let vec = base64::engine::general_purpose::URL_SAFE
+        .decode(t)
+        .context("invalid base64")?;
+    serde_json::from_slice(vec.as_slice()).context("invalid json")
 }
 pub async fn run_flow_by_path(
     authed: Authed,
@@ -1687,11 +1695,11 @@ fn list_completed_jobs_query(
     if let Some(pj) = &lq.parent_job {
         sqlb.and_where_eq("parent_job", "?".bind(pj));
     }
-    if let Some(dt) = &lq.created_before {
-        sqlb.and_where_lt("created_at", format!("to_timestamp({})", dt.timestamp()));
+    if let Some(dt) = &lq.started_before {
+        sqlb.and_where_le("started_at", format!("to_timestamp({})", dt.timestamp()));
     }
-    if let Some(dt) = &lq.created_after {
-        sqlb.and_where_gt("created_at", format!("to_timestamp({})", dt.timestamp()));
+    if let Some(dt) = &lq.started_after {
+        sqlb.and_where_ge("started_at", format!("to_timestamp({})", dt.timestamp()));
     }
     if let Some(sk) = &lq.is_skipped {
         sqlb.and_where_eq("is_skipped", sk);
@@ -1706,6 +1714,15 @@ fn list_completed_jobs_query(
         );
     }
 
+    if let Some(args) = &lq.args {
+        sqlb.and_where("args @> ?".bind(&args.replace("'", "''")));
+    }
+
+    if let Some(result) = &lq.result {
+        sqlb.and_where("result @> ?".bind(&result.replace("'", "''")));
+    }
+
+    tracing::info!("{:?}", sqlb.sql());
     sqlb
 }
 #[derive(Deserialize, Clone)]
@@ -1714,8 +1731,8 @@ pub struct ListCompletedQuery {
     pub script_path_exact: Option<String>,
     pub script_hash: Option<String>,
     pub created_by: Option<String>,
-    pub created_before: Option<chrono::DateTime<chrono::Utc>>,
-    pub created_after: Option<chrono::DateTime<chrono::Utc>>,
+    pub started_before: Option<chrono::DateTime<chrono::Utc>>,
+    pub started_after: Option<chrono::DateTime<chrono::Utc>>,
     pub success: Option<bool>,
     pub parent_job: Option<String>,
     pub order_desc: Option<bool>,
@@ -1723,6 +1740,10 @@ pub struct ListCompletedQuery {
     pub is_skipped: Option<bool>,
     pub is_flow_step: Option<bool>,
     pub suspended: Option<bool>,
+    // filter by matching a subset of the args using base64 encoded json subset
+    pub args: Option<String>,
+    // filter by matching a subset of the result using base64 encoded json subset
+    pub result: Option<String>,
 }
 
 async fn list_completed_jobs(

@@ -200,9 +200,9 @@
 		<Skeleton {loading} layout={[[{ h: 1.5, w: 40 }], 1, [{ h: 1, w: 30 }]]} />
 
 		<div class="prose-sm mx-auto mt-6">
-			<div class="flex flex-row w-full justify-between item-center">
-				<h1 class="mb-1 truncate">{defaultIfEmptyString(script.summary, script.path)}</h1>
-
+			<div
+				class="flex flex-row-reverse w-full flex-wrap md:flex-nowrap justify-between gap-x-2 gap-y-4"
+			>
 				<div class="flex flex-row-reverse gap-2 h-full">
 					<Button
 						href={`/scripts/run/${script.hash}`}
@@ -243,13 +243,16 @@
 						View Runs
 					</Button>
 				</div>
+				<div class="grow truncate">
+					<h1 class="mb-1 truncate">{defaultIfEmptyString(script.summary, script.path)}</h1>
+				</div>
 			</div>
 
 			{#if !emptyString(script.summary)}
 				<span class="text-lg font-semibold">{script.path}</span>
 			{/if}
 
-			<div class="flex flex-row gap-x-2 flex-wrap items-center mt-4">
+			<div class="flex flex-row gap-x-2 flex-wrap items-center mt-2">
 				<span class="text-sm text-gray-600">
 					Edited {displayDaysAgo(script.created_at || '')} by {script.created_by || 'unknown'}
 				</span>

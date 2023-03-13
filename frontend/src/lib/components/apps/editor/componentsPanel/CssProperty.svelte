@@ -23,7 +23,13 @@
 			<label class="block pb-2">
 				<div class="text-xs font-medium pb-0.5"> Style </div>
 				<div class="relative">
-					<input type="text" class="!pr-7" bind:value={value.style} on:focus />
+					<input
+						on:keydown|stopPropagation
+						type="text"
+						class="!pr-7"
+						bind:value={value.style}
+						on:focus
+					/>
 					{#if value?.style}
 						<button
 							transition:fade|local={{ duration: 100 }}
@@ -41,7 +47,13 @@
 			<label class="block">
 				<div class="text-xs font-medium pb-0.5"> Tailwind classes </div>
 				<div class="relative">
-					<input type="text" class="!pr-7" bind:value={value.class} on:focus />
+					<input
+						on:keydown|stopPropagation
+						type="text"
+						class="!pr-7"
+						bind:value={value.class}
+						on:focus
+					/>
 					{#if value?.class}
 						<button
 							transition:fade|local={{ duration: 100 }}

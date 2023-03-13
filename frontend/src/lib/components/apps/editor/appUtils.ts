@@ -4,6 +4,7 @@ import { getRecommendedDimensionsByComponent, type AppComponent } from './compon
 import gridHelp from '@windmill-labs/svelte-grid/src/utils/helper'
 import { gridColumns } from '../gridUtils'
 import { allItems } from '../utils'
+import type { Output, World } from '../rx'
 
 function findGridItemById(
 	root: GridItem[],
@@ -18,7 +19,7 @@ function findGridItemById(
 	return undefined
 }
 
-export function findGridItemParentId(app: App, id: string): string | undefined {
+export function findGridItemParentGrid(app: App, id: string): string | undefined {
 	const gridItem = app.grid.find((x) => x.id === id)
 	if (gridItem) {
 		return undefined
@@ -27,7 +28,7 @@ export function findGridItemParentId(app: App, id: string): string | undefined {
 			const subGrid = app.subgrids[key]
 			const gridItem = subGrid.find((x) => x.id === id)
 			if (gridItem) {
-				return key.split('-')[0]
+				return key
 			}
 		}
 	}
@@ -57,9 +58,6 @@ export function getNextGridItemId(app: App): string {
 }
 
 export function createNewGridItem(grid: GridItem[], id: string, data: AppComponent): GridItem {
-	const appComponent = data
-
-	appComponent.id = id
 
 	const newComponent = {
 		resizable: true,
@@ -68,7 +66,8 @@ export function createNewGridItem(grid: GridItem[], id: string, data: AppCompone
 		y: 0
 	}
 
-	let newData: AppComponent = JSON.parse(JSON.stringify(appComponent))
+	let newData: AppComponent = JSON.parse(JSON.stringify(data))
+	newData.id = id
 
 	const newItem: GridItem = {
 		data: newData,
@@ -76,7 +75,7 @@ export function createNewGridItem(grid: GridItem[], id: string, data: AppCompone
 	}
 
 	gridColumns.forEach((column) => {
-		const rec = getRecommendedDimensionsByComponent(appComponent.type, column)
+		const rec = getRecommendedDimensionsByComponent(newData.type, column)
 
 		newItem[column] = {
 			...newComponent,
@@ -95,6 +94,16 @@ export function createNewGridItem(grid: GridItem[], id: string, data: AppCompone
 	return newItem
 }
 
+export function getGridItems(app: App, focusedGrid: FocusedGrid | undefined): GridItem[] {
+	if (!focusedGrid) {
+		return app.grid
+	} else {
+		const { parentComponentId, subGridIndex } = focusedGrid
+		const key = `${parentComponentId}-${subGridIndex ?? 0}`
+		return app?.subgrids?.[key] ?? []
+	}
+}
+
 export function insertNewGridItem(
 	app: App,
 	data: AppComponent,
@@ -107,18 +116,7 @@ export function insertNewGridItem(
 		app.subgrids = {}
 	}
 
-	if (!focusedGrid) {
-		const newItem = createNewGridItem(app.grid, id, data)
-		app.grid.push(newItem)
-	} else {
-		const { parentComponentId, subGridIndex } = focusedGrid
 
-		const key = `${parentComponentId}-${subGridIndex ?? 0}`
-
-		const subGrid = app.subgrids[key] ?? []
-		subGrid.push(createNewGridItem(subGrid, id, data))
-		app.subgrids[key] = subGrid
-	}
 	// We only want to set subgrids when we are not moving
 	if (!keepId) {
 		for (let i = 0; i < (data.numberOfSubgrids ?? 0); i++) {
@@ -126,6 +124,16 @@ export function insertNewGridItem(
 		}
 	}
 
+
+	const key = focusedGrid ? `${focusedGrid?.parentComponentId}-${focusedGrid?.subGridIndex ?? 0}` : undefined
+	let grid = focusedGrid ? app.subgrids[key!] : app.grid
+
+	const newItem = createNewGridItem(grid, id, data)
+	grid.push(newItem)
+
+	if (focusedGrid) {
+		app.subgrids[key!] = grid
+	}
 	return id
 }
 
@@ -180,27 +188,7 @@ export function deleteGridItem(
 	return components
 }
 
-export function duplicateGridItem(
-	app: App,
-	parent: string | undefined,
-	id: string
-): string | undefined {
-	const gridItem = findGridItem(app, id)
 
-	if (gridItem) {
-		const newId = getNextGridItemId(app)
-		const newItem = JSON.parse(JSON.stringify(gridItem))
-		newItem.id = newId
-		newItem.data.id = newId
-
-		let focusedGrid = parent
-			? { parentComponentId: parent.split('-')[0], subGridIndex: Number(parent.split('-')[1]) }
-			: undefined
-
-		return insertNewGridItem(app, newItem.data, focusedGrid)
-	}
-	return undefined
-}
 
 type AvailableSpace = {
 	left: number
@@ -217,7 +205,7 @@ export function findAvailableSpace(
 ): AvailableSpace | undefined {
 	if (gridItem) {
 		const breakpoint = editorBreakpoint === 'sm' ? 3 : 12
-		const maxHeight = parentGridItem ? parentGridItem[breakpoint].h - 1 : 12
+		const maxHeight = parentGridItem ? parentGridItem[breakpoint].h - 1 : 16
 		const maxWidth = 12
 
 		const availableSpace = {
@@ -308,6 +296,22 @@ function isOverlapping(item1: any, item2: any) {
 	)
 }
 
+type Outputtable<Type> = {
+	-readonly [Property in keyof Type]: Output<Type[Property]>;
+};
+
+
+export function initOutput<I extends Record<string, any>>(world: World, id: string, init: I): Outputtable<I> {
+	const output = world.outputsById[id] as Outputtable<I>
+	if (init) {
+		for (const key in init) {
+			if (output && output[key] && output[key].peak() == undefined) {
+				output[key].set(init[key] as any)
+			}
+		}
+	}
+	return output
+}
 export function expandGriditem(
 	grid: GridItem[],
 	gridComponent: GridItem,
@@ -322,10 +326,10 @@ export function expandGriditem(
 
 	const { left, right, top, bottom } = availableSpace
 	const width = $breakpoint === 'sm' ? 3 : 12
-	const previousGridItem = JSON.parse(JSON.stringify(gridComponent[width]))
+	const item = gridComponent[width]
 
-	gridComponent[width].x = previousGridItem.x - left
-	gridComponent[width].y = previousGridItem.y - top
-	gridComponent[width].w = previousGridItem.w + left + right
-	gridComponent[width].h = previousGridItem.h + top + bottom
+	item.x = item.x - left
+	item.y = item.y - top
+	item.w = item.w + left + right
+	item.h = item.h + top + bottom
 }

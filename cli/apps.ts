@@ -28,14 +28,18 @@ export class AppFile implements Resource, PushDiffs {
     remotePath: string,
     diffs: Difference[],
   ): Promise<void> {
-    if (await AppService.existsApp({ workspace, path: remotePath })) {
+    let app: AppWithLastVersion | undefined = undefined;
+    try {
+      app = await AppService.getAppByPath({ workspace, path: remotePath });
+    } catch (e) {}
+
+    if (app) {
       console.log(
         colors.bold.yellow(
-          `Applying ${diffs.length} diffs to existing app...`,
+          `Applying ${diffs.length} diffs to existing app... ${remotePath}`,
         ),
       );
       const changeset: {
-        path?: string | undefined;
         summary?: string | undefined;
         value?: any;
         policy?: Policy | undefined;
@@ -46,7 +50,7 @@ export class AppFile implements Resource, PushDiffs {
           (
             diff.path[0] !== "value" && diff.path[0] !== "policy" && (
               diff.path.length !== 1 ||
-              !["path", "summary"].includes(
+              !["summary"].includes(
                 diff.path[0] as string,
               )
             )
@@ -59,6 +63,13 @@ export class AppFile implements Resource, PushDiffs {
         } else if (diff.type === "REMOVE") {
           setValueByPath(changeset, diff.path, null);
         }
+      }
+
+      if ((!changeset?.policy || JSON.stringify(changeset?.policy) == JSON.stringify(app.policy)) 
+        && (!changeset?.value || JSON.stringify(changeset?.value) == JSON.stringify(app.value))
+        && (!changeset?.summary || changeset.summary == app.summary)) {
+        console.log(colors.yellow(`No changes to push for app ${remotePath}, skipping`))
+        return;
       }
 
       const hasChanges = Object.values(changeset).some((v) =>
@@ -87,19 +98,10 @@ export class AppFile implements Resource, PushDiffs {
     }
   }
   async push(workspace: string, remotePath: string): Promise<void> {
-    let existing: AppWithLastVersion | undefined;
-    try {
-      existing = await AppService.getAppByPath({
-        workspace: workspace,
-        path: remotePath,
-      });
-    } catch {
-      existing = undefined;
-    }
     await this.pushDiffs(
       workspace,
       remotePath,
-      microdiff(existing ?? {}, this, { cyclesFix: false }),
+      microdiff({}, this, { cyclesFix: false }),
     );
   }
 }

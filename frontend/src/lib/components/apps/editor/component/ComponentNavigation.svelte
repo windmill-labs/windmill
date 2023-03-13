@@ -1,23 +1,35 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
+	import {
+		deleteGridItem,
+		findGridItem,
+		findGridItemParentGrid,
+		getAllSubgridsAndComponentIds,
+		getGridItems,
+		insertNewGridItem
+	} from '../appUtils'
 	import type { AppEditorContext, AppViewerContext, EditorBreakpoint, GridItem } from '../../types'
-	import { findGridItemParentId } from '../appUtils'
+	import { push } from '$lib/history'
+	import { sendUserToast } from '$lib/utils'
 
 	const { app, selectedComponent, breakpoint, focusedGrid } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	const { componentControl } = getContext<AppEditorContext>('AppEditorContext')
+	const { componentControl, history } = getContext<AppEditorContext>('AppEditorContext')
+
+	let tempGridItem: GridItem | undefined = undefined
+	let copiedGridItem: GridItem | undefined = undefined
 
 	function getSortedGridItemsOfChildren(): GridItem[] {
 		if (!$focusedGrid) {
-			return sortGridItems($app.grid, $breakpoint)
+			return sortGridItemsPosition($app.grid, $breakpoint)
 		}
 
 		if (!$app.subgrids) {
 			return []
 		}
 
-		return sortGridItems(
+		return sortGridItemsPosition(
 			$app.subgrids[`${$focusedGrid.parentComponentId}-${$focusedGrid.subGridIndex}`],
 			$breakpoint
 		)
@@ -25,14 +37,14 @@
 
 	function getSortedGridItemsOfGrid(): GridItem[] {
 		if ($app.grid.find((item) => item.id === $selectedComponent)) {
-			return sortGridItems($app.grid, $breakpoint)
+			return sortGridItemsPosition($app.grid, $breakpoint)
 		}
 
 		if (!$app.subgrids) {
 			return []
 		}
 
-		return sortGridItems(
+		return sortGridItemsPosition(
 			Object.values($app.subgrids ?? {}).find((grid) =>
 				grid.find((item) => item.id === $selectedComponent)
 			) ?? [],
@@ -79,7 +91,7 @@
 				return
 			}
 
-			const sortedGridItems = sortGridItems(subgrid, $breakpoint)
+			const sortedGridItems = sortGridItemsPosition(subgrid, $breakpoint)
 
 			if (sortedGridItems) {
 				$selectedComponent = sortedGridItems[0].id
@@ -88,23 +100,88 @@
 		}
 	}
 
+	function handleEscape(event: KeyboardEvent) {
+		$selectedComponent = undefined
+		$focusedGrid = undefined
+		event.preventDefault()
+	}
+
+	function handleArrowUp(event: KeyboardEvent) {
+		if (!$selectedComponent) return
+		let parentId = findGridItemParentGrid($app, $selectedComponent)?.split('-')[0]
+		if (parentId) {
+			$selectedComponent = parentId
+		} else {
+			$selectedComponent = undefined
+			$focusedGrid = undefined
+		}
+	}
+
+	function handleCopy(event: KeyboardEvent) {
+		if (!$selectedComponent) {
+			return
+		}
+		tempGridItem = undefined
+		copiedGridItem = findGridItem($app, $selectedComponent)
+	}
+
+	function handleCut(event: KeyboardEvent) {
+		if (!$selectedComponent) {
+			return
+		}
+		push(history, $app)
+
+		const gridItem = findGridItem($app, $selectedComponent)
+		copiedGridItem = gridItem
+
+		if (!gridItem) {
+			return
+		}
+
+		// Store the grid item in a temp variable so we can paste it later
+		tempGridItem = gridItem
+	}
+
+	function handlePaste(event: KeyboardEvent) {
+		push(history, $app)
+
+		if (tempGridItem) {
+			if (
+				$focusedGrid &&
+				getAllSubgridsAndComponentIds($app, tempGridItem.data)[0].includes(
+					`${$focusedGrid.parentComponentId}-${$focusedGrid.subGridIndex}`
+				)
+			) {
+				sendUserToast('Cannot paste a component into itself', true)
+				return
+			}
+			let parentGrid = findGridItemParentGrid($app, tempGridItem.data.id)
+			const grid = parentGrid ? $app.subgrids![parentGrid] : $app.grid
+			let idx = grid.findIndex((item) => {
+				return item.id == tempGridItem!.data.id
+			})
+			if (idx > -1) {
+				grid.splice(idx, 1)
+			}
+
+			insertNewGridItem($app, tempGridItem.data, $focusedGrid, true)
+			copiedGridItem = tempGridItem
+			tempGridItem = undefined
+		} else if (copiedGridItem) {
+			insertNewGridItem($app, copiedGridItem.data, $focusedGrid, false)
+		}
+
+		$app = $app
+	}
+
 	function keydown(event: KeyboardEvent) {
 		switch (event.key) {
 			case 'Escape':
-				$selectedComponent = undefined
-				event.preventDefault()
+				handleEscape(event)
 				break
 
 			case 'ArrowUp': {
-				if (!$selectedComponent) return
-				let parentId = findGridItemParentId($app, $selectedComponent)
-				if (parentId) {
-					$selectedComponent = parentId
-				} else {
-					$selectedComponent = undefined
-					$focusedGrid = undefined
-				}
-				break
+				handleArrowUp(event)
 			}
 
 			case 'ArrowDown': {
@@ -122,12 +199,30 @@
 				break
 			}
 
+			case 'c':
+				if (event.ctrlKey || event.metaKey) {
+					handleCopy(event)
+				}
+				break
+
+			case 'v':
+				if (event.ctrlKey || event.metaKey) {
+					handlePaste(event)
+				}
+				break
+
+			case 'x':
+				if (event.ctrlKey || event.metaKey) {
+					handleCut(event)
+				}
+				break
+
 			default:
 				break
 		}
 	}
 
-	function sortGridItems(gridItems: GridItem[], breakpoint: EditorBreakpoint): GridItem[] {
+	function sortGridItemsPosition(gridItems: GridItem[], breakpoint: EditorBreakpoint): GridItem[] {
 		return gridItems.sort((a: GridItem, b: GridItem) => {
 			const width = breakpoint === 'lg' ? 12 : 3
 

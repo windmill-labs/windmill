@@ -218,8 +218,9 @@
 								}}
 								on:expand={() => {
 									push(history, $app)
+									$selectedComponent = gridComponent.data.id
 									expandGriditem($app.grid, gridComponent, $breakpoint)
-									$app = { ...$app }
+									$app = $app
 								}}
 							/>
 						</div>

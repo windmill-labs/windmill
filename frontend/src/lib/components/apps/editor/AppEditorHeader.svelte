@@ -18,6 +18,7 @@
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import Dropdown from '$lib/components/Dropdown.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
+	import { idMutex } from '$lib/components/flows/flowStateUtils'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
@@ -220,18 +221,23 @@
 			return
 		}
 		loading.save = true
-		await computeTriggerables()
-		await AppService.updateApp({
-			workspace: $workspaceStore!,
-			path: $page.params.path,
-			requestBody: {
-				value: $app!,
-				summary: $summary,
-				policy
-			}
-		})
-		loading.save = false
-		sendUserToast('App saved')
+		try {
+			await computeTriggerables()
+			await AppService.updateApp({
+				workspace: $workspaceStore!,
+				path: $page.params.path,
+				requestBody: {
+					value: $app!,
+					summary: $summary,
+					policy
+				}
+			})
+			sendUserToast('App saved')
+			loading.save = false
+		} catch (e) {
+			loading.save = false
+			throw e
+		}
 	}
 
 	let selectedJobId: string | undefined = undefined
@@ -242,7 +248,10 @@
 	$: selectedJobId && testJobLoader?.watchJob(selectedJobId)
 	$: hasErrors = Object.keys($errorByComponent).length > 0
 
+	let lock = false
 	function onKeyDown(event: KeyboardEvent) {
+		if (lock) return
+		lock = true
 		switch (event.key) {
 			case 'Z':
 				if (event.ctrlKey) {
@@ -253,6 +262,7 @@
 			case 'z':
 				if (event.ctrlKey) {
 					$app = undo(history, $app)
+
 					event.preventDefault()
 				}
 				break
@@ -281,6 +291,7 @@
 			// 	break
 			// }
 		}
+		lock = false
 	}
 </script>
 
@@ -486,12 +497,12 @@
 				<ToggleButton position="left" value="dnd" size="xs">
 					<div class="inline-flex gap-1 items-center">
 						<Pencil size={14} />
-						<span class="hidden md:inline">Editor</span>
+						<span class="hidden lg:inline">Editor</span>
 					</div>
 				</ToggleButton>
 				<ToggleButton position="right" value="preview" size="xs">
 					<div class="inline-flex gap-1 items-center">
-						<Eye size={14} /> <span class="hidden md:inline">Preview</span>
+						<Eye size={14} /> <span class="hidden lg:inline">Preview</span>
 					</div>
 				</ToggleButton>
 			</ToggleButtonGroup>
@@ -508,36 +519,40 @@
 		</div>
 
 		<div class="hidden lg:block">
-			<ToggleButtonGroup bind:selected={$app.fullscreen}>
-				<ToggleButton position="left" value={false} size="xs">
-					<div class="flex gap-1 justify-start items-center">
-						<AlignHorizontalSpaceAround size={14} />
-						<Tooltip light class="mb-0.5">
-							The max width is 1168px and the content stay centered instead of taking the full page
-							width
-						</Tooltip>
-					</div>
-				</ToggleButton>
-				<ToggleButton position="right" value={true} size="xs">
-					<Expand size={14} />
-				</ToggleButton>
-			</ToggleButtonGroup>
+			{#if $app}
+				<ToggleButtonGroup bind:selected={$app.fullscreen}>
+					<ToggleButton position="left" value={false} size="xs">
+						<div class="flex gap-1 justify-start items-center">
+							<AlignHorizontalSpaceAround size={14} />
+							<Tooltip light class="mb-0.5">
+								The max width is 1168px and the content stay centered instead of taking the full
+								page width
+							</Tooltip>
+						</div>
+					</ToggleButton>
+					<ToggleButton position="right" value={true} size="xs">
+						<Expand size={14} />
+					</ToggleButton>
+				</ToggleButtonGroup>
+			{/if}
 		</div>
 	</div>
 	{#if $focusedGrid !== undefined}
-		<Badge color="indigo">
-			<div class="flex flex-row gap-2 justify-center items-center">
-				<div>{`Sub grid: ${$focusedGrid.parentComponentId} (${$focusedGrid.subGridIndex})`}</div>
-				<button
-					on:click={() => {
-						$selectedComponent = undefined
-						$focusedGrid = undefined
-					}}
-				>
-					<X size={14} />
-				</button>
-			</div>
-		</Badge>
+		<div class="hidden lg:block">
+			<Badge color="indigo">
+				<div class="flex flex-row gap-2 justify-center items-center">
+					<div>{`Sub grid: ${$focusedGrid.parentComponentId} (${$focusedGrid.subGridIndex})`}</div>
+					<button
+						on:click={() => {
+							$selectedComponent = undefined
+							$focusedGrid = undefined
+						}}
+					>
+						<X size={14} />
+					</button>
+				</div>
+			</Badge>
+		</div>
 	{/if}
 
 	<div class="flex flex-row gap-2 justify-end items-center overflow-visible">
@@ -587,7 +602,7 @@
 				variant="border"
 				startIcon={{ icon: faBug }}
 			>
-				<span class="hidden md:inline">Debug Runs</span>
+				<span class="hidden xl:inline">Debug Runs</span>
 			</Button>
 		</span>
 		<AppExportButton bind:this={appExport} />
@@ -598,7 +613,7 @@
 			variant="border"
 			startIcon={{ icon: faExternalLink }}
 		>
-			<span class="hidden md:inline">Publish</span>
+			<span class="hidden xl:inline">Publish</span>
 		</Button>
 		{#if appPath == ''}
 			<Button
