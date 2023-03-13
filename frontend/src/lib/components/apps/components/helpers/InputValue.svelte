@@ -12,6 +12,7 @@
 	export let value: T
 	export let id: string | undefined = undefined
 	export let error: string = ''
+	export let extraContext: Record<string, any> = {}
 
 	let lastInput = input ? JSON.parse(JSON.stringify(input)) : undefined
 
@@ -72,16 +73,19 @@
 	}
 
 	function computeGlobalContext() {
-		return Object.fromEntries(
-			Object.entries($worldStore?.outputsById ?? {})
-				.filter(([k, _]) => k != id)
-				.map(([key, value]) => {
-					return [
-						key,
-						Object.fromEntries(Object.entries(value ?? {}).map((x) => [x[0], x[1].peak()]))
-					]
-				})
-		)
+		return {
+			...Object.fromEntries(
+				Object.entries($worldStore?.outputsById ?? {})
+					.filter(([k, _]) => k != id)
+					.map(([key, value]) => {
+						return [
+							key,
+							Object.fromEntries(Object.entries(value ?? {}).map((x) => [x[0], x[1].peak()]))
+						]
+					})
+			),
+			...extraContext
+		}
 	}
 
 	export function getValue(input: AppInput) {

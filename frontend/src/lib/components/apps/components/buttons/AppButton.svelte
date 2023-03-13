@@ -127,6 +127,7 @@
 <InputValue
 	{id}
 	input={configuration.disabled}
+	extraContext={extraQueryParams}
 	bind:value={disabled}
 	bind:error={errors.disabled}
 />
