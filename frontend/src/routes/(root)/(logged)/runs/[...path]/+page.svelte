@@ -63,13 +63,13 @@
 
 	let filterTimeout: NodeJS.Timeout | undefined = undefined
 	function debounceSyncer() {
-		filterTimeout && clearTimeout(filterTimeout)
-		filterTimeout = setTimeout(() => {
-			loadJobs()
-		}, 1000)
+		if (resultError == '' && argError == '') {
+			filterTimeout && clearTimeout(filterTimeout)
+			filterTimeout = setTimeout(() => {
+				loadJobs()
+			}, 2000)
+		}
 	}
-
-	$: (true || argFilter || resultFilter) && debounceSyncer()
 
 	async function fetchJobs(
 		startedBefore: string | undefined,
@@ -159,7 +159,6 @@
 	}
 
 	async function syncTsWithURL(minTs?: string, maxTs?: string) {
-		console.log(minTs, maxTs)
 		setQueryWithoutLoad($page.url, [
 			{ key: 'min_ts', value: minTs },
 			{ key: 'max_ts', value: maxTs }
@@ -285,14 +284,22 @@
 					><Slider
 						text="Filter by args {argFilter ? '(set)' : ''}"
 						tooltip={'Filter by a json being a subset of the args. Try \'{"foo": "bar"}\''}
-						><JsonEditor bind:error={argError} bind:code={argFilter} /></Slider
+						><JsonEditor
+							on:change={debounceSyncer}
+							bind:error={argError}
+							bind:code={argFilter}
+						/></Slider
 					></div
 				>
 				<div
 					><Slider
 						text="Filter by result {resultFilter ? '(set)' : ''}"
 						tooltip={'Filter by a json being a subset of the result. Try \'{"foo": "bar"}\''}
-						><JsonEditor bind:error={resultError} bind:code={resultFilter} /></Slider
+						><JsonEditor
+							on:change={debounceSyncer}
+							bind:error={resultError}
+							bind:code={resultFilter}
+						/></Slider
 					></div
 				>
 			</div>
