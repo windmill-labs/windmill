@@ -43,7 +43,8 @@
 				disabled: {
 					fieldType: 'boolean',
 					type: 'eval',
-					expr: 'false'
+					expr: 'false',
+					tooltip: "Disabled based on a predicate.  Use `row` to access the current row's data"
 				},
 				goto: {
 					tooltip: 'Go to an url on success if not empty',
