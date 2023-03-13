@@ -1,7 +1,6 @@
 <script lang="ts">
-	import { getContext, afterUpdate, setContext } from 'svelte'
+	import { getContext, afterUpdate } from 'svelte'
 	import type { App, AppEditorContext, AppViewerContext, GridItem } from '../types'
-	import Grid from '@windmill-labs/svelte-grid'
 	import { classNames } from '$lib/utils'
 	import { columnConfiguration, disableDrag, enableDrag, isFixed, toggleFixed } from '../gridUtils'
 	import { twMerge } from 'tailwind-merge'
@@ -11,8 +10,9 @@
 	import HiddenComponent from '../components/helpers/HiddenComponent.svelte'
 	import Component from './component/Component.svelte'
 	import { deepEqual } from 'fast-equals'
-	import { push, type History } from '$lib/history'
+	import { push } from '$lib/history'
 	import { expandGriditem, findGridItem } from './appUtils'
+	import Grid from '../svelte-grid/Grid.svelte'
 
 	export let policy: Policy
 
@@ -215,6 +215,7 @@
 									if (gridItem) {
 										toggleFixed(gridItem)
 									}
+									$app = $app
 								}}
 								on:expand={() => {
 									push(history, $app)
