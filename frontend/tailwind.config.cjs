@@ -498,14 +498,18 @@ const config = {
 						textTransform: 'capitalize'
 					},
 					'& td': {
-						paddingRight: theme('spacing.2'),
+						paddingLeft: theme('spacing.1'),
+						paddingRight: theme('spacing.1'),
 						paddingTop: theme('spacing.2'),
 						paddingBottom: theme('spacing.2'),
 						fontSize: theme('fontSize.sm'),
 						color: theme('colors.gray.700')
 					},
 					'& tbody > :not([hidden]) ~ :not([hidden])': {
-						borderTop: `1px solid ${theme('colors.gray.200')}`
+						borderTop: `1px solid ${theme('colors.gray.200')}`,
+					},
+					'& tbody > tr:hover': {
+						backgroundColor: theme('colors.gray.50')
 					}
 				},
 				'.commit-hash': {

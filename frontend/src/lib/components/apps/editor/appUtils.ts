@@ -1,10 +1,10 @@
 import { getNextId } from '$lib/components/flows/flowStateUtils'
 import type { App, ConnectingInput, EditorBreakpoint, FocusedGrid, GridItem } from '../types'
 import { getRecommendedDimensionsByComponent, type AppComponent } from './component'
-import gridHelp from '@windmill-labs/svelte-grid/src/utils/helper'
 import { gridColumns } from '../gridUtils'
 import { allItems } from '../utils'
 import type { Output, World } from '../rx'
+import gridHelp from '../svelte-grid/utils/helper'
 
 function findGridItemById(
 	root: GridItem[],

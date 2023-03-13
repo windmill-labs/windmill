@@ -57,12 +57,12 @@
 		{/each}
 	</div>
 	<div>
-		<div class="mb-6 md:mb-10">
+		<div class="space-y-0.5 mb-6 md:mb-10">
 			{#each secondaryMenuLinks as menuLink (menuLink.href)}
 				<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
 			{/each}
 		</div>
-		<div>
+		<div class="space-y-0.5">
 			{#each thirdMenuLinks as menuLink (menuLink.href)}
 				<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
 			{/each}

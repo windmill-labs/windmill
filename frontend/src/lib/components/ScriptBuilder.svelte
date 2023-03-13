@@ -1,23 +1,23 @@
 <script lang="ts">
 	import { Script, ScriptService } from '$lib/gen'
-
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
 	import { inferArgs } from '$lib/infer'
-	import { initialCode, isInitialCode } from '$lib/script_helpers'
+	import { initialCode } from '$lib/script_helpers'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { emptySchema, encodeState, sendUserToast, setQueryWithoutLoad } from '$lib/utils'
 	import Path from './Path.svelte'
-	import RadioButton from './RadioButton.svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
 	import ScriptSchema from './ScriptSchema.svelte'
 	import CenteredPage from './CenteredPage.svelte'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
 	import { Button, ButtonPopup, ButtonPopupItem, Kbd } from './common'
-	import { faChevronDown, faChevronUp, faPen, faSave } from '@fortawesome/free-solid-svg-icons'
+	import { faPen, faSave } from '@fortawesome/free-solid-svg-icons'
 	import Breadcrumb from './common/breadcrumb/Breadcrumb.svelte'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 	import type { SupportedLanguage } from '$lib/common'
+	import Tooltip from './Tooltip.svelte'
+	import SettingSection from './SettingSection.svelte'
 
 	export let script: Script
 	export let initialPath: string = ''
@@ -31,12 +31,32 @@
 		['Go', Script.language.GO],
 		['Bash', Script.language.BASH]
 	]
-	let viewScriptKind = script.kind !== Script.kind.SCRIPT
+	const scriptKindOptions: { value: Script.kind; title: string; desc?: string }[] = [
+		{
+			value: Script.kind.SCRIPT,
+			title: 'Action'
+		},
+		{
+			value: Script.kind.TRIGGER,
+			title: 'Trigger',
+			desc: 'First module of flows to trigger them based on external changes. These kind of scripts are usually running on a schedule to periodically look for changes.'
+		},
+		{
+			value: Script.kind.APPROVAL,
+			title: 'Approval',
+			desc: 'Send notifications externally to ask for approval to continue a flow.'
+		},
+		{
+			value: Script.kind.FAILURE,
+			title: 'Error Handler',
+			desc: 'Handle errors in flows after all retry attempts have been exhausted.'
+		}
+	]
 
 	let pathError = ''
-
 	let summaryC: HTMLInputElement | undefined = undefined
 	let pathC: Path | undefined = undefined
+	let loadingSave = false
 
 	$: setQueryWithoutLoad($page.url, [{ key: 'state', value: encodeState(script) }])
 	$: step = Number($page.url.searchParams.get('step')) || 1
@@ -53,7 +73,6 @@
 		script.content = initialCode(language, kind, template)
 	}
 
-	let loadingSave = false
 	async function editScript(leave: boolean): Promise<void> {
 		loadingSave = true
 		try {
@@ -250,7 +269,8 @@
 							}}
 							disabled={lockedLanguage}
 						>
-							<LanguageIcon {lang} /><span class="ml-2 py-4">{label}</span>
+							<LanguageIcon {lang} />
+							<span class="ml-2 py-2">{label}</span>
 						</Button>
 					{/each}
 					<Button
@@ -265,7 +285,7 @@
 							initContent(script.language, script.kind, template)
 						}}
 					>
-						<LanguageIcon lang="pgsql" /><span class="ml-2 py-4">PostgreSQL</span>
+						<LanguageIcon lang="pgsql" /><span class="ml-2 py-2">PostgreSQL</span>
 					</Button>
 					<!-- <Button
 						size="sm"
@@ -278,65 +298,41 @@
 							initContent(script.language, script.kind, template)
 						}}
 					>
-						<LanguageIcon lang="mysql" /><span class="ml-2 py-4">MySQL</span>
+						<LanguageIcon lang="mysql" /><span class="ml-2 py-2">MySQL</span>
 					</Button> -->
 				</div>
-				<div class="mt-16 mb-4">
-					<Button
-						color="light"
-						size="sm"
-						endIcon={{ icon: viewScriptKind ? faChevronUp : faChevronDown }}
-						on:click={() => (viewScriptKind = !viewScriptKind)}
-					>
-						Tag this script as having a specific purpose inside flows
-					</Button>
-				</div>
-				{#if viewScriptKind}
-					<div class="max-w-lg">
-						<RadioButton
-							label="Script Type"
-							options={[
-								['Action', Script.kind.SCRIPT],
-								[
-									{
-										title: 'Trigger',
-										desc: `First module of flows to trigger them based on watching changes external periodically using an internal state`
-									},
-									Script.kind.TRIGGER
-								],
-								[
-									{
-										title: 'Approval',
-										desc: `Send notification externally to ask for approval to continue a flow`
-									},
-									Script.kind.APPROVAL
-								],
-								[
-									{
-										title: 'Error Handler',
-										desc: `Handle errors for flows after all retries attempts have been exhausted`
-									},
-									Script.kind.FAILURE
-								]
-
-								// ['Command Handler', Script.kind.COMMAND]
-							]}
-							on:change={(e) => {
-								if (isInitialCode(script.content)) {
+				<SettingSection
+					title="Script kind"
+					element="h3"
+					tooltip="Tag this script as having a specific purpose inside flows. If it won't be used in flows,
+				you don't have to worry about this."
+					accordion
+				>
+					<div class="flex flex-wrap gap-2">
+						{#each scriptKindOptions as { value, title, desc }}
+							{@const isPicked = script.kind === value}
+							<Button
+								size="sm"
+								variant="border"
+								color={isPicked ? 'blue' : 'dark'}
+								btnClasses="font-medium {isPicked ? '!bg-blue-50/75' : ''}"
+								on:click={() => {
 									template = 'script'
-									initContent(script.language, e.detail, template)
-								}
-							}}
-							bind:value={script.kind}
-						/>
+									script.kind = value
+									initContent(script.language, value, template)
+								}}
+								disabled={lockedLanguage}
+							>
+								{title}
+								{#if desc}
+									<Tooltip class="mb-0.5 ml-1">
+										{desc}
+									</Tooltip>
+								{/if}
+							</Button>
+						{/each}
 					</div>
-				{/if}
-				<!-- <div class="ml-3">
-					<Toggle
-						bind:checked={script.is_template}
-						options={{ right: 'Save as a workspace template' }}
-					/>
-				</div> -->
+				</SettingSection>
 			</CenteredPage>
 		{:else if step === 2}
 			<ScriptEditor

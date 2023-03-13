@@ -26,7 +26,7 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { Alert, Badge, Skeleton } from '$lib/components/common'
 	import Popover from '$lib/components/Popover.svelte'
-	import { Building, DollarSign } from 'lucide-svelte'
+	import { Building, DollarSign, MoreVertical } from 'lucide-svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import ListFilters from '$lib/components/home/ListFilters.svelte'
@@ -155,25 +155,28 @@
 			{:else}
 				<TableCustom>
 					<tr slot="header-row">
-						<th>path</th>
-
-						<th>value</th>
-						<th>description</th>
+						<th class="!px-0" />
+						<th>Path</th>
+						<th>Value</th>
+						<th>Description</th>
 						<th />
 						<th />
 					</tr>
 					<tbody slot="body">
 						{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_refreshed, is_expired, refresh_error, is_linked, marked }}
 							<tr>
-								<td
-									><a
+								<td class="!px-0 text-center">
+									<SharedBadge {canWrite} extraPerms={extra_perms} />
+								</td>
+								<td>
+									<a
 										class="break-all"
 										id="edit-{path}"
 										on:click={() => variableEditor.editVariable(path)}
 										href="#{path}"
-										>{#if marked}{@html marked}{:else}{path}{/if}</a
 									>
-									<div><SharedBadge {canWrite} extraPerms={extra_perms} /></div>
+										{#if marked}{@html marked}{:else}{path}{/if}
+									</a>
 								</td>
 								<td>
 									<span class="inline-flex flex-row">
@@ -275,8 +278,8 @@
 										{/if}
 									</div>
 								</td>
-								<td
-									><Dropdown
+								<td>
+									<Dropdown
 										placement="bottom-end"
 										dropdownItems={[
 											{
@@ -327,8 +330,8 @@
 												  ]
 												: [])
 										]}
-									/></td
-								>
+									/>
+								</td>
 							</tr>
 						{/each}
 					</tbody>
