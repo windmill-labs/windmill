@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
 	import { X } from 'lucide-svelte'
 	import { getContext, setContext } from 'svelte'
 	import { writable } from 'svelte/store'
@@ -12,7 +13,8 @@
 	import MinMaxButton from './components/MinMaxButton.svelte'
 	import OutputHeader from './components/OutputHeader.svelte'
 
-	const { app, breakpoint, connectingInput } = getContext<AppViewerContext>('AppViewerContext')
+	const { connectingInput, breakpoint, app, state } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	function toggleExpanded() {
 		expanded = !expanded
@@ -99,5 +101,12 @@
 				<ComponentOutput {gridItem} first={index === 0} {expanded} />
 			{/each}
 		</div>
+		<PanelSection noPadding titlePadding="px-4 pt-2 pb-0.5" title="State">
+			<div class="mx-2 px-1 border w-full mb-8">
+				{#key $state}
+					<ObjectViewer json={$state} />
+				{/key}
+			</div>
+		</PanelSection>
 	</div>
 </PanelSection>

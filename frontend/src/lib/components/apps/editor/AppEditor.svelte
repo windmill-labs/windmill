@@ -88,7 +88,8 @@
 		openDebugRun: writable(undefined),
 		focusedGrid,
 		stateId: writable(0),
-		parentWidth: writable(0)
+		parentWidth: writable(0),
+		state: writable({})
 	})
 
 	setContext<AppEditorContext>('AppEditorContext', {

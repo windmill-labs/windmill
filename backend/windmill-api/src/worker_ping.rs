@@ -28,7 +28,7 @@ pub fn global_service() -> Router {
 struct WorkerPing {
     worker: String,
     worker_instance: String,
-    ping_at: chrono::DateTime<chrono::Utc>,
+    last_ping: Option<i32>,
     started_at: chrono::DateTime<chrono::Utc>,
     ip: String,
     jobs_executed: i32,
@@ -45,7 +45,7 @@ async fn list_worker_pings(
 
     let rows = sqlx::query_as!(
         WorkerPing,
-        "SELECT * FROM worker_ping ORDER BY ping_at desc LIMIT $1 OFFSET $2",
+        "SELECT worker, worker_instance,  EXTRACT(EPOCH FROM (now() - ping_at))::integer as last_ping, started_at, ip, jobs_executed FROM worker_ping ORDER BY ping_at desc LIMIT $1 OFFSET $2",
         per_page as i64,
         offset as i64
     )

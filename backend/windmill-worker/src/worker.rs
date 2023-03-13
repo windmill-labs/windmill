@@ -264,7 +264,7 @@ const ROOT_CACHE_DIR: &str = "/tmp/windmill/cache/";
 const PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "pip");
 const DENO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "deno");
 const GO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "go");
-const NUM_SECS_ENV_CHECK: u64 = 15;
+const NUM_SECS_PING: u64 = 5;
 const NUM_SECS_SYNC: u64 = 60 * 10;
 
 const INCLUDE_DEPS_PY_SH_CONTENT: &str = include_str!("../nsjail/download_deps.py.sh");
@@ -553,7 +553,7 @@ pub async fn run_worker(
 
 
         let do_break = async {
-            if last_ping.elapsed().as_secs() > NUM_SECS_ENV_CHECK {
+            if last_ping.elapsed().as_secs() > NUM_SECS_PING {
                 sqlx::query!(
                     "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1 WHERE worker = $2",
                     jobs_executed,

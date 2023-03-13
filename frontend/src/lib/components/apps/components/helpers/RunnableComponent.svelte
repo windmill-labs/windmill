@@ -10,9 +10,11 @@
 	import { Bug, Loader2 } from 'lucide-svelte'
 	import { getContext, onMount } from 'svelte'
 	import { fade } from 'svelte/transition'
+	import { initOutput } from '../../editor/appUtils'
 	import type { AppInputs, Runnable } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppViewerContext } from '../../types'
+	import { computeGlobalContext, eval_like } from './eval'
 	import InputValue from './InputValue.svelte'
 	import RefreshButton from './RefreshButton.svelte'
 
@@ -42,7 +44,8 @@
 		noBackend,
 		errorByComponent,
 		mode,
-		stateId
+		stateId,
+		state
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	onMount(() => {
@@ -96,14 +99,7 @@
 	let testJob: CompletedJob | undefined = undefined
 	let testJobLoader: TestJobLoader | undefined = undefined
 
-	$: outputs = $worldStore?.outputsById[id] as {
-		result: Output<Array<any>>
-		loading: Output<boolean>
-	}
-
-	$: if (outputs?.loading != undefined) {
-		outputs.loading.set(false, true)
-	}
+	$: outputs = initOutput($worldStore, id, { result: undefined, loading: false })
 
 	$: outputs?.loading?.set(testIsLoading)
 	$: schemaStripped = stripSchema(fields, $stateId)
@@ -144,6 +140,23 @@
 	)
 
 	async function executeComponent(noToast = false) {
+		if (runnable?.type === 'runnableByName' && runnable.inlineScript?.language === 'frontend') {
+			outputs?.loading?.set(true)
+			try {
+				const r = await eval_like(
+					runnable.inlineScript?.content,
+					computeGlobalContext($worldStore, id, {}),
+					false,
+					$state
+				)
+				setResult(r)
+				$state = $state
+			} catch (e) {
+				sendUserToast('Error running frontend script: ' + e.message)
+			}
+			outputs?.loading?.set(false)
+			return
+		}
 		if (noBackend) {
 			if (!noToast) {
 				sendUserToast('This app is not connected to a windmill backend, it is a static preview')
@@ -216,6 +229,26 @@
 		}
 	}
 
+	function setResult(res: any) {
+		outputs.result?.set(res)
+		result = res
+
+		const previousJobId = Object.keys($errorByComponent).find(
+			(key) => $errorByComponent[key].componentId === id
+		)
+
+		if (previousJobId && !result?.error) {
+			delete $errorByComponent[previousJobId]
+			$errorByComponent = $errorByComponent
+		}
+		if (gotoUrl && gotoUrl != '' && result?.error == undefined) {
+			if (gotoNewTab) {
+				window.open(gotoUrl, '_blank')
+			} else {
+				goto(gotoUrl)
+			}
+		}
+	}
 	$: result?.error && recordError(result.error)
 </script>
 
@@ -232,24 +265,7 @@
 			const startedAt = new Date(testJob.started_at).getTime()
 			if (startedAt > lastStartedAt) {
 				lastStartedAt = startedAt
-				outputs.result?.set(testJob?.result)
-				result = testJob.result
-
-				const previousJobId = Object.keys($errorByComponent).find(
-					(key) => $errorByComponent[key].componentId === id
-				)
-
-				if (previousJobId && !result?.error) {
-					delete $errorByComponent[previousJobId]
-					$errorByComponent = $errorByComponent
-				}
-				if (gotoUrl && gotoUrl != '' && result?.error == undefined) {
-					if (gotoNewTab) {
-						window.open(gotoUrl, '_blank')
-					} else {
-						goto(gotoUrl)
-					}
-				}
+				setResult(e.detail.result)
 			}
 		}
 	}}

@@ -18,7 +18,7 @@ export type Context = {
 };
 
 async function tryResolveWorkspace(
-  opts: GlobalOptions,
+  opts: GlobalOptions
 ): Promise<
   { isError: false; value: Workspace } | { isError: true; error: string }
 > {
@@ -49,17 +49,20 @@ async function tryResolveWorkspace(
 }
 
 export async function resolveWorkspace(
-  opts: GlobalOptions,
+  opts: GlobalOptions
 ): Promise<Workspace> {
   const res = await tryResolveWorkspace(opts);
   if (res.isError) {
+    console.log(colors.red.bold(res.error));
     return Deno.exit(-1);
   } else {
     return res.value;
   }
 }
 
-export async function requireLogin(opts: GlobalOptions): Promise<GlobalUserInfo> {
+export async function requireLogin(
+  opts: GlobalOptions
+): Promise<GlobalUserInfo> {
   const workspace = await resolveWorkspace(opts);
   let token = await tryGetLoginInfo(opts);
 
@@ -73,7 +76,7 @@ export async function requireLogin(opts: GlobalOptions): Promise<GlobalUserInfo>
     return await UserService.globalWhoami();
   } catch {
     console.log(
-      "! Could not reach API given existing credentials. Attempting to reauth...",
+      "! Could not reach API given existing credentials. Attempting to reauth..."
     );
     const newToken = await loginInteractive(workspace.remote);
     if (!newToken) {
@@ -85,14 +88,14 @@ export async function requireLogin(opts: GlobalOptions): Promise<GlobalUserInfo>
 
     setClient(
       token,
-      workspace.remote.substring(0, workspace.remote.length - 1),
+      workspace.remote.substring(0, workspace.remote.length - 1)
     );
     return await UserService.globalWhoami();
   }
 }
 
 export async function tryResolveVersion(
-  opts: GlobalOptions,
+  opts: GlobalOptions
 ): Promise<number | undefined> {
   if ((opts as any).__cache_version) {
     return (opts as any).__cache_version;
@@ -102,12 +105,12 @@ export async function tryResolveVersion(
   if (workspaceRes.isError) return undefined;
 
   const response = await fetch(
-    new URL(new URL(workspaceRes.value.remote).origin + "/api/version"),
+    new URL(new URL(workspaceRes.value.remote).origin + "/api/version")
   );
   const version = await response.text();
   try {
     return Number.parseInt(
-      version.split("-", 1)[0].replaceAll(".", "").replace("v", ""),
+      version.split("-", 1)[0].replaceAll(".", "").replace("v", "")
     );
   } catch {
     return undefined;
@@ -116,7 +119,7 @@ export async function tryResolveVersion(
 
 export async function validatePath(
   opts: GlobalOptions,
-  path: string,
+  path: string
 ): Promise<boolean> {
   const backendVersion = await tryResolveVersion(opts);
   if (path.startsWith("f")) {
@@ -124,19 +127,16 @@ export async function validatePath(
       return true;
     }
     console.log(
-      `Attempting to use folders, but the current remote does not have support. Remote version is ${backendVersion} but folders are supported from 1560.`,
+      `Attempting to use folders, but the current remote does not have support. Remote version is ${backendVersion} but folders are supported from 1560.`
     );
     return false;
   }
 
-  if (
-    !(path.startsWith("g") ||
-      path.startsWith("u"))
-  ) {
+  if (!(path.startsWith("g") || path.startsWith("u"))) {
     console.log(
       colors.red(
-        "Given remote path looks invalid. Remote paths are typically of the form <u|g|f>/<username|group|folder>/...",
-      ),
+        "Given remote path looks invalid. Remote paths are typically of the form <u|g|f>/<username|group|folder>/..."
+      )
     );
     return false;
   }

@@ -44,14 +44,14 @@ export interface BaseAppComponent extends Partial<Aligned> {
 	configuration: Record<
 		string,
 		GeneralAppInput &
-		(
-			| StaticAppInput
-			| ConnectedAppInput
-			| UserAppInput
-			| RowAppInput
-			| EvalAppInput
-			| UploadAppInput
-		)
+			(
+				| StaticAppInput
+				| ConnectedAppInput
+				| UserAppInput
+				| RowAppInput
+				| EvalAppInput
+				| UploadAppInput
+			)
 	>
 	card: boolean | undefined
 	customCss?: ComponentCustomCSS
@@ -84,9 +84,9 @@ export type GridItem = FilledItem<{
 
 export type InlineScript = {
 	content: string
-	language: Preview.language
-	path: string
-	schema: Schema
+	language: Preview.language | 'frontend'
+	path?: string
+	schema?: Schema
 }
 
 export type App = {
@@ -134,6 +134,7 @@ export type AppViewerContext = {
 	focusedGrid: Writable<FocusedGrid | undefined>
 	stateId: Writable<number>
 	parentWidth: Writable<number>
+	state: Writable<Record<string, any>>
 }
 
 export type AppEditorContext = {

@@ -298,10 +298,13 @@ type Outputtable<Type> = {
 }
 
 export function initOutput<I extends Record<string, any>>(
-	world: World,
+	world: World | undefined,
 	id: string,
 	init: I
 ): Outputtable<I> {
+	if (!world) {
+		return {} as any
+	}
 	const output = world.outputsById[id] as Outputtable<I>
 	if (init) {
 		for (const key in init) {

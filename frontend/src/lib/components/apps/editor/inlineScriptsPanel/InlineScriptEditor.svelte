@@ -15,6 +15,8 @@
 	import { deepEqual } from 'fast-equals'
 	import type { AppInput } from '../../inputType'
 	import Kbd from '$lib/components/common/kbd/Kbd.svelte'
+	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
+	import { buildExtraLib } from '../../utils'
 
 	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
 
@@ -25,7 +27,8 @@
 	export let fields: Record<string, AppInput> = {}
 	export let syncFields: boolean = false
 
-	const { runnableComponents, stateId } = getContext<AppViewerContext>('AppViewerContext')
+	const { runnableComponents, stateId, worldStore, state } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	let editor: Editor
 	let validCode = true
@@ -48,11 +51,13 @@
 
 	onMount(async () => {
 		if (inlineScript && !inlineScript.schema) {
-			inlineScript.schema = await inferInlineScriptSchema(
-				inlineScript?.language,
-				inlineScript?.content,
-				emptySchema()
-			)
+			if (inlineScript.language != 'frontend') {
+				inlineScript.schema = await inferInlineScriptSchema(
+					inlineScript?.language,
+					inlineScript?.content,
+					emptySchema()
+				)
+			}
 		}
 		if (inlineScript.schema) {
 			loadSchemaAndInputsByName()
@@ -63,7 +68,7 @@
 
 	async function loadSchemaAndInputsByName() {
 		if (syncFields) {
-			const newSchema = inlineScript.schema
+			const newSchema = inlineScript.schema ?? emptySchema()
 			const newFields = computeFields(newSchema, defaultUserInput, fields)
 
 			if (!deepEqual(newFields, fields)) {
@@ -74,9 +79,16 @@
 	}
 
 	let isMac = navigator.userAgent.indexOf('Mac OS X') !== -1
+
+	$: extraLib =
+		inlineScript.language == 'frontend' && worldStore
+			? buildExtraLib($worldStore?.outputsById ?? {}, id, false, $state, true)
+			: undefined
 </script>
 
-<InlineScriptEditorDrawer {editor} bind:this={inlineScriptEditorDrawer} bind:inlineScript />
+{#if inlineScript.language != 'frontend'}
+	<InlineScriptEditorDrawer {editor} bind:this={inlineScriptEditorDrawer} bind:inlineScript />
+{/if}
 
 <div class="h-full flex flex-col gap-1">
 	<div class="flex justify-between w-full gap-2 px-2 pt-1 flex-row items-center">
@@ -109,20 +121,23 @@
 					<svelte:fragment slot="text">Delete</svelte:fragment>
 				</Popover>
 			{/if}
-			<Popover notClickable placement="bottom">
-				<Button
-					size="xs"
-					color="light"
-					btnClasses="!px-2 !bg-gray-100 hover:!bg-gray-200"
-					aria-label="Open full editor"
-					on:click={() => {
-						inlineScriptEditorDrawer?.openDrawer()
-					}}
-				>
-					<Maximize2 size={14} />
-				</Button>
-				<svelte:fragment slot="text">Open full editor</svelte:fragment>
-			</Popover>
+			{#if inlineScript.language != 'frontend'}
+				<Popover notClickable placement="bottom">
+					<Button
+						size="xs"
+						color="light"
+						btnClasses="!px-2 !bg-gray-100 hover:!bg-gray-200"
+						aria-label="Open full editor"
+						on:click={() => {
+							inlineScriptEditorDrawer?.openDrawer()
+						}}
+					>
+						<Maximize2 size={14} />
+					</Button>
+					<svelte:fragment slot="text">Open full editor</svelte:fragment>
+				</Popover>
+			{/if}
+
 			<Button
 				variant="border"
 				size="xs"
@@ -172,30 +187,44 @@
 	</div>
 
 	<div class="border h-full">
-		<Editor
-			bind:this={editor}
-			class="flex flex-1 grow h-full"
-			lang={scriptLangToEditorLang(inlineScript?.language)}
-			bind:code={inlineScript.content}
-			fixedOverflowWidgets={true}
-			cmdEnterAction={async () => {
-				runLoading = true
-				await $runnableComponents[id]?.()
-				runLoading = false
-			}}
-			on:change={async (e) => {
-				if (inlineScript) {
-					const oldSchema = JSON.stringify(inlineScript.schema)
-					if (inlineScript.schema == undefined) {
-						inlineScript.schema = emptySchema()
+		{#if inlineScript.language != 'frontend'}
+			<Editor
+				bind:this={editor}
+				class="flex flex-1 grow h-full"
+				lang={scriptLangToEditorLang(inlineScript?.language)}
+				bind:code={inlineScript.content}
+				fixedOverflowWidgets={true}
+				cmdEnterAction={async () => {
+					runLoading = true
+					await $runnableComponents[id]?.()
+					runLoading = false
+				}}
+				on:change={async (e) => {
+					if (inlineScript && inlineScript.language != 'frontend') {
+						const oldSchema = JSON.stringify(inlineScript.schema)
+						if (inlineScript.schema == undefined) {
+							inlineScript.schema = emptySchema()
+						}
+						await inferInlineScriptSchema(inlineScript?.language, e.detail, inlineScript.schema)
+						if (JSON.stringify(inlineScript.schema) != oldSchema) {
+							inlineScript = inlineScript
+							loadSchemaAndInputsByName()
+						}
 					}
-					await inferInlineScriptSchema(inlineScript?.language, e.detail, inlineScript.schema)
-					if (JSON.stringify(inlineScript.schema) != oldSchema) {
-						inlineScript = inlineScript
-						loadSchemaAndInputsByName()
-					}
-				}
-			}}
-		/>
+				}}
+			/>
+		{:else}
+			<SimpleEditor
+				cmdEnterAction={async () => {
+					runLoading = true
+					await $runnableComponents[id]?.()
+					runLoading = false
+				}}
+				class="h-full"
+				{extraLib}
+				bind:code={inlineScript.content}
+				lang="javascript"
+			/>
+		{/if}
 	</div>
 </div>

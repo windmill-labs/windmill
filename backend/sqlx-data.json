@@ -2501,28 +2501,7 @@
     },
     "query": "SELECT set_config('session.user', $1, true)"
   },
-  "6dfd1ac7168f098a9e7c92d530a470c0a156041d5081053d43d9efb00d81c464": {
-    "describe": {
-      "columns": [
-        {
-          "name": "policy",
-          "ordinal": 0,
-          "type_info": "Jsonb"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT policy from app WHERE path = $1 AND workspace_id = $2"
-  },
-  "6fc2cfae9df83eb24ea33e4c9567740100f4dd2285afc3ef474fc70041b0567b": {
+  "6d50a8dc9cfc040b6f37b58053daa0709671e008a10ab4189114ceff66efe603": {
     "describe": {
       "columns": [
         {
@@ -2536,9 +2515,9 @@
           "type_info": "Varchar"
         },
         {
-          "name": "ping_at",
+          "name": "last_ping",
           "ordinal": 2,
-          "type_info": "Timestamptz"
+          "type_info": "Int4"
         },
         {
           "name": "started_at",
@@ -2559,7 +2538,7 @@
       "nullable": [
         false,
         false,
-        false,
+        null,
         false,
         false,
         false
@@ -2571,7 +2550,28 @@
         ]
       }
     },
-    "query": "SELECT * FROM worker_ping ORDER BY ping_at desc LIMIT $1 OFFSET $2"
+    "query": "SELECT worker, worker_instance,  EXTRACT(EPOCH FROM (now() - ping_at))::integer as last_ping, started_at, ip, jobs_executed FROM worker_ping ORDER BY ping_at desc LIMIT $1 OFFSET $2"
+  },
+  "6dfd1ac7168f098a9e7c92d530a470c0a156041d5081053d43d9efb00d81c464": {
+    "describe": {
+      "columns": [
+        {
+          "name": "policy",
+          "ordinal": 0,
+          "type_info": "Jsonb"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT policy from app WHERE path = $1 AND workspace_id = $2"
   },
   "701f215eb14ba67a79afea15d7effc0dd394ba6c4a72c95d4560c5a377015d4e": {
     "describe": {
