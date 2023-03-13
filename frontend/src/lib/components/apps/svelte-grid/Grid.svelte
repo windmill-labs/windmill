@@ -87,8 +87,21 @@
 		return () => sizeObserver.disconnect()
 	})
 
+	let initItems: FilledItem<T>[] | undefined = undefined
 	const updateMatrix = ({ detail }) => {
-		let activeItem = getItemById(detail.id, items)
+		let isPointerUp = detail.isPointerUp
+		let citems: FilledItem<T>[]
+		if (isPointerUp) {
+			citems = JSON.parse(JSON.stringify(initItems))
+			initItems = undefined
+		} else {
+			if (initItems == undefined) {
+				initItems = JSON.parse(JSON.stringify(items))
+			}
+			citems = JSON.parse(JSON.stringify(initItems))
+		}
+
+		let activeItem = getItemById(detail.id, citems)
 
 		if (activeItem) {
 			activeItem = {
@@ -102,12 +115,12 @@
 			if (fillSpace) {
 				items = moveItemsAroundItem(
 					activeItem,
-					items,
+					citems,
 					getComputedCols,
-					getItemById(detail.id, items)
+					getItemById(detail.id, citems)
 				)
 			} else {
-				items = moveItem(activeItem, items, getComputedCols, getItemById(detail.id, items))
+				items = moveItem(activeItem, citems, getComputedCols, getItemById(detail.id, citems))
 			}
 
 			if (detail.onUpdate) detail.onUpdate()
