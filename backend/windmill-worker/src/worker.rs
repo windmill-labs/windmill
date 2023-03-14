@@ -1488,11 +1488,12 @@ fn get_common_deno_proc_envs(token: &str, base_internal_url: &str) -> HashMap<St
     let deno_auth_tokens =
         format!("{token}@{hostname_base};{token}@{hostname_internal}{deno_auth_tokens_base}",);
 
-    let mut deno_envs: HashMap<String, String> = HashMap::new();
-    deno_envs.insert(String::from("PATH"), PATH_ENV.clone());
-    deno_envs.insert(String::from("DENO_AUTH_TOKENS"), deno_auth_tokens);
-    deno_envs.insert(String::from("BASE_INTERNAL_URL"), base_internal_url.to_string());
-    deno_envs.insert(String::from("NO_COLOR"), String::from("true"));
+    let mut deno_envs: HashMap<String, String> = HashMap::from([
+        (String::from("PATH"), PATH_ENV.clone()),
+        (String::from("DENO_AUTH_TOKENS"), deno_auth_tokens),
+        (String::from("BASE_INTERNAL_URL"), base_internal_url.to_string()),
+        (String::from("NO_COLOR"), String::from("true")),
+    ]);
 
     if let Some(ref s) = *NPM_CONFIG_REGISTRY {
         deno_envs.insert(String::from("NPM_CONFIG_REGISTRY"), s.clone());
