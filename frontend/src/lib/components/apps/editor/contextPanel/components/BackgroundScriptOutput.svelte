@@ -21,15 +21,22 @@
 	}
 </script>
 
-<OutputHeader {id} {name} color="blue" {first} {expanded}>
+<OutputHeader
+	{id}
+	{name}
+	color="blue"
+	{first}
+	{expanded}
+	on:handleClick={(e) => {
+		onHeaderClick(e.detail.manuallyOpen)
+	}}
+	shouldOpen={$selectedComponent === id}
+>
 	<ComponentOutputViewer
 		componentId={id}
 		outputs={['loading', 'result']}
 		on:select={({ detail }) => {
 			$connectingInput = connectInput($connectingInput, id, detail)
-		}}
-		on:handleClick={(e) => {
-			onHeaderClick(e.detail.manuallyOpen)
 		}}
 	/>
 </OutputHeader>
