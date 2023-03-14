@@ -23,6 +23,7 @@
 	export let preclickAction: (() => Promise<void>) | undefined = undefined
 	export let customCss: ComponentCustomCSS<'button'> | undefined = undefined
 	export let render: boolean
+	export let initializing: boolean | undefined = true
 
 	export const staticOutputs: string[] = ['loading', 'result']
 
@@ -112,7 +113,12 @@
 	}
 </script>
 
-<InputValue {id} input={configuration.label} bind:value={labelValue} />
+<InputValue
+	on:done={() => initializing && (initializing = false)}
+	{id}
+	input={configuration.label}
+	bind:value={labelValue}
+/>
 <InputValue {id} input={configuration.goto} bind:value={gotoUrl} />
 <InputValue {id} input={configuration.color} bind:value={color} />
 <InputValue {id} input={configuration.size} bind:value={size} />
