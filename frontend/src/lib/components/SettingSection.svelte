@@ -22,17 +22,21 @@
 			</span>
 			<svelte:element this={element}>
 				{title}
-				<Tooltip scale={0.9} class="mb-0.5">
-					{tooltip}
-				</Tooltip>
+				{#if tooltip}
+					<Tooltip scale={0.9} class="mb-0.5">
+						{tooltip}
+					</Tooltip>
+				{/if}
 			</svelte:element>
 		</button>
 	{:else}
 		<svelte:element this={element}>
 			{title}
-			<Tooltip scale={0.9} class="mb-0.5">
-				{tooltip}
-			</Tooltip>
+			{#if tooltip}
+				<Tooltip scale={0.9} class="mb-0.5">
+					{tooltip}
+				</Tooltip>
+			{/if}
 		</svelte:element>
 	{/if}
 </div>
