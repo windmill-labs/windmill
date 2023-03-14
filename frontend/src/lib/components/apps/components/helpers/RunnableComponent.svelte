@@ -7,12 +7,10 @@
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import { AppService, type CompletedJob } from '$lib/gen'
 	import { classNames, defaultIfEmptyString, emptySchema, sendUserToast } from '$lib/utils'
-	import { Bug, Loader2 } from 'lucide-svelte'
-	import { getContext, onMount } from 'svelte'
-	import { fade } from 'svelte/transition'
+	import { Bug } from 'lucide-svelte'
+	import { getContext } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 	import type { AppInputs, Runnable } from '../../inputType'
-	import type { Output } from '../../rx'
 	import type { AppViewerContext } from '../../types'
 	import { computeGlobalContext, eval_like } from './eval'
 	import InputValue from './InputValue.svelte'
@@ -33,6 +31,8 @@
 	export let gotoUrl: string | undefined = undefined
 	export let gotoNewTab: boolean | undefined = undefined
 	export let render: boolean
+	export let recomputable: boolean = false
+	export let recomputeIds: string[] = []
 
 	const {
 		worldStore,
@@ -48,14 +48,23 @@
 		state
 	} = getContext<AppViewerContext>('AppViewerContext')
 
-	onMount(() => {
-		if (autoRefresh) {
+	$: autoRefresh && handleAutorefresh()
+
+	if (recomputable) {
+		$runnableComponents[id] = async () => {
+			await executeComponent(true)
+		}
+		$runnableComponents = $runnableComponents
+	}
+
+	function handleAutorefresh() {
+		if (autoRefresh && $worldStore) {
 			$runnableComponents[id] = async () => {
 				await executeComponent(true)
 			}
 			executeComponent(true)
 		}
-	})
+	}
 
 	let args: Record<string, any> | undefined = undefined
 	let testIsLoading = false
@@ -83,17 +92,17 @@
 	$: fields && (currentStaticValues = computeStaticValues())
 	$: if (JSON.stringify(currentStaticValues) != JSON.stringify(lazyStaticValues)) {
 		lazyStaticValues = currentStaticValues
+		refreshIfAutoRefresh()
+	}
 
+	function refreshIfAutoRefresh() {
 		if (autoRefresh) {
 			setDebouncedExecute()
 		}
 	}
 
 	$: fields && (lazyStaticValues = computeStaticValues())
-	$: (runnableInputValues || extraQueryParams || args) &&
-		autoRefresh &&
-		testJobLoader &&
-		setDebouncedExecute()
+	$: (runnableInputValues || extraQueryParams || args) && testJobLoader && refreshIfAutoRefresh()
 
 	// Test job internal state
 	let testJob: CompletedJob | undefined = undefined
@@ -147,12 +156,13 @@
 					runnable.inlineScript?.content,
 					computeGlobalContext($worldStore, id, {}),
 					false,
-					$state
+					$state,
+					$mode == 'dnd'
 				)
 				setResult(r)
 				$state = $state
 			} catch (e) {
-				sendUserToast('Error running frontend script: ' + e.message)
+				sendUserToast('Error running frontend script: ' + e.message, true)
 			}
 			outputs?.loading?.set(false)
 			return
@@ -231,6 +241,7 @@
 
 	function setResult(res: any) {
 		outputs.result?.set(res)
+
 		result = res
 
 		const previousJobId = Object.keys($errorByComponent).find(
@@ -247,6 +258,10 @@
 			} else {
 				goto(gotoUrl)
 			}
+		}
+
+		if (recomputeIds) {
+			recomputeIds.map((id) => $runnableComponents?.[id]?.())
 		}
 	}
 	$: result?.error && recordError(result.error)

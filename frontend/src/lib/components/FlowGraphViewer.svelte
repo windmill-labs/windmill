@@ -88,7 +88,7 @@
 			minHeight={400}
 			modules={flow?.value?.modules}
 			failureModule={flow?.value?.failure_module}
-			on:click={(e) => (stepDetail = e.detail)}
+			on:select={(e) => (stepDetail = e.detail)}
 		/>
 	</div>
 	{#if !noSide}

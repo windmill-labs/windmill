@@ -240,6 +240,7 @@
 				inlineScript={script.inlineScript}
 				name={script.name}
 				fields={script.fields}
+				autoRefresh={script.autoRefresh ?? false}
 				bind:staticOutputs={$staticOutputs[`bg_${index}`]}
 			/>
 		{/if}

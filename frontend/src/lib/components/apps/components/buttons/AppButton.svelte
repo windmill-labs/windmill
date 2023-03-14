@@ -26,7 +26,7 @@
 
 	export const staticOutputs: string[] = ['loading', 'result']
 
-	const { runnableComponents, worldStore, app } = getContext<AppViewerContext>('AppViewerContext')
+	const { worldStore, app } = getContext<AppViewerContext>('AppViewerContext')
 
 	let labelValue: string
 	let color: ButtonType.Color
@@ -109,10 +109,6 @@
 		} else {
 			await runnableComponent?.runComponent()
 		}
-
-		if (recomputeIds) {
-			await Promise.all(recomputeIds.map((id) => $runnableComponents?.[id]?.()))
-		}
 	}
 </script>
 
@@ -136,6 +132,7 @@
 
 <RunnableWrapper
 	flexWrap
+	{recomputeIds}
 	bind:runnableComponent
 	{componentInput}
 	{id}

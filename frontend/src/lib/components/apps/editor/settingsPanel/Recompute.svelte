@@ -47,6 +47,7 @@
 						</td>
 						<td class="relative whitespace-nowrap px-4 py-2 ">
 							<input
+								class="windmillapp"
 								type="checkbox"
 								on:change={(event) => onChange(event, id)}
 								checked={recomputeIds?.includes(id)}
