@@ -84,7 +84,8 @@
 				true,
 				$state,
 				$mode == 'dnd',
-				$componentControl
+				$componentControl,
+				$worldStore
 			)
 			error = ''
 			return r
@@ -103,7 +104,8 @@
 					true,
 					$state,
 					$mode == 'dnd',
-					$componentControl
+					$componentControl,
+					$worldStore
 				)
 				error = ''
 				return r

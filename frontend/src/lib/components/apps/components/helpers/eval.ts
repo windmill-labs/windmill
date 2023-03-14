@@ -1,4 +1,3 @@
-import { goto } from '$app/navigation'
 import { sendUserToast } from '$lib/utils'
 import type { World } from '../../rx'
 
@@ -10,7 +9,7 @@ export function computeGlobalContext(
 	return {
 		...Object.fromEntries(
 			Object.entries(world?.outputsById ?? {})
-				.filter(([k, _]) => k != id)
+				.filter(([k, _]) => k != id && k != 'state')
 				.map(([key, value]) => {
 					return [
 						key,
@@ -47,17 +46,29 @@ function make_context_evaluator(
 }
 
 export async function eval_like(
-	text,
+	text: string,
 	context = {},
 	noReturn: boolean,
-	state: any,
+	state: Record<string, any>,
 	editor: boolean,
-	controlComponents: Record<string, { setTab?: (index: number) => void }>
+	controlComponents: Record<string, { setTab?: (index: number) => void }>,
+	worldStore: World | undefined
 ) {
+	const proxiedState = new Proxy(state, {
+		set(target, key, value) {
+			if (typeof key !== 'string') {
+				throw new Error('Invalid key')
+			}
+			let o = worldStore?.newOutput('state', key, value)
+			o?.set(value)
+			target[key] = value
+			return true
+		}
+	})
 	let evaluator = make_context_evaluator(text, context, noReturn)
 	return await evaluator(
 		context,
-		state,
+		proxiedState,
 		async (x, newTab) => {
 			if (newTab || editor) {
 				if (!newTab) {
