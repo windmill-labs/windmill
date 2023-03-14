@@ -31,8 +31,8 @@
 
 {#if open || manuallyOpen}
 	<div class="py-1 ml-2 border">
-		{#each $app.hiddenInlineScripts as action}
-			<BackgroundScriptOutput id={action.name} {expanded} />
+		{#each $app.hiddenInlineScripts as action, index}
+			<BackgroundScriptOutput id={`bg_${index}`} name={action.name} {expanded} />
 		{/each}
 	</div>
 {/if}

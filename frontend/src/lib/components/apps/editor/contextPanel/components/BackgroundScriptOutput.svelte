@@ -9,6 +9,7 @@
 	const { staticOutputs, connectingInput } = getContext<AppViewerContext>('AppViewerContext')
 
 	export let id: string
+	export let name: string
 	export let expanded: boolean = false
 
 	let open: boolean = false
@@ -19,6 +20,8 @@
 	} else {
 		manuallyOpen = false
 	}
+
+	$: console.log($staticOutputs, id)
 </script>
 
 <OutputHeader
@@ -28,7 +31,7 @@
 		manuallyOpen = !manuallyOpen
 	}}
 	{id}
-	name={''}
+	{name}
 	color="blue"
 />
 {#if open || manuallyOpen}
