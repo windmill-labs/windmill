@@ -17,7 +17,7 @@ In the root folder:
 
 ```bash
 docker build . -t windmill
-docker-compose up db windmill_server windmill_worker
+docker compose up db windmill_server windmill_worker
 ```
 
 ### 2. Backend is run by cargo
@@ -145,3 +145,25 @@ Recommended config for VS Code:
 ```
 
 - turn _format on save_ on
+
+
+## Building
+
+The project is built with [SvelteKit](https://kit.svelte.dev/) and uses as output static files.
+There are others adapters for sveltekit, but we use the static adapter.
+
+To build the frontend as static assets, use:
+```
+npm run build
+```
+
+The output is in the `build` folder.
+
+The default build assume you serve every non static files as the 200.html file which is catchall. If you prefer a normal layout, you can use:
+```
+NOTCATCHALL=true npm run build
+```
+which will generate an index.html and allow you to serve the frontend with any static server.
+
+Env variables used for build are set in .env file. See [https://vitejs.dev/guide/env-and-mode.html#env-files](https://vitejs.dev/guide/env-and-mode.html#env-files) for more details.
+

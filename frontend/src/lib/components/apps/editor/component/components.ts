@@ -297,7 +297,7 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 					value: ''
 				},
 				gotoNewTab: {
-					tooltip: 'Go to create a new tab',
+					tooltip: 'Go to an url on a new tab',
 					fieldType: 'boolean',
 					type: 'static',
 					value: true
@@ -544,7 +544,7 @@ Hello \${ctx.username}
 					onlyStatic: true,
 					fieldType: 'boolean',
 					value: false,
-					tooltip: 'use the canvas renderer instead of the svg one for more interactive plots'
+					tooltip: 'Use the canvas renderer instead of the svg one for more interactive plots'
 				}
 			},
 			customCss: {},
@@ -768,7 +768,8 @@ Hello \${ctx.username}
 					type: 'static',
 					fieldType: 'boolean',
 					value: false,
-					onlyStatic: true
+					onlyStatic: true,
+					tooltip: "Configure all columns as Editable by users"
 				},
 				pagination: {
 					type: 'static',
@@ -780,7 +781,8 @@ Hello \${ctx.username}
 					type: 'static',
 					fieldType: 'number',
 					value: 10,
-					onlyStatic: true
+					onlyStatic: true,
+					tooltip: "Number of rows per page"
 				}
 			},
 			componentInput: {
@@ -884,7 +886,8 @@ Hello \${ctx.username}
 					type: 'static',
 					fieldType: 'boolean',
 					value: false,
-					onlyStatic: true
+					onlyStatic: true,
+					tooltip: "Allows user to manually add new value"
 				},
 				placeholder: {
 					type: 'static',
@@ -1000,7 +1003,8 @@ Hello \${ctx.username}
 				step: {
 					type: 'static',
 					value: 1,
-					fieldType: 'number'
+					fieldType: 'number',
+					tooltip: "Spread between each number suggestion"
 				}
 			},
 			customCss: {
@@ -1043,7 +1047,8 @@ Hello \${ctx.username}
 					value: 'en-US',
 					fieldType: 'select',
 					onlyStatic: true,
-					optionValuesKey: 'localeOptions'
+					optionValuesKey: 'localeOptions',
+					tooltip: "Currency format"
 				}
 			},
 			customCss: {
@@ -1082,7 +1087,8 @@ Hello \${ctx.username}
 				step: {
 					type: 'static',
 					value: 1,
-					fieldType: 'number'
+					fieldType: 'number',
+					tooltip: "Spread between each number suggestion"
 				}
 			},
 			customCss: {
@@ -1128,7 +1134,8 @@ Hello \${ctx.username}
 				step: {
 					type: 'static',
 					value: 1,
-					fieldType: 'number'
+					fieldType: 'number',
+					tooltip: "Spread between each number suggestion"
 				}
 			},
 			customCss: {
