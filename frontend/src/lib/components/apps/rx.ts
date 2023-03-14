@@ -23,6 +23,7 @@ export type World = {
 	outputsById: Record<string, Record<string, Output<any>>>
 	connect: <T>(inputSpec: AppInput, next: (x: T) => void, id?: string) => Input<T>
 	stateId: Writable<number>
+	newOutput: <T>(id: string, name: string, previousValue: T) => Output<T>
 }
 
 export function buildWorld(
@@ -38,7 +39,8 @@ export function buildWorld(
 			Object.entries(context).map(([k, v]) => {
 				return [k, newWorld.newOutput('ctx', k, stateId, v)]
 			})
-		)
+		),
+		state: previousWorld?.outputsById?.state ?? {}
 	}
 	for (const [k, outputs] of Object.entries(components)) {
 		outputsById[k] = {}
@@ -52,9 +54,20 @@ export function buildWorld(
 			)
 		}
 	}
+	function newOutput<T>(id: string, name: string, previousValue: T) {
+		if (outputsById[id]?.[name]) {
+			return outputsById[id][name]
+		}
+		let o = newWorld.newOutput(id, name, stateId, previousValue)
+		if (!outputsById[id]) {
+			outputsById[id] = {}
+		}
+		outputsById[id][name] = o
+		return o
+	}
 	stateId.update((x) => x + 1)
 
-	return { outputsById, connect: newWorld.connect, stateId }
+	return { outputsById, connect: newWorld.connect, stateId, newOutput }
 }
 
 export function buildObservableWorld() {
@@ -166,7 +179,6 @@ export function settableOutput<T>(state: Writable<number>, previousValue: T): Ou
 			state.update((x) => x + 1)
 
 			value = x
-
 			subscribers.forEach((x) => x.next(value!))
 		}
 	}

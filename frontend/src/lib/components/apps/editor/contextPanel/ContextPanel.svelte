@@ -75,14 +75,14 @@
 						/>
 					</OutputHeader>
 
-					<OutputHeader id={'State'} name={'State'} color="blue" {expanded}>
-						{#key $state}
-							{#if Object.keys(filteredState).length > 0}
-								<ObjectViewer json={filteredState} />
-							{:else}
-								<div class="text-xs pl-2">No results</div>
-							{/if}
-						{/key}
+					<OutputHeader id={'state'} name={'State'} color="blue" {expanded}>
+						<ComponentOutputViewer
+							componentId={'state'}
+							outputs={Object.keys($state)}
+							on:select={({ detail }) => {
+								$connectingInput = connectInput($connectingInput, 'state', detail)
+							}}
+						/>
 					</OutputHeader>
 				</div>
 

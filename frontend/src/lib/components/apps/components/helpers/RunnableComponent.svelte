@@ -163,7 +163,8 @@
 					false,
 					$state,
 					$mode == 'dnd',
-					$componentControl
+					$componentControl,
+					$worldStore
 				)
 				setResult(r)
 				$state = $state
