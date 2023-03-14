@@ -13,7 +13,7 @@
 	import MinMaxButton from './components/MinMaxButton.svelte'
 	import OutputHeader from './components/OutputHeader.svelte'
 
-	const { connectingInput, breakpoint, app, state } =
+	const { connectingInput, breakpoint, app, state, staticOutputs } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	function toggleExpanded() {

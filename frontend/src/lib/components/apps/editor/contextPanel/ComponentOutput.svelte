@@ -8,6 +8,7 @@
 	import { slide } from 'svelte/transition'
 	import SubGridOutput from './SubGridOutput.svelte'
 	import OutputHeader from './components/OutputHeader.svelte'
+	import TableActionsOutput from './components/TableActionsOutput.svelte'
 
 	export let gridItem: GridItem
 	export let first: boolean = false
@@ -85,9 +86,9 @@
 				/>
 			</div>
 
-			<div>
-				<SubGridOutput {name} {expanded} {subGrids} parentId={gridItem.id} />
-			</div>
+			<SubGridOutput {name} {expanded} {subGrids} parentId={gridItem.id} />
+
+			<TableActionsOutput {gridItem} />
 		</div>
 	{/if}
 {/if}
