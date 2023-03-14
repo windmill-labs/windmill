@@ -55,7 +55,9 @@
 	<OutputHeader
 		{shouldOpen}
 		on:handleClick={(e) => {
-			onHeaderClick(e.detail.manuallyOpen)
+			if (!$connectingInput.opened) {
+				onHeaderClick(e.detail.manuallyOpen)
+			}
 		}}
 		id={gridItem.id}
 		name={getComponentNameById(gridItem.id)}
@@ -68,7 +70,9 @@
 				componentId={gridItem.id}
 				outputs={$staticOutputs[gridItem.id]}
 				on:select={({ detail }) => {
-					$connectingInput = connectInput($connectingInput, gridItem.id, detail)
+					if ($connectingInput.opened) {
+						$connectingInput = connectInput($connectingInput, gridItem.id, detail)
+					}
 				}}
 			/>
 		</div>

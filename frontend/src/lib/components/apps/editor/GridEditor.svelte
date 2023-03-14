@@ -170,63 +170,61 @@
 			<Grid
 				onTopId={$selectedComponent}
 				fillSpace={false}
-				bind:items={$app.grid}
+				items={$app.grid}
+				on:redraw={(e) => {
+					$app.grid = e.detail
+				}}
 				let:dataItem
 				rowHeight={36}
 				cols={columnConfiguration}
 				fastStart={true}
 				gap={[4, 2]}
 			>
-				{#each $app.grid as gridComponent (gridComponent.id)}
-					{#if gridComponent?.data?.id && gridComponent?.data?.id === dataItem?.data?.id}
-						<!-- svelte-ignore a11y-click-events-have-key-events -->
-						{#if $connectingInput.opened}
-							<div
-								on:pointerenter={() => ($connectingInput.hoveredComponent = gridComponent.data.id)}
-								on:pointerleave={() => ($connectingInput.hoveredComponent = undefined)}
-								class="absolute w-full h-full bg-black border-2 bg-opacity-25 z-20 flex justify-center items-center"
-							/>
-							<div
-								style="transform: translate(-50%, -50%);"
-								class="absolute w-fit justify-center bg-indigo-500/90 left-[50%] top-[50%] z-50 px-6 rounded border text-white py-2 text-5xl center-center"
-							>
-								{dataItem.data.id}
-							</div>
-						{/if}
-						<!-- svelte-ignore a11y-click-events-have-key-events -->
-						<div
-							on:click|stopPropagation
-							on:pointerdown={() => selectComponent(dataItem.data.id)}
-							class={classNames(
-								'h-full w-full center-center',
-								$selectedComponent === dataItem.data.id ? 'active-grid-item' : '',
-								gridComponent.data.card ? 'border border-gray-100' : ''
-							)}
-						>
-							<Component
-								render={true}
-								{pointerdown}
-								component={gridComponent.data}
-								selected={$selectedComponent === dataItem.data.id}
-								locked={isFixed(gridComponent)}
-								on:delete={() => removeGridElement(gridComponent.data)}
-								on:lock={() => {
-									const gridItem = findGridItem($app, gridComponent.data.id)
-									if (gridItem) {
-										toggleFixed(gridItem)
-									}
-									$app = $app
-								}}
-								on:expand={() => {
-									push(history, $app)
-									$selectedComponent = gridComponent.data.id
-									expandGriditem($app.grid, gridComponent, $breakpoint)
-									$app = $app
-								}}
-							/>
-						</div>
-					{/if}
-				{/each}
+				<!-- svelte-ignore a11y-click-events-have-key-events -->
+				{#if $connectingInput.opened}
+					<div
+						on:pointerenter={() => ($connectingInput.hoveredComponent = dataItem.id)}
+						on:pointerleave={() => ($connectingInput.hoveredComponent = undefined)}
+						class="absolute w-full h-full bg-black border-2 bg-opacity-25 z-20 flex justify-center items-center"
+					/>
+					<div
+						style="transform: translate(-50%, -50%);"
+						class="absolute w-fit justify-center bg-indigo-500/90 left-[50%] top-[50%] z-50 px-6 rounded border text-white py-2 text-5xl center-center"
+					>
+						{dataItem.data.id}
+					</div>
+				{/if}
+				<!-- svelte-ignore a11y-click-events-have-key-events -->
+				<div
+					on:click|stopPropagation
+					on:pointerdown={() => selectComponent(dataItem.data.id)}
+					class={classNames(
+						'h-full w-full center-center',
+						$selectedComponent === dataItem.data.id ? 'active-grid-item' : ''
+					)}
+				>
+					<Component
+						render={true}
+						{pointerdown}
+						component={dataItem.data}
+						selected={$selectedComponent === dataItem.data.id}
+						locked={isFixed(dataItem)}
+						on:delete={() => removeGridElement(dataItem.data)}
+						on:lock={() => {
+							const gridItem = findGridItem($app, dataItem.data.id)
+							if (gridItem) {
+								toggleFixed(gridItem)
+							}
+							$app = $app
+						}}
+						on:expand={() => {
+							push(history, $app)
+							$selectedComponent = dataItem.data.id
+							expandGriditem($app.grid, dataItem, $breakpoint)
+							$app = $app
+						}}
+					/>
+				</div>
 			</Grid>
 		</div>
 	</div>

@@ -3,6 +3,7 @@ import { writable, type Writable } from 'svelte/store'
 import { deepEqual } from 'fast-equals'
 
 export interface Subscriber<T> {
+	id?: string
 	next(v: T)
 }
 
@@ -20,8 +21,8 @@ export interface Input<T> extends Subscriber<T> {
 
 export type World = {
 	outputsById: Record<string, Record<string, Output<any>>>
-	connect: <T>(inputSpec: AppInput, next: (x: T) => void) => Input<T>
-	state: Writable<number>
+	connect: <T>(inputSpec: AppInput, next: (x: T) => void, id?: string) => Input<T>
+	stateId: Writable<number>
 }
 
 export function buildWorld(
@@ -30,12 +31,12 @@ export function buildWorld(
 	context: Record<string, any>
 ): World {
 	const newWorld = buildObservableWorld()
-	const state = writable(0)
+	const stateId = writable(0)
 
 	const outputsById: Record<string, Record<string, Output<any>>> = {
 		ctx: Object.fromEntries(
 			Object.entries(context).map(([k, v]) => {
-				return [k, newWorld.newOutput('ctx', k, state, v)]
+				return [k, newWorld.newOutput('ctx', k, stateId, v)]
 			})
 		)
 	}
@@ -46,32 +47,34 @@ export function buildWorld(
 			outputsById[k][o] = newWorld.newOutput(
 				k,
 				o,
-				state,
+				stateId,
 				previousWorld?.outputsById[k]?.[o]?.peak()
 			)
 		}
 	}
-	state.update((x) => x + 1)
+	stateId.update((x) => x + 1)
 
-	return { outputsById, connect: newWorld.connect, state }
+	return { outputsById, connect: newWorld.connect, stateId }
 }
 
 export function buildObservableWorld() {
 	const observables: Record<string, Output<any>> = {}
 
-	function connect<T>(inputSpec: AppInput, next: (x: T) => void): Input<T> {
+	function connect<T>(inputSpec: AppInput, next: (x: T) => void, id?: string): Input<T> {
 		if (inputSpec.type === 'static') {
 			return {
+				id,
 				peak: () => inputSpec.value,
 				next: () => {}
 			}
 		} else if (inputSpec.type === 'connected') {
-			const input = cachedInput(next)
+			const input = cachedInput(next, id)
 
 			const connection = inputSpec.connection
 
 			if (!connection) {
 				return {
+					id,
 					peak: () => undefined,
 					next: () => {}
 				}
@@ -96,6 +99,7 @@ export function buildObservableWorld() {
 			return input
 		} else if (inputSpec.type === 'user') {
 			return {
+				id,
 				peak: () => inputSpec.value,
 				next: () => {}
 			}
@@ -120,7 +124,7 @@ export function buildObservableWorld() {
 		newOutput
 	}
 }
-export function cachedInput<T>(nextParan: (x: T) => void): Input<T> {
+export function cachedInput<T>(nextParan: (x: T) => void, id?: string): Input<T> {
 	let value: T | undefined = undefined
 
 	function peak(): T | undefined {
@@ -133,6 +137,7 @@ export function cachedInput<T>(nextParan: (x: T) => void): Input<T> {
 	}
 
 	return {
+		id,
 		peak,
 		next
 	}
@@ -143,13 +148,16 @@ export function settableOutput<T>(state: Writable<number>, previousValue: T): Ou
 	const subscribers: Subscriber<T>[] = []
 
 	function subscribe(x: Subscriber<T>) {
-		if (!subscribers.includes(x)) {
+		let currentSubscriber = subscribers.findIndex((y) => y === x || (y.id && y.id === x.id))
+		if (currentSubscriber == -1) {
 			subscribers.push(x)
+		} else {
+			subscribers[currentSubscriber] = x
+		}
 
-			// Send the current value to the new subscriber if it already exists
-			if (value !== undefined) {
-				x.next(value)
-			}
+		// Send the current value to the new subscriber if it already exists
+		if (value !== undefined) {
+			x.next(value)
 		}
 	}
 

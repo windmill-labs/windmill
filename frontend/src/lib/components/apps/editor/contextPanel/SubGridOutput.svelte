@@ -21,8 +21,24 @@
 		selectedTabIndex: Output<number>
 	}
 
+	let sortedItems = subGrids.map((k) => ({
+		k,
+		items: sortGridItemsPosition($app.subgrids?.[k] ?? [], $breakpoint)
+	}))
+
+	$: $app.subgrids &&
+		setTimeout(
+			() =>
+				(sortedItems = subGrids.map((k) => ({
+					k,
+					items: sortGridItemsPosition($app.subgrids?.[k] ?? [], $breakpoint)
+				}))),
+			500
+		)
+
 	$: if (outputs?.selectedTabIndex) {
 		outputs.selectedTabIndex.subscribe({
+			id: 'subgridoutput-' + parentId,
 			next: (value) => {
 				selected = value
 			}
@@ -30,7 +46,7 @@
 	}
 </script>
 
-{#each subGrids as subGridId, index}
+{#each sortedItems as { k, items }, index (k)}
 	<div class="ml-2 my-2">
 		{#if subGrids.length > 1}
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -52,8 +68,8 @@
 
 		{#if selected === index || name !== 'Tabs'}
 			<div transition:slide|local class="border-l">
-				{#if $app.subgrids && $app.subgrids[subGridId]?.length > 0}
-					{#each sortGridItemsPosition($app.subgrids[subGridId], $breakpoint) as subGridItem, index}
+				{#if items.length > 0}
+					{#each items as subGridItem, index (subGridItem.id)}
 						<ComponentOutput
 							gridItem={subGridItem}
 							first={index === 0}

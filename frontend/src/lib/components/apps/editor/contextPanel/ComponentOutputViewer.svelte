@@ -19,6 +19,7 @@
 			outputs?.forEach((output: string) => {
 				object[output] = undefined
 				observableOutputs[output]?.subscribe({
+					id: 'alloutputs' + output,
 					next: (value) => {
 						object[output] = value
 					}
