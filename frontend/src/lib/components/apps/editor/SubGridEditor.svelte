@@ -10,6 +10,7 @@
 	import Grid from '../svelte-grid/Grid.svelte'
 
 	export let containerHeight: number
+	export let containerWidth: number | undefined = undefined
 	let classes = ''
 	export { classes as class }
 	export let style = ''
@@ -71,7 +72,9 @@
 </script>
 
 <div
-	class="relative w-full subgrid {visible ? 'visible' : 'invisible h-0 overflow-hidden'} 	"
+	class="translate-x-0 translate-y-0 relative w-full subgrid {visible
+		? 'visible'
+		: 'invisible h-0 overflow-hidden'} 	"
 	bind:this={container}
 >
 	<div
@@ -96,6 +99,7 @@
 				gap={[4, 2]}
 				scroller={container}
 				parentWidth={$parentWidth - 17}
+				{containerWidth}
 			>
 				{#each subGrid as gridComponent (gridComponent.id)}
 					{#if gridComponent?.data?.id && gridComponent?.data?.id === dataItem?.data?.id}

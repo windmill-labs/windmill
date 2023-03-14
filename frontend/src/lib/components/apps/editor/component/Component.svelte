@@ -66,7 +66,7 @@
 <div
 	on:pointerenter={() => (hover = true)}
 	on:pointerleave={() => (hover = false)}
-	class="h-full flex flex-col w-full component"
+	class="h-full flex flex-col w-full component {initializing ? 'overflow-hidden h-0' : ''}"
 >
 	{#if $mode !== 'preview'}
 		<ComponentHeader
@@ -220,6 +220,7 @@
 				componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
 				recomputeIds={component.recomputeIds}
+				bind:initializing
 				{render}
 			/>
 		{:else if component.type === 'selectcomponent' || component.type === 'resourceselectcomponent'}
@@ -381,6 +382,7 @@
 				bind:staticOutputs={$staticOutputs[component.id]}
 				{componentContainerHeight}
 				{render}
+				bind:initializing
 			/>
 		{:else if component.type === 'containercomponent'}
 			<AppContainer
@@ -465,10 +467,7 @@
 	</div>
 </div>
 {#if initializing}
-	<div
-		out:fade|local={{ duration: 200 }}
-		class="absolute inset-0 center-center flex-col bg-white text-gray-600 border"
-	>
+	<div class="absolute inset-0 center-center flex-col bg-white text-gray-600 border">
 		<Loader2 class="animate-spin" size={16} />
 		<span class="text-xs mt-1">Loading</span>
 	</div>
