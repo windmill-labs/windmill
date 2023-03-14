@@ -16,7 +16,7 @@
 		| ComponentCustomCSS<'tabRow' | 'tabs' | 'selectedTab' | 'container'>
 		| undefined = undefined
 	export let render: boolean
-	export let initializing: boolean | undefined = true
+	export let initializing: boolean | undefined = configuration.tabsKind != undefined
 
 	export const staticOutputs: string[] = ['selectedTabIndex']
 	const { app, worldStore, focusedGrid, selectedComponent, mode, componentControl } =
