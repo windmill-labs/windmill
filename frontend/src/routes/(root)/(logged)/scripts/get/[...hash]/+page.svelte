@@ -55,7 +55,7 @@
 	import { Loader2 } from 'lucide-svelte'
 	import { slide } from 'svelte/transition'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
-	import { DEFAULT_WEBHOOK_TYPE } from '$lib/consts'
+	import {ALTERNATE_WEBHOOK_HOSTNAME, DEFAULT_WEBHOOK_TYPE} from '$lib/consts'
 
 	let userSettings: UserSettings
 	let script: Script | undefined
@@ -70,6 +70,7 @@
 	if (queryId && queryId != $workspaceStore) {
 		$workspaceStore = $page.url.searchParams.get('workspace_id')!
 	}
+	let webhookHostname = ALTERNATE_WEBHOOK_HOSTNAME || $page.url.hostname
 
 	$: loading = !script
 	$: if ($workspaceStore) {
@@ -77,12 +78,12 @@
 	}
 	$: webhooks = {
 		async: {
-			hash: `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run/h/${script?.hash}`,
-			path: `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run/p/${script?.path}`
+			hash: `${webhookHostname}/api/w/${$workspaceStore}/jobs/run/h/${script?.hash}`,
+			path: `${webhookHostname}/api/w/${$workspaceStore}/jobs/run/p/${script?.path}`
 		},
 		sync: {
-			hash: `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run_wait_result/h/${script?.hash}`,
-			path: `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run_wait_result/p/${script?.path}`
+			hash: `${webhookHostname}/api/w/${$workspaceStore}/jobs/run_wait_result/h/${script?.hash}`,
+			path: `${webhookHostname}/api/w/${$workspaceStore}/jobs/run_wait_result/p/${script?.path}`
 		}
 	}
 
