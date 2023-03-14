@@ -1551,6 +1551,8 @@ run().catch(async (e) => {{
     let deno_auth_tokens_base = DENO_AUTH_TOKENS.as_str();
     let deno_auth_tokens =
         format!("{token}@{hostname_base};{token}@{hostname_internal}{deno_auth_tokens_base}",);
+    //do not cache local dependencies
+    let reload = format!("--reload={base_internal_url}");
     let child = async {
         Ok(if !*DISABLE_NSJAIL {
             let _ = write_file(
@@ -1574,6 +1576,7 @@ run().catch(async (e) => {{
             }
             args.push("--import-map");
             args.push("/tmp/import_map.json");
+            args.push(&reload);
             args.push("--unstable");
             if let Some(deno_flags) = DENO_FLAGS.as_ref() {
                 for flag in deno_flags {
@@ -1602,6 +1605,7 @@ run().catch(async (e) => {{
             args.push("run");
             args.push("--import-map");
             args.push(&import_map_path);
+            args.push(&reload);
             args.push("--unstable");
             if let Some(deno_flags) = DENO_FLAGS.as_ref() {
                 for flag in deno_flags {
