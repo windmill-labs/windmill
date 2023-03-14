@@ -47,7 +47,7 @@
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <div
 	class={classNames(
-		'flex items-center justify-between p-1 cursor-pointer border-b',
+		'flex items-center justify-between p-1 cursor-pointer border-b gap-1 truncate',
 		hoverColor[color],
 		open && !manuallyOpen ? openBackground[color] : 'bg-white',
 		first ? 'border-t' : '',
@@ -66,7 +66,7 @@
 	>
 		{id}
 	</div>
-	<div class="text-2xs font-bold flex flex-row gap-2 items-center">
+	<div class="text-2xs font-bold flex flex-row gap-2 items-center truncate">
 		{name}
 		{#if !open && !manuallyOpen}
 			<ChevronDown size={14} />

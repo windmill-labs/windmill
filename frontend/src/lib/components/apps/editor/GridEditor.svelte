@@ -13,6 +13,7 @@
 	import { push } from '$lib/history'
 	import { expandGriditem, findGridItem } from './appUtils'
 	import Grid from '../svelte-grid/Grid.svelte'
+	import { settableOutput } from '../rx'
 
 	export let policy: Policy
 
