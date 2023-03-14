@@ -281,7 +281,7 @@ you to have it being synced automatically everyday.
 ## Environment Variables
 
 | Environment Variable name | Default                | Description                                                                                                                                                                                        | Api Server/Worker/All |
-|---------------------------|------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------|
+| ------------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
 | DATABASE_URL              |                        | The Postgres database url.                                                                                                                                                                         | All                   |
 | DISABLE_NSJAIL            | true                   | Disable Nsjail Sandboxing                                                                                                                                                                          | Worker                |
 | SERVER_BIND_ADDR          | 0.0.0.0                | IP Address on which to bind listening socket                                                                                                                                                       | Server                |
