@@ -14,9 +14,9 @@
 
 	function onHeaderClick(manuallyOpen: boolean) {
 		if (manuallyOpen) {
-			$selectedComponent = id
-		} else {
 			$selectedComponent = undefined
+		} else {
+			$selectedComponent = id
 		}
 	}
 </script>
