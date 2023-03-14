@@ -1565,7 +1565,8 @@ run().catch(async (e) => {{
     let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
-    let common_deno_proc_envs = get_common_deno_proc_envs(&token, base_internal_url);    //do not cache local dependencies
+    let common_deno_proc_envs = get_common_deno_proc_envs(&token, base_internal_url);
+    //do not cache local dependencies
     let reload = format!("--reload={base_internal_url}");
     let child = async {
         Ok(if !*DISABLE_NSJAIL {
