@@ -60,9 +60,14 @@
 	})
 </script>
 
-<PanelSection noPadding titlePadding="px-4 pt-2 pb-0.5" title="Outputs">
-	<div class="overflow-auto h-full min-w-[150px] w-full relative flex flex-col">
-		<div class="sticky z-50 top-0 left-0 w-full bg-white px-2 pb-2">
+<PanelSection
+	noPadding
+	titlePadding="px-3 pt-2"
+	title="Outputs"
+	class="!h-auto max-h-[80%] border-b"
+>
+	<div class="overflow-auto h-full min-w-[150px] w-full relative flex flex-col px-3">
+		<div class="sticky z-50 top-0 left-0 w-full bg-white pb-2">
 			<div class="relative">
 				<input
 					bind:value={search}
@@ -79,7 +84,7 @@
 				{/if}
 			</div>
 		</div>
-		<div class="relative p-2">
+		<div class="relative min-h-[52px] py-2">
 			{#each filteredPanels as [componentId, outputs] (componentId)}
 				<div
 					animate:flip={{ duration: 300 }}
@@ -156,12 +161,12 @@
 				</div>
 			{/each}
 		</div>
-		<PanelSection noPadding titlePadding="px-4 pt-2 pb-0.5" title="State">
-			<div class="mx-2 px-1 border w-full mb-8">
-				{#key $state}
-					<ObjectViewer json={$state} />
-				{/key}
-			</div>
-		</PanelSection>
+	</div>
+</PanelSection>
+<PanelSection noPadding titlePadding="px-3 pt-4" title="State" class="!h-auto max-h-[20%]">
+	<div class="px-3 w-full">
+		{#key $state}
+			<ObjectViewer json={$state} />
+		{/key}
 	</div>
 </PanelSection>

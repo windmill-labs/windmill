@@ -13,7 +13,7 @@
 	class={classNames(
 		$$props.class,
 		'flex flex-col h-full gap-2 items-start',
-		noPadding ? '' : smallPadding ? 'p-2' : 'p-4'
+		noPadding ? '' : smallPadding ? 'p-3' : 'p-3'
 	)}
 >
 	<div class="flex justify-between flex-wrap items-center w-full gap-1">

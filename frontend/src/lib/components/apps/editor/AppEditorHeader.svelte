@@ -329,7 +329,7 @@
 	<DrawerContent noPadding title="Debug Runs" on:close={() => (jobsDrawerOpen = false)}>
 		<Splitpanes class="!overflow-visible">
 			<Pane size={25}>
-				<PanelSection title="Past Runs" smallPadding>
+				<PanelSection title="Past Runs">
 					<div class="flex flex-col gap-2 w-full">
 						{#if $jobs.length > 0}
 							<div class="flex gap-2 flex-col ">
@@ -476,7 +476,7 @@
 </Drawer>
 
 <div
-	class="border-b flex flex-row justify-between py-1 gap-4  gap-y-2 px-4 items-center overflow-y-visible"
+	class="border-b flex flex-row justify-between py-1 gap-4  gap-y-2 px-3 items-center overflow-y-visible"
 >
 	<div class="min-w-64 w-64">
 		<input type="text" placeholder="App summary" class="text-sm w-full" bind:value={$summary} />
