@@ -230,77 +230,79 @@
 		<!-- metadata -->
 		{#if step === 1}
 			<CenteredPage>
-				<h2 class="border-b pb-1 mt-8 mb-2">Path</h2>
-				<Path
-					bind:this={pathC}
-					bind:error={pathError}
-					bind:path={script.path}
-					{initialPath}
-					on:enter={() => changeStep(2)}
-					namePlaceholder="script"
-					kind="script"
-				/>
-				<h2 class="border-b pb-1 mt-12 mb-4">Summary</h2>
-				<input
-					type="text"
-					bind:this={summaryC}
-					bind:value={script.summary}
-					placeholder="Short summary to be displayed when listed"
-				/>
-
-				<h2 class="border-b pb-1 mt-12 mb-6">Language</h2>
-				{#if lockedLanguage}
-					<div class="text-sm text-gray-600 italic mb-2">
-						As a forked script, the language '{script.language}' cannot be modified.
-					</div>
-				{/if}
-				<div class="flex flex-row gap-2 flex-wrap">
-					{#each langs as [label, lang]}
-						{@const isPicked = script.language == lang && template == 'script'}
+				<SettingSection title="Path" element="h2">
+					<Path
+						bind:this={pathC}
+						bind:error={pathError}
+						bind:path={script.path}
+						{initialPath}
+						on:enter={() => changeStep(2)}
+						namePlaceholder="script"
+						kind="script"
+					/>
+				</SettingSection>
+				<SettingSection title="Summary" element="h2">
+					<input
+						type="text"
+						bind:this={summaryC}
+						bind:value={script.summary}
+						placeholder="Short summary to be displayed when listed"
+					/>
+				</SettingSection>
+				<SettingSection title="Language" element="h2">
+					{#if lockedLanguage}
+						<div class="text-sm text-gray-600 italic mb-2">
+							As a forked script, the language '{script.language}' cannot be modified.
+						</div>
+					{/if}
+					<div class="flex flex-row gap-2 flex-wrap">
+						{#each langs as [label, lang]}
+							{@const isPicked = script.language == lang && template == 'script'}
+							<Button
+								size="sm"
+								variant="border"
+								color={isPicked ? 'blue' : 'dark'}
+								btnClasses={isPicked ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+								on:click={() => {
+									script.language = lang
+									template = 'script'
+									initContent(lang, script.kind, template)
+								}}
+								disabled={lockedLanguage}
+							>
+								<LanguageIcon {lang} />
+								<span class="ml-2 py-2">{label}</span>
+							</Button>
+						{/each}
 						<Button
 							size="sm"
 							variant="border"
-							color={isPicked ? 'blue' : 'dark'}
-							btnClasses={isPicked ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
-							on:click={() => {
-								script.language = lang
-								template = 'script'
-								initContent(lang, script.kind, template)
-							}}
+							color={template == 'pgsql' ? 'blue' : 'dark'}
+							btnClasses={template == 'pgsql' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
 							disabled={lockedLanguage}
+							on:click={() => {
+								script.language = Script.language.DENO
+								template = 'pgsql'
+								initContent(script.language, script.kind, template)
+							}}
 						>
-							<LanguageIcon {lang} />
-							<span class="ml-2 py-2">{label}</span>
+							<LanguageIcon lang="pgsql" /><span class="ml-2 py-2">PostgreSQL</span>
 						</Button>
-					{/each}
-					<Button
-						size="sm"
-						variant="border"
-						color={template == 'pgsql' ? 'blue' : 'dark'}
-						btnClasses={template == 'pgsql' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
-						disabled={lockedLanguage}
-						on:click={() => {
-							script.language = Script.language.DENO
-							template = 'pgsql'
-							initContent(script.language, script.kind, template)
-						}}
-					>
-						<LanguageIcon lang="pgsql" /><span class="ml-2 py-2">PostgreSQL</span>
-					</Button>
-					<!-- <Button
-						size="sm"
-						variant="border"
-						color={template == 'mysql' ? 'blue' : 'dark'}
-						btnClasses={template == 'mysql' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
-						on:click={() => {
-							script.language = Script.language.DENO
-							template = 'mysql'
-							initContent(script.language, script.kind, template)
-						}}
-					>
-						<LanguageIcon lang="mysql" /><span class="ml-2 py-2">MySQL</span>
-					</Button> -->
-				</div>
+						<!-- <Button
+							size="sm"
+							variant="border"
+							color={template == 'mysql' ? 'blue' : 'dark'}
+							btnClasses={template == 'mysql' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+							on:click={() => {
+								script.language = Script.language.DENO
+								template = 'mysql'
+								initContent(script.language, script.kind, template)
+							}}
+						>
+							<LanguageIcon lang="mysql" /><span class="ml-2 py-2">MySQL</span>
+						</Button> -->
+					</div>
+				</SettingSection>
 				<SettingSection
 					title="Script kind"
 					element="h3"
