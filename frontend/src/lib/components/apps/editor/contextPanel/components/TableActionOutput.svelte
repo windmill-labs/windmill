@@ -9,15 +9,20 @@
 	const { staticOutputs, connectingInput } = getContext<AppViewerContext>('AppViewerContext')
 
 	export let id: string
+	export let expanded: boolean = false
 
 	let open: boolean = false
-	let manuallyOpen: boolean = false
+	let manuallyOpen = false
 
-	$: isOpen = open || manuallyOpen
+	$: if (expanded) {
+		manuallyOpen = true
+	} else {
+		manuallyOpen = false
+	}
 </script>
 
 <OutputHeader
-	open={isOpen}
+	open={open || manuallyOpen}
 	{manuallyOpen}
 	on:click={() => {
 		manuallyOpen = !manuallyOpen
@@ -25,7 +30,7 @@
 	{id}
 	name={'Table action'}
 />
-{#if isOpen}
+{#if open || manuallyOpen}
 	<div transition:slide|local>
 		<ComponentOutputViewer
 			componentId={id}

@@ -87,8 +87,7 @@
 			</div>
 
 			<SubGridOutput {name} {expanded} {subGrids} parentId={gridItem.id} />
-
-			<TableActionsOutput {gridItem} />
+			<TableActionsOutput {gridItem} {expanded} />
 		</div>
 	{/if}
 {/if}
