@@ -124,7 +124,6 @@
 							class={classNames(
 								'h-full w-full center-center',
 								$selectedComponent === dataItem.data.id ? 'active-grid-item' : '',
-								gridComponent.data.card ? 'border border-gray-100' : '',
 								'top-0'
 							)}
 						>

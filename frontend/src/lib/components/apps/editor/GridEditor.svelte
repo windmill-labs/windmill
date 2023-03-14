@@ -199,8 +199,7 @@
 							on:pointerdown={() => selectComponent(dataItem.data.id)}
 							class={classNames(
 								'h-full w-full center-center',
-								$selectedComponent === dataItem.data.id ? 'active-grid-item' : '',
-								gridComponent.data.card ? 'border border-gray-100' : ''
+								$selectedComponent === dataItem.data.id ? 'active-grid-item' : ''
 							)}
 						>
 							<Component

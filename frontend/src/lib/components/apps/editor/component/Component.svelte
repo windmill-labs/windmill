@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import { fade } from 'svelte/transition'
 	import { Loader2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { AppViewerContext } from '../../types'
@@ -41,6 +40,7 @@
 		AppPdf
 	} from '../../components'
 	import AppMultiSelect from '../../components/inputs/AppMultiSelect.svelte'
+	import Portal from 'svelte-portal'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -61,6 +61,9 @@
 
 	$: componentWithErrors = Object.values($errorByComponent).map((e) => e.componentId)
 	$: hasError = componentWithErrors.includes(component.id)
+
+
+	
 </script>
 
 <div
@@ -93,7 +96,6 @@
 		class={twMerge(
 			'h-full bg-white/40',
 			selected && $mode !== 'preview' ? 'border border-blue-500' : '',
-			!selected && $mode !== 'preview' && !component.card ? 'border-gray-100' : '',
 			$mode !== 'preview' && !$connectingInput.opened ? 'hover:border-blue-500' : '',
 			component.softWrap || hasError ? '' : 'overflow-auto',
 			$mode != 'preview' ? 'cursor-pointer' : '',

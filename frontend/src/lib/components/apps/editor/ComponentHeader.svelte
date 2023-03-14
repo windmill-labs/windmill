@@ -30,25 +30,23 @@
 	<span
 		title={`Id: ${component.id}`}
 		class={classNames(
-			'px-2 text-2xs font-bold w-fit absolute shadow top-[-19px] left-[1px] border z-50',
+			'px-2 text-2xs font-bold w-fit absolute shadow top-[-18px] left-0 border rounded-t-sm',
 			selected
-				? 'bg-indigo-500/90 border-blue-500 text-white'
-				: 'bg-gray-200/90 border-gray-300  text-gray-500'
+				? 'bg-indigo-500 border-indigo-600 text-white'
+				: 'bg-gray-200 border-gray-300 text-gray-500'
 		)}
-		style="padding-top: 1px; padding-bottom: 1px;"
 	>
 		{component.id}
 	</span>
 {/if}
 
 {#if selected}
-	<div class="top-[-18px] right-[1px] flex flex-row absolute">
+	<div class="top-[-19px] right-0 flex flex-row absolute ">
 		<button
 			title="Expand"
 			class={classNames(
-				'text-indigo-800 px-1 text-2xs py-0.5 font-bold w-fit shadow border-t border-l border-indigo-300  z-50 cursor-pointer',
-				' hover:bg-indigo-300',
-				selected ? 'bg-indigo-200/80' : 'bg-indigo-200/80'
+				'px-1 text-2xs py-0.5 font-bold w-fit border-t border-l cursor-pointer rounded-tl-sm',
+				'bg-indigo-100 text-indigo-600 border-indigo-500 hover:bg-indigo-200 hover:text-indigo-800'
 			)}
 			on:click={() => dispatch('expand')}
 			on:pointerdown|stopPropagation
@@ -58,9 +56,8 @@
 		<button
 			title="Lock Position"
 			class={classNames(
-				'text-indigo-800 px-1 text-2xs py-0.5 font-bold w-fit shadow border-t border-l border-indigo-300  z-50 cursor-pointer',
-				' hover:bg-indigo-300',
-				selected ? 'bg-indigo-200/80' : 'bg-indigo-200/80'
+				'px-1 text-2xs py-0.5 font-bold w-fit border-t border-l cursor-pointer',
+				'bg-indigo-100 text-indigo-600 border-indigo-500 hover:bg-indigo-200 hover:text-indigo-800'
 			)}
 			on:click={() => dispatch('lock')}
 			on:pointerdown|stopPropagation
@@ -75,8 +72,8 @@
 			title="Move"
 			on:mousedown|stopPropagation|capture
 			class={classNames(
-				'text-indigo-600 px-1 text-2xs py-0.5 font-bold w-fit  border-t border-x border-indigo-300 -top-5 shadow z-50 cursor-move',
-				'bg-indigo-200/80'
+				'px-1 text-2xs py-0.5 font-bold w-fit border-t border-x cursor-move rounded-tr-sm',
+				'bg-indigo-100 text-indigo-600 border-indigo-500 hover:bg-indigo-200 hover:text-indigo-800'
 			)}
 		>
 			<Move size={14} />
