@@ -10,6 +10,7 @@
 	import PanelSection from '../settingsPanel/common/PanelSection.svelte'
 	import ComponentOutput from './ComponentOutput.svelte'
 	import ComponentOutputViewer from './ComponentOutputViewer.svelte'
+	import BackgroundScriptsOutput from './components/BackgroundScriptsOutput.svelte'
 	import MinMaxButton from './components/MinMaxButton.svelte'
 	import OutputHeader from './components/OutputHeader.svelte'
 
@@ -106,6 +107,8 @@
 					{/key}
 				</div>
 			{/if}
+
+			<BackgroundScriptsOutput {expanded} />
 
 			<div class="mt-8">
 				{#each sortGridItemsPosition($app.grid, $breakpoint) as gridItem, index}

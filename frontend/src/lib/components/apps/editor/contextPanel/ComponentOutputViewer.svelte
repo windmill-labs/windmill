@@ -20,6 +20,7 @@
 				object[output] = undefined
 				observableOutputs[output]?.subscribe({
 					next: (value) => {
+						console.log(value)
 						object[output] = value
 					}
 				})
