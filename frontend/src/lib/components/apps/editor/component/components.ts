@@ -192,14 +192,7 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 			softWrap: true,
 			id: '',
 			type: 'containercomponent',
-			configuration: {
-				noPadding: {
-					type: 'static',
-					fieldType: 'boolean',
-					value: false,
-					onlyStatic: true
-				}
-			},
+			configuration: {},
 			customCss: {
 				container: { class: '', style: '' }
 			} as const,
@@ -1242,11 +1235,12 @@ Hello \${ctx.username}
 			id: '',
 			type: 'tabscomponent',
 			configuration: {
-				noPadding: {
+				tabsKind: {
+					fieldType: 'select',
 					type: 'static',
-					fieldType: 'boolean',
-					value: false,
-					onlyStatic: true
+					onlyStatic: true,
+					optionValuesKey: 'tabsKindOptions',
+					value: 'tabs'
 				}
 			},
 			customCss: {
@@ -1448,12 +1442,6 @@ Hello \${ctx.username}
 			horizontalAlignment: 'center',
 			verticalAlignment: 'center',
 			configuration: {
-				noPadding: {
-					type: 'static',
-					fieldType: 'boolean',
-					value: false,
-					onlyStatic: true
-				},
 				drawerTitle: {
 					type: 'static',
 					fieldType: 'text',
@@ -1560,14 +1548,7 @@ Hello \${ctx.username}
 			softWrap: true,
 			id: '',
 			type: 'verticalsplitpanescomponent',
-			configuration: {
-				noPadding: {
-					type: 'static',
-					fieldType: 'boolean',
-					value: false,
-					onlyStatic: true
-				}
-			},
+			configuration: {},
 			customCss: {
 				container: { class: '', style: '' }
 			} as const,
@@ -1585,14 +1566,7 @@ Hello \${ctx.username}
 			softWrap: true,
 			id: '',
 			type: 'horizontalsplitpanescomponent',
-			configuration: {
-				noPadding: {
-					type: 'static',
-					fieldType: 'boolean',
-					value: false,
-					onlyStatic: true
-				}
-			},
+			configuration: {},
 			customCss: {
 				container: { class: '', style: '' }
 			} as const,

@@ -20,8 +20,6 @@
 
 	const { componentControl } = getContext<AppEditorContext>('AppEditorContext')
 
-	let noPadding: boolean | undefined = undefined
-
 	function onFocus() {
 		$focusedGrid = {
 			parentComponentId: id,
@@ -66,8 +64,6 @@
 	}
 </script>
 
-<InputValue {id} input={configuration.noPadding} bind:value={noPadding} />
-
 <div class="h-full w-full border" on:pointerdown|stopPropagation>
 	<Splitpanes {horizontal}>
 		{#each sumedup as paneSize, index (index)}
@@ -76,7 +72,6 @@
 					<SubGridEditor
 						visible={render}
 						noYPadding
-						{noPadding}
 						{id}
 						shouldHighlight={$focusedGrid?.subGridIndex === index}
 						class={css?.container.class}

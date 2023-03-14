@@ -21,7 +21,6 @@
 	const { app, focusedGrid, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 
 	let gridContent: string[] | undefined = undefined
-	let noPadding: boolean | undefined = undefined
 	let drawerTitle: string | undefined = undefined
 	let appDrawer: Drawer
 
@@ -62,7 +61,6 @@
 </div>
 
 <InputValue {id} input={configuration.gridContent} bind:value={gridContent} />
-<InputValue {id} input={configuration.noPadding} bind:value={noPadding} />
 <InputValue {id} input={configuration.drawerTitle} bind:value={drawerTitle} />
 <InputValue {id} input={configuration.label} bind:value={labelValue} />
 <InputValue {id} input={configuration.color} bind:value={color} />
@@ -81,7 +79,6 @@
 			{#if $app.subgrids?.[`${id}-0`]}
 				<SubGridEditor
 					visible={open && render}
-					{noPadding}
 					{id}
 					class={css?.container.class}
 					style={css?.container.style}
