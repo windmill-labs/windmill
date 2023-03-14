@@ -1,12 +1,11 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import {
-		deleteGridItem,
 		findGridItem,
 		findGridItemParentGrid,
 		getAllSubgridsAndComponentIds,
-		getGridItems,
-		insertNewGridItem
+		insertNewGridItem,
+		sortGridItemsPosition
 	} from '../appUtils'
 	import type { AppEditorContext, AppViewerContext, EditorBreakpoint, GridItem } from '../../types'
 	import { push } from '$lib/history'
@@ -109,6 +108,7 @@
 	function handleArrowUp(event: KeyboardEvent) {
 		if (!$selectedComponent) return
 		let parentId = findGridItemParentGrid($app, $selectedComponent)?.split('-')[0]
+
 		if (parentId) {
 			$selectedComponent = parentId
 		} else {
@@ -182,6 +182,7 @@
 
 			case 'ArrowUp': {
 				handleArrowUp(event)
+				break
 			}
 
 			case 'ArrowDown': {
@@ -220,31 +221,6 @@
 			default:
 				break
 		}
-	}
-
-	function sortGridItemsPosition(gridItems: GridItem[], breakpoint: EditorBreakpoint): GridItem[] {
-		return gridItems.sort((a: GridItem, b: GridItem) => {
-			const width = breakpoint === 'lg' ? 12 : 3
-
-			const aX = a[width].x
-			const aY = a[width].y
-			const bX = b[width].x
-			const bY = b[width].y
-
-			if (aY < bY) {
-				return -1
-			} else if (aY > bY) {
-				return 1
-			} else {
-				if (aX < bX) {
-					return -1
-				} else if (aX > bX) {
-					return 1
-				} else {
-					return 0
-				}
-			}
-		})
 	}
 </script>
 
