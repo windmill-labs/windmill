@@ -5,6 +5,7 @@
 	import { getColumn, throttle } from './utils/other'
 	import MoveResize from './MoveResize.svelte'
 	import type { FilledItem } from './types'
+	import type { Writable } from 'svelte/store'
 
 	const dispatch = createEventDispatcher()
 

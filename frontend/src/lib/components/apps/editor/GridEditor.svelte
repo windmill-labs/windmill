@@ -14,6 +14,7 @@
 	import { expandGriditem, findGridItem } from './appUtils'
 	import Grid from '../svelte-grid/Grid.svelte'
 	import { settableOutput } from '../rx'
+	import { writable } from 'svelte/store'
 
 	export let policy: Policy
 
@@ -136,6 +137,8 @@
 			})
 		}
 	})
+
+	let hoverStore = writable<string | undefined>(undefined)
 </script>
 
 <div class="relative w-full z-20 overflow-visible">

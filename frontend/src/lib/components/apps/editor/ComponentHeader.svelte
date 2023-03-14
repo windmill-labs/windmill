@@ -5,7 +5,7 @@
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { Alert, Button } from '$lib/components/common'
-	import { components, type AppComponent } from './component'
+	import type { AppComponent } from './component'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -30,19 +30,18 @@
 	<span
 		title={`Id: ${component.id}`}
 		class={classNames(
-			'px-2 text-2xs font-semibold w-fit absolute shadow top-[-18px] left-0 border rounded-t-sm',
+			'px-2 text-2xs font-semibold w-fit absolute shadow -top-[19px] -left-[1px] border rounded-t-sm',
 			selected
 				? 'bg-indigo-500 border-indigo-600 text-white'
 				: 'bg-blue-500 border-blue-600 text-white'
 		)}
 	>
-		{components[component.type].name}
 		{component.id}
 	</span>
 {/if}
 
 {#if selected}
-	<div class="top-[-19px] right-0 flex flex-row absolute ">
+	<div class="top-[-19px] -right-[1px] flex flex-row absolute ">
 		<button
 			title="Expand"
 			class={classNames(

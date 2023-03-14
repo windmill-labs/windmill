@@ -40,6 +40,7 @@
 		AppPdf
 	} from '../../components'
 	import AppMultiSelect from '../../components/inputs/AppMultiSelect.svelte'
+	import type { Writable } from 'svelte/store'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -47,24 +48,33 @@
 	export let pointerdown: boolean = false
 	export let render: boolean
 
-	const { staticOutputs, mode, app, errorByComponent } =
+	const { staticOutputs, mode, app, errorByComponent, hoverStore } =
 		getContext<AppViewerContext>('AppViewerContext')
-	let hover = false
 	let initializing: boolean | undefined = undefined
 	let componentContainerHeight: number = 0
 
 	$: componentWithErrors = Object.values($errorByComponent).map((e) => e.componentId)
 	$: hasError = componentWithErrors.includes(component.id)
+
 </script>
 
+<!-- svelte-ignore a11y-mouse-events-have-key-events -->
 <div
-	on:pointerenter={() => (hover = true)}
-	on:pointerleave={() => (hover = false)}
+	on:mouseover|stopPropagation={() => {
+		if (component.id !== $hoverStore) {
+			$hoverStore = component.id
+		}
+	}}
+	on:mouseout|stopPropagation={() => {
+		if ($hoverStore !== undefined) {
+			$hoverStore = undefined
+		}
+	}}
 	class="h-full flex flex-col w-full component {initializing ? 'overflow-hidden h-0' : ''}"
 >
 	{#if $mode !== 'preview'}
 		<ComponentHeader
-			{hover}
+			hover={$hoverStore === component.id}
 			{pointerdown}
 			{component}
 			{selected}
@@ -85,9 +95,9 @@
 			// }
 		}}
 		class={twMerge(
-			'h-full bg-white/40',
-			hover && $mode !== 'preview' ? 'border border-blue-600' : '',
-			selected && $mode !== 'preview' ? 'border border-indigo-600' : '',
+			'h-full bg-white/40 outline-1',
+			$hoverStore === component.id && $mode !== 'preview' ? 'outline outline-blue-600' : '',
+			selected && $mode !== 'preview' ? 'outline outline-indigo-600' : '',
 			component.softWrap || hasError ? '' : 'overflow-auto',
 			$mode != 'preview' ? 'cursor-pointer' : '',
 			'relative z-auto',

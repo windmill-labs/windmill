@@ -142,6 +142,7 @@ export type AppViewerContext = {
 			{ left?: () => boolean; right?: () => boolean; setTab?: (index: number) => void }
 		>
 	>
+	hoverStore: Writable<string | undefined>
 }
 
 export type AppEditorContext = {
