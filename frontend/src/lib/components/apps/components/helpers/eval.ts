@@ -24,7 +24,7 @@ export function computeGlobalContext(
 
 function create_context_function_template(eval_string, context, noReturn: boolean) {
 	return `
-return async function (context, state, goto) {
+return async function (context, state, goto, setTab) {
 "use strict";
 ${
 	Object.keys(context).length > 0
@@ -40,7 +40,7 @@ function make_context_evaluator(
 	eval_string,
 	context,
 	noReturn: boolean
-): (context, state, goto) => Promise<any> {
+): (context, state, goto, setTab) => Promise<any> {
 	let template = create_context_function_template(eval_string, context, noReturn)
 	let functor = Function(template)
 	return functor()
@@ -51,19 +51,27 @@ export async function eval_like(
 	context = {},
 	noReturn: boolean,
 	state: any,
-	editor: boolean
+	editor: boolean,
+	controlComponents: Record<string, { setTab?: (index: number) => void }>
 ) {
 	let evaluator = make_context_evaluator(text, context, noReturn)
-	return await evaluator(context, state, async (x, newTab) => {
-		if (newTab || editor) {
-			if (!newTab) {
-				sendUserToast(
-					'In editor mode, `goto` opens a new tab to prevent losing your work. To test the redirection , use the preview mode.'
-				)
+	return await evaluator(
+		context,
+		state,
+		async (x, newTab) => {
+			if (newTab || editor) {
+				if (!newTab) {
+					sendUserToast(
+						'In editor mode, `goto` opens a new tab to prevent losing your work. To test the redirection , use the preview mode.'
+					)
+				}
+				window.open(x, '_blank')
+			} else {
+				await newTab(x)
 			}
-			window.open(x, '_blank')
-		} else {
-			await goto(x)
+		},
+		(id, index) => {
+			controlComponents[id]?.setTab?.(index)
 		}
-	})
+	)
 }

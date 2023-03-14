@@ -63,12 +63,12 @@
 		focusedGrid: writable(undefined),
 		stateId: writable(0),
 		parentWidth: writable(0),
-		state: writable({})
+		state: writable({}),
+		componentControl: writable({})
 	})
 
 	setContext<AppEditorContext>('AppEditorContext', {
 		history: undefined,
-		componentControl: writable({}),
 		pickVariableCallback: writable(undefined)
 	})
 

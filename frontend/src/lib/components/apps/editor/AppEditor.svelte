@@ -89,12 +89,12 @@
 		focusedGrid,
 		stateId: writable(0),
 		parentWidth: writable(0),
-		state: writable({})
+		state: writable({}),
+		componentControl: writable({})
 	})
 
 	setContext<AppEditorContext>('AppEditorContext', {
 		history,
-		componentControl: writable({}),
 		pickVariableCallback
 	})
 
@@ -186,13 +186,13 @@
 		{:else}
 			<SplitPanesWrapper>
 				<Splitpanes class="max-w-full overflow-hidden">
-					<Pane size={$connectingInput?.opened ? 40 : 15} minSize={5} maxSize={33}>
+					<Pane size={15} minSize={5} maxSize={33}>
 						<ContextPanel />
 					</Pane>
 					<Pane size={64}>
 						<SplitPanesWrapper>
 							<Splitpanes horizontal>
-								<Pane size={$connectingInput?.opened ? 100 : 70}>
+								<Pane size={70}>
 									<div
 										on:pointerdown={(e) => {
 											$selectedComponent = undefined

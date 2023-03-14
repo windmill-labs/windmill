@@ -16,11 +16,8 @@
 	export let panes: number[]
 	export let render: boolean
 
-	const { app, focusedGrid, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
-
-	const { componentControl } = getContext<AppEditorContext>('AppEditorContext')
-
-	let noPadding: boolean | undefined = undefined
+	const { app, focusedGrid, selectedComponent, componentControl } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	function onFocus() {
 		$focusedGrid = {
@@ -66,8 +63,6 @@
 	}
 </script>
 
-<InputValue {id} input={configuration.noPadding} bind:value={noPadding} />
-
 <div class="h-full w-full border" on:pointerdown|stopPropagation>
 	<Splitpanes {horizontal}>
 		{#each sumedup as paneSize, index (index)}
@@ -76,7 +71,6 @@
 					<SubGridEditor
 						visible={render}
 						noYPadding
-						{noPadding}
 						{id}
 						shouldHighlight={$focusedGrid?.subGridIndex === index}
 						class={css?.container.class}

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { isCodeInjection } from '$lib/components/flows/utils'
 	import { deepEqual } from 'fast-equals'
-	import { getContext } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import type { AppInput, EvalAppInput, UploadAppInput } from '../../inputType'
 	import type { AppViewerContext } from '../../types'
 	import { accessPropertyByPath } from '../../utils'
@@ -9,11 +9,19 @@
 
 	type T = string | number | boolean | Record<string | number, any> | undefined
 
-	export let input: AppInput
+	export let input: AppInput | undefined
 	export let value: T
 	export let id: string | undefined = undefined
 	export let error: string = ''
 	export let extraContext: Record<string, any> = {}
+
+	const { componentControl } = getContext<AppViewerContext>('AppViewerContext')
+
+	const dispatch = createEventDispatcher()
+
+	if (input == undefined) {
+		dispatch('done')
+	}
 
 	let lastInput = input ? JSON.parse(JSON.stringify(input)) : undefined
 
@@ -43,11 +51,14 @@
 		lastInput.type == 'template' &&
 		$stateId &&
 		$state &&
-		debounce(async () => (value = await getValue(lastInput)))
+		debounce(async () => {
+			value = await getValue(lastInput)
+			dispatch('done')
+		})
 	$: lastInput &&
 		lastInput.type == 'eval' &&
 		$stateId &&
-		state &&
+		$state &&
 		debounce(async () => (value = await evalExpr(lastInput)))
 
 	async function handleConnection() {
@@ -62,6 +73,7 @@
 		} else {
 			value = undefined
 		}
+		dispatch('done')
 	}
 
 	async function evalExpr(input: EvalAppInput) {
@@ -71,7 +83,8 @@
 				computeGlobalContext($worldStore, id, extraContext),
 				true,
 				$state,
-				$mode == 'dnd'
+				$mode == 'dnd',
+				$componentControl
 			)
 			error = ''
 			return r
@@ -89,7 +102,8 @@
 					computeGlobalContext($worldStore, id, extraContext),
 					true,
 					$state,
-					$mode == 'dnd'
+					$mode == 'dnd',
+					$componentControl
 				)
 				error = ''
 				return r

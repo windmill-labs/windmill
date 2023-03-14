@@ -45,7 +45,8 @@
 		errorByComponent,
 		mode,
 		stateId,
-		state
+		state,
+		componentControl
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	$: autoRefresh && handleAutorefresh()
@@ -95,14 +96,18 @@
 		refreshIfAutoRefresh()
 	}
 
+	$: fields && (lazyStaticValues = computeStaticValues())
+	$: (runnableInputValues || extraQueryParams || args) && testJobLoader && refreshIfAutoRefresh()
+	$: runnable?.type == 'runnableByName' &&
+		runnable.inlineScript?.language == 'frontend' &&
+		($stateId || $state) &&
+		refreshIfAutoRefresh()
+
 	function refreshIfAutoRefresh() {
 		if (autoRefresh) {
 			setDebouncedExecute()
 		}
 	}
-
-	$: fields && (lazyStaticValues = computeStaticValues())
-	$: (runnableInputValues || extraQueryParams || args) && testJobLoader && refreshIfAutoRefresh()
 
 	// Test job internal state
 	let testJob: CompletedJob | undefined = undefined
@@ -157,7 +162,8 @@
 					computeGlobalContext($worldStore, id, {}),
 					false,
 					$state,
-					$mode == 'dnd'
+					$mode == 'dnd',
+					$componentControl
 				)
 				setResult(r)
 				$state = $state

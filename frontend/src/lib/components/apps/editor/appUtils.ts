@@ -1,5 +1,5 @@
 import { getNextId } from '$lib/components/flows/flowStateUtils'
-import type { App, EditorBreakpoint, FocusedGrid, GridItem } from '../types'
+import type { App, ConnectingInput, EditorBreakpoint, FocusedGrid, GridItem } from '../types'
 import { getRecommendedDimensionsByComponent, type AppComponent } from './component'
 import { gridColumns } from '../gridUtils'
 import { allItems } from '../utils'
@@ -32,6 +32,17 @@ export function findGridItemParentGrid(app: App, id: string): string | undefined
 			}
 		}
 	}
+}
+
+export function isIdInsideGriditem(app: App, gridItem: GridItem, id: string | undefined): boolean {
+	const path: string[] = []
+	let currentId = id
+	while (currentId) {
+		path.push(currentId)
+		currentId = findGridItemParentGrid(app, currentId)?.split('-')[0]
+	}
+
+	return path.includes(gridItem.id)
 }
 
 export function findGridItem(app: App, id: string): GridItem | undefined {
@@ -324,4 +335,77 @@ export function expandGriditem(
 	item.y = item.y - top
 	item.w = item.w + left + right
 	item.h = item.h + top + bottom
+}
+
+export function sortGridItemsPosition(
+	gridItems: GridItem[],
+	breakpoint: EditorBreakpoint
+): GridItem[] {
+	return gridItems.sort((a: GridItem, b: GridItem) => {
+		const width = breakpoint === 'lg' ? 12 : 3
+
+		const aX = a[width].x
+		const aY = a[width].y
+		const bX = b[width].x
+		const bY = b[width].y
+
+		if (aY < bY) {
+			return -1
+		} else if (aY > bY) {
+			return 1
+		} else {
+			if (aX < bX) {
+				return -1
+			} else if (aX > bX) {
+				return 1
+			} else {
+				return 0
+			}
+		}
+	})
+}
+
+export function connectInput(
+	connectingInput: ConnectingInput,
+	componentId: string,
+	path: string
+): ConnectingInput {
+	if (connectingInput) {
+		connectingInput = {
+			opened: false,
+			input: {
+				connection: {
+					componentId,
+					path
+				},
+				type: 'connected'
+			},
+			hoveredComponent: undefined
+		}
+	}
+
+	return connectingInput
+}
+
+export function recursivelyFilterKeyInJSON(
+	json: object,
+	search: string,
+	extraSearch?: string | undefined
+): object {
+	let filteredJSON = {}
+	Object.keys(json).forEach((key) => {
+		if (
+			key.toLowerCase().includes(search.toLowerCase()) ||
+			extraSearch?.toLowerCase().includes(search.toLowerCase())
+		) {
+			filteredJSON[key] = json[key]
+		} else if (typeof json[key] === 'object') {
+			const res = recursivelyFilterKeyInJSON(json[key], search, extraSearch)
+
+			if (Object.keys(res).length !== 0) {
+				filteredJSON[key] = res
+			}
+		}
+	})
+	return filteredJSON
 }
