@@ -1,7 +1,6 @@
 <script lang="ts">
 	import type { AppViewerContext } from '$lib/components/apps/types'
 	import { getContext } from 'svelte'
-	import { slide } from 'svelte/transition'
 	import { connectInput } from '../../appUtils'
 	import ComponentOutputViewer from '../ComponentOutputViewer.svelte'
 	import OutputHeader from './OutputHeader.svelte'
@@ -11,37 +10,15 @@
 	export let id: string
 	export let name: string
 	export let expanded: boolean = false
-
-	let open: boolean = false
-	let manuallyOpen = false
-
-	$: if (expanded) {
-		manuallyOpen = true
-	} else {
-		manuallyOpen = false
-	}
-
-	$: console.log($staticOutputs, id)
+	export let first: boolean = false
 </script>
 
-<OutputHeader
-	open={open || manuallyOpen}
-	{manuallyOpen}
-	on:click={() => {
-		manuallyOpen = !manuallyOpen
-	}}
-	{id}
-	{name}
-	color="blue"
-/>
-{#if open || manuallyOpen}
-	<div transition:slide|local>
-		<ComponentOutputViewer
-			componentId={id}
-			outputs={['loading', 'result']}
-			on:select={({ detail }) => {
-				$connectingInput = connectInput($connectingInput, id, detail)
-			}}
-		/>
-	</div>
-{/if}
+<OutputHeader {id} {name} color="blue" {first} {expanded}>
+	<ComponentOutputViewer
+		componentId={id}
+		outputs={['loading', 'result']}
+		on:select={({ detail }) => {
+			$connectingInput = connectInput($connectingInput, id, detail)
+		}}
+	/>
+</OutputHeader>

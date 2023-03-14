@@ -44,20 +44,19 @@
 				}}
 			>
 				<div class="text-xs">
-					{name ? name : 'Should implement'}
+					{name ? name : 'Should implement name'}
 					{index + 1}
 				</div>
 			</div>
 		{/if}
 
 		{#if selected === index || name !== 'Tabs'}
-			<div transition:slide|local>
+			<div transition:slide|local class="border-l">
 				{#if $app.subgrids && $app.subgrids[subGridId].length > 0}
 					{#each sortGridItemsPosition($app.subgrids[subGridId], $breakpoint) as subGridItem, index}
 						<ComponentOutput
 							gridItem={subGridItem}
 							first={index === 0}
-							nested
 							{expanded}
 							on:select={({ detail }) => {
 								$connectingInput = connectInput($connectingInput, subGridItem.id, detail)

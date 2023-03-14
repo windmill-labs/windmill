@@ -5,7 +5,14 @@
 	export let expanded: boolean = false
 </script>
 
-<Button on:click color="light" size="xs" variant="border">
+<Button
+	on:click={() => {
+		expanded = !expanded
+	}}
+	color="light"
+	size="xs"
+	variant="border"
+>
 	{#if !expanded}
 		<div class="flex flex-row gap-2">
 			<Maximize size="14" />

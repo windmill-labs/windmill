@@ -6,10 +6,12 @@
 	export let expanded: boolean = false
 </script>
 
-{#if gridItem.data.type === 'tablecomponent' && gridItem.data.actionButtons.length > 0}
-	<div class="py-1 ml-2 border">
-		{#each gridItem.data.actionButtons as action}
-			<TableActionOutput id={action.id} {expanded} />
-		{/each}
-	</div>
-{/if}
+<div class="my-1">
+	{#if gridItem.data.type === 'tablecomponent' && gridItem.data.actionButtons.length > 0}
+		<div class="ml-2 border-l">
+			{#each gridItem.data.actionButtons as action, index}
+				<TableActionOutput id={action.id} {expanded} first={index === 0} />
+			{/each}
+		</div>
+	{/if}
+</div>

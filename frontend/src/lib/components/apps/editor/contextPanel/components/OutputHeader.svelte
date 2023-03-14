@@ -1,14 +1,27 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 	import { ChevronRight, ChevronDown } from 'lucide-svelte'
+	import { createEventDispatcher } from 'svelte'
+	import { slide } from 'svelte/transition'
 
-	export let open: boolean = false
-	export let manuallyOpen: boolean = open
 	export let id: string
 	export let name: string
 	export let first: boolean = false
 	export let nested: boolean = false
 	export let color: 'blue' | 'indigo' = 'indigo'
+	export let expanded: boolean = false
+	export let shouldOpen: boolean = false
+
+	$: open = shouldOpen
+	let manuallyOpen = false
+
+	const dispatch = createEventDispatcher()
+
+	$: if (expanded) {
+		manuallyOpen = true
+	} else {
+		manuallyOpen = false
+	}
 
 	const hoverColor = {
 		blue: 'hover:bg-blue-300 hover:text-blue-600',
@@ -40,7 +53,10 @@
 		first ? 'border-t' : '',
 		nested ? 'border-l' : ''
 	)}
-	on:click
+	on:click={() => {
+		manuallyOpen = !manuallyOpen
+		dispatch('handleClick', { manuallyOpen })
+	}}
 >
 	<div
 		class={classNames(
@@ -61,3 +77,10 @@
 		{/if}
 	</div>
 </div>
+{#if open || manuallyOpen}
+	<div class="py-1 border-b">
+		<div transition:slide|local class={classNames(nested ? 'border-l ml-2' : '')}>
+			<slot />
+		</div>
+	</div>
+{/if}

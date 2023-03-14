@@ -3,7 +3,6 @@
 	import { X } from 'lucide-svelte'
 	import { getContext, setContext } from 'svelte'
 	import { writable } from 'svelte/store'
-	import { slide } from 'svelte/transition'
 
 	import type { AppViewerContext } from '../../types'
 	import { connectInput, recursivelyFilterKeyInJSON, sortGridItemsPosition } from '../appUtils'
@@ -14,12 +13,8 @@
 	import MinMaxButton from './components/MinMaxButton.svelte'
 	import OutputHeader from './components/OutputHeader.svelte'
 
-	const { connectingInput, breakpoint, app, state, staticOutputs } =
+	const { connectingInput, breakpoint, app, state } =
 		getContext<AppViewerContext>('AppViewerContext')
-
-	function toggleExpanded() {
-		expanded = !expanded
-	}
 
 	let search = writable<string>('')
 	let expanded = false
@@ -58,62 +53,46 @@
 			</div>
 
 			<div class="p-1 ">
-				<MinMaxButton on:click={toggleExpanded} {expanded} />
+				<MinMaxButton bind:expanded />
 			</div>
 
-			<OutputHeader
-				open={ctxOpened}
-				manuallyOpen={false}
-				on:click={() => {
-					ctxOpened = !ctxOpened
-				}}
-				id={'ctx'}
-				name={'App Context'}
-				first
-				color="blue"
-			/>
+			<div class="flex flex-col gap-4">
+				<div>
+					<span class="text-sm font-bold p-2">State & Context</span>
 
-			{#if ctxOpened}
-				<div class="py-1 border-b" transition:slide|local>
-					<ComponentOutputViewer
-						componentId={'ctx'}
-						outputs={['email', 'username', 'query', 'hash']}
-						on:select={({ detail }) => {
-							$connectingInput = connectInput($connectingInput, 'ctx', detail)
-						}}
-					/>
+					<OutputHeader id={'ctx'} name={'App Context'} first color="blue" {expanded}>
+						<ComponentOutputViewer
+							componentId={'ctx'}
+							outputs={['email', 'username', 'query', 'hash']}
+							on:select={({ detail }) => {
+								$connectingInput = connectInput($connectingInput, 'ctx', detail)
+							}}
+						/>
+					</OutputHeader>
+
+					<OutputHeader id={'State'} name={'State'} color="blue" {expanded}>
+						{#key $state}
+							{#if Object.keys(filteredState).length > 0}
+								<ObjectViewer json={filteredState} />
+							{:else}
+								<div class="text-xs pl-2">No results</div>
+							{/if}
+						{/key}
+					</OutputHeader>
 				</div>
-			{/if}
 
-			<OutputHeader
-				open={stateOpened}
-				manuallyOpen={false}
-				on:click={() => {
-					stateOpened = !stateOpened
-				}}
-				id={'State'}
-				name={'State'}
-				color="blue"
-			/>
-
-			{#if stateOpened}
-				<div class="py-1 border-b pb-2" transition:slide|local>
-					{#key $state}
-						{#if Object.keys(filteredState).length > 0}
-							<ObjectViewer json={filteredState} />
-						{:else}
-							<div class="text-xs pl-2">No results</div>
-						{/if}
-					{/key}
+				<div>
+					<span class="text-sm font-bold p-2">Visible component</span>
+					{#each sortGridItemsPosition($app.grid, $breakpoint) as gridItem, index}
+						<ComponentOutput {gridItem} first={index === 0} {expanded} />
+					{/each}
 				</div>
-			{/if}
-
-			<BackgroundScriptsOutput {expanded} />
-
-			<div class="mt-8">
-				{#each sortGridItemsPosition($app.grid, $breakpoint) as gridItem, index}
-					<ComponentOutput {gridItem} first={index === 0} {expanded} />
-				{/each}
+				<div>
+					<span class="text-sm font-bold p-2">Background scripts</span>
+					<div class="border-t">
+						<BackgroundScriptsOutput {expanded} />
+					</div>
+				</div>
 			</div>
 		</div>
 	</div>
