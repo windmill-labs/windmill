@@ -300,9 +300,6 @@ pub fn add_include_headers(
     headers: HeaderMap,
     mut args: serde_json::Map<String, serde_json::Value>,
 ) -> serde_json::Map<String, serde_json::Value> {
-    if include_header.is_none() {
-        return args;
-    }
     let whitelist = include_header
         .as_ref()
         .map(|s| s.split(",").map(|s| s.to_string()).collect::<Vec<_>>())
@@ -321,6 +318,7 @@ pub fn add_include_headers(
         });
     args
 }
+
 #[derive(Deserialize)]
 pub struct ListQueueQuery {
     pub script_path_start: Option<String>,
