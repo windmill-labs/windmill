@@ -12,10 +12,10 @@
 	import { push } from '$lib/history'
 	import { sendUserToast } from '$lib/utils'
 
-	const { app, selectedComponent, breakpoint, focusedGrid } =
+	const { app, selectedComponent, breakpoint, focusedGrid, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	const { componentControl, history } = getContext<AppEditorContext>('AppEditorContext')
+	const { history } = getContext<AppEditorContext>('AppEditorContext')
 
 	let tempGridItem: GridItem | undefined = undefined
 	let copiedGridItem: GridItem | undefined = undefined

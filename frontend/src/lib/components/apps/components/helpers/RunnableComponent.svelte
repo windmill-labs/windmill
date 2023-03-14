@@ -45,7 +45,8 @@
 		errorByComponent,
 		mode,
 		stateId,
-		state
+		state,
+		componentControl
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	$: autoRefresh && handleAutorefresh()
@@ -161,7 +162,8 @@
 					computeGlobalContext($worldStore, id, {}),
 					false,
 					$state,
-					$mode == 'dnd'
+					$mode == 'dnd',
+					$componentControl
 				)
 				setResult(r)
 				$state = $state

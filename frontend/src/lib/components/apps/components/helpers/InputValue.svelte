@@ -15,6 +15,8 @@
 	export let error: string = ''
 	export let extraContext: Record<string, any> = {}
 
+	const { componentControl } = getContext<AppViewerContext>('AppViewerContext')
+
 	const dispatch = createEventDispatcher()
 
 	if (input == undefined) {
@@ -81,7 +83,8 @@
 				computeGlobalContext($worldStore, id, extraContext),
 				true,
 				$state,
-				$mode == 'dnd'
+				$mode == 'dnd',
+				$componentControl
 			)
 			error = ''
 			return r
@@ -99,7 +102,8 @@
 					computeGlobalContext($worldStore, id, extraContext),
 					true,
 					$state,
-					$mode == 'dnd'
+					$mode == 'dnd',
+					$componentControl
 				)
 				error = ''
 				return r

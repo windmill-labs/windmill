@@ -19,10 +19,8 @@
 	export let initializing: boolean | undefined = true
 
 	export const staticOutputs: string[] = ['selectedTabIndex']
-	const { app, worldStore, focusedGrid, selectedComponent, mode } =
+	const { app, worldStore, focusedGrid, selectedComponent, mode, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
-
-	const { componentControl } = getContext<AppEditorContext>('AppEditorContext')
 
 	let selected: string = tabs[0]
 	let kind: 'tabs' | 'sidebar' | 'invisibleOnView' | undefined = undefined
@@ -78,6 +76,9 @@
 				return true
 			}
 			return false
+		},
+		setTab: (tab: number) => {
+			selected = tabs[tab]
 		}
 	}
 
