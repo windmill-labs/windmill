@@ -52,7 +52,7 @@
 
 		{#if selected === index || name !== 'Tabs'}
 			<div transition:slide|local class="border-l">
-				{#if $app.subgrids && $app.subgrids[subGridId].length > 0}
+				{#if $app.subgrids && $app.subgrids[subGridId]?.length > 0}
 					{#each sortGridItemsPosition($app.subgrids[subGridId], $breakpoint) as subGridItem, index}
 						<ComponentOutput
 							gridItem={subGridItem}
