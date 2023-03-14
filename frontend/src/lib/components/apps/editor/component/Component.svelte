@@ -54,11 +54,6 @@
 	let initializing: boolean | undefined = undefined
 	let componentContainerHeight: number = 0
 
-	// let component = JSON.parse(JSON.stringify({ conf }))
-	// $: if (!deepEqual(component, pComponent)) {
-	// 	component = JSON.parse(JSON.stringify(pComponent))
-	// }
-
 	$: componentWithErrors = Object.values($errorByComponent).map((e) => e.componentId)
 	$: hasError = componentWithErrors.includes(component.id)
 

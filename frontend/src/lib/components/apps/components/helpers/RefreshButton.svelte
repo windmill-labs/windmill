@@ -14,6 +14,7 @@
 	}
 	let loading = false
 	$: $worldStore?.outputsById[componentId]?.['loading']?.subscribe({
+		id: 'refresh-' + componentId,
 		next: (value) => {
 			loading = value
 		}
