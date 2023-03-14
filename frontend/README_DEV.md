@@ -157,10 +157,13 @@ To build the frontend as static assets, use:
 npm run build
 ```
 
-The default build assume you serve every non static files as the 200.html file which is catchall. If you prefer a normal layout, you can use the :
+The output is in the `build` folder.
+
+The default build assume you serve every non static files as the 200.html file which is catchall. If you prefer a normal layout, you can use:
 ```
 NOTCATCHALL=true npm run build
 ```
+which will generate an index.html and allow you to serve the frontend with any static server.
 
 Env variables used for build are set in .env file. See [https://vitejs.dev/guide/env-and-mode.html#env-files](https://vitejs.dev/guide/env-and-mode.html#env-files) for more details.
 
