@@ -5,12 +5,20 @@
 	import ComponentOutputViewer from '../ComponentOutputViewer.svelte'
 	import OutputHeader from './OutputHeader.svelte'
 
-	const { staticOutputs, connectingInput } = getContext<AppViewerContext>('AppViewerContext')
+	const { selectedComponent, connectingInput } = getContext<AppViewerContext>('AppViewerContext')
 
 	export let id: string
 	export let name: string
 	export let expanded: boolean = false
 	export let first: boolean = false
+
+	function onHeaderClick(manuallyOpen: boolean) {
+		if (manuallyOpen) {
+			$selectedComponent = id
+		} else {
+			$selectedComponent = undefined
+		}
+	}
 </script>
 
 <OutputHeader {id} {name} color="blue" {first} {expanded}>
@@ -19,6 +27,9 @@
 		outputs={['loading', 'result']}
 		on:select={({ detail }) => {
 			$connectingInput = connectInput($connectingInput, id, detail)
+		}}
+		on:handleClick={(e) => {
+			onHeaderClick(e.detail.manuallyOpen)
 		}}
 	/>
 </OutputHeader>

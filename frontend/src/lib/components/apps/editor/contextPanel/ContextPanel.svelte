@@ -32,8 +32,8 @@
 </script>
 
 <PanelSection noPadding titlePadding="px-4 pt-2 pb-0.5" title="Outputs">
-	<div style="z-index:1000;" class="bg-white w-full">
-		<div class="overflow-auto h-full min-w-[150px] w-full relative flex flex-col">
+	<div style="z-index:1000;" class="bg-white w-full h-full">
+		<div class="min-w-[150px]">
 			<div class="sticky z-50 top-0 left-0 w-full bg-white p-2">
 				<div class="relative">
 					<input
