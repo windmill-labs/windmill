@@ -16,11 +16,10 @@
 
 	function subscribeToAllOutputs(observableOutputs: Record<string, Output<any>>) {
 		if (observableOutputs) {
-			outputs.forEach((output: string) => {
+			outputs?.forEach((output: string) => {
 				object[output] = undefined
 				observableOutputs[output]?.subscribe({
 					next: (value) => {
-						console.log(value)
 						object[output] = value
 					}
 				})

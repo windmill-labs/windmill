@@ -54,8 +54,8 @@
 		nested ? 'border-l' : ''
 	)}
 	on:click={() => {
-		manuallyOpen = !manuallyOpen
 		dispatch('handleClick', { manuallyOpen })
+		manuallyOpen = !manuallyOpen
 	}}
 >
 	<div
@@ -78,8 +78,8 @@
 	</div>
 </div>
 {#if open || manuallyOpen}
-	<div class="py-1 border-b">
-		<div transition:slide|local class={classNames(nested ? 'border-l ml-2' : '')}>
+	<div class="py-1 border-b" transition:slide|local>
+		<div class={classNames(nested ? 'border-l ml-2' : '')}>
 			<slot />
 		</div>
 	</div>
