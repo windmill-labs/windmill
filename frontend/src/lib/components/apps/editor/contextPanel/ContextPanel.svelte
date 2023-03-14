@@ -36,14 +36,14 @@
 	$: filteredState = recursivelyFilterKeyInJSON($state, $search)
 </script>
 
-<PanelSection noPadding titlePadding="px-4 pt-2 pb-0.5" title="Outputs">
+<PanelSection noPadding titlePadding="px-2 pt-2" title="Outputs">
 	<div style="z-index:1000;" class="bg-white w-full h-full">
 		<div class="min-w-[150px]">
 			<div class="sticky z-50 top-0 left-0 w-full bg-white p-2">
 				<div class="relative">
 					<input
 						bind:value={$search}
-						class="px-2 py-1 border border-gray-300 rounded-sm {search ? 'pr-8' : ''}"
+						class="px-2 pb-1 border border-gray-300 rounded-sm {search ? 'pr-8' : ''}"
 						placeholder="Search outputs..."
 					/>
 					{#if search}
@@ -57,13 +57,13 @@
 				</div>
 			</div>
 
-			<div class="p-1 ">
+			<div class="ml-2">
 				<MinMaxButton bind:expanded />
 			</div>
 
 			<div class="flex flex-col gap-4">
 				<div>
-					<span class="text-sm font-bold p-2">State & Context</span>
+					<span class="text-xs font-bold p-2">State & Context</span>
 
 					<OutputHeader id={'ctx'} name={'App Context'} first color="blue" {expanded}>
 						<ComponentOutputViewer
@@ -87,17 +87,12 @@
 				</div>
 
 				<div>
-					<span class="text-sm font-bold p-2">Components</span>
+					<span class="text-xs font-bold p-2">Components</span>
 					{#each sortedItems as gridItem, index}
 						<ComponentOutput {gridItem} first={index === 0} {expanded} />
 					{/each}
 				</div>
-				<div>
-					<span class="text-sm font-bold p-2">Background scripts</span>
-					<div class="border-t">
-						<BackgroundScriptsOutput {expanded} />
-					</div>
-				</div>
+				<BackgroundScriptsOutput {expanded} />
 			</div>
 		</div>
 	</div>

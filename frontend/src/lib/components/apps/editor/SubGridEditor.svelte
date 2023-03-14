@@ -89,7 +89,11 @@
 		on:pointerup={onpointerup}
 		style="height: {containerHeight}px; {style ?? ''}"
 	>
-		<div class={highlight && $mode !== 'preview' ? 'border-gray-400  border border-dashed' : ''}>
+		<div
+			class={highlight && $mode !== 'preview'
+				? 'border-gray-400 border border-dashed min-h-full'
+				: ''}
+		>
 			<Grid
 				items={subGrid}
 				on:redraw={(e) => {

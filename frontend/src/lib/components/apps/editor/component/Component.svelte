@@ -56,9 +56,6 @@
 
 	$: componentWithErrors = Object.values($errorByComponent).map((e) => e.componentId)
 	$: hasError = componentWithErrors.includes(component.id)
-
-
-	
 </script>
 
 <div
@@ -90,7 +87,8 @@
 		}}
 		class={twMerge(
 			'h-full bg-white/40',
-			selected && $mode !== 'preview' ? 'border border-blue-500' : '',
+			selected && $mode !== 'preview' ? 'border border-indigo-500' : '',
+			hover && $mode !== 'preview' ? 'border border-blue-100' : '',
 			$mode !== 'preview' && !$connectingInput.opened ? 'hover:border-blue-500' : '',
 			component.softWrap || hasError ? '' : 'overflow-auto',
 			$mode != 'preview' ? 'cursor-pointer' : '',
