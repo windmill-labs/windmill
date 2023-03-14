@@ -16,9 +16,8 @@
 	export let panes: number[]
 	export let render: boolean
 
-	const { app, focusedGrid, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
-
-	const { componentControl } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, focusedGrid, selectedComponent, componentControl } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	function onFocus() {
 		$focusedGrid = {

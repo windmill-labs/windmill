@@ -136,11 +136,16 @@ export type AppViewerContext = {
 	stateId: Writable<number>
 	parentWidth: Writable<number>
 	state: Writable<Record<string, any>>
+	componentControl: Writable<
+		Record<
+			string,
+			{ left?: () => boolean; right?: () => boolean; setTab?: (index: number) => void }
+		>
+	>
 }
 
 export type AppEditorContext = {
 	history: History<App> | undefined
-	componentControl: Writable<Record<string, { left?: () => boolean; right?: () => boolean }>>
 	pickVariableCallback: Writable<((path: string) => void) | undefined>
 }
 
