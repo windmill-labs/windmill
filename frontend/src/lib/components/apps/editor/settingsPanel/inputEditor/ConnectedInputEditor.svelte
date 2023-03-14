@@ -7,7 +7,7 @@
 
 	export let componentInput: ConnectedAppInput
 
-	const { connectingInput } = getContext<AppViewerContext>('AppViewerContext')
+	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
 
 	function applyConnection() {
 		if (
@@ -21,14 +21,6 @@
 				input: undefined,
 				hoveredComponent: undefined
 			}
-		}
-	}
-
-	function startConnecting() {
-		$connectingInput = {
-			opened: true,
-			input: undefined,
-			hoveredComponent: undefined
 		}
 	}
 
@@ -57,6 +49,7 @@
 			if (componentInput.type === 'connected') {
 				componentInput.connection = undefined
 			}
+			$app = $app
 		}}
 	>
 		Disconnect

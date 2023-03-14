@@ -134,6 +134,10 @@
 				cols: getComputedCols
 			})
 		}
+
+		if (isPointerUp) {
+			dispatch('redraw', items)
+		}
 	}
 
 	const throttleMatrix = throttle(updateMatrix, throttleResize)

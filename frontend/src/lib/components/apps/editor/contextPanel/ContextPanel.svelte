@@ -25,6 +25,11 @@
 		search
 	})
 
+	let sortedItems = sortGridItemsPosition($app.grid, $breakpoint)
+
+	$: $app.subgrids &&
+		setTimeout(() => (sortedItems = sortGridItemsPosition($app.grid, $breakpoint)), 500)
+
 	$: expanded && !ctxOpened && (ctxOpened = true)
 	$: expanded && !stateOpened && (stateOpened = true)
 
@@ -83,7 +88,7 @@
 
 				<div>
 					<span class="text-sm font-bold p-2">Components</span>
-					{#each sortGridItemsPosition($app.grid, $breakpoint) as gridItem, index}
+					{#each sortedItems as gridItem, index}
 						<ComponentOutput {gridItem} first={index === 0} {expanded} />
 					{/each}
 				</div>

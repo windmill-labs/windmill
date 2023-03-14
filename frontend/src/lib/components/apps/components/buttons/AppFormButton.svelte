@@ -57,6 +57,7 @@
 	}
 
 	$: outputs?.loading.subscribe({
+		id: 'loading-' + id,
 		next: (value) => {
 			isLoading = value
 			if (ownClick && !value) {

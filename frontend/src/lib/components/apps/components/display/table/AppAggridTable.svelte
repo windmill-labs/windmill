@@ -109,7 +109,10 @@
 		</div>
 	{:else if result != undefined}
 		<Alert title="Parsing issues" type="error" size="xs">
-			The result should be an array of objects
+			The result should be an array of objects, received:
+			<pre class="overflow-auto">
+				{JSON.stringify(result)}
+			</pre>
 		</Alert>
 	{/if}
 </RunnableWrapper>
