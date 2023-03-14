@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
-	import { ChevronRight, ChevronDown } from 'lucide-svelte'
+	import { ChevronDown, ChevronUp } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { slide } from 'svelte/transition'
 
@@ -69,11 +69,11 @@
 	<div class="text-2xs font-bold flex flex-row gap-2 items-center">
 		{name}
 		{#if !open && !manuallyOpen}
-			<ChevronRight size={14} />
-		{:else if manuallyOpen}
-			<ChevronDown size={14} class={manuallyOpenColor[color]} strokeWidth={4} />
-		{:else}
 			<ChevronDown size={14} />
+		{:else if manuallyOpen}
+			<ChevronUp size={14} class={manuallyOpenColor[color]} strokeWidth={4} />
+		{:else}
+			<ChevronUp size={14} />
 		{/if}
 	</div>
 </div>

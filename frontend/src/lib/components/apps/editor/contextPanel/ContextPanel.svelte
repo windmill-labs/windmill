@@ -82,7 +82,7 @@
 				</div>
 
 				<div>
-					<span class="text-sm font-bold p-2">Visible component</span>
+					<span class="text-sm font-bold p-2">Components</span>
 					{#each sortGridItemsPosition($app.grid, $breakpoint) as gridItem, index}
 						<ComponentOutput {gridItem} first={index === 0} {expanded} />
 					{/each}

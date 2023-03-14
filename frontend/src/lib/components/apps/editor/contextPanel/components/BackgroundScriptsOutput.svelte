@@ -9,8 +9,6 @@
 	export let expanded: boolean = false
 </script>
 
-<OutputHeader id="BG" name={'Background scripts'} color="blue" nested {expanded}>
-	{#each $app.hiddenInlineScripts as action, index}
-		<BackgroundScriptOutput id={`bg_${index}`} name={action.name} {expanded} first={index === 0} />
-	{/each}
-</OutputHeader>
+{#each $app.hiddenInlineScripts as action, index}
+	<BackgroundScriptOutput id={`bg_${index}`} name={action.name} {expanded} />
+{/each}

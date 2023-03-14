@@ -16,12 +16,12 @@
 	{#if !expanded}
 		<div class="flex flex-row gap-2">
 			<Maximize size="14" />
-			Maximize
+			Expand all
 		</div>
 	{:else}
 		<div class="flex flex-row gap-2">
 			<Minimize size="14" />
-			Minimize
+			Collapse all
 		</div>
 	{/if}
 </Button>
