@@ -26,7 +26,7 @@
 	}
 </script>
 
-{#if pointerdown || selected || hover}
+{#if selected || hover}
 	<span
 		title={`Id: ${component.id}`}
 		class={classNames(

@@ -1,11 +1,10 @@
 <script lang="ts">
-	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
 	import { X } from 'lucide-svelte'
 	import { getContext, setContext } from 'svelte'
 	import { writable } from 'svelte/store'
 
 	import type { AppViewerContext } from '../../types'
-	import { connectInput, recursivelyFilterKeyInJSON, sortGridItemsPosition } from '../appUtils'
+	import { connectInput, sortGridItemsPosition } from '../appUtils'
 	import PanelSection from '../settingsPanel/common/PanelSection.svelte'
 	import ComponentOutput from './ComponentOutput.svelte'
 	import ComponentOutputViewer from './ComponentOutputViewer.svelte'
@@ -32,8 +31,6 @@
 
 	$: expanded && !ctxOpened && (ctxOpened = true)
 	$: expanded && !stateOpened && (stateOpened = true)
-
-	$: filteredState = recursivelyFilterKeyInJSON($state, $search)
 </script>
 
 <PanelSection noPadding titlePadding="px-2 pt-2" title="Outputs">
@@ -76,13 +73,17 @@
 					</OutputHeader>
 
 					<OutputHeader id={'state'} name={'State'} color="blue" {expanded}>
-						<ComponentOutputViewer
-							componentId={'state'}
-							outputs={Object.keys($state)}
-							on:select={({ detail }) => {
-								$connectingInput = connectInput($connectingInput, 'state', detail)
-							}}
-						/>
+						{#if Object.keys($state).length > 0}
+							<ComponentOutputViewer
+								componentId={'state'}
+								outputs={Object.keys($state)}
+								on:select={({ detail }) => {
+									$connectingInput = connectInput($connectingInput, 'state', detail)
+								}}
+							/>
+						{:else}
+							<div class="px-2 py-1 text-xs">No state found</div>
+						{/if}
 					</OutputHeader>
 				</div>
 

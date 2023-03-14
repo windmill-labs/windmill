@@ -40,7 +40,6 @@
 		AppPdf
 	} from '../../components'
 	import AppMultiSelect from '../../components/inputs/AppMultiSelect.svelte'
-	import Portal from 'svelte-portal'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -48,7 +47,7 @@
 	export let pointerdown: boolean = false
 	export let render: boolean
 
-	const { staticOutputs, mode, connectingInput, app, errorByComponent } =
+	const { staticOutputs, mode, app, errorByComponent } =
 		getContext<AppViewerContext>('AppViewerContext')
 	let hover = false
 	let initializing: boolean | undefined = undefined
@@ -87,9 +86,8 @@
 		}}
 		class={twMerge(
 			'h-full bg-white/40',
-			selected && $mode !== 'preview' ? 'border border-indigo-500' : '',
-			hover && $mode !== 'preview' ? 'border border-blue-100' : '',
-			$mode !== 'preview' && !$connectingInput.opened ? 'hover:border-blue-500' : '',
+			hover && $mode !== 'preview' ? 'border border-blue-600' : '',
+			selected && $mode !== 'preview' ? 'border border-indigo-600' : '',
 			component.softWrap || hasError ? '' : 'overflow-auto',
 			$mode != 'preview' ? 'cursor-pointer' : '',
 			'relative z-auto',
