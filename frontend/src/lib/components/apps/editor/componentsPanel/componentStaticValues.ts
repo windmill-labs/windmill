@@ -4,6 +4,7 @@ const buttonColorOptions = [...BUTTON_COLORS]
 
 export const staticValues = {
 	buttonColorOptions,
+	tabsKindOptions: ['tabs', 'sidebar', 'invisibleOnView'],
 	buttonSizeOptions: ['xs', 'sm', 'md', 'lg', 'xl'],
 	tableSearchOptions: ['By Component', 'By Runnable', 'Disabled'],
 	chartThemeOptions: ['theme1', 'theme2', 'theme3'],

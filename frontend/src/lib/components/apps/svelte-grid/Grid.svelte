@@ -19,6 +19,7 @@
 	export let throttleUpdate = 100
 	export let throttleResize = 100
 	export let onTopId: string | undefined = undefined
+	export let containerWidth: number | undefined = undefined
 
 	export let scroller = undefined
 	export let sensor = 20
@@ -33,8 +34,6 @@
 
 	let xPerPx = 0
 	let yPerPx = rowHeight
-
-	let containerWidth
 
 	$: containerHeight = getContainerHeight(items, yPerPx, getComputedCols)
 

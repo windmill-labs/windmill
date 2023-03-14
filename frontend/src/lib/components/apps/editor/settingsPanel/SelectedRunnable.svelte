@@ -71,3 +71,9 @@
 		Please configure the language in the inline script panel
 	</span>
 {/if}
+{#if appInput.runnable?.type === 'runnableByName' && appInput.runnable.inlineScript?.language === 'frontend'}
+	<span class="text-xs text-gray-500">
+		If the component is a display component. The script will be recomputed upon any changes to any
+		output or to the state.
+	</span>
+{/if}

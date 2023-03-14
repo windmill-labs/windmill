@@ -95,14 +95,18 @@
 		refreshIfAutoRefresh()
 	}
 
+	$: fields && (lazyStaticValues = computeStaticValues())
+	$: (runnableInputValues || extraQueryParams || args) && testJobLoader && refreshIfAutoRefresh()
+	$: runnable?.type == 'runnableByName' &&
+		runnable.inlineScript?.language == 'frontend' &&
+		($stateId || $state) &&
+		refreshIfAutoRefresh()
+
 	function refreshIfAutoRefresh() {
 		if (autoRefresh) {
 			setDebouncedExecute()
 		}
 	}
-
-	$: fields && (lazyStaticValues = computeStaticValues())
-	$: (runnableInputValues || extraQueryParams || args) && testJobLoader && refreshIfAutoRefresh()
 
 	// Test job internal state
 	let testJob: CompletedJob | undefined = undefined
