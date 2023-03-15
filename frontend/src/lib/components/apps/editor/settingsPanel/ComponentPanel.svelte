@@ -33,15 +33,8 @@
 	export let noGrid = false
 	export let duplicateMoveAllowed = true
 
-	const {
-		app,
-		runnableComponents,
-		selectedComponent,
-		worldStore,
-		focusedGrid,
-		stateId,
-		state
-	} = getContext<AppViewerContext>('AppViewerContext')
+	const { app, runnableComponents, selectedComponent, worldStore, focusedGrid, stateId, state } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	const { history } = getContext<AppEditorContext>('AppEditorContext')
 
@@ -149,7 +142,8 @@
 										id={component.id}
 										shouldCapitalize={false}
 										bind:inputSpecs={component.componentInput.fields}
-										userInputEnabled={component.type !== 'buttoncomponent'}
+										userInputEnabled={component.type === 'formcomponent' ||
+											component.type === 'formbuttoncomponent'}
 										{rowColumns}
 									/>
 								</PanelSection>

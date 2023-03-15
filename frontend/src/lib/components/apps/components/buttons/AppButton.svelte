@@ -137,7 +137,6 @@
 <InputValue {id} input={configuration.gotoNewTab} bind:value={gotoNewTab} />
 
 <RunnableWrapper
-	flexWrap
 	{recomputeIds}
 	bind:runnableComponent
 	{componentInput}

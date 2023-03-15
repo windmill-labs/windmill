@@ -78,7 +78,7 @@
 <InputValue {id} input={configuration.theme} bind:value={theme} />
 <InputValue {id} input={configuration.doughnutStyle} bind:value={doughnut} />
 
-<RunnableWrapper {render} flexWrap autoRefresh {componentInput} {id} bind:initializing bind:result>
+<RunnableWrapper {render} autoRefresh {componentInput} {id} bind:initializing bind:result>
 	<div class="w-full h-full {css?.container?.class ?? ''}" style={css?.container?.style ?? ''}>
 		{#if result}
 			{#if doughnut}
