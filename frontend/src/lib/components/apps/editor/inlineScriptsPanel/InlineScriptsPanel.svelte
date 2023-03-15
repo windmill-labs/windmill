@@ -8,8 +8,7 @@
 	import EmptyInlineScript from './EmptyInlineScript.svelte'
 	import InlineScriptEditorPanel from './InlineScriptEditorPanel.svelte'
 
-	const { app, staticOutputs, runnableComponents } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const { app, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 
 	let selectedScriptComponentId: string | undefined = undefined
 
@@ -18,9 +17,7 @@
 		$app.hiddenInlineScripts.splice(index, 1)
 		$app.hiddenInlineScripts = [...$app.hiddenInlineScripts]
 
-		delete $staticOutputs[`bg_${index}`]
 		delete $runnableComponents[`bg_${index}`]
-		$staticOutputs = $staticOutputs
 	}
 </script>
 

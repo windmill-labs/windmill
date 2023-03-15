@@ -56,7 +56,7 @@
 	}
 
 	async function newInlineScript(content: string, language: Preview.language, path: string) {
-		const fullPath = `${appPath}/inline-script/${path}`
+		const fullPath = `${appPath}/${path}`
 
 		let schema: Schema = emptySchema()
 

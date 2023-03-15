@@ -11,6 +11,7 @@
 	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { getContext } from 'svelte'
 	import ResizeWrapper from '../helpers/ResizeWrapper.svelte'
+	import { initOutput } from '../../editor/appUtils'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -21,9 +22,12 @@
 	export let customCss: ComponentCustomCSS<'text'> | undefined = undefined
 	export let render: boolean
 
-	export const staticOutputs: string[] = ['result', 'loading']
+	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	const { app } = getContext<AppViewerContext>('AppViewerContext')
+	initOutput($worldStore, id, {
+		result: undefined,
+		loading: false
+	})
 
 	let result: string | undefined = undefined
 	let style: 'Title' | 'Subtitle' | 'Body' | 'Caption' | 'Label' | undefined = undefined

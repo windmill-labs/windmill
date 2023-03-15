@@ -23,6 +23,7 @@
 	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { getContext } from 'svelte'
 	import { concatCustomCss } from '../../utils'
+	import { initOutput } from '../../editor/appUtils'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -31,8 +32,12 @@
 	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
 	export let render: boolean
 
-	export const staticOutputs: string[] = ['loading', 'result']
-	const { app } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+
+	initOutput($worldStore, id, {
+		result: undefined,
+		loading: false
+	})
 
 	let logarithmicScale = false
 	let zoomable = false

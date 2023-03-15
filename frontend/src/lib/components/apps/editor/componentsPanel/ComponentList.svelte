@@ -10,7 +10,8 @@
 	import { push } from '$lib/history'
 	import { flip } from 'svelte/animate'
 
-	const { app, selectedComponent, focusedGrid } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, selectedComponent, focusedGrid, worldStore } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	const { history } = getContext<AppEditorContext>('AppEditorContext')
 
@@ -23,6 +24,7 @@
 		const id = insertNewGridItem($app, data, $focusedGrid)
 
 		$selectedComponent = id
+		$worldStore = $worldStore
 	}
 
 	let search = ''

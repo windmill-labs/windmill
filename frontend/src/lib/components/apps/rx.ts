@@ -1,5 +1,5 @@
 import type { AppInput } from './inputType'
-import { writable, type Writable } from 'svelte/store'
+import { get, writable, type Writable } from 'svelte/store'
 import { deepEqual } from 'fast-equals'
 
 export interface Subscriber<T> {
@@ -26,36 +26,22 @@ export type World = {
 	newOutput: <T>(id: string, name: string, previousValue: T) => Output<T>
 }
 
-export function buildWorld(
-	components: Record<string, string[]>,
-	previousWorld: World | undefined,
-	context: Record<string, any>
-): World {
+export function buildWorld(context: Record<string, any>): Writable<World> {
 	const newWorld = buildObservableWorld()
 	const stateId = writable(0)
-
+	let writableWorld: Writable<World> | undefined = undefined
 	const outputsById: Record<string, Record<string, Output<any>>> = {
 		ctx: Object.fromEntries(
 			Object.entries(context).map(([k, v]) => {
 				return [k, newWorld.newOutput('ctx', k, stateId, v)]
 			})
 		),
-		state: previousWorld?.outputsById?.state ?? {}
+		state: {}
 	}
-	for (const [k, outputs] of Object.entries(components)) {
-		outputsById[k] = {}
 
-		for (const o of outputs) {
-			outputsById[k][o] = newWorld.newOutput(
-				k,
-				o,
-				stateId,
-				previousWorld?.outputsById[k]?.[o]?.peak()
-			)
-		}
-	}
 	function newOutput<T>(id: string, name: string, previousValue: T) {
 		if (outputsById[id]?.[name]) {
+			writableWorld?.update((x) => x)
 			return outputsById[id][name]
 		}
 		let o = newWorld.newOutput(id, name, stateId, previousValue)
@@ -63,11 +49,12 @@ export function buildWorld(
 			outputsById[id] = {}
 		}
 		outputsById[id][name] = o
+		writableWorld?.update((x) => x)
 		return o
 	}
 	stateId.update((x) => x + 1)
-
-	return { outputsById, connect: newWorld.connect, stateId, newOutput }
+	writableWorld = writable({ outputsById, connect: newWorld.connect, stateId, newOutput })
+	return writableWorld
 }
 
 export function buildObservableWorld() {

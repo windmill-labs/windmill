@@ -26,7 +26,7 @@
 
 	export const staticOutputs: string[] = ['loading', 'result']
 
-	const { app, runnableComponents, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
 	let labelValue: string = 'Default label'
 	let color: ButtonType.Color

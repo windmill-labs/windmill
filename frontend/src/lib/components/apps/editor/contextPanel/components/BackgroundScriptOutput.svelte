@@ -14,7 +14,11 @@
 
 	function onHeaderClick(manuallyOpen: boolean) {
 		if (manuallyOpen) {
-			$selectedComponent = undefined
+			if (id) {
+				$selectedComponent = id
+			} else {
+				$selectedComponent = undefined
+			}
 		} else {
 			$selectedComponent = id
 		}
@@ -28,13 +32,14 @@
 	{first}
 	{expanded}
 	on:handleClick={(e) => {
-		onHeaderClick(e.detail.manuallyOpen)
+		if (!$connectingInput.opened) {
+			onHeaderClick(e.detail.manuallyOpen)
+		}
 	}}
 	shouldOpen={$selectedComponent === id}
 >
 	<ComponentOutputViewer
 		componentId={id}
-		outputs={['loading', 'result']}
 		on:select={({ detail }) => {
 			$connectingInput = connectInput($connectingInput, id, detail)
 		}}

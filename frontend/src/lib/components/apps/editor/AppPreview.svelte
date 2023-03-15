@@ -29,7 +29,6 @@
 
 	const appStore = writable<App>(app)
 	const worldStore = writable<World | undefined>(undefined)
-	const staticOutputs = writable<Record<string, string[]>>({})
 	const selectedComponent = writable<string | undefined>(undefined)
 	const mode = writable<EditorMode>('preview')
 
@@ -42,8 +41,7 @@
 	const runnableComponents = writable<Record<string, () => Promise<void>>>({})
 
 	setContext<AppViewerContext>('AppViewerContext', {
-		worldStore,
-		staticOutputs,
+		worldStore: buildWorld(context),
 		app: appStore,
 		summary: writable(summary),
 		selectedComponent,
@@ -85,7 +83,6 @@
 		ncontext = ncontext
 	}
 
-	$: mounted && ($worldStore = buildWorld($staticOutputs, $worldStore, ncontext))
 	$: width = $breakpoint === 'sm' ? 'max-w-[640px]' : 'w-full '
 	$: lockedClasses = isLocked ? '!max-h-[400px] overflow-hidden pointer-events-none' : ''
 </script>

@@ -113,7 +113,7 @@
 	let testJob: CompletedJob | undefined = undefined
 	let testJobLoader: TestJobLoader | undefined = undefined
 
-	$: outputs = initOutput($worldStore, id, { result: undefined, loading: false })
+	let outputs = initOutput($worldStore, id, { result: undefined, loading: false })
 
 	$: outputs?.loading?.set(testIsLoading)
 	$: schemaStripped = stripSchema(fields, $stateId)

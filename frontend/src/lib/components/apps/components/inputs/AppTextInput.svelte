@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { initOutput } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
@@ -12,7 +13,6 @@
 	export let configuration: Record<string, AppInput>
 	export let inputType = 'text'
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export const staticOutputs: string[] = ['result']
 	export let customCss: ComponentCustomCSS<'input'> | undefined = undefined
 	export let appCssKey: 'textinputcomponent' | 'passwordinputcomponent' | 'emailinputcomponent' =
 		'textinputcomponent'
@@ -24,13 +24,13 @@
 	let defaultValue: string | undefined = undefined
 	let value: string | undefined = undefined
 
-	$: outputs = $worldStore?.outputsById[id] as {
-		result: Output<string | undefined>
-	}
+	let outputs = initOutput($worldStore, id, {
+		result: ''
+	})
 
 	$: handleDefault(defaultValue)
 
-	$: outputs?.result.set(value)
+	$: outputs?.result.set(value ?? '')
 
 	function handleDefault(defaultValue: string | undefined) {
 		value = defaultValue

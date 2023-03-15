@@ -10,7 +10,7 @@
 	import { push } from '$lib/history'
 	import { sendUserToast } from '$lib/utils'
 
-	const { app, selectedComponent, breakpoint, focusedGrid, componentControl } =
+	const { app, selectedComponent, worldStore, focusedGrid, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	const { history } = getContext<AppEditorContext>('AppEditorContext')
@@ -164,6 +164,7 @@
 			insertNewGridItem($app, copiedGridItem.data, $focusedGrid, false)
 		}
 
+		$worldStore = $worldStore
 		$app = $app
 	}
 

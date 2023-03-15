@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { initOutput } from '$lib/components/apps/editor/appUtils'
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { AppInput } from '../../../inputType'
@@ -12,11 +13,14 @@
 	export let id: string
 	export let configuration: Record<string, AppInput>
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export const staticOutputs: string[] = ['result']
 	export let customCss: ComponentCustomCSS<'input'> | undefined = undefined
 	export let render: boolean
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+
+	initOutput($worldStore, id, {
+		result: undefined
+	})
 
 	let defaultValue: number | undefined = undefined
 

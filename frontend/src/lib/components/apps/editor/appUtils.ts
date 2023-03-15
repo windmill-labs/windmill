@@ -306,15 +306,9 @@ export function initOutput<I extends Record<string, any>>(
 	if (!world) {
 		return {} as any
 	}
-	const output = world.outputsById[id] as Outputtable<I>
-	if (init) {
-		for (const key in init) {
-			if (output && output[key] && output[key].peak() == undefined) {
-				output[key].set(init[key] as any)
-			}
-		}
-	}
-	return output
+	return Object.fromEntries(
+		Object.entries(init).map(([key, value]) => [key, world.newOutput(id, key, value)])
+	) as Outputtable<I>
 }
 export function expandGriditem(
 	grid: GridItem[],
@@ -391,6 +385,9 @@ export function recursivelyFilterKeyInJSON(
 	search: string,
 	extraSearch?: string | undefined
 ): object {
+	if (!search || search == '') {
+		return json
+	}
 	let filteredJSON = {}
 	Object.keys(json).forEach((key) => {
 		if (

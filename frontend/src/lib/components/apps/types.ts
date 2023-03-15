@@ -114,8 +114,7 @@ export type ConnectingInput = {
 }
 
 export type AppViewerContext = {
-	worldStore: Writable<World | undefined>
-	staticOutputs: Writable<Record<string, string[]>>
+	worldStore: Writable<World>
 	app: Writable<App>
 	summary: Writable<string>
 	selectedComponent: Writable<string | undefined>

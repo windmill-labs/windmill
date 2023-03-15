@@ -5,7 +5,7 @@
 	import ComponentOutputViewer from '../ComponentOutputViewer.svelte'
 	import OutputHeader from './OutputHeader.svelte'
 
-	const { staticOutputs, connectingInput } = getContext<AppViewerContext>('AppViewerContext')
+	const { connectingInput } = getContext<AppViewerContext>('AppViewerContext')
 
 	export let id: string
 	export let expanded: boolean = false
@@ -15,7 +15,6 @@
 <OutputHeader {id} name={'Table action'} {first} {expanded}>
 	<ComponentOutputViewer
 		componentId={id}
-		outputs={$staticOutputs[id]}
 		on:select={({ detail }) => {
 			$connectingInput = connectInput($connectingInput, id, detail)
 		}}

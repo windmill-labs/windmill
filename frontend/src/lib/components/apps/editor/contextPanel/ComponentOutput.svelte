@@ -14,7 +14,7 @@
 	export let parentId: string | undefined = undefined
 	export let expanded: boolean = false
 
-	const { app, staticOutputs, selectedComponent, connectingInput } =
+	const { app, selectedComponent, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
 	const name = getComponentNameById(gridItem.id)
 
@@ -51,33 +51,30 @@
 	}
 </script>
 
-{#if $staticOutputs[gridItem.id] || gridItem.data.numberOfSubgrids > 1}
-	<OutputHeader
-		{shouldOpen}
-		on:handleClick={(e) => {
-			if (!$connectingInput.opened) {
-				onHeaderClick(e.detail.manuallyOpen)
-			}
-		}}
-		id={gridItem.id}
-		name={getComponentNameById(gridItem.id)}
-		{first}
-		{nested}
-		{expanded}
-	>
-		<div class="py-1">
-			<ComponentOutputViewer
-				componentId={gridItem.id}
-				outputs={$staticOutputs[gridItem.id]}
-				on:select={({ detail }) => {
-					if ($connectingInput.opened) {
-						$connectingInput = connectInput($connectingInput, gridItem.id, detail)
-					}
-				}}
-			/>
-		</div>
+<OutputHeader
+	{shouldOpen}
+	on:handleClick={(e) => {
+		if (!$connectingInput.opened) {
+			onHeaderClick(e.detail.manuallyOpen)
+		}
+	}}
+	id={gridItem.id}
+	name={getComponentNameById(gridItem.id)}
+	{first}
+	{nested}
+	{expanded}
+>
+	<div class="py-1">
+		<ComponentOutputViewer
+			componentId={gridItem.id}
+			on:select={({ detail }) => {
+				if ($connectingInput.opened) {
+					$connectingInput = connectInput($connectingInput, gridItem.id, detail)
+				}
+			}}
+		/>
+	</div>
 
-		<SubGridOutput {name} {expanded} {subGrids} parentId={gridItem.id} />
-		<TableActionsOutput {gridItem} {expanded} />
-	</OutputHeader>
-{/if}
+	<SubGridOutput {name} {expanded} {subGrids} parentId={gridItem.id} />
+	<TableActionsOutput {gridItem} {expanded} />
+</OutputHeader>

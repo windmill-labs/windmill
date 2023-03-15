@@ -10,7 +10,6 @@
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = 'left'
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let configuration: Record<string, AppInput>
-	export const staticOutputs: string[] = []
 	export let customCss: ComponentCustomCSS<'container' | 'icon'> | undefined = undefined
 	export let render: boolean
 
