@@ -73,7 +73,7 @@
 		</div>
 		<div
 			on:click|stopPropagation={() => {
-				$manuallyOpened[id] = $manuallyOpened[id] != undefined ? !$manuallyOpened[id] : false
+				$manuallyOpened[id] = $manuallyOpened[id] != undefined ? !$manuallyOpened[id] : true
 			}}
 			class="text-2xs font-bold flex flex-row gap-2 items-center truncate"
 		>

@@ -31,6 +31,7 @@
 		getContext<AppViewerContext>('AppViewerContext')
 
 	let editor: Editor
+	let simpleEditor: SimpleEditor
 	let validCode = true
 
 	async function inferInlineScriptSchema(
@@ -146,7 +147,8 @@
 				color="light"
 				btnClasses="!px-2 !py-1"
 				on:click={async () => {
-					editor.format()
+					editor?.format()
+					simpleEditor?.format()
 				}}
 			>
 				<div class="flex flex-row gap-1 items-center">
@@ -217,6 +219,7 @@
 			/>
 		{:else}
 			<SimpleEditor
+				bind:this={simpleEditor}
 				cmdEnterAction={async () => {
 					runLoading = true
 					await $runnableComponents[id]?.()
