@@ -36,7 +36,7 @@
 				</div>
 			{/if}
 
-			{#each $app.grid as gridItem, index (gridItem?.data?.id ?? index)}
+			{#each $app.grid as gridItem (gridItem?.data?.id)}
 				{#if gridItem?.data?.id && gridItem.data.id === selectedScriptComponentId}
 					<InlineScriptEditorPanel
 						defaultUserInput={gridItem?.data?.type == 'formcomponent' ||
@@ -47,7 +47,7 @@
 				{/if}
 
 				{#if gridItem?.data?.type === 'tablecomponent'}
-					{#each gridItem.data.actionButtons as actionButton, index (index)}
+					{#each gridItem.data.actionButtons as actionButton (actionButton.id)}
 						{#if actionButton.id === selectedScriptComponentId}
 							<InlineScriptEditorPanel
 								id={actionButton.id}
