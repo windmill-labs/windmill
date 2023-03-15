@@ -11,7 +11,7 @@
 	import Component from './component/Component.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { push } from '$lib/history'
-	import { expandGriditem, findGridItem } from './appUtils'
+	import { expandGriditem, findGridItem, sortGridItemsPosition } from './appUtils'
 	import Grid from '../svelte-grid/Grid.svelte'
 	import { settableOutput } from '../rx'
 
@@ -170,9 +170,9 @@
 		<div class={!$focusedGrid && $mode !== 'preview' ? 'border-gray-400 border border-dashed' : ''}>
 			<Grid
 				onTopId={$selectedComponent}
-				fillSpace={false}
 				items={$app.grid}
 				on:redraw={(e) => {
+					push(history, $app)
 					$app.grid = e.detail
 				}}
 				let:dataItem

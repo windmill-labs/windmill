@@ -5,7 +5,7 @@
 	import { columnConfiguration, isFixed, toggleFixed } from '../gridUtils'
 	import type { AppEditorContext, AppViewerContext, GridItem } from '../types'
 	import Component from './component/Component.svelte'
-	import { expandGriditem, findGridItem } from './appUtils'
+	import { expandGriditem, findGridItem, sortGridItemsPosition } from './appUtils'
 	import { push } from '$lib/history'
 	import Grid from '../svelte-grid/Grid.svelte'
 
@@ -93,6 +93,7 @@
 			<Grid
 				items={subGrid}
 				on:redraw={(e) => {
+					push(history, $app)
 					subGrid = e.detail
 				}}
 				let:dataItem

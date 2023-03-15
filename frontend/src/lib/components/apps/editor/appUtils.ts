@@ -5,6 +5,7 @@ import { gridColumns } from '../gridUtils'
 import { allItems } from '../utils'
 import type { Output, World } from '../rx'
 import gridHelp from '../svelte-grid/utils/helper'
+import type { FilledItem } from '../svelte-grid/types'
 
 function findGridItemById(
 	root: GridItem[],
@@ -337,13 +338,11 @@ export function expandGriditem(
 	item.h = item.h + top + bottom
 }
 
-export function sortGridItemsPosition(
-	gridItems: GridItem[],
-	breakpoint: EditorBreakpoint
-): GridItem[] {
+export function sortGridItemsPosition<T>(
+	gridItems: FilledItem<T>[],
+	width: number
+): FilledItem<T>[] {
 	return gridItems.sort((a: GridItem, b: GridItem) => {
-		const width = breakpoint === 'lg' ? 12 : 3
-
 		const aX = a[width].x
 		const aY = a[width].y
 		const bX = b[width].x

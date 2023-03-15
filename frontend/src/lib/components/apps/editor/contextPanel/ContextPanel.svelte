@@ -5,7 +5,7 @@
 	import { writable } from 'svelte/store'
 
 	import type { AppViewerContext } from '../../types'
-	import { connectInput, recursivelyFilterKeyInJSON, sortGridItemsPosition } from '../appUtils'
+	import { connectInput } from '../appUtils'
 	import PanelSection from '../settingsPanel/common/PanelSection.svelte'
 	import ComponentOutput from './ComponentOutput.svelte'
 	import ComponentOutputViewer from './ComponentOutputViewer.svelte'
@@ -13,8 +13,7 @@
 	import MinMaxButton from './components/MinMaxButton.svelte'
 	import OutputHeader from './components/OutputHeader.svelte'
 
-	const { connectingInput, breakpoint, app, state } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const { connectingInput, app, state } = getContext<AppViewerContext>('AppViewerContext')
 
 	let search = writable<string>('')
 	let expanded = false
@@ -25,21 +24,14 @@
 		search
 	})
 
-	let sortedItems = sortGridItemsPosition($app.grid, $breakpoint)
-
-	$: $app.subgrids &&
-		setTimeout(() => (sortedItems = sortGridItemsPosition($app.grid, $breakpoint)), 500)
-
 	$: expanded && !ctxOpened && (ctxOpened = true)
 	$: expanded && !stateOpened && (stateOpened = true)
-
-	$: filteredState = recursivelyFilterKeyInJSON($state, $search)
 </script>
 
 <PanelSection noPadding titlePadding="px-4 pt-2 pb-0.5" title="Outputs">
-	<div style="z-index:1000;" class="bg-white w-full h-full">
+	<div class="bg-white w-full h-full z-30">
 		<div class="min-w-[150px]">
-			<div class="sticky z-50 top-0 left-0 w-full bg-white p-2">
+			<div class="sticky top-0 left-0 w-full bg-white p-2">
 				<div class="relative">
 					<input
 						bind:value={$search}
@@ -88,7 +80,7 @@
 
 				<div>
 					<span class="text-sm font-bold p-2">Components</span>
-					{#each sortedItems as gridItem, index}
+					{#each $app.grid as gridItem, index (gridItem.id)}
 						<ComponentOutput {gridItem} first={index === 0} {expanded} />
 					{/each}
 				</div>
