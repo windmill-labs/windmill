@@ -2,6 +2,7 @@
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { FileInput } from '../../../common'
+	import { initOutput } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
@@ -10,7 +11,6 @@
 
 	export let id: string
 	export let configuration: Record<string, AppInput>
-	export const staticOutputs: string[] = ['result']
 	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
 	export let render: boolean
 
@@ -20,9 +20,9 @@
 	let allowMultiple: boolean | undefined = undefined
 	let text: string | undefined = undefined
 
-	$: outputs = $worldStore?.outputsById[id] as {
-		result: Output<string[] | undefined>
-	}
+	let outputs = initOutput($worldStore, id, {
+		result: [] as string[] | undefined
+	})
 
 	// Receives Base64 encoded strings from the input component
 	async function handleChange(files: string[] | undefined) {

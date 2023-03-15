@@ -11,7 +11,6 @@
 
 	export let id: string
 	export let configuration: Record<string, AppInput>
-	export const staticOutputs: string[] = ['loading']
 	export let customCss: ComponentCustomCSS<'image'> | undefined = undefined
 	export let render: boolean
 

@@ -35,7 +35,6 @@
 
 	const {
 		app,
-		staticOutputs,
 		runnableComponents,
 		selectedComponent,
 		worldStore,
@@ -53,15 +52,12 @@
 		if (component && !noGrid) {
 			let ids = deleteGridItem($app, component, parent, false)
 			for (const key of ids) {
-				delete $staticOutputs[key]
 				delete $runnableComponents[key]
 			}
 		}
 
-		delete $staticOutputs[component.id]
 		delete $runnableComponents[component.id]
 		$app = $app
-		$staticOutputs = $staticOutputs
 		$runnableComponents = $runnableComponents
 
 		onDelete?.()

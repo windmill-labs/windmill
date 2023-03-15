@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { getContext, afterUpdate } from 'svelte'
-	import type { App, AppEditorContext, AppViewerContext, GridItem } from '../types'
+	import type { App, AppEditorContext, AppViewerContext } from '../types'
 	import { classNames } from '$lib/utils'
-	import { columnConfiguration, disableDrag, enableDrag, isFixed, toggleFixed } from '../gridUtils'
+	import { columnConfiguration, isFixed, toggleFixed } from '../gridUtils'
 	import { twMerge } from 'tailwind-merge'
 
 	import RecomputeAllComponents from './RecomputeAllComponents.svelte'
@@ -13,8 +13,6 @@
 	import { push } from '$lib/history'
 	import { expandGriditem, findGridItem } from './appUtils'
 	import Grid from '../svelte-grid/Grid.svelte'
-	import { settableOutput } from '../rx'
-	import { writable } from 'svelte/store'
 
 	export let policy: Policy
 
@@ -23,7 +21,6 @@
 		app,
 		mode,
 		connectingInput,
-		staticOutputs,
 		runnableComponents,
 		summary,
 		focusedGrid,
@@ -32,31 +29,6 @@
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const { history } = getContext<AppEditorContext>('AppEditorContext')
-
-	// The drag is disabled when the user is connecting an input
-	// or when the user is previewing the app
-	// or when the focused grid is a subgrid
-	$: setAllDrags($mode === 'preview' || $connectingInput.opened)
-
-	function setAllDrags(enable: boolean) {
-		const fct = enable ? disableDrag : enableDrag
-
-		$app.grid.map((gridItem) => {
-			const disabledGridItem = fct(gridItem)
-
-			if (disabledGridItem?.data?.subGrids) {
-				disabledGridItem.data.subGrids = disabledGridItem.data.subGrids.map(
-					(subgrid: GridItem[]) => subgrid?.map((subgridItem: GridItem) => fct(subgridItem)) ?? []
-				)
-			}
-
-			return disabledGridItem
-		})
-
-		Object.values($app.subgrids ?? {}).map(
-			(subgrid: GridItem[]) => subgrid?.map((subgridItem: GridItem) => fct(subgridItem)) ?? []
-		)
-	}
 
 	function removeGridElement(component) {
 		if (component) {
@@ -84,10 +56,6 @@
 
 				return gridComponent.data.id !== component?.id
 			})
-
-			// Delete static inputs
-			delete $staticOutputs[component.id]
-			$staticOutputs = $staticOutputs
 
 			delete $runnableComponents[component.id]
 			$runnableComponents = $runnableComponents
@@ -137,8 +105,6 @@
 			})
 		}
 	})
-
-	let hoverStore = writable<string | undefined>(undefined)
 </script>
 
 <div class="relative w-full z-20 overflow-visible">
@@ -173,9 +139,9 @@
 		<div class={!$focusedGrid && $mode !== 'preview' ? 'border-gray-400 border border-dashed' : ''}>
 			<Grid
 				onTopId={$selectedComponent}
-				fillSpace={false}
 				items={$app.grid}
 				on:redraw={(e) => {
+					push(history, $app)
 					$app.grid = e.detail
 				}}
 				let:dataItem
@@ -243,7 +209,6 @@
 				name={script.name}
 				fields={script.fields}
 				autoRefresh={script.autoRefresh ?? false}
-				bind:staticOutputs={$staticOutputs[`bg_${index}`]}
 			/>
 		{/if}
 	{/each}

@@ -10,8 +10,7 @@
 	export let panes: number[]
 	export let component: AppComponent
 
-	const { app, staticOutputs, runnableComponents } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const { app, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 
 	function addTab() {
 		const numberOfPanes = panes.length
@@ -33,11 +32,9 @@
 			const components = deleteGridItem($app, item.data, subgrid, false)
 			console.log(components)
 			for (const key in components) {
-				delete $staticOutputs[key]
 				delete $runnableComponents[key]
 			}
 		}
-		$staticOutputs = $staticOutputs
 		$runnableComponents = $runnableComponents
 		for (let i = index; i < panes.length - 1; i++) {
 			$app!.subgrids![`${component.id}-${i}`] = $app!.subgrids![`${component.id}-${i + 1}`]

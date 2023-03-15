@@ -7,8 +7,8 @@ const Breakpoints = {
 	lg: 1024
 }
 
-const WIDE_GRID_COLUMNS = 12 as const;
-const NARROW_GRID_COLUMNS = 3 as const;
+const WIDE_GRID_COLUMNS = 12 as const
+const NARROW_GRID_COLUMNS = 3 as const
 
 const columnConfiguration: ColumnConfiguration = [
 	[Breakpoints.lg, WIDE_GRID_COLUMNS],
@@ -16,14 +16,6 @@ const columnConfiguration: ColumnConfiguration = [
 ]
 
 const gridColumns = columnConfiguration.map((value) => value[1])
-
-function disableDrag(component: GridItem): GridItem {
-	gridColumns.forEach((column: number) => {
-		component[column].customDragger = true
-		component[column].customResizer = true
-	})
-	return component
-}
 
 function toggleFixed(component: GridItem): GridItem {
 	const nValue = !component[gridColumns[0]].fixed
@@ -44,21 +36,11 @@ function isFixed(component: GridItem): boolean {
 	return fixed
 }
 
-function enableDrag(component: GridItem): GridItem {
-	gridColumns.forEach((column: number) => {
-		component[column].customDragger = false
-		component[column].customResizer = false
-	})
-	return component
-}
-
 export {
 	gridColumns,
 	WIDE_GRID_COLUMNS,
 	NARROW_GRID_COLUMNS,
 	columnConfiguration,
-	disableDrag,
-	enableDrag,
 	Breakpoints,
 	toggleFixed,
 	isFixed

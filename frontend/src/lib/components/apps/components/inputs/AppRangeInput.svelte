@@ -8,11 +8,11 @@
 	import InputValue from '../helpers/InputValue.svelte'
 	import { concatCustomCss } from '../../utils'
 	import { twMerge } from 'tailwind-merge'
+	import { initOutput } from '../../editor/appUtils'
 
 	export let id: string
 	export let configuration: Record<string, AppInput>
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export const staticOutputs: string[] = ['result']
 	export let customCss: ComponentCustomCSS<'handles' | 'bar' | 'limits' | 'values'> | undefined =
 		undefined
 	export let render: boolean
@@ -25,9 +25,11 @@
 
 	let values: [number, number] = [0, 0]
 
-	$: outputs = $worldStore?.outputsById[id] as {
-		result: Output<[number, number] | null>
-	}
+	let outputs = initOutput($worldStore, id, {
+		result: null as [number, number] | null
+	})
+
+	console.log('reset')
 
 	$: outputs?.result.set(values)
 

@@ -12,8 +12,7 @@
 	export let tabs: string[]
 	export let component: AppComponent
 
-	const { app, staticOutputs, runnableComponents, focusedGrid } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const { app, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 
 	function addTab() {
 		const numberOfTabs = tabs.length
@@ -33,11 +32,9 @@
 			const components = deleteGridItem($app, item.data, subgrid, false)
 			console.log(components)
 			for (const key in components) {
-				delete $staticOutputs[key]
 				delete $runnableComponents[key]
 			}
 		}
-		$staticOutputs = $staticOutputs
 		$runnableComponents = $runnableComponents
 		for (let i = index; i < tabs.length - 1; i++) {
 			$app!.subgrids![`${component.id}-${i}`] = $app!.subgrids![`${component.id}-${i + 1}`]

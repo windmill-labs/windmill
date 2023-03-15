@@ -3,39 +3,41 @@
 	import { getContext } from 'svelte'
 	import type { Writable } from 'svelte/store'
 	import type { Output } from '../../rx'
-	import type { AppViewerContext } from '../../types'
-	import { recursivelyFilterKeyInJSON } from '../appUtils'
+	import type { AppViewerContext, ContextPanelContext } from '../../types'
+	import { recursivelyFilterKeyInJSON as recursivelyFilterInJSON } from '../appUtils'
 
-	export let outputs: string[] = []
 	export let componentId: string
 
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
-	const { search } = getContext<{ search: Writable<string> }>('searchCtx')
+	const { search, hasResult } = getContext<ContextPanelContext>('ContextPanel')
 
 	let object = {}
 
-	function subscribeToAllOutputs(observableOutputs: Record<string, Output<any>>) {
+	function subscribeToAllOutputs(observableOutputs: Record<string, Output<any>> | undefined) {
 		if (observableOutputs) {
-			outputs?.forEach((output: string) => {
-				object[output] = undefined
-				observableOutputs[output]?.subscribe({
-					id: 'alloutputs' + output,
+			Object.entries(observableOutputs).forEach(([k, output]) => {
+				object[k] = undefined
+				output?.subscribe({
+					id: 'alloutputs' + componentId + '-' + k,
 					next: (value) => {
-						object[output] = value
+						object[k] = value
 					}
 				})
 			})
 		}
 	}
 
-	$: $worldStore?.outputsById[componentId] &&
-		subscribeToAllOutputs($worldStore.outputsById[componentId])
+	$: subscribeToAllOutputs($worldStore?.outputsById?.[componentId])
 
-	$: filtered = recursivelyFilterKeyInJSON(object, $search, componentId)
+	$: filtered = recursivelyFilterInJSON(object, $search, componentId)
+
+	$: $hasResult[componentId] = Object.keys(filtered).length > 0
 </script>
 
-{#if Object.keys(filtered).length > 0}
+{#if $hasResult[componentId] || $search == ''}
 	<ObjectViewer json={filtered} on:select topBrackets={false} />
 {:else if $search.length > 0}
-	<div class="text-xs pl-2">No results</div>
+	<div class="text-xs pl-2 text-gray-600">No results</div>
+{:else}
+	<div class="text-xs pl-2 text-gray-600">No outputs</div>
 {/if}

@@ -11,15 +11,20 @@
 	import { Button } from '../../../common'
 	import { Download, Loader2, MoveHorizontal, ZoomIn, ZoomOut } from 'lucide-svelte'
 	import { fade } from 'svelte/transition'
-	import { findGridItem } from '../../editor/appUtils'
+	import { findGridItem, initOutput } from '../../editor/appUtils'
 
 	export let id: string
 	export let configuration: Record<string, AppInput>
-	export const staticOutputs: string[] = ['loading']
 	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
 	export let render: boolean
 
-	const { app, mode, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, mode, worldStore, selectedComponent } =
+		getContext<AppViewerContext>('AppViewerContext')
+
+	initOutput($worldStore, id, {
+		result: undefined,
+		loading: false
+	})
 
 	let source: string | ArrayBuffer | undefined = undefined
 	let wrapper: HTMLDivElement | undefined = undefined
@@ -150,7 +155,9 @@
 	function syncZoomValue() {
 		const gridItem = findGridItem($app, id)
 
+		//@ts-ignore
 		if (gridItem && gridItem.data.configuration.zoom.value !== zoom) {
+			//@ts-ignore
 			gridItem.data.configuration.zoom.value = zoom
 		}
 

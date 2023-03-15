@@ -4,7 +4,7 @@
 	import { slide } from 'svelte/transition'
 	import type { Output } from '../../rx'
 	import type { AppViewerContext } from '../../types'
-	import { connectInput, sortGridItemsPosition } from '../appUtils'
+	import { connectInput } from '../appUtils'
 	import ComponentOutput from './ComponentOutput.svelte'
 
 	export let name: string | undefined = undefined
@@ -12,8 +12,7 @@
 	export let expanded: boolean = false
 	export let subGrids: string[]
 
-	const { app, connectingInput, breakpoint, worldStore } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const { app, connectingInput, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
 	let selected = 0
 
@@ -21,20 +20,10 @@
 		selectedTabIndex: Output<number>
 	}
 
-	let sortedItems = subGrids.map((k) => ({
+	$: subgridItems = subGrids.map((k) => ({
 		k,
-		items: sortGridItemsPosition($app.subgrids?.[k] ?? [], $breakpoint)
+		items: $app.subgrids?.[k] ?? []
 	}))
-
-	$: $app.subgrids &&
-		setTimeout(
-			() =>
-				(sortedItems = subGrids.map((k) => ({
-					k,
-					items: sortGridItemsPosition($app.subgrids?.[k] ?? [], $breakpoint)
-				}))),
-			500
-		)
 
 	$: if (outputs?.selectedTabIndex) {
 		outputs.selectedTabIndex.subscribe({
@@ -46,7 +35,7 @@
 	}
 </script>
 
-{#each sortedItems as { k, items }, index (k)}
+{#each subgridItems as { k, items }, index (k)}
 	<div class="ml-2 my-2">
 		{#if subGrids.length > 1}
 			<!-- svelte-ignore a11y-click-events-have-key-events -->

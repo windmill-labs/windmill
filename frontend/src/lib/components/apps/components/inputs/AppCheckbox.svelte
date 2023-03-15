@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { getContext } from 'svelte'
+	import { initOutput } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
@@ -17,17 +18,15 @@
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	export const staticOutputs: string[] = ['result']
-
 	let defaultValue: boolean | undefined = undefined
 	let labelValue: string = 'Default label'
 
 	// As the checkbox is a special case and has no input
 	// we need to manually set the output
 
-	$: outputs = $worldStore?.outputsById[id] as {
-		result: Output<boolean>
-	}
+	let outputs = initOutput($worldStore, id, {
+		result: false
+	})
 
 	$: defaultValue != undefined && outputs?.result.set(defaultValue)
 

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { initOutput } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
@@ -11,7 +12,6 @@
 	export let id: string
 	export let configuration: Record<string, AppInput>
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export const staticOutputs: string[] = ['result']
 	export let customCss: ComponentCustomCSS<'input'> | undefined = undefined
 	export let render: boolean
 
@@ -25,9 +25,9 @@
 	let max: number | undefined = undefined
 	let step = 1
 
-	$: outputs = $worldStore?.outputsById[id] as {
-		result: Output<number | undefined>
-	}
+	let outputs = initOutput($worldStore, id, {
+		result: undefined as number | undefined
+	})
 
 	$: handleDefault(defaultValue)
 

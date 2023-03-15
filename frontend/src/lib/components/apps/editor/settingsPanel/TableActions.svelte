@@ -14,7 +14,7 @@
 	export let components: (BaseAppComponent & ButtonComponent)[]
 	export let id: string
 
-	const { selectedComponent, staticOutputs } = getContext<AppViewerContext>('AppViewerContext')
+	const { selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 
 	function addComponent() {
 		const actionId = getNextId(components.map((x) => x.id.split('_')[1]))
@@ -90,8 +90,6 @@
 
 	function deleteComponent(cid: string) {
 		components = components.filter((x) => x.id !== cid)
-		delete $staticOutputs[cid]
-		$staticOutputs = $staticOutputs
 		$selectedComponent = id
 	}
 </script>

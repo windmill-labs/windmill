@@ -11,6 +11,7 @@
 	import { loadIcon } from '../icon'
 	import { twMerge } from 'tailwind-merge'
 	import { goto } from '$app/navigation'
+	import { initOutput } from '../../editor/appUtils'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -24,8 +25,6 @@
 	export let customCss: ComponentCustomCSS<'button'> | undefined = undefined
 	export let render: boolean
 	export let initializing: boolean | undefined = true
-
-	export const staticOutputs: string[] = ['loading', 'result']
 
 	const { worldStore, app } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -63,10 +62,10 @@
 		}
 	}
 
-	$: outputs = $worldStore?.outputsById[id] as {
-		result: Output<Array<any>>
-		loading: Output<boolean>
-	}
+	let outputs = initOutput($worldStore, id, {
+		result: undefined,
+		loading: false
+	})
 
 	$: triggerOnAppLoad && runnableComponent?.runComponent()
 

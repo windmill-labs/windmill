@@ -10,7 +10,8 @@
 	import { push } from '$lib/history'
 	import { flip } from 'svelte/animate'
 
-	const { app, selectedComponent, focusedGrid } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, selectedComponent, focusedGrid, worldStore } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	const { history } = getContext<AppEditorContext>('AppEditorContext')
 
@@ -23,6 +24,7 @@
 		const id = insertNewGridItem($app, data, $focusedGrid)
 
 		$selectedComponent = id
+		$worldStore = $worldStore
 	}
 
 	let search = ''
@@ -37,7 +39,7 @@
 	}))
 </script>
 
-<section class="p-2 sticky bg-white w-full z-20 top-0">
+<section class="p-2 sticky bg-white w-full z-10 top-0">
 	<div class="relative">
 		<input
 			bind:value={search}
@@ -68,12 +70,12 @@
 		<div in:fade|local={{ duration: 50, delay: 50 }} out:fade|local={{ duration: 50 }}>
 			{#each componentsFiltered as { title, components }, index (index)}
 				{#if components.length}
-					<div transition:slide|local={{ duration: 300 }}>
+					<div transition:slide|local={{ duration: 100 }}>
 						<ListItem title={`${title} (${components.length})`}>
 							<div class="flex flex-wrap gap-2 py-2">
 								{#each components as item (item)}
 									<button
-										animate:flip={{ duration: 300 }}
+										animate:flip={{ duration: 100 }}
 										on:click={() => addComponent(item)}
 										title={componentsRecord[item].name}
 										class="border w-24 shadow-sm h-16 p-2 flex flex-col gap-2 items-center

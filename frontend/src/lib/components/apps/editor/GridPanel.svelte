@@ -6,9 +6,11 @@
 	const { selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 	export let gridItems: GridItem[]
 	export let parent: string | undefined
+
+	//$: sortedItems = gridItems.sort((a, b) => a.id.localeCompare - b.id)
 </script>
 
-{#each gridItems as gridItem, i (gridItem?.data?.id ?? i)}
+{#each gridItems as gridItem (gridItem.id)}
 	{#if gridItem?.data?.id === $selectedComponent}
 		<ComponentPanel {parent} bind:component={gridItem.data} />
 	{:else if gridItem?.data?.type === 'tablecomponent'}
@@ -21,6 +23,7 @@
 					bind:component={actionButton}
 					duplicateMoveAllowed={false}
 					onDelete={() => {
+						//@ts-ignore
 						gridItem.data.actionButtons = gridItem.data.actionButtons.filter(
 							(c) => c.id !== actionButton.id
 						)

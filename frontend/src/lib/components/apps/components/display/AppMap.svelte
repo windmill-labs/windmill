@@ -11,8 +11,7 @@
 	import { Vector as VectorLayer, Tile as TileLayer } from 'ol/layer'
 	import { Point } from 'ol/geom'
 	import { defaults as defaultControls } from 'ol/control'
-	import { findGridItem } from '../../editor/appUtils'
-	import type { Output } from '../../rx'
+	import { findGridItem, initOutput } from '../../editor/appUtils'
 
 	interface Marker {
 		lon: number
@@ -30,19 +29,18 @@
 
 	export let id: string
 	export let configuration: Record<string, AppInput>
-	export const staticOutputs: string[] = ['mapRegion']
 	export let customCss: ComponentCustomCSS<'map'> | undefined = undefined
 	export let render: boolean
 
 	const { app, worldStore, selectedComponent, connectingInput, focusedGrid, mode } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	$: outputs = $worldStore?.outputsById[id] as {
-		mapRegion: Output<{
-			topLeft: { lat: number; lon: number }
-			bottomRight: { lat: number; lon: number }
-		}>
-	}
+	let outputs = initOutput($worldStore, id, {
+		mapRegion: {
+			topLeft: { lat: 0, lon: 0 },
+			bottomRight: { lat: 0, lon: 0 }
+		}
+	})
 
 	let map: Map
 	let mapElement: HTMLDivElement
@@ -173,6 +171,7 @@
 		updateRegionOutput()
 
 		if (z) {
+			//@ts-ignore
 			gridItem.data.configuration.zoom.value = z
 		}
 
@@ -182,7 +181,9 @@
 		}
 
 		if (gridItem) {
+			//@ts-ignore
 			gridItem.data.configuration.longitude.value = center[0]
+			//@ts-ignore
 			gridItem.data.configuration.latitude.value = center[1]
 		}
 	}
