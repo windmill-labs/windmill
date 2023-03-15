@@ -40,7 +40,6 @@
 		AppPdf
 	} from '../../components'
 	import AppMultiSelect from '../../components/inputs/AppMultiSelect.svelte'
-	import type { Writable } from 'svelte/store'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -55,7 +54,6 @@
 
 	$: componentWithErrors = Object.values($errorByComponent).map((e) => e.componentId)
 	$: hasError = componentWithErrors.includes(component.id)
-
 </script>
 
 <!-- svelte-ignore a11y-mouse-events-have-key-events -->
@@ -73,16 +71,16 @@
 	class="h-full flex flex-col w-full component {initializing ? 'overflow-hidden h-0' : ''}"
 >
 	{#if $mode !== 'preview'}
-		<ComponentHeader
-			hover={$hoverStore === component.id}
-			{pointerdown}
-			{component}
-			{selected}
-			on:delete
-			on:lock
-			on:expand
-			{locked}
-		/>
+			<ComponentHeader
+				hover={$hoverStore === component.id}
+				{pointerdown}
+				{component}
+				{selected}
+				on:delete
+				on:lock
+				on:expand
+				{locked}
+			/>
 	{/if}
 
 	<div

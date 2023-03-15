@@ -30,10 +30,10 @@
 	<span
 		title={`Id: ${component.id}`}
 		class={classNames(
-			'px-2 text-2xs font-semibold w-fit absolute shadow -top-[19px] -left-[1px] border rounded-t-sm',
+			'px-2 text-2xs font-semibold w-fit absolute shadow -top-[9px] -left-[8px] border rounded-sm z-50',
 			selected
-				? 'bg-indigo-500 border-indigo-600 text-white'
-				: 'bg-blue-500 border-blue-600 text-white'
+				? 'bg-indigo-500/90 border-indigo-600 text-white'
+				: 'bg-blue-500/90 border-blue-600 text-white '
 		)}
 	>
 		{component.id}
@@ -41,11 +41,11 @@
 {/if}
 
 {#if selected}
-	<div class="top-[-19px] -right-[1px] flex flex-row absolute ">
+	<div class="top-[-9px] -right-[8px] flex flex-row absolute gap-1.5 z-50">
 		<button
 			title="Expand"
 			class={classNames(
-				'px-1 text-2xs py-0.5 font-bold w-fit border-t border-l cursor-pointer rounded-tl-sm',
+				'px-1 text-2xs py-0.5 font-bold w-fit border cursor-pointer rounded-sm',
 				'bg-indigo-100 text-indigo-600 border-indigo-500 hover:bg-indigo-200 hover:text-indigo-800'
 			)}
 			on:click={() => dispatch('expand')}
@@ -56,7 +56,7 @@
 		<button
 			title="Lock Position"
 			class={classNames(
-				'px-1 text-2xs py-0.5 font-bold w-fit border-t border-l cursor-pointer',
+				'px-1 text-2xs py-0.5 font-bold w-fit border  rounded-sm cursor-pointer',
 				'bg-indigo-100 text-indigo-600 border-indigo-500 hover:bg-indigo-200 hover:text-indigo-800'
 			)}
 			on:click={() => dispatch('lock')}
@@ -72,7 +72,7 @@
 			title="Move"
 			on:mousedown|stopPropagation|capture
 			class={classNames(
-				'px-1 text-2xs py-0.5 font-bold w-fit border-t border-x cursor-move rounded-tr-sm',
+				'px-1 text-2xs py-0.5 font-bold w-fit border cursor-move rounded-sm',
 				'bg-indigo-100 text-indigo-600 border-indigo-500 hover:bg-indigo-200 hover:text-indigo-800'
 			)}
 		>

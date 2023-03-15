@@ -705,3 +705,11 @@ export function throttle<T>(func: (...args: any[]) => T, wait: number) {
 		}
 	}
 }
+
+export function isMac(): boolean {
+	return navigator.userAgent.indexOf('Mac OS X') !== -1
+}
+
+export function getModifierKey(): string {
+	return isMac() ? '⌘' : 'CTRL'
+}
