@@ -49,7 +49,7 @@
 		const componentType = $app.grid.find((c) => c.data.id === id)?.data?.type
 
 		const content =
-			defaultCode(componentType, language) ??
+			defaultCode(componentType ?? '', language) ??
 			initialCode(language, Script.kind.SCRIPT, subkind ?? 'flow')
 
 		return newInlineScript(content, language, path)

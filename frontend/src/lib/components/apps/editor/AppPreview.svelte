@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { onMount, setContext } from 'svelte'
+	import { setContext } from 'svelte'
 	import { writable, type Writable } from 'svelte/store'
-	import { buildWorld, type World } from '../rx'
+	import { buildWorld } from '../rx'
 	import type {
 		App,
 		AppEditorContext,
@@ -10,11 +10,16 @@
 		EditorBreakpoint,
 		EditorMode
 	} from '../types'
-	import GridEditor from './GridEditor.svelte'
 	import { classNames } from '$lib/utils'
 	import type { Policy } from '$lib/gen'
 	import Button from '../../common/button/Button.svelte'
 	import { Unlock } from 'lucide-svelte'
+	import RecomputeAllComponents from './RecomputeAllComponents.svelte'
+	import GridViewer from './GridViewer.svelte'
+	import { Component } from './component'
+	import { twMerge } from 'tailwind-merge'
+	import { columnConfiguration } from '../gridUtils'
+	import { HiddenComponent } from '../components'
 
 	export let app: App
 	export let appPath: string
@@ -28,7 +33,6 @@
 	export let isLocked = false
 
 	const appStore = writable<App>(app)
-	const worldStore = writable<World | undefined>(undefined)
 	const selectedComponent = writable<string | undefined>(undefined)
 	const mode = writable<EditorMode>('preview')
 
@@ -40,6 +44,7 @@
 
 	const runnableComponents = writable<Record<string, () => Promise<void>>>({})
 
+	const parentWidth = writable(0)
 	setContext<AppViewerContext>('AppViewerContext', {
 		worldStore: buildWorld(context),
 		app: appStore,
@@ -60,7 +65,7 @@
 		openDebugRun: writable(undefined),
 		focusedGrid: writable(undefined),
 		stateId: writable(0),
-		parentWidth: writable(0),
+		parentWidth,
 		state: writable({}),
 		componentControl: writable({})
 	})
@@ -68,12 +73,6 @@
 	setContext<AppEditorContext>('AppEditorContext', {
 		history: undefined,
 		pickVariableCallback: writable(undefined)
-	})
-
-	let mounted = false
-
-	onMount(() => {
-		mounted = true
 	})
 
 	let ncontext = context
@@ -98,9 +97,48 @@
 	>
 		{#if $appStore.grid}
 			<div class={classNames('mx-auto', width)}>
-				<GridEditor {policy} />
+				<div
+					class="w-full sticky top-0 flex justify-between border-b bg-gray-50 px-4 py-1 items-center gap-4"
+					style="z-index: 1000;"
+				>
+					<h2 class="truncate">{summary}</h2>
+					<RecomputeAllComponents />
+					<div class="text-2xs text-gray-600">
+						{policy.on_behalf_of ? `on behalf of ${policy.on_behalf_of_email}` : ''}
+					</div>
+				</div>
 			</div>
 		{/if}
+		<div
+			style={app.css?.['app']?.['grid']?.style}
+			class={twMerge('px-4 pt-4 pb-2 overflow-visible', app.css?.['app']?.['grid']?.class ?? '')}
+			bind:clientWidth={$parentWidth}
+		>
+			<div>
+				<GridViewer
+					onTopId={$selectedComponent}
+					items={app.grid}
+					let:dataItem
+					rowHeight={36}
+					cols={columnConfiguration}
+					gap={[4, 2]}
+				>
+					<!-- svelte-ignore a11y-click-events-have-key-events -->
+					<div
+						class={'h-full w-full center-center'}
+						on:pointerdown={() => ($selectedComponent = dataItem.data.id)}
+					>
+						<Component
+							render={true}
+							pointerdown={false}
+							component={dataItem.data}
+							selected={false}
+							locked={true}
+						/>
+					</div>
+				</GridViewer>
+			</div>
+		</div>
 	</div>
 
 	{#if isLocked}
@@ -116,3 +154,17 @@
 		</div>
 	{/if}
 </div>
+
+{#if app.hiddenInlineScripts}
+	{#each app.hiddenInlineScripts as script, index}
+		{#if script}
+			<HiddenComponent
+				id={`bg_${index}`}
+				inlineScript={script.inlineScript}
+				name={script.name}
+				fields={script.fields}
+				autoRefresh={script.autoRefresh ?? false}
+			/>
+		{/if}
+	{/each}
+{/if}

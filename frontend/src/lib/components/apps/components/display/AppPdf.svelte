@@ -155,7 +155,9 @@
 	function syncZoomValue() {
 		const gridItem = findGridItem($app, id)
 
+		//@ts-ignore
 		if (gridItem && gridItem.data.configuration.zoom.value !== zoom) {
+			//@ts-ignore
 			gridItem.data.configuration.zoom.value = zoom
 		}
 

@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { getContext, afterUpdate } from 'svelte'
-	import type { App, AppEditorContext, AppViewerContext, GridItem } from '../types'
+	import type { App, AppEditorContext, AppViewerContext } from '../types'
 	import { classNames } from '$lib/utils'
-	import { columnConfiguration, disableDrag, enableDrag, isFixed, toggleFixed } from '../gridUtils'
+	import { columnConfiguration, isFixed, toggleFixed } from '../gridUtils'
 	import { twMerge } from 'tailwind-merge'
 
 	import RecomputeAllComponents from './RecomputeAllComponents.svelte'
@@ -11,7 +11,7 @@
 	import Component from './component/Component.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { push } from '$lib/history'
-	import { expandGriditem, findGridItem, sortGridItemsPosition } from './appUtils'
+	import { expandGriditem, findGridItem } from './appUtils'
 	import Grid from '../svelte-grid/Grid.svelte'
 
 	export let policy: Policy
@@ -29,31 +29,6 @@
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const { history } = getContext<AppEditorContext>('AppEditorContext')
-
-	// The drag is disabled when the user is connecting an input
-	// or when the user is previewing the app
-	// or when the focused grid is a subgrid
-	$: setAllDrags($mode === 'preview' || $connectingInput.opened)
-
-	function setAllDrags(enable: boolean) {
-		const fct = enable ? disableDrag : enableDrag
-
-		$app.grid.map((gridItem) => {
-			const disabledGridItem = fct(gridItem)
-
-			if (disabledGridItem?.data?.subGrids) {
-				disabledGridItem.data.subGrids = disabledGridItem.data.subGrids.map(
-					(subgrid: GridItem[]) => subgrid?.map((subgridItem: GridItem) => fct(subgridItem)) ?? []
-				)
-			}
-
-			return disabledGridItem
-		})
-
-		Object.values($app.subgrids ?? {}).map(
-			(subgrid: GridItem[]) => subgrid?.map((subgridItem: GridItem) => fct(subgridItem)) ?? []
-		)
-	}
 
 	function removeGridElement(component) {
 		if (component) {

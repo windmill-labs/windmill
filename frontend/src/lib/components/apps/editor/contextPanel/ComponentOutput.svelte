@@ -3,7 +3,7 @@
 	import { getContext } from 'svelte'
 	import type { AppViewerContext, GridItem } from '../../types'
 	import ComponentOutputViewer from './ComponentOutputViewer.svelte'
-	import { connectInput, isIdInsideGriditem } from '../appUtils'
+	import { connectInput } from '../appUtils'
 	import SubGridOutput from './SubGridOutput.svelte'
 	import OutputHeader from './components/OutputHeader.svelte'
 	import TableActionsOutput from './components/TableActionsOutput.svelte'
@@ -14,8 +14,7 @@
 	export let parentId: string | undefined = undefined
 	export let expanded: boolean = false
 
-	const { app, selectedComponent, connectingInput } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const { selectedComponent, connectingInput } = getContext<AppViewerContext>('AppViewerContext')
 	const name = getComponentNameById(gridItem.id)
 
 	function getComponentNameById(componentId: string) {
@@ -30,13 +29,9 @@
 		}
 	}
 
-	$: subGrids = Array.from({ length: gridItem.data.numberOfSubgrids }).map(
+	$: subGrids = Array.from({ length: gridItem.data.numberOfSubgrids ?? 0 }).map(
 		(_, i) => `${gridItem.id}-${i}`
 	)
-
-	$: insideGrid = isIdInsideGriditem($app, gridItem, $selectedComponent)
-	$: isSelected = $selectedComponent === gridItem.id
-	$: shouldOpen = insideGrid || isSelected
 
 	function onHeaderClick(manuallyOpen: boolean) {
 		if (manuallyOpen) {
@@ -52,7 +47,6 @@
 </script>
 
 <OutputHeader
-	{shouldOpen}
 	on:handleClick={(e) => {
 		if (!$connectingInput.opened) {
 			onHeaderClick(e.detail.manuallyOpen)
@@ -62,19 +56,16 @@
 	name={getComponentNameById(gridItem.id)}
 	{first}
 	{nested}
-	{expanded}
 >
-	<div class="py-1">
-		<ComponentOutputViewer
-			componentId={gridItem.id}
-			on:select={({ detail }) => {
-				if ($connectingInput.opened) {
-					$connectingInput = connectInput($connectingInput, gridItem.id, detail)
-				}
-			}}
-		/>
-	</div>
+	<ComponentOutputViewer
+		componentId={gridItem.id}
+		on:select={({ detail }) => {
+			if ($connectingInput.opened) {
+				$connectingInput = connectInput($connectingInput, gridItem.id, detail)
+			}
+		}}
+	/>
 
 	<SubGridOutput {name} {expanded} {subGrids} parentId={gridItem.id} />
-	<TableActionsOutput {gridItem} {expanded} />
+	<TableActionsOutput {gridItem} />
 </OutputHeader>

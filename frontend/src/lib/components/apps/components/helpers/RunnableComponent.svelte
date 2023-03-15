@@ -351,6 +351,4 @@
 			</div>
 		{/if}
 	</div>
-{:else}
-	<div class="w-full h-full" />
 {/if}

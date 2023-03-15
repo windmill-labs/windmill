@@ -23,6 +23,7 @@
 					bind:component={actionButton}
 					duplicateMoveAllowed={false}
 					onDelete={() => {
+						//@ts-ignore
 						gridItem.data.actionButtons = gridItem.data.actionButtons.filter(
 							(c) => c.id !== actionButton.id
 						)

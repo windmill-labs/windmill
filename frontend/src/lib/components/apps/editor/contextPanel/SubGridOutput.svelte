@@ -12,8 +12,7 @@
 	export let expanded: boolean = false
 	export let subGrids: string[]
 
-	const { app, connectingInput, breakpoint, worldStore } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const { app, connectingInput, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
 	let selected = 0
 

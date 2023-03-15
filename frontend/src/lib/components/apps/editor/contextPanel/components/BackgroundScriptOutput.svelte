@@ -9,7 +9,6 @@
 
 	export let id: string
 	export let name: string
-	export let expanded: boolean = false
 	export let first: boolean = false
 
 	function onHeaderClick(manuallyOpen: boolean) {
@@ -30,13 +29,11 @@
 	{name}
 	color="blue"
 	{first}
-	{expanded}
 	on:handleClick={(e) => {
 		if (!$connectingInput.opened) {
 			onHeaderClick(e.detail.manuallyOpen)
 		}
 	}}
-	shouldOpen={$selectedComponent === id}
 >
 	<ComponentOutputViewer
 		componentId={id}

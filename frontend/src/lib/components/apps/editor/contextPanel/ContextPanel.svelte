@@ -4,7 +4,7 @@
 	import { getContext, setContext } from 'svelte'
 	import { writable } from 'svelte/store'
 
-	import type { AppViewerContext } from '../../types'
+	import type { AppViewerContext, ContextPanelContext } from '../../types'
 	import { connectInput } from '../appUtils'
 	import PanelSection from '../settingsPanel/common/PanelSection.svelte'
 	import ComponentOutput from './ComponentOutput.svelte'
@@ -13,19 +13,17 @@
 	import MinMaxButton from './components/MinMaxButton.svelte'
 	import OutputHeader from './components/OutputHeader.svelte'
 
-	const { connectingInput, app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
 
 	let search = writable<string>('')
-	let expanded = false
-	let ctxOpened = true
-	let stateOpened = true
+	let expanded = writable(false)
 
-	setContext('searchCtx', {
-		search
+	setContext<ContextPanelContext>('ContextPanel', {
+		search,
+		manuallyOpened: writable<Record<string, boolean>>({}),
+		hasResult: writable<Record<string, boolean>>({}),
+		expanded
 	})
-
-	$: expanded && !ctxOpened && (ctxOpened = true)
-	$: expanded && !stateOpened && (stateOpened = true)
 </script>
 
 <PanelSection noPadding titlePadding="px-4 pt-2 pb-0.5" title="Outputs">
@@ -50,46 +48,44 @@
 			</div>
 
 			<div class="p-1 ">
-				<MinMaxButton bind:expanded />
+				<MinMaxButton bind:expanded={$expanded} />
 			</div>
 
 			<div class="flex flex-col gap-4">
-				{#key $worldStore?.outputsById}
-					<div>
-						<span class="text-sm font-bold p-2">State & Context</span>
+				<div>
+					<span class="text-sm font-bold p-2">State & Context</span>
 
-						<OutputHeader id={'ctx'} name={'App Context'} first color="blue" {expanded}>
-							<ComponentOutputViewer
-								componentId={'ctx'}
-								on:select={({ detail }) => {
-									$connectingInput = connectInput($connectingInput, 'ctx', detail)
-								}}
-							/>
-						</OutputHeader>
+					<OutputHeader id={'ctx'} name={'App Context'} first color="blue">
+						<ComponentOutputViewer
+							componentId={'ctx'}
+							on:select={({ detail }) => {
+								$connectingInput = connectInput($connectingInput, 'ctx', detail)
+							}}
+						/>
+					</OutputHeader>
 
-						<OutputHeader id={'state'} name={'State'} color="blue" {expanded}>
-							<ComponentOutputViewer
-								componentId={'state'}
-								on:select={({ detail }) => {
-									$connectingInput = connectInput($connectingInput, 'state', detail)
-								}}
-							/>
-						</OutputHeader>
-					</div>
+					<OutputHeader id={'state'} name={'State'} color="blue">
+						<ComponentOutputViewer
+							componentId={'state'}
+							on:select={({ detail }) => {
+								$connectingInput = connectInput($connectingInput, 'state', detail)
+							}}
+						/>
+					</OutputHeader>
+				</div>
 
-					<div>
-						<span class="text-sm font-bold p-2">Components</span>
-						{#each $app.grid as gridItem, index (gridItem.id)}
-							<ComponentOutput {gridItem} first={index === 0} {expanded} />
-						{/each}
+				<div>
+					<span class="text-sm font-bold p-2">Components</span>
+					{#each $app.grid as gridItem, index (gridItem.id)}
+						<ComponentOutput {gridItem} first={index === 0} />
+					{/each}
+				</div>
+				<div>
+					<span class="text-sm font-bold p-2">Background scripts</span>
+					<div class="border-t">
+						<BackgroundScriptsOutput />
 					</div>
-					<div>
-						<span class="text-sm font-bold p-2">Background scripts</span>
-						<div class="border-t">
-							<BackgroundScriptsOutput {expanded} />
-						</div>
-					</div>
-				{/key}
+				</div>
 			</div>
 		</div>
 	</div>

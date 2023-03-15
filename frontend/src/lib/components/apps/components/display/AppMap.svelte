@@ -171,6 +171,7 @@
 		updateRegionOutput()
 
 		if (z) {
+			//@ts-ignore
 			gridItem.data.configuration.zoom.value = z
 		}
 
@@ -180,7 +181,9 @@
 		}
 
 		if (gridItem) {
+			//@ts-ignore
 			gridItem.data.configuration.longitude.value = center[0]
+			//@ts-ignore
 			gridItem.data.configuration.latitude.value = center[1]
 		}
 	}
