@@ -34,15 +34,7 @@
 	bind:clientHeight={h}
 	bind:clientWidth={w}
 >
-	<RunnableWrapper
-		{render}
-		autoRefresh
-		flexWrap
-		{componentInput}
-		{id}
-		bind:initializing
-		bind:result
-	>
+	<RunnableWrapper {render} autoRefresh {componentInput} {id} bind:initializing bind:result>
 		{#key result}
 			<iframe
 				frameborder="0"

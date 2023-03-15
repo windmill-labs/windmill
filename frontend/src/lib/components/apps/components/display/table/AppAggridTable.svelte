@@ -81,7 +81,7 @@
 <InputValue {id} input={configuration.pagination} bind:value={pagination} />
 <InputValue {id} input={configuration.pageSize} bind:value={pageSize} />
 
-<RunnableWrapper {render} flexWrap {componentInput} {id} bind:initializing bind:result>
+<RunnableWrapper {render} {componentInput} {id} bind:initializing bind:result>
 	{#if Array.isArray(result) && result.every(isObject)}
 		<div
 			class="border border-gray-300 shadow-sm divide-y divide-gray-300  flex flex-col h-full"

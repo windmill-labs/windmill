@@ -72,7 +72,7 @@
 <InputValue {id} input={configuration.copyButton} bind:value={copyButton} />
 <InputValue {id} input={configuration.fitContent} bind:value={fitContent} />
 
-<RunnableWrapper {render} flexWrap {componentInput} {id} bind:initializing bind:result>
+<RunnableWrapper {render} {componentInput} {id} bind:initializing bind:result>
 	<ResizeWrapper {id} shouldWrap={fitContent}>
 		<AlignWrapper {horizontalAlignment} {verticalAlignment}>
 			{#if !result || result === ''}
