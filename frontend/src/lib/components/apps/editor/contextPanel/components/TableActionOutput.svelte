@@ -8,11 +8,10 @@
 	const { connectingInput } = getContext<AppViewerContext>('AppViewerContext')
 
 	export let id: string
-	export let expanded: boolean = false
 	export let first: boolean = false
 </script>
 
-<OutputHeader {id} name={'Table action'} {first} {expanded}>
+<OutputHeader {id} name={'Table action'} {first}>
 	<ComponentOutputViewer
 		componentId={id}
 		on:select={({ detail }) => {

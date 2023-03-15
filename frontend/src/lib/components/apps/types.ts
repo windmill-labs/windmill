@@ -77,10 +77,7 @@ export type AppSection = {
 	id: SectionID
 }
 
-export type GridItem = FilledItem<{
-	data: AppComponent
-	id: string
-}>
+export type GridItem = FilledItem<AppComponent>
 
 export type InlineScript = {
 	content: string
@@ -155,3 +152,10 @@ export type EditorBreakpoint = 'sm' | 'lg'
 export const IS_APP_PUBLIC_CONTEXT_KEY = 'isAppPublicContext' as const
 
 type ComponentID = string
+
+export type ContextPanelContext = {
+	search: Writable<string>
+	manuallyOpened: Writable<Record<string, boolean>>
+	expanded: Writable<boolean>
+	hasResult: Writable<Record<string, boolean>>
+}

@@ -34,7 +34,7 @@ import {
 	FileText,
 	AtSignIcon
 } from 'lucide-svelte'
-import type { BaseAppComponent } from '../../types'
+import type { BaseAppComponent, GridItem } from '../../types'
 import type { Size } from '../../svelte-grid/types'
 
 type BaseComponent<T extends string> = {
@@ -68,7 +68,7 @@ export type BarChartComponent = BaseComponent<'barchartcomponent'>
 export type PieChartComponent = BaseComponent<'piechartcomponent'>
 export type ScatterChartComponent = BaseComponent<'scatterchartcomponent'>
 export type TableComponent = BaseComponent<'tablecomponent'> & {
-	actionButtons: (BaseAppComponent & ButtonComponent)[]
+	actionButtons: (BaseAppComponent & ButtonComponent & GridItem)[]
 }
 export type AggridComponent = BaseComponent<'aggridcomponent'>
 export type DisplayComponent = BaseComponent<'displaycomponent'>
@@ -769,7 +769,7 @@ Hello \${ctx.username}
 					fieldType: 'boolean',
 					value: false,
 					onlyStatic: true,
-					tooltip: "Configure all columns as Editable by users"
+					tooltip: 'Configure all columns as Editable by users'
 				},
 				pagination: {
 					type: 'static',
@@ -782,7 +782,7 @@ Hello \${ctx.username}
 					fieldType: 'number',
 					value: 10,
 					onlyStatic: true,
-					tooltip: "Number of rows per page"
+					tooltip: 'Number of rows per page'
 				}
 			},
 			componentInput: {
@@ -887,7 +887,7 @@ Hello \${ctx.username}
 					fieldType: 'boolean',
 					value: false,
 					onlyStatic: true,
-					tooltip: "Allows user to manually add new value"
+					tooltip: 'Allows user to manually add new value'
 				},
 				placeholder: {
 					type: 'static',
@@ -1004,7 +1004,7 @@ Hello \${ctx.username}
 					type: 'static',
 					value: 1,
 					fieldType: 'number',
-					tooltip: "Spread between each number suggestion"
+					tooltip: 'Spread between each number suggestion'
 				}
 			},
 			customCss: {
@@ -1048,7 +1048,7 @@ Hello \${ctx.username}
 					fieldType: 'select',
 					onlyStatic: true,
 					optionValuesKey: 'localeOptions',
-					tooltip: "Currency format"
+					tooltip: 'Currency format'
 				}
 			},
 			customCss: {
@@ -1088,7 +1088,7 @@ Hello \${ctx.username}
 					type: 'static',
 					value: 1,
 					fieldType: 'number',
-					tooltip: "Spread between each number suggestion"
+					tooltip: 'Spread between each number suggestion'
 				}
 			},
 			customCss: {
@@ -1135,7 +1135,7 @@ Hello \${ctx.username}
 					type: 'static',
 					value: 1,
 					fieldType: 'number',
-					tooltip: "Spread between each number suggestion"
+					tooltip: 'Spread between each number suggestion'
 				}
 			},
 			customCss: {

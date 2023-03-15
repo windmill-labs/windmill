@@ -35,15 +35,12 @@ export function findGridItemParentGrid(app: App, id: string): string | undefined
 	}
 }
 
-export function isIdInsideGriditem(app: App, gridItem: GridItem, id: string | undefined): boolean {
-	const path: string[] = []
-	let currentId = id
-	while (currentId) {
-		path.push(currentId)
-		currentId = findGridItemParentGrid(app, currentId)?.split('-')[0]
+export function allsubIds(app: App, parentId: string): string[] {
+	let item = findGridItem(app, parentId)
+	if (!item?.data.numberOfSubgrids) {
+		return [parentId]
 	}
-
-	return path.includes(gridItem.id)
+	return getAllSubgridsAndComponentIds(app, item?.data)[1]
 }
 
 export function findGridItem(app: App, id: string): GridItem | undefined {
@@ -336,7 +333,7 @@ export function sortGridItemsPosition<T>(
 	gridItems: FilledItem<T>[],
 	width: number
 ): FilledItem<T>[] {
-	return gridItems.sort((a: GridItem, b: GridItem) => {
+	return gridItems.sort((a: FilledItem<T>, b: FilledItem<T>) => {
 		const aX = a[width].x
 		const aY = a[width].y
 		const bX = b[width].x
@@ -392,7 +389,10 @@ export function recursivelyFilterKeyInJSON(
 	Object.keys(json).forEach((key) => {
 		if (
 			key.toLowerCase().includes(search.toLowerCase()) ||
-			extraSearch?.toLowerCase().includes(search.toLowerCase())
+			extraSearch?.toLowerCase().includes(search.toLowerCase()) ||
+			(typeof json[key] === 'string' && json[key].toLowerCase().includes(search.toLowerCase())) ||
+			(typeof json[key] === 'number' &&
+				json[key].toString().toLowerCase().includes(search.toLowerCase()))
 		) {
 			filteredJSON[key] = json[key]
 		} else if (typeof json[key] === 'object') {
