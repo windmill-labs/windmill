@@ -76,18 +76,10 @@
 	{/if}
 
 	<div
-		on:pointerdown={(e) => {
-			// Removed in https://github.com/windmill-labs/windmill/pull/1171
-			// In case of a bug, try stopping propagation on the native event
-			// and dispatch a custom event: `e?.stopPropagation(); dispatch('select');`
-			// if ($mode === 'preview') {
-			// 	e?.stopPropagation()
-			// }
-		}}
 		class={twMerge(
 			'h-full bg-white/40',
 			selected && $mode !== 'preview' ? 'border border-blue-500' : '',
-			!selected && $mode !== 'preview' && !component.card ? 'border-gray-100' : '',
+			!selected && $mode !== 'preview' ? 'border-gray-100' : '',
 			$mode !== 'preview' && !$connectingInput.opened ? 'hover:border-blue-500' : '',
 			component.softWrap || hasError ? '' : 'overflow-auto',
 			$mode != 'preview' ? 'cursor-pointer' : '',
