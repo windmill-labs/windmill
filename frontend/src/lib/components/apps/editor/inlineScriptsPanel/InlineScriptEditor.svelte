@@ -27,7 +27,7 @@
 	export let fields: Record<string, AppInput> = {}
 	export let syncFields: boolean = false
 
-	const { runnableComponents, stateId, worldStore, state } =
+	const { runnableComponents, stateId, worldStore, state, appPath } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	let editor: Editor
@@ -48,6 +48,8 @@
 
 		return schema
 	}
+
+	$: inlineScript.path = `${appPath}/${name}`
 
 	onMount(async () => {
 		if (inlineScript && !inlineScript.schema) {

@@ -236,8 +236,7 @@ pub async fn create_token_for_owner<'c>(
 ) -> error::Result<(Transaction<'c, Postgres>, String)> {
     // TODO: Bad implementation. We should not have access to this DB here.
     let token: String = rd_string(30);
-    let is_super_admin = owner.contains('@')
-        && sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", owner)
+    let is_super_admin = sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", email)
             .fetch_optional(&mut tx)
             .await?
             .unwrap_or(false);

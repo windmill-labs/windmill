@@ -8,11 +8,11 @@
 	import InputValue from '../helpers/InputValue.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { concatCustomCss } from '../../utils'
+	import { initOutput } from '../../editor/appUtils'
 
 	export let id: string
 	export let configuration: Record<string, AppInput>
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export const staticOutputs: string[] = ['result']
 	export let customCss: ComponentCustomCSS<'handle' | 'limits' | 'value' | 'bar'> | undefined =
 		undefined
 	export let render: boolean
@@ -23,9 +23,9 @@
 	let step = 1
 	let slider: HTMLElement
 
-	$: outputs = $worldStore?.outputsById[id] as {
-		result: Output<number | null>
-	}
+	let outputs = initOutput($worldStore, id, {
+		result: (0 as number) || null
+	})
 
 	let values: [number] = [outputs?.result.peak() ?? 0]
 

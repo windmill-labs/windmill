@@ -15,7 +15,7 @@
 	// Sync the result to the output
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	$: outputs = $worldStore?.outputsById[id] as {
+	$: outputs = $worldStore?.outputsById?.[id] as {
 		loading: Output<boolean>
 		result: Output<any>
 	}
@@ -25,7 +25,7 @@
 	}
 
 	function setOutput(v: any) {
-		outputs.result?.set(v, true)
+		outputs?.result?.set(v, true)
 	}
 
 	$: result && outputs && setOutput(result)

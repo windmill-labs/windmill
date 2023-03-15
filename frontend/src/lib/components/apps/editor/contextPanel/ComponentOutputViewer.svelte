@@ -6,7 +6,6 @@
 	import type { AppViewerContext } from '../../types'
 	import { recursivelyFilterKeyInJSON } from '../appUtils'
 
-	export let outputs: string[] = []
 	export let componentId: string
 
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
@@ -14,22 +13,21 @@
 
 	let object = {}
 
-	function subscribeToAllOutputs(observableOutputs: Record<string, Output<any>>) {
+	function subscribeToAllOutputs(observableOutputs: Record<string, Output<any>> | undefined) {
 		if (observableOutputs) {
-			outputs?.forEach((output: string) => {
-				object[output] = undefined
-				observableOutputs[output]?.subscribe({
-					id: 'alloutputs' + output,
+			Object.entries(observableOutputs).forEach(([k, output]) => {
+				object[k] = undefined
+				output?.subscribe({
+					id: 'alloutputs' + componentId + '-' + k,
 					next: (value) => {
-						object[output] = value
+						object[k] = value
 					}
 				})
 			})
 		}
 	}
 
-	$: $worldStore?.outputsById[componentId] &&
-		subscribeToAllOutputs($worldStore.outputsById[componentId])
+	$: subscribeToAllOutputs($worldStore?.outputsById?.[componentId])
 
 	$: filtered = recursivelyFilterKeyInJSON(object, $search, componentId)
 </script>

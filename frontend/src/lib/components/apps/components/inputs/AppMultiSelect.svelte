@@ -8,8 +8,8 @@
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '../../../../defaults'
+	import { initOutput } from '../../editor/appUtils'
 
-	export const staticOutputs: string[] = ['result']
 	export let id: string
 	export let configuration: Record<string, AppInput>
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
@@ -22,9 +22,9 @@
 	let items: { label: string; value: string }[]
 	let placeholder: string = 'Select an item'
 
-	$: outputs = $worldStore?.outputsById[id] as {
-		result: Output<string[] | undefined>
-	}
+	let outputs = initOutput($worldStore, id, {
+		result: [] as string[]
+	})
 
 	// $: outputs && handleOutputs()
 

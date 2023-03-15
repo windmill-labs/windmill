@@ -1,11 +1,13 @@
 <script lang="ts">
+	import { getContext } from 'svelte'
+	import { initOutput } from '../../editor/appUtils'
 	import type {
 		ConnectedAppInput,
 		RowAppInput,
 		StaticAppInput,
 		UserAppInput
 	} from '../../inputType'
-	import type { InlineScript } from '../../types'
+	import type { AppViewerContext, InlineScript } from '../../types'
 	import RunnableComponent from './RunnableComponent.svelte'
 
 	export let id: string
@@ -16,7 +18,12 @@
 
 	let result: any = undefined
 
-	export const staticOutputs: string[] = ['result', 'loading']
+	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
+
+	initOutput($worldStore, id, {
+		result: undefined,
+		loading: false
+	})
 </script>
 
 <RunnableComponent

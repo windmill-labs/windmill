@@ -49,8 +49,6 @@
 	export let fromHub: boolean = false
 
 	const appStore = writable<App>(app)
-	const worldStore = writable<World | undefined>(undefined)
-	const staticOutputs = writable<Record<string, string[]>>({})
 	const selectedComponent = writable<string | undefined>(undefined)
 	const mode = writable<EditorMode>(initialMode)
 	const breakpoint = writable<EditorBreakpoint>('lg')
@@ -66,10 +64,15 @@
 	const errorByComponent = writable<Record<string, { error: string; componentId: string }>>({})
 	const focusedGrid = writable<FocusedGrid | undefined>(undefined)
 	const pickVariableCallback: Writable<((path: string) => void) | undefined> = writable(undefined)
+	let context = {
+		email: $userStore?.email,
+		username: $userStore?.username,
+		query: Object.fromEntries($page.url.searchParams.entries()),
+		hash: $page.url.hash
+	}
 
 	setContext<AppViewerContext>('AppViewerContext', {
-		worldStore,
-		staticOutputs,
+		worldStore: buildWorld(context),
 		app: appStore,
 		summary: summaryStore,
 		selectedComponent,
@@ -119,19 +122,11 @@
 		mounted = true
 	})
 
-	let context = {
-		email: $userStore?.email,
-		username: $userStore?.username,
-		query: Object.fromEntries($page.url.searchParams.entries()),
-		hash: $page.url.hash
-	}
-
 	function hashchange(e: HashChangeEvent) {
 		context.hash = e.newURL.split('#')[1]
 		context = context
 	}
 
-	$: mounted && ($worldStore = buildWorld($staticOutputs, $worldStore, context))
 	$: previewing = $mode === 'preview'
 	$: width = $breakpoint === 'sm' ? 'min-w-[400px] max-w-[656px]' : 'min-w-[710px] w-full'
 

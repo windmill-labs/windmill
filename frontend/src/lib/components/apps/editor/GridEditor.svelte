@@ -13,7 +13,6 @@
 	import { push } from '$lib/history'
 	import { expandGriditem, findGridItem, sortGridItemsPosition } from './appUtils'
 	import Grid from '../svelte-grid/Grid.svelte'
-	import { settableOutput } from '../rx'
 
 	export let policy: Policy
 
@@ -22,7 +21,6 @@
 		app,
 		mode,
 		connectingInput,
-		staticOutputs,
 		runnableComponents,
 		summary,
 		focusedGrid,
@@ -83,10 +81,6 @@
 
 				return gridComponent.data.id !== component?.id
 			})
-
-			// Delete static inputs
-			delete $staticOutputs[component.id]
-			$staticOutputs = $staticOutputs
 
 			delete $runnableComponents[component.id]
 			$runnableComponents = $runnableComponents
@@ -240,7 +234,6 @@
 				name={script.name}
 				fields={script.fields}
 				autoRefresh={script.autoRefresh ?? false}
-				bind:staticOutputs={$staticOutputs[`bg_${index}`]}
 			/>
 		{/if}
 	{/each}
