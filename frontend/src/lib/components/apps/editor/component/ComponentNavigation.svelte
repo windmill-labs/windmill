@@ -169,6 +169,11 @@
 	}
 
 	function keydown(event: KeyboardEvent) {
+		// Ignore keydown events if the user is typing in monaco
+		let classes = event.target?.['className']
+		if (typeof classes === 'string' && classes.includes('inputarea')) {
+			return
+		}
 		switch (event.key) {
 			case 'Escape':
 				handleEscape(event)
