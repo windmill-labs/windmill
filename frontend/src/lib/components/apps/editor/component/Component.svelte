@@ -71,16 +71,16 @@
 	class="h-full flex flex-col w-full component {initializing ? 'overflow-hidden h-0' : ''}"
 >
 	{#if $mode !== 'preview'}
-			<ComponentHeader
-				hover={$hoverStore === component.id}
-				{pointerdown}
-				{component}
-				{selected}
-				on:delete
-				on:lock
-				on:expand
-				{locked}
-			/>
+		<ComponentHeader
+			hover={$hoverStore === component.id}
+			{pointerdown}
+			{component}
+			{selected}
+			on:delete
+			on:lock
+			on:expand
+			{locked}
+		/>
 	{/if}
 
 	<div
