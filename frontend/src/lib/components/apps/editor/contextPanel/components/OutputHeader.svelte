@@ -87,9 +87,26 @@
 			{/if}
 		</div>
 	</div>
-	<div class="py-1 border-b  {open ? '' : 'invisible h-0 overflow-hidden'} ">
+	<div class="scale border-b overflow-hidden  {open ? 'py-1 scale-y' : 'scale-0 max-h-0'} ">
 		<div class={classNames(nested ? 'border-l ml-2' : '')}>
 			<slot />
 		</div>
 	</div>
 </div>
+
+<style>
+	.scale {
+		transform-origin: top;
+		transition: transform 0.26s ease;
+	}
+	.scale-y {
+		transform: scaleY(1);
+		max-height: 100%;
+	}
+
+	.scale-0 {
+		transform: scaleY(0);
+		overflow: hidden;
+		max-height: 0;
+	}
+</style>
