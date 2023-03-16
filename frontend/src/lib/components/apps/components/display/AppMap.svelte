@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext, onMount } from 'svelte'
+	import { getContext } from 'svelte'
 	import { concatCustomCss } from '../../utils'
 	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
@@ -124,7 +124,7 @@
 		createMarkerLayers()?.forEach((l) => map.addLayer(l))
 	}
 
-	onMount(() => {
+	$: if (!map && mapElement) {
 		useGeographic()
 		map = new Map({
 			target: mapElement,
@@ -143,7 +143,7 @@
 			})
 		})
 		updateRegionOutput()
-	})
+	}
 
 	$: css = concatCustomCss($app.css?.mapcomponent, customCss)
 
