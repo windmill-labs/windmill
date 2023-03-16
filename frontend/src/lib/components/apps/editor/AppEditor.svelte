@@ -93,7 +93,8 @@
 		stateId: writable(0),
 		parentWidth: writable(0),
 		state: writable({}),
-		componentControl: writable({})
+		componentControl: writable({}),
+		hoverStore: writable(undefined)
 	})
 
 	setContext<AppEditorContext>('AppEditorContext', {

@@ -9,7 +9,7 @@
 	import StaticInputEditor from './inputEditor/StaticInputEditor.svelte'
 	import ConnectedInputEditor from './inputEditor/ConnectedInputEditor.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import { capitalize, classNames } from '$lib/utils'
+	import { capitalize, classNames, getModifierKey } from '$lib/utils'
 	import { buildExtraLib, fieldTypeToTsType } from '../../utils'
 	import Recompute from './Recompute.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -222,34 +222,23 @@
 						<Kbd>Del</Kbd>
 					</Button>
 				</div>
-				<div class="flex flex-col">
-					<div
-						><span class="text-gray-600 text-xs mr-2">Copy:</span><Kbd>CTRL+C</Kbd> + <Kbd
-							>CTRL+V</Kbd
-						></div
-					>
-					<!-- <Button
-					size="xs"
-					color="dark"
-					startIcon={{ icon: faCopy }}
-					on:click={() => {
-						if (component) {
-							duplicateElement(component.id)
-						}
-					}}
-				>
-					Duplicate component: {component.id}
-				</Button> -->
-					<div
-						><span class="text-gray-600 text-xs mr-2">Move:</span><Kbd>CTRL+X</Kbd> + <Kbd
-							>CTRL+V</Kbd
-						></div
-					>
-					<div
-						><span class="text-gray-600 text-xs mr-2">Navigate:</span><Kbd>&leftarrow;</Kbd><Kbd
-							>&uparrow;</Kbd
-						><Kbd>&rightarrow;</Kbd><Kbd>ESC</Kbd></div
-					>
+				<div class="flex flex-col gap-1">
+					<div>
+						<span class="text-gray-600 text-xs mr-2"> Copy:</span>
+						<Kbd>{getModifierKey()}</Kbd>+<Kbd>C</Kbd>,
+						<Kbd>{getModifierKey()}</Kbd>+<Kbd>V</Kbd>
+					</div>
+					<div>
+						<span class="text-gray-600 text-xs mr-2">Move: </span>
+						<Kbd>{getModifierKey()}</Kbd>+<Kbd>X</Kbd>,
+						<Kbd>{getModifierKey()}</Kbd>+<Kbd>V</Kbd>
+					</div>
+					<div>
+						<span class="text-gray-600 text-xs mr-2">Navigate:</span>
+						<Kbd>&leftarrow;</Kbd>
+						<Kbd>&uparrow;</Kbd><Kbd>&rightarrow;</Kbd>
+						<Kbd>ESC</Kbd>
+					</div>
 				</div>
 			</PanelSection>
 		{/if}

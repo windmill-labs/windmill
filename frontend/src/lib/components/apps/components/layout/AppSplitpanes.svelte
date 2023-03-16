@@ -70,7 +70,6 @@
 				{#if $app.subgrids?.[`${id}-${index}`]}
 					<SubGridEditor
 						visible={render}
-						noYPadding
 						{id}
 						shouldHighlight={$focusedGrid?.subGridIndex === index}
 						class={css?.container.class}

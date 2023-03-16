@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Tab, Tabs } from '$lib/components/common'
-	import { getContext, onMount } from 'svelte'
+	import { getContext } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppInput } from '../../inputType'
@@ -80,9 +80,7 @@
 	}
 
 	$: selected && handleTabSelection()
-
 	$: selectedIndex = tabs?.indexOf(selected) ?? -1
-
 	$: css = concatCustomCss($app.css?.tabscomponent, customCss)
 
 	let subgridWidth: number | undefined = undefined
@@ -131,7 +129,8 @@
 
 	<div bind:clientWidth={subgridWidth} class="w-full">
 		{#if $app.subgrids}
-			{#each tabs ?? [] as res, i}<SubGridEditor
+			{#each tabs ?? [] as res, i}
+				<SubGridEditor
 					{id}
 					visible={render && i === selectedIndex}
 					bind:subGrid={$app.subgrids[`${id}-${i}`]}
@@ -141,7 +140,8 @@
 					on:focus={() => {
 						$selectedComponent = id
 					}}
-				/>{/each}
+				/>
+			{/each}
 		{/if}
 	</div>
 </div>
