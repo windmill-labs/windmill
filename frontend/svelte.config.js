@@ -21,7 +21,12 @@ const config = {
 						assets: 'build',
 						fallback: '200.html'
 				  }),
-		prerender: { entries: [] }
+		prerender: { entries: [] },
+		csp: {
+			directives: {
+				'connect-src': ['self', 'https://*.supabase.co']
+			}
+		}
 	}
 }
 
