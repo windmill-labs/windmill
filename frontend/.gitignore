@@ -7,3 +7,4 @@ node_modules
 CaddyfileRemoteRuben
 tests-out/
 storageState.json
+.env.production

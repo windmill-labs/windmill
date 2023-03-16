@@ -5,7 +5,7 @@
 
 	export let id: string
 	export let shouldWrap: boolean = false
-	const { app, breakpoint } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, breakpoint, mode } = getContext<AppViewerContext>('AppViewerContext')
 
 	$: gridItem = findGridItem($app, id)
 
@@ -16,13 +16,12 @@
 			const wrapperHeight = wrapper.getBoundingClientRect().height
 			const width = $breakpoint === 'sm' ? 3 : 12
 			gridItem[width].h = Math.ceil(wrapperHeight / 36)
-			gridItem = gridItem
 		}
 	}
 </script>
 
-{#if shouldWrap}
-	<div bind:this={wrapper}>
+{#if shouldWrap && $mode !== 'preview'}
+	<div class="h-full w-full" bind:this={wrapper}>
 		<slot />
 	</div>
 {:else}

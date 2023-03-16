@@ -35,7 +35,7 @@
 
 	const { worldStore, state, mode } = getContext<AppViewerContext>('AppViewerContext')
 
-	$: stateId = $worldStore?.state
+	$: stateId = $worldStore?.stateId
 
 	let timeout: NodeJS.Timeout | undefined = undefined
 	const debounce_ms = 50
@@ -63,7 +63,7 @@
 
 	async function handleConnection() {
 		if (lastInput.type === 'connected') {
-			$worldStore?.connect<any>(lastInput, onValueChange)
+			$worldStore?.connect<any>(lastInput, onValueChange, id)
 		} else if (lastInput.type === 'static' || lastInput.type == 'template') {
 			value = await getValue(lastInput)
 		} else if (lastInput.type == 'eval') {
@@ -84,7 +84,8 @@
 				true,
 				$state,
 				$mode == 'dnd',
-				$componentControl
+				$componentControl,
+				$worldStore
 			)
 			error = ''
 			return r
@@ -103,7 +104,8 @@
 					true,
 					$state,
 					$mode == 'dnd',
-					$componentControl
+					$componentControl,
+					$worldStore
 				)
 				error = ''
 				return r

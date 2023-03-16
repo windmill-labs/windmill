@@ -577,6 +577,10 @@
 		})
 	}
 
+	export function focus() {
+		editor?.focus()
+	}
+
 	onMount(() => {
 		if (browser) {
 			loadMonaco()

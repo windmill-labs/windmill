@@ -5,12 +5,12 @@
 	import { getColumn, throttle } from './utils/other'
 	import MoveResize from './MoveResize.svelte'
 	import type { FilledItem } from './types'
+	import { sortGridItemsPosition } from '../editor/appUtils'
 
 	const dispatch = createEventDispatcher()
 
 	type T = $$Generic
 
-	export let fillSpace = false
 	export let items: FilledItem<T>[]
 	export let rowHeight: number
 	export let cols: [number, number][]
@@ -86,6 +86,9 @@
 		return () => sizeObserver.disconnect()
 	})
 
+	let sortedItems: FilledItem<T>[] = []
+	$: sortedItems = JSON.parse(JSON.stringify(items)).sort((a, b) => a.id.localeCompare(b.id))
+
 	let initItems: FilledItem<T>[] | undefined = undefined
 	const updateMatrix = ({ detail }) => {
 		let isPointerUp = detail.isPointerUp
@@ -94,12 +97,12 @@
 			try {
 				citems = JSON.parse(JSON.stringify(initItems))
 			} catch (e) {
-				citems = JSON.parse(JSON.stringify(items))
+				citems = JSON.parse(JSON.stringify(sortedItems))
 			}
 			initItems = undefined
 		} else {
 			if (initItems == undefined) {
-				initItems = JSON.parse(JSON.stringify(items))
+				initItems = JSON.parse(JSON.stringify(sortedItems))
 			}
 			citems = JSON.parse(JSON.stringify(initItems))
 		}
@@ -115,16 +118,7 @@
 				}
 			}
 
-			if (fillSpace) {
-				items = moveItemsAroundItem(
-					activeItem,
-					citems,
-					getComputedCols,
-					getItemById(detail.id, citems)
-				)
-			} else {
-				items = moveItem(activeItem, citems, getComputedCols, getItemById(detail.id, citems))
-			}
+			sortedItems = moveItem(activeItem, citems, getComputedCols, getItemById(detail.id, citems))
 
 			if (detail.onUpdate) detail.onUpdate()
 
@@ -133,6 +127,13 @@
 				id: activeItem.id,
 				cols: getComputedCols
 			})
+		}
+
+		if (isPointerUp) {
+			dispatch(
+				'redraw',
+				sortGridItemsPosition(JSON.parse(JSON.stringify(sortedItems)), getComputedCols)
+			)
 		}
 	}
 
@@ -149,7 +150,7 @@
 
 <div class="svlt-grid-container" style="height: {containerHeight}px" bind:this={container}>
 	{#if xPerPx || !fastStart}
-		{#each items as item, i (item.id)}
+		{#each sortedItems as item (item.id)}
 			<MoveResize
 				on:repaint={handleRepaint}
 				on:pointerup={pointerup}
@@ -183,7 +184,6 @@
 						{resizePointerDown}
 						dataItem={item}
 						item={item[getComputedCols]}
-						index={i}
 					/>
 				{/if}
 			</MoveResize>

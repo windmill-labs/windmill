@@ -1,6 +1,8 @@
 <script lang="ts">
-	import { onMount } from 'svelte'
+	import { getContext, onMount } from 'svelte'
+	import { initOutput } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'
+	import type { AppViewerContext } from '../../types'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 
 	export let id: string
@@ -9,7 +11,12 @@
 	export let initializing: boolean | undefined = undefined
 	export let render: boolean
 
-	export const staticOutputs: string[] = ['result', 'loading']
+	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
+
+	initOutput($worldStore, id, {
+		result: undefined,
+		loading: false
+	})
 
 	let result: object | undefined = undefined
 	let divEl: HTMLDivElement | null = null
@@ -34,13 +41,13 @@
 		Plotly.newPlot(
 			divEl,
 			[result],
-			{ width: w, height: h, margin: { l: 40, r: 40, b: 40, t: 40, pad: 4 } },
+			{ width: w, height: h, margin: { l: 50, r: 40, b: 40, t: 40, pad: 4 } },
 			{ responsive: true, displayModeBar: false }
 		)
 </script>
 
 <div class="w-full h-full" bind:clientHeight={h} bind:clientWidth={w}>
-	<RunnableWrapper {render} flexWrap {componentInput} {id} bind:initializing bind:result>
+	<RunnableWrapper {render} {componentInput} {id} bind:initializing bind:result>
 		<div on:pointerdown bind:this={divEl} />
 	</RunnableWrapper>
 </div>

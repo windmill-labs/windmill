@@ -11,7 +11,6 @@
 	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
 	export let render: boolean
 
-	export const staticOutputs: string[] = []
 	const { app, focusedGrid, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 
 	function onFocus() {

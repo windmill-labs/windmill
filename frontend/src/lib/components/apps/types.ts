@@ -53,7 +53,6 @@ export interface BaseAppComponent extends Partial<Aligned> {
 				| UploadAppInput
 			)
 	>
-	card: boolean | undefined
 	customCss?: ComponentCustomCSS
 	/**
 	 * If `true` then the wrapper will allow items to flow outside of it's borders.
@@ -77,10 +76,7 @@ export type AppSection = {
 	id: SectionID
 }
 
-export type GridItem = FilledItem<{
-	data: AppComponent
-	id: string
-}>
+export type GridItem = FilledItem<AppComponent>
 
 export type InlineScript = {
 	content: string
@@ -114,8 +110,7 @@ export type ConnectingInput = {
 }
 
 export type AppViewerContext = {
-	worldStore: Writable<World | undefined>
-	staticOutputs: Writable<Record<string, string[]>>
+	worldStore: Writable<World>
 	app: Writable<App>
 	summary: Writable<string>
 	selectedComponent: Writable<string | undefined>
@@ -147,6 +142,7 @@ export type AppViewerContext = {
 export type AppEditorContext = {
 	history: History<App> | undefined
 	pickVariableCallback: Writable<((path: string) => void) | undefined>
+	ontextfocus: Writable<(() => void) | undefined>
 }
 
 export type FocusedGrid = { parentComponentId: string; subGridIndex: number }
@@ -156,3 +152,10 @@ export type EditorBreakpoint = 'sm' | 'lg'
 export const IS_APP_PUBLIC_CONTEXT_KEY = 'isAppPublicContext' as const
 
 type ComponentID = string
+
+export type ContextPanelContext = {
+	search: Writable<string>
+	manuallyOpened: Writable<Record<string, boolean>>
+	expanded: Writable<boolean>
+	hasResult: Writable<Record<string, boolean>>
+}

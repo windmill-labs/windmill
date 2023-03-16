@@ -12,14 +12,15 @@ const config = {
 	],
 
 	kit: {
-		adapter: process.env.CLOUDFLARE
-			? adapter({ pages: 'build', assets: 'build', fallback: 'index.html', precompress: false })
-			: adapter({
-					// default options are shown
-					pages: 'build',
-					assets: 'build',
-					fallback: '200.html'
-			  }),
+		adapter:
+			process.env.CLOUDFLARE || process.env.NOCATCHALL
+				? adapter({ pages: 'build', assets: 'build', fallback: 'index.html', precompress: false })
+				: adapter({
+						// default options are shown
+						pages: 'build',
+						assets: 'build',
+						fallback: '200.html'
+				  }),
 		prerender: { entries: [] }
 	}
 }

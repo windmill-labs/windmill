@@ -112,6 +112,7 @@ Windmill Community Edition {GIT_VERSION}
         "QUEUE_LIMIT_WAIT_RESULT",
         "DENO_AUTH_TOKENS",
         "DENO_FLAGS",
+        "NPM_CONFIG_REGISTRY",
         "PIP_LOCAL_DEPENDENCIES",
         "ADDITIONAL_PYTHON_PATHS",
         "INCLUDE_HEADERS",

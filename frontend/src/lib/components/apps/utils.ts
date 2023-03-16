@@ -199,8 +199,8 @@ export function getAllScriptNames(app: App): string[] {
 			acc.push(componentInput.runnable.name)
 		}
 
-		if (componentInput?.type === 'tablecomponent') {
-			componentInput.actionButtons.forEach((actionButton) => {
+		if (gridItem.data.type === 'tablecomponent') {
+			gridItem.data.actionButtons.forEach((actionButton) => {
 				if (actionButton.componentInput?.type === 'runnable') {
 					if (actionButton.componentInput.runnable?.type === 'runnableByName') {
 						acc.push(actionButton.componentInput.runnable.name)

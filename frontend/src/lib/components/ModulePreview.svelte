@@ -60,6 +60,7 @@
 		if (testJob && !testJob.canceled && testJob.type == 'CompletedJob' && `result` in testJob) {
 			if ($flowStateStore[mod.id]?.previewResult) {
 				$flowStateStore[mod.id].previewResult = testJob.result
+				$flowStateStore = $flowStateStore
 			}
 		}
 	}

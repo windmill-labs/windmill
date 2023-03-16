@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { getContext, afterUpdate } from 'svelte'
-	import type { App, AppEditorContext, AppViewerContext, GridItem } from '../types'
+	import type { App, AppEditorContext, AppViewerContext } from '../types'
 	import { classNames } from '$lib/utils'
-	import { columnConfiguration, disableDrag, enableDrag, isFixed, toggleFixed } from '../gridUtils'
+	import { columnConfiguration, isFixed, toggleFixed } from '../gridUtils'
 	import { twMerge } from 'tailwind-merge'
 
 	import RecomputeAllComponents from './RecomputeAllComponents.svelte'
@@ -21,7 +21,6 @@
 		app,
 		mode,
 		connectingInput,
-		staticOutputs,
 		runnableComponents,
 		summary,
 		focusedGrid,
@@ -30,31 +29,6 @@
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const { history } = getContext<AppEditorContext>('AppEditorContext')
-
-	// The drag is disabled when the user is connecting an input
-	// or when the user is previewing the app
-	// or when the focused grid is a subgrid
-	$: setAllDrags($mode === 'preview' || $connectingInput.opened)
-
-	function setAllDrags(enable: boolean) {
-		const fct = enable ? disableDrag : enableDrag
-
-		$app.grid.map((gridItem) => {
-			const disabledGridItem = fct(gridItem)
-
-			if (disabledGridItem?.data?.subGrids) {
-				disabledGridItem.data.subGrids = disabledGridItem.data.subGrids.map(
-					(subgrid: GridItem[]) => subgrid?.map((subgridItem: GridItem) => fct(subgridItem)) ?? []
-				)
-			}
-
-			return disabledGridItem
-		})
-
-		Object.values($app.subgrids ?? {}).map(
-			(subgrid: GridItem[]) => subgrid?.map((subgridItem: GridItem) => fct(subgridItem)) ?? []
-		)
-	}
 
 	function removeGridElement(component) {
 		if (component) {
@@ -83,10 +57,6 @@
 				return gridComponent.data.id !== component?.id
 			})
 
-			// Delete static inputs
-			delete $staticOutputs[component.id]
-			$staticOutputs = $staticOutputs
-
 			delete $runnableComponents[component.id]
 			$runnableComponents = $runnableComponents
 
@@ -95,12 +65,11 @@
 	}
 
 	function selectComponent(id: string) {
-		// Component selection is handled manually in the Map component (pointerdown
-		// event propagation is stopped to enable paning).
-		// Update the 'selectComponent()' function as well when this is updated.
-
 		if (!$connectingInput.opened) {
-			$selectedComponent = id
+			if ($selectedComponent !== id) {
+				$selectedComponent = id
+			}
+
 			$focusedGrid = undefined
 		}
 	}
@@ -169,64 +138,62 @@
 		<div class={!$focusedGrid && $mode !== 'preview' ? 'border-gray-400 border border-dashed' : ''}>
 			<Grid
 				onTopId={$selectedComponent}
-				fillSpace={false}
-				bind:items={$app.grid}
+				items={$app.grid}
+				on:redraw={(e) => {
+					push(history, $app)
+					$app.grid = e.detail
+				}}
 				let:dataItem
 				rowHeight={36}
 				cols={columnConfiguration}
 				fastStart={true}
 				gap={[4, 2]}
 			>
-				{#each $app.grid as gridComponent (gridComponent.id)}
-					{#if gridComponent?.data?.id && gridComponent?.data?.id === dataItem?.data?.id}
-						<!-- svelte-ignore a11y-click-events-have-key-events -->
-						{#if $connectingInput.opened}
-							<div
-								on:pointerenter={() => ($connectingInput.hoveredComponent = gridComponent.data.id)}
-								on:pointerleave={() => ($connectingInput.hoveredComponent = undefined)}
-								class="absolute w-full h-full bg-black border-2 bg-opacity-25 z-20 flex justify-center items-center"
-							/>
-							<div
-								style="transform: translate(-50%, -50%);"
-								class="absolute w-fit justify-center bg-indigo-500/90 left-[50%] top-[50%] z-50 px-6 rounded border text-white py-2 text-5xl center-center"
-							>
-								{dataItem.data.id}
-							</div>
-						{/if}
-						<!-- svelte-ignore a11y-click-events-have-key-events -->
-						<div
-							on:click|stopPropagation
-							on:pointerdown={() => selectComponent(dataItem.data.id)}
-							class={classNames(
-								'h-full w-full center-center',
-								$selectedComponent === dataItem.data.id ? 'active-grid-item' : '',
-								gridComponent.data.card ? 'border border-gray-100' : ''
-							)}
-						>
-							<Component
-								render={true}
-								{pointerdown}
-								component={gridComponent.data}
-								selected={$selectedComponent === dataItem.data.id}
-								locked={isFixed(gridComponent)}
-								on:delete={() => removeGridElement(gridComponent.data)}
-								on:lock={() => {
-									const gridItem = findGridItem($app, gridComponent.data.id)
-									if (gridItem) {
-										toggleFixed(gridItem)
-									}
-									$app = $app
-								}}
-								on:expand={() => {
-									push(history, $app)
-									$selectedComponent = gridComponent.data.id
-									expandGriditem($app.grid, gridComponent, $breakpoint)
-									$app = $app
-								}}
-							/>
-						</div>
-					{/if}
-				{/each}
+				<!-- svelte-ignore a11y-click-events-have-key-events -->
+				{#if $connectingInput.opened}
+					<div
+						on:pointerenter={() => ($connectingInput.hoveredComponent = dataItem.id)}
+						on:pointerleave={() => ($connectingInput.hoveredComponent = undefined)}
+						class="absolute w-full h-full bg-black border-2 bg-opacity-25 z-20 flex justify-center items-center"
+					/>
+					<div
+						style="transform: translate(-50%, -50%);"
+						class="absolute w-fit justify-center bg-indigo-500/90 left-[50%] top-[50%] z-50 px-6 rounded border text-white py-2 text-5xl center-center"
+					>
+						{dataItem.data.id}
+					</div>
+				{/if}
+				<!-- svelte-ignore a11y-click-events-have-key-events -->
+				<div
+					on:click|stopPropagation
+					on:pointerdown={() => selectComponent(dataItem.data.id)}
+					class={classNames(
+						'h-full w-full center-center',
+						$selectedComponent === dataItem.data.id ? 'active-grid-item' : ''
+					)}
+				>
+					<Component
+						render={true}
+						{pointerdown}
+						component={dataItem.data}
+						selected={$selectedComponent === dataItem.data.id}
+						locked={isFixed(dataItem)}
+						on:delete={() => removeGridElement(dataItem.data)}
+						on:lock={() => {
+							const gridItem = findGridItem($app, dataItem.data.id)
+							if (gridItem) {
+								toggleFixed(gridItem)
+							}
+							$app = $app
+						}}
+						on:expand={() => {
+							push(history, $app)
+							$selectedComponent = dataItem.data.id
+							expandGriditem($app.grid, dataItem, $breakpoint)
+							$app = $app
+						}}
+					/>
+				</div>
 			</Grid>
 		</div>
 	</div>
@@ -241,7 +208,6 @@
 				name={script.name}
 				fields={script.fields}
 				autoRefresh={script.autoRefresh ?? false}
-				bind:staticOutputs={$staticOutputs[`bg_${index}`]}
 			/>
 		{/if}
 	{/each}

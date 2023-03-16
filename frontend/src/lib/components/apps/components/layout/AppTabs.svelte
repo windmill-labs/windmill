@@ -4,7 +4,7 @@
 	import { initOutput } from '../../editor/appUtils'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppInput } from '../../inputType'
-	import type { AppEditorContext, AppViewerContext, ComponentCustomCSS } from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import InputValue from '../helpers/InputValue.svelte'
 
@@ -16,9 +16,8 @@
 		| ComponentCustomCSS<'tabRow' | 'tabs' | 'selectedTab' | 'container'>
 		| undefined = undefined
 	export let render: boolean
-	export let initializing: boolean | undefined = true
+	export let initializing: boolean | undefined = configuration.tabsKind != undefined
 
-	export const staticOutputs: string[] = ['selectedTabIndex']
 	const { app, worldStore, focusedGrid, selectedComponent, mode, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 
@@ -26,11 +25,9 @@
 	let kind: 'tabs' | 'sidebar' | 'invisibleOnView' | undefined = undefined
 	let tabHeight: number = 0
 
-	$: outputs = $worldStore
-		? initOutput($worldStore, id, {
-				selectedTabIndex: 0
-		  })
-		: undefined
+	let outputs = initOutput($worldStore, id, {
+		selectedTabIndex: 0
+	})
 
 	function handleTabSelection() {
 		const selectedIndex = tabs?.indexOf(selected)

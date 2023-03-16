@@ -5,9 +5,10 @@
 	import { columnConfiguration, isFixed, toggleFixed } from '../gridUtils'
 	import type { AppEditorContext, AppViewerContext, GridItem } from '../types'
 	import Component from './component/Component.svelte'
-	import { expandGriditem, findGridItem } from './appUtils'
+	import { expandGriditem, findGridItem, sortGridItemsPosition } from './appUtils'
 	import { push } from '$lib/history'
 	import Grid from '../svelte-grid/Grid.svelte'
+	import GridViewer from './GridViewer.svelte'
 
 	export let containerHeight: number
 	export let containerWidth: number | undefined = undefined
@@ -49,18 +50,14 @@
 	function selectComponent(id: string) {
 		onComponent = id
 		if (!$connectingInput.opened) {
-			$selectedComponent = id
-			/*
-			$focusedGrid = {
-				parentComponentId: parentId,
-				subGridIndex: index
+			if (id !== $selectedComponent) {
+				$selectedComponent = id
 			}
-			*/
 		}
 	}
 
-	function lock(gridComponent: GridItem) {
-		let fComponent = findGridItem($app, gridComponent.data.id)
+	function lock(dataItem: GridItem) {
+		let fComponent = findGridItem($app, dataItem.data.id)
 		if (fComponent) {
 			fComponent = toggleFixed(fComponent)
 		}
@@ -89,69 +86,94 @@
 		on:pointerup={onpointerup}
 		style="height: {containerHeight}px; {style ?? ''}"
 	>
-		<div class={highlight && $mode !== 'preview' ? 'border-gray-400  border border-dashed' : ''}>
-			<Grid
-				bind:items={subGrid}
+		{#if $mode !== 'preview'}
+			<div class={highlight ? 'border-gray-400  border border-dashed' : ''}>
+				<Grid
+					items={subGrid}
+					on:redraw={(e) => {
+						push(history, $app)
+						subGrid = e.detail
+					}}
+					let:dataItem
+					rowHeight={36}
+					cols={columnConfiguration}
+					fastStart={true}
+					gap={[4, 2]}
+					scroller={container}
+					parentWidth={$parentWidth - 17}
+					{containerWidth}
+				>
+					<!-- svelte-ignore a11y-click-events-have-key-events -->
+					{#if $connectingInput.opened}
+						<div
+							on:pointerenter={() => ($connectingInput.hoveredComponent = dataItem.data.id)}
+							on:pointerleave={() => ($connectingInput.hoveredComponent = undefined)}
+							class="absolute w-full h-full bg-black border-2 bg-opacity-25 z-20 flex justify-center items-center"
+						/>
+						<div
+							style="transform: translate(-50%, -50%);"
+							class="absolute w-fit justify-center bg-indigo-500/90 left-[50%] top-[50%] z-50 px-6 rounded border text-white py-2 text-5xl center-center"
+						>
+							{dataItem.data.id}
+						</div>
+					{/if}
+
+					<!-- svelte-ignore a11y-click-events-have-key-events -->
+					<div
+						on:pointerdown={() => selectComponent(dataItem.data.id)}
+						class={classNames(
+							'h-full w-full center-center',
+							$selectedComponent === dataItem.data.id ? 'active-grid-item' : '',
+							'top-0'
+						)}
+					>
+						<Component
+							render={visible}
+							{pointerdown}
+							component={dataItem.data}
+							selected={$selectedComponent === dataItem.data.id}
+							locked={isFixed(dataItem)}
+							on:lock={() => lock(dataItem)}
+							on:expand={() => {
+								const parentGridItem = findGridItem($app, id)
+
+								if (!parentGridItem) {
+									return
+								}
+								$selectedComponent = dataItem.data.id
+								push(history, $app)
+
+								expandGriditem(subGrid, dataItem, $breakpoint, parentGridItem)
+								$app = $app
+							}}
+						/>
+					</div>
+				</Grid>
+			</div>
+		{:else}
+			<GridViewer
+				items={subGrid}
 				let:dataItem
 				rowHeight={36}
 				cols={columnConfiguration}
-				fastStart={true}
 				gap={[4, 2]}
-				scroller={container}
 				parentWidth={$parentWidth - 17}
 				{containerWidth}
 			>
-				{#each subGrid as gridComponent (gridComponent.id)}
-					{#if gridComponent?.data?.id && gridComponent?.data?.id === dataItem?.data?.id}
-						<!-- svelte-ignore a11y-click-events-have-key-events -->
-						{#if $connectingInput.opened}
-							<div
-								on:pointerenter={() => ($connectingInput.hoveredComponent = gridComponent.data.id)}
-								on:pointerleave={() => ($connectingInput.hoveredComponent = undefined)}
-								class="absolute w-full h-full bg-black border-2 bg-opacity-25 z-20 flex justify-center items-center"
-							/>
-							<div
-								style="transform: translate(-50%, -50%);"
-								class="absolute w-fit justify-center bg-indigo-500/90 left-[50%] top-[50%] z-50 px-6 rounded border text-white py-2 text-5xl center-center"
-							>
-								{dataItem.data.id}
-							</div>
-						{/if}
-
-						<!-- svelte-ignore a11y-click-events-have-key-events -->
-						<div
-							on:pointerdown={() => selectComponent(dataItem.data.id)}
-							class={classNames(
-								'h-full w-full center-center',
-								$selectedComponent === dataItem.data.id ? 'active-grid-item' : '',
-								gridComponent.data.card ? 'border border-gray-100' : '',
-								'top-0'
-							)}
-						>
-							<Component
-								render={visible}
-								{pointerdown}
-								component={gridComponent.data}
-								selected={$selectedComponent === dataItem.data.id}
-								locked={isFixed(gridComponent)}
-								on:lock={() => lock(gridComponent)}
-								on:expand={() => {
-									const parentGridItem = findGridItem($app, id)
-
-									if (!parentGridItem) {
-										return
-									}
-									$selectedComponent = gridComponent.data.id
-									push(history, $app)
-
-									expandGriditem(subGrid, gridComponent, $breakpoint, parentGridItem)
-									$app = $app
-								}}
-							/>
-						</div>
-					{/if}
-				{/each}
-			</Grid>
-		</div>
+				<!-- svelte-ignore a11y-click-events-have-key-events -->
+				<div
+					on:pointerdown={() => selectComponent(dataItem.data.id)}
+					class={classNames('h-full w-full center-center', 'top-0')}
+				>
+					<Component
+						render={visible}
+						{pointerdown}
+						component={dataItem.data}
+						selected={$selectedComponent === dataItem.data.id}
+						locked={isFixed(dataItem)}
+					/>
+				</div>
+			</GridViewer>
+		{/if}
 	</div>
 </div>

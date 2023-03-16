@@ -4,14 +4,13 @@
 		findGridItem,
 		findGridItemParentGrid,
 		getAllSubgridsAndComponentIds,
-		insertNewGridItem,
-		sortGridItemsPosition
+		insertNewGridItem
 	} from '../appUtils'
-	import type { AppEditorContext, AppViewerContext, EditorBreakpoint, GridItem } from '../../types'
+	import type { AppEditorContext, AppViewerContext, GridItem } from '../../types'
 	import { push } from '$lib/history'
 	import { sendUserToast } from '$lib/utils'
 
-	const { app, selectedComponent, breakpoint, focusedGrid, componentControl } =
+	const { app, selectedComponent, worldStore, focusedGrid, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	const { history } = getContext<AppEditorContext>('AppEditorContext')
@@ -21,39 +20,35 @@
 
 	function getSortedGridItemsOfChildren(): GridItem[] {
 		if (!$focusedGrid) {
-			return sortGridItemsPosition($app.grid, $breakpoint)
+			return $app.grid
 		}
 
 		if (!$app.subgrids) {
 			return []
 		}
 
-		return sortGridItemsPosition(
-			$app.subgrids[`${$focusedGrid.parentComponentId}-${$focusedGrid.subGridIndex}`],
-			$breakpoint
-		)
+		return $app.subgrids[`${$focusedGrid.parentComponentId}-${$focusedGrid.subGridIndex}`] ?? []
 	}
 
-	function getSortedGridItemsOfGrid(): GridItem[] {
+	function getGridItems(): GridItem[] {
 		if ($app.grid.find((item) => item.id === $selectedComponent)) {
-			return sortGridItemsPosition($app.grid, $breakpoint)
+			return $app.grid
 		}
 
 		if (!$app.subgrids) {
 			return []
 		}
 
-		return sortGridItemsPosition(
+		return (
 			Object.values($app.subgrids ?? {}).find((grid) =>
 				grid.find((item) => item.id === $selectedComponent)
-			) ?? [],
-			$breakpoint
+			) ?? []
 		)
 	}
 
 	function left(event: KeyboardEvent) {
 		if (!$componentControl[$selectedComponent!]?.left?.()) {
-			const sortedGridItems = getSortedGridItemsOfGrid()
+			const sortedGridItems = getGridItems()
 			const currentIndex = sortedGridItems.findIndex((item) => item.id === $selectedComponent)
 
 			if (currentIndex !== -1 && currentIndex > 0) {
@@ -67,7 +62,7 @@
 	function right(event: KeyboardEvent) {
 		let r = $componentControl[$selectedComponent!]?.right?.()
 		if (!r) {
-			const sortedGridItems = getSortedGridItemsOfGrid()
+			const sortedGridItems = getGridItems()
 			const currentIndex = sortedGridItems.findIndex((item) => item.id === $selectedComponent)
 
 			if (currentIndex !== -1 && currentIndex < sortedGridItems.length - 1) {
@@ -90,10 +85,8 @@
 				return
 			}
 
-			const sortedGridItems = sortGridItemsPosition(subgrid, $breakpoint)
-
-			if (sortedGridItems) {
-				$selectedComponent = sortedGridItems[0].id
+			if (subgrid) {
+				$selectedComponent = subgrid[0].id
 			}
 			event.preventDefault()
 		}
@@ -171,10 +164,16 @@
 			insertNewGridItem($app, copiedGridItem.data, $focusedGrid, false)
 		}
 
+		$worldStore = $worldStore
 		$app = $app
 	}
 
 	function keydown(event: KeyboardEvent) {
+		// Ignore keydown events if the user is typing in monaco
+		let classes = event.target?.['className']
+		if (typeof classes === 'string' && classes.includes('inputarea')) {
+			return
+		}
 		switch (event.key) {
 			case 'Escape':
 				handleEscape(event)

@@ -8,8 +8,7 @@
 	import EmptyInlineScript from './EmptyInlineScript.svelte'
 	import InlineScriptEditorPanel from './InlineScriptEditorPanel.svelte'
 
-	const { app, staticOutputs, runnableComponents } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const { app, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 
 	let selectedScriptComponentId: string | undefined = undefined
 
@@ -18,9 +17,7 @@
 		$app.hiddenInlineScripts.splice(index, 1)
 		$app.hiddenInlineScripts = [...$app.hiddenInlineScripts]
 
-		delete $staticOutputs[`bg_${index}`]
 		delete $runnableComponents[`bg_${index}`]
-		$staticOutputs = $staticOutputs
 	}
 </script>
 
@@ -36,18 +33,17 @@
 				</div>
 			{/if}
 
-			{#each $app.grid as gridItem, index (gridItem?.data?.id ?? index)}
+			{#each $app.grid as gridItem (gridItem?.data?.id)}
 				{#if gridItem?.data?.id && gridItem.data.id === selectedScriptComponentId}
 					<InlineScriptEditorPanel
-						defaultUserInput={gridItem?.data?.type == 'formcomponent' ||
-							gridItem?.data?.type == 'buttonformcomponent'}
+						defaultUserInput={gridItem?.data?.type == 'formcomponent'}
 						id={gridItem.data.id}
 						bind:componentInput={gridItem.data.componentInput}
 					/>
 				{/if}
 
 				{#if gridItem?.data?.type === 'tablecomponent'}
-					{#each gridItem.data.actionButtons as actionButton, index (index)}
+					{#each gridItem.data.actionButtons as actionButton (actionButton.id)}
 						{#if actionButton.id === selectedScriptComponentId}
 							<InlineScriptEditorPanel
 								id={actionButton.id}
@@ -63,8 +59,7 @@
 					{#each $app.subgrids[key] as gridItem (gridItem?.data?.id)}
 						{#if gridItem?.data?.id && gridItem.data.id === selectedScriptComponentId}
 							<InlineScriptEditorPanel
-								defaultUserInput={gridItem.data?.type == 'formcomponent' ||
-									gridItem.data?.type == 'buttonformcomponent'}
+								defaultUserInput={gridItem.data?.type == 'formcomponent'}
 								id={gridItem.data.id}
 								bind:componentInput={gridItem.data.componentInput}
 							/>

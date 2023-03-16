@@ -5,6 +5,7 @@ import { gridColumns } from '../gridUtils'
 import { allItems } from '../utils'
 import type { Output, World } from '../rx'
 import gridHelp from '../svelte-grid/utils/helper'
+import type { FilledItem } from '../svelte-grid/types'
 
 function findGridItemById(
 	root: GridItem[],
@@ -34,15 +35,12 @@ export function findGridItemParentGrid(app: App, id: string): string | undefined
 	}
 }
 
-export function isIdInsideGriditem(app: App, gridItem: GridItem, id: string | undefined): boolean {
-	const path: string[] = []
-	let currentId = id
-	while (currentId) {
-		path.push(currentId)
-		currentId = findGridItemParentGrid(app, currentId)?.split('-')[0]
+export function allsubIds(app: App, parentId: string): string[] {
+	let item = findGridItem(app, parentId)
+	if (!item?.data.numberOfSubgrids) {
+		return [parentId]
 	}
-
-	return path.includes(gridItem.id)
+	return getAllSubgridsAndComponentIds(app, item?.data)[1]
 }
 
 export function findGridItem(app: App, id: string): GridItem | undefined {
@@ -305,15 +303,9 @@ export function initOutput<I extends Record<string, any>>(
 	if (!world) {
 		return {} as any
 	}
-	const output = world.outputsById[id] as Outputtable<I>
-	if (init) {
-		for (const key in init) {
-			if (output && output[key] && output[key].peak() == undefined) {
-				output[key].set(init[key] as any)
-			}
-		}
-	}
-	return output
+	return Object.fromEntries(
+		Object.entries(init).map(([key, value]) => [key, world.newOutput(id, key, value)])
+	) as Outputtable<I>
 }
 export function expandGriditem(
 	grid: GridItem[],
@@ -337,13 +329,11 @@ export function expandGriditem(
 	item.h = item.h + top + bottom
 }
 
-export function sortGridItemsPosition(
-	gridItems: GridItem[],
-	breakpoint: EditorBreakpoint
-): GridItem[] {
-	return gridItems.sort((a: GridItem, b: GridItem) => {
-		const width = breakpoint === 'lg' ? 12 : 3
-
+export function sortGridItemsPosition<T>(
+	gridItems: FilledItem<T>[],
+	width: number
+): FilledItem<T>[] {
+	return gridItems.sort((a: FilledItem<T>, b: FilledItem<T>) => {
 		const aX = a[width].x
 		const aY = a[width].y
 		const bX = b[width].x
@@ -392,11 +382,17 @@ export function recursivelyFilterKeyInJSON(
 	search: string,
 	extraSearch?: string | undefined
 ): object {
+	if (!search || search == '') {
+		return json
+	}
 	let filteredJSON = {}
 	Object.keys(json).forEach((key) => {
 		if (
 			key.toLowerCase().includes(search.toLowerCase()) ||
-			extraSearch?.toLowerCase().includes(search.toLowerCase())
+			extraSearch?.toLowerCase().includes(search.toLowerCase()) ||
+			(typeof json[key] === 'string' && json[key].toLowerCase().includes(search.toLowerCase())) ||
+			(typeof json[key] === 'number' &&
+				json[key].toString().toLowerCase().includes(search.toLowerCase()))
 		) {
 			filteredJSON[key] = json[key]
 		} else if (typeof json[key] === 'object') {

@@ -49,14 +49,14 @@
 		const componentType = $app.grid.find((c) => c.data.id === id)?.data?.type
 
 		const content =
-			defaultCode(componentType, language) ??
+			defaultCode(componentType ?? '', language) ??
 			initialCode(language, Script.kind.SCRIPT, subkind ?? 'flow')
 
 		return newInlineScript(content, language, path)
 	}
 
 	async function newInlineScript(content: string, language: Preview.language, path: string) {
-		const fullPath = `${appPath}/inline-script/${path}`
+		const fullPath = `${appPath}/${path}`
 
 		let schema: Schema = emptySchema()
 

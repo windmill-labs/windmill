@@ -11,7 +11,7 @@
 
 	export let id: string
 	export let inputSpecs: BaseAppComponent['configuration']
-	export let userInputEnabled: boolean = true
+	export let userInputEnabled: boolean = false
 	export let shouldCapitalize: boolean = true
 	export let rowColumns = false
 	export let resourceOnly = false
@@ -67,21 +67,6 @@
 										/>
 										<svelte:fragment slot="text">Static</svelte:fragment>
 									</Popover>
-									<!-- {#if rowColumns}
-										<Popover placement="bottom" notClickable disapperTimoout={0}>
-											<ToggleButton
-												position="center"
-												value="row"
-												startIcon={{ icon: faTableCells }}
-												size="xs"
-											>
-												<Tooltip scale={0.6} placement="top-end" wrapperClass="center-center">
-													Use the column name to have the value of the cell be passed to the action
-												</Tooltip>
-											</ToggleButton>
-											<svelte:fragment slot="text">Column</svelte:fragment>
-										</Popover>
-									{/if} -->
 									{#if userInputEnabled && !input.format?.startsWith('resource-')}
 										<Popover placement="bottom" notClickable disapperTimoout={0}>
 											<ToggleButton

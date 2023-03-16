@@ -27,10 +27,11 @@
 	export let fields: Record<string, AppInput> = {}
 	export let syncFields: boolean = false
 
-	const { runnableComponents, stateId, worldStore, state } =
+	const { runnableComponents, stateId, worldStore, state, appPath } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	let editor: Editor
+	let simpleEditor: SimpleEditor
 	let validCode = true
 
 	async function inferInlineScriptSchema(
@@ -48,6 +49,8 @@
 
 		return schema
 	}
+
+	$: inlineScript.path = `${appPath}/${name}`
 
 	onMount(async () => {
 		if (inlineScript && !inlineScript.schema) {
@@ -144,7 +147,8 @@
 				color="light"
 				btnClasses="!px-2 !py-1"
 				on:click={async () => {
-					editor.format()
+					editor?.format()
+					simpleEditor?.format()
 				}}
 			>
 				<div class="flex flex-row gap-1 items-center">
@@ -215,6 +219,7 @@
 			/>
 		{:else}
 			<SimpleEditor
+				bind:this={simpleEditor}
 				cmdEnterAction={async () => {
 					runLoading = true
 					await $runnableComponents[id]?.()

@@ -1,4 +1,9 @@
-import { Command, CompletionsCommand, DenoLandProvider, UpgradeCommand } from "./deps.ts";
+import {
+  Command,
+  CompletionsCommand,
+  DenoLandProvider,
+  UpgradeCommand,
+} from "./deps.ts";
 import flow from "./flow.ts";
 import script from "./script.ts";
 import workspace from "./workspace.ts";
@@ -13,19 +18,18 @@ import sync from "./sync.ts";
 import { tryResolveVersion } from "./context.ts";
 import { GlobalOptions } from "./types.ts";
 
-const VERSION = "v1.76.0";
+export const VERSION = "v1.77.0";
 
 let command: any = new Command()
   .name("wmill")
   .description("A simple CLI tool for windmill.")
-  .action(() => command.showHelp())
   .globalOption(
     "--workspace <workspace:string>",
-    "Specify the target workspace. This overrides the default workspace.",
+    "Specify the target workspace. This overrides the default workspace."
   )
   .globalOption(
     "--token <token:string>",
-    "Specify an API token. This will override any stored token.",
+    "Specify an API token. This will override any stored token."
   )
   .version(VERSION)
   .command("flow", flow)
@@ -59,14 +63,12 @@ let command: any = new Command()
         "--unstable",
       ],
       provider: new DenoLandProvider({ name: "wmill" }),
-    }),
+    })
   )
   .command("completions", new CompletionsCommand());
 
 if (Number.parseInt(VERSION.replace("v", "").replace(".", "")) > 1700) {
-  command = command
-    .command("push", push)
-    .command("pull", pull);
+  command = command.command("push", push).command("pull", pull);
 }
 
 try {

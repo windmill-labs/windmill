@@ -132,7 +132,7 @@
 {:else if topBrackets}
 	<span class="text-black">{openBracket}{closeBracket}</span>
 {:else}
-	<span class="text-gray-600 text-xs">No items</span>
+	<span class="text-gray-600 text-xs ml-2">No items</span>
 {/if}
 
 <style>

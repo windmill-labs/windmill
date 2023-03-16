@@ -20,6 +20,7 @@
 	import { concatCustomCss } from '../../utils'
 	import { getContext } from 'svelte'
 	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
+	import { initOutput } from '../../editor/appUtils'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -31,8 +32,12 @@
 	let zoomable = false
 	let pannable = false
 
-	export const staticOutputs: string[] = ['loading', 'result']
-	const { app } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+
+	initOutput($worldStore, id, {
+		result: undefined,
+		loading: false
+	})
 
 	ChartJS.register(
 		Title,
@@ -79,7 +84,7 @@
 <InputValue {id} input={configuration.zoomable} bind:value={zoomable} />
 <InputValue {id} input={configuration.pannable} bind:value={pannable} />
 
-<RunnableWrapper {render} flexWrap autoRefresh {componentInput} {id} bind:initializing bind:result>
+<RunnableWrapper {render} autoRefresh {componentInput} {id} bind:initializing bind:result>
 	<div class="w-full h-full {css?.container?.class ?? ''}" style={css?.container?.style ?? ''}>
 		{#if result}
 			<Scatter {data} {options} />

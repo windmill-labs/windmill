@@ -16,6 +16,7 @@
 	import type { ButtonComponent } from '../../../editor/component'
 	import { concatCustomCss } from '../../../utils'
 	import { twMerge } from 'tailwind-merge'
+	import { initOutput } from '$lib/components/apps/editor/appUtils'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -26,14 +27,6 @@
 		| ComponentCustomCSS<'container' | 'tableHeader' | 'tableBody' | 'tableFooter'>
 		| undefined = undefined
 	export let render: boolean
-
-	export const staticOutputs: string[] = [
-		'selectedRow',
-		'loading',
-		'result',
-		'search',
-		'selectedRowIndex'
-	]
 
 	type T = Record<string, any>
 
@@ -57,11 +50,7 @@
 
 	let table = createSvelteTable(options)
 
-	const {
-		app,
-		worldStore,
-		staticOutputs: staticOutputsStore
-	} = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
 	let selectedRowIndex = -1
 
@@ -131,11 +120,13 @@
 	$: filteredResult && setOptions(filteredResult)
 	$: search === 'By Component' && (filteredResult = searchInResult(result ?? [], searchValue))
 	$: (search === 'By Runnable' || search === 'Disabled') && (filteredResult = result ?? [])
-	$: outputs = $worldStore?.outputsById[id] as {
-		selectedRowIndex: Output<number>
-		selectedRow: Output<any>
-		search: Output<string>
-	}
+	let outputs = initOutput($worldStore, id, {
+		selectedRowIndex: 0,
+		selectedRow: undefined,
+		loading: false,
+		result: [],
+		search: ''
+	})
 
 	function rerender() {
 		table = createSvelteTable(options)
@@ -151,7 +142,7 @@
 
 <InputValue {id} input={configuration.search} bind:value={search} />
 
-<RunnableWrapper {render} flexWrap {componentInput} {id} bind:initializing bind:result>
+<RunnableWrapper {render} {componentInput} {id} bind:initializing bind:result>
 	{#if Array.isArray(result) && result.every(isObject)}
 		<div
 			class={twMerge(
@@ -243,7 +234,11 @@
 								{/each}
 
 								{#if actionButtons.length > 0}
-									<td class="p-2 " on:click={() => toggleRow(row, rowIndex)}>
+									<td
+										class="p-2"
+										on:keypress={() => toggleRow(row, rowIndex)}
+										on:click={() => toggleRow(row, rowIndex)}
+									>
 										<div class="center-center h-full w-full flex-wrap gap-1">
 											{#each actionButtons as actionButton, actionIndex (actionIndex)}
 												{#if rowIndex == 0}
@@ -256,7 +251,6 @@
 														}}
 														extraQueryParams={{ row: row.original }}
 														bind:componentInput={actionButton.componentInput}
-														bind:staticOutputs={$staticOutputsStore[actionButton.id]}
 													/>
 												{:else}
 													<AppButton
@@ -290,7 +284,10 @@
 		</div>
 	{:else if result != undefined}
 		<Alert title="Parsing issues" type="error" size="xs">
-			The result should be an array of objects
+			The result should be an array of objects. Received:
+			<pre class="overflow-auto">
+				{JSON.stringify(result)}
+			</pre>
 		</Alert>
 	{/if}
 </RunnableWrapper>

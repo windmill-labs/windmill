@@ -12,6 +12,7 @@
 	import { isObject } from '$lib/utils'
 
 	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import { initOutput } from '$lib/components/apps/editor/appUtils'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -19,11 +20,16 @@
 	export let initializing: boolean | undefined = undefined
 	export let render: boolean
 
-	export const staticOutputs: string[] = ['selectedRow', 'loading', 'result', 'selectedRowIndex']
-
-	let result: Record<string, any>[] | undefined = undefined
+	let result: Record<number, any>[] | undefined = undefined
 
 	const { worldStore, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
+
+	let outputs = initOutput($worldStore, id, {
+		selectedRowIndex: 0,
+		selectedRow: {},
+		result: [] as Record<number, any>[],
+		loading: false
+	})
 
 	let selectedRowIndex = -1
 
@@ -48,13 +54,7 @@
 		outputs &&
 		toggleRow({ original: result[0] }, 0)
 
-	$: outputs = $worldStore?.outputsById[id] as {
-		selectedRowIndex: Output<number>
-		selectedRow: Output<any>
-		result: Output<any>
-	}
-
-	$: outputs?.result?.set(result)
+	$: outputs?.result?.set(result ?? [])
 
 	let clientHeight
 	let clientWidth
@@ -81,7 +81,7 @@
 <InputValue {id} input={configuration.pagination} bind:value={pagination} />
 <InputValue {id} input={configuration.pageSize} bind:value={pageSize} />
 
-<RunnableWrapper {render} flexWrap {componentInput} {id} bind:initializing bind:result>
+<RunnableWrapper {render} {componentInput} {id} bind:initializing bind:result>
 	{#if Array.isArray(result) && result.every(isObject)}
 		<div
 			class="border border-gray-300 shadow-sm divide-y divide-gray-300  flex flex-col h-full"
@@ -109,7 +109,10 @@
 		</div>
 	{:else if result != undefined}
 		<Alert title="Parsing issues" type="error" size="xs">
-			The result should be an array of objects
+			The result should be an array of objects, received:
+			<pre class="overflow-auto">
+				{JSON.stringify(result)}
+			</pre>
 		</Alert>
 	{/if}
 </RunnableWrapper>

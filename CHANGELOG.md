@@ -1,6 +1,39 @@
 # Changelog
 
 
+## [1.78.0](https://github.com/windmill-labs/windmill/compare/v1.77.0...v1.78.0) (2023-03-16)
+
+
+### Features
+
+* **frontend:** app textcomponent editable + tooltip ([11567d6](https://github.com/windmill-labs/windmill/commit/11567d6280ea60f1a8c3c6607c724179775cbbe3))
+
+
+### Bug Fixes
+
+* **backend:** whitelist for include_header was ignored in some cases ([183a459](https://github.com/windmill-labs/windmill/commit/183a4591df700ab4720de6e92a83631256940089))
+* **frontend:** improve rendering performance after component moving ([6f890f2](https://github.com/windmill-labs/windmill/commit/6f890f2120885f90d986fbd655096b45bf9de539))
+* **frontend:** remove staticOutputs from apps ([dbdfd62](https://github.com/windmill-labs/windmill/commit/dbdfd626386398180ecba7976714f86365eeccd8))
+
+## [1.77.0](https://github.com/windmill-labs/windmill/compare/v1.76.0...v1.77.0) (2023-03-14)
+
+
+### Features
+
+* **apps:** state can be used as input in apps ([2f0acb9](https://github.com/windmill-labs/windmill/commit/2f0acb9ffa8dace4a886527dcee49809d019b271))
+* **apps:** tabs can be made pages or invisible + better frontend scripts reactivity ([cd645d0](https://github.com/windmill-labs/windmill/commit/cd645d0935f2d06e0ff71f14d2cf63accd378ff3))
+* **deno:** add support for custom npm repo ([#1291](https://github.com/windmill-labs/windmill/issues/1291)) ([944795f](https://github.com/windmill-labs/windmill/commit/944795f6eeaa7d01ab1a35a80570a55c363723e6))
+* **frontend:** add setTab to frontend scripts ([c2a97c5](https://github.com/windmill-labs/windmill/commit/c2a97c53cfff0fdb35dd8bc249490566eebdc1a9))
+* **frontend:** app components output panel ([#1283](https://github.com/windmill-labs/windmill/issues/1283)) ([751edcf](https://github.com/windmill-labs/windmill/commit/751edcf9b8e0976a1d073603c9eff5dc6e714490))
+
+
+### Bug Fixes
+
+* **backend:** do not cache reference to workspace scripts ([eb73f2a](https://github.com/windmill-labs/windmill/commit/eb73f2a687f6faad301b9038ab8585450bec7481))
+* **frontend:** fix app tabs ([#1288](https://github.com/windmill-labs/windmill/issues/1288)) ([c71a577](https://github.com/windmill-labs/windmill/commit/c71a577fead90c9cd01a736b54d859ec4f0b7807))
+* **frontend:** fix container deletion ([#1287](https://github.com/windmill-labs/windmill/issues/1287)) ([bc870bd](https://github.com/windmill-labs/windmill/commit/bc870bd03eb76cb8bc0e0c861f6cd8a9c661186b))
+* **frontend:** Update setting accordion ([#1285](https://github.com/windmill-labs/windmill/issues/1285)) ([dea12e8](https://github.com/windmill-labs/windmill/commit/dea12e8870ece998bb6607723cbaab9b9a958f22))
+
 ## [1.76.0](https://github.com/windmill-labs/windmill/compare/v1.75.0...v1.76.0) (2023-03-13)
 
 

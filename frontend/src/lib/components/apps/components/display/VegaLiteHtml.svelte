@@ -1,6 +1,8 @@
 <script lang="ts">
-	import { onMount } from 'svelte'
+	import { getContext, onMount } from 'svelte'
+	import { initOutput } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'
+	import type { AppViewerContext } from '../../types'
 	import InputValue from '../helpers/InputValue.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 
@@ -10,10 +12,15 @@
 	export let initializing: boolean | undefined = undefined
 	export let render: boolean
 
-	export const staticOutputs: string[] = ['result', 'loading']
-
 	let result: object | undefined = undefined
 	let divEl: HTMLDivElement | null = null
+
+	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
+
+	initOutput($worldStore, id, {
+		result: undefined,
+		loading: false
+	})
 
 	let vegaEmbed
 	onMount(async () => {
@@ -53,7 +60,7 @@
 <InputValue {id} input={configuration.canvas} bind:value={canvas} />
 
 <div class="w-full h-full" bind:clientHeight={h} bind:clientWidth={w}>
-	<RunnableWrapper {render} flexWrap {componentInput} {id} bind:initializing bind:result>
+	<RunnableWrapper {render} {componentInput} {id} bind:initializing bind:result>
 		<div on:pointerdown bind:this={divEl} />
 	</RunnableWrapper>
 </div>

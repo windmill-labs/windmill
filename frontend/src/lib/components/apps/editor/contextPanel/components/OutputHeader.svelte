@@ -1,27 +1,31 @@
 <script lang="ts">
+	import type { AppViewerContext, ContextPanelContext } from '$lib/components/apps/types'
 	import { classNames } from '$lib/utils'
 	import { ChevronDown, ChevronUp } from 'lucide-svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import { slide } from 'svelte/transition'
+	import { allsubIds } from '../../appUtils'
 
 	export let id: string
 	export let name: string
 	export let first: boolean = false
 	export let nested: boolean = false
 	export let color: 'blue' | 'indigo' = 'indigo'
-	export let expanded: boolean = false
-	export let shouldOpen: boolean = false
 
-	$: open = shouldOpen
-	let manuallyOpen = false
+	const { expanded, manuallyOpened, search, hasResult } =
+		getContext<ContextPanelContext>('ContextPanel')
+
+	const { selectedComponent, app } = getContext<AppViewerContext>('AppViewerContext')
+
+	$: subids = allsubIds($app, id)
+	$: inSearch =
+		$search != '' &&
+		($hasResult[id] ||
+			Object.entries($hasResult).some(([key, value]) => value && subids.includes(key)))
+	$: open =
+		$expanded || subids.includes($selectedComponent ?? '') || $manuallyOpened[id] || inSearch
 
 	const dispatch = createEventDispatcher()
-
-	$: if (expanded) {
-		manuallyOpen = true
-	} else {
-		manuallyOpen = false
-	}
 
 	const hoverColor = {
 		blue: 'hover:bg-blue-300 hover:text-blue-600',
@@ -45,42 +49,64 @@
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
-<div
-	class={classNames(
-		'flex items-center justify-between p-1 cursor-pointer border-b',
-		hoverColor[color],
-		open && !manuallyOpen ? openBackground[color] : 'bg-white',
-		first ? 'border-t' : '',
-		nested ? 'border-l' : ''
-	)}
-	on:click={() => {
-		dispatch('handleClick', { manuallyOpen })
-		manuallyOpen = !manuallyOpen
-	}}
->
+<div class={$search == '' || inSearch ? '' : 'invisible h-0 overflow-hidden'}>
 	<div
 		class={classNames(
-			'text-2xs ml-0.5 font-bold px-2 py-0.5 rounded-sm',
-			open ? idClass[color] : ' bg-gray-100'
+			'flex items-center justify-between p-1 cursor-pointer border-b gap-1 truncate',
+			hoverColor[color],
+			$selectedComponent == id ? openBackground[color] : 'bg-white',
+			first ? 'border-t' : '',
+			nested ? 'border-l' : ''
 		)}
+		on:click={() => {
+			dispatch('handleClick', { manuallyOpen: $manuallyOpened[id] })
+			$manuallyOpened[id] = $manuallyOpened[id] != undefined ? !$manuallyOpened[id] : true
+		}}
 	>
-		{id}
+		<div
+			class={classNames(
+				'text-2xs ml-0.5 font-bold px-2 py-0.5 rounded-sm',
+				$selectedComponent == id ? idClass[color] : ' bg-gray-100'
+			)}
+		>
+			{id}
+		</div>
+		<div
+			on:click|stopPropagation={() => {
+				$manuallyOpened[id] = $manuallyOpened[id] != undefined ? !$manuallyOpened[id] : true
+			}}
+			class="text-2xs font-bold flex flex-row gap-2 items-center truncate"
+		>
+			{name}
+			{#if !open}
+				<ChevronDown size={14} />
+			{:else if $manuallyOpened[id]}
+				<ChevronUp size={14} class={manuallyOpenColor[color]} strokeWidth={4} />
+			{:else}
+				<ChevronUp size={14} />
+			{/if}
+		</div>
 	</div>
-	<div class="text-2xs font-bold flex flex-row gap-2 items-center">
-		{name}
-		{#if !open && !manuallyOpen}
-			<ChevronDown size={14} />
-		{:else if manuallyOpen}
-			<ChevronUp size={14} class={manuallyOpenColor[color]} strokeWidth={4} />
-		{:else}
-			<ChevronUp size={14} />
-		{/if}
-	</div>
-</div>
-{#if open || manuallyOpen}
-	<div class="py-1 border-b" transition:slide|local>
+	<div class="scale border-b overflow-hidden  {open ? 'py-1 scale-y' : 'scale-0 max-h-0'} ">
 		<div class={classNames(nested ? 'border-l ml-2' : '')}>
 			<slot />
 		</div>
 	</div>
-{/if}
+</div>
+
+<style>
+	.scale {
+		transform-origin: top;
+		transition: transform 0.26s ease;
+	}
+	.scale-y {
+		transform: scaleY(1);
+		max-height: 100%;
+	}
+
+	.scale-0 {
+		transform: scaleY(0);
+		overflow: hidden;
+		max-height: 0;
+	}
+</style>

@@ -99,7 +99,7 @@
 		}
 	}
 
-	function format() {
+	export function format() {
 		if (editor) {
 			code = getCode()
 			editor.getAction('editor.action.formatDocument').run()

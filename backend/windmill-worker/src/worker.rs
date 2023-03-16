@@ -236,8 +236,7 @@ pub async fn create_token_for_owner<'c>(
 ) -> error::Result<(Transaction<'c, Postgres>, String)> {
     // TODO: Bad implementation. We should not have access to this DB here.
     let token: String = rd_string(30);
-    let is_super_admin = owner.contains('@')
-        && sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", owner)
+    let is_super_admin = sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", email)
             .fetch_optional(&mut tx)
             .await?
             .unwrap_or(false);
@@ -330,7 +329,7 @@ lazy_static::lazy_static! {
         .ok()
         .map(|x| format!(";{x}"))
         .unwrap_or_else(|| String::new());
-
+    static ref NPM_CONFIG_REGISTRY: Option<String> = std::env::var("NPM_CONFIG_REGISTRY").ok();
     
 
 
@@ -1481,6 +1480,26 @@ fn capitalize(s: &str) -> String {
     }
 }
 
+fn get_common_deno_proc_envs(token: &str, base_internal_url: &str) -> HashMap<String, String> {
+    let hostname_base = BASE_URL.split("://").last().unwrap_or("localhost");
+    let hostname_internal = base_internal_url.split("://").last().unwrap_or("localhost");
+    let deno_auth_tokens_base = DENO_AUTH_TOKENS.as_str();
+    let deno_auth_tokens =
+        format!("{token}@{hostname_base};{token}@{hostname_internal}{deno_auth_tokens_base}",);
+
+    let mut deno_envs: HashMap<String, String> = HashMap::from([
+        (String::from("PATH"), PATH_ENV.clone()),
+        (String::from("DENO_AUTH_TOKENS"), deno_auth_tokens),
+        (String::from("BASE_INTERNAL_URL"), base_internal_url.to_string()),
+        (String::from("NO_COLOR"), String::from("true")),
+    ]);
+
+    if let Some(ref s) = *NPM_CONFIG_REGISTRY {
+        deno_envs.insert(String::from("NPM_CONFIG_REGISTRY"), s.clone());
+    }
+    return deno_envs;
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_deno_job(
     logs: &mut String,
@@ -1546,11 +1565,7 @@ run().catch(async (e) => {{
     let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
-    let hostname_base = BASE_URL.split("://").last().unwrap_or("localhost");
-    let hostname_internal = base_internal_url.split("://").last().unwrap_or("localhost");
-    let deno_auth_tokens_base = DENO_AUTH_TOKENS.as_str();
-    let deno_auth_tokens =
-        format!("{token}@{hostname_base};{token}@{hostname_internal}{deno_auth_tokens_base}",);
+    let common_deno_proc_envs = get_common_deno_proc_envs(&token, base_internal_url);
     //do not cache local dependencies
     let reload = format!("--reload={base_internal_url}");
     let child = async {
@@ -1591,9 +1606,7 @@ run().catch(async (e) => {{
                 .current_dir(job_dir)
                 .env_clear()
                 .envs(reserved_variables)
-                .env("PATH", PATH_ENV.as_str())
-                .env("DENO_AUTH_TOKENS", deno_auth_tokens)
-                .env("BASE_INTERNAL_URL", base_internal_url)
+                .envs(common_deno_proc_envs)
                 .args(args)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
@@ -1619,11 +1632,8 @@ run().catch(async (e) => {{
                 .current_dir(job_dir)
                 .env_clear()
                 .envs(reserved_variables)
-                .env("PATH", PATH_ENV.as_str())
+                .envs(common_deno_proc_envs)
                 .env("DENO_DIR", DENO_CACHE_DIR)
-                .env("DENO_AUTH_TOKENS", deno_auth_tokens)
-                .env("BASE_INTERNAL_URL", base_internal_url)
-                .env("NO_COLOR", "true")
                 .args(args)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())

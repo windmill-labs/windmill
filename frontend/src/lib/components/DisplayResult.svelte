@@ -248,6 +248,6 @@
 			<Highlight language={json} code={JSON.stringify(result, null, 4).replace(/\\n/g, '\n')} />
 		{/if}
 	{:else}
-		<div class="text-gray-500 text-sm">No result</div>
+		<div class="text-gray-500 text-sm">No result: {JSON.stringify(result)}</div>
 	{/if}
 </div>

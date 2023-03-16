@@ -34,7 +34,7 @@ import {
 	FileText,
 	AtSignIcon
 } from 'lucide-svelte'
-import type { BaseAppComponent } from '../../types'
+import type { BaseAppComponent, GridItem } from '../../types'
 import type { Size } from '../../svelte-grid/types'
 
 type BaseComponent<T extends string> = {
@@ -68,7 +68,7 @@ export type BarChartComponent = BaseComponent<'barchartcomponent'>
 export type PieChartComponent = BaseComponent<'piechartcomponent'>
 export type ScatterChartComponent = BaseComponent<'scatterchartcomponent'>
 export type TableComponent = BaseComponent<'tablecomponent'> & {
-	actionButtons: (BaseAppComponent & ButtonComponent)[]
+	actionButtons: (BaseAppComponent & ButtonComponent & GridItem)[]
 }
 export type AggridComponent = BaseComponent<'aggridcomponent'>
 export type DisplayComponent = BaseComponent<'displaycomponent'>
@@ -180,8 +180,7 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 			customCss: {
 				header: { class: '', style: '' },
 				container: { class: '', style: '' }
-			} as const,
-			card: false
+			} as const
 		}
 	},
 	containercomponent: {
@@ -197,7 +196,7 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 				container: { class: '', style: '' }
 			} as const,
 			componentInput: undefined,
-			card: false,
+
 			numberOfSubgrids: 1
 		}
 	},
@@ -206,7 +205,7 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 		icon: Type,
 		dims: '1:1-3:1',
 		data: {
-			softWrap: false,
+			softWrap: true,
 			horizontalAlignment: 'left',
 			verticalAlignment: 'top',
 			id: '',
@@ -230,17 +229,17 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 					fieldType: 'boolean',
 					onlyStatic: true
 				},
-				fitContent: {
+				tooltip: {
 					type: 'static',
-					value: false,
-					fieldType: 'boolean',
-					onlyStatic: true
+					value: '',
+					fieldType: 'text',
+					onlyStatic: true,
+					tooltip: 'Tooltip text if not empty'
 				}
 			},
 			customCss: {
 				text: { class: '', style: '' }
-			} as const,
-			card: false
+			} as const
 		}
 	},
 	buttoncomponent: {
@@ -297,7 +296,7 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 					value: ''
 				},
 				gotoNewTab: {
-					tooltip: 'Go to create a new tab',
+					tooltip: 'Go to an url on a new tab',
 					fieldType: 'boolean',
 					type: 'static',
 					value: true
@@ -323,8 +322,7 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 			},
 			customCss: {
 				button: { style: '', class: '' }
-			} as const,
-			card: false
+			} as const
 		}
 	},
 	formcomponent: {
@@ -372,8 +370,7 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 			customCss: {
 				container: { class: '', style: '' },
 				button: { class: '', style: '' }
-			} as const,
-			card: true
+			} as const
 		}
 	},
 	formbuttoncomponent: {
@@ -416,8 +413,7 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 			customCss: {
 				button: { class: '', style: '' },
 				popup: { class: '', style: '' }
-			} as const,
-			card: true
+			} as const
 		}
 	},
 	piechartcomponent: {
@@ -449,8 +445,7 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 			},
 			customCss: {
 				container: { class: '', style: '' }
-			} as const,
-			card: true
+			} as const
 		}
 	},
 	barchartcomponent: {
@@ -482,8 +477,7 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 			},
 			customCss: {
 				container: { class: '', style: '' }
-			} as const,
-			card: true
+			} as const
 		}
 	},
 	htmlcomponent: {
@@ -507,8 +501,7 @@ Hello \${ctx.username}
 			configuration: {},
 			customCss: {
 				container: { class: '', style: '' }
-			} as const,
-			card: false
+			} as const
 		}
 	},
 	vegalitecomponent: {
@@ -544,11 +537,10 @@ Hello \${ctx.username}
 					onlyStatic: true,
 					fieldType: 'boolean',
 					value: false,
-					tooltip: 'use the canvas renderer instead of the svg one for more interactive plots'
+					tooltip: 'Use the canvas renderer instead of the svg one for more interactive plots'
 				}
 			},
-			customCss: {},
-			card: false
+			customCss: {}
 		}
 	},
 	plotlycomponent: {
@@ -575,8 +567,7 @@ Hello \${ctx.username}
 				}
 			},
 			configuration: {},
-			customCss: {},
-			card: false
+			customCss: {}
 		}
 	},
 	timeseriescomponent: {
@@ -651,8 +642,7 @@ Hello \${ctx.username}
 			},
 			customCss: {
 				container: { class: '', style: '' }
-			} as const,
-			card: true
+			} as const
 		}
 	},
 	scatterchartcomponent: {
@@ -703,8 +693,7 @@ Hello \${ctx.username}
 			},
 			customCss: {
 				container: { class: '', style: '' }
-			} as const,
-			card: true
+			} as const
 		}
 	},
 	tablecomponent: {
@@ -746,7 +735,7 @@ Hello \${ctx.username}
 				tableBody: { class: '', style: '' },
 				tableFooter: { class: '', style: '' }
 			} as const,
-			card: true,
+
 			actionButtons: []
 		}
 	},
@@ -768,7 +757,8 @@ Hello \${ctx.username}
 					type: 'static',
 					fieldType: 'boolean',
 					value: false,
-					onlyStatic: true
+					onlyStatic: true,
+					tooltip: 'Configure all columns as Editable by users'
 				},
 				pagination: {
 					type: 'static',
@@ -780,7 +770,8 @@ Hello \${ctx.username}
 					type: 'static',
 					fieldType: 'number',
 					value: 10,
-					onlyStatic: true
+					onlyStatic: true,
+					tooltip: 'Number of rows per page'
 				}
 			},
 			componentInput: {
@@ -800,8 +791,7 @@ Hello \${ctx.username}
 					}
 				]
 			},
-			customCss: {},
-			card: true
+			customCss: {}
 		}
 	},
 	checkboxcomponent: {
@@ -828,8 +818,7 @@ Hello \${ctx.username}
 			},
 			customCss: {
 				text: { class: '', style: '' }
-			} as const,
-			card: false
+			} as const
 		}
 	},
 	textinputcomponent: {
@@ -857,8 +846,7 @@ Hello \${ctx.username}
 			},
 			customCss: {
 				input: { class: '', style: '' }
-			} as const,
-			card: false
+			} as const
 		}
 	},
 	selectcomponent: {
@@ -884,7 +872,8 @@ Hello \${ctx.username}
 					type: 'static',
 					fieldType: 'boolean',
 					value: false,
-					onlyStatic: true
+					onlyStatic: true,
+					tooltip: 'Allows user to manually add new value'
 				},
 				placeholder: {
 					type: 'static',
@@ -901,7 +890,7 @@ Hello \${ctx.username}
 			customCss: {
 				input: { style: '' }
 			} as const,
-			card: false,
+
 			softWrap: true
 		}
 	},
@@ -931,7 +920,7 @@ Hello \${ctx.username}
 			customCss: {
 				input: { style: '' }
 			} as const,
-			card: false,
+
 			softWrap: true
 		}
 	},
@@ -961,7 +950,7 @@ Hello \${ctx.username}
 			customCss: {
 				input: { style: '' }
 			} as const,
-			card: false,
+
 			softWrap: true
 		}
 	},
@@ -1000,13 +989,13 @@ Hello \${ctx.username}
 				step: {
 					type: 'static',
 					value: 1,
-					fieldType: 'number'
+					fieldType: 'number',
+					tooltip: 'Spread between each number suggestion'
 				}
 			},
 			customCss: {
 				input: { class: '', style: '' }
-			} as const,
-			card: false
+			} as const
 		}
 	},
 	currencycomponent: {
@@ -1043,13 +1032,13 @@ Hello \${ctx.username}
 					value: 'en-US',
 					fieldType: 'select',
 					onlyStatic: true,
-					optionValuesKey: 'localeOptions'
+					optionValuesKey: 'localeOptions',
+					tooltip: 'Currency format'
 				}
 			},
 			customCss: {
 				input: { class: '', style: '' }
-			} as const,
-			card: false
+			} as const
 		}
 	},
 	slidercomponent: {
@@ -1082,7 +1071,8 @@ Hello \${ctx.username}
 				step: {
 					type: 'static',
 					value: 1,
-					fieldType: 'number'
+					fieldType: 'number',
+					tooltip: 'Spread between each number suggestion'
 				}
 			},
 			customCss: {
@@ -1090,8 +1080,7 @@ Hello \${ctx.username}
 				handle: { style: '' },
 				limits: { class: '', style: '' },
 				value: { class: '', style: '' }
-			} as const,
-			card: false
+			} as const
 		}
 	},
 	rangecomponent: {
@@ -1128,7 +1117,8 @@ Hello \${ctx.username}
 				step: {
 					type: 'static',
 					value: 1,
-					fieldType: 'number'
+					fieldType: 'number',
+					tooltip: 'Spread between each number suggestion'
 				}
 			},
 			customCss: {
@@ -1136,8 +1126,7 @@ Hello \${ctx.username}
 				bar: { style: '' },
 				limits: { class: '', style: '' },
 				values: { class: '', style: '' }
-			} as const,
-			card: false
+			} as const
 		}
 	},
 	passwordinputcomponent: {
@@ -1160,8 +1149,7 @@ Hello \${ctx.username}
 			},
 			customCss: {
 				input: { class: '', style: '' }
-			} as const,
-			card: false
+			} as const
 		}
 	},
 	emailinputcomponent: {
@@ -1189,8 +1177,7 @@ Hello \${ctx.username}
 			},
 			customCss: {
 				input: { class: '', style: '' }
-			} as const,
-			card: false
+			} as const
 		}
 	},
 	dateinputcomponent: {
@@ -1222,8 +1209,7 @@ Hello \${ctx.username}
 			},
 			customCss: {
 				input: { class: '', style: '' }
-			} as const,
-			card: false
+			} as const
 		}
 	},
 	tabscomponent: {
@@ -1250,7 +1236,7 @@ Hello \${ctx.username}
 				container: { class: '', style: '' }
 			} as const,
 			componentInput: undefined,
-			card: false,
+
 			numberOfSubgrids: 2,
 			tabs: ['First tab', 'Second tab']
 		}
@@ -1293,8 +1279,7 @@ Hello \${ctx.username}
 			customCss: {
 				container: { class: '', style: '' },
 				icon: { class: '', style: '' }
-			} as const,
-			card: false
+			} as const
 		}
 	},
 	horizontaldividercomponent: {
@@ -1323,8 +1308,7 @@ Hello \${ctx.username}
 			customCss: {
 				container: { class: '', style: '' },
 				divider: { class: '', style: '' }
-			} as const,
-			card: false
+			} as const
 		}
 	},
 	verticaldividercomponent: {
@@ -1353,8 +1337,7 @@ Hello \${ctx.username}
 			customCss: {
 				container: { class: '', style: '' },
 				divider: { class: '', style: '' }
-			} as const,
-			card: false
+			} as const
 		}
 	},
 	fileinputcomponent: {
@@ -1388,8 +1371,7 @@ Hello \${ctx.username}
 			},
 			customCss: {
 				container: { class: '', style: '' }
-			} as const,
-			card: false
+			} as const
 		}
 	},
 	imagecomponent: {
@@ -1427,8 +1409,7 @@ Hello \${ctx.username}
 			},
 			customCss: {
 				image: { class: '', style: '' }
-			} as const,
-			card: false
+			} as const
 		}
 	},
 	drawercomponent: {
@@ -1480,7 +1461,7 @@ Hello \${ctx.username}
 				}
 			},
 			componentInput: undefined,
-			card: false,
+
 			numberOfSubgrids: 1
 		}
 	},
@@ -1536,8 +1517,7 @@ Hello \${ctx.username}
 			},
 			customCss: {
 				map: { class: '', style: '' }
-			} as const,
-			card: false
+			} as const
 		}
 	},
 	verticalsplitpanescomponent: {
@@ -1553,7 +1533,7 @@ Hello \${ctx.username}
 				container: { class: '', style: '' }
 			} as const,
 			componentInput: undefined,
-			card: false,
+
 			panes: [50, 50],
 			numberOfSubgrids: 2
 		}
@@ -1571,7 +1551,7 @@ Hello \${ctx.username}
 				container: { class: '', style: '' }
 			} as const,
 			componentInput: undefined,
-			card: false,
+
 			panes: [50, 50],
 			numberOfSubgrids: 2
 		}
@@ -1602,8 +1582,7 @@ Hello \${ctx.username}
 			},
 			customCss: {
 				container: { class: '', style: '' }
-			} as const,
-			card: false
+			} as const
 		}
 	}
 }

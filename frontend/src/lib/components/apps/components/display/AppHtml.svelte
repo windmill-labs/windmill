@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
+	import { initOutput } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { concatCustomCss } from '../../utils'
@@ -11,8 +12,12 @@
 	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
 	export let render: boolean
 
-	export const staticOutputs: string[] = ['result', 'loading']
-	const { app } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+
+	initOutput($worldStore, id, {
+		result: undefined,
+		loading: false
+	})
 
 	let result: string | undefined = undefined
 	let h: number | undefined = undefined
@@ -29,15 +34,7 @@
 	bind:clientHeight={h}
 	bind:clientWidth={w}
 >
-	<RunnableWrapper
-		{render}
-		autoRefresh
-		flexWrap
-		{componentInput}
-		{id}
-		bind:initializing
-		bind:result
-	>
+	<RunnableWrapper {render} autoRefresh {componentInput} {id} bind:initializing bind:result>
 		{#key result}
 			<iframe
 				frameborder="0"

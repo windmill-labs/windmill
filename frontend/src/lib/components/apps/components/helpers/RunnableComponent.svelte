@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation'
 	import type { Schema } from '$lib/common'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import LightweightSchemaForm from '$lib/components/LightweightSchemaForm.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
@@ -24,7 +25,6 @@
 	export let autoRefresh: boolean = true
 	export let result: any = undefined
 	export let forceSchemaDisplay: boolean = false
-	export let flexWrap = false
 	export let wrapperClass = ''
 	export let wrapperStyle = ''
 	export let initializing: boolean | undefined = undefined
@@ -113,7 +113,7 @@
 	let testJob: CompletedJob | undefined = undefined
 	let testJobLoader: TestJobLoader | undefined = undefined
 
-	$: outputs = initOutput($worldStore, id, { result: undefined, loading: false })
+	let outputs = initOutput($worldStore, id, { result: undefined, loading: false })
 
 	$: outputs?.loading?.set(testIsLoading)
 	$: schemaStripped = stripSchema(fields, $stateId)
@@ -143,16 +143,6 @@
 		return schemaStripped as Schema
 	}
 
-	$: disabledArgs = Object.keys(fields ?? {}).reduce(
-		(disabledArgsAccumulator: string[], inputName: string) => {
-			if (fields[inputName].type === 'static') {
-				disabledArgsAccumulator = [...disabledArgsAccumulator, inputName]
-			}
-			return disabledArgsAccumulator
-		},
-		[]
-	)
-
 	async function executeComponent(noToast = false) {
 		if (runnable?.type === 'runnableByName' && runnable.inlineScript?.language === 'frontend') {
 			outputs?.loading?.set(true)
@@ -163,7 +153,8 @@
 					false,
 					$state,
 					$mode == 'dnd',
-					$componentControl
+					$componentControl,
+					$worldStore
 				)
 				setResult(r)
 				$state = $state
@@ -299,14 +290,7 @@
 	<div class="h-full flex relative flex-row flex-wrap {wrapperClass}" style={wrapperStyle}>
 		{#if schemaStripped && Object.keys(schemaStripped?.properties ?? {}).length > 0 && (autoRefresh || forceSchemaDisplay)}
 			<div class="px-2 h-fit min-h-0">
-				<SchemaForm
-					{flexWrap}
-					schema={schemaStripped}
-					bind:args
-					{disabledArgs}
-					shouldHideNoInputs
-					noVariablePicker
-				/>
+				<LightweightSchemaForm schema={schemaStripped} bind:args />
 			</div>
 		{/if}
 
@@ -350,6 +334,4 @@
 			</div>
 		{/if}
 	</div>
-{:else}
-	<div class="w-full h-full" />
 {/if}
