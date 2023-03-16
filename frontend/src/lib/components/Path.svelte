@@ -200,6 +200,10 @@
 	}
 
 	function initPath() {
+		if (path != undefined && path != '') {
+			meta = pathToMeta(path)
+			return
+		}
 		if (initialPath == undefined || initialPath == '') {
 			reset()
 		} else {
