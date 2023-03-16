@@ -198,7 +198,7 @@
 	</div>
 	<div>
 		<div class="text-xs mb-1 mt-2"
-			>Frontend only script:&nbsp;<Tooltip
+			>Script executed in the client's browser directly:&nbsp;<Tooltip
 				>Frontend scripts are executed in the browser and can manipulate the app context directly</Tooltip
 			></div
 		>

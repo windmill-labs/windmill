@@ -1,4 +1,5 @@
 import { sendUserToast } from '$lib/utils'
+import { isPlainObject } from 'lodash'
 import type { World } from '../../rx'
 
 export function computeGlobalContext(
@@ -45,6 +46,38 @@ function make_context_evaluator(
 	return functor()
 }
 
+function isSerializable(obj) {
+	var isNestedSerializable
+	function isPlain(val) {
+		return (
+			val == null ||
+			typeof val === 'undefined' ||
+			typeof val === 'string' ||
+			typeof val === 'boolean' ||
+			typeof val === 'number' ||
+			Array.isArray(val) ||
+			isPlainObject(val)
+		)
+	}
+	if (!isPlain(obj)) {
+		return false
+	}
+	for (var property in obj) {
+		if (obj.hasOwnProperty(property)) {
+			if (!isPlain(obj[property])) {
+				return false
+			}
+			if (typeof obj[property] == 'object') {
+				isNestedSerializable = isSerializable(obj[property])
+				if (!isNestedSerializable) {
+					return false
+				}
+			}
+		}
+	}
+	return true
+}
+
 export async function eval_like(
 	text: string,
 	context = {},
@@ -60,7 +93,11 @@ export async function eval_like(
 				throw new Error('Invalid key')
 			}
 			let o = worldStore?.newOutput('state', key, value)
-			o?.set(value)
+			if (isSerializable(value)) {
+				o?.set(value, true)
+			} else {
+				o?.set('Not serializable object usable only by frontend scripts', true)
+			}
 			target[key] = value
 			return true
 		}

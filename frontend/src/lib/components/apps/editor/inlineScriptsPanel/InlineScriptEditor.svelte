@@ -87,6 +87,22 @@
 		inlineScript.language == 'frontend' && worldStore
 			? buildExtraLib($worldStore?.outputsById ?? {}, id, false, $state, true)
 			: undefined
+
+	let refreshOn: string = inlineScript.refreshOn?.map((x) => `${x.id}.${x.key}`).join(' ') ?? ''
+
+	$: handleRefreshOn(refreshOn)
+
+	function handleRefreshOn(refreshOn: string) {
+		if (refreshOn && refreshOn != '') {
+			inlineScript.refreshOn = refreshOn
+				.split(' ')
+				.filter((x) => x.split('.').length == 2)
+				.map((x) => {
+					const [id, key] = x.split('.')
+					return { id, key }
+				})
+		}
+	}
 </script>
 
 {#if inlineScript.language != 'frontend'}
@@ -190,6 +206,15 @@
 		</div>
 	</div>
 
+	{#if inlineScript.language == 'frontend'}
+		<div class="flex flex-row text-xs px-1"
+			>List of outputs to listen to (e.g 'a.result b.result'): <input
+				on:keydown|stopPropagation
+				type="text"
+				bind:value={refreshOn}
+			/></div
+		>
+	{/if}
 	<div class="border h-full">
 		{#if inlineScript.language != 'frontend'}
 			<Editor

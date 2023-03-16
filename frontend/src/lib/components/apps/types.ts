@@ -83,6 +83,7 @@ export type InlineScript = {
 	language: Preview.language | 'frontend'
 	path?: string
 	schema?: Schema
+	refreshOn?: { id: string; key: string }[]
 }
 
 export type App = {

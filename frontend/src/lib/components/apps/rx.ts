@@ -68,8 +68,6 @@ export function buildObservableWorld() {
 				next: () => {}
 			}
 		} else if (inputSpec.type === 'connected') {
-			const input = cachedInput(next, id)
-
 			const connection = inputSpec.connection
 
 			if (!connection) {
@@ -81,6 +79,8 @@ export function buildObservableWorld() {
 			}
 
 			const { componentId, path } = connection
+			console.log('connection', connection)
+			const input = cachedInput(next, `${componentId}-${path}-${id}`)
 
 			const [p] = path ? path.split('.')[0].split('[') : [undefined]
 
@@ -164,7 +164,6 @@ export function settableOutput<T>(state: Writable<number>, previousValue: T): Ou
 	function set(x: T, force: boolean = false) {
 		if (!deepEqual(value, x) || force) {
 			state.update((x) => x + 1)
-
 			value = x
 			subscribers.forEach((x) => x.next(value!))
 		}

@@ -14,6 +14,7 @@
 	export let id: string | undefined = undefined
 	export let error: string = ''
 	export let extraContext: Record<string, any> = {}
+	export let key: string = ''
 
 	const { componentControl } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -63,6 +64,7 @@
 
 	async function handleConnection() {
 		if (lastInput.type === 'connected') {
+			console.log('connected', lastInput, `${id}-${key}`)
 			$worldStore?.connect<any>(lastInput, onValueChange, id)
 		} else if (lastInput.type === 'static' || lastInput.type == 'template') {
 			value = await getValue(lastInput)
@@ -121,6 +123,8 @@
 
 	function onValueChange(newValue: any): void {
 		if (lastInput.type === 'connected' && newValue !== undefined && newValue !== null) {
+			console.log(newValue, id, lastInput)
+
 			const { connection } = lastInput
 			if (!connection) {
 				// No connection
