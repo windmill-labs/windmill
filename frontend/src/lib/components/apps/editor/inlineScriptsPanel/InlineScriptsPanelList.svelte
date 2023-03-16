@@ -52,7 +52,7 @@
 	}
 </script>
 
-<PanelSection title="Runnables" smallPadding>
+<PanelSection title="Runnables">
 	<div class="w-full flex flex-col gap-6 py-1">
 		<div>
 			<div class="text-sm font-semibold truncate mb-1"> Inline scripts </div>

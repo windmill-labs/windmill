@@ -3,7 +3,6 @@
 	import Tooltip from '../../../../Tooltip.svelte'
 
 	export let title: string
-	export let smallPadding: boolean = false
 	export let noPadding: boolean = false
 	export let titlePadding: string = ''
 	export let tooltip = ''
@@ -13,7 +12,7 @@
 	class={classNames(
 		$$props.class,
 		'flex flex-col h-full gap-2 items-start',
-		noPadding ? '' : smallPadding ? 'p-2' : 'p-4'
+		noPadding ? '' : 'p-3'
 	)}
 >
 	<div class="flex justify-between flex-wrap items-center w-full gap-1">

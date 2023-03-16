@@ -83,10 +83,7 @@
 {#if component}
 	<div class="flex min-h-full flex-col min-w-[150px] w-full divide-y">
 		{#if component.componentInput}
-			<PanelSection
-				smallPadding
-				title={component.componentInput.fieldType === 'any' ? 'By Runnable' : 'Input'}
-			>
+			<PanelSection title={component.componentInput.fieldType === 'any' ? 'By Runnable' : 'Input'}>
 				<svelte:fragment slot="action">
 					<span
 						class={classNames(
@@ -135,7 +132,6 @@
 						{#if Object.keys(component.componentInput.fields ?? {}).length > 0}
 							<div class="border w-full">
 								<PanelSection
-									smallPadding
 									title={`Runnable Inputs (${
 										Object.keys(component.componentInput.fields ?? {}).length
 									})`}
