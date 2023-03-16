@@ -47,7 +47,7 @@
 </script>
 
 <div class="w-full h-full" bind:clientHeight={h} bind:clientWidth={w}>
-	<RunnableWrapper {render} flexWrap {componentInput} {id} bind:initializing bind:result>
+	<RunnableWrapper {render} {componentInput} {id} bind:initializing bind:result>
 		<div on:pointerdown bind:this={divEl} />
 	</RunnableWrapper>
 </div>

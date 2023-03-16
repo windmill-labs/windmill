@@ -81,8 +81,7 @@
 			recomputeIds: undefined,
 			customCss: {
 				button: { style: '', class: '' }
-			} as const,
-			card: false
+			} as const
 		}
 
 		components = [...components, newComponent]

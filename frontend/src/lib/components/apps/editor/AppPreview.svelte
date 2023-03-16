@@ -73,7 +73,8 @@
 
 	setContext<AppEditorContext>('AppEditorContext', {
 		history: undefined,
-		pickVariableCallback: writable(undefined)
+		pickVariableCallback: writable(undefined),
+		ontextfocus: writable(undefined)
 	})
 
 	let ncontext = context

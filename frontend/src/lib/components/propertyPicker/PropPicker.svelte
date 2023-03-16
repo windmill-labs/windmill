@@ -93,7 +93,10 @@
 				pureViewer={!$propPickerConfig}
 				json={flowInputsFiltered}
 				on:select={(e) => {
-					dispatch('select', `flow_input.${e.detail}`)
+					dispatch(
+						'select',
+						e.detail?.startsWith('[') ? `flow_input${e.detail}` : `flow_input.${e.detail}`
+					)
 				}}
 			/>
 		</div>

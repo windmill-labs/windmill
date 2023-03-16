@@ -384,8 +384,9 @@ async fn update_variable(
                 path,
                 w_id
             )
-            .fetch_one(&mut tx)
-            .await?;
+            .fetch_optional(&mut tx)
+            .await?
+            .flatten();
 
             if let Some(old_v) = v {
                 v = Some(replace_path(

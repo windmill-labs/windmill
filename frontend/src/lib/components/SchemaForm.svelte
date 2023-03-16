@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import { VariableService, type InputTransform } from '$lib/gen'
+	import { VariableService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { allTrue } from '$lib/utils'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
@@ -10,7 +10,7 @@
 	import VariableEditor from './VariableEditor.svelte'
 
 	export let schema: Schema
-	export let args: Record<string, InputTransform | any> = {}
+	export let args: Record<string, any> = {}
 	export let disabledArgs: string[] = []
 	export let disabled = false
 

@@ -15,7 +15,6 @@
 	export let autoRefresh: boolean = true
 	export let runnableComponent: RunnableComponent | undefined = undefined
 	export let forceSchemaDisplay: boolean = false
-	export let flexWrap = false
 	export let runnableClass = ''
 	export let runnableStyle = ''
 	export let goto: string | undefined = undefined
@@ -48,7 +47,6 @@
 		{recomputeIds}
 		gotoUrl={goto}
 		{gotoNewTab}
-		{flexWrap}
 		bind:this={runnableComponent}
 		fields={componentInput.fields}
 		bind:result

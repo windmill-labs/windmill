@@ -50,13 +50,9 @@
 	function selectComponent(id: string) {
 		onComponent = id
 		if (!$connectingInput.opened) {
-			$selectedComponent = id
-			/*
-			$focusedGrid = {
-				parentComponentId: parentId,
-				subGridIndex: index
+			if (id !== $selectedComponent) {
+				$selectedComponent = id
 			}
-			*/
 		}
 	}
 
@@ -128,7 +124,6 @@
 						class={classNames(
 							'h-full w-full center-center',
 							$selectedComponent === dataItem.data.id ? 'active-grid-item' : '',
-							dataItem.data.card ? 'border border-gray-100' : '',
 							'top-0'
 						)}
 					>

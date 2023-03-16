@@ -53,7 +53,6 @@ export interface BaseAppComponent extends Partial<Aligned> {
 				| UploadAppInput
 			)
 	>
-	card: boolean | undefined
 	customCss?: ComponentCustomCSS
 	/**
 	 * If `true` then the wrapper will allow items to flow outside of it's borders.
@@ -144,6 +143,7 @@ export type AppViewerContext = {
 export type AppEditorContext = {
 	history: History<App> | undefined
 	pickVariableCallback: Writable<((path: string) => void) | undefined>
+	ontextfocus: Writable<(() => void) | undefined>
 }
 
 export type FocusedGrid = { parentComponentId: string; subGridIndex: number }

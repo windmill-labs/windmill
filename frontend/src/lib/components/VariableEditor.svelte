@@ -57,7 +57,8 @@
 			decryptSecret: false
 		})
 		can_write =
-			getV.workspace_id == $workspaceStore && canWrite(path, getV.extra_perms ?? {}, $userStore)
+			getV.workspace_id == $workspaceStore &&
+			canWrite(edit_path, getV.extra_perms ?? {}, $userStore)
 
 		variable = {
 			value: getV.value ?? '',

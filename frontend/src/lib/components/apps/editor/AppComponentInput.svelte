@@ -27,7 +27,8 @@
 				id={component.id}
 				shouldCapitalize={false}
 				bind:inputSpecs={component.componentInput.fields}
-				userInputEnabled={component.type !== 'buttoncomponent'}
+				userInputEnabled={component.type === 'formcomponent' ||
+					component.type === 'formbuttoncomponent'}
 				{resourceOnly}
 			/>
 		{/if}

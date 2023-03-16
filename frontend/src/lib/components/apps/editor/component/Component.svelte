@@ -84,14 +84,6 @@
 	{/if}
 
 	<div
-		on:pointerdown={(e) => {
-			// Removed in https://github.com/windmill-labs/windmill/pull/1171
-			// In case of a bug, try stopping propagation on the native event
-			// and dispatch a custom event: `e?.stopPropagation(); dispatch('select');`
-			// if ($mode === 'preview') {
-			// 	e?.stopPropagation()
-			// }
-		}}
 		class={twMerge(
 			'h-full bg-white/40 outline-1',
 			$hoverStore === component.id && $mode !== 'preview' ? 'outline outline-blue-600' : '',

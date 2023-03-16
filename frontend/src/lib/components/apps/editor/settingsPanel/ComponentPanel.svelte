@@ -33,17 +33,14 @@
 	export let noGrid = false
 	export let duplicateMoveAllowed = true
 
-	const {
-		app,
-		runnableComponents,
-		selectedComponent,
-		worldStore,
-		focusedGrid,
-		stateId,
-		state
-	} = getContext<AppViewerContext>('AppViewerContext')
+	let editor: TemplateEditor | undefined = undefined
 
-	const { history } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, runnableComponents, selectedComponent, worldStore, focusedGrid, stateId, state } =
+		getContext<AppViewerContext>('AppViewerContext')
+
+	const { history, ontextfocus } = getContext<AppEditorContext>('AppEditorContext')
+
+	$: editor && ($ontextfocus = () => editor?.focus())
 
 	function removeGridElement() {
 		push(history, $app)
@@ -116,7 +113,12 @@
 						<StaticInputEditor bind:componentInput={component.componentInput} />
 					{:else if component.componentInput.type === 'template' && component.componentInput !== undefined}
 						<div class="py-1 min-h-[28px]  rounded border border-1 border-gray-500">
-							<TemplateEditor fontSize={12} bind:code={component.componentInput.eval} {extraLib} />
+							<TemplateEditor
+								bind:this={editor}
+								fontSize={12}
+								bind:code={component.componentInput.eval}
+								{extraLib}
+							/>
 						</div>
 					{:else if component.componentInput.type === 'connected' && component.componentInput !== undefined}
 						<ConnectedInputEditor bind:componentInput={component.componentInput} />
@@ -149,7 +151,8 @@
 										id={component.id}
 										shouldCapitalize={false}
 										bind:inputSpecs={component.componentInput.fields}
-										userInputEnabled={component.type !== 'buttoncomponent'}
+										userInputEnabled={component.type === 'formcomponent' ||
+											component.type === 'formbuttoncomponent'}
 										{rowColumns}
 									/>
 								</PanelSection>
