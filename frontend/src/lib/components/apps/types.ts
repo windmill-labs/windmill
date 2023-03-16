@@ -134,7 +134,11 @@ export type AppViewerContext = {
 	componentControl: Writable<
 		Record<
 			string,
-			{ left?: () => boolean; right?: () => boolean; setTab?: (index: number) => void }
+			{
+				left?: () => boolean
+				right?: (skipTableActions?: boolean | undefined) => string | boolean
+				setTab?: (index: number) => void
+			}
 		>
 	>
 }
