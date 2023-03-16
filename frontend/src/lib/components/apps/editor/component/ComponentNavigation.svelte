@@ -9,6 +9,7 @@
 	import type { AppEditorContext, AppViewerContext, GridItem } from '../../types'
 	import { push } from '$lib/history'
 	import { sendUserToast } from '$lib/utils'
+	import { grid } from 'd3-dag'
 
 	const { app, selectedComponent, worldStore, focusedGrid, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -52,7 +53,15 @@
 			const currentIndex = sortedGridItems.findIndex((item) => item.id === $selectedComponent)
 
 			if (currentIndex !== -1 && currentIndex > 0) {
-				$selectedComponent = sortedGridItems[currentIndex - 1].id
+				const left = sortedGridItems[currentIndex - 1]
+
+				if (left.data.type === 'tablecomponent') {
+					if (left.data.actionButtons.length >= 1) {
+						$selectedComponent = left.data.actionButtons[left.data.actionButtons.length - 1].id
+					} else {
+						$selectedComponent = left.id
+					}
+				}
 			}
 		}
 
@@ -61,6 +70,13 @@
 
 	function right(event: KeyboardEvent) {
 		let r = $componentControl[$selectedComponent!]?.right?.()
+
+		if (typeof r === 'string') {
+			$selectedComponent = r
+			r = $componentControl[r]?.right?.(true)
+			// @ts-ignore
+		}
+
 		if (!r) {
 			const sortedGridItems = getGridItems()
 			const currentIndex = sortedGridItems.findIndex((item) => item.id === $selectedComponent)
