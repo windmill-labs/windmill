@@ -141,6 +141,7 @@ export type AppViewerContext = {
 			}
 		>
 	>
+	hoverStore: Writable<string | undefined>
 }
 
 export type AppEditorContext = {

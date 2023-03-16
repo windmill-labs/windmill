@@ -4,8 +4,6 @@
 	import BackgroundScriptOutput from './BackgroundScriptOutput.svelte'
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
-
-	export let expanded: boolean = false
 </script>
 
 {#each $app.hiddenInlineScripts as action, index}

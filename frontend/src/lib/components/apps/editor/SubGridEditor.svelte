@@ -87,7 +87,7 @@
 		style="height: {containerHeight}px; {style ?? ''}"
 	>
 		{#if $mode !== 'preview'}
-			<div class={highlight ? 'border-gray-400  border border-dashed' : ''}>
+			<div class={highlight ? 'border-gray-400  border border-dashed min-h-full' : ''}>
 				<Grid
 					items={subGrid}
 					on:redraw={(e) => {
