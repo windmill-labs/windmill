@@ -6,6 +6,7 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { Alert, Button } from '$lib/components/common'
 	import type { AppComponent } from './component'
+	import { twMerge } from 'tailwind-merge'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -29,11 +30,11 @@
 {#if selected || hover}
 	<span
 		title={`Id: ${component.id}`}
-		class={classNames(
+		class={twMerge(
 			'px-2 text-2xs font-semibold w-fit absolute shadow -top-[9px] -left-[8px] border rounded-sm z-50',
 			selected
 				? 'bg-indigo-500/90 border-indigo-600 text-white'
-				: 'bg-blue-500/90 border-blue-600 text-white '
+				: 'bg-blue-500/90 border-blue-600 text-white'
 		)}
 	>
 		{component.id}
