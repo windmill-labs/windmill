@@ -136,7 +136,7 @@ export type AppViewerContext = {
 			string,
 			{
 				left?: () => boolean
-				right?: () => boolean
+				right?: (skipTableActions?: boolean | undefined) => boolean
 				setTab?: (index: number) => void
 			}
 		>

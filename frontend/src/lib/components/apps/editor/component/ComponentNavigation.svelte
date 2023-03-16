@@ -9,7 +9,6 @@
 	import type { AppEditorContext, AppViewerContext, GridItem } from '../../types'
 	import { push } from '$lib/history'
 	import { sendUserToast } from '$lib/utils'
-	import { grid } from 'd3-dag'
 
 	const { app, selectedComponent, worldStore, focusedGrid, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -74,7 +73,6 @@
 		if (typeof r === 'string') {
 			$selectedComponent = r
 			r = $componentControl[r]?.right?.(true)
-			// @ts-ignore
 		}
 
 		if (!r) {
