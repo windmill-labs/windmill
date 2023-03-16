@@ -152,6 +152,8 @@
 					value = enum_?.[0]
 				} else if (inputCat == 'boolean') {
 					value = false
+				} else if (inputCat == 'list') {
+					value = []
 				}
 			}
 		}
@@ -288,7 +290,7 @@
 									on:click={() => {
 										value = value.filter((el) => el != v)
 										if (value.length == 0) {
-											value = undefined
+											value = []
 										}
 									}}
 								>
