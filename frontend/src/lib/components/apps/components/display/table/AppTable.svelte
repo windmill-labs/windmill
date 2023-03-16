@@ -50,7 +50,8 @@
 
 	let table = createSvelteTable(options)
 
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, componentControl, selectedComponent } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	let selectedRowIndex = -1
 
@@ -138,6 +139,22 @@
 	$: result && rerender()
 
 	$: css = concatCustomCss($app.css?.tablecomponent, customCss)
+
+	$componentControl[id] = {
+		right: (skipActions: boolean | undefined) => {
+			if (skipActions) {
+				return false
+			}
+
+			const hasActions = actionButtons.length >= 1
+
+			if (hasActions) {
+				$selectedComponent = actionButtons[0].id
+				return true
+			}
+			return false
+		}
+	}
 </script>
 
 <InputValue {id} input={configuration.search} bind:value={search} />
@@ -239,31 +256,69 @@
 										on:keypress={() => toggleRow(row, rowIndex)}
 										on:click={() => toggleRow(row, rowIndex)}
 									>
-										<div class="center-center h-full w-full flex-wrap gap-1">
+										<div class="center-center h-full w-full flex-wrap gap-1 ">
 											{#each actionButtons as actionButton, actionIndex (actionIndex)}
-												{#if rowIndex == 0}
-													<AppButton
-														{render}
-														noWFull
-														{...actionButton}
-														preclickAction={async () => {
-															toggleRow(row, rowIndex)
-														}}
-														extraQueryParams={{ row: row.original }}
-														bind:componentInput={actionButton.componentInput}
-													/>
-												{:else}
-													<AppButton
-														{render}
-														noWFull
-														{...actionButton}
-														preclickAction={async () => {
-															toggleRow(row, rowIndex)
-														}}
-														extraQueryParams={{ row: row.original }}
-														bind:componentInput={actionButton.componentInput}
-													/>
-												{/if}
+												<div
+													class={actionButton.id === $selectedComponent
+														? 'outline outline-indigo-500 outline-1 outline-offset-1 relative '
+														: ''}
+												>
+													{#if actionButton.id === $selectedComponent}
+														<span
+															title={`Id: ${actionButton.id}`}
+															class={classNames(
+																'px-2 text-2xs font-bold w-fit absolute shadow -top-5 -left-[2px] border z-50 rounded-sm',
+																'bg-indigo-500/90 border-indigo-600 text-white'
+															)}
+														>
+															{actionButton.id}
+														</span>
+													{/if}
+													{#if rowIndex == 0}
+														<AppButton
+															{render}
+															noWFull
+															{...actionButton}
+															preclickAction={async () => {
+																toggleRow(row, rowIndex)
+															}}
+															extraQueryParams={{ row: row.original }}
+															bind:componentInput={actionButton.componentInput}
+															controls={{
+																left: () => {
+																	if (actionIndex === 0) {
+																		$selectedComponent = id
+																		return true
+																	} else if (actionIndex > 0) {
+																		$selectedComponent = actionButtons[actionIndex - 1].id
+																		return true
+																	}
+																	return false
+																},
+																right: () => {
+																	if (actionIndex === actionButtons.length - 1) {
+																		return id
+																	} else if (actionIndex < actionButtons.length - 1) {
+																		$selectedComponent = actionButtons[actionIndex + 1].id
+																		return true
+																	}
+																	return false
+																}
+															}}
+														/>
+													{:else}
+														<AppButton
+															{render}
+															noWFull
+															{...actionButton}
+															preclickAction={async () => {
+																toggleRow(row, rowIndex)
+															}}
+															extraQueryParams={{ row: row.original }}
+															bind:componentInput={actionButton.componentInput}
+														/>
+													{/if}
+												</div>
 											{/each}
 										</div>
 									</td>

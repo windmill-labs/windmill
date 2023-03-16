@@ -26,7 +26,14 @@
 	export let render: boolean
 	export let initializing: boolean | undefined = true
 
-	const { worldStore, app } = getContext<AppViewerContext>('AppViewerContext')
+	export let controls: { left: () => boolean; right: () => boolean | string } | undefined =
+		undefined
+
+	const { worldStore, app, componentControl } = getContext<AppViewerContext>('AppViewerContext')
+
+	if (controls) {
+		$componentControl[id] = controls
+	}
 
 	let labelValue: string
 	let color: ButtonType.Color
