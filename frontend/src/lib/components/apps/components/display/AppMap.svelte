@@ -187,8 +187,6 @@
 			gridItem.data.configuration.latitude.value = center[1]
 		}
 	}
-
-	$: console.log(mapElement)
 </script>
 
 <InputValue {id} input={configuration.longitude} bind:value={longitude} />
