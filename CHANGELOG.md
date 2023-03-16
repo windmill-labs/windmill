@@ -1,6 +1,20 @@
 # Changelog
 
 
+## [1.78.0](https://github.com/windmill-labs/windmill/compare/v1.77.0...v1.78.0) (2023-03-16)
+
+
+### Features
+
+* **frontend:** app textcomponent editable + tooltip ([11567d6](https://github.com/windmill-labs/windmill/commit/11567d6280ea60f1a8c3c6607c724179775cbbe3))
+
+
+### Bug Fixes
+
+* **backend:** whitelist for include_header was ignored in some cases ([183a459](https://github.com/windmill-labs/windmill/commit/183a4591df700ab4720de6e92a83631256940089))
+* **frontend:** improve rendering performance after component moving ([6f890f2](https://github.com/windmill-labs/windmill/commit/6f890f2120885f90d986fbd655096b45bf9de539))
+* **frontend:** remove staticOutputs from apps ([dbdfd62](https://github.com/windmill-labs/windmill/commit/dbdfd626386398180ecba7976714f86365eeccd8))
+
 ## [1.77.0](https://github.com/windmill-labs/windmill/compare/v1.76.0...v1.77.0) (2023-03-14)
 
 
