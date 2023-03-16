@@ -142,6 +142,7 @@ export type AppViewerContext = {
 export type AppEditorContext = {
 	history: History<App> | undefined
 	pickVariableCallback: Writable<((path: string) => void) | undefined>
+	ontextfocus: Writable<(() => void) | undefined>
 }
 
 export type FocusedGrid = { parentComponentId: string; subGridIndex: number }

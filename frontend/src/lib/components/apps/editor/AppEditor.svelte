@@ -98,7 +98,8 @@
 
 	setContext<AppEditorContext>('AppEditorContext', {
 		history,
-		pickVariableCallback
+		pickVariableCallback,
+		ontextfocus: writable(undefined)
 	})
 
 	let timeout: NodeJS.Timeout | undefined = undefined
