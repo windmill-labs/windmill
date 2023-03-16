@@ -3,7 +3,6 @@
 	import { classNames } from '$lib/utils'
 	import { ChevronDown, ChevronUp } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
-	import { slide } from 'svelte/transition'
 	import { allsubIds } from '../../appUtils'
 
 	export let id: string
@@ -15,7 +14,7 @@
 	const { expanded, manuallyOpened, search, hasResult } =
 		getContext<ContextPanelContext>('ContextPanel')
 
-	const { selectedComponent, app } = getContext<AppViewerContext>('AppViewerContext')
+	const { selectedComponent, app, hoverStore } = getContext<AppViewerContext>('AppViewerContext')
 
 	$: subids = allsubIds($app, id)
 	$: inSearch =
@@ -50,7 +49,18 @@
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <div class={$search == '' || inSearch ? '' : 'invisible h-0 overflow-hidden'}>
+	<!-- svelte-ignore a11y-mouse-events-have-key-events -->
 	<div
+		on:mouseover|stopPropagation={() => {
+			if (id !== $hoverStore) {
+				$hoverStore = id
+			}
+		}}
+		on:mouseout|stopPropagation={() => {
+			if ($hoverStore !== undefined) {
+				$hoverStore = undefined
+			}
+		}}
 		class={classNames(
 			'flex items-center justify-between p-1 cursor-pointer border-b gap-1 truncate',
 			hoverColor[color],

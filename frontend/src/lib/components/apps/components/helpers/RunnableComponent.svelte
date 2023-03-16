@@ -98,10 +98,6 @@
 
 	$: fields && (lazyStaticValues = computeStaticValues())
 	$: (runnableInputValues || extraQueryParams || args) && testJobLoader && refreshIfAutoRefresh()
-	$: runnable?.type == 'runnableByName' &&
-		runnable.inlineScript?.language == 'frontend' &&
-		($stateId || $state) &&
-		refreshIfAutoRefresh()
 
 	function refreshIfAutoRefresh() {
 		if (autoRefresh) {
@@ -264,11 +260,23 @@
 	$: result?.error && recordError(result.error)
 </script>
 
-{#each Object.entries(fields ?? {}) as [key, v]}
+{#each Object.entries(fields ?? {}) as [key, v] (key)}
 	{#if v.type != 'static' && v.type != 'user'}
-		<InputValue {id} input={fields[key]} bind:value={runnableInputValues[key]} />
+		<InputValue {key} {id} input={fields[key]} bind:value={runnableInputValues[key]} />
 	{/if}
 {/each}
+
+{#if runnable?.type == 'runnableByName' && runnable.inlineScript?.language == 'frontend'}
+	{#each runnable.inlineScript.refreshOn ?? [] as { id: tid, key } (`${tid}-${key}`)}
+		{@const fkey = `${tid}-${key}`}
+		<InputValue
+			{id}
+			key={fkey}
+			input={{ type: 'connected', connection: { componentId: tid, path: key }, fieldType: 'any' }}
+			bind:value={runnableInputValues[fkey]}
+		/>
+	{/each}
+{/if}
 
 <TestJobLoader
 	workspaceOverride={workspace}
