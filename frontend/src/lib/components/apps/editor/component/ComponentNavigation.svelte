@@ -54,12 +54,10 @@
 			if (currentIndex !== -1 && currentIndex > 0) {
 				const left = sortedGridItems[currentIndex - 1]
 
-				if (left.data.type === 'tablecomponent') {
-					if (left.data.actionButtons.length >= 1) {
-						$selectedComponent = left.data.actionButtons[left.data.actionButtons.length - 1].id
-					} else {
-						$selectedComponent = left.id
-					}
+				if (left.data.type === 'tablecomponent' && left.data.actionButtons.length >= 1) {
+					$selectedComponent = left.data.actionButtons[left.data.actionButtons.length - 1].id
+				} else {
+					$selectedComponent = left.id
 				}
 			}
 		}
