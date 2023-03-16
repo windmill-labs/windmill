@@ -205,7 +205,7 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 		icon: Type,
 		dims: '1:1-3:1',
 		data: {
-			softWrap: false,
+			softWrap: true,
 			horizontalAlignment: 'left',
 			verticalAlignment: 'top',
 			id: '',
@@ -229,11 +229,12 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 					fieldType: 'boolean',
 					onlyStatic: true
 				},
-				fitContent: {
+				tooltip: {
 					type: 'static',
-					value: false,
-					fieldType: 'boolean',
-					onlyStatic: true
+					value: '',
+					fieldType: 'text',
+					onlyStatic: true,
+					tooltip: 'Tooltip text if not empty'
 				}
 			},
 			customCss: {

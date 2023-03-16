@@ -8,10 +8,10 @@
 	import InputValue from '../helpers/InputValue.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
+	import type { AppEditorContext, AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { getContext } from 'svelte'
-	import ResizeWrapper from '../helpers/ResizeWrapper.svelte'
 	import { initOutput } from '../../editor/appUtils'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -22,7 +22,9 @@
 	export let customCss: ComponentCustomCSS<'text'> | undefined = undefined
 	export let render: boolean
 
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, mode } = getContext<AppViewerContext>('AppViewerContext')
+
+	const { ontextfocus } = getContext<AppEditorContext>('AppEditorContext')
 
 	initOutput($worldStore, id, {
 		result: undefined,
@@ -32,7 +34,7 @@
 	let result: string | undefined = undefined
 	let style: 'Title' | 'Subtitle' | 'Body' | 'Caption' | 'Label' | undefined = undefined
 	let copyButton: boolean
-	let fitContent = false
+	let tooltip: string = ''
 
 	function getComponent() {
 		switch (style) {
@@ -70,17 +72,27 @@
 
 <InputValue {id} input={configuration.style} bind:value={style} />
 <InputValue {id} input={configuration.copyButton} bind:value={copyButton} />
-<InputValue {id} input={configuration.fitContent} bind:value={fitContent} />
+<InputValue {id} input={configuration.tooltip} bind:value={tooltip} />
 
 <RunnableWrapper {render} {componentInput} {id} bind:initializing bind:result>
-	<ResizeWrapper {id} shouldWrap={fitContent}>
+	<div class="h-full w-full overflow-hidden">
 		<AlignWrapper {horizontalAlignment} {verticalAlignment}>
 			{#if !result || result === ''}
 				<div class="text-gray-400 bg-gray-100 flex justify-center items-center h-full w-full">
 					No text
 				</div>
 			{:else}
-				<div class="flex flex-wrap gap-2 pb-0.5 overflow-x-auto">
+				<!-- svelte-ignore a11y-click-events-have-key-events -->
+				<div
+					class="flex flex-wrap gap-2 pb-0.5  {$mode === 'dnd' && componentInput?.type == 'template'
+						? 'cursor-text'
+						: ''}"
+					on:click={() => {
+						if ($mode === 'dnd' && componentInput?.type == 'template') {
+							$ontextfocus?.()
+						}
+					}}
+				>
 					<svelte:element
 						this={component}
 						class={twMerge(
@@ -92,17 +104,26 @@
 						style={[$app.css?.['textcomponent']?.['text']?.style, customCss?.text?.style].join(';')}
 					>
 						{String(result)}
+						{#if tooltip != ''}
+							<Tooltip>{tooltip}</Tooltip>
+						{/if}
+						{#if copyButton && result}
+							<Popover notClickable>
+								<Button
+									variant="border"
+									size="xs"
+									color="dark"
+									btnClasses="!p-1"
+									on:click={() => copyToClipboard(result)}
+								>
+									<Clipboard size={14} strokeWidth={2} />
+								</Button>
+								<svelte:fragment slot="text">Copy to clipboard</svelte:fragment>
+							</Popover>
+						{/if}
 					</svelte:element>
-					{#if copyButton && result}
-						<Popover notClickable>
-							<Button size="xs" btnClasses="!px-2" on:click={() => copyToClipboard(result)}>
-								<Clipboard size={14} strokeWidth={2} />
-							</Button>
-							<svelte:fragment slot="text">Copy to clipboard</svelte:fragment>
-						</Popover>
-					{/if}
 				</div>
 			{/if}
 		</AlignWrapper>
-	</ResizeWrapper>
+	</div>
 </RunnableWrapper>
