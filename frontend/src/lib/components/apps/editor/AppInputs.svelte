@@ -3,6 +3,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { getContext } from 'svelte'
 	import type { AppViewerContext } from '../types'
+	import { allItems } from '../utils'
 	import AppComponentInput from './AppComponentInput.svelte'
 	import InputsSpecsEditor from './settingsPanel/InputsSpecsEditor.svelte'
 
@@ -18,21 +19,19 @@
 	<Toggle bind:checked={resourceOnly} options={{ right: 'Resource only' }} />
 </div>
 <div class="gap-4 flex flex-col pt-4">
-	{#each $app.grid as gridItem (gridItem.data.id)}
-		<div>
-			{#if gridItem?.data?.type === 'tablecomponent'}
-				<div>
-					<AppComponentInput bind:component={gridItem.data} {resourceOnly} />
-					<div class="ml-4 mt-4">
-						{#each gridItem.data.actionButtons as actionButton (actionButton.id)}
-							<AppComponentInput bind:component={actionButton.data} {resourceOnly} />
-						{/each}
-					</div>
-				</div>
-			{:else}
+	{#each allItems($app.grid, $app.subgrids) as gridItem (gridItem.data.id)}
+		{#if gridItem?.data?.type === 'tablecomponent'}
+			<div>
 				<AppComponentInput bind:component={gridItem.data} {resourceOnly} />
-			{/if}
-		</div>
+				<div class="ml-4 mt-4">
+					{#each gridItem.data.actionButtons as actionButton (actionButton.id)}
+						<AppComponentInput bind:component={actionButton.data} {resourceOnly} />
+					{/each}
+				</div>
+			</div>
+		{:else}
+			<AppComponentInput bind:component={gridItem.data} {resourceOnly} />
+		{/if}
 	{/each}
 </div>
 
