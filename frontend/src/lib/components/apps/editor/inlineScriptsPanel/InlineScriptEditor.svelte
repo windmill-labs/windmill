@@ -3,7 +3,7 @@
 	import type { Preview } from '$lib/gen'
 	import { createEventDispatcher, getContext, onMount } from 'svelte'
 	import type { AppViewerContext, InlineScript } from '../../types'
-	import { ArrowRight, CornerDownLeft, Link, Maximize2, Plus, Trash2, X } from 'lucide-svelte'
+	import { CornerDownLeft, Maximize2, Trash2 } from 'lucide-svelte'
 	import InlineScriptEditorDrawer from './InlineScriptEditorDrawer.svelte'
 	import { inferArgs } from '$lib/infer'
 	import type { Schema } from '$lib/common'
@@ -17,7 +17,6 @@
 	import Kbd from '$lib/components/common/kbd/Kbd.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { buildExtraLib } from '../../utils'
-	import { xcode } from 'svelte-highlight/styles'
 
 	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
 
@@ -28,7 +27,7 @@
 	export let fields: Record<string, AppInput> = {}
 	export let syncFields: boolean = false
 
-	const { runnableComponents, stateId, worldStore, state, appPath, connectingInput } =
+	const { runnableComponents, stateId, worldStore, state, appPath } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	let editor: Editor

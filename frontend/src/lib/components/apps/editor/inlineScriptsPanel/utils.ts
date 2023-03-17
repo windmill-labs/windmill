@@ -42,7 +42,7 @@ export function computeFields(schema: Schema, defaultUserInput: boolean, fields:
 	return result
 }
 
-export function processGridItemRunnable(gridItem: GridItem, list: AppScriptsList): AppScriptsList {
+function processGridItemRunnable(gridItem: GridItem, list: AppScriptsList): AppScriptsList {
 	const component: AppComponent = gridItem.data
 	if (component) {
 		const componentInput = component.componentInput
