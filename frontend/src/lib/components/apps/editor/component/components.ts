@@ -41,6 +41,13 @@ type BaseComponent<T extends string> = {
 	type: T
 }
 
+type ClickableComponent = {
+	recomputeIds: string[] | undefined
+	onSuccess: {
+		setTab: { id: string; index: number } | undefined
+	}
+}
+
 export type TextComponent = BaseComponent<'textcomponent'>
 export type TextInputComponent = BaseComponent<'textinputcomponent'>
 export type PasswordInputComponent = BaseComponent<'passwordinputcomponent'>
@@ -54,15 +61,10 @@ export type HtmlComponent = BaseComponent<'htmlcomponent'>
 export type VegaLiteComponent = BaseComponent<'vegalitecomponent'>
 export type PlotlyComponent = BaseComponent<'plotlycomponent'>
 export type TimeseriesComponent = BaseComponent<'timeseriescomponent'>
-export type ButtonComponent = BaseComponent<'buttoncomponent'> & {
-	recomputeIds: string[] | undefined
-}
-export type FormComponent = BaseComponent<'formcomponent'> & {
-	recomputeIds: string[] | undefined
-}
-export type FormButtonComponent = BaseComponent<'formbuttoncomponent'> & {
-	recomputeIds: string[] | undefined
-}
+export type ButtonComponent = BaseComponent<'buttoncomponent'> & ClickableComponent
+export type FormComponent = BaseComponent<'formcomponent'> & ClickableComponent
+export type FormButtonComponent = BaseComponent<'formbuttoncomponent'> & ClickableComponent
+
 export type RunFormComponent = BaseComponent<'runformcomponent'>
 export type BarChartComponent = BaseComponent<'barchartcomponent'>
 export type PieChartComponent = BaseComponent<'piechartcomponent'>
@@ -258,6 +260,7 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 				runnable: undefined
 			},
 			recomputeIds: undefined,
+			onSuccess: { setTab: undefined },
 			configuration: {
 				label: {
 					type: 'static',
@@ -340,6 +343,7 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 				runnable: undefined
 			},
 			recomputeIds: undefined,
+			onSuccess: { setTab: undefined },
 			configuration: {
 				label: {
 					type: 'static',
@@ -389,6 +393,7 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 				runnable: undefined
 			},
 			recomputeIds: undefined,
+			onSuccess: { setTab: undefined },
 			configuration: {
 				label: {
 					type: 'static',

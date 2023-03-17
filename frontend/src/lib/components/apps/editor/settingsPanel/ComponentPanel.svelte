@@ -25,6 +25,7 @@
 	import { slide } from 'svelte/transition'
 	import { push } from '$lib/history'
 	import Kbd from '$lib/components/common/kbd/Kbd.svelte'
+	import SetTabSection from './SetTabSection.svelte'
 
 	export let component: AppComponent
 	export let rowColumns = false
@@ -179,6 +180,9 @@
 
 		<AlignmentEditor bind:component />
 		{#if component.type === 'buttoncomponent' || component.type === 'formcomponent' || component.type === 'formbuttoncomponent'}
+			{#if component.onSuccess}
+				<SetTabSection bind:setTab={component.onSuccess.setTab} />
+			{/if}
 			<Recompute bind:recomputeIds={component.recomputeIds} ownId={component.id} />
 		{/if}
 
