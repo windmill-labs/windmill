@@ -160,15 +160,15 @@ export async function handleFile(
         workspace,
         requestBody: {
           content,
-          description: typed.description,
+          description: typed?.description ?? "",
           language,
           path: remotePath,
-          summary: typed.summary,
-          is_template: typed.is_template,
-          kind: typed.kind,
-          lock: typed.lock,
+          summary: typed?.summary ?? "",
+          is_template: typed?.is_template,
+          kind: typed?.kind,
+          lock: typed?.lock,
           parent_hash: remote.hash,
-          schema: typed.schema,
+          schema: typed?.schema,
         },
       });
 
