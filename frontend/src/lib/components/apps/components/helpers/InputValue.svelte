@@ -2,14 +2,14 @@
 	import { isCodeInjection } from '$lib/components/flows/utils'
 	import { deepEqual } from 'fast-equals'
 	import { createEventDispatcher, getContext } from 'svelte'
-	import type { AppInput, EvalAppInput, UploadAppInput } from '../../inputType'
-	import type { AppViewerContext } from '../../types'
+	import type { AppInput, EvalAppInput, RichAppInput, UploadAppInput } from '../../inputType'
+	import type { AppViewerContext, RichConfiguration } from '../../types'
 	import { accessPropertyByPath } from '../../utils'
 	import { computeGlobalContext, eval_like } from './eval'
 
 	type T = string | number | boolean | Record<string | number, any> | undefined
 
-	export let input: AppInput | undefined
+	export let input: AppInput | RichConfiguration
 	export let value: T
 	export let id: string | undefined = undefined
 	export let error: string = ''
@@ -64,8 +64,7 @@
 
 	async function handleConnection() {
 		if (lastInput.type === 'connected') {
-			console.log('connected', lastInput, `${id}-${key}`)
-			$worldStore?.connect<any>(lastInput, onValueChange, id)
+			$worldStore?.connect<any>(lastInput, onValueChange, `${id}-${key}`)
 		} else if (lastInput.type === 'static' || lastInput.type == 'template') {
 			value = await getValue(lastInput)
 		} else if (lastInput.type == 'eval') {

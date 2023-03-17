@@ -1,8 +1,12 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import { concatCustomCss } from '../../utils'
-	import type { AppInput } from '../../inputType'
-	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
+	import type {
+		AppViewerContext,
+		ComponentCustomCSS,
+		RichConfiguration,
+		RichConfigurations
+	} from '../../types'
 	import { InputValue } from '../helpers'
 	import { twMerge } from 'tailwind-merge'
 	import { Map, View, Feature } from 'ol'
@@ -28,7 +32,7 @@
 	} as const
 
 	export let id: string
-	export let configuration: Record<string, AppInput>
+	export let configuration: RichConfigurations
 	export let customCss: ComponentCustomCSS<'map'> | undefined = undefined
 	export let render: boolean
 

@@ -8,7 +8,13 @@
 	import InputValue from '../helpers/InputValue.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import type { AppEditorContext, AppViewerContext, ComponentCustomCSS } from '../../types'
+	import type {
+		AppEditorContext,
+		AppViewerContext,
+		ComponentCustomCSS,
+		RichConfiguration,
+		RichConfigurations
+	} from '../../types'
 	import { getContext } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -17,7 +23,7 @@
 	export let componentInput: AppInput | undefined
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = 'left'
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let configuration: Record<string, AppInput>
+	export let configuration: RichConfigurations
 	export let initializing: boolean | undefined = undefined
 	export let customCss: ComponentCustomCSS<'text'> | undefined = undefined
 	export let render: boolean

@@ -20,10 +20,8 @@
 	export let canvasId: string
 	export let width: number
 	export let height: number
-	export let initialZoom = 3
-	export let initialLocation
+
 	export let boundary = false
-	export let minimap = false
 	export let scroll = false
 	// here we lookup the store using the unique key
 	const store = findStore(canvasId)
@@ -31,9 +29,6 @@
 		edgesStore,
 		nodesStore,
 		anchorsStore,
-		potentialAnchorsStore,
-		temporaryEdgeStore,
-		resizeNodesStore,
 		nodeSelected,
 		backgroundStore,
 		movementStore,
@@ -45,27 +40,6 @@
 	$: nodes = Object.values($nodesStore)
 	$: edges = Object.values($edgesStore)
 	$: anchors = Object.values($anchorsStore)
-	$: resizeNodes = Object.values($resizeNodesStore)
-	$: potentialAnchors = Object.values($potentialAnchorsStore)
-	$: tempEdges = $temporaryEdgeStore
-
-	/*
-    This block of code is responsible for reactivity of the collapsible feature
-    When collaspsibleStore changes, nodes/edges/resizeNodes/anchors are filtered so that 
-    only the visible ones are displayed
-  */
-	let filteredNodes: NodeType[]
-	let filteredEdges: EdgeType[]
-	let filteredResizeNodes: ResizeNodeType[]
-	let filteredAnchors: AnchorType[]
-	$: {
-		const tmp = $collapsibleStore // assignment is necessary for reactivity
-		const obj = filterByCollapsible(store, nodes, resizeNodes, anchors, edges)
-		filteredNodes = obj['filteredNodes']
-		filteredEdges = obj['filteredEdges']
-		filteredResizeNodes = obj['filteredResizeNodes']
-		filteredAnchors = obj['filteredAnchors']
-	}
 
 	// declaring the grid and dot size for d3's transformations and zoom
 	const gridSize = 15
@@ -188,7 +162,7 @@
 		<div class={`Nodes Nodes-${canvasId}`} on:contextmenu|preventDefault>
 			<!-- This container is transformed by d3zoom -->
 			<div class={`Node Node-${canvasId}`}>
-				{#each filteredNodes as node}
+				{#each nodes as node}
 					{#if node.data.html}
 						<Node {node} {canvasId} nodeId={node.id}>{@html node.data.html}</Node>
 					{:else if node.data.custom}
@@ -239,7 +213,7 @@
 
 		<!-- <g> tag defines which edge type to render depending on properties of edge object -->
 		<g>
-			{#each filteredEdges as edge}
+			{#each edges as edge}
 				{#if edge.type === 'smoothstep'}
 					<SmoothStepEdge {edge} {canvasId} />
 				{:else if edge.type === 'step'}
@@ -278,8 +252,6 @@
 		width: 24px;
 	}
 
-	svg {
-	}
 	.Nodes {
 		position: absolute;
 		width: 100%;

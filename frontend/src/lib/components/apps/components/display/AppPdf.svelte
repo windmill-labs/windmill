@@ -3,8 +3,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { getDocument, type PDFDocumentProxy, type PDFPageProxy } from 'pdfjs-dist'
 	import 'pdfjs-dist/build/pdf.worker.entry'
-	import type { AppInput } from '../../inputType'
-	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS, RichConfiguration, RichConfigurations } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import InputValue from '../helpers/InputValue.svelte'
 	import { throttle } from '../../../../utils'
@@ -14,7 +13,7 @@
 	import { findGridItem, initOutput } from '../../editor/appUtils'
 
 	export let id: string
-	export let configuration: Record<string, AppInput>
+	export let configuration: RichConfigurations
 	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
 	export let render: boolean
 

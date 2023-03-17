@@ -30,18 +30,13 @@ populateSvelvetStoreFromUserInput(canvasId, nodes, edges)
 - edges: same as nodes, this is an array of objects containing edge info THAT IS DIFFERENT FROM THE EDGE CLASS.
 - Returns: store
 */
-import { stores } from '../models/store';
-import { writable, get } from 'svelte/store';
+import { stores } from '../models/store'
+import { writable, get } from 'svelte/store'
 
-import type { StoreType } from '../types/types';
-import type { UserNodeType, UserEdgeType } from '../../types/types';
-import {
-  populateAnchorsStore,
-  populateNodesStore,
-  populateEdgesStore,
-  populateResizeNodeStore,
-} from './util';
-import { populateCollapsibleStore } from '../../collapsible/controllers/util';
+import type { StoreType } from '../types/types'
+import type { UserNodeType, UserEdgeType } from '../../types/types'
+import { populateAnchorsStore, populateNodesStore, populateEdgesStore } from './util'
+import { populateCollapsibleStore } from '../../collapsible/controllers/util'
 
 /**
  * findStore is going to return the target Svelvet store with the canvasId provided as argument.
@@ -50,7 +45,7 @@ import { populateCollapsibleStore } from '../../collapsible/controllers/util';
  * @returns The store of a Svelvet component that matches the canvasId
  */
 export function findStore(canvasId: string): StoreType {
-  return stores[canvasId];
+	return stores[canvasId]
 }
 
 /**
@@ -68,33 +63,31 @@ export function findStore(canvasId: string): StoreType {
  * @returns An empty store for the newly created Svelvet component.
  */
 export function createStoreEmpty(canvasId: string): StoreType {
-  stores[canvasId] = {
-    nodesStore: writable({}),
-    edgesStore: writable({}),
-    anchorsStore: writable({}),
-    resizeNodesStore: writable({}),
-    potentialAnchorsStore: writable({}),
-    widthStore: writable(600),
-    heightStore: writable(600),
-    backgroundStore: writable(false),
-    movementStore: writable(true),
-    nodeSelected: writable(false),
-    nodeIdSelected: writable(-1),
-    d3Scale: writable(1),
-    options: writable({}),
-    temporaryEdgeStore: writable([]),
-    nodeCreate: writable(false), // this option sets whether the "nodeEdit" feature is enabled
-    boundary: writable(false),
-    edgeEditModal: writable(null), // this is used for edgeEditModal feature. When an edge is right clicked, store.edgeEditModal is set to the edgeId string. This causes a modal to be rendered
-    collapsibleStore: writable([]), // this is used for the collaspsible node feature. If the feature is enabled, store.collapsible will be populated with Collapsible objects which will track whether the node should be displayed or not
-    collapsibleOption: writable(false),
-    lockedOption: writable(false),
-    editableOption: writable(false), // true if you want nodes/edges to be editable. See feature editEdges
-    d3ZoomParameters: writable({}), // this stores d3 parameters x, y, and zoom. This isn't used for anything other than giving users a way to access d3 zoom parameters if they want to build on top of Svelvet
-    resizableOption: writable(true), // option to turn on/off resizable nodes.
-    highlightEdgesOption: writable(true), // option to turn on/off highlightable edges
-  };
-  return stores[canvasId];
+	stores[canvasId] = {
+		nodesStore: writable({}),
+		edgesStore: writable({}),
+		anchorsStore: writable({}),
+		potentialAnchorsStore: writable({}),
+		widthStore: writable(600),
+		heightStore: writable(600),
+		backgroundStore: writable(false),
+		movementStore: writable(true),
+		nodeSelected: writable(false),
+		nodeIdSelected: writable(-1),
+		d3Scale: writable(1),
+		options: writable({}),
+		temporaryEdgeStore: writable([]),
+		nodeCreate: writable(false), // this option sets whether the "nodeEdit" feature is enabled
+		boundary: writable(false),
+		edgeEditModal: writable(null), // this is used for edgeEditModal feature. When an edge is right clicked, store.edgeEditModal is set to the edgeId string. This causes a modal to be rendered
+		collapsibleStore: writable([]), // this is used for the collaspsible node feature. If the feature is enabled, store.collapsible will be populated with Collapsible objects which will track whether the node should be displayed or not
+		collapsibleOption: writable(false),
+		lockedOption: writable(false),
+		editableOption: writable(false), // true if you want nodes/edges to be editable. See feature editEdges
+		d3ZoomParameters: writable({}), // this stores d3 parameters x, y, and zoom. This isn't used for anything other than giving users a way to access d3 zoom parameters if they want to build on top of Svelvet
+		highlightEdgesOption: writable(true) // option to turn on/off highlightable edges
+	}
+	return stores[canvasId]
 }
 
 /**
@@ -105,24 +98,20 @@ export function createStoreEmpty(canvasId: string): StoreType {
  * @param edges Same as nodes, this is an array of objects containing edge info THAT IS DIFFERENT FROM THE EDGE CLASS.
  */
 export function populateSvelvetStoreFromUserInput(
-  canvasId: string,
-  nodes: UserNodeType[],
-  edges: UserEdgeType[]
+	canvasId: string,
+	nodes: UserNodeType[],
+	edges: UserEdgeType[]
 ): void {
-  // find the store
-  const store = findStore(canvasId);
+	// find the store
+	const store = findStore(canvasId)
 
-  // populate store.nodesStore with user nodes
-  populateNodesStore(store, nodes, canvasId);
-  // populate store.anchorsStore with anchors. Note the userdoes not explictly define anchors; anchors are calculated from the edges
-  populateAnchorsStore(store, nodes, edges, canvasId);
-  // populate edges
-  populateEdgesStore(store, edges, canvasId);
-  //populate resize Store
-  if (get(store.resizableOption))
-    populateResizeNodeStore(store, nodes, canvasId);
+	// populate store.nodesStore with user nodes
+	populateNodesStore(store, nodes, canvasId)
+	// populate store.anchorsStore with anchors. Note the userdoes not explictly define anchors; anchors are calculated from the edges
+	populateAnchorsStore(store, nodes, edges, canvasId)
+	// populate edges
+	populateEdgesStore(store, edges, canvasId)
 
-  // populatate collapsible objects if "collapsible" feature is turned on
-  if (get(store.collapsibleOption))
-    populateCollapsibleStore(store, nodes, edges, canvasId);
+	// populatate collapsible objects if "collapsible" feature is turned on
+	if (get(store.collapsibleOption)) populateCollapsibleStore(store, nodes, edges, canvasId)
 }

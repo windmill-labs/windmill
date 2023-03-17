@@ -52,9 +52,12 @@
 					initialValue={componentInput.value?.['value']?.split('$res:')[1] || ''}
 					on:change={(e) => {
 						let path = e.detail
-
-						if (componentInput && path) {
-							componentInput.value['value'] = `$res:${path}`
+						if (componentInput) {
+							if (path) {
+								componentInput.value['value'] = `$res:${path}`
+							} else {
+								componentInput.value['value'] = undefined
+							}
 						}
 					}}
 				/>
@@ -70,9 +73,12 @@
 				initialValue={componentInput.value?.split('$res:')[1] || ''}
 				on:change={(e) => {
 					let path = e.detail
-
-					if (componentInput && path) {
-						componentInput.value = `$res:${path}`
+					if (componentInput) {
+						if (path) {
+							componentInput.value = `$res:${path}`
+						} else {
+							componentInput.value = undefined
+						}
 					}
 				}}
 				resourceType={componentInput.format.split('-').length > 1

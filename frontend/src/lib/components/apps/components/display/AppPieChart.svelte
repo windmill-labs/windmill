@@ -14,14 +14,19 @@
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import type { AppInput } from '../../inputType'
 	import InputValue from '../helpers/InputValue.svelte'
-	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
+	import type {
+		AppViewerContext,
+		ComponentCustomCSS,
+		RichConfiguration,
+		RichConfigurations
+	} from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import { getContext } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
-	export let configuration: Record<string, AppInput>
+	export let configuration: RichConfigurations
 	export let initializing: boolean | undefined = undefined
 	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
 	export let render: boolean

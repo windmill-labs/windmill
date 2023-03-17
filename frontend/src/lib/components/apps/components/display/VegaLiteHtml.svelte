@@ -2,13 +2,13 @@
 	import { getContext, onMount } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'
-	import type { AppViewerContext } from '../../types'
+	import type { AppViewerContext, RichConfiguration, RichConfigurations } from '../../types'
 	import InputValue from '../helpers/InputValue.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
-	export let configuration: Record<string, AppInput>
+	export let configuration: RichConfigurations
 	export let initializing: boolean | undefined = undefined
 	export let render: boolean
 

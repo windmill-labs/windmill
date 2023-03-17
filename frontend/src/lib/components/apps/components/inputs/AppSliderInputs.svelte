@@ -3,7 +3,7 @@
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
-	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -11,7 +11,7 @@
 	import { initOutput } from '../../editor/appUtils'
 
 	export let id: string
-	export let configuration: Record<string, AppInput>
+	export let configuration: RichConfigurations
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let customCss: ComponentCustomCSS<'handle' | 'limits' | 'value' | 'bar'> | undefined =
 		undefined

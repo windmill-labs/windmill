@@ -1,5 +1,5 @@
 import type { Schema } from '$lib/common'
-import type { Flow, FlowModule, Job } from '$lib/gen'
+import type { Flow, FlowModule } from '$lib/gen'
 import { schemaToObject } from '$lib/utils'
 import type { FlowState } from './flowState'
 

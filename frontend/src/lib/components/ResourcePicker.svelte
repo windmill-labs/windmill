@@ -75,6 +75,8 @@
 	}}
 />
 
+{initialValue}
+{value}
 <div class="flex flex-row gap-x-1 w-full">
 	<Select
 		value={valueSelect}

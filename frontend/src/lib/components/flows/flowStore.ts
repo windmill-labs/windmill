@@ -1,5 +1,5 @@
 import type { Flow, FlowModule, ForloopFlow, InputTransform } from '$lib/gen'
-import { get, writable, type Writable } from 'svelte/store'
+import { writable, type Writable } from 'svelte/store'
 import { initFlowState, type FlowState } from './flowState'
 import { numberToChars } from './utils'
 
