@@ -104,31 +104,6 @@
 				})
 		}
 	}
-
-	function applyConnection() {
-		if (!$connectingInput.opened && $connectingInput.input !== undefined) {
-			if ($connectingInput.input.connection) {
-				const x = {
-					id: $connectingInput.input.connection.componentId,
-					key: $connectingInput.input.connection.path
-				}
-
-				if (!inlineScript.refreshOn) {
-					inlineScript.refreshOn = [x]
-				} else {
-					inlineScript.refreshOn.push(x)
-				}
-			}
-
-			$connectingInput = {
-				opened: false,
-				input: undefined,
-				hoveredComponent: undefined
-			}
-		}
-	}
-
-	$: $connectingInput && applyConnection()
 </script>
 
 {#if inlineScript.language != 'frontend'}
