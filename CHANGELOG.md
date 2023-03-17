@@ -1,6 +1,25 @@
 # Changelog
 
 
+## [1.79.0](https://github.com/windmill-labs/windmill/compare/v1.78.0...v1.79.0) (2023-03-17)
+
+
+### Features
+
+* **frontend:** add listeners for frontend scripts ([597e38e](https://github.com/windmill-labs/windmill/commit/597e38ef367d38fa97fc443ccb2c721e5964fece))
+* **frontend:** add table actions navigation ([#1298](https://github.com/windmill-labs/windmill/issues/1298)) ([c3ba1a6](https://github.com/windmill-labs/windmill/commit/c3ba1a6ab97484a08a5a20187bb858a5af7025cb))
+* **frontend:** App component triggers ([#1303](https://github.com/windmill-labs/windmill/issues/1303)) ([078cb1b](https://github.com/windmill-labs/windmill/commit/078cb1bf3e4de08cb018578f04d24392a6462f69))
+* **frontend:** Component control ([#1293](https://github.com/windmill-labs/windmill/issues/1293)) ([bd927a2](https://github.com/windmill-labs/windmill/commit/bd927a27ed9581dbf67ea3694f9d989f8d71d2ed))
+
+
+### Bug Fixes
+
+* **frontend:** App panel styling ([#1284](https://github.com/windmill-labs/windmill/issues/1284)) ([c1dd35c](https://github.com/windmill-labs/windmill/commit/c1dd35c3f0fcbc1be43273f82a873c3c07863417))
+* **frontend:** Display app context search on top ([#1300](https://github.com/windmill-labs/windmill/issues/1300)) ([bd3ee81](https://github.com/windmill-labs/windmill/commit/bd3ee81b14846f16ccd16461de99b46fe68be6ba))
+* **frontend:** fix horizontal splitpanes ([#1301](https://github.com/windmill-labs/windmill/issues/1301)) ([ea3dab4](https://github.com/windmill-labs/windmill/commit/ea3dab411b3d5dd772e04c8831e789e2470aaf28))
+* **frontend:** fix map render ([#1297](https://github.com/windmill-labs/windmill/issues/1297)) ([0092721](https://github.com/windmill-labs/windmill/commit/00927210fd68c31cb793ef4f0efea05711ebcf00))
+* **frontend:** Hide archive toggle with empty list ([#1296](https://github.com/windmill-labs/windmill/issues/1296)) ([bac831b](https://github.com/windmill-labs/windmill/commit/bac831b23ce85a683ddbd4537900670a0b7d12a8))
+
 ## [1.78.0](https://github.com/windmill-labs/windmill/compare/v1.77.0...v1.78.0) (2023-03-16)
 
 
