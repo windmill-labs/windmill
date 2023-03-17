@@ -55,6 +55,22 @@ export function getNextGridItemId(app: App): string {
 	return id
 }
 
+export function getAllRecomputeIdsForComponent(app: App, id: string) {
+	const items = allItems(app.grid, app.subgrids)
+
+	const recomputedBy: string[] = []
+
+	items.forEach((item) => {
+		if (item.data.type === 'buttoncomponent') {
+			if (item.data.recomputeIds?.includes(id)) {
+				recomputedBy.push(item.id)
+			}
+		}
+	})
+
+	return recomputedBy
+}
+
 export function createNewGridItem(grid: GridItem[], id: string, data: AppComponent): GridItem {
 	const newComponent = {
 		resizable: true,
