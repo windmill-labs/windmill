@@ -43,7 +43,11 @@ export type Configuration = GeneralAppInput &
 
 export type RichConfiguration =
 	| (Configuration & { ctype?: undefined })
-	| { ctype: 'oneOf'; selected: string; configuration: Record<string, Configuration> }
+	| {
+			ctype: 'oneOf'
+			selected: string
+			configuration: Record<string, Record<string, Configuration>>
+	  }
 	| { ctype: 'group'; title: string; configuration: Record<string, Configuration> }
 
 export type RichConfigurations = Record<string, RichConfiguration>

@@ -122,8 +122,8 @@
 				ts = date.toISOString()
 			}
 			const newJobs = await fetchJobs(maxTs, minTs ?? ts)
-			if (newJobs && newJobs.length > 0) {
-				const oldJobs = jobs.map((x) => x.id)
+			if (newJobs && newJobs.length > 0 && jobs) {
+				const oldJobs = jobs?.map((x) => x.id)
 				jobs = newJobs.filter((x) => !oldJobs.includes(x.id)).concat(jobs)
 				newJobs
 					.filter((x) => oldJobs.includes(x.id))
