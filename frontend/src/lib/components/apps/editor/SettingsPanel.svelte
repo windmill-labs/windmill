@@ -5,6 +5,7 @@
 	import GridPanel from './GridPanel.svelte'
 	import PanelSection from './settingsPanel/common/PanelSection.svelte'
 	import InputsSpecsEditor from './settingsPanel/InputsSpecsEditor.svelte'
+	import BackgroundScriptTriggerList from './settingsPanel/triggerLists/BackgroundScriptTriggerList.svelte'
 
 	const { selectedComponent, app, stateId } = getContext<AppViewerContext>('AppViewerContext')
 </script>
@@ -29,6 +30,9 @@
 				/>
 			</PanelSection>
 
+			<div class="p-2">
+				<BackgroundScriptTriggerList fields={script.fields} />
+			</div>
 			{#if Object.keys(script.fields).length > 0}
 				<PanelSection title={`Inputs`}>
 					{#key $stateId}
