@@ -2,15 +2,14 @@
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { staticValues } from '../../editor/componentsPanel/componentStaticValues'
-	import type { AppInput } from '../../inputType'
-	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import InputValue from '../helpers/InputValue.svelte'
 
 	type FitOption = (typeof staticValues)['objectFitOptions'][number]
 
 	export let id: string
-	export let configuration: Record<string, AppInput>
+	export let configuration: RichConfigurations
 	export let customCss: ComponentCustomCSS<'image'> | undefined = undefined
 	export let render: boolean
 

@@ -10,7 +10,7 @@
 	import Grid from '../svelte-grid/Grid.svelte'
 	import GridViewer from './GridViewer.svelte'
 
-	export let containerHeight: number
+	export let containerHeight: number | undefined = undefined
 	export let containerWidth: number | undefined = undefined
 	let classes = ''
 	export { classes as class }

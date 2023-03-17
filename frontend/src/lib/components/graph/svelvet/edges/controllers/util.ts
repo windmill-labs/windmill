@@ -1,7 +1,6 @@
 import type { StoreType } from '../../store/types/types';
-import { writable, derived, get, readable } from 'svelte/store';
+import { get } from 'svelte/store';
 import type { AnchorType } from '../types/types';
-import { getNodeById } from '../../nodes/controllers/util';
 
 /**
  * Finds all Anchors that matches the conditions specified in the filter parameter from a Svelvet store and returns these Anchors in an array.

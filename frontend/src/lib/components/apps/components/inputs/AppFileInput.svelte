@@ -5,12 +5,12 @@
 	import { initOutput } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
-	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import InputValue from '../helpers/InputValue.svelte'
 
 	export let id: string
-	export let configuration: Record<string, AppInput>
+	export let configuration: RichConfigurations
 	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
 	export let render: boolean
 

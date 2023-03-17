@@ -1,5 +1,5 @@
 import type { AppInput } from './inputType'
-import { get, writable, type Writable } from 'svelte/store'
+import { writable, type Writable } from 'svelte/store'
 import { deepEqual } from 'fast-equals'
 
 export interface Subscriber<T> {

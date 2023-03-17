@@ -6,6 +6,7 @@
 		AppViewerContext,
 		ComponentCustomCSS,
 		HorizontalAlignment,
+		RichConfigurations,
 		VerticalAlignment
 	} from '../../types'
 	import { concatCustomCss } from '../../utils'
@@ -13,7 +14,7 @@
 	import InputValue from '../helpers/InputValue.svelte'
 
 	export let id: string
-	export let configuration: Record<string, AppInput>
+	export let configuration: RichConfigurations
 	export let horizontalAlignment: HorizontalAlignment | undefined = undefined
 	export let verticalAlignment: VerticalAlignment | undefined = undefined
 	export let customCss: ComponentCustomCSS<'container' | 'divider'> | undefined = undefined

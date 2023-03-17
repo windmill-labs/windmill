@@ -2,7 +2,7 @@
 	import { getContext } from 'svelte'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppInput } from '../../inputType'
-	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import InputValue from '../helpers/InputValue.svelte'
 	import Portal from 'svelte-portal'
 	import { concatCustomCss } from '../../utils'
@@ -12,7 +12,7 @@
 
 	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
 	export let id: string
-	export let configuration: Record<string, AppInput>
+	export let configuration: RichConfigurations
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let noWFull = false

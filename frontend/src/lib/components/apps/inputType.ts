@@ -98,9 +98,9 @@ type AppInputSpec<T extends InputType, U, V extends InputType = never> = (
 	| ResultInput
 	| TemplateInput
 ) &
-	InputConfiguration<T, U, V>
+	InputConfiguration<T, V>
 
-type InputConfiguration<T extends InputType, U, V extends InputType> = {
+type InputConfiguration<T extends InputType, V extends InputType> = {
 	fieldType: T
 	subFieldType?: V
 	format?: string | undefined
@@ -140,11 +140,11 @@ export type AppInput =
 	| AppInputSpec<'object', Record<string | number, any>>
 	| AppInputSpec<'object', string>
 	| (AppInputSpec<'select', string> & {
-		/**
-		 * One of the keys of `staticValues` from `lib/components/apps/editor/componentsPanel/componentStaticValues`
-		 */
-		optionValuesKey: keyof typeof staticValues
-	})
+			/**
+			 * One of the keys of `staticValues` from `lib/components/apps/editor/componentsPanel/componentStaticValues`
+			 */
+			optionValuesKey: keyof typeof staticValues
+	  })
 	| (AppInputSpec<'select', string> & StaticOptions)
 	| AppInputSpec<'icon-select', string>
 	| AppInputSpec<'color', string>
@@ -157,12 +157,11 @@ export type AppInput =
 	| AppInputSpec<'array', string[], 'datetime'>
 	| AppInputSpec<'array', object[], 'object'>
 	| (AppInputSpec<'array', string[], 'select'> & {
-		optionValuesKey: keyof typeof staticValues
-	})
+			optionValuesKey: keyof typeof staticValues
+	  })
 	| (AppInputSpec<'array', string[], 'select'> & StaticOptions)
 	| AppInputSpec<'array', object[], 'labeledresource'>
 	| AppInputSpec<'labeledresource', object>
-
 
 export type RowAppInput = Extract<AppInput, { type: 'row' }>
 export type StaticAppInput = Extract<AppInput, { type: 'static' }>
@@ -171,5 +170,10 @@ export type UserAppInput = Extract<AppInput, { type: 'user' }>
 export type ResultAppInput = Extract<AppInput, { type: 'runnable' }>
 export type EvalAppInput = Extract<AppInput, { type: 'eval' }>
 export type UploadAppInput = Extract<AppInput, { type: 'upload' }>
+
+export type RichAppInput =
+	| AppInput
+	| { type: 'oneOf'; oneOf: string[]; configuration: Record<string, AppInput> }
+	| { type: 'group'; title: string; configuration: Record<string, AppInput> }
 
 export type AppInputs = Record<string, AppInput>

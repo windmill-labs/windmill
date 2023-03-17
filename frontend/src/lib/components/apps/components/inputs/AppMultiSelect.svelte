@@ -3,7 +3,7 @@
 	import Select from 'svelte-select'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
-	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
@@ -11,7 +11,7 @@
 	import { initOutput } from '../../editor/appUtils'
 
 	export let id: string
-	export let configuration: Record<string, AppInput>
+	export let configuration: RichConfigurations
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let customCss: ComponentCustomCSS<'input'> | undefined = undefined

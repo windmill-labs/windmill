@@ -1,117 +1,36 @@
 <script lang="ts">
-	import { Badge, ToggleButton, ToggleButtonGroup } from '$lib/components/common'
-	import { addWhitespaceBeforeCapitals, capitalize } from '$lib/utils'
-	import { faArrowRight, faPen, faUpload, faUser } from '@fortawesome/free-solid-svg-icons'
-	import { fieldTypeToTsType } from '../../utils'
+	import type {
+		ConnectedAppInput,
+		RowAppInput,
+		StaticAppInput,
+		UserAppInput
+	} from '../../inputType'
+	import type { RichConfigurations } from '../../types'
 	import InputsSpecEditor from './InputsSpecEditor.svelte'
-	import { getContext } from 'svelte'
-	import type { AppViewerContext, BaseAppComponent } from '../../types'
-	import Tooltip from '$lib/components/Tooltip.svelte'
-	import Popover from '$lib/components/Popover.svelte'
 
 	export let id: string
-	export let inputSpecs: BaseAppComponent['configuration']
+	export let inputSpecs:
+		| RichConfigurations
+		| Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
 	export let userInputEnabled: boolean = false
 	export let shouldCapitalize: boolean = true
 	export let rowColumns = false
 	export let resourceOnly = false
-
-	const { connectingInput } = getContext<AppViewerContext>('AppViewerContext')
 </script>
 
 {#if inputSpecs}
 	<div class="w-full flex flex-col gap-4">
-		{#each Object.keys(inputSpecs) as inputSpecKey (inputSpecKey)}
-			{@const input = inputSpecs[inputSpecKey]}
-			{#if !(resourceOnly && (input.fieldType !== 'object' || !input.format?.startsWith('resource-')))}
-				<div class="flex flex-col gap-1">
-					<div class="flex justify-between items-end gap-1">
-						<span class="text-sm font-semibold truncate">
-							{shouldCapitalize
-								? capitalize(addWhitespaceBeforeCapitals(inputSpecKey))
-								: inputSpecKey}
-							{#if input.tooltip}
-								<Tooltip>
-									{input.tooltip}
-								</Tooltip>
-							{/if}
-						</span>
-
-						<div class="flex gap-x-2 gap-y-1 flex-wrap justify-end items-center">
-							<Badge color="blue">
-								{input.fieldType === 'array' && input.subFieldType
-									? `${capitalize(fieldTypeToTsType(input.subFieldType))}[]`
-									: capitalize(fieldTypeToTsType(input.fieldType))}
-							</Badge>
-
-							{#if !inputSpecs[inputSpecKey].onlyStatic && inputSpecs[inputSpecKey].type != 'eval'}
-								<ToggleButtonGroup
-									bind:selected={inputSpecs[inputSpecKey].type}
-									on:selected={(e) => {
-										if (e.detail == 'connected' && !inputSpecs[inputSpecKey]['connection']) {
-											$connectingInput = {
-												opened: true,
-												input: undefined,
-												hoveredComponent: undefined
-											}
-										}
-									}}
-								>
-									<Popover placement="bottom" notClickable disapperTimoout={0}>
-										<ToggleButton
-											position="left"
-											value="static"
-											startIcon={{ icon: faPen }}
-											size="xs"
-											iconOnly
-										/>
-										<svelte:fragment slot="text">Static</svelte:fragment>
-									</Popover>
-									{#if userInputEnabled && !input.format?.startsWith('resource-')}
-										<Popover placement="bottom" notClickable disapperTimoout={0}>
-											<ToggleButton
-												position="center"
-												value="user"
-												startIcon={{ icon: faUser }}
-												size="xs"
-												iconOnly
-											/>
-											<svelte:fragment slot="text">User Input</svelte:fragment>
-										</Popover>
-									{/if}
-									{#if 'fileUpload' in inputSpecs[inputSpecKey]}
-										<Popover placement="bottom" notClickable disapperTimoout={0}>
-											<ToggleButton
-												position="center"
-												value="upload"
-												startIcon={{ icon: faUpload }}
-												size="xs"
-												iconOnly
-											/>
-											<svelte:fragment slot="text">Upload</svelte:fragment>
-										</Popover>
-									{/if}
-									<Popover placement="bottom" notClickable disapperTimoout={0}>
-										<ToggleButton
-											position="right"
-											value="connected"
-											startIcon={{ icon: faArrowRight }}
-											size="xs"
-											iconOnly
-										/>
-										<svelte:fragment slot="text">Connect</svelte:fragment>
-									</Popover>
-								</ToggleButtonGroup>
-							{/if}
-						</div>
-					</div>
-
-					<InputsSpecEditor
-						hasRows={rowColumns}
-						{id}
-						bind:componentInput={inputSpecs[inputSpecKey]}
-					/>
-				</div>
+		{#each Object.entries(inputSpecs) as [k, v] (k)}
+			{#if v.ctype == undefined}
+				<InputsSpecEditor
+					key={k}
+					bind:componentInput={v}
+					{id}
+					{userInputEnabled}
+					{shouldCapitalize}
+					{resourceOnly}
+					hasRows={rowColumns}
+				/>
 			{/if}
 		{/each}
 	</div>

@@ -13,7 +13,6 @@
 	export let nodes: UserNodeType[] // TODO: update type to make possible user id being a number
 	export let edges: UserEdgeType[] // TODO: update type to make possible user id being a number
 	export let bgColor = '#ffffff' // this is used to set the background color of the the Svelvet canvas
-	export let minimap = false
 	export let width: number = 600
 	export let height: number = 600
 	export let background: boolean = true
@@ -22,14 +21,10 @@
 	export let snap: boolean = false
 	export let snapTo: number = 30
 	export let nodeCreate: boolean = false
-	export let initialZoom = 3
-	export let initialLocation = { x: 0, y: 0 }
 	export let boundary = false
 	export let collapsible = false
-	export let shareable: boolean = false // used for "importExport" feature
 	export let locked: boolean = false // if true, node movement is disabled
 	export let editable: boolean = false
-	export let resizable: boolean = true
 	export let highlightEdges: boolean = true
 	export let scroll: boolean = false
 
@@ -62,7 +57,6 @@
 			store.collapsibleOption.set(collapsible)
 			store.lockedOption.set(locked)
 			store.editableOption.set(editable)
-			store.resizableOption.set(resizable)
 			store.highlightEdgesOption.set(highlightEdges)
 
 			// make sure that all canvas options are compatible
@@ -97,7 +91,6 @@
 			store.collapsibleOption.set(collapsible)
 			store.lockedOption.set(locked)
 			store.editableOption.set(editable)
-			store.resizableOption.set(resizable)
 			store.highlightEdgesOption.set(highlightEdges)
 
 			// make sure that all canvas options are compatible
@@ -120,16 +113,7 @@
 	{#if error != ''}
 		<div class="error text-red-600 center-center p-4">{error}</div>
 	{:else}
-		<GraphView
-			{scroll}
-			{canvasId}
-			{width}
-			{height}
-			{initialLocation}
-			{initialZoom}
-			{boundary}
-			{minimap}
-		/>
+		<GraphView {scroll} {canvasId} {width} {height} {boundary} />
 	{/if}
 </div>
 

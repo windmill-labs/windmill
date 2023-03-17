@@ -1,5 +1,5 @@
 import type { StoreType } from '../../store/types/types';
-import { writable, derived, get, readable } from 'svelte/store';
+import { get } from 'svelte/store';
 
 /**
  * getNodeById will look for the targeted Node that has the same id provided in the Svelvet component store.

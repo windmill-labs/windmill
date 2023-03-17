@@ -1,8 +1,8 @@
 <script lang="ts">
 	import InputValue from '../../components/helpers/InputValue.svelte'
-	import type { AppInput } from '../../inputType'
+	import type { RichConfiguration } from '../../types'
 
-	export let componentInput: AppInput | undefined
+	export let componentInput: RichConfiguration | undefined
 	let label: string = ''
 </script>
 

@@ -1,7 +1,11 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import type { AppInput } from '../../inputType'
-	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
+	import type {
+		AppViewerContext,
+		ComponentCustomCSS,
+		RichConfiguration,
+		RichConfigurations
+	} from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import { AlignWrapper, InputValue } from '../helpers'
 	import { loadIcon } from '../icon'
@@ -9,7 +13,7 @@
 	export let id: string
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = 'left'
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let configuration: Record<string, AppInput>
+	export let configuration: RichConfigurations
 	export let customCss: ComponentCustomCSS<'container' | 'icon'> | undefined = undefined
 	export let render: boolean
 

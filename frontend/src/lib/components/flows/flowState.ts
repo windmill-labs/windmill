@@ -1,5 +1,5 @@
 import type { Schema } from '$lib/common'
-import type { Flow, FlowModule, FlowStatusModule } from '$lib/gen'
+import type { Flow, FlowModule } from '$lib/gen'
 import type { Writable } from 'svelte/store'
 import { loadFlowModuleState } from './flowStateUtils'
 import { emptyFlowModuleState } from './utils'

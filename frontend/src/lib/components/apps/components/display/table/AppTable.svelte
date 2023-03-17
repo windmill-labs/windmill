@@ -1,7 +1,12 @@
 <script lang="ts">
 	import { getContext, onMount } from 'svelte'
-	import type { Output } from '../../../rx'
-	import type { AppViewerContext, BaseAppComponent, ComponentCustomCSS } from '../../../types'
+	import type {
+		AppViewerContext,
+		BaseAppComponent,
+		ComponentCustomCSS,
+		RichConfiguration,
+		RichConfigurations
+	} from '../../../types'
 	import InputValue from '../../helpers/InputValue.svelte'
 	import type { AppInput } from '../../../inputType'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
@@ -20,7 +25,7 @@
 
 	export let id: string
 	export let componentInput: AppInput | undefined
-	export let configuration: Record<string, AppInput>
+	export let configuration: RichConfigurations
 	export let actionButtons: (BaseAppComponent & ButtonComponent)[]
 	export let initializing: boolean | undefined = undefined
 	export let customCss:
@@ -237,6 +242,7 @@
 										{#if context}
 											{@const component = renderCell(cell.column.columnDef.cell, context)}
 											<td
+												on:keydown={() => toggleRow(row, rowIndex)}
 												on:click={() => toggleRow(row, rowIndex)}
 												class="p-4 whitespace-pre-wrap truncate text-xs text-gray-900"
 											>
