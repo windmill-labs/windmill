@@ -5,9 +5,7 @@
 		StaticAppInput,
 		UserAppInput
 	} from '$lib/components/apps/inputType'
-	import type { AppViewerContext } from '$lib/components/apps/types'
-	import { getContext } from 'svelte'
-	import { getAllRecomputeIdsForComponent } from '../../appUtils'
+
 	import TriggerBadgesList from './TriggerBadgesList.svelte'
 	import { getDependencies, type DependencyBadge } from './triggerListUtils'
 
@@ -18,20 +16,6 @@
 
 	const badges: DependencyBadge = []
 	const dependencies = getDependencies(fields)
-	const { app, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
-
-	$: if ($app && $selectedComponent) {
-		const recomputeIds = getAllRecomputeIdsForComponent($app, id)
-
-		if ($selectedComponent && recomputeIds) {
-			recomputeIds.forEach((x) => {
-				badges.push({
-					label: `Recomputed by: ${x}`,
-					color: 'indigo'
-				})
-			})
-		}
-	}
 
 	dependencies.forEach((dependency) => {
 		badges.push({
@@ -50,4 +34,4 @@
 	}
 </script>
 
-<TriggerBadgesList {badges} onLoad={autoRefresh} />
+<TriggerBadgesList valuesChangeBadges={badges} {id} onLoad={autoRefresh} />

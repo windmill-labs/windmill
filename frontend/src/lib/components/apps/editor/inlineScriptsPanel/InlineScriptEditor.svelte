@@ -3,7 +3,7 @@
 	import type { Preview } from '$lib/gen'
 	import { createEventDispatcher, getContext, onMount } from 'svelte'
 	import type { AppViewerContext, InlineScript } from '../../types'
-	import { CornerDownLeft, Maximize2, Plus, Trash2, X } from 'lucide-svelte'
+	import { ArrowRight, CornerDownLeft, Link, Maximize2, Plus, Trash2, X } from 'lucide-svelte'
 	import InlineScriptEditorDrawer from './InlineScriptEditorDrawer.svelte'
 	import { inferArgs } from '$lib/infer'
 	import type { Schema } from '$lib/common'
@@ -17,6 +17,7 @@
 	import Kbd from '$lib/components/common/kbd/Kbd.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { buildExtraLib } from '../../utils'
+	import { xcode } from 'svelte-highlight/styles'
 
 	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
 
@@ -27,7 +28,7 @@
 	export let fields: Record<string, AppInput> = {}
 	export let syncFields: boolean = false
 
-	const { runnableComponents, stateId, worldStore, state, appPath } =
+	const { runnableComponents, stateId, worldStore, state, appPath, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	let editor: Editor
@@ -103,6 +104,31 @@
 				})
 		}
 	}
+
+	function applyConnection() {
+		if (!$connectingInput.opened && $connectingInput.input !== undefined) {
+			if ($connectingInput.input.connection) {
+				const x = {
+					id: $connectingInput.input.connection.componentId,
+					key: $connectingInput.input.connection.path
+				}
+
+				if (!inlineScript.refreshOn) {
+					inlineScript.refreshOn = [x]
+				} else {
+					inlineScript.refreshOn.push(x)
+				}
+			}
+
+			$connectingInput = {
+				opened: false,
+				input: undefined,
+				hoveredComponent: undefined
+			}
+		}
+	}
+
+	$: $connectingInput && applyConnection()
 </script>
 
 {#if inlineScript.language != 'frontend'}
@@ -124,6 +150,27 @@
 				<Badge color="green" baseClass="!text-2xs">Valid</Badge>
 			{:else}
 				<Badge color="red" baseClass="!text-2xs">Invalid</Badge>
+			{/if}
+
+			{#if inlineScript.language === 'frontend'}
+				<Button
+					variant="border"
+					size="xs"
+					color="light"
+					btnClasses="!px-2 !py-1"
+					on:click={() => {
+						$connectingInput = {
+							opened: true,
+							input: undefined,
+							hoveredComponent: undefined
+						}
+					}}
+				>
+					<div class="flex flex-row gap-1 items-center">
+						Connect
+						<ArrowRight size={14} />
+					</div>
+				</Button>
 			{/if}
 
 			{#if id.startsWith('unused-') || id.startsWith('bg_')}
@@ -206,15 +253,6 @@
 		</div>
 	</div>
 
-	{#if inlineScript.language == 'frontend'}
-		<div class="flex flex-row text-xs px-1"
-			>List of outputs to listen to (e.g 'a.result b.result'): <input
-				on:keydown|stopPropagation
-				type="text"
-				bind:value={refreshOn}
-			/></div
-		>
-	{/if}
 	<div class="border h-full">
 		{#if inlineScript.language != 'frontend'}
 			<Editor

@@ -48,4 +48,9 @@
 	$: getBadges(fields)
 </script>
 
-<TriggerBadgesList {badges} {onClick} onLoad={!onClick} />
+<TriggerBadgesList
+	valuesChangeBadges={badges}
+	{onClick}
+	onLoad={!onClick}
+	id={$selectedComponent}
+/>
