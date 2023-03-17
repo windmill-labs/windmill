@@ -7,6 +7,7 @@
 	import type { AppViewerContext } from '../../types'
 	import { clearResultAppInput } from '../../utils'
 	import InlineScriptEditorDrawer from '../inlineScriptsPanel/InlineScriptEditorDrawer.svelte'
+	import TriggerList from './TriggerList.svelte'
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -66,6 +67,7 @@
 		</Button>
 	</div>
 </div>
+<TriggerList />
 {#if appInput.runnable?.type === 'runnableByName' && !appInput.runnable.inlineScript}
 	<span class="text-xs text-gray-500">
 		Please configure the language in the inline script panel

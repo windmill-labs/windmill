@@ -248,7 +248,7 @@
 										<span>CSS</span>
 									</div>
 								</Tab>
-								<div slot="content" class="h-full overflow-y-auto pb-4">
+								<div slot="content" class="h-full overflow-y-auto">
 									<TabContent class="overflow-auto h-full" value="settings">
 										{#if $selectedComponent !== undefined}
 											<SettingsPanel />
