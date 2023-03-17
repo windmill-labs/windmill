@@ -1,4 +1,10 @@
 <script lang="ts">
+	import type {
+		ConnectedAppInput,
+		RowAppInput,
+		StaticAppInput,
+		UserAppInput
+	} from '$lib/components/apps/inputType'
 	import type { AppViewerContext } from '$lib/components/apps/types'
 	import { getContext } from 'svelte'
 	import { findGridItem } from '../../appUtils'
@@ -9,15 +15,18 @@
 
 	let badges: DependencyBadge = []
 	$: gridItem = $selectedComponent ? findGridItem($app, $selectedComponent) : undefined
+	$: fields =
+		gridItem?.data?.componentInput?.type === 'runnable'
+			? gridItem?.data?.componentInput?.fields
+			: undefined
 
 	let dependencies: Array<{ componentId: string; path: string }> | undefined = undefined
 
-	$: if (gridItem && dependencies === undefined) {
-		const fields =
-			gridItem?.data?.componentInput?.type === 'runnable'
-				? gridItem?.data?.componentInput?.fields
-				: undefined
-
+	function getBadges(
+		fields:
+			| Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
+			| undefined
+	) {
 		if (!fields) {
 			dependencies = []
 		} else {
@@ -27,26 +36,16 @@
 		dependencies.forEach((dependency) => {
 			badges.push({
 				label: `${dependency.componentId} - ${dependency.path}`,
-				color: 'red'
+				color: 'orange'
 			})
 		})
 	}
 
-	if (
-		gridItem?.data.type === 'buttoncomponent' ||
-		gridItem?.data.type === 'formbuttoncomponent' ||
-		gridItem?.data.type === 'formcomponent'
-	) {
-		badges.push({
-			label: 'On click',
-			color: 'blue'
-		})
-	} else {
-		badges.push({
-			label: 'On load',
-			color: 'green'
-		})
-	}
+	$: onClick =
+		gridItem?.data.type &&
+		['buttoncomponent', 'formbuttoncomponent', 'formcomponent'].includes(gridItem?.data.type)
+
+	$: getBadges(fields)
 </script>
 
-<TriggerBadgesList {badges} />
+<TriggerBadgesList {badges} {onClick} onLoad={!onClick} />

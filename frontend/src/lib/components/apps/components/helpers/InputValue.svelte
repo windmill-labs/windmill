@@ -123,8 +123,6 @@
 
 	function onValueChange(newValue: any): void {
 		if (lastInput.type === 'connected' && newValue !== undefined && newValue !== null) {
-			console.log(newValue, id, lastInput)
-
 			const { connection } = lastInput
 			if (!connection) {
 				// No connection
