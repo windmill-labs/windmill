@@ -12,7 +12,6 @@
 	import { getDependencies } from './triggerListUtils'
 
 	const { selectedComponent, app } = getContext<AppViewerContext>('AppViewerContext')
-
 	export let fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
 
 	$: gridItem = $selectedComponent ? findGridItem($app, $selectedComponent) : undefined
@@ -20,11 +19,22 @@
 	$: onClick =
 		gridItem?.data.type &&
 		['buttoncomponent', 'formbuttoncomponent', 'formcomponent'].includes(gridItem?.data.type)
+
+	$: if (gridItem) {
+		console.log(gridItem?.data.configuration.triggerOnAppLoad)
+	}
+
+	$: onLoad =
+		!onClick ||
+		(gridItem?.data.configuration.triggerOnAppLoad.ctype === undefined &&
+			// TODO: Type and value are not in sync.
+			// @ts-ignore
+			gridItem?.data.configuration.triggerOnAppLoad.value)
 </script>
 
 <TriggerBadgesList
 	inputDependencies={getDependencies(fields)}
-	onLoad={!onClick}
+	{onLoad}
 	id={$selectedComponent}
 	{onClick}
 />
