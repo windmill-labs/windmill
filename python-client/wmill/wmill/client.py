@@ -25,6 +25,7 @@ bigquery = TypeAlias
 
 
 VAR_RESOURCE_PREFIX = "$var:"
+RES_RESOURCE_PREFIX = "$res:"
 
 
 class JobStatus(Enum):
@@ -368,6 +369,9 @@ def _transform_leaf(v: Any) -> Any:
         if v.startswith(VAR_RESOURCE_PREFIX):
             var_name = v[len(VAR_RESOURCE_PREFIX) :]
             return get_variable(var_name)
+        if v.startswith(RES_RESOURCE_PREFIX):
+            res_name = v[len(RES_RESOURCE_PREFIX) :]
+            return get_resource(res_name)
         else:
             return v
     else:

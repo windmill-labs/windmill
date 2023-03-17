@@ -1,41 +1,59 @@
-import { JobService, ResourceService, VariableService } from './windmill-api/index.ts'
-import { OpenAPI } from './windmill-api/index.ts'
+import {
+  JobService,
+  ResourceService,
+  VariableService,
+} from "./windmill-api/index.ts";
+import { OpenAPI } from "./windmill-api/index.ts";
 
 export {
-    AdminService, AuditService, FlowService, GranularAclService, GroupService,
-    JobService, ResourceService, VariableService, ScriptService, ScheduleService, SettingsService,
-    UserService, WorkspaceService
-} from './windmill-api/index.ts'
-
+  AdminService,
+  AuditService,
+  FlowService,
+  GranularAclService,
+  GroupService,
+  JobService,
+  ResourceService,
+  VariableService,
+  ScriptService,
+  ScheduleService,
+  SettingsService,
+  UserService,
+  WorkspaceService,
+} from "./windmill-api/index.ts";
 
 // @ts-ignore: Otherwise BigInt is not supported for export
 BigInt.prototype.toJSON = function () {
-    return this.toString();
+  return this.toString();
 };
 
-export { pgSql, pgClient } from './pg.ts'
+export { pgSql, pgClient } from "./pg.ts";
 
-export type Sql = string
-export type Email = string
-export type Base64 = string
-export type Resource<S extends string> = any
+export type Sql = string;
+export type Email = string;
+export type Base64 = string;
+export type Resource<S extends string> = any;
 
-export const SHARED_FOLDER = '/shared'
+export const SHARED_FOLDER = "/shared";
 
 export function setClient(token: string, baseUrl: string) {
-    OpenAPI.WITH_CREDENTIALS = true
-    OpenAPI.TOKEN = token
-    OpenAPI.BASE = baseUrl + '/api'
+  OpenAPI.WITH_CREDENTIALS = true;
+  OpenAPI.TOKEN = token;
+  OpenAPI.BASE = baseUrl + "/api";
 }
 
-setClient(Deno.env.get("WM_TOKEN") ?? 'no_token', Deno.env.get("BASE_INTERNAL_URL") ?? Deno.env.get("BASE_URL") ?? 'http://localhost:8000')
+setClient(
+  Deno.env.get("WM_TOKEN") ?? "no_token",
+  Deno.env.get("BASE_INTERNAL_URL") ??
+    Deno.env.get("BASE_URL") ??
+    "http://localhost:8000"
+);
 
 /**
  * Create a client configuration from env variables
  * @returns client configuration
  */
 export function getWorkspace(): string {
-    return Deno.env.get("WM_WORKSPACE") ?? 'no_workspace'
+  return Deno.env.get("WM_WORKSPACE") ?? "no_workspace";
 }
 
 /**
@@ -44,27 +62,30 @@ export function getWorkspace(): string {
  * @param undefinedIfEmpty if the resource does not exist, return undefined instead of throwing an error
  * @returns resource value
  */
-export async function getResource(path?: string, undefinedIfEmpty?: boolean): Promise<any> {
-    const workspace = getWorkspace()
-    path = path ?? getStatePath()
-    try {
-        const resource = await ResourceService.getResource({ workspace, path })
-        return await _transformLeaf(resource.value)
-    } catch (e: any) {
-        if (undefinedIfEmpty && e.status === 404) {
-            return undefined
-        } else {
-            throw Error(`Resource not found at ${path} or not visible to you`)
-        }
+export async function getResource(
+  path?: string,
+  undefinedIfEmpty?: boolean
+): Promise<any> {
+  const workspace = getWorkspace();
+  path = path ?? getStatePath();
+  try {
+    const resource = await ResourceService.getResource({ workspace, path });
+    return await _transformLeaf(resource.value);
+  } catch (e: any) {
+    if (undefinedIfEmpty && e.status === 404) {
+      return undefined;
+    } else {
+      throw Error(`Resource not found at ${path} or not visible to you`);
     }
+  }
 }
 
 export function getStatePath(): string {
-    const state_path = Deno.env.get("WM_STATE_PATH")
-    if (state_path === undefined) {
-        throw Error("State path not set")
-    }
-    return state_path
+  const state_path = Deno.env.get("WM_STATE_PATH");
+  if (state_path === undefined) {
+    throw Error("State path not set");
+  }
+  return state_path;
 }
 
 /**
@@ -73,16 +94,29 @@ export function getStatePath(): string {
  * @param value new value of the resource to set
  * @param initializeToTypeIfNotExist if the resource does not exist, initialize it with this type
  */
-export async function setResource(value: any, path?: string, initializeToTypeIfNotExist?: string): Promise<void> {
-    path = path ?? getStatePath()
-    const workspace = getWorkspace()
-    if (await ResourceService.existsResource({ workspace, path })) {
-        await ResourceService.updateResourceValue({ workspace, path, requestBody: { value } })
-    } else if (initializeToTypeIfNotExist) {
-        await ResourceService.createResource({ workspace, requestBody: { path, value, resource_type: initializeToTypeIfNotExist } })
-    } else {
-        throw Error(`Resource at path ${path} does not exist and no type was provided to initialize it`)
-    }
+export async function setResource(
+  value: any,
+  path?: string,
+  initializeToTypeIfNotExist?: string
+): Promise<void> {
+  path = path ?? getStatePath();
+  const workspace = getWorkspace();
+  if (await ResourceService.existsResource({ workspace, path })) {
+    await ResourceService.updateResourceValue({
+      workspace,
+      path,
+      requestBody: { value },
+    });
+  } else if (initializeToTypeIfNotExist) {
+    await ResourceService.createResource({
+      workspace,
+      requestBody: { path, value, resource_type: initializeToTypeIfNotExist },
+    });
+  } else {
+    throw Error(
+      `Resource at path ${path} does not exist and no type was provided to initialize it`
+    );
+  }
 }
 
 /**
@@ -91,7 +125,7 @@ export async function setResource(value: any, path?: string, initializeToTypeIfN
  * @deprecated use setState instead
  */
 export async function setInternalState(state: any): Promise<void> {
-    await setResource(state, undefined, 'state')
+  await setResource(state, undefined, "state");
 }
 
 /**
@@ -99,39 +133,41 @@ export async function setInternalState(state: any): Promise<void> {
  * @param state state to set
  */
 export async function setState(state: any): Promise<void> {
-    await setResource(state, undefined, 'state')
+  await setResource(state, undefined, "state");
 }
 
 /**
  * Set the shared state
  * @param state state to set
  */
-export async function setSharedState(state: any, path = 'state.json'): Promise<void> {
-    await Deno.writeTextFile(SHARED_FOLDER + '/' + path, JSON.stringify(state))
+export async function setSharedState(
+  state: any,
+  path = "state.json"
+): Promise<void> {
+  await Deno.writeTextFile(SHARED_FOLDER + "/" + path, JSON.stringify(state));
 }
 
 /**
  * Get the shared state
  * @param state state to set
  */
-export async function getSharedState(path = 'state.json'): Promise<any> {
-    return JSON.parse(await Deno.readTextFile(SHARED_FOLDER + '/' + path))
+export async function getSharedState(path = "state.json"): Promise<any> {
+  return JSON.parse(await Deno.readTextFile(SHARED_FOLDER + "/" + path));
 }
-
 
 /**
  * Get the internal state
  * @deprecated use getState instead
  */
 export async function getInternalState(): Promise<any> {
-    return await getResource(getStatePath(), true)
+  return await getResource(getStatePath(), true);
 }
 
 /**
  * Get the state shared across executions
  */
 export async function getState(): Promise<any> {
-    return await getResource(getStatePath(), true)
+  return await getResource(getStatePath(), true);
 }
 
 /**
@@ -140,38 +176,43 @@ export async function getState(): Promise<any> {
  * @returns variable value
  */
 export async function getVariable(path: string): Promise<string | undefined> {
-    const workspace = getWorkspace()
-    try {
-        const variable = await VariableService.getVariable({ workspace, path })
-        return variable.value
-    } catch (e: any) {
-        throw Error(`Variable not found at ${path} or not visible to you`)
-    }
+  const workspace = getWorkspace();
+  try {
+    const variable = await VariableService.getVariable({ workspace, path });
+    return variable.value;
+  } catch (e: any) {
+    throw Error(`Variable not found at ${path} or not visible to you`);
+  }
 }
 
-async function transformLeaves(d: { [key: string]: any }): Promise<{ [key: string]: any }> {
-    for (const k in d) {
-        d[k] = await _transformLeaf(d[k])
-    }
-    return d
+async function transformLeaves(d: {
+  [key: string]: any;
+}): Promise<{ [key: string]: any }> {
+  for (const k in d) {
+    d[k] = await _transformLeaf(d[k]);
+  }
+  return d;
 }
 
-const VAR_RESOURCE_PREFIX = "$var:"
+const VAR_RESOURCE_PREFIX = "$var:";
+const RES_RESOURCE_PREFIX = "$res:";
 async function _transformLeaf(v: any): Promise<any> {
-    if (typeof v === 'object') {
-        return transformLeaves(v)
-    }
-    else if (typeof v === 'string' && v.startsWith(VAR_RESOURCE_PREFIX)) {
-        const varName = v.substring(VAR_RESOURCE_PREFIX.length)
-        return await getVariable(varName)
-    } else {
-        return v
-    }
+  if (typeof v === "object") {
+    return transformLeaves(v);
+  } else if (typeof v === "string" && v.startsWith(VAR_RESOURCE_PREFIX)) {
+    const varName = v.substring(VAR_RESOURCE_PREFIX.length);
+    return await getVariable(varName);
+  } else if (typeof v === "string" && v.startsWith(RES_RESOURCE_PREFIX)) {
+    const resName = v.substring(RES_RESOURCE_PREFIX.length);
+    return await getResource(resName);
+  } else {
+    return v;
+  }
 }
 
 export async function databaseUrlFromResource(path: string): Promise<string> {
-    const resource = await getResource(path)
-    return `postgresql://${resource.user}:${resource.password}@${resource.host}:${resource.port}/${resource.dbname}?sslmode=${resource.sslmode}`
+  const resource = await getResource(path);
+  return `postgresql://${resource.user}:${resource.password}@${resource.host}:${resource.port}/${resource.dbname}?sslmode=${resource.sslmode}`;
 }
 
 /**
@@ -180,78 +221,84 @@ export async function databaseUrlFromResource(path: string): Promise<string> {
  * @returns approval page UI URL, resume and cancel API URLs for resumeing the flow
  */
 export async function getResumeUrls(approver?: string): Promise<{
-    approvalPage: string;
-    resume: string;
-    cancel: string;
+  approvalPage: string;
+  resume: string;
+  cancel: string;
 }> {
-    const nonce = Math.floor(Math.random() * 4294967295);
-    const workspace = getWorkspace()
-    return await JobService.getResumeUrls({ workspace, resumeId: nonce, approver, id: Deno.env.get("WM_JOB_ID") ?? 'NO_JOB_ID' })
+  const nonce = Math.floor(Math.random() * 4294967295);
+  const workspace = getWorkspace();
+  return await JobService.getResumeUrls({
+    workspace,
+    resumeId: nonce,
+    approver,
+    id: Deno.env.get("WM_JOB_ID") ?? "NO_JOB_ID",
+  });
 }
 
 /**
  * @deprecated use getResumeUrls instead
  */
 export function getResumeEndpoints(approver?: string): Promise<{
-    approvalPage: string;
-    resume: string;
-    cancel: string;
+  approvalPage: string;
+  resume: string;
+  cancel: string;
 }> {
-    return getResumeUrls(approver)
+  return getResumeUrls(approver);
 }
 
 export function base64ToUint8Array(data: string): Uint8Array {
-    return Uint8Array.from(atob(data), c => c.charCodeAt(0))
+  return Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
 }
 
 export function uint8ArrayToBase64(arrayBuffer: Uint8Array): string {
-    let base64 = ''
-    const encodings = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+  let base64 = "";
+  const encodings =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-    const bytes = new Uint8Array(arrayBuffer)
-    const byteLength = bytes.byteLength
-    const byteRemainder = byteLength % 3
-    const mainLength = byteLength - byteRemainder
+  const bytes = new Uint8Array(arrayBuffer);
+  const byteLength = bytes.byteLength;
+  const byteRemainder = byteLength % 3;
+  const mainLength = byteLength - byteRemainder;
 
-    let a, b, c, d
-    let chunk
+  let a, b, c, d;
+  let chunk;
 
-    // Main loop deals with bytes in chunks of 3
-    for (let i = 0; i < mainLength; i = i + 3) {
-        // Combine the three bytes into a single integer
-        chunk = (bytes[i] << 16) | (bytes[i + 1] << 8) | bytes[i + 2]
+  // Main loop deals with bytes in chunks of 3
+  for (let i = 0; i < mainLength; i = i + 3) {
+    // Combine the three bytes into a single integer
+    chunk = (bytes[i] << 16) | (bytes[i + 1] << 8) | bytes[i + 2];
 
-        // Use bitmasks to extract 6-bit segments from the triplet
-        a = (chunk & 16515072) >> 18 // 16515072 = (2^6 - 1) << 18
-        b = (chunk & 258048) >> 12 // 258048   = (2^6 - 1) << 12
-        c = (chunk & 4032) >> 6 // 4032     = (2^6 - 1) << 6
-        d = chunk & 63               // 63       = 2^6 - 1
+    // Use bitmasks to extract 6-bit segments from the triplet
+    a = (chunk & 16515072) >> 18; // 16515072 = (2^6 - 1) << 18
+    b = (chunk & 258048) >> 12; // 258048   = (2^6 - 1) << 12
+    c = (chunk & 4032) >> 6; // 4032     = (2^6 - 1) << 6
+    d = chunk & 63; // 63       = 2^6 - 1
 
-        // Convert the raw binary segments to the appropriate ASCII encoding
-        base64 += encodings[a] + encodings[b] + encodings[c] + encodings[d]
-    }
+    // Convert the raw binary segments to the appropriate ASCII encoding
+    base64 += encodings[a] + encodings[b] + encodings[c] + encodings[d];
+  }
 
-    // Deal with the remaining bytes and padding
-    if (byteRemainder == 1) {
-        chunk = bytes[mainLength]
+  // Deal with the remaining bytes and padding
+  if (byteRemainder == 1) {
+    chunk = bytes[mainLength];
 
-        a = (chunk & 252) >> 2 // 252 = (2^6 - 1) << 2
+    a = (chunk & 252) >> 2; // 252 = (2^6 - 1) << 2
 
-        // Set the 4 least significant bits to zero
-        b = (chunk & 3) << 4 // 3   = 2^2 - 1
+    // Set the 4 least significant bits to zero
+    b = (chunk & 3) << 4; // 3   = 2^2 - 1
 
-        base64 += encodings[a] + encodings[b] + '=='
-    } else if (byteRemainder == 2) {
-        chunk = (bytes[mainLength] << 8) | bytes[mainLength + 1]
+    base64 += encodings[a] + encodings[b] + "==";
+  } else if (byteRemainder == 2) {
+    chunk = (bytes[mainLength] << 8) | bytes[mainLength + 1];
 
-        a = (chunk & 64512) >> 10 // 64512 = (2^6 - 1) << 10
-        b = (chunk & 1008) >> 4 // 1008  = (2^6 - 1) << 4
+    a = (chunk & 64512) >> 10; // 64512 = (2^6 - 1) << 10
+    b = (chunk & 1008) >> 4; // 1008  = (2^6 - 1) << 4
 
-        // Set the 2 least significant bits to zero
-        c = (chunk & 15) << 2 // 15    = 2^4 - 1
+    // Set the 2 least significant bits to zero
+    c = (chunk & 15) << 2; // 15    = 2^4 - 1
 
-        base64 += encodings[a] + encodings[b] + encodings[c] + '='
-    }
+    base64 += encodings[a] + encodings[b] + encodings[c] + "=";
+  }
 
-    return base64
+  return base64;
 }
