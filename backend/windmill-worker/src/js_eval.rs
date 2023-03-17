@@ -59,7 +59,7 @@ pub async fn eval_timeout(
                 ops.push(op_get_id::decl());
             }
 
-            let ext = Extension::builder().ops(ops).build();
+            let ext = Extension::builder("js_eval").ops(ops).build();
             // Use our snapshot to provision our new runtime
             let options = RuntimeOptions {
                 extensions: vec![ext],
