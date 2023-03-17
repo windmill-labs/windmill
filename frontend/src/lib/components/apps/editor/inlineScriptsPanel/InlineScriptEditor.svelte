@@ -3,7 +3,7 @@
 	import type { Preview } from '$lib/gen'
 	import { createEventDispatcher, getContext, onMount } from 'svelte'
 	import type { AppViewerContext, InlineScript } from '../../types'
-	import { CornerDownLeft, Maximize2, Plus, Trash2, X } from 'lucide-svelte'
+	import { CornerDownLeft, Maximize2, Trash2 } from 'lucide-svelte'
 	import InlineScriptEditorDrawer from './InlineScriptEditorDrawer.svelte'
 	import { inferArgs } from '$lib/infer'
 	import type { Schema } from '$lib/common'
@@ -206,15 +206,6 @@
 		</div>
 	</div>
 
-	{#if inlineScript.language == 'frontend'}
-		<div class="flex flex-row text-xs px-1"
-			>List of outputs to listen to (e.g 'a.result b.result'): <input
-				on:keydown|stopPropagation
-				type="text"
-				bind:value={refreshOn}
-			/></div
-		>
-	{/if}
 	<div class="border h-full">
 		{#if inlineScript.language != 'frontend'}
 			<Editor
