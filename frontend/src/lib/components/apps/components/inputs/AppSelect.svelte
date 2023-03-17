@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import Select from 'svelte-select'
-	import type { AppInput } from '../../inputType'
-	import type { Output } from '../../rx'
+
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
@@ -63,6 +62,7 @@
 		try {
 			result = JSON.parse(e.detail?.['value'])
 		} catch (_) {}
+		value = result
 		outputs?.result.set(result)
 	}
 
