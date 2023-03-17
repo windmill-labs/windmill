@@ -12,6 +12,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { goto } from '$app/navigation'
 	import { initOutput } from '../../editor/appUtils'
+	import { configurationKeys } from '../../editor/component'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -35,37 +36,52 @@
 		$componentControl[id] = controls
 	}
 
-	let labelValue: string
-	let color: ButtonType.Color
-	let size: ButtonType.Size
 	let runnableComponent: RunnableComponent
-	let disabled: boolean | undefined = undefined
-	let fillContainer: boolean | undefined = undefined
-	let gotoUrl: string | undefined = undefined
-	let gotoNewTab: boolean | undefined = undefined
+
+	// let labelValue: string
+	// let color: ButtonType.Color
+	// let size: ButtonType.Size
+	// let disabled: boolean | undefined = undefined
+	// let fillContainer: boolean | undefined = undefined
+	// let gotoUrl: string | undefined = undefined
+	// let gotoNewTab: boolean | undefined = undefined
 
 	let isLoading: boolean = false
 	let ownClick: boolean = false
-	let triggerOnAppLoad = false
 
-	let beforeIcon: undefined | string = undefined
-	let afterIcon: undefined | string = undefined
+	// let beforeIcon: undefined | string = undefined
+	// let afterIcon: undefined | string = undefined
+
+	let resolvedConfig = {} as {
+		beforeIcon?: string
+		afterIcon?: string
+		label?: string
+		color?: ButtonType.Color
+		size?: ButtonType.Size
+		disabled?: boolean
+		fillContainer?: boolean
+		gotoUrl?: string
+		gotoNewTab?: boolean
+		triggerOnAppLoad?: boolean
+	}
+
+	$: initializing = resolvedConfig?.label == undefined
 
 	let beforeIconComponent: any
 	let afterIconComponent: any
 
-	$: beforeIcon && handleBeforeIcon()
-	$: afterIcon && handleAfterIcon()
+	$: resolvedConfig.beforeIcon && handleBeforeIcon()
+	$: resolvedConfig.afterIcon && handleAfterIcon()
 
 	async function handleBeforeIcon() {
-		if (beforeIcon) {
-			beforeIconComponent = await loadIcon(beforeIcon)
+		if (resolvedConfig.beforeIcon) {
+			beforeIconComponent = await loadIcon(resolvedConfig.beforeIcon)
 		}
 	}
 
 	async function handleAfterIcon() {
-		if (afterIcon) {
-			afterIconComponent = await loadIcon(afterIcon)
+		if (resolvedConfig.afterIcon) {
+			afterIconComponent = await loadIcon(resolvedConfig.afterIcon)
 		}
 	}
 
@@ -74,7 +90,7 @@
 		loading: false
 	})
 
-	$: triggerOnAppLoad && runnableComponent?.runComponent()
+	$: resolvedConfig.triggerOnAppLoad && runnableComponent?.runComponent()
 
 	$: if (outputs?.loading != undefined) {
 		outputs.loading.set(false, true)
@@ -107,11 +123,11 @@
 		ownClick = true
 
 		if (!runnableComponent) {
-			if (gotoUrl) {
-				if (gotoNewTab) {
-					window.open(gotoUrl, '_blank')
+			if (resolvedConfig.gotoUrl) {
+				if (resolvedConfig.gotoNewTab) {
+					window.open(resolvedConfig.gotoUrl, '_blank')
 				} else {
-					goto(gotoUrl)
+					goto(resolvedConfig.gotoUrl)
 				}
 			}
 		} else {
@@ -120,28 +136,9 @@
 	}
 </script>
 
-<InputValue
-	on:done={() => initializing && (initializing = false)}
-	{id}
-	input={configuration.label}
-	bind:value={labelValue}
-/>
-<InputValue {id} input={configuration.goto} bind:value={gotoUrl} />
-<InputValue {id} input={configuration.color} bind:value={color} />
-<InputValue {id} input={configuration.size} bind:value={size} />
-<InputValue {id} input={configuration.beforeIcon} bind:value={beforeIcon} />
-<InputValue {id} input={configuration.afterIcon} bind:value={afterIcon} />
-<InputValue {id} input={configuration.triggerOnAppLoad} bind:value={triggerOnAppLoad} />
-
-<InputValue
-	{id}
-	input={configuration.disabled}
-	extraContext={extraQueryParams}
-	bind:value={disabled}
-	bind:error={errors.disabled}
-/>
-<InputValue {id} input={configuration.fillContainer} bind:value={fillContainer} />
-<InputValue {id} input={configuration.gotoNewTab} bind:value={gotoNewTab} />
+{#each configurationKeys['buttoncomponent'] as key (key)}
+	<InputValue {key} {id} input={configuration[key]} bind:value={resolvedConfig[key]} />
+{/each}
 
 <RunnableWrapper
 	{recomputeIds}
@@ -150,8 +147,8 @@
 	{id}
 	{extraQueryParams}
 	autoRefresh={false}
-	goto={gotoUrl}
-	{gotoNewTab}
+	goto={resolvedConfig.gotoUrl}
+	gotoNewTab={resolvedConfig.gotoNewTab}
 	{render}
 >
 	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
@@ -162,25 +159,25 @@
 			btnClasses={twMerge(
 				$app.css?.['buttoncomponent']?.['button']?.class,
 				customCss?.button.class,
-				fillContainer ? 'w-full h-full' : ''
+				resolvedConfig.fillContainer ? 'w-full h-full' : ''
 			)}
 			style={[$app.css?.['buttoncomponent']?.['button']?.style, customCss?.button.style].join(';')}
-			{disabled}
+			disabled={resolvedConfig.disabled}
 			on:pointerdown={(e) => {
 				e?.stopPropagation()
 				window.dispatchEvent(new Event('pointerup'))
 			}}
 			on:click={handleClick}
-			{size}
-			{color}
+			size={resolvedConfig.size}
+			color={resolvedConfig.color}
 			{loading}
 		>
 			<span class="truncate inline-flex gap-2 items-center">
-				{#if beforeIcon && beforeIconComponent}
+				{#if resolvedConfig.beforeIcon && beforeIconComponent}
 					<svelte:component this={beforeIconComponent} size={14} />
 				{/if}
-				<div>{labelValue}</div>
-				{#if afterIcon && afterIconComponent}
+				<div>{resolvedConfig.label}</div>
+				{#if resolvedConfig.afterIcon && afterIconComponent}
 					<svelte:component this={afterIconComponent} size={14} />
 				{/if}
 			</span>

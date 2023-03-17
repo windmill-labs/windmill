@@ -32,8 +32,11 @@ export class ScriptFile {
       if (data == null) return data;
 
       if (
-        data === "script" || data === "failure" || data === "trigger" ||
-        data === "command" || data === "approvial"
+        data === "script" ||
+        data === "failure" ||
+        data === "trigger" ||
+        data === "command" ||
+        data === "approvial"
       ) {
         return data;
       }
@@ -56,10 +59,10 @@ async function push(
   opts: PushOptions,
   filePath: string,
   remotePath: string,
-  contentPath?: string,
+  contentPath?: string
 ) {
   const workspace = await resolveWorkspace(opts);
-  if (!await validatePath(opts, remotePath)) {
+  if (!(await validatePath(opts, remotePath))) {
     return;
   }
 
@@ -81,63 +84,97 @@ async function push(
   console.log(colors.bold.underline.green(`Script ${remotePath} pushed`));
 }
 
-export async function handleScriptMetadata(path: string, workspace: string, alreadySynced: string[]): Promise<boolean> {
+export async function handleScriptMetadata(
+  path: string,
+  workspace: string,
+  alreadySynced: string[]
+): Promise<boolean> {
   if (path.endsWith(".script.json")) {
-    const contentPath = await findContentFile(path)
-    return handleFile(contentPath, await Deno.readTextFile(contentPath), workspace, alreadySynced)
+    const contentPath = await findContentFile(path);
+    return handleFile(
+      contentPath,
+      await Deno.readTextFile(contentPath),
+      workspace,
+      alreadySynced
+    );
   } else {
-    return false
+    return false;
   }
 }
 
-export async function handleFile(path: string, content: string, workspace: string, alreadySynced: string[]): Promise<boolean> {
-  if (path.endsWith(".ts") || path.endsWith(".py") || path.endsWith(".go") || path.endsWith(".sh")) {
+export async function handleFile(
+  path: string,
+  content: string,
+  workspace: string,
+  alreadySynced: string[]
+): Promise<boolean> {
+  if (
+    path.endsWith(".ts") ||
+    path.endsWith(".py") ||
+    path.endsWith(".go") ||
+    path.endsWith(".sh")
+  ) {
     if (alreadySynced.includes(path)) {
-      return true
+      return true;
     }
-    alreadySynced.push(path)
+    alreadySynced.push(path);
     const remotePath = path.substring(0, path.length - 3);
     const metaPath = remotePath + ".script.json";
-    let typed = undefined
+    let typed = undefined;
     try {
-      await Deno.stat(metaPath)
-      typed = JSON.parse(await Deno.readTextFile(metaPath))
+      await Deno.stat(metaPath);
+      typed = JSON.parse(await Deno.readTextFile(metaPath));
       typed = decoverto.type(ScriptFile).plainToInstance(typed);
-    } catch { }
+    } catch {}
     const language = inferContentTypeFromFilePath(path);
 
-    let remote = undefined
+    let remote = undefined;
     try {
       remote = await ScriptService.getScriptByPath({
         workspace,
         path: remotePath,
       });
-    } catch { }
-    
-    if (remote) {
-      if (typed.description === remote.description && content === remote.content && typed.summary === remote.summary && typed.is_template === remote.is_template && typed.kind == remote.kind && remote?.lock == typed.lock?.join('\n') && JSON.stringify(typed.schema) == JSON.stringify(remote.schema)) {
-        console.log(colors.yellow(`No change to push for script ${remotePath}, skipping`))
-        return true
-      }
+    } catch {}
 
+    if (remote) {
+      if (content === remote.content) {
+        if (
+          typed == undefined ||
+          (typed.description === remote.description &&
+            typed.summary === remote.summary &&
+            typed.is_template === remote.is_template &&
+            typed.kind == remote.kind &&
+            remote?.lock == typed.lock?.join("\n") &&
+            JSON.stringify(typed.schema) == JSON.stringify(remote.schema))
+        ) {
+          console.log(
+            colors.yellow(
+              `No change to push for script ${remotePath}, skipping`
+            )
+          );
+          return true;
+        }
+      }
 
       await ScriptService.createScript({
         workspace,
         requestBody: {
           content,
-          description: typed.description,
+          description: typed?.description ?? "",
           language,
           path: remotePath,
-          summary: typed.summary,
-          is_template: typed.is_template,
-          kind: typed.kind,
-          lock: typed.lock,
+          summary: typed?.summary ?? "",
+          is_template: typed?.is_template,
+          kind: typed?.kind,
+          lock: typed?.lock,
           parent_hash: remote.hash,
-          schema: typed.schema,
-        }
+          schema: typed?.schema,
+        },
       });
 
-      console.log(colors.yellow.bold(`Creating script with a parent ${remotePath}`))
+      console.log(
+        colors.yellow.bold(`Creating script with a parent ${remotePath}`)
+      );
     } else {
       // no parent hash
       await ScriptService.createScript({
@@ -155,11 +192,13 @@ export async function handleFile(path: string, content: string, workspace: strin
           schema: typed.schema,
         },
       });
-      console.log(colors.yellow.bold(`Creating script without parent ${remotePath}`))
+      console.log(
+        colors.yellow.bold(`Creating script without parent ${remotePath}`)
+      );
     }
-    return true
+    return true;
   }
-  return false
+  return false;
 }
 
 export async function findContentFile(filePath: string) {
@@ -178,7 +217,7 @@ export async function findContentFile(filePath: string) {
           .then((e) => {
             return { path: x, file: e };
           });
-      }),
+      })
     )
   )
     .filter((x) => x.file)
@@ -186,7 +225,7 @@ export async function findContentFile(filePath: string) {
   if (validCandidates.length > 1) {
     throw new Error(
       "No content path given and more then one candidate found: " +
-      validCandidates.join(", "),
+        validCandidates.join(", ")
     );
   }
   if (validCandidates.length < 1) {
@@ -196,7 +235,7 @@ export async function findContentFile(filePath: string) {
 }
 
 export function inferContentTypeFromFilePath(
-  contentPath: string,
+  contentPath: string
 ): "python3" | "deno" | "go" | "bash" {
   let language = contentPath.substring(contentPath.lastIndexOf("."));
   if (language == ".ts") language = "deno";
@@ -204,7 +243,9 @@ export function inferContentTypeFromFilePath(
   if (language == ".sh") language = "bash";
   if (language == ".go") language = "go";
   if (
-    language != "python3" && language != "deno" && language != "go" &&
+    language != "python3" &&
+    language != "deno" &&
+    language != "go" &&
     language != "bash"
   ) {
     throw new Error("Invalid language: " + language);
@@ -216,11 +257,11 @@ export async function pushScript(
   filePath: string,
   contentPath: string,
   workspace: string,
-  remotePath: string,
+  remotePath: string
 ) {
-  const data = decoverto.type(ScriptFile).rawToInstance(
-    await Deno.readTextFile(filePath),
-  );
+  const data = decoverto
+    .type(ScriptFile)
+    .rawToInstance(await Deno.readTextFile(filePath));
   const content = await Deno.readTextFile(contentPath);
 
   const language = inferContentTypeFromFilePath(contentPath);
@@ -281,14 +322,7 @@ async function list(opts: GlobalOptions & { showArchived?: boolean }) {
     .header(["path", "summary", "language", "created by"])
     .padding(2)
     .border(true)
-    .body(
-      total.map((x) => [
-        x.path,
-        x.summary,
-        x.language,
-        x.created_by,
-      ]),
-    )
+    .body(total.map((x) => [x.path, x.summary, x.language, x.created_by]))
     .render();
 }
 
@@ -299,14 +333,15 @@ export async function resolve(input: string): Promise<Record<string, any>> {
 
   if (input == "@-") {
     input = new TextDecoder().decode(await readAll(Deno.stdin));
-  } if (input[0] == "@") {
+  }
+  if (input[0] == "@") {
     input = await Deno.readTextFile(input.substring(1));
   }
   try {
     return JSON.parse(input);
   } catch (e) {
-    console.error("Impossible to parse input as JSON", input)
-    throw e
+    console.error("Impossible to parse input as JSON", input);
+    throw e;
   }
 }
 
@@ -315,11 +350,10 @@ async function run(
     data?: string;
     silent: boolean;
   },
-  path: string,
+  path: string
 ) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
-
 
   const input = opts.data ? await resolve(opts.data) : {};
   const id = await JobService.runScriptByPath({
@@ -334,12 +368,13 @@ async function run(
 
   while (true) {
     try {
-      const result = (
-        await JobService.getCompletedJob({
-          workspace: workspace.workspaceId,
-          id,
-        })
-      ).result ?? {};
+      const result =
+        (
+          await JobService.getCompletedJob({
+            workspace: workspace.workspaceId,
+            id,
+          })
+        ).result ?? {};
       console.log(result);
 
       break;
@@ -354,9 +389,9 @@ export async function track_job(workspace: string, id: string) {
     const result = await JobService.getCompletedJob({ workspace, id });
 
     console.log(result.logs);
-    console.log()
+    console.log();
     console.log(colors.bold.underline.green("Job Completed"));
-    console.log()
+    console.log();
     return;
   } catch {
     /* ignore */
@@ -407,7 +442,7 @@ export async function track_job(workspace: string, id: string) {
     if (running && updates.running === false) {
       running = false;
       console.log(
-        colors.yellow("Job suspended. Waiting for it to continue..."),
+        colors.yellow("Job suspended. Waiting for it to continue...")
       );
     }
   }
@@ -418,15 +453,13 @@ export async function track_job(workspace: string, id: string) {
     if ((final_job.logs?.length ?? -1) > logOffset) {
       console.log(final_job.logs!.substring(logOffset));
     }
-    console.log("\n")
+    console.log("\n");
     if (final_job.success) {
       console.log(colors.bold.underline.green("Job Completed"));
-
     } else {
       console.log(colors.bold.underline.red("Job Completed"));
     }
-    console.log()
-
+    console.log();
   } catch {
     console.log("Job appears to have completed, but no data can be retrieved");
   }
@@ -451,7 +484,7 @@ const command = new Command()
   .action(list as any)
   .command(
     "push",
-    "push a local script spec. This overrides any remote versions.",
+    "push a local script spec. This overrides any remote versions."
   )
   .arguments("<file_path:string> <remote_path:string> [content_path:string]")
   .action(push as any)
@@ -462,11 +495,11 @@ const command = new Command()
   .arguments("<path:string>")
   .option(
     "-d --data <data:string>",
-    "Inputs specified as a JSON string or a file using @<filename> or stdin using @-.",
+    "Inputs specified as a JSON string or a file using @<filename> or stdin using @-."
   )
   .option(
     "-s --silent",
-    "Do not ouput anything other then the final output. Useful for scripting.",
+    "Do not ouput anything other then the final output. Useful for scripting."
   )
   .action(run as any);
 

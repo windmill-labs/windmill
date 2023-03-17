@@ -9,9 +9,7 @@
 	import InputsSpecEditor from './InputsSpecEditor.svelte'
 
 	export let id: string
-	export let inputSpecs:
-		| RichConfigurations
-		| Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
+	export let inputSpecs: RichConfigurations
 	export let userInputEnabled: boolean = false
 	export let shouldCapitalize: boolean = true
 	export let rowColumns = false
@@ -20,11 +18,11 @@
 
 {#if inputSpecs}
 	<div class="w-full flex flex-col gap-4">
-		{#each Object.entries(inputSpecs) as [k, v] (k)}
-			{#if v.ctype == undefined}
+		{#each Object.keys(inputSpecs) as k}
+			{#if inputSpecs[k].ctype == undefined}
 				<InputsSpecEditor
 					key={k}
-					bind:componentInput={v}
+					bind:componentInput={inputSpecs[k]}
 					{id}
 					{userInputEnabled}
 					{shouldCapitalize}

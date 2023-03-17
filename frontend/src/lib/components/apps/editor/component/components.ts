@@ -1586,3 +1586,27 @@ Hello \${ctx.username}
 		}
 	}
 }
+
+export const configurationKeys: Record<AppComponent['type'], string[]> = Object.fromEntries(
+	Object.entries(components)
+		.map(([k, v]) => [
+			k,
+			[
+				...new Set(
+					Object.entries(v.data.configuration).flatMap(([k, v]) => {
+						if (!v.ctype) {
+							return [k]
+						} else if (v.ctype == 'oneOf') {
+							return [
+								k,
+								...Object.values(v.configuration ?? {}).flatMap((v) => Object.keys(v ?? {}))
+							]
+						} else if (v.ctype == 'group') {
+							return Object.keys(v.configuration ?? {})
+						}
+					})
+				)
+			]
+		])
+		.filter(([k, v]) => v != undefined)
+)
