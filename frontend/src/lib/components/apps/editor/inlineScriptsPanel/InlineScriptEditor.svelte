@@ -152,27 +152,6 @@
 				<Badge color="red" baseClass="!text-2xs">Invalid</Badge>
 			{/if}
 
-			{#if inlineScript.language === 'frontend'}
-				<Button
-					variant="border"
-					size="xs"
-					color="light"
-					btnClasses="!px-2 !py-1"
-					on:click={() => {
-						$connectingInput = {
-							opened: true,
-							input: undefined,
-							hoveredComponent: undefined
-						}
-					}}
-				>
-					<div class="flex flex-row gap-1 items-center">
-						Connect
-						<ArrowRight size={14} />
-					</div>
-				</Button>
-			{/if}
-
 			{#if id.startsWith('unused-') || id.startsWith('bg_')}
 				<Popover notClickable placement="bottom">
 					<Button

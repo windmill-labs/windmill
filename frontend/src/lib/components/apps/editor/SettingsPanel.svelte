@@ -31,12 +31,14 @@
 			</PanelSection>
 
 			<div class="p-2">
-				<BackgroundScriptTriggerList
-					fields={script.fields}
-					autoRefresh={script.autoRefresh}
-					refreshOn={script.inlineScript?.refreshOn}
-					id={`bg_${index}`}
-				/>
+				{#if script.inlineScript}
+					<BackgroundScriptTriggerList
+						fields={script.fields}
+						autoRefresh={script.autoRefresh}
+						id={`bg_${index}`}
+						bind:inlineScript={script.inlineScript}
+					/>
+				{/if}
 			</div>
 			{#if Object.keys(script.fields).length > 0}
 				<PanelSection title={`Inputs`}>

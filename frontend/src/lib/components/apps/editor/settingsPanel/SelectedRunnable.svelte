@@ -67,7 +67,9 @@
 		</Button>
 	</div>
 </div>
-<ComponentTriggerList />
+{#if appInput.runnable?.type === 'runnableByName' && appInput.runnable.inlineScript}
+	<ComponentTriggerList fields={appInput.fields} />
+{/if}
 {#if appInput.runnable?.type === 'runnableByName' && !appInput.runnable.inlineScript}
 	<span class="text-xs text-gray-500">
 		Please configure the language in the inline script panel
