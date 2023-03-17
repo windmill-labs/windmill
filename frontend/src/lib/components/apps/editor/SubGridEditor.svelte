@@ -10,7 +10,7 @@
 	import Grid from '../svelte-grid/Grid.svelte'
 	import GridViewer from './GridViewer.svelte'
 
-	export let containerHeight: number
+	export let containerHeight: number | undefined = undefined
 	export let containerWidth: number | undefined = undefined
 	let classes = ''
 	export { classes as class }
@@ -79,12 +79,13 @@
 			'overflow-auto',
 			noYPadding ? '' : 'py-2',
 			classes ?? '',
-			noPadding ? 'px-0' : 'px-2'
+			noPadding ? 'px-0' : 'px-2',
+			containerHeight ? `h-[${containerHeight}px}]` : 'h-full'
 		)}
 		on:pointerdown|stopPropagation={onpointerdown}
 		on:pointerleave={onpointerup}
 		on:pointerup={onpointerup}
-		style="height: {containerHeight}px; {style ?? ''}"
+		style={style ?? ''}
 	>
 		{#if $mode !== 'preview'}
 			<div class={highlight ? 'border-gray-400  border border-dashed min-h-full' : ''}>
