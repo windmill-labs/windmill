@@ -3,7 +3,7 @@
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
-	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 	import type RunnableComponent from '../helpers/RunnableComponent.svelte'
@@ -15,7 +15,7 @@
 
 	export let id: string
 	export let componentInput: AppInput | undefined
-	export let configuration: Record<string, AppInput>
+	export let configuration: RichConfigurations
 	export let recomputeIds: string[] | undefined = undefined
 	export let extraQueryParams: Record<string, any> = {}
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined

@@ -2,14 +2,18 @@
 	import { getContext } from 'svelte'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppInput } from '../../inputType'
-	import type { AppEditorContext, AppViewerContext, ComponentCustomCSS } from '../../types'
+	import type {
+		AppEditorContext,
+		AppViewerContext,
+		ComponentCustomCSS,
+		RichConfigurations
+	} from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import InputValue from '../helpers/InputValue.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { deepEqual } from 'fast-equals'
 
 	export let id: string
-	export let configuration: Record<string, AppInput>
 	export let componentContainerHeight: number
 	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
 	export let horizontal: boolean = false

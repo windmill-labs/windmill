@@ -5,7 +5,7 @@
 
 	import { getContext, onMount } from 'svelte'
 	import type { Output } from '../../../rx'
-	import type { AppViewerContext } from '../../../types'
+	import type { AppViewerContext, RichConfiguration, RichConfigurations } from '../../../types'
 	import InputValue from '../../helpers/InputValue.svelte'
 	import type { AppInput } from '../../../inputType'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
@@ -16,7 +16,7 @@
 
 	export let id: string
 	export let componentInput: AppInput | undefined
-	export let configuration: Record<string, AppInput>
+	export let configuration: RichConfigurations
 	export let initializing: boolean | undefined = undefined
 	export let render: boolean
 

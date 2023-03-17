@@ -353,7 +353,6 @@
 			/>
 		{:else if component.type === 'containercomponent'}
 			<AppContainer
-				configuration={component.configuration}
 				id={component.id}
 				customCss={component.customCss}
 				{componentContainerHeight}
@@ -361,7 +360,6 @@
 			/>
 		{:else if component.type === 'verticalsplitpanescomponent'}
 			<AppSplitpanes
-				configuration={component.configuration}
 				id={component.id}
 				customCss={component.customCss}
 				panes={component.panes}
@@ -370,7 +368,6 @@
 			/>
 		{:else if component.type === 'horizontalsplitpanescomponent'}
 			<AppSplitpanes
-				configuration={component.configuration}
 				id={component.id}
 				customCss={component.customCss}
 				panes={component.panes}

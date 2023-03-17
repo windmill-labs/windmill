@@ -38,21 +38,20 @@ export type ComponentCssProperty = {
 
 export type ComponentCustomCSS<T extends string = string> = Record<T, ComponentCssProperty>
 
+export type Configuration = GeneralAppInput &
+	(StaticAppInput | ConnectedAppInput | UserAppInput | RowAppInput | EvalAppInput | UploadAppInput)
+
+export type RichConfiguration =
+	| (Configuration & { ctype?: undefined })
+	| { ctype: 'oneOf'; selected: string; configuration: Record<string, Configuration> }
+	| { ctype: 'group'; title: string; configuration: Record<string, Configuration> }
+
+export type RichConfigurations = Record<string, RichConfiguration>
+
 export interface BaseAppComponent extends Partial<Aligned> {
 	id: ComponentID
 	componentInput: AppInput | undefined
-	configuration: Record<
-		string,
-		GeneralAppInput &
-			(
-				| StaticAppInput
-				| ConnectedAppInput
-				| UserAppInput
-				| RowAppInput
-				| EvalAppInput
-				| UploadAppInput
-			)
-	>
+	configuration: RichConfigurations
 	customCss?: ComponentCustomCSS
 	/**
 	 * If `true` then the wrapper will allow items to flow outside of it's borders.

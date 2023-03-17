@@ -32,7 +32,6 @@
 	export let rebuildOnChange: any = undefined
 
 	export let selectedId: Writable<string | undefined> = writable<string | undefined>(undefined)
-	export let initialZoom: number | undefined = 1.0
 
 	export let insertable = false
 	export let moving: string | undefined = undefined
@@ -650,7 +649,6 @@
 		<Svelvet
 			highlightEdges={false}
 			locked
-			{initialZoom}
 			{nodes}
 			{width}
 			{edges}

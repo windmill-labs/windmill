@@ -6,7 +6,6 @@
 	import { concatCustomCss } from '../../utils'
 
 	export let id: string
-	export let configuration: Record<string, AppInput>
 	export let componentContainerHeight: number
 	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
 	export let render: boolean
