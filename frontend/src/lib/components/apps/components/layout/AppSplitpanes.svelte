@@ -79,9 +79,7 @@
 						class={css?.container.class}
 						style={css?.container.style}
 						bind:subGrid={$app.subgrids[`${id}-${index}`]}
-						containerHeight={horizontal
-							? (componentContainerHeight * paneSize) / 100 - 1
-							: componentContainerHeight - 8}
+						containerHeight={horizontal ? undefined : componentContainerHeight - 8}
 						on:focus={() => {
 							$selectedComponent = id
 							$focusedGrid = {
