@@ -11,8 +11,8 @@
 	import { loadIcon } from '../icon'
 	import { twMerge } from 'tailwind-merge'
 	import { goto } from '$app/navigation'
-	import { initOutput } from '../../editor/appUtils'
-	import { configurationKeys } from '../../editor/component'
+	import { initConfig, initOutput } from '../../editor/appUtils'
+	import { components, configurationKeys } from '../../editor/component'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -38,32 +38,10 @@
 
 	let runnableComponent: RunnableComponent
 
-	// let labelValue: string
-	// let color: ButtonType.Color
-	// let size: ButtonType.Size
-	// let disabled: boolean | undefined = undefined
-	// let fillContainer: boolean | undefined = undefined
-	// let gotoUrl: string | undefined = undefined
-	// let gotoNewTab: boolean | undefined = undefined
-
 	let isLoading: boolean = false
 	let ownClick: boolean = false
 
-	// let beforeIcon: undefined | string = undefined
-	// let afterIcon: undefined | string = undefined
-
-	let resolvedConfig = {} as {
-		beforeIcon?: string
-		afterIcon?: string
-		label?: string
-		color?: ButtonType.Color
-		size?: ButtonType.Size
-		disabled?: boolean
-		fillContainer?: boolean
-		gotoUrl?: string
-		gotoNewTab?: boolean
-		triggerOnAppLoad?: boolean
-	}
+	let resolvedConfig = initConfig(components['buttoncomponent'].initialData.configuration)
 
 	$: initializing = resolvedConfig?.label == undefined
 
@@ -123,11 +101,11 @@
 		ownClick = true
 
 		if (!runnableComponent) {
-			if (resolvedConfig.gotoUrl) {
+			if (resolvedConfig.goto) {
 				if (resolvedConfig.gotoNewTab) {
-					window.open(resolvedConfig.gotoUrl, '_blank')
+					window.open(resolvedConfig.goto, '_blank')
 				} else {
-					goto(resolvedConfig.gotoUrl)
+					goto(resolvedConfig.goto)
 				}
 			}
 		} else {
@@ -147,7 +125,7 @@
 	{id}
 	{extraQueryParams}
 	autoRefresh={false}
-	goto={resolvedConfig.gotoUrl}
+	goto={resolvedConfig.goto}
 	gotoNewTab={resolvedConfig.gotoNewTab}
 	{render}
 >

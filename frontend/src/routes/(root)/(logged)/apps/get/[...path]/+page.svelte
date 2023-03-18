@@ -54,7 +54,7 @@
 				noBackend={false}
 			/>
 			{#if can_write}
-				<div class="absolute bottom-4 z-20 right-4">
+				<div class="absolute bottom-4 z-50 right-4">
 					<Button
 						size="sm"
 						startIcon={{ icon: faPen }}
