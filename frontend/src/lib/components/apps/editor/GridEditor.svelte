@@ -11,7 +11,7 @@
 	import Component from './component/Component.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { push } from '$lib/history'
-	import { expandGriditem, findGridItem } from './appUtils'
+	import { expandGriditem} from './appUtils'
 	import Grid from '../svelte-grid/Grid.svelte'
 
 	export let policy: Policy
@@ -180,9 +180,8 @@
 						locked={isFixed(dataItem)}
 						on:delete={() => removeGridElement(dataItem.data)}
 						on:lock={() => {
-							const gridItem = findGridItem($app, dataItem.data.id)
-							if (gridItem) {
-								toggleFixed(gridItem)
+							if (dataItem.data) {
+								toggleFixed(dataItem)
 							}
 							$app = $app
 						}}
@@ -190,7 +189,6 @@
 							push(history, $app)
 							$selectedComponent = dataItem.data.id
 							expandGriditem($app.grid, dataItem, $breakpoint)
-							$app = $app
 						}}
 					/>
 				</div>

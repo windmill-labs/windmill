@@ -26,7 +26,8 @@
 		grid: [],
 		fullscreen: false,
 		unusedInlineScripts: [],
-		hiddenInlineScripts: []
+		hiddenInlineScripts: [],
+		css: {}
 	}
 
 	if (nodraft) {

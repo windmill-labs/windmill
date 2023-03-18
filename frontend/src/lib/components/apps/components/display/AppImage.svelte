@@ -10,7 +10,7 @@
 
 	export let id: string
 	export let configuration: RichConfigurations
-	export let customCss: ComponentCustomCSS<'image'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'imagecomponent'> | undefined = undefined
 	export let render: boolean
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')

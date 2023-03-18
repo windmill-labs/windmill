@@ -13,7 +13,7 @@
 	export let id: string
 	export let configuration: RichConfigurations
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let customCss: ComponentCustomCSS<'input'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'currencycomponent'> | undefined = undefined
 	export let render: boolean
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')

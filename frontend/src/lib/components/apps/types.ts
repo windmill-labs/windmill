@@ -3,12 +3,13 @@ import type { Preview } from '$lib/gen'
 import type { History } from '$lib/history'
 
 import type { Writable } from 'svelte/store'
-import type { AppComponent } from './editor/component/components'
+import type { AppComponent, components } from './editor/component/components'
 import type {
 	AppInput,
 	ConnectedAppInput,
 	ConnectedInput,
 	EvalAppInput,
+	ResultAppInput,
 	RowAppInput,
 	StaticAppInput,
 	UploadAppInput,
@@ -27,7 +28,6 @@ export type Aligned = {
 
 export interface GeneralAppInput {
 	onlyStatic?: boolean
-	evaluatedValue?: boolean
 	tooltip?: string
 }
 
@@ -36,33 +36,42 @@ export type ComponentCssProperty = {
 	style?: string
 }
 
-export type ComponentCustomCSS<T extends string = string> = Record<T, ComponentCssProperty>
+export type ComponentCustomCSS<T extends keyof typeof components> = Partial<
+	(typeof components)[T]['customCss']
+>
 
-export type Configuration = GeneralAppInput &
-	(StaticAppInput | ConnectedAppInput | UserAppInput | RowAppInput | EvalAppInput | UploadAppInput)
+export type Configuration =
+	| StaticAppInput
+	| ConnectedAppInput
+	| UserAppInput
+	| RowAppInput
+	| EvalAppInput
+	| UploadAppInput
+	| ResultAppInput
 
-export type RichConfiguration =
-	| (Configuration & { ctype?: undefined })
+export type StaticConfiguration = GeneralAppInput & StaticAppInput
+export type RichConfigurationT<T> =
+	| (T & { ctype?: undefined })
 	| {
 			ctype: 'oneOf'
 			selected: string
-			configuration: Record<string, Record<string, Configuration>>
+			configuration: Record<string, Record<string, T>>
 	  }
-	| { ctype: 'group'; title: string; configuration: Record<string, Configuration> }
+	| { ctype: 'group'; title: string; configuration: Record<string, T> }
 
+export type RichConfiguration = RichConfigurationT<Configuration>
 export type RichConfigurations = Record<string, RichConfiguration>
+
+export type StaticRichConfigurations = Record<
+	string,
+	RichConfigurationT<GeneralAppInput & (StaticAppInput | EvalAppInput)>
+>
 
 export interface BaseAppComponent extends Partial<Aligned> {
 	id: ComponentID
 	componentInput: AppInput | undefined
 	configuration: RichConfigurations
-	customCss?: ComponentCustomCSS
-	/**
-	 * If `true` then the wrapper will allow items to flow outside of it's borders.
-	 *
-	 * *For example when the component has a popup like `Select`*
-	 */
-	softWrap?: boolean
+	customCss?: Record<string, ComponentCssProperty>
 	// Number of subgrids
 	numberOfSubgrids?: number
 }
@@ -102,7 +111,9 @@ export type App = {
 		fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
 		autoRefresh?: boolean
 	}>
-	css?: Record<'viewer' | 'grid' | AppComponent['type'], ComponentCustomCSS>
+	css?: Partial<
+		Record<'viewer' | 'grid' | AppComponent['type'], Record<string, ComponentCssProperty>>
+	>
 	subgrids?: Record<string, GridItem[]>
 }
 

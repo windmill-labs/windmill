@@ -7,6 +7,7 @@
 	import { getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
 	import type { AppViewerContext, BaseAppComponent } from '../../types'
+	import { appComponentFromType } from '../appUtils'
 	import type { ButtonComponent } from '../component'
 	import PanelSection from './common/PanelSection.svelte'
 	import TableActionLabel from './TableActionLabel.svelte'
@@ -19,71 +20,10 @@
 	function addComponent() {
 		const actionId = getNextId(components.map((x) => x.id.split('_')[1]))
 
-		const newComponent: BaseAppComponent & ButtonComponent = {
-			id: `${id}_${actionId}`,
-			type: 'buttoncomponent',
-			configuration: {
-				label: {
-					type: 'static',
-					value: 'Action',
-					fieldType: 'text'
-				},
-				color: {
-					fieldType: 'select',
-					type: 'static',
-					value: 'dark',
-					optionValuesKey: 'buttonColorOptions'
-				},
-				size: {
-					fieldType: 'select',
-					type: 'static',
-					value: 'xs',
-					optionValuesKey: 'buttonSizeOptions'
-				},
-				disabled: {
-					fieldType: 'boolean',
-					type: 'eval',
-					expr: 'false',
-					tooltip: "Disabled based on a predicate.  Use `row` to access the current row's data"
-				},
-				goto: {
-					tooltip: 'Go to an url on success if not empty',
-					fieldType: 'text',
-					type: 'static',
-					value: ''
-				},
-				gotoNewTab: {
-					tooltip: 'Go to create a new tab',
-					fieldType: 'boolean',
-					type: 'static',
-					value: true
-				},
-				beforeIcon: {
-					type: 'static',
-					value: undefined,
-					fieldType: 'icon-select',
-					onlyStatic: true
-				},
-				afterIcon: {
-					type: 'static',
-					value: undefined,
-					fieldType: 'icon-select',
-					onlyStatic: true
-				}
-			},
-			componentInput: {
-				type: 'runnable',
-				fieldType: 'any',
-				fields: {},
-				runnable: undefined,
-				value: undefined
-			},
-			recomputeIds: undefined,
-			customCss: {
-				button: { style: '', class: '' }
-			} as const
+		const newComponent = {
+			...appComponentFromType('buttoncomponent')(`${id}_${actionId}`),
+			recomputeIds: []
 		}
-
 		components = [...components, newComponent]
 	}
 

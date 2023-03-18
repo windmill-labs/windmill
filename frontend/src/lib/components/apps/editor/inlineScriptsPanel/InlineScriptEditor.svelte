@@ -206,6 +206,8 @@
 		</div>
 	</div>
 
+	<!-- {inlineScript.content} -->
+
 	<div class="border h-full">
 		{#if inlineScript.language != 'frontend'}
 			<Editor
@@ -215,6 +217,7 @@
 				bind:code={inlineScript.content}
 				fixedOverflowWidgets={true}
 				cmdEnterAction={async () => {
+					inlineScript.content = editor?.getCode() ?? ''
 					runLoading = true
 					await $runnableComponents[id]?.()
 					runLoading = false

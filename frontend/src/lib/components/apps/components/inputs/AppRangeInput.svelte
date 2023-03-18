@@ -13,8 +13,7 @@
 	export let id: string
 	export let configuration: RichConfigurations
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let customCss: ComponentCustomCSS<'handles' | 'bar' | 'limits' | 'values'> | undefined =
-		undefined
+	export let customCss: ComponentCustomCSS<'rangecomponent'> | undefined = undefined
 	export let render: boolean
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')

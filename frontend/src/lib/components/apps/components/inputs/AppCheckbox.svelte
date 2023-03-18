@@ -4,12 +4,7 @@
 	import { initOutput } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
-	import type {
-		AppViewerContext,
-		ComponentCustomCSS,
-		RichConfiguration,
-		RichConfigurations
-	} from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
@@ -18,7 +13,7 @@
 	export let configuration: RichConfigurations
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let customCss: ComponentCustomCSS<'text'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'checkboxcomponent'> | undefined = undefined
 	export let render: boolean
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')

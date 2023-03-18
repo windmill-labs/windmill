@@ -13,7 +13,7 @@
 	export let configuration: RichConfigurations
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let customCss: ComponentCustomCSS<'input'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'selectcomponent'> | undefined = undefined
 	export let render: boolean
 
 	const { app, worldStore, connectingInput, selectedComponent } =

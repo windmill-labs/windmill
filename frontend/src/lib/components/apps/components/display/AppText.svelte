@@ -12,7 +12,6 @@
 		AppEditorContext,
 		AppViewerContext,
 		ComponentCustomCSS,
-		RichConfiguration,
 		RichConfigurations
 	} from '../../types'
 	import { getContext } from 'svelte'
@@ -25,7 +24,7 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let configuration: RichConfigurations
 	export let initializing: boolean | undefined = undefined
-	export let customCss: ComponentCustomCSS<'text'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'textcomponent'> | undefined = undefined
 	export let render: boolean
 
 	const { app, worldStore, mode } = getContext<AppViewerContext>('AppViewerContext')

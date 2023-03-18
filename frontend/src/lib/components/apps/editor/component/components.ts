@@ -34,10 +34,18 @@ import {
 	FileText,
 	AtSignIcon
 } from 'lucide-svelte'
-import type { BaseAppComponent, GridItem } from '../../types'
+import type {
+	Aligned,
+	BaseAppComponent,
+	ComponentCustomCSS,
+	GridItem,
+	RichConfigurations,
+	StaticRichConfigurations
+} from '../../types'
 import type { Size } from '../../svelte-grid/types'
+import type { ResultAppInput, StaticAppInput } from '../../inputType'
 
-type BaseComponent<T extends string> = {
+export type BaseComponent<T extends string> = {
 	type: T
 }
 
@@ -97,63 +105,52 @@ export type HorizontalSplitPanesComponent = BaseComponent<'horizontalsplitpanesc
 }
 export type PdfComponent = BaseComponent<'pdfcomponent'>
 
-export type AppComponent = BaseAppComponent &
-	(
-		| DisplayComponent
-		| TextInputComponent
-		| PasswordInputComponent
-		| EmailInputComponent
-		| DateInputComponent
-		| NumberInputComponent
-		| CurrencyComponent
-		| SliderComponent
-		| RangeComponent
-		| BarChartComponent
-		| TimeseriesComponent
-		| HtmlComponent
-		| TableComponent
-		| TextComponent
-		| ButtonComponent
-		| PieChartComponent
-		| ScatterChartComponent
-		| SelectComponent
-		| ResourceSelectComponent
-		| MultiSelectComponent
-		| CheckboxComponent
-		| FormComponent
-		| FormButtonComponent
-		| VegaLiteComponent
-		| PlotlyComponent
-		| TabsComponent
-		| ContainerComponent
-		| IconComponent
-		| HorizontalDividerComponent
-		| VerticalDividerComponent
-		| FileInputComponent
-		| ImageComponent
-		| AggridComponent
-		| DrawerComponent
-		| MapComponent
-		| VerticalSplitPanesComponent
-		| HorizontalSplitPanesComponent
-		| PdfComponent
-	)
+export type TypedComponent =
+	| DisplayComponent
+	| TextInputComponent
+	| PasswordInputComponent
+	| EmailInputComponent
+	| DateInputComponent
+	| NumberInputComponent
+	| CurrencyComponent
+	| SliderComponent
+	| RangeComponent
+	| BarChartComponent
+	| TimeseriesComponent
+	| HtmlComponent
+	| TableComponent
+	| TextComponent
+	| ButtonComponent
+	| PieChartComponent
+	| ScatterChartComponent
+	| SelectComponent
+	| ResourceSelectComponent
+	| MultiSelectComponent
+	| CheckboxComponent
+	| FormComponent
+	| FormButtonComponent
+	| VegaLiteComponent
+	| PlotlyComponent
+	| TabsComponent
+	| ContainerComponent
+	| IconComponent
+	| HorizontalDividerComponent
+	| VerticalDividerComponent
+	| FileInputComponent
+	| ImageComponent
+	| AggridComponent
+	| DrawerComponent
+	| MapComponent
+	| VerticalSplitPanesComponent
+	| HorizontalSplitPanesComponent
+	| PdfComponent
+
+export type AppComponent = BaseAppComponent & TypedComponent
 
 export type AppComponentDimensions = `${IntRange<
 	1,
 	typeof NARROW_GRID_COLUMNS
 >}:${number}-${IntRange<1, typeof WIDE_GRID_COLUMNS>}:${number}`
-
-export type AppComponentConfig = {
-	name: string
-	icon: any
-	/**
-	 * Dimensions key formula:
-	 * [**mobile width**]:[**mobile height**]-[**desktop width**]:[**desktop height**]
-	 */
-	dims: AppComponentDimensions
-	data: AppComponent
-}
 
 export function getRecommendedDimensionsByComponent(
 	componentType: AppComponent['type'],
@@ -163,53 +160,79 @@ export function getRecommendedDimensionsByComponent(
 	return { w: +size[0], h: +size[1] }
 }
 
-export const components: Record<AppComponent['type'], AppComponentConfig> = {
+export type AppComponentConfig<T extends TypedComponent['type']> = {
+	name: string
+	icon: any
+	/**
+	 * Dimensions key formula:
+	 * [**mobile width**]:[**mobile height**]-[**desktop width**]:[**desktop height**]
+	 */
+	dims: AppComponentDimensions
+	/**
+	 * If `true` then the wrapper will allow items to flow outside of it's borders.
+	 *
+	 * *For example when the component has a popup like `Select`*
+	 */
+	softWrap?: boolean
+	initialData: InitialAppComponent
+	customCss: ComponentCustomCSS<T>
+}
+
+export interface InitialAppComponent extends Partial<Aligned> {
+	componentInput?: StaticAppInput | ResultAppInput | undefined
+	configuration: StaticRichConfigurations
+	// Number of subgrids
+	numberOfSubgrids?: number
+	recomputeIds?: boolean
+	actionButtons?: boolean
+	tabs?: string[]
+	panes?: number[]
+}
+
+export const components = {
 	displaycomponent: {
 		name: 'Rich Result',
 		icon: Monitor,
-		dims: '2:8-6:8',
-		data: {
-			id: '',
-			type: 'displaycomponent',
+		dims: '2:8-6:8' as AppComponentDimensions,
+		customCss: {
+			header: { class: '', style: '' },
+			container: { class: '', style: '' }
+		},
+		initialData: {
 			componentInput: {
 				type: 'static',
 				fieldType: 'object',
 				value: { foo: 42 }
 			},
-			configuration: {},
-			customCss: {
-				header: { class: '', style: '' },
-				container: { class: '', style: '' }
-			} as const
+			configuration: {}
 		}
 	},
 	containercomponent: {
 		name: 'Container',
 		icon: BoxSelect,
-		dims: '2:8-6:8',
-		data: {
-			softWrap: true,
-			id: '',
-			type: 'containercomponent',
+		dims: '2:8-6:8' as AppComponentDimensions,
+		softWrap: true,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
 			configuration: {},
-			customCss: {
-				container: { class: '', style: '' }
-			} as const,
 			componentInput: undefined,
-
 			numberOfSubgrids: 1
 		}
 	},
 	textcomponent: {
 		name: 'Text',
 		icon: Type,
-		dims: '1:1-3:1',
-		data: {
-			softWrap: true,
+		dims: '1:1-3:1' as AppComponentDimensions,
+		softWrap: true,
+		customCss: {
+			text: { class: '', style: '' }
+		},
+		initialData: {
 			horizontalAlignment: 'left',
 			verticalAlignment: 'top',
-			id: '',
-			type: 'textcomponent',
+
 			componentInput: {
 				type: 'static',
 				fieldType: 'template',
@@ -236,21 +259,19 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 					onlyStatic: true,
 					tooltip: 'Tooltip text if not empty'
 				}
-			},
-			customCss: {
-				text: { class: '', style: '' }
-			} as const
+			}
 		}
 	},
 	buttoncomponent: {
 		name: 'Button',
 		icon: Inspect,
-		dims: '1:1-2:1',
-		data: {
+		dims: '1:1-2:1' as AppComponentDimensions,
+		softWrap: true,
+		customCss: {
+			button: { style: '', class: '' }
+		},
+		initialData: {
 			...defaultAlignement,
-			softWrap: true,
-			id: '',
-			type: 'buttoncomponent',
 			componentInput: {
 				type: 'runnable',
 				fieldType: 'any',
@@ -319,20 +340,19 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 					fieldType: 'boolean',
 					onlyStatic: true
 				}
-			},
-			customCss: {
-				button: { style: '', class: '' }
-			} as const
+			}
 		}
 	},
 	formcomponent: {
 		name: 'Form',
 		icon: FormInput,
-		dims: '3:5-6:5',
-		data: {
+		dims: '3:5-6:5' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' },
+			button: { class: '', style: '' }
+		},
+		initialData: {
 			horizontalAlignment: 'center',
-			id: '',
-			type: 'formcomponent',
 			componentInput: {
 				type: 'runnable',
 				fieldType: 'any',
@@ -366,22 +386,20 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 					type: 'static',
 					value: ''
 				}
-			},
-			customCss: {
-				container: { class: '', style: '' },
-				button: { class: '', style: '' }
-			} as const
+			}
 		}
 	},
 	formbuttoncomponent: {
 		name: 'Modal Form',
 		icon: PlusSquare,
-		dims: '2:8-6:8',
-		data: {
+		dims: '2:8-6:8' as AppComponentDimensions,
+		customCss: {
+			button: { class: '', style: '' },
+			popup: { class: '', style: '' }
+		},
+		initialData: {
 			horizontalAlignment: 'center',
 			verticalAlignment: 'center',
-			id: '',
-			type: 'formbuttoncomponent',
 			componentInput: {
 				type: 'runnable',
 				fieldType: 'any',
@@ -409,20 +427,17 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 					onlyStatic: true,
 					optionValuesKey: 'buttonSizeOptions'
 				}
-			},
-			customCss: {
-				button: { class: '', style: '' },
-				popup: { class: '', style: '' }
-			} as const
+			}
 		}
 	},
 	piechartcomponent: {
 		name: 'Pie Chart',
 		icon: PieChart,
-		dims: '2:8-6:8',
-		data: {
-			id: '',
-			type: 'piechartcomponent',
+		dims: '2:8-6:8' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
 			configuration: {
 				theme: {
 					type: 'static',
@@ -442,19 +457,17 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 				type: 'static',
 				fieldType: 'object',
 				value: { data: [25, 50, 25], labels: ['Pie', 'Charts', '<3'] }
-			},
-			customCss: {
-				container: { class: '', style: '' }
-			} as const
+			}
 		}
 	},
 	barchartcomponent: {
 		name: 'Bar/Line Chart',
 		icon: BarChart4,
-		dims: '2:8-6:8',
-		data: {
-			id: '',
-			type: 'barchartcomponent',
+		dims: '2:8-6:8' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
 			configuration: {
 				theme: {
 					type: 'static',
@@ -474,20 +487,18 @@ export const components: Record<AppComponent['type'], AppComponentConfig> = {
 				type: 'static',
 				fieldType: 'object',
 				value: { data: [25, 50, 25], labels: ['Bar', 'Charts', '<3'] }
-			},
-			customCss: {
-				container: { class: '', style: '' }
-			} as const
+			}
 		}
 	},
 	htmlcomponent: {
 		name: 'HTML',
 		icon: Code2,
-		dims: '1:2-1:2',
-		data: {
-			softWrap: false,
-			id: '',
-			type: 'htmlcomponent',
+		dims: '1:2-1:2' as AppComponentDimensions,
+		softWrap: false,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
 			componentInput: {
 				type: 'static',
 				fieldType: 'template',
@@ -498,20 +509,16 @@ src="https://images.unsplash.com/photo-1554629947-334ff61d85dc?ixid=MnwxMjA3fDB8
 Hello \${ctx.username}
 </h1>`
 			},
-			configuration: {},
-			customCss: {
-				container: { class: '', style: '' }
-			} as const
+			configuration: {}
 		}
 	},
 	vegalitecomponent: {
 		name: 'Vega Lite',
 		icon: PieChart,
-		dims: '2:8-6:8',
-		data: {
-			softWrap: false,
-			id: '',
-			type: 'vegalitecomponent',
+		dims: '2:8-6:8' as AppComponentDimensions,
+		softWrap: false,
+		customCss: {},
+		initialData: {
 			componentInput: {
 				type: 'static',
 				fieldType: 'object',
@@ -539,18 +546,16 @@ Hello \${ctx.username}
 					value: false,
 					tooltip: 'Use the canvas renderer instead of the svg one for more interactive plots'
 				}
-			},
-			customCss: {}
+			}
 		}
 	},
 	plotlycomponent: {
 		name: 'Plotly',
 		icon: PieChart,
-		dims: '2:8-6:8',
-		data: {
-			softWrap: false,
-			id: '',
-			type: 'plotlycomponent',
+		dims: '2:8-6:8' as AppComponentDimensions,
+		softWrap: false,
+		customCss: {},
+		initialData: {
 			componentInput: {
 				type: 'static',
 				fieldType: 'object',
@@ -566,17 +571,17 @@ Hello \${ctx.username}
 					}
 				}
 			},
-			configuration: {},
-			customCss: {}
+			configuration: {}
 		}
 	},
 	timeseriescomponent: {
 		name: 'Timeseries',
 		icon: GripHorizontal,
-		dims: '2:8-6:8',
-		data: {
-			id: '',
-			type: 'timeseriescomponent',
+		dims: '2:8-6:8' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
 			configuration: {
 				logarithmicScale: {
 					type: 'static',
@@ -639,19 +644,17 @@ Hello \${ctx.username}
 						backgroundColor: 'orange'
 					}
 				]
-			},
-			customCss: {
-				container: { class: '', style: '' }
-			} as const
+			} as StaticAppInput
 		}
 	},
 	scatterchartcomponent: {
 		name: 'Scatter Chart',
 		icon: GripHorizontal,
-		dims: '2:8-6:8',
-		data: {
-			id: '',
-			type: 'scatterchartcomponent',
+		dims: '2:8-6:8' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
 			configuration: {
 				zoomable: {
 					type: 'static',
@@ -690,19 +693,20 @@ Hello \${ctx.username}
 						backgroundColor: 'orange'
 					}
 				]
-			},
-			customCss: {
-				container: { class: '', style: '' }
-			} as const
+			} as StaticAppInput
 		}
 	},
 	tablecomponent: {
 		name: 'Table',
 		icon: Table2,
-		dims: '3:10-6:10',
-		data: {
-			id: '',
-			type: 'tablecomponent',
+		dims: '3:10-6:10' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' },
+			tableHeader: { class: '', style: '' },
+			tableBody: { class: '', style: '' },
+			tableFooter: { class: '', style: '' }
+		},
+		initialData: {
 			configuration: {
 				search: {
 					fieldType: 'select',
@@ -728,31 +732,23 @@ Hello \${ctx.username}
 						age: 84
 					}
 				]
-			},
-			customCss: {
-				container: { class: '', style: '' },
-				tableHeader: { class: '', style: '' },
-				tableBody: { class: '', style: '' },
-				tableFooter: { class: '', style: '' }
-			} as const,
-
-			actionButtons: []
+			} as StaticAppInput,
+			actionButtons: true
 		}
 	},
 	aggridcomponent: {
 		name: 'AgGrid Table',
 		icon: Table2,
-		dims: '3:10-6:10',
-		data: {
-			id: '',
-			type: 'aggridcomponent',
+		dims: '3:10-6:10' as AppComponentDimensions,
+		customCss: {},
+		initialData: {
 			configuration: {
 				columnDefs: {
 					type: 'static',
 					fieldType: 'array',
 					subFieldType: 'object',
 					value: [{ field: 'id' }, { field: 'name', editable: true }, { field: 'age' }]
-				},
+				} as StaticAppInput,
 				allEditable: {
 					type: 'static',
 					fieldType: 'boolean',
@@ -790,19 +786,19 @@ Hello \${ctx.username}
 						age: 84
 					}
 				]
-			},
-			customCss: {}
+			} as StaticAppInput
 		}
 	},
 	checkboxcomponent: {
 		name: 'Toggle',
 		icon: ToggleLeft,
-		dims: '1:1-2:1',
-		data: {
+		dims: '1:1-2:1' as AppComponentDimensions,
+		softWrap: true,
+		customCss: {
+			text: { class: '', style: '' }
+		},
+		initialData: {
 			...defaultAlignement,
-			softWrap: true,
-			id: '',
-			type: 'checkboxcomponent',
 			componentInput: undefined,
 			configuration: {
 				label: {
@@ -815,21 +811,19 @@ Hello \${ctx.username}
 					value: undefined,
 					fieldType: 'boolean'
 				}
-			},
-			customCss: {
-				text: { class: '', style: '' }
-			} as const
+			}
 		}
 	},
 	textinputcomponent: {
 		name: 'Text Input',
 		icon: TextCursorInput,
-		dims: '2:1-2:1',
-		data: {
-			softWrap: true,
+		dims: '2:1-2:1' as AppComponentDimensions,
+		softWrap: true,
+		customCss: {
+			input: { class: '', style: '' }
+		},
+		initialData: {
 			verticalAlignment: 'center',
-			id: '',
-			type: 'textinputcomponent',
 			componentInput: undefined,
 			configuration: {
 				placeholder: {
@@ -843,20 +837,19 @@ Hello \${ctx.username}
 					value: undefined,
 					fieldType: 'text'
 				}
-			},
-			customCss: {
-				input: { class: '', style: '' }
-			} as const
+			}
 		}
 	},
 	selectcomponent: {
 		name: 'Select',
 		icon: List,
-		dims: '2:1-3:1',
-		data: {
+		dims: '2:1-3:1' as AppComponentDimensions,
+		softWrap: true,
+		customCss: {
+			input: { style: '' }
+		},
+		initialData: {
 			verticalAlignment: 'center',
-			id: '',
-			type: 'selectcomponent',
 			componentInput: undefined,
 			configuration: {
 				items: {
@@ -867,7 +860,7 @@ Hello \${ctx.username}
 						{ value: 'foo', label: 'Foo' },
 						{ value: 'bar', label: 'Bar' }
 					]
-				},
+				} as StaticAppInput,
 				create: {
 					type: 'static',
 					fieldType: 'boolean',
@@ -886,22 +879,19 @@ Hello \${ctx.username}
 					value: undefined,
 					fieldType: 'object'
 				}
-			},
-			customCss: {
-				input: { style: '' }
-			} as const,
-
-			softWrap: true
+			}
 		}
 	},
 	multiselectcomponent: {
 		name: 'Multi Select',
 		icon: List,
-		dims: '2:1-3:1',
-		data: {
+		dims: '2:1-3:1' as AppComponentDimensions,
+		softWrap: true,
+		customCss: {
+			input: { style: '' }
+		},
+		initialData: {
 			verticalAlignment: 'center',
-			id: '',
-			type: 'multiselectcomponent',
 			componentInput: undefined,
 			configuration: {
 				items: {
@@ -909,29 +899,26 @@ Hello \${ctx.username}
 					fieldType: 'array',
 					subFieldType: 'text',
 					value: ['Foo', 'Bar']
-				},
+				} as StaticAppInput,
 				placeholder: {
 					type: 'static',
 					fieldType: 'text',
 					value: 'Select items',
 					onlyStatic: true
 				}
-			},
-			customCss: {
-				input: { style: '' }
-			} as const,
-
-			softWrap: true
+			}
 		}
 	},
 	resourceselectcomponent: {
 		name: 'Resource Select',
 		icon: List,
-		dims: '2:1-3:1',
-		data: {
+		dims: '2:1-3:1' as AppComponentDimensions,
+		softWrap: true,
+		customCss: {
+			input: { style: '' }
+		},
+		initialData: {
 			verticalAlignment: 'center',
-			id: '',
-			type: 'resourceselectcomponent',
 			componentInput: undefined,
 			configuration: {
 				items: {
@@ -939,30 +926,26 @@ Hello \${ctx.username}
 					fieldType: 'array',
 					subFieldType: 'labeledresource',
 					value: []
-				},
+				} as StaticAppInput,
 				placeholder: {
 					type: 'static',
 					fieldType: 'text',
 					value: 'Select an item',
 					onlyStatic: true
 				}
-			},
-			customCss: {
-				input: { style: '' }
-			} as const,
-
-			softWrap: true
+			}
 		}
 	},
 	numberinputcomponent: {
 		name: 'Number',
 		icon: Binary,
-		dims: '2:1-3:1',
-		data: {
-			softWrap: true,
+		dims: '2:1-3:1' as AppComponentDimensions,
+		softWrap: true,
+		customCss: {
+			input: { class: '', style: '' }
+		},
+		initialData: {
 			verticalAlignment: 'center',
-			id: '',
-			type: 'numberinputcomponent',
 			componentInput: undefined,
 			configuration: {
 				placeholder: {
@@ -992,21 +975,19 @@ Hello \${ctx.username}
 					fieldType: 'number',
 					tooltip: 'Spread between each number suggestion'
 				}
-			},
-			customCss: {
-				input: { class: '', style: '' }
-			} as const
+			}
 		}
 	},
 	currencycomponent: {
 		name: 'Currency',
 		icon: DollarSign,
-		dims: '2:1-3:1',
-		data: {
-			softWrap: true,
+		dims: '2:1-3:1' as AppComponentDimensions,
+		softWrap: true,
+		customCss: {
+			input: { class: '', style: '' }
+		},
+		initialData: {
 			verticalAlignment: 'center',
-			id: '',
-			type: 'currencycomponent',
 			componentInput: undefined,
 			configuration: {
 				defaultValue: {
@@ -1035,21 +1016,22 @@ Hello \${ctx.username}
 					optionValuesKey: 'localeOptions',
 					tooltip: 'Currency format'
 				}
-			},
-			customCss: {
-				input: { class: '', style: '' }
-			} as const
+			}
 		}
 	},
 	slidercomponent: {
 		name: 'Slider',
 		icon: SlidersHorizontal,
-		dims: '3:1-4:1',
-		data: {
-			softWrap: true,
+		dims: '3:1-4:1' as AppComponentDimensions,
+		softWrap: true,
+		customCss: {
+			bar: { style: '' },
+			handle: { style: '' },
+			limits: { class: '', style: '' },
+			value: { class: '', style: '' }
+		},
+		initialData: {
 			verticalAlignment: 'center',
-			id: '',
-			type: 'slidercomponent',
 			componentInput: undefined,
 			configuration: {
 				min: {
@@ -1074,24 +1056,22 @@ Hello \${ctx.username}
 					fieldType: 'number',
 					tooltip: 'Spread between each number suggestion'
 				}
-			},
-			customCss: {
-				bar: { style: '' },
-				handle: { style: '' },
-				limits: { class: '', style: '' },
-				value: { class: '', style: '' }
-			} as const
+			}
 		}
 	},
 	rangecomponent: {
 		name: 'Range',
 		icon: SlidersHorizontal,
-		dims: '3:2-4:2',
-		data: {
-			softWrap: true,
+		dims: '3:2-4:2' as AppComponentDimensions,
+		softWrap: true,
+		customCss: {
+			handles: { style: '' },
+			bar: { style: '' },
+			limits: { class: '', style: '' },
+			values: { class: '', style: '' }
+		},
+		initialData: {
 			verticalAlignment: 'center',
-			id: '',
-			type: 'rangecomponent',
 			componentInput: undefined,
 			configuration: {
 				min: {
@@ -1120,24 +1100,19 @@ Hello \${ctx.username}
 					fieldType: 'number',
 					tooltip: 'Spread between each number suggestion'
 				}
-			},
-			customCss: {
-				handles: { style: '' },
-				bar: { style: '' },
-				limits: { class: '', style: '' },
-				values: { class: '', style: '' }
-			} as const
+			}
 		}
 	},
 	passwordinputcomponent: {
 		name: 'Password',
 		icon: Lock,
-		dims: '2:1-3:1',
-		data: {
-			softWrap: true,
+		dims: '2:1-3:1' as AppComponentDimensions,
+		softWrap: true,
+		customCss: {
+			input: { class: '', style: '' }
+		},
+		initialData: {
 			verticalAlignment: 'center',
-			id: '',
-			type: 'passwordinputcomponent',
 			componentInput: undefined,
 			configuration: {
 				placeholder: {
@@ -1146,21 +1121,19 @@ Hello \${ctx.username}
 					fieldType: 'text',
 					onlyStatic: true
 				}
-			},
-			customCss: {
-				input: { class: '', style: '' }
-			} as const
+			}
 		}
 	},
 	emailinputcomponent: {
 		name: 'Email Input',
 		icon: AtSignIcon,
-		dims: '2:1-3:1',
-		data: {
-			softWrap: true,
+		dims: '2:1-3:1' as AppComponentDimensions,
+		softWrap: true,
+		customCss: {
+			input: { class: '', style: '' }
+		},
+		initialData: {
 			verticalAlignment: 'center',
-			id: '',
-			type: 'emailinputcomponent',
 			componentInput: undefined,
 			configuration: {
 				placeholder: {
@@ -1174,21 +1147,19 @@ Hello \${ctx.username}
 					value: undefined,
 					fieldType: 'text'
 				}
-			},
-			customCss: {
-				input: { class: '', style: '' }
-			} as const
+			}
 		}
 	},
 	dateinputcomponent: {
 		name: 'Date',
 		icon: Calendar,
-		dims: '2:1-3:1',
-		data: {
-			softWrap: true,
+		dims: '2:1-3:1' as AppComponentDimensions,
+		softWrap: true,
+		customCss: {
+			input: { class: '', style: '' }
+		},
+		initialData: {
 			verticalAlignment: 'center',
-			id: '',
-			type: 'dateinputcomponent',
 			componentInput: undefined,
 			configuration: {
 				minDate: {
@@ -1206,20 +1177,21 @@ Hello \${ctx.username}
 					value: undefined,
 					fieldType: 'date'
 				}
-			},
-			customCss: {
-				input: { class: '', style: '' }
-			} as const
+			}
 		}
 	},
 	tabscomponent: {
 		name: 'Tabs',
 		icon: ListOrdered,
-		dims: '2:8-6:8',
-		data: {
-			softWrap: true,
-			id: '',
-			type: 'tabscomponent',
+		dims: '2:8-6:8' as AppComponentDimensions,
+		softWrap: true,
+		customCss: {
+			tabRow: { class: '', style: '' },
+			allTabs: { class: '', style: '' },
+			selectedTab: { class: '', style: '' },
+			container: { class: '', style: '' }
+		},
+		initialData: {
 			configuration: {
 				tabsKind: {
 					fieldType: 'select',
@@ -1229,28 +1201,24 @@ Hello \${ctx.username}
 					value: 'tabs'
 				}
 			},
-			customCss: {
-				tabRow: { class: '', style: '' },
-				allTabs: { class: '', style: '' },
-				selectedTab: { class: '', style: '' },
-				container: { class: '', style: '' }
-			} as const,
 			componentInput: undefined,
 
 			numberOfSubgrids: 2,
-			tabs: ['First tab', 'Second tab']
+			tabs: ['First tab', 'Second tab'] as string[]
 		}
 	},
 	iconcomponent: {
 		name: 'Icon',
 		icon: Smile,
-		dims: '1:3-1:2',
-		data: {
-			softWrap: false,
+		dims: '1:3-1:2' as AppComponentDimensions,
+		softWrap: true,
+		customCss: {
+			container: { class: '', style: '' },
+			icon: { class: '', style: '' }
+		},
+		initialData: {
 			horizontalAlignment: 'center',
 			verticalAlignment: 'center',
-			id: '',
-			type: 'iconcomponent',
 			componentInput: undefined,
 			configuration: {
 				icon: {
@@ -1275,21 +1243,19 @@ Hello \${ctx.username}
 					fieldType: 'number',
 					onlyStatic: true
 				}
-			},
-			customCss: {
-				container: { class: '', style: '' },
-				icon: { class: '', style: '' }
-			} as const
+			}
 		}
 	},
 	horizontaldividercomponent: {
 		name: 'Divider X',
 		icon: SeparatorHorizontal,
-		dims: '3:1-12:1',
-		data: {
+		dims: '3:1-12:1' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' },
+			divider: { class: '', style: '' }
+		},
+		initialData: {
 			verticalAlignment: 'center',
-			id: '',
-			type: 'horizontaldividercomponent',
 			componentInput: undefined,
 			configuration: {
 				size: {
@@ -1304,21 +1270,19 @@ Hello \${ctx.username}
 					fieldType: 'color',
 					onlyStatic: true
 				}
-			},
-			customCss: {
-				container: { class: '', style: '' },
-				divider: { class: '', style: '' }
-			} as const
+			}
 		}
 	},
 	verticaldividercomponent: {
 		name: 'Divider Y',
 		icon: SeparatorVertical,
-		dims: '1:4-1:6',
-		data: {
+		dims: '1:4-1:6' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' },
+			divider: { class: '', style: '' }
+		},
+		initialData: {
 			horizontalAlignment: 'center',
-			id: '',
-			type: 'verticaldividercomponent',
 			componentInput: undefined,
 			configuration: {
 				size: {
@@ -1333,25 +1297,22 @@ Hello \${ctx.username}
 					fieldType: 'color',
 					onlyStatic: true
 				}
-			},
-			customCss: {
-				container: { class: '', style: '' },
-				divider: { class: '', style: '' }
-			} as const
+			}
 		}
 	},
 	fileinputcomponent: {
 		name: 'File Input',
 		icon: Paperclip,
-		dims: '3:4-6:4',
-		data: {
-			id: '',
-			type: 'fileinputcomponent',
+		dims: '3:4-6:4' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
 			componentInput: undefined,
 			configuration: {
 				acceptedFileTypes: {
 					type: 'static',
-					value: ['image/*', 'application/pdf'],
+					value: ['image/*', 'application/pdf'] as string[],
 					fieldType: 'array',
 					onlyStatic: true
 				},
@@ -1368,19 +1329,17 @@ Hello \${ctx.username}
 					fieldType: 'text',
 					onlyStatic: true
 				}
-			},
-			customCss: {
-				container: { class: '', style: '' }
-			} as const
+			}
 		}
 	},
 	imagecomponent: {
 		name: 'Image',
 		icon: Image,
-		dims: '3:4-5:4',
-		data: {
-			id: '',
-			type: 'imagecomponent',
+		dims: '3:4-5:4' as AppComponentDimensions,
+		customCss: {
+			image: { class: '', style: '' }
+		},
+		initialData: {
 			componentInput: undefined,
 			configuration: {
 				source: {
@@ -1406,20 +1365,18 @@ Hello \${ctx.username}
 					onlyStatic: true,
 					tooltip: "This text will appear if the image can't be loaded for any reason"
 				}
-			},
-			customCss: {
-				image: { class: '', style: '' }
-			} as const
+			}
 		}
 	},
 	drawercomponent: {
 		name: 'Drawer',
 		icon: SidebarClose,
-		dims: '1:1-2:1',
-		data: {
-			softWrap: true,
-			id: '',
-			type: 'drawercomponent',
+		dims: '1:1-2:1' as AppComponentDimensions,
+		softWrap: true,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
 			horizontalAlignment: 'center',
 			verticalAlignment: 'center',
 			configuration: {
@@ -1468,10 +1425,11 @@ Hello \${ctx.username}
 	mapcomponent: {
 		name: 'Map',
 		icon: MapPin,
-		dims: '3:6-6:10',
-		data: {
-			id: '',
-			type: 'mapcomponent',
+		dims: '3:6-6:10' as AppComponentDimensions,
+		customCss: {
+			map: { class: '', style: '' }
+		},
+		initialData: {
 			componentInput: undefined,
 			configuration: {
 				longitude: {
@@ -1513,56 +1471,49 @@ Hello \${ctx.username}
 							title: 'London'
 						}
 					]
-				}
-			},
-			customCss: {
-				map: { class: '', style: '' }
-			} as const
+				} as StaticAppInput
+			}
 		}
 	},
 	verticalsplitpanescomponent: {
 		name: 'Vertical Split Panes',
 		icon: FlipHorizontal,
-		dims: '2:8-6:8',
-		data: {
-			softWrap: true,
-			id: '',
-			type: 'verticalsplitpanescomponent',
+		dims: '2:8-6:8' as AppComponentDimensions,
+		softWrap: true,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
 			configuration: {},
-			customCss: {
-				container: { class: '', style: '' }
-			} as const,
 			componentInput: undefined,
 
-			panes: [50, 50],
+			panes: [50, 50] as number[],
 			numberOfSubgrids: 2
 		}
 	},
 	horizontalsplitpanescomponent: {
 		name: 'Horizontal Split Panes',
 		icon: FlipVertical,
-		dims: '2:8-6:8',
-		data: {
-			softWrap: true,
-			id: '',
-			type: 'horizontalsplitpanescomponent',
+		dims: '2:8-6:8' as AppComponentDimensions,
+		softWrap: true,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
 			configuration: {},
-			customCss: {
-				container: { class: '', style: '' }
-			} as const,
 			componentInput: undefined,
-
-			panes: [50, 50],
+			panes: [50, 50] as number[],
 			numberOfSubgrids: 2
 		}
 	},
 	pdfcomponent: {
 		name: 'PDF',
 		icon: FileText,
-		dims: '3:8-8:12',
-		data: {
-			id: '',
-			type: 'pdfcomponent',
+		dims: '3:8-8:12' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' }
+		},
+		initialData: {
 			componentInput: undefined,
 			configuration: {
 				source: {
@@ -1579,13 +1530,10 @@ Hello \${ctx.username}
 					type: 'static',
 					value: 100
 				}
-			},
-			customCss: {
-				container: { class: '', style: '' }
-			} as const
+			}
 		}
 	}
-}
+} as const
 
 export const configurationKeys: Record<AppComponent['type'], string[]> = Object.fromEntries(
 	Object.entries(components)
@@ -1593,7 +1541,7 @@ export const configurationKeys: Record<AppComponent['type'], string[]> = Object.
 			k,
 			[
 				...new Set(
-					Object.entries(v.data.configuration).flatMap(([k, v]) => {
+					Object.entries(v.initialData.configuration).flatMap(([k, v]) => {
 						if (!v.ctype) {
 							return [k]
 						} else if (v.ctype == 'oneOf') {
@@ -1610,3 +1558,7 @@ export const configurationKeys: Record<AppComponent['type'], string[]> = Object.
 		])
 		.filter(([k, v]) => v != undefined)
 )
+
+export const ccomponents: {
+	[Property in keyof typeof components]: AppComponentConfig<Property>
+} = components

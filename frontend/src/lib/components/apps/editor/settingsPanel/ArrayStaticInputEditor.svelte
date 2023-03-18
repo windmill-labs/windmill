@@ -2,41 +2,48 @@
 	import { Button } from '$lib/components/common'
 	import { faPlus, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
-	import type { StaticAppInput } from '../../inputType'
+	import type { InputType, StaticAppInput, StaticInput } from '../../inputType'
 	import { staticValues } from '../componentsPanel/componentStaticValues'
 	import SubTypeEditor from './SubTypeEditor.svelte'
 
-	type ArrayComponentInput = Extract<StaticAppInput, { fieldType: 'array' }>
+	export let componentInput: StaticInput<any[]>
+	export let subFieldType: InputType | undefined = undefined
+	export let optionValuesKey: keyof typeof staticValues | undefined = undefined
 
-	export let componentInput: ArrayComponentInput
 	const dispatch = createEventDispatcher()
 
 	function addElementByType() {
+		console.log('ADD')
 		if (!Array.isArray(componentInput.value)) {
 			componentInput.value = []
 		}
-		if (componentInput.subFieldType && componentInput.value) {
-			if (componentInput.subFieldType === 'boolean') {
-				componentInput.value.push(false)
-			} else if (componentInput.subFieldType === 'number') {
-				componentInput.value.push(0)
-			} else if (componentInput.subFieldType === 'object') {
-				componentInput.value.push({})
-			} else if (componentInput.subFieldType === 'labeledresource') {
-				componentInput.value.push({ value: '', label: '' })
+		let value: any[] = componentInput.value
+		if (subFieldType) {
+			if (subFieldType === 'boolean') {
+				value.push(false)
+			} else if (subFieldType === 'number') {
+				value.push(0)
+			} else if (subFieldType === 'object') {
+				value.push({})
+			} else if (subFieldType === 'labeledresource') {
+				value.push({ value: '', label: '' })
 			} else if (
-				componentInput.subFieldType === 'text' ||
-				componentInput.subFieldType === 'textarea' ||
+				subFieldType === 'text' ||
+				subFieldType === 'textarea' ||
 				// TODO: Add support for these types
-				componentInput.subFieldType === 'date' ||
-				componentInput.subFieldType === 'time' ||
-				componentInput.subFieldType === 'datetime'
+				subFieldType === 'date' ||
+				subFieldType === 'time' ||
+				subFieldType === 'datetime'
 			) {
-				componentInput.value.push('')
-			} else if (componentInput.subFieldType === 'select') {
-				componentInput.value.push(staticValues[componentInput.optionValuesKey][0])
+				value.push('')
+			} else if (subFieldType === 'select' && optionValuesKey) {
+				value.push(staticValues[optionValuesKey][0])
 			}
+		} else {
+			value.push('')
 		}
+
+		console.log(value, componentInput.value)
 		componentInput = componentInput
 	}
 
@@ -55,7 +62,7 @@
 	{#if Array.isArray(componentInput.value)}
 		{#each componentInput.value as value, index (index)}
 			<div class="flex flex-row gap-2 items-center relative">
-				<SubTypeEditor bind:componentInput bind:value />
+				<SubTypeEditor {subFieldType} bind:componentInput bind:value />
 
 				<div class="absolute top-1 right-1">
 					<Button

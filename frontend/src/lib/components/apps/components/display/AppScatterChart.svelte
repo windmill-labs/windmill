@@ -19,19 +19,14 @@
 	import type { ChartOptions, ChartData } from 'chart.js'
 	import { concatCustomCss } from '../../utils'
 	import { getContext } from 'svelte'
-	import type {
-		AppViewerContext,
-		ComponentCustomCSS,
-		RichConfiguration,
-		RichConfigurations
-	} from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { initOutput } from '../../editor/appUtils'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
 	export let configuration: RichConfigurations
 	export let initializing: boolean | undefined = undefined
-	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'scatterchartcomponent'> | undefined = undefined
 	export let render: boolean
 
 	let zoomable = false

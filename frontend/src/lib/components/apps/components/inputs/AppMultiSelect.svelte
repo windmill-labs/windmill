@@ -14,7 +14,7 @@
 	export let configuration: RichConfigurations
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let customCss: ComponentCustomCSS<'input'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'multiselectcomponent'> | undefined = undefined
 	export let render: boolean
 
 	const { app, worldStore, connectingInput, selectedComponent } =
@@ -66,7 +66,6 @@
 				multiple
 				on:change={(e) => e.stopPropagation()}
 				{items}
-				class={css?.input?.class ?? ''}
 				inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
 				containerStyles={'border-color: #999;' +
 					SELECT_INPUT_DEFAULT_STYLE.containerStyles +

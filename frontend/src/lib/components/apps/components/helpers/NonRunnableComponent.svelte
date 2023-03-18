@@ -20,10 +20,6 @@
 		result: Output<any>
 	}
 
-	$: if (outputs?.loading != undefined) {
-		outputs.loading.set(false, true)
-	}
-
 	function setOutput(v: any) {
 		outputs?.result?.set(v, true)
 	}

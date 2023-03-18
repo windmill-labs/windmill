@@ -57,9 +57,8 @@
 	}
 
 	function lock(dataItem: GridItem) {
-		let fComponent = findGridItem($app, dataItem.data.id)
-		if (fComponent) {
-			fComponent = toggleFixed(fComponent)
+		if (dataItem) {
+			toggleFixed(dataItem)
 		}
 		$app = $app
 	}

@@ -20,12 +20,7 @@
 	import { Scatter } from 'svelte-chartjs'
 	import InputValue from '../helpers/InputValue.svelte'
 	import type { ChartOptions, ChartData } from 'chart.js'
-	import type {
-		AppViewerContext,
-		ComponentCustomCSS,
-		RichConfiguration,
-		RichConfigurations
-	} from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { getContext } from 'svelte'
 	import { concatCustomCss } from '../../utils'
 	import { initOutput } from '../../editor/appUtils'
@@ -34,7 +29,7 @@
 	export let componentInput: AppInput | undefined
 	export let configuration: RichConfigurations
 	export let initializing: boolean | undefined = undefined
-	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'timeseriescomponent'> | undefined = undefined
 	export let render: boolean
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')

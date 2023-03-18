@@ -11,7 +11,7 @@
 	export let configuration: RichConfigurations
 	export let inputType: 'date'
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let customCss: ComponentCustomCSS<'input'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'dateinputcomponent'> | undefined = undefined
 	export let render: boolean
 
 	const { app, worldStore, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')

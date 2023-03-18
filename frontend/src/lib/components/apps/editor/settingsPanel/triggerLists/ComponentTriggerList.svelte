@@ -7,29 +7,23 @@
 	} from '$lib/components/apps/inputType'
 	import type { AppViewerContext } from '$lib/components/apps/types'
 	import { getContext } from 'svelte'
-	import { findGridItem } from '../../appUtils'
+	import type { AppComponent } from '../../component'
 	import TriggerBadgesList from './TriggerBadgesList.svelte'
 	import { getDependencies } from './triggerListUtils'
 
-	const { selectedComponent, app } = getContext<AppViewerContext>('AppViewerContext')
+	const { selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 	export let fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
+	export let appComponent: AppComponent
 
-	$: gridItem = $selectedComponent ? findGridItem($app, $selectedComponent) : undefined
-
-	$: onClick =
-		gridItem?.data.type &&
-		['buttoncomponent', 'formbuttoncomponent', 'formcomponent'].includes(gridItem?.data.type)
-
-	$: if (gridItem) {
-		console.log(gridItem?.data.configuration.triggerOnAppLoad)
-	}
+	const onClick = ['buttoncomponent', 'formbuttoncomponent', 'formcomponent'].includes(
+		appComponent.type
+	)
 
 	$: onLoad =
 		!onClick ||
-		(gridItem?.data.configuration.triggerOnAppLoad.ctype === undefined &&
-			// TODO: Type and value are not in sync.
-			// @ts-ignore
-			gridItem?.data.configuration.triggerOnAppLoad.value)
+		(appComponent.configuration.triggerOnAppLoad.ctype === undefined &&
+			appComponent.configuration.triggerOnAppLoad.type == 'static' &&
+			appComponent.configuration.triggerOnAppLoad.value)
 </script>
 
 <TriggerBadgesList

@@ -4,7 +4,6 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import LightweightSchemaForm from '$lib/components/LightweightSchemaForm.svelte'
 	import Popover from '$lib/components/Popover.svelte'
-	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import { AppService, type CompletedJob } from '$lib/gen'
 	import { classNames, defaultIfEmptyString, emptySchema, sendUserToast } from '$lib/utils'
@@ -51,7 +50,7 @@
 
 	$: autoRefresh && handleAutorefresh()
 
-	if (recomputable) {
+	if (recomputable || autoRefresh) {
 		$runnableComponents[id] = async () => {
 			await executeComponent(true)
 		}
@@ -60,9 +59,6 @@
 
 	function handleAutorefresh() {
 		if (autoRefresh && $worldStore) {
-			$runnableComponents[id] = async () => {
-				await executeComponent(true)
-			}
 			executeComponent(true)
 		}
 	}
@@ -193,7 +189,7 @@
 
 			if (runnable?.type === 'runnableByName') {
 				const { inlineScript } = runnable
-
+				// console.log(inlineScript?.content)
 				if (inlineScript) {
 					requestBody['raw_code'] = {
 						content: inlineScript.content,
@@ -259,6 +255,10 @@
 	}
 	$: result?.error && recordError(result.error)
 </script>
+
+<!-- {#if runnable?.type == 'runnableByName'}
+	{runnable?.inlineScript?.content}
+{/if} -->
 
 {#each Object.entries(fields ?? {}) as [key, v] (key)}
 	{#if v.type != 'static' && v.type != 'user'}

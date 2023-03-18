@@ -6,6 +6,7 @@
 	import type { ResultAppInput } from '../../inputType'
 	import type { AppViewerContext } from '../../types'
 	import { clearResultAppInput } from '../../utils'
+	import type { AppComponent } from '../component'
 	import InlineScriptEditorDrawer from '../inlineScriptsPanel/InlineScriptEditorDrawer.svelte'
 	import ComponentTriggerList from './triggerLists/ComponentTriggerList.svelte'
 
@@ -13,6 +14,7 @@
 
 	export let appInput: ResultAppInput
 	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
+	export let appComponent: AppComponent
 
 	function edit() {
 		if (appInput.runnable?.type === 'runnableByName') {
@@ -68,7 +70,7 @@
 	</div>
 </div>
 {#if appInput.runnable?.type === 'runnableByName' && appInput.runnable.inlineScript}
-	<ComponentTriggerList fields={appInput.fields} />
+	<ComponentTriggerList {appComponent} fields={appInput.fields} />
 {/if}
 {#if appInput.runnable?.type === 'runnableByName' && !appInput.runnable.inlineScript}
 	<span class="text-xs text-gray-500">

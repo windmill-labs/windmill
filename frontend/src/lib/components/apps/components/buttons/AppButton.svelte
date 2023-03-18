@@ -23,7 +23,7 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let noWFull = false
 	export let preclickAction: (() => Promise<void>) | undefined = undefined
-	export let customCss: ComponentCustomCSS<'button'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'buttoncomponent'> | undefined = undefined
 	export let render: boolean
 	export let initializing: boolean | undefined = true
 
@@ -158,10 +158,10 @@
 		<Button
 			btnClasses={twMerge(
 				$app.css?.['buttoncomponent']?.['button']?.class,
-				customCss?.button.class,
+				customCss?.button?.class,
 				resolvedConfig.fillContainer ? 'w-full h-full' : ''
 			)}
-			style={[$app.css?.['buttoncomponent']?.['button']?.style, customCss?.button.style].join(';')}
+			style={[$app.css?.['buttoncomponent']?.['button']?.style, customCss?.button?.style].join(';')}
 			disabled={resolvedConfig.disabled}
 			on:pointerdown={(e) => {
 				e?.stopPropagation()

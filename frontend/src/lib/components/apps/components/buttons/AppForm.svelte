@@ -18,7 +18,7 @@
 	export let recomputeIds: string[] | undefined = undefined
 	export let extraQueryParams: Record<string, any> = {}
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
-	export let customCss: ComponentCustomCSS<'container' | 'button'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'formcomponent'> | undefined = undefined
 	export let render: boolean
 
 	export const staticOutputs: string[] = ['loading', 'result']
@@ -72,7 +72,7 @@
 	autoRefresh={false}
 	forceSchemaDisplay={true}
 	runnableClass="!block"
-	runnableStyle={css?.container.style}
+	runnableStyle={css?.container?.style}
 >
 	<AlignWrapper {horizontalAlignment}>
 		<div

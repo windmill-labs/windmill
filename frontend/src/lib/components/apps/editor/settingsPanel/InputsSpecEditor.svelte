@@ -13,6 +13,8 @@
 	import UploadInputEditor from './inputEditor/UploadInputEditor.svelte'
 	import { getContext } from 'svelte'
 	import type { AppViewerContext, RichConfiguration } from '../../types'
+	import type { InputType } from '../../inputType'
+	import type { staticValues } from '../componentsPanel/componentStaticValues'
 
 	export let id: string
 	export let componentInput: RichConfiguration
@@ -21,31 +23,37 @@
 	export let userInputEnabled: boolean = false
 	export let shouldCapitalize: boolean = true
 	export let resourceOnly = false
+	export let tooltip: string | undefined = undefined
+	export let onlyStatic: boolean = false
+	export let fieldType: InputType
+	export let subFieldType: InputType | undefined
+	export let format: string | undefined
+	export let optionValuesKeys: keyof typeof staticValues | undefined
 
 	const { connectingInput } = getContext<AppViewerContext>('AppViewerContext')
 </script>
 
 {#if componentInput.ctype == undefined}
-	{#if !(resourceOnly && (componentInput.fieldType !== 'object' || !componentInput.format?.startsWith('resource-')))}
+	{#if !(resourceOnly && (fieldType !== 'object' || !format?.startsWith('resource-')))}
 		<div class="flex flex-col gap-1">
 			<div class="flex justify-between items-end gap-1">
 				<span class="text-sm font-semibold truncate">
 					{shouldCapitalize ? capitalize(addWhitespaceBeforeCapitals(key)) : key}
-					{#if componentInput.tooltip}
+					{#if tooltip}
 						<Tooltip>
-							{componentInput.tooltip}
+							{tooltip}
 						</Tooltip>
 					{/if}
 				</span>
 
 				<div class="flex gap-x-2 gap-y-1 flex-wrap justify-end items-center">
 					<Badge color="blue">
-						{componentInput.fieldType === 'array' && componentInput.subFieldType
-							? `${capitalize(fieldTypeToTsType(componentInput.subFieldType))}[]`
-							: capitalize(fieldTypeToTsType(componentInput.fieldType))}
+						{fieldType === 'array' && subFieldType
+							? `${capitalize(fieldTypeToTsType(subFieldType))}[]`
+							: capitalize(fieldTypeToTsType(fieldType))}
 					</Badge>
 
-					{#if !componentInput.onlyStatic && componentInput.type != 'eval'}
+					{#if !onlyStatic && componentInput.type != 'eval'}
 						<ToggleButtonGroup
 							bind:selected={componentInput.type}
 							on:selected={(e) => {
@@ -68,7 +76,7 @@
 								/>
 								<svelte:fragment slot="text">Static</svelte:fragment>
 							</Popover>
-							{#if userInputEnabled && !componentInput.format?.startsWith('resource-')}
+							{#if userInputEnabled && !format?.startsWith('resource-')}
 								<Popover placement="bottom" notClickable disapperTimoout={0}>
 									<ToggleButton
 										position="center"
@@ -112,7 +120,13 @@
 			{:else if componentInput.type === 'row'}
 				<RowInputEditor bind:componentInput />
 			{:else if componentInput.type === 'static'}
-				<StaticInputEditor bind:componentInput />
+				<StaticInputEditor
+					{fieldType}
+					{subFieldType}
+					{optionValuesKeys}
+					{format}
+					bind:componentInput
+				/>
 			{:else if componentInput.type === 'eval'}
 				<EvalInputEditor {hasRows} {id} bind:componentInput />
 			{:else if componentInput.type === 'upload'}

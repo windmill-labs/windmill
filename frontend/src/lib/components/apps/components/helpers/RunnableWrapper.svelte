@@ -35,14 +35,14 @@
 		$staticExporter[id] = () => result
 	})
 
-	function isRunnableDefined() {
+	function isRunnableDefined(componentInput) {
 		return isScriptByNameDefined(componentInput) || isScriptByPathDefined(componentInput)
 	}
 </script>
 
 {#if componentInput === undefined}
 	<slot />
-{:else if componentInput.type === 'runnable' && isRunnableDefined()}
+{:else if componentInput.type === 'runnable' && isRunnableDefined(componentInput)}
 	<RunnableComponent
 		{recomputeIds}
 		gotoUrl={goto}

@@ -1,21 +1,16 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
-	import type { AppInput } from '../../inputType'
-	import type {
-		AppEditorContext,
-		AppViewerContext,
-		ComponentCustomCSS,
-		RichConfigurations
-	} from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { concatCustomCss } from '../../utils'
-	import InputValue from '../helpers/InputValue.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { deepEqual } from 'fast-equals'
 
 	export let id: string
 	export let componentContainerHeight: number
-	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
+	export let customCss:
+		| ComponentCustomCSS<'horizontalsplitpanescomponent' | 'verticalsplitpanescomponent'>
+		| undefined = undefined
 	export let horizontal: boolean = false
 	export let panes: number[]
 	export let render: boolean
@@ -76,8 +71,8 @@
 						visible={render}
 						{id}
 						shouldHighlight={$focusedGrid?.subGridIndex === index}
-						class={css?.container.class}
-						style={css?.container.style}
+						class={css?.container?.class}
+						style={css?.container?.style}
 						bind:subGrid={$app.subgrids[`${id}-${index}`]}
 						containerHeight={horizontal ? undefined : componentContainerHeight - 8}
 						on:focus={() => {
