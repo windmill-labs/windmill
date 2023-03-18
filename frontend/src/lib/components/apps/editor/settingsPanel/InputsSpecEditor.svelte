@@ -28,7 +28,7 @@
 	export let fieldType: InputType
 	export let subFieldType: InputType | undefined
 	export let format: string | undefined
-	export let optionValuesKeys: keyof typeof staticValues | undefined
+	export let optionValuesKey: keyof typeof staticValues | undefined
 
 	const { connectingInput } = getContext<AppViewerContext>('AppViewerContext')
 </script>
@@ -123,7 +123,7 @@
 				<StaticInputEditor
 					{fieldType}
 					{subFieldType}
-					{optionValuesKeys}
+					{optionValuesKey}
 					{format}
 					bind:componentInput
 				/>

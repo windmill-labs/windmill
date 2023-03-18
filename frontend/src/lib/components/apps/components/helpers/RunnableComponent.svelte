@@ -11,7 +11,7 @@
 	import { getContext } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 	import type { AppInputs, Runnable } from '../../inputType'
-	import type { AppViewerContext } from '../../types'
+	import type { AppViewerContext, InlineScript } from '../../types'
 	import { computeGlobalContext, eval_like } from './eval'
 	import InputValue from './InputValue.svelte'
 	import RefreshButton from './RefreshButton.svelte'
@@ -51,8 +51,8 @@
 	$: autoRefresh && handleAutorefresh()
 
 	if (recomputable || autoRefresh) {
-		$runnableComponents[id] = async () => {
-			await executeComponent(true)
+		$runnableComponents[id] = async (inlineScript?: InlineScript) => {
+			await executeComponent(true, inlineScript)
 		}
 		$runnableComponents = $runnableComponents
 	}
@@ -135,7 +135,7 @@
 		return schemaStripped as Schema
 	}
 
-	async function executeComponent(noToast = false) {
+	async function executeComponent(noToast = false, inlineScriptOverride?: InlineScript) {
 		if (runnable?.type === 'runnableByName' && runnable.inlineScript?.language === 'frontend') {
 			outputs?.loading?.set(true)
 			try {
@@ -188,8 +188,11 @@
 			}
 
 			if (runnable?.type === 'runnableByName') {
-				const { inlineScript } = runnable
-				// console.log(inlineScript?.content)
+				console.log(inlineScriptOverride)
+				const { inlineScript } = inlineScriptOverride
+					? { inlineScript: inlineScriptOverride }
+					: runnable
+
 				if (inlineScript) {
 					requestBody['raw_code'] = {
 						content: inlineScript.content,

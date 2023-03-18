@@ -29,7 +29,7 @@
 					fieldType={meta?.['fieldType']}
 					subFieldType={meta?.['subFieldType']}
 					format={meta?.['format']}
-					optionValuesKeys={meta?.['optionValuesKeys']}
+					optionValuesKey={meta?.['optionValuesKey']}
 					tooltip={meta?.['tooltip']}
 					onlyStatic={meta?.['onlyStatic']}
 				/>

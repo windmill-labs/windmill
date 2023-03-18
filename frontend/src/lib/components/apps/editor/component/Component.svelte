@@ -54,8 +54,6 @@
 
 	$: componentWithErrors = Object.values($errorByComponent).map((e) => e.componentId)
 	$: hasError = componentWithErrors.includes(component.id)
-
-	console.log('component', component)
 </script>
 
 <!-- svelte-ignore a11y-mouse-events-have-key-events -->

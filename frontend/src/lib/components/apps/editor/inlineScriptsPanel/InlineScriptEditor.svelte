@@ -185,7 +185,7 @@
 					btnClasses="!px-2 !py-1 !bg-gray-700 !text-white hover:!bg-gray-900"
 					on:click={async () => {
 						runLoading = true
-						await $runnableComponents[id]?.()
+						await $runnableComponents[id]?.(inlineScript)
 						runLoading = false
 					}}
 				>
@@ -219,7 +219,7 @@
 				cmdEnterAction={async () => {
 					inlineScript.content = editor?.getCode() ?? ''
 					runLoading = true
-					await $runnableComponents[id]?.()
+					await $runnableComponents[id]?.(inlineScript)
 					runLoading = false
 				}}
 				on:change={async (e) => {
@@ -241,7 +241,7 @@
 				bind:this={simpleEditor}
 				cmdEnterAction={async () => {
 					runLoading = true
-					await $runnableComponents[id]?.()
+					await $runnableComponents[id]?.(inlineScript)
 					runLoading = false
 				}}
 				class="h-full"

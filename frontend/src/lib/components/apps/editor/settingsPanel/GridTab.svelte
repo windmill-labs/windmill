@@ -30,7 +30,6 @@
 		let subgrid = `${component.id}-${index}`
 		for (const item of $app!.subgrids![subgrid]) {
 			const components = deleteGridItem($app, item.data, subgrid, false)
-			console.log(components)
 			for (const key in components) {
 				delete $runnableComponents[key]
 			}

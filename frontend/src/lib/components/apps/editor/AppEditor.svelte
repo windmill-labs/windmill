@@ -13,7 +13,8 @@
 		ConnectingInput,
 		EditorBreakpoint,
 		EditorMode,
-		FocusedGrid
+		FocusedGrid,
+		InlineScript
 	} from '../types'
 	import AppEditorHeader from './AppEditorHeader.svelte'
 	import GridEditor from './GridEditor.svelte'
@@ -60,7 +61,9 @@
 	})
 	const history = initHistory(app)
 
-	const runnableComponents = writable<Record<string, () => Promise<void>>>({})
+	const runnableComponents = writable<
+		Record<string, (inlineScript?: InlineScript) => Promise<void>>
+	>({})
 	const errorByComponent = writable<Record<string, { error: string; componentId: string }>>({})
 	const focusedGrid = writable<FocusedGrid | undefined>(undefined)
 	const pickVariableCallback: Writable<((path: string) => void) | undefined> = writable(undefined)
