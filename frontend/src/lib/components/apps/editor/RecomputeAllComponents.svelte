@@ -4,8 +4,10 @@
 	import { getContext, onMount } from 'svelte'
 	import Button from '../../common/button/Button.svelte'
 	import type { AppViewerContext } from '../types'
+	import { allItems } from '../utils'
 
-	const { runnableComponents, app } = getContext<AppViewerContext>('AppViewerContext')
+	const { runnableComponents, app, mode, worldStore } =
+		getContext<AppViewerContext>('AppViewerContext')
 	let loading: boolean = false
 	let timeout: NodeJS.Timer | undefined = undefined
 	let interval: number | undefined = undefined
@@ -62,6 +64,7 @@
 
 	onMount(() => {
 		document.addEventListener('visibilitychange', visChange)
+		// setTimeout(() => refresh(), 1000)
 		return () => {
 			document.removeEventListener('visibilitychange', visChange)
 			if (timeout) clearInterval(timeout)

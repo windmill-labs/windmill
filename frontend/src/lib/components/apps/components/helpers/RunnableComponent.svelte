@@ -7,6 +7,7 @@
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import { AppService, type CompletedJob } from '$lib/gen'
 	import { classNames, defaultIfEmptyString, emptySchema, sendUserToast } from '$lib/utils'
+	import { deepEqual } from 'fast-equals'
 	import { Bug } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
@@ -34,6 +35,7 @@
 	export let recomputeIds: string[] = []
 
 	const {
+		app,
 		worldStore,
 		runnableComponents,
 		workspace,
@@ -48,19 +50,11 @@
 		componentControl
 	} = getContext<AppViewerContext>('AppViewerContext')
 
-	$: autoRefresh && handleAutorefresh()
-
 	if (recomputable || autoRefresh) {
 		$runnableComponents[id] = async (inlineScript?: InlineScript) => {
 			await executeComponent(true, inlineScript)
 		}
 		$runnableComponents = $runnableComponents
-	}
-
-	function handleAutorefresh() {
-		if (autoRefresh && $worldStore) {
-			executeComponent(true)
-		}
 	}
 
 	let args: Record<string, any> | undefined = undefined
@@ -87,15 +81,16 @@
 	let currentStaticValues = lazyStaticValues
 
 	$: fields && (currentStaticValues = computeStaticValues())
-	$: if (JSON.stringify(currentStaticValues) != JSON.stringify(lazyStaticValues)) {
+	$: if (!deepEqual(currentStaticValues, lazyStaticValues)) {
 		lazyStaticValues = currentStaticValues
-		refreshIfAutoRefresh()
+		refreshIfAutoRefresh('static changed')
 	}
 
-	$: fields && (lazyStaticValues = computeStaticValues())
-	$: (runnableInputValues || extraQueryParams || args) && testJobLoader && refreshIfAutoRefresh()
+	$: (runnableInputValues || extraQueryParams || args) &&
+		testJobLoader &&
+		refreshIfAutoRefresh('arg changed')
 
-	function refreshIfAutoRefresh() {
+	function refreshIfAutoRefresh(src: string) {
 		if (autoRefresh) {
 			setDebouncedExecute()
 		}
@@ -188,7 +183,6 @@
 			}
 
 			if (runnable?.type === 'runnableByName') {
-				console.log(inlineScriptOverride)
 				const { inlineScript } = inlineScriptOverride
 					? { inlineScript: inlineScriptOverride }
 					: runnable

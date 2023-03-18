@@ -45,13 +45,14 @@
 
 		{#if onLoad || onClick}
 			<div class="w-full">
-				<div class="text-xs font-semibold text-slate-800 mb-1">Event</div>
+				<div class="text-xs font-semibold text-slate-800 mb-1">Events</div>
 				<div class="flex flex-row gap-2 flex-wrap">
 					{#if onLoad}
-						<span class={classNames(badgeClass, colors['green'])}>On load</span>
+						<span class={classNames(badgeClass, colors['green'])}>Start</span>
+						<span class={classNames(badgeClass, colors['green'])}>Refresh</span>
 					{/if}
 					{#if onClick}
-						<span class={classNames(badgeClass, colors['green'])}>On click</span>
+						<span class={classNames(badgeClass, colors['green'])}>Click</span>
 					{/if}
 				</div>
 			</div>
@@ -73,7 +74,7 @@
 
 		{#if recomputedBadges?.length > 0}
 			<div class="w-full">
-				<div class="text-xs font-semibold text-slate-800 mb-1">Success of</div>
+				<div class="text-xs font-semibold text-slate-800 mb-1">Computation of</div>
 				<div class="flex flex-row gap-2 flex-wrap">
 					{#each recomputedBadges as badge}
 						<span class={classNames(badgeClass, colors['indigo'])}>{badge}</span>
