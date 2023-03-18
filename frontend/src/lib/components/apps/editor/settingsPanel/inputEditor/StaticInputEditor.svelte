@@ -15,7 +15,7 @@
 	export let componentInput: StaticInput<any> | undefined
 	export let fieldType: InputType | undefined = undefined
 	export let subFieldType: InputType | undefined = undefined
-	export let optionValuesKeys: keyof typeof staticValues | undefined = undefined
+	export let optionValuesKey: keyof typeof staticValues | undefined = undefined
 	export let format: string | undefined = undefined
 	export let noVariablePicker: boolean = false
 
@@ -34,9 +34,9 @@
 		<input on:keydown|stopPropagation type="date" bind:value={componentInput.value} />
 	{:else if fieldType === 'boolean'}
 		<Toggle bind:checked={componentInput.value} />
-	{:else if fieldType === 'select' && optionValuesKeys}
+	{:else if fieldType === 'select' && optionValuesKey}
 		<select on:keydown|stopPropagation on:keydown|stopPropagation bind:value={componentInput.value}>
-			{#each staticValues[optionValuesKeys] || [] as option}
+			{#each staticValues[optionValuesKey] || [] as option}
 				<option value={option}>
 					{option}
 				</option>

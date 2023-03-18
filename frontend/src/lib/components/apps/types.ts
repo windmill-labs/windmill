@@ -132,7 +132,7 @@ export type AppViewerContext = {
 	mode: Writable<EditorMode>
 	connectingInput: Writable<ConnectingInput>
 	breakpoint: Writable<EditorBreakpoint>
-	runnableComponents: Writable<Record<string, () => Promise<void>>>
+	runnableComponents: Writable<Record<string, (inlineScript?: InlineScript) => Promise<void>>>
 	staticExporter: Writable<Record<string, () => any>>
 	appPath: string
 	workspace: string
