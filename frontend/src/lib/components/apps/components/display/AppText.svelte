@@ -31,7 +31,7 @@
 
 	const { ontextfocus } = getContext<AppEditorContext>('AppEditorContext')
 
-	initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, id, {
 		result: undefined,
 		loading: false
 	})
@@ -79,7 +79,7 @@
 <InputValue {id} input={configuration.copyButton} bind:value={copyButton} />
 <InputValue {id} input={configuration.tooltip} bind:value={tooltip} />
 
-<RunnableWrapper {render} {componentInput} {id} bind:initializing bind:result>
+<RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
 	<div class="h-full w-full overflow-hidden">
 		<AlignWrapper {horizontalAlignment} {verticalAlignment}>
 			{#if !result || result === ''}

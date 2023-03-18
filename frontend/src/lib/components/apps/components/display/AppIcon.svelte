@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
+	import { initOutput } from '../../editor/appUtils'
 	import type {
 		AppViewerContext,
 		ComponentCustomCSS,
@@ -17,7 +18,10 @@
 	export let customCss: ComponentCustomCSS<'iconcomponent'> | undefined = undefined
 	export let render: boolean
 
-	const { app } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+
+	//used so that we can count number of outputs setup for first refresh
+	initOutput($worldStore, id, {})
 
 	let icon: string | undefined = undefined
 	let size: number

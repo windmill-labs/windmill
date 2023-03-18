@@ -14,13 +14,13 @@
 	export let name: string
 	export let inlineScript: InlineScript | undefined
 	export let fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
-	export let autoRefresh: boolean = false
+	export let autoRefresh: boolean
 
 	let result: any = undefined
 
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	initOutput($worldStore, id, {
+	let outputs = initOutput($worldStore, id, {
 		result: undefined,
 		loading: false
 	})
@@ -39,6 +39,7 @@
 	}}
 	wrapperClass="hidden"
 	recomputable
+	{outputs}
 >
 	<slot />
 </RunnableComponent>

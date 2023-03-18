@@ -6,13 +6,17 @@
 	import type { AppViewerContext } from '../types'
 	import { allItems } from '../utils'
 
-	const { runnableComponents, app, mode, worldStore } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const { runnableComponents, app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 	let loading: boolean = false
 	let timeout: NodeJS.Timer | undefined = undefined
 	let interval: number | undefined = undefined
 	let shouldRefresh = false
+	let firstLoad = false
 
+	$: !firstLoad &&
+		$worldStore.initializedOutputs ==
+			allItems($app.grid, $app.subgrids).length + $app.hiddenInlineScripts.length &&
+		refresh()
 	$: componentNumber = Object.keys($runnableComponents).length
 
 	function onClick(stopAfterClear = true) {
@@ -35,6 +39,10 @@
 	}
 
 	function refresh() {
+		if (!firstLoad) {
+			$worldStore.initialized = true
+			firstLoad = true
+		}
 		loading = true
 		Promise.all(
 			Object.keys($runnableComponents).map((id) => {
@@ -83,7 +91,7 @@
 			? `every ${interval / 1000} seconds`
 			: 'once'}"
 	>
-		<RefreshCw class={loading ? 'animate-spin' : ''} size={16} />
+		<RefreshCw class={loading ? 'animate-spin' : ''} size={16} /> &nbsp;({componentNumber})
 	</Button>
 	<Dropdown
 		btnClasses="!rounded-l-none !border-l-0 min-w-[4rem] !px-2"

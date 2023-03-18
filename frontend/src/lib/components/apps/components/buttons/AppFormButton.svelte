@@ -28,6 +28,11 @@
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
+	$: outputs = $worldStore?.outputsById[id] as {
+		result: Output<Array<any>>
+		loading: Output<boolean>
+	}
+
 	let labelValue: string = 'Default label'
 	let color: ButtonType.Color
 	let size: ButtonType.Size
@@ -46,11 +51,6 @@
 
 	$: noInputs =
 		componentInput?.type != 'runnable' || Object.keys(componentInput?.fields ?? {}).length == 0
-
-	$: outputs = $worldStore?.outputsById[id] as {
-		result: Output<Array<any>>
-		loading: Output<boolean>
-	}
 
 	$: if (outputs?.loading != undefined) {
 		outputs.loading.set(false, true)
@@ -104,6 +104,7 @@
 			autoRefresh={false}
 			forceSchemaDisplay={true}
 			runnableClass="!block"
+			{outputs}
 		>
 			<div class="flex flex-col gap-2 px-4 w-full">
 				<div>

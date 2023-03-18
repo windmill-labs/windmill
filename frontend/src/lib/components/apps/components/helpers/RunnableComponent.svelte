@@ -10,8 +10,8 @@
 	import { deepEqual } from 'fast-equals'
 	import { Bug } from 'lucide-svelte'
 	import { getContext } from 'svelte'
-	import { initOutput } from '../../editor/appUtils'
 	import type { AppInputs, Runnable } from '../../inputType'
+	import type { Output } from '../../rx'
 	import type { AppViewerContext, InlineScript } from '../../types'
 	import { computeGlobalContext, eval_like } from './eval'
 	import InputValue from './InputValue.svelte'
@@ -33,9 +33,9 @@
 	export let render: boolean
 	export let recomputable: boolean = false
 	export let recomputeIds: string[] = []
+	export let outputs: { result: Output<any>; loading: Output<boolean> }
 
 	const {
-		app,
 		worldStore,
 		runnableComponents,
 		workspace,
@@ -90,8 +90,8 @@
 		testJobLoader &&
 		refreshIfAutoRefresh('arg changed')
 
-	function refreshIfAutoRefresh(src: string) {
-		if (autoRefresh) {
+	function refreshIfAutoRefresh(_src: string) {
+		if (autoRefresh && $worldStore.initialized) {
 			setDebouncedExecute()
 		}
 	}
@@ -100,9 +100,7 @@
 	let testJob: CompletedJob | undefined = undefined
 	let testJobLoader: TestJobLoader | undefined = undefined
 
-	let outputs = initOutput($worldStore, id, { result: undefined, loading: false })
-
-	$: outputs?.loading?.set(testIsLoading)
+	$: outputs.loading?.set(testIsLoading)
 	$: schemaStripped = stripSchema(fields, $stateId)
 
 	function stripSchema(inputs: AppInputs, s: any): Schema {
@@ -132,7 +130,7 @@
 
 	async function executeComponent(noToast = false, inlineScriptOverride?: InlineScript) {
 		if (runnable?.type === 'runnableByName' && runnable.inlineScript?.language === 'frontend') {
-			outputs?.loading?.set(true)
+			outputs.loading?.set(true)
 			try {
 				const r = await eval_like(
 					runnable.inlineScript?.content,
@@ -148,7 +146,7 @@
 			} catch (e) {
 				sendUserToast('Error running frontend script: ' + e.message, true)
 			}
-			outputs?.loading?.set(false)
+			outputs.loading?.set(false)
 			return
 		}
 		if (noBackend) {
@@ -161,7 +159,7 @@
 			return
 		}
 
-		outputs?.loading?.set(true)
+		outputs.loading?.set(true)
 
 		let njob = await testJobLoader?.abstractRun(() => {
 			const nonStaticRunnableInputs = {}
@@ -278,7 +276,7 @@
 <TestJobLoader
 	workspaceOverride={workspace}
 	on:done={(e) => {
-		if (testJob && outputs) {
+		if (testJob) {
 			const startedAt = new Date(testJob.started_at).getTime()
 			if (startedAt > lastStartedAt) {
 				lastStartedAt = startedAt

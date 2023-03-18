@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { initConfig } from '../../editor/appUtils'
+	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components, configurationKeys } from '../../editor/component'
 	import type { staticValues } from '../../editor/componentsPanel/componentStaticValues'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
@@ -16,12 +16,15 @@
 	export let customCss: ComponentCustomCSS<'imagecomponent'> | undefined = undefined
 	export let render: boolean
 
-	const { app } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 	const fit: Record<FitOption, string> = {
 		cover: 'object-cover',
 		contain: 'object-contain',
 		fill: 'object-fill'
 	}
+
+	//used so that we can count number of outputs setup for first refresh
+	initOutput($worldStore, id, {})
 
 	let resolvedConfig = initConfig(components['imagecomponent'].initialData.configuration)
 

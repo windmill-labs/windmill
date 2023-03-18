@@ -60,10 +60,10 @@
 		{#if inputDependencies.length > 0}
 			<div class="w-full">
 				<div class="flex justify-between items-center mb-2">
-					<div class="text-xs font-semibold text-slate-800 mb-1">Values change </div>
+					<div class="text-xs font-semibold text-slate-800 mb-1">Change on values</div>
 				</div>
 				<div class="flex flex-row gap-2 flex-wrap">
-					{#each inputDependencies as label, index}
+					{#each inputDependencies as label}
 						<span class={classNames(badgeClass, colors['blue'])}>
 							{label}
 						</span>
@@ -86,7 +86,7 @@
 	{#if frontendDependencies}
 		<div class="w-full">
 			<div class="flex justify-between items-center mb-2">
-				<div class="text-xs font-semibold text-slate-800 mb-1">Values change (Frontend)</div>
+				<div class="text-xs font-semibold text-slate-800 mb-1">Change on values</div>
 				<slot />
 			</div>
 			<div class="flex flex-row gap-2 flex-wrap">

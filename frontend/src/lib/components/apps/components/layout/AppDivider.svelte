@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { initOutput } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'
 	import type {
 		AppViewerContext,
@@ -23,11 +24,14 @@
 	export let position: 'horizontal' | 'vertical'
 	export let render: boolean
 
-	const { app } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 	let size = 2
 	let color = '#00000060'
 
 	$: css = concatCustomCss($app.css?.[position + 'dividercomponent'], customCss)
+
+	//used so that we can count number of outputs setup for first refresh
+	initOutput($worldStore, id, {})
 </script>
 
 <InputValue {id} input={configuration.size} bind:value={size} />
