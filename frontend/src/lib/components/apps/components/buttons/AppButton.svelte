@@ -32,6 +32,11 @@
 
 	const { worldStore, app, componentControl } = getContext<AppViewerContext>('AppViewerContext')
 
+	let outputs = initOutput($worldStore, id, {
+		result: undefined,
+		loading: false
+	})
+
 	if (controls) {
 		$componentControl[id] = controls
 	}
@@ -62,11 +67,6 @@
 			afterIconComponent = await loadIcon(resolvedConfig.afterIcon)
 		}
 	}
-
-	let outputs = initOutput($worldStore, id, {
-		result: undefined,
-		loading: false
-	})
 
 	$: resolvedConfig.triggerOnAppLoad && runnableComponent?.runComponent()
 
@@ -128,6 +128,7 @@
 	goto={resolvedConfig.goto}
 	gotoNewTab={resolvedConfig.gotoNewTab}
 	{render}
+	{outputs}
 >
 	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
 		{#if errorsMessage}

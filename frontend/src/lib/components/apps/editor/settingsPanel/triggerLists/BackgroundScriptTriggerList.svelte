@@ -64,7 +64,7 @@
 	{id}
 	inputDependencies={getDependencies(fields)}
 	frontendDependencies={inlineScript?.language === 'frontend'
-		? inlineScript?.refreshOn?.map((x) => `${x.id} - ${x.key}`) ?? undefined
+		? inlineScript?.refreshOn?.map((x) => `${x.id} - ${x.key}`) ?? []
 		: undefined}
 	onLoad={autoRefresh}
 	on:delete={(e) => {

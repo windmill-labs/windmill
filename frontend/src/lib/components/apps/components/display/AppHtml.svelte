@@ -14,7 +14,7 @@
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, id, {
 		result: undefined,
 		loading: false
 	})
@@ -34,7 +34,15 @@
 	bind:clientHeight={h}
 	bind:clientWidth={w}
 >
-	<RunnableWrapper {render} autoRefresh {componentInput} {id} bind:initializing bind:result>
+	<RunnableWrapper
+		{outputs}
+		{render}
+		autoRefresh
+		{componentInput}
+		{id}
+		bind:initializing
+		bind:result
+	>
 		{#key result}
 			<iframe
 				frameborder="0"

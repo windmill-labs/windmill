@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
+	import { initOutput } from '../../editor/appUtils'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { concatCustomCss } from '../../utils'
@@ -9,7 +10,11 @@
 	export let customCss: ComponentCustomCSS<'containercomponent'> | undefined = undefined
 	export let render: boolean
 
-	const { app, focusedGrid, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, focusedGrid, selectedComponent, worldStore } =
+		getContext<AppViewerContext>('AppViewerContext')
+
+	//used so that we can count number of outputs setup for first refresh
+	initOutput($worldStore, id, {})
 
 	function onFocus() {
 		$focusedGrid = {

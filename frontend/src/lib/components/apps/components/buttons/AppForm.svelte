@@ -25,6 +25,11 @@
 
 	const { app, worldStore, stateId } = getContext<AppViewerContext>('AppViewerContext')
 
+	$: outputs = $worldStore?.outputsById[id] as {
+		result: Output<Array<any>>
+		loading: Output<boolean>
+	}
+
 	let labelValue: string = 'Default label'
 	let color: ButtonType.Color
 	let size: ButtonType.Size
@@ -36,11 +41,6 @@
 	$: noInputs =
 		$stateId != undefined &&
 		(componentInput?.type != 'runnable' || Object.keys(componentInput?.fields ?? {}).length == 0)
-
-	$: outputs = $worldStore?.outputsById[id] as {
-		result: Output<Array<any>>
-		loading: Output<boolean>
-	}
 
 	$: if (outputs?.loading != undefined) {
 		outputs.loading.set(false, true)
@@ -73,6 +73,7 @@
 	forceSchemaDisplay={true}
 	runnableClass="!block"
 	runnableStyle={css?.container?.style}
+	{outputs}
 >
 	<AlignWrapper {horizontalAlignment}>
 		<div

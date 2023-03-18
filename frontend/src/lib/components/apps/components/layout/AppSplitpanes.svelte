@@ -5,6 +5,7 @@
 	import { concatCustomCss } from '../../utils'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { deepEqual } from 'fast-equals'
+	import { initOutput } from '../../editor/appUtils'
 
 	export let id: string
 	export let componentContainerHeight: number
@@ -15,8 +16,11 @@
 	export let panes: number[]
 	export let render: boolean
 
-	const { app, focusedGrid, selectedComponent, componentControl } =
+	const { app, focusedGrid, selectedComponent, componentControl, worldStore } =
 		getContext<AppViewerContext>('AppViewerContext')
+
+	//used so that we can count number of outputs setup for first refresh
+	initOutput($worldStore, id, {})
 
 	function onFocus() {
 		$focusedGrid = {

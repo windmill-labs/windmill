@@ -8,6 +8,7 @@
 	import { Button, ButtonType, Drawer, DrawerContent } from '$lib/components/common'
 	import { twMerge } from 'tailwind-merge'
 	import { AlignWrapper } from '../helpers'
+	import { initOutput } from '../../editor/appUtils'
 
 	export let customCss: ComponentCustomCSS<'drawercomponent'> | undefined = undefined
 	export let id: string
@@ -17,7 +18,11 @@
 	export let noWFull = false
 	export let render: boolean
 
-	const { app, focusedGrid, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, focusedGrid, selectedComponent, worldStore } =
+		getContext<AppViewerContext>('AppViewerContext')
+
+	//used so that we can count number of outputs setup for first refresh
+	initOutput($worldStore, id, {})
 
 	let gridContent: string[] | undefined = undefined
 	let drawerTitle: string | undefined = undefined

@@ -5,7 +5,7 @@
 
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { writable, type Writable } from 'svelte/store'
-	import { buildWorld, type World } from '../rx'
+	import { buildWorld } from '../rx'
 	import type {
 		App,
 		AppEditorContext,

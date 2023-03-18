@@ -34,7 +34,7 @@
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, id, {
 		result: undefined,
 		loading: false
 	})
@@ -84,7 +84,7 @@
 <InputValue {id} input={configuration.zoomable} bind:value={zoomable} />
 <InputValue {id} input={configuration.pannable} bind:value={pannable} />
 
-<RunnableWrapper {render} autoRefresh {componentInput} {id} bind:initializing bind:result>
+<RunnableWrapper {outputs} {render} autoRefresh {componentInput} {id} bind:initializing bind:result>
 	<div class="w-full h-full {css?.container?.class ?? ''}" style={css?.container?.style ?? ''}>
 		{#if result}
 			<Scatter {data} {options} />

@@ -14,12 +14,7 @@
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import type { AppInput } from '../../inputType'
 	import InputValue from '../helpers/InputValue.svelte'
-	import type {
-		AppViewerContext,
-		ComponentCustomCSS,
-		RichConfiguration,
-		RichConfigurations
-	} from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import { getContext } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
@@ -33,7 +28,7 @@
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, id, {
 		result: undefined,
 		loading: false
 	})
@@ -83,7 +78,7 @@
 <InputValue {id} input={configuration.theme} bind:value={theme} />
 <InputValue {id} input={configuration.doughnutStyle} bind:value={doughnut} />
 
-<RunnableWrapper {render} autoRefresh {componentInput} {id} bind:initializing bind:result>
+<RunnableWrapper {outputs} {render} autoRefresh {componentInput} {id} bind:initializing bind:result>
 	<div class="w-full h-full {css?.container?.class ?? ''}" style={css?.container?.style ?? ''}>
 		{#if result}
 			{#if doughnut}
