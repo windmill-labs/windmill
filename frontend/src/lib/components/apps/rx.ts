@@ -79,7 +79,6 @@ export function buildObservableWorld() {
 			}
 
 			const { componentId, path } = connection
-			console.log('connection', connection)
 			const input = cachedInput(next, `${componentId}-${path}-${id}`)
 
 			const [p] = path ? path.split('.')[0].split('[') : [undefined]
