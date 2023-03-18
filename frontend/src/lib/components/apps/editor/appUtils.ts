@@ -21,6 +21,7 @@ import { allItems } from '../utils'
 import type { Output, World } from '../rx'
 import gridHelp from '../svelte-grid/utils/helper'
 import type { FilledItem } from '../svelte-grid/types'
+import type { EvalAppInput, StaticAppInput } from '../inputType'
 
 function findGridItemById(
 	root: GridItem[],
@@ -366,6 +367,19 @@ export function initOutput<I extends Record<string, any>>(
 		Object.entries(init).map(([key, value]) => [key, world.newOutput(id, key, value)])
 	) as Outputtable<I>
 }
+
+export function initConfig<T extends Record<string, StaticAppInput | EvalAppInput>>(
+	r: T
+): {
+	[Property in keyof T]: T[Property] extends StaticAppInput ? T[Property]['value'] | undefined : any
+} {
+	return Object.fromEntries(
+		Object.entries(r).map(([key, value]) =>
+			value.type == 'static' ? [key, undefined] : [key, undefined]
+		)
+	) as any
+}
+
 export function expandGriditem(
 	grid: GridItem[],
 	gridComponent: GridItem,
