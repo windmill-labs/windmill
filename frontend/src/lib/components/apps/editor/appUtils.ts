@@ -1,6 +1,21 @@
 import { getNextId } from '$lib/components/flows/flowStateUtils'
-import type { App, ConnectingInput, EditorBreakpoint, FocusedGrid, GridItem } from '../types'
-import { getRecommendedDimensionsByComponent, type AppComponent } from './component'
+import type {
+	App,
+	BaseAppComponent,
+	ConnectingInput,
+	EditorBreakpoint,
+	FocusedGrid,
+	GridItem,
+	StaticRichConfigurations
+} from '../types'
+import {
+	ccomponents,
+	components,
+	getRecommendedDimensionsByComponent,
+	type AppComponent,
+	type BaseComponent,
+	type TypedComponent
+} from './component'
 import { gridColumns } from '../gridUtils'
 import { allItems } from '../utils'
 import type { Output, World } from '../rx'
@@ -73,8 +88,7 @@ export function getAllRecomputeIdsForComponent(app: App, id: string) {
 
 export function createNewGridItem(grid: GridItem[], id: string, data: AppComponent): GridItem {
 	const newComponent = {
-		resizable: true,
-		draggable: true,
+		fixed: false,
 		x: 0,
 		y: 0
 	}
@@ -92,13 +106,8 @@ export function createNewGridItem(grid: GridItem[], id: string, data: AppCompone
 
 		newItem[column] = {
 			...newComponent,
-			min: { w: 1, h: 1 },
-			max: { w: column, h: 100 },
 			w: rec.w,
-			h: rec.h,
-			customDragger: false,
-			customResizer: false,
-			fixed: false
+			h: rec.h
 		}
 		const position = gridHelp.findSpace(newItem, grid, column) as { x: number; y: number }
 		newItem[column] = { ...newItem[column], ...position }
@@ -117,14 +126,48 @@ export function getGridItems(app: App, focusedGrid: FocusedGrid | undefined): Gr
 	}
 }
 
+export function appComponentFromType<T extends keyof typeof components>(
+	type: T
+): (id: string) => BaseAppComponent & BaseComponent<T> {
+	return (id: string) => {
+		const init = ccomponents[type].initialData
+		return {
+			type,
+			//TODO remove tooltip and onlyStatic from there
+			configuration: Object.fromEntries(
+				Object.entries(init.configuration).map(([key, value]) => {
+					if (value.ctype === undefined) {
+						if (value.type === 'static') {
+							return [key, { type: value.type, value: value.value }]
+						} else if (value.type === 'eval') {
+							return [key, { type: value.type, expr: value.expr }]
+						}
+					}
+					return [key, value]
+				})
+			),
+			componentInput: init.componentInput,
+			panes: init.panes,
+			tabs: init.tabs,
+			customCss: {},
+			recomputeIds: init.recomputeIds ? [] : undefined,
+			actionButtons: init.actionButtons ? [] : undefined,
+			numberOfSubgrids: init.numberOfSubgrids,
+			horizontalAlignment: init.horizontalAlignment,
+			verticalAlignment: init.verticalAlignment,
+			id
+		}
+	}
+}
 export function insertNewGridItem(
 	app: App,
-	data: AppComponent,
+	builddata: (id: string) => AppComponent,
 	focusedGrid: FocusedGrid | undefined,
-	keepId?: boolean
+	keepId?: string
 ) {
-	const id = keepId ? data.id : getNextGridItemId(app)
+	const id = keepId ?? getNextGridItemId(app)
 
+	const data = builddata(id)
 	if (!app.subgrids) {
 		app.subgrids = {}
 	}

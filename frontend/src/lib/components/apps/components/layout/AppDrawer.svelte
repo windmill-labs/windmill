@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
-	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import InputValue from '../helpers/InputValue.svelte'
 	import Portal from 'svelte-portal'
@@ -10,7 +9,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { AlignWrapper } from '../helpers'
 
-	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'drawercomponent'> | undefined = undefined
 	export let id: string
 	export let configuration: RichConfigurations
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
@@ -80,8 +79,8 @@
 				<SubGridEditor
 					visible={open && render}
 					{id}
-					class={css?.container.class}
-					style={css?.container.style}
+					class={css?.container?.class}
+					style={css?.container?.style}
 					bind:subGrid={$app.subgrids[`${id}-0`]}
 					containerHeight={1200}
 					on:focus={() => {

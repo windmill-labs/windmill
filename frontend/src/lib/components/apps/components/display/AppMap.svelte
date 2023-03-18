@@ -33,7 +33,7 @@
 
 	export let id: string
 	export let configuration: RichConfigurations
-	export let customCss: ComponentCustomCSS<'map'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'mapcomponent'> | undefined = undefined
 	export let render: boolean
 
 	const { app, worldStore, selectedComponent, connectingInput, focusedGrid, mode } =

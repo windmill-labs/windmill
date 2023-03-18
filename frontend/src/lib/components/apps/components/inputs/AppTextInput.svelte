@@ -13,7 +13,7 @@
 	export let configuration: RichConfigurations
 	export let inputType = 'text'
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let customCss: ComponentCustomCSS<'input'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'textinputcomponent'> | undefined = undefined
 	export let appCssKey: 'textinputcomponent' | 'passwordinputcomponent' | 'emailinputcomponent' =
 		'textinputcomponent'
 	export let render: boolean

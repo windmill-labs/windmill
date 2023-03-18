@@ -9,9 +9,6 @@
 	export let left
 	export let top
 
-	export let resizable
-	export let draggable
-
 	export let id
 	export let container
 
@@ -21,9 +18,6 @@
 	export let gapX
 	export let gapY
 	export let item
-
-	export let max
-	export let min
 
 	export let cols
 
@@ -195,10 +189,6 @@
 		if (shadow) {
 			shadow.x = Math.max(Math.min(gridX, cols - shadow.w), 0)
 			shadow.y = Math.max(gridY, 0)
-
-			if (max.y) {
-				shadow.y = Math.min(shadow.y, max.y)
-			}
 		}
 		repaint(undefined, false)
 	}
@@ -283,19 +273,13 @@
 
 			// Get max col number
 			let maxWidth = cols - shadow.x
-			maxWidth = Math.min(max.w, maxWidth) || maxWidth
+			maxWidth = maxWidth
 
 			// Limit bound
-			newSize.width = Math.max(
-				Math.min(newSize.width, maxWidth * xPerPx - gapX * 2),
-				min.w * xPerPx - gapX * 2
-			)
+			newSize.width = Math.min(newSize.width, maxWidth * xPerPx - gapX * 2)
 
-			newSize.height = Math.max(newSize.height, min.h * yPerPx - gapY * 2)
+			newSize.height = newSize.height
 
-			if (max.h) {
-				newSize.height = Math.min(newSize.height, max.h * yPerPx - gapY * 2)
-			}
 			// Limit col & row
 			shadow.w = Math.round((newSize.width + gapX * 2) / xPerPx)
 			shadow.h = Math.round((newSize.height + gapY * 2) / yPerPx)
@@ -316,7 +300,7 @@
 
 <div
 	draggable={false}
-	on:pointerdown={item && item.customDragger ? null : draggable && pointerdown}
+	on:pointerdown={pointerdown}
 	class="svlt-grid-item"
 	class:svlt-grid-active={active || (trans && rect)}
 	style="width: {active ? newSize.width : width}px; height:{active
@@ -329,9 +313,7 @@
 		: `transition: transform 0.1s, opacity 0.1s; transform: translate(${left}px, ${top}px); `} "
 >
 	<slot movePointerDown={pointerdown} {resizePointerDown} />
-	{#if resizable && !item.customResizer}
-		<div class="svlt-grid-resizer" on:pointerdown={resizePointerDown} />
-	{/if}
+	<div class="svlt-grid-resizer" on:pointerdown={resizePointerDown} />
 </div>
 
 {#if (active || trans) && shadow}

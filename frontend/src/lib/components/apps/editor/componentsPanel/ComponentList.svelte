@@ -3,9 +3,14 @@
 	import { getContext } from 'svelte'
 	import { fade, slide } from 'svelte/transition'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
-	import { components as componentsRecord, COMPONENT_SETS, type AppComponent } from '../component'
+	import {
+		components as componentsRecord,
+		COMPONENT_SETS,
+		type AppComponent,
+		type TypedComponent
+	} from '../component'
 	import ListItem from './ListItem.svelte'
-	import { insertNewGridItem } from '../appUtils'
+	import { appComponentFromType, insertNewGridItem } from '../appUtils'
 	import { X } from 'lucide-svelte'
 	import { push } from '$lib/history'
 	import { flip } from 'svelte/animate'
@@ -15,13 +20,16 @@
 
 	const { history } = getContext<AppEditorContext>('AppEditorContext')
 
-	function addComponent(appComponentType: AppComponent['type']): void {
+	function addComponent(appComponentType: TypedComponent['type']): void {
 		push(history, $app)
 
 		$dirtyStore = true
 
-		const data = componentsRecord[appComponentType].data
-		const id = insertNewGridItem($app, data, $focusedGrid)
+		const id = insertNewGridItem(
+			$app,
+			appComponentFromType(appComponentType) as (id: string) => AppComponent,
+			$focusedGrid
+		)
 
 		$selectedComponent = id
 		$worldStore = $worldStore

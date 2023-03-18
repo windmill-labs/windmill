@@ -156,8 +156,6 @@
 				on:pointerup={pointerup}
 				onTop={item.id == onTopId}
 				id={item.id}
-				resizable={item[getComputedCols] && item[getComputedCols].resizable}
-				draggable={item[getComputedCols] && item[getComputedCols].draggable}
 				{xPerPx}
 				{yPerPx}
 				width={Math.min(getComputedCols, item[getComputedCols] && item[getComputedCols].w) *
@@ -167,8 +165,6 @@
 				top={(item[getComputedCols] && item[getComputedCols].y) * yPerPx + gapY}
 				left={(item[getComputedCols] && item[getComputedCols].x) * xPerPx + gapX}
 				item={item[getComputedCols]}
-				min={item[getComputedCols] && item[getComputedCols].min}
-				max={item[getComputedCols] && item[getComputedCols].max}
 				cols={getComputedCols}
 				{gapX}
 				{gapY}

@@ -2,12 +2,17 @@
 	import { slide } from 'svelte/transition'
 	import { ChevronDown } from 'lucide-svelte'
 	import { isOpenStore } from './store'
+	import { createEventDispatcher } from 'svelte'
 
 	export let title: string
 	export let prefix: string | undefined = undefined
 
+	const dispatch = createEventDispatcher()
+
 	$: storeTitle = prefix + title
 	$: isOpen = prefix ? $isOpenStore[storeTitle] : true
+
+	$: dispatch('open', isOpen)
 </script>
 
 <section class="pt-1 pb-2 px-1">

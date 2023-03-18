@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { staticValues } from '../../componentsPanel/componentStaticValues'
-	import type { StaticAppInput } from '../../../inputType'
+	import type { InputType, StaticInput } from '../../../inputType'
 	import ArrayStaticInputEditor from '../ArrayStaticInputEditor.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import JsonEditor from './JsonEditor.svelte'
@@ -12,7 +12,12 @@
 	import { Icon } from 'svelte-awesome'
 	import { faDollarSign } from '@fortawesome/free-solid-svg-icons'
 
-	export let componentInput: StaticAppInput | undefined
+	export let componentInput: StaticInput<any> | undefined
+	export let fieldType: InputType | undefined = undefined
+	export let subFieldType: InputType | undefined = undefined
+	export let optionValuesKeys: keyof typeof staticValues | undefined = undefined
+	export let format: string | undefined = undefined
+	export let noVariablePicker: boolean = false
 
 	const { onchange } = getContext<AppViewerContext>('AppViewerContext')
 	const { pickVariableCallback } = getContext<AppEditorContext>('AppEditorContext')
@@ -21,25 +26,25 @@
 </script>
 
 {#if componentInput?.type === 'static'}
-	{#if componentInput.fieldType === 'number'}
+	{#if fieldType === 'number'}
 		<input on:keydown|stopPropagation type="number" bind:value={componentInput.value} />
-	{:else if componentInput.fieldType === 'textarea'}
+	{:else if fieldType === 'textarea'}
 		<textarea on:keydown|stopPropagation bind:value={componentInput.value} />
-	{:else if componentInput.fieldType === 'date'}
+	{:else if fieldType === 'date'}
 		<input on:keydown|stopPropagation type="date" bind:value={componentInput.value} />
-	{:else if componentInput.fieldType === 'boolean'}
+	{:else if fieldType === 'boolean'}
 		<Toggle bind:checked={componentInput.value} />
-	{:else if componentInput.fieldType === 'select'}
+	{:else if fieldType === 'select' && optionValuesKeys}
 		<select on:keydown|stopPropagation on:keydown|stopPropagation bind:value={componentInput.value}>
-			{#each staticValues[componentInput.optionValuesKey] || [] as option}
+			{#each staticValues[optionValuesKeys] || [] as option}
 				<option value={option}>
 					{option}
 				</option>
 			{/each}
 		</select>
-	{:else if componentInput.fieldType === 'icon-select'}
+	{:else if fieldType === 'icon-select'}
 		<IconSelectInput bind:componentInput />
-	{:else if componentInput.fieldType === 'labeledresource'}
+	{:else if fieldType === 'labeledresource'}
 		{#if componentInput?.value && typeof componentInput?.value == 'object' && 'label' in componentInput?.value}
 			<div class="flex flex-col gap-1 w-full">
 				<input
@@ -65,10 +70,10 @@
 		{:else}
 			Inconsistent labeled resource object
 		{/if}
-	{:else if componentInput.fieldType === 'color'}
+	{:else if fieldType === 'color'}
 		<ColorInput bind:componentInput />
-	{:else if componentInput.fieldType === 'object'}
-		{#if componentInput?.format?.startsWith('resource-')}
+	{:else if fieldType === 'object'}
+		{#if format?.startsWith('resource-')}
 			<ResourcePicker
 				initialValue={componentInput.value?.split('$res:')[1] || ''}
 				on:change={(e) => {
@@ -81,8 +86,8 @@
 						}
 					}
 				}}
-				resourceType={componentInput.format.split('-').length > 1
-					? componentInput.format.substring('resource-'.length)
+				resourceType={format.split('-').length > 1
+					? format.substring('resource-'.length)
 					: undefined}
 			/>
 		{:else}
@@ -93,8 +98,8 @@
 				/>
 			</div>
 		{/if}
-	{:else if componentInput.fieldType === 'array'}
-		<ArrayStaticInputEditor bind:componentInput on:deleteArrayItem />
+	{:else if fieldType === 'array'}
+		<ArrayStaticInputEditor {subFieldType} bind:componentInput on:deleteArrayItem />
 	{:else}
 		<div class="flex gap-1">
 			<input
@@ -103,18 +108,20 @@
 				placeholder="Static value"
 				bind:value={componentInput.value}
 			/>
-			<!-- svelte-ignore a11y-click-events-have-key-events -->
-			<div
-				class="min-w-min min-h-[34px] items-center leading-4 px-3 text-gray-600 cursor-pointer border border-gray-700 rounded center-center"
-				on:click={() => {
-					$pickVariableCallback = (variable) => {
-						if (componentInput) {
-							componentInput.value = `$var:${variable}`
+			{#if !noVariablePicker}
+				<!-- svelte-ignore a11y-click-events-have-key-events -->
+				<div
+					class="min-w-min min-h-[34px] items-center leading-4 px-3 text-gray-600 cursor-pointer border border-gray-700 rounded center-center"
+					on:click={() => {
+						$pickVariableCallback = (variable) => {
+							if (componentInput) {
+								componentInput.value = `$var:${variable}`
+							}
 						}
-					}
-				}}
-				><Icon data={faDollarSign} />
-			</div>
+					}}
+					><Icon data={faDollarSign} />
+				</div>
+			{/if}
 		</div>
 	{/if}
 {/if}

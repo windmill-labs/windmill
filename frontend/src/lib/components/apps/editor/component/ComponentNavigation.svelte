@@ -150,7 +150,7 @@
 	function handlePaste(event: KeyboardEvent) {
 		push(history, $app)
 
-		if (tempGridItem) {
+		if (tempGridItem != undefined) {
 			if (
 				$focusedGrid &&
 				getAllSubgridsAndComponentIds($app, tempGridItem.data)[0].includes(
@@ -169,11 +169,13 @@
 				grid.splice(idx, 1)
 			}
 
-			insertNewGridItem($app, tempGridItem.data, $focusedGrid, true)
+			const gridItem = tempGridItem
+			insertNewGridItem($app, (id) => ({ ...gridItem.data, id }), $focusedGrid, tempGridItem.id)
 			copiedGridItem = tempGridItem
 			tempGridItem = undefined
 		} else if (copiedGridItem) {
-			insertNewGridItem($app, copiedGridItem.data, $focusedGrid, false)
+			const gridItem = copiedGridItem
+			insertNewGridItem($app, (id) => ({ ...gridItem.data, id }), $focusedGrid)
 		}
 
 		$worldStore = $worldStore

@@ -21,7 +21,7 @@
 	export let extraQueryParams: Record<string, any> = {}
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let customCss: ComponentCustomCSS<'button' | 'popup'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'formbuttoncomponent'> | undefined = undefined
 	export let render: boolean
 
 	export const staticOutputs: string[] = ['loading', 'result']
@@ -85,8 +85,8 @@
 	<Modal
 		{open}
 		title={labelValue}
-		class={css?.popup.class}
-		style={css?.popup.style}
+		class={css?.popup?.class}
+		style={css?.popup?.style}
 		on:canceled={() => {
 			open = false
 		}}

@@ -16,7 +16,6 @@
 	export let extraContext: Record<string, any> = {}
 	export let key: string = ''
 
-	$: console.log(value)
 	const { componentControl } = getContext<AppViewerContext>('AppViewerContext')
 
 	const dispatch = createEventDispatcher()
@@ -27,7 +26,6 @@
 
 	let lastInput = input ? JSON.parse(JSON.stringify(input)) : undefined
 
-	$: console.log(input)
 	$: if (input && !deepEqual(input, lastInput)) {
 		lastInput = JSON.parse(JSON.stringify(input))
 		// Needed because of file uploads
@@ -65,7 +63,6 @@
 		debounce(async () => (value = await evalExpr(lastInput)))
 
 	async function handleConnection() {
-		console.log('handleConnection', lastInput)
 		if (lastInput.type === 'connected') {
 			$worldStore?.connect<any>(lastInput, onValueChange, `${id}-${key}`)
 		} else if (lastInput.type === 'static' || lastInput.type == 'template') {

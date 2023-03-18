@@ -14,7 +14,7 @@
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = 'left'
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let configuration: RichConfigurations
-	export let customCss: ComponentCustomCSS<'container' | 'icon'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'iconcomponent'> | undefined = undefined
 	export let render: boolean
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')

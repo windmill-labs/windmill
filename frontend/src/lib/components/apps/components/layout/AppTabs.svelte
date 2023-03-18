@@ -12,9 +12,7 @@
 	export let configuration: RichConfigurations
 	export let componentContainerHeight: number
 	export let tabs: string[]
-	export let customCss:
-		| ComponentCustomCSS<'tabRow' | 'tabs' | 'selectedTab' | 'container'>
-		| undefined = undefined
+	export let customCss: ComponentCustomCSS<'tabscomponent'> | undefined = undefined
 	export let render: boolean
 	export let initializing: boolean | undefined = configuration.tabsKind != undefined
 
@@ -100,8 +98,8 @@
 				{#each tabs ?? [] as res}
 					<Tab
 						value={res}
-						class={css?.tabs?.class}
-						style={css?.tabs?.style}
+						class={css?.allTabs?.class}
+						style={css?.allTabs?.style}
 						selectedClass={css?.selectedTab?.class}
 						selectedStyle={css?.selectedTab?.style}
 					>

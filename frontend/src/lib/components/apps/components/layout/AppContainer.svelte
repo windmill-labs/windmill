@@ -1,13 +1,12 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
-	import type { AppInput } from '../../inputType'
-	import type { AppViewerContext, ComponentCustomCSS, GridItem } from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { concatCustomCss } from '../../utils'
 
 	export let id: string
 	export let componentContainerHeight: number
-	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'containercomponent'> | undefined = undefined
 	export let render: boolean
 
 	const { app, focusedGrid, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
@@ -29,8 +28,8 @@
 		<SubGridEditor
 			visible={render}
 			{id}
-			class={css?.container.class}
-			style={css?.container.style}
+			class={css?.container?.class}
+			style={css?.container?.style}
 			bind:subGrid={$app.subgrids[`${id}-0`]}
 			containerHeight={componentContainerHeight}
 			on:focus={() => {

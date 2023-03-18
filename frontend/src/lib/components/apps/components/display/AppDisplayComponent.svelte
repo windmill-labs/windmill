@@ -14,7 +14,7 @@
 	export let id: string
 	export let componentInput: AppInput | undefined
 	export let initializing: boolean | undefined = undefined
-	export let customCss: ComponentCustomCSS<'header' | 'container'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'displaycomponent'> | undefined = undefined
 	export let render: boolean
 
 	const requireHtmlApproval = getContext<boolean | undefined>(IS_APP_PUBLIC_CONTEXT_KEY)

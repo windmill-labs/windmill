@@ -17,7 +17,9 @@
 	export let configuration: RichConfigurations
 	export let horizontalAlignment: HorizontalAlignment | undefined = undefined
 	export let verticalAlignment: VerticalAlignment | undefined = undefined
-	export let customCss: ComponentCustomCSS<'container' | 'divider'> | undefined = undefined
+	export let customCss:
+		| ComponentCustomCSS<'verticaldividercomponent' | 'horizontaldividercomponent'>
+		| undefined = undefined
 	export let position: 'horizontal' | 'vertical'
 	export let render: boolean
 

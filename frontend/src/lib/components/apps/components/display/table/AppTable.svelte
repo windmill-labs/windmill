@@ -28,9 +28,7 @@
 	export let configuration: RichConfigurations
 	export let actionButtons: (BaseAppComponent & ButtonComponent)[]
 	export let initializing: boolean | undefined = undefined
-	export let customCss:
-		| ComponentCustomCSS<'container' | 'tableHeader' | 'tableBody' | 'tableFooter'>
-		| undefined = undefined
+	export let customCss: ComponentCustomCSS<'tablecomponent'> | undefined = undefined
 	export let render: boolean
 
 	type T = Record<string, any>
@@ -339,8 +337,8 @@
 				paginationEnabled={pagination}
 				{result}
 				{table}
-				class={css?.tableFooter.class}
-				style={css?.tableFooter.style}
+				class={css?.tableFooter?.class}
+				style={css?.tableFooter?.style}
 			/>
 		</div>
 	{:else if result != undefined}
