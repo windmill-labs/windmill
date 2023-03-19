@@ -160,22 +160,26 @@
 				sendUserToast('Cannot paste a component into itself', true)
 				return
 			}
-			let parentGrid = findGridItemParentGrid($app, tempGridItem.data.id)
-			const grid = parentGrid ? $app.subgrids![parentGrid] : $app.grid
-			let idx = grid.findIndex((item) => {
-				return item.id == tempGridItem!.data.id
-			})
-			if (idx > -1) {
-				grid.splice(idx, 1)
+			let parentGrid = findGridItemParentGrid($app, tempGridItem.id)
+			if (parentGrid) {
+				$app.subgrids &&
+					($app.subgrids[parentGrid] = $app.subgrids[parentGrid].filter(
+						(item) => item.id !== tempGridItem?.id
+					))
+			} else {
+				$app.grid = $app.grid.filter((item) => item.id !== tempGridItem?.id)
 			}
 
 			const gridItem = tempGridItem
 			insertNewGridItem($app, (id) => ({ ...gridItem.data, id }), $focusedGrid, tempGridItem.id)
+
 			copiedGridItem = tempGridItem
+			$selectedComponent = tempGridItem.id
+
 			tempGridItem = undefined
 		} else if (copiedGridItem) {
 			const gridItem = copiedGridItem
-			insertNewGridItem($app, (id) => ({ ...gridItem.data, id }), $focusedGrid)
+			$selectedComponent = insertNewGridItem($app, (id) => ({ ...gridItem.data, id }), $focusedGrid)
 		}
 
 		$worldStore = $worldStore

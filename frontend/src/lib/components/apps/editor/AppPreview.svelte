@@ -129,15 +129,9 @@
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
 					<div
 						class={'h-full w-full center-center'}
-						on:pointerdown={() => ($selectedComponent = dataItem.data.id)}
+						on:pointerdown={() => ($selectedComponent = dataItem.id)}
 					>
-						<Component
-							render={true}
-							pointerdown={false}
-							component={dataItem.data}
-							selected={false}
-							locked={true}
-						/>
+						<Component render={true} component={dataItem.data} selected={false} locked={true} />
 					</div>
 				</GridViewer>
 			</div>

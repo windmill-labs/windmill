@@ -50,7 +50,6 @@
 				css?.input?.class ?? ''
 			)}
 			style={css?.input?.style ?? ''}
-			on:pointerdown|stopPropagation
 			on:focus={() => ($selectedComponent = id)}
 			type="password"
 			bind:value
@@ -63,7 +62,6 @@
 				css?.input?.class ?? ''
 			)}
 			style={css?.input?.style ?? ''}
-			on:pointerdown|stopPropagation
 			on:focus={() => ($selectedComponent = id)}
 			type="text"
 			bind:value
@@ -76,7 +74,6 @@
 				css?.input?.class ?? ''
 			)}
 			style={css?.input?.style ?? ''}
-			on:pointerdown|stopPropagation
 			on:focus={() => ($selectedComponent = id)}
 			type="email"
 			bind:value

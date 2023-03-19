@@ -11,7 +11,6 @@
 	export let component: AppComponent
 	export let selected: boolean
 	export let locked: boolean = false
-	export let pointerdown: boolean = false
 	export let hover: boolean = false
 
 	const dispatch = createEventDispatcher()

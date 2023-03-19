@@ -44,7 +44,6 @@
 	export let component: AppComponent
 	export let selected: boolean
 	export let locked: boolean = false
-	export let pointerdown: boolean = false
 	export let render: boolean
 
 	const { mode, app, errorByComponent, hoverStore } =
@@ -73,7 +72,6 @@
 	{#if $mode !== 'preview'}
 		<ComponentHeader
 			hover={$hoverStore === component.id}
-			{pointerdown}
 			{component}
 			{selected}
 			on:delete
@@ -341,7 +339,7 @@
 				customCss={component.customCss}
 				{render}
 			/>
-		{:else if component.type === 'tabscomponent'}
+		{:else if component.type === 'tabscomponent' && component.tabs}
 			<AppTabs
 				configuration={component.configuration}
 				id={component.id}

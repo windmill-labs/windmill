@@ -142,10 +142,6 @@
 			)}
 			style={[$app.css?.['buttoncomponent']?.['button']?.style, customCss?.button?.style].join(';')}
 			disabled={resolvedConfig.disabled}
-			on:pointerdown={(e) => {
-				e?.stopPropagation()
-				window.dispatchEvent(new Event('pointerup'))
-			}}
 			on:click={handleClick}
 			size={resolvedConfig.size}
 			color={resolvedConfig.color}

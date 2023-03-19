@@ -137,6 +137,7 @@
 	$: width = $breakpoint === 'sm' ? 'min-w-[400px] max-w-[656px]' : 'min-w-[710px] w-full'
 
 	let selectedTab: 'insert' | 'settings' = 'insert'
+
 	$: if ($selectedComponent) {
 		selectedTab = 'settings'
 	} else {

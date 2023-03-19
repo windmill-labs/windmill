@@ -46,8 +46,11 @@
 	$: $selectedComponent === id && focusGrid()
 
 	function focusGrid() {
+		console.log('focusGrid', id)
 		const selectedIndex = tabs?.indexOf(selected)
 		if ($focusedGrid?.parentComponentId != id || $focusedGrid?.subGridIndex != selectedIndex) {
+			console.log('set', id)
+
 			$focusedGrid = {
 				parentComponentId: id,
 				subGridIndex: selectedIndex
@@ -80,8 +83,6 @@
 	$: selected && handleTabSelection()
 	$: selectedIndex = tabs?.indexOf(selected) ?? -1
 	$: css = concatCustomCss($app.css?.tabscomponent, customCss)
-
-	let subgridWidth: number | undefined = undefined
 </script>
 
 <InputValue
@@ -125,13 +126,13 @@
 		</div>
 	{/if}
 
-	<div bind:clientWidth={subgridWidth} class="w-full">
+	<div class="w-full">
 		{#if $app.subgrids}
 			{#each tabs ?? [] as res, i}
 				<SubGridEditor
 					{id}
 					visible={render && i === selectedIndex}
-					bind:subGrid={$app.subgrids[`${id}-${i}`]}
+					subGridId={`${id}-${i}`}
 					class={css?.container?.class}
 					style={css?.container?.style}
 					containerHeight={componentContainerHeight - tabHeight}

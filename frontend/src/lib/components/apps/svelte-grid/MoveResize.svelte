@@ -143,6 +143,7 @@
 		}
 	}
 
+	let startDrag: NodeJS.Timeout | undefined = undefined
 	const pointerdown = ({ clientX, clientY, target }) => {
 		initX = clientX
 		initY = clientY
@@ -158,8 +159,10 @@
 
 		computeRect(target)
 
-		active = true
-		trans = false
+		startDrag = setTimeout(() => {
+			active = true
+			trans = false
+		}, 200)
 		_scrollTop = scrollElement.scrollTop
 
 		window.addEventListener('pointermove', pointermove)
@@ -298,9 +301,13 @@
 	}
 </script>
 
+<!-- svelte-ignore a11y-click-events-have-key-events -->
 <div
-	draggable={false}
-	on:pointerdown={pointerdown}
+	draggable="false"
+	on:click|stopPropagation={() => {
+		startDrag && clearTimeout(startDrag)
+	}}
+	on:pointerdown|stopPropagation={pointerdown}
 	class="svlt-grid-item"
 	class:svlt-grid-active={active || (trans && rect)}
 	style="width: {active ? newSize.width : width}px; height:{active

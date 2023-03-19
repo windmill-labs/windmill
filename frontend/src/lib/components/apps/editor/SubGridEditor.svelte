@@ -17,7 +17,7 @@
 	export let style = ''
 	export let noPadding = false
 	export let noYPadding = false
-	export let subGrid: GridItem[] = []
+	export let subGridId: string
 	export let visible: boolean = true
 	export let id: string
 	export let shouldHighlight: boolean = true
@@ -31,41 +31,26 @@
 
 	$: highlight = id === $focusedGrid?.parentComponentId && shouldHighlight
 
-	let pointerdown = false
-	let onComponent: string | undefined = undefined
-
 	const onpointerdown = (e) => {
-		if (onComponent === undefined) {
-			dispatch('focus')
-		} else {
-			onComponent = undefined
-		}
-		pointerdown = true
-	}
-
-	const onpointerup = () => {
-		pointerdown = false
+		dispatch('focus')
 	}
 
 	function selectComponent(id: string) {
-		onComponent = id
 		if (!$connectingInput.opened) {
-			if (id !== $selectedComponent) {
-				$selectedComponent = id
-			}
+			dispatch('focus')
+			$selectedComponent = id
 		}
 	}
 
 	function lock(dataItem: GridItem) {
-		let fComponent = findGridItem($app, dataItem.data.id)
+		let fComponent = findGridItem($app, dataItem.id)
 		if (fComponent) {
 			fComponent = toggleFixed(fComponent)
 		}
 		$app = $app
 	}
 
-	// @ts-ignore
-	let container
+	let container: HTMLElement | undefined = undefined
 </script>
 
 <div
@@ -73,6 +58,7 @@
 		? 'visible'
 		: 'invisible h-0 overflow-hidden'} 	"
 	bind:this={container}
+	on:pointerdown={onpointerdown}
 >
 	<div
 		class={twMerge(
@@ -81,18 +67,17 @@
 			classes ?? '',
 			noPadding ? 'px-0' : 'px-2'
 		)}
-		on:pointerdown|stopPropagation={onpointerdown}
-		on:pointerleave={onpointerup}
-		on:pointerup={onpointerup}
 		style="height: {containerHeight}px; {style ?? ''}"
 	>
 		{#if $mode !== 'preview'}
 			<div class={highlight ? 'border-gray-400  border border-dashed min-h-full' : ''}>
 				<Grid
-					items={subGrid}
+					items={$app.subgrids?.[subGridId] ?? []}
 					on:redraw={(e) => {
 						push(history, $app)
-						subGrid = e.detail
+						if ($app.subgrids) {
+							$app.subgrids[subGridId] = e.detail
+						}
 					}}
 					let:dataItem
 					rowHeight={36}
@@ -106,7 +91,7 @@
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
 					{#if $connectingInput.opened}
 						<div
-							on:pointerenter={() => ($connectingInput.hoveredComponent = dataItem.data.id)}
+							on:pointerenter={() => ($connectingInput.hoveredComponent = dataItem.id)}
 							on:pointerleave={() => ($connectingInput.hoveredComponent = undefined)}
 							class="absolute w-full h-full bg-black border-2 bg-opacity-25 z-20 flex justify-center items-center"
 						/>
@@ -114,24 +99,23 @@
 							style="transform: translate(-50%, -50%);"
 							class="absolute w-fit justify-center bg-indigo-500/90 left-[50%] top-[50%] z-50 px-6 rounded border text-white py-2 text-5xl center-center"
 						>
-							{dataItem.data.id}
+							{dataItem.id}
 						</div>
 					{/if}
 
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
 					<div
-						on:pointerdown={() => selectComponent(dataItem.data.id)}
+						on:pointerdown={() => selectComponent(dataItem.id)}
 						class={classNames(
 							'h-full w-full center-center',
-							$selectedComponent === dataItem.data.id ? 'active-grid-item' : '',
+							$selectedComponent === dataItem.id ? 'active-grid-item' : '',
 							'top-0'
 						)}
 					>
 						<Component
 							render={visible}
-							{pointerdown}
 							component={dataItem.data}
-							selected={$selectedComponent === dataItem.data.id}
+							selected={$selectedComponent === dataItem.id}
 							locked={isFixed(dataItem)}
 							on:lock={() => lock(dataItem)}
 							on:expand={() => {
@@ -140,10 +124,15 @@
 								if (!parentGridItem) {
 									return
 								}
-								$selectedComponent = dataItem.data.id
+								$selectedComponent = dataItem.id
 								push(history, $app)
 
-								expandGriditem(subGrid, dataItem, $breakpoint, parentGridItem)
+								expandGriditem(
+									$app.subgrids?.[subGridId] ?? [],
+									dataItem.id,
+									$breakpoint,
+									parentGridItem
+								)
 								$app = $app
 							}}
 						/>
@@ -152,7 +141,7 @@
 			</div>
 		{:else}
 			<GridViewer
-				items={subGrid}
+				items={$app.subgrids?.[subGridId] ?? []}
 				let:dataItem
 				rowHeight={36}
 				cols={columnConfiguration}
@@ -162,14 +151,13 @@
 			>
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<div
-					on:pointerdown={() => selectComponent(dataItem.data.id)}
+					on:pointerdown={() => selectComponent(dataItem.id)}
 					class={classNames('h-full w-full center-center', 'top-0')}
 				>
 					<Component
 						render={visible}
-						{pointerdown}
 						component={dataItem.data}
-						selected={$selectedComponent === dataItem.data.id}
+						selected={$selectedComponent === dataItem.id}
 						locked={isFixed(dataItem)}
 					/>
 				</div>
