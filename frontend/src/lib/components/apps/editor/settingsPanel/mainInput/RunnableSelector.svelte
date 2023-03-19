@@ -7,7 +7,7 @@
 	import type { ResultAppInput } from '$lib/components/apps/inputType'
 	import WorkspaceScriptList from './WorkspaceScriptList.svelte'
 	import WorkspaceFlowList from './WorkspaceFlowList.svelte'
-	import type { AppViewerContext } from '$lib/components/apps/types'
+	import type { AppEditorContext, AppViewerContext } from '$lib/components/apps/types'
 	import { getContext } from 'svelte'
 	import type { Schema } from '$lib/common'
 	import { getAllScriptNames, loadSchema, schemaToInputsSpec } from '$lib/components/apps/utils'
@@ -17,12 +17,14 @@
 
 	export let appInput: ResultAppInput
 	export let defaultUserInput = false
+	export let id: string
 
 	let tab: Tab = 'inlinescripts'
 	let filter: string = ''
 	let picker: Drawer
 
 	const { app, workspace } = getContext<AppViewerContext>('AppViewerContext')
+	const { selectedComponentInEditor } = getContext<AppEditorContext>('AppEditorContext')
 
 	async function loadSchemaFromTriggerable(
 		path: string,
@@ -42,6 +44,7 @@
 				schema
 			}
 			appInput.fields = fields
+			$selectedComponentInEditor = id
 		}
 	}
 
@@ -56,6 +59,7 @@
 				schema
 			}
 			appInput.fields = fields
+			$selectedComponentInEditor = id
 		}
 	}
 
@@ -70,6 +74,7 @@
 				schema
 			}
 			appInput.fields = fields
+			$selectedComponentInEditor = id
 		}
 	}
 
@@ -87,6 +92,7 @@
 
 			$app.unusedInlineScripts.splice(unusedInlineScriptIndex, 1)
 		}
+		$selectedComponentInEditor = id
 		$app = $app
 	}
 
@@ -108,6 +114,7 @@
 		}
 
 		appInput = appInput
+		$selectedComponentInEditor = id
 
 		return newScriptPath
 	}

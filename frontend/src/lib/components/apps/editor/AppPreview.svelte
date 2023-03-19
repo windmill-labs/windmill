@@ -71,13 +71,6 @@
 		hoverStore: writable(undefined)
 	})
 
-	setContext<AppEditorContext>('AppEditorContext', {
-		history: undefined,
-		pickVariableCallback: writable(undefined),
-		ontextfocus: writable(undefined),
-		selectedComponentInEditor: writable(undefined)
-	})
-
 	let ncontext = context
 
 	function hashchange(e: HashChangeEvent) {

@@ -5,7 +5,7 @@
 	import { columnConfiguration, isFixed, toggleFixed } from '../gridUtils'
 	import type { AppEditorContext, AppViewerContext, GridItem } from '../types'
 	import Component from './component/Component.svelte'
-	import { expandGriditem, findGridItem, sortGridItemsPosition } from './appUtils'
+	import { expandGriditem, findGridItem } from './appUtils'
 	import { push } from '$lib/history'
 	import Grid from '../svelte-grid/Grid.svelte'
 	import GridViewer from './GridViewer.svelte'
@@ -27,7 +27,7 @@
 	const { app, connectingInput, selectedComponent, focusedGrid, mode, parentWidth, breakpoint } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	const { history } = getContext<AppEditorContext>('AppEditorContext')
+	const editorContext = getContext<AppEditorContext>('AppEditorContext')
 
 	$: highlight = id === $focusedGrid?.parentComponentId && shouldHighlight
 
@@ -74,7 +74,7 @@
 				<Grid
 					items={$app.subgrids?.[subGridId] ?? []}
 					on:redraw={(e) => {
-						push(history, $app)
+						push(editorContext?.history, $app)
 						if ($app.subgrids) {
 							$app.subgrids[subGridId] = e.detail
 						}
@@ -125,7 +125,7 @@
 									return
 								}
 								$selectedComponent = dataItem.id
-								push(history, $app)
+								push(editorContext?.history, $app)
 
 								expandGriditem(
 									$app.subgrids?.[subGridId] ?? [],

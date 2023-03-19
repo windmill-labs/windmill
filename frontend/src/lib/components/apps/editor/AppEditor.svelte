@@ -104,6 +104,7 @@
 		history,
 		pickVariableCallback,
 		ontextfocus: writable(undefined),
+		movingcomponent: writable(undefined),
 		selectedComponentInEditor: writable(undefined)
 	})
 

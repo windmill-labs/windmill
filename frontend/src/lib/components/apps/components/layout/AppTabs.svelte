@@ -46,11 +46,8 @@
 	$: $selectedComponent === id && focusGrid()
 
 	function focusGrid() {
-		console.log('focusGrid', id)
 		const selectedIndex = tabs?.indexOf(selected)
 		if ($focusedGrid?.parentComponentId != id || $focusedGrid?.subGridIndex != selectedIndex) {
-			console.log('set', id)
-
 			$focusedGrid = {
 				parentComponentId: id,
 				subGridIndex: selectedIndex

@@ -104,7 +104,6 @@
 				onTopId={$selectedComponent}
 				items={$app.grid}
 				on:redraw={(e) => {
-					console.log('redraw')
 					push(history, $app)
 					$app.grid = e.detail
 				}}
