@@ -17,6 +17,7 @@
 	export let componentInput: AppInput | undefined
 	export let defaultUserInput = false
 	export let id: string
+	export let transformer: boolean
 
 	async function fork(path: string) {
 		let { content, language, schema } = await getScriptByPath(path)
@@ -76,7 +77,27 @@
 	</DrawerContent>
 </Drawer>
 
-{#if componentInput && componentInput.type == 'runnable'}
+{#if transformer}
+	{#if componentInput?.type == 'runnable' && componentInput.transformer}
+		<InlineScriptEditor
+			transformer
+			defaultUserInput={false}
+			{id}
+			bind:inlineScript={componentInput.transformer}
+			name="Transformer"
+			on:delete={() => {
+				if (componentInput?.type == 'runnable') {
+					componentInput.transformer = undefined
+					componentInput = componentInput
+				}
+			}}
+		/>
+	{:else}
+		<span class="px-2 text-gray-600"
+			>Selected editor component is a transformer but component has no transformer
+		</span>
+	{/if}
+{:else if componentInput && componentInput.type == 'runnable'}
 	{#if componentInput?.runnable?.type === 'runnableByName' && componentInput?.runnable?.name !== undefined}
 		{#if componentInput.runnable.inlineScript}
 			<InlineScriptEditor

@@ -1,16 +1,15 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import type { AppViewerContext } from '../../types'
+	import type { AppEditorContext, AppViewerContext } from '../../types'
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import InlineScriptsPanelList from './InlineScriptsPanelList.svelte'
 	import InlineScriptEditor from './InlineScriptEditor.svelte'
 	import EmptyInlineScript from './EmptyInlineScript.svelte'
-	import InlineScriptEditorPanel from './InlineScriptEditorPanel.svelte'
+	import InlineScriptsPanelWithTable from './InlineScriptsPanelWithTable.svelte'
 
 	const { app, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
-
-	let selectedScriptComponentId: string | undefined = undefined
+	const { selectedComponentInEditor } = getContext<AppEditorContext>('AppEditorContext')
 
 	function deleteBackgroundScript(index: number) {
 		// remove the script from the array at the index
@@ -24,65 +23,27 @@
 <SplitPanesWrapper>
 	<Splitpanes class="!overflow-visible">
 		<Pane size={25}>
-			<InlineScriptsPanelList bind:selectedScriptComponentId />
+			<InlineScriptsPanelList />
 		</Pane>
 		<Pane size={75}>
-			{#if !selectedScriptComponentId}
+			{#if !$selectedComponentInEditor}
 				<div class="text-sm text-gray-500 text-center py-8 px-2">
 					Select a script on the left panel
 				</div>
 			{/if}
 
-			{#each $app.grid as gridItem (gridItem?.data?.id)}
-				{#if gridItem?.data?.id && gridItem.data.id === selectedScriptComponentId}
-					<InlineScriptEditorPanel
-						defaultUserInput={gridItem?.data?.type == 'formcomponent' ||
-							gridItem?.data?.type == 'formbuttoncomponent'}
-						id={gridItem.data.id}
-						bind:componentInput={gridItem.data.componentInput}
-					/>
-				{/if}
-
-				{#if gridItem?.data?.type === 'tablecomponent'}
-					{#each gridItem.data.actionButtons as actionButton (actionButton.id)}
-						{#if actionButton.id === selectedScriptComponentId}
-							<InlineScriptEditorPanel
-								id={actionButton.id}
-								bind:componentInput={actionButton.componentInput}
-							/>
-						{/if}
-					{/each}
-				{/if}
+			{#each $app.grid as gridItem (gridItem.id)}
+				<InlineScriptsPanelWithTable bind:gridItem />
 			{/each}
 
-			{#if $app.subgrids}
-				{#each Object.keys($app.subgrids ?? {}) as key (key)}
-					{#each $app.subgrids[key] as gridItem (gridItem?.data?.id)}
-						{#if gridItem?.data?.id && gridItem.data.id === selectedScriptComponentId}
-							<InlineScriptEditorPanel
-								defaultUserInput={gridItem.data?.type == 'formcomponent' ||
-									gridItem?.data?.type == 'formbuttoncomponent'}
-								id={gridItem.data.id}
-								bind:componentInput={gridItem.data.componentInput}
-							/>
-						{/if}
-
-						{#if gridItem?.data?.type === 'tablecomponent'}
-							{#each gridItem.data.actionButtons as actionButton, index (index)}
-								{#if actionButton.id === selectedScriptComponentId}
-									<InlineScriptEditorPanel
-										id={actionButton.id}
-										bind:componentInput={actionButton.componentInput}
-									/>
-								{/if}
-							{/each}
-						{/if}
-					{/each}
+			{#each Object.keys($app.subgrids ?? {}) as key (key)}
+				{#each $app?.subgrids?.[key] ?? [] as gridItem (gridItem.id)}
+					<InlineScriptsPanelWithTable bind:gridItem />
 				{/each}
-			{/if}
+			{/each}
 
 			{#each $app.unusedInlineScripts as unusedInlineScript, index (index)}
-				{#if `unused-${index}` === selectedScriptComponentId}
+				{#if `unused-${index}` === $selectedComponentInEditor}
 					<InlineScriptEditor
 						id={`unused-${index}`}
 						bind:name={unusedInlineScript.name}
@@ -96,7 +57,7 @@
 				{/if}
 			{/each}
 			{#each $app?.hiddenInlineScripts ?? [] as hiddenInlineScript, index (index)}
-				{#if `bg_${index}` === selectedScriptComponentId}
+				{#if `bg_${index}` === $selectedComponentInEditor}
 					{#if hiddenInlineScript.inlineScript}
 						<InlineScriptEditor
 							id={`bg_${index}`}

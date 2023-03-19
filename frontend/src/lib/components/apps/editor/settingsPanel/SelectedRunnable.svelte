@@ -4,23 +4,16 @@
 	import { faClose, faEdit } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { ResultAppInput } from '../../inputType'
-	import type { AppViewerContext } from '../../types'
+	import type { AppEditorContext, AppViewerContext } from '../../types'
 	import { clearResultAppInput } from '../../utils'
 	import type { AppComponent } from '../component'
-	import InlineScriptEditorDrawer from '../inlineScriptsPanel/InlineScriptEditorDrawer.svelte'
 	import ComponentTriggerList from './triggerLists/ComponentTriggerList.svelte'
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
+	const { selectedComponentInEditor } = getContext<AppEditorContext>('AppEditorContext')
 
 	export let appInput: ResultAppInput
-	let inlineScriptEditorDrawer: InlineScriptEditorDrawer
 	export let appComponent: AppComponent
-
-	function edit() {
-		if (appInput.runnable?.type === 'runnableByName') {
-			inlineScriptEditorDrawer?.openDrawer()
-		}
-	}
 
 	function detach() {
 		if (appInput.runnable?.type === 'runnableByName' && appInput.runnable.inlineScript) {
@@ -38,13 +31,7 @@
 	}
 </script>
 
-{#if appInput.runnable && appInput.runnable.type === 'runnableByName' && appInput.runnable.inlineScript}
-	<InlineScriptEditorDrawer
-		bind:this={inlineScriptEditorDrawer}
-		bind:inlineScript={appInput.runnable.inlineScript}
-	/>
-{/if}
-<div class="flex flex-col xl:flex-row justify-between w-full flex-wrap items-center gap-1">
+<div class="flex justify-between w-full items-center gap-1">
 	<span class="text-xs font-semibold truncate">
 		{#if appInput.runnable?.type === 'runnableByName'}
 			{appInput.runnable.name}
@@ -52,13 +39,10 @@
 			{appInput.runnable.path}
 		{/if}
 	</span>
-	<div class="flex gap-1 flex-wrap justify-center">
+	<div class="flex gap-1  justify-center">
 		{#if appInput.runnable?.type === 'runnableByName' && appInput.runnable.inlineScript}
-			<Button size="xs" color="light" variant="border" startIcon={{ icon: faEdit }} on:click={edit}>
-				Edit
-			</Button>
 			<Button size="xs" color="light" variant="border" on:click={detach}>
-				Detach
+				Detach&nbsp;
 				<Tooltip>
 					Detaching an inline script keep it for later to be reused by another component
 				</Tooltip>
@@ -69,17 +53,60 @@
 		</Button>
 	</div>
 </div>
+<div>
+	<div class="w-full"><div class="mx-auto w-0">&downarrow;</div></div>
+	<div class="flex gap-1 justify-between items-center">
+		<span class="text-xs font-semibold truncate">
+			Transformer &nbsp;<Tooltip
+				>A transformer is an optional frontend script that is executed right after the component's
+				script whose purpose is to do lightweight transformation in the browser. It takes the
+				previous computation's result as `result`</Tooltip
+			></span
+		>
+		<div class="flex gap-1">
+			{#if !appInput.transformer}
+				<div>
+					<Button
+						variant="border"
+						color="light"
+						size="xs"
+						on:click={() => {
+							appInput.transformer = {
+								language: 'frontend',
+								content: 'return result'
+							}
+							$selectedComponentInEditor = appComponent.id + '_transformer'
+						}}>Add Transformer</Button
+					>
+				</div>
+			{:else}
+				<Button
+					size="xs"
+					color="red"
+					variant="border"
+					startIcon={{ icon: faClose }}
+					on:click={() => {
+						appInput.transformer = undefined
+					}}
+				>
+					Clear
+				</Button>
+			{/if}
+		</div></div
+	>
+</div>
+
 {#if appInput.runnable?.type === 'runnableByName' && appInput.runnable.inlineScript}
-	<ComponentTriggerList {appComponent} fields={appInput.fields} />
+	<div>
+		<ComponentTriggerList
+			bind:runnable={appInput.runnable}
+			{appComponent}
+			fields={appInput.fields}
+		/>
+	</div>
 {/if}
 {#if appInput.runnable?.type === 'runnableByName' && !appInput.runnable.inlineScript}
 	<span class="text-xs text-gray-500">
 		Please configure the language in the inline script panel
-	</span>
-{/if}
-{#if appInput.runnable?.type === 'runnableByName' && appInput.runnable.inlineScript?.language === 'frontend'}
-	<span class="text-xs text-gray-500">
-		If the component is a display component. The script will be recomputed upon any changes to any
-		output or to the state.
 	</span>
 {/if}

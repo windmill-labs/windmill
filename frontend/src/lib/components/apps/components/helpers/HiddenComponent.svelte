@@ -32,6 +32,7 @@
 	{fields}
 	{autoRefresh}
 	bind:result
+	transformer={undefined}
 	runnable={{
 		name,
 		inlineScript,

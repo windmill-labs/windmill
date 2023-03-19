@@ -2,6 +2,7 @@
 	import type {
 		ConnectedAppInput,
 		RowAppInput,
+		RunnableByName,
 		StaticAppInput,
 		UserAppInput
 	} from '$lib/components/apps/inputType'
@@ -14,6 +15,7 @@
 	const { selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 	export let fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
 	export let appComponent: AppComponent
+	export let runnable: RunnableByName
 
 	const onClick = ['buttoncomponent', 'formbuttoncomponent', 'formcomponent'].includes(
 		appComponent.type
@@ -28,6 +30,7 @@
 
 <TriggerBadgesList
 	inputDependencies={getDependencies(fields)}
+	bind:inlineScript={runnable.inlineScript}
 	{onLoad}
 	id={$selectedComponent}
 	{onClick}

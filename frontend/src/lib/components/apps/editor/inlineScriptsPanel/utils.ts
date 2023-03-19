@@ -1,12 +1,12 @@
 import type { Schema } from '$lib/common'
 import type { AppInputs, Runnable } from '../../inputType'
-import type { GridItem } from '../../types'
+import type { GridItem, InlineScript } from '../../types'
 import { fieldTypeToTsType, schemaToInputsSpec } from '../../utils'
 import type { AppComponent } from '../component'
 
 export interface AppScriptsList {
-	inline: { name: string; id: string }[]
-	imported: { name: string; id: string }[]
+	inline: { name: string; id: string; transformer: boolean }[]
+	imported: { name: string; id: string; transformer: boolean }[]
 }
 
 // When the schema is loaded, we need to update the inputs spec
@@ -51,11 +51,16 @@ function processGridItemRunnable(gridItem: GridItem, list: AppScriptsList): AppS
 				if (actionButton.componentInput?.type !== 'runnable') {
 					return
 				}
-				processRunnable(actionButton.componentInput.runnable, actionButton.id, list)
+				processRunnable(
+					actionButton.componentInput.runnable,
+					actionButton.componentInput.transformer,
+					actionButton.id,
+					list
+				)
 			})
 		}
 		if (componentInput?.type === 'runnable') {
-			processRunnable(componentInput.runnable, gridItem.id, list)
+			processRunnable(componentInput.runnable, componentInput.transformer, gridItem.id, list)
 		}
 	}
 	return list
@@ -67,7 +72,7 @@ export function getAppScripts(
 ): AppScriptsList {
 	const scriptsList = grid.reduce(
 		(acc, gridComponent) => processGridItemRunnable(gridComponent, acc),
-		{ inline: [], imported: [] } as AppScriptsList
+		{ inline: [], imported: [], transformer: false } as AppScriptsList
 	)
 
 	if (subgrids) {
@@ -81,13 +86,19 @@ export function getAppScripts(
 	return scriptsList
 }
 
-function processRunnable(runnable: Runnable, id: string, list: AppScriptsList) {
+function processRunnable(
+	runnable: Runnable,
+	transformer: InlineScript | undefined,
+	id: string,
+	list: AppScriptsList
+) {
 	if (runnable?.type === undefined) {
 		return
 	}
 	const type: keyof AppScriptsList = runnable.type === 'runnableByPath' ? 'imported' : 'inline'
 	list[type].push({
 		name: runnable[runnable.type === 'runnableByPath' ? 'path' : 'name'],
-		id
+		id,
+		transformer: transformer !== undefined
 	})
 }

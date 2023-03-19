@@ -72,7 +72,7 @@ export type RunnableByPath = {
 	type: 'runnableByPath'
 }
 
-type RunnableByName = {
+export type RunnableByName = {
 	name: string
 	inlineScript: InlineScript | undefined
 	type: 'runnableByName'
@@ -83,6 +83,7 @@ export type Runnable = RunnableByPath | RunnableByName | undefined
 // Runnable input, set by the developer in the component panel
 export type ResultInput = {
 	runnable: Runnable
+	transformer?: InlineScript & { language: 'frontend' }
 	fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
 	type: 'runnable'
 	value?: any

@@ -194,6 +194,7 @@ export const components = {
 		name: 'Rich Result',
 		icon: Monitor,
 		dims: '2:8-6:8' as AppComponentDimensions,
+		softWrap: false,
 		customCss: {
 			header: { class: '', style: '' },
 			container: { class: '', style: '' }
