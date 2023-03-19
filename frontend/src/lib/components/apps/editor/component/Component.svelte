@@ -2,7 +2,7 @@
 	import { getContext } from 'svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
-	import type { AppViewerContext } from '../../types'
+	import type { AppEditorContext, AppViewerContext } from '../../types'
 	import ComponentHeader from '../ComponentHeader.svelte'
 	import { ccomponents, components, type AppComponent } from './components'
 	import {
@@ -48,6 +48,11 @@
 
 	const { mode, app, errorByComponent, hoverStore } =
 		getContext<AppViewerContext>('AppViewerContext')
+
+	const editorContext = getContext<AppEditorContext>('AppEditorContext')
+	const movingcomponent = editorContext?.movingcomponent
+	$: ismoving = movingcomponent != undefined && $movingcomponent === component.id
+
 	let initializing: boolean | undefined = undefined
 	let componentContainerHeight: number = 0
 
@@ -81,6 +86,16 @@
 		/>
 	{/if}
 
+	{#if ismoving}
+		<div class="absolute -top-8 w-40 ">
+			<button
+				class="border p-0.5 text-xs"
+				on:click={() => {
+					$movingcomponent = undefined
+				}}>Cancel move</button
+			>
+		</div>
+	{/if}
 	<div
 		class={twMerge(
 			'h-full bg-white/40 outline-1',
@@ -89,7 +104,8 @@
 			ccomponents[component.type].softWrap || hasError ? '' : 'overflow-auto',
 			$mode != 'preview' ? 'cursor-pointer' : '',
 			'relative z-auto',
-			$app.css?.['app']?.['component']?.class
+			$app.css?.['app']?.['component']?.class,
+			ismoving ? 'animate-pulse' : ''
 		)}
 		style={$app.css?.['app']?.['component']?.style}
 		bind:clientHeight={componentContainerHeight}

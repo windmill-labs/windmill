@@ -50,6 +50,7 @@
 	}
 
 	$: lastInput && $worldStore && debounce(handleConnection)
+
 	$: lastInput &&
 		lastInput.type == 'template' &&
 		$stateId &&
@@ -58,6 +59,7 @@
 			value = await getValue(lastInput)
 			dispatch('done')
 		})
+
 	$: lastInput &&
 		lastInput.type == 'eval' &&
 		$stateId &&

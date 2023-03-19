@@ -13,7 +13,7 @@
 	const { app, selectedComponent, worldStore, focusedGrid, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	const { history } = getContext<AppEditorContext>('AppEditorContext')
+	const { history, movingcomponent } = getContext<AppEditorContext>('AppEditorContext')
 
 	let tempGridItem: GridItem | undefined = undefined
 	let copiedGridItem: GridItem | undefined = undefined
@@ -134,6 +134,7 @@
 		if (!$selectedComponent) {
 			return
 		}
+		$movingcomponent = $selectedComponent
 		push(history, $app)
 
 		const gridItem = findGridItem($app, $selectedComponent)
@@ -149,7 +150,7 @@
 
 	function handlePaste(event: KeyboardEvent) {
 		push(history, $app)
-
+		$movingcomponent = undefined
 		if (tempGridItem != undefined) {
 			if (
 				$focusedGrid &&

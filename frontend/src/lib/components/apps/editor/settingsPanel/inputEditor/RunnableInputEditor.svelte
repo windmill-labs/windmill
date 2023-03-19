@@ -15,5 +15,5 @@
 {#if isRunnableSelected}
 	<SelectedRunnable {appComponent} bind:appInput />
 {:else}
-	<RunnableSelector {defaultUserInput} bind:appInput />
+	<RunnableSelector id={appComponent.id} {defaultUserInput} bind:appInput />
 {/if}

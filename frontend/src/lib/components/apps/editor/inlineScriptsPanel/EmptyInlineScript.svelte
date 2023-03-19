@@ -8,11 +8,11 @@
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
 	import { capitalize, emptySchema, getScriptByPath } from '$lib/utils'
-	import { faCodeBranch, faTrash } from '@fortawesome/free-solid-svg-icons'
+	import { faCodeBranch } from '@fortawesome/free-solid-svg-icons'
 	import { Building, Globe2 } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { fly } from 'svelte/transition'
-	import type { AppViewerContext } from '../../types'
+	import type { AppEditorContext, AppViewerContext } from '../../types'
 	import { defaultCode } from '../component'
 	import InlineScriptList from '../settingsPanel/mainInput/InlineScriptList.svelte'
 	import WorkspaceScriptList from '../settingsPanel/mainInput/WorkspaceScriptList.svelte'
@@ -25,6 +25,7 @@
 	let picker: Drawer
 
 	const { appPath, app } = getContext<AppViewerContext>('AppViewerContext')
+
 	const dispatch = createEventDispatcher()
 
 	async function inferInlineScriptSchema(

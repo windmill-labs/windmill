@@ -237,6 +237,7 @@
 
 	async function setResult(res: any) {
 		if (transformer) {
+			$worldStore.newOutput(id, 'raw', res)
 			res = await eval_like(
 				transformer.content,
 				computeGlobalContext($worldStore, id, { result: res }),
