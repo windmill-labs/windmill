@@ -23,7 +23,8 @@
 
 	$: onLoad =
 		!onClick ||
-		(appComponent.configuration.triggerOnAppLoad.ctype === undefined &&
+		(appComponent?.configuration?.triggerOnAppLoad != undefined &&
+			appComponent?.configuration?.triggerOnAppLoad?.ctype === undefined &&
 			appComponent.configuration.triggerOnAppLoad.type == 'static' &&
 			appComponent.configuration.triggerOnAppLoad.value)
 </script>

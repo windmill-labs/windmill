@@ -101,9 +101,17 @@
 	let testJob: CompletedJob | undefined = undefined
 	let testJobLoader: TestJobLoader | undefined = undefined
 
-	$: schemaStripped = stripSchema(fields, $stateId)
+	let schemaStripped: Schema | undefined =
+		autoRefresh || forceSchemaDisplay ? emptySchema() : undefined
+
+	$: (autoRefresh || forceSchemaDisplay) &&
+		Object.keys(fields ?? {}).length > 0 &&
+		(schemaStripped = stripSchema(fields, $stateId))
 
 	function stripSchema(inputs: AppInputs, s: any): Schema {
+		if (inputs === undefined) {
+			return emptySchema()
+		}
 		let schema =
 			runnable?.type == 'runnableByName' ? runnable.inlineScript?.schema : runnable?.schema
 		try {
@@ -308,7 +316,7 @@
 
 {#if render}
 	<div class="h-full flex relative flex-row flex-wrap {wrapperClass}" style={wrapperStyle}>
-		{#if schemaStripped && Object.keys(schemaStripped?.properties ?? {}).length > 0 && (autoRefresh || forceSchemaDisplay)}
+		{#if (autoRefresh || forceSchemaDisplay) && schemaStripped && Object.keys(schemaStripped?.properties ?? {}).length > 0}
 			<div class="px-2 h-fit min-h-0">
 				<LightweightSchemaForm schema={schemaStripped} bind:args />
 			</div>
