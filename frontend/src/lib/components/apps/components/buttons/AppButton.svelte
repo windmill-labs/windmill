@@ -68,7 +68,7 @@
 		}
 	}
 
-	$: resolvedConfig.triggerOnAppLoad && runnableComponent?.runComponent()
+	$: resolvedConfig?.triggerOnAppLoad && runnableComponent?.runComponent()
 
 	$: if (outputs?.loading != undefined) {
 		outputs.loading.set(false, true)

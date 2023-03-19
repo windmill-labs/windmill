@@ -87,9 +87,7 @@
 {#if component}
 	<div class="flex min-h-full flex-col min-w-[150px] w-full divide-y">
 		{#if component.componentInput}
-			<PanelSection
-				title={component.componentInput.fieldType === 'any' ? 'By Runnable' : 'Data Source'}
-			>
+			<PanelSection title="Data Source">
 				<svelte:fragment slot="action">
 					<span
 						class={classNames(
