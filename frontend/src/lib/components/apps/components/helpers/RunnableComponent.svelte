@@ -21,6 +21,7 @@
 	export let id: string
 	export let fields: AppInputs
 	export let runnable: Runnable
+	export let transformer: (InlineScript & { language: 'frontend' }) | undefined
 	export let extraQueryParams: Record<string, any> = {}
 	export let autoRefresh: boolean = true
 	export let result: any = undefined
@@ -141,7 +142,7 @@
 					$componentControl,
 					$worldStore
 				)
-				setResult(r)
+				await setResult(r)
 				$state = $state
 			} catch (e) {
 				sendUserToast('Error running frontend script: ' + e.message, true)
@@ -223,7 +224,18 @@
 		}
 	}
 
-	function setResult(res: any) {
+	async function setResult(res: any) {
+		if (transformer) {
+			res = await eval_like(
+				transformer.content,
+				computeGlobalContext($worldStore, id, { result: res }),
+				false,
+				$state,
+				$mode == 'dnd',
+				$componentControl,
+				$worldStore
+			)
+		}
 		outputs.result?.set(res)
 
 		result = res

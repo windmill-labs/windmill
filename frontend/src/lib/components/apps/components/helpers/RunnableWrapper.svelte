@@ -53,6 +53,7 @@
 		fields={componentInput.fields}
 		bind:result
 		runnable={componentInput.runnable}
+		transformer={componentInput.transformer}
 		{autoRefresh}
 		{id}
 		{extraQueryParams}
