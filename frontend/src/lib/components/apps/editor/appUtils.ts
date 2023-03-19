@@ -38,13 +38,13 @@ function findGridItemById(
 
 export function findGridItemParentGrid(app: App, id: string): string | undefined {
 	const gridItem = app.grid.find((x) => x.id === id)
-	if (gridItem) {
+	if (gridItem || app.subgrids === undefined) {
 		return undefined
 	} else {
-		for (const key in app.subgrids) {
+		for (const key of Object.keys(app.subgrids ?? {})) {
 			const subGrid = app.subgrids[key]
-			const gridItem = subGrid.find((x) => x.id === id)
-			if (gridItem) {
+			const gridItemIdx = subGrid.findIndex((x) => x.id === id)
+			if (gridItemIdx > -1) {
 				return key
 			}
 		}
@@ -88,6 +88,8 @@ export function getAllRecomputeIdsForComponent(app: App, id: string) {
 }
 
 export function createNewGridItem(grid: GridItem[], id: string, data: AppComponent): GridItem {
+	console.log('INSERT X')
+
 	const newComponent = {
 		fixed: false,
 		x: 0,
@@ -165,7 +167,7 @@ export function insertNewGridItem(
 	builddata: (id: string) => AppComponent,
 	focusedGrid: FocusedGrid | undefined,
 	keepId?: string
-) {
+): string {
 	const id = keepId ?? getNextGridItemId(app)
 
 	const data = builddata(id)
@@ -188,9 +190,6 @@ export function insertNewGridItem(
 	const newItem = createNewGridItem(grid, id, data)
 	grid.push(newItem)
 
-	if (focusedGrid) {
-		app.subgrids[key!] = grid
-	}
 	return id
 }
 
@@ -229,19 +228,12 @@ export function deleteGridItem(
 			delete app.subgrids![id]
 		})
 	}
-	if (!parent) {
-		let index = app.grid.findIndex((x) => x.id == component.id)
-		if (index > -1) {
-			app.grid.splice(index, 1)
-		}
+	if (parent) {
+		app.subgrids &&
+			(app.subgrids[parent] = app.subgrids[parent].filter((item) => item.id !== component?.id))
 	} else {
-		let grid = app.subgrids![parent]
-		let index = grid.findIndex((x) => x.id == component.id)
-		if (index > -1) {
-			grid.splice(index, 1)
-		}
+		app.grid = app.grid.filter((item) => item.id !== component?.id)
 	}
-
 	return components
 }
 
@@ -383,12 +375,13 @@ export function initConfig<T extends Record<string, StaticAppInput | EvalAppInpu
 
 export function expandGriditem(
 	grid: GridItem[],
-	gridComponent: GridItem,
+	id: string,
 	$breakpoint: EditorBreakpoint,
 	parentGridItem: GridItem | undefined = undefined
 ) {
+	const gridComponent = grid.find((item) => item.id === id)
+	if (!gridComponent) return
 	const availableSpace = findAvailableSpace(grid, gridComponent, $breakpoint, parentGridItem)
-
 	if (!availableSpace) {
 		return
 	}

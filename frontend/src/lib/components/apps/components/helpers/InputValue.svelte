@@ -65,13 +65,13 @@
 		debounce(async () => (value = await evalExpr(lastInput)))
 
 	async function handleConnection() {
-		if (lastInput.type === 'connected') {
+		if (lastInput?.type === 'connected') {
 			$worldStore?.connect<any>(lastInput, onValueChange, `${id}-${key}`)
-		} else if (lastInput.type === 'static' || lastInput.type == 'template') {
+		} else if (lastInput?.type === 'static' || lastInput?.type == 'template') {
 			value = await getValue(lastInput)
-		} else if (lastInput.type == 'eval') {
+		} else if (lastInput?.type == 'eval') {
 			value = await evalExpr(lastInput as EvalAppInput)
-		} else if (lastInput.type == 'upload') {
+		} else if (lastInput?.type == 'upload') {
 			value = (lastInput as UploadAppInput).value
 		} else {
 			value = undefined

@@ -86,7 +86,7 @@
 					{id}
 					class={css?.container?.class}
 					style={css?.container?.style}
-					bind:subGrid={$app.subgrids[`${id}-0`]}
+					subGridId={`${id}-0`}
 					containerHeight={1200}
 					on:focus={() => {
 						$selectedComponent = id

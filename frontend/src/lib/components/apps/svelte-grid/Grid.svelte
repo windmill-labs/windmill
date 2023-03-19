@@ -21,7 +21,7 @@
 	export let onTopId: string | undefined = undefined
 	export let containerWidth: number | undefined = undefined
 
-	export let scroller = undefined
+	export let scroller: HTMLElement | undefined = undefined
 	export let sensor = 20
 
 	export let parentWidth: number | undefined = undefined
