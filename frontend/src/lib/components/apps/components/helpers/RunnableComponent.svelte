@@ -101,7 +101,6 @@
 	let testJob: CompletedJob | undefined = undefined
 	let testJobLoader: TestJobLoader | undefined = undefined
 
-	$: outputs.loading?.set(testIsLoading)
 	$: schemaStripped = stripSchema(fields, $stateId)
 
 	function stripSchema(inputs: AppInputs, s: any): Schema {
@@ -162,50 +161,54 @@
 
 		outputs.loading?.set(true)
 
-		let njob = await testJobLoader?.abstractRun(() => {
-			const nonStaticRunnableInputs = {}
-			const staticRunnableInputs = {}
-			Object.keys(fields ?? {}).forEach((k) => {
-				let field = fields[k]
-				if (field?.type == 'static' && fields[k]) {
-					staticRunnableInputs[k] = field.value
-				} else if (field?.type == 'user') {
-					nonStaticRunnableInputs[k] = args?.[k]
-				} else {
-					nonStaticRunnableInputs[k] = runnableInputValues[k]
-				}
-			})
-
-			const requestBody = {
-				args: nonStaticRunnableInputs,
-				force_viewer_static_fields: !isEditor ? undefined : staticRunnableInputs
-			}
-
-			if (runnable?.type === 'runnableByName') {
-				const { inlineScript } = inlineScriptOverride
-					? { inlineScript: inlineScriptOverride }
-					: runnable
-
-				if (inlineScript) {
-					requestBody['raw_code'] = {
-						content: inlineScript.content,
-						language: inlineScript.language,
-						path: inlineScript.path
+		try {
+			let njob = await testJobLoader?.abstractRun(() => {
+				const nonStaticRunnableInputs = {}
+				const staticRunnableInputs = {}
+				Object.keys(fields ?? {}).forEach((k) => {
+					let field = fields[k]
+					if (field?.type == 'static' && fields[k]) {
+						staticRunnableInputs[k] = field.value
+					} else if (field?.type == 'user') {
+						nonStaticRunnableInputs[k] = args?.[k]
+					} else {
+						nonStaticRunnableInputs[k] = runnableInputValues[k]
 					}
-				}
-			} else if (runnable?.type === 'runnableByPath') {
-				const { path, runType } = runnable
-				requestBody['path'] = runType !== 'hubscript' ? `${runType}/${path}` : `script/${path}`
-			}
+				})
 
-			return AppService.executeComponent({
-				workspace,
-				path: defaultIfEmptyString(appPath, 'newapp'),
-				requestBody
+				const requestBody = {
+					args: nonStaticRunnableInputs,
+					force_viewer_static_fields: !isEditor ? undefined : staticRunnableInputs
+				}
+
+				if (runnable?.type === 'runnableByName') {
+					const { inlineScript } = inlineScriptOverride
+						? { inlineScript: inlineScriptOverride }
+						: runnable
+
+					if (inlineScript) {
+						requestBody['raw_code'] = {
+							content: inlineScript.content,
+							language: inlineScript.language,
+							path: inlineScript.path
+						}
+					}
+				} else if (runnable?.type === 'runnableByPath') {
+					const { path, runType } = runnable
+					requestBody['path'] = runType !== 'hubscript' ? `${runType}/${path}` : `script/${path}`
+				}
+
+				return AppService.executeComponent({
+					workspace,
+					path: defaultIfEmptyString(appPath, 'newapp'),
+					requestBody
+				})
 			})
-		})
-		if (njob) {
-			$jobs = [{ job: njob, component: id }, ...$jobs]
+			if (njob) {
+				$jobs = [{ job: njob, component: id }, ...$jobs]
+			}
+		} catch (e) {
+			outputs.loading?.set(false)
 		}
 	}
 
@@ -239,7 +242,9 @@
 		outputs.result?.set(res)
 
 		result = res
-
+		if (res?.error) {
+			recordError(res.error)
+		}
 		const previousJobId = Object.keys($errorByComponent).find(
 			(key) => $errorByComponent[key].componentId === id
 		)
@@ -260,7 +265,6 @@
 			recomputeIds.map((id) => $runnableComponents?.[id]?.())
 		}
 	}
-	$: result?.error && recordError(result.error)
 </script>
 
 <!-- {#if runnable?.type == 'runnableByName'}
@@ -295,6 +299,7 @@
 				setResult(e.detail.result)
 			}
 		}
+		outputs.loading?.set(false)
 	}}
 	bind:isLoading={testIsLoading}
 	bind:job={testJob}
