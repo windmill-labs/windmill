@@ -35,6 +35,7 @@
 	export let recomputable: boolean = false
 	export let recomputeIds: string[] = []
 	export let outputs: { result: Output<any>; loading: Output<boolean> }
+	export let extraKey = ''
 
 	const {
 		worldStore,
@@ -291,13 +292,18 @@
 
 {#each Object.entries(fields ?? {}) as [key, v] (key)}
 	{#if v.type != 'static' && v.type != 'user'}
-		<InputValue {key} {id} input={fields[key]} bind:value={runnableInputValues[key]} />
+		<InputValue
+			key={key + extraKey}
+			{id}
+			input={fields[key]}
+			bind:value={runnableInputValues[key]}
+		/>
 	{/if}
 {/each}
 
 {#if runnable?.type == 'runnableByName' && runnable.inlineScript?.language == 'frontend'}
 	{#each runnable.inlineScript.refreshOn ?? [] as { id: tid, key } (`${tid}-${key}`)}
-		{@const fkey = `${tid}-${key}`}
+		{@const fkey = `${tid}-${key}${extraKey}`}
 		<InputValue
 			{id}
 			key={fkey}

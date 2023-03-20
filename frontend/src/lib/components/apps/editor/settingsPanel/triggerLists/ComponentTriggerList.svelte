@@ -30,7 +30,7 @@
 </script>
 
 <TriggerBadgesList
-	inputDependencies={getDependencies(fields)}
+	inputDependencies={onClick ? [] : getDependencies(fields)}
 	bind:inlineScript={runnable.inlineScript}
 	{onLoad}
 	id={$selectedComponent}
