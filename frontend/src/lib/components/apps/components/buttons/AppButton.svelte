@@ -135,6 +135,7 @@
 			<div class="text-red-500 text-xs">{errorsMessage}</div>
 		{/if}
 		<Button
+			on:pointerdown={(e) => e.stopPropagation()}
 			btnClasses={twMerge(
 				$app.css?.['buttoncomponent']?.['button']?.class,
 				customCss?.button?.class,

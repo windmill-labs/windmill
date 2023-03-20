@@ -157,11 +157,10 @@
 
 		cordDiff = { x: 0, y: 0 }
 
-		computeRect(target)
-
 		startDrag = setTimeout(() => {
 			active = true
 			trans = false
+			computeRect(target)
 		}, 200)
 		_scrollTop = scrollElement.scrollTop
 
@@ -307,7 +306,7 @@
 	on:click|stopPropagation={() => {
 		startDrag && clearTimeout(startDrag)
 	}}
-	on:pointerdown|stopPropagation={pointerdown}
+	on:pointerdown|stopPropagation|preventDefault={pointerdown}
 	class="svlt-grid-item"
 	class:svlt-grid-active={active || (trans && rect)}
 	style="width: {active ? newSize.width : width}px; height:{active

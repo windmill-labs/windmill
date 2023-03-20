@@ -51,7 +51,7 @@
 
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
 	const movingcomponent = editorContext?.movingcomponent
-	$: ismoving = movingcomponent != undefined && $movingcomponent === component.id
+	$: ismoving = movingcomponent != undefined && $mode == 'dnd' && $movingcomponent === component.id
 
 	let initializing: boolean | undefined = undefined
 	let componentContainerHeight: number = 0
