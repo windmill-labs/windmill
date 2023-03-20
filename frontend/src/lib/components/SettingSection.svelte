@@ -41,7 +41,7 @@
 	{/if}
 </div>
 {#if showContent}
-	<div transition:slide={{ duration: 300 }}>
+	<div transition:slide|local={{ duration: 300 }}>
 		<slot />
 	</div>
 {/if}

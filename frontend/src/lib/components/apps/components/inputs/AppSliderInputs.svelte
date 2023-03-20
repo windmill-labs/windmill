@@ -1,8 +1,6 @@
 <script lang="ts">
 	import RangeSlider from 'svelte-range-slider-pips'
 	import { getContext } from 'svelte'
-	import type { AppInput } from '../../inputType'
-	import type { Output } from '../../rx'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
@@ -15,6 +13,7 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let customCss: ComponentCustomCSS<'slidercomponent'> | undefined = undefined
 	export let render: boolean
+	export let initializing: boolean = true
 
 	const { app, worldStore, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 	let min = 0
@@ -54,7 +53,12 @@
 <InputValue {id} input={configuration.step} bind:value={step} />
 <InputValue {id} input={configuration.min} bind:value={min} />
 <InputValue {id} input={configuration.max} bind:value={max} />
-<InputValue {id} input={configuration.defaultValue} bind:value={values[0]} />
+<InputValue
+	on:done={() => (initializing = false)}
+	{id}
+	input={configuration.defaultValue}
+	bind:value={values[0]}
+/>
 
 <AlignWrapper {render} {verticalAlignment}>
 	<div class="flex items-center w-full gap-1 px-1">
