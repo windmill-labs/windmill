@@ -25,7 +25,6 @@
 	export let customCss: ComponentCustomCSS<'buttoncomponent'> | undefined = undefined
 	export let render: boolean
 	export let initializing: boolean | undefined = true
-	export let onSuccess: any = undefined
 
 	export let controls: { left: () => boolean; right: () => boolean | string } | undefined =
 		undefined
@@ -128,8 +127,8 @@
 	goto={resolvedConfig.goto}
 	gotoNewTab={resolvedConfig.gotoNewTab}
 	on:success={() => {
-		if (onSuccess?.setTab) {
-			const { id, index } = onSuccess.setTab
+		if (resolvedConfig.setTab) {
+			const { id, index } = resolvedConfig.setTab
 			$componentControl[id].setTab?.(index)
 		}
 	}}

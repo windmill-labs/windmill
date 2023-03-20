@@ -39,7 +39,6 @@ import type {
 	BaseAppComponent,
 	ComponentCustomCSS,
 	GridItem,
-	RichConfigurations,
 	StaticRichConfigurations
 } from '../../types'
 import type { Size } from '../../svelte-grid/types'
@@ -51,9 +50,6 @@ export type BaseComponent<T extends string> = {
 
 type ClickableComponent = {
 	recomputeIds: string[] | undefined
-	onSuccess: {
-		setTab: { id: string; index: number } | undefined
-	}
 }
 
 export type TextComponent = BaseComponent<'textcomponent'>
@@ -282,7 +278,6 @@ export const components = {
 				runnable: undefined
 			},
 			recomputeIds: undefined,
-			onSuccess: { setTab: { id: '', index: 0 } },
 			configuration: {
 				label: {
 					type: 'static',
@@ -343,6 +338,12 @@ export const components = {
 					value: false,
 					fieldType: 'boolean',
 					onlyStatic: true
+				},
+				setTab: {
+					type: 'static',
+					value: { id: '', index: 0 },
+					fieldType: 'tab-select',
+					onlyStatic: true
 				}
 			}
 		}
@@ -364,8 +365,13 @@ export const components = {
 				runnable: undefined
 			},
 			recomputeIds: undefined,
-			onSuccess: { setTab: { id: '', index: 0 } },
 			configuration: {
+				setTab: {
+					type: 'static',
+					value: { id: '', index: 0 },
+					fieldType: 'tabSelect',
+					onlyStatic: true
+				},
 				label: {
 					type: 'static',
 					value: 'Submit',
@@ -412,7 +418,6 @@ export const components = {
 				runnable: undefined
 			},
 			recomputeIds: undefined,
-			onSuccess: { setTab: { id: '', index: 0 } },
 			configuration: {
 				label: {
 					type: 'static',
@@ -432,6 +437,12 @@ export const components = {
 					value: 'xs',
 					onlyStatic: true,
 					optionValuesKey: 'buttonSizeOptions'
+				},
+				setTab: {
+					type: 'static',
+					value: { id: '', index: 0 },
+					fieldType: 'tabSelect',
+					onlyStatic: true
 				}
 			}
 		}

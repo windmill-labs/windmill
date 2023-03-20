@@ -216,7 +216,6 @@
 				componentInput={component.componentInput}
 				recomputeIds={component.recomputeIds}
 				bind:initializing
-				bind:onSuccess={component.onSuccess}
 				{render}
 			/>
 		{:else if component.type === 'selectcomponent' || component.type === 'resourceselectcomponent'}
