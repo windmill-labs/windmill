@@ -164,7 +164,7 @@ export type AppInput =
 	| (AppInputSpec<'array', string[], 'select'> & StaticOptions)
 	| AppInputSpec<'array', object[], 'labeledresource'>
 	| AppInputSpec<'labeledresource', object>
-	| AppInputSpec<'tab-select', object>
+	| AppInputSpec<'array', object[], 'tab-select'>
 
 export type RowAppInput = Extract<AppInput, { type: 'row' }>
 export type StaticAppInput = Extract<AppInput, { type: 'static' }>

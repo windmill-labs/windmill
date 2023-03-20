@@ -127,9 +127,11 @@
 	goto={resolvedConfig.goto}
 	gotoNewTab={resolvedConfig.gotoNewTab}
 	on:success={() => {
-		if (resolvedConfig.setTab) {
-			const { id, index } = resolvedConfig.setTab
-			$componentControl[id].setTab?.(index)
+		if (Array.isArray(resolvedConfig.setTab)) {
+			resolvedConfig.setTab.forEach((tab) => {
+				const { id, index } = tab
+				$componentControl[id].setTab?.(index)
+			})
 		}
 	}}
 	{render}

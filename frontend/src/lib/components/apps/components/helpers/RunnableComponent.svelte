@@ -225,7 +225,6 @@
 	export async function runComponent() {
 		try {
 			await executeComponent()
-			dispatch('success')
 		} catch (e) {
 			console.error(e)
 		}
@@ -261,6 +260,9 @@
 		if (res?.error) {
 			recordError(res.error)
 		}
+
+		dispatch('success')
+
 		const previousJobId = Object.keys($errorByComponent).find(
 			(key) => $errorByComponent[key].componentId === id
 		)
