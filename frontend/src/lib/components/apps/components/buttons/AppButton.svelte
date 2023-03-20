@@ -9,7 +9,6 @@
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import { loadIcon } from '../icon'
 	import { twMerge } from 'tailwind-merge'
-	import { goto } from '$app/navigation'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components, configurationKeys } from '../../editor/component'
 
@@ -90,6 +89,7 @@
 	$: errorsMessage = Object.values(errors)
 		.filter((x) => x != '')
 		.join('\n')
+	let runnableWrapper: RunnableWrapper
 
 	async function handleClick(event: CustomEvent) {
 		event?.stopPropagation()
@@ -104,13 +104,7 @@
 		ownClick = true
 
 		if (!runnableComponent) {
-			if (resolvedConfig.goto) {
-				if (resolvedConfig.gotoNewTab) {
-					window.open(resolvedConfig.goto, '_blank')
-				} else {
-					goto(resolvedConfig.goto)
-				}
-			}
+			runnableWrapper.onSuccess()
 		} else {
 			await runnableComponent?.runComponent()
 		}
@@ -127,6 +121,7 @@
 {/each}
 
 <RunnableWrapper
+	bind:this={runnableWrapper}
 	{recomputeIds}
 	bind:runnableComponent
 	{componentInput}

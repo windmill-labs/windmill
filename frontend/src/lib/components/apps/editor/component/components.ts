@@ -343,7 +343,8 @@ export const components = {
 					type: 'static',
 					value: [] as Array<{ id: string; index: number }>,
 					fieldType: 'array',
-					subFieldType: 'tab-select'
+					subFieldType: 'tab-select',
+					tooltip: 'Set the tabs id and index to go to on success'
 				}
 			}
 		}
@@ -370,7 +371,8 @@ export const components = {
 					type: 'static',
 					value: [] as Array<{ id: string; index: number }>,
 					fieldType: 'array',
-					subFieldType: 'tab-select'
+					subFieldType: 'tab-select',
+					tooltip: 'Set the tabs id and index to go to on success'
 				},
 				label: {
 					type: 'static',
@@ -442,7 +444,8 @@ export const components = {
 					type: 'static',
 					value: [] as Array<{ id: string; index: number }>,
 					fieldType: 'array',
-					subFieldType: 'tab-select'
+					subFieldType: 'tab-select',
+					tooltip: 'Set the tabs id and index to go to on success'
 				}
 			}
 		}

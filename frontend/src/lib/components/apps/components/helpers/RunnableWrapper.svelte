@@ -45,7 +45,7 @@
 		return isScriptByNameDefined(componentInput) || isScriptByPathDefined(componentInput)
 	}
 
-	function onSuccess() {
+	export function onSuccess() {
 		if (Array.isArray(setTab)) {
 			setTab.forEach((tab) => {
 				const { id, index } = tab
