@@ -713,3 +713,7 @@ export function isMac(): boolean {
 export function getModifierKey(): string {
 	return isMac() ? '⌘' : 'CTRL'
 }
+
+export function isValidHexColor(color: string): boolean {
+	return /^#([0-9A-F]{3}){1,2}$/i.test(color)
+}

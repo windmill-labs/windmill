@@ -15,7 +15,7 @@
 	import StaticInputEditor from './inputEditor/StaticInputEditor.svelte'
 	import ConnectedInputEditor from './inputEditor/ConnectedInputEditor.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import { capitalize, classNames, getModifierKey } from '$lib/utils'
+	import { capitalize, classNames, getModifierKey, isMac } from '$lib/utils'
 	import { buildExtraLib, fieldTypeToTsType } from '../../utils'
 	import Recompute from './Recompute.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -249,13 +249,15 @@
 				<div slot="action">
 					<Button size="xs" color="red" variant="border" on:click={removeGridElement}>
 						Delete&nbsp;&nbsp;
-						<Kbd kbdClass="center-center">Del</Kbd>
-						<span class="px-1 text-xs font-normal text-gray-500">or</span>
-						<Kbd kbdClass="center-center">
-							<span class="text-lg leading-none">⌘</span>
-							<span class="px-0.5">+</span>
-							<Delete size={16} />
-						</Kbd>
+						{#if isMac()}
+							<Kbd kbdClass="center-center">
+								<span class="text-lg leading-none">⌘</span>
+								<span class="px-0.5">+</span>
+								<Delete size={16} />
+							</Kbd>
+						{:else}
+							<Kbd>Del</Kbd>
+						{/if}
 					</Button>
 				</div>
 				<div class="flex flex-col gap-1">
