@@ -25,9 +25,9 @@
 		<div
 			transition:fly|local={{ duration: 300, x: width, y: 0, opacity: 1 }}
 			id={SECONDARY_MENU_ID}
-			class="w-full h-full bg-white p-3"
+			class="flex flex-col w-full h-full bg-white"
 		>
-			<div class="flex justify-between items-center gap-1 mb-3">
+			<div class="flex justify-between items-center bg-white gap-1 p-3">
 				<Button
 					color="light"
 					size="xs"
@@ -39,11 +39,13 @@
 				</Button>
 				<Badge color="blue">{$selectedComponent}</Badge>
 			</div>
-			{#if typeof $secondaryMenu.component === 'string'}
-				{@html $secondaryMenu.component}
-			{:else}
-				<svelte:component this={$secondaryMenu.component} {...$secondaryMenu.props} />
-			{/if}
+			<div class="h-full p-3 overflow-y-auto">
+				{#if typeof $secondaryMenu.component === 'string'}
+					{@html $secondaryMenu.component}
+				{:else}
+					<svelte:component this={$secondaryMenu.component} {...$secondaryMenu.props} />
+				{/if}
+			</div>
 		</div>
 	{/if}
 </div>

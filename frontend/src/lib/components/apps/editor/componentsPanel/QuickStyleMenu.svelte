@@ -27,7 +27,6 @@
 	}
 
 	function writeStyle() {
-		console.log('write')
 		const keys = Object.keys(style) as (keyof typeof style)[]
 		const current = parse(value) || {}
 		keys.forEach((key) => (current[key] = style[key]))
