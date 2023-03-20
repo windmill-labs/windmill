@@ -20,11 +20,13 @@
 	export let runnableStyle = ''
 	export let goto: string | undefined = undefined
 	export let gotoNewTab: boolean | undefined = undefined
+	export let setTab: Array<{ id: string; index: number }> | undefined = undefined
 	export let render: boolean
 	export let recomputeIds: string[] = []
 	export let outputs: { result: Output<any>; loading: Output<boolean> }
 
-	const { staticExporter, noBackend } = getContext<AppViewerContext>('AppViewerContext')
+	const { staticExporter, noBackend, componentControl } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	$: if (initializing && result) {
 		initializing = false
@@ -62,7 +64,14 @@
 		wrapperClass={runnableClass}
 		wrapperStyle={runnableStyle}
 		{render}
-		on:success
+		on:success={() => {
+			if (Array.isArray(setTab)) {
+				setTab.forEach((tab) => {
+					const { id, index } = tab
+					$componentControl[id].setTab?.(index)
+				})
+			}
+		}}
 		{outputs}
 	>
 		<slot />

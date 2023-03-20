@@ -35,6 +35,7 @@
 	let size: ButtonType.Size
 	let runnableComponent: RunnableComponent
 	let goto: string | undefined = undefined
+	let setTab: Array<{ id: string; index: number }> | undefined = undefined
 
 	let isLoading: boolean = false
 
@@ -60,6 +61,7 @@
 <InputValue {id} input={configuration.label} bind:value={labelValue} />
 <InputValue {id} input={configuration.color} bind:value={color} />
 <InputValue {id} input={configuration.size} bind:value={size} />
+<InputValue {id} input={configuration.setTab} bind:value={setTab} />
 
 <RunnableWrapper
 	{recomputeIds}
@@ -73,6 +75,7 @@
 	forceSchemaDisplay={true}
 	runnableClass="!block"
 	runnableStyle={css?.container?.style}
+	{setTab}
 	{outputs}
 >
 	<AlignWrapper {horizontalAlignment}>
