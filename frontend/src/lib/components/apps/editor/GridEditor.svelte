@@ -12,6 +12,7 @@
 	import { push } from '$lib/history'
 	import { expandGriditem, findGridItem } from './appUtils'
 	import Grid from '../svelte-grid/Grid.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 
 	export let policy: Policy
 
@@ -84,8 +85,14 @@
 		{#if !$connectingInput.opened}
 			<RecomputeAllComponents />
 		{/if}
-		<div class="text-2xs text-gray-600">
-			{policy.on_behalf_of ? `on behalf of ${policy.on_behalf_of_email}` : ''}
+		<div class="flex text-2xs text-gray-600 gap-1 items-center">
+			<div class="py-2 pr-2  text-gray-600 flex gap-2 items-center">
+				Hide bar on view
+				<input class="windmillapp" type="checkbox" bind:checked={$app.norefreshbar} />
+			</div>
+			<div>
+				{policy.on_behalf_of ? `on behalf of ${policy.on_behalf_of_email}` : ''}
+			</div>
 		</div>
 	</div>
 

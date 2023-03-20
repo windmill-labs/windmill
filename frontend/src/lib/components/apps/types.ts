@@ -101,6 +101,7 @@ export type InlineScript = {
 export type App = {
 	grid: GridItem[]
 	fullscreen: boolean
+	norefreshbar?: boolean
 	unusedInlineScripts: Array<{
 		name: string
 		inlineScript: InlineScript
