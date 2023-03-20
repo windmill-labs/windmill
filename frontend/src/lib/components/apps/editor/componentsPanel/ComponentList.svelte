@@ -14,6 +14,7 @@
 	import { X } from 'lucide-svelte'
 	import { push } from '$lib/history'
 	import { flip } from 'svelte/animate'
+	import { Badge } from '$lib/components/common'
 
 	const { app, selectedComponent, focusedGrid, worldStore } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -63,6 +64,21 @@
 			</button>
 		{/if}
 	</div>
+	<!-- {#if $focusedGrid}
+		<Badge color="indigo" baseClass="w-full">
+			<div class="flex flex-row gap-2 justify-center items-center">
+				<div>{`Subgrid: ${$focusedGrid.parentComponentId} (${$focusedGrid.subGridIndex})`}</div>
+				<button
+					on:click={() => {
+						$selectedComponent = undefined
+						$focusedGrid = undefined
+					}}
+				>
+					<X size={14} />
+				</button>
+			</div>
+		</Badge>
+	{/if} -->
 </section>
 
 <div class="relative">

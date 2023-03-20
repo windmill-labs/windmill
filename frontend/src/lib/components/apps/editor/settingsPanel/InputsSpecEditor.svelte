@@ -33,7 +33,7 @@
 	const { connectingInput } = getContext<AppViewerContext>('AppViewerContext')
 </script>
 
-{#if componentInput.ctype == undefined}
+{#if componentInput?.ctype == undefined}
 	{#if !(resourceOnly && (fieldType !== 'object' || !format?.startsWith('resource-')))}
 		<div class="flex flex-col gap-1">
 			<div class="flex justify-between items-end gap-1">
@@ -53,7 +53,7 @@
 							: capitalize(fieldTypeToTsType(fieldType))}
 					</Badge>
 
-					{#if !onlyStatic && componentInput.type != 'eval'}
+					{#if !onlyStatic && componentInput.type && componentInput.type != 'eval'}
 						<ToggleButtonGroup
 							bind:selected={componentInput.type}
 							on:selected={(e) => {
@@ -115,11 +115,11 @@
 				</div>
 			</div>
 
-			{#if componentInput.type === 'connected'}
+			{#if componentInput?.type === 'connected'}
 				<ConnectedInputEditor bind:componentInput />
-			{:else if componentInput.type === 'row'}
+			{:else if componentInput?.type === 'row'}
 				<RowInputEditor bind:componentInput />
-			{:else if componentInput.type === 'static'}
+			{:else if componentInput?.type === 'static'}
 				<StaticInputEditor
 					{fieldType}
 					{subFieldType}
@@ -127,11 +127,11 @@
 					{format}
 					bind:componentInput
 				/>
-			{:else if componentInput.type === 'eval'}
+			{:else if componentInput?.type === 'eval'}
 				<EvalInputEditor {hasRows} {id} bind:componentInput />
-			{:else if componentInput.type === 'upload'}
+			{:else if componentInput?.type === 'upload'}
 				<UploadInputEditor bind:componentInput />
-			{:else if componentInput.type === 'user'}
+			{:else if componentInput?.type === 'user'}
 				<span class="text-2xs italic text-gray-600">Field's value is set by the user</span>
 			{/if}
 		</div>

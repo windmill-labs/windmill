@@ -93,7 +93,7 @@
 	<div
 		style={$app.css?.['app']?.['grid']?.style}
 		class={twMerge('px-4 pt-4 pb-2 overflow-visible', $app.css?.['app']?.['grid']?.class ?? '')}
-		on:click={() => {
+		on:pointerdown={() => {
 			$selectedComponent = undefined
 			$focusedGrid = undefined
 		}}
