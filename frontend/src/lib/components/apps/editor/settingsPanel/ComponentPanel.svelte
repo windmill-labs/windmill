@@ -1,6 +1,12 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { faChevronDown, faChevronUp, faCopy, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
+	import {
+		faChevronDown,
+		faChevronRight,
+		faChevronUp,
+		faCopy,
+		faTrashAlt
+	} from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { AppEditorContext, AppViewerContext, RichConfiguration } from '../../types'
 	import PanelSection from './common/PanelSection.svelte'
@@ -25,6 +31,9 @@
 	import { slide } from 'svelte/transition'
 	import { push } from '$lib/history'
 	import Kbd from '$lib/components/common/kbd/Kbd.svelte'
+	import { secondaryMenu } from './secondaryMenu'
+	import StylePanel from './StylePanel.svelte'
+	import { Delete } from 'lucide-svelte'
 
 	export let component: AppComponent
 	export let rowColumns = false
@@ -68,12 +77,10 @@
 			: undefined
 
 	function keydown(event: KeyboardEvent) {
-		switch (event.key) {
-			case 'Delete': {
-				removeGridElement()
-				event.stopPropagation()
-				break
-			}
+		const { key, metaKey } = event
+		if (key === 'Delte' || (key === 'Backspace' && metaKey)) {
+			removeGridElement()
+			event.stopPropagation()
 		}
 	}
 
@@ -202,17 +209,27 @@
 					<Button
 						color="light"
 						size="xs"
+						variant="border"
 						endIcon={{ icon: viewCssOptions ? faChevronUp : faChevronDown }}
 						on:click={() => (viewCssOptions = !viewCssOptions)}
 					>
 						{viewCssOptions ? 'Hide' : 'Show'}
 					</Button>
+					<Button
+						color="light"
+						size="xs"
+						variant="border"
+						endIcon={{ icon: faChevronRight }}
+						on:click={() => secondaryMenu.open(StylePanel, { component })}
+					>
+						Open
+					</Button>
 				</div>
 				{#if viewCssOptions}
-					<div transition:slide|local>
+					<div transition:slide|local class="w-full">
 						{#each Object.keys(ccomponents[component.type].customCss ?? {}) as name}
 							{#if component?.customCss != undefined}
-								<div class="w-full mb-2">
+								<div class="w-full pb-2">
 									<CssProperty
 										forceStyle={ccomponents[component.type].customCss[name].style != undefined}
 										forceClass={ccomponents[component.type].customCss[name].class != undefined}
@@ -232,7 +249,13 @@
 				<div slot="action">
 					<Button size="xs" color="red" variant="border" on:click={removeGridElement}>
 						Delete&nbsp;&nbsp;
-						<Kbd>Del</Kbd>
+						<Kbd kbdClass="center-center">Del</Kbd>
+						<span class="px-1 text-xs font-normal text-gray-500">or</span>
+						<Kbd kbdClass="center-center">
+							<span class="text-lg leading-none">⌘</span>
+							<span class="px-0.5">+</span>
+							<Delete size={16} />
+						</Kbd>
 					</Button>
 				</div>
 				<div class="flex flex-col gap-1">

@@ -41,6 +41,7 @@
 	import ComponentNavigation from './component/ComponentNavigation.svelte'
 	import ItemPicker from '$lib/components/ItemPicker.svelte'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
+	import { secondaryMenu, SecondaryMenu } from './settingsPanel/secondaryMenu'
 
 	export let app: App
 	export let path: string
@@ -258,6 +259,7 @@
 									<TabContent class="overflow-auto h-full" value="settings">
 										{#if $selectedComponent !== undefined}
 											<SettingsPanel />
+											<SecondaryMenu />
 										{:else}
 											<div class="min-w-[150px] text-sm text-gray-500 text-center py-8 px-2">
 												Select a component to see the settings&nbsp;for&nbsp;it
