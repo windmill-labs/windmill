@@ -25,11 +25,13 @@
 	export let customCss: ComponentCustomCSS<'buttoncomponent'> | undefined = undefined
 	export let render: boolean
 	export let initializing: boolean | undefined = true
+	export let extraKey: string | undefined = undefined
 
 	export let controls: { left: () => boolean; right: () => boolean | string } | undefined =
 		undefined
 
-	const { worldStore, app, componentControl } = getContext<AppViewerContext>('AppViewerContext')
+	const { worldStore, app, componentControl, selectedComponent } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	let outputs = initOutput($worldStore, id, {
 		result: undefined,
@@ -93,6 +95,8 @@
 		event?.stopPropagation()
 		event?.preventDefault()
 
+		$selectedComponent = id
+
 		if (preclickAction) {
 			await preclickAction()
 		}
@@ -114,7 +118,12 @@
 </script>
 
 {#each configurationKeys['buttoncomponent'] as key (key)}
-	<InputValue {key} {id} input={configuration[key]} bind:value={resolvedConfig[key]} />
+	<InputValue
+		key={key + extraKey}
+		{id}
+		input={configuration[key]}
+		bind:value={resolvedConfig[key]}
+	/>
 {/each}
 
 <RunnableWrapper
@@ -129,6 +138,7 @@
 	setTab={resolvedConfig.setTab}
 	{render}
 	{outputs}
+	{extraKey}
 >
 	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
 		{#if errorsMessage}
