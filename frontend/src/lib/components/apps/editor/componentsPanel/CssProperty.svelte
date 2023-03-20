@@ -64,7 +64,7 @@
 				</div>
 				{#if enableQuickMenu && isQuickMenuOpen}
 					<div transition:slide|local={{ duration: 300 }} class="w-full pt-1">
-						<QuickStyleMenu value={value.style} />
+						<QuickStyleMenu bind:value={value.style} />
 					</div>
 				{/if}
 			</label>
