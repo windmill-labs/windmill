@@ -23,6 +23,7 @@
 	export let render: boolean
 	export let recomputeIds: string[] = []
 	export let outputs: { result: Output<any>; loading: Output<boolean> }
+	export let extraKey: string | undefined = undefined
 
 	const { staticExporter, noBackend } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -46,6 +47,7 @@
 	<slot />
 {:else if componentInput.type === 'runnable' && isRunnableDefined(componentInput)}
 	<RunnableComponent
+		{extraKey}
 		{recomputeIds}
 		gotoUrl={goto}
 		{gotoNewTab}

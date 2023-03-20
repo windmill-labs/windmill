@@ -54,7 +54,13 @@ export function findGridItemParentGrid(app: App, id: string): string | undefined
 export function allsubIds(app: App, parentId: string): string[] {
 	let item = findGridItem(app, parentId)
 	if (!item?.data.numberOfSubgrids) {
-		return [parentId]
+		let subIds = [parentId]
+		if (item) {
+			if (item.data.type === 'tablecomponent') {
+				subIds.push(...item.data.actionButtons?.map((x) => x.id))
+			}
+		}
+		return subIds
 	}
 	return getAllSubgridsAndComponentIds(app, item?.data)[1]
 }
@@ -199,6 +205,9 @@ export function getAllSubgridsAndComponentIds(
 ): [string[], string[]] {
 	const subgrids: string[] = []
 	let components: string[] = [component.id]
+	if (component.type === 'tablecomponent') {
+		components.push(...component.actionButtons?.map((x) => x.id))
+	}
 	if (app.subgrids && component.numberOfSubgrids) {
 		for (let i = 0; i < component.numberOfSubgrids; i++) {
 			const key = `${component.id}-${i}`
