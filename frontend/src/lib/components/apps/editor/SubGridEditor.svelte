@@ -79,6 +79,7 @@
 							$app.subgrids[subGridId] = e.detail
 						}
 					}}
+					onTopId={$selectedComponent}
 					let:dataItem
 					rowHeight={36}
 					cols={columnConfiguration}
@@ -141,6 +142,7 @@
 			</div>
 		{:else}
 			<GridViewer
+				onTopId={$selectedComponent}
 				items={$app.subgrids?.[subGridId] ?? []}
 				let:dataItem
 				rowHeight={36}
