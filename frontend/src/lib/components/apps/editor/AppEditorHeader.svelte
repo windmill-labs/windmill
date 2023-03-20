@@ -541,7 +541,7 @@
 		<div class="hidden lg:block">
 			<Badge color="indigo">
 				<div class="flex flex-row gap-2 justify-center items-center">
-					<div>{`Sub grid: ${$focusedGrid.parentComponentId} (${$focusedGrid.subGridIndex})`}</div>
+					<div>{`Subgrid: ${$focusedGrid.parentComponentId} (${$focusedGrid.subGridIndex})`}</div>
 					<button
 						on:click={() => {
 							$selectedComponent = undefined
