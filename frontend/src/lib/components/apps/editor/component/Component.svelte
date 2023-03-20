@@ -325,6 +325,7 @@
 				configuration={component.configuration}
 				id={component.id}
 				customCss={component.customCss}
+				bind:initializing
 				{render}
 			/>
 		{:else if component.type === 'horizontaldividercomponent'}
@@ -354,6 +355,7 @@
 				id={component.id}
 				customCss={component.customCss}
 				{render}
+				bind:initializing
 			/>
 		{:else if component.type === 'tabscomponent' && component.tabs}
 			<AppTabs
@@ -439,8 +441,5 @@
 	</div>
 </div>
 {#if initializing}
-	<div class="absolute inset-0 center-center flex-col bg-white text-gray-600 border">
-		<Loader2 class="animate-spin" size={16} />
-		<span class="text-xs mt-1">Loading</span>
-	</div>
+	<div class="absolute inset-0 center-center flex-col bg- border animate-skeleton" />
 {/if}
