@@ -393,7 +393,7 @@ export const components = {
 	formbuttoncomponent: {
 		name: 'Modal Form',
 		icon: PlusSquare,
-		dims: '2:8-6:8' as AppComponentDimensions,
+		dims: '1:1-2:1' as AppComponentDimensions,
 		customCss: {
 			button: { class: '', style: '' },
 			popup: { class: '', style: '' }
