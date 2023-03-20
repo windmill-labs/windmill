@@ -63,6 +63,9 @@
 		gotoUrl?: string
 		gotoNewTab?: boolean
 		triggerOnAppLoad?: boolean
+		onSuccess?: {
+			setTab: { id: string; index: number }
+		}
 	}
 
 	$: initializing = resolvedConfig?.label == undefined
@@ -149,6 +152,11 @@
 	autoRefresh={false}
 	goto={resolvedConfig.gotoUrl}
 	gotoNewTab={resolvedConfig.gotoNewTab}
+	on:success={() => {
+		if (resolvedConfig.onSuccess?.setTab.id !== '') {
+			debugger
+		}
+	}}
 	{render}
 >
 	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>

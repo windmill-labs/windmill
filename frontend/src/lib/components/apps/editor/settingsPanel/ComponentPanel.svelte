@@ -77,6 +77,17 @@
 			}
 		}
 	}
+
+	if (
+		(component.type === 'buttoncomponent' ||
+			component.type === 'formcomponent' ||
+			component.type === 'formbuttoncomponent') &&
+		!component.onSuccess
+	) {
+		component.onSuccess = {
+			setTab: { id: '', index: 0 }
+		}
+	}
 </script>
 
 <svelte:window on:keydown={keydown} />
@@ -180,9 +191,8 @@
 
 		<AlignmentEditor bind:component />
 		{#if component.type === 'buttoncomponent' || component.type === 'formcomponent' || component.type === 'formbuttoncomponent'}
-			{#if component.onSuccess}
-				<SetTabSection bind:setTab={component.onSuccess.setTab} />
-			{/if}
+			<SetTabSection bind:setTab={component.onSuccess.setTab} />
+
 			<Recompute bind:recomputeIds={component.recomputeIds} ownId={component.id} />
 		{/if}
 

@@ -4,12 +4,11 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import LightweightSchemaForm from '$lib/components/LightweightSchemaForm.svelte'
 	import Popover from '$lib/components/Popover.svelte'
-	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import { AppService, type CompletedJob } from '$lib/gen'
 	import { classNames, defaultIfEmptyString, emptySchema, sendUserToast } from '$lib/utils'
 	import { Bug } from 'lucide-svelte'
-	import { getContext } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 	import type { AppInputs, Runnable } from '../../inputType'
 	import type { AppViewerContext } from '../../types'
@@ -48,6 +47,8 @@
 		state,
 		componentControl
 	} = getContext<AppViewerContext>('AppViewerContext')
+
+	const dispatch = createEventDispatcher()
 
 	$: autoRefresh && handleAutorefresh()
 
@@ -152,7 +153,9 @@
 					$componentControl,
 					$worldStore
 				)
+
 				setResult(r)
+
 				$state = $state
 			} catch (e) {
 				sendUserToast('Error running frontend script: ' + e.message, true)
@@ -218,7 +221,13 @@
 	}
 
 	export async function runComponent() {
-		await executeComponent()
+		try {
+			await executeComponent()
+			dispatch('success')
+		} catch (e) {
+			console.error(e)
+			debugger
+		}
 	}
 
 	let lastStartedAt: number = Date.now()

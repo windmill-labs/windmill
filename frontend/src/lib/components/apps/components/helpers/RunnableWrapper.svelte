@@ -59,6 +59,7 @@
 		wrapperClass={runnableClass}
 		wrapperStyle={runnableStyle}
 		{render}
+		on:success
 	>
 		<slot />
 	</RunnableComponent>
