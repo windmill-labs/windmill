@@ -1,6 +1,20 @@
 # Changelog
 
 
+## [1.80.0](https://github.com/windmill-labs/windmill/compare/v1.79.0...v1.80.0) (2023-03-20)
+
+
+### Features
+
+* **apps:** add transformers for data sources ([0abacac](https://github.com/windmill-labs/windmill/commit/0abacac06c7dd586b48c66ff47b7589fe692205b))
+* **frontend:** App set tab ([#1307](https://github.com/windmill-labs/windmill/issues/1307)) ([48413a7](https://github.com/windmill-labs/windmill/commit/48413a78c5e7e0ee8208711f15135d81136b7386))
+
+
+### Bug Fixes
+
+* **frontend:** add missing optional chaining ([#1306](https://github.com/windmill-labs/windmill/issues/1306)) ([29b1cc6](https://github.com/windmill-labs/windmill/commit/29b1cc6ff0ebc5edcad24a1780113889c507075d))
+* **frontend:** App button triggered by ([#1304](https://github.com/windmill-labs/windmill/issues/1304)) ([cf2d031](https://github.com/windmill-labs/windmill/commit/cf2d031e8e89faa2cd7fa58436cbe7cf4d9045f9))
+
 ## [1.79.0](https://github.com/windmill-labs/windmill/compare/v1.78.0...v1.79.0) (2023-03-17)
 
 
