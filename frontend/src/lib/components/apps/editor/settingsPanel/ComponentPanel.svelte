@@ -2,7 +2,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { faChevronDown, faChevronUp, faCopy, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
-	import type { AppEditorContext, AppViewerContext } from '../../types'
+	import type { AppEditorContext, AppViewerContext, RichConfiguration } from '../../types'
 	import PanelSection from './common/PanelSection.svelte'
 	import InputsSpecsEditor from './InputsSpecsEditor.svelte'
 	import TableActions from './TableActions.svelte'
@@ -17,7 +17,7 @@
 	import AlignmentEditor from './AlignmentEditor.svelte'
 	import RunnableInputEditor from './inputEditor/RunnableInputEditor.svelte'
 	import TemplateEditor from '$lib/components/TemplateEditor.svelte'
-	import type { AppComponent } from '../component'
+	import { ccomponents, components, type AppComponent } from '../component'
 	import CssProperty from '../componentsPanel/CssProperty.svelte'
 	import GridTab from './GridTab.svelte'
 	import { deleteGridItem } from '../appUtils'
@@ -84,10 +84,15 @@
 			component.type === 'formbuttoncomponent') &&
 		!component.onSuccess
 	) {
+		debugger
 		component.onSuccess = {
 			setTab: { id: '', index: 0 }
 		}
 	}
+
+	const initialConfiguration = ccomponents[component.type].initialData.configuration
+	const componentInput: RichConfiguration | undefined =
+		ccomponents[component.type].initialData.componentInput
 </script>
 
 <svelte:window on:keydown={keydown} />
@@ -95,7 +100,7 @@
 {#if component}
 	<div class="flex min-h-full flex-col min-w-[150px] w-full divide-y">
 		{#if component.componentInput}
-			<PanelSection title={component.componentInput.fieldType === 'any' ? 'By Runnable' : 'Input'}>
+			<PanelSection title="Data Source">
 				<svelte:fragment slot="action">
 					<span
 						class={classNames(
@@ -119,7 +124,13 @@
 
 				<div class="flex flex-col w-full gap-2 my-2">
 					{#if component.componentInput.type === 'static'}
-						<StaticInputEditor bind:componentInput={component.componentInput} />
+						<StaticInputEditor
+							fieldType={componentInput?.fieldType}
+							subFieldType={componentInput?.subFieldType}
+							format={componentInput?.format}
+							bind:componentInput={component.componentInput}
+							noVariablePicker
+						/>
 					{:else if component.componentInput.type === 'template' && component.componentInput !== undefined}
 						<div class="py-1 min-h-[28px]  rounded border border-1 border-gray-500">
 							<TemplateEditor
@@ -133,6 +144,7 @@
 						<ConnectedInputEditor bind:componentInput={component.componentInput} />
 					{:else if component.componentInput?.type === 'runnable' && component.componentInput !== undefined}
 						<RunnableInputEditor
+							appComponent={component}
 							bind:appInput={component.componentInput}
 							defaultUserInput={component.type == 'formcomponent' ||
 								component.type == 'formbuttoncomponent'}
@@ -170,11 +182,12 @@
 				{/key}
 			</PanelSection>
 		{/if}
-		{#if Object.values(component.configuration).length > 0}
-			<PanelSection title={`Configuration (${Object.values(component.configuration).length})`}>
+		{#if Object.values(initialConfiguration).length > 0}
+			<PanelSection title={`Configuration (${Object.values(initialConfiguration).length})`}>
 				<InputsSpecsEditor
 					{rowColumns}
 					id={component.id}
+					inputSpecsConfiguration={initialConfiguration}
 					bind:inputSpecs={component.configuration}
 					userInputEnabled={false}
 				/>
@@ -192,13 +205,12 @@
 		<AlignmentEditor bind:component />
 		{#if component.type === 'buttoncomponent' || component.type === 'formcomponent' || component.type === 'formbuttoncomponent'}
 			<SetTabSection bind:setTab={component.onSuccess.setTab} />
-
 			<Recompute bind:recomputeIds={component.recomputeIds} ownId={component.id} />
 		{/if}
 
 		<div class="grow shrink" />
 
-		{#if Object.keys(component.customCss ?? {}).length > 0}
+		{#if Object.keys(ccomponents[component.type].customCss ?? {}).length > 0}
 			<PanelSection title="Custom CSS">
 				<div slot="action">
 					<Button
@@ -212,10 +224,15 @@
 				</div>
 				{#if viewCssOptions}
 					<div transition:slide|local>
-						{#each Object.keys(component.customCss ?? {}) as name}
-							{#if component?.customCss?.[name]}
+						{#each Object.keys(ccomponents[component.type].customCss ?? {}) as name}
+							{#if component?.customCss != undefined}
 								<div class="w-full mb-2">
-									<CssProperty {name} bind:value={component.customCss[name]} />
+									<CssProperty
+										forceStyle={ccomponents[component.type].customCss[name].style != undefined}
+										forceClass={ccomponents[component.type].customCss[name].class != undefined}
+										{name}
+										bind:value={component.customCss[name]}
+									/>
 								</div>
 							{/if}
 						{/each}

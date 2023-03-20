@@ -2,29 +2,37 @@
 	import type {
 		ConnectedAppInput,
 		RowAppInput,
+		RunnableByName,
 		StaticAppInput,
 		UserAppInput
 	} from '$lib/components/apps/inputType'
 	import type { AppViewerContext } from '$lib/components/apps/types'
 	import { getContext } from 'svelte'
-	import { findGridItem } from '../../appUtils'
+	import type { AppComponent } from '../../component'
 	import TriggerBadgesList from './TriggerBadgesList.svelte'
 	import { getDependencies } from './triggerListUtils'
 
-	const { selectedComponent, app } = getContext<AppViewerContext>('AppViewerContext')
-
+	const { selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 	export let fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
+	export let appComponent: AppComponent
+	export let runnable: RunnableByName
 
-	$: gridItem = $selectedComponent ? findGridItem($app, $selectedComponent) : undefined
+	const onClick = ['buttoncomponent', 'formbuttoncomponent', 'formcomponent'].includes(
+		appComponent.type
+	)
 
-	$: onClick =
-		gridItem?.data.type &&
-		['buttoncomponent', 'formbuttoncomponent', 'formcomponent'].includes(gridItem?.data.type)
+	$: onLoad =
+		!onClick ||
+		(appComponent?.configuration?.triggerOnAppLoad != undefined &&
+			appComponent?.configuration?.triggerOnAppLoad?.ctype === undefined &&
+			appComponent.configuration.triggerOnAppLoad.type == 'static' &&
+			appComponent.configuration.triggerOnAppLoad.value)
 </script>
 
 <TriggerBadgesList
 	inputDependencies={getDependencies(fields)}
-	onLoad={!onClick}
+	bind:inlineScript={runnable.inlineScript}
+	{onLoad}
 	id={$selectedComponent}
 	{onClick}
 />

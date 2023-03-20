@@ -1,8 +1,8 @@
 <script lang="ts">
 	import ColorPicker, { ChromeVariant } from 'svelte-awesome-color-picker'
-	import type { AppInput, StaticInput } from '../../../inputType'
+	import type { StaticInput } from '../../../inputType'
 
-	export let componentInput: StaticInput<string> & Extract<AppInput, { fieldType: 'color' }>
+	export let componentInput: StaticInput<string>
 	let isOpen = false
 </script>
 

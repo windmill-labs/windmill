@@ -1,38 +1,40 @@
-import type { AppComponent } from "."
+import type { AppComponent } from '.'
 
 export function defaultCode(component: string, language: string): string | undefined {
 	return DEFAULT_CODES[component]?.[language]
 }
 
-export const DEFAULT_CODES: Partial<Record<AppComponent['type'], Record<'deno' | 'python3', string>>> = {
+export const DEFAULT_CODES: Partial<
+	Record<AppComponent['type'], Record<'deno' | 'python3', string>>
+> = {
 	tablecomponent: {
 		deno: `export async function main() {
-return [
-	{
-		"id": 1,
-		"name": "A cell with a long name",
-		"age": 42
-	},
-	{
-		"id": 2,
-		"name": "A briefer cell",
-		"age": 84
-	}
-]
-}`,
+	return [
+		{
+			"id": 1,
+			"name": "A cell with a long name",
+			"age": 42
+		},
+		{
+			"id": 2,
+			"name": "A briefer cell",
+			"age": 84
+		}
+	]
+	}`,
 		python3: `def main():
-return [
-	{
-		"id": 1,
-		"name": "A cell with a long name",
-		"age": 42
-	},
-	{
-		"id": 2,
-		"name": "A briefer cell",
-		"age": 84
-	}
-]`
+	return [
+		{
+			"id": 1,
+			"name": "A cell with a long name",
+			"age": 42
+		},
+		{
+			"id": 2,
+			"name": "A briefer cell",
+			"age": 84
+		}
+	]`
 	},
 	textcomponent: {
 		deno: `export async function main() {

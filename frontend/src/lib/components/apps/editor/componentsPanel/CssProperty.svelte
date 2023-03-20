@@ -5,7 +5,9 @@
 	import type { ComponentCssProperty } from '../../types'
 
 	export let name: string
-	export let value: ComponentCssProperty | undefined
+	export let value: ComponentCssProperty = {}
+	export let forceStyle: boolean = false
+	export let forceClass: boolean = false
 
 	function reset(property: keyof ComponentCssProperty) {
 		if (value) {
@@ -19,7 +21,7 @@
 </div>
 {#if value}
 	<div class="border-l border-gray-400/80 py-1 pl-3.5 mt-1 ml-0.5">
-		{#if value.style !== undefined}
+		{#if value.style !== undefined || forceStyle}
 			<label class="block pb-2">
 				<div class="text-xs font-medium pb-0.5"> Style </div>
 				<div class="relative">
@@ -43,7 +45,7 @@
 				</div>
 			</label>
 		{/if}
-		{#if value.class !== undefined}
+		{#if value.class !== undefined || forceClass}
 			<label class="block">
 				<div class="text-xs font-medium pb-0.5"> Tailwind classes </div>
 				<div class="relative">

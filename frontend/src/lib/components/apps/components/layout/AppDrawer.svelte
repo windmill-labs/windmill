@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
-	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import InputValue from '../helpers/InputValue.svelte'
 	import Portal from 'svelte-portal'
@@ -9,8 +8,9 @@
 	import { Button, ButtonType, Drawer, DrawerContent } from '$lib/components/common'
 	import { twMerge } from 'tailwind-merge'
 	import { AlignWrapper } from '../helpers'
+	import { initOutput } from '../../editor/appUtils'
 
-	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'drawercomponent'> | undefined = undefined
 	export let id: string
 	export let configuration: RichConfigurations
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
@@ -18,7 +18,11 @@
 	export let noWFull = false
 	export let render: boolean
 
-	const { app, focusedGrid, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, focusedGrid, selectedComponent, worldStore } =
+		getContext<AppViewerContext>('AppViewerContext')
+
+	//used so that we can count number of outputs setup for first refresh
+	initOutput($worldStore, id, {})
 
 	let gridContent: string[] | undefined = undefined
 	let drawerTitle: string | undefined = undefined
@@ -80,9 +84,9 @@
 				<SubGridEditor
 					visible={open && render}
 					{id}
-					class={css?.container.class}
-					style={css?.container.style}
-					bind:subGrid={$app.subgrids[`${id}-0`]}
+					class={css?.container?.class}
+					style={css?.container?.style}
+					subGridId={`${id}-0`}
 					containerHeight={1200}
 					on:focus={() => {
 						$selectedComponent = id

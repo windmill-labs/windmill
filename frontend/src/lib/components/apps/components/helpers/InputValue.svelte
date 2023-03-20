@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { isCodeInjection } from '$lib/components/flows/utils'
 	import { deepEqual } from 'fast-equals'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy } from 'svelte'
 	import type { AppInput, EvalAppInput, RichAppInput, UploadAppInput } from '../../inputType'
 	import type { AppViewerContext, RichConfiguration } from '../../types'
 	import { accessPropertyByPath } from '../../utils'
@@ -16,7 +16,6 @@
 	export let extraContext: Record<string, any> = {}
 	export let key: string = ''
 
-	$: console.log(value)
 	const { componentControl } = getContext<AppViewerContext>('AppViewerContext')
 
 	const dispatch = createEventDispatcher()
@@ -27,7 +26,8 @@
 
 	let lastInput = input ? JSON.parse(JSON.stringify(input)) : undefined
 
-	$: console.log(input)
+	onDestroy(() => (lastInput = undefined))
+
 	$: if (input && !deepEqual(input, lastInput)) {
 		lastInput = JSON.parse(JSON.stringify(input))
 		// Needed because of file uploads
@@ -50,6 +50,7 @@
 	}
 
 	$: lastInput && $worldStore && debounce(handleConnection)
+
 	$: lastInput &&
 		lastInput.type == 'template' &&
 		$stateId &&
@@ -58,6 +59,7 @@
 			value = await getValue(lastInput)
 			dispatch('done')
 		})
+
 	$: lastInput &&
 		lastInput.type == 'eval' &&
 		$stateId &&
@@ -65,14 +67,13 @@
 		debounce(async () => (value = await evalExpr(lastInput)))
 
 	async function handleConnection() {
-		console.log('handleConnection', lastInput)
-		if (lastInput.type === 'connected') {
+		if (lastInput?.type === 'connected') {
 			$worldStore?.connect<any>(lastInput, onValueChange, `${id}-${key}`)
-		} else if (lastInput.type === 'static' || lastInput.type == 'template') {
+		} else if (lastInput?.type === 'static' || lastInput?.type == 'template') {
 			value = await getValue(lastInput)
-		} else if (lastInput.type == 'eval') {
+		} else if (lastInput?.type == 'eval') {
 			value = await evalExpr(lastInput as EvalAppInput)
-		} else if (lastInput.type == 'upload') {
+		} else if (lastInput?.type == 'upload') {
 			value = (lastInput as UploadAppInput).value
 		} else {
 			value = undefined
@@ -124,7 +125,7 @@
 	}
 
 	function onValueChange(newValue: any): void {
-		if (lastInput.type === 'connected' && newValue !== undefined && newValue !== null) {
+		if (lastInput?.type === 'connected' && newValue !== undefined && newValue !== null) {
 			const { connection } = lastInput
 			if (!connection) {
 				// No connection

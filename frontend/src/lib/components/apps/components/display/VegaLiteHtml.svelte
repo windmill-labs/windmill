@@ -17,7 +17,7 @@
 
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, id, {
 		result: undefined,
 		loading: false
 	})
@@ -60,7 +60,7 @@
 <InputValue {id} input={configuration.canvas} bind:value={canvas} />
 
 <div class="w-full h-full" bind:clientHeight={h} bind:clientWidth={w}>
-	<RunnableWrapper {render} {componentInput} {id} bind:initializing bind:result>
+	<RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
 		<div on:pointerdown bind:this={divEl} />
 	</RunnableWrapper>
 </div>

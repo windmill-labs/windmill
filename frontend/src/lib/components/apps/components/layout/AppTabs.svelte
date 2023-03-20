@@ -12,9 +12,7 @@
 	export let configuration: RichConfigurations
 	export let componentContainerHeight: number
 	export let tabs: string[]
-	export let customCss:
-		| ComponentCustomCSS<'tabRow' | 'tabs' | 'selectedTab' | 'container'>
-		| undefined = undefined
+	export let customCss: ComponentCustomCSS<'tabscomponent'> | undefined = undefined
 	export let render: boolean
 	export let initializing: boolean | undefined = configuration.tabsKind != undefined
 
@@ -82,8 +80,6 @@
 	$: selected && handleTabSelection()
 	$: selectedIndex = tabs?.indexOf(selected) ?? -1
 	$: css = concatCustomCss($app.css?.tabscomponent, customCss)
-
-	let subgridWidth: number | undefined = undefined
 </script>
 
 <InputValue
@@ -100,8 +96,8 @@
 				{#each tabs ?? [] as res}
 					<Tab
 						value={res}
-						class={css?.tabs?.class}
-						style={css?.tabs?.style}
+						class={css?.allTabs?.class}
+						style={css?.allTabs?.style}
 						selectedClass={css?.selectedTab?.class}
 						selectedStyle={css?.selectedTab?.style}
 					>
@@ -127,13 +123,13 @@
 		</div>
 	{/if}
 
-	<div bind:clientWidth={subgridWidth} class="w-full">
+	<div class="w-full">
 		{#if $app.subgrids}
 			{#each tabs ?? [] as res, i}
 				<SubGridEditor
 					{id}
 					visible={render && i === selectedIndex}
-					bind:subGrid={$app.subgrids[`${id}-${i}`]}
+					subGridId={`${id}-${i}`}
 					class={css?.container?.class}
 					style={css?.container?.style}
 					containerHeight={componentContainerHeight - tabHeight}

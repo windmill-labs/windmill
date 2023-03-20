@@ -2,7 +2,7 @@ import type { Schema } from '$lib/common'
 import { FlowService, ScriptService } from '$lib/gen'
 import { inferArgs } from '$lib/infer'
 import { emptySchema } from '$lib/utils'
-import type { AppComponent } from './editor/component'
+import type { AppComponent, components } from './editor/component'
 import type { App, ComponentCssProperty, ComponentCustomCSS, GridItem } from './types'
 import { twMerge } from 'tailwind-merge'
 import type { AppInput, InputType, ResultAppInput, StaticAppInput } from './inputType'
@@ -230,29 +230,29 @@ export function toKebabCase(text: string) {
 	return text.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()
 }
 
-export function concatCustomCss<T extends string = string>(
-	appCss?: ComponentCustomCSS<T>,
-	componentCss?: ComponentCustomCSS<T>
-): Record<T, ComponentCssProperty> | undefined {
+export function concatCustomCss<T extends Record<string, ComponentCssProperty>>(
+	appCss?: Record<string, ComponentCssProperty>,
+	componentCss?: T
+): T | undefined {
 	if (!componentCss) return undefined
 
-	const customStyle = {} as Record<T, ComponentCssProperty>
-	Object.keys(componentCss).forEach((key) => {
-		const k = key as keyof typeof componentCss
+	return Object.fromEntries(
+		Object.entries(componentCss).map(([key, v]) => {
+			// This is the general style of the component type
+			const appStyle = appCss?.[key]?.style?.trim() || ''
+			const appEnding = appStyle?.endsWith(';') || !appStyle ? ' ' : '; '
 
-		// This is the general style of the component type
-		const appStyle = appCss?.[k]?.style?.trim() || ''
-		const appEnding = appStyle?.endsWith(';') || !appStyle ? ' ' : '; '
+			// This is the custom style of the component instance
+			const compStyle = v?.style?.trim() || ''
+			const compEnding = compStyle?.endsWith(';') || !compStyle ? ' ' : ';'
 
-		// This is the custom style of the component instance
-		const compStyle = componentCss[k]?.style?.trim() || ''
-		const compEnding = compStyle?.endsWith(';') || !compStyle ? ' ' : ';'
-
-		customStyle[k] = {
-			style: (appStyle + appEnding + compStyle + compEnding).trim(),
-			class: twMerge(appCss?.[k]?.class, componentCss[k]?.class)
-		}
-	})
-
-	return customStyle
+			return [
+				key,
+				{
+					style: (appStyle + appEnding + compStyle + compEnding).trim(),
+					class: twMerge(appCss?.[key]?.class, v?.class)
+				}
+			]
+		})
+	) as T
 }

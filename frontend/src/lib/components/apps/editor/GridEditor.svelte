@@ -9,7 +9,6 @@
 	import type { Policy } from '$lib/gen'
 	import HiddenComponent from '../components/helpers/HiddenComponent.svelte'
 	import Component from './component/Component.svelte'
-	import { deepEqual } from 'fast-equals'
 	import { push } from '$lib/history'
 	import { expandGriditem, findGridItem } from './appUtils'
 	import Grid from '../svelte-grid/Grid.svelte'
@@ -66,44 +65,12 @@
 
 	function selectComponent(id: string) {
 		if (!$connectingInput.opened) {
-			if ($selectedComponent !== id) {
-				$selectedComponent = id
-			}
-
-			$focusedGrid = undefined
-		}
-	}
-
-	let pointerdown = false
-	let lastapp: App | undefined = undefined
-	const onpointerdown = () => {
-		if (history) {
-			lastapp = JSON.parse(JSON.stringify($app))
-			pointerdown = true
-		}
-	}
-	const onpointerup = () => {
-		if (history) {
-			pointerdown = false
-			if (!deepEqual(lastapp, $app)) {
-				push(history, lastapp, false, true)
+			$selectedComponent = id
+			if ($focusedGrid?.parentComponentId != id) {
+				$focusedGrid = undefined
 			}
 		}
 	}
-
-	afterUpdate(() => {
-		if ($selectedComponent) {
-			const parents = document.querySelectorAll<HTMLElement>('.svlt-grid-item')
-			parents.forEach((parent) => {
-				const hasActiveChild = !!parent.querySelector('.active-grid-item')
-				if (hasActiveChild) {
-					parent.style.setProperty('z-index', '100')
-				} else {
-					parent.style.removeProperty('z-index')
-				}
-			})
-		}
-	})
 </script>
 
 <div class="relative w-full z-20 overflow-visible">
@@ -126,9 +93,6 @@
 	<div
 		style={$app.css?.['app']?.['grid']?.style}
 		class={twMerge('px-4 pt-4 pb-2 overflow-visible', $app.css?.['app']?.['grid']?.class ?? '')}
-		on:pointerdown={onpointerdown}
-		on:pointerleave={onpointerup}
-		on:pointerup={onpointerup}
 		on:click={() => {
 			$selectedComponent = undefined
 			$focusedGrid = undefined
@@ -160,27 +124,25 @@
 						style="transform: translate(-50%, -50%);"
 						class="absolute w-fit justify-center bg-indigo-500/90 left-[50%] top-[50%] z-50 px-6 rounded border text-white py-2 text-5xl center-center"
 					>
-						{dataItem.data.id}
+						{dataItem.id}
 					</div>
 				{/if}
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<div
-					on:click|stopPropagation
-					on:pointerdown={() => selectComponent(dataItem.data.id)}
+					on:pointerdown={() => selectComponent(dataItem.id)}
 					class={classNames(
 						'h-full w-full center-center',
-						$selectedComponent === dataItem.data.id ? 'active-grid-item' : ''
+						$selectedComponent === dataItem.id ? 'active-grid-item' : ''
 					)}
 				>
 					<Component
 						render={true}
-						{pointerdown}
 						component={dataItem.data}
-						selected={$selectedComponent === dataItem.data.id}
+						selected={$selectedComponent === dataItem.id}
 						locked={isFixed(dataItem)}
 						on:delete={() => removeGridElement(dataItem.data)}
 						on:lock={() => {
-							const gridItem = findGridItem($app, dataItem.data.id)
+							const gridItem = findGridItem($app, dataItem.id)
 							if (gridItem) {
 								toggleFixed(gridItem)
 							}
@@ -188,8 +150,8 @@
 						}}
 						on:expand={() => {
 							push(history, $app)
-							$selectedComponent = dataItem.data.id
-							expandGriditem($app.grid, dataItem, $breakpoint)
+							$selectedComponent = dataItem.id
+							expandGriditem($app.grid, dataItem.id, $breakpoint)
 							$app = $app
 						}}
 					/>
@@ -207,7 +169,7 @@
 				inlineScript={script.inlineScript}
 				name={script.name}
 				fields={script.fields}
-				autoRefresh={script.autoRefresh ?? false}
+				autoRefresh={script.autoRefresh ?? true}
 			/>
 		{/if}
 	{/each}

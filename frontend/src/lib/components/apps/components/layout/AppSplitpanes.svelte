@@ -1,27 +1,26 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
-	import type { AppInput } from '../../inputType'
-	import type {
-		AppEditorContext,
-		AppViewerContext,
-		ComponentCustomCSS,
-		RichConfigurations
-	} from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { concatCustomCss } from '../../utils'
-	import InputValue from '../helpers/InputValue.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { deepEqual } from 'fast-equals'
+	import { initOutput } from '../../editor/appUtils'
 
 	export let id: string
 	export let componentContainerHeight: number
-	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
+	export let customCss:
+		| ComponentCustomCSS<'horizontalsplitpanescomponent' | 'verticalsplitpanescomponent'>
+		| undefined = undefined
 	export let horizontal: boolean = false
 	export let panes: number[]
 	export let render: boolean
 
-	const { app, focusedGrid, selectedComponent, componentControl } =
+	const { app, focusedGrid, selectedComponent, componentControl, worldStore } =
 		getContext<AppViewerContext>('AppViewerContext')
+
+	//used so that we can count number of outputs setup for first refresh
+	initOutput($worldStore, id, {})
 
 	function onFocus() {
 		$focusedGrid = {
@@ -67,28 +66,39 @@
 	}
 </script>
 
-<div class="h-full w-full border" on:pointerdown|stopPropagation>
+<div class="h-full w-full border" on:pointerdown={onFocus}>
 	<Splitpanes {horizontal}>
 		{#each sumedup as paneSize, index (index)}
 			<Pane size={paneSize} minSize={20}>
-				{#if $app.subgrids?.[`${id}-${index}`]}
-					<SubGridEditor
-						visible={render}
-						{id}
-						shouldHighlight={$focusedGrid?.subGridIndex === index}
-						class={css?.container.class}
-						style={css?.container.style}
-						bind:subGrid={$app.subgrids[`${id}-${index}`]}
-						containerHeight={horizontal ? undefined : componentContainerHeight - 8}
-						on:focus={() => {
-							$selectedComponent = id
-							$focusedGrid = {
-								parentComponentId: id,
-								subGridIndex: index
-							}
-						}}
-					/>
-				{/if}
+				<div
+					class="w-full h-full"
+					on:pointerdown|stopPropagation={() => {
+						$selectedComponent = id
+						$focusedGrid = {
+							parentComponentId: id,
+							subGridIndex: index
+						}
+					}}
+				>
+					{#if $app.subgrids?.[`${id}-${index}`]}
+						<SubGridEditor
+							visible={render}
+							{id}
+							shouldHighlight={$focusedGrid?.subGridIndex === index}
+							class={css?.container?.class}
+							style={css?.container?.style}
+							subGridId={`${id}-${index}`}
+							containerHeight={horizontal ? undefined : componentContainerHeight - 8}
+							on:focus={() => {
+								$selectedComponent = id
+								$focusedGrid = {
+									parentComponentId: id,
+									subGridIndex: index
+								}
+							}}
+						/>
+					{/if}
+				</div>
 			</Pane>
 		{/each}
 	</Splitpanes>

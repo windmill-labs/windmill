@@ -3,28 +3,31 @@
 	import { Plus } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import Tooltip from '../../../Tooltip.svelte'
-	import type { AppViewerContext } from '../../types'
+	import type { AppEditorContext, AppViewerContext } from '../../types'
 	import { getAllScriptNames } from '../../utils'
 	import PanelSection from '../settingsPanel/common/PanelSection.svelte'
 	import { getAppScripts } from './utils'
 
 	const PREFIX = 'script-selector-' as const
 
-	export let selectedScriptComponentId: string | undefined = undefined
 	const { app, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
+	const { selectedComponentInEditor } = getContext<AppEditorContext>('AppEditorContext')
 
 	function selectScript(id: string) {
-		selectedScriptComponentId = id
+		$selectedComponentInEditor = id
 		if (!id.startsWith('unused-') || !id.startsWith('bg_')) {
-			$selectedComponent = selectedScriptComponentId
+			$selectedComponent = $selectedComponentInEditor.split('_transformer')[0]
 		}
 	}
 
 	$: runnables = getAppScripts($app.grid, $app.subgrids)
 
 	// When selected component changes, update selectedScriptComponentId
-	$: if ($selectedComponent != selectedScriptComponentId) {
-		selectedScriptComponentId = $selectedComponent
+	$: if (
+		$selectedComponent != $selectedComponentInEditor &&
+		!$selectedComponentInEditor?.includes('_transformer')
+	) {
+		$selectedComponentInEditor = $selectedComponent
 	}
 
 	function createBackgroundScript() {
@@ -45,6 +48,7 @@
 		$app.hiddenInlineScripts.push({
 			name: newScriptPath,
 			inlineScript: undefined,
+			autoRefresh: true,
 			fields: {}
 		})
 		$app.hiddenInlineScripts = $app.hiddenInlineScripts
@@ -59,11 +63,11 @@
 			<div class="flex flex-col gap-2 w-full">
 				{#if runnables.inline.length > 0}
 					<div class="flex gap-1 flex-col ">
-						{#each runnables.inline as { name, id }, index (index)}
+						{#each runnables.inline as { name, id, transformer }, index (index)}
 							<button
 								id={PREFIX + id}
-								class="border flex gap-1 truncate font-normal justify-between w-full items-center py-1 px-2 rounded-sm duration-200
-								{selectedScriptComponentId === id ? 'border-blue-500 bg-blue-100' : 'hover:bg-blue-50'}"
+								class="panel-item 
+				{$selectedComponentInEditor === id ? 'border-blue-500 bg-blue-100' : 'hover:bg-blue-50'}"
 								on:click={() => selectScript(id)}
 							>
 								<span class="text-2xs truncate">{name}</span>
@@ -71,6 +75,20 @@
 									<Badge color="dark-indigo">{id}</Badge>
 								</div>
 							</button>
+							{#if transformer}
+								<div class="w-full pl-4">
+									<button
+										id={PREFIX + id + '_transformer'}
+										class="border flex gap-1 truncate font-normal justify-between w-full items-center px-2 py-0.5 rounded-sm duration-200;
+			{$selectedComponentInEditor === id + '_transformer'
+											? 'border-blue-500 bg-blue-100'
+											: 'hover:bg-blue-50'}"
+										on:click={() => selectScript(id + '_transformer')}
+									>
+										<span class="text-2xs truncate">Transformer</span>
+									</button>
+								</div>
+							{/if}
 						{/each}
 					</div>
 				{/if}
@@ -80,8 +98,8 @@
 							{@const id = `unused-${index}`}
 							<button
 								id={PREFIX + id}
-								class="border flex gap-1 truncate font-normal justify-between w-full items-center py-1 px-2 rounded-sm duration-200
-								{selectedScriptComponentId === id ? 'border-blue-500 bg-blue-100' : 'hover:bg-blue-50'}"
+								class="panel-item
+								{$selectedComponentInEditor === id ? 'border-blue-500 bg-blue-100' : 'hover:bg-blue-50'}"
 								on:click={() => selectScript(id)}
 							>
 								<span class="text-2xs truncate">{unusedInlineScript.name}</span>
@@ -100,16 +118,30 @@
 			<div class="text-sm font-semibold truncate mb-1"> Workspace/Hub </div>
 			<div class="flex flex-col gap-1 w-full">
 				{#if runnables.imported.length > 0}
-					{#each runnables.imported as { name, id }, index (index)}
+					{#each runnables.imported as { name, id, transformer }, index (index)}
 						<button
 							id={PREFIX + id}
-							class="border flex gap-1 truncate font-normal justify-between w-full items-center py-1 px-2 rounded-sm duration-200
-								{selectedScriptComponentId === id ? 'border-blue-500 bg-blue-100' : 'hover:bg-blue-50'}"
+							class="panel-item
+								{$selectedComponentInEditor === id ? 'border-blue-500 bg-blue-100' : 'hover:bg-blue-50'}"
 							on:click={() => selectScript(id)}
 						>
 							<span class="text-2xs truncate">{name}</span>
 							<Badge color="dark-indigo">{id}</Badge>
 						</button>
+						{#if transformer}
+							<div class="w-full pl-4">
+								<button
+									id={PREFIX + id + '_transformer'}
+									class="border flex gap-1 truncate font-normal justify-between w-full items-center px-2 py-0.5 rounded-sm duration-200;
+	{$selectedComponentInEditor === id + '_transformer'
+										? 'border-blue-500 bg-blue-100'
+										: 'hover:bg-blue-50'}"
+									on:click={() => selectScript(id + '_transformer')}
+								>
+									<span class="text-2xs truncate">Transformer</span>
+								</button>
+							</div>
+						{/if}
 					{/each}
 				{:else}
 					<div class="text-xs text-gray-500">No imported scripts/flows</div>
@@ -118,8 +150,8 @@
 		</div>
 
 		<div>
-			<div class="w-full flex justify-between items-center">
-				<div class="text-sm font-semibold truncate mb-1">
+			<div class="w-full flex justify-between items-center mb-1">
+				<div class="text-sm font-semibold truncate">
 					Background scripts
 					<Tooltip class="mb-0.5">
 						Background scripts are triggered upon global refresh or when their input changes. The
@@ -144,8 +176,8 @@
 						{@const id = `bg_${index}`}
 						<button
 							id={PREFIX + id}
-							class="border flex gap-1 truncate font-normal justify-between w-full items-center py-1 px-2 rounded-sm duration-200
-								{selectedScriptComponentId === id ? 'border-blue-500 bg-blue-100' : 'hover:bg-blue-50'}"
+							class="panel-item
+								{$selectedComponentInEditor === id ? 'border-blue-500 bg-blue-100' : 'hover:bg-blue-50'}"
 							on:click={() => selectScript(id)}
 						>
 							<span class="text-2xs truncate">{name}</span>
@@ -159,3 +191,9 @@
 		</div>
 	</div>
 </PanelSection>
+
+<style>
+	.panel-item {
+		@apply border flex gap-1 truncate font-normal justify-between w-full items-center py-1 px-2 rounded-sm duration-200;
+	}
+</style>

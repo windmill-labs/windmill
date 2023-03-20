@@ -18,7 +18,7 @@ const columnConfiguration: ColumnConfiguration = [
 const gridColumns = columnConfiguration.map((value) => value[1])
 
 function toggleFixed(component: GridItem): GridItem {
-	const nValue = !component[gridColumns[0]].fixed
+	const nValue = !(component[gridColumns[0]]?.fixed ?? false)
 	gridColumns.forEach((column: number) => {
 		component[column].fixed = nValue
 	})

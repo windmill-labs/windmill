@@ -1,11 +1,27 @@
 import { getNextId } from '$lib/components/flows/flowStateUtils'
-import type { App, ConnectingInput, EditorBreakpoint, FocusedGrid, GridItem } from '../types'
-import { getRecommendedDimensionsByComponent, type AppComponent } from './component'
+import type {
+	App,
+	BaseAppComponent,
+	ConnectingInput,
+	EditorBreakpoint,
+	FocusedGrid,
+	GridItem,
+	StaticRichConfigurations
+} from '../types'
+import {
+	ccomponents,
+	components,
+	getRecommendedDimensionsByComponent,
+	type AppComponent,
+	type BaseComponent,
+	type TypedComponent
+} from './component'
 import { gridColumns } from '../gridUtils'
 import { allItems } from '../utils'
 import type { Output, World } from '../rx'
 import gridHelp from '../svelte-grid/utils/helper'
 import type { FilledItem } from '../svelte-grid/types'
+import type { EvalAppInput, StaticAppInput } from '../inputType'
 
 function findGridItemById(
 	root: GridItem[],
@@ -22,13 +38,13 @@ function findGridItemById(
 
 export function findGridItemParentGrid(app: App, id: string): string | undefined {
 	const gridItem = app.grid.find((x) => x.id === id)
-	if (gridItem) {
+	if (gridItem || app.subgrids === undefined) {
 		return undefined
 	} else {
-		for (const key in app.subgrids) {
+		for (const key of Object.keys(app.subgrids ?? {})) {
 			const subGrid = app.subgrids[key]
-			const gridItem = subGrid.find((x) => x.id === id)
-			if (gridItem) {
+			const gridItemIdx = subGrid.findIndex((x) => x.id === id)
+			if (gridItemIdx > -1) {
 				return key
 			}
 		}
@@ -72,9 +88,10 @@ export function getAllRecomputeIdsForComponent(app: App, id: string) {
 }
 
 export function createNewGridItem(grid: GridItem[], id: string, data: AppComponent): GridItem {
+	console.log('INSERT X')
+
 	const newComponent = {
-		resizable: true,
-		draggable: true,
+		fixed: false,
 		x: 0,
 		y: 0
 	}
@@ -92,13 +109,8 @@ export function createNewGridItem(grid: GridItem[], id: string, data: AppCompone
 
 		newItem[column] = {
 			...newComponent,
-			min: { w: 1, h: 1 },
-			max: { w: column, h: 100 },
 			w: rec.w,
-			h: rec.h,
-			customDragger: false,
-			customResizer: false,
-			fixed: false
+			h: rec.h
 		}
 		const position = gridHelp.findSpace(newItem, grid, column) as { x: number; y: number }
 		newItem[column] = { ...newItem[column], ...position }
@@ -117,14 +129,48 @@ export function getGridItems(app: App, focusedGrid: FocusedGrid | undefined): Gr
 	}
 }
 
+export function appComponentFromType<T extends keyof typeof components>(
+	type: T
+): (id: string) => BaseAppComponent & BaseComponent<T> {
+	return (id: string) => {
+		const init = ccomponents[type].initialData
+		return {
+			type,
+			//TODO remove tooltip and onlyStatic from there
+			configuration: Object.fromEntries(
+				Object.entries(init.configuration).map(([key, value]) => {
+					if (value.ctype === undefined) {
+						if (value.type === 'static') {
+							return [key, { type: value.type, value: value.value }]
+						} else if (value.type === 'eval') {
+							return [key, { type: value.type, expr: value.expr }]
+						}
+					}
+					return [key, value]
+				})
+			),
+			componentInput: init.componentInput,
+			panes: init.panes,
+			tabs: init.tabs,
+			customCss: {},
+			recomputeIds: init.recomputeIds ? [] : undefined,
+			actionButtons: init.actionButtons ? [] : undefined,
+			numberOfSubgrids: init.numberOfSubgrids,
+			horizontalAlignment: init.horizontalAlignment,
+			verticalAlignment: init.verticalAlignment,
+			id
+		}
+	}
+}
 export function insertNewGridItem(
 	app: App,
-	data: AppComponent,
+	builddata: (id: string) => AppComponent,
 	focusedGrid: FocusedGrid | undefined,
-	keepId?: boolean
-) {
-	const id = keepId ? data.id : getNextGridItemId(app)
+	keepId?: string
+): string {
+	const id = keepId ?? getNextGridItemId(app)
 
+	const data = builddata(id)
 	if (!app.subgrids) {
 		app.subgrids = {}
 	}
@@ -144,9 +190,6 @@ export function insertNewGridItem(
 	const newItem = createNewGridItem(grid, id, data)
 	grid.push(newItem)
 
-	if (focusedGrid) {
-		app.subgrids[key!] = grid
-	}
 	return id
 }
 
@@ -185,19 +228,12 @@ export function deleteGridItem(
 			delete app.subgrids![id]
 		})
 	}
-	if (!parent) {
-		let index = app.grid.findIndex((x) => x.id == component.id)
-		if (index > -1) {
-			app.grid.splice(index, 1)
-		}
+	if (parent) {
+		app.subgrids &&
+			(app.subgrids[parent] = app.subgrids[parent].filter((item) => item.id !== component?.id))
 	} else {
-		let grid = app.subgrids![parent]
-		let index = grid.findIndex((x) => x.id == component.id)
-		if (index > -1) {
-			grid.splice(index, 1)
-		}
+		app.grid = app.grid.filter((item) => item.id !== component?.id)
 	}
-
 	return components
 }
 
@@ -312,10 +348,11 @@ type Outputtable<Type> = {
 }
 
 export function initOutput<I extends Record<string, any>>(
-	world: World | undefined,
+	world: World,
 	id: string,
 	init: I
 ): Outputtable<I> {
+	world.initializedOutputs += 1
 	if (!world) {
 		return {} as any
 	}
@@ -323,14 +360,28 @@ export function initOutput<I extends Record<string, any>>(
 		Object.entries(init).map(([key, value]) => [key, world.newOutput(id, key, value)])
 	) as Outputtable<I>
 }
+
+export function initConfig<T extends Record<string, StaticAppInput | EvalAppInput>>(
+	r: T
+): {
+	[Property in keyof T]: T[Property] extends StaticAppInput ? T[Property]['value'] | undefined : any
+} {
+	return Object.fromEntries(
+		Object.entries(r).map(([key, value]) =>
+			value.type == 'static' ? [key, undefined] : [key, undefined]
+		)
+	) as any
+}
+
 export function expandGriditem(
 	grid: GridItem[],
-	gridComponent: GridItem,
+	id: string,
 	$breakpoint: EditorBreakpoint,
 	parentGridItem: GridItem | undefined = undefined
 ) {
+	const gridComponent = grid.find((item) => item.id === id)
+	if (!gridComponent) return
 	const availableSpace = findAvailableSpace(grid, gridComponent, $breakpoint, parentGridItem)
-
 	if (!availableSpace) {
 		return
 	}

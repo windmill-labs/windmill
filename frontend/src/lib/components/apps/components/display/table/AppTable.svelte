@@ -4,7 +4,6 @@
 		AppViewerContext,
 		BaseAppComponent,
 		ComponentCustomCSS,
-		RichConfiguration,
 		RichConfigurations
 	} from '../../../types'
 	import InputValue from '../../helpers/InputValue.svelte'
@@ -28,9 +27,7 @@
 	export let configuration: RichConfigurations
 	export let actionButtons: (BaseAppComponent & ButtonComponent)[]
 	export let initializing: boolean | undefined = undefined
-	export let customCss:
-		| ComponentCustomCSS<'container' | 'tableHeader' | 'tableBody' | 'tableFooter'>
-		| undefined = undefined
+	export let customCss: ComponentCustomCSS<'tablecomponent'> | undefined = undefined
 	export let render: boolean
 
 	type T = Record<string, any>
@@ -164,7 +161,7 @@
 
 <InputValue {id} input={configuration.search} bind:value={search} />
 
-<RunnableWrapper {render} {componentInput} {id} bind:initializing bind:result>
+<RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
 	{#if Array.isArray(result) && result.every(isObject)}
 		<div
 			class={twMerge(
@@ -339,8 +336,8 @@
 				paginationEnabled={pagination}
 				{result}
 				{table}
-				class={css?.tableFooter.class}
-				style={css?.tableFooter.style}
+				class={css?.tableFooter?.class}
+				style={css?.tableFooter?.style}
 			/>
 		</div>
 	{:else if result != undefined}

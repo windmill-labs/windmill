@@ -1,27 +1,24 @@
 <script lang="ts">
-	import { onMount, getContext } from 'svelte'
-	import { LayoutDashboardIcon, MousePointer2, CurlyBraces } from 'lucide-svelte'
+	import { getContext } from 'svelte'
+	import { LayoutDashboardIcon, MousePointer2, CurlyBraces, X } from 'lucide-svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { emptyString } from '$lib/utils'
 	import { Tab, TabContent, Tabs } from '../../../common'
 	import type { AppViewerContext } from '../../types'
 	import ListItem from './ListItem.svelte'
-	import { isOpenStore } from './store'
 	import CssProperty from './CssProperty.svelte'
-	import { components, type AppComponent } from '../component'
-	import { slide } from 'svelte/transition'
+	import { ccomponents, components, type AppComponent, type TypedComponent } from '../component'
 
 	const STATIC_ELEMENTS = ['app'] as const
 	const TITLE_PREFIX = 'Css.' as const
-	const SHOW_UNUSED_ID = 'Setting.ShowUnused' as const
 
-	type CustomCSSType = (typeof STATIC_ELEMENTS)[number] | AppComponent['type']
+	type CustomCSSType = (typeof STATIC_ELEMENTS)[number] | keyof typeof components
 
 	interface CustomCSSEntry {
 		type: CustomCSSType
 		name: string
 		icon: any
-		ids: string[]
+		ids: { id: string; forceStyle: boolean; forceClass: boolean }[]
 	}
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
@@ -55,64 +52,21 @@
 			type: 'app',
 			name: 'App',
 			icon: LayoutDashboardIcon,
-			ids: ['viewer', 'grid', 'component']
+			ids: ['viewer', 'grid', 'component'].map((id) => ({ id, forceStyle: true, forceClass: true }))
 		},
-		...Object.values(components).map(({ name, icon, data: { type, customCss } }) => ({
-			type,
+		...Object.entries(ccomponents).map(([type, { name, icon, customCss }]) => ({
+			type: type as keyof typeof components,
 			name,
 			icon,
-			ids: Object.keys(customCss ?? {}) ?? []
+			ids: Object.entries(customCss).map(([id, v]) => ({
+				id,
+				forceStyle: v?.style != undefined,
+				forceClass: v?.['class'] != undefined
+			}))
 		}))
 	]
-	let isCustom: Record<string, boolean> = Object.fromEntries(
-		Object.keys(entries).map((k) => [k, false])
-	)
-
-	let newCss = $app.css ?? {}
-	entries.forEach((e) => {
-		if (!newCss[e.type]) {
-			isCustom[e.type] = true
-			newCss[e.type] = {}
-		}
-		e.ids.forEach((id) => {
-			if (!newCss[e.type][id]) {
-				newCss[e.type][id] = components?.[e.type]?.data?.customCss?.[id] ?? { class: '', style: '' }
-			}
-		})
-		e.ids
-			.map((id) => newCss[e.type][id].class != '' || newCss[e.type][id].style != '')
-			.forEach((c) => {
-				if (c) {
-					isCustom[e.type] = true
-				}
-			})
-	})
-	//@ts-ignore
-	$app.css = newCss
-
-	$: staticComponents = entries.filter(({ type }) => STATIC_ELEMENTS.includes(type as any))
-	$: usedComponents = Object.keys(
-		$app.grid.reduce((acc, { data }) => {
-			acc[data.type] = true
-			return acc
-		}, {})
-	)
-		.map((type) => entries.find((entry) => entry.type === type))
-		.filter(Boolean) as CustomCSSEntry[]
-	$: unusedComponents = entries.filter(({ type }) => {
-		return (
-			!STATIC_ELEMENTS.includes(type as any) && !usedComponents.find((entry) => entry.type === type)
-		)
-	})
-
-	onMount(() => {
-		isOpenStore.addItems(
-			[{ name: 'App' }, ...Object.values(components)].map((component) => {
-				return { [TITLE_PREFIX + component.name]: false }
-			})
-		)
-		isOpenStore.addItems([{ [SHOW_UNUSED_ID]: false }])
-	})
+	entries.sort((a, b) => a.name.localeCompare(b.name))
+	let search = ''
 </script>
 
 <Tabs selected="ui" on:selected={(e) => switchTab(e.detail === 'json')} class="relative">
@@ -130,9 +84,38 @@
 	</Tab>
 	<div slot="content" class="h-full overflow-y-auto">
 		<TabContent value="ui">
-			{#each [...staticComponents, ...usedComponents] as { type, name, icon, ids }}
+			<div class="sticky top-0 left-0 w-full bg-white p-2">
+				<div class="relative">
+					<input
+						bind:value={search}
+						class="px-2 pb-1 border border-gray-300 rounded-sm {search ? 'pr-8' : ''}"
+						placeholder="Search..."
+					/>
+					{#if search}
+						<button
+							class="absolute right-2 top-1/2 transform -translate-y-1/2 hover:bg-gray-200 rounded-full p-0.5"
+							on:click|stopPropagation|preventDefault={() => (search = '')}
+						>
+							<X size="14" />
+						</button>
+					{/if}
+				</div>
+			</div>
+			{#each search != '' ? entries.filter((x) => x.name
+							.toLowerCase()
+							.includes(search.toLowerCase())) : entries as { type, name, icon, ids } (name)}
 				{#if ids.length > 0}
-					<ListItem title={name} prefix={TITLE_PREFIX}>
+					<ListItem
+						title={name}
+						prefix={TITLE_PREFIX}
+						on:open={(e) => {
+							if ($app.css != undefined) {
+								if (e.detail && $app.css[type] == undefined) {
+									$app.css[type] = Object.fromEntries(ids.map(({ id }) => [id, {}]))
+								}
+							}
+						}}
+					>
 						<div slot="title" class="flex items-center">
 							<svelte:component this={icon} size={18} />
 							<span class="ml-1">
@@ -140,13 +123,14 @@
 							</span>
 						</div>
 						<div class="pb-2">
-							{#each ids as id}
+							{#each ids as { id, forceStyle, forceClass }}
 								<div class="mb-3">
-									{#if $app?.css?.[type][id]}
+									{#if $app?.css?.[type]}
 										<CssProperty
+											{forceClass}
+											{forceStyle}
 											name={id}
 											bind:value={$app.css[type][id]}
-											on:focus={() => (isCustom[type] = true)}
 										/>
 									{/if}
 								</div>
@@ -155,43 +139,6 @@
 					</ListItem>
 				{/if}
 			{/each}
-			<div class="px-1 my-4">
-				<button
-					on:click|preventDefault|stopPropagation={() => isOpenStore.toggle(SHOW_UNUSED_ID)}
-					class="w-full text-xs text-gray-500 text-center font-medium hover:underline p-2"
-				>
-					{$isOpenStore[SHOW_UNUSED_ID] ? 'Hide' : 'Show'} unused components
-				</button>
-			</div>
-			{#if $isOpenStore[SHOW_UNUSED_ID]}
-				<div transition:slide|local={{ duration: 300 }}>
-					{#each unusedComponents as { type, name, icon, ids }}
-						{#if ids.length > 0}
-							<ListItem title={name} prefix={TITLE_PREFIX}>
-								<div slot="title" class="flex items-center">
-									<svelte:component this={icon} size={18} />
-									<span class="ml-1">
-										{name}
-									</span>
-								</div>
-								<div class="pb-2">
-									{#each ids as id}
-										<div class="mb-3">
-											{#if $app?.css?.[type][id]}
-												<CssProperty
-													name={id}
-													bind:value={$app.css[type][id]}
-													on:focus={() => (isCustom[type] = true)}
-												/>
-											{/if}
-										</div>
-									{/each}
-								</div>
-							</ListItem>
-						{/if}
-					{/each}
-				</div>
-			{/if}
 		</TabContent>
 		<TabContent value="json">
 			{#if !emptyString(jsonError)}

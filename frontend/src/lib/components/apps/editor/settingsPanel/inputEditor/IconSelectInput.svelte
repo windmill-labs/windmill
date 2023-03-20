@@ -4,7 +4,7 @@
 	import { Popup } from '../../../../common'
 	import { fade } from 'svelte/transition'
 
-	export let componentInput: StaticInput<string> & Extract<AppInput, { fieldType: 'icon-select' }>
+	export let componentInput: StaticInput<string>
 	let anchor: HTMLElement
 	let loading = false
 	let items: { label: string; icon: any }[]

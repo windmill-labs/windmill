@@ -1,42 +1,51 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { initConfig, initOutput } from '../../editor/appUtils'
+	import { components, configurationKeys } from '../../editor/component'
 	import type { staticValues } from '../../editor/componentsPanel/componentStaticValues'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import InputValue from '../helpers/InputValue.svelte'
+	import Loader from '../helpers/Loader.svelte'
 
 	type FitOption = (typeof staticValues)['objectFitOptions'][number]
 
 	export let id: string
 	export let configuration: RichConfigurations
-	export let customCss: ComponentCustomCSS<'image'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'imagecomponent'> | undefined = undefined
 	export let render: boolean
 
-	const { app } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 	const fit: Record<FitOption, string> = {
 		cover: 'object-cover',
 		contain: 'object-contain',
 		fill: 'object-fill'
 	}
 
-	let source: string | undefined = undefined
-	let imageFit: FitOption | undefined = undefined
-	let altText: string | undefined = undefined
+	//used so that we can count number of outputs setup for first refresh
+	initOutput($worldStore, id, {})
+
+	let resolvedConfig = initConfig(components['imagecomponent'].initialData.configuration)
 
 	$: css = concatCustomCss($app.css?.imagecomponent, customCss)
 </script>
 
-<InputValue {id} input={configuration.source} bind:value={source} />
-<InputValue {id} input={configuration.imageFit} bind:value={imageFit} />
-<InputValue {id} input={configuration.altText} bind:value={altText} />
+{#each configurationKeys['imagecomponent'] as key (key)}
+	<InputValue {key} {id} input={configuration[key]} bind:value={resolvedConfig[key]} />
+{/each}
 
 {#if render}
-	<img
-		on:pointerdown|preventDefault
-		src={source}
-		alt={altText}
-		style={css?.image?.style ?? ''}
-		class={twMerge(`w-full h-full ${fit[imageFit || 'cover']}`, css?.image?.class ?? '')}
-	/>
+	<Loader loading={resolvedConfig.source == undefined}>
+		<img
+			on:pointerdown|preventDefault
+			src={resolvedConfig.source}
+			alt={resolvedConfig.altText}
+			style={css?.image?.style ?? ''}
+			class={twMerge(
+				`w-full h-full ${fit[resolvedConfig.imageFit || 'cover']}`,
+				css?.image?.class ?? ''
+			)}
+		/>
+	</Loader>
 {/if}

@@ -20,12 +20,7 @@
 	import { Scatter } from 'svelte-chartjs'
 	import InputValue from '../helpers/InputValue.svelte'
 	import type { ChartOptions, ChartData } from 'chart.js'
-	import type {
-		AppViewerContext,
-		ComponentCustomCSS,
-		RichConfiguration,
-		RichConfigurations
-	} from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { getContext } from 'svelte'
 	import { concatCustomCss } from '../../utils'
 	import { initOutput } from '../../editor/appUtils'
@@ -34,12 +29,12 @@
 	export let componentInput: AppInput | undefined
 	export let configuration: RichConfigurations
 	export let initializing: boolean | undefined = undefined
-	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'timeseriescomponent'> | undefined = undefined
 	export let render: boolean
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, id, {
 		result: undefined,
 		loading: false
 	})
@@ -104,7 +99,7 @@
 <InputValue {id} input={configuration.zoomable} bind:value={zoomable} />
 <InputValue {id} input={configuration.pannable} bind:value={pannable} />
 
-<RunnableWrapper {render} autoRefresh {componentInput} {id} bind:initializing bind:result>
+<RunnableWrapper {outputs} {render} autoRefresh {componentInput} {id} bind:initializing bind:result>
 	<div class="w-full h-full {css?.container?.class ?? ''}" style={css?.container?.style ?? ''}>
 		{#if result}
 			<Scatter {data} {options} />

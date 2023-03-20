@@ -2,9 +2,9 @@
 	import { getContext } from 'svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
-	import type { AppViewerContext } from '../../types'
+	import type { AppEditorContext, AppViewerContext } from '../../types'
 	import ComponentHeader from '../ComponentHeader.svelte'
-	import type { AppComponent } from './components'
+	import { ccomponents, components, type AppComponent } from './components'
 	import {
 		AppBarChart,
 		AppDisplayComponent,
@@ -44,11 +44,15 @@
 	export let component: AppComponent
 	export let selected: boolean
 	export let locked: boolean = false
-	export let pointerdown: boolean = false
 	export let render: boolean
 
 	const { mode, app, errorByComponent, hoverStore } =
 		getContext<AppViewerContext>('AppViewerContext')
+
+	const editorContext = getContext<AppEditorContext>('AppEditorContext')
+	const movingcomponent = editorContext?.movingcomponent
+	$: ismoving = movingcomponent != undefined && $mode == 'dnd' && $movingcomponent === component.id
+
 	let initializing: boolean | undefined = undefined
 	let componentContainerHeight: number = 0
 
@@ -73,7 +77,6 @@
 	{#if $mode !== 'preview'}
 		<ComponentHeader
 			hover={$hoverStore === component.id}
-			{pointerdown}
 			{component}
 			{selected}
 			on:delete
@@ -83,15 +86,26 @@
 		/>
 	{/if}
 
+	{#if ismoving}
+		<div class="absolute -top-8 w-40 ">
+			<button
+				class="border p-0.5 text-xs"
+				on:click={() => {
+					$movingcomponent = undefined
+				}}>Cancel move</button
+			>
+		</div>
+	{/if}
 	<div
 		class={twMerge(
 			'h-full bg-white/40 outline-1',
 			$hoverStore === component.id && $mode !== 'preview' ? 'outline outline-blue-600' : '',
 			selected && $mode !== 'preview' ? 'outline outline-indigo-600' : '',
-			component.softWrap || hasError ? '' : 'overflow-auto',
+			ccomponents[component.type].softWrap || hasError ? '' : 'overflow-auto',
 			$mode != 'preview' ? 'cursor-pointer' : '',
 			'relative z-auto',
-			$app.css?.['app']?.['component']?.class
+			$app.css?.['app']?.['component']?.class,
+			ismoving ? 'animate-pulse' : ''
 		)}
 		style={$app.css?.['app']?.['component']?.style}
 		bind:clientHeight={componentContainerHeight}
@@ -202,6 +216,7 @@
 				componentInput={component.componentInput}
 				recomputeIds={component.recomputeIds}
 				bind:initializing
+				bind:onSuccess={component.onSuccess}
 				{render}
 			/>
 		{:else if component.type === 'selectcomponent' || component.type === 'resourceselectcomponent'}
@@ -311,6 +326,7 @@
 				configuration={component.configuration}
 				id={component.id}
 				customCss={component.customCss}
+				bind:initializing
 				{render}
 			/>
 		{:else if component.type === 'horizontaldividercomponent'}
@@ -340,8 +356,9 @@
 				id={component.id}
 				customCss={component.customCss}
 				{render}
+				bind:initializing
 			/>
-		{:else if component.type === 'tabscomponent'}
+		{:else if component.type === 'tabscomponent' && component.tabs}
 			<AppTabs
 				configuration={component.configuration}
 				id={component.id}
@@ -425,8 +442,5 @@
 	</div>
 </div>
 {#if initializing}
-	<div class="absolute inset-0 center-center flex-col bg-white text-gray-600 border">
-		<Loader2 class="animate-spin" size={16} />
-		<span class="text-xs mt-1">Loading</span>
-	</div>
+	<div class="absolute inset-0 center-center flex-col bg- border animate-skeleton" />
 {/if}

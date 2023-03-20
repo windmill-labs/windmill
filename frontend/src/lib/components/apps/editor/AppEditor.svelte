@@ -5,7 +5,7 @@
 
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { writable, type Writable } from 'svelte/store'
-	import { buildWorld, type World } from '../rx'
+	import { buildWorld } from '../rx'
 	import type {
 		App,
 		AppEditorContext,
@@ -13,7 +13,8 @@
 		ConnectingInput,
 		EditorBreakpoint,
 		EditorMode,
-		FocusedGrid
+		FocusedGrid,
+		InlineScript
 	} from '../types'
 	import AppEditorHeader from './AppEditorHeader.svelte'
 	import GridEditor from './GridEditor.svelte'
@@ -60,7 +61,9 @@
 	})
 	const history = initHistory(app)
 
-	const runnableComponents = writable<Record<string, () => Promise<void>>>({})
+	const runnableComponents = writable<
+		Record<string, (inlineScript?: InlineScript) => Promise<void>>
+	>({})
 	const errorByComponent = writable<Record<string, { error: string; componentId: string }>>({})
 	const focusedGrid = writable<FocusedGrid | undefined>(undefined)
 	const pickVariableCallback: Writable<((path: string) => void) | undefined> = writable(undefined)
@@ -100,7 +103,9 @@
 	setContext<AppEditorContext>('AppEditorContext', {
 		history,
 		pickVariableCallback,
-		ontextfocus: writable(undefined)
+		ontextfocus: writable(undefined),
+		movingcomponent: writable(undefined),
+		selectedComponentInEditor: writable(undefined)
 	})
 
 	let timeout: NodeJS.Timeout | undefined = undefined
@@ -133,6 +138,7 @@
 	$: width = $breakpoint === 'sm' ? 'min-w-[400px] max-w-[656px]' : 'min-w-[710px] w-full'
 
 	let selectedTab: 'insert' | 'settings' = 'insert'
+
 	$: if ($selectedComponent) {
 		selectedTab = 'settings'
 	} else {

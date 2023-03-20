@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Toggle from '$lib/components/Toggle.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { getContext } from 'svelte'
 	import type { AppViewerContext } from '../types'
 	import GridPanel from './GridPanel.svelte'
@@ -24,10 +25,16 @@
 	{#if $selectedComponent === `bg_${index}`}
 		<div class="min-h-full flex flex-col divide-y">
 			<PanelSection title={`Configuration`}>
-				<Toggle
-					bind:checked={script.autoRefresh}
-					options={{ right: 'Run on start and app refresh' }}
-				/>
+				<div class="flex items-center">
+					<Toggle
+						bind:checked={script.autoRefresh}
+						options={{ right: 'Run on start and app refresh' }}
+					/>
+					<Tooltip
+						>You may want to disable this so that the background script is only triggered by changes
+						to other values or triggered by another computation on a button (See 'Recompute Others')</Tooltip
+					>
+				</div>
 			</PanelSection>
 
 			<div class="p-2">
@@ -38,6 +45,8 @@
 						id={`bg_${index}`}
 						bind:inlineScript={script.inlineScript}
 					/>
+				{:else}
+					<span class="text-gray-600 text-xs">No script defined</span>
 				{/if}
 			</div>
 			{#if Object.keys(script.fields).length > 0}

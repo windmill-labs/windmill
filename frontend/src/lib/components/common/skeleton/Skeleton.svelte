@@ -11,7 +11,7 @@
 {#if loading}
 	<div class="relative flex justify-center">
 		<div
-			in:fade={{ duration: 1000 }}
+			in:fade|local={{ duration: 1000 }}
 			class="flex grow flex-col overflow-hidden {overlay
 				? 'absolute w-full h-full z-[1000]'
 				: ''} {$$props.class}"

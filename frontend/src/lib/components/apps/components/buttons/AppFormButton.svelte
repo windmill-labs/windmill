@@ -21,12 +21,17 @@
 	export let extraQueryParams: Record<string, any> = {}
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let customCss: ComponentCustomCSS<'button' | 'popup'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'formbuttoncomponent'> | undefined = undefined
 	export let render: boolean
 
 	export const staticOutputs: string[] = ['loading', 'result']
 
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+
+	$: outputs = $worldStore?.outputsById[id] as {
+		result: Output<Array<any>>
+		loading: Output<boolean>
+	}
 
 	let labelValue: string = 'Default label'
 	let color: ButtonType.Color
@@ -46,11 +51,6 @@
 
 	$: noInputs =
 		componentInput?.type != 'runnable' || Object.keys(componentInput?.fields ?? {}).length == 0
-
-	$: outputs = $worldStore?.outputsById[id] as {
-		result: Output<Array<any>>
-		loading: Output<boolean>
-	}
 
 	$: if (outputs?.loading != undefined) {
 		outputs.loading.set(false, true)
@@ -85,8 +85,8 @@
 	<Modal
 		{open}
 		title={labelValue}
-		class={css?.popup.class}
-		style={css?.popup.style}
+		class={css?.popup?.class}
+		style={css?.popup?.style}
 		on:canceled={() => {
 			open = false
 		}}
@@ -104,6 +104,7 @@
 			autoRefresh={false}
 			forceSchemaDisplay={true}
 			runnableClass="!block"
+			{outputs}
 		>
 			<div class="flex flex-col gap-2 px-4 w-full">
 				<div>

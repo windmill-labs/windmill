@@ -3,7 +3,12 @@
 	import { twMerge } from 'tailwind-merge'
 	import { getDocument, type PDFDocumentProxy, type PDFPageProxy } from 'pdfjs-dist'
 	import 'pdfjs-dist/build/pdf.worker.entry'
-	import type { AppViewerContext, ComponentCustomCSS, RichConfiguration, RichConfigurations } from '../../types'
+	import type {
+		AppViewerContext,
+		ComponentCustomCSS,
+		RichConfiguration,
+		RichConfigurations
+	} from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import InputValue from '../helpers/InputValue.svelte'
 	import { throttle } from '../../../../utils'
@@ -14,14 +19,13 @@
 
 	export let id: string
 	export let configuration: RichConfigurations
-	export let customCss: ComponentCustomCSS<'container'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'pdfcomponent'> | undefined = undefined
 	export let render: boolean
 
 	const { app, mode, worldStore, selectedComponent } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	initOutput($worldStore, id, {
-		result: undefined,
+	const outputs = initOutput($worldStore, id, {
 		loading: false
 	})
 
@@ -63,6 +67,7 @@
 			return
 		}
 		try {
+			outputs.loading.set(true)
 			await resetDoc()
 			doc = await getDocument(src).promise
 			pageNumber = 1
@@ -73,6 +78,7 @@
 			error = err?.message ?? (typeof err === 'string' ? err : 'Error loading PDF')
 			console.log(err)
 		}
+		outputs.loading.set(false)
 	}
 
 	async function renderPdf(scaleToViewport = true, resizing = false) {

@@ -9,13 +9,7 @@ export interface Positon {
 }
 
 interface ItemLayout extends Size, Positon {
-	fixed?: boolean
-	resizable?: boolean
-	draggable?: boolean
-	customDragger?: boolean
-	customResizer?: boolean
-	min?: Size
-	max?: Size
+	fixed: boolean
 }
 
 export type FilledItem<T> = { [width: number]: Required<ItemLayout>; data: T; id: string }

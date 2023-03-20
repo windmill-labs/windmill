@@ -13,7 +13,7 @@
 	export let configuration: RichConfigurations
 	export let inputType = 'text'
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let customCss: ComponentCustomCSS<'input'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'textinputcomponent'> | undefined = undefined
 	export let appCssKey: 'textinputcomponent' | 'passwordinputcomponent' | 'emailinputcomponent' =
 		'textinputcomponent'
 	export let render: boolean
@@ -50,8 +50,8 @@
 				css?.input?.class ?? ''
 			)}
 			style={css?.input?.style ?? ''}
-			on:pointerdown|stopPropagation
-			on:focus={() => ($selectedComponent = id)}
+			on:focus|stopPropagation={() => ($selectedComponent = id)}
+			on:pointerdown|stopPropagation={() => ($selectedComponent = id)}
 			type="password"
 			bind:value
 			{placeholder}
@@ -63,8 +63,8 @@
 				css?.input?.class ?? ''
 			)}
 			style={css?.input?.style ?? ''}
-			on:pointerdown|stopPropagation
 			on:focus={() => ($selectedComponent = id)}
+			on:pointerdown|stopPropagation={() => ($selectedComponent = id)}
 			type="text"
 			bind:value
 			{placeholder}
@@ -76,8 +76,8 @@
 				css?.input?.class ?? ''
 			)}
 			style={css?.input?.style ?? ''}
-			on:pointerdown|stopPropagation
 			on:focus={() => ($selectedComponent = id)}
+			on:pointerdown|stopPropagation={() => ($selectedComponent = id)}
 			type="email"
 			bind:value
 			{placeholder}

@@ -13,10 +13,10 @@
 	export let id: string
 	export let configuration: RichConfigurations
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
-	export let customCss: ComponentCustomCSS<'input'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'currencycomponent'> | undefined = undefined
 	export let render: boolean
 
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 
 	initOutput($worldStore, id, {
 		result: undefined
@@ -58,21 +58,20 @@
 	{#key isNegativeAllowed}
 		{#key locale}
 			{#key currency}
-				<CurrencyInput
-					inputClasses={{
-						formatted: twMerge('px-2 w-full py-1.5 windmillapp', css?.input?.class),
-						wrapper: 'w-full windmillapp',
-						formattedZero: twMerge('text-black windmillapp ', css?.input?.class)
-					}}
-					style={css?.input?.style}
-					bind:value
-					{currency}
-					{locale}
-					on:focus={(e) => {
-						e?.stopPropagation()
-					}}
-					{isNegativeAllowed}
-				/>
+				<div on:pointerdown|stopPropagation={() => ($selectedComponent = id)}>
+					<CurrencyInput
+						inputClasses={{
+							formatted: twMerge('px-2 w-full py-1.5 windmillapp', css?.input?.class),
+							wrapper: 'w-full windmillapp',
+							formattedZero: twMerge('text-black windmillapp ', css?.input?.class)
+						}}
+						style={css?.input?.style}
+						bind:value
+						{currency}
+						{locale}
+						{isNegativeAllowed}
+					/>
+				</div>
 			{/key}
 		{/key}
 	{/key}

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { getContext, onMount } from 'svelte'
 	import type { AppInput } from '../../inputType'
+	import type { Output } from '../../rx'
 	import type { AppViewerContext } from '../../types'
 	import { isScriptByNameDefined, isScriptByPathDefined } from '../../utils'
 	import NonRunnableComponent from './NonRunnableComponent.svelte'
@@ -21,6 +22,7 @@
 	export let gotoNewTab: boolean | undefined = undefined
 	export let render: boolean
 	export let recomputeIds: string[] = []
+	export let outputs: { result: Output<any>; loading: Output<boolean> }
 
 	const { staticExporter, noBackend } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -35,14 +37,14 @@
 		$staticExporter[id] = () => result
 	})
 
-	function isRunnableDefined() {
+	function isRunnableDefined(componentInput) {
 		return isScriptByNameDefined(componentInput) || isScriptByPathDefined(componentInput)
 	}
 </script>
 
 {#if componentInput === undefined}
 	<slot />
-{:else if componentInput.type === 'runnable' && isRunnableDefined()}
+{:else if componentInput.type === 'runnable' && isRunnableDefined(componentInput)}
 	<RunnableComponent
 		{recomputeIds}
 		gotoUrl={goto}
@@ -51,6 +53,7 @@
 		fields={componentInput.fields}
 		bind:result
 		runnable={componentInput.runnable}
+		transformer={componentInput.transformer}
 		{autoRefresh}
 		{id}
 		{extraQueryParams}
@@ -60,6 +63,7 @@
 		wrapperStyle={runnableStyle}
 		{render}
 		on:success
+		{outputs}
 	>
 		<slot />
 	</RunnableComponent>

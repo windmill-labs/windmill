@@ -26,6 +26,7 @@
 	export let defaultUserInput: boolean = false
 	export let fields: Record<string, AppInput> = {}
 	export let syncFields: boolean = false
+	export let transformer: boolean = false
 
 	const { runnableComponents, stateId, worldStore, state, appPath } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -112,12 +113,16 @@
 <div class="h-full flex flex-col gap-1">
 	<div class="flex justify-between w-full gap-2 px-2 pt-1 flex-row items-center">
 		{#if name !== undefined}
-			<input
-				on:keydown|stopPropagation
-				bind:value={name}
-				placeholder="Inline script name"
-				class="!text-xs !rounded-xs"
-			/>
+			{#if !transformer}
+				<input
+					on:keydown|stopPropagation
+					bind:value={name}
+					placeholder="Inline script name"
+					class="!text-xs !rounded-xs"
+				/>
+			{:else}
+				<span class="text-xs font-semibold truncate w-full">{name} of {id}</span>
+			{/if}
 		{/if}
 		<div class="flex w-full flex-row gap-2 items-center justify-end">
 			{#if validCode}
@@ -151,7 +156,7 @@
 							inlineScriptEditorDrawer?.openDrawer()
 						}}
 					>
-						<Maximize2 size={14} />
+						Full Editor&nbsp;<Maximize2 size={14} />
 					</Button>
 					<svelte:fragment slot="text">Open full editor</svelte:fragment>
 				</Popover>
@@ -185,7 +190,7 @@
 					btnClasses="!px-2 !py-1 !bg-gray-700 !text-white hover:!bg-gray-900"
 					on:click={async () => {
 						runLoading = true
-						await $runnableComponents[id]?.()
+						await $runnableComponents[id]?.(!transformer ? inlineScript : undefined)
 						runLoading = false
 					}}
 				>
@@ -206,6 +211,8 @@
 		</div>
 	</div>
 
+	<!-- {inlineScript.content} -->
+
 	<div class="border h-full">
 		{#if inlineScript.language != 'frontend'}
 			<Editor
@@ -215,8 +222,9 @@
 				bind:code={inlineScript.content}
 				fixedOverflowWidgets={true}
 				cmdEnterAction={async () => {
+					inlineScript.content = editor?.getCode() ?? ''
 					runLoading = true
-					await $runnableComponents[id]?.()
+					await $runnableComponents[id]?.(inlineScript)
 					runLoading = false
 				}}
 				on:change={async (e) => {
@@ -238,7 +246,7 @@
 				bind:this={simpleEditor}
 				cmdEnterAction={async () => {
 					runLoading = true
-					await $runnableComponents[id]?.()
+					await $runnableComponents[id]?.(!transformer ? inlineScript : undefined)
 					runLoading = false
 				}}
 				class="h-full"

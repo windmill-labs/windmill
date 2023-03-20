@@ -12,7 +12,6 @@
 		AppEditorContext,
 		AppViewerContext,
 		ComponentCustomCSS,
-		RichConfiguration,
 		RichConfigurations
 	} from '../../types'
 	import { getContext } from 'svelte'
@@ -25,14 +24,14 @@
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let configuration: RichConfigurations
 	export let initializing: boolean | undefined = undefined
-	export let customCss: ComponentCustomCSS<'text'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'textcomponent'> | undefined = undefined
 	export let render: boolean
 
 	const { app, worldStore, mode } = getContext<AppViewerContext>('AppViewerContext')
 
 	const { ontextfocus } = getContext<AppEditorContext>('AppEditorContext')
 
-	initOutput($worldStore, id, {
+	const outputs = initOutput($worldStore, id, {
 		result: undefined,
 		loading: false
 	})
@@ -80,7 +79,7 @@
 <InputValue {id} input={configuration.copyButton} bind:value={copyButton} />
 <InputValue {id} input={configuration.tooltip} bind:value={tooltip} />
 
-<RunnableWrapper {render} {componentInput} {id} bind:initializing bind:result>
+<RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
 	<div class="h-full w-full overflow-hidden">
 		<AlignWrapper {horizontalAlignment} {verticalAlignment}>
 			{#if !result || result === ''}

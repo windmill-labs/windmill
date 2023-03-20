@@ -7,11 +7,12 @@
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import { AppService, type CompletedJob } from '$lib/gen'
 	import { classNames, defaultIfEmptyString, emptySchema, sendUserToast } from '$lib/utils'
+	import { deepEqual } from 'fast-equals'
 	import { Bug } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
-	import { initOutput } from '../../editor/appUtils'
 	import type { AppInputs, Runnable } from '../../inputType'
-	import type { AppViewerContext } from '../../types'
+	import type { Output } from '../../rx'
+	import type { AppViewerContext, InlineScript } from '../../types'
 	import { computeGlobalContext, eval_like } from './eval'
 	import InputValue from './InputValue.svelte'
 	import RefreshButton from './RefreshButton.svelte'
@@ -20,6 +21,7 @@
 	export let id: string
 	export let fields: AppInputs
 	export let runnable: Runnable
+	export let transformer: (InlineScript & { language: 'frontend' }) | undefined
 	export let extraQueryParams: Record<string, any> = {}
 	export let autoRefresh: boolean = true
 	export let result: any = undefined
@@ -32,6 +34,7 @@
 	export let render: boolean
 	export let recomputable: boolean = false
 	export let recomputeIds: string[] = []
+	export let outputs: { result: Output<any>; loading: Output<boolean> }
 
 	const {
 		worldStore,
@@ -50,22 +53,11 @@
 
 	const dispatch = createEventDispatcher()
 
-	$: autoRefresh && handleAutorefresh()
-
-	if (recomputable) {
-		$runnableComponents[id] = async () => {
-			await executeComponent(true)
+	if (recomputable || autoRefresh) {
+		$runnableComponents[id] = async (inlineScript?: InlineScript) => {
+			await executeComponent(true, inlineScript)
 		}
 		$runnableComponents = $runnableComponents
-	}
-
-	function handleAutorefresh() {
-		if (autoRefresh && $worldStore) {
-			$runnableComponents[id] = async () => {
-				await executeComponent(true)
-			}
-			executeComponent(true)
-		}
 	}
 
 	let args: Record<string, any> | undefined = undefined
@@ -92,16 +84,17 @@
 	let currentStaticValues = lazyStaticValues
 
 	$: fields && (currentStaticValues = computeStaticValues())
-	$: if (JSON.stringify(currentStaticValues) != JSON.stringify(lazyStaticValues)) {
+	$: if (!deepEqual(currentStaticValues, lazyStaticValues)) {
 		lazyStaticValues = currentStaticValues
-		refreshIfAutoRefresh()
+		refreshIfAutoRefresh('static changed')
 	}
 
-	$: fields && (lazyStaticValues = computeStaticValues())
-	$: (runnableInputValues || extraQueryParams || args) && testJobLoader && refreshIfAutoRefresh()
+	$: (runnableInputValues || extraQueryParams || args) &&
+		testJobLoader &&
+		refreshIfAutoRefresh('arg changed')
 
-	function refreshIfAutoRefresh() {
-		if (autoRefresh) {
+	function refreshIfAutoRefresh(_src: string) {
+		if (autoRefresh && $worldStore.initialized) {
 			setDebouncedExecute()
 		}
 	}
@@ -110,12 +103,17 @@
 	let testJob: CompletedJob | undefined = undefined
 	let testJobLoader: TestJobLoader | undefined = undefined
 
-	let outputs = initOutput($worldStore, id, { result: undefined, loading: false })
+	let schemaStripped: Schema | undefined =
+		autoRefresh || forceSchemaDisplay ? emptySchema() : undefined
 
-	$: outputs?.loading?.set(testIsLoading)
-	$: schemaStripped = stripSchema(fields, $stateId)
+	$: (autoRefresh || forceSchemaDisplay) &&
+		Object.keys(fields ?? {}).length > 0 &&
+		(schemaStripped = stripSchema(fields, $stateId))
 
 	function stripSchema(inputs: AppInputs, s: any): Schema {
+		if (inputs === undefined) {
+			return emptySchema()
+		}
 		let schema =
 			runnable?.type == 'runnableByName' ? runnable.inlineScript?.schema : runnable?.schema
 		try {
@@ -140,9 +138,9 @@
 		return schemaStripped as Schema
 	}
 
-	async function executeComponent(noToast = false) {
+	async function executeComponent(noToast = false, inlineScriptOverride?: InlineScript) {
 		if (runnable?.type === 'runnableByName' && runnable.inlineScript?.language === 'frontend') {
-			outputs?.loading?.set(true)
+			outputs.loading?.set(true)
 			try {
 				const r = await eval_like(
 					runnable.inlineScript?.content,
@@ -153,14 +151,12 @@
 					$componentControl,
 					$worldStore
 				)
-
-				setResult(r)
-
+				await setResult(r)
 				$state = $state
 			} catch (e) {
 				sendUserToast('Error running frontend script: ' + e.message, true)
 			}
-			outputs?.loading?.set(false)
+			outputs.loading?.set(false)
 			return
 		}
 		if (noBackend) {
@@ -173,50 +169,56 @@
 			return
 		}
 
-		outputs?.loading?.set(true)
+		outputs.loading?.set(true)
 
-		let njob = await testJobLoader?.abstractRun(() => {
-			const nonStaticRunnableInputs = {}
-			const staticRunnableInputs = {}
-			Object.keys(fields ?? {}).forEach((k) => {
-				let field = fields[k]
-				if (field?.type == 'static' && fields[k]) {
-					staticRunnableInputs[k] = field.value
-				} else if (field?.type == 'user') {
-					nonStaticRunnableInputs[k] = args?.[k]
-				} else {
-					nonStaticRunnableInputs[k] = runnableInputValues[k]
-				}
-			})
-
-			const requestBody = {
-				args: nonStaticRunnableInputs,
-				force_viewer_static_fields: !isEditor ? undefined : staticRunnableInputs
-			}
-
-			if (runnable?.type === 'runnableByName') {
-				const { inlineScript } = runnable
-
-				if (inlineScript) {
-					requestBody['raw_code'] = {
-						content: inlineScript.content,
-						language: inlineScript.language,
-						path: inlineScript.path
+		try {
+			let njob = await testJobLoader?.abstractRun(() => {
+				const nonStaticRunnableInputs = {}
+				const staticRunnableInputs = {}
+				Object.keys(fields ?? {}).forEach((k) => {
+					let field = fields[k]
+					if (field?.type == 'static' && fields[k]) {
+						staticRunnableInputs[k] = field.value
+					} else if (field?.type == 'user') {
+						nonStaticRunnableInputs[k] = args?.[k]
+					} else {
+						nonStaticRunnableInputs[k] = runnableInputValues[k]
 					}
-				}
-			} else if (runnable?.type === 'runnableByPath') {
-				const { path, runType } = runnable
-				requestBody['path'] = runType !== 'hubscript' ? `${runType}/${path}` : `script/${path}`
-			}
+				})
 
-			return AppService.executeComponent({
-				workspace,
-				path: defaultIfEmptyString(appPath, 'newapp'),
-				requestBody
+				const requestBody = {
+					args: nonStaticRunnableInputs,
+					force_viewer_static_fields: !isEditor ? undefined : staticRunnableInputs
+				}
+
+				if (runnable?.type === 'runnableByName') {
+					const { inlineScript } = inlineScriptOverride
+						? { inlineScript: inlineScriptOverride }
+						: runnable
+
+					if (inlineScript) {
+						requestBody['raw_code'] = {
+							content: inlineScript.content,
+							language: inlineScript.language,
+							path: inlineScript.path
+						}
+					}
+				} else if (runnable?.type === 'runnableByPath') {
+					const { path, runType } = runnable
+					requestBody['path'] = runType !== 'hubscript' ? `${runType}/${path}` : `script/${path}`
+				}
+
+				return AppService.executeComponent({
+					workspace,
+					path: defaultIfEmptyString(appPath, 'newapp'),
+					requestBody
+				})
 			})
-		})
-		if (njob) {
-			$jobs = [{ job: njob, component: id }, ...$jobs]
+			if (njob) {
+				$jobs = [{ job: njob, component: id }, ...$jobs]
+			}
+		} catch (e) {
+			outputs.loading?.set(false)
 		}
 	}
 
@@ -241,11 +243,25 @@
 		}
 	}
 
-	function setResult(res: any) {
+	async function setResult(res: any) {
+		if (transformer) {
+			$worldStore.newOutput(id, 'raw', res)
+			res = await eval_like(
+				transformer.content,
+				computeGlobalContext($worldStore, id, { result: res }),
+				false,
+				$state,
+				$mode == 'dnd',
+				$componentControl,
+				$worldStore
+			)
+		}
 		outputs.result?.set(res)
 
 		result = res
-
+		if (res?.error) {
+			recordError(res.error)
+		}
 		const previousJobId = Object.keys($errorByComponent).find(
 			(key) => $errorByComponent[key].componentId === id
 		)
@@ -266,8 +282,11 @@
 			recomputeIds.map((id) => $runnableComponents?.[id]?.())
 		}
 	}
-	$: result?.error && recordError(result.error)
 </script>
+
+<!-- {#if runnable?.type == 'runnableByName'}
+	{runnable?.inlineScript?.content}
+{/if} -->
 
 {#each Object.entries(fields ?? {}) as [key, v] (key)}
 	{#if v.type != 'static' && v.type != 'user'}
@@ -290,13 +309,14 @@
 <TestJobLoader
 	workspaceOverride={workspace}
 	on:done={(e) => {
-		if (testJob && outputs) {
+		if (testJob) {
 			const startedAt = new Date(testJob.started_at).getTime()
 			if (startedAt > lastStartedAt) {
 				lastStartedAt = startedAt
 				setResult(e.detail.result)
 			}
 		}
+		outputs.loading?.set(false)
 	}}
 	bind:isLoading={testIsLoading}
 	bind:job={testJob}
@@ -305,7 +325,7 @@
 
 {#if render}
 	<div class="h-full flex relative flex-row flex-wrap {wrapperClass}" style={wrapperStyle}>
-		{#if schemaStripped && Object.keys(schemaStripped?.properties ?? {}).length > 0 && (autoRefresh || forceSchemaDisplay)}
+		{#if (autoRefresh || forceSchemaDisplay) && schemaStripped && Object.keys(schemaStripped?.properties ?? {}).length > 0}
 			<div class="px-2 h-fit min-h-0">
 				<LightweightSchemaForm schema={schemaStripped} bind:args />
 			</div>

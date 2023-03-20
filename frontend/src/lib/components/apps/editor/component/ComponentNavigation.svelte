@@ -13,7 +13,7 @@
 	const { app, selectedComponent, worldStore, focusedGrid, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	const { history } = getContext<AppEditorContext>('AppEditorContext')
+	const { history, movingcomponent } = getContext<AppEditorContext>('AppEditorContext')
 
 	let tempGridItem: GridItem | undefined = undefined
 	let copiedGridItem: GridItem | undefined = undefined
@@ -134,6 +134,7 @@
 		if (!$selectedComponent) {
 			return
 		}
+		$movingcomponent = $selectedComponent
 		push(history, $app)
 
 		const gridItem = findGridItem($app, $selectedComponent)
@@ -149,8 +150,8 @@
 
 	function handlePaste(event: KeyboardEvent) {
 		push(history, $app)
-
-		if (tempGridItem) {
+		$movingcomponent = undefined
+		if (tempGridItem != undefined) {
 			if (
 				$focusedGrid &&
 				getAllSubgridsAndComponentIds($app, tempGridItem.data)[0].includes(
@@ -160,20 +161,26 @@
 				sendUserToast('Cannot paste a component into itself', true)
 				return
 			}
-			let parentGrid = findGridItemParentGrid($app, tempGridItem.data.id)
-			const grid = parentGrid ? $app.subgrids![parentGrid] : $app.grid
-			let idx = grid.findIndex((item) => {
-				return item.id == tempGridItem!.data.id
-			})
-			if (idx > -1) {
-				grid.splice(idx, 1)
+			let parentGrid = findGridItemParentGrid($app, tempGridItem.id)
+			if (parentGrid) {
+				$app.subgrids &&
+					($app.subgrids[parentGrid] = $app.subgrids[parentGrid].filter(
+						(item) => item.id !== tempGridItem?.id
+					))
+			} else {
+				$app.grid = $app.grid.filter((item) => item.id !== tempGridItem?.id)
 			}
 
-			insertNewGridItem($app, tempGridItem.data, $focusedGrid, true)
+			const gridItem = tempGridItem
+			insertNewGridItem($app, (id) => ({ ...gridItem.data, id }), $focusedGrid, tempGridItem.id)
+
 			copiedGridItem = tempGridItem
+			$selectedComponent = tempGridItem.id
+
 			tempGridItem = undefined
 		} else if (copiedGridItem) {
-			insertNewGridItem($app, copiedGridItem.data, $focusedGrid, false)
+			const gridItem = copiedGridItem
+			$selectedComponent = insertNewGridItem($app, (id) => ({ ...gridItem.data, id }), $focusedGrid)
 		}
 
 		$worldStore = $worldStore

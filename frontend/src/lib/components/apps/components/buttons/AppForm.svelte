@@ -18,12 +18,17 @@
 	export let recomputeIds: string[] | undefined = undefined
 	export let extraQueryParams: Record<string, any> = {}
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
-	export let customCss: ComponentCustomCSS<'container' | 'button'> | undefined = undefined
+	export let customCss: ComponentCustomCSS<'formcomponent'> | undefined = undefined
 	export let render: boolean
 
 	export const staticOutputs: string[] = ['loading', 'result']
 
 	const { app, worldStore, stateId } = getContext<AppViewerContext>('AppViewerContext')
+
+	$: outputs = $worldStore?.outputsById[id] as {
+		result: Output<Array<any>>
+		loading: Output<boolean>
+	}
 
 	let labelValue: string = 'Default label'
 	let color: ButtonType.Color
@@ -36,11 +41,6 @@
 	$: noInputs =
 		$stateId != undefined &&
 		(componentInput?.type != 'runnable' || Object.keys(componentInput?.fields ?? {}).length == 0)
-
-	$: outputs = $worldStore?.outputsById[id] as {
-		result: Output<Array<any>>
-		loading: Output<boolean>
-	}
 
 	$: if (outputs?.loading != undefined) {
 		outputs.loading.set(false, true)
@@ -72,7 +72,8 @@
 	autoRefresh={false}
 	forceSchemaDisplay={true}
 	runnableClass="!block"
-	runnableStyle={css?.container.style}
+	runnableStyle={css?.container?.style}
+	{outputs}
 >
 	<AlignWrapper {horizontalAlignment}>
 		<div
