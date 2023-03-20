@@ -50,7 +50,8 @@
 				css?.input?.class ?? ''
 			)}
 			style={css?.input?.style ?? ''}
-			on:focus={() => ($selectedComponent = id)}
+			on:focus|stopPropagation={() => ($selectedComponent = id)}
+			on:pointerdown|stopPropagation={() => ($selectedComponent = id)}
 			type="password"
 			bind:value
 			{placeholder}
@@ -63,6 +64,7 @@
 			)}
 			style={css?.input?.style ?? ''}
 			on:focus={() => ($selectedComponent = id)}
+			on:pointerdown|stopPropagation={() => ($selectedComponent = id)}
 			type="text"
 			bind:value
 			{placeholder}
@@ -75,6 +77,7 @@
 			)}
 			style={css?.input?.style ?? ''}
 			on:focus={() => ($selectedComponent = id)}
+			on:pointerdown|stopPropagation={() => ($selectedComponent = id)}
 			type="email"
 			bind:value
 			{placeholder}
