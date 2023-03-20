@@ -28,9 +28,10 @@
 
 {#if selected || hover}
 	<span
+		draggable="false"
 		title={`Id: ${component.id}`}
 		class={twMerge(
-			'px-2 text-2xs font-semibold w-fit absolute shadow -top-[9px] -left-[8px] border rounded-sm z-50',
+			'px-2 text-2xs font-semibold w-fit absolute shadow -top-[9px] -left-[8px] border rounded-sm z-50 cursor-move',
 			selected
 				? 'bg-indigo-500/90 border-indigo-600 text-white'
 				: 'bg-blue-500/90 border-blue-600 text-white'
@@ -69,6 +70,7 @@
 			{/if}
 		</button>
 		<span
+			draggable="false"
 			title="Move"
 			on:mousedown|stopPropagation|capture
 			class={classNames(
