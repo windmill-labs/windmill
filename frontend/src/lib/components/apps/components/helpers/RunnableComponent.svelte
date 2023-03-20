@@ -228,7 +228,6 @@
 			dispatch('success')
 		} catch (e) {
 			console.error(e)
-			debugger
 		}
 	}
 

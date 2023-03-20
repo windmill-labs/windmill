@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { faChevronDown, faChevronUp, faCopy, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
+	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { AppEditorContext, AppViewerContext, RichConfiguration } from '../../types'
 	import PanelSection from './common/PanelSection.svelte'
@@ -84,7 +84,6 @@
 			component.type === 'formbuttoncomponent') &&
 		!component.onSuccess
 	) {
-		debugger
 		component.onSuccess = {
 			setTab: { id: '', index: 0 }
 		}

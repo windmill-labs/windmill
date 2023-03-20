@@ -282,7 +282,7 @@ export const components = {
 				runnable: undefined
 			},
 			recomputeIds: undefined,
-			onSuccess: { setTab: undefined },
+			onSuccess: { setTab: { id: '', index: 0 } },
 			configuration: {
 				label: {
 					type: 'static',
@@ -364,7 +364,7 @@ export const components = {
 				runnable: undefined
 			},
 			recomputeIds: undefined,
-			onSuccess: { setTab: undefined },
+			onSuccess: { setTab: { id: '', index: 0 } },
 			configuration: {
 				label: {
 					type: 'static',
@@ -412,7 +412,7 @@ export const components = {
 				runnable: undefined
 			},
 			recomputeIds: undefined,
-			onSuccess: { setTab: undefined },
+			onSuccess: { setTab: { id: '', index: 0 } },
 			configuration: {
 				label: {
 					type: 'static',
