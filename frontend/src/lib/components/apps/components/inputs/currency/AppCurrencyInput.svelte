@@ -58,7 +58,7 @@
 	{#key isNegativeAllowed}
 		{#key locale}
 			{#key currency}
-				<div on:pointerdown|stopPropagation={() => ($selectedComponent = id)}>
+				<div class="w-full" on:pointerdown|stopPropagation={() => ($selectedComponent = id)}>
 					<CurrencyInput
 						inputClasses={{
 							formatted: twMerge('px-2 w-full py-1.5 windmillapp', css?.input?.class),
