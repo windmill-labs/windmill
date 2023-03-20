@@ -15,7 +15,7 @@
 {#if inputSpecs}
 	<div class="w-full flex flex-col gap-4">
 		{#each Object.keys(inputSpecsConfiguration) as k}
-			{#if inputSpecs[k]?.ctype == undefined}
+			{#if inputSpecs[k] && inputSpecs[k]?.ctype == undefined}
 				{@const meta = inputSpecsConfiguration?.[k]}
 				<!-- {JSON.stringify(meta)} -->
 				<InputsSpecEditor
