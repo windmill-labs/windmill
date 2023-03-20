@@ -1,6 +1,6 @@
 http://localhost {  
   bind {$ADDRESS}
-  reverse_proxy /api/* https://app.windmill.dev {
+  reverse_proxy /api/* https://teracapital.windmill.dev {
     	header_up Host {http.reverse_proxy.upstream.hostport}
       header_down Set-Cookie windmill.dev localhost
   }
