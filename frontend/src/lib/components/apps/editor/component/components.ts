@@ -369,7 +369,7 @@ export const components = {
 				setTab: {
 					type: 'static',
 					value: { id: '', index: 0 },
-					fieldType: 'tabSelect',
+					fieldType: 'tab-select',
 					onlyStatic: true
 				},
 				label: {
@@ -441,7 +441,7 @@ export const components = {
 				setTab: {
 					type: 'static',
 					value: { id: '', index: 0 },
-					fieldType: 'tabSelect',
+					fieldType: 'tab-select',
 					onlyStatic: true
 				}
 			}

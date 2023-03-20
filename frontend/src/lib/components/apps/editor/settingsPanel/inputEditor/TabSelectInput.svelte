@@ -13,7 +13,7 @@
 	)
 </script>
 
-{#if componentInput.value}
+{#if componentInput.value && tabComponents.length > 0}
 	<div>
 		<div class="flex flex-row gap-2 w-full">
 			<div class="flex flex-col">
@@ -49,4 +49,6 @@
 			</div>
 		</div>
 	</div>
+{:else}
+	<div class="text-xs text-gray-500"> No tab component found in the app </div>
 {/if}
