@@ -38,6 +38,7 @@
 	let size: ButtonType.Size
 	let runnableComponent: RunnableComponent
 	let disabled: boolean | undefined = undefined
+	let setTab: Array<{ id: string; index: number }> | undefined = undefined
 
 	let isLoading: boolean = false
 	let ownClick: boolean = false
@@ -80,6 +81,7 @@
 	bind:value={disabled}
 	bind:error={errors.disabled}
 />
+<InputValue {id} input={configuration.setTab} bind:value={setTab} />
 
 <Portal>
 	<Modal
@@ -105,6 +107,7 @@
 			forceSchemaDisplay={true}
 			runnableClass="!block"
 			{outputs}
+			{setTab}
 		>
 			<div class="flex flex-col gap-2 px-4 w-full">
 				<div>

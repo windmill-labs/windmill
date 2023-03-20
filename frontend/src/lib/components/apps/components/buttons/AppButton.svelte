@@ -1,8 +1,7 @@
 <script lang="ts">
-	import { Button, type ButtonType } from '$lib/components/common'
+	import { Button } from '$lib/components/common'
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../inputType'
-	import type { Output } from '../../rx'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
@@ -10,7 +9,6 @@
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import { loadIcon } from '../icon'
 	import { twMerge } from 'tailwind-merge'
-	import { goto } from '$app/navigation'
 	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components, configurationKeys } from '../../editor/component'
 
@@ -91,6 +89,7 @@
 	$: errorsMessage = Object.values(errors)
 		.filter((x) => x != '')
 		.join('\n')
+	let runnableWrapper: RunnableWrapper
 
 	async function handleClick(event: CustomEvent) {
 		event?.stopPropagation()
@@ -105,13 +104,7 @@
 		ownClick = true
 
 		if (!runnableComponent) {
-			if (resolvedConfig.goto) {
-				if (resolvedConfig.gotoNewTab) {
-					window.open(resolvedConfig.goto, '_blank')
-				} else {
-					goto(resolvedConfig.goto)
-				}
-			}
+			runnableWrapper.onSuccess()
 		} else {
 			await runnableComponent?.runComponent()
 		}
@@ -128,14 +121,16 @@
 {/each}
 
 <RunnableWrapper
+	bind:this={runnableWrapper}
 	{recomputeIds}
 	bind:runnableComponent
 	{componentInput}
 	{id}
 	{extraQueryParams}
 	autoRefresh={false}
-	goto={resolvedConfig.goto}
+	gotoUrl={resolvedConfig.goto}
 	gotoNewTab={resolvedConfig.gotoNewTab}
+	setTab={resolvedConfig.setTab}
 	{render}
 	{outputs}
 	{extraKey}

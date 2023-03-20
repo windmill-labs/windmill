@@ -27,6 +27,8 @@
 				value.push({})
 			} else if (subFieldType === 'labeledresource') {
 				value.push({ value: '', label: '' })
+			} else if (subFieldType === 'tab-select') {
+				value.push({ id: '', index: 0 })
 			} else if (
 				subFieldType === 'text' ||
 				subFieldType === 'textarea' ||
