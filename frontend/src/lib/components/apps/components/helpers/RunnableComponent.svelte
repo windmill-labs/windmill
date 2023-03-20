@@ -259,9 +259,9 @@
 		result = res
 		if (res?.error) {
 			recordError(res.error)
+		} else {
+			dispatch('success')
 		}
-
-		dispatch('success')
 
 		const previousJobId = Object.keys($errorByComponent).find(
 			(key) => $errorByComponent[key].componentId === id

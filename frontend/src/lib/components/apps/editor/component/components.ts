@@ -341,10 +341,9 @@ export const components = {
 				},
 				setTab: {
 					type: 'static',
-					value: [],
+					value: [] as Array<{ id: string; index: number }>,
 					fieldType: 'array',
-					subFieldType: 'tab-select',
-					onlyStatic: true
+					subFieldType: 'tab-select'
 				}
 			}
 		}
@@ -369,10 +368,9 @@ export const components = {
 			configuration: {
 				setTab: {
 					type: 'static',
-					value: [],
+					value: [] as Array<{ id: string; index: number }>,
 					fieldType: 'array',
-					subFieldType: 'tab-select',
-					onlyStatic: true
+					subFieldType: 'tab-select'
 				},
 				label: {
 					type: 'static',
@@ -442,10 +440,9 @@ export const components = {
 				},
 				setTab: {
 					type: 'static',
-					value: [],
+					value: [] as Array<{ id: string; index: number }>,
 					fieldType: 'array',
-					subFieldType: 'tab-select',
-					onlyStatic: true
+					subFieldType: 'tab-select'
 				}
 			}
 		}
