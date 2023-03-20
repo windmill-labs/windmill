@@ -133,7 +133,7 @@
 	{id}
 	{extraQueryParams}
 	autoRefresh={false}
-	goto={resolvedConfig.goto}
+	gotoUrl={resolvedConfig.goto}
 	gotoNewTab={resolvedConfig.gotoNewTab}
 	setTab={resolvedConfig.setTab}
 	{render}

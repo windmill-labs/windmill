@@ -29,11 +29,8 @@
 	export let wrapperClass = ''
 	export let wrapperStyle = ''
 	export let initializing: boolean | undefined = undefined
-	export let gotoUrl: string | undefined = undefined
-	export let gotoNewTab: boolean | undefined = undefined
 	export let render: boolean
 	export let recomputable: boolean = false
-	export let recomputeIds: string[] = []
 	export let outputs: { result: Output<any>; loading: Output<boolean> }
 	export let extraKey = ''
 
@@ -271,17 +268,6 @@
 		if (previousJobId && !result?.error) {
 			delete $errorByComponent[previousJobId]
 			$errorByComponent = $errorByComponent
-		}
-		if (gotoUrl && gotoUrl != '' && result?.error == undefined) {
-			if (gotoNewTab) {
-				window.open(gotoUrl, '_blank')
-			} else {
-				goto(gotoUrl)
-			}
-		}
-
-		if (recomputeIds) {
-			recomputeIds.map((id) => $runnableComponents?.[id]?.())
 		}
 	}
 </script>

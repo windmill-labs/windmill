@@ -69,7 +69,7 @@
 	bind:runnableComponent
 	{componentInput}
 	{id}
-	{goto}
+	gotoUrl={goto}
 	{extraQueryParams}
 	autoRefresh={false}
 	forceSchemaDisplay={true}
