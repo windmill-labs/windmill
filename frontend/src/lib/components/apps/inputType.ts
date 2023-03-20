@@ -18,6 +18,7 @@ export type InputType =
 	| 'array'
 	| 'any'
 	| 'labeledresource'
+	| 'tab-select'
 
 // Connection to an output of another component
 // defined by the id of the component and the path of the output
@@ -163,6 +164,7 @@ export type AppInput =
 	| (AppInputSpec<'array', string[], 'select'> & StaticOptions)
 	| AppInputSpec<'array', object[], 'labeledresource'>
 	| AppInputSpec<'labeledresource', object>
+	| AppInputSpec<'array', object[], 'tab-select'>
 
 export type RowAppInput = Extract<AppInput, { type: 'row' }>
 export type StaticAppInput = Extract<AppInput, { type: 'static' }>

@@ -6,6 +6,7 @@
 	import { isScriptByNameDefined, isScriptByPathDefined } from '../../utils'
 	import NonRunnableComponent from './NonRunnableComponent.svelte'
 	import RunnableComponent from './RunnableComponent.svelte'
+	import { goto } from '$app/navigation'
 
 	export let componentInput: AppInput | undefined
 	export let id: string
@@ -18,14 +19,16 @@
 	export let forceSchemaDisplay: boolean = false
 	export let runnableClass = ''
 	export let runnableStyle = ''
-	export let goto: string | undefined = undefined
+	export let gotoUrl: string | undefined = undefined
 	export let gotoNewTab: boolean | undefined = undefined
+	export let setTab: Array<{ id: string; index: number }> | undefined = undefined
 	export let render: boolean
 	export let recomputeIds: string[] = []
 	export let outputs: { result: Output<any>; loading: Output<boolean> }
 	export let extraKey: string | undefined = undefined
 
-	const { staticExporter, noBackend } = getContext<AppViewerContext>('AppViewerContext')
+	const { staticExporter, noBackend, componentControl, runnableComponents } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	$: if (initializing && result) {
 		initializing = false
@@ -41,6 +44,27 @@
 	function isRunnableDefined(componentInput) {
 		return isScriptByNameDefined(componentInput) || isScriptByPathDefined(componentInput)
 	}
+
+	export function onSuccess() {
+		if (Array.isArray(setTab)) {
+			setTab.forEach((tab) => {
+				const { id, index } = tab
+				$componentControl[id].setTab?.(index)
+			})
+		}
+
+		if (gotoUrl && gotoUrl != '' && result?.error == undefined) {
+			if (gotoNewTab) {
+				window.open(gotoUrl, '_blank')
+			} else {
+				goto(gotoUrl)
+			}
+		}
+
+		if (recomputeIds) {
+			recomputeIds.map((id) => $runnableComponents?.[id]?.())
+		}
+	}
 </script>
 
 {#if componentInput === undefined}
@@ -48,9 +72,6 @@
 {:else if componentInput.type === 'runnable' && isRunnableDefined(componentInput)}
 	<RunnableComponent
 		{extraKey}
-		{recomputeIds}
-		gotoUrl={goto}
-		{gotoNewTab}
 		bind:this={runnableComponent}
 		fields={componentInput.fields}
 		bind:result
@@ -64,6 +85,7 @@
 		wrapperClass={runnableClass}
 		wrapperStyle={runnableStyle}
 		{render}
+		on:success={onSuccess}
 		{outputs}
 	>
 		<slot />

@@ -11,6 +11,7 @@
 	import ColorInput from './ColorInput.svelte'
 	import { Icon } from 'svelte-awesome'
 	import { faDollarSign } from '@fortawesome/free-solid-svg-icons'
+	import TabSelectInput from './TabSelectInput.svelte'
 
 	export let componentInput: StaticInput<any> | undefined
 	export let fieldType: InputType | undefined = undefined
@@ -44,6 +45,8 @@
 		</select>
 	{:else if fieldType === 'icon-select'}
 		<IconSelectInput bind:componentInput />
+	{:else if fieldType === 'tab-select'}
+		<TabSelectInput bind:componentInput />
 	{:else if fieldType === 'labeledresource'}
 		{#if componentInput?.value && typeof componentInput?.value == 'object' && 'label' in componentInput?.value}
 			<div class="flex flex-col gap-1 w-full">

@@ -152,7 +152,6 @@
 							push(history, $app)
 							$selectedComponent = dataItem.id
 							expandGriditem($app.grid, dataItem.id, $breakpoint)
-							console.log('expand')
 							$app = $app
 						}}
 					/>

@@ -9,7 +9,7 @@
 	import { classNames, defaultIfEmptyString, emptySchema, sendUserToast } from '$lib/utils'
 	import { deepEqual } from 'fast-equals'
 	import { Bug } from 'lucide-svelte'
-	import { getContext } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import type { AppInputs, Runnable } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppViewerContext, InlineScript } from '../../types'
@@ -29,11 +29,8 @@
 	export let wrapperClass = ''
 	export let wrapperStyle = ''
 	export let initializing: boolean | undefined = undefined
-	export let gotoUrl: string | undefined = undefined
-	export let gotoNewTab: boolean | undefined = undefined
 	export let render: boolean
 	export let recomputable: boolean = false
-	export let recomputeIds: string[] = []
 	export let outputs: { result: Output<any>; loading: Output<boolean> }
 	export let extraKey = ''
 
@@ -51,6 +48,8 @@
 		state,
 		componentControl
 	} = getContext<AppViewerContext>('AppViewerContext')
+
+	const dispatch = createEventDispatcher()
 
 	if (recomputable || autoRefresh) {
 		$runnableComponents[id] = async (inlineScript?: InlineScript) => {
@@ -222,7 +221,11 @@
 	}
 
 	export async function runComponent() {
-		await executeComponent()
+		try {
+			await executeComponent()
+		} catch (e) {
+			console.error(e)
+		}
 	}
 
 	let lastStartedAt: number = Date.now()
@@ -254,7 +257,10 @@
 		result = res
 		if (res?.error) {
 			recordError(res.error)
+		} else {
+			dispatch('success')
 		}
+
 		const previousJobId = Object.keys($errorByComponent).find(
 			(key) => $errorByComponent[key].componentId === id
 		)
@@ -262,17 +268,6 @@
 		if (previousJobId && !result?.error) {
 			delete $errorByComponent[previousJobId]
 			$errorByComponent = $errorByComponent
-		}
-		if (gotoUrl && gotoUrl != '' && result?.error == undefined) {
-			if (gotoNewTab) {
-				window.open(gotoUrl, '_blank')
-			} else {
-				goto(gotoUrl)
-			}
-		}
-
-		if (recomputeIds) {
-			recomputeIds.map((id) => $runnableComponents?.[id]?.())
 		}
 	}
 </script>

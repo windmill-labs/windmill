@@ -39,7 +39,6 @@ import type {
 	BaseAppComponent,
 	ComponentCustomCSS,
 	GridItem,
-	RichConfigurations,
 	StaticRichConfigurations
 } from '../../types'
 import type { Size } from '../../svelte-grid/types'
@@ -47,6 +46,10 @@ import type { ResultAppInput, StaticAppInput } from '../../inputType'
 
 export type BaseComponent<T extends string> = {
 	type: T
+}
+
+type ClickableComponent = {
+	recomputeIds: string[] | undefined
 }
 
 export type TextComponent = BaseComponent<'textcomponent'>
@@ -62,15 +65,10 @@ export type HtmlComponent = BaseComponent<'htmlcomponent'>
 export type VegaLiteComponent = BaseComponent<'vegalitecomponent'>
 export type PlotlyComponent = BaseComponent<'plotlycomponent'>
 export type TimeseriesComponent = BaseComponent<'timeseriescomponent'>
-export type ButtonComponent = BaseComponent<'buttoncomponent'> & {
-	recomputeIds: string[] | undefined
-}
-export type FormComponent = BaseComponent<'formcomponent'> & {
-	recomputeIds: string[] | undefined
-}
-export type FormButtonComponent = BaseComponent<'formbuttoncomponent'> & {
-	recomputeIds: string[] | undefined
-}
+export type ButtonComponent = BaseComponent<'buttoncomponent'> & ClickableComponent
+export type FormComponent = BaseComponent<'formcomponent'> & ClickableComponent
+export type FormButtonComponent = BaseComponent<'formbuttoncomponent'> & ClickableComponent
+
 export type RunFormComponent = BaseComponent<'runformcomponent'>
 export type BarChartComponent = BaseComponent<'barchartcomponent'>
 export type PieChartComponent = BaseComponent<'piechartcomponent'>
@@ -340,6 +338,13 @@ export const components = {
 					value: false,
 					fieldType: 'boolean',
 					onlyStatic: true
+				},
+				setTab: {
+					type: 'static',
+					value: [] as Array<{ id: string; index: number }>,
+					fieldType: 'array',
+					subFieldType: 'tab-select',
+					tooltip: 'Set the tabs id and index to go to on success'
 				}
 			}
 		}
@@ -362,6 +367,13 @@ export const components = {
 			},
 			recomputeIds: undefined,
 			configuration: {
+				setTab: {
+					type: 'static',
+					value: [] as Array<{ id: string; index: number }>,
+					fieldType: 'array',
+					subFieldType: 'tab-select',
+					tooltip: 'Set the tabs id and index to go to on success'
+				},
 				label: {
 					type: 'static',
 					value: 'Submit',
@@ -427,6 +439,13 @@ export const components = {
 					value: 'xs',
 					onlyStatic: true,
 					optionValuesKey: 'buttonSizeOptions'
+				},
+				setTab: {
+					type: 'static',
+					value: [] as Array<{ id: string; index: number }>,
+					fieldType: 'array',
+					subFieldType: 'tab-select',
+					tooltip: 'Set the tabs id and index to go to on success'
 				}
 			}
 		}

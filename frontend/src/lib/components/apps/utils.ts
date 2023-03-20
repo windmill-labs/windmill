@@ -107,6 +107,8 @@ export function fieldTypeToTsType(inputType: InputType): string {
 			return 'array'
 		case 'any':
 			return 'any'
+		case 'tab-select':
+			return 'Tab'
 		default:
 			return 'string'
 	}
