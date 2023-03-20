@@ -17,6 +17,7 @@
 	import { getContext } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { get } from 'svelte/store'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -29,7 +30,7 @@
 
 	const { app, worldStore, mode } = getContext<AppViewerContext>('AppViewerContext')
 
-	const { ontextfocus } = getContext<AppEditorContext>('AppEditorContext')
+	const editorcontext = getContext<AppEditorContext>('AppEditorContext')
 
 	const outputs = initOutput($worldStore, id, {
 		result: undefined,
@@ -94,7 +95,10 @@
 						: ''}"
 					on:click={() => {
 						if ($mode === 'dnd' && componentInput?.type == 'template') {
-							$ontextfocus?.()
+							let ontextfocus = editorcontext?.ontextfocus
+							if (ontextfocus) {
+								get(ontextfocus)?.()
+							}
 						}
 					}}
 				>
