@@ -143,27 +143,28 @@
 		}
 	}
 
-	let startDrag: NodeJS.Timeout | undefined = undefined
+	let dragClosure: (() => void) | undefined = undefined
 	const pointerdown = ({ clientX, clientY, target }) => {
-		initX = clientX
-		initY = clientY
+		dragClosure = () => {
+			dragClosure = undefined
 
-		capturePos = { x: left, y: top }
-		shadow = { x: item.x, y: item.y, w: item.w, h: item.h }
-		newSize = { width, height }
+			initX = clientX
+			initY = clientY
 
-		containerFrame = getContainerFrame(container)
-		scrollElement = getScroller(container)
+			capturePos = { x: left, y: top }
+			shadow = { x: item.x, y: item.y, w: item.w, h: item.h }
+			newSize = { width, height }
 
-		cordDiff = { x: 0, y: 0 }
+			containerFrame = getContainerFrame(container)
+			scrollElement = getScroller(container)
 
-		startDrag = setTimeout(() => {
+			cordDiff = { x: 0, y: 0 }
+
 			active = true
 			trans = false
 			computeRect(target)
-		}, 200)
-		_scrollTop = scrollElement.scrollTop
-
+			_scrollTop = scrollElement.scrollTop
+		}
 		window.addEventListener('pointermove', pointermove)
 		window.addEventListener('pointerup', pointerup)
 	}
@@ -196,6 +197,7 @@
 	}
 
 	const pointermove = (event) => {
+		dragClosure && dragClosure()
 		event.preventDefault()
 		event.stopPropagation()
 		event.stopImmediatePropagation()
@@ -231,6 +233,7 @@
 	}
 
 	const pointerup = (e) => {
+		dragClosure = undefined
 		stopAutoscroll()
 
 		window.removeEventListener('pointerdown', pointerdown)
@@ -280,8 +283,6 @@
 			// Limit bound
 			newSize.width = Math.min(newSize.width, maxWidth * xPerPx - gapX * 2)
 
-			newSize.height = newSize.height
-
 			// Limit col & row
 			shadow.w = Math.round((newSize.width + gapX * 2) / xPerPx)
 			shadow.h = Math.round((newSize.height + gapY * 2) / yPerPx)
@@ -303,9 +304,6 @@
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <div
 	draggable="false"
-	on:click|stopPropagation={() => {
-		startDrag && clearTimeout(startDrag)
-	}}
 	on:pointerdown|stopPropagation|preventDefault={pointerdown}
 	class="svlt-grid-item"
 	class:svlt-grid-active={active || (trans && rect)}

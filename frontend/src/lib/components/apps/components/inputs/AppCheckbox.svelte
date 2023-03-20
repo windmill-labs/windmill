@@ -19,7 +19,7 @@
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
 	let defaultValue: boolean | undefined = undefined
-	let labelValue: string = 'Default label'
+	let labelValue: string = ''
 
 	// As the checkbox is a special case and has no input
 	// we need to manually set the output
