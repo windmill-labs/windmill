@@ -29,6 +29,7 @@ export type Aligned = {
 export interface GeneralAppInput {
 	onlyStatic?: boolean
 	tooltip?: string
+	placeholder?: string
 }
 
 export type ComponentCssProperty = {
@@ -51,14 +52,14 @@ export type Configuration =
 
 export type StaticConfiguration = GeneralAppInput & StaticAppInput
 export type RichConfigurationT<T> =
-	| (T & { ctype?: undefined })
+	| (T & { type: AppInput['type'] })
 	| {
-			ctype: 'oneOf'
+			type: 'oneOf'
 			selected: string
+			tooltip?: string
+			labels?: Record<string, string>
 			configuration: Record<string, Record<string, T>>
 	  }
-	| { ctype: 'group'; title: string; configuration: Record<string, T> }
-
 export type RichConfiguration = RichConfigurationT<Configuration>
 export type RichConfigurations = Record<string, RichConfiguration>
 

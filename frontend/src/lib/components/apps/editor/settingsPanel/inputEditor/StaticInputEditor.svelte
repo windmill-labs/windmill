@@ -1,7 +1,6 @@
 <script lang="ts">
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { staticValues } from '../../componentsPanel/componentStaticValues'
-	import type { InputType, StaticInput } from '../../../inputType'
+	import type { InputType, StaticInput, StaticOptions } from '../../../inputType'
 	import ArrayStaticInputEditor from '../ArrayStaticInputEditor.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import JsonEditor from './JsonEditor.svelte'
@@ -16,7 +15,9 @@
 	export let componentInput: StaticInput<any> | undefined
 	export let fieldType: InputType | undefined = undefined
 	export let subFieldType: InputType | undefined = undefined
-	export let optionValuesKey: keyof typeof staticValues | undefined = undefined
+	export let selectOptions: StaticOptions['selectOptions'] | undefined = undefined
+	export let placeholder: string | undefined = undefined
+
 	export let format: string | undefined = undefined
 	export let noVariablePicker: boolean = false
 
@@ -35,12 +36,18 @@
 		<input on:keydown|stopPropagation type="date" bind:value={componentInput.value} />
 	{:else if fieldType === 'boolean'}
 		<Toggle bind:checked={componentInput.value} />
-	{:else if fieldType === 'select' && optionValuesKey}
+	{:else if fieldType === 'select' && selectOptions}
 		<select on:keydown|stopPropagation on:keydown|stopPropagation bind:value={componentInput.value}>
-			{#each staticValues[optionValuesKey] || [] as option}
-				<option value={option}>
-					{option}
-				</option>
+			{#each selectOptions ?? [] as option}
+				{#if typeof option == 'string'}
+					<option value={option}>
+						{option}
+					</option>
+				{:else}
+					<option value={option.value}>
+						{option.label}
+					</option>
+				{/if}
 			{/each}
 		</select>
 	{:else if fieldType === 'icon-select'}
@@ -108,7 +115,7 @@
 			<input
 				on:keydown|stopPropagation
 				type="text"
-				placeholder="Static value"
+				placeholder={placeholder ?? 'Static value'}
 				bind:value={componentInput.value}
 			/>
 			{#if !noVariablePicker}

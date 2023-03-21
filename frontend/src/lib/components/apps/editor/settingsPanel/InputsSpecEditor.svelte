@@ -14,7 +14,6 @@
 	import { getContext } from 'svelte'
 	import type { AppViewerContext, RichConfiguration } from '../../types'
 	import type { InputType } from '../../inputType'
-	import type { staticValues } from '../componentsPanel/componentStaticValues'
 
 	export let id: string
 	export let componentInput: RichConfiguration
@@ -28,112 +27,120 @@
 	export let fieldType: InputType
 	export let subFieldType: InputType | undefined
 	export let format: string | undefined
-	export let optionValuesKey: keyof typeof staticValues | undefined
+	export let selectOptions: string[] | undefined
+	export let placeholder: string | undefined
 
 	const { connectingInput } = getContext<AppViewerContext>('AppViewerContext')
+
+	$: if (componentInput == undefined) {
+		//@ts-ignore
+		componentInput = {
+			type: 'static',
+			value: undefined
+		}
+	}
 </script>
 
-{#if componentInput?.ctype == undefined}
-	{#if !(resourceOnly && (fieldType !== 'object' || !format?.startsWith('resource-')))}
-		<div class="flex flex-col gap-1">
-			<div class="flex justify-between items-end gap-1">
-				<span class="text-sm font-semibold truncate">
-					{shouldCapitalize ? capitalize(addWhitespaceBeforeCapitals(key)) : key}
-					{#if tooltip}
-						<Tooltip>
-							{tooltip}
-						</Tooltip>
-					{/if}
-				</span>
+{#if !(resourceOnly && (fieldType !== 'object' || !format?.startsWith('resource-')))}
+	<div class="flex flex-col gap-1">
+		<div class="flex justify-between items-end gap-1">
+			<span class="text-sm font-semibold truncate">
+				{shouldCapitalize ? capitalize(addWhitespaceBeforeCapitals(key)) : key}
+				{#if tooltip}
+					<Tooltip>
+						{tooltip}
+					</Tooltip>
+				{/if}
+			</span>
 
-				<div class="flex gap-x-2 gap-y-1 flex-wrap justify-end items-center">
-					<Badge color="blue">
-						{fieldType === 'array' && subFieldType
-							? `${capitalize(fieldTypeToTsType(subFieldType))}[]`
-							: capitalize(fieldTypeToTsType(fieldType))}
-					</Badge>
+			<div class="flex gap-x-2 gap-y-1 flex-wrap justify-end items-center">
+				<Badge color="blue">
+					{fieldType === 'array' && subFieldType
+						? `${capitalize(fieldTypeToTsType(subFieldType))}[]`
+						: capitalize(fieldTypeToTsType(fieldType))}
+				</Badge>
 
-					{#if !onlyStatic && componentInput?.type && componentInput.type != 'eval'}
-						<ToggleButtonGroup
-							bind:selected={componentInput.type}
-							on:selected={(e) => {
-								if (e.detail == 'connected' && !componentInput['connection']) {
-									$connectingInput = {
-										opened: true,
-										input: undefined,
-										hoveredComponent: undefined
-									}
+				{#if !onlyStatic && componentInput?.type && componentInput.type != 'eval'}
+					<ToggleButtonGroup
+						bind:selected={componentInput.type}
+						on:selected={(e) => {
+							if (e.detail == 'connected' && !componentInput['connection']) {
+								$connectingInput = {
+									opened: true,
+									input: undefined,
+									hoveredComponent: undefined
 								}
-							}}
-						>
+							}
+						}}
+					>
+						<Popover placement="bottom" notClickable disapperTimoout={0}>
+							<ToggleButton
+								position="left"
+								value="static"
+								startIcon={{ icon: faPen }}
+								size="xs"
+								iconOnly
+							/>
+							<svelte:fragment slot="text">Static</svelte:fragment>
+						</Popover>
+						{#if userInputEnabled && !format?.startsWith('resource-')}
 							<Popover placement="bottom" notClickable disapperTimoout={0}>
 								<ToggleButton
-									position="left"
-									value="static"
-									startIcon={{ icon: faPen }}
+									position="center"
+									value="user"
+									startIcon={{ icon: faUser }}
 									size="xs"
 									iconOnly
 								/>
-								<svelte:fragment slot="text">Static</svelte:fragment>
+								<svelte:fragment slot="text">User Input</svelte:fragment>
 							</Popover>
-							{#if userInputEnabled && !format?.startsWith('resource-')}
-								<Popover placement="bottom" notClickable disapperTimoout={0}>
-									<ToggleButton
-										position="center"
-										value="user"
-										startIcon={{ icon: faUser }}
-										size="xs"
-										iconOnly
-									/>
-									<svelte:fragment slot="text">User Input</svelte:fragment>
-								</Popover>
-							{/if}
-							{#if 'fileUpload' in componentInput}
-								<Popover placement="bottom" notClickable disapperTimoout={0}>
-									<ToggleButton
-										position="center"
-										value="upload"
-										startIcon={{ icon: faUpload }}
-										size="xs"
-										iconOnly
-									/>
-									<svelte:fragment slot="text">Upload</svelte:fragment>
-								</Popover>
-							{/if}
+						{/if}
+						{#if 'fileUpload' in componentInput}
 							<Popover placement="bottom" notClickable disapperTimoout={0}>
 								<ToggleButton
-									position="right"
-									value="connected"
-									startIcon={{ icon: faArrowRight }}
+									position="center"
+									value="upload"
+									startIcon={{ icon: faUpload }}
 									size="xs"
 									iconOnly
 								/>
-								<svelte:fragment slot="text">Connect</svelte:fragment>
+								<svelte:fragment slot="text">Upload</svelte:fragment>
 							</Popover>
-						</ToggleButtonGroup>
-					{/if}
-				</div>
+						{/if}
+						<Popover placement="bottom" notClickable disapperTimoout={0}>
+							<ToggleButton
+								position="right"
+								value="connected"
+								startIcon={{ icon: faArrowRight }}
+								size="xs"
+								iconOnly
+							/>
+							<svelte:fragment slot="text">Connect</svelte:fragment>
+						</Popover>
+					</ToggleButtonGroup>
+				{/if}
 			</div>
-
-			{#if componentInput?.type === 'connected'}
-				<ConnectedInputEditor bind:componentInput />
-			{:else if componentInput?.type === 'row'}
-				<RowInputEditor bind:componentInput />
-			{:else if componentInput?.type === 'static'}
-				<StaticInputEditor
-					{fieldType}
-					{subFieldType}
-					{optionValuesKey}
-					{format}
-					bind:componentInput
-				/>
-			{:else if componentInput?.type === 'eval'}
-				<EvalInputEditor {hasRows} {id} bind:componentInput />
-			{:else if componentInput?.type === 'upload'}
-				<UploadInputEditor bind:componentInput />
-			{:else if componentInput?.type === 'user'}
-				<span class="text-2xs italic text-gray-600">Field's value is set by the user</span>
-			{/if}
 		</div>
-	{/if}
+
+		{#if componentInput?.type === 'connected'}
+			<ConnectedInputEditor bind:componentInput />
+		{:else if componentInput?.type === 'row'}
+			<RowInputEditor bind:componentInput />
+		{:else if componentInput?.type === 'static'}
+			<StaticInputEditor
+				{fieldType}
+				{subFieldType}
+				{selectOptions}
+				{format}
+				{placeholder}
+				bind:componentInput
+			/>
+		{:else if componentInput?.type === 'eval'}
+			<EvalInputEditor {hasRows} {id} bind:componentInput />
+		{:else if componentInput?.type === 'upload'}
+			<UploadInputEditor bind:componentInput />
+		{:else if componentInput?.type === 'user'}
+			<span class="text-2xs italic text-gray-600">Field's value is set by the user</span>
+		{/if}
+	</div>
 {/if}

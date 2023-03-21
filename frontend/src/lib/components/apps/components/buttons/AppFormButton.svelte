@@ -13,7 +13,9 @@
 	import Portal from 'svelte-portal'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import { concatCustomCss } from '../../utils'
-	import { initOutput } from '../../editor/appUtils'
+	import { initConfig, initOutput } from '../../editor/appUtils'
+	import { components } from '../../editor/component'
+	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -32,12 +34,8 @@
 		loading: false
 	})
 
-	let labelValue: string = ''
-	let color: ButtonType.Color
-	let size: ButtonType.Size
+	let resolvedConfig = initConfig(components['formbuttoncomponent'].initialData.configuration)
 	let runnableComponent: RunnableComponent
-	let disabled: boolean | undefined = undefined
-	let setTab: Array<{ id: string; index: number }> | undefined = undefined
 
 	let isLoading: boolean = false
 	let ownClick: boolean = false
@@ -71,21 +69,19 @@
 	$: css = concatCustomCss($app?.css?.formbuttoncomponent, customCss)
 </script>
 
-<InputValue {id} input={configuration.label} bind:value={labelValue} />
-<InputValue {id} input={configuration.color} bind:value={color} />
-<InputValue {id} input={configuration.size} bind:value={size} />
-<InputValue
-	{id}
-	input={configuration.disabled}
-	bind:value={disabled}
-	bind:error={errors.disabled}
-/>
-<InputValue {id} input={configuration.setTab} bind:value={setTab} />
+{#each Object.keys(components['formbuttoncomponent'].initialData.configuration) as key (key)}
+	<ResolveConfig
+		{id}
+		{key}
+		bind:resolvedConfig={resolvedConfig[key]}
+		configuration={configuration[key]}
+	/>
+{/each}
 
 <Portal>
 	<Modal
 		{open}
-		title={labelValue}
+		title={resolvedConfig.label ?? ''}
 		class={css?.popup?.class}
 		style={css?.popup?.style}
 		on:canceled={() => {
@@ -106,7 +102,7 @@
 			forceSchemaDisplay={true}
 			runnableClass="!block"
 			{outputs}
-			{setTab}
+			doOnSuccess={resolvedConfig.onSuccess}
 		>
 			<div class="flex flex-col gap-2 px-4 w-full">
 				<div>
@@ -151,15 +147,15 @@
 		<div class="text-red-500 text-xs">{errorsMessage}</div>
 	{/if}
 	<Button
-		{disabled}
-		{size}
-		{color}
+		disabled={resolvedConfig.disabled ?? false}
+		size={resolvedConfig.size ?? 'md'}
+		color={resolvedConfig.color}
 		btnClasses={css?.button?.class ?? ''}
 		style={css?.button?.style ?? ''}
 		on:click={(e) => {
 			open = true
 		}}
 	>
-		{labelValue}
+		{resolvedConfig.label}
 	</Button>
 </AlignWrapper>
