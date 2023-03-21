@@ -1263,7 +1263,7 @@ Hello \${ctx.username}
 					type: 'static',
 					onlyStatic: true,
 					selectOptions: selectOptions.tabsKindOptions,
-					value: 'tabs'
+					value: 'tabs' as string
 				}
 			},
 			componentInput: undefined,

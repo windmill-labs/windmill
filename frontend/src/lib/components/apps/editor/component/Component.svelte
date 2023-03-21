@@ -365,7 +365,6 @@
 				customCss={component.customCss}
 				{componentContainerHeight}
 				{render}
-				bind:initializing
 			/>
 		{:else if component.type === 'containercomponent'}
 			<AppContainer
