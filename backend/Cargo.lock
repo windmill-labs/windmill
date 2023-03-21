@@ -1568,16 +1568,16 @@ dependencies = [
 
 [[package]]
 name = "iana-time-zone"
-version = "0.1.53"
+version = "0.1.54"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "64c122667b287044802d6ce17ee2ddf13207ed924c712de9a66a5814d5b64765"
+checksum = "0c17cc76786e99f8d2f055c11159e7f0091c42474dcc3189fbab96072e873e6d"
 dependencies = [
  "android_system_properties",
  "core-foundation-sys",
  "iana-time-zone-haiku",
  "js-sys",
  "wasm-bindgen",
- "winapi",
+ "windows",
 ]
 
 [[package]]
@@ -2753,9 +2753,9 @@ dependencies = [
 
 [[package]]
 name = "regex"
-version = "1.7.1"
+version = "1.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48aaa5748ba571fb95cd2c85c09f629215d3a6ece942baa100950af03a34f733"
+checksum = "cce168fea28d3e05f158bda4576cf0c844d5045bc2cc3620fa0292ed5bb5814c"
 dependencies = [
  "aho-corasick",
  "memchr",
@@ -2773,9 +2773,9 @@ dependencies = [
 
 [[package]]
 name = "regex-syntax"
-version = "0.6.28"
+version = "0.6.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "456c603be3e8d448b072f410900c09faf164fbce2d480456f50eea6e25f9c848"
+checksum = "f162c6dd7b008981e4d40210aca20b4bd0f9b60ca9271061b07f78537722f2e1"
 
 [[package]]
 name = "regress"
@@ -4761,7 +4761,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.80.1"
+version = "1.81.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -4788,7 +4788,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.80.1"
+version = "1.81.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -4843,7 +4843,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.80.1"
+version = "1.81.0"
 dependencies = [
  "base64 0.21.0",
  "chrono",
@@ -4858,7 +4858,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.80.1"
+version = "1.81.0"
 dependencies = [
  "chrono",
  "serde",
@@ -4871,7 +4871,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.80.1"
+version = "1.81.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -4896,7 +4896,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.80.1"
+version = "1.81.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -4904,7 +4904,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.80.1"
+version = "1.81.0"
 dependencies = [
  "anyhow",
  "itertools",
@@ -4919,7 +4919,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.80.1"
+version = "1.81.0"
 dependencies = [
  "anyhow",
  "itertools",
@@ -4931,7 +4931,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.80.1"
+version = "1.81.0"
 dependencies = [
  "anyhow",
  "itertools",
@@ -4946,7 +4946,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.80.1"
+version = "1.81.0"
 dependencies = [
  "anyhow",
  "deno_core",
@@ -4960,7 +4960,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.80.1"
+version = "1.81.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4983,7 +4983,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.80.1"
+version = "1.81.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -5014,6 +5014,15 @@ dependencies = [
  "windmill-parser-py",
  "windmill-parser-ts",
  "windmill-queue",
+]
+
+[[package]]
+name = "windows"
+version = "0.46.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cdacb41e6a96a052c6cb63a144f24900236121c6f63f4f8219fef5977ecb0c25"
+dependencies = [
+ "windows-targets",
 ]
 
 [[package]]
