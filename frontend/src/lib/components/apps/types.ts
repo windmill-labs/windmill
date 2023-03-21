@@ -4,6 +4,7 @@ import type { History } from '$lib/history'
 
 import type { Writable } from 'svelte/store'
 import type { AppComponent, components } from './editor/component/components'
+import type { StyleProperty, StylePropertyKey } from './editor/componentsPanel/quickStyleProperties'
 import type {
 	AppInput,
 	ConnectedAppInput,
@@ -34,6 +35,7 @@ export interface GeneralAppInput {
 export type ComponentCssProperty = {
 	class?: string
 	style?: string
+	quickStyling?: StylePropertyKey[]
 }
 
 export type ComponentCustomCSS<T extends keyof typeof components> = Partial<
@@ -98,6 +100,8 @@ export type InlineScript = {
 	refreshOn?: { id: string; key: string }[]
 }
 
+export type AppCssItemName = 'viewer' | 'grid' | AppComponent['type']
+
 export type App = {
 	grid: GridItem[]
 	fullscreen: boolean
@@ -111,9 +115,7 @@ export type App = {
 		fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
 		autoRefresh?: boolean
 	}>
-	css?: Partial<
-		Record<'viewer' | 'grid' | AppComponent['type'], Record<string, ComponentCssProperty>>
-	>
+	css?: Partial<Record<AppCssItemName, Record<string, ComponentCssProperty>>>
 	subgrids?: Record<string, GridItem[]>
 }
 

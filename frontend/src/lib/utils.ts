@@ -715,5 +715,5 @@ export function getModifierKey(): string {
 }
 
 export function isValidHexColor(color: string): boolean {
-	return /^#([0-9A-F]{3}){1,2}$/i.test(color)
+	return /^#(([A-F0-9]{2}){3,4}|[A-F0-9]{3})$/i.test(color)
 }

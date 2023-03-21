@@ -214,7 +214,7 @@ export const components = {
 		dims: '2:8-6:8' as AppComponentDimensions,
 		softWrap: true,
 		customCss: {
-			container: { class: '', style: '' }
+			container: { class: '', style: '', quickStyling: ['background-color'] }
 		},
 		initialData: {
 			configuration: {},

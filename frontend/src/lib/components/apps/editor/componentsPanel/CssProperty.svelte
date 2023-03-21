@@ -5,15 +5,17 @@
 	import { Button } from '../../../common'
 	import type { ComponentCssProperty } from '../../types'
 	import QuickStyleMenu from './QuickStyleMenu.svelte'
+	import type { StylePropertyKey } from './quickStyleProperties'
 
 	export let name: string
 	export let value: ComponentCssProperty = {}
 	export let forceStyle: boolean = false
 	export let forceClass: boolean = false
-	export let enableQuickMenu = false
+	export let quickStyleProperties: StylePropertyKey[] | undefined = undefined
+	console.log(quickStyleProperties)
 	let isQuickMenuOpen = false
 
-	function reset(property: keyof ComponentCssProperty) {
+	function reset(property: Exclude<keyof ComponentCssProperty, 'quickStyling'>) {
 		if (value) {
 			value[property] = ''
 		}
@@ -48,7 +50,7 @@
 							</button>
 						{/if}
 					</div>
-					{#if enableQuickMenu}
+					{#if quickStyleProperties?.length}
 						<Button
 							variant="border"
 							color="light"
@@ -62,9 +64,9 @@
 						</Button>
 					{/if}
 				</div>
-				{#if enableQuickMenu && isQuickMenuOpen}
+				{#if quickStyleProperties?.length && isQuickMenuOpen}
 					<div transition:slide|local={{ duration: 300 }} class="w-full pt-1">
-						<QuickStyleMenu bind:value={value.style} />
+						<QuickStyleMenu bind:value={value.style} properties={quickStyleProperties} />
 					</div>
 				{/if}
 			</label>
