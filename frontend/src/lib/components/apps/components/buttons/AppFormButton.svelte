@@ -13,6 +13,7 @@
 	import Portal from 'svelte-portal'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import { concatCustomCss } from '../../utils'
+	import { initOutput } from '../../editor/appUtils'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -24,14 +25,12 @@
 	export let customCss: ComponentCustomCSS<'formbuttoncomponent'> | undefined = undefined
 	export let render: boolean
 
-	export const staticOutputs: string[] = ['loading', 'result']
-
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
-	$: outputs = $worldStore?.outputsById[id] as {
-		result: Output<Array<any>>
-		loading: Output<boolean>
-	}
+	let outputs = initOutput($worldStore, id, {
+		result: undefined,
+		loading: false
+	})
 
 	let labelValue: string = ''
 	let color: ButtonType.Color
