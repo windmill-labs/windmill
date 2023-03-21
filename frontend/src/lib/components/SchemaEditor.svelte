@@ -1,12 +1,12 @@
 <script lang="ts">
 	import type { Schema, SchemaProperty } from '$lib/common'
 	import { emptySchema, emptyString, sendUserToast } from '$lib/utils'
-	import { faPen, faPlus, faTrash } from '@fortawesome/free-solid-svg-icons'
+	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import { Button } from './common'
 	import { createEventDispatcher } from 'svelte'
-	import SchemaEditorProperty from './SchemaEditorProperty.svelte'
 	import type { ModalSchemaProperty } from './SchemaModal.svelte'
 	import SchemaModal, { DEFAULT_PROPERTY, schemaToModal } from './SchemaModal.svelte'
+	import PropertyRow from './PropertyRow.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import TableCustom from './TableCustom.svelte'
 	import Toggle from './Toggle.svelte'
@@ -91,6 +91,10 @@
 		dispatch('change', schema)
 	}
 
+	function handleStartEditEvent(event: CustomEvent): void {
+		startEditArgument(event.detail)
+	}
+
 	function startEditArgument(argName: string): void {
 		argError = ''
 		if (Object.keys(schema.properties).includes(argName)) {
@@ -105,6 +109,10 @@
 		} else {
 			sendUserToast(`This argument does not exist and can't be edited`, true)
 		}
+	}
+
+	function handleDeleteEvent(event: CustomEvent): void {
+		handleDeleteArgument(event.detail)
 	}
 
 	function handleDeleteArgument(argName: string): void {
@@ -135,6 +143,10 @@
 			schemaString = JSON.stringify(schema, null, '\t')
 			viewJsonSchema = true
 		}
+	}
+
+	function handleChangePositionEvent(event: CustomEvent): void {
+		changePosition(event.detail.i, event.detail.up)
 	}
 
 	function changePosition(i: number, up: boolean): any {
@@ -178,8 +190,10 @@
 			/>
 			<div class="ml-2">
 				<Tooltip>
-					Arguments can be edited either using the wizard, or by editing their JSON Schema, 
-					<a href="https://docs.windmill.dev/docs/reference/#script-parameters-to-json-schema">see docs</a>
+					Arguments can be edited either using the wizard, or by editing their JSON Schema,
+					<a href="https://docs.windmill.dev/docs/reference/#script-parameters-to-json-schema"
+						>see docs</a
+					>
 				</Tooltip>
 			</div>
 		</div>
@@ -202,53 +216,17 @@
 						<tbody slot="body">
 							{#each Object.entries(schema.properties) as [name, property], i (name)}
 								<tr animate:flip>
-									<td class="font-bold">{name}</td>
-									<td>
-										<SchemaEditorProperty {property} />
-									</td>
-									<td>{property.description ?? ''}</td>
-									<td>{property.default ? JSON.stringify(property.default) : ''}</td>
-									<td
-										>{#if schema.required.includes(name)}
-											<span class="text-red-600 font-bold text-lg">*</span>
-										{/if}</td
-									>
-									<td class="justify-end flex">
-										{#if i > 0}
-											<button
-												on:click={() => changePosition(i, true)}
-												class="text-lg mr-2 {isAnimated ? 'invisible' : ''}"
-											>
-												&uparrow;</button
-											>
-										{/if}
-										{#if i < Object.keys(schema.properties).length - 1}
-											<button
-												on:click={() => changePosition(i, false)}
-												class="text-lg mr-2 {isAnimated ? 'invisible' : ''}">&downarrow;</button
-											>
-										{/if}
-
-										<Button
-											color="red"
-											variant="border"
-											btnClasses="mx-2"
-											size="sm"
-											startIcon={{ icon: faTrash }}
-											on:click={() => handleDeleteArgument(name)}
-										>
-											Delete
-										</Button>
-										<Button
-											color="light"
-											variant="border"
-											size="sm"
-											startIcon={{ icon: faPen }}
-											on:click={() => startEditArgument(name)}
-										>
-											Edit
-										</Button>
-									</td>
+									<PropertyRow
+										bind:name
+										bind:property
+										{i}
+										{isAnimated}
+										propertiesNumber={Object.keys(schema.properties).length}
+										required={schema.required.includes(name)}
+										on:startEditArgument={handleStartEditEvent}
+										on:deleteArgument={handleDeleteEvent}
+										on:changePosition={handleChangePositionEvent}
+									/>
 								</tr>
 							{/each}
 						</tbody>
