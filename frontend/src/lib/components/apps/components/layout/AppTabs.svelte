@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { Tab, Tabs } from '$lib/components/common'
 	import { getContext } from 'svelte'
-	import { initOutput } from '../../editor/appUtils'
+	import { initConfig, initOutput } from '../../editor/appUtils'
+	import { components } from '../../editor/component'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
-	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import InputValue from '../helpers/InputValue.svelte'
@@ -14,13 +14,16 @@
 	export let tabs: string[]
 	export let customCss: ComponentCustomCSS<'tabscomponent'> | undefined = undefined
 	export let render: boolean
-	export let initializing: boolean | undefined = configuration.tabsKind != undefined
+
+	let resolvedConfig = initConfig(
+		components['tabscomponent'].initialData.configuration,
+		configuration
+	)
 
 	const { app, worldStore, focusedGrid, selectedComponent, mode, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	let selected: string = tabs[0]
-	let kind: 'tabs' | 'sidebar' | 'invisibleOnView' | undefined = undefined
 	let tabHeight: number = 0
 
 	let outputs = initOutput($worldStore, id, {
@@ -82,15 +85,10 @@
 	$: css = concatCustomCss($app.css?.tabscomponent, customCss)
 </script>
 
-<InputValue
-	on:done={() => initializing && (initializing = false)}
-	{id}
-	input={configuration.tabsKind}
-	bind:value={kind}
-/>
+<InputValue {id} input={configuration.tabsKind} bind:value={resolvedConfig.tabsKind} />
 
-<div class={kind == 'sidebar' ? 'flex gap-4 w-full' : 'w-full'}>
-	{#if !kind || kind == 'tabs' || (kind == 'invisibleOnView' && $mode == 'dnd')}
+<div class={resolvedConfig.tabsKind == 'sidebar' ? 'flex gap-4 w-full' : 'w-full'}>
+	{#if !resolvedConfig.tabsKind || resolvedConfig.tabsKind == 'tabs' || (resolvedConfig.tabsKind == 'invisibleOnView' && $mode == 'dnd')}
 		<div bind:clientHeight={tabHeight}>
 			<Tabs bind:selected class={css?.tabRow?.class} style={css?.tabRow?.style}>
 				{#each tabs ?? [] as res}
@@ -106,7 +104,7 @@
 				{/each}
 			</Tabs>
 		</div>
-	{:else if kind == 'sidebar'}
+	{:else if resolvedConfig.tabsKind == 'sidebar'}
 		<div
 			class="flex gap-y-2 flex-col w-1/6 max-w-[160px] bg-white text-[#2e3440] opacity-80 px-4 pt-4 border-r border-gray-400"
 		>
