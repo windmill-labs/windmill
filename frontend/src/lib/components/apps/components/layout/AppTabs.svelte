@@ -3,7 +3,6 @@
 	import { getContext } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
-	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import InputValue from '../helpers/InputValue.svelte'
@@ -132,7 +131,9 @@
 					subGridId={`${id}-${i}`}
 					class={css?.container?.class}
 					style={css?.container?.style}
-					containerHeight={componentContainerHeight - tabHeight}
+					containerHeight={kind !== 'sidebar' && $mode !== 'preview'
+						? componentContainerHeight - tabHeight
+						: componentContainerHeight}
 					on:focus={() => {
 						$selectedComponent = id
 					}}
