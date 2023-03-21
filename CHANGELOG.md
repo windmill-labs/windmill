@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.80.1](https://github.com/windmill-labs/windmill/compare/v1.80.0...v1.80.1) (2023-03-21)
+
+
+### Bug Fixes
+
+* **cli:** add support for non metadataed scripts ([42f6d2e](https://github.com/windmill-labs/windmill/commit/42f6d2e0ee6294f8a1d97f5f62f2adb6edfd2fed))
+
 ## [1.80.0](https://github.com/windmill-labs/windmill/compare/v1.79.0...v1.80.0) (2023-03-20)
 
 
