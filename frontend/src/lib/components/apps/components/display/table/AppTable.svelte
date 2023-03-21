@@ -52,7 +52,7 @@
 
 	let table = createSvelteTable(options)
 
-	const { app, worldStore, componentControl, selectedComponent, hoverStore } =
+	const { app, worldStore, componentControl, selectedComponent, hoverStore, mode } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	let selectedRowIndex = -1
@@ -272,8 +272,9 @@
 															$hoverStore = undefined
 														}
 													}}
-													class={actionButton.id === $selectedComponent ||
-													$hoverStore === actionButton.id
+													class={(actionButton.id === $selectedComponent ||
+														$hoverStore === actionButton.id) &&
+													$mode !== 'preview'
 														? 'outline outline-indigo-500 outline-1 outline-offset-1 relative '
 														: ''}
 												>
