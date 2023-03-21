@@ -3,6 +3,7 @@
 	import { faUser } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
+	import { initOutput } from '../../editor/appUtils'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
@@ -25,10 +26,10 @@
 
 	const { app, worldStore, stateId } = getContext<AppViewerContext>('AppViewerContext')
 
-	$: outputs = $worldStore?.outputsById[id] as {
-		result: Output<Array<any>>
-		loading: Output<boolean>
-	}
+	let outputs = initOutput($worldStore, id, {
+		result: undefined,
+		loading: false
+	})
 
 	let labelValue: string = ''
 	let color: ButtonType.Color

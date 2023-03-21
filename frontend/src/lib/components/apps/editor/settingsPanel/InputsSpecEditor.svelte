@@ -53,7 +53,7 @@
 							: capitalize(fieldTypeToTsType(fieldType))}
 					</Badge>
 
-					{#if !onlyStatic && componentInput.type && componentInput.type != 'eval'}
+					{#if !onlyStatic && componentInput?.type && componentInput.type != 'eval'}
 						<ToggleButtonGroup
 							bind:selected={componentInput.type}
 							on:selected={(e) => {

@@ -20,7 +20,6 @@ import { requireLogin, resolveWorkspace, validatePath } from "./context.ts";
 import { resolve, track_job } from "./script.ts";
 import { Any, decoverto, model, property } from "./decoverto.ts";
 
-
 // this is effectively "OpenFlow" but a copy as it is accepted by the CLI
 @model()
 export class FlowFile implements Resource, PushDiffs {
@@ -40,7 +39,7 @@ export class FlowFile implements Resource, PushDiffs {
   async pushDiffs(
     workspace: string,
     remotePath: string,
-    diffs: Difference[],
+    diffs: Difference[]
   ): Promise<void> {
     if (
       await FlowService.existsFlowByPath({
@@ -50,8 +49,8 @@ export class FlowFile implements Resource, PushDiffs {
     ) {
       console.log(
         colors.bold.yellow(
-          `Applying ${diffs.length} diffs to existing flow... ${remotePath}`,
-        ),
+          `Applying ${diffs.length} diffs to existing flow... ${remotePath}`
+        )
       );
 
       // TODO: Make these optional in backend (not path ofc)
@@ -66,14 +65,11 @@ export class FlowFile implements Resource, PushDiffs {
       for (const diff of diffs) {
         if (
           diff.type !== "REMOVE" &&
-          (
-            diff.path[0] !== "value" && (
-              diff.path.length !== 1 ||
-              !["summary", "description", "schema"].includes(
-                diff.path[0] as string,
-              )
-            )
-          )
+          diff.path[0] !== "value" &&
+          (diff.path.length !== 1 ||
+            !["summary", "description", "schema"].includes(
+              diff.path[0] as string
+            ))
         ) {
           throw new Error("Invalid flow diff with path " + diff.path);
         }
@@ -83,8 +79,8 @@ export class FlowFile implements Resource, PushDiffs {
           setValueByPath(changeset, diff.path, null);
         }
       }
-      const hasChanges = Object.values(changeset).some((v) =>
-        v !== null && typeof v !== "undefined"
+      const hasChanges = Object.values(changeset).some(
+        (v) => v !== null && typeof v !== "undefined"
       );
       if (!hasChanges) {
         return;
@@ -93,7 +89,7 @@ export class FlowFile implements Resource, PushDiffs {
       const update = {
         ...changeset,
         ...base_changeset,
-      }
+      };
 
       await FlowService.updateFlow({
         workspace: workspace,
@@ -115,11 +111,10 @@ export class FlowFile implements Resource, PushDiffs {
     }
   }
   async push(workspace: string, remotePath: string): Promise<void> {
-
     await this.pushDiffs(
       workspace,
       remotePath,
-      microdiff({}, this, { cyclesFix: false }),
+      microdiff({}, this, { cyclesFix: false })
     );
   }
 }
@@ -127,24 +122,24 @@ export class FlowFile implements Resource, PushDiffs {
 type Options = GlobalOptions;
 
 async function push(opts: Options, filePath: string, remotePath: string) {
-  if (!await validatePath(opts, remotePath)) {
+  if (!validatePath(remotePath)) {
     return;
   }
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  await pushFlow(filePath, workspace.remote, remotePath);
+  await pushFlow(filePath, workspace.workspaceId, remotePath);
   console.log(colors.bold.underline.green("Flow pushed"));
 }
 
 export async function pushFlow(
   filePath: string,
   workspace: string,
-  remotePath: string,
+  remotePath: string
 ) {
-  const data = decoverto.type(FlowFile).rawToInstance(
-    await Deno.readTextFile(filePath),
-  );
+  const data = decoverto
+    .type(FlowFile)
+    .rawToInstance(await Deno.readTextFile(filePath));
   await data.push(workspace, remotePath);
 }
 
@@ -173,13 +168,7 @@ async function list(opts: GlobalOptions & { showArchived?: boolean }) {
     .header(["path", "summary", "edited by"])
     .padding(2)
     .border(true)
-    .body(
-      total.map((x) => [
-        x.path,
-        x.summary,
-        x.edited_by,
-      ]),
-    )
+    .body(total.map((x) => [x.path, x.summary, x.edited_by]))
     .render();
 }
 async function run(
@@ -187,13 +176,12 @@ async function run(
     data?: string;
     silent: boolean;
   },
-  path: string,
+  path: string
 ) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
   const input = opts.data ? await resolve(opts.data) : {};
-
 
   const id = await JobService.runFlowByPath({
     workspace: workspace.workspaceId,
@@ -229,7 +217,7 @@ async function run(
 
   if (!opts.silent) {
     console.log(colors.green.underline.bold("Flow ran to completion"));
-    console.log()
+    console.log();
   }
   const jobInfo = await JobService.getCompletedJob({
     workspace: workspace.workspaceId,
@@ -244,7 +232,7 @@ const command = new Command()
   .action(list as any)
   .command(
     "push",
-    "push a local flow spec. This overrides any remote versions.",
+    "push a local flow spec. This overrides any remote versions."
   )
   .arguments("<file_path:string> <remote_path:string>")
   .action(push as any)
@@ -252,11 +240,11 @@ const command = new Command()
   .arguments("<path:string>")
   .option(
     "-d --data <data:string>",
-    "Inputs specified as a JSON string or a file using @<filename> or stdin using @-.",
+    "Inputs specified as a JSON string or a file using @<filename> or stdin using @-."
   )
   .option(
     "-s --silent",
-    "Do not ouput anything other then the final output. Useful for scripting.",
+    "Do not ouput anything other then the final output. Useful for scripting."
   )
   .action(run as any);
 

@@ -92,7 +92,13 @@
 	w-full {app.fullscreen ? '' : 'max-w-6xl'} mx-auto"
 	>
 		{#if $appStore.grid}
-			<div class={classNames('mx-auto', width)}>
+			<div
+				class={classNames(
+					'mx-auto',
+					width,
+					$appStore?.norefreshbar ? 'invisible h-0 overflow-hidden' : ''
+				)}
+			>
 				<div
 					class="w-full sticky top-0 flex justify-between border-b bg-gray-50 px-4 py-1 items-center gap-4"
 					style="z-index: 1000;"
@@ -105,6 +111,7 @@
 				</div>
 			</div>
 		{/if}
+
 		<div
 			style={app.css?.['app']?.['grid']?.style}
 			class={twMerge('px-4 pt-4 pb-2 overflow-visible', app.css?.['app']?.['grid']?.class ?? '')}
