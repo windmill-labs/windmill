@@ -9,6 +9,7 @@
 	import type { AppEditorContext, AppViewerContext, GridItem } from '../../types'
 	import { push } from '$lib/history'
 	import { sendUserToast } from '$lib/utils'
+	import { gridColumns } from '../../gridUtils'
 
 	const { app, selectedComponent, worldStore, focusedGrid, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -172,7 +173,13 @@
 			}
 
 			const gridItem = tempGridItem
-			insertNewGridItem($app, (id) => ({ ...gridItem.data, id }), $focusedGrid, tempGridItem.id)
+			insertNewGridItem(
+				$app,
+				(id) => ({ ...gridItem.data, id }),
+				$focusedGrid,
+				Object.fromEntries(gridColumns.map((column) => [column, gridItem[column]])),
+				tempGridItem.id
+			)
 
 			copiedGridItem = tempGridItem
 			$selectedComponent = tempGridItem.id
@@ -180,7 +187,12 @@
 			tempGridItem = undefined
 		} else if (copiedGridItem) {
 			const gridItem = copiedGridItem
-			$selectedComponent = insertNewGridItem($app, (id) => ({ ...gridItem.data, id }), $focusedGrid)
+			$selectedComponent = insertNewGridItem(
+				$app,
+				(id) => ({ ...gridItem.data, id }),
+				$focusedGrid,
+				Object.fromEntries(gridColumns.map((column) => [column, gridItem[column]]))
+			)
 		}
 
 		$worldStore = $worldStore

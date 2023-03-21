@@ -92,7 +92,12 @@ export function getAllRecomputeIdsForComponent(app: App, id: string) {
 	return recomputedBy
 }
 
-export function createNewGridItem(grid: GridItem[], id: string, data: AppComponent): GridItem {
+export function createNewGridItem(
+	grid: GridItem[],
+	id: string,
+	data: AppComponent,
+	columns?: Record<number, any>
+): GridItem {
 	const newComponent = {
 		fixed: false,
 		x: 0,
@@ -108,12 +113,16 @@ export function createNewGridItem(grid: GridItem[], id: string, data: AppCompone
 	}
 
 	gridColumns.forEach((column) => {
-		const rec = getRecommendedDimensionsByComponent(newData.type, column)
+		if (!columns) {
+			const rec = getRecommendedDimensionsByComponent(newData.type, column)
 
-		newItem[column] = {
-			...newComponent,
-			w: rec.w,
-			h: rec.h
+			newItem[column] = {
+				...newComponent,
+				w: rec.w,
+				h: rec.h
+			}
+		} else {
+			newItem[column] = columns[column]
 		}
 		const position = gridHelp.findSpace(newItem, grid, column) as { x: number; y: number }
 		newItem[column] = { ...newItem[column], ...position }
@@ -190,6 +199,7 @@ export function insertNewGridItem(
 	app: App,
 	builddata: (id: string) => AppComponent,
 	focusedGrid: FocusedGrid | undefined,
+	columns?: Record<string, any>,
 	keepId?: string
 ): string {
 	const id = keepId ?? getNextGridItemId(app)
@@ -211,7 +221,7 @@ export function insertNewGridItem(
 		: undefined
 	let grid = focusedGrid ? app.subgrids[key!] : app.grid
 
-	const newItem = createNewGridItem(grid, id, data)
+	const newItem = createNewGridItem(grid, id, data, columns)
 	grid.push(newItem)
 
 	return id
@@ -400,7 +410,17 @@ export function initConfig<
 		  }
 	>
 >(
-	r: T
+	r: T,
+	configuration?: Record<
+		string,
+		| StaticAppInput
+		| {
+				type: 'oneOf'
+				selected: string
+				configuration: Record<string, Record<string, StaticAppInput | EvalAppInput>>
+		  }
+		| any
+	>
 ): {
 	[Property in keyof T]: T[Property] extends StaticAppInput
 		? T[Property]['value'] | undefined
@@ -423,7 +443,10 @@ export function initConfig<
 			Object.fromEntries(
 				Object.entries(r).map(([key, value]) =>
 					value.type == 'static'
-						? [key, undefined]
+						? [
+								key,
+								configuration?.[key]?.type == 'static' ? configuration?.[key]?.['value'] : undefined
+						  ]
 						: value.type == 'oneOf'
 						? [
 								key,
@@ -433,7 +456,7 @@ export function initConfig<
 									configuration: Object.fromEntries(
 										Object.entries(value.configuration).map(([choice, config]) => [
 											choice,
-											initConfig(config)
+											initConfig(config, configuration?.[key]?.configuration?.[choice])
 										])
 									)
 								}

@@ -122,7 +122,7 @@ type InputConfiguration<T extends InputType, V extends InputType> = {
 }
 
 export type StaticOptions = {
-	selectOptions: string[] | { value: string; label: string }[]
+	selectOptions: readonly string[] | readonly { value: string; label: string }[]
 }
 
 export type AppInput =

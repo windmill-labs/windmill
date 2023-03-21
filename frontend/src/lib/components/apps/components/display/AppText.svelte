@@ -3,9 +3,8 @@
 	import { copyToClipboard } from '../../../../utils'
 	import Button from '../../../common/button/Button.svelte'
 	import Popover from '../../../Popover.svelte'
-	import type { AppInput } from '../../inputType'
+	import type { AppInput, EvalAppInput } from '../../inputType'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
-	import InputValue from '../helpers/InputValue.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type {
@@ -15,9 +14,12 @@
 		RichConfigurations
 	} from '../../types'
 	import { getContext } from 'svelte'
-	import { initOutput } from '../../editor/appUtils'
+	import { initConfig, initOutput } from '../../editor/appUtils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { get } from 'svelte/store'
+	import ResolveConfig from '../helpers/ResolveConfig.svelte'
+	import { components } from '../../editor/component'
+	import { isCodeInjection } from '$lib/components/flows/utils'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -28,22 +30,29 @@
 	export let customCss: ComponentCustomCSS<'textcomponent'> | undefined = undefined
 	export let render: boolean
 
+	let resolvedConfig = initConfig(
+		components['textcomponent'].initialData.configuration,
+		configuration
+	)
+
 	const { app, worldStore, mode } = getContext<AppViewerContext>('AppViewerContext')
 
 	const editorcontext = getContext<AppEditorContext>('AppEditorContext')
 
+	let result: string | undefined = undefined
+
+	if (componentInput?.type == 'template' && !isCodeInjection(componentInput.eval)) {
+		result = componentInput.eval
+		initializing = false
+	}
+
 	const outputs = initOutput($worldStore, id, {
-		result: undefined,
-		loading: false
+		result,
+		loading: initializing
 	})
 
-	let result: string | undefined = undefined
-	let style: 'Title' | 'Subtitle' | 'Body' | 'Caption' | 'Label' | undefined = undefined
-	let copyButton: boolean
-	let tooltip: string = ''
-
 	function getComponent() {
-		switch (style) {
+		switch (resolvedConfig.style) {
 			case 'Title':
 				return 'h1'
 			case 'Subtitle':
@@ -60,7 +69,7 @@
 	}
 
 	function getClasses() {
-		switch (style) {
+		switch (resolvedConfig.style) {
 			case 'Caption':
 				return 'text-sm italic text-gray-500'
 			case 'Label':
@@ -72,13 +81,18 @@
 
 	let component = 'p'
 	let classes = ''
-	$: style && (component = getComponent())
-	$: style && (classes = getClasses())
+	$: resolvedConfig.style && (component = getComponent())
+	$: resolvedConfig.style && (classes = getClasses())
 </script>
 
-<InputValue {id} input={configuration.style} bind:value={style} />
-<InputValue {id} input={configuration.copyButton} bind:value={copyButton} />
-<InputValue {id} input={configuration.tooltip} bind:value={tooltip} />
+{#each Object.keys(components['textcomponent'].initialData.configuration) as key (key)}
+	<ResolveConfig
+		{id}
+		{key}
+		bind:resolvedConfig={resolvedConfig[key]}
+		configuration={configuration[key]}
+	/>
+{/each}
 
 <RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
 	<div class="h-full w-full overflow-hidden">
@@ -113,10 +127,10 @@
 						style={[$app.css?.['textcomponent']?.['text']?.style, customCss?.text?.style].join(';')}
 					>
 						{String(result)}
-						{#if tooltip != ''}
-							<Tooltip>{tooltip}</Tooltip>
+						{#if resolvedConfig.tooltip != ''}
+							<Tooltip>{resolvedConfig.tooltip}</Tooltip>
 						{/if}
-						{#if copyButton && result}
+						{#if resolvedConfig.copyButton && result}
 							<Popover notClickable>
 								<Button
 									variant="border"

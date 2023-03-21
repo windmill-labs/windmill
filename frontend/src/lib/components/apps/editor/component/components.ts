@@ -319,7 +319,7 @@ export const components = {
 					type: 'static',
 					onlyStatic: true,
 					selectOptions: selectOptions.textStyleOptions,
-					value: 'Body'
+					value: 'Body' as 'Title' | 'Subtitle' | 'Body' | 'Label' | 'Caption'
 				},
 				copyButton: {
 					type: 'static',

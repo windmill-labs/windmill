@@ -101,6 +101,7 @@
 	}
 
 	async function getValue(input: AppInput) {
+		if (!input) return
 		if (input.type === 'template' && isCodeInjection(input.eval)) {
 			try {
 				const r = await eval_like(

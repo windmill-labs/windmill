@@ -13,6 +13,11 @@
 	export let customCss: ComponentCustomCSS<'imagecomponent'> | undefined = undefined
 	export let render: boolean
 
+	let resolvedConfig = initConfig(
+		components['imagecomponent'].initialData.configuration,
+		configuration
+	)
+
 	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 	const fit: Record<string, string> = {
 		cover: 'object-cover',
@@ -22,8 +27,6 @@
 
 	//used so that we can count number of outputs setup for first refresh
 	initOutput($worldStore, id, {})
-
-	let resolvedConfig = initConfig(components['imagecomponent'].initialData.configuration)
 
 	$: css = concatCustomCss($app.css?.imagecomponent, customCss)
 </script>
