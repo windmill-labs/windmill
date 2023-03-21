@@ -23,7 +23,7 @@
 	export let preclickAction: (() => Promise<void>) | undefined = undefined
 	export let customCss: ComponentCustomCSS<'buttoncomponent'> | undefined = undefined
 	export let render: boolean
-	export let initializing: boolean | undefined = true
+	export let initializing: boolean | undefined = false
 	export let extraKey: string | undefined = undefined
 
 	export let controls: { left: () => boolean; right: () => boolean | string } | undefined =
@@ -31,6 +31,12 @@
 
 	const { worldStore, app, componentControl, selectedComponent } =
 		getContext<AppViewerContext>('AppViewerContext')
+	let resolvedConfig = initConfig(
+		components['buttoncomponent'].initialData.configuration,
+		configuration
+	)
+
+	$: initializing = resolvedConfig?.label == undefined
 
 	let outputs = initOutput($worldStore, id, {
 		result: undefined,
@@ -45,10 +51,6 @@
 
 	let isLoading: boolean = false
 	let ownClick: boolean = false
-
-	let resolvedConfig = initConfig(components['buttoncomponent'].initialData.configuration)
-
-	$: initializing = resolvedConfig?.label == undefined
 
 	let beforeIconComponent: any
 	let afterIconComponent: any

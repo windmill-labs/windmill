@@ -34,7 +34,10 @@
 		loading: false
 	})
 
-	let resolvedConfig = initConfig(components['formbuttoncomponent'].initialData.configuration)
+	let resolvedConfig = initConfig(
+		components['formbuttoncomponent'].initialData.configuration,
+		configuration
+	)
 	let runnableComponent: RunnableComponent
 
 	let isLoading: boolean = false
