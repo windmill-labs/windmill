@@ -34,7 +34,7 @@ export class ResourceFile implements Resource2, PushDiffs {
   async pushDiffs(
     workspace: string,
     remotePath: string,
-    diffs: Difference[],
+    diffs: Difference[]
   ): Promise<void> {
     if (
       await ResourceService.existsResource({
@@ -43,7 +43,9 @@ export class ResourceFile implements Resource2, PushDiffs {
       })
     ) {
       console.log(
-        colors.yellow.bold(`Applying ${diffs.length} diffs to existing resource... ${remotePath}`),
+        colors.yellow.bold(
+          `Applying ${diffs.length} diffs to existing resource... ${remotePath}`
+        )
       );
 
       const changeset: EditResource = {
@@ -56,14 +58,13 @@ export class ResourceFile implements Resource2, PushDiffs {
         }
         if (
           diff.type !== "REMOVE" &&
-          (
-            diff.path[0] !== "value" && (
-              diff.path.length !== 1 ||
-              diff.path[0] !== "description"
-            ) && diff.path[0] !== "resource_type"
-          )
+          diff.path[0] !== "value" &&
+          (diff.path.length !== 1 || diff.path[0] !== "description") &&
+          diff.path[0] !== "resource_type"
         ) {
-          console.log(colors.red("Invalid variable diff with path " + diff.path));
+          console.log(
+            colors.red("Invalid variable diff with path " + diff.path)
+          );
           throw new Error("Invalid folder diff with path " + diff.path);
         }
         if (diff.type === "CREATE" || diff.type === "CHANGE") {
@@ -73,8 +74,8 @@ export class ResourceFile implements Resource2, PushDiffs {
         }
       }
 
-      const hasChanges = Object.values(changeset).some((v) =>
-        v !== null && typeof v !== "undefined"
+      const hasChanges = Object.values(changeset).some(
+        (v) => v !== null && typeof v !== "undefined"
       );
       if (!hasChanges) {
         return;
@@ -89,8 +90,8 @@ export class ResourceFile implements Resource2, PushDiffs {
       if (typeof this.is_oauth !== "undefined") {
         console.log(
           colors.yellow(
-            "! is_oauth has been removed in newer versions. Ignoring.",
-          ),
+            "! is_oauth has been removed in newer versions. Ignoring."
+          )
         );
       }
 
@@ -110,7 +111,7 @@ export class ResourceFile implements Resource2, PushDiffs {
     await this.pushDiffs(
       workspace,
       remotePath,
-      microdiff({}, this, { cyclesFix: false }),
+      microdiff({}, this, { cyclesFix: false })
     );
   }
 }
@@ -118,11 +119,11 @@ export class ResourceFile implements Resource2, PushDiffs {
 export async function pushResource(
   workspace: string,
   filePath: string,
-  remotePath: string,
+  remotePath: string
 ) {
-  const data = decoverto.type(ResourceFile).rawToInstance(
-    await Deno.readTextFile(filePath),
-  );
+  const data = decoverto
+    .type(ResourceFile)
+    .rawToInstance(await Deno.readTextFile(filePath));
   await data.push(workspace, remotePath);
 }
 
@@ -131,7 +132,7 @@ async function push(opts: PushOptions, filePath: string, remotePath: string) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  if (!await validatePath(opts, remotePath)) {
+  if (!validatePath(remotePath)) {
     return;
   }
 
@@ -178,7 +179,7 @@ const command = new Command()
   .action(list as any)
   .command(
     "push",
-    "push a local resource spec. This overrides any remote versions.",
+    "push a local resource spec. This overrides any remote versions."
   )
   .arguments("<file_path:string> <remote_path:string>")
   .action(push as any);
