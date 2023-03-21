@@ -130,7 +130,9 @@
 					subGridId={`${id}-${i}`}
 					class={css?.container?.class}
 					style={css?.container?.style}
-					containerHeight={componentContainerHeight - tabHeight}
+					containerHeight={kind !== 'sidebar' && $mode !== 'preview'
+						? componentContainerHeight - tabHeight
+						: componentContainerHeight}
 					on:focus={() => {
 						$selectedComponent = id
 					}}
