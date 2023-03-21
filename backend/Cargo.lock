@@ -174,7 +174,7 @@ checksum = "0e97ce7de6cf12de5d7226c73f5ba9811622f4db3a5b91b55c53e987e5f91cba"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.3",
+ "syn 2.0.4",
 ]
 
 [[package]]
@@ -219,7 +219,7 @@ checksum = "86ea188f25f0255d8f92797797c97ebf5631fa88178beb1a46fdf5622c9a00e4"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.3",
+ "syn 2.0.4",
 ]
 
 [[package]]
@@ -751,7 +751,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "scratch",
- "syn 2.0.3",
+ "syn 2.0.4",
 ]
 
 [[package]]
@@ -768,7 +768,7 @@ checksum = "631569015d0d8d54e6c241733f944042623ab6df7bc3be7466874b05fcdb1c5f"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.3",
+ "syn 2.0.4",
 ]
 
 [[package]]
@@ -2554,7 +2554,7 @@ dependencies = [
 [[package]]
 name = "progenitor"
 version = "0.2.1-dev"
-source = "git+https://github.com/oxidecomputer/progenitor#3375ec9439f84c0b46bef8add9ade1a65d0325dd"
+source = "git+https://github.com/oxidecomputer/progenitor#8c4fc9b61ffd45612df0af81d257ec040fa3b6b0"
 dependencies = [
  "anyhow",
  "built",
@@ -2572,7 +2572,7 @@ dependencies = [
 [[package]]
 name = "progenitor-client"
 version = "0.2.1-dev"
-source = "git+https://github.com/oxidecomputer/progenitor#3375ec9439f84c0b46bef8add9ade1a65d0325dd"
+source = "git+https://github.com/oxidecomputer/progenitor#8c4fc9b61ffd45612df0af81d257ec040fa3b6b0"
 dependencies = [
  "bytes",
  "futures-core",
@@ -2586,7 +2586,7 @@ dependencies = [
 [[package]]
 name = "progenitor-impl"
 version = "0.2.1-dev"
-source = "git+https://github.com/oxidecomputer/progenitor#3375ec9439f84c0b46bef8add9ade1a65d0325dd"
+source = "git+https://github.com/oxidecomputer/progenitor#8c4fc9b61ffd45612df0af81d257ec040fa3b6b0"
 dependencies = [
  "getopts",
  "heck",
@@ -2599,7 +2599,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
- "syn 2.0.3",
+ "syn 2.0.4",
  "thiserror",
  "typify",
  "unicode-ident",
@@ -2608,7 +2608,7 @@ dependencies = [
 [[package]]
 name = "progenitor-macro"
 version = "0.2.1-dev"
-source = "git+https://github.com/oxidecomputer/progenitor#3375ec9439f84c0b46bef8add9ade1a65d0325dd"
+source = "git+https://github.com/oxidecomputer/progenitor#8c4fc9b61ffd45612df0af81d257ec040fa3b6b0"
 dependencies = [
  "openapiv3",
  "proc-macro2",
@@ -2619,7 +2619,7 @@ dependencies = [
  "serde_json",
  "serde_tokenstream",
  "serde_yaml",
- "syn 2.0.3",
+ "syn 2.0.4",
 ]
 
 [[package]]
@@ -3212,7 +3212,7 @@ checksum = "e801c1712f48475582b7696ac71e0ca34ebb30e09338425384269d9717c62cad"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.3",
+ "syn 2.0.4",
 ]
 
 [[package]]
@@ -3278,7 +3278,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "serde",
- "syn 2.0.3",
+ "syn 2.0.4",
 ]
 
 [[package]]
@@ -3821,9 +3821,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "2.0.3"
+version = "2.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8234ae35e70582bfa0f1fedffa6daa248e41dd045310b19800c4a36382c8f60"
+checksum = "2c622ae390c9302e214c31013517c2061ecb2699935882c60a9b37f82f8625ae"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3886,7 +3886,7 @@ checksum = "f9456a42c5b0d803c8cd86e73dd7cc9edd429499f37a3550d286d5e86720569f"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.3",
+ "syn 2.0.4",
 ]
 
 [[package]]
@@ -4314,7 +4314,7 @@ dependencies = [
  "regress",
  "schemars",
  "serde_json",
- "syn 2.0.3",
+ "syn 2.0.4",
  "thiserror",
  "unicode-ident",
 ]
@@ -4330,7 +4330,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_tokenstream",
- "syn 2.0.3",
+ "syn 2.0.4",
  "typify-impl",
 ]
 
@@ -4761,7 +4761,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.80.0"
+version = "1.80.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -4788,7 +4788,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.80.0"
+version = "1.80.1"
 dependencies = [
  "anyhow",
  "argon2",
@@ -4843,7 +4843,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.80.0"
+version = "1.80.1"
 dependencies = [
  "base64 0.21.0",
  "chrono",
@@ -4858,7 +4858,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.80.0"
+version = "1.80.1"
 dependencies = [
  "chrono",
  "serde",
@@ -4871,7 +4871,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.80.0"
+version = "1.80.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -4896,7 +4896,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.80.0"
+version = "1.80.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -4904,7 +4904,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.80.0"
+version = "1.80.1"
 dependencies = [
  "anyhow",
  "itertools",
@@ -4919,7 +4919,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.80.0"
+version = "1.80.1"
 dependencies = [
  "anyhow",
  "itertools",
@@ -4931,7 +4931,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.80.0"
+version = "1.80.1"
 dependencies = [
  "anyhow",
  "itertools",
@@ -4946,7 +4946,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.80.0"
+version = "1.80.1"
 dependencies = [
  "anyhow",
  "deno_core",
@@ -4960,7 +4960,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.80.0"
+version = "1.80.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4983,7 +4983,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.80.0"
+version = "1.80.1"
 dependencies = [
  "anyhow",
  "async-recursion",
