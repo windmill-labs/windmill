@@ -1,6 +1,18 @@
 # Changelog
 
 
+## [1.81.0](https://github.com/windmill-labs/windmill/compare/v1.80.1...v1.81.0) (2023-03-21)
+
+
+### Features
+
+* **apps:** add action on form/button/formbutton ([2593218](https://github.com/windmill-labs/windmill/commit/2593218cbf07c05521a270797055ddb22dc22b8d))
+
+
+### Bug Fixes
+
+* **frontend:** Remove action outline on preview mode ([#1313](https://github.com/windmill-labs/windmill/issues/1313)) ([a7c4f1a](https://github.com/windmill-labs/windmill/commit/a7c4f1a12e02e8627a5955b75d572e9cf11d8122))
+
 ## [1.80.1](https://github.com/windmill-labs/windmill/compare/v1.80.0...v1.80.1) (2023-03-21)
 
 
