@@ -33,9 +33,7 @@ export { passwordGenerator } from "https://deno.land/x/password_generator@latest
 export { nanoid } from "https://deno.land/x/nanoid@v3.0.0/mod.ts";
 export * as cbor from "https://deno.land/x/cbor@v1.4.1/index.js";
 export { default as Murmurhash3 } from "https://deno.land/x/murmurhash@v1.0.0/mod.ts";
-export {
-  default as microdiff,
-} from "https://deno.land/x/microdiff@v1.3.1/index.ts";
+export { default as microdiff } from "https://deno.land/x/microdiff@v1.3.1/index.ts";
 export { default as objectHash } from "https://deno.land/x/object_hash@2.0.3.1/mod.ts";
 export { default as gitignore_parser } from "npm:gitignore-parser";
 export { default as JSZip } from "npm:jszip@3.7.1";
