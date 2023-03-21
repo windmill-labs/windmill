@@ -4,13 +4,13 @@
 	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
-	import InputValue from '../helpers/InputValue.svelte'
 	import type RunnableComponent from '../helpers/RunnableComponent.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import { loadIcon } from '../icon'
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
-	import { components, configurationKeys } from '../../editor/component'
+	import { components } from '../../editor/component'
+	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -111,26 +111,27 @@
 	}
 </script>
 
-{#each configurationKeys['buttoncomponent'] as key (key)}
-	<InputValue
-		key={key + extraKey}
+{#each Object.keys(components['buttoncomponent'].initialData.configuration) as key (key)}
+	<ResolveConfig
 		{id}
-		input={configuration[key]}
-		bind:value={resolvedConfig[key]}
+		{extraKey}
+		{key}
+		bind:resolvedConfig={resolvedConfig[key]}
+		configuration={configuration[key]}
 	/>
 {/each}
+
+<!-- gotoNewTab={resolvedConfig.onSuccess.selected == 'goto'} -->
 
 <RunnableWrapper
 	bind:this={runnableWrapper}
 	{recomputeIds}
 	bind:runnableComponent
 	{componentInput}
+	doOnSuccess={resolvedConfig.onSuccess}
 	{id}
 	{extraQueryParams}
 	autoRefresh={false}
-	gotoUrl={resolvedConfig.goto}
-	gotoNewTab={resolvedConfig.gotoNewTab}
-	setTab={resolvedConfig.setTab}
 	{render}
 	{outputs}
 	{extraKey}

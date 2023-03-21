@@ -5,8 +5,7 @@ import type {
 	ConnectingInput,
 	EditorBreakpoint,
 	FocusedGrid,
-	GridItem,
-	StaticRichConfigurations
+	GridItem
 } from '../types'
 import {
 	ccomponents,
@@ -14,7 +13,7 @@ import {
 	getRecommendedDimensionsByComponent,
 	type AppComponent,
 	type BaseComponent,
-	type TypedComponent
+	type InitialAppComponent
 } from './component'
 import { gridColumns } from '../gridUtils'
 import { allItems } from '../utils'
@@ -94,8 +93,6 @@ export function getAllRecomputeIdsForComponent(app: App, id: string) {
 }
 
 export function createNewGridItem(grid: GridItem[], id: string, data: AppComponent): GridItem {
-	console.log('INSERT X')
-
 	const newComponent = {
 		fixed: false,
 		x: 0,
@@ -135,24 +132,45 @@ export function getGridItems(app: App, focusedGrid: FocusedGrid | undefined): Gr
 	}
 }
 
+function cleanseValue(key: string, value: { type: 'eval' | 'static'; value?: any; expr?: string }) {
+	if (!value) {
+		return [key, undefined]
+	}
+	if (value.type === 'static') {
+		return [key, { type: value.type, value: value.value }]
+	} else {
+		return [key, { type: value.type, expr: value.expr }]
+	}
+}
 export function appComponentFromType<T extends keyof typeof components>(
 	type: T
 ): (id: string) => BaseAppComponent & BaseComponent<T> {
 	return (id: string) => {
-		const init = ccomponents[type].initialData
+		const init = JSON.parse(JSON.stringify(ccomponents[type].initialData)) as InitialAppComponent
 		return {
 			type,
 			//TODO remove tooltip and onlyStatic from there
 			configuration: Object.fromEntries(
 				Object.entries(init.configuration).map(([key, value]) => {
-					if (value.ctype === undefined) {
-						if (value.type === 'static') {
-							return [key, { type: value.type, value: value.value }]
-						} else if (value.type === 'eval') {
-							return [key, { type: value.type, expr: value.expr }]
-						}
+					if (value.type != 'oneOf') {
+						return cleanseValue(key, value)
+					} else {
+						return [
+							key,
+							{
+								type: value.type,
+								selected: value.selected,
+								configuration: Object.fromEntries(
+									Object.entries(value.configuration).map(([key, val]) => [
+										key,
+										Object.fromEntries(
+											Object.entries(val).map(([key, val]) => cleanseValue(key, val))
+										)
+									])
+								)
+							}
+						]
 					}
-					return [key, value]
 				})
 			),
 			componentInput: init.componentInput,
@@ -370,16 +388,61 @@ export function initOutput<I extends Record<string, any>>(
 	) as Outputtable<I>
 }
 
-export function initConfig<T extends Record<string, StaticAppInput | EvalAppInput>>(
+export function initConfig<
+	T extends Record<
+		string,
+		| StaticAppInput
+		| EvalAppInput
+		| {
+				type: 'oneOf'
+				selected: string
+				configuration: Record<string, Record<string, StaticAppInput | EvalAppInput>>
+		  }
+	>
+>(
 	r: T
 ): {
-	[Property in keyof T]: T[Property] extends StaticAppInput ? T[Property]['value'] | undefined : any
+	[Property in keyof T]: T[Property] extends StaticAppInput
+		? T[Property]['value'] | undefined
+		: T[Property] extends { type: 'oneOf' }
+		? {
+				type: 'oneOf'
+				selected: keyof T[Property]['configuration']
+				configuration: {
+					[Choice in keyof T[Property]['configuration']]: {
+						[IT in keyof T[Property]['configuration'][Choice]]: T[Property]['configuration'][Choice][IT] extends StaticAppInput
+							? T[Property]['configuration'][Choice][IT]['value'] | undefined
+							: undefined
+					}
+				}
+		  }
+		: undefined
 } {
-	return Object.fromEntries(
-		Object.entries(r).map(([key, value]) =>
-			value.type == 'static' ? [key, undefined] : [key, undefined]
+	return JSON.parse(
+		JSON.stringify(
+			Object.fromEntries(
+				Object.entries(r).map(([key, value]) =>
+					value.type == 'static'
+						? [key, undefined]
+						: value.type == 'oneOf'
+						? [
+								key,
+								{
+									selected: value.selected,
+									type: 'oneOf',
+									configuration: Object.fromEntries(
+										Object.entries(value.configuration).map(([choice, config]) => [
+											choice,
+											initConfig(config)
+										])
+									)
+								}
+						  ]
+						: [key, undefined]
+				)
+			) as any
 		)
-	) as any
+	)
 }
 
 export function expandGriditem(

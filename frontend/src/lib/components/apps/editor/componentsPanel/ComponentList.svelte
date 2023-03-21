@@ -14,7 +14,6 @@
 	import { X } from 'lucide-svelte'
 	import { push } from '$lib/history'
 	import { flip } from 'svelte/animate'
-	import { Badge } from '$lib/components/common'
 
 	const { app, selectedComponent, focusedGrid, worldStore } =
 		getContext<AppViewerContext>('AppViewerContext')

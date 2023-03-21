@@ -2,6 +2,7 @@
 	import type { RichConfigurations } from '../../types'
 
 	import InputsSpecEditor from './InputsSpecEditor.svelte'
+	import OneOfInputSpecsEditor from './OneOfInputSpecsEditor.svelte'
 
 	export let id: string
 	export let inputSpecs: RichConfigurations
@@ -15,7 +16,19 @@
 {#if inputSpecs}
 	<div class="w-full flex flex-col gap-4">
 		{#each Object.keys(inputSpecsConfiguration) as k}
-			{#if inputSpecs[k] && inputSpecs[k]?.ctype == undefined}
+			{#if inputSpecs[k] && inputSpecs[k]?.type == 'oneOf'}
+				<OneOfInputSpecsEditor
+					key={k}
+					bind:oneOf={inputSpecs[k]}
+					{id}
+					{shouldCapitalize}
+					{resourceOnly}
+					{rowColumns}
+					inputSpecsConfiguration={inputSpecsConfiguration?.[k]?.['configuration']}
+					labels={inputSpecsConfiguration?.[k]?.['labels']}
+					tooltip={inputSpecsConfiguration?.[k]?.['tooltip']}
+				/>
+			{:else}
 				{@const meta = inputSpecsConfiguration?.[k]}
 				<!-- {JSON.stringify(meta)} -->
 				<InputsSpecEditor
@@ -29,9 +42,10 @@
 					fieldType={meta?.['fieldType']}
 					subFieldType={meta?.['subFieldType']}
 					format={meta?.['format']}
-					optionValuesKey={meta?.['optionValuesKey']}
+					selectOptions={meta?.['selectOptions']}
 					tooltip={meta?.['tooltip']}
 					onlyStatic={meta?.['onlyStatic']}
+					placeholder={meta?.['placeholder']}
 				/>
 			{/if}
 		{/each}

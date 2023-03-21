@@ -1,5 +1,4 @@
 import type { ReadFileAs } from '../common/fileInput/model'
-import type { staticValues } from './editor/componentsPanel/componentStaticValues'
 import type { InlineScript } from './types'
 
 export type InputType =
@@ -122,11 +121,8 @@ type InputConfiguration<T extends InputType, V extends InputType> = {
 	}
 }
 
-type StaticOptions = {
-	/**
-	 * One of the keys of `staticValues` from `lib/components/apps/editor/componentsPanel/componentStaticValues`
-	 */
-	optionValuesKey: keyof typeof staticValues
+export type StaticOptions = {
+	selectOptions: string[] | { value: string; label: string }[]
 }
 
 export type AppInput =
@@ -141,12 +137,6 @@ export type AppInput =
 	| AppInputSpec<'any', any>
 	| AppInputSpec<'object', Record<string | number, any>>
 	| AppInputSpec<'object', string>
-	| (AppInputSpec<'select', string> & {
-			/**
-			 * One of the keys of `staticValues` from `lib/components/apps/editor/componentsPanel/componentStaticValues`
-			 */
-			optionValuesKey: keyof typeof staticValues
-	  })
 	| (AppInputSpec<'select', string> & StaticOptions)
 	| AppInputSpec<'icon-select', string>
 	| AppInputSpec<'color', string>
@@ -158,9 +148,6 @@ export type AppInput =
 	| AppInputSpec<'array', string[], 'time'>
 	| AppInputSpec<'array', string[], 'datetime'>
 	| AppInputSpec<'array', object[], 'object'>
-	| (AppInputSpec<'array', string[], 'select'> & {
-			optionValuesKey: keyof typeof staticValues
-	  })
 	| (AppInputSpec<'array', string[], 'select'> & StaticOptions)
 	| AppInputSpec<'array', object[], 'labeledresource'>
 	| AppInputSpec<'labeledresource', object>
