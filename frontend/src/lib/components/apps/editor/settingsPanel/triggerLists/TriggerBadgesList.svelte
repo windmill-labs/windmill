@@ -105,9 +105,7 @@
 				<div class="flex flex-row gap-2 flex-wrap">
 					{#if onLoad}
 						<span class={classNames(badgeClass, colors['green'])}>Start</span>
-						{#if !doNotRecomputeOnInputChanged}
-							<span class={classNames(badgeClass, colors['green'])}>Refresh</span>
-						{/if}
+						<span class={classNames(badgeClass, colors['green'])}>Refresh</span>
 					{/if}
 					{#if onClick}
 						<span class={classNames(badgeClass, colors['green'])}>Click</span>
