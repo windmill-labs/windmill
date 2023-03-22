@@ -1,5 +1,7 @@
 import type { IntRange } from '../../../../common'
 import type { NARROW_GRID_COLUMNS, WIDE_GRID_COLUMNS } from '../../gridUtils'
+import { BUTTON_COLORS } from '../../../common'
+
 import { defaultAlignement } from '../componentsPanel/componentDefaultProps'
 import {
 	BarChart4,
@@ -48,6 +50,10 @@ export type BaseComponent<T extends string> = {
 	type: T
 }
 
+type ClickableComponent = {
+	recomputeIds: string[] | undefined
+}
+
 export type TextComponent = BaseComponent<'textcomponent'>
 export type TextInputComponent = BaseComponent<'textinputcomponent'>
 export type PasswordInputComponent = BaseComponent<'passwordinputcomponent'>
@@ -61,15 +67,10 @@ export type HtmlComponent = BaseComponent<'htmlcomponent'>
 export type VegaLiteComponent = BaseComponent<'vegalitecomponent'>
 export type PlotlyComponent = BaseComponent<'plotlycomponent'>
 export type TimeseriesComponent = BaseComponent<'timeseriescomponent'>
-export type ButtonComponent = BaseComponent<'buttoncomponent'> & {
-	recomputeIds: string[] | undefined
-}
-export type FormComponent = BaseComponent<'formcomponent'> & {
-	recomputeIds: string[] | undefined
-}
-export type FormButtonComponent = BaseComponent<'formbuttoncomponent'> & {
-	recomputeIds: string[] | undefined
-}
+export type ButtonComponent = BaseComponent<'buttoncomponent'> & ClickableComponent
+export type FormComponent = BaseComponent<'formcomponent'> & ClickableComponent
+export type FormButtonComponent = BaseComponent<'formbuttoncomponent'> & ClickableComponent
+
 export type RunFormComponent = BaseComponent<'runformcomponent'>
 export type BarChartComponent = BaseComponent<'barchartcomponent'>
 export type PieChartComponent = BaseComponent<'piechartcomponent'>
@@ -188,6 +189,80 @@ export interface InitialAppComponent extends Partial<Aligned> {
 	panes?: number[]
 }
 
+const buttonColorOptions = [...BUTTON_COLORS]
+
+export const selectOptions = {
+	buttonColorOptions,
+	tabsKindOptions: ['tabs', 'sidebar', 'invisibleOnView'],
+	buttonSizeOptions: ['xs', 'sm', 'md', 'lg', 'xl'],
+	tableSearchOptions: ['By Component', 'By Runnable', 'Disabled'],
+	chartThemeOptions: ['theme1', 'theme2', 'theme3'],
+	textStyleOptions: ['Title', 'Subtitle', 'Body', 'Label', 'Caption'],
+	currencyOptions: ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY', 'CNY', 'INR', 'BRL'],
+	localeOptions: [
+		'en-US',
+		'en-GB',
+		'en-IE',
+		'de-DE',
+		'fr-FR',
+		'br-FR',
+		'ja-JP',
+		'pt-TL',
+		'fr-CA',
+		'en-CA'
+	],
+	objectFitOptions: ['contain', 'cover', 'fill'],
+	splitPanelOptions: ['2', '3', '4']
+}
+
+const onSuccessClick = {
+	type: 'oneOf',
+	tooltip: 'Action to perform on success',
+	selected: 'none',
+	labels: {
+		none: 'Do nothing',
+		gotoUrl: 'Go to an url',
+		setTab: 'Set the tab of a tabs component',
+		sendToast: 'Display a toast notification'
+	},
+	configuration: {
+		none: {},
+		gotoUrl: {
+			url: {
+				tooltip: 'Go to the given url, absolute or relative',
+				fieldType: 'text',
+				type: 'static',
+				value: '',
+				placeholder: '/apps/get/foo'
+			},
+			newTab: {
+				tooltip: 'Open the url in a new tab',
+				fieldType: 'boolean',
+				type: 'static',
+				value: true
+			}
+		},
+		setTab: {
+			setTab: {
+				type: 'static',
+				value: [] as Array<{ id: string; index: number }>,
+				fieldType: 'array',
+				subFieldType: 'tab-select',
+				tooltip: 'Set the tabs id and index to go to on success'
+			}
+		},
+		sendToast: {
+			message: {
+				tooltip: 'The message of the toast to diplay',
+				fieldType: 'text',
+				type: 'static',
+				value: '',
+				placeholder: 'Hello there'
+			}
+		}
+	}
+} as const
+
 export const components = {
 	displaycomponent: {
 		name: 'Rich Result',
@@ -243,8 +318,8 @@ export const components = {
 					fieldType: 'select',
 					type: 'static',
 					onlyStatic: true,
-					optionValuesKey: 'textStyleOptions',
-					value: 'Body'
+					selectOptions: selectOptions.textStyleOptions,
+					value: 'Body' as 'Title' | 'Subtitle' | 'Body' | 'Label' | 'Caption'
 				},
 				copyButton: {
 					type: 'static',
@@ -289,14 +364,14 @@ export const components = {
 					fieldType: 'select',
 					type: 'static',
 					onlyStatic: true,
-					optionValuesKey: 'buttonColorOptions',
+					selectOptions: selectOptions.buttonColorOptions,
 					value: 'blue'
 				},
 				size: {
 					fieldType: 'select',
 					type: 'static',
 					onlyStatic: true,
-					optionValuesKey: 'buttonSizeOptions',
+					selectOptions: selectOptions.buttonSizeOptions,
 					value: 'xs'
 				},
 				fillContainer: {
@@ -310,18 +385,7 @@ export const components = {
 					type: 'eval',
 					expr: 'false'
 				},
-				goto: {
-					tooltip: 'Go to an url on success if not empty',
-					fieldType: 'text',
-					type: 'static',
-					value: ''
-				},
-				gotoNewTab: {
-					tooltip: 'Go to an url on a new tab',
-					fieldType: 'boolean',
-					type: 'static',
-					value: true
-				},
+				onSuccess: onSuccessClick,
 				beforeIcon: {
 					type: 'static',
 					value: undefined,
@@ -371,21 +435,16 @@ export const components = {
 					type: 'static',
 					onlyStatic: true,
 					value: 'dark',
-					optionValuesKey: 'buttonColorOptions'
+					selectOptions: selectOptions.buttonColorOptions
 				},
 				size: {
 					fieldType: 'select',
 					type: 'static',
 					value: 'xs',
 					onlyStatic: true,
-					optionValuesKey: 'buttonSizeOptions'
+					selectOptions: selectOptions.buttonSizeOptions
 				},
-				goto: {
-					tooltip: 'Go to an url on success if not empty',
-					fieldType: 'text',
-					type: 'static',
-					value: ''
-				}
+				onSuccess: onSuccessClick
 			}
 		}
 	},
@@ -418,14 +477,20 @@ export const components = {
 					type: 'static',
 					onlyStatic: true,
 					value: 'dark',
-					optionValuesKey: 'buttonColorOptions'
+					selectOptions: buttonColorOptions
 				},
 				size: {
 					fieldType: 'select',
 					type: 'static',
 					value: 'xs',
 					onlyStatic: true,
-					optionValuesKey: 'buttonSizeOptions'
+					selectOptions: selectOptions.buttonSizeOptions
+				},
+				onSuccess: onSuccessClick,
+				disabled: {
+					fieldType: 'boolean',
+					type: 'eval',
+					expr: 'false'
 				}
 			}
 		}
@@ -443,7 +508,7 @@ export const components = {
 					type: 'static',
 					onlyStatic: true,
 					fieldType: 'select',
-					optionValuesKey: 'chartThemeOptions',
+					selectOptions: selectOptions.chartThemeOptions,
 					value: 'theme1'
 				},
 				doughnutStyle: {
@@ -473,7 +538,7 @@ export const components = {
 					type: 'static',
 					onlyStatic: true,
 					fieldType: 'select',
-					optionValuesKey: 'chartThemeOptions',
+					selectOptions: selectOptions.chartThemeOptions,
 					value: 'theme1'
 				},
 				line: {
@@ -712,7 +777,7 @@ Hello \${ctx.username}
 					fieldType: 'select',
 					type: 'static',
 					onlyStatic: true,
-					optionValuesKey: 'tableSearchOptions',
+					selectOptions: selectOptions.tableSearchOptions,
 					value: 'Disabled'
 				}
 			},
@@ -1006,14 +1071,14 @@ Hello \${ctx.username}
 					value: 'USD',
 					fieldType: 'select',
 					onlyStatic: true,
-					optionValuesKey: 'currencyOptions'
+					selectOptions: selectOptions.currencyOptions
 				},
 				locale: {
 					type: 'static',
 					value: 'en-US',
 					fieldType: 'select',
 					onlyStatic: true,
-					optionValuesKey: 'localeOptions',
+					selectOptions: selectOptions.localeOptions,
 					tooltip: 'Currency format'
 				}
 			}
@@ -1197,8 +1262,8 @@ Hello \${ctx.username}
 					fieldType: 'select',
 					type: 'static',
 					onlyStatic: true,
-					optionValuesKey: 'tabsKindOptions',
-					value: 'tabs'
+					selectOptions: selectOptions.tabsKindOptions,
+					value: 'tabs' as string
 				}
 			},
 			componentInput: undefined,
@@ -1355,7 +1420,7 @@ Hello \${ctx.username}
 					fieldType: 'select',
 					type: 'static',
 					onlyStatic: true,
-					optionValuesKey: 'objectFitOptions',
+					selectOptions: selectOptions.objectFitOptions,
 					value: 'contain'
 				},
 				altText: {
@@ -1395,14 +1460,14 @@ Hello \${ctx.username}
 					fieldType: 'select',
 					type: 'static',
 					onlyStatic: true,
-					optionValuesKey: 'buttonColorOptions',
+					selectOptions: buttonColorOptions,
 					value: 'blue'
 				},
 				size: {
 					fieldType: 'select',
 					type: 'static',
 					onlyStatic: true,
-					optionValuesKey: 'buttonSizeOptions',
+					selectOptions: selectOptions.buttonSizeOptions,
 					value: 'xs'
 				},
 				fillContainer: {
@@ -1534,30 +1599,6 @@ Hello \${ctx.username}
 		}
 	}
 } as const
-
-export const configurationKeys: Record<AppComponent['type'], string[]> = Object.fromEntries(
-	Object.entries(components)
-		.map(([k, v]) => [
-			k,
-			[
-				...new Set(
-					Object.entries(v.initialData.configuration).flatMap(([k, v]) => {
-						if (!v.ctype) {
-							return [k]
-						} else if (v.ctype == 'oneOf') {
-							return [
-								k,
-								...Object.values(v.configuration ?? {}).flatMap((v) => Object.keys(v ?? {}))
-							]
-						} else if (v.ctype == 'group') {
-							return Object.keys(v.configuration ?? {})
-						}
-					})
-				)
-			]
-		])
-		.filter(([k, v]) => v != undefined)
-)
 
 export const ccomponents: {
 	[Property in keyof typeof components]: AppComponentConfig<Property>

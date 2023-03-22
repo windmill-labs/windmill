@@ -1,6 +1,39 @@
 # Changelog
 
 
+## [1.81.0](https://github.com/windmill-labs/windmill/compare/v1.80.1...v1.81.0) (2023-03-21)
+
+
+### Features
+
+* **apps:** add action on form/button/formbutton ([2593218](https://github.com/windmill-labs/windmill/commit/2593218cbf07c05521a270797055ddb22dc22b8d))
+
+
+### Bug Fixes
+
+* **frontend:** Remove action outline on preview mode ([#1313](https://github.com/windmill-labs/windmill/issues/1313)) ([a7c4f1a](https://github.com/windmill-labs/windmill/commit/a7c4f1a12e02e8627a5955b75d572e9cf11d8122))
+
+## [1.80.1](https://github.com/windmill-labs/windmill/compare/v1.80.0...v1.80.1) (2023-03-21)
+
+
+### Bug Fixes
+
+* **cli:** add support for non metadataed scripts ([42f6d2e](https://github.com/windmill-labs/windmill/commit/42f6d2e0ee6294f8a1d97f5f62f2adb6edfd2fed))
+
+## [1.80.0](https://github.com/windmill-labs/windmill/compare/v1.79.0...v1.80.0) (2023-03-20)
+
+
+### Features
+
+* **apps:** add transformers for data sources ([0abacac](https://github.com/windmill-labs/windmill/commit/0abacac06c7dd586b48c66ff47b7589fe692205b))
+* **frontend:** App set tab ([#1307](https://github.com/windmill-labs/windmill/issues/1307)) ([48413a7](https://github.com/windmill-labs/windmill/commit/48413a78c5e7e0ee8208711f15135d81136b7386))
+
+
+### Bug Fixes
+
+* **frontend:** add missing optional chaining ([#1306](https://github.com/windmill-labs/windmill/issues/1306)) ([29b1cc6](https://github.com/windmill-labs/windmill/commit/29b1cc6ff0ebc5edcad24a1780113889c507075d))
+* **frontend:** App button triggered by ([#1304](https://github.com/windmill-labs/windmill/issues/1304)) ([cf2d031](https://github.com/windmill-labs/windmill/commit/cf2d031e8e89faa2cd7fa58436cbe7cf4d9045f9))
+
 ## [1.79.0](https://github.com/windmill-labs/windmill/compare/v1.78.0...v1.79.0) (2023-03-17)
 
 

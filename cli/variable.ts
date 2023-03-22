@@ -35,7 +35,7 @@ async function list(opts: GlobalOptions) {
         x.is_secret ? "true" : "false",
         x.account ?? "-",
         x.value ?? "-",
-      ]),
+      ])
     )
     .render();
 }
@@ -61,26 +61,31 @@ export class VariableFile implements Resource, PushDiffs {
   async pushDiffs(
     workspace: string,
     remotePath: string,
-    diffs: Difference[],
+    diffs: Difference[]
   ): Promise<void> {
     if (await VariableService.existsVariable({ workspace, path: remotePath })) {
       console.log(
         colors.bold.yellow(
-          `Applying ${diffs.length} diffs to existing variable... ${remotePath}`,
-        ),
+          `Applying ${diffs.length} diffs to existing variable... ${remotePath}`
+        )
       );
       const changeset: EditVariable = {};
       for (const diff of diffs) {
         if (
           diff.type !== "REMOVE" &&
-          (
-            diff.path.length !== 1 ||
-            !["path", "value", "is_secret", "description", "account", "is_oauth"].includes(
-              diff.path[0] as string,
-            )
-          )
+          (diff.path.length !== 1 ||
+            ![
+              "path",
+              "value",
+              "is_secret",
+              "description",
+              "account",
+              "is_oauth",
+            ].includes(diff.path[0] as string))
         ) {
-          console.log(colors.red("Invalid variable diff with path " + diff.path));
+          console.log(
+            colors.red("Invalid variable diff with path " + diff.path)
+          );
           throw new Error("Invalid variable diff with path " + diff.path);
         }
         if (diff.type === "CREATE" || diff.type === "CHANGE") {
@@ -90,8 +95,8 @@ export class VariableFile implements Resource, PushDiffs {
         }
       }
 
-      const hasChanges = Object.values(changeset).some((v) =>
-        v !== null && typeof v !== "undefined"
+      const hasChanges = Object.values(changeset).some(
+        (v) => v !== null && typeof v !== "undefined"
       );
       if (!hasChanges) {
         return;
@@ -103,7 +108,6 @@ export class VariableFile implements Resource, PushDiffs {
         alreadyEncrypted: true,
         requestBody: changeset,
       });
-
     } else {
       console.log(colors.yellow.bold("Creating new variable..."));
       await VariableService.createVariable({
@@ -124,7 +128,7 @@ export class VariableFile implements Resource, PushDiffs {
     await this.pushDiffs(
       workspace,
       remotePath,
-      microdiff({}, this, { cyclesFix: false }),
+      microdiff({}, this, { cyclesFix: false })
     );
   }
 }
@@ -133,7 +137,7 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  if (!await validatePath(opts, remotePath)) {
+  if (!validatePath(remotePath)) {
     return;
   }
 
@@ -151,11 +155,11 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
 export async function pushVariable(
   workspace: string,
   filePath: string,
-  remotePath: string,
+  remotePath: string
 ) {
-  const data = decoverto.type(VariableFile).rawToInstance(
-    await Deno.readTextFile(filePath),
-  );
+  const data = decoverto
+    .type(VariableFile)
+    .rawToInstance(await Deno.readTextFile(filePath));
   await data.push(workspace, remotePath);
 }
 
@@ -164,7 +168,7 @@ const command = new Command()
   .action(list as any)
   .command(
     "push",
-    "Push a local variable spec. This overrides any remote versions.",
+    "Push a local variable spec. This overrides any remote versions."
   )
   .arguments("<file_path:string> <remote_path:string>")
   .action(push as any);

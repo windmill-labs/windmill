@@ -1,12 +1,6 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
-	import {
-		faChevronDown,
-		faChevronRight,
-		faChevronUp,
-		faCopy,
-		faTrashAlt
-	} from '@fortawesome/free-solid-svg-icons'
+	import { faChevronRight } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { AppEditorContext, AppViewerContext, RichConfiguration } from '../../types'
 	import PanelSection from './common/PanelSection.svelte'

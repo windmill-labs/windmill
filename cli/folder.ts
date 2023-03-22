@@ -137,7 +137,7 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  if (!(await validatePath(opts, remotePath))) {
+  if (!validatePath(remotePath)) {
     return;
   }
 

@@ -1,18 +1,16 @@
 <script lang="ts">
-	import { Button, type ButtonType } from '$lib/components/common'
+	import { Button } from '$lib/components/common'
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../inputType'
-	import type { Output } from '../../rx'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
-	import InputValue from '../helpers/InputValue.svelte'
 	import type RunnableComponent from '../helpers/RunnableComponent.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 	import { loadIcon } from '../icon'
 	import { twMerge } from 'tailwind-merge'
-	import { goto } from '$app/navigation'
 	import { initConfig, initOutput } from '../../editor/appUtils'
-	import { components, configurationKeys } from '../../editor/component'
+	import { components } from '../../editor/component'
+	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -25,12 +23,20 @@
 	export let preclickAction: (() => Promise<void>) | undefined = undefined
 	export let customCss: ComponentCustomCSS<'buttoncomponent'> | undefined = undefined
 	export let render: boolean
-	export let initializing: boolean | undefined = true
+	export let initializing: boolean | undefined = false
+	export let extraKey: string | undefined = undefined
 
 	export let controls: { left: () => boolean; right: () => boolean | string } | undefined =
 		undefined
 
-	const { worldStore, app, componentControl } = getContext<AppViewerContext>('AppViewerContext')
+	const { worldStore, app, componentControl, selectedComponent } =
+		getContext<AppViewerContext>('AppViewerContext')
+	let resolvedConfig = initConfig(
+		components['buttoncomponent'].initialData.configuration,
+		configuration
+	)
+
+	$: initializing = resolvedConfig?.label == undefined
 
 	let outputs = initOutput($worldStore, id, {
 		result: undefined,
@@ -45,10 +51,6 @@
 
 	let isLoading: boolean = false
 	let ownClick: boolean = false
-
-	let resolvedConfig = initConfig(components['buttoncomponent'].initialData.configuration)
-
-	$: initializing = resolvedConfig?.label == undefined
 
 	let beforeIconComponent: any
 	let afterIconComponent: any
@@ -89,10 +91,13 @@
 	$: errorsMessage = Object.values(errors)
 		.filter((x) => x != '')
 		.join('\n')
+	let runnableWrapper: RunnableWrapper
 
 	async function handleClick(event: CustomEvent) {
 		event?.stopPropagation()
 		event?.preventDefault()
+
+		$selectedComponent = id
 
 		if (preclickAction) {
 			await preclickAction()
@@ -101,34 +106,37 @@
 		ownClick = true
 
 		if (!runnableComponent) {
-			if (resolvedConfig.goto) {
-				if (resolvedConfig.gotoNewTab) {
-					window.open(resolvedConfig.goto, '_blank')
-				} else {
-					goto(resolvedConfig.goto)
-				}
-			}
+			runnableWrapper.onSuccess()
 		} else {
 			await runnableComponent?.runComponent()
 		}
 	}
 </script>
 
-{#each configurationKeys['buttoncomponent'] as key (key)}
-	<InputValue {key} {id} input={configuration[key]} bind:value={resolvedConfig[key]} />
+{#each Object.keys(components['buttoncomponent'].initialData.configuration) as key (key)}
+	<ResolveConfig
+		{id}
+		{extraKey}
+		{key}
+		bind:resolvedConfig={resolvedConfig[key]}
+		configuration={configuration[key]}
+	/>
 {/each}
 
+<!-- gotoNewTab={resolvedConfig.onSuccess.selected == 'goto'} -->
+
 <RunnableWrapper
+	bind:this={runnableWrapper}
 	{recomputeIds}
 	bind:runnableComponent
 	{componentInput}
+	doOnSuccess={resolvedConfig.onSuccess}
 	{id}
 	{extraQueryParams}
 	autoRefresh={false}
-	goto={resolvedConfig.goto}
-	gotoNewTab={resolvedConfig.gotoNewTab}
 	{render}
 	{outputs}
+	{extraKey}
 >
 	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
 		{#if errorsMessage}

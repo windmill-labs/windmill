@@ -537,6 +537,13 @@ async function push(
     const alreadySynced: string[] = [];
     for await (const change of changes) {
       const stateTarget = path.join(Deno.cwd(), ".wmill", change.path);
+      let stateExists = true;
+      try {
+        await Deno.stat(stateTarget);
+      } catch {
+        stateExists = false;
+      }
+
       if (change.name === "edited") {
         if (
           await handleScriptMetadata(
@@ -545,7 +552,7 @@ async function push(
             alreadySynced
           )
         ) {
-          if (!opts.raw) {
+          if (!opts.raw && stateExists) {
             await Deno.writeTextFile(stateTarget, change.after);
           }
           continue;
@@ -557,7 +564,7 @@ async function push(
             alreadySynced
           )
         ) {
-          if (!opts.raw) {
+          if (!opts.raw && stateExists) {
             await Deno.writeTextFile(stateTarget, change.after);
           }
           continue;
@@ -581,7 +588,7 @@ async function push(
           obj,
           diff
         );
-        if (!opts.raw) {
+        if (!opts.raw && stateExists) {
           await Deno.writeTextFile(stateTarget, change.after);
         }
       } else if (change.name === "added") {
@@ -597,7 +604,7 @@ async function push(
         ) {
           continue;
         }
-        if (!opts.raw) {
+        if (!opts.raw && stateExists) {
           await ensureDir(path.dirname(stateTarget));
           console.log(
             `Adding ${getTypeStrFromPath(change.path)} ${change.path}`
@@ -611,7 +618,7 @@ async function push(
           obj,
           diff
         );
-        if (!opts.raw) {
+        if (!opts.raw && stateExists) {
           await Deno.writeTextFile(stateTarget, change.content);
         }
       } else if (change.name === "deleted") {

@@ -5,8 +5,7 @@ import type {
 	ConnectingInput,
 	EditorBreakpoint,
 	FocusedGrid,
-	GridItem,
-	StaticRichConfigurations
+	GridItem
 } from '../types'
 import {
 	ccomponents,
@@ -14,7 +13,7 @@ import {
 	getRecommendedDimensionsByComponent,
 	type AppComponent,
 	type BaseComponent,
-	type TypedComponent
+	type InitialAppComponent
 } from './component'
 import { gridColumns } from '../gridUtils'
 import { allItems } from '../utils'
@@ -54,7 +53,13 @@ export function findGridItemParentGrid(app: App, id: string): string | undefined
 export function allsubIds(app: App, parentId: string): string[] {
 	let item = findGridItem(app, parentId)
 	if (!item?.data.numberOfSubgrids) {
-		return [parentId]
+		let subIds = [parentId]
+		if (item) {
+			if (item.data.type === 'tablecomponent') {
+				subIds.push(...item.data.actionButtons?.map((x) => x.id))
+			}
+		}
+		return subIds
 	}
 	return getAllSubgridsAndComponentIds(app, item?.data)[1]
 }
@@ -66,7 +71,7 @@ export function findGridItem(app: App, id: string): GridItem | undefined {
 export function getNextGridItemId(app: App): string {
 	const subgridsKeys = allItems(app.grid, app.subgrids).map((x) => x.id)
 	const withoutDash = subgridsKeys.map((element) => element.split('-')[0])
-	const id = getNextId([...new Set(withoutDash)])
+	const id = getNextId([...new Set(withoutDash), 'do'])
 
 	return id
 }
@@ -87,9 +92,12 @@ export function getAllRecomputeIdsForComponent(app: App, id: string) {
 	return recomputedBy
 }
 
-export function createNewGridItem(grid: GridItem[], id: string, data: AppComponent): GridItem {
-	console.log('INSERT X')
-
+export function createNewGridItem(
+	grid: GridItem[],
+	id: string,
+	data: AppComponent,
+	columns?: Record<number, any>
+): GridItem {
 	const newComponent = {
 		fixed: false,
 		x: 0,
@@ -105,12 +113,16 @@ export function createNewGridItem(grid: GridItem[], id: string, data: AppCompone
 	}
 
 	gridColumns.forEach((column) => {
-		const rec = getRecommendedDimensionsByComponent(newData.type, column)
+		if (!columns) {
+			const rec = getRecommendedDimensionsByComponent(newData.type, column)
 
-		newItem[column] = {
-			...newComponent,
-			w: rec.w,
-			h: rec.h
+			newItem[column] = {
+				...newComponent,
+				w: rec.w,
+				h: rec.h
+			}
+		} else {
+			newItem[column] = columns[column]
 		}
 		const position = gridHelp.findSpace(newItem, grid, column) as { x: number; y: number }
 		newItem[column] = { ...newItem[column], ...position }
@@ -129,24 +141,45 @@ export function getGridItems(app: App, focusedGrid: FocusedGrid | undefined): Gr
 	}
 }
 
+function cleanseValue(key: string, value: { type: 'eval' | 'static'; value?: any; expr?: string }) {
+	if (!value) {
+		return [key, undefined]
+	}
+	if (value.type === 'static') {
+		return [key, { type: value.type, value: value.value }]
+	} else {
+		return [key, { type: value.type, expr: value.expr }]
+	}
+}
 export function appComponentFromType<T extends keyof typeof components>(
 	type: T
 ): (id: string) => BaseAppComponent & BaseComponent<T> {
 	return (id: string) => {
-		const init = ccomponents[type].initialData
+		const init = JSON.parse(JSON.stringify(ccomponents[type].initialData)) as InitialAppComponent
 		return {
 			type,
 			//TODO remove tooltip and onlyStatic from there
 			configuration: Object.fromEntries(
 				Object.entries(init.configuration).map(([key, value]) => {
-					if (value.ctype === undefined) {
-						if (value.type === 'static') {
-							return [key, { type: value.type, value: value.value }]
-						} else if (value.type === 'eval') {
-							return [key, { type: value.type, expr: value.expr }]
-						}
+					if (value.type != 'oneOf') {
+						return cleanseValue(key, value)
+					} else {
+						return [
+							key,
+							{
+								type: value.type,
+								selected: value.selected,
+								configuration: Object.fromEntries(
+									Object.entries(value.configuration).map(([key, val]) => [
+										key,
+										Object.fromEntries(
+											Object.entries(val).map(([key, val]) => cleanseValue(key, val))
+										)
+									])
+								)
+							}
+						]
 					}
-					return [key, value]
 				})
 			),
 			componentInput: init.componentInput,
@@ -166,6 +199,7 @@ export function insertNewGridItem(
 	app: App,
 	builddata: (id: string) => AppComponent,
 	focusedGrid: FocusedGrid | undefined,
+	columns?: Record<string, any>,
 	keepId?: string
 ): string {
 	const id = keepId ?? getNextGridItemId(app)
@@ -187,7 +221,7 @@ export function insertNewGridItem(
 		: undefined
 	let grid = focusedGrid ? app.subgrids[key!] : app.grid
 
-	const newItem = createNewGridItem(grid, id, data)
+	const newItem = createNewGridItem(grid, id, data, columns)
 	grid.push(newItem)
 
 	return id
@@ -199,6 +233,9 @@ export function getAllSubgridsAndComponentIds(
 ): [string[], string[]] {
 	const subgrids: string[] = []
 	let components: string[] = [component.id]
+	if (component.type === 'tablecomponent') {
+		components.push(...component.actionButtons?.map((x) => x.id))
+	}
 	if (app.subgrids && component.numberOfSubgrids) {
 		for (let i = 0; i < component.numberOfSubgrids; i++) {
 			const key = `${component.id}-${i}`
@@ -361,16 +398,74 @@ export function initOutput<I extends Record<string, any>>(
 	) as Outputtable<I>
 }
 
-export function initConfig<T extends Record<string, StaticAppInput | EvalAppInput>>(
-	r: T
+export function initConfig<
+	T extends Record<
+		string,
+		| StaticAppInput
+		| EvalAppInput
+		| {
+				type: 'oneOf'
+				selected: string
+				configuration: Record<string, Record<string, StaticAppInput | EvalAppInput>>
+		  }
+	>
+>(
+	r: T,
+	configuration?: Record<
+		string,
+		| StaticAppInput
+		| {
+				type: 'oneOf'
+				selected: string
+				configuration: Record<string, Record<string, StaticAppInput | EvalAppInput>>
+		  }
+		| any
+	>
 ): {
-	[Property in keyof T]: T[Property] extends StaticAppInput ? T[Property]['value'] | undefined : any
+	[Property in keyof T]: T[Property] extends StaticAppInput
+		? T[Property]['value'] | undefined
+		: T[Property] extends { type: 'oneOf' }
+		? {
+				type: 'oneOf'
+				selected: keyof T[Property]['configuration']
+				configuration: {
+					[Choice in keyof T[Property]['configuration']]: {
+						[IT in keyof T[Property]['configuration'][Choice]]: T[Property]['configuration'][Choice][IT] extends StaticAppInput
+							? T[Property]['configuration'][Choice][IT]['value'] | undefined
+							: undefined
+					}
+				}
+		  }
+		: undefined
 } {
-	return Object.fromEntries(
-		Object.entries(r).map(([key, value]) =>
-			value.type == 'static' ? [key, undefined] : [key, undefined]
+	return JSON.parse(
+		JSON.stringify(
+			Object.fromEntries(
+				Object.entries(r).map(([key, value]) =>
+					value.type == 'static'
+						? [
+								key,
+								configuration?.[key]?.type == 'static' ? configuration?.[key]?.['value'] : undefined
+						  ]
+						: value.type == 'oneOf'
+						? [
+								key,
+								{
+									selected: value.selected,
+									type: 'oneOf',
+									configuration: Object.fromEntries(
+										Object.entries(value.configuration).map(([choice, config]) => [
+											choice,
+											initConfig(config, configuration?.[key]?.configuration?.[choice])
+										])
+									)
+								}
+						  ]
+						: [key, undefined]
+				)
+			) as any
 		)
-	) as any
+	)
 }
 
 export function expandGriditem(

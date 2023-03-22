@@ -3,12 +3,13 @@
 	import { faUser } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
+	import { initConfig, initOutput } from '../../editor/appUtils'
+	import { components } from '../../editor/component'
 	import type { AppInput } from '../../inputType'
-	import type { Output } from '../../rx'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
-	import InputValue from '../helpers/InputValue.svelte'
+	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import type RunnableComponent from '../helpers/RunnableComponent.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 
@@ -25,16 +26,16 @@
 
 	const { app, worldStore, stateId } = getContext<AppViewerContext>('AppViewerContext')
 
-	$: outputs = $worldStore?.outputsById[id] as {
-		result: Output<Array<any>>
-		loading: Output<boolean>
-	}
+	let outputs = initOutput($worldStore, id, {
+		result: undefined,
+		loading: false
+	})
 
-	let labelValue: string = ''
-	let color: ButtonType.Color
-	let size: ButtonType.Size
+	let resolvedConfig = initConfig(
+		components['formcomponent'].initialData.configuration,
+		configuration
+	)
 	let runnableComponent: RunnableComponent
-	let goto: string | undefined = undefined
 
 	let isLoading: boolean = false
 
@@ -56,10 +57,14 @@
 	$: css = concatCustomCss($app.css?.formcomponent, customCss)
 </script>
 
-<InputValue {id} input={configuration.goto} bind:value={goto} />
-<InputValue {id} input={configuration.label} bind:value={labelValue} />
-<InputValue {id} input={configuration.color} bind:value={color} />
-<InputValue {id} input={configuration.size} bind:value={size} />
+{#each Object.keys(components['formcomponent'].initialData.configuration) as key (key)}
+	<ResolveConfig
+		{id}
+		{key}
+		bind:resolvedConfig={resolvedConfig[key]}
+		configuration={configuration[key]}
+	/>
+{/each}
 
 <RunnableWrapper
 	{recomputeIds}
@@ -67,7 +72,7 @@
 	bind:runnableComponent
 	{componentInput}
 	{id}
-	{goto}
+	doOnSuccess={resolvedConfig.onSuccess}
 	{extraQueryParams}
 	autoRefresh={false}
 	forceSchemaDisplay={true}
@@ -106,10 +111,10 @@
 						on:click={() => {
 							runnableComponent?.runComponent()
 						}}
-						{size}
-						{color}
+						size={resolvedConfig.size}
+						color={resolvedConfig.color}
 					>
-						{labelValue}
+						{resolvedConfig.label}
 					</Button>
 				{/if}
 			</div>

@@ -52,7 +52,7 @@
 
 	let table = createSvelteTable(options)
 
-	const { app, worldStore, componentControl, selectedComponent } =
+	const { app, worldStore, componentControl, selectedComponent, hoverStore, mode } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	let selectedRowIndex = -1
@@ -262,11 +262,23 @@
 										<div class="center-center h-full w-full flex-wrap gap-1 ">
 											{#each actionButtons as actionButton, actionIndex (actionIndex)}
 												<div
-													class={actionButton.id === $selectedComponent
+													on:mouseover|stopPropagation={() => {
+														if (actionButton.id !== $hoverStore) {
+															$hoverStore = actionButton.id
+														}
+													}}
+													on:mouseout|stopPropagation={() => {
+														if ($hoverStore !== undefined) {
+															$hoverStore = undefined
+														}
+													}}
+													class={(actionButton.id === $selectedComponent ||
+														$hoverStore === actionButton.id) &&
+													$mode !== 'preview'
 														? 'outline outline-indigo-500 outline-1 outline-offset-1 relative '
 														: ''}
 												>
-													{#if actionButton.id === $selectedComponent}
+													{#if actionButton.id === $selectedComponent || $hoverStore === actionButton.id}
 														<span
 															title={`Id: ${actionButton.id}`}
 															class={classNames(
@@ -279,6 +291,7 @@
 													{/if}
 													{#if rowIndex == 0}
 														<AppButton
+															extraKey={'idx' + rowIndex}
 															{render}
 															noWFull
 															{...actionButton}
@@ -311,6 +324,7 @@
 														/>
 													{:else}
 														<AppButton
+															extraKey={'idx' + rowIndex}
 															{render}
 															noWFull
 															{...actionButton}

@@ -22,7 +22,7 @@
 	let placeholder: string = 'Select an item'
 
 	let outputs = initOutput($worldStore, id, {
-		result: undefined
+		result: undefined as string | undefined
 	})
 
 	let value: string | undefined = outputs?.result.peak()
@@ -40,10 +40,15 @@
 					}
 			  })
 			: []
+		let rawValue
 		if (defaultValue) {
-			value = JSON.stringify(defaultValue)
+			rawValue = defaultValue
 		} else if (listItems.length > 0) {
-			value = listItems[0]?.value
+			rawValue = items[0].value
+		}
+		if (rawValue) {
+			value = JSON.stringify(rawValue)
+			outputs?.result.set(rawValue)
 		}
 	}
 
@@ -62,7 +67,7 @@
 		try {
 			result = JSON.parse(e.detail?.['value'])
 		} catch (_) {}
-		value = result
+		value = e.detail?.['value']
 		outputs?.result.set(result)
 	}
 

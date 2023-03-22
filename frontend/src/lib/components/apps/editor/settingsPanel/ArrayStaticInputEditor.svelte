@@ -1,19 +1,19 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import { faPlus, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
+	import { X } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
-	import type { InputType, StaticAppInput, StaticInput } from '../../inputType'
-	import { staticValues } from '../componentsPanel/componentStaticValues'
+	import { fade } from 'svelte/transition'
+	import type { InputType, StaticAppInput, StaticInput, StaticOptions } from '../../inputType'
 	import SubTypeEditor from './SubTypeEditor.svelte'
 
 	export let componentInput: StaticInput<any[]>
 	export let subFieldType: InputType | undefined = undefined
-	export let optionValuesKey: keyof typeof staticValues | undefined = undefined
+	export let selectOptions: StaticOptions['selectOptions'] | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 
 	function addElementByType() {
-		console.log('ADD')
 		if (!Array.isArray(componentInput.value)) {
 			componentInput.value = []
 		}
@@ -27,6 +27,8 @@
 				value.push({})
 			} else if (subFieldType === 'labeledresource') {
 				value.push({ value: '', label: '' })
+			} else if (subFieldType === 'tab-select') {
+				value.push({ id: '', index: 0 })
 			} else if (
 				subFieldType === 'text' ||
 				subFieldType === 'textarea' ||
@@ -36,14 +38,12 @@
 				subFieldType === 'datetime'
 			) {
 				value.push('')
-			} else if (subFieldType === 'select' && optionValuesKey) {
-				value.push(staticValues[optionValuesKey][0])
+			} else if (subFieldType === 'select' && selectOptions) {
+				value.push(selectOptions[0])
 			}
 		} else {
 			value.push('')
 		}
-
-		console.log(value, componentInput.value)
 		componentInput = componentInput
 	}
 
@@ -63,18 +63,14 @@
 		{#each componentInput.value as value, index (index)}
 			<div class="flex flex-row gap-2 items-center relative">
 				<SubTypeEditor {subFieldType} bind:componentInput bind:value />
-
-				<div class="absolute top-1 right-1">
-					<Button
-						size="xs"
-						color="light"
-						variant="border"
-						on:click={() => deleteElementByType(index)}
-						iconOnly
-						btnClasses="!text-red-500"
-						startIcon={{ icon: faTrashAlt }}
-					/>
-				</div>
+				<button
+					transition:fade|local={{ duration: 100 }}
+					class="z-10  rounded-full p-1 duration-200 hover:bg-gray-200"
+					aria-label="Remove item"
+					on:click|preventDefault|stopPropagation={() => deleteElementByType(index)}
+				>
+					<X size={14} />
+				</button>
 			</div>
 		{/each}
 	{/if}

@@ -18,8 +18,8 @@
 
 	const { app, worldStore, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 
-	initOutput($worldStore, id, {
-		result: undefined
+	const outputs = initOutput($worldStore, id, {
+		result: null as number | null
 	})
 
 	let defaultValue: number | undefined = undefined
@@ -28,10 +28,6 @@
 	let currency: string | undefined = undefined
 	let locale: string | undefined = undefined
 	let value: number | undefined = undefined
-
-	$: outputs = $worldStore?.outputsById[id] as {
-		result: Output<number | null>
-	}
 
 	function handleInput() {
 		outputs?.result.set(value ?? null)
@@ -58,7 +54,7 @@
 	{#key isNegativeAllowed}
 		{#key locale}
 			{#key currency}
-				<div on:pointerdown|stopPropagation={() => ($selectedComponent = id)}>
+				<div class="w-full" on:pointerdown|stopPropagation={() => ($selectedComponent = id)}>
 					<CurrencyInput
 						inputClasses={{
 							formatted: twMerge('px-2 w-full py-1.5 windmillapp', css?.input?.class),
