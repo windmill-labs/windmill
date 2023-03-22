@@ -49,6 +49,7 @@
 			name: newScriptPath,
 			inlineScript: undefined,
 			autoRefresh: true,
+
 			fields: {}
 		})
 		$app.hiddenInlineScripts = $app.hiddenInlineScripts

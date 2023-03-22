@@ -1,7 +1,9 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { faClose, faEdit } from '@fortawesome/free-solid-svg-icons'
+	import { includes } from 'lodash'
 	import { getContext } from 'svelte'
 	import type { ResultAppInput } from '../../inputType'
 	import type { AppEditorContext, AppViewerContext } from '../../types'
@@ -97,11 +99,22 @@
 </div>
 
 {#if appInput.runnable?.type === 'runnableByName' && appInput.runnable.inlineScript}
+	{#if !['buttoncomponent', 'formbuttoncomponent', 'formcomponent'].includes(appComponent.type)}
+		<div class="flex items-center">
+			<Toggle
+				bind:checked={appInput.doNotRecomputeOnInputChanged}
+				options={{ right: "Don't recompute on input changed" }}
+			/>
+			<Tooltip>Whenever an input is changed, the script will be re-run.</Tooltip>
+		</div>
+	{/if}
+
 	<div>
 		<ComponentTriggerList
 			bind:runnable={appInput.runnable}
 			{appComponent}
 			fields={appInput.fields}
+			doNotRecomputeOnInputChanged={appInput.doNotRecomputeOnInputChanged}
 		/>
 	</div>
 {/if}

@@ -26,7 +26,7 @@
 		{#if Boolean(options?.left)}
 			<span
 				class={twMerge(
-					'ml-2 font-medium duration-200',
+					'mr-2 font-medium duration-200',
 					disabled ? 'text-gray-500' : 'text-gray-900',
 					size === 'xs' ? 'text-xs' : 'text-sm',
 					textClass
