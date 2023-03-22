@@ -21,7 +21,7 @@
 	}
 
 	$: gridItem = $selectedComponentInEditor
-		? findGridItem($app, $selectedComponentInEditor)
+		? findGridItem($app, $selectedComponentInEditor?.split('_transformer')?.[0])
 		: undefined
 
 	$: hiddenInlineScript = $app?.hiddenInlineScripts?.findIndex(
