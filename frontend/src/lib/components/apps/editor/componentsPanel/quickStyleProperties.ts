@@ -1,3 +1,4 @@
+import { writable } from 'svelte/store'
 import {
 	AlignCenter,
 	AlignJustify,
@@ -21,6 +22,61 @@ import {
 } from 'lucide-svelte'
 import type { AppCssItemName } from '../../types'
 
+export const STYLE_STORE_KEY = 'style_store' as const
+
+export type StyleStore = ReturnType<typeof createStyleStore>
+export type StyleStoreValue = {
+	style: {
+		prop: (typeof StyleProperty)[number]
+		value: string | undefined
+	}[]
+	topColors: TopColors
+}
+
+export function createStyleStore(properties: StylePropertyKey[]) {
+	const style = StyleProperty.filter((p) => properties.includes(p.key)).map((p) => ({
+		prop: p,
+		value: '' as string | undefined
+	}))
+	const store = writable<StyleStoreValue>({
+		style: [...style],
+		topColors: [] as TopColors
+	})
+
+	return {
+		subscribe: store.subscribe,
+		set: store.set,
+		update: store.update,
+		updateProp: (key: StylePropertyKey, value?: string) => {
+			if (!key) {
+				return
+			}
+			store.update((s) => {
+				const index = s.style.findIndex((p) => p.prop.key === key)
+				if (index !== -1) {
+					s.style[index].value = value || ''
+				}
+				return s
+			})
+		},
+		getProp(key: StylePropertyKey) {
+			return style.find((p) => p.prop.key === key)
+		},
+		resetStyle: () => {
+			store.update((s) => {
+				s.style = style.map((s) => ({ ...s, value: '' }))
+				return s
+			})
+		},
+		setTopColors: (colors: TopColors) => {
+			store.update((s) => {
+				s.topColors = colors
+				return s
+			})
+		}
+	}
+}
+
 export enum StylePropertyType {
 	'color', // color value
 	'unit', // number with unit like px, em, rem, etc.
@@ -28,7 +84,11 @@ export enum StylePropertyType {
 	'text' // text like the value of 'display'
 }
 
-export const StylePropertyUnit = ['px', 'em', 'rem', '%', 'vh', 'vw']
+export const StylePropertyUnits = ['px', 'em', 'rem', '%', 'vh', 'vw']
+
+export type TopColors = [] | [string] | [string, string] | [string, string, string]
+
+export type StylePropertyKey = (typeof StyleProperty)[number]['key']
 
 // Using an array instead of an object to preserve the order of the properties
 export const StyleProperty = [
@@ -61,19 +121,19 @@ export const StyleProperty = [
 		value: [
 			{
 				type: StylePropertyType.unit,
-				title: 'Top'
+				title: 'top'
 			},
 			{
 				type: StylePropertyType.unit,
-				title: 'Right'
+				title: 'right'
 			},
 			{
 				type: StylePropertyType.unit,
-				title: 'Bottom'
+				title: 'bottom'
 			},
 			{
 				type: StylePropertyType.unit,
-				title: 'Left'
+				title: 'left'
 			}
 		]
 	},
@@ -141,10 +201,12 @@ export const StyleProperty = [
 		key: 'border',
 		value: [
 			{
-				type: StylePropertyType.unit
+				type: StylePropertyType.unit,
+				title: 'width'
 			},
 			{
 				type: StylePropertyType.text,
+				title: 'style',
 				options: [
 					{
 						text: 'solid',
@@ -161,7 +223,8 @@ export const StyleProperty = [
 				]
 			},
 			{
-				type: StylePropertyType.color
+				type: StylePropertyType.color,
+				title: 'color'
 			}
 		]
 	},
@@ -332,8 +395,6 @@ export const StyleProperty = [
 	// 'scroll-behavior':
 ] as const
 
-export type StylePropertyKey = (typeof StyleProperty)[number]['key']
-
 export const quickStyleProperties: Record<AppCssItemName, StylePropertyKey[]> = {
 	grid: [
 		'background-color',
@@ -376,7 +437,24 @@ export const quickStyleProperties: Record<AppCssItemName, StylePropertyKey[]> = 
 	currencycomponent: [],
 	piechartcomponent: [],
 	vegalitecomponent: [],
-	containercomponent: [],
+	containercomponent: [
+		'background-color',
+		'color',
+		'font-size',
+		'font-family',
+		'font-weight',
+		'border',
+		'border-radius',
+		'padding',
+		'width',
+		'min-width',
+		'max-width',
+		'height',
+		'min-height',
+		'max-height',
+		'overflow',
+		'display'
+	],
 	dateinputcomponent: [],
 	fileinputcomponent: [],
 	textinputcomponent: [],

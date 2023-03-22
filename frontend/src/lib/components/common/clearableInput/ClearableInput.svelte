@@ -1,14 +1,18 @@
-<script>
-	import { X } from 'lucide-svelte'
+<script lang="ts">
+	import { createEventDispatcher } from 'svelte'
 	import { fade } from 'svelte/transition'
+	import { X } from 'lucide-svelte'
 
+	export let value: any = ''
 	export let placeholder = ''
-	export let value = undefined
 	export let type = 'text'
 	export let inputClass = ''
 	export let wrapperClass = ''
+	export let buttonClass = ''
+	const dispatch = createEventDispatcher()
 
 	$: isNumeric = type.match(/^(number|range)$/)
+	$: dispatch('change', value)
 
 	function handleInput(e) {
 		value = isNumeric ? +e.target.value : e.target.value
@@ -24,7 +28,7 @@
 		{type}
 		{value}
 		{placeholder}
-		class={inputClass}
+		class={(type === 'number' && value ? '!pr-7 ' : '') + inputClass}
 		{...$$restProps}
 		on:input={handleInput}
 		on:focus
@@ -33,11 +37,12 @@
 	{#if value}
 		<button
 			transition:fade|local={{ duration: 100 }}
-			class="absolute z-10 top-1.5 right-1 rounded-full p-1 duration-200 hover:bg-gray-200"
+			class="absolute z-10 top-1.5 right-1 rounded-full p-1 duration-200 hover:bg-gray-200 {buttonClass}"
 			aria-label="Remove styles"
 			on:click|preventDefault|stopPropagation={clear}
 		>
 			<X size={14} />
 		</button>
 	{/if}
+	<slot />
 </div>

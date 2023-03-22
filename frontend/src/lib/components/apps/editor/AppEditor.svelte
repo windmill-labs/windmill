@@ -193,7 +193,7 @@
 					<Pane size={15} minSize={5} maxSize={33}>
 						<ContextPanel />
 					</Pane>
-					<Pane size={64}>
+					<Pane size={63}>
 						<SplitPanesWrapper>
 							<Splitpanes horizontal>
 								<Pane size={70}>
@@ -234,7 +234,7 @@
 							</Splitpanes>
 						</SplitPanesWrapper>
 					</Pane>
-					<Pane size={21} minSize={5} maxSize={33}>
+					<Pane size={22} minSize={5} maxSize={33}>
 						<div class="relative flex flex-col h-full">
 							<Tabs bind:selected={selectedTab} wrapperClass="!h-[40px]" class="!h-full">
 								<Tab value="insert" size="xs">

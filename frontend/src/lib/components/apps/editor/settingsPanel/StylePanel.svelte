@@ -3,10 +3,11 @@
 	import type { AppViewerContext } from '../../types'
 	import { ccomponents, type AppComponent } from '../component'
 	import CssProperty from '../componentsPanel/CssProperty.svelte'
+	import { quickStyleProperties } from '../componentsPanel/quickStyleProperties'
 
 	export let component: AppComponent | undefined
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
-	console.log(component)
+
 	$: if (component?.customCss) {
 		app.set($app)
 	}
@@ -17,7 +18,7 @@
 		{#each Object.keys(ccomponents[component.type].customCss ?? {}) as name}
 			<div class="w-full">
 				<CssProperty
-					quickStyleProperties={component.customCss[name]?.quickStyling}
+					quickStyleProperties={quickStyleProperties[component.type]}
 					forceStyle={ccomponents[component.type].customCss[name].style !== undefined}
 					forceClass={ccomponents[component.type].customCss[name].class !== undefined}
 					{name}
