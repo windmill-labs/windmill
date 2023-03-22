@@ -31,7 +31,7 @@
 	render={false}
 	{id}
 	{fields}
-	{autoRefresh}
+	autoRefresh={true}
 	{doNotRecomputeOnInputChanged}
 	bind:result
 	transformer={undefined}
