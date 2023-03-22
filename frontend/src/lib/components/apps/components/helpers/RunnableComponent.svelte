@@ -92,7 +92,10 @@
 		refreshIfAutoRefresh('arg changed')
 
 	function refreshIfAutoRefresh(_src: string) {
-		if (autoRefresh && $worldStore.initialized) {
+		const refreshOn =
+			runnable && runnable.type === 'runnableByName' ? runnable.inlineScript?.refreshOn ?? [] : []
+
+		if ((autoRefresh || refreshOn.length > 0) && $worldStore.initialized) {
 			setDebouncedExecute()
 		}
 	}
