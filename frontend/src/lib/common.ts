@@ -6,6 +6,15 @@ export type ActionKind = 'Create' | 'Update' | 'Delete' | 'Execute'
 
 export type SupportedLanguage = Script.language
 
+export interface PropertyDisplayInfo {
+	property: SchemaProperty
+	name: string
+	isRequired: boolean
+	depth: number
+	index: number
+	propertiesNumber: number
+}
+
 export interface SchemaProperty {
 	type: string | undefined
 	description: string
@@ -16,6 +25,7 @@ export interface SchemaProperty {
 	format?: string
 	items?: { type?: 'string' | 'number' | 'bytes'; contentEncoding?: 'base64' }
 	properties?: { [name: string]: SchemaProperty }
+	required?: string[]
 }
 
 export type Schema = {
@@ -28,8 +38,8 @@ export type Schema = {
 export type Meta = { ownerKind: OwnerKind; owner: string; name: string }
 
 type Enumerate<N extends number, Acc extends number[] = []> = Acc['length'] extends N
-  ? Acc[number]
-  : Enumerate<N, [...Acc, Acc['length']]>
+	? Acc[number]
+	: Enumerate<N, [...Acc, Acc['length']]>
 
 /** An inclusive range of integer numbers */
 export type IntRange<F extends number, T extends number> = F | Exclude<Enumerate<T>, Enumerate<F>> | T

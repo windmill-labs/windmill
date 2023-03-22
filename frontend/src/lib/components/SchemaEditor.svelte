@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Schema, SchemaProperty } from '$lib/common'
+	import type { Schema, SchemaProperty, PropertyDisplayInfo } from '$lib/common'
 	import { emptySchema, emptyString, sendUserToast } from '$lib/utils'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import { Button } from './common'
@@ -162,6 +162,38 @@
 	}
 	let isAnimated = false
 	let error = ''
+
+	function schemaPropertiesToDisplay(schema: Schema): PropertyDisplayInfo[] {
+		return propertiesToDisplay(schema.properties, schema.required, 0)
+	}
+
+	function propertiesToDisplay(
+		properties: { [name: string]: SchemaProperty },
+		required: string[],
+		depth: number
+	): PropertyDisplayInfo[] {
+		return Object.entries(properties)
+			.map(([name, property], index) => {
+				const isRequired = required.includes(name)
+				const displayProperty = {
+					property,
+					name,
+					isRequired,
+					depth,
+					index,
+					propertiesNumber: Object.entries(properties).length
+				}
+				if (property.type === 'object') {
+					return [
+						displayProperty,
+						...propertiesToDisplay(property.properties || {}, property.required || [], depth + 1)
+					]
+				} else {
+					return [displayProperty]
+				}
+			})
+			.flat()
+	}
 </script>
 
 <div class="flex flex-col">
@@ -214,15 +246,11 @@
 							<th />
 						</tr>
 						<tbody slot="body">
-							{#each Object.entries(schema.properties) as [name, property], i (name)}
-								<tr animate:flip>
+							{#each schemaPropertiesToDisplay(schema) as displayInfo, i (displayInfo.name)}
+								<tr animate:flip={{duration:500}}>
 									<PropertyRow
-										bind:name
-										bind:property
-										{i}
+										{displayInfo}
 										{isAnimated}
-										propertiesNumber={Object.keys(schema.properties).length}
-										required={schema.required.includes(name)}
 										on:startEditArgument={handleStartEditEvent}
 										on:deleteArgument={handleDeleteEvent}
 										on:changePosition={handleChangePositionEvent}
