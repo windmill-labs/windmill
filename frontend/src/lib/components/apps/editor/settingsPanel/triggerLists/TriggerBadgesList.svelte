@@ -11,6 +11,7 @@
 	export let onClick: boolean = false
 	export let onLoad: boolean = false
 	export let id: string | undefined = undefined
+	export let doNotRecomputeOnInputChanged: boolean = false
 
 	const colors = {
 		red: 'text-red-800 border-red-600 bg-red-100',
@@ -102,7 +103,9 @@
 				<div class="flex flex-row gap-2 flex-wrap">
 					{#if onLoad}
 						<span class={classNames(badgeClass, colors['green'])}>Start</span>
-						<span class={classNames(badgeClass, colors['green'])}>Refresh</span>
+						{#if !doNotRecomputeOnInputChanged}
+							<span class={classNames(badgeClass, colors['green'])}>Refresh</span>
+						{/if}
 					{/if}
 					{#if onClick}
 						<span class={classNames(badgeClass, colors['green'])}>Click</span>
@@ -110,7 +113,7 @@
 				</div>
 			</div>
 		{/if}
-		{#if inputDependencies.length > 0}
+		{#if inputDependencies.length > 0 && !doNotRecomputeOnInputChanged}
 			<div class="w-full">
 				<div class="flex justify-between items-center mb-1">
 					<div class="text-xs font-semibold text-slate-800">Change on values</div>
@@ -136,7 +139,7 @@
 			</div>
 		{/if}
 	{/if}
-	{#if frontendDependencies}
+	{#if frontendDependencies && !doNotRecomputeOnInputChanged}
 		<div class="w-full">
 			<div class="flex justify-between items-center">
 				<div class="text-xs font-semibold text-slate-800 mb-1">Change on values</div>

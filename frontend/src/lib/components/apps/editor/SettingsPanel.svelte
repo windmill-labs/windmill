@@ -30,10 +30,10 @@
 						bind:checked={script.autoRefresh}
 						options={{ right: 'Run on start and app refresh' }}
 					/>
-					<Tooltip
-						>You may want to disable this so that the background script is only triggered by changes
-						to other values or triggered by another computation on a button (See 'Recompute Others')</Tooltip
-					>
+					<Tooltip>
+						You may want to disable this so that the background script is only triggered by changes
+						to other values or triggered by another computation on a button (See 'Recompute Others')
+					</Tooltip>
 				</div>
 			</PanelSection>
 
@@ -43,6 +43,7 @@
 						fields={script.fields}
 						autoRefresh={script.autoRefresh}
 						id={`bg_${index}`}
+						bind:doNotRecomputeOnInputChanged={script.doNotRecomputeOnInputChanged}
 						bind:inlineScript={script.inlineScript}
 					/>
 				{:else}

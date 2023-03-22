@@ -107,6 +107,7 @@
 		runnable={componentInput.runnable}
 		transformer={componentInput.transformer}
 		{autoRefresh}
+		bind:doNotRecomputeOnInputChanged={componentInput.doNotRecomputeOnInputChanged}
 		{id}
 		{extraQueryParams}
 		{forceSchemaDisplay}
