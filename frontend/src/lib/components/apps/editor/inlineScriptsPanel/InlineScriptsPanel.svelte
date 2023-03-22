@@ -44,40 +44,46 @@
 					Select a script on the left panel
 				</div>
 			{:else if gridItem}
-				<InlineScriptsPanelWithTable bind:gridItem />
+				{#key gridItem?.id}
+					<InlineScriptsPanelWithTable bind:gridItem />
+				{/key}
 			{:else if unusedInlineScript > -1 && $app.unusedInlineScripts?.[unusedInlineScript]}
-				<InlineScriptEditor
-					id={`unused-${unusedInlineScript}`}
-					bind:name={$app.unusedInlineScripts[unusedInlineScript].name}
-					bind:inlineScript={$app.unusedInlineScripts[unusedInlineScript].inlineScript}
-					on:delete={() => {
-						// remove the script from the array at the index
-						$app.unusedInlineScripts.splice(unusedInlineScript, 1)
-						$app.unusedInlineScripts = [...$app.unusedInlineScripts]
-					}}
-				/>
-			{:else if hiddenInlineScript > -1}
-				{#if $app.hiddenInlineScripts?.[hiddenInlineScript]?.inlineScript}
+				{#key unusedInlineScript}
 					<InlineScriptEditor
-						id={`bg_${hiddenInlineScript}`}
-						bind:inlineScript={$app.hiddenInlineScripts[hiddenInlineScript].inlineScript}
-						bind:name={$app.hiddenInlineScripts[hiddenInlineScript].name}
-						bind:fields={$app.hiddenInlineScripts[hiddenInlineScript].fields}
-						syncFields
-						on:delete={() => deleteBackgroundScript(hiddenInlineScript)}
-					/>
-				{:else}
-					<EmptyInlineScript
-						id={`b_${hiddenInlineScript}`}
-						name={$app.hiddenInlineScripts[hiddenInlineScript].name}
-						on:delete={() => deleteBackgroundScript(hiddenInlineScript)}
-						on:new={(e) => {
-							if ($app.hiddenInlineScripts[hiddenInlineScript]) {
-								$app.hiddenInlineScripts[hiddenInlineScript].inlineScript = e.detail
-							}
+						id={`unused-${unusedInlineScript}`}
+						bind:name={$app.unusedInlineScripts[unusedInlineScript].name}
+						bind:inlineScript={$app.unusedInlineScripts[unusedInlineScript].inlineScript}
+						on:delete={() => {
+							// remove the script from the array at the index
+							$app.unusedInlineScripts.splice(unusedInlineScript, 1)
+							$app.unusedInlineScripts = [...$app.unusedInlineScripts]
 						}}
 					/>
-				{/if}
+				{/key}
+			{:else if hiddenInlineScript > -1}
+				{#key hiddenInlineScript}
+					{#if $app.hiddenInlineScripts?.[hiddenInlineScript]?.inlineScript}
+						<InlineScriptEditor
+							id={`bg_${hiddenInlineScript}`}
+							bind:inlineScript={$app.hiddenInlineScripts[hiddenInlineScript].inlineScript}
+							bind:name={$app.hiddenInlineScripts[hiddenInlineScript].name}
+							bind:fields={$app.hiddenInlineScripts[hiddenInlineScript].fields}
+							syncFields
+							on:delete={() => deleteBackgroundScript(hiddenInlineScript)}
+						/>
+					{:else}
+						<EmptyInlineScript
+							id={`b_${hiddenInlineScript}`}
+							name={$app.hiddenInlineScripts[hiddenInlineScript].name}
+							on:delete={() => deleteBackgroundScript(hiddenInlineScript)}
+							on:new={(e) => {
+								if ($app.hiddenInlineScripts[hiddenInlineScript]) {
+									$app.hiddenInlineScripts[hiddenInlineScript].inlineScript = e.detail
+								}
+							}}
+						/>
+					{/if}
+				{/key}
 			{:else}
 				<div class="text-sm text-gray-500 text-center py-8 px-2">
 					No script found at id {$selectedComponentInEditor}
