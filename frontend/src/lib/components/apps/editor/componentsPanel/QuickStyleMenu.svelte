@@ -45,10 +45,23 @@
 
 	function writeStyle() {
 		const current = parse(value) || {}
-		$styleStore.style.forEach((s) => (current[s.prop.key] = s.value || ''))
+		$styleStore.style.forEach((s) => {
+			current[s.prop.key] = convertValue(s.value)
+		})
 		value = Object.entries(current).reduce((style, [k, v]) => {
 			return v ? `${style} ${k}: ${v}; `.trim() : style
 		}, '')
+	}
+
+	function convertValue(value: any) {
+		switch (typeof value) {
+			case 'number':
+				return value + ''
+			case 'string':
+				return value
+			default:
+				return ''
+		}
 	}
 
 	function setTopColors() {

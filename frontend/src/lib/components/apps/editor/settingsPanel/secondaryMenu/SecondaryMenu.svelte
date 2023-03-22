@@ -39,7 +39,7 @@
 				</Button>
 				<Badge color="blue">{$selectedComponent}</Badge>
 			</div>
-			<div class="h-full overflow-y-auto px-3 pb-3">
+			<div class="relative h-full overflow-y-auto px-3 pb-3">
 				{#if typeof $secondaryMenu.component === 'string'}
 					{@html $secondaryMenu.component}
 				{:else}

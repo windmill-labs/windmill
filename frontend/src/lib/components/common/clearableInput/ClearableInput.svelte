@@ -28,7 +28,7 @@
 		{type}
 		{value}
 		{placeholder}
-		class={(type === 'number' && value ? '!pr-7 ' : '') + inputClass}
+		class="duration-200 {(type === 'number' && value ? '!pr-7 ' : '') + inputClass}"
 		{...$$restProps}
 		on:input={handleInput}
 		on:focus
@@ -38,7 +38,7 @@
 		<button
 			transition:fade|local={{ duration: 100 }}
 			class="absolute z-10 top-1.5 right-1 rounded-full p-1 duration-200 hover:bg-gray-200 {buttonClass}"
-			aria-label="Remove styles"
+			aria-label="Clear"
 			on:click|preventDefault|stopPropagation={clear}
 		>
 			<X size={14} />

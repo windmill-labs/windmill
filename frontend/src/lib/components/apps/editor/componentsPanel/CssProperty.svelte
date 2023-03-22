@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Paintbrush2, X } from 'lucide-svelte'
-	import { fade, slide } from 'svelte/transition'
+	import { fade } from 'svelte/transition'
 	import { addWhitespaceBeforeCapitals } from '../../../../utils'
 	import { Button } from '../../../common'
 	import type { ComponentCssProperty } from '../../types'
@@ -21,11 +21,11 @@
 	}
 </script>
 
-<div class="text-sm font-semibold text-gray-500 capitalize pt-2">
+<div class="sticky top-0 z-10 bg-white text-sm font-semibold text-gray-500 capitalize pt-2 pb-1">
 	{addWhitespaceBeforeCapitals(name)}
 </div>
 {#if value}
-	<div class="border-l border-gray-400/80 py-1 pl-3.5 mt-1 ml-0.5">
+	<div class="border-l border-gray-400/80 py-1 pl-3.5 ml-0.5">
 		{#if value.style !== undefined || forceStyle}
 			<div class="pb-2">
 				<label class="block">
@@ -66,7 +66,7 @@
 					</div>
 				</label>
 				{#if quickStyleProperties?.length && isQuickMenuOpen}
-					<div transition:slide|local={{ duration: 300 }} class="w-full pt-1">
+					<div transition:fade|local={{ duration: 200 }} class="w-full pt-1">
 						<QuickStyleMenu bind:value={value.style} properties={quickStyleProperties} />
 					</div>
 				{/if}
