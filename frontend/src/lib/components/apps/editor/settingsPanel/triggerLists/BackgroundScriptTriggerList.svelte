@@ -21,13 +21,15 @@
 	$: dependencies = getDependencies(fields)
 </script>
 
-<div class="flex items-center px-1">
-	<Toggle
-		bind:checked={doNotRecomputeOnInputChanged}
-		options={{ right: "Don't recompute on input changed" }}
-	/>
-	<Tooltip>Whenever an input is changed, the script will be re-run.</Tooltip>
-</div>
+{#if inlineScript.language !== 'frontend'}
+	<div class="flex items-center px-1">
+		<Toggle
+			bind:checked={doNotRecomputeOnInputChanged}
+			options={{ right: "Don't recompute on input changed" }}
+		/>
+		<Tooltip>Whenever an input is changed, the script will be re-run.</Tooltip>
+	</div>
+{/if}
 
 <TriggerBadgesList
 	bind:inlineScript

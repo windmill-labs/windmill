@@ -51,7 +51,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	if (recomputable || autoRefresh) {
+	if ((recomputable || autoRefresh) && !doNotRecomputeOnInputChanged) {
 		$runnableComponents[id] = async (inlineScript?: InlineScript) => {
 			await executeComponent(true, inlineScript)
 		}
