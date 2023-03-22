@@ -5,6 +5,7 @@
 	import type { AppViewerContext } from '../../types'
 	import {
 		createStyleStore,
+		StylePropertyType,
 		STYLE_STORE_KEY,
 		type StylePropertyKey,
 		type TopColors
@@ -16,6 +17,14 @@
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 	const styleStore = createStyleStore(properties)
 	setContext(STYLE_STORE_KEY, styleStore)
+	const multiValues: Record<number, string[]> = $styleStore.style.reduce((prev, curr, i) => {
+		if (Array.isArray(curr.prop.value)) {
+			prev[i] = Array.from({ length: curr.prop.value.length }, () => {
+				return ''
+			})
+		}
+		return prev
+	}, {})
 	let mounted = false
 
 	$: mounted && $styleStore && writeStyle()
@@ -86,6 +95,31 @@
 		return styles
 	}
 
+	function setMultiValueProperty(index: number) {
+		if (multiValues[index].every((v) => !v)) {
+			$styleStore.style[index].value = ''
+			return
+		}
+		const values = multiValues[index].map((v, i) => {
+			const type = $styleStore.style[index].prop.value[i].type
+			if (v) {
+				return v
+			} else if (type === StylePropertyType.color) {
+				return '#000000'
+			} else if (type === StylePropertyType.number) {
+				return '0'
+			} else if (type === StylePropertyType.unit) {
+				return '0'
+			} else if (type === StylePropertyType.text) {
+				const options = $styleStore.style[index].prop.value[i].options
+				return options ? options[0].text : ''
+			} else {
+				return ''
+			}
+		})
+		$styleStore.style[index].value = values.join(' ').trim()
+	}
+
 	onMount(() => {
 		parseStyle()
 		mounted = true
@@ -99,11 +133,12 @@
 			<div class="flex items-center gap-1 w-full">
 				{#if Array.isArray(prop.value)}
 					<div class="flex justify-start items-center flex-wrap gap-x-4 gap-y-1">
-						{#each prop.value as value}
+						{#each prop.value as value, i}
 							<QuickStyleProperty
 								prop={{ ...prop, value }}
 								inline
-								bind:value={$styleStore.style[index].value}
+								bind:value={multiValues[index][i]}
+								on:change={() => setMultiValueProperty(index)}
 							/>
 						{/each}
 					</div>

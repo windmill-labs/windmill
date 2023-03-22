@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import { Button, ClearableInput } from '../../../common'
 	import Popover from '../../../Popover.svelte'
 	import ColorInput from '../settingsPanel/inputEditor/ColorInput.svelte'
@@ -15,12 +15,14 @@
 	export let value: string | undefined
 	export let inline = false
 	const styleStore = getContext<StyleStore>(STYLE_STORE_KEY)
+	const dispatch = createEventDispatcher()
 	const key = prop.key
 	const type = prop.value?.['type']
 	let internalValue = value
 	let unit: (typeof StylePropertyUnits)[number] = StylePropertyUnits[0]
 
 	$: value = internalValue ? internalValue + unit : ''
+	$: dispatch('change', value)
 </script>
 
 <div class={inline && type !== StylePropertyType.color ? '' : 'w-full'}>

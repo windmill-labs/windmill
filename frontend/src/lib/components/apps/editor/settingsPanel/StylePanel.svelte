@@ -18,7 +18,7 @@
 		{#each Object.keys(ccomponents[component.type].customCss ?? {}) as name}
 			<div class="w-full">
 				<CssProperty
-					quickStyleProperties={quickStyleProperties[component.type]}
+					quickStyleProperties={quickStyleProperties[component.type][name]}
 					forceStyle={ccomponents[component.type].customCss[name].style !== undefined}
 					forceClass={ccomponents[component.type].customCss[name].class !== undefined}
 					{name}

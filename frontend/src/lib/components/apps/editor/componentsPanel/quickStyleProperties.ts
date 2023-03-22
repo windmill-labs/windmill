@@ -21,6 +21,7 @@ import {
 	Underline
 } from 'lucide-svelte'
 import type { AppCssItemName } from '../../types'
+import type { AppComponent } from '../component'
 
 export const STYLE_STORE_KEY = 'style_store' as const
 
@@ -78,10 +79,10 @@ export function createStyleStore(properties: StylePropertyKey[]) {
 }
 
 export enum StylePropertyType {
-	'color', // color value
-	'unit', // number with unit like px, em, rem, etc.
-	'number', // bare number like the value of 'font-weight'
-	'text' // text like the value of 'display'
+	'color' = 'color', // color value
+	'unit' = 'unit', // number with unit like px, em, rem, etc.
+	'number' = 'number', // bare number like the value of 'font-weight'
+	'text' = 'text' // text like the value of 'display'
 }
 
 export const StylePropertyUnits = ['px', 'em', 'rem', '%', 'vh', 'vw']
@@ -394,80 +395,179 @@ export const StyleProperty = [
 	// 'transition'
 	// 'scroll-behavior':
 ] as const
+;[
+	'display',
+	'padding',
+	'opacity',
+	'cursor',
+	'width',
+	'min-width',
+	'max-width',
+	'height',
+	'min-height',
+	'max-height',
+	'border',
+	'border-radius',
+	'background-color',
+	'color',
+	'font-size',
+	'font-family',
+	'font-weight',
+	'font-style',
+	'text-align',
+	'text-decoration',
+	'text-transform',
+	'line-height',
+	'letter-spacing',
+	'word-spacing',
+	'overflow'
+]
 
-export const quickStyleProperties: Record<AppCssItemName, StylePropertyKey[]> = {
-	grid: [
-		'background-color',
-		'color',
-		'font-size',
-		'font-family',
-		'font-weight',
-		'border',
-		'border-radius',
-		'padding',
-		'width',
-		'min-width',
-		'max-width',
-		'height',
-		'min-height',
-		'max-height',
-		'overflow',
-		'display'
-	],
-	viewer: [],
-	mapcomponent: [],
-	pdfcomponent: [],
-	formcomponent: [],
-	htmlcomponent: [],
-	iconcomponent: [],
-	tabscomponent: [],
-	textcomponent: [],
-	imagecomponent: [],
-	rangecomponent: [],
-	tablecomponent: [],
-	aggridcomponent: [],
-	buttoncomponent: [],
-	drawercomponent: [],
-	plotlycomponent: [],
-	selectcomponent: [],
-	slidercomponent: [],
-	displaycomponent: [],
-	barchartcomponent: [],
-	checkboxcomponent: [],
-	currencycomponent: [],
-	piechartcomponent: [],
-	vegalitecomponent: [],
-	containercomponent: [
-		'background-color',
-		'color',
-		'font-size',
-		'font-family',
-		'font-weight',
-		'border',
-		'border-radius',
-		'padding',
-		'width',
-		'min-width',
-		'max-width',
-		'height',
-		'min-height',
-		'max-height',
-		'overflow',
-		'display'
-	],
-	dateinputcomponent: [],
-	fileinputcomponent: [],
-	textinputcomponent: [],
-	emailinputcomponent: [],
-	formbuttoncomponent: [],
-	timeseriescomponent: [],
-	multiselectcomponent: [],
-	numberinputcomponent: [],
-	scatterchartcomponent: [],
-	passwordinputcomponent: [],
-	resourceselectcomponent: [],
-	verticaldividercomponent: [],
-	horizontaldividercomponent: [],
-	verticalsplitpanescomponent: [],
-	horizontalsplitpanescomponent: []
+export const quickStyleProperties: Record<
+	AppComponent['type'],
+	Record<string, StylePropertyKey[]>
+> = {
+	mapcomponent: {
+		map: [
+			'padding',
+			'opacity',
+			'cursor',
+			'width',
+			'min-width',
+			'max-width',
+			'height',
+			'min-height',
+			'max-height',
+			'border',
+			'border-radius'
+		]
+	},
+	pdfcomponent: {
+		container: []
+	},
+	formcomponent: {
+		container: []
+	},
+	htmlcomponent: {
+		container: []
+	},
+	iconcomponent: {
+		container: []
+	},
+	tabscomponent: {
+		container: []
+	},
+	textcomponent: {
+		container: []
+	},
+	imagecomponent: {
+		container: []
+	},
+	rangecomponent: {
+		container: []
+	},
+	tablecomponent: {
+		container: []
+	},
+	aggridcomponent: {
+		container: []
+	},
+	buttoncomponent: {
+		container: []
+	},
+	drawercomponent: {
+		container: []
+	},
+	plotlycomponent: {
+		container: []
+	},
+	selectcomponent: {
+		container: []
+	},
+	slidercomponent: {
+		container: []
+	},
+	displaycomponent: {
+		container: []
+	},
+	barchartcomponent: {
+		container: []
+	},
+	checkboxcomponent: {
+		container: []
+	},
+	currencycomponent: {
+		container: []
+	},
+	piechartcomponent: {
+		container: []
+	},
+	vegalitecomponent: {
+		container: []
+	},
+	containercomponent: {
+		container: [
+			'background-color',
+			'color',
+			'font-size',
+			'font-family',
+			'font-weight',
+			'border',
+			'border-radius',
+			'padding',
+			'width',
+			'min-width',
+			'max-width',
+			'height',
+			'min-height',
+			'max-height',
+			'overflow',
+			'display'
+		]
+	},
+	dateinputcomponent: {
+		container: []
+	},
+	fileinputcomponent: {
+		container: []
+	},
+	textinputcomponent: {
+		container: []
+	},
+	emailinputcomponent: {
+		container: []
+	},
+	formbuttoncomponent: {
+		container: []
+	},
+	timeseriescomponent: {
+		container: []
+	},
+	multiselectcomponent: {
+		container: []
+	},
+	numberinputcomponent: {
+		container: []
+	},
+	scatterchartcomponent: {
+		container: []
+	},
+	passwordinputcomponent: {
+		container: []
+	},
+	resourceselectcomponent: {
+		container: []
+	},
+	verticaldividercomponent: {
+		container: []
+	},
+	horizontaldividercomponent: {
+		container: []
+	},
+	verticalsplitpanescomponent: {
+		container: []
+	},
+	horizontalsplitpanescomponent: {
+		container: []
+	}
 }
