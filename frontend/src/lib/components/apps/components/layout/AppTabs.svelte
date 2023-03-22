@@ -31,25 +31,9 @@
 	})
 
 	function handleTabSelection() {
-		const selectedIndex = tabs?.indexOf(selected)
+		selectedIndex = tabs?.indexOf(selected)
 		outputs?.selectedTabIndex.set(selectedIndex, true)
 
-		if ($selectedComponent != id) {
-			$selectedComponent = id
-		}
-
-		if ($focusedGrid?.parentComponentId != id || $focusedGrid?.subGridIndex != selectedIndex) {
-			$focusedGrid = {
-				parentComponentId: id,
-				subGridIndex: selectedIndex
-			}
-		}
-	}
-
-	$: $selectedComponent === id && focusGrid()
-
-	function focusGrid() {
-		const selectedIndex = tabs?.indexOf(selected)
 		if ($focusedGrid?.parentComponentId != id || $focusedGrid?.subGridIndex != selectedIndex) {
 			$focusedGrid = {
 				parentComponentId: id,
@@ -80,8 +64,8 @@
 		}
 	}
 
-	$: selected && handleTabSelection()
-	$: selectedIndex = tabs?.indexOf(selected) ?? -1
+	$: selected != undefined && handleTabSelection()
+	let selectedIndex = tabs?.indexOf(selected) ?? -1
 	$: css = concatCustomCss($app.css?.tabscomponent, customCss)
 </script>
 

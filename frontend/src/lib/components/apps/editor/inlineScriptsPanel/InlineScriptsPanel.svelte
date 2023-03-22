@@ -7,6 +7,7 @@
 	import InlineScriptEditor from './InlineScriptEditor.svelte'
 	import EmptyInlineScript from './EmptyInlineScript.svelte'
 	import InlineScriptsPanelWithTable from './InlineScriptsPanelWithTable.svelte'
+	import { findGridItem } from '../appUtils'
 
 	const { app, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 	const { selectedComponentInEditor } = getContext<AppEditorContext>('AppEditorContext')
@@ -18,6 +19,18 @@
 
 		delete $runnableComponents[`bg_${index}`]
 	}
+
+	$: gridItem = $selectedComponentInEditor
+		? findGridItem($app, $selectedComponentInEditor)
+		: undefined
+
+	$: hiddenInlineScript = $app?.hiddenInlineScripts?.findIndex(
+		(k_, index) => `bg_${index}` === $selectedComponentInEditor
+	)
+
+	$: unusedInlineScript = $app?.unusedInlineScripts?.findIndex(
+		(k_, index) => `unused-${index}` === $selectedComponentInEditor
+	)
 </script>
 
 <SplitPanesWrapper>
@@ -30,55 +43,46 @@
 				<div class="text-sm text-gray-500 text-center py-8 px-2">
 					Select a script on the left panel
 				</div>
-			{/if}
-
-			{#each $app.grid as gridItem (gridItem.id)}
+			{:else if gridItem}
 				<InlineScriptsPanelWithTable bind:gridItem />
-			{/each}
-
-			{#each Object.keys($app.subgrids ?? {}) as key (key)}
-				{#each $app?.subgrids?.[key] ?? [] as gridItem (gridItem.id)}
-					<InlineScriptsPanelWithTable bind:gridItem />
-				{/each}
-			{/each}
-
-			{#each $app.unusedInlineScripts as unusedInlineScript, index (index)}
-				{#if `unused-${index}` === $selectedComponentInEditor}
+			{:else if unusedInlineScript > -1 && $app.unusedInlineScripts?.[unusedInlineScript]}
+				<InlineScriptEditor
+					id={`unused-${unusedInlineScript}`}
+					bind:name={$app.unusedInlineScripts[unusedInlineScript].name}
+					bind:inlineScript={$app.unusedInlineScripts[unusedInlineScript].inlineScript}
+					on:delete={() => {
+						// remove the script from the array at the index
+						$app.unusedInlineScripts.splice(unusedInlineScript, 1)
+						$app.unusedInlineScripts = [...$app.unusedInlineScripts]
+					}}
+				/>
+			{:else if hiddenInlineScript > -1}
+				{#if $app.hiddenInlineScripts?.[hiddenInlineScript]?.inlineScript}
 					<InlineScriptEditor
-						id={`unused-${index}`}
-						bind:name={unusedInlineScript.name}
-						bind:inlineScript={unusedInlineScript.inlineScript}
-						on:delete={() => {
-							// remove the script from the array at the index
-							$app.unusedInlineScripts.splice(index, 1)
-							$app.unusedInlineScripts = [...$app.unusedInlineScripts]
+						id={`bg_${hiddenInlineScript}`}
+						bind:inlineScript={$app.hiddenInlineScripts[hiddenInlineScript].inlineScript}
+						bind:name={$app.hiddenInlineScripts[hiddenInlineScript].name}
+						bind:fields={$app.hiddenInlineScripts[hiddenInlineScript].fields}
+						syncFields
+						on:delete={() => deleteBackgroundScript(hiddenInlineScript)}
+					/>
+				{:else}
+					<EmptyInlineScript
+						id={`b_${hiddenInlineScript}`}
+						name={$app.hiddenInlineScripts[hiddenInlineScript].name}
+						on:delete={() => deleteBackgroundScript(hiddenInlineScript)}
+						on:new={(e) => {
+							if ($app.hiddenInlineScripts[hiddenInlineScript]) {
+								$app.hiddenInlineScripts[hiddenInlineScript].inlineScript = e.detail
+							}
 						}}
 					/>
 				{/if}
-			{/each}
-			{#each $app?.hiddenInlineScripts ?? [] as hiddenInlineScript, index (index)}
-				{#if `bg_${index}` === $selectedComponentInEditor}
-					{#if hiddenInlineScript.inlineScript}
-						<InlineScriptEditor
-							id={`bg_${index}`}
-							bind:inlineScript={hiddenInlineScript.inlineScript}
-							bind:name={hiddenInlineScript.name}
-							bind:fields={hiddenInlineScript.fields}
-							syncFields
-							on:delete={() => deleteBackgroundScript(index)}
-						/>
-					{:else}
-						<EmptyInlineScript
-							id={`b_${index}`}
-							name={hiddenInlineScript.name}
-							on:delete={() => deleteBackgroundScript(index)}
-							on:new={(e) => {
-								hiddenInlineScript.inlineScript = e.detail
-							}}
-						/>
-					{/if}
-				{/if}
-			{/each}
+			{:else}
+				<div class="text-sm text-gray-500 text-center py-8 px-2">
+					No script found at id {$selectedComponentInEditor}
+				</div>
+			{/if}
 		</Pane>
 	</Splitpanes>
 </SplitPanesWrapper>

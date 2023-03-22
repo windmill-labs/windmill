@@ -23,7 +23,7 @@
 	let badgeClass = 'inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border'
 
 	const recomputedBadges: string[] = []
-	const { app, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, selectedComponent, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
 	const { connectingInput } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -61,6 +61,8 @@
 				input: undefined,
 				hoveredComponent: undefined
 			}
+			$app = $app
+			$worldStore = $worldStore
 		}
 	}
 

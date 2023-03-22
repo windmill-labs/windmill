@@ -43,7 +43,7 @@
 	const { staticExporter, noBackend, componentControl, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	$: if (initializing && result) {
+	$: if (initializing && result != undefined) {
 		initializing = false
 	}
 
