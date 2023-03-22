@@ -71,7 +71,7 @@ export function findGridItem(app: App, id: string): GridItem | undefined {
 export function getNextGridItemId(app: App): string {
 	const subgridsKeys = allItems(app.grid, app.subgrids).map((x) => x.id)
 	const withoutDash = subgridsKeys.map((element) => element.split('-')[0])
-	const id = getNextId([...new Set(withoutDash), 'do'])
+	const id = getNextId([...new Set(withoutDash)])
 
 	return id
 }
