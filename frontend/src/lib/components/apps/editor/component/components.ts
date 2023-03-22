@@ -39,7 +39,6 @@ import type {
 	BaseAppComponent,
 	ComponentCustomCSS,
 	GridItem,
-	RichConfigurations,
 	StaticRichConfigurations
 } from '../../types'
 import type { Size } from '../../svelte-grid/types'

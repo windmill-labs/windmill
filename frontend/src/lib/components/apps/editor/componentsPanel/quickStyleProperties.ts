@@ -21,7 +21,7 @@ import {
 	Underline
 } from 'lucide-svelte'
 import type { AppCssItemName } from '../../types'
-import type { AppComponent } from '../component'
+import type { AppComponent, components } from '../component'
 
 export const STYLE_STORE_KEY = 'style_store' as const
 
@@ -395,8 +395,68 @@ export const StyleProperty = [
 	// 'transition'
 	// 'scroll-behavior':
 ] as const
-;[
-	'display',
+
+const allDefaultProps = StyleProperty.map(({ key }) => key)
+
+const containerDefaultProps: StylePropertyKey[] = [
+	'padding',
+	'opacity',
+	'width',
+	'min-width',
+	'max-width',
+	'height',
+	'min-height',
+	'max-height',
+	'border',
+	'border-radius',
+	'background-color',
+	'overflow'
+]
+
+const textDefaultProps: StylePropertyKey[] = [
+	'padding',
+	'opacity',
+	'background-color',
+	'color',
+	'font-size',
+	'font-family',
+	'font-weight',
+	'font-style',
+	'text-align',
+	'text-decoration',
+	'text-transform',
+	'line-height',
+	'letter-spacing',
+	'word-spacing'
+]
+
+const sizeDefaultProps: StylePropertyKey[] = [
+	'width',
+	'min-width',
+	'max-width',
+	'height',
+	'min-height',
+	'max-height'
+]
+
+const buttonDefaultProps: StylePropertyKey[] = [
+	'padding',
+	'opacity',
+	'cursor',
+	'width',
+	'min-width',
+	'max-width',
+	'height',
+	'min-height',
+	'max-height',
+	'border',
+	'border-radius',
+	'background-color',
+	...textDefaultProps,
+	'overflow'
+]
+
+const inputDefaultProps: StylePropertyKey[] = [
 	'padding',
 	'opacity',
 	'cursor',
@@ -419,16 +479,29 @@ export const StyleProperty = [
 	'text-transform',
 	'line-height',
 	'letter-spacing',
-	'word-spacing',
-	'overflow'
+	'word-spacing'
 ]
 
 export const quickStyleProperties: Record<
-	AppComponent['type'],
+	keyof typeof components,
 	Record<string, StylePropertyKey[]>
 > = {
 	mapcomponent: {
-		map: [
+		map: containerDefaultProps
+	},
+	pdfcomponent: {
+		container: containerDefaultProps
+	},
+	formcomponent: {
+		container: containerDefaultProps,
+		button: buttonDefaultProps
+	},
+	htmlcomponent: {
+		container: allDefaultProps
+	},
+	iconcomponent: {
+		container: containerDefaultProps,
+		icon: [
 			'padding',
 			'opacity',
 			'cursor',
@@ -438,136 +511,140 @@ export const quickStyleProperties: Record<
 			'height',
 			'min-height',
 			'max-height',
-			'border',
-			'border-radius'
+			'color'
 		]
 	},
-	pdfcomponent: {
-		container: []
-	},
-	formcomponent: {
-		container: []
-	},
-	htmlcomponent: {
-		container: []
-	},
-	iconcomponent: {
-		container: []
-	},
 	tabscomponent: {
-		container: []
+		tabRow: containerDefaultProps,
+		allTabs: [...textDefaultProps, ...sizeDefaultProps],
+		selectedTab: [...textDefaultProps, ...sizeDefaultProps],
+		container: containerDefaultProps
 	},
 	textcomponent: {
-		container: []
+		text: textDefaultProps
 	},
 	imagecomponent: {
-		container: []
+		image: containerDefaultProps
 	},
 	rangecomponent: {
-		container: []
+		handles: ['opacity', 'cursor', 'border', 'border-radius', 'background-color'],
+		bar: ['opacity', 'cursor', 'border', 'border-radius', 'background-color'],
+		limits: textDefaultProps,
+		values: textDefaultProps
 	},
 	tablecomponent: {
-		container: []
+		tableHeader: containerDefaultProps,
+		tableBody: containerDefaultProps,
+		tableFooter: containerDefaultProps,
+		container: containerDefaultProps
 	},
-	aggridcomponent: {
-		container: []
-	},
+	aggridcomponent: {},
 	buttoncomponent: {
-		container: []
+		button: buttonDefaultProps
 	},
 	drawercomponent: {
-		container: []
+		container: containerDefaultProps
 	},
-	plotlycomponent: {
-		container: []
-	},
+	plotlycomponent: {},
 	selectcomponent: {
-		container: []
+		input: inputDefaultProps
 	},
 	slidercomponent: {
-		container: []
+		handles: ['opacity', 'cursor', 'border', 'border-radius', 'background-color'],
+		bar: ['opacity', 'cursor', 'border', 'border-radius', 'background-color'],
+		limits: textDefaultProps,
+		values: textDefaultProps
 	},
 	displaycomponent: {
-		container: []
+		header: [...containerDefaultProps, ...textDefaultProps],
+		container: containerDefaultProps
 	},
 	barchartcomponent: {
-		container: []
+		container: containerDefaultProps
 	},
 	checkboxcomponent: {
-		container: []
+		text: textDefaultProps
 	},
 	currencycomponent: {
-		container: []
+		input: inputDefaultProps
 	},
 	piechartcomponent: {
-		container: []
+		container: containerDefaultProps
 	},
-	vegalitecomponent: {
-		container: []
-	},
+	vegalitecomponent: {},
 	containercomponent: {
-		container: [
-			'background-color',
-			'color',
-			'font-size',
-			'font-family',
-			'font-weight',
-			'border',
-			'border-radius',
+		container: containerDefaultProps
+	},
+	dateinputcomponent: {
+		input: inputDefaultProps
+	},
+	fileinputcomponent: {
+		container: containerDefaultProps
+	},
+	textinputcomponent: {
+		input: inputDefaultProps
+	},
+	emailinputcomponent: {
+		input: inputDefaultProps
+	},
+	formbuttoncomponent: {
+		button: buttonDefaultProps,
+		popup: containerDefaultProps
+	},
+	timeseriescomponent: {
+		container: containerDefaultProps
+	},
+	multiselectcomponent: {
+		input: inputDefaultProps
+	},
+	numberinputcomponent: {
+		input: inputDefaultProps
+	},
+	scatterchartcomponent: {
+		container: containerDefaultProps
+	},
+	passwordinputcomponent: {
+		input: inputDefaultProps
+	},
+	resourceselectcomponent: {
+		input: inputDefaultProps
+	},
+	verticaldividercomponent: {
+		divider: [
 			'padding',
+			'opacity',
 			'width',
 			'min-width',
 			'max-width',
 			'height',
 			'min-height',
 			'max-height',
-			'overflow',
-			'display'
-		]
-	},
-	dateinputcomponent: {
-		container: []
-	},
-	fileinputcomponent: {
-		container: []
-	},
-	textinputcomponent: {
-		container: []
-	},
-	emailinputcomponent: {
-		container: []
-	},
-	formbuttoncomponent: {
-		container: []
-	},
-	timeseriescomponent: {
-		container: []
-	},
-	multiselectcomponent: {
-		container: []
-	},
-	numberinputcomponent: {
-		container: []
-	},
-	scatterchartcomponent: {
-		container: []
-	},
-	passwordinputcomponent: {
-		container: []
-	},
-	resourceselectcomponent: {
-		container: []
-	},
-	verticaldividercomponent: {
-		container: []
+			'border',
+			'border-radius',
+			'background-color'
+		],
+		container: containerDefaultProps
 	},
 	horizontaldividercomponent: {
-		container: []
+		divider: [
+			'padding',
+			'opacity',
+			'width',
+			'min-width',
+			'max-width',
+			'height',
+			'min-height',
+			'max-height',
+			'border',
+			'border-radius',
+			'background-color'
+		],
+		container: containerDefaultProps
 	},
 	verticalsplitpanescomponent: {
-		container: []
+		container: containerDefaultProps
 	},
 	horizontalsplitpanescomponent: {
-		container: []
+		container: containerDefaultProps
 	}
 }
