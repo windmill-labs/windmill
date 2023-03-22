@@ -22,8 +22,7 @@
 
 	let badgeClass = 'inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border'
 
-	const recomputedBadges: string[] = []
-	const { app, selectedComponent, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
 	const { connectingInput } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -73,15 +72,7 @@
 
 	$: $connectingInput && applyConnection()
 
-	$: if ($app && $selectedComponent && id) {
-		const recomputeIds = getAllRecomputeIdsForComponent($app, id)
-
-		if ($selectedComponent && recomputeIds) {
-			recomputeIds.forEach((x) => {
-				recomputedBadges.push(x)
-			})
-		}
-	}
+	$: recomputedBadges = getAllRecomputeIdsForComponent($app, id)
 
 	function deleteDep(index: number) {
 		if (inlineScript) {

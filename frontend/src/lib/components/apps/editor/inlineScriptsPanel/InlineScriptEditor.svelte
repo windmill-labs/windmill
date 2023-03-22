@@ -28,7 +28,7 @@
 	export let syncFields: boolean = false
 	export let transformer: boolean = false
 
-	const { runnableComponents, stateId, worldStore, state, appPath } =
+	const { runnableComponents, stateId, worldStore, state, appPath, app } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	let editor: Editor
@@ -242,6 +242,7 @@
 								loadSchemaAndInputsByName()
 							}
 						}
+						$app = $app
 					}}
 				/>
 			{:else}
