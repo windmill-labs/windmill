@@ -25,8 +25,9 @@
 	<div class="flex items-center px-1">
 		<Toggle
 			size="xs"
+			color="red"
 			bind:checked={doNotRecomputeOnInputChanged}
-			options={{ right: "Don't recompute on input changes" }}
+			options={{ right: 'do NOT recompute on input changes' }}
 		/>
 		<Tooltip>If not toggled, whenever an input is changed, the script will be re-run.</Tooltip>
 	</div>
