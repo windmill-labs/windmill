@@ -15,7 +15,7 @@
 	export let components: (BaseAppComponent & ButtonComponent)[]
 	export let id: string
 
-	const { selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
+	const { selectedComponent, app } = getContext<AppViewerContext>('AppViewerContext')
 
 	function addComponent() {
 		const actionId = getNextId(components.map((x) => x.id.split('_')[1]))
@@ -25,11 +25,13 @@
 			recomputeIds: []
 		}
 		components = [...components, newComponent]
+		$app = $app
 	}
 
 	function deleteComponent(cid: string) {
 		components = components.filter((x) => x.id !== cid)
 		$selectedComponent = id
+		$app = $app
 	}
 </script>
 

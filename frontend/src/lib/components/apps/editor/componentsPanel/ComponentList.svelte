@@ -32,6 +32,7 @@
 		)
 
 		$selectedComponent = id
+		$app = $app
 		$worldStore = $worldStore
 	}
 

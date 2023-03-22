@@ -7,7 +7,7 @@
 
 	export let componentInput: ConnectedAppInput
 
-	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
+	const { connectingInput, app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
 	function applyConnection() {
 		if (
@@ -22,6 +22,8 @@
 				hoveredComponent: undefined
 			}
 		}
+		$app = $app
+		$worldStore = $worldStore
 	}
 
 	$: $connectingInput && applyConnection()

@@ -80,6 +80,8 @@
 	const initialConfiguration = ccomponents[component.type].initialData.configuration
 	const componentInput: RichConfiguration | undefined =
 		ccomponents[component.type].initialData.componentInput
+
+	$: component && ($app = $app)
 </script>
 
 <svelte:window on:keydown={keydown} />
