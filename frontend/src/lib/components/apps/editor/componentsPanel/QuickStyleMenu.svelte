@@ -69,11 +69,13 @@
 		const parsedStyles = styles.map((style) => parse(style) || {})
 		const usedColors: Record<string, number> = {}
 		parsedStyles.forEach((style) => {
-			Object.entries(style).reduce((colors, [k, v]) => {
+			Object.values(style).reduce((colors, v) => {
 				// TODO: support RGB and HSL colors as well
-				if (isValidHexColor(v)) {
-					colors[v] = (colors[v] || 0) + 1
-				}
+				v.split(' ').forEach((v) => {
+					if (isValidHexColor(v)) {
+						colors[v] = (colors[v] || 0) + 1
+					}
+				})
 				return colors
 			}, usedColors)
 		})
