@@ -102,10 +102,11 @@
 	{#if !['buttoncomponent', 'formbuttoncomponent', 'formcomponent'].includes(appComponent.type)}
 		<div class="flex items-center">
 			<Toggle
+				size="xs"
 				bind:checked={appInput.doNotRecomputeOnInputChanged}
-				options={{ right: "Don't recompute on input changed" }}
+				options={{ right: "Don't recompute on input changes" }}
 			/>
-			<Tooltip>Whenever an input is changed, the script will be re-run.</Tooltip>
+			<Tooltip>If not toggled, whenever an input is changed, the script will be re-run.</Tooltip>
 		</div>
 	{/if}
 
