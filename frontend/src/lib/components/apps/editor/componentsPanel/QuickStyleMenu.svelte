@@ -17,29 +17,37 @@
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 	const styleStore = createStyleStore(properties)
 	setContext(STYLE_STORE_KEY, styleStore)
-	const multiValues: Record<number, string[]> = $styleStore.style.reduce((prev, curr, i) => {
-		if (Array.isArray(curr.prop.value)) {
-			prev[i] = Array.from({ length: curr.prop.value.length }, () => {
-				return ''
-			})
-		}
-		return prev
-	}, {})
+	let multiValues: Record<number, string[]> = getMultiValues()
 	let mounted = false
 
 	$: mounted && $styleStore && writeStyle()
-	$: mounted && !value && parseStyle()
+	$: mounted && (!value || value) && parseStyle()
 	$: $app && setTopColors()
 
 	function parseStyle() {
+		styleStore.resetStyle()
 		if (!value) {
-			styleStore.resetStyle()
+			multiValues = getMultiValues()
 			return
 		}
 		const current = parse(value) || {}
 		Object.entries(current).forEach(([k, v]) => {
 			styleStore.updateProp(k as StylePropertyKey, v)
+			const { prop, index } = styleStore.getProp(k as StylePropertyKey)
+			console.log({ prop, index })
+			if (Array.isArray(prop.prop?.value) && index !== undefined) {
+				// const l = multiValues[index].length
+				const vArray = v.split(' ')
+				console.log(vArray)
+				multiValues[index] = multiValues[index].map((v, i) => {
+					return vArray[i] || v || ''
+				})
+				// multiValues[index] = Array.from({ length: l }, (_, i) => {
+				// 	return vArray[i] || ''
+				// })
+			}
 		})
+		multiValues = multiValues
 		setTopColors()
 	}
 
@@ -108,6 +116,17 @@
 			})
 		})
 		return styles
+	}
+
+	function getMultiValues() {
+		return $styleStore.style.reduce((prev, curr, i) => {
+			if (Array.isArray(curr.prop.value)) {
+				prev[i] = Array.from({ length: curr.prop.value.length }, () => {
+					return ''
+				})
+			}
+			return prev
+		}, {})
 	}
 
 	function setMultiValueProperty(index: number) {

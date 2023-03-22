@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store'
+import { get, writable } from 'svelte/store'
 import {
 	AlignCenter,
 	AlignJustify,
@@ -61,7 +61,12 @@ export function createStyleStore(properties: StylePropertyKey[]) {
 			})
 		},
 		getProp(key: StylePropertyKey) {
-			return style.find((p) => p.prop.key === key)
+			const s = get(store)
+			const index = s.style.findIndex((p) => p.prop.key === key)
+			return {
+				prop: s.style[index],
+				index: index === -1 ? undefined : index
+			}
 		},
 		resetStyle: () => {
 			store.update((s) => {
