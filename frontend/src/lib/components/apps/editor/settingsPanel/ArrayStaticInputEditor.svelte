@@ -62,9 +62,7 @@
 	{#if Array.isArray(componentInput.value)}
 		{#each componentInput.value as value, index (index)}
 			<div class="flex flex-row gap-2 items-center relative">
-				<div>
-					<SubTypeEditor {subFieldType} bind:componentInput bind:value />
-				</div>
+				<SubTypeEditor {subFieldType} bind:componentInput bind:value />
 				<button
 					transition:fade|local={{ duration: 100 }}
 					class="z-10  rounded-full p-1 duration-200 hover:bg-gray-200"
