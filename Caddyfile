@@ -11,5 +11,5 @@ http://{$BASE_URL} {
 
 https://{$BASE_URL}  {  
   bind {$ADDRESS}
-  reverse_proxy /ws/* http://localhost:3001
+  reverse_proxy /ws/* http://lsp:3001
 }
