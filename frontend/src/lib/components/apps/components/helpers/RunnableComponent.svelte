@@ -95,7 +95,7 @@
 		runnable && runnable.type === 'runnableByName' ? runnable.inlineScript?.refreshOn ?? [] : []
 
 	function refreshIfAutoRefresh(_src: string) {
-		const refreshEnabled = !doNotRecomputeOnInputChanged && (autoRefresh || refreshOn.length > 0)
+		const refreshEnabled = autoRefresh || !doNotRecomputeOnInputChanged || refreshOn?.length > 0
 		if (refreshEnabled && $worldStore.initialized) {
 			setDebouncedExecute()
 		}
@@ -275,10 +275,6 @@
 		}
 	}
 </script>
-
-<!-- {#if runnable?.type == 'runnableByName'}
-	{runnable?.inlineScript?.content}
-{/if} -->
 
 {#each Object.entries(fields ?? {}) as [key, v] (key)}
 	{#if v.type != 'static' && v.type != 'user'}

@@ -76,7 +76,8 @@ export function getNextGridItemId(app: App): string {
 	return id
 }
 
-export function getAllRecomputeIdsForComponent(app: App, id: string) {
+export function getAllRecomputeIdsForComponent(app: App, id: string | undefined) {
+	if (!app || !id) return []
 	const items = allItems(app.grid, app.subgrids)
 
 	const recomputedBy: string[] = []
