@@ -10,6 +10,7 @@
 	export let disabled = false
 	export let textClass = ''
 	export let textStyle = ''
+	export let color: 'blue' | 'red' = 'blue'
 
 	export let size: 'sm' | 'xs' = 'sm'
 	const id = (Math.random() + 1).toString(36).substring(10)
@@ -55,7 +56,9 @@
 				class="w-11 h-6 bg-gray-200 rounded-full peer peer-focus:ring-4 peer-focus:ring-blue-300 
 				peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] 
 				after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 
-				after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"
+				after:border after:rounded-full after:h-5 after:w-5 after:transition-all {color == 'red'
+					? 'peer-checked:bg-red-600'
+					: 'peer-checked:bg-blue-600'}"
 			/>
 		</div>
 		{#if Boolean(options?.right)}
