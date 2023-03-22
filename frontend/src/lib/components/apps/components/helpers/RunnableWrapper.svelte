@@ -16,6 +16,7 @@
 
 	export let extraQueryParams: Record<string, any> = {}
 	export let autoRefresh: boolean = true
+	export let doNotRecomputeOnInputChanged: boolean = false
 	export let runnableComponent: RunnableComponent | undefined = undefined
 	export let forceSchemaDisplay: boolean = false
 	export let runnableClass = ''
@@ -107,6 +108,7 @@
 		runnable={componentInput.runnable}
 		transformer={componentInput.transformer}
 		{autoRefresh}
+		{doNotRecomputeOnInputChanged}
 		{id}
 		{extraQueryParams}
 		{forceSchemaDisplay}

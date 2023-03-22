@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
 	import type { Schema } from '$lib/common'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import LightweightSchemaForm from '$lib/components/LightweightSchemaForm.svelte'
@@ -33,6 +32,7 @@
 	export let recomputable: boolean = false
 	export let outputs: { result: Output<any>; loading: Output<boolean> }
 	export let extraKey = ''
+	export let doNotRecomputeOnInputChanged: boolean = false
 
 	const {
 		worldStore,
@@ -91,11 +91,12 @@
 		testJobLoader &&
 		refreshIfAutoRefresh('arg changed')
 
-	function refreshIfAutoRefresh(_src: string) {
-		const refreshOn =
-			runnable && runnable.type === 'runnableByName' ? runnable.inlineScript?.refreshOn ?? [] : []
+	$: refreshOn =
+		runnable && runnable.type === 'runnableByName' ? runnable.inlineScript?.refreshOn ?? [] : []
 
-		if ((autoRefresh || refreshOn.length > 0) && $worldStore.initialized) {
+	function refreshIfAutoRefresh(_src: string) {
+		const refreshEnabled = !doNotRecomputeOnInputChanged && (autoRefresh || refreshOn.length > 0)
+		if (refreshEnabled && $worldStore.initialized) {
 			setDebouncedExecute()
 		}
 	}

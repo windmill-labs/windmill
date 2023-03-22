@@ -11,6 +11,7 @@
 	export let onClick: boolean = false
 	export let onLoad: boolean = false
 	export let id: string | undefined = undefined
+	export let doNotRecomputeOnInputChanged: boolean = false
 
 	const colors = {
 		red: 'text-red-800 border-red-600 bg-red-100',
@@ -102,7 +103,9 @@
 				<div class="flex flex-row gap-2 flex-wrap">
 					{#if onLoad}
 						<span class={classNames(badgeClass, colors['green'])}>Start</span>
-						<span class={classNames(badgeClass, colors['green'])}>Refresh</span>
+						{#if !doNotRecomputeOnInputChanged}
+							<span class={classNames(badgeClass, colors['green'])}>Refresh</span>
+						{/if}
 					{/if}
 					{#if onClick}
 						<span class={classNames(badgeClass, colors['green'])}>Click</span>

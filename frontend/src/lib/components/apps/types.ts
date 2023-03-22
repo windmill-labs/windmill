@@ -112,6 +112,7 @@ export type App = {
 		inlineScript: InlineScript | undefined
 		fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
 		autoRefresh?: boolean
+		doNotRecomputeOnInputChanged?: boolean
 	}>
 	css?: Partial<
 		Record<'viewer' | 'grid' | AppComponent['type'], Record<string, ComponentCssProperty>>
