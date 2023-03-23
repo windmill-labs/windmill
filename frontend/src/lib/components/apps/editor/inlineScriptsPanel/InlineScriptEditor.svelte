@@ -257,6 +257,9 @@
 					{extraLib}
 					bind:code={inlineScript.content}
 					lang="javascript"
+					on:change={() => {
+						$app = $app
+					}}
 				/>
 			{/if}
 		</div>
