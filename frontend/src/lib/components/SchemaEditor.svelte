@@ -12,6 +12,7 @@
 	import Toggle from './Toggle.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { flip } from 'svelte/animate'
+	import Portal from 'svelte-portal'
 
 	const dispatch = createEventDispatcher()
 
@@ -178,8 +179,10 @@
 			/>
 			<div class="ml-2">
 				<Tooltip>
-					Arguments can be edited either using the wizard, or by editing their JSON Schema, 
-					<a href="https://docs.windmill.dev/docs/reference/#script-parameters-to-json-schema">see docs</a>
+					Arguments can be edited either using the wizard, or by editing their JSON Schema,
+					<a href="https://docs.windmill.dev/docs/reference/#script-parameters-to-json-schema"
+						>see docs</a
+					>
 				</Tooltip>
 			</div>
 		</div>
@@ -281,11 +284,13 @@
 	</div>
 </div>
 
-<SchemaModal
-	bind:this={schemaModal}
-	bind:property={modalProperty}
-	bind:error={argError}
-	on:save={handleAddOrEditArgument}
-	bind:editing
-	bind:oldArgName
-/>
+<Portal>
+	<SchemaModal
+		bind:this={schemaModal}
+		bind:property={modalProperty}
+		bind:error={argError}
+		on:save={handleAddOrEditArgument}
+		bind:editing
+		bind:oldArgName
+	/>
+</Portal>

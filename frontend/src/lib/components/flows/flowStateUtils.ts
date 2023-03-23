@@ -43,6 +43,8 @@ export async function loadFlowModuleState(flowModule: FlowModule): Promise<FlowM
 
 export const idMutex = new Mutex()
 
+const forbiddenIds: string[] = ['do']
+
 export function getNextId(currentKeys: string[]): string {
 	const max = currentKeys.reduce((acc, key) => {
 		if (key === 'failure' || key.includes('branch') || key.includes('loop')) {
@@ -52,12 +54,17 @@ export function getNextId(currentKeys: string[]): string {
 			return Math.max(acc, num + 1)
 		}
 	}, 0)
-	return numberToChars(max)
+	const char = numberToChars(max)
+
+	if (forbiddenIds.includes(char)) {
+		return getNextId(currentKeys.concat(char))
+	} else {
+		return char
+	}
 }
 
 // Computes the next available id
 export function nextId(flowState: FlowState): string {
-
 	const max = Object.keys(flowState).reduce((acc, key) => {
 		if (key === 'failure' || key.includes('branch') || key.includes('loop')) {
 			return acc

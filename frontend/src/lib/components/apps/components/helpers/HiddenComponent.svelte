@@ -14,7 +14,7 @@
 	export let name: string
 	export let inlineScript: InlineScript | undefined
 	export let fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
-	export let autoRefresh: boolean
+	export let doNotRecomputeOnInputChanged: boolean = false
 
 	let result: any = undefined
 
@@ -30,7 +30,8 @@
 	render={false}
 	{id}
 	{fields}
-	{autoRefresh}
+	autoRefresh={true}
+	{doNotRecomputeOnInputChanged}
 	bind:result
 	transformer={undefined}
 	runnable={{

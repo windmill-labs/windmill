@@ -159,7 +159,6 @@
 				inlineScript={script.inlineScript}
 				name={script.name}
 				fields={script.fields}
-				autoRefresh={script.autoRefresh ?? true}
 			/>
 		{/if}
 	{/each}

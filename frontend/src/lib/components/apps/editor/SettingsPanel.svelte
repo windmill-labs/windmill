@@ -2,66 +2,127 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { getContext } from 'svelte'
-	import type { AppViewerContext } from '../types'
-	import GridPanel from './GridPanel.svelte'
+	import type { App, AppViewerContext } from '../types'
+	import { allItems } from '../utils'
 	import PanelSection from './settingsPanel/common/PanelSection.svelte'
+	import ComponentPanel from './settingsPanel/ComponentPanel.svelte'
 	import InputsSpecsEditor from './settingsPanel/InputsSpecsEditor.svelte'
 	import BackgroundScriptTriggerList from './settingsPanel/triggerLists/BackgroundScriptTriggerList.svelte'
 
 	const { selectedComponent, app, stateId } = getContext<AppViewerContext>('AppViewerContext')
+
+	$: hiddenInlineScript = $app?.hiddenInlineScripts
+		?.map((x, i) => ({ script: x, index: i }))
+		.find(({ script, index }) => `bg_${index}` === $selectedComponent)
+
+	$: componentSettings = findComponentSettings($app, $selectedComponent)
+
+	$: tableActionSettings = findTableActionSettings($app, $selectedComponent)
+
+	function findTableActionSettings(app: App, id: string | undefined) {
+		return allItems(app.grid, app.subgrids)
+			.map((x) => {
+				if (x?.data?.type === 'tablecomponent') {
+					if (x?.data?.actionButtons) {
+						const tableAction = x.data.actionButtons.find((x) => x.id === id)
+						if (tableAction) {
+							return { item: tableAction, parent: x.data }
+						}
+					}
+				}
+			})
+			.find((x) => x)
+	}
+
+	function findComponentSettings(app: App, id: string | undefined) {
+		if (!id) return
+		if (app?.grid) {
+			const gridItem = app.grid.find((x) => x.data?.id === id)
+			if (gridItem) {
+				return { item: gridItem, parent: undefined }
+			}
+		}
+
+		if (app?.subgrids) {
+			for (const key of Object.keys(app.subgrids ?? {})) {
+				const gridItem = app.subgrids[key].find((x) => x.data?.id === id)
+				if (gridItem) {
+					return { item: gridItem, parent: key }
+				}
+			}
+		}
+
+		return undefined
+	}
 </script>
 
-{#if $app.grid}
-	<GridPanel parent={undefined} bind:gridItems={$app.grid} />
+{#if componentSettings}
+	{#key componentSettings.item.id}
+		<ComponentPanel
+			parent={componentSettings.parent}
+			bind:component={componentSettings.item.data}
+		/>
+	{/key}
+{:else if tableActionSettings}
+	{#key tableActionSettings.item.id}
+		<ComponentPanel
+			parent={undefined}
+			noGrid
+			rowColumns
+			bind:component={tableActionSettings.item}
+			duplicateMoveAllowed={false}
+			onDelete={() => {
+				if (tableActionSettings) {
+					tableActionSettings.parent.actionButtons =
+						tableActionSettings?.parent.actionButtons.filter(
+							(c) => c.id !== tableActionSettings?.item.id
+						)
+				}
+			}}
+		/>
+	{/key}
 {/if}
 
-{#if $app.subgrids}
-	{#each Object.keys($app.subgrids ?? {}) as key (key)}
-		<GridPanel parent={key} bind:gridItems={$app.subgrids[key]} />
-	{/each}
-{/if}
-
-{#each $app?.hiddenInlineScripts ?? [] as script, index (script.name)}
-	{#if $selectedComponent === `bg_${index}`}
-		<div class="min-h-full flex flex-col divide-y">
-			<PanelSection title={`Configuration`}>
-				<div class="flex items-center">
-					<Toggle
-						bind:checked={script.autoRefresh}
-						options={{ right: 'Run on start and app refresh' }}
-					/>
-					<Tooltip
-						>You may want to disable this so that the background script is only triggered by changes
-						to other values or triggered by another computation on a button (See 'Recompute Others')</Tooltip
-					>
-				</div>
-			</PanelSection>
-
-			<div class="p-2">
-				{#if script.inlineScript}
-					<BackgroundScriptTriggerList
-						fields={script.fields}
-						autoRefresh={script.autoRefresh}
-						id={`bg_${index}`}
-						bind:inlineScript={script.inlineScript}
-					/>
-				{:else}
-					<span class="text-gray-600 text-xs">No script defined</span>
-				{/if}
+{#if hiddenInlineScript}
+	<div class="min-h-full flex flex-col divide-y">
+		<PanelSection title={`Configuration`}>
+			<div class="flex items-center">
+				<Toggle
+					bind:checked={hiddenInlineScript.script.autoRefresh}
+					options={{ right: 'Run on start and app refresh' }}
+				/>
+				<Tooltip>
+					You may want to disable this so that the background script is only triggered by changes to
+					other values or triggered by another computation on a button (See 'Recompute Others')
+				</Tooltip>
 			</div>
-			{#if Object.keys(script.fields).length > 0}
-				<PanelSection title={`Inputs`}>
-					{#key $stateId}
-						<InputsSpecsEditor
-							id={`bg_${index}`}
-							shouldCapitalize={false}
-							bind:inputSpecs={script.fields}
-							userInputEnabled={false}
-						/>
-					{/key}
-				</PanelSection>
+		</PanelSection>
+
+		<div class="p-2">
+			{#if hiddenInlineScript.script.inlineScript}
+				<BackgroundScriptTriggerList
+					fields={hiddenInlineScript.script.fields}
+					autoRefresh={hiddenInlineScript.script.autoRefresh}
+					id={`bg_${hiddenInlineScript.index}`}
+					bind:doNotRecomputeOnInputChanged={hiddenInlineScript.script.doNotRecomputeOnInputChanged}
+					bind:inlineScript={hiddenInlineScript.script.inlineScript}
+				/>
+			{:else}
+				<span class="text-gray-600 text-xs">No hiddenInlineScript.script defined</span>
 			{/if}
-			<div class="grow shrink" />
 		</div>
-	{/if}
-{/each}
+		{#if Object.keys(hiddenInlineScript.script.fields).length > 0}
+			<PanelSection title={`Inputs`}>
+				{#key $stateId}
+					<InputsSpecsEditor
+						id={`bg_${hiddenInlineScript.index}`}
+						shouldCapitalize={false}
+						bind:inputSpecs={hiddenInlineScript.script.fields}
+						userInputEnabled={false}
+					/>
+				{/key}
+			</PanelSection>
+		{/if}
+		<div class="grow shrink" />
+	</div>
+{/if}

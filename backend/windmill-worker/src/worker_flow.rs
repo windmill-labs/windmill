@@ -11,8 +11,8 @@ use std::iter;
 use std::time::Duration;
 
 use crate::jobs::{add_completed_job, add_completed_job_error, schedule_again_if_scheduled};
-use crate::js_eval::{eval_timeout, EvalCreds, IdContext};
-use crate::{worker, KEEP_JOB_DIR};
+use crate::js_eval::{eval_timeout,  IdContext};
+use crate::{worker, KEEP_JOB_DIR, AuthedClient};
 use anyhow::Context;
 use async_recursion::async_recursion;
 use dyn_iter::DynIter;
@@ -40,7 +40,7 @@ use windmill_queue::{
 // #[instrument(level = "trace", skip_all)]
 pub async fn update_flow_status_after_job_completion(
     db: &DB,
-    client: &windmill_api_client::Client,
+    client: &AuthedClient,
     flow: uuid::Uuid,
     job_id_for_status: &Uuid,
     w_id: &str,
@@ -120,7 +120,7 @@ pub async fn update_flow_status_after_job_completion(
 
         let stop_early = success
             && if let Some(expr) = r.stop_early_expr.clone() {
-                compute_bool_from_expr(expr, &r.args, result.clone(), None, None, base_internal_url)
+                compute_bool_from_expr(expr, &r.args, result.clone(), None, Some(client))
                     .await?
             } else {
                 false
@@ -598,8 +598,7 @@ async fn compute_bool_from_expr(
     flow_args: &Option<serde_json::Value>,
     result: serde_json::Value,
     by_id: Option<IdContext>,
-    creds: Option<EvalCreds>,
-    base_internal_url: &str,
+    client: Option<&AuthedClient>,
 ) -> error::Result<bool> {
     let flow_input = flow_args.clone().unwrap_or_else(|| json!({}));
     match eval_timeout(
@@ -610,9 +609,8 @@ async fn compute_bool_from_expr(
             ("previous_result".to_string(), result),
         ]
         .into(),
-        creds,
+        client,
         by_id,
-        base_internal_url,
     )
     .await?
     {
@@ -687,12 +685,10 @@ async fn transform_input(
     flow_args: &Option<serde_json::Value>,
     last_result: serde_json::Value,
     input_transforms: &HashMap<String, InputTransform>,
-    workspace: &str,
-    token: &str,
     resumes: &[Value],
     approvers: Vec<String>,
     by_id: &IdContext,
-    base_internal_url: &str,
+    client: &AuthedClient,
 ) -> windmill_common::error::Result<Map<String, serde_json::Value>> {
     let mut mapped = serde_json::Map::new();
 
@@ -734,9 +730,8 @@ async fn transform_input(
                 let v = eval_timeout(
                     expr.to_string(),
                     context,
-                    Some(EvalCreds { workspace: workspace.to_string(), token: token.to_string() }),
-                    Some(by_id.clone()),
-                    base_internal_url,
+                    Some(client),
+                    Some(by_id.clone())
                 )
                 .await
                 .map_err(|e| {
@@ -757,7 +752,7 @@ async fn transform_input(
 pub async fn handle_flow(
     flow_job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    client: &windmill_api_client::Client,
+    client: &AuthedClient,
     last_result: serde_json::Value,
     same_worker_tx: Sender<Uuid>,
     worker_dir: &str,
@@ -797,7 +792,7 @@ async fn push_next_flow_job(
     mut status: FlowStatus,
     flow: FlowValue,
     db: &sqlx::Pool<sqlx::Postgres>,
-    client: &windmill_api_client::Client,
+    client: &AuthedClient,
     mut last_result: serde_json::Value,
     same_worker_tx: Sender<Uuid>,
     worker_dir: &str,
@@ -870,8 +865,7 @@ async fn push_next_flow_job(
                         ]
                         .into(),
                         None,
-                        None,
-                        base_internal_url,
+                        None
                     )
                     .await
                     .map_err(|e| {
@@ -1114,15 +1108,15 @@ async fn push_next_flow_job(
         _ => (),
     }
 
-    let mut transform_context: Option<TransformContext> = None;
+    let mut transform_context: Option<IdContext> = None;
 
     let args: windmill_common::error::Result<_> = match &module.value {
         FlowModuleValue::Script { input_transforms, .. }
         | FlowModuleValue::RawScript { input_transforms, .. }
         | FlowModuleValue::Flow { input_transforms, .. } => {
-            let ctx = get_transform_context(db, &flow_job, previous_id.clone(), &status).await?;
+            let ctx = get_transform_context(&flow_job, previous_id.clone(), &status).await?;
             transform_context = Some(ctx);
-            let (token, by_id) = transform_context.as_ref().unwrap();
+            let by_id = transform_context.as_ref().unwrap();
             transform_input(
                 &flow_job.args,
                 last_result.clone(),
@@ -1131,12 +1125,10 @@ async fn push_next_flow_job(
                 } else {
                     &module.input_transforms
                 },
-                &flow_job.workspace_id,
-                &token,
                 resume_messages.as_slice(),
                 approvers,
                 by_id,
-                base_internal_url,
+                client
             )
             .await
         }
@@ -1169,14 +1161,13 @@ async fn push_next_flow_job(
         flow_job,
         &flow,
         transform_context,
-        db,
         tx,
         &module,
         &status,
         &status_module,
         last_result.clone(),
         previous_id,
-        base_internal_url,
+        client
     )
     .await?;
     tx.commit().await?;
@@ -1507,20 +1498,18 @@ async fn script_path_to_payload<'c>(
     Ok(job_payload)
 }
 
-type TransformContext = (String, IdContext);
 
 async fn compute_next_flow_transform<'c>(
     flow_job: &QueuedJob,
     flow: &FlowValue,
-    transform_context: Option<TransformContext>,
-    db: &DB,
+    by_id: Option<IdContext>,
     mut tx: sqlx::Transaction<'c, sqlx::Postgres>,
     module: &FlowModule,
     status: &FlowStatus,
     status_module: &FlowStatusModule,
     last_result: serde_json::Value,
     previous_id: String,
-    base_internal_url: &str,
+    client: &AuthedClient
 ) -> error::Result<(sqlx::Transaction<'c, sqlx::Postgres>, NextFlowTransform)> {
     match &module.value {
         FlowModuleValue::Identity => Ok((
@@ -1573,10 +1562,10 @@ async fn compute_next_flow_transform<'c>(
                 FlowStatusModule::WaitingForPriorSteps { .. }
                 | FlowStatusModule::WaitingForEvents { .. }
                 | FlowStatusModule::WaitingForExecutor { .. } => {
-                    let (token, by_id) = if let Some(x) = transform_context {
+                    let by_id = if let Some(x) = by_id {
                         x
                     } else {
-                        get_transform_context(db, &flow_job, previous_id, &status).await?
+                        get_transform_context(&flow_job, previous_id, &status).await?
                     };
                     let flow_input = flow_job.args.clone().unwrap_or_else(|| json!({}));
                     /* Iterator is an InputTransform, evaluate it into an array. */
@@ -1589,10 +1578,8 @@ async fn compute_next_flow_transform<'c>(
                                 ("previous_result".to_string(), last_result.clone()),
                             ]
                         },
-                        token,
-                        flow_job.workspace_id.clone(),
-                        Some(by_id),
-                        base_internal_url,
+                        Some(client),
+                        Some(by_id)
                     )
                     .await?
                     .into_array()
@@ -1709,19 +1696,15 @@ async fn compute_next_flow_transform<'c>(
                 | FlowStatusModule::WaitingForEvents { .. }
                 | FlowStatusModule::WaitingForExecutor { .. } => {
                     let mut branch_chosen = BranchChosen::Default;
-                    let (token, idcontext) =
-                        get_transform_context(db, &flow_job, previous_id, &status).await?;
+                    let idcontext =
+                        get_transform_context(&flow_job, previous_id, &status).await?;
                     for (i, b) in branches.iter().enumerate() {
                         let pred = compute_bool_from_expr(
                             b.expr.to_string(),
                             &flow_job.args,
                             last_result.clone(),
                             Some(idcontext.clone()),
-                            Some(EvalCreds {
-                                workspace: flow_job.workspace_id.clone(),
-                                token: token.to_string(),
-                            }),
-                            base_internal_url,
+                            Some(client),
                         )
                         .await?;
 
@@ -1886,43 +1869,27 @@ async fn compute_next_flow_transform<'c>(
 }
 
 async fn get_transform_context(
-    db: &DB,
     flow_job: &QueuedJob,
     previous_id: String,
     status: &FlowStatus,
-) -> error::Result<TransformContext> {
-    let tx = db.begin().await?;
-    let (tx, new_token) = crate::create_token_for_owner(
-        tx,
-        &flow_job.workspace_id,
-        &flow_job.permissioned_as,
-        "transform-input",
-        10,
-        &flow_job.email,
-    )
-    .await?;
-    //we need to commit asap otherwise the token won't be valid for auth to check outside of this transaction
-    //which will happen with client http calls
-    tx.commit().await?;
+) -> error::Result<IdContext> {
+
     let steps_results: HashMap<String, JobResult> = status
         .modules
         .iter()
         .filter_map(|x| x.job_result().map(|y| (x.id(), y)))
         .collect();
 
-    Ok((
-        new_token,
+    Ok(
         IdContext { flow_job: flow_job.id, steps_results, previous_id },
-    ))
+    )
 }
 
 async fn evaluate_with<F>(
     transform: InputTransform,
     vars: F,
-    token: String,
-    workspace: String,
+    client: Option<&AuthedClient>,
     by_id: Option<IdContext>,
-    base_internal_url: &str,
 ) -> anyhow::Result<serde_json::Value>
 where
     F: FnOnce() -> Vec<(String, serde_json::Value)>,
@@ -1933,9 +1900,8 @@ where
             eval_timeout(
                 expr,
                 vars(),
-                Some(EvalCreds { workspace, token }),
+                client,
                 by_id,
-                base_internal_url,
             )
             .await
         }

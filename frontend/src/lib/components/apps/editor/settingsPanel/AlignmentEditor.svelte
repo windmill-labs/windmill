@@ -8,8 +8,12 @@
 		AlignStartHorizontal,
 		AlignStartVertical
 	} from 'lucide-svelte'
+	import { getContext } from 'svelte'
+	import type { AppViewerContext } from '../../types'
 	import type { AppComponent } from '../component'
 	import PanelSection from './common/PanelSection.svelte'
+
+	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
 	export let component: AppComponent
 </script>
@@ -21,7 +25,10 @@
 				<div class="flex flex-col gap-0.5">
 					<div class="text-xs font-semibold">Horizontal</div>
 					<div>
-						<ToggleButtonGroup bind:selected={component.horizontalAlignment}>
+						<ToggleButtonGroup
+							on:selected={() => (component = component)}
+							bind:selected={component.horizontalAlignment}
+						>
 							<ToggleButton position="left" value="left" size="xs">
 								<AlignStartVertical size={16} />
 							</ToggleButton>
@@ -39,7 +46,10 @@
 				<div class="flex flex-col gap-0.5">
 					<div class="text-xs font-semibold">Vertical</div>
 					<div>
-						<ToggleButtonGroup bind:selected={component.verticalAlignment}>
+						<ToggleButtonGroup
+							on:selected={() => ($app = $app)}
+							bind:selected={component.verticalAlignment}
+						>
 							<ToggleButton position="left" value="top" size="xs">
 								<AlignStartHorizontal size={16} />
 							</ToggleButton>

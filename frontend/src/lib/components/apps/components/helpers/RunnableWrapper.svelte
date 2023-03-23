@@ -43,7 +43,7 @@
 	const { staticExporter, noBackend, componentControl, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	$: if (initializing && result) {
+	$: if (initializing && result != undefined) {
 		initializing = false
 	}
 
@@ -59,6 +59,9 @@
 	}
 
 	export function onSuccess() {
+		if (recomputeIds) {
+			recomputeIds.map((id) => $runnableComponents?.[id]?.())
+		}
 		if (!doOnSuccess) return
 
 		if (doOnSuccess.selected == 'none') return
@@ -89,10 +92,6 @@
 		) {
 			sendUserToast(doOnSuccess.configuration.sendToast.message)
 		}
-
-		if (recomputeIds) {
-			recomputeIds.map((id) => $runnableComponents?.[id]?.())
-		}
 	}
 </script>
 
@@ -107,6 +106,7 @@
 		runnable={componentInput.runnable}
 		transformer={componentInput.transformer}
 		{autoRefresh}
+		bind:doNotRecomputeOnInputChanged={componentInput.doNotRecomputeOnInputChanged}
 		{id}
 		{extraQueryParams}
 		{forceSchemaDisplay}

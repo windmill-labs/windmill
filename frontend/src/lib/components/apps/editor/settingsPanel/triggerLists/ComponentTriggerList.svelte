@@ -16,6 +16,7 @@
 	export let fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
 	export let appComponent: AppComponent
 	export let runnable: RunnableByName
+	export let doNotRecomputeOnInputChanged: boolean = false
 
 	const onClick = ['buttoncomponent', 'formbuttoncomponent', 'formcomponent'].includes(
 		appComponent.type
@@ -32,6 +33,7 @@
 	inputDependencies={onClick ? [] : getDependencies(fields)}
 	bind:inlineScript={runnable.inlineScript}
 	{onLoad}
+	{doNotRecomputeOnInputChanged}
 	id={$selectedComponent}
 	{onClick}
 />

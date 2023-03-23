@@ -11,6 +11,7 @@
 	export let onClick: boolean = false
 	export let onLoad: boolean = false
 	export let id: string | undefined = undefined
+	export let doNotRecomputeOnInputChanged: boolean = false
 
 	const colors = {
 		red: 'text-red-800 border-red-600 bg-red-100',
@@ -21,8 +22,7 @@
 
 	let badgeClass = 'inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border'
 
-	const recomputedBadges: string[] = []
-	const { app, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
 
 	const { connectingInput } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -60,6 +60,8 @@
 				input: undefined,
 				hoveredComponent: undefined
 			}
+			$app = $app
+			$worldStore = $worldStore
 		}
 	}
 
@@ -70,15 +72,7 @@
 
 	$: $connectingInput && applyConnection()
 
-	$: if ($app && $selectedComponent && id) {
-		const recomputeIds = getAllRecomputeIdsForComponent($app, id)
-
-		if ($selectedComponent && recomputeIds) {
-			recomputeIds.forEach((x) => {
-				recomputedBadges.push(x)
-			})
-		}
-	}
+	$: recomputedBadges = getAllRecomputeIdsForComponent($app, id)
 
 	function deleteDep(index: number) {
 		if (inlineScript) {
@@ -110,7 +104,7 @@
 				</div>
 			</div>
 		{/if}
-		{#if inputDependencies.length > 0}
+		{#if inputDependencies.length > 0 && !doNotRecomputeOnInputChanged}
 			<div class="w-full">
 				<div class="flex justify-between items-center mb-1">
 					<div class="text-xs font-semibold text-slate-800">Change on values</div>
@@ -136,7 +130,7 @@
 			</div>
 		{/if}
 	{/if}
-	{#if frontendDependencies}
+	{#if frontendDependencies && !doNotRecomputeOnInputChanged}
 		<div class="w-full">
 			<div class="flex justify-between items-center">
 				<div class="text-xs font-semibold text-slate-800 mb-1">Change on values</div>
