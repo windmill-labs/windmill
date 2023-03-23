@@ -4996,6 +4996,7 @@ dependencies = [
  "git-version",
  "itertools",
  "lazy_static",
+ "once_cell",
  "prometheus",
  "rand 0.8.5",
  "regex",

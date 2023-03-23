@@ -6,6 +6,7 @@
 	import { Button, Drawer, DrawerContent } from './common'
 	import autosize from 'svelte-autosize'
 	import { ClipboardCopy } from 'lucide-svelte'
+	import Portal from 'svelte-portal'
 
 	export let result: any
 	export let requireHtmlApproval = false
@@ -91,20 +92,22 @@
 	let jsonViewer: Drawer
 </script>
 
-<Drawer bind:this={jsonViewer} size="900px">
-	<DrawerContent title="Expanded Result" on:close={jsonViewer.closeDrawer}>
-		<svelte:fragment slot="actions">
-			<Button
-				on:click={() => copyToClipboard(JSON.stringify(result, null, 4))}
-				color="light"
-				size="xs"
-			>
-				<div class="flex gap-2 items-center">Copy to clipboard <ClipboardCopy /> </div>
-			</Button>
-		</svelte:fragment>
-		<Highlight language={json} code={JSON.stringify(result, null, 4).replace(/\\n/g, '\n')} />
-	</DrawerContent>
-</Drawer>
+<Portal>
+	<Drawer bind:this={jsonViewer} size="900px">
+		<DrawerContent title="Expanded Result" on:close={jsonViewer.closeDrawer}>
+			<svelte:fragment slot="actions">
+				<Button
+					on:click={() => copyToClipboard(JSON.stringify(result, null, 4))}
+					color="light"
+					size="xs"
+				>
+					<div class="flex gap-2 items-center">Copy to clipboard <ClipboardCopy /> </div>
+				</Button>
+			</svelte:fragment>
+			<Highlight language={json} code={JSON.stringify(result, null, 4).replace(/\\n/g, '\n')} />
+		</DrawerContent>
+	</Drawer>
+</Portal>
 
 <div class="inline-highlight">
 	{#if result != undefined}
