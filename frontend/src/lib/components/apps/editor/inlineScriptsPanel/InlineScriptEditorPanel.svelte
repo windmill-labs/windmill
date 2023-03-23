@@ -13,11 +13,15 @@
 	import InlineScriptEditor from './InlineScriptEditor.svelte'
 	import { computeFields } from './utils'
 	import { deepEqual } from 'fast-equals'
+	import { getContext } from 'svelte'
+	import type { AppViewerContext } from '../../types'
 
 	export let componentInput: AppInput | undefined
 	export let defaultUserInput = false
 	export let id: string
 	export let transformer: boolean
+
+	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
 	async function fork(path: string) {
 		let { content, language, schema } = await getScriptByPath(path)
@@ -121,6 +125,7 @@
 						componentInput?.runnable?.type === 'runnableByName'
 					) {
 						componentInput.runnable.inlineScript = e.detail
+						$app = $app
 					}
 				}}
 			/>
@@ -139,6 +144,7 @@
 								componentInput.runnable?.type === 'runnableByPath'
 							) {
 								fork(componentInput.runnable.path)
+								$app = $app
 							}
 						}}
 					>
@@ -157,8 +163,10 @@
 							on:click={() => {
 								flowPath = componentInput?.['runnable']?.path
 								drawerFlowViewer.openDrawer()
-							}}>Expand</Button
+							}}
 						>
+							Expand
+						</Button>
 						<Button
 							size="xs"
 							startIcon={{ icon: faPen }}
@@ -172,8 +180,9 @@
 							endIcon={{ icon: faExternalLinkAlt }}
 							target="_blank"
 							href="/flows/get/{componentInput?.['runnable']?.path}?workspace_id={$workspaceStore}"
-							>Details page</Button
 						>
+							Details page
+						</Button>
 					</div>
 					<FlowPathViewer path={componentInput.runnable.path} />
 				{:else}
