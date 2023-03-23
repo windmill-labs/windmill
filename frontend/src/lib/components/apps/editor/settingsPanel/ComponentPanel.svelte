@@ -54,9 +54,10 @@
 	function removeGridElement() {
 		push(history, $app)
 
-		$errorByComponent = clearErrorByComponentId(component.id, $errorByComponent)
-		$jobs = clearJobsByComponentId(component.id, $jobs)
-
+		if (componentSettings?.item.id) {
+			$errorByComponent = clearErrorByComponentId(componentSettings?.item.id, $errorByComponent)
+			$jobs = clearJobsByComponentId(componentSettings?.item.id, $jobs)
+		}
 		$selectedComponent = undefined
 		$focusedGrid = undefined
 		if (componentSettings?.item && !noGrid) {
