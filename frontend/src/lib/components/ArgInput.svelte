@@ -188,6 +188,7 @@
 								use:autosize
 								rows="1"
 								bind:value={description}
+								on:keydown|stopPropagation 
 								placeholder="Field description"
 							/>
 							{#if type == 'string' && format != 'date-time'}
@@ -339,6 +340,7 @@
 						{autofocus}
 						{disabled}
 						use:autosize
+						on:keydown|stopPropagation 
 						style="max-height: {maxHeight}"
 						on:input={() => {
 							dispatch('input', { rawValue: value, isRaw: false })
@@ -414,6 +416,7 @@
 								}}
 								on:blur={() => dispatch('blur')}
 								use:autosize
+								on:keydown|stopPropagation 
 								type="text"
 								{disabled}
 								class="col-span-10 {valid

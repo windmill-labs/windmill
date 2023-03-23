@@ -331,9 +331,8 @@ lazy_static::lazy_static! {
         .ok()
         .map(|x| format!(";{x}"))
         .unwrap_or_else(|| String::new());
-    static ref NPM_CONFIG_REGISTRY: Option<String> = std::env::var("NPM_CONFIG_REGISTRY").ok();
-    
 
+    static ref NPM_CONFIG_REGISTRY: Option<String> = std::env::var("NPM_CONFIG_REGISTRY").ok();
 
     static ref DENO_FLAGS: Option<Vec<String>> = std::env::var("DENO_FLAGS")
         .ok()
@@ -391,10 +390,19 @@ lazy_static::lazy_static! {
         .ok()
         .and_then(|x| x.parse::<u16>().ok())
         .unwrap_or(DEFAULT_TIMEOUT as u16);
-    
+
     static ref TIMEOUT_DURATION: Duration = Duration::from_secs(*TIMEOUT as u64);
 
-    static ref ZOMBIE_JOB_TIMEOUT: String = (*TIMEOUT as u32 * 5).to_string();
+    static ref ZOMBIE_JOB_TIMEOUT: String = std::env::var("ZOMBIE_JOB_TIMEOUT")
+        .ok()
+        .and_then(|x| x.parse::<String>().ok())
+        .unwrap_or_else(|| "30".to_string());
+
+
+    pub static ref RESTART_ZOMBIE_JOBS: bool = std::env::var("RESTART_ZOMBIE_JOBS")
+        .ok()
+        .and_then(|x| x.parse::<bool>().ok())
+        .unwrap_or(true);
 
     static ref SESSION_TOKEN_EXPIRY: i32 = (*TIMEOUT as i32) * 2;
 }
@@ -881,6 +889,9 @@ async fn handle_queued_job(
         }
         _ => {
             let mut logs = "".to_string();
+            if let Some(log_str) = &job.logs {
+                logs.push_str(&log_str);
+            }
 
             if job.is_flow_step {
                 update_flow_status_in_progress(
@@ -2710,7 +2721,7 @@ pub async fn handle_zombie_jobs_periodically(
         handle_zombie_jobs(db, base_internal_url).await;
 
         tokio::select! {
-            _ = tokio::time::sleep(Duration::from_secs(60))    => (),
+            _ = tokio::time::sleep(Duration::from_secs(2))    => (),
             _ = rx.recv() => {
                     println!("received killpill for monitor job");
                     break;
@@ -2720,28 +2731,34 @@ pub async fn handle_zombie_jobs_periodically(
 }
 
 async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str) {
-    let restarted = sqlx::query!(
-            "UPDATE queue SET running = false WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 AND same_worker = false RETURNING id, workspace_id, last_ping",
-            *ZOMBIE_JOB_TIMEOUT,
-            JobKind::Flow: JobKind,
-        )
-        .fetch_all(db)
-        .await
-        .ok()
-        .unwrap_or_else(|| vec![]);
+    if *RESTART_ZOMBIE_JOBS {
+        let restarted = sqlx::query!(
+                "UPDATE queue SET running = false, started_at = null, logs = logs || '\nRestarted job after not receiving job''s ping for too long the ' || now() || '\n\n' WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 AND same_worker = false RETURNING id, workspace_id, last_ping",
+                *ZOMBIE_JOB_TIMEOUT,
+                JobKind::Flow: JobKind,
+            )
+            .fetch_all(db)
+            .await
+            .ok()
+            .unwrap_or_else(|| vec![]);
 
-    QUEUE_ZOMBIE_RESTART_COUNT.inc_by(restarted.len() as _);
-    for r in restarted {
-        tracing::info!(
-            "restarted zombie job {} {} {}",
-            r.id,
-            r.workspace_id,
-            r.last_ping
-        );
+        QUEUE_ZOMBIE_RESTART_COUNT.inc_by(restarted.len() as _);
+        for r in restarted {
+            tracing::info!(
+                "restarted zombie job {} {} {}",
+                r.id,
+                r.workspace_id,
+                r.last_ping
+            );
+        }
     }
 
+    let mut timeout_query = "SELECT * FROM queue WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2".to_string();
+    if *RESTART_ZOMBIE_JOBS  {
+        timeout_query.push_str(" same_worker = true");
+    };
     let timeouts = sqlx::query_as::<_, QueuedJob>(
-            "SELECT * FROM queue WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 AND same_worker = true",
+            &timeout_query
         )
         .bind(ZOMBIE_JOB_TIMEOUT.as_str())
         .bind(JobKind::Flow)
@@ -2753,7 +2770,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str) {
     QUEUE_ZOMBIE_DELETE_COUNT.inc_by(timeouts.len() as _);
     for job in timeouts {
         tracing::info!(
-            "timedouts zombie same_worker job {} {}",
+            "timedout zombie job {} {}",
             job.id,
             job.workspace_id,
         );
@@ -2775,11 +2792,13 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str) {
         tx.commit().await.expect("could not commit job token");
         let client = AuthedClient { base_internal_url: base_internal_url.to_string(), token: token.clone(), workspace: job.workspace_id.to_string(), client: OnceCell::new() };
 
+        let last_ping = job.last_ping.clone();
         let _ = handle_job_error(
             db,
             &client,
             job,
-            error::Error::ExecutionErr("Same worker job timed out".to_string()),
+            error::Error::ExecutionErr(format!("Job timed out after no ping from job since {} (ZOMBIE_JOB_TIMEOUT: {})",
+                last_ping.map(|x| x.to_string()).unwrap_or_else(|| "no ping".to_string()), *ZOMBIE_JOB_TIMEOUT)),
             None,
             true,
             same_worker_tx_never_used,
