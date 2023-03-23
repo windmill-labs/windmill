@@ -62,7 +62,7 @@
 		{:else if type === StylePropertyType.unit}
 			<ClearableInput
 				wrapperClass="flex items-center {inline ? '!grow-0' : ''}"
-				inputClass="!border-r-0 !rounded-r-none {inline ? '!w-[90px]' : '!w-[calc(100%-64px)]'}"
+				inputClass="!border-r-0 !rounded-r-none {inline ? '!w-[90px]' : ''}"
 				buttonClass="!right-9"
 				type="number"
 				value={internalValue}
