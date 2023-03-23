@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher, getContext } from 'svelte'
-	import { Button, ClearableInput } from '../../../common'
+	import { Button, ClearableInput, Menu } from '../../../common'
 	import Popover from '../../../Popover.svelte'
 	import ColorInput from '../settingsPanel/inputEditor/ColorInput.svelte'
 	import {
@@ -61,21 +61,46 @@
 			<ClearableInput type="number" bind:value />
 		{:else if type === StylePropertyType.unit}
 			<ClearableInput
-				wrapperClass="flex items-center gap-1 {inline ? '!grow-0' : ''}"
-				inputClass={inline ? '!w-20' : '!w-[calc(100%-64px)]'}
-				buttonClass="!right-[68px]"
+				wrapperClass="flex items-center {inline ? '!grow-0' : ''}"
+				inputClass="!border-r-0 !rounded-r-none {inline ? '!w-[90px]' : '!w-[calc(100%-64px)]'}"
+				buttonClass="!right-9"
 				type="number"
 				value={internalValue}
 				on:change={({ detail }) => updateValue(detail)}
 			>
-				<select
-					on:change={({ currentTarget }) => updateUnit(currentTarget.value)}
-					class="!w-[60px]"
+				<Menu
+					let:close
+					noMinW
+					wrapperClasses="h-full bg-white rounded-r-md border-y border-r border-gray-300 pr-0.5"
+					popupClasses="!mt-0"
 				>
-					{#each StylePropertyUnits as unit}
-						<option value={unit}>{unit}</option>
-					{/each}
-				</select>
+					<button
+						slot="trigger"
+						type="button"
+						class="font-normal text-xs px-1 py-1.5 w-8 rounded mt-0.5 duration-200 hover:bg-gray-200/90"
+					>
+						{unit}
+					</button>
+					<ul class="bg-white rounded border py-1 overflow-auto">
+						{#each StylePropertyUnits as u}
+							<li class="w-full">
+								<Button
+									type="button"
+									color="light"
+									size="xs"
+									variant="contained"
+									btnClasses="!justify-start !rounded-none !w-full !px-3 !py-1.5"
+									on:click={() => {
+										updateUnit(u)
+										close()
+									}}
+								>
+									{u}
+								</Button>
+							</li>
+						{/each}
+					</ul>
+				</Menu>
 			</ClearableInput>
 		{:else if type === StylePropertyType.text}
 			{#each prop.value?.['options'] || [] as option}

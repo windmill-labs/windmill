@@ -9,6 +9,7 @@
 	export let variant: ButtonType.Variant = 'contained'
 	export let mainClasses: string = ''
 	export let toggleClasses: string = ''
+	export let listClasses: string = ''
 	export let disabled: boolean = false
 	export let href: string | undefined = undefined
 	export let target: ButtonType.Target = '_self'
@@ -64,14 +65,16 @@
 {#if ref}
 	<Popup
 		{ref}
+		let:open
+		let:close
 		options={{
 			placement: $$slots.main ? 'bottom-end' : 'bottom',
 			strategy: 'absolute',
 			modifiers: [{ name: 'offset', options: { offset: [0, 0] } }]
 		}}
 	>
-		<ul class="bg-white rounded-t border pt-1 pb-2 max-h-40 overflow-auto">
-			<slot />
+		<ul class="bg-white rounded-t border pt-1 pb-2 max-h-40 overflow-auto {listClasses}">
+			<slot {open} {close} />
 		</ul>
 	</Popup>
 {/if}
