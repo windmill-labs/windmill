@@ -18,11 +18,16 @@
 	const dispatch = createEventDispatcher()
 	const key = prop.key
 	const type = prop.value?.['type']
-	let internalValue = value
 	let unit: (typeof StylePropertyUnits)[number] = StylePropertyUnits[0]
+	let internalValue: string
 
-	$: value = internalValue ? internalValue + unit : ''
+	$: internalValue = value?.replace(unit, '') || ''
 	$: dispatch('change', value)
+
+	function updateUnit(next: (typeof StylePropertyUnits)[number]) {
+		value = value?.replace(unit, next) || ''
+		unit = next
+	}
 </script>
 
 <div class={inline && type !== StylePropertyType.color ? '' : 'w-full'}>
@@ -56,10 +61,13 @@
 				inputClass={inline ? '!w-20' : '!w-[calc(100%-64px)]'}
 				buttonClass="!right-[68px]"
 				type="number"
-				value={value ? internalValue : ''}
-				on:change={({ detail }) => (internalValue = detail)}
+				value={internalValue}
+				on:change={({ detail }) => (value = detail + unit)}
 			>
-				<select bind:value={unit} class="!w-[60px]">
+				<select
+					on:change={({ currentTarget }) => updateUnit(currentTarget.value)}
+					class="!w-[60px]"
+				>
 					{#each StylePropertyUnits as unit}
 						<option value={unit}>{unit}</option>
 					{/each}

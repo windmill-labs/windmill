@@ -11,7 +11,7 @@
 	export let buttonClass = ''
 	const dispatch = createEventDispatcher()
 
-	$: isNumeric = type.match(/^(number|range)$/)
+	$: isNumeric = ['number', 'range'].includes(type)
 	$: dispatch('change', value)
 
 	function handleInput(e) {
@@ -19,7 +19,7 @@
 	}
 
 	function clear() {
-		value = isNumeric ? null : ''
+		value = '' // isNumeric ? undefined : ''
 	}
 </script>
 
