@@ -257,7 +257,9 @@
 								<div slot="content" class="h-full overflow-y-auto">
 									<TabContent class="overflow-auto h-full" value="settings">
 										{#if $selectedComponent !== undefined}
-											<SettingsPanel />
+											{#key $selectedComponent}
+												<SettingsPanel />
+											{/key}
 										{:else}
 											<div class="min-w-[150px] text-sm text-gray-500 text-center py-8 px-2">
 												Select a component to see the settings&nbsp;for&nbsp;it

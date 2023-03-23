@@ -16,7 +16,6 @@
 		.find(({ script, index }) => `bg_${index}` === $selectedComponent)
 
 	$: componentSettings = findComponentSettings($app, $selectedComponent)
-
 	$: tableActionSettings = findTableActionSettings($app, $selectedComponent)
 
 	function findTableActionSettings(app: App, id: string | undefined) {
@@ -35,7 +34,7 @@
 	}
 
 	function findComponentSettings(app: App, id: string | undefined) {
-		if (!id) return
+		if (id === undefined || id.includes('bg_')) return undefined
 		if (app?.grid) {
 			const gridItem = app.grid.find((x) => x.data?.id === id)
 			if (gridItem) {
@@ -81,9 +80,7 @@
 			}}
 		/>
 	{/key}
-{/if}
-
-{#if hiddenInlineScript}
+{:else if hiddenInlineScript}
 	<div class="min-h-full flex flex-col divide-y">
 		<PanelSection title={`Configuration`}>
 			<div class="flex items-center">
