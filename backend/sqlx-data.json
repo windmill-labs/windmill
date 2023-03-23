@@ -4853,6 +4853,55 @@
     },
     "query": "UPDATE schedule SET script_path = $1 WHERE script_path = $2 AND workspace_id = $3 AND is_flow IS false RETURNING *"
   },
+  "c076993cd543ed00b4db578b9062eed512f73afc80fcd458207f17e17cde4697": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "workspace_id",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "last_ping",
+          "ordinal": 2,
+          "type_info": "Timestamptz"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "script",
+                  "preview",
+                  "flow",
+                  "dependencies",
+                  "flowpreview",
+                  "script_hub",
+                  "identity",
+                  "flowdependencies"
+                ]
+              },
+              "name": "job_kind"
+            }
+          }
+        ]
+      }
+    },
+    "query": "UPDATE queue SET running = false, started_at = null, logs = logs || '\nRestarted job after not receiving job''s ping for too long the ' || now() || '\n\n' WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 AND same_worker = false RETURNING id, workspace_id, last_ping"
+  },
   "c07c9276945663d062cf0ff5b3323be681a0e2cb07a457ea9aede2daeff551cc": {
     "describe": {
       "columns": [
@@ -5121,55 +5170,6 @@
       }
     },
     "query": "select hash from script where path = $1 AND workspace_id = $2 AND\n    created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2) AND\n    deleted = false"
-  },
-  "cc34f0298cfdaffe892a286e6b4390c287d33298e3342ccd1e10d48a9c3cc5c0": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Uuid"
-        },
-        {
-          "name": "workspace_id",
-          "ordinal": 1,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "last_ping",
-          "ordinal": 2,
-          "type_info": "Timestamptz"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "script",
-                  "preview",
-                  "flow",
-                  "dependencies",
-                  "flowpreview",
-                  "script_hub",
-                  "identity",
-                  "flowdependencies"
-                ]
-              },
-              "name": "job_kind"
-            }
-          }
-        ]
-      }
-    },
-    "query": "UPDATE queue SET running = false WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 AND same_worker = false RETURNING id, workspace_id, last_ping"
   },
   "d0308abac80575038203b60bb66d3b39b586939da0421a595e47c7a759616431": {
     "describe": {

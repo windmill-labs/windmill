@@ -42,7 +42,7 @@ async fn main() -> anyhow::Result<()> {
 
     let server_bind_address: IpAddr = std::env::var("SERVER_BIND_ADDR")
         .ok()
-        .and_then(|x| x.parse().ok() )
+        .and_then(|x| x.parse().ok())
         .unwrap_or(IpAddr::from(DEFAULT_SERVER_BIND_ADDR));
 
     let port: u16 = std::env::var("PORT")
@@ -162,6 +162,8 @@ Windmill Community Edition {GIT_VERSION}
         };
 
         futures::try_join!(shutdown_signal, server_f, metrics_f, workers_f, monitor_f)?;
+    } else {
+        tracing::info!("Nothing to do, exiting.");
     }
     Ok(())
 }

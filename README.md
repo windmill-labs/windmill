@@ -26,7 +26,8 @@ Open-source developer infrastructure for internal tools. Self-hostable alternati
 
 # Windmill - Turn scripts into workflows and UIs that you can share and run at scale
 
-Windmill is <b>fully open-sourced (AGPLv3)</b> and Windmill Labs offers dedicated instance and commercial support and licenses.
+Windmill is <b>fully open-sourced (AGPLv3)</b> and Windmill Labs offers
+dedicated instance and commercial support and licenses.
 
 ![Windmill Diagram](/imgs/stacks.svg)
 
@@ -74,7 +75,7 @@ https://user-images.githubusercontent.com/275584/218350457-bc2fdc3b-e667-4da5-a2
 4. Build complex UI on top of your scripts and flows.
    ![Step 5](./imgs/windmill-builder.png)
 
-Scripts and flows can also be triggered by a cron schedule '*/5 * * * *' or
+Scripts and flows can also be triggered by a cron schedule '_/5 _ \* \* \*' or
 through webhooks.
 
 You can build your entire infra on top of Windmill!
@@ -82,46 +83,49 @@ You can build your entire infra on top of Windmill!
 ## Show me some actual script code
 
 ```typescript
-import * as wmill from "https://deno.land/x/windmill@v1.62.0/mod.ts"
+import * as wmill from "https://deno.land/x/windmill@v1.62.0/mod.ts";
 //import any dependency  from npm
 
-import cowsay from 'npm:cowsay@1.5.0'
+import cowsay from "npm:cowsay@1.5.0";
 
 export async function main(
-    a: number,
-    // unions generate enums
-    b: "my" | "enum",
-    // default parameters prefill the field 
-    d = "default arg",
-    // nested objects work c = { nested: "object" }, 
-    // permissioned and typed json
-    db: wmill.Resource<"postgresql">) {
+  a: number,
+  // unions generate enums
+  b: "my" | "enum",
+  // default parameters prefill the field
+  d = "default arg",
+  // nested objects work c = { nested: "object" },
+  // permissioned and typed json
+  db: wmill.Resource<"postgresql">
+) {
+  const email = Deno.env.get("WM_EMAIL");
+  // variables are permissioned and by path
+  let variable = await wmill.getVariable("f/company-folder/my_secret");
+  const lastTimeRun = await wmill.getState();
+  // logs are printed and always inspectable
+  console.log(cowsay.say({ text: "hello " + email + " " + lastTimeRun }));
+  await wmill.setState(Date.now());
 
-    const email = Deno.env.get('WM_EMAIL')
-    // variables are permissioned and by path
-    let variable = await wmill.getVariable('f/company-folder/my_secret')
-    const lastTimeRun = await wmill.getState()
-    // logs are printed and always inspectable
-    console.log(cowsay.say({ text: "hello " + email + " " + lastTimeRun }))
-    await wmill.setState(Date.now())
-
-    // return is serialized as JSON
-    return { foo: d, variable };
+  // return is serialized as JSON
+  return { foo: d, variable };
 }
 ```
 
 ## CLI
 
 We have a powerful CLI to interact with the windmill platform and sync your
-scripts from local files, github repos and to run scripts and flows on the instance from local commands. See
+scripts from local files, github repos and to run scripts and flows on the
+instance from local commands. See
 [more details](https://github.com/windmill-labs/windmill/tree/main/cli)
 
 ![CLI Screencast](./cli/vhs/output/setup.gif)
 
-
 ### Running scripts locally
 
-You can run your script locally easily, you simply need to pass the right environment variables for the `wmill` client library to fetch resource and variables from your instance if necessary. See more: <https://docs.windmill.dev/docs/advanced/local_development/>
+You can run your script locally easily, you simply need to pass the right
+environment variables for the `wmill` client library to fetch resource and
+variables from your instance if necessary. See more:
+<https://docs.windmill.dev/docs/advanced/local_development/>
 
 ## Stack
 
@@ -187,7 +191,6 @@ compiling from source or using without a postgres super user, see
 
 Go to http://localhost et voilà :)
 
-
 The default super-admin user is: admin@windmill.dev / changeme
 
 From there, you can create other users (do not forget to change the password!)
@@ -199,9 +202,9 @@ We publish helm charts at:
 
 ### Postgres without superuser
 
-If you do not want, or cannot (for instance, in AWS Aurora or Cloud sql) use a postgres superuser,
-you can run `./init-db-as-superuser.sql` to init the required users for windmill.
-
+If you do not want, or cannot (for instance, in AWS Aurora or Cloud sql) use a
+postgres superuser, you can run `./init-db-as-superuser.sql` to init the
+required users for windmill.
 
 ### Commercial license
 
@@ -275,8 +278,8 @@ You may also add your own custom OAuth2 IdP and OAuth2 Resource provider:
 ### Resource types
 
 You will also want to import all the approved resource types from
-[WindmillHub](https://hub.windmill.dev). A setup script will prompt
-you to have it being synced automatically everyday.
+[WindmillHub](https://hub.windmill.dev). A setup script will prompt you to have
+it being synced automatically everyday.
 
 ## Environment Variables
 
@@ -285,14 +288,16 @@ you to have it being synced automatically everyday.
 | DATABASE_URL              |                        | The Postgres database url.                                                                                                                                                                         | All                   |
 | DISABLE_NSJAIL            | true                   | Disable Nsjail Sandboxing                                                                                                                                                                          | Worker                |
 | SERVER_BIND_ADDR          | 0.0.0.0                | IP Address on which to bind listening socket                                                                                                                                                       | Server                |
-| PORT                      | 8000                   | Exposed port                                                                                                                                                                                       | Server                |  |
+| PORT                      | 8000                   | Exposed port                                                                                                                                                                                       | Server                |
 | NUM_WORKERS               | 3                      | The number of worker per Worker instance (set to 1 on Eks to have 1 pod = 1 worker, set to 0 for an API only instance)                                                                             | Worker                |
 | DISABLE_SERVER            | false                  | Binary would operate as a worker only instance                                                                                                                                                     | Worker                |
 | METRICS_ADDR              | None                   | The socket addr at which to expose Prometheus metrics at the /metrics path. Set to "true" to expose it on port 8001                                                                                | All                   |
 | JSON_FMT                  | false                  | Output the logs in json format instead of logfmt                                                                                                                                                   | All                   |
 | BASE_URL                  | http://localhost:8000  | The base url that is exposed publicly to access your instance                                                                                                                                      | Server                |
 | BASE_INTERNAL_URL         | http://localhost:8000  | The base url that is reachable by your workers to talk to the Servers. This help avoiding going through the external load balancer for VPC-internal requests.                                      | Worker                |
-| TIMEOUT                   | 300                    | The timeout in seconds for the execution of a script                                                                                                                                               | Worker                |
+| TIMEOUT                   | 300                    | The maximum time of execution of a script. When reached, the job is failed as having timedout.                                                                                                     | Worker                |
+| ZOMBIE_JOB_TIMEOUT        | 30                     | The timeout after which a job is considered to be zombie if the worker did not send pings about processing the job (every server check for zombie jobs every 30s)                                  | Server                |
+| RESTART_ZOMBIE_JOBS       | true                   | If true then a zombie job is restarted (in-place with the same uuid and some logs), if false the zombie job is failed                                                                              | Server                |
 | SLEEP_QUEUE               | 50                     | The number of ms to sleep in between the last check for new jobs in the DB. It is multiplied by NUM_WORKERS such that in average, for one worker instance, there is one pull every SLEEP_QUEUE ms. | Worker                |
 | MAX_LOG_SIZE              | 500000                 | The maximum number of characters a job can emit (log + result)                                                                                                                                     | Worker                |
 | DISABLE_NUSER             | false                  | If Nsjail is enabled, disable the nsjail's `clone_newuser` setting                                                                                                                                 | Worker                |
@@ -301,7 +306,7 @@ you to have it being synced automatically everyday.
 | S3_CACHE_BUCKET (EE only) | None                   | The S3 bucket to sync the cache of the workers to                                                                                                                                                  | Worker                |
 | TAR_CACHE_RATE (EE only)  | 100                    | The rate at which to tar the cache of the workers. 100 means every 100th job in average (uniformly randomly distributed).                                                                          | Worker                |
 | SLACK_SIGNING_SECRET      | None                   | The signing secret of your Slack app. See [Slack documentation](https://api.slack.com/authentication/verifying-requests-from-slack)                                                                | Server                |
-| COOKIE_DOMAIN             | None                   | The domain of the cookie. If not set, the cookie will be set by the browser based on the full origin                                                                                               | Server                |  |
+| COOKIE_DOMAIN             | None                   | The domain of the cookie. If not set, the cookie will be set by the browser based on the full origin                                                                                               | Server                |
 | DENO_PATH                 | /usr/bin/deno          | The path to the deno binary.                                                                                                                                                                       | Worker                |
 | PYTHON_PATH               | /usr/local/bin/python3 | The path to the python binary.                                                                                                                                                                     | Worker                |
 | GO_PATH                   | /usr/bin/go            | The path to the go binary.                                                                                                                                                                         | Worker                |
