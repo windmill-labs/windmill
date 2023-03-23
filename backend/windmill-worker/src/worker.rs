@@ -2721,7 +2721,7 @@ pub async fn handle_zombie_jobs_periodically(
         handle_zombie_jobs(db, base_internal_url).await;
 
         tokio::select! {
-            _ = tokio::time::sleep(Duration::from_secs(2))    => (),
+            _ = tokio::time::sleep(Duration::from_secs(30))    => (),
             _ = rx.recv() => {
                     println!("received killpill for monitor job");
                     break;
