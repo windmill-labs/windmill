@@ -6,6 +6,7 @@
 	import {
 		createStyleStore,
 		StylePropertyType,
+		StylePropertyUnits,
 		STYLE_STORE_KEY,
 		type StylePropertyKey,
 		type TopColors
@@ -17,7 +18,7 @@
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 	const styleStore = createStyleStore(properties)
 	setContext(STYLE_STORE_KEY, styleStore)
-	let multiValues: Record<number, string[]> = getMultiValues()
+	let multiValues: Record<number, string[]> = initiateMultiValues()
 	let mounted = false
 
 	$: mounted && $styleStore && writeStyle()
@@ -27,27 +28,23 @@
 	function parseStyle() {
 		styleStore.resetStyle()
 		if (!value) {
-			multiValues = getMultiValues()
+			multiValues = initiateMultiValues()
 			return
 		}
 		const current = parse(value) || {}
 		Object.entries(current).forEach(([k, v]) => {
-			styleStore.updateProp(k as StylePropertyKey, v)
+			styleStore.updatePropValue(k as StylePropertyKey, v)
 			const { prop, index } = styleStore.getProp(k as StylePropertyKey)
-			console.log({ prop, index })
 			if (Array.isArray(prop.prop?.value) && index !== undefined) {
-				// const l = multiValues[index].length
-				const vArray = v.split(' ')
-				console.log(vArray)
-				multiValues[index] = multiValues[index].map((v, i) => {
-					return vArray[i] || v || ''
-				})
-				// multiValues[index] = Array.from({ length: l }, (_, i) => {
-				// 	return vArray[i] || ''
-				// })
+				const valueArray = v.split(' ')
+				// const unwantedValues = [
+				// 	'0',
+				// 	...StylePropertyUnits.map(u => `0${u}`)
+				// ]
+				// debugger
+				multiValues[index] = multiValues[index].map((v, i) => valueArray[i] || v)
 			}
 		})
-		multiValues = multiValues
 		setTopColors()
 	}
 
@@ -56,7 +53,9 @@
 		$styleStore.style.forEach((s) => {
 			current[s.prop.key] = convertValue(s.value)
 		})
-		value = Object.entries(current).reduce((style, [k, v]) => {
+		const entries = Object.entries(current)
+		// debugger
+		value = entries.reduce((style, [k, v]) => {
 			return v ? `${style} ${k}: ${v}; `.trim() : style
 		}, '')
 	}
@@ -79,6 +78,9 @@
 		parsedStyles.forEach((style) => {
 			Object.values(style).reduce((colors, v) => {
 				// TODO: support RGB and HSL colors as well
+
+				// Splitting is needed so colors can be extracted
+				// from values like '1px solid #000000'
 				v.split(' ').forEach((v) => {
 					if (isValidHexColor(v)) {
 						colors[v] = (colors[v] || 0) + 1
@@ -118,32 +120,34 @@
 		return styles
 	}
 
-	function getMultiValues() {
-		return $styleStore.style.reduce((prev, curr, i) => {
+	function initiateMultiValues() {
+		return $styleStore.style.reduce((acc, curr, i) => {
 			if (Array.isArray(curr.prop.value)) {
-				prev[i] = Array.from({ length: curr.prop.value.length }, () => {
+				acc[i] = Array.from({ length: curr.prop.value.length }, () => {
 					return ''
 				})
 			}
-			return prev
+			return acc
 		}, {})
 	}
 
 	function setMultiValueProperty(index: number) {
-		if (multiValues[index].every((v) => !v)) {
+		if (multiValues[index].every((v) => !v || +v === 0 || StylePropertyUnits.includes(v))) {
 			$styleStore.style[index].value = ''
 			return
 		}
 		const values = multiValues[index].map((v, i) => {
+			v = StylePropertyUnits.includes(v) ? '' : v
 			const type = $styleStore.style[index].prop.value[i].type
 			if (v) {
+				multiValues[index][i] = v
 				return v
 			} else if (type === StylePropertyType.color) {
 				return '#000000'
 			} else if (type === StylePropertyType.number) {
-				return '0'
+				return 0
 			} else if (type === StylePropertyType.unit) {
-				return '0'
+				return 0
 			} else if (type === StylePropertyType.text) {
 				const options = $styleStore.style[index].prop.value[i].options
 				return options ? options[0].text : ''

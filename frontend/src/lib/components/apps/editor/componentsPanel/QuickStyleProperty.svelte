@@ -19,10 +19,14 @@
 	const key = prop.key
 	const type = prop.value?.['type']
 	let unit: (typeof StylePropertyUnits)[number] = StylePropertyUnits[0]
-	let internalValue: string
+	let internalValue: number | string
 
-	$: internalValue = value?.replace(unit, '') || ''
+	$: internalValue = value ? +value.replace(unit, '') : ''
 	$: dispatch('change', value)
+
+	function updateValue(next: number) {
+		value = next ? next + unit : ''
+	}
 
 	function updateUnit(next: (typeof StylePropertyUnits)[number]) {
 		value = value?.replace(unit, next) || ''
@@ -62,7 +66,7 @@
 				buttonClass="!right-[68px]"
 				type="number"
 				value={internalValue}
-				on:change={({ detail }) => (value = detail + unit)}
+				on:change={({ detail }) => updateValue(detail)}
 			>
 				<select
 					on:change={({ currentTarget }) => updateUnit(currentTarget.value)}

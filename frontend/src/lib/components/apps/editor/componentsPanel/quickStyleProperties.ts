@@ -20,8 +20,7 @@ import {
 	Type,
 	Underline
 } from 'lucide-svelte'
-import type { AppCssItemName } from '../../types'
-import type { AppComponent, components } from '../component'
+import type { components } from '../component'
 
 export const STYLE_STORE_KEY = 'style_store' as const
 
@@ -48,7 +47,7 @@ export function createStyleStore(properties: StylePropertyKey[]) {
 		subscribe: store.subscribe,
 		set: store.set,
 		update: store.update,
-		updateProp: (key: StylePropertyKey, value?: string) => {
+		updatePropValue: (key: StylePropertyKey, value?: string) => {
 			if (!key) {
 				return
 			}
