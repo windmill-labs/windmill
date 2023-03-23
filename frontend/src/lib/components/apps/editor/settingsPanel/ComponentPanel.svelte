@@ -17,10 +17,10 @@
 	import AlignmentEditor from './AlignmentEditor.svelte'
 	import RunnableInputEditor from './inputEditor/RunnableInputEditor.svelte'
 	import TemplateEditor from '$lib/components/TemplateEditor.svelte'
-	import { ccomponents, components, type AppComponent } from '../component'
+	import { ccomponents, type AppComponent } from '../component'
 	import CssProperty from '../componentsPanel/CssProperty.svelte'
 	import GridTab from './GridTab.svelte'
-	import { deleteGridItem } from '../appUtils'
+	import { clearErrorByComponentId, clearJobsByComponentId, deleteGridItem } from '../appUtils'
 	import GridPane from './GridPane.svelte'
 	import { slide } from 'svelte/transition'
 	import { push } from '$lib/history'
@@ -35,8 +35,17 @@
 
 	let editor: TemplateEditor | undefined = undefined
 
-	const { app, runnableComponents, selectedComponent, worldStore, focusedGrid, stateId, state } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const {
+		app,
+		runnableComponents,
+		selectedComponent,
+		worldStore,
+		focusedGrid,
+		stateId,
+		state,
+		errorByComponent,
+		jobs
+	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const { history, ontextfocus } = getContext<AppEditorContext>('AppEditorContext')
 
@@ -44,6 +53,10 @@
 
 	function removeGridElement() {
 		push(history, $app)
+
+		$errorByComponent = clearErrorByComponentId(component.id, $errorByComponent)
+		$jobs = clearJobsByComponentId(component.id, $jobs)
+
 		$selectedComponent = undefined
 		$focusedGrid = undefined
 		if (component && !noGrid) {
