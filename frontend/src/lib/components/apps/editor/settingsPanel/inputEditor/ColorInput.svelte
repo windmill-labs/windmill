@@ -24,7 +24,7 @@
 </div>
 
 <style global>
-	.color-picker-input span > label.svelte-rogbpz {
+	.color-picker-input span > label {
 		display: none;
 	}
 
