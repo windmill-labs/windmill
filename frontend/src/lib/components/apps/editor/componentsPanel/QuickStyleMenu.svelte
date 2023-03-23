@@ -37,11 +37,6 @@
 			const { prop, index } = styleStore.getProp(k as StylePropertyKey)
 			if (Array.isArray(prop.prop?.value) && index !== undefined) {
 				const valueArray = v.split(' ')
-				// const unwantedValues = [
-				// 	'0',
-				// 	...StylePropertyUnits.map(u => `0${u}`)
-				// ]
-				// debugger
 				multiValues[index] = multiValues[index].map((v, i) => valueArray[i] || v)
 			}
 		})
@@ -54,7 +49,6 @@
 			current[s.prop.key] = convertValue(s.value)
 		})
 		const entries = Object.entries(current)
-		// debugger
 		value = entries.reduce((style, [k, v]) => {
 			return v ? `${style} ${k}: ${v}; `.trim() : style
 		}, '')

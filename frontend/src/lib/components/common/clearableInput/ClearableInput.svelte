@@ -19,7 +19,7 @@
 	}
 
 	function clear() {
-		value = '' // isNumeric ? undefined : ''
+		value = ''
 	}
 </script>
 
