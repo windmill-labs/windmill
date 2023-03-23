@@ -142,8 +142,6 @@ export const StyleProperty = [
 			}
 		]
 	},
-	// 'margin'
-	// 'box-shadow'
 	{
 		key: 'opacity',
 		value: {
@@ -238,6 +236,31 @@ export const StyleProperty = [
 		value: {
 			type: StylePropertyType.unit
 		}
+	},
+	{
+		key: 'box-shadow',
+		value: [
+			{
+				type: StylePropertyType.unit,
+				title: 'offset-x'
+			},
+			{
+				type: StylePropertyType.unit,
+				title: 'offset-y'
+			},
+			{
+				type: StylePropertyType.unit,
+				title: 'blur'
+			},
+			{
+				type: StylePropertyType.unit,
+				title: 'spread'
+			},
+			{
+				type: StylePropertyType.color,
+				title: 'color'
+			}
+		]
 	},
 	{
 		key: 'background-color',
@@ -395,9 +418,6 @@ export const StyleProperty = [
 			]
 		}
 	}
-	// 'white-space'
-	// 'transition'
-	// 'scroll-behavior':
 ] as const
 
 const allDefaultProps = StyleProperty.map(({ key }) => key)
@@ -405,14 +425,9 @@ const allDefaultProps = StyleProperty.map(({ key }) => key)
 const containerDefaultProps: StylePropertyKey[] = [
 	'padding',
 	'opacity',
-	'width',
-	'min-width',
-	'max-width',
-	'height',
-	'min-height',
-	'max-height',
 	'border',
 	'border-radius',
+	'box-shadow',
 	'background-color',
 	'overflow'
 ]
@@ -455,6 +470,7 @@ const buttonDefaultProps: StylePropertyKey[] = [
 	'max-height',
 	'border',
 	'border-radius',
+	'box-shadow',
 	'background-color',
 	...textDefaultProps,
 	'overflow'
