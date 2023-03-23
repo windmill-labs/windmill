@@ -568,3 +568,56 @@ export function recursivelyFilterKeyInJSON(
 	})
 	return filteredJSON
 }
+
+export function clearErrorByComponentId(
+	id: string,
+	errorByComponent: Record<
+		string,
+		{
+			error: string
+			componentId: string
+		}
+	>
+) {
+	return Object.entries(errorByComponent).reduce((acc, [key, value]) => {
+		if (value.componentId !== id) {
+			acc[key] = value
+		}
+		return acc
+	}, {})
+}
+
+export function clearJobsByComponentId(
+	id: string,
+	jobs: {
+		job: string
+		component: string
+	}[]
+) {
+	return jobs.filter((job) => job.component !== id)
+}
+
+// Returns the error message for the latest job for a component if an error occurred, otherwise undefined
+export function getErrorFromLatestResult(
+	id: string,
+	errorByComponent: Record<
+		string, // job id
+		{
+			error: string
+			componentId: string
+		}
+	>,
+	jobs: {
+		job: string
+		component: string
+	}[]
+) {
+	// find last jobId for component id
+	const lastJob = jobs.find((job) => job.component === id)
+
+	if (lastJob?.job && errorByComponent[lastJob.job]) {
+		return errorByComponent[lastJob.job].error
+	} else {
+		return undefined
+	}
+}

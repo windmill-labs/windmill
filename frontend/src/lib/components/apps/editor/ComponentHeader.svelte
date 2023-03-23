@@ -7,6 +7,7 @@
 	import { Alert, Button } from '$lib/components/common'
 	import type { AppComponent } from './component'
 	import { twMerge } from 'tailwind-merge'
+	import { getErrorFromLatestResult } from './appUtils'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -15,9 +16,9 @@
 
 	const dispatch = createEventDispatcher()
 
-	const { errorByComponent, openDebugRun } = getContext<AppViewerContext>('AppViewerContext')
+	const { errorByComponent, openDebugRun, jobs } = getContext<AppViewerContext>('AppViewerContext')
 
-	$: error = Object.values($errorByComponent).find((e) => e.componentId === component.id)
+	$: error = getErrorFromLatestResult(component.id, $errorByComponent, $jobs)
 
 	function openDebugRuns() {
 		if ($openDebugRun) {
@@ -84,7 +85,7 @@
 {/if}
 
 {#if error}
-	{@const json = JSON.parse(JSON.stringify(error.error))}
+	{@const json = JSON.parse(JSON.stringify(error))}
 	<span
 		title="Error"
 		class={classNames(
@@ -99,9 +100,9 @@
 					<Alert type="error" title={`${json?.name}: ${json?.message}`}>
 						<div class="flex flex-col gap-2">
 							<div>
-								<pre class=" whitespace-pre-wrap text-gray-900 bg-white border w-full p-4 text-xs"
-									>{json?.stack ?? ''}
-									</pre>
+								<pre class=" whitespace-pre-wrap text-gray-900 bg-white border w-full p-4 text-xs">
+									{json?.stack ?? ''}	
+								</pre>
 							</div>
 							<Button color="red" variant="border" on:click={openDebugRuns}>Open Debug Runs</Button>
 						</div>
