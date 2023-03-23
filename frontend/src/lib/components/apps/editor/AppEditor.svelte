@@ -23,8 +23,7 @@
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 	import { Alert, Button, Tab } from '$lib/components/common'
 	import ComponentList from './componentsPanel/ComponentList.svelte'
-	import Icon from 'svelte-awesome'
-	import { faCode, faPlus, faSliders } from '@fortawesome/free-solid-svg-icons'
+	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
 	import { classNames, encodeState } from '$lib/utils'
 	import AppPreview from './AppPreview.svelte'
@@ -41,7 +40,7 @@
 	import ComponentNavigation from './component/ComponentNavigation.svelte'
 	import ItemPicker from '$lib/components/ItemPicker.svelte'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
-	import { secondaryMenu, SecondaryMenu } from './settingsPanel/secondaryMenu'
+	import { SecondaryMenu } from './settingsPanel/secondaryMenu'
 	import { Component, Paintbrush, Plus } from 'lucide-svelte'
 
 	export let app: App
