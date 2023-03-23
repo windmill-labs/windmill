@@ -153,3 +153,4 @@ async-stripe = { version = "0.14", features = [
     "checkout",
 ] }
 async_zip = { version = "0.0.11", features = ["full"] }
+once_cell = "1.17.1"

@@ -48,3 +48,4 @@ deno_core.workspace = true
 const_format.workspace = true
 git-version.workspace = true
 dyn-iter.workspace = true
+once_cell.workspace = true

@@ -9,8 +9,10 @@
 use const_format::concatcp;
 use itertools::Itertools;
 use lazy_static::lazy_static;
+use once_cell::sync::OnceCell;
 use regex::Regex;
 use sqlx::{Pool, Postgres, Transaction};
+use windmill_api_client::Client;
 use std::{
     borrow::Borrow, collections::HashMap, io, os::unix::process::ExitStatusExt, panic,
     process::Stdio, time::Duration,
@@ -34,7 +36,7 @@ use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     process::{Child, Command},
     sync::{
-        mpsc::{self, Sender},  watch, broadcast,
+        mpsc::{self, Sender},  watch, broadcast
     },
     time::{interval, sleep, Instant, MissedTickBehavior},
 };
@@ -389,8 +391,8 @@ lazy_static::lazy_static! {
         .ok()
         .and_then(|x| x.parse::<u16>().ok())
         .unwrap_or(DEFAULT_TIMEOUT as u16);
+    
     static ref TIMEOUT_DURATION: Duration = Duration::from_secs(*TIMEOUT as u64);
-
 
     static ref ZOMBIE_JOB_TIMEOUT: String = (*TIMEOUT as u32 * 5).to_string();
 
@@ -400,6 +402,21 @@ lazy_static::lazy_static! {
 //only matter if CLOUD_HOSTED
 const MAX_RESULT_SIZE: usize = 1024 * 1024 * 2; // 2MB
 
+#[derive(Clone)]
+pub struct AuthedClient {
+    pub base_internal_url: String,
+    pub workspace: String,
+    pub token: String,
+    pub client: OnceCell<Client>
+}
+
+impl AuthedClient {
+    pub fn get_client(&self) -> &Client {
+        return self.client.get_or_init(|| {
+            windmill_api_client::create_client(&self.base_internal_url, self.token.clone())
+        });
+    }
+}
 
 
 #[tracing::instrument(level = "trace")]
@@ -669,13 +686,13 @@ pub async fn run_worker(
                     )
                     .await.expect("could not create job token");
                     tx.commit().await.expect("could not commit job token");
-                    let job_client = windmill_api_client::create_client(base_internal_url, token.clone());
+                    let authed_client = AuthedClient { base_internal_url: base_internal_url.to_string(), token: token.clone(), workspace: job.workspace_id.to_string(), client: OnceCell::new() };
                     let is_flow = job.job_kind == JobKind::Flow || job.job_kind == JobKind::FlowPreview || job.job_kind == JobKind::FlowDependencies;
 
                     if let Some(err) = handle_queued_job(
                         job.clone(),
                         db,
-                        &job_client,
+                        &authed_client,
                         token,
                         &worker_name,
                         &worker_dir,
@@ -689,7 +706,7 @@ pub async fn run_worker(
                     {
                         handle_job_error(
                             db,
-                            &job_client,
+                            &authed_client,
                             job,
                             err,
                             Some(metrics),
@@ -733,7 +750,7 @@ pub async fn run_worker(
 
 async fn handle_job_error(
     db: &Pool<Postgres>,
-    client: &windmill_api_client::Client,
+    client: &AuthedClient,
     job: QueuedJob,
     err: Error,
     metrics: Option<Metrics>,
@@ -832,7 +849,7 @@ fn extract_error_value(log_lines: &str) -> serde_json::Value {
 async fn handle_queued_job(
     job: QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    client: &windmill_api_client::Client,
+    client: &AuthedClient,
     token: String,
     worker_name: &str,
     worker_dir: &str,
@@ -1012,14 +1029,14 @@ async fn write_file(dir: &str, path: &str, content: &str) -> error::Result<File>
 #[async_recursion]
 async fn transform_json_value(
     name: &str,
-    client: &windmill_api_client::Client,
+    client: &AuthedClient,
     workspace: &str,
     v: Value,
 ) -> error::Result<Value> {
     match v {
         Value::String(y) if y.starts_with("$var:") => {
             let path = y.strip_prefix("$var:").unwrap();
-            let v = client
+            let v = client.get_client()
                 .get_variable(workspace, path, Some(true))
                 .await
                 .map_err(|_| Error::NotFound(format!("Variable {path} not found for `{name}`")))
@@ -1035,7 +1052,7 @@ async fn transform_json_value(
                     "Argument `{name}` is an invalid resource path: {path}",
                 )));
             }
-            let v = client
+            let v = client.get_client()
                 .get_resource_value(workspace, path)
                 .await
                 .map_err(|_| Error::NotFound(format!("Resource {path} not found for `{name}`")))?
@@ -1059,7 +1076,7 @@ async fn transform_json_value(
 async fn handle_code_execution_job(
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    client: &windmill_api_client::Client,
+    client: &AuthedClient,
     token: String,
     job_dir: &str,
     worker_dir: &str,
@@ -1205,7 +1222,7 @@ async fn handle_go_job(
     logs: &mut String,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    client: &windmill_api_client::Client,
+    client: &AuthedClient,
     token: String,
     inner_content: &str,
     job_dir: &str,
@@ -1505,7 +1522,7 @@ async fn handle_deno_job(
     logs: &mut String,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    client: &windmill_api_client::Client,
+    client: &AuthedClient,
     token: String,
     job_dir: &str,
     inner_content: &String,
@@ -1648,7 +1665,7 @@ run().catch(async (e) => {{
 
 #[tracing::instrument(level = "trace", skip_all)]
 async fn create_args_and_out_file(
-    client: &windmill_api_client::Client,
+    client: &AuthedClient,
     job: &QueuedJob,
     job_dir: &str,
 ) -> Result<(), Error> {
@@ -1676,7 +1693,7 @@ async fn handle_python_job(
     job: &QueuedJob,
     logs: &mut String,
     db: &sqlx::Pool<sqlx::Postgres>,
-    client: &windmill_api_client::Client,
+    client: &AuthedClient,
     token: String,
     inner_content: &String,
     shared_mount: &str,
@@ -2756,7 +2773,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str) {
         .await
         .expect("could not create job token");
         tx.commit().await.expect("could not commit job token");
-        let client = windmill_api_client::create_client(base_internal_url, token.clone());
+        let client = AuthedClient { base_internal_url: base_internal_url.to_string(), token: token.clone(), workspace: job.workspace_id.to_string(), client: OnceCell::new() };
 
         let _ = handle_job_error(
             db,
