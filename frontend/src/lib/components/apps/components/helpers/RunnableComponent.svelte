@@ -244,6 +244,8 @@
 	}
 
 	async function setResult(res: any) {
+		const hasRes = res !== undefined && res !== null
+
 		if (transformer) {
 			$worldStore.newOutput(id, 'raw', res)
 			res = await eval_like(
@@ -255,7 +257,18 @@
 				$componentControl,
 				$worldStore
 			)
+
+			if (hasRes && res === undefined) {
+				res = {
+					error: {
+						name: 'TransformerError',
+						message: 'An error occured in the transformer',
+						stack: 'Transformer returned undefined'
+					}
+				}
+			}
 		}
+
 		outputs.result?.set(res)
 
 		result = res
