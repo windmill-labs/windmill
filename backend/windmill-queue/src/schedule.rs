@@ -19,9 +19,10 @@ use windmill_common::{
 
 use crate::{push, JobPayload};
 
-pub async fn push_scheduled_job<'c>(
+pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection>(
     mut tx: Transaction<'c, Postgres>,
     schedule: Schedule,
+    rsmq: Option<std::sync::Arc<tokio::sync::Mutex<R>>>,
 ) -> Result<Transaction<'c, Postgres>> {
     let sched = cron::Schedule::from_str(&schedule.schedule)
         .map_err(|e| error::Error::BadRequest(e.to_string()))?;
@@ -90,6 +91,7 @@ pub async fn push_scheduled_job<'c>(
         false,
         None,
         true,
+        rsmq,
     )
     .await?;
     sqlx::query!(

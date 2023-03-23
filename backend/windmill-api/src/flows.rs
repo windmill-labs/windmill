@@ -179,6 +179,7 @@ async fn check_path_conflict<'c>(
 async fn create_flow(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
     Json(nf): Json<NewFlow>,
@@ -242,6 +243,7 @@ async fn create_flow(
         false,
         None,
         true,
+        rsmq,
     )
     .await?;
     sqlx::query!(
@@ -283,6 +285,7 @@ async fn check_schedule_conflict<'c>(
 async fn update_flow(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
@@ -351,7 +354,7 @@ async fn update_flow(
             clear_schedule(&mut tx, flow_path, true).await?;
 
             if schedule.enabled {
-                tx = push_scheduled_job(tx, schedule).await?;
+                tx = push_scheduled_job(tx, schedule, rsmq.clone()).await?;
             }
         }
     }
@@ -399,6 +402,7 @@ async fn update_flow(
         false,
         None,
         true,
+        rsmq,
     )
     .await?;
     sqlx::query!(

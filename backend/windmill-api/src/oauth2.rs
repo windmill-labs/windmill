@@ -728,6 +728,7 @@ where
 async fn slack_command(
     SlackSig { sig, ts }: SlackSig,
     Extension(db): Extension<DB>,
+    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
     body: Bytes,
 ) -> error::Result<String> {
     let form: SlackCommand = serde_urlencoded::from_bytes(&body)
@@ -786,6 +787,7 @@ async fn slack_command(
                 false,
                 None,
                 true,
+                rsmq,
             )
             .await?;
             tx.commit().await?;

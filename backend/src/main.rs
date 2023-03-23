@@ -59,6 +59,18 @@ async fn main() -> anyhow::Result<()> {
 
     let db = windmill_common::connect_db(server_mode).await?;
 
+    let rsmq_config = Some(rsmq_async::RsmqOptions { ..Default::default() });
+
+    let rsmq = if let Some(config) = rsmq_config {
+        Some(std::sync::Arc::new(tokio::sync::Mutex::new(
+            rsmq_async::PooledRsmq::new(config, rsmq_async::PoolOptions { ..Default::default() })
+                .await
+                .unwrap(),
+        )))
+    } else {
+        None
+    };
+
     if server_mode {
         windmill_api::migrate_db(&db).await?;
     }
@@ -125,9 +137,10 @@ Windmill Community Edition {GIT_VERSION}
     if server_mode || num_workers > 0 {
         let addr = SocketAddr::from((server_bind_address, port));
 
+        let rsmq2 = rsmq.clone();
         let server_f = async {
             if server_mode {
-                windmill_api::run_server(db.clone(), addr, rx.resubscribe()).await?;
+                windmill_api::run_server(db.clone(), rsmq2, addr, rx.resubscribe()).await?;
             }
             Ok(()) as anyhow::Result<()>
         };
@@ -139,15 +152,17 @@ Windmill Community Edition {GIT_VERSION}
                     rx.resubscribe(),
                     num_workers,
                     base_internal_url.clone(),
+                    rsmq.clone(),
                 )
                 .await?;
             }
             Ok(()) as anyhow::Result<()>
         };
 
+        let rsmq2 = rsmq.clone();
         let monitor_f = async {
             if server_mode {
-                monitor_db(&db, rx.resubscribe(), &base_internal_url);
+                monitor_db(&db, rx.resubscribe(), &base_internal_url, rsmq2);
             }
             Ok(()) as anyhow::Result<()>
         };
@@ -185,10 +200,11 @@ fn display_config(envs: Vec<&str>) {
     )
 }
 
-pub fn monitor_db(
+pub fn monitor_db<R: rsmq_async::RsmqConnection + Send + 'static>(
     db: &Pool<Postgres>,
     rx: tokio::sync::broadcast::Receiver<()>,
     base_internal_url: &str,
+    rsmq: Option<std::sync::Arc<tokio::sync::Mutex<R>>>,
 ) {
     let db1 = db.clone();
     let db2 = db.clone();
@@ -196,16 +212,17 @@ pub fn monitor_db(
     let rx2 = rx.resubscribe();
     let base_internal_url = base_internal_url.to_string();
     tokio::spawn(async move {
-        windmill_worker::handle_zombie_jobs_periodically(&db1, rx, &base_internal_url).await
+        windmill_worker::handle_zombie_jobs_periodically(&db1, rx, &base_internal_url, rsmq).await
     });
     tokio::spawn(async move { windmill_api::delete_expired_items_perdiodically(&db2, rx2).await });
 }
 
-pub async fn run_workers(
+pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + 'static>(
     db: Pool<Postgres>,
     rx: tokio::sync::broadcast::Receiver<()>,
     num_workers: i32,
     base_internal_url: String,
+    rsmq: Option<std::sync::Arc<tokio::sync::Mutex<R>>>,
 ) -> anyhow::Result<()> {
     let license_key = std::env::var("LICENSE_KEY").ok();
     #[cfg(feature = "enterprise")]
@@ -235,6 +252,7 @@ pub async fn run_workers(
         let ip = ip.clone();
         let rx = rx.resubscribe();
         let base_internal_url = base_internal_url.clone();
+        let rsmq2 = rsmq.clone();
         handles.push(tokio::spawn(monitor.instrument(async move {
             tracing::info!(worker = %worker_name, "starting worker");
             windmill_worker::run_worker(
@@ -245,6 +263,7 @@ pub async fn run_workers(
                 &ip,
                 rx,
                 &base_internal_url,
+                rsmq2,
             )
             .await
         })));

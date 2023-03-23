@@ -38,7 +38,7 @@ use windmill_queue::{
 
 #[async_recursion]
 // #[instrument(level = "trace", skip_all)]
-pub async fn update_flow_status_after_job_completion(
+pub async fn update_flow_status_after_job_completion<R: rsmq_async::RsmqConnection + Send>(
     db: &DB,
     client: &AuthedClient,
     flow: uuid::Uuid,
@@ -52,6 +52,7 @@ pub async fn update_flow_status_after_job_completion(
     worker_dir: &str,
     stop_early_override: Option<bool>,
     base_internal_url: &str,
+    rsmq: Option<std::sync::Arc<tokio::sync::Mutex<R>>>,
 ) -> error::Result<()> {
     tracing::debug!("UPDATE FLOW STATUS: {flow:?} {success} {result:?} {w_id}");
 
@@ -431,6 +432,7 @@ pub async fn update_flow_status_after_job_completion(
             flow_job.schedule_path.as_ref().unwrap(),
             flow_job.script_path.as_ref().unwrap(),
             &w_id,
+            rsmq.clone(),
         )
         .await?;
     }
@@ -453,6 +455,7 @@ pub async fn update_flow_status_after_job_completion(
                 logs,
                 canceled_job_to_result(&flow_job),
                 metrics.clone(),
+                rsmq.clone(),
             )
             .await?;
         } else {
@@ -463,6 +466,7 @@ pub async fn update_flow_status_after_job_completion(
                 stop_early && skip_if_stop_early,
                 result.clone(),
                 logs,
+                rsmq.clone(),
             )
             .await?;
         }
@@ -476,6 +480,7 @@ pub async fn update_flow_status_after_job_completion(
             same_worker_tx.clone(),
             worker_dir,
             base_internal_url,
+            rsmq.clone(),
         )
         .await
         {
@@ -486,6 +491,7 @@ pub async fn update_flow_status_after_job_completion(
                     "Unexpected error during flow chaining:\n".to_string(),
                     json!({"message": err.to_string(), "name": "InternalError"}),
                     metrics.clone(),
+                    rsmq.clone(),
                 )
                 .await;
                 true
@@ -518,6 +524,7 @@ pub async fn update_flow_status_after_job_completion(
                     None
                 },
                 base_internal_url,
+                rsmq,
             )
             .await?);
         }
@@ -749,7 +756,7 @@ async fn transform_input(
 }
 
 #[instrument(level = "trace", skip_all)]
-pub async fn handle_flow(
+pub async fn handle_flow<R: rsmq_async::RsmqConnection + Send>(
     flow_job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClient,
@@ -757,6 +764,7 @@ pub async fn handle_flow(
     same_worker_tx: Sender<Uuid>,
     worker_dir: &str,
     base_internal_url: &str,
+    rsmq: Option<std::sync::Arc<tokio::sync::Mutex<R>>>,
 ) -> anyhow::Result<()> {
     let value = flow_job
         .raw_flow
@@ -780,6 +788,7 @@ pub async fn handle_flow(
         same_worker_tx,
         worker_dir,
         base_internal_url,
+        rsmq,
     )
     .await?;
     Ok(())
@@ -787,7 +796,7 @@ pub async fn handle_flow(
 
 #[async_recursion]
 // #[instrument(level = "trace", skip_all)]
-async fn push_next_flow_job(
+async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send>(
     flow_job: &QueuedJob,
     mut status: FlowStatus,
     flow: FlowValue,
@@ -797,6 +806,7 @@ async fn push_next_flow_job(
     same_worker_tx: Sender<Uuid>,
     worker_dir: &str,
     base_internal_url: &str,
+    rsmq: Option<std::sync::Arc<tokio::sync::Mutex<R>>>,
 ) -> error::Result<()> {
     let mut i = usize::try_from(status.step)
         .with_context(|| format!("invalid module index {}", status.step))?;
@@ -827,6 +837,7 @@ async fn push_next_flow_job(
             worker_dir,
             None,
             base_internal_url,
+            rsmq,
         )
         .await;
     }
@@ -997,7 +1008,7 @@ async fn push_next_flow_job(
                 let logs = "Timed out waiting to be resumed".to_string();
                 let result = json!({ "error": {"message": logs, "name": "SuspendedTimeout"}});
                 let _uuid =
-                    add_completed_job(db, &flow_job, success, skipped, result, logs).await?;
+                    add_completed_job(db, &flow_job, success, skipped, result, logs, rsmq).await?;
 
                 return Ok(());
             }
@@ -1260,6 +1271,7 @@ async fn push_next_flow_job(
             continue_on_same_worker,
             err,
             flow_job.visible_to_owner,
+            rsmq.clone(),
         )
         .await?;
         tx = inner_tx;

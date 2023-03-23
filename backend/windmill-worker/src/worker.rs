@@ -427,8 +427,8 @@ impl AuthedClient {
 }
 
 
-#[tracing::instrument(level = "trace")]
-pub async fn run_worker(
+#[tracing::instrument(skip(rsmq), level = "trace")]
+pub async fn run_worker<R: rsmq_async::RsmqConnection + Send>(
     db: &Pool<Postgres>,
     worker_instance: &str,
     worker_name: String,
@@ -436,8 +436,8 @@ pub async fn run_worker(
     ip: &str,
     mut rx: tokio::sync::broadcast::Receiver<()>,
     base_internal_url: &str,
+    rsmq: Option<std::sync::Arc<tokio::sync::Mutex<R>>>,
 ) {
-
     #[cfg(not(feature = "enterprise"))]
     if !*DISABLE_NSJAIL {
         tracing::warn!(
@@ -618,13 +618,14 @@ pub async fn run_worker(
                     },
                     (job, timer) = {
                         let timer = worker_pull_duration.start_timer(); 
-                        pull(&db, WHITELIST_WORKSPACES.clone(), BLACKLIST_WORKSPACES.clone()).map(|x| (x, timer)) } => {
+                        pull(&db, WHITELIST_WORKSPACES.clone(), BLACKLIST_WORKSPACES.clone(), rsmq.clone()).map(|x| (x, timer)) } => {
                         let duration_pull_s = timer.stop_and_record();
                         worker_pull_duration_counter.inc_by(duration_pull_s);
                         (false, job)
                     },
                 }
             }.instrument(trace_span!("worker_get_next_job")).await;
+
             if do_break {
                 return true;
             }
@@ -707,7 +708,8 @@ pub async fn run_worker(
                         &job_dir,
                         metrics.clone(),
                         same_worker_tx.clone(),
-                        base_internal_url
+                        base_internal_url,
+                        rsmq.clone()
                     )
                     .await
                     .err()
@@ -721,7 +723,8 @@ pub async fn run_worker(
                             false,
                             same_worker_tx.clone(),
                             &worker_dir,
-                            base_internal_url
+                            base_internal_url,
+                            rsmq.clone()
                         )
                         .await;
                     };
@@ -756,7 +759,7 @@ pub async fn run_worker(
     }
 }
 
-async fn handle_job_error(
+async fn handle_job_error<R: rsmq_async::RsmqConnection + Send>(
     db: &Pool<Postgres>,
     client: &AuthedClient,
     job: QueuedJob,
@@ -766,12 +769,14 @@ async fn handle_job_error(
     same_worker_tx: Sender<Uuid>,
     worker_dir: &str,
     base_internal_url: &str,
+    rsmq: Option<std::sync::Arc<tokio::sync::Mutex<R>>>,
 ) {
     let err = match err {
         Error::JsonErr(err) => err,
         _ => json!({"message": err.to_string(), "name": "InternalErr"}),
     };
 
+    let rsmq_2 = rsmq.clone();
     let update_job_future = || {
         add_completed_job_error(
             db,
@@ -779,15 +784,16 @@ async fn handle_job_error(
             format!("Unexpected error during job execution:\n{err}"),
             err.clone(),
             metrics.clone(),
+            rsmq_2,
         )
     };
 
-    if job.is_flow_step || job.job_kind == JobKind::FlowPreview || job.job_kind == JobKind::Flow {
-        let (flow, job_status_to_update) = if let Some(parent_job_id) = job.parent_job {
+    let update_job_future = if job.is_flow_step || job.job_kind == JobKind::FlowPreview || job.job_kind == JobKind::Flow {
+        let (flow, job_status_to_update, update_job_future) = if let Some(parent_job_id) = job.parent_job {
             let _ = update_job_future().await;
-            (parent_job_id, job.id)
+            (parent_job_id, job.id, None)
         } else {
-            (job.id, Uuid::nil())
+            (job.id, Uuid::nil(), Some(update_job_future))
         };
 
         let updated_flow = update_flow_status_after_job_completion(
@@ -803,7 +809,8 @@ async fn handle_job_error(
             same_worker_tx,
             worker_dir,
             None,
-            base_internal_url
+            base_internal_url,
+            rsmq.clone(),
         )
         .await;
 
@@ -819,15 +826,20 @@ async fn handle_job_error(
                             format!("Unexpected error during flow job error handling:\n{err}"),
                             json!({"message": err.to_string(), "name": "InternalErr"}),
                             metrics.clone(),
+                            rsmq,
                         )
                         .await;
                     }
                 }
             }
         }
-    }
-    if job.parent_job.is_none() {
-        let _ = update_job_future().await;
+
+        update_job_future
+    } else {
+        Some(update_job_future)
+    };
+    if let Some(f) = update_job_future {
+        let _ = f().await;
     }
     tracing::error!(job_id = %job.id, "error handling job: {err:#?} {} {} {}", job.id, job.workspace_id, job.created_by);
 }
@@ -854,7 +866,7 @@ fn extract_error_value(log_lines: &str) -> serde_json::Value {
     return json!({"message": log_lines.to_string().trim().to_string(), "name": "ExecutionErr"});
 }
 #[tracing::instrument(level = "trace", skip_all)]
-async fn handle_queued_job(
+async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send>(
     job: QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClient,
@@ -865,6 +877,7 @@ async fn handle_queued_job(
     metrics: Metrics,
     same_worker_tx: Sender<Uuid>,
     base_internal_url: &str,
+    rsmq: Option<std::sync::Arc<tokio::sync::Mutex<R>>>,
 ) -> windmill_common::error::Result<()> {
     if job.canceled {
         return Err(Error::JsonErr(canceled_job_to_result(&job)))?;
@@ -883,7 +896,8 @@ async fn handle_queued_job(
                 args,
                 same_worker_tx,
                 worker_dir,
-                base_internal_url
+                base_internal_url,
+                rsmq,
             )
             .await?;
         }
@@ -948,7 +962,7 @@ async fn handle_queued_job(
 
             match result {
                 Ok(r) => {
-                    add_completed_job(db, &job, true, false, r.clone(), logs).await?;
+                    add_completed_job(db, &job, true, false, r.clone(), logs, rsmq.clone()).await?;
                     if job.is_flow_step {
                         if let Some(parent_job) = job.parent_job {
                             update_flow_status_after_job_completion(
@@ -964,7 +978,8 @@ async fn handle_queued_job(
                                 same_worker_tx.clone(),
                                 worker_dir,
                                 None,
-                                base_internal_url
+                                base_internal_url,
+                                rsmq.clone()
                             )
                             .await?;
                         }
@@ -999,7 +1014,7 @@ async fn handle_queued_job(
                     };
 
                     let result =
-                        add_completed_job_error(db, &job, logs, error_value, Some(metrics.clone()))
+                        add_completed_job_error(db, &job, logs, error_value, Some(metrics.clone()), rsmq.clone())
                             .await?;
                     if job.is_flow_step {
                         if let Some(parent_job) = job.parent_job {
@@ -1016,7 +1031,8 @@ async fn handle_queued_job(
                                 same_worker_tx,
                                 worker_dir,
                                 None,
-                                base_internal_url
+                                base_internal_url,
+                                rsmq
                             )
                             .await?;
                         }
@@ -2712,13 +2728,14 @@ async fn append_logs(job_id: uuid::Uuid, logs: impl AsRef<str>, db: impl Borrow<
     }
 }
 
-pub async fn handle_zombie_jobs_periodically(
+pub async fn handle_zombie_jobs_periodically<R: rsmq_async::RsmqConnection + Send>(
     db: &Pool<Postgres>,
     mut rx: tokio::sync::broadcast::Receiver<()>,
     base_internal_url: &str,
+    rsmq: Option<std::sync::Arc<tokio::sync::Mutex<R>>>,
 ) {
     loop {
-        handle_zombie_jobs(db, base_internal_url).await;
+        handle_zombie_jobs(db, base_internal_url, rsmq.clone()).await;
 
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_secs(30))    => (),
@@ -2730,7 +2747,7 @@ pub async fn handle_zombie_jobs_periodically(
     }
 }
 
-async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str) {
+async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send>(db: &Pool<Postgres>, base_internal_url: &str, rsmq: Option<std::sync::Arc<tokio::sync::Mutex<R>>>) {
     if *RESTART_ZOMBIE_JOBS {
         let restarted = sqlx::query!(
                 "UPDATE queue SET running = false, started_at = null, logs = logs || '\nRestarted job after not receiving job''s ping for too long the ' || now() || '\n\n' WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 AND same_worker = false RETURNING id, workspace_id, last_ping",
@@ -2804,6 +2821,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str) {
             same_worker_tx_never_used,
             "",
             base_internal_url,
+            rsmq.clone()
         )
         .await;
     }

@@ -79,6 +79,7 @@ async fn check_path_conflict<'c>(
 async fn create_schedule(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
     Path(w_id): Path<String>,
     Json(ns): Json<NewSchedule>,
 ) -> Result<String> {
@@ -126,7 +127,7 @@ async fn create_schedule(
     .await?;
 
     if ns.enabled.unwrap_or(true) {
-        tx = push_scheduled_job(tx, schedule).await?
+        tx = push_scheduled_job(tx, schedule, rsmq).await?
     }
     tx.commit().await?;
 
@@ -136,6 +137,7 @@ async fn create_schedule(
 async fn edit_schedule(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(es): Json<EditSchedule>,
 ) -> Result<String> {
@@ -167,7 +169,7 @@ async fn edit_schedule(
     .map_err(|e| Error::InternalErr(format!("updating schedule in {w_id}: {e}")))?;
 
     if schedule.enabled {
-        tx = push_scheduled_job(tx, schedule).await?;
+        tx = push_scheduled_job(tx, schedule, rsmq).await?;
     }
 
     audit_log(
@@ -252,6 +254,7 @@ pub async fn preview_schedule(
 pub async fn set_enabled(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(payload): Json<SetEnabled>,
 ) -> Result<String> {
@@ -273,7 +276,7 @@ pub async fn set_enabled(
     clear_schedule(&mut tx, path, schedule.is_flow).await?;
 
     if payload.enabled {
-        tx = push_scheduled_job(tx, schedule).await?;
+        tx = push_scheduled_job(tx, schedule, rsmq).await?;
     }
     audit_log(
         &mut tx,

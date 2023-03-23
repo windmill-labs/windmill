@@ -184,6 +184,7 @@ fn hash_script(ns: &NewScript) -> i64 {
 async fn create_script(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
@@ -356,7 +357,7 @@ async fn create_script(
             clear_schedule(&mut tx, &schedule.path, false).await?;
 
             if schedule.enabled {
-                tx = push_scheduled_job(tx, schedule).await?;
+                tx = push_scheduled_job(tx, schedule, rsmq.clone()).await?;
             }
         }
     }
@@ -384,6 +385,7 @@ async fn create_script(
             false,
             None,
             true,
+            rsmq,
         )
         .await?;
         tx

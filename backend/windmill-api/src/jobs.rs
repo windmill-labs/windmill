@@ -111,13 +111,14 @@ async fn get_result_by_id(
 async fn cancel_job_api(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
     Path((w_id, id)): Path<(String, Uuid)>,
     Json(CancelJob { reason }): Json<CancelJob>,
 ) -> error::Result<String> {
     let tx = user_db.begin(&authed).await?;
 
     let (mut tx, job_option) =
-        windmill_queue::cancel_job(&authed.username, reason, id, &w_id, tx).await?;
+        windmill_queue::cancel_job(&authed.username, reason, id, &w_id, tx, rsmq).await?;
 
     if let Some(id) = job_option {
         audit_log(
@@ -740,6 +741,7 @@ async fn get_suspended_flow_info<'c>(
 pub async fn cancel_suspended_job(
     /* unauthed */
     Extension(db): Extension<DB>,
+    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
     Path((w_id, job, resume_id, secret)): Path<(String, Uuid, u32, String)>,
     Query(approver): Query<QueryApprover>,
 ) -> error::Result<String> {
@@ -762,6 +764,7 @@ pub async fn cancel_suspended_job(
         parent_flow,
         &w_id,
         tx,
+        rsmq,
     )
     .await?;
     if job.is_some() {
@@ -1154,6 +1157,7 @@ fn decode_payload<D: DeserializeOwned, T: AsRef<[u8]>>(t: T) -> anyhow::Result<D
 pub async fn run_flow_by_path(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
@@ -1180,6 +1184,7 @@ pub async fn run_flow_by_path(
         false,
         None,
         !run_query.invisible_to_owner.unwrap_or(false),
+        rsmq,
     )
     .await?;
     tx.commit().await?;
@@ -1189,6 +1194,7 @@ pub async fn run_flow_by_path(
 pub async fn run_job_by_path(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
@@ -1216,6 +1222,7 @@ pub async fn run_job_by_path(
         false,
         None,
         !run_query.invisible_to_owner.unwrap_or(false),
+        rsmq,
     )
     .await?;
     tx.commit().await?;
@@ -1339,6 +1346,7 @@ lazy_static::lazy_static! {
 pub async fn run_wait_result_job_by_path(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
     Extension(db): Extension<DB>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
@@ -1369,6 +1377,7 @@ pub async fn run_wait_result_job_by_path(
         false,
         None,
         !run_query.invisible_to_owner.unwrap_or(false),
+        rsmq,
     )
     .await?;
     tx.commit().await?;
@@ -1386,6 +1395,7 @@ pub async fn run_wait_result_job_by_path(
 pub async fn run_wait_result_job_by_hash(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
     Extension(db): Extension<DB>,
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     Query(run_query): Query<RunJobQuery>,
@@ -1416,6 +1426,7 @@ pub async fn run_wait_result_job_by_hash(
         false,
         None,
         !run_query.invisible_to_owner.unwrap_or(false),
+        rsmq,
     )
     .await?;
     tx.commit().await?;
@@ -1433,6 +1444,7 @@ pub async fn run_wait_result_job_by_hash(
 pub async fn run_wait_result_flow_by_path(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
     Extension(db): Extension<DB>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
@@ -1462,6 +1474,7 @@ pub async fn run_wait_result_flow_by_path(
         false,
         None,
         !run_query.invisible_to_owner.unwrap_or(false),
+        rsmq,
     )
     .await?;
 
@@ -1495,6 +1508,7 @@ pub async fn script_path_to_payload<'c>(
 async fn run_preview_job(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
     Path(w_id): Path<String>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
@@ -1525,6 +1539,7 @@ async fn run_preview_job(
         false,
         None,
         true,
+        rsmq,
     )
     .await?;
     tx.commit().await?;
@@ -1534,6 +1549,7 @@ async fn run_preview_job(
 async fn run_preview_flow_job(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
     Path(w_id): Path<String>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
@@ -1559,6 +1575,7 @@ async fn run_preview_flow_job(
         false,
         None,
         true,
+        rsmq,
     )
     .await?;
     tx.commit().await?;
@@ -1568,6 +1585,7 @@ async fn run_preview_flow_job(
 pub async fn run_job_by_hash(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
@@ -1595,6 +1613,7 @@ pub async fn run_job_by_hash(
         false,
         None,
         !run_query.invisible_to_owner.unwrap_or(false),
+        rsmq,
     )
     .await?;
     tx.commit().await?;

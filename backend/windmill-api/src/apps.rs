@@ -561,6 +561,7 @@ fn digest(code: &str) -> String {
 async fn execute_component(
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
+    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(payload): Json<ExecuteApp>,
 ) -> Result<String> {
@@ -680,6 +681,7 @@ async fn execute_component(
         false,
         None,
         true,
+        rsmq,
     )
     .await?;
 
