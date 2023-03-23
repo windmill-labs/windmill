@@ -59,6 +59,9 @@
 	}
 
 	export function onSuccess() {
+		if (recomputeIds) {
+			recomputeIds.map((id) => $runnableComponents?.[id]?.())
+		}
 		if (!doOnSuccess) return
 
 		if (doOnSuccess.selected == 'none') return
@@ -88,10 +91,6 @@
 			doOnSuccess.configuration.sendToast.message != ''
 		) {
 			sendUserToast(doOnSuccess.configuration.sendToast.message)
-		}
-
-		if (recomputeIds) {
-			recomputeIds.map((id) => $runnableComponents?.[id]?.())
 		}
 	}
 </script>
