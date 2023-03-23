@@ -42,6 +42,7 @@
 	import ItemPicker from '$lib/components/ItemPicker.svelte'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
 	import { secondaryMenu, SecondaryMenu } from './settingsPanel/secondaryMenu'
+	import { Component, Paintbrush, Plus } from 'lucide-svelte'
 
 	export let app: App
 	export let path: string
@@ -238,21 +239,21 @@
 						<div class="relative flex flex-col h-full">
 							<Tabs bind:selected={selectedTab} wrapperClass="!h-[40px]" class="!h-full">
 								<Tab value="insert" size="xs">
-									<div class="m-1 center-center gap-2">
-										<Icon data={faPlus} />
+									<div class="m-1 center-center gap-1">
+										<Plus size={18} />
 										<span>Insert</span>
 									</div>
 								</Tab>
 								<Tab value="settings" size="xs">
-									<div class="m-1 center-center gap-2">
-										<Icon data={faSliders} />
-										<span>Settings</span>
+									<div class="m-1 center-center gap-1">
+										<Component size={18} />
+										<span>Component</span>
 									</div>
 								</Tab>
 								<Tab value="css" size="xs">
-									<div class="m-1 center-center gap-2">
-										<Icon data={faCode} />
-										<span>CSS</span>
+									<div class="m-1 center-center gap-1">
+										<Paintbrush size={18} />
+										<span>Styling</span>
 									</div>
 								</Tab>
 								<div slot="content" class="h-full overflow-y-auto">

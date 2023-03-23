@@ -198,7 +198,7 @@
 		<div class="grow shrink" />
 
 		{#if Object.keys(ccomponents[component.type].customCss ?? {}).length > 0}
-			<PanelSection title="Custom CSS">
+			<PanelSection title="Styling">
 				<div slot="action">
 					<Button
 						color="light"
