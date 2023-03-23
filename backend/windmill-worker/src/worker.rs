@@ -2755,7 +2755,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str) {
 
     let mut timeout_query = "SELECT * FROM queue WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2".to_string();
     if *RESTART_ZOMBIE_JOBS  {
-        timeout_query.push_str(" same_worker = true");
+        timeout_query.push_str("AND same_worker = true");
     };
     let timeouts = sqlx::query_as::<_, QueuedJob>(
             &timeout_query
