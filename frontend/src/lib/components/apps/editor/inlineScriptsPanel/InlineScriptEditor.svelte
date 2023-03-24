@@ -104,6 +104,14 @@
 				})
 		}
 	}
+
+	async function run(inlineScript: InlineScript | undefined) {
+		if ($runnableComponents[id]) {
+			runLoading = true
+			await $runnableComponents[id]?.(inlineScript)
+			runLoading = false
+		}
+	}
 </script>
 
 {#if inlineScript}
@@ -190,9 +198,7 @@
 						variant="border"
 						btnClasses="!px-2 !py-1 !bg-gray-700 !text-white hover:!bg-gray-900"
 						on:click={async () => {
-							runLoading = true
-							await $runnableComponents[id]?.(!transformer ? inlineScript : undefined)
-							runLoading = false
+							await run(!transformer ? inlineScript : undefined)
 						}}
 					>
 						<div class="flex flex-row gap-1 items-center">
@@ -226,9 +232,7 @@
 						if (inlineScript) {
 							inlineScript.content = editor?.getCode() ?? ''
 						}
-						runLoading = true
-						await $runnableComponents[id]?.(inlineScript)
-						runLoading = false
+						run(inlineScript)
 					}}
 					on:change={async (e) => {
 						if (inlineScript && inlineScript.language != 'frontend') {
@@ -247,18 +251,13 @@
 				/>
 			{:else}
 				<SimpleEditor
-					bind:this={simpleEditor}
-					cmdEnterAction={async () => {
-						runLoading = true
-						await $runnableComponents[id]?.(!transformer ? inlineScript : undefined)
-						runLoading = false
-					}}
-					class="h-full"
 					{extraLib}
+					bind:this={simpleEditor}
 					bind:code={inlineScript.content}
+					class="h-full"
 					lang="javascript"
-					on:change={() => {
-						$app = $app
+					cmdEnterAction={async () => {
+						await run(!transformer ? inlineScript : undefined)
 					}}
 				/>
 			{/if}

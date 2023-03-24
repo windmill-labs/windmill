@@ -1,10 +1,9 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import { Loader2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { AppEditorContext, AppViewerContext } from '../../types'
 	import ComponentHeader from '../ComponentHeader.svelte'
-	import { ccomponents, components, type AppComponent } from './components'
+	import { ccomponents, type AppComponent } from './components'
 	import {
 		AppBarChart,
 		AppDisplayComponent,

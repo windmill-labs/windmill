@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { getContext, afterUpdate } from 'svelte'
-	import type { App, AppEditorContext, AppViewerContext } from '../types'
+	import { getContext } from 'svelte'
+	import type { AppEditorContext, AppViewerContext } from '../types'
 	import { classNames } from '$lib/utils'
 	import { columnConfiguration, isFixed, toggleFixed } from '../gridUtils'
 	import { twMerge } from 'tailwind-merge'
@@ -12,7 +12,7 @@
 	import { push } from '$lib/history'
 	import { expandGriditem, findGridItem } from './appUtils'
 	import Grid from '../svelte-grid/Grid.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
+	import type { AppComponent } from './component'
 
 	export let policy: Policy
 
@@ -30,7 +30,7 @@
 
 	const { history } = getContext<AppEditorContext>('AppEditorContext')
 
-	function removeGridElement(component) {
+	function removeGridElement(component: AppComponent) {
 		if (component) {
 			$app.grid = $app.grid.filter((gridComponent) => {
 				if (gridComponent.data.id === component.id) {
@@ -99,7 +99,10 @@
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<div
 		style={$app.css?.['app']?.['grid']?.style}
-		class={twMerge('px-4 pt-4 pb-2 overflow-visible', $app.css?.['app']?.['grid']?.class ?? '')}
+		class={twMerge(
+			'px-4 pt-4 pb-2 overflow-visible h-full',
+			$app.css?.['app']?.['grid']?.class ?? ''
+		)}
 		on:pointerdown={() => {
 			$selectedComponent = undefined
 			$focusedGrid = undefined
