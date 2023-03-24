@@ -36,7 +36,6 @@ export interface GeneralAppInput {
 export type ComponentCssProperty = {
 	class?: string
 	style?: string
-	quickStyling?: StylePropertyKey[]
 }
 
 export type ComponentCustomCSS<T extends keyof typeof components> = Partial<

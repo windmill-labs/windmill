@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { Paintbrush2, X } from 'lucide-svelte'
+	import { createEventDispatcher } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import { addWhitespaceBeforeCapitals } from '../../../../utils'
-	import { Button } from '../../../common'
+	import { Button, ClearableInput } from '../../../common'
 	import type { ComponentCssProperty } from '../../types'
 	import QuickStyleMenu from './QuickStyleMenu.svelte'
 	import type { StylePropertyKey } from './quickStyleProperties'
@@ -12,13 +13,10 @@
 	export let forceStyle: boolean = false
 	export let forceClass: boolean = false
 	export let quickStyleProperties: StylePropertyKey[] | undefined = undefined
+	const dispatch = createEventDispatcher()
 	let isQuickMenuOpen = false
 
-	function reset(property: Exclude<keyof ComponentCssProperty, 'quickStyling'>) {
-		if (value) {
-			value[property] = ''
-		}
-	}
+	$: dispatch('change', value)
 </script>
 
 <div class="sticky top-0 z-10 bg-white text-sm font-semibold text-gray-500 capitalize pt-2 pb-1">
@@ -28,27 +26,12 @@
 	<div class="border-l border-gray-400/80 py-1 pl-3.5 ml-0.5">
 		{#if value.style !== undefined || forceStyle}
 			<div class="pb-2">
+				<!-- svelte-ignore a11y-label-has-associated-control -->
 				<label class="block">
 					<div class="text-xs font-medium pb-0.5"> Style </div>
 					<div class="flex gap-1">
 						<div class="relative grow">
-							<input
-								on:keydown|stopPropagation
-								type="text"
-								class="!pr-7"
-								bind:value={value.style}
-								on:focus
-							/>
-							{#if value?.style}
-								<button
-									transition:fade|local={{ duration: 100 }}
-									class="absolute z-10 top-1.5 right-1 rounded-full p-1 duration-200 hover:bg-gray-200"
-									aria-label="Remove styles"
-									on:click|preventDefault|stopPropagation={() => reset('style')}
-								>
-									<X size={14} />
-								</button>
-							{/if}
+							<ClearableInput bind:value={value.style} />
 						</div>
 						{#if quickStyleProperties?.length}
 							<Button
@@ -73,26 +56,11 @@
 			</div>
 		{/if}
 		{#if value.class !== undefined || forceClass}
+			<!-- svelte-ignore a11y-label-has-associated-control -->
 			<label class="block">
 				<div class="text-xs font-medium pb-0.5"> Tailwind classes </div>
 				<div class="relative">
-					<input
-						on:keydown|stopPropagation
-						type="text"
-						class="!pr-7"
-						bind:value={value.class}
-						on:focus
-					/>
-					{#if value?.class}
-						<button
-							transition:fade|local={{ duration: 100 }}
-							class="absolute z-10 top-1.5 right-1 rounded-full p-1 duration-200 hover:bg-gray-200"
-							aria-label="Remove classes"
-							on:click|preventDefault|stopPropagation={() => reset('class')}
-						>
-							<X size={14} />
-						</button>
-					{/if}
+					<ClearableInput bind:value={value.class} />
 				</div>
 			</label>
 		{/if}
