@@ -4,7 +4,7 @@ VERSION=$1
 echo "Updating versions to: $VERSION"
 
 sed -i -e "/^version =/s/= .*/= \"$VERSION\"/" backend/Cargo.toml
-sed -i -e "/^const VERSION =/s/= .*/= \"v$VERSION\";/" cli/main.ts
+sed -i -e "/^export const VERSION =/s/= .*/= \"v$VERSION\";/" cli/main.ts
 sed -i -e "/version: /s/: .*/: $VERSION/" backend/windmill-api/openapi.yaml
 sed -i -e "/version: /s/: .*/: $VERSION/" openflow.openapi.yaml
 sed -i -e "/\"version\": /s/: .*,/: \"$VERSION\",/" frontend/package.json
