@@ -6,20 +6,20 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::{collections::HashMap, cell::RefCell, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
-use deno_core::{op, serde_v8, v8, v8::IsolateHandle, Extension, JsRuntime, RuntimeOptions, OpState};
+use deno_core::{
+    op, serde_v8, v8, v8::IsolateHandle, Extension, JsRuntime, OpState, RuntimeOptions,
+};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde_json::Value;
-use tokio::{sync::{oneshot}, time::timeout};
+use tokio::{sync::oneshot, time::timeout};
 use uuid::Uuid;
 use windmill_common::{error::Error, flow_status::JobResult};
 
 use crate::AuthedClient;
-
-
 
 #[derive(Debug, Clone)]
 pub struct IdContext {
@@ -91,13 +91,7 @@ pub async fn eval_timeout(
 
             let expr = replace_with_await_result(expr);
 
-            let r = runtime.block_on(eval(
-                &mut js_runtime,
-                &expr,
-                env,
-                by_id,
-                has_client,
-            ))?;
+            let r = runtime.block_on(eval(&mut js_runtime, &expr, env, by_id, has_client))?;
 
             Ok(r) as anyhow::Result<Value>
         }),
@@ -258,7 +252,7 @@ async function resource(path) {{
             .join(""),
     );
     tracing::debug!("{}", code);
-    let global = context.execute_script("<anon>", &code)?;
+    let global = context.execute_script("<anon>", code)?;
     let global = context.resolve_value(global).await?;
 
     let scope = &mut context.handle_scope();
@@ -280,11 +274,17 @@ async function resource(path) {{
 
 // TODO: Can we a) share the api configuration here somehow or b) just implement this natively in deno, via the deno client?
 #[op]
-async fn op_variable(op_state: Rc<RefCell<OpState>>, args: Vec<String>) -> Result<String, anyhow::Error> {
+async fn op_variable(
+    op_state: Rc<RefCell<OpState>>,
+    args: Vec<String>,
+) -> Result<String, anyhow::Error> {
     let path = &args[0];
     let client = op_state.borrow().borrow::<OptAuthedClient>().0.clone();
-    if let Some(client) = client  {
-        let result = client.get_client().get_variable(&client.workspace, path, None).await?;
+    if let Some(client) = client {
+        let result = client
+            .get_client()
+            .get_variable(&client.workspace, path, None)
+            .await?;
         Ok(result.into_inner().value.unwrap_or_else(|| "".to_owned()))
     } else {
         anyhow::bail!("No client found in op state");
@@ -292,34 +292,39 @@ async fn op_variable(op_state: Rc<RefCell<OpState>>, args: Vec<String>) -> Resul
 }
 
 #[op]
-async fn op_get_result(op_state: Rc<RefCell<OpState>>, args: Vec<String>) -> Result<serde_json::Value, anyhow::Error> {
-    let id = &args[0];  
+async fn op_get_result(
+    op_state: Rc<RefCell<OpState>>,
+    args: Vec<String>,
+) -> Result<serde_json::Value, anyhow::Error> {
+    let id = &args[0];
     let client = op_state.borrow().borrow::<OptAuthedClient>().0.clone();
-    if let Some(client) = client  {
+    if let Some(client) = client {
         let result = client
-        .get_client()
-        .get_completed_job_result(&client.workspace, &id.parse()?)
-        .await?
-        .clone();
-    Ok(serde_json::json!(result))
+            .get_client()
+            .get_completed_job_result(&client.workspace, &id.parse()?)
+            .await?
+            .clone();
+        Ok(serde_json::json!(result))
     } else {
         anyhow::bail!("No client found in op state");
     }
-
 }
 
 #[op]
-async fn op_get_id(op_state: Rc<RefCell<OpState>>, args: Vec<String>) -> Result<Option<serde_json::Value>, anyhow::Error> {
+async fn op_get_id(
+    op_state: Rc<RefCell<OpState>>,
+    args: Vec<String>,
+) -> Result<Option<serde_json::Value>, anyhow::Error> {
     let flow_job_id = &args[0];
     let node_id = &args[1];
 
     let client = op_state.borrow().borrow::<OptAuthedClient>().0.clone();
-    if let Some(client) = client  {
+    if let Some(client) = client {
         let result = client
-        .get_client()
-        .result_by_id(&client.workspace, flow_job_id, node_id)
-        .await
-        .map_or(None, |e| Some(e.into_inner()));
+            .get_client()
+            .result_by_id(&client.workspace, flow_job_id, node_id)
+            .await
+            .map_or(None, |e| Some(e.into_inner()));
         Ok(result)
     } else {
         anyhow::bail!("No client found in op state");
@@ -327,12 +332,18 @@ async fn op_get_id(op_state: Rc<RefCell<OpState>>, args: Vec<String>) -> Result<
 }
 
 #[op]
-async fn op_resource(op_state: Rc<RefCell<OpState>>, args: Vec<String>) -> Result<serde_json::Value, anyhow::Error> {
-    let path = &args[0];    
+async fn op_resource(
+    op_state: Rc<RefCell<OpState>>,
+    args: Vec<String>,
+) -> Result<serde_json::Value, anyhow::Error> {
+    let path = &args[0];
 
     let client = op_state.borrow().borrow::<OptAuthedClient>().0.clone();
-    if let Some(client) = client  {
-        let result = client.get_client().get_resource(&client.workspace, path).await?;
+    if let Some(client) = client {
+        let result = client
+            .get_client()
+            .get_resource(&client.workspace, path)
+            .await?;
         Ok(result
             .into_inner()
             .value
@@ -340,8 +351,6 @@ async fn op_resource(op_state: Rc<RefCell<OpState>>, args: Vec<String>) -> Resul
     } else {
         anyhow::bail!("No client found in op state");
     }
-
-
 }
 
 #[cfg(test)]
