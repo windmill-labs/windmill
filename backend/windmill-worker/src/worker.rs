@@ -2733,9 +2733,10 @@ pub async fn handle_zombie_jobs_periodically(
 async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str) {
     if *RESTART_ZOMBIE_JOBS {
         let restarted = sqlx::query!(
-                "UPDATE queue SET running = false, started_at = null, logs = logs || '\nRestarted job after not receiving job''s ping for too long the ' || now() || '\n\n' WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 AND same_worker = false RETURNING id, workspace_id, last_ping",
+                "UPDATE queue SET running = false, started_at = null, logs = logs || '\nRestarted job after not receiving job''s ping for too long the ' || now() || '\n\n' WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 AND job_kind != $3 AND same_worker = false RETURNING id, workspace_id, last_ping",
                 *ZOMBIE_JOB_TIMEOUT,
                 JobKind::Flow: JobKind,
+                JobKind::FlowPreview: JobKind,
             )
             .fetch_all(db)
             .await
