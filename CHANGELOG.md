@@ -1,6 +1,25 @@
 # Changelog
 
 
+## [1.82.0](https://github.com/windmill-labs/windmill/compare/v1.81.0...v1.82.0) (2023-03-24)
+
+
+### Features
+
+* **backend:** introduce RESTART_ZOMBIE_JOBS and ZOMBIE_JOB_TIMEOUT ([47a7f71](https://github.com/windmill-labs/windmill/commit/47a7f7163aae3fe807e766c824085b4d1b75c8c8))
+
+
+### Bug Fixes
+
+* **backend:** do not consider FlowPreview as potential zombie job ([f7c30b5](https://github.com/windmill-labs/windmill/commit/f7c30b5d2f16e15f36208e07126557fd7ed84801))
+* **backend:** increase dynamic js timeout + improve client passing ([34e25f0](https://github.com/windmill-labs/windmill/commit/34e25f0f96fe637cc42f4017a064c40def5d67ef))
+* **cli:** improve diff speed + fix replacing cli ([b999c98](https://github.com/windmill-labs/windmill/commit/b999c9894b4011b735f37df485fe403c22c00512))
+* **frontend:** Fix AppTable error display + clear errors when removing a component + properly detect that latest component run had an error ([#1322](https://github.com/windmill-labs/windmill/issues/1322)) ([c15bc8a](https://github.com/windmill-labs/windmill/commit/c15bc8a7bfb3bef2634e6093088967137cd06239))
+* **frontend:** fix refresh with manual dependencies ([#1319](https://github.com/windmill-labs/windmill/issues/1319)) ([a47031a](https://github.com/windmill-labs/windmill/commit/a47031a41e6a3392101e280dcd1aea098f898447))
+* **frontend:** fix settings panel ([#1323](https://github.com/windmill-labs/windmill/issues/1323)) ([30b8e47](https://github.com/windmill-labs/windmill/commit/30b8e474df5b71b7e7b36d3fe5974a289cf0dfae))
+* **frontend:** Fix transformer ([#1321](https://github.com/windmill-labs/windmill/issues/1321)) ([addabcc](https://github.com/windmill-labs/windmill/commit/addabcceb0c90782ba4a934bb3822f8cc9865069))
+* **frontend:** remove unnecessary div ([#1318](https://github.com/windmill-labs/windmill/issues/1318)) ([e193a0b](https://github.com/windmill-labs/windmill/commit/e193a0bcdf6690b007594d2f1325a7ec26603129))
+
 ## [1.81.0](https://github.com/windmill-labs/windmill/compare/v1.80.1...v1.81.0) (2023-03-21)
 
 
