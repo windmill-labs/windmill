@@ -8,12 +8,10 @@
 	export let appInput: ResultAppInput
 	export let defaultUserInput = false
 	export let appComponent: AppComponent
-
-	$: isRunnableSelected = isScriptByPathDefined(appInput) || isScriptByNameDefined(appInput)
 </script>
 
-{#if isRunnableSelected}
+{#if isScriptByPathDefined(appInput) || isScriptByNameDefined(appInput)}
 	<SelectedRunnable {appComponent} bind:appInput />
-{:else}
+{:else if appInput !== undefined}
 	<RunnableSelector id={appComponent.id} {defaultUserInput} bind:appInput />
 {/if}

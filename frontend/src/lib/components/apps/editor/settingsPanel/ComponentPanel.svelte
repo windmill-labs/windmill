@@ -2,7 +2,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
-	import type { AppEditorContext, AppViewerContext, RichConfiguration } from '../../types'
+	import type { AppEditorContext, AppViewerContext, GridItem, RichConfiguration } from '../../types'
 	import PanelSection from './common/PanelSection.svelte'
 	import InputsSpecsEditor from './InputsSpecsEditor.svelte'
 	import TableActions from './TableActions.svelte'
@@ -20,23 +20,32 @@
 	import { ccomponents, type AppComponent } from '../component'
 	import CssProperty from '../componentsPanel/CssProperty.svelte'
 	import GridTab from './GridTab.svelte'
-	import { deleteGridItem } from '../appUtils'
+	import { clearErrorByComponentId, clearJobsByComponentId, deleteGridItem } from '../appUtils'
 	import GridPane from './GridPane.svelte'
 	import { slide } from 'svelte/transition'
 	import { push } from '$lib/history'
 	import Kbd from '$lib/components/common/kbd/Kbd.svelte'
 
-	export let component: AppComponent
+	export let componentSettings: { item: GridItem; parent: string | undefined } | undefined =
+		undefined
 	export let rowColumns = false
 	export let onDelete: (() => void) | undefined = undefined
-	export let parent: string | undefined
 	export let noGrid = false
 	export let duplicateMoveAllowed = true
 
 	let editor: TemplateEditor | undefined = undefined
 
-	const { app, runnableComponents, selectedComponent, worldStore, focusedGrid, stateId, state } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const {
+		app,
+		runnableComponents,
+		selectedComponent,
+		worldStore,
+		focusedGrid,
+		stateId,
+		state,
+		errorByComponent,
+		jobs
+	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const { history, ontextfocus } = getContext<AppEditorContext>('AppEditorContext')
 
@@ -44,16 +53,23 @@
 
 	function removeGridElement() {
 		push(history, $app)
+
+		if (componentSettings?.item.id) {
+			$errorByComponent = clearErrorByComponentId(componentSettings?.item.id, $errorByComponent)
+			$jobs = clearJobsByComponentId(componentSettings?.item.id, $jobs)
+		}
 		$selectedComponent = undefined
 		$focusedGrid = undefined
-		if (component && !noGrid) {
-			let ids = deleteGridItem($app, component, parent, false)
+		if (componentSettings?.item && !noGrid) {
+			let ids = deleteGridItem($app, componentSettings?.item.data, componentSettings?.parent, false)
 			for (const key of ids) {
 				delete $runnableComponents[key]
 			}
 		}
 
-		delete $runnableComponents[component.id]
+		if (componentSettings?.item?.data?.id) {
+			delete $runnableComponents[componentSettings?.item?.data?.id]
+		}
 		$app = $app
 		$runnableComponents = $runnableComponents
 
@@ -63,8 +79,14 @@
 	let viewCssOptions = false
 
 	$: extraLib =
-		component?.componentInput?.type === 'template' && $worldStore
-			? buildExtraLib($worldStore?.outputsById ?? {}, component?.id, false, $state, false)
+		componentSettings?.item?.data?.componentInput?.type === 'template' && $worldStore
+			? buildExtraLib(
+					$worldStore?.outputsById ?? {},
+					componentSettings?.item?.data?.id,
+					false,
+					$state,
+					false
+			  )
 			: undefined
 
 	function keydown(event: KeyboardEvent) {
@@ -77,16 +99,21 @@
 		}
 	}
 
-	const initialConfiguration = ccomponents[component.type].initialData.configuration
-	const componentInput: RichConfiguration | undefined =
-		ccomponents[component.type].initialData.componentInput
+	const initialConfiguration = componentSettings?.item?.data?.type
+		? ccomponents[componentSettings.item.data.type].initialData.configuration
+		: {}
 
-	$: component && ($app = $app)
+	const componentInput: RichConfiguration | undefined = componentSettings?.item?.data?.type
+		? ccomponents[componentSettings?.item?.data?.type].initialData.componentInput
+		: undefined
+
+	$: componentSettings?.item?.data && ($app = $app)
 </script>
 
 <svelte:window on:keydown={keydown} />
 
-{#if component}
+{#if componentSettings?.item?.data}
+	{@const component = componentSettings.item.data}
 	<div class="flex min-h-full flex-col min-w-[150px] w-full divide-y">
 		{#if component.componentInput}
 			<PanelSection title="Data Source">
@@ -109,44 +136,50 @@
 					{/if}
 				</svelte:fragment>
 
-				<ComponentInputTypeEditor bind:componentInput={component.componentInput} />
+				{#if componentSettings.item.data.componentInput}
+					<ComponentInputTypeEditor
+						bind:componentInput={componentSettings.item.data.componentInput}
+					/>
 
-				<div class="flex flex-col w-full gap-2 my-2">
-					{#if component.componentInput.type === 'static'}
-						<StaticInputEditor
-							fieldType={componentInput?.fieldType}
-							subFieldType={componentInput?.subFieldType}
-							format={componentInput?.format}
-							bind:componentInput={component.componentInput}
-							noVariablePicker
-						/>
-					{:else if component.componentInput.type === 'template' && component.componentInput !== undefined}
-						<div class="py-1 min-h-[28px]  rounded border border-1 border-gray-500">
-							<TemplateEditor
-								bind:this={editor}
-								fontSize={12}
-								bind:code={component.componentInput.eval}
-								{extraLib}
+					<div class="flex flex-col w-full gap-2 my-2">
+						{#if componentSettings.item.data.componentInput.type === 'static'}
+							<StaticInputEditor
+								fieldType={componentInput?.fieldType}
+								subFieldType={componentInput?.subFieldType}
+								format={componentInput?.format}
+								bind:componentInput={componentSettings.item.data.componentInput}
+								noVariablePicker
 							/>
-						</div>
-					{:else if component.componentInput.type === 'connected' && component.componentInput !== undefined}
-						<ConnectedInputEditor bind:componentInput={component.componentInput} />
-					{:else if component.componentInput?.type === 'runnable' && component.componentInput !== undefined}
-						<RunnableInputEditor
-							appComponent={component}
-							bind:appInput={component.componentInput}
-							defaultUserInput={component.type == 'formcomponent' ||
-								component.type == 'formbuttoncomponent'}
-						/>
-					{/if}
-				</div>
+						{:else if componentSettings.item.data.componentInput.type === 'template' && componentSettings.item.data.componentInput !== undefined}
+							<div class="py-1 min-h-[28px]  rounded border border-1 border-gray-500">
+								<TemplateEditor
+									bind:this={editor}
+									fontSize={12}
+									bind:code={componentSettings.item.data.componentInput.eval}
+									{extraLib}
+								/>
+							</div>
+						{:else if componentSettings.item.data.componentInput.type === 'connected' && component.componentInput !== undefined}
+							<ConnectedInputEditor
+								bind:componentInput={componentSettings.item.data.componentInput}
+							/>
+						{:else if componentSettings.item.data.componentInput?.type === 'runnable' && component.componentInput !== undefined}
+							<RunnableInputEditor
+								appComponent={component}
+								bind:appInput={componentSettings.item.data.componentInput}
+								defaultUserInput={component.type == 'formcomponent' ||
+									component.type == 'formbuttoncomponent'}
+							/>
+						{/if}
+					</div>
+				{/if}
 				{#key $stateId}
-					{#if component.componentInput?.type === 'runnable'}
-						{#if Object.keys(component.componentInput.fields ?? {}).length > 0}
+					{#if componentSettings.item.data.componentInput?.type === 'runnable'}
+						{#if Object.keys(componentSettings.item.data.componentInput.fields ?? {}).length > 0}
 							<div class="border w-full">
 								<PanelSection
 									title={`Runnable Inputs (${
-										Object.keys(component.componentInput.fields ?? {}).length
+										Object.keys(componentSettings.item.data.componentInput.fields ?? {}).length
 									})`}
 								>
 									<svelte:fragment slot="action">
@@ -159,7 +192,7 @@
 									<InputsSpecsEditor
 										id={component.id}
 										shouldCapitalize={false}
-										bind:inputSpecs={component.componentInput.fields}
+										bind:inputSpecs={componentSettings.item.data.componentInput.fields}
 										userInputEnabled={component.type === 'formcomponent' ||
 											component.type === 'formbuttoncomponent'}
 										{rowColumns}
@@ -177,23 +210,26 @@
 					{rowColumns}
 					id={component.id}
 					inputSpecsConfiguration={initialConfiguration}
-					bind:inputSpecs={component.configuration}
+					bind:inputSpecs={componentSettings.item.data.configuration}
 					userInputEnabled={false}
 				/>
 			</PanelSection>
 		{/if}
 
-		{#if component.type === 'tabscomponent'}
-			<GridTab bind:tabs={component.tabs} {component} />
-		{:else if component.type === 'verticalsplitpanescomponent' || component.type === 'horizontalsplitpanescomponent'}
-			<GridPane bind:panes={component.panes} {component} />
-		{:else if component.type === 'tablecomponent' && Array.isArray(component.actionButtons)}
-			<TableActions id={component.id} bind:components={component.actionButtons} />
+		{#if componentSettings.item.data.type === 'tabscomponent'}
+			<GridTab bind:tabs={componentSettings.item.data.tabs} {component} />
+		{:else if componentSettings.item.data.type === 'verticalsplitpanescomponent' || componentSettings.item.data.type === 'horizontalsplitpanescomponent'}
+			<GridPane bind:panes={componentSettings.item.data.panes} {component} />
+		{:else if componentSettings.item.data.type === 'tablecomponent' && Array.isArray(componentSettings.item.data.actionButtons)}
+			<TableActions id={component.id} bind:components={componentSettings.item.data.actionButtons} />
 		{/if}
 
-		<AlignmentEditor bind:component />
-		{#if component.type === 'buttoncomponent' || component.type === 'formcomponent' || component.type === 'formbuttoncomponent'}
-			<Recompute bind:recomputeIds={component.recomputeIds} ownId={component.id} />
+		<AlignmentEditor bind:component={componentSettings.item.data} />
+		{#if componentSettings.item.data.type === 'buttoncomponent' || componentSettings.item.data.type === 'formcomponent' || componentSettings.item.data.type === 'formbuttoncomponent'}
+			<Recompute
+				bind:recomputeIds={componentSettings.item.data.recomputeIds}
+				ownId={component.id}
+			/>
 		{/if}
 
 		<div class="grow shrink" />
@@ -213,13 +249,13 @@
 				{#if viewCssOptions}
 					<div transition:slide|local>
 						{#each Object.keys(ccomponents[component.type].customCss ?? {}) as name}
-							{#if component?.customCss != undefined}
+							{#if componentSettings.item.data?.customCss != undefined}
 								<div class="w-full mb-2">
 									<CssProperty
 										forceStyle={ccomponents[component.type].customCss[name].style != undefined}
 										forceClass={ccomponents[component.type].customCss[name].class != undefined}
 										{name}
-										bind:value={component.customCss[name]}
+										bind:value={componentSettings.item.data.customCss[name]}
 									/>
 								</div>
 							{/if}

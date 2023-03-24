@@ -4,6 +4,7 @@
 	import { getContext } from 'svelte'
 	import type { App, AppViewerContext } from '../types'
 	import { allItems } from '../utils'
+	import { findGridItem } from './appUtils'
 	import PanelSection from './settingsPanel/common/PanelSection.svelte'
 	import ComponentPanel from './settingsPanel/ComponentPanel.svelte'
 	import InputsSpecsEditor from './settingsPanel/InputsSpecsEditor.svelte'
@@ -25,7 +26,7 @@
 					if (x?.data?.actionButtons) {
 						const tableAction = x.data.actionButtons.find((x) => x.id === id)
 						if (tableAction) {
-							return { item: tableAction, parent: x.data }
+							return { item: { data: tableAction, id: tableAction.id }, parent: x.data.id }
 						}
 					}
 				}
@@ -56,26 +57,26 @@
 </script>
 
 {#if componentSettings}
-	{#key componentSettings.item.id}
-		<ComponentPanel
-			parent={componentSettings.parent}
-			bind:component={componentSettings.item.data}
-		/>
+	{#key componentSettings?.item?.id}
+		<ComponentPanel bind:componentSettings />
 	{/key}
 {:else if tableActionSettings}
-	{#key tableActionSettings.item.id}
+	{#key tableActionSettings?.item?.data?.id}
 		<ComponentPanel
-			parent={undefined}
 			noGrid
 			rowColumns
-			bind:component={tableActionSettings.item}
+			bind:componentSettings={tableActionSettings}
 			duplicateMoveAllowed={false}
 			onDelete={() => {
 				if (tableActionSettings) {
-					tableActionSettings.parent.actionButtons =
-						tableActionSettings?.parent.actionButtons.filter(
-							(c) => c.id !== tableActionSettings?.item.id
+					const parent = findGridItem($app, tableActionSettings.parent)
+					if (!parent) return
+
+					if (parent.data.type === 'tablecomponent') {
+						parent.data.actionButtons = parent.data.actionButtons.filter(
+							(x) => x.id !== tableActionSettings?.item.id
 						)
+					}
 				}
 			}}
 		/>

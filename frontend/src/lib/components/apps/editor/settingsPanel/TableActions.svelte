@@ -7,7 +7,11 @@
 	import { getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
 	import type { AppViewerContext, BaseAppComponent } from '../../types'
-	import { appComponentFromType } from '../appUtils'
+	import {
+		appComponentFromType,
+		clearErrorByComponentId,
+		clearJobsByComponentId
+	} from '../appUtils'
 	import type { ButtonComponent } from '../component'
 	import PanelSection from './common/PanelSection.svelte'
 	import TableActionLabel from './TableActionLabel.svelte'
@@ -15,7 +19,8 @@
 	export let components: (BaseAppComponent & ButtonComponent)[]
 	export let id: string
 
-	const { selectedComponent, app } = getContext<AppViewerContext>('AppViewerContext')
+	const { selectedComponent, app, errorByComponent, jobs } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	function addComponent() {
 		const actionId = getNextId(components.map((x) => x.id.split('_')[1]))
@@ -30,6 +35,10 @@
 
 	function deleteComponent(cid: string) {
 		components = components.filter((x) => x.id !== cid)
+
+		$errorByComponent = clearErrorByComponentId(cid, $errorByComponent)
+		$jobs = clearJobsByComponentId(cid, $jobs)
+
 		$selectedComponent = id
 		$app = $app
 	}
