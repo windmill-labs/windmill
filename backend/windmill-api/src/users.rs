@@ -35,7 +35,7 @@ use tracing::{Instrument, Span};
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{self, Error, JsonResult, Result},
-    utils::{not_found_if_none, rd_string, require_admin, Pagination, StripPath},
+    utils::{not_found_if_none, rd_string, require_admin, Pagination, StripPath}, users::SUPERADMIN_SECRET_EMAIL,
 };
 use windmill_queue::CLOUD_HOSTED;
 
@@ -266,7 +266,7 @@ impl AuthCache {
                     .unwrap_or(false)
                 {
                     Some(Authed {
-                        email: "superadmin_secret@windmill.dev".to_string(),
+                        email: SUPERADMIN_SECRET_EMAIL.to_string(),
                         username: "superadmin_secret".to_string(),
                         is_admin: true,
                         groups: Vec::new(),
@@ -1281,6 +1281,12 @@ async fn create_user(
     let mut tx = db.begin().await?;
 
     require_super_admin(&mut tx, &email).await?;
+
+    if nu.email == SUPERADMIN_SECRET_EMAIL {
+        return Err(Error::BadRequest(
+            "The superadmin email is a reserved email".into(),
+        ));
+    }
 
     sqlx::query!(
         "INSERT INTO password(email, verified, password_hash, login_type, super_admin, name, \
