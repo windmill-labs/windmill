@@ -1,22 +1,21 @@
 <script lang="ts">
+	import { createEventDispatcher } from 'svelte'
 	import ColorPicker, { ChromeVariant } from 'svelte-awesome-color-picker'
-	import type { StaticInput } from '../../../inputType'
+	import { ClearableInput } from '../../../../common'
 
-	export let componentInput: StaticInput<string>
+	export let value: string = '#fff'
+	const dispatch = createEventDispatcher()
 	let isOpen = false
+
+	$: dispatch('change', value)
 </script>
 
-<div class="color-picker-input">
-	<input
-		type="text"
-		readonly
-		value={componentInput.value}
-		on:focus|preventDefault|stopPropagation={() => (isOpen = true)}
-	/>
+<div class="color-picker-input grow">
+	<ClearableInput readonly bind:value on:focus={() => (isOpen = true)} />
 	<ColorPicker
 		bind:isOpen
-		bind:hex={componentInput.value}
-		label={componentInput.value}
+		bind:hex={value}
+		label={value}
 		canChangeMode={false}
 		components={ChromeVariant}
 		toRight
@@ -25,7 +24,7 @@
 </div>
 
 <style global>
-	.color-picker-input span > label.svelte-rogbpz {
+	.color-picker-input span > label {
 		display: none;
 	}
 
@@ -33,6 +32,7 @@
 		box-shadow: 0 10px 40px -5px rgba(0, 0, 0, 0.25) !important;
 		border-style: none !important;
 		border-radius: 0.375rem !important;
+		z-index: 20;
 	}
 
 	.color-picker-input .slider-wrapper {
