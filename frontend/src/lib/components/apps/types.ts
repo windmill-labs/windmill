@@ -99,6 +99,8 @@ export type InlineScript = {
 	refreshOn?: { id: string; key: string }[]
 }
 
+export type AppCssItemName = 'viewer' | 'grid' | AppComponent['type']
+
 export type App = {
 	grid: GridItem[]
 	fullscreen: boolean
@@ -114,9 +116,7 @@ export type App = {
 		autoRefresh?: boolean
 		doNotRecomputeOnInputChanged?: boolean
 	}>
-	css?: Partial<
-		Record<'viewer' | 'grid' | AppComponent['type'], Record<string, ComponentCssProperty>>
-	>
+	css?: Partial<Record<AppCssItemName, Record<string, ComponentCssProperty>>>
 	subgrids?: Record<string, GridItem[]>
 }
 

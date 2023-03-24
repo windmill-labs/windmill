@@ -23,8 +23,7 @@
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 	import { Alert, Button, Tab } from '$lib/components/common'
 	import ComponentList from './componentsPanel/ComponentList.svelte'
-	import Icon from 'svelte-awesome'
-	import { faCode, faPlus, faSliders } from '@fortawesome/free-solid-svg-icons'
+	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
 	import { classNames, encodeState } from '$lib/utils'
 	import AppPreview from './AppPreview.svelte'
@@ -41,6 +40,8 @@
 	import ComponentNavigation from './component/ComponentNavigation.svelte'
 	import ItemPicker from '$lib/components/ItemPicker.svelte'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
+	import { SecondaryMenu } from './settingsPanel/secondaryMenu'
+	import { Component, Paintbrush, Plus } from 'lucide-svelte'
 
 	export let app: App
 	export let path: string
@@ -192,7 +193,7 @@
 					<Pane size={15} minSize={5} maxSize={33}>
 						<ContextPanel />
 					</Pane>
-					<Pane size={64}>
+					<Pane size={63}>
 						<SplitPanesWrapper>
 							<Splitpanes horizontal>
 								<Pane size={70}>
@@ -233,33 +234,32 @@
 							</Splitpanes>
 						</SplitPanesWrapper>
 					</Pane>
-					<Pane size={21} minSize={5} maxSize={33}>
+					<Pane size={22} minSize={5} maxSize={33}>
 						<div class="relative flex flex-col h-full">
 							<Tabs bind:selected={selectedTab} wrapperClass="!h-[40px]" class="!h-full">
 								<Tab value="insert" size="xs">
-									<div class="m-1 center-center gap-2">
-										<Icon data={faPlus} />
+									<div class="m-1 center-center gap-1">
+										<Plus size={18} />
 										<span>Insert</span>
 									</div>
 								</Tab>
 								<Tab value="settings" size="xs">
-									<div class="m-1 center-center gap-2">
-										<Icon data={faSliders} />
-										<span>Settings</span>
+									<div class="m-1 center-center gap-1">
+										<Component size={18} />
+										<span>Component</span>
 									</div>
 								</Tab>
 								<Tab value="css" size="xs">
-									<div class="m-1 center-center gap-2">
-										<Icon data={faCode} />
-										<span>CSS</span>
+									<div class="m-1 center-center gap-1">
+										<Paintbrush size={18} />
+										<span>Styling</span>
 									</div>
 								</Tab>
 								<div slot="content" class="h-full overflow-y-auto">
 									<TabContent class="overflow-auto h-full" value="settings">
 										{#if $selectedComponent !== undefined}
-											{#key $selectedComponent}
-												<SettingsPanel />
-											{/key}
+											<SettingsPanel />
+											<SecondaryMenu />
 										{:else}
 											<div class="min-w-[150px] text-sm text-gray-500 text-center py-8 px-2">
 												Select a component to see the settings&nbsp;for&nbsp;it

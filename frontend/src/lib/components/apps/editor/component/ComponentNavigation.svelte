@@ -202,7 +202,10 @@
 	function keydown(event: KeyboardEvent) {
 		// Ignore keydown events if the user is typing in monaco
 		let classes = event.target?.['className']
-		if (typeof classes === 'string' && classes.includes('inputarea')) {
+		if (
+			(typeof classes === 'string' && classes.includes('inputarea')) ||
+			['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName!)
+		) {
 			return
 		}
 		switch (event.key) {
