@@ -34,7 +34,7 @@
 		const current = parse(value) || {}
 		Object.entries(current).forEach(([k, v]) => {
 			styleStore.updatePropValue(k as StylePropertyKey, v)
-			const { prop, index } = styleStore.getProp(k as StylePropertyKey) || {}
+			const { prop, index } = styleStore.getProp(k as StylePropertyKey)
 			if (Array.isArray(prop?.prop?.value) && index !== undefined) {
 				const valueArray = v.split(' ')
 				multiValues[index] = multiValues[index].map((v, i) => valueArray[i] || v)
