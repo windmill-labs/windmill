@@ -70,6 +70,7 @@
 	$: loading = isLoading && ownClick
 
 	$: css = concatCustomCss($app?.css?.formbuttoncomponent, customCss)
+	let runnableWrapper: RunnableWrapper
 </script>
 
 {#each Object.keys(components['formbuttoncomponent'].initialData.configuration) as key (key)}
@@ -95,6 +96,7 @@
 		}}
 	>
 		<RunnableWrapper
+			bind:this={runnableWrapper}
 			{recomputeIds}
 			{render}
 			bind:runnableComponent
@@ -130,8 +132,11 @@
 							window.dispatchEvent(new Event('pointerup'))
 						}}
 						on:click={async () => {
-							await runnableComponent?.runComponent()
-
+							if (!runnableComponent) {
+								runnableWrapper.onSuccess()
+							} else {
+								await runnableComponent?.runComponent()
+							}
 							open = false
 						}}
 						size="xs"

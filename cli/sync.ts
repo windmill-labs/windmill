@@ -31,7 +31,8 @@ import { FlowFile } from "./flow.ts";
 import { VariableFile } from "./variable.ts";
 import { handleFile } from "./script.ts";
 import { equal } from "https://deno.land/x/equal@v1.5.0/mod.ts";
-import { diffCharacters } from "https://deno.land/x/diff@v0.3.5/mod.ts";
+import * as Diff from "npm:diff";
+
 type DynFSElement = {
   isDirectory: boolean;
   path: string;
@@ -401,16 +402,16 @@ async function pull(
     console.log(colors.yellow(`- ${path}`));
 
     let finalString = "";
-    for (const character of diffCharacters(local, remote)) {
-      if (character.wasRemoved) {
+    for (const part of Diff.diffLines(local, remote)) {
+      if (part.removed) {
         // print red if removed without newline
-        finalString += `\x1b[31m${character.character}\x1b[0m`;
-      } else if (character.wasAdded) {
+        finalString += `\x1b[31m${part.value}\x1b[0m`;
+      } else if (part.added) {
         // print green if added
-        finalString += `\x1b[32m${character.character}\x1b[0m`;
+        finalString += `\x1b[32m${part.value}\x1b[0m`;
       } else {
         // print white if unchanged
-        finalString += `\x1b[37m${character.character}\x1b[0m`;
+        finalString += `\x1b[37m${part.value}\x1b[0m`;
       }
     }
     console.log(finalString);
@@ -462,27 +463,27 @@ function prettyChanges(changes: Change[]) {
   }
 }
 
-function prettyDiff(diffs: Difference[]) {
-  for (const diff of diffs) {
-    let pathString = "";
-    for (const pathSegment of diff.path) {
-      if (typeof pathSegment === "string") {
-        pathString += ".";
-        pathString += pathSegment;
-      } else {
-        pathString += "[";
-        pathString += pathSegment;
-        pathString += "]";
-      }
-    }
-    if (diff.type === "REMOVE" || diff.type === "CHANGE") {
-      console.log(colors.red("- " + pathString + " = " + diff.oldValue));
-    }
-    if (diff.type === "CREATE" || diff.type === "CHANGE") {
-      console.log(colors.green("+ " + pathString + " = " + diff.value));
-    }
-  }
-}
+// function prettyDiff(diffs: Difference[]) {
+//   for (const diff of diffs) {
+//     let pathString = "";
+//     for (const pathSegment of diff.path) {
+//       if (typeof pathSegment === "string") {
+//         pathString += ".";
+//         pathString += pathSegment;
+//       } else {
+//         pathString += "[";
+//         pathString += pathSegment;
+//         pathString += "]";
+//       }
+//     }
+//     if (diff.type === "REMOVE" || diff.type === "CHANGE") {
+//       console.log(colors.red("- " + pathString + " = " + diff.oldValue));
+//     }
+//     if (diff.type === "CREATE" || diff.type === "CHANGE") {
+//       console.log(colors.green("+ " + pathString + " = " + diff.value));
+//     }
+//   }
+// }
 
 function removeSuffix(str: string, suffix: string) {
   return str.slice(0, str.length - suffix.length);

@@ -355,11 +355,13 @@
 			/>
 		</div>
 	{:else if result != undefined}
-		<Alert title="Parsing issues" type="error" size="xs">
-			The result should be an array of objects. Received:
-			<pre class="overflow-auto">
-				{JSON.stringify(result)}
-			</pre>
-		</Alert>
+		<div class="flex flex-col h-full w-full overflow-auto">
+			<Alert title="Parsing issues" type="error" size="xs" class="h-full w-full ">
+				The result should be an array of objects. Received:
+				<pre class="w-full bg-white p-2 rounded-md">
+				{JSON.stringify(result, null, 4)}
+				</pre>
+			</Alert>
+		</div>
 	{/if}
 </RunnableWrapper>
