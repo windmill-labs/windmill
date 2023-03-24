@@ -9,6 +9,7 @@
 use std::fs::{self};
 
 // TEMPORARY CODE NEEDED TO REFRESH NPM PACKAGE INFO REGISTRIES BECAUSE DENO DOES NOT DO IT FOR NOW
+// SEE: https://github.com/denoland/deno/issues/16901
 
 use anyhow::Result;
 use itertools::Itertools;
