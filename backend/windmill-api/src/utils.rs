@@ -20,9 +20,11 @@ pub async fn require_super_admin<'c>(
         return Ok(());
     }
     let is_admin = sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", email)
-        .fetch_one(db)
+        .fetch_optional(db)
         .await
-        .map_err(|e| Error::InternalErr(format!("fetching super admin: {e}")))?;
+        .map_err(|e| Error::InternalErr(format!("fetching super admin: {e}")))?
+        .unwrap_or(false);
+
     if !is_admin {
         Err(Error::NotAuthorized(
             "This endpoint require caller to be a super admin".to_owned(),
