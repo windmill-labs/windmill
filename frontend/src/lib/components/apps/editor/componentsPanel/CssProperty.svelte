@@ -1,22 +1,43 @@
 <script lang="ts">
-	import { Paintbrush2 } from 'lucide-svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { Forward, Paintbrush2 } from 'lucide-svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import { fade } from 'svelte/transition'
-	import { addWhitespaceBeforeCapitals } from '../../../../utils'
+	import { addWhitespaceBeforeCapitals, sendUserToast } from '../../../../utils'
 	import { Button, ClearableInput } from '../../../common'
-	import type { ComponentCssProperty } from '../../types'
+	import Popover from '../../../Popover.svelte'
+	import type { AppViewerContext, ComponentCssProperty } from '../../types'
+	import type { AppComponent } from '../component/components'
 	import QuickStyleMenu from './QuickStyleMenu.svelte'
 	import type { StylePropertyKey } from './quickStyleProperties'
 
 	export let name: string
+	export let componentType: AppComponent['type'] | undefined = undefined
 	export let value: ComponentCssProperty = {}
 	export let forceStyle: boolean = false
 	export let forceClass: boolean = false
 	export let quickStyleProperties: StylePropertyKey[] | undefined = undefined
+	const { app } = getContext<AppViewerContext>('AppViewerContext')
 	const dispatch = createEventDispatcher()
 	let isQuickMenuOpen = false
 
 	$: dispatch('change', value)
+
+	function toggleQuickMenu() {
+		isQuickMenuOpen = !isQuickMenuOpen
+	}
+
+	function applyToAllInstances() {
+		if (
+			componentType &&
+			componentType in ($app?.css || {}) &&
+			name in ($app?.css?.[componentType] || {})
+		) {
+			$app.css![componentType]![name].style = value.style
+			sendUserToast(
+				`Applied style to all instances of the ${componentType.replace('component', '')} component`
+			)
+		}
+	}
 </script>
 
 <div class="sticky top-0 z-20 bg-white text-sm font-semibold text-gray-500 capitalize pt-2 pb-1">
@@ -31,21 +52,47 @@
 					<div class="text-xs font-medium pb-0.5"> Style </div>
 					<div class="flex gap-1">
 						<div class="relative grow">
-							<ClearableInput bind:value={value.style} />
+							<ClearableInput
+								bind:value={value.style}
+								type="textarea"
+								wrapperClass="h-full min-h-[72px]"
+								inputClass="h-full"
+							/>
 						</div>
-						{#if quickStyleProperties?.length}
-							<Button
-								variant="border"
-								color="light"
-								size="xs"
-								btnClasses="!p-1 !w-[34px] !h-[34px]"
-								aria-label="Toggle quick style menu"
-								title="Toggle quick style menu"
-								on:click={() => (isQuickMenuOpen = !isQuickMenuOpen)}
-							>
-								<Paintbrush2 size={18} />
-							</Button>
-						{/if}
+						<div class="flex flex-col gap-1">
+							{#if componentType}
+								<Popover placement="bottom" notClickable disapperTimoout={0}>
+									<Button
+										variant="border"
+										color="light"
+										size="xs"
+										btnClasses="!p-1 !w-[34px] !h-[34px]"
+										aria-label="Apply to all instances of this component"
+										on:click={applyToAllInstances}
+									>
+										<Forward size={18} />
+									</Button>
+									<svelte:fragment slot="text">
+										Apply to all instances of this component
+									</svelte:fragment>
+								</Popover>
+							{/if}
+							{#if quickStyleProperties?.length}
+								<Popover placement="bottom" notClickable disapperTimoout={0}>
+									<Button
+										variant="border"
+										color="light"
+										size="xs"
+										btnClasses="!p-1 !w-[34px] !h-[34px]"
+										aria-label="Styling menu"
+										on:click={toggleQuickMenu}
+									>
+										<Paintbrush2 size={18} />
+									</Button>
+									<svelte:fragment slot="text">Styling menu</svelte:fragment>
+								</Popover>
+							{/if}
+						</div>
 					</div>
 				</label>
 				{#if quickStyleProperties?.length && isQuickMenuOpen}
