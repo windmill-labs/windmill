@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
+	import { faChevronRight } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { AppEditorContext, AppViewerContext, GridItem, RichConfiguration } from '../../types'
 	import PanelSection from './common/PanelSection.svelte'
@@ -9,7 +9,7 @@
 	import StaticInputEditor from './inputEditor/StaticInputEditor.svelte'
 	import ConnectedInputEditor from './inputEditor/ConnectedInputEditor.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import { capitalize, classNames, getModifierKey } from '$lib/utils'
+	import { capitalize, classNames, getModifierKey, isMac } from '$lib/utils'
 	import { buildExtraLib, fieldTypeToTsType } from '../../utils'
 	import Recompute from './Recompute.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -17,7 +17,7 @@
 	import AlignmentEditor from './AlignmentEditor.svelte'
 	import RunnableInputEditor from './inputEditor/RunnableInputEditor.svelte'
 	import TemplateEditor from '$lib/components/TemplateEditor.svelte'
-	import { ccomponents, type AppComponent } from '../component'
+	import { ccomponents } from '../component'
 	import CssProperty from '../componentsPanel/CssProperty.svelte'
 	import GridTab from './GridTab.svelte'
 	import { clearErrorByComponentId, clearJobsByComponentId, deleteGridItem } from '../appUtils'
@@ -25,6 +25,9 @@
 	import { slide } from 'svelte/transition'
 	import { push } from '$lib/history'
 	import Kbd from '$lib/components/common/kbd/Kbd.svelte'
+	import { secondaryMenu } from './secondaryMenu'
+	import StylePanel from './StylePanel.svelte'
+	import { Delete } from 'lucide-svelte'
 
 	export let componentSettings: { item: GridItem; parent: string | undefined } | undefined =
 		undefined
@@ -90,12 +93,10 @@
 			: undefined
 
 	function keydown(event: KeyboardEvent) {
-		switch (event.key) {
-			case 'Delete': {
-				removeGridElement()
-				event.stopPropagation()
-				break
-			}
+		const { key, metaKey } = event
+		if (key === 'Delte' || (key === 'Backspace' && metaKey)) {
+			removeGridElement()
+			event.stopPropagation()
 		}
 	}
 
@@ -235,19 +236,20 @@
 		<div class="grow shrink" />
 
 		{#if Object.keys(ccomponents[component.type].customCss ?? {}).length > 0}
-			<PanelSection title="Custom CSS">
+			<PanelSection title="Styling">
 				<div slot="action">
 					<Button
 						color="light"
 						size="xs"
-						endIcon={{ icon: viewCssOptions ? faChevronUp : faChevronDown }}
-						on:click={() => (viewCssOptions = !viewCssOptions)}
+						variant="border"
+						endIcon={{ icon: faChevronRight }}
+						on:click={() => secondaryMenu.open(StylePanel, { component })}
 					>
-						{viewCssOptions ? 'Hide' : 'Show'}
+						Open
 					</Button>
 				</div>
 				{#if viewCssOptions}
-					<div transition:slide|local>
+					<div transition:slide|local class="w-full">
 						{#each Object.keys(ccomponents[component.type].customCss ?? {}) as name}
 							{#if componentSettings.item.data?.customCss != undefined}
 								<div class="w-full mb-2">
@@ -270,7 +272,15 @@
 				<div slot="action">
 					<Button size="xs" color="red" variant="border" on:click={removeGridElement}>
 						Delete&nbsp;&nbsp;
-						<Kbd>Del</Kbd>
+						{#if isMac()}
+							<Kbd kbdClass="center-center">
+								<span class="text-lg leading-none">⌘</span>
+								<span class="px-0.5">+</span>
+								<Delete size={16} />
+							</Kbd>
+						{:else}
+							<Kbd>Del</Kbd>
+						{/if}
 					</Button>
 				</div>
 				<div class="flex flex-col gap-1">

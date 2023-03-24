@@ -10,6 +10,7 @@
 	export let iconOnly: boolean = false
 	export let startIcon: ButtonType.Icon | undefined = undefined
 	export let endIcon: ButtonType.Icon | undefined = undefined
+	export let wrapperClasses = ''
 
 	const props = getContext<ButtonType.ItemProps | undefined>(ButtonType.ItemContextKey)
 	const iconWidthClass: Record<ButtonType.Size, string> = {
@@ -45,7 +46,7 @@
 	}
 </script>
 
-<li class="mt-1">
+<li class="mt-1 {wrapperClasses}">
 	<Button {...buttonProps} on:click>
 		<slot />
 	</Button>
