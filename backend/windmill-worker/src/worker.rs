@@ -52,10 +52,9 @@ use crate::{
     jobs::{add_completed_job, add_completed_job_error},
     worker_flow::{
         handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress,
-    },
+    }, npm,
 };
 
-#[cfg(feature = "enterprise")]
 use rand::Rng;
 
 #[cfg(feature = "enterprise")]
@@ -263,7 +262,7 @@ pub async fn create_token_for_owner<'c>(
 const TMP_DIR: &str = "/tmp/windmill";
 const ROOT_CACHE_DIR: &str = "/tmp/windmill/cache/";
 const PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "pip");
-const DENO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "deno");
+pub const DENO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "deno");
 const GO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "go");
 const NUM_SECS_PING: u64 = 5;
 const NUM_SECS_SYNC: u64 = 60 * 10;
@@ -438,6 +437,7 @@ pub async fn run_worker(
     base_internal_url: &str,
 ) {
 
+
     #[cfg(not(feature = "enterprise"))]
     if !*DISABLE_NSJAIL {
         tracing::warn!(
@@ -549,16 +549,20 @@ pub async fn run_worker(
 
     WORKER_STARTED.inc();
 
-    #[cfg(feature = "enterprise")]
-    if let Some(ref s) = S3_CACHE_BUCKET.clone() {
-        // We try to download the entire cache as a tar, it is much faster over S3
-        if !copy_cache_from_bucket_as_tar(&s).await {
-            // We revert to copying the cache from the bucket
-            copy_cache_from_bucket(&s).await;
+    if i_worker == 1 {
+        #[cfg(feature = "enterprise")]
+        if let Some(ref s) = S3_CACHE_BUCKET.clone() {
+            // We try to download the entire cache as a tar, it is much faster over S3
+            if !copy_cache_from_bucket_as_tar(&s).await {
+                // We revert to copying the cache from the bucket
+                copy_cache_from_bucket(&s).await;
+            }
         }
+        let _ = npm::refresh_registries().await.map_err(|e| {
+            tracing::error!(error = %e, "could not refresh npm registries");
+        });
     }
 
-    #[cfg(feature = "enterprise")]
     let mut last_sync =
         Instant::now() + Duration::from_secs(rand::thread_rng().gen_range(0..NUM_SECS_SYNC));
 
@@ -590,16 +594,27 @@ pub async fn run_worker(
                 last_ping = Instant::now();
             }
 
-            #[cfg(feature = "enterprise")]
-            if last_sync.elapsed().as_secs() > NUM_SECS_SYNC {
-                if let Some(ref s) = S3_CACHE_BUCKET.clone() {
-                    copy_cache_from_bucket(&s).await;
-                    copy_cache_to_bucket(&s).await;
-                    if rand::thread_rng().gen_range(0..*TAR_CACHE_RATE) == 1 {
-                        copy_cache_to_bucket_as_tar(&s).await;
+
+            if i_worker == 1 {
+        
+                if last_sync.elapsed().as_secs() > NUM_SECS_SYNC {
+                    
+                    #[cfg(feature = "enterprise")]
+                    if let Some(ref s) = S3_CACHE_BUCKET.clone() {
+                        copy_cache_from_bucket(&s).await;
+                        copy_cache_to_bucket(&s).await;
+                        if rand::thread_rng().gen_range(0..*TAR_CACHE_RATE) == 1 {
+                            copy_cache_to_bucket_as_tar(&s).await;
+                        }
                     }
+
+                    let _ = npm::refresh_registries().await.map_err(|e| {
+                        tracing::error!(error = %e, "could not refresh npm registries");
+                    });
+                    last_sync = Instant::now();
                 }
-                last_sync = Instant::now();
+
+
             }
 
             let (do_break, next_job) = async {
