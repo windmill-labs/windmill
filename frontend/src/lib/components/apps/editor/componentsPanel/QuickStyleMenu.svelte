@@ -161,7 +161,7 @@
 <div class="bg-gray-200/60 rounded-md p-2">
 	{#each $styleStore.style as { prop }, index}
 		<div class="pb-3 last:pb-0">
-			<div class="text-xs font-medium pb-0.5"> {prop.key} </div>
+			<div class="text-sm font-medium text-gray-600 pb-0.5"> {prop.key} </div>
 			<div class="flex items-center gap-1 w-full">
 				{#if Array.isArray(prop.value)}
 					<div class="flex justify-start items-center flex-wrap gap-x-4 gap-y-1">

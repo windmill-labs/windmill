@@ -40,7 +40,9 @@
 	}
 </script>
 
-<div class="sticky top-0 z-20 bg-white text-sm font-semibold text-gray-500 capitalize pt-2 pb-1">
+<div
+	class="sticky top-0 z-20 text-lg bg-white font-semibold [font-variant:small-caps] text-gray-700 pt-2 pb-1"
+>
 	{addWhitespaceBeforeCapitals(name)}
 </div>
 {#if value}
@@ -49,7 +51,7 @@
 			<div class="pb-2">
 				<!-- svelte-ignore a11y-label-has-associated-control -->
 				<label class="block">
-					<div class="text-xs font-medium pb-0.5"> Style </div>
+					<div class="text-sm font-medium text-gray-600 pb-0.5"> Style </div>
 					<div class="flex gap-1">
 						<div class="relative grow">
 							<ClearableInput
@@ -83,13 +85,17 @@
 										variant="border"
 										color="light"
 										size="xs"
-										btnClasses="!p-1 !w-[34px] !h-[34px]"
-										aria-label="Styling menu"
+										btnClasses="!p-1 !w-[34px] !h-[34px] {isQuickMenuOpen
+											? '!bg-gray-200/60 hover:!bg-gray-200'
+											: ''}"
+										aria-label="{isQuickMenuOpen ? 'Close' : 'Open'} styling menu"
 										on:click={toggleQuickMenu}
 									>
 										<Paintbrush2 size={18} />
 									</Button>
-									<svelte:fragment slot="text">Styling menu</svelte:fragment>
+									<svelte:fragment slot="text">
+										{isQuickMenuOpen ? 'Close' : 'Open'} styling menu
+									</svelte:fragment>
 								</Popover>
 							{/if}
 						</div>
@@ -105,7 +111,7 @@
 		{#if value.class !== undefined || forceClass}
 			<!-- svelte-ignore a11y-label-has-associated-control -->
 			<label class="block">
-				<div class="text-xs font-medium pb-0.5"> Tailwind classes </div>
+				<div class="text-sm font-medium text-gray-600 pb-0.5"> Tailwind classes </div>
 				<div class="relative">
 					<ClearableInput bind:value={value.class} />
 				</div>
