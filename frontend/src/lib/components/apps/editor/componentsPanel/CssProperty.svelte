@@ -19,7 +19,7 @@
 	$: dispatch('change', value)
 </script>
 
-<div class="sticky top-0 z-10 bg-white text-sm font-semibold text-gray-500 capitalize pt-2 pb-1">
+<div class="sticky top-0 z-20 bg-white text-sm font-semibold text-gray-500 capitalize pt-2 pb-1">
 	{addWhitespaceBeforeCapitals(name)}
 </div>
 {#if value}

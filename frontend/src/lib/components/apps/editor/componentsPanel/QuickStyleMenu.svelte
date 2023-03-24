@@ -158,7 +158,7 @@
 	})
 </script>
 
-<div class="bg-gray-200/80 rounded-md p-2">
+<div class="bg-gray-200/60 rounded-md p-2">
 	{#each $styleStore.style as { prop }, index}
 		<div class="pb-3 last:pb-0">
 			<div class="text-xs font-medium pb-0.5"> {prop.key} </div>

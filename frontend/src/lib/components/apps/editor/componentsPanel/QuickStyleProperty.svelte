@@ -58,7 +58,13 @@
 				</Popover>
 			{/each}
 		{:else if type === StylePropertyType.number}
-			<ClearableInput type="number" bind:value />
+			<ClearableInput
+				type="number"
+				bind:value
+				step={prop.value?.['step'] || 1}
+				min={prop.value?.['min']}
+				max={prop.value?.['max']}
+			/>
 		{:else if type === StylePropertyType.unit}
 			<ClearableInput
 				wrapperClass="flex items-center {inline ? '!grow-0' : ''}"

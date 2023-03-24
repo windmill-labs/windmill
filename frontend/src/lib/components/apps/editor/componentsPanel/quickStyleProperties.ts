@@ -145,7 +145,10 @@ export const StyleProperty = [
 	{
 		key: 'opacity',
 		value: {
-			type: StylePropertyType.number
+			type: StylePropertyType.number,
+			step: 0.1,
+			min: 0,
+			max: 1
 		}
 	},
 	{
