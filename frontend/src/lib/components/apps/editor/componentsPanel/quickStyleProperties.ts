@@ -462,47 +462,18 @@ const sizeDefaultProps: StylePropertyKey[] = [
 ]
 
 const buttonDefaultProps: StylePropertyKey[] = [
-	'padding',
-	'opacity',
 	'cursor',
-	'width',
-	'min-width',
-	'max-width',
-	'height',
-	'min-height',
-	'max-height',
 	'border',
 	'border-radius',
 	'box-shadow',
-	'background-color',
-	...textDefaultProps,
-	'overflow'
+	...textDefaultProps
 ]
 
 const inputDefaultProps: StylePropertyKey[] = [
-	'padding',
-	'opacity',
 	'cursor',
-	'width',
-	'min-width',
-	'max-width',
-	'height',
-	'min-height',
-	'max-height',
 	'border',
 	'border-radius',
-	'background-color',
-	'color',
-	'font-size',
-	'font-family',
-	'font-weight',
-	'font-style',
-	'text-align',
-	'text-decoration',
-	'text-transform',
-	'line-height',
-	'letter-spacing',
-	'word-spacing'
+	...textDefaultProps
 ]
 
 export const quickStyleProperties: Record<
