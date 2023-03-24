@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Paintbrush2, X } from 'lucide-svelte'
+	import { Paintbrush2 } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import { addWhitespaceBeforeCapitals } from '../../../../utils'

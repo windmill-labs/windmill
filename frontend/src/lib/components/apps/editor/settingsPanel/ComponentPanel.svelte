@@ -17,7 +17,7 @@
 	import AlignmentEditor from './AlignmentEditor.svelte'
 	import RunnableInputEditor from './inputEditor/RunnableInputEditor.svelte'
 	import TemplateEditor from '$lib/components/TemplateEditor.svelte'
-	import { ccomponents, type AppComponent } from '../component'
+	import { ccomponents } from '../component'
 	import CssProperty from '../componentsPanel/CssProperty.svelte'
 	import GridTab from './GridTab.svelte'
 	import { clearErrorByComponentId, clearJobsByComponentId, deleteGridItem } from '../appUtils'
