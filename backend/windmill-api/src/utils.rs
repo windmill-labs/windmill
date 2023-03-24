@@ -7,12 +7,18 @@
  */
 
 use sqlx::{Postgres, Transaction};
-use windmill_common::error::{self, Error};
+use windmill_common::{
+    error::{self, Error},
+    users::SUPERADMIN_SECRET_EMAIL,
+};
 
 pub async fn require_super_admin<'c>(
     db: &mut Transaction<'c, Postgres>,
     email: &str,
 ) -> error::Result<()> {
+    if email == SUPERADMIN_SECRET_EMAIL {
+        return Ok(());
+    }
     let is_admin = sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", email)
         .fetch_one(db)
         .await
