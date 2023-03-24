@@ -42,9 +42,7 @@
 
 	let isLoading: boolean = false
 	let ownClick: boolean = false
-
 	let errors: Record<string, string> = {}
-	let open: boolean = true
 
 	$: errorsMessage = Object.values(errors)
 		.filter((x) => x != '')
@@ -152,7 +150,6 @@
 		btnClasses={css?.button?.class ?? ''}
 		style={css?.button?.style ?? ''}
 		on:click={(e) => {
-			open = true
 			getModal().open()
 		}}
 	>
