@@ -25,7 +25,7 @@ use windmill_common::{
     flows::{FlowModuleValue, FlowValue},
     scripts::{ScriptHash, ScriptLang},
     utils::rd_string,
-    variables, BASE_URL,
+    variables, BASE_URL, users::SUPERADMIN_SECRET_EMAIL,
 };
 use windmill_queue::{canceled_job_to_result, get_queued_job, pull, JobKind, QueuedJob, CLOUD_HOSTED};
 
@@ -241,7 +241,7 @@ pub async fn create_token_for_owner<'c>(
     let is_super_admin = sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", email)
             .fetch_optional(&mut tx)
             .await?
-            .unwrap_or(false);
+            .unwrap_or(false) || email == SUPERADMIN_SECRET_EMAIL;
 
     sqlx::query_scalar!(
         "INSERT INTO token
