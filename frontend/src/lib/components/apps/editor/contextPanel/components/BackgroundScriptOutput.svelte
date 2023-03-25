@@ -14,12 +14,12 @@
 	function onHeaderClick(manuallyOpen: boolean) {
 		if (manuallyOpen) {
 			if (id) {
-				$selectedComponent = id
+				$selectedComponent = [id]
 			} else {
 				$selectedComponent = undefined
 			}
 		} else {
-			$selectedComponent = id
+			$selectedComponent = [id]
 		}
 	}
 </script>

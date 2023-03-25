@@ -106,7 +106,6 @@
 					btnClasses="my-1"
 					on:pointerdown={(e) => {
 						e?.stopPropagation()
-						window.dispatchEvent(new Event('pointerup'))
 					}}
 					on:click={async () => {
 						if (!runnableComponent) {

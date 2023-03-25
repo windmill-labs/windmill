@@ -46,10 +46,10 @@
 
 <AlignWrapper {render} {verticalAlignment}>
 	<input
-		on:pointerdown|stopPropagation={() => ($selectedComponent = id)}
-		on:focus={() => ($selectedComponent = id)}
+		on:pointerdown|stopPropagation={() => ($selectedComponent = [id])}
+		on:focus={() => ($selectedComponent = [id])}
 		class={twMerge(
-			'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2 mx-0.5',
+			'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2',
 			css?.input?.class ?? ''
 		)}
 		style={css?.input?.style ?? ''}

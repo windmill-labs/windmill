@@ -300,6 +300,10 @@
 						<Kbd>&uparrow;</Kbd><Kbd>&rightarrow;</Kbd>
 						<Kbd>ESC</Kbd>
 					</div>
+					<div>
+						<span class="text-gray-600 text-xs mr-2">Add to selection:</span>
+						<Kbd>&DoubleUpArrow;</Kbd>+<Kbd>click</Kbd>
+					</div>
 				</div>
 			</PanelSection>
 		{/if}

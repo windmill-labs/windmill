@@ -151,7 +151,7 @@
 			const hasActions = actionButtons.length >= 1
 
 			if (hasActions) {
-				$selectedComponent = actionButtons[0].id
+				$selectedComponent = [actionButtons[0].id]
 				return true
 			}
 			return false
@@ -273,13 +273,13 @@
 															$hoverStore = undefined
 														}
 													}}
-													class={(actionButton.id === $selectedComponent ||
+													class={($selectedComponent?.includes(actionButton.id) ||
 														$hoverStore === actionButton.id) &&
 													$mode !== 'preview'
 														? 'outline outline-indigo-500 outline-1 outline-offset-1 relative '
 														: ''}
 												>
-													{#if actionButton.id === $selectedComponent || $hoverStore === actionButton.id}
+													{#if $selectedComponent?.includes(actionButton.id) || $hoverStore === actionButton.id}
 														<span
 															title={`Id: ${actionButton.id}`}
 															class={classNames(
@@ -307,10 +307,10 @@
 															controls={{
 																left: () => {
 																	if (actionIndex === 0) {
-																		$selectedComponent = id
+																		$selectedComponent = [id]
 																		return true
 																	} else if (actionIndex > 0) {
-																		$selectedComponent = actionButtons[actionIndex - 1].id
+																		$selectedComponent = [actionButtons[actionIndex - 1].id]
 																		return true
 																	}
 																	return false
@@ -319,7 +319,7 @@
 																	if (actionIndex === actionButtons.length - 1) {
 																		return id
 																	} else if (actionIndex < actionButtons.length - 1) {
-																		$selectedComponent = actionButtons[actionIndex + 1].id
+																		$selectedComponent = [actionButtons[actionIndex + 1].id]
 																		return true
 																	}
 																	return false

@@ -69,7 +69,7 @@
 
 	function selectComponent() {
 		if (!$connectingInput.opened) {
-			$selectedComponent = id
+			$selectedComponent = [id]
 			$focusedGrid = undefined
 		}
 	}

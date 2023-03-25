@@ -16,10 +16,6 @@ function makeItem(item) {
 }
 
 const gridHelp = {
-	normalize(items, col) {
-		return normalize(items, col)
-	},
-
 	adjust(items, col) {
 		return adjust(items, col)
 	},

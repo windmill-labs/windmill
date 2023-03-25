@@ -79,7 +79,7 @@
 		event?.stopPropagation()
 		event?.preventDefault()
 
-		$selectedComponent = id
+		$selectedComponent = [id]
 
 		if (preclickAction) {
 			await preclickAction()

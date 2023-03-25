@@ -38,10 +38,6 @@
 
 <AlignWrapper {render} {horizontalAlignment} {verticalAlignment}>
 	<Toggle
-		on:pointerdown={(e) => {
-			e?.stopPropagation()
-			window.dispatchEvent(new Event('pointerup'))
-		}}
 		checked={defaultValue}
 		options={{ right: labelValue }}
 		textClass={css?.text?.class ?? ''}

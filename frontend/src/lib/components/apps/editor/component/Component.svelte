@@ -50,8 +50,9 @@
 		getContext<AppViewerContext>('AppViewerContext')
 
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
-	const movingcomponent = editorContext?.movingcomponent
-	$: ismoving = movingcomponent != undefined && $mode == 'dnd' && $movingcomponent === component.id
+	const movingcomponents = editorContext?.movingcomponents
+	$: ismoving =
+		movingcomponents != undefined && $mode == 'dnd' && $movingcomponents?.includes(component.id)
 
 	let initializing: boolean | undefined = undefined
 	let componentContainerHeight: number = 0
@@ -91,7 +92,7 @@
 			<button
 				class="border p-0.5 text-xs"
 				on:click={() => {
-					$movingcomponent = undefined
+					$movingcomponents = undefined
 				}}>Cancel move</button
 			>
 		</div>

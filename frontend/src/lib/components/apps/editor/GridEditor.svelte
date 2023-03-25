@@ -12,7 +12,7 @@
 	import { push } from '$lib/history'
 	import { expandGriditem, findGridItem } from './appUtils'
 	import Grid from '../svelte-grid/Grid.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
+	import { selectId } from '../utils'
 
 	export let policy: Policy
 
@@ -64,9 +64,9 @@
 		}
 	}
 
-	function selectComponent(id: string) {
+	function selectComponent(e: PointerEvent, id: string) {
 		if (!$connectingInput.opened) {
-			$selectedComponent = id
+			selectId(e, id, selectedComponent, $app)
 			if ($focusedGrid?.parentComponentId != id) {
 				$focusedGrid = undefined
 			}
@@ -108,7 +108,7 @@
 	>
 		<div class={!$focusedGrid && $mode !== 'preview' ? 'border-gray-400 border border-dashed' : ''}>
 			<Grid
-				onTopId={$selectedComponent}
+				selectedIds={$selectedComponent}
 				items={$app.grid}
 				on:redraw={(e) => {
 					push(history, $app)
@@ -136,16 +136,16 @@
 				{/if}
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<div
-					on:pointerdown={() => selectComponent(dataItem.id)}
+					on:pointerdown={(e) => selectComponent(e, dataItem.id)}
 					class={classNames(
 						'h-full w-full center-center',
-						$selectedComponent === dataItem.id ? 'active-grid-item' : ''
+						Boolean($selectedComponent?.includes(dataItem.id)) ? 'active-grid-item' : ''
 					)}
 				>
 					<Component
 						render={true}
 						component={dataItem.data}
-						selected={$selectedComponent === dataItem.id}
+						selected={Boolean($selectedComponent?.includes(dataItem.id))}
 						locked={isFixed(dataItem)}
 						on:delete={() => removeGridElement(dataItem.data)}
 						on:lock={() => {
@@ -157,7 +157,7 @@
 						}}
 						on:expand={() => {
 							push(history, $app)
-							$selectedComponent = dataItem.id
+							$selectedComponent = [dataItem.id]
 							expandGriditem($app.grid, dataItem.id, $breakpoint)
 							$app = $app
 						}}
@@ -176,7 +176,8 @@
 				inlineScript={script.inlineScript}
 				name={script.name}
 				fields={script.fields}
-				doNotRecomputeOnInputChanged={script.doNotRecomputeOnInputChanged}
+				doNotRecomputeOnInputChanged={script.doNotRecomputeOnInputChanged ?? false}
+				recomputableByRefreshButton={script.autoRefresh ?? false}
 			/>
 		{/if}
 	{/each}

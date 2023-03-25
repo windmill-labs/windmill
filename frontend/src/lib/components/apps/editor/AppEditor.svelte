@@ -51,7 +51,7 @@
 	export let fromHub: boolean = false
 
 	const appStore = writable<App>(app)
-	const selectedComponent = writable<string | undefined>(undefined)
+	const selectedComponent = writable<string[] | undefined>(undefined)
 	const mode = writable<EditorMode>(initialMode)
 	const breakpoint = writable<EditorBreakpoint>('lg')
 	const summaryStore = writable(summary)
@@ -83,7 +83,7 @@
 		mode,
 		connectingInput,
 		breakpoint,
-		runnableComponents,
+		runnableComponents: writable({}),
 		appPath: path,
 		workspace: $workspaceStore ?? '',
 		onchange: () => saveDraft(),
@@ -105,7 +105,7 @@
 		history,
 		pickVariableCallback,
 		ontextfocus: writable(undefined),
-		movingcomponent: writable(undefined),
+		movingcomponents: writable(undefined),
 		selectedComponentInEditor: writable(undefined)
 	})
 
@@ -140,10 +140,10 @@
 
 	let selectedTab: 'insert' | 'settings' = 'insert'
 
-	$: if ($selectedComponent) {
+	let befSelected: string | undefined = undefined
+	$: if ($selectedComponent?.[0] != befSelected) {
+		befSelected = $selectedComponent?.[0]
 		selectedTab = 'settings'
-	} else {
-		selectedTab = 'insert'
 	}
 
 	let itemPicker: ItemPicker | undefined = undefined

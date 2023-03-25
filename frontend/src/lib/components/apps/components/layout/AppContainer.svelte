@@ -23,7 +23,7 @@
 		}
 	}
 
-	$: $selectedComponent === id && onFocus()
+	$: $selectedComponent?.includes(id) && onFocus()
 
 	$: css = concatCustomCss($app.css?.containercomponent, customCss)
 </script>
@@ -38,7 +38,7 @@
 			subGridId={`${id}-0`}
 			containerHeight={componentContainerHeight}
 			on:focus={() => {
-				$selectedComponent = id
+				$selectedComponent = [id]
 			}}
 		/>
 	{/if}

@@ -36,12 +36,12 @@
 	function onHeaderClick(manuallyOpen: boolean) {
 		if (manuallyOpen) {
 			if (parentId) {
-				$selectedComponent = parentId
+				$selectedComponent = [parentId]
 			} else {
 				$selectedComponent = undefined
 			}
 		} else {
-			$selectedComponent = gridItem.id
+			$selectedComponent = [gridItem.id]
 		}
 	}
 </script>

@@ -2,10 +2,8 @@
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initOutput } from '../../editor/appUtils'
-	import type { AppInput } from '../../inputType'
-	import type { Output } from '../../rx'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
-	import { concatCustomCss } from '../../utils'
+	import { concatCustomCss, selectId } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 
@@ -46,12 +44,11 @@
 	{#if inputType === 'password'}
 		<input
 			class={twMerge(
-				'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2 mx-0.5',
+				'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2 ',
 				css?.input?.class ?? ''
 			)}
 			style={css?.input?.style ?? ''}
-			on:focus|stopPropagation={() => ($selectedComponent = id)}
-			on:pointerdown|stopPropagation={() => ($selectedComponent = id)}
+			on:pointerdown|stopPropagation={(e) => selectId(e, id, selectedComponent, $app)}
 			type="password"
 			bind:value
 			{placeholder}
@@ -59,12 +56,11 @@
 	{:else if inputType === 'text'}
 		<input
 			class={twMerge(
-				'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2 mx-0.5',
+				'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2 ',
 				css?.input?.class ?? ''
 			)}
 			style={css?.input?.style ?? ''}
-			on:focus={() => ($selectedComponent = id)}
-			on:pointerdown|stopPropagation={() => ($selectedComponent = id)}
+			on:pointerdown|stopPropagation={(e) => selectId(e, id, selectedComponent, $app)}
 			type="text"
 			bind:value
 			{placeholder}
@@ -72,12 +68,11 @@
 	{:else if inputType === 'email'}
 		<input
 			class={twMerge(
-				'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2 mx-0.5',
+				'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2 ',
 				css?.input?.class ?? ''
 			)}
 			style={css?.input?.style ?? ''}
-			on:focus={() => ($selectedComponent = id)}
-			on:pointerdown|stopPropagation={() => ($selectedComponent = id)}
+			on:pointerdown|stopPropagation={(e) => selectId(e, id, selectedComponent, $app)}
 			type="email"
 			bind:value
 			{placeholder}

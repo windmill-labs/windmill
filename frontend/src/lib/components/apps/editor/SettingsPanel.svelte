@@ -14,11 +14,11 @@
 
 	$: hiddenInlineScript = $app?.hiddenInlineScripts
 		?.map((x, i) => ({ script: x, index: i }))
-		.find(({ script, index }) => `bg_${index}` === $selectedComponent)
+		.find(({ script, index }) => $selectedComponent?.includes(`bg_${index}`))
 
-	$: componentSettings = findComponentSettings($app, $selectedComponent)
+	$: componentSettings = findComponentSettings($app, $selectedComponent?.[0])
 
-	$: tableActionSettings = findTableActionSettings($app, $selectedComponent)
+	$: tableActionSettings = findTableActionSettings($app, $selectedComponent?.[0])
 
 	function findTableActionSettings(app: App, id: string | undefined) {
 		return allItems(app.grid, app.subgrids)

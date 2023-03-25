@@ -22,7 +22,10 @@
 		($hasResult[id] ||
 			Object.entries($hasResult).some(([key, value]) => value && subids.includes(key)))
 	$: open =
-		$expanded || subids.includes($selectedComponent ?? '') || $manuallyOpened[id] || inSearch
+		$expanded ||
+		subids.some((x) => $selectedComponent?.includes(x)) ||
+		$manuallyOpened[id] ||
+		inSearch
 
 	const dispatch = createEventDispatcher()
 
@@ -64,7 +67,7 @@
 		class={classNames(
 			'flex items-center justify-between p-1 cursor-pointer border-b gap-1 truncate',
 			hoverColor[color],
-			$selectedComponent == id ? openBackground[color] : 'bg-white',
+			$selectedComponent?.includes(id) ? openBackground[color] : 'bg-white',
 			first ? 'border-t' : '',
 			nested ? 'border-l' : ''
 		)}
@@ -76,7 +79,7 @@
 		<div
 			class={classNames(
 				'text-2xs ml-0.5 font-bold px-2 py-0.5 rounded-sm',
-				$selectedComponent == id ? idClass[color] : ' bg-gray-100'
+				$selectedComponent?.includes(id) ? idClass[color] : ' bg-gray-100'
 			)}
 		>
 			{id}

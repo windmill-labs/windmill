@@ -44,14 +44,14 @@
 <AlignWrapper {render} {verticalAlignment}>
 	{#if inputType === 'date'}
 		<input
-			on:focus={() => ($selectedComponent = id)}
+			on:focus={() => ($selectedComponent = [id])}
 			on:pointerdown|stopPropagation
 			type="date"
 			bind:value
 			min={minValue}
 			max={maxValue}
 			placeholder="Type..."
-			class={twMerge('mx-0.5', css?.input?.class ?? '')}
+			class={twMerge(css?.input?.class ?? '')}
 			style={css?.input?.style ?? ''}
 		/>
 	{/if}

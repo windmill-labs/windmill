@@ -69,7 +69,7 @@
 			class="grow"
 			style="--range-handle-focus: {'#7e9abd'}; --range-handle: {'#7e9abd'}; {css?.bar?.style ??
 				''}"
-			on:pointerdown|stopPropagation={() => ($selectedComponent = id)}
+			on:pointerdown|stopPropagation={() => ($selectedComponent = [id])}
 		>
 			<RangeSlider bind:slider bind:values {step} min={+min} max={+max} />
 		</div>
