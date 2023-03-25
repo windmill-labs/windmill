@@ -23,9 +23,10 @@
 
 	export let nativeContainer
 	export let onTop
+	export let shadow: { x: number; y: number; w: number; h: number } | undefined = undefined
 
+	const divId = `component-${id}`
 	let shadowElement
-	let shadow: { x: number; y: number; w: number; h: number } | undefined = undefined
 
 	let active = false
 
@@ -43,7 +44,7 @@
 
 	let anima
 
-	const inActivate = () => {
+	export function inActivate() {
 		if (shadowElement && shadow != undefined) {
 			let subgrid = shadowElement.closest('.subgrid')
 			let irect = shadowElement.getBoundingClientRect()
@@ -80,20 +81,14 @@
 
 			anima = setTimeout(() => {
 				trans = false
-			}, 100)
-
-			dispatch('pointerup', {
-				id
-			})
+			}, 50)
 		}
 	}
 
-	let repaint = (cb: (() => void) | undefined, isPointerUp: boolean) => {
+	let repaint = (activate: boolean, isPointerUp: boolean) => {
 		dispatch('repaint', {
-			id,
-			shadow,
 			isPointerUp,
-			onUpdate: cb
+			activate
 		})
 	}
 
@@ -105,7 +100,7 @@
 
 	const getContainerFrame = (element) => {
 		if (element === document.documentElement || !element) {
-			const { height, top, right, bottom, left } = nativeContainer.getBoundingClientRect()
+			const { top, bottom } = nativeContainer.getBoundingClientRect()
 
 			return {
 				top: Math.max(0, top),
@@ -118,12 +113,13 @@
 
 	const getScroller = (element) => (!element ? document.documentElement : element)
 
-	function computeRect(target) {
-		let gridItem = target.closest('.svlt-grid-item')
+	function computeRect() {
+		let gridItem = document.getElementById(divId)
+		if (!gridItem) return
 		let subgrid = gridItem.closest('.subgrid')
 
 		let irect = gridItem.getBoundingClientRect()
-		if (subgrid) {
+		if (subgrid && subgrid.parentElement) {
 			let subGridParent = subgrid.parentElement
 			let subGridParentRect = subGridParent.getBoundingClientRect()
 
@@ -150,23 +146,25 @@
 
 			initX = clientX
 			initY = clientY
-
-			capturePos = { x: left, y: top }
-			shadow = { x: item.x, y: item.y, w: item.w, h: item.h }
-			newSize = { width, height }
-
-			containerFrame = getContainerFrame(container)
-			scrollElement = getScroller(container)
-
-			cordDiff = { x: 0, y: 0 }
-
-			active = true
-			trans = false
-			computeRect(target)
-			_scrollTop = scrollElement.scrollTop
+			dispatch('initmove')
 		}
 		window.addEventListener('pointermove', pointermove)
 		window.addEventListener('pointerup', pointerup)
+	}
+
+	export function initmove() {
+		computeRect()
+		newSize = { width, height }
+		capturePos = { x: left, y: top }
+		shadow = { x: item.x, y: item.y, w: item.w, h: item.h }
+		cordDiff = { x: 0, y: 0 }
+		active = true
+		trans = false
+
+		containerFrame = getContainerFrame(container)
+		scrollElement = getScroller(container)
+
+		_scrollTop = scrollElement.scrollTop
 	}
 
 	let sign = { x: 0, y: 0 }
@@ -181,9 +179,8 @@
 	}
 
 	const update = () => {
-		const _newScrollTop = scrollElement.scrollTop - _scrollTop
-
 		const boundX = capturePos.x + cordDiff.x
+		const _newScrollTop = (scrollElement?.scrollTop ?? 0) - (_scrollTop ?? 0)
 		const boundY = capturePos.y + (cordDiff.y + _newScrollTop)
 
 		let gridX = Math.round(boundX / xPerPx)
@@ -193,7 +190,6 @@
 			shadow.x = Math.max(Math.min(gridX, cols - shadow.w), 0)
 			shadow.y = Math.max(gridY, 0)
 		}
-		repaint(undefined, false)
 	}
 
 	const pointermove = (event) => {
@@ -203,60 +199,76 @@
 		event.stopImmediatePropagation()
 
 		const { clientX, clientY } = event
-		cordDiff = { x: clientX - initX, y: clientY - initY }
+		const cordDiff = { x: clientX - initX, y: clientY - initY }
 
+		dispatch('move', { cordDiff, clientY })
+	}
+
+	export function updateMove(newCoordDiff, clientY) {
+		if (!active) {
+			active = true
+		}
+		if (trans) {
+			trans = false
+		}
+		cordDiff = newCoordDiff
+		// console.log(cordDiff, id, 'B')
 		const Y_SENSOR = sensor
 
-		let velocityTop = Math.max(0, (containerFrame.top + Y_SENSOR - clientY) / Y_SENSOR)
-		let velocityBottom = Math.max(0, (clientY - (containerFrame.bottom - Y_SENSOR)) / Y_SENSOR)
+		if (containerFrame) {
+			let velocityTop = Math.max(0, (containerFrame.top + Y_SENSOR - clientY) / Y_SENSOR)
+			let velocityBottom = Math.max(0, (clientY - (containerFrame.bottom - Y_SENSOR)) / Y_SENSOR)
 
-		const topSensor = velocityTop > 0 && velocityBottom === 0
-		const bottomSensor = velocityBottom > 0 && velocityTop === 0
+			const topSensor = velocityTop > 0 && velocityBottom === 0
+			const bottomSensor = velocityBottom > 0 && velocityTop === 0
 
-		sign.y = topSensor ? -1 : bottomSensor ? 1 : 0
-		vel.y = sign.y === -1 ? velocityTop : velocityBottom
+			sign.y = topSensor ? -1 : bottomSensor ? 1 : 0
+			vel.y = sign.y === -1 ? velocityTop : velocityBottom
 
-		if (vel.y > 0) {
-			if (!intervalId) {
-				// Start scrolling
-				// TODO Use requestAnimationFrame
-				intervalId = setInterval(() => {
-					scrollElement.scrollTop += 2 * (vel.y + Math.sign(vel.y)) * sign.y
-					update()
-				}, 10)
+			if (vel.y > 0) {
+				if (!intervalId) {
+					// Start scrolling
+					// TODO Use requestAnimationFrame
+					intervalId = setInterval(() => {
+						scrollElement.scrollTop += 2 * (vel.y + Math.sign(vel.y)) * sign.y
+						update()
+					}, 10)
+				}
+			} else if (intervalId) {
+				stopAutoscroll()
+			} else {
+				update()
 			}
-		} else if (intervalId) {
-			stopAutoscroll()
 		} else {
 			update()
 		}
 	}
-
 	const pointerup = (e) => {
-		dragClosure = undefined
 		stopAutoscroll()
 
 		window.removeEventListener('pointerdown', pointerdown)
 		window.removeEventListener('pointermove', pointermove)
 		window.removeEventListener('pointerup', pointerup)
-		repaint(inActivate, true)
+		if (!dragClosure) {
+			repaint(true, true)
+		} else {
+			dragClosure = undefined
+		}
 	}
-
-	// Resize
 
 	let resizeInitPos = { x: 0, y: 0 }
 	let initSize = { width: 0, height: 0 }
 
 	const resizePointerDown = (e) => {
 		e.stopPropagation()
-		const { pageX, pageY, target } = e
+		const { pageX, pageY } = e
 
 		resizeInitPos = { x: pageX, y: pageY }
 		initSize = { width, height }
 
 		cordDiff = { x: 0, y: 0 }
 
-		computeRect(target)
+		computeRect()
 
 		newSize = { width, height }
 
@@ -287,14 +299,14 @@
 			shadow.w = Math.round((newSize.width + gapX * 2) / xPerPx)
 			shadow.h = Math.round((newSize.height + gapY * 2) / yPerPx)
 
-			repaint(undefined, false)
+			repaint(false, false)
 		}
 	}
 
 	const resizePointerUp = (e) => {
 		e.stopPropagation()
 
-		repaint(inActivate, true)
+		repaint(true, true)
 
 		window.removeEventListener('pointermove', resizePointerMove)
 		window.removeEventListener('pointerup', resizePointerUp)
@@ -305,12 +317,13 @@
 <div
 	draggable="false"
 	on:pointerdown|stopPropagation|preventDefault={pointerdown}
+	id={divId}
 	class="svlt-grid-item"
 	class:svlt-grid-active={active || (trans && rect)}
 	style="width: {active ? newSize.width : width}px; height:{active
 		? newSize.height
 		: height}px; {onTop ? 'z-index: 1000;' : ''}
-  {active
+  {active && rect
 		? `transform: translate(${cordDiff.x}px, ${cordDiff.y}px);top:${rect.top}px;left:${rect.left}px;`
 		: trans
 		? `transform: translate(${cordDiff.x}px, ${cordDiff.y}px); position:absolute; transition: width 0.2s, height 0.2s;`

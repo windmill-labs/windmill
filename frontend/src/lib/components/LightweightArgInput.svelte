@@ -161,7 +161,6 @@
 				{:else}
 					<input
 						on:focus={(e) => {
-							window.dispatchEvent(new Event('pointerup'))
 							dispatch('focus')
 						}}
 						type="number"
@@ -179,7 +178,6 @@
 				<Toggle
 					on:pointerdown={(e) => {
 						e?.stopPropagation()
-						window.dispatchEvent(new Event('pointerup'))
 					}}
 					class={valid
 						? ''
@@ -256,7 +254,6 @@
 					<textarea
 						bind:this={el}
 						on:focus={(e) => {
-							window.dispatchEvent(new Event('pointerup'))
 							dispatch('focus')
 						}}
 						use:autosize
@@ -274,7 +271,6 @@
 			{:else if inputCat == 'enum'}
 				<select
 					on:focus={(e) => {
-						window.dispatchEvent(new Event('pointerup'))
 						dispatch('focus')
 					}}
 					class="px-6"
@@ -307,7 +303,6 @@
 							rows="1"
 							bind:this={el}
 							on:focus={(e) => {
-								window.dispatchEvent(new Event('pointerup'))
 								dispatch('focus')
 							}}
 							on:blur={() => dispatch('blur')}

@@ -98,7 +98,6 @@
 						style={css?.button?.style ?? ''}
 						on:pointerdown={(e) => {
 							e?.stopPropagation()
-							window.dispatchEvent(new Event('pointerup'))
 						}}
 						on:click={() => {
 							runnableComponent?.runComponent()

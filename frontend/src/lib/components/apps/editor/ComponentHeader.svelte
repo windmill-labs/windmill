@@ -29,6 +29,7 @@
 
 {#if selected || hover}
 	<span
+		on:mousedown|stopPropagation|capture
 		draggable="false"
 		title={`Id: ${component.id}`}
 		class={twMerge(

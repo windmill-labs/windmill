@@ -247,7 +247,17 @@
 	let lock = false
 	function onKeyDown(event: KeyboardEvent) {
 		if (lock) return
+
+		let classes = event.target?.['className']
+		if (
+			(typeof classes === 'string' && classes.includes('inputarea')) ||
+			['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName!)
+		) {
+			return
+		}
+		
 		lock = true
+
 		switch (event.key) {
 			case 'Z':
 				if (event.ctrlKey) {

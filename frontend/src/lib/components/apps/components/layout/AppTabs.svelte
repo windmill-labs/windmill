@@ -118,7 +118,7 @@
 						? componentContainerHeight - tabHeight
 						: componentContainerHeight}
 					on:focus={() => {
-						$selectedComponent = id
+						$selectedComponent = [id]
 					}}
 				/>
 			{/each}

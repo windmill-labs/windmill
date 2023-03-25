@@ -29,11 +29,11 @@
 	export let wrapperStyle = ''
 	export let initializing: boolean | undefined = undefined
 	export let render: boolean
-	export let recomputable: boolean = false
 	export let outputs: { result: Output<any>; loading: Output<boolean> }
 	export let extraKey = ''
 	export let doNotRecomputeOnInputChanged: boolean = false
 	export let loading = false
+	export let recomputableByRefreshButton: boolean = true
 
 	const {
 		worldStore,
@@ -52,12 +52,13 @@
 
 	const dispatch = createEventDispatcher()
 
-	if (recomputable || autoRefresh) {
-		$runnableComponents[id] = async (inlineScript?: InlineScript) => {
+	$runnableComponents[id] = {
+		autoRefresh: autoRefresh && recomputableByRefreshButton,
+		cb: async (inlineScript?: InlineScript) => {
 			await executeComponent(true, inlineScript)
 		}
-		$runnableComponents = $runnableComponents
 	}
+	$runnableComponents = $runnableComponents
 
 	let args: Record<string, any> | undefined = undefined
 	let testIsLoading = false
@@ -377,7 +378,7 @@
 		{/if}
 		{#if !initializing && autoRefresh === true}
 			<div class="flex absolute top-1 right-1 z-50">
-				<RefreshButton componentId={id} />
+				<RefreshButton {loading} componentId={id} />
 			</div>
 		{/if}
 	</div>

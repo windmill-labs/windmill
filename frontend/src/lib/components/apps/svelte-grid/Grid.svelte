@@ -18,7 +18,7 @@
 	export let fastStart = false
 	export let throttleUpdate = 100
 	export let throttleResize = 100
-	export let onTopId: string | undefined = undefined
+	export let selectedIds: string[] | undefined
 	export let containerWidth: number | undefined = undefined
 
 	export let scroller: HTMLElement | undefined = undefined
@@ -36,13 +36,6 @@
 	let yPerPx = rowHeight
 
 	$: containerHeight = getContainerHeight(items, yPerPx, getComputedCols)
-
-	const pointerup = (ev) => {
-		dispatch('pointerup', {
-			id: ev.detail.id,
-			cols: getComputedCols
-		})
-	}
 
 	const onResize = throttle(() => {
 		items = specifyUndefinedColumns(items, getComputedCols, cols)
@@ -91,6 +84,7 @@
 
 	let initItems: FilledItem<T>[] | undefined = undefined
 	const updateMatrix = ({ detail }) => {
+		console.log('updateMatrix', detail)
 		let isPointerUp = detail.isPointerUp
 		let citems: FilledItem<T>[]
 		if (isPointerUp) {
@@ -107,26 +101,32 @@
 			citems = JSON.parse(JSON.stringify(initItems))
 		}
 
-		let activeItem = getItemById(detail.id, citems)
+		sortedItems = citems
+		for (let id of selectedIds ?? []) {
+			let activeItem = getItemById(id, sortedItems)
 
-		if (activeItem) {
-			activeItem = {
-				...activeItem,
-				[getComputedCols]: {
-					...activeItem[getComputedCols],
-					...detail.shadow
+			if (activeItem) {
+				activeItem = {
+					...activeItem,
+					[getComputedCols]: {
+						...activeItem[getComputedCols],
+						...shadows[id]
+					}
 				}
+
+				sortedItems = moveItem(
+					activeItem,
+					sortedItems,
+					getComputedCols,
+					getItemById(id, sortedItems)
+				)
 			}
+		}
 
-			sortedItems = moveItem(activeItem, citems, getComputedCols, getItemById(detail.id, citems))
-
-			if (detail.onUpdate) detail.onUpdate()
-
-			dispatch('change', {
-				unsafeItem: activeItem,
-				id: activeItem.id,
-				cols: getComputedCols
-			})
+		for (let id of selectedIds ?? []) {
+			if (detail.activate) {
+				moveResizes?.[id]?.inActivate()
+			}
 		}
 
 		if (isPointerUp) {
@@ -146,15 +146,37 @@
 			updateMatrix({ detail })
 		}
 	}
+	let moveResizes: Record<string, MoveResize> = {}
+	let shadows: Record<string, { x: number; y: number; w: number; h: number } | undefined> = {}
+
+	export function handleMove({ detail }) {
+		Object.entries(moveResizes).forEach(([id, moveResize]) => {
+			if (selectedIds?.includes(id)) {
+				moveResize?.updateMove(JSON.parse(JSON.stringify(detail.cordDiff)), detail.eventY)
+			}
+		})
+		throttleMatrix({ detail: { isPointerUp: false, activate: false } })
+	}
+
+	export function handleInitMove({ detail }) {
+		Object.entries(moveResizes).forEach(([id, moveResize]) => {
+			if (selectedIds?.includes(id)) {
+				moveResize?.initmove()
+			}
+		})
+	}
 </script>
 
 <div class="svlt-grid-container" style="height: {containerHeight}px" bind:this={container}>
 	{#if xPerPx || !fastStart}
 		{#each sortedItems as item (item.id)}
 			<MoveResize
+				on:initmove={handleInitMove}
+				on:move={handleMove}
+				bind:shadow={shadows[item.id]}
+				bind:this={moveResizes[item.id]}
 				on:repaint={handleRepaint}
-				on:pointerup={pointerup}
-				onTop={item.id == onTopId}
+				onTop={Boolean(selectedIds?.includes(item.id))}
 				id={item.id}
 				{xPerPx}
 				{yPerPx}
@@ -191,5 +213,6 @@
 	.svlt-grid-container {
 		position: relative;
 		width: 100%;
+		user-select: none;
 	}
 </style>

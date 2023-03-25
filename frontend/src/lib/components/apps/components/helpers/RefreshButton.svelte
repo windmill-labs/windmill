@@ -4,21 +4,12 @@
 	import type { AppViewerContext } from '../../types'
 
 	export let componentId: string
-
-	const { runnableComponents, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	export let loading: boolean
+	const { runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 
 	async function refresh() {
-		window.dispatchEvent(new Event('pointerup'))
-
-		await $runnableComponents[componentId]?.()
+		await $runnableComponents[componentId]?.cb?.()
 	}
-	let loading = false
-	$: $worldStore?.outputsById[componentId]?.['loading']?.subscribe({
-		id: 'refresh-' + componentId,
-		next: (value) => {
-			loading = value
-		}
-	})
 </script>
 
 <button

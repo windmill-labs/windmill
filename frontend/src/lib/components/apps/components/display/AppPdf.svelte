@@ -312,7 +312,7 @@
 				style="padding-top: {controlsHeight ?? 0}px; {css?.container?.style ?? ''}"
 			/>
 		{/if}
-		{#if $mode !== 'preview' && $selectedComponent === id}
+		{#if $mode !== 'preview' && $selectedComponent?.includes(id)}
 			<button
 				class="fixed z-10 bottom-0 left-0 px-2 py-0.5 bg-indigo-500/90 
 			hover:bg-indigo-500 focus:bg-indigo-500 duration-200 text-white text-2xs"

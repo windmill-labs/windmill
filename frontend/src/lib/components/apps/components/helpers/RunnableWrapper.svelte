@@ -60,7 +60,7 @@
 
 	export function onSuccess() {
 		if (recomputeIds) {
-			recomputeIds.map((id) => $runnableComponents?.[id]?.())
+			recomputeIds.map((id) => $runnableComponents?.cb?.[id]?.())
 		}
 		if (!doOnSuccess) return
 

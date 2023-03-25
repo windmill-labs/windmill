@@ -34,6 +34,6 @@
 	bind:inlineScript={runnable.inlineScript}
 	{onLoad}
 	{doNotRecomputeOnInputChanged}
-	id={$selectedComponent}
+	id={$selectedComponent?.[0]}
 	{onClick}
 />

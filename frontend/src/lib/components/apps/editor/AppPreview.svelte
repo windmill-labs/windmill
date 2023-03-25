@@ -33,7 +33,7 @@
 	export let isLocked = false
 
 	const appStore = writable<App>(app)
-	const selectedComponent = writable<string | undefined>(undefined)
+	const selectedComponent = writable<string[] | undefined>(undefined)
 	const mode = writable<EditorMode>('preview')
 
 	const connectingInput = writable<ConnectingInput>({
@@ -41,8 +41,6 @@
 		input: undefined,
 		hoveredComponent: undefined
 	})
-
-	const runnableComponents = writable<Record<string, () => Promise<void>>>({})
 
 	const parentWidth = writable(0)
 	setContext<AppViewerContext>('AppViewerContext', {
@@ -53,7 +51,7 @@
 		mode,
 		connectingInput,
 		breakpoint,
-		runnableComponents,
+		runnableComponents: writable({}),
 		appPath,
 		workspace,
 		onchange: undefined,
@@ -118,7 +116,7 @@
 		>
 			<div>
 				<GridViewer
-					onTopId={$selectedComponent}
+					onTopId={$selectedComponent?.[0]}
 					items={app.grid}
 					let:dataItem
 					rowHeight={36}
@@ -128,7 +126,7 @@
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
 					<div
 						class={'h-full w-full center-center'}
-						on:pointerdown={() => ($selectedComponent = dataItem.id)}
+						on:pointerdown={() => ($selectedComponent = [dataItem.id])}
 					>
 						<Component render={true} component={dataItem.data} selected={false} locked={true} />
 					</div>
@@ -159,6 +157,8 @@
 				inlineScript={script.inlineScript}
 				name={script.name}
 				fields={script.fields}
+				doNotRecomputeOnInputChanged={script.doNotRecomputeOnInputChanged ?? false}
+				recomputableByRefreshButton={script.autoRefresh ?? false}
 			/>
 		{/if}
 	{/each}
