@@ -40,7 +40,7 @@
 		w &&
 		Plotly.newPlot(
 			divEl,
-			[result],
+			Array.isArray(result) ? result : [result],
 			{ width: w, height: h, margin: { l: 50, r: 40, b: 40, t: 40, pad: 4 } },
 			{ responsive: true, displayModeBar: false }
 		)

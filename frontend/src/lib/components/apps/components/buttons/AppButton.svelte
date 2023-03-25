@@ -49,9 +49,6 @@
 
 	let runnableComponent: RunnableComponent
 
-	let isLoading: boolean = false
-	let ownClick: boolean = false
-
 	let beforeIconComponent: any
 	let afterIconComponent: any
 
@@ -72,21 +69,6 @@
 
 	$: resolvedConfig?.triggerOnAppLoad && runnableComponent?.runComponent()
 
-	$: if (outputs?.loading != undefined) {
-		outputs.loading.set(false, true)
-	}
-
-	$: outputs?.loading.subscribe({
-		id: 'loading-' + id,
-		next: (value) => {
-			isLoading = value
-			if (ownClick && !value) {
-				ownClick = false
-			}
-		}
-	})
-
-	$: loading = isLoading && ownClick
 	let errors: Record<string, string> = {}
 	$: errorsMessage = Object.values(errors)
 		.filter((x) => x != '')
@@ -103,14 +85,13 @@
 			await preclickAction()
 		}
 
-		ownClick = true
-
 		if (!runnableComponent) {
 			runnableWrapper.onSuccess()
 		} else {
 			await runnableComponent?.runComponent()
 		}
 	}
+	let loading = false
 </script>
 
 {#each Object.keys(components['buttoncomponent'].initialData.configuration) as key (key)}
@@ -129,6 +110,7 @@
 	bind:this={runnableWrapper}
 	{recomputeIds}
 	bind:runnableComponent
+	bind:loading
 	{componentInput}
 	doOnSuccess={resolvedConfig.onSuccess}
 	{id}

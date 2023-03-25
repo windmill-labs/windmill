@@ -40,8 +40,6 @@
 	)
 	let runnableComponent: RunnableComponent
 
-	let isLoading: boolean = false
-	let ownClick: boolean = false
 	let errors: Record<string, string> = {}
 
 	$: errorsMessage = Object.values(errors)
@@ -55,20 +53,9 @@
 		outputs.loading.set(false, true)
 	}
 
-	$: outputs?.loading.subscribe({
-		id: 'loading-' + id,
-		next: (value) => {
-			isLoading = value
-			if (ownClick && !value) {
-				ownClick = false
-			}
-		}
-	})
-
-	$: loading = isLoading && ownClick
-
 	$: css = concatCustomCss($app?.css?.formbuttoncomponent, customCss)
 	let runnableWrapper: RunnableWrapper
+	let loading = false
 </script>
 
 {#each Object.keys(components['formbuttoncomponent'].initialData.configuration) as key (key)}

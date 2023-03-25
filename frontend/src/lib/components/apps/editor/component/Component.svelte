@@ -184,7 +184,7 @@
 				customCss={component.customCss}
 				bind:initializing
 				componentInput={component.componentInput}
-				bind:actionButtons={component.actionButtons}
+				actionButtons={component.actionButtons}
 				{render}
 			/>
 		{:else if component.type === 'aggridcomponent'}

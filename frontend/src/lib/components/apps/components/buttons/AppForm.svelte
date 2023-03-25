@@ -43,18 +43,9 @@
 		$stateId != undefined &&
 		(componentInput?.type != 'runnable' || Object.keys(componentInput?.fields ?? {}).length == 0)
 
-	$: if (outputs?.loading != undefined) {
-		outputs.loading.set(false, true)
-	}
-
-	$: outputs?.loading.subscribe({
-		id: 'loading-' + id,
-		next: (value) => {
-			isLoading = value
-		}
-	})
-
 	$: css = concatCustomCss($app.css?.formcomponent, customCss)
+
+	let loading = false
 </script>
 
 {#each Object.keys(components['formcomponent'].initialData.configuration) as key (key)}
@@ -70,6 +61,7 @@
 	{recomputeIds}
 	{render}
 	bind:runnableComponent
+	bind:loading
 	{componentInput}
 	{id}
 	doOnSuccess={resolvedConfig.onSuccess}
