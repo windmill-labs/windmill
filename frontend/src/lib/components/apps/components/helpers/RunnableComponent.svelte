@@ -33,6 +33,7 @@
 	export let outputs: { result: Output<any>; loading: Output<boolean> }
 	export let extraKey = ''
 	export let doNotRecomputeOnInputChanged: boolean = false
+	export let loading = false
 
 	const {
 		worldStore,
@@ -62,6 +63,8 @@
 	let testIsLoading = false
 	let runnableInputValues: Record<string, any> = {}
 	let executeTimeout: NodeJS.Timeout | undefined = undefined
+
+	$: outputs.loading?.set(loading)
 
 	function setDebouncedExecute() {
 		executeTimeout && clearTimeout(executeTimeout)
@@ -142,7 +145,7 @@
 
 	async function executeComponent(noToast = false, inlineScriptOverride?: InlineScript) {
 		if (runnable?.type === 'runnableByName' && runnable.inlineScript?.language === 'frontend') {
-			outputs.loading?.set(true)
+			loading = true
 			try {
 				const r = await eval_like(
 					runnable.inlineScript?.content,
@@ -158,7 +161,7 @@
 			} catch (e) {
 				sendUserToast('Error running frontend script: ' + e.message, true)
 			}
-			outputs.loading?.set(false)
+			loading = false
 			return
 		}
 		if (noBackend) {
@@ -171,7 +174,7 @@
 			return
 		}
 
-		outputs.loading?.set(true)
+		loading = true
 
 		try {
 			let njob = await testJobLoader?.abstractRun(() => {
@@ -220,7 +223,8 @@
 				$jobs = [{ job: njob, component: id }, ...$jobs]
 			}
 		} catch (e) {
-			outputs.loading?.set(false)
+			setResult({ error: e.body ?? e.message })
+			loading = false
 		}
 	}
 
@@ -228,7 +232,7 @@
 		try {
 			await executeComponent()
 		} catch (e) {
-			console.error(e)
+			setResult({ error: e.body ?? e.message })
 		}
 	}
 
@@ -322,7 +326,7 @@
 				setResult(e.detail.result)
 			}
 		}
-		outputs.loading?.set(false)
+		loading = false
 	}}
 	bind:isLoading={testIsLoading}
 	bind:job={testJob}

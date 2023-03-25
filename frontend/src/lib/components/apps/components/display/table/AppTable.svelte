@@ -260,7 +260,8 @@
 										on:click={() => toggleRow(row, rowIndex)}
 									>
 										<div class="center-center h-full w-full flex-wrap gap-1 ">
-											{#each actionButtons as actionButton, actionIndex (actionIndex)}
+											{#each actionButtons as actionButton, actionIndex (actionButton?.id)}
+												<!-- svelte-ignore a11y-mouse-events-have-key-events -->
 												<div
 													on:mouseover|stopPropagation={() => {
 														if (actionButton.id !== $hoverStore) {
@@ -294,12 +295,15 @@
 															extraKey={'idx' + rowIndex}
 															{render}
 															noWFull
-															{...actionButton}
 															preclickAction={async () => {
 																toggleRow(row, rowIndex)
 															}}
+															id={actionButton.id}
+															customCss={actionButton.customCss}
+															configuration={actionButton.configuration}
+															recomputeIds={actionButton.recomputeIds}
 															extraQueryParams={{ row: row.original }}
-															bind:componentInput={actionButton.componentInput}
+															componentInput={actionButton.componentInput}
 															controls={{
 																left: () => {
 																	if (actionIndex === 0) {
@@ -327,12 +331,15 @@
 															extraKey={'idx' + rowIndex}
 															{render}
 															noWFull
-															{...actionButton}
+															id={actionButton.id}
+															customCss={actionButton.customCss}
+															configuration={actionButton.configuration}
+															recomputeIds={actionButton.recomputeIds}
 															preclickAction={async () => {
 																toggleRow(row, rowIndex)
 															}}
 															extraQueryParams={{ row: row.original }}
-															bind:componentInput={actionButton.componentInput}
+															componentInput={actionButton.componentInput}
 														/>
 													{/if}
 												</div>
@@ -358,9 +365,9 @@
 		<div class="flex flex-col h-full w-full overflow-auto">
 			<Alert title="Parsing issues" type="error" size="xs" class="h-full w-full ">
 				The result should be an array of objects. Received:
-				<pre class="w-full bg-white p-2 rounded-md">
-				{JSON.stringify(result, null, 4)}
-				</pre>
+				<pre class="w-full bg-white p-2 rounded-md whitespace-pre-wrap"
+					>{JSON.stringify(result, null, 4)}</pre
+				>
 			</Alert>
 		</div>
 	{/if}

@@ -4,7 +4,6 @@ import type { History } from '$lib/history'
 
 import type { Writable } from 'svelte/store'
 import type { AppComponent, components } from './editor/component/components'
-import type { StyleProperty, StylePropertyKey } from './editor/componentsPanel/quickStyleProperties'
 import type {
 	AppInput,
 	ConnectedAppInput,
