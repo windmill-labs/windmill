@@ -34,7 +34,7 @@ use windmill_queue::{get_queued_job, push, JobKind, JobPayload, QueuedJob, RawCo
 
 use crate::{
     db::{UserDB, DB},
-    users::{require_owner_of_path, Authed},
+    users::{require_owner_of_path, Authed, OptAuthed},
     variables::get_workspace_key,
     BASE_URL,
 };
@@ -60,7 +60,6 @@ pub fn workspaced_service() -> Router {
         .route("/run/preview_flow", post(run_preview_flow_job))
         .route("/list", get(list_jobs))
         .route("/queue/list", get(list_queue_jobs))
-        .route("/queue/cancel/:id", post(cancel_job_api))
         .route("/completed/list", get(list_completed_jobs))
         .route("/completed/get/:id", get(get_completed_job))
         .route("/completed/get_result/:id", get(get_completed_job_result))
@@ -98,6 +97,7 @@ pub fn global_service() -> Router {
         )
         .route("/get/:id", get(get_job))
         .route("/getupdate/:id", get(get_job_update))
+        .route("/queue/cancel/:id", post(cancel_job_api))
 }
 
 async fn get_result_by_id(
@@ -109,20 +109,24 @@ async fn get_result_by_id(
 }
 
 async fn cancel_job_api(
-    authed: Authed,
-    Extension(user_db): Extension<UserDB>,
+    OptAuthed(opt_authed): OptAuthed,
+    Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
     Json(CancelJob { reason }): Json<CancelJob>,
 ) -> error::Result<String> {
-    let tx = user_db.begin(&authed).await?;
+    let tx = db.begin().await?;
 
-    let (mut tx, job_option) =
-        windmill_queue::cancel_job(&authed.username, reason, id, &w_id, tx).await?;
+    let username = match opt_authed {
+        Some(authed) => authed.username,
+        None => "anonymous".to_string(),
+    };
+
+    let (mut tx, job_option) = windmill_queue::cancel_job(&username, reason, id, &w_id, tx).await?;
 
     if let Some(id) = job_option {
         audit_log(
             &mut tx,
-            &authed.username,
+            &username,
             "jobs.cancel",
             ActionKind::Delete,
             &w_id,
