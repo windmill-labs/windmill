@@ -87,6 +87,7 @@
 
 	let repaint = (activate: boolean, isPointerUp: boolean) => {
 		dispatch('repaint', {
+			id,
 			isPointerUp,
 			activate
 		})
@@ -140,7 +141,7 @@
 	}
 
 	let dragClosure: (() => void) | undefined = undefined
-	const pointerdown = ({ clientX, clientY, target }) => {
+	const pointerdown = ({ clientX, clientY }) => {
 		dragClosure = () => {
 			dragClosure = undefined
 
@@ -305,7 +306,6 @@
 
 	const resizePointerUp = (e) => {
 		e.stopPropagation()
-
 		repaint(true, true)
 
 		window.removeEventListener('pointermove', resizePointerMove)

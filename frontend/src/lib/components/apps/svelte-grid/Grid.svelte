@@ -84,7 +84,6 @@
 
 	let initItems: FilledItem<T>[] | undefined = undefined
 	const updateMatrix = ({ detail }) => {
-		console.log('updateMatrix', detail)
 		let isPointerUp = detail.isPointerUp
 		let citems: FilledItem<T>[]
 		if (isPointerUp) {
@@ -100,9 +99,12 @@
 			}
 			citems = JSON.parse(JSON.stringify(initItems))
 		}
-
+		let nselectedIds = selectedIds ?? []
+		if (detail.id && !selectedIds?.includes(detail.id)) {
+			nselectedIds = [detail.id, ...(selectedIds ?? [])]
+		}
 		sortedItems = citems
-		for (let id of selectedIds ?? []) {
+		for (let id of nselectedIds) {
 			let activeItem = getItemById(id, sortedItems)
 
 			if (activeItem) {
@@ -123,7 +125,7 @@
 			}
 		}
 
-		for (let id of selectedIds ?? []) {
+		for (let id of nselectedIds ?? []) {
 			if (detail.activate) {
 				moveResizes?.[id]?.inActivate()
 			}
