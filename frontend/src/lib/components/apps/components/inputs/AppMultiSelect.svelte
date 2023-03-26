@@ -58,7 +58,11 @@
 <InputValue {id} input={configuration.placeholder} bind:value={placeholder} />
 
 <AlignWrapper {render} {horizontalAlignment} {verticalAlignment}>
-	<div class="app-select w-full" style="height: 34px" on:pointerdown|stopPropagation>
+	<div
+		class="app-select w-full"
+		style="height: 34px; overflow: auto;"
+		on:pointerdown|stopPropagation
+	>
 		{#if !value || Array.isArray(value)}
 			<Select
 				--border-radius="0"

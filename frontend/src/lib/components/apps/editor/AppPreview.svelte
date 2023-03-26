@@ -20,6 +20,8 @@
 	import { twMerge } from 'tailwind-merge'
 	import { columnConfiguration } from '../gridUtils'
 	import { HiddenComponent } from '../components'
+	import { deepEqual } from 'fast-equals'
+	import { dfs } from './appUtils'
 
 	export let app: App
 	export let appPath: string
@@ -41,6 +43,8 @@
 		input: undefined,
 		hoveredComponent: undefined
 	})
+
+	const allIdsInPath = writable<string[]>([])
 
 	const parentWidth = writable(0)
 	setContext<AppViewerContext>('AppViewerContext', {
@@ -66,7 +70,8 @@
 		parentWidth,
 		state: writable({}),
 		componentControl: writable({}),
-		hoverStore: writable(undefined)
+		hoverStore: writable(undefined),
+		allIdsInPath
 	})
 
 	let ncontext = context
@@ -74,6 +79,14 @@
 	function hashchange(e: HashChangeEvent) {
 		ncontext.hash = e.newURL.split('#')[1]
 		ncontext = ncontext
+	}
+
+	let previousSelectedIds: string[] | undefined = undefined
+	$: if (!deepEqual(previousSelectedIds, $selectedComponent)) {
+		previousSelectedIds = $selectedComponent
+		$allIdsInPath = ($selectedComponent ?? [])
+			.flatMap((id) => dfs(app.grid, id, app.subgrids ?? {}))
+			.filter((x) => x != undefined) as string[]
 	}
 
 	$: width = $breakpoint === 'sm' ? 'max-w-[640px]' : 'w-full '
@@ -116,7 +129,7 @@
 		>
 			<div>
 				<GridViewer
-					onTopId={$selectedComponent?.[0]}
+					allIdsInPath={$allIdsInPath}
 					items={app.grid}
 					let:dataItem
 					rowHeight={36}

@@ -19,6 +19,7 @@
 	export let throttleUpdate = 100
 	export let throttleResize = 100
 	export let selectedIds: string[] | undefined
+	export let allIdsInPath: string[] | undefined
 	export let containerWidth: number | undefined = undefined
 
 	export let scroller: HTMLElement | undefined = undefined
@@ -178,7 +179,7 @@
 				bind:shadow={shadows[item.id]}
 				bind:this={moveResizes[item.id]}
 				on:repaint={handleRepaint}
-				onTop={Boolean(selectedIds?.includes(item.id))}
+				onTop={Boolean(allIdsInPath?.includes(item.id))}
 				id={item.id}
 				{xPerPx}
 				{yPerPx}
@@ -195,16 +196,9 @@
 				{sensor}
 				container={scroller}
 				nativeContainer={container}
-				let:resizePointerDown
-				let:movePointerDown
 			>
 				{#if item[getComputedCols]}
-					<slot
-						{movePointerDown}
-						{resizePointerDown}
-						dataItem={item}
-						item={item[getComputedCols]}
-					/>
+					<slot dataItem={item} item={item[getComputedCols]} />
 				{/if}
 			</MoveResize>
 		{/each}

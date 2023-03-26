@@ -34,10 +34,12 @@
 	$: $hasResult[componentId] = Object.keys(filtered).length > 0
 </script>
 
-{#if $hasResult[componentId] || $search == ''}
-	<ObjectViewer json={filtered} on:select topBrackets={false} />
-{:else if $search.length > 0}
-	<div class="text-xs pl-2 text-gray-600">No results</div>
-{:else}
-	<div class="text-xs pl-2 text-gray-600">No outputs</div>
+{#if object != undefined && Object.keys(object).length > 0}
+	{#if $hasResult[componentId] || $search == ''}
+		<ObjectViewer json={filtered} on:select topBrackets={false} />
+	{:else if $search.length > 0}
+		<div class="text-xs pl-2 text-gray-600">No results</div>
+	{:else}
+		<div class="text-xs pl-2 text-gray-600">No outputs</div>
+	{/if}
 {/if}

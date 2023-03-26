@@ -10,9 +10,10 @@
 	import HiddenComponent from '../components/helpers/HiddenComponent.svelte'
 	import Component from './component/Component.svelte'
 	import { push } from '$lib/history'
-	import { expandGriditem, findGridItem } from './appUtils'
+	import { dfs, expandGriditem, findGridItem } from './appUtils'
 	import Grid from '../svelte-grid/Grid.svelte'
 	import { selectId } from '../utils'
+	import { deepEqual } from 'fast-equals'
 
 	export let policy: Policy
 
@@ -25,10 +26,19 @@
 		summary,
 		focusedGrid,
 		parentWidth,
-		breakpoint
+		breakpoint,
+		allIdsInPath
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const { history } = getContext<AppEditorContext>('AppEditorContext')
+
+	let previousSelectedIds: string[] | undefined = undefined
+	$: if (!deepEqual(previousSelectedIds, $selectedComponent)) {
+		previousSelectedIds = $selectedComponent
+		$allIdsInPath = ($selectedComponent ?? [])
+			.flatMap((id) => dfs($app.grid, id, $app.subgrids ?? {}))
+			.filter((x) => x != undefined) as string[]
+	}
 
 	function removeGridElement(component) {
 		if (component) {
@@ -108,6 +118,7 @@
 	>
 		<div class={!$focusedGrid && $mode !== 'preview' ? 'border-gray-400 border border-dashed' : ''}>
 			<Grid
+				allIdsInPath={$allIdsInPath}
 				selectedIds={$selectedComponent}
 				items={$app.grid}
 				on:redraw={(e) => {

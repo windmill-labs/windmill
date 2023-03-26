@@ -16,7 +16,7 @@
 	export let gap = [10, 10]
 	export let throttleUpdate = 100
 
-	export let onTopId: string | undefined = undefined
+	export let allIdsInPath: string[] | undefined = undefined
 	export let containerWidth: number | undefined = undefined
 
 	export let parentWidth: number | undefined = undefined
@@ -78,7 +78,7 @@
 <div class="svlt-grid-container" style="height: {containerHeight}px" bind:this={container}>
 	{#if xPerPx}
 		{#each items as item (item.id)}
-			{@const onTop = item.id == onTopId}
+			{@const onTop = allIdsInPath?.includes(item.id)}
 			{@const width =
 				Math.min(getComputedCols, item[getComputedCols] && item[getComputedCols].w) * xPerPx -
 				gapX * 2}

@@ -329,7 +329,7 @@
 		? `transform: translate(${cordDiff.x}px, ${cordDiff.y}px); position:absolute; transition: width 0.2s, height 0.2s;`
 		: `transition: transform 0.1s, opacity 0.1s; transform: translate(${left}px, ${top}px); `} "
 >
-	<slot movePointerDown={pointerdown} {resizePointerDown} />
+	<slot />
 	<div class="svlt-grid-resizer" on:pointerdown={resizePointerDown} />
 </div>
 

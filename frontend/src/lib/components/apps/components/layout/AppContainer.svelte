@@ -23,8 +23,6 @@
 		}
 	}
 
-	$: $selectedComponent?.includes(id) && onFocus()
-
 	$: css = concatCustomCss($app.css?.containercomponent, customCss)
 </script>
 
@@ -39,6 +37,7 @@
 			containerHeight={componentContainerHeight}
 			on:focus={() => {
 				$selectedComponent = [id]
+				onFocus()
 			}}
 		/>
 	{/if}

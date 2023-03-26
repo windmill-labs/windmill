@@ -25,8 +25,16 @@
 
 	const dispatch = createEventDispatcher()
 
-	const { app, connectingInput, selectedComponent, focusedGrid, mode, parentWidth, breakpoint } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const {
+		app,
+		connectingInput,
+		selectedComponent,
+		focusedGrid,
+		mode,
+		parentWidth,
+		breakpoint,
+		allIdsInPath
+	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
 
@@ -72,6 +80,7 @@
 		{#if $mode !== 'preview'}
 			<div class={highlight ? 'border-gray-400  border border-dashed min-h-full' : ''}>
 				<Grid
+					allIdsInPath={$allIdsInPath}
 					items={$app.subgrids?.[subGridId] ?? []}
 					on:redraw={(e) => {
 						push(editorContext?.history, $app)
@@ -142,7 +151,7 @@
 			</div>
 		{:else}
 			<GridViewer
-				onTopId={$selectedComponent?.[0]}
+				allIdsInPath={$allIdsInPath}
 				items={$app.subgrids?.[subGridId] ?? []}
 				let:dataItem
 				rowHeight={36}

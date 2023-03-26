@@ -162,6 +162,7 @@ export type AppViewerContext = {
 		>
 	>
 	hoverStore: Writable<string | undefined>
+	allIdsInPath: Writable<string[]>
 }
 
 export type AppEditorContext = {
@@ -183,6 +184,5 @@ type ComponentID = string
 export type ContextPanelContext = {
 	search: Writable<string>
 	manuallyOpened: Writable<Record<string, boolean>>
-	expanded: Writable<boolean>
 	hasResult: Writable<Record<string, boolean>>
 }
