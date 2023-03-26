@@ -11,7 +11,6 @@
 	import type { StylePropertyKey } from './quickStyleProperties'
 
 	export let name: string
-	export let componentType: AppComponent['type'] | undefined = undefined
 	export let value: ComponentCssProperty = {}
 	export let forceStyle: boolean = false
 	export let forceClass: boolean = false
@@ -24,19 +23,6 @@
 
 	function toggleQuickMenu() {
 		isQuickMenuOpen = !isQuickMenuOpen
-	}
-
-	function applyToAllInstances() {
-		if (
-			componentType &&
-			componentType in ($app?.css || {}) &&
-			name in ($app?.css?.[componentType] || {})
-		) {
-			$app.css![componentType]![name].style = value.style
-			sendUserToast(
-				`Applied style to all instances of the ${componentType.replace('component', '')} component`
-			)
-		}
 	}
 </script>
 
@@ -62,23 +48,6 @@
 							/>
 						</div>
 						<div class="flex flex-col gap-1">
-							{#if componentType}
-								<Popover placement="bottom" notClickable disapperTimoout={0}>
-									<Button
-										variant="border"
-										color="light"
-										size="xs"
-										btnClasses="!p-1 !w-[34px] !h-[34px]"
-										aria-label="Apply to all instances of this component"
-										on:click={applyToAllInstances}
-									>
-										<Forward size={18} />
-									</Button>
-									<svelte:fragment slot="text">
-										Apply to all instances of this component
-									</svelte:fragment>
-								</Popover>
-							{/if}
 							{#if quickStyleProperties?.length}
 								<Popover placement="bottom" notClickable disapperTimoout={0}>
 									<Button

@@ -94,7 +94,7 @@
 
 	function keydown(event: KeyboardEvent) {
 		const { key, metaKey } = event
-		if (key === 'Delte' || (key === 'Backspace' && metaKey)) {
+		if (key === 'Delete' || (key === 'Backspace' && metaKey)) {
 			removeGridElement()
 			event.stopPropagation()
 		}
@@ -215,6 +215,10 @@
 					userInputEnabled={false}
 				/>
 			</PanelSection>
+		{:else}
+			<div class="h-full w-full font-bold text-gray-400 text-lg py-10 px-4"
+				>{ccomponents[component.type].name} has no configuration</div
+			>
 		{/if}
 
 		{#if componentSettings.item.data.type === 'tabscomponent'}
@@ -242,10 +246,18 @@
 						color="light"
 						size="xs"
 						variant="border"
+						on:click={() => (viewCssOptions = !viewCssOptions)}
+					>
+						{viewCssOptions ? 'Hide' : 'Show'}
+					</Button>
+					<Button
+						color="light"
+						size="xs"
+						variant="border"
 						endIcon={{ icon: faChevronRight }}
 						on:click={() => secondaryMenu.open(StylePanel, { component })}
 					>
-						Open
+						Rich Editor
 					</Button>
 				</div>
 				{#if viewCssOptions}

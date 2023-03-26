@@ -11,10 +11,9 @@
 	export let gridItem: GridItem
 	export let first: boolean = false
 	export let nested: boolean = false
-	export let parentId: string | undefined = undefined
 	export let expanded: boolean = false
 
-	const { selectedComponent, connectingInput } = getContext<AppViewerContext>('AppViewerContext')
+	const { connectingInput } = getContext<AppViewerContext>('AppViewerContext')
 	const name = getComponentNameById(gridItem.id)
 
 	function getComponentNameById(componentId: string) {
@@ -32,31 +31,9 @@
 	$: subGrids = Array.from({ length: gridItem.data.numberOfSubgrids ?? 0 }).map(
 		(_, i) => `${gridItem.id}-${i}`
 	)
-
-	function onHeaderClick(manuallyOpen: boolean) {
-		if (manuallyOpen) {
-			if (parentId) {
-				$selectedComponent = [parentId]
-			} else {
-				$selectedComponent = undefined
-			}
-		} else {
-			$selectedComponent = [gridItem.id]
-		}
-	}
 </script>
 
-<OutputHeader
-	on:handleClick={(e) => {
-		if (!$connectingInput.opened) {
-			onHeaderClick(e.detail.manuallyOpen)
-		}
-	}}
-	id={gridItem.id}
-	name={getComponentNameById(gridItem.id)}
-	{first}
-	{nested}
->
+<OutputHeader id={gridItem.id} name={getComponentNameById(gridItem.id)} {first} {nested}>
 	<ComponentOutputViewer
 		componentId={gridItem.id}
 		on:select={({ detail }) => {
