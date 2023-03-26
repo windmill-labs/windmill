@@ -12,8 +12,8 @@ const config = {
 			? [
 					{ pattern: /^m(\w?)-.*$/ },
 					{ pattern: /^p(\w?)-.*$/ },
-					{ pattern: /^shadow-.*$/ },
 					{ pattern: /^rounded-.*$/ },
+					{ pattern: /^shadow-.*$/, variants: ['hover'] },
 					{ pattern: /^text-[^/]*$/, variants: ['hover', 'active', 'focus'] },
 					{ pattern: /^bg-[^/]*$/, variants: ['hover', 'active', 'focus'] },
 					{ pattern: /^border-[^/]*$/, variants: ['hover', 'active', 'focus'] },
@@ -506,7 +506,7 @@ const config = {
 						color: theme('colors.gray.700')
 					},
 					'& tbody > :not([hidden]) ~ :not([hidden])': {
-						borderTop: `1px solid ${theme('colors.gray.200')}`,
+						borderTop: `1px solid ${theme('colors.gray.200')}`
 					},
 					'& tbody > tr:hover': {
 						backgroundColor: theme('colors.gray.50')
