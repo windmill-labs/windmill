@@ -6,9 +6,6 @@
 	export let contentEncoding = ''
 	export let type: string | undefined = undefined
 	export let required = false
-	export let itemsType:
-		| { type?: 'string' | 'number' | 'bytes'; contentEncoding?: 'base64' }
-		| undefined = undefined
 </script>
 
 <div class="inline-flex flex-row items-center truncated">
