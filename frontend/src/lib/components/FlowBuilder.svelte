@@ -118,6 +118,7 @@
 		if (leave) {
 			goto(`/flows/get/${$flowStore.path}?workspace_id=${$workspaceStore}`)
 		} else if (initialPath !== $flowStore.path) {
+			initialPath = $flowStore.path
 			goto(`/flows/edit/${$flowStore.path}?workspace_id=${$workspaceStore}`)
 		}
 	}
