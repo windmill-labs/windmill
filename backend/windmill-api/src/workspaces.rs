@@ -1005,6 +1005,16 @@ async fn add_user(
     .execute(&mut tx)
     .await?;
 
+    sqlx::query_as!(
+        Group,
+        "INSERT INTO usr_to_group (workspace_id, usr, group_) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+        &w_id,
+        nu.username,
+        "all",
+    )
+    .execute(&mut tx)
+    .await?;
+
     tx.commit().await?;
 
     if let Some(new_user_webhook) = NEW_USER_WEBHOOK.clone() {
