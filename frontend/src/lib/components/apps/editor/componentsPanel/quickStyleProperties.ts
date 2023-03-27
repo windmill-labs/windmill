@@ -578,6 +578,9 @@ export const quickStyleProperties: Record<
 	textinputcomponent: {
 		input: inputDefaultProps
 	},
+	textareainputcomponent: {
+		input: inputDefaultProps
+	},
 	emailinputcomponent: {
 		input: inputDefaultProps
 	},

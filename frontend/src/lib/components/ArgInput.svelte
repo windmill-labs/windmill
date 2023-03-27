@@ -163,6 +163,7 @@
 	}
 
 	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
+	let redraw = 0
 </script>
 
 <div class="flex flex-col w-full min-w-[250px]">
@@ -269,36 +270,39 @@
 			{:else if inputCat == 'list'}
 				<div class="w-full">
 					<div class="w-full">
-						{#if Array.isArray(value)}
-							{#each value ?? [] as v, i}
-								<div class="flex max-w-md mt-1 w-full items-center">
-									{#if itemsType?.type == 'number'}
-										<input type="number" bind:value={v} />
-									{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
-										<input
-											type="file"
-											class="my-6"
-											on:change={(x) => fileChanged(x, (val) => (value[i] = val))}
-											multiple={false}
-										/>
-									{:else if itemsType?.type == 'object'}
-										<JsonEditor code={JSON.stringify(v, null, 2)} bind:value={v} />
-									{:else}
-										<input type="text" bind:value={v} />
-									{/if}
-									<button
-										transition:fade|local={{ duration: 100 }}
-										class="rounded-full p-1 bg-white/60 duration-200 hover:bg-gray-200"
-										aria-label="Clear"
-										on:click={() => {
-											value = value.splice(i, 1)
-										}}
-									>
-										<X size={14} />
-									</button>
-								</div>
-							{/each}
-						{/if}
+						{#key redraw}
+							{#if Array.isArray(value)}
+								{#each value ?? [] as v, i}
+									<div class="flex max-w-md mt-1 w-full items-center">
+										{#if itemsType?.type == 'number'}
+											<input type="number" bind:value={v} />
+										{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
+											<input
+												type="file"
+												class="my-6"
+												on:change={(x) => fileChanged(x, (val) => (value[i] = val))}
+												multiple={false}
+											/>
+										{:else if itemsType?.type == 'object'}
+											<JsonEditor code={JSON.stringify(v, null, 2)} bind:value={v} />
+										{:else}
+											<input type="text" bind:value={v} />
+										{/if}
+										<button
+											transition:fade|local={{ duration: 100 }}
+											class="rounded-full p-1 bg-white/60 duration-200 hover:bg-gray-200"
+											aria-label="Clear"
+											on:click={() => {
+												value.splice(i, 1)
+												redraw += 1
+											}}
+										>
+											<X size={14} />
+										</button>
+									</div>
+								{/each}
+							{/if}
+						{/key}
 					</div>
 					<Button
 						variant="border"
