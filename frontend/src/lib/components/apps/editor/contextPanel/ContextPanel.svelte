@@ -23,7 +23,7 @@
 </script>
 
 <PanelSection noPadding titlePadding="px-1.5 pt-2" title="Outputs">
-	<div class="bg-white w-full h-full z-30">
+	<div class="bg-white h-auto w-full z-30 ">
 		<div class="min-w-[150px]">
 			<div class="sticky z-10 top-0 left-0 w-full bg-white p-1.5">
 				<div class="relative w-full">

@@ -236,7 +236,7 @@
 									>
 										<div
 											class={classNames(
-												'relative mx-auto w-full h-full overflow-auto bg-gray-100',
+												'relative mx-auto w-full h-full overflow-auto',
 												app.fullscreen ? '' : 'max-w-6xl'
 											)}
 										>
@@ -245,7 +245,7 @@
 
 												<div
 													on:pointerdown|stopPropagation
-													class={twMerge(width, 'mx-auto bg-white h-full')}
+													class={twMerge(width, 'mx-auto h-full')}
 												>
 													<GridEditor {policy} />
 												</div>
