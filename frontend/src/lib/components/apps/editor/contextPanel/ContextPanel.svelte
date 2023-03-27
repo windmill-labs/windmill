@@ -11,7 +11,7 @@
 	import BackgroundScriptsOutput from './components/BackgroundScriptsOutput.svelte'
 	import OutputHeader from './components/OutputHeader.svelte'
 
-	const { connectingInput, app, allIdsInPath } = getContext<AppViewerContext>('AppViewerContext')
+	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
 
 	let search = writable<string>('')
 
@@ -26,23 +26,20 @@
 	<div class="bg-white w-full h-full z-30">
 		<div class="min-w-[150px]">
 			<div class="sticky z-10 top-0 left-0 w-full bg-white p-1.5">
-				<div class="flex flex-row w-full">
-					<div class="relative w-full">
-						<input
-							bind:value={$search}
-							class="px-2 pb-1 border border-gray-300 rounded-sm {search ? 'pr-8' : ''}"
-							placeholder="Search outputs..."
-						/>
-						{#if search}
-							<button
-								class="absolute right-2 top-1/2 transform -translate-y-1/2 hover:bg-gray-200 rounded-full p-0.5"
-								on:click|stopPropagation|preventDefault={() => ($search = '')}
-							>
-								<X size="14" />
-							</button>
-						{/if}
-					</div>
-					<MinMaxButton bind:expanded={$expanded} />
+				<div class="relative w-full">
+					<input
+						bind:value={$search}
+						class="px-2 pb-1 border border-gray-300 rounded-sm {search ? 'pr-8' : ''}"
+						placeholder="Search outputs..."
+					/>
+					{#if search}
+						<button
+							class="absolute right-2 top-1/2 transform -translate-y-1/2 hover:bg-gray-200 rounded-full p-0.5"
+							on:click|stopPropagation|preventDefault={() => ($search = '')}
+						>
+							<X size="14" />
+						</button>
+					{/if}
 				</div>
 			</div>
 
