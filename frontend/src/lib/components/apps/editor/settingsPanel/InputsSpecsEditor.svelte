@@ -45,6 +45,7 @@
 					selectOptions={meta?.['selectOptions']}
 					tooltip={meta?.['tooltip']}
 					onlyStatic={meta?.['onlyStatic']}
+					fileUpload={meta?.['fileUpload']}
 					placeholder={meta?.['placeholder']}
 				/>
 			{/if}
