@@ -92,23 +92,6 @@
 	let jsonViewer: Drawer
 </script>
 
-<Portal>
-	<Drawer bind:this={jsonViewer} size="900px">
-		<DrawerContent title="Expanded Result" on:close={jsonViewer.closeDrawer}>
-			<svelte:fragment slot="actions">
-				<Button
-					on:click={() => copyToClipboard(JSON.stringify(result, null, 4))}
-					color="light"
-					size="xs"
-				>
-					<div class="flex gap-2 items-center">Copy to clipboard <ClipboardCopy /> </div>
-				</Button>
-			</svelte:fragment>
-			<Highlight language={json} code={JSON.stringify(result, null, 4).replace(/\\n/g, '\n')} />
-		</DrawerContent>
-	</Drawer>
-</Portal>
-
 <div class="inline-highlight">
 	{#if result != undefined}
 		{#if resultKind && resultKind != 'json'}
@@ -254,3 +237,20 @@
 		<div class="text-gray-500 text-sm">No result: {JSON.stringify(result)}</div>
 	{/if}
 </div>
+
+<Portal>
+	<Drawer bind:this={jsonViewer} size="900px">
+		<DrawerContent title="Expanded Result" on:close={jsonViewer.closeDrawer}>
+			<svelte:fragment slot="actions">
+				<Button
+					on:click={() => copyToClipboard(JSON.stringify(result, null, 4))}
+					color="light"
+					size="xs"
+				>
+					<div class="flex gap-2 items-center">Copy to clipboard <ClipboardCopy /> </div>
+				</Button>
+			</svelte:fragment>
+			<Highlight language={json} code={JSON.stringify(result, null, 4).replace(/\\n/g, '\n')} />
+		</DrawerContent>
+	</Drawer>
+</Portal>
