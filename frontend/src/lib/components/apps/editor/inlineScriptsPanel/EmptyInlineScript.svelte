@@ -208,8 +208,7 @@ console.log(ctx.email)
 if (!state.foo) { state.foo = 0 }
 state.foo += 1
 
-// you can also navigate to another page
-//await goto("?foo=bar")
+// you can also navigate (goto), recompute a script (recompute), or set a tab (setTab)
 
 return state.foo`,
 					language: 'frontend',

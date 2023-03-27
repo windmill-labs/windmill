@@ -155,7 +155,8 @@
 					$state,
 					$mode == 'dnd',
 					$componentControl,
-					$worldStore
+					$worldStore,
+					$runnableComponents
 				)
 				await setResult(r)
 				$state = $state
@@ -260,7 +261,8 @@
 				$state,
 				$mode == 'dnd',
 				$componentControl,
-				$worldStore
+				$worldStore,
+				$runnableComponents
 			)
 
 			if (hasRes && res === undefined) {
