@@ -62,7 +62,7 @@ function argSigToJsonSchemaType(
 	t:
 		| string
 		| { resource: string | null }
-		| { list: string | { str: any } | null }
+		| { list: string | { str: any } | { object: { key: string; typ: any }[] } | null }
 		| { str: string[] | null }
 		| { object: { key: string; typ: any }[] },
 	oldS: SchemaProperty
@@ -113,6 +113,8 @@ function argSigToJsonSchemaType(
 			newS.items = { type: 'number' }
 		} else if (t.list === 'bytes') {
 			newS.items = { type: 'string', contentEncoding: 'base64' }
+		} else if (t.list && typeof t.list == 'object' && `object` in t.list) {
+			newS.items = { type: 'object' }
 		} else {
 			newS.items = { type: 'string' }
 		}

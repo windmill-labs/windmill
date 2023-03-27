@@ -29,7 +29,7 @@
 	export let maxRows = 10
 	export let enum_: string[] | undefined = undefined
 	export let itemsType:
-		| { type?: 'string' | 'number' | 'bytes'; contentEncoding?: 'base64' }
+		| { type?: 'string' | 'number' | 'bytes' | 'object'; contentEncoding?: 'base64' }
 		| undefined = undefined
 	export let displayHeader = true
 	export let properties: { [name: string]: SchemaProperty } | undefined = undefined
@@ -138,7 +138,7 @@
 <div class="flex flex-col w-full min-w-[250px]">
 	<div>
 		{#if displayHeader}
-			<FieldHeader {label} {required} {type} {contentEncoding} {format} {itemsType} />
+			<FieldHeader {label} {required} {type} {contentEncoding} {format} />
 		{/if}
 
 		{#if description}
@@ -171,7 +171,6 @@
 						bind:value
 						min={extra['min']}
 						max={extra['max']}
-						on:input={() => dispatch('input', { value, isRaw: true })}
 					/>
 				{/if}
 			{:else if inputCat == 'boolean'}
@@ -258,9 +257,6 @@
 						}}
 						use:autosize
 						style="max-height: {maxHeight}"
-						on:input={() => {
-							dispatch('input', { rawValue: value, isRaw: false })
-						}}
 						class="col-span-10 {valid
 							? ''
 							: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
@@ -305,7 +301,6 @@
 							on:focus={(e) => {
 								dispatch('focus')
 							}}
-							on:blur={() => dispatch('blur')}
 							use:autosize
 							type="text"
 							class="col-span-10 {valid
@@ -313,9 +308,6 @@
 								: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
 							placeholder={defaultValue ?? ''}
 							bind:value
-							on:input={() => {
-								dispatch('input', { rawValue: value, isRaw: false })
-							}}
 						/>
 					</div>
 				</div>

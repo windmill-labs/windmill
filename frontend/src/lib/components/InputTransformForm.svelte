@@ -133,7 +133,6 @@
 				contentEncoding={schema.properties[argName].contentEncoding}
 				required={schema.required.includes(argName)}
 				type={schema.properties[argName].type}
-				itemsType={schema.properties[argName].items}
 			/>
 
 			{#if isStaticTemplate(inputCat)}

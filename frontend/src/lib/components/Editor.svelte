@@ -461,10 +461,6 @@
 			}
 		})
 
-		editor.onDidBlurEditorText(() => {
-			dispatch('blur')
-		})
-
 		reloadWebsocket()
 
 		return () => {

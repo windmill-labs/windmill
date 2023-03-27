@@ -64,7 +64,6 @@
 									type={toAny(v)?.type}
 									contentEncoding={toAny(v)?.contentEncoding}
 									format={toAny(v)?.format}
-									itemsType={toAny(v)?.itemsType}
 								/><span class="ml-4 mt-2 text-xs"
 									>{toAny(v)?.default != undefined
 										? 'default: ' + JSON.stringify(toAny(v)?.default)
