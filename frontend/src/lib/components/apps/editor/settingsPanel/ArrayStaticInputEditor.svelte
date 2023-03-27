@@ -50,30 +50,31 @@
 	function deleteElementByType(index: number) {
 		if (componentInput.value) {
 			componentInput.value.splice(index, 1)
-
+			redraw = redraw + 1
 			dispatch('deleteArrayItem', { index })
-
-			componentInput = componentInput
 		}
 	}
+	let redraw = 0
 </script>
 
 <div class="flex gap-2 flex-col mt-2">
-	{#if Array.isArray(componentInput.value)}
-		{#each componentInput.value as value, index (index)}
-			<div class="flex flex-row gap-2 items-center relative">
-				<SubTypeEditor {subFieldType} bind:componentInput bind:value />
-				<button
-					transition:fade|local={{ duration: 100 }}
-					class="z-10  rounded-full p-1 duration-200 hover:bg-gray-200"
-					aria-label="Remove item"
-					on:click|preventDefault|stopPropagation={() => deleteElementByType(index)}
-				>
-					<X size={14} />
-				</button>
-			</div>
-		{/each}
-	{/if}
+	{#key redraw}
+		{#if Array.isArray(componentInput.value)}
+			{#each componentInput.value as value, index (index)}
+				<div class="flex flex-row gap-2 items-center relative">
+					<SubTypeEditor {subFieldType} bind:componentInput bind:value />
+					<button
+						transition:fade|local={{ duration: 100 }}
+						class="z-10  rounded-full p-1 duration-200 hover:bg-gray-200"
+						aria-label="Remove item"
+						on:click|preventDefault|stopPropagation={() => deleteElementByType(index)}
+					>
+						<X size={14} />
+					</button>
+				</div>
+			{/each}
+		{/if}
+	{/key}
 	<Button size="xs" color="light" startIcon={{ icon: faPlus }} on:click={() => addElementByType()}>
 		Add
 	</Button>
