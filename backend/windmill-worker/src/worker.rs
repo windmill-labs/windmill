@@ -1465,7 +1465,7 @@ async fn handle_bash_job(
                 .replace("{SHARED_MOUNT}", shared_mount),
         )
         .await?;
-        let mut cmd_args = vec!["--config", "run.config.proto", "--", "/bin/sh", "main.sh"];
+        let mut cmd_args = vec!["--config", "run.config.proto", "--", "/bin/bash", "main.sh"];
         cmd_args.extend(args);
         Command::new(NSJAIL_PATH.as_str())
             .current_dir(job_dir)
@@ -1480,7 +1480,7 @@ async fn handle_bash_job(
     } else {
         let mut cmd_args = vec!["main.sh"];
         cmd_args.extend(&args);
-        Command::new("/bin/sh")
+        Command::new("/bin/bash")
             .current_dir(job_dir)
             .env_clear()
             .envs(reserved_variables)
