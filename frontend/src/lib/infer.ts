@@ -4,7 +4,6 @@ import type { Schema, SchemaProperty } from './common.js'
 
 const loadSchemaLastRun = writable<[string | undefined, MainArgSignature | undefined]>(undefined)
 
-
 export async function inferArgs(
 	language: 'python3' | 'deno' | 'go' | 'bash',
 	code: string,
@@ -15,7 +14,9 @@ export async function inferArgs(
 	if (lastRun && code == lastRun[0] && lastRun[1]) {
 		inferedSchema = lastRun[1]
 	} else {
-		if (code == '') { code = ' ' }
+		if (code == '') {
+			code = ' '
+		}
 		if (language == 'python3') {
 			inferedSchema = await ScriptService.pythonToJsonschema({
 				requestBody: code
@@ -38,7 +39,6 @@ export async function inferArgs(
 		loadSchemaLastRun.set([code, inferedSchema])
 	}
 
-
 	schema.required = []
 	const oldProperties = Object.assign({}, schema.properties)
 	schema.properties = {}
@@ -59,14 +59,14 @@ export async function inferArgs(
 }
 
 function argSigToJsonSchemaType(
-	t: string
+	t:
+		| string
 		| { resource: string | null }
 		| { list: string | { str: any } | null }
 		| { str: string[] | null }
-		| { object: { key: string, typ: any }[] },
+		| { object: { key: string; typ: any }[] },
 	oldS: SchemaProperty
 ): void {
-
 	const newS: SchemaProperty = { type: '', description: '' }
 	if (t === 'int') {
 		newS.type = 'integer'
@@ -121,12 +121,15 @@ function argSigToJsonSchemaType(
 	}
 	if (oldS.type != newS.type) {
 		for (const prop of Object.getOwnPropertyNames(newS)) {
-			if (prop != "description") {
+			if (prop != 'description') {
 				delete oldS[prop]
 			}
 		}
 	}
+
+	let oldDescription = oldS.description
 	Object.assign(oldS, newS)
+	oldS.description = oldDescription
 	if (oldS.format?.startsWith('resource-') && newS.type != 'object') {
 		oldS.format = undefined
 	}

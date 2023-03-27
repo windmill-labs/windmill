@@ -19,6 +19,8 @@
 	import { twMerge } from 'tailwind-merge'
 	import { columnConfiguration } from '../gridUtils'
 	import { HiddenComponent } from '../components'
+	import { deepEqual } from 'fast-equals'
+	import { dfs } from './appUtils'
 
 	export let app: App
 	export let appPath: string
@@ -32,7 +34,7 @@
 	export let isLocked = false
 
 	const appStore = writable<App>(app)
-	const selectedComponent = writable<string | undefined>(undefined)
+	const selectedComponent = writable<string[] | undefined>(undefined)
 	const mode = writable<EditorMode>('preview')
 
 	const connectingInput = writable<ConnectingInput>({
@@ -41,7 +43,7 @@
 		hoveredComponent: undefined
 	})
 
-	const runnableComponents = writable<Record<string, () => Promise<void>>>({})
+	const allIdsInPath = writable<string[]>([])
 
 	const parentWidth = writable(0)
 	setContext<AppViewerContext>('AppViewerContext', {
@@ -52,7 +54,7 @@
 		mode,
 		connectingInput,
 		breakpoint,
-		runnableComponents,
+		runnableComponents: writable({}),
 		appPath,
 		workspace,
 		onchange: undefined,
@@ -67,7 +69,8 @@
 		parentWidth,
 		state: writable({}),
 		componentControl: writable({}),
-		hoverStore: writable(undefined)
+		hoverStore: writable(undefined),
+		allIdsInPath
 	})
 
 	let ncontext = context
@@ -75,6 +78,14 @@
 	function hashchange(e: HashChangeEvent) {
 		ncontext.hash = e.newURL.split('#')[1]
 		ncontext = ncontext
+	}
+
+	let previousSelectedIds: string[] | undefined = undefined
+	$: if (!deepEqual(previousSelectedIds, $selectedComponent)) {
+		previousSelectedIds = $selectedComponent
+		$allIdsInPath = ($selectedComponent ?? [])
+			.flatMap((id) => dfs(app.grid, id, app.subgrids ?? {}))
+			.filter((x) => x != undefined) as string[]
 	}
 
 	$: width = $breakpoint === 'sm' ? 'max-w-[640px]' : 'w-full '
@@ -117,7 +128,7 @@
 		>
 			<div>
 				<GridViewer
-					onTopId={$selectedComponent}
+					allIdsInPath={$allIdsInPath}
 					items={app.grid}
 					let:dataItem
 					rowHeight={36}
@@ -127,7 +138,7 @@
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
 					<div
 						class={'h-full w-full center-center'}
-						on:pointerdown={() => ($selectedComponent = dataItem.id)}
+						on:pointerdown={() => ($selectedComponent = [dataItem.id])}
 					>
 						<Component render={true} component={dataItem.data} selected={false} locked={true} />
 					</div>
@@ -158,6 +169,8 @@
 				inlineScript={script.inlineScript}
 				name={script.name}
 				fields={script.fields}
+				doNotRecomputeOnInputChanged={script.doNotRecomputeOnInputChanged ?? false}
+				recomputableByRefreshButton={script.autoRefresh ?? false}
 			/>
 		{/if}
 	{/each}

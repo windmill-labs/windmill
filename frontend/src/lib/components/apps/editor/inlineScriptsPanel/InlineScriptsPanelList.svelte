@@ -16,7 +16,7 @@
 	function selectScript(id: string) {
 		$selectedComponentInEditor = id
 		if (!id.startsWith('unused-') || !id.startsWith('bg_')) {
-			$selectedComponent = $selectedComponentInEditor.split('_transformer')[0]
+			$selectedComponent = [$selectedComponentInEditor.split('_transformer')[0]]
 		}
 	}
 
@@ -27,7 +27,7 @@
 		$selectedComponent != $selectedComponentInEditor &&
 		!$selectedComponentInEditor?.includes('_transformer')
 	) {
-		$selectedComponentInEditor = $selectedComponent
+		$selectedComponentInEditor = $selectedComponent?.[0]
 	}
 
 	function createBackgroundScript() {

@@ -9,19 +9,16 @@
 	import ComponentOutput from './ComponentOutput.svelte'
 	import ComponentOutputViewer from './ComponentOutputViewer.svelte'
 	import BackgroundScriptsOutput from './components/BackgroundScriptsOutput.svelte'
-	import MinMaxButton from './components/MinMaxButton.svelte'
 	import OutputHeader from './components/OutputHeader.svelte'
 
-	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
+	const { connectingInput, app, allIdsInPath } = getContext<AppViewerContext>('AppViewerContext')
 
 	let search = writable<string>('')
-	let expanded = writable(false)
 
 	setContext<ContextPanelContext>('ContextPanel', {
 		search,
 		manuallyOpened: writable<Record<string, boolean>>({}),
-		hasResult: writable<Record<string, boolean>>({}),
-		expanded
+		hasResult: writable<Record<string, boolean>>({})
 	})
 </script>
 
@@ -53,7 +50,7 @@
 				<div>
 					<span class="text-xs font-bold p-2">State & Context</span>
 
-					<OutputHeader id={'ctx'} name={'App Context'} first color="blue">
+					<OutputHeader selectable={false} id={'ctx'} name={'App Context'} first color="blue">
 						<ComponentOutputViewer
 							componentId={'ctx'}
 							on:select={({ detail }) => {
@@ -62,7 +59,7 @@
 						/>
 					</OutputHeader>
 
-					<OutputHeader id={'state'} name={'State'} color="blue">
+					<OutputHeader selectable={false} id={'state'} name={'State'} color="blue">
 						<ComponentOutputViewer
 							componentId={'state'}
 							on:select={({ detail }) => {

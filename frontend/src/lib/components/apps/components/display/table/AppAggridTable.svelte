@@ -90,7 +90,7 @@
 		>
 			<div
 				on:pointerdown|stopPropagation={() => {
-					$selectedComponent = id
+					$selectedComponent = [id]
 				}}
 				style:height="{clientHeight}px"
 				style:width="{clientWidth}px"

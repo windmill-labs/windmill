@@ -29,7 +29,7 @@
 		}
 	}
 
-	$: $selectedComponent === id && onFocus()
+	$: $selectedComponent?.includes(id) && onFocus()
 	$: css = concatCustomCss($app.css?.containercomponent, customCss)
 
 	$componentControl[id] = {
@@ -73,7 +73,7 @@
 				<div
 					class="w-full h-full"
 					on:pointerdown|stopPropagation={() => {
-						$selectedComponent = id
+						$selectedComponent = [id]
 						$focusedGrid = {
 							parentComponentId: id,
 							subGridIndex: index
@@ -90,7 +90,7 @@
 							subGridId={`${id}-${index}`}
 							containerHeight={horizontal ? undefined : componentContainerHeight - 8}
 							on:focus={() => {
-								$selectedComponent = id
+								$selectedComponent = [id]
 								$focusedGrid = {
 									parentComponentId: id,
 									subGridIndex: index

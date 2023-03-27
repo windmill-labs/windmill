@@ -131,11 +131,13 @@ export type AppViewerContext = {
 	worldStore: Writable<World>
 	app: Writable<App>
 	summary: Writable<string>
-	selectedComponent: Writable<string | undefined>
+	selectedComponent: Writable<string[] | undefined>
 	mode: Writable<EditorMode>
 	connectingInput: Writable<ConnectingInput>
 	breakpoint: Writable<EditorBreakpoint>
-	runnableComponents: Writable<Record<string, (inlineScript?: InlineScript) => Promise<void>>>
+	runnableComponents: Writable<
+		Record<string, { autoRefresh: boolean; cb: (inlineScript?: InlineScript) => Promise<void> }>
+	>
 	staticExporter: Writable<Record<string, () => any>>
 	appPath: string
 	workspace: string
@@ -160,6 +162,7 @@ export type AppViewerContext = {
 		>
 	>
 	hoverStore: Writable<string | undefined>
+	allIdsInPath: Writable<string[]>
 }
 
 export type AppEditorContext = {
@@ -167,7 +170,7 @@ export type AppEditorContext = {
 	pickVariableCallback: Writable<((path: string) => void) | undefined>
 	ontextfocus: Writable<(() => void) | undefined>
 	selectedComponentInEditor: Writable<string | undefined>
-	movingcomponent: Writable<string | undefined>
+	movingcomponents: Writable<string[] | undefined>
 }
 
 export type FocusedGrid = { parentComponentId: string; subGridIndex: number }
@@ -181,6 +184,5 @@ type ComponentID = string
 export type ContextPanelContext = {
 	search: Writable<string>
 	manuallyOpened: Writable<Record<string, boolean>>
-	expanded: Writable<boolean>
 	hasResult: Writable<Record<string, boolean>>
 }

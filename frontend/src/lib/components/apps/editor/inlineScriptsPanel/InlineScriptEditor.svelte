@@ -198,7 +198,9 @@
 						variant="border"
 						btnClasses="!px-2 !py-1 !bg-gray-700 !text-white hover:!bg-gray-900"
 						on:click={async () => {
-							await run(!transformer ? inlineScript : undefined)
+							runLoading = true
+							await $runnableComponents[id]?.cb?.(!transformer ? inlineScript : undefined)
+							runLoading = false
 						}}
 					>
 						<div class="flex flex-row gap-1 items-center">
@@ -232,7 +234,9 @@
 						if (inlineScript) {
 							inlineScript.content = editor?.getCode() ?? ''
 						}
-						run(inlineScript)
+						runLoading = true
+						await $runnableComponents[id]?.cb?.(inlineScript)
+						runLoading = false
 					}}
 					on:change={async (e) => {
 						if (inlineScript && inlineScript.language != 'frontend') {
@@ -251,14 +255,16 @@
 				/>
 			{:else}
 				<SimpleEditor
-					{extraLib}
 					bind:this={simpleEditor}
-					bind:code={inlineScript.content}
-					class="h-full"
-					lang="javascript"
 					cmdEnterAction={async () => {
-						await run(!transformer ? inlineScript : undefined)
+						runLoading = true
+						await $runnableComponents[id]?.cb?.(!transformer ? inlineScript : undefined)
+						runLoading = false
 					}}
+					class="h-full"
+					{extraLib}
+					bind:code={inlineScript.content}
+					lang="javascript"
 				/>
 			{/if}
 		</div>

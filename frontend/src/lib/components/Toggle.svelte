@@ -38,7 +38,7 @@
 			</span>
 		{/if}
 		<!-- svelte-ignore a11y-click-events-have-key-events -->
-		<div class="relative" on:pointerdown on:click|stopPropagation>
+		<div class="relative" on:click|stopPropagation>
 			<input
 				on:focus
 				on:click

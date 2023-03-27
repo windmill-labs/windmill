@@ -42,6 +42,8 @@
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
 	import { SecondaryMenu } from './settingsPanel/secondaryMenu'
 	import { Component, Paintbrush, Plus } from 'lucide-svelte'
+	import { findGridItem, findGridItemParentGrid } from './appUtils'
+	import { findItemsById } from '../svelte-grid/utils/matrix'
 
 	export let app: App
 	export let path: string
@@ -51,7 +53,7 @@
 	export let fromHub: boolean = false
 
 	const appStore = writable<App>(app)
-	const selectedComponent = writable<string | undefined>(undefined)
+	const selectedComponent = writable<string[] | undefined>(undefined)
 	const mode = writable<EditorMode>(initialMode)
 	const breakpoint = writable<EditorBreakpoint>('lg')
 	const summaryStore = writable(summary)
@@ -83,7 +85,7 @@
 		mode,
 		connectingInput,
 		breakpoint,
-		runnableComponents,
+		runnableComponents: writable({}),
 		appPath: path,
 		workspace: $workspaceStore ?? '',
 		onchange: () => saveDraft(),
@@ -98,14 +100,15 @@
 		parentWidth: writable(0),
 		state: writable({}),
 		componentControl: writable({}),
-		hoverStore: writable(undefined)
+		hoverStore: writable(undefined),
+		allIdsInPath: writable([])
 	})
 
 	setContext<AppEditorContext>('AppEditorContext', {
 		history,
 		pickVariableCallback,
 		ontextfocus: writable(undefined),
-		movingcomponent: writable(undefined),
+		movingcomponents: writable(undefined),
 		selectedComponentInEditor: writable(undefined)
 	})
 
@@ -140,10 +143,33 @@
 
 	let selectedTab: 'insert' | 'settings' = 'insert'
 
-	$: if ($selectedComponent) {
+	let befSelected: string | undefined = undefined
+	$: if ($selectedComponent?.[0] != befSelected) {
+		befSelected = $selectedComponent?.[0]
 		selectedTab = 'settings'
-	} else {
-		selectedTab = 'insert'
+		if (befSelected) {
+			if (!['ctx', 'state'].includes(befSelected) && !befSelected?.startsWith('bg_')) {
+				let item = findGridItem($appStore, befSelected)
+				if (item?.data.type === 'containercomponent') {
+					$focusedGrid = {
+						parentComponentId: befSelected,
+						subGridIndex: 0
+					}
+				} else {
+					let subgrid = findGridItemParentGrid($appStore, befSelected)
+					if (subgrid) {
+						try {
+							$focusedGrid = {
+								parentComponentId: subgrid.split('-')[0],
+								subGridIndex: parseInt(subgrid.split('-')[1])
+							}
+						} catch {}
+					} else {
+						$focusedGrid = undefined
+					}
+				}
+			}
+		}
 	}
 
 	let itemPicker: ItemPicker | undefined = undefined
@@ -240,7 +266,6 @@
 								<Tab value="insert" size="xs">
 									<div class="m-1 center-center gap-1">
 										<Plus size={18} />
-										<span>Insert</span>
 									</div>
 								</Tab>
 								<Tab value="settings" size="xs">
@@ -252,7 +277,6 @@
 								<Tab value="css" size="xs">
 									<div class="m-1 center-center gap-1">
 										<Paintbrush size={18} />
-										<span>Styling</span>
 									</div>
 								</Tab>
 								<div slot="content" class="h-full overflow-y-auto">

@@ -47,7 +47,6 @@
 			{disabled}
 			on:pointerdown={(e) => {
 				e?.stopPropagation()
-				window.dispatchEvent(new Event('pointerup'))
 			}}
 			on:click={async (e) => {
 				$focusedGrid = {
@@ -89,7 +88,7 @@
 					subGridId={`${id}-0`}
 					containerHeight={1200}
 					on:focus={() => {
-						$selectedComponent = id
+						$selectedComponent = [id]
 					}}
 				/>
 			{/if}

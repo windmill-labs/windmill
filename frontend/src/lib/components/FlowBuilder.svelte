@@ -194,6 +194,14 @@
 	loadHubScripts()
 
 	function onKeyDown(event: KeyboardEvent) {
+		let classes = event.target?.['className']
+		if (
+			(typeof classes === 'string' && classes.includes('inputarea')) ||
+			['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName!)
+		) {
+			return
+		}
+
 		switch (event.key) {
 			case 'Z':
 				if (event.ctrlKey) {

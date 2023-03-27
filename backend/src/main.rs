@@ -91,6 +91,8 @@ Windmill Community Edition {GIT_VERSION}
         "BASE_URL",
         "BASE_INTERNAL_URL",
         "TIMEOUT",
+        "ZOMBIE_JOB_TIMEOUT",
+        "RESTART_ZOMBIE_JOBS",
         "SLEEP_QUEUE",
         "MAX_LOG_SIZE",
         "SERVER_BIND_ADDR",

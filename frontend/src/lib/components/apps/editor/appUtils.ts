@@ -22,6 +22,28 @@ import gridHelp from '../svelte-grid/utils/helper'
 import type { FilledItem } from '../svelte-grid/types'
 import type { EvalAppInput, StaticAppInput } from '../inputType'
 
+export function dfs(
+	grid: GridItem[],
+	id: string,
+	subgrids: Record<string, GridItem[]>
+): string[] | undefined {
+	for (const item of grid) {
+		if (item.id === id) {
+			return [id]
+		} else if (item.data.type == 'tablecomponent' && item.data.actionButtons.find((x) => x.id)) {
+			return [item.id, id]
+		} else {
+			for (let i = 0; i < (item.data.numberOfSubgrids ?? 0); i++) {
+				const res = dfs(subgrids[`${item.id}-${i}`], id, subgrids)
+				if (res) {
+					return [item.id, ...res]
+				}
+			}
+		}
+	}
+	return undefined
+}
+
 function findGridItemById(
 	root: GridItem[],
 	subGrids: Record<string, GridItem[]> | undefined,
