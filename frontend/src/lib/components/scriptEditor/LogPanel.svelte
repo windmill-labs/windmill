@@ -88,10 +88,10 @@
 						/>
 					</Pane>
 					<Pane>
-						{#if previewJob != undefined && 'result' in previewJob && previewJob.result != undefined}
-							<pre class="relative w-full h-full p-2"
+						{#if previewJob != undefined && 'result' in previewJob}
+							<div class="relative w-full h-full p-2"
 								><DisplayResult result={previewJob.result} />
-						</pre>
+							</div>
 						{:else}
 							<div class="text-sm text-gray-600 p-2">
 								{#if previewIsLoading}
