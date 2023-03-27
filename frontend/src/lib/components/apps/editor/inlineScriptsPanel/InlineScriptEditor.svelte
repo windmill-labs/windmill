@@ -104,14 +104,6 @@
 				})
 		}
 	}
-
-	async function run(inlineScript: InlineScript | undefined) {
-		if ($runnableComponents[id]) {
-			runLoading = true
-			await $runnableComponents[id]?.(inlineScript)
-			runLoading = false
-		}
-	}
 </script>
 
 {#if inlineScript}
