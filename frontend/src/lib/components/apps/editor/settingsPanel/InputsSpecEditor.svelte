@@ -28,7 +28,7 @@
 	export let subFieldType: InputType | undefined
 	export let format: string | undefined
 	export let selectOptions: string[] | undefined
-	export let fileUpload: { accept: string; convertTo: string } | undefined
+	export let fileUpload: { accept: string; convertTo: string } | undefined = undefined
 	export let placeholder: string | undefined
 
 	const { connectingInput } = getContext<AppViewerContext>('AppViewerContext')
