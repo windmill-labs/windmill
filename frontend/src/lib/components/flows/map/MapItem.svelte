@@ -82,9 +82,9 @@
 	<div class="relative">
 		{#if moving == mod.id}
 			<div class="absolute z-10 right-20 top-0.5 center-center">
-				<Button color="dark" on:click={() => dispatch('move')} size="xs" variant="border"
-					>Cancel move</Button
-				>
+				<Button color="dark" on:click={() => dispatch('move')} size="xs" variant="border">
+					Cancel move
+				</Button>
 			</div>
 		{/if}
 

@@ -92,8 +92,10 @@
 				class="border p-0.5 text-xs"
 				on:click={() => {
 					$movingcomponents = undefined
-				}}>Cancel move</button
+				}}
 			>
+				Cancel move
+			</button>
 		</div>
 	{/if}
 	<div

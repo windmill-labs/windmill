@@ -1,8 +1,7 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
 	import CloseButton from '$lib/components/common/CloseButton.svelte'
-	import { faPlus, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
-	import { CrossIcon } from 'lucide-svelte'
+	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { AppViewerContext } from '../../types'
 	import { deleteGridItem } from '../appUtils'
