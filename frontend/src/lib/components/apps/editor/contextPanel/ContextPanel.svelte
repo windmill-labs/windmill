@@ -11,7 +11,7 @@
 	import BackgroundScriptsOutput from './components/BackgroundScriptsOutput.svelte'
 	import OutputHeader from './components/OutputHeader.svelte'
 
-	const { connectingInput, app, allIdsInPath } = getContext<AppViewerContext>('AppViewerContext')
+	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
 
 	let search = writable<string>('')
 
@@ -22,11 +22,11 @@
 	})
 </script>
 
-<PanelSection noPadding titlePadding="px-4 pt-2 pb-0.5" title="Outputs">
-	<div class="bg-white w-full h-full z-30">
+<PanelSection noPadding titlePadding="px-1.5 pt-2" title="Outputs">
+	<div class="bg-white h-auto w-full z-30 ">
 		<div class="min-w-[150px]">
-			<div class="sticky z-10 top-0 left-0 w-full bg-white p-2">
-				<div class="relative">
+			<div class="sticky z-10 top-0 left-0 w-full bg-white p-1.5">
+				<div class="relative w-full">
 					<input
 						bind:value={$search}
 						class="px-2 pb-1 border border-gray-300 rounded-sm {search ? 'pr-8' : ''}"

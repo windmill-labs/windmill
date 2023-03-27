@@ -12,8 +12,6 @@
 
 	const { onchange, worldStore, state } = getContext<AppViewerContext>('AppViewerContext')
 
-	$: componentInput && onchange?.()
-
 	$: extraLib =
 		componentInput?.expr && $worldStore
 			? buildExtraLib($worldStore?.outputsById ?? {}, id, hasRows, $state, false)
@@ -28,6 +26,11 @@
 			shouldBindKey={false}
 			{extraLib}
 			autoHeight
+			on:change={() => {
+				if (onchange) {
+					onchange()
+				}
+			}}
 		/>
 	</div>
 {/if}

@@ -4,7 +4,6 @@
 	import { buildWorld } from '../rx'
 	import type {
 		App,
-		AppEditorContext,
 		AppViewerContext,
 		ConnectingInput,
 		EditorBreakpoint,

@@ -17,7 +17,6 @@
 		.find(({ script, index }) => $selectedComponent?.includes(`bg_${index}`))
 
 	$: componentSettings = findComponentSettings($app, $selectedComponent?.[0])
-
 	$: tableActionSettings = findTableActionSettings($app, $selectedComponent?.[0])
 
 	function findTableActionSettings(app: App, id: string | undefined) {
@@ -36,7 +35,7 @@
 	}
 
 	function findComponentSettings(app: App, id: string | undefined) {
-		if (!id) return
+		if (!id) return undefined
 		if (app?.grid) {
 			const gridItem = app.grid.find((x) => x.data?.id === id)
 			if (gridItem) {
