@@ -22,6 +22,7 @@ const inputs: ComponentSet = {
 	title: 'Inputs',
 	components: [
 		'textinputcomponent',
+		'textareainputcomponent',
 		'passwordinputcomponent',
 		'emailinputcomponent',
 		'numberinputcomponent',
@@ -33,7 +34,7 @@ const inputs: ComponentSet = {
 		'checkboxcomponent',
 		'selectcomponent',
 		'resourceselectcomponent',
-		'multiselectcomponent',
+		'multiselectcomponent'
 	]
 } as const
 
