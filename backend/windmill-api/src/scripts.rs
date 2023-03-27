@@ -184,7 +184,7 @@ fn hash_script(ns: &NewScript) -> i64 {
 async fn create_script(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
-    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
@@ -357,41 +357,11 @@ async fn create_script(
             clear_schedule(&mut tx, &schedule.path, false).await?;
 
             if schedule.enabled {
-                tx = push_scheduled_job(tx, schedule, rsmq.clone()).await?;
+                todo!("Fix TX wiring here")
+                // push_scheduled_job(tx, schedule, rsmq.clone()).await?;
             }
         }
     }
-
-    let mut tx = if needs_lock_gen {
-        let dependencies = match ns.language {
-            ScriptLang::Python3 => {
-                windmill_parser_py::parse_python_imports(&ns.content)?.join("\n")
-            }
-            _ => ns.content,
-        };
-        let (_, tx) = windmill_queue::push(
-            tx,
-            &w_id,
-            windmill_queue::JobPayload::Dependencies { hash, dependencies, language: ns.language },
-            serde_json::Map::new(),
-            &authed.username,
-            &authed.email,
-            username_to_permissioned_as(&authed.username),
-            None,
-            None,
-            None,
-            None,
-            false,
-            false,
-            None,
-            true,
-            rsmq,
-        )
-        .await?;
-        tx
-    } else {
-        tx
-    };
 
     if p_hashes.is_some() && !p_hashes.unwrap().is_empty() {
         audit_log(
@@ -407,7 +377,7 @@ async fn create_script(
         webhook.send_message(
             w_id.clone(),
             WebhookMessage::UpdateScript {
-                workspace: w_id,
+                workspace: w_id.clone(),
                 path: ns.path.clone(),
                 hash: hash.to_string(),
             },
@@ -432,14 +402,42 @@ async fn create_script(
         webhook.send_message(
             w_id.clone(),
             WebhookMessage::CreateScript {
-                workspace: w_id,
+                workspace: w_id.clone(),
                 path: ns.path.clone(),
                 hash: hash.to_string(),
             },
         );
     }
 
-    tx.commit().await?;
+    if needs_lock_gen {
+        let dependencies = match ns.language {
+            ScriptLang::Python3 => {
+                windmill_parser_py::parse_python_imports(&ns.content)?.join("\n")
+            }
+            _ => ns.content,
+        };
+        let _ = windmill_queue::push(
+            tx,
+            &w_id,
+            windmill_queue::JobPayload::Dependencies { hash, dependencies, language: ns.language },
+            serde_json::Map::new(),
+            &authed.username,
+            &authed.email,
+            username_to_permissioned_as(&authed.username),
+            None,
+            None,
+            None,
+            None,
+            false,
+            false,
+            None,
+            true,
+            rsmq,
+        )
+        .await?;
+    } else {
+        tx.commit().await?;
+    };
 
     Ok((StatusCode::CREATED, format!("{}", hash)))
 }

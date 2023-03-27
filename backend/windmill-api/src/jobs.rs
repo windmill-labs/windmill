@@ -60,6 +60,7 @@ pub fn workspaced_service() -> Router {
         .route("/run/preview_flow", post(run_preview_flow_job))
         .route("/list", get(list_jobs))
         .route("/queue/list", get(list_queue_jobs))
+        .route("/queue/count", get(count_queue_jobs))
         .route("/queue/cancel/:id", post(cancel_job_api))
         .route("/completed/list", get(list_completed_jobs))
         .route("/completed/get/:id", get(get_completed_job))
@@ -111,7 +112,7 @@ async fn get_result_by_id(
 async fn cancel_job_api(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
-    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, id)): Path<(String, Uuid)>,
     Json(CancelJob { reason }): Json<CancelJob>,
 ) -> error::Result<String> {
@@ -444,6 +445,26 @@ async fn list_queue_jobs(
     Ok(Json(jobs))
 }
 
+#[derive(Serialize, Debug, FromRow)]
+struct QueueStats {
+    database_length: i64,
+}
+
+async fn count_queue_jobs(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> error::JsonResult<QueueStats> {
+    Ok(Json(
+        sqlx::query_as!(
+            QueueStats,
+            "SELECT coalesce(COUNT(*), 0) as \"database_length!\" FROM queue WHERE workspace_id = $1",
+            w_id
+        )
+        .fetch_one(&db)
+        .await?,
+    ))
+}
+
 async fn list_jobs(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
@@ -741,7 +762,7 @@ async fn get_suspended_flow_info<'c>(
 pub async fn cancel_suspended_job(
     /* unauthed */
     Extension(db): Extension<DB>,
-    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, job, resume_id, secret)): Path<(String, Uuid, u32, String)>,
     Query(approver): Query<QueryApprover>,
 ) -> error::Result<String> {
@@ -1157,7 +1178,7 @@ fn decode_payload<D: DeserializeOwned, T: AsRef<[u8]>>(t: T) -> anyhow::Result<D
 pub async fn run_flow_by_path(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
-    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
@@ -1168,7 +1189,7 @@ pub async fn run_flow_by_path(
     let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
 
-    let (uuid, tx) = push(
+    let uuid = push(
         tx,
         &w_id,
         JobPayload::Flow(flow_path.to_string()),
@@ -1187,14 +1208,13 @@ pub async fn run_flow_by_path(
         rsmq,
     )
     .await?;
-    tx.commit().await?;
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
 pub async fn run_job_by_path(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
-    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
@@ -1206,7 +1226,7 @@ pub async fn run_job_by_path(
     let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
 
-    let (uuid, tx) = push(
+    let uuid = push(
         tx,
         &w_id,
         job_payload,
@@ -1225,7 +1245,6 @@ pub async fn run_job_by_path(
         rsmq,
     )
     .await?;
-    tx.commit().await?;
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
@@ -1346,7 +1365,7 @@ lazy_static::lazy_static! {
 pub async fn run_wait_result_job_by_path(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
-    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(db): Extension<DB>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
@@ -1361,7 +1380,7 @@ pub async fn run_wait_result_job_by_path(
 
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
 
-    let (uuid, tx) = push(
+    let uuid = push(
         tx,
         &w_id,
         job_payload,
@@ -1380,7 +1399,6 @@ pub async fn run_wait_result_job_by_path(
         rsmq,
     )
     .await?;
-    tx.commit().await?;
 
     run_wait_result(
         authed,
@@ -1395,7 +1413,7 @@ pub async fn run_wait_result_job_by_path(
 pub async fn run_wait_result_job_by_hash(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
-    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(db): Extension<DB>,
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     Query(run_query): Query<RunJobQuery>,
@@ -1410,7 +1428,7 @@ pub async fn run_wait_result_job_by_hash(
     let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
 
-    let (uuid, tx) = push(
+    let uuid = push(
         tx,
         &w_id,
         JobPayload::ScriptHash { hash: ScriptHash(hash), path },
@@ -1429,7 +1447,6 @@ pub async fn run_wait_result_job_by_hash(
         rsmq,
     )
     .await?;
-    tx.commit().await?;
 
     run_wait_result(
         authed,
@@ -1444,7 +1461,7 @@ pub async fn run_wait_result_job_by_hash(
 pub async fn run_wait_result_flow_by_path(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
-    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(db): Extension<DB>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
@@ -1458,7 +1475,7 @@ pub async fn run_wait_result_flow_by_path(
     let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
 
-    let (uuid, tx) = push(
+    let uuid = push(
         tx,
         &w_id,
         JobPayload::Flow(flow_path.to_string()),
@@ -1477,8 +1494,6 @@ pub async fn run_wait_result_flow_by_path(
         rsmq,
     )
     .await?;
-
-    tx.commit().await?;
 
     run_wait_result(
         authed,
@@ -1508,7 +1523,7 @@ pub async fn script_path_to_payload<'c>(
 async fn run_preview_job(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
-    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path(w_id): Path<String>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
@@ -1518,7 +1533,7 @@ async fn run_preview_job(
     let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
     let args = run_query.add_include_headers(headers, preview.args.unwrap_or_default());
 
-    let (uuid, tx) = push(
+    let uuid = push(
         tx,
         &w_id,
         JobPayload::Code(RawCode {
@@ -1542,14 +1557,13 @@ async fn run_preview_job(
         rsmq,
     )
     .await?;
-    tx.commit().await?;
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
 async fn run_preview_flow_job(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
-    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path(w_id): Path<String>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
@@ -1559,7 +1573,7 @@ async fn run_preview_flow_job(
     let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
     let args = run_query.add_include_headers(headers, raw_flow.args.unwrap_or_default());
 
-    let (uuid, tx) = push(
+    let uuid = push(
         tx,
         &w_id,
         JobPayload::RawFlow { value: raw_flow.value, path: raw_flow.path },
@@ -1578,14 +1592,13 @@ async fn run_preview_flow_job(
         rsmq,
     )
     .await?;
-    tx.commit().await?;
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
 pub async fn run_job_by_hash(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
-    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
@@ -1597,7 +1610,7 @@ pub async fn run_job_by_hash(
     let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
 
-    let (uuid, tx) = push(
+    let uuid = push(
         tx,
         &w_id,
         JobPayload::ScriptHash { hash: ScriptHash(hash), path },
@@ -1616,7 +1629,6 @@ pub async fn run_job_by_hash(
         rsmq,
     )
     .await?;
-    tx.commit().await?;
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 

@@ -13,13 +13,13 @@ use windmill_common::{error::Error, flow_status::FlowStatusModule, schedule::Sch
 use windmill_queue::{delete_job, schedule::get_schedule_opt, JobKind, QueuedJob};
 
 #[instrument(level = "trace", skip_all)]
-pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection>(
+pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone>(
     db: &Pool<Postgres>,
     queued_job: &QueuedJob,
     logs: String,
     e: serde_json::Value,
     metrics: Option<crate::worker::Metrics>,
-    rsmq: Option<std::sync::Arc<tokio::sync::Mutex<R>>>,
+    rsmq: Option<R>,
 ) -> Result<serde_json::Value, Error> {
     metrics.map(|m| m.worker_execution_failed.inc());
     let result = serde_json::json!({ "error": e });
@@ -46,14 +46,14 @@ fn flatten_jobs(modules: Vec<FlowStatusModule>) -> Vec<Uuid> {
 }
 
 #[instrument(level = "trace", skip_all)]
-pub async fn add_completed_job<R: rsmq_async::RsmqConnection>(
+pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone>(
     db: &Pool<Postgres>,
     queued_job: &QueuedJob,
     success: bool,
     skipped: bool,
     result: serde_json::Value,
     logs: String,
-    rsmq: Option<std::sync::Arc<tokio::sync::Mutex<R>>>,
+    rsmq: Option<R>,
 ) -> Result<Uuid, Error> {
     let duration =
         if queued_job.job_kind == JobKind::Flow || queued_job.job_kind == JobKind::FlowPreview {
@@ -162,7 +162,7 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection>(
         && queued_job.schedule_path.is_some()
         && queued_job.script_path.is_some()
     {
-        tx = schedule_again_if_scheduled(
+        schedule_again_if_scheduled(
             tx,
             db,
             queued_job.schedule_path.as_ref().unwrap(),
@@ -171,8 +171,9 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection>(
             rsmq,
         )
         .await?;
+    } else {
+        tx.commit().await?;
     }
-    tx.commit().await?;
 
     if cfg!(enterprise) && duration.unwrap_or(0) > 1000 {
         let additional_usage = duration.unwrap() as i32 / 1000;
@@ -211,14 +212,14 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection>(
 }
 
 #[instrument(level = "trace", skip_all)]
-pub async fn schedule_again_if_scheduled<'c, R: rsmq_async::RsmqConnection>(
+pub async fn schedule_again_if_scheduled<'c, R: rsmq_async::RsmqConnection + Clone>(
     mut tx: Transaction<'c, Postgres>,
     db: &Pool<Postgres>,
     schedule_path: &str,
     script_path: &str,
     w_id: &str,
-    rsmq: Option<std::sync::Arc<tokio::sync::Mutex<R>>>,
-) -> windmill_common::error::Result<Transaction<'c, Postgres>> {
+    rsmq: Option<R>,
+) -> windmill_common::error::Result<()> {
     let schedule = get_schedule_opt(&mut tx, w_id, schedule_path)
         .await?
         .ok_or_else(|| {
@@ -251,7 +252,7 @@ pub async fn schedule_again_if_scheduled<'c, R: rsmq_async::RsmqConnection>(
         )
         .await;
         match res {
-            Ok(tx) => Ok(tx),
+            Ok(()) => Ok(()),
             Err(err) => {
                 sqlx::query!(
                     "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
@@ -266,6 +267,6 @@ pub async fn schedule_again_if_scheduled<'c, R: rsmq_async::RsmqConnection>(
             }
         }
     } else {
-        Ok(tx)
+        Ok(())
     }
 }

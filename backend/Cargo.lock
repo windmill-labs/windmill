@@ -3071,9 +3071,7 @@ dependencies = [
 
 [[package]]
 name = "rsmq_async"
-version = "5.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ec974df73278f17819782eb40f92445ef8a26e691c86889e139c4e5ea6eef3b"
+version = "5.1.4"
 dependencies = [
  "async-trait",
  "bb8",
@@ -5021,6 +5019,7 @@ dependencies = [
  "tokio",
  "tokio-metrics",
  "tracing",
+ "url",
  "windmill-api",
  "windmill-api-client",
  "windmill-common",

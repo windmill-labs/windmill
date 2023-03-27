@@ -53,13 +53,13 @@ const MAX_FREE_EXECS: i32 = 1000;
 const MAX_FREE_CONCURRENT_RUNS: i32 = 15;
 const RSMQ_MAIN_QUEUE: &'static str = "main_queue";
 
-pub async fn cancel_job<'c, R: rsmq_async::RsmqConnection>(
+pub async fn cancel_job<'c, R: rsmq_async::RsmqConnection + Clone>(
     username: &str,
     reason: Option<String>,
     id: Uuid,
     w_id: &str,
     mut tx: Transaction<'c, Postgres>,
-    rsmq: Option<std::sync::Arc<tokio::sync::Mutex<R>>>,
+    rsmq: Option<R>,
 ) -> error::Result<(Transaction<'c, Postgres>, Option<Uuid>)> {
     let job_option = sqlx::query_scalar!(
         "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 \
@@ -71,10 +71,8 @@ pub async fn cancel_job<'c, R: rsmq_async::RsmqConnection>(
     )
     .fetch_optional(&mut tx)
     .await?;
-    if let Some(rsmq) = rsmq {
-        rsmq.lock()
-            .await
-            .change_message_visibility(RSMQ_MAIN_QUEUE, &id.to_string(), 0)
+    if let Some(mut rsmq) = rsmq {
+        rsmq.change_message_visibility(RSMQ_MAIN_QUEUE, &id.to_string(), 0)
             .await
             .map_err(|e| anyhow::anyhow!(e))?;
     }
@@ -97,11 +95,11 @@ pub async fn cancel_job<'c, R: rsmq_async::RsmqConnection>(
     Ok((tx, job_option))
 }
 
-pub async fn pull<R: rsmq_async::RsmqConnection>(
+pub async fn pull<R: rsmq_async::RsmqConnection + Clone>(
     db: &Pool<Postgres>,
     whitelist_workspaces: Option<Vec<String>>,
     blacklist_workspaces: Option<Vec<String>>,
-    rsmq: Option<std::sync::Arc<tokio::sync::Mutex<R>>>,
+    rsmq: Option<R>,
 ) -> windmill_common::error::Result<Option<QueuedJob>> {
     let mut workspaces_filter = String::new();
     if let Some(whitelist) = whitelist_workspaces {
@@ -131,22 +129,32 @@ pub async fn pull<R: rsmq_async::RsmqConnection>(
         }
     }
 
-    let job: Option<QueuedJob> = if let Some(rsmq) = rsmq {
+    let job: Option<QueuedJob> = if let Some(mut rsmq) = rsmq {
         // TODO: REDIS: Race conditions / replace last_ping
         let msg = rsmq
-            .lock()
-            .await
             .pop_message::<Vec<u8>>(RSMQ_MAIN_QUEUE)
             .await
             .map_err(|e| anyhow::anyhow!(e))?;
 
         if let Some(msg) = msg {
-            let uuid = Uuid::parse_str(&msg.id)?;
+            let uuid = Uuid::from_bytes_le(
+                msg.message
+                    .try_into()
+                    .map_err(|_| anyhow::anyhow!("Failed to parsed Redis message"))?,
+            );
 
-            sqlx::query_as::<_, QueuedJob>("SELECT * FROM queue WHERE id = $1")
-                .bind(uuid)
-                .fetch_optional(db)
-                .await?
+            sqlx::query_as::<_, QueuedJob>(
+                "UPDATE queue
+            SET running = true
+            , started_at = coalesce(started_at, now())
+            , last_ping = now()
+            , suspend_until = null
+            WHERE id = $1
+            RETURNING *",
+            )
+            .bind(uuid)
+            .fetch_optional(db)
+            .await?
         } else {
             None
         }
@@ -242,17 +250,15 @@ pub async fn get_result_by_id(
 }
 
 #[instrument(level = "trace", skip_all)]
-pub async fn delete_job<R: rsmq_async::RsmqConnection>(
+pub async fn delete_job<R: rsmq_async::RsmqConnection + Clone>(
     db: &Pool<Postgres>,
     w_id: &str,
     job_id: Uuid,
-    rsmq: Option<std::sync::Arc<tokio::sync::Mutex<R>>>,
+    rsmq: Option<R>,
 ) -> windmill_common::error::Result<()> {
     QUEUE_DELETE_COUNT.inc();
-    if let Some(rsmq) = rsmq {
-        rsmq.lock()
-            .await
-            .delete_message(RSMQ_MAIN_QUEUE, &job_id.to_string())
+    if let Some(mut rsmq) = rsmq {
+        rsmq.delete_message(RSMQ_MAIN_QUEUE, &job_id.to_string())
             .await
             .map_err(|e| anyhow::anyhow!(e))?;
     }
@@ -287,7 +293,7 @@ pub async fn get_queued_job<'c>(
 }
 
 #[instrument(level = "trace", skip_all)]
-pub async fn push<'c, R: rsmq_async::RsmqConnection>(
+pub async fn push<'c, R: rsmq_async::RsmqConnection + Clone>(
     mut tx: Transaction<'c, Postgres>,
     workspace_id: &str,
     job_payload: JobPayload,
@@ -303,8 +309,8 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection>(
     mut same_worker: bool,
     pre_run_error: Option<&windmill_common::error::Error>,
     visible_to_owner: bool,
-    rsmq: Option<std::sync::Arc<tokio::sync::Mutex<R>>>,
-) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
+    rsmq: Option<R>,
+) -> Result<Uuid, Error> {
     let scheduled_for = scheduled_for_o.unwrap_or_else(chrono::Utc::now);
     let args_json = serde_json::Value::Object(args);
     let job_id: Uuid = Ulid::new().into();
@@ -553,14 +559,6 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection>(
 
     let flow_status = raw_flow.as_ref().map(FlowStatus::new);
 
-    if let Some(rsmq) = rsmq {
-        rsmq.lock()
-            .await
-            .send_message(RSMQ_MAIN_QUEUE, Vec::<u8>::new(), None)
-            .await
-            .map_err(|e| anyhow::anyhow!(e))?;
-    }
-
     let uuid = sqlx::query_scalar!(
         "INSERT INTO queue
             (workspace_id, id, running, parent_job, created_by, permissioned_as, scheduled_for, 
@@ -631,7 +629,17 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection>(
         .instrument(tracing::info_span!("job_run", email = &email))
         .await?;
     }
-    Ok((uuid, tx))
+    if let Some(mut rsmq) = rsmq {
+        let seconds = scheduled_for_o
+            .and_then(|time| (time - chrono::Utc::now()).num_seconds().try_into().ok());
+
+        rsmq.send_message(RSMQ_MAIN_QUEUE, job_id.to_bytes_le().to_vec(), seconds)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+    }
+    tx.commit().await?;
+
+    Ok(uuid)
 }
 
 pub fn canceled_job_to_result(job: &QueuedJob) -> serde_json::Value {

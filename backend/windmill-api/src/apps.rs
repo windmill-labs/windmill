@@ -561,7 +561,7 @@ fn digest(code: &str) -> String {
 async fn execute_component(
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
-    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(payload): Json<ExecuteApp>,
 ) -> Result<String> {
@@ -665,7 +665,7 @@ async fn execute_component(
         _ => unreachable!(),
     };
 
-    let (uuid, tx) = push(
+    let uuid = push(
         tx,
         &w_id,
         job_payload,
@@ -685,7 +685,6 @@ async fn execute_component(
     )
     .await?;
 
-    tx.commit().await?;
     Ok(uuid.to_string())
 }
 

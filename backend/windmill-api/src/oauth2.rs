@@ -728,7 +728,7 @@ where
 async fn slack_command(
     SlackSig { sig, ts }: SlackSig,
     Extension(db): Extension<DB>,
-    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     body: Bytes,
 ) -> error::Result<String> {
     let form: SlackCommand = serde_urlencoded::from_bytes(&body)
@@ -771,7 +771,7 @@ async fn slack_command(
                 serde_json::Value::String(form.response_url),
             );
 
-            let (uuid, tx) = windmill_queue::push(
+            let uuid = windmill_queue::push(
                 tx,
                 &settings.workspace_id,
                 payload,
@@ -790,7 +790,6 @@ async fn slack_command(
                 rsmq,
             )
             .await?;
-            tx.commit().await?;
             let url = BASE_URL.to_owned();
             return Ok(format!(
                 "Job launched. See details at {url}/run/{uuid}?workspace={}",

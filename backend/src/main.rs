@@ -57,16 +57,36 @@ async fn main() -> anyhow::Result<()> {
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(false);
 
+    let rsmq_config = std::env::var("REDIS_URL").ok().map(|x| {
+        let url = x.parse::<url::Url>().unwrap();
+        let mut config = rsmq_async::RsmqOptions { ..Default::default() };
+
+        config.host = url.host_str().expect("redis host required").to_owned();
+        config.password = url.password().map(|s| s.to_owned());
+        config.db = url
+            .path_segments()
+            .and_then(|mut segments| segments.next())
+            .and_then(|segment| segment.parse().ok())
+            .unwrap_or(0);
+        config.ns = url
+            .query_pairs()
+            .find(|s| s.0 == "rsmq_namespace")
+            .map(|s| s.1)
+            .unwrap_or(std::borrow::Cow::Borrowed("rsmq"))
+            .into_owned();
+        config.port = url.port().unwrap_or(6379).to_string();
+
+        config
+    });
+
     let db = windmill_common::connect_db(server_mode).await?;
 
-    let rsmq_config = Some(rsmq_async::RsmqOptions { ..Default::default() });
-
     let rsmq = if let Some(config) = rsmq_config {
-        Some(std::sync::Arc::new(tokio::sync::Mutex::new(
-            rsmq_async::PooledRsmq::new(config, rsmq_async::PoolOptions { ..Default::default() })
-                .await
-                .unwrap(),
-        )))
+        let mut rsmq = rsmq_async::MultiplexedRsmq::new(config).await.unwrap();
+
+        let _ = rsmq_async::RsmqConnection::create_queue(&mut rsmq, "main_queue", None, None, None)
+            .await;
+        Some(rsmq)
     } else {
         None
     };
@@ -200,11 +220,11 @@ fn display_config(envs: Vec<&str>) {
     )
 }
 
-pub fn monitor_db<R: rsmq_async::RsmqConnection + Send + 'static>(
+pub fn monitor_db<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(
     db: &Pool<Postgres>,
     rx: tokio::sync::broadcast::Receiver<()>,
     base_internal_url: &str,
-    rsmq: Option<std::sync::Arc<tokio::sync::Mutex<R>>>,
+    rsmq: Option<R>,
 ) {
     let db1 = db.clone();
     let db2 = db.clone();
@@ -217,12 +237,12 @@ pub fn monitor_db<R: rsmq_async::RsmqConnection + Send + 'static>(
     tokio::spawn(async move { windmill_api::delete_expired_items_perdiodically(&db2, rx2).await });
 }
 
-pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + 'static>(
+pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(
     db: Pool<Postgres>,
     rx: tokio::sync::broadcast::Receiver<()>,
     num_workers: i32,
     base_internal_url: String,
-    rsmq: Option<std::sync::Arc<tokio::sync::Mutex<R>>>,
+    rsmq: Option<R>,
 ) -> anyhow::Result<()> {
     let license_key = std::env::var("LICENSE_KEY").ok();
     #[cfg(feature = "enterprise")]

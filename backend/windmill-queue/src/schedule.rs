@@ -19,11 +19,11 @@ use windmill_common::{
 
 use crate::{push, JobPayload};
 
-pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection>(
+pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clone>(
     mut tx: Transaction<'c, Postgres>,
     schedule: Schedule,
-    rsmq: Option<std::sync::Arc<tokio::sync::Mutex<R>>>,
-) -> Result<Transaction<'c, Postgres>> {
+    rsmq: Option<R>,
+) -> Result<()> {
     let sched = cron::Schedule::from_str(&schedule.schedule)
         .map_err(|e| error::Error::BadRequest(e.to_string()))?;
 
@@ -46,7 +46,8 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection>(
     .unwrap_or(false);
 
     if already_exists {
-        return Ok(tx);
+        tx.commit().await?;
+        return Ok(());
     }
 
     let mut args: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
@@ -75,7 +76,15 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection>(
         }
     };
 
-    let (_, mut tx) = push(
+    sqlx::query!(
+        "UPDATE schedule SET error = NULL WHERE workspace_id = $1 AND path = $2",
+        &schedule.workspace_id,
+        &schedule.path
+    )
+    .execute(&mut tx)
+    .await?;
+
+    let _ = push(
         tx,
         &schedule.workspace_id,
         payload,
@@ -94,14 +103,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection>(
         rsmq,
     )
     .await?;
-    sqlx::query!(
-        "UPDATE schedule SET error = NULL WHERE workspace_id = $1 AND path = $2",
-        &schedule.workspace_id,
-        &schedule.path
-    )
-    .execute(&mut tx)
-    .await?;
-    Ok(tx)
+    Ok(()) // TODO: Bubble up pushed UUID from here
 }
 
 pub async fn get_schedule_opt<'c>(

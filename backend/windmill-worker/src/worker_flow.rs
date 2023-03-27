@@ -11,8 +11,8 @@ use std::iter;
 use std::time::Duration;
 
 use crate::jobs::{add_completed_job, add_completed_job_error, schedule_again_if_scheduled};
-use crate::js_eval::{eval_timeout,  IdContext};
-use crate::{worker, KEEP_JOB_DIR, AuthedClient};
+use crate::js_eval::{eval_timeout, IdContext};
+use crate::{worker, AuthedClient, KEEP_JOB_DIR};
 use anyhow::Context;
 use async_recursion::async_recursion;
 use dyn_iter::DynIter;
@@ -38,7 +38,9 @@ use windmill_queue::{
 
 #[async_recursion]
 // #[instrument(level = "trace", skip_all)]
-pub async fn update_flow_status_after_job_completion<R: rsmq_async::RsmqConnection + Send>(
+pub async fn update_flow_status_after_job_completion<
+    R: rsmq_async::RsmqConnection + Send + Sync + Clone,
+>(
     db: &DB,
     client: &AuthedClient,
     flow: uuid::Uuid,
@@ -52,7 +54,7 @@ pub async fn update_flow_status_after_job_completion<R: rsmq_async::RsmqConnecti
     worker_dir: &str,
     stop_early_override: Option<bool>,
     base_internal_url: &str,
-    rsmq: Option<std::sync::Arc<tokio::sync::Mutex<R>>>,
+    rsmq: Option<R>,
 ) -> error::Result<()> {
     tracing::debug!("UPDATE FLOW STATUS: {flow:?} {success} {result:?} {w_id}");
 
@@ -121,8 +123,7 @@ pub async fn update_flow_status_after_job_completion<R: rsmq_async::RsmqConnecti
 
         let stop_early = success
             && if let Some(expr) = r.stop_early_expr.clone() {
-                compute_bool_from_expr(expr, &r.args, result.clone(), None, Some(client))
-                    .await?
+                compute_bool_from_expr(expr, &r.args, result.clone(), None, Some(client)).await?
             } else {
                 false
             };
@@ -426,7 +427,7 @@ pub async fn update_flow_status_after_job_completion<R: rsmq_async::RsmqConnecti
         && flow_job.schedule_path.is_some()
         && flow_job.script_path.is_some()
     {
-        tx = schedule_again_if_scheduled(
+        schedule_again_if_scheduled(
             tx,
             db,
             flow_job.schedule_path.as_ref().unwrap(),
@@ -435,8 +436,9 @@ pub async fn update_flow_status_after_job_completion<R: rsmq_async::RsmqConnecti
             rsmq.clone(),
         )
         .await?;
+    } else {
+        tx.commit().await?;
     }
-    tx.commit().await?;
 
     let done = if !should_continue_flow {
         let logs = if flow_job.canceled {
@@ -734,18 +736,13 @@ async fn transform_input(
                     context.push(("error".to_string(), error.unwrap().clone()));
                 }
 
-                let v = eval_timeout(
-                    expr.to_string(),
-                    context,
-                    Some(client),
-                    Some(by_id.clone())
-                )
-                .await
-                .map_err(|e| {
-                    Error::ExecutionErr(format!(
-                        "Error during isolated evaluation of expression `{expr}`:\n{e}"
-                    ))
-                })?;
+                let v = eval_timeout(expr.to_string(), context, Some(client), Some(by_id.clone()))
+                    .await
+                    .map_err(|e| {
+                        Error::ExecutionErr(format!(
+                            "Error during isolated evaluation of expression `{expr}`:\n{e}"
+                        ))
+                    })?;
                 mapped.insert(key.to_string(), v);
                 ()
             }
@@ -756,7 +753,7 @@ async fn transform_input(
 }
 
 #[instrument(level = "trace", skip_all)]
-pub async fn handle_flow<R: rsmq_async::RsmqConnection + Send>(
+pub async fn handle_flow<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     flow_job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClient,
@@ -764,7 +761,7 @@ pub async fn handle_flow<R: rsmq_async::RsmqConnection + Send>(
     same_worker_tx: Sender<Uuid>,
     worker_dir: &str,
     base_internal_url: &str,
-    rsmq: Option<std::sync::Arc<tokio::sync::Mutex<R>>>,
+    rsmq: Option<R>,
 ) -> anyhow::Result<()> {
     let value = flow_job
         .raw_flow
@@ -796,7 +793,7 @@ pub async fn handle_flow<R: rsmq_async::RsmqConnection + Send>(
 
 #[async_recursion]
 // #[instrument(level = "trace", skip_all)]
-async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send>(
+async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     flow_job: &QueuedJob,
     mut status: FlowStatus,
     flow: FlowValue,
@@ -806,7 +803,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send>(
     same_worker_tx: Sender<Uuid>,
     worker_dir: &str,
     base_internal_url: &str,
-    rsmq: Option<std::sync::Arc<tokio::sync::Mutex<R>>>,
+    rsmq: Option<R>,
 ) -> error::Result<()> {
     let mut i = usize::try_from(status.step)
         .with_context(|| format!("invalid module index {}", status.step))?;
@@ -876,7 +873,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send>(
                         ]
                         .into(),
                         None,
-                        None
+                        None,
                     )
                     .await
                     .map_err(|e| {
@@ -1139,7 +1136,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send>(
                 resume_messages.as_slice(),
                 approvers,
                 by_id,
-                client
+                client,
             )
             .await
         }
@@ -1178,7 +1175,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send>(
         &status_module,
         last_result.clone(),
         previous_id,
-        client
+        client,
     )
     .await?;
     tx.commit().await?;
@@ -1246,16 +1243,16 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send>(
     };
 
     /* Finally, push the job into the queue */
-    let mut tx = db.begin().await?;
     let mut uuids = vec![];
 
     for (payload, args) in zipped {
+        let tx = db.begin().await?;
         let (ok, err) = match args {
             Ok(v) => (Some(v), None),
             Err(e) => (None, Some(e)),
         };
         let root_job = flow_job.root_job.or_else(|| Some(flow_job.id));
-        let (uuid, inner_tx) = push(
+        let uuid = push(
             tx,
             &flow_job.workspace_id,
             payload,
@@ -1274,7 +1271,6 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send>(
             rsmq.clone(),
         )
         .await?;
-        tx = inner_tx;
         uuids.push(uuid);
     }
 
@@ -1358,7 +1354,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send>(
             json!(i),
             flow_job.id
         )
-        .execute(&mut tx)
+        .execute(db)
         .await?;
     } else {
         sqlx::query!(
@@ -1374,11 +1370,9 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send>(
             json!(i),
             flow_job.id
         )
-        .execute(&mut tx)
+        .execute(db)
         .await?;
     };
-
-    tx.commit().await?;
 
     if continue_on_same_worker {
         if !is_one_uuid {
@@ -1510,7 +1504,6 @@ async fn script_path_to_payload<'c>(
     Ok(job_payload)
 }
 
-
 async fn compute_next_flow_transform<'c>(
     flow_job: &QueuedJob,
     flow: &FlowValue,
@@ -1521,7 +1514,7 @@ async fn compute_next_flow_transform<'c>(
     status_module: &FlowStatusModule,
     last_result: serde_json::Value,
     previous_id: String,
-    client: &AuthedClient
+    client: &AuthedClient,
 ) -> error::Result<(sqlx::Transaction<'c, sqlx::Postgres>, NextFlowTransform)> {
     match &module.value {
         FlowModuleValue::Identity => Ok((
@@ -1591,7 +1584,7 @@ async fn compute_next_flow_transform<'c>(
                             ]
                         },
                         Some(client),
-                        Some(by_id)
+                        Some(by_id),
                     )
                     .await?
                     .into_array()
@@ -1708,8 +1701,7 @@ async fn compute_next_flow_transform<'c>(
                 | FlowStatusModule::WaitingForEvents { .. }
                 | FlowStatusModule::WaitingForExecutor { .. } => {
                     let mut branch_chosen = BranchChosen::Default;
-                    let idcontext =
-                        get_transform_context(&flow_job, previous_id, &status).await?;
+                    let idcontext = get_transform_context(&flow_job, previous_id, &status).await?;
                     for (i, b) in branches.iter().enumerate() {
                         let pred = compute_bool_from_expr(
                             b.expr.to_string(),
@@ -1885,16 +1877,13 @@ async fn get_transform_context(
     previous_id: String,
     status: &FlowStatus,
 ) -> error::Result<IdContext> {
-
     let steps_results: HashMap<String, JobResult> = status
         .modules
         .iter()
         .filter_map(|x| x.job_result().map(|y| (x.id(), y)))
         .collect();
 
-    Ok(
-        IdContext { flow_job: flow_job.id, steps_results, previous_id },
-    )
+    Ok(IdContext { flow_job: flow_job.id, steps_results, previous_id })
 }
 
 async fn evaluate_with<F>(
@@ -1908,15 +1897,7 @@ where
 {
     match transform {
         InputTransform::Static { value } => Ok(value),
-        InputTransform::Javascript { expr } => {
-            eval_timeout(
-                expr,
-                vars(),
-                client,
-                by_id,
-            )
-            .await
-        }
+        InputTransform::Javascript { expr } => eval_timeout(expr, vars(), client, by_id).await,
     }
 }
 trait IntoArray: Sized {

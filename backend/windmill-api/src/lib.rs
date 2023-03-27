@@ -77,7 +77,7 @@ lazy_static::lazy_static! {
 
 pub async fn run_server(
     db: DB,
-    rsmq: Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>,
+    rsmq: Option<rsmq_async::MultiplexedRsmq>,
     addr: SocketAddr,
     mut rx: tokio::sync::broadcast::Receiver<()>,
 ) -> anyhow::Result<()> {

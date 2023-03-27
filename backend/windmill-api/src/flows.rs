@@ -179,7 +179,7 @@ async fn check_path_conflict<'c>(
 async fn create_flow(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
-    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
     Json(nf): Json<NewFlow>,
@@ -226,8 +226,8 @@ async fn create_flow(
         WebhookMessage::CreateFlow { workspace: w_id.clone(), path: nf.path.clone() },
     );
 
-    let tx = user_db.begin(&authed).await?;
-    let (dependency_job_uuid, mut tx) = push(
+    let tx = user_db.clone().begin(&authed).await?;
+    let dependency_job_uuid = push(
         tx,
         &w_id,
         JobPayload::FlowDependencies { path: nf.path.clone() },
@@ -246,6 +246,8 @@ async fn create_flow(
         rsmq,
     )
     .await?;
+
+    let mut tx = user_db.begin(&authed).await?;
     sqlx::query!(
         "UPDATE flow SET dependency_job = $1 WHERE path = $2 AND workspace_id = $3",
         dependency_job_uuid,
@@ -254,7 +256,7 @@ async fn create_flow(
     )
     .execute(&mut tx)
     .await?;
-    tx.commit().await?;
+    tx.commit().await;
 
     Ok((StatusCode::CREATED, nf.path.to_string()))
 }
@@ -285,7 +287,7 @@ async fn check_schedule_conflict<'c>(
 async fn update_flow(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
-    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
@@ -327,7 +329,7 @@ async fn update_flow(
             require_owner_of_path(&w_id, &authed.username, &authed.groups, &flow_path, &db).await?;
         }
 
-        let mut schedulables = sqlx::query_as!(
+        let mut schedulables: Vec<Schedule> = sqlx::query_as!(
             Schedule,
                 "UPDATE schedule SET script_path = $1 WHERE script_path = $2 AND path != $2 AND workspace_id = $3 AND is_flow IS true RETURNING *",
                 nf.path,
@@ -350,32 +352,36 @@ async fn update_flow(
             schedulables.push(schedule);
         }
 
-        for schedule in schedulables {
+        for schedule in schedulables.iter() {
+            // TODO: Why is this in the loop in the first place? Seems like it's just doing nothing after the first iteration? Should this use schedule.path?
             clear_schedule(&mut tx, flow_path, true).await?;
+        }
 
+        audit_log(
+            &mut tx,
+            &authed.username,
+            "flows.update",
+            ActionKind::Create,
+            &w_id,
+            Some(&nf.path.to_string()),
+            Some(
+                [Some(("flow", nf.path.as_str()))]
+                    .into_iter()
+                    .flatten()
+                    .collect(),
+            ),
+        )
+        .await?;
+        tx.commit().await?;
+
+        for schedule in schedulables {
+            let tx = user_db.clone().begin(&authed).await?;
             if schedule.enabled {
-                tx = push_scheduled_job(tx, schedule, rsmq.clone()).await?;
+                push_scheduled_job(tx, schedule, rsmq.clone()).await?;
             }
         }
     }
 
-    audit_log(
-        &mut tx,
-        &authed.username,
-        "flows.update",
-        ActionKind::Create,
-        &w_id,
-        Some(&nf.path.to_string()),
-        Some(
-            [Some(("flow", nf.path.as_str()))]
-                .into_iter()
-                .flatten()
-                .collect(),
-        ),
-    )
-    .await?;
-
-    tx.commit().await?;
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::UpdateFlow {
@@ -385,8 +391,8 @@ async fn update_flow(
         },
     );
 
-    let tx = user_db.begin(&authed).await?;
-    let (dependency_job_uuid, mut tx) = push(
+    let tx = user_db.clone().begin(&authed).await?;
+    let dependency_job_uuid = push(
         tx,
         &w_id,
         JobPayload::FlowDependencies { path: nf.path.clone() },
@@ -405,6 +411,7 @@ async fn update_flow(
         rsmq,
     )
     .await?;
+    let mut tx = user_db.begin(&authed).await?;
     sqlx::query!(
         "UPDATE flow SET dependency_job = $1 WHERE path = $2 AND workspace_id = $3",
         dependency_job_uuid,

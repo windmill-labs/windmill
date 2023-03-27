@@ -79,7 +79,7 @@ async fn check_path_conflict<'c>(
 async fn create_schedule(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
-    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path(w_id): Path<String>,
     Json(ns): Json<NewSchedule>,
 ) -> Result<String> {
@@ -127,9 +127,10 @@ async fn create_schedule(
     .await?;
 
     if ns.enabled.unwrap_or(true) {
-        tx = push_scheduled_job(tx, schedule, rsmq).await?
+        push_scheduled_job(tx, schedule, rsmq).await?
+    } else {
+        tx.commit().await?;
     }
-    tx.commit().await?;
 
     Ok(ns.path.to_string())
 }
@@ -137,7 +138,7 @@ async fn create_schedule(
 async fn edit_schedule(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
-    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(es): Json<EditSchedule>,
 ) -> Result<String> {
@@ -168,10 +169,6 @@ async fn edit_schedule(
     .await
     .map_err(|e| Error::InternalErr(format!("updating schedule in {w_id}: {e}")))?;
 
-    if schedule.enabled {
-        tx = push_scheduled_job(tx, schedule, rsmq).await?;
-    }
-
     audit_log(
         &mut tx,
         &authed.username,
@@ -187,7 +184,12 @@ async fn edit_schedule(
         ),
     )
     .await?;
-    tx.commit().await?;
+
+    if schedule.enabled {
+        push_scheduled_job(tx, schedule, rsmq).await?;
+    } else {
+        tx.commit().await?;
+    }
 
     Ok(path.to_string())
 }
@@ -254,7 +256,7 @@ pub async fn preview_schedule(
 pub async fn set_enabled(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
-    Extension(rsmq): Extension<Option<std::sync::Arc<tokio::sync::Mutex<rsmq_async::PooledRsmq>>>>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(payload): Json<SetEnabled>,
 ) -> Result<String> {
@@ -275,9 +277,6 @@ pub async fn set_enabled(
 
     clear_schedule(&mut tx, path, schedule.is_flow).await?;
 
-    if payload.enabled {
-        tx = push_scheduled_job(tx, schedule, rsmq).await?;
-    }
     audit_log(
         &mut tx,
         &authed.username,
@@ -288,7 +287,13 @@ pub async fn set_enabled(
         Some([("enabled", payload.enabled.to_string().as_ref())].into()),
     )
     .await?;
-    tx.commit().await?;
+
+    if payload.enabled {
+        push_scheduled_job(tx, schedule, rsmq).await?;
+    } else {
+        tx.commit().await?;
+    }
+
     Ok(format!(
         "succesfully updated schedule at path {} to status {}",
         path, payload.enabled
@@ -369,6 +374,7 @@ pub async fn clear_schedule<'c>(
     } else {
         JobKind::Script
     };
+    todo!("REDIS");
     sqlx::query!(
         "DELETE FROM queue WHERE schedule_path = $1 AND running = false AND job_kind = $2",
         path,

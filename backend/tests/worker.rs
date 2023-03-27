@@ -824,9 +824,8 @@ impl RunJob {
 
     async fn push(self, db: &Pool<Postgres>) -> Uuid {
         let RunJob { payload, args } = self;
-        let tx = db.begin().await.unwrap();
-        let (uuid, tx) = windmill_queue::push::<rsmq_async::Rsmq>(
-            tx,
+        let uuid = windmill_queue::push::<rsmq_async::Rsmq>(
+            db.begin().await.unwrap(),
             "test-workspace",
             payload,
             args,
@@ -845,8 +844,6 @@ impl RunJob {
         )
         .await
         .expect("push has to succeed");
-
-        tx.commit().await.expect("push has to commit");
 
         uuid
     }
