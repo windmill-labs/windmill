@@ -35,7 +35,7 @@
 	}
 
 	function findComponentSettings(app: App, id: string | undefined) {
-		if (id === undefined || id.includes('bg_')) return undefined
+		if (!id) return undefined
 		if (app?.grid) {
 			const gridItem = app.grid.find((x) => x.data?.id === id)
 			if (gridItem) {
