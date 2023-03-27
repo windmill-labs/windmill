@@ -4781,6 +4781,7 @@ dependencies = [
  "mime_guess",
  "prometheus",
  "rand 0.8.5",
+ "regex",
  "reqwest",
  "retainer",
  "rust-embed",
