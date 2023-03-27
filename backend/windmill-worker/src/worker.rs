@@ -1580,15 +1580,27 @@ run().catch(async (e) => {{
 }});
 "#,
     );
-    write_file(job_dir, "main.ts", &wrapper_content).await?;
     let w_id = job.workspace_id.clone();
+    let script_path_split = job.script_path().split("/");
+    let script_path_parts_len = script_path_split.clone().count();
+    let mut relative_mounts = "".to_string();
+    for c in 0..script_path_parts_len {
+        relative_mounts += ",\n          ";
+        relative_mounts += &format!("\"./{}\": \"{base_internal_url}/api/w/{w_id}/scripts/raw/p/{}{}\"",
+            (0..c).map(|_| "../").join(""),
+            &script_path_split.clone().take(script_path_parts_len - c - 1).join("/"),
+            if c == script_path_parts_len - 1 { "" } else { "/" },
+        );
+    }
+    write_file(job_dir, "main.ts", &wrapper_content).await?;
     let import_map = format!(
         r#"{{
         "imports": {{
           "/": "{base_internal_url}/api/w/{w_id}/scripts/raw/p/",
-          "./": "./"
+          "./inner.ts": "./inner.ts",
+          "./main.ts": "./main.ts"{relative_mounts}
         }}
-      }}"#
+      }}"#,
     );
     write_file(job_dir, "import_map.json", &import_map).await?;
     let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
