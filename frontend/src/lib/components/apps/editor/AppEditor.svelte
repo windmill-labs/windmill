@@ -262,7 +262,7 @@
 					</Pane>
 					<Pane size={22} minSize={5} maxSize={33}>
 						<div class="relative flex flex-col h-full">
-							<Tabs bind:selected={selectedTab} wrapperClass="!h-[60px] " class="!h-full">
+							<Tabs bind:selected={selectedTab} wrapperClass="!h-[40px] " class="!h-full">
 								<Tab value="insert" size="xs">
 									<div class="m-1 center-center gap-1">
 										<Plus size={18} />
