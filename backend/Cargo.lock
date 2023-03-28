@@ -151,20 +151,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ast_node"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43e351bf9f01438f9479f39ed9d2c26dab615f9887d8ba50d50addd0c6536d51"
-dependencies = [
- "darling",
- "pmutil",
- "proc-macro2",
- "quote",
- "swc_macros_common",
- "syn 1.0.109",
-]
-
-[[package]]
 name = "async-channel"
 version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3721,34 +3707,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e45d8b3ce3b46af3db53ea5eacbc42e8589a617aa0115412d8ec97a6e3bc5fec"
 dependencies = [
  "ahash 0.7.6",
- "ast_node 0.8.8",
- "better_scoped_tls",
- "cfg-if",
- "either",
- "from_variant",
- "new_debug_unreachable",
- "num-bigint",
- "once_cell",
- "rustc-hash",
- "serde",
- "siphasher",
- "string_cache",
- "swc_atoms",
- "swc_eq_ignore_macros",
- "swc_visit",
- "tracing",
- "unicode-width",
- "url",
-]
-
-[[package]]
-name = "swc_common"
-version = "0.30.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2625cf59127d2ccef0e3cbff5b2c0e370415ef274c03a49d733d0a6a03be53db"
-dependencies = [
- "ahash 0.7.6",
- "ast_node 0.9.0",
+ "ast_node",
  "better_scoped_tls",
  "cfg-if",
  "either",
@@ -3781,7 +3740,7 @@ dependencies = [
  "serde",
  "string_enum",
  "swc_atoms",
- "swc_common 0.29.40",
+ "swc_common",
  "unicode-id",
 ]
 
@@ -3800,7 +3759,7 @@ dependencies = [
  "smartstring",
  "stacker",
  "swc_atoms",
- "swc_common 0.29.40",
+ "swc_common",
  "swc_ecma_ast",
  "tracing",
  "typed-arena",
@@ -5003,7 +4962,7 @@ dependencies = [
  "anyhow",
  "deno_core",
  "serde_json",
- "swc_common 0.30.0",
+ "swc_common",
  "swc_ecma_ast",
  "swc_ecma_parser",
  "windmill-common",
