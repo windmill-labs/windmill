@@ -61,8 +61,8 @@ mount {
 
 
 mount {
-    src: "{JOB_DIR}/inner.ts"
-    dst: "/tmp/inner.ts"
+    src: "{JOB_DIR}/wrapper.ts"
+    dst: "/tmp/wrapper.ts"
     is_bind: true
 }
 

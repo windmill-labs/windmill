@@ -686,7 +686,7 @@ def main(error, port):
             result,
             json!({
                 "recv": 42,
-                "from failure module": {"error": {"name": "IndexError", "stack": "  File \"/tmp/inner.py\", line 5, in main\n    return sock.recv(1)[0]\n", "message": "index out of range"}},
+                "from failure module": {"error": {"name": "IndexError", "stack": "  File \"/tmp/windmill/3/retry::test_with_failure_module/0187299b-1ea5-d1a3-5197-f48a6a84fcff/tmp/main/step_0.py\", line 5, in main\n    return sock.recv(1)[0]\n", "message": "index out of range"}},
             })
         );
     }
@@ -2069,7 +2069,7 @@ async fn test_branchall_skip_failure(db: Pool<Postgres>) {
 
     assert_eq!(
         result,
-        serde_json::json!([{"error": {"name": "Error", "stack": "Error: failure\n    at main (file:///tmp/inner.ts:1:31)\n    at run (file:///tmp/main.ts:9:26)\n    at file:///tmp/main.ts:14:1", "message": "failure"}}, [1,3]])
+        serde_json::json!([{"error": {"name": "Error", "stack": "Error: failure\n    at main (file:///tmp/main.ts:1:31)\n    at run (file:///tmp/wrapper.ts:9:26)\n    at file:///tmp/wrapper.ts:14:1", "message": "failure"}}, [1,3]])
     );
 
     let flow: FlowValue = serde_json::from_value(json!({

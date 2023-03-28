@@ -1556,14 +1556,14 @@ async fn handle_deno_job(
     // TODO: Separately cache dependencies here using `deno cache --reload --lock=lock.json src/deps.ts` (https://deno.land/manual@v1.27.0/linking_to_external_code/integrity_checking)
     // Then require caching below using --cached-only. This makes it so we require zero network interaction when running the process below
 
-    let _ = write_file(job_dir, "inner.ts", inner_content).await?;
+    let _ = write_file(job_dir, "main.ts", inner_content).await?;
     let sig = trace_span!("parse_deno_signature")
         .in_scope(|| windmill_parser_ts::parse_deno_signature(inner_content))?;
     create_args_and_out_file(client, job, job_dir).await?;
     let spread = sig.args.into_iter().map(|x| x.name).join(",");
     let wrapper_content: String = format!(
         r#"
-import {{ main }} from "./inner.ts";
+import {{ main }} from "./main.ts";
 
 const args = await Deno.readTextFile("args.json")
     .then(JSON.parse)
@@ -1593,12 +1593,12 @@ run().catch(async (e) => {{
             if c == script_path_parts_len - 1 { "" } else { "/" },
         );
     }
-    write_file(job_dir, "main.ts", &wrapper_content).await?;
+    write_file(job_dir, "wrapper.ts", &wrapper_content).await?;
     let import_map = format!(
         r#"{{
         "imports": {{
           "/": "{base_internal_url}/api/w/{w_id}/scripts/raw/p/",
-          "./inner.ts": "./inner.ts",
+          "./wrapper.ts": "./wrapper.ts",
           "./main.ts": "./main.ts"{relative_mounts}
         }}
       }}"#,
@@ -1642,7 +1642,7 @@ run().catch(async (e) => {{
             } else {
                 args.push("-A");
             }
-            args.push("/tmp/main.ts");
+            args.push("/tmp/wrapper.ts");
 
             Command::new(NSJAIL_PATH.as_str())
                 .current_dir(job_dir)
@@ -1655,7 +1655,7 @@ run().catch(async (e) => {{
                 .spawn()?
         } else {
             let mut args = Vec::new();
-            let script_path = format!("{job_dir}/main.ts");
+            let script_path = format!("{job_dir}/wrapper.ts");
             let import_map_path = format!("{job_dir}/import_map.json");
             args.push("run");
             args.push("--import-map");
