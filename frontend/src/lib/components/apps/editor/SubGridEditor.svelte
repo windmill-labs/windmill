@@ -10,6 +10,7 @@
 	import Grid from '../svelte-grid/Grid.svelte'
 	import GridViewer from './GridViewer.svelte'
 	import { selectId } from '../utils'
+	import ComponentWrapper from './component/ComponentWrapper.svelte'
 
 	export let containerHeight: number | undefined = undefined
 	export let containerWidth: number | undefined = undefined
@@ -99,15 +100,9 @@
 					parentWidth={$parentWidth - 17}
 					{containerWidth}
 				>
-					<!-- svelte-ignore a11y-click-events-have-key-events -->
-					<div
-						on:pointerdown={(e) => {
-							if (!$connectingInput.opened) {
-								selectComponent(e, dataItem.id)
-							} else {
-								$manuallyOpened[dataItem.id] = true
-							}
-						}}
+					<ComponentWrapper
+						id={dataItem.id}
+						type={dataItem.data.type}
 						class={classNames(
 							'h-full w-full center-center',
 							$selectedComponent?.includes(dataItem.id) ? 'active-grid-item' : '',
@@ -139,7 +134,7 @@
 								$app = $app
 							}}
 						/>
-					</div>
+					</ComponentWrapper>
 				</Grid>
 			</div>
 		{:else}

@@ -45,7 +45,7 @@
 	export let locked: boolean = false
 	export let render: boolean
 
-	const { mode, app, errorByComponent, hoverStore, connectingInput } =
+	const { mode, app, hoverStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
@@ -55,8 +55,6 @@
 
 	let initializing: boolean | undefined = undefined
 	let componentContainerHeight: number = 0
-
-	$: componentWithErrors = Object.values($errorByComponent).map((e) => e.componentId)
 </script>
 
 <!-- svelte-ignore a11y-mouse-events-have-key-events -->

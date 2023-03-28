@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { classNames } from '$lib/utils'
 	import { X } from 'lucide-svelte'
 	import { getContext } from 'svelte'
@@ -17,20 +18,16 @@
 </script>
 
 <PanelSection noPadding titlePadding="px-1.5 pt-2" title="Outputs">
-	<svelte:fragment slot="action">
-		{#if $connectingInput.opened}
-			<button
-				class=""
-				on:click|stopPropagation|preventDefault={() => ($connectingInput.opened = false)}
-			>
-				Cancel
-			</button>
-		{/if}
-	</svelte:fragment>
-
+	{#if $connectingInput.opened}
+		<div class="px-1.5 w-full">
+			<Alert title="Connection" type="warning" size="xs">
+				Clicking on on the value or the key will connect the input to the output.
+			</Alert>
+		</div>
+	{/if}
 	<div
 		class={classNames(
-			'bg-white w-full h-auto z-30',
+			'bg-white w-full h-full z-30',
 			$connectingInput.opened ? 'border-blue-500 border-t-2 border-r-2 bg-blue-50/50 z-50' : ''
 		)}
 	>

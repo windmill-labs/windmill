@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import type { AppEditorContext, AppViewerContext, ContextPanelContext } from '../types'
-	import { classNames } from '$lib/utils'
+	import type { AppEditorContext, AppViewerContext } from '../types'
 	import { columnConfiguration, isFixed, toggleFixed } from '../gridUtils'
 	import { twMerge } from 'tailwind-merge'
 
@@ -12,8 +11,9 @@
 	import { push } from '$lib/history'
 	import { dfs, expandGriditem, findGridItem } from './appUtils'
 	import Grid from '../svelte-grid/Grid.svelte'
-	import { selectId } from '../utils'
 	import { deepEqual } from 'fast-equals'
+	import ComponentWrapper from './component/ComponentWrapper.svelte'
+	import { classNames } from '$lib/utils'
 
 	export let policy: Policy
 
@@ -73,23 +73,6 @@
 			$selectedComponent = undefined
 		}
 	}
-
-	const { manuallyOpened } = getContext<ContextPanelContext>('ContextPanel')
-
-	function selectComponent(e: PointerEvent, id: string) {
-		if (!$connectingInput.opened) {
-			selectId(e, id, selectedComponent, $app)
-			if ($focusedGrid?.parentComponentId != id) {
-				$focusedGrid = undefined
-			}
-		}
-	}
-
-	function preventInteraction(event: Event, isContainer: boolean = false) {
-		if ($connectingInput.opened && !isContainer) {
-			event.stopPropagation()
-		}
-	}
 </script>
 
 <div class="relative w-full z-20 overflow-visible">
@@ -139,22 +122,13 @@
 				fastStart={true}
 				gap={[4, 2]}
 			>
-				<!-- svelte-ignore a11y-click-events-have-key-events -->
-				<div
-					on:pointerdown={(e) => {
-						if (!$connectingInput.opened) {
-							selectComponent(e, dataItem.id)
-						} else {
-							$manuallyOpened[dataItem.id] = true
-						}
-					}}
+				<ComponentWrapper
+					id={dataItem.id}
+					type={dataItem.data.type}
 					class={classNames(
 						'h-full w-full center-center',
 						Boolean($selectedComponent?.includes(dataItem.id)) ? 'active-grid-item' : ''
 					)}
-					on:click|capture={(event) =>
-						preventInteraction(event, dataItem.data.type === 'tabscomponent')}
-					on:drag|capture={preventInteraction}
 				>
 					<Component
 						render={true}
@@ -176,7 +150,7 @@
 							$app = $app
 						}}
 					/>
-				</div>
+				</ComponentWrapper>
 			</Grid>
 		</div>
 	</div>
