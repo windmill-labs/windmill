@@ -15,7 +15,7 @@
 	export let forceStyle: boolean = false
 	export let forceClass: boolean = false
 	export let quickStyleProperties: PropertyGroup[] | undefined = undefined
-	export let componentType: TypedComponent['type']
+	export let componentType: TypedComponent['type'] | undefined = undefined
 	const dispatch = createEventDispatcher()
 	let isQuickMenuOpen = false
 

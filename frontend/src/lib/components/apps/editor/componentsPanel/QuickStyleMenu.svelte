@@ -18,7 +18,7 @@
 
 	export let value = ''
 	export let properties: PropertyGroup[]
-	export let componentType: TypedComponent['type']
+	export let componentType: TypedComponent['type'] | undefined = undefined
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 	const styleStore = createStyleStore(properties)
 	setContext(STYLE_STORE_KEY, styleStore)
