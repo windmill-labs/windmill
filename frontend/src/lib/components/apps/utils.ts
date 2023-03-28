@@ -132,6 +132,8 @@ export function fieldTypeToTsType(inputType: InputType): string {
 	switch (inputType) {
 		case 'number':
 			return 'number'
+		case 'integer':
+			return 'number'
 		case 'boolean':
 			return 'boolean'
 		case 'object':

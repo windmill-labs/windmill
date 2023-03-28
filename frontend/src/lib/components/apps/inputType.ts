@@ -2,6 +2,7 @@ import type { ReadFileAs } from '../common/fileInput/model'
 import type { InlineScript } from './types'
 
 export type InputType =
+	| 'integer'
 	| 'text'
 	| 'textarea'
 	| 'template'
