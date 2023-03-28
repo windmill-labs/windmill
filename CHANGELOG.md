@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.83.1](https://github.com/windmill-labs/windmill/compare/v1.83.0...v1.83.1) (2023-03-28)
+
+
+### Bug Fixes
+
+* **cli:** plain secrets might be undefined ([569a55e](https://github.com/windmill-labs/windmill/commit/569a55e45b34641b0fb4569387166f3aa89ce35f))
+
 ## [1.83.0](https://github.com/windmill-labs/windmill/compare/v1.82.0...v1.83.0) (2023-03-28)
 
 
