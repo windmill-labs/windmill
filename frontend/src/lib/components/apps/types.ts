@@ -124,6 +124,7 @@ export type ConnectingInput = {
 	opened: boolean
 	input?: ConnectedInput
 	sourceName?: string
+	hoveredComponent: string | undefined
 }
 
 export type AppViewerContext = {

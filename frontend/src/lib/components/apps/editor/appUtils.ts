@@ -554,7 +554,8 @@ export function connectInput(
 					path
 				},
 				type: 'connected'
-			}
+			},
+			hoveredComponent: undefined
 		}
 	}
 

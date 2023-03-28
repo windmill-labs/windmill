@@ -39,7 +39,8 @@
 
 	const connectingInput = writable<ConnectingInput>({
 		opened: false,
-		input: undefined
+		input: undefined,
+		hoveredComponent: undefined
 	})
 
 	const allIdsInPath = writable<string[]>([])

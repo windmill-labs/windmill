@@ -68,7 +68,8 @@
 							if (e.detail == 'connected' && !componentInput['connection']) {
 								$connectingInput = {
 									opened: true,
-									input: undefined
+									input: undefined,
+									hoveredComponent: undefined
 								}
 							}
 						}}

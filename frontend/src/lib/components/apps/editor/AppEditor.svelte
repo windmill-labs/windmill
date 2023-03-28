@@ -58,7 +58,8 @@
 	const summaryStore = writable(summary)
 	const connectingInput = writable<ConnectingInput>({
 		opened: false,
-		input: undefined
+		input: undefined,
+		hoveredComponent: undefined
 	})
 	const history = initHistory(app)
 

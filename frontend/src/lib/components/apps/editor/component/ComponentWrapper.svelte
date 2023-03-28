@@ -2,11 +2,12 @@
 	import { getContext } from 'svelte'
 	import type { AppViewerContext, ContextPanelContext } from '../../types'
 	import { selectId } from '../../utils'
+	import { dfs } from '../appUtils'
 
 	export let id: string
 	export let type: string
 
-	const { connectingInput, selectedComponent, app, focusedGrid } =
+	const { app, connectingInput, selectedComponent, focusedGrid } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	const { manuallyOpened } = getContext<ContextPanelContext>('ContextPanel')
@@ -32,15 +33,33 @@
 		if (!$connectingInput.opened) {
 			selectComponent(e, id)
 		} else {
-			$manuallyOpened[id] = true
+			const allIdsInPath = dfs($app.grid, id, $app.subgrids ?? {}) ?? []
+
+			allIdsInPath.forEach((id) => {
+				$manuallyOpened[id] = true
+			})
+
 			e.stopPropagation()
 		}
 	}
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
+<!-- svelte-ignore a11y-mouse-events-have-key-events -->
 <div
 	class={$$props.class}
+	on:pointerover={(e) => {
+		if ($connectingInput.opened && $connectingInput.hoveredComponent !== id) {
+			$connectingInput.hoveredComponent = id
+		}
+		e.stopPropagation()
+	}}
+	on:pointerleave={(e) => {
+		if ($connectingInput.opened) {
+			$connectingInput.hoveredComponent = undefined
+			e.stopPropagation()
+		}
+	}}
 	on:pointerdown={onPointerDown}
 	on:click|capture={(event) => preventInteraction(event, type === 'tabscomponent')}
 	on:drag|capture={preventInteraction}
