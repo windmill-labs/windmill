@@ -32,7 +32,7 @@
 		box-shadow: 0 10px 40px -5px rgba(0, 0, 0, 0.25) !important;
 		border-style: none !important;
 		border-radius: 0.375rem !important;
-		z-index: 20;
+		z-index: 30;
 	}
 
 	.color-picker-input .slider-wrapper {

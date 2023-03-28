@@ -499,7 +499,7 @@ const typographyGrouping: PropertyGroup = {
 }
 
 const backgroundGrouping: PropertyGroup = {
-	background: ['background-color', 'box-shadow', 'opacity']
+	background: ['background-color', 'opacity', 'box-shadow']
 }
 
 const miscGrouping: PropertyGroup = {
@@ -507,7 +507,12 @@ const miscGrouping: PropertyGroup = {
 }
 
 // Commonly used-together property groups
-const containerDefaultProps: PropertyGroup[] = [layoutGrouping, spacingGrouping, backgroundGrouping]
+const containerDefaultProps: PropertyGroup[] = [
+	layoutGrouping,
+	spacingGrouping,
+	backgroundGrouping,
+	borderGrouping
+]
 
 const buttonDefaultProps: PropertyGroup[] = [
 	backgroundGrouping,
