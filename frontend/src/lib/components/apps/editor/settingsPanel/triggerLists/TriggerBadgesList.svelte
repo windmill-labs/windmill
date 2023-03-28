@@ -57,8 +57,7 @@
 
 			$connectingInput = {
 				opened: false,
-				input: undefined,
-				hoveredComponent: undefined
+				input: undefined
 			}
 			$app = $app
 			$worldStore = $worldStore
@@ -144,8 +143,7 @@
 							addingDependency = true
 							$connectingInput = {
 								opened: true,
-								input: undefined,
-								hoveredComponent: undefined
+								input: undefined
 							}
 						}}
 					>

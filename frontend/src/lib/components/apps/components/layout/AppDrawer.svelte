@@ -18,7 +18,7 @@
 	export let noWFull = false
 	export let render: boolean
 
-	const { app, focusedGrid, selectedComponent, worldStore } =
+	const { app, focusedGrid, selectedComponent, worldStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	//used so that we can count number of outputs setup for first refresh
@@ -88,7 +88,9 @@
 					subGridId={`${id}-0`}
 					containerHeight={1200}
 					on:focus={() => {
-						$selectedComponent = [id]
+						if (!$connectingInput.opened) {
+							$selectedComponent = [id]
+						}
 					}}
 				/>
 			{/if}

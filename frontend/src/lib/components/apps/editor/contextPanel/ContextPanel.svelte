@@ -1,7 +1,7 @@
 <script lang="ts">
+	import { classNames } from '$lib/utils'
 	import { X } from 'lucide-svelte'
-	import { getContext, setContext } from 'svelte'
-	import { writable } from 'svelte/store'
+	import { getContext } from 'svelte'
 
 	import type { AppViewerContext, ContextPanelContext } from '../../types'
 	import { connectInput } from '../appUtils'
@@ -11,21 +11,31 @@
 	import BackgroundScriptsOutput from './components/BackgroundScriptsOutput.svelte'
 	import OutputHeader from './components/OutputHeader.svelte'
 
-	const { connectingInput, app, allIdsInPath } = getContext<AppViewerContext>('AppViewerContext')
+	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
 
-	let search = writable<string>('')
-
-	setContext<ContextPanelContext>('ContextPanel', {
-		search,
-		manuallyOpened: writable<Record<string, boolean>>({}),
-		hasResult: writable<Record<string, boolean>>({})
-	})
+	const { search } = getContext<ContextPanelContext>('ContextPanel')
 </script>
 
 <PanelSection noPadding titlePadding="px-4 pt-2 pb-0.5" title="Outputs">
-	<div class="bg-white w-full h-full z-30">
+	<svelte:fragment slot="action">
+		{#if $connectingInput.opened}
+			<button
+				class=""
+				on:click|stopPropagation|preventDefault={() => ($connectingInput.opened = false)}
+			>
+				Cancel
+			</button>
+		{/if}
+	</svelte:fragment>
+
+	<div
+		class={classNames(
+			'bg-white w-full h-full z-30',
+			$connectingInput.opened ? 'border-blue-500 border-t-2 border-r-2 bg-blue-50/50 z-50' : ''
+		)}
+	>
 		<div class="min-w-[150px]">
-			<div class="sticky z-10 top-0 left-0 w-full bg-white p-2">
+			<div class="sticky z-10 top-0 left-0 w-full bg-white p-2 ">
 				<div class="relative">
 					<input
 						bind:value={$search}

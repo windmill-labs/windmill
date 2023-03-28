@@ -45,7 +45,7 @@
 	export let locked: boolean = false
 	export let render: boolean
 
-	const { mode, app, errorByComponent, hoverStore } =
+	const { mode, app, errorByComponent, hoverStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
@@ -57,7 +57,6 @@
 	let componentContainerHeight: number = 0
 
 	$: componentWithErrors = Object.values($errorByComponent).map((e) => e.componentId)
-	$: hasError = componentWithErrors.includes(component.id)
 </script>
 
 <!-- svelte-ignore a11y-mouse-events-have-key-events -->
@@ -79,6 +78,7 @@
 			hover={$hoverStore === component.id}
 			{component}
 			{selected}
+			shouldHideActions={$connectingInput.opened}
 			on:delete
 			on:lock
 			on:expand
@@ -92,14 +92,20 @@
 				class="border p-0.5 text-xs"
 				on:click={() => {
 					$movingcomponents = undefined
-				}}>Cancel move</button
+				}}
 			>
+				Cancel move
+			</button>
 		</div>
 	{/if}
 	<div
 		class={twMerge(
 			'h-full bg-white/40 outline-1',
-			$hoverStore === component.id && $mode !== 'preview' ? 'outline outline-blue-600' : '',
+			$hoverStore === component.id && $mode !== 'preview'
+				? $connectingInput.opened
+					? 'outline outline-orange-600'
+					: 'outline outline-blue-600'
+				: '',
 			selected && $mode !== 'preview' ? 'outline outline-indigo-600' : '',
 			$mode != 'preview' ? 'cursor-pointer' : '',
 			'relative z-auto',

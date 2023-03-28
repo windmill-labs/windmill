@@ -14,7 +14,7 @@
 
 	const { manuallyOpened, search, hasResult } = getContext<ContextPanelContext>('ContextPanel')
 
-	const { selectedComponent, app, hoverStore, allIdsInPath } =
+	const { selectedComponent, app, hoverStore, allIdsInPath, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	$: subids = $search != '' ? allsubIds($app, id) : []
@@ -71,7 +71,7 @@
 		}}
 	>
 		<button
-			disabled={!(selectable && !$selectedComponent?.includes(id))}
+			disabled={!(selectable && !$selectedComponent?.includes(id)) || $connectingInput?.opened}
 			title="Select component"
 			on:click|stopPropagation={() => ($selectedComponent = [id])}
 			class="flex items-center ml-0.5 rounded-sm bg-gray-100 hover:text-black text-gray-600"

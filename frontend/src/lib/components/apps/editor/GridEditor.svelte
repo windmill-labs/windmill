@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { getContext, afterUpdate } from 'svelte'
-	import type { App, AppEditorContext, AppViewerContext } from '../types'
+	import { getContext } from 'svelte'
+	import type { AppEditorContext, AppViewerContext, ContextPanelContext } from '../types'
 	import { classNames } from '$lib/utils'
 	import { columnConfiguration, isFixed, toggleFixed } from '../gridUtils'
 	import { twMerge } from 'tailwind-merge'
@@ -74,12 +74,20 @@
 		}
 	}
 
+	const { manuallyOpened } = getContext<ContextPanelContext>('ContextPanel')
+
 	function selectComponent(e: PointerEvent, id: string) {
 		if (!$connectingInput.opened) {
 			selectId(e, id, selectedComponent, $app)
 			if ($focusedGrid?.parentComponentId != id) {
 				$focusedGrid = undefined
 			}
+		}
+	}
+
+	function preventInteraction(event: Event, isContainer: boolean = false) {
+		if ($connectingInput.opened && !isContainer) {
+			event.stopPropagation()
 		}
 	}
 </script>
@@ -132,26 +140,21 @@
 				gap={[4, 2]}
 			>
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
-				{#if $connectingInput.opened}
-					<div
-						on:pointerenter={() => ($connectingInput.hoveredComponent = dataItem.id)}
-						on:pointerleave={() => ($connectingInput.hoveredComponent = undefined)}
-						class="absolute w-full h-full bg-black border-2 bg-opacity-25 z-20 flex justify-center items-center"
-					/>
-					<div
-						style="transform: translate(-50%, -50%);"
-						class="absolute w-fit justify-center bg-indigo-500/90 left-[50%] top-[50%] z-50 px-6 rounded border text-white py-2 text-5xl center-center"
-					>
-						{dataItem.id}
-					</div>
-				{/if}
-				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<div
-					on:pointerdown={(e) => selectComponent(e, dataItem.id)}
+					on:pointerdown={(e) => {
+						if (!$connectingInput.opened) {
+							selectComponent(e, dataItem.id)
+						} else {
+							$manuallyOpened[dataItem.id] = true
+						}
+					}}
 					class={classNames(
 						'h-full w-full center-center',
 						Boolean($selectedComponent?.includes(dataItem.id)) ? 'active-grid-item' : ''
 					)}
+					on:click|capture={(event) =>
+						preventInteraction(event, dataItem.data.type === 'tabscomponent')}
+					on:drag|capture={preventInteraction}
 				>
 					<Component
 						render={true}

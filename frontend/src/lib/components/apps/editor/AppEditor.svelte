@@ -11,17 +11,17 @@
 		AppEditorContext,
 		AppViewerContext,
 		ConnectingInput,
+		ContextPanelContext,
 		EditorBreakpoint,
 		EditorMode,
-		FocusedGrid,
-		InlineScript
+		FocusedGrid
 	} from '../types'
 	import AppEditorHeader from './AppEditorHeader.svelte'
 	import GridEditor from './GridEditor.svelte'
 
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
-	import { Alert, Button, Tab } from '$lib/components/common'
+	import { Button, Tab } from '$lib/components/common'
 	import ComponentList from './componentsPanel/ComponentList.svelte'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
@@ -32,7 +32,6 @@
 	import InlineScriptsPanel from './inlineScriptsPanel/InlineScriptsPanel.svelte'
 
 	import SettingsPanel from './SettingsPanel.svelte'
-	import { fly } from 'svelte/transition'
 	import { VariableService, type Policy } from '$lib/gen'
 	import { page } from '$app/stores'
 	import CssSettings from './componentsPanel/CssSettings.svelte'
@@ -40,10 +39,10 @@
 	import ComponentNavigation from './component/ComponentNavigation.svelte'
 	import ItemPicker from '$lib/components/ItemPicker.svelte'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
-	import { SecondaryMenu } from './settingsPanel/secondaryMenu'
+	import { secondaryMenu, SecondaryMenu } from './settingsPanel/secondaryMenu'
 	import { Component, Paintbrush, Plus } from 'lucide-svelte'
 	import { findGridItem, findGridItemParentGrid } from './appUtils'
-	import { findItemsById } from '../svelte-grid/utils/matrix'
+	import ConnectionInstructions from './ConnectionInstructions.svelte'
 
 	export let app: App
 	export let path: string
@@ -59,14 +58,10 @@
 	const summaryStore = writable(summary)
 	const connectingInput = writable<ConnectingInput>({
 		opened: false,
-		input: undefined,
-		hoveredComponent: undefined
+		input: undefined
 	})
 	const history = initHistory(app)
 
-	const runnableComponents = writable<
-		Record<string, (inlineScript?: InlineScript) => Promise<void>>
-	>({})
 	const errorByComponent = writable<Record<string, { error: string; componentId: string }>>({})
 	const focusedGrid = writable<FocusedGrid | undefined>(undefined)
 	const pickVariableCallback: Writable<((path: string) => void) | undefined> = writable(undefined)
@@ -179,15 +174,24 @@
 	}
 
 	let variableEditor: VariableEditor | undefined = undefined
+
+	setContext<ContextPanelContext>('ContextPanel', {
+		search: writable<string>(''),
+		manuallyOpened: writable<Record<string, boolean>>({}),
+		hasResult: writable<Record<string, boolean>>({})
+	})
+
+	$: if ($connectingInput.opened) {
+		secondaryMenu.open(ConnectionInstructions, {}, () => {
+			$connectingInput.opened = false
+		})
+	} else {
+		secondaryMenu.close()
+	}
 </script>
 
 <svelte:window on:hashchange={hashchange} />
 
-{#if $connectingInput.opened}
-	<div
-		class="absolute w-full h-screen bg-black border-2 bg-opacity-25 z-20 flex justify-center items-center"
-	/>
-{/if}
 {#if !$userStore?.operator}
 	{#if $appStore}
 		{#if initialMode !== 'preview'}
@@ -222,7 +226,7 @@
 					<Pane size={63}>
 						<SplitPanesWrapper>
 							<Splitpanes horizontal>
-								<Pane size={70}>
+								<Pane size={$connectingInput?.opened ? 100 : 70}>
 									<div
 										on:pointerdown={(e) => {
 											$selectedComponent = undefined
@@ -298,31 +302,6 @@
 									</TabContent>
 								</div>
 							</Tabs>
-							{#if $connectingInput.opened}
-								<div
-									class="fixed top-32  p-2 z-50 flex justify-center items-center"
-									transition:fly|local={{ duration: 100, y: -100 }}
-								>
-									<Alert title="Connecting" type="info">
-										<div class="flex gap-2 flex-col">
-											Click on the output of the component you want to connect to on the left panel.
-											<div>
-												<Button
-													color="blue"
-													variant="border"
-													size="xs"
-													on:click={() => {
-														$connectingInput.opened = false
-														$connectingInput.input = undefined
-													}}
-												>
-													Stop connecting
-												</Button>
-											</div>
-										</div>
-									</Alert>
-								</div>
-							{/if}
 						</div>
 					</Pane>
 				</Splitpanes>

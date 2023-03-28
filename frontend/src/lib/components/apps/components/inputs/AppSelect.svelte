@@ -125,7 +125,9 @@
 				}
 			}}
 			on:focus={() => {
-				$selectedComponent = [id]
+				if (!$connectingInput.opened) {
+					$selectedComponent = [id]
+				}
 			}}
 			floatingConfig={{
 				strategy: 'fixed'

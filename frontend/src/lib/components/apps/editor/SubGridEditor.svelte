@@ -3,7 +3,7 @@
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { columnConfiguration, isFixed, toggleFixed } from '../gridUtils'
-	import type { AppEditorContext, AppViewerContext, GridItem } from '../types'
+	import type { AppEditorContext, AppViewerContext, ContextPanelContext, GridItem } from '../types'
 	import Component from './component/Component.svelte'
 	import { expandGriditem, findGridItem } from './appUtils'
 	import { push } from '$lib/history'
@@ -37,6 +37,7 @@
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
+	const { manuallyOpened } = getContext<ContextPanelContext>('ContextPanel')
 
 	$: highlight = id === $focusedGrid?.parentComponentId && shouldHighlight
 
@@ -99,23 +100,14 @@
 					{containerWidth}
 				>
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
-					{#if $connectingInput.opened}
-						<div
-							on:pointerenter={() => ($connectingInput.hoveredComponent = dataItem.id)}
-							on:pointerleave={() => ($connectingInput.hoveredComponent = undefined)}
-							class="absolute w-full h-full bg-black border-2 bg-opacity-25 z-20 flex justify-center items-center"
-						/>
-						<div
-							style="transform: translate(-50%, -50%);"
-							class="absolute w-fit justify-center bg-indigo-500/90 left-[50%] top-[50%] z-50 px-6 rounded border text-white py-2 text-5xl center-center"
-						>
-							{dataItem.id}
-						</div>
-					{/if}
-
-					<!-- svelte-ignore a11y-click-events-have-key-events -->
 					<div
-						on:pointerdown={(e) => selectComponent(e, dataItem.id)}
+						on:pointerdown={(e) => {
+							if (!$connectingInput.opened) {
+								selectComponent(e, dataItem.id)
+							} else {
+								$manuallyOpened[dataItem.id] = true
+							}
+						}}
 						class={classNames(
 							'h-full w-full center-center',
 							$selectedComponent?.includes(dataItem.id) ? 'active-grid-item' : '',
@@ -134,6 +126,7 @@
 								if (!parentGridItem) {
 									return
 								}
+
 								$selectedComponent = [dataItem.id]
 								push(editorContext?.history, $app)
 
