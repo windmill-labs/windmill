@@ -259,7 +259,7 @@ async function pull(
     raw: boolean;
     yes: boolean;
     failConflicts: boolean;
-    plainSecrets: boolean;
+    plainSecrets?: boolean;
   }
 ) {
   if (!opts.raw) {
@@ -502,7 +502,7 @@ async function push(
     yes: boolean;
     skipPull: boolean;
     failConflicts: boolean;
-    plainSecrets: boolean;
+    plainSecrets?: boolean;
   }
 ) {
   if (!opts.raw) {
@@ -715,7 +715,7 @@ async function push(
       | ResourceTypeFile
       | FolderFile,
     diffs: Difference[],
-    plainSecrets: boolean
+    plainSecrets?: boolean
   ) {
     if (file instanceof ScriptFile) {
       throw new Error(

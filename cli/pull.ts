@@ -5,7 +5,7 @@ import { Workspace } from "./workspace.ts";
 
 export async function downloadZip(
   workspace: Workspace,
-  plainWorkspace: boolean
+  plainSecrets: boolean | undefined
 ): Promise<JSZip | undefined> {
   const requestHeaders: HeadersInit = new Headers();
   requestHeaders.set("Authorization", "Bearer " + workspace.token);
@@ -16,7 +16,7 @@ export async function downloadZip(
       "api/w/" +
       workspace.workspaceId +
       "/workspaces/tarball?archive_type=zip&plain_secret=" +
-      plainWorkspace,
+      (plainSecrets ?? false),
     {
       headers: requestHeaders,
       method: "GET",
