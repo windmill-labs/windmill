@@ -22,7 +22,7 @@
 	const dispatch = createEventDispatcher()
 
 	export let jobId: string
-
+	export let workspaceId: string | undefined = undefined
 	export let flowState: FlowState | undefined = undefined
 	export let flowJobIds:
 		| {
@@ -102,7 +102,7 @@
 				localFlowModuleStates[mod.id ?? '']?.scheduled_for == undefined
 			) {
 				JobService.getJob({
-					workspace: $workspaceStore ?? '',
+					workspace: workspaceId ?? $workspaceStore ?? '',
 					id: mod.job ?? ''
 				}).then((job) => {
 					localFlowModuleStates[mod.id ?? ''] = {
@@ -122,7 +122,7 @@
 		if (jobId != '00000000-0000-0000-0000-000000000000') {
 			try {
 				const newJob = await JobService.getJob({
-					workspace: $workspaceStore ?? '',
+					workspace: workspaceId ?? $workspaceStore ?? '',
 					id: jobId ?? ''
 				})
 				if (JSON.stringify(newJob) !== JSON.stringify(job)) {
@@ -159,7 +159,7 @@
 	})
 
 	async function loadOwner(path: string) {
-		is_owner = await isOwner(path, $userStore!, $workspaceStore!)
+		is_owner = await isOwner(path, $userStore!, workspaceId ?? $workspaceStore!)
 	}
 
 	let selected: 'graph' | 'sequence' = 'graph'
@@ -207,7 +207,7 @@
 											variant="border"
 											on:click={async () =>
 												await JobService.resumeSuspendedFlowAsOwner({
-													workspace: $workspaceStore ?? '',
+													workspace: workspaceId ?? $workspaceStore ?? '',
 													id: job?.id ?? '',
 													requestBody: JSON.parse(payload)
 												})}
@@ -305,6 +305,7 @@
 					</Button>
 					<div class="border p-6" class:hidden={forloop_selected != loopJobId}>
 						<svelte:self
+							{workspaceId}
 							bind:suspend_status
 							bind:retry_status
 							bind:flowState
@@ -379,6 +380,7 @@
 						<li class="w-full border border-gray-600 p-6 space-y-2 bg-blue-50/50">
 							{#if [FlowStatusModule.type.IN_PROGRESS, FlowStatusModule.type.SUCCESS, FlowStatusModule.type.FAILURE].includes(mod.type)}
 								<svelte:self
+									{workspaceId}
 									bind:suspend_status
 									bind:retry_status
 									bind:flowState
