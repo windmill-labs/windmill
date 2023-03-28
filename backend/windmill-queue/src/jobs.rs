@@ -658,7 +658,7 @@ impl QueuedJob {
         self.script_path
             .as_ref()
             .map(String::as_str)
-            .unwrap_or("NO_FLOW_PATH")
+            .unwrap_or("tmp/main")
     }
 }
 
