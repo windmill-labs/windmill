@@ -97,7 +97,7 @@
 						>
 							{#if json[key] === NEVER_TESTED_THIS_FAR}
 								<WarningMessage />
-							{:else if json[key] === null}
+							{:else if json[key] == undefined}
 								<span class="text-2xs">null</span>
 							{:else if typeof json[key] == 'string'}
 								<span title={json[key]} class="text-2xs">"{truncate(json[key], 200)}"</span>

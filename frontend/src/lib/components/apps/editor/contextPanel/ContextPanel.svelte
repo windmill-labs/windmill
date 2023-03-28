@@ -18,13 +18,6 @@
 </script>
 
 <PanelSection noPadding titlePadding="px-1.5 pt-2" title="Outputs">
-	{#if $connectingInput.opened}
-		<div class="px-1.5 w-full">
-			<Alert title="Connection" type="warning" size="xs">
-				Clicking on on the value or the key will connect the input to the output.
-			</Alert>
-		</div>
-	{/if}
 	<div
 		class={classNames(
 			'bg-white w-full h-full z-30',
