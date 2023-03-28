@@ -247,7 +247,7 @@
 											{#if $appStore.grid}
 												<ComponentNavigation />
 
-												<div on:pointerdown|stopPropagation class={width}>
+												<div on:pointerdown|stopPropagation class={twMerge(width, 'mx-auto')}>
 													<GridEditor {policy} />
 												</div>
 

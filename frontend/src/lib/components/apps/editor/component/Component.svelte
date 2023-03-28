@@ -280,6 +280,16 @@
 				customCss={component.customCss}
 				{render}
 			/>
+		{:else if component.type === 'textareainputcomponent'}
+			<AppTextInput
+				id={component.id}
+				verticalAlignment={component.verticalAlignment}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				inputType="textarea"
+				appCssKey="textareainputcomponent"
+				{render}
+			/>
 		{:else if component.type === 'emailinputcomponent'}
 			<AppTextInput
 				verticalAlignment={component.verticalAlignment}

@@ -176,7 +176,6 @@
 
 		editor.onDidBlurEditorText(() => {
 			code = getCode()
-			dispatch('blur')
 		})
 
 		if (lang == 'javascript') {

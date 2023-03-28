@@ -356,6 +356,7 @@
 					on:jobsLoaded={({ detail }) => {
 						job = detail
 					}}
+					workspaceId={workspace_id}
 				/>
 			</div>
 		{/if}

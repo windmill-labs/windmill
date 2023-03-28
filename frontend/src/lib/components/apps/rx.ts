@@ -4,11 +4,11 @@ import { deepEqual } from 'fast-equals'
 
 export interface Subscriber<T> {
 	id?: string
-	next(v: T)
+	next(v: T): void
 }
 
 export interface Observable<T> {
-	subscribe(x: Subscriber<T>)
+	subscribe(x: Subscriber<T>): void
 }
 export interface Output<T> extends Observable<T> {
 	set(x: T, force?: boolean): void

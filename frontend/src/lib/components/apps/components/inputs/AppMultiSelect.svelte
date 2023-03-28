@@ -51,7 +51,7 @@
 
 	$: value && outputs?.result.set(value.map((v) => v.value))
 
-	$: css = concatCustomCss($app.css?.selectcomponent, customCss)
+	$: css = concatCustomCss($app.css?.multiselectcomponent, customCss)
 </script>
 
 <InputValue {id} input={configuration.items} bind:value={labels} />
@@ -60,8 +60,12 @@
 <AlignWrapper {render} {horizontalAlignment} {verticalAlignment}>
 	<div
 		class="app-select w-full"
-		style="height: 34px; overflow: auto;"
-		on:pointerdown|stopPropagation
+		style="height: 100%; overflow: auto;"
+		on:pointerdown={(e) => {
+			if (!e.shiftKey) {
+				e.stopPropagation()
+			}
+		}}
 	>
 		{#if !value || Array.isArray(value)}
 			<Select
@@ -71,7 +75,7 @@
 				on:change={(e) => e.stopPropagation()}
 				{items}
 				inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-				containerStyles={'border-color: #999;' +
+				containerStyles={'border-color: #999; min-height: 100%;' +
 					SELECT_INPUT_DEFAULT_STYLE.containerStyles +
 					css?.input?.style}
 				bind:value

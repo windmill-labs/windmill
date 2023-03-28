@@ -16,7 +16,7 @@ use crate::{
     db::{UserDB, DB},
     folders::Folder,
     resources::{Resource, ResourceType},
-    users::{Authed, WorkspaceInvite, NEW_USER_WEBHOOK},
+    users::{Authed, WorkspaceInvite, NEW_USER_WEBHOOK, VALID_USERNAME},
     utils::require_super_admin,
     HTTP_CLIENT,
 };
@@ -986,6 +986,11 @@ async fn add_user(
     require_admin(is_admin, &username)?;
 
     let mut tx = db.begin().await?;
+    if !VALID_USERNAME.is_match(&nu.username) {
+        return Err(windmill_common::error::Error::BadRequest(format!(
+            "Usermame can only contain alphanumeric characters and underscores"
+        )));
+    }
 
     sqlx::query!(
         "INSERT INTO usr
@@ -996,6 +1001,16 @@ async fn add_user(
         nu.username,
         nu.is_admin,
         nu.operator
+    )
+    .execute(&mut tx)
+    .await?;
+
+    sqlx::query_as!(
+        Group,
+        "INSERT INTO usr_to_group (workspace_id, usr, group_) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+        &w_id,
+        nu.username,
+        "all",
     )
     .execute(&mut tx)
     .await?;

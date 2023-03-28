@@ -9,7 +9,11 @@
 	const rd = $page.url.searchParams.get('rd')
 
 	onMount(async () => {
-		await clearUser()
+		try {
+			await clearUser()
+		} catch (err) {
+			console.error(err)
+		}
 		goto(rd ?? '/user/login')
 	})
 </script>

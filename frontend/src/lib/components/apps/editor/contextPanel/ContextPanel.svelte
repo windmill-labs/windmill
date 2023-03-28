@@ -16,7 +16,7 @@
 	const { search } = getContext<ContextPanelContext>('ContextPanel')
 </script>
 
-<PanelSection noPadding titlePadding="px-4 pt-2 pb-0.5" title="Outputs">
+<PanelSection noPadding titlePadding="px-1.5 pt-2" title="Outputs">
 	<svelte:fragment slot="action">
 		{#if $connectingInput.opened}
 			<button
@@ -30,13 +30,13 @@
 
 	<div
 		class={classNames(
-			'bg-white w-full h-full z-30',
+			'bg-white w-full h-auto z-30',
 			$connectingInput.opened ? 'border-blue-500 border-t-2 border-r-2 bg-blue-50/50 z-50' : ''
 		)}
 	>
 		<div class="min-w-[150px]">
-			<div class="sticky z-10 top-0 left-0 w-full bg-white p-2 ">
-				<div class="relative">
+			<div class="sticky z-10 top-0 left-0 w-full bg-white p-1.5">
+				<div class="relative w-full">
 					<input
 						bind:value={$search}
 						class="px-2 pb-1 border border-gray-300 rounded-sm {search ? 'pr-8' : ''}"

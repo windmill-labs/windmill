@@ -74,7 +74,6 @@
 						/>
 					{:else}
 						<EmptyInlineScript
-							id={`b_${hiddenInlineScript}`}
 							name={$app.hiddenInlineScripts[hiddenInlineScript].name}
 							on:delete={() => deleteBackgroundScript(hiddenInlineScript)}
 							on:new={(e) => {

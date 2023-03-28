@@ -12,20 +12,19 @@
 	import { Building, Globe2 } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { fly } from 'svelte/transition'
-	import type { AppEditorContext, AppViewerContext } from '../../types'
+	import type { AppViewerContext } from '../../types'
 	import { defaultCode } from '../component'
 	import InlineScriptList from '../settingsPanel/mainInput/InlineScriptList.svelte'
 	import WorkspaceScriptList from '../settingsPanel/mainInput/WorkspaceScriptList.svelte'
 
 	export let name: string
-	export let id: string
+	export let componentType: string | undefined = undefined
 
 	let tab = 'inlinescripts'
 	let filter: string = ''
 	let picker: Drawer
 
 	const { appPath, app } = getContext<AppViewerContext>('AppViewerContext')
-
 	const dispatch = createEventDispatcher()
 
 	async function inferInlineScriptSchema(
@@ -47,8 +46,6 @@
 		path: string,
 		subkind: 'pgsql' | 'mysql' | undefined = undefined
 	) {
-		const componentType = $app.grid.find((c) => c.data.id === id)?.data?.type
-
 		const content =
 			defaultCode(componentType ?? '', language) ??
 			initialCode(language, Script.kind.SCRIPT, subkind ?? 'flow')
@@ -93,10 +90,6 @@
 	}
 
 	const langs = ['deno', 'python3', 'go', 'bash'] as Script.language[]
-
-	function loadSchemaFromTriggerable(path: string, arg1: string) {
-		throw new Error('Function not implemented.')
-	}
 </script>
 
 <Drawer bind:this={picker} size="1000px">
@@ -215,8 +208,7 @@ console.log(ctx.email)
 if (!state.foo) { state.foo = 0 }
 state.foo += 1
 
-// you can also navigate to another page
-//await goto("?foo=bar")
+// you can also navigate (goto), recompute a script (recompute), or set a tab (setTab)
 
 return state.foo`,
 					language: 'frontend',

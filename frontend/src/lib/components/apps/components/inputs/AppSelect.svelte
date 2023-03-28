@@ -104,7 +104,15 @@
 <InputValue {id} input={configuration.create} bind:value={create} />
 
 <AlignWrapper {render} {horizontalAlignment} {verticalAlignment}>
-	<div class="app-select w-full" style="height: 34px;" on:pointerdown|stopPropagation>
+	<div
+		class="app-select w-full"
+		style="height: 34px;"
+		on:pointerdown={(e) => {
+			if (!e.shiftKey) {
+				e.stopPropagation()
+			}
+		}}
+	>
 		<Select
 			--border-radius="0"
 			--border-color="#999"

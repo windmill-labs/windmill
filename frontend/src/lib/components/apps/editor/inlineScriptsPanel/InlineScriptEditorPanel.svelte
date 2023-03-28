@@ -18,6 +18,7 @@
 
 	export let componentInput: AppInput | undefined
 	export let defaultUserInput = false
+	export let componentType: string
 	export let id: string
 	export let transformer: boolean
 
@@ -97,8 +98,8 @@
 			}}
 		/>
 	{:else}
-		<span class="px-2 text-gray-600"
-			>Selected editor component is a transformer but component has no transformer
+		<span class="px-2 text-gray-600">
+			Selected editor component is a transformer but component has no transformer
 		</span>
 	{/if}
 {:else if componentInput && componentInput.type == 'runnable'}
@@ -115,7 +116,7 @@
 			/>
 		{:else}
 			<EmptyInlineScript
-				{id}
+				{componentType}
 				name={componentInput.runnable.name}
 				on:delete={deleteInlineScript}
 				on:new={(e) => {

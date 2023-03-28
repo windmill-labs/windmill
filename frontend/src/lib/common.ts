@@ -1,4 +1,4 @@
-import type { Script } from "./gen"
+import type { Script } from './gen'
 
 export type OwnerKind = 'group' | 'user' | 'folder'
 
@@ -14,7 +14,7 @@ export interface SchemaProperty {
 	enum?: string[]
 	contentEncoding?: 'base64' | 'binary'
 	format?: string
-	items?: { type?: 'string' | 'number' | 'bytes'; contentEncoding?: 'base64' }
+	items?: { type?: 'string' | 'number' | 'bytes' | 'object'; contentEncoding?: 'base64' }
 	properties?: { [name: string]: SchemaProperty }
 }
 
@@ -28,11 +28,14 @@ export type Schema = {
 export type Meta = { ownerKind: OwnerKind; owner: string; name: string }
 
 type Enumerate<N extends number, Acc extends number[] = []> = Acc['length'] extends N
-  ? Acc[number]
-  : Enumerate<N, [...Acc, Acc['length']]>
+	? Acc[number]
+	: Enumerate<N, [...Acc, Acc['length']]>
 
 /** An inclusive range of integer numbers */
-export type IntRange<F extends number, T extends number> = F | Exclude<Enumerate<T>, Enumerate<F>> | T
+export type IntRange<F extends number, T extends number> =
+	| F
+	| Exclude<Enumerate<T>, Enumerate<F>>
+	| T
 
 export function pathToMeta(path: string): Meta {
 	const splitted = path.split('/')

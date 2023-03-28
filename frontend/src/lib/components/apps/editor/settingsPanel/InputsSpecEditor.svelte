@@ -28,6 +28,7 @@
 	export let subFieldType: InputType | undefined
 	export let format: string | undefined
 	export let selectOptions: string[] | undefined
+	export let fileUpload: { accept: string; convertTo: string } | undefined = undefined
 	export let placeholder: string | undefined
 
 	const { connectingInput } = getContext<AppViewerContext>('AppViewerContext')
@@ -94,7 +95,7 @@
 								<svelte:fragment slot="text">User Input</svelte:fragment>
 							</Popover>
 						{/if}
-						{#if 'fileUpload' in componentInput}
+						{#if fileUpload}
 							<Popover placement="bottom" notClickable disapperTimoout={0}>
 								<ToggleButton
 									position="center"

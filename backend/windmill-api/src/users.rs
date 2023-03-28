@@ -25,7 +25,9 @@ use axum::{
     Json, Router,
 };
 use hyper::{header::LOCATION, StatusCode};
+use lazy_static::lazy_static;
 use rand::rngs::OsRng;
+use regex::Regex;
 use retainer::Cache;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -35,7 +37,8 @@ use tracing::{Instrument, Span};
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{self, Error, JsonResult, Result},
-    utils::{not_found_if_none, rd_string, require_admin, Pagination, StripPath}, users::SUPERADMIN_SECRET_EMAIL,
+    users::SUPERADMIN_SECRET_EMAIL,
+    utils::{not_found_if_none, rd_string, require_admin, Pagination, StripPath},
 };
 use windmill_queue::CLOUD_HOSTED;
 
@@ -997,6 +1000,10 @@ async fn decline_invite(
     }
 }
 
+lazy_static! {
+    pub static ref VALID_USERNAME: Regex = Regex::new(r#"^[a-zA-Z_0-9]+$"#).unwrap();
+}
+
 async fn accept_invite(
     Authed { email, .. }: Authed,
     Extension(db): Extension<DB>,
@@ -1005,6 +1012,13 @@ async fn accept_invite(
     if &nu.username == "bot" {
         return Err(Error::BadRequest("bot is a reserved username".to_string()));
     }
+
+    if !VALID_USERNAME.is_match(&nu.username) {
+        return Err(windmill_common::error::Error::BadRequest(format!(
+            "Usermame can only contain alphanumeric characters and underscores"
+        )));
+    }
+
     let mut tx = db.begin().await?;
 
     let r = sqlx::query!(
@@ -1074,6 +1088,12 @@ async fn add_user_to_workspace<'c>(
         return Err(Error::BadRequest(format!(
             "user with username {} already exists in workspace {}",
             username, w_id
+        )));
+    }
+
+    if !VALID_USERNAME.is_match(username) {
+        return Err(windmill_common::error::Error::BadRequest(format!(
+            "Usermame can only contain alphanumeric characters and underscores"
         )));
     }
 
