@@ -454,6 +454,7 @@ import os
 import wmill
 from zanzibar.estonie import talin
 import matplotlib.pyplot as plt
+from . import tests
 
 def main():
     pass
