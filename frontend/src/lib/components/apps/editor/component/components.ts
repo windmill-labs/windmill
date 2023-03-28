@@ -788,6 +788,14 @@ Hello \${ctx.username}
 					onlyStatic: true,
 					selectOptions: selectOptions.tableSearchOptions,
 					value: 'Disabled'
+				},
+				manualPagination: {
+					fieldType: 'boolean',
+					type: 'static',
+					onlyStatic: true,
+					value: false,
+					tooltip:
+						'Pagination would not be handled by the component but by the script itself. Connect to the pagination output'
 				}
 			},
 			componentInput: {

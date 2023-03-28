@@ -150,7 +150,7 @@
 			try {
 				const r = await eval_like(
 					runnable.inlineScript?.content,
-					computeGlobalContext($worldStore, id, {}),
+					computeGlobalContext($worldStore, {}),
 					false,
 					$state,
 					$mode == 'dnd',
@@ -256,7 +256,7 @@
 			$worldStore.newOutput(id, 'raw', res)
 			res = await eval_like(
 				transformer.content,
-				computeGlobalContext($worldStore, id, { result: res }),
+				computeGlobalContext($worldStore, { result: res }),
 				false,
 				$state,
 				$mode == 'dnd',

@@ -2,15 +2,11 @@ import { sendUserToast } from '$lib/utils'
 import { isPlainObject } from 'lodash'
 import type { World } from '../../rx'
 
-export function computeGlobalContext(
-	world: World | undefined,
-	id: string | undefined,
-	extraContext: any = {}
-) {
+export function computeGlobalContext(world: World | undefined, extraContext: any = {}) {
 	return {
 		...Object.fromEntries(
 			Object.entries(world?.outputsById ?? {})
-				.filter(([k, _]) => k != id && k != 'state')
+				.filter(([k, _]) => k != 'state')
 				.map(([key, value]) => {
 					return [
 						key,

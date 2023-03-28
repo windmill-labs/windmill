@@ -126,9 +126,6 @@
 			{pluralize(Object.keys(json).length, Array.isArray(json) ? 'item' : 'key')}
 		</span>
 	{/if}
-	{#if !isLast && collapsed}
-		<span class="text-black">,</span>
-	{/if}
 {:else if topBrackets}
 	<span class="text-black">{openBracket}{closeBracket}</span>
 {:else}
