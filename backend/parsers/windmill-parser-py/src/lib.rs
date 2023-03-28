@@ -240,9 +240,9 @@ pub fn parse_python_imports(code: &str) -> error::Result<Vec<String>> {
                     ),
                     StmtKind::ImportFrom { level: _, module: Some(mod_), names: _ } => {
                         let imprt = if mod_.starts_with('.') {
-                            mod_.split('.').next().unwrap_or("").replace("_", "-")
-                        } else {
                             ".".to_string()
+                        } else {
+                            mod_.split('.').next().unwrap_or("").replace("_", "-")
                         };
 
                         Some(vec![replace_import(imprt)])
