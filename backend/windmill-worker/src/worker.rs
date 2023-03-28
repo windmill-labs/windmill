@@ -1706,7 +1706,7 @@ async fn create_args_and_out_file(
 }
 
 lazy_static! {
-    static ref RELATIVE_IMPORT_REGEX: Regex = Regex::new(r#"(import|from)\s(u|f)\."#).unwrap();
+    static ref RELATIVE_IMPORT_REGEX: Regex = Regex::new(r#"(import|from)\s(((u|f)\.)|\.)"#).unwrap();
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -1777,9 +1777,14 @@ async fn handle_python_job(
 
     let relative_imports = RELATIVE_IMPORT_REGEX.is_match(&inner_content);
 
-    let _ = write_file(job_dir, "inner.py", inner_content).await?;
+    let script_path_splitted = &job.script_path().split("/");
+    let dirs = script_path_splitted.clone().take(script_path_splitted.clone().count() - 1).join("/");
+    let last = script_path_splitted.clone().last().unwrap();
+    let module_dir = format!("{}/{}", job_dir, dirs );
+    tokio::fs::create_dir_all(format!("{module_dir}/")).await?;
+    let _ = write_file(&module_dir, &format!("{last}.py"), inner_content).await?;
     if relative_imports {
-        let _ = write_file(job_dir, "loader.py", RELATIVE_PYTHON_LOADER).await?;
+        let _ = write_file(&job_dir, "loader.py", RELATIVE_PYTHON_LOADER).await?;
     }
 
     let sig = windmill_parser_py::parse_python_signature(inner_content)?;
@@ -1840,6 +1845,7 @@ async fn handle_python_job(
             .join("\n")
     };
 
+    let module_dir_dot = dirs.replace("/", ".");
     let wrapper_content: String = format!(
         r#"
 import json
@@ -1848,8 +1854,8 @@ import json
 {import_datetime}
 import traceback
 import sys
+from {module_dir_dot} import {last} as inner_script
 
-inner_script = __import__("inner")
 
 with open("args.json") as f:
     kwargs = json.load(f, strict=False)
@@ -1876,7 +1882,7 @@ except Exception as e:
         sys.exit(1)
 "#,
     );
-    write_file(job_dir, "main.py", &wrapper_content).await?;
+    write_file(job_dir, "wrapper.py", &wrapper_content).await?;
 
     let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
     let additional_python_paths_folders = additional_python_paths.iter().join(":");
@@ -1904,6 +1910,7 @@ mount {{
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{SHARED_DEPENDENCIES}", shared_deps.as_str())
+                .replace("{MAIN}", format!("{dirs}/{last}").as_str())
                 .replace(
                     "{ADDITIONAL_PYTHON_PATHS}",
                     additional_python_paths_folders.as_str(),
@@ -1935,7 +1942,8 @@ mount {{
                 "--",
                 PYTHON_PATH.as_str(),
                 "-u",
-                "/tmp/main.py",
+                "-m",
+                "wrapper",
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -1947,7 +1955,7 @@ mount {{
             .envs(reserved_variables)
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
-            .args(vec!["-u", "main.py"])
+            .args(vec!["-u", "-m", "wrapper"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?

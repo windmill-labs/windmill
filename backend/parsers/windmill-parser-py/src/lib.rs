@@ -187,6 +187,9 @@ static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_ma
 };
 
 fn replace_import(x: String) -> String {
+    if x.starts_with('.') {
+        return "requests".to_string();
+    }
     PYTHON_IMPORTS_REPLACEMENT
         .get(&x)
         .map(|x| x.to_owned())
@@ -224,12 +227,23 @@ pub fn parse_python_imports(code: &str) -> error::Result<Vec<String>> {
                     StmtKind::Import { names } => Some(
                         names
                             .into_iter()
-                            .map(|x| x.node.name.split('.').next().unwrap_or("").to_string())
+                            .map(|x| {
+                                let name = x.node.name;
+                                if name.starts_with('.') {
+                                    ".".to_string()
+                                } else {
+                                    name.split('.').next().unwrap_or("").to_string()
+                                }
+                            })
                             .map(replace_import)
                             .collect::<Vec<String>>(),
                     ),
                     StmtKind::ImportFrom { level: _, module: Some(mod_), names: _ } => {
-                        let imprt = mod_.split('.').next().unwrap_or("").replace("_", "-");
+                        let imprt = if mod_.starts_with('.') {
+                            mod_.split('.').next().unwrap_or("").replace("_", "-")
+                        } else {
+                            ".".to_string()
+                        };
 
                         Some(vec![replace_import(imprt)])
                     }
