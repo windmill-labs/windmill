@@ -1,21 +1,21 @@
 <script lang="ts">
-	import { Forward, Paintbrush2 } from 'lucide-svelte'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { Paintbrush2 } from 'lucide-svelte'
+	import { createEventDispatcher } from 'svelte'
 	import { fade } from 'svelte/transition'
-	import { addWhitespaceBeforeCapitals, sendUserToast } from '../../../../utils'
+	import { addWhitespaceBeforeCapitals } from '../../../../utils'
 	import { Button, ClearableInput } from '../../../common'
 	import Popover from '../../../Popover.svelte'
-	import type { AppViewerContext, ComponentCssProperty } from '../../types'
-	import type { AppComponent } from '../component/components'
+	import type { ComponentCssProperty } from '../../types'
+	import type { TypedComponent } from '../component'
 	import QuickStyleMenu from './QuickStyleMenu.svelte'
-	import type { StylePropertyKey } from './quickStyleProperties'
+	import type { PropertyGroup } from './quickStyleProperties'
 
 	export let name: string
 	export let value: ComponentCssProperty = {}
 	export let forceStyle: boolean = false
 	export let forceClass: boolean = false
-	export let quickStyleProperties: StylePropertyKey[] | undefined = undefined
-	const { app } = getContext<AppViewerContext>('AppViewerContext')
+	export let quickStyleProperties: PropertyGroup[] | undefined = undefined
+	export let componentType: TypedComponent['type']
 	const dispatch = createEventDispatcher()
 	let isQuickMenuOpen = false
 
@@ -72,7 +72,11 @@
 				</label>
 				{#if quickStyleProperties?.length && isQuickMenuOpen}
 					<div transition:fade|local={{ duration: 200 }} class="w-full pt-1">
-						<QuickStyleMenu bind:value={value.style} properties={quickStyleProperties} />
+						<QuickStyleMenu
+							bind:value={value.style}
+							properties={quickStyleProperties}
+							{componentType}
+						/>
 					</div>
 				{/if}
 			</div>

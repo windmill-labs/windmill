@@ -60,6 +60,7 @@
 				forceStyle={ccomponents[component.type].customCss[name].style !== undefined}
 				forceClass={ccomponents[component.type].customCss[name].class !== undefined}
 				{name}
+				componentType={component.type}
 				bind:value={component.customCss[name]}
 				on:change={() => app.set($app)}
 			/>

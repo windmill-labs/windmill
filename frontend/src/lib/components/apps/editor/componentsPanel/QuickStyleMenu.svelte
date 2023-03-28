@@ -8,13 +8,17 @@
 		StylePropertyType,
 		StylePropertyUnits,
 		STYLE_STORE_KEY,
+		type PropertyGroup,
 		type StylePropertyKey,
 		type TopColors
 	} from './quickStyleProperties'
 	import QuickStyleProperty from './QuickStyleProperty.svelte'
+	import ListItem from './ListItem.svelte'
+	import type { TypedComponent } from '../component'
 
 	export let value = ''
-	export let properties: StylePropertyKey[]
+	export let properties: PropertyGroup[]
+	export let componentType: TypedComponent['type']
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 	const styleStore = createStyleStore(properties)
 	setContext(STYLE_STORE_KEY, styleStore)
@@ -160,26 +164,83 @@
 	})
 </script>
 
-<div class="bg-gray-200/60 rounded-md p-2">
-	{#each $styleStore.style as { prop }, index}
-		<div class="pb-3 last:pb-0">
-			<div class="text-sm font-medium text-gray-600 pb-0.5"> {prop.key} </div>
-			<div class="flex items-center gap-1 w-full">
-				{#if Array.isArray(prop.value)}
-					<div class="flex justify-start items-center flex-wrap gap-x-4 gap-y-1">
-						{#each prop.value as value, i}
-							<QuickStyleProperty
-								prop={{ ...prop, value }}
-								inline
-								bind:value={multiValues[index][i]}
-								on:change={() => setMultiValueProperty(index)}
-							/>
-						{/each}
-					</div>
-				{:else}
-					<QuickStyleProperty {prop} bind:value={$styleStore.style[index].value} />
-				{/if}
+<div class="pb-2 pt-1">
+	{#each properties as property, i}
+		{#each Object.keys(property) as group, j}
+			<ListItem
+				title={group}
+				prefix="style_{componentType}_{i}"
+				openByDefault={j === 0}
+				wrapperClasses="!px-0 !pt-0"
+				toggleClasses="bg-gray-100 hover:!bg-gray-200 !py-0"
+			>
+				<svelte:fragment slot="title">
+					<span class="font-semibold text-gray-600 capitalize">
+						{group}
+					</span>
+				</svelte:fragment>
+				<div class="flex justify-start items-center flex-wrap gap-x-4 gap-y-1">
+					{#each property[group] as p}
+						{@const {
+							prop: { prop },
+							index
+						} = styleStore.getProp(p)}
+						{#if prop !== undefined && index !== undefined}
+							<div class="pb-2 pt-1">
+								<div class="text-sm font-medium text-gray-600 pb-0.5"> {prop.key} </div>
+								<div class="flex items-center gap-1">
+									{#if Array.isArray(prop.value)}
+										<div class="flex justify-start items-center flex-wrap gap-x-4 gap-y-1">
+											{#each prop.value as value, i}
+												<QuickStyleProperty
+													prop={{ ...prop, value }}
+													inline
+													bind:value={multiValues[index][i]}
+													on:change={() => setMultiValueProperty(index)}
+												/>
+											{/each}
+										</div>
+									{:else}
+										<QuickStyleProperty {prop} inline bind:value={$styleStore.style[index].value} />
+									{/if}
+								</div>
+							</div>
+						{/if}
+					{/each}
+				</div>
+			</ListItem>
+			<!-- <div class="bg-gray-100 rounded px-2 py-1 font-semibold text-sm text-gray-600 capitalize">
+				{group}
 			</div>
-		</div>
+			<div class="flex justify-start items-center flex-wrap gap-x-4 gap-y-1 pl-2">
+				{#each property[group] as p}
+					{@const {
+						prop: { prop },
+						index
+					} = styleStore.getProp(p)}
+					{#if prop !== undefined && index !== undefined}
+						<div class="pb-2 pt-1">
+							<div class="text-sm font-medium text-gray-600 pb-0.5"> {prop.key} </div>
+							<div class="flex items-center gap-1">
+								{#if Array.isArray(prop.value)}
+									<div class="flex justify-start items-center flex-wrap gap-x-4 gap-y-1">
+										{#each prop.value as value, i}
+											<QuickStyleProperty
+												prop={{ ...prop, value }}
+												inline
+												bind:value={multiValues[index][i]}
+												on:change={() => setMultiValueProperty(index)}
+											/>
+										{/each}
+									</div>
+								{:else}
+									<QuickStyleProperty {prop} inline bind:value={$styleStore.style[index].value} />
+								{/if}
+							</div>
+						</div>
+					{/if}
+				{/each}
+			</div> -->
+		{/each}
 	{/each}
 </div>
