@@ -28,7 +28,7 @@
 </script>
 
 {#if componentInput?.type === 'static'}
-	{#if fieldType === 'number'}
+	{#if fieldType === 'number' || fieldType === 'integer'}
 		<input on:keydown|stopPropagation type="number" bind:value={componentInput.value} />
 	{:else if fieldType === 'textarea'}
 		<textarea on:keydown|stopPropagation bind:value={componentInput.value} />

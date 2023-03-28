@@ -58,6 +58,9 @@ fn parse_go_typ(typ: &parser_go_ast::Expr) -> (Option<String>, Typ) {
             Some((*name).to_string()),
             match *name {
                 "int" => Typ::Int,
+                "int16" => Typ::Int,
+                "int32" => Typ::Int,
+                "int64" => Typ::Int,
                 "string" => Typ::Str(None),
                 "bool" => Typ::Bool,
                 _ => Typ::Unknown,
