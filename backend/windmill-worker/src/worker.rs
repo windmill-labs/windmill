@@ -651,7 +651,8 @@ pub async fn run_worker(
                             .with_label_values(label_values.as_slice()),
                     };
 
-                    tracing::info!(worker = %worker_name, id = %job.id, "fetched job {}, root job: {}", job.id, job.root_job.map(|x| x.to_string()).unwrap_or_else(|| "None".to_string()));
+                    let job_root = job.root_job.map(|x| x.to_string()).unwrap_or_else(|| "none".to_string());
+                    tracing::info!(worker = %worker_name, id = %job.id, root_id = %job_root, "fetched job {}, root job: {}", job.id, job_root);
 
                     let job_dir = format!("{worker_dir}/{}", job.id);
 

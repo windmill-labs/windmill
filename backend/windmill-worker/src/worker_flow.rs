@@ -395,6 +395,12 @@ pub async fn update_flow_status_after_job_completion(
         .await?
         .ok_or_else(|| Error::InternalErr(format!("requiring flow to be in the queue")))?;
 
+    let job_root = flow_job
+        .root_job
+        .map(|x| x.to_string())
+        .unwrap_or_else(|| "none".to_string());
+    tracing::info!(id = %flow_job.id, root_id = %job_root, "update flow status");
+
     let raw_flow = flow_job.parse_raw_flow();
     let module = raw_flow.as_ref().and_then(|module| {
         module_index.and_then(|i| module.modules.get(i).or(module.failure_module.as_ref()))
@@ -792,6 +798,12 @@ async fn push_next_flow_job(
     worker_dir: &str,
     base_internal_url: &str,
 ) -> error::Result<()> {
+    let job_root = flow_job
+        .root_job
+        .map(|x| x.to_string())
+        .unwrap_or_else(|| "none".to_string());
+    tracing::info!(id = %flow_job.id, root_id = %job_root, "pushing next flow job");
+
     let mut i = usize::try_from(status.step)
         .with_context(|| format!("invalid module index {}", status.step))?;
 
@@ -1165,6 +1177,7 @@ async fn push_next_flow_job(
     )
     .await?;
     tx.commit().await?;
+    tracing::info!(id = %flow_job.id, root_id = %job_root, "next flow transform computed");
 
     let (job_payloads, next_status) = match next_flow_transform {
         NextFlowTransform::Continue(job_payload, next_state) => (job_payload, next_state),
@@ -1361,6 +1374,7 @@ async fn push_next_flow_job(
     };
 
     tx.commit().await?;
+    tracing::info!(id = %flow_job.id, root_id = %job_root, "all next flow jobs pushed");
 
     if continue_on_same_worker {
         if !is_one_uuid {
