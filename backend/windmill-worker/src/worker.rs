@@ -1845,7 +1845,7 @@ async fn handle_python_job(
             .join("\n")
     };
 
-    let module_dir_dot = dirs.replace("/", ".");
+    let module_dir_dot = dirs.replace("/", ".").replace("-", "_");
     let wrapper_content: String = format!(
         r#"
 import json

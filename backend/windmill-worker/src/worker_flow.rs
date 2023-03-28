@@ -1547,7 +1547,7 @@ async fn compute_next_flow_transform<'c>(
         FlowModuleValue::RawScript { path, content, language, lock, .. } => {
             let path = path
                 .clone()
-                .or_else(|| Some(format!("{}/{}", flow_job.script_path(), status.step)));
+                .or_else(|| Some(format!("{}/step-{}", flow_job.script_path(), status.step)));
             Ok((
                 tx,
                 NextFlowTransform::Continue(
