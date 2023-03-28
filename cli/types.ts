@@ -11,7 +11,11 @@ import { AppFile } from "./apps.ts";
 // TODO: Remove this & replace with a "pull" that lets the object either pull the remote version or return undefined.
 // Then combine those with diffing, which then gives the new push impl
 export interface Resource {
-  push(workspace: string, remotePath: string): Promise<void>;
+  push(
+    workspace: string,
+    remotePath: string,
+    plainSecrets?: boolean
+  ): Promise<void>;
 }
 
 export interface PushDiffs {
@@ -19,6 +23,7 @@ export interface PushDiffs {
     workspace: string,
     remotePath: string,
     diffs: Difference[],
+    plainSecrets?: boolean
   ): Promise<void>;
 }
 
@@ -46,7 +51,7 @@ export type Difference = DifferenceCreate | DifferenceRemove | DifferenceChange;
 export function setValueByPath(
   obj: any,
   path: (string | number)[],
-  value: any,
+  value: any
 ) {
   let i;
   let lastObj = undefined;
@@ -84,7 +89,7 @@ export type GlobalOptions = {
 
 export function inferTypeFromPath(
   p: string,
-  obj: any,
+  obj: any
 ):
   | ScriptFile
   | VariableFile
@@ -115,7 +120,7 @@ export function inferTypeFromPath(
 }
 
 export function getTypeStrFromPath(
-  p: string,
+  p: string
 ):
   | "script"
   | "variable"
@@ -125,8 +130,13 @@ export function getTypeStrFromPath(
   | "folder"
   | "app" {
   const parsed = path.parse(p);
-  if (parsed.ext == ".go" || parsed.ext == ".ts" || parsed.ext == ".sh" || parsed.ext == ".py") {
-    return 'script'
+  if (
+    parsed.ext == ".go" ||
+    parsed.ext == ".ts" ||
+    parsed.ext == ".sh" ||
+    parsed.ext == ".py"
+  ) {
+    return "script";
   }
 
   if (parsed.name === "folder.meta") {
@@ -135,9 +145,12 @@ export function getTypeStrFromPath(
 
   const typeEnding = parsed.name.split(".").at(-1);
   if (
-    typeEnding === "script" || typeEnding === "variable" ||
-    typeEnding === "flow" || typeEnding === "resource" ||
-    typeEnding === "resource-type" || typeEnding === "app"
+    typeEnding === "script" ||
+    typeEnding === "variable" ||
+    typeEnding === "flow" ||
+    typeEnding === "resource" ||
+    typeEnding === "resource-type" ||
+    typeEnding === "app"
   ) {
     return typeEnding;
   } else {
