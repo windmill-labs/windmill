@@ -255,7 +255,12 @@ async function ignoreF() {
 }
 
 async function pull(
-  opts: GlobalOptions & { raw: boolean; yes: boolean; failConflicts: boolean }
+  opts: GlobalOptions & {
+    raw: boolean;
+    yes: boolean;
+    failConflicts: boolean;
+    plainSecrets: boolean;
+  }
 ) {
   if (!opts.raw) {
     await ensureDir(path.join(Deno.cwd(), ".wmill"));
@@ -269,7 +274,9 @@ async function pull(
       "Computing the files to update locally to match remote (taking .wmillignore into account)"
     )
   );
-  const remote = ZipFSElement((await downloadZip(workspace))!);
+  const remote = ZipFSElement(
+    (await downloadZip(workspace, opts.plainSecrets))!
+  );
   const local = opts.raw
     ? undefined
     : await FSFSElement(path.join(Deno.cwd(), opts.raw ? "" : ".wmill"));
@@ -495,6 +502,7 @@ async function push(
     yes: boolean;
     skipPull: boolean;
     failConflicts: boolean;
+    plainSecrets: boolean;
   }
 ) {
   if (!opts.raw) {
@@ -518,7 +526,7 @@ async function push(
   );
   const remote = opts.raw
     ? undefined
-    : ZipFSElement((await downloadZip(workspace))!);
+    : ZipFSElement((await downloadZip(workspace, opts.plainSecrets))!);
   const local = await FSFSElement(path.join(Deno.cwd(), ""));
   const changes = await compareDynFSElement(local, remote, await ignoreF());
 
@@ -587,7 +595,8 @@ async function push(
           workspace.workspaceId,
           change.path.split(".")[0],
           obj,
-          diff
+          diff,
+          opts.plainSecrets
         );
         if (!opts.raw && stateExists) {
           await Deno.writeTextFile(stateTarget, change.after);
@@ -617,7 +626,8 @@ async function push(
           workspace.workspaceId,
           change.path.split(".")[0],
           obj,
-          diff
+          diff,
+          opts.plainSecrets
         );
         if (!opts.raw && stateExists) {
           await Deno.writeTextFile(stateTarget, change.content);
@@ -704,7 +714,8 @@ async function push(
       | ResourceFile
       | ResourceTypeFile
       | FolderFile,
-    diffs: Difference[]
+    diffs: Difference[],
+    plainSecrets: boolean
   ) {
     if (file instanceof ScriptFile) {
       throw new Error(
@@ -723,7 +734,7 @@ async function push(
       return;
     }
     try {
-      await file.pushDiffs(workspace, remotePath, diffs);
+      await file.pushDiffs(workspace, remotePath, diffs, plainSecrets);
     } catch (e) {
       console.error("Failing to apply diffs to " + remotePath);
       console.error(JSON.stringify(e));
@@ -742,6 +753,7 @@ const command = new Command()
   )
   .option("--yes", "Pull without needing confirmation")
   .option("--raw", "Pull without using state, just overwrite.")
+  .option("--plain-secrets", "Pull secrets as plain text")
   .action(pull as any)
   .command("push")
   .description(
@@ -754,6 +766,7 @@ const command = new Command()
   .option("--skip-pull", "Push without pulling first (you have pulled prior)")
   .option("--yes", "Push without needing confirmation")
   .option("--raw", "Push without using state, just overwrite.")
+  .option("--plain-secrets", "Push secrets as plain text")
   .action(push as any);
 
 export default command;

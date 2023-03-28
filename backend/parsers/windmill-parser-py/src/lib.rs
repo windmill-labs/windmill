@@ -181,15 +181,13 @@ static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_ma
     "git" => "GitPython",
     "u" => "requests",
     "f" => "requests",
+    "." => "requests",
     "shopify" => "ShopifyAPI",
     "seleniumwire" => "selenium-wire",
     "openbb-terminal" => "openbb[all]",
 };
 
 fn replace_import(x: String) -> String {
-    if x.starts_with('.') {
-        return "requests".to_string();
-    }
     PYTHON_IMPORTS_REPLACEMENT
         .get(&x)
         .map(|x| x.to_owned())
@@ -238,8 +236,8 @@ pub fn parse_python_imports(code: &str) -> error::Result<Vec<String>> {
                             .map(replace_import)
                             .collect::<Vec<String>>(),
                     ),
-                    StmtKind::ImportFrom { level: _, module: Some(mod_), names: _ } => {
-                        let imprt = if mod_.starts_with('.') {
+                    StmtKind::ImportFrom { level, module: Some(mod_), names: _ } => {
+                        let imprt = if level.is_some() && level.unwrap() > 0 {
                             ".".to_string()
                         } else {
                             mod_.split('.').next().unwrap_or("").replace("_", "-")
@@ -463,7 +461,7 @@ def main():
 ";
         let r = parse_python_imports(code)?;
         // println!("{}", serde_json::to_string(&r)?);
-        assert_eq!(r, vec!["wmill", "zanzibar", "matplotlib"]);
+        assert_eq!(r, vec!["wmill", "zanzibar", "matplotlib", "requests"]);
         Ok(())
     }
 
