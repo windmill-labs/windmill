@@ -1778,8 +1778,8 @@ async fn handle_python_job(
     let relative_imports = RELATIVE_IMPORT_REGEX.is_match(&inner_content);
 
     let script_path_splitted = &job.script_path().split("/");
-    let dirs = script_path_splitted.clone().take(script_path_splitted.clone().count() - 1).join("/");
-    let last = script_path_splitted.clone().last().unwrap();
+    let dirs = script_path_splitted.clone().take(script_path_splitted.clone().count() - 1).join("/").replace("-", "_");
+    let last = script_path_splitted.clone().last().unwrap().replace("-", "_");
     let module_dir = format!("{}/{}", job_dir, dirs );
     tokio::fs::create_dir_all(format!("{module_dir}/")).await?;
     let _ = write_file(&module_dir, &format!("{last}.py"), inner_content).await?;
