@@ -73,8 +73,9 @@
 		hash: $page.url.hash
 	}
 
+	const worldStore = buildWorld(context)
 	setContext<AppViewerContext>('AppViewerContext', {
-		worldStore: buildWorld(context),
+		worldStore,
 		app: appStore,
 		summary: summaryStore,
 		selectedComponent,
@@ -143,6 +144,8 @@
 	$: if ($selectedComponent?.[0] != befSelected) {
 		befSelected = $selectedComponent?.[0]
 		selectedTab = 'settings'
+		console.log('focusedGrid1', befSelected)
+
 		if (befSelected) {
 			if (!['ctx', 'state'].includes(befSelected) && !befSelected?.startsWith('bg_')) {
 				let item = findGridItem($appStore, befSelected)
@@ -150,6 +153,12 @@
 					$focusedGrid = {
 						parentComponentId: befSelected,
 						subGridIndex: 0
+					}
+				} else if (item?.data.type === 'tabscomponent') {
+					$focusedGrid = {
+						parentComponentId: befSelected,
+						subGridIndex:
+							($worldStore.outputsById?.[befSelected]?.selectedTabIndex?.peak() as number) ?? 0
 					}
 				} else {
 					let subgrid = findGridItemParentGrid($appStore, befSelected)
