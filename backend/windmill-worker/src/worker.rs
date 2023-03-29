@@ -1779,7 +1779,7 @@ async fn handle_python_job(
 
     let script_path_splitted = &job.script_path().split("/");
     let dirs = script_path_splitted.clone().take(script_path_splitted.clone().count() - 1).join("/").replace("-", "_");
-    let last = script_path_splitted.clone().last().unwrap().replace("-", "_");
+    let last = script_path_splitted.clone().last().unwrap().replace("-", "_").replace(' ', '_').to_lowercase();
     let module_dir = format!("{}/{}", job_dir, dirs );
     tokio::fs::create_dir_all(format!("{module_dir}/")).await?;
     let _ = write_file(&module_dir, &format!("{last}.py"), inner_content).await?;
@@ -2491,7 +2491,7 @@ async fn handle_child(
         let timeout_duration = *TIMEOUT_DURATION;
 
         #[cfg(feature = "enterprise")]
-        let premium_workspace = sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", w_id)
+        let premium_workspace = *CLOUD_HOSTED && sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", w_id)
             .fetch_one(&db)
             .await
             .map_err(|e| {
