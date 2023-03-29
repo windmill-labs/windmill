@@ -39,7 +39,7 @@
 
 	function handleTabSelection() {
 		selectedIndex = tabs?.indexOf(selected)
-		outputs?.selectedTabIndex.set(selectedIndex, true)
+		outputs?.selectedTabIndex.set(selectedIndex)
 
 		if ($focusedGrid?.parentComponentId != id || $focusedGrid?.subGridIndex != selectedIndex) {
 			$focusedGrid = {
@@ -127,6 +127,7 @@
 					on:focus={() => {
 						if (!$connectingInput.opened) {
 							$selectedComponent = [id]
+							handleTabSelection()
 						}
 					}}
 				/>

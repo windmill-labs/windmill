@@ -29,7 +29,6 @@
 		}
 	}
 
-	$: $selectedComponent?.includes(id) && onFocus()
 	$: css = concatCustomCss($app.css?.containercomponent, customCss)
 
 	$componentControl[id] = {
