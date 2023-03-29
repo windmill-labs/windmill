@@ -7,6 +7,7 @@ export type IsOpenStoreItem = Record<string, boolean>
 export const isOpenStore = {
 	subscribe: store.subscribe,
 	update: store.update,
+	set: store.set,
 	/** If an item is already set, it won't get updated. */
 	addItems: (items: IsOpenStoreItem[]) => {
 		let newItems = {}

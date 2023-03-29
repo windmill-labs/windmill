@@ -1,20 +1,21 @@
 <script lang="ts">
 	import { Paintbrush2 } from 'lucide-svelte'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import { addWhitespaceBeforeCapitals } from '../../../../utils'
 	import { Button, ClearableInput } from '../../../common'
 	import Popover from '../../../Popover.svelte'
-	import type { AppViewerContext, ComponentCssProperty } from '../../types'
+	import type { ComponentCssProperty } from '../../types'
+	import type { TypedComponent } from '../component'
 	import QuickStyleMenu from './QuickStyleMenu.svelte'
-	import type { StylePropertyKey } from './quickStyleProperties'
+	import type { PropertyGroup } from './quickStyleProperties'
 
 	export let name: string
 	export let value: ComponentCssProperty = {}
 	export let forceStyle: boolean = false
 	export let forceClass: boolean = false
-	export let quickStyleProperties: StylePropertyKey[] | undefined = undefined
-	const { app } = getContext<AppViewerContext>('AppViewerContext')
+	export let quickStyleProperties: PropertyGroup[] | undefined = undefined
+	export let componentType: TypedComponent['type'] | undefined = undefined
 	const dispatch = createEventDispatcher()
 	let isQuickMenuOpen = false
 
@@ -26,12 +27,12 @@
 </script>
 
 <div
-	class="sticky top-0 z-20 text-lg bg-white font-semibold [font-variant:small-caps] text-gray-700 pt-2 pb-1"
+	class="sticky top-0 z-20 text-lg bg-gray-100 font-semibold lowercase leading-none [font-variant:small-caps] text-gray-700 px-3 pb-1 mt-4 mb-1"
 >
 	{addWhitespaceBeforeCapitals(name)}
 </div>
 {#if value}
-	<div class="border-l border-gray-400/80 py-1 pl-3.5 ml-0.5">
+	<div class="px-3">
 		{#if value.style !== undefined || forceStyle}
 			<div class="pb-2">
 				<!-- svelte-ignore a11y-label-has-associated-control -->
@@ -54,7 +55,7 @@
 										color="light"
 										size="xs"
 										btnClasses="!p-1 !w-[34px] !h-[34px] {isQuickMenuOpen
-											? '!bg-gray-200/60 hover:!bg-gray-200'
+											? '!bg-gray-200/60 hover:!bg-gray-200 focus:!bg-gray-200'
 											: ''}"
 										aria-label="{isQuickMenuOpen ? 'Close' : 'Open'} styling menu"
 										on:click={toggleQuickMenu}
@@ -71,7 +72,12 @@
 				</label>
 				{#if quickStyleProperties?.length && isQuickMenuOpen}
 					<div transition:fade|local={{ duration: 200 }} class="w-full pt-1">
-						<QuickStyleMenu bind:value={value.style} properties={quickStyleProperties} />
+						<QuickStyleMenu
+							bind:value={value.style}
+							properties={quickStyleProperties}
+							{componentType}
+							componentProperty={name}
+						/>
 					</div>
 				{/if}
 			</div>

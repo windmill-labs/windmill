@@ -27,7 +27,7 @@
 			id={SECONDARY_MENU_ID}
 			class="flex flex-col w-full h-full bg-white"
 		>
-			<div class="flex justify-between items-center bg-white gap-1 p-3">
+			<div class="flex justify-between items-center bg-white gap-1 px-3 py-2">
 				<Button
 					color="light"
 					size="xs"
@@ -39,7 +39,7 @@
 				</Button>
 				<Badge color="blue">{$selectedComponent}</Badge>
 			</div>
-			<div class="relative h-full overflow-y-auto px-3 pb-3">
+			<div class="relative h-full overflow-y-auto">
 				{#if typeof $secondaryMenu.component === 'string'}
 					{@html $secondaryMenu.component}
 				{:else}

@@ -60,6 +60,7 @@
 		{:else if type === StylePropertyType.number}
 			<ClearableInput
 				type="number"
+				inputClass={inline ? '!w-[90px]' : ''}
 				bind:value
 				step={prop.value?.['step'] || 1}
 				min={prop.value?.['min']}
