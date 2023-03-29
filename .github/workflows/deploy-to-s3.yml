@@ -18,8 +18,8 @@ jobs:
       - name: "npm build"
         timeout-minutes: 5
         run:
-          cd frontend && npm ci && npm run generate-backend-client && npm run
-          build
+          cd frontend && npm ci && npm run generate-backend-client &&
+          NODE_OPTIONS="--max-old-space-size=8192" npm run build
 
       - uses: reggionick/s3-deploy@v3
         with:
