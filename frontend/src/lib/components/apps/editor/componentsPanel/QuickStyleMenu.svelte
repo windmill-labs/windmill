@@ -24,6 +24,7 @@
 	setContext(STYLE_STORE_KEY, styleStore)
 	let multiValues: Record<number, string[]> = initiateMultiValues()
 	let mounted = false
+	let isOpen: boolean[] = []
 
 	$: mounted && $styleStore && writeStyle()
 	$: mounted && (!value || value) && parseStyle()
@@ -158,6 +159,14 @@
 		$styleStore.style[index].value = values.join(' ').trim()
 	}
 
+	function formatKebabCase(text: string) {
+		text = text.toLowerCase().replace(/-/, ' ')
+		if (text.length) {
+			text = text[0].toUpperCase() + text.slice(1)
+		}
+		return text
+	}
+
 	onMount(() => {
 		parseStyle()
 		mounted = true
@@ -168,18 +177,20 @@
 	{#each properties as property, i}
 		{#each Object.keys(property) as group, j}
 			<ListItem
+				bind:isOpen={isOpen[i]}
 				title={group}
 				prefix="style_{componentType}_{i}"
 				openByDefault={j === 0}
 				wrapperClasses="!px-0 !pt-0"
-				toggleClasses="bg-gray-100 hover:!bg-gray-200 !py-0"
+				toggleClasses="border-b border-gray-300 !rounded-b-none !py-0
+				{isOpen[i] ? '!bg-gray-100 hover:!bg-gray-200' : ''}"
 			>
 				<svelte:fragment slot="title">
 					<span class="font-semibold text-gray-600 capitalize">
 						{group}
 					</span>
 				</svelte:fragment>
-				<div class="flex justify-start items-center flex-wrap gap-x-4 gap-y-1">
+				<div class="flex justify-start items-center flex-wrap gap-x-4 gap-y-1 pt-3">
 					{#each property[group] as p}
 						{@const {
 							prop: { prop },
@@ -187,7 +198,9 @@
 						} = styleStore.getProp(p)}
 						{#if prop !== undefined && index !== undefined}
 							<div class="pb-2 pt-1">
-								<div class="text-sm font-medium text-gray-600 pb-0.5"> {prop.key} </div>
+								<div class="text-sm font-medium text-gray-600 pb-0.5">
+									{formatKebabCase(prop.key)}
+								</div>
 								<div class="flex items-center gap-1">
 									{#if Array.isArray(prop.value)}
 										<div class="flex justify-start items-center flex-wrap gap-x-4 gap-y-1">
@@ -209,38 +222,6 @@
 					{/each}
 				</div>
 			</ListItem>
-			<!-- <div class="bg-gray-100 rounded px-2 py-1 font-semibold text-sm text-gray-600 capitalize">
-				{group}
-			</div>
-			<div class="flex justify-start items-center flex-wrap gap-x-4 gap-y-1 pl-2">
-				{#each property[group] as p}
-					{@const {
-						prop: { prop },
-						index
-					} = styleStore.getProp(p)}
-					{#if prop !== undefined && index !== undefined}
-						<div class="pb-2 pt-1">
-							<div class="text-sm font-medium text-gray-600 pb-0.5"> {prop.key} </div>
-							<div class="flex items-center gap-1">
-								{#if Array.isArray(prop.value)}
-									<div class="flex justify-start items-center flex-wrap gap-x-4 gap-y-1">
-										{#each prop.value as value, i}
-											<QuickStyleProperty
-												prop={{ ...prop, value }}
-												inline
-												bind:value={multiValues[index][i]}
-												on:change={() => setMultiValueProperty(index)}
-											/>
-										{/each}
-									</div>
-								{:else}
-									<QuickStyleProperty {prop} inline bind:value={$styleStore.style[index].value} />
-								{/if}
-							</div>
-						</div>
-					{/if}
-				{/each}
-			</div> -->
 		{/each}
 	{/each}
 </div>

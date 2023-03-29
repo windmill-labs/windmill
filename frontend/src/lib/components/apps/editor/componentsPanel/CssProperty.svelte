@@ -27,12 +27,12 @@
 </script>
 
 <div
-	class="sticky top-0 z-20 text-lg bg-white font-semibold [font-variant:small-caps] text-gray-700 pt-2 pb-1"
+	class="sticky top-0 z-20 text-lg bg-gray-100 font-semibold lowercase leading-none [font-variant:small-caps] text-gray-700 px-3 pb-1 mt-4 mb-1"
 >
 	{addWhitespaceBeforeCapitals(name)}
 </div>
 {#if value}
-	<div class="border-l border-gray-400/80 py-1 pl-3.5 ml-0.5">
+	<div class="px-3">
 		{#if value.style !== undefined || forceStyle}
 			<div class="pb-2">
 				<!-- svelte-ignore a11y-label-has-associated-control -->
@@ -55,7 +55,7 @@
 										color="light"
 										size="xs"
 										btnClasses="!p-1 !w-[34px] !h-[34px] {isQuickMenuOpen
-											? '!bg-gray-200/60 hover:!bg-gray-200'
+											? '!bg-gray-200/60 hover:!bg-gray-200 focus:!bg-gray-200'
 											: ''}"
 										aria-label="{isQuickMenuOpen ? 'Close' : 'Open'} styling menu"
 										on:click={toggleQuickMenu}

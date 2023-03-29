@@ -47,6 +47,7 @@
 	color="light"
 	size="xs"
 	aria-label="Apply to all instances of this component"
+	btnClasses="ml-3 mt-2"
 	on:click={applyToAllInstances}
 >
 	Copy style to global CSS &nbsp;<Copy size={18} />

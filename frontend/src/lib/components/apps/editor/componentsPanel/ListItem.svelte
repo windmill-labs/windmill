@@ -9,6 +9,8 @@
 	export let openByDefault: boolean = false
 	export let wrapperClasses = ''
 	export let toggleClasses = ''
+	export let contentWrapperClasses = ''
+	export let isOpen = false
 
 	const dispatch = createEventDispatcher()
 
@@ -39,7 +41,7 @@
 			<ChevronDown class="rotate-0 duration-300 {isOpen ? '!rotate-180' : ''}" />
 		</button>
 		{#if isOpen}
-			<div transition:slide|local={{ duration: 300 }} class="px-2">
+			<div transition:slide|local={{ duration: 300 }} class="px-2 {contentWrapperClasses}">
 				<slot />
 			</div>
 		{/if}
