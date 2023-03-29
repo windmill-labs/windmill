@@ -1,12 +1,11 @@
 <script lang="ts">
-	import { Forward, Paintbrush2 } from 'lucide-svelte'
+	import { Paintbrush2 } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { fade } from 'svelte/transition'
-	import { addWhitespaceBeforeCapitals, sendUserToast } from '../../../../utils'
+	import { addWhitespaceBeforeCapitals } from '../../../../utils'
 	import { Button, ClearableInput } from '../../../common'
 	import Popover from '../../../Popover.svelte'
 	import type { AppViewerContext, ComponentCssProperty } from '../../types'
-	import type { AppComponent } from '../component/components'
 	import QuickStyleMenu from './QuickStyleMenu.svelte'
 	import type { StylePropertyKey } from './quickStyleProperties'
 
