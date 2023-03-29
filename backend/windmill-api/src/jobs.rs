@@ -98,6 +98,7 @@ pub fn global_service() -> Router {
         .route("/get/:id", get(get_job))
         .route("/getupdate/:id", get(get_job_update))
         .route("/queue/cancel/:id", post(cancel_job_api))
+        .route("/queue/force_cancel/:id", post(force_cancel))
 }
 
 async fn get_result_by_id(
@@ -121,13 +122,56 @@ async fn cancel_job_api(
         None => "anonymous".to_string(),
     };
 
-    let (mut tx, job_option) = windmill_queue::cancel_job(&username, reason, id, &w_id, tx).await?;
+    let (mut tx, job_option) =
+        windmill_queue::cancel_job(&username, reason, id, &w_id, tx, false).await?;
 
     if let Some(id) = job_option {
         audit_log(
             &mut tx,
             &username,
             "jobs.cancel",
+            ActionKind::Delete,
+            &w_id,
+            Some(&id.to_string()),
+            None,
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(id.to_string())
+    } else {
+        let (job_o, tx) = get_job_by_id(tx, &w_id, id).await?;
+        tx.commit().await?;
+        let err = match job_o {
+            Some(Job::CompletedJob(_)) => {
+                return Ok(format!("queued job id {} is already completed", id))
+            }
+            _ => error::Error::NotFound(format!("queued job id {} does not exist", id)),
+        };
+        Err(err)
+    }
+}
+
+async fn force_cancel(
+    OptAuthed(opt_authed): OptAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+    Json(CancelJob { reason }): Json<CancelJob>,
+) -> error::Result<String> {
+    let tx = db.begin().await?;
+
+    let username = match opt_authed {
+        Some(authed) => authed.username,
+        None => "anonymous".to_string(),
+    };
+
+    let (mut tx, job_option) =
+        windmill_queue::cancel_job(&username, reason, id, &w_id, tx, true).await?;
+
+    if let Some(id) = job_option {
+        audit_log(
+            &mut tx,
+            &username,
+            "jobs.mark_completed",
             ActionKind::Delete,
             &w_id,
             Some(&id.to_string()),
@@ -766,6 +810,7 @@ pub async fn cancel_suspended_job(
         parent_flow,
         &w_id,
         tx,
+        false,
     )
     .await?;
     if job.is_some() {

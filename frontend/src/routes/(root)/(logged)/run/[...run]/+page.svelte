@@ -62,7 +62,12 @@
 
 	async function cancelJob(id: string) {
 		try {
-			await JobService.cancelQueuedJob({ workspace: workspace_id!, id, requestBody: {} })
+			if (forceCancel) {
+				await JobService.forceCancelQueuedJob({ workspace: workspace_id!, id, requestBody: {} })
+				setTimeout(getLogs, 5000)
+			} else {
+				await JobService.cancelQueuedJob({ workspace: workspace_id!, id, requestBody: {} })
+			}
 			sendUserToast(`job ${id} canceled`)
 		} catch (err) {
 			sendUserToast('could not cancel job', true)
@@ -85,10 +90,13 @@
 
 	$: {
 		if (workspace_id && $page.params.run && testJobLoader) {
+			forceCancel = false
 			getLogs()
 		}
 	}
 	let notfound = false
+
+	let forceCancel = false
 </script>
 
 <TestJobLoader
@@ -177,19 +185,38 @@
 				{@const isRunning = job && 'running' in job && job.running}
 				{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
 				{#if isRunning}
-					<Button
-						disabled={not_same_workspace}
-						color="red"
-						size="md"
-						startIcon={{ icon: faTimesCircle }}
-						on:click|once={() => {
-							if (job?.id) {
-								cancelJob(job?.id)
-							}
-						}}
-					>
-						Cancel
-					</Button>
+					{#if !forceCancel}
+						<Button
+							disabled={not_same_workspace}
+							color="red"
+							size="md"
+							startIcon={{ icon: faTimesCircle }}
+							on:click|once={() => {
+								if (job?.id) {
+									cancelJob(job?.id)
+									setTimeout(() => {
+										forceCancel = true
+									}, 3000)
+								}
+							}}
+						>
+							Cancel
+						</Button>
+					{:else}
+						<Button
+							disabled={not_same_workspace}
+							color="red"
+							size="md"
+							startIcon={{ icon: faTimesCircle }}
+							on:click|once={() => {
+								if (job?.id) {
+									cancelJob(job?.id)
+								}
+							}}
+						>
+							Force Cancel
+						</Button>
+					{/if}
 				{/if}
 				{#if not_same_workspace}
 					<span class="text-red-500 text-sm"
