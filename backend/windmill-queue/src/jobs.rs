@@ -58,12 +58,14 @@ pub async fn cancel_job<'c>(
     id: Uuid,
     w_id: &str,
     mut tx: Transaction<'c, Postgres>,
+    force_rerun: bool,
 ) -> error::Result<(Transaction<'c, Postgres>, Option<Uuid>)> {
     let job_option = sqlx::query_scalar!(
-        "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 \
-         AND workspace_id = $4 RETURNING id",
+        "UPDATE queue SET  canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0, running = CASE WHEN $3 THEN false ELSE running END  WHERE id = $4 \
+         AND workspace_id = $5 RETURNING id",
         username,
         reason,
+        force_rerun,
         id,
         w_id
     )
@@ -73,10 +75,11 @@ pub async fn cancel_job<'c>(
     while !jobs.is_empty() {
         let p_job = jobs.pop();
         let new_jobs = sqlx::query_scalar!(
-            "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2 WHERE parent_job = $3 \
-             AND workspace_id = $4 RETURNING id",
+            "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, running = CASE WHEN $3 THEN false ELSE running END WHERE parent_job = $4 \
+             AND workspace_id = $5 RETURNING id",
             username,
             reason,
+            force_rerun,
             p_job,
             w_id
         )

@@ -2372,29 +2372,6 @@
     },
     "query": "INSERT INTO workspace_key\n            (workspace_id, kind, key)\n            VALUES ($1, 'cloud', $2)"
   },
-  "651361530f153de49f300e4d647903794052ddc7d083d16b66d9ebd142239794": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Uuid"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Text",
-          "Uuid",
-          "Text"
-        ]
-      }
-    },
-    "query": "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2 WHERE parent_job = $3 AND workspace_id = $4 RETURNING id"
-  },
   "653685b39d93008762818d0518b953632040122a9af98332d3fd1d12244b1b80": {
     "describe": {
       "columns": [],
@@ -4143,6 +4120,30 @@
     },
     "query": "\n            UPDATE queue\n               SET flow_status = JSONB_SET(flow_status, ARRAY['failure_module'], $1)\n             WHERE id = $2\n            "
   },
+  "a676fb0538e279c054130bd6bbf9584ccb8c7ed41738617895b17f338ab7f26a": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Text",
+          "Bool",
+          "Uuid",
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE queue SET  canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0, running = CASE WHEN $3 THEN false ELSE running END  WHERE id = $4 AND workspace_id = $5 RETURNING id"
+  },
   "a7abe946c8d0653169e292560eb7a5aa50a9c0f590444480ac642afcb83bbffb": {
     "describe": {
       "columns": [
@@ -4576,6 +4577,30 @@
       }
     },
     "query": "SELECT label, concat(substring(token for 10)) as token_prefix, expiration, created_at, last_used_at FROM token WHERE email = $1\n         ORDER BY created_at DESC"
+  },
+  "b658b75e7a40eeace5f81a390fb254852d535726b08169cca6966df8fdbeea51": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Text",
+          "Bool",
+          "Uuid",
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, running = CASE WHEN $3 THEN false ELSE running END WHERE parent_job = $4 AND workspace_id = $5 RETURNING id"
   },
   "b69f747eae8b13a0a8d6914a3a7ad322554fcfe62cd28c5f0a475f18dd770d61": {
     "describe": {
@@ -6065,29 +6090,6 @@
       }
     },
     "query": "SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2"
-  },
-  "f1f7a27738deae46de6acc10cbff701ff0c3872cc5b387e304bd9a058bb0c8a8": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Uuid"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Text",
-          "Uuid",
-          "Text"
-        ]
-      }
-    },
-    "query": "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 AND workspace_id = $4 RETURNING id"
   },
   "f2485c69b3ab6bec11c4e1eac2934d6e49f83b71a72fe74eba7b49abc225df7c": {
     "describe": {

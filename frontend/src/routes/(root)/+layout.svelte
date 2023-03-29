@@ -106,7 +106,9 @@
 				console.error('Caught unhandled promise rejection without message', event.reason, event)
 			}
 		}
-		loadUser()
+		if ($page.url.pathname != '/user/login') {
+			loadUser()
+		}
 	})
 </script>
 
