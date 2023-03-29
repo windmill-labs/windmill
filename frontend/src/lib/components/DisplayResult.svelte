@@ -10,6 +10,7 @@
 
 	export let result: any
 	export let requireHtmlApproval = false
+	export let filename: string | undefined = undefined
 
 	let resultKind:
 		| 'json'
@@ -231,7 +232,15 @@
 				>
 			</div>
 		{:else}
-			<Highlight language={json} code={JSON.stringify(result, null, 4).replace(/\\n/g, '\n')} />
+			{@const jsonStr = JSON.stringify(result, null, 4).replace(/\\n/g, '\n')}
+			{#if jsonStr.length > 10000}
+				JSON too large. <a
+					download="{filename ?? 'result'}.json"
+					href="data:text/json;charset=utf-8,{encodeURIComponent(jsonStr)}">Download</a
+				>
+			{:else}
+				<Highlight language={json} code={jsonStr} />
+			{/if}
 		{/if}
 	{:else}
 		<div class="text-gray-500 text-sm">No result: {JSON.stringify(result)}</div>

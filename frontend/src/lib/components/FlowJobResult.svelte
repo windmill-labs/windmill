@@ -8,6 +8,7 @@
 	export let col: boolean = false
 	export let noBorder = false
 	export let loading
+	export let filename: string | undefined = undefined
 </script>
 
 <div
@@ -17,7 +18,7 @@
 	<div class="bg-white {col ? '' : 'max-h-80'} h-full p-1 overflow-auto relative">
 		<span class="text-gray-500">Result</span>
 		{#if result}
-			<DisplayResult {result} />
+			<DisplayResult {filename} {result} />
 		{:else if loading}
 			<Loader2 class="animate-spin" />
 		{:else}

@@ -476,6 +476,7 @@
 						{@const node = localFlowModuleStates[selectedNode]}
 						{#if selectedNode == 'end'}
 							<FlowJobResult
+								filename={job.id}
 								loading={job['running']}
 								noBorder
 								col
