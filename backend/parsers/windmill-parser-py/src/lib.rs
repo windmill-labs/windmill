@@ -236,13 +236,11 @@ pub fn parse_python_imports(code: &str) -> error::Result<Vec<String>> {
                             .map(replace_import)
                             .collect::<Vec<String>>(),
                     ),
-                    StmtKind::ImportFrom { level, module: Some(mod_), names: _ } => {
-                        let imprt = if level.is_some() && level.unwrap() > 0 {
-                            ".".to_string()
-                        } else {
-                            mod_.split('.').next().unwrap_or("").replace("_", "-")
-                        };
-
+                    StmtKind::ImportFrom { level: Some(i), .. } if i > 0 => {
+                        Some(vec!["requests".to_string()])
+                    }
+                    StmtKind::ImportFrom { level: _, module: Some(mod_), names: _ } => {
+                        let imprt = mod_.split('.').next().unwrap_or("").replace("_", "-");
                         Some(vec![replace_import(imprt)])
                     }
                     _ => None,
