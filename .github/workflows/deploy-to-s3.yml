@@ -20,7 +20,7 @@ jobs:
         with:
           node-version: 18
       - name: "npm build"
-        timeout-minutes: 5
+        timeout-minutes: 15
         run:
           cd frontend && npm ci && npm run generate-backend-client &&
           NODE_OPTIONS="--max-old-space-size=8192" npm run build
