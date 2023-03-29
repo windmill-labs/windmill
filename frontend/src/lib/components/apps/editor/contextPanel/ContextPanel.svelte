@@ -1,7 +1,8 @@
 <script lang="ts">
+	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import { classNames } from '$lib/utils'
 	import { X } from 'lucide-svelte'
-	import { getContext, setContext } from 'svelte'
-	import { writable } from 'svelte/store'
+	import { getContext } from 'svelte'
 
 	import type { AppViewerContext, ContextPanelContext } from '../../types'
 	import { connectInput } from '../appUtils'
@@ -13,17 +14,16 @@
 
 	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
 
-	let search = writable<string>('')
-
-	setContext<ContextPanelContext>('ContextPanel', {
-		search,
-		manuallyOpened: writable<Record<string, boolean>>({}),
-		hasResult: writable<Record<string, boolean>>({})
-	})
+	const { search } = getContext<ContextPanelContext>('ContextPanel')
 </script>
 
 <PanelSection noPadding titlePadding="px-1.5 pt-2" title="Outputs">
-	<div class="bg-white h-auto w-full z-30 ">
+	<div
+		class={classNames(
+			'bg-white w-full h-full z-30',
+			$connectingInput.opened ? 'border-blue-500 border-t-2 border-r-2 bg-blue-50/50 z-50' : ''
+		)}
+	>
 		<div class="min-w-[150px]">
 			<div class="sticky z-10 top-0 left-0 w-full bg-white p-1.5">
 				<div class="relative w-full">

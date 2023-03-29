@@ -20,8 +20,15 @@
 		configuration
 	)
 
-	const { app, worldStore, focusedGrid, selectedComponent, mode, componentControl } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const {
+		app,
+		worldStore,
+		focusedGrid,
+		selectedComponent,
+		mode,
+		componentControl,
+		connectingInput
+	} = getContext<AppViewerContext>('AppViewerContext')
 
 	let selected: string = tabs[0]
 	let tabHeight: number = 0
@@ -118,7 +125,9 @@
 						? componentContainerHeight - tabHeight
 						: componentContainerHeight}
 					on:focus={() => {
-						$selectedComponent = [id]
+						if (!$connectingInput.opened) {
+							$selectedComponent = [id]
+						}
 					}}
 				/>
 			{/each}

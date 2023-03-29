@@ -1,12 +1,7 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import { concatCustomCss } from '../../utils'
-	import type {
-		AppViewerContext,
-		ComponentCustomCSS,
-		RichConfiguration,
-		RichConfigurations
-	} from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { InputValue } from '../helpers'
 	import { twMerge } from 'tailwind-merge'
 	import { Map, View, Feature } from 'ol'
