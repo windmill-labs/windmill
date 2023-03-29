@@ -262,8 +262,8 @@ pub async fn push<'c>(
     let job_id: Uuid = Ulid::new().into();
 
     if cfg!(feature = "enterprise") {
-        let premium_workspace =
-            sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", workspace_id)
+        let premium_workspace = *CLOUD_HOSTED
+            && sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", workspace_id)
                 .fetch_one(&mut tx)
                 .await
                 .map_err(|e| {
