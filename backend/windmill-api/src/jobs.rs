@@ -171,7 +171,7 @@ async fn force_cancel(
         audit_log(
             &mut tx,
             &username,
-            "jobs.mark_completed",
+            "jobs.force_cancel",
             ActionKind::Delete,
             &w_id,
             Some(&id.to_string()),
