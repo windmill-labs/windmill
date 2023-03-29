@@ -196,7 +196,7 @@
 									cancelJob(job?.id)
 									setTimeout(() => {
 										forceCancel = true
-									}, 3000)
+									}, 3001)
 								}
 							}}
 						>
