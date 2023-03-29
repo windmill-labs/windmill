@@ -4,8 +4,12 @@ on:
     branches: [main]
     tags: ["*"]
 
+concurrency:
+  group: ${{ github.ref }}-npmbuild
+  cancel-in-progress: true
+
 jobs:
-  npm_check:
+  npm_build:
     runs-on: ubuntu-latest
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
