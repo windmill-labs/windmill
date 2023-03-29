@@ -76,6 +76,7 @@
 							bind:value={value.style}
 							properties={quickStyleProperties}
 							{componentType}
+							componentProperty={name}
 						/>
 					</div>
 				{/if}

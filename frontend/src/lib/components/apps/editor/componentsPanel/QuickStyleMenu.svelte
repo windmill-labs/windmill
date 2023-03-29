@@ -19,12 +19,13 @@
 	export let value = ''
 	export let properties: PropertyGroup[]
 	export let componentType: TypedComponent['type'] | undefined = undefined
+	export let componentProperty: string | undefined = undefined
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 	const styleStore = createStyleStore(properties)
 	setContext(STYLE_STORE_KEY, styleStore)
 	let multiValues: Record<number, string[]> = initiateMultiValues()
 	let mounted = false
-	let isOpen: boolean[] = []
+	let isOpen: Record<string, boolean> = {}
 
 	$: mounted && $styleStore && writeStyle()
 	$: mounted && (!value || value) && parseStyle()
@@ -176,14 +177,15 @@
 <div class="pb-2 pt-1">
 	{#each properties as property, i}
 		{#each Object.keys(property) as group, j}
+			{@const prefix = `${componentType}_${componentProperty}_${group}`}
 			<ListItem
-				bind:isOpen={isOpen[i]}
+				bind:isOpen={isOpen[prefix]}
 				title={group}
-				prefix="style_{componentType}_{i}"
-				openByDefault={j === 0}
+				{prefix}
+				openByDefault={true}
 				wrapperClasses="!px-0 !pt-0"
 				toggleClasses="border-b border-gray-300 !rounded-b-none !py-0
-				{isOpen[i] ? '!bg-gray-100 hover:!bg-gray-200' : ''}"
+				{isOpen[prefix] ? '!bg-gray-100 hover:!bg-gray-200' : ''}"
 			>
 				<svelte:fragment slot="title">
 					<span class="font-semibold text-gray-600 capitalize">
