@@ -1,4 +1,4 @@
-name: Deploy to s3
+name: Deploy frontend to s3
 on:
   push:
     branches: [main]
