@@ -47,6 +47,7 @@
 	color="light"
 	size="xs"
 	aria-label="Apply to all instances of this component"
+	btnClasses="ml-3 mt-2"
 	on:click={applyToAllInstances}
 >
 	Copy style to global CSS &nbsp;<Copy size={18} />
@@ -60,6 +61,7 @@
 				forceStyle={ccomponents[component.type].customCss[name].style !== undefined}
 				forceClass={ccomponents[component.type].customCss[name].class !== undefined}
 				{name}
+				componentType={component.type}
 				bind:value={component.customCss[name]}
 				on:change={() => app.set($app)}
 			/>

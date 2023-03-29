@@ -21,6 +21,7 @@ import {
 	Underline
 } from 'lucide-svelte'
 import type { components } from '../component'
+import type { SvelteComponent } from 'svelte'
 
 export const STYLE_STORE_KEY = 'style_store' as const
 
@@ -33,8 +34,12 @@ export type StyleStoreValue = {
 	topColors: TopColors
 }
 
-export function createStyleStore(properties: StylePropertyKey[]) {
-	const style = StyleProperty.filter((p) => properties.includes(p.key)).map((p) => ({
+export function createStyleStore(properties: PropertyGroup[]) {
+	const propertyNames = properties.reduce((acc, p) => {
+		Object.values(p).forEach((names) => acc.push(...names))
+		return acc
+	}, [] as string[])
+	const style = StyleProperty.filter((p) => propertyNames.includes(p.key)).map((p) => ({
 		prop: p,
 		value: '' as string | undefined
 	}))
@@ -93,10 +98,45 @@ export const StylePropertyUnits = ['px', 'em', 'rem', '%', 'vh', 'vw']
 
 export type TopColors = [] | [string] | [string, string] | [string, string, string]
 
+export type StylePropertyOption = {
+	text: string
+	icon: string | typeof SvelteComponent
+}
+
+export type BaseStylePropertyValue<T extends StylePropertyType> = {
+	type: T
+	title?: string
+}
+
+export type StylePropertyColorValue = BaseStylePropertyValue<StylePropertyType.color>
+
+export type StylePropertyUnitValue = BaseStylePropertyValue<StylePropertyType.unit>
+
+export type StylePropertyNumberValue = BaseStylePropertyValue<StylePropertyType.number> & {
+	step?: number
+	min?: number
+	max?: number
+}
+
+export type StylePropertyTextValue = BaseStylePropertyValue<StylePropertyType.text> & {
+	options?: StylePropertyOption[]
+}
+
+export type StylePropertyValue =
+	| StylePropertyColorValue
+	| StylePropertyUnitValue
+	| StylePropertyNumberValue
+	| StylePropertyTextValue
+
+export type StyleProperty = {
+	key: string
+	value: StylePropertyValue | StylePropertyValue[]
+}
+
 export type StylePropertyKey = (typeof StyleProperty)[number]['key']
 
 // Using an array instead of an object to preserve the order of the properties
-export const StyleProperty = [
+export const StyleProperty: StyleProperty[] = [
 	{
 		key: 'display',
 		value: {
@@ -278,15 +318,15 @@ export const StyleProperty = [
 		}
 	},
 	{
-		key: 'font-size',
-		value: {
-			type: StylePropertyType.unit
-		}
-	},
-	{
 		key: 'font-family',
 		value: {
 			type: StylePropertyType.text
+		}
+	},
+	{
+		key: 'font-size',
+		value: {
+			type: StylePropertyType.unit
 		}
 	},
 	{
@@ -421,67 +461,91 @@ export const StyleProperty = [
 			]
 		}
 	}
-] as const
-
-const allDefaultProps = StyleProperty.map(({ key }) => key)
-
-const containerDefaultProps: StylePropertyKey[] = [
-	'padding',
-	'opacity',
-	'border',
-	'border-radius',
-	'box-shadow',
-	'background-color',
-	'overflow'
 ]
 
-const textDefaultProps: StylePropertyKey[] = [
-	'padding',
-	'opacity',
-	'background-color',
-	'color',
-	'font-size',
-	'font-family',
-	'font-weight',
-	'font-style',
-	'text-align',
-	'text-decoration',
-	'text-transform',
-	'line-height',
-	'letter-spacing',
-	'word-spacing'
+export type PropertyGroup = Record<string, StylePropertyKey[]>
+
+// Property groups
+const layoutGrouping: PropertyGroup = {
+	layout: ['display', 'overflow']
+}
+
+const sizeGrouping: PropertyGroup = {
+	size: ['width', 'min-width', 'max-width', 'height', 'min-height', 'max-height']
+}
+
+const spacingGrouping: PropertyGroup = {
+	spacing: ['padding']
+}
+
+const borderGrouping: PropertyGroup = {
+	borders: ['border', 'border-radius']
+}
+
+const typographyGrouping: PropertyGroup = {
+	typography: [
+		'color',
+		'font-size',
+		'font-family',
+		'font-weight',
+		'font-style',
+		'text-align',
+		'text-decoration',
+		'text-transform',
+		'line-height',
+		'letter-spacing',
+		'word-spacing'
+	]
+}
+
+const backgroundGrouping: PropertyGroup = {
+	background: ['background-color', 'opacity', 'box-shadow']
+}
+
+const miscGrouping: PropertyGroup = {
+	miscellaneous: ['cursor']
+}
+
+// Commonly used-together property groups
+const containerDefaultProps: PropertyGroup[] = [
+	layoutGrouping,
+	spacingGrouping,
+	backgroundGrouping,
+	borderGrouping
 ]
 
-const sizeDefaultProps: StylePropertyKey[] = [
-	'width',
-	'min-width',
-	'max-width',
-	'height',
-	'min-height',
-	'max-height'
+const buttonDefaultProps: PropertyGroup[] = [
+	backgroundGrouping,
+	borderGrouping,
+	typographyGrouping,
+	miscGrouping
 ]
 
-const buttonDefaultProps: StylePropertyKey[] = [
-	'cursor',
-	'border',
-	'border-radius',
-	'box-shadow',
-	...textDefaultProps
+const inputDefaultProps: PropertyGroup[] = [borderGrouping, typographyGrouping, miscGrouping]
+
+const sliderDefaultProps: PropertyGroup[] = [
+	{
+		colors: ['color', 'background-color', 'opacity']
+	},
+	borderGrouping,
+	miscGrouping
 ]
 
-const inputDefaultProps: StylePropertyKey[] = [
-	'cursor',
-	'border',
-	'border-radius',
-	...textDefaultProps
+const dividerDefaultProps: PropertyGroup[] = [
+	{
+		colors: ['background-color', 'opacity']
+	},
+	sizeGrouping,
+	spacingGrouping,
+	borderGrouping
 ]
 
 export const quickStyleProperties: Record<
 	keyof typeof components,
-	Record<string, StylePropertyKey[]>
+	Record<string, PropertyGroup[]>
 > = {
 	mapcomponent: {
-		map: containerDefaultProps
+		map: [spacingGrouping, borderGrouping]
 	},
 	pdfcomponent: {
 		container: containerDefaultProps
@@ -491,40 +555,43 @@ export const quickStyleProperties: Record<
 		button: buttonDefaultProps
 	},
 	htmlcomponent: {
-		container: allDefaultProps
+		container: [
+			layoutGrouping,
+			sizeGrouping,
+			spacingGrouping,
+			borderGrouping,
+			typographyGrouping,
+			backgroundGrouping
+		]
 	},
 	iconcomponent: {
 		container: containerDefaultProps,
 		icon: [
-			'padding',
-			'opacity',
-			'cursor',
-			'width',
-			'min-width',
-			'max-width',
-			'height',
-			'min-height',
-			'max-height',
-			'color'
+			{
+				colors: ['color', 'background-color', 'opacity']
+			},
+			sizeGrouping,
+			spacingGrouping,
+			miscGrouping
 		]
 	},
 	tabscomponent: {
 		tabRow: containerDefaultProps,
-		allTabs: [...textDefaultProps, ...sizeDefaultProps],
-		selectedTab: [...textDefaultProps, ...sizeDefaultProps],
+		allTabs: [typographyGrouping, sizeGrouping],
+		selectedTab: [typographyGrouping, sizeGrouping],
 		container: containerDefaultProps
 	},
 	textcomponent: {
-		text: textDefaultProps
+		text: [typographyGrouping]
 	},
 	imagecomponent: {
 		image: containerDefaultProps
 	},
 	rangecomponent: {
-		handles: ['opacity', 'cursor', 'border', 'border-radius', 'background-color'],
-		bar: ['opacity', 'cursor', 'border', 'border-radius', 'background-color'],
-		limits: textDefaultProps,
-		values: textDefaultProps
+		handles: sliderDefaultProps,
+		bar: sliderDefaultProps,
+		limits: [typographyGrouping],
+		values: [typographyGrouping]
 	},
 	tablecomponent: {
 		tableHeader: containerDefaultProps,
@@ -544,20 +611,20 @@ export const quickStyleProperties: Record<
 		input: inputDefaultProps
 	},
 	slidercomponent: {
-		handles: ['opacity', 'cursor', 'border', 'border-radius', 'background-color'],
-		bar: ['opacity', 'cursor', 'border', 'border-radius', 'background-color'],
-		limits: textDefaultProps,
-		values: textDefaultProps
+		handles: sliderDefaultProps,
+		bar: sliderDefaultProps,
+		limits: [typographyGrouping],
+		values: [typographyGrouping]
 	},
 	displaycomponent: {
-		header: [...containerDefaultProps, ...textDefaultProps],
+		header: [...containerDefaultProps, typographyGrouping],
 		container: containerDefaultProps
 	},
 	barchartcomponent: {
 		container: containerDefaultProps
 	},
 	checkboxcomponent: {
-		text: textDefaultProps
+		text: [typographyGrouping]
 	},
 	currencycomponent: {
 		input: inputDefaultProps
@@ -607,35 +674,11 @@ export const quickStyleProperties: Record<
 		input: inputDefaultProps
 	},
 	verticaldividercomponent: {
-		divider: [
-			'padding',
-			'opacity',
-			'width',
-			'min-width',
-			'max-width',
-			'height',
-			'min-height',
-			'max-height',
-			'border',
-			'border-radius',
-			'background-color'
-		],
+		divider: dividerDefaultProps,
 		container: containerDefaultProps
 	},
 	horizontaldividercomponent: {
-		divider: [
-			'padding',
-			'opacity',
-			'width',
-			'min-width',
-			'max-width',
-			'height',
-			'min-height',
-			'max-height',
-			'border',
-			'border-radius',
-			'background-color'
-		],
+		divider: dividerDefaultProps,
 		container: containerDefaultProps
 	},
 	verticalsplitpanescomponent: {
