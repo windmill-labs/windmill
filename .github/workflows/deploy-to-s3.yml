@@ -1,0 +1,28 @@
+name: Deploy to s3
+on:
+  push:
+    branches: [main]
+    tags: ["*"]
+
+jobs:
+  npm_check:
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 18
+      - name: "npm build"
+        timeout-minutes: 5
+        run:
+          cd frontend && npm ci && npm run generate-backend-client && npm run
+          build
+
+      - uses: reggionick/s3-deploy@v3
+        with:
+          folder: frontend/build
+          bucket: windmill-frontend
+          bucket-region: us-east-1
