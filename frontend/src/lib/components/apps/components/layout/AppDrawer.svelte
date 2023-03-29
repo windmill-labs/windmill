@@ -79,21 +79,39 @@
 				$focusedGrid = undefined
 			}}
 		>
-			{#if $app.subgrids?.[`${id}-0`]}
-				<SubGridEditor
-					visible={open && render}
-					{id}
-					class={css?.container?.class}
-					style={css?.container?.style}
-					subGridId={`${id}-0`}
-					containerHeight={1200}
-					on:focus={() => {
-						if (!$connectingInput.opened) {
-							$selectedComponent = [id]
+			<div
+				class="h-full"
+				on:pointerdown={(e) => {
+					e?.stopPropagation()
+					if (!$connectingInput.opened) {
+						$selectedComponent = [id]
+						$focusedGrid = {
+							parentComponentId: id,
+							subGridIndex: 0
 						}
-					}}
-				/>
-			{/if}
+					}
+				}}
+			>
+				{#if $app.subgrids?.[`${id}-0`]}
+					<SubGridEditor
+						visible={open && render}
+						{id}
+						class={css?.container?.class}
+						style={css?.container?.style}
+						subGridId={`${id}-0`}
+						containerHeight={1200}
+						on:focus={() => {
+							if (!$connectingInput.opened) {
+								$selectedComponent = [id]
+								$focusedGrid = {
+									parentComponentId: id,
+									subGridIndex: 0
+								}
+							}
+						}}
+					/>
+				{/if}
+			</div>
 		</DrawerContent>
 	</Drawer>
 </Portal>
