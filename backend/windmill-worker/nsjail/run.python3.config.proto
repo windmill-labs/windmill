@@ -66,8 +66,8 @@ mount {
 }
 
 mount {
-    src: "{JOB_DIR}/inner.py"
-    dst: "/tmp/inner.py"
+    src: "{JOB_DIR}/{MAIN}.py"
+    dst: "/tmp/{MAIN}.py"
     is_bind: true
 }
 
@@ -79,8 +79,8 @@ mount {
 }
 
 mount {
-    src: "{JOB_DIR}/main.py"
-    dst: "/tmp/main.py"
+    src: "{JOB_DIR}/wrapper.py"
+    dst: "/tmp/wrapper.py"
     is_bind: true
 }
 

@@ -1,6 +1,40 @@
 # Changelog
 
 
+## [1.83.1](https://github.com/windmill-labs/windmill/compare/v1.83.0...v1.83.1) (2023-03-28)
+
+
+### Bug Fixes
+
+* **cli:** plain secrets might be undefined ([569a55e](https://github.com/windmill-labs/windmill/commit/569a55e45b34641b0fb4569387166f3aa89ce35f))
+
+## [1.83.0](https://github.com/windmill-labs/windmill/compare/v1.82.0...v1.83.0) (2023-03-28)
+
+
+### Features
+
+* **backend:** allow relative imports for python ([a5500ea](https://github.com/windmill-labs/windmill/commit/a5500ea40a77b2e0408e2a644190a8f65b18cd1d))
+* **backend:** execute /bin/bash instead of /bin/sh for bash scripts ([021fa23](https://github.com/windmill-labs/windmill/commit/021fa23f9ffcd11548977a4589eb9bc2815243cf))
+* **backend:** improve relative importsfor deno ([eaac598](https://github.com/windmill-labs/windmill/commit/eaac598af308cedea8f0f8fc7c189a4640b4366b))
+* **backend:** increase timeout for premium workspace ([00b70d9](https://github.com/windmill-labs/windmill/commit/00b70d9aaac8ae979782492d7754060a3c2c9567))
+* **frontend:** add pagination ([33c07d3](https://github.com/windmill-labs/windmill/commit/33c07d3e63f96673719ecb15e45f4cd9e18be80e))
+* **frontend:** Add quick style settings to app editor ([#1308](https://github.com/windmill-labs/windmill/issues/1308)) ([ac24862](https://github.com/windmill-labs/windmill/commit/ac2486219cd91df3a7fe11d37894797a881cac6c))
+* **frontend:** add recompute as a primitive ([449d3ae](https://github.com/windmill-labs/windmill/commit/449d3ae5ddeceef3fbcb7a815a4dba16c9639fb3))
+* **frontend:** add textareacomponent + fix multiselect style + select multi components ([2b31653](https://github.com/windmill-labs/windmill/commit/2b31653a8aa06807678e8609cfa62cf0f2f55dce))
+* **frontend:** multiselect components for apps ([577dec5](https://github.com/windmill-labs/windmill/commit/577dec5c5733cdf88e8586ce6c27159920c69c8a))
+* **frontend:** use rich json editor for arrays of objects and for object in ArgInput ([b95afaa](https://github.com/windmill-labs/windmill/commit/b95afaa9bb41b102181657453a564f44f4511983))
+
+
+### Bug Fixes
+
+* **apps:** improve app table actionButtons behavior under many clicks ([8e3d8ac](https://github.com/windmill-labs/windmill/commit/8e3d8acc80de971ee115d6903d24864d8263f08b))
+* **cli:** add --plain-secrets ([98d51e2](https://github.com/windmill-labs/windmill/commit/98d51e219df1680507114f9b57ec0b0a4a234b5c))
+* **frontend:** add a modal that is always mounted to make sure compon… ([#1328](https://github.com/windmill-labs/windmill/issues/1328)) ([a527cb8](https://github.com/windmill-labs/windmill/commit/a527cb8222a2ff80dae38ebae7dc5ea0979d74c5))
+* **frontend:** Disable app keyboard navigation on focused inputs ([#1326](https://github.com/windmill-labs/windmill/issues/1326)) ([da24e9a](https://github.com/windmill-labs/windmill/commit/da24e9ab0625a7503c498c179022ea4011a03170))
+* **frontend:** persist description for schemas ([1a48673](https://github.com/windmill-labs/windmill/commit/1a4867302f72aaae8f422ac8f53812c116cc383d))
+* **frontend:** Revert app upload input ([#1330](https://github.com/windmill-labs/windmill/issues/1330)) ([fa457bb](https://github.com/windmill-labs/windmill/commit/fa457bb7099bd31c2315eaf7f7f2c40900b2ae39))
+* **frontend:** Small app fixes ([#1331](https://github.com/windmill-labs/windmill/issues/1331)) ([75306c8](https://github.com/windmill-labs/windmill/commit/75306c831616d9a01cc3a4681732aab93153f1a9))
+
 ## [1.82.0](https://github.com/windmill-labs/windmill/compare/v1.81.0...v1.82.0) (2023-03-24)
 
 

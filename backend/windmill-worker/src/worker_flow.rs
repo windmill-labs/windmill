@@ -11,8 +11,8 @@ use std::iter;
 use std::time::Duration;
 
 use crate::jobs::{add_completed_job, add_completed_job_error, schedule_again_if_scheduled};
-use crate::js_eval::{eval_timeout,  IdContext};
-use crate::{worker, KEEP_JOB_DIR, AuthedClient};
+use crate::js_eval::{eval_timeout, IdContext};
+use crate::{worker, AuthedClient, KEEP_JOB_DIR};
 use anyhow::Context;
 use async_recursion::async_recursion;
 use dyn_iter::DynIter;
@@ -120,8 +120,7 @@ pub async fn update_flow_status_after_job_completion(
 
         let stop_early = success
             && if let Some(expr) = r.stop_early_expr.clone() {
-                compute_bool_from_expr(expr, &r.args, result.clone(), None, Some(client))
-                    .await?
+                compute_bool_from_expr(expr, &r.args, result.clone(), None, Some(client)).await?
             } else {
                 false
             };
@@ -395,6 +394,12 @@ pub async fn update_flow_status_after_job_completion(
     let flow_job = get_queued_job(flow, w_id, &mut tx)
         .await?
         .ok_or_else(|| Error::InternalErr(format!("requiring flow to be in the queue")))?;
+
+    let job_root = flow_job
+        .root_job
+        .map(|x| x.to_string())
+        .unwrap_or_else(|| "none".to_string());
+    tracing::info!(id = %flow_job.id, root_id = %job_root, "update flow status");
 
     let raw_flow = flow_job.parse_raw_flow();
     let module = raw_flow.as_ref().and_then(|module| {
@@ -727,18 +732,13 @@ async fn transform_input(
                     context.push(("error".to_string(), error.unwrap().clone()));
                 }
 
-                let v = eval_timeout(
-                    expr.to_string(),
-                    context,
-                    Some(client),
-                    Some(by_id.clone())
-                )
-                .await
-                .map_err(|e| {
-                    Error::ExecutionErr(format!(
-                        "Error during isolated evaluation of expression `{expr}`:\n{e}"
-                    ))
-                })?;
+                let v = eval_timeout(expr.to_string(), context, Some(client), Some(by_id.clone()))
+                    .await
+                    .map_err(|e| {
+                        Error::ExecutionErr(format!(
+                            "Error during isolated evaluation of expression `{expr}`:\n{e}"
+                        ))
+                    })?;
                 mapped.insert(key.to_string(), v);
                 ()
             }
@@ -798,6 +798,12 @@ async fn push_next_flow_job(
     worker_dir: &str,
     base_internal_url: &str,
 ) -> error::Result<()> {
+    let job_root = flow_job
+        .root_job
+        .map(|x| x.to_string())
+        .unwrap_or_else(|| "none".to_string());
+    tracing::info!(id = %flow_job.id, root_id = %job_root, "pushing next flow job");
+
     let mut i = usize::try_from(status.step)
         .with_context(|| format!("invalid module index {}", status.step))?;
 
@@ -865,7 +871,7 @@ async fn push_next_flow_job(
                         ]
                         .into(),
                         None,
-                        None
+                        None,
                     )
                     .await
                     .map_err(|e| {
@@ -1128,7 +1134,7 @@ async fn push_next_flow_job(
                 resume_messages.as_slice(),
                 approvers,
                 by_id,
-                client
+                client,
             )
             .await
         }
@@ -1167,10 +1173,11 @@ async fn push_next_flow_job(
         &status_module,
         last_result.clone(),
         previous_id,
-        client
+        client,
     )
     .await?;
     tx.commit().await?;
+    tracing::info!(id = %flow_job.id, root_id = %job_root, "next flow transform computed");
 
     let (job_payloads, next_status) = match next_flow_transform {
         NextFlowTransform::Continue(job_payload, next_state) => (job_payload, next_state),
@@ -1367,6 +1374,7 @@ async fn push_next_flow_job(
     };
 
     tx.commit().await?;
+    tracing::info!(id = %flow_job.id, root_id = %job_root, "all next flow jobs pushed");
 
     if continue_on_same_worker {
         if !is_one_uuid {
@@ -1498,7 +1506,6 @@ async fn script_path_to_payload<'c>(
     Ok(job_payload)
 }
 
-
 async fn compute_next_flow_transform<'c>(
     flow_job: &QueuedJob,
     flow: &FlowValue,
@@ -1509,7 +1516,7 @@ async fn compute_next_flow_transform<'c>(
     status_module: &FlowStatusModule,
     last_result: serde_json::Value,
     previous_id: String,
-    client: &AuthedClient
+    client: &AuthedClient,
 ) -> error::Result<(sqlx::Transaction<'c, sqlx::Postgres>, NextFlowTransform)> {
     match &module.value {
         FlowModuleValue::Identity => Ok((
@@ -1540,7 +1547,7 @@ async fn compute_next_flow_transform<'c>(
         FlowModuleValue::RawScript { path, content, language, lock, .. } => {
             let path = path
                 .clone()
-                .or_else(|| Some(format!("{}/{}", flow_job.script_path(), status.step)));
+                .or_else(|| Some(format!("{}/step-{}", flow_job.script_path(), status.step)));
             Ok((
                 tx,
                 NextFlowTransform::Continue(
@@ -1579,7 +1586,7 @@ async fn compute_next_flow_transform<'c>(
                             ]
                         },
                         Some(client),
-                        Some(by_id)
+                        Some(by_id),
                     )
                     .await?
                     .into_array()
@@ -1696,8 +1703,7 @@ async fn compute_next_flow_transform<'c>(
                 | FlowStatusModule::WaitingForEvents { .. }
                 | FlowStatusModule::WaitingForExecutor { .. } => {
                     let mut branch_chosen = BranchChosen::Default;
-                    let idcontext =
-                        get_transform_context(&flow_job, previous_id, &status).await?;
+                    let idcontext = get_transform_context(&flow_job, previous_id, &status).await?;
                     for (i, b) in branches.iter().enumerate() {
                         let pred = compute_bool_from_expr(
                             b.expr.to_string(),
@@ -1873,16 +1879,13 @@ async fn get_transform_context(
     previous_id: String,
     status: &FlowStatus,
 ) -> error::Result<IdContext> {
-
     let steps_results: HashMap<String, JobResult> = status
         .modules
         .iter()
         .filter_map(|x| x.job_result().map(|y| (x.id(), y)))
         .collect();
 
-    Ok(
-        IdContext { flow_job: flow_job.id, steps_results, previous_id },
-    )
+    Ok(IdContext { flow_job: flow_job.id, steps_results, previous_id })
 }
 
 async fn evaluate_with<F>(
@@ -1896,15 +1899,7 @@ where
 {
     match transform {
         InputTransform::Static { value } => Ok(value),
-        InputTransform::Javascript { expr } => {
-            eval_timeout(
-                expr,
-                vars(),
-                client,
-                by_id,
-            )
-            .await
-        }
+        InputTransform::Javascript { expr } => eval_timeout(expr, vars(), client, by_id).await,
     }
 }
 trait IntoArray: Sized {

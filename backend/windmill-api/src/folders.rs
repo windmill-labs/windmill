@@ -16,6 +16,8 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
+use lazy_static::lazy_static;
+use regex::Regex;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{self, to_anyhow, Error, JsonResult, Result},
@@ -136,6 +138,10 @@ async fn check_name_conflict<'c>(
     return Ok(());
 }
 
+lazy_static! {
+    static ref VALID_FOLDER_NAME: Regex = Regex::new(r#"^[a-zA-Z_0-9]+$"#).unwrap();
+}
+
 async fn create_folder(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
@@ -144,6 +150,12 @@ async fn create_folder(
     Json(ng): Json<NewFolder>,
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
+
+    if !VALID_FOLDER_NAME.is_match(&ng.name) {
+        return Err(windmill_common::error::Error::BadRequest(format!(
+            "Folder name can only contain alphanumeric characters, underscores"
+        )));
+    }
 
     check_name_conflict(&mut tx, &w_id, &ng.name).await?;
     let owner = username_to_permissioned_as(&authed.username);

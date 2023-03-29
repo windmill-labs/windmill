@@ -2,15 +2,11 @@ import { sendUserToast } from '$lib/utils'
 import { isPlainObject } from 'lodash'
 import type { World } from '../../rx'
 
-export function computeGlobalContext(
-	world: World | undefined,
-	id: string | undefined,
-	extraContext: any = {}
-) {
+export function computeGlobalContext(world: World | undefined, extraContext: any = {}) {
 	return {
 		...Object.fromEntries(
 			Object.entries(world?.outputsById ?? {})
-				.filter(([k, _]) => k != id && k != 'state')
+				.filter(([k, _]) => k != 'state')
 				.map(([key, value]) => {
 					return [
 						key,
@@ -24,7 +20,7 @@ export function computeGlobalContext(
 
 function create_context_function_template(eval_string, context, noReturn: boolean) {
 	return `
-return async function (context, state, goto, setTab) {
+return async function (context, state, goto, setTab, recompute) {
 "use strict";
 ${
 	Object.keys(context).length > 0
@@ -40,7 +36,7 @@ function make_context_evaluator(
 	eval_string,
 	context,
 	noReturn: boolean
-): (context, state, goto, setTab) => Promise<any> {
+): (context, state, goto, setTab, recompute) => Promise<any> {
 	let template = create_context_function_template(eval_string, context, noReturn)
 	let functor = Function(template)
 	return functor()
@@ -85,7 +81,8 @@ export async function eval_like(
 	state: Record<string, any>,
 	editor: boolean,
 	controlComponents: Record<string, { setTab?: (index: number) => void }>,
-	worldStore: World | undefined
+	worldStore: World | undefined,
+	runnableComponents: Record<string, { cb?: () => void }>
 ) {
 	const proxiedState = new Proxy(state, {
 		set(target, key, value) {
@@ -120,6 +117,9 @@ export async function eval_like(
 		},
 		(id, index) => {
 			controlComponents[id]?.setTab?.(index)
+		},
+		(id) => {
+			runnableComponents[id]?.cb?.()
 		}
 	)
 }

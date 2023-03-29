@@ -50,7 +50,8 @@
 		jobs
 	} = getContext<AppViewerContext>('AppViewerContext')
 
-	const { history, ontextfocus } = getContext<AppEditorContext>('AppEditorContext')
+	const { history, ontextfocus, movingcomponents } =
+		getContext<AppEditorContext>('AppEditorContext')
 
 	$: editor && ($ontextfocus = () => editor?.focus())
 
@@ -60,7 +61,12 @@
 		if (componentSettings?.item.id) {
 			$errorByComponent = clearErrorByComponentId(componentSettings?.item.id, $errorByComponent)
 			$jobs = clearJobsByComponentId(componentSettings?.item.id, $jobs)
+
+			if ($movingcomponents?.includes(componentSettings?.item.id)) {
+				$movingcomponents = $movingcomponents.filter((id) => id !== componentSettings?.item.id)
+			}
 		}
+
 		$selectedComponent = undefined
 		$focusedGrid = undefined
 		if (componentSettings?.item && !noGrid) {

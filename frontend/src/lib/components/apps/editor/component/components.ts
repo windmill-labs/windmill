@@ -56,6 +56,7 @@ type ClickableComponent = {
 
 export type TextComponent = BaseComponent<'textcomponent'>
 export type TextInputComponent = BaseComponent<'textinputcomponent'>
+export type TextareaInputComponent = BaseComponent<'textareainputcomponent'>
 export type PasswordInputComponent = BaseComponent<'passwordinputcomponent'>
 export type EmailInputComponent = BaseComponent<'emailinputcomponent'>
 export type DateInputComponent = BaseComponent<'dateinputcomponent'>
@@ -108,6 +109,7 @@ export type PdfComponent = BaseComponent<'pdfcomponent'>
 export type TypedComponent =
 	| DisplayComponent
 	| TextInputComponent
+	| TextareaInputComponent
 	| PasswordInputComponent
 	| EmailInputComponent
 	| DateInputComponent
@@ -786,6 +788,14 @@ Hello \${ctx.username}
 					onlyStatic: true,
 					selectOptions: selectOptions.tableSearchOptions,
 					value: 'Disabled'
+				},
+				manualPagination: {
+					fieldType: 'boolean',
+					type: 'static',
+					onlyStatic: true,
+					value: false,
+					tooltip:
+						'Pagination would not be handled by the component but by the script itself. Connect to the pagination output'
 				}
 			},
 			componentInput: {
@@ -912,6 +922,31 @@ Hello \${ctx.username}
 			}
 		}
 	},
+	textareainputcomponent: {
+		name: 'Textarea',
+		icon: TextCursorInput,
+		dims: '2:1-2:1' as AppComponentDimensions,
+
+		customCss: {
+			input: { class: '', style: '' }
+		},
+		initialData: {
+			componentInput: undefined,
+			configuration: {
+				placeholder: {
+					type: 'static',
+					value: 'Type...',
+					fieldType: 'text',
+					onlyStatic: true
+				},
+				defaultValue: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'text'
+				}
+			}
+		}
+	},
 	selectcomponent: {
 		name: 'Select',
 		icon: List,
@@ -963,7 +998,6 @@ Hello \${ctx.username}
 			input: { style: '' }
 		},
 		initialData: {
-			verticalAlignment: 'center',
 			componentInput: undefined,
 			configuration: {
 				items: {

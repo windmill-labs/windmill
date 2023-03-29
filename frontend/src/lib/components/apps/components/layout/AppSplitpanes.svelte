@@ -16,7 +16,7 @@
 	export let panes: number[]
 	export let render: boolean
 
-	const { app, focusedGrid, selectedComponent, componentControl, worldStore } =
+	const { app, focusedGrid, selectedComponent, componentControl, worldStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	//used so that we can count number of outputs setup for first refresh
@@ -90,10 +90,12 @@
 							subGridId={`${id}-${index}`}
 							containerHeight={horizontal ? undefined : componentContainerHeight - 8}
 							on:focus={() => {
-								$selectedComponent = [id]
-								$focusedGrid = {
-									parentComponentId: id,
-									subGridIndex: index
+								if (!$connectingInput.opened) {
+									$selectedComponent = [id]
+									$focusedGrid = {
+										parentComponentId: id,
+										subGridIndex: index
+									}
 								}
 							}}
 						/>

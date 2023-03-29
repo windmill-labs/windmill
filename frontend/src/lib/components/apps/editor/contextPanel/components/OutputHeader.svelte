@@ -14,7 +14,7 @@
 
 	const { manuallyOpened, search, hasResult } = getContext<ContextPanelContext>('ContextPanel')
 
-	const { selectedComponent, app, hoverStore, allIdsInPath } =
+	const { selectedComponent, app, hoverStore, allIdsInPath, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	$: subids = $search != '' ? allsubIds($app, id) : []
@@ -62,7 +62,11 @@
 		class={classNames(
 			'flex items-center justify-between p-1 cursor-pointer border-b gap-1 truncate',
 			hoverColor[color],
-			$selectedComponent?.includes(id) ? openBackground[color] : 'bg-white',
+			$selectedComponent?.includes(id)
+				? openBackground[color]
+				: $connectingInput.hoveredComponent === id
+				? 'bg-orange-300 '
+				: 'bg-white',
 			first ? 'border-t' : '',
 			nested ? 'border-l' : ''
 		)}
@@ -71,7 +75,7 @@
 		}}
 	>
 		<button
-			disabled={!(selectable && !$selectedComponent?.includes(id))}
+			disabled={!(selectable && !$selectedComponent?.includes(id)) || $connectingInput?.opened}
 			title="Select component"
 			on:click|stopPropagation={() => ($selectedComponent = [id])}
 			class="flex items-center ml-0.5 rounded-sm bg-gray-100 hover:text-black text-gray-600"
@@ -101,7 +105,12 @@
 			{/if}
 		</div>
 	</div>
-	<div class="border-b {open ? 'h-full' : 'h-0 overflow-hidden'}">
+	<div
+		class="border-b {open ? 'h-full' : 'h-0 overflow-hidden'} {$connectingInput.hoveredComponent ===
+			id && !$selectedComponent?.includes(id)
+			? '  bg-orange-100/40'
+			: ''}"
+	>
 		<div class={classNames(nested ? 'border-l ml-2' : '')}>
 			<slot />
 		</div>

@@ -181,6 +181,7 @@ static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_ma
     "git" => "GitPython",
     "u" => "requests",
     "f" => "requests",
+    "." => "requests",
     "shopify" => "ShopifyAPI",
     "seleniumwire" => "selenium-wire",
     "openbb-terminal" => "openbb[all]",
@@ -224,12 +225,23 @@ pub fn parse_python_imports(code: &str) -> error::Result<Vec<String>> {
                     StmtKind::Import { names } => Some(
                         names
                             .into_iter()
-                            .map(|x| x.node.name.split('.').next().unwrap_or("").to_string())
+                            .map(|x| {
+                                let name = x.node.name;
+                                if name.starts_with('.') {
+                                    ".".to_string()
+                                } else {
+                                    name.split('.').next().unwrap_or("").to_string()
+                                }
+                            })
                             .map(replace_import)
                             .collect::<Vec<String>>(),
                     ),
-                    StmtKind::ImportFrom { level: _, module: Some(mod_), names: _ } => {
-                        let imprt = mod_.split('.').next().unwrap_or("").replace("_", "-");
+                    StmtKind::ImportFrom { level, module: Some(mod_), names: _ } => {
+                        let imprt = if level.is_some() && level.unwrap() > 0 {
+                            ".".to_string()
+                        } else {
+                            mod_.split('.').next().unwrap_or("").replace("_", "-")
+                        };
 
                         Some(vec![replace_import(imprt)])
                     }
@@ -442,6 +454,7 @@ import os
 import wmill
 from zanzibar.estonie import talin
 import matplotlib.pyplot as plt
+from . import tests
 
 def main():
     pass
@@ -449,7 +462,7 @@ def main():
 ";
         let r = parse_python_imports(code)?;
         // println!("{}", serde_json::to_string(&r)?);
-        assert_eq!(r, vec!["wmill", "zanzibar", "matplotlib"]);
+        assert_eq!(r, vec!["wmill", "zanzibar", "matplotlib", "requests"]);
         Ok(())
     }
 

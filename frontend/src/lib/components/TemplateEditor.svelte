@@ -573,7 +573,6 @@
 
 		editor.onDidBlurEditorText(() => {
 			code = getCode()
-			dispatch('blur')
 		})
 	}
 

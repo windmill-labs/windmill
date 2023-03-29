@@ -198,7 +198,7 @@
 				{/if}
 				<Button
 					href={runHref}
-					disabled={isRunning || not_same_workspace}
+					disabled={not_same_workspace}
 					color="blue"
 					size="md"
 					startIcon={{ icon: faRefresh }}>Run again</Button
@@ -356,6 +356,7 @@
 					on:jobsLoaded={({ detail }) => {
 						job = detail
 					}}
+					workspaceId={workspace_id}
 				/>
 			</div>
 		{/if}

@@ -7,14 +7,24 @@ export interface SecondaryMenuStore {
 	isOpen: boolean
 	component?: typeof SvelteComponent | string
 	props: Record<string, any>
+	onClose?: (() => void) | undefined
 }
 
 const store = writable<SecondaryMenuStore>({ isOpen: false, component: undefined, props: {} })
 
 export const secondaryMenu = {
 	subscribe: store.subscribe,
-	open: (component: SecondaryMenuStore['component'], props: SecondaryMenuStore['props'] = {}) => {
-		store.set({ isOpen: true, component, props })
+	open: (
+		component: SecondaryMenuStore['component'],
+		props: SecondaryMenuStore['props'] = {},
+		onClose: (() => void) | undefined = undefined
+	) => {
+		store.set({ isOpen: true, component, props, onClose })
 	},
-	close: () => store.set({ isOpen: false, component: undefined, props: {} })
+	close: () => {
+		store.update((state) => {
+			if (state.onClose) state.onClose()
+			return { isOpen: false, component: undefined, props: {} }
+		})
+	}
 } as const

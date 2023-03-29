@@ -651,7 +651,8 @@ pub async fn run_worker(
                             .with_label_values(label_values.as_slice()),
                     };
 
-                    tracing::info!(worker = %worker_name, id = %job.id, "fetched job {}", job.id);
+                    let job_root = job.root_job.map(|x| x.to_string()).unwrap_or_else(|| "none".to_string());
+                    tracing::info!(worker = %worker_name, id = %job.id, root_id = %job_root, "fetched job {}, root job: {}", job.id, job_root);
 
                     let job_dir = format!("{worker_dir}/{}", job.id);
 
@@ -1465,7 +1466,7 @@ async fn handle_bash_job(
                 .replace("{SHARED_MOUNT}", shared_mount),
         )
         .await?;
-        let mut cmd_args = vec!["--config", "run.config.proto", "--", "/bin/sh", "main.sh"];
+        let mut cmd_args = vec!["--config", "run.config.proto", "--", "/bin/bash", "main.sh"];
         cmd_args.extend(args);
         Command::new(NSJAIL_PATH.as_str())
             .current_dir(job_dir)
@@ -1480,7 +1481,7 @@ async fn handle_bash_job(
     } else {
         let mut cmd_args = vec!["main.sh"];
         cmd_args.extend(&args);
-        Command::new("/bin/sh")
+        Command::new("/bin/bash")
             .current_dir(job_dir)
             .env_clear()
             .envs(reserved_variables)
@@ -1555,14 +1556,14 @@ async fn handle_deno_job(
     // TODO: Separately cache dependencies here using `deno cache --reload --lock=lock.json src/deps.ts` (https://deno.land/manual@v1.27.0/linking_to_external_code/integrity_checking)
     // Then require caching below using --cached-only. This makes it so we require zero network interaction when running the process below
 
-    let _ = write_file(job_dir, "inner.ts", inner_content).await?;
+    let _ = write_file(job_dir, "main.ts", inner_content).await?;
     let sig = trace_span!("parse_deno_signature")
         .in_scope(|| windmill_parser_ts::parse_deno_signature(inner_content))?;
     create_args_and_out_file(client, job, job_dir).await?;
     let spread = sig.args.into_iter().map(|x| x.name).join(",");
     let wrapper_content: String = format!(
         r#"
-import {{ main }} from "./inner.ts";
+import {{ main }} from "./main.ts";
 
 const args = await Deno.readTextFile("args.json")
     .then(JSON.parse)
@@ -1592,12 +1593,12 @@ run().catch(async (e) => {{
             if c == script_path_parts_len - 1 { "" } else { "/" },
         );
     }
-    write_file(job_dir, "main.ts", &wrapper_content).await?;
+    write_file(job_dir, "wrapper.ts", &wrapper_content).await?;
     let import_map = format!(
         r#"{{
         "imports": {{
           "/": "{base_internal_url}/api/w/{w_id}/scripts/raw/p/",
-          "./inner.ts": "./inner.ts",
+          "./wrapper.ts": "./wrapper.ts",
           "./main.ts": "./main.ts"{relative_mounts}
         }}
       }}"#,
@@ -1641,7 +1642,7 @@ run().catch(async (e) => {{
             } else {
                 args.push("-A");
             }
-            args.push("/tmp/main.ts");
+            args.push("/tmp/wrapper.ts");
 
             Command::new(NSJAIL_PATH.as_str())
                 .current_dir(job_dir)
@@ -1654,7 +1655,7 @@ run().catch(async (e) => {{
                 .spawn()?
         } else {
             let mut args = Vec::new();
-            let script_path = format!("{job_dir}/main.ts");
+            let script_path = format!("{job_dir}/wrapper.ts");
             let import_map_path = format!("{job_dir}/import_map.json");
             args.push("run");
             args.push("--import-map");
@@ -1705,7 +1706,7 @@ async fn create_args_and_out_file(
 }
 
 lazy_static! {
-    static ref RELATIVE_IMPORT_REGEX: Regex = Regex::new(r#"(import|from)\s(u|f)\."#).unwrap();
+    static ref RELATIVE_IMPORT_REGEX: Regex = Regex::new(r#"(import|from)\s(((u|f)\.)|\.)"#).unwrap();
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -1776,9 +1777,14 @@ async fn handle_python_job(
 
     let relative_imports = RELATIVE_IMPORT_REGEX.is_match(&inner_content);
 
-    let _ = write_file(job_dir, "inner.py", inner_content).await?;
+    let script_path_splitted = &job.script_path().split("/");
+    let dirs = script_path_splitted.clone().take(script_path_splitted.clone().count() - 1).join("/").replace("-", "_");
+    let last = script_path_splitted.clone().last().unwrap().replace("-", "_");
+    let module_dir = format!("{}/{}", job_dir, dirs );
+    tokio::fs::create_dir_all(format!("{module_dir}/")).await?;
+    let _ = write_file(&module_dir, &format!("{last}.py"), inner_content).await?;
     if relative_imports {
-        let _ = write_file(job_dir, "loader.py", RELATIVE_PYTHON_LOADER).await?;
+        let _ = write_file(&job_dir, "loader.py", RELATIVE_PYTHON_LOADER).await?;
     }
 
     let sig = windmill_parser_py::parse_python_signature(inner_content)?;
@@ -1839,6 +1845,7 @@ async fn handle_python_job(
             .join("\n")
     };
 
+    let module_dir_dot = dirs.replace("/", ".").replace("-", "_");
     let wrapper_content: String = format!(
         r#"
 import json
@@ -1847,8 +1854,8 @@ import json
 {import_datetime}
 import traceback
 import sys
+from {module_dir_dot} import {last} as inner_script
 
-inner_script = __import__("inner")
 
 with open("args.json") as f:
     kwargs = json.load(f, strict=False)
@@ -1875,7 +1882,7 @@ except Exception as e:
         sys.exit(1)
 "#,
     );
-    write_file(job_dir, "main.py", &wrapper_content).await?;
+    write_file(job_dir, "wrapper.py", &wrapper_content).await?;
 
     let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
     let additional_python_paths_folders = additional_python_paths.iter().join(":");
@@ -1903,6 +1910,7 @@ mount {{
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{SHARED_DEPENDENCIES}", shared_deps.as_str())
+                .replace("{MAIN}", format!("{dirs}/{last}").as_str())
                 .replace(
                     "{ADDITIONAL_PYTHON_PATHS}",
                     additional_python_paths_folders.as_str(),
@@ -1934,7 +1942,8 @@ mount {{
                 "--",
                 PYTHON_PATH.as_str(),
                 "-u",
-                "/tmp/main.py",
+                "-m",
+                "wrapper",
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -1946,7 +1955,7 @@ mount {{
             .envs(reserved_variables)
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
-            .args(vec!["-u", "main.py"])
+            .args(vec!["-u", "-m", "wrapper"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?

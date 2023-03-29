@@ -16,7 +16,7 @@
 	export let extraContext: Record<string, any> = {}
 	export let key: string = ''
 
-	const { componentControl } = getContext<AppViewerContext>('AppViewerContext')
+	const { componentControl, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 
 	const dispatch = createEventDispatcher()
 
@@ -85,12 +85,13 @@
 		try {
 			const r = await eval_like(
 				input.expr,
-				computeGlobalContext($worldStore, id, extraContext),
+				computeGlobalContext($worldStore, extraContext),
 				true,
 				$state,
 				$mode == 'dnd',
 				$componentControl,
-				$worldStore
+				$worldStore,
+				$runnableComponents
 			)
 			error = ''
 			return r
@@ -106,12 +107,13 @@
 			try {
 				const r = await eval_like(
 					'`' + input.eval + '`',
-					computeGlobalContext($worldStore, id, extraContext),
+					computeGlobalContext($worldStore, extraContext),
 					true,
 					$state,
 					$mode == 'dnd',
 					$componentControl,
-					$worldStore
+					$worldStore,
+					$runnableComponents
 				)
 				error = ''
 				return r

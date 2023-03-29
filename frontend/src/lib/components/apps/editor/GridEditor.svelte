@@ -1,7 +1,6 @@
 <script lang="ts">
-	import { getContext, afterUpdate } from 'svelte'
-	import type { App, AppEditorContext, AppViewerContext } from '../types'
-	import { classNames } from '$lib/utils'
+	import { getContext } from 'svelte'
+	import type { AppEditorContext, AppViewerContext } from '../types'
 	import { columnConfiguration, isFixed, toggleFixed } from '../gridUtils'
 	import { twMerge } from 'tailwind-merge'
 
@@ -12,8 +11,9 @@
 	import { push } from '$lib/history'
 	import { dfs, expandGriditem, findGridItem } from './appUtils'
 	import Grid from '../svelte-grid/Grid.svelte'
-	import { selectId } from '../utils'
 	import { deepEqual } from 'fast-equals'
+	import ComponentWrapper from './component/ComponentWrapper.svelte'
+	import { classNames } from '$lib/utils'
 
 	export let policy: Policy
 
@@ -73,15 +73,6 @@
 			$selectedComponent = undefined
 		}
 	}
-
-	function selectComponent(e: PointerEvent, id: string) {
-		if (!$connectingInput.opened) {
-			selectId(e, id, selectedComponent, $app)
-			if ($focusedGrid?.parentComponentId != id) {
-				$focusedGrid = undefined
-			}
-		}
-	}
 </script>
 
 <div class="relative w-full z-20 overflow-visible">
@@ -131,23 +122,9 @@
 				fastStart={true}
 				gap={[4, 2]}
 			>
-				<!-- svelte-ignore a11y-click-events-have-key-events -->
-				{#if $connectingInput.opened}
-					<div
-						on:pointerenter={() => ($connectingInput.hoveredComponent = dataItem.id)}
-						on:pointerleave={() => ($connectingInput.hoveredComponent = undefined)}
-						class="absolute w-full h-full bg-black border-2 bg-opacity-25 z-20 flex justify-center items-center"
-					/>
-					<div
-						style="transform: translate(-50%, -50%);"
-						class="absolute w-fit justify-center bg-indigo-500/90 left-[50%] top-[50%] z-50 px-6 rounded border text-white py-2 text-5xl center-center"
-					>
-						{dataItem.id}
-					</div>
-				{/if}
-				<!-- svelte-ignore a11y-click-events-have-key-events -->
-				<div
-					on:pointerdown={(e) => selectComponent(e, dataItem.id)}
+				<ComponentWrapper
+					id={dataItem.id}
+					type={dataItem.data.type}
 					class={classNames(
 						'h-full w-full center-center',
 						Boolean($selectedComponent?.includes(dataItem.id)) ? 'active-grid-item' : ''
@@ -173,7 +150,7 @@
 							$app = $app
 						}}
 					/>
-				</div>
+				</ComponentWrapper>
 			</Grid>
 		</div>
 	</div>

@@ -2,7 +2,7 @@ import type { Schema } from '$lib/common'
 import { FlowService, ScriptService } from '$lib/gen'
 import { inferArgs } from '$lib/infer'
 import { emptySchema, sendUserToast } from '$lib/utils'
-import type { AppComponent, components } from './editor/component'
+import type { AppComponent } from './editor/component'
 import type { App, ComponentCssProperty, GridItem } from './types'
 import { twMerge } from 'tailwind-merge'
 import type { AppInput, InputType, ResultAppInput, StaticAppInput } from './inputType'
@@ -132,6 +132,8 @@ export function fieldTypeToTsType(inputType: InputType): string {
 	switch (inputType) {
 		case 'number':
 			return 'number'
+		case 'integer':
+			return 'number'
 		case 'boolean':
 			return 'boolean'
 		case 'object':
@@ -216,6 +218,7 @@ ${
 	goto
 		? `declare async function goto(path: string, newTab?: boolean): Promise<void>;
 declare function setTab(id: string, index: string): void;
+declare function recompute(id: string): void;
 `
 		: ''
 }

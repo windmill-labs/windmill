@@ -89,7 +89,7 @@
 				if (status == '401') {
 					const url = $page.url
 					console.log('UNAUTHORIZED', url, url.href.replace(url.origin, ''))
-					if (url.pathname != '/user/login') {
+					if (url.pathname != '/user/login' && url.pathname != '/user/logout') {
 						logoutWithRedirect(url.href.replace(url.origin, ''))
 						return
 					}

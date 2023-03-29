@@ -17,10 +17,11 @@
 	import AppTableFooter from './AppTableFooter.svelte'
 	import { tableOptions } from './tableOptions'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
-	import type { ButtonComponent } from '../../../editor/component'
+	import { components, type ButtonComponent } from '../../../editor/component'
 	import { concatCustomCss } from '../../../utils'
 	import { twMerge } from 'tailwind-merge'
-	import { initOutput } from '$lib/components/apps/editor/appUtils'
+	import { initConfig, initOutput } from '$lib/components/apps/editor/appUtils'
+	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -34,9 +35,19 @@
 
 	let result: Record<string, any>[] | undefined = undefined
 
-	let search: 'By Runnable' | 'By Component' | 'Disabled' | undefined = undefined
+	const { app, worldStore, componentControl, selectedComponent, hoverStore, mode } =
+		getContext<AppViewerContext>('AppViewerContext')
+
 	let searchValue = ''
-	let pagination: boolean | undefined = true
+
+	let outputs = initOutput($worldStore, id, {
+		selectedRowIndex: 0,
+		selectedRow: undefined,
+		loading: false,
+		result: [],
+		search: '',
+		page: 1
+	})
 
 	$: setSearch(searchValue)
 
@@ -52,8 +63,13 @@
 
 	let table = createSvelteTable(options)
 
-	const { app, worldStore, componentControl, selectedComponent, hoverStore, mode } =
-		getContext<AppViewerContext>('AppViewerContext')
+	let resolvedConfig = initConfig(
+		components['tablecomponent'].initialData.configuration,
+		configuration
+	) as {
+		search: 'By Component' | 'By Runnable' | 'Disabled' | undefined
+		manualPagination: boolean
+	}
 
 	let selectedRowIndex = -1
 
@@ -78,25 +94,6 @@
 		outputs &&
 		toggleRow({ original: result[0] }, 0)
 
-	function setOptions(filteredResult: Array<Record<string, any>>) {
-		if (!Array.isArray(result)) {
-			return
-		}
-
-		const headers = Array.from(new Set(result.flatMap((row) => Object.keys(row))))
-
-		$options = {
-			...tableOptions,
-			data: filteredResult,
-			columns: headers.map((header) => {
-				return {
-					accessorKey: header,
-					cell: (info) => info.getValue()
-				}
-			})
-		}
-	}
-
 	function searchInResult(result: Array<Record<string, any>>, searchValue: string) {
 		if (searchValue === '') {
 			return result
@@ -120,25 +117,48 @@
 
 	let filteredResult: Array<Record<string, any>> = []
 
-	$: filteredResult && setOptions(filteredResult)
-	$: search === 'By Component' && (filteredResult = searchInResult(result ?? [], searchValue))
-	$: (search === 'By Runnable' || search === 'Disabled') && (filteredResult = result ?? [])
-	let outputs = initOutput($worldStore, id, {
-		selectedRowIndex: 0,
-		selectedRow: undefined,
-		loading: false,
-		result: [],
-		search: ''
-	})
+	function setFilteredResult() {
+		if (resolvedConfig.search === 'By Runnable' || resolvedConfig.search === 'Disabled') {
+			filteredResult = result ?? []
+		} else {
+			filteredResult = searchInResult(result ?? [], searchValue)
+		}
+	}
+	$: (result || resolvedConfig.search || searchValue) && setFilteredResult()
+
+	$: outputs.page.set($table.getState().pagination.pageIndex)
 
 	function rerender() {
+		if (!Array.isArray(result)) {
+			return
+		}
+
+		const headers = Array.from(
+			new Set(result.flatMap((row) => (typeof row == 'object' ? Object.keys(row) : [])))
+		)
+
+		$options = {
+			...tableOptions,
+			manualPagination: resolvedConfig.manualPagination,
+			data: filteredResult,
+			columns: headers.map((header) => {
+				return {
+					accessorKey: header,
+					cell: (info) => info.getValue()
+				}
+			})
+		}
 		table = createSvelteTable(options)
 		if (result) {
 			toggleRow({ original: result[0] }, 0, true)
 		}
+
+		if (outputs.page.peak()) {
+			$table.setPageIndex(outputs?.page.peak())
+		}
 	}
 
-	$: result && rerender()
+	$: filteredResult && rerender()
 
 	$: css = concatCustomCss($app.css?.tablecomponent, customCss)
 
@@ -159,7 +179,14 @@
 	}
 </script>
 
-<InputValue {id} input={configuration.search} bind:value={search} />
+{#each Object.keys(components['tablecomponent'].initialData.configuration) as key (key)}
+	<ResolveConfig
+		{id}
+		{key}
+		bind:resolvedConfig={resolvedConfig[key]}
+		configuration={configuration[key]}
+	/>
+{/each}
 
 <RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
 	{#if Array.isArray(result) && result.every(isObject)}
@@ -171,7 +198,7 @@
 			)}
 			style={css?.container?.style ?? ''}
 		>
-			{#if search !== 'Disabled'}
+			{#if resolvedConfig.search !== 'Disabled'}
 				<div class="px-2 py-1">
 					<div class="flex items-center">
 						<div class="grow max-w-[300px]">
@@ -354,8 +381,9 @@
 			</div>
 
 			<AppTableFooter
-				paginationEnabled={pagination}
-				{result}
+				paginationEnabled
+				manualPagination={resolvedConfig.manualPagination}
+				result={filteredResult}
 				{table}
 				class={css?.tableFooter?.class}
 				style={css?.tableFooter?.style}

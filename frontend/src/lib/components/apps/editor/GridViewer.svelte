@@ -22,7 +22,6 @@
 	export let parentWidth: number | undefined = undefined
 
 	let getComputedCols
-
 	let container
 
 	$: [gapX, gapY] = gap

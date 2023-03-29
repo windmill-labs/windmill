@@ -99,12 +99,14 @@
 								<WarningMessage />
 							{:else if json[key] == undefined}
 								<span class="text-2xs">undefined</span>
+							{:else if json[key] == null}
+								<span class="text-2xs">null</span>
 							{:else if typeof json[key] == 'string'}
 								<span title={json[key]} class="text-2xs">"{truncate(json[key], 200)}"</span>
 							{:else}
-								<span title={JSON.stringify(json[key])} class="text-2xs"
-									>{truncate(JSON.stringify(json[key]), 200)}</span
-								>
+								<span title={JSON.stringify(json[key])} class="text-2xs">
+									{truncate(JSON.stringify(json[key]), 200)}
+								</span>
 							{/if}
 						</button>
 					{/if}
@@ -125,9 +127,6 @@
 		<span class="text-gray-500 text-xs">
 			{pluralize(Object.keys(json).length, Array.isArray(json) ? 'item' : 'key')}
 		</span>
-	{/if}
-	{#if !isLast && collapsed}
-		<span class="text-black">,</span>
 	{/if}
 {:else if topBrackets}
 	<span class="text-black">{openBracket}{closeBracket}</span>

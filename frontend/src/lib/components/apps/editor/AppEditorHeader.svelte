@@ -255,7 +255,7 @@
 		) {
 			return
 		}
-		
+
 		lock = true
 
 		switch (event.key) {

@@ -12,8 +12,11 @@
 	export let inputType = 'text'
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 	export let customCss: ComponentCustomCSS<'textinputcomponent'> | undefined = undefined
-	export let appCssKey: 'textinputcomponent' | 'passwordinputcomponent' | 'emailinputcomponent' =
-		'textinputcomponent'
+	export let appCssKey:
+		| 'textinputcomponent'
+		| 'passwordinputcomponent'
+		| 'emailinputcomponent'
+		| 'textareainputcomponent' = 'textinputcomponent'
 	export let render: boolean
 
 	const { app, worldStore, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
@@ -40,42 +43,55 @@
 <InputValue {id} input={configuration.placeholder} bind:value={placeholder} />
 <InputValue {id} input={configuration.defaultValue} bind:value={defaultValue} />
 
-<AlignWrapper {render} {verticalAlignment}>
-	{#if inputType === 'password'}
-		<input
-			class={twMerge(
-				'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2 ',
-				css?.input?.class ?? ''
-			)}
-			style={css?.input?.style ?? ''}
-			on:pointerdown|stopPropagation={(e) => selectId(e, id, selectedComponent, $app)}
-			type="password"
-			bind:value
-			{placeholder}
-		/>
-	{:else if inputType === 'text'}
-		<input
-			class={twMerge(
-				'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2 ',
-				css?.input?.class ?? ''
-			)}
-			style={css?.input?.style ?? ''}
-			on:pointerdown|stopPropagation={(e) => selectId(e, id, selectedComponent, $app)}
-			type="text"
-			bind:value
-			{placeholder}
-		/>
-	{:else if inputType === 'email'}
-		<input
-			class={twMerge(
-				'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2 ',
-				css?.input?.class ?? ''
-			)}
-			style={css?.input?.style ?? ''}
-			on:pointerdown|stopPropagation={(e) => selectId(e, id, selectedComponent, $app)}
-			type="email"
-			bind:value
-			{placeholder}
-		/>
-	{/if}
-</AlignWrapper>
+{#if inputType === 'textarea'}
+	<textarea
+		class={twMerge(
+			'windmillapp w-full h-full py-1.5 text-sm focus:ring-indigo-100 px-2 ',
+			css?.input?.class ?? ''
+		)}
+		style="resize:none; {css?.input?.style ?? ''}"
+		on:pointerdown|stopPropagation={(e) => selectId(e, id, selectedComponent, $app)}
+		bind:value
+		{placeholder}
+	/>
+{:else}
+	<AlignWrapper {render} {verticalAlignment}>
+		{#if inputType === 'password'}
+			<input
+				class={twMerge(
+					'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2 ',
+					css?.input?.class ?? ''
+				)}
+				style={css?.input?.style ?? ''}
+				on:pointerdown|stopPropagation={(e) => selectId(e, id, selectedComponent, $app)}
+				type="password"
+				bind:value
+				{placeholder}
+			/>
+		{:else if inputType === 'text'}
+			<input
+				class={twMerge(
+					'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2 ',
+					css?.input?.class ?? ''
+				)}
+				style={css?.input?.style ?? ''}
+				on:pointerdown|stopPropagation={(e) => selectId(e, id, selectedComponent, $app)}
+				type="text"
+				bind:value
+				{placeholder}
+			/>
+		{:else if inputType === 'email'}
+			<input
+				class={twMerge(
+					'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2 ',
+					css?.input?.class ?? ''
+				)}
+				style={css?.input?.style ?? ''}
+				on:pointerdown|stopPropagation={(e) => selectId(e, id, selectedComponent, $app)}
+				type="email"
+				bind:value
+				{placeholder}
+			/>
+		{/if}
+	</AlignWrapper>
+{/if}
