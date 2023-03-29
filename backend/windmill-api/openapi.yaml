@@ -3399,7 +3399,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/CompletedJob"
 
-  /w/{workspace}/jobs/queue/cancel/{id}:
+  /w/{workspace}/jobs_u/queue/cancel/{id}:
     post:
       summary: cancel queued job
       operationId: cancelQueuedJob
@@ -3427,7 +3427,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/jobs/queue/force_cancel/{id}:
+  /w/{workspace}/jobs_u/queue/force_cancel/{id}:
     post:
       summary: force cancel queued job
       operationId: forceCancelQueuedJob
