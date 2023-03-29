@@ -14,7 +14,7 @@
 		faRefresh
 	} from '@fortawesome/free-solid-svg-icons'
 	import type { AppInput, RunnableByPath } from '../../inputType'
-	import { clearResultAppInput, loadSchema, schemaToInputsSpec } from '../../utils'
+	import { clearResultAppInput, loadSchema } from '../../utils'
 	import EmptyInlineScript from './EmptyInlineScript.svelte'
 	import InlineScriptEditor from './InlineScriptEditor.svelte'
 	import { computeFields } from './utils'
@@ -70,10 +70,9 @@
 		const schema = (await loadSchema($workspaceStore ?? '', x.path, 'flow')) ?? emptySchema()
 		x.schema = schema
 		if (componentInput?.type == 'runnable') {
-			componentInput.fields = schemaToInputsSpec(schema, defaultUserInput)
+			componentInput.fields = computeFields(schema, false, componentInput.fields)
 		}
 		componentInput = componentInput
-		console.log('refreshFlow', componentInput)
 	}
 	$: if (
 		componentInput &&
