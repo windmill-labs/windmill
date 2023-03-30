@@ -1,4 +1,4 @@
-import os
+export default `import os
 import wmill
 
 # You can import any package from PyPI, even if the assistant complains
@@ -22,7 +22,7 @@ def main(
         secret = wmill.get_variable("f/examples/secret")
     except:
         secret = "No secret yet at f/examples/secret !"
-    print(f"The variable at `f/examples/secret`: {secret}")
+    print(f"The variable at \`f/examples/secret\`: {secret}")
 
     # Get last state of this script execution by the same trigger/user
     last_state = wmill.get_state()
@@ -34,4 +34,4 @@ def main(
     user = os.environ.get("WM_USERNAME")
 
     # return value is converted to JSON
-    return {"splitted": name.split(), "user": user, "state": new_state}
+    return {"splitted": name.split(), "user": user, "state": new_state}`

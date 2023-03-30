@@ -1,4 +1,4 @@
-import wmill
+export default `import wmill
 
 
 def main():
@@ -11,4 +11,4 @@ def main():
     # wmill.setState(newState)
     # 4. Return the new rows
     # return range from (state to newState)
-    return [1, 2, 3]
+    return [1, 2, 3]`

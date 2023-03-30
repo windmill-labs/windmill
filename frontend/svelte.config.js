@@ -10,6 +10,9 @@ const config = {
 			postcss: true
 		})
 	],
+	package: {
+		dir: 'package'
+	},
 
 	kit: {
 		adapter:
