@@ -25,7 +25,7 @@
 		faFastForward
 	} from '@fortawesome/free-solid-svg-icons'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
-	import { superadmin, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { runFormStore, superadmin, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
@@ -39,6 +39,7 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import Dropdown from '$lib/components/Dropdown.svelte'
+	import { goto } from '$app/navigation'
 
 	$: workspace_id = $page.url.searchParams.get('workspace') ?? $workspaceStore
 	$: not_same_workspace = workspace_id !== $workspaceStore
@@ -170,18 +171,6 @@
 				{@const stem = `/${job?.job_kind}s`}
 				{@const isScript = job?.job_kind === 'script'}
 				{@const route = isScript ? job?.script_hash : job?.script_path}
-				{@const runHref = `${stem}/run/${route}${
-					job?.args ? '?args=' + encodeURIComponent(encodeState(job?.args)) : ''
-				}`}
-				{@const editHref = `${stem}/edit/${route}${
-					isScript
-						? `?step=2${job?.args ? `&args=${encodeURIComponent(encodeState(job?.args))}` : ''}`
-						: `${
-								job?.args
-									? `?args=${encodeURIComponent(encodeState(job?.args))}&nodraft=true`
-									: '?nodraft=true'
-						  }`
-				}`}
 				{@const isRunning = job && 'running' in job && job.running}
 				{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
 				{#if isRunning}
@@ -224,7 +213,10 @@
 					>
 				{/if}
 				<Button
-					href={runHref}
+					on:click|once={() => {
+						$runFormStore = job?.args
+						goto(`${stem}/run/${route}`)
+					}}
 					disabled={not_same_workspace}
 					color="blue"
 					size="md"
@@ -234,7 +226,10 @@
 					{#if canWrite(job?.script_path ?? '', {}, $userStore)}
 						<Button
 							disabled={not_same_workspace}
-							href={editHref}
+							on:click|once={() => {
+								$runFormStore = job?.args
+								goto(`${stem}/edit/${route}${isScript ? `?step=2` : `?nodraft=true`}`)
+							}}
 							color="blue"
 							size="md"
 							startIcon={{ icon: faEdit }}>Edit</Button

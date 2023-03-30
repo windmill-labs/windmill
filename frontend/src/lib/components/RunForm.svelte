@@ -16,7 +16,7 @@
 	import { Badge, Button } from './common'
 	import SharedBadge from './SharedBadge.svelte'
 	import Toggle from './Toggle.svelte'
-	import { userStore } from '$lib/stores'
+	import { runFormStore, userStore } from '$lib/stores'
 	import Tooltip from './Tooltip.svelte'
 	import CliHelpBox from './CliHelpBox.svelte'
 	import InlineCodeCopy from './InlineCodeCopy.svelte'
@@ -51,7 +51,12 @@
 	export let viewCliRun = false
 	export let isFlow: boolean
 
-	export let args: Record<string, any> = decodeArgs($page.url.searchParams.get('args') ?? undefined)
+	export let args: Record<string, any> = {}
+
+	if ($runFormStore) {
+		args = $runFormStore
+		$runFormStore = undefined
+	}
 
 	export function run() {
 		runAction(scheduledForStr, args, invisible_to_owner)
