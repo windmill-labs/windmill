@@ -79,20 +79,32 @@
 							}}
 						/>
 					{/if}
-					<div class="mt-6 mb-2 text-sm font-bold">Skip failures</div>
-					<Toggle
-						bind:checked={mod.value.skip_failures}
-						options={{
-							right: 'Skip failures'
-						}}
-					/>
-					<div class="mt-6 mb-2 text-sm font-bold">Run in parallel</div>
-					<Toggle
-						bind:checked={mod.value.parallel}
-						options={{
-							right: 'All iterations run in parallel'
-						}}
-					/>
+					<div class="flex flex-row gap-8">
+						<div>
+							<div class="mt-6 mb-2 text-sm font-bold"
+								>Skip failures <Tooltip
+									>If disabled, the flow will fail as soon as one of the iteration fail. Otherwise,
+									the error will be collected as the result of the iteration. Regardless of this
+									setting, if an error handler is defined, it will process the error.</Tooltip
+								></div
+							>
+							<Toggle
+								bind:checked={mod.value.skip_failures}
+								options={{
+									right: 'Skip failures'
+								}}
+							/>
+						</div>
+						<div>
+							<div class="mt-6 mb-2 text-sm font-bold">Run in parallel</div>
+							<Toggle
+								bind:checked={mod.value.parallel}
+								options={{
+									right: 'All iterations run in parallel'
+								}}
+							/>
+						</div>
+					</div>
 				{/if}
 			</Pane>
 			<Pane size={40} minSize={20} class="flex flex-col flex-1">
