@@ -1,14 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { JobService, Job } from '$lib/gen'
-	import {
-		canWrite,
-		displayDate,
-		encodeState,
-		forLater,
-		sendUserToast,
-		truncateHash
-	} from '$lib/utils'
+	import { canWrite, displayDate, forLater, sendUserToast, truncateHash } from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
 	import {
