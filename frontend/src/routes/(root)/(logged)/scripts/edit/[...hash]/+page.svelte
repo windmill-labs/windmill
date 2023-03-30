@@ -9,6 +9,7 @@
 
 	const initialState = $page.url.searchParams.get('state')
 	const initialArgs = decodeArgs($page.url.searchParams.get('args') ?? undefined)
+	let topHash = $page.url.searchParams.get('topHash') ?? undefined
 
 	let scriptLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
 
@@ -36,5 +37,5 @@
 </script>
 
 {#if script}
-	<ScriptBuilder {initialPath} {script} {initialArgs} />
+	<ScriptBuilder bind:topHash {initialPath} {script} {initialArgs} />
 {/if}
