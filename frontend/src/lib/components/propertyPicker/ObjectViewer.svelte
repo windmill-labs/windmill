@@ -44,6 +44,8 @@
 		}
 		dispatch('select', rawKey ? key : computeKey(key, isArray, currentPath))
 	}
+
+	let keyLimit = 100
 </script>
 
 {#if keys.length > 0}
@@ -63,7 +65,7 @@
 				level === 0 ? 'border-none pl-2' : 'border-l border-dotted border-gray-200 pl-2'
 			}`}
 		>
-			{#each keys as key, index}
+			{#each keys.length > keyLimit ? keys.slice(0, keyLimit) : keys as key, index (key)}
 				<li class="pt-1">
 					<button on:click={() => selectProp(key, key)} class="whitespace-nowrap">
 						{#if topLevelNode}
@@ -112,6 +114,11 @@
 					{/if}
 				</li>
 			{/each}
+			{#if keys.length > keyLimit}
+				<button on:click={() => (keyLimit += 100)} class="text-xs py-2 text-blue-600"
+					>{keyLimit}/{keys.length}: Load 100 more...</button
+				>
+			{/if}
 		</ul>
 		{#if level == 0 && topBrackets}<span class="h-0">{closeBracket}</span>{/if}
 	</span>
