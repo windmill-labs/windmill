@@ -24,6 +24,7 @@
 	export let template: 'pgsql' | 'mysql' | 'script' = 'script'
 	export let initialArgs: Record<string, any> = {}
 	export let lockedLanguage = false
+	export let topHash: string | undefined = undefined
 
 	const langs: [string, SupportedLanguage][] = [
 		['Typescript', Script.language.DENO],
@@ -84,8 +85,7 @@
 				await inferArgs(script.language, script.content, script.schema)
 			} catch (error) {
 				sendUserToast(
-					`Impossible to infer the schema. Assuming this is a script without main function`,
-					true
+					`The main signature was not parsable. This script is considered to be without main function`
 				)
 			}
 
@@ -96,7 +96,7 @@
 					summary: script.summary,
 					description: script.description ?? '',
 					content: script.content,
-					parent_hash: script.hash != '' ? script.hash : undefined,
+					parent_hash: script.hash != '' ? topHash ?? script.hash : undefined,
 					schema: script.schema,
 					is_template: script.is_template,
 					language: script.language,
@@ -109,9 +109,10 @@
 			} else {
 				await goto(`/scripts/edit/${newHash}?step=2`)
 				script.hash = newHash
+				topHash = undefined
 			}
 		} catch (error) {
-			sendUserToast(`Impossible to save the script: ${error.body || error.message}`, true)
+			sendUserToast(`Error while saving the script: ${error.body || error.message}`, true)
 		}
 		loadingSave = false
 	}
@@ -123,7 +124,7 @@
 				await inferArgs(script.language, script.content, script.schema)
 			} catch (error) {
 				console.info(
-					'Impossible to infer the schema. Assuming this is a script without main function'
+					'The main signature was not parsable. This script is considered to be without main function'
 				)
 			}
 		}
