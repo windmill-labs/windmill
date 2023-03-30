@@ -1328,7 +1328,7 @@ async fn tarball_workspace(
         let mc = build_crypt(&mut db.begin().await?, &w_id).await?;
 
         for mut var in variables {
-            if plain_secret.unwrap_or(false) && var.value.is_some() {
+            if plain_secret.unwrap_or(false) && var.value.is_some() && var.is_secret {
                 var.value = Some(
                     mc.decrypt_base64_to_string(var.value.unwrap())
                         .map_err(|e| Error::InternalErr(e.to_string()))?,
