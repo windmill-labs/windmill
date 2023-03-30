@@ -489,7 +489,6 @@ pub async fn push<'c>(
             modules.push(FlowModule {
                 id: format!("{}-v", flow.modules[flow.modules.len() - 1].id),
                 value: FlowModuleValue::Identity,
-                input_transforms: HashMap::new(),
                 stop_after_if: None,
                 summary: Some(
                     "Virtual module needed for suspend/sleep when last module".to_string(),

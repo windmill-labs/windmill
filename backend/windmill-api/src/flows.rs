@@ -552,7 +552,6 @@ mod tests {
             modules: vec![
                 FlowModule {
                     id: "a".to_string(),
-                    input_transforms: [].into(),
                     value: FlowModuleValue::Script {
                         path: "test".to_string(),
                         input_transforms: [(
@@ -570,7 +569,6 @@ mod tests {
                 },
                 FlowModule {
                     id: "b".to_string(),
-                    input_transforms: HashMap::new(),
                     value: FlowModuleValue::RawScript {
                         input_transforms: HashMap::new(),
                         content: "test".to_string(),
@@ -589,7 +587,6 @@ mod tests {
                 },
                 FlowModule {
                     id: "c".to_string(),
-                    input_transforms: HashMap::new(),
                     value: FlowModuleValue::ForloopFlow {
                         iterator: InputTransform::Static { value: serde_json::json!([1, 2, 3]) },
                         modules: vec![],
@@ -608,7 +605,6 @@ mod tests {
             ],
             failure_module: Some(FlowModule {
                 id: "d".to_string(),
-                input_transforms: HashMap::new(),
                 value: FlowModuleValue::Script {
                     path: "test".to_string(),
                     input_transforms: HashMap::new(),
@@ -693,31 +689,6 @@ mod tests {
           }
         });
         assert_eq!(dbg!(serde_json::json!(fv)), dbg!(expect));
-    }
-
-    #[test]
-    fn test_back_compat() {
-        /* renamed input_transform -> input_transforms but should deserialize old name */
-        let s = r#"
-        {
-            "value": {
-                "type": "rawscript",
-                "content": "def main(n): return",
-                "language": "python3"
-            },
-            "input_transform": {
-                "n": {
-                    "expr": "flow_input.iter.value",
-                    "type": "javascript"
-                }
-            }
-        }
-        "#;
-        let module: FlowModule = serde_json::from_str(s).unwrap();
-        assert_eq!(
-            module.input_transforms["n"],
-            InputTransform::Javascript { expr: "flow_input.iter.value".to_string() }
-        );
     }
 
     #[test]

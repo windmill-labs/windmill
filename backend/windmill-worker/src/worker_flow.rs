@@ -1124,11 +1124,7 @@ async fn push_next_flow_job(
             transform_input(
                 &flow_job.args,
                 last_result.clone(),
-                if !input_transforms.is_empty() {
-                    input_transforms
-                } else {
-                    &module.input_transforms
-                },
+                input_transforms,
                 resume_messages.as_slice(),
                 approvers,
                 by_id,

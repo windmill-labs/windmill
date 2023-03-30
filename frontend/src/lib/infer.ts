@@ -1,6 +1,7 @@
 import { ScriptService, type MainArgSignature } from '$lib/gen'
 import { get, writable } from 'svelte/store'
 import type { Schema, SchemaProperty } from './common.js'
+import { sortObject } from './utils.js'
 
 const loadSchemaLastRun = writable<[string | undefined, MainArgSignature | undefined]>(undefined)
 
@@ -49,6 +50,7 @@ export async function inferArgs(
 		} else {
 			schema.properties[arg.name] = oldProperties[arg.name]
 		}
+		schema.properties[arg.name] = sortObject(schema.properties[arg.name])
 		argSigToJsonSchemaType(arg.typ, schema.properties[arg.name])
 		schema.properties[arg.name].default = arg.default
 
