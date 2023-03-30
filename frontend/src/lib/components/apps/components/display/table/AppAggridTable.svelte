@@ -28,7 +28,8 @@
 		selectedRowIndex: 0,
 		selectedRow: {},
 		result: [] as Record<number, any>[],
-		loading: false
+		loading: false,
+		page: 0
 	})
 
 	let selectedRowIndex = -1
