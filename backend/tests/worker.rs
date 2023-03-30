@@ -1001,7 +1001,6 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                         path: None,
                         lock: None,
                     },
-                    input_transforms: Default::default(),
                     stop_after_if: Default::default(),
                     summary: Default::default(),
                     suspend: Default::default(),
@@ -1029,7 +1028,6 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                                 path: None,
                                 lock: None,
                             },
-                            input_transforms: Default::default(),
                             stop_after_if: Default::default(),
                             summary: Default::default(),
                             suspend: Default::default(),
@@ -1037,7 +1035,6 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                             sleep: None,
                         }],
                     },
-                    input_transforms: Default::default(),
                     stop_after_if: Default::default(),
                     summary: Default::default(),
                     suspend: Default::default(),
@@ -1131,7 +1128,6 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                         path: None,
                         lock: None,
                     },
-                    input_transforms: Default::default(),
                     stop_after_if: Default::default(),
                     summary: Default::default(),
                     suspend: Default::default(),
@@ -1147,25 +1143,24 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                         modules: vec![
                             FlowModule {
                                 id: "d".to_string(),
-                                input_transforms: [
-                                (
-                                    "i".to_string(),
-                                    InputTransform::Javascript {
-                                        expr: "flow_input.iter.value".to_string(),
-                                    },
-                                ),
-                                (
-                                    "loop".to_string(),
-                                    InputTransform::Static { value: json!(true) },
-                                ),
-                                (
-                                    "path".to_string(),
-                                    InputTransform::Static { value: json!("inner.txt") },
-                                ),
-                            ]
-                            .into(),
                                 value: FlowModuleValue::RawScript {
-                                    input_transforms: [].into(),
+                                    input_transforms: [
+                                        (
+                                            "i".to_string(),
+                                            InputTransform::Javascript {
+                                                expr: "flow_input.iter.value".to_string(),
+                                            },
+                                        ),
+                                        (
+                                            "loop".to_string(),
+                                            InputTransform::Static { value: json!(true) },
+                                        ),
+                                        (
+                                            "path".to_string(),
+                                            InputTransform::Static { value: json!("inner.txt") },
+                                        ),
+                                    ]
+                                    .into(),
                                     language: ScriptLang::Deno,
                                     content: write_file,
                                     path: None,
@@ -1196,7 +1191,6 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                                     path: None,
                                     lock: None,
                                 },
-                                input_transforms: [].into(),
                                 stop_after_if: Default::default(),
                                 summary: Default::default(),
                                 suspend: Default::default(),
@@ -1205,7 +1199,6 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                             },
                         ],
                     },
-                    input_transforms: Default::default(),
                     stop_after_if: Default::default(),
                     summary: Default::default(),
                     suspend: Default::default(),
@@ -1240,7 +1233,6 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                         path: None,
                         lock: None,
                     },
-                    input_transforms: [].into(),
                     stop_after_if: Default::default(),
                     summary: Default::default(),
                     suspend: Default::default(),
