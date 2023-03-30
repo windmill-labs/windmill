@@ -66,10 +66,7 @@
 	let resolvedConfig = initConfig(
 		components['tablecomponent'].initialData.configuration,
 		configuration
-	) as {
-		search: 'By Component' | 'By Runnable' | 'Disabled' | undefined
-		manualPagination: boolean
-	}
+	)
 
 	let selectedRowIndex = -1
 
@@ -124,7 +121,8 @@
 			filteredResult = searchInResult(result ?? [], searchValue)
 		}
 	}
-	$: (result || resolvedConfig.search || searchValue) && setFilteredResult()
+	$: (result || resolvedConfig.search || searchValue || resolvedConfig.pagination) &&
+		setFilteredResult()
 
 	$: outputs.page.set($table.getState().pagination.pageIndex)
 
@@ -139,7 +137,20 @@
 
 		$options = {
 			...tableOptions,
-			manualPagination: resolvedConfig.manualPagination,
+			...(resolvedConfig?.pagination?.selected != 'manual'
+				? {
+						initialState: {
+							pagination: {
+								pageSize: resolvedConfig?.pagination?.configuration?.auto?.pageSize ?? 20
+							}
+						}
+				  }
+				: {}),
+			manualPagination: resolvedConfig?.pagination?.selected == 'manual',
+			pageCount:
+				resolvedConfig?.pagination?.selected == 'manual'
+					? resolvedConfig?.pagination?.configuration.manual.pageCount ?? -1
+					: undefined,
 			data: filteredResult,
 			columns: headers.map((header) => {
 				return {
@@ -381,8 +392,8 @@
 			</div>
 
 			<AppTableFooter
-				paginationEnabled
-				manualPagination={resolvedConfig.manualPagination}
+				pageSize={resolvedConfig?.pagination?.configuration?.auto?.pageSize ?? 20}
+				manualPagination={resolvedConfig?.pagination?.selected == 'manual'}
 				result={filteredResult}
 				{table}
 				class={css?.tableFooter?.class}
