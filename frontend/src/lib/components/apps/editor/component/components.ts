@@ -796,6 +796,13 @@ Hello \${ctx.username}
 					value: false,
 					tooltip:
 						'Pagination would not be handled by the component but by the script itself. Connect to the pagination output'
+				},
+				pageSize: {
+					type: 'static',
+					fieldType: 'number',
+					value: 25,
+					onlyStatic: true,
+					tooltip: 'Number of rows per page'
 				}
 			},
 			componentInput: {
