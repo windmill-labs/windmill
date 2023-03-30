@@ -264,6 +264,34 @@ const onSuccessClick = {
 	}
 } as const
 
+const paginationOneOf = {
+	type: 'oneOf',
+	selected: 'auto',
+	labels: {
+		auto: 'Auto',
+		manual: 'Manual'
+	},
+	configuration: {
+		auto: {
+			pageSize: {
+				type: 'static',
+				fieldType: 'number',
+				value: 20,
+				onlyStatic: true,
+				tooltip: 'Number of rows per page'
+			}
+		},
+		manual: {
+			pageCount: {
+				type: 'static',
+				fieldType: 'number',
+				value: -1,
+				tooltip: 'Number of pages (-1 if you do not know)'
+			}
+		}
+	}
+} as const
+
 export const components = {
 	displaycomponent: {
 		name: 'Rich Result',
@@ -787,23 +815,9 @@ Hello \${ctx.username}
 					type: 'static',
 					onlyStatic: true,
 					selectOptions: selectOptions.tableSearchOptions,
-					value: 'Disabled'
+					value: 'Disabled' as string
 				},
-				manualPagination: {
-					fieldType: 'boolean',
-					type: 'static',
-					onlyStatic: true,
-					value: false,
-					tooltip:
-						'Pagination would not be handled by the component but by the script itself. Connect to the pagination output'
-				},
-				pageSize: {
-					type: 'static',
-					fieldType: 'number',
-					value: 25,
-					onlyStatic: true,
-					tooltip: 'Number of rows per page'
-				}
+				pagination: paginationOneOf
 			},
 			componentInput: {
 				type: 'static',
@@ -850,13 +864,6 @@ Hello \${ctx.username}
 					fieldType: 'boolean',
 					value: false,
 					onlyStatic: true
-				},
-				pageSize: {
-					type: 'static',
-					fieldType: 'number',
-					value: 10,
-					onlyStatic: true,
-					tooltip: 'Number of rows per page'
 				}
 			},
 			componentInput: {

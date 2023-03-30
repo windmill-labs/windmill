@@ -4,15 +4,15 @@
 	import 'ag-grid-community/styles/ag-theme-alpine.css'
 
 	import { getContext, onMount } from 'svelte'
-	import type { Output } from '../../../rx'
 	import type { AppViewerContext, RichConfiguration, RichConfigurations } from '../../../types'
-	import InputValue from '../../helpers/InputValue.svelte'
 	import type { AppInput } from '../../../inputType'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import { isObject } from '$lib/utils'
 
 	import Alert from '$lib/components/common/alert/Alert.svelte'
-	import { initOutput } from '$lib/components/apps/editor/appUtils'
+	import { initConfig, initOutput } from '$lib/components/apps/editor/appUtils'
+	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
+	import { components } from '$lib/components/apps/editor/component'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -24,12 +24,18 @@
 
 	const { worldStore, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
 
+	let resolvedConfig = initConfig(
+		components['aggridcomponent'].initialData.configuration,
+		configuration
+	)
+
 	let outputs = initOutput($worldStore, id, {
 		selectedRowIndex: 0,
 		selectedRow: {},
 		result: [] as Record<number, any>[],
 		loading: false,
-		page: 0
+		page: 0,
+		newChange: { row: 0, column: '', value: undefined }
 	})
 
 	let selectedRowIndex = -1
@@ -60,27 +66,32 @@
 	let clientHeight
 	let clientWidth
 
-	let columnDefs: any = undefined
-
-	let allEditable: boolean | undefined = undefined
-	let pagination: boolean | undefined = undefined
-	let pageSize: number | undefined = 10
-
 	function onCellValueChanged(event) {
 		if (result) {
+			console.log(event)
+
 			let dataCell = event.newValue
 			try {
 				dataCell = JSON.parse(dataCell)
 			} catch (e) {}
+			outputs?.newChange?.set({
+				row: event.node.rowIndex,
+				column: event.colDef.field,
+				value: dataCell
+			})
 			result[event.node.rowIndex][event.column.colId] = dataCell
 		}
 	}
 </script>
 
-<InputValue {id} input={configuration.columnDefs} bind:value={columnDefs} />
-<InputValue {id} input={configuration.allEditable} bind:value={allEditable} />
-<InputValue {id} input={configuration.pagination} bind:value={pagination} />
-<InputValue {id} input={configuration.pageSize} bind:value={pageSize} />
+{#each Object.keys(components['aggridcomponent'].initialData.configuration) as key (key)}
+	<ResolveConfig
+		{id}
+		{key}
+		bind:resolvedConfig={resolvedConfig[key]}
+		configuration={configuration[key]}
+	/>
+{/each}
 
 <RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
 	{#if Array.isArray(result) && result.every(isObject)}
@@ -97,13 +108,16 @@
 				style:width="{clientWidth}px"
 				class="ag-theme-alpine"
 			>
-				{#key pagination}
+				{#key resolvedConfig?.pagination}
 					<AgGridSvelte
 						bind:rowData={result}
-						{columnDefs}
-						{pagination}
-						paginationPageSize={pageSize}
-						defaultColDef={{ flex: 1, editable: allEditable, onCellValueChanged }}
+						columnDefs={resolvedConfig?.columnDefs}
+						pagination={resolvedConfig?.pagination}
+						paginationAutoPageSize={resolvedConfig?.pagination}
+						defaultColDef={{ flex: 1, editable: resolvedConfig?.allEditable, onCellValueChanged }}
+						onPaginationChanged={(event) => {
+							outputs?.page.set(event.api.paginationGetCurrentPage())
+						}}
 					/>
 				{/key}
 			</div>

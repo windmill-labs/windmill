@@ -16,7 +16,7 @@
 {#if inputSpecs}
 	<div class="w-full flex flex-col gap-4">
 		{#each Object.keys(inputSpecsConfiguration) as k}
-			{#if inputSpecs[k] && inputSpecs[k]?.type == 'oneOf'}
+			{#if inputSpecsConfiguration[k]?.type == 'oneOf'}
 				<OneOfInputSpecsEditor
 					key={k}
 					bind:oneOf={inputSpecs[k]}
