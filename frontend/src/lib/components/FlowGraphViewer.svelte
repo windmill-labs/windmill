@@ -42,11 +42,7 @@
 				</div>
 				<div class="text-2xs mb-4">
 					<h3 class="mb-2">Step Inputs</h3>
-					<InputTransformsViewer
-						inputTransforms={stepDetail?.value?.input_transforms ??
-							stepDetail?.input_transforms ??
-							{}}
-					/>
+					<InputTransformsViewer inputTransforms={stepDetail?.value?.input_transforms ?? {}} />
 				</div>
 				{#if stepDetail.value.path.startsWith('hub/')}
 					<div class="mt-6">
@@ -62,11 +58,7 @@
 			{:else if stepDetail.value.type == 'rawscript'}
 				<div class="text-2xs mb-4">
 					<h3 class="mb-2">Step Inputs</h3>
-					<InputTransformsViewer
-						inputTransforms={stepDetail?.value?.input_transforms ??
-							stepDetail?.input_transforms ??
-							{}}
-					/>
+					<InputTransformsViewer inputTransforms={stepDetail?.value?.input_transforms ?? {}} />
 				</div>
 
 				<h3 class="mb-2">Code</h3>
@@ -115,11 +107,7 @@
 				{:else if stepDetail.value.type == 'rawscript'}
 					<div class="text-2xs mb-4">
 						<h3 class="mb-2">Step Inputs</h3>
-						<InputTransformsViewer
-							inputTransforms={stepDetail?.value?.input_transforms ??
-								stepDetail?.input_transforms ??
-								{}}
-						/>
+						<InputTransformsViewer inputTransforms={stepDetail?.value?.input_transforms ?? {}} />
 					</div>
 
 					<h3 class="mb-2"
@@ -143,11 +131,7 @@
 					</div>
 					<div class="text-2xs mb-4">
 						<h3 class="mb-2">Step Inputs</h3>
-						<InputTransformsViewer
-							inputTransforms={stepDetail?.value?.input_transforms ??
-								stepDetail?.input_transforms ??
-								{}}
-						/>
+						<InputTransformsViewer inputTransforms={stepDetail?.value?.input_transforms ?? {}} />
 					</div>
 					{#if stepDetail.value.path.startsWith('hub/')}
 						<div class="mt-6">

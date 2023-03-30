@@ -68,8 +68,6 @@
 
 	function onCellValueChanged(event) {
 		if (result) {
-			console.log(event)
-
 			let dataCell = event.newValue
 			try {
 				dataCell = JSON.parse(dataCell)
@@ -79,7 +77,7 @@
 				column: event.colDef.field,
 				value: dataCell
 			})
-			result[event.node.rowIndex][event.column.colId] = dataCell
+			result[event.node.rowIndex][event.colDef.field] = dataCell
 		}
 	}
 </script>

@@ -18,10 +18,6 @@ export function cleanInputs(flow: Flow | any): Flow {
 	const newFlow: Flow = JSON.parse(JSON.stringify(flow))
 	newFlow.value.modules.forEach((mod) => {
 		if (mod.value.type == 'rawscript' || mod.value.type == 'script') {
-			if (Object.keys(mod.input_transforms ?? {}).length > 0) {
-				mod.value.input_transforms = mod.input_transforms!
-				delete mod.input_transforms
-			}
 			Object.values(mod.value.input_transforms ?? {}).forEach((inp) => {
 				// for now we use the value for dynamic expression when done in the static editor so we have to resort to this
 				if (inp.type == 'javascript') {
@@ -42,13 +38,7 @@ export function cleanInputs(flow: Flow | any): Flow {
 export function cleanExpr(expr: string): string {
 	return expr
 		.split('\n')
-		.filter(
-			(x) =>
-				x != '' &&
-				!x.startsWith(
-					`import `
-				)
-		)
+		.filter((x) => x != '' && !x.startsWith(`import `))
 		.join('\n')
 }
 export function getTypeAsString(arg: any): string {
@@ -85,17 +75,18 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 
 		const keys = Object.keys(schema?.properties ?? {})
 
-		if (Object.keys(module.input_transforms ?? {}).length > 0) {
-			mod.input_transforms = module.input_transforms!
-		}
-		let input_transforms = mod.input_transforms ?? module.input_transforms ?? {}
+		let input_transforms = mod.input_transforms ?? {}
 
 		if (JSON.stringify(keys.sort()) !== JSON.stringify(Object.keys(input_transforms).sort())) {
 			input_transforms = keys.reduce((accu, key) => {
-				let nv = input_transforms[key] ?? ((module.id == 'failure' && ['message', 'name'].includes(key)) ? { type: 'javascript', expr: `error.${key}` } : {
-					type: 'static',
-					value: undefined
-				})
+				let nv =
+					input_transforms[key] ??
+					(module.id == 'failure' && ['message', 'name'].includes(key)
+						? { type: 'javascript', expr: `error.${key}` }
+						: {
+								type: 'static',
+								value: undefined
+						  })
 				accu[key] = nv
 				return accu
 			}, {})
@@ -126,9 +117,11 @@ export function isCodeInjection(expr: string | undefined): boolean {
 export function getDefaultExpr(
 	key: string = 'myfield',
 	previousModuleId: string | undefined,
-	previousExpr?: string,
+	previousExpr?: string
 ) {
-	return previousExpr ?? (previousModuleId ? `results.${previousModuleId}.${key}` : `flow_input.${key}`)
+	return (
+		previousExpr ?? (previousModuleId ? `results.${previousModuleId}.${key}` : `flow_input.${key}`)
+	)
 }
 
 export function jobsToResults(jobs: Job[]) {
@@ -156,8 +149,7 @@ export async function runFlowPreview(args: Record<string, any>, flow: Flow) {
 export function codeToStaticTemplate(code?: string): string | undefined {
 	if (!code || typeof code != 'string') return undefined
 
-	const lines = code
-		.split('\n')
+	const lines = code.split('\n')
 
 	if (lines.length == 1) {
 		const line = lines[0].trim()
@@ -181,7 +173,7 @@ const aCharCode = 'a'.charCodeAt(0)
 
 export function numberToChars(n: number) {
 	if (n < 0) {
-		return "-" + numberToChars(-n)
+		return '-' + numberToChars(-n)
 	}
 	var b = [n],
 		sp,
@@ -191,10 +183,10 @@ export function numberToChars(n: number) {
 
 	sp = 0
 	while (sp < b.length) {
-		if (b[sp] > (25)) {
-			div = Math.floor(b[sp] / (26))
+		if (b[sp] > 25) {
+			div = Math.floor(b[sp] / 26)
 			b[sp + 1] = div - 1
-			b[sp] %= (26)
+			b[sp] %= 26
 		}
 		sp += 1
 	}
@@ -215,13 +207,12 @@ export function charsToNumber(n: string): number {
 	let b = Math.pow(26, n.length - 1)
 	let res = 0
 	for (let c of n) {
-		let charCode = (c == '-' || c == '_') ? aCharCode + 25 : c.charCodeAt(0)
+		let charCode = c == '-' || c == '_' ? aCharCode + 25 : c.charCodeAt(0)
 		res += (charCode - aCharCode + 1) * b
 		b = b / 26
 	}
 	return res - 1
 }
-
 
 export async function findNextAvailablePath(path: string): Promise<string> {
 	try {
