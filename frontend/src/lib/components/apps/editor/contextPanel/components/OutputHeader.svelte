@@ -4,6 +4,7 @@
 	import { ChevronDown, ChevronUp, Pointer } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { allsubIds } from '../../appUtils'
+	import IdEditor from './IdEditor.svelte'
 
 	export let id: string
 	export let name: string
@@ -74,26 +75,37 @@
 			$manuallyOpened[id] = $manuallyOpened[id] != undefined ? !$manuallyOpened[id] : true
 		}}
 	>
-		<button
-			disabled={!(selectable && !$selectedComponent?.includes(id)) || $connectingInput?.opened}
-			title="Select component"
-			on:click|stopPropagation={() => ($selectedComponent = [id])}
-			class="flex items-center ml-0.5 rounded-sm bg-gray-100 hover:text-black text-gray-600"
-		>
-			<div
-				class={classNames(
-					'text-2xs  font-bold px-2 py-0.5 rounded-sm',
-					$selectedComponent?.includes(id) ? idClass[color] : ''
-				)}
+		<div class="flex gap-1">
+			<button
+				disabled={!(selectable && !$selectedComponent?.includes(id)) || $connectingInput?.opened}
+				title="Select component"
+				on:click|stopPropagation={() => ($selectedComponent = [id])}
+				class="flex items-center ml-0.5 rounded-sm bg-gray-100 hover:text-black text-gray-600"
 			>
-				{id}
-			</div>
-			{#if selectable && !$selectedComponent?.includes(id)}
-				<div class=" px-1 ">
-					<Pointer size={14} />
+				<div
+					class={classNames(
+						'text-2xs  font-bold px-2 py-0.5 rounded-sm',
+						$selectedComponent?.includes(id) ? idClass[color] : ''
+					)}
+				>
+					{id}
 				</div>
+				{#if selectable && !$selectedComponent?.includes(id)}
+					<div class=" px-1 ">
+						<Pointer size={14} />
+					</div>
+				{/if}
+			</button>
+			{#if selectable}
+				<IdEditor
+					{id}
+					on:change={({ detail }) => {
+						id = detail
+						console.log(detail)
+					}}
+				/>
 			{/if}
-		</button>
+		</div>
 		<div class="text-2xs font-bold flex flex-row gap-2 items-center truncate">
 			{name}
 			{#if !open}

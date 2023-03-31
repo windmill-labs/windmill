@@ -15,6 +15,7 @@
 	export let closeOn: (keyof HTMLElementEventMap)[] = ['blur']
 	export let innerClasses = ''
 	export let outerClasses = ''
+	export let wrapperClasses = ''
 	export let transition: (node: Element, params?: Record<string, any>) => TransitionConfig = slide
 	export { openFocusIn as open, closed as close }
 
@@ -148,7 +149,7 @@
 <svelte:window on:keydown={keyDown} />
 
 <div
-	class="z-50"
+	class="z-50 {wrapperClasses}"
 	bind:this={popup}
 	use:popperContent={options}
 	use:clickOutside
