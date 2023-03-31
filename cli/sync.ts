@@ -336,7 +336,11 @@ async function pull(
           }
         } catch {}
         if (!change.path.endsWith(".json")) {
-          console.log(`Editing script ${change.path}`);
+          console.log(`Editing script content of ${change.path}`);
+        } else {
+          console.log(
+            `Editing ${getTypeStrFromPath(change.path)} ${change.path}`
+          );
         }
         await Deno.writeTextFile(target, change.after);
 
