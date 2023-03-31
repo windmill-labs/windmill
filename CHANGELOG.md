@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.84.1](https://github.com/windmill-labs/windmill/compare/v1.84.0...v1.84.1) (2023-03-31)
+
+
+### Bug Fixes
+
+* **cli:** overwrite instead of smart diff ([b6d5eef](https://github.com/windmill-labs/windmill/commit/b6d5eef5479e38cc36af2db67d4c45f78c622b9a))
+
 ## [1.84.0](https://github.com/windmill-labs/windmill/compare/v1.83.1...v1.84.0) (2023-03-31)
 
 
