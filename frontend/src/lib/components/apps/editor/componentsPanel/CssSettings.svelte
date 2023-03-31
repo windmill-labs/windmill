@@ -7,7 +7,7 @@
 	import type { AppViewerContext } from '../../types'
 	import ListItem from './ListItem.svelte'
 	import CssProperty from './CssProperty.svelte'
-	import { ccomponents, components, type AppComponent, type TypedComponent } from '../component'
+	import { ccomponents, components } from '../component'
 
 	const STATIC_ELEMENTS = ['app'] as const
 	const TITLE_PREFIX = 'Css.' as const

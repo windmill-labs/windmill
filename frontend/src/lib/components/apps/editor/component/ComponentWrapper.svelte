@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import type { AppViewerContext, ContextPanelContext } from '../../types'
-	import { selectId } from '../../utils'
-	import { dfs } from '../appUtils'
+	import { dfs, selectId } from '../appUtils'
 
 	export let id: string
 	export let type: string
