@@ -143,7 +143,7 @@ export type AppViewerContext = {
 	workspace: string
 	onchange: (() => void) | undefined
 	isEditor: boolean
-	jobs: Writable<{ job: string; component: string }[]>
+	jobs: Writable<{ job: string; component: string; result?: string; error?: string }[]>
 	noBackend: boolean
 	errorByComponent: Writable<Record<string, { error: string; componentId: string }>>
 	openDebugRun: Writable<((componentID: string) => void) | undefined>
