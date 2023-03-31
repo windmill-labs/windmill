@@ -372,10 +372,16 @@
 					{#if selectedJobId}
 						{#if !job}
 							{@const job = $jobs.find((j) => j.job == selectedJobId)}
-							{#if job}
+
+							{#if job?.error !== undefined}
 								<LogViewer
-									content={`--- FRONTEND CODE EXECUTION ---\nAn error was thrown: \n\n${job.error}`}
-									isLoading={testIsLoading}
+									content={`--- FRONTEND CODE EXECUTION ---\nError during execution of the script:: \n\n${job.error}`}
+									isLoading={false}
+								/>
+							{:else if job?.result !== undefined}
+								<LogViewer
+									content={`--- FRONTEND CODE EXECUTION ---\n\n${job.result}`}
+									isLoading={false}
 								/>
 							{:else}
 								<Skeleton layout={[[40]]} />
