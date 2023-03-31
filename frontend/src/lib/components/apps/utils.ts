@@ -7,39 +7,6 @@ import type { App, ComponentCssProperty, GridItem } from './types'
 import { twMerge } from 'tailwind-merge'
 import type { AppInput, InputType, ResultAppInput, StaticAppInput } from './inputType'
 import type { Output } from './rx'
-import { get, type Writable } from 'svelte/store'
-import { findGridItemParentGrid } from './editor/appUtils'
-
-export function selectId(
-	e: PointerEvent,
-	id: string,
-	selectedComponent: Writable<string[] | undefined>,
-	app: App
-) {
-	if (e.shiftKey) {
-		selectedComponent.update((old) => {
-			if (old && old?.[0]) {
-				if (findGridItemParentGrid(app, old[0]) != findGridItemParentGrid(app, id)) {
-					sendUserToast('Cannot multi select items from different grids', true)
-					return old
-				}
-			}
-			if (old == undefined) {
-				return [id]
-			}
-			if (old.includes(id)) {
-				return old
-			}
-			return [...old, id]
-		})
-	} else {
-		if (get(selectedComponent)?.includes(id)) {
-			return
-		} else {
-			selectedComponent.set([id])
-		}
-	}
-}
 
 export function allItems(
 	grid: GridItem[],

@@ -5,11 +5,10 @@
 	import { columnConfiguration, isFixed, toggleFixed } from '../gridUtils'
 	import type { AppEditorContext, AppViewerContext, ContextPanelContext, GridItem } from '../types'
 	import Component from './component/Component.svelte'
-	import { expandGriditem, findGridItem } from './appUtils'
+	import { expandGriditem, findGridItem, selectId } from './appUtils'
 	import { push } from '$lib/history'
 	import Grid from '../svelte-grid/Grid.svelte'
 	import GridViewer from './GridViewer.svelte'
-	import { selectId } from '../utils'
 	import ComponentWrapper from './component/ComponentWrapper.svelte'
 
 	export let containerHeight: number | undefined = undefined
@@ -38,7 +37,6 @@
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
-	const { manuallyOpened } = getContext<ContextPanelContext>('ContextPanel')
 
 	$: highlight = id === $focusedGrid?.parentComponentId && shouldHighlight
 
