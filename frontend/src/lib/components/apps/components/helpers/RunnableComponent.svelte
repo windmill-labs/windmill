@@ -144,6 +144,15 @@
 		return schemaStripped as Schema
 	}
 
+	function generateNextFrontendJobId() {
+		const prefix = 'Frontend: '
+		let nextJobNumber = 1
+		while ($jobs.find((j) => j.job === `${prefix}#${nextJobNumber}`)) {
+			nextJobNumber++
+		}
+		return `${prefix}#${nextJobNumber}`
+	}
+
 	async function executeComponent(noToast = false, inlineScriptOverride?: InlineScript) {
 		if (runnable?.type === 'runnableByName' && runnable.inlineScript?.language === 'frontend') {
 			loading = true
@@ -159,9 +168,22 @@
 					$runnableComponents
 				)
 				await setResult(r)
+
 				$state = $state
 			} catch (e) {
 				sendUserToast('Error running frontend script: ' + e.message, true)
+
+				// Manually add a fake job to the job list to show the error
+
+				const job = generateNextFrontendJobId()
+				const error = e.body ?? e.message
+
+				$errorByComponent[job] = {
+					error,
+					componentId: id
+				}
+
+				$jobs = [{ job, component: id, error }, ...$jobs]
 			}
 			loading = false
 			return
