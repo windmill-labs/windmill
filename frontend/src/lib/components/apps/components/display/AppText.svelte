@@ -83,6 +83,10 @@
 	let classes = ''
 	$: resolvedConfig.style && (component = getComponent())
 	$: resolvedConfig.style && (classes = getClasses())
+
+	let editorMode: boolean = false
+
+	let initialValue = componentInput.eval
 </script>
 
 {#each Object.keys(components['textcomponent'].initialData.configuration) as key (key)}
@@ -95,58 +99,76 @@
 {/each}
 
 <RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
-	<div class="h-full w-full overflow-hidden">
-		<AlignWrapper {horizontalAlignment} {verticalAlignment}>
-			{#if !result || result === ''}
-				<div class="text-gray-400 bg-gray-100 flex justify-center items-center h-full w-full">
-					No text
-				</div>
-			{:else}
-				<!-- svelte-ignore a11y-click-events-have-key-events -->
-				<div
-					class="flex flex-wrap gap-2 pb-0.5  {$mode === 'dnd' && componentInput?.type == 'template'
-						? 'cursor-text'
-						: ''}"
-					on:click={() => {
-						if ($mode === 'dnd' && componentInput?.type == 'template') {
-							let ontextfocus = editorcontext?.ontextfocus
-							if (ontextfocus) {
-								get(ontextfocus)?.()
+	<div class="h-full w-full overflow-hidden" on:dblclick={() => (editorMode = !editorMode)}>
+		{#if editorMode && componentInput?.type == 'template'}
+			<input
+				bind:value={initialValue}
+				class="z-[9999] h-full w-full"
+				id={`text-${id}`}
+				on:pointerenter={() => {
+					document.getElementById(`text-${id}`)?.focus()
+				}}
+				on:pointerleave={() => {
+					document.getElementById(`text-${id}`)?.blur()
+					editorMode = false
+				}}
+			/>
+		{:else}
+			<AlignWrapper {horizontalAlignment} {verticalAlignment}>
+				{#if !result || result === ''}
+					<div class="text-gray-400 bg-gray-100 flex justify-center items-center h-full w-full">
+						No text
+					</div>
+				{:else}
+					<!-- svelte-ignore a11y-click-events-have-key-events -->
+					<div
+						class="flex flex-wrap gap-2 pb-0.5  {$mode === 'dnd' &&
+						componentInput?.type == 'template'
+							? 'cursor-text'
+							: ''}"
+						on:click={() => {
+							if ($mode === 'dnd' && componentInput?.type == 'template') {
+								let ontextfocus = editorcontext?.ontextfocus
+								if (ontextfocus) {
+									get(ontextfocus)?.()
+								}
 							}
-						}
-					}}
-				>
-					<svelte:element
-						this={component}
-						class={twMerge(
-							'whitespace-pre-wrap',
-							$app.css?.['textcomponent']?.['text']?.class,
-							customCss?.text?.class,
-							classes
-						)}
-						style={[$app.css?.['textcomponent']?.['text']?.style, customCss?.text?.style].join(';')}
+						}}
 					>
-						{String(result)}
-						{#if resolvedConfig.tooltip != ''}
-							<Tooltip>{resolvedConfig.tooltip}</Tooltip>
-						{/if}
-						{#if resolvedConfig.copyButton && result}
-							<Popover notClickable>
-								<Button
-									variant="border"
-									size="xs"
-									color="dark"
-									btnClasses="!p-1"
-									on:click={() => copyToClipboard(result)}
-								>
-									<Clipboard size={14} strokeWidth={2} />
-								</Button>
-								<svelte:fragment slot="text">Copy to clipboard</svelte:fragment>
-							</Popover>
-						{/if}
-					</svelte:element>
-				</div>
-			{/if}
-		</AlignWrapper>
+						<svelte:element
+							this={component}
+							class={twMerge(
+								'whitespace-pre-wrap',
+								$app.css?.['textcomponent']?.['text']?.class,
+								customCss?.text?.class,
+								classes
+							)}
+							style={[$app.css?.['textcomponent']?.['text']?.style, customCss?.text?.style].join(
+								';'
+							)}
+						>
+							{String(result)}
+							{#if resolvedConfig.tooltip != ''}
+								<Tooltip>{resolvedConfig.tooltip}</Tooltip>
+							{/if}
+							{#if resolvedConfig.copyButton && result}
+								<Popover notClickable>
+									<Button
+										variant="border"
+										size="xs"
+										color="dark"
+										btnClasses="!p-1"
+										on:click={() => copyToClipboard(result)}
+									>
+										<Clipboard size={14} strokeWidth={2} />
+									</Button>
+									<svelte:fragment slot="text">Copy to clipboard</svelte:fragment>
+								</Popover>
+							{/if}
+						</svelte:element>
+					</div>
+				{/if}
+			</AlignWrapper>
+		{/if}
 	</div>
 </RunnableWrapper>
