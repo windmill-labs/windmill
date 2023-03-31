@@ -1,7 +1,7 @@
 <svelte:options accessors />
 
 <script lang="ts">
-	import { onDestroy } from 'svelte'
+	import { createEventDispatcher, onDestroy } from 'svelte'
 	import { slide, type TransitionConfig } from 'svelte/transition'
 	import { createPopperActions, type PopperOptions } from 'svelte-popperjs'
 	import { clickOutside } from '../../../utils'
@@ -29,6 +29,7 @@
 	})
 
 	const [popperRef, popperContent, getInstance] = createPopperActions()
+	const dispatch = createEventDispatcher()
 	let popup: HTMLElement | undefined
 	let focusableElements: HTMLElement[]
 
@@ -60,9 +61,11 @@
 		if ($stateMachine.currentState === 'open-focus-out') {
 			setTimeout(() => {
 				stateMachine.setState('closed')
+				dispatch('close')
 			}, 0)
 		} else {
 			stateMachine.setState('closed')
+			dispatch('close')
 		}
 	}
 	function conditionalClosed() {

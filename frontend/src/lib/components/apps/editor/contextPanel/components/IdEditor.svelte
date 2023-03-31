@@ -29,9 +29,7 @@
 </script>
 
 <button
-	on:click|stopPropagation={() => {
-		value = id
-	}}
+	on:click|stopPropagation={() => {}}
 	bind:this={button}
 	class="rounded-sm bg-gray-100 hover:text-black text-gray-600 px-1"
 	aria-label="Open component ID editor"
@@ -44,6 +42,7 @@
 	transition={fade}
 	wrapperClasses="!z-[1002]"
 	outerClasses="rounded shadow-xl bg-white border p-3"
+	on:close={() => (value = id)}
 >
 	<label class="block w-[220px] text-gray-900">
 		<div class="pb-1 text-sm text-gray-600">Component ID</div>
