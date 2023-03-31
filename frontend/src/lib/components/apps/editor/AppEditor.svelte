@@ -144,7 +144,6 @@
 	$: if ($selectedComponent?.[0] != befSelected) {
 		befSelected = $selectedComponent?.[0]
 		selectedTab = 'settings'
-		console.log('focusedGrid1', befSelected)
 
 		if (befSelected) {
 			if (!['ctx', 'state'].includes(befSelected) && !befSelected?.startsWith('bg_')) {

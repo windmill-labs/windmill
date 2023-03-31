@@ -10,8 +10,8 @@
 	type T = Record<string, any>
 
 	export let result: Array<T>
-	export let paginationEnabled: boolean = false
 	export let manualPagination: boolean
+	export let pageSize: number
 	export let table: Readable<Table<T>>
 	let c = ''
 	export { c as class }
@@ -32,7 +32,7 @@
 	class={twMerge('px-2 py-1 text-xs gap-2 items-center justify-between', c, 'flex flex-row')}
 	{style}
 >
-	{#if (paginationEnabled && result.length > (tableOptions.initialState?.pagination?.pageSize ?? 25)) || manualPagination}
+	{#if result.length > pageSize || manualPagination}
 		<div class="flex items-center gap-2 flex-row">
 			<Button
 				size="xs"

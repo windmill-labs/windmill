@@ -13,13 +13,26 @@
 	export let rowColumns: boolean
 	export let tooltip: string | undefined
 
-	$: if (oneOf.configuration[oneOf.selected] == undefined) {
-		oneOf.configuration[oneOf.selected] = {}
+	$: {
+		if (oneOf == undefined) {
+			oneOf = { configuration: {}, selected: '' }
+		}
+		if (oneOf.configuration == undefined) {
+			oneOf.configuration = {}
+		}
+		if (oneOf.selected == undefined) {
+			oneOf.selected = ''
+		}
+		if (oneOf?.configuration[oneOf?.selected] == undefined) {
+			oneOf.configuration[oneOf.selected] = {}
+		}
 	}
 </script>
 
 <div class="p-2 border">
-	<h4 class="mb-2">{key}&nbsp;<Tooltip>{tooltip}</Tooltip></h4>
+	<h4 class="mb-2"
+		>{key}&nbsp;{#if tooltip}<Tooltip>{tooltip}</Tooltip>{/if}</h4
+	>
 	<select
 		class="w-full border border-gray-300 rounded-md p-2"
 		value={oneOf.selected}
@@ -49,6 +62,7 @@
 					format={config?.['format']}
 					selectOptions={config?.['selectOptions']}
 					placeholder={config?.['placeholder']}
+					onlyStatic={config?.['onlyStatic']}
 				/>
 			{/if}
 		{/each}
