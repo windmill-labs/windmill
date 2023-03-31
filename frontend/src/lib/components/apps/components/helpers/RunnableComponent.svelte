@@ -169,10 +169,6 @@
 				)
 				await setResult(r)
 
-				// Manually add a fake job to the job list to show the result
-				const job = generateNextFrontendJobId()
-				$jobs = [{ job, component: id, result: r }, ...$jobs]
-
 				$state = $state
 			} catch (e) {
 				sendUserToast('Error running frontend script: ' + e.message, true)

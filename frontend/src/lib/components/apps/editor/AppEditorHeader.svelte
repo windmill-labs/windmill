@@ -374,15 +374,33 @@
 							{@const jobResult = $jobs.find((j) => j.job == selectedJobId)}
 
 							{#if jobResult?.error !== undefined}
-								<LogViewer
-									content={`--- FRONTEND CODE EXECUTION ---\nError during execution of the script: \n\n${jobResult.error}`}
-									isLoading={false}
-								/>
+								<Splitpanes horizontal class="grow border w-full">
+									<Pane size={50} minSize={10}>
+										<LogViewer
+											content={`Logs are avaiable in the browser console directly`}
+											isLoading={false}
+										/>
+									</Pane>
+									<Pane size={50} minSize={10} class="text-sm text-gray-600">
+										<pre class="overflow-x-auto break-words relative h-full px-2">
+											<DisplayResult result={{ error: { name: 'Frontend execution error', message: jobResult.error } }} />
+										</pre>
+									</Pane>
+								</Splitpanes>
 							{:else if jobResult?.result !== undefined}
-								<LogViewer
-									content={`--- FRONTEND CODE EXECUTION ---\n\n${jobResult.result}`}
-									isLoading={false}
-								/>
+								<Splitpanes horizontal class="grow border w-full">
+									<Pane size={50} minSize={10}>
+										<LogViewer
+											content={`Logs are avaiable in the browser console directly`}
+											isLoading={false}
+										/>
+									</Pane>
+									<Pane size={50} minSize={10} class="text-sm text-gray-600">
+										<pre class="overflow-x-auto break-words relative h-full px-2">
+											<DisplayResult result={jobResult.result} />
+										</pre>
+									</Pane>
+								</Splitpanes>
 							{:else}
 								<Skeleton layout={[[40]]} />
 							{/if}
