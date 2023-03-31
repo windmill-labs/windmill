@@ -375,7 +375,7 @@
 
 							{#if jobResult?.error !== undefined}
 								<LogViewer
-									content={`--- FRONTEND CODE EXECUTION ---\nError during execution of the script:: \n\n${jobResult.error}`}
+									content={`--- FRONTEND CODE EXECUTION ---\nError during execution of the script: \n\n${jobResult.error}`}
 									isLoading={false}
 								/>
 							{:else if jobResult?.result !== undefined}
