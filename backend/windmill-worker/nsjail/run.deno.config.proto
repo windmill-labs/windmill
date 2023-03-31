@@ -79,12 +79,6 @@ mount {
 }
 
 mount {
-    src: "{JOB_DIR}/lock.json"
-    dst: "/tmp/lock.json"
-    is_bind: true
-}
-
-mount {
     src: "{JOB_DIR}/args.json"
     dst: "/tmp/args.json"
     is_bind: true
