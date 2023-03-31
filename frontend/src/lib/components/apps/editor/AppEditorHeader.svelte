@@ -241,7 +241,12 @@
 	let job: Job | undefined = undefined
 	let testIsLoading = false
 
-	$: selectedJobId && testJobLoader?.watchJob(selectedJobId)
+	$: selectedJobId && !selectedJobId?.includes('Frontend') && testJobLoader?.watchJob(selectedJobId)
+
+	$: if (selectedJobId?.includes('Frontend') && selectedJobId) {
+		job = undefined
+	}
+
 	$: hasErrors = Object.keys($errorByComponent).length > 0
 
 	let lock = false
@@ -366,7 +371,15 @@
 				<div class="h-full w-full overflow-auto">
 					{#if selectedJobId}
 						{#if !job}
-							<Skeleton layout={[[40]]} />
+							{@const job = $jobs.find((j) => j.job == selectedJobId)}
+							{#if job}
+								<LogViewer
+									content={`--- FRONTEND CODE EXECUTION ---\nAn error was thrown: \n\n${job.error}`}
+									isLoading={testIsLoading}
+								/>
+							{:else}
+								<Skeleton layout={[[40]]} />
+							{/if}
 						{:else}
 							<div class="flex flex-col h-full w-full gap-4 mb-4">
 								{#if job?.['running']}

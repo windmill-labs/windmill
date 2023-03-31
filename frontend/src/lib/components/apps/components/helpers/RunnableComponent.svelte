@@ -162,6 +162,17 @@
 				$state = $state
 			} catch (e) {
 				sendUserToast('Error running frontend script: ' + e.message, true)
+
+				const prefix = 'Frontend: '
+				let nextJobNumber = 1
+				while ($jobs.find((j) => j.job === `${prefix}#${nextJobNumber}`)) {
+					nextJobNumber++
+				}
+
+				$jobs = [
+					{ job: `${prefix}#${nextJobNumber}`, component: id, error: e.body ?? e.message },
+					...$jobs
+				]
 			}
 			loading = false
 			return
