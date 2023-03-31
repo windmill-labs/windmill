@@ -154,12 +154,12 @@ mod suspend_resume {
         serde_json::from_value(serde_json::json!({
                 "modules": [{
                     "id": "a",
-                    "input_transform": {
-                        "n": { "type": "javascript", "expr": "flow_input.n", },
-                        "port": { "type": "javascript", "expr": "flow_input.port", },
-                        "op": { "type": "javascript", "expr": "flow_input.op ?? 'resume'", },
-                    },
                     "value": {
+                        "input_transforms": {
+                            "n": { "type": "javascript", "expr": "flow_input.n", },
+                            "port": { "type": "javascript", "expr": "flow_input.port", },
+                            "op": { "type": "javascript", "expr": "flow_input.op ?? 'resume'", },
+                        },
                         "type": "rawscript",
                         "language": "deno",
                         "content": "\
@@ -193,12 +193,12 @@ mod suspend_resume {
                     },
                 }, {
                     "id": "b",
-                    "input_transform": {
-                        "n": { "type": "javascript", "expr": "results.a", },
-                        "resume": { "type": "javascript", "expr": "resume", },
-                        "resumes": { "type": "javascript", "expr": "resumes", },
-                    },
                     "value": {
+                        "input_transforms": {
+                            "n": { "type": "javascript", "expr": "results.a", },
+                            "resume": { "type": "javascript", "expr": "resume", },
+                            "resumes": { "type": "javascript", "expr": "resumes", },
+                        },
                         "type": "rawscript",
                         "language": "deno",
                         "content": "export function main(n, resume, resumes) { return { n: n + 1, resume, resumes } }"
@@ -207,12 +207,12 @@ mod suspend_resume {
                         "required_events": 1
                     },
                 }, {
-                    "input_transform": {
-                        "last": { "type": "javascript", "expr": "results.b", },
-                        "resume": { "type": "javascript", "expr": "resume", },
-                        "resumes": { "type": "javascript", "expr": "resumes", },
-                    },
                     "value": {
+                        "input_transforms": {
+                            "last": { "type": "javascript", "expr": "results.b", },
+                            "resume": { "type": "javascript", "expr": "resume", },
+                            "resumes": { "type": "javascript", "expr": "resumes", },
+                        },
                         "type": "rawscript",
                         "language": "deno",
                         "content": "export function main(last, resume, resumes) { return { last, resume, resumes } }"
@@ -477,11 +477,11 @@ def main(last, port):
                     "iterator": { "type": "javascript", "expr": "flow_input.items" },
                     "skip_failures": false,
                     "modules": [{
-                        "input_transform": {
-                            "index": { "type": "javascript", "expr": "flow_input.iter.index" },
-                            "port": { "type": "javascript", "expr": "flow_input.port" },
-                        },
                         "value": {
+                            "input_transforms": {
+                                "index": { "type": "javascript", "expr": "flow_input.iter.index" },
+                                "port": { "type": "javascript", "expr": "flow_input.port" },
+                            },
                             "type": "rawscript",
                             "language": "deno",
                             "content": inner_step(),
@@ -490,11 +490,11 @@ def main(last, port):
                 },
                 "retry": { "constant": { "attempts": 2, "seconds": 0 } },
             }, {
-                "input_transform": {
-                    "last": { "type": "javascript", "expr": "results.a" },
-                    "port": { "type": "javascript", "expr": "flow_input.port" },
-                },
                 "value": {
+                    "input_transforms": {
+                        "last": { "type": "javascript", "expr": "results.a" },
+                        "port": { "type": "javascript", "expr": "flow_input.port" },
+                    },
                     "type": "rawscript",
                     "language": "python3",
                     "content": last_step(),
@@ -632,7 +632,7 @@ def main(last, port):
             "modules": [{
                 "id": "a",
                 "value": {
-                    "input_transform": { "port": { "type": "javascript", "expr": "flow_input.port" } },
+                    "input_transforms": { "port": { "type": "javascript", "expr": "flow_input.port" } },
                     "type": "rawscript",
                     "language": "python3",
                     "content": r#"
@@ -645,7 +645,7 @@ def main(port):
             }],
             "failure_module": {
                 "value": {
-                    "input_transform": { "error": { "type": "javascript", "expr": "previous_result", },
+                    "input_transforms": { "error": { "type": "javascript", "expr": "previous_result", },
                         "port": { "type": "javascript", "expr": "flow_input.port" } },
                     "type": "rawscript",
                     "language": "python3",
@@ -705,13 +705,13 @@ async fn test_iteration(db: Pool<Postgres>) {
                 "iterator": { "type": "javascript", "expr": "result.items" },
                 "skip_failures": false,
                 "modules": [{
-                    "input_transform": {
-                        "n": {
-                            "type": "javascript",
-                            "expr": "flow_input.iter.value",
-                        },
-                    },
                     "value": {
+                        "input_transforms": {
+                            "n": {
+                                "type": "javascript",
+                                "expr": "flow_input.iter.value",
+                            },
+                        },
                         "type": "rawscript",
                         "language": "python3",
                         "content": "def main(n):\n    if 1 < n:\n        raise StopIteration(n)",
@@ -762,13 +762,13 @@ async fn test_iteration_parallel(db: Pool<Postgres>) {
                 "skip_failures": false,
                 "parallel": true,
                 "modules": [{
-                    "input_transform": {
-                        "n": {
-                            "type": "javascript",
-                            "expr": "flow_input.iter.value",
-                        },
-                    },
                     "value": {
+                        "input_transforms": {
+                            "n": {
+                                "type": "javascript",
+                                "expr": "flow_input.iter.value",
+                            },
+                        },
                         "type": "rawscript",
                         "language": "python3",
                         "content": "def main(n):\n    if 1 < n:\n        raise StopIteration(n)",
@@ -1429,7 +1429,6 @@ async fn test_python_flow(db: Pool<Postgres>) {
     let doubles = "def main(n): return n * 2";
 
     let flow: FlowValue = serde_json::from_value(serde_json::json!( {
-        "input_transform": {},
         "modules": [
             {
                 "value": {
@@ -1445,15 +1444,15 @@ async fn test_python_flow(db: Pool<Postgres>) {
                     "skip_failures": false,
                     "modules": [{
                         "value": {
+                            "input_transforms": {
+                                "n": {
+                                    "type": "javascript",
+                                    "expr": "flow_input.iter.value",
+                                },
+                            },
                             "type": "rawscript",
                             "language": "python3",
                             "content": doubles,
-                        },
-                        "input_transform": {
-                            "n": {
-                                "type": "javascript",
-                                "expr": "flow_input.iter.value",
-                            },
                         },
                     }],
                 },
@@ -1487,11 +1486,11 @@ async fn test_python_flow_2(db: Pool<Postgres>) {
             "modules": [
                 {
                     "value": {
+                        "input_transforms": {},
                         "type": "rawscript",
                         "content": "import wmill\ndef main():  return \"Hello\"",
                         "language": "python3"
                     },
-                    "input_transform": {}
                 }
             ]
     }))
@@ -1670,7 +1669,7 @@ async fn test_empty_loop(db: Pool<Postgres>) {
                     "modules": [
                         {
                             "value": {
-                                "input_transform": {
+                                "input_transforms": {
                                     "n": {
                                         "type": "javascript",
                                         "expr": "flow_input.iter.value",
@@ -1686,7 +1685,7 @@ async fn test_empty_loop(db: Pool<Postgres>) {
             },
             {
                 "value": {
-                    "input_transform": {
+                    "input_transforms": {
                         "items": {
                             "type": "javascript",
                             "expr": "results.a",
@@ -1763,13 +1762,13 @@ async fn test_empty_loop_2(db: Pool<Postgres>) {
                     "iterator": { "type": "static", "value": [] },
                     "modules": [
                         {
-                            "input_transform": {
-                                "n": {
-                                    "type": "javascript",
-                                    "expr": "flow_input.iter.value",
-                                },
-                            },
                             "value": {
+                                "input_transforms": {
+                                    "n": {
+                                        "type": "javascript",
+                                        "expr": "flow_input.iter.value",
+                                    },
+                                },
                                 "type": "rawscript",
                                 "language": "python3",
                                 "content": "def main(n): return n",
@@ -1805,13 +1804,13 @@ async fn test_step_after_loop(db: Pool<Postgres>) {
                     "iterator": { "type": "static", "value": [2,3,4] },
                     "modules": [
                         {
-                            "input_transform": {
-                                "n": {
-                                    "type": "javascript",
-                                    "expr": "flow_input.iter.value",
-                                },
-                            },
                             "value": {
+                                "input_transforms": {
+                                    "n": {
+                                        "type": "javascript",
+                                        "expr": "flow_input.iter.value",
+                                    },
+                                },
                                 "type": "rawscript",
                                 "language": "python3",
                                 "content": "def main(n): return n",
@@ -1821,13 +1820,13 @@ async fn test_step_after_loop(db: Pool<Postgres>) {
                 },
             },
             {
-                "input_transform": {
-                    "items": {
-                        "type": "javascript",
-                        "expr": "results.a",
-                    },
-                },
                 "value": {
+                    "input_transforms": {
+                        "items": {
+                            "type": "javascript",
+                            "expr": "results.a",
+                        },
+                    },
                     "type": "rawscript",
                     "language": "python3",
                     "content": "def main(items): return sum(items)",
@@ -1849,17 +1848,17 @@ async fn test_step_after_loop(db: Pool<Postgres>) {
 fn module_add_item_to_list(i: i32, id: &str) -> serde_json::Value {
     json!({
         "id": format!("id_{}", i.to_string().replace("-", "_")),
-        "input_transform": {
-            "array": {
-                "type": "javascript",
-                "expr": format!("results.{id}"),
-            },
-            "i": {
-                "type": "static",
-                "value": json!(i),
-            }
-        },
         "value": {
+            "input_transforms": {
+                "array": {
+                    "type": "javascript",
+                    "expr": format!("results.{id}"),
+                },
+                "i": {
+                    "type": "static",
+                    "value": json!(i),
+                }
+            },
             "type": "rawscript",
             "language": "deno",
             "content": "export function main(array, i){ array.push(i); return array }",
@@ -1869,8 +1868,8 @@ fn module_add_item_to_list(i: i32, id: &str) -> serde_json::Value {
 
 fn module_failure() -> serde_json::Value {
     json!({
-        "input_transform": {},
         "value": {
+            "input_transforms": {},
             "type": "rawscript",
             "language": "deno",
             "content": "export function main(){ throw Error('failure') }",
@@ -2228,7 +2227,7 @@ async fn test_failure_module(db: Pool<Postgres>) {
             "modules": [{
                 "id": "a",
                 "value": {
-                    "input_transform": {
+                    "input_transforms": {
                         "l": { "type": "javascript", "expr": "[]", },
                         "n": { "type": "javascript", "expr": "flow_input.n", },
                     },
@@ -2239,7 +2238,7 @@ async fn test_failure_module(db: Pool<Postgres>) {
             }, {
                 "id": "b",
                 "value": {
-                    "input_transform": {
+                    "input_transforms": {
                         "l": { "type": "javascript", "expr": "results.a.l", },
                         "n": { "type": "javascript", "expr": "flow_input.n", },
                     },
@@ -2249,7 +2248,7 @@ async fn test_failure_module(db: Pool<Postgres>) {
                 },
             }, {
                 "value": {
-                    "input_transform": {
+                    "input_transforms": {
                         "l": { "type": "javascript", "expr": "results.b.l", },
                         "n": { "type": "javascript", "expr": "flow_input.n", },
                     },
@@ -2259,8 +2258,8 @@ async fn test_failure_module(db: Pool<Postgres>) {
                 },
             }],
             "failure_module": {
-                "input_transform": { "error": { "type": "javascript", "expr": "previous_result", } },
                 "value": {
+                    "input_transforms": { "error": { "type": "javascript", "expr": "previous_result", } },
                     "type": "rawscript",
                     "language": "deno",
                     "content": "export function main(error) { return { 'from failure module': error } }",
