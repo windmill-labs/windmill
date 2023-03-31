@@ -2417,6 +2417,7 @@ async fn handle_child(
     let write_logs_delay = Duration::from_millis(500);
 
     let pid = child.id();
+    #[cfg(target_os = "linux")]
     if let Some(pid) = pid {
         //set the highest oom priority
         let mut file = File::create(format!("/proc/{pid}/oom_score_adj")).await?;
