@@ -1180,7 +1180,6 @@ mount {{
                 job_dir,
                 &inner_content,
                 &shared_mount,
-                requirements_o,
                 base_internal_url,
                 worker_name
             )
@@ -1540,19 +1539,12 @@ async fn handle_deno_job(
     job_dir: &str,
     inner_content: &String,
     shared_mount: &str,
-    lockfile: Option<String>,
     base_internal_url: &str,
     worker_name: &str
 ) -> error::Result<serde_json::Value> {
     logs.push_str("\n\n--- DENO CODE EXECUTION ---\n");
     set_logs(logs, &job.id, db).await;
-    let lockfile = lockfile.and_then(|e| if e.starts_with("{") { Some(e) } else { None });
-    let _ = write_file(
-        job_dir,
-        "lock.json",
-        &lockfile.clone().unwrap_or("".to_string()),
-    )
-    .await?;
+
     // TODO: Separately cache dependencies here using `deno cache --reload --lock=lock.json src/deps.ts` (https://deno.land/manual@v1.27.0/linking_to_external_code/integrity_checking)
     // Then require caching below using --cached-only. This makes it so we require zero network interaction when running the process below
 
@@ -1628,9 +1620,7 @@ run().catch(async (e) => {{
             args.push("--");
             args.push(DENO_PATH.as_str());
             args.push("run");
-            if lockfile.is_some() {
-                args.push("--lock=/tmp/lock.json");
-            }
+
             args.push("--import-map");
             args.push("/tmp/import_map.json");
             args.push(&reload);
