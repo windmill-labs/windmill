@@ -371,16 +371,16 @@
 				<div class="h-full w-full overflow-auto">
 					{#if selectedJobId}
 						{#if !job}
-							{@const job = $jobs.find((j) => j.job == selectedJobId)}
+							{@const jobResult = $jobs.find((j) => j.job == selectedJobId)}
 
-							{#if job?.error !== undefined}
+							{#if jobResult?.error !== undefined}
 								<LogViewer
-									content={`--- FRONTEND CODE EXECUTION ---\nError during execution of the script:: \n\n${job.error}`}
+									content={`--- FRONTEND CODE EXECUTION ---\nError during execution of the script:: \n\n${jobResult.error}`}
 									isLoading={false}
 								/>
-							{:else if job?.result !== undefined}
+							{:else if jobResult?.result !== undefined}
 								<LogViewer
-									content={`--- FRONTEND CODE EXECUTION ---\n\n${job.result}`}
+									content={`--- FRONTEND CODE EXECUTION ---\n\n${jobResult.result}`}
 									isLoading={false}
 								/>
 							{:else}
