@@ -1,18 +1,12 @@
 <script lang="ts">
 	import { browser, dev } from '$app/environment'
 
-	import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
-	import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
-	import yamlWorker from 'monaco-yaml/yaml.worker?worker'
-	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
-
-	import { buildWorkerDefinition } from 'monaco-editor-workers'
-
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 	import { createHash, editorConfig, langToExt, updateOptions } from '$lib/editorUtils'
 	import { languages, editor as meditor, KeyCode, KeyMod, Uri as mUri } from 'monaco-editor'
 
 	import libStdContent from '$lib/es5.d.ts.txt?raw'
+	import { buildWorkerDefinition } from 'monaco-editor-workers'
 
 	meditor.defineTheme('myTheme', {
 		base: 'vs',
@@ -57,30 +51,7 @@
 
 	const uri = `file:///${hash}.${langToExt(lang)}`
 
-	if (browser) {
-		if (dev) {
-			buildWorkerDefinition(
-				'../../../node_modules/monaco-editor-workers/dist/workers',
-				import.meta.url,
-				false
-			)
-		} else {
-			// @ts-ignore
-			self.MonacoEnvironment = {
-				getWorker: function (_moduleId: any, label: string) {
-					if (label === 'json') {
-						return new jsonWorker()
-					} else if (label === 'yaml') {
-						return new yamlWorker()
-					} else if (label === 'typescript' || label === 'javascript') {
-						return new tsWorker()
-					} else {
-						return new editorWorker()
-					}
-				}
-			}
-		}
-	}
+	buildWorkerDefinition('../../../workers', import.meta.url, false)
 
 	export function getCode(): string {
 		return editor?.getValue() ?? ''
