@@ -53,73 +53,78 @@
 
 	async function saveFlow(leave: boolean): Promise<void> {
 		loadingSave = true
-		const flow = cleanInputs($flowStore)
-		const { cron, args, enabled } = $scheduleStore
-		$dirtyStore = false
-		if (initialPath === '') {
-			localStorage.removeItem('flow')
-			await FlowService.createFlow({
-				workspace: $workspaceStore!,
-				requestBody: {
-					path: flow.path,
-					summary: flow.summary,
-					description: flow.description ?? '',
-					value: flow.value,
-					schema: flow.schema
+		try {
+			const flow = cleanInputs($flowStore)
+			const { cron, args, enabled } = $scheduleStore
+			$dirtyStore = false
+			if (initialPath === '') {
+				localStorage.removeItem('flow')
+				await FlowService.createFlow({
+					workspace: $workspaceStore!,
+					requestBody: {
+						path: flow.path,
+						summary: flow.summary,
+						description: flow.description ?? '',
+						value: flow.value,
+						schema: flow.schema
+					}
+				})
+				if (enabled) {
+					await createSchedule(flow.path)
 				}
-			})
-			if (enabled) {
-				await createSchedule(flow.path)
-			}
-		} else {
-			localStorage.removeItem(`flow-${initialPath}`)
-			await FlowService.updateFlow({
-				workspace: $workspaceStore!,
-				path: initialPath,
-				requestBody: {
-					path: flow.path,
-					summary: flow.summary,
-					description: flow.description ?? '',
-					value: flow.value,
-					schema: flow.schema
-				}
-			})
-			const scheduleExists = await ScheduleService.existsSchedule({
-				workspace: $workspaceStore ?? '',
-				path: flow.path
-			})
-			if (scheduleExists) {
-				const schedule = await ScheduleService.getSchedule({
+			} else {
+				localStorage.removeItem(`flow-${initialPath}`)
+				await FlowService.updateFlow({
+					workspace: $workspaceStore!,
+					path: initialPath,
+					requestBody: {
+						path: flow.path,
+						summary: flow.summary,
+						description: flow.description ?? '',
+						value: flow.value,
+						schema: flow.schema
+					}
+				})
+				const scheduleExists = await ScheduleService.existsSchedule({
 					workspace: $workspaceStore ?? '',
 					path: flow.path
 				})
-				if (JSON.stringify(schedule.args) != JSON.stringify(args) || schedule.schedule != cron) {
-					await ScheduleService.updateSchedule({
+				if (scheduleExists) {
+					const schedule = await ScheduleService.getSchedule({
 						workspace: $workspaceStore ?? '',
-						path: flow.path,
-						requestBody: {
-							schedule: formatCron(cron),
-							args
-						}
+						path: flow.path
 					})
+					if (JSON.stringify(schedule.args) != JSON.stringify(args) || schedule.schedule != cron) {
+						await ScheduleService.updateSchedule({
+							workspace: $workspaceStore ?? '',
+							path: flow.path,
+							requestBody: {
+								schedule: formatCron(cron),
+								args
+							}
+						})
+					}
+					if (enabled != schedule.enabled) {
+						await ScheduleService.setScheduleEnabled({
+							workspace: $workspaceStore ?? '',
+							path: flow.path,
+							requestBody: { enabled }
+						})
+					}
+				} else if (enabled) {
+					await createSchedule(flow.path)
 				}
-				if (enabled != schedule.enabled) {
-					await ScheduleService.setScheduleEnabled({
-						workspace: $workspaceStore ?? '',
-						path: flow.path,
-						requestBody: { enabled }
-					})
-				}
-			} else if (enabled) {
-				await createSchedule(flow.path)
 			}
-		}
-		loadingSave = false
-		if (leave) {
-			goto(`/flows/get/${$flowStore.path}?workspace_id=${$workspaceStore}`)
-		} else if (initialPath !== $flowStore.path) {
-			initialPath = $flowStore.path
-			goto(`/flows/edit/${$flowStore.path}?workspace_id=${$workspaceStore}`)
+			loadingSave = false
+			if (leave) {
+				goto(`/flows/get/${$flowStore.path}?workspace_id=${$workspaceStore}`)
+			} else if (initialPath !== $flowStore.path) {
+				initialPath = $flowStore.path
+				goto(`/flows/edit/${$flowStore.path}?workspace_id=${$workspaceStore}`)
+			}
+		} catch (err) {
+			sendUserToast(`The flow could not be saved: ${err.body}`, true)
+			loadingSave = false
 		}
 	}
 
