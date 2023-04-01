@@ -1,10 +1,12 @@
 <script lang="ts" context="module">
-	import getMessageServiceOverride from 'vscode/service-override/messages'
 	import { StandaloneServices } from 'vscode/services'
+	import getNotificationServiceOverride from 'vscode/service-override/notifications'
+	import getDialogServiceOverride from 'vscode/service-override/dialogs'
 
 	try {
 		StandaloneServices?.initialize({
-			...getMessageServiceOverride(document.body)
+			...getNotificationServiceOverride(document.body),
+			...getDialogServiceOverride()
 		})
 	} catch (e) {
 		console.error(e)
@@ -17,12 +19,7 @@
 	import { sendUserToast } from '$lib/utils'
 
 	import { buildWorkerDefinition } from 'monaco-editor-workers'
-	import type {
-		Disposable,
-		DocumentUri,
-		MessageTransports,
-		MonacoLanguageClient
-	} from 'monaco-languageclient'
+	import type { MonacoLanguageClient } from 'monaco-languageclient'
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 
 	import { languages, editor as meditor, KeyCode, KeyMod, Uri as mUri } from 'monaco-editor'
@@ -63,6 +60,8 @@
 		updateOptions
 	} from '$lib/editorUtils'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
+	import type { Disposable } from 'vscode'
+	import type { DocumentUri, MessageTransports } from 'vscode-languageclient'
 
 	let divEl: HTMLDivElement | null = null
 	let editor: meditor.IStandaloneCodeEditor
@@ -395,12 +394,14 @@
 		websocketInterval && clearInterval(websocketInterval)
 	}
 
+	let widgets: HTMLElement | undefined = document.getElementById('monaco-widgets-root') ?? undefined
 	async function loadMonaco() {
 		const model = meditor.createModel(code, lang, mUri.parse(uri))
 
 		model.updateOptions(updateOptions)
 		editor = meditor.create(divEl as HTMLDivElement, {
 			...editorConfig(model, code, lang, automaticLayout, fixedOverflowWidgets),
+			overflowWidgetsDomNode: widgets,
 			tabSize: lang == 'python' ? 4 : 2
 		})
 

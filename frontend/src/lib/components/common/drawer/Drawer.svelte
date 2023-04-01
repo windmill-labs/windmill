@@ -77,13 +77,13 @@
 <svelte:window on:keydown={onKeyDown} />
 
 <aside
-	class="drawer {$$props.class} {$$props.positionClass}"
+	class="drawer {$$props.class ?? ''} {$$props.positionClass ?? ''}"
 	class:open
 	class:close={!open && timeout}
 	{style}
 >
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
-	<div class="overlay {$$props.positionClass}" on:click={handleClickAway} />
+	<div class="overlay {$$props.positionClass ?? ''}" on:click={handleClickAway} />
 	<div class="panel {placement} {$$props.positionClass}" class:size>
 		{#if open || !timeout || alwaysOpen}
 			<slot {open} />

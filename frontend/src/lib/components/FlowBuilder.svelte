@@ -261,7 +261,7 @@
 	<div class="flex flex-col flex-1 h-screen">
 		<!-- Nav between steps-->
 		<div
-			class="justify-between flex flex-row w-full items-center pl-2.5 pr-6  space-x-4 overflow-x-auto scrollbar-hidden max-h-12 h-full"
+			class="justify-between flex flex-row w-full items-center pl-2.5 pr-6 space-x-4 overflow-x-auto scrollbar-hidden max-h-12 h-full"
 		>
 			<div class="flex flex-row gap-4 items-center">
 				<FlowImportExportMenu />

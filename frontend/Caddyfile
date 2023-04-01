@@ -2,6 +2,7 @@ http://localhost {
   bind {$ADDRESS}
   reverse_proxy /api/* http://localhost:8000
   reverse_proxy /* http://localhost:3000
+  reverse_proxy /ws/* http://localhost:3001
 }
 
 https://localhost {  
