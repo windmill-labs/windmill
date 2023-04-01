@@ -12,7 +12,7 @@ use windmill_audit::{audit_log, ActionKind};
 use crate::{
     db::{UserDB, DB},
     schedule::clear_schedule,
-    users::{require_owner_of_path, Authed},
+    users::{maybe_refresh_folders, require_owner_of_path, Authed},
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
@@ -190,6 +190,7 @@ async fn create_script(
     Json(ns): Json<NewScript>,
 ) -> Result<(StatusCode, String)> {
     let hash = ScriptHash(hash_script(&ns));
+    // let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
     let mut tx = user_db.begin(&authed).await?;
 
     if sqlx::query_scalar!(

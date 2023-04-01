@@ -39,6 +39,7 @@
 			workspace: $workspaceStore ?? '',
 			requestBody: { name: newFolderName }
 		})
+		$userStore?.folders.push(newFolderName)
 		loadFolders()
 		editFolderName = newFolderName
 		folderDrawer.openDrawer()

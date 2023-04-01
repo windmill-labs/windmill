@@ -1,3 +1,7 @@
+<script lang="ts" context="module">
+	const lastMetaUsed = writable<Meta | undefined>(undefined)
+</script>
+
 <script lang="ts">
 	import { type Meta, pathToMeta } from '$lib/common'
 
@@ -24,6 +28,8 @@
 	import GroupEditor from './GroupEditor.svelte'
 	import { random_adj } from './random_positive_adjetive'
 	import Badge from './common/badge/Badge.svelte'
+	import { writable } from 'svelte/store'
+	import { canWrite } from '$lib/utils'
 
 	type PathKind = 'resource' | 'script' | 'variable' | 'flow' | 'schedule' | 'app'
 	let meta: Meta | undefined = undefined
@@ -40,7 +46,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	let folders: string[] = []
+	let folders: { name: string; write: boolean }[] = []
 	let groups: string[] = []
 
 	$: meta && onMetaChange()
@@ -49,6 +55,10 @@
 		if (meta) {
 			path = metaToPath(meta)
 			validate(meta, path, kind)
+			$lastMetaUsed = {
+				...meta,
+				name: ''
+			}
 		}
 	}
 
@@ -71,14 +81,17 @@
 
 	export async function reset() {
 		if (path == '' || path == 'u//') {
-			meta = {
-				ownerKind: 'user',
-				name: random_adj() + '_' + namePlaceholder,
-				owner: ''
+			if ($lastMetaUsed == undefined) {
+				meta = {
+					ownerKind: 'user',
+					name: random_adj() + '_' + namePlaceholder,
+					owner: ''
+				}
+
+				meta.owner = $userStore!.username.split('@')[0].replace(/[^a-zA-Z0-9]/g, '')
+			} else {
+				meta = { ...$lastMetaUsed, name: random_adj() + '_' + namePlaceholder }
 			}
-
-			meta.owner = $userStore!.username.split('@')[0]
-
 			let newMeta = { ...meta }
 			while (await pathExists(metaToPath(newMeta), kind)) {
 				disabled = true
@@ -95,18 +108,20 @@
 	}
 
 	async function loadFolders(): Promise<void> {
-		let initialFolders: string[] = []
+		let initialFolders: { name: string; write: boolean }[] = []
 		let initialFolder = ''
 		if (initialPath?.split('/')?.[0] == 'f') {
 			initialFolder = initialPath?.split('/')?.[1]
-			initialFolders.push(initialFolder)
+			initialFolders.push({ name: initialFolder, write: true })
 		}
 		folders = initialFolders.concat(
 			(
 				await FolderService.listFolderNames({
 					workspace: $workspaceStore!
 				})
-			).filter((x) => x != initialFolder)
+			)
+				.filter((x) => x != initialFolder)
+				.map((x) => ({ name: x, write: $userStore?.folders?.includes(x) == true }))
 		)
 	}
 
@@ -224,55 +239,13 @@
 			requestBody: { name: newFolderName }
 		})
 		folderCreated = newFolderName
+		$userStore?.folders?.push(newFolderName)
+		loadFolders()
 		if (meta) {
 			meta.owner = newFolderName
 		}
-		loadFolders()
-	}
-
-	let newGroup: Drawer
-	let viewGroup: Drawer
-	let newGroupName: string
-	let groupCreated: string | undefined = undefined
-
-	async function addGroup() {
-		await GroupService.createGroup({
-			workspace: $workspaceStore ?? '',
-			requestBody: { name: newGroupName }
-		})
-		groupCreated = newGroupName
-		if (meta) {
-			meta.owner = newGroupName
-		}
-		loadGroups()
 	}
 </script>
-
-<Drawer bind:this={newGroup}>
-	<DrawerContent
-		title="New Folder"
-		on:close={() => {
-			newGroup.closeDrawer()
-			groupCreated = undefined
-		}}
-	>
-		<div class="flex flex-row">
-			<input class="mr-2" placeholder="New group name" bind:value={newGroupName} />
-			<Button size="md" endIcon={{ icon: faPlus }} disabled={!newGroupName} on:click={addGroup}>
-				New&nbsp;group
-			</Button>
-		</div>
-		{#if groupCreated}
-			<div class="mt-8" />
-			<GroupEditor name={groupCreated} />
-		{/if}
-	</DrawerContent>
-</Drawer>
-<Drawer bind:this={viewGroup}>
-	<DrawerContent title="Folder {meta?.owner}" on:close={viewGroup.closeDrawer}>
-		<GroupEditor name={meta?.owner ?? ''} />
-	</DrawerContent>
-</Drawer>
 
 <Drawer bind:this={newFolder}>
 	<DrawerContent
@@ -356,35 +329,14 @@
 
 						<div class="flex flex-row gap-1 w-full">
 							<select class="grow w-full" {disabled} bind:value={meta.owner}>
-								{#each folders as f}
-									<option>{f}</option>
+								{#each folders as { name, write }}
+									<option disabled={!write}>{name}{write ? '' : ' (read-only)'}</option>
 								{/each}
 							</select>
 							<Button variant="border" size="xs" on:click={viewFolder.openDrawer}>
 								<Icon scale={0.8} data={faEye} /></Button
 							>
 							<Button variant="border" size="xs" on:click={newFolder.openDrawer}>
-								<Icon scale={0.8} data={faPlus} /></Button
-							></div
-						>
-					</label>
-				{:else if meta.ownerKind === 'group'}
-					<label class="block grow w-48">
-						<span class="text-gray-700 text-sm"
-							>Group <Tooltip>Item will be owned by the group and hence all its member</Tooltip
-							></span
-						>
-
-						<div class="flex flex-row gap-1">
-							<select class="grow w-full" {disabled} bind:value={meta.owner}>
-								{#each groups as g}
-									<option>{g}</option>
-								{/each}
-							</select>
-							<Button variant="border" size="xs" on:click={viewGroup.openDrawer}>
-								<Icon scale={0.8} data={faEye} /></Button
-							>
-							<Button variant="border" size="xs" on:click={newGroup.openDrawer}>
 								<Icon scale={0.8} data={faPlus} /></Button
 							></div
 						>
