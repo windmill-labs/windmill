@@ -47,8 +47,8 @@
 							dispatch('click', { item: item?.eventName })
 						}
 					}}
-					class="block w-full  whitespace-nowrap hover:drop-shadow-sm hover:bg-gray-50 hover:bg-opacity-30
-					 px-4 py-2 text-sm text-gray-700 text-left 
+					class="block w-full whitespace-nowrap hover:drop-shadow-sm hover:bg-gray-50 hover:bg-opacity-30
+					 px-4 py-2 text-sm text-gray-700 text-left
 					 {item.disabled ? 'bg-gray-200' : ''}
 					 {item.separatorTop ? 'border-t' : ''} {item.separatorBottom ? 'border-b' : ''} {item.type ==
 					'delete'
@@ -72,7 +72,7 @@
 				<a
 					href={item.href}
 					on:click|stopPropagation|preventDefault={() => goto(item.href ?? '')}
-					class="block w-full px-4 font-semibold text-left  py-2 text-sm text-gray-700 hover:drop-shadow-sm hover:bg-gray-50 hover:bg-opacity-30
+					class="block w-full px-4 font-semibold text-left py-2 text-sm text-gray-700 hover:drop-shadow-sm hover:bg-gray-50 hover:bg-opacity-30
 					{item.disabled ? 'bg-gray-200' : ''}"
 					role="menuitem"
 					tabindex="-1"
@@ -89,9 +89,10 @@
 					{item.displayName}
 				</a>
 			{:else}
+				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<span
 					class:bg-gray-50={item.disabled}
-					class="block  text-left px-4 py-2 text-sm text-gray-700 cursor-auto"
+					class="block text-left px-4 py-2 text-sm text-gray-700 cursor-auto"
 					role="menuitem"
 					tabindex="-1"
 					id="user-menu-item-{name}-{i}}"

@@ -169,7 +169,7 @@
 	{/if}
 </CenteredPage>
 
-<style>
+<style lang="postcss">
 	/* Hide scrollbar for Chrome, Safari and Opera */
 	.no-scrollbar::-webkit-scrollbar {
 		display: none;

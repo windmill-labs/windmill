@@ -1,4 +1,3 @@
-import { getNextId } from '$lib/components/flows/flowStateUtils'
 import type {
 	App,
 	BaseAppComponent,
@@ -23,6 +22,7 @@ import type { FilledItem } from '../svelte-grid/types'
 import type { EvalAppInput, StaticAppInput } from '../inputType'
 import { get, type Writable } from 'svelte/store'
 import { sendUserToast } from '$lib/utils'
+import { getNextId } from '$lib/components/flows/idUtils'
 
 export function dfs(
 	grid: GridItem[],

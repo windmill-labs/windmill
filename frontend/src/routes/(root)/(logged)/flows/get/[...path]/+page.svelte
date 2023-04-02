@@ -379,7 +379,8 @@
 					</div>
 					{#if viewWebhookCommand}
 						<div transition:slide|local class="px-4">
-							<pre class="bg-gray-700 text-gray-100 p-2  font-mono text-sm whitespace-pre-wrap"
+							<!-- svelte-ignore a11y-click-events-have-key-events -->
+							<pre class="bg-gray-700 text-gray-100 p-2 font-mono text-sm whitespace-pre-wrap"
 								>{curlCommand} <span
 									on:click={() => copyToClipboard(curlCommand)}
 									class="cursor-pointer ml-2"><Icon data={faClipboard} /></span
