@@ -1,12 +1,7 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
-	import type {
-		AppViewerContext,
-		ComponentCustomCSS,
-		RichConfiguration,
-		RichConfigurations
-	} from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import { AlignWrapper, InputValue } from '../helpers'
 	import { loadIcon } from '../icon'

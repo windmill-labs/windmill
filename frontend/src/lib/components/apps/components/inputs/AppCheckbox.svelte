@@ -2,8 +2,6 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { getContext } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
-	import type { AppInput } from '../../inputType'
-	import type { Output } from '../../rx'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'

@@ -1,14 +1,14 @@
 <script lang="ts">
+	import { GranularAclService, GroupService, UserService, type Group } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { type Group, GroupService, UserService, GranularAclService } from '$lib/gen'
-	import AutoComplete from 'simple-svelte-autocomplete'
-	import TableCustom from './TableCustom.svelte'
 	import { canWrite, sendUserToast } from '$lib/utils'
+	import AutoComplete from 'simple-svelte-autocomplete'
+	import { createEventDispatcher } from 'svelte'
+	import autosize from 'svelte-autosize'
 	import { Button, ToggleButton, ToggleButtonGroup } from './common'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
+	import TableCustom from './TableCustom.svelte'
 	import Tooltip from './Tooltip.svelte'
-	import autosize from 'svelte-autosize'
-	import { createEventDispatcher } from 'svelte'
 
 	export let name: string
 	let can_write = false
@@ -16,10 +16,8 @@
 	type Role = 'member' | 'manager' | 'admin'
 	let group: Group | undefined
 	let members: { member_name: string; role: Role }[] | undefined = undefined
-	let managing_groups: string[] = []
 	let usernames: string[] | undefined = []
 	let username: string = ''
-	let groups: string[] = []
 
 	const dispatch = createEventDispatcher()
 
@@ -34,13 +32,8 @@
 	}
 
 	async function load() {
-		loadGroups()
 		await loadGroup()
 		loadUsernames()
-	}
-
-	async function loadGroups(): Promise<void> {
-		groups = (await GroupService.listGroups({ workspace: $workspaceStore! })).map((x) => x.name)
 	}
 
 	async function addToGroup() {
@@ -68,9 +61,6 @@
 				role: getRole(x)
 			}
 		})
-		managing_groups = Object.entries(group?.extra_perms ?? {})
-			.filter(([k, v]) => k.startsWith('g/') && v)
-			.map(([k, v]) => k)
 	}
 
 	function getRole(x: string): Role {

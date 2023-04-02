@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { FolderService, GroupService } from '$lib/gen'
+	import { FolderService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 
 	export let name: string

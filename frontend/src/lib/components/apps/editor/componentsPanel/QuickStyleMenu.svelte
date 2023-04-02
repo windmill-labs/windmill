@@ -175,8 +175,8 @@
 </script>
 
 <div class="pb-2 pt-1">
-	{#each properties as property, i}
-		{#each Object.keys(property) as group, j}
+	{#each properties as property}
+		{#each Object.keys(property) as group (group)}
 			{@const prefix = `${componentType}_${componentProperty}_${group}`}
 			<ListItem
 				bind:isOpen={isOpen[prefix]}

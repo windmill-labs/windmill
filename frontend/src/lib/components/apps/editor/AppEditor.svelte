@@ -1,6 +1,6 @@
 <script lang="ts">
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
-	import { onMount, setContext } from 'svelte'
+	import { setContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -19,30 +19,30 @@
 	import AppEditorHeader from './AppEditorHeader.svelte'
 	import GridEditor from './GridEditor.svelte'
 
-	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
-	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 	import { Button, Tab } from '$lib/components/common'
-	import ComponentList from './componentsPanel/ComponentList.svelte'
-	import { faPlus } from '@fortawesome/free-solid-svg-icons'
-	import ContextPanel from './contextPanel/ContextPanel.svelte'
-	import { classNames, encodeState } from '$lib/utils'
-	import AppPreview from './AppPreview.svelte'
+	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
+	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
+	import { classNames, encodeState } from '$lib/utils'
+	import { faPlus } from '@fortawesome/free-solid-svg-icons'
+	import AppPreview from './AppPreview.svelte'
+	import ComponentList from './componentsPanel/ComponentList.svelte'
+	import ContextPanel from './contextPanel/ContextPanel.svelte'
 
 	import InlineScriptsPanel from './inlineScriptsPanel/InlineScriptsPanel.svelte'
 
-	import SettingsPanel from './SettingsPanel.svelte'
-	import { VariableService, type Policy } from '$lib/gen'
 	import { page } from '$app/stores'
-	import CssSettings from './componentsPanel/CssSettings.svelte'
-	import { initHistory } from '$lib/history'
-	import ComponentNavigation from './component/ComponentNavigation.svelte'
 	import ItemPicker from '$lib/components/ItemPicker.svelte'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
-	import { secondaryMenu, SecondaryMenu } from './settingsPanel/secondaryMenu'
+	import { VariableService, type Policy } from '$lib/gen'
+	import { initHistory } from '$lib/history'
 	import { Component, Paintbrush, Plus } from 'lucide-svelte'
 	import { findGridItem, findGridItemParentGrid } from './appUtils'
+	import ComponentNavigation from './component/ComponentNavigation.svelte'
+	import CssSettings from './componentsPanel/CssSettings.svelte'
 	import ConnectionInstructions from './ConnectionInstructions.svelte'
+	import SettingsPanel from './SettingsPanel.svelte'
+	import { secondaryMenu, SecondaryMenu } from './settingsPanel/secondaryMenu'
 
 	export let app: App
 	export let path: string
@@ -123,12 +123,6 @@
 			}
 		}, 500)
 	}
-
-	let mounted = false
-
-	onMount(() => {
-		mounted = true
-	})
 
 	function hashchange(e: HashChangeEvent) {
 		context.hash = e.newURL.split('#')[1]

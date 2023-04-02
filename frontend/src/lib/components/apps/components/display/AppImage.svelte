@@ -2,7 +2,7 @@
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initConfig, initOutput } from '../../editor/appUtils'
-	import { components, selectOptions } from '../../editor/component'
+	import { components } from '../../editor/component'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import Loader from '../helpers/Loader.svelte'

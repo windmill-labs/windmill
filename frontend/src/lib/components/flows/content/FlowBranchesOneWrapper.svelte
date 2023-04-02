@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Alert, Badge, Button, Tab } from '$lib/components/common'
+	import { Alert, Badge, Tab } from '$lib/components/common'
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 
@@ -40,7 +40,7 @@
 								chosen</p
 							>
 						</div>
-						{#each value.branches as branch, i}
+						{#each value.branches as branch}
 							<div class="flex flex-col gap-x-2 p-2 items-center border border-gray-400">
 								<input
 									class="w-full"

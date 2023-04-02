@@ -1,15 +1,15 @@
 <script lang="ts">
-	import { AuditService, AuditLog, UserService } from '$lib/gen'
-	import type { ActionKind } from '$lib/common'
-	import { page } from '$app/stores'
-	import { displayDate } from '$lib/utils'
 	import { goto } from '$app/navigation'
-	import PageHeader from '$lib/components/PageHeader.svelte'
-	import { superadmin, userStore, workspaceStore } from '$lib/stores'
-	import TableCustom from '$lib/components/TableCustom.svelte'
+	import { page } from '$app/stores'
+	import type { ActionKind } from '$lib/common'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import Icon from 'svelte-awesome'
+	import PageHeader from '$lib/components/PageHeader.svelte'
+	import TableCustom from '$lib/components/TableCustom.svelte'
+	import { AuditLog, AuditService, UserService } from '$lib/gen'
+	import { userStore, workspaceStore } from '$lib/stores'
+	import { displayDate } from '$lib/utils'
 	import { faCross, faEdit, faPlay, faPlus, faQuestion } from '@fortawesome/free-solid-svg-icons'
+	import Icon from 'svelte-awesome'
 
 	let logs: AuditLog[]
 	let usernames: string[]

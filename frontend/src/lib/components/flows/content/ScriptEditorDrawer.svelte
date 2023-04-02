@@ -4,7 +4,7 @@
 	import { ScriptService, type Preview } from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { workspaceStore } from '$lib/stores'
-	import { emptySchema, getScriptByPath, sendUserToast } from '$lib/utils'
+	import { emptySchema, sendUserToast } from '$lib/utils'
 	import { faSave } from '@fortawesome/free-solid-svg-icons'
 	import { Loader2 } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'

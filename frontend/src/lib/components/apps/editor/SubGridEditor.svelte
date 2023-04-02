@@ -1,15 +1,15 @@
 <script lang="ts">
+	import { push } from '$lib/history'
 	import { classNames } from '$lib/utils'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { columnConfiguration, isFixed, toggleFixed } from '../gridUtils'
-	import type { AppEditorContext, AppViewerContext, ContextPanelContext, GridItem } from '../types'
-	import Component from './component/Component.svelte'
-	import { expandGriditem, findGridItem, selectId } from './appUtils'
-	import { push } from '$lib/history'
 	import Grid from '../svelte-grid/Grid.svelte'
-	import GridViewer from './GridViewer.svelte'
+	import type { AppEditorContext, AppViewerContext, GridItem } from '../types'
+	import { expandGriditem, findGridItem, selectId } from './appUtils'
+	import Component from './component/Component.svelte'
 	import ComponentWrapper from './component/ComponentWrapper.svelte'
+	import GridViewer from './GridViewer.svelte'
 
 	export let containerHeight: number | undefined = undefined
 	export let containerWidth: number | undefined = undefined

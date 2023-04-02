@@ -114,7 +114,7 @@
 
 	<div class="w-full">
 		{#if $app.subgrids}
-			{#each tabs ?? [] as res, i}
+			{#each tabs ?? [] as _res, i}
 				<SubGridEditor
 					{id}
 					visible={render && i === selectedIndex}

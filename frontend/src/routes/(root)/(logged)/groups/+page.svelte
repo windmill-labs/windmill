@@ -4,15 +4,15 @@
 	import { canWrite } from '$lib/utils'
 
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
+	import { Button, Drawer, DrawerContent, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/Dropdown.svelte'
 	import GroupEditor from '$lib/components/GroupEditor.svelte'
+	import GroupInfo from '$lib/components/GroupInfo.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { faEdit, faPlus, faShare, faTrash } from '@fortawesome/free-solid-svg-icons'
-	import { Button, Drawer, DrawerContent, Skeleton } from '$lib/components/common'
-	import GroupInfo from '$lib/components/GroupInfo.svelte'
+	import { faEdit, faPlus, faTrash } from '@fortawesome/free-solid-svg-icons'
 
 	type GroupW = Group & { canWrite: boolean }
 

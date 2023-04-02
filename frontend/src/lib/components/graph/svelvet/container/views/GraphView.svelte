@@ -1,19 +1,16 @@
 <script lang="ts">
+	import { pointer, select, selectAll } from 'd3-selection'
+	import { zoom, zoomIdentity, zoomTransform } from 'd3-zoom'
 	import { onMount } from 'svelte'
-	import { zoom, zoomTransform, zoomIdentity } from 'd3-zoom'
-	import { select, selectAll, pointer } from 'd3-selection'
 	import SimpleBezierEdge from '../../edges/views/Edges/SimpleBezierEdge.svelte'
-	import StepEdge from '../../edges/views/Edges/StepEdge.svelte'
 	import SmoothStepEdge from '../../edges/views/Edges/SmoothStepEdge.svelte'
-	import type { EdgeType, NodeType, ResizeNodeType } from '../../store/types/types'
+	import StepEdge from '../../edges/views/Edges/StepEdge.svelte'
 
 	import Node from '../../nodes/views/Node.svelte'
 
+	import { determineD3Instance } from '../..//d3/controllers/d3'
 	import { findStore } from '../../store/controllers/storeApi'
-	import { determineD3Instance, zoomInit } from '../..//d3/controllers/d3'
 
-	import { filterByCollapsible } from '../../collapsible/controllers/util'
-	import type { AnchorType } from '../../edges/types/types'
 	import { onDestroy } from 'svelte'
 
 	//these are typscripted as any, however they have been transformed inside of store.ts
@@ -28,18 +25,15 @@
 	const {
 		edgesStore,
 		nodesStore,
-		anchorsStore,
 		nodeSelected,
 		backgroundStore,
 		movementStore,
 		widthStore,
 		heightStore,
-		d3Scale,
-		collapsibleStore
+		d3Scale
 	} = store
 	$: nodes = Object.values($nodesStore)
 	$: edges = Object.values($edgesStore)
-	$: anchors = Object.values($anchorsStore)
 
 	// declaring the grid and dot size for d3's transformations and zoom
 	const gridSize = 15
@@ -70,7 +64,6 @@
 	)
 
 	// d3Translate is used for the minimap
-	let d3Translate = { x: 0, y: 0, k: 1 }
 	onMount(() => {
 		// actualizes the d3 instance
 
@@ -134,7 +127,6 @@
 	// handles case for when minimap sends message back to initiate translation event (click to traverse minimap)
 	// moves camera to the clicked node
 
-	const key = canvasId
 	function handleZoom(e) {
 		if (!$movementStore) return
 		//add a store that contains the current value of the d3-zoom's scale to be used in onMouseMove function
@@ -144,7 +136,6 @@
 		// transform div elements (nodes)
 		//@ts-ignore
 		let transform = d3.zoomTransform(this)
-		d3Translate = transform
 		store.d3ZoomParameters.set({ ...transform }) // record x,y position of pan, and zoom level
 		// selects and transforms all node divs from class 'Node' and performs transformation
 		d3.select(`.Node-${canvasId}`)

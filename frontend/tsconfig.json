@@ -6,7 +6,7 @@
 		"target": "esnext",
 		"preserveValueImports": true,
 		"outDir": "build",
-		// "noUnusedLocals": true,
+		"noUnusedLocals": true,
 		// "noUnusedParameters": true,
 
 		/**

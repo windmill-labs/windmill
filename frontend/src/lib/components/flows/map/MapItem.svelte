@@ -1,15 +1,15 @@
 <script lang="ts">
-	import { createEventDispatcher, getContext } from 'svelte'
-	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
-	import type { FlowModule } from '$lib/gen'
-	import InsertModuleButton from './InsertModuleButton.svelte'
-	import { faBarsStaggered, faCodeBranch, faLongArrowDown } from '@fortawesome/free-solid-svg-icons'
-	import Icon from 'svelte-awesome'
-	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
-	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
-	import { Building, ClipboardCopy, GitBranchPlus, Move, Repeat, Square } from 'lucide-svelte'
-	import type { Writable } from 'svelte/store'
 	import { Button } from '$lib/components/common'
+	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
+	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
+	import type { FlowModule } from '$lib/gen'
+	import { faBarsStaggered, faCodeBranch, faLongArrowDown } from '@fortawesome/free-solid-svg-icons'
+	import { Building, ClipboardCopy, GitBranchPlus, Repeat, Square } from 'lucide-svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
+	import Icon from 'svelte-awesome'
+	import type { Writable } from 'svelte/store'
+	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
+	import InsertModuleButton from './InsertModuleButton.svelte'
 
 	export let mod: FlowModule
 	export let trigger: boolean

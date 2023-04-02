@@ -1,7 +1,6 @@
 <script lang="ts">
 	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
 	import { getContext } from 'svelte'
-	import type { Writable } from 'svelte/store'
 	import type { Output } from '../../rx'
 	import type { AppViewerContext, ContextPanelContext } from '../../types'
 	import { recursivelyFilterKeyInJSON as recursivelyFilterInJSON } from '../appUtils'

@@ -6,7 +6,7 @@
 
 	import { Alert, Skeleton } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
-	import { AppService, AppWithLastVersion, GlobalUserInfo, UserService } from '$lib/gen'
+	import { AppService, AppWithLastVersion } from '$lib/gen'
 	import { userStore } from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
 
@@ -41,7 +41,7 @@
 	{@html github}
 </svelte:head>
 
-<div class="z-50 text-xs fixed bottom-1 right-2 ">
+<div class="z-50 text-xs fixed bottom-1 right-2">
 	<a href="https://windmill.dev" class="whitespace-nowrap text-gray-500 inline-flex items-center"
 		>Powered by &nbsp;<WindmillIcon />&nbsp;Windmill</a
 	>

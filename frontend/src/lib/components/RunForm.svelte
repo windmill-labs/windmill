@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { page } from '$app/stores'
 	import {
-		decodeArgs,
 		defaultIfEmptyString,
 		displayDaysAgo,
 		emptyString,
@@ -10,16 +8,16 @@
 	} from '$lib/utils'
 	import { slide } from 'svelte/transition'
 
-	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
-	import SchemaForm from './SchemaForm.svelte'
 	import type { Schema } from '$lib/common'
+	import { runFormStore, userStore } from '$lib/stores'
+	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
+	import CliHelpBox from './CliHelpBox.svelte'
 	import { Badge, Button } from './common'
+	import InlineCodeCopy from './InlineCodeCopy.svelte'
+	import SchemaForm from './SchemaForm.svelte'
 	import SharedBadge from './SharedBadge.svelte'
 	import Toggle from './Toggle.svelte'
-	import { runFormStore, userStore } from '$lib/stores'
 	import Tooltip from './Tooltip.svelte'
-	import CliHelpBox from './CliHelpBox.svelte'
-	import InlineCodeCopy from './InlineCodeCopy.svelte'
 
 	export let runnable:
 		| {

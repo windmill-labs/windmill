@@ -13,13 +13,13 @@ import { userStore, workspaceStore } from '$lib/stores'
 import { getScriptByPath } from '$lib/utils'
 import { get, type Writable } from 'svelte/store'
 import type { FlowModuleState, FlowState } from './flowState'
+import { charsToNumber, numberToChars } from './idUtils'
 import {
 	emptyFlowModuleState,
 	findNextAvailablePath,
 	loadSchemaFromModule,
 	NEVER_TESTED_THIS_FAR
 } from './utils'
-import { charsToNumber, numberToChars } from './idUtils'
 
 export async function loadFlowModuleState(flowModule: FlowModule): Promise<FlowModuleState> {
 	try {
@@ -214,7 +214,7 @@ export async function createScriptFromInlineScript(
 	const wasForked = Boolean(originalScriptPath)
 
 	if (wasForked && originalScriptPath) {
-		const [first, second, ...others] = originalScriptPath.split('/')
+		const [_first, _second, ...others] = originalScriptPath.split('/')
 		suffix = others.join('/')
 	}
 

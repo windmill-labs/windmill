@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { browser, dev } from '$app/environment'
+	import { browser } from '$app/environment'
 
-	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 	import { createHash, editorConfig, langToExt, updateOptions } from '$lib/editorUtils'
-	import { languages, editor as meditor, KeyCode, KeyMod, Uri as mUri } from 'monaco-editor'
+	import { editor as meditor, KeyCode, KeyMod, languages, Uri as mUri } from 'monaco-editor'
+	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 
 	import libStdContent from '$lib/es5.d.ts.txt?raw'
 	import { buildWorkerDefinition } from 'monaco-editor-workers'
@@ -115,17 +115,14 @@
 		})
 
 		if (autoHeight) {
-			let ignoreEvent = false
 			const updateHeight = () => {
 				const contentHeight = Math.min(1000, editor.getContentHeight())
 				if (divEl) {
 					divEl.style.height = `${contentHeight}px`
 				}
 				try {
-					ignoreEvent = true
 					editor.layout({ width, height: contentHeight })
 				} finally {
-					ignoreEvent = false
 				}
 			}
 			editor.onDidContentSizeChange(updateHeight)

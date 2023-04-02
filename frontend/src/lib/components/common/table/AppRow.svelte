@@ -14,7 +14,6 @@
 		faShare,
 		faTrashAlt
 	} from '@fortawesome/free-solid-svg-icons'
-	import { MoreVertical } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'

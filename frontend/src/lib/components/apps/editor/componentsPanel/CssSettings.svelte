@@ -24,7 +24,6 @@
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
 	let rawCode = ''
-	let viewJsonSchema = false
 
 	$: rawCode && parseJson()
 	let jsonError = ''
@@ -39,7 +38,6 @@
 	}
 
 	function switchTab(asJson: boolean) {
-		viewJsonSchema = asJson
 		if (asJson) {
 			rawCode = JSON.stringify($app.css, null, 2)
 		} else {

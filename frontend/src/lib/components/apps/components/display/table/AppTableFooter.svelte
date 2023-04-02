@@ -5,7 +5,6 @@
 	import { ChevronLeft, ChevronRight } from 'lucide-svelte'
 	import type { Readable } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'
-	import { tableOptions } from './tableOptions'
 
 	type T = Record<string, any>
 

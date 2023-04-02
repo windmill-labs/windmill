@@ -31,8 +31,6 @@
 			'constants'
 		].includes($selectedId) ||
 		$selectedId?.includes('branch')
-
-	let is_owner = false
 </script>
 
 <div class="flex flex-row-reverse justify-between items-center gap-x-2">

@@ -11,7 +11,7 @@
 </script>
 
 <div class="w-full">
-	{#each Object.keys(schema.properties ?? {}) as argName, i (argName)}
+	{#each Object.keys(schema.properties ?? {}) as argName (argName)}
 		<div>
 			{#if typeof args == 'object' && schema?.properties[argName] && args}
 				<LightweightArgInput

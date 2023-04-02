@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { Alert } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { FlowModule } from '$lib/gen'

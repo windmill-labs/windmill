@@ -1,7 +1,7 @@
 <script lang="ts" context="module">
-	import { StandaloneServices } from 'vscode/services'
-	import getNotificationServiceOverride from 'vscode/service-override/notifications'
 	import getDialogServiceOverride from 'vscode/service-override/dialogs'
+	import getNotificationServiceOverride from 'vscode/service-override/notifications'
+	import { StandaloneServices } from 'vscode/services'
 
 	try {
 		StandaloneServices?.initialize({
@@ -14,7 +14,7 @@
 </script>
 
 <script lang="ts">
-	import { browser, dev } from '$app/environment'
+	import { browser } from '$app/environment'
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/utils'
 
@@ -22,7 +22,7 @@
 	import type { MonacoLanguageClient } from 'monaco-languageclient'
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 
-	import { languages, editor as meditor, KeyCode, KeyMod, Uri as mUri } from 'monaco-editor'
+	import { editor as meditor, KeyCode, KeyMod, languages, Uri as mUri } from 'monaco-editor'
 
 	languages.typescript.typescriptDefaults.setCompilerOptions({
 		target: languages.typescript.ScriptTarget.Latest,
@@ -48,20 +48,20 @@
 	meditor.setTheme('myTheme')
 
 	import {
-		BASH_INIT_CODE,
-		DENO_INIT_CODE_CLEAR,
-		GO_INIT_CODE,
-		PYTHON_INIT_CODE_CLEAR
-	} from '$lib/script_helpers'
-	import {
 		createHash as randomHash,
 		editorConfig,
 		langToExt,
 		updateOptions
 	} from '$lib/editorUtils'
-	import { dirtyStore } from './common/confirmationModal/dirtyStore'
+	import {
+		BASH_INIT_CODE,
+		DENO_INIT_CODE_CLEAR,
+		GO_INIT_CODE,
+		PYTHON_INIT_CODE_CLEAR
+	} from '$lib/script_helpers'
 	import type { Disposable } from 'vscode'
 	import type { DocumentUri, MessageTransports } from 'vscode-languageclient'
+	import { dirtyStore } from './common/confirmationModal/dirtyStore'
 
 	let divEl: HTMLDivElement | null = null
 	let editor: meditor.IStandaloneCodeEditor

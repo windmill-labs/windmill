@@ -4,7 +4,7 @@
 
 <script lang="ts">
 	import { ScheduleService } from '$lib/gen'
-	import { displayDate, emptyString, formatCron, sendUserToast } from '$lib/utils'
+	import { displayDate, emptyString, formatCron } from '$lib/utils'
 	import CollapseLink from './CollapseLink.svelte'
 
 	export let validCRON = true

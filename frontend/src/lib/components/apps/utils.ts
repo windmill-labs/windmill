@@ -1,12 +1,12 @@
 import type { Schema } from '$lib/common'
 import { FlowService, ScriptService } from '$lib/gen'
 import { inferArgs } from '$lib/infer'
-import { emptySchema, sendUserToast } from '$lib/utils'
-import type { AppComponent } from './editor/component'
-import type { App, ComponentCssProperty, GridItem } from './types'
+import { emptySchema } from '$lib/utils'
 import { twMerge } from 'tailwind-merge'
+import type { AppComponent } from './editor/component'
 import type { AppInput, InputType, ResultAppInput, StaticAppInput } from './inputType'
 import type { Output } from './rx'
+import type { App, ComponentCssProperty, GridItem } from './types'
 
 export function allItems(
 	grid: GridItem[],

@@ -370,7 +370,7 @@
 			<h2 class="mt-8 mb-4">Non OAuth APIs & Resources</h2>
 			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 				{#if filteredConnectsManual}
-					{#each filteredConnectsManual as [key, instructions]}
+					{#each filteredConnectsManual as [key, _]}
 						<Button
 							size="sm"
 							variant="border"
@@ -414,7 +414,7 @@
 				</div>
 				{#if apiTokenApps[resource_type].img}
 					<div class="mt-4 w-full overflow-hidden">
-						<img class="m-auto  max-h-60" alt="connect" src={apiTokenApps[resource_type].img} />
+						<img class="m-auto max-h-60" alt="connect" src={apiTokenApps[resource_type].img} />
 					</div>
 				{/if}
 			{/if}
