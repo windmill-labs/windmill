@@ -164,9 +164,9 @@
 			<div class={`Node Node-${canvasId}`}>
 				{#each nodes as node}
 					{#if node.data.html}
-						<Node {node} {canvasId} nodeId={node.id}>{@html node.data.html}</Node>
+						<Node {node} {canvasId}>{@html node.data.html}</Node>
 					{:else if node.data.custom}
-						<Node isCustom {node} {canvasId} nodeId={node.id}>
+						<Node isCustom {node} {canvasId}>
 							<svelte:component
 								this={node.data.custom.component}
 								on:new={(e) => node?.data?.custom?.cb?.('new', e.detail)}
@@ -180,7 +180,7 @@
 							/>
 						</Node>
 					{:else}
-						<Node {node} {canvasId} nodeId={node.id}>{node.data.label}</Node>
+						<Node {node} {canvasId}>{node.data.label}</Node>
 					{/if}
 				{/each}
 			</div>

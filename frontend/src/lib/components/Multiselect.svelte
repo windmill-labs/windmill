@@ -110,6 +110,7 @@
 </script>
 
 <div class="multiselect" class:readonly>
+	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<div class="tokens" class:showOptions on:click={handleTokenClick}>
 		{#each Object.values(selected) as s}
 			<div class="token" data-id={s.value}>

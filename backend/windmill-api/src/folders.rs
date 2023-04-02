@@ -6,9 +6,11 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use std::sync::Arc;
+
 use crate::{
     db::{UserDB, DB},
-    users::Authed,
+    users::{AuthCache, Authed, Tokened},
     webhook_util::{WebhookMessage, WebhookShared},
 };
 use axum::{
@@ -144,8 +146,10 @@ lazy_static! {
 
 async fn create_folder(
     authed: Authed,
+    Tokened { token }: Tokened,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
+    Extension(cache): Extension<Arc<AuthCache>>,
     Path(w_id): Path<String>,
     Json(ng): Json<NewFolder>,
 ) -> Result<String> {
@@ -156,8 +160,8 @@ async fn create_folder(
             "Folder name can only contain alphanumeric characters, underscores"
         )));
     }
-
     check_name_conflict(&mut tx, &w_id, &ng.name).await?;
+    cache.invalidate(&w_id, token).await;
     let owner = username_to_permissioned_as(&authed.username);
     let owners = &ng.owners.unwrap_or(vec![owner.clone()]);
 

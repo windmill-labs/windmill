@@ -168,6 +168,7 @@
 	let itemsLimit = 50
 </script>
 
+<!-- svelte-ignore a11y-autofocus -->
 <div class="flex flex-col w-full min-w-[250px]">
 	<div>
 		{#if displayHeader}
@@ -175,6 +176,7 @@
 		{/if}
 		{#if editableSchema}
 			<div class="p-2 my-1 text-xs border-solid border border-gray-400">
+				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<span
 					class="underline"
 					on:click={() => {

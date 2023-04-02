@@ -1,4 +1,3 @@
-import { getNextId } from '$lib/components/flows/flowStateUtils'
 import type {
 	App,
 	BaseAppComponent,
@@ -21,6 +20,9 @@ import type { Output, World } from '../rx'
 import gridHelp from '../svelte-grid/utils/helper'
 import type { FilledItem } from '../svelte-grid/types'
 import type { EvalAppInput, StaticAppInput } from '../inputType'
+import { get, type Writable } from 'svelte/store'
+import { sendUserToast } from '$lib/utils'
+import { getNextId } from '$lib/components/flows/idUtils'
 
 export function dfs(
 	grid: GridItem[],
@@ -42,6 +44,37 @@ export function dfs(
 		}
 	}
 	return undefined
+}
+
+export function selectId(
+	e: PointerEvent,
+	id: string,
+	selectedComponent: Writable<string[] | undefined>,
+	app: App
+) {
+	if (e.shiftKey) {
+		selectedComponent.update((old) => {
+			if (old && old?.[0]) {
+				if (findGridItemParentGrid(app, old[0]) != findGridItemParentGrid(app, id)) {
+					sendUserToast('Cannot multi select items from different grids', true)
+					return old
+				}
+			}
+			if (old == undefined) {
+				return [id]
+			}
+			if (old.includes(id)) {
+				return old
+			}
+			return [...old, id]
+		})
+	} else {
+		if (get(selectedComponent)?.includes(id)) {
+			return
+		} else {
+			selectedComponent.set([id])
+		}
+	}
 }
 
 function findGridItemById(

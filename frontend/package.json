@@ -1,6 +1,6 @@
 {
 	"name": "windmill",
-	"version": "1.83.1",
+	"version": "1.84.1",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -35,6 +35,7 @@
 		"eslint": "^8.28.0",
 		"eslint-config-prettier": "^8.6.0",
 		"eslint-plugin-svelte3": "^4.0.0",
+		"monaco-editor-workers": "0.34.2",
 		"ol": "^7.2.2",
 		"openapi-typescript-codegen": "^0.23.0",
 		"path-browserify": "^1.0.1",
@@ -72,7 +73,6 @@
 		"@redocly/json-to-json-schema": "^0.0.1",
 		"@tanstack/svelte-table": "^8.7.6",
 		"ag-grid-svelte": "^0.1.4",
-		"async-mutex": "^0.4.0",
 		"chart.js": "^3.9.1",
 		"chartjs-adapter-date-fns": "^3.0.0",
 		"chartjs-plugin-zoom": "^2.0.0",
@@ -82,16 +82,15 @@
 		"highlight.js": "^11.7.0",
 		"lodash": "^4.17.21",
 		"lucide-svelte": "^0.115.0",
-		"monaco-editor": "0.33.0",
-		"monaco-editor-workers": "0.33.0",
-		"monaco-languageclient": "2.1.0",
-		"monaco-yaml": "^4.0.2",
+		"monaco-editor": "0.34.1",
+		"monaco-languageclient": "5.0.0-next.3",
 		"svelte-autosize": "^1.0.1",
 		"svelte-chartjs": "^3.1.0",
 		"svelte-portal": "^2.2.0",
 		"svelte-select": "^5.3.1",
 		"tailwind-merge": "^1.9.1",
-		"vscode-ws-jsonrpc": "^2.0.1"
+		"vscode-languageclient": "~8.0.2",
+		"vscode-ws-jsonrpc": "3.0.0-next.1"
 	},
 	"peerDependencies": {
 		"svelte": "^3.55.1"

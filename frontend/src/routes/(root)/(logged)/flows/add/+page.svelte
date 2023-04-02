@@ -89,4 +89,6 @@
 	$dirtyStore = true
 </script>
 
+<div id="monaco-widgets-root" class="monaco-editor" style="z-index: 999;" />
+
 <FlowBuilder {flowStore} {flowStateStore} {selectedId} {loading} />

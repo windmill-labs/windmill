@@ -14,14 +14,12 @@ import { getScriptByPath } from '$lib/utils'
 import { get, type Writable } from 'svelte/store'
 import type { FlowModuleState, FlowState } from './flowState'
 import {
-	charsToNumber,
 	emptyFlowModuleState,
 	findNextAvailablePath,
 	loadSchemaFromModule,
-	NEVER_TESTED_THIS_FAR,
-	numberToChars
+	NEVER_TESTED_THIS_FAR
 } from './utils'
-import { Mutex } from 'async-mutex'
+import { charsToNumber, numberToChars } from './idUtils'
 
 export async function loadFlowModuleState(flowModule: FlowModule): Promise<FlowModuleState> {
 	try {
@@ -38,28 +36,6 @@ export async function loadFlowModuleState(flowModule: FlowModule): Promise<FlowM
 	} catch (e) {
 		console.error(e)
 		return emptyFlowModuleState()
-	}
-}
-
-export const idMutex = new Mutex()
-
-const forbiddenIds: string[] = ['do']
-
-export function getNextId(currentKeys: string[]): string {
-	const max = currentKeys.reduce((acc, key) => {
-		if (key === 'failure' || key.includes('branch') || key.includes('loop')) {
-			return acc
-		} else {
-			const num = charsToNumber(key)
-			return Math.max(acc, num + 1)
-		}
-	}, 0)
-	const char = numberToChars(max)
-
-	if (forbiddenIds.includes(char)) {
-		return getNextId(currentKeys.concat(char))
-	} else {
-		return char
 	}
 }
 

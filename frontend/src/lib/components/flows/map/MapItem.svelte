@@ -1,5 +1,4 @@
 <script lang="ts">
-	import type { FlowEditorContext } from '../types'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
 	import type { FlowModule } from '$lib/gen'
@@ -16,7 +15,7 @@
 	export let trigger: boolean
 	export let insertable: boolean
 	export let insertableEnd = false
-	export let annotation: string | undefined = undefined
+	// export let annotation: string | undefined = undefined
 	export let branchable: boolean = false
 	export let bgColor: string = ''
 	export let modules: FlowModule[]
@@ -187,7 +186,7 @@
 						dispatch('insert', { modules, index: idx + 1, detail: 'move' })
 					}}
 					type="button"
-					class=" text-gray-900 bg-white border mx-0.5  border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
+					class=" text-gray-900 bg-white border mx-0.5 border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
 				>
 					<ClipboardCopy size={12} />
 				</button>

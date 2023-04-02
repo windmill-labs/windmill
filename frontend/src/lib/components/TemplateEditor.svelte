@@ -1,7 +1,5 @@
 <script lang="ts">
 	import { browser, dev } from '$app/environment'
-	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
-	import { buildWorkerDefinition } from 'monaco-editor-workers'
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 	import {
 		convertKind,
@@ -13,7 +11,7 @@
 	} from '$lib/editorUtils'
 	import { languages, editor as meditor, Uri as mUri, Range } from 'monaco-editor'
 	import libStdContent from '$lib/es5.d.ts.txt?raw'
-	import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
+	import { buildWorkerDefinition } from 'monaco-editor-workers'
 
 	languages.typescript.javascriptDefaults.setCompilerOptions({
 		target: languages.typescript.ScriptTarget.Latest,
@@ -391,26 +389,7 @@
 
 	const uri = `file:///${hash}.ts`
 
-	if (browser) {
-		if (dev) {
-			buildWorkerDefinition(
-				'../../../node_modules/monaco-editor-workers/dist/workers',
-				import.meta.url,
-				false
-			)
-		} else {
-			// @ts-ignore
-			self.MonacoEnvironment = {
-				getWorker: function (_moduleId: any, label: string) {
-					if (label == 'typescript' || label == 'javascript') {
-						return new tsWorker()
-					} else {
-						return new editorWorker()
-					}
-				}
-			}
-		}
-	}
+	buildWorkerDefinition('../../../workers', import.meta.url, false)
 
 	export function insertAtCursor(code: string): void {
 		if (editor) {

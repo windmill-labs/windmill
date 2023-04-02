@@ -2401,7 +2401,7 @@ async fn handle_child(
     mut child: Child,
     nsjail: bool,
     worker_name: &str,
-    w_id: &str,
+    _w_id: &str,
 ) -> error::Result<()> {
     let update_job_interval = Duration::from_millis(500);
     let write_logs_delay = Duration::from_millis(500);
@@ -2482,7 +2482,7 @@ async fn handle_child(
         let timeout_duration = *TIMEOUT_DURATION;
 
         #[cfg(feature = "enterprise")]
-        let premium_workspace = *CLOUD_HOSTED && sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", w_id)
+        let premium_workspace = *CLOUD_HOSTED && sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", _w_id)
             .fetch_one(&db)
             .await
             .map_err(|e| {

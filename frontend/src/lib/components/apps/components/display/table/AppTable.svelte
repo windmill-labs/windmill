@@ -6,7 +6,6 @@
 		ComponentCustomCSS,
 		RichConfigurations
 	} from '../../../types'
-	import InputValue from '../../helpers/InputValue.svelte'
 	import type { AppInput } from '../../../inputType'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import { writable } from 'svelte/store'
@@ -100,7 +99,7 @@
 		)
 	}
 
-	function renderCell(x: any, props: any) {
+	function renderCell(x: any, props: any): any {
 		try {
 			return flexRender(x, props)
 		} catch (e) {
@@ -297,7 +296,7 @@
 										on:keypress={() => toggleRow(row, rowIndex)}
 										on:click={() => toggleRow(row, rowIndex)}
 									>
-										<div class="center-center h-full w-full flex-wrap gap-1 ">
+										<div class="center-center h-full w-full flex-wrap gap-1">
 											{#each actionButtons as actionButton, actionIndex (actionButton?.id)}
 												<!-- svelte-ignore a11y-mouse-events-have-key-events -->
 												<div

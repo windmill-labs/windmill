@@ -37,6 +37,9 @@ export async function inferArgs(
 		} else {
 			return
 		}
+		if (inferedSchema.type == 'Invalid') {
+			throw new Error(inferedSchema.error)
+		}
 		loadSchemaLastRun.set([code, inferedSchema])
 	}
 
