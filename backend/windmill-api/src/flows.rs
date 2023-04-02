@@ -630,7 +630,6 @@ mod tests {
           "modules": [
             {
               "id": "a",
-              "input_transforms": {},
               "value": {
                 "input_transforms": {
                     "test": {
@@ -644,7 +643,6 @@ mod tests {
             },
             {
               "id": "b",
-              "input_transforms": {},
               "value": {
                 "input_transforms": {},
                 "type": "rawscript",
@@ -658,7 +656,6 @@ mod tests {
             },
             {
               "id": "c",
-              "input_transforms": {},
               "value": {
                 "type": "forloopflow",
                 "iterator": {
@@ -681,7 +678,6 @@ mod tests {
           ],
           "failure_module": {
             "id": "d",
-            "input_transforms": {},
             "value": {
               "input_transforms": {},
               "type": "script",
