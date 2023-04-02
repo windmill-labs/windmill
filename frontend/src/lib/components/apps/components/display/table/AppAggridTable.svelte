@@ -37,7 +37,7 @@
 		loading: false,
 		page: 0,
 		newChange: { row: 0, column: '', value: undefined },
-		ready: false
+		ready: undefined as boolean | undefined
 	})
 
 	let selectedRowIndex = -1
