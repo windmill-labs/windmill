@@ -804,7 +804,8 @@ async fn handle_job_error(
             same_worker_tx,
             worker_dir,
             None,
-            base_internal_url
+            base_internal_url,
+            0
         )
         .await;
 
@@ -965,7 +966,8 @@ async fn handle_queued_job(
                                 same_worker_tx.clone(),
                                 worker_dir,
                                 None,
-                                base_internal_url
+                                base_internal_url,
+                                0
                             )
                             .await?;
                         }
@@ -1017,7 +1019,8 @@ async fn handle_queued_job(
                                 same_worker_tx,
                                 worker_dir,
                                 None,
-                                base_internal_url
+                                base_internal_url,
+                                0
                             )
                             .await?;
                         }
