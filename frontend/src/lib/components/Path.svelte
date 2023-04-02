@@ -29,7 +29,6 @@
 	import { random_adj } from './random_positive_adjetive'
 	import Badge from './common/badge/Badge.svelte'
 	import { writable } from 'svelte/store'
-	import { canWrite } from '$lib/utils'
 
 	type PathKind = 'resource' | 'script' | 'variable' | 'flow' | 'schedule' | 'app'
 	let meta: Meta | undefined = undefined
@@ -121,7 +120,13 @@
 				})
 			)
 				.filter((x) => x != initialFolder)
-				.map((x) => ({ name: x, write: $userStore?.folders?.includes(x) == true }))
+				.map((x) => ({
+					name: x,
+					write:
+						($userStore?.folders?.includes(x) == true ?? false) ||
+						($userStore?.is_admin ?? false) ||
+						($userStore?.is_super_admin ?? false)
+				}))
 		)
 	}
 
