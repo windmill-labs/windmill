@@ -19,7 +19,8 @@
 		| 'textareainputcomponent' = 'textinputcomponent'
 	export let render: boolean
 
-	const { app, worldStore, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, selectedComponent, connectingInput } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	let placeholder: string | undefined = undefined
 	let defaultValue: string | undefined = undefined
@@ -50,7 +51,8 @@
 			css?.input?.class ?? ''
 		)}
 		style="resize:none; {css?.input?.style ?? ''}"
-		on:pointerdown|stopPropagation={(e) => selectId(e, id, selectedComponent, $app)}
+		on:pointerdown|stopPropagation={(e) =>
+			!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
 		bind:value
 		{placeholder}
 	/>
@@ -63,7 +65,8 @@
 					css?.input?.class ?? ''
 				)}
 				style={css?.input?.style ?? ''}
-				on:pointerdown|stopPropagation={(e) => selectId(e, id, selectedComponent, $app)}
+				on:pointerdown|stopPropagation={(e) =>
+					!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
 				type="password"
 				bind:value
 				{placeholder}
@@ -75,7 +78,8 @@
 					css?.input?.class ?? ''
 				)}
 				style={css?.input?.style ?? ''}
-				on:pointerdown|stopPropagation={(e) => selectId(e, id, selectedComponent, $app)}
+				on:pointerdown|stopPropagation={(e) =>
+					!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
 				type="text"
 				bind:value
 				{placeholder}
@@ -87,7 +91,8 @@
 					css?.input?.class ?? ''
 				)}
 				style={css?.input?.style ?? ''}
-				on:pointerdown|stopPropagation={(e) => selectId(e, id, selectedComponent, $app)}
+				on:pointerdown|stopPropagation={(e) =>
+					!$connectingInput.opened && selectId(e, id, selectedComponent, $app)}
 				type="email"
 				bind:value
 				{placeholder}
