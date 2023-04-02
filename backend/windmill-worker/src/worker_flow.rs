@@ -503,7 +503,7 @@ pub async fn update_flow_status_after_job_completion(
         }
 
         if let Some(parent_job) = flow_job.parent_job {
-            return Ok(update_flow_status_after_job_completion(
+            update_flow_status_after_job_completion(
                 db,
                 client,
                 parent_job,
@@ -522,11 +522,12 @@ pub async fn update_flow_status_after_job_completion(
                 },
                 base_internal_url,
             )
-            .await?);
+            .await?;
         }
+        Ok(())
+    } else {
+        Ok(())
     }
-
-    Ok(())
 }
 
 async fn compute_skip_loop_failures<'c>(
@@ -1261,7 +1262,11 @@ async fn push_next_flow_job(
             Ok(v) => (Some(v), None),
             Err(e) => (None, Some(e)),
         };
-        let root_job = flow_job.root_job.or_else(|| Some(flow_job.id));
+        let root_job = if matches!(module.value, FlowModuleValue::Flow { .. }) {
+            None
+        } else {
+            flow_job.root_job.or_else(|| Some(flow_job.id))
+        };
         let (uuid, inner_tx) = push(
             tx,
             &flow_job.workspace_id,
