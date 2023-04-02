@@ -160,7 +160,7 @@ async fn create_folder(
             "Folder name can only contain alphanumeric characters, underscores"
         )));
     }
-
+    check_name_conflict(&mut tx, &w_id, &ng.name).await?;
     cache.invalidate(&w_id, token).await;
     let owner = username_to_permissioned_as(&authed.username);
     let owners = &ng.owners.unwrap_or(vec![owner.clone()]);
