@@ -5268,6 +5268,11 @@ components:
     MainArgSignature:
       type: object
       properties:
+        type:
+          type: string
+          enum: ["Valid", "Invalid"]
+        error:
+          type: string
         star_args:
           type: boolean
         star_kwargs:
@@ -5377,6 +5382,8 @@ components:
         - star_args
         - start_kwargs
         - args
+        - type
+        - error
 
     Preview:
       type: object
