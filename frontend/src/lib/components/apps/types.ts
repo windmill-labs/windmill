@@ -158,6 +158,7 @@ export type AppViewerContext = {
 				left?: () => boolean
 				right?: (skipTableActions?: boolean | undefined) => string | boolean
 				setTab?: (index: number) => void
+				agGrid?: { api: any; columnApi: any }
 			}
 		>
 	>

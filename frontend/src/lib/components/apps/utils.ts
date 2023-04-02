@@ -186,6 +186,7 @@ ${
 		? `declare async function goto(path: string, newTab?: boolean): Promise<void>;
 declare function setTab(id: string, index: string): void;
 declare function recompute(id: string): void;
+declare function getAgGrid(id: string): {api: any, columnApi: any} | undefined;
 `
 		: ''
 }
