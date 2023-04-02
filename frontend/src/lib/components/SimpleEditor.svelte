@@ -181,7 +181,7 @@
 
 <div bind:this={divEl} class="{$$props.class ?? ''} editor" bind:clientWidth={width} />
 
-<style>
+<style lang="postcss">
 	.editor {
 		@apply rounded-lg p-0;
 	}

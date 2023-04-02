@@ -10,7 +10,6 @@
 
 	export let json: Object
 	export let level = 0
-	export let isLast = true
 	export let currentPath: string = ''
 	export let pureViewer = false
 	export let collapsed = level == 3 || Array.isArray(json)
@@ -85,7 +84,6 @@
 						<svelte:self
 							json={json[key]}
 							level={level + 1}
-							isLast={index === keys.length - 1}
 							currentPath={computeKey(key, isArray, currentPath)}
 							{pureViewer}
 							on:select
@@ -141,15 +139,12 @@
 	<span class="text-gray-600 text-xs ml-2">No items</span>
 {/if}
 
-<style>
+<style lang="postcss">
 	ul {
 		list-style: none;
 		@apply text-sm;
 	}
 
-	.val {
-		/* @apply font-black; */
-	}
 	.val.undefined {
 		@apply text-red-500;
 	}

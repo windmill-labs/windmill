@@ -288,6 +288,7 @@
 	<div class="flex flex-col sm:flex-row items-center gap-2 sm:gap-4 pb-0 mb-1">
 		{#if meta != undefined}
 			<div class="flex gap-4 shrink">
+				<!-- svelte-ignore a11y-label-has-associated-control -->
 				<label class="block">
 					<span class="text-gray-700 text-sm whitespace-nowrap">Owner</span>
 
@@ -353,6 +354,7 @@
 					Name
 					<Required required={true} />
 				</span>
+				<!-- svelte-ignore a11y-autofocus -->
 				<input
 					{disabled}
 					type="text"

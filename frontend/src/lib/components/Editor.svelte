@@ -485,7 +485,7 @@
 
 <div bind:this={divEl} class="{$$props.class} editor" />
 
-<style>
+<style lang="postcss">
 	.editor {
 		@apply p-0 border rounded-md border-gray-50;
 	}
