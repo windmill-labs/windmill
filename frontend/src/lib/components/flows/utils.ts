@@ -150,11 +150,12 @@ export function codeToStaticTemplate(code?: string): string | undefined {
 	if (!code || typeof code != 'string') return undefined
 
 	const lines = code.split('\n')
-
 	if (lines.length == 1) {
 		const line = lines[0].trim()
 		if (line[0] == '`' && line.charAt(line.length - 1) == '`') {
 			return line.slice(1, line.length - 1).replaceAll('\\`', '`')
+		} else {
+			return `\$\{${line}\}`
 		}
 	}
 	return undefined

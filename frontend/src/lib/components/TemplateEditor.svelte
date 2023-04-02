@@ -412,6 +412,8 @@
 	let extraModel
 
 	let width = 0
+	let widgets: HTMLElement | undefined = document.getElementById('monaco-widgets-root') ?? undefined
+
 	async function loadMonaco() {
 		model = meditor.createModel(code, lang, mUri.parse(uri))
 
@@ -419,6 +421,7 @@
 
 		editor = meditor.create(divEl as HTMLDivElement, {
 			...editorConfig(model, code, lang, automaticLayout, fixedOverflowWidgets),
+			overflowWidgetsDomNode: widgets,
 			lineNumbers: 'off',
 			fontSize,
 			suggestOnTriggerCharacters: true,
