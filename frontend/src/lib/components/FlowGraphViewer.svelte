@@ -153,11 +153,7 @@
 								json={stepDetail.value.iterator.value}
 							/>{:else}
 							<span class="text-xs">
-								<Highlight
-									offsetTop={0}
-									language={typescript}
-									code={cleanExpr(stepDetail.value.iterator.expr)}
-								/>
+								<Highlight language={typescript} code={cleanExpr(stepDetail.value.iterator.expr)} />
 							</span>
 						{/if}</p
 					>
