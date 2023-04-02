@@ -1,47 +1,47 @@
 <script lang="ts">
-	import { canWrite, emptySchema, removeMarkdown, sendUserToast, truncate } from '$lib/utils'
-	import { OauthService, ResourceService, type ListableResource } from '$lib/gen'
-	import type { ResourceType } from '$lib/gen'
-	import PageHeader from '$lib/components/PageHeader.svelte'
-	import ResourceEditor from '$lib/components/ResourceEditor.svelte'
-	import TableCustom from '$lib/components/TableCustom.svelte'
-	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
-	import ShareModal from '$lib/components/ShareModal.svelte'
-	import SharedBadge from '$lib/components/SharedBadge.svelte'
-	import { userStore, workspaceStore, oauthStore, superadmin } from '$lib/stores'
-	import SchemaEditor from '$lib/components/SchemaEditor.svelte'
-	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
-	import Dropdown from '$lib/components/Dropdown.svelte'
-	import {
-		faEdit,
-		faPlus,
-		faShare,
-		faTrash,
-		faCircle,
-		faChain,
-		faSave,
-		faRefresh
-	} from '@fortawesome/free-solid-svg-icons'
-	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import Icon from 'svelte-awesome'
-	import Required from '$lib/components/Required.svelte'
-	import AppConnect from '$lib/components/AppConnect.svelte'
 	import { page } from '$app/stores'
-	import { onMount } from 'svelte'
-	import { Button, Alert, Badge, Skeleton, Tab } from '$lib/components/common'
+	import AppConnect from '$lib/components/AppConnect.svelte'
+	import CenteredPage from '$lib/components/CenteredPage.svelte'
+	import { Alert, Badge, Button, Skeleton, Tab } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
+	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
+	import Dropdown from '$lib/components/Dropdown.svelte'
+	import ListFilters from '$lib/components/home/ListFilters.svelte'
+	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
+	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Popover from '$lib/components/Popover.svelte'
+	import Required from '$lib/components/Required.svelte'
+	import ResourceEditor from '$lib/components/ResourceEditor.svelte'
+	import SchemaEditor from '$lib/components/SchemaEditor.svelte'
+	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
+	import SearchItems from '$lib/components/SearchItems.svelte'
+	import SharedBadge from '$lib/components/SharedBadge.svelte'
+	import ShareModal from '$lib/components/ShareModal.svelte'
+	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
+	import TableCustom from '$lib/components/TableCustom.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
-	import { Building } from 'lucide-svelte'
-	import ListFilters from '$lib/components/home/ListFilters.svelte'
-	import SearchItems from '$lib/components/SearchItems.svelte'
-	import autosize from 'svelte-autosize'
-	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
+	import type { ResourceType } from '$lib/gen'
+	import { OauthService, ResourceService, type ListableResource } from '$lib/gen'
+	import { oauthStore, userStore, workspaceStore } from '$lib/stores'
+	import { canWrite, emptySchema, removeMarkdown, sendUserToast, truncate } from '$lib/utils'
+	import {
+		faChain,
+		faCircle,
+		faEdit,
+		faPlus,
+		faRefresh,
+		faSave,
+		faShare,
+		faTrash
+	} from '@fortawesome/free-solid-svg-icons'
 	import { convert } from '@redocly/json-to-json-schema'
+	import { Building } from 'lucide-svelte'
+	import { onMount } from 'svelte'
+	import autosize from 'svelte-autosize'
+	import Icon from 'svelte-awesome'
 	import Portal from 'svelte-portal'
 
 	type ResourceW = ListableResource & { canWrite: boolean }

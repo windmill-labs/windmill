@@ -1,24 +1,24 @@
 <script lang="ts">
-	import { Bar, Line } from 'svelte-chartjs'
-	import {
-		Chart as ChartJS,
-		Title,
-		Tooltip,
-		Legend,
-		LineElement,
-		LinearScale,
-		PointElement,
-		CategoryScale,
-		BarElement
-	} from 'chart.js'
 	import type { ChartOptions } from 'chart.js'
-	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
-	import type { AppInput, RichAppInput } from '../../inputType'
-	import InputValue from '../helpers/InputValue.svelte'
-	import { concatCustomCss } from '../../utils'
+	import {
+		BarElement,
+		CategoryScale,
+		Chart as ChartJS,
+		Legend,
+		LinearScale,
+		LineElement,
+		PointElement,
+		Title,
+		Tooltip
+	} from 'chart.js'
 	import { getContext } from 'svelte'
-	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
+	import { Bar, Line } from 'svelte-chartjs'
 	import { initOutput } from '../../editor/appUtils'
+	import type { AppInput } from '../../inputType'
+	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
+	import { concatCustomCss } from '../../utils'
+	import InputValue from '../helpers/InputValue.svelte'
+	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined

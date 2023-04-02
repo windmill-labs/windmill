@@ -1,5 +1,4 @@
 <script lang="ts">
-	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { classNames } from '$lib/utils'
 	import { X } from 'lucide-svelte'
 	import { getContext } from 'svelte'

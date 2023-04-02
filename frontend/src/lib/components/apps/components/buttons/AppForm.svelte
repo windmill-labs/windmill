@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button, type ButtonType } from '$lib/components/common'
+	import { Button } from '$lib/components/common'
 	import { faUser } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'

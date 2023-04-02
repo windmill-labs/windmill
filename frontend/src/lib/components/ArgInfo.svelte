@@ -1,13 +1,11 @@
 <script lang="ts">
-	import { truncate } from '$lib/utils'
-	import Tooltip from './Tooltip.svelte'
-	import json from 'svelte-highlight/languages/json'
-	import { Highlight } from 'svelte-highlight'
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import Drawer from './common/drawer/Drawer.svelte'
+	import { truncate } from '$lib/utils'
 	import { DrawerContent } from './common'
+	import Drawer from './common/drawer/Drawer.svelte'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
+	import Tooltip from './Tooltip.svelte'
 
 	export let value: any
 	let jsonViewer: Drawer

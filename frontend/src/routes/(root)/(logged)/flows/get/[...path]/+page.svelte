@@ -2,46 +2,46 @@
 	import { page } from '$app/stores'
 	import { FlowService, JobService, ScheduleService, type Flow, type Schedule } from '$lib/gen'
 	import {
-		displayDaysAgo,
 		canWrite,
-		sendUserToast,
-		defaultIfEmptyString,
-		flowToHubUrl,
 		copyToClipboard,
+		defaultIfEmptyString,
+		displayDaysAgo,
 		emptyString,
-		encodeState
+		encodeState,
+		flowToHubUrl,
+		sendUserToast
 	} from '$lib/utils'
 	import {
-		faPlay,
-		faEdit,
 		faArchive,
-		faList,
 		faCalendar,
-		faShare,
-		faGlobe,
-		faCodeFork,
-		faClipboard,
-		faChevronUp,
 		faChevronDown,
+		faChevronUp,
+		faClipboard,
+		faCodeFork,
+		faEdit,
+		faGlobe,
+		faList,
+		faPlay,
+		faShare,
 		faTrash
 	} from '@fortawesome/free-solid-svg-icons'
 
-	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { goto } from '$app/navigation'
+	import CenteredPage from '$lib/components/CenteredPage.svelte'
+	import { Badge, Button, Skeleton } from '$lib/components/common'
+	import CronInput from '$lib/components/CronInput.svelte'
+	import FlowViewer from '$lib/components/FlowViewer.svelte'
+	import JobArgs from '$lib/components/JobArgs.svelte'
+	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
+	import RunForm from '$lib/components/RunForm.svelte'
+	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
-	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import FlowViewer from '$lib/components/FlowViewer.svelte'
-	import { Button, ActionRow, Skeleton, Badge } from '$lib/components/common'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 	import UserSettings from '$lib/components/UserSettings.svelte'
-	import JobArgs from '$lib/components/JobArgs.svelte'
-	import CronInput from '$lib/components/CronInput.svelte'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import Icon from 'svelte-awesome'
-	import RunForm from '$lib/components/RunForm.svelte'
-	import { goto } from '$app/navigation'
-	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 	import { slide } from 'svelte/transition'
-	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 
 	let userSettings: UserSettings
 
@@ -114,7 +114,6 @@
 	$: urlAsync = `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run/f/${flow?.path}`
 	$: urlSync = `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run_wait_result/f/${flow?.path}`
 
-	let runForm: RunForm | undefined
 	let isValid = true
 	let loading = false
 
@@ -303,7 +302,6 @@
 						autofocus
 						detailed={false}
 						bind:isValid
-						bind:this={runForm}
 						runnable={flow}
 						runAction={runFlow}
 						bind:args

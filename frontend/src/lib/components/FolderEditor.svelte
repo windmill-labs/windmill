@@ -19,11 +19,9 @@
 	type Role = 'viewer' | 'writer' | 'admin'
 	let folder: Folder | undefined
 	let perms: { owner_name: string; role: Role }[] | undefined = undefined
-	let managing_folders: string[] = []
 	let usernames: string[] = []
 	let groups: string[] = []
 	let ownerItem: string = ''
-	let folders: string[] = []
 
 	async function loadUsernames(): Promise<void> {
 		usernames = await UserService.listUsernames({ workspace: $workspaceStore! })
@@ -42,12 +40,7 @@
 	async function load() {
 		loadUsernames()
 		loadGroups()
-		loadFolders()
 		await loadFolder()
-	}
-
-	async function loadFolders(): Promise<void> {
-		folders = (await FolderService.listFolders({ workspace: $workspaceStore! })).map((x) => x.name)
 	}
 
 	async function addToFolder() {
@@ -67,7 +60,8 @@
 		can_write =
 			$userStore != undefined &&
 			(folder?.owners.includes('u/' + $userStore.username) ||
-				($userStore.is_admin ?? false) || ($userStore.is_super_admin ?? false) ||
+				($userStore.is_admin ?? false) ||
+				($userStore.is_super_admin ?? false) ||
 				$userStore.pgroups.findIndex((x) => folder?.owners.includes(x)) != -1)
 
 		perms = Array.from(
@@ -82,9 +76,6 @@
 				role: getRole(x)
 			}
 		})
-		managing_folders = Object.entries(folder?.extra_perms ?? {})
-			.filter(([k, v]) => k.startsWith('g/') && v)
-			.map(([k, v]) => k)
 	}
 
 	function getRole(x: string): Role {

@@ -7,21 +7,21 @@
 </script>
 
 <script lang="ts">
-	import { sendUserToast, formatCron, canWrite, emptyString } from '$lib/utils'
-	import { ScriptService, Script, ScheduleService, type Flow, FlowService } from '$lib/gen'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import { FlowService, ScheduleService, Script, ScriptService, type Flow } from '$lib/gen'
+	import { canWrite, emptyString, formatCron, sendUserToast } from '$lib/utils'
 
-	import Path from '$lib/components/Path.svelte'
-	import { Alert, Badge, Button } from '$lib/components/common'
-	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
-	import SchemaForm from '$lib/components/SchemaForm.svelte'
-	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import Required from '$lib/components/Required.svelte'
-	import CronInput, { OFFSET } from '$lib/components/CronInput.svelte'
-	import { faSave } from '@fortawesome/free-solid-svg-icons'
+	import { Alert, Button } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
+	import CronInput, { OFFSET } from '$lib/components/CronInput.svelte'
+	import Path from '$lib/components/Path.svelte'
+	import Required from '$lib/components/Required.svelte'
+	import SchemaForm from '$lib/components/SchemaForm.svelte'
+	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { userStore, workspaceStore } from '$lib/stores'
+	import { faSave } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 
 	let initialPath = ''

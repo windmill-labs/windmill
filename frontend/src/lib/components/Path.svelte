@@ -3,32 +3,30 @@
 </script>
 
 <script lang="ts">
-	import { type Meta, pathToMeta } from '$lib/common'
+	import { pathToMeta, type Meta } from '$lib/common'
 
 	import {
 		AppService,
 		FlowService,
 		FolderService,
-		GroupService,
 		ResourceService,
 		ScheduleService,
 		ScriptService,
 		VariableService
 	} from '$lib/gen'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
-	import { createEventDispatcher } from 'svelte'
-	import Required from './Required.svelte'
-	import { Button, Drawer, DrawerContent } from './common'
 	import { faEye, faPlus } from '@fortawesome/free-solid-svg-icons'
-	import ToggleButtonGroup from './common/toggleButton/ToggleButtonGroup.svelte'
-	import ToggleButton from './common/toggleButton/ToggleButton.svelte'
+	import { createEventDispatcher } from 'svelte'
 	import { Icon } from 'svelte-awesome'
-	import Tooltip from './Tooltip.svelte'
-	import FolderEditor from './FolderEditor.svelte'
-	import GroupEditor from './GroupEditor.svelte'
-	import { random_adj } from './random_positive_adjetive'
-	import Badge from './common/badge/Badge.svelte'
 	import { writable } from 'svelte/store'
+	import { Button, Drawer, DrawerContent } from './common'
+	import Badge from './common/badge/Badge.svelte'
+	import ToggleButton from './common/toggleButton/ToggleButton.svelte'
+	import ToggleButtonGroup from './common/toggleButton/ToggleButtonGroup.svelte'
+	import FolderEditor from './FolderEditor.svelte'
+	import { random_adj } from './random_positive_adjetive'
+	import Required from './Required.svelte'
+	import Tooltip from './Tooltip.svelte'
 
 	type PathKind = 'resource' | 'script' | 'variable' | 'flow' | 'schedule' | 'app'
 	let meta: Meta | undefined = undefined
@@ -46,7 +44,6 @@
 	const dispatch = createEventDispatcher()
 
 	let folders: { name: string; write: boolean }[] = []
-	let groups: string[] = []
 
 	$: meta && onMetaChange()
 
@@ -130,18 +127,6 @@
 		)
 	}
 
-	async function loadGroups(): Promise<void> {
-		let initialGroups: string[] = []
-		if (initialPath?.split('/')?.[0] == 'f') {
-			initialGroups.push(initialPath?.split('/')?.[1])
-		}
-		groups = initialGroups.concat(
-			await GroupService.listGroupNames({
-				workspace: $workspaceStore!
-			})
-		)
-	}
-
 	async function validate(meta: Meta, path: string, kind: PathKind) {
 		error = ''
 		validateName(meta) && validatePath(path, kind)
@@ -214,7 +199,6 @@
 	$: {
 		if ($workspaceStore && $userStore) {
 			loadFolders()
-			loadGroups()
 			initPath()
 		}
 	}

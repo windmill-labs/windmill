@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { browser, dev } from '$app/environment'
-	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
+	import { browser } from '$app/environment'
 	import {
 		convertKind,
 		createDocumentationString,
@@ -9,9 +8,10 @@
 		editorConfig,
 		updateOptions
 	} from '$lib/editorUtils'
-	import { languages, editor as meditor, Uri as mUri, Range } from 'monaco-editor'
 	import libStdContent from '$lib/es5.d.ts.txt?raw'
+	import { editor as meditor, languages, Range, Uri as mUri } from 'monaco-editor'
 	import { buildWorkerDefinition } from 'monaco-editor-workers'
+	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 
 	languages.typescript.javascriptDefaults.setCompilerOptions({
 		target: languages.typescript.ScriptTarget.Latest,
@@ -529,18 +529,14 @@
 		})
 
 		if (autoHeight) {
-			let ignoreEvent = false
 			const updateHeight = () => {
 				const contentHeight = Math.min(1000, editor.getContentHeight())
 				if (divEl) {
 					divEl.style.height = `${contentHeight}px`
 				}
 				try {
-					ignoreEvent = true
 					editor.layout({ width, height: contentHeight })
-				} finally {
-					ignoreEvent = false
-				}
+				} catch {}
 			}
 			editor.onDidContentSizeChange(updateHeight)
 			updateHeight()

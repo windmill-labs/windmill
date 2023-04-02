@@ -147,7 +147,6 @@
 	})
 
 	let isValid = true
-	let runForm: RunForm | undefined
 
 	let runLoading = false
 	async function runScript(
@@ -392,7 +391,6 @@
 						autofocus
 						detailed={false}
 						bind:isValid
-						bind:this={runForm}
 						runnable={script}
 						runAction={runScript}
 						bind:args

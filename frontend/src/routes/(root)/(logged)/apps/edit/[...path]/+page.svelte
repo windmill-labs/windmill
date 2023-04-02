@@ -16,10 +16,7 @@
 		goto('?', { replaceState: true })
 	}
 
-	let loading = true
-
 	async function loadApp(): Promise<void> {
-		loading = true
 		app = await AppService.getAppByPath({
 			path,
 			workspace: $workspaceStore!
@@ -31,7 +28,6 @@
 			sendUserToast('App restored from draft')
 			app.value = stateLoadedFromUrl
 		}
-		loading = false
 		$dirtyStore = false
 	}
 

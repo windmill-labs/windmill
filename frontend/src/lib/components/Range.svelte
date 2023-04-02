@@ -51,10 +51,6 @@
 		onDragStart(e)
 	}
 
-	function onHover(e) {
-		thumbHover = thumbHover ? false : true
-	}
-
 	function onDragStart(e) {
 		// If mouse event add a pointer events shield
 		if (e.type === 'mousedown') document.body.append(mouseEventShield)

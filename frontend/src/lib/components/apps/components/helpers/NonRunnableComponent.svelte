@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { Loader2 } from 'lucide-svelte'
 	import { getContext } from 'svelte'
-	import { fade } from 'svelte/transition'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppViewerContext } from '../../types'

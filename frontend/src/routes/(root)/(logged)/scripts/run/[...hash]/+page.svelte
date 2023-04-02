@@ -1,5 +1,13 @@
 <script lang="ts">
+	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
+	import CenteredPage from '$lib/components/CenteredPage.svelte'
+	import { Alert, Badge, Button, Kbd, Skeleton } from '$lib/components/common'
+	import RunForm from '$lib/components/RunForm.svelte'
+	import SharedBadge from '$lib/components/SharedBadge.svelte'
+	import { JobService, ScriptService, type Script } from '$lib/gen'
+	import { inferArgs } from '$lib/infer'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import {
 		canWrite,
 		defaultIfEmptyString,
@@ -9,15 +17,7 @@
 		sendUserToast,
 		truncateHash
 	} from '$lib/utils'
-	import { ScriptService, type Script, JobService } from '$lib/gen'
-	import { goto } from '$app/navigation'
-	import { userStore, workspaceStore } from '$lib/stores'
-	import { inferArgs } from '$lib/infer'
-	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import RunForm from '$lib/components/RunForm.svelte'
-	import { Alert, Badge, Button, Kbd, Skeleton } from '$lib/components/common'
-	import SharedBadge from '$lib/components/SharedBadge.svelte'
-	import { faEye, faPen, faPlay, faScroll } from '@fortawesome/free-solid-svg-icons'
+	import { faEye, faPen, faPlay } from '@fortawesome/free-solid-svg-icons'
 
 	$: hash = $page.params.hash
 	let script: Script | undefined

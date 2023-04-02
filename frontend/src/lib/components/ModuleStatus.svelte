@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { FlowStatusModule } from '$lib/gen'
-	import { displayDate } from '$lib/utils'
 	import { faHourglassHalf } from '@fortawesome/free-solid-svg-icons'
 	import { Icon } from 'svelte-awesome'
 	import { Badge } from './common'
