@@ -1,9 +1,11 @@
 <script lang="ts">
 	import type { AppViewerContext, ContextPanelContext } from '$lib/components/apps/types'
+	import { allItems } from '$lib/components/apps/utils'
 	import { classNames } from '$lib/utils'
 	import { ChevronDown, ChevronUp, Pointer } from 'lucide-svelte'
 	import { getContext } from 'svelte'
-	import { allsubIds } from '../../appUtils'
+	import { allsubIds, findGridItem } from '../../appUtils'
+	import IdEditor from './IdEditor.svelte'
 
 	export let id: string
 	export let name: string
@@ -43,18 +45,82 @@
 		blue: 'bg-blue-500 text-white',
 		indigo: 'bg-indigo-500 text-white'
 	}
+
+	function renameId(newId: string): void {
+		{
+			const item = findGridItem($app, id)
+			if (item) {
+				item.data.id = newId
+				item.id = newId
+			}
+			const oldSubgrids = Object.keys($app.subgrids ?? {}).filter((subgrid) =>
+				subgrid.startsWith(id + '-')
+			)
+			oldSubgrids.forEach((subgrid) => {
+				if ($app.subgrids) {
+					$app.subgrids[subgrid.replace(id, newId)] = $app.subgrids[subgrid]
+					delete $app.subgrids[subgrid]
+				}
+			})
+			allItems($app.grid, $app.subgrids).forEach((item) => {
+				if (item.data.componentInput?.type == 'connected') {
+					if (item.data.componentInput.connection?.componentId === id) {
+						item.data.componentInput.connection.componentId = newId
+					}
+				} else if (item.data.componentInput?.type == 'runnable') {
+					if (
+						item.data.componentInput?.runnable?.type === 'runnableByName' &&
+						item.data.componentInput?.runnable?.inlineScript?.refreshOn
+							?.map((x) => x.id)
+							?.includes(id)
+					) {
+						item.data.componentInput.runnable.inlineScript.refreshOn =
+							item.data.componentInput.runnable.inlineScript.refreshOn.map((x) => {
+								if (x.id === id) {
+									return {
+										id: newId,
+										key: x.key
+									}
+								}
+								return x
+							})
+					}
+				}
+
+				Object.values(item.data.configuration ?? {}).forEach((config) => {
+					if (config.type === 'connected') {
+						if (config.connection?.componentId === id) {
+							config.connection.componentId = newId
+						}
+					} else if (config.type == 'oneOf') {
+						Object.values(config.configuration ?? {}).forEach((choices) => {
+							Object.values(choices).forEach((c) => {
+								if (c.type === 'connected') {
+									if (c.connection?.componentId === id) {
+										c.connection.componentId = newId
+									}
+								}
+							})
+						})
+					}
+				})
+			})
+			$app = $app
+			$selectedComponent = [newId]
+		}
+	}
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <div class={$search == '' || inSearch ? '' : 'invisible h-0 overflow-hidden'}>
 	<!-- svelte-ignore a11y-mouse-events-have-key-events -->
 	<div
-		on:mouseover|stopPropagation={() => {
+		on:mouseenter|stopPropagation={() => {
 			if (id !== $hoverStore) {
 				$hoverStore = id
 			}
 		}}
-		on:mouseout|stopPropagation={() => {
+		on:mouseleave|stopPropagation={() => {
 			if ($hoverStore !== undefined) {
 				$hoverStore = undefined
 			}
@@ -74,26 +140,35 @@
 			$manuallyOpened[id] = $manuallyOpened[id] != undefined ? !$manuallyOpened[id] : true
 		}}
 	>
-		<button
-			disabled={!(selectable && !$selectedComponent?.includes(id)) || $connectingInput?.opened}
-			title="Select component"
-			on:click|stopPropagation={() => ($selectedComponent = [id])}
-			class="flex items-center ml-0.5 rounded-sm bg-gray-100 hover:text-black text-gray-600"
-		>
-			<div
-				class={classNames(
-					'text-2xs  font-bold px-2 py-0.5 rounded-sm',
-					$selectedComponent?.includes(id) ? idClass[color] : ''
-				)}
+		<div class="flex">
+			<button
+				disabled={!(selectable && !$selectedComponent?.includes(id)) || $connectingInput?.opened}
+				title="Select component"
+				on:click|stopPropagation={() => ($selectedComponent = [id])}
+				class="flex items-center ml-0.5 rounded-sm bg-gray-100 hover:text-black text-gray-600"
 			>
-				{id}
-			</div>
-			{#if selectable && !$selectedComponent?.includes(id)}
-				<div class=" px-1 ">
-					<Pointer size={14} />
+				<div
+					class={classNames(
+						'text-2xs  font-bold px-2 py-0.5 rounded-sm',
+						$selectedComponent?.includes(id) ? idClass[color] : ''
+					)}
+				>
+					{id}
 				</div>
+				{#if selectable && !$selectedComponent?.includes(id)}
+					<div class="px-1">
+						<Pointer size={14} />
+					</div>
+				{/if}
+			</button>
+			{#if selectable && ($selectedComponent?.includes(id) || $hoverStore === id)}
+				<IdEditor
+					{id}
+					on:selected={() => ($selectedComponent = [id])}
+					on:change={({ detail }) => renameId(detail)}
+				/>
 			{/if}
-		</button>
+		</div>
 		<div class="text-2xs font-bold flex flex-row gap-2 items-center truncate">
 			{name}
 			{#if !open}

@@ -99,19 +99,17 @@
 			<div class="mb-2 text-gray-500 text-sm bg-gray-50/20">
 				as JSON&nbsp;<input class="windmillapp" type="checkbox" bind:checked={forceJson} /></div
 			>{/if}{#if typeof result == 'object' && Object.keys(result).length > 0}<div
-				class="mb-2 min-w-[360px] text-sm text-gray-700 relative"
+				class="mb-2 min-w-[300px] text-sm text-gray-700 relative"
 				>The result keys are: <b>{truncate(Object.keys(result).join(', '), 50)}</b>
-				<div class="text-gray-500 text-sm  absolute top-0 right-2">
+				<div class="text-gray-500 text-sm absolute top-0 right-2">
 					<button on:click={jsonViewer.openDrawer}>Expand JSON</button>
 				</div></div
 			>{/if}{#if !forceJson && resultKind == 'table-col'}<div
-				class="grid grid-flow-col-dense border border-gray-200 rounded-md "
+				class="grid grid-flow-col-dense border border-gray-200 rounded-md"
 			>
 				{#each Object.keys(result) as col}
 					<div class="flex flex-col max-h-40 min-w-full">
-						<div
-							class="px-12 text-left uppercase border-b bg-gray-50 overflow-hidden rounded-t-md "
-						>
+						<div class="px-12 text-left uppercase border-b bg-gray-50 overflow-hidden rounded-t-md">
 							{col}
 						</div>
 						{#if Array.isArray(result[col])}
@@ -125,7 +123,7 @@
 				{/each}
 			</div>
 		{:else if !forceJson && resultKind == 'table-row'}<div
-				class="grid grid-flow-col-dense border border-gray-200 "
+				class="grid grid-flow-col-dense border border-gray-200"
 			>
 				<TableCustom>
 					<tbody slot="body">
