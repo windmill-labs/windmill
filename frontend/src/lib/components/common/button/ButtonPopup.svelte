@@ -23,20 +23,17 @@
 	setContext<ButtonType.ItemProps>(ButtonType.ItemContextKey, { size, color })
 
 	$: separator = color === 'red' || color === 'blue' ? 'border-gray-200' : 'border-gray-400'
-	$: commonProps = {
-		size,
-		color,
-		variant,
-		disabled,
-		spacingSize
-	}
 </script>
 
 <div class="flex justy-start items-center">
 	{#if $$slots.main}
 		<Button
 			{loading}
-			{...commonProps}
+			{size}
+			{color}
+			{variant}
+			{disabled}
+			{spacingSize}
 			{href}
 			{target}
 			{startIcon}
@@ -50,7 +47,11 @@
 	<span class={$$slots.main && variant === 'contained' ? 'border-l ' + separator : ''}>
 		<Button
 			bind:element={ref}
-			{...commonProps}
+			{size}
+			{color}
+			{variant}
+			{disabled}
+			{spacingSize}
 			btnClasses="{$$slots.main ? '!rounded-l-none' : ''} {toggleClasses}"
 			on:click={() => {}}
 		>
@@ -73,7 +74,9 @@
 			modifiers: [{ name: 'offset', options: { offset: [0, 0] } }]
 		}}
 	>
-		<ul class="bg-white rounded-t border pt-1 pb-2 max-h-40 overflow-auto {listClasses}">
+		<ul
+			class="bg-white rounded-t border-black shadow border pt-1 pb-2 max-h-40 overflow-auto {listClasses}"
+		>
 			<slot {open} {close} />
 		</ul>
 	</Popup>

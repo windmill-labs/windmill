@@ -227,7 +227,6 @@
 	</div>
 
 	<div class="max-w-xs" />
-	{JSON.stringify(arg)}
 	<div
 		class="relative mb-6 {$propPickerConfig?.propName == argName
 			? 'outline outline-offset-0 outline-2 outline-blue-500 rounded-md'
