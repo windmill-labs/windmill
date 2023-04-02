@@ -161,7 +161,7 @@
 	aria-expanded={$stateMachine.currentState !== 'closed'}
 >
 	{#if $stateMachine.currentState !== 'closed'}
-		<div transition:transition|local={{ duration: 200 }} class={outerClasses}>
+		<div transition:transition|local={{ duration: 100 }} class={outerClasses}>
 			<div class={innerClasses}>
 				<slot open={openFocusIn} close={closed} />
 			</div>

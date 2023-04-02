@@ -59,6 +59,11 @@
 			e.stopPropagation()
 		}
 	}}
+	on:focus={(e) => {
+		if ($connectingInput.opened) {
+			e.stopPropagation()
+		}
+	}}
 	on:pointerdown={onPointerDown}
 	on:click|capture={(event) => preventInteraction(event, type === 'tabscomponent')}
 	on:drag|capture={preventInteraction}
