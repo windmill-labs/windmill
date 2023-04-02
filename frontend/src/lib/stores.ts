@@ -1,5 +1,5 @@
 import { browser } from '$app/environment'
-import { derived, type Readable, writable } from 'svelte/store'
+import { derived, type Readable, writable, get } from 'svelte/store'
 import type { UserWorkspaceList } from '$lib/gen/models/UserWorkspaceList.js'
 import { getUserExt } from './user'
 import { WorkspaceService, type TokenResponse } from './gen'
@@ -80,6 +80,20 @@ if (browser) {
 			userStore.set(undefined)
 		}
 	})
+
+	setInterval(async () => {
+		try {
+			const workspace = get(workspaceStore)
+			const user = get(userStore)
+
+			if (workspace && user && !user.is_super_admin && !user.is_admin) {
+				userStore.set(await getUserExt(workspace))
+				console.log('refreshed user')
+			}
+		} catch (e) {
+			console.error('Could not refresh user', e)
+		}
+	}, 30000)
 }
 
 export function switchWorkspace(workspace: string | undefined) {
