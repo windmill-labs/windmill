@@ -10,7 +10,7 @@ use std::str::FromStr;
 
 use crate::{
     db::{UserDB, DB},
-    users::Authed,
+    users::{maybe_refresh_folders, Authed},
 };
 use axum::{
     extract::{Extension, Path, Query},
@@ -78,10 +78,13 @@ async fn check_path_conflict<'c>(
 
 async fn create_schedule(
     authed: Authed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(ns): Json<NewSchedule>,
 ) -> Result<String> {
+    let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
+
     let mut tx = user_db.begin(&authed).await?;
     cron::Schedule::from_str(&ns.schedule).map_err(|e| Error::BadRequest(e.to_string()))?;
     check_path_conflict(&mut tx, &w_id, &ns.path).await?;
@@ -135,12 +138,16 @@ async fn create_schedule(
 
 async fn edit_schedule(
     authed: Authed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(es): Json<EditSchedule>,
 ) -> Result<String> {
-    let mut tx = user_db.begin(&authed).await?;
     let path = path.to_path();
+
+    let authed = maybe_refresh_folders(&path, &w_id, authed, &db).await;
+
+    let mut tx = user_db.begin(&authed).await?;
 
     cron::Schedule::from_str(&es.schedule).map_err(|e| Error::BadRequest(e.to_string()))?;
 

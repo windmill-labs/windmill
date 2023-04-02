@@ -190,7 +190,7 @@ async fn create_script(
     Json(ns): Json<NewScript>,
 ) -> Result<(StatusCode, String)> {
     let hash = ScriptHash(hash_script(&ns));
-    // let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
+    let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
     let mut tx = user_db.begin(&authed).await?;
 
     if sqlx::query_scalar!(
@@ -557,11 +557,10 @@ async fn get_script_by_hash_internal<'c>(
 }
 
 async fn get_script_by_hash(
-    authed: Authed,
-    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, hash)): Path<(String, ScriptHash)>,
 ) -> JsonResult<Script> {
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx = db.begin().await?;
     let r = get_script_by_hash_internal(&mut tx, &w_id, &hash).await?;
     tx.commit().await?;
 
@@ -569,11 +568,10 @@ async fn get_script_by_hash(
 }
 
 async fn raw_script_by_hash(
-    authed: Authed,
-    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, hash_str)): Path<(String, String)>,
 ) -> Result<String> {
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx = db.begin().await?;
     let hash = ScriptHash(to_i64(hash_str.strip_suffix(".ts").ok_or_else(|| {
         Error::BadRequest("Raw script path must end with .ts".to_string())
     })?)?);
@@ -589,11 +587,10 @@ struct DeploymentStatus {
     lock_error_logs: Option<String>,
 }
 async fn get_deployment_status(
-    authed: Authed,
-    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, hash)): Path<(String, ScriptHash)>,
 ) -> JsonResult<DeploymentStatus> {
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx = db.begin().await?;
     let status_o: Option<DeploymentStatus> = sqlx::query_as!(
         DeploymentStatus,
         "SELECT lock, lock_error_logs FROM script WHERE hash = $1 AND workspace_id = $2",

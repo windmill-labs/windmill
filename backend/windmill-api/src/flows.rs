@@ -30,7 +30,7 @@ use windmill_queue::{push, schedule::push_scheduled_job, JobPayload};
 use crate::{
     db::{UserDB, DB},
     schedule::clear_schedule,
-    users::{require_owner_of_path, Authed},
+    users::{maybe_refresh_folders, require_owner_of_path, Authed},
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
@@ -178,12 +178,15 @@ async fn check_path_conflict<'c>(
 
 async fn create_flow(
     authed: Authed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
     Json(nf): Json<NewFlow>,
 ) -> Result<(StatusCode, String)> {
     // cron::Schedule::from_str(&ns.schedule).map_err(|e| error::Error::BadRequest(e.to_string()))?;
+    let authed = maybe_refresh_folders(&nf.path, &w_id, authed, &db).await;
+
     let mut tx = user_db.clone().begin(&authed).await?;
 
     check_path_conflict(&mut tx, &w_id, &nf.path).await?;
@@ -288,9 +291,11 @@ async fn update_flow(
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Json(nf): Json<NewFlow>,
 ) -> Result<String> {
+    let flow_path = flow_path.to_path();
+    let authed = maybe_refresh_folders(&flow_path, &w_id, authed, &db).await;
+
     let mut tx = user_db.clone().begin(&authed).await?;
 
-    let flow_path = flow_path.to_path();
     check_schedule_conflict(&mut tx, &w_id, flow_path).await?;
 
     let schema = nf.schema.map(|x| x.0);
