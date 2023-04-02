@@ -35,8 +35,8 @@
 		"eslint": "^8.28.0",
 		"eslint-config-prettier": "^8.6.0",
 		"eslint-plugin-svelte3": "^4.0.0",
-		"ol": "^7.2.2",
 		"monaco-editor-workers": "0.34.2",
+		"ol": "^7.2.2",
 		"openapi-typescript-codegen": "^0.23.0",
 		"path-browserify": "^1.0.1",
 		"pdfjs-dist": "^3.4.120",
@@ -84,12 +84,12 @@
 		"lucide-svelte": "^0.115.0",
 		"monaco-editor": "0.34.1",
 		"monaco-languageclient": "5.0.0-next.3",
-		"vscode-languageclient": "~8.0.2",
 		"svelte-autosize": "^1.0.1",
 		"svelte-chartjs": "^3.1.0",
 		"svelte-portal": "^2.2.0",
 		"svelte-select": "^5.3.1",
 		"tailwind-merge": "^1.9.1",
+		"vscode-languageclient": "~8.0.2",
 		"vscode-ws-jsonrpc": "3.0.0-next.1"
 	},
 	"peerDependencies": {
