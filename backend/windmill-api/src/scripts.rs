@@ -8,6 +8,7 @@
 
 use sql_builder::prelude::*;
 use windmill_audit::{audit_log, ActionKind};
+use windmill_parser::MainArgSignature;
 
 use crate::{
     db::{UserDB, DB},
@@ -759,25 +760,31 @@ async fn delete_script_by_path(
     Ok(Json(script))
 }
 
-async fn parse_python_code_to_jsonschema(
-    Json(code): Json<String>,
-) -> JsonResult<windmill_parser::MainArgSignature> {
-    windmill_parser_py::parse_python_signature(&code).map(Json)
+#[derive(Debug, Serialize)]
+#[serde(tag = "type")]
+enum SigParsing {
+    Valid(MainArgSignature),
+    Invalid { error: String },
 }
 
-async fn parse_deno_code_to_jsonschema(
-    Json(code): Json<String>,
-) -> JsonResult<windmill_parser::MainArgSignature> {
-    windmill_parser_ts::parse_deno_signature(&code).map(Json)
-}
-async fn parse_go_code_to_jsonschema(
-    Json(code): Json<String>,
-) -> JsonResult<windmill_parser::MainArgSignature> {
-    windmill_parser_go::parse_go_sig(&code).map(Json)
+fn result_to_sig_parsing(result: Result<MainArgSignature>) -> Json<SigParsing> {
+    match result {
+        Ok(sig) => Json(SigParsing::Valid(sig)),
+        Err(e) => Json(SigParsing::Invalid { error: e.to_string() }),
+    }
 }
 
-async fn parse_bash_code_to_jsonschema(
-    Json(code): Json<String>,
-) -> JsonResult<windmill_parser::MainArgSignature> {
-    windmill_parser_bash::parse_bash_sig(&code).map(Json)
+async fn parse_python_code_to_jsonschema(Json(code): Json<String>) -> Json<SigParsing> {
+    result_to_sig_parsing(windmill_parser_py::parse_python_signature(&code))
+}
+
+async fn parse_deno_code_to_jsonschema(Json(code): Json<String>) -> Json<SigParsing> {
+    result_to_sig_parsing(windmill_parser_ts::parse_deno_signature(&code))
+}
+async fn parse_go_code_to_jsonschema(Json(code): Json<String>) -> Json<SigParsing> {
+    result_to_sig_parsing(windmill_parser_go::parse_go_sig(&code))
+}
+
+async fn parse_bash_code_to_jsonschema(Json(code): Json<String>) -> Json<SigParsing> {
+    result_to_sig_parsing(windmill_parser_bash::parse_bash_sig(&code))
 }
