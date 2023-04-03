@@ -29,6 +29,7 @@
 	export let initializing: boolean | undefined = undefined
 	export let customCss: ComponentCustomCSS<'textcomponent'> | undefined = undefined
 	export let render: boolean
+	export let editorMode: boolean = false
 
 	let resolvedConfig = initConfig(
 		components['textcomponent'].initialData.configuration,
@@ -80,28 +81,14 @@
 	}
 
 	let component = 'p'
+
 	let classes = ''
 	$: resolvedConfig.style && (component = getComponent())
 	$: resolvedConfig.style && (classes = getClasses())
 
-	let editorMode: boolean = false
-
 	let initialValue = componentInput?.type == 'template' ? componentInput.eval : ''
 
-	$: gridItem = findGridItem($app, id)
-
-	// On initial change, set the result
-	$: if (
-		initialValue !== undefined &&
-		gridItem &&
-		gridItem.data.componentInput &&
-		gridItem.data.componentInput.type == 'template'
-	) {
-		if (gridItem.data.componentInput.eval !== initialValue) {
-			gridItem.data.componentInput.eval = initialValue
-			$app = $app
-		}
-	}
+	$: editableValue = JSON.parse(JSON.stringify(initialValue))
 </script>
 
 {#each Object.keys(components['textcomponent'].initialData.configuration) as key (key)}
@@ -114,11 +101,17 @@
 {/each}
 
 <RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
-	<div class="h-full w-full overflow-hidden" on:dblclick={() => (editorMode = !editorMode)}>
+	<div
+		class="h-full w-full overflow-hidden"
+		on:dblclick={() => {
+			editorMode = !editorMode
+			document.getElementById(`text-${id}`)?.focus()
+		}}
+	>
 		{#if editorMode && componentInput?.type == 'template'}
 			<input
-				bind:value={initialValue}
-				class="z-[9999] h-full w-full"
+				bind:value={editableValue}
+				class={twMerge('z-[9999] h-full w-full', getClasses())}
 				id={`text-${id}`}
 				on:pointerenter={() => {
 					document.getElementById(`text-${id}`)?.focus()
@@ -126,6 +119,18 @@
 				on:pointerleave={() => {
 					document.getElementById(`text-${id}`)?.blur()
 					editorMode = false
+				}}
+				on:input={() => {
+					const gridItem = findGridItem($app, id)
+					if (
+						editableValue &&
+						gridItem &&
+						gridItem.data.componentInput &&
+						gridItem.data.componentInput.type == 'template'
+					) {
+						gridItem.data.componentInput.eval = editableValue
+						$app = $app
+					}
 				}}
 			/>
 		{:else}

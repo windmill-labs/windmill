@@ -55,6 +55,8 @@
 
 	let initializing: boolean | undefined = undefined
 	let componentContainerHeight: number = 0
+
+	let inlineEditorOpened: boolean = false
 </script>
 
 <!-- svelte-ignore a11y-mouse-events-have-key-events -->
@@ -81,6 +83,11 @@
 			on:lock
 			on:expand
 			{locked}
+			{inlineEditorOpened}
+			hasInlineEditor={component.type === 'textcomponent'}
+			on:triggerInlineEditor={() => {
+				inlineEditorOpened = !inlineEditorOpened
+			}}
 		/>
 	{/if}
 
@@ -207,6 +214,7 @@
 				configuration={component.configuration}
 				customCss={component.customCss}
 				bind:initializing
+				bind:editorMode={inlineEditorOpened}
 				componentInput={component.componentInput}
 				{render}
 			/>
