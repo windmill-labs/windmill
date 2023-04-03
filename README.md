@@ -60,20 +60,24 @@ https://user-images.githubusercontent.com/275584/218350457-bc2fdc3b-e667-4da5-a2
 
 ## Main Concepts
 
-1. Define a minimal and generic script in Python, Typescript, Go or Bash that
-   solves a specific task. Here sending an email with SMTP. The code can be
-   defined in the provided Web IDE or synchronized with your own github repo:
+### 1. Define a minimal and generic script in Python, Typescript, Go or Bash that
+###   solves a specific task. Here is an example for sending an email with SMTP. The code can be
+###   defined in the provided Web IDE or synchronized with your own github repo:
+
    ![Step 1](./imgs/windmill-editor.png)
 
-2. Your scripts parameters are automatically parsed and generate a frontend.
+### 2. Your scripts parameters are automatically parsed and generate a frontend.
+
    ![Step 2](./imgs/windmill-run.png) ![Step 3](./imgs/windmill-result.png)
 
-3. Make it flow! You can chain your scripts or scripts made by the community
-   shared on [WindmillHub](https://hub.windmill.dev).
-   ![Step 4](./imgs/windmill-flow.png)
+### 3. Make it flow! You can chain your scripts or scripts made by the community
+###   shared on [WindmillHub](https://hub.windmill.dev).
 
-4. Build complex UI on top of your scripts and flows.
-   ![Step 5](./imgs/windmill-builder.png)
+   ![Step 3](./imgs/windmill-flow.png)
+
+### 4. Build complex UI on top of your scripts and flows.
+
+   ![Step 4](./imgs/windmill-builder.png)
 
 Scripts and flows can also be triggered by a cron schedule '_/5 _ \* \* \*' or
 through webhooks.
@@ -123,7 +127,7 @@ instance from local commands. See
 ### Running scripts locally
 
 You can run your script locally easily, you simply need to pass the right
-environment variables for the `wmill` client library to fetch resource and
+environment variables for the `wmill` client library to fetch resources and
 variables from your instance if necessary. See more:
 <https://docs.windmill.dev/docs/advanced/local_development/>
 
@@ -331,7 +335,7 @@ it being synced automatically everyday.
 
 ## Run a local dev setup
 
-### only Frontend
+### Only Frontend 
 
 This will use the backend of <https://app.windmill.dev> but your own frontend
 with hot-code reloading.
