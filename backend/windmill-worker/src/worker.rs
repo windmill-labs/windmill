@@ -86,7 +86,6 @@ async fn copy_cache_from_bucket(bucket: &str, tx: Sender<()>) {
             }
             Err(e) => tracing::warn!("Failed to run periodic job pull. Error: {:?}", e),
         }
-        tx.send(()).await.expect("can send copy cache signal");
         tracing::info!(
             "Finished copying cache from bucket {bucket}, took {:?}s",
             elapsed.elapsed().as_secs()
@@ -99,6 +98,7 @@ async fn copy_cache_from_bucket(bucket: &str, tx: Sender<()>) {
                 .await
                 .expect("could not create initial worker dir");
         }
+        tx.send(()).await.expect("can send copy cache signal");
     });
 }
 
@@ -243,6 +243,7 @@ async fn move_tmp_cache_to_cache() -> Result<()> {
     tokio::fs::remove_dir_all(ROOT_CACHE_DIR).await?;
     tokio::fs::rename(ROOT_TMP_CACHE_DIR, ROOT_CACHE_DIR).await?;
     tokio::fs::create_dir(ROOT_TMP_CACHE_DIR).await?;
+    tracing::info!("Finished moving tmp cache to cache");
     Ok(())
 }
 
@@ -569,17 +570,18 @@ pub async fn run_worker(
 
     WORKER_STARTED.inc();
 
-    #[cfg(feature = "enterprise")]
-    let (copy_bucket_tx, mut copy_bucket_rx) = mpsc::channel::<()>(2);
+    let (_copy_bucket_tx, mut _copy_bucket_rx) = mpsc::channel::<()>(2);
 
     #[cfg(feature = "enterprise")]
     if let Some(ref s) = S3_CACHE_BUCKET.clone() {
         // We try to download the entire cache as a tar, it is much faster over S3
         if !copy_cache_from_bucket_as_tar(&s).await {
             // We revert to copying the cache from the bucket
-            copy_cache_from_bucket(&s, copy_bucket_tx).await;
+            copy_cache_from_bucket(&s, _copy_bucket_tx.clone()).await;
         }
     }
+
+    tracing::info!(worker = %worker_name, "starting worker");
 
     #[cfg(feature = "enterprise")]
     let mut last_sync =
@@ -616,8 +618,10 @@ pub async fn run_worker(
             #[cfg(feature = "enterprise")]
             if last_sync.elapsed().as_secs() > NUM_SECS_SYNC {
                 if let Some(ref s) = S3_CACHE_BUCKET.clone() {
-                    copy_cache_from_bucket(&s, copy_bucket_tx).await;
+                    copy_cache_from_bucket(&s, _copy_bucket_tx.clone()).await;
                     copy_cache_to_bucket(&s).await;
+                    
+                    // this is to prevent excessive tar upload. 1/100*15min = each worker sync its tar once per day on average
                     if rand::thread_rng().gen_range(0..*TAR_CACHE_RATE) == 1 {
                         copy_cache_to_bucket_as_tar(&s).await;
                     }
@@ -632,12 +636,11 @@ pub async fn run_worker(
                         println!("received killpill for worker {}", i_worker);
                         (true, Ok(None))
                     },
-                    _ = copy_bucket_rx.recv() => {
+                    _ = _copy_bucket_rx.recv() => {
                         if let Err(e) = move_tmp_cache_to_cache().await {
                             tracing::error!(worker = %worker_name, "failed to sync tmp cache to cache: {}", e);
                         }
-                        println!("sync tmp cache to cache");
-                        (true, Ok(None))
+                        (false, Ok(None))
                     },
                     Some(job_id) = same_worker_rx.recv() => {
                         (false, sqlx::query_as::<_, QueuedJob>("SELECT * FROM queue WHERE id = $1")
