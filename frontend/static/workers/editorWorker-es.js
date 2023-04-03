@@ -1,8 +1,10 @@
-class Rn {
+class Vn {
   constructor() {
     this.listeners = [], this.unexpectedErrorHandler = function(t) {
       setTimeout(() => {
-        throw t.stack ? new Error(t.message + `
+        throw t.stack ? he.isErrorNoTelemetry(t) ? new he(t.message + `
+
+` + t.stack) : new Error(t.message + `
 
 ` + t.stack) : t;
       }, 0);
@@ -20,43 +22,57 @@ class Rn {
     this.unexpectedErrorHandler(t);
   }
 }
-const Pn = new Rn();
-function Dn(e) {
-  Fn(e) || Pn.onUnexpectedError(e);
+const Tn = new Vn();
+function Bn(e) {
+  Un(e) || Tn.onUnexpectedError(e);
 }
-function it(e) {
+function ct(e) {
   if (e instanceof Error) {
-    let { name: t, message: r } = e;
-    const s = e.stacktrace || e.stack;
+    const { name: t, message: r } = e, s = e.stacktrace || e.stack;
     return {
       $isError: !0,
       name: t,
       message: r,
-      stack: s
+      stack: s,
+      noTelemetry: he.isErrorNoTelemetry(e)
     };
   }
   return e;
 }
-const Fe = "Canceled";
-function Fn(e) {
-  return e instanceof xn ? !0 : e instanceof Error && e.name === Fe && e.message === Fe;
+const Be = "Canceled";
+function Un(e) {
+  return e instanceof In ? !0 : e instanceof Error && e.name === Be && e.message === Be;
 }
-class xn extends Error {
+class In extends Error {
   constructor() {
-    super(Fe), this.name = this.message;
+    super(Be), this.name = this.message;
   }
 }
-function Vn(e) {
+class he extends Error {
+  constructor(t) {
+    super(t), this.name = "ErrorNoTelemetry";
+  }
+  static fromError(t) {
+    if (t instanceof he)
+      return t;
+    const r = new he();
+    return r.message = t.message, r.stack = t.stack, r;
+  }
+  static isErrorNoTelemetry(t) {
+    return t.name === "ErrorNoTelemetry";
+  }
+}
+function qn(e) {
   const t = this;
   let r = !1, s;
   return function() {
     return r || (r = !0, s = e.apply(t, arguments)), s;
   };
 }
-var xe;
+var Se;
 (function(e) {
-  function t(w) {
-    return w && typeof w == "object" && typeof w[Symbol.iterator] == "function";
+  function t(p) {
+    return p && typeof p == "object" && typeof p[Symbol.iterator] == "function";
   }
   e.is = t;
   const r = Object.freeze([]);
@@ -64,108 +80,118 @@ var xe;
     return r;
   }
   e.empty = s;
-  function* i(w) {
-    yield w;
+  function* i(p) {
+    yield p;
   }
   e.single = i;
-  function a(w) {
-    return w || r;
+  function a(p) {
+    return p || r;
   }
   e.from = a;
-  function o(w) {
-    return !w || w[Symbol.iterator]().next().done === !0;
+  function o(p) {
+    return !p || p[Symbol.iterator]().next().done === !0;
   }
   e.isEmpty = o;
-  function l(w) {
-    return w[Symbol.iterator]().next().value;
+  function l(p) {
+    return p[Symbol.iterator]().next().value;
   }
   e.first = l;
-  function u(w, p) {
-    for (const g of w)
-      if (p(g))
+  function u(p, S) {
+    for (const b of p)
+      if (S(b))
         return !0;
     return !1;
   }
   e.some = u;
-  function c(w, p) {
-    for (const g of w)
-      if (p(g))
-        return g;
+  function c(p, S) {
+    for (const b of p)
+      if (S(b))
+        return b;
   }
   e.find = c;
-  function* f(w, p) {
-    for (const g of w)
-      p(g) && (yield g);
+  function* f(p, S) {
+    for (const b of p)
+      S(b) && (yield b);
   }
   e.filter = f;
-  function* h(w, p) {
-    let g = 0;
-    for (const m of w)
-      yield p(m, g++);
+  function* h(p, S) {
+    let b = 0;
+    for (const g of p)
+      yield S(g, b++);
   }
   e.map = h;
-  function* d(...w) {
-    for (const p of w)
-      for (const g of p)
-        yield g;
+  function* d(...p) {
+    for (const S of p)
+      for (const b of S)
+        yield b;
   }
   e.concat = d;
-  function* _(w) {
-    for (const p of w)
-      for (const g of p)
-        yield g;
+  function* C(p) {
+    for (const S of p)
+      for (const b of S)
+        yield b;
   }
-  e.concatNested = _;
-  function S(w, p, g) {
-    let m = g;
-    for (const L of w)
-      m = p(m, L);
-    return m;
+  e.concatNested = C;
+  function v(p, S, b) {
+    let g = b;
+    for (const m of p)
+      g = S(g, m);
+    return g;
   }
-  e.reduce = S;
-  function* v(w, p, g = w.length) {
-    for (p < 0 && (p += w.length), g < 0 ? g += w.length : g > w.length && (g = w.length); p < g; p++)
-      yield w[p];
+  e.reduce = v;
+  function A(p, S) {
+    let b = 0;
+    for (const g of p)
+      S(g, b++);
   }
-  e.slice = v;
-  function k(w, p = Number.POSITIVE_INFINITY) {
-    const g = [];
-    if (p === 0)
-      return [g, w];
-    const m = w[Symbol.iterator]();
-    for (let L = 0; L < p; L++) {
-      const C = m.next();
-      if (C.done)
-        return [g, e.empty()];
-      g.push(C.value);
+  e.forEach = A;
+  function* k(p, S, b = p.length) {
+    for (S < 0 && (S += p.length), b < 0 ? b += p.length : b > p.length && (b = p.length); S < b; S++)
+      yield p[S];
+  }
+  e.slice = k;
+  function R(p, S = Number.POSITIVE_INFINITY) {
+    const b = [];
+    if (S === 0)
+      return [b, p];
+    const g = p[Symbol.iterator]();
+    for (let m = 0; m < S; m++) {
+      const w = g.next();
+      if (w.done)
+        return [b, e.empty()];
+      b.push(w.value);
     }
-    return [g, { [Symbol.iterator]() {
-      return m;
+    return [b, { [Symbol.iterator]() {
+      return g;
     } }];
   }
-  e.consume = k;
-  function P(w, p, g = (m, L) => m === L) {
-    const m = w[Symbol.iterator](), L = p[Symbol.iterator]();
+  e.consume = R;
+  function P(p) {
+    return R(p)[0];
+  }
+  e.collect = P;
+  function y(p, S, b = (g, m) => g === m) {
+    const g = p[Symbol.iterator](), m = S[Symbol.iterator]();
     for (; ; ) {
-      const C = m.next(), b = L.next();
-      if (C.done !== b.done)
+      const w = g.next(), N = m.next();
+      if (w.done !== N.done)
         return !1;
-      if (C.done)
+      if (w.done)
         return !0;
-      if (!g(C.value, b.value))
+      if (!b(w.value, N.value))
         return !1;
     }
   }
-  e.equals = P;
-})(xe || (xe = {}));
-class En extends Error {
+  e.equals = y;
+})(Se || (Se = {}));
+class Hn extends Error {
   constructor(t) {
     super(`Encountered errors while disposing of store. Errors: [${t.join(", ")}]`), this.errors = t;
   }
 }
-function hn(e) {
-  if (xe.is(e)) {
-    let t = [];
+function bn(e) {
+  if (Se.is(e)) {
+    const t = [];
     for (const r of e)
       if (r)
         try {
@@ -176,22 +202,22 @@ function hn(e) {
     if (t.length === 1)
       throw t[0];
     if (t.length > 1)
-      throw new En(t);
+      throw new Hn(t);
     return Array.isArray(e) ? [] : e;
   } else if (e)
     return e.dispose(), e;
 }
-function Bn(...e) {
-  return Ne(() => hn(e));
+function Wn(...e) {
+  return Ae(() => bn(e));
 }
-function Ne(e) {
+function Ae(e) {
   return {
-    dispose: Vn(() => {
+    dispose: qn(() => {
       e();
     })
   };
 }
-class ue {
+class se {
   constructor() {
     this._toDispose = /* @__PURE__ */ new Set(), this._isDisposed = !1;
   }
@@ -203,7 +229,7 @@ class ue {
   }
   clear() {
     try {
-      hn(this._toDispose.values());
+      bn(this._toDispose.values());
     } finally {
       this._toDispose.clear();
     }
@@ -213,13 +239,13 @@ class ue {
       return t;
     if (t === this)
       throw new Error("Cannot register a disposable on itself!");
-    return this._isDisposed ? ue.DISABLE_DISPOSED_WARNING || console.warn(new Error("Trying to add a disposable to a DisposableStore that has already been disposed of. The added object will be leaked!").stack) : this._toDispose.add(t), t;
+    return this._isDisposed ? se.DISABLE_DISPOSED_WARNING || console.warn(new Error("Trying to add a disposable to a DisposableStore that has already been disposed of. The added object will be leaked!").stack) : this._toDispose.add(t), t;
   }
 }
-ue.DISABLE_DISPOSED_WARNING = !1;
-class et {
+se.DISABLE_DISPOSED_WARNING = !1;
+class st {
   constructor() {
-    this._store = new ue(), this._store;
+    this._store = new se(), this._store;
   }
   dispose() {
     this._store.dispose();
@@ -230,9 +256,9 @@ class et {
     return this._store.add(t);
   }
 }
-et.None = Object.freeze({ dispose() {
+st.None = Object.freeze({ dispose() {
 } });
-class Tn {
+class $n {
   constructor() {
     this.dispose = () => {
     }, this.unset = () => {
@@ -251,7 +277,7 @@ class D {
   }
 }
 D.Undefined = new D(void 0);
-class at {
+class ye {
   constructor() {
     this._first = D.Undefined, this._last = D.Undefined, this._size = 0;
   }
@@ -318,33 +344,46 @@ class at {
       yield t.element, t = t.next;
   }
 }
-var Me;
-const _e = "en";
-let Ve = !1, Ee = !1, Re = !1, fn = !1, we, Pe = _e, Un, X;
-const T = typeof self == "object" ? self : typeof global == "object" ? global : {};
+globalThis && globalThis.__awaiter;
+let zn = typeof document < "u" && document.location && document.location.hash.indexOf("pseudo=true") >= 0;
+function Gn(e, t) {
+  let r;
+  return t.length === 0 ? r = e : r = e.replace(/\{(\d+)\}/g, (s, i) => {
+    const a = i[0], o = t[a];
+    let l = s;
+    return typeof o == "string" ? l = o : (typeof o == "number" || typeof o == "boolean" || o === void 0 || o === null) && (l = String(o)), l;
+  }), zn && (r = "\uFF3B" + r.replace(/[aouei]/g, "$&$&") + "\uFF3D"), r;
+}
+function On(e, t, ...r) {
+  return Gn(t, r);
+}
+var xe;
+const de = "en";
+let Ue = !1, Ie = !1, Ee = !1, wn = !1, pe, Ve = de, jn, Y;
+const U = typeof self == "object" ? self : typeof global == "object" ? global : {};
 let B;
-typeof T.vscode < "u" && typeof T.vscode.process < "u" ? B = T.vscode.process : typeof process < "u" && (B = process);
-const In = typeof ((Me = B == null ? void 0 : B.versions) === null || Me === void 0 ? void 0 : Me.electron) == "string", qn = In && (B == null ? void 0 : B.type) === "renderer";
-if (typeof navigator == "object" && !qn)
-  X = navigator.userAgent, Ve = X.indexOf("Windows") >= 0, Ee = X.indexOf("Macintosh") >= 0, (X.indexOf("Macintosh") >= 0 || X.indexOf("iPad") >= 0 || X.indexOf("iPhone") >= 0) && !!navigator.maxTouchPoints && navigator.maxTouchPoints > 0, Re = X.indexOf("Linux") >= 0, fn = !0, we = navigator.language, Pe = we;
+typeof U.vscode < "u" && typeof U.vscode.process < "u" ? B = U.vscode.process : typeof process < "u" && (B = process);
+const Qn = typeof ((xe = B == null ? void 0 : B.versions) === null || xe === void 0 ? void 0 : xe.electron) == "string", Zn = Qn && (B == null ? void 0 : B.type) === "renderer";
+if (typeof navigator == "object" && !Zn)
+  Y = navigator.userAgent, Ue = Y.indexOf("Windows") >= 0, Ie = Y.indexOf("Macintosh") >= 0, (Y.indexOf("Macintosh") >= 0 || Y.indexOf("iPad") >= 0 || Y.indexOf("iPhone") >= 0) && !!navigator.maxTouchPoints && navigator.maxTouchPoints > 0, Ee = Y.indexOf("Linux") >= 0, wn = !0, On({ key: "ensureLoaderPluginIsLoaded", comment: ["{Locked}"] }, "_"), pe = de, Ve = pe;
 else if (typeof B == "object") {
-  Ve = B.platform === "win32", Ee = B.platform === "darwin", Re = B.platform === "linux", Re && !!B.env.SNAP && B.env.SNAP_REVISION, B.env.CI || B.env.BUILD_ARTIFACTSTAGINGDIRECTORY, we = _e, Pe = _e;
+  Ue = B.platform === "win32", Ie = B.platform === "darwin", Ee = B.platform === "linux", Ee && !!B.env.SNAP && B.env.SNAP_REVISION, B.env.CI || B.env.BUILD_ARTIFACTSTAGINGDIRECTORY, pe = de, Ve = de;
   const e = B.env.VSCODE_NLS_CONFIG;
   if (e)
     try {
       const t = JSON.parse(e), r = t.availableLanguages["*"];
-      we = t.locale, Pe = r || _e, Un = t._translationsConfigFile;
+      pe = t.locale, Ve = r || de, jn = t._translationsConfigFile;
     } catch {
     }
 } else
   console.error("Unable to resolve platform.");
-const de = Ve, Hn = Ee;
-fn && T.importScripts;
-const O = X;
+const ge = Ue, Yn = Ie;
+wn && U.importScripts;
+const j = Y, Xn = typeof U.postMessage == "function" && !U.importScripts;
 (() => {
-  if (typeof T.postMessage == "function" && !T.importScripts) {
-    let e = [];
-    T.addEventListener("message", (r) => {
+  if (Xn) {
+    const e = [];
+    U.addEventListener("message", (r) => {
       if (r.data && r.data.vscodeScheduleAsyncWork)
         for (let s = 0, i = e.length; s < i; s++) {
           const a = e[s];
@@ -360,23 +399,23 @@ const O = X;
       e.push({
         id: s,
         callback: r
-      }), T.postMessage({ vscodeScheduleAsyncWork: s }, "*");
+      }), U.postMessage({ vscodeScheduleAsyncWork: s }, "*");
     };
   }
   return (e) => setTimeout(e);
 })();
-const Wn = !!(O && O.indexOf("Chrome") >= 0);
-O && O.indexOf("Firefox") >= 0;
-!Wn && O && O.indexOf("Safari") >= 0;
-O && O.indexOf("Edg/") >= 0;
-O && O.indexOf("Android") >= 0;
-const $n = T.performance && typeof T.performance.now == "function";
-class ye {
+const Jn = !!(j && j.indexOf("Chrome") >= 0);
+j && j.indexOf("Firefox") >= 0;
+!Jn && j && j.indexOf("Safari") >= 0;
+j && j.indexOf("Edg/") >= 0;
+j && j.indexOf("Android") >= 0;
+const Kn = U.performance && typeof U.performance.now == "function";
+class Pe {
   constructor(t) {
-    this._highResolution = $n && t, this._startTime = this._now(), this._stopTime = -1;
+    this._highResolution = Kn && t, this._startTime = this._now(), this._stopTime = -1;
   }
   static create(t = !0) {
-    return new ye(t);
+    return new Pe(t);
   }
   stop() {
     this._stopTime = this._now();
@@ -385,185 +424,215 @@ class ye {
     return this._stopTime !== -1 ? this._stopTime - this._startTime : this._now() - this._startTime;
   }
   _now() {
-    return this._highResolution ? T.performance.now() : Date.now();
+    return this._highResolution ? U.performance.now() : Date.now();
   }
 }
-var Be;
+var qe;
 (function(e) {
-  e.None = () => et.None;
-  function t(g) {
-    return (m, L = null, C) => {
-      let b = !1, N;
-      return N = g((R) => {
-        if (!b)
-          return N ? N.dispose() : b = !0, m.call(L, R);
-      }, null, C), b && N.dispose(), N;
+  e.None = () => st.None;
+  function t(b) {
+    return (g, m = null, w) => {
+      let N = !1, L;
+      return L = b((_) => {
+        if (!N)
+          return L ? L.dispose() : N = !0, g.call(m, _);
+      }, null, w), N && L.dispose(), L;
     };
   }
   e.once = t;
-  function r(g, m, L) {
-    return u((C, b = null, N) => g((R) => C.call(b, m(R)), null, N), L);
+  function r(b, g, m) {
+    return u((w, N = null, L) => b((_) => w.call(N, g(_)), null, L), m);
   }
   e.map = r;
-  function s(g, m, L) {
-    return u((C, b = null, N) => g((R) => {
-      m(R), C.call(b, R);
-    }, null, N), L);
+  function s(b, g, m) {
+    return u((w, N = null, L) => b((_) => {
+      g(_), w.call(N, _);
+    }, null, L), m);
   }
   e.forEach = s;
-  function i(g, m, L) {
-    return u((C, b = null, N) => g((R) => m(R) && C.call(b, R), null, N), L);
+  function i(b, g, m) {
+    return u((w, N = null, L) => b((_) => g(_) && w.call(N, _), null, L), m);
   }
   e.filter = i;
-  function a(g) {
-    return g;
+  function a(b) {
+    return b;
   }
   e.signal = a;
-  function o(...g) {
-    return (m, L = null, C) => Bn(...g.map((b) => b((N) => m.call(L, N), null, C)));
+  function o(...b) {
+    return (g, m = null, w) => Wn(...b.map((N) => N((L) => g.call(m, L), null, w)));
   }
   e.any = o;
-  function l(g, m, L, C) {
-    let b = L;
-    return r(g, (N) => (b = m(b, N), b), C);
+  function l(b, g, m, w) {
+    let N = m;
+    return r(b, (L) => (N = g(N, L), N), w);
   }
   e.reduce = l;
-  function u(g, m) {
-    let L;
-    const C = {
+  function u(b, g) {
+    let m;
+    const w = {
       onFirstListenerAdd() {
-        L = g(b.fire, b);
+        m = b(N.fire, N);
       },
       onLastListenerRemove() {
-        L.dispose();
+        m == null || m.dispose();
       }
-    }, b = new j(C);
-    return m && m.add(b), b.event;
+    }, N = new O(w);
+    return g == null || g.add(N), N.event;
   }
-  function c(g, m, L = 100, C = !1, b, N) {
-    let R, y, A, G = 0;
-    const yn = {
-      leakWarningThreshold: b,
+  function c(b, g, m = 100, w = !1, N, L) {
+    let _, E, Ce, Fe = 0;
+    const Fn = {
+      leakWarningThreshold: N,
       onFirstListenerAdd() {
-        R = g((kn) => {
-          G++, y = m(y, kn), C && !A && (be.fire(y), y = void 0), clearTimeout(A), A = setTimeout(() => {
-            const Mn = y;
-            y = void 0, A = void 0, (!C || G > 1) && be.fire(Mn), G = 0;
-          }, L);
+        _ = b((xn) => {
+          Fe++, E = g(E, xn), w && !Ce && (_e.fire(E), E = void 0), clearTimeout(Ce), Ce = setTimeout(() => {
+            const En = E;
+            E = void 0, Ce = void 0, (!w || Fe > 1) && _e.fire(En), Fe = 0;
+          }, m);
         });
       },
       onLastListenerRemove() {
-        R.dispose();
+        _.dispose();
       }
-    }, be = new j(yn);
-    return N && N.add(be), be.event;
+    }, _e = new O(Fn);
+    return L == null || L.add(_e), _e.event;
   }
   e.debounce = c;
-  function f(g, m = (C, b) => C === b, L) {
-    let C = !0, b;
-    return i(g, (N) => {
-      const R = C || !m(N, b);
-      return C = !1, b = N, R;
-    }, L);
+  function f(b, g = (w, N) => w === N, m) {
+    let w = !0, N;
+    return i(b, (L) => {
+      const _ = w || !g(L, N);
+      return w = !1, N = L, _;
+    }, m);
   }
   e.latch = f;
-  function h(g, m, L) {
+  function h(b, g, m) {
     return [
-      e.filter(g, m, L),
-      e.filter(g, (C) => !m(C), L)
+      e.filter(b, g, m),
+      e.filter(b, (w) => !g(w), m)
     ];
   }
   e.split = h;
-  function d(g, m = !1, L = []) {
-    let C = L.slice(), b = g((y) => {
-      C ? C.push(y) : R.fire(y);
+  function d(b, g = !1, m = []) {
+    let w = m.slice(), N = b((E) => {
+      w ? w.push(E) : _.fire(E);
     });
-    const N = () => {
-      C && C.forEach((y) => R.fire(y)), C = null;
-    }, R = new j({
+    const L = () => {
+      w == null || w.forEach((E) => _.fire(E)), w = null;
+    }, _ = new O({
       onFirstListenerAdd() {
-        b || (b = g((y) => R.fire(y)));
+        N || (N = b((E) => _.fire(E)));
       },
       onFirstListenerDidAdd() {
-        C && (m ? setTimeout(N) : N());
+        w && (g ? setTimeout(L) : L());
       },
       onLastListenerRemove() {
-        b && b.dispose(), b = null;
+        N && N.dispose(), N = null;
       }
     });
-    return R.event;
+    return _.event;
   }
   e.buffer = d;
-  class _ {
-    constructor(m) {
-      this.event = m;
+  class C {
+    constructor(g) {
+      this.event = g, this.disposables = new se();
     }
-    map(m) {
-      return new _(r(this.event, m));
+    map(g) {
+      return new C(r(this.event, g, this.disposables));
     }
-    forEach(m) {
-      return new _(s(this.event, m));
+    forEach(g) {
+      return new C(s(this.event, g, this.disposables));
     }
-    filter(m) {
-      return new _(i(this.event, m));
+    filter(g) {
+      return new C(i(this.event, g, this.disposables));
     }
-    reduce(m, L) {
-      return new _(l(this.event, m, L));
+    reduce(g, m) {
+      return new C(l(this.event, g, m, this.disposables));
     }
     latch() {
-      return new _(f(this.event));
+      return new C(f(this.event, void 0, this.disposables));
     }
-    debounce(m, L = 100, C = !1, b) {
-      return new _(c(this.event, m, L, C, b));
+    debounce(g, m = 100, w = !1, N) {
+      return new C(c(this.event, g, m, w, N, this.disposables));
     }
-    on(m, L, C) {
-      return this.event(m, L, C);
+    on(g, m, w) {
+      return this.event(g, m, w);
     }
-    once(m, L, C) {
-      return t(this.event)(m, L, C);
+    once(g, m, w) {
+      return t(this.event)(g, m, w);
+    }
+    dispose() {
+      this.disposables.dispose();
     }
   }
-  function S(g) {
-    return new _(g);
+  function v(b) {
+    return new C(b);
   }
-  e.chain = S;
-  function v(g, m, L = (C) => C) {
-    const C = (...y) => R.fire(L(...y)), b = () => g.on(m, C), N = () => g.removeListener(m, C), R = new j({ onFirstListenerAdd: b, onLastListenerRemove: N });
-    return R.event;
+  e.chain = v;
+  function A(b, g, m = (w) => w) {
+    const w = (...E) => _.fire(m(...E)), N = () => b.on(g, w), L = () => b.removeListener(g, w), _ = new O({ onFirstListenerAdd: N, onLastListenerRemove: L });
+    return _.event;
   }
-  e.fromNodeEventEmitter = v;
-  function k(g, m, L = (C) => C) {
-    const C = (...y) => R.fire(L(...y)), b = () => g.addEventListener(m, C), N = () => g.removeEventListener(m, C), R = new j({ onFirstListenerAdd: b, onLastListenerRemove: N });
-    return R.event;
+  e.fromNodeEventEmitter = A;
+  function k(b, g, m = (w) => w) {
+    const w = (...E) => _.fire(m(...E)), N = () => b.addEventListener(g, w), L = () => b.removeEventListener(g, w), _ = new O({ onFirstListenerAdd: N, onLastListenerRemove: L });
+    return _.event;
   }
   e.fromDOMEventEmitter = k;
-  function P(g) {
-    return new Promise((m) => t(g)(m));
+  function R(b) {
+    return new Promise((g) => t(b)(g));
   }
-  e.toPromise = P;
-  function w(g, m) {
-    return m(void 0), g((L) => m(L));
+  e.toPromise = R;
+  function P(b, g) {
+    return g(void 0), b((m) => g(m));
   }
-  e.runAndSubscribe = w;
-  function p(g, m) {
-    let L = null;
-    function C(N) {
-      L == null || L.dispose(), L = new ue(), m(N, L);
+  e.runAndSubscribe = P;
+  function y(b, g) {
+    let m = null;
+    function w(L) {
+      m == null || m.dispose(), m = new se(), g(L, m);
     }
-    C(void 0);
-    const b = g((N) => C(N));
-    return Ne(() => {
-      b.dispose(), L == null || L.dispose();
+    w(void 0);
+    const N = b((L) => w(L));
+    return Ae(() => {
+      N.dispose(), m == null || m.dispose();
     });
   }
-  e.runAndSubscribeWithStore = p;
-})(Be || (Be = {}));
-class ke {
+  e.runAndSubscribeWithStore = y;
+  class p {
+    constructor(g, m) {
+      this.obs = g, this._counter = 0, this._hasChanged = !1;
+      const w = {
+        onFirstListenerAdd: () => {
+          g.addObserver(this);
+        },
+        onLastListenerRemove: () => {
+          g.removeObserver(this);
+        }
+      };
+      this.emitter = new O(w), m && m.add(this.emitter);
+    }
+    beginUpdate(g) {
+      this._counter++;
+    }
+    handleChange(g, m) {
+      this._hasChanged = !0;
+    }
+    endUpdate(g) {
+      --this._counter === 0 && this._hasChanged && (this._hasChanged = !1, this.emitter.fire(this.obs.get()));
+    }
+  }
+  function S(b, g) {
+    return new p(b, g).emitter.event;
+  }
+  e.fromObservable = S;
+})(qe || (qe = {}));
+class De {
   constructor(t) {
-    this._listenerCount = 0, this._invocationCount = 0, this._elapsedOverall = 0, this._name = `${t}_${ke._idPool++}`;
+    this._listenerCount = 0, this._invocationCount = 0, this._elapsedOverall = 0, this._name = `${t}_${De._idPool++}`;
   }
   start(t) {
-    this._stopWatch = new ye(!0), this._listenerCount = t;
+    this._stopWatch = new Pe(!0), this._listenerCount = t;
   }
   stop() {
     if (this._stopWatch) {
@@ -572,14 +641,14 @@ class ke {
     }
   }
 }
-ke._idPool = 0;
-class tt {
+De._idPool = 0;
+class it {
   constructor(t) {
     this.value = t;
   }
   static create() {
     var t;
-    return new tt((t = new Error().stack) !== null && t !== void 0 ? t : "");
+    return new it((t = new Error().stack) !== null && t !== void 0 ? t : "");
   }
   print() {
     console.warn(this.value.split(`
@@ -587,94 +656,125 @@ class tt {
 `));
   }
 }
-class zn {
+class er {
   constructor(t, r, s) {
-    this.callback = t, this.callbackThis = r, this.stack = s, this.subscription = new Tn();
+    this.callback = t, this.callbackThis = r, this.stack = s, this.subscription = new $n();
   }
   invoke(t) {
     this.callback.call(this.callbackThis, t);
   }
 }
-class j {
+class O {
   constructor(t) {
-    var r;
-    this._disposed = !1, this._options = t, this._leakageMon = void 0, this._perfMon = !((r = this._options) === null || r === void 0) && r._profName ? new ke(this._options._profName) : void 0;
+    var r, s;
+    this._disposed = !1, this._options = t, this._leakageMon = void 0, this._perfMon = !((r = this._options) === null || r === void 0) && r._profName ? new De(this._options._profName) : void 0, this._deliveryQueue = (s = this._options) === null || s === void 0 ? void 0 : s.deliveryQueue;
   }
   dispose() {
     var t, r, s, i;
-    this._disposed || (this._disposed = !0, this._listeners && this._listeners.clear(), (t = this._deliveryQueue) === null || t === void 0 || t.clear(), (s = (r = this._options) === null || r === void 0 ? void 0 : r.onLastListenerRemove) === null || s === void 0 || s.call(r), (i = this._leakageMon) === null || i === void 0 || i.dispose());
+    this._disposed || (this._disposed = !0, this._listeners && this._listeners.clear(), (t = this._deliveryQueue) === null || t === void 0 || t.clear(this), (s = (r = this._options) === null || r === void 0 ? void 0 : r.onLastListenerRemove) === null || s === void 0 || s.call(r), (i = this._leakageMon) === null || i === void 0 || i.dispose());
   }
   get event() {
     return this._event || (this._event = (t, r, s) => {
       var i, a, o;
-      this._listeners || (this._listeners = new at());
+      this._listeners || (this._listeners = new ye());
       const l = this._listeners.isEmpty();
       l && ((i = this._options) === null || i === void 0 ? void 0 : i.onFirstListenerAdd) && this._options.onFirstListenerAdd(this);
       let u, c;
-      this._leakageMon && this._listeners.size >= 30 && (c = tt.create(), u = this._leakageMon.check(c, this._listeners.size + 1));
-      const f = new zn(t, r, c), h = this._listeners.push(f);
+      this._leakageMon && this._listeners.size >= 30 && (c = it.create(), u = this._leakageMon.check(c, this._listeners.size + 1));
+      const f = new er(t, r, c), h = this._listeners.push(f);
       l && ((a = this._options) === null || a === void 0 ? void 0 : a.onFirstListenerDidAdd) && this._options.onFirstListenerDidAdd(this), !((o = this._options) === null || o === void 0) && o.onListenerDidAdd && this._options.onListenerDidAdd(this, t, r);
       const d = f.subscription.set(() => {
-        u && u(), this._disposed || (h(), this._options && this._options.onLastListenerRemove && (this._listeners && !this._listeners.isEmpty() || this._options.onLastListenerRemove(this)));
+        u == null || u(), this._disposed || (h(), this._options && this._options.onLastListenerRemove && (this._listeners && !this._listeners.isEmpty() || this._options.onLastListenerRemove(this)));
       });
-      return s instanceof ue ? s.add(d) : Array.isArray(s) && s.push(d), d;
+      return s instanceof se ? s.add(d) : Array.isArray(s) && s.push(d), d;
     }), this._event;
   }
   fire(t) {
     var r, s;
     if (this._listeners) {
-      this._deliveryQueue || (this._deliveryQueue = new at());
-      for (let i of this._listeners)
-        this._deliveryQueue.push([i, t]);
-      for ((r = this._perfMon) === null || r === void 0 || r.start(this._deliveryQueue.size); this._deliveryQueue.size > 0; ) {
-        const [i, a] = this._deliveryQueue.shift();
-        try {
-          i.invoke(a);
-        } catch (o) {
-          Dn(o);
-        }
-      }
-      (s = this._perfMon) === null || s === void 0 || s.stop();
+      this._deliveryQueue || (this._deliveryQueue = new nr());
+      for (const i of this._listeners)
+        this._deliveryQueue.push(this, i, t);
+      (r = this._perfMon) === null || r === void 0 || r.start(this._deliveryQueue.size), this._deliveryQueue.deliver(), (s = this._perfMon) === null || s === void 0 || s.stop();
     }
   }
 }
-function Gn(e) {
+class tr {
+  constructor() {
+    this._queue = new ye();
+  }
+  get size() {
+    return this._queue.size;
+  }
+  push(t, r, s) {
+    this._queue.push(new rr(t, r, s));
+  }
+  clear(t) {
+    const r = new ye();
+    for (const s of this._queue)
+      s.emitter !== t && r.push(s);
+    this._queue = r;
+  }
+  deliver() {
+    for (; this._queue.size > 0; ) {
+      const t = this._queue.shift();
+      try {
+        t.listener.invoke(t.event);
+      } catch (r) {
+        Bn(r);
+      }
+    }
+  }
+}
+class nr extends tr {
+  clear(t) {
+    this._queue.clear();
+  }
+}
+class rr {
+  constructor(t, r, s) {
+    this.emitter = t, this.listener = r, this.event = s;
+  }
+}
+function sr(e) {
   let t = [], r = Object.getPrototypeOf(e);
   for (; Object.prototype !== r; )
     t = t.concat(Object.getOwnPropertyNames(r)), r = Object.getPrototypeOf(r);
   return t;
 }
-function Te(e) {
+function He(e) {
   const t = [];
-  for (const r of Gn(e))
+  for (const r of sr(e))
     typeof e[r] == "function" && t.push(r);
   return t;
 }
-function On(e, t) {
+function ir(e, t) {
   const r = (i) => function() {
     const a = Array.prototype.slice.call(arguments, 0);
     return t(i, a);
-  };
-  let s = {};
+  }, s = {};
   for (const i of e)
     s[i] = r(i);
   return s;
 }
-function jn(e, t = "Unreachable") {
+function ar(e, t = "Unreachable") {
   throw new Error(t);
 }
-class Zn {
+class or {
   constructor(t) {
-    this.computeFn = t, this.lastCache = void 0, this.lastArgKey = void 0;
+    this.fn = t, this.lastCache = void 0, this.lastArgKey = void 0;
   }
   get(t) {
     const r = JSON.stringify(t);
-    return this.lastArgKey !== r && (this.lastArgKey = r, this.lastCache = this.computeFn(t)), this.lastCache;
+    return this.lastArgKey !== r && (this.lastArgKey = r, this.lastCache = this.fn(t)), this.lastCache;
   }
 }
-class dn {
+class Cn {
   constructor(t) {
     this.executor = t, this._didRun = !1;
+  }
+  hasValue() {
+    return this._didRun;
   }
   getValue() {
     if (!this._didRun)
@@ -693,14 +793,14 @@ class dn {
     return this._value;
   }
 }
-var mn;
-function Yn(e) {
+var _n;
+function lr(e) {
   return e.replace(/[\\\{\}\*\+\?\|\^\$\.\[\]\(\)]/g, "\\$&");
 }
-function Xn(e) {
+function cr(e) {
   return e.split(/\r\n|\r|\n/);
 }
-function Qn(e) {
+function ur(e) {
   for (let t = 0, r = e.length; t < r; t++) {
     const s = e.charCodeAt(t);
     if (s !== 32 && s !== 9)
@@ -708,7 +808,7 @@ function Qn(e) {
   }
   return -1;
 }
-function Jn(e, t = e.length - 1) {
+function hr(e, t = e.length - 1) {
   for (let r = t; r >= 0; r--) {
     const s = e.charCodeAt(r);
     if (s !== 32 && s !== 9)
@@ -716,40 +816,40 @@ function Jn(e, t = e.length - 1) {
   }
   return -1;
 }
-function gn(e) {
+function pn(e) {
   return e >= 65 && e <= 90;
 }
-function Ue(e) {
+function We(e) {
   return 55296 <= e && e <= 56319;
 }
-function Kn(e) {
+function fr(e) {
   return 56320 <= e && e <= 57343;
 }
-function er(e, t) {
+function dr(e, t) {
   return (e - 55296 << 10) + (t - 56320) + 65536;
 }
-function tr(e, t, r) {
+function mr(e, t, r) {
   const s = e.charCodeAt(r);
-  if (Ue(s) && r + 1 < t) {
+  if (We(s) && r + 1 < t) {
     const i = e.charCodeAt(r + 1);
-    if (Kn(i))
-      return er(s, i);
+    if (fr(i))
+      return dr(s, i);
   }
   return s;
 }
-const nr = /^[\t\n\r\x20-\x7E]*$/;
-function rr(e) {
-  return nr.test(e);
+const gr = /^[\t\n\r\x20-\x7E]*$/;
+function br(e) {
+  return gr.test(e);
 }
-class $ {
+class z {
   constructor(t) {
     this.confusableDictionary = t;
   }
   static getInstance(t) {
-    return $.cache.get(Array.from(t));
+    return z.cache.get(Array.from(t));
   }
   static getLocales() {
-    return $._locales.getValue();
+    return z._locales.getValue();
   }
   isAmbiguous(t) {
     return this.confusableDictionary.has(t);
@@ -761,9 +861,9 @@ class $ {
     return new Set(this.confusableDictionary.keys());
   }
 }
-mn = $;
-$.ambiguousCharacterData = new dn(() => JSON.parse('{"_common":[8232,32,8233,32,5760,32,8192,32,8193,32,8194,32,8195,32,8196,32,8197,32,8198,32,8200,32,8201,32,8202,32,8287,32,8199,32,8239,32,2042,95,65101,95,65102,95,65103,95,8208,45,8209,45,8210,45,65112,45,1748,45,8259,45,727,45,8722,45,10134,45,11450,45,1549,44,1643,44,8218,44,184,44,42233,44,894,59,2307,58,2691,58,1417,58,1795,58,1796,58,5868,58,65072,58,6147,58,6153,58,8282,58,1475,58,760,58,42889,58,8758,58,720,58,42237,58,451,33,11601,33,660,63,577,63,2429,63,5038,63,42731,63,119149,46,8228,46,1793,46,1794,46,42510,46,68176,46,1632,46,1776,46,42232,46,1373,96,65287,96,8219,96,8242,96,1370,96,1523,96,8175,96,65344,96,900,96,8189,96,8125,96,8127,96,8190,96,697,96,884,96,712,96,714,96,715,96,756,96,699,96,701,96,700,96,702,96,42892,96,1497,96,2036,96,2037,96,5194,96,5836,96,94033,96,94034,96,65339,91,10088,40,10098,40,12308,40,64830,40,65341,93,10089,41,10099,41,12309,41,64831,41,10100,123,119060,123,10101,125,65342,94,8270,42,1645,42,8727,42,66335,42,5941,47,8257,47,8725,47,8260,47,9585,47,10187,47,10744,47,119354,47,12755,47,12339,47,11462,47,20031,47,12035,47,65340,92,65128,92,8726,92,10189,92,10741,92,10745,92,119311,92,119355,92,12756,92,20022,92,12034,92,42872,38,708,94,710,94,5869,43,10133,43,66203,43,8249,60,10094,60,706,60,119350,60,5176,60,5810,60,5120,61,11840,61,12448,61,42239,61,8250,62,10095,62,707,62,119351,62,5171,62,94015,62,8275,126,732,126,8128,126,8764,126,65372,124,65293,45,120784,50,120794,50,120804,50,120814,50,120824,50,130034,50,42842,50,423,50,1000,50,42564,50,5311,50,42735,50,119302,51,120785,51,120795,51,120805,51,120815,51,120825,51,130035,51,42923,51,540,51,439,51,42858,51,11468,51,1248,51,94011,51,71882,51,120786,52,120796,52,120806,52,120816,52,120826,52,130036,52,5070,52,71855,52,120787,53,120797,53,120807,53,120817,53,120827,53,130037,53,444,53,71867,53,120788,54,120798,54,120808,54,120818,54,120828,54,130038,54,11474,54,5102,54,71893,54,119314,55,120789,55,120799,55,120809,55,120819,55,120829,55,130039,55,66770,55,71878,55,2819,56,2538,56,2666,56,125131,56,120790,56,120800,56,120810,56,120820,56,120830,56,130040,56,547,56,546,56,66330,56,2663,57,2920,57,2541,57,3437,57,120791,57,120801,57,120811,57,120821,57,120831,57,130041,57,42862,57,11466,57,71884,57,71852,57,71894,57,9082,97,65345,97,119834,97,119886,97,119938,97,119990,97,120042,97,120094,97,120146,97,120198,97,120250,97,120302,97,120354,97,120406,97,120458,97,593,97,945,97,120514,97,120572,97,120630,97,120688,97,120746,97,65313,65,119808,65,119860,65,119912,65,119964,65,120016,65,120068,65,120120,65,120172,65,120224,65,120276,65,120328,65,120380,65,120432,65,913,65,120488,65,120546,65,120604,65,120662,65,120720,65,5034,65,5573,65,42222,65,94016,65,66208,65,119835,98,119887,98,119939,98,119991,98,120043,98,120095,98,120147,98,120199,98,120251,98,120303,98,120355,98,120407,98,120459,98,388,98,5071,98,5234,98,5551,98,65314,66,8492,66,119809,66,119861,66,119913,66,120017,66,120069,66,120121,66,120173,66,120225,66,120277,66,120329,66,120381,66,120433,66,42932,66,914,66,120489,66,120547,66,120605,66,120663,66,120721,66,5108,66,5623,66,42192,66,66178,66,66209,66,66305,66,65347,99,8573,99,119836,99,119888,99,119940,99,119992,99,120044,99,120096,99,120148,99,120200,99,120252,99,120304,99,120356,99,120408,99,120460,99,7428,99,1010,99,11429,99,43951,99,66621,99,128844,67,71922,67,71913,67,65315,67,8557,67,8450,67,8493,67,119810,67,119862,67,119914,67,119966,67,120018,67,120174,67,120226,67,120278,67,120330,67,120382,67,120434,67,1017,67,11428,67,5087,67,42202,67,66210,67,66306,67,66581,67,66844,67,8574,100,8518,100,119837,100,119889,100,119941,100,119993,100,120045,100,120097,100,120149,100,120201,100,120253,100,120305,100,120357,100,120409,100,120461,100,1281,100,5095,100,5231,100,42194,100,8558,68,8517,68,119811,68,119863,68,119915,68,119967,68,120019,68,120071,68,120123,68,120175,68,120227,68,120279,68,120331,68,120383,68,120435,68,5024,68,5598,68,5610,68,42195,68,8494,101,65349,101,8495,101,8519,101,119838,101,119890,101,119942,101,120046,101,120098,101,120150,101,120202,101,120254,101,120306,101,120358,101,120410,101,120462,101,43826,101,1213,101,8959,69,65317,69,8496,69,119812,69,119864,69,119916,69,120020,69,120072,69,120124,69,120176,69,120228,69,120280,69,120332,69,120384,69,120436,69,917,69,120492,69,120550,69,120608,69,120666,69,120724,69,11577,69,5036,69,42224,69,71846,69,71854,69,66182,69,119839,102,119891,102,119943,102,119995,102,120047,102,120099,102,120151,102,120203,102,120255,102,120307,102,120359,102,120411,102,120463,102,43829,102,42905,102,383,102,7837,102,1412,102,119315,70,8497,70,119813,70,119865,70,119917,70,120021,70,120073,70,120125,70,120177,70,120229,70,120281,70,120333,70,120385,70,120437,70,42904,70,988,70,120778,70,5556,70,42205,70,71874,70,71842,70,66183,70,66213,70,66853,70,65351,103,8458,103,119840,103,119892,103,119944,103,120048,103,120100,103,120152,103,120204,103,120256,103,120308,103,120360,103,120412,103,120464,103,609,103,7555,103,397,103,1409,103,119814,71,119866,71,119918,71,119970,71,120022,71,120074,71,120126,71,120178,71,120230,71,120282,71,120334,71,120386,71,120438,71,1292,71,5056,71,5107,71,42198,71,65352,104,8462,104,119841,104,119945,104,119997,104,120049,104,120101,104,120153,104,120205,104,120257,104,120309,104,120361,104,120413,104,120465,104,1211,104,1392,104,5058,104,65320,72,8459,72,8460,72,8461,72,119815,72,119867,72,119919,72,120023,72,120179,72,120231,72,120283,72,120335,72,120387,72,120439,72,919,72,120494,72,120552,72,120610,72,120668,72,120726,72,11406,72,5051,72,5500,72,42215,72,66255,72,731,105,9075,105,65353,105,8560,105,8505,105,8520,105,119842,105,119894,105,119946,105,119998,105,120050,105,120102,105,120154,105,120206,105,120258,105,120310,105,120362,105,120414,105,120466,105,120484,105,618,105,617,105,953,105,8126,105,890,105,120522,105,120580,105,120638,105,120696,105,120754,105,1110,105,42567,105,1231,105,43893,105,5029,105,71875,105,65354,106,8521,106,119843,106,119895,106,119947,106,119999,106,120051,106,120103,106,120155,106,120207,106,120259,106,120311,106,120363,106,120415,106,120467,106,1011,106,1112,106,65322,74,119817,74,119869,74,119921,74,119973,74,120025,74,120077,74,120129,74,120181,74,120233,74,120285,74,120337,74,120389,74,120441,74,42930,74,895,74,1032,74,5035,74,5261,74,42201,74,119844,107,119896,107,119948,107,120000,107,120052,107,120104,107,120156,107,120208,107,120260,107,120312,107,120364,107,120416,107,120468,107,8490,75,65323,75,119818,75,119870,75,119922,75,119974,75,120026,75,120078,75,120130,75,120182,75,120234,75,120286,75,120338,75,120390,75,120442,75,922,75,120497,75,120555,75,120613,75,120671,75,120729,75,11412,75,5094,75,5845,75,42199,75,66840,75,1472,108,8739,73,9213,73,65512,73,1633,108,1777,73,66336,108,125127,108,120783,73,120793,73,120803,73,120813,73,120823,73,130033,73,65321,73,8544,73,8464,73,8465,73,119816,73,119868,73,119920,73,120024,73,120128,73,120180,73,120232,73,120284,73,120336,73,120388,73,120440,73,65356,108,8572,73,8467,108,119845,108,119897,108,119949,108,120001,108,120053,108,120105,73,120157,73,120209,73,120261,73,120313,73,120365,73,120417,73,120469,73,448,73,120496,73,120554,73,120612,73,120670,73,120728,73,11410,73,1030,73,1216,73,1493,108,1503,108,1575,108,126464,108,126592,108,65166,108,65165,108,1994,108,11599,73,5825,73,42226,73,93992,73,66186,124,66313,124,119338,76,8556,76,8466,76,119819,76,119871,76,119923,76,120027,76,120079,76,120131,76,120183,76,120235,76,120287,76,120339,76,120391,76,120443,76,11472,76,5086,76,5290,76,42209,76,93974,76,71843,76,71858,76,66587,76,66854,76,65325,77,8559,77,8499,77,119820,77,119872,77,119924,77,120028,77,120080,77,120132,77,120184,77,120236,77,120288,77,120340,77,120392,77,120444,77,924,77,120499,77,120557,77,120615,77,120673,77,120731,77,1018,77,11416,77,5047,77,5616,77,5846,77,42207,77,66224,77,66321,77,119847,110,119899,110,119951,110,120003,110,120055,110,120107,110,120159,110,120211,110,120263,110,120315,110,120367,110,120419,110,120471,110,1400,110,1404,110,65326,78,8469,78,119821,78,119873,78,119925,78,119977,78,120029,78,120081,78,120185,78,120237,78,120289,78,120341,78,120393,78,120445,78,925,78,120500,78,120558,78,120616,78,120674,78,120732,78,11418,78,42208,78,66835,78,3074,111,3202,111,3330,111,3458,111,2406,111,2662,111,2790,111,3046,111,3174,111,3302,111,3430,111,3664,111,3792,111,4160,111,1637,111,1781,111,65359,111,8500,111,119848,111,119900,111,119952,111,120056,111,120108,111,120160,111,120212,111,120264,111,120316,111,120368,111,120420,111,120472,111,7439,111,7441,111,43837,111,959,111,120528,111,120586,111,120644,111,120702,111,120760,111,963,111,120532,111,120590,111,120648,111,120706,111,120764,111,11423,111,4351,111,1413,111,1505,111,1607,111,126500,111,126564,111,126596,111,65259,111,65260,111,65258,111,65257,111,1726,111,64428,111,64429,111,64427,111,64426,111,1729,111,64424,111,64425,111,64423,111,64422,111,1749,111,3360,111,4125,111,66794,111,71880,111,71895,111,66604,111,1984,79,2534,79,2918,79,12295,79,70864,79,71904,79,120782,79,120792,79,120802,79,120812,79,120822,79,130032,79,65327,79,119822,79,119874,79,119926,79,119978,79,120030,79,120082,79,120134,79,120186,79,120238,79,120290,79,120342,79,120394,79,120446,79,927,79,120502,79,120560,79,120618,79,120676,79,120734,79,11422,79,1365,79,11604,79,4816,79,2848,79,66754,79,42227,79,71861,79,66194,79,66219,79,66564,79,66838,79,9076,112,65360,112,119849,112,119901,112,119953,112,120005,112,120057,112,120109,112,120161,112,120213,112,120265,112,120317,112,120369,112,120421,112,120473,112,961,112,120530,112,120544,112,120588,112,120602,112,120646,112,120660,112,120704,112,120718,112,120762,112,120776,112,11427,112,65328,80,8473,80,119823,80,119875,80,119927,80,119979,80,120031,80,120083,80,120187,80,120239,80,120291,80,120343,80,120395,80,120447,80,929,80,120504,80,120562,80,120620,80,120678,80,120736,80,11426,80,5090,80,5229,80,42193,80,66197,80,119850,113,119902,113,119954,113,120006,113,120058,113,120110,113,120162,113,120214,113,120266,113,120318,113,120370,113,120422,113,120474,113,1307,113,1379,113,1382,113,8474,81,119824,81,119876,81,119928,81,119980,81,120032,81,120084,81,120188,81,120240,81,120292,81,120344,81,120396,81,120448,81,11605,81,119851,114,119903,114,119955,114,120007,114,120059,114,120111,114,120163,114,120215,114,120267,114,120319,114,120371,114,120423,114,120475,114,43847,114,43848,114,7462,114,11397,114,43905,114,119318,82,8475,82,8476,82,8477,82,119825,82,119877,82,119929,82,120033,82,120189,82,120241,82,120293,82,120345,82,120397,82,120449,82,422,82,5025,82,5074,82,66740,82,5511,82,42211,82,94005,82,65363,115,119852,115,119904,115,119956,115,120008,115,120060,115,120112,115,120164,115,120216,115,120268,115,120320,115,120372,115,120424,115,120476,115,42801,115,445,115,1109,115,43946,115,71873,115,66632,115,65331,83,119826,83,119878,83,119930,83,119982,83,120034,83,120086,83,120138,83,120190,83,120242,83,120294,83,120346,83,120398,83,120450,83,1029,83,1359,83,5077,83,5082,83,42210,83,94010,83,66198,83,66592,83,119853,116,119905,116,119957,116,120009,116,120061,116,120113,116,120165,116,120217,116,120269,116,120321,116,120373,116,120425,116,120477,116,8868,84,10201,84,128872,84,65332,84,119827,84,119879,84,119931,84,119983,84,120035,84,120087,84,120139,84,120191,84,120243,84,120295,84,120347,84,120399,84,120451,84,932,84,120507,84,120565,84,120623,84,120681,84,120739,84,11430,84,5026,84,42196,84,93962,84,71868,84,66199,84,66225,84,66325,84,119854,117,119906,117,119958,117,120010,117,120062,117,120114,117,120166,117,120218,117,120270,117,120322,117,120374,117,120426,117,120478,117,42911,117,7452,117,43854,117,43858,117,651,117,965,117,120534,117,120592,117,120650,117,120708,117,120766,117,1405,117,66806,117,71896,117,8746,85,8899,85,119828,85,119880,85,119932,85,119984,85,120036,85,120088,85,120140,85,120192,85,120244,85,120296,85,120348,85,120400,85,120452,85,1357,85,4608,85,66766,85,5196,85,42228,85,94018,85,71864,85,8744,118,8897,118,65366,118,8564,118,119855,118,119907,118,119959,118,120011,118,120063,118,120115,118,120167,118,120219,118,120271,118,120323,118,120375,118,120427,118,120479,118,7456,118,957,118,120526,118,120584,118,120642,118,120700,118,120758,118,1141,118,1496,118,71430,118,43945,118,71872,118,119309,86,1639,86,1783,86,8548,86,119829,86,119881,86,119933,86,119985,86,120037,86,120089,86,120141,86,120193,86,120245,86,120297,86,120349,86,120401,86,120453,86,1140,86,11576,86,5081,86,5167,86,42719,86,42214,86,93960,86,71840,86,66845,86,623,119,119856,119,119908,119,119960,119,120012,119,120064,119,120116,119,120168,119,120220,119,120272,119,120324,119,120376,119,120428,119,120480,119,7457,119,1121,119,1309,119,1377,119,71434,119,71438,119,71439,119,43907,119,71919,87,71910,87,119830,87,119882,87,119934,87,119986,87,120038,87,120090,87,120142,87,120194,87,120246,87,120298,87,120350,87,120402,87,120454,87,1308,87,5043,87,5076,87,42218,87,5742,120,10539,120,10540,120,10799,120,65368,120,8569,120,119857,120,119909,120,119961,120,120013,120,120065,120,120117,120,120169,120,120221,120,120273,120,120325,120,120377,120,120429,120,120481,120,5441,120,5501,120,5741,88,9587,88,66338,88,71916,88,65336,88,8553,88,119831,88,119883,88,119935,88,119987,88,120039,88,120091,88,120143,88,120195,88,120247,88,120299,88,120351,88,120403,88,120455,88,42931,88,935,88,120510,88,120568,88,120626,88,120684,88,120742,88,11436,88,11613,88,5815,88,42219,88,66192,88,66228,88,66327,88,66855,88,611,121,7564,121,65369,121,119858,121,119910,121,119962,121,120014,121,120066,121,120118,121,120170,121,120222,121,120274,121,120326,121,120378,121,120430,121,120482,121,655,121,7935,121,43866,121,947,121,8509,121,120516,121,120574,121,120632,121,120690,121,120748,121,1199,121,4327,121,71900,121,65337,89,119832,89,119884,89,119936,89,119988,89,120040,89,120092,89,120144,89,120196,89,120248,89,120300,89,120352,89,120404,89,120456,89,933,89,978,89,120508,89,120566,89,120624,89,120682,89,120740,89,11432,89,1198,89,5033,89,5053,89,42220,89,94019,89,71844,89,66226,89,119859,122,119911,122,119963,122,120015,122,120067,122,120119,122,120171,122,120223,122,120275,122,120327,122,120379,122,120431,122,120483,122,7458,122,43923,122,71876,122,66293,90,71909,90,65338,90,8484,90,8488,90,119833,90,119885,90,119937,90,119989,90,120041,90,120197,90,120249,90,120301,90,120353,90,120405,90,120457,90,918,90,120493,90,120551,90,120609,90,120667,90,120725,90,5059,90,42204,90,71849,90,65282,34,65284,36,65285,37,65286,38,65290,42,65291,43,65294,46,65295,47,65296,48,65297,49,65298,50,65299,51,65300,52,65301,53,65302,54,65303,55,65304,56,65305,57,65308,60,65309,61,65310,62,65312,64,65316,68,65318,70,65319,71,65324,76,65329,81,65330,82,65333,85,65334,86,65335,87,65343,95,65346,98,65348,100,65350,102,65355,107,65357,109,65358,110,65361,113,65362,114,65364,116,65365,117,65367,119,65370,122,65371,123,65373,125],"_default":[160,32,8211,45,65374,126,65306,58,65281,33,8216,96,8217,96,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"cs":[65374,126,65306,58,65281,33,8216,96,8217,96,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"de":[65374,126,65306,58,65281,33,8216,96,8217,96,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"es":[8211,45,65374,126,65306,58,65281,33,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"fr":[65374,126,65306,58,65281,33,8216,96,8245,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"it":[160,32,8211,45,65374,126,65306,58,65281,33,8216,96,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"ja":[8211,45,65306,58,65281,33,8216,96,8217,96,8245,96,180,96,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65292,44,65307,59],"ko":[8211,45,65374,126,65306,58,65281,33,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"pl":[65374,126,65306,58,65281,33,8216,96,8217,96,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"pt-BR":[65374,126,65306,58,65281,33,8216,96,8217,96,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"qps-ploc":[160,32,8211,45,65374,126,65306,58,65281,33,8216,96,8217,96,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"ru":[65374,126,65306,58,65281,33,8216,96,8217,96,8245,96,180,96,12494,47,305,105,921,73,1009,112,215,120,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"tr":[160,32,8211,45,65374,126,65306,58,65281,33,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"zh-hans":[65374,126,65306,58,65281,33,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65288,40,65289,41],"zh-hant":[8211,45,65374,126,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65307,59]}'));
-$.cache = new Zn((e) => {
+_n = z;
+z.ambiguousCharacterData = new Cn(() => JSON.parse('{"_common":[8232,32,8233,32,5760,32,8192,32,8193,32,8194,32,8195,32,8196,32,8197,32,8198,32,8200,32,8201,32,8202,32,8287,32,8199,32,8239,32,2042,95,65101,95,65102,95,65103,95,8208,45,8209,45,8210,45,65112,45,1748,45,8259,45,727,45,8722,45,10134,45,11450,45,1549,44,1643,44,8218,44,184,44,42233,44,894,59,2307,58,2691,58,1417,58,1795,58,1796,58,5868,58,65072,58,6147,58,6153,58,8282,58,1475,58,760,58,42889,58,8758,58,720,58,42237,58,451,33,11601,33,660,63,577,63,2429,63,5038,63,42731,63,119149,46,8228,46,1793,46,1794,46,42510,46,68176,46,1632,46,1776,46,42232,46,1373,96,65287,96,8219,96,8242,96,1370,96,1523,96,8175,96,65344,96,900,96,8189,96,8125,96,8127,96,8190,96,697,96,884,96,712,96,714,96,715,96,756,96,699,96,701,96,700,96,702,96,42892,96,1497,96,2036,96,2037,96,5194,96,5836,96,94033,96,94034,96,65339,91,10088,40,10098,40,12308,40,64830,40,65341,93,10089,41,10099,41,12309,41,64831,41,10100,123,119060,123,10101,125,65342,94,8270,42,1645,42,8727,42,66335,42,5941,47,8257,47,8725,47,8260,47,9585,47,10187,47,10744,47,119354,47,12755,47,12339,47,11462,47,20031,47,12035,47,65340,92,65128,92,8726,92,10189,92,10741,92,10745,92,119311,92,119355,92,12756,92,20022,92,12034,92,42872,38,708,94,710,94,5869,43,10133,43,66203,43,8249,60,10094,60,706,60,119350,60,5176,60,5810,60,5120,61,11840,61,12448,61,42239,61,8250,62,10095,62,707,62,119351,62,5171,62,94015,62,8275,126,732,126,8128,126,8764,126,65372,124,65293,45,120784,50,120794,50,120804,50,120814,50,120824,50,130034,50,42842,50,423,50,1000,50,42564,50,5311,50,42735,50,119302,51,120785,51,120795,51,120805,51,120815,51,120825,51,130035,51,42923,51,540,51,439,51,42858,51,11468,51,1248,51,94011,51,71882,51,120786,52,120796,52,120806,52,120816,52,120826,52,130036,52,5070,52,71855,52,120787,53,120797,53,120807,53,120817,53,120827,53,130037,53,444,53,71867,53,120788,54,120798,54,120808,54,120818,54,120828,54,130038,54,11474,54,5102,54,71893,54,119314,55,120789,55,120799,55,120809,55,120819,55,120829,55,130039,55,66770,55,71878,55,2819,56,2538,56,2666,56,125131,56,120790,56,120800,56,120810,56,120820,56,120830,56,130040,56,547,56,546,56,66330,56,2663,57,2920,57,2541,57,3437,57,120791,57,120801,57,120811,57,120821,57,120831,57,130041,57,42862,57,11466,57,71884,57,71852,57,71894,57,9082,97,65345,97,119834,97,119886,97,119938,97,119990,97,120042,97,120094,97,120146,97,120198,97,120250,97,120302,97,120354,97,120406,97,120458,97,593,97,945,97,120514,97,120572,97,120630,97,120688,97,120746,97,65313,65,119808,65,119860,65,119912,65,119964,65,120016,65,120068,65,120120,65,120172,65,120224,65,120276,65,120328,65,120380,65,120432,65,913,65,120488,65,120546,65,120604,65,120662,65,120720,65,5034,65,5573,65,42222,65,94016,65,66208,65,119835,98,119887,98,119939,98,119991,98,120043,98,120095,98,120147,98,120199,98,120251,98,120303,98,120355,98,120407,98,120459,98,388,98,5071,98,5234,98,5551,98,65314,66,8492,66,119809,66,119861,66,119913,66,120017,66,120069,66,120121,66,120173,66,120225,66,120277,66,120329,66,120381,66,120433,66,42932,66,914,66,120489,66,120547,66,120605,66,120663,66,120721,66,5108,66,5623,66,42192,66,66178,66,66209,66,66305,66,65347,99,8573,99,119836,99,119888,99,119940,99,119992,99,120044,99,120096,99,120148,99,120200,99,120252,99,120304,99,120356,99,120408,99,120460,99,7428,99,1010,99,11429,99,43951,99,66621,99,128844,67,71922,67,71913,67,65315,67,8557,67,8450,67,8493,67,119810,67,119862,67,119914,67,119966,67,120018,67,120174,67,120226,67,120278,67,120330,67,120382,67,120434,67,1017,67,11428,67,5087,67,42202,67,66210,67,66306,67,66581,67,66844,67,8574,100,8518,100,119837,100,119889,100,119941,100,119993,100,120045,100,120097,100,120149,100,120201,100,120253,100,120305,100,120357,100,120409,100,120461,100,1281,100,5095,100,5231,100,42194,100,8558,68,8517,68,119811,68,119863,68,119915,68,119967,68,120019,68,120071,68,120123,68,120175,68,120227,68,120279,68,120331,68,120383,68,120435,68,5024,68,5598,68,5610,68,42195,68,8494,101,65349,101,8495,101,8519,101,119838,101,119890,101,119942,101,120046,101,120098,101,120150,101,120202,101,120254,101,120306,101,120358,101,120410,101,120462,101,43826,101,1213,101,8959,69,65317,69,8496,69,119812,69,119864,69,119916,69,120020,69,120072,69,120124,69,120176,69,120228,69,120280,69,120332,69,120384,69,120436,69,917,69,120492,69,120550,69,120608,69,120666,69,120724,69,11577,69,5036,69,42224,69,71846,69,71854,69,66182,69,119839,102,119891,102,119943,102,119995,102,120047,102,120099,102,120151,102,120203,102,120255,102,120307,102,120359,102,120411,102,120463,102,43829,102,42905,102,383,102,7837,102,1412,102,119315,70,8497,70,119813,70,119865,70,119917,70,120021,70,120073,70,120125,70,120177,70,120229,70,120281,70,120333,70,120385,70,120437,70,42904,70,988,70,120778,70,5556,70,42205,70,71874,70,71842,70,66183,70,66213,70,66853,70,65351,103,8458,103,119840,103,119892,103,119944,103,120048,103,120100,103,120152,103,120204,103,120256,103,120308,103,120360,103,120412,103,120464,103,609,103,7555,103,397,103,1409,103,119814,71,119866,71,119918,71,119970,71,120022,71,120074,71,120126,71,120178,71,120230,71,120282,71,120334,71,120386,71,120438,71,1292,71,5056,71,5107,71,42198,71,65352,104,8462,104,119841,104,119945,104,119997,104,120049,104,120101,104,120153,104,120205,104,120257,104,120309,104,120361,104,120413,104,120465,104,1211,104,1392,104,5058,104,65320,72,8459,72,8460,72,8461,72,119815,72,119867,72,119919,72,120023,72,120179,72,120231,72,120283,72,120335,72,120387,72,120439,72,919,72,120494,72,120552,72,120610,72,120668,72,120726,72,11406,72,5051,72,5500,72,42215,72,66255,72,731,105,9075,105,65353,105,8560,105,8505,105,8520,105,119842,105,119894,105,119946,105,119998,105,120050,105,120102,105,120154,105,120206,105,120258,105,120310,105,120362,105,120414,105,120466,105,120484,105,618,105,617,105,953,105,8126,105,890,105,120522,105,120580,105,120638,105,120696,105,120754,105,1110,105,42567,105,1231,105,43893,105,5029,105,71875,105,65354,106,8521,106,119843,106,119895,106,119947,106,119999,106,120051,106,120103,106,120155,106,120207,106,120259,106,120311,106,120363,106,120415,106,120467,106,1011,106,1112,106,65322,74,119817,74,119869,74,119921,74,119973,74,120025,74,120077,74,120129,74,120181,74,120233,74,120285,74,120337,74,120389,74,120441,74,42930,74,895,74,1032,74,5035,74,5261,74,42201,74,119844,107,119896,107,119948,107,120000,107,120052,107,120104,107,120156,107,120208,107,120260,107,120312,107,120364,107,120416,107,120468,107,8490,75,65323,75,119818,75,119870,75,119922,75,119974,75,120026,75,120078,75,120130,75,120182,75,120234,75,120286,75,120338,75,120390,75,120442,75,922,75,120497,75,120555,75,120613,75,120671,75,120729,75,11412,75,5094,75,5845,75,42199,75,66840,75,1472,108,8739,73,9213,73,65512,73,1633,108,1777,73,66336,108,125127,108,120783,73,120793,73,120803,73,120813,73,120823,73,130033,73,65321,73,8544,73,8464,73,8465,73,119816,73,119868,73,119920,73,120024,73,120128,73,120180,73,120232,73,120284,73,120336,73,120388,73,120440,73,65356,108,8572,73,8467,108,119845,108,119897,108,119949,108,120001,108,120053,108,120105,73,120157,73,120209,73,120261,73,120313,73,120365,73,120417,73,120469,73,448,73,120496,73,120554,73,120612,73,120670,73,120728,73,11410,73,1030,73,1216,73,1493,108,1503,108,1575,108,126464,108,126592,108,65166,108,65165,108,1994,108,11599,73,5825,73,42226,73,93992,73,66186,124,66313,124,119338,76,8556,76,8466,76,119819,76,119871,76,119923,76,120027,76,120079,76,120131,76,120183,76,120235,76,120287,76,120339,76,120391,76,120443,76,11472,76,5086,76,5290,76,42209,76,93974,76,71843,76,71858,76,66587,76,66854,76,65325,77,8559,77,8499,77,119820,77,119872,77,119924,77,120028,77,120080,77,120132,77,120184,77,120236,77,120288,77,120340,77,120392,77,120444,77,924,77,120499,77,120557,77,120615,77,120673,77,120731,77,1018,77,11416,77,5047,77,5616,77,5846,77,42207,77,66224,77,66321,77,119847,110,119899,110,119951,110,120003,110,120055,110,120107,110,120159,110,120211,110,120263,110,120315,110,120367,110,120419,110,120471,110,1400,110,1404,110,65326,78,8469,78,119821,78,119873,78,119925,78,119977,78,120029,78,120081,78,120185,78,120237,78,120289,78,120341,78,120393,78,120445,78,925,78,120500,78,120558,78,120616,78,120674,78,120732,78,11418,78,42208,78,66835,78,3074,111,3202,111,3330,111,3458,111,2406,111,2662,111,2790,111,3046,111,3174,111,3302,111,3430,111,3664,111,3792,111,4160,111,1637,111,1781,111,65359,111,8500,111,119848,111,119900,111,119952,111,120056,111,120108,111,120160,111,120212,111,120264,111,120316,111,120368,111,120420,111,120472,111,7439,111,7441,111,43837,111,959,111,120528,111,120586,111,120644,111,120702,111,120760,111,963,111,120532,111,120590,111,120648,111,120706,111,120764,111,11423,111,4351,111,1413,111,1505,111,1607,111,126500,111,126564,111,126596,111,65259,111,65260,111,65258,111,65257,111,1726,111,64428,111,64429,111,64427,111,64426,111,1729,111,64424,111,64425,111,64423,111,64422,111,1749,111,3360,111,4125,111,66794,111,71880,111,71895,111,66604,111,1984,79,2534,79,2918,79,12295,79,70864,79,71904,79,120782,79,120792,79,120802,79,120812,79,120822,79,130032,79,65327,79,119822,79,119874,79,119926,79,119978,79,120030,79,120082,79,120134,79,120186,79,120238,79,120290,79,120342,79,120394,79,120446,79,927,79,120502,79,120560,79,120618,79,120676,79,120734,79,11422,79,1365,79,11604,79,4816,79,2848,79,66754,79,42227,79,71861,79,66194,79,66219,79,66564,79,66838,79,9076,112,65360,112,119849,112,119901,112,119953,112,120005,112,120057,112,120109,112,120161,112,120213,112,120265,112,120317,112,120369,112,120421,112,120473,112,961,112,120530,112,120544,112,120588,112,120602,112,120646,112,120660,112,120704,112,120718,112,120762,112,120776,112,11427,112,65328,80,8473,80,119823,80,119875,80,119927,80,119979,80,120031,80,120083,80,120187,80,120239,80,120291,80,120343,80,120395,80,120447,80,929,80,120504,80,120562,80,120620,80,120678,80,120736,80,11426,80,5090,80,5229,80,42193,80,66197,80,119850,113,119902,113,119954,113,120006,113,120058,113,120110,113,120162,113,120214,113,120266,113,120318,113,120370,113,120422,113,120474,113,1307,113,1379,113,1382,113,8474,81,119824,81,119876,81,119928,81,119980,81,120032,81,120084,81,120188,81,120240,81,120292,81,120344,81,120396,81,120448,81,11605,81,119851,114,119903,114,119955,114,120007,114,120059,114,120111,114,120163,114,120215,114,120267,114,120319,114,120371,114,120423,114,120475,114,43847,114,43848,114,7462,114,11397,114,43905,114,119318,82,8475,82,8476,82,8477,82,119825,82,119877,82,119929,82,120033,82,120189,82,120241,82,120293,82,120345,82,120397,82,120449,82,422,82,5025,82,5074,82,66740,82,5511,82,42211,82,94005,82,65363,115,119852,115,119904,115,119956,115,120008,115,120060,115,120112,115,120164,115,120216,115,120268,115,120320,115,120372,115,120424,115,120476,115,42801,115,445,115,1109,115,43946,115,71873,115,66632,115,65331,83,119826,83,119878,83,119930,83,119982,83,120034,83,120086,83,120138,83,120190,83,120242,83,120294,83,120346,83,120398,83,120450,83,1029,83,1359,83,5077,83,5082,83,42210,83,94010,83,66198,83,66592,83,119853,116,119905,116,119957,116,120009,116,120061,116,120113,116,120165,116,120217,116,120269,116,120321,116,120373,116,120425,116,120477,116,8868,84,10201,84,128872,84,65332,84,119827,84,119879,84,119931,84,119983,84,120035,84,120087,84,120139,84,120191,84,120243,84,120295,84,120347,84,120399,84,120451,84,932,84,120507,84,120565,84,120623,84,120681,84,120739,84,11430,84,5026,84,42196,84,93962,84,71868,84,66199,84,66225,84,66325,84,119854,117,119906,117,119958,117,120010,117,120062,117,120114,117,120166,117,120218,117,120270,117,120322,117,120374,117,120426,117,120478,117,42911,117,7452,117,43854,117,43858,117,651,117,965,117,120534,117,120592,117,120650,117,120708,117,120766,117,1405,117,66806,117,71896,117,8746,85,8899,85,119828,85,119880,85,119932,85,119984,85,120036,85,120088,85,120140,85,120192,85,120244,85,120296,85,120348,85,120400,85,120452,85,1357,85,4608,85,66766,85,5196,85,42228,85,94018,85,71864,85,8744,118,8897,118,65366,118,8564,118,119855,118,119907,118,119959,118,120011,118,120063,118,120115,118,120167,118,120219,118,120271,118,120323,118,120375,118,120427,118,120479,118,7456,118,957,118,120526,118,120584,118,120642,118,120700,118,120758,118,1141,118,1496,118,71430,118,43945,118,71872,118,119309,86,1639,86,1783,86,8548,86,119829,86,119881,86,119933,86,119985,86,120037,86,120089,86,120141,86,120193,86,120245,86,120297,86,120349,86,120401,86,120453,86,1140,86,11576,86,5081,86,5167,86,42719,86,42214,86,93960,86,71840,86,66845,86,623,119,119856,119,119908,119,119960,119,120012,119,120064,119,120116,119,120168,119,120220,119,120272,119,120324,119,120376,119,120428,119,120480,119,7457,119,1121,119,1309,119,1377,119,71434,119,71438,119,71439,119,43907,119,71919,87,71910,87,119830,87,119882,87,119934,87,119986,87,120038,87,120090,87,120142,87,120194,87,120246,87,120298,87,120350,87,120402,87,120454,87,1308,87,5043,87,5076,87,42218,87,5742,120,10539,120,10540,120,10799,120,65368,120,8569,120,119857,120,119909,120,119961,120,120013,120,120065,120,120117,120,120169,120,120221,120,120273,120,120325,120,120377,120,120429,120,120481,120,5441,120,5501,120,5741,88,9587,88,66338,88,71916,88,65336,88,8553,88,119831,88,119883,88,119935,88,119987,88,120039,88,120091,88,120143,88,120195,88,120247,88,120299,88,120351,88,120403,88,120455,88,42931,88,935,88,120510,88,120568,88,120626,88,120684,88,120742,88,11436,88,11613,88,5815,88,42219,88,66192,88,66228,88,66327,88,66855,88,611,121,7564,121,65369,121,119858,121,119910,121,119962,121,120014,121,120066,121,120118,121,120170,121,120222,121,120274,121,120326,121,120378,121,120430,121,120482,121,655,121,7935,121,43866,121,947,121,8509,121,120516,121,120574,121,120632,121,120690,121,120748,121,1199,121,4327,121,71900,121,65337,89,119832,89,119884,89,119936,89,119988,89,120040,89,120092,89,120144,89,120196,89,120248,89,120300,89,120352,89,120404,89,120456,89,933,89,978,89,120508,89,120566,89,120624,89,120682,89,120740,89,11432,89,1198,89,5033,89,5053,89,42220,89,94019,89,71844,89,66226,89,119859,122,119911,122,119963,122,120015,122,120067,122,120119,122,120171,122,120223,122,120275,122,120327,122,120379,122,120431,122,120483,122,7458,122,43923,122,71876,122,66293,90,71909,90,65338,90,8484,90,8488,90,119833,90,119885,90,119937,90,119989,90,120041,90,120197,90,120249,90,120301,90,120353,90,120405,90,120457,90,918,90,120493,90,120551,90,120609,90,120667,90,120725,90,5059,90,42204,90,71849,90,65282,34,65284,36,65285,37,65286,38,65290,42,65291,43,65294,46,65295,47,65296,48,65297,49,65298,50,65299,51,65300,52,65301,53,65302,54,65303,55,65304,56,65305,57,65308,60,65309,61,65310,62,65312,64,65316,68,65318,70,65319,71,65324,76,65329,81,65330,82,65333,85,65334,86,65335,87,65343,95,65346,98,65348,100,65350,102,65355,107,65357,109,65358,110,65361,113,65362,114,65364,116,65365,117,65367,119,65370,122,65371,123,65373,125],"_default":[160,32,8211,45,65374,126,65306,58,65281,33,8216,96,8217,96,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"cs":[65374,126,65306,58,65281,33,8216,96,8217,96,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"de":[65374,126,65306,58,65281,33,8216,96,8217,96,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"es":[8211,45,65374,126,65306,58,65281,33,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"fr":[65374,126,65306,58,65281,33,8216,96,8245,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"it":[160,32,8211,45,65374,126,65306,58,65281,33,8216,96,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"ja":[8211,45,65306,58,65281,33,8216,96,8217,96,8245,96,180,96,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65292,44,65307,59],"ko":[8211,45,65374,126,65306,58,65281,33,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"pl":[65374,126,65306,58,65281,33,8216,96,8217,96,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"pt-BR":[65374,126,65306,58,65281,33,8216,96,8217,96,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"qps-ploc":[160,32,8211,45,65374,126,65306,58,65281,33,8216,96,8217,96,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"ru":[65374,126,65306,58,65281,33,8216,96,8217,96,8245,96,180,96,12494,47,305,105,921,73,1009,112,215,120,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"tr":[160,32,8211,45,65374,126,65306,58,65281,33,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65288,40,65289,41,65292,44,65307,59,65311,63],"zh-hans":[65374,126,65306,58,65281,33,8245,96,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65288,40,65289,41],"zh-hant":[8211,45,65374,126,180,96,12494,47,1047,51,1073,54,1072,97,1040,65,1068,98,1042,66,1089,99,1057,67,1077,101,1045,69,1053,72,305,105,1050,75,921,73,1052,77,1086,111,1054,79,1009,112,1088,112,1056,80,1075,114,1058,84,215,120,1093,120,1061,88,1091,121,1059,89,65283,35,65307,59]}'));
+z.cache = new or((e) => {
   function t(c) {
     const f = /* @__PURE__ */ new Map();
     for (let h = 0; h < c.length; h += 2)
@@ -772,19 +872,19 @@ $.cache = new Zn((e) => {
   }
   function r(c, f) {
     const h = new Map(c);
-    for (const [d, _] of f)
-      h.set(d, _);
+    for (const [d, C] of f)
+      h.set(d, C);
     return h;
   }
   function s(c, f) {
     if (!c)
       return f;
     const h = /* @__PURE__ */ new Map();
-    for (const [d, _] of c)
-      f.has(d) && h.set(d, _);
+    for (const [d, C] of c)
+      f.has(d) && h.set(d, C);
     return h;
   }
-  const i = mn.ambiguousCharacterData.getValue();
+  const i = _n.ambiguousCharacterData.getValue();
   let a = e.filter((c) => !c.startsWith("_") && c in i);
   a.length === 0 && (a = ["_default"]);
   let o;
@@ -793,9 +893,9 @@ $.cache = new Zn((e) => {
     o = s(o, f);
   }
   const l = t(i._common), u = r(l, o);
-  return new $(u);
+  return new z(u);
 });
-$._locales = new dn(() => Object.keys($.ambiguousCharacterData.getValue()).filter((e) => !e.startsWith("_")));
+z._locales = new Cn(() => Object.keys(z.ambiguousCharacterData.getValue()).filter((e) => !e.startsWith("_")));
 class K {
   static getRawData() {
     return JSON.parse("[9,10,11,12,13,32,127,160,173,847,1564,4447,4448,6068,6069,6155,6156,6157,6158,7355,7356,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8203,8204,8205,8206,8207,8234,8235,8236,8237,8238,8239,8287,8288,8289,8290,8291,8292,8293,8294,8295,8296,8297,8298,8299,8300,8301,8302,8303,10240,12288,12644,65024,65025,65026,65027,65028,65029,65030,65031,65032,65033,65034,65035,65036,65037,65038,65039,65279,65440,65520,65521,65522,65523,65524,65525,65526,65527,65528,65532,78844,119155,119156,119157,119158,119159,119160,119161,119162,917504,917505,917506,917507,917508,917509,917510,917511,917512,917513,917514,917515,917516,917517,917518,917519,917520,917521,917522,917523,917524,917525,917526,917527,917528,917529,917530,917531,917532,917533,917534,917535,917536,917537,917538,917539,917540,917541,917542,917543,917544,917545,917546,917547,917548,917549,917550,917551,917552,917553,917554,917555,917556,917557,917558,917559,917560,917561,917562,917563,917564,917565,917566,917567,917568,917569,917570,917571,917572,917573,917574,917575,917576,917577,917578,917579,917580,917581,917582,917583,917584,917585,917586,917587,917588,917589,917590,917591,917592,917593,917594,917595,917596,917597,917598,917599,917600,917601,917602,917603,917604,917605,917606,917607,917608,917609,917610,917611,917612,917613,917614,917615,917616,917617,917618,917619,917620,917621,917622,917623,917624,917625,917626,917627,917628,917629,917630,917631,917760,917761,917762,917763,917764,917765,917766,917767,917768,917769,917770,917771,917772,917773,917774,917775,917776,917777,917778,917779,917780,917781,917782,917783,917784,917785,917786,917787,917788,917789,917790,917791,917792,917793,917794,917795,917796,917797,917798,917799,917800,917801,917802,917803,917804,917805,917806,917807,917808,917809,917810,917811,917812,917813,917814,917815,917816,917817,917818,917819,917820,917821,917822,917823,917824,917825,917826,917827,917828,917829,917830,917831,917832,917833,917834,917835,917836,917837,917838,917839,917840,917841,917842,917843,917844,917845,917846,917847,917848,917849,917850,917851,917852,917853,917854,917855,917856,917857,917858,917859,917860,917861,917862,917863,917864,917865,917866,917867,917868,917869,917870,917871,917872,917873,917874,917875,917876,917877,917878,917879,917880,917881,917882,917883,917884,917885,917886,917887,917888,917889,917890,917891,917892,917893,917894,917895,917896,917897,917898,917899,917900,917901,917902,917903,917904,917905,917906,917907,917908,917909,917910,917911,917912,917913,917914,917915,917916,917917,917918,917919,917920,917921,917922,917923,917924,917925,917926,917927,917928,917929,917930,917931,917932,917933,917934,917935,917936,917937,917938,917939,917940,917941,917942,917943,917944,917945,917946,917947,917948,917949,917950,917951,917952,917953,917954,917955,917956,917957,917958,917959,917960,917961,917962,917963,917964,917965,917966,917967,917968,917969,917970,917971,917972,917973,917974,917975,917976,917977,917978,917979,917980,917981,917982,917983,917984,917985,917986,917987,917988,917989,917990,917991,917992,917993,917994,917995,917996,917997,917998,917999]");
@@ -811,33 +911,33 @@ class K {
   }
 }
 K._data = void 0;
-const sr = "$initialize";
-class ir {
+const wr = "$initialize";
+class Cr {
   constructor(t, r, s, i) {
     this.vsWorker = t, this.req = r, this.method = s, this.args = i, this.type = 0;
   }
 }
-class ot {
+class ut {
   constructor(t, r, s, i) {
     this.vsWorker = t, this.seq = r, this.res = s, this.err = i, this.type = 1;
   }
 }
-class ar {
+class _r {
   constructor(t, r, s, i) {
     this.vsWorker = t, this.req = r, this.eventName = s, this.arg = i, this.type = 2;
   }
 }
-class or {
+class pr {
   constructor(t, r, s) {
     this.vsWorker = t, this.req = r, this.event = s, this.type = 3;
   }
 }
-class lr {
+class Lr {
   constructor(t, r) {
     this.vsWorker = t, this.req = r, this.type = 4;
   }
 }
-class cr {
+class Nr {
   constructor(t) {
     this._workerId = -1, this._handler = t, this._lastSentReq = 0, this._pendingReplies = /* @__PURE__ */ Object.create(null), this._pendingEmitters = /* @__PURE__ */ new Map(), this._pendingEvents = /* @__PURE__ */ new Map();
   }
@@ -850,17 +950,17 @@ class cr {
       this._pendingReplies[s] = {
         resolve: i,
         reject: a
-      }, this._send(new ir(this._workerId, s, t, r));
+      }, this._send(new Cr(this._workerId, s, t, r));
     });
   }
   listen(t, r) {
     let s = null;
-    const i = new j({
+    const i = new O({
       onFirstListenerAdd: () => {
-        s = String(++this._lastSentReq), this._pendingEmitters.set(s, i), this._send(new ar(this._workerId, s, t, r));
+        s = String(++this._lastSentReq), this._pendingEmitters.set(s, i), this._send(new _r(this._workerId, s, t, r));
       },
       onLastListenerRemove: () => {
-        this._pendingEmitters.delete(s), this._send(new lr(this._workerId, s)), s = null;
+        this._pendingEmitters.delete(s), this._send(new Lr(this._workerId, s)), s = null;
       }
     });
     return i.event;
@@ -887,7 +987,7 @@ class cr {
       console.warn("Got reply to unknown seq");
       return;
     }
-    let r = this._pendingReplies[t.seq];
+    const r = this._pendingReplies[t.seq];
     if (delete this._pendingReplies[t.seq], t.err) {
       let s = t.err;
       t.err.$isError && (s = new Error(), s.name = t.err.name, s.message = t.err.message, s.stack = t.err.stack), r.reject(s);
@@ -896,16 +996,16 @@ class cr {
     r.resolve(t.res);
   }
   _handleRequestMessage(t) {
-    let r = t.req;
+    const r = t.req;
     this._handler.handleMessage(t.method, t.args).then((i) => {
-      this._send(new ot(this._workerId, r, i, void 0));
+      this._send(new ut(this._workerId, r, i, void 0));
     }, (i) => {
-      i.detail instanceof Error && (i.detail = it(i.detail)), this._send(new ot(this._workerId, r, void 0, it(i)));
+      i.detail instanceof Error && (i.detail = ct(i.detail)), this._send(new ut(this._workerId, r, void 0, ct(i)));
     });
   }
   _handleSubscribeEventMessage(t) {
     const r = t.req, s = this._handler.handleEvent(t.eventName, t.arg)((i) => {
-      this._send(new or(this._workerId, r, i));
+      this._send(new pr(this._workerId, r, i));
     });
     this._pendingEvents.set(r, s);
   }
@@ -924,7 +1024,7 @@ class cr {
     this._pendingEvents.get(t.req).dispose(), this._pendingEvents.delete(t.req);
   }
   _send(t) {
-    let r = [];
+    const r = [];
     if (t.type === 0)
       for (let s = 0; s < t.args.length; s++)
         t.args[s] instanceof ArrayBuffer && r.push(t.args[s]);
@@ -933,26 +1033,25 @@ class cr {
     this._handler.sendMessage(t, r);
   }
 }
-function bn(e) {
-  return e[0] === "o" && e[1] === "n" && gn(e.charCodeAt(2));
+function Ln(e) {
+  return e[0] === "o" && e[1] === "n" && pn(e.charCodeAt(2));
 }
-function wn(e) {
-  return /^onDynamic/.test(e) && gn(e.charCodeAt(9));
+function Nn(e) {
+  return /^onDynamic/.test(e) && pn(e.charCodeAt(9));
 }
-function ur(e, t, r) {
+function vr(e, t, r) {
   const s = (o) => function() {
     const l = Array.prototype.slice.call(arguments, 0);
     return t(o, l);
   }, i = (o) => function(l) {
     return r(o, l);
-  };
-  let a = {};
+  }, a = {};
   for (const o of e) {
-    if (wn(o)) {
+    if (Nn(o)) {
       a[o] = i(o);
       continue;
     }
-    if (bn(o)) {
+    if (Ln(o)) {
       a[o] = r(o, void 0);
       continue;
     }
@@ -960,9 +1059,9 @@ function ur(e, t, r) {
   }
   return a;
 }
-class hr {
+class Sr {
   constructor(t, r) {
-    this._requestHandlerFactory = r, this._requestHandler = null, this._protocol = new cr({
+    this._requestHandlerFactory = r, this._requestHandler = null, this._protocol = new Nr({
       sendMessage: (s, i) => {
         t(s, i);
       },
@@ -974,7 +1073,7 @@ class hr {
     this._protocol.handleMessage(t);
   }
   _handleMessage(t, r) {
-    if (t === sr)
+    if (t === wr)
       return this.initialize(r[0], r[1], r[2], r[3]);
     if (!this._requestHandler || typeof this._requestHandler[t] != "function")
       return Promise.reject(new Error("Missing requestHandler or method: " + t));
@@ -987,13 +1086,13 @@ class hr {
   _handleEvent(t, r) {
     if (!this._requestHandler)
       throw new Error("Missing requestHandler");
-    if (wn(t)) {
+    if (Nn(t)) {
       const s = this._requestHandler[t].call(this._requestHandler, r);
       if (typeof s != "function")
         throw new Error(`Missing dynamic event ${t} on request handler.`);
       return s;
     }
-    if (bn(t)) {
+    if (Ln(t)) {
       const s = this._requestHandler[t];
       if (typeof s != "function")
         throw new Error(`Missing event ${t} on request handler.`);
@@ -1003,20 +1102,20 @@ class hr {
   }
   initialize(t, r, s, i) {
     this._protocol.setWorkerId(t);
-    const l = ur(i, (u, c) => this._protocol.sendMessage(u, c), (u, c) => this._protocol.listen(u, c));
-    return this._requestHandlerFactory ? (this._requestHandler = this._requestHandlerFactory(l), Promise.resolve(Te(this._requestHandler))) : (r && (typeof r.baseUrl < "u" && delete r.baseUrl, typeof r.paths < "u" && typeof r.paths.vs < "u" && delete r.paths.vs, typeof r.trustedTypesPolicy !== void 0 && delete r.trustedTypesPolicy, r.catchError = !0, T.require.config(r)), new Promise((u, c) => {
-      const f = T.require;
+    const l = vr(i, (u, c) => this._protocol.sendMessage(u, c), (u, c) => this._protocol.listen(u, c));
+    return this._requestHandlerFactory ? (this._requestHandler = this._requestHandlerFactory(l), Promise.resolve(He(this._requestHandler))) : (r && (typeof r.baseUrl < "u" && delete r.baseUrl, typeof r.paths < "u" && typeof r.paths.vs < "u" && delete r.paths.vs, typeof r.trustedTypesPolicy !== void 0 && delete r.trustedTypesPolicy, r.catchError = !0, U.require.config(r)), new Promise((u, c) => {
+      const f = U.require;
       f([s], (h) => {
         if (this._requestHandler = h.create(l), !this._requestHandler) {
           c(new Error("No RequestHandler!"));
           return;
         }
-        u(Te(this._requestHandler));
+        u(He(this._requestHandler));
       }, c);
     }));
   }
 }
-class Q {
+class X {
   constructor(t, r, s, i) {
     this.originalStart = t, this.originalLength = r, this.modifiedStart = s, this.modifiedLength = i;
   }
@@ -1027,16 +1126,16 @@ class Q {
     return this.modifiedStart + this.modifiedLength;
   }
 }
-function lt(e, t) {
+function ht(e, t) {
   return (t << 5) - t + e | 0;
 }
-function fr(e, t) {
-  t = lt(149417, t);
+function Ar(e, t) {
+  t = ht(149417, t);
   for (let r = 0, s = e.length; r < s; r++)
-    t = lt(e.charCodeAt(r), t);
+    t = ht(e.charCodeAt(r), t);
   return t;
 }
-class ct {
+class ft {
   constructor(t) {
     this.source = t;
   }
@@ -1047,16 +1146,16 @@ class ct {
     return r;
   }
 }
-function dr(e, t, r) {
-  return new J(new ct(e), new ct(t)).ComputeDiff(r).changes;
+function yr(e, t, r) {
+  return new J(new ft(e), new ft(t)).ComputeDiff(r).changes;
 }
-class se {
+class ae {
   static Assert(t, r) {
     if (!t)
       throw new Error(r);
   }
 }
-class ie {
+class oe {
   static Copy(t, r, s, i, a) {
     for (let o = 0; o < a; o++)
       s[i + o] = t[r + o];
@@ -1066,12 +1165,12 @@ class ie {
       s[i + o] = t[r + o];
   }
 }
-class ut {
+class dt {
   constructor() {
     this.m_changes = [], this.m_originalStart = 1073741824, this.m_modifiedStart = 1073741824, this.m_originalCount = 0, this.m_modifiedCount = 0;
   }
   MarkNextChange() {
-    (this.m_originalCount > 0 || this.m_modifiedCount > 0) && this.m_changes.push(new Q(this.m_originalStart, this.m_originalCount, this.m_modifiedStart, this.m_modifiedCount)), this.m_originalCount = 0, this.m_modifiedCount = 0, this.m_originalStart = 1073741824, this.m_modifiedStart = 1073741824;
+    (this.m_originalCount > 0 || this.m_modifiedCount > 0) && this.m_changes.push(new X(this.m_originalStart, this.m_originalCount, this.m_modifiedStart, this.m_modifiedCount)), this.m_originalCount = 0, this.m_modifiedCount = 0, this.m_originalStart = 1073741824, this.m_modifiedStart = 1073741824;
   }
   AddOriginalElement(t, r) {
     this.m_originalStart = Math.min(this.m_originalStart, t), this.m_modifiedStart = Math.min(this.m_modifiedStart, r), this.m_originalCount++;
@@ -1100,7 +1199,7 @@ class J {
     if (J._isStringArray(r)) {
       const s = new Int32Array(r.length);
       for (let i = 0, a = r.length; i < a; i++)
-        s[i] = fr(r[i], 0);
+        s[i] = Ar(r[i], 0);
       return [r, s, !0];
     }
     return r instanceof Int32Array ? [[], r, !1] : [[], new Int32Array(r), !1];
@@ -1141,11 +1240,11 @@ class J {
       r--, i--;
     if (t > r || s > i) {
       let h;
-      return s <= i ? (se.Assert(t === r + 1, "originalStart should only be one more than originalEnd"), h = [
-        new Q(t, 0, s, i - s + 1)
-      ]) : t <= r ? (se.Assert(s === i + 1, "modifiedStart should only be one more than modifiedEnd"), h = [
-        new Q(t, r - t + 1, s, 0)
-      ]) : (se.Assert(t === r + 1, "originalStart should only be one more than originalEnd"), se.Assert(s === i + 1, "modifiedStart should only be one more than modifiedEnd"), h = []), h;
+      return s <= i ? (ae.Assert(t === r + 1, "originalStart should only be one more than originalEnd"), h = [
+        new X(t, 0, s, i - s + 1)
+      ]) : t <= r ? (ae.Assert(s === i + 1, "modifiedStart should only be one more than modifiedEnd"), h = [
+        new X(t, r - t + 1, s, 0)
+      ]) : (ae.Assert(t === r + 1, "originalStart should only be one more than originalEnd"), ae.Assert(s === i + 1, "modifiedStart should only be one more than modifiedEnd"), h = []), h;
     }
     const o = [0], l = [0], u = this.ComputeRecursionPoint(t, r, s, i, o, l, a), c = o[0], f = l[0];
     if (u !== null)
@@ -1154,74 +1253,74 @@ class J {
       const h = this.ComputeDiffRecursive(t, c, s, f, a);
       let d = [];
       return a[0] ? d = [
-        new Q(c + 1, r - (c + 1) + 1, f + 1, i - (f + 1) + 1)
+        new X(c + 1, r - (c + 1) + 1, f + 1, i - (f + 1) + 1)
       ] : d = this.ComputeDiffRecursive(c + 1, r, f + 1, i, a), this.ConcatenateChanges(h, d);
     }
     return [
-      new Q(t, r - t + 1, s, i - s + 1)
+      new X(t, r - t + 1, s, i - s + 1)
     ];
   }
-  WALKTRACE(t, r, s, i, a, o, l, u, c, f, h, d, _, S, v, k, P, w) {
-    let p = null, g = null, m = new ut(), L = r, C = s, b = _[0] - k[0] - i, N = -1073741824, R = this.m_forwardHistory.length - 1;
+  WALKTRACE(t, r, s, i, a, o, l, u, c, f, h, d, C, v, A, k, R, P) {
+    let y = null, p = null, S = new dt(), b = r, g = s, m = C[0] - k[0] - i, w = -1073741824, N = this.m_forwardHistory.length - 1;
     do {
-      const y = b + t;
-      y === L || y < C && c[y - 1] < c[y + 1] ? (h = c[y + 1], S = h - b - i, h < N && m.MarkNextChange(), N = h, m.AddModifiedElement(h + 1, S), b = y + 1 - t) : (h = c[y - 1] + 1, S = h - b - i, h < N && m.MarkNextChange(), N = h - 1, m.AddOriginalElement(h, S + 1), b = y - 1 - t), R >= 0 && (c = this.m_forwardHistory[R], t = c[0], L = 1, C = c.length - 1);
-    } while (--R >= -1);
-    if (p = m.getReverseChanges(), w[0]) {
-      let y = _[0] + 1, A = k[0] + 1;
-      if (p !== null && p.length > 0) {
-        const G = p[p.length - 1];
-        y = Math.max(y, G.getOriginalEnd()), A = Math.max(A, G.getModifiedEnd());
+      const L = m + t;
+      L === b || L < g && c[L - 1] < c[L + 1] ? (h = c[L + 1], v = h - m - i, h < w && S.MarkNextChange(), w = h, S.AddModifiedElement(h + 1, v), m = L + 1 - t) : (h = c[L - 1] + 1, v = h - m - i, h < w && S.MarkNextChange(), w = h - 1, S.AddOriginalElement(h, v + 1), m = L - 1 - t), N >= 0 && (c = this.m_forwardHistory[N], t = c[0], b = 1, g = c.length - 1);
+    } while (--N >= -1);
+    if (y = S.getReverseChanges(), P[0]) {
+      let L = C[0] + 1, _ = k[0] + 1;
+      if (y !== null && y.length > 0) {
+        const E = y[y.length - 1];
+        L = Math.max(L, E.getOriginalEnd()), _ = Math.max(_, E.getModifiedEnd());
       }
-      g = [
-        new Q(y, d - y + 1, A, v - A + 1)
+      p = [
+        new X(L, d - L + 1, _, A - _ + 1)
       ];
     } else {
-      m = new ut(), L = o, C = l, b = _[0] - k[0] - u, N = 1073741824, R = P ? this.m_reverseHistory.length - 1 : this.m_reverseHistory.length - 2;
+      S = new dt(), b = o, g = l, m = C[0] - k[0] - u, w = 1073741824, N = R ? this.m_reverseHistory.length - 1 : this.m_reverseHistory.length - 2;
       do {
-        const y = b + a;
-        y === L || y < C && f[y - 1] >= f[y + 1] ? (h = f[y + 1] - 1, S = h - b - u, h > N && m.MarkNextChange(), N = h + 1, m.AddOriginalElement(h + 1, S + 1), b = y + 1 - a) : (h = f[y - 1], S = h - b - u, h > N && m.MarkNextChange(), N = h, m.AddModifiedElement(h + 1, S + 1), b = y - 1 - a), R >= 0 && (f = this.m_reverseHistory[R], a = f[0], L = 1, C = f.length - 1);
-      } while (--R >= -1);
-      g = m.getChanges();
+        const L = m + a;
+        L === b || L < g && f[L - 1] >= f[L + 1] ? (h = f[L + 1] - 1, v = h - m - u, h > w && S.MarkNextChange(), w = h + 1, S.AddOriginalElement(h + 1, v + 1), m = L + 1 - a) : (h = f[L - 1], v = h - m - u, h > w && S.MarkNextChange(), w = h, S.AddModifiedElement(h + 1, v + 1), m = L - 1 - a), N >= 0 && (f = this.m_reverseHistory[N], a = f[0], b = 1, g = f.length - 1);
+      } while (--N >= -1);
+      p = S.getChanges();
     }
-    return this.ConcatenateChanges(p, g);
+    return this.ConcatenateChanges(y, p);
   }
   ComputeRecursionPoint(t, r, s, i, a, o, l) {
-    let u = 0, c = 0, f = 0, h = 0, d = 0, _ = 0;
+    let u = 0, c = 0, f = 0, h = 0, d = 0, C = 0;
     t--, s--, a[0] = 0, o[0] = 0, this.m_forwardHistory = [], this.m_reverseHistory = [];
-    const S = r - t + (i - s), v = S + 1, k = new Int32Array(v), P = new Int32Array(v), w = i - s, p = r - t, g = t - s, m = r - i, C = (p - w) % 2 === 0;
-    k[w] = t, P[p] = r, l[0] = !1;
-    for (let b = 1; b <= S / 2 + 1; b++) {
-      let N = 0, R = 0;
-      f = this.ClipDiagonalBound(w - b, b, w, v), h = this.ClipDiagonalBound(w + b, b, w, v);
-      for (let A = f; A <= h; A += 2) {
-        A === f || A < h && k[A - 1] < k[A + 1] ? u = k[A + 1] : u = k[A - 1] + 1, c = u - (A - w) - g;
-        const G = u;
+    const v = r - t + (i - s), A = v + 1, k = new Int32Array(A), R = new Int32Array(A), P = i - s, y = r - t, p = t - s, S = r - i, g = (y - P) % 2 === 0;
+    k[P] = t, R[y] = r, l[0] = !1;
+    for (let m = 1; m <= v / 2 + 1; m++) {
+      let w = 0, N = 0;
+      f = this.ClipDiagonalBound(P - m, m, P, A), h = this.ClipDiagonalBound(P + m, m, P, A);
+      for (let _ = f; _ <= h; _ += 2) {
+        _ === f || _ < h && k[_ - 1] < k[_ + 1] ? u = k[_ + 1] : u = k[_ - 1] + 1, c = u - (_ - P) - p;
+        const E = u;
         for (; u < r && c < i && this.ElementsAreEqual(u + 1, c + 1); )
           u++, c++;
-        if (k[A] = u, u + c > N + R && (N = u, R = c), !C && Math.abs(A - p) <= b - 1 && u >= P[A])
-          return a[0] = u, o[0] = c, G <= P[A] && 1447 > 0 && b <= 1447 + 1 ? this.WALKTRACE(w, f, h, g, p, d, _, m, k, P, u, r, a, c, i, o, C, l) : null;
+        if (k[_] = u, u + c > w + N && (w = u, N = c), !g && Math.abs(_ - y) <= m - 1 && u >= R[_])
+          return a[0] = u, o[0] = c, E <= R[_] && 1447 > 0 && m <= 1447 + 1 ? this.WALKTRACE(P, f, h, p, y, d, C, S, k, R, u, r, a, c, i, o, g, l) : null;
       }
-      const y = (N - t + (R - s) - b) / 2;
-      if (this.ContinueProcessingPredicate !== null && !this.ContinueProcessingPredicate(N, y))
-        return l[0] = !0, a[0] = N, o[0] = R, y > 0 && 1447 > 0 && b <= 1447 + 1 ? this.WALKTRACE(w, f, h, g, p, d, _, m, k, P, u, r, a, c, i, o, C, l) : (t++, s++, [
-          new Q(t, r - t + 1, s, i - s + 1)
+      const L = (w - t + (N - s) - m) / 2;
+      if (this.ContinueProcessingPredicate !== null && !this.ContinueProcessingPredicate(w, L))
+        return l[0] = !0, a[0] = w, o[0] = N, L > 0 && 1447 > 0 && m <= 1447 + 1 ? this.WALKTRACE(P, f, h, p, y, d, C, S, k, R, u, r, a, c, i, o, g, l) : (t++, s++, [
+          new X(t, r - t + 1, s, i - s + 1)
         ]);
-      d = this.ClipDiagonalBound(p - b, b, p, v), _ = this.ClipDiagonalBound(p + b, b, p, v);
-      for (let A = d; A <= _; A += 2) {
-        A === d || A < _ && P[A - 1] >= P[A + 1] ? u = P[A + 1] - 1 : u = P[A - 1], c = u - (A - p) - m;
-        const G = u;
+      d = this.ClipDiagonalBound(y - m, m, y, A), C = this.ClipDiagonalBound(y + m, m, y, A);
+      for (let _ = d; _ <= C; _ += 2) {
+        _ === d || _ < C && R[_ - 1] >= R[_ + 1] ? u = R[_ + 1] - 1 : u = R[_ - 1], c = u - (_ - y) - S;
+        const E = u;
         for (; u > t && c > s && this.ElementsAreEqual(u, c); )
           u--, c--;
-        if (P[A] = u, C && Math.abs(A - w) <= b && u <= k[A])
-          return a[0] = u, o[0] = c, G >= k[A] && 1447 > 0 && b <= 1447 + 1 ? this.WALKTRACE(w, f, h, g, p, d, _, m, k, P, u, r, a, c, i, o, C, l) : null;
+        if (R[_] = u, g && Math.abs(_ - P) <= m && u <= k[_])
+          return a[0] = u, o[0] = c, E >= k[_] && 1447 > 0 && m <= 1447 + 1 ? this.WALKTRACE(P, f, h, p, y, d, C, S, k, R, u, r, a, c, i, o, g, l) : null;
       }
-      if (b <= 1447) {
-        let A = new Int32Array(h - f + 2);
-        A[0] = w - f + 1, ie.Copy2(k, f, A, 1, h - f + 1), this.m_forwardHistory.push(A), A = new Int32Array(_ - d + 2), A[0] = p - d + 1, ie.Copy2(P, d, A, 1, _ - d + 1), this.m_reverseHistory.push(A);
+      if (m <= 1447) {
+        let _ = new Int32Array(h - f + 2);
+        _[0] = P - f + 1, oe.Copy2(k, f, _, 1, h - f + 1), this.m_forwardHistory.push(_), _ = new Int32Array(C - d + 2), _[0] = y - d + 1, oe.Copy2(R, d, _, 1, C - d + 1), this.m_reverseHistory.push(_);
       }
     }
-    return this.WALKTRACE(w, f, h, g, p, d, _, m, k, P, u, r, a, c, i, o, C, l);
+    return this.WALKTRACE(P, f, h, p, y, d, C, S, k, R, u, r, a, c, i, o, g, l);
   }
   PrettifyChanges(t) {
     for (let r = 0; r < t.length; r++) {
@@ -1232,7 +1331,7 @@ class J {
           break;
         s.originalStart++, s.modifiedStart++;
       }
-      let u = [null];
+      const u = [null];
       if (r < t.length - 1 && this.ChangesOverlap(t[r], t[r + 1], u)) {
         t[r] = u[0], t.splice(r + 1, 1), r--;
         continue;
@@ -1248,11 +1347,11 @@ class J {
       const o = s.originalLength > 0, l = s.modifiedLength > 0;
       let u = 0, c = this._boundaryScore(s.originalStart, s.originalLength, s.modifiedStart, s.modifiedLength);
       for (let h = 1; ; h++) {
-        const d = s.originalStart - h, _ = s.modifiedStart - h;
-        if (d < i || _ < a || o && !this.OriginalElementsAreEqual(d, d + s.originalLength) || l && !this.ModifiedElementsAreEqual(_, _ + s.modifiedLength))
+        const d = s.originalStart - h, C = s.modifiedStart - h;
+        if (d < i || C < a || o && !this.OriginalElementsAreEqual(d, d + s.originalLength) || l && !this.ModifiedElementsAreEqual(C, C + s.modifiedLength))
           break;
-        const v = (d === i && _ === a ? 5 : 0) + this._boundaryScore(d, s.originalLength, _, s.modifiedLength);
-        v > c && (c = v, u = h);
+        const A = (d === i && C === a ? 5 : 0) + this._boundaryScore(d, s.originalLength, C, s.modifiedLength);
+        A > c && (c = A, u = h);
       }
       s.originalStart -= u, s.modifiedStart -= u;
       const f = [null];
@@ -1265,10 +1364,10 @@ class J {
       for (let r = 1, s = t.length; r < s; r++) {
         const i = t[r - 1], a = t[r], o = a.originalStart - i.originalStart - i.originalLength, l = i.originalStart, u = a.originalStart + a.originalLength, c = u - l, f = i.modifiedStart, h = a.modifiedStart + a.modifiedLength, d = h - f;
         if (o < 5 && c < 20 && d < 20) {
-          const _ = this._findBetterContiguousSequence(l, c, f, d, o);
-          if (_) {
-            const [S, v] = _;
-            (S !== i.originalStart + i.originalLength || v !== i.modifiedStart + i.modifiedLength) && (i.originalLength = S - i.originalStart, i.modifiedLength = v - i.modifiedStart, a.originalStart = S + o, a.modifiedStart = v + o, a.originalLength = u - a.originalStart, a.modifiedLength = h - a.modifiedStart);
+          const C = this._findBetterContiguousSequence(l, c, f, d, o);
+          if (C) {
+            const [v, A] = C;
+            (v !== i.originalStart + i.originalLength || A !== i.modifiedStart + i.modifiedLength) && (i.originalLength = v - i.originalStart, i.modifiedLength = A - i.modifiedStart, a.originalStart = v + o, a.modifiedStart = A + o, a.originalLength = u - a.originalStart, a.modifiedLength = h - a.modifiedStart);
           }
         }
       }
@@ -1281,8 +1380,8 @@ class J {
     let u = 0, c = 0, f = 0;
     for (let h = t; h < o; h++)
       for (let d = s; d < l; d++) {
-        const _ = this._contiguousSequenceScore(h, d, a);
-        _ > 0 && _ > u && (u = _, c = h, f = d);
+        const C = this._contiguousSequenceScore(h, d, a);
+        C > 0 && C > u && (u = C, c = h, f = d);
       }
     return u > 0 ? [c, f] : null;
   }
@@ -1326,24 +1425,24 @@ class J {
     return a + o;
   }
   ConcatenateChanges(t, r) {
-    let s = [];
+    const s = [];
     if (t.length === 0 || r.length === 0)
       return r.length > 0 ? r : t;
     if (this.ChangesOverlap(t[t.length - 1], r[0], s)) {
       const i = new Array(t.length + r.length - 1);
-      return ie.Copy(t, 0, i, 0, t.length - 1), i[t.length - 1] = s[0], ie.Copy(r, 1, i, t.length, r.length - 1), i;
+      return oe.Copy(t, 0, i, 0, t.length - 1), i[t.length - 1] = s[0], oe.Copy(r, 1, i, t.length, r.length - 1), i;
     } else {
       const i = new Array(t.length + r.length);
-      return ie.Copy(t, 0, i, 0, t.length), ie.Copy(r, 0, i, t.length, r.length), i;
+      return oe.Copy(t, 0, i, 0, t.length), oe.Copy(r, 0, i, t.length, r.length), i;
     }
   }
   ChangesOverlap(t, r, s) {
-    if (se.Assert(t.originalStart <= r.originalStart, "Left change is not less than or equal to right change"), se.Assert(t.modifiedStart <= r.modifiedStart, "Left change is not less than or equal to right change"), t.originalStart + t.originalLength >= r.originalStart || t.modifiedStart + t.modifiedLength >= r.modifiedStart) {
+    if (ae.Assert(t.originalStart <= r.originalStart, "Left change is not less than or equal to right change"), ae.Assert(t.modifiedStart <= r.modifiedStart, "Left change is not less than or equal to right change"), t.originalStart + t.originalLength >= r.originalStart || t.modifiedStart + t.modifiedLength >= r.modifiedStart) {
       const i = t.originalStart;
       let a = t.originalLength;
       const o = t.modifiedStart;
       let l = t.modifiedLength;
-      return t.originalStart + t.originalLength >= r.originalStart && (a = r.originalStart + r.originalLength - t.originalStart), t.modifiedStart + t.modifiedLength >= r.modifiedStart && (l = r.modifiedStart + r.modifiedLength - t.modifiedStart), s[0] = new Q(i, a, o, l), !0;
+      return t.originalStart + t.originalLength >= r.originalStart && (a = r.originalStart + r.originalLength - t.originalStart), t.modifiedStart + t.modifiedLength >= r.modifiedStart && (l = r.modifiedStart + r.modifiedLength - t.modifiedStart), s[0] = new X(i, a, o, l), !0;
     } else
       return s[0] = null, !1;
   }
@@ -1360,10 +1459,10 @@ class J {
     }
   }
 }
-let le;
-if (typeof T.vscode < "u" && typeof T.vscode.process < "u") {
-  const e = T.vscode.process;
-  le = {
+let ue;
+if (typeof U.vscode < "u" && typeof U.vscode.process < "u") {
+  const e = U.vscode.process;
+  ue = {
     get platform() {
       return e.platform;
     },
@@ -1378,7 +1477,7 @@ if (typeof T.vscode < "u" && typeof T.vscode.process < "u") {
     }
   };
 } else
-  typeof process < "u" ? le = {
+  typeof process < "u" ? ue = {
     get platform() {
       return process.platform;
     },
@@ -1391,9 +1490,9 @@ if (typeof T.vscode < "u" && typeof T.vscode.process < "u") {
     cwd() {
       return process.env.VSCODE_CWD || process.cwd();
     }
-  } : le = {
+  } : ue = {
     get platform() {
-      return de ? "win32" : Hn ? "darwin" : "linux";
+      return ge ? "win32" : Yn ? "darwin" : "linux";
     },
     get arch() {
     },
@@ -1404,8 +1503,8 @@ if (typeof T.vscode < "u" && typeof T.vscode.process < "u") {
       return "/";
     }
   };
-const Ie = le.cwd, mr = le.env, re = le.platform, gr = 65, br = 97, wr = 90, Cr = 122, ee = 46, E = 47, I = 92, Z = 58, _r = 63;
-class Cn extends Error {
+const $e = ue.cwd, kr = ue.env, ie = ue.platform, Mr = 65, Rr = 97, Pr = 90, Dr = 122, ee = 46, T = 47, q = 92, Q = 58, Fr = 63;
+class vn extends Error {
   constructor(t, r, s) {
     let i;
     typeof r == "string" && r.indexOf("not ") === 0 ? (i = "must not be", r = r.replace(/^not /, "")) : i = "must be";
@@ -1416,18 +1515,18 @@ class Cn extends Error {
 }
 function V(e, t) {
   if (typeof e != "string")
-    throw new Cn(t, "string", e);
+    throw new vn(t, "string", e);
 }
 function M(e) {
-  return e === E || e === I;
+  return e === T || e === q;
 }
-function qe(e) {
-  return e === E;
+function ze(e) {
+  return e === T;
 }
-function Y(e) {
-  return e >= gr && e <= wr || e >= br && e <= Cr;
+function Z(e) {
+  return e >= Mr && e <= Pr || e >= Rr && e <= Dr;
 }
-function Se(e, t, r, s) {
+function ke(e, t, r, s) {
   let i = "", a = 0, o = -1, l = 0, u = 0;
   for (let c = 0; c <= e.length; ++c) {
     if (c < e.length)
@@ -1435,7 +1534,7 @@ function Se(e, t, r, s) {
     else {
       if (s(u))
         break;
-      u = E;
+      u = T;
     }
     if (s(u)) {
       if (!(o === c - 1 || l === 1))
@@ -1459,13 +1558,13 @@ function Se(e, t, r, s) {
   }
   return i;
 }
-function _n(e, t) {
+function Sn(e, t) {
   if (t === null || typeof t != "object")
-    throw new Cn("pathObject", "Object", t);
+    throw new vn("pathObject", "Object", t);
   const r = t.dir || t.root, s = t.base || `${t.name || ""}${t.ext || ""}`;
   return r ? r === t.root ? `${r}${s}` : `${r}${e}${s}` : s;
 }
-const U = {
+const I = {
   resolve(...e) {
     let t = "", r = "", s = !1;
     for (let i = e.length - 1; i >= -1; i--) {
@@ -1474,7 +1573,7 @@ const U = {
         if (a = e[i], V(a, "path"), a.length === 0)
           continue;
       } else
-        t.length === 0 ? a = Ie() : (a = mr[`=${t}`] || Ie(), (a === void 0 || a.slice(0, 2).toLowerCase() !== t.toLowerCase() && a.charCodeAt(2) === I) && (a = `${t}\\`));
+        t.length === 0 ? a = $e() : (a = kr[`=${t}`] || $e(), (a === void 0 || a.slice(0, 2).toLowerCase() !== t.toLowerCase() && a.charCodeAt(2) === q) && (a = `${t}\\`));
       const o = a.length;
       let l = 0, u = "", c = !1;
       const f = a.charCodeAt(0);
@@ -1486,19 +1585,19 @@ const U = {
           for (; h < o && !M(a.charCodeAt(h)); )
             h++;
           if (h < o && h !== d) {
-            const _ = a.slice(d, h);
+            const C = a.slice(d, h);
             for (d = h; h < o && M(a.charCodeAt(h)); )
               h++;
             if (h < o && h !== d) {
               for (d = h; h < o && !M(a.charCodeAt(h)); )
                 h++;
-              (h === o || h !== d) && (u = `\\\\${_}\\${a.slice(d, h)}`, l = h);
+              (h === o || h !== d) && (u = `\\\\${C}\\${a.slice(d, h)}`, l = h);
             }
           }
         } else
           l = 1;
       else
-        Y(f) && a.charCodeAt(1) === Z && (u = a.slice(0, 2), l = 2, o > 2 && M(a.charCodeAt(2)) && (c = !0, l = 3));
+        Z(f) && a.charCodeAt(1) === Q && (u = a.slice(0, 2), l = 2, o > 2 && M(a.charCodeAt(2)) && (c = !0, l = 3));
       if (u.length > 0)
         if (t.length > 0) {
           if (u.toLowerCase() !== t.toLowerCase())
@@ -1511,7 +1610,7 @@ const U = {
       } else if (r = `${a.slice(l)}\\${r}`, s = c, c && t.length > 0)
         break;
     }
-    return r = Se(r, !s, "\\", M), s ? `${t}\\${r}` : `${t}${r}` || ".";
+    return r = ke(r, !s, "\\", M), s ? `${t}\\${r}` : `${t}${r}` || ".";
   },
   normalize(e) {
     V(e, "path");
@@ -1521,7 +1620,7 @@ const U = {
     let r = 0, s, i = !1;
     const a = e.charCodeAt(0);
     if (t === 1)
-      return qe(a) ? "\\" : e;
+      return ze(a) ? "\\" : e;
     if (M(a))
       if (i = !0, M(e.charCodeAt(1))) {
         let l = 2, u = l;
@@ -1542,8 +1641,8 @@ const U = {
       } else
         r = 1;
     else
-      Y(a) && e.charCodeAt(1) === Z && (s = e.slice(0, 2), r = 2, t > 2 && M(e.charCodeAt(2)) && (i = !0, r = 3));
-    let o = r < t ? Se(e.slice(r), !i, "\\", M) : "";
+      Z(a) && e.charCodeAt(1) === Q && (s = e.slice(0, 2), r = 2, t > 2 && M(e.charCodeAt(2)) && (i = !0, r = 3));
+    let o = r < t ? ke(e.slice(r), !i, "\\", M) : "";
     return o.length === 0 && !i && (o = "."), o.length > 0 && M(e.charCodeAt(t - 1)) && (o += "\\"), s === void 0 ? i ? `\\${o}` : o : i ? `${s}\\${o}` : `${s}${o}`;
   },
   isAbsolute(e) {
@@ -1552,7 +1651,7 @@ const U = {
     if (t === 0)
       return !1;
     const r = e.charCodeAt(0);
-    return M(r) || t > 2 && Y(r) && e.charCodeAt(1) === Z && M(e.charCodeAt(2));
+    return M(r) || t > 2 && Z(r) && e.charCodeAt(1) === Q && M(e.charCodeAt(2));
   },
   join(...e) {
     if (e.length === 0)
@@ -1575,67 +1674,67 @@ const U = {
         i++;
       i >= 2 && (t = `\\${t.slice(i)}`);
     }
-    return U.normalize(t);
+    return I.normalize(t);
   },
   relative(e, t) {
     if (V(e, "from"), V(t, "to"), e === t)
       return "";
-    const r = U.resolve(e), s = U.resolve(t);
+    const r = I.resolve(e), s = I.resolve(t);
     if (r === s || (e = r.toLowerCase(), t = s.toLowerCase(), e === t))
       return "";
     let i = 0;
-    for (; i < e.length && e.charCodeAt(i) === I; )
+    for (; i < e.length && e.charCodeAt(i) === q; )
       i++;
     let a = e.length;
-    for (; a - 1 > i && e.charCodeAt(a - 1) === I; )
+    for (; a - 1 > i && e.charCodeAt(a - 1) === q; )
       a--;
     const o = a - i;
     let l = 0;
-    for (; l < t.length && t.charCodeAt(l) === I; )
+    for (; l < t.length && t.charCodeAt(l) === q; )
       l++;
     let u = t.length;
-    for (; u - 1 > l && t.charCodeAt(u - 1) === I; )
+    for (; u - 1 > l && t.charCodeAt(u - 1) === q; )
       u--;
     const c = u - l, f = o < c ? o : c;
     let h = -1, d = 0;
     for (; d < f; d++) {
-      const S = e.charCodeAt(i + d);
-      if (S !== t.charCodeAt(l + d))
+      const v = e.charCodeAt(i + d);
+      if (v !== t.charCodeAt(l + d))
         break;
-      S === I && (h = d);
+      v === q && (h = d);
     }
     if (d !== f) {
       if (h === -1)
         return s;
     } else {
       if (c > f) {
-        if (t.charCodeAt(l + d) === I)
+        if (t.charCodeAt(l + d) === q)
           return s.slice(l + d + 1);
         if (d === 2)
           return s.slice(l + d);
       }
-      o > f && (e.charCodeAt(i + d) === I ? h = d : d === 2 && (h = 3)), h === -1 && (h = 0);
+      o > f && (e.charCodeAt(i + d) === q ? h = d : d === 2 && (h = 3)), h === -1 && (h = 0);
     }
-    let _ = "";
+    let C = "";
     for (d = i + h + 1; d <= a; ++d)
-      (d === a || e.charCodeAt(d) === I) && (_ += _.length === 0 ? ".." : "\\..");
-    return l += h, _.length > 0 ? `${_}${s.slice(l, u)}` : (s.charCodeAt(l) === I && ++l, s.slice(l, u));
+      (d === a || e.charCodeAt(d) === q) && (C += C.length === 0 ? ".." : "\\..");
+    return l += h, C.length > 0 ? `${C}${s.slice(l, u)}` : (s.charCodeAt(l) === q && ++l, s.slice(l, u));
   },
   toNamespacedPath(e) {
     if (typeof e != "string")
       return e;
     if (e.length === 0)
       return "";
-    const t = U.resolve(e);
+    const t = I.resolve(e);
     if (t.length <= 2)
       return e;
-    if (t.charCodeAt(0) === I) {
-      if (t.charCodeAt(1) === I) {
+    if (t.charCodeAt(0) === q) {
+      if (t.charCodeAt(1) === q) {
         const r = t.charCodeAt(2);
-        if (r !== _r && r !== ee)
+        if (r !== Fr && r !== ee)
           return `\\\\?\\UNC\\${t.slice(2)}`;
       }
-    } else if (Y(t.charCodeAt(0)) && t.charCodeAt(1) === Z && t.charCodeAt(2) === I)
+    } else if (Z(t.charCodeAt(0)) && t.charCodeAt(1) === Q && t.charCodeAt(2) === q)
       return `\\\\?\\${t}`;
     return e;
   },
@@ -1666,7 +1765,7 @@ const U = {
         }
       }
     } else
-      Y(i) && e.charCodeAt(1) === Z && (r = t > 2 && M(e.charCodeAt(2)) ? 3 : 2, s = r);
+      Z(i) && e.charCodeAt(1) === Q && (r = t > 2 && M(e.charCodeAt(2)) ? 3 : 2, s = r);
     let a = -1, o = !0;
     for (let l = t - 1; l >= s; --l)
       if (M(e.charCodeAt(l))) {
@@ -1686,7 +1785,7 @@ const U = {
   basename(e, t) {
     t !== void 0 && V(t, "ext"), V(e, "path");
     let r = 0, s = -1, i = !0, a;
-    if (e.length >= 2 && Y(e.charCodeAt(0)) && e.charCodeAt(1) === Z && (r = 2), t !== void 0 && t.length > 0 && t.length <= e.length) {
+    if (e.length >= 2 && Z(e.charCodeAt(0)) && e.charCodeAt(1) === Q && (r = 2), t !== void 0 && t.length > 0 && t.length <= e.length) {
       if (t === e)
         return "";
       let o = t.length - 1, l = -1;
@@ -1715,7 +1814,7 @@ const U = {
   extname(e) {
     V(e, "path");
     let t = 0, r = -1, s = 0, i = -1, a = !0, o = 0;
-    e.length >= 2 && e.charCodeAt(1) === Z && Y(e.charCodeAt(0)) && (t = s = 2);
+    e.length >= 2 && e.charCodeAt(1) === Q && Z(e.charCodeAt(0)) && (t = s = 2);
     for (let l = e.length - 1; l >= t; --l) {
       const u = e.charCodeAt(l);
       if (M(u)) {
@@ -1729,7 +1828,7 @@ const U = {
     }
     return r === -1 || i === -1 || o === 0 || o === 1 && r === i - 1 && r === s + 1 ? "" : e.slice(r, i);
   },
-  format: _n.bind(null, "\\"),
+  format: Sn.bind(null, "\\"),
   parse(e) {
     V(e, "path");
     const t = { root: "", dir: "", base: "", ext: "", name: "" };
@@ -1754,7 +1853,7 @@ const U = {
           }
         }
       }
-    } else if (Y(i) && e.charCodeAt(1) === Z) {
+    } else if (Z(i) && e.charCodeAt(1) === Q) {
       if (r <= 2)
         return t.root = t.dir = e, t;
       if (s = 2, M(e.charCodeAt(2))) {
@@ -1781,23 +1880,23 @@ const U = {
   delimiter: ";",
   win32: null,
   posix: null
-}, H = {
+}, W = {
   resolve(...e) {
     let t = "", r = !1;
     for (let s = e.length - 1; s >= -1 && !r; s--) {
-      const i = s >= 0 ? e[s] : Ie();
-      V(i, "path"), i.length !== 0 && (t = `${i}/${t}`, r = i.charCodeAt(0) === E);
+      const i = s >= 0 ? e[s] : $e();
+      V(i, "path"), i.length !== 0 && (t = `${i}/${t}`, r = i.charCodeAt(0) === T);
     }
-    return t = Se(t, !r, "/", qe), r ? `/${t}` : t.length > 0 ? t : ".";
+    return t = ke(t, !r, "/", ze), r ? `/${t}` : t.length > 0 ? t : ".";
   },
   normalize(e) {
     if (V(e, "path"), e.length === 0)
       return ".";
-    const t = e.charCodeAt(0) === E, r = e.charCodeAt(e.length - 1) === E;
-    return e = Se(e, !t, "/", qe), e.length === 0 ? t ? "/" : r ? "./" : "." : (r && (e += "/"), t ? `/${e}` : e);
+    const t = e.charCodeAt(0) === T, r = e.charCodeAt(e.length - 1) === T;
+    return e = ke(e, !t, "/", ze), e.length === 0 ? t ? "/" : r ? "./" : "." : (r && (e += "/"), t ? `/${e}` : e);
   },
   isAbsolute(e) {
-    return V(e, "path"), e.length > 0 && e.charCodeAt(0) === E;
+    return V(e, "path"), e.length > 0 && e.charCodeAt(0) === T;
   },
   join(...e) {
     if (e.length === 0)
@@ -1807,10 +1906,10 @@ const U = {
       const s = e[r];
       V(s, "path"), s.length > 0 && (t === void 0 ? t = s : t += `/${s}`);
     }
-    return t === void 0 ? "." : H.normalize(t);
+    return t === void 0 ? "." : W.normalize(t);
   },
   relative(e, t) {
-    if (V(e, "from"), V(t, "to"), e === t || (e = H.resolve(e), t = H.resolve(t), e === t))
+    if (V(e, "from"), V(t, "to"), e === t || (e = W.resolve(e), t = W.resolve(t), e === t))
       return "";
     const r = 1, s = e.length, i = s - r, a = 1, o = t.length - a, l = i < o ? i : o;
     let u = -1, c = 0;
@@ -1818,19 +1917,19 @@ const U = {
       const h = e.charCodeAt(r + c);
       if (h !== t.charCodeAt(a + c))
         break;
-      h === E && (u = c);
+      h === T && (u = c);
     }
     if (c === l)
       if (o > l) {
-        if (t.charCodeAt(a + c) === E)
+        if (t.charCodeAt(a + c) === T)
           return t.slice(a + c + 1);
         if (c === 0)
           return t.slice(a + c);
       } else
-        i > l && (e.charCodeAt(r + c) === E ? u = c : c === 0 && (u = 0));
+        i > l && (e.charCodeAt(r + c) === T ? u = c : c === 0 && (u = 0));
     let f = "";
     for (c = r + u + 1; c <= s; ++c)
-      (c === s || e.charCodeAt(c) === E) && (f += f.length === 0 ? ".." : "/..");
+      (c === s || e.charCodeAt(c) === T) && (f += f.length === 0 ? ".." : "/..");
     return `${f}${t.slice(a + u)}`;
   },
   toNamespacedPath(e) {
@@ -1839,10 +1938,10 @@ const U = {
   dirname(e) {
     if (V(e, "path"), e.length === 0)
       return ".";
-    const t = e.charCodeAt(0) === E;
+    const t = e.charCodeAt(0) === T;
     let r = -1, s = !0;
     for (let i = e.length - 1; i >= 1; --i)
-      if (e.charCodeAt(i) === E) {
+      if (e.charCodeAt(i) === T) {
         if (!s) {
           r = i;
           break;
@@ -1860,7 +1959,7 @@ const U = {
       let o = t.length - 1, l = -1;
       for (a = e.length - 1; a >= 0; --a) {
         const u = e.charCodeAt(a);
-        if (u === E) {
+        if (u === T) {
           if (!i) {
             r = a + 1;
             break;
@@ -1871,7 +1970,7 @@ const U = {
       return r === s ? s = l : s === -1 && (s = e.length), e.slice(r, s);
     }
     for (a = e.length - 1; a >= 0; --a)
-      if (e.charCodeAt(a) === E) {
+      if (e.charCodeAt(a) === T) {
         if (!i) {
           r = a + 1;
           break;
@@ -1885,7 +1984,7 @@ const U = {
     let t = -1, r = 0, s = -1, i = !0, a = 0;
     for (let o = e.length - 1; o >= 0; --o) {
       const l = e.charCodeAt(o);
-      if (l === E) {
+      if (l === T) {
         if (!i) {
           r = o + 1;
           break;
@@ -1896,19 +1995,19 @@ const U = {
     }
     return t === -1 || s === -1 || a === 0 || a === 1 && t === s - 1 && t === r + 1 ? "" : e.slice(t, s);
   },
-  format: _n.bind(null, "/"),
+  format: Sn.bind(null, "/"),
   parse(e) {
     V(e, "path");
     const t = { root: "", dir: "", base: "", ext: "", name: "" };
     if (e.length === 0)
       return t;
-    const r = e.charCodeAt(0) === E;
+    const r = e.charCodeAt(0) === T;
     let s;
     r ? (t.root = "/", s = 1) : s = 0;
     let i = -1, a = 0, o = -1, l = !0, u = e.length - 1, c = 0;
     for (; u >= s; --u) {
       const f = e.charCodeAt(u);
-      if (f === E) {
+      if (f === T) {
         if (!l) {
           a = u + 1;
           break;
@@ -1928,83 +2027,83 @@ const U = {
   win32: null,
   posix: null
 };
-H.win32 = U.win32 = U;
-H.posix = U.posix = H;
-re === "win32" ? U.normalize : H.normalize;
-re === "win32" ? U.resolve : H.resolve;
-re === "win32" ? U.relative : H.relative;
-re === "win32" ? U.dirname : H.dirname;
-re === "win32" ? U.basename : H.basename;
-re === "win32" ? U.extname : H.extname;
-re === "win32" ? U.sep : H.sep;
-const pr = /^\w[\w\d+.-]*$/, Lr = /^\//, Nr = /^\/\//;
-function ht(e, t) {
+W.win32 = I.win32 = I;
+W.posix = I.posix = W;
+ie === "win32" ? I.normalize : W.normalize;
+ie === "win32" ? I.resolve : W.resolve;
+ie === "win32" ? I.relative : W.relative;
+ie === "win32" ? I.dirname : W.dirname;
+ie === "win32" ? I.basename : W.basename;
+ie === "win32" ? I.extname : W.extname;
+ie === "win32" ? I.sep : W.sep;
+const xr = /^\w[\w\d+.-]*$/, Er = /^\//, Vr = /^\/\//;
+function mt(e, t) {
   if (!e.scheme && t)
     throw new Error(`[UriError]: Scheme is missing: {scheme: "", authority: "${e.authority}", path: "${e.path}", query: "${e.query}", fragment: "${e.fragment}"}`);
-  if (e.scheme && !pr.test(e.scheme))
+  if (e.scheme && !xr.test(e.scheme))
     throw new Error("[UriError]: Scheme contains illegal characters.");
   if (e.path) {
     if (e.authority) {
-      if (!Lr.test(e.path))
+      if (!Er.test(e.path))
         throw new Error('[UriError]: If a URI contains an authority component, then the path component must either be empty or begin with a slash ("/") character');
-    } else if (Nr.test(e.path))
+    } else if (Vr.test(e.path))
       throw new Error('[UriError]: If a URI does not contain an authority component, then the path cannot begin with two slash characters ("//")');
   }
 }
-function Sr(e, t) {
+function Tr(e, t) {
   return !e && !t ? "file" : e;
 }
-function vr(e, t) {
+function Br(e, t) {
   switch (e) {
     case "https":
     case "http":
     case "file":
-      t ? t[0] !== z && (t = z + t) : t = z;
+      t ? t[0] !== G && (t = G + t) : t = G;
       break;
   }
   return t;
 }
-const F = "", z = "/", Ar = /^(([^:/?#]+?):)?(\/\/([^/?#]*))?([^?#]*)(\?([^#]*))?(#(.*))?/;
+const F = "", G = "/", Ur = /^(([^:/?#]+?):)?(\/\/([^/?#]*))?([^?#]*)(\?([^#]*))?(#(.*))?/;
 class ne {
   constructor(t, r, s, i, a, o = !1) {
-    typeof t == "object" ? (this.scheme = t.scheme || F, this.authority = t.authority || F, this.path = t.path || F, this.query = t.query || F, this.fragment = t.fragment || F) : (this.scheme = Sr(t, o), this.authority = r || F, this.path = vr(this.scheme, s || F), this.query = i || F, this.fragment = a || F, ht(this, o));
+    typeof t == "object" ? (this.scheme = t.scheme || F, this.authority = t.authority || F, this.path = t.path || F, this.query = t.query || F, this.fragment = t.fragment || F) : (this.scheme = Tr(t, o), this.authority = r || F, this.path = Br(this.scheme, s || F), this.query = i || F, this.fragment = a || F, mt(this, o));
   }
   static isUri(t) {
     return t instanceof ne ? !0 : t ? typeof t.authority == "string" && typeof t.fragment == "string" && typeof t.path == "string" && typeof t.query == "string" && typeof t.scheme == "string" && typeof t.fsPath == "string" && typeof t.with == "function" && typeof t.toString == "function" : !1;
   }
   get fsPath() {
-    return He(this, !1);
+    return Ge(this, !1);
   }
   with(t) {
     if (!t)
       return this;
     let { scheme: r, authority: s, path: i, query: a, fragment: o } = t;
-    return r === void 0 ? r = this.scheme : r === null && (r = F), s === void 0 ? s = this.authority : s === null && (s = F), i === void 0 ? i = this.path : i === null && (i = F), a === void 0 ? a = this.query : a === null && (a = F), o === void 0 ? o = this.fragment : o === null && (o = F), r === this.scheme && s === this.authority && i === this.path && a === this.query && o === this.fragment ? this : new ae(r, s, i, a, o);
+    return r === void 0 ? r = this.scheme : r === null && (r = F), s === void 0 ? s = this.authority : s === null && (s = F), i === void 0 ? i = this.path : i === null && (i = F), a === void 0 ? a = this.query : a === null && (a = F), o === void 0 ? o = this.fragment : o === null && (o = F), r === this.scheme && s === this.authority && i === this.path && a === this.query && o === this.fragment ? this : new le(r, s, i, a, o);
   }
   static parse(t, r = !1) {
-    const s = Ar.exec(t);
-    return s ? new ae(s[2] || F, Ce(s[4] || F), Ce(s[5] || F), Ce(s[7] || F), Ce(s[9] || F), r) : new ae(F, F, F, F, F);
+    const s = Ur.exec(t);
+    return s ? new le(s[2] || F, Le(s[4] || F), Le(s[5] || F), Le(s[7] || F), Le(s[9] || F), r) : new le(F, F, F, F, F);
   }
   static file(t) {
     let r = F;
-    if (de && (t = t.replace(/\\/g, z)), t[0] === z && t[1] === z) {
-      const s = t.indexOf(z, 2);
-      s === -1 ? (r = t.substring(2), t = z) : (r = t.substring(2, s), t = t.substring(s) || z);
+    if (ge && (t = t.replace(/\\/g, G)), t[0] === G && t[1] === G) {
+      const s = t.indexOf(G, 2);
+      s === -1 ? (r = t.substring(2), t = G) : (r = t.substring(2, s), t = t.substring(s) || G);
     }
-    return new ae("file", r, t, F, F);
+    return new le("file", r, t, F, F);
   }
   static from(t) {
-    const r = new ae(t.scheme, t.authority, t.path, t.query, t.fragment);
-    return ht(r, !0), r;
+    const r = new le(t.scheme, t.authority, t.path, t.query, t.fragment);
+    return mt(r, !0), r;
   }
   static joinPath(t, ...r) {
     if (!t.path)
       throw new Error("[UriError]: cannot call joinPath on URI without path");
     let s;
-    return de && t.scheme === "file" ? s = ne.file(U.join(He(t, !0), ...r)).path : s = H.join(t.path, ...r), t.with({ path: s });
+    return ge && t.scheme === "file" ? s = ne.file(I.join(Ge(t, !0), ...r)).path : s = W.join(t.path, ...r), t.with({ path: s });
   }
   toString(t = !1) {
-    return We(this, t);
+    return Oe(this, t);
   }
   toJSON() {
     return this;
@@ -2014,32 +2113,32 @@ class ne {
       if (t instanceof ne)
         return t;
       {
-        const r = new ae(t);
-        return r._formatted = t.external, r._fsPath = t._sep === pn ? t.fsPath : null, r;
+        const r = new le(t);
+        return r._formatted = t.external, r._fsPath = t._sep === An ? t.fsPath : null, r;
       }
     } else
       return t;
   }
 }
-const pn = de ? 1 : void 0;
-class ae extends ne {
+const An = ge ? 1 : void 0;
+class le extends ne {
   constructor() {
     super(...arguments), this._formatted = null, this._fsPath = null;
   }
   get fsPath() {
-    return this._fsPath || (this._fsPath = He(this, !1)), this._fsPath;
+    return this._fsPath || (this._fsPath = Ge(this, !1)), this._fsPath;
   }
   toString(t = !1) {
-    return t ? We(this, !0) : (this._formatted || (this._formatted = We(this, !1)), this._formatted);
+    return t ? Oe(this, !0) : (this._formatted || (this._formatted = Oe(this, !1)), this._formatted);
   }
   toJSON() {
     const t = {
       $mid: 1
     };
-    return this._fsPath && (t.fsPath = this._fsPath, t._sep = pn), this._formatted && (t.external = this._formatted), this.path && (t.path = this.path), this.scheme && (t.scheme = this.scheme), this.authority && (t.authority = this.authority), this.query && (t.query = this.query), this.fragment && (t.fragment = this.fragment), t;
+    return this._fsPath && (t.fsPath = this._fsPath, t._sep = An), this._formatted && (t.external = this._formatted), this.path && (t.path = this.path), this.scheme && (t.scheme = this.scheme), this.authority && (t.authority = this.authority), this.query && (t.query = this.query), this.fragment && (t.fragment = this.fragment), t;
   }
 }
-const Ln = {
+const yn = {
   [58]: "%3A",
   [47]: "%2F",
   [63]: "%3F",
@@ -2060,7 +2159,7 @@ const Ln = {
   [61]: "%3D",
   [32]: "%20"
 };
-function ft(e, t) {
+function gt(e, t) {
   let r, s = -1;
   for (let i = 0; i < e.length; i++) {
     const a = e.charCodeAt(i);
@@ -2068,28 +2167,28 @@ function ft(e, t) {
       s !== -1 && (r += encodeURIComponent(e.substring(s, i)), s = -1), r !== void 0 && (r += e.charAt(i));
     else {
       r === void 0 && (r = e.substr(0, i));
-      const o = Ln[a];
+      const o = yn[a];
       o !== void 0 ? (s !== -1 && (r += encodeURIComponent(e.substring(s, i)), s = -1), r += o) : s === -1 && (s = i);
     }
   }
   return s !== -1 && (r += encodeURIComponent(e.substring(s))), r !== void 0 ? r : e;
 }
-function yr(e) {
+function Ir(e) {
   let t;
   for (let r = 0; r < e.length; r++) {
     const s = e.charCodeAt(r);
-    s === 35 || s === 63 ? (t === void 0 && (t = e.substr(0, r)), t += Ln[s]) : t !== void 0 && (t += e[r]);
+    s === 35 || s === 63 ? (t === void 0 && (t = e.substr(0, r)), t += yn[s]) : t !== void 0 && (t += e[r]);
   }
   return t !== void 0 ? t : e;
 }
-function He(e, t) {
+function Ge(e, t) {
   let r;
-  return e.authority && e.path.length > 1 && e.scheme === "file" ? r = `//${e.authority}${e.path}` : e.path.charCodeAt(0) === 47 && (e.path.charCodeAt(1) >= 65 && e.path.charCodeAt(1) <= 90 || e.path.charCodeAt(1) >= 97 && e.path.charCodeAt(1) <= 122) && e.path.charCodeAt(2) === 58 ? t ? r = e.path.substr(1) : r = e.path[1].toLowerCase() + e.path.substr(2) : r = e.path, de && (r = r.replace(/\//g, "\\")), r;
+  return e.authority && e.path.length > 1 && e.scheme === "file" ? r = `//${e.authority}${e.path}` : e.path.charCodeAt(0) === 47 && (e.path.charCodeAt(1) >= 65 && e.path.charCodeAt(1) <= 90 || e.path.charCodeAt(1) >= 97 && e.path.charCodeAt(1) <= 122) && e.path.charCodeAt(2) === 58 ? t ? r = e.path.substr(1) : r = e.path[1].toLowerCase() + e.path.substr(2) : r = e.path, ge && (r = r.replace(/\//g, "\\")), r;
 }
-function We(e, t) {
-  const r = t ? yr : ft;
+function Oe(e, t) {
+  const r = t ? Ir : gt;
   let s = "", { scheme: i, authority: a, path: o, query: l, fragment: u } = e;
-  if (i && (s += i, s += ":"), (a || i === "file") && (s += z, s += z), a) {
+  if (i && (s += i, s += ":"), (a || i === "file") && (s += G, s += G), a) {
     let c = a.indexOf("@");
     if (c !== -1) {
       const f = a.substr(0, c);
@@ -2107,43 +2206,43 @@ function We(e, t) {
     }
     s += r(o, !0);
   }
-  return l && (s += "?", s += r(l, !1)), u && (s += "#", s += t ? u : ft(u, !1)), s;
+  return l && (s += "?", s += r(l, !1)), u && (s += "#", s += t ? u : gt(u, !1)), s;
 }
-function Nn(e) {
+function kn(e) {
   try {
     return decodeURIComponent(e);
   } catch {
-    return e.length > 3 ? e.substr(0, 3) + Nn(e.substr(3)) : e;
+    return e.length > 3 ? e.substr(0, 3) + kn(e.substr(3)) : e;
   }
 }
-const dt = /(%[0-9A-Za-z][0-9A-Za-z])+/g;
-function Ce(e) {
-  return e.match(dt) ? e.replace(dt, (t) => Nn(t)) : e;
+const bt = /(%[0-9A-Za-z][0-9A-Za-z])+/g;
+function Le(e) {
+  return e.match(bt) ? e.replace(bt, (t) => kn(t)) : e;
 }
-class q {
+class H {
   constructor(t, r) {
     this.lineNumber = t, this.column = r;
   }
   with(t = this.lineNumber, r = this.column) {
-    return t === this.lineNumber && r === this.column ? this : new q(t, r);
+    return t === this.lineNumber && r === this.column ? this : new H(t, r);
   }
   delta(t = 0, r = 0) {
     return this.with(this.lineNumber + t, this.column + r);
   }
   equals(t) {
-    return q.equals(this, t);
+    return H.equals(this, t);
   }
   static equals(t, r) {
     return !t && !r ? !0 : !!t && !!r && t.lineNumber === r.lineNumber && t.column === r.column;
   }
   isBefore(t) {
-    return q.isBefore(this, t);
+    return H.isBefore(this, t);
   }
   static isBefore(t, r) {
     return t.lineNumber < r.lineNumber ? !0 : r.lineNumber < t.lineNumber ? !1 : t.column < r.column;
   }
   isBeforeOrEqual(t) {
-    return q.isBeforeOrEqual(this, t);
+    return H.isBeforeOrEqual(this, t);
   }
   static isBeforeOrEqual(t, r) {
     return t.lineNumber < r.lineNumber ? !0 : r.lineNumber < t.lineNumber ? !1 : t.column <= r.column;
@@ -2157,13 +2256,13 @@ class q {
     return s - i;
   }
   clone() {
-    return new q(this.lineNumber, this.column);
+    return new H(this.lineNumber, this.column);
   }
   toString() {
     return "(" + this.lineNumber + "," + this.column + ")";
   }
   static lift(t) {
-    return new q(t.lineNumber, t.column);
+    return new H(t.lineNumber, t.column);
   }
   static isIPosition(t) {
     return t && typeof t.lineNumber == "number" && typeof t.column == "number";
@@ -2211,7 +2310,8 @@ class x {
     return x.intersectRanges(this, t);
   }
   static intersectRanges(t, r) {
-    let s = t.startLineNumber, i = t.startColumn, a = t.endLineNumber, o = t.endColumn, l = r.startLineNumber, u = r.startColumn, c = r.endLineNumber, f = r.endColumn;
+    let s = t.startLineNumber, i = t.startColumn, a = t.endLineNumber, o = t.endColumn;
+    const l = r.startLineNumber, u = r.startColumn, c = r.endLineNumber, f = r.endColumn;
     return s < l ? (s = l, i = u) : s === l && (i = Math.max(i, u)), a > c ? (a = c, o = f) : a === c && (o = Math.min(o, f)), s > a || s === a && i > o ? null : new x(s, i, a, o);
   }
   equalsRange(t) {
@@ -2224,13 +2324,13 @@ class x {
     return x.getEndPosition(this);
   }
   static getEndPosition(t) {
-    return new q(t.endLineNumber, t.endColumn);
+    return new H(t.endLineNumber, t.endColumn);
   }
   getStartPosition() {
     return x.getStartPosition(this);
   }
   static getStartPosition(t) {
-    return new q(t.startLineNumber, t.startColumn);
+    return new H(t.startLineNumber, t.startColumn);
   }
   toString() {
     return "[" + this.startLineNumber + "," + this.startColumn + " -> " + this.endLineNumber + "," + this.endColumn + "]";
@@ -2291,15 +2391,15 @@ class x {
     return this;
   }
 }
-const kr = 3;
-function Sn(e, t, r, s) {
+const qr = 3;
+function Mn(e, t, r, s) {
   return new J(e, t, r).ComputeDiff(s);
 }
-class mt {
+class wt {
   constructor(t) {
     const r = [], s = [];
     for (let i = 0, a = t.length; i < a; i++)
-      r[i] = $e(t[i], 1), s[i] = ze(t[i], 1);
+      r[i] = je(t[i], 1), s[i] = Qe(t[i], 1);
     this.lines = t, this._startColumns = r, this._endColumns = s;
   }
   getElements() {
@@ -2324,69 +2424,79 @@ class mt {
       const c = this.lines[u], f = t ? this._startColumns[u] : 1, h = t ? this._endColumns[u] : c.length + 1;
       for (let d = f; d < h; d++)
         i[l] = c.charCodeAt(d - 1), a[l] = u + 1, o[l] = d, l++;
+      !t && u < s && (i[l] = 10, a[l] = u + 1, o[l] = c.length + 1, l++);
     }
-    return new Mr(i, a, o);
+    return new Hr(i, a, o);
   }
 }
-class Mr {
+class Hr {
   constructor(t, r, s) {
     this._charCodes = t, this._lineNumbers = r, this._columns = s;
+  }
+  toString() {
+    return "[" + this._charCodes.map((t, r) => (t === 10 ? "\\n" : String.fromCharCode(t)) + `-(${this._lineNumbers[r]},${this._columns[r]})`).join(", ") + "]";
+  }
+  _assertIndex(t, r) {
+    if (t < 0 || t >= r.length)
+      throw new Error("Illegal index");
   }
   getElements() {
     return this._charCodes;
   }
   getStartLineNumber(t) {
-    return this._lineNumbers[t];
-  }
-  getStartColumn(t) {
-    return this._columns[t];
+    return t > 0 && t === this._lineNumbers.length ? this.getEndLineNumber(t - 1) : (this._assertIndex(t, this._lineNumbers), this._lineNumbers[t]);
   }
   getEndLineNumber(t) {
-    return this._lineNumbers[t];
+    return t === -1 ? this.getStartLineNumber(t + 1) : (this._assertIndex(t, this._lineNumbers), this._charCodes[t] === 10 ? this._lineNumbers[t] + 1 : this._lineNumbers[t]);
+  }
+  getStartColumn(t) {
+    return t > 0 && t === this._columns.length ? this.getEndColumn(t - 1) : (this._assertIndex(t, this._columns), this._columns[t]);
   }
   getEndColumn(t) {
-    return this._columns[t] + 1;
+    return t === -1 ? this.getStartColumn(t + 1) : (this._assertIndex(t, this._columns), this._charCodes[t] === 10 ? 1 : this._columns[t] + 1);
   }
 }
-class me {
+class be {
   constructor(t, r, s, i, a, o, l, u) {
     this.originalStartLineNumber = t, this.originalStartColumn = r, this.originalEndLineNumber = s, this.originalEndColumn = i, this.modifiedStartLineNumber = a, this.modifiedStartColumn = o, this.modifiedEndLineNumber = l, this.modifiedEndColumn = u;
   }
   static createFromDiffChange(t, r, s) {
-    let i, a, o, l, u, c, f, h;
-    return t.originalLength === 0 ? (i = 0, a = 0, o = 0, l = 0) : (i = r.getStartLineNumber(t.originalStart), a = r.getStartColumn(t.originalStart), o = r.getEndLineNumber(t.originalStart + t.originalLength - 1), l = r.getEndColumn(t.originalStart + t.originalLength - 1)), t.modifiedLength === 0 ? (u = 0, c = 0, f = 0, h = 0) : (u = s.getStartLineNumber(t.modifiedStart), c = s.getStartColumn(t.modifiedStart), f = s.getEndLineNumber(t.modifiedStart + t.modifiedLength - 1), h = s.getEndColumn(t.modifiedStart + t.modifiedLength - 1)), new me(i, a, o, l, u, c, f, h);
+    const i = r.getStartLineNumber(t.originalStart), a = r.getStartColumn(t.originalStart), o = r.getEndLineNumber(t.originalStart + t.originalLength - 1), l = r.getEndColumn(t.originalStart + t.originalLength - 1), u = s.getStartLineNumber(t.modifiedStart), c = s.getStartColumn(t.modifiedStart), f = s.getEndLineNumber(t.modifiedStart + t.modifiedLength - 1), h = s.getEndColumn(t.modifiedStart + t.modifiedLength - 1);
+    return new be(i, a, o, l, u, c, f, h);
   }
 }
-function Rr(e) {
+function Wr(e) {
   if (e.length <= 1)
     return e;
   const t = [e[0]];
   let r = t[0];
   for (let s = 1, i = e.length; s < i; s++) {
     const a = e[s], o = a.originalStart - (r.originalStart + r.originalLength), l = a.modifiedStart - (r.modifiedStart + r.modifiedLength);
-    Math.min(o, l) < kr ? (r.originalLength = a.originalStart + a.originalLength - r.originalStart, r.modifiedLength = a.modifiedStart + a.modifiedLength - r.modifiedStart) : (t.push(a), r = a);
+    Math.min(o, l) < qr ? (r.originalLength = a.originalStart + a.originalLength - r.originalStart, r.modifiedLength = a.modifiedStart + a.modifiedLength - r.modifiedStart) : (t.push(a), r = a);
   }
   return t;
 }
-class fe {
+class me {
   constructor(t, r, s, i, a) {
     this.originalStartLineNumber = t, this.originalEndLineNumber = r, this.modifiedStartLineNumber = s, this.modifiedEndLineNumber = i, this.charChanges = a;
   }
   static createFromDiffResult(t, r, s, i, a, o, l) {
     let u, c, f, h, d;
     if (r.originalLength === 0 ? (u = s.getStartLineNumber(r.originalStart) - 1, c = 0) : (u = s.getStartLineNumber(r.originalStart), c = s.getEndLineNumber(r.originalStart + r.originalLength - 1)), r.modifiedLength === 0 ? (f = i.getStartLineNumber(r.modifiedStart) - 1, h = 0) : (f = i.getStartLineNumber(r.modifiedStart), h = i.getEndLineNumber(r.modifiedStart + r.modifiedLength - 1)), o && r.originalLength > 0 && r.originalLength < 20 && r.modifiedLength > 0 && r.modifiedLength < 20 && a()) {
-      const _ = s.createCharSequence(t, r.originalStart, r.originalStart + r.originalLength - 1), S = i.createCharSequence(t, r.modifiedStart, r.modifiedStart + r.modifiedLength - 1);
-      let v = Sn(_, S, a, !0).changes;
-      l && (v = Rr(v)), d = [];
-      for (let k = 0, P = v.length; k < P; k++)
-        d.push(me.createFromDiffChange(v[k], _, S));
+      const C = s.createCharSequence(t, r.originalStart, r.originalStart + r.originalLength - 1), v = i.createCharSequence(t, r.modifiedStart, r.modifiedStart + r.modifiedLength - 1);
+      if (C.getElements().length > 0 && v.getElements().length > 0) {
+        let A = Mn(C, v, a, !0).changes;
+        l && (A = Wr(A)), d = [];
+        for (let k = 0, R = A.length; k < R; k++)
+          d.push(be.createFromDiffChange(A[k], C, v));
+      }
     }
-    return new fe(u, c, f, h, d);
+    return new me(u, c, f, h, d);
   }
 }
-class Pr {
+class $r {
   constructor(t, r, s) {
-    this.shouldComputeCharChanges = s.shouldComputeCharChanges, this.shouldPostProcessCharChanges = s.shouldPostProcessCharChanges, this.shouldIgnoreTrimWhitespace = s.shouldIgnoreTrimWhitespace, this.shouldMakePrettyDiff = s.shouldMakePrettyDiff, this.originalLines = t, this.modifiedLines = r, this.original = new mt(t), this.modified = new mt(r), this.continueLineDiff = gt(s.maxComputationTime), this.continueCharDiff = gt(s.maxComputationTime === 0 ? 0 : Math.min(s.maxComputationTime, 5e3));
+    this.shouldComputeCharChanges = s.shouldComputeCharChanges, this.shouldPostProcessCharChanges = s.shouldPostProcessCharChanges, this.shouldIgnoreTrimWhitespace = s.shouldIgnoreTrimWhitespace, this.shouldMakePrettyDiff = s.shouldMakePrettyDiff, this.originalLines = t, this.modifiedLines = r, this.original = new wt(t), this.modified = new wt(r), this.continueLineDiff = Ct(s.maxComputationTime), this.continueCharDiff = Ct(s.maxComputationTime === 0 ? 0 : Math.min(s.maxComputationTime, 5e3));
   }
   computeDiff() {
     if (this.original.lines.length === 1 && this.original.lines[0].length === 0)
@@ -2432,11 +2542,11 @@ class Pr {
           }]
         }]
       };
-    const t = Sn(this.original, this.modified, this.continueLineDiff, this.shouldMakePrettyDiff), r = t.changes, s = t.quitEarly;
+    const t = Mn(this.original, this.modified, this.continueLineDiff, this.shouldMakePrettyDiff), r = t.changes, s = t.quitEarly;
     if (this.shouldIgnoreTrimWhitespace) {
       const l = [];
       for (let u = 0, c = r.length; u < c; u++)
-        l.push(fe.createFromDiffResult(this.shouldIgnoreTrimWhitespace, r[u], this.original, this.modified, this.continueCharDiff, this.shouldComputeCharChanges, this.shouldPostProcessCharChanges));
+        l.push(me.createFromDiffResult(this.shouldIgnoreTrimWhitespace, r[u], this.original, this.modified, this.continueCharDiff, this.shouldComputeCharChanges, this.shouldPostProcessCharChanges));
       return {
         quitEarly: s,
         changes: l
@@ -2447,33 +2557,33 @@ class Pr {
     for (let l = -1, u = r.length; l < u; l++) {
       const c = l + 1 < u ? r[l + 1] : null, f = c ? c.originalStart : this.originalLines.length, h = c ? c.modifiedStart : this.modifiedLines.length;
       for (; a < f && o < h; ) {
-        const d = this.originalLines[a], _ = this.modifiedLines[o];
-        if (d !== _) {
+        const d = this.originalLines[a], C = this.modifiedLines[o];
+        if (d !== C) {
           {
-            let S = $e(d, 1), v = $e(_, 1);
-            for (; S > 1 && v > 1; ) {
-              const k = d.charCodeAt(S - 2), P = _.charCodeAt(v - 2);
-              if (k !== P)
+            let v = je(d, 1), A = je(C, 1);
+            for (; v > 1 && A > 1; ) {
+              const k = d.charCodeAt(v - 2), R = C.charCodeAt(A - 2);
+              if (k !== R)
                 break;
-              S--, v--;
+              v--, A--;
             }
-            (S > 1 || v > 1) && this._pushTrimWhitespaceCharChange(i, a + 1, 1, S, o + 1, 1, v);
+            (v > 1 || A > 1) && this._pushTrimWhitespaceCharChange(i, a + 1, 1, v, o + 1, 1, A);
           }
           {
-            let S = ze(d, 1), v = ze(_, 1);
-            const k = d.length + 1, P = _.length + 1;
-            for (; S < k && v < P; ) {
-              const w = d.charCodeAt(S - 1), p = d.charCodeAt(v - 1);
-              if (w !== p)
+            let v = Qe(d, 1), A = Qe(C, 1);
+            const k = d.length + 1, R = C.length + 1;
+            for (; v < k && A < R; ) {
+              const P = d.charCodeAt(v - 1), y = d.charCodeAt(A - 1);
+              if (P !== y)
                 break;
-              S++, v++;
+              v++, A++;
             }
-            (S < k || v < P) && this._pushTrimWhitespaceCharChange(i, a + 1, S, k, o + 1, v, P);
+            (v < k || A < R) && this._pushTrimWhitespaceCharChange(i, a + 1, v, k, o + 1, A, R);
           }
         }
         a++, o++;
       }
-      c && (i.push(fe.createFromDiffResult(this.shouldIgnoreTrimWhitespace, c, this.original, this.modified, this.continueCharDiff, this.shouldComputeCharChanges, this.shouldPostProcessCharChanges)), a += c.originalLength, o += c.modifiedLength);
+      c && (i.push(me.createFromDiffResult(this.shouldIgnoreTrimWhitespace, c, this.original, this.modified, this.continueCharDiff, this.shouldComputeCharChanges, this.shouldPostProcessCharChanges)), a += c.originalLength, o += c.modifiedLength);
     }
     return {
       quitEarly: s,
@@ -2484,50 +2594,65 @@ class Pr {
     if (this._mergeTrimWhitespaceCharChange(t, r, s, i, a, o, l))
       return;
     let u;
-    this.shouldComputeCharChanges && (u = [new me(r, s, r, i, a, o, a, l)]), t.push(new fe(r, r, a, a, u));
+    this.shouldComputeCharChanges && (u = [new be(r, s, r, i, a, o, a, l)]), t.push(new me(r, r, a, a, u));
   }
   _mergeTrimWhitespaceCharChange(t, r, s, i, a, o, l) {
     const u = t.length;
     if (u === 0)
       return !1;
     const c = t[u - 1];
-    return c.originalEndLineNumber === 0 || c.modifiedEndLineNumber === 0 ? !1 : c.originalEndLineNumber + 1 === r && c.modifiedEndLineNumber + 1 === a ? (c.originalEndLineNumber = r, c.modifiedEndLineNumber = a, this.shouldComputeCharChanges && c.charChanges && c.charChanges.push(new me(r, s, r, i, a, o, a, l)), !0) : !1;
+    return c.originalEndLineNumber === 0 || c.modifiedEndLineNumber === 0 ? !1 : c.originalEndLineNumber + 1 === r && c.modifiedEndLineNumber + 1 === a ? (c.originalEndLineNumber = r, c.modifiedEndLineNumber = a, this.shouldComputeCharChanges && c.charChanges && c.charChanges.push(new be(r, s, r, i, a, o, a, l)), !0) : !1;
   }
 }
-function $e(e, t) {
-  const r = Qn(e);
+function je(e, t) {
+  const r = ur(e);
   return r === -1 ? t : r + 1;
 }
-function ze(e, t) {
-  const r = Jn(e);
+function Qe(e, t) {
+  const r = hr(e);
   return r === -1 ? t : r + 2;
 }
-function gt(e) {
+function Ct(e) {
   if (e === 0)
     return () => !0;
   const t = Date.now();
   return () => Date.now() - t < e;
 }
-function bt(e) {
+var _t;
+(function(e) {
+  function t(i) {
+    return i < 0;
+  }
+  e.isLessThan = t;
+  function r(i) {
+    return i > 0;
+  }
+  e.isGreaterThan = r;
+  function s(i) {
+    return i === 0;
+  }
+  e.isNeitherLessOrGreaterThan = s, e.greaterThan = 1, e.lessThan = -1, e.neitherLessOrGreaterThan = 0;
+})(_t || (_t = {}));
+function pt(e) {
   return e < 0 ? 0 : e > 255 ? 255 : e | 0;
 }
-function oe(e) {
+function ce(e) {
   return e < 0 ? 0 : e > 4294967295 ? 4294967295 : e | 0;
 }
-class Dr {
+class zr {
   constructor(t) {
     this.values = t, this.prefixSum = new Uint32Array(t.length), this.prefixSumValidIndex = new Int32Array(1), this.prefixSumValidIndex[0] = -1;
   }
   insertValues(t, r) {
-    t = oe(t);
+    t = ce(t);
     const s = this.values, i = this.prefixSum, a = r.length;
     return a === 0 ? !1 : (this.values = new Uint32Array(s.length + a), this.values.set(s.subarray(0, t), 0), this.values.set(s.subarray(t), t + a), this.values.set(r, t), t - 1 < this.prefixSumValidIndex[0] && (this.prefixSumValidIndex[0] = t - 1), this.prefixSum = new Uint32Array(this.values.length), this.prefixSumValidIndex[0] >= 0 && this.prefixSum.set(i.subarray(0, this.prefixSumValidIndex[0] + 1)), !0);
   }
   setValue(t, r) {
-    return t = oe(t), r = oe(r), this.values[t] === r ? !1 : (this.values[t] = r, t - 1 < this.prefixSumValidIndex[0] && (this.prefixSumValidIndex[0] = t - 1), !0);
+    return t = ce(t), r = ce(r), this.values[t] === r ? !1 : (this.values[t] = r, t - 1 < this.prefixSumValidIndex[0] && (this.prefixSumValidIndex[0] = t - 1), !0);
   }
   removeValues(t, r) {
-    t = oe(t), r = oe(r);
+    t = ce(t), r = ce(r);
     const s = this.values, i = this.prefixSum;
     if (t >= s.length)
       return !1;
@@ -2538,7 +2663,7 @@ class Dr {
     return this.values.length === 0 ? 0 : this._getPrefixSum(this.values.length - 1);
   }
   getPrefixSum(t) {
-    return t < 0 ? 0 : (t = oe(t), this._getPrefixSum(t));
+    return t < 0 ? 0 : (t = ce(t), this._getPrefixSum(t));
   }
   _getPrefixSum(t) {
     if (t <= this.prefixSumValidIndex[0])
@@ -2559,15 +2684,15 @@ class Dr {
         r = i + 1;
       else
         break;
-    return new Fr(i, t - o);
+    return new Gr(i, t - o);
   }
 }
-class Fr {
+class Gr {
   constructor(t, r) {
     this.index = t, this.remainder = r, this._prefixSumIndexOfResultBrand = void 0, this.index = t, this.remainder = r;
   }
 }
-class xr {
+class Or {
   constructor(t, r, s, i) {
     this._uri = t, this._lines = r, this._eol = s, this._versionId = i, this._lineStarts = null, this._cachedTextValue = null;
   }
@@ -2584,7 +2709,7 @@ class xr {
     t.eol && t.eol !== this._eol && (this._eol = t.eol, this._lineStarts = null);
     const r = t.changes;
     for (const s of r)
-      this._acceptDeleteRange(s.range), this._acceptInsertText(new q(s.range.startLineNumber, s.range.startColumn), s.text);
+      this._acceptDeleteRange(s.range), this._acceptInsertText(new H(s.range.startLineNumber, s.range.startColumn), s.text);
     this._versionId = t.versionId, this._cachedTextValue = null;
   }
   _ensureLineStarts() {
@@ -2592,7 +2717,7 @@ class xr {
       const t = this._eol.length, r = this._lines.length, s = new Uint32Array(r);
       for (let i = 0; i < r; i++)
         s[i] = this._lines[i].length + t;
-      this._lineStarts = new Dr(s);
+      this._lineStarts = new zr(s);
     }
   }
   _setLineText(t, r) {
@@ -2610,7 +2735,7 @@ class xr {
   _acceptInsertText(t, r) {
     if (r.length === 0)
       return;
-    const s = Xn(r);
+    const s = cr(r);
     if (s.length === 1) {
       this._setLineText(t.lineNumber - 1, this._lines[t.lineNumber - 1].substring(0, t.column - 1) + s[0] + this._lines[t.lineNumber - 1].substring(t.column - 1));
       return;
@@ -2622,16 +2747,16 @@ class xr {
     this._lineStarts && this._lineStarts.insertValues(t.lineNumber, i);
   }
 }
-const Vr = "`~!@#$%^&*()-=+[{]}\\|;:'\",.<>/?";
-function Er(e = "") {
+const jr = "`~!@#$%^&*()-=+[{]}\\|;:'\",.<>/?";
+function Qr(e = "") {
   let t = "(-?\\d*\\.\\d\\w*)|([^";
-  for (const r of Vr)
+  for (const r of jr)
     e.indexOf(r) >= 0 || (t += "\\" + r);
   return t += "\\s]+)", new RegExp(t, "g");
 }
-const vn = Er();
-function Br(e) {
-  let t = vn;
+const Rn = Qr();
+function Zr(e) {
+  let t = Rn;
   if (e && e instanceof RegExp)
     if (e.global)
       t = e;
@@ -2641,22 +2766,23 @@ function Br(e) {
     }
   return t.lastIndex = 0, t;
 }
-const Tr = {
+const Pn = new ye();
+Pn.unshift({
   maxLen: 1e3,
   windowSize: 15,
   timeBudget: 150
-};
-function nt(e, t, r, s, i = Tr) {
-  if (r.length > i.maxLen) {
+});
+function at(e, t, r, s, i) {
+  if (i || (i = Se.first(Pn)), r.length > i.maxLen) {
     let c = e - i.maxLen / 2;
-    return c < 0 ? c = 0 : s += c, r = r.substring(c, e + i.maxLen / 2), nt(e, t, r, s, i);
+    return c < 0 ? c = 0 : s += c, r = r.substring(c, e + i.maxLen / 2), at(e, t, r, s, i);
   }
   const a = Date.now(), o = e - 1 - s;
   let l = -1, u = null;
   for (let c = 1; !(Date.now() - a >= i.timeBudget); c++) {
     const f = o - i.windowSize * c;
     t.lastIndex = Math.max(0, f);
-    const h = Ur(t, r, o, l);
+    const h = Yr(t, r, o, l);
     if (!h && u || (u = h, f <= 0))
       break;
     l = f;
@@ -2671,7 +2797,7 @@ function nt(e, t, r, s, i = Tr) {
   }
   return null;
 }
-function Ur(e, t, r, s) {
+function Yr(e, t, r, s) {
   let i;
   for (; i = e.exec(t); ) {
     const a = i.index || 0;
@@ -2682,10 +2808,10 @@ function Ur(e, t, r, s) {
   }
   return null;
 }
-class rt {
+class ot {
   constructor(t) {
-    const r = bt(t);
-    this._defaultValue = r, this._asciiMap = rt._createAsciiMap(r), this._map = /* @__PURE__ */ new Map();
+    const r = pt(t);
+    this._defaultValue = r, this._asciiMap = ot._createAsciiMap(r), this._map = /* @__PURE__ */ new Map();
   }
   static _createAsciiMap(t) {
     const r = new Uint8Array(256);
@@ -2694,14 +2820,14 @@ class rt {
     return r;
   }
   set(t, r) {
-    const s = bt(r);
+    const s = pt(r);
     t >= 0 && t < 256 ? this._asciiMap[t] = s : this._map.set(t, s);
   }
   get(t) {
     return t >= 0 && t < 256 ? this._asciiMap[t] : this._map.get(t) || this._defaultValue;
   }
 }
-class Ir {
+class Xr {
   constructor(t, r, s) {
     const i = new Uint8Array(t * r);
     for (let a = 0, o = t * r; a < o; a++)
@@ -2715,7 +2841,7 @@ class Ir {
     this._data[t * this.cols + r] = s;
   }
 }
-class qr {
+class Jr {
   constructor(t) {
     let r = 0, s = 0;
     for (let a = 0, o = t.length; a < o; a++) {
@@ -2723,7 +2849,7 @@ class qr {
       u > r && (r = u), l > s && (s = l), c > s && (s = c);
     }
     r++, s++;
-    const i = new Ir(s, r, 0);
+    const i = new Xr(s, r, 0);
     for (let a = 0, o = t.length; a < o; a++) {
       const [l, u, c] = t[a];
       i.set(l, u, c);
@@ -2734,9 +2860,9 @@ class qr {
     return r < 0 || r >= this._maxCharCode ? 0 : this._states.get(t, r);
   }
 }
-let De = null;
-function Hr() {
-  return De === null && (De = new qr([
+let Te = null;
+function Kr() {
+  return Te === null && (Te = new Jr([
     [1, 104, 2],
     [1, 72, 2],
     [1, 102, 6],
@@ -2759,22 +2885,22 @@ function Hr() {
     [9, 58, 10],
     [10, 47, 11],
     [11, 47, 12]
-  ])), De;
+  ])), Te;
 }
-let he = null;
-function Wr() {
-  if (he === null) {
-    he = new rt(0);
+let fe = null;
+function e1() {
+  if (fe === null) {
+    fe = new ot(0);
     const e = ` 	<>'"\u3001\u3002\uFF61\uFF64\uFF0C\uFF0E\uFF1A\uFF1B\u2018\u3008\u300C\u300E\u3014\uFF08\uFF3B\uFF5B\uFF62\uFF63\uFF5D\uFF3D\uFF09\u3015\u300F\u300D\u3009\u2019\uFF40\uFF5E\u2026`;
     for (let r = 0; r < e.length; r++)
-      he.set(e.charCodeAt(r), 1);
-    const t = ".,;";
+      fe.set(e.charCodeAt(r), 1);
+    const t = ".,;:";
     for (let r = 0; r < t.length; r++)
-      he.set(t.charCodeAt(r), 2);
+      fe.set(t.charCodeAt(r), 2);
   }
-  return he;
+  return fe;
 }
-class ve {
+class Me {
   static _createLink(t, r, s, i, a) {
     let o = a - 1;
     do {
@@ -2797,73 +2923,73 @@ class ve {
       url: r.substring(i, o + 1)
     };
   }
-  static computeLinks(t, r = Hr()) {
-    const s = Wr(), i = [];
+  static computeLinks(t, r = Kr()) {
+    const s = e1(), i = [];
     for (let a = 1, o = t.getLineCount(); a <= o; a++) {
       const l = t.getLineContent(a), u = l.length;
-      let c = 0, f = 0, h = 0, d = 1, _ = !1, S = !1, v = !1, k = !1;
+      let c = 0, f = 0, h = 0, d = 1, C = !1, v = !1, A = !1, k = !1;
       for (; c < u; ) {
-        let P = !1;
-        const w = l.charCodeAt(c);
+        let R = !1;
+        const P = l.charCodeAt(c);
         if (d === 13) {
-          let p;
-          switch (w) {
+          let y;
+          switch (P) {
             case 40:
-              _ = !0, p = 0;
+              C = !0, y = 0;
               break;
             case 41:
-              p = _ ? 0 : 1;
+              y = C ? 0 : 1;
               break;
             case 91:
-              v = !0, S = !0, p = 0;
+              A = !0, v = !0, y = 0;
               break;
             case 93:
-              v = !1, p = S ? 0 : 1;
+              A = !1, y = v ? 0 : 1;
               break;
             case 123:
-              k = !0, p = 0;
+              k = !0, y = 0;
               break;
             case 125:
-              p = k ? 0 : 1;
+              y = k ? 0 : 1;
               break;
             case 39:
-              p = h === 34 || h === 96 ? 0 : 1;
+              y = h === 39 ? 1 : 0;
               break;
             case 34:
-              p = h === 39 || h === 96 ? 0 : 1;
+              y = h === 34 ? 1 : 0;
               break;
             case 96:
-              p = h === 39 || h === 34 ? 0 : 1;
+              y = h === 96 ? 1 : 0;
               break;
             case 42:
-              p = h === 42 ? 1 : 0;
+              y = h === 42 ? 1 : 0;
               break;
             case 124:
-              p = h === 124 ? 1 : 0;
+              y = h === 124 ? 1 : 0;
               break;
             case 32:
-              p = v ? 0 : 1;
+              y = A ? 0 : 1;
               break;
             default:
-              p = s.get(w);
+              y = s.get(P);
           }
-          p === 1 && (i.push(ve._createLink(s, l, a, f, c)), P = !0);
+          y === 1 && (i.push(Me._createLink(s, l, a, f, c)), R = !0);
         } else if (d === 12) {
-          let p;
-          w === 91 ? (S = !0, p = 0) : p = s.get(w), p === 1 ? P = !0 : d = 13;
+          let y;
+          P === 91 ? (v = !0, y = 0) : y = s.get(P), y === 1 ? R = !0 : d = 13;
         } else
-          d = r.nextState(d, w), d === 0 && (P = !0);
-        P && (d = 1, _ = !1, S = !1, k = !1, f = c + 1, h = w), c++;
+          d = r.nextState(d, P), d === 0 && (R = !0);
+        R && (d = 1, C = !1, v = !1, k = !1, f = c + 1, h = P), c++;
       }
-      d === 13 && i.push(ve._createLink(s, l, a, f, u));
+      d === 13 && i.push(Me._createLink(s, l, a, f, u));
     }
     return i;
   }
 }
-function $r(e) {
-  return !e || typeof e.getLineCount != "function" || typeof e.getLineContent != "function" ? [] : ve.computeLinks(e);
+function t1(e) {
+  return !e || typeof e.getLineCount != "function" || typeof e.getLineContent != "function" ? [] : Me.computeLinks(e);
 }
-class Ge {
+class Ze {
   constructor() {
     this._defaultValueSet = [
       ["true", "false"],
@@ -2897,7 +3023,8 @@ class Ge {
   }
   numberReplace(t, r) {
     const s = Math.pow(10, t.length - (t.lastIndexOf(".") + 1));
-    let i = Number(t), a = parseFloat(t);
+    let i = Number(t);
+    const a = parseFloat(t);
     return !isNaN(i) && !isNaN(a) && i === a ? i === 0 && !r ? null : (i = Math.floor(i * s), i += r ? s : -s, String(i / s)) : null;
   }
   textReplace(t, r) {
@@ -2914,27 +3041,27 @@ class Ge {
     return i >= 0 ? (i += s ? 1 : -1, i < 0 ? i = t.length - 1 : i %= t.length, t[i]) : null;
   }
 }
-Ge.INSTANCE = new Ge();
-const An = Object.freeze(function(e, t) {
+Ze.INSTANCE = new Ze();
+const Dn = Object.freeze(function(e, t) {
   const r = setTimeout(e.bind(t), 0);
   return { dispose() {
     clearTimeout(r);
   } };
 });
-var Ae;
+var Re;
 (function(e) {
   function t(r) {
-    return r === e.None || r === e.Cancelled || r instanceof pe ? !0 : !r || typeof r != "object" ? !1 : typeof r.isCancellationRequested == "boolean" && typeof r.onCancellationRequested == "function";
+    return r === e.None || r === e.Cancelled || r instanceof Ne ? !0 : !r || typeof r != "object" ? !1 : typeof r.isCancellationRequested == "boolean" && typeof r.onCancellationRequested == "function";
   }
   e.isCancellationToken = t, e.None = Object.freeze({
     isCancellationRequested: !1,
-    onCancellationRequested: Be.None
+    onCancellationRequested: qe.None
   }), e.Cancelled = Object.freeze({
     isCancellationRequested: !0,
-    onCancellationRequested: An
+    onCancellationRequested: Dn
   });
-})(Ae || (Ae = {}));
-class pe {
+})(Re || (Re = {}));
+class Ne {
   constructor() {
     this._isCancelled = !1, this._emitter = null;
   }
@@ -2945,27 +3072,27 @@ class pe {
     return this._isCancelled;
   }
   get onCancellationRequested() {
-    return this._isCancelled ? An : (this._emitter || (this._emitter = new j()), this._emitter.event);
+    return this._isCancelled ? Dn : (this._emitter || (this._emitter = new O()), this._emitter.event);
   }
   dispose() {
     this._emitter && (this._emitter.dispose(), this._emitter = null);
   }
 }
-class zr {
+class n1 {
   constructor(t) {
     this._token = void 0, this._parentListener = void 0, this._parentListener = t && t.onCancellationRequested(this.cancel, this);
   }
   get token() {
-    return this._token || (this._token = new pe()), this._token;
+    return this._token || (this._token = new Ne()), this._token;
   }
   cancel() {
-    this._token ? this._token instanceof pe && this._token.cancel() : this._token = Ae.Cancelled;
+    this._token ? this._token instanceof Ne && this._token.cancel() : this._token = Re.Cancelled;
   }
   dispose(t = !1) {
-    t && this.cancel(), this._parentListener && this._parentListener.dispose(), this._token ? this._token instanceof pe && this._token.dispose() : this._token = Ae.None;
+    t && this.cancel(), this._parentListener && this._parentListener.dispose(), this._token ? this._token instanceof Ne && this._token.dispose() : this._token = Re.None;
   }
 }
-class st {
+class lt {
   constructor() {
     this._keyCodeToStr = [], this._strToKeyCode = /* @__PURE__ */ Object.create(null);
   }
@@ -2979,7 +3106,7 @@ class st {
     return this._strToKeyCode[t.toLowerCase()] || 0;
   }
 }
-const Le = new st(), Oe = new st(), je = new st(), Gr = new Array(230), Or = /* @__PURE__ */ Object.create(null), jr = /* @__PURE__ */ Object.create(null);
+const ve = new lt(), Ye = new lt(), Xe = new lt(), r1 = new Array(230), s1 = /* @__PURE__ */ Object.create(null), i1 = /* @__PURE__ */ Object.create(null);
 (function() {
   const e = "", t = [
     [0, 1, 0, "None", 0, "unknown", 0, "VK_UNKNOWN", e, e],
@@ -3211,38 +3338,37 @@ const Le = new st(), Oe = new st(), je = new st(), Gr = new Array(230), Or = /* 
     [0, 1, 0, e, 0, e, 0, "VK_NONAME", e, e],
     [0, 1, 0, e, 0, e, 0, "VK_PA1", e, e],
     [0, 1, 0, e, 0, e, 0, "VK_OEM_CLEAR", e, e]
-  ];
-  let r = [], s = [];
+  ], r = [], s = [];
   for (const i of t) {
-    const [a, o, l, u, c, f, h, d, _, S] = i;
-    if (s[l] || (s[l] = !0, Or[u] = l, jr[u.toLowerCase()] = l), !r[c]) {
+    const [a, o, l, u, c, f, h, d, C, v] = i;
+    if (s[l] || (s[l] = !0, s1[u] = l, i1[u.toLowerCase()] = l), !r[c]) {
       if (r[c] = !0, !f)
         throw new Error(`String representation missing for key code ${c} around scan code ${u}`);
-      Le.define(c, f), Oe.define(c, _ || f), je.define(c, S || _ || f);
+      ve.define(c, f), Ye.define(c, C || f), Xe.define(c, v || C || f);
     }
-    h && (Gr[h] = c);
+    h && (r1[h] = c);
   }
 })();
-var wt;
+var Lt;
 (function(e) {
   function t(l) {
-    return Le.keyCodeToStr(l);
+    return ve.keyCodeToStr(l);
   }
   e.toString = t;
   function r(l) {
-    return Le.strToKeyCode(l);
+    return ve.strToKeyCode(l);
   }
   e.fromString = r;
   function s(l) {
-    return Oe.keyCodeToStr(l);
+    return Ye.keyCodeToStr(l);
   }
   e.toUserSettingsUS = s;
   function i(l) {
-    return je.keyCodeToStr(l);
+    return Xe.keyCodeToStr(l);
   }
   e.toUserSettingsGeneral = i;
   function a(l) {
-    return Oe.strToKeyCode(l) || je.strToKeyCode(l);
+    return Ye.strToKeyCode(l) || Xe.strToKeyCode(l);
   }
   e.fromUserSettings = a;
   function o(l) {
@@ -3258,15 +3384,15 @@ var wt;
       case 17:
         return "Right";
     }
-    return Le.keyCodeToStr(l);
+    return ve.keyCodeToStr(l);
   }
   e.toElectronAccelerator = o;
-})(wt || (wt = {}));
-function Zr(e, t) {
+})(Lt || (Lt = {}));
+function a1(e, t) {
   const r = (t & 65535) << 16 >>> 0;
   return (e | r) >>> 0;
 }
-class W extends x {
+class $ extends x {
   constructor(t, r, s, i) {
     super(t, r, s, i), this.selectionStartLineNumber = t, this.selectionStartColumn = r, this.positionLineNumber = s, this.positionColumn = i;
   }
@@ -3274,7 +3400,7 @@ class W extends x {
     return "[" + this.selectionStartLineNumber + "," + this.selectionStartColumn + " -> " + this.positionLineNumber + "," + this.positionColumn + "]";
   }
   equalsSelection(t) {
-    return W.selectionsEqual(this, t);
+    return $.selectionsEqual(this, t);
   }
   static selectionsEqual(t, r) {
     return t.selectionStartLineNumber === r.selectionStartLineNumber && t.selectionStartColumn === r.selectionStartColumn && t.positionLineNumber === r.positionLineNumber && t.positionColumn === r.positionColumn;
@@ -3283,25 +3409,25 @@ class W extends x {
     return this.selectionStartLineNumber === this.startLineNumber && this.selectionStartColumn === this.startColumn ? 0 : 1;
   }
   setEndPosition(t, r) {
-    return this.getDirection() === 0 ? new W(this.startLineNumber, this.startColumn, t, r) : new W(t, r, this.startLineNumber, this.startColumn);
+    return this.getDirection() === 0 ? new $(this.startLineNumber, this.startColumn, t, r) : new $(t, r, this.startLineNumber, this.startColumn);
   }
   getPosition() {
-    return new q(this.positionLineNumber, this.positionColumn);
+    return new H(this.positionLineNumber, this.positionColumn);
   }
   getSelectionStart() {
-    return new q(this.selectionStartLineNumber, this.selectionStartColumn);
+    return new H(this.selectionStartLineNumber, this.selectionStartColumn);
   }
   setStartPosition(t, r) {
-    return this.getDirection() === 0 ? new W(t, r, this.endLineNumber, this.endColumn) : new W(this.endLineNumber, this.endColumn, t, r);
+    return this.getDirection() === 0 ? new $(t, r, this.endLineNumber, this.endColumn) : new $(this.endLineNumber, this.endColumn, t, r);
   }
   static fromPositions(t, r = t) {
-    return new W(t.lineNumber, t.column, r.lineNumber, r.column);
+    return new $(t.lineNumber, t.column, r.lineNumber, r.column);
   }
   static fromRange(t, r) {
-    return r === 0 ? new W(t.startLineNumber, t.startColumn, t.endLineNumber, t.endColumn) : new W(t.endLineNumber, t.endColumn, t.startLineNumber, t.startColumn);
+    return r === 0 ? new $(t.startLineNumber, t.startColumn, t.endLineNumber, t.endColumn) : new $(t.endLineNumber, t.endColumn, t.startLineNumber, t.startColumn);
   }
   static liftSelection(t) {
-    return new W(t.selectionStartLineNumber, t.selectionStartColumn, t.positionLineNumber, t.positionColumn);
+    return new $(t.selectionStartLineNumber, t.selectionStartColumn, t.positionLineNumber, t.positionColumn);
   }
   static selectionsArrEqual(t, r) {
     if (t && !r || !t && r)
@@ -3319,111 +3445,7 @@ class W extends x {
     return t && typeof t.selectionStartLineNumber == "number" && typeof t.selectionStartColumn == "number" && typeof t.positionLineNumber == "number" && typeof t.positionColumn == "number";
   }
   static createWithDirection(t, r, s, i, a) {
-    return a === 0 ? new W(t, r, s, i) : new W(s, i, t, r);
-  }
-}
-var Ze = globalThis && globalThis.__awaiter || function(e, t, r, s) {
-  function i(a) {
-    return a instanceof r ? a : new r(function(o) {
-      o(a);
-    });
-  }
-  return new (r || (r = Promise))(function(a, o) {
-    function l(f) {
-      try {
-        c(s.next(f));
-      } catch (h) {
-        o(h);
-      }
-    }
-    function u(f) {
-      try {
-        c(s.throw(f));
-      } catch (h) {
-        o(h);
-      }
-    }
-    function c(f) {
-      f.done ? a(f.value) : i(f.value).then(l, u);
-    }
-    c((s = s.apply(e, t || [])).next());
-  });
-};
-class Yr {
-  constructor() {
-    this._map = /* @__PURE__ */ new Map(), this._factories = /* @__PURE__ */ new Map(), this._onDidChange = new j(), this.onDidChange = this._onDidChange.event, this._colorMap = null;
-  }
-  fire(t) {
-    this._onDidChange.fire({
-      changedLanguages: t,
-      changedColorMap: !1
-    });
-  }
-  register(t, r) {
-    return this._map.set(t, r), this.fire([t]), Ne(() => {
-      this._map.get(t) === r && (this._map.delete(t), this.fire([t]));
-    });
-  }
-  registerFactory(t, r) {
-    var s;
-    (s = this._factories.get(t)) === null || s === void 0 || s.dispose();
-    const i = new Xr(this, t, r);
-    return this._factories.set(t, i), Ne(() => {
-      const a = this._factories.get(t);
-      !a || a !== i || (this._factories.delete(t), a.dispose());
-    });
-  }
-  getOrCreate(t) {
-    return Ze(this, void 0, void 0, function* () {
-      const r = this.get(t);
-      if (r)
-        return r;
-      const s = this._factories.get(t);
-      return !s || s.isResolved ? null : (yield s.resolve(), this.get(t));
-    });
-  }
-  get(t) {
-    return this._map.get(t) || null;
-  }
-  isResolved(t) {
-    if (this.get(t))
-      return !0;
-    const s = this._factories.get(t);
-    return !!(!s || s.isResolved);
-  }
-  setColorMap(t) {
-    this._colorMap = t, this._onDidChange.fire({
-      changedLanguages: Array.from(this._map.keys()),
-      changedColorMap: !0
-    });
-  }
-  getColorMap() {
-    return this._colorMap;
-  }
-  getDefaultBackground() {
-    return this._colorMap && this._colorMap.length > 2 ? this._colorMap[2] : null;
-  }
-}
-class Xr extends et {
-  constructor(t, r, s) {
-    super(), this._registry = t, this._languageId = r, this._factory = s, this._isDisposed = !1, this._resolvePromise = null, this._isResolved = !1;
-  }
-  get isResolved() {
-    return this._isResolved;
-  }
-  dispose() {
-    this._isDisposed = !0, super.dispose();
-  }
-  resolve() {
-    return Ze(this, void 0, void 0, function* () {
-      return this._resolvePromise || (this._resolvePromise = this._create()), this._resolvePromise;
-    });
-  }
-  _create() {
-    return Ze(this, void 0, void 0, function* () {
-      const t = yield Promise.resolve(this._factory.createTokenizationSupport());
-      this._isResolved = !0, t && !this._isDisposed && this._register(this._registry.register(this._languageId, t));
-    });
+    return a === 0 ? new $(t, r, s, i) : new $(s, i, t, r);
   }
 }
 class n {
@@ -3823,7 +3845,8 @@ n.debugBreakpointFunctionUnverified = new n("debug-breakpoint-function-unverifie
 n.debugBreakpointFunction = new n("debug-breakpoint-function", { fontCharacter: "\\eb88" });
 n.debugBreakpointFunctionDisabled = new n("debug-breakpoint-function-disabled", { fontCharacter: "\\eb88" });
 n.debugStackframeActive = new n("debug-stackframe-active", { fontCharacter: "\\eb89" });
-n.debugStackframeDot = new n("debug-stackframe-dot", { fontCharacter: "\\eb8a" });
+n.circleSmallFilled = new n("circle-small-filled", { fontCharacter: "\\eb8a" });
+n.debugStackframeDot = new n("debug-stackframe-dot", n.circleSmallFilled.definition);
 n.debugStackframe = new n("debug-stackframe", { fontCharacter: "\\eb8b" });
 n.debugStackframeFocused = new n("debug-stackframe-focused", { fontCharacter: "\\eb8b" });
 n.debugBreakpointUnsupported = new n("debug-breakpoint-unsupported", { fontCharacter: "\\eb8c" });
@@ -3936,6 +3959,9 @@ n.layoutSidebarRight = new n("layout-sidebar-right", { fontCharacter: "\\ebf4" }
 n.layoutStatusbar = new n("layout-statusbar", { fontCharacter: "\\ebf5" });
 n.layoutMenubar = new n("layout-menubar", { fontCharacter: "\\ebf6" });
 n.layoutCentered = new n("layout-centered", { fontCharacter: "\\ebf7" });
+n.layoutSidebarRightOff = new n("layout-sidebar-right-off", { fontCharacter: "\\ec00" });
+n.layoutPanelOff = new n("layout-panel-off", { fontCharacter: "\\ec01" });
+n.layoutSidebarLeftOff = new n("layout-sidebar-left-off", { fontCharacter: "\\ec02" });
 n.target = new n("target", { fontCharacter: "\\ebf8" });
 n.indent = new n("indent", { fontCharacter: "\\ebf9" });
 n.recordSmall = new n("record-small", { fontCharacter: "\\ebfa" });
@@ -3944,6 +3970,15 @@ n.arrowCircleDown = new n("arrow-circle-down", { fontCharacter: "\\ebfc" });
 n.arrowCircleLeft = new n("arrow-circle-left", { fontCharacter: "\\ebfd" });
 n.arrowCircleRight = new n("arrow-circle-right", { fontCharacter: "\\ebfe" });
 n.arrowCircleUp = new n("arrow-circle-up", { fontCharacter: "\\ebff" });
+n.heartFilled = new n("heart-filled", { fontCharacter: "\\ec04" });
+n.map = new n("map", { fontCharacter: "\\ec05" });
+n.mapFilled = new n("map-filled", { fontCharacter: "\\ec06" });
+n.circleSmall = new n("circle-small", { fontCharacter: "\\ec07" });
+n.bellSlash = new n("bell-slash", { fontCharacter: "\\ec08" });
+n.bellSlashDot = new n("bell-slash-dot", { fontCharacter: "\\ec09" });
+n.commentUnresolved = new n("comment-unresolved", { fontCharacter: "\\ec0a" });
+n.gitPullRequestGoToChanges = new n("git-pull-request-go-to-changes", { fontCharacter: "\\ec0b" });
+n.gitPullRequestNewChanges = new n("git-pull-request-new-changes", { fontCharacter: "\\ec0c" });
 n.dialogError = new n("dialog-error", n.error.definition);
 n.dialogWarning = new n("dialog-warning", n.warning.definition);
 n.dialogInfo = new n("dialog-info", n.info.definition);
@@ -3962,7 +3997,7 @@ n.scrollbarButtonUp = new n("scrollbar-button-up", n.triangleUp.definition);
 n.scrollbarButtonDown = new n("scrollbar-button-down", n.triangleDown.definition);
 n.toolBarMore = new n("toolbar-more", n.more.definition);
 n.quickInputBack = new n("quick-input-back", n.arrowLeft.definition);
-var Ct;
+var Nt;
 (function(e) {
   e.iconNameSegment = "[A-Za-z0-9]+", e.iconNameExpression = "[A-Za-z0-9-]+", e.iconModifierExpression = "~[A-Za-z]+", e.iconNameCharacter = "[A-Za-z0-9~-]";
   const t = new RegExp(`^(${e.iconNameExpression})(${e.iconModifierExpression})?$`);
@@ -3972,8 +4007,7 @@ var Ct;
     const o = t.exec(a.id);
     if (!o)
       return r(n.error);
-    let [, l, u] = o;
-    const c = ["codicon", "codicon-" + l];
+    const [, l, u] = o, c = ["codicon", "codicon-" + l];
     return u && c.push("codicon-modifier-" + u.substr(1)), c;
   }
   e.asClassNameArray = r;
@@ -3985,8 +4019,112 @@ var Ct;
     return "." + r(a).join(".");
   }
   e.asCSSSelector = i;
-})(Ct || (Ct = {}));
-class Qr {
+})(Nt || (Nt = {}));
+var Je = globalThis && globalThis.__awaiter || function(e, t, r, s) {
+  function i(a) {
+    return a instanceof r ? a : new r(function(o) {
+      o(a);
+    });
+  }
+  return new (r || (r = Promise))(function(a, o) {
+    function l(f) {
+      try {
+        c(s.next(f));
+      } catch (h) {
+        o(h);
+      }
+    }
+    function u(f) {
+      try {
+        c(s.throw(f));
+      } catch (h) {
+        o(h);
+      }
+    }
+    function c(f) {
+      f.done ? a(f.value) : i(f.value).then(l, u);
+    }
+    c((s = s.apply(e, t || [])).next());
+  });
+};
+class o1 {
+  constructor() {
+    this._map = /* @__PURE__ */ new Map(), this._factories = /* @__PURE__ */ new Map(), this._onDidChange = new O(), this.onDidChange = this._onDidChange.event, this._colorMap = null;
+  }
+  fire(t) {
+    this._onDidChange.fire({
+      changedLanguages: t,
+      changedColorMap: !1
+    });
+  }
+  register(t, r) {
+    return this._map.set(t, r), this.fire([t]), Ae(() => {
+      this._map.get(t) === r && (this._map.delete(t), this.fire([t]));
+    });
+  }
+  registerFactory(t, r) {
+    var s;
+    (s = this._factories.get(t)) === null || s === void 0 || s.dispose();
+    const i = new l1(this, t, r);
+    return this._factories.set(t, i), Ae(() => {
+      const a = this._factories.get(t);
+      !a || a !== i || (this._factories.delete(t), a.dispose());
+    });
+  }
+  getOrCreate(t) {
+    return Je(this, void 0, void 0, function* () {
+      const r = this.get(t);
+      if (r)
+        return r;
+      const s = this._factories.get(t);
+      return !s || s.isResolved ? null : (yield s.resolve(), this.get(t));
+    });
+  }
+  get(t) {
+    return this._map.get(t) || null;
+  }
+  isResolved(t) {
+    if (this.get(t))
+      return !0;
+    const s = this._factories.get(t);
+    return !!(!s || s.isResolved);
+  }
+  setColorMap(t) {
+    this._colorMap = t, this._onDidChange.fire({
+      changedLanguages: Array.from(this._map.keys()),
+      changedColorMap: !0
+    });
+  }
+  getColorMap() {
+    return this._colorMap;
+  }
+  getDefaultBackground() {
+    return this._colorMap && this._colorMap.length > 2 ? this._colorMap[2] : null;
+  }
+}
+class l1 extends st {
+  constructor(t, r, s) {
+    super(), this._registry = t, this._languageId = r, this._factory = s, this._isDisposed = !1, this._resolvePromise = null, this._isResolved = !1;
+  }
+  get isResolved() {
+    return this._isResolved;
+  }
+  dispose() {
+    this._isDisposed = !0, super.dispose();
+  }
+  resolve() {
+    return Je(this, void 0, void 0, function* () {
+      return this._resolvePromise || (this._resolvePromise = this._create()), this._resolvePromise;
+    });
+  }
+  _create() {
+    return Je(this, void 0, void 0, function* () {
+      const t = yield Promise.resolve(this._factory.createTokenizationSupport());
+      this._isResolved = !0, t && !this._isDisposed && this._register(this._registry.register(this._languageId, t));
+    });
+  }
+}
+class c1 {
   constructor(t, r, s) {
     this._tokenBrand = void 0, this.offset = t, this.type = r, this.language = s;
   }
@@ -3994,7 +4132,7 @@ class Qr {
     return "(" + this.offset + ", " + this.type + ")";
   }
 }
-var _t;
+var vt;
 (function(e) {
   const t = /* @__PURE__ */ new Map();
   t.set(0, n.symbolMethod), t.set(1, n.symbolFunction), t.set(2, n.symbolConstructor), t.set(3, n.symbolField), t.set(4, n.symbolVariable), t.set(5, n.symbolClass), t.set(6, n.symbolStruct), t.set(7, n.symbolInterface), t.set(8, n.symbolModule), t.set(9, n.symbolProperty), t.set(10, n.symbolEvent), t.set(11, n.symbolOperator), t.set(12, n.symbolUnit), t.set(13, n.symbolValue), t.set(15, n.symbolEnum), t.set(14, n.symbolConstant), t.set(15, n.symbolEnum), t.set(16, n.symbolEnumMember), t.set(17, n.symbolKeyword), t.set(27, n.symbolSnippet), t.set(18, n.symbolText), t.set(19, n.symbolColor), t.set(20, n.symbolFile), t.set(21, n.symbolReference), t.set(22, n.symbolCustomColor), t.set(23, n.symbolFolder), t.set(24, n.symbolTypeParameter), t.set(25, n.account), t.set(26, n.issues);
@@ -4010,20 +4148,20 @@ var _t;
     return typeof l > "u" && !o && (l = 9), l;
   }
   e.fromString = i;
-})(_t || (_t = {}));
-var pt;
+})(vt || (vt = {}));
+var St;
 (function(e) {
   e[e.Automatic = 0] = "Automatic", e[e.Explicit = 1] = "Explicit";
-})(pt || (pt = {}));
-var Lt;
+})(St || (St = {}));
+var At;
 (function(e) {
   e[e.Invoke = 1] = "Invoke", e[e.TriggerCharacter = 2] = "TriggerCharacter", e[e.ContentChange = 3] = "ContentChange";
-})(Lt || (Lt = {}));
-var Nt;
+})(At || (At = {}));
+var yt;
 (function(e) {
   e[e.Text = 0] = "Text", e[e.Read = 1] = "Read", e[e.Write = 2] = "Write";
-})(Nt || (Nt = {}));
-var St;
+})(yt || (yt = {}));
+var kt;
 (function(e) {
   const t = /* @__PURE__ */ new Map();
   t.set(0, n.symbolFile), t.set(1, n.symbolModule), t.set(2, n.symbolNamespace), t.set(3, n.symbolPackage), t.set(4, n.symbolClass), t.set(5, n.symbolMethod), t.set(6, n.symbolProperty), t.set(7, n.symbolField), t.set(8, n.symbolConstructor), t.set(9, n.symbolEnum), t.set(10, n.symbolInterface), t.set(11, n.symbolFunction), t.set(12, n.symbolVariable), t.set(13, n.symbolConstant), t.set(14, n.symbolString), t.set(15, n.symbolNumber), t.set(16, n.symbolBoolean), t.set(17, n.symbolArray), t.set(18, n.symbolObject), t.set(19, n.symbolKey), t.set(20, n.symbolNull), t.set(21, n.symbolEnumMember), t.set(22, n.symbolStruct), t.set(23, n.symbolEvent), t.set(24, n.symbolOperator), t.set(25, n.symbolTypeParameter);
@@ -4032,207 +4170,211 @@ var St;
     return i || (console.info("No codicon found for SymbolKind " + s), i = n.symbolProperty), i;
   }
   e.toIcon = r;
-})(St || (St = {}));
-var vt;
+})(kt || (kt = {}));
+var Mt;
 (function(e) {
   function t(r) {
     return !r || typeof r != "object" ? !1 : typeof r.id == "string" && typeof r.title == "string";
   }
   e.is = t;
-})(vt || (vt = {}));
-var At;
-(function(e) {
-  e[e.Type = 1] = "Type", e[e.Parameter = 2] = "Parameter";
-})(At || (At = {}));
-new Yr();
-var yt;
-(function(e) {
-  e[e.Unknown = 0] = "Unknown", e[e.Disabled = 1] = "Disabled", e[e.Enabled = 2] = "Enabled";
-})(yt || (yt = {}));
-var kt;
-(function(e) {
-  e[e.KeepWhitespace = 1] = "KeepWhitespace", e[e.InsertAsSnippet = 4] = "InsertAsSnippet";
-})(kt || (kt = {}));
-var Mt;
-(function(e) {
-  e[e.Method = 0] = "Method", e[e.Function = 1] = "Function", e[e.Constructor = 2] = "Constructor", e[e.Field = 3] = "Field", e[e.Variable = 4] = "Variable", e[e.Class = 5] = "Class", e[e.Struct = 6] = "Struct", e[e.Interface = 7] = "Interface", e[e.Module = 8] = "Module", e[e.Property = 9] = "Property", e[e.Event = 10] = "Event", e[e.Operator = 11] = "Operator", e[e.Unit = 12] = "Unit", e[e.Value = 13] = "Value", e[e.Constant = 14] = "Constant", e[e.Enum = 15] = "Enum", e[e.EnumMember = 16] = "EnumMember", e[e.Keyword = 17] = "Keyword", e[e.Text = 18] = "Text", e[e.Color = 19] = "Color", e[e.File = 20] = "File", e[e.Reference = 21] = "Reference", e[e.Customcolor = 22] = "Customcolor", e[e.Folder = 23] = "Folder", e[e.TypeParameter = 24] = "TypeParameter", e[e.User = 25] = "User", e[e.Issue = 26] = "Issue", e[e.Snippet = 27] = "Snippet";
 })(Mt || (Mt = {}));
 var Rt;
 (function(e) {
-  e[e.Deprecated = 1] = "Deprecated";
+  e[e.Type = 1] = "Type", e[e.Parameter = 2] = "Parameter";
 })(Rt || (Rt = {}));
+new o1();
 var Pt;
 (function(e) {
-  e[e.Invoke = 0] = "Invoke", e[e.TriggerCharacter = 1] = "TriggerCharacter", e[e.TriggerForIncompleteCompletions = 2] = "TriggerForIncompleteCompletions";
+  e[e.Unknown = 0] = "Unknown", e[e.Disabled = 1] = "Disabled", e[e.Enabled = 2] = "Enabled";
 })(Pt || (Pt = {}));
 var Dt;
 (function(e) {
-  e[e.EXACT = 0] = "EXACT", e[e.ABOVE = 1] = "ABOVE", e[e.BELOW = 2] = "BELOW";
+  e[e.Invoke = 1] = "Invoke", e[e.Auto = 2] = "Auto";
 })(Dt || (Dt = {}));
 var Ft;
 (function(e) {
-  e[e.NotSet = 0] = "NotSet", e[e.ContentFlush = 1] = "ContentFlush", e[e.RecoverFromMarkers = 2] = "RecoverFromMarkers", e[e.Explicit = 3] = "Explicit", e[e.Paste = 4] = "Paste", e[e.Undo = 5] = "Undo", e[e.Redo = 6] = "Redo";
+  e[e.KeepWhitespace = 1] = "KeepWhitespace", e[e.InsertAsSnippet = 4] = "InsertAsSnippet";
 })(Ft || (Ft = {}));
 var xt;
 (function(e) {
-  e[e.LF = 1] = "LF", e[e.CRLF = 2] = "CRLF";
+  e[e.Method = 0] = "Method", e[e.Function = 1] = "Function", e[e.Constructor = 2] = "Constructor", e[e.Field = 3] = "Field", e[e.Variable = 4] = "Variable", e[e.Class = 5] = "Class", e[e.Struct = 6] = "Struct", e[e.Interface = 7] = "Interface", e[e.Module = 8] = "Module", e[e.Property = 9] = "Property", e[e.Event = 10] = "Event", e[e.Operator = 11] = "Operator", e[e.Unit = 12] = "Unit", e[e.Value = 13] = "Value", e[e.Constant = 14] = "Constant", e[e.Enum = 15] = "Enum", e[e.EnumMember = 16] = "EnumMember", e[e.Keyword = 17] = "Keyword", e[e.Text = 18] = "Text", e[e.Color = 19] = "Color", e[e.File = 20] = "File", e[e.Reference = 21] = "Reference", e[e.Customcolor = 22] = "Customcolor", e[e.Folder = 23] = "Folder", e[e.TypeParameter = 24] = "TypeParameter", e[e.User = 25] = "User", e[e.Issue = 26] = "Issue", e[e.Snippet = 27] = "Snippet";
 })(xt || (xt = {}));
-var Vt;
-(function(e) {
-  e[e.Text = 0] = "Text", e[e.Read = 1] = "Read", e[e.Write = 2] = "Write";
-})(Vt || (Vt = {}));
 var Et;
 (function(e) {
-  e[e.None = 0] = "None", e[e.Keep = 1] = "Keep", e[e.Brackets = 2] = "Brackets", e[e.Advanced = 3] = "Advanced", e[e.Full = 4] = "Full";
+  e[e.Deprecated = 1] = "Deprecated";
 })(Et || (Et = {}));
-var Bt;
+var Vt;
 (function(e) {
-  e[e.acceptSuggestionOnCommitCharacter = 0] = "acceptSuggestionOnCommitCharacter", e[e.acceptSuggestionOnEnter = 1] = "acceptSuggestionOnEnter", e[e.accessibilitySupport = 2] = "accessibilitySupport", e[e.accessibilityPageSize = 3] = "accessibilityPageSize", e[e.ariaLabel = 4] = "ariaLabel", e[e.autoClosingBrackets = 5] = "autoClosingBrackets", e[e.autoClosingDelete = 6] = "autoClosingDelete", e[e.autoClosingOvertype = 7] = "autoClosingOvertype", e[e.autoClosingQuotes = 8] = "autoClosingQuotes", e[e.autoIndent = 9] = "autoIndent", e[e.automaticLayout = 10] = "automaticLayout", e[e.autoSurround = 11] = "autoSurround", e[e.bracketPairColorization = 12] = "bracketPairColorization", e[e.guides = 13] = "guides", e[e.codeLens = 14] = "codeLens", e[e.codeLensFontFamily = 15] = "codeLensFontFamily", e[e.codeLensFontSize = 16] = "codeLensFontSize", e[e.colorDecorators = 17] = "colorDecorators", e[e.columnSelection = 18] = "columnSelection", e[e.comments = 19] = "comments", e[e.contextmenu = 20] = "contextmenu", e[e.copyWithSyntaxHighlighting = 21] = "copyWithSyntaxHighlighting", e[e.cursorBlinking = 22] = "cursorBlinking", e[e.cursorSmoothCaretAnimation = 23] = "cursorSmoothCaretAnimation", e[e.cursorStyle = 24] = "cursorStyle", e[e.cursorSurroundingLines = 25] = "cursorSurroundingLines", e[e.cursorSurroundingLinesStyle = 26] = "cursorSurroundingLinesStyle", e[e.cursorWidth = 27] = "cursorWidth", e[e.disableLayerHinting = 28] = "disableLayerHinting", e[e.disableMonospaceOptimizations = 29] = "disableMonospaceOptimizations", e[e.domReadOnly = 30] = "domReadOnly", e[e.dragAndDrop = 31] = "dragAndDrop", e[e.emptySelectionClipboard = 32] = "emptySelectionClipboard", e[e.extraEditorClassName = 33] = "extraEditorClassName", e[e.fastScrollSensitivity = 34] = "fastScrollSensitivity", e[e.find = 35] = "find", e[e.fixedOverflowWidgets = 36] = "fixedOverflowWidgets", e[e.folding = 37] = "folding", e[e.foldingStrategy = 38] = "foldingStrategy", e[e.foldingHighlight = 39] = "foldingHighlight", e[e.foldingImportsByDefault = 40] = "foldingImportsByDefault", e[e.foldingMaximumRegions = 41] = "foldingMaximumRegions", e[e.unfoldOnClickAfterEndOfLine = 42] = "unfoldOnClickAfterEndOfLine", e[e.fontFamily = 43] = "fontFamily", e[e.fontInfo = 44] = "fontInfo", e[e.fontLigatures = 45] = "fontLigatures", e[e.fontSize = 46] = "fontSize", e[e.fontWeight = 47] = "fontWeight", e[e.formatOnPaste = 48] = "formatOnPaste", e[e.formatOnType = 49] = "formatOnType", e[e.glyphMargin = 50] = "glyphMargin", e[e.gotoLocation = 51] = "gotoLocation", e[e.hideCursorInOverviewRuler = 52] = "hideCursorInOverviewRuler", e[e.hover = 53] = "hover", e[e.inDiffEditor = 54] = "inDiffEditor", e[e.inlineSuggest = 55] = "inlineSuggest", e[e.letterSpacing = 56] = "letterSpacing", e[e.lightbulb = 57] = "lightbulb", e[e.lineDecorationsWidth = 58] = "lineDecorationsWidth", e[e.lineHeight = 59] = "lineHeight", e[e.lineNumbers = 60] = "lineNumbers", e[e.lineNumbersMinChars = 61] = "lineNumbersMinChars", e[e.linkedEditing = 62] = "linkedEditing", e[e.links = 63] = "links", e[e.matchBrackets = 64] = "matchBrackets", e[e.minimap = 65] = "minimap", e[e.mouseStyle = 66] = "mouseStyle", e[e.mouseWheelScrollSensitivity = 67] = "mouseWheelScrollSensitivity", e[e.mouseWheelZoom = 68] = "mouseWheelZoom", e[e.multiCursorMergeOverlapping = 69] = "multiCursorMergeOverlapping", e[e.multiCursorModifier = 70] = "multiCursorModifier", e[e.multiCursorPaste = 71] = "multiCursorPaste", e[e.occurrencesHighlight = 72] = "occurrencesHighlight", e[e.overviewRulerBorder = 73] = "overviewRulerBorder", e[e.overviewRulerLanes = 74] = "overviewRulerLanes", e[e.padding = 75] = "padding", e[e.parameterHints = 76] = "parameterHints", e[e.peekWidgetDefaultFocus = 77] = "peekWidgetDefaultFocus", e[e.definitionLinkOpensInPeek = 78] = "definitionLinkOpensInPeek", e[e.quickSuggestions = 79] = "quickSuggestions", e[e.quickSuggestionsDelay = 80] = "quickSuggestionsDelay", e[e.readOnly = 81] = "readOnly", e[e.renameOnType = 82] = "renameOnType", e[e.renderControlCharacters = 83] = "renderControlCharacters", e[e.renderFinalNewline = 84] = "renderFinalNewline", e[e.renderLineHighlight = 85] = "renderLineHighlight", e[e.renderLineHighlightOnlyWhenFocus = 86] = "renderLineHighlightOnlyWhenFocus", e[e.renderValidationDecorations = 87] = "renderValidationDecorations", e[e.renderWhitespace = 88] = "renderWhitespace", e[e.revealHorizontalRightPadding = 89] = "revealHorizontalRightPadding", e[e.roundedSelection = 90] = "roundedSelection", e[e.rulers = 91] = "rulers", e[e.scrollbar = 92] = "scrollbar", e[e.scrollBeyondLastColumn = 93] = "scrollBeyondLastColumn", e[e.scrollBeyondLastLine = 94] = "scrollBeyondLastLine", e[e.scrollPredominantAxis = 95] = "scrollPredominantAxis", e[e.selectionClipboard = 96] = "selectionClipboard", e[e.selectionHighlight = 97] = "selectionHighlight", e[e.selectOnLineNumbers = 98] = "selectOnLineNumbers", e[e.showFoldingControls = 99] = "showFoldingControls", e[e.showUnused = 100] = "showUnused", e[e.snippetSuggestions = 101] = "snippetSuggestions", e[e.smartSelect = 102] = "smartSelect", e[e.smoothScrolling = 103] = "smoothScrolling", e[e.stickyTabStops = 104] = "stickyTabStops", e[e.stopRenderingLineAfter = 105] = "stopRenderingLineAfter", e[e.suggest = 106] = "suggest", e[e.suggestFontSize = 107] = "suggestFontSize", e[e.suggestLineHeight = 108] = "suggestLineHeight", e[e.suggestOnTriggerCharacters = 109] = "suggestOnTriggerCharacters", e[e.suggestSelection = 110] = "suggestSelection", e[e.tabCompletion = 111] = "tabCompletion", e[e.tabIndex = 112] = "tabIndex", e[e.unicodeHighlighting = 113] = "unicodeHighlighting", e[e.unusualLineTerminators = 114] = "unusualLineTerminators", e[e.useShadowDOM = 115] = "useShadowDOM", e[e.useTabStops = 116] = "useTabStops", e[e.wordSeparators = 117] = "wordSeparators", e[e.wordWrap = 118] = "wordWrap", e[e.wordWrapBreakAfterCharacters = 119] = "wordWrapBreakAfterCharacters", e[e.wordWrapBreakBeforeCharacters = 120] = "wordWrapBreakBeforeCharacters", e[e.wordWrapColumn = 121] = "wordWrapColumn", e[e.wordWrapOverride1 = 122] = "wordWrapOverride1", e[e.wordWrapOverride2 = 123] = "wordWrapOverride2", e[e.wrappingIndent = 124] = "wrappingIndent", e[e.wrappingStrategy = 125] = "wrappingStrategy", e[e.showDeprecated = 126] = "showDeprecated", e[e.inlayHints = 127] = "inlayHints", e[e.editorClassName = 128] = "editorClassName", e[e.pixelRatio = 129] = "pixelRatio", e[e.tabFocusMode = 130] = "tabFocusMode", e[e.layoutInfo = 131] = "layoutInfo", e[e.wrappingInfo = 132] = "wrappingInfo";
-})(Bt || (Bt = {}));
+  e[e.Invoke = 0] = "Invoke", e[e.TriggerCharacter = 1] = "TriggerCharacter", e[e.TriggerForIncompleteCompletions = 2] = "TriggerForIncompleteCompletions";
+})(Vt || (Vt = {}));
 var Tt;
 (function(e) {
-  e[e.TextDefined = 0] = "TextDefined", e[e.LF = 1] = "LF", e[e.CRLF = 2] = "CRLF";
+  e[e.EXACT = 0] = "EXACT", e[e.ABOVE = 1] = "ABOVE", e[e.BELOW = 2] = "BELOW";
 })(Tt || (Tt = {}));
+var Bt;
+(function(e) {
+  e[e.NotSet = 0] = "NotSet", e[e.ContentFlush = 1] = "ContentFlush", e[e.RecoverFromMarkers = 2] = "RecoverFromMarkers", e[e.Explicit = 3] = "Explicit", e[e.Paste = 4] = "Paste", e[e.Undo = 5] = "Undo", e[e.Redo = 6] = "Redo";
+})(Bt || (Bt = {}));
 var Ut;
 (function(e) {
-  e[e.LF = 0] = "LF", e[e.CRLF = 1] = "CRLF";
+  e[e.LF = 1] = "LF", e[e.CRLF = 2] = "CRLF";
 })(Ut || (Ut = {}));
 var It;
 (function(e) {
-  e[e.None = 0] = "None", e[e.Indent = 1] = "Indent", e[e.IndentOutdent = 2] = "IndentOutdent", e[e.Outdent = 3] = "Outdent";
+  e[e.Text = 0] = "Text", e[e.Read = 1] = "Read", e[e.Write = 2] = "Write";
 })(It || (It = {}));
 var qt;
 (function(e) {
-  e[e.Both = 0] = "Both", e[e.Right = 1] = "Right", e[e.Left = 2] = "Left", e[e.None = 3] = "None";
+  e[e.None = 0] = "None", e[e.Keep = 1] = "Keep", e[e.Brackets = 2] = "Brackets", e[e.Advanced = 3] = "Advanced", e[e.Full = 4] = "Full";
 })(qt || (qt = {}));
 var Ht;
 (function(e) {
-  e[e.Type = 1] = "Type", e[e.Parameter = 2] = "Parameter";
+  e[e.acceptSuggestionOnCommitCharacter = 0] = "acceptSuggestionOnCommitCharacter", e[e.acceptSuggestionOnEnter = 1] = "acceptSuggestionOnEnter", e[e.accessibilitySupport = 2] = "accessibilitySupport", e[e.accessibilityPageSize = 3] = "accessibilityPageSize", e[e.ariaLabel = 4] = "ariaLabel", e[e.autoClosingBrackets = 5] = "autoClosingBrackets", e[e.autoClosingDelete = 6] = "autoClosingDelete", e[e.autoClosingOvertype = 7] = "autoClosingOvertype", e[e.autoClosingQuotes = 8] = "autoClosingQuotes", e[e.autoIndent = 9] = "autoIndent", e[e.automaticLayout = 10] = "automaticLayout", e[e.autoSurround = 11] = "autoSurround", e[e.bracketPairColorization = 12] = "bracketPairColorization", e[e.guides = 13] = "guides", e[e.codeLens = 14] = "codeLens", e[e.codeLensFontFamily = 15] = "codeLensFontFamily", e[e.codeLensFontSize = 16] = "codeLensFontSize", e[e.colorDecorators = 17] = "colorDecorators", e[e.columnSelection = 18] = "columnSelection", e[e.comments = 19] = "comments", e[e.contextmenu = 20] = "contextmenu", e[e.copyWithSyntaxHighlighting = 21] = "copyWithSyntaxHighlighting", e[e.cursorBlinking = 22] = "cursorBlinking", e[e.cursorSmoothCaretAnimation = 23] = "cursorSmoothCaretAnimation", e[e.cursorStyle = 24] = "cursorStyle", e[e.cursorSurroundingLines = 25] = "cursorSurroundingLines", e[e.cursorSurroundingLinesStyle = 26] = "cursorSurroundingLinesStyle", e[e.cursorWidth = 27] = "cursorWidth", e[e.disableLayerHinting = 28] = "disableLayerHinting", e[e.disableMonospaceOptimizations = 29] = "disableMonospaceOptimizations", e[e.domReadOnly = 30] = "domReadOnly", e[e.dragAndDrop = 31] = "dragAndDrop", e[e.dropIntoEditor = 32] = "dropIntoEditor", e[e.emptySelectionClipboard = 33] = "emptySelectionClipboard", e[e.experimental = 34] = "experimental", e[e.extraEditorClassName = 35] = "extraEditorClassName", e[e.fastScrollSensitivity = 36] = "fastScrollSensitivity", e[e.find = 37] = "find", e[e.fixedOverflowWidgets = 38] = "fixedOverflowWidgets", e[e.folding = 39] = "folding", e[e.foldingStrategy = 40] = "foldingStrategy", e[e.foldingHighlight = 41] = "foldingHighlight", e[e.foldingImportsByDefault = 42] = "foldingImportsByDefault", e[e.foldingMaximumRegions = 43] = "foldingMaximumRegions", e[e.unfoldOnClickAfterEndOfLine = 44] = "unfoldOnClickAfterEndOfLine", e[e.fontFamily = 45] = "fontFamily", e[e.fontInfo = 46] = "fontInfo", e[e.fontLigatures = 47] = "fontLigatures", e[e.fontSize = 48] = "fontSize", e[e.fontWeight = 49] = "fontWeight", e[e.formatOnPaste = 50] = "formatOnPaste", e[e.formatOnType = 51] = "formatOnType", e[e.glyphMargin = 52] = "glyphMargin", e[e.gotoLocation = 53] = "gotoLocation", e[e.hideCursorInOverviewRuler = 54] = "hideCursorInOverviewRuler", e[e.hover = 55] = "hover", e[e.inDiffEditor = 56] = "inDiffEditor", e[e.inlineSuggest = 57] = "inlineSuggest", e[e.letterSpacing = 58] = "letterSpacing", e[e.lightbulb = 59] = "lightbulb", e[e.lineDecorationsWidth = 60] = "lineDecorationsWidth", e[e.lineHeight = 61] = "lineHeight", e[e.lineNumbers = 62] = "lineNumbers", e[e.lineNumbersMinChars = 63] = "lineNumbersMinChars", e[e.linkedEditing = 64] = "linkedEditing", e[e.links = 65] = "links", e[e.matchBrackets = 66] = "matchBrackets", e[e.minimap = 67] = "minimap", e[e.mouseStyle = 68] = "mouseStyle", e[e.mouseWheelScrollSensitivity = 69] = "mouseWheelScrollSensitivity", e[e.mouseWheelZoom = 70] = "mouseWheelZoom", e[e.multiCursorMergeOverlapping = 71] = "multiCursorMergeOverlapping", e[e.multiCursorModifier = 72] = "multiCursorModifier", e[e.multiCursorPaste = 73] = "multiCursorPaste", e[e.occurrencesHighlight = 74] = "occurrencesHighlight", e[e.overviewRulerBorder = 75] = "overviewRulerBorder", e[e.overviewRulerLanes = 76] = "overviewRulerLanes", e[e.padding = 77] = "padding", e[e.parameterHints = 78] = "parameterHints", e[e.peekWidgetDefaultFocus = 79] = "peekWidgetDefaultFocus", e[e.definitionLinkOpensInPeek = 80] = "definitionLinkOpensInPeek", e[e.quickSuggestions = 81] = "quickSuggestions", e[e.quickSuggestionsDelay = 82] = "quickSuggestionsDelay", e[e.readOnly = 83] = "readOnly", e[e.renameOnType = 84] = "renameOnType", e[e.renderControlCharacters = 85] = "renderControlCharacters", e[e.renderFinalNewline = 86] = "renderFinalNewline", e[e.renderLineHighlight = 87] = "renderLineHighlight", e[e.renderLineHighlightOnlyWhenFocus = 88] = "renderLineHighlightOnlyWhenFocus", e[e.renderValidationDecorations = 89] = "renderValidationDecorations", e[e.renderWhitespace = 90] = "renderWhitespace", e[e.revealHorizontalRightPadding = 91] = "revealHorizontalRightPadding", e[e.roundedSelection = 92] = "roundedSelection", e[e.rulers = 93] = "rulers", e[e.scrollbar = 94] = "scrollbar", e[e.scrollBeyondLastColumn = 95] = "scrollBeyondLastColumn", e[e.scrollBeyondLastLine = 96] = "scrollBeyondLastLine", e[e.scrollPredominantAxis = 97] = "scrollPredominantAxis", e[e.selectionClipboard = 98] = "selectionClipboard", e[e.selectionHighlight = 99] = "selectionHighlight", e[e.selectOnLineNumbers = 100] = "selectOnLineNumbers", e[e.showFoldingControls = 101] = "showFoldingControls", e[e.showUnused = 102] = "showUnused", e[e.snippetSuggestions = 103] = "snippetSuggestions", e[e.smartSelect = 104] = "smartSelect", e[e.smoothScrolling = 105] = "smoothScrolling", e[e.stickyTabStops = 106] = "stickyTabStops", e[e.stopRenderingLineAfter = 107] = "stopRenderingLineAfter", e[e.suggest = 108] = "suggest", e[e.suggestFontSize = 109] = "suggestFontSize", e[e.suggestLineHeight = 110] = "suggestLineHeight", e[e.suggestOnTriggerCharacters = 111] = "suggestOnTriggerCharacters", e[e.suggestSelection = 112] = "suggestSelection", e[e.tabCompletion = 113] = "tabCompletion", e[e.tabIndex = 114] = "tabIndex", e[e.unicodeHighlighting = 115] = "unicodeHighlighting", e[e.unusualLineTerminators = 116] = "unusualLineTerminators", e[e.useShadowDOM = 117] = "useShadowDOM", e[e.useTabStops = 118] = "useTabStops", e[e.wordSeparators = 119] = "wordSeparators", e[e.wordWrap = 120] = "wordWrap", e[e.wordWrapBreakAfterCharacters = 121] = "wordWrapBreakAfterCharacters", e[e.wordWrapBreakBeforeCharacters = 122] = "wordWrapBreakBeforeCharacters", e[e.wordWrapColumn = 123] = "wordWrapColumn", e[e.wordWrapOverride1 = 124] = "wordWrapOverride1", e[e.wordWrapOverride2 = 125] = "wordWrapOverride2", e[e.wrappingIndent = 126] = "wrappingIndent", e[e.wrappingStrategy = 127] = "wrappingStrategy", e[e.showDeprecated = 128] = "showDeprecated", e[e.inlayHints = 129] = "inlayHints", e[e.editorClassName = 130] = "editorClassName", e[e.pixelRatio = 131] = "pixelRatio", e[e.tabFocusMode = 132] = "tabFocusMode", e[e.layoutInfo = 133] = "layoutInfo", e[e.wrappingInfo = 134] = "wrappingInfo";
 })(Ht || (Ht = {}));
 var Wt;
 (function(e) {
-  e[e.Automatic = 0] = "Automatic", e[e.Explicit = 1] = "Explicit";
+  e[e.TextDefined = 0] = "TextDefined", e[e.LF = 1] = "LF", e[e.CRLF = 2] = "CRLF";
 })(Wt || (Wt = {}));
-var Ye;
-(function(e) {
-  e[e.DependsOnKbLayout = -1] = "DependsOnKbLayout", e[e.Unknown = 0] = "Unknown", e[e.Backspace = 1] = "Backspace", e[e.Tab = 2] = "Tab", e[e.Enter = 3] = "Enter", e[e.Shift = 4] = "Shift", e[e.Ctrl = 5] = "Ctrl", e[e.Alt = 6] = "Alt", e[e.PauseBreak = 7] = "PauseBreak", e[e.CapsLock = 8] = "CapsLock", e[e.Escape = 9] = "Escape", e[e.Space = 10] = "Space", e[e.PageUp = 11] = "PageUp", e[e.PageDown = 12] = "PageDown", e[e.End = 13] = "End", e[e.Home = 14] = "Home", e[e.LeftArrow = 15] = "LeftArrow", e[e.UpArrow = 16] = "UpArrow", e[e.RightArrow = 17] = "RightArrow", e[e.DownArrow = 18] = "DownArrow", e[e.Insert = 19] = "Insert", e[e.Delete = 20] = "Delete", e[e.Digit0 = 21] = "Digit0", e[e.Digit1 = 22] = "Digit1", e[e.Digit2 = 23] = "Digit2", e[e.Digit3 = 24] = "Digit3", e[e.Digit4 = 25] = "Digit4", e[e.Digit5 = 26] = "Digit5", e[e.Digit6 = 27] = "Digit6", e[e.Digit7 = 28] = "Digit7", e[e.Digit8 = 29] = "Digit8", e[e.Digit9 = 30] = "Digit9", e[e.KeyA = 31] = "KeyA", e[e.KeyB = 32] = "KeyB", e[e.KeyC = 33] = "KeyC", e[e.KeyD = 34] = "KeyD", e[e.KeyE = 35] = "KeyE", e[e.KeyF = 36] = "KeyF", e[e.KeyG = 37] = "KeyG", e[e.KeyH = 38] = "KeyH", e[e.KeyI = 39] = "KeyI", e[e.KeyJ = 40] = "KeyJ", e[e.KeyK = 41] = "KeyK", e[e.KeyL = 42] = "KeyL", e[e.KeyM = 43] = "KeyM", e[e.KeyN = 44] = "KeyN", e[e.KeyO = 45] = "KeyO", e[e.KeyP = 46] = "KeyP", e[e.KeyQ = 47] = "KeyQ", e[e.KeyR = 48] = "KeyR", e[e.KeyS = 49] = "KeyS", e[e.KeyT = 50] = "KeyT", e[e.KeyU = 51] = "KeyU", e[e.KeyV = 52] = "KeyV", e[e.KeyW = 53] = "KeyW", e[e.KeyX = 54] = "KeyX", e[e.KeyY = 55] = "KeyY", e[e.KeyZ = 56] = "KeyZ", e[e.Meta = 57] = "Meta", e[e.ContextMenu = 58] = "ContextMenu", e[e.F1 = 59] = "F1", e[e.F2 = 60] = "F2", e[e.F3 = 61] = "F3", e[e.F4 = 62] = "F4", e[e.F5 = 63] = "F5", e[e.F6 = 64] = "F6", e[e.F7 = 65] = "F7", e[e.F8 = 66] = "F8", e[e.F9 = 67] = "F9", e[e.F10 = 68] = "F10", e[e.F11 = 69] = "F11", e[e.F12 = 70] = "F12", e[e.F13 = 71] = "F13", e[e.F14 = 72] = "F14", e[e.F15 = 73] = "F15", e[e.F16 = 74] = "F16", e[e.F17 = 75] = "F17", e[e.F18 = 76] = "F18", e[e.F19 = 77] = "F19", e[e.NumLock = 78] = "NumLock", e[e.ScrollLock = 79] = "ScrollLock", e[e.Semicolon = 80] = "Semicolon", e[e.Equal = 81] = "Equal", e[e.Comma = 82] = "Comma", e[e.Minus = 83] = "Minus", e[e.Period = 84] = "Period", e[e.Slash = 85] = "Slash", e[e.Backquote = 86] = "Backquote", e[e.BracketLeft = 87] = "BracketLeft", e[e.Backslash = 88] = "Backslash", e[e.BracketRight = 89] = "BracketRight", e[e.Quote = 90] = "Quote", e[e.OEM_8 = 91] = "OEM_8", e[e.IntlBackslash = 92] = "IntlBackslash", e[e.Numpad0 = 93] = "Numpad0", e[e.Numpad1 = 94] = "Numpad1", e[e.Numpad2 = 95] = "Numpad2", e[e.Numpad3 = 96] = "Numpad3", e[e.Numpad4 = 97] = "Numpad4", e[e.Numpad5 = 98] = "Numpad5", e[e.Numpad6 = 99] = "Numpad6", e[e.Numpad7 = 100] = "Numpad7", e[e.Numpad8 = 101] = "Numpad8", e[e.Numpad9 = 102] = "Numpad9", e[e.NumpadMultiply = 103] = "NumpadMultiply", e[e.NumpadAdd = 104] = "NumpadAdd", e[e.NUMPAD_SEPARATOR = 105] = "NUMPAD_SEPARATOR", e[e.NumpadSubtract = 106] = "NumpadSubtract", e[e.NumpadDecimal = 107] = "NumpadDecimal", e[e.NumpadDivide = 108] = "NumpadDivide", e[e.KEY_IN_COMPOSITION = 109] = "KEY_IN_COMPOSITION", e[e.ABNT_C1 = 110] = "ABNT_C1", e[e.ABNT_C2 = 111] = "ABNT_C2", e[e.AudioVolumeMute = 112] = "AudioVolumeMute", e[e.AudioVolumeUp = 113] = "AudioVolumeUp", e[e.AudioVolumeDown = 114] = "AudioVolumeDown", e[e.BrowserSearch = 115] = "BrowserSearch", e[e.BrowserHome = 116] = "BrowserHome", e[e.BrowserBack = 117] = "BrowserBack", e[e.BrowserForward = 118] = "BrowserForward", e[e.MediaTrackNext = 119] = "MediaTrackNext", e[e.MediaTrackPrevious = 120] = "MediaTrackPrevious", e[e.MediaStop = 121] = "MediaStop", e[e.MediaPlayPause = 122] = "MediaPlayPause", e[e.LaunchMediaPlayer = 123] = "LaunchMediaPlayer", e[e.LaunchMail = 124] = "LaunchMail", e[e.LaunchApp2 = 125] = "LaunchApp2", e[e.Clear = 126] = "Clear", e[e.MAX_VALUE = 127] = "MAX_VALUE";
-})(Ye || (Ye = {}));
-var Xe;
-(function(e) {
-  e[e.Hint = 1] = "Hint", e[e.Info = 2] = "Info", e[e.Warning = 4] = "Warning", e[e.Error = 8] = "Error";
-})(Xe || (Xe = {}));
-var Qe;
-(function(e) {
-  e[e.Unnecessary = 1] = "Unnecessary", e[e.Deprecated = 2] = "Deprecated";
-})(Qe || (Qe = {}));
 var $t;
 (function(e) {
-  e[e.Inline = 1] = "Inline", e[e.Gutter = 2] = "Gutter";
+  e[e.LF = 0] = "LF", e[e.CRLF = 1] = "CRLF";
 })($t || ($t = {}));
 var zt;
 (function(e) {
-  e[e.UNKNOWN = 0] = "UNKNOWN", e[e.TEXTAREA = 1] = "TEXTAREA", e[e.GUTTER_GLYPH_MARGIN = 2] = "GUTTER_GLYPH_MARGIN", e[e.GUTTER_LINE_NUMBERS = 3] = "GUTTER_LINE_NUMBERS", e[e.GUTTER_LINE_DECORATIONS = 4] = "GUTTER_LINE_DECORATIONS", e[e.GUTTER_VIEW_ZONE = 5] = "GUTTER_VIEW_ZONE", e[e.CONTENT_TEXT = 6] = "CONTENT_TEXT", e[e.CONTENT_EMPTY = 7] = "CONTENT_EMPTY", e[e.CONTENT_VIEW_ZONE = 8] = "CONTENT_VIEW_ZONE", e[e.CONTENT_WIDGET = 9] = "CONTENT_WIDGET", e[e.OVERVIEW_RULER = 10] = "OVERVIEW_RULER", e[e.SCROLLBAR = 11] = "SCROLLBAR", e[e.OVERLAY_WIDGET = 12] = "OVERLAY_WIDGET", e[e.OUTSIDE_EDITOR = 13] = "OUTSIDE_EDITOR";
+  e[e.None = 0] = "None", e[e.Indent = 1] = "Indent", e[e.IndentOutdent = 2] = "IndentOutdent", e[e.Outdent = 3] = "Outdent";
 })(zt || (zt = {}));
 var Gt;
 (function(e) {
-  e[e.TOP_RIGHT_CORNER = 0] = "TOP_RIGHT_CORNER", e[e.BOTTOM_RIGHT_CORNER = 1] = "BOTTOM_RIGHT_CORNER", e[e.TOP_CENTER = 2] = "TOP_CENTER";
+  e[e.Both = 0] = "Both", e[e.Right = 1] = "Right", e[e.Left = 2] = "Left", e[e.None = 3] = "None";
 })(Gt || (Gt = {}));
 var Ot;
 (function(e) {
-  e[e.Left = 1] = "Left", e[e.Center = 2] = "Center", e[e.Right = 4] = "Right", e[e.Full = 7] = "Full";
+  e[e.Type = 1] = "Type", e[e.Parameter = 2] = "Parameter";
 })(Ot || (Ot = {}));
 var jt;
 (function(e) {
-  e[e.Left = 0] = "Left", e[e.Right = 1] = "Right", e[e.None = 2] = "None";
+  e[e.Automatic = 0] = "Automatic", e[e.Explicit = 1] = "Explicit";
 })(jt || (jt = {}));
+var Ke;
+(function(e) {
+  e[e.DependsOnKbLayout = -1] = "DependsOnKbLayout", e[e.Unknown = 0] = "Unknown", e[e.Backspace = 1] = "Backspace", e[e.Tab = 2] = "Tab", e[e.Enter = 3] = "Enter", e[e.Shift = 4] = "Shift", e[e.Ctrl = 5] = "Ctrl", e[e.Alt = 6] = "Alt", e[e.PauseBreak = 7] = "PauseBreak", e[e.CapsLock = 8] = "CapsLock", e[e.Escape = 9] = "Escape", e[e.Space = 10] = "Space", e[e.PageUp = 11] = "PageUp", e[e.PageDown = 12] = "PageDown", e[e.End = 13] = "End", e[e.Home = 14] = "Home", e[e.LeftArrow = 15] = "LeftArrow", e[e.UpArrow = 16] = "UpArrow", e[e.RightArrow = 17] = "RightArrow", e[e.DownArrow = 18] = "DownArrow", e[e.Insert = 19] = "Insert", e[e.Delete = 20] = "Delete", e[e.Digit0 = 21] = "Digit0", e[e.Digit1 = 22] = "Digit1", e[e.Digit2 = 23] = "Digit2", e[e.Digit3 = 24] = "Digit3", e[e.Digit4 = 25] = "Digit4", e[e.Digit5 = 26] = "Digit5", e[e.Digit6 = 27] = "Digit6", e[e.Digit7 = 28] = "Digit7", e[e.Digit8 = 29] = "Digit8", e[e.Digit9 = 30] = "Digit9", e[e.KeyA = 31] = "KeyA", e[e.KeyB = 32] = "KeyB", e[e.KeyC = 33] = "KeyC", e[e.KeyD = 34] = "KeyD", e[e.KeyE = 35] = "KeyE", e[e.KeyF = 36] = "KeyF", e[e.KeyG = 37] = "KeyG", e[e.KeyH = 38] = "KeyH", e[e.KeyI = 39] = "KeyI", e[e.KeyJ = 40] = "KeyJ", e[e.KeyK = 41] = "KeyK", e[e.KeyL = 42] = "KeyL", e[e.KeyM = 43] = "KeyM", e[e.KeyN = 44] = "KeyN", e[e.KeyO = 45] = "KeyO", e[e.KeyP = 46] = "KeyP", e[e.KeyQ = 47] = "KeyQ", e[e.KeyR = 48] = "KeyR", e[e.KeyS = 49] = "KeyS", e[e.KeyT = 50] = "KeyT", e[e.KeyU = 51] = "KeyU", e[e.KeyV = 52] = "KeyV", e[e.KeyW = 53] = "KeyW", e[e.KeyX = 54] = "KeyX", e[e.KeyY = 55] = "KeyY", e[e.KeyZ = 56] = "KeyZ", e[e.Meta = 57] = "Meta", e[e.ContextMenu = 58] = "ContextMenu", e[e.F1 = 59] = "F1", e[e.F2 = 60] = "F2", e[e.F3 = 61] = "F3", e[e.F4 = 62] = "F4", e[e.F5 = 63] = "F5", e[e.F6 = 64] = "F6", e[e.F7 = 65] = "F7", e[e.F8 = 66] = "F8", e[e.F9 = 67] = "F9", e[e.F10 = 68] = "F10", e[e.F11 = 69] = "F11", e[e.F12 = 70] = "F12", e[e.F13 = 71] = "F13", e[e.F14 = 72] = "F14", e[e.F15 = 73] = "F15", e[e.F16 = 74] = "F16", e[e.F17 = 75] = "F17", e[e.F18 = 76] = "F18", e[e.F19 = 77] = "F19", e[e.NumLock = 78] = "NumLock", e[e.ScrollLock = 79] = "ScrollLock", e[e.Semicolon = 80] = "Semicolon", e[e.Equal = 81] = "Equal", e[e.Comma = 82] = "Comma", e[e.Minus = 83] = "Minus", e[e.Period = 84] = "Period", e[e.Slash = 85] = "Slash", e[e.Backquote = 86] = "Backquote", e[e.BracketLeft = 87] = "BracketLeft", e[e.Backslash = 88] = "Backslash", e[e.BracketRight = 89] = "BracketRight", e[e.Quote = 90] = "Quote", e[e.OEM_8 = 91] = "OEM_8", e[e.IntlBackslash = 92] = "IntlBackslash", e[e.Numpad0 = 93] = "Numpad0", e[e.Numpad1 = 94] = "Numpad1", e[e.Numpad2 = 95] = "Numpad2", e[e.Numpad3 = 96] = "Numpad3", e[e.Numpad4 = 97] = "Numpad4", e[e.Numpad5 = 98] = "Numpad5", e[e.Numpad6 = 99] = "Numpad6", e[e.Numpad7 = 100] = "Numpad7", e[e.Numpad8 = 101] = "Numpad8", e[e.Numpad9 = 102] = "Numpad9", e[e.NumpadMultiply = 103] = "NumpadMultiply", e[e.NumpadAdd = 104] = "NumpadAdd", e[e.NUMPAD_SEPARATOR = 105] = "NUMPAD_SEPARATOR", e[e.NumpadSubtract = 106] = "NumpadSubtract", e[e.NumpadDecimal = 107] = "NumpadDecimal", e[e.NumpadDivide = 108] = "NumpadDivide", e[e.KEY_IN_COMPOSITION = 109] = "KEY_IN_COMPOSITION", e[e.ABNT_C1 = 110] = "ABNT_C1", e[e.ABNT_C2 = 111] = "ABNT_C2", e[e.AudioVolumeMute = 112] = "AudioVolumeMute", e[e.AudioVolumeUp = 113] = "AudioVolumeUp", e[e.AudioVolumeDown = 114] = "AudioVolumeDown", e[e.BrowserSearch = 115] = "BrowserSearch", e[e.BrowserHome = 116] = "BrowserHome", e[e.BrowserBack = 117] = "BrowserBack", e[e.BrowserForward = 118] = "BrowserForward", e[e.MediaTrackNext = 119] = "MediaTrackNext", e[e.MediaTrackPrevious = 120] = "MediaTrackPrevious", e[e.MediaStop = 121] = "MediaStop", e[e.MediaPlayPause = 122] = "MediaPlayPause", e[e.LaunchMediaPlayer = 123] = "LaunchMediaPlayer", e[e.LaunchMail = 124] = "LaunchMail", e[e.LaunchApp2 = 125] = "LaunchApp2", e[e.Clear = 126] = "Clear", e[e.MAX_VALUE = 127] = "MAX_VALUE";
+})(Ke || (Ke = {}));
+var et;
+(function(e) {
+  e[e.Hint = 1] = "Hint", e[e.Info = 2] = "Info", e[e.Warning = 4] = "Warning", e[e.Error = 8] = "Error";
+})(et || (et = {}));
+var tt;
+(function(e) {
+  e[e.Unnecessary = 1] = "Unnecessary", e[e.Deprecated = 2] = "Deprecated";
+})(tt || (tt = {}));
+var Qt;
+(function(e) {
+  e[e.Inline = 1] = "Inline", e[e.Gutter = 2] = "Gutter";
+})(Qt || (Qt = {}));
 var Zt;
 (function(e) {
-  e[e.Off = 0] = "Off", e[e.On = 1] = "On", e[e.Relative = 2] = "Relative", e[e.Interval = 3] = "Interval", e[e.Custom = 4] = "Custom";
+  e[e.UNKNOWN = 0] = "UNKNOWN", e[e.TEXTAREA = 1] = "TEXTAREA", e[e.GUTTER_GLYPH_MARGIN = 2] = "GUTTER_GLYPH_MARGIN", e[e.GUTTER_LINE_NUMBERS = 3] = "GUTTER_LINE_NUMBERS", e[e.GUTTER_LINE_DECORATIONS = 4] = "GUTTER_LINE_DECORATIONS", e[e.GUTTER_VIEW_ZONE = 5] = "GUTTER_VIEW_ZONE", e[e.CONTENT_TEXT = 6] = "CONTENT_TEXT", e[e.CONTENT_EMPTY = 7] = "CONTENT_EMPTY", e[e.CONTENT_VIEW_ZONE = 8] = "CONTENT_VIEW_ZONE", e[e.CONTENT_WIDGET = 9] = "CONTENT_WIDGET", e[e.OVERVIEW_RULER = 10] = "OVERVIEW_RULER", e[e.SCROLLBAR = 11] = "SCROLLBAR", e[e.OVERLAY_WIDGET = 12] = "OVERLAY_WIDGET", e[e.OUTSIDE_EDITOR = 13] = "OUTSIDE_EDITOR";
 })(Zt || (Zt = {}));
 var Yt;
 (function(e) {
-  e[e.None = 0] = "None", e[e.Text = 1] = "Text", e[e.Blocks = 2] = "Blocks";
+  e[e.TOP_RIGHT_CORNER = 0] = "TOP_RIGHT_CORNER", e[e.BOTTOM_RIGHT_CORNER = 1] = "BOTTOM_RIGHT_CORNER", e[e.TOP_CENTER = 2] = "TOP_CENTER";
 })(Yt || (Yt = {}));
 var Xt;
 (function(e) {
-  e[e.Smooth = 0] = "Smooth", e[e.Immediate = 1] = "Immediate";
+  e[e.Left = 1] = "Left", e[e.Center = 2] = "Center", e[e.Right = 4] = "Right", e[e.Full = 7] = "Full";
 })(Xt || (Xt = {}));
-var Qt;
-(function(e) {
-  e[e.Auto = 1] = "Auto", e[e.Hidden = 2] = "Hidden", e[e.Visible = 3] = "Visible";
-})(Qt || (Qt = {}));
-var Je;
-(function(e) {
-  e[e.LTR = 0] = "LTR", e[e.RTL = 1] = "RTL";
-})(Je || (Je = {}));
 var Jt;
 (function(e) {
-  e[e.Invoke = 1] = "Invoke", e[e.TriggerCharacter = 2] = "TriggerCharacter", e[e.ContentChange = 3] = "ContentChange";
+  e[e.Left = 0] = "Left", e[e.Right = 1] = "Right", e[e.None = 2] = "None", e[e.LeftOfInjectedText = 3] = "LeftOfInjectedText", e[e.RightOfInjectedText = 4] = "RightOfInjectedText";
 })(Jt || (Jt = {}));
 var Kt;
 (function(e) {
-  e[e.File = 0] = "File", e[e.Module = 1] = "Module", e[e.Namespace = 2] = "Namespace", e[e.Package = 3] = "Package", e[e.Class = 4] = "Class", e[e.Method = 5] = "Method", e[e.Property = 6] = "Property", e[e.Field = 7] = "Field", e[e.Constructor = 8] = "Constructor", e[e.Enum = 9] = "Enum", e[e.Interface = 10] = "Interface", e[e.Function = 11] = "Function", e[e.Variable = 12] = "Variable", e[e.Constant = 13] = "Constant", e[e.String = 14] = "String", e[e.Number = 15] = "Number", e[e.Boolean = 16] = "Boolean", e[e.Array = 17] = "Array", e[e.Object = 18] = "Object", e[e.Key = 19] = "Key", e[e.Null = 20] = "Null", e[e.EnumMember = 21] = "EnumMember", e[e.Struct = 22] = "Struct", e[e.Event = 23] = "Event", e[e.Operator = 24] = "Operator", e[e.TypeParameter = 25] = "TypeParameter";
+  e[e.Off = 0] = "Off", e[e.On = 1] = "On", e[e.Relative = 2] = "Relative", e[e.Interval = 3] = "Interval", e[e.Custom = 4] = "Custom";
 })(Kt || (Kt = {}));
 var en;
 (function(e) {
-  e[e.Deprecated = 1] = "Deprecated";
+  e[e.None = 0] = "None", e[e.Text = 1] = "Text", e[e.Blocks = 2] = "Blocks";
 })(en || (en = {}));
 var tn;
 (function(e) {
-  e[e.Hidden = 0] = "Hidden", e[e.Blink = 1] = "Blink", e[e.Smooth = 2] = "Smooth", e[e.Phase = 3] = "Phase", e[e.Expand = 4] = "Expand", e[e.Solid = 5] = "Solid";
+  e[e.Smooth = 0] = "Smooth", e[e.Immediate = 1] = "Immediate";
 })(tn || (tn = {}));
 var nn;
 (function(e) {
-  e[e.Line = 1] = "Line", e[e.Block = 2] = "Block", e[e.Underline = 3] = "Underline", e[e.LineThin = 4] = "LineThin", e[e.BlockOutline = 5] = "BlockOutline", e[e.UnderlineThin = 6] = "UnderlineThin";
+  e[e.Auto = 1] = "Auto", e[e.Hidden = 2] = "Hidden", e[e.Visible = 3] = "Visible";
 })(nn || (nn = {}));
+var nt;
+(function(e) {
+  e[e.LTR = 0] = "LTR", e[e.RTL = 1] = "RTL";
+})(nt || (nt = {}));
 var rn;
 (function(e) {
-  e[e.AlwaysGrowsWhenTypingAtEdges = 0] = "AlwaysGrowsWhenTypingAtEdges", e[e.NeverGrowsWhenTypingAtEdges = 1] = "NeverGrowsWhenTypingAtEdges", e[e.GrowsOnlyWhenTypingBefore = 2] = "GrowsOnlyWhenTypingBefore", e[e.GrowsOnlyWhenTypingAfter = 3] = "GrowsOnlyWhenTypingAfter";
+  e[e.Invoke = 1] = "Invoke", e[e.TriggerCharacter = 2] = "TriggerCharacter", e[e.ContentChange = 3] = "ContentChange";
 })(rn || (rn = {}));
 var sn;
 (function(e) {
-  e[e.None = 0] = "None", e[e.Same = 1] = "Same", e[e.Indent = 2] = "Indent", e[e.DeepIndent = 3] = "DeepIndent";
+  e[e.File = 0] = "File", e[e.Module = 1] = "Module", e[e.Namespace = 2] = "Namespace", e[e.Package = 3] = "Package", e[e.Class = 4] = "Class", e[e.Method = 5] = "Method", e[e.Property = 6] = "Property", e[e.Field = 7] = "Field", e[e.Constructor = 8] = "Constructor", e[e.Enum = 9] = "Enum", e[e.Interface = 10] = "Interface", e[e.Function = 11] = "Function", e[e.Variable = 12] = "Variable", e[e.Constant = 13] = "Constant", e[e.String = 14] = "String", e[e.Number = 15] = "Number", e[e.Boolean = 16] = "Boolean", e[e.Array = 17] = "Array", e[e.Object = 18] = "Object", e[e.Key = 19] = "Key", e[e.Null = 20] = "Null", e[e.EnumMember = 21] = "EnumMember", e[e.Struct = 22] = "Struct", e[e.Event = 23] = "Event", e[e.Operator = 24] = "Operator", e[e.TypeParameter = 25] = "TypeParameter";
 })(sn || (sn = {}));
-class ge {
-  static chord(t, r) {
-    return Zr(t, r);
-  }
-}
-ge.CtrlCmd = 2048;
-ge.Shift = 1024;
-ge.Alt = 512;
-ge.WinCtrl = 256;
-function Jr() {
-  return {
-    editor: void 0,
-    languages: void 0,
-    CancellationTokenSource: zr,
-    Emitter: j,
-    KeyCode: Ye,
-    KeyMod: ge,
-    Position: q,
-    Range: x,
-    Selection: W,
-    SelectionDirection: Je,
-    MarkerSeverity: Xe,
-    MarkerTag: Qe,
-    Uri: ne,
-    Token: Qr
-  };
-}
 var an;
 (function(e) {
-  e[e.Left = 1] = "Left", e[e.Center = 2] = "Center", e[e.Right = 4] = "Right", e[e.Full = 7] = "Full";
+  e[e.Deprecated = 1] = "Deprecated";
 })(an || (an = {}));
 var on;
 (function(e) {
-  e[e.Inline = 1] = "Inline", e[e.Gutter = 2] = "Gutter";
+  e[e.Hidden = 0] = "Hidden", e[e.Blink = 1] = "Blink", e[e.Smooth = 2] = "Smooth", e[e.Phase = 3] = "Phase", e[e.Expand = 4] = "Expand", e[e.Solid = 5] = "Solid";
 })(on || (on = {}));
 var ln;
 (function(e) {
-  e[e.Both = 0] = "Both", e[e.Right = 1] = "Right", e[e.Left = 2] = "Left", e[e.None = 3] = "None";
+  e[e.Line = 1] = "Line", e[e.Block = 2] = "Block", e[e.Underline = 3] = "Underline", e[e.LineThin = 4] = "LineThin", e[e.BlockOutline = 5] = "BlockOutline", e[e.UnderlineThin = 6] = "UnderlineThin";
 })(ln || (ln = {}));
-function Kr(e, t, r, s, i) {
+var cn;
+(function(e) {
+  e[e.AlwaysGrowsWhenTypingAtEdges = 0] = "AlwaysGrowsWhenTypingAtEdges", e[e.NeverGrowsWhenTypingAtEdges = 1] = "NeverGrowsWhenTypingAtEdges", e[e.GrowsOnlyWhenTypingBefore = 2] = "GrowsOnlyWhenTypingBefore", e[e.GrowsOnlyWhenTypingAfter = 3] = "GrowsOnlyWhenTypingAfter";
+})(cn || (cn = {}));
+var un;
+(function(e) {
+  e[e.None = 0] = "None", e[e.Same = 1] = "Same", e[e.Indent = 2] = "Indent", e[e.DeepIndent = 3] = "DeepIndent";
+})(un || (un = {}));
+class we {
+  static chord(t, r) {
+    return a1(t, r);
+  }
+}
+we.CtrlCmd = 2048;
+we.Shift = 1024;
+we.Alt = 512;
+we.WinCtrl = 256;
+function u1() {
+  return {
+    editor: void 0,
+    languages: void 0,
+    CancellationTokenSource: n1,
+    Emitter: O,
+    KeyCode: Ke,
+    KeyMod: we,
+    Position: H,
+    Range: x,
+    Selection: $,
+    SelectionDirection: nt,
+    MarkerSeverity: et,
+    MarkerTag: tt,
+    Uri: ne,
+    Token: c1
+  };
+}
+var hn;
+(function(e) {
+  e[e.Left = 1] = "Left", e[e.Center = 2] = "Center", e[e.Right = 4] = "Right", e[e.Full = 7] = "Full";
+})(hn || (hn = {}));
+var fn;
+(function(e) {
+  e[e.Inline = 1] = "Inline", e[e.Gutter = 2] = "Gutter";
+})(fn || (fn = {}));
+var dn;
+(function(e) {
+  e[e.Both = 0] = "Both", e[e.Right = 1] = "Right", e[e.Left = 2] = "Left", e[e.None = 3] = "None";
+})(dn || (dn = {}));
+function h1(e, t, r, s, i) {
   if (s === 0)
     return !0;
   const a = t.charCodeAt(s - 1);
@@ -4245,7 +4387,7 @@ function Kr(e, t, r, s, i) {
   }
   return !1;
 }
-function e1(e, t, r, s, i) {
+function f1(e, t, r, s, i) {
   if (s + i === r)
     return !0;
   const a = t.charCodeAt(s + i);
@@ -4258,10 +4400,10 @@ function e1(e, t, r, s, i) {
   }
   return !1;
 }
-function t1(e, t, r, s, i) {
-  return Kr(e, t, r, s, i) && e1(e, t, r, s, i);
+function d1(e, t, r, s, i) {
+  return h1(e, t, r, s, i) && f1(e, t, r, s, i);
 }
-class n1 {
+class m1 {
   constructor(t, r) {
     this._wordSeparators = t, this._searchRegex = r, this._prevMatchStartIndex = -1, this._prevMatchLength = 0;
   }
@@ -4277,48 +4419,48 @@ class n1 {
       const i = s.index, a = s[0].length;
       if (i === this._prevMatchStartIndex && a === this._prevMatchLength) {
         if (a === 0) {
-          tr(t, r, this._searchRegex.lastIndex) > 65535 ? this._searchRegex.lastIndex += 2 : this._searchRegex.lastIndex += 1;
+          mr(t, r, this._searchRegex.lastIndex) > 65535 ? this._searchRegex.lastIndex += 2 : this._searchRegex.lastIndex += 1;
           continue;
         }
         return null;
       }
-      if (this._prevMatchStartIndex = i, this._prevMatchLength = a, !this._wordSeparators || t1(this._wordSeparators, t, r, i, a))
+      if (this._prevMatchStartIndex = i, this._prevMatchLength = a, !this._wordSeparators || d1(this._wordSeparators, t, r, i, a))
         return s;
     } while (s);
     return null;
   }
 }
-class r1 {
+class g1 {
   static computeUnicodeHighlights(t, r, s) {
-    const i = s ? s.startLineNumber : 1, a = s ? s.endLineNumber : t.getLineCount(), o = new cn(r), l = o.getCandidateCodePoints();
+    const i = s ? s.startLineNumber : 1, a = s ? s.endLineNumber : t.getLineCount(), o = new mn(r), l = o.getCandidateCodePoints();
     let u;
-    l === "allNonBasicAscii" ? u = new RegExp("[^\\t\\n\\r\\x20-\\x7E]", "g") : u = new RegExp(`${s1(Array.from(l))}`, "g");
-    const c = new n1(null, u), f = [];
-    let h = !1, d, _ = 0, S = 0, v = 0;
+    l === "allNonBasicAscii" ? u = new RegExp("[^\\t\\n\\r\\x20-\\x7E]", "g") : u = new RegExp(`${b1(Array.from(l))}`, "g");
+    const c = new m1(null, u), f = [];
+    let h = !1, d, C = 0, v = 0, A = 0;
     e:
-      for (let k = i, P = a; k <= P; k++) {
-        const w = t.getLineContent(k), p = w.length;
+      for (let k = i, R = a; k <= R; k++) {
+        const P = t.getLineContent(k), y = P.length;
         c.reset(0);
         do
-          if (d = c.next(w), d) {
-            let g = d.index, m = d.index + d[0].length;
-            if (g > 0) {
-              const N = w.charCodeAt(g - 1);
-              Ue(N) && g--;
+          if (d = c.next(P), d) {
+            let p = d.index, S = d.index + d[0].length;
+            if (p > 0) {
+              const w = P.charCodeAt(p - 1);
+              We(w) && p--;
             }
-            if (m + 1 < p) {
-              const N = w.charCodeAt(m - 1);
-              Ue(N) && m++;
+            if (S + 1 < y) {
+              const w = P.charCodeAt(S - 1);
+              We(w) && S++;
             }
-            const L = w.substring(g, m), C = nt(g + 1, vn, w, 0), b = o.shouldHighlightNonBasicASCII(L, C ? C.word : null);
-            if (b !== 0) {
-              b === 3 ? _++ : b === 2 ? S++ : b === 1 ? v++ : jn();
-              const N = 1e3;
-              if (f.length >= N) {
+            const b = P.substring(p, S), g = at(p + 1, Rn, P, 0), m = o.shouldHighlightNonBasicASCII(b, g ? g.word : null);
+            if (m !== 0) {
+              m === 3 ? C++ : m === 2 ? v++ : m === 1 ? A++ : ar();
+              const w = 1e3;
+              if (f.length >= w) {
                 h = !0;
                 break e;
               }
-              f.push(new x(k, g + 1, k, m + 1));
+              f.push(new x(k, p + 1, k, S + 1));
             }
           }
         while (d);
@@ -4326,20 +4468,20 @@ class r1 {
     return {
       ranges: f,
       hasMore: h,
-      ambiguousCharacterCount: _,
-      invisibleCharacterCount: S,
-      nonBasicAsciiCharacterCount: v
+      ambiguousCharacterCount: C,
+      invisibleCharacterCount: v,
+      nonBasicAsciiCharacterCount: A
     };
   }
   static computeUnicodeHighlightReason(t, r) {
-    const s = new cn(r);
+    const s = new mn(r);
     switch (s.shouldHighlightNonBasicASCII(t, null)) {
       case 0:
         return null;
       case 2:
         return { kind: 1 };
       case 3: {
-        const a = t.codePointAt(0), o = s.ambiguousCharacters.getPrimaryConfusable(a), l = $.getLocales().filter((u) => !$.getInstance(/* @__PURE__ */ new Set([...r.allowedLocales, u])).isAmbiguous(a));
+        const a = t.codePointAt(0), o = s.ambiguousCharacters.getPrimaryConfusable(a), l = z.getLocales().filter((u) => !z.getInstance(/* @__PURE__ */ new Set([...r.allowedLocales, u])).isAmbiguous(a));
         return { kind: 0, confusableWith: String.fromCodePoint(o), notAmbiguousInLocales: l };
       }
       case 1:
@@ -4347,12 +4489,12 @@ class r1 {
     }
   }
 }
-function s1(e, t) {
-  return `[${Yn(e.map((s) => String.fromCodePoint(s)).join(""))}]`;
+function b1(e, t) {
+  return `[${lr(e.map((s) => String.fromCodePoint(s)).join(""))}]`;
 }
-class cn {
+class mn {
   constructor(t) {
-    this.options = t, this.allowedCodePoints = new Set(t.allowedCodePoints), this.ambiguousCharacters = $.getInstance(new Set(t.allowedLocales));
+    this.options = t, this.allowedCodePoints = new Set(t.allowedCodePoints), this.ambiguousCharacters = z.getInstance(new Set(t.allowedLocales));
   }
   getCandidateCodePoints() {
     if (this.options.nonBasicASCII)
@@ -4360,7 +4502,7 @@ class cn {
     const t = /* @__PURE__ */ new Set();
     if (this.options.invisibleCharacters)
       for (const r of K.codePoints)
-        un(String.fromCodePoint(r)) || t.add(r);
+        gn(String.fromCodePoint(r)) || t.add(r);
     if (this.options.ambiguousCharacters)
       for (const r of this.ambiguousCharacters.getConfusableCodePoints())
         t.add(r);
@@ -4376,14 +4518,14 @@ class cn {
       return 1;
     let i = !1, a = !1;
     if (r)
-      for (let o of r) {
-        const l = o.codePointAt(0), u = rr(o);
+      for (const o of r) {
+        const l = o.codePointAt(0), u = br(o);
         i = i || u, !u && !this.ambiguousCharacters.isAmbiguous(l) && !K.isInvisibleCharacter(l) && (a = !0);
       }
-    return !i && a ? 0 : this.options.invisibleCharacters && !un(t) && K.isInvisibleCharacter(s) ? 2 : this.options.ambiguousCharacters && this.ambiguousCharacters.isAmbiguous(s) ? 3 : 0;
+    return !i && a ? 0 : this.options.invisibleCharacters && !gn(t) && K.isInvisibleCharacter(s) ? 2 : this.options.ambiguousCharacters && this.ambiguousCharacters.isAmbiguous(s) ? 3 : 0;
   }
 }
-function un(e) {
+function gn(e) {
   return e === " " || e === `
 ` || e === "	";
 }
@@ -4414,7 +4556,7 @@ var te = globalThis && globalThis.__awaiter || function(e, t, r, s) {
     c((s = s.apply(e, t || [])).next());
   });
 };
-class i1 extends xr {
+class w1 extends Or {
   get uri() {
     return this._uri;
   }
@@ -4434,7 +4576,7 @@ class i1 extends xr {
     return this._lines[t - 1];
   }
   getWordAtPosition(t, r) {
-    const s = nt(t.column, Br(r), this._lines[t.lineNumber - 1], 0);
+    const s = at(t.column, Zr(r), this._lines[t.lineNumber - 1], 0);
     return s ? new x(t.lineNumber, s.startColumn, t.lineNumber, s.endColumn) : null;
   }
   words(t) {
@@ -4500,7 +4642,7 @@ class i1 extends xr {
     } : t;
   }
   _validatePosition(t) {
-    if (!q.isIPosition(t))
+    if (!H.isIPosition(t))
       throw new Error("bad position");
     let { lineNumber: r, column: s } = t, i = !1;
     if (r < 1)
@@ -4514,7 +4656,7 @@ class i1 extends xr {
     return i ? { lineNumber: r, column: s } : t;
   }
 }
-class ce {
+class re {
   constructor(t, r) {
     this._host = t, this._models = /* @__PURE__ */ Object.create(null), this._foreignModuleFactory = r, this._foreignModule = null;
   }
@@ -4529,7 +4671,7 @@ class ce {
     return Object.keys(this._models).forEach((r) => t.push(this._models[r])), t;
   }
   acceptNewModel(t) {
-    this._models[t.url] = new i1(ne.parse(t.url), t.lines, t.EOL, t.versionId);
+    this._models[t.url] = new w1(ne.parse(t.url), t.lines, t.EOL, t.versionId);
   }
   acceptModelChanged(t, r) {
     if (!this._models[t])
@@ -4542,29 +4684,30 @@ class ce {
   computeUnicodeHighlights(t, r, s) {
     return te(this, void 0, void 0, function* () {
       const i = this._getModel(t);
-      return i ? r1.computeUnicodeHighlights(i, r, s) : { ranges: [], hasMore: !1, ambiguousCharacterCount: 0, invisibleCharacterCount: 0, nonBasicAsciiCharacterCount: 0 };
+      return i ? g1.computeUnicodeHighlights(i, r, s) : { ranges: [], hasMore: !1, ambiguousCharacterCount: 0, invisibleCharacterCount: 0, nonBasicAsciiCharacterCount: 0 };
     });
   }
   computeDiff(t, r, s, i) {
     return te(this, void 0, void 0, function* () {
       const a = this._getModel(t), o = this._getModel(r);
-      if (!a || !o)
-        return null;
-      const l = a.getLinesContent(), u = o.getLinesContent(), f = new Pr(l, u, {
-        shouldComputeCharChanges: !0,
-        shouldPostProcessCharChanges: !0,
-        shouldIgnoreTrimWhitespace: s,
-        shouldMakePrettyDiff: !0,
-        maxComputationTime: i
-      }).computeDiff(), h = f.changes.length > 0 ? !1 : this._modelsAreIdentical(a, o);
-      return {
-        quitEarly: f.quitEarly,
-        identical: h,
-        changes: f.changes
-      };
+      return !a || !o ? null : re.computeDiff(a, o, s, i);
     });
   }
-  _modelsAreIdentical(t, r) {
+  static computeDiff(t, r, s, i) {
+    const a = t.getLinesContent(), o = r.getLinesContent(), u = new $r(a, o, {
+      shouldComputeCharChanges: !0,
+      shouldPostProcessCharChanges: !0,
+      shouldIgnoreTrimWhitespace: s,
+      shouldMakePrettyDiff: !0,
+      maxComputationTime: i
+    }).computeDiff(), c = u.changes.length > 0 ? !1 : this._modelsAreIdentical(t, r);
+    return {
+      quitEarly: u.quitEarly,
+      identical: c,
+      changes: u.changes
+    };
+  }
+  static _modelsAreIdentical(t, r) {
     const s = t.getLineCount(), i = r.getLineCount();
     if (s !== i)
       return !1;
@@ -4594,17 +4737,17 @@ class ce {
         const c = s.getValueInRange(o);
         if (l = l.replace(/\r\n|\n|\r/g, s.eol), c === l)
           continue;
-        if (Math.max(l.length, c.length) > ce._diffLimit) {
+        if (Math.max(l.length, c.length) > re._diffLimit) {
           i.push({ range: o, text: l });
           continue;
         }
-        const f = dr(c, l, !1), h = s.offsetAt(x.lift(o).getStartPosition());
+        const f = yr(c, l, !1), h = s.offsetAt(x.lift(o).getStartPosition());
         for (const d of f) {
-          const _ = s.positionAt(h + d.originalStart), S = s.positionAt(h + d.originalStart + d.originalLength), v = {
+          const C = s.positionAt(h + d.originalStart), v = s.positionAt(h + d.originalStart + d.originalLength), A = {
             text: l.substr(d.modifiedStart, d.modifiedLength),
-            range: { startLineNumber: _.lineNumber, startColumn: _.column, endLineNumber: S.lineNumber, endColumn: S.column }
+            range: { startLineNumber: C.lineNumber, startColumn: C.column, endLineNumber: v.lineNumber, endColumn: v.column }
           };
-          s.getValueInRange(v.range) !== v.text && i.push(v);
+          s.getValueInRange(A.range) !== A.text && i.push(A);
         }
       }
       return typeof a == "number" && i.push({ eol: a, text: "", range: { startLineNumber: 0, startColumn: 0, endLineNumber: 0, endColumn: 0 } }), i;
@@ -4613,18 +4756,18 @@ class ce {
   computeLinks(t) {
     return te(this, void 0, void 0, function* () {
       const r = this._getModel(t);
-      return r ? $r(r) : null;
+      return r ? t1(r) : null;
     });
   }
   textualSuggest(t, r, s, i) {
     return te(this, void 0, void 0, function* () {
-      const a = new ye(!0), o = new RegExp(s, i), l = /* @__PURE__ */ new Set();
+      const a = new Pe(!0), o = new RegExp(s, i), l = /* @__PURE__ */ new Set();
       e:
-        for (let u of t) {
+        for (const u of t) {
           const c = this._getModel(u);
           if (!!c) {
-            for (let f of c.words(o))
-              if (!(f === r || !isNaN(Number(f))) && (l.add(f), l.size > ce._suggestionsLimit))
+            for (const f of c.words(o))
+              if (!(f === r || !isNaN(Number(f))) && (l.add(f), l.size > re._suggestionsLimit))
                 break e;
           }
         }
@@ -4670,15 +4813,15 @@ class ce {
       if (!c)
         return null;
       const f = o.getValueInRange(c);
-      return Ge.INSTANCE.navigateValueSet(r, u, c, f, s);
+      return Ze.INSTANCE.navigateValueSet(r, u, c, f, s);
     });
   }
   loadForeignModule(t, r, s) {
     const o = {
-      host: On(s, (l, u) => this._host.fhr(l, u)),
+      host: ir(s, (l, u) => this._host.fhr(l, u)),
       getMirrorModels: () => this._getModels()
     };
-    return this._foreignModuleFactory ? (this._foreignModule = this._foreignModuleFactory(o, r), Promise.resolve(Te(this._foreignModule))) : Promise.reject(new Error("Unexpected usage"));
+    return this._foreignModuleFactory ? (this._foreignModule = this._foreignModuleFactory(o, r), Promise.resolve(He(this._foreignModule))) : Promise.reject(new Error("Unexpected usage"));
   }
   fmr(t, r) {
     if (!this._foreignModule || typeof this._foreignModule[t] != "function")
@@ -4690,24 +4833,24 @@ class ce {
     }
   }
 }
-ce._diffLimit = 1e5;
-ce._suggestionsLimit = 1e4;
-typeof importScripts == "function" && (T.monaco = Jr());
-let Ke = !1;
-function a1(e) {
-  if (Ke)
+re._diffLimit = 1e5;
+re._suggestionsLimit = 1e4;
+typeof importScripts == "function" && (U.monaco = u1());
+let rt = !1;
+function C1(e) {
+  if (rt)
     return;
-  Ke = !0;
-  const t = new hr((r) => {
+  rt = !0;
+  const t = new Sr((r) => {
     self.postMessage(r);
-  }, (r) => new ce(r, e));
+  }, (r) => new re(r, e));
   self.onmessage = (r) => {
     t.onmessage(r.data);
   };
 }
 self.onmessage = (e) => {
-  Ke || a1(null);
+  rt || C1(null);
 };
 export {
-  a1 as initialize
+  C1 as initialize
 };
