@@ -123,5 +123,6 @@
 		overflow: hidden;
 		display: grid;
 		font-family: 'Segoe UI', sans-serif;
+		z-index: 1;
 	}
 </style>
