@@ -7,6 +7,7 @@
 </script>
 
 <div class="text-xs flex flex-row-reverse">
+	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<span
 		class="underline mr-4"
 		on:click={() => {

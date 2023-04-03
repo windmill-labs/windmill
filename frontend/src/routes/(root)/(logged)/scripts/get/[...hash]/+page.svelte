@@ -147,7 +147,6 @@
 	})
 
 	let isValid = true
-	let runForm: RunForm | undefined
 
 	let runLoading = false
 	async function runScript(
@@ -392,7 +391,6 @@
 						autofocus
 						detailed={false}
 						bind:isValid
-						bind:this={runForm}
 						runnable={script}
 						runAction={runScript}
 						bind:args
@@ -507,7 +505,8 @@
 						</Button>
 						{#if viewWebhookCommand}
 							<div transition:slide|local class="px-4">
-								<pre class="bg-gray-700 text-gray-100 p-2  font-mono text-sm whitespace-pre-wrap"
+								<!-- svelte-ignore a11y-click-events-have-key-events -->
+								<pre class="bg-gray-700 text-gray-100 p-2 font-mono text-sm whitespace-pre-wrap"
 									>{curlCommand} <span
 										on:click={() => copyToClipboard(curlCommand)}
 										class="cursor-pointer ml-2"><Icon data={faClipboard} /></span

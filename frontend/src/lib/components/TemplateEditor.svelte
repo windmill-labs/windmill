@@ -1,8 +1,5 @@
 <script lang="ts">
-	import { browser, dev } from '$app/environment'
-	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
-	import { buildWorkerDefinition } from 'monaco-editor-workers'
-	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
+	import { browser } from '$app/environment'
 	import {
 		convertKind,
 		createDocumentationString,
@@ -11,9 +8,10 @@
 		editorConfig,
 		updateOptions
 	} from '$lib/editorUtils'
-	import { languages, editor as meditor, Uri as mUri, Range } from 'monaco-editor'
 	import libStdContent from '$lib/es5.d.ts.txt?raw'
-	import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
+	import { editor as meditor, languages, Range, Uri as mUri } from 'monaco-editor'
+	import { buildWorkerDefinition } from 'monaco-editor-workers'
+	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 
 	languages.typescript.javascriptDefaults.setCompilerOptions({
 		target: languages.typescript.ScriptTarget.Latest,
@@ -391,26 +389,7 @@
 
 	const uri = `file:///${hash}.ts`
 
-	if (browser) {
-		if (dev) {
-			buildWorkerDefinition(
-				'../../../node_modules/monaco-editor-workers/dist/workers',
-				import.meta.url,
-				false
-			)
-		} else {
-			// @ts-ignore
-			self.MonacoEnvironment = {
-				getWorker: function (_moduleId: any, label: string) {
-					if (label == 'typescript' || label == 'javascript') {
-						return new tsWorker()
-					} else {
-						return new editorWorker()
-					}
-				}
-			}
-		}
-	}
+	buildWorkerDefinition('../../../workers', import.meta.url, false)
 
 	export function insertAtCursor(code: string): void {
 		if (editor) {
@@ -433,6 +412,8 @@
 	let extraModel
 
 	let width = 0
+	let widgets: HTMLElement | undefined = document.getElementById('monaco-widgets-root') ?? undefined
+
 	async function loadMonaco() {
 		model = meditor.createModel(code, lang, mUri.parse(uri))
 
@@ -440,6 +421,7 @@
 
 		editor = meditor.create(divEl as HTMLDivElement, {
 			...editorConfig(model, code, lang, automaticLayout, fixedOverflowWidgets),
+			overflowWidgetsDomNode: widgets,
 			lineNumbers: 'off',
 			fontSize,
 			suggestOnTriggerCharacters: true,
@@ -550,18 +532,14 @@
 		})
 
 		if (autoHeight) {
-			let ignoreEvent = false
 			const updateHeight = () => {
 				const contentHeight = Math.min(1000, editor.getContentHeight())
 				if (divEl) {
 					divEl.style.height = `${contentHeight}px`
 				}
 				try {
-					ignoreEvent = true
 					editor.layout({ width, height: contentHeight })
-				} finally {
-					ignoreEvent = false
-				}
+				} catch {}
 			}
 			editor.onDidContentSizeChange(updateHeight)
 			updateHeight()

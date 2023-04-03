@@ -3,32 +3,31 @@
 		faChevronDown,
 		faChevronUp,
 		faDollarSign,
-		faMinus,
 		faPlus
 	} from '@fortawesome/free-solid-svg-icons'
 
-	import { setInputCat as computeInputCat } from '$lib/utils'
-	import { Badge, Button } from './common'
-	import { createEventDispatcher } from 'svelte'
-	import Icon from 'svelte-awesome'
-	import FieldHeader from './FieldHeader.svelte'
-	import ObjectResourceInput from './ObjectResourceInput.svelte'
-	import ObjectTypeNarrowing from './ObjectTypeNarrowing.svelte'
-	import ResourcePicker from './ResourcePicker.svelte'
-	import StringTypeNarrowing from './StringTypeNarrowing.svelte'
-	import SchemaForm from './SchemaForm.svelte'
 	import type { SchemaProperty } from '$lib/common'
-	import SimpleEditor from './SimpleEditor.svelte'
+	import { setInputCat as computeInputCat } from '$lib/utils'
+	import { X } from 'lucide-svelte'
+	import { createEventDispatcher } from 'svelte'
 	import autosize from 'svelte-autosize'
-	import Toggle from './Toggle.svelte'
-	import Password from './Password.svelte'
-	import type VariableEditor from './VariableEditor.svelte'
+	import Icon from 'svelte-awesome'
+	import { fade } from 'svelte/transition'
+	import JsonEditor from './apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
+	import { Badge, Button } from './common'
+	import FieldHeader from './FieldHeader.svelte'
 	import type ItemPicker from './ItemPicker.svelte'
 	import NumberTypeNarrowing from './NumberTypeNarrowing.svelte'
+	import ObjectResourceInput from './ObjectResourceInput.svelte'
+	import ObjectTypeNarrowing from './ObjectTypeNarrowing.svelte'
+	import Password from './Password.svelte'
 	import Range from './Range.svelte'
-	import JsonEditor from './apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
-	import { fade } from 'svelte/transition'
-	import { X } from 'lucide-svelte'
+	import ResourcePicker from './ResourcePicker.svelte'
+	import SchemaForm from './SchemaForm.svelte'
+	import SimpleEditor from './SimpleEditor.svelte'
+	import StringTypeNarrowing from './StringTypeNarrowing.svelte'
+	import Toggle from './Toggle.svelte'
+	import type VariableEditor from './VariableEditor.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -42,7 +41,6 @@
 	export let required = false
 	export let pattern: undefined | string = undefined
 	export let valid = required ? false : true
-	export let maxRows = 10
 	export let enum_: string[] | undefined = undefined
 	export let disabled = false
 	export let editableSchema = false
@@ -62,8 +60,6 @@
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
-
-	$: maxHeight = maxRows ? `${1 + maxRows * 1.2}em` : `auto`
 
 	$: validateInput(pattern, value)
 
@@ -168,6 +164,7 @@
 	let itemsLimit = 50
 </script>
 
+<!-- svelte-ignore a11y-autofocus -->
 <div class="flex flex-col w-full min-w-[250px]">
 	<div>
 		{#if displayHeader}
@@ -175,6 +172,7 @@
 		{/if}
 		{#if editableSchema}
 			<div class="p-2 my-1 text-xs border-solid border border-gray-400">
+				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<span
 					class="underline"
 					on:click={() => {

@@ -314,5 +314,14 @@
 			{/if}
 			<slot name="actions" />
 		</div>
+		{#if error && error != ''}
+			<div class="text-right text-xs text-red-600">
+				{#if error === ''}
+					&nbsp;
+				{:else}
+					{error}
+				{/if}
+			</div>
+		{/if}
 	</div>
 </div>

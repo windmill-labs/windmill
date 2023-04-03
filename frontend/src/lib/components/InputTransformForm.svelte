@@ -166,9 +166,9 @@
 							}
 							if (arg) {
 								arg.value = undefined
+								arg.type = 'javascript'
 							}
 							propertyType = 'javascript'
-							arg.type = 'javascript'
 						} else {
 							if (staticTemplate) {
 								if (arg) {
@@ -227,7 +227,6 @@
 	</div>
 
 	<div class="max-w-xs" />
-
 	<div
 		class="relative mb-6 {$propPickerConfig?.propName == argName
 			? 'outline outline-offset-0 outline-2 outline-blue-500 rounded-md'

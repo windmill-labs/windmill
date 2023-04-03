@@ -335,21 +335,15 @@ async function pull(
             }
           }
         } catch {}
-        if (change.path.endsWith(".json")) {
-          const diffs = microdiff(
-            JSON.parse(change.before),
-            JSON.parse(change.after),
-            { cyclesFix: false }
-          );
-
-          console.log(
-            `Editing ${getTypeStrFromPath(change.path)} json ${change.path}`
-          );
-          await applyDiff(diffs, target);
+        if (!change.path.endsWith(".json")) {
+          console.log(`Editing script content of ${change.path}`);
         } else {
-          console.log(`Editing script ${change.path}`);
-          await Deno.writeTextFile(target, change.after);
+          console.log(
+            `Editing ${getTypeStrFromPath(change.path)} ${change.path}`
+          );
         }
+        await Deno.writeTextFile(target, change.after);
+
         if (!opts.raw) {
           await ensureDir(path.dirname(stateTarget));
           await Deno.copyFile(target, stateTarget);
@@ -424,31 +418,6 @@ async function pull(
     console.log(finalString);
     console.log("\x1b[31mlocal\x1b[31m - \x1b[32mremote\x1b[32m");
     console.log();
-  }
-  async function applyDiff(diffs: Difference[], file: string) {
-    ensureDir(path.dirname(file));
-    let json;
-    try {
-      json = JSON.parse(await Deno.readTextFile(file));
-    } catch {
-      json = {};
-    }
-    // TODO: Delegate the below to the object itself
-    // This would work by infering the type of `JSON` (which includes then statically typing it using decoverto) and then
-    // delegating the applying of the diffs to the object via an interface
-    for (const diff of diffs) {
-      if (diff.type === "CREATE") {
-        setValueByPath(json, diff.path, diff.value);
-      } else if (diff.type === "REMOVE") {
-        setValueByPath(json, diff.path, undefined);
-      } else if (diff.type === "CHANGE") {
-        setValueByPath(json, diff.path, diff.value);
-      }
-    }
-
-    await Deno.writeTextFile(file, JSON.stringify(json, undefined, "  "), {
-      create: true,
-    });
   }
 }
 

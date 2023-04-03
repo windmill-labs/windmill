@@ -3,7 +3,6 @@
 	import { Users } from 'lucide-svelte'
 	import Badge from './common/badge/Badge.svelte'
 	import Popover from './Popover.svelte'
-	import Tooltip from './Tooltip.svelte'
 
 	export let extraPerms: Record<string, boolean> = {}
 	export let canWrite: boolean

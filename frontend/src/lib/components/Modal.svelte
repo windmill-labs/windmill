@@ -65,11 +65,11 @@
 					<p class="font-semibold text-gray-800"><slot name="title" /></p>
 					<div />
 				</div>
-				<div class="flex flex-col  bg-gray-50 pt-3 px-6 grow overflow-y-auto">
+				<div class="flex flex-col bg-gray-50 pt-3 px-6 grow overflow-y-auto">
 					<slot name="content" />
 				</div>
 				<div class="flex flex-col bg-white border-gray-200 p-2">
-					<div class="flex flex-row justify-between p-2 ">
+					<div class="flex flex-row justify-between p-2">
 						<button
 							on:click={() => {
 								closeDrawer()
@@ -98,7 +98,7 @@
 	</div>
 {/if}
 
-<style>
+<style lang="postcss">
 	.blurred-background {
 		/* @apply absolute sm:top-6 lg:top-8 left-28 sm:left-40 md:left-48; */ /* If we wanted to make the navbars visible */
 		@apply fixed  top-0 left-0;

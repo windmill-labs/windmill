@@ -2,8 +2,6 @@
 	import { initOutput } from '$lib/components/apps/editor/appUtils'
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
-	import type { AppInput } from '../../../inputType'
-	import type { Output } from '../../../rx'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../../types'
 	import { concatCustomCss } from '../../../utils'
 	import AlignWrapper from '../../helpers/AlignWrapper.svelte'

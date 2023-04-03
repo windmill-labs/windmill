@@ -1,37 +1,31 @@
 <script lang="ts">
-	import {
-		UserService,
-		type WorkspaceInvite,
-		WorkspaceService,
-		OauthService,
-		Script
-	} from '$lib/gen'
-	import type { User } from '$lib/gen'
-	import { sendUserToast, isCloudHosted, capitalize } from '$lib/utils'
-	import PageHeader from '$lib/components/PageHeader.svelte'
-	import {
-		superadmin,
-		usageStore,
-		userStore,
-		usersWorkspaceStore,
-		workspaceStore
-	} from '$lib/stores'
-	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { faSlack } from '@fortawesome/free-brands-svg-icons'
-	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { goto } from '$app/navigation'
-	import InviteUser from '$lib/components/InviteUser.svelte'
-	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import { Alert, Badge, Button, Skeleton, Tab, Tabs } from '$lib/components/common'
-	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { faScroll, faBarsStaggered, faExternalLink } from '@fortawesome/free-solid-svg-icons'
-	import SearchItems from '$lib/components/SearchItems.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
-	import ToggleButtonGroup from '$lib/components/common/toggleButton/ToggleButtonGroup.svelte'
-	import ToggleButton from '$lib/components/common/toggleButton/ToggleButton.svelte'
-	import AddUser from '$lib/components/AddUser.svelte'
 	import { page } from '$app/stores'
+	import AddUser from '$lib/components/AddUser.svelte'
+	import CenteredPage from '$lib/components/CenteredPage.svelte'
+	import { Alert, Badge, Button, Skeleton, Tab, Tabs } from '$lib/components/common'
+	import ToggleButton from '$lib/components/common/toggleButton/ToggleButton.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton/ToggleButtonGroup.svelte'
+	import InviteUser from '$lib/components/InviteUser.svelte'
+	import PageHeader from '$lib/components/PageHeader.svelte'
+	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
+	import SearchItems from '$lib/components/SearchItems.svelte'
 	import Slider from '$lib/components/Slider.svelte'
+	import TableCustom from '$lib/components/TableCustom.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
+	import type { User } from '$lib/gen'
+	import {
+		OauthService,
+		Script,
+		UserService,
+		WorkspaceService,
+		type WorkspaceInvite
+	} from '$lib/gen'
+	import { superadmin, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { capitalize, isCloudHosted, sendUserToast } from '$lib/utils'
+	import { faSlack } from '@fortawesome/free-brands-svg-icons'
+	import { faBarsStaggered, faExternalLink, faScroll } from '@fortawesome/free-solid-svg-icons'
 
 	let users: User[] | undefined = undefined
 	let invites: WorkspaceInvite[] = []
@@ -480,7 +474,7 @@
 									></div
 								>
 							{:else}
-								<div class="inline text-2xl font-bold ">Free plan</div>
+								<div class="inline text-2xl font-bold">Free plan</div>
 							{/if}
 
 							{#if plan}
@@ -553,7 +547,7 @@
 
 				<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
 					{#each Object.entries(plans) as [planTitle, planDesc]}
-						<div class="box p-4 text-sm  flex flex-col h-full overflow-hidden">
+						<div class="box p-4 text-sm flex flex-col h-full overflow-hidden">
 							<h2 class="mb-4">{planTitle}</h2>
 							<ul class="list-disc p-4">
 								{#each planDesc as item}

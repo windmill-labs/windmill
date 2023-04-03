@@ -14,8 +14,7 @@
 	export let capitalize = false
 	export let icon: BadgeIconProps | undefined = undefined
 
-	let defaulIconProps: BadgeIconProps = {
-		data: undefined,
+	let defaulIconProps = {
 		position: 'left',
 		scale: 0.7
 	}

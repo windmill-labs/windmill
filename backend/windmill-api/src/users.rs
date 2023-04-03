@@ -102,6 +102,10 @@ impl AuthCache {
         AuthCache { cache: Cache::new(), db, superadmin_secret }
     }
 
+    pub async fn invalidate(&self, w_id: &str, token: String) {
+        self.cache.remove(&(w_id.to_string(), token)).await;
+    }
+
     pub async fn get_authed(&self, w_id: Option<String>, token: &str) -> Option<Authed> {
         let key = (
             w_id.as_ref().unwrap_or(&"".to_string()).to_string(),
@@ -354,6 +358,31 @@ pub struct Authed {
     pub is_admin: bool,
     pub groups: Vec<String>,
     pub folders: Vec<(String, bool)>,
+}
+
+pub async fn maybe_refresh_folders(path: &str, w_id: &str, authed: Authed, db: &DB) -> Authed {
+    if authed.is_admin {
+        return authed;
+    }
+    let splitted = path.split('/').collect::<Vec<_>>();
+    if splitted.len() >= 2
+        && splitted[0] == "f"
+        && !authed.folders.iter().any(|(f, _)| f == splitted[1])
+    {
+        let name = &authed.username;
+        let groups = get_groups_for_user(w_id, name, db)
+            .await
+            .ok()
+            .unwrap_or_default();
+
+        let folders = get_folders_for_user(w_id, name, &groups, db)
+            .await
+            .ok()
+            .unwrap_or_default();
+        Authed { folders, ..authed }
+    } else {
+        authed
+    }
 }
 
 #[async_trait]

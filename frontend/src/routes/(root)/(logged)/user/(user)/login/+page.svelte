@@ -131,10 +131,12 @@
 </script>
 
 <!-- Enable submit form on enter -->
-<CenteredModal title="Login">
+<CenteredModal title={isCloudHosted() ? 'Login/Signup' : 'Login'}>
 	{#if isCloudHosted()}
 		<div class="text-center -mt-4">
-			<span class=" text-gray-600 text-sm">Login or sign up with any of the methods below</span>
+			<span class=" text-gray-600 text-sm"
+				>Login or sign up (no cc required) with any of the methods below</span
+			>
 		</div>
 	{/if}
 	<div class="justify-center text-center flex flex-col">
@@ -194,7 +196,7 @@
 				<span class="text-gray-700 text-sm">Email</span>
 				<input type="email" bind:value={email} id="email" />
 			</label>
-			<label class="block ">
+			<label class="block">
 				<span class="text-gray-700 text-sm">Password</span>
 				<input type="password" on:keyup={handleKeyUp} bind:value={password} id="password" />
 			</label>

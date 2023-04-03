@@ -15,7 +15,7 @@
 					json={val.value}
 				/>{:else}
 				<span class="text-xs">
-					<Highlight offsetTop={0} language={typescript} code={cleanExpr(val.expr)} />
+					<Highlight language={typescript} code={cleanExpr(val.expr)} />
 				</span>
 			{/if}
 		</li>

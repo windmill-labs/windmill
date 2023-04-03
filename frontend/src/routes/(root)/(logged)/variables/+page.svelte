@@ -1,35 +1,34 @@
 <script lang="ts">
-	import { canWrite, sendUserToast, truncate } from '$lib/utils'
-	import { OauthService, VariableService } from '$lib/gen'
-	import type { ListableVariable, ContextualVariable } from '$lib/gen'
-	import Dropdown from '$lib/components/Dropdown.svelte'
-	import PageHeader from '$lib/components/PageHeader.svelte'
-	import TableSimple from '$lib/components/TableSimple.svelte'
-	import TableCustom from '$lib/components/TableCustom.svelte'
-	import ShareModal from '$lib/components/ShareModal.svelte'
-	import SharedBadge from '$lib/components/SharedBadge.svelte'
-	import VariableEditor from '$lib/components/VariableEditor.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import Icon from 'svelte-awesome'
-	import {
-		faPlus,
-		faCircle,
-		faEyeSlash,
-		faRefresh,
-		faChain,
-		faTrash,
-		faEdit,
-		faShare
-	} from '@fortawesome/free-solid-svg-icons'
-	import { Button, Tab, Tabs } from '$lib/components/common'
+	import { Alert, Badge, Button, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
-	import { Alert, Badge, Skeleton } from '$lib/components/common'
-	import Popover from '$lib/components/Popover.svelte'
-	import { Building, DollarSign, MoreVertical } from 'lucide-svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
-	import SearchItems from '$lib/components/SearchItems.svelte'
+	import Dropdown from '$lib/components/Dropdown.svelte'
 	import ListFilters from '$lib/components/home/ListFilters.svelte'
+	import PageHeader from '$lib/components/PageHeader.svelte'
+	import Popover from '$lib/components/Popover.svelte'
+	import SearchItems from '$lib/components/SearchItems.svelte'
+	import SharedBadge from '$lib/components/SharedBadge.svelte'
+	import ShareModal from '$lib/components/ShareModal.svelte'
+	import TableCustom from '$lib/components/TableCustom.svelte'
+	import TableSimple from '$lib/components/TableSimple.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
+	import VariableEditor from '$lib/components/VariableEditor.svelte'
+	import type { ContextualVariable, ListableVariable } from '$lib/gen'
+	import { OauthService, VariableService } from '$lib/gen'
+	import { userStore, workspaceStore } from '$lib/stores'
+	import { canWrite, sendUserToast, truncate } from '$lib/utils'
+	import {
+		faChain,
+		faCircle,
+		faEdit,
+		faEyeSlash,
+		faPlus,
+		faRefresh,
+		faShare,
+		faTrash
+	} from '@fortawesome/free-solid-svg-icons'
+	import { Building, DollarSign } from 'lucide-svelte'
+	import Icon from 'svelte-awesome'
 
 	type ListableVariableW = ListableVariable & { canWrite: boolean }
 

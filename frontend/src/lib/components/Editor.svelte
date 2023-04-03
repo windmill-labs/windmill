@@ -1,10 +1,12 @@
 <script lang="ts" context="module">
-	import getMessageServiceOverride from 'vscode/service-override/messages'
+	import getDialogServiceOverride from 'vscode/service-override/dialogs'
+	import getNotificationServiceOverride from 'vscode/service-override/notifications'
 	import { StandaloneServices } from 'vscode/services'
 
 	try {
 		StandaloneServices?.initialize({
-			...getMessageServiceOverride(document.body)
+			...getNotificationServiceOverride(document.body),
+			...getDialogServiceOverride()
 		})
 	} catch (e) {
 		console.error(e)
@@ -12,23 +14,15 @@
 </script>
 
 <script lang="ts">
-	import { browser, dev } from '$app/environment'
+	import { browser } from '$app/environment'
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/utils'
 
-	import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
-	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
-
 	import { buildWorkerDefinition } from 'monaco-editor-workers'
-	import type {
-		Disposable,
-		DocumentUri,
-		MessageTransports,
-		MonacoLanguageClient
-	} from 'monaco-languageclient'
+	import type { MonacoLanguageClient } from 'monaco-languageclient'
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 
-	import { languages, editor as meditor, KeyCode, KeyMod, Uri as mUri } from 'monaco-editor'
+	import { editor as meditor, KeyCode, KeyMod, languages, Uri as mUri } from 'monaco-editor'
 
 	languages.typescript.typescriptDefaults.setCompilerOptions({
 		target: languages.typescript.ScriptTarget.Latest,
@@ -54,17 +48,19 @@
 	meditor.setTheme('myTheme')
 
 	import {
-		BASH_INIT_CODE,
-		DENO_INIT_CODE_CLEAR,
-		GO_INIT_CODE,
-		PYTHON_INIT_CODE_CLEAR
-	} from '$lib/script_helpers'
-	import {
 		createHash as randomHash,
 		editorConfig,
 		langToExt,
 		updateOptions
 	} from '$lib/editorUtils'
+	import {
+		BASH_INIT_CODE,
+		DENO_INIT_CODE_CLEAR,
+		GO_INIT_CODE,
+		PYTHON_INIT_CODE_CLEAR
+	} from '$lib/script_helpers'
+	import type { Disposable } from 'vscode'
+	import type { DocumentUri, MessageTransports } from 'vscode-languageclient'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
 
 	let divEl: HTMLDivElement | null = null
@@ -89,26 +85,7 @@
 
 	const uri = `file:///tmp/monaco/${hash}.${langToExt(lang)}`
 
-	if (browser) {
-		if (dev) {
-			buildWorkerDefinition(
-				'../../../node_modules/monaco-editor-workers/dist/workers',
-				import.meta.url,
-				false
-			)
-		} else {
-			// @ts-ignore
-			self.MonacoEnvironment = {
-				getWorker: function (_moduleId: any, label: string) {
-					if (label === 'typescript' || label === 'javascript') {
-						return new tsWorker()
-					} else {
-						return new editorWorker()
-					}
-				}
-			}
-		}
-	}
+	buildWorkerDefinition('../../../workers', import.meta.url, false)
 
 	export function getCode(): string {
 		return editor?.getValue() ?? ''
@@ -417,12 +394,14 @@
 		websocketInterval && clearInterval(websocketInterval)
 	}
 
+	let widgets: HTMLElement | undefined = document.getElementById('monaco-widgets-root') ?? undefined
 	async function loadMonaco() {
 		const model = meditor.createModel(code, lang, mUri.parse(uri))
 
 		model.updateOptions(updateOptions)
 		editor = meditor.create(divEl as HTMLDivElement, {
 			...editorConfig(model, code, lang, automaticLayout, fixedOverflowWidgets),
+			overflowWidgetsDomNode: widgets,
 			tabSize: lang == 'python' ? 4 : 2
 		})
 
@@ -506,7 +485,7 @@
 
 <div bind:this={divEl} class="{$$props.class} editor" />
 
-<style>
+<style lang="postcss">
 	.editor {
 		@apply p-0 border rounded-md border-gray-50;
 	}

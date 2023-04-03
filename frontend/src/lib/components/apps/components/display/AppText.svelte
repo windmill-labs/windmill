@@ -1,25 +1,25 @@
 <script lang="ts">
+	import { isCodeInjection } from '$lib/components/flows/utils'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { Clipboard } from 'lucide-svelte'
+	import { getContext } from 'svelte'
+	import { get } from 'svelte/store'
+	import { twMerge } from 'tailwind-merge'
 	import { copyToClipboard } from '../../../../utils'
 	import Button from '../../../common/button/Button.svelte'
 	import Popover from '../../../Popover.svelte'
-	import type { AppInput, EvalAppInput } from '../../inputType'
-	import AlignWrapper from '../helpers/AlignWrapper.svelte'
-	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
-	import { twMerge } from 'tailwind-merge'
+	import { findGridItem, initConfig, initOutput } from '../../editor/appUtils'
+	import { components } from '../../editor/component'
+	import type { AppInput } from '../../inputType'
 	import type {
 		AppEditorContext,
 		AppViewerContext,
 		ComponentCustomCSS,
 		RichConfigurations
 	} from '../../types'
-	import { getContext } from 'svelte'
-	import { findGridItem, initConfig, initOutput } from '../../editor/appUtils'
-	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { get } from 'svelte/store'
+	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
-	import { components } from '../../editor/component'
-	import { isCodeInjection } from '$lib/components/flows/utils'
+	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined

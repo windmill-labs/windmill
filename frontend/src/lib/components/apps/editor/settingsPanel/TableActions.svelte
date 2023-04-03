@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Badge } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { getNextId } from '$lib/components/flows/flowStateUtils'
+	import { getNextId } from '$lib/components/flows/idUtils'
 	import { classNames } from '$lib/utils'
 	import { faPlus, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'

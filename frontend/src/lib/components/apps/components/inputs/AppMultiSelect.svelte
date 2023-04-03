@@ -1,14 +1,12 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import Select from 'svelte-select'
-	import type { AppInput } from '../../inputType'
-	import type { Output } from '../../rx'
+	import { SELECT_INPUT_DEFAULT_STYLE } from '../../../../defaults'
+	import { initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
-	import { SELECT_INPUT_DEFAULT_STYLE } from '../../../../defaults'
-	import { initOutput } from '../../editor/appUtils'
 
 	export let id: string
 	export let configuration: RichConfigurations

@@ -23,7 +23,6 @@
 
 	let stepDetail: FlowModule | string | undefined = undefined
 	let codeViewer: Drawer
-	let topHeight = 0
 </script>
 
 <Drawer bind:this={codeViewer} size="900px">
@@ -48,7 +47,7 @@
 					<div class="mt-6">
 						<h3>Code</h3>
 						<iframe
-							class="w-full h-full  text-sm"
+							class="w-full h-full text-sm"
 							title="embedded script from hub"
 							frameborder="0"
 							src="https://hub.windmill.dev/embed/script/{stepDetail.value?.path?.substring(4)}"
@@ -141,7 +140,7 @@
 								>
 							</h3>
 							<iframe
-								class="w-full h-full  text-sm"
+								class="w-full h-full text-sm"
 								title="embedded script from hub"
 								frameborder="0"
 								src="https://hub.windmill.dev/embed/script/{stepDetail.value?.path?.substring(4)}"
@@ -154,11 +153,7 @@
 								json={stepDetail.value.iterator.value}
 							/>{:else}
 							<span class="text-xs">
-								<Highlight
-									offsetTop={0}
-									language={typescript}
-									code={cleanExpr(stepDetail.value.iterator.expr)}
-								/>
+								<Highlight language={typescript} code={cleanExpr(stepDetail.value.iterator.expr)} />
 							</span>
 						{/if}</p
 					>

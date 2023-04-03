@@ -27,7 +27,7 @@
 </script>
 
 {#if code?.length < 5000}
-	<Highlight className="nowrap {$$props.class}" language={lang} {code} />
+	<Highlight class="nowrap {$$props.class}" language={lang} {code} />
 {:else}
 	<pre class="overflow-auto max-h-screen {$$props.class}"
 		><code class="language-{language}">{code}</code></pre

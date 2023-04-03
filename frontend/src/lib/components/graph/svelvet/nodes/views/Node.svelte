@@ -9,7 +9,6 @@
 	export let node: NodeType
 	export let canvasId: string
 
-	export let nodeId: string
 	export let isCustom = false
 
 	const store = findStore(canvasId)
