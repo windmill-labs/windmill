@@ -14,7 +14,7 @@
 		RichConfigurations
 	} from '../../types'
 	import { getContext } from 'svelte'
-	import { initConfig, initOutput } from '../../editor/appUtils'
+	import { findGridItem, initConfig, initOutput } from '../../editor/appUtils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { get } from 'svelte/store'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
@@ -86,7 +86,22 @@
 
 	let editorMode: boolean = false
 
-	let initialValue = componentInput.eval
+	let initialValue = componentInput?.type == 'template' ? componentInput.eval : ''
+
+	$: gridItem = findGridItem($app, id)
+
+	// On initial change, set the result
+	$: if (
+		initialValue !== undefined &&
+		gridItem &&
+		gridItem.data.componentInput &&
+		gridItem.data.componentInput.type == 'template'
+	) {
+		if (gridItem.data.componentInput.eval !== initialValue) {
+			gridItem.data.componentInput.eval = initialValue
+			$app = $app
+		}
+	}
 </script>
 
 {#each Object.keys(components['textcomponent'].initialData.configuration) as key (key)}
