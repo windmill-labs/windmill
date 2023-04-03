@@ -1,6 +1,22 @@
 # Changelog
 
 
+## [1.85.0](https://github.com/windmill-labs/windmill/compare/v1.84.1...v1.85.0) (2023-04-03)
+
+
+### Features
+
+* add local cache for folder path used + invalidate cache on folder creation ([018b051](https://github.com/windmill-labs/windmill/commit/018b051781e3f40b9d1da8ccdd5edb1cd49877ba))
+* **frontend:** add agGrid api hooks + ready ([de1e294](https://github.com/windmill-labs/windmill/commit/de1e29492c9aefdfc59f605ba81f7c51a96bf2f3))
+* **frontend:** Add ID renaming popup ([#1344](https://github.com/windmill-labs/windmill/issues/1344)) ([0b8a08c](https://github.com/windmill-labs/windmill/commit/0b8a08cb49644da7c354c3631751e925ac5353b9))
+
+
+### Bug Fixes
+
+* **backend:** improve handling subflow with many depth using tailrec ([8c53598](https://github.com/windmill-labs/windmill/commit/8c53598aba3fb89f4174d1c0ab3912096ac07c96))
+* **backend:** improve subflow processing ([390a988](https://github.com/windmill-labs/windmill/commit/390a988d4c96256a4fbd6a9302fc47a5648c2c43))
+* **frontend:** PDF reader header positioning ([#1350](https://github.com/windmill-labs/windmill/issues/1350)) ([daf8276](https://github.com/windmill-labs/windmill/commit/daf827666b13917f8c9abeab5bb2b072bd0fef0b))
+
 ## [1.84.1](https://github.com/windmill-labs/windmill/compare/v1.84.0...v1.84.1) (2023-03-31)
 
 

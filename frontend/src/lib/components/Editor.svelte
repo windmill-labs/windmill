@@ -174,7 +174,8 @@
 		function createLanguageClient(
 			transports: MessageTransports,
 			name: string,
-			initializationOptions?: any
+			initializationOptions: any,
+			middlewareOptions: ((params, token, next) => any) | undefined
 		) {
 			const client = new MonacoLanguageClient({
 				name: name,
@@ -193,13 +194,11 @@
 					initializationOptions,
 					middleware: {
 						workspace: {
-							configuration: (params, token, configuration) => {
-								return [
-									{
-										enable: true
-									}
-								]
-							}
+							configuration:
+								middlewareOptions ??
+								((params, token, next) => {
+									return [{ enabled: true }]
+								})
 						}
 					}
 				},
@@ -212,7 +211,12 @@
 			return client
 		}
 
-		async function connectToLanguageServer(url: string, name: string, options?: any) {
+		async function connectToLanguageServer(
+			url: string,
+			name: string,
+			initOptions: any,
+			middlewareOptions: any
+		) {
 			try {
 				const webSocket = new WebSocket(url)
 
@@ -220,7 +224,15 @@
 					const socket = toSocket(webSocket)
 					const reader = new WebSocketMessageReader(socket)
 					const writer = new WebSocketMessageWriter(socket)
-					const languageClient = createLanguageClient({ reader, writer }, name, options)
+					const languageClient = createLanguageClient(
+						{ reader, writer },
+						name,
+						initOptions,
+						middlewareOptions
+					)
+					if (middlewareOptions != undefined) {
+						languageClient.registerConfigurationFeatures()
+					}
 					websockets.push([languageClient, webSocket])
 
 					// HACK ALERT: for some reasons, the client need to be restarted to take into account the 'go get <dep>' command
@@ -287,63 +299,98 @@
 
 		const wsProtocol = $page.url.protocol == 'https:' ? 'wss' : 'ws'
 		if (lang == 'typescript') {
-			await connectToLanguageServer(`${wsProtocol}://${$page.url.host}/ws/deno`, 'deno', {
-				certificateStores: null,
-				enablePaths: [],
-				config: null,
-				importMap: null,
-				internalDebug: false,
-				lint: false,
-				path: null,
-				tlsCertificate: null,
-				unsafelyIgnoreCertificateErrors: null,
-				unstable: true,
-				enable: true,
-				cache: null,
-				codeLens: {
-					implementations: true,
-					references: true
-				},
-				suggest: {
-					autoImports: true,
-					completeFunctionCalls: false,
-					names: true,
-					paths: true,
-					imports: {
-						autoDiscover: true,
-						hosts: {
-							'https://deno.land': true
+			await connectToLanguageServer(
+				`${wsProtocol}://${$page.url.host}/ws/deno`,
+				'deno',
+				{
+					certificateStores: null,
+					enablePaths: [],
+					config: null,
+					importMap: null,
+					internalDebug: false,
+					lint: false,
+					path: null,
+					tlsCertificate: null,
+					unsafelyIgnoreCertificateErrors: null,
+					unstable: true,
+					enable: true,
+					cache: null,
+					codeLens: {
+						implementations: true,
+						references: true
+					},
+					suggest: {
+						autoImports: true,
+						completeFunctionCalls: false,
+						names: true,
+						paths: true,
+						imports: {
+							autoDiscover: true,
+							hosts: {
+								'https://deno.land': true
+							}
 						}
 					}
-				}
-			})
+				},
+				undefined
+			)
 		} else if (lang === 'python') {
-			await connectToLanguageServer(`${wsProtocol}://${$page.url.host}/ws/pyright`, 'pyright', {
-				executionEnvironments: [
-					{
-						root: '/tmp/pyright',
-						pythonVersion: '3.7',
-						pythonPlatform: 'platform',
-						extraPaths: []
+			await connectToLanguageServer(
+				`${wsProtocol}://${$page.url.host}/ws/pyright`,
+				'pyright',
+				{},
+				(params, token, next) => {
+					if (params.items.find((x) => x.section === 'python')) {
+						return [
+							{
+								analysis: {
+									useLibraryCodeForTypes: true,
+									autoImportCompletions: true,
+									diagnosticSeverityOverrides: { reportMissingImports: 'none' },
+									typeCheckingMode: 'basic'
+								}
+							}
+						]
 					}
-				]
-			})
+					if (params.items.find((x) => x.section === 'python.analysis')) {
+						return [
+							{
+								useLibraryCodeForTypes: true,
+								autoImportCompletions: true,
+								diagnosticSeverityOverrides: { reportMissingImports: 'none' },
+								typeCheckingMode: 'basic'
+							}
+						]
+					}
+					return next(params, token)
+				}
+			)
 
-			connectToLanguageServer(`${wsProtocol}://${$page.url.host}/ws/black`, 'black', {
-				formatters: {
-					black: {
-						command: 'black',
-						args: ['--quiet', '-']
+			connectToLanguageServer(
+				`${wsProtocol}://${$page.url.host}/ws/black`,
+				'black',
+				{
+					formatters: {
+						black: {
+							command: 'black',
+							args: ['--quiet', '-']
+						}
+					},
+					formatFiletypes: {
+						python: 'black'
 					}
 				},
-				formatFiletypes: {
-					python: 'black'
-				}
-			})
+				undefined
+			)
 		} else if (lang === 'go') {
-			connectToLanguageServer(`${wsProtocol}://${$page.url.host}/ws/go`, 'go', {
-				'build.allowImplicitNetworkAccess': true
-			})
+			connectToLanguageServer(
+				`${wsProtocol}://${$page.url.host}/ws/go`,
+				'go',
+				{
+					'build.allowImplicitNetworkAccess': true
+				},
+				undefined
+			)
 		}
 
 		websocketInterval && clearInterval(websocketInterval)
