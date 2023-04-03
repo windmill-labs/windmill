@@ -104,8 +104,10 @@
 	<div
 		class="h-full w-full overflow-hidden"
 		on:dblclick={() => {
-			editorMode = !editorMode
-			document.getElementById(`text-${id}`)?.focus()
+			if (!editorMode) {
+				editorMode = true
+				document.getElementById(`text-${id}`)?.focus()
+			}
 		}}
 	>
 		{#if editorMode && componentInput?.type == 'template'}
@@ -121,7 +123,7 @@
 					editorMode = false
 				}}
 				on:input={() => {
-					const gridItem = findGridItem($app, id)
+					let gridItem = findGridItem($app, id)
 					if (
 						editableValue &&
 						gridItem &&
@@ -129,6 +131,7 @@
 						gridItem.data.componentInput.type == 'template'
 					) {
 						gridItem.data.componentInput.eval = editableValue
+						gridItem = gridItem
 						$app = $app
 					}
 				}}

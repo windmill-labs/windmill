@@ -84,7 +84,9 @@
 			on:expand
 			{locked}
 			{inlineEditorOpened}
-			hasInlineEditor={component.type === 'textcomponent'}
+			hasInlineEditor={component.type === 'textcomponent' &&
+				component.componentInput &&
+				component.componentInput.type !== 'connected'}
 			on:triggerInlineEditor={() => {
 				inlineEditorOpened = !inlineEditorOpened
 			}}
