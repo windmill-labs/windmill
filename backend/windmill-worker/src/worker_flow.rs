@@ -34,7 +34,6 @@ use windmill_queue::{
     canceled_job_to_result, get_queued_job, push, JobPayload, QueuedJob, RawCode,
 };
 
-#[async_recursion]
 // #[instrument(level = "trace", skip_all)]
 pub async fn update_flow_status_after_job_completion(
     db: &DB,
@@ -50,8 +49,72 @@ pub async fn update_flow_status_after_job_completion(
     worker_dir: &str,
     stop_early_override: Option<bool>,
     base_internal_url: &str,
-    depth: u8,
 ) -> error::Result<()> {
+    // this is manual tailrecursion because async_recursion blows up the stack
+    let mut depth = 0;
+    let mut rec = update_flow_status_after_job_completion_internal(
+        db,
+        client,
+        flow,
+        job_id_for_status,
+        w_id,
+        success,
+        result,
+        metrics.clone(),
+        unrecoverable,
+        same_worker_tx.clone(),
+        worker_dir,
+        stop_early_override,
+        base_internal_url,
+        depth,
+    )
+    .await?;
+    while let Some(nrec) = rec {
+        depth += 1;
+        rec = update_flow_status_after_job_completion_internal(
+            db,
+            client,
+            nrec.flow,
+            &nrec.job_id_for_status,
+            w_id,
+            nrec.success,
+            nrec.result,
+            metrics.clone(),
+            false,
+            same_worker_tx.clone(),
+            worker_dir,
+            nrec.stop_early_override,
+            base_internal_url,
+            depth,
+        )
+        .await?;
+    }
+    Ok(())
+}
+pub struct RecUpdateFlowStatusAfterJobCompletion {
+    flow: uuid::Uuid,
+    job_id_for_status: Uuid,
+    success: bool,
+    result: serde_json::Value,
+    stop_early_override: Option<bool>,
+}
+// #[instrument(level = "trace", skip_all)]
+pub async fn update_flow_status_after_job_completion_internal(
+    db: &DB,
+    client: &AuthedClient,
+    flow: uuid::Uuid,
+    job_id_for_status: &Uuid,
+    w_id: &str,
+    success: bool,
+    result: serde_json::Value,
+    metrics: Option<worker::Metrics>,
+    unrecoverable: bool,
+    same_worker_tx: Sender<Uuid>,
+    worker_dir: &str,
+    stop_early_override: Option<bool>,
+    base_internal_url: &str,
+    depth: u8,
+) -> error::Result<Option<RecUpdateFlowStatusAfterJobCompletion>> {
     let (should_continue_flow, flow_job, stop_early, skip_if_stop_early, nresult) = {
         tracing::debug!("UPDATE FLOW STATUS: {flow:?} {success} {result:?} {w_id} {depth}");
 
@@ -220,7 +283,7 @@ pub async fn update_flow_status_after_job_completion(
                     (true, Some(new_status))
                 } else {
                     tx.commit().await?;
-                    return Ok(());
+                    return Ok(None);
                 }
             }
             FlowStatusModule::InProgress {
@@ -532,33 +595,21 @@ pub async fn update_flow_status_after_job_completion(
         }
 
         if let Some(parent_job) = flow_job.parent_job {
-            drop(flow_job);
-            tracing::error!("update flow status after job completion");
-            update_flow_status_after_job_completion(
-                db,
-                client,
-                parent_job,
-                &flow,
-                w_id,
+            return Ok(Some(RecUpdateFlowStatusAfterJobCompletion {
+                flow: parent_job,
+                job_id_for_status: flow,
                 success,
-                nresult,
-                metrics,
-                false,
-                same_worker_tx.clone(),
-                worker_dir,
-                if stop_early {
+                result: nresult,
+                stop_early_override: if stop_early {
                     Some(skip_if_stop_early)
                 } else {
                     None
                 },
-                base_internal_url,
-                depth + 1,
-            )
-            .await?;
+            }));
         }
-        Ok(())
+        Ok(None)
     } else {
-        Ok(())
+        Ok(None)
     }
 }
 
@@ -864,7 +915,6 @@ async fn push_next_flow_job(
             worker_dir,
             None,
             base_internal_url,
-            0,
         )
         .await;
     }
