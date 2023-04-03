@@ -30,7 +30,7 @@
 		"@typescript-eslint/parser": "^5.48.0",
 		"@zerodevx/svelte-toast": "^0.8.1",
 		"autoprefixer": "^10.4.13",
-		"cssnano": "^5.1.14",
+		"cssnano": "^6.0.0",
 		"d3-dag": "^0.11.5",
 		"eslint": "^8.28.0",
 		"eslint-config-prettier": "^8.6.0",
