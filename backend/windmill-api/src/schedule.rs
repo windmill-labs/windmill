@@ -17,7 +17,7 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
-use chrono::{DateTime, FixedOffset};
+use chrono::{DateTime, FixedOffset, Local};
 use serde::Deserialize;
 use sqlx::{Postgres, Transaction};
 use windmill_audit::{audit_log, ActionKind};
@@ -249,7 +249,7 @@ pub async fn preview_schedule(
         .map_err(|e| Error::BadRequest(e.to_string()))?;
     let upcoming: Vec<DateTime<chrono::Utc>> = schedule
         .upcoming(get_offset(payload.offset))
-        .take(10)
+        .take(5)
         .map(|x| x.into())
         .collect();
 

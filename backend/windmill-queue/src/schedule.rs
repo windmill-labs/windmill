@@ -14,7 +14,7 @@ use windmill_common::{
     error::{self, Result},
     schedule::Schedule,
     users::username_to_permissioned_as,
-    utils::{now_from_db, StripPath},
+    utils::StripPath,
 };
 
 use crate::{push, JobPayload};
@@ -27,8 +27,10 @@ pub async fn push_scheduled_job<'c>(
         .map_err(|e| error::Error::BadRequest(e.to_string()))?;
 
     let offset = Duration::minutes(schedule.offset_.into());
-    let now = now_from_db(&mut tx).await?;
+    let now = chrono::Utc::now();
+
     let next = sched
+        // TODO adding Duration::seconds(1) might not be needed
         .after(&(now - offset + Duration::seconds(1)))
         .next()
         .expect("a schedule should have a next event")
