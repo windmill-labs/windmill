@@ -6,7 +6,13 @@ import { twMerge } from 'tailwind-merge'
 import type { AppComponent } from './editor/component'
 import type { AppInput, InputType, ResultAppInput, StaticAppInput } from './inputType'
 import type { Output } from './rx'
-import type { App, ComponentCssProperty, GridItem } from './types'
+import type {
+	App,
+	ComponentCssProperty,
+	GridItem,
+	HorizontalAlignment,
+	VerticalAlignment
+} from './types'
 
 export function allItems(
 	grid: GridItem[],
@@ -261,4 +267,24 @@ export function concatCustomCss<T extends Record<string, ComponentCssProperty>>(
 			]
 		})
 	) as T
+}
+
+export function tailwindHorizontalAlignment(alignment?: HorizontalAlignment) {
+	if (!alignment) return ''
+	const classes: Record<HorizontalAlignment, string> = {
+		left: 'justify-start',
+		center: 'justify-center',
+		right: 'justify-end'
+	}
+	return classes[alignment]
+}
+
+export function tailwindVerticalAlignment(alignment?: VerticalAlignment) {
+	if (!alignment) return ''
+	const classes: Record<VerticalAlignment, string> = {
+		top: 'items-start',
+		center: 'items-center',
+		bottom: 'items-end'
+	}
+	return classes[alignment]
 }

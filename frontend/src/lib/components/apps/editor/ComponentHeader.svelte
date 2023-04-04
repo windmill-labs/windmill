@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 	import type { AppViewerContext } from '../types'
-	import { Anchor, Bug, Expand, Move } from 'lucide-svelte'
+	import { Anchor, Bug, Expand, Move, Pen } from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { Alert, Button } from '$lib/components/common'
@@ -14,6 +14,8 @@
 	export let locked: boolean = false
 	export let hover: boolean = false
 	export let shouldHideActions: boolean = false
+	export let hasInlineEditor: boolean = false
+	export let inlineEditorOpened: boolean = false
 
 	const dispatch = createEventDispatcher()
 
@@ -49,6 +51,23 @@
 
 {#if selected && !shouldHideActions}
 	<div class="top-[-9px] -right-[8px] flex flex-row absolute gap-1.5 z-50">
+		{#if hasInlineEditor}
+			<button
+				title="Expand"
+				class={classNames(
+					'px-1 text-2xs py-0.5 font-bold w-fit border cursor-pointer rounded-sm',
+					'bg-indigo-100 text-indigo-600 border-indigo-500 hover:bg-indigo-200 hover:text-indigo-800'
+				)}
+				on:click={() => dispatch('triggerInlineEditor')}
+				on:pointerdown|stopPropagation
+			>
+				{#if inlineEditorOpened}
+					<Pen aria-label="Unlock position" size={14} class="text-orange-500" />
+				{:else}
+					<Pen aria-label="Lock position" size={14} />
+				{/if}
+			</button>
+		{/if}
 		<button
 			title="Expand"
 			class={classNames(
