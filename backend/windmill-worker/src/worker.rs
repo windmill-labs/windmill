@@ -104,7 +104,7 @@ async fn copy_cache_from_bucket(bucket: &str, tx: Option<Sender<()>>) {
         }
 
         if let Some(tx) = tx {
-        tx.send(()).await.expect("can send copy cache signal");
+            tx.send(()).await.expect("can send copy cache signal");
         }
     };
     if tx_is_some {
@@ -600,7 +600,8 @@ pub async fn run_worker(
 
     #[cfg(feature = "enterprise")]
     let mut last_sync =
-        Instant::now() + Duration::from_secs(NUM_SECS_SYNC) + Duration::from_secs(rand::thread_rng().gen_range(0..NUM_SECS_SYNC));
+        Instant::now() + Duration::from_secs(rand::thread_rng().gen_range(0..NUM_SECS_SYNC));
+    let mut initialized_cache = false;
 
     let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<Uuid>(5);
 
@@ -631,7 +632,7 @@ pub async fn run_worker(
             }
 
             #[cfg(feature = "enterprise")]
-            if last_sync.elapsed().as_secs() > NUM_SECS_SYNC {
+            if initialized_cache && last_sync.elapsed().as_secs() > NUM_SECS_SYNC {
                 if let Some(ref s) = S3_CACHE_BUCKET.clone() {
                     copy_cache_from_bucket(&s, None).await;
                     copy_cache_to_bucket(&s).await;
@@ -655,6 +656,7 @@ pub async fn run_worker(
                         if let Err(e) = move_tmp_cache_to_cache().await {
                             tracing::error!(worker = %worker_name, "failed to sync tmp cache to cache: {}", e);
                         }
+                        initialized_cache = true;
                         (false, Ok(None))
                     },
                     Some(job_id) = same_worker_rx.recv() => {
