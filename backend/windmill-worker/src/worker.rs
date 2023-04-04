@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use anyhow::Result;
 use const_format::concatcp;
 use itertools::Itertools;
 use lazy_static::lazy_static;
@@ -62,38 +63,51 @@ use rand::Rng;
 const TAR_CACHE_FILENAME: &str = "entirecache.tar";
 
 #[cfg(feature = "enterprise")]
-async fn copy_cache_from_bucket(bucket: &str) {
-    tracing::info!("Copying cache from bucket {bucket}");
-    let elapsed = Instant::now();
+async fn copy_cache_from_bucket(bucket: &str, tx: Option<Sender<()>>) {
+    tracing::info!("Copying cache from bucket in the background {bucket}");
+    let bucket = bucket.to_string();
+    let tx_is_some = tx.is_some();
+    let f = async move { 
+        let elapsed = Instant::now();
 
-    match Command::new("rclone")
-        .arg("copy")
-        .arg(format!(":s3,env_auth=true:{bucket}"))
-        .arg(ROOT_CACHE_DIR)
-        .arg("--size-only")
-        .arg("--fast-list")
-        .arg("--exclude")
-        .arg(format!("\"{TAR_CACHE_FILENAME}\""))
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .spawn()
-    {
-        Ok(mut h) => {
-            h.wait().await.unwrap();
+        match Command::new("rclone")
+            .arg("copy")
+            .arg(format!(":s3,env_auth=true:{bucket}"))
+            .arg(if tx_is_some { ROOT_TMP_CACHE_DIR } else { ROOT_CACHE_DIR })
+            .arg("--size-only")
+            .arg("--fast-list")
+            .arg("--exclude")
+            .arg(format!("\"{TAR_CACHE_FILENAME}\""))
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .spawn()
+        {
+            Ok(mut h) => {
+                h.wait().await.unwrap();
+            }
+            Err(e) => tracing::warn!("Failed to run periodic job pull. Error: {:?}", e),
         }
-        Err(e) => tracing::warn!("Failed to run periodic job pull. Error: {:?}", e),
-    }
-    tracing::info!(
-        "Finished copying cache from bucket {bucket}, took {:?}s",
-        elapsed.elapsed().as_secs()
-    );
+        tracing::info!(
+            "Finished copying cache from bucket {bucket}, took {:?}s",
+            elapsed.elapsed().as_secs()
+        );
 
-    for x in [PIP_CACHE_DIR, DENO_CACHE_DIR, GO_CACHE_DIR] {
-        DirBuilder::new()
-            .recursive(true)
-            .create(x)
-            .await
-            .expect("could not create initial worker dir");
+        for x in [PIP_CACHE_DIR, DENO_CACHE_DIR, GO_CACHE_DIR] {
+            DirBuilder::new()
+                .recursive(true)
+                .create(x)
+                .await
+                .expect("could not create initial worker dir");
+        }
+
+        if let Some(tx) = tx {
+        tx.send(()).await.expect("can send copy cache signal");
+        }
+    };
+    if tx_is_some {
+        tokio::spawn(f);
+    } else {
+        f.await;
     }
 }
 
@@ -116,7 +130,7 @@ async fn copy_cache_to_bucket(bucket: &str) {
         Ok(mut h) => {
             h.wait().await.unwrap();
         }
-        Err(e) => tracing::warn!("Failed to run periodic job push. Error: {:?}", e),
+        Err(e) => tracing::info!("Failed to run periodic job push. Error: {:?}", e),
     }
     tracing::info!(
         "Finished copying cache to bucket {bucket}, took: {:?}s",
@@ -141,14 +155,21 @@ async fn copy_cache_to_bucket_as_tar(bucket: &str) {
     {
         Ok(mut h) => {
             if !h.wait().await.unwrap().success() {
-                tracing::warn!("Failed to tar cache");
+                tracing::info!("Failed to tar cache");
                 return;
             }
         }
         Err(e) => {
-            tracing::warn!("Failed tar cache. Error: {e:?}");
+            tracing::info!("Failed tar cache. Error: {e:?}");
             return;
         }
+    }
+
+    let tar_metadata = tokio::fs::metadata(format!("{ROOT_CACHE_DIR}{TAR_CACHE_FILENAME}"))
+    .await;
+    if tar_metadata.is_err() || tar_metadata.as_ref().unwrap().len() == 0 {
+        tracing::info!("Failed to tar cache");
+        return;
     }
 
     match Command::new("rclone")
@@ -165,11 +186,12 @@ async fn copy_cache_to_bucket_as_tar(bucket: &str) {
         Ok(mut h) => {
             h.wait().await.unwrap();
         }
-        Err(e) => tracing::warn!("Failed to copying tar cache to bucket. Error: {:?}", e),
+        Err(e) => tracing::info!("Failed to copy tar cache to bucket. Error: {:?}", e),
     }
     tracing::info!(
-        "Finished copying cache to bucket {bucket} as tar, took: {:?}s",
-        elapsed.elapsed().as_secs()
+        "Finished copying cache to bucket {bucket} as tar, took: {:?}s. Size of new tar: {}",
+        elapsed.elapsed().as_secs(),
+        tar_metadata.unwrap().len()
     );
 }
 
@@ -190,12 +212,12 @@ async fn copy_cache_from_bucket_as_tar(bucket: &str) -> bool {
     {
         Ok(mut h) => {
             if !h.wait().await.unwrap().success() {
-                tracing::warn!("Failed to download tar cache");
+                tracing::info!("Failed to download tar cache, continuing nonetheless");
                 return false;
             }
         }
         Err(e) => {
-            tracing::warn!("Failed to download tar cache. Error: {e:?}");
+            tracing::info!("Failed to download tar cache, continuing nonetheless. Error: {e:?}");
             return false;
         }
     }
@@ -203,19 +225,19 @@ async fn copy_cache_from_bucket_as_tar(bucket: &str) -> bool {
     match Command::new("tar")
         .current_dir(ROOT_CACHE_DIR)
         .arg("-xpvf")
-        .arg(format!("{ROOT_CACHE_DIR}/{TAR_CACHE_FILENAME}"))
+        .arg(format!("{ROOT_CACHE_DIR}{TAR_CACHE_FILENAME}"))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .spawn()
     {
         Ok(mut h) => {
             if !h.wait().await.unwrap().success() {
-                tracing::warn!("Failed to untar cache");
+                tracing::info!("Failed to untar cache, continuing nonetheless");
                 return false;
             }
         }
         Err(e) => {
-            tracing::warn!("Failed untar cache. Error: {e:?}");
+            tracing::warn!("Failed to untar cache, continuing nonetheless. Error: {e:?}");
             return false;
         }
     }
@@ -225,6 +247,13 @@ async fn copy_cache_from_bucket_as_tar(bucket: &str) -> bool {
         elapsed.elapsed().as_secs()
     );
     return true;
+}
+
+async fn move_tmp_cache_to_cache() -> Result<()> {
+    tokio::fs::remove_dir_all(ROOT_CACHE_DIR).await?;
+    tokio::fs::rename(ROOT_TMP_CACHE_DIR, ROOT_CACHE_DIR).await?;
+    tracing::info!("Finished moving tmp cache to cache");
+    Ok(())
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -262,6 +291,7 @@ pub async fn create_token_for_owner<'c>(
 
 const TMP_DIR: &str = "/tmp/windmill";
 const ROOT_CACHE_DIR: &str = "/tmp/windmill/cache/";
+const ROOT_TMP_CACHE_DIR: &str = "/tmp/windmill/tmpcache/";
 const PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "pip");
 const DENO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "deno");
 const GO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "go");
@@ -450,7 +480,7 @@ pub async fn run_worker(
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
     tracing::debug!(worker_dir = %worker_dir, worker_name = %worker_name, "Creating worker dir");
 
-    for x in [&worker_dir, PIP_CACHE_DIR, DENO_CACHE_DIR, GO_CACHE_DIR] {
+    for x in [&worker_dir, ROOT_TMP_CACHE_DIR, PIP_CACHE_DIR, DENO_CACHE_DIR, GO_CACHE_DIR] {
         DirBuilder::new()
             .recursive(true)
             .create(x)
@@ -549,14 +579,18 @@ pub async fn run_worker(
 
     WORKER_STARTED.inc();
 
+    let (_copy_bucket_tx, mut _copy_bucket_rx) = mpsc::channel::<()>(2);
+
     #[cfg(feature = "enterprise")]
     if let Some(ref s) = S3_CACHE_BUCKET.clone() {
         // We try to download the entire cache as a tar, it is much faster over S3
         if !copy_cache_from_bucket_as_tar(&s).await {
             // We revert to copying the cache from the bucket
-            copy_cache_from_bucket(&s).await;
+            copy_cache_from_bucket(&s, Some(_copy_bucket_tx.clone())).await;
         }
     }
+
+    tracing::info!(worker = %worker_name, "starting worker");
 
     #[cfg(feature = "enterprise")]
     let mut last_sync =
@@ -593,8 +627,10 @@ pub async fn run_worker(
             #[cfg(feature = "enterprise")]
             if last_sync.elapsed().as_secs() > NUM_SECS_SYNC {
                 if let Some(ref s) = S3_CACHE_BUCKET.clone() {
-                    copy_cache_from_bucket(&s).await;
+                    copy_cache_from_bucket(&s, None).await;
                     copy_cache_to_bucket(&s).await;
+                    
+                    // this is to prevent excessive tar upload. 1/100*15min = each worker sync its tar once per day on average
                     if rand::thread_rng().gen_range(0..*TAR_CACHE_RATE) == 1 {
                         copy_cache_to_bucket_as_tar(&s).await;
                     }
@@ -608,6 +644,12 @@ pub async fn run_worker(
                     _ = rx.recv() => {
                         println!("received killpill for worker {}", i_worker);
                         (true, Ok(None))
+                    },
+                    _ = _copy_bucket_rx.recv() => {
+                        if let Err(e) = move_tmp_cache_to_cache().await {
+                            tracing::error!(worker = %worker_name, "failed to sync tmp cache to cache: {}", e);
+                        }
+                        (false, Ok(None))
                     },
                     Some(job_id) = same_worker_rx.recv() => {
                         (false, sqlx::query_as::<_, QueuedJob>("SELECT * FROM queue WHERE id = $1")
@@ -1435,7 +1477,7 @@ async fn handle_bash_job(
 ) -> Result<serde_json::Value, Error> {
     logs.push_str("\n\n--- BASH CODE EXECUTION ---\n");
     set_logs(logs, &job.id, db).await;
-    write_file(job_dir, "main.sh", content).await?;
+    write_file(job_dir, "main.sh", &format!("{content}\necho \"\"\nsync\necho \"\"")).await?;
 
     let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
