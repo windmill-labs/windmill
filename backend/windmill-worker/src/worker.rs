@@ -63,7 +63,7 @@ use rand::Rng;
 const TAR_CACHE_FILENAME: &str = "entirecache.tar";
 
 #[cfg(feature = "enterprise")]
-async fn copy_cache_from_bucket(bucket: &str, tx: Option<Sender<()>>) {
+async fn copy_cache_from_bucket(bucket: &str, tx: Option<Sender<()>>) -> Option::<tokio::task::JoinHandle<()>> {
     tracing::info!("Copying cache from bucket in the background {bucket}");
     let bucket = bucket.to_string();
     let tx_is_some = tx.is_some();
@@ -92,7 +92,10 @@ async fn copy_cache_from_bucket(bucket: &str, tx: Option<Sender<()>>) {
             elapsed.elapsed().as_secs()
         );
 
-        for x in [PIP_CACHE_DIR, DENO_CACHE_DIR, GO_CACHE_DIR] {
+        for x in 
+            if !tx_is_some 
+                { [PIP_CACHE_DIR, DENO_CACHE_DIR, GO_CACHE_DIR] }
+                else { [PIP_TMP_CACHE_DIR, DENO_TMP_CACHE_DIR, GO_TMP_CACHE_DIR] } {
             DirBuilder::new()
                 .recursive(true)
                 .create(x)
@@ -101,13 +104,14 @@ async fn copy_cache_from_bucket(bucket: &str, tx: Option<Sender<()>>) {
         }
 
         if let Some(tx) = tx {
-        tx.send(()).await.expect("can send copy cache signal");
+            tx.send(()).await.expect("can send copy cache signal");
         }
     };
     if tx_is_some {
-        tokio::spawn(f);
+        return Some(tokio::spawn(f));
     } else {
         f.await;
+        return None;
     }
 }
 
@@ -295,6 +299,9 @@ const ROOT_TMP_CACHE_DIR: &str = "/tmp/windmill/tmpcache/";
 const PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "pip");
 const DENO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "deno");
 const GO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "go");
+const PIP_TMP_CACHE_DIR: &str = concatcp!(ROOT_TMP_CACHE_DIR, "pip");
+const DENO_TMP_CACHE_DIR: &str = concatcp!(ROOT_TMP_CACHE_DIR, "deno");
+const GO_TMP_CACHE_DIR: &str = concatcp!(ROOT_TMP_CACHE_DIR, "go");
 const NUM_SECS_PING: u64 = 5;
 const NUM_SECS_SYNC: u64 = 60 * 10;
 
@@ -495,7 +502,7 @@ pub async fn run_worker(
     )
     .await;
 
-    let mut last_ping = Instant::now() - Duration::from_secs(NUM_SECS_SYNC + 1);
+    let mut last_ping = Instant::now() - Duration::from_secs(NUM_SECS_PING + 1);
 
     insert_initial_ping(worker_instance, &worker_name, ip, db).await;
 
@@ -581,12 +588,14 @@ pub async fn run_worker(
 
     let (_copy_bucket_tx, mut _copy_bucket_rx) = mpsc::channel::<()>(2);
 
+    let mut copy_cache_from_bucket_handle: Option<tokio::task::JoinHandle<()>> = None;
+
     #[cfg(feature = "enterprise")]
     if let Some(ref s) = S3_CACHE_BUCKET.clone() {
         // We try to download the entire cache as a tar, it is much faster over S3
         if !copy_cache_from_bucket_as_tar(&s).await {
             // We revert to copying the cache from the bucket
-            copy_cache_from_bucket(&s, Some(_copy_bucket_tx.clone())).await;
+            copy_cache_from_bucket_handle = copy_cache_from_bucket(&s, Some(_copy_bucket_tx.clone())).await;
         }
     }
 
@@ -595,6 +604,7 @@ pub async fn run_worker(
     #[cfg(feature = "enterprise")]
     let mut last_sync =
         Instant::now() + Duration::from_secs(rand::thread_rng().gen_range(0..NUM_SECS_SYNC));
+    let mut initialized_cache = false;
 
     let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<Uuid>(5);
 
@@ -625,7 +635,7 @@ pub async fn run_worker(
             }
 
             #[cfg(feature = "enterprise")]
-            if last_sync.elapsed().as_secs() > NUM_SECS_SYNC {
+            if initialized_cache && last_sync.elapsed().as_secs() > NUM_SECS_SYNC {
                 if let Some(ref s) = S3_CACHE_BUCKET.clone() {
                     copy_cache_from_bucket(&s, None).await;
                     copy_cache_to_bucket(&s).await;
@@ -642,6 +652,9 @@ pub async fn run_worker(
                 tokio::select! {
                     biased;
                     _ = rx.recv() => {
+                        if let Some(copy_cache_from_bucket_handle) = copy_cache_from_bucket_handle.as_ref() {
+                            copy_cache_from_bucket_handle.abort();
+                        }
                         println!("received killpill for worker {}", i_worker);
                         (true, Ok(None))
                     },
@@ -649,6 +662,8 @@ pub async fn run_worker(
                         if let Err(e) = move_tmp_cache_to_cache().await {
                             tracing::error!(worker = %worker_name, "failed to sync tmp cache to cache: {}", e);
                         }
+                        copy_cache_from_bucket_handle = None;
+                        initialized_cache = true;
                         (false, Ok(None))
                     },
                     Some(job_id) = same_worker_rx.recv() => {

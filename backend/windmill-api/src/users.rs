@@ -1325,7 +1325,7 @@ async fn create_user(
     Authed { email, .. }: Authed,
     Extension(db): Extension<DB>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
-    Json(nu): Json<NewUser>,
+    Json(mut nu): Json<NewUser>,
 ) -> Result<(StatusCode, String)> {
     let mut tx = db.begin().await?;
 
