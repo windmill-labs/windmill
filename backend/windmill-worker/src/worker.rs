@@ -167,7 +167,7 @@ async fn copy_cache_to_bucket_as_tar(bucket: &str) {
 
     let tar_metadata = tokio::fs::metadata(format!("{ROOT_CACHE_DIR}{TAR_CACHE_FILENAME}"))
     .await;
-    if tar_metadata.is_err() || tar_metadata.unwrap().len() == 0 {
+    if tar_metadata.is_err() || tar_metadata.as_ref().unwrap().len() == 0 {
         tracing::info!("Failed to tar cache");
         return;
     }
@@ -189,8 +189,9 @@ async fn copy_cache_to_bucket_as_tar(bucket: &str) {
         Err(e) => tracing::info!("Failed to copy tar cache to bucket. Error: {:?}", e),
     }
     tracing::info!(
-        "Finished copying cache to bucket {bucket} as tar, took: {:?}s",
-        elapsed.elapsed().as_secs()
+        "Finished copying cache to bucket {bucket} as tar, took: {:?}s. Size of new tar: {}",
+        elapsed.elapsed().as_secs(),
+        tar_metadata.unwrap().len()
     );
 }
 
