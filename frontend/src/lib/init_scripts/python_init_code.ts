@@ -1,9 +1,9 @@
 export default `import os
 import wmill
 
-# You can import any package from PyPI, even if the assistant complains
+# You can import any PyPi package. 
+# See here for more info: https://docs.windmill.dev/docs/advanced/imports#python
 # Ctrl+S to format the code. Autocompletion available.
-
 
 def main(
     no_default: str,

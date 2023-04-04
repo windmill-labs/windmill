@@ -193,13 +193,13 @@
 <InputValue {id} input={configuration.zoom} bind:value={zoom} />
 
 {#if render}
-	<div class="relative w-full h-full bg-gray-100">
+	<div class="relative flex flex-col w-full h-full bg-gray-100">
 		{#if source && zoom}
 			{#if pages?.length}
 				<div
 					bind:clientWidth={controlsWidth}
 					bind:clientHeight={controlsHeight}
-					class="fixed flex {$mode !== 'preview'
+					class="sticky flex {$mode !== 'preview'
 						? 'w-[calc(100%-2px)] top-[1px]'
 						: 'w-full top-0'} {wideView
 						? 'justify-center gap-14'
@@ -304,7 +304,7 @@
 				bind:this={wrapper}
 				on:scroll={throttledScroll}
 				class={twMerge('w-full h-full overflow-auto', css?.container?.class ?? '', 'bg-gray-100')}
-				style="padding-top: {controlsHeight ?? 0}px; {css?.container?.style ?? ''}"
+				style={css?.container?.style ?? ''}
 			/>
 		{/if}
 		{#if $mode !== 'preview' && $selectedComponent?.includes(id)}

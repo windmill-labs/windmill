@@ -83,7 +83,6 @@
 			await inferArgs(lang, code, schema)
 			validCode = true
 		} catch (e) {
-			console.error("Couldn't infer args", e)
 			validCode = false
 		}
 
