@@ -14,6 +14,7 @@ import type { Schema, SupportedLanguage } from './common'
 import { hubScripts, workspaceStore, type UserExt } from './stores'
 import { page } from '$app/stores'
 import { get } from 'svelte/store'
+import Toast from '$lib/components/Toast.svelte'
 
 export function validateUsername(username: string): string {
 	if (username != '' && !/^\w+$/.test(username)) {
@@ -87,14 +88,22 @@ export function getToday() {
 }
 
 export function sendUserToast(message: string, error: boolean = false): void {
-	if (error) {
-		toast.push(message, {
-			theme: {
-				'--toastBackground': '#FEE2E2',
-				'--toastBarBackground': '#FEE2E2'
-			}
-		})
-	} else toast.push(message)
+	toast.push({
+		component: {
+			src: Toast,
+			props: {
+				message,
+				error
+			},
+			sendIdTo: 'toastId'
+		},
+		dismissable: false,
+		initial: 0,
+		theme: {
+			'--toastPadding': '0',
+			'--toastMsgPadding': '0'
+		}
+	})
 }
 
 export function truncateHash(hash: string): string {
