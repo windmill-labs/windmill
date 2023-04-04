@@ -82,7 +82,8 @@
 		},
 		sync: {
 			hash: `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run_wait_result/h/${script?.hash}`,
-			path: `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run_wait_result/p/${script?.path}`
+			path: `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run_wait_result/p/${script?.path}`,
+			get_path: `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run_wait_result/p/${script?.path}`
 		}
 	}
 
@@ -452,8 +453,9 @@
 				<h3 bind:this={webhookElem} id="webhooks">
 					Webhooks
 					<Tooltip>
-						Pass the input as a json payload, the token as a Bearer token or as query arg
-						`?token=XXX` and pass as header: 'Content-Type: application/json'
+						Pass the input as a json payload, the token as a Bearer token (header: 'Authorization:
+						Bearer XXXX') or as query arg `?token=XXX`, and pass as header: 'Content-Type:
+						application/json'
 						<a href="https://docs.windmill.dev/docs/core_concepts/webhooks" class="text-blue-500">
 							See docs
 						</a>
@@ -484,9 +486,25 @@
 													<Icon data={faClipboard} />
 												</span>
 											</a>
-											<Badge color="dark-gray" capitalize>
-												{type}
-											</Badge>
+											{#if type == 'get_path'}
+												<div class="flex flex-row gap-1">
+													<Badge>GET</Badge>
+													<Tooltip
+														>This webhook unlike the others which are all POST takes in a GET
+														request. The payload must be passed as the query arg `payload` and
+														encoded in JSON first, then in an URL safe base64. e.g:
+														`encodeURIComponent(btoa(JSON.stringify({'{a: 2}'})))` `
+													</Tooltip>
+												</div>
+											{:else}
+												<div class="flex flex-row gap-1">
+													<Badge>POST</Badge>
+
+													<Badge color="dark-gray" capitalize>
+														{type}
+													</Badge>
+												</div>
+											{/if}
 										</li>
 									{/each}
 								</ul>

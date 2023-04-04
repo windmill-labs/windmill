@@ -48,6 +48,10 @@ pub fn workspaced_service() -> Router {
             post(run_wait_result_job_by_path),
         )
         .route(
+            "/run_wait_result/p/*script_path",
+            get(run_wait_result_job_by_path_get),
+        )
+        .route(
             "/run_wait_result/h/:hash",
             post(run_wait_result_job_by_hash),
         )
@@ -309,6 +313,7 @@ pub struct RunJobQuery {
     include_header: Option<String>,
     invisible_to_owner: Option<bool>,
     queue_limit: Option<i64>,
+    payload: Option<String>,
 }
 
 lazy_static::lazy_static! {
@@ -1194,7 +1199,7 @@ where
     }
 }
 
-fn decode_payload<D: DeserializeOwned, T: AsRef<[u8]>>(t: T) -> anyhow::Result<D> {
+fn decode_payload<D: DeserializeOwned>(t: String) -> anyhow::Result<D> {
     let vec = base64::engine::general_purpose::URL_SAFE
         .decode(t)
         .context("invalid base64")?;
@@ -1385,6 +1390,60 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse().ok())
         .unwrap_or(20);
 }
+
+pub async fn run_wait_result_job_by_path_get(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Path((w_id, script_path)): Path<(String, StripPath)>,
+    Query(run_query): Query<RunJobQuery>,
+) -> error::JsonResult<serde_json::Value> {
+    let payload_r = run_query
+        .payload
+        .map(decode_payload)
+        .map(|x| x.map_err(|e| Error::InternalErr(e.to_string())));
+
+    let args = if let Some(payload) = payload_r {
+        payload?
+    } else {
+        serde_json::Map::new()
+    };
+
+    check_queue_too_long(db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
+    let script_path = script_path.to_path();
+    let mut tx = user_db.clone().begin(&authed).await?;
+    let job_payload = script_path_to_payload(script_path, &mut tx, &w_id).await?;
+
+    let (uuid, tx) = push(
+        tx,
+        &w_id,
+        job_payload,
+        args,
+        &authed.username,
+        &authed.email,
+        username_to_permissioned_as(&authed.username),
+        None,
+        None,
+        run_query.parent_job,
+        run_query.parent_job,
+        false,
+        false,
+        None,
+        !run_query.invisible_to_owner.unwrap_or(false),
+    )
+    .await?;
+    tx.commit().await?;
+
+    run_wait_result(
+        authed,
+        Extension(user_db),
+        *TIMEOUT_WAIT_RESULT,
+        uuid,
+        Path((w_id, script_path)),
+    )
+    .await
+}
+
 pub async fn run_wait_result_job_by_path(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
@@ -1398,7 +1457,6 @@ pub async fn run_wait_result_job_by_path(
     let script_path = script_path.to_path();
     let mut tx = user_db.clone().begin(&authed).await?;
     let job_payload = script_path_to_payload(script_path, &mut tx, &w_id).await?;
-    let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
 
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
 
@@ -1410,7 +1468,7 @@ pub async fn run_wait_result_job_by_path(
         &authed.username,
         &authed.email,
         username_to_permissioned_as(&authed.username),
-        scheduled_for,
+        None,
         None,
         run_query.parent_job,
         run_query.parent_job,
@@ -1446,7 +1504,6 @@ pub async fn run_wait_result_job_by_hash(
     let hash = script_hash.0;
     let mut tx = user_db.clone().begin(&authed).await?;
     let path = get_path_for_hash(&mut tx, &w_id, hash).await?;
-    let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
 
     let (uuid, tx) = push(
@@ -1457,7 +1514,7 @@ pub async fn run_wait_result_job_by_hash(
         &authed.username,
         &authed.email,
         username_to_permissioned_as(&authed.username),
-        scheduled_for,
+        None,
         None,
         run_query.parent_job,
         run_query.parent_job,
