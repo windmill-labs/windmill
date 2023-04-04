@@ -377,8 +377,9 @@
 
 	if ($selectedComponent) {
 		$componentControl[$selectedComponent[0]] = {
-			setCode: () => {
-				setCode(code)
+			setCode: (value: string) => {
+				code = value
+				setCode(value)
 			}
 		}
 	}

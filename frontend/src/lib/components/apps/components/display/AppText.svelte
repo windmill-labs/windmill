@@ -8,7 +8,7 @@
 	import { copyToClipboard } from '../../../../utils'
 	import Button from '../../../common/button/Button.svelte'
 	import Popover from '../../../Popover.svelte'
-	import { findGridItem, initConfig, initOutput } from '../../editor/appUtils'
+	import { initConfig, initOutput } from '../../editor/appUtils'
 	import { components } from '../../editor/component'
 	import type { AppInput } from '../../inputType'
 	import type {
@@ -90,6 +90,15 @@
 
 	$: initialValue = componentInput?.type == 'template' ? componentInput.eval : ''
 	$: editableValue = initialValue ? JSON.parse(JSON.stringify(initialValue)) : ''
+
+	function onInput(e: Event) {
+		const target = e.target as HTMLInputElement
+
+		if (target.innerText) {
+			$componentControl[id]?.setCode?.(target.innerText)
+			editableValue
+		}
+	}
 </script>
 
 {#each Object.keys(components['textcomponent'].initialData.configuration) as key (key)}
@@ -110,6 +119,7 @@
 				document.getElementById(`text-${id}`)?.focus()
 			}
 		}}
+		on:keydown|stopPropagation
 	>
 		{#if editorMode && componentInput?.type == 'template'}
 			<svelte:element
@@ -130,28 +140,16 @@
 					const elem = document.getElementById(`text-${id}`)
 					if (elem) {
 						elem.focus()
+
+						const range = document.createRange()
+						const sel = window.getSelection()
+						range.setStart(elem.childNodes[0], elem.innerText.length)
+						range.collapse(true)
+						sel?.removeAllRanges()
+						sel?.addRange(range)
 					}
 				}}
-				on:pointerleave={() => {
-					document.getElementById(`text-${id}`)?.blur()
-					editorMode = false
-				}}
-				on:input={(e) => {
-					let gridItem = findGridItem($app, id)
-					// @ts-ignore
-					editableValue = e.target.innerText
-					if (
-						editableValue &&
-						gridItem &&
-						gridItem.data.componentInput &&
-						gridItem.data.componentInput.type == 'template'
-					) {
-						gridItem.data.componentInput.eval = editableValue
-						gridItem = gridItem
-						$app = $app
-						$componentControl[id]?.setCode?.()
-					}
-				}}
+				on:input={onInput}
 			>
 				{editableValue}
 			</svelte:element>
