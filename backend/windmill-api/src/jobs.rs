@@ -1398,7 +1398,6 @@ pub async fn run_wait_result_job_by_path_get(
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
 ) -> error::JsonResult<serde_json::Value> {
-    tracing::error!("run_wait_result_job_by_path_get {:#?}", run_query.payload);
     let payload_r = run_query
         .payload
         .map(decode_payload)
