@@ -92,7 +92,10 @@ async fn copy_cache_from_bucket(bucket: &str, tx: Option<Sender<()>>) {
             elapsed.elapsed().as_secs()
         );
 
-        for x in [PIP_CACHE_DIR, DENO_CACHE_DIR, GO_CACHE_DIR] {
+        for x in 
+            if !tx_is_some 
+                { [PIP_CACHE_DIR, DENO_CACHE_DIR, GO_CACHE_DIR] }
+                else { [PIP_TMP_CACHE_DIR, DENO_TMP_CACHE_DIR, GO_TMP_CACHE_DIR] } {
             DirBuilder::new()
                 .recursive(true)
                 .create(x)
@@ -295,6 +298,9 @@ const ROOT_TMP_CACHE_DIR: &str = "/tmp/windmill/tmpcache/";
 const PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "pip");
 const DENO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "deno");
 const GO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "go");
+const PIP_TMP_CACHE_DIR: &str = concatcp!(ROOT_TMP_CACHE_DIR, "pip");
+const DENO_TMP_CACHE_DIR: &str = concatcp!(ROOT_TMP_CACHE_DIR, "deno");
+const GO_TMP_CACHE_DIR: &str = concatcp!(ROOT_TMP_CACHE_DIR, "go");
 const NUM_SECS_PING: u64 = 5;
 const NUM_SECS_SYNC: u64 = 60 * 10;
 
