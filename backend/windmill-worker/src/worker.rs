@@ -63,16 +63,17 @@ use rand::Rng;
 const TAR_CACHE_FILENAME: &str = "entirecache.tar";
 
 #[cfg(feature = "enterprise")]
-async fn copy_cache_from_bucket(bucket: &str, tx: Sender<()>) {
+async fn copy_cache_from_bucket(bucket: &str, tx: Option<Sender<()>>) {
     tracing::info!("Copying cache from bucket in the background {bucket}");
     let bucket = bucket.to_string();
-    tokio::spawn(async move { 
+    let tx_is_some = tx.is_some();
+    let f = async move { 
         let elapsed = Instant::now();
 
         match Command::new("rclone")
             .arg("copy")
             .arg(format!(":s3,env_auth=true:{bucket}"))
-            .arg(ROOT_TMP_CACHE_DIR)
+            .arg(if tx_is_some { ROOT_TMP_CACHE_DIR } else { ROOT_CACHE_DIR })
             .arg("--size-only")
             .arg("--fast-list")
             .arg("--exclude")
@@ -98,8 +99,16 @@ async fn copy_cache_from_bucket(bucket: &str, tx: Sender<()>) {
                 .await
                 .expect("could not create initial worker dir");
         }
+
+        if let Some(tx) = tx {
         tx.send(()).await.expect("can send copy cache signal");
-    });
+        }
+    };
+    if tx_is_some {
+        tokio::spawn(f);
+    } else {
+        f.await;
+    }
 }
 
 #[cfg(feature = "enterprise")]
@@ -242,7 +251,6 @@ async fn copy_cache_from_bucket_as_tar(bucket: &str) -> bool {
 async fn move_tmp_cache_to_cache() -> Result<()> {
     tokio::fs::remove_dir_all(ROOT_CACHE_DIR).await?;
     tokio::fs::rename(ROOT_TMP_CACHE_DIR, ROOT_CACHE_DIR).await?;
-    tokio::fs::create_dir(ROOT_TMP_CACHE_DIR).await?;
     tracing::info!("Finished moving tmp cache to cache");
     Ok(())
 }
@@ -577,7 +585,7 @@ pub async fn run_worker(
         // We try to download the entire cache as a tar, it is much faster over S3
         if !copy_cache_from_bucket_as_tar(&s).await {
             // We revert to copying the cache from the bucket
-            copy_cache_from_bucket(&s, _copy_bucket_tx.clone()).await;
+            copy_cache_from_bucket(&s, Some(_copy_bucket_tx.clone())).await;
         }
     }
 
@@ -618,7 +626,7 @@ pub async fn run_worker(
             #[cfg(feature = "enterprise")]
             if last_sync.elapsed().as_secs() > NUM_SECS_SYNC {
                 if let Some(ref s) = S3_CACHE_BUCKET.clone() {
-                    copy_cache_from_bucket(&s, _copy_bucket_tx.clone()).await;
+                    copy_cache_from_bucket(&s, None).await;
                     copy_cache_to_bucket(&s).await;
                     
                     // this is to prevent excessive tar upload. 1/100*15min = each worker sync its tar once per day on average
