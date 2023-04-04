@@ -63,7 +63,7 @@ use rand::Rng;
 const TAR_CACHE_FILENAME: &str = "entirecache.tar";
 
 #[cfg(feature = "enterprise")]
-async fn copy_cache_from_bucket(bucket: &str, tx: Option<Sender<()>>) {
+async fn copy_cache_from_bucket(bucket: &str, tx: Option<Sender<()>>) -> Option::<tokio::task::JoinHandle<()>> {
     tracing::info!("Copying cache from bucket in the background {bucket}");
     let bucket = bucket.to_string();
     let tx_is_some = tx.is_some();
@@ -108,9 +108,10 @@ async fn copy_cache_from_bucket(bucket: &str, tx: Option<Sender<()>>) {
         }
     };
     if tx_is_some {
-        tokio::spawn(f);
+        return Some(tokio::spawn(f));
     } else {
         f.await;
+        return None;
     }
 }
 
@@ -587,12 +588,14 @@ pub async fn run_worker(
 
     let (_copy_bucket_tx, mut _copy_bucket_rx) = mpsc::channel::<()>(2);
 
+    let mut copy_cache_from_bucket_handle: Option<tokio::task::JoinHandle<()>> = None;
+
     #[cfg(feature = "enterprise")]
     if let Some(ref s) = S3_CACHE_BUCKET.clone() {
         // We try to download the entire cache as a tar, it is much faster over S3
         if !copy_cache_from_bucket_as_tar(&s).await {
             // We revert to copying the cache from the bucket
-            copy_cache_from_bucket(&s, Some(_copy_bucket_tx.clone())).await;
+            copy_cache_from_bucket_handle = copy_cache_from_bucket(&s, Some(_copy_bucket_tx.clone())).await;
         }
     }
 
@@ -649,6 +652,9 @@ pub async fn run_worker(
                 tokio::select! {
                     biased;
                     _ = rx.recv() => {
+                        if let Some(copy_cache_from_bucket_handle) = copy_cache_from_bucket_handle.as_ref() {
+                            copy_cache_from_bucket_handle.abort();
+                        }
                         println!("received killpill for worker {}", i_worker);
                         (true, Ok(None))
                     },
@@ -656,6 +662,7 @@ pub async fn run_worker(
                         if let Err(e) = move_tmp_cache_to_cache().await {
                             tracing::error!(worker = %worker_name, "failed to sync tmp cache to cache: {}", e);
                         }
+                        copy_cache_from_bucket_handle = None;
                         initialized_cache = true;
                         (false, Ok(None))
                     },
