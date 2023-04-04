@@ -1918,8 +1918,12 @@ for k, v in list(args.items()):
 
 try:
     res = inner_script.main(**args)
-    if type(res).__name__ == 'DataFrame':
-        res = res.values.tolist()
+    typ = type(res)
+    if typ.__name__ == 'DataFrame':
+        if typ.__module__ == 'pandas.core.frame':
+            res = res.values.tolist()
+        elif typ.__module__ == 'polars.dataframe.frame':
+            res = res.rows()
     res_json = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
     with open("result.json", 'w') as f:
         f.write(res_json)
