@@ -2473,18 +2473,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
-        - name: scheduled_for
-          description: when to schedule this job (leave empty for immediate run)
-          in: query
-          schema:
-            type: string
-            format: date-time
-        - name: scheduled_in_secs
-          description:
-            schedule the script to execute in the number of seconds starting now
-          in: query
-          schema:
-            type: integer
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/IncludeHeader"
         - $ref: "#/components/parameters/QueueLimit"
@@ -2504,6 +2492,26 @@ paths:
             application/json:
               schema: {}
 
+    get:
+      summary: run script by path with get
+      operationId: runWaitResultScriptByPathGet
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+        - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/IncludeHeader"
+        - $ref: "#/components/parameters/QueueLimit"
+        - $ref: "#/components/parameters/Payload"
+
+      responses:
+        "200":
+          description: job result
+          content:
+            application/json:
+              schema: {}
+
   /w/{workspace}/jobs/run_wait_result/f/{path}:
     post:
       summary: run flow by path and wait until completion
@@ -2513,18 +2521,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
-        - name: scheduled_for
-          description: when to schedule this job (leave empty for immediate run)
-          in: query
-          schema:
-            type: string
-            format: date-time
-        - name: scheduled_in_secs
-          description:
-            schedule the script to execute in the number of seconds starting now
-          in: query
-          schema:
-            type: integer
         - $ref: "#/components/parameters/IncludeHeader"
         - $ref: "#/components/parameters/QueueLimit"
 
@@ -3528,6 +3524,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/JobId"
+        - $ref: "#/components/parameters/Payload"
         - name: resume_id
           in: path
           required: true
@@ -4646,6 +4643,14 @@ components:
       name: queue_limit
       description: |
         The maximum size of the queue for which the request would get rejected if that job would push it above that limit
+      in: query
+      schema:
+        type: string
+    Payload:
+      name: payload
+      description: |
+        The base64 encoded payload that has been encoded as a JSON. e.g how to encode such payload encodeURIComponent
+        `encodeURIComponent(btoa(JSON.stringify({a: 2})))`
       in: query
       schema:
         type: string
