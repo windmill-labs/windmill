@@ -17,6 +17,7 @@
 		ComponentCustomCSS,
 		RichConfigurations
 	} from '../../types'
+	import { tailwindHorizontalAlignment, tailwindVerticalAlignment } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
@@ -36,7 +37,8 @@
 		configuration
 	)
 
-	const { app, worldStore, mode } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, mode, componentControl } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	const editorcontext = getContext<AppEditorContext>('AppEditorContext')
 
@@ -81,14 +83,13 @@
 	}
 
 	let component = 'p'
-
 	let classes = ''
+
 	$: resolvedConfig.style && (component = getComponent())
 	$: resolvedConfig.style && (classes = getClasses())
 
-	let initialValue = componentInput?.type == 'template' ? componentInput.eval : ''
-
-	$: editableValue = JSON.parse(JSON.stringify(initialValue))
+	$: initialValue = componentInput?.type == 'template' ? componentInput.eval : ''
+	$: editableValue = initialValue ? JSON.parse(JSON.stringify(initialValue)) : ''
 </script>
 
 {#each Object.keys(components['textcomponent'].initialData.configuration) as key (key)}
@@ -111,19 +112,34 @@
 		}}
 	>
 		{#if editorMode && componentInput?.type == 'template'}
-			<input
-				bind:value={editableValue}
-				class={twMerge('z-[9999] h-full w-full', getClasses())}
+			<svelte:element
+				this={component}
+				contenteditable="true"
+				class={twMerge(
+					'whitespace-pre-wrap flex h-full w-full',
+					$app.css?.['textcomponent']?.['text']?.class,
+					customCss?.text?.class,
+					classes,
+					getClasses(),
+					tailwindHorizontalAlignment(horizontalAlignment),
+					tailwindVerticalAlignment(verticalAlignment)
+				)}
+				style={[$app.css?.['textcomponent']?.['text']?.style, customCss?.text?.style].join(';')}
 				id={`text-${id}`}
 				on:pointerenter={() => {
-					document.getElementById(`text-${id}`)?.focus()
+					const elem = document.getElementById(`text-${id}`)
+					if (elem) {
+						elem.focus()
+					}
 				}}
 				on:pointerleave={() => {
 					document.getElementById(`text-${id}`)?.blur()
 					editorMode = false
 				}}
-				on:input={() => {
+				on:input={(e) => {
 					let gridItem = findGridItem($app, id)
+					// @ts-ignore
+					editableValue = e.target.innerText
 					if (
 						editableValue &&
 						gridItem &&
@@ -133,9 +149,12 @@
 						gridItem.data.componentInput.eval = editableValue
 						gridItem = gridItem
 						$app = $app
+						$componentControl[id]?.setCode?.()
 					}
 				}}
-			/>
+			>
+				{editableValue}
+			</svelte:element>
 		{:else}
 			<AlignWrapper {horizontalAlignment} {verticalAlignment}>
 				{#if !result || result === ''}
@@ -145,7 +164,7 @@
 				{:else}
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
 					<div
-						class="flex flex-wrap gap-2 pb-0.5  {$mode === 'dnd' &&
+						class="flex flex-wrap gap-2 pb-0.5 {$mode === 'dnd' &&
 						componentInput?.type == 'template'
 							? 'cursor-text'
 							: ''}"
