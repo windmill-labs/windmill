@@ -495,7 +495,7 @@ pub async fn run_worker(
     )
     .await;
 
-    let mut last_ping = Instant::now() - Duration::from_secs(NUM_SECS_SYNC + 1);
+    let mut last_ping = Instant::now() - Duration::from_secs(NUM_SECS_PING + 1);
 
     insert_initial_ping(worker_instance, &worker_name, ip, db).await;
 
@@ -594,7 +594,7 @@ pub async fn run_worker(
 
     #[cfg(feature = "enterprise")]
     let mut last_sync =
-        Instant::now() + Duration::from_secs(rand::thread_rng().gen_range(0..NUM_SECS_SYNC));
+        Instant::now() + Duration::from_secs(NUM_SECS_SYNC) + Duration::from_secs(rand::thread_rng().gen_range(0..NUM_SECS_SYNC));
 
     let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<Uuid>(5);
 
