@@ -72,7 +72,6 @@
 		"@popperjs/core": "^2.11.6",
 		"@redocly/json-to-json-schema": "^0.0.1",
 		"@tanstack/svelte-table": "^8.7.6",
-		"ag-grid-community": "^29.2.0",
 		"ag-grid-svelte": "^0.1.4",
 		"chart.js": "^3.9.1",
 		"chartjs-adapter-date-fns": "^3.0.0",
@@ -91,8 +90,7 @@
 		"svelte-select": "^5.3.1",
 		"tailwind-merge": "^1.9.1",
 		"vscode-languageclient": "~8.0.2",
-		"vscode-ws-jsonrpc": "3.0.0-next.1",
-		"vscode": "npm:@codingame/monaco-vscode-api@~1.69.0"
+		"vscode-ws-jsonrpc": "3.0.0-next.1"
 	},
 	"peerDependencies": {
 		"svelte": "^3.55.1"
