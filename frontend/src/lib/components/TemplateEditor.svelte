@@ -11,7 +11,8 @@
 	import libStdContent from '$lib/es5.d.ts.txt?raw'
 	import { editor as meditor, languages, Range, Uri as mUri } from 'monaco-editor'
 	import { buildWorkerDefinition } from 'monaco-editor-workers'
-	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy, onMount } from 'svelte'
+	import type { AppViewerContext } from './apps/types'
 
 	languages.typescript.javascriptDefaults.setCompilerOptions({
 		target: languages.typescript.ScriptTarget.Latest,
@@ -371,6 +372,17 @@
 	let divEl: HTMLDivElement | null = null
 	let editor: meditor.IStandaloneCodeEditor
 	let model: meditor.ITextModel
+
+	const { componentControl, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
+
+	if ($selectedComponent) {
+		$componentControl[$selectedComponent[0]] = {
+			setCode: (value: string) => {
+				code = value
+				setCode(value)
+			}
+		}
+	}
 
 	export let code: string = ''
 	export let hash: string = createHash()
