@@ -17,7 +17,6 @@
 		ComponentCustomCSS,
 		RichConfigurations
 	} from '../../types'
-	import { tailwindHorizontalAlignment, tailwindVerticalAlignment } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
@@ -82,22 +81,66 @@
 		}
 	}
 
+	function getClassesByType() {
+		switch (resolvedConfig.style) {
+			case 'Title':
+				return 'h1-textarea'
+			case 'Subtitle':
+				return 'h3-textarea'
+			case 'Body':
+				return 'p-textarea'
+			case 'Caption':
+				return 'p-textarea'
+			case 'Label':
+				return 'label'
+			default:
+				return 'p-textarea'
+		}
+	}
+
 	let component = 'p'
 	let classes = ''
 
+	function getHorizontalAlignement() {
+		if (horizontalAlignment) {
+			switch (horizontalAlignment) {
+				case 'left':
+					return '!text-left'
+				case 'center':
+					return '!text-center'
+				case 'right':
+					return '!text-right'
+				default:
+					return '!text-left'
+			}
+		}
+	}
+
 	$: resolvedConfig.style && (component = getComponent())
 	$: resolvedConfig.style && (classes = getClasses())
-
 	$: initialValue = componentInput?.type == 'template' ? componentInput.eval : ''
 	$: editableValue = initialValue ? JSON.parse(JSON.stringify(initialValue)) : ''
 
-	function onInput(e: Event) {
-		const target = e.target as HTMLInputElement
+	let rows = 1
 
-		if (target.innerText) {
-			$componentControl[id]?.setCode?.(target.innerText)
+	function onInput(e: Event) {
+		const target = e.target as HTMLTextAreaElement
+
+		if (target.value) {
+			$componentControl[id]?.setCode?.(target.value)
 			editableValue
+			autosize()
 		}
+	}
+
+	function autosize() {
+		const el = document.getElementById(`text-${id}`)
+		setTimeout(() => {
+			if (el !== null) {
+				el.style.cssText = 'height:auto; padding:0'
+				el.style.cssText = 'height:' + el.scrollHeight + 'px'
+			}
+		}, 0)
 	}
 </script>
 
@@ -117,42 +160,36 @@
 			if (!editorMode) {
 				editorMode = true
 				document.getElementById(`text-${id}`)?.focus()
+				autosize()
 			}
 		}}
 		on:keydown|stopPropagation
 	>
 		{#if editorMode && componentInput?.type == 'template'}
-			<svelte:element
-				this={component}
-				contenteditable="true"
-				class={twMerge(
-					'whitespace-pre-wrap flex h-full w-full',
-					$app.css?.['textcomponent']?.['text']?.class,
-					customCss?.text?.class,
-					classes,
-					getClasses(),
-					tailwindHorizontalAlignment(horizontalAlignment),
-					tailwindVerticalAlignment(verticalAlignment)
-				)}
-				style={[$app.css?.['textcomponent']?.['text']?.style, customCss?.text?.style].join(';')}
-				id={`text-${id}`}
-				on:pointerenter={() => {
-					const elem = document.getElementById(`text-${id}`)
-					if (elem) {
-						elem.focus()
-
-						const range = document.createRange()
-						const sel = window.getSelection()
-						range.setStart(elem.childNodes[0], elem.innerText.length)
-						range.collapse(true)
-						sel?.removeAllRanges()
-						sel?.addRange(range)
-					}
-				}}
-				on:input={onInput}
-			>
-				{editableValue}
-			</svelte:element>
+			<AlignWrapper {horizontalAlignment} {verticalAlignment}>
+				<textarea
+					class={twMerge(
+						'whitespace-pre-wrap !outline-none !border-0 !bg-transparent !resize-none !overflow-hidden !ring-0 !p-0 text-center',
+						$app.css?.['textcomponent']?.['text']?.class,
+						customCss?.text?.class,
+						classes,
+						getClasses(),
+						getClassesByType(),
+						getHorizontalAlignement()
+					)}
+					style={[$app.css?.['textcomponent']?.['text']?.style, customCss?.text?.style].join(';')}
+					id={`text-${id}`}
+					on:pointerenter={() => {
+						const elem = document.getElementById(`text-${id}`)
+						if (elem) {
+							elem.focus()
+						}
+					}}
+					{rows}
+					on:input={onInput}
+					value={editableValue}
+				/>
+			</AlignWrapper>
 		{:else}
 			<AlignWrapper {horizontalAlignment} {verticalAlignment}>
 				{#if !result || result === ''}

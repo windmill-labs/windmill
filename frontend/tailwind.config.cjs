@@ -482,6 +482,46 @@ const config = {
 					fontFamily: theme('fontFamily.mono'),
 					fontSize: theme('fontSize.sm') + ' !important',
 					lineHeight: theme('lineHeight.4') + ' !important'
+				},
+				'.h1-textarea': {
+					fontSize: '24px !important',
+					fontWeight: `${theme('fontWeight.extrabold')} !important`,
+					lineHeight: '1.05 !important',
+					color: theme('!colors.gray.800'),
+					[`@media (min-width: ${theme('screens.lg')})`]: {
+						fontSize: '26px !important'
+					},
+					[`@media (min-width: ${theme('screens.fhd')})`]: {
+						fontSize: '29px !important'
+					},
+					[`@media (min-width: ${theme('screens.qhd')})`]: {
+						fontSize: '34px !important'
+					}
+				},
+				'.h3-textarea': {
+					fontSize: '18px !important',
+					fontWeight: `${theme('fontWeight.bold')} !important`,
+					lineHeight: '1.2 !important',
+					color: theme('!colors.gray.600'),
+					[`@media (min-width: ${theme('screens.fhd')})`]: {
+						fontSize: '20px !important'
+					},
+					[`@media (min-width: ${theme('screens.qhd')})`]: {
+						fontSize: '22px !important'
+					}
+				},
+				'.p-textarea': {
+					fontSize: '16px !important',
+					fontWeight: `${theme('fontWeight.normal')} !important`,
+					lineHeight: '1.5 !important',
+					color: theme('!colors.gray.600'),
+					[`@media (min-width: ${theme('screens.fhd')})`]: {
+						fontSize: '18px !important'
+					},
+
+					[`@media (min-width: ${theme('screens.qhd')})`]: {
+						fontSize: '20px !important'
+					}
 				}
 			})
 			addComponents({
