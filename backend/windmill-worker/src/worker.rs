@@ -590,12 +590,16 @@ pub async fn run_worker(
 
     let mut copy_cache_from_bucket_handle: Option<tokio::task::JoinHandle<()>> = None;
 
+    let mut initialized_cache = false;
+
     #[cfg(feature = "enterprise")]
     if let Some(ref s) = S3_CACHE_BUCKET.clone() {
         // We try to download the entire cache as a tar, it is much faster over S3
         if !copy_cache_from_bucket_as_tar(&s).await {
             // We revert to copying the cache from the bucket
             copy_cache_from_bucket_handle = copy_cache_from_bucket(&s, Some(_copy_bucket_tx.clone())).await;
+        } else {
+            initialized_cache = true;
         }
     }
 
@@ -604,7 +608,6 @@ pub async fn run_worker(
     #[cfg(feature = "enterprise")]
     let mut last_sync =
         Instant::now() + Duration::from_secs(rand::thread_rng().gen_range(0..NUM_SECS_SYNC));
-    let mut initialized_cache = false;
 
     let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<Uuid>(5);
 
