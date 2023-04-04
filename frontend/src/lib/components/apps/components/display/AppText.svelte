@@ -177,6 +177,7 @@
 						getClassesByType(),
 						getHorizontalAlignement()
 					)}
+					on:pointerdown|stopPropagation
 					style={[$app.css?.['textcomponent']?.['text']?.style, customCss?.text?.style].join(';')}
 					id={`text-${id}`}
 					on:pointerenter={() => {
