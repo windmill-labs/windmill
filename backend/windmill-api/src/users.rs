@@ -1038,10 +1038,6 @@ async fn accept_invite(
     Extension(db): Extension<DB>,
     Json(nu): Json<AcceptInvite>,
 ) -> Result<(StatusCode, String)> {
-    if &nu.username == "bot" {
-        return Err(Error::BadRequest("bot is a reserved username".to_string()));
-    }
-
     if !VALID_USERNAME.is_match(&nu.username) {
         return Err(windmill_common::error::Error::BadRequest(format!(
             "Usermame can only contain alphanumeric characters and underscores"
@@ -1330,6 +1326,7 @@ async fn create_user(
     let mut tx = db.begin().await?;
 
     require_super_admin(&mut tx, &email).await?;
+    nu.email = nu.email.to_lowercase();
 
     if nu.email == SUPERADMIN_SECRET_EMAIL {
         return Err(Error::BadRequest(
@@ -1621,7 +1618,7 @@ async fn login(
     Json(Login { email, password }): Json<Login>,
 ) -> Result<String> {
     let mut tx = db.begin().await?;
-
+    let email = email.to_lowercase();
     let email_w_h: Option<(String, String, bool, bool)> = sqlx::query_as(
         "SELECT email, password_hash, super_admin, first_time_user FROM password WHERE email = $1 AND login_type = \
          'password'",
