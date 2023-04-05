@@ -9,7 +9,6 @@
 	import { getUserExt, refreshSuperadmin } from '$lib/user'
 	import { Button, Skeleton } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
-	import { slide } from 'svelte/transition'
 
 	let email = $page.url.searchParams.get('email') ?? ''
 	let password = $page.url.searchParams.get('password') ?? ''
@@ -137,7 +136,7 @@
 	})
 </script>
 
-<div class="flex min-h-full flex-col justify-center py-12 sm:px-6 lg:px-8 relative">
+<div class="flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative bg-gray-50 h-screen">
 	<div class="absolute top-0 right-0 text-2xs text-gray-800 italic px-3 py-1">
 		<span class="font-mono">{version}</span>
 	</div>
@@ -203,7 +202,7 @@
 			{/if}
 
 			{#if showPassword}
-				<div class="mt-6" transition:slide|local>
+				<div class="mt-6">
 					<div class="space-y-6">
 						{#if isCloudHosted()}
 							<p class="text-xs text-gray-500 italic pb-6">
@@ -213,9 +212,9 @@
 						{/if}
 						<div>
 							<label for="email" class="block text-sm font-medium leading-6 text-gray-900">
-								Email address
+								Email
 							</label>
-							<div class="mt-2">
+							<div class="mt-1">
 								<input
 									type="email"
 									bind:value={email}
@@ -230,7 +229,7 @@
 							<label for="password" class="block text-sm font-medium leading-6 text-gray-900">
 								Password
 							</label>
-							<div class="mt-2">
+							<div class="mt-1">
 								<input
 									on:keyup={handleKeyUp}
 									bind:value={password}

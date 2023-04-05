@@ -13,7 +13,7 @@
 	})
 </script>
 
-<div class="center-center min-h-screen p-4 relative bg-white">
+<div class="center-center min-h-screen p-4 relative bg-gray-50">
 	<div
 		class="border rounded-md shadow-md bg-white w-full max-w-[640px]
 	p-4 sm:py-8 sm:px-10 mb-6 md:mb-20 z-10"
