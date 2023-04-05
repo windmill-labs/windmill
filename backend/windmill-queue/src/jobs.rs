@@ -626,8 +626,6 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         .await?;
     }
     if let Some(ref mut rsmq) = tx.rsmq {
-        let seconds = scheduled_for_o;
-
         rsmq.send_message(job_id.to_bytes_le().to_vec(), scheduled_for_o);
     }
 

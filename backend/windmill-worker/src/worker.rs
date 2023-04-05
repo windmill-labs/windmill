@@ -1559,7 +1559,6 @@ async fn handle_deno_job(
     base_internal_url: &str,
     worker_name: &str
 ) -> error::Result<serde_json::Value> {
-    return Ok(serde_json::Value::Object(serde_json::Map::new()));
     logs.push_str("\n\n--- DENO CODE EXECUTION ---\n");
     set_logs(logs, &job.id, db).await;
     let lockfile = lockfile.and_then(|e| if e.starts_with("{") { Some(e) } else { None });

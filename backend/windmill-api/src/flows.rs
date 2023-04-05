@@ -252,7 +252,7 @@ async fn create_flow(
     )
     .execute(&mut tx)
     .await?;
-    tx.commit().await;
+    tx.commit().await?;
 
     Ok((StatusCode::CREATED, nf.path.to_string()))
 }

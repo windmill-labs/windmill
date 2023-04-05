@@ -824,7 +824,7 @@ impl RunJob {
 
     async fn push(self, db: &Pool<Postgres>) -> Uuid {
         let RunJob { payload, args } = self;
-        let uuid = windmill_queue::push::<rsmq_async::Rsmq>(
+        let (uuid, tx) = windmill_queue::push::<rsmq_async::MultiplexedRsmq>(
             (None, db.begin().await.unwrap()).into(),
             "test-workspace",
             payload,
@@ -843,6 +843,7 @@ impl RunJob {
         )
         .await
         .expect("push has to succeed");
+        tx.commit().await.unwrap();
 
         uuid
     }
@@ -912,7 +913,7 @@ fn spawn_test_worker(
     let ip: &str = Default::default();
     let future = async move {
         let base_internal_url = format!("http://localhost:{}", port);
-        windmill_worker::run_worker::<rsmq_async::Rsmq>(
+        windmill_worker::run_worker::<rsmq_async::MultiplexedRsmq>(
             &db,
             worker_instance,
             worker_name,
