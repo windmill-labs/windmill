@@ -600,7 +600,7 @@ export function recursivelyFilterKeyInJSON(
 	search: string,
 	extraSearch?: string | undefined
 ): object {
-	if (json === null || json === undefined) {
+	if (json === null || json === undefined || typeof json != 'object') {
 		return json
 	}
 	if (!search || search == '') {
