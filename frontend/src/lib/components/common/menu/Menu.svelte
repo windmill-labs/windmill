@@ -5,9 +5,13 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 	import { onMount } from 'svelte'
+	import { fade } from 'svelte/transition'
 
 	export let noMinW = false
 	export let show = false
+	export let wrapperClasses = ''
+	export let popupClasses = ''
+	export let transitionDuration = 100
 	let menu: HTMLDivElement
 
 	type Alignment = 'start' | 'end' | 'center'
@@ -53,7 +57,7 @@
 	}
 </script>
 
-<div class="relative" bind:this={menu}>
+<div class="relative {wrapperClasses}" bind:this={menu}>
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<div
 		on:click|stopPropagation={() => {
@@ -69,10 +73,12 @@
 	</div>
 	{#if show}
 		<div
+			transition:fade|local={{ duration: transitionDuration }}
 			class={classNames(
 				'z-50 absolute mt-2 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 focus:outline-none',
 				placementsClasses[placement],
-				noMinW ? 'min-w-0' : 'w-60'
+				noMinW ? 'min-w-0' : 'w-60',
+				popupClasses
 			)}
 			role="menu"
 			tabindex="-1"

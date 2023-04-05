@@ -22,7 +22,7 @@
 	const dispatch = createEventDispatcher()
 
 	export let jobId: string
-
+	export let workspaceId: string | undefined = undefined
 	export let flowState: FlowState | undefined = undefined
 	export let flowJobIds:
 		| {
@@ -102,7 +102,7 @@
 				localFlowModuleStates[mod.id ?? '']?.scheduled_for == undefined
 			) {
 				JobService.getJob({
-					workspace: $workspaceStore ?? '',
+					workspace: workspaceId ?? $workspaceStore ?? '',
 					id: mod.job ?? ''
 				}).then((job) => {
 					localFlowModuleStates[mod.id ?? ''] = {
@@ -122,7 +122,7 @@
 		if (jobId != '00000000-0000-0000-0000-000000000000') {
 			try {
 				const newJob = await JobService.getJob({
-					workspace: $workspaceStore ?? '',
+					workspace: workspaceId ?? $workspaceStore ?? '',
 					id: jobId ?? ''
 				})
 				if (JSON.stringify(newJob) !== JSON.stringify(job)) {
@@ -159,7 +159,7 @@
 	})
 
 	async function loadOwner(path: string) {
-		is_owner = await isOwner(path, $userStore!, $workspaceStore!)
+		is_owner = await isOwner(path, $userStore!, workspaceId ?? $workspaceStore!)
 	}
 
 	let selected: 'graph' | 'sequence' = 'graph'
@@ -171,6 +171,34 @@
 			return undefined
 		} else {
 			return arg == true
+		}
+	}
+
+	function onJobsLoaded(mod: FlowStatusModule, job: Job): void {
+		if (mod.id && (mod.flow_jobs ?? []).length == 0) {
+			if (flowState && flowState[mod.id]) {
+				flowState[mod.id].previewResult = job['result']
+				flowState[mod.id].previewArgs = job.args
+			}
+			if (job.type == 'QueuedJob') {
+				localFlowModuleStates[mod.id] = {
+					type: FlowStatusModule.type.IN_PROGRESS,
+					logs: job.logs,
+					args: job.args,
+					parent_module: mod['parent_module']
+				}
+			} else {
+				localFlowModuleStates[mod.id] = {
+					args: job.args,
+					type: job['success'] ? FlowStatusModule.type.SUCCESS : FlowStatusModule.type.FAILURE,
+					logs: job.logs,
+					result: job['result'],
+					job_id: job.id,
+					parent_module: mod['parent_module'],
+					iteration_total: mod.iterator?.itered?.length
+					// retries: flowState?.raw_flow
+				}
+			}
 		}
 	}
 </script>
@@ -207,7 +235,7 @@
 											variant="border"
 											on:click={async () =>
 												await JobService.resumeSuspendedFlowAsOwner({
-													workspace: $workspaceStore ?? '',
+													workspace: workspaceId ?? $workspaceStore ?? '',
 													id: job?.id ?? '',
 													requestBody: JSON.parse(payload)
 												})}
@@ -305,6 +333,7 @@
 					</Button>
 					<div class="border p-6" class:hidden={forloop_selected != loopJobId}>
 						<svelte:self
+							{workspaceId}
 							bind:suspend_status
 							bind:retry_status
 							bind:flowState
@@ -378,48 +407,31 @@
 						<div class="line w-8 h-10" />
 						<li class="w-full border border-gray-600 p-6 space-y-2 bg-blue-50/50">
 							{#if [FlowStatusModule.type.IN_PROGRESS, FlowStatusModule.type.SUCCESS, FlowStatusModule.type.FAILURE].includes(mod.type)}
-								<svelte:self
-									bind:suspend_status
-									bind:retry_status
-									bind:flowState
-									bind:flowModuleStates={localFlowModuleStates}
-									jobId={mod.job}
-									flowJobIds={mod.flow_jobs
-										? {
-												moduleId: mod.id,
-												flowJobs: mod.flow_jobs
-										  }
-										: undefined}
-									on:jobsLoaded={(e) => {
-										if (mod.id && (mod.flow_jobs ?? []).length == 0) {
-											if (flowState && flowState[mod.id]) {
-												flowState[mod.id].previewResult = e.detail.result
-												flowState[mod.id].previewArgs = e.detail.args
-											}
-											if (e.detail.type == 'QueuedJob') {
-												localFlowModuleStates[mod.id] = {
-													type: FlowStatusModule.type.IN_PROGRESS,
-													logs: e.detail.logs,
-													args: e.detail.args,
-													parent_module: mod['parent_module']
-												}
-											} else {
-												localFlowModuleStates[mod.id] = {
-													args: e.detail.args,
-													type: e.detail.success
-														? FlowStatusModule.type.SUCCESS
-														: FlowStatusModule.type.FAILURE,
-													logs: e.detail.logs,
-													result: e.detail.result,
-													job_id: e.detail.id,
-													parent_module: mod['parent_module'],
-													iteration_total: mod.iterator?.itered?.length
-													// retries: flowState?.raw_flow
-												}
-											}
-										}
-									}}
-								/>
+								{#if job.raw_flow?.modules[i]?.value.type == 'flow'}
+									<svelte:self
+										{workspaceId}
+										jobId={mod.job}
+										bind:suspend_status
+										bind:retry_status
+										on:jobsLoaded={(e) => onJobsLoaded(mod, e.detail)}
+									/>
+								{:else}
+									<svelte:self
+										{workspaceId}
+										bind:suspend_status
+										bind:retry_status
+										bind:flowState
+										bind:flowModuleStates={localFlowModuleStates}
+										jobId={mod.job}
+										flowJobIds={mod.flow_jobs
+											? {
+													moduleId: mod.id,
+													flowJobs: mod.flow_jobs
+											  }
+											: undefined}
+										on:jobsLoaded={(e) => onJobsLoaded(mod, e.detail)}
+									/>
+								{/if}
 							{:else}
 								<ModuleStatus
 									type={mod.type}
@@ -474,6 +486,7 @@
 						{@const node = localFlowModuleStates[selectedNode]}
 						{#if selectedNode == 'end'}
 							<FlowJobResult
+								filename={job.id}
 								loading={job['running']}
 								noBorder
 								col
@@ -489,7 +502,7 @@
 								<p class="p-2">No arguments</p>
 							{/if}
 						{:else if node}
-							<div class="px-2 flex gap-2 min-w-0 ">
+							<div class="px-2 flex gap-2 min-w-0">
 								<ModuleStatus type={node.type} scheduled_for={node['scheduled_for']} />
 								{#if node.job_id}
 									<div class="truncate"

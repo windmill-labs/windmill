@@ -70,3 +70,4 @@ lazy_static.workspace = true
 prometheus.workspace = true
 async_zip.workspace = true
 rsmq_async.workspace = true
+regex.workspace = true

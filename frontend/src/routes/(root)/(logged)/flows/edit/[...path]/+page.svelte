@@ -36,8 +36,6 @@
 
 	let selectedId: string = 'settings-metadata'
 
-	let initialPath: string = ''
-
 	async function loadFlow(): Promise<void> {
 		loading = true
 		let flow: Flow
@@ -52,7 +50,6 @@
 		}
 
 		await initFlow(flow, flowStore, flowStateStore)
-		initialPath = flow.path
 		loading = false
 		selectedId = stateLoadedFromUrl?.selectedId
 		$dirtyStore = false
@@ -65,4 +62,13 @@
 	}
 </script>
 
-<FlowBuilder {flowStore} {flowStateStore} {initialPath} {selectedId} {initialArgs} {loading} />
+<div id="monaco-widgets-root" class="monaco-editor" style="z-index: 999;" />
+
+<FlowBuilder
+	{flowStore}
+	{flowStateStore}
+	initialPath={$page.params.path}
+	{selectedId}
+	{initialArgs}
+	{loading}
+/>

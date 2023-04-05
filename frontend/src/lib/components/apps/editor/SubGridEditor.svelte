@@ -1,13 +1,14 @@
 <script lang="ts">
+	import { push } from '$lib/history'
 	import { classNames } from '$lib/utils'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { columnConfiguration, isFixed, toggleFixed } from '../gridUtils'
-	import type { AppEditorContext, AppViewerContext, GridItem } from '../types'
-	import Component from './component/Component.svelte'
-	import { expandGriditem, findGridItem } from './appUtils'
-	import { push } from '$lib/history'
 	import Grid from '../svelte-grid/Grid.svelte'
+	import type { AppEditorContext, AppViewerContext, GridItem } from '../types'
+	import { expandGriditem, findGridItem, selectId } from './appUtils'
+	import Component from './component/Component.svelte'
+	import ComponentWrapper from './component/ComponentWrapper.svelte'
 	import GridViewer from './GridViewer.svelte'
 
 	export let containerHeight: number | undefined = undefined
@@ -24,8 +25,16 @@
 
 	const dispatch = createEventDispatcher()
 
-	const { app, connectingInput, selectedComponent, focusedGrid, mode, parentWidth, breakpoint } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const {
+		app,
+		connectingInput,
+		selectedComponent,
+		focusedGrid,
+		mode,
+		parentWidth,
+		breakpoint,
+		allIdsInPath
+	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
 
@@ -35,10 +44,9 @@
 		dispatch('focus')
 	}
 
-	function selectComponent(id: string) {
+	function selectComponent(e: PointerEvent, id: string) {
 		if (!$connectingInput.opened) {
-			dispatch('focus')
-			$selectedComponent = id
+			selectId(e, id, selectedComponent, $app)
 		}
 	}
 
@@ -72,6 +80,7 @@
 		{#if $mode !== 'preview'}
 			<div class={highlight ? 'border-gray-400  border border-dashed min-h-full' : ''}>
 				<Grid
+					allIdsInPath={$allIdsInPath}
 					items={$app.subgrids?.[subGridId] ?? []}
 					on:redraw={(e) => {
 						push(editorContext?.history, $app)
@@ -79,7 +88,7 @@
 							$app.subgrids[subGridId] = e.detail
 						}
 					}}
-					onTopId={$selectedComponent}
+					selectedIds={$selectedComponent}
 					let:dataItem
 					rowHeight={36}
 					cols={columnConfiguration}
@@ -89,34 +98,19 @@
 					parentWidth={$parentWidth - 17}
 					{containerWidth}
 				>
-					<!-- svelte-ignore a11y-click-events-have-key-events -->
-					{#if $connectingInput.opened}
-						<div
-							on:pointerenter={() => ($connectingInput.hoveredComponent = dataItem.id)}
-							on:pointerleave={() => ($connectingInput.hoveredComponent = undefined)}
-							class="absolute w-full h-full bg-black border-2 bg-opacity-25 z-20 flex justify-center items-center"
-						/>
-						<div
-							style="transform: translate(-50%, -50%);"
-							class="absolute w-fit justify-center bg-indigo-500/90 left-[50%] top-[50%] z-50 px-6 rounded border text-white py-2 text-5xl center-center"
-						>
-							{dataItem.id}
-						</div>
-					{/if}
-
-					<!-- svelte-ignore a11y-click-events-have-key-events -->
-					<div
-						on:pointerdown={() => selectComponent(dataItem.id)}
+					<ComponentWrapper
+						id={dataItem.id}
+						type={dataItem.data.type}
 						class={classNames(
 							'h-full w-full center-center',
-							$selectedComponent === dataItem.id ? 'active-grid-item' : '',
+							$selectedComponent?.includes(dataItem.id) ? 'active-grid-item' : '',
 							'top-0'
 						)}
 					>
 						<Component
 							render={visible}
 							component={dataItem.data}
-							selected={$selectedComponent === dataItem.id}
+							selected={Boolean($selectedComponent?.includes(dataItem.id))}
 							locked={isFixed(dataItem)}
 							on:lock={() => lock(dataItem)}
 							on:expand={() => {
@@ -125,7 +119,8 @@
 								if (!parentGridItem) {
 									return
 								}
-								$selectedComponent = dataItem.id
+
+								$selectedComponent = [dataItem.id]
 								push(editorContext?.history, $app)
 
 								expandGriditem(
@@ -137,12 +132,12 @@
 								$app = $app
 							}}
 						/>
-					</div>
+					</ComponentWrapper>
 				</Grid>
 			</div>
 		{:else}
 			<GridViewer
-				onTopId={$selectedComponent}
+				allIdsInPath={$allIdsInPath}
 				items={$app.subgrids?.[subGridId] ?? []}
 				let:dataItem
 				rowHeight={36}
@@ -153,13 +148,13 @@
 			>
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<div
-					on:pointerdown={() => selectComponent(dataItem.id)}
+					on:pointerdown|stopPropagation={(e) => selectComponent(e, dataItem.id)}
 					class={classNames('h-full w-full center-center', 'top-0')}
 				>
 					<Component
 						render={visible}
 						component={dataItem.data}
-						selected={$selectedComponent === dataItem.id}
+						selected={Boolean($selectedComponent?.includes(dataItem.id))}
 						locked={isFixed(dataItem)}
 					/>
 				</div>

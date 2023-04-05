@@ -3,29 +3,31 @@
 		faChevronDown,
 		faChevronUp,
 		faDollarSign,
-		faMinus,
 		faPlus
 	} from '@fortawesome/free-solid-svg-icons'
 
-	import { setInputCat as computeInputCat } from '$lib/utils'
-	import { Badge, Button } from './common'
-	import { createEventDispatcher } from 'svelte'
-	import Icon from 'svelte-awesome'
-	import FieldHeader from './FieldHeader.svelte'
-	import ObjectResourceInput from './ObjectResourceInput.svelte'
-	import ObjectTypeNarrowing from './ObjectTypeNarrowing.svelte'
-	import ResourcePicker from './ResourcePicker.svelte'
-	import StringTypeNarrowing from './StringTypeNarrowing.svelte'
-	import SchemaForm from './SchemaForm.svelte'
 	import type { SchemaProperty } from '$lib/common'
-	import SimpleEditor from './SimpleEditor.svelte'
+	import { setInputCat as computeInputCat } from '$lib/utils'
+	import { X } from 'lucide-svelte'
+	import { createEventDispatcher } from 'svelte'
 	import autosize from 'svelte-autosize'
-	import Toggle from './Toggle.svelte'
-	import Password from './Password.svelte'
-	import type VariableEditor from './VariableEditor.svelte'
+	import Icon from 'svelte-awesome'
+	import { fade } from 'svelte/transition'
+	import JsonEditor from './apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
+	import { Badge, Button } from './common'
+	import FieldHeader from './FieldHeader.svelte'
 	import type ItemPicker from './ItemPicker.svelte'
 	import NumberTypeNarrowing from './NumberTypeNarrowing.svelte'
+	import ObjectResourceInput from './ObjectResourceInput.svelte'
+	import ObjectTypeNarrowing from './ObjectTypeNarrowing.svelte'
+	import Password from './Password.svelte'
 	import Range from './Range.svelte'
+	import ResourcePicker from './ResourcePicker.svelte'
+	import SchemaForm from './SchemaForm.svelte'
+	import SimpleEditor from './SimpleEditor.svelte'
+	import StringTypeNarrowing from './StringTypeNarrowing.svelte'
+	import Toggle from './Toggle.svelte'
+	import type VariableEditor from './VariableEditor.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -39,12 +41,11 @@
 	export let required = false
 	export let pattern: undefined | string = undefined
 	export let valid = required ? false : true
-	export let maxRows = 10
 	export let enum_: string[] | undefined = undefined
 	export let disabled = false
 	export let editableSchema = false
 	export let itemsType:
-		| { type?: 'string' | 'number' | 'bytes'; contentEncoding?: 'base64' }
+		| { type?: 'string' | 'number' | 'bytes' | 'object'; contentEncoding?: 'base64' }
 		| undefined = undefined
 	export let displayHeader = true
 	export let properties: { [name: string]: SchemaProperty } | undefined = undefined
@@ -59,8 +60,6 @@
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
-
-	$: maxHeight = maxRows ? `${1 + maxRows * 1.2}em` : `auto`
 
 	$: validateInput(pattern, value)
 
@@ -93,7 +92,7 @@
 
 	export function evalValueToRaw() {
 		if (value) {
-			rawValue = JSON.stringify(value, null, 4)
+			rawValue = JSON.stringify(value, null, 2)
 		}
 	}
 
@@ -160,15 +159,20 @@
 	}
 
 	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
+	let redraw = 0
+
+	let itemsLimit = 50
 </script>
 
+<!-- svelte-ignore a11y-autofocus -->
 <div class="flex flex-col w-full min-w-[250px]">
 	<div>
 		{#if displayHeader}
-			<FieldHeader {label} {required} {type} {contentEncoding} {format} {itemsType} />
+			<FieldHeader {label} {required} {type} {contentEncoding} {format} />
 		{/if}
 		{#if editableSchema}
 			<div class="p-2 my-1 text-xs border-solid border border-gray-400">
+				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<span
 					class="underline"
 					on:click={() => {
@@ -188,7 +192,7 @@
 								use:autosize
 								rows="1"
 								bind:value={description}
-								on:keydown|stopPropagation 
+								on:keydown|stopPropagation
 								placeholder="Field description"
 							/>
 							{#if type == 'string' && format != 'date-time'}
@@ -201,6 +205,7 @@
 								<select bind:value={itemsType}>
 									<option value={undefined}>No specific item type</option>
 									<option value={{ type: 'string' }}> Items are strings</option>
+									<option value={{ type: 'object' }}> Items are objects (JSON)</option>
 									<option value={{ type: 'number' }}>Items are numbers</option>
 									<option value={{ type: 'string', contentEncoding: 'base64' }}
 										>Items are bytes</option
@@ -235,7 +240,6 @@
 					<input
 						{autofocus}
 						on:focus={(e) => {
-							window.dispatchEvent(new Event('pointerup'))
 							dispatch('focus')
 						}}
 						{disabled}
@@ -247,14 +251,12 @@
 						bind:value
 						min={extra['min']}
 						max={extra['max']}
-						on:input={() => dispatch('input', { value, isRaw: true })}
 					/>
 				{/if}
 			{:else if inputCat == 'boolean'}
 				<Toggle
 					on:pointerdown={(e) => {
 						e?.stopPropagation()
-						window.dispatchEvent(new Event('pointerup'))
 					}}
 					{disabled}
 					class={valid
@@ -266,44 +268,53 @@
 					<span>&nbsp; Not set</span>
 				{/if}
 			{:else if inputCat == 'list'}
-				<div>
-					<div>
-						{#each value ?? [] as v, i}
-							<div class="flex flex-row max-w-md mt-1">
-								{#if itemsType?.type == 'number'}
-									<input autofocus={autofocus && i == 0} type="number" bind:value={v} />
-								{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
-									<input
-										autofocus={autofocus && i == 0}
-										type="file"
-										class="my-6"
-										on:change={(x) => fileChanged(x, (val) => (value[i] = val))}
-										multiple={false}
-									/>
-								{:else}
-									<input autofocus={autofocus && i == 0} type="text" bind:value={v} />
+				<div class="w-full">
+					<div class="w-full">
+						{#key redraw}
+							{#if Array.isArray(value)}
+								{#each value ?? [] as v, i}
+									{#if i < itemsLimit}
+										<div class="flex max-w-md mt-1 w-full items-center">
+											{#if itemsType?.type == 'number'}
+												<input type="number" bind:value={v} />
+											{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
+												<input
+													type="file"
+													class="my-6"
+													on:change={(x) => fileChanged(x, (val) => (value[i] = val))}
+													multiple={false}
+												/>
+											{:else if itemsType?.type == 'object'}
+												<JsonEditor code={JSON.stringify(v, null, 2)} bind:value={v} />
+											{:else}
+												<input type="text" bind:value={v} />
+											{/if}
+											<button
+												transition:fade|local={{ duration: 100 }}
+												class="rounded-full p-1 bg-white/60 duration-200 hover:bg-gray-200"
+												aria-label="Clear"
+												on:click={() => {
+													value.splice(i, 1)
+													redraw += 1
+												}}
+											>
+												<X size={14} />
+											</button>
+										</div>
+									{/if}
+								{/each}
+								{#if value.length > itemsLimit}
+									<button on:click={() => (itemsLimit += 50)} class="text-xs py-2 text-blue-600"
+										>{itemsLimit}/{value.length}: Load 50 more...</button
+									>
 								{/if}
-								<Button
-									variant="border"
-									color="red"
-									size="sm"
-									btnClasses="mx-6"
-									on:click={() => {
-										value = value.filter((el) => el != v)
-										if (value.length == 0) {
-											value = []
-										}
-									}}
-								>
-									<Icon data={faMinus} />
-								</Button>
-							</div>
-						{/each}
+							{/if}
+						{/key}
 					</div>
 					<Button
 						variant="border"
-						color="blue"
-						size="sm"
+						color="dark"
+						size="xs"
 						btnClasses="mt-1"
 						on:click={() => {
 							if (value == undefined || !Array.isArray(value)) {
@@ -315,9 +326,6 @@
 						<Icon data={faPlus} class="mr-2" />
 						Add item
 					</Button>
-					<span class="ml-2">
-						{(value ?? []).length} item{(value ?? []).length > 1 ? 's' : ''}
-					</span>
 				</div>
 			{:else if inputCat == 'resource-object'}
 				<ObjectResourceInput {format} bind:value />
@@ -330,32 +338,21 @@
 							bind:args={value}
 						/>
 					</div>
+				{:else if disabled}
+					<textarea disabled />
 				{:else}
-					<textarea
-						bind:this={el}
+					<JsonEditor
+						bind:editor
 						on:focus={(e) => {
-							window.dispatchEvent(new Event('pointerup'))
 							dispatch('focus')
 						}}
-						{autofocus}
-						{disabled}
-						use:autosize
-						on:keydown|stopPropagation 
-						style="max-height: {maxHeight}"
-						on:input={() => {
-							dispatch('input', { rawValue: value, isRaw: false })
-						}}
-						class="col-span-10 {valid
-							? ''
-							: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
-						placeholder={defaultValue ? JSON.stringify(defaultValue, null, 4) : ''}
-						bind:value={rawValue}
+						code={rawValue}
+						bind:value
 					/>
 				{/if}
 			{:else if inputCat == 'enum'}
 				<select
 					on:focus={(e) => {
-						window.dispatchEvent(new Event('pointerup'))
 						dispatch('focus')
 					}}
 					{disabled}
@@ -372,16 +369,11 @@
 				<div class="border my-1 mb-4 w-full border-gray-400">
 					<SimpleEditor
 						on:focus={(e) => {
-							window.dispatchEvent(new Event('pointerup'))
 							dispatch('focus')
 						}}
-						on:blur={() => dispatch('blur')}
 						bind:this={editor}
 						lang={inputCat}
 						bind:code={value}
-						on:change={async () => {
-							dispatch('input', { rawValue: value, isRaw: false })
-						}}
 						autoHeight
 					/>
 				</div>
@@ -411,12 +403,10 @@
 								rows="1"
 								bind:this={el}
 								on:focus={(e) => {
-									window.dispatchEvent(new Event('pointerup'))
 									dispatch('focus')
 								}}
-								on:blur={() => dispatch('blur')}
 								use:autosize
-								on:keydown|stopPropagation 
+								on:keydown|stopPropagation
 								type="text"
 								{disabled}
 								class="col-span-10 {valid
@@ -424,9 +414,6 @@
 									: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
 								placeholder={defaultValue ?? ''}
 								bind:value
-								on:input={() => {
-									dispatch('input', { rawValue: value, isRaw: false })
-								}}
 							/>
 							{#if itemPicker}
 								<div class="ml-1 relative">

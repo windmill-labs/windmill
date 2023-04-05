@@ -30,7 +30,7 @@ use windmill_queue::{push, schedule::push_scheduled_job, JobPayload, QueueTransa
 use crate::{
     db::{UserDB, DB},
     schedule::clear_schedule,
-    users::{require_owner_of_path, Authed},
+    users::{maybe_refresh_folders, require_owner_of_path, Authed},
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
@@ -178,6 +178,7 @@ async fn check_path_conflict<'c>(
 
 async fn create_flow(
     authed: Authed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(webhook): Extension<WebhookShared>,
@@ -185,6 +186,8 @@ async fn create_flow(
     Json(nf): Json<NewFlow>,
 ) -> Result<(StatusCode, String)> {
     // cron::Schedule::from_str(&ns.schedule).map_err(|e| error::Error::BadRequest(e.to_string()))?;
+    let authed = maybe_refresh_folders(&nf.path, &w_id, authed, &db).await;
+
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
 
     check_path_conflict(tx.transaction_mut(), &w_id, &nf.path).await?;
@@ -289,10 +292,12 @@ async fn update_flow(
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Json(nf): Json<NewFlow>,
 ) -> Result<String> {
+    let flow_path = flow_path.to_path();
+    let authed = maybe_refresh_folders(&flow_path, &w_id, authed, &db).await;
+
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
 
-    let flow_path = flow_path.to_path();
-    check_schedule_conflict(tx.transaction_mut(), &w_id, flow_path).await?;
+    check_schedule_conflict(&mut tx, &w_id, flow_path).await?;
 
     let schema = nf.schema.map(|x| x.0);
     let old_dep_job = sqlx::query_scalar!(
@@ -552,7 +557,6 @@ mod tests {
             modules: vec![
                 FlowModule {
                     id: "a".to_string(),
-                    input_transforms: [].into(),
                     value: FlowModuleValue::Script {
                         path: "test".to_string(),
                         input_transforms: [(
@@ -570,7 +574,6 @@ mod tests {
                 },
                 FlowModule {
                     id: "b".to_string(),
-                    input_transforms: HashMap::new(),
                     value: FlowModuleValue::RawScript {
                         input_transforms: HashMap::new(),
                         content: "test".to_string(),
@@ -589,7 +592,6 @@ mod tests {
                 },
                 FlowModule {
                     id: "c".to_string(),
-                    input_transforms: HashMap::new(),
                     value: FlowModuleValue::ForloopFlow {
                         iterator: InputTransform::Static { value: serde_json::json!([1, 2, 3]) },
                         modules: vec![],
@@ -608,7 +610,6 @@ mod tests {
             ],
             failure_module: Some(FlowModule {
                 id: "d".to_string(),
-                input_transforms: HashMap::new(),
                 value: FlowModuleValue::Script {
                     path: "test".to_string(),
                     input_transforms: HashMap::new(),
@@ -629,7 +630,6 @@ mod tests {
           "modules": [
             {
               "id": "a",
-              "input_transforms": {},
               "value": {
                 "input_transforms": {
                     "test": {
@@ -643,7 +643,6 @@ mod tests {
             },
             {
               "id": "b",
-              "input_transforms": {},
               "value": {
                 "input_transforms": {},
                 "type": "rawscript",
@@ -657,7 +656,6 @@ mod tests {
             },
             {
               "id": "c",
-              "input_transforms": {},
               "value": {
                 "type": "forloopflow",
                 "iterator": {
@@ -680,7 +678,6 @@ mod tests {
           ],
           "failure_module": {
             "id": "d",
-            "input_transforms": {},
             "value": {
               "input_transforms": {},
               "type": "script",
@@ -693,31 +690,6 @@ mod tests {
           }
         });
         assert_eq!(dbg!(serde_json::json!(fv)), dbg!(expect));
-    }
-
-    #[test]
-    fn test_back_compat() {
-        /* renamed input_transform -> input_transforms but should deserialize old name */
-        let s = r#"
-        {
-            "value": {
-                "type": "rawscript",
-                "content": "def main(n): return",
-                "language": "python3"
-            },
-            "input_transform": {
-                "n": {
-                    "expr": "flow_input.iter.value",
-                    "type": "javascript"
-                }
-            }
-        }
-        "#;
-        let module: FlowModule = serde_json::from_str(s).unwrap();
-        assert_eq!(
-            module.input_transforms["n"],
-            InputTransform::Javascript { expr: "flow_input.iter.value".to_string() }
-        );
     }
 
     #[test]

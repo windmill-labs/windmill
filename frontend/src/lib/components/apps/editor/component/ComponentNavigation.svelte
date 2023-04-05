@@ -14,10 +14,10 @@
 	const { app, selectedComponent, worldStore, focusedGrid, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 
-	const { history, movingcomponent } = getContext<AppEditorContext>('AppEditorContext')
+	const { history, movingcomponents } = getContext<AppEditorContext>('AppEditorContext')
 
-	let tempGridItem: GridItem | undefined = undefined
-	let copiedGridItem: GridItem | undefined = undefined
+	let tempGridItems: GridItem[] | undefined = undefined
+	let copiedGridItems: GridItem[] | undefined = undefined
 
 	function getSortedGridItemsOfChildren(): GridItem[] {
 		if (!$focusedGrid) {
@@ -32,7 +32,7 @@
 	}
 
 	function getGridItems(): GridItem[] {
-		if ($app.grid.find((item) => item.id === $selectedComponent)) {
+		if ($app.grid.find((item) => item.id === $selectedComponent?.[0])) {
 			return $app.grid
 		}
 
@@ -42,23 +42,25 @@
 
 		return (
 			Object.values($app.subgrids ?? {}).find((grid) =>
-				grid.find((item) => item.id === $selectedComponent)
+				grid.find((item) => item.id === $selectedComponent?.[0])
 			) ?? []
 		)
 	}
 
 	function left(event: KeyboardEvent) {
-		if (!$componentControl[$selectedComponent!]?.left?.()) {
+		if (!$componentControl[$selectedComponent?.[0] ?? '']?.left?.()) {
 			const sortedGridItems = getGridItems()
-			const currentIndex = sortedGridItems.findIndex((item) => item.id === $selectedComponent)
+			const currentIndex = sortedGridItems.findIndex(
+				(item) => item.id === $selectedComponent?.[0] ?? ''
+			)
 
 			if (currentIndex !== -1 && currentIndex > 0) {
 				const left = sortedGridItems[currentIndex - 1]
 
 				if (left.data.type === 'tablecomponent' && left.data.actionButtons.length >= 1) {
-					$selectedComponent = left.data.actionButtons[left.data.actionButtons.length - 1].id
+					$selectedComponent = [left.data.actionButtons[left.data.actionButtons.length - 1].id]
 				} else {
-					$selectedComponent = left.id
+					$selectedComponent = [left.id]
 				}
 			}
 		}
@@ -67,19 +69,21 @@
 	}
 
 	function right(event: KeyboardEvent) {
-		let r = $componentControl[$selectedComponent!]?.right?.()
+		let r = $componentControl[$selectedComponent?.[0] ?? '']?.right?.()
 
 		if (typeof r === 'string') {
-			$selectedComponent = r
+			$selectedComponent = [r]
 			r = $componentControl[r]?.right?.(true)
 		}
 
 		if (!r) {
 			const sortedGridItems = getGridItems()
-			const currentIndex = sortedGridItems.findIndex((item) => item.id === $selectedComponent)
+			const currentIndex = sortedGridItems.findIndex(
+				(item) => item.id === $selectedComponent?.[0] ?? ''
+			)
 
 			if (currentIndex !== -1 && currentIndex < sortedGridItems.length - 1) {
-				$selectedComponent = sortedGridItems[currentIndex + 1].id
+				$selectedComponent = [sortedGridItems[currentIndex + 1].id]
 			}
 		}
 
@@ -88,7 +92,7 @@
 
 	function down(event: KeyboardEvent) {
 		if (!$focusedGrid) {
-			$selectedComponent = getSortedGridItemsOfChildren()[0]?.id
+			$selectedComponent = [getSortedGridItemsOfChildren()[0]?.id]
 			event.preventDefault()
 		} else if ($app.subgrids) {
 			const index = $focusedGrid?.subGridIndex ?? 0
@@ -99,7 +103,7 @@
 			}
 
 			if (subgrid) {
-				$selectedComponent = subgrid[0].id
+				$selectedComponent = [subgrid[0].id]
 			}
 			event.preventDefault()
 		}
@@ -113,10 +117,10 @@
 
 	function handleArrowUp(event: KeyboardEvent) {
 		if (!$selectedComponent) return
-		let parentId = findGridItemParentGrid($app, $selectedComponent)?.split('-')[0]
+		let parentId = findGridItemParentGrid($app, $selectedComponent?.[0])?.split('-')[0]
 
 		if (parentId) {
-			$selectedComponent = parentId
+			$selectedComponent = [parentId]
 		} else {
 			$selectedComponent = undefined
 			$focusedGrid = undefined
@@ -127,72 +131,82 @@
 		if (!$selectedComponent) {
 			return
 		}
-		tempGridItem = undefined
-		copiedGridItem = findGridItem($app, $selectedComponent)
+		tempGridItems = undefined
+		copiedGridItems = $selectedComponent
+			.map((x) => findGridItem($app, x))
+			.filter((x) => x != undefined) as GridItem[]
 	}
 
 	function handleCut(event: KeyboardEvent) {
 		if (!$selectedComponent) {
 			return
 		}
-		$movingcomponent = $selectedComponent
+		$movingcomponents = JSON.parse(JSON.stringify($selectedComponent))
 		push(history, $app)
 
-		const gridItem = findGridItem($app, $selectedComponent)
-		copiedGridItem = gridItem
+		let gridItems = $selectedComponent
+			.map((x) => findGridItem($app, x))
+			.filter((x) => x != undefined) as GridItem[]
+		copiedGridItems = gridItems
 
-		if (!gridItem) {
+		if (!gridItems) {
 			return
 		}
 
 		// Store the grid item in a temp variable so we can paste it later
-		tempGridItem = gridItem
+		tempGridItems = gridItems
 	}
 
 	function handlePaste(event: KeyboardEvent) {
 		push(history, $app)
-		$movingcomponent = undefined
-		if (tempGridItem != undefined) {
-			if (
-				$focusedGrid &&
-				getAllSubgridsAndComponentIds($app, tempGridItem.data)[0].includes(
-					`${$focusedGrid.parentComponentId}-${$focusedGrid.subGridIndex}`
+		$movingcomponents = undefined
+		if (tempGridItems != undefined) {
+			for (let tempGridItem of tempGridItems) {
+				if (
+					$focusedGrid &&
+					getAllSubgridsAndComponentIds($app, tempGridItem.data)[0].includes(
+						`${$focusedGrid.parentComponentId}-${$focusedGrid.subGridIndex}`
+					)
+				) {
+					sendUserToast('Cannot paste a component into itself', true)
+					return
+				}
+				let parentGrid = findGridItemParentGrid($app, tempGridItem.id)
+				if (parentGrid) {
+					$app.subgrids &&
+						($app.subgrids[parentGrid] = $app.subgrids[parentGrid].filter(
+							(item) => item.id !== tempGridItem?.id
+						))
+				} else {
+					$app.grid = $app.grid.filter((item) => item.id !== tempGridItem?.id)
+				}
+
+				const gridItem = tempGridItem
+				insertNewGridItem(
+					$app,
+					(id) => ({ ...gridItem.data, id }),
+					$focusedGrid,
+					Object.fromEntries(gridColumns.map((column) => [column, gridItem[column]])),
+					tempGridItem.id
 				)
-			) {
-				sendUserToast('Cannot paste a component into itself', true)
-				return
 			}
-			let parentGrid = findGridItemParentGrid($app, tempGridItem.id)
-			if (parentGrid) {
-				$app.subgrids &&
-					($app.subgrids[parentGrid] = $app.subgrids[parentGrid].filter(
-						(item) => item.id !== tempGridItem?.id
-					))
-			} else {
-				$app.grid = $app.grid.filter((item) => item.id !== tempGridItem?.id)
+			copiedGridItems = tempGridItems
+			$selectedComponent = tempGridItems.map((x) => x.id)
+
+			tempGridItems = undefined
+		} else if (copiedGridItems) {
+			let nitems: string[] = []
+			for (let copiedGridItem of copiedGridItems) {
+				nitems.push(
+					insertNewGridItem(
+						$app,
+						(id) => ({ ...copiedGridItem.data, id }),
+						$focusedGrid,
+						Object.fromEntries(gridColumns.map((column) => [column, copiedGridItem[column]]))
+					)
+				)
 			}
-
-			const gridItem = tempGridItem
-			insertNewGridItem(
-				$app,
-				(id) => ({ ...gridItem.data, id }),
-				$focusedGrid,
-				Object.fromEntries(gridColumns.map((column) => [column, gridItem[column]])),
-				tempGridItem.id
-			)
-
-			copiedGridItem = tempGridItem
-			$selectedComponent = tempGridItem.id
-
-			tempGridItem = undefined
-		} else if (copiedGridItem) {
-			const gridItem = copiedGridItem
-			$selectedComponent = insertNewGridItem(
-				$app,
-				(id) => ({ ...gridItem.data, id }),
-				$focusedGrid,
-				Object.fromEntries(gridColumns.map((column) => [column, gridItem[column]]))
-			)
+			$selectedComponent = nitems.map((x) => x)
 		}
 
 		$worldStore = $worldStore
@@ -202,7 +216,10 @@
 	function keydown(event: KeyboardEvent) {
 		// Ignore keydown events if the user is typing in monaco
 		let classes = event.target?.['className']
-		if (typeof classes === 'string' && classes.includes('inputarea')) {
+		if (
+			(typeof classes === 'string' && classes.includes('inputarea')) ||
+			['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName!)
+		) {
 			return
 		}
 		switch (event.key) {

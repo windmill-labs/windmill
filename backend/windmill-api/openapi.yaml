@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.81.0
+  version: 1.85.0
   title: Windmill API
 
   contact:
@@ -117,9 +117,10 @@ paths:
       responses:
         "200":
           description: >
-            Successfully authenticated.
-            The session ID is returned in a cookie named `token` and as plaintext response.
-            Preferred method of authorization is through the bearer token. The cookie is only for browser convenience.
+            Successfully authenticated. The session ID is returned in a cookie
+            named `token` and as plaintext response. Preferred method of
+            authorization is through the bearer token. The cookie is only for
+            browser convenience.
 
           headers:
             Set-Cookie:
@@ -1257,9 +1258,10 @@ paths:
       responses:
         "200":
           description: >
-            Successfully authenticated.
-            The session ID is returned in a cookie named `token` and as plaintext response.
-            Preferred method of authorization is through the bearer token. The cookie is only for browser convenience.
+            Successfully authenticated. The session ID is returned in a cookie
+            named `token` and as plaintext response. Preferred method of
+            authorization is through the bearer token. The cookie is only for
+            browser convenience.
 
           headers:
             Set-Cookie:
@@ -2019,7 +2021,8 @@ paths:
           schema:
             type: string
         - name: first_parent_hash
-          description: mask to filter scripts whom first direct parent has exact hash
+          description:
+            mask to filter scripts whom first direct parent has exact hash
           in: query
           schema:
             type: string
@@ -2276,7 +2279,8 @@ paths:
 
   /w/{workspace}/scripts/delete/h/{hash}:
     post:
-      summary: delete script by hash (erase content but keep hash, require admin)
+      summary:
+        delete script by hash (erase content but keep hash, require admin)
       operationId: deleteScriptByHash
       tags:
         - script
@@ -2431,13 +2435,15 @@ paths:
             type: string
             format: date-time
         - name: scheduled_in_secs
-          description: schedule the script to execute in the number of seconds starting now
+          description:
+            schedule the script to execute in the number of seconds starting now
           in: query
           schema:
             type: integer
         - $ref: "#/components/parameters/ParentJob"
         - name: invisible_to_owner
-          description: make the run invisible to the the script owner (default false)
+          description:
+            make the run invisible to the the script owner (default false)
           in: query
           schema:
             type: boolean
@@ -2467,17 +2473,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
-        - name: scheduled_for
-          description: when to schedule this job (leave empty for immediate run)
-          in: query
-          schema:
-            type: string
-            format: date-time
-        - name: scheduled_in_secs
-          description: schedule the script to execute in the number of seconds starting now
-          in: query
-          schema:
-            type: integer
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/IncludeHeader"
         - $ref: "#/components/parameters/QueueLimit"
@@ -2497,6 +2492,26 @@ paths:
             application/json:
               schema: {}
 
+    get:
+      summary: run script by path with get
+      operationId: runWaitResultScriptByPathGet
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+        - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/IncludeHeader"
+        - $ref: "#/components/parameters/QueueLimit"
+        - $ref: "#/components/parameters/Payload"
+
+      responses:
+        "200":
+          description: job result
+          content:
+            application/json:
+              schema: {}
+
   /w/{workspace}/jobs/run_wait_result/f/{path}:
     post:
       summary: run flow by path and wait until completion
@@ -2506,17 +2521,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
-        - name: scheduled_for
-          description: when to schedule this job (leave empty for immediate run)
-          in: query
-          schema:
-            type: string
-            format: date-time
-        - name: scheduled_in_secs
-          description: schedule the script to execute in the number of seconds starting now
-          in: query
-          schema:
-            type: integer
         - $ref: "#/components/parameters/IncludeHeader"
         - $ref: "#/components/parameters/QueueLimit"
 
@@ -3015,14 +3019,16 @@ paths:
             type: string
             format: date-time
         - name: scheduled_in_secs
-          description: schedule the script to execute in the number of seconds starting now
+          description:
+            schedule the script to execute in the number of seconds starting now
           in: query
           schema:
             type: integer
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/IncludeHeader"
         - name: invisible_to_owner
-          description: make the run invisible to the the flow owner (default false)
+          description:
+            make the run invisible to the the flow owner (default false)
           in: query
           schema:
             type: boolean
@@ -3060,14 +3066,16 @@ paths:
             type: string
             format: date-time
         - name: scheduled_in_secs
-          description: schedule the script to execute in the number of seconds starting now
+          description:
+            schedule the script to execute in the number of seconds starting now
           in: query
           schema:
             type: integer
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/IncludeHeader"
         - name: invisible_to_owner
-          description: make the run invisible to the the script owner (default false)
+          description:
+            make the run invisible to the the script owner (default false)
           in: query
           schema:
             type: boolean
@@ -3098,7 +3106,8 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/IncludeHeader"
         - name: invisible_to_owner
-          description: make the run invisible to the the script owner (default false)
+          description:
+            make the run invisible to the the script owner (default false)
           in: query
           schema:
             type: boolean
@@ -3129,7 +3138,8 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/IncludeHeader"
         - name: invisible_to_owner
-          description: make the run invisible to the the script owner (default false)
+          description:
+            make the run invisible to the the script owner (default false)
           in: query
           schema:
             type: boolean
@@ -3385,10 +3395,38 @@ paths:
               schema:
                 $ref: "#/components/schemas/CompletedJob"
 
-  /w/{workspace}/jobs/queue/cancel/{id}:
+  /w/{workspace}/jobs_u/queue/cancel/{id}:
     post:
       summary: cancel queued job
       operationId: cancelQueuedJob
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      requestBody:
+        description: reason
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+
+      responses:
+        "200":
+          description: job canceled
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/jobs_u/queue/force_cancel/{id}:
+    post:
+      summary: force cancel queued job
+      operationId: forceCancelQueuedJob
       tags:
         - job
       parameters:
@@ -3441,7 +3479,8 @@ paths:
 
   /w/{workspace}/jobs/resume_urls/{id}/{resume_id}:
     get:
-      summary: get resume urls given a job_id, resume_id and a nonce to resume a flow
+      summary:
+        get resume urls given a job_id, resume_id and a nonce to resume a flow
       operationId: getResumeUrls
       tags:
         - job
@@ -3485,6 +3524,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/JobId"
+        - $ref: "#/components/parameters/Payload"
         - name: resume_id
           in: path
           required: true
@@ -3704,7 +3744,8 @@ paths:
                 - schedule
       responses:
         "200":
-          description: the preview of the next 10 time this schedule would apply to
+          description:
+            the preview of the next 10 time this schedule would apply to
           content:
             application/json:
               schema:
@@ -3891,7 +3932,8 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: only_member_of
           in: query
-          description: only list the groups the user is member of (default false)
+          description:
+            only list the groups the user is member of (default false)
           schema:
             type: boolean
       responses:
@@ -4079,7 +4121,8 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: only_member_of
           in: query
-          description: only list the folders the user is member of (default false)
+          description:
+            only list the folders the user is member of (default false)
           schema:
             type: boolean
       responses:
@@ -4562,7 +4605,8 @@ components:
         type: integer
     PerPage:
       name: per_page
-      description: number of items to return for a given page (default 30, max 100)
+      description:
+        number of items to return for a given page (default 30, max 100)
       in: query
       schema:
         type: integer
@@ -4580,7 +4624,9 @@ components:
         type: string
     ParentJob:
       name: parent_job
-      description: The parent job that is at the origin and responsible for the execution of this script if any
+      description:
+        The parent job that is at the origin and responsible for the execution
+        of this script if any
       in: query
       schema:
         type: string
@@ -4597,6 +4643,14 @@ components:
       name: queue_limit
       description: |
         The maximum size of the queue for which the request would get rejected if that job would push it above that limit
+      in: query
+      schema:
+        type: string
+    Payload:
+      name: payload
+      description: |
+        The base64 encoded payload that has been encoded as a JSON. e.g how to encode such payload encodeURIComponent
+        `encodeURIComponent(btoa(JSON.stringify({a: 2})))`
       in: query
       schema:
         type: string
@@ -4653,14 +4707,16 @@ components:
         type: boolean
     ArgsFilter:
       name: args
-      description: filter on jobs containing those args as a json subset (@> in postgres)
+      description:
+        filter on jobs containing those args as a json subset (@> in postgres)
       in: query
       schema:
         type: string
 
     ResultFilter:
       name: result
-      description: filter on jobs containing those result as a json subset (@> in postgres)
+      description:
+        filter on jobs containing those result as a json subset (@> in postgres)
       in: query
       schema:
         type: string
@@ -4705,7 +4761,9 @@ components:
         enum: [Create, Update, Delete, Execute]
     JobKinds:
       name: job_kinds
-      description: filter on job kind (values 'preview', 'script', 'dependencies', 'flow') separated by,
+      description:
+        filter on job kind (values 'preview', 'script', 'dependencies', 'flow')
+        separated by,
       in: query
       schema:
         type: string
@@ -5215,6 +5273,11 @@ components:
     MainArgSignature:
       type: object
       properties:
+        type:
+          type: string
+          enum: ["Valid", "Invalid"]
+        error:
+          type: string
         star_args:
           type: boolean
         star_kwargs:
@@ -5324,6 +5387,8 @@ components:
         - star_args
         - start_kwargs
         - args
+        - type
+        - error
 
     Preview:
       type: object

@@ -18,7 +18,7 @@ permissions:
   contents: read
   id-token: write
   packages: write
-  
+
 jobs:
   build:
     runs-on: ubuntu-22.04
@@ -50,7 +50,6 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
 
-
       - name: Build and push publicly
         uses: depot/build-push-action@v1
         with:
@@ -63,7 +62,7 @@ jobs:
           labels: |
             ${{ steps.meta-public.outputs.labels }}
             org.opencontainers.image.licenses=AGPLv3
-   
+
   build_ee:
     runs-on: ubuntu-22.04
     steps:
@@ -142,7 +141,28 @@ jobs:
   #       run: docker kill ${{ steps.docker-container.outputs.id }}
   #       if: always()
 
+  deploy_s3:
+    needs: [build_ee]
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 18
+      - uses: shrink/actions-docker-extract@v2
+        id: extract
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
+          path: "/static_frontend/."
 
+      - uses: reggionick/s3-deploy@v3
+        with:
+          folder: ${{ steps.extract.outputs.destination }}
+          bucket: windmill-frontend
+          bucket-region: us-east-1
   publish_privately_heavy:
     needs: [build_ee]
     runs-on: [self-hosted, new]
@@ -191,8 +211,12 @@ jobs:
           tags: |
             ${{ steps.meta-heavy.outputs.tags }}
           labels: ${{ steps.meta-heavy.outputs.labels }}
-          cache-from: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}-heavy:buildcache
-          cache-to: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}-heavy:buildcache,mode=max
+          cache-from:
+            type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME
+            }}-heavy:buildcache
+          cache-to:
+            type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME
+            }}-heavy:buildcache,mode=max
 
   publish_privately_helm:
     runs-on: [self-hosted, new]
@@ -204,7 +228,6 @@ jobs:
           fetch-depth: 0
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
- 
 
       - name: Login to registry
         uses: docker/login-action@v2
@@ -220,7 +243,7 @@ jobs:
           registry: ${{ env.ECR_REGISTRY }}
           username: ${{ secrets.AWS_ACCESS_KEY_ID }}
           password: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          
+
       - name: Build and push privately
         uses: docker/build-push-action@v4
         if: github.event_name != 'pull_request'
@@ -230,5 +253,9 @@ jobs:
           file: ./docker/DockerfileHelm
           tags: |
             ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}:helm
-          cache-from: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}-helm:buildcache
-          cache-to: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}-helm:buildcache,mode=max
+          cache-from:
+            type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME
+            }}-helm:buildcache
+          cache-to:
+            type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME
+            }}-helm:buildcache,mode=max

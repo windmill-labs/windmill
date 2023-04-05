@@ -2,8 +2,6 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { getContext } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
-	import type { AppInput } from '../../inputType'
-	import type { Output } from '../../rx'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
@@ -38,10 +36,6 @@
 
 <AlignWrapper {render} {horizontalAlignment} {verticalAlignment}>
 	<Toggle
-		on:pointerdown={(e) => {
-			e?.stopPropagation()
-			window.dispatchEvent(new Event('pointerup'))
-		}}
 		checked={defaultValue}
 		options={{ right: labelValue }}
 		textClass={css?.text?.class ?? ''}

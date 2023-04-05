@@ -1,12 +1,18 @@
 <script lang="ts">
-	import { sendUserToast, displayDate, canWrite } from '$lib/utils'
-	import { type Schedule, ScheduleService } from '$lib/gen'
+	import { ScheduleService, type Schedule } from '$lib/gen'
+	import { canWrite, displayDate, sendUserToast } from '$lib/utils'
 
-	import PageHeader from '$lib/components/PageHeader.svelte'
-	import TableCustom from '$lib/components/TableCustom.svelte'
+	import CenteredPage from '$lib/components/CenteredPage.svelte'
+	import { Badge, Button, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/Dropdown.svelte'
-	import ShareModal from '$lib/components/ShareModal.svelte'
+	import PageHeader from '$lib/components/PageHeader.svelte'
+	import Popover from '$lib/components/Popover.svelte'
+	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
+	import ShareModal from '$lib/components/ShareModal.svelte'
+	import TableCustom from '$lib/components/TableCustom.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import {
 		faCircle,
 		faEdit,
@@ -17,14 +23,7 @@
 		faToggleOn,
 		faTrash
 	} from '@fortawesome/free-solid-svg-icons'
-	import { userStore, workspaceStore } from '$lib/stores'
-	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
-	import { Badge, Button, Skeleton } from '$lib/components/common'
-	import Popover from '$lib/components/Popover.svelte'
 	import { Icon } from 'svelte-awesome'
-	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
-	import { MoreVertical } from 'lucide-svelte'
 
 	type ScheduleW = Schedule & { canWrite: boolean }
 
@@ -228,7 +227,7 @@
 	}}
 />
 
-<style>
+<style lang="postcss">
 	td {
 		@apply px-2;
 	}

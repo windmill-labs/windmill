@@ -16,7 +16,7 @@
 	function selectScript(id: string) {
 		$selectedComponentInEditor = id
 		if (!id.startsWith('unused-') || !id.startsWith('bg_')) {
-			$selectedComponent = $selectedComponentInEditor.split('_transformer')[0]
+			$selectedComponent = [$selectedComponentInEditor.split('_transformer')[0]]
 		}
 	}
 
@@ -27,7 +27,7 @@
 		$selectedComponent != $selectedComponentInEditor &&
 		!$selectedComponentInEditor?.includes('_transformer')
 	) {
-		$selectedComponentInEditor = $selectedComponent
+		$selectedComponentInEditor = $selectedComponent?.[0]
 	}
 
 	function createBackgroundScript() {
@@ -63,11 +63,11 @@
 			<div class="text-sm font-semibold truncate mb-1"> Inline scripts </div>
 			<div class="flex flex-col gap-2 w-full">
 				{#if runnables.inline.length > 0}
-					<div class="flex gap-1 flex-col ">
+					<div class="flex gap-1 flex-col">
 						{#each runnables.inline as { name, id, transformer }, index (index)}
 							<button
 								id={PREFIX + id}
-								class="panel-item 
+								class="panel-item
 				{$selectedComponentInEditor === id ? 'border-blue-500 bg-blue-100' : 'hover:bg-blue-50'}"
 								on:click={() => selectScript(id)}
 							>
@@ -94,7 +94,7 @@
 					</div>
 				{/if}
 				{#if $app.unusedInlineScripts?.length > 0}
-					<div class="flex gap-1 flex-col ">
+					<div class="flex gap-1 flex-col">
 						{#each $app.unusedInlineScripts as unusedInlineScript, index (index)}
 							{@const id = `unused-${index}`}
 							<button
@@ -193,7 +193,7 @@
 	</div>
 </PanelSection>
 
-<style>
+<style lang="postcss">
 	.panel-item {
 		@apply border flex gap-1 truncate font-normal justify-between w-full items-center py-1 px-2 rounded-sm duration-200;
 	}

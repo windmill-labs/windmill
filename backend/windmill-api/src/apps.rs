@@ -320,6 +320,10 @@ async fn create_app(
     app.policy.on_behalf_of = Some(username_to_permissioned_as(&authed.username));
     app.policy.on_behalf_of_email = Some(authed.email);
 
+    if &app.path == "" {
+        return Err(Error::BadRequest("App path cannot be empty".to_string()));
+    }
+
     let id = sqlx::query_scalar!(
         "INSERT INTO app
             (workspace_id, path, summary, policy, versions)

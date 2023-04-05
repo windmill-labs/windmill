@@ -1,18 +1,18 @@
 <script lang="ts">
-	import AgGridSvelte from 'ag-grid-svelte/AgGridSvelte.svelte'
 	import 'ag-grid-community/styles/ag-grid.css'
 	import 'ag-grid-community/styles/ag-theme-alpine.css'
+	import AgGridSvelte from 'ag-grid-svelte/AgGridSvelte.svelte'
 
-	import { getContext, onMount } from 'svelte'
-	import type { Output } from '../../../rx'
-	import type { AppViewerContext, RichConfiguration, RichConfigurations } from '../../../types'
-	import InputValue from '../../helpers/InputValue.svelte'
-	import type { AppInput } from '../../../inputType'
-	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import { isObject } from '$lib/utils'
+	import { getContext, onMount } from 'svelte'
+	import type { AppInput } from '../../../inputType'
+	import type { AppViewerContext, RichConfigurations } from '../../../types'
+	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 
+	import { initConfig, initOutput } from '$lib/components/apps/editor/appUtils'
+	import { components } from '$lib/components/apps/editor/component'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
-	import { initOutput } from '$lib/components/apps/editor/appUtils'
+	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -22,21 +22,30 @@
 
 	let result: Record<number, any>[] | undefined = undefined
 
-	const { worldStore, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
+	const { worldStore, selectedComponent, componentControl } =
+		getContext<AppViewerContext>('AppViewerContext')
+
+	let resolvedConfig = initConfig(
+		components['aggridcomponent'].initialData.configuration,
+		configuration
+	)
 
 	let outputs = initOutput($worldStore, id, {
 		selectedRowIndex: 0,
 		selectedRow: {},
 		result: [] as Record<number, any>[],
-		loading: false
+		loading: false,
+		page: 0,
+		newChange: { row: 0, column: '', value: undefined },
+		ready: undefined as boolean | undefined
 	})
 
 	let selectedRowIndex = -1
 
-	function toggleRow(row: Record<string, any>, rowIndex: number) {
-		if (selectedRowIndex !== rowIndex) {
+	function toggleRow(rowIndex: number) {
+		if (selectedRowIndex !== rowIndex && result) {
 			selectedRowIndex = rowIndex
-			outputs?.selectedRow.set(row.original)
+			outputs?.selectedRow.set(result[rowIndex])
 			outputs?.selectedRowIndex.set(rowIndex)
 		}
 	}
@@ -52,18 +61,12 @@
 		// We need to wait until the component is mounted so the world is created
 		mounted &&
 		outputs &&
-		toggleRow({ original: result[0] }, 0)
+		toggleRow(0)
 
 	$: outputs?.result?.set(result ?? [])
 
 	let clientHeight
 	let clientWidth
-
-	let columnDefs: any = undefined
-
-	let allEditable: boolean | undefined = undefined
-	let pagination: boolean | undefined = undefined
-	let pageSize: number | undefined = 10
 
 	function onCellValueChanged(event) {
 		if (result) {
@@ -71,38 +74,62 @@
 			try {
 				dataCell = JSON.parse(dataCell)
 			} catch (e) {}
-			result[event.node.rowIndex][event.column.colId] = dataCell
+			outputs?.newChange?.set({
+				row: event.node.rowIndex,
+				column: event.colDef.field,
+				value: dataCell
+			})
+			result[event.node.rowIndex][event.colDef.field] = dataCell
 		}
 	}
 </script>
 
-<InputValue {id} input={configuration.columnDefs} bind:value={columnDefs} />
-<InputValue {id} input={configuration.allEditable} bind:value={allEditable} />
-<InputValue {id} input={configuration.pagination} bind:value={pagination} />
-<InputValue {id} input={configuration.pageSize} bind:value={pageSize} />
+{#each Object.keys(components['aggridcomponent'].initialData.configuration) as key (key)}
+	<ResolveConfig
+		{id}
+		{key}
+		bind:resolvedConfig={resolvedConfig[key]}
+		configuration={configuration[key]}
+	/>
+{/each}
 
 <RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
 	{#if Array.isArray(result) && result.every(isObject)}
 		<div
-			class="border border-gray-300 shadow-sm divide-y divide-gray-300  flex flex-col h-full"
+			class="border border-gray-300 shadow-sm divide-y divide-gray-300 flex flex-col h-full"
 			bind:clientHeight
 			bind:clientWidth
 		>
 			<div
 				on:pointerdown|stopPropagation={() => {
-					$selectedComponent = id
+					$selectedComponent = [id]
 				}}
 				style:height="{clientHeight}px"
 				style:width="{clientWidth}px"
 				class="ag-theme-alpine"
 			>
-				{#key pagination}
+				{#key resolvedConfig?.pagination}
 					<AgGridSvelte
 						bind:rowData={result}
-						{columnDefs}
-						{pagination}
-						paginationPageSize={pageSize}
-						defaultColDef={{ flex: 1, editable: allEditable, onCellValueChanged }}
+						columnDefs={resolvedConfig?.columnDefs}
+						pagination={resolvedConfig?.pagination}
+						paginationAutoPageSize={resolvedConfig?.pagination}
+						defaultColDef={{ flex: 1, editable: resolvedConfig?.allEditable, onCellValueChanged }}
+						onPaginationChanged={(event) => {
+							outputs?.page.set(event.api.paginationGetCurrentPage())
+						}}
+						rowSelection="single"
+						suppressRowDeselection={true}
+						onSelectionChanged={(e) => {
+							const row = e.api.getSelectedNodes()?.[0]?.rowIndex
+							if (row != undefined) {
+								toggleRow(row)
+							}
+						}}
+						onGridReady={(e) => {
+							outputs?.ready.set(true)
+							$componentControl[id] = { agGrid: { api: e.api, columnApi: e.columnApi } }
+						}}
 					/>
 				{/key}
 			</div>

@@ -20,8 +20,15 @@
 		configuration
 	)
 
-	const { app, worldStore, focusedGrid, selectedComponent, mode, componentControl } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const {
+		app,
+		worldStore,
+		focusedGrid,
+		selectedComponent,
+		mode,
+		componentControl,
+		connectingInput
+	} = getContext<AppViewerContext>('AppViewerContext')
 
 	let selected: string = tabs[0]
 	let tabHeight: number = 0
@@ -32,7 +39,7 @@
 
 	function handleTabSelection() {
 		selectedIndex = tabs?.indexOf(selected)
-		outputs?.selectedTabIndex.set(selectedIndex, true)
+		outputs?.selectedTabIndex.set(selectedIndex)
 
 		if ($focusedGrid?.parentComponentId != id || $focusedGrid?.subGridIndex != selectedIndex) {
 			$focusedGrid = {
@@ -107,7 +114,7 @@
 
 	<div class="w-full">
 		{#if $app.subgrids}
-			{#each tabs ?? [] as res, i}
+			{#each tabs ?? [] as _res, i}
 				<SubGridEditor
 					{id}
 					visible={render && i === selectedIndex}
@@ -118,7 +125,10 @@
 						? componentContainerHeight - tabHeight
 						: componentContainerHeight}
 					on:focus={() => {
-						$selectedComponent = id
+						if (!$connectingInput.opened) {
+							$selectedComponent = [id]
+							handleTabSelection()
+						}
 					}}
 				/>
 			{/each}

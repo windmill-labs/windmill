@@ -62,12 +62,14 @@ pub async fn cancel_job<'c, R: rsmq_async::RsmqConnection + Clone>(
     w_id: &str,
     mut tx: Transaction<'c, Postgres>,
     rsmq: Option<R>,
+    force_rerun: bool,
 ) -> error::Result<(Transaction<'c, Postgres>, Option<Uuid>)> {
     let job_option = sqlx::query_scalar!(
-        "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 \
-         AND workspace_id = $4 RETURNING id",
+        "UPDATE queue SET  canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0, running = CASE WHEN $3 THEN false ELSE running END  WHERE id = $4 \
+         AND workspace_id = $5 RETURNING id",
         username,
         reason,
+        force_rerun,
         id,
         w_id
     )
@@ -83,10 +85,11 @@ pub async fn cancel_job<'c, R: rsmq_async::RsmqConnection + Clone>(
     while !jobs.is_empty() {
         let p_job = jobs.pop();
         let new_jobs = sqlx::query_scalar!(
-            "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2 WHERE parent_job = $3 \
-             AND workspace_id = $4 RETURNING id",
+            "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, running = CASE WHEN $3 THEN false ELSE running END WHERE parent_job = $4 \
+             AND workspace_id = $5 RETURNING id",
             username,
             reason,
+            force_rerun,
             p_job,
             w_id
         )
@@ -312,8 +315,8 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     let job_id: Uuid = Ulid::new().into();
 
     if cfg!(feature = "enterprise") {
-        let premium_workspace =
-            sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", workspace_id)
+        let premium_workspace = *CLOUD_HOSTED
+            && sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", workspace_id)
                 .fetch_one(&mut tx)
                 .await
                 .map_err(|e| {
@@ -536,7 +539,6 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             modules.push(FlowModule {
                 id: format!("{}-v", flow.modules[flow.modules.len() - 1].id),
                 value: FlowModuleValue::Identity,
-                input_transforms: HashMap::new(),
                 stop_after_if: None,
                 summary: Some(
                     "Virtual module needed for suspend/sleep when last module".to_string(),
@@ -712,7 +714,7 @@ impl QueuedJob {
         self.script_path
             .as_ref()
             .map(String::as_str)
-            .unwrap_or("NO_FLOW_PATH")
+            .unwrap_or("tmp/main")
     }
 }
 

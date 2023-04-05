@@ -2,10 +2,15 @@
 	import { slide } from 'svelte/transition'
 	import { ChevronDown } from 'lucide-svelte'
 	import { isOpenStore } from './store'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, onMount } from 'svelte'
 
 	export let title: string
 	export let prefix: string | undefined = undefined
+	export let openByDefault: boolean = false
+	export let wrapperClasses = ''
+	export let toggleClasses = ''
+	export let contentWrapperClasses = ''
+	export let isOpen = false
 
 	const dispatch = createEventDispatcher()
 
@@ -13,14 +18,20 @@
 	$: isOpen = prefix ? $isOpenStore[storeTitle] : true
 
 	$: dispatch('open', isOpen)
+
+	onMount(() => {
+		if (prefix !== undefined && !(prefix + title in $isOpenStore)) {
+			$isOpenStore[prefix + title] = openByDefault
+		}
+	})
 </script>
 
-<section class="pt-1 pb-2 px-1">
+<section class="pt-1 pb-2 px-1 {wrapperClasses}">
 	{#if prefix !== undefined}
 		<button
 			on:click|preventDefault={() => isOpenStore.toggle(storeTitle)}
 			class="w-full flex justify-between items-center text-gray-700 px-2 py-1 
-			rounded-sm duration-200 hover:bg-gray-100"
+			rounded-sm duration-200 hover:bg-gray-100 {toggleClasses}"
 		>
 			<h1 class="text-sm font-semibold text-left">
 				<slot name="title">
@@ -30,7 +41,7 @@
 			<ChevronDown class="rotate-0 duration-300 {isOpen ? '!rotate-180' : ''}" />
 		</button>
 		{#if isOpen}
-			<div transition:slide|local={{ duration: 300 }} class="px-2">
+			<div transition:slide|local={{ duration: 300 }} class="px-2 {contentWrapperClasses}">
 				<slot />
 			</div>
 		{/if}

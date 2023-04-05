@@ -2,13 +2,18 @@
 	import { ScriptService, type Script } from '$lib/gen'
 
 	import { page } from '$app/stores'
-	import { workspaceStore } from '$lib/stores'
+	import { runFormStore, workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
-	import { decodeArgs, decodeState } from '$lib/utils'
+	import { decodeState } from '$lib/utils'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 
 	const initialState = $page.url.searchParams.get('state')
-	const initialArgs = decodeArgs($page.url.searchParams.get('args') ?? undefined)
+	let initialArgs = {}
+	if ($runFormStore) {
+		initialArgs = $runFormStore
+		$runFormStore = undefined
+	}
+	let topHash = $page.url.searchParams.get('topHash') ?? undefined
 
 	let scriptLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
 
@@ -36,5 +41,5 @@
 </script>
 
 {#if script}
-	<ScriptBuilder {initialPath} {script} {initialArgs} />
+	<ScriptBuilder bind:topHash {initialPath} {script} {initialArgs} />
 {/if}

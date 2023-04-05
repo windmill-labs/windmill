@@ -20,9 +20,10 @@
 		delete $runnableComponents[`bg_${index}`]
 	}
 
-	$: gridItem = $selectedComponentInEditor
-		? findGridItem($app, $selectedComponentInEditor?.split('_transformer')?.[0])
-		: undefined
+	$: gridItem =
+		$selectedComponentInEditor && !$selectedComponentInEditor.startsWith('bg_')
+			? findGridItem($app, $selectedComponentInEditor?.split('_')?.[0])
+			: undefined
 
 	$: hiddenInlineScript = $app?.hiddenInlineScripts?.findIndex(
 		(k_, index) => `bg_${index}` === $selectedComponentInEditor
@@ -73,7 +74,6 @@
 						/>
 					{:else}
 						<EmptyInlineScript
-							id={`b_${hiddenInlineScript}`}
 							name={$app.hiddenInlineScripts[hiddenInlineScript].name}
 							on:delete={() => deleteBackgroundScript(hiddenInlineScript)}
 							on:new={(e) => {

@@ -6,6 +6,8 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+pub const SUPERADMIN_SECRET_EMAIL: &str = "superadmin_secret@windmill.dev";
+
 pub fn username_to_permissioned_as(user: &str) -> String {
     if user.contains('@') {
         user.to_string()

@@ -16,7 +16,7 @@
 	export let panes: number[]
 	export let render: boolean
 
-	const { app, focusedGrid, selectedComponent, componentControl, worldStore } =
+	const { app, focusedGrid, selectedComponent, componentControl, worldStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	//used so that we can count number of outputs setup for first refresh
@@ -29,7 +29,6 @@
 		}
 	}
 
-	$: $selectedComponent === id && onFocus()
 	$: css = concatCustomCss($app.css?.containercomponent, customCss)
 
 	$componentControl[id] = {
@@ -73,7 +72,7 @@
 				<div
 					class="w-full h-full"
 					on:pointerdown|stopPropagation={() => {
-						$selectedComponent = id
+						$selectedComponent = [id]
 						$focusedGrid = {
 							parentComponentId: id,
 							subGridIndex: index
@@ -90,10 +89,12 @@
 							subGridId={`${id}-${index}`}
 							containerHeight={horizontal ? undefined : componentContainerHeight - 8}
 							on:focus={() => {
-								$selectedComponent = id
-								$focusedGrid = {
-									parentComponentId: id,
-									subGridIndex: index
+								if (!$connectingInput.opened) {
+									$selectedComponent = [id]
+									$focusedGrid = {
+										parentComponentId: id,
+										subGridIndex: index
+									}
 								}
 							}}
 						/>

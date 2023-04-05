@@ -2,6 +2,7 @@ import type { ReadFileAs } from '../common/fileInput/model'
 import type { InlineScript } from './types'
 
 export type InputType =
+	| 'integer'
 	| 'text'
 	| 'textarea'
 	| 'template'
@@ -17,6 +18,7 @@ export type InputType =
 	| 'array'
 	| 'any'
 	| 'labeledresource'
+	| 'labeledselect'
 	| 'tab-select'
 
 // Connection to an output of another component
@@ -151,6 +153,8 @@ export type AppInput =
 	| AppInputSpec<'array', object[], 'object'>
 	| (AppInputSpec<'array', string[], 'select'> & StaticOptions)
 	| AppInputSpec<'array', object[], 'labeledresource'>
+	| AppInputSpec<'array', object[], 'labeledselect'>
+	| AppInputSpec<'labeledselect', object>
 	| AppInputSpec<'labeledresource', object>
 	| AppInputSpec<'array', object[], 'tab-select'>
 

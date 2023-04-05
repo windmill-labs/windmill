@@ -1,22 +1,21 @@
 <script lang="ts">
-	import type { FlowEditorContext } from '../types'
-	import { createEventDispatcher, getContext } from 'svelte'
-	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
-	import type { FlowModule } from '$lib/gen'
-	import InsertModuleButton from './InsertModuleButton.svelte'
-	import { faBarsStaggered, faCodeBranch, faLongArrowDown } from '@fortawesome/free-solid-svg-icons'
-	import Icon from 'svelte-awesome'
-	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
-	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
-	import { Building, ClipboardCopy, GitBranchPlus, Move, Repeat, Square } from 'lucide-svelte'
-	import type { Writable } from 'svelte/store'
 	import { Button } from '$lib/components/common'
+	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
+	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
+	import type { FlowModule } from '$lib/gen'
+	import { faBarsStaggered, faCodeBranch, faLongArrowDown } from '@fortawesome/free-solid-svg-icons'
+	import { Building, ClipboardCopy, GitBranchPlus, Repeat, Square } from 'lucide-svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
+	import Icon from 'svelte-awesome'
+	import type { Writable } from 'svelte/store'
+	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
+	import InsertModuleButton from './InsertModuleButton.svelte'
 
 	export let mod: FlowModule
 	export let trigger: boolean
 	export let insertable: boolean
 	export let insertableEnd = false
-	export let annotation: string | undefined = undefined
+	// export let annotation: string | undefined = undefined
 	export let branchable: boolean = false
 	export let bgColor: string = ''
 	export let modules: FlowModule[]
@@ -82,9 +81,9 @@
 	<div class="relative">
 		{#if moving == mod.id}
 			<div class="absolute z-10 right-20 top-0.5 center-center">
-				<Button color="dark" on:click={() => dispatch('move')} size="xs" variant="border"
-					>Cancel move</Button
-				>
+				<Button color="dark" on:click={() => dispatch('move')} size="xs" variant="border">
+					Cancel move
+				</Button>
 			</div>
 		{/if}
 
@@ -187,7 +186,7 @@
 						dispatch('insert', { modules, index: idx + 1, detail: 'move' })
 					}}
 					type="button"
-					class=" text-gray-900 bg-white border mx-0.5  border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
+					class=" text-gray-900 bg-white border mx-0.5 border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
 				>
 					<ClipboardCopy size={12} />
 				</button>

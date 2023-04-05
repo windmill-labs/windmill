@@ -10,7 +10,7 @@
 	import { flip } from 'svelte/animate'
 	import { fade } from 'svelte/transition'
 
-	export let failureModule: boolean
+	// export let failureModule: boolean
 	const dispatch = createEventDispatcher()
 
 	let items: Flow[] | undefined = undefined

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { AppInput, StaticInput } from '../../../inputType'
+	import type { StaticInput } from '../../../inputType'
 	import { Loader2, X } from 'lucide-svelte'
 	import { Popup } from '../../../../common'
 	import { fade } from 'svelte/transition'
@@ -45,8 +45,9 @@
 
 	function select(label: string) {
 		componentInput.value = label
-		if ((document.activeElement as HTMLElement)?.blur) {
-			;(document.activeElement as HTMLElement).blur()
+		const elem = document.activeElement as HTMLElement
+		if (elem.blur) {
+			elem.blur()
 		}
 	}
 </script>

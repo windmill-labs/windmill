@@ -9,7 +9,7 @@
 	import type { Schema } from '$lib/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Editor from '$lib/components/Editor.svelte'
-	import { emptySchema, scriptLangToEditorLang } from '$lib/utils'
+	import { emptySchema, isMac, scriptLangToEditorLang } from '$lib/utils'
 	import Popover from '../../../Popover.svelte'
 	import { computeFields } from './utils'
 	import { deepEqual } from 'fast-equals'
@@ -67,6 +67,7 @@
 			loadSchemaAndInputsByName()
 		}
 	})
+
 	const dispatch = createEventDispatcher()
 	let runLoading = false
 
@@ -81,8 +82,6 @@
 			}
 		}
 	}
-
-	let isMac = navigator.userAgent.indexOf('Mac OS X') !== -1
 
 	$: extraLib =
 		inlineScript?.language == 'frontend' && worldStore
@@ -177,7 +176,7 @@
 						Format
 
 						<div class="flex flex-row items-center gap-1">
-							<Kbd>{isMac ? '⌘' : 'CTRL'}</Kbd>
+							<Kbd>{isMac() ? '⌘' : 'CTRL'}</Kbd>
 							<Kbd>S</Kbd>
 						</div>
 					</div>
@@ -191,7 +190,7 @@
 						btnClasses="!px-2 !py-1 !bg-gray-700 !text-white hover:!bg-gray-900"
 						on:click={async () => {
 							runLoading = true
-							await $runnableComponents[id]?.(!transformer ? inlineScript : undefined)
+							await $runnableComponents[id]?.cb?.(!transformer ? inlineScript : undefined)
 							runLoading = false
 						}}
 					>
@@ -199,7 +198,7 @@
 							Run
 
 							<div class="flex flex-row items-center gap-1">
-								<Kbd>{isMac ? '⌘' : 'CTRL'}</Kbd>
+								<Kbd>{isMac() ? '⌘' : 'CTRL'}</Kbd>
 								<Kbd>
 									<div class="h-4 flex items-center justify-center">
 										<CornerDownLeft size={10} />
@@ -227,7 +226,7 @@
 							inlineScript.content = editor?.getCode() ?? ''
 						}
 						runLoading = true
-						await $runnableComponents[id]?.(inlineScript)
+						await $runnableComponents[id]?.cb?.(inlineScript)
 						runLoading = false
 					}}
 					on:change={async (e) => {
@@ -248,15 +247,15 @@
 			{:else}
 				<SimpleEditor
 					bind:this={simpleEditor}
-					cmdEnterAction={async () => {
-						runLoading = true
-						await $runnableComponents[id]?.(!transformer ? inlineScript : undefined)
-						runLoading = false
-					}}
 					class="h-full"
 					{extraLib}
 					bind:code={inlineScript.content}
 					lang="javascript"
+					cmdEnterAction={async () => {
+						runLoading = true
+						await $runnableComponents[id]?.cb?.(!transformer ? inlineScript : undefined)
+						runLoading = false
+					}}
 					on:change={() => {
 						$app = $app
 					}}

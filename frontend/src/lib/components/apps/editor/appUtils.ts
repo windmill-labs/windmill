@@ -1,4 +1,3 @@
-import { getNextId } from '$lib/components/flows/flowStateUtils'
 import type {
 	App,
 	BaseAppComponent,
@@ -21,6 +20,62 @@ import type { Output, World } from '../rx'
 import gridHelp from '../svelte-grid/utils/helper'
 import type { FilledItem } from '../svelte-grid/types'
 import type { EvalAppInput, StaticAppInput } from '../inputType'
+import { get, type Writable } from 'svelte/store'
+import { sendUserToast } from '$lib/utils'
+import { getNextId } from '$lib/components/flows/idUtils'
+
+export function dfs(
+	grid: GridItem[],
+	id: string,
+	subgrids: Record<string, GridItem[]>
+): string[] | undefined {
+	for (const item of grid) {
+		if (item.id === id) {
+			return [id]
+		} else if (item.data.type == 'tablecomponent' && item.data.actionButtons.find((x) => x.id)) {
+			return [item.id, id]
+		} else {
+			for (let i = 0; i < (item.data.numberOfSubgrids ?? 0); i++) {
+				const res = dfs(subgrids[`${item.id}-${i}`], id, subgrids)
+				if (res) {
+					return [item.id, ...res]
+				}
+			}
+		}
+	}
+	return undefined
+}
+
+export function selectId(
+	e: PointerEvent,
+	id: string,
+	selectedComponent: Writable<string[] | undefined>,
+	app: App
+) {
+	if (e.shiftKey) {
+		selectedComponent.update((old) => {
+			if (old && old?.[0]) {
+				if (findGridItemParentGrid(app, old[0]) != findGridItemParentGrid(app, id)) {
+					sendUserToast('Cannot multi select items from different grids', true)
+					return old
+				}
+			}
+			if (old == undefined) {
+				return [id]
+			}
+			if (old.includes(id)) {
+				return old
+			}
+			return [...old, id]
+		})
+	} else {
+		if (get(selectedComponent)?.includes(id)) {
+			return
+		} else {
+			selectedComponent.set([id])
+		}
+	}
+}
 
 function findGridItemById(
 	root: GridItem[],
@@ -567,4 +622,57 @@ export function recursivelyFilterKeyInJSON(
 		}
 	})
 	return filteredJSON
+}
+
+export function clearErrorByComponentId(
+	id: string,
+	errorByComponent: Record<
+		string,
+		{
+			error: string
+			componentId: string
+		}
+	>
+) {
+	return Object.entries(errorByComponent).reduce((acc, [key, value]) => {
+		if (value.componentId !== id) {
+			acc[key] = value
+		}
+		return acc
+	}, {})
+}
+
+export function clearJobsByComponentId(
+	id: string,
+	jobs: {
+		job: string
+		component: string
+	}[]
+) {
+	return jobs.filter((job) => job.component !== id)
+}
+
+// Returns the error message for the latest job for a component if an error occurred, otherwise undefined
+export function getErrorFromLatestResult(
+	id: string,
+	errorByComponent: Record<
+		string, // job id
+		{
+			error: string
+			componentId: string
+		}
+	>,
+	jobs: {
+		job: string
+		component: string
+	}[]
+) {
+	// find last jobId for component id
+	const lastJob = jobs.find((job) => job.component === id)
+
+	if (lastJob?.job && errorByComponent[lastJob.job]) {
+		return errorByComponent[lastJob.job].error
+	} else {
+		return undefined
+	}
 }

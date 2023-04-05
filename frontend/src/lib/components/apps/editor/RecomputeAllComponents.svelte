@@ -17,7 +17,7 @@
 		$worldStore.initializedOutputs ==
 			allItems($app.grid, $app.subgrids).length + $app.hiddenInlineScripts.length &&
 		refresh()
-	$: componentNumber = Object.keys($runnableComponents).length
+	$: componentNumber = Object.values($runnableComponents).filter((x) => x.autoRefresh).length
 
 	function onClick(stopAfterClear = true) {
 		if (timeout) {
@@ -46,13 +46,10 @@
 		loading = true
 		Promise.all(
 			Object.keys($runnableComponents).map((id) => {
-				if (id.startsWith('bg_')) {
-					let index = parseInt(id.split('_')[1])
-					if (!$app.hiddenInlineScripts[index]?.autoRefresh) {
-						return
-					}
+				if (!$runnableComponents?.[id]?.autoRefresh) {
+					return
 				}
-				return $runnableComponents?.[id]?.()
+				return $runnableComponents?.[id]?.cb?.()
 			})
 		).finally(() => {
 			loading = false
@@ -82,6 +79,7 @@
 
 <div class="flex items-center">
 	<Button
+		disabled={componentNumber == 0}
 		on:click={() => onClick()}
 		color={timeout ? 'blue' : 'light'}
 		variant={timeout ? 'contained' : 'border'}

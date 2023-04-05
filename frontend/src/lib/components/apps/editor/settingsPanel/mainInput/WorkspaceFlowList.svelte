@@ -11,7 +11,6 @@
 	export let filter = ''
 
 	let flows: Flow[] | undefined = undefined
-	let loading: boolean = false
 	let filteredItems: (Flow & { marked?: string })[] = []
 	$: prefilteredItems = flows ?? []
 
@@ -24,11 +23,9 @@
 		})
 
 		flows = loadedFlows
-		loading = false
 	}
 
 	onMount(() => {
-		loading = true
 		loadFlow()
 	})
 </script>
@@ -63,7 +60,7 @@
 						<div class="flex items-center gap-4">
 							<RowIcon kind="flow" />
 
-							<div class="w-full text-left font-normal ">
+							<div class="w-full text-left font-normal">
 								<div class="text-gray-900 flex-wrap text-md font-semibold mb-1">
 									{#if item.marked}
 										{@html item.marked ?? ''}
@@ -71,7 +68,7 @@
 										{!item.summary || item.summary.length == 0 ? item.path : item.summary}
 									{/if}
 								</div>
-								<div class="text-gray-600 text-xs ">
+								<div class="text-gray-600 text-xs">
 									{item.path}
 								</div>
 							</div>

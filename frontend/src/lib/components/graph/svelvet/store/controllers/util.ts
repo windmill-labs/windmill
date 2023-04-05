@@ -1,15 +1,15 @@
 const pkStringGenerator = () => (Math.random() + 1).toString(36).substring(7) // these are callbacks used to calculate anchor position relative to node
 import { dynamicCbCreator, fixedCbCreator } from '../../edges/controllers/anchorCbDev'
 
-import type { AnchorType, AnchorCbType } from '../../edges/types/types'
+import type { AnchorCbType, AnchorType } from '../../edges/types/types'
 
-import type { NodeType, EdgeType, StoreType, ResizeNodeType } from '../types/types'
-import type { UserNodeType, UserEdgeType } from '../../types/types'
+import type { UserEdgeType, UserNodeType } from '../../types/types'
+import type { EdgeType, NodeType, StoreType } from '../types/types'
 
-import { Anchor } from '../../edges/models/Anchor'
-import { Node } from '../../nodes/models/Node'
-import { Edge } from '../../edges/models/Edge'
 import { getAnchors } from '../../edges/controllers/util'
+import { Anchor } from '../../edges/models/Anchor'
+import { Edge } from '../../edges/models/Edge'
+import { Node } from '../../nodes/models/Node'
 
 /**
  * Creates an Anchor on the targeted Node with infomation the userNode holds
@@ -76,21 +76,7 @@ export function populateEdgesStore(store: StoreType, edges: UserEdgeType[], canv
 		// source is node.id for the source node
 		// target is node.id for the target node
 		// We need to get the anchors
-		const {
-			source: sourceNodeId,
-			target: targetNodeId,
-			id: edgeId,
-			type,
-			label,
-			labelBgColor,
-			labelTextColor,
-			edgeColor,
-			animate,
-			noHandle,
-			arrow,
-			clickCallback,
-			className
-		} = userEdge
+		const { id: edgeId } = userEdge
 
 		const anchors = getAnchors(store, { edgeId: edgeId })
 		// check that we have two anchors for every edge

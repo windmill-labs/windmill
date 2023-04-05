@@ -6,7 +6,6 @@
 		ComponentCustomCSS,
 		RichConfigurations
 	} from '../../../types'
-	import InputValue from '../../helpers/InputValue.svelte'
 	import type { AppInput } from '../../../inputType'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import { writable } from 'svelte/store'
@@ -17,10 +16,11 @@
 	import AppTableFooter from './AppTableFooter.svelte'
 	import { tableOptions } from './tableOptions'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
-	import type { ButtonComponent } from '../../../editor/component'
+	import { components, type ButtonComponent } from '../../../editor/component'
 	import { concatCustomCss } from '../../../utils'
 	import { twMerge } from 'tailwind-merge'
-	import { initOutput } from '$lib/components/apps/editor/appUtils'
+	import { initConfig, initOutput } from '$lib/components/apps/editor/appUtils'
+	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
 
 	export let id: string
 	export let componentInput: AppInput | undefined
@@ -34,9 +34,19 @@
 
 	let result: Record<string, any>[] | undefined = undefined
 
-	let search: 'By Runnable' | 'By Component' | 'Disabled' | undefined = undefined
+	const { app, worldStore, componentControl, selectedComponent, hoverStore, mode } =
+		getContext<AppViewerContext>('AppViewerContext')
+
 	let searchValue = ''
-	let pagination: boolean | undefined = true
+
+	let outputs = initOutput($worldStore, id, {
+		selectedRowIndex: 0,
+		selectedRow: undefined,
+		loading: false,
+		result: [],
+		search: '',
+		page: 1
+	})
 
 	$: setSearch(searchValue)
 
@@ -52,8 +62,10 @@
 
 	let table = createSvelteTable(options)
 
-	const { app, worldStore, componentControl, selectedComponent, hoverStore, mode } =
-		getContext<AppViewerContext>('AppViewerContext')
+	let resolvedConfig = initConfig(
+		components['tablecomponent'].initialData.configuration,
+		configuration
+	)
 
 	let selectedRowIndex = -1
 
@@ -78,25 +90,6 @@
 		outputs &&
 		toggleRow({ original: result[0] }, 0)
 
-	function setOptions(filteredResult: Array<Record<string, any>>) {
-		if (!Array.isArray(result)) {
-			return
-		}
-
-		const headers = Array.from(new Set(result.flatMap((row) => Object.keys(row))))
-
-		$options = {
-			...tableOptions,
-			data: filteredResult,
-			columns: headers.map((header) => {
-				return {
-					accessorKey: header,
-					cell: (info) => info.getValue()
-				}
-			})
-		}
-	}
-
 	function searchInResult(result: Array<Record<string, any>>, searchValue: string) {
 		if (searchValue === '') {
 			return result
@@ -106,7 +99,7 @@
 		)
 	}
 
-	function renderCell(x: any, props: any) {
+	function renderCell(x: any, props: any): any {
 		try {
 			return flexRender(x, props)
 		} catch (e) {
@@ -120,25 +113,62 @@
 
 	let filteredResult: Array<Record<string, any>> = []
 
-	$: filteredResult && setOptions(filteredResult)
-	$: search === 'By Component' && (filteredResult = searchInResult(result ?? [], searchValue))
-	$: (search === 'By Runnable' || search === 'Disabled') && (filteredResult = result ?? [])
-	let outputs = initOutput($worldStore, id, {
-		selectedRowIndex: 0,
-		selectedRow: undefined,
-		loading: false,
-		result: [],
-		search: ''
-	})
+	function setFilteredResult() {
+		if (resolvedConfig.search === 'By Runnable' || resolvedConfig.search === 'Disabled') {
+			filteredResult = result ?? []
+		} else {
+			filteredResult = searchInResult(result ?? [], searchValue)
+		}
+	}
+	$: (result || resolvedConfig.search || searchValue || resolvedConfig.pagination) &&
+		setFilteredResult()
+
+	$: outputs.page.set($table.getState().pagination.pageIndex)
 
 	function rerender() {
+		if (!Array.isArray(result)) {
+			return
+		}
+
+		const headers = Array.from(
+			new Set(result.flatMap((row) => (typeof row == 'object' ? Object.keys(row) : [])))
+		)
+
+		$options = {
+			...tableOptions,
+			...(resolvedConfig?.pagination?.selected != 'manual'
+				? {
+						initialState: {
+							pagination: {
+								pageSize: resolvedConfig?.pagination?.configuration?.auto?.pageSize ?? 20
+							}
+						}
+				  }
+				: {}),
+			manualPagination: resolvedConfig?.pagination?.selected == 'manual',
+			pageCount:
+				resolvedConfig?.pagination?.selected == 'manual'
+					? resolvedConfig?.pagination?.configuration.manual.pageCount ?? -1
+					: undefined,
+			data: filteredResult,
+			columns: headers.map((header) => {
+				return {
+					accessorKey: header,
+					cell: (info) => info.getValue()
+				}
+			})
+		}
 		table = createSvelteTable(options)
 		if (result) {
 			toggleRow({ original: result[0] }, 0, true)
 		}
+
+		if (outputs.page.peak()) {
+			$table.setPageIndex(outputs?.page.peak())
+		}
 	}
 
-	$: result && rerender()
+	$: filteredResult && rerender()
 
 	$: css = concatCustomCss($app.css?.tablecomponent, customCss)
 
@@ -151,7 +181,7 @@
 			const hasActions = actionButtons.length >= 1
 
 			if (hasActions) {
-				$selectedComponent = actionButtons[0].id
+				$selectedComponent = [actionButtons[0].id]
 				return true
 			}
 			return false
@@ -159,7 +189,14 @@
 	}
 </script>
 
-<InputValue {id} input={configuration.search} bind:value={search} />
+{#each Object.keys(components['tablecomponent'].initialData.configuration) as key (key)}
+	<ResolveConfig
+		{id}
+		{key}
+		bind:resolvedConfig={resolvedConfig[key]}
+		configuration={configuration[key]}
+	/>
+{/each}
 
 <RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
 	{#if Array.isArray(result) && result.every(isObject)}
@@ -171,7 +208,7 @@
 			)}
 			style={css?.container?.style ?? ''}
 		>
-			{#if search !== 'Disabled'}
+			{#if resolvedConfig.search !== 'Disabled'}
 				<div class="px-2 py-1">
 					<div class="flex items-center">
 						<div class="grow max-w-[300px]">
@@ -259,8 +296,9 @@
 										on:keypress={() => toggleRow(row, rowIndex)}
 										on:click={() => toggleRow(row, rowIndex)}
 									>
-										<div class="center-center h-full w-full flex-wrap gap-1 ">
-											{#each actionButtons as actionButton, actionIndex (actionIndex)}
+										<div class="center-center h-full w-full flex-wrap gap-1">
+											{#each actionButtons as actionButton, actionIndex (actionButton?.id)}
+												<!-- svelte-ignore a11y-mouse-events-have-key-events -->
 												<div
 													on:mouseover|stopPropagation={() => {
 														if (actionButton.id !== $hoverStore) {
@@ -272,13 +310,13 @@
 															$hoverStore = undefined
 														}
 													}}
-													class={(actionButton.id === $selectedComponent ||
+													class={($selectedComponent?.includes(actionButton.id) ||
 														$hoverStore === actionButton.id) &&
 													$mode !== 'preview'
 														? 'outline outline-indigo-500 outline-1 outline-offset-1 relative '
 														: ''}
 												>
-													{#if actionButton.id === $selectedComponent || $hoverStore === actionButton.id}
+													{#if $selectedComponent?.includes(actionButton.id) || $hoverStore === actionButton.id}
 														<span
 															title={`Id: ${actionButton.id}`}
 															class={classNames(
@@ -294,19 +332,22 @@
 															extraKey={'idx' + rowIndex}
 															{render}
 															noWFull
-															{...actionButton}
 															preclickAction={async () => {
 																toggleRow(row, rowIndex)
 															}}
+															id={actionButton.id}
+															customCss={actionButton.customCss}
+															configuration={actionButton.configuration}
+															recomputeIds={actionButton.recomputeIds}
 															extraQueryParams={{ row: row.original }}
-															bind:componentInput={actionButton.componentInput}
+															componentInput={actionButton.componentInput}
 															controls={{
 																left: () => {
 																	if (actionIndex === 0) {
-																		$selectedComponent = id
+																		$selectedComponent = [id]
 																		return true
 																	} else if (actionIndex > 0) {
-																		$selectedComponent = actionButtons[actionIndex - 1].id
+																		$selectedComponent = [actionButtons[actionIndex - 1].id]
 																		return true
 																	}
 																	return false
@@ -315,7 +356,7 @@
 																	if (actionIndex === actionButtons.length - 1) {
 																		return id
 																	} else if (actionIndex < actionButtons.length - 1) {
-																		$selectedComponent = actionButtons[actionIndex + 1].id
+																		$selectedComponent = [actionButtons[actionIndex + 1].id]
 																		return true
 																	}
 																	return false
@@ -327,12 +368,15 @@
 															extraKey={'idx' + rowIndex}
 															{render}
 															noWFull
-															{...actionButton}
+															id={actionButton.id}
+															customCss={actionButton.customCss}
+															configuration={actionButton.configuration}
+															recomputeIds={actionButton.recomputeIds}
 															preclickAction={async () => {
 																toggleRow(row, rowIndex)
 															}}
 															extraQueryParams={{ row: row.original }}
-															bind:componentInput={actionButton.componentInput}
+															componentInput={actionButton.componentInput}
 														/>
 													{/if}
 												</div>
@@ -347,19 +391,22 @@
 			</div>
 
 			<AppTableFooter
-				paginationEnabled={pagination}
-				{result}
+				pageSize={resolvedConfig?.pagination?.configuration?.auto?.pageSize ?? 20}
+				manualPagination={resolvedConfig?.pagination?.selected == 'manual'}
+				result={filteredResult}
 				{table}
 				class={css?.tableFooter?.class}
 				style={css?.tableFooter?.style}
 			/>
 		</div>
 	{:else if result != undefined}
-		<Alert title="Parsing issues" type="error" size="xs">
-			The result should be an array of objects. Received:
-			<pre class="overflow-auto">
-				{JSON.stringify(result)}
-			</pre>
-		</Alert>
+		<div class="flex flex-col h-full w-full overflow-auto">
+			<Alert title="Parsing issues" type="error" size="xs" class="h-full w-full ">
+				The result should be an array of objects. Received:
+				<pre class="w-full bg-white p-2 rounded-md whitespace-pre-wrap"
+					>{JSON.stringify(result, null, 4)}</pre
+				>
+			</Alert>
+		</div>
 	{/if}
 </RunnableWrapper>

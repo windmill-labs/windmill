@@ -713,3 +713,16 @@ export function isMac(): boolean {
 export function getModifierKey(): string {
 	return isMac() ? '⌘' : 'CTRL'
 }
+
+export function isValidHexColor(color: string): boolean {
+	return /^#(([A-F0-9]{2}){3,4}|[A-F0-9]{3})$/i.test(color)
+}
+
+export function sortObject<T>(o: T & object): T {
+	return Object.keys(o)
+		.sort()
+		.reduce((obj, key) => {
+			obj[key] = obj[key]
+			return obj
+		}, {}) as T
+}

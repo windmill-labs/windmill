@@ -1,10 +1,9 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import { Loader2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { AppEditorContext, AppViewerContext } from '../../types'
 	import ComponentHeader from '../ComponentHeader.svelte'
-	import { ccomponents, components, type AppComponent } from './components'
+	import type { AppComponent } from './components'
 	import {
 		AppBarChart,
 		AppDisplayComponent,
@@ -46,18 +45,18 @@
 	export let locked: boolean = false
 	export let render: boolean
 
-	const { mode, app, errorByComponent, hoverStore } =
+	const { mode, app, hoverStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	const editorContext = getContext<AppEditorContext>('AppEditorContext')
-	const movingcomponent = editorContext?.movingcomponent
-	$: ismoving = movingcomponent != undefined && $mode == 'dnd' && $movingcomponent === component.id
+	const movingcomponents = editorContext?.movingcomponents
+	$: ismoving =
+		movingcomponents != undefined && $mode == 'dnd' && $movingcomponents?.includes(component.id)
 
 	let initializing: boolean | undefined = undefined
 	let componentContainerHeight: number = 0
 
-	$: componentWithErrors = Object.values($errorByComponent).map((e) => e.componentId)
-	$: hasError = componentWithErrors.includes(component.id)
+	let inlineEditorOpened: boolean = false
 </script>
 
 <!-- svelte-ignore a11y-mouse-events-have-key-events -->
@@ -79,10 +78,18 @@
 			hover={$hoverStore === component.id}
 			{component}
 			{selected}
+			shouldHideActions={$connectingInput.opened}
 			on:delete
 			on:lock
 			on:expand
 			{locked}
+			{inlineEditorOpened}
+			hasInlineEditor={component.type === 'textcomponent' &&
+				component.componentInput &&
+				component.componentInput.type !== 'connected'}
+			on:triggerInlineEditor={() => {
+				inlineEditorOpened = !inlineEditorOpened
+			}}
 		/>
 	{/if}
 
@@ -91,17 +98,22 @@
 			<button
 				class="border p-0.5 text-xs"
 				on:click={() => {
-					$movingcomponent = undefined
-				}}>Cancel move</button
+					$movingcomponents = undefined
+				}}
 			>
+				Cancel move
+			</button>
 		</div>
 	{/if}
 	<div
 		class={twMerge(
 			'h-full bg-white/40 outline-1',
-			$hoverStore === component.id && $mode !== 'preview' ? 'outline outline-blue-600' : '',
+			$hoverStore === component.id && $mode !== 'preview'
+				? $connectingInput.opened
+					? 'outline outline-orange-600'
+					: 'outline outline-blue-600'
+				: '',
 			selected && $mode !== 'preview' ? 'outline outline-indigo-600' : '',
-			ccomponents[component.type].softWrap || hasError ? '' : 'overflow-auto',
 			$mode != 'preview' ? 'cursor-pointer' : '',
 			'relative z-auto',
 			$app.css?.['app']?.['component']?.class,
@@ -155,6 +167,7 @@
 		{:else if component.type === 'plotlycomponent'}
 			<PlotlyHtml
 				id={component.id}
+				configuration={component.configuration}
 				bind:initializing
 				componentInput={component.componentInput}
 				{render}
@@ -184,7 +197,7 @@
 				customCss={component.customCss}
 				bind:initializing
 				componentInput={component.componentInput}
-				bind:actionButtons={component.actionButtons}
+				actionButtons={component.actionButtons}
 				{render}
 			/>
 		{:else if component.type === 'aggridcomponent'}
@@ -203,6 +216,7 @@
 				configuration={component.configuration}
 				customCss={component.customCss}
 				bind:initializing
+				bind:editorMode={inlineEditorOpened}
 				componentInput={component.componentInput}
 				{render}
 			/>
@@ -272,6 +286,16 @@
 				verticalAlignment={component.verticalAlignment}
 				configuration={component.configuration}
 				customCss={component.customCss}
+				{render}
+			/>
+		{:else if component.type === 'textareainputcomponent'}
+			<AppTextInput
+				id={component.id}
+				verticalAlignment={component.verticalAlignment}
+				configuration={component.configuration}
+				customCss={component.customCss}
+				inputType="textarea"
+				appCssKey="textareainputcomponent"
 				{render}
 			/>
 		{:else if component.type === 'emailinputcomponent'}

@@ -1,9 +1,9 @@
 import { ScriptService, type MainArgSignature } from '$lib/gen'
 import { get, writable } from 'svelte/store'
 import type { Schema, SchemaProperty } from './common.js'
+import { sortObject } from './utils.js'
 
 const loadSchemaLastRun = writable<[string | undefined, MainArgSignature | undefined]>(undefined)
-
 
 export async function inferArgs(
 	language: 'python3' | 'deno' | 'go' | 'bash',
@@ -15,7 +15,9 @@ export async function inferArgs(
 	if (lastRun && code == lastRun[0] && lastRun[1]) {
 		inferedSchema = lastRun[1]
 	} else {
-		if (code == '') { code = ' ' }
+		if (code == '') {
+			code = ' '
+		}
 		if (language == 'python3') {
 			inferedSchema = await ScriptService.pythonToJsonschema({
 				requestBody: code
@@ -35,9 +37,11 @@ export async function inferArgs(
 		} else {
 			return
 		}
+		if (inferedSchema.type == 'Invalid') {
+			throw new Error(inferedSchema.error)
+		}
 		loadSchemaLastRun.set([code, inferedSchema])
 	}
-
 
 	schema.required = []
 	const oldProperties = Object.assign({}, schema.properties)
@@ -49,6 +53,7 @@ export async function inferArgs(
 		} else {
 			schema.properties[arg.name] = oldProperties[arg.name]
 		}
+		schema.properties[arg.name] = sortObject(schema.properties[arg.name])
 		argSigToJsonSchemaType(arg.typ, schema.properties[arg.name])
 		schema.properties[arg.name].default = arg.default
 
@@ -59,14 +64,14 @@ export async function inferArgs(
 }
 
 function argSigToJsonSchemaType(
-	t: string
+	t:
+		| string
 		| { resource: string | null }
-		| { list: string | { str: any } | null }
+		| { list: string | { str: any } | { object: { key: string; typ: any }[] } | null }
 		| { str: string[] | null }
-		| { object: { key: string, typ: any }[] },
+		| { object: { key: string; typ: any }[] },
 	oldS: SchemaProperty
 ): void {
-
 	const newS: SchemaProperty = { type: '', description: '' }
 	if (t === 'int') {
 		newS.type = 'integer'
@@ -113,6 +118,8 @@ function argSigToJsonSchemaType(
 			newS.items = { type: 'number' }
 		} else if (t.list === 'bytes') {
 			newS.items = { type: 'string', contentEncoding: 'base64' }
+		} else if (t.list && typeof t.list == 'object' && `object` in t.list) {
+			newS.items = { type: 'object' }
 		} else {
 			newS.items = { type: 'string' }
 		}
@@ -121,12 +128,15 @@ function argSigToJsonSchemaType(
 	}
 	if (oldS.type != newS.type) {
 		for (const prop of Object.getOwnPropertyNames(newS)) {
-			if (prop != "description") {
+			if (prop != 'description') {
 				delete oldS[prop]
 			}
 		}
 	}
+
+	let oldDescription = oldS.description
 	Object.assign(oldS, newS)
+	oldS.description = oldDescription
 	if (oldS.format?.startsWith('resource-') && newS.type != 'object') {
 		oldS.format = undefined
 	}

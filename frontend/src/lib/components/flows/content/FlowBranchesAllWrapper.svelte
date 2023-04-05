@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Alert, Badge, Button, Tab } from '$lib/components/common'
+	import { Alert, Tab } from '$lib/components/common'
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -32,7 +32,7 @@
 					<h3 class="mb-4">{value.branches.length} branch{value.branches.length > 1 ? 'es' : ''}</h3
 					>
 					<div class="flex flex-col gap-y-4 py-2 w-full max-w-xl">
-						{#each value.branches as branch, i}
+						{#each value.branches as branch}
 							<div class="flex flex-row gap-x-4 w-full items-center">
 								<div class="grow">
 									<input type="text" bind:value={branch.summary} placeholder="Summary" />

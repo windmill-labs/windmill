@@ -61,8 +61,8 @@ mount {
 
 
 mount {
-    src: "{JOB_DIR}/inner.ts"
-    dst: "/tmp/inner.ts"
+    src: "{JOB_DIR}/wrapper.ts"
+    dst: "/tmp/wrapper.ts"
     is_bind: true
 }
 
@@ -75,12 +75,6 @@ mount {
 mount {
     src: "{JOB_DIR}/import_map.json"
     dst: "/tmp/import_map.json"
-    is_bind: true
-}
-
-mount {
-    src: "{JOB_DIR}/lock.json"
-    dst: "/tmp/lock.json"
     is_bind: true
 }
 

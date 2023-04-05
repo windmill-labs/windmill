@@ -99,6 +99,8 @@ export type InlineScript = {
 	refreshOn?: { id: string; key: string }[]
 }
 
+export type AppCssItemName = 'viewer' | 'grid' | AppComponent['type']
+
 export type App = {
 	grid: GridItem[]
 	fullscreen: boolean
@@ -114,9 +116,7 @@ export type App = {
 		autoRefresh?: boolean
 		doNotRecomputeOnInputChanged?: boolean
 	}>
-	css?: Partial<
-		Record<'viewer' | 'grid' | AppComponent['type'], Record<string, ComponentCssProperty>>
-	>
+	css?: Partial<Record<AppCssItemName, Record<string, ComponentCssProperty>>>
 	subgrids?: Record<string, GridItem[]>
 }
 
@@ -131,17 +131,19 @@ export type AppViewerContext = {
 	worldStore: Writable<World>
 	app: Writable<App>
 	summary: Writable<string>
-	selectedComponent: Writable<string | undefined>
+	selectedComponent: Writable<string[] | undefined>
 	mode: Writable<EditorMode>
 	connectingInput: Writable<ConnectingInput>
 	breakpoint: Writable<EditorBreakpoint>
-	runnableComponents: Writable<Record<string, (inlineScript?: InlineScript) => Promise<void>>>
+	runnableComponents: Writable<
+		Record<string, { autoRefresh: boolean; cb: (inlineScript?: InlineScript) => Promise<void> }>
+	>
 	staticExporter: Writable<Record<string, () => any>>
 	appPath: string
 	workspace: string
 	onchange: (() => void) | undefined
 	isEditor: boolean
-	jobs: Writable<{ job: string; component: string }[]>
+	jobs: Writable<{ job: string; component: string; result?: string; error?: string }[]>
 	noBackend: boolean
 	errorByComponent: Writable<Record<string, { error: string; componentId: string }>>
 	openDebugRun: Writable<((componentID: string) => void) | undefined>
@@ -156,10 +158,13 @@ export type AppViewerContext = {
 				left?: () => boolean
 				right?: (skipTableActions?: boolean | undefined) => string | boolean
 				setTab?: (index: number) => void
+				agGrid?: { api: any; columnApi: any }
+				setCode?: (value: string) => void
 			}
 		>
 	>
 	hoverStore: Writable<string | undefined>
+	allIdsInPath: Writable<string[]>
 }
 
 export type AppEditorContext = {
@@ -167,7 +172,7 @@ export type AppEditorContext = {
 	pickVariableCallback: Writable<((path: string) => void) | undefined>
 	ontextfocus: Writable<(() => void) | undefined>
 	selectedComponentInEditor: Writable<string | undefined>
-	movingcomponent: Writable<string | undefined>
+	movingcomponents: Writable<string[] | undefined>
 }
 
 export type FocusedGrid = { parentComponentId: string; subGridIndex: number }
@@ -181,6 +186,5 @@ type ComponentID = string
 export type ContextPanelContext = {
 	search: Writable<string>
 	manuallyOpened: Writable<Record<string, boolean>>
-	expanded: Writable<boolean>
 	hasResult: Writable<Record<string, boolean>>
 }

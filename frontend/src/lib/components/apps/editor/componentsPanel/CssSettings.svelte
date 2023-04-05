@@ -7,7 +7,7 @@
 	import type { AppViewerContext } from '../../types'
 	import ListItem from './ListItem.svelte'
 	import CssProperty from './CssProperty.svelte'
-	import { ccomponents, components, type AppComponent, type TypedComponent } from '../component'
+	import { ccomponents, components } from '../component'
 
 	const STATIC_ELEMENTS = ['app'] as const
 	const TITLE_PREFIX = 'Css.' as const
@@ -24,7 +24,6 @@
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
 	let rawCode = ''
-	let viewJsonSchema = false
 
 	$: rawCode && parseJson()
 	let jsonError = ''
@@ -39,7 +38,6 @@
 	}
 
 	function switchTab(asJson: boolean) {
-		viewJsonSchema = asJson
 		if (asJson) {
 			rawCode = JSON.stringify($app.css, null, 2)
 		} else {
@@ -69,6 +67,7 @@
 	let search = ''
 </script>
 
+<h3 class="w-full text-center text-gray-600 py-1">Global Styling</h3>
 <Tabs selected="ui" on:selected={(e) => switchTab(e.detail === 'json')} class="relative">
 	<Tab value="ui" size="xs" class="grow">
 		<div class="m-1 center-center">

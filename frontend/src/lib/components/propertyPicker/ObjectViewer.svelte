@@ -10,7 +10,6 @@
 
 	export let json: Object
 	export let level = 0
-	export let isLast = true
 	export let currentPath: string = ''
 	export let pureViewer = false
 	export let collapsed = level == 3 || Array.isArray(json)
@@ -44,6 +43,8 @@
 		}
 		dispatch('select', rawKey ? key : computeKey(key, isArray, currentPath))
 	}
+
+	let keyLimit = 100
 </script>
 
 {#if keys.length > 0}
@@ -63,7 +64,7 @@
 				level === 0 ? 'border-none pl-2' : 'border-l border-dotted border-gray-200 pl-2'
 			}`}
 		>
-			{#each keys as key, index}
+			{#each keys.length > keyLimit ? keys.slice(0, keyLimit) : keys as key, index (key)}
 				<li class="pt-1">
 					<button on:click={() => selectProp(key, key)} class="whitespace-nowrap">
 						{#if topLevelNode}
@@ -83,7 +84,6 @@
 						<svelte:self
 							json={json[key]}
 							level={level + 1}
-							isLast={index === keys.length - 1}
 							currentPath={computeKey(key, isArray, currentPath)}
 							{pureViewer}
 							on:select
@@ -99,17 +99,24 @@
 								<WarningMessage />
 							{:else if json[key] == undefined}
 								<span class="text-2xs">undefined</span>
+							{:else if json[key] == null}
+								<span class="text-2xs">null</span>
 							{:else if typeof json[key] == 'string'}
 								<span title={json[key]} class="text-2xs">"{truncate(json[key], 200)}"</span>
 							{:else}
-								<span title={JSON.stringify(json[key])} class="text-2xs"
-									>{truncate(JSON.stringify(json[key]), 200)}</span
-								>
+								<span title={JSON.stringify(json[key])} class="text-2xs">
+									{truncate(JSON.stringify(json[key]), 200)}
+								</span>
 							{/if}
 						</button>
 					{/if}
 				</li>
 			{/each}
+			{#if keys.length > keyLimit}
+				<button on:click={() => (keyLimit += 100)} class="text-xs py-2 text-blue-600"
+					>{keyLimit}/{keys.length}: Load 100 more...</button
+				>
+			{/if}
 		</ul>
 		{#if level == 0 && topBrackets}<span class="h-0">{closeBracket}</span>{/if}
 	</span>
@@ -126,24 +133,18 @@
 			{pluralize(Object.keys(json).length, Array.isArray(json) ? 'item' : 'key')}
 		</span>
 	{/if}
-	{#if !isLast && collapsed}
-		<span class="text-black">,</span>
-	{/if}
 {:else if topBrackets}
 	<span class="text-black">{openBracket}{closeBracket}</span>
 {:else}
 	<span class="text-gray-600 text-xs ml-2">No items</span>
 {/if}
 
-<style>
+<style lang="postcss">
 	ul {
 		list-style: none;
 		@apply text-sm;
 	}
 
-	.val {
-		/* @apply font-black; */
-	}
 	.val.undefined {
 		@apply text-red-500;
 	}

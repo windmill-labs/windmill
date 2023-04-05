@@ -1,21 +1,16 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
-	import { twMerge } from 'tailwind-merge'
+	import { Download, Loader2, MoveHorizontal, ZoomIn, ZoomOut } from 'lucide-svelte'
 	import { getDocument, type PDFDocumentProxy, type PDFPageProxy } from 'pdfjs-dist'
 	import 'pdfjs-dist/build/pdf.worker.entry'
-	import type {
-		AppViewerContext,
-		ComponentCustomCSS,
-		RichConfiguration,
-		RichConfigurations
-	} from '../../types'
-	import { concatCustomCss } from '../../utils'
-	import InputValue from '../helpers/InputValue.svelte'
+	import { getContext } from 'svelte'
+	import { fade } from 'svelte/transition'
+	import { twMerge } from 'tailwind-merge'
 	import { throttle } from '../../../../utils'
 	import { Button } from '../../../common'
-	import { Download, Loader2, MoveHorizontal, ZoomIn, ZoomOut } from 'lucide-svelte'
-	import { fade } from 'svelte/transition'
 	import { findGridItem, initOutput } from '../../editor/appUtils'
+	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
+	import { concatCustomCss } from '../../utils'
+	import InputValue from '../helpers/InputValue.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -198,13 +193,13 @@
 <InputValue {id} input={configuration.zoom} bind:value={zoom} />
 
 {#if render}
-	<div class="relative w-full h-full bg-gray-100">
+	<div class="relative flex flex-col w-full h-full bg-gray-100">
 		{#if source && zoom}
 			{#if pages?.length}
 				<div
 					bind:clientWidth={controlsWidth}
 					bind:clientHeight={controlsHeight}
-					class="fixed flex {$mode !== 'preview'
+					class="sticky flex {$mode !== 'preview'
 						? 'w-[calc(100%-2px)] top-[1px]'
 						: 'w-full top-0'} {wideView
 						? 'justify-center gap-14'
@@ -309,12 +304,12 @@
 				bind:this={wrapper}
 				on:scroll={throttledScroll}
 				class={twMerge('w-full h-full overflow-auto', css?.container?.class ?? '', 'bg-gray-100')}
-				style="padding-top: {controlsHeight ?? 0}px; {css?.container?.style ?? ''}"
+				style={css?.container?.style ?? ''}
 			/>
 		{/if}
-		{#if $mode !== 'preview' && $selectedComponent === id}
+		{#if $mode !== 'preview' && $selectedComponent?.includes(id)}
 			<button
-				class="fixed z-10 bottom-0 left-0 px-2 py-0.5 bg-indigo-500/90 
+				class="fixed z-10 bottom-0 left-0 px-2 py-0.5 bg-indigo-500/90
 			hover:bg-indigo-500 focus:bg-indigo-500 duration-200 text-white text-2xs"
 				on:click={() => syncZoomValue()}
 			>
@@ -323,7 +318,7 @@
 		{/if}
 		{#if error}
 			<div
-				class="absolute inset-0 z-20 center-center 
+				class="absolute inset-0 z-20 center-center
 		bg-gray-100 text-center text-gray-600 text-sm"
 			>
 				{error}

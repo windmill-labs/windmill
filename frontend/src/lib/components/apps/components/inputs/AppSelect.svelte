@@ -54,7 +54,6 @@
 
 	function onChange(e: CustomEvent) {
 		e?.stopPropagation()
-		window.dispatchEvent(new Event('pointerup'))
 
 		if (create) {
 			listItems = listItems.map((i) => {
@@ -105,7 +104,15 @@
 <InputValue {id} input={configuration.create} bind:value={create} />
 
 <AlignWrapper {render} {horizontalAlignment} {verticalAlignment}>
-	<div class="app-select w-full mx-0.5" style="height: 34px;" on:pointerdown|stopPropagation>
+	<div
+		class="app-select w-full"
+		style="height: 34px;"
+		on:pointerdown={(e) => {
+			if (!e.shiftKey) {
+				e.stopPropagation()
+			}
+		}}
+	>
 		<Select
 			--border-radius="0"
 			--border-color="#999"
@@ -122,11 +129,13 @@
 			{placeholder}
 			on:click={() => {
 				if (!$connectingInput.opened) {
-					$selectedComponent = id
+					$selectedComponent = [id]
 				}
 			}}
 			on:focus={() => {
-				$selectedComponent = id
+				if (!$connectingInput.opened) {
+					$selectedComponent = [id]
+				}
 			}}
 			floatingConfig={{
 				strategy: 'fixed'

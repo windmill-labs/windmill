@@ -18,7 +18,7 @@
 			return
 		}
 		// pre-filter
-		let idxs = uf.filter(plaintextItems, filter)
+		let idxs = uf.filter(plaintextItems, filter) ?? []
 
 		let info = uf.info(idxs, plaintextItems, filter)
 		let order = uf.sort(info, plaintextItems, filter)

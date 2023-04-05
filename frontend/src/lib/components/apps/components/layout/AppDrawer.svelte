@@ -18,7 +18,7 @@
 	export let noWFull = false
 	export let render: boolean
 
-	const { app, focusedGrid, selectedComponent, worldStore } =
+	const { app, focusedGrid, selectedComponent, worldStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	//used so that we can count number of outputs setup for first refresh
@@ -47,7 +47,6 @@
 			{disabled}
 			on:pointerdown={(e) => {
 				e?.stopPropagation()
-				window.dispatchEvent(new Event('pointerup'))
 			}}
 			on:click={async (e) => {
 				$focusedGrid = {
@@ -80,19 +79,39 @@
 				$focusedGrid = undefined
 			}}
 		>
-			{#if $app.subgrids?.[`${id}-0`]}
-				<SubGridEditor
-					visible={open && render}
-					{id}
-					class={css?.container?.class}
-					style={css?.container?.style}
-					subGridId={`${id}-0`}
-					containerHeight={1200}
-					on:focus={() => {
-						$selectedComponent = id
-					}}
-				/>
-			{/if}
+			<div
+				class="h-full"
+				on:pointerdown={(e) => {
+					e?.stopPropagation()
+					if (!$connectingInput.opened) {
+						$selectedComponent = [id]
+						$focusedGrid = {
+							parentComponentId: id,
+							subGridIndex: 0
+						}
+					}
+				}}
+			>
+				{#if $app.subgrids?.[`${id}-0`]}
+					<SubGridEditor
+						visible={open && render}
+						{id}
+						class={css?.container?.class}
+						style={css?.container?.style}
+						subGridId={`${id}-0`}
+						containerHeight={1200}
+						on:focus={() => {
+							if (!$connectingInput.opened) {
+								$selectedComponent = [id]
+								$focusedGrid = {
+									parentComponentId: id,
+									subGridIndex: 0
+								}
+							}
+						}}
+					/>
+				{/if}
+			</div>
 		</DrawerContent>
 	</Drawer>
 </Portal>

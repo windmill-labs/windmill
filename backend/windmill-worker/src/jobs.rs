@@ -11,7 +11,7 @@ use tracing::instrument;
 use uuid::Uuid;
 use windmill_common::{error::Error, flow_status::FlowStatusModule, schedule::Schedule};
 use windmill_queue::{
-    delete_job, schedule::get_schedule_opt, JobKind, QueueTransaction, QueuedJob,
+    delete_job, schedule::get_schedule_opt, JobKind, QueueTransaction, QueuedJob, CLOUD_HOSTED
 };
 
 #[instrument(level = "trace", skip_all)]
@@ -179,8 +179,8 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
         let additional_usage = duration.unwrap() as i32 / 1000;
 
         let w_id = &queued_job.workspace_id;
-        let premium_workspace =
-            sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", w_id)
+        let premium_workspace = *CLOUD_HOSTED
+            && sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", w_id)
                 .fetch_one(db)
                 .await
                 .map_err(|e| Error::InternalErr(format!("fetching if {w_id} is premium: {e}")))?;

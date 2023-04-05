@@ -10,7 +10,7 @@
 	export let customCss: ComponentCustomCSS<'containercomponent'> | undefined = undefined
 	export let render: boolean
 
-	const { app, focusedGrid, selectedComponent, worldStore } =
+	const { app, focusedGrid, selectedComponent, worldStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	//used so that we can count number of outputs setup for first refresh
@@ -22,8 +22,6 @@
 			subGridIndex: 0
 		}
 	}
-
-	$: $selectedComponent === id && onFocus()
 
 	$: css = concatCustomCss($app.css?.containercomponent, customCss)
 </script>
@@ -38,7 +36,10 @@
 			subGridId={`${id}-0`}
 			containerHeight={componentContainerHeight}
 			on:focus={() => {
-				$selectedComponent = id
+				if (!$connectingInput.opened) {
+					$selectedComponent = [id]
+				}
+				onFocus()
 			}}
 		/>
 	{/if}

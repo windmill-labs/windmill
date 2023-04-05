@@ -851,7 +851,8 @@ async fn login_callback(
             _ => user.email.ok_or_else(|| {
                 error::Error::BadRequest("email address not fetchable from user info".to_string())
             })?,
-        };
+        }
+        .to_lowercase();
 
         if let Some(domains) = &client_w_config.allowed_domains {
             if !domains.iter().any(|d| email.ends_with(d)) {

@@ -6,7 +6,7 @@
 
 	import { Alert, Skeleton } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
-	import { AppService, AppWithLastVersion, GlobalUserInfo, UserService } from '$lib/gen'
+	import { AppService, AppWithLastVersion } from '$lib/gen'
 	import { userStore } from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
 
@@ -15,7 +15,6 @@
 	import { writable } from 'svelte/store'
 
 	let app: AppWithLastVersion | undefined = undefined
-	let user: GlobalUserInfo | undefined = undefined
 	let notExists = false
 
 	setContext(IS_APP_PUBLIC_CONTEXT_KEY, true)
@@ -31,14 +30,8 @@
 		}
 	}
 
-	async function loadUser() {
-		try {
-			user = await UserService.globalWhoami()
-		} catch (e) {}
-	}
 	if (browser) {
 		loadApp()
-		loadUser()
 	}
 
 	const breakpoint = writable<EditorBreakpoint>('lg')
@@ -48,21 +41,12 @@
 	{@html github}
 </svelte:head>
 
-<div class="z-50 text-xs fixed bottom-1 right-2 ">
+<div class="z-50 text-xs fixed bottom-1 right-2">
 	<a href="https://windmill.dev" class="whitespace-nowrap text-gray-500 inline-flex items-center"
 		>Powered by &nbsp;<WindmillIcon />&nbsp;Windmill</a
 	>
 </div>
-<div class="z-50 text-xs text-gray-500 fixed top-1 left-2">
-	<div>
-		{#if user}
-			Logged in as {user.email}
-		{:else}
-			Not logged in
-		{/if}
-	</div>
-	<a class="text-blue-400" href="/">Go to app</a>
-</div>
+
 {#if notExists}
 	<div class="px-4 mt-20"
 		><Alert type="error" title="Not found"

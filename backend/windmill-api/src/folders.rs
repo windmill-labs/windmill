@@ -6,9 +6,11 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use std::sync::Arc;
+
 use crate::{
     db::{UserDB, DB},
-    users::Authed,
+    users::{AuthCache, Authed, Tokened},
     webhook_util::{WebhookMessage, WebhookShared},
 };
 use axum::{
@@ -16,6 +18,8 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
+use lazy_static::lazy_static;
+use regex::Regex;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{self, to_anyhow, Error, JsonResult, Result},
@@ -136,16 +140,28 @@ async fn check_name_conflict<'c>(
     return Ok(());
 }
 
+lazy_static! {
+    static ref VALID_FOLDER_NAME: Regex = Regex::new(r#"^[a-zA-Z_0-9]+$"#).unwrap();
+}
+
 async fn create_folder(
     authed: Authed,
+    Tokened { token }: Tokened,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
+    Extension(cache): Extension<Arc<AuthCache>>,
     Path(w_id): Path<String>,
     Json(ng): Json<NewFolder>,
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
 
+    if !VALID_FOLDER_NAME.is_match(&ng.name) {
+        return Err(windmill_common::error::Error::BadRequest(format!(
+            "Folder name can only contain alphanumeric characters, underscores"
+        )));
+    }
     check_name_conflict(&mut tx, &w_id, &ng.name).await?;
+    cache.invalidate(&w_id, token).await;
     let owner = username_to_permissioned_as(&authed.username);
     let owners = &ng.owners.unwrap_or(vec![owner.clone()]);
 

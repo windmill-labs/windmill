@@ -10,7 +10,7 @@ use std::str::FromStr;
 
 use crate::{
     db::{UserDB, DB},
-    users::Authed,
+    users::{maybe_refresh_folders, Authed},
 };
 use axum::{
     extract::{Extension, Path, Query},
@@ -78,12 +78,15 @@ async fn check_path_conflict<'c>(
 
 async fn create_schedule(
     authed: Authed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path(w_id): Path<String>,
     Json(ns): Json<NewSchedule>,
 ) -> Result<String> {
+    let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
+
     cron::Schedule::from_str(&ns.schedule).map_err(|e| Error::BadRequest(e.to_string()))?;
     check_path_conflict(tx.transaction_mut(), &w_id, &ns.path).await?;
     check_flow_conflict(
@@ -143,14 +146,17 @@ async fn create_schedule(
 
 async fn edit_schedule(
     authed: Authed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(es): Json<EditSchedule>,
 ) -> Result<String> {
-    let mut tx: QueueTransaction<'_, rsmq_async::MultiplexedRsmq> =
-        (rsmq, user_db.begin(&authed).await?).into();
     let path = path.to_path();
+
+    let authed = maybe_refresh_folders(&path, &w_id, authed, &db).await;
+      let mut tx: QueueTransaction<'_, rsmq_async::MultiplexedRsmq> =
+        (rsmq, user_db.begin(&authed).await?).into();
 
     cron::Schedule::from_str(&es.schedule).map_err(|e| Error::BadRequest(e.to_string()))?;
 

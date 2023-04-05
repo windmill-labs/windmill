@@ -51,10 +51,6 @@
 		onDragStart(e)
 	}
 
-	function onHover(e) {
-		thumbHover = thumbHover ? false : true
-	}
-
 	function onDragStart(e) {
 		// If mouse event add a pointer events shield
 		if (e.type === 'mousedown') document.body.append(mouseEventShield)
@@ -182,6 +178,7 @@
 	>
 		<div class="range__track" bind:this={container}>
 			<div class="range__track--highlighted" bind:this={progressBar} />
+			<!-- svelte-ignore a11y-mouse-events-have-key-events -->
 			<div
 				class="range__thumb"
 				class:range__thumb--holding={holding}

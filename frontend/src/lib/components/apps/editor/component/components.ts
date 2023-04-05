@@ -56,6 +56,7 @@ type ClickableComponent = {
 
 export type TextComponent = BaseComponent<'textcomponent'>
 export type TextInputComponent = BaseComponent<'textinputcomponent'>
+export type TextareaInputComponent = BaseComponent<'textareainputcomponent'>
 export type PasswordInputComponent = BaseComponent<'passwordinputcomponent'>
 export type EmailInputComponent = BaseComponent<'emailinputcomponent'>
 export type DateInputComponent = BaseComponent<'dateinputcomponent'>
@@ -108,6 +109,7 @@ export type PdfComponent = BaseComponent<'pdfcomponent'>
 export type TypedComponent =
 	| DisplayComponent
 	| TextInputComponent
+	| TextareaInputComponent
 	| PasswordInputComponent
 	| EmailInputComponent
 	| DateInputComponent
@@ -173,7 +175,6 @@ export type AppComponentConfig<T extends TypedComponent['type']> = {
 	 *
 	 * *For example when the component has a popup like `Select`*
 	 */
-	softWrap?: boolean
 	initialData: InitialAppComponent
 	customCss: ComponentCustomCSS<T>
 }
@@ -263,12 +264,39 @@ const onSuccessClick = {
 	}
 } as const
 
+const paginationOneOf = {
+	type: 'oneOf',
+	selected: 'auto',
+	labels: {
+		auto: 'Auto',
+		manual: 'Manual'
+	},
+	configuration: {
+		auto: {
+			pageSize: {
+				type: 'static',
+				fieldType: 'number',
+				value: 20,
+				onlyStatic: true,
+				tooltip: 'Number of rows per page'
+			}
+		},
+		manual: {
+			pageCount: {
+				type: 'static',
+				fieldType: 'number',
+				value: -1,
+				tooltip: 'Number of pages (-1 if you do not know)'
+			}
+		}
+	}
+} as const
+
 export const components = {
 	displaycomponent: {
 		name: 'Rich Result',
 		icon: Monitor,
 		dims: '2:8-6:8' as AppComponentDimensions,
-		softWrap: false,
 		customCss: {
 			header: { class: '', style: '' },
 			container: { class: '', style: '' }
@@ -286,7 +314,7 @@ export const components = {
 		name: 'Container',
 		icon: BoxSelect,
 		dims: '2:8-6:8' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			container: { class: '', style: '' }
 		},
@@ -300,7 +328,7 @@ export const components = {
 		name: 'Text',
 		icon: Type,
 		dims: '1:1-3:1' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			text: { class: '', style: '' }
 		},
@@ -341,7 +369,7 @@ export const components = {
 		name: 'Button',
 		icon: Inspect,
 		dims: '1:1-2:1' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			button: { style: '', class: '' }
 		},
@@ -559,7 +587,7 @@ export const components = {
 		name: 'HTML',
 		icon: Code2,
 		dims: '1:2-1:2' as AppComponentDimensions,
-		softWrap: false,
+
 		customCss: {
 			container: { class: '', style: '' }
 		},
@@ -581,7 +609,7 @@ Hello \${ctx.username}
 		name: 'Vega Lite',
 		icon: PieChart,
 		dims: '2:8-6:8' as AppComponentDimensions,
-		softWrap: false,
+
 		customCss: {},
 		initialData: {
 			componentInput: {
@@ -618,7 +646,7 @@ Hello \${ctx.username}
 		name: 'Plotly',
 		icon: PieChart,
 		dims: '2:8-6:8' as AppComponentDimensions,
-		softWrap: false,
+
 		customCss: {},
 		initialData: {
 			componentInput: {
@@ -636,7 +664,16 @@ Hello \${ctx.username}
 					}
 				}
 			},
-			configuration: {}
+			configuration: {
+				layout: {
+					type: 'static',
+					fieldType: 'object',
+					value: {},
+					tooltip:
+						'Layout options for the plot. See https://plotly.com/javascript/reference/layout/ for more information',
+					onlyStatic: true
+				}
+			}
 		}
 	},
 	timeseriescomponent: {
@@ -778,8 +815,9 @@ Hello \${ctx.username}
 					type: 'static',
 					onlyStatic: true,
 					selectOptions: selectOptions.tableSearchOptions,
-					value: 'Disabled'
-				}
+					value: 'Disabled' as string
+				},
+				pagination: paginationOneOf
 			},
 			componentInput: {
 				type: 'static',
@@ -826,13 +864,6 @@ Hello \${ctx.username}
 					fieldType: 'boolean',
 					value: false,
 					onlyStatic: true
-				},
-				pageSize: {
-					type: 'static',
-					fieldType: 'number',
-					value: 10,
-					onlyStatic: true,
-					tooltip: 'Number of rows per page'
 				}
 			},
 			componentInput: {
@@ -858,7 +889,7 @@ Hello \${ctx.username}
 		name: 'Toggle',
 		icon: ToggleLeft,
 		dims: '1:1-2:1' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			text: { class: '', style: '' }
 		},
@@ -883,7 +914,7 @@ Hello \${ctx.username}
 		name: 'Text Input',
 		icon: TextCursorInput,
 		dims: '2:1-2:1' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			input: { class: '', style: '' }
 		},
@@ -905,11 +936,36 @@ Hello \${ctx.username}
 			}
 		}
 	},
+	textareainputcomponent: {
+		name: 'Textarea',
+		icon: TextCursorInput,
+		dims: '2:1-2:1' as AppComponentDimensions,
+
+		customCss: {
+			input: { class: '', style: '' }
+		},
+		initialData: {
+			componentInput: undefined,
+			configuration: {
+				placeholder: {
+					type: 'static',
+					value: 'Type...',
+					fieldType: 'text',
+					onlyStatic: true
+				},
+				defaultValue: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'text'
+				}
+			}
+		}
+	},
 	selectcomponent: {
 		name: 'Select',
 		icon: List,
 		dims: '2:1-3:1' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			input: { style: '' }
 		},
@@ -920,7 +976,7 @@ Hello \${ctx.username}
 				items: {
 					type: 'static',
 					fieldType: 'array',
-					subFieldType: 'object',
+					subFieldType: 'labeledselect',
 					value: [
 						{ value: 'foo', label: 'Foo' },
 						{ value: 'bar', label: 'Bar' }
@@ -951,12 +1007,11 @@ Hello \${ctx.username}
 		name: 'Multi Select',
 		icon: List,
 		dims: '2:1-3:1' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			input: { style: '' }
 		},
 		initialData: {
-			verticalAlignment: 'center',
 			componentInput: undefined,
 			configuration: {
 				items: {
@@ -978,7 +1033,7 @@ Hello \${ctx.username}
 		name: 'Resource Select',
 		icon: List,
 		dims: '2:1-3:1' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			input: { style: '' }
 		},
@@ -1005,7 +1060,7 @@ Hello \${ctx.username}
 		name: 'Number',
 		icon: Binary,
 		dims: '2:1-3:1' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			input: { class: '', style: '' }
 		},
@@ -1047,7 +1102,7 @@ Hello \${ctx.username}
 		name: 'Currency',
 		icon: DollarSign,
 		dims: '2:1-3:1' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			input: { class: '', style: '' }
 		},
@@ -1088,7 +1143,7 @@ Hello \${ctx.username}
 		name: 'Slider',
 		icon: SlidersHorizontal,
 		dims: '3:1-4:1' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			bar: { style: '' },
 			handle: { style: '' },
@@ -1128,7 +1183,7 @@ Hello \${ctx.username}
 		name: 'Range',
 		icon: SlidersHorizontal,
 		dims: '3:2-4:2' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			handles: { style: '' },
 			bar: { style: '' },
@@ -1172,7 +1227,7 @@ Hello \${ctx.username}
 		name: 'Password',
 		icon: Lock,
 		dims: '2:1-3:1' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			input: { class: '', style: '' }
 		},
@@ -1193,7 +1248,7 @@ Hello \${ctx.username}
 		name: 'Email Input',
 		icon: AtSignIcon,
 		dims: '2:1-3:1' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			input: { class: '', style: '' }
 		},
@@ -1219,7 +1274,7 @@ Hello \${ctx.username}
 		name: 'Date',
 		icon: Calendar,
 		dims: '2:1-3:1' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			input: { class: '', style: '' }
 		},
@@ -1249,7 +1304,7 @@ Hello \${ctx.username}
 		name: 'Tabs',
 		icon: ListOrdered,
 		dims: '2:8-6:8' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			tabRow: { class: '', style: '' },
 			allTabs: { class: '', style: '' },
@@ -1276,7 +1331,7 @@ Hello \${ctx.username}
 		name: 'Icon',
 		icon: Smile,
 		dims: '1:3-1:2' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			container: { class: '', style: '' },
 			icon: { class: '', style: '' }
@@ -1437,7 +1492,7 @@ Hello \${ctx.username}
 		name: 'Drawer',
 		icon: SidebarClose,
 		dims: '1:1-2:1' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			container: { class: '', style: '' }
 		},
@@ -1544,7 +1599,7 @@ Hello \${ctx.username}
 		name: 'Vertical Split Panes',
 		icon: FlipHorizontal,
 		dims: '2:8-6:8' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			container: { class: '', style: '' }
 		},
@@ -1560,7 +1615,7 @@ Hello \${ctx.username}
 		name: 'Horizontal Split Panes',
 		icon: FlipVertical,
 		dims: '2:8-6:8' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			container: { class: '', style: '' }
 		},

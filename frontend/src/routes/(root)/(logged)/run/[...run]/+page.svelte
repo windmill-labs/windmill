@@ -1,14 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { JobService, Job } from '$lib/gen'
-	import {
-		canWrite,
-		displayDate,
-		encodeState,
-		forLater,
-		sendUserToast,
-		truncateHash
-	} from '$lib/utils'
+	import { canWrite, displayDate, forLater, sendUserToast, truncateHash } from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
 	import {
@@ -25,7 +18,7 @@
 		faFastForward
 	} from '@fortawesome/free-solid-svg-icons'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
-	import { superadmin, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { runFormStore, superadmin, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
@@ -39,6 +32,7 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import Dropdown from '$lib/components/Dropdown.svelte'
+	import { goto } from '$app/navigation'
 
 	$: workspace_id = $page.url.searchParams.get('workspace') ?? $workspaceStore
 	$: not_same_workspace = workspace_id !== $workspaceStore
@@ -62,7 +56,12 @@
 
 	async function cancelJob(id: string) {
 		try {
-			await JobService.cancelQueuedJob({ workspace: workspace_id!, id, requestBody: {} })
+			if (forceCancel) {
+				await JobService.forceCancelQueuedJob({ workspace: workspace_id!, id, requestBody: {} })
+				setTimeout(getLogs, 5000)
+			} else {
+				await JobService.cancelQueuedJob({ workspace: workspace_id!, id, requestBody: {} })
+			}
 			sendUserToast(`job ${id} canceled`)
 		} catch (err) {
 			sendUserToast('could not cancel job', true)
@@ -85,10 +84,13 @@
 
 	$: {
 		if (workspace_id && $page.params.run && testJobLoader) {
+			forceCancel = false
 			getLogs()
 		}
 	}
 	let notfound = false
+
+	let forceCancel = false
 </script>
 
 <TestJobLoader
@@ -162,34 +164,41 @@
 				{@const stem = `/${job?.job_kind}s`}
 				{@const isScript = job?.job_kind === 'script'}
 				{@const route = isScript ? job?.script_hash : job?.script_path}
-				{@const runHref = `${stem}/run/${route}${
-					job?.args ? '?args=' + encodeURIComponent(encodeState(job?.args)) : ''
-				}`}
-				{@const editHref = `${stem}/edit/${route}${
-					isScript
-						? `?step=2${job?.args ? `&args=${encodeURIComponent(encodeState(job?.args))}` : ''}`
-						: `${
-								job?.args
-									? `?args=${encodeURIComponent(encodeState(job?.args))}&nodraft=true`
-									: '?nodraft=true'
-						  }`
-				}`}
 				{@const isRunning = job && 'running' in job && job.running}
 				{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
 				{#if isRunning}
-					<Button
-						disabled={not_same_workspace}
-						color="red"
-						size="md"
-						startIcon={{ icon: faTimesCircle }}
-						on:click|once={() => {
-							if (job?.id) {
-								cancelJob(job?.id)
-							}
-						}}
-					>
-						Cancel
-					</Button>
+					{#if !forceCancel}
+						<Button
+							disabled={not_same_workspace}
+							color="red"
+							size="md"
+							startIcon={{ icon: faTimesCircle }}
+							on:click|once={() => {
+								if (job?.id) {
+									cancelJob(job?.id)
+									setTimeout(() => {
+										forceCancel = true
+									}, 3001)
+								}
+							}}
+						>
+							Cancel
+						</Button>
+					{:else}
+						<Button
+							disabled={not_same_workspace}
+							color="red"
+							size="md"
+							startIcon={{ icon: faTimesCircle }}
+							on:click|once={() => {
+								if (job?.id) {
+									cancelJob(job?.id)
+								}
+							}}
+						>
+							Force Cancel
+						</Button>
+					{/if}
 				{/if}
 				{#if not_same_workspace}
 					<span class="text-red-500 text-sm"
@@ -197,8 +206,11 @@
 					>
 				{/if}
 				<Button
-					href={runHref}
-					disabled={isRunning || not_same_workspace}
+					on:click|once={() => {
+						$runFormStore = job?.args
+						goto(`${stem}/run/${route}`)
+					}}
+					disabled={not_same_workspace}
 					color="blue"
 					size="md"
 					startIcon={{ icon: faRefresh }}>Run again</Button
@@ -207,7 +219,10 @@
 					{#if canWrite(job?.script_path ?? '', {}, $userStore)}
 						<Button
 							disabled={not_same_workspace}
-							href={editHref}
+							on:click|once={() => {
+								$runFormStore = job?.args
+								goto(`${stem}/edit/${route}${isScript ? `?step=2` : `?nodraft=true`}`)
+							}}
 							color="blue"
 							size="md"
 							startIcon={{ icon: faEdit }}>Edit</Button
@@ -356,6 +371,7 @@
 					on:jobsLoaded={({ detail }) => {
 						job = detail
 					}}
+					workspaceId={workspace_id}
 				/>
 			</div>
 		{/if}

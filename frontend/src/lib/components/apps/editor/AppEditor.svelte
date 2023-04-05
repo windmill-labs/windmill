@@ -1,6 +1,6 @@
 <script lang="ts">
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
-	import { onMount, setContext } from 'svelte'
+	import { setContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -11,36 +11,38 @@
 		AppEditorContext,
 		AppViewerContext,
 		ConnectingInput,
+		ContextPanelContext,
 		EditorBreakpoint,
 		EditorMode,
-		FocusedGrid,
-		InlineScript
+		FocusedGrid
 	} from '../types'
 	import AppEditorHeader from './AppEditorHeader.svelte'
 	import GridEditor from './GridEditor.svelte'
 
-	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
+	import { Button, Tab } from '$lib/components/common'
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
-	import { Alert, Button, Tab } from '$lib/components/common'
-	import ComponentList from './componentsPanel/ComponentList.svelte'
-	import Icon from 'svelte-awesome'
-	import { faCode, faPlus, faSliders } from '@fortawesome/free-solid-svg-icons'
-	import ContextPanel from './contextPanel/ContextPanel.svelte'
-	import { classNames, encodeState } from '$lib/utils'
-	import AppPreview from './AppPreview.svelte'
+	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
+	import { classNames, encodeState } from '$lib/utils'
+	import { faPlus } from '@fortawesome/free-solid-svg-icons'
+	import AppPreview from './AppPreview.svelte'
+	import ComponentList from './componentsPanel/ComponentList.svelte'
+	import ContextPanel from './contextPanel/ContextPanel.svelte'
 
 	import InlineScriptsPanel from './inlineScriptsPanel/InlineScriptsPanel.svelte'
 
-	import SettingsPanel from './SettingsPanel.svelte'
-	import { fly } from 'svelte/transition'
-	import { VariableService, type Policy } from '$lib/gen'
 	import { page } from '$app/stores'
-	import CssSettings from './componentsPanel/CssSettings.svelte'
-	import { initHistory } from '$lib/history'
-	import ComponentNavigation from './component/ComponentNavigation.svelte'
 	import ItemPicker from '$lib/components/ItemPicker.svelte'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
+	import { VariableService, type Policy } from '$lib/gen'
+	import { initHistory } from '$lib/history'
+	import { Component, Paintbrush, Plus } from 'lucide-svelte'
+	import { findGridItem, findGridItemParentGrid } from './appUtils'
+	import ComponentNavigation from './component/ComponentNavigation.svelte'
+	import CssSettings from './componentsPanel/CssSettings.svelte'
+	import ConnectionInstructions from './ConnectionInstructions.svelte'
+	import SettingsPanel from './SettingsPanel.svelte'
+	import { secondaryMenu, SecondaryMenu } from './settingsPanel/secondaryMenu'
 
 	export let app: App
 	export let path: string
@@ -50,7 +52,7 @@
 	export let fromHub: boolean = false
 
 	const appStore = writable<App>(app)
-	const selectedComponent = writable<string | undefined>(undefined)
+	const selectedComponent = writable<string[] | undefined>(undefined)
 	const mode = writable<EditorMode>(initialMode)
 	const breakpoint = writable<EditorBreakpoint>('lg')
 	const summaryStore = writable(summary)
@@ -61,9 +63,6 @@
 	})
 	const history = initHistory(app)
 
-	const runnableComponents = writable<
-		Record<string, (inlineScript?: InlineScript) => Promise<void>>
-	>({})
 	const errorByComponent = writable<Record<string, { error: string; componentId: string }>>({})
 	const focusedGrid = writable<FocusedGrid | undefined>(undefined)
 	const pickVariableCallback: Writable<((path: string) => void) | undefined> = writable(undefined)
@@ -74,15 +73,16 @@
 		hash: $page.url.hash
 	}
 
+	const worldStore = buildWorld(context)
 	setContext<AppViewerContext>('AppViewerContext', {
-		worldStore: buildWorld(context),
+		worldStore,
 		app: appStore,
 		summary: summaryStore,
 		selectedComponent,
 		mode,
 		connectingInput,
 		breakpoint,
-		runnableComponents,
+		runnableComponents: writable({}),
 		appPath: path,
 		workspace: $workspaceStore ?? '',
 		onchange: () => saveDraft(),
@@ -97,14 +97,15 @@
 		parentWidth: writable(0),
 		state: writable({}),
 		componentControl: writable({}),
-		hoverStore: writable(undefined)
+		hoverStore: writable(undefined),
+		allIdsInPath: writable([])
 	})
 
 	setContext<AppEditorContext>('AppEditorContext', {
 		history,
 		pickVariableCallback,
 		ontextfocus: writable(undefined),
-		movingcomponent: writable(undefined),
+		movingcomponents: writable(undefined),
 		selectedComponentInEditor: writable(undefined)
 	})
 
@@ -123,12 +124,6 @@
 		}, 500)
 	}
 
-	let mounted = false
-
-	onMount(() => {
-		mounted = true
-	})
-
 	function hashchange(e: HashChangeEvent) {
 		context.hash = e.newURL.split('#')[1]
 		context = context
@@ -139,10 +134,40 @@
 
 	let selectedTab: 'insert' | 'settings' = 'insert'
 
-	$: if ($selectedComponent) {
+	let befSelected: string | undefined = undefined
+	$: if ($selectedComponent?.[0] != befSelected) {
+		befSelected = $selectedComponent?.[0]
 		selectedTab = 'settings'
-	} else {
-		selectedTab = 'insert'
+
+		if (befSelected) {
+			if (!['ctx', 'state'].includes(befSelected) && !befSelected?.startsWith('bg_')) {
+				let item = findGridItem($appStore, befSelected)
+				if (item?.data.type === 'containercomponent') {
+					$focusedGrid = {
+						parentComponentId: befSelected,
+						subGridIndex: 0
+					}
+				} else if (item?.data.type === 'tabscomponent') {
+					$focusedGrid = {
+						parentComponentId: befSelected,
+						subGridIndex:
+							($worldStore.outputsById?.[befSelected]?.selectedTabIndex?.peak() as number) ?? 0
+					}
+				} else {
+					let subgrid = findGridItemParentGrid($appStore, befSelected)
+					if (subgrid) {
+						try {
+							$focusedGrid = {
+								parentComponentId: subgrid.split('-')[0],
+								subGridIndex: parseInt(subgrid.split('-')[1])
+							}
+						} catch {}
+					} else {
+						$focusedGrid = undefined
+					}
+				}
+			}
+		}
 	}
 
 	let itemPicker: ItemPicker | undefined = undefined
@@ -152,15 +177,24 @@
 	}
 
 	let variableEditor: VariableEditor | undefined = undefined
+
+	setContext<ContextPanelContext>('ContextPanel', {
+		search: writable<string>(''),
+		manuallyOpened: writable<Record<string, boolean>>({}),
+		hasResult: writable<Record<string, boolean>>({})
+	})
+
+	$: if ($connectingInput.opened) {
+		secondaryMenu.open(ConnectionInstructions, {}, () => {
+			$connectingInput.opened = false
+		})
+	} else {
+		secondaryMenu.close()
+	}
 </script>
 
 <svelte:window on:hashchange={hashchange} />
 
-{#if $connectingInput.opened}
-	<div
-		class="absolute w-full h-screen bg-black border-2 bg-opacity-25 z-20 flex justify-center items-center"
-	/>
-{/if}
 {#if !$userStore?.operator}
 	{#if $appStore}
 		{#if initialMode !== 'preview'}
@@ -192,10 +226,10 @@
 					<Pane size={15} minSize={5} maxSize={33}>
 						<ContextPanel />
 					</Pane>
-					<Pane size={64}>
+					<Pane size={63}>
 						<SplitPanesWrapper>
 							<Splitpanes horizontal>
-								<Pane size={70}>
+								<Pane size={$connectingInput?.opened ? 100 : 70}>
 									<div
 										on:pointerdown={(e) => {
 											$selectedComponent = undefined
@@ -216,7 +250,7 @@
 											{#if $appStore.grid}
 												<ComponentNavigation />
 
-												<div on:pointerdown|stopPropagation class={width}>
+												<div on:pointerdown|stopPropagation class={twMerge(width, 'mx-auto')}>
 													<GridEditor {policy} />
 												</div>
 
@@ -233,31 +267,30 @@
 							</Splitpanes>
 						</SplitPanesWrapper>
 					</Pane>
-					<Pane size={21} minSize={5} maxSize={33}>
+					<Pane size={22} minSize={5} maxSize={33}>
 						<div class="relative flex flex-col h-full">
 							<Tabs bind:selected={selectedTab} wrapperClass="!h-[40px]" class="!h-full">
 								<Tab value="insert" size="xs">
-									<div class="m-1 center-center gap-2">
-										<Icon data={faPlus} />
-										<span>Insert</span>
+									<div class="m-1 center-center gap-1">
+										<Plus size={18} />
 									</div>
 								</Tab>
 								<Tab value="settings" size="xs">
-									<div class="m-1 center-center gap-2">
-										<Icon data={faSliders} />
-										<span>Settings</span>
+									<div class="m-1 center-center gap-1">
+										<Component size={18} />
+										<span>Component</span>
 									</div>
 								</Tab>
 								<Tab value="css" size="xs">
-									<div class="m-1 center-center gap-2">
-										<Icon data={faCode} />
-										<span>CSS</span>
+									<div class="m-1 center-center gap-1">
+										<Paintbrush size={18} />
 									</div>
 								</Tab>
 								<div slot="content" class="h-full overflow-y-auto">
 									<TabContent class="overflow-auto h-full" value="settings">
 										{#if $selectedComponent !== undefined}
 											<SettingsPanel />
+											<SecondaryMenu />
 										{:else}
 											<div class="min-w-[150px] text-sm text-gray-500 text-center py-8 px-2">
 												Select a component to see the settings&nbsp;for&nbsp;it
@@ -272,31 +305,6 @@
 									</TabContent>
 								</div>
 							</Tabs>
-							{#if $connectingInput.opened}
-								<div
-									class="fixed top-32  p-2 z-50 flex justify-center items-center"
-									transition:fly|local={{ duration: 100, y: -100 }}
-								>
-									<Alert title="Connecting" type="info">
-										<div class="flex gap-2 flex-col">
-											Click on the output of the component you want to connect to on the left panel.
-											<div>
-												<Button
-													color="blue"
-													variant="border"
-													size="xs"
-													on:click={() => {
-														$connectingInput.opened = false
-														$connectingInput.input = undefined
-													}}
-												>
-													Stop connecting
-												</Button>
-											</div>
-										</div>
-									</Alert>
-								</div>
-							{/if}
 						</div>
 					</Pane>
 				</Splitpanes>

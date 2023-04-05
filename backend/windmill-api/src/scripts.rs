@@ -8,11 +8,12 @@
 
 use sql_builder::prelude::*;
 use windmill_audit::{audit_log, ActionKind};
+use windmill_parser::MainArgSignature;
 
 use crate::{
     db::{UserDB, DB},
     schedule::clear_schedule,
-    users::{require_owner_of_path, Authed},
+    users::{maybe_refresh_folders, require_owner_of_path, Authed},
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
@@ -191,6 +192,7 @@ async fn create_script(
     Json(ns): Json<NewScript>,
 ) -> Result<(StatusCode, String)> {
     let hash = ScriptHash(hash_script(&ns));
+    let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
 
     if sqlx::query_scalar!(
@@ -555,11 +557,10 @@ async fn get_script_by_hash_internal<'c>(
 }
 
 async fn get_script_by_hash(
-    authed: Authed,
-    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, hash)): Path<(String, ScriptHash)>,
 ) -> JsonResult<Script> {
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx = db.begin().await?;
     let r = get_script_by_hash_internal(&mut tx, &w_id, &hash).await?;
     tx.commit().await?;
 
@@ -567,11 +568,10 @@ async fn get_script_by_hash(
 }
 
 async fn raw_script_by_hash(
-    authed: Authed,
-    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, hash_str)): Path<(String, String)>,
 ) -> Result<String> {
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx = db.begin().await?;
     let hash = ScriptHash(to_i64(hash_str.strip_suffix(".ts").ok_or_else(|| {
         Error::BadRequest("Raw script path must end with .ts".to_string())
     })?)?);
@@ -587,11 +587,10 @@ struct DeploymentStatus {
     lock_error_logs: Option<String>,
 }
 async fn get_deployment_status(
-    authed: Authed,
-    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, hash)): Path<(String, ScriptHash)>,
 ) -> JsonResult<DeploymentStatus> {
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx = db.begin().await?;
     let status_o: Option<DeploymentStatus> = sqlx::query_as!(
         DeploymentStatus,
         "SELECT lock, lock_error_logs FROM script WHERE hash = $1 AND workspace_id = $2",
@@ -760,25 +759,31 @@ async fn delete_script_by_path(
     Ok(Json(script))
 }
 
-async fn parse_python_code_to_jsonschema(
-    Json(code): Json<String>,
-) -> JsonResult<windmill_parser::MainArgSignature> {
-    windmill_parser_py::parse_python_signature(&code).map(Json)
+#[derive(Debug, Serialize)]
+#[serde(tag = "type")]
+enum SigParsing {
+    Valid(MainArgSignature),
+    Invalid { error: String },
 }
 
-async fn parse_deno_code_to_jsonschema(
-    Json(code): Json<String>,
-) -> JsonResult<windmill_parser::MainArgSignature> {
-    windmill_parser_ts::parse_deno_signature(&code).map(Json)
-}
-async fn parse_go_code_to_jsonschema(
-    Json(code): Json<String>,
-) -> JsonResult<windmill_parser::MainArgSignature> {
-    windmill_parser_go::parse_go_sig(&code).map(Json)
+fn result_to_sig_parsing(result: Result<MainArgSignature>) -> Json<SigParsing> {
+    match result {
+        Ok(sig) => Json(SigParsing::Valid(sig)),
+        Err(e) => Json(SigParsing::Invalid { error: e.to_string() }),
+    }
 }
 
-async fn parse_bash_code_to_jsonschema(
-    Json(code): Json<String>,
-) -> JsonResult<windmill_parser::MainArgSignature> {
-    windmill_parser_bash::parse_bash_sig(&code).map(Json)
+async fn parse_python_code_to_jsonschema(Json(code): Json<String>) -> Json<SigParsing> {
+    result_to_sig_parsing(windmill_parser_py::parse_python_signature(&code))
+}
+
+async fn parse_deno_code_to_jsonschema(Json(code): Json<String>) -> Json<SigParsing> {
+    result_to_sig_parsing(windmill_parser_ts::parse_deno_signature(&code))
+}
+async fn parse_go_code_to_jsonschema(Json(code): Json<String>) -> Json<SigParsing> {
+    result_to_sig_parsing(windmill_parser_go::parse_go_sig(&code))
+}
+
+async fn parse_bash_code_to_jsonschema(Json(code): Json<String>) -> Json<SigParsing> {
+    result_to_sig_parsing(windmill_parser_bash::parse_bash_sig(&code))
 }

@@ -123,6 +123,8 @@ Windmill Community Edition {GIT_VERSION}
         "BASE_URL",
         "BASE_INTERNAL_URL",
         "TIMEOUT",
+        "ZOMBIE_JOB_TIMEOUT",
+        "RESTART_ZOMBIE_JOBS",
         "SLEEP_QUEUE",
         "MAX_LOG_SIZE",
         "SERVER_BIND_ADDR",
@@ -189,9 +191,11 @@ Windmill Community Edition {GIT_VERSION}
 
         let metrics_f = async {
             match metrics_addr {
-                Some(addr) => windmill_common::serve_metrics(addr, rx.resubscribe())
-                    .await
-                    .map_err(anyhow::Error::from),
+                Some(addr) => {
+                    windmill_common::serve_metrics(addr, rx.resubscribe(), num_workers > 0)
+                        .await
+                        .map_err(anyhow::Error::from)
+                }
                 None => Ok(()),
             }
         };

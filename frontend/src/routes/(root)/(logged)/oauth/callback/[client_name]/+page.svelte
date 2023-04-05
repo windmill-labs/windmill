@@ -5,7 +5,6 @@
 	import { onMount } from 'svelte'
 	import { OauthService } from '$lib/gen'
 	import { oauthStore } from '$lib/stores'
-	import Icon from 'svelte-awesome'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import { Loader2 } from 'lucide-svelte'

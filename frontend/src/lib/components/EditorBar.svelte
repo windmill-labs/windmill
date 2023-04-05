@@ -79,6 +79,8 @@
 		codeViewer?.openDrawer?.()
 		codeObj = await getScriptByPath(e.detail.path ?? '')
 	}
+
+	let version = __pkg__.version
 </script>
 
 <Drawer bind:this={scriptPicker} size="900px">
@@ -136,7 +138,7 @@
 		if (lang == 'deno') {
 			if (!editor.getCode().includes('import * as wmill from')) {
 				editor.insertAtBeginning(
-					`import * as wmill from 'https://deno.land/x/windmill@v${__pkg__.version}/mod.ts'\n`
+					`import * as wmill from 'https://deno.land/x/windmill@v${version}/mod.ts'\n`
 				)
 			}
 			editor.insertAtCursor(`(await wmill.getVariable('${path}'))`)
@@ -183,7 +185,7 @@
 		if (lang == 'deno') {
 			if (!editor.getCode().includes('import * as wmill from')) {
 				editor.insertAtBeginning(
-					`import * as wmill from 'https://deno.land/x/windmill@v${__pkg__.version}/mod.ts'\n`
+					`import * as wmill from 'https://deno.land/x/windmill@v${version}/mod.ts'\n`
 				)
 			}
 			editor.insertAtCursor(`(await wmill.getResource('${path}'))`)
@@ -233,7 +235,13 @@
 			{validCode ? 'Valid' : 'Invalid'}
 		</Badge>
 		<div class="flex items-center divide-x">
-			<Popover notClickable placement="bottom" disapperTimoout={0} class="pr-1" disablePopup={!iconOnly}>
+			<Popover
+				notClickable
+				placement="bottom"
+				disapperTimoout={0}
+				class="pr-1"
+				disablePopup={!iconOnly}
+			>
 				<Button
 					color="light"
 					btnClasses="!font-medium !h-full"
@@ -245,11 +253,15 @@
 				>
 					+Context Var
 				</Button>
-				<svelte:fragment slot="text">
-					Add context variable
-				</svelte:fragment>
+				<svelte:fragment slot="text">Add context variable</svelte:fragment>
 			</Popover>
-			<Popover notClickable placement="bottom" disapperTimoout={0} class="px-1" disablePopup={!iconOnly}>
+			<Popover
+				notClickable
+				placement="bottom"
+				disapperTimoout={0}
+				class="px-1"
+				disablePopup={!iconOnly}
+			>
 				<Button
 					color="light"
 					btnClasses="!font-medium !h-full"
@@ -261,11 +273,15 @@
 				>
 					+Variable
 				</Button>
-				<svelte:fragment slot="text">
-					Add variable
-				</svelte:fragment>
+				<svelte:fragment slot="text">Add variable</svelte:fragment>
 			</Popover>
-			<Popover notClickable placement="bottom" disapperTimoout={0} class="px-1" disablePopup={!iconOnly}>
+			<Popover
+				notClickable
+				placement="bottom"
+				disapperTimoout={0}
+				class="px-1"
+				disablePopup={!iconOnly}
+			>
 				<Button
 					btnClasses="!font-medium !h-full"
 					size="xs"
@@ -277,11 +293,15 @@
 				>
 					+Resource
 				</Button>
-				<svelte:fragment slot="text">
-					Add resource
-				</svelte:fragment>
+				<svelte:fragment slot="text">Add resource</svelte:fragment>
 			</Popover>
-			<Popover notClickable placement="bottom" disapperTimoout={0} class="px-1" disablePopup={!iconOnly}>
+			<Popover
+				notClickable
+				placement="bottom"
+				disapperTimoout={0}
+				class="px-1"
+				disablePopup={!iconOnly}
+			>
 				<Button
 					btnClasses="!font-medium !h-full"
 					size="xs"
@@ -293,11 +313,15 @@
 				>
 					Reset
 				</Button>
-				<svelte:fragment slot="text">
-					Reset
-				</svelte:fragment>
+				<svelte:fragment slot="text">Reset</svelte:fragment>
 			</Popover>
-			<Popover notClickable placement="bottom" disapperTimoout={0} class="px-1" disablePopup={!iconOnly}>
+			<Popover
+				notClickable
+				placement="bottom"
+				disapperTimoout={0}
+				class="px-1"
+				disablePopup={!iconOnly}
+			>
 				<Button
 					btnClasses="!font-medium !h-full"
 					size="xs"
@@ -320,11 +344,15 @@
 						{/if}
 					</span>
 				</Button>
-				<svelte:fragment slot="text">
-					Reload assistant
-				</svelte:fragment>
+				<svelte:fragment slot="text">Reload assistant</svelte:fragment>
 			</Popover>
-			<Popover notClickable placement="bottom" disapperTimoout={0} class="px-1" disablePopup={!iconOnly}>
+			<Popover
+				notClickable
+				placement="bottom"
+				disapperTimoout={0}
+				class="px-1"
+				disablePopup={!iconOnly}
+			>
 				<Button
 					btnClasses="!font-medium"
 					size="xs"
@@ -342,7 +370,13 @@
 			</Popover>
 		</div>
 	</div>
-	<Popover notClickable placement="bottom" disapperTimoout={0} class="px-1" disablePopup={!iconOnly}>
+	<Popover
+		notClickable
+		placement="bottom"
+		disapperTimoout={0}
+		class="px-1"
+		disablePopup={!iconOnly}
+	>
 		<Button
 			btnClasses="!font-medium"
 			size="xs"
@@ -354,13 +388,11 @@
 		>
 			Script
 		</Button>
-		<svelte:fragment slot="text">
-			Script
-		</svelte:fragment>
+		<svelte:fragment slot="text">Script</svelte:fragment>
 	</Popover>
 </div>
 
-<style>
+<style lang="postcss">
 	span.green {
 		@apply text-green-600 animate-[pulse_5s_ease-in-out_infinite];
 	}

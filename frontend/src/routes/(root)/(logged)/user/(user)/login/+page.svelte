@@ -82,7 +82,7 @@
 		if ($workspaceStore) {
 			goto(rd ?? '/')
 		} else {
-			if(rd?.startsWith('/user/workspaces')) {
+			if (rd?.startsWith('/user/workspaces')) {
 				goto(rd)
 			} else {
 				goto(`/user/workspaces${rd ? `?rd=${encodeURIComponent(rd)}` : ''}`)
@@ -131,10 +131,12 @@
 </script>
 
 <!-- Enable submit form on enter -->
-<CenteredModal title="Login">
+<CenteredModal title={isCloudHosted() ? 'Login/Signup' : 'Login'}>
 	{#if isCloudHosted()}
 		<div class="text-center -mt-4">
-			<span class=" text-gray-600 text-sm">Login or sign up with any of the methods below</span>
+			<span class=" text-gray-600 text-sm"
+				>Login or sign up (no cc required) with any of the methods below</span
+			>
 		</div>
 	{/if}
 	<div class="justify-center text-center flex flex-col">
@@ -194,7 +196,7 @@
 				<span class="text-gray-700 text-sm">Email</span>
 				<input type="email" bind:value={email} id="email" />
 			</label>
-			<label class="block ">
+			<label class="block">
 				<span class="text-gray-700 text-sm">Password</span>
 				<input type="password" on:keyup={handleKeyUp} bind:value={password} id="password" />
 			</label>
@@ -206,11 +208,11 @@
 
 	{#if isCloudHosted()}
 		<p class="text-2xs text-gray-500 italic mt-10 text-center">
-			By logging in, you agree to our 
+			By logging in, you agree to our
 			<a href="https://docs.windmill.dev/terms_of_service" target="_blank" rel="noreferrer">
 				Terms of Service
 			</a>
-			and 
+			and
 			<a href="https://docs.windmill.dev/privacy_policy" target="_blank" rel="noreferrer">
 				Privacy Policy
 			</a>

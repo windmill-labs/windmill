@@ -32,7 +32,7 @@
 			event.preventDefault()
 			timeout && clearInterval(timeout)
 			if (event.reason?.message) {
-				const { message, body, status } = event.reason
+				const { message, body } = event.reason
 
 				if (body) {
 					sendUserToast(`${body}`, true)

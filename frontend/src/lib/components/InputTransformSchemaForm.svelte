@@ -55,7 +55,7 @@
 
 <div class="w-full {clazz}">
 	{#if keys.length > 0}
-		{#each keys as argName, i (argName)}
+		{#each keys as argName (argName)}
 			{#if (!filter || filter.includes(argName)) && Object.keys(schema.properties ?? {}).includes(argName)}
 				<div class="z-10">
 					<InputTransformForm

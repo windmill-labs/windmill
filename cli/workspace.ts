@@ -30,7 +30,7 @@ export class Workspace {
     remote: string,
     workspaceId: string,
     name: string,
-    token: string,
+    token: string
   ) {
     this.remote = remote;
     this.workspaceId = workspaceId;
@@ -40,7 +40,7 @@ export class Workspace {
 }
 
 function makeWorkspaceStream(
-  readable: ReadableStream<Uint8Array>,
+  readable: ReadableStream<Uint8Array>
 ): ReadableStream<Workspace> {
   return readable
     .pipeThrough(new DelimiterStream(new TextEncoder().encode("\n")))
@@ -59,7 +59,7 @@ function makeWorkspaceStream(
             /* ignore */
           }
         },
-      }),
+      })
     );
 }
 
@@ -86,7 +86,7 @@ export async function allWorkspaces(): Promise<Workspace[]> {
 }
 
 async function getActiveWorkspaceName(
-  opts: GlobalOptions,
+  opts: GlobalOptions
 ): Promise<string | undefined> {
   if (opts.workspace) {
     return opts.workspace;
@@ -99,7 +99,7 @@ async function getActiveWorkspaceName(
 }
 
 export async function getActiveWorkspace(
-  opts: GlobalOptions,
+  opts: GlobalOptions
 ): Promise<Workspace | undefined> {
   const name = await getActiveWorkspaceName(opts);
   if (!name) {
@@ -109,7 +109,7 @@ export async function getActiveWorkspace(
 }
 
 export async function getWorkspaceByName(
-  workspaceName: string,
+  workspaceName: string
 ): Promise<Workspace | undefined> {
   const workspaceStream = await getWorkspaceStream();
   for await (const workspace of workspaceStream) {
@@ -136,36 +136,40 @@ async function list(opts: GlobalOptions) {
         } else {
           return a;
         }
-      }),
+      })
     )
     .render();
 
-  console.log('Active: ' + colors.green.bold(activeName || 'none'))
+  console.log("Active: " + colors.green.bold(activeName || "none"));
 }
 
 async function switchC(opts: GlobalOptions, workspaceName: string) {
   if (opts.workspace) {
     console.log(
       colors.red.bold(
-        "! Workspace needs to be specified as positional argument, not as option.",
-      ),
+        "! Workspace needs to be specified as positional argument, not as option."
+      )
     );
     return;
   }
 
   const all = await allWorkspaces();
   if (all.findIndex((x) => x.name === workspaceName) === -1) {
-    console.log(colors.red.bold(`! This workspace profile ${workspaceName} does not exist locally.`));
-    console.log("available workspace profiles:")
+    console.log(
+      colors.red.bold(
+        `! This workspace profile ${workspaceName} does not exist locally.`
+      )
+    );
+    console.log("available workspace profiles:");
     for (const w of all) {
-      console.log('  - ' + w.name)
+      console.log("  - " + w.name);
     }
     return;
   }
 
   return await Deno.writeTextFile(
     (await getRootStore()) + "/activeWorkspace",
-    workspaceName,
+    workspaceName
   );
 }
 
@@ -177,13 +181,13 @@ export async function add(
   },
   workspaceName: string | undefined,
   workspaceId: string | undefined,
-  remote: string | undefined,
+  remote: string | undefined
 ) {
   if (opts.workspace) {
     console.log(
       colors.red.bold(
-        "! Workspace needs to be specified as positional argument, not as option.",
-      ),
+        "! Workspace needs to be specified as positional argument, not as option."
+      )
     );
     return;
   }
@@ -193,7 +197,11 @@ export async function add(
   }
 
   if (!workspaceId) {
-    workspaceId = await Input.prompt({ message: "Enter the ID of this workspace", default: workspaceName, suggestions: [workspaceName] });
+    workspaceId = await Input.prompt({
+      message: "Enter the ID of this workspace",
+      default: workspaceName,
+      suggestions: [workspaceName],
+    });
   }
 
   if (!remote) {
@@ -209,8 +217,8 @@ export async function add(
         await Input.prompt({
           message: "Enter the Remote URL",
           suggestions: ["https://app.windmill.dev/"],
-          default: "https://app.windmill.dev/"
-        }),
+          default: "https://app.windmill.dev/",
+        })
       ).toString();
     }
   }
@@ -223,22 +231,26 @@ export async function add(
 
   setClient(
     token,
-    remote.endsWith("/") ? remote.substring(0, remote.length - 1) : remote,
+    remote.endsWith("/") ? remote.substring(0, remote.length - 1) : remote
   );
-  let alreadyExists = false
+  let alreadyExists = false;
   try {
     alreadyExists = await WorkspaceService.existsWorkspace({
       requestBody: { id: workspaceId },
-    })
+    });
   } catch (e) {
-    console.log(colors.red.bold("! Credentials or instance is invalid. Aborting."));
-    throw e
+    console.log(
+      colors.red.bold("! Credentials or instance is invalid. Aborting.")
+    );
+    throw e;
   }
   if (opts.create) {
-    if (
-      !alreadyExists
-    ) {
-      console.log(colors.yellow(`Workspace at id ${workspaceId} on ${remote} does not exist. Creating...`));
+    if (!alreadyExists) {
+      console.log(
+        colors.yellow(
+          `Workspace at id ${workspaceId} on ${remote} does not exist. Creating...`
+        )
+      );
       await WorkspaceService.createWorkspace({
         requestBody: {
           id: workspaceId,
@@ -248,63 +260,87 @@ export async function add(
       });
     }
   } else if (!alreadyExists) {
-    console.log(colors.red.bold(`! Workspace at id ${workspaceId} on ${remote} does not exist. Re-run with --create to create it. Aborting.`));
-    console.log("On that instance and with those credentials, the workspaces that you can access are:")
-    const workspaces = await WorkspaceService.listWorkspaces()
+    console.log(
+      colors.red.bold(
+        `! Workspace at id ${workspaceId} on ${remote} does not exist. Re-run with --create to create it. Aborting.`
+      )
+    );
+    console.log(
+      "On that instance and with those credentials, the workspaces that you can access are:"
+    );
+    const workspaces = await WorkspaceService.listWorkspaces();
     for (const workspace of workspaces) {
-      console.log(`- ${workspace.id} (name: ${workspace.name})`)
+      console.log(`- ${workspace.id} (name: ${workspace.name})`);
     }
     Deno.exit(1);
   }
 
-  await addWorkspace({
-    name: workspaceName,
-    remote: remote,
-    workspaceId: workspaceId,
-    token: token,
-  }, opts);
+  await addWorkspace(
+    {
+      name: workspaceName,
+      remote: remote,
+      workspaceId: workspaceId,
+      token: token,
+    },
+    opts
+  );
   await Deno.writeTextFile(
     (await getRootStore()) + "/activeWorkspace",
-    workspaceName,
+    workspaceName
   );
-  console.log(colors.green.underline(`Added workspace ${workspaceName} for ${workspaceId} on ${remote}!`));
+  console.log(
+    colors.green.underline(
+      `Added workspace ${workspaceName} for ${workspaceId} on ${remote}!`
+    )
+  );
 }
 
 export async function addWorkspace(workspace: Workspace, opts: any) {
   workspace.remote = new URL(workspace.remote).toString(); // add trailing slash in all cases!
+  await removeWorkspace(workspace.name, true, opts);
   const file = await Deno.open((await getRootStore()) + "remotes.ndjson", {
     append: true,
     write: true,
     read: true,
     create: true,
   });
-  await removeWorkspace(workspace.name, true, opts);
   await file.write(new TextEncoder().encode(JSON.stringify(workspace) + "\n"));
+
   file.close();
 }
 
-export async function removeWorkspace(name: string, silent: boolean, opts: any) {
+export async function removeWorkspace(
+  name: string,
+  silent: boolean,
+  opts: any
+) {
   const orgWorkspaces = await allWorkspaces();
   if (orgWorkspaces.findIndex((x) => x.name === name) === -1) {
     if (!silent) {
-      console.log(colors.red.bold(`! Workspace profile ${name} does not exist locally`));
-      console.log("available workspace profiles:")
-      await list(opts)
+      console.log(
+        colors.red.bold(`! Workspace profile ${name} does not exist locally`)
+      );
+      console.log("available workspace profiles:");
+      await list(opts);
     }
     return;
   }
   if (silent) {
-    console.log(colors.yellow(`Replacing existing workspace ${name}`))
+    console.log(colors.yellow(`Replacing existing workspace ${name}`));
   }
+
   await Deno.writeTextFile(
     (await getRootStore()) + "remotes.ndjson",
     orgWorkspaces
       .filter((x) => x.name !== name)
       .map((x) => JSON.stringify(x))
-      .join("\n"),
+      .join("\n") + "\n"
   );
+
   if (!silent) {
-    console.log(colors.green.underline(`Succesfully removed workspace ${name}!`));
+    console.log(
+      colors.green.underline(`Succesfully removed workspace ${name}!`)
+    );
   }
 }
 
@@ -313,10 +349,10 @@ async function remove(_opts: GlobalOptions, name: string) {
 }
 
 async function whoami(_opts: GlobalOptions) {
-  await requireLogin(_opts)
-  console.log(await UserService.globalWhoami())
+  await requireLogin(_opts);
+  console.log(await UserService.globalWhoami());
   const activeName = await getActiveWorkspaceName(_opts);
-  console.log('Active: ' + colors.green.bold(activeName || 'none'))
+  console.log("Active: " + colors.green.bold(activeName || "none"));
 }
 
 const command = new Command()
@@ -333,14 +369,14 @@ const command = new Command()
   .option("-c --create", "Create the workspace if it does not exist")
   .option(
     "--create-workspace-name <workspace_name:string>",
-    "Specify the workspace name. Ignored if --create is not specified or the workspace already exists. Will default to the workspace id.",
+    "Specify the workspace name. Ignored if --create is not specified or the workspace already exists. Will default to the workspace id."
   )
   .option(
     "--create-username <username:string>",
     "Specify your own username in the newly created workspace. Ignored if --create is not specified or the workspace already exists.",
     {
       default: "admin",
-    },
+    }
   )
   .action(add as any)
   .command("remove")

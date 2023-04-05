@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use anyhow::Result;
 use const_format::concatcp;
 use itertools::Itertools;
 use lazy_static::lazy_static;
@@ -15,7 +16,7 @@ use sqlx::{Pool, Postgres, Transaction};
 use windmill_api_client::Client;
 use std::{
     borrow::Borrow, collections::HashMap, io, os::unix::process::ExitStatusExt, panic,
-    process::Stdio, time::Duration,
+    process::Stdio, time::Duration, sync::atomic::Ordering,
 };
 use tracing::{trace_span, Instrument};
 use uuid::Uuid;
@@ -25,7 +26,7 @@ use windmill_common::{
     flows::{FlowModuleValue, FlowValue},
     scripts::{ScriptHash, ScriptLang},
     utils::rd_string,
-    variables, BASE_URL,
+    variables, BASE_URL, users::SUPERADMIN_SECRET_EMAIL, IS_READY,
 };
 use windmill_queue::{canceled_job_to_result, get_queued_job, pull, JobKind, QueuedJob, CLOUD_HOSTED};
 
@@ -62,38 +63,56 @@ use rand::Rng;
 const TAR_CACHE_FILENAME: &str = "entirecache.tar";
 
 #[cfg(feature = "enterprise")]
-async fn copy_cache_from_bucket(bucket: &str) {
-    tracing::info!("Copying cache from bucket {bucket}");
-    let elapsed = Instant::now();
+async fn copy_cache_from_bucket(bucket: &str, tx: Option<Sender<()>>) -> Option::<tokio::task::JoinHandle<()>> {
+    tracing::info!("Copying cache from bucket in the background {bucket}");
+    let bucket = bucket.to_string();
+    let tx_is_some = tx.is_some();
+    let f = async move { 
+        let elapsed = Instant::now();
 
-    match Command::new("rclone")
-        .arg("copy")
-        .arg(format!(":s3,env_auth=true:{bucket}"))
-        .arg(ROOT_CACHE_DIR)
-        .arg("--size-only")
-        .arg("--fast-list")
-        .arg("--exclude")
-        .arg(format!("\"{TAR_CACHE_FILENAME}\""))
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .spawn()
-    {
-        Ok(mut h) => {
-            h.wait().await.unwrap();
+        match Command::new("rclone")
+            .arg("copy")
+            .arg(format!(":s3,env_auth=true:{bucket}"))
+            .arg(if tx_is_some { ROOT_TMP_CACHE_DIR } else { ROOT_CACHE_DIR })
+            .arg("-vv")
+            .arg("--size-only")
+            .arg("--fast-list")
+            .arg("--exclude")
+            .arg(format!("\"{TAR_CACHE_FILENAME}\""))
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .spawn()
+        {
+            Ok(mut h) => {
+                h.wait().await.unwrap();
+            }
+            Err(e) => tracing::warn!("Failed to run periodic job pull. Error: {:?}", e),
         }
-        Err(e) => tracing::warn!("Failed to run periodic job pull. Error: {:?}", e),
-    }
-    tracing::info!(
-        "Finished copying cache from bucket {bucket}, took {:?}s",
-        elapsed.elapsed().as_secs()
-    );
+        tracing::info!(
+            "Finished copying cache from bucket {bucket}, took {:?}s",
+            elapsed.elapsed().as_secs()
+        );
 
-    for x in [PIP_CACHE_DIR, DENO_CACHE_DIR, GO_CACHE_DIR] {
-        DirBuilder::new()
-            .recursive(true)
-            .create(x)
-            .await
-            .expect("could not create initial worker dir");
+        for x in 
+            if !tx_is_some 
+                { [PIP_CACHE_DIR, DENO_CACHE_DIR, GO_CACHE_DIR] }
+                else { [PIP_TMP_CACHE_DIR, DENO_TMP_CACHE_DIR, GO_TMP_CACHE_DIR] } {
+            DirBuilder::new()
+                .recursive(true)
+                .create(x)
+                .await
+                .expect("could not create initial worker dir");
+        }
+
+        if let Some(tx) = tx {
+            tx.send(()).await.expect("can send copy cache signal");
+        }
+    };
+    if tx_is_some {
+        return Some(tokio::spawn(f));
+    } else {
+        f.await;
+        return None;
     }
 }
 
@@ -105,6 +124,7 @@ async fn copy_cache_to_bucket(bucket: &str) {
         .arg("copy")
         .arg(ROOT_CACHE_DIR)
         .arg(format!(":s3,env_auth=true:{bucket}"))
+        .arg("-vv")
         .arg("--size-only")
         .arg("--fast-list")
         .arg("--exclude")
@@ -116,7 +136,7 @@ async fn copy_cache_to_bucket(bucket: &str) {
         Ok(mut h) => {
             h.wait().await.unwrap();
         }
-        Err(e) => tracing::warn!("Failed to run periodic job push. Error: {:?}", e),
+        Err(e) => tracing::info!("Failed to run periodic job push. Error: {:?}", e),
     }
     tracing::info!(
         "Finished copying cache to bucket {bucket}, took: {:?}s",
@@ -141,14 +161,21 @@ async fn copy_cache_to_bucket_as_tar(bucket: &str) {
     {
         Ok(mut h) => {
             if !h.wait().await.unwrap().success() {
-                tracing::warn!("Failed to tar cache");
+                tracing::info!("Failed to tar cache");
                 return;
             }
         }
         Err(e) => {
-            tracing::warn!("Failed tar cache. Error: {e:?}");
+            tracing::info!("Failed tar cache. Error: {e:?}");
             return;
         }
+    }
+
+    let tar_metadata = tokio::fs::metadata(format!("{ROOT_CACHE_DIR}{TAR_CACHE_FILENAME}"))
+    .await;
+    if tar_metadata.is_err() || tar_metadata.as_ref().unwrap().len() == 0 {
+        tracing::info!("Failed to tar cache");
+        return;
     }
 
     match Command::new("rclone")
@@ -156,6 +183,7 @@ async fn copy_cache_to_bucket_as_tar(bucket: &str) {
         .arg("copyto")
         .arg(TAR_CACHE_FILENAME)
         .arg(format!(":s3,env_auth=true:{bucket}/{TAR_CACHE_FILENAME}"))
+        .arg("-vv")
         .arg("--size-only")
         .arg("--fast-list")
         .stdin(Stdio::null())
@@ -165,11 +193,12 @@ async fn copy_cache_to_bucket_as_tar(bucket: &str) {
         Ok(mut h) => {
             h.wait().await.unwrap();
         }
-        Err(e) => tracing::warn!("Failed to copying tar cache to bucket. Error: {:?}", e),
+        Err(e) => tracing::info!("Failed to copy tar cache to bucket. Error: {:?}", e),
     }
     tracing::info!(
-        "Finished copying cache to bucket {bucket} as tar, took: {:?}s",
-        elapsed.elapsed().as_secs()
+        "Finished copying cache to bucket {bucket} as tar, took: {:?}s. Size of new tar: {}",
+        elapsed.elapsed().as_secs(),
+        tar_metadata.unwrap().len()
     );
 }
 
@@ -182,6 +211,7 @@ async fn copy_cache_from_bucket_as_tar(bucket: &str) -> bool {
         .arg("copyto")
         .arg(format!(":s3,env_auth=true:{bucket}/{TAR_CACHE_FILENAME}"))
         .arg(format!("{ROOT_CACHE_DIR}{TAR_CACHE_FILENAME}"))
+        .arg("-vv")
         .arg("--size-only")
         .arg("--fast-list")
         .stdin(Stdio::null())
@@ -190,12 +220,12 @@ async fn copy_cache_from_bucket_as_tar(bucket: &str) -> bool {
     {
         Ok(mut h) => {
             if !h.wait().await.unwrap().success() {
-                tracing::warn!("Failed to download tar cache");
+                tracing::info!("Failed to download tar cache, continuing nonetheless");
                 return false;
             }
         }
         Err(e) => {
-            tracing::warn!("Failed to download tar cache. Error: {e:?}");
+            tracing::info!("Failed to download tar cache, continuing nonetheless. Error: {e:?}");
             return false;
         }
     }
@@ -203,19 +233,19 @@ async fn copy_cache_from_bucket_as_tar(bucket: &str) -> bool {
     match Command::new("tar")
         .current_dir(ROOT_CACHE_DIR)
         .arg("-xpvf")
-        .arg(format!("{ROOT_CACHE_DIR}/{TAR_CACHE_FILENAME}"))
+        .arg(format!("{ROOT_CACHE_DIR}{TAR_CACHE_FILENAME}"))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .spawn()
     {
         Ok(mut h) => {
             if !h.wait().await.unwrap().success() {
-                tracing::warn!("Failed to untar cache");
+                tracing::info!("Failed to untar cache, continuing nonetheless");
                 return false;
             }
         }
         Err(e) => {
-            tracing::warn!("Failed untar cache. Error: {e:?}");
+            tracing::warn!("Failed to untar cache, continuing nonetheless. Error: {e:?}");
             return false;
         }
     }
@@ -225,6 +255,13 @@ async fn copy_cache_from_bucket_as_tar(bucket: &str) -> bool {
         elapsed.elapsed().as_secs()
     );
     return true;
+}
+
+async fn move_tmp_cache_to_cache() -> Result<()> {
+    tokio::fs::remove_dir_all(ROOT_CACHE_DIR).await?;
+    tokio::fs::rename(ROOT_TMP_CACHE_DIR, ROOT_CACHE_DIR).await?;
+    tracing::info!("Finished moving tmp cache to cache");
+    Ok(())
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -241,7 +278,7 @@ pub async fn create_token_for_owner<'c>(
     let is_super_admin = sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", email)
             .fetch_optional(&mut tx)
             .await?
-            .unwrap_or(false);
+            .unwrap_or(false) || email == SUPERADMIN_SECRET_EMAIL;
 
     sqlx::query_scalar!(
         "INSERT INTO token
@@ -262,9 +299,13 @@ pub async fn create_token_for_owner<'c>(
 
 const TMP_DIR: &str = "/tmp/windmill";
 const ROOT_CACHE_DIR: &str = "/tmp/windmill/cache/";
+const ROOT_TMP_CACHE_DIR: &str = "/tmp/windmill/tmpcache/";
 const PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "pip");
 const DENO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "deno");
 const GO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "go");
+const PIP_TMP_CACHE_DIR: &str = concatcp!(ROOT_TMP_CACHE_DIR, "pip");
+const DENO_TMP_CACHE_DIR: &str = concatcp!(ROOT_TMP_CACHE_DIR, "deno");
+const GO_TMP_CACHE_DIR: &str = concatcp!(ROOT_TMP_CACHE_DIR, "go");
 const NUM_SECS_PING: u64 = 5;
 const NUM_SECS_SYNC: u64 = 60 * 10;
 
@@ -450,7 +491,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
     tracing::debug!(worker_dir = %worker_dir, worker_name = %worker_name, "Creating worker dir");
 
-    for x in [&worker_dir, PIP_CACHE_DIR, DENO_CACHE_DIR, GO_CACHE_DIR] {
+    for x in [&worker_dir, ROOT_TMP_CACHE_DIR, PIP_CACHE_DIR, DENO_CACHE_DIR, GO_CACHE_DIR] {
         DirBuilder::new()
             .recursive(true)
             .create(x)
@@ -465,7 +506,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     )
     .await;
 
-    let mut last_ping = Instant::now() - Duration::from_secs(NUM_SECS_SYNC + 1);
+    let mut last_ping = Instant::now() - Duration::from_secs(NUM_SECS_PING + 1);
 
     insert_initial_ping(worker_instance, &worker_name, ip, db).await;
 
@@ -549,14 +590,26 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
 
     WORKER_STARTED.inc();
 
+    let (_copy_bucket_tx, mut _copy_bucket_rx) = mpsc::channel::<()>(2);
+
+    let mut copy_cache_from_bucket_handle: Option<tokio::task::JoinHandle<()>> = None;
+
+    let mut initialized_cache = false;
+
     #[cfg(feature = "enterprise")]
     if let Some(ref s) = S3_CACHE_BUCKET.clone() {
         // We try to download the entire cache as a tar, it is much faster over S3
         if !copy_cache_from_bucket_as_tar(&s).await {
             // We revert to copying the cache from the bucket
-            copy_cache_from_bucket(&s).await;
+            copy_cache_from_bucket_handle = copy_cache_from_bucket(&s, Some(_copy_bucket_tx.clone())).await;
+        } else {
+            initialized_cache = true;
         }
     }
+
+    IS_READY.store(true, Ordering::Relaxed);
+
+    tracing::info!(worker = %worker_name, "starting worker");
 
     #[cfg(feature = "enterprise")]
     let mut last_sync =
@@ -566,6 +619,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
 
     tracing::info!(worker = %worker_name, "listening for jobs");
 
+    
     loop {
         worker_busy.set(0);
 
@@ -591,10 +645,12 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             }
 
             #[cfg(feature = "enterprise")]
-            if last_sync.elapsed().as_secs() > NUM_SECS_SYNC {
+            if initialized_cache && last_sync.elapsed().as_secs() > NUM_SECS_SYNC {
                 if let Some(ref s) = S3_CACHE_BUCKET.clone() {
-                    copy_cache_from_bucket(&s).await;
+                    copy_cache_from_bucket(&s, None).await;
                     copy_cache_to_bucket(&s).await;
+                    
+                    // this is to prevent excessive tar upload. 1/100*15min = each worker sync its tar once per day on average
                     if rand::thread_rng().gen_range(0..*TAR_CACHE_RATE) == 1 {
                         copy_cache_to_bucket_as_tar(&s).await;
                     }
@@ -606,8 +662,19 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                 tokio::select! {
                     biased;
                     _ = rx.recv() => {
+                        if let Some(copy_cache_from_bucket_handle) = copy_cache_from_bucket_handle.as_ref() {
+                            copy_cache_from_bucket_handle.abort();
+                        }
                         println!("received killpill for worker {}", i_worker);
                         (true, Ok(None))
+                    },
+                    _ = _copy_bucket_rx.recv() => {
+                        if let Err(e) = move_tmp_cache_to_cache().await {
+                            tracing::error!(worker = %worker_name, "failed to sync tmp cache to cache: {}", e);
+                        }
+                        copy_cache_from_bucket_handle = None;
+                        initialized_cache = true;
+                        (false, Ok(None))
                     },
                     Some(job_id) = same_worker_rx.recv() => {
                         (false, sqlx::query_as::<_, QueuedJob>("SELECT * FROM queue WHERE id = $1")
@@ -653,7 +720,8 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                             .with_label_values(label_values.as_slice()),
                     };
 
-                    tracing::info!(worker = %worker_name, id = %job.id, "fetched job {}", job.id);
+                    let job_root = job.root_job.map(|x| x.to_string()).unwrap_or_else(|| "none".to_string());
+                    tracing::info!(worker = %worker_name, id = %job.id, root_id = %job_root, "fetched job {}, root job: {}", job.id, job_root);
 
                     let job_dir = format!("{worker_dir}/{}", job.id);
 
@@ -1196,7 +1264,6 @@ mount {{
                 job_dir,
                 &inner_content,
                 &shared_mount,
-                requirements_o,
                 base_internal_url,
                 worker_name
             )
@@ -1286,7 +1353,8 @@ async fn handle_go_job(
         db,
         true,
         skip_go_mod,
-        worker_name
+        worker_name,
+        &job.workspace_id,
     )
     .await?;
 
@@ -1404,7 +1472,7 @@ func Run(req Req) (interface{{}}, error){{
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?;
-        handle_child(&job.id, db, logs,  build_go, false, worker_name).await?;
+        handle_child(&job.id, db, logs,  build_go, false, worker_name, &job.workspace_id).await?;
 
         Command::new(NSJAIL_PATH.as_str())
             .current_dir(job_dir)
@@ -1430,7 +1498,7 @@ func Run(req Req) (interface{{}}, error){{
             .stderr(Stdio::piped())
             .spawn()?
     };
-    handle_child(&job.id, db, logs, child, !*DISABLE_NSJAIL, worker_name).await?;
+    handle_child(&job.id, db, logs, child, !*DISABLE_NSJAIL, worker_name, &job.workspace_id).await?;
     read_result(job_dir).await
 }
 
@@ -1448,7 +1516,7 @@ async fn handle_bash_job(
 ) -> Result<serde_json::Value, Error> {
     logs.push_str("\n\n--- BASH CODE EXECUTION ---\n");
     set_logs(logs, &job.id, db).await;
-    write_file(job_dir, "main.sh", content).await?;
+    write_file(job_dir, "main.sh", &format!("{content}\necho \"\"\nsync\necho \"\"")).await?;
 
     let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
@@ -1481,7 +1549,7 @@ async fn handle_bash_job(
                 .replace("{SHARED_MOUNT}", shared_mount),
         )
         .await?;
-        let mut cmd_args = vec!["--config", "run.config.proto", "--", "/bin/sh", "main.sh"];
+        let mut cmd_args = vec!["--config", "run.config.proto", "--", "/bin/bash", "main.sh"];
         cmd_args.extend(args);
         Command::new(NSJAIL_PATH.as_str())
             .current_dir(job_dir)
@@ -1496,7 +1564,7 @@ async fn handle_bash_job(
     } else {
         let mut cmd_args = vec!["main.sh"];
         cmd_args.extend(&args);
-        Command::new("/bin/sh")
+        Command::new("/bin/bash")
             .current_dir(job_dir)
             .env_clear()
             .envs(reserved_variables)
@@ -1508,7 +1576,7 @@ async fn handle_bash_job(
             .stderr(Stdio::piped())
             .spawn()?
     };
-    handle_child(&job.id, db, logs,  child, !*DISABLE_NSJAIL, worker_name).await?;
+    handle_child(&job.id, db, logs,  child, !*DISABLE_NSJAIL, worker_name, &job.workspace_id).await?;
     //for now bash jobs have an empty result object
     Ok(serde_json::json!(logs
         .lines()
@@ -1555,30 +1623,23 @@ async fn handle_deno_job(
     job_dir: &str,
     inner_content: &String,
     shared_mount: &str,
-    lockfile: Option<String>,
     base_internal_url: &str,
     worker_name: &str
 ) -> error::Result<serde_json::Value> {
     logs.push_str("\n\n--- DENO CODE EXECUTION ---\n");
     set_logs(logs, &job.id, db).await;
-    let lockfile = lockfile.and_then(|e| if e.starts_with("{") { Some(e) } else { None });
-    let _ = write_file(
-        job_dir,
-        "lock.json",
-        &lockfile.clone().unwrap_or("".to_string()),
-    )
-    .await?;
+
     // TODO: Separately cache dependencies here using `deno cache --reload --lock=lock.json src/deps.ts` (https://deno.land/manual@v1.27.0/linking_to_external_code/integrity_checking)
     // Then require caching below using --cached-only. This makes it so we require zero network interaction when running the process below
 
-    let _ = write_file(job_dir, "inner.ts", inner_content).await?;
+    let _ = write_file(job_dir, "main.ts", inner_content).await?;
     let sig = trace_span!("parse_deno_signature")
         .in_scope(|| windmill_parser_ts::parse_deno_signature(inner_content))?;
     create_args_and_out_file(client, job, job_dir).await?;
     let spread = sig.args.into_iter().map(|x| x.name).join(",");
     let wrapper_content: String = format!(
         r#"
-import {{ main }} from "./inner.ts";
+import {{ main }} from "./main.ts";
 
 const args = await Deno.readTextFile("args.json")
     .then(JSON.parse)
@@ -1596,15 +1657,27 @@ run().catch(async (e) => {{
 }});
 "#,
     );
-    write_file(job_dir, "main.ts", &wrapper_content).await?;
     let w_id = job.workspace_id.clone();
+    let script_path_split = job.script_path().split("/");
+    let script_path_parts_len = script_path_split.clone().count();
+    let mut relative_mounts = "".to_string();
+    for c in 0..script_path_parts_len {
+        relative_mounts += ",\n          ";
+        relative_mounts += &format!("\"./{}\": \"{base_internal_url}/api/w/{w_id}/scripts/raw/p/{}{}\"",
+            (0..c).map(|_| "../").join(""),
+            &script_path_split.clone().take(script_path_parts_len - c - 1).join("/"),
+            if c == script_path_parts_len - 1 { "" } else { "/" },
+        );
+    }
+    write_file(job_dir, "wrapper.ts", &wrapper_content).await?;
     let import_map = format!(
         r#"{{
         "imports": {{
           "/": "{base_internal_url}/api/w/{w_id}/scripts/raw/p/",
-          "./": "./"
+          "./wrapper.ts": "./wrapper.ts",
+          "./main.ts": "./main.ts"{relative_mounts}
         }}
-      }}"#
+      }}"#,
     );
     write_file(job_dir, "import_map.json", &import_map).await?;
     let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
@@ -1631,9 +1704,7 @@ run().catch(async (e) => {{
             args.push("--");
             args.push(DENO_PATH.as_str());
             args.push("run");
-            if lockfile.is_some() {
-                args.push("--lock=/tmp/lock.json");
-            }
+
             args.push("--import-map");
             args.push("/tmp/import_map.json");
             args.push(&reload);
@@ -1645,7 +1716,7 @@ run().catch(async (e) => {{
             } else {
                 args.push("-A");
             }
-            args.push("/tmp/main.ts");
+            args.push("/tmp/wrapper.ts");
 
             Command::new(NSJAIL_PATH.as_str())
                 .current_dir(job_dir)
@@ -1658,7 +1729,7 @@ run().catch(async (e) => {{
                 .spawn()?
         } else {
             let mut args = Vec::new();
-            let script_path = format!("{job_dir}/main.ts");
+            let script_path = format!("{job_dir}/wrapper.ts");
             let import_map_path = format!("{job_dir}/import_map.json");
             args.push("run");
             args.push("--import-map");
@@ -1687,7 +1758,7 @@ run().catch(async (e) => {{
     }
     .instrument(trace_span!("create_deno_jail"))
     .await?;
-    handle_child(&job.id, db, logs, child, !*DISABLE_NSJAIL, worker_name).await?;
+    handle_child(&job.id, db, logs, child, !*DISABLE_NSJAIL, worker_name, &job.workspace_id).await?;
     read_result(job_dir).await
 }
 
@@ -1709,7 +1780,7 @@ async fn create_args_and_out_file(
 }
 
 lazy_static! {
-    static ref RELATIVE_IMPORT_REGEX: Regex = Regex::new(r#"(import|from)\s(u|f)\."#).unwrap();
+    static ref RELATIVE_IMPORT_REGEX: Regex = Regex::new(r#"(import|from)\s(((u|f)\.)|\.)"#).unwrap();
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -1725,7 +1796,7 @@ async fn handle_python_job(
     token: String,
     inner_content: &String,
     shared_mount: &str,
-    base_internal_url: &str,
+    base_internal_url: &str
 ) -> error::Result<serde_json::Value> {
     create_dependencies_dir(job_dir).await;
 
@@ -1739,7 +1810,7 @@ async fn handle_python_job(
             if requirements.is_empty() {
                 "".to_string()
             } else {
-                pip_compile(&job.id, &requirements, logs, job_dir, db, worker_name)
+                pip_compile(&job.id, &requirements, logs, job_dir, db, worker_name, &job.workspace_id)
                     .await
                     .map_err(|e| {
                         Error::ExecutionErr(format!("pip compile failed: {}", e.to_string()))
@@ -1780,9 +1851,14 @@ async fn handle_python_job(
 
     let relative_imports = RELATIVE_IMPORT_REGEX.is_match(&inner_content);
 
-    let _ = write_file(job_dir, "inner.py", inner_content).await?;
+    let script_path_splitted = &job.script_path().split("/");
+    let dirs = script_path_splitted.clone().take(script_path_splitted.clone().count() - 1).join("/").replace("-", "_");
+    let last = script_path_splitted.clone().last().unwrap().replace("-", "_").replace(" ", "_").to_lowercase();
+    let module_dir = format!("{}/{}", job_dir, dirs );
+    tokio::fs::create_dir_all(format!("{module_dir}/")).await?;
+    let _ = write_file(&module_dir, &format!("{last}.py"), inner_content).await?;
     if relative_imports {
-        let _ = write_file(job_dir, "loader.py", RELATIVE_PYTHON_LOADER).await?;
+        let _ = write_file(&job_dir, "loader.py", RELATIVE_PYTHON_LOADER).await?;
     }
 
     let sig = windmill_parser_py::parse_python_signature(inner_content)?;
@@ -1843,6 +1919,7 @@ async fn handle_python_job(
             .join("\n")
     };
 
+    let module_dir_dot = dirs.replace("/", ".").replace("-", "_");
     let wrapper_content: String = format!(
         r#"
 import json
@@ -1851,8 +1928,8 @@ import json
 {import_datetime}
 import traceback
 import sys
+from {module_dir_dot} import {last} as inner_script
 
-inner_script = __import__("inner")
 
 with open("args.json") as f:
     kwargs = json.load(f, strict=False)
@@ -1865,8 +1942,12 @@ for k, v in list(args.items()):
 
 try:
     res = inner_script.main(**args)
-    if type(res).__name__ == 'DataFrame':
-        res = res.values.tolist()
+    typ = type(res)
+    if typ.__name__ == 'DataFrame':
+        if typ.__module__ == 'pandas.core.frame':
+            res = res.values.tolist()
+        elif typ.__module__ == 'polars.dataframe.frame':
+            res = res.rows()
     res_json = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
     with open("result.json", 'w') as f:
         f.write(res_json)
@@ -1879,7 +1960,7 @@ except Exception as e:
         sys.exit(1)
 "#,
     );
-    write_file(job_dir, "main.py", &wrapper_content).await?;
+    write_file(job_dir, "wrapper.py", &wrapper_content).await?;
 
     let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
     let additional_python_paths_folders = additional_python_paths.iter().join(":");
@@ -1907,6 +1988,7 @@ mount {{
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{SHARED_DEPENDENCIES}", shared_deps.as_str())
+                .replace("{MAIN}", format!("{dirs}/{last}").as_str())
                 .replace(
                     "{ADDITIONAL_PYTHON_PATHS}",
                     additional_python_paths_folders.as_str(),
@@ -1938,7 +2020,8 @@ mount {{
                 "--",
                 PYTHON_PATH.as_str(),
                 "-u",
-                "/tmp/main.py",
+                "-m",
+                "wrapper",
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -1950,13 +2033,13 @@ mount {{
             .envs(reserved_variables)
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
-            .args(vec!["-u", "main.py"])
+            .args(vec!["-u", "-m", "wrapper"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?
     };
 
-    handle_child(&job.id, db, logs, child, !*DISABLE_NSJAIL, worker_name).await?;
+    handle_child(&job.id, db, logs, child, !*DISABLE_NSJAIL, worker_name, &job.workspace_id).await?;
     read_result(job_dir).await
 }
 
@@ -2002,7 +2085,8 @@ async fn handle_dependency_job(
         logs,
         job_dir,
         db,
-        worker_name
+        worker_name,
+        &job.workspace_id,
     )
     .await;
     match content {
@@ -2068,7 +2152,8 @@ async fn handle_flow_dependency_job(
             logs,
             job_dir,
             db,
-            worker_name
+            worker_name,
+            &job.workspace_id,
         )
         .await;
         match new_lock {
@@ -2184,12 +2269,13 @@ async fn capture_dependency_job(
     logs: &mut String,
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
-    worker_name: &str
+    worker_name: &str,
+    w_id: &str,
 ) -> error::Result<String> {
     match job_language {
         ScriptLang::Python3 => {
             create_dependencies_dir(job_dir).await;
-            pip_compile(job_id, job_raw_code, logs, job_dir, db, worker_name).await
+            pip_compile(job_id, job_raw_code, logs, job_dir, db, worker_name, w_id).await
         }
         ScriptLang::Go => {
             install_go_dependencies(
@@ -2200,7 +2286,8 @@ async fn capture_dependency_job(
                 db,
                 false,
                 false,
-                worker_name
+                worker_name,
+                w_id
             )
             .await
         }
@@ -2218,7 +2305,8 @@ async fn pip_compile(
     logs: &mut String,
     job_dir: &str,
     db: &Pool<Postgres>,
-    worker_name: &str
+    worker_name: &str,
+    w_id: &str,
 ) -> error::Result<String> {
     logs.push_str(&format!("\nresolving dependencies..."));
     set_logs(logs, job_id, db).await;
@@ -2251,7 +2339,7 @@ async fn pip_compile(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
-    handle_child(job_id, db, logs,  child, false, worker_name)
+    handle_child(job_id, db, logs,  child, false, worker_name, &w_id)
         .await
         .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
     let path_lock = format!("{job_dir}/requirements.txt");
@@ -2274,7 +2362,8 @@ async fn install_go_dependencies(
     db: &sqlx::Pool<sqlx::Postgres>,
     preview: bool,
     skip_go_mod: bool,
-    worker_name: &str
+    worker_name: &str,
+    w_id: &str
 ) -> error::Result<String> {
     if !skip_go_mod {
         gen_go_mymod(code, job_dir).await?;
@@ -2285,7 +2374,7 @@ async fn install_go_dependencies(
             .stderr(Stdio::piped())
             .spawn()?;
 
-        handle_child(job_id, db, logs,   child, false, worker_name).await?;
+        handle_child(job_id, db, logs,   child, false, worker_name, w_id).await?;
     }
     let child = Command::new(GO_PATH.as_str())
         .current_dir(job_dir)
@@ -2293,7 +2382,7 @@ async fn install_go_dependencies(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
-    handle_child(job_id, db, logs,  child, false, worker_name)
+    handle_child(job_id, db, logs,  child, false, worker_name, &w_id)
         .await
         .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
 
@@ -2400,11 +2489,13 @@ async fn handle_child(
     mut child: Child,
     nsjail: bool,
     worker_name: &str,
+    _w_id: &str,
 ) -> error::Result<()> {
     let update_job_interval = Duration::from_millis(500);
     let write_logs_delay = Duration::from_millis(500);
 
     let pid = child.id();
+    #[cfg(target_os = "linux")]
     if let Some(pid) = pid {
         //set the highest oom priority
         let mut file = File::create(format!("/proc/{pid}/oom_score_adj")).await?;
@@ -2475,11 +2566,29 @@ async fn handle_child(
     let wait_on_child = async {
         let db = db.clone();
 
+        #[cfg(not(feature = "enterprise"))]
+        let timeout_duration = *TIMEOUT_DURATION;
+
+        #[cfg(feature = "enterprise")]
+        let premium_workspace = *CLOUD_HOSTED && sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", _w_id)
+            .fetch_one(&db)
+            .await
+            .map_err(|e| {
+                tracing::error!(%e, "error getting premium workspace for job {job_id}: {e}");
+            }).unwrap_or(false);
+        
+        #[cfg(feature = "enterprise")]
+        let timeout_duration = if premium_workspace {
+            *TIMEOUT_DURATION*6 //30mins
+        } else {
+            *TIMEOUT_DURATION
+        };
+
         let kill_reason = tokio::select! {
             biased;
             result = child.wait() => return result.map(Ok),
             Ok(()) = too_many_logs.changed() => KillReason::TooManyLogs,
-            _ = sleep(*TIMEOUT_DURATION) => KillReason::Timeout,
+            _ = sleep(timeout_duration) => KillReason::Timeout,
             _ = update_job => KillReason::Cancelled,
         };
         tx.send(()).expect("rx should never be dropped");
@@ -2751,9 +2860,10 @@ pub async fn handle_zombie_jobs_periodically<R: rsmq_async::RsmqConnection + Sen
 async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(db: &Pool<Postgres>, base_internal_url: &str, rsmq: Option<R>) {
     if *RESTART_ZOMBIE_JOBS {
         let restarted = sqlx::query!(
-                "UPDATE queue SET running = false, started_at = null, logs = logs || '\nRestarted job after not receiving job''s ping for too long the ' || now() || '\n\n' WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 AND same_worker = false RETURNING id, workspace_id, last_ping",
+                "UPDATE queue SET running = false, started_at = null, logs = logs || '\nRestarted job after not receiving job''s ping for too long the ' || now() || '\n\n' WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 AND job_kind != $3 AND same_worker = false RETURNING id, workspace_id, last_ping",
                 *ZOMBIE_JOB_TIMEOUT,
                 JobKind::Flow: JobKind,
+                JobKind::FlowPreview: JobKind,
             )
             .fetch_all(db)
             .await
@@ -2920,7 +3030,7 @@ async fn handle_python_reqs(
                 .spawn()?
         };
 
-        let child = handle_child(&job.id, db, logs, child, false, worker_name).await;
+        let child = handle_child(&job.id, db, logs, child, false, worker_name, &job.workspace_id).await;
         tracing::info!(
             worker_name = %worker_name,
             job_id = %job.id,

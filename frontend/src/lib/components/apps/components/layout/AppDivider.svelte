@@ -2,7 +2,6 @@
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { initOutput } from '../../editor/appUtils'
-	import type { AppInput } from '../../inputType'
 	import type {
 		AppViewerContext,
 		ComponentCustomCSS,

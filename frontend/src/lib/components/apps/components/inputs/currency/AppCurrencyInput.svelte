@@ -2,8 +2,6 @@
 	import { initOutput } from '$lib/components/apps/editor/appUtils'
 	import { getContext } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
-	import type { AppInput } from '../../../inputType'
-	import type { Output } from '../../../rx'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../../types'
 	import { concatCustomCss } from '../../../utils'
 	import AlignWrapper from '../../helpers/AlignWrapper.svelte'
@@ -54,7 +52,7 @@
 	{#key isNegativeAllowed}
 		{#key locale}
 			{#key currency}
-				<div class="w-full" on:pointerdown|stopPropagation={() => ($selectedComponent = id)}>
+				<div class="w-full" on:pointerdown|stopPropagation={() => ($selectedComponent = [id])}>
 					<CurrencyInput
 						inputClasses={{
 							formatted: twMerge('px-2 w-full py-1.5 windmillapp', css?.input?.class),

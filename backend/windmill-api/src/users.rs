@@ -25,7 +25,9 @@ use axum::{
     Json, Router,
 };
 use hyper::{header::LOCATION, StatusCode};
+use lazy_static::lazy_static;
 use rand::rngs::OsRng;
+use regex::Regex;
 use retainer::Cache;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -35,6 +37,7 @@ use tracing::{Instrument, Span};
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{self, Error, JsonResult, Result},
+    users::SUPERADMIN_SECRET_EMAIL,
     utils::{not_found_if_none, rd_string, require_admin, Pagination, StripPath},
 };
 use windmill_queue::CLOUD_HOSTED;
@@ -97,6 +100,10 @@ pub struct AuthCache {
 impl AuthCache {
     pub fn new(db: DB, superadmin_secret: Option<String>) -> Self {
         AuthCache { cache: Cache::new(), db, superadmin_secret }
+    }
+
+    pub async fn invalidate(&self, w_id: &str, token: String) {
+        self.cache.remove(&(w_id.to_string(), token)).await;
     }
 
     pub async fn get_authed(&self, w_id: Option<String>, token: &str) -> Option<Authed> {
@@ -266,7 +273,7 @@ impl AuthCache {
                     .unwrap_or(false)
                 {
                     Some(Authed {
-                        email: "superadmin_secret@windmill.dev".to_string(),
+                        email: SUPERADMIN_SECRET_EMAIL.to_string(),
                         username: "superadmin_secret".to_string(),
                         is_admin: true,
                         groups: Vec::new(),
@@ -351,6 +358,31 @@ pub struct Authed {
     pub is_admin: bool,
     pub groups: Vec<String>,
     pub folders: Vec<(String, bool)>,
+}
+
+pub async fn maybe_refresh_folders(path: &str, w_id: &str, authed: Authed, db: &DB) -> Authed {
+    if authed.is_admin {
+        return authed;
+    }
+    let splitted = path.split('/').collect::<Vec<_>>();
+    if splitted.len() >= 2
+        && splitted[0] == "f"
+        && !authed.folders.iter().any(|(f, _)| f == splitted[1])
+    {
+        let name = &authed.username;
+        let groups = get_groups_for_user(w_id, name, db)
+            .await
+            .ok()
+            .unwrap_or_default();
+
+        let folders = get_folders_for_user(w_id, name, &groups, db)
+            .await
+            .ok()
+            .unwrap_or_default();
+        Authed { folders, ..authed }
+    } else {
+        authed
+    }
 }
 
 #[async_trait]
@@ -997,14 +1029,21 @@ async fn decline_invite(
     }
 }
 
+lazy_static! {
+    pub static ref VALID_USERNAME: Regex = Regex::new(r#"^[a-zA-Z_0-9]+$"#).unwrap();
+}
+
 async fn accept_invite(
     Authed { email, .. }: Authed,
     Extension(db): Extension<DB>,
     Json(nu): Json<AcceptInvite>,
 ) -> Result<(StatusCode, String)> {
-    if &nu.username == "bot" {
-        return Err(Error::BadRequest("bot is a reserved username".to_string()));
+    if !VALID_USERNAME.is_match(&nu.username) {
+        return Err(windmill_common::error::Error::BadRequest(format!(
+            "Usermame can only contain alphanumeric characters and underscores"
+        )));
     }
+
     let mut tx = db.begin().await?;
 
     let r = sqlx::query!(
@@ -1074,6 +1113,12 @@ async fn add_user_to_workspace<'c>(
         return Err(Error::BadRequest(format!(
             "user with username {} already exists in workspace {}",
             username, w_id
+        )));
+    }
+
+    if !VALID_USERNAME.is_match(username) {
+        return Err(windmill_common::error::Error::BadRequest(format!(
+            "Usermame can only contain alphanumeric characters and underscores"
         )));
     }
 
@@ -1276,11 +1321,18 @@ async fn create_user(
     Authed { email, .. }: Authed,
     Extension(db): Extension<DB>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
-    Json(nu): Json<NewUser>,
+    Json(mut nu): Json<NewUser>,
 ) -> Result<(StatusCode, String)> {
     let mut tx = db.begin().await?;
 
     require_super_admin(&mut tx, &email).await?;
+    nu.email = nu.email.to_lowercase();
+
+    if nu.email == SUPERADMIN_SECRET_EMAIL {
+        return Err(Error::BadRequest(
+            "The superadmin email is a reserved email".into(),
+        ));
+    }
 
     sqlx::query!(
         "INSERT INTO password(email, verified, password_hash, login_type, super_admin, name, \
@@ -1566,7 +1618,7 @@ async fn login(
     Json(Login { email, password }): Json<Login>,
 ) -> Result<String> {
     let mut tx = db.begin().await?;
-
+    let email = email.to_lowercase();
     let email_w_h: Option<(String, String, bool, bool)> = sqlx::query_as(
         "SELECT email, password_hash, super_admin, first_time_user FROM password WHERE email = $1 AND login_type = \
          'password'",

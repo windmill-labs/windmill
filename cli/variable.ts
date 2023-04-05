@@ -61,7 +61,8 @@ export class VariableFile implements Resource, PushDiffs {
   async pushDiffs(
     workspace: string,
     remotePath: string,
-    diffs: Difference[]
+    diffs: Difference[],
+    plainSecrets?: boolean
   ): Promise<void> {
     if (await VariableService.existsVariable({ workspace, path: remotePath })) {
       console.log(
@@ -105,14 +106,14 @@ export class VariableFile implements Resource, PushDiffs {
       await VariableService.updateVariable({
         workspace,
         path: remotePath,
-        alreadyEncrypted: true,
+        alreadyEncrypted: !plainSecrets,
         requestBody: changeset,
       });
     } else {
       console.log(colors.yellow.bold("Creating new variable..."));
       await VariableService.createVariable({
         workspace,
-        alreadyEncrypted: true,
+        alreadyEncrypted: !plainSecrets,
         requestBody: {
           path: remotePath,
           description: this.description,
@@ -124,16 +125,25 @@ export class VariableFile implements Resource, PushDiffs {
       });
     }
   }
-  async push(workspace: string, remotePath: string): Promise<void> {
+  async push(
+    workspace: string,
+    remotePath: string,
+    plainSecrets?: boolean
+  ): Promise<void> {
     await this.pushDiffs(
       workspace,
       remotePath,
-      microdiff({}, this, { cyclesFix: false })
+      microdiff({}, this, { cyclesFix: false }),
+      plainSecrets
     );
   }
 }
 
-async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
+async function push(
+  opts: GlobalOptions & { plainSecrets: boolean },
+  filePath: string,
+  remotePath: string
+) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
@@ -148,19 +158,25 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
 
   console.log(colors.bold.yellow("Pushing variable..."));
 
-  await pushVariable(workspace.workspaceId, filePath, remotePath);
+  await pushVariable(
+    workspace.workspaceId,
+    filePath,
+    remotePath,
+    opts.plainSecrets
+  );
   console.log(colors.bold.underline.green(`Variable ${remotePath} pushed`));
 }
 
 export async function pushVariable(
   workspace: string,
   filePath: string,
-  remotePath: string
+  remotePath: string,
+  plainSecrets: boolean
 ) {
   const data = decoverto
     .type(VariableFile)
     .rawToInstance(await Deno.readTextFile(filePath));
-  await data.push(workspace, remotePath);
+  await data.push(workspace, remotePath, plainSecrets);
 }
 
 const command = new Command()
@@ -171,6 +187,7 @@ const command = new Command()
     "Push a local variable spec. This overrides any remote versions."
   )
   .arguments("<file_path:string> <remote_path:string>")
+  .option("--plain-secrets", "Push secrets as plain text")
   .action(push as any);
 
 export default command;
