@@ -297,7 +297,7 @@ async fn update_flow(
 
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
 
-    check_schedule_conflict(&mut tx, &w_id, flow_path).await?;
+    check_schedule_conflict(tx.transaction_mut(), &w_id, flow_path).await?;
 
     let schema = nf.schema.map(|x| x.0);
     let old_dep_job = sqlx::query_scalar!(

@@ -53,10 +53,6 @@ pub async fn update_flow_status_after_job_completion<
     base_internal_url: &str,
     rsmq: Option<R>,
 ) -> error::Result<()> {
-    let mut tx: QueueTransaction<'_, _> = (rsmq.clone(), db.begin().await?).into();
-
-    let old_status_json = sqlx::query_scalar!(
-        "SELECT flow_status FROM queue WHERE id = $1 AND workspace_id = $2",
     // this is manual tailrecursion because async_recursion blows up the stack
     let mut depth = 0;
     let mut rec = update_flow_status_after_job_completion_internal(
@@ -74,6 +70,7 @@ pub async fn update_flow_status_after_job_completion<
         stop_early_override,
         base_internal_url,
         depth,
+        rsmq.clone(),
     )
     .await?;
     while let Some(nrec) = rec {
@@ -93,6 +90,7 @@ pub async fn update_flow_status_after_job_completion<
             nrec.stop_early_override,
             base_internal_url,
             depth,
+            rsmq.clone(),
         )
         .await?;
     }
@@ -106,7 +104,9 @@ pub struct RecUpdateFlowStatusAfterJobCompletion {
     stop_early_override: Option<bool>,
 }
 // #[instrument(level = "trace", skip_all)]
-pub async fn update_flow_status_after_job_completion_internal(
+pub async fn update_flow_status_after_job_completion_internal<
+    R: rsmq_async::RsmqConnection + Send + Sync + Clone,
+>(
     db: &DB,
     client: &AuthedClient,
     flow: uuid::Uuid,
@@ -121,11 +121,12 @@ pub async fn update_flow_status_after_job_completion_internal(
     stop_early_override: Option<bool>,
     base_internal_url: &str,
     depth: u8,
+    rsmq: Option<R>,
 ) -> error::Result<Option<RecUpdateFlowStatusAfterJobCompletion>> {
     let (should_continue_flow, flow_job, stop_early, skip_if_stop_early, nresult) = {
         tracing::debug!("UPDATE FLOW STATUS: {flow:?} {success} {result:?} {w_id} {depth}");
 
-        let mut tx = db.begin().await?;
+        let mut tx: QueueTransaction<'_, _> = (rsmq.clone(), db.begin().await?).into();
 
         let old_status_json = sqlx::query_scalar!(
             "SELECT flow_status FROM queue WHERE id = $1 AND workspace_id = $2",
@@ -156,7 +157,6 @@ pub async fn update_flow_status_after_job_completion_internal(
         tracing::debug!(
             "UPDATE FLOW STATUS 2: {module_index:#?} {module_status:#?} {old_status:#?} "
         );
-
 
         let skip_loop_failures = if matches!(
             module_status,
@@ -191,23 +191,27 @@ pub async fn update_flow_status_after_job_completion_internal(
         .await
         .map_err(|e| Error::InternalErr(format!("retrieval of stop_early_expr from state: {e}")))?;
 
-        let stop_early = success
-            && if let Some(expr) = r.stop_early_expr.clone() {
-                compute_bool_from_expr(expr, &r.args, result.clone(), None, Some(client)).await?
-            } else {
-                false
-            };
-        (stop_early, r.skip_if_stopped.unwrap_or(false))
-    };
+            let stop_early = success
+                && if let Some(expr) = r.stop_early_expr.clone() {
+                    compute_bool_from_expr(expr, &r.args, result.clone(), None, Some(client))
+                        .await?
+                } else {
+                    false
+                };
+            (stop_early, r.skip_if_stopped.unwrap_or(false))
+        };
 
-    let skip_branch_failure = match module_status {
-        FlowStatusModule::InProgress {
-            branchall: Some(BranchAllStatus { branch, .. }), ..
-        } => compute_skip_branchall_failure(flow, old_status.step, *branch, tx.transaction_mut())
-            .await?
-            .unwrap_or(false),
-        _ => false,
-    };
+        let skip_branch_failure = match module_status {
+            FlowStatusModule::InProgress {
+                branchall: Some(BranchAllStatus { branch, .. }),
+                ..
+            } => {
+                compute_skip_branchall_failure(flow, old_status.step, *branch, tx.transaction_mut())
+                    .await?
+                    .unwrap_or(false)
+            }
+            _ => false,
+        };
 
         let skip_failure = skip_branch_failure || skip_loop_failures;
 
@@ -460,43 +464,14 @@ pub async fn update_flow_status_after_job_completion_internal(
              WHERE id = $1
              RETURNING flow_status
             ",
-        )
-        .bind(flow)
-        .execute(&mut tx)
-        .await
-        .context("remove flow status retry")?;
-    }
-
-    let flow_job = get_queued_job(flow, w_id, tx.transaction_mut())
-        .await?
-        .ok_or_else(|| Error::InternalErr(format!("requiring flow to be in the queue")))?;
-
-    let raw_flow = flow_job.parse_raw_flow();
-    let module = raw_flow.as_ref().and_then(|module| {
-        module_index.and_then(|i| module.modules.get(i).or(module.failure_module.as_ref()))
-    });
-
-    let should_continue_flow = match success {
-        _ if stop_early => false,
-        _ if flow_job.canceled => false,
-        true => !is_last_step,
-        false if unrecoverable => false,
-        false if skip_failure => !is_last_step,
-        false
-            if next_retry(
-                &module.and_then(|m| m.retry.clone()).unwrap_or_default(),
-                &old_status.retry,
             )
             .bind(flow)
             .execute(&mut tx)
             .await
             .context("remove flow status retry")?;
         }
-        false if has_failure_module(flow, tx.transaction_mut()).await? && !is_failure_step => true,
-        false => false,
-    };
 
-        let flow_job = get_queued_job(flow, w_id, &mut tx)
+        let flow_job = get_queued_job(flow, w_id, tx.transaction_mut())
             .await?
             .ok_or_else(|| Error::InternalErr(format!("requiring flow to be in the queue")))?;
 
@@ -538,7 +513,9 @@ pub async fn update_flow_status_after_job_completion_internal(
             {
                 true
             }
-            false if has_failure_module(flow, &mut tx).await? && !is_failure_step => true,
+            false if has_failure_module(flow, tx.transaction_mut()).await? && !is_failure_step => {
+                true
+            }
             false => false,
         };
 
@@ -644,10 +621,6 @@ pub async fn update_flow_status_after_job_completion_internal(
                 } else {
                     None
                 },
-                base_internal_url,
-                rsmq,
-            )
-            .await?);
             }));
         }
         Ok(None)
@@ -1333,7 +1306,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         flow.same_worker && module.suspend.is_none() && module.sleep.is_none();
 
     /* Finally, push the job into the queue */
-    let mut tx = db.begin().await?;
+    let mut tx = (rsmq.clone(), db.begin().await?).into();
     let mut uuids = vec![];
 
     let len = match &job_payloads {
@@ -1388,21 +1361,10 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             }),
             _ => args.as_ref().map(|args| args.clone()),
         };
-        job_payloads.into_iter().zip(all_args).collect::<Vec<_>>()
-    };
-
-    /* Finally, push the job into the queue */
-    let mut uuids = vec![];
-
-    let mut tx = (rsmq, tx).into();
-
-    for (payload, args) in zipped {
         let (ok, err) = match args {
             Ok(v) => (Some(v), None),
             Err(e) => (None, Some(e)),
         };
-        let root_job = flow_job.root_job.or_else(|| Some(flow_job.id));
-        let (uuid, new_tx) = push(
         let root_job = if matches!(module.value, FlowModuleValue::Flow { .. }) {
             None
         } else {
@@ -1426,11 +1388,9 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             flow_job.visible_to_owner,
         )
         .await?;
-        tx = new_tx;
+        tx = inner_tx;
         uuids.push(uuid);
     }
-
-    tx.commit().await?;
 
     let is_one_uuid = uuids.len() == 1;
 

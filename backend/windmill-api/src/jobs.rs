@@ -117,7 +117,6 @@ async fn get_result_by_id(
 }
 
 async fn cancel_job_api(
-    Extension(user_db): Extension<UserDB>,
     Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
@@ -132,7 +131,7 @@ async fn cancel_job_api(
     };
 
     let (mut tx, job_option) =
-        windmill_queue::cancel_job(&authed.username, reason, id, &w_id, tx, false, rsmq).await?;
+        windmill_queue::cancel_job(&username, reason, id, &w_id, tx, rsmq, false).await?;
 
     if let Some(id) = job_option {
         audit_log(
@@ -161,6 +160,7 @@ async fn cancel_job_api(
 }
 
 async fn force_cancel(
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
@@ -174,7 +174,7 @@ async fn force_cancel(
     };
 
     let (mut tx, job_option) =
-        windmill_queue::cancel_job(&username, reason, id, &w_id, tx, true).await?;
+        windmill_queue::cancel_job(&username, reason, id, &w_id, tx, rsmq, true).await?;
 
     if let Some(id) = job_option {
         audit_log(
@@ -1422,6 +1422,7 @@ lazy_static::lazy_static! {
 
 pub async fn run_wait_result_job_by_path_get(
     authed: Authed,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
@@ -1440,8 +1441,8 @@ pub async fn run_wait_result_job_by_path_get(
 
     check_queue_too_long(db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
     let script_path = script_path.to_path();
-    let mut tx = user_db.clone().begin(&authed).await?;
-    let job_payload = script_path_to_payload(script_path, &mut tx, &w_id).await?;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
+    let job_payload = script_path_to_payload(script_path, tx.transaction_mut(), &w_id).await?;
 
     let (uuid, tx) = push(
         tx,
@@ -1487,7 +1488,6 @@ pub async fn run_wait_result_job_by_path(
     let script_path = script_path.to_path();
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
     let job_payload = script_path_to_payload(script_path, tx.transaction_mut(), &w_id).await?;
-
 
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
 
