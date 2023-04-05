@@ -16,7 +16,7 @@ use sqlx::{Pool, Postgres, Transaction};
 use windmill_api_client::Client;
 use std::{
     borrow::Borrow, collections::HashMap, io, os::unix::process::ExitStatusExt, panic,
-    process::Stdio, time::Duration,
+    process::Stdio, time::Duration, sync::atomic::Ordering,
 };
 use tracing::{trace_span, Instrument};
 use uuid::Uuid;
@@ -26,7 +26,7 @@ use windmill_common::{
     flows::{FlowModuleValue, FlowValue},
     scripts::{ScriptHash, ScriptLang},
     utils::rd_string,
-    variables, BASE_URL, users::SUPERADMIN_SECRET_EMAIL,
+    variables, BASE_URL, users::SUPERADMIN_SECRET_EMAIL, IS_READY,
 };
 use windmill_queue::{canceled_job_to_result, get_queued_job, pull, JobKind, QueuedJob, CLOUD_HOSTED};
 
@@ -74,6 +74,7 @@ async fn copy_cache_from_bucket(bucket: &str, tx: Option<Sender<()>>) -> Option:
             .arg("copy")
             .arg(format!(":s3,env_auth=true:{bucket}"))
             .arg(if tx_is_some { ROOT_TMP_CACHE_DIR } else { ROOT_CACHE_DIR })
+            .arg("-vv")
             .arg("--size-only")
             .arg("--fast-list")
             .arg("--exclude")
@@ -123,6 +124,7 @@ async fn copy_cache_to_bucket(bucket: &str) {
         .arg("copy")
         .arg(ROOT_CACHE_DIR)
         .arg(format!(":s3,env_auth=true:{bucket}"))
+        .arg("-vv")
         .arg("--size-only")
         .arg("--fast-list")
         .arg("--exclude")
@@ -181,6 +183,7 @@ async fn copy_cache_to_bucket_as_tar(bucket: &str) {
         .arg("copyto")
         .arg(TAR_CACHE_FILENAME)
         .arg(format!(":s3,env_auth=true:{bucket}/{TAR_CACHE_FILENAME}"))
+        .arg("-vv")
         .arg("--size-only")
         .arg("--fast-list")
         .stdin(Stdio::null())
@@ -208,6 +211,7 @@ async fn copy_cache_from_bucket_as_tar(bucket: &str) -> bool {
         .arg("copyto")
         .arg(format!(":s3,env_auth=true:{bucket}/{TAR_CACHE_FILENAME}"))
         .arg(format!("{ROOT_CACHE_DIR}{TAR_CACHE_FILENAME}"))
+        .arg("-vv")
         .arg("--size-only")
         .arg("--fast-list")
         .stdin(Stdio::null())
@@ -603,6 +607,8 @@ pub async fn run_worker(
         }
     }
 
+    IS_READY.store(true, Ordering::Relaxed);
+
     tracing::info!(worker = %worker_name, "starting worker");
 
     #[cfg(feature = "enterprise")]
@@ -613,6 +619,7 @@ pub async fn run_worker(
 
     tracing::info!(worker = %worker_name, "listening for jobs");
 
+    
     loop {
         worker_busy.set(0);
 

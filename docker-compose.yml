@@ -7,10 +7,8 @@ services:
     restart: unless-stopped
     volumes:
       - db_data:/var/lib/postgresql/data
-    ports:
-      - 5432:5432
-      # NOTE: if port 5432 are already in use locally, we'll also bind another port
-      - 5433:5432
+    expose:
+      - 5432
     environment:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: windmill
@@ -25,8 +23,8 @@ services:
     deploy:
       replicas: 1
     restart: unless-stopped
-    ports:
-      - 8000:8000
+    expose:
+      - 8000
     environment:
       - DATABASE_URL=postgres://postgres:${DB_PASSWORD}@db/windmill?sslmode=disable
       - BASE_URL=http://${WM_BASE_URL}
@@ -67,8 +65,8 @@ services:
   lsp:
     image: ghcr.io/windmill-labs/windmill-lsp:latest
     restart: unless-stopped
-    ports:
-      - 3001:3001
+    expose:
+      - 3001
 
   caddy:
     image: caddy:2.5.2-alpine
