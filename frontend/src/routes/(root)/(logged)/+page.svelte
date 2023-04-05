@@ -160,7 +160,7 @@
 					isEditor={false}
 					context={{
 						username: $userStore?.username ?? 'anonymous',
-						email: $userStore?.email ?? 'anonymous'
+						email: $userStore?.email ?? 'anonymous',
 					}}
 					summary={appViewerApp?.app.summary ?? ''}
 					noBackend
