@@ -3,6 +3,7 @@ import { ScheduleService } from '$lib/gen'
 export type Schedule = {
 	args: Record<string, any>
 	cron: string
+	timezone: string
 	enabled: boolean
 }
 
@@ -25,6 +26,7 @@ export async function loadFlowSchedule(path: string, workspace: string = ''): Pr
 	return {
 		enabled: schedule.enabled,
 		cron: schedule.schedule,
-		args: schedule.args ?? {},
+		timezone: schedule.timezone,
+		args: schedule.args ?? {}
 	}
 }
