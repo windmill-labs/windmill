@@ -22,7 +22,7 @@
 
 	setContext<ButtonType.ItemProps>(ButtonType.ItemContextKey, { size, color })
 
-	$: separator = color === 'red' || color === 'blue' ? 'border-gray-200' : 'border-gray-400'
+	$: separator = color === 'red' || color === 'blue' ? 'border-frost-600' : 'border-gray-400'
 </script>
 
 <div class="flex justy-start items-center">
@@ -52,7 +52,7 @@
 			{variant}
 			{disabled}
 			{spacingSize}
-			btnClasses="{$$slots.main ? '!rounded-l-none' : ''} {toggleClasses}"
+			btnClasses="{$$slots.main ? '!rounded-l-none !ring-0' : ''} {toggleClasses}"
 			on:click={() => {}}
 		>
 			<slot name="toggle">
@@ -71,12 +71,10 @@
 		options={{
 			placement: $$slots.main ? 'bottom-end' : 'bottom',
 			strategy: 'absolute',
-			modifiers: [{ name: 'offset', options: { offset: [0, 0] } }]
+			modifiers: [{ name: 'offset', options: { offset: [0, 5] } }]
 		}}
 	>
-		<ul
-			class="bg-white rounded-t border-black shadow border pt-1 pb-2 max-h-40 overflow-auto {listClasses}"
-		>
+		<ul class="bg-white rounded-sm border shadow pt-1 pb-2 max-h-40 overflow-auto {listClasses}">
 			<slot {open} {close} />
 		</ul>
 	</Popup>
