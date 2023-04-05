@@ -73,7 +73,7 @@
 		allIdsInPath
 	})
 
-	let ncontext = context
+	let ncontext: any = { ...context, workspace }
 
 	function hashchange(e: HashChangeEvent) {
 		ncontext.hash = e.newURL.split('#')[1]
@@ -98,7 +98,7 @@
 
 <div class="relative">
 	<div
-		class="{$$props.class} {lockedClasses} h-full 
+		class="{$$props.class} {lockedClasses} h-full
 	w-full {app.fullscreen ? '' : 'max-w-6xl'} mx-auto"
 	>
 		{#if $appStore.grid}
