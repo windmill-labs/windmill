@@ -944,9 +944,11 @@ async fn invite_user(
     Authed { username, is_admin, .. }: Authed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Json(nu): Json<NewWorkspaceInvite>,
+    Json(mut nu): Json<NewWorkspaceInvite>,
 ) -> Result<(StatusCode, String)> {
     require_admin(is_admin, &username)?;
+
+    nu.email = nu.email.to_lowercase();
 
     let mut tx = db.begin().await?;
 
@@ -983,9 +985,10 @@ async fn add_user(
     Authed { username, is_admin, .. }: Authed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Json(nu): Json<NewWorkspaceUser>,
+    Json(mut nu): Json<NewWorkspaceUser>,
 ) -> Result<(StatusCode, String)> {
     require_admin(is_admin, &username)?;
+    nu.email = nu.email.to_lowercase();
 
     let mut tx = db.begin().await?;
     if !VALID_USERNAME.is_match(&nu.username) {
