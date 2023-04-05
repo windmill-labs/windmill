@@ -13,7 +13,7 @@ use windmill_common::{
     error::{self, Result},
     schedule::Schedule,
     users::username_to_permissioned_as,
-    utils::StripPath,
+    utils::{now_from_db, StripPath},
 };
 
 pub async fn push_scheduled_job<'c>(
@@ -26,8 +26,10 @@ pub async fn push_scheduled_job<'c>(
     let tz = chrono_tz::Tz::from_str(&schedule.timezone)
         .map_err(|e| error::Error::BadRequest(e.to_string()))?;
 
+    let now = now_from_db(&mut tx).await?.with_timezone(&tz);
+
     let next = sched
-        .upcoming(tz)
+        .after(&now)
         .next()
         .expect("a schedule should have a next event");
 
