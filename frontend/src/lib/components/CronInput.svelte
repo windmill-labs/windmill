@@ -3,17 +3,21 @@
 	import { emptyString, formatCron } from '$lib/utils'
 	import { Tab } from './common/index.js'
 	import Tabs from './common/tabs/Tabs.svelte'
+	// @ts-ignore
 	import Multiselect from 'svelte-multiselect'
-	// import TimezonePicker from 'svelte-timezone-picker'
+	import TimezonePicker from 'svelte-timezone-picker'
 
-	export let schedule: string = '0 0 12 * *'
-	export let offset: number = -60 * Math.floor(new Date().getTimezoneOffset() / 60) //Intl.DateTimeFormat().resolvedOptions().timeZone
+	export let schedule: string
+	// export let offset: number = -60 * Math.floor(new Date().getTimezoneOffset() / 60)
+	export let timezone: string // = Intl.DateTimeFormat().resolvedOptions().timeZone
 	export let disabled = false
 	export let validCRON = true
+	export let edit: boolean
 
 	let preview: string[] = []
-	let tab: 'basic' | 'cron' = 'basic'
-	let executeEvery: 'second' | 'minute' | 'hour' | 'day-month' | 'month' | 'day-week' = 'month'
+	// If the user has already entered a cron string, switching to the basic tab will override it.
+	let tab: 'basic' | 'cron' = edit ? 'cron' : 'basic'
+	let executeEvery: 'second' | 'minute' | 'hour' | 'day-month' | 'month' | 'day-week' = 'minute'
 
 	let seconds = 30
 	let minutes = 30
@@ -48,12 +52,12 @@
 	let daysOfWeek: string[] = []
 	let UTCTime: string = ''
 
-	$: !emptyString(schedule) && handleScheduleInput(schedule, offset)
+	$: !emptyString(schedule) && handleScheduleInput(schedule, timezone)
 
-	async function handleScheduleInput(input: string, offset: number): Promise<void> {
+	async function handleScheduleInput(input: string, timezone: string): Promise<void> {
 		try {
 			preview = await ScheduleService.previewSchedule({
-				requestBody: { schedule: formatCron(input), offset }
+				requestBody: { schedule: formatCron(input), timezone }
 			})
 			validCRON = true
 		} catch (err) {
@@ -127,7 +131,7 @@
 		}
 	}
 
-	const dateFormatter = new Intl.DateTimeFormat('en-GB', {
+	$: dateFormatter = new Intl.DateTimeFormat('en-GB', {
 		weekday: 'short',
 		day: '2-digit',
 		month: 'short',
@@ -135,8 +139,8 @@
 		hour: 'numeric',
 		minute: 'numeric',
 		second: 'numeric',
-		timeZone: 'UTC'
-		// timeZoneName: 'short'
+		timeZone: timezone,
+		timeZoneName: 'short'
 	}).format
 </script>
 
@@ -280,7 +284,10 @@
 
 			<div class="w-full flex flex-col gap-1">
 				<small class="font-bold">Timezone</small>
-				<select name="timezone" id="timezone" bind:value={offset}>
+
+				<TimezonePicker {timezone} on:update={(e) => (timezone = e.detail.timezone)} />
+
+				<!-- <select name="timezone" id="timezone" bind:value={offset}>
 					<option value={-11 * 60}>UTC-11</option>
 					<option value={-10 * 60}>UTC-10</option>
 					<option value={-9 * 60}>UTC-9</option>
@@ -307,7 +314,7 @@
 					<option value={12 * 60}>UTC+12</option>
 					<option value={13 * 60}>UTC+13</option>
 					<option value={14 * 60}>UTC+14</option>
-				</select>
+				</select> -->
 			</div>
 		{/if}
 	</div>
@@ -316,7 +323,7 @@
 		<h3>Execution summary</h3>
 		<hr />
 		<div class="flex flex-col space-y-2">
-			<small>Estimated upcoming events (UTC)</small>
+			<small>Estimated upcoming events ({timezone})</small>
 			<div class="flex flex-col rounded-md p-4 border text-gray-600">
 				{#each preview as date}
 					<div class="flex items-center space-x-2">

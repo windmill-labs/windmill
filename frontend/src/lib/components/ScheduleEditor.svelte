@@ -26,8 +26,7 @@
 	let initialPath = ''
 	let edit = true
 	let schedule: string = '0 0 12 * *'
-	// let timezone: string = Intl.DateTimeFormat().resolvedOptions().timeZone
-	let offset: number
+	let timezone: string = Intl.DateTimeFormat().resolvedOptions().timeZone
 
 	let itemKind: 'flow' | 'script' = 'script'
 
@@ -92,6 +91,7 @@
 			})
 			enabled = s.enabled
 			schedule = s.schedule
+			timezone = s.timezone
 			script_path = s.script_path ?? ''
 			is_flow = s.is_flow
 			args = s.args ?? {}
@@ -108,6 +108,7 @@
 				path: initialPath,
 				requestBody: {
 					schedule: formatCron(schedule),
+					timezone,
 					args
 				}
 			})
@@ -118,7 +119,7 @@
 				requestBody: {
 					path,
 					schedule: formatCron(schedule),
-					offset,
+					timezone,
 					script_path,
 					is_flow,
 					args,
@@ -192,7 +193,7 @@
 				<Tooltip>Schedules use CRON syntax. Seconds are mandatory.</Tooltip>
 			</h2>
 
-			<CronInput disabled={!can_write} bind:schedule bind:offset bind:validCRON />
+			<CronInput disabled={!can_write} {edit} bind:schedule bind:timezone bind:validCRON />
 
 			<h2 class="border-b pb-1 mt-8 mb-2">Runnable</h2>
 			{#if !edit}
