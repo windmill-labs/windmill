@@ -320,7 +320,7 @@
 		{:else}
 			<div class="border rounded-md divide-y divide-gray-200">
 				<!-- <VirtualList {items} let:item bind:start bind:end> -->
-				{#each (items ?? []).slice(0, nbDisplayed) as item (item.type + '/' + item.path + (item.summary ?? ''))}
+				{#each (items ?? []).slice(0, nbDisplayed) as item (item.type + '/' + item.path)}
 					{#if item.type == 'script'}
 						<ScriptRow
 							bind:deleteConfirmedCallback
