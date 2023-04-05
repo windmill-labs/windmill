@@ -99,9 +99,9 @@
 			<div class="mb-2 text-gray-500 text-sm bg-gray-50/20">
 				as JSON&nbsp;<input class="windmillapp" type="checkbox" bind:checked={forceJson} /></div
 			>{/if}{#if typeof result == 'object' && Object.keys(result).length > 0}<div
-				class="mb-2 min-w-[300px] text-sm text-gray-700 relative"
+				class="mb-2 w-full text-sm text-gray-700 relative"
 				>The result keys are: <b>{truncate(Object.keys(result).join(', '), 50)}</b>
-				<div class="text-gray-500 text-sm absolute top-0 right-2">
+				<div class="text-gray-500 text-sm absolute top-6 right-0">
 					<button on:click={jsonViewer.openDrawer}>Expand JSON</button>
 				</div></div
 			>{/if}{#if !forceJson && resultKind == 'table-col'}<div
