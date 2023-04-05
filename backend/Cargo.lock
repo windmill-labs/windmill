@@ -3072,6 +3072,7 @@ dependencies = [
 [[package]]
 name = "rsmq_async"
 version = "5.1.4"
+source = "git+https://github.com/HurricanKai/rsmq-async-rs.git#165a5f8d6494217e7127461037c7fc5fe322a3ea"
 dependencies = [
  "async-trait",
  "bb8",
