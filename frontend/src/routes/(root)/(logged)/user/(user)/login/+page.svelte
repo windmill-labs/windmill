@@ -5,7 +5,7 @@
 	import { onMount } from 'svelte'
 	import { OauthService, SettingsService, UserService, WorkspaceService } from '$lib/gen'
 	import { clearStores, usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
-	import { isCloudHosted, sendUserToast } from '$lib/utils'
+	import { classNames, isCloudHosted, sendUserToast } from '$lib/utils'
 	import { getUserExt, refreshSuperadmin } from '$lib/user'
 	import { Button, Skeleton } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
@@ -186,19 +186,21 @@
 					{/each}
 				{/if}
 			</div>
-			<div class="center-center mt-6">
-				<Button
-					size="xs"
-					color="blue"
-					variant="border"
-					btnClasses="!border-none"
-					on:click={() => {
-						showPassword = !showPassword
-					}}
-				>
-					Login without third-party
-				</Button>
-			</div>
+			{#if logins && logins.length > 0}
+				<div class={classNames('center-center', logins.length > 0 ? 'mt-6' : '')}>
+					<Button
+						size="xs"
+						color="blue"
+						variant="border"
+						btnClasses="!border-none"
+						on:click={() => {
+							showPassword = !showPassword
+						}}
+					>
+						Login without third-party
+					</Button>
+				</div>
+			{/if}
 
 			{#if showPassword}
 				<div class="mt-6" transition:slide|local>
