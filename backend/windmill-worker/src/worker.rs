@@ -195,6 +195,11 @@ async fn copy_cache_to_bucket_as_tar(bucket: &str) {
         }
         Err(e) => tracing::info!("Failed to copy tar cache to bucket. Error: {:?}", e),
     }
+    
+    if let Err(e) = tokio::fs::remove_file(format!("{ROOT_CACHE_DIR}{TAR_CACHE_FILENAME}")).await {
+        tracing::info!("Failed to remove tar cache. Error: {:?}", e);
+    };
+
     tracing::info!(
         "Finished copying cache to bucket {bucket} as tar, took: {:?}s. Size of new tar: {}",
         elapsed.elapsed().as_secs(),
@@ -210,7 +215,7 @@ async fn copy_cache_from_bucket_as_tar(bucket: &str) -> bool {
     match Command::new("rclone")
         .arg("copyto")
         .arg(format!(":s3,env_auth=true:{bucket}/{TAR_CACHE_FILENAME}"))
-        .arg(format!("{ROOT_CACHE_DIR}{TAR_CACHE_FILENAME}"))
+        .arg(format!("{ROOT_TMP_CACHE_DIR}{TAR_CACHE_FILENAME}"))
         .arg("-vv")
         .arg("--size-only")
         .arg("--fast-list")
@@ -231,9 +236,9 @@ async fn copy_cache_from_bucket_as_tar(bucket: &str) -> bool {
     }
 
     match Command::new("tar")
-        .current_dir(ROOT_CACHE_DIR)
+        .current_dir(ROOT_TMP_CACHE_DIR)
         .arg("-xpvf")
-        .arg(format!("{ROOT_CACHE_DIR}{TAR_CACHE_FILENAME}"))
+        .arg(format!("{ROOT_TMP_CACHE_DIR}{TAR_CACHE_FILENAME}"))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .spawn()
@@ -250,11 +255,17 @@ async fn copy_cache_from_bucket_as_tar(bucket: &str) -> bool {
         }
     }
 
+    if let Err(e) = tokio::fs::remove_file(format!("{ROOT_TMP_CACHE_DIR}{TAR_CACHE_FILENAME}")).await {
+        tracing::info!("Failed to remove tar cache. Error: {:?}", e);
+    };
+
+    let r = move_tmp_cache_to_cache().await.is_ok();
+
     tracing::info!(
-        "Finished copying cache from bucket {bucket} as tar, took: {:?}s",
+        "Finished copying cache from bucket {bucket} as tar, took: {:?}s. copy success: {r}",
         elapsed.elapsed().as_secs()
     );
-    return true;
+    return r;
 }
 
 async fn move_tmp_cache_to_cache() -> Result<()> {
