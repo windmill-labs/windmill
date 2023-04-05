@@ -17,7 +17,7 @@ pub struct Schedule {
     pub edited_by: String,
     pub edited_at: DateTime<chrono::Utc>,
     pub schedule: String,
-    pub offset_: i32,
+    pub timezone: String,
     pub enabled: bool,
     pub script_path: String,
     pub is_flow: bool,

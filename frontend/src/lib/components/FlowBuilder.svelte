@@ -10,9 +10,8 @@
 	import CenteredPage from './CenteredPage.svelte'
 	import { Button, ButtonPopup, ButtonPopupItem, UndoRedo } from './common'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
-	import { OFFSET } from './CronInput.svelte'
-	import ScriptEditorDrawer from './flows/content/ScriptEditorDrawer.svelte'
 	import FlowEditor from './flows/FlowEditor.svelte'
+	import ScriptEditorDrawer from './flows/content/ScriptEditorDrawer.svelte'
 	import type { FlowState } from './flows/flowState'
 	import { dfs } from './flows/flowStore'
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
@@ -29,7 +28,7 @@
 	export let flowStateStore: Writable<FlowState>
 
 	async function createSchedule(path: string) {
-		const { cron, args, enabled } = $scheduleStore
+		const { cron, timezone, args, enabled } = $scheduleStore
 
 		try {
 			await ScheduleService.createSchedule({
@@ -37,7 +36,7 @@
 				requestBody: {
 					path: path,
 					schedule: formatCron(cron),
-					offset: OFFSET,
+					timezone,
 					script_path: path,
 					is_flow: true,
 					args,
@@ -55,7 +54,7 @@
 		loadingSave = true
 		try {
 			const flow = cleanInputs($flowStore)
-			const { cron, args, enabled } = $scheduleStore
+			const { cron, timezone, args, enabled } = $scheduleStore
 			$dirtyStore = false
 			if (initialPath === '') {
 				localStorage.removeItem('flow')
@@ -100,6 +99,7 @@
 							path: flow.path,
 							requestBody: {
 								schedule: formatCron(cron),
+								timezone,
 								args
 							}
 						})
@@ -155,7 +155,7 @@
 
 	const selectedIdStore = writable<string>(selectedId ?? 'settings-metadata')
 
-	const scheduleStore = writable<Schedule>({ args: {}, cron: '', enabled: false })
+	const scheduleStore = writable<Schedule>({ args: {}, cron: '', timezone: '', enabled: false })
 	const previewArgsStore = writable<Record<string, any>>(initialArgs)
 	const scriptEditorDrawer = writable<ScriptEditorDrawer | undefined>(undefined)
 	const moving = writable<{ module: FlowModule; modules: FlowModule[] } | undefined>(undefined)
@@ -187,6 +187,7 @@
 			.catch(() => {
 				scheduleStore.set({
 					cron: '0 */5 * * *',
+					timezone: 'UTC',
 					args: {},
 					enabled: false
 				})

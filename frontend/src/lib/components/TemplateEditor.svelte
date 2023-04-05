@@ -13,6 +13,7 @@
 	import { buildWorkerDefinition } from 'monaco-editor-workers'
 	import { createEventDispatcher, getContext, onDestroy, onMount } from 'svelte'
 	import type { AppViewerContext } from './apps/types'
+	import { writable } from 'svelte/store'
 
 	languages.typescript.javascriptDefaults.setCompilerOptions({
 		target: languages.typescript.ScriptTarget.Latest,
@@ -373,7 +374,9 @@
 	let editor: meditor.IStandaloneCodeEditor
 	let model: meditor.ITextModel
 
-	const { componentControl, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
+	const { componentControl, selectedComponent } = getContext<AppViewerContext>(
+		'AppViewerContext'
+	) || { componentControl: writable({}), selectedComponent: writable([]) }
 
 	if ($selectedComponent) {
 		$componentControl[$selectedComponent[0]] = {

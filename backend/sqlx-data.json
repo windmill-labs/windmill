@@ -1993,101 +1993,6 @@
     },
     "query": "INSERT INTO token\n            (token, email, label, expiration, super_admin)\n            VALUES ($1, $2, $3, $4, $5)"
   },
-  "55960eb3cd5a82f593496349a2521607f8066d88ff11a2ca4a63b6e37e62b71b": {
-    "describe": {
-      "columns": [
-        {
-          "name": "workspace_id",
-          "ordinal": 0,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "path",
-          "ordinal": 1,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "edited_by",
-          "ordinal": 2,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "edited_at",
-          "ordinal": 3,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "schedule",
-          "ordinal": 4,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "offset_",
-          "ordinal": 5,
-          "type_info": "Int4"
-        },
-        {
-          "name": "enabled",
-          "ordinal": 6,
-          "type_info": "Bool"
-        },
-        {
-          "name": "script_path",
-          "ordinal": 7,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "args",
-          "ordinal": 8,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "extra_perms",
-          "ordinal": 9,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "is_flow",
-          "ordinal": 10,
-          "type_info": "Bool"
-        },
-        {
-          "name": "email",
-          "ordinal": 11,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "error",
-          "ordinal": 12,
-          "type_info": "Text"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        true,
-        false,
-        false,
-        false,
-        true
-      ],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Jsonb",
-          "Text",
-          "Text"
-        ]
-      }
-    },
-    "query": "UPDATE schedule SET schedule = $1, args = $2 WHERE path = $3 AND workspace_id = $4 RETURNING *"
-  },
   "56839d3aec6c0177d14589aedda8d5c431d841b6d5d0d99ce3836bb42d4d83d9": {
     "describe": {
       "columns": [
@@ -2601,6 +2506,102 @@
       }
     },
     "query": "UPDATE flow SET path = $1, summary = $2, description = $3, value = $4, edited_by = $5, edited_at = now(), schema = $6::text::json, dependency_job = NULL WHERE path = $7 AND workspace_id = $8"
+  },
+  "7226d470c04e58fcab92f3edac21956d2a10e5ed6b594747b22682f05a60a341": {
+    "describe": {
+      "columns": [
+        {
+          "name": "workspace_id",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "path",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "edited_by",
+          "ordinal": 2,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "edited_at",
+          "ordinal": 3,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "schedule",
+          "ordinal": 4,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "enabled",
+          "ordinal": 5,
+          "type_info": "Bool"
+        },
+        {
+          "name": "script_path",
+          "ordinal": 6,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "args",
+          "ordinal": 7,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "extra_perms",
+          "ordinal": 8,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "is_flow",
+          "ordinal": 9,
+          "type_info": "Bool"
+        },
+        {
+          "name": "email",
+          "ordinal": 10,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "error",
+          "ordinal": 11,
+          "type_info": "Text"
+        },
+        {
+          "name": "timezone",
+          "ordinal": 12,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        false,
+        false,
+        false,
+        true,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Jsonb",
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE schedule SET schedule = $1, timezone = $2, args = $3 WHERE path = $4 AND workspace_id = $5 RETURNING *"
   },
   "73d3ed17fd0723ba75722f394904f6ee306b59aaf8ecfcf56484d38541343f06": {
     "describe": {
@@ -3196,48 +3197,47 @@
           "type_info": "Varchar"
         },
         {
-          "name": "offset_",
-          "ordinal": 5,
-          "type_info": "Int4"
-        },
-        {
           "name": "enabled",
-          "ordinal": 6,
+          "ordinal": 5,
           "type_info": "Bool"
         },
         {
           "name": "script_path",
-          "ordinal": 7,
+          "ordinal": 6,
           "type_info": "Varchar"
         },
         {
           "name": "args",
-          "ordinal": 8,
+          "ordinal": 7,
           "type_info": "Jsonb"
         },
         {
           "name": "extra_perms",
-          "ordinal": 9,
+          "ordinal": 8,
           "type_info": "Jsonb"
         },
         {
           "name": "is_flow",
-          "ordinal": 10,
+          "ordinal": 9,
           "type_info": "Bool"
         },
         {
           "name": "email",
-          "ordinal": 11,
+          "ordinal": 10,
           "type_info": "Varchar"
         },
         {
           "name": "error",
-          "ordinal": 12,
+          "ordinal": 11,
           "type_info": "Text"
+        },
+        {
+          "name": "timezone",
+          "ordinal": 12,
+          "type_info": "Varchar"
         }
       ],
       "nullable": [
-        false,
         false,
         false,
         false,
@@ -3249,7 +3249,8 @@
         false,
         false,
         false,
-        true
+        true,
+        false
       ],
       "parameters": {
         "Left": [
@@ -3473,48 +3474,47 @@
           "type_info": "Varchar"
         },
         {
-          "name": "offset_",
-          "ordinal": 5,
-          "type_info": "Int4"
-        },
-        {
           "name": "enabled",
-          "ordinal": 6,
+          "ordinal": 5,
           "type_info": "Bool"
         },
         {
           "name": "script_path",
-          "ordinal": 7,
+          "ordinal": 6,
           "type_info": "Varchar"
         },
         {
           "name": "args",
-          "ordinal": 8,
+          "ordinal": 7,
           "type_info": "Jsonb"
         },
         {
           "name": "extra_perms",
-          "ordinal": 9,
+          "ordinal": 8,
           "type_info": "Jsonb"
         },
         {
           "name": "is_flow",
-          "ordinal": 10,
+          "ordinal": 9,
           "type_info": "Bool"
         },
         {
           "name": "email",
-          "ordinal": 11,
+          "ordinal": 10,
           "type_info": "Varchar"
         },
         {
           "name": "error",
-          "ordinal": 12,
+          "ordinal": 11,
           "type_info": "Text"
+        },
+        {
+          "name": "timezone",
+          "ordinal": 12,
+          "type_info": "Varchar"
         }
       ],
       "nullable": [
-        false,
         false,
         false,
         false,
@@ -3526,7 +3526,8 @@
         false,
         false,
         false,
-        true
+        true,
+        false
       ],
       "parameters": {
         "Left": [
@@ -3660,48 +3661,47 @@
           "type_info": "Varchar"
         },
         {
-          "name": "offset_",
-          "ordinal": 5,
-          "type_info": "Int4"
-        },
-        {
           "name": "enabled",
-          "ordinal": 6,
+          "ordinal": 5,
           "type_info": "Bool"
         },
         {
           "name": "script_path",
-          "ordinal": 7,
+          "ordinal": 6,
           "type_info": "Varchar"
         },
         {
           "name": "args",
-          "ordinal": 8,
+          "ordinal": 7,
           "type_info": "Jsonb"
         },
         {
           "name": "extra_perms",
-          "ordinal": 9,
+          "ordinal": 8,
           "type_info": "Jsonb"
         },
         {
           "name": "is_flow",
-          "ordinal": 10,
+          "ordinal": 9,
           "type_info": "Bool"
         },
         {
           "name": "email",
-          "ordinal": 11,
+          "ordinal": 10,
           "type_info": "Varchar"
         },
         {
           "name": "error",
-          "ordinal": 12,
+          "ordinal": 11,
           "type_info": "Text"
+        },
+        {
+          "name": "timezone",
+          "ordinal": 12,
+          "type_info": "Varchar"
         }
       ],
       "nullable": [
-        false,
         false,
         false,
         false,
@@ -3713,7 +3713,8 @@
         false,
         false,
         false,
-        true
+        true,
+        false
       ],
       "parameters": {
         "Left": [
@@ -4238,48 +4239,47 @@
           "type_info": "Varchar"
         },
         {
-          "name": "offset_",
-          "ordinal": 5,
-          "type_info": "Int4"
-        },
-        {
           "name": "enabled",
-          "ordinal": 6,
+          "ordinal": 5,
           "type_info": "Bool"
         },
         {
           "name": "script_path",
-          "ordinal": 7,
+          "ordinal": 6,
           "type_info": "Varchar"
         },
         {
           "name": "args",
-          "ordinal": 8,
+          "ordinal": 7,
           "type_info": "Jsonb"
         },
         {
           "name": "extra_perms",
-          "ordinal": 9,
+          "ordinal": 8,
           "type_info": "Jsonb"
         },
         {
           "name": "is_flow",
-          "ordinal": 10,
+          "ordinal": 9,
           "type_info": "Bool"
         },
         {
           "name": "email",
-          "ordinal": 11,
+          "ordinal": 10,
           "type_info": "Varchar"
         },
         {
           "name": "error",
-          "ordinal": 12,
+          "ordinal": 11,
           "type_info": "Text"
+        },
+        {
+          "name": "timezone",
+          "ordinal": 12,
+          "type_info": "Varchar"
         }
       ],
       "nullable": [
-        false,
         false,
         false,
         false,
@@ -4291,7 +4291,8 @@
         false,
         false,
         false,
-        true
+        true,
+        false
       ],
       "parameters": {
         "Left": [
@@ -4813,48 +4814,47 @@
           "type_info": "Varchar"
         },
         {
-          "name": "offset_",
-          "ordinal": 5,
-          "type_info": "Int4"
-        },
-        {
           "name": "enabled",
-          "ordinal": 6,
+          "ordinal": 5,
           "type_info": "Bool"
         },
         {
           "name": "script_path",
-          "ordinal": 7,
+          "ordinal": 6,
           "type_info": "Varchar"
         },
         {
           "name": "args",
-          "ordinal": 8,
+          "ordinal": 7,
           "type_info": "Jsonb"
         },
         {
           "name": "extra_perms",
-          "ordinal": 9,
+          "ordinal": 8,
           "type_info": "Jsonb"
         },
         {
           "name": "is_flow",
-          "ordinal": 10,
+          "ordinal": 9,
           "type_info": "Bool"
         },
         {
           "name": "email",
-          "ordinal": 11,
+          "ordinal": 10,
           "type_info": "Varchar"
         },
         {
           "name": "error",
-          "ordinal": 12,
+          "ordinal": 11,
           "type_info": "Text"
+        },
+        {
+          "name": "timezone",
+          "ordinal": 12,
+          "type_info": "Varchar"
         }
       ],
       "nullable": [
-        false,
         false,
         false,
         false,
@@ -4866,7 +4866,8 @@
         false,
         false,
         false,
-        true
+        true,
+        false
       ],
       "parameters": {
         "Left": [
@@ -5690,107 +5691,6 @@
     },
     "query": "\n            UPDATE queue\n               SET flow_status = JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'iterator', 'index'], ((flow_status->'modules'->$1::int->'iterator'->>'index')::int + 1)::text::jsonb)\n             WHERE id = $2\n             RETURNING (flow_status->'modules'->$1::int->'iterator'->>'index')::int\n            "
   },
-  "e5ba82116000d2ae71e2099f417b39121178349fda9f8438bdd5556ff632ceb2": {
-    "describe": {
-      "columns": [
-        {
-          "name": "workspace_id",
-          "ordinal": 0,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "path",
-          "ordinal": 1,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "edited_by",
-          "ordinal": 2,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "edited_at",
-          "ordinal": 3,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "schedule",
-          "ordinal": 4,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "offset_",
-          "ordinal": 5,
-          "type_info": "Int4"
-        },
-        {
-          "name": "enabled",
-          "ordinal": 6,
-          "type_info": "Bool"
-        },
-        {
-          "name": "script_path",
-          "ordinal": 7,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "args",
-          "ordinal": 8,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "extra_perms",
-          "ordinal": 9,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "is_flow",
-          "ordinal": 10,
-          "type_info": "Bool"
-        },
-        {
-          "name": "email",
-          "ordinal": 11,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "error",
-          "ordinal": 12,
-          "type_info": "Text"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        true,
-        false,
-        false,
-        false,
-        true
-      ],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Varchar",
-          "Varchar",
-          "Int4",
-          "Varchar",
-          "Varchar",
-          "Bool",
-          "Jsonb",
-          "Bool",
-          "Varchar"
-        ]
-      }
-    },
-    "query": "INSERT INTO schedule (workspace_id, path, schedule, offset_, edited_by, script_path, is_flow, args, enabled, email) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *"
-  },
   "e6f85cdbe681ace495fde31e67339dc58460b6914440473fe94de7a7bc292af4": {
     "describe": {
       "columns": [],
@@ -5885,6 +5785,107 @@
     },
     "query": "INSERT INTO workspace_settings\n                (workspace_id, slack_team_id, slack_name, slack_email)\n                VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id) DO UPDATE SET slack_team_id = $2, slack_name = $3, slack_email = $4"
   },
+  "ebbabe9b71804ee983235db7d7844052139c23ae7a27cae925c19e1c01037143": {
+    "describe": {
+      "columns": [
+        {
+          "name": "workspace_id",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "path",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "edited_by",
+          "ordinal": 2,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "edited_at",
+          "ordinal": 3,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "schedule",
+          "ordinal": 4,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "enabled",
+          "ordinal": 5,
+          "type_info": "Bool"
+        },
+        {
+          "name": "script_path",
+          "ordinal": 6,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "args",
+          "ordinal": 7,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "extra_perms",
+          "ordinal": 8,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "is_flow",
+          "ordinal": 9,
+          "type_info": "Bool"
+        },
+        {
+          "name": "email",
+          "ordinal": 10,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "error",
+          "ordinal": 11,
+          "type_info": "Text"
+        },
+        {
+          "name": "timezone",
+          "ordinal": 12,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        false,
+        false,
+        false,
+        true,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Varchar",
+          "Varchar",
+          "Varchar",
+          "Varchar",
+          "Bool",
+          "Jsonb",
+          "Bool",
+          "Varchar"
+        ]
+      }
+    },
+    "query": "INSERT INTO schedule (workspace_id, path, schedule, timezone, edited_by, script_path, is_flow, args, enabled, email) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *"
+  },
   "ebc06efe51532f7f60e98f62d09a3453fc1d97d93e96ec849eac96dca05236f0": {
     "describe": {
       "columns": [
@@ -5964,48 +5965,47 @@
           "type_info": "Varchar"
         },
         {
-          "name": "offset_",
-          "ordinal": 5,
-          "type_info": "Int4"
-        },
-        {
           "name": "enabled",
-          "ordinal": 6,
+          "ordinal": 5,
           "type_info": "Bool"
         },
         {
           "name": "script_path",
-          "ordinal": 7,
+          "ordinal": 6,
           "type_info": "Varchar"
         },
         {
           "name": "args",
-          "ordinal": 8,
+          "ordinal": 7,
           "type_info": "Jsonb"
         },
         {
           "name": "extra_perms",
-          "ordinal": 9,
+          "ordinal": 8,
           "type_info": "Jsonb"
         },
         {
           "name": "is_flow",
-          "ordinal": 10,
+          "ordinal": 9,
           "type_info": "Bool"
         },
         {
           "name": "email",
-          "ordinal": 11,
+          "ordinal": 10,
           "type_info": "Varchar"
         },
         {
           "name": "error",
-          "ordinal": 12,
+          "ordinal": 11,
           "type_info": "Text"
+        },
+        {
+          "name": "timezone",
+          "ordinal": 12,
+          "type_info": "Varchar"
         }
       ],
       "nullable": [
-        false,
         false,
         false,
         false,
@@ -6017,7 +6017,8 @@
         false,
         false,
         false,
-        true
+        true,
+        false
       ],
       "parameters": {
         "Left": [

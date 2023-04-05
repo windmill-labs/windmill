@@ -6,8 +6,6 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::str::FromStr;
-
 use crate::{
     db::{UserDB, DB},
     users::{maybe_refresh_folders, Authed},
@@ -17,9 +15,10 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
-use chrono::{DateTime, FixedOffset};
+use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use sqlx::{Postgres, Transaction};
+use std::str::FromStr;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{Error, JsonResult, Result},
@@ -47,7 +46,7 @@ pub fn global_service() -> Router {
 pub struct NewSchedule {
     pub path: String,
     pub schedule: String,
-    pub offset: i32,
+    pub timezone: String,
     pub script_path: String,
     pub is_flow: bool,
     pub args: Option<serde_json::Value>,
@@ -92,12 +91,12 @@ async fn create_schedule(
 
     let schedule = sqlx::query_as!(
         Schedule,
-        "INSERT INTO schedule (workspace_id, path, schedule, offset_, edited_by, script_path, \
+        "INSERT INTO schedule (workspace_id, path, schedule, timezone, edited_by, script_path, \
          is_flow, args, enabled, email) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *",
         w_id,
         ns.path,
         ns.schedule,
-        ns.offset,
+        ns.timezone,
         &authed.username,
         ns.script_path,
         ns.is_flow,
@@ -162,9 +161,10 @@ async fn edit_schedule(
     clear_schedule(&mut tx, path, is_flow).await?;
     let schedule = sqlx::query_as!(
         Schedule,
-        "UPDATE schedule SET schedule = $1, args = $2 WHERE path \
-         = $3 AND workspace_id = $4 RETURNING *",
+        "UPDATE schedule SET schedule = $1, timezone = $2, args = $3 WHERE path \
+         = $4 AND workspace_id = $5 RETURNING *",
         es.schedule,
+        es.timezone,
         es.args,
         path,
         w_id,
@@ -242,15 +242,26 @@ async fn exists_schedule(
     Ok(Json(res))
 }
 
+#[derive(Deserialize)]
+pub struct PreviewPayload {
+    pub schedule: String,
+    pub timezone: String,
+}
+
 pub async fn preview_schedule(
     Json(payload): Json<PreviewPayload>,
-) -> JsonResult<Vec<DateTime<chrono::Utc>>> {
+) -> JsonResult<Vec<DateTime<Utc>>> {
     let schedule = cron::Schedule::from_str(&payload.schedule)
         .map_err(|e| Error::BadRequest(e.to_string()))?;
-    let upcoming: Vec<DateTime<chrono::Utc>> = schedule
-        .upcoming(get_offset(payload.offset))
-        .take(10)
-        .map(|x| x.into())
+
+    let tz =
+        chrono_tz::Tz::from_str(&payload.timezone).map_err(|e| Error::BadRequest(e.to_string()))?;
+
+    let upcoming: Vec<DateTime<Utc>> = schedule
+        .upcoming(tz)
+        .take(5)
+        // Convert back to UTC for a standardised API response. The client will convert to the local timezone.
+        .map(|x| x.with_timezone(&Utc))
         .collect();
 
     Ok(Json(upcoming))
@@ -360,6 +371,7 @@ async fn check_flow_conflict<'c>(
 #[derive(Deserialize)]
 pub struct EditSchedule {
     pub schedule: String,
+    pub timezone: String,
     pub args: Option<serde_json::Value>,
 }
 
@@ -381,16 +393,6 @@ pub async fn clear_schedule<'c>(
     .execute(db)
     .await?;
     Ok(())
-}
-
-#[derive(Deserialize)]
-pub struct PreviewPayload {
-    pub schedule: String,
-    pub offset: Option<i32>,
-}
-
-fn get_offset(offset: Option<i32>) -> FixedOffset {
-    FixedOffset::west_opt(offset.unwrap_or(0) * 60).expect("Invalid offset")
 }
 
 #[derive(Deserialize)]

@@ -2021,8 +2021,7 @@ paths:
           schema:
             type: string
         - name: first_parent_hash
-          description:
-            mask to filter scripts whom first direct parent has exact hash
+          description: mask to filter scripts whom first direct parent has exact hash
           in: query
           schema:
             type: string
@@ -2279,8 +2278,7 @@ paths:
 
   /w/{workspace}/scripts/delete/h/{hash}:
     post:
-      summary:
-        delete script by hash (erase content but keep hash, require admin)
+      summary: delete script by hash (erase content but keep hash, require admin)
       operationId: deleteScriptByHash
       tags:
         - script
@@ -2435,15 +2433,13 @@ paths:
             type: string
             format: date-time
         - name: scheduled_in_secs
-          description:
-            schedule the script to execute in the number of seconds starting now
+          description: schedule the script to execute in the number of seconds starting now
           in: query
           schema:
             type: integer
         - $ref: "#/components/parameters/ParentJob"
         - name: invisible_to_owner
-          description:
-            make the run invisible to the the script owner (default false)
+          description: make the run invisible to the the script owner (default false)
           in: query
           schema:
             type: boolean
@@ -3019,16 +3015,14 @@ paths:
             type: string
             format: date-time
         - name: scheduled_in_secs
-          description:
-            schedule the script to execute in the number of seconds starting now
+          description: schedule the script to execute in the number of seconds starting now
           in: query
           schema:
             type: integer
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/IncludeHeader"
         - name: invisible_to_owner
-          description:
-            make the run invisible to the the flow owner (default false)
+          description: make the run invisible to the the flow owner (default false)
           in: query
           schema:
             type: boolean
@@ -3066,16 +3060,14 @@ paths:
             type: string
             format: date-time
         - name: scheduled_in_secs
-          description:
-            schedule the script to execute in the number of seconds starting now
+          description: schedule the script to execute in the number of seconds starting now
           in: query
           schema:
             type: integer
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/IncludeHeader"
         - name: invisible_to_owner
-          description:
-            make the run invisible to the the script owner (default false)
+          description: make the run invisible to the the script owner (default false)
           in: query
           schema:
             type: boolean
@@ -3106,8 +3098,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/IncludeHeader"
         - name: invisible_to_owner
-          description:
-            make the run invisible to the the script owner (default false)
+          description: make the run invisible to the the script owner (default false)
           in: query
           schema:
             type: boolean
@@ -3138,8 +3129,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/IncludeHeader"
         - name: invisible_to_owner
-          description:
-            make the run invisible to the the script owner (default false)
+          description: make the run invisible to the the script owner (default false)
           in: query
           schema:
             type: boolean
@@ -3479,8 +3469,7 @@ paths:
 
   /w/{workspace}/jobs/resume_urls/{id}/{resume_id}:
     get:
-      summary:
-        get resume urls given a job_id, resume_id and a nonce to resume a flow
+      summary: get resume urls given a job_id, resume_id and a nonce to resume a flow
       operationId: getResumeUrls
       tags:
         - job
@@ -3738,14 +3727,14 @@ paths:
               properties:
                 schedule:
                   type: string
-                offset:
-                  type: integer
+                timezone:
+                  type: string
               required:
                 - schedule
+                - timezone
       responses:
         "200":
-          description:
-            the preview of the next 10 time this schedule would apply to
+          description: List of 5 estimated upcoming execution events (in UTC)
           content:
             application/json:
               schema:
@@ -3932,8 +3921,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: only_member_of
           in: query
-          description:
-            only list the groups the user is member of (default false)
+          description: only list the groups the user is member of (default false)
           schema:
             type: boolean
       responses:
@@ -4121,8 +4109,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: only_member_of
           in: query
-          description:
-            only list the folders the user is member of (default false)
+          description: only list the folders the user is member of (default false)
           schema:
             type: boolean
       responses:
@@ -4605,8 +4592,7 @@ components:
         type: integer
     PerPage:
       name: per_page
-      description:
-        number of items to return for a given page (default 30, max 100)
+      description: number of items to return for a given page (default 30, max 100)
       in: query
       schema:
         type: integer
@@ -4707,16 +4693,14 @@ components:
         type: boolean
     ArgsFilter:
       name: args
-      description:
-        filter on jobs containing those args as a json subset (@> in postgres)
+      description: filter on jobs containing those args as a json subset (@> in postgres)
       in: query
       schema:
         type: string
 
     ResultFilter:
       name: result
-      description:
-        filter on jobs containing those result as a json subset (@> in postgres)
+      description: filter on jobs containing those result as a json subset (@> in postgres)
       in: query
       schema:
         type: string
@@ -5523,8 +5507,8 @@ components:
           format: date-time
         schedule:
           type: string
-        offset_:
-          type: integer
+        timezone:
+          type: string
         enabled:
           type: boolean
         script_path:
@@ -5547,7 +5531,7 @@ components:
         - edited_at
         - schedule
         - script_path
-        - offset_
+        - timezone
         - extra_perms
         - is_flow
         - enabled
@@ -5560,8 +5544,8 @@ components:
           type: string
         schedule:
           type: string
-        offset:
-          type: integer
+        timezone:
+          type: string
         script_path:
           type: string
         is_flow:
@@ -5573,6 +5557,7 @@ components:
       required:
         - path
         - schedule
+        - timezone
         - script_path
         - is_flow
         - args
@@ -5582,10 +5567,13 @@ components:
       properties:
         schedule:
           type: string
+        timezone:
+          type: string
         args:
           $ref: "#/components/schemas/ScriptArgs"
       required:
         - schedule
+        - timezone
         - script_path
         - is_flow
         - args

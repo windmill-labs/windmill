@@ -63,9 +63,9 @@
 <ScheduleEditor on:update={loadSchedules} bind:this={scheduleEditor} />
 <CenteredPage>
 	<PageHeader title="Schedules" tooltip="Trigger Scripts and Flows according to a cron schedule">
-		<Button size="md" startIcon={{ icon: faPlus }} on:click={() => scheduleEditor.openNew(false)}
-			>New&nbsp;schedule</Button
-		>
+		<Button size="md" startIcon={{ icon: faPlus }} on:click={() => scheduleEditor.openNew(false)}>
+			New&nbsp;schedule
+		</Button>
 	</PageHeader>
 	<div class="mt-10 mb-40">
 		{#if loading}
@@ -79,15 +79,15 @@
 					<th class="!px-0" />
 					<th>Schedule</th>
 					<th>Script/Flow</th>
-					<th>schedule</th>
+					<th>Schedule</th>
+					<th>Timezone</th>
 					<th />
-					<th>off/on</th>
-					<th>timezone</th>
-					<th>last edit</th>
+					<th>Enabled</th>
+					<th>Last Edit</th>
 					<th />
 				</tr>
 				<tbody slot="body">
-					{#each schedules as { path, error, edited_by, edited_at, schedule, offset_, enabled, script_path, is_flow, extra_perms, canWrite }}
+					{#each schedules as { path, error, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite }}
 						<tr class={enabled ? '' : 'bg-gray-50'}>
 							<td class="!px-0 text-center">
 								<SharedBadge {canWrite} extraPerms={extra_perms} />
@@ -100,17 +100,25 @@
 									{path}
 								</button>
 							</td>
-							<td
-								><div class="inline-flex flex-row gap-x-2 align-middle w-full"
-									><div class="grow"
-										><a
+							<td>
+								<div class="inline-flex flex-row gap-x-2 align-middle w-full">
+									<div class="grow">
+										<a
 											class="text-sm break-words"
 											href="{is_flow ? '/flows/get' : '/scripts/get'}/{script_path}"
-											>{script_path}</a
-										></div
-									><Badge class="text-2xs font-mono">{is_flow ? 'flow' : 'script'}</Badge></div
-								>
-							</td><td><Badge color="blue">{schedule}</Badge></td>
+										>
+											{script_path}
+										</a>
+									</div>
+									<Badge class="text-2xs font-mono">{is_flow ? 'flow' : 'script'}></Badge>
+								</div>
+							</td>
+							<td>
+								<Badge color="blue">{schedule}</Badge>
+							</td>
+							<td>
+								<Badge color="blue">{timezone}</Badge>
+							</td>
 							<td>
 								<div class="w-10">
 									{#if error}
@@ -135,8 +143,8 @@
 											</div>
 										</Popover>
 									{/if}
-								</div></td
-							>
+								</div>
+							</td>
 							<td>
 								<Toggle
 									checked={enabled}
@@ -147,12 +155,11 @@
 											sendUserToast('not enough permission', true)
 										}
 									}}
-								/></td
-							>
-							<td><Badge color="blue">{offset_ < 0 ? '+' : ''}{(offset_ / 60) * -1}</Badge></td>
-							<td
-								><span class="text-2xs">By {edited_by} <br />the {displayDate(edited_at)}</span></td
-							>
+								/>
+							</td>
+							<td>
+								<span class="text-2xs">By {edited_by} <br />the {displayDate(edited_at)}</span>
+							</td>
 							<td>
 								<div class="inline-flex gap-2">
 									<Button
