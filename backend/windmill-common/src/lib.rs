@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc};
 
 use error::Error;
 
@@ -31,6 +31,7 @@ pub const DEFAULT_MAX_CONNECTIONS_WORKER: u32 = 3;
 
 lazy_static::lazy_static! {
     pub static ref BASE_URL: String = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost".to_string());
+    pub static ref IS_READY: Arc<std::sync::atomic::AtomicBool> = Arc::new(std::sync::atomic::AtomicBool::new(false));
 }
 
 #[cfg(feature = "tokio")]
@@ -58,14 +59,31 @@ pub async fn shutdown_signal(tx: tokio::sync::broadcast::Sender<()>) -> anyhow::
 pub async fn serve_metrics(
     addr: SocketAddr,
     mut rx: tokio::sync::broadcast::Receiver<()>,
+    ready_worker_endpoint: bool,
 ) -> Result<(), hyper::Error> {
+    use std::sync::atomic::Ordering;
+
     use axum::{routing::get, Router};
-    axum::Server::bind(&addr)
-        .serve(
-            Router::new()
-                .route("/metrics", get(metrics))
-                .into_make_service(),
+    use hyper::StatusCode;
+    let router = Router::new().route("/metrics", get(metrics));
+
+    let router = if ready_worker_endpoint {
+        router.route(
+            "/ready",
+            get(|| async {
+                if IS_READY.load(Ordering::Relaxed) {
+                    (StatusCode::OK, "ready")
+                } else {
+                    (StatusCode::INTERNAL_SERVER_ERROR, "not ready")
+                }
+            }),
         )
+    } else {
+        router
+    };
+
+    axum::Server::bind(&addr)
+        .serve(router.into_make_service())
         .with_graceful_shutdown(async {
             rx.recv().await.ok();
             println!("Graceful shutdown of metrics");

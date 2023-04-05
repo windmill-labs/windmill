@@ -156,9 +156,11 @@ Windmill Community Edition {GIT_VERSION}
 
         let metrics_f = async {
             match metrics_addr {
-                Some(addr) => windmill_common::serve_metrics(addr, rx.resubscribe())
-                    .await
-                    .map_err(anyhow::Error::from),
+                Some(addr) => {
+                    windmill_common::serve_metrics(addr, rx.resubscribe(), num_workers > 0)
+                        .await
+                        .map_err(anyhow::Error::from)
+                }
                 None => Ok(()),
             }
         };
