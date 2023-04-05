@@ -412,7 +412,12 @@
 							<JobArgs args={schedule.args ?? {}} />
 						</div>
 						<div class="box max-w-lg mt-2">
-							<CronInput disabled={true} schedule={schedule.schedule} />
+							<CronInput
+								disabled={true}
+								edit={true}
+								schedule={schedule.schedule}
+								timezone={schedule.timezone}
+							/>
 						</div>
 					</div>
 				{/if}
