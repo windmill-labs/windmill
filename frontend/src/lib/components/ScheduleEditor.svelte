@@ -37,7 +37,11 @@
 		is_flow = isFlow
 		initialPath = ePath
 		itemKind = is_flow ? 'flow' : 'script'
-		path = ePath
+		if (path == ePath) {
+			loadSchedule()
+		} else {
+			path = ePath
+		}
 		edit = true
 		drawer?.openDrawer()
 	}
@@ -49,6 +53,7 @@
 		path = initialScriptPath
 		initialPath = initialScriptPath
 		script_path = initialScriptPath
+		timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
 		drawer?.openDrawer()
 	}
 

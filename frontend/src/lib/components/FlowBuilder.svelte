@@ -155,7 +155,12 @@
 
 	const selectedIdStore = writable<string>(selectedId ?? 'settings-metadata')
 
-	const scheduleStore = writable<Schedule>({ args: {}, cron: '', timezone: '', enabled: false })
+	const scheduleStore = writable<Schedule>({
+		args: {},
+		cron: '',
+		timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+		enabled: false
+	})
 	const previewArgsStore = writable<Record<string, any>>(initialArgs)
 	const scriptEditorDrawer = writable<ScriptEditorDrawer | undefined>(undefined)
 	const moving = writable<{ module: FlowModule; modules: FlowModule[] } | undefined>(undefined)
