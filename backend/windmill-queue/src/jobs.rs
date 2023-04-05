@@ -24,6 +24,8 @@ use windmill_common::{
     utils::StripPath,
 };
 
+use crate::QueueTransaction;
+
 lazy_static::lazy_static! {
     pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
         .user_agent("windmill/beta")
@@ -250,30 +252,25 @@ pub async fn get_result_by_id(
 }
 
 #[instrument(level = "trace", skip_all)]
-pub async fn delete_job<R: rsmq_async::RsmqConnection + Clone>(
-    db: &Pool<Postgres>,
+pub async fn delete_job<'c, R: rsmq_async::RsmqConnection + Clone + Send>(
+    mut tx: QueueTransaction<'c, R>,
     w_id: &str,
     job_id: Uuid,
-    rsmq: Option<R>,
-) -> windmill_common::error::Result<()> {
+) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
     QUEUE_DELETE_COUNT.inc();
-    if let Some(mut rsmq) = rsmq {
-        rsmq.delete_message(RSMQ_MAIN_QUEUE, &job_id.to_string())
-            .await
-            .map_err(|e| anyhow::anyhow!(e))?;
-    }
+    // We can't delete the redis message here - we don't know the message id. A worker will pick it up & notice it no longer exists.
     let job_removed = sqlx::query_scalar!(
         "DELETE FROM queue WHERE workspace_id = $1 AND id = $2 RETURNING 1",
         w_id,
         job_id
     )
-    .fetch_one(db)
+    .fetch_one(&mut tx)
     .await
     .map_err(|e| Error::InternalErr(format!("Error during deletion of job {job_id}: {e}")))?
     .unwrap_or(0)
         == 1;
     tracing::debug!("Job {job_id} deleted: {job_removed}");
-    Ok(())
+    Ok(tx)
 }
 
 pub async fn get_queued_job<'c>(
@@ -292,9 +289,9 @@ pub async fn get_queued_job<'c>(
     Ok(r)
 }
 
-#[instrument(level = "trace", skip_all)]
-pub async fn push<'c, R: rsmq_async::RsmqConnection + Clone>(
-    mut tx: Transaction<'c, Postgres>,
+// #[instrument(level = "trace", skip_all)]
+pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
+    mut tx: QueueTransaction<'c, R>,
     workspace_id: &str,
     job_payload: JobPayload,
     args: serde_json::Map<String, serde_json::Value>,
@@ -309,8 +306,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Clone>(
     mut same_worker: bool,
     pre_run_error: Option<&windmill_common::error::Error>,
     visible_to_owner: bool,
-    rsmq: Option<R>,
-) -> Result<Uuid, Error> {
+) -> Result<(Uuid, QueueTransaction<'c, R>), Error> {
     let scheduled_for = scheduled_for_o.unwrap_or_else(chrono::Utc::now);
     let args_json = serde_json::Value::Object(args);
     let job_id: Uuid = Ulid::new().into();
@@ -629,17 +625,13 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Clone>(
         .instrument(tracing::info_span!("job_run", email = &email))
         .await?;
     }
-    if let Some(mut rsmq) = rsmq {
-        let seconds = scheduled_for_o
-            .and_then(|time| (time - chrono::Utc::now()).num_seconds().try_into().ok());
+    if let Some(ref mut rsmq) = tx.rsmq {
+        let seconds = scheduled_for_o;
 
-        rsmq.send_message(RSMQ_MAIN_QUEUE, job_id.to_bytes_le().to_vec(), seconds)
-            .await
-            .map_err(|e| anyhow::anyhow!(e))?;
+        rsmq.send_message(job_id.to_bytes_le().to_vec(), scheduled_for_o);
     }
-    tx.commit().await?;
 
-    Ok(uuid)
+    Ok((uuid, tx))
 }
 
 pub fn canceled_job_to_result(job: &QueuedJob) -> serde_json::Value {

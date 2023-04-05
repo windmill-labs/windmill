@@ -33,7 +33,7 @@ use windmill_common::{
 type DB = sqlx::Pool<sqlx::Postgres>;
 
 use windmill_queue::{
-    canceled_job_to_result, get_queued_job, push, JobPayload, QueuedJob, RawCode,
+    canceled_job_to_result, get_queued_job, push, JobPayload, QueueTransaction, QueuedJob, RawCode,
 };
 
 #[async_recursion]
@@ -58,7 +58,7 @@ pub async fn update_flow_status_after_job_completion<
 ) -> error::Result<()> {
     tracing::debug!("UPDATE FLOW STATUS: {flow:?} {success} {result:?} {w_id}");
 
-    let mut tx = db.begin().await?;
+    let mut tx: QueueTransaction<'_, _> = (rsmq.clone(), db.begin().await?).into();
 
     let old_status_json = sqlx::query_scalar!(
         "SELECT flow_status FROM queue WHERE id = $1 AND workspace_id = $2",
@@ -92,7 +92,7 @@ pub async fn update_flow_status_after_job_completion<
         module_status,
         FlowStatusModule::InProgress { iterator: Some(_), .. }
     ) {
-        compute_skip_loop_failures(flow, old_status.step, &mut tx)
+        compute_skip_loop_failures(flow, old_status.step, tx.transaction_mut())
             .await?
             .unwrap_or(false)
     } else {
@@ -133,7 +133,7 @@ pub async fn update_flow_status_after_job_completion<
     let skip_branch_failure = match module_status {
         FlowStatusModule::InProgress {
             branchall: Some(BranchAllStatus { branch, .. }), ..
-        } => compute_skip_branchall_failure(flow, old_status.step, *branch, &mut tx)
+        } => compute_skip_branchall_failure(flow, old_status.step, *branch, tx.transaction_mut())
             .await?
             .unwrap_or(false),
         _ => false,
@@ -394,7 +394,7 @@ pub async fn update_flow_status_after_job_completion<
         .context("remove flow status retry")?;
     }
 
-    let flow_job = get_queued_job(flow, w_id, &mut tx)
+    let flow_job = get_queued_job(flow, w_id, tx.transaction_mut())
         .await?
         .ok_or_else(|| Error::InternalErr(format!("requiring flow to be in the queue")))?;
 
@@ -418,7 +418,7 @@ pub async fn update_flow_status_after_job_completion<
         {
             true
         }
-        false if has_failure_module(flow, &mut tx).await? && !is_failure_step => true,
+        false if has_failure_module(flow, tx.transaction_mut()).await? && !is_failure_step => true,
         false => false,
     };
 
@@ -427,18 +427,16 @@ pub async fn update_flow_status_after_job_completion<
         && flow_job.schedule_path.is_some()
         && flow_job.script_path.is_some()
     {
-        schedule_again_if_scheduled(
+        tx = schedule_again_if_scheduled(
             tx,
             db,
             flow_job.schedule_path.as_ref().unwrap(),
             flow_job.script_path.as_ref().unwrap(),
             &w_id,
-            rsmq.clone(),
         )
         .await?;
-    } else {
-        tx.commit().await?;
     }
+    tx.commit().await?;
 
     let done = if !should_continue_flow {
         let logs = if flow_job.canceled {
@@ -1178,7 +1176,6 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         client,
     )
     .await?;
-    tx.commit().await?;
 
     let (job_payloads, next_status) = match next_flow_transform {
         NextFlowTransform::Continue(job_payload, next_state) => (job_payload, next_state),
@@ -1245,14 +1242,15 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
     /* Finally, push the job into the queue */
     let mut uuids = vec![];
 
+    let mut tx = (rsmq, tx).into();
+
     for (payload, args) in zipped {
-        let tx = db.begin().await?;
         let (ok, err) = match args {
             Ok(v) => (Some(v), None),
             Err(e) => (None, Some(e)),
         };
         let root_job = flow_job.root_job.or_else(|| Some(flow_job.id));
-        let uuid = push(
+        let (uuid, new_tx) = push(
             tx,
             &flow_job.workspace_id,
             payload,
@@ -1268,11 +1266,13 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             continue_on_same_worker,
             err,
             flow_job.visible_to_owner,
-            rsmq.clone(),
         )
         .await?;
+        tx = new_tx;
         uuids.push(uuid);
     }
+
+    tx.commit().await?;
 
     let is_one_uuid = uuids.len() == 1;
 

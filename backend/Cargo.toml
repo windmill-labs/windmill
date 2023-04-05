@@ -144,6 +144,7 @@ sqlx = { version = "^0", features = [
 dotenv = "^0"
 ulid = { version = "^1", features = ["uuid"] }
 futures = "^0"
+futures-core = "^0"
 tokio-metrics = "0.1.0"
 lazy_static = "1.4.0"
 serde_derive = "1.0.147"

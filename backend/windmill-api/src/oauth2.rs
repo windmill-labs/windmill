@@ -43,7 +43,7 @@ use crate::{BASE_URL, HTTP_CLIENT, IS_SECURE, OAUTH_CLIENTS, SLACK_SIGNING_SECRE
 use windmill_common::error::{self, to_anyhow, Error};
 use windmill_common::oauth2::*;
 
-use windmill_queue::JobPayload;
+use windmill_queue::{JobPayload, QueueTransaction};
 
 use std::{fs, str};
 
@@ -741,7 +741,7 @@ async fn slack_command(
         }
     }
 
-    let mut tx = db.begin().await?;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, db.begin().await?).into();
     let settings = sqlx::query_as!(
         WorkspaceSettings,
         "SELECT * FROM workspace_settings WHERE slack_team_id = $1",
@@ -757,7 +757,7 @@ async fn slack_command(
             } else {
                 let path = path.strip_prefix("script/").unwrap_or_else(|| path);
                 let script_hash = windmill_common::get_latest_hash_for_path(
-                    &mut tx,
+                    tx.transaction_mut(),
                     &settings.workspace_id,
                     path,
                 )
@@ -771,7 +771,7 @@ async fn slack_command(
                 serde_json::Value::String(form.response_url),
             );
 
-            let uuid = windmill_queue::push(
+            let (uuid, tx) = windmill_queue::push(
                 tx,
                 &settings.workspace_id,
                 payload,
@@ -787,16 +787,17 @@ async fn slack_command(
                 false,
                 None,
                 true,
-                rsmq,
             )
             .await?;
             let url = BASE_URL.to_owned();
+            tx.commit().await?;
             return Ok(format!(
                 "Job launched. See details at {url}/run/{uuid}?workspace={}",
                 &settings.workspace_id
             ));
         }
     }
+    tx.commit().await?;
 
     return Ok(format!(
         "workspace not properly configured (did you set the script to trigger in the settings?)"

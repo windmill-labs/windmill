@@ -42,7 +42,7 @@ use windmill_common::{
         list_elems_from_hub, not_found_if_none, paginate, require_admin, Pagination, StripPath,
     },
 };
-use windmill_queue::{self, schedule::push_scheduled_job};
+use windmill_queue::{self, schedule::push_scheduled_job, QueueTransaction};
 
 const MAX_HASH_HISTORY_LENGTH_STORED: usize = 20;
 
@@ -191,14 +191,14 @@ async fn create_script(
     Json(ns): Json<NewScript>,
 ) -> Result<(StatusCode, String)> {
     let hash = ScriptHash(hash_script(&ns));
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
 
     if sqlx::query_scalar!(
         "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2",
         hash.0,
         &w_id
     )
-    .fetch_optional(&mut tx)
+    .fetch_optional(tx.transaction_mut())
     .await?
     .is_some()
     {
@@ -259,7 +259,7 @@ async fn create_script(
                 )));
             };
 
-            let ps = get_script_by_hash_internal(&mut tx, &w_id, p_hash).await?;
+            let ps = get_script_by_hash_internal(tx.transaction_mut(), &w_id, p_hash).await?;
 
             if ps.path != ns.path {
                 if !authed.is_admin {
@@ -354,11 +354,10 @@ async fn create_script(
         .await?;
 
         for schedule in schedulables {
-            clear_schedule(&mut tx, &schedule.path, false).await?;
+            clear_schedule(tx.transaction_mut(), &schedule.path, false).await?;
 
             if schedule.enabled {
-                todo!("Fix TX wiring here")
-                // push_scheduled_job(tx, schedule, rsmq.clone()).await?;
+                tx = push_scheduled_job(tx, schedule).await?;
             }
         }
     }
@@ -416,7 +415,7 @@ async fn create_script(
             }
             _ => ns.content,
         };
-        let _ = windmill_queue::push(
+        let (_, new_tx) = windmill_queue::push(
             tx,
             &w_id,
             windmill_queue::JobPayload::Dependencies { hash, dependencies, language: ns.language },
@@ -432,12 +431,12 @@ async fn create_script(
             false,
             None,
             true,
-            rsmq,
         )
         .await?;
-    } else {
-        tx.commit().await?;
-    };
+        tx = new_tx;
+    }
+
+    tx.commit().await?;
 
     Ok((StatusCode::CREATED, format!("{}", hash)))
 }

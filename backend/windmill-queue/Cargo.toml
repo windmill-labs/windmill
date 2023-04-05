@@ -32,3 +32,4 @@ prometheus.workspace = true
 cron.workspace = true
 rsmq_async.workspace = true
 tokio.workspace = true
+futures-core.workspace = true

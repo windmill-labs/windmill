@@ -17,13 +17,12 @@ use windmill_common::{
     utils::{now_from_db, StripPath},
 };
 
-use crate::{push, JobPayload};
+use crate::{push, JobPayload, QueueTransaction};
 
-pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clone>(
-    mut tx: Transaction<'c, Postgres>,
+pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
+    mut tx: QueueTransaction<'c, R>,
     schedule: Schedule,
-    rsmq: Option<R>,
-) -> Result<()> {
+) -> Result<QueueTransaction<'c, R>> {
     let sched = cron::Schedule::from_str(&schedule.schedule)
         .map_err(|e| error::Error::BadRequest(e.to_string()))?;
 
@@ -46,8 +45,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clone>(
     .unwrap_or(false);
 
     if already_exists {
-        tx.commit().await?;
-        return Ok(());
+        return Ok(tx);
     }
 
     let mut args: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
@@ -67,7 +65,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clone>(
     } else {
         JobPayload::ScriptHash {
             hash: windmill_common::get_latest_hash_for_path(
-                &mut tx,
+                tx.transaction_mut(),
                 &schedule.workspace_id,
                 &schedule.script_path,
             )
@@ -84,7 +82,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clone>(
     .execute(&mut tx)
     .await?;
 
-    let _ = push(
+    let (_, tx) = push(
         tx,
         &schedule.workspace_id,
         payload,
@@ -100,10 +98,9 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Clone>(
         false,
         None,
         true,
-        rsmq,
     )
     .await?;
-    Ok(()) // TODO: Bubble up pushed UUID from here
+    Ok(tx) // TODO: Bubble up pushed UUID from here
 }
 
 pub async fn get_schedule_opt<'c>(

@@ -30,7 +30,9 @@ use windmill_common::{
     users::username_to_permissioned_as,
     utils::{not_found_if_none, now_from_db, paginate, require_admin, Pagination, StripPath},
 };
-use windmill_queue::{get_queued_job, push, JobKind, JobPayload, QueuedJob, RawCode};
+use windmill_queue::{
+    get_queued_job, push, JobKind, JobPayload, QueueTransaction, QueuedJob, RawCode,
+};
 
 use crate::{
     db::{UserDB, DB},
@@ -1185,11 +1187,11 @@ pub async fn run_flow_by_path(
     Json(args): Json<Option<serde_json::Map<String, serde_json::Value>>>,
 ) -> error::Result<(StatusCode, String)> {
     let flow_path = flow_path.to_path();
-    let mut tx = user_db.begin(&authed).await?;
-    let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
+    let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
 
-    let uuid = push(
+    let (uuid, tx) = push(
         tx,
         &w_id,
         JobPayload::Flow(flow_path.to_string()),
@@ -1205,9 +1207,9 @@ pub async fn run_flow_by_path(
         false,
         None,
         !run_query.invisible_to_owner.unwrap_or(false),
-        rsmq,
     )
     .await?;
+    tx.commit().await?;
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
@@ -1221,12 +1223,12 @@ pub async fn run_job_by_path(
     Json(args): Json<Option<serde_json::Map<String, serde_json::Value>>>,
 ) -> error::Result<(StatusCode, String)> {
     let script_path = script_path.to_path();
-    let mut tx = user_db.begin(&authed).await?;
-    let job_payload = script_path_to_payload(script_path, &mut tx, &w_id).await?;
-    let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
+    let job_payload = script_path_to_payload(script_path, tx.transaction_mut(), &w_id).await?;
+    let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
 
-    let uuid = push(
+    let (uuid, tx) = push(
         tx,
         &w_id,
         job_payload,
@@ -1242,9 +1244,9 @@ pub async fn run_job_by_path(
         false,
         None,
         !run_query.invisible_to_owner.unwrap_or(false),
-        rsmq,
     )
     .await?;
+    tx.commit().await?;
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
@@ -1374,13 +1376,13 @@ pub async fn run_wait_result_job_by_path(
 ) -> error::JsonResult<serde_json::Value> {
     check_queue_too_long(db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
     let script_path = script_path.to_path();
-    let mut tx = user_db.clone().begin(&authed).await?;
-    let job_payload = script_path_to_payload(script_path, &mut tx, &w_id).await?;
-    let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
+    let job_payload = script_path_to_payload(script_path, tx.transaction_mut(), &w_id).await?;
+    let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
 
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
 
-    let uuid = push(
+    let (uuid, tx) = push(
         tx,
         &w_id,
         job_payload,
@@ -1396,9 +1398,9 @@ pub async fn run_wait_result_job_by_path(
         false,
         None,
         !run_query.invisible_to_owner.unwrap_or(false),
-        rsmq,
     )
     .await?;
+    tx.commit().await?;
 
     run_wait_result(
         authed,
@@ -1423,12 +1425,12 @@ pub async fn run_wait_result_job_by_hash(
     check_queue_too_long(db, run_query.queue_limit).await?;
 
     let hash = script_hash.0;
-    let mut tx = user_db.clone().begin(&authed).await?;
-    let path = get_path_for_hash(&mut tx, &w_id, hash).await?;
-    let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
+    let path = get_path_for_hash(tx.transaction_mut(), &w_id, hash).await?;
+    let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
 
-    let uuid = push(
+    let (uuid, tx) = push(
         tx,
         &w_id,
         JobPayload::ScriptHash { hash: ScriptHash(hash), path },
@@ -1444,9 +1446,9 @@ pub async fn run_wait_result_job_by_hash(
         false,
         None,
         !run_query.invisible_to_owner.unwrap_or(false),
-        rsmq,
     )
     .await?;
+    tx.commit().await?;
 
     run_wait_result(
         authed,
@@ -1471,11 +1473,11 @@ pub async fn run_wait_result_flow_by_path(
     check_queue_too_long(db, run_query.queue_limit).await?;
 
     let flow_path = flow_path.to_path();
-    let mut tx = user_db.clone().begin(&authed).await?;
-    let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
+    let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
 
-    let uuid = push(
+    let (uuid, tx) = push(
         tx,
         &w_id,
         JobPayload::Flow(flow_path.to_string()),
@@ -1491,9 +1493,9 @@ pub async fn run_wait_result_flow_by_path(
         false,
         None,
         !run_query.invisible_to_owner.unwrap_or(false),
-        rsmq,
     )
     .await?;
+    tx.commit().await?;
 
     run_wait_result(
         authed,
@@ -1529,11 +1531,11 @@ async fn run_preview_job(
     headers: HeaderMap,
     Json(preview): Json<Preview>,
 ) -> error::Result<(StatusCode, String)> {
-    let mut tx = user_db.begin(&authed).await?;
-    let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
+    let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, preview.args.unwrap_or_default());
 
-    let uuid = push(
+    let (uuid, tx) = push(
         tx,
         &w_id,
         JobPayload::Code(RawCode {
@@ -1554,9 +1556,10 @@ async fn run_preview_job(
         false,
         None,
         true,
-        rsmq,
     )
     .await?;
+    tx.commit().await?;
+
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
@@ -1569,11 +1572,11 @@ async fn run_preview_flow_job(
     headers: HeaderMap,
     Json(raw_flow): Json<PreviewFlow>,
 ) -> error::Result<(StatusCode, String)> {
-    let mut tx = user_db.begin(&authed).await?;
-    let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
+    let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, raw_flow.args.unwrap_or_default());
 
-    let uuid = push(
+    let (uuid, tx) = push(
         tx,
         &w_id,
         JobPayload::RawFlow { value: raw_flow.value, path: raw_flow.path },
@@ -1589,9 +1592,10 @@ async fn run_preview_flow_job(
         false,
         None,
         true,
-        rsmq,
     )
     .await?;
+    tx.commit().await?;
+
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
@@ -1605,12 +1609,12 @@ pub async fn run_job_by_hash(
     Json(args): Json<Option<serde_json::Map<String, serde_json::Value>>>,
 ) -> error::Result<(StatusCode, String)> {
     let hash = script_hash.0;
-    let mut tx = user_db.begin(&authed).await?;
-    let path = get_path_for_hash(&mut tx, &w_id, hash).await?;
-    let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
+    let path = get_path_for_hash(tx.transaction_mut(), &w_id, hash).await?;
+    let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
 
-    let uuid = push(
+    let (uuid, tx) = push(
         tx,
         &w_id,
         JobPayload::ScriptHash { hash: ScriptHash(hash), path },
@@ -1626,9 +1630,10 @@ pub async fn run_job_by_hash(
         false,
         None,
         !run_query.invisible_to_owner.unwrap_or(false),
-        rsmq,
     )
     .await?;
+    tx.commit().await?;
+
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 

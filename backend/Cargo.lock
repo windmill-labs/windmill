@@ -5207,6 +5207,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "cron",
+ "futures-core",
  "hex",
  "hmac",
  "lazy_static",

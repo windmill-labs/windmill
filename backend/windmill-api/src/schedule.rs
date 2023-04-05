@@ -26,7 +26,7 @@ use windmill_common::{
     schedule::Schedule,
     utils::{not_found_if_none, paginate, Pagination, StripPath},
 };
-use windmill_queue::{self, schedule::push_scheduled_job, JobKind};
+use windmill_queue::{self, schedule::push_scheduled_job, JobKind, QueueTransaction};
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -83,10 +83,17 @@ async fn create_schedule(
     Path(w_id): Path<String>,
     Json(ns): Json<NewSchedule>,
 ) -> Result<String> {
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
     cron::Schedule::from_str(&ns.schedule).map_err(|e| Error::BadRequest(e.to_string()))?;
-    check_path_conflict(&mut tx, &w_id, &ns.path).await?;
-    check_flow_conflict(&mut tx, &w_id, &ns.path, ns.is_flow, &ns.script_path).await?;
+    check_path_conflict(tx.transaction_mut(), &w_id, &ns.path).await?;
+    check_flow_conflict(
+        tx.transaction_mut(),
+        &w_id,
+        &ns.path,
+        ns.is_flow,
+        &ns.script_path,
+    )
+    .await?;
 
     let schedule = sqlx::query_as!(
         Schedule,
@@ -127,10 +134,9 @@ async fn create_schedule(
     .await?;
 
     if ns.enabled.unwrap_or(true) {
-        push_scheduled_job(tx, schedule, rsmq).await?
-    } else {
-        tx.commit().await?;
+        tx = push_scheduled_job(tx, schedule).await?
     }
+    tx.commit().await?;
 
     Ok(ns.path.to_string())
 }
@@ -142,7 +148,8 @@ async fn edit_schedule(
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(es): Json<EditSchedule>,
 ) -> Result<String> {
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx: QueueTransaction<'_, rsmq_async::MultiplexedRsmq> =
+        (rsmq, user_db.begin(&authed).await?).into();
     let path = path.to_path();
 
     cron::Schedule::from_str(&es.schedule).map_err(|e| Error::BadRequest(e.to_string()))?;
@@ -155,7 +162,7 @@ async fn edit_schedule(
     .fetch_one(&mut tx)
     .await?;
 
-    clear_schedule(&mut tx, path, is_flow).await?;
+    clear_schedule(tx.transaction_mut(), path, is_flow).await?;
     let schedule = sqlx::query_as!(
         Schedule,
         "UPDATE schedule SET schedule = $1, args = $2 WHERE path \
@@ -186,10 +193,9 @@ async fn edit_schedule(
     .await?;
 
     if schedule.enabled {
-        push_scheduled_job(tx, schedule, rsmq).await?;
-    } else {
-        tx.commit().await?;
+        tx = push_scheduled_job(tx, schedule).await?;
     }
+    tx.commit().await?;
 
     Ok(path.to_string())
 }
@@ -260,7 +266,8 @@ pub async fn set_enabled(
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(payload): Json<SetEnabled>,
 ) -> Result<String> {
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx: QueueTransaction<'_, rsmq_async::MultiplexedRsmq> =
+        (rsmq, user_db.begin(&authed).await?).into();
     let path = path.to_path();
     let schedule_o = sqlx::query_as!(
         Schedule,
@@ -275,7 +282,7 @@ pub async fn set_enabled(
 
     let schedule = not_found_if_none(schedule_o, "Schedule", path)?;
 
-    clear_schedule(&mut tx, path, schedule.is_flow).await?;
+    clear_schedule(tx.transaction_mut(), path, schedule.is_flow).await?;
 
     audit_log(
         &mut tx,
@@ -289,10 +296,9 @@ pub async fn set_enabled(
     .await?;
 
     if payload.enabled {
-        push_scheduled_job(tx, schedule, rsmq).await?;
-    } else {
-        tx.commit().await?;
+        tx = push_scheduled_job(tx, schedule).await?;
     }
+    tx.commit().await?;
 
     Ok(format!(
         "succesfully updated schedule at path {} to status {}",
@@ -374,7 +380,6 @@ pub async fn clear_schedule<'c>(
     } else {
         JobKind::Script
     };
-    todo!("REDIS");
     sqlx::query!(
         "DELETE FROM queue WHERE schedule_path = $1 AND running = false AND job_kind = $2",
         path,

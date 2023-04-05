@@ -6,14 +6,16 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use sqlx::{Pool, Postgres, Transaction};
+use sqlx::{Pool, Postgres};
 use tracing::instrument;
 use uuid::Uuid;
 use windmill_common::{error::Error, flow_status::FlowStatusModule, schedule::Schedule};
-use windmill_queue::{delete_job, schedule::get_schedule_opt, JobKind, QueuedJob};
+use windmill_queue::{
+    delete_job, schedule::get_schedule_opt, JobKind, QueueTransaction, QueuedJob,
+};
 
 #[instrument(level = "trace", skip_all)]
-pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone>(
+pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Send>(
     db: &Pool<Postgres>,
     queued_job: &QueuedJob,
     logs: String,
@@ -46,7 +48,7 @@ fn flatten_jobs(modules: Vec<FlowStatusModule>) -> Vec<Uuid> {
 }
 
 #[instrument(level = "trace", skip_all)]
-pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone>(
+pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
     db: &Pool<Postgres>,
     queued_job: &QueuedJob,
     success: bool,
@@ -85,7 +87,7 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone>(
         .ok()
         .flatten()
         .flatten();
-    let mut tx = db.begin().await?;
+    let mut tx: QueueTransaction<'_, R> = (rsmq, db.begin().await?).into();
     let job_id = queued_job.id.clone();
     sqlx::query!(
         "INSERT INTO completed_job AS cj
@@ -155,25 +157,23 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone>(
     .execute(&mut tx)
     .await
     .map_err(|e| Error::InternalErr(format!("Could not add completed job {job_id}: {e}")))?;
-    let _ = delete_job(db, &queued_job.workspace_id, job_id, rsmq.clone()).await?;
+    tx = delete_job(tx, &queued_job.workspace_id, job_id).await?;
     if !queued_job.is_flow_step
         && queued_job.job_kind != JobKind::Flow
         && queued_job.job_kind != JobKind::FlowPreview
         && queued_job.schedule_path.is_some()
         && queued_job.script_path.is_some()
     {
-        schedule_again_if_scheduled(
+        tx = schedule_again_if_scheduled(
             tx,
             db,
             queued_job.schedule_path.as_ref().unwrap(),
             queued_job.script_path.as_ref().unwrap(),
             &queued_job.workspace_id,
-            rsmq,
         )
         .await?;
-    } else {
-        tx.commit().await?;
     }
+    tx.commit().await?;
 
     if cfg!(enterprise) && duration.unwrap_or(0) > 1000 {
         let additional_usage = duration.unwrap() as i32 / 1000;
@@ -212,15 +212,14 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone>(
 }
 
 #[instrument(level = "trace", skip_all)]
-pub async fn schedule_again_if_scheduled<'c, R: rsmq_async::RsmqConnection + Clone>(
-    mut tx: Transaction<'c, Postgres>,
+pub async fn schedule_again_if_scheduled<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c>(
+    mut tx: QueueTransaction<'c, R>,
     db: &Pool<Postgres>,
     schedule_path: &str,
     script_path: &str,
     w_id: &str,
-    rsmq: Option<R>,
-) -> windmill_common::error::Result<()> {
-    let schedule = get_schedule_opt(&mut tx, w_id, schedule_path)
+) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
+    let schedule = get_schedule_opt(tx.transaction_mut(), w_id, schedule_path)
         .await?
         .ok_or_else(|| {
             Error::InternalErr(format!(
@@ -248,11 +247,10 @@ pub async fn schedule_again_if_scheduled<'c, R: rsmq_async::RsmqConnection + Clo
                 email: schedule.email,
                 error: None,
             },
-            rsmq,
         )
         .await;
         match res {
-            Ok(()) => Ok(()),
+            Ok(tx) => Ok(tx),
             Err(err) => {
                 sqlx::query!(
                     "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
@@ -267,6 +265,6 @@ pub async fn schedule_again_if_scheduled<'c, R: rsmq_async::RsmqConnection + Clo
             }
         }
     } else {
-        Ok(())
+        Ok(tx)
     }
 }
