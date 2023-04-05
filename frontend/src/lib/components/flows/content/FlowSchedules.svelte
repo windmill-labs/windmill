@@ -9,7 +9,7 @@
 	const { schedule, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 </script>
 
-<CronInput bind:schedule={$schedule.cron} />
+<CronInput edit={true} bind:schedule={$schedule.cron} bind:timezone={$schedule.timezone} />
 <SchemaForm schema={$flowStore.schema} bind:args={$schedule.args} />
 {#if emptyString($schedule.cron)}
 	<p class="text-xs text-gray-600 mt-10">Define a schedule frequency first</p>
