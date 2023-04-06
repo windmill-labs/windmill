@@ -30,7 +30,7 @@
 	{#if prefix !== undefined}
 		<button
 			on:click|preventDefault={() => isOpenStore.toggle(storeTitle)}
-			class="w-full flex justify-between items-center text-gray-700 px-2 py-1 
+			class="w-full flex justify-between items-center text-gray-700 px-2 py-1
 			rounded-sm duration-200 hover:bg-gray-100 {toggleClasses}"
 		>
 			<h1 class="text-sm font-semibold text-left">
@@ -46,7 +46,7 @@
 			</div>
 		{/if}
 	{:else}
-		<h1 class="text-sm font-semibold text-left px-2 py-1">
+		<h1 class="text-sm font-semibold text-left px-2 py-1 text-gray-600">
 			<slot name="title">
 				{title}
 			</slot>

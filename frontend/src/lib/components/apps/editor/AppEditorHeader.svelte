@@ -1,15 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
-	import {
-		Alert,
-		Badge,
-		ButtonPopup,
-		ButtonPopupItem,
-		Drawer,
-		DrawerContent,
-		UndoRedo
-	} from '$lib/components/common'
+	import { Alert, Badge, Drawer, DrawerContent, UndoRedo } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
@@ -672,20 +664,23 @@
 				<span class="hidden md:inline">Save</span>
 			</Button>
 		{:else}
-			<ButtonPopup
+			<Button
 				loading={loading.save}
 				startIcon={{ icon: faSave }}
 				on:click={save}
 				color="dark"
 				size="xs"
+				dropdownItems={[
+					{
+						label: 'Fork',
+						onClick: () => {
+							window.open(`/apps/add?template=${appPath}`)
+						}
+					}
+				]}
 			>
-				<svelte:fragment slot="main">Save</svelte:fragment>
-				<ButtonPopupItem
-					on:click={() => {
-						window.open(`/apps/add?template=${appPath}`)
-					}}>Fork</ButtonPopupItem
-				>
-			</ButtonPopup>
+				Save
+			</Button>
 		{/if}
 	</div>
 </div>

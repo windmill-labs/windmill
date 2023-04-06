@@ -71,6 +71,7 @@
 				variant="contained"
 				color="light"
 				size="xs"
+				target="_blank"
 			>
 				<div class="flex gap-2 items-center">
 					<Globe2 size={18} />
@@ -99,6 +100,7 @@
 				variant="contained"
 				color="light"
 				size="xs"
+				target="_blank"
 			>
 				<div class="flex gap-2 items-center">
 					<Globe2 size={18} />
@@ -117,9 +119,7 @@
 		</svelte:fragment>
 
 		{#if flowViewerFlow?.flow}
-			<div class="p-4">
-				<FlowViewer flow={flowViewerFlow.flow} />
-			</div>
+			<FlowViewer flow={flowViewerFlow.flow} />
 		{/if}
 	</DrawerContent>
 </Drawer>
@@ -132,6 +132,7 @@
 				variant="contained"
 				color="light"
 				size="xs"
+				target="_blank"
 			>
 				<div class="flex gap-2 items-center">
 					<Globe2 size={18} />
@@ -226,19 +227,19 @@
 			<div class="flex flex-col">
 				{#if tab == 'hubscripts'}
 					<PickHubScript bind:filter on:pick={(e) => viewCode(e.detail)}
-						><Button target="_blank" href="https://hub.windmill.dev" variant="border" color="dark"
+						><Button target="_blank" href="https://hub.windmill.dev" variant="border" color="light"
 							>Go to Hub</Button
 						></PickHubScript
 					>
 				{:else if tab == 'hubflows'}
 					<PickHubFlow bind:filter on:pick={(e) => viewFlow(e.detail)}
-						><Button target="_blank" href="https://hub.windmill.dev" variant="border" color="dark"
+						><Button target="_blank" href="https://hub.windmill.dev" variant="border" color="light"
 							>Go to Hub</Button
 						></PickHubFlow
 					>
 				{:else if tab == 'hubapps'}
 					<PickHubApp bind:filter on:pick={(e) => viewApp(e.detail)}
-						><Button target="_blank" href="https://hub.windmill.dev" variant="border" color="dark"
+						><Button target="_blank" href="https://hub.windmill.dev" variant="border" color="light"
 							>Go to Hub</Button
 						></PickHubApp
 					>

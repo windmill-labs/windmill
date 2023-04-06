@@ -198,7 +198,7 @@
 				<Tooltip>Schedules use CRON syntax. Seconds are mandatory.</Tooltip>
 			</h2>
 
-			<CronInput disabled={!can_write} {edit} bind:schedule bind:timezone bind:validCRON />
+			<CronInput disabled={!can_write} bind:schedule bind:timezone bind:validCRON />
 
 			<h2 class="border-b pb-1 mt-8 mb-2">Runnable</h2>
 			{#if !edit}

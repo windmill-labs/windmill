@@ -10,7 +10,7 @@
 	import ScriptEditor from './ScriptEditor.svelte'
 	import ScriptSchema from './ScriptSchema.svelte'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
-	import { Badge, Button, ButtonPopup, ButtonPopupItem, Drawer } from './common'
+	import { Badge, Button, Drawer } from './common'
 	import { faSave } from '@fortawesome/free-solid-svg-icons'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 	import type { SupportedLanguage } from '$lib/common'
@@ -31,6 +31,7 @@
 	let advancedOpen = false
 
 	let editor: Editor | undefined = undefined
+	let scriptEditor: ScriptEditor | undefined = undefined
 
 	export function setCode(code: string): void {
 		editor?.setCode(code)
@@ -79,7 +80,7 @@
 		template: 'pgsql' | 'mysql' | 'script'
 	) {
 		script.content = initialCode(language, kind, template)
-		editor?.setCode(script.content)
+		scriptEditor?.inferSchema(script.content, language)
 	}
 
 	async function editScript(leave: boolean): Promise<void> {
@@ -124,6 +125,22 @@
 		}
 		loadingSave = false
 	}
+
+	const dropdownItems: Array<{ label: string; onClick: () => void }> = [
+		{
+			label: 'Save and leave',
+			onClick: () => editScript(true)
+		}
+	]
+
+	if (initialPath != '') {
+		dropdownItems.push({
+			label: 'Fork',
+			onClick: () => {
+				window.open(`/scripts/add?template=${initialPath}`)
+			}
+		})
+	}
 </script>
 
 {#if !$userStore?.operator}
@@ -160,9 +177,9 @@
 						color={isPicked ? 'blue' : 'dark'}
 						btnClasses={isPicked ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
 						on:click={() => {
-							script.language = lang
 							template = 'script'
 							initContent(lang, script.kind, template)
+							script.language = lang
 						}}
 						disabled={lockedLanguage}
 					>
@@ -177,9 +194,9 @@
 					btnClasses={template == 'pgsql' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
 					disabled={lockedLanguage}
 					on:click={() => {
-						script.language = Script.language.DENO
 						template = 'pgsql'
 						initContent(script.language, script.kind, template)
+						script.language = Script.language.DENO
 					}}
 				>
 					<LanguageIcon lang="pgsql" /><span class="ml-2 py-2">PostgreSQL</span>
@@ -268,23 +285,16 @@
 					>
 						Customise
 					</Button>
-					<ButtonPopup
+					<Button
 						color="dark"
 						loading={loadingSave}
 						size="sm"
 						startIcon={{ icon: faSave }}
 						on:click={() => editScript(false)}
+						{dropdownItems}
 					>
-						<svelte:fragment slot="main">Save</svelte:fragment>
-						<ButtonPopupItem on:click={() => editScript(true)}>Save and exit</ButtonPopupItem>
-						{#if initialPath != ''}
-							<ButtonPopupItem
-								on:click={() => {
-									window.open(`/scripts/add?template=${initialPath}`)
-								}}>Fork</ButtonPopupItem
-							>
-						{/if}
-					</ButtonPopup>
+						Save
+					</Button>
 				</div>
 			</div>
 		</div>
@@ -309,6 +319,7 @@
 								template = 'script'
 								script.kind = value
 								initContent(script.language, value, template)
+								setCode(script.content)
 							}}
 						>
 							{title}
@@ -331,6 +342,7 @@
 		</Drawer>
 		<ScriptEditor
 			bind:editor
+			bind:this={scriptEditor}
 			bind:schema={script.schema}
 			path={script.path}
 			bind:code={script.content}
