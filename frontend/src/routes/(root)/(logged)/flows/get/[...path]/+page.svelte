@@ -326,7 +326,7 @@
 						></Tooltip
 					></h2
 				>
-				<div class="box max-w-2xl">
+				<div class="box max-w-5xl">
 					<div class="flex w-full flex-justify-between mb-1">
 						<a
 							on:click={(e) => {
@@ -411,7 +411,7 @@
 						<div class="max-w-lg">
 							<JobArgs args={schedule.args ?? {}} />
 						</div>
-						<div class="box max-w-lg mt-2">
+						<div class="box max-w-5xl mt-2">
 							<CronInput
 								disabled={true}
 								edit={true}

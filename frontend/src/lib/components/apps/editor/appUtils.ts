@@ -600,6 +600,9 @@ export function recursivelyFilterKeyInJSON(
 	search: string,
 	extraSearch?: string | undefined
 ): object {
+	if (json === null || json === undefined || typeof json != 'object') {
+		return json
+	}
 	if (!search || search == '') {
 		return json
 	}
@@ -616,7 +619,7 @@ export function recursivelyFilterKeyInJSON(
 		} else if (typeof json[key] === 'object') {
 			const res = recursivelyFilterKeyInJSON(json[key], search, extraSearch)
 
-			if (Object.keys(res).length !== 0) {
+			if (Object.keys(res ?? {}).length !== 0) {
 				filteredJSON[key] = res
 			}
 		}

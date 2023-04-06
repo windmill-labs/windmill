@@ -221,7 +221,7 @@
 							disabled={not_same_workspace}
 							on:click|once={() => {
 								$runFormStore = job?.args
-								goto(`${stem}/edit/${route}${isScript ? `?step=2` : `?nodraft=true`}`)
+								goto(`${stem}/edit/${route}${isScript ? `` : `?nodraft=true`}`)
 							}}
 							color="blue"
 							size="md"

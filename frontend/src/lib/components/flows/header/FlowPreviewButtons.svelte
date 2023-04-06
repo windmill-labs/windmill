@@ -33,36 +33,34 @@
 		$selectedId?.includes('branch')
 </script>
 
-<div class="flex flex-row-reverse justify-between items-center gap-x-2">
+<Button
+	size="xs"
+	on:click={() => {
+		previewMode = 'whole'
+		previewOpen = !previewOpen
+	}}
+	startIcon={{ icon: faPlay }}
+>
+	Test flow
+</Button>
+{#if !upToDisabled}
 	<Button
+		size="xs"
+		disabled={upToDisabled}
+		color="light"
+		variant="border"
 		on:click={() => {
-			previewMode = 'whole'
+			previewMode = 'upTo'
 			previewOpen = !previewOpen
 		}}
-		size="sm"
 		startIcon={{ icon: faPlay }}
 	>
-		Test flow
+		Test up to
+		<Badge baseClass="ml-1" color="indigo">
+			{$selectedId}
+		</Badge>
 	</Button>
-	{#if !upToDisabled}
-		<Button
-			size="sm"
-			disabled={upToDisabled}
-			color="light"
-			variant="border"
-			on:click={() => {
-				previewMode = 'upTo'
-				previewOpen = !previewOpen
-			}}
-			startIcon={{ icon: faPlay }}
-		>
-			Test up to
-			<Badge baseClass="ml-1" color="indigo">
-				{$selectedId}
-			</Badge>
-		</Button>
-	{/if}
-</div>
+{/if}
 
 <Drawer bind:open={previewOpen} alwaysOpen size="75%">
 	<FlowPreviewContent
