@@ -214,7 +214,7 @@
 					</Button>
 					{#if !$userStore?.operator}
 						<Button
-							href={`/scripts/edit/${script.hash}?step=2&args=${encodeState(args)}${
+							href={`/scripts/edit/${script.hash}?args=${encodeState(args)}${
 								topHash ? '&topHash=' + topHash : ''
 							}`}
 							color="blue"

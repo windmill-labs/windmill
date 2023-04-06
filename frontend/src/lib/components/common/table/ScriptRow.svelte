@@ -103,7 +103,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: faEdit }}
-							href="/scripts/edit/{hash}?step=2"
+							href="/scripts/edit/{hash}"
 						>
 							Edit
 						</Button>
@@ -161,7 +161,7 @@
 				{
 					displayName: 'Edit code',
 					icon: faEdit,
-					href: `/scripts/edit/${hash}?step=2`,
+					href: `/scripts/edit/${hash}`,
 					disabled: !canWrite || archived
 				},
 				{

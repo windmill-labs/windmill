@@ -70,7 +70,6 @@
 	$: !open ? setTimeout(() => (timeout = true), durationMs) : (timeout = false)
 	onMount(() => {
 		mounted = true
-		scrollLock(open)
 	})
 </script>
 

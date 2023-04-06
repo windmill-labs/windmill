@@ -5,7 +5,6 @@
 	import { runFormStore, workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 	import { decodeState } from '$lib/utils'
-	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 
 	const initialState = $page.url.searchParams.get('state')
 	let initialArgs = {}
@@ -21,6 +20,8 @@
 
 	let initialPath: string = ''
 
+	let scriptBuilder: ScriptBuilder | undefined = undefined
+
 	async function loadScript(): Promise<void> {
 		script =
 			scriptLoadedFromUrl != undefined && scriptLoadedFromUrl.hash == $page.params.hash
@@ -29,8 +30,10 @@
 						workspace: $workspaceStore!,
 						hash: $page.params.hash
 				  })
-		initialPath = script!.path
-		$dirtyStore = false
+		if (script) {
+			initialPath = script.path
+			scriptBuilder?.setCode(script.content)
+		}
 	}
 
 	$: {
@@ -41,5 +44,5 @@
 </script>
 
 {#if script}
-	<ScriptBuilder bind:topHash {initialPath} {script} {initialArgs} />
+	<ScriptBuilder bind:this={scriptBuilder} bind:topHash {initialPath} {script} {initialArgs} />
 {/if}

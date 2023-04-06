@@ -80,7 +80,8 @@
 			'rounded-md',
 			'justify-center items-center text-center whitespace-nowrap inline-flex',
 			btnClasses,
-			disabled ? '!bg-gray-300 !text-gray-600 !cursor-not-allowed' : ''
+			disabled ? '!bg-gray-300 !text-gray-600 !cursor-not-allowed' : '',
+			'transition-all'
 		),
 		href,
 		target,

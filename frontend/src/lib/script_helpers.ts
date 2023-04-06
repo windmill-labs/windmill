@@ -34,17 +34,19 @@ export const GO_INIT_CODE = `package inner
 import (
 	"fmt"
 	"rsc.io/quote"
-  // wmill "github.com/windmill-labs/windmill-go-client"
+	// wmill "github.com/windmill-labs/windmill-go-client"
 )
 
 // the main must return (interface{}, error)
 
-func main(x string, nested struct{ Foo string \`json:"foo"\` }) (interface{}, error) {
+func main(x string, nested struct {
+	Foo string \`json:"foo"\`
+}) (interface{}, error) {
 	fmt.Println("Hello, World")
 	fmt.Println(nested.Foo)
 	fmt.Println(quote.Opt())
-  // v, _ := wmill.GetVariable("f/examples/secret")
-  return x, nil
+	// v, _ := wmill.GetVariable("f/examples/secret")
+	return x, nil
 }
 `
 

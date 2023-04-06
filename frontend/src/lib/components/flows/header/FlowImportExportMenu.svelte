@@ -16,18 +16,16 @@
 	let jsonViewerDrawer: Drawer
 </script>
 
-<div class="flex-row gap-x-2 hidden sm:flex">
-	<Button
-		btnClasses="mr-2"
-		size="sm"
-		variant="border"
-		color="light"
-		on:click={() => jsonViewerDrawer.toggleDrawer()}
-	>
-		<Icon data={faFileExport} scale={0.6} class="inline mr-2" />
-		Export JSON
-	</Button>
-</div>
+<Button
+	btnClasses="mr-2"
+	size="xs"
+	variant="border"
+	color="light"
+	on:click={() => jsonViewerDrawer.toggleDrawer()}
+>
+	<Icon data={faFileExport} scale={0.6} class="inline mr-2" />
+	Export JSON
+</Button>
 
 <Drawer bind:this={jsonViewerDrawer} size="800px">
 	<DrawerContent title="OpenFlow JSON" on:close={() => jsonViewerDrawer.toggleDrawer()}>

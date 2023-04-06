@@ -67,7 +67,7 @@
 			New&nbsp;schedule
 		</Button>
 	</PageHeader>
-	<div class="mt-10 mb-40">
+	<div class="mt-10 mb-40 overflow-auto">
 		{#if loading}
 			<Skeleton layout={[0.5, [2.1], 0.7]} />
 			{#each new Array(6) as _}
@@ -94,7 +94,7 @@
 							</td>
 							<td class="max-w-sm">
 								<button
-									class="break-words text-left text-sm text-blue-600 font-normal"
+									class="break-all text-left text-sm text-blue-600 font-normal"
 									on:click={() => scheduleEditor?.openEdit(path, is_flow)}
 								>
 									{path}
@@ -104,13 +104,13 @@
 								<div class="inline-flex flex-row gap-x-2 align-middle w-full">
 									<div class="grow">
 										<a
-											class="text-sm break-words"
+											class="text-sm break-all"
 											href="{is_flow ? '/flows/get' : '/scripts/get'}/{script_path}"
 										>
 											{script_path}
 										</a>
 									</div>
-									<Badge class="text-2xs font-mono">{is_flow ? 'flow' : 'script'}></Badge>
+									<Badge class="text-2xs font-mono">{is_flow ? 'flow' : 'script'}</Badge>
 								</div>
 							</td>
 							<td>

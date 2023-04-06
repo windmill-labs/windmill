@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { ScheduleService } from '$lib/gen'
 	import { emptyString, formatCron } from '$lib/utils'
+	import Badge from './Badge.svelte'
 	import { Tab } from './common/index.js'
 	import Tabs from './common/tabs/Tabs.svelte'
 	// @ts-ignore
@@ -162,7 +163,7 @@
 
 					<div class="w-full flex gap-4">
 						<div class="w-full flex flex-col gap-1">
-							<select name="execute_every" id="execute_every" bind:value={executeEvery}>
+							<select {disabled} name="execute_every" id="execute_every" bind:value={executeEvery}>
 								<option value="second">Second(s)</option>
 								<option value="minute">Minute(s)</option>
 								<option value="hour">Hour(s)</option>
@@ -174,13 +175,13 @@
 
 						<div class="w-full flex flex-col gap-1 justify-center">
 							{#if executeEvery == 'second'}
-								<input type="number" min="0" max="59" bind:value={seconds} />
+								<input {disabled} type="number" min="0" max="59" bind:value={seconds} />
 								<small>Valid range 0-59</small>
 							{:else if executeEvery == 'minute'}
-								<input type="number" min="0" max="59" bind:value={minutes} />
+								<input {disabled} type="number" min="0" max="59" bind:value={minutes} />
 								<small>Valid range 0-59</small>
 							{:else if executeEvery == 'hour'}
-								<input type="number" min="0" max="23" bind:value={hours} />
+								<input {disabled} type="number" min="0" max="23" bind:value={hours} />
 								<small>Valid range 0-23</small>
 							{:else if executeEvery == 'day-month'}
 								<!-- <div class="w-full flex">
@@ -200,6 +201,7 @@
 					{#if executeEvery == 'month'}
 						<div class="w-full flex flex-col">
 							<Multiselect
+								{disabled}
 								bind:selected={monthsOfYear}
 								options={monthsOfYearOptions}
 								selectedOptionsDraggable={false}
@@ -211,6 +213,7 @@
 					{#if executeEvery == 'day-week'}
 						<div class="w-full flex flex-col">
 							<Multiselect
+								{disabled}
 								bind:selected={daysOfWeek}
 								options={daysOfWeekOptions}
 								selectedOptionsDraggable={false}
@@ -227,6 +230,7 @@
 							<div class="w-full flex gap-4">
 								<div class="w-full flex">
 									<Multiselect
+										{disabled}
 										bind:selected={daysOfMonth}
 										options={daysOfMonthOptions}
 										selectedOptionsDraggable={false}
@@ -252,7 +256,7 @@
 					{#if executeEvery == 'day-month' || executeEvery == 'month' || executeEvery == 'day-week'}
 						<div class="w-full flex flex-col gap-1">
 							<small class="font-bold">At UTC Time</small>
-							<input type="time" name="atUTCTime" id="atUTCTime" bind:value={UTCTime} />
+							<input {disabled} type="time" name="atUTCTime" id="atUTCTime" bind:value={UTCTime} />
 						</div>
 					{/if}
 				</div>
@@ -285,7 +289,13 @@
 			<div class="w-full flex flex-col gap-1">
 				<small class="font-bold">Timezone</small>
 
-				<TimezonePicker {timezone} on:update={(e) => (timezone = e.detail.timezone)} />
+				{#if disabled}
+					<div>
+						<Badge>{timezone}</Badge>
+					</div>
+				{:else}
+					<TimezonePicker {timezone} on:update={(e) => (timezone = e.detail.timezone)} />
+				{/if}
 
 				<!-- <select name="timezone" id="timezone" bind:value={offset}>
 					<option value={-11 * 60}>UTC-11</option>
