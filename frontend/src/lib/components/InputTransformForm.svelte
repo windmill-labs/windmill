@@ -43,17 +43,14 @@
 
 	let propertyType = getPropertyType(arg)
 
-	function isExprVariableOrResource() {
-		return (
-			(arg?.expr?.startsWith('variable(') || arg?.expr?.startsWith('resource(')) &&
-			arg?.expr?.endsWith(')')
-		)
-	}
-
 	function getPropertyType(arg: InputTransform | any): 'static' | 'javascript' {
 		let type: 'static' | 'javascript' = arg?.type ?? 'static'
 
-		if (type == 'javascript' && !isExprVariableOrResource()) {
+		if (
+			type == 'javascript' &&
+			isStaticTemplate(inputCat) &&
+			(arg.expr.length === 0 || arg.expr[0] === '`')
+		) {
 			const newValue = codeToStaticTemplate(arg.expr)
 			if (newValue) {
 				type = 'static'
