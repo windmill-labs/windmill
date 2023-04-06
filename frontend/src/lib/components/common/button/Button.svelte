@@ -148,7 +148,7 @@
 	</svelte:element>
 
 	{#if dropdownItems}
-		<div class={twMerge(buttonProps.class, 'rounded-r-md rounded-l-none m-0 p-0')}>
+		<div class={twMerge(buttonProps.class, 'rounded-r-md rounded-l-none m-0 p-0 h-auto')}>
 			<ButtonDropdown>
 				<svelte:fragment slot="items">
 					{#each dropdownItems as item}

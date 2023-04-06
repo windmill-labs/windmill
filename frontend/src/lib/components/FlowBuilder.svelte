@@ -267,12 +267,12 @@
 	const dropdownItems: Array<{
 		label: string
 		onClick: () => void
-	}> = []
-
-	dropdownItems.push({
-		label: 'Save and exit',
-		onClick: () => saveFlow(true)
-	})
+	}> = [
+		{
+			label: 'Save and exit',
+			onClick: () => saveFlow(true)
+		}
+	]
 
 	if (initialPath != '') {
 		dropdownItems.push({
@@ -290,7 +290,7 @@
 	<div class="flex flex-col flex-1 h-screen">
 		<!-- Nav between steps-->
 		<div
-			class="justify-between flex flex-row items-center pl-2.5 pr-6 space-x-4 overflow-x-auto scrollbar-hidden max-h-12 h-full"
+			class="justify-between flex flex-row items-center pl-2.5 pr-6 space-x-4 scrollbar-hidden max-h-12 h-full"
 		>
 			<div class="flex w-full max-w-md gap-4 items-center">
 				<div class="min-w-64 w-full">
@@ -314,7 +314,7 @@
 				/>
 			</div>
 
-			<div class="gap-4 flex-row hidden md:flex w-full max-w-md overflow-hidden">
+			<div class="gap-4 flex-row hidden md:flex w-full max-w-md">
 				{#if $scheduleStore.enabled}
 					<Button
 						btnClasses="hidden lg:inline-flex"
