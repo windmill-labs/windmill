@@ -16,6 +16,7 @@
 	},
 	"devDependencies": {
 		"@playwright/test": "^1.31.1",
+		"@rgossiaux/svelte-headlessui": "^1.0.2",
 		"@sveltejs/adapter-static": "^2.0.1",
 		"@sveltejs/kit": "^1.0.0-next.589",
 		"@sveltejs/package": "^1.0.2",
