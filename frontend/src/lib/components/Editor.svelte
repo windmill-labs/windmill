@@ -113,20 +113,24 @@
 		}
 	}
 
-	export function setCode(ncode: string): void {
+	export function setCode(ncode: string, noHistory: boolean = false): void {
 		code = ncode
-		if (editor?.getModel()) {
-			// editor.setValue(ncode)
-			editor.pushUndoStop()
+		if (noHistory) {
+			editor?.setValue(ncode)
+		} else {
+			if (editor?.getModel()) {
+				// editor.setValue(ncode)
+				editor.pushUndoStop()
 
-			editor.executeEdits('set', [
-				{
-					range: editor.getModel()!.getFullModelRange(), // full range
-					text: ncode
-				}
-			])
+				editor.executeEdits('set', [
+					{
+						range: editor.getModel()!.getFullModelRange(), // full range
+						text: ncode
+					}
+				])
 
-			editor.pushUndoStop()
+				editor.pushUndoStop()
+			}
 		}
 	}
 
@@ -262,12 +266,13 @@
 					})
 
 					try {
-						console.log('started client')
+						console.log('starting client')
 						await languageClient.start()
+						console.log('started client')
 					} catch (err) {
 						console.log('err at client')
 						console.error(err)
-						throw new Error(err)
+						return
 					}
 
 					lastWsAttempt = new Date()
