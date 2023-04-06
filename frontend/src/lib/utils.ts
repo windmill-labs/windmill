@@ -626,11 +626,9 @@ export function classNames(...classes: Array<string | undefined>): string {
 	return classes.filter(Boolean).join(' ')
 }
 
-export function scriptLangToEditorLang(
-	lang: Script.language
-): 'typescript' | 'python' | 'go' | 'shell' {
+export function scriptLangToEditorLang(lang: Script.language): 'deno' | 'python' | 'go' | 'shell' {
 	if (lang == 'deno') {
-		return 'typescript'
+		return 'deno'
 	} else if (lang == 'python3') {
 		return 'python'
 	} else if (lang == 'bash') {

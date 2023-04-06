@@ -9,14 +9,21 @@
 		updateOptions
 	} from '$lib/editorUtils'
 	import libStdContent from '$lib/es5.d.ts.txt?raw'
-	import { editor as meditor, languages, Range, Uri as mUri } from 'monaco-editor'
-	import { buildWorkerDefinition } from 'monaco-editor-workers'
+	import {
+		editor as meditor,
+		Uri as mUri,
+		languages,
+		Range
+	} from 'monaco-editor/esm/vs/editor/edcore.main'
+	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
 	import { createEventDispatcher, getContext, onDestroy, onMount } from 'svelte'
 	import type { AppViewerContext } from './apps/types'
 	import { writable } from 'svelte/store'
+	import * as typescript from 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
+	import { buildWorkerDefinition } from './build_workers'
 
-	languages.typescript.javascriptDefaults.setCompilerOptions({
-		target: languages.typescript.ScriptTarget.Latest,
+	typescript.javascriptDefaults.setCompilerOptions({
+		target: typescript.ScriptTarget.Latest,
 		allowNonTsExtensions: true,
 		noLib: true
 	})

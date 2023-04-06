@@ -2,7 +2,18 @@
 	import { browser } from '$app/environment'
 
 	import { createHash, editorConfig, langToExt, updateOptions } from '$lib/editorUtils'
-	import { editor as meditor, KeyCode, KeyMod, languages, Uri as mUri } from 'monaco-editor'
+	import {
+		editor as meditor,
+		KeyCode,
+		KeyMod,
+		Uri as mUri
+	} from 'monaco-editor/esm/vs/editor/edcore.main'
+	import 'monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution'
+	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
+	import 'monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution'
+	import * as typescript from 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
+	import * as json from 'monaco-editor/esm/vs/language/json/monaco.contribution'
+
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 
 	import libStdContent from '$lib/es5.d.ts.txt?raw'
@@ -19,13 +30,13 @@
 	})
 	meditor.setTheme('myTheme')
 
-	languages.typescript.javascriptDefaults.setCompilerOptions({
-		target: languages.typescript.ScriptTarget.Latest,
+	typescript.javascriptDefaults.setCompilerOptions({
+		target: typescript.ScriptTarget.Latest,
 		allowNonTsExtensions: true,
 		noLib: true
 	})
 
-	languages.json.jsonDefaults.setDiagnosticsOptions({
+	json.jsonDefaults.setDiagnosticsOptions({
 		validate: true,
 		allowComments: false,
 		schemas: [],
@@ -151,7 +162,7 @@
 		if (lang == 'javascript') {
 			const stdLib = { content: libStdContent, filePath: 'es5.d.ts' }
 			if (extraLib != '') {
-				languages.typescript.javascriptDefaults.setExtraLibs([
+				typescript.javascriptDefaults.setExtraLibs([
 					{
 						content: extraLib,
 						filePath: 'windmill.d.ts'
@@ -159,7 +170,7 @@
 					stdLib
 				])
 			} else {
-				languages.typescript.javascriptDefaults.setExtraLibs([stdLib])
+				typescript.javascriptDefaults.setExtraLibs([stdLib])
 			}
 		}
 	}

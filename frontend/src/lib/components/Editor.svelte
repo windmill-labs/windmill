@@ -18,23 +18,26 @@
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/utils'
 
-	import { buildWorkerDefinition } from 'monaco-editor-workers'
 	import type { MonacoLanguageClient } from 'monaco-languageclient'
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 
-	import { editor as meditor, KeyCode, KeyMod, languages, Uri as mUri } from 'monaco-editor'
+	import {
+		editor as meditor,
+		KeyCode,
+		KeyMod,
+		Uri as mUri
+	} from 'monaco-editor/esm/vs/editor/edcore.main'
+	import { registerLanguage } from 'monaco-editor/esm/vs/basic-languages/_.contribution'
 
-	languages.typescript.typescriptDefaults.setCompilerOptions({
-		target: languages.typescript.ScriptTarget.Latest,
-		allowNonTsExtensions: true,
-		noLib: true
+	registerLanguage({
+		id: 'deno',
+		extensions: ['.deno'],
+		aliases: ['Deno'],
+		mimetypes: ['text/typescript'],
+		loader: () => {
+			return import('monaco-editor/esm/vs/basic-languages/typescript/typescript')
+		}
 	})
-	languages.typescript.typescriptDefaults.setDiagnosticsOptions({
-		noSemanticValidation: true,
-		noSuggestionDiagnostics: true,
-		noSyntaxValidation: true
-	})
-	languages.typescript.typescriptDefaults.setExtraLibs([])
 
 	meditor.defineTheme('myTheme', {
 		base: 'vs',
@@ -62,11 +65,12 @@
 	import type { Disposable } from 'vscode'
 	import type { DocumentUri, MessageTransports } from 'vscode-languageclient'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
+	import { buildWorkerDefinition } from './build_workers'
 
 	let divEl: HTMLDivElement | null = null
 	let editor: meditor.IStandaloneCodeEditor
 
-	export let lang: 'typescript' | 'python' | 'go' | 'shell'
+	export let lang: 'deno' | 'python' | 'go' | 'shell'
 	export let code: string = ''
 	export let hash: string = randomHash()
 	export let cmdEnterAction: (() => void) | undefined = undefined
@@ -142,7 +146,7 @@
 
 	export async function clearContent() {
 		if (editor) {
-			if (lang == 'typescript') {
+			if (lang == 'deno') {
 				setCode(DENO_INIT_CODE_CLEAR)
 			} else if (lang == 'python') {
 				setCode(PYTHON_INIT_CODE_CLEAR)
@@ -298,7 +302,7 @@
 		}
 
 		const wsProtocol = $page.url.protocol == 'https:' ? 'wss' : 'ws'
-		if (lang == 'typescript') {
+		if (lang == 'deno') {
 			await connectToLanguageServer(
 				`${wsProtocol}://${$page.url.host}/ws/deno`,
 				'deno',
