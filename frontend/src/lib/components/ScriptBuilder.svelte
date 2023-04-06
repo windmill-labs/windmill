@@ -32,6 +32,10 @@
 
 	let editor: Editor | undefined = undefined
 
+	export function setCode(code: string): void {
+		editor?.setCode(code)
+	}
+
 	const langs: [string, SupportedLanguage][] = [
 		['Typescript', Script.language.DENO],
 		['Python', Script.language.PYTHON3],
@@ -75,7 +79,6 @@
 		template: 'pgsql' | 'mysql' | 'script'
 	) {
 		script.content = initialCode(language, kind, template)
-		editor?.setCode(script.content)
 	}
 
 	async function editScript(leave: boolean): Promise<void> {
@@ -172,9 +175,9 @@
 						color={isPicked ? 'blue' : 'dark'}
 						btnClasses={isPicked ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
 						on:click={() => {
-							script.language = lang
 							template = 'script'
 							initContent(lang, script.kind, template)
+							script.language = lang
 						}}
 						disabled={lockedLanguage}
 					>
@@ -189,9 +192,9 @@
 					btnClasses={template == 'pgsql' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
 					disabled={lockedLanguage}
 					on:click={() => {
-						script.language = Script.language.DENO
 						template = 'pgsql'
 						initContent(script.language, script.kind, template)
+						script.language = Script.language.DENO
 					}}
 				>
 					<LanguageIcon lang="pgsql" /><span class="ml-2 py-2">PostgreSQL</span>
@@ -314,6 +317,7 @@
 								template = 'script'
 								script.kind = value
 								initContent(script.language, value, template)
+								setCode(script.content)
 							}}
 						>
 							{title}
