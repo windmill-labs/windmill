@@ -70,7 +70,8 @@
 		email: $userStore?.email,
 		username: $userStore?.username,
 		query: Object.fromEntries($page.url.searchParams.entries()),
-		hash: $page.url.hash
+		hash: $page.url.hash,
+		workspace: $workspaceStore
 	}
 
 	const worldStore = buildWorld(context)

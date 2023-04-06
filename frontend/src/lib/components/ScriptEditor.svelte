@@ -23,17 +23,15 @@
 	export let code: string
 	export let path: string | undefined
 	export let lang: Preview.language
-	export let kind: 'script' | 'trigger' | 'approval' | undefined = undefined
+	export let kind: string | undefined = undefined
 	export let initialArgs: Record<string, any> = {}
 	export let fixedOverflowWidgets = true
 	export let noSyncFromGithub = false
+	export let editor: Editor | undefined = undefined
 
 	let websocketAlive = { pyright: false, black: false, deno: false, go: false }
 
 	let width = 1200
-
-	// Internal state
-	let editor: Editor
 
 	let testJobLoader: TestJobLoader
 
@@ -102,6 +100,10 @@
 		inferSchema(code)
 		loadPastTests()
 	})
+
+	function asKind(str: string | undefined) {
+		return str as 'script' | 'approval' | 'trigger' | undefined
+	}
 </script>
 
 <TestJobLoader
@@ -121,7 +123,7 @@
 			{editor}
 			{lang}
 			{websocketAlive}
-			{kind}
+			kind={asKind(kind)}
 		/>
 		{#if !noSyncFromGithub}
 			<div class="py-1">
@@ -150,31 +152,33 @@
 					inferSchema(code)
 				}}
 			>
-				<Editor
-					bind:code
-					bind:websocketAlive
-					bind:this={editor}
-					on:change={(e) => {
-						inferSchema(e.detail)
-					}}
-					cmdEnterAction={async () => {
-						await inferSchema(code)
-						runTest()
-					}}
-					formatAction={async () => {
-						await inferSchema(code)
-						try {
-							localStorage.setItem(path ?? 'last_save', code)
-						} catch (e) {
-							console.error('Could not save last_save to local storage', e)
-						}
-						lastSave = code
-					}}
-					class="flex flex-1 h-full !overflow-visible"
-					lang={scriptLangToEditorLang(lang)}
-					automaticLayout={true}
-					{fixedOverflowWidgets}
-				/>
+				{#key lang}
+					<Editor
+						bind:code
+						bind:websocketAlive
+						bind:this={editor}
+						on:change={(e) => {
+							inferSchema(e.detail)
+						}}
+						cmdEnterAction={async () => {
+							await inferSchema(code)
+							runTest()
+						}}
+						formatAction={async () => {
+							await inferSchema(code)
+							try {
+								localStorage.setItem(path ?? 'last_save', code)
+							} catch (e) {
+								console.error('Could not save last_save to local storage', e)
+							}
+							lastSave = code
+						}}
+						class="flex flex-1 h-full !overflow-visible"
+						lang={scriptLangToEditorLang(lang)}
+						automaticLayout={true}
+						{fixedOverflowWidgets}
+					/>
+				{/key}
 			</div>
 		</Pane>
 		<Pane size={40} minSize={10}>

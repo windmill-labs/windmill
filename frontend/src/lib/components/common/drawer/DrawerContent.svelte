@@ -13,7 +13,7 @@
 		<div class="flex items-center gap-2">
 			<CloseButton on:close />
 
-			<span class="font-semibold truncate text-gray-800">{title}</span>
+			<span class="font-semibold truncate text-gray-800">{title ?? ''}</span>
 		</div>
 		{#if $$slots.actions}
 			<div class="flex gap-1 items-center justify-end">

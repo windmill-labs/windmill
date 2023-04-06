@@ -33,7 +33,7 @@
 	import Kbd from './common/kbd/Kbd.svelte'
 
 	export let lang: 'python3' | 'deno' | 'go' | 'bash'
-	export let editor: Editor
+	export let editor: Editor | undefined
 	export let websocketAlive: { pyright: boolean; black: boolean; deno: boolean; go: boolean }
 	export let iconOnly: boolean = false
 	export let validCode: boolean = true
@@ -50,10 +50,10 @@
 		undefined
 
 	function addEditorActions() {
-		editor.addAction('insert-variable', 'Windmill: Insert variable', () => {
+		editor?.addAction('insert-variable', 'Windmill: Insert variable', () => {
 			variablePicker.openDrawer()
 		})
-		editor.addAction('insert-resource', 'Windmill: Insert resource', () => {
+		editor?.addAction('insert-resource', 'Windmill: Insert resource', () => {
 			resourcePicker.openDrawer()
 		})
 	}
@@ -110,6 +110,7 @@
 <ItemPicker
 	bind:this={contextualVariablePicker}
 	pickCallback={(path, name) => {
+		if (!editor) return
 		if (lang == 'deno') {
 			editor.insertAtCursor(`Deno.env.get('${name}')`)
 		} else if (lang == 'python3') {
@@ -135,6 +136,7 @@
 <ItemPicker
 	bind:this={variablePicker}
 	pickCallback={(path, name) => {
+		if (!editor) return
 		if (lang == 'deno') {
 			if (!editor.getCode().includes('import * as wmill from')) {
 				editor.insertAtBeginning(
@@ -182,6 +184,7 @@
 <ItemPicker
 	bind:this={resourcePicker}
 	pickCallback={(path, _) => {
+		if (!editor) return
 		if (lang == 'deno') {
 			if (!editor.getCode().includes('import * as wmill from')) {
 				editor.insertAtBeginning(
@@ -307,7 +310,7 @@
 					size="xs"
 					spacingSize="md"
 					color="light"
-					on:click={editor.clearContent}
+					on:click={editor?.clearContent}
 					{iconOnly}
 					startIcon={{ icon: faRotateLeft }}
 				>
@@ -327,7 +330,7 @@
 					size="xs"
 					spacingSize="md"
 					color="light"
-					on:click={editor.reloadWebsocket}
+					on:click={editor?.reloadWebsocket}
 					startIcon={{ icon: faRotate }}
 				>
 					{#if !iconOnly}
@@ -358,7 +361,7 @@
 					size="xs"
 					spacingSize="md"
 					color="light"
-					on:click={editor.format}
+					on:click={editor?.format}
 					{iconOnly}
 					startIcon={{ icon: faBroom }}
 				>
@@ -386,7 +389,7 @@
 			{iconOnly}
 			startIcon={{ icon: faEye }}
 		>
-			Script
+			Explore other scripts
 		</Button>
 		<svelte:fragment slot="text">Script</svelte:fragment>
 	</Popover>
