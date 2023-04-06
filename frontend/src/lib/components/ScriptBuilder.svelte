@@ -32,6 +32,10 @@
 
 	let editor: Editor | undefined = undefined
 
+	export function setCode(code: string): void {
+		editor?.setCode(code)
+	}
+
 	const langs: [string, SupportedLanguage][] = [
 		['Typescript', Script.language.DENO],
 		['Python', Script.language.PYTHON3],
