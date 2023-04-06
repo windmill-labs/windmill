@@ -61,6 +61,7 @@ export function buildWorkerDefinition(
 
 		switch (label) {
 			case 'template':
+			case 'deno':
 			case 'javascript':
 				return buildWorker(workerOverrideGlobals, label, 'tsWorker', 'TS Worker')
 			case 'html':

@@ -28,11 +28,14 @@
 		Uri as mUri
 	} from 'monaco-editor/esm/vs/editor/edcore.main'
 	import { registerLanguage } from 'monaco-editor/esm/vs/basic-languages/_.contribution'
+	import 'monaco-editor/esm/vs/basic-languages/python/python.contribution'
+	import 'monaco-editor/esm/vs/basic-languages/go/go.contribution'
+	import 'monaco-editor/esm/vs/basic-languages/shell/shell.contribution'
 
 	registerLanguage({
 		id: 'deno',
-		extensions: ['.deno'],
-		aliases: ['Deno'],
+		extensions: ['.deno', '.ts'],
+		aliases: ['Deno', 'typescript', 'ts'],
 		mimetypes: ['text/typescript'],
 		loader: () => {
 			return import('monaco-editor/esm/vs/basic-languages/typescript/typescript')

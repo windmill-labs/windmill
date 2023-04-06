@@ -144,6 +144,7 @@
 </script>
 
 {#if !$userStore?.operator}
+	{metadataOpen}
 	<Drawer placement="right" open={metadataOpen} size="800px">
 		<DrawerContent title="Metadata" on:close={() => (metadataOpen = false)}>
 			<h2 class="border-b pb-1 mb-4">Path</h2>
