@@ -8,7 +8,7 @@
 	import { setContext } from 'svelte'
 	import { writable, type Writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
-	import { Badge, Button, ButtonPopup, ButtonPopupItem, UndoRedo } from './common'
+	import { Badge, Button, UndoRedo } from './common'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
 	import FlowEditor from './flows/FlowEditor.svelte'
 	import ScriptEditorDrawer from './flows/content/ScriptEditorDrawer.svelte'
@@ -263,6 +263,23 @@
 			...dfs($flowStore.value.modules, (module) => module.id)
 		]
 	}
+
+	const dropdownItems: Array<{
+		label: string
+		onClick: () => void
+	}> = [
+		{
+			label: 'Save and exit',
+			onClick: () => saveFlow(true)
+		}
+	]
+
+	if (initialPath != '') {
+		dropdownItems.push({
+			label: 'Fork',
+			onClick: () => window.open(`/flows/add?template=${initialPath}`)
+		})
+	}
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -273,7 +290,7 @@
 	<div class="flex flex-col flex-1 h-screen">
 		<!-- Nav between steps-->
 		<div
-			class="justify-between flex flex-row items-center pl-2.5 pr-6 space-x-4 overflow-x-auto scrollbar-hidden max-h-12 h-full"
+			class="justify-between flex flex-row items-center pl-2.5 pr-6 space-x-4 scrollbar-hidden max-h-12 h-full"
 		>
 			<div class="flex w-full max-w-md gap-4 items-center">
 				<div class="min-w-64 w-full">
@@ -297,7 +314,7 @@
 				/>
 			</div>
 
-			<div class="gap-4 flex-row hidden md:flex w-full max-w-md overflow-hidden">
+			<div class="gap-4 flex-row hidden md:flex w-full max-w-md">
 				{#if $scheduleStore.enabled}
 					<Button
 						btnClasses="hidden lg:inline-flex"
@@ -344,22 +361,15 @@
 
 				<FlowPreviewButtons />
 				<div class="center-center">
-					<ButtonPopup
+					<Button
 						loading={loadingSave}
 						size="xs"
 						startIcon={{ icon: faSave }}
 						on:click={() => saveFlow(false)}
+						{dropdownItems}
 					>
-						<svelte:fragment slot="main">Save</svelte:fragment>
-						<ButtonPopupItem on:click={() => saveFlow(true)}>Save and exit</ButtonPopupItem>
-						{#if initialPath != ''}
-							<ButtonPopupItem
-								on:click={() => {
-									window.open(`/flows/add?template=${initialPath}`)
-								}}>Fork</ButtonPopupItem
-							>
-						{/if}
-					</ButtonPopup>
+						Save
+					</Button>
 				</div>
 			</div>
 		</div>
