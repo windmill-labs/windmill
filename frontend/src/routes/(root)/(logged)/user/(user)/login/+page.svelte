@@ -152,7 +152,9 @@
 		</p>
 	</div>
 
-	<div class="mt-8 sm:mx-auto sm:w-full sm:max-w-xl">
+	<div
+		class={classNames('mt-8 sm:mx-auto sm:w-full sm:max-w-xl', showPassword ? 'mb-16' : 'mb-48')}
+	>
 		<div class="bg-white px-4 py-8 shadow md:border sm:rounded-lg sm:px-10">
 			<div class="grid grid-cols-2 gap-4">
 				{#if !logins}
