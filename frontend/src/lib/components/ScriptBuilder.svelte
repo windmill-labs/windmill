@@ -31,6 +31,7 @@
 	let advancedOpen = false
 
 	let editor: Editor | undefined = undefined
+	let scriptEditor: ScriptEditor | undefined = undefined
 
 	export function setCode(code: string): void {
 		editor?.setCode(code)
@@ -79,6 +80,7 @@
 		template: 'pgsql' | 'mysql' | 'script'
 	) {
 		script.content = initialCode(language, kind, template)
+		scriptEditor?.inferSchema(script.content, language)
 	}
 
 	async function editScript(leave: boolean): Promise<void> {
@@ -331,6 +333,7 @@
 		</Drawer>
 		<ScriptEditor
 			bind:editor
+			bind:this={scriptEditor}
 			bind:schema={script.schema}
 			path={script.path}
 			bind:code={script.content}

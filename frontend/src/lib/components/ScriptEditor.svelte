@@ -68,7 +68,7 @@
 		})
 	}
 
-	async function inferSchema(code: string) {
+	export async function inferSchema(code: string, nlang?: 'go' | 'bash' | 'python3' | 'deno') {
 		schema = schema ?? emptySchema()
 		let isDefault: string[] = []
 		Object.entries(args).forEach(([k, v]) => {
@@ -78,7 +78,7 @@
 		})
 
 		try {
-			await inferArgs(lang, code, schema)
+			await inferArgs(nlang ?? lang, code, schema)
 			validCode = true
 		} catch (e) {
 			validCode = false
@@ -146,12 +146,7 @@
 <SplitPanesWrapper>
 	<Splitpanes class="!overflow-visible">
 		<Pane size={60} minSize={10} class="!overflow-visible">
-			<div
-				class="pl-2 h-full !overflow-visible"
-				on:mouseleave={() => {
-					inferSchema(code)
-				}}
-			>
+			<div class="pl-2 h-full !overflow-visible">
 				{#key lang}
 					<Editor
 						bind:code
