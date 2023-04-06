@@ -6,17 +6,15 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::str::FromStr;
-
-use chrono::Duration;
+use crate::{push, JobPayload};
 use sqlx::{query_scalar, Postgres, Transaction};
+use std::str::FromStr;
 use windmill_common::{
     error::{self, Result},
     schedule::Schedule,
     users::username_to_permissioned_as,
     utils::{now_from_db, StripPath},
 };
-
 use crate::{push, JobPayload, QueueTransaction};
 
 pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
@@ -26,13 +24,21 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     let sched = cron::Schedule::from_str(&schedule.schedule)
         .map_err(|e| error::Error::BadRequest(e.to_string()))?;
 
-    let offset = Duration::minutes(schedule.offset_.into());
-    let now = now_from_db(&mut tx).await?;
+    let tz = chrono_tz::Tz::from_str(&schedule.timezone)
+        .map_err(|e| error::Error::BadRequest(e.to_string()))?;
+
+    let now = now_from_db(&mut tx).await?.with_timezone(&tz);
+
     let next = sched
-        .after(&(now - offset + Duration::seconds(1)))
+        .after(&now)
         .next()
-        .expect("a schedule should have a next event")
-        + offset;
+        .expect("a schedule should have a next event");
+
+    // println!("next event ({:?}): {}", tz, next);
+    // println!("next event(UTC): {}", next.with_timezone(&chrono::Utc));
+
+    // Scheduled events must be stored in the database in UTC
+    let next = next.with_timezone(&chrono::Utc);
 
     let already_exists: bool = query_scalar!(
         "SELECT EXISTS (SELECT 1 FROM queue WHERE workspace_id = $1 AND schedule_path = $2 AND scheduled_for = $3)",

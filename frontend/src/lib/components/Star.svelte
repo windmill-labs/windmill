@@ -13,6 +13,7 @@
 	let buttonHover = false
 
 	async function onClick() {
+		buttonHover = false
 		if (starred) {
 			await FavoriteService.unstar({
 				workspace: workspace_id,

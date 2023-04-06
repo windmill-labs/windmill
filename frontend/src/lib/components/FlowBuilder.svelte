@@ -4,15 +4,14 @@
 	import { initHistory, redo, undo } from '$lib/history'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { encodeState, formatCron, loadHubScripts, sendUserToast } from '$lib/utils'
-	import { faCalendarAlt, faPen, faSave } from '@fortawesome/free-solid-svg-icons'
+	import { faCalendarAlt, faSave } from '@fortawesome/free-solid-svg-icons'
 	import { setContext } from 'svelte'
 	import { writable, type Writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
-	import { Button, ButtonPopup, ButtonPopupItem, UndoRedo } from './common'
+	import { Badge, Button, ButtonPopup, ButtonPopupItem, UndoRedo } from './common'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
-	import { OFFSET } from './CronInput.svelte'
-	import ScriptEditorDrawer from './flows/content/ScriptEditorDrawer.svelte'
 	import FlowEditor from './flows/FlowEditor.svelte'
+	import ScriptEditorDrawer from './flows/content/ScriptEditorDrawer.svelte'
 	import type { FlowState } from './flows/flowState'
 	import { dfs } from './flows/flowStore'
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
@@ -20,6 +19,7 @@
 	import { loadFlowSchedule, type Schedule } from './flows/scheduleUtils'
 	import type { FlowEditorContext } from './flows/types'
 	import { cleanInputs } from './flows/utils'
+	import { Pen } from 'lucide-svelte'
 
 	export let initialPath: string = ''
 	export let selectedId: string | undefined
@@ -29,7 +29,7 @@
 	export let flowStateStore: Writable<FlowState>
 
 	async function createSchedule(path: string) {
-		const { cron, args, enabled } = $scheduleStore
+		const { cron, timezone, args, enabled } = $scheduleStore
 
 		try {
 			await ScheduleService.createSchedule({
@@ -37,7 +37,7 @@
 				requestBody: {
 					path: path,
 					schedule: formatCron(cron),
-					offset: OFFSET,
+					timezone,
 					script_path: path,
 					is_flow: true,
 					args,
@@ -55,7 +55,7 @@
 		loadingSave = true
 		try {
 			const flow = cleanInputs($flowStore)
-			const { cron, args, enabled } = $scheduleStore
+			const { cron, timezone, args, enabled } = $scheduleStore
 			$dirtyStore = false
 			if (initialPath === '') {
 				localStorage.removeItem('flow')
@@ -100,6 +100,7 @@
 							path: flow.path,
 							requestBody: {
 								schedule: formatCron(cron),
+								timezone,
 								args
 							}
 						})
@@ -155,7 +156,12 @@
 
 	const selectedIdStore = writable<string>(selectedId ?? 'settings-metadata')
 
-	const scheduleStore = writable<Schedule>({ args: {}, cron: '', enabled: false })
+	const scheduleStore = writable<Schedule>({
+		args: {},
+		cron: '',
+		timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+		enabled: false
+	})
 	const previewArgsStore = writable<Record<string, any>>(initialArgs)
 	const scriptEditorDrawer = writable<ScriptEditorDrawer | undefined>(undefined)
 	const moving = writable<{ module: FlowModule; modules: FlowModule[] } | undefined>(undefined)
@@ -187,6 +193,7 @@
 			.catch(() => {
 				scheduleStore.set({
 					cron: '0 */5 * * *',
+					timezone: 'UTC',
 					args: {},
 					enabled: false
 				})
@@ -266,10 +273,17 @@
 	<div class="flex flex-col flex-1 h-screen">
 		<!-- Nav between steps-->
 		<div
-			class="justify-between flex flex-row w-full items-center pl-2.5 pr-6 space-x-4 overflow-x-auto scrollbar-hidden max-h-12 h-full"
+			class="justify-between flex flex-row items-center pl-2.5 pr-6 space-x-4 overflow-x-auto scrollbar-hidden max-h-12 h-full"
 		>
-			<div class="flex flex-row gap-4 items-center">
-				<FlowImportExportMenu />
+			<div class="flex w-full max-w-md gap-4 items-center">
+				<div class="min-w-64 w-full">
+					<input
+						type="text"
+						placeholder="Flow summary"
+						class="text-sm w-full font-semibold"
+						bind:value={$flowStore.summary}
+					/>
+				</div>
 				<UndoRedo
 					undoProps={{ disabled: $history.index === 0 }}
 					redoProps={{ disabled: $history.index === $history.history.length - 1 }}
@@ -283,7 +297,7 @@
 				/>
 			</div>
 
-			<div class="gap-1 flex-row hidden md:flex shrink overflow-hidden">
+			<div class="gap-4 flex-row hidden md:flex w-full max-w-md overflow-hidden">
 				{#if $scheduleStore.enabled}
 					<Button
 						btnClasses="hidden lg:inline-flex"
@@ -298,40 +312,41 @@
 						{$scheduleStore.cron ?? ''}
 					</Button>
 				{/if}
-				<Button
-					btnClasses="hidden lg:inline-flex"
-					startIcon={{ icon: faPen }}
-					variant="contained"
-					color="light"
-					size="xs"
-					on:click={async () => {
-						select('settings-metadata')
-						document.getElementById('path')?.focus()
-					}}
-				>
-					{$flowStore.path && $flowStore.path != '' ? $flowStore.path : 'Choose a path'}
-				</Button>
-				<Button
-					startIcon={{ icon: faPen }}
-					variant="contained"
-					color="light"
-					size="xs"
-					on:click={async () => {
-						select('settings-metadata')
-						document.getElementById('flow-summary')?.focus()
-					}}
-				>
-					<div class="max-w-[10em] !truncate">
-						{$flowStore.summary == '' || !$flowStore.summary ? 'No summary' : $flowStore.summary}
+				<div class="flex justify-start w-full">
+					<div>
+						<button
+							on:click={async () => {
+								select('settings-metadata')
+								document.getElementById('path')?.focus()
+							}}
+						>
+							<Badge
+								color="gray"
+								class="center-center !bg-gray-300 !text-gray-600 !h-[28px]  !w-[70px] rounded-r-none"
+							>
+								<Pen size={12} class="mr-2" /> Path
+							</Badge>
+						</button>
 					</div>
-				</Button>
+					<input
+						type="text"
+						readonly
+						value={$flowStore.path && $flowStore.path != '' ? $flowStore.path : 'Choose a path'}
+						class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 !rounded-l-none"
+						on:focus={({ currentTarget }) => {
+							currentTarget.select()
+						}}
+					/>
+				</div>
 			</div>
 			<div class="flex flex-row space-x-2">
+				<FlowImportExportMenu />
+
 				<FlowPreviewButtons />
 				<div class="center-center">
 					<ButtonPopup
 						loading={loadingSave}
-						size="sm"
+						size="xs"
 						startIcon={{ icon: faSave }}
 						on:click={() => saveFlow(false)}
 					>

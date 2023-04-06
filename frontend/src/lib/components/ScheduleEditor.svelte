@@ -7,26 +7,26 @@
 </script>
 
 <script lang="ts">
-	import Toggle from '$lib/components/Toggle.svelte'
-	import { FlowService, ScheduleService, Script, ScriptService, type Flow } from '$lib/gen'
-	import { canWrite, emptyString, formatCron, sendUserToast } from '$lib/utils'
-
 	import { Alert, Button } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
-	import CronInput, { OFFSET } from '$lib/components/CronInput.svelte'
+	import CronInput from '$lib/components/CronInput.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { FlowService, ScheduleService, Script, ScriptService, type Flow } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
+	import { canWrite, emptyString, formatCron, sendUserToast } from '$lib/utils'
 	import { faSave } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 
 	let initialPath = ''
 	let edit = true
 	let schedule: string = '0 0 12 * *'
+	let timezone: string = Intl.DateTimeFormat().resolvedOptions().timeZone
 
 	let itemKind: 'flow' | 'script' = 'script'
 
@@ -37,7 +37,11 @@
 		is_flow = isFlow
 		initialPath = ePath
 		itemKind = is_flow ? 'flow' : 'script'
-		path = ePath
+		if (path == ePath) {
+			loadSchedule()
+		} else {
+			path = ePath
+		}
 		edit = true
 		drawer?.openDrawer()
 	}
@@ -49,6 +53,7 @@
 		path = initialScriptPath
 		initialPath = initialScriptPath
 		script_path = initialScriptPath
+		timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
 		drawer?.openDrawer()
 	}
 
@@ -91,6 +96,7 @@
 			})
 			enabled = s.enabled
 			schedule = s.schedule
+			timezone = s.timezone
 			script_path = s.script_path ?? ''
 			is_flow = s.is_flow
 			args = s.args ?? {}
@@ -107,6 +113,7 @@
 				path: initialPath,
 				requestBody: {
 					schedule: formatCron(schedule),
+					timezone,
 					args
 				}
 			})
@@ -117,7 +124,7 @@
 				requestBody: {
 					path,
 					schedule: formatCron(schedule),
-					offset: OFFSET,
+					timezone,
 					script_path,
 					is_flow,
 					args,
@@ -190,7 +197,8 @@
 				<span class="mr-1">Schedule</span>
 				<Tooltip>Schedules use CRON syntax. Seconds are mandatory.</Tooltip>
 			</h2>
-			<CronInput disabled={!can_write} bind:schedule bind:validCRON />
+
+			<CronInput disabled={!can_write} {edit} bind:schedule bind:timezone bind:validCRON />
 
 			<h2 class="border-b pb-1 mt-8 mb-2">Runnable</h2>
 			{#if !edit}

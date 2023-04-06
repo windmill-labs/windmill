@@ -78,7 +78,7 @@ headers = "^0"
 hyper = { version = "^0", features = ["full"] }
 tokio = { version = "^1", features = ["full", "tracing"] }
 tower = "^0"
-tower-http = { version = "^0", features = ["trace"] }
+tower-http = { version = "^0", features = ["trace", "cors"] }
 tower-cookies = "^0"
 serde = "^1"
 serde_json = { version = "^1", features = ["preserve_order"] }
@@ -86,6 +86,7 @@ uuid = { version = "^1", features = ["serde", "v4"] }
 thiserror = "^1"
 anyhow = "^1"
 chrono = { version = "^0", features = ["serde"] }
+chrono-tz = "^0"
 tracing = "^0"
 tracing-subscriber = { version = "^0", features = ["env-filter", "json"] }
 prometheus = { version = "^0", default-features = false }

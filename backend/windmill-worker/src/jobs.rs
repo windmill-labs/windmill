@@ -236,7 +236,7 @@ pub async fn schedule_again_if_scheduled<'c, R: rsmq_async::RsmqConnection + Clo
                 edited_by: schedule.edited_by,
                 edited_at: schedule.edited_at,
                 schedule: schedule.schedule,
-                offset_: schedule.offset_,
+                timezone: schedule.timezone,
                 enabled: schedule.enabled,
                 script_path: schedule.script_path,
                 is_flow: schedule.is_flow,

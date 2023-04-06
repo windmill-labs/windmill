@@ -2,16 +2,16 @@
 import { goto } from '$app/navigation'
 import {
 	AppService,
+	type Flow,
 	FlowService,
 	Script,
 	ScriptService,
-	UserService,
-	type Flow,
-	type User
+	type User,
+	UserService
 } from '$lib/gen'
 import { toast } from '@zerodevx/svelte-toast'
 import type { Schema, SupportedLanguage } from './common'
-import { hubScripts, workspaceStore, type UserExt } from './stores'
+import { hubScripts, type UserExt, workspaceStore } from './stores'
 import { page } from '$app/stores'
 import { get } from 'svelte/store'
 
@@ -186,7 +186,10 @@ export async function isOwner(path: string, user: UserExt, workspace: string): P
 	} else if (workspace == 'starter' || workspace == 'admin') {
 		return false
 	} else {
-		return await UserService.isOwnerOfPath({ path: path, workspace: workspace })
+		return await UserService.isOwnerOfPath({
+			path: path,
+			workspace: workspace
+		})
 	}
 }
 

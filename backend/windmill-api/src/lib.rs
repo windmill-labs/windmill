@@ -11,11 +11,15 @@ use argon2::Argon2;
 use axum::{middleware::from_extractor, routing::get, Extension, Router};
 use db::DB;
 use git_version::git_version;
+use hyper::Method;
 use reqwest::Client;
 use std::{net::SocketAddr, sync::Arc};
 use tower::ServiceBuilder;
 use tower_cookies::CookieManagerLayer;
-use tower_http::trace::TraceLayer;
+use tower_http::{
+    cors::{Any, CorsLayer},
+    trace::TraceLayer,
+};
 use windmill_common::utils::rd_string;
 
 use crate::{
@@ -102,6 +106,11 @@ pub async fn run_server(
         .layer(Extension(auth_cache.clone()))
         .layer(CookieManagerLayer::new())
         .layer(Extension(WebhookShared::new(rx.resubscribe(), db.clone())));
+
+    let cors = CorsLayer::new()
+        .allow_methods([Method::GET, Method::POST])
+        .allow_origin(Any);
+
     // build our application with a route
     let app = Router::new()
         .nest(
@@ -111,7 +120,7 @@ pub async fn run_server(
                     "/w/:workspace_id",
                     Router::new()
                         .nest("/scripts", scripts::workspaced_service())
-                        .nest("/jobs", jobs::workspaced_service())
+                        .nest("/jobs", jobs::workspaced_service().layer(cors.clone()))
                         .nest(
                             "/users",
                             users::workspaced_service().layer(Extension(argon2.clone())),
@@ -138,16 +147,24 @@ pub async fn run_server(
                 .nest("/workers", worker_ping::global_service())
                 .nest("/scripts", scripts::global_service())
                 .nest("/flows", flows::global_service())
-                .nest("/apps", apps::global_service())
+                .nest("/apps", apps::global_service().layer(cors.clone()))
                 .nest("/schedules", schedule::global_service())
                 .route_layer(from_extractor::<Authed>())
                 .route_layer(from_extractor::<users::Tokened>())
                 .nest(
                     "/w/:workspace_id/apps_u",
-                    apps::unauthed_service().layer(from_extractor::<OptAuthed>()),
+                    apps::unauthed_service()
+                        .layer(from_extractor::<OptAuthed>())
+                        .layer(cors.clone()),
                 )
-                .nest("/w/:workspace_id/jobs_u", jobs::global_service())
-                .nest("/w/:workspace_id/capture_u", capture::global_service())
+                .nest(
+                    "/w/:workspace_id/jobs_u",
+                    jobs::global_service().layer(cors.clone()),
+                )
+                .nest(
+                    "/w/:workspace_id/capture_u",
+                    capture::global_service().layer(cors),
+                )
                 .nest(
                     "/auth",
                     users::make_unauthed_service().layer(Extension(argon2)),
