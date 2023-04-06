@@ -2390,6 +2390,7 @@ async fn install_go_dependencies(
     }
     let child = Command::new(GO_PATH.as_str())
         .current_dir(job_dir)
+        .env("GOPATH", GO_CACHE_DIR)
         .args(vec!["mod", "tidy"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
