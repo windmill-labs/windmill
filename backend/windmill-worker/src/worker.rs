@@ -268,19 +268,19 @@ async fn copy_cache_from_bucket_as_tar(bucket: &str) -> bool {
     return r;
 }
 
-async fn check_if_bucket_syncable(bucket: &str) -> bool {
-    match Command::new("rclone")
-        .arg("lsf")
-        .arg(format!(":s3,env_auth=true:{bucket}/NOSYNC"))
+// async fn check_if_bucket_syncable(bucket: &str) -> bool {
+//     match Command::new("rclone")
+//         .arg("lsf")
+//         .arg(format!(":s3,env_auth=true:{bucket}/NOSYNC"))
 
-        .arg("-vv")
-        .arg("--fast-list")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .output()
-        .await;
-    return true;
-}
+//         .arg("-vv")
+//         .arg("--fast-list")
+//         .stdin(Stdio::null())
+//         .stdout(Stdio::null())
+//         .output()
+//         .await;
+//     return true;
+// }
 
 async fn move_tmp_cache_to_cache() -> Result<()> {
     tokio::fs::remove_dir_all(ROOT_CACHE_DIR).await?;
