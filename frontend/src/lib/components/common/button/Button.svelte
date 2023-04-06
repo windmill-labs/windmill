@@ -4,8 +4,9 @@
 	import { ButtonType } from './model'
 	import { goto } from '$app/navigation'
 	import { Loader2 } from 'lucide-svelte'
-
 	import { twMerge } from 'tailwind-merge'
+	import { classNames } from '$lib/utils'
+	import ButtonDropdown from './ButtonDropdown.svelte'
 
 	export let size: ButtonType.Size = 'md'
 	export let spacingSize: ButtonType.Size = size
@@ -25,6 +26,7 @@
 	export let loading = false
 	export let title: string | undefined = undefined
 	export let style: string = ''
+	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 
 	const dispatch = createEventDispatcher()
 	// Order of classes: border, border modifier, bg, bg modifier, text, text modifier, everything else
@@ -75,12 +77,12 @@
 			colorVariants?.[color]?.[variant],
 			variant === 'border' ? 'border' : '',
 			ButtonType.FontSizeClasses[size],
-			ButtonType.SpacingClasses[spacingSize][variant],
-			'focus:ring-2 font-semibold',
+			'focus:ring-2 font-semibold h-full',
 			'rounded-md',
 			'justify-center items-center text-center whitespace-nowrap inline-flex',
 			btnClasses,
-			disabled ? '!bg-gray-300 !text-gray-600 !cursor-not-allowed' : ''
+			disabled ? '!bg-gray-300 !text-gray-600 !cursor-not-allowed' : '',
+			'divide-x divide-gray-300'
 		),
 		href,
 		target,
@@ -124,16 +126,26 @@
 	type="submit"
 	{style}
 >
-	{#if loading}
-		<Loader2 class="animate-spin mr-1" size={14} />
-	{:else if startIcon}
-		<Icon data={startIcon.icon} class={startIconClass} scale={ButtonType.IconScale[size]} />
-	{/if}
+	<div class={classNames(ButtonType.SpacingClasses[spacingSize][variant], 'w-full')}>
+		{#if loading}
+			<Loader2 class="animate-spin mr-1" size={14} />
+		{:else if startIcon}
+			<Icon data={startIcon.icon} class={startIconClass} scale={ButtonType.IconScale[size]} />
+		{/if}
 
-	{#if !iconOnly}
-		<slot />
-	{/if}
-	{#if endIcon}
-		<Icon data={endIcon.icon} class={endIconClass} scale={ButtonType.IconScale[size]} />
-	{/if}
+		{#if !iconOnly}
+			<slot />
+		{/if}
+		{#if endIcon}
+			<Icon data={endIcon.icon} class={endIconClass} scale={ButtonType.IconScale[size]} />
+		{/if}
+	</div>
+	<ButtonDropdown>
+		<svelte:fragment slot="trigger">
+			<div>test</div>
+		</svelte:fragment>
+		<svelte:fragment slot="items">
+			<MenuItem>asd</MenuItem>
+		</svelte:fragment>
+	</ButtonDropdown>
 </svelte:element>
