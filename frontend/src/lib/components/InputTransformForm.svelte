@@ -40,17 +40,24 @@
 		schema.properties[argName].enum,
 		schema.properties[argName].contentEncoding
 	)
+
 	let propertyType = getPropertyType(arg)
 
 	function getPropertyType(arg: InputTransform | any): 'static' | 'javascript' {
 		let type: 'static' | 'javascript' = arg?.type ?? 'static'
-		if (type == 'javascript') {
+
+		if (
+			type == 'javascript' &&
+			isStaticTemplate(inputCat) &&
+			(arg?.expr?.length === 0 || arg?.expr?.[0] === '`')
+		) {
 			const newValue = codeToStaticTemplate(arg.expr)
 			if (newValue) {
 				type = 'static'
 				arg.value = newValue
 			}
 		}
+
 		return type
 	}
 
