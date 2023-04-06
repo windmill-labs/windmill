@@ -414,7 +414,6 @@
 						<div class="box max-w-5xl mt-2">
 							<CronInput
 								disabled={true}
-								edit={true}
 								schedule={schedule.schedule}
 								timezone={schedule.timezone}
 							/>
