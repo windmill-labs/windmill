@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { faBarsStaggered, faPlus } from '@fortawesome/free-solid-svg-icons'
+	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 
-	import { Button, ButtonPopup, ButtonPopupItem } from '$lib/components/common'
+	import { Button } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { importFlowStore } from '$lib/components/flows/flowStore'
-	import { Icon } from 'svelte-awesome'
 
 	let drawer: Drawer | undefined = undefined
 	let pendingJson: string
@@ -21,19 +21,20 @@
 
 <!-- Buttons -->
 <div class="flex flex-row gap-2">
-	<ButtonPopup
+	<Button
 		size="sm"
 		spacingSize="xl"
 		startIcon={{ icon: faPlus }}
+		endIcon={{ icon: faBarsStaggered }}
 		href="/flows/add?nodraft=true"
 	>
-		<svelte:fragment slot="main"
-			>Flow <Icon data={faBarsStaggered} scale={0.8} class="ml-1.5" />
+		Flow
+		<svelte:fragment slot="items">
+			<MenuItem on:click={() => drawer?.toggleDrawer?.()}>
+				<div class="text-gray-700 m-4">Import from raw JSON</div>
+			</MenuItem>
 		</svelte:fragment>
-		<ButtonPopupItem on:click={() => drawer?.toggleDrawer?.()}>
-			Import from raw JSON
-		</ButtonPopupItem>
-	</ButtonPopup>
+	</Button>
 </div>
 
 <!-- Raw JSON -->

@@ -25,7 +25,6 @@
 	export let loading = false
 	export let title: string | undefined = undefined
 	export let style: string = ''
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 
 	const dispatch = createEventDispatcher()
 	// Order of classes: border, border modifier, bg, bg modifier, text, text modifier, everything else
@@ -78,7 +77,7 @@
 			ButtonType.FontSizeClasses[size],
 			ButtonType.SpacingClasses[spacingSize][variant],
 			'focus:ring-2 font-semibold h-full',
-			'rounded-md',
+			'items' in $$slots ? 'rounded-l-md' : 'rounded-md',
 			'justify-center items-center text-center whitespace-nowrap inline-flex',
 			btnClasses,
 			disabled ? '!bg-gray-300 !text-gray-600 !cursor-not-allowed' : ''
@@ -113,41 +112,43 @@
 	$: endIconClass = twMerge(iconOnly ? undefined : isSmall ? 'ml-1' : 'ml-2', endIcon?.classes)
 </script>
 
-<svelte:element
-	this={href ? 'a' : 'button'}
-	bind:this={element}
-	on:pointerdown
-	on:click={onClick}
-	on:focus
-	on:blur
-	{...buttonProps}
-	disabled={disabled || loading}
-	type="submit"
-	{style}
->
-	{#if loading}
-		<Loader2 class="animate-spin mr-1" size={14} />
-	{:else if startIcon}
-		<Icon data={startIcon.icon} class={startIconClass} scale={ButtonType.IconScale[size]} />
-	{/if}
+<div class="flex flex-row divide-x divide-frost-600">
+	<svelte:element
+		this={href ? 'a' : 'button'}
+		bind:this={element}
+		on:pointerdown
+		on:click={onClick}
+		on:focus
+		on:blur
+		{...buttonProps}
+		disabled={disabled || loading}
+		type="submit"
+		{style}
+	>
+		{#if loading}
+			<Loader2 class="animate-spin mr-1" size={14} />
+		{:else if startIcon}
+			<Icon data={startIcon.icon} class={startIconClass} scale={ButtonType.IconScale[size]} />
+		{/if}
 
-	{#if !iconOnly}
-		<slot />
-	{/if}
-	{#if endIcon}
-		<Icon data={endIcon.icon} class={endIconClass} scale={ButtonType.IconScale[size]} />
-	{/if}
-</svelte:element>
+		{#if !iconOnly}
+			<slot />
+		{/if}
+		{#if endIcon}
+			<Icon data={endIcon.icon} class={endIconClass} scale={ButtonType.IconScale[size]} />
+		{/if}
+	</svelte:element>
 
-{#if 'items' in $$slots}
-	<div class={buttonProps.class}>
-		<ButtonDropdown>
-			<svelte:fragment slot="trigger">
-				<ChevronDown class="w-5 h-5" />
-			</svelte:fragment>
-			<svelte:fragment slot="items">
-				<MenuItem>asd</MenuItem>
-			</svelte:fragment>
-		</ButtonDropdown>
-	</div>
-{/if}
+	{#if 'items' in $$slots}
+		<div class={twMerge(buttonProps.class, 'rounded-r-md rounded-l-none')}>
+			<ButtonDropdown>
+				<svelte:fragment slot="trigger">
+					<ChevronDown class="w-5 h-5" />
+				</svelte:fragment>
+				<svelte:fragment slot="items">
+					<slot name="items" />
+				</svelte:fragment>
+			</ButtonDropdown>
+		</div>
+	{/if}
+</div>
