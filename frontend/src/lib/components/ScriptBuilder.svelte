@@ -144,7 +144,7 @@
 </script>
 
 {#if !$userStore?.operator}
-	<Drawer placement="right" open={metadataOpen} size="800px">
+	<Drawer placement="right" bind:open={metadataOpen} size="800px">
 		<DrawerContent title="Metadata" on:close={() => (metadataOpen = false)}>
 			<h2 class="border-b pb-1 mb-4">Path</h2>
 			<Path
@@ -299,7 +299,7 @@
 			</div>
 		</div>
 
-		<Drawer open={advancedOpen} size="800px">
+		<Drawer bind:open={advancedOpen} size="800px">
 			<DrawerContent title="Customise" on:close={() => (advancedOpen = false)}>
 				<h2 class="border-b pb-1 mb-4"
 					>Script Kind &nbsp;<Tooltip
