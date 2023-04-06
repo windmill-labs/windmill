@@ -10,7 +10,7 @@
 	import ScriptEditor from './ScriptEditor.svelte'
 	import ScriptSchema from './ScriptSchema.svelte'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
-	import { Badge, Button, ButtonPopup, ButtonPopupItem, Drawer } from './common'
+	import { Badge, Button, Drawer } from './common'
 	import { faSave } from '@fortawesome/free-solid-svg-icons'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 	import type { SupportedLanguage } from '$lib/common'
@@ -119,6 +119,22 @@
 			sendUserToast(`Error while saving the script: ${error.body || error.message}`, true)
 		}
 		loadingSave = false
+	}
+
+	const dropdownItems: Array<{ label: string; onClick: () => void }> = [
+		{
+			label: 'Save and leave',
+			onClick: () => editScript(true)
+		}
+	]
+
+	if (initialPath != '') {
+		dropdownItems.push({
+			label: 'Fork',
+			onClick: () => {
+				window.open(`/scripts/add?template=${initialPath}`)
+			}
+		})
 	}
 </script>
 
@@ -264,23 +280,16 @@
 					>
 						Customise
 					</Button>
-					<ButtonPopup
+					<Button
 						color="dark"
 						loading={loadingSave}
 						size="sm"
 						startIcon={{ icon: faSave }}
 						on:click={() => editScript(false)}
+						{dropdownItems}
 					>
-						<svelte:fragment slot="main">Save</svelte:fragment>
-						<ButtonPopupItem on:click={() => editScript(true)}>Save and exit</ButtonPopupItem>
-						{#if initialPath != ''}
-							<ButtonPopupItem
-								on:click={() => {
-									window.open(`/scripts/add?template=${initialPath}`)
-								}}>Fork</ButtonPopupItem
-							>
-						{/if}
-					</ButtonPopup>
+						Save
+					</Button>
 				</div>
 			</div>
 		</div>

@@ -3,9 +3,10 @@
 	import Icon from 'svelte-awesome'
 	import { ButtonType } from './model'
 	import { goto } from '$app/navigation'
-	import { ChevronDown, Loader2 } from 'lucide-svelte'
+	import { Loader2 } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import ButtonDropdown from './ButtonDropdown.svelte'
+	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 
 	export let size: ButtonType.Size = 'md'
 	export let spacingSize: ButtonType.Size = size
@@ -25,6 +26,13 @@
 	export let loading = false
 	export let title: string | undefined = undefined
 	export let style: string = ''
+
+	type MenuItem = {
+		label: string
+		onClick?: () => void
+		href?: string
+	}
+	export let dropdownItems: MenuItem[] | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 	// Order of classes: border, border modifier, bg, bg modifier, text, text modifier, everything else
@@ -77,7 +85,7 @@
 			ButtonType.FontSizeClasses[size],
 			ButtonType.SpacingClasses[spacingSize][variant],
 			'focus:ring-2 font-semibold h-full',
-			'items' in $$slots ? 'rounded-l-md' : 'rounded-md',
+			dropdownItems ? 'rounded-l-md' : 'rounded-md',
 			'justify-center items-center text-center whitespace-nowrap inline-flex',
 			btnClasses,
 			disabled ? '!bg-gray-300 !text-gray-600 !cursor-not-allowed' : ''
@@ -139,14 +147,17 @@
 		{/if}
 	</svelte:element>
 
-	{#if 'items' in $$slots}
-		<div class={twMerge(buttonProps.class, 'rounded-r-md rounded-l-none')}>
+	{#if dropdownItems}
+		<div class={twMerge(buttonProps.class, 'rounded-r-md rounded-l-none m-0 p-0')}>
 			<ButtonDropdown>
-				<svelte:fragment slot="trigger">
-					<ChevronDown class="w-5 h-5" />
-				</svelte:fragment>
 				<svelte:fragment slot="items">
-					<slot name="items" />
+					{#each dropdownItems as item}
+						<MenuItem on:click={item.onClick} href={item.href}>
+							<div class="!text-gray-700 px-4 py-2 my-1 cursor-pointer hover:bg-gray-100 !text-sm">
+								{item.label}
+							</div>
+						</MenuItem>
+					{/each}
 				</svelte:fragment>
 			</ButtonDropdown>
 		</div>

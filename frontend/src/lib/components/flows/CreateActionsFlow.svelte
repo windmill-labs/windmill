@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { faBarsStaggered, faPlus } from '@fortawesome/free-solid-svg-icons'
-	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 
 	import { Button } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
@@ -27,13 +26,14 @@
 		startIcon={{ icon: faPlus }}
 		endIcon={{ icon: faBarsStaggered }}
 		href="/flows/add?nodraft=true"
+		dropdownItems={[
+			{
+				label: 'Import from raw JSON',
+				onClick: () => drawer?.toggleDrawer?.()
+			}
+		]}
 	>
 		Flow
-		<svelte:fragment slot="items">
-			<MenuItem on:click={() => drawer?.toggleDrawer?.()}>
-				<div class="text-gray-700 m-4">Import from raw JSON</div>
-			</MenuItem>
-		</svelte:fragment>
 	</Button>
 </div>
 

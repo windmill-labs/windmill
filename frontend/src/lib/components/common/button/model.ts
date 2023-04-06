@@ -1,9 +1,8 @@
 export const BUTTON_COLORS = ['blue', 'red', 'dark', 'light', 'green', 'gray', 'none'] as const
 
 export namespace ButtonType {
-
 	export type Size = 'xs' | 'sm' | 'md' | 'lg' | 'xl'
-	export type Color = typeof BUTTON_COLORS[number]
+	export type Color = (typeof BUTTON_COLORS)[number]
 	export type Variant = 'contained' | 'border'
 	export type Target = '_self' | '_blank'
 	export type Element = HTMLButtonElement | HTMLAnchorElement
@@ -40,7 +39,7 @@ export namespace ButtonType {
 		xl: {
 			border: 'px-4 py-[8px]',
 			contained: 'px-4 py-[9px]'
-		},
+		}
 	} as const
 
 	export const IconScale: Record<ButtonType.Size, number> = {
@@ -50,10 +49,6 @@ export namespace ButtonType {
 		lg: 1.1,
 		xl: 1.2
 	} as const
-
-	// ButtonPopup types
-
-	export const ItemContextKey = 'popupItemProps' as const
 
 	export interface ItemProps {
 		size: Size
