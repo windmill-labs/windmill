@@ -49,7 +49,7 @@
 		if (
 			type == 'javascript' &&
 			isStaticTemplate(inputCat) &&
-			(arg.expr.length === 0 || arg.expr[0] === '`')
+			(arg?.expr?.length === 0 || arg?.expr?.[0] === '`')
 		) {
 			const newValue = codeToStaticTemplate(arg.expr)
 			if (newValue) {
