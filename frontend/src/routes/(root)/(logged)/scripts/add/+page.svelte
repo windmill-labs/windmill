@@ -16,6 +16,8 @@
 
 	const initialState = $page.url.searchParams.get('state')
 
+	let scriptBuilder: ScriptBuilder | undefined = undefined
+
 	let script: Script =
 		initialState != undefined
 			? decodeState(initialState)
@@ -46,6 +48,7 @@
 			script.content = template.content
 			script.schema = template.schema
 			script.language = template.language
+			scriptBuilder?.setCode(script.content)
 		}
 	}
 
@@ -58,6 +61,7 @@
 			script.content = content
 			script.summary = summary ?? ''
 			script.language = language as Script.language
+			scriptBuilder?.setCode(script.content)
 		}
 	}
 
@@ -71,4 +75,8 @@
 	$dirtyStore = true
 </script>
 
-<ScriptBuilder lockedLanguage={templatePath != null || hubPath != null} {script} />
+<ScriptBuilder
+	bind:this={scriptBuilder}
+	lockedLanguage={templatePath != null || hubPath != null}
+	{script}
+/>
