@@ -13,7 +13,7 @@ use windmill_parser::MainArgSignature;
 use crate::{
     db::{UserDB, DB},
     schedule::clear_schedule,
-    users::{maybe_refresh_folders, require_owner_of_path, Authed},
+    users::{maybe_refresh_folders, require_owner_of_path, AuthCache, Authed},
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
@@ -30,6 +30,7 @@ use sqlx::{FromRow, Postgres, Transaction};
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
+    sync::Arc,
 };
 use windmill_common::{
     error::{Error, JsonResult, Result},
@@ -59,6 +60,13 @@ pub fn global_service() -> Router {
         .route("/hub/list", get(list_hub_scripts))
         .route("/hub/get/*path", get(get_hub_script_by_path))
         .route("/hub/get_full/*path", get(get_full_hub_script_by_path))
+}
+
+pub fn global_unauthed_service() -> Router {
+    Router::new().route(
+        "/tokened_raw/:workspace/:token/*path",
+        get(get_tokened_raw_script_by_path),
+    )
 }
 
 pub fn workspaced_service() -> Router {
@@ -496,6 +504,18 @@ async fn list_paths(
     tx.commit().await?;
 
     Ok(Json(scripts))
+}
+
+async fn get_tokened_raw_script_by_path(
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, token, path)): Path<(String, String, StripPath)>,
+    Extension(cache): Extension<Arc<AuthCache>>,
+) -> Result<String> {
+    let authed = cache
+        .get_authed(Some(w_id.clone()), &token)
+        .await
+        .ok_or_else(|| Error::NotAuthorized("Invalid token".to_string()))?;
+    return raw_script_by_path(authed, Extension(user_db), Path((w_id, path))).await;
 }
 
 async fn raw_script_by_path(

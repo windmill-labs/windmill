@@ -180,6 +180,7 @@
 					<Pane size={isScript ? 30 : 50} minSize={20}>
 						{#if value.type === 'rawscript'}
 							<Editor
+								path={value['path']}
 								bind:websocketAlive
 								bind:this={editor}
 								class="h-full relative"

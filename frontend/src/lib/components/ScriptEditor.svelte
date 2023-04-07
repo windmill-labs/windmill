@@ -149,6 +149,7 @@
 			<div class="pl-2 h-full !overflow-visible">
 				{#key lang}
 					<Editor
+						{path}
 						bind:code
 						bind:websocketAlive
 						bind:this={editor}
