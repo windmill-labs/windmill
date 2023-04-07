@@ -37,7 +37,6 @@
 	import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'
 	import { CloseAction, ErrorAction, RequestType } from 'vscode-languageclient'
 	import * as vscode from 'vscode'
-
 	languages.typescript.typescriptDefaults.setModeConfiguration({
 		completionItems: false,
 		definitions: false,
@@ -71,19 +70,21 @@
 	import type { DocumentUri, MessageTransports } from 'vscode-languageclient'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
 	import { buildWorkerDefinition } from './build_workers'
+	import { workspaceStore } from '$lib/stores'
+	import { UserService } from '$lib/gen'
 
 	let divEl: HTMLDivElement | null = null
 	let editor: meditor.IStandaloneCodeEditor
 
 	export let lang: 'typescript' | 'python' | 'go' | 'shell'
 	export let code: string = ''
-	export let hash: string = randomHash()
 	export let cmdEnterAction: (() => void) | undefined = undefined
 	export let formatAction: (() => void) | undefined = undefined
 	export let automaticLayout = true
 	export let websocketAlive = { pyright: false, black: false, deno: false, go: false }
 	export let shouldBindKey: boolean = true
 	export let fixedOverflowWidgets = true
+	export let path: string = randomHash()
 
 	let websockets: [MonacoLanguageClient, WebSocket][] = []
 	let websocketInterval: NodeJS.Timer | undefined
@@ -92,7 +93,8 @@
 	let disposeMethod: () => void | undefined
 	const dispatch = createEventDispatcher()
 
-	const uri = `file:///tmp/monaco/${hash}.${langToExt(lang)}`
+	const uri =
+		lang == 'go' ? `file:///tmp/monaco/${randomHash()}.go` : `file:///${path}.${langToExt(lang)}`
 
 	// if (lang != 'typescript') {
 	buildWorkerDefinition('../../../workers', import.meta.url, false)
@@ -286,6 +288,7 @@
 							command = vscode.commands.registerCommand(
 								'deno.cache',
 								(uris: DocumentUri[] = []) => {
+									console.log('cache', uris)
 									languageClient.sendRequest(new RequestType('deno/cache'), {
 										referrer: { uri },
 										uris: uris.map((uri) => ({ uri }))
@@ -306,6 +309,36 @@
 
 		const wsProtocol = $page.url.protocol == 'https:' ? 'wss' : 'ws'
 		if (lang == 'typescript') {
+			let expiration = new Date()
+			expiration.setHours(expiration.getHours() + 2)
+			const token = await UserService.createToken({
+				requestBody: { label: 'Ephemeral lsp token', expiration: expiration.toISOString() }
+			})
+			let root =
+				$page.url.protocol +
+				'//' +
+				$page.url.host +
+				'/api/scripts_u/tokened_raw/' +
+				$workspaceStore +
+				'/' +
+				token
+			const importMap = {
+				imports: {
+					'file:///': root + '/'
+				}
+			}
+			let path_splitted = path.split('/')
+			for (let c = 0; c < path_splitted.length; c++) {
+				let key = 'file://./'
+				for (let i = 0; i < c; i++) {
+					key += '../'
+				}
+				let url = path_splitted.slice(0, -c - 1).join('/')
+				let ending = c == path_splitted.length - 1 ? '' : '/'
+				importMap['imports'][key] = `${root}/${url}${ending}`
+			}
+			console.log(importMap)
+			const encodedImportMap = 'data:text/plain;base64,' + btoa(JSON.stringify(importMap))
 			await connectToLanguageServer(
 				`${wsProtocol}://${$page.url.host}/ws/deno`,
 				'deno',
@@ -313,7 +346,7 @@
 					certificateStores: null,
 					enablePaths: [],
 					config: null,
-					importMap: null,
+					importMap: encodedImportMap,
 					internalDebug: false,
 					lint: false,
 					path: null,
@@ -321,7 +354,6 @@
 					unsafelyIgnoreCertificateErrors: null,
 					unstable: true,
 					enable: true,
-					cache: null,
 					codeLens: {
 						implementations: true,
 						references: true,
@@ -340,7 +372,13 @@
 						}
 					}
 				},
-				undefined
+				() => {
+					return [
+						{
+							enable: true
+						}
+					]
+				}
 			)
 		} else if (lang === 'python') {
 			await connectToLanguageServer(

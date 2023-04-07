@@ -76,6 +76,7 @@ pub fn global_service() -> Router {
         .route("/tokens/create", post(create_token))
         .route("/tokens/delete/:token_prefix", delete(delete_token))
         .route("/tokens/list", get(list_tokens))
+        .route("/tokens/impersonate", post(impersonate))
         .route("/usage", get(get_usage))
     // .route("/list_invite_codes", get(list_invite_codes))
     // .route("/create_invite_code", post(create_invite_code))
@@ -593,6 +594,7 @@ pub struct TruncatedToken {
 pub struct NewToken {
     pub label: Option<String>,
     pub expiration: Option<chrono::DateTime<chrono::Utc>>,
+    pub impersonate_email: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1735,6 +1737,58 @@ async fn create_token(
         None,
     )
     .instrument(tracing::info_span!("token", email = &email))
+    .await?;
+    tx.commit().await?;
+    Ok((StatusCode::CREATED, token))
+}
+
+async fn impersonate(
+    Extension(db): Extension<DB>,
+    Authed { email, username, .. }: Authed,
+    Json(new_token): Json<NewToken>,
+) -> Result<(StatusCode, String)> {
+    let token = rd_string(30);
+    let mut tx = db.begin().await?;
+    require_super_admin(&mut tx, &email).await?;
+
+    if new_token.impersonate_email.is_none() {
+        return Err(Error::BadRequest(
+            "impersonate_username is required".to_string(),
+        ));
+    }
+
+    let impersonated = new_token.impersonate_email.unwrap();
+
+    let is_super_admin = sqlx::query_scalar!(
+        "SELECT super_admin FROM password WHERE email = $1",
+        impersonated
+    )
+    .fetch_optional(&mut tx)
+    .await?
+    .unwrap_or(false);
+    sqlx::query!(
+        "INSERT INTO token
+            (token, email, label, expiration, super_admin)
+            VALUES ($1, $2, $3, $4, $5)",
+        token,
+        impersonated,
+        new_token.label,
+        new_token.expiration,
+        is_super_admin
+    )
+    .execute(&mut tx)
+    .await?;
+
+    audit_log(
+        &mut tx,
+        &username,
+        "users.impersonate",
+        ActionKind::Delete,
+        &"global",
+        Some(&token[0..10]),
+        Some([("impersonated", &format!("{impersonated}")[..])].into()),
+    )
+    .instrument(tracing::info_span!("token", email = &impersonated))
     .await?;
     tx.commit().await?;
     Ok((StatusCode::CREATED, token))

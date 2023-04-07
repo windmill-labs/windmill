@@ -30,6 +30,7 @@ class LanguageServerWebSocketHandler(websocket.WebSocketHandler):
         # Create an instance of the language server
         self.proc = process.Subprocess(
             self.procargs,
+            env=os.environ,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
         )
@@ -85,7 +86,6 @@ class MainHandler(web.RequestHandler):
 
 
 if __name__ == "__main__":
-
     monaco_path = "/tmp/monaco"
     os.makedirs(monaco_path, exist_ok=True)
     print("The monaco directory is created!")

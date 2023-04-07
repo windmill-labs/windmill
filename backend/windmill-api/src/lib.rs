@@ -149,6 +149,7 @@ pub async fn run_server(
                 .nest("/schedules", schedule::global_service())
                 .route_layer(from_extractor::<Authed>())
                 .route_layer(from_extractor::<users::Tokened>())
+                .nest("/scripts_u", scripts::global_unauthed_service())
                 .nest(
                     "/w/:workspace_id/apps_u",
                     apps::unauthed_service()
