@@ -85,8 +85,8 @@
 			variant === 'border' ? 'border' : '',
 			ButtonType.FontSizeClasses[size],
 			ButtonType.SpacingClasses[spacingSize][variant],
-			'focus:ring-2 font-semibold h-full',
-			dropdownItems ? 'rounded-l-md' : 'rounded-md',
+			'focus:ring-2 font-semibold',
+			dropdownItems ? 'rounded-l-md h-full' : 'rounded-md',
 			'justify-center items-center text-center whitespace-nowrap inline-flex',
 			btnClasses,
 			disabled ? '!bg-gray-300 !text-gray-600 !cursor-not-allowed' : '',
@@ -122,7 +122,7 @@
 	$: endIconClass = twMerge(iconOnly ? undefined : isSmall ? 'ml-1' : 'ml-2', endIcon?.classes)
 </script>
 
-<div class="flex flex-row divide-x divide-frost-600 {wrapperClasses}">
+<div class="{dropdownItems ? 'flex flex-row divide-x divide-frost-600' : ''} {wrapperClasses}">
 	<svelte:element
 		this={href ? 'a' : 'button'}
 		bind:this={element}
