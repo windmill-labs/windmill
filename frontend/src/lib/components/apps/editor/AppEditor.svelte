@@ -279,7 +279,6 @@
 								<Tab value="settings" size="xs">
 									<div class="m-1 center-center gap-1">
 										<Component size={18} />
-										<span>Component</span>
 									</div>
 								</Tab>
 								<Tab value="css" size="xs">
