@@ -13,6 +13,7 @@
 	export let color: ButtonType.Color = 'blue'
 	export let variant: ButtonType.Variant = 'contained'
 	export let btnClasses: string = ''
+	export let wrapperClasses: string = ''
 	export let disabled: boolean = false
 	export let href: string | undefined = undefined
 	export let target: ButtonType.Target = '_self'
@@ -121,7 +122,7 @@
 	$: endIconClass = twMerge(iconOnly ? undefined : isSmall ? 'ml-1' : 'ml-2', endIcon?.classes)
 </script>
 
-<div class="flex flex-row divide-x divide-frost-600">
+<div class="flex flex-row divide-x divide-frost-600 {wrapperClasses}">
 	<svelte:element
 		this={href ? 'a' : 'button'}
 		bind:this={element}
