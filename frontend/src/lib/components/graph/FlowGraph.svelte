@@ -14,7 +14,7 @@
 		type NestedNodes,
 		type GraphModuleState
 	} from '.'
-	import { defaultIfEmptyString, truncateRev } from '$lib/utils'
+	import { defaultIfEmptyString, encodeState, truncateRev } from '$lib/utils'
 	import { createEventDispatcher, setContext } from 'svelte'
 	import Svelvet from './svelvet/container/views/Svelvet.svelte'
 	import type { UserEdgeType } from './svelvet/types'
@@ -36,6 +36,8 @@
 	export let insertable = false
 	export let moving: string | undefined = undefined
 	export let scroll = false
+	export let download = false
+	export let fullSize = false
 
 	setContext<{ selectedId: Writable<string | undefined> }>('FlowGraphContext', { selectedId })
 
@@ -44,7 +46,7 @@
 	let nodes: Node[] = []
 	let edges: UserEdgeType[] = []
 	let width: number, height: number
-
+	let fullWidth: number
 	let errorHandlers: Record<string, string> = {}
 
 	let dispatch = createEventDispatcher()
@@ -122,8 +124,9 @@
 		const layered = layoutNodes(flatNodes)
 
 		nodes = layered.nodes
-		// width = layered.width
-		height = Math.min(Math.max(layered.height, minHeight), maxHeight ?? window.innerHeight - 100)
+		let hfull = Math.max(layered.height, minHeight)
+		fullWidth = layered.width
+		height = fullSize ? hfull : Math.min(hfull, maxHeight ?? window.innerHeight - 100)
 		edges = createEdges(nodes)
 	}
 
@@ -457,7 +460,7 @@
 		return array
 	}
 
-	function layoutNodes(nodes: Node[]): { nodes: Node[]; height: number } {
+	function layoutNodes(nodes: Node[]): { nodes: Node[]; height: number; width: number } {
 		const stratify = dagStratify().id(({ id }: Node) => id)
 		const dag = stratify(nodes)
 
@@ -480,12 +483,17 @@
 				id: des.data.id,
 				position: {
 					x: des.x
-						? des.data.loopDepth * 50 + des.x + width / 2 - boxSize.width / 2 - NODE.width / 2
+						? des.data.loopDepth * 50 +
+						  des.x +
+						  (fullSize ? fullWidth : width) / 2 -
+						  boxSize.width / 2 -
+						  NODE.width / 2
 						: 0,
 					y: des.y || 0
 				}
 			})),
-			height: boxSize.height + NODE.height
+			height: boxSize.height + NODE.height,
+			width: boxSize.width + NODE.width
 		}
 	}
 
@@ -644,13 +652,18 @@
 	}
 </script>
 
-<div bind:clientWidth={width} class="w-full h-full overflow-hidden relative">
+<div bind:clientWidth={width} class={fullSize ? '' : 'w-full h-full overflow-hidden relative'}>
 	{#if width && height}
 		<Svelvet
+			on:expand={() => {
+				localStorage.setItem('svelvet', encodeState({ modules, failureModule }))
+				window.open('/view_graph', '_blank')
+			}}
+			{download}
 			highlightEdges={false}
 			locked
 			{nodes}
-			{width}
+			width={fullSize ? fullWidth : width}
 			{edges}
 			{height}
 			{scroll}
