@@ -27,7 +27,7 @@ export function editorConfig(
 			enabled: true
 		},
 		suggest: {
-			showKeywords: false
+			showKeywords: true
 		},
 		bracketPairColorization: {
 			enabled: true

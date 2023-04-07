@@ -59,7 +59,7 @@
 	}
 </script>
 
-<div class="flex flex-col h-full ">
+<div class="flex flex-col h-full">
 	<div class="px-2">
 		{#if !notSelectable}
 			<div class="flex flex-row space-x-1">
@@ -71,7 +71,7 @@
 						{`Mode: ${$propPickerConfig?.insertionMode}`}
 					</Badge>
 				{:else}
-					<Badge large color="blue">&leftarrow; Select a step input</Badge>
+					<Badge large color="blue">&leftarrow; Edit or link an input</Badge>
 				{/if}
 			</div>
 		{/if}

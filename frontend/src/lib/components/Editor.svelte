@@ -32,6 +32,7 @@
 	import 'monaco-editor/esm/vs/basic-languages/go/go.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/shell/shell.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
+	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
 	import { MonacoLanguageClient, MonacoServices } from 'monaco-languageclient'
 	import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'
 	import { CloseAction, ErrorAction, RequestType } from 'vscode-languageclient'
@@ -42,6 +43,7 @@
 		definitions: false,
 		hovers: false
 	})
+
 	meditor.defineTheme('myTheme', {
 		base: 'vs',
 		inherit: true,
@@ -322,7 +324,8 @@
 					cache: null,
 					codeLens: {
 						implementations: true,
-						references: true
+						references: true,
+						referencesAllFunction: false
 					},
 					suggest: {
 						autoImports: true,

@@ -1,7 +1,7 @@
 export const BUTTON_COLORS = ['blue', 'red', 'dark', 'light', 'green', 'gray', 'none'] as const
 
 export namespace ButtonType {
-	export type Size = 'xs' | 'sm' | 'md' | 'lg' | 'xl'
+	export type Size = 'xs2' | 'xs' | 'sm' | 'md' | 'lg' | 'xl'
 	export type Color = (typeof BUTTON_COLORS)[number]
 	export type Variant = 'contained' | 'border'
 	export type Target = '_self' | '_blank'
@@ -12,6 +12,7 @@ export namespace ButtonType {
 	}
 
 	export const FontSizeClasses: Record<ButtonType.Size, string> = {
+		xs2: 'text-xs',
 		xs: 'text-xs',
 		sm: 'text-sm',
 		md: 'text-md',
@@ -20,6 +21,10 @@ export namespace ButtonType {
 	} as const
 
 	export const SpacingClasses: Record<ButtonType.Size, Record<ButtonType.Variant, string>> = {
+		xs2: {
+			border: 'px-2 py-[4px]',
+			contained: 'px-2 py-[4px]'
+		},
 		xs: {
 			border: 'px-3 py-[6px]',
 			contained: 'px-3 py-[7px]'
@@ -43,6 +48,7 @@ export namespace ButtonType {
 	} as const
 
 	export const IconScale: Record<ButtonType.Size, number> = {
+		xs2: 0.6,
 		xs: 0.7,
 		sm: 0.8,
 		md: 1,
