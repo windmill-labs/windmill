@@ -20,6 +20,7 @@
 	}
 	export let overflowAuto = false
 	export let noSide = false
+	export let download = false
 
 	let stepDetail: FlowModule | string | undefined = undefined
 	let codeViewer: Drawer
@@ -76,6 +77,7 @@
 		class:overflow-auto={overflowAuto}
 	>
 		<FlowGraph
+			{download}
 			minHeight={400}
 			modules={flow?.value?.modules}
 			failureModule={flow?.value?.failure_module}

@@ -10,8 +10,8 @@
 	import GraphView from './GraphView.svelte'
 	import { sanitizeCanvasOptions, sanitizeUserNodesAndEdges } from '../controllers/middleware'
 
-	export let nodes: UserNodeType[] // TODO: update type to make possible user id being a number
-	export let edges: UserEdgeType[] // TODO: update type to make possible user id being a number
+	export let nodes: UserNodeType[]
+	export let edges: UserEdgeType[]
 	export let bgColor = '#ffffff' // this is used to set the background color of the the Svelvet canvas
 	export let width: number = 600
 	export let height: number = 600
@@ -27,6 +27,7 @@
 	export let editable: boolean = false
 	export let highlightEdges: boolean = true
 	export let scroll: boolean = false
+	export let download: boolean = false
 
 	// generates a unique string for each svelvet component's unique store instance
 	// creates a store that uses the unique sting as the key to create and look up the corresponding store
@@ -113,7 +114,7 @@
 	{#if error != ''}
 		<div class="error text-red-600 center-center p-4">{error}</div>
 	{:else}
-		<GraphView {scroll} {canvasId} {width} {height} {boundary} />
+		<GraphView on:expand {download} {scroll} {canvasId} {width} {height} {boundary} />
 	{/if}
 </div>
 

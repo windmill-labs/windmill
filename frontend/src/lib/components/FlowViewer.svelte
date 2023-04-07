@@ -75,7 +75,7 @@
 				{:else}
 					<div class="text-gray-700 text-xs italic mb-4">No inputs</div>
 				{/if}
-				<FlowGraphViewer {noSide} {flow} overflowAuto />
+				<FlowGraphViewer download {noSide} {flow} overflowAuto />
 			</div>
 		</TabContent>
 		<TabContent value="json">

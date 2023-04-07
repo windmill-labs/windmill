@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { pointer, select, selectAll } from 'd3-selection'
 	import { zoom, zoomIdentity, zoomTransform } from 'd3-zoom'
-	import { onMount } from 'svelte'
+	import { createEventDispatcher, onMount } from 'svelte'
 	import SimpleBezierEdge from '../../edges/views/Edges/SimpleBezierEdge.svelte'
 	import SmoothStepEdge from '../../edges/views/Edges/SmoothStepEdge.svelte'
 	import StepEdge from '../../edges/views/Edges/StepEdge.svelte'
@@ -12,6 +12,7 @@
 	import { findStore } from '../../store/controllers/storeApi'
 
 	import { onDestroy } from 'svelte'
+	import { Expand } from 'lucide-svelte'
 
 	//these are typscripted as any, however they have been transformed inside of store.ts
 	export let canvasId: string
@@ -20,6 +21,8 @@
 
 	export let boundary = false
 	export let scroll = false
+
+	export let download = false
 	// here we lookup the store using the unique key
 	const store = findStore(canvasId)
 	const {
@@ -38,6 +41,8 @@
 	// declaring the grid and dot size for d3's transformations and zoom
 	const gridSize = 15
 	const dotSize = 10
+
+	const dispatch = createEventDispatcher()
 
 	// leveraging d3 library to zoom/pan
 	let d3 = {
@@ -82,9 +87,6 @@
 		d3.select('#zoom_in').on('click', function () {
 			try {
 				d3Zoom.scaleBy(nodes.transition().duration(250), 1.4)
-
-				// d3Zoom.translateTo(edgesd3, d3Translate.x, d3Translate.y)
-				// d3Zoom.translateTo(nodesd3, d3Translate.x, d3Translate.y)
 			} catch (e) {
 				console.log('error', e)
 			}
@@ -92,40 +94,15 @@
 		d3.select('#zoom_out').on('click', function () {
 			try {
 				d3Zoom.scaleBy(nodes.transition().duration(250), 0.714)
-
-				// d3Zoom.translateTo(edgesd3.transition().duration(0), d3Translate.x, d3Translate.y)
-				// d3Zoom.translateTo(nodesd3.transition().duration(0), d3Translate.x, d3Translate.y)
 			} catch (e) {
 				console.log('error', e)
 			}
 		})
-		// })
-		// d3Translate = zoomInit(d3, canvasId, d3Zoom, d3Translate, initialLocation, initialZoom, d3Scale)
 	})
 
 	onDestroy(() => {
 		d3.select('svg').remove()
 	})
-
-	// This is necessary to make Graphview reactive to changes in initialZoom
-	// When initialZoom changes, then zoomInit will set the zoom/position
-	// let prevZoom = initialZoom
-	// let prevInitialLocationX = initialLocation.x
-	// let prevInitialLocationY = initialLocation.y
-	// $: if (
-	// 	initialZoom !== prevZoom ||
-	// 	prevInitialLocationX !== initialLocation.x ||
-	// 	prevInitialLocationY !== initialLocation.y
-	// ) {
-	// 	prevZoom = initialZoom
-	// 	prevInitialLocationX = initialLocation.x
-	// 	prevInitialLocationY = initialLocation.y
-	// 	d3Translate = zoomInit(d3, canvasId, d3Zoom, d3Translate, initialLocation, initialZoom, d3Scale)
-	// }
-
-	// moves canvas when you click on the minimap
-	// handles case for when minimap sends message back to initiate translation event (click to traverse minimap)
-	// moves camera to the clicked node
 
 	function handleZoom(e) {
 		if (!$movementStore) return
@@ -222,18 +199,26 @@
 	</svg>
 </div>
 <div id="buttons">
-	<button id="zoom_in">+</button>
-	<button id="zoom_out">-</button>
+	<button title="Zoom In" id="zoom_in">+</button>
+	<button title="Zoom Out" id="zoom_out">-</button>
+	{#if download}
+		<button title="Download" id="download" on:click={() => dispatch('expand')}
+			><Expand size="15" /></button
+		>
+	{/if}
 </div>
 
 <style>
 	#buttons {
 		position: absolute;
 		top: 4px;
-		right: 4px;
+		right: 10px;
 		z-index: 20;
 	}
-
+	#buttons > #download {
+		padding: 0;
+		padding-left: 3.5px;
+	}
 	#buttons > button {
 		border-radius: 4px;
 		background-color: white;
@@ -241,6 +226,7 @@
 		padding-right: 4px;
 		padding-left: 4px;
 		width: 24px;
+		height: 24px;
 	}
 
 	.Nodes {

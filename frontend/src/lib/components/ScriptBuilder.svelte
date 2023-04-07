@@ -195,7 +195,7 @@
 					disabled={lockedLanguage}
 					on:click={() => {
 						template = 'pgsql'
-						initContent(script.language, script.kind, template)
+						initContent(Script.language.DENO, script.kind, template)
 						script.language = Script.language.DENO
 					}}
 				>
