@@ -18,24 +18,30 @@
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/utils'
 
-	import { buildWorkerDefinition } from 'monaco-editor-workers'
-	import type { MonacoLanguageClient } from 'monaco-languageclient'
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 
-	import { editor as meditor, KeyCode, KeyMod, languages, Uri as mUri } from 'monaco-editor'
+	import 'monaco-editor/esm/vs/editor/edcore.main'
+	import {
+		editor as meditor,
+		KeyCode,
+		KeyMod,
+		Uri as mUri,
+		languages
+	} from 'monaco-editor/esm/vs/editor/editor.api'
+	import 'monaco-editor/esm/vs/basic-languages/python/python.contribution'
+	import 'monaco-editor/esm/vs/basic-languages/go/go.contribution'
+	import 'monaco-editor/esm/vs/basic-languages/shell/shell.contribution'
+	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
+	import { MonacoLanguageClient, MonacoServices } from 'monaco-languageclient'
+	import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'
+	import { CloseAction, ErrorAction, RequestType } from 'vscode-languageclient'
+	import * as vscode from 'vscode'
 
-	languages.typescript.typescriptDefaults.setCompilerOptions({
-		target: languages.typescript.ScriptTarget.Latest,
-		allowNonTsExtensions: true,
-		noLib: true
+	languages.typescript.typescriptDefaults.setModeConfiguration({
+		completionItems: false,
+		definitions: false,
+		hovers: false
 	})
-	languages.typescript.typescriptDefaults.setDiagnosticsOptions({
-		noSemanticValidation: true,
-		noSuggestionDiagnostics: true,
-		noSyntaxValidation: true
-	})
-	languages.typescript.typescriptDefaults.setExtraLibs([])
-
 	meditor.defineTheme('myTheme', {
 		base: 'vs',
 		inherit: true,
@@ -62,6 +68,7 @@
 	import type { Disposable } from 'vscode'
 	import type { DocumentUri, MessageTransports } from 'vscode-languageclient'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
+	import { buildWorkerDefinition } from './build_workers'
 
 	let divEl: HTMLDivElement | null = null
 	let editor: meditor.IStandaloneCodeEditor
@@ -85,7 +92,9 @@
 
 	const uri = `file:///tmp/monaco/${hash}.${langToExt(lang)}`
 
+	// if (lang != 'typescript') {
 	buildWorkerDefinition('../../../workers', import.meta.url, false)
+	// }
 
 	export function getCode(): string {
 		return editor?.getValue() ?? ''
@@ -137,7 +146,7 @@
 	export function format() {
 		if (editor) {
 			code = getCode()
-			editor.getAction('editor.action.formatDocument').run()
+			editor?.getAction('editor.action.formatDocument')?.run()
 			if (formatAction) {
 				formatAction()
 			}
@@ -163,15 +172,6 @@
 
 	export async function reloadWebsocket() {
 		await closeWebsockets()
-		const { MonacoLanguageClient } = await import('monaco-languageclient')
-		const { CloseAction, ErrorAction } = await import('vscode-languageclient')
-		const { toSocket, WebSocketMessageReader, WebSocketMessageWriter } = await import(
-			'vscode-ws-jsonrpc'
-		)
-		const vscode = await import('vscode')
-		const { RequestType } = await import('vscode-jsonrpc')
-		// install Monaco language client services
-		const { MonacoServices } = await import('monaco-languageclient')
 
 		monacoServices = MonacoServices.install()
 
@@ -234,9 +234,9 @@
 						initOptions,
 						middlewareOptions
 					)
-					if (middlewareOptions != undefined) {
-						languageClient.registerConfigurationFeatures()
-					}
+					// if (middlewareOptions != undefined) {
+					// 	languageClient.registerNotUsedFeatures()
+					// }
 					websockets.push([languageClient, webSocket])
 
 					// HACK ALERT: for some reasons, the client need to be restarted to take into account the 'go get <dep>' command

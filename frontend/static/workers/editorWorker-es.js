@@ -18,6 +18,7 @@ class Vn {
   onUnexpectedError(t) {
     this.unexpectedErrorHandler(t), this.emit(t);
   }
+  // For external errors, we don't want the listeners to be called
   onUnexpectedExternalError(t) {
     this.unexpectedErrorHandler(t);
   }
@@ -221,12 +222,23 @@ class se {
   constructor() {
     this._toDispose = /* @__PURE__ */ new Set(), this._isDisposed = !1;
   }
+  /**
+   * Dispose of all registered disposables and mark this object as disposed.
+   *
+   * Any future disposables added to this object will be disposed of on `add`.
+   */
   dispose() {
     this._isDisposed || (this._isDisposed = !0, this.clear());
   }
+  /**
+   * Returns `true` if this object has been disposed
+   */
   get isDisposed() {
     return this._isDisposed;
   }
+  /**
+   * Dispose of all registered disposables but do not mark this object as disposed.
+   */
   clear() {
     try {
       bn(this._toDispose.values());
@@ -352,7 +364,7 @@ function Gn(e, t) {
     const a = i[0], o = t[a];
     let l = s;
     return typeof o == "string" ? l = o : (typeof o == "number" || typeof o == "boolean" || o === void 0 || o === null) && (l = String(o)), l;
-  }), zn && (r = "\uFF3B" + r.replace(/[aouei]/g, "$&$&") + "\uFF3D"), r;
+  }), zn && (r = "［" + r.replace(/[aouei]/g, "$&$&") + "］"), r;
 }
 function On(e, t, ...r) {
   return Gn(t, r);
@@ -365,9 +377,13 @@ let B;
 typeof U.vscode < "u" && typeof U.vscode.process < "u" ? B = U.vscode.process : typeof process < "u" && (B = process);
 const Qn = typeof ((xe = B == null ? void 0 : B.versions) === null || xe === void 0 ? void 0 : xe.electron) == "string", Zn = Qn && (B == null ? void 0 : B.type) === "renderer";
 if (typeof navigator == "object" && !Zn)
-  Y = navigator.userAgent, Ue = Y.indexOf("Windows") >= 0, Ie = Y.indexOf("Macintosh") >= 0, (Y.indexOf("Macintosh") >= 0 || Y.indexOf("iPad") >= 0 || Y.indexOf("iPhone") >= 0) && !!navigator.maxTouchPoints && navigator.maxTouchPoints > 0, Ee = Y.indexOf("Linux") >= 0, wn = !0, On({ key: "ensureLoaderPluginIsLoaded", comment: ["{Locked}"] }, "_"), pe = de, Ve = pe;
+  Y = navigator.userAgent, Ue = Y.indexOf("Windows") >= 0, Ie = Y.indexOf("Macintosh") >= 0, (Y.indexOf("Macintosh") >= 0 || Y.indexOf("iPad") >= 0 || Y.indexOf("iPhone") >= 0) && navigator.maxTouchPoints && navigator.maxTouchPoints > 0, Ee = Y.indexOf("Linux") >= 0, wn = !0, // This call _must_ be done in the file that calls `nls.getConfiguredDefaultLocale`
+  // to ensure that the NLS AMD Loader plugin has been loaded and configured.
+  // This is because the loader plugin decides what the default locale is based on
+  // how it's able to resolve the strings.
+  On({ key: "ensureLoaderPluginIsLoaded", comment: ["{Locked}"] }, "_"), pe = de, Ve = pe;
 else if (typeof B == "object") {
-  Ue = B.platform === "win32", Ie = B.platform === "darwin", Ee = B.platform === "linux", Ee && !!B.env.SNAP && B.env.SNAP_REVISION, B.env.CI || B.env.BUILD_ARTIFACTSTAGINGDIRECTORY, pe = de, Ve = de;
+  Ue = B.platform === "win32", Ie = B.platform === "darwin", Ee = B.platform === "linux", Ee && B.env.SNAP && B.env.SNAP_REVISION, B.env.CI || B.env.BUILD_ARTIFACTSTAGINGDIRECTORY, pe = de, Ve = de;
   const e = B.env.VSCODE_NLS_CONFIG;
   if (e)
     try {
@@ -673,22 +689,30 @@ class O {
     var t, r, s, i;
     this._disposed || (this._disposed = !0, this._listeners && this._listeners.clear(), (t = this._deliveryQueue) === null || t === void 0 || t.clear(this), (s = (r = this._options) === null || r === void 0 ? void 0 : r.onLastListenerRemove) === null || s === void 0 || s.call(r), (i = this._leakageMon) === null || i === void 0 || i.dispose());
   }
+  /**
+   * For the public to allow to subscribe
+   * to events from this Emitter
+   */
   get event() {
     return this._event || (this._event = (t, r, s) => {
       var i, a, o;
       this._listeners || (this._listeners = new ye());
       const l = this._listeners.isEmpty();
-      l && ((i = this._options) === null || i === void 0 ? void 0 : i.onFirstListenerAdd) && this._options.onFirstListenerAdd(this);
+      l && (!((i = this._options) === null || i === void 0) && i.onFirstListenerAdd) && this._options.onFirstListenerAdd(this);
       let u, c;
       this._leakageMon && this._listeners.size >= 30 && (c = it.create(), u = this._leakageMon.check(c, this._listeners.size + 1));
       const f = new er(t, r, c), h = this._listeners.push(f);
-      l && ((a = this._options) === null || a === void 0 ? void 0 : a.onFirstListenerDidAdd) && this._options.onFirstListenerDidAdd(this), !((o = this._options) === null || o === void 0) && o.onListenerDidAdd && this._options.onListenerDidAdd(this, t, r);
+      l && (!((a = this._options) === null || a === void 0) && a.onFirstListenerDidAdd) && this._options.onFirstListenerDidAdd(this), !((o = this._options) === null || o === void 0) && o.onListenerDidAdd && this._options.onListenerDidAdd(this, t, r);
       const d = f.subscription.set(() => {
         u == null || u(), this._disposed || (h(), this._options && this._options.onLastListenerRemove && (this._listeners && !this._listeners.isEmpty() || this._options.onLastListenerRemove(this)));
       });
       return s instanceof se ? s.add(d) : Array.isArray(s) && s.push(d), d;
     }), this._event;
   }
+  /**
+   * To be kept private to fire an event to
+   * subscribers
+   */
   fire(t) {
     var r, s;
     if (this._listeners) {
@@ -773,9 +797,18 @@ class Cn {
   constructor(t) {
     this.executor = t, this._didRun = !1;
   }
+  /**
+   * True if the lazy value has been resolved.
+   */
   hasValue() {
     return this._didRun;
   }
+  /**
+   * Get the wrapped value.
+   *
+   * This will force evaluation of the lazy value if it has not been resolved yet. Lazy values are only
+   * resolved once. `getValue` will re-throw exceptions that are hit while resolving the value
+   */
   getValue() {
     if (!this._didRun)
       try {
@@ -789,6 +822,9 @@ class Cn {
       throw this._error;
     return this._value;
   }
+  /**
+   * Get the wrapped value without forcing evaluation.
+   */
   get rawValue() {
     return this._value;
   }
@@ -854,6 +890,10 @@ class z {
   isAmbiguous(t) {
     return this.confusableDictionary.has(t);
   }
+  /**
+   * Returns the non basic ASCII code point that the given code point can be confused,
+   * or undefined if such code point does note exist.
+   */
   getPrimaryConfusable(t) {
     return this.confusableDictionary.get(t);
   }
@@ -1116,12 +1156,22 @@ class Sr {
   }
 }
 class X {
+  /**
+   * Constructs a new DiffChange with the given sequence information
+   * and content.
+   */
   constructor(t, r, s, i) {
     this.originalStart = t, this.originalLength = r, this.modifiedStart = s, this.modifiedLength = i;
   }
+  /**
+   * The end point (exclusive) of the change in the original sequence.
+   */
   getOriginalEnd() {
     return this.originalStart + this.originalLength;
   }
+  /**
+   * The end point (exclusive) of the change in the modified sequence.
+   */
   getModifiedEnd() {
     return this.modifiedStart + this.modifiedLength;
   }
@@ -1156,6 +1206,21 @@ class ae {
   }
 }
 class oe {
+  /**
+   * Copies a range of elements from an Array starting at the specified source index and pastes
+   * them to another Array starting at the specified destination index. The length and the indexes
+   * are specified as 64-bit integers.
+   * sourceArray:
+   *		The Array that contains the data to copy.
+   * sourceIndex:
+   *		A 64-bit integer that represents the index in the sourceArray at which copying begins.
+   * destinationArray:
+   *		The Array that receives the data.
+   * destinationIndex:
+   *		A 64-bit integer that represents the index in the destinationArray at which storing begins.
+   * length:
+   *		A 64-bit integer that represents the number of elements to copy.
+   */
   static Copy(t, r, s, i, a) {
     for (let o = 0; o < a; o++)
       s[i + o] = t[r + o];
@@ -1166,26 +1231,55 @@ class oe {
   }
 }
 class dt {
+  /**
+   * Constructs a new DiffChangeHelper for the given DiffSequences.
+   */
   constructor() {
     this.m_changes = [], this.m_originalStart = 1073741824, this.m_modifiedStart = 1073741824, this.m_originalCount = 0, this.m_modifiedCount = 0;
   }
+  /**
+   * Marks the beginning of the next change in the set of differences.
+   */
   MarkNextChange() {
     (this.m_originalCount > 0 || this.m_modifiedCount > 0) && this.m_changes.push(new X(this.m_originalStart, this.m_originalCount, this.m_modifiedStart, this.m_modifiedCount)), this.m_originalCount = 0, this.m_modifiedCount = 0, this.m_originalStart = 1073741824, this.m_modifiedStart = 1073741824;
   }
+  /**
+   * Adds the original element at the given position to the elements
+   * affected by the current change. The modified index gives context
+   * to the change position with respect to the original sequence.
+   * @param originalIndex The index of the original element to add.
+   * @param modifiedIndex The index of the modified element that provides corresponding position in the modified sequence.
+   */
   AddOriginalElement(t, r) {
     this.m_originalStart = Math.min(this.m_originalStart, t), this.m_modifiedStart = Math.min(this.m_modifiedStart, r), this.m_originalCount++;
   }
+  /**
+   * Adds the modified element at the given position to the elements
+   * affected by the current change. The original index gives context
+   * to the change position with respect to the modified sequence.
+   * @param originalIndex The index of the original element that provides corresponding position in the original sequence.
+   * @param modifiedIndex The index of the modified element to add.
+   */
   AddModifiedElement(t, r) {
     this.m_originalStart = Math.min(this.m_originalStart, t), this.m_modifiedStart = Math.min(this.m_modifiedStart, r), this.m_modifiedCount++;
   }
+  /**
+   * Retrieves all of the changes marked by the class.
+   */
   getChanges() {
     return (this.m_originalCount > 0 || this.m_modifiedCount > 0) && this.MarkNextChange(), this.m_changes;
   }
+  /**
+   * Retrieves all of the changes marked by the class in the reverse order
+   */
   getReverseChanges() {
     return (this.m_originalCount > 0 || this.m_modifiedCount > 0) && this.MarkNextChange(), this.m_changes.reverse(), this.m_changes;
   }
 }
 class J {
+  /**
+   * Constructs the DiffFinder
+   */
   constructor(t, r, s = null) {
     this.ContinueProcessingPredicate = s, this._originalSequence = t, this._modifiedSequence = r;
     const [i, a, o] = J._getElements(t), [l, u, c] = J._getElements(r);
@@ -1225,6 +1319,11 @@ class J {
   ComputeDiff(t) {
     return this._ComputeDiff(0, this._originalElementsOrHash.length - 1, 0, this._modifiedElementsOrHash.length - 1, t);
   }
+  /**
+   * Computes the differences between the original and modified input
+   * sequences on the bounded range.
+   * @returns An array of the differences between the two input sequences.
+   */
   _ComputeDiff(t, r, s, i, a) {
     const o = [!1];
     let l = this.ComputeDiffRecursive(t, r, s, i, o);
@@ -1233,6 +1332,11 @@ class J {
       changes: l
     };
   }
+  /**
+   * Private helper method which computes the differences on the bounded range
+   * recursively.
+   * @returns An array of the differences between the two input sequences.
+   */
   ComputeDiffRecursive(t, r, s, i, a) {
     for (a[0] = !1; t <= r && s <= i && this.ElementsAreEqual(t, s); )
       t++, s++;
@@ -1285,6 +1389,22 @@ class J {
     }
     return this.ConcatenateChanges(y, p);
   }
+  /**
+   * Given the range to compute the diff on, this method finds the point:
+   * (midOriginal, midModified)
+   * that exists in the middle of the LCS of the two sequences and
+   * is the point at which the LCS problem may be broken down recursively.
+   * This method will try to keep the LCS trace in memory. If the LCS recursion
+   * point is calculated and the full trace is available in memory, then this method
+   * will return the change list.
+   * @param originalStart The start bound of the original sequence range
+   * @param originalEnd The end bound of the original sequence range
+   * @param modifiedStart The start bound of the modified sequence range
+   * @param modifiedEnd The end bound of the modified sequence range
+   * @param midOriginal The middle point of the original sequence range
+   * @param midModified The middle point of the modified sequence range
+   * @returns The diff changes, if available, otherwise null
+   */
   ComputeRecursionPoint(t, r, s, i, a, o, l) {
     let u = 0, c = 0, f = 0, h = 0, d = 0, C = 0;
     t--, s--, a[0] = 0, o[0] = 0, this.m_forwardHistory = [], this.m_reverseHistory = [];
@@ -1322,6 +1442,14 @@ class J {
     }
     return this.WALKTRACE(P, f, h, p, y, d, C, S, k, R, u, r, a, c, i, o, g, l);
   }
+  /**
+   * Shifts the given changes to provide a more intuitive diff.
+   * While the first element in a diff matches the first element after the diff,
+   * we shift the diff down.
+   *
+   * @param changes The list of changes to shift
+   * @returns The shifted changes
+   */
   PrettifyChanges(t) {
     for (let r = 0; r < t.length; r++) {
       const s = t[r], i = r < t.length - 1 ? t[r + 1].originalStart : this._originalElementsOrHash.length, a = r < t.length - 1 ? t[r + 1].modifiedStart : this._modifiedElementsOrHash.length, o = s.originalLength > 0, l = s.modifiedLength > 0;
@@ -1424,6 +1552,13 @@ class J {
     const a = this._OriginalRegionIsBoundary(t, r) ? 1 : 0, o = this._ModifiedRegionIsBoundary(s, i) ? 1 : 0;
     return a + o;
   }
+  /**
+   * Concatenates the two input DiffChange lists and returns the resulting
+   * list.
+   * @param The left changes
+   * @param The right changes
+   * @returns The concatenated list
+   */
   ConcatenateChanges(t, r) {
     const s = [];
     if (t.length === 0 || r.length === 0)
@@ -1436,6 +1571,14 @@ class J {
       return oe.Copy(t, 0, i, 0, t.length), oe.Copy(r, 0, i, t.length, r.length), i;
     }
   }
+  /**
+   * Returns true if the two changes overlap and can be merged into a single
+   * change
+   * @param left The left change
+   * @param right The right change
+   * @param mergedChange The merged change if the two overlap, null otherwise
+   * @returns True if the two changes overlap
+   */
   ChangesOverlap(t, r, s) {
     if (ae.Assert(t.originalStart <= r.originalStart, "Left change is not less than or equal to right change"), ae.Assert(t.modifiedStart <= r.modifiedStart, "Left change is not less than or equal to right change"), t.originalStart + t.originalLength >= r.originalStart || t.modifiedStart + t.modifiedLength >= r.modifiedStart) {
       const i = t.originalStart;
@@ -1446,6 +1589,18 @@ class J {
     } else
       return s[0] = null, !1;
   }
+  /**
+   * Helper method used to clip a diagonal index to the range of valid
+   * diagonals. This also decides whether or not the diagonal index,
+   * if it exceeds the boundary, should be clipped to the boundary or clipped
+   * one inside the boundary depending on the Even/Odd status of the boundary
+   * and numDifferences.
+   * @param diagonal The index of the diagonal to clip.
+   * @param numDifferences The current number of differences being iterated upon.
+   * @param diagonalBaseIndex The base reference diagonal.
+   * @param numDiagonals The total number of diagonals.
+   * @returns The clipped diagonal index.
+   */
   ClipDiagonalBound(t, r, s, i) {
     if (t >= 0 && t < i)
       return t;
@@ -1491,11 +1646,13 @@ if (typeof U.vscode < "u" && typeof U.vscode.process < "u") {
       return process.env.VSCODE_CWD || process.cwd();
     }
   } : ue = {
+    // Supported
     get platform() {
       return ge ? "win32" : Yn ? "darwin" : "linux";
     },
     get arch() {
     },
+    // Unsupported
     get env() {
       return {};
     },
@@ -1565,6 +1722,7 @@ function Sn(e, t) {
   return r ? r === t.root ? `${r}${s}` : `${r}${e}${s}` : s;
 }
 const I = {
+  // path.resolve([from ...], to)
   resolve(...e) {
     let t = "", r = "", s = !1;
     for (let i = e.length - 1; i >= -1; i--) {
@@ -1651,7 +1809,8 @@ const I = {
     if (t === 0)
       return !1;
     const r = e.charCodeAt(0);
-    return M(r) || t > 2 && Z(r) && e.charCodeAt(1) === Q && M(e.charCodeAt(2));
+    return M(r) || // Possible device root
+    t > 2 && Z(r) && e.charCodeAt(1) === Q && M(e.charCodeAt(2));
   },
   join(...e) {
     if (e.length === 0)
@@ -1676,6 +1835,10 @@ const I = {
     }
     return I.normalize(t);
   },
+  // It will solve the relative path from `from` to `to`, for instance:
+  //  from = 'C:\\orandea\\test\\aaa'
+  //  to = 'C:\\orandea\\impl\\bbb'
+  // The output of the function should be: '..\\..\\impl\\bbb'
   relative(e, t) {
     if (V(e, "from"), V(t, "to"), e === t)
       return "";
@@ -1826,7 +1989,9 @@ const I = {
       }
       i === -1 && (a = !1, i = l + 1), u === ee ? r === -1 ? r = l : o !== 1 && (o = 1) : r !== -1 && (o = -1);
     }
-    return r === -1 || i === -1 || o === 0 || o === 1 && r === i - 1 && r === s + 1 ? "" : e.slice(r, i);
+    return r === -1 || i === -1 || // We saw a non-dot character immediately before the dot
+    o === 0 || // The (right-most) trimmed path component is exactly '..'
+    o === 1 && r === i - 1 && r === s + 1 ? "" : e.slice(r, i);
   },
   format: Sn.bind(null, "\\"),
   parse(e) {
@@ -1874,13 +2039,16 @@ const I = {
       }
       l === -1 && (u = !1, l = c + 1), i === ee ? a === -1 ? a = c : f !== 1 && (f = 1) : a !== -1 && (f = -1);
     }
-    return l !== -1 && (a === -1 || f === 0 || f === 1 && a === l - 1 && a === o + 1 ? t.base = t.name = e.slice(o, l) : (t.name = e.slice(o, a), t.base = e.slice(o, l), t.ext = e.slice(a, l))), o > 0 && o !== s ? t.dir = e.slice(0, o - 1) : t.dir = t.root, t;
+    return l !== -1 && (a === -1 || // We saw a non-dot character immediately before the dot
+    f === 0 || // The (right-most) trimmed path component is exactly '..'
+    f === 1 && a === l - 1 && a === o + 1 ? t.base = t.name = e.slice(o, l) : (t.name = e.slice(o, a), t.base = e.slice(o, l), t.ext = e.slice(a, l))), o > 0 && o !== s ? t.dir = e.slice(0, o - 1) : t.dir = t.root, t;
   },
   sep: "\\",
   delimiter: ";",
   win32: null,
   posix: null
 }, W = {
+  // path.resolve([from ...], to)
   resolve(...e) {
     let t = "", r = !1;
     for (let s = e.length - 1; s >= -1 && !r; s--) {
@@ -1993,7 +2161,9 @@ const I = {
       }
       s === -1 && (i = !1, s = o + 1), l === ee ? t === -1 ? t = o : a !== 1 && (a = 1) : t !== -1 && (a = -1);
     }
-    return t === -1 || s === -1 || a === 0 || a === 1 && t === s - 1 && t === r + 1 ? "" : e.slice(t, s);
+    return t === -1 || s === -1 || // We saw a non-dot character immediately before the dot
+    a === 0 || // The (right-most) trimmed path component is exactly '..'
+    a === 1 && t === s - 1 && t === r + 1 ? "" : e.slice(t, s);
   },
   format: Sn.bind(null, "/"),
   parse(e) {
@@ -2018,7 +2188,9 @@ const I = {
     }
     if (o !== -1) {
       const f = a === 0 && r ? 1 : a;
-      i === -1 || c === 0 || c === 1 && i === o - 1 && i === a + 1 ? t.base = t.name = e.slice(f, o) : (t.name = e.slice(f, i), t.base = e.slice(f, o), t.ext = e.slice(i, o));
+      i === -1 || // We saw a non-dot character immediately before the dot
+      c === 0 || // The (right-most) trimmed path component is exactly '..'
+      c === 1 && i === o - 1 && i === a + 1 ? t.base = t.name = e.slice(f, o) : (t.name = e.slice(f, i), t.base = e.slice(f, o), t.ext = e.slice(i, o));
     }
     return a > 0 ? t.dir = e.slice(0, a - 1) : r && (t.dir = "/"), t;
   },
@@ -2065,25 +2237,82 @@ function Br(e, t) {
 }
 const F = "", G = "/", Ur = /^(([^:/?#]+?):)?(\/\/([^/?#]*))?([^?#]*)(\?([^#]*))?(#(.*))?/;
 class ne {
+  /**
+   * @internal
+   */
   constructor(t, r, s, i, a, o = !1) {
     typeof t == "object" ? (this.scheme = t.scheme || F, this.authority = t.authority || F, this.path = t.path || F, this.query = t.query || F, this.fragment = t.fragment || F) : (this.scheme = Tr(t, o), this.authority = r || F, this.path = Br(this.scheme, s || F), this.query = i || F, this.fragment = a || F, mt(this, o));
   }
   static isUri(t) {
     return t instanceof ne ? !0 : t ? typeof t.authority == "string" && typeof t.fragment == "string" && typeof t.path == "string" && typeof t.query == "string" && typeof t.scheme == "string" && typeof t.fsPath == "string" && typeof t.with == "function" && typeof t.toString == "function" : !1;
   }
+  // ---- filesystem path -----------------------
+  /**
+   * Returns a string representing the corresponding file system path of this URI.
+   * Will handle UNC paths, normalizes windows drive letters to lower-case, and uses the
+   * platform specific path separator.
+   *
+   * * Will *not* validate the path for invalid characters and semantics.
+   * * Will *not* look at the scheme of this URI.
+   * * The result shall *not* be used for display purposes but for accessing a file on disk.
+   *
+   *
+   * The *difference* to `URI#path` is the use of the platform specific separator and the handling
+   * of UNC paths. See the below sample of a file-uri with an authority (UNC path).
+   *
+   * ```ts
+      const u = URI.parse('file://server/c$/folder/file.txt')
+      u.authority === 'server'
+      u.path === '/shares/c$/file.txt'
+      u.fsPath === '\\server\c$\folder\file.txt'
+  ```
+   *
+   * Using `URI#path` to read a file (using fs-apis) would not be enough because parts of the path,
+   * namely the server name, would be missing. Therefore `URI#fsPath` exists - it's sugar to ease working
+   * with URIs that represent files on disk (`file` scheme).
+   */
   get fsPath() {
     return Ge(this, !1);
   }
+  // ---- modify to new -------------------------
   with(t) {
     if (!t)
       return this;
     let { scheme: r, authority: s, path: i, query: a, fragment: o } = t;
     return r === void 0 ? r = this.scheme : r === null && (r = F), s === void 0 ? s = this.authority : s === null && (s = F), i === void 0 ? i = this.path : i === null && (i = F), a === void 0 ? a = this.query : a === null && (a = F), o === void 0 ? o = this.fragment : o === null && (o = F), r === this.scheme && s === this.authority && i === this.path && a === this.query && o === this.fragment ? this : new le(r, s, i, a, o);
   }
+  // ---- parse & validate ------------------------
+  /**
+   * Creates a new URI from a string, e.g. `http://www.example.com/some/path`,
+   * `file:///usr/home`, or `scheme:with/path`.
+   *
+   * @param value A string which represents an URI (see `URI#toString`).
+   */
   static parse(t, r = !1) {
     const s = Ur.exec(t);
     return s ? new le(s[2] || F, Le(s[4] || F), Le(s[5] || F), Le(s[7] || F), Le(s[9] || F), r) : new le(F, F, F, F, F);
   }
+  /**
+   * Creates a new URI from a file system path, e.g. `c:\my\files`,
+   * `/usr/home`, or `\\server\share\some\path`.
+   *
+   * The *difference* between `URI#parse` and `URI#file` is that the latter treats the argument
+   * as path, not as stringified-uri. E.g. `URI.file(path)` is **not the same as**
+   * `URI.parse('file://' + path)` because the path might contain characters that are
+   * interpreted (# and ?). See the following sample:
+   * ```ts
+  const good = URI.file('/coding/c#/project1');
+  good.scheme === 'file';
+  good.path === '/coding/c#/project1';
+  good.fragment === '';
+  const bad = URI.parse('file://' + '/coding/c#/project1');
+  bad.scheme === 'file';
+  bad.path === '/coding/c'; // path is now broken
+  bad.fragment === '/project1';
+  ```
+   *
+   * @param path A file system path (see `URI#fsPath`)
+   */
   static file(t) {
     let r = F;
     if (ge && (t = t.replace(/\\/g, G)), t[0] === G && t[1] === G) {
@@ -2096,12 +2325,31 @@ class ne {
     const r = new le(t.scheme, t.authority, t.path, t.query, t.fragment);
     return mt(r, !0), r;
   }
+  /**
+   * Join a URI path with path fragments and normalizes the resulting path.
+   *
+   * @param uri The input URI.
+   * @param pathFragment The path fragment to add to the URI path.
+   * @returns The resulting URI.
+   */
   static joinPath(t, ...r) {
     if (!t.path)
       throw new Error("[UriError]: cannot call joinPath on URI without path");
     let s;
     return ge && t.scheme === "file" ? s = ne.file(I.join(Ge(t, !0), ...r)).path : s = W.join(t.path, ...r), t.with({ path: s });
   }
+  // ---- printing/externalize ---------------------------
+  /**
+   * Creates a string representation for this URI. It's guaranteed that calling
+   * `URI.parse` with the result of this function creates an URI which is equal
+   * to this URI.
+   *
+   * * The result shall *not* be used for display purposes but for externalization or transport.
+   * * The result will be encoded using the percentage encoding and encoding happens mostly
+   * ignore the scheme-specific encoding rules.
+   *
+   * @param skipEncoding Do not encode the result, default is `false`
+   */
   toString(t = !1) {
     return Oe(this, t);
   }
@@ -2134,30 +2382,88 @@ class le extends ne {
   toJSON() {
     const t = {
       $mid: 1
+      /* MarshalledId.Uri */
     };
     return this._fsPath && (t.fsPath = this._fsPath, t._sep = An), this._formatted && (t.external = this._formatted), this.path && (t.path = this.path), this.scheme && (t.scheme = this.scheme), this.authority && (t.authority = this.authority), this.query && (t.query = this.query), this.fragment && (t.fragment = this.fragment), t;
   }
 }
 const yn = {
-  [58]: "%3A",
-  [47]: "%2F",
-  [63]: "%3F",
-  [35]: "%23",
-  [91]: "%5B",
-  [93]: "%5D",
-  [64]: "%40",
-  [33]: "%21",
-  [36]: "%24",
-  [38]: "%26",
-  [39]: "%27",
-  [40]: "%28",
-  [41]: "%29",
-  [42]: "%2A",
-  [43]: "%2B",
-  [44]: "%2C",
-  [59]: "%3B",
-  [61]: "%3D",
-  [32]: "%20"
+  [
+    58
+    /* CharCode.Colon */
+  ]: "%3A",
+  [
+    47
+    /* CharCode.Slash */
+  ]: "%2F",
+  [
+    63
+    /* CharCode.QuestionMark */
+  ]: "%3F",
+  [
+    35
+    /* CharCode.Hash */
+  ]: "%23",
+  [
+    91
+    /* CharCode.OpenSquareBracket */
+  ]: "%5B",
+  [
+    93
+    /* CharCode.CloseSquareBracket */
+  ]: "%5D",
+  [
+    64
+    /* CharCode.AtSign */
+  ]: "%40",
+  [
+    33
+    /* CharCode.ExclamationMark */
+  ]: "%21",
+  [
+    36
+    /* CharCode.DollarSign */
+  ]: "%24",
+  [
+    38
+    /* CharCode.Ampersand */
+  ]: "%26",
+  [
+    39
+    /* CharCode.SingleQuote */
+  ]: "%27",
+  [
+    40
+    /* CharCode.OpenParen */
+  ]: "%28",
+  [
+    41
+    /* CharCode.CloseParen */
+  ]: "%29",
+  [
+    42
+    /* CharCode.Asterisk */
+  ]: "%2A",
+  [
+    43
+    /* CharCode.Plus */
+  ]: "%2B",
+  [
+    44
+    /* CharCode.Comma */
+  ]: "%2C",
+  [
+    59
+    /* CharCode.Semicolon */
+  ]: "%3B",
+  [
+    61
+    /* CharCode.Equals */
+  ]: "%3D",
+  [
+    32
+    /* CharCode.Space */
+  ]: "%20"
 };
 function gt(e, t) {
   let r, s = -1;
@@ -2223,30 +2529,67 @@ class H {
   constructor(t, r) {
     this.lineNumber = t, this.column = r;
   }
+  /**
+   * Create a new position from this position.
+   *
+   * @param newLineNumber new line number
+   * @param newColumn new column
+   */
   with(t = this.lineNumber, r = this.column) {
     return t === this.lineNumber && r === this.column ? this : new H(t, r);
   }
+  /**
+   * Derive a new position from this position.
+   *
+   * @param deltaLineNumber line number delta
+   * @param deltaColumn column delta
+   */
   delta(t = 0, r = 0) {
     return this.with(this.lineNumber + t, this.column + r);
   }
+  /**
+   * Test if this position equals other position
+   */
   equals(t) {
     return H.equals(this, t);
   }
+  /**
+   * Test if position `a` equals position `b`
+   */
   static equals(t, r) {
     return !t && !r ? !0 : !!t && !!r && t.lineNumber === r.lineNumber && t.column === r.column;
   }
+  /**
+   * Test if this position is before other position.
+   * If the two positions are equal, the result will be false.
+   */
   isBefore(t) {
     return H.isBefore(this, t);
   }
+  /**
+   * Test if position `a` is before position `b`.
+   * If the two positions are equal, the result will be false.
+   */
   static isBefore(t, r) {
     return t.lineNumber < r.lineNumber ? !0 : r.lineNumber < t.lineNumber ? !1 : t.column < r.column;
   }
+  /**
+   * Test if this position is before other position.
+   * If the two positions are equal, the result will be true.
+   */
   isBeforeOrEqual(t) {
     return H.isBeforeOrEqual(this, t);
   }
+  /**
+   * Test if position `a` is before position `b`.
+   * If the two positions are equal, the result will be true.
+   */
   static isBeforeOrEqual(t, r) {
     return t.lineNumber < r.lineNumber ? !0 : r.lineNumber < t.lineNumber ? !1 : t.column <= r.column;
   }
+  /**
+   * A function that compares positions, useful for sorting
+   */
   static compare(t, r) {
     const s = t.lineNumber | 0, i = r.lineNumber | 0;
     if (s === i) {
@@ -2255,15 +2598,28 @@ class H {
     }
     return s - i;
   }
+  /**
+   * Clone this position.
+   */
   clone() {
     return new H(this.lineNumber, this.column);
   }
+  /**
+   * Convert to a human-readable representation.
+   */
   toString() {
     return "(" + this.lineNumber + "," + this.column + ")";
   }
+  // ---
+  /**
+   * Create a `Position` from an `IPosition`.
+   */
   static lift(t) {
     return new H(t.lineNumber, t.column);
   }
+  /**
+   * Test if `obj` is an `IPosition`.
+   */
   static isIPosition(t) {
     return t && typeof t.lineNumber == "number" && typeof t.column == "number";
   }
@@ -2272,96 +2628,185 @@ class x {
   constructor(t, r, s, i) {
     t > s || t === s && r > i ? (this.startLineNumber = s, this.startColumn = i, this.endLineNumber = t, this.endColumn = r) : (this.startLineNumber = t, this.startColumn = r, this.endLineNumber = s, this.endColumn = i);
   }
+  /**
+   * Test if this range is empty.
+   */
   isEmpty() {
     return x.isEmpty(this);
   }
+  /**
+   * Test if `range` is empty.
+   */
   static isEmpty(t) {
     return t.startLineNumber === t.endLineNumber && t.startColumn === t.endColumn;
   }
+  /**
+   * Test if position is in this range. If the position is at the edges, will return true.
+   */
   containsPosition(t) {
     return x.containsPosition(this, t);
   }
+  /**
+   * Test if `position` is in `range`. If the position is at the edges, will return true.
+   */
   static containsPosition(t, r) {
     return !(r.lineNumber < t.startLineNumber || r.lineNumber > t.endLineNumber || r.lineNumber === t.startLineNumber && r.column < t.startColumn || r.lineNumber === t.endLineNumber && r.column > t.endColumn);
   }
+  /**
+   * Test if `position` is in `range`. If the position is at the edges, will return false.
+   * @internal
+   */
   static strictContainsPosition(t, r) {
     return !(r.lineNumber < t.startLineNumber || r.lineNumber > t.endLineNumber || r.lineNumber === t.startLineNumber && r.column <= t.startColumn || r.lineNumber === t.endLineNumber && r.column >= t.endColumn);
   }
+  /**
+   * Test if range is in this range. If the range is equal to this range, will return true.
+   */
   containsRange(t) {
     return x.containsRange(this, t);
   }
+  /**
+   * Test if `otherRange` is in `range`. If the ranges are equal, will return true.
+   */
   static containsRange(t, r) {
     return !(r.startLineNumber < t.startLineNumber || r.endLineNumber < t.startLineNumber || r.startLineNumber > t.endLineNumber || r.endLineNumber > t.endLineNumber || r.startLineNumber === t.startLineNumber && r.startColumn < t.startColumn || r.endLineNumber === t.endLineNumber && r.endColumn > t.endColumn);
   }
+  /**
+   * Test if `range` is strictly in this range. `range` must start after and end before this range for the result to be true.
+   */
   strictContainsRange(t) {
     return x.strictContainsRange(this, t);
   }
+  /**
+   * Test if `otherRange` is strictly in `range` (must start after, and end before). If the ranges are equal, will return false.
+   */
   static strictContainsRange(t, r) {
     return !(r.startLineNumber < t.startLineNumber || r.endLineNumber < t.startLineNumber || r.startLineNumber > t.endLineNumber || r.endLineNumber > t.endLineNumber || r.startLineNumber === t.startLineNumber && r.startColumn <= t.startColumn || r.endLineNumber === t.endLineNumber && r.endColumn >= t.endColumn);
   }
+  /**
+   * A reunion of the two ranges.
+   * The smallest position will be used as the start point, and the largest one as the end point.
+   */
   plusRange(t) {
     return x.plusRange(this, t);
   }
+  /**
+   * A reunion of the two ranges.
+   * The smallest position will be used as the start point, and the largest one as the end point.
+   */
   static plusRange(t, r) {
     let s, i, a, o;
     return r.startLineNumber < t.startLineNumber ? (s = r.startLineNumber, i = r.startColumn) : r.startLineNumber === t.startLineNumber ? (s = r.startLineNumber, i = Math.min(r.startColumn, t.startColumn)) : (s = t.startLineNumber, i = t.startColumn), r.endLineNumber > t.endLineNumber ? (a = r.endLineNumber, o = r.endColumn) : r.endLineNumber === t.endLineNumber ? (a = r.endLineNumber, o = Math.max(r.endColumn, t.endColumn)) : (a = t.endLineNumber, o = t.endColumn), new x(s, i, a, o);
   }
+  /**
+   * A intersection of the two ranges.
+   */
   intersectRanges(t) {
     return x.intersectRanges(this, t);
   }
+  /**
+   * A intersection of the two ranges.
+   */
   static intersectRanges(t, r) {
     let s = t.startLineNumber, i = t.startColumn, a = t.endLineNumber, o = t.endColumn;
     const l = r.startLineNumber, u = r.startColumn, c = r.endLineNumber, f = r.endColumn;
     return s < l ? (s = l, i = u) : s === l && (i = Math.max(i, u)), a > c ? (a = c, o = f) : a === c && (o = Math.min(o, f)), s > a || s === a && i > o ? null : new x(s, i, a, o);
   }
+  /**
+   * Test if this range equals other.
+   */
   equalsRange(t) {
     return x.equalsRange(this, t);
   }
+  /**
+   * Test if range `a` equals `b`.
+   */
   static equalsRange(t, r) {
     return !!t && !!r && t.startLineNumber === r.startLineNumber && t.startColumn === r.startColumn && t.endLineNumber === r.endLineNumber && t.endColumn === r.endColumn;
   }
+  /**
+   * Return the end position (which will be after or equal to the start position)
+   */
   getEndPosition() {
     return x.getEndPosition(this);
   }
+  /**
+   * Return the end position (which will be after or equal to the start position)
+   */
   static getEndPosition(t) {
     return new H(t.endLineNumber, t.endColumn);
   }
+  /**
+   * Return the start position (which will be before or equal to the end position)
+   */
   getStartPosition() {
     return x.getStartPosition(this);
   }
+  /**
+   * Return the start position (which will be before or equal to the end position)
+   */
   static getStartPosition(t) {
     return new H(t.startLineNumber, t.startColumn);
   }
+  /**
+   * Transform to a user presentable string representation.
+   */
   toString() {
     return "[" + this.startLineNumber + "," + this.startColumn + " -> " + this.endLineNumber + "," + this.endColumn + "]";
   }
+  /**
+   * Create a new range using this range's start position, and using endLineNumber and endColumn as the end position.
+   */
   setEndPosition(t, r) {
     return new x(this.startLineNumber, this.startColumn, t, r);
   }
+  /**
+   * Create a new range using this range's end position, and using startLineNumber and startColumn as the start position.
+   */
   setStartPosition(t, r) {
     return new x(t, r, this.endLineNumber, this.endColumn);
   }
+  /**
+   * Create a new empty range using this range's start position.
+   */
   collapseToStart() {
     return x.collapseToStart(this);
   }
+  /**
+   * Create a new empty range using this range's start position.
+   */
   static collapseToStart(t) {
     return new x(t.startLineNumber, t.startColumn, t.startLineNumber, t.startColumn);
   }
+  // ---
   static fromPositions(t, r = t) {
     return new x(t.lineNumber, t.column, r.lineNumber, r.column);
   }
   static lift(t) {
     return t ? new x(t.startLineNumber, t.startColumn, t.endLineNumber, t.endColumn) : null;
   }
+  /**
+   * Test if `obj` is an `IRange`.
+   */
   static isIRange(t) {
     return t && typeof t.startLineNumber == "number" && typeof t.startColumn == "number" && typeof t.endLineNumber == "number" && typeof t.endColumn == "number";
   }
+  /**
+   * Test if the two ranges are touching in any way.
+   */
   static areIntersectingOrTouching(t, r) {
     return !(t.endLineNumber < r.startLineNumber || t.endLineNumber === r.startLineNumber && t.endColumn < r.startColumn || r.endLineNumber < t.startLineNumber || r.endLineNumber === t.startLineNumber && r.endColumn < t.startColumn);
   }
+  /**
+   * Test if the two ranges are intersecting. If the ranges are touching it returns true.
+   */
   static areIntersecting(t, r) {
     return !(t.endLineNumber < r.startLineNumber || t.endLineNumber === r.startLineNumber && t.endColumn <= r.startColumn || r.endLineNumber < t.startLineNumber || r.endLineNumber === t.startLineNumber && r.endColumn <= t.startColumn);
   }
+  /**
+   * A function that compares ranges, useful for sorting ranges
+   * It will first compare ranges on the startPosition and then on the endPosition
+   */
   static compareRangesUsingStarts(t, r) {
     if (t && r) {
       const a = t.startLineNumber | 0, o = r.startLineNumber | 0;
@@ -2381,9 +2826,16 @@ class x {
     }
     return (t ? 1 : 0) - (r ? 1 : 0);
   }
+  /**
+   * A function that compares ranges, useful for sorting ranges
+   * It will first compare ranges on the endPosition and then on the startPosition
+   */
   static compareRangesUsingEnds(t, r) {
     return t.endLineNumber === r.endLineNumber ? t.endColumn === r.endColumn ? t.startLineNumber === r.startLineNumber ? t.startColumn - r.startColumn : t.startLineNumber - r.startLineNumber : t.endColumn - r.endColumn : t.endLineNumber - r.endLineNumber;
   }
+  /**
+   * Test if the range spans multiple lines.
+   */
   static spansMultipleLines(t) {
     return t.endLineNumber > t.startLineNumber;
   }
@@ -2662,6 +3114,10 @@ class zr {
   getTotalSum() {
     return this.values.length === 0 ? 0 : this._getPrefixSum(this.values.length - 1);
   }
+  /**
+   * Returns the sum of the first `index + 1` many items.
+   * @returns `SUM(0 <= j <= index, values[j])`.
+   */
   getPrefixSum(t) {
     return t < 0 ? 0 : (t = ce(t), this._getPrefixSum(t));
   }
@@ -2720,6 +3176,9 @@ class Or {
       this._lineStarts = new zr(s);
     }
   }
+  /**
+   * All changes to a line's text go through this method
+   */
   _setLineText(t, r) {
     this._lines[t] = r, this._lineStarts && this._lineStarts.setValue(t, this._lines[t].length + this._eol.length);
   }
@@ -2849,7 +3308,12 @@ class Jr {
       u > r && (r = u), l > s && (s = l), c > s && (s = c);
     }
     r++, s++;
-    const i = new Xr(s, r, 0);
+    const i = new Xr(
+      s,
+      r,
+      0
+      /* State.Invalid */
+    );
     for (let a = 0, o = t.length; a < o; a++) {
       const [l, u, c] = t[a];
       i.set(l, u, c);
@@ -2863,40 +3327,161 @@ class Jr {
 let Te = null;
 function Kr() {
   return Te === null && (Te = new Jr([
-    [1, 104, 2],
-    [1, 72, 2],
-    [1, 102, 6],
-    [1, 70, 6],
-    [2, 116, 3],
-    [2, 84, 3],
-    [3, 116, 4],
-    [3, 84, 4],
-    [4, 112, 5],
-    [4, 80, 5],
-    [5, 115, 9],
-    [5, 83, 9],
-    [5, 58, 10],
-    [6, 105, 7],
-    [6, 73, 7],
-    [7, 108, 8],
-    [7, 76, 8],
-    [8, 101, 9],
-    [8, 69, 9],
-    [9, 58, 10],
-    [10, 47, 11],
-    [11, 47, 12]
+    [
+      1,
+      104,
+      2
+      /* State.H */
+    ],
+    [
+      1,
+      72,
+      2
+      /* State.H */
+    ],
+    [
+      1,
+      102,
+      6
+      /* State.F */
+    ],
+    [
+      1,
+      70,
+      6
+      /* State.F */
+    ],
+    [
+      2,
+      116,
+      3
+      /* State.HT */
+    ],
+    [
+      2,
+      84,
+      3
+      /* State.HT */
+    ],
+    [
+      3,
+      116,
+      4
+      /* State.HTT */
+    ],
+    [
+      3,
+      84,
+      4
+      /* State.HTT */
+    ],
+    [
+      4,
+      112,
+      5
+      /* State.HTTP */
+    ],
+    [
+      4,
+      80,
+      5
+      /* State.HTTP */
+    ],
+    [
+      5,
+      115,
+      9
+      /* State.BeforeColon */
+    ],
+    [
+      5,
+      83,
+      9
+      /* State.BeforeColon */
+    ],
+    [
+      5,
+      58,
+      10
+      /* State.AfterColon */
+    ],
+    [
+      6,
+      105,
+      7
+      /* State.FI */
+    ],
+    [
+      6,
+      73,
+      7
+      /* State.FI */
+    ],
+    [
+      7,
+      108,
+      8
+      /* State.FIL */
+    ],
+    [
+      7,
+      76,
+      8
+      /* State.FIL */
+    ],
+    [
+      8,
+      101,
+      9
+      /* State.BeforeColon */
+    ],
+    [
+      8,
+      69,
+      9
+      /* State.BeforeColon */
+    ],
+    [
+      9,
+      58,
+      10
+      /* State.AfterColon */
+    ],
+    [
+      10,
+      47,
+      11
+      /* State.AlmostThere */
+    ],
+    [
+      11,
+      47,
+      12
+      /* State.End */
+    ]
   ])), Te;
 }
 let fe = null;
 function e1() {
   if (fe === null) {
-    fe = new ot(0);
-    const e = ` 	<>'"\u3001\u3002\uFF61\uFF64\uFF0C\uFF0E\uFF1A\uFF1B\u2018\u3008\u300C\u300E\u3014\uFF08\uFF3B\uFF5B\uFF62\uFF63\uFF5D\uFF3D\uFF09\u3015\u300F\u300D\u3009\u2019\uFF40\uFF5E\u2026`;
+    fe = new ot(
+      0
+      /* CharacterClass.None */
+    );
+    const e = ` 	<>'"、。｡､，．：；‘〈「『〔（［｛｢｣｝］）〕』」〉’｀～…`;
     for (let r = 0; r < e.length; r++)
-      fe.set(e.charCodeAt(r), 1);
+      fe.set(
+        e.charCodeAt(r),
+        1
+        /* CharacterClass.ForceTermination */
+      );
     const t = ".,;:";
     for (let r = 0; r < t.length; r++)
-      fe.set(t.charCodeAt(r), 2);
+      fe.set(
+        t.charCodeAt(r),
+        2
+        /* CharacterClass.CannotEndIn */
+      );
   }
   return fe;
 }
@@ -3109,6 +3694,7 @@ class lt {
 const ve = new lt(), Ye = new lt(), Xe = new lt(), r1 = new Array(230), s1 = /* @__PURE__ */ Object.create(null), i1 = /* @__PURE__ */ Object.create(null);
 (function() {
   const e = "", t = [
+    // keyCodeOrd, immutable, scanCode, scanCodeStr, keyCode, keyCodeStr, eventKeyCode, vkey, usUserSettingsLabel, generalUserSettingsLabel
     [0, 1, 0, "None", 0, "unknown", 0, "VK_UNKNOWN", e, e],
     [0, 1, 1, "Hyper", 0, e, 0, e, e, e],
     [0, 1, 2, "Super", 0, e, 0, e, e, e],
@@ -3306,6 +3892,8 @@ const ve = new lt(), Ye = new lt(), Xe = new lt(), r1 = new Array(230), s1 = /* 
     [0, 1, 190, "MailReply", 0, e, 0, e, e, e],
     [0, 1, 191, "MailForward", 0, e, 0, e, e, e],
     [0, 1, 192, "MailSend", 0, e, 0, e, e, e],
+    // See https://lists.w3.org/Archives/Public/www-dom/2010JulSep/att-0182/keyCode-spec.html
+    // If an Input Method Editor is processing key input and the event is keydown, return 229.
     [109, 1, 0, e, 109, "KeyInComposition", 229, e, e, e],
     [111, 1, 0, e, 111, "ABNT_C2", 194, "VK_ABNT_C2", e, e],
     [91, 1, 0, e, 91, "OEM_8", 223, "VK_OEM_8", e, e],
@@ -3396,39 +3984,76 @@ class $ extends x {
   constructor(t, r, s, i) {
     super(t, r, s, i), this.selectionStartLineNumber = t, this.selectionStartColumn = r, this.positionLineNumber = s, this.positionColumn = i;
   }
+  /**
+   * Transform to a human-readable representation.
+   */
   toString() {
     return "[" + this.selectionStartLineNumber + "," + this.selectionStartColumn + " -> " + this.positionLineNumber + "," + this.positionColumn + "]";
   }
+  /**
+   * Test if equals other selection.
+   */
   equalsSelection(t) {
     return $.selectionsEqual(this, t);
   }
+  /**
+   * Test if the two selections are equal.
+   */
   static selectionsEqual(t, r) {
     return t.selectionStartLineNumber === r.selectionStartLineNumber && t.selectionStartColumn === r.selectionStartColumn && t.positionLineNumber === r.positionLineNumber && t.positionColumn === r.positionColumn;
   }
+  /**
+   * Get directions (LTR or RTL).
+   */
   getDirection() {
     return this.selectionStartLineNumber === this.startLineNumber && this.selectionStartColumn === this.startColumn ? 0 : 1;
   }
+  /**
+   * Create a new selection with a different `positionLineNumber` and `positionColumn`.
+   */
   setEndPosition(t, r) {
     return this.getDirection() === 0 ? new $(this.startLineNumber, this.startColumn, t, r) : new $(t, r, this.startLineNumber, this.startColumn);
   }
+  /**
+   * Get the position at `positionLineNumber` and `positionColumn`.
+   */
   getPosition() {
     return new H(this.positionLineNumber, this.positionColumn);
   }
+  /**
+   * Get the position at the start of the selection.
+  */
   getSelectionStart() {
     return new H(this.selectionStartLineNumber, this.selectionStartColumn);
   }
+  /**
+   * Create a new selection with a different `selectionStartLineNumber` and `selectionStartColumn`.
+   */
   setStartPosition(t, r) {
     return this.getDirection() === 0 ? new $(t, r, this.endLineNumber, this.endColumn) : new $(this.endLineNumber, this.endColumn, t, r);
   }
+  // ----
+  /**
+   * Create a `Selection` from one or two positions
+   */
   static fromPositions(t, r = t) {
     return new $(t.lineNumber, t.column, r.lineNumber, r.column);
   }
+  /**
+   * Creates a `Selection` from a range, given a direction.
+   */
   static fromRange(t, r) {
     return r === 0 ? new $(t.startLineNumber, t.startColumn, t.endLineNumber, t.endColumn) : new $(t.endLineNumber, t.endColumn, t.startLineNumber, t.startColumn);
   }
+  /**
+   * Create a `Selection` from an `ISelection`.
+   */
   static liftSelection(t) {
     return new $(t.selectionStartLineNumber, t.selectionStartColumn, t.positionLineNumber, t.positionColumn);
   }
+  /**
+   * `a` equals `b`.
+   */
   static selectionsArrEqual(t, r) {
     if (t && !r || !t && r)
       return !1;
@@ -3441,9 +4066,15 @@ class $ extends x {
         return !1;
     return !0;
   }
+  /**
+   * Test if `obj` is an `ISelection`.
+   */
   static isISelection(t) {
     return t && typeof t.selectionStartLineNumber == "number" && typeof t.selectionStartColumn == "number" && typeof t.positionLineNumber == "number" && typeof t.positionColumn == "number";
   }
+  /**
+   * Create with a direction.
+   */
   static createWithDirection(t, r, s, i, a) {
     return a === 0 ? new $(t, r, s, i) : new $(s, i, t, r);
   }
@@ -3455,12 +4086,16 @@ class n {
   get classNames() {
     return "codicon codicon-" + this.id;
   }
+  // classNamesArray is useful for migrating to ES6 classlist
   get classNamesArray() {
     return ["codicon", "codicon-" + this.id];
   }
   get cssSelector() {
     return ".codicon.codicon-" + this.id;
   }
+  /**
+   * @returns Returns all default icons covered by the codicon font. Only to be used by the icon registry in platform.
+   */
   static getAll() {
     return n._allCodicons;
   }
@@ -4099,7 +4734,10 @@ class o1 {
     return this._colorMap;
   }
   getDefaultBackground() {
-    return this._colorMap && this._colorMap.length > 2 ? this._colorMap[2] : null;
+    return this._colorMap && this._colorMap.length > 2 ? this._colorMap[
+      2
+      /* ColorId.DefaultBackground */
+    ] : null;
   }
 }
 class l1 extends st {
@@ -4142,7 +4780,127 @@ var vt;
   }
   e.toIcon = r;
   const s = /* @__PURE__ */ new Map();
-  s.set("method", 0), s.set("function", 1), s.set("constructor", 2), s.set("field", 3), s.set("variable", 4), s.set("class", 5), s.set("struct", 6), s.set("interface", 7), s.set("module", 8), s.set("property", 9), s.set("event", 10), s.set("operator", 11), s.set("unit", 12), s.set("value", 13), s.set("constant", 14), s.set("enum", 15), s.set("enum-member", 16), s.set("enumMember", 16), s.set("keyword", 17), s.set("snippet", 27), s.set("text", 18), s.set("color", 19), s.set("file", 20), s.set("reference", 21), s.set("customcolor", 22), s.set("folder", 23), s.set("type-parameter", 24), s.set("typeParameter", 24), s.set("account", 25), s.set("issue", 26);
+  s.set(
+    "method",
+    0
+    /* CompletionItemKind.Method */
+  ), s.set(
+    "function",
+    1
+    /* CompletionItemKind.Function */
+  ), s.set(
+    "constructor",
+    2
+    /* CompletionItemKind.Constructor */
+  ), s.set(
+    "field",
+    3
+    /* CompletionItemKind.Field */
+  ), s.set(
+    "variable",
+    4
+    /* CompletionItemKind.Variable */
+  ), s.set(
+    "class",
+    5
+    /* CompletionItemKind.Class */
+  ), s.set(
+    "struct",
+    6
+    /* CompletionItemKind.Struct */
+  ), s.set(
+    "interface",
+    7
+    /* CompletionItemKind.Interface */
+  ), s.set(
+    "module",
+    8
+    /* CompletionItemKind.Module */
+  ), s.set(
+    "property",
+    9
+    /* CompletionItemKind.Property */
+  ), s.set(
+    "event",
+    10
+    /* CompletionItemKind.Event */
+  ), s.set(
+    "operator",
+    11
+    /* CompletionItemKind.Operator */
+  ), s.set(
+    "unit",
+    12
+    /* CompletionItemKind.Unit */
+  ), s.set(
+    "value",
+    13
+    /* CompletionItemKind.Value */
+  ), s.set(
+    "constant",
+    14
+    /* CompletionItemKind.Constant */
+  ), s.set(
+    "enum",
+    15
+    /* CompletionItemKind.Enum */
+  ), s.set(
+    "enum-member",
+    16
+    /* CompletionItemKind.EnumMember */
+  ), s.set(
+    "enumMember",
+    16
+    /* CompletionItemKind.EnumMember */
+  ), s.set(
+    "keyword",
+    17
+    /* CompletionItemKind.Keyword */
+  ), s.set(
+    "snippet",
+    27
+    /* CompletionItemKind.Snippet */
+  ), s.set(
+    "text",
+    18
+    /* CompletionItemKind.Text */
+  ), s.set(
+    "color",
+    19
+    /* CompletionItemKind.Color */
+  ), s.set(
+    "file",
+    20
+    /* CompletionItemKind.File */
+  ), s.set(
+    "reference",
+    21
+    /* CompletionItemKind.Reference */
+  ), s.set(
+    "customcolor",
+    22
+    /* CompletionItemKind.Customcolor */
+  ), s.set(
+    "folder",
+    23
+    /* CompletionItemKind.Folder */
+  ), s.set(
+    "type-parameter",
+    24
+    /* CompletionItemKind.TypeParameter */
+  ), s.set(
+    "typeParameter",
+    24
+    /* CompletionItemKind.TypeParameter */
+  ), s.set(
+    "account",
+    25
+    /* CompletionItemKind.User */
+  ), s.set(
+    "issue",
+    26
+    /* CompletionItemKind.Issue */
+  );
   function i(a, o) {
     let l = s.get(a);
     return typeof l > "u" && !o && (l = 9), l;
@@ -4479,13 +5237,19 @@ class g1 {
       case 0:
         return null;
       case 2:
-        return { kind: 1 };
+        return {
+          kind: 1
+          /* UnicodeHighlighterReasonKind.Invisible */
+        };
       case 3: {
         const a = t.codePointAt(0), o = s.ambiguousCharacters.getPrimaryConfusable(a), l = z.getLocales().filter((u) => !z.getInstance(/* @__PURE__ */ new Set([...r.allowedLocales, u])).isAmbiguous(a));
         return { kind: 0, confusableWith: String.fromCodePoint(o), notAmbiguousInLocales: l };
       }
       case 1:
-        return { kind: 2 };
+        return {
+          kind: 2
+          /* UnicodeHighlighterReasonKind.NonBasicAscii */
+        };
     }
   }
 }
@@ -4522,7 +5286,11 @@ class mn {
         const l = o.codePointAt(0), u = br(o);
         i = i || u, !u && !this.ambiguousCharacters.isAmbiguous(l) && !K.isInvisibleCharacter(l) && (a = !0);
       }
-    return !i && a ? 0 : this.options.invisibleCharacters && !gn(t) && K.isInvisibleCharacter(s) ? 2 : this.options.ambiguousCharacters && this.ambiguousCharacters.isAmbiguous(s) ? 3 : 0;
+    return (
+      /* Don't allow mixing weird looking characters with ASCII */
+      !i && /* Is there an obviously weird looking character? */
+      a ? 0 : this.options.invisibleCharacters && !gn(t) && K.isInvisibleCharacter(s) ? 2 : this.options.ambiguousCharacters && this.ambiguousCharacters.isAmbiguous(s) ? 3 : 0
+    );
   }
 }
 function gn(e) {
@@ -4679,7 +5447,7 @@ class re {
     this._models[t].onEvents(r);
   }
   acceptRemovedModel(t) {
-    !this._models[t] || delete this._models[t];
+    this._models[t] && delete this._models[t];
   }
   computeUnicodeHighlights(t, r, s) {
     return te(this, void 0, void 0, function* () {
@@ -4687,6 +5455,7 @@ class re {
       return i ? g1.computeUnicodeHighlights(i, r, s) : { ranges: [], hasMore: !1, ambiguousCharacterCount: 0, invisibleCharacterCount: 0, nonBasicAsciiCharacterCount: 0 };
     });
   }
+  // ---- BEGIN diff --------------------------------------------------------------------------
   computeDiff(t, r, s, i) {
     return te(this, void 0, void 0, function* () {
       const a = this._getModel(t), o = this._getModel(r);
@@ -4753,6 +5522,7 @@ class re {
       return typeof a == "number" && i.push({ eol: a, text: "", range: { startLineNumber: 0, startColumn: 0, endLineNumber: 0, endColumn: 0 } }), i;
     });
   }
+  // ---- END minimal edits ---------------------------------------------------------------
   computeLinks(t) {
     return te(this, void 0, void 0, function* () {
       const r = this._getModel(t);
@@ -4765,7 +5535,7 @@ class re {
       e:
         for (const u of t) {
           const c = this._getModel(u);
-          if (!!c) {
+          if (c) {
             for (const f of c.words(o))
               if (!(f === r || !isNaN(Number(f))) && (l.add(f), l.size > re._suggestionsLimit))
                 break e;
@@ -4774,6 +5544,8 @@ class re {
       return { words: Array.from(l), duration: a.elapsed() };
     });
   }
+  // ---- END suggest --------------------------------------------------------------------------
+  //#region -- word ranges --
   computeWordRanges(t, r, s, i) {
     return te(this, void 0, void 0, function* () {
       const a = this._getModel(t);
@@ -4797,6 +5569,7 @@ class re {
       return l;
     });
   }
+  //#endregion
   navigateValueSet(t, r, s, i, a) {
     return te(this, void 0, void 0, function* () {
       const o = this._getModel(t);
@@ -4816,6 +5589,7 @@ class re {
       return Ze.INSTANCE.navigateValueSet(r, u, c, f, s);
     });
   }
+  // ---- BEGIN foreign module support --------------------------------------------------------------------------
   loadForeignModule(t, r, s) {
     const o = {
       host: ir(s, (l, u) => this._host.fhr(l, u)),
@@ -4823,6 +5597,7 @@ class re {
     };
     return this._foreignModuleFactory ? (this._foreignModule = this._foreignModuleFactory(o, r), Promise.resolve(He(this._foreignModule))) : Promise.reject(new Error("Unexpected usage"));
   }
+  // foreign method request
   fmr(t, r) {
     if (!this._foreignModule || typeof this._foreignModule[t] != "function")
       return Promise.reject(new Error("Missing requestHandler or method: " + t));

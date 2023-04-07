@@ -2,7 +2,18 @@
 	import { browser } from '$app/environment'
 
 	import { createHash, editorConfig, langToExt, updateOptions } from '$lib/editorUtils'
-	import { editor as meditor, KeyCode, KeyMod, languages, Uri as mUri } from 'monaco-editor'
+	import 'monaco-editor/esm/vs/editor/edcore.main'
+	import {
+		editor as meditor,
+		KeyCode,
+		KeyMod,
+		Uri as mUri,
+		languages
+	} from 'monaco-editor/esm/vs/editor/editor.api'
+	import 'monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution'
+	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
+	import 'monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution'
+
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 
 	import libStdContent from '$lib/es5.d.ts.txt?raw'
@@ -73,7 +84,7 @@
 	export function format() {
 		if (editor) {
 			code = getCode()
-			editor.getAction('editor.action.formatDocument').run()
+			editor.getAction('editor.action.formatDocument')?.run()
 			if (formatAction) {
 				formatAction()
 				code = getCode()
