@@ -119,9 +119,9 @@
 
 {#if $page.status == 404}
 	<CenteredModal title="Page not found, redirecting you to login">
-		<div class="w-full ">
+		<div class="w-full">
 			<div class="block m-auto w-20">
-				<WindmillIcon class="animate-[spin_6s_linear_infinite]" height="80px" width="80px" />
+				<WindmillIcon height="80px" width="80px" spin="fast" />
 			</div>
 		</div>
 	</CenteredModal>
@@ -277,9 +277,9 @@
 	</div>
 {:else}
 	<CenteredModal title="Loading user...">
-		<div class="w-full ">
+		<div class="w-full">
 			<div class="block m-auto w-16">
-				<WindmillIcon class="animate-[spin_10s_linear_infinite]" height="60px" width="60px" />
+				<WindmillIcon height="60px" width="60px" spin="fast" />
 			</div>
 		</div>
 	</CenteredModal>

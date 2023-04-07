@@ -35,6 +35,6 @@
 <CenteredPage>
 	<PageHeader title="Connection to slack in progress" />
 	<div class="mx-auto w-0">
-		<WindmillIcon class="animate-[spin_5s_linear_infinite]" height="80px" width="80px" />
+		<WindmillIcon height="80px" width="80px" spin="fast" />
 	</div>
 </CenteredPage>

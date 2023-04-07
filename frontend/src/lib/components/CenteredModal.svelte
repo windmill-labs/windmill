@@ -32,8 +32,8 @@
 	</div>
 	{#if !disableLogo}
 		<div class="hidden lg:block absolute top-10 right-50">
-			<div class="animate-[spin_50s_linear_infinite]">
-				<WindmillIcon height="100px" width="100px" />
+			<div>
+				<WindmillIcon height="100px" width="100px" spin="slow" />
 			</div>
 			<h2 class="text-center pt-2 text-gray-800">Windmill</h2>
 		</div>

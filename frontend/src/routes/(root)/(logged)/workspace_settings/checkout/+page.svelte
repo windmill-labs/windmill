@@ -48,6 +48,6 @@
 	{/if}
 
 	<div class="block m-auto w-20">
-		<WindmillIcon class="animate-[spin_6s_linear_infinite]" height="80px" width="80px" />
+		<WindmillIcon height="80px" width="80px" spin="fast" />
 	</div>
 </CenteredModal>
