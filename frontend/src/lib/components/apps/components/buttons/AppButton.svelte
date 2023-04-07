@@ -131,6 +131,7 @@
 				customCss?.button?.class,
 				resolvedConfig.fillContainer ? 'w-full h-full' : ''
 			)}
+			wrapperClasses={resolvedConfig.fillContainer ? 'w-full h-full' : ''}
 			style={[$app.css?.['buttoncomponent']?.['button']?.style, customCss?.button?.style].join(';')}
 			disabled={resolvedConfig.disabled}
 			on:click={handleClick}
