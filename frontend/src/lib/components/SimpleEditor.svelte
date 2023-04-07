@@ -13,6 +13,8 @@
 	import 'monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution'
+	import 'monaco-editor/esm/vs/language/json/monaco.contribution'
+	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
 
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 

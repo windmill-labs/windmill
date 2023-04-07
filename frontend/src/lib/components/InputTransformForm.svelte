@@ -15,7 +15,6 @@
 	import type ItemPicker from './ItemPicker.svelte'
 	import type { InputTransform } from '$lib/gen'
 	import TemplateEditor from './TemplateEditor.svelte'
-	import Tooltip from './Tooltip.svelte'
 	import { setInputCat as computeInputCat } from '$lib/utils'
 
 	export let schema: Schema
@@ -119,8 +118,6 @@
 	const { focusProp, propPickerConfig } = getContext<PropPickerWrapperContext>('PropPickerWrapper')
 
 	$: isStaticTemplate(inputCat) && propertyType == 'static' && setPropertyType(arg?.value)
-	const openBracket = '${'
-	const closeBracket = '}'
 
 	function setDefaultCode() {
 		if (!arg?.value) {
@@ -155,80 +152,84 @@
 		</div>
 		{#if !noDynamicToggle}
 			<div class="flex flex-row gap-x-4 gap-y-1 flex-wrap z-10">
-				<ToggleButtonGroup
-					bind:selected={propertyType}
-					on:selected={(e) => {
-						const staticTemplate = isStaticTemplate(inputCat)
-						if (e.detail === 'javascript') {
-							if (arg.expr == undefined) {
-								arg.expr = getDefaultExpr(
-									argName,
-									previousModuleId,
-									staticTemplate
-										? `\`${arg?.value?.toString().replaceAll('`', '\\`') ?? ''}\``
-										: arg.value
-										? JSON.stringify(arg?.value, null, 4)
-										: ''
-								)
-							}
-							if (arg) {
-								arg.value = undefined
-								arg.type = 'javascript'
-							}
-							propertyType = 'javascript'
-						} else {
-							if (staticTemplate) {
-								if (arg) {
-									arg.value = codeToStaticTemplate(arg.expr)
-									arg.expr = undefined
+				<div>
+					<ToggleButtonGroup
+						bind:selected={propertyType}
+						on:selected={(e) => {
+							const staticTemplate = isStaticTemplate(inputCat)
+							if (e.detail === 'javascript') {
+								if (arg.expr == undefined) {
+									arg.expr = getDefaultExpr(
+										argName,
+										previousModuleId,
+										staticTemplate
+											? `\`${arg?.value?.toString().replaceAll('`', '\\`') ?? ''}\``
+											: arg.value
+											? JSON.stringify(arg?.value, null, 4)
+											: ''
+									)
 								}
-								setPropertyType(arg?.value)
-							} else {
 								if (arg) {
-									arg.type = 'static'
 									arg.value = undefined
-									arg.expr = undefined
+									arg.type = 'javascript'
 								}
+								propertyType = 'javascript'
+							} else {
+								if (staticTemplate) {
+									if (arg) {
+										arg.value = codeToStaticTemplate(arg.expr)
+										arg.expr = undefined
+									}
+									setPropertyType(arg?.value)
+								} else {
+									if (arg) {
+										arg.type = 'static'
+										arg.value = undefined
+										arg.expr = undefined
+									}
+								}
+								propertyType = 'static'
 							}
-							propertyType = 'static'
-						}
-					}}
-				>
-					{#if isStaticTemplate(inputCat)}
-						<ToggleButton light position="left" value="static" size="xs">
-							{'${} '}&nbsp;
-							<Tooltip
-								>Write text or surround javascript with "{openBracket}" and "{closeBracket}". Use
-								`result` to connect to another node's output.
-							</Tooltip></ToggleButton
-						>
-					{:else}
-						<ToggleButton light position="left" value="static" size="xs">Static</ToggleButton>
-					{/if}
-
-					<ToggleButton
-						light
-						position="right"
-						value="javascript"
-						startIcon={{ icon: faCode }}
-						size="xs"
-						>&nbsp;<Tooltip
-							>Write javascript expressions directly, using 'flow_input' or 'result'. You can use
-							multiline javascript.
-						</Tooltip></ToggleButton
+						}}
 					>
-				</ToggleButtonGroup>
-				<Button
-					variant="contained"
-					color="blue"
-					size="xs"
-					on:click={() => {
-						focusProp(argName, 'connect', (path) => {
-							connectProperty(path)
-							return true
-						})
-					}}>Connect &rightarrow;</Button
-				>
+						{#if isStaticTemplate(inputCat)}
+							<ToggleButton
+								title={`Write text or surround javascript with \`\$\{\` and \`\}\`. Use \`result\` to connect to another node\'s output.`}
+								light
+								position="left"
+								value="static"
+								size="xs2"
+							>
+								{'${} '}&nbsp;
+							</ToggleButton>
+						{:else}
+							<ToggleButton light position="left" value="static" size="xs2">Static</ToggleButton>
+						{/if}
+
+						<ToggleButton
+							light
+							title="Write javascript expressions directly, using 'flow_input' or 'result'. You can use multiline javascript."
+							position="right"
+							value="javascript"
+							startIcon={{ icon: faCode }}
+							size="xs2"
+						/>
+					</ToggleButtonGroup>
+				</div>
+				<div>
+					<Button
+						title="Connect to another node's output"
+						variant="border"
+						color="dark"
+						size="xs2"
+						on:click={() => {
+							focusProp(argName, 'connect', (path) => {
+								connectProperty(path)
+								return true
+							})
+						}}>Link &rightarrow;</Button
+					>
+				</div>
 			</div>
 		{/if}
 	</div>
@@ -247,7 +248,7 @@
 			</span>
 		{/if}
 		{#if isStaticTemplate(inputCat) && propertyType == 'static' && !noDynamicToggle}
-			<div class="py-1 mt-2 min-h-[28px] rounded border border-1 border-gray-500">
+			<div class="mt-2 min-h-[28px] rounded border border-1 border-gray-500">
 				{#if arg}
 					<TemplateEditor
 						bind:this={monacoTemplate}
