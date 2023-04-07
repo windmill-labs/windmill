@@ -86,6 +86,10 @@
 	export let fixedOverflowWidgets = true
 	export let path: string = randomHash()
 
+	let initialPath: string = path
+
+	$: path != initialPath && handlePathChance()
+
 	let websockets: [MonacoLanguageClient, WebSocket][] = []
 	let websocketInterval: NodeJS.Timer | undefined
 	let lastWsAttempt: Date = new Date()
@@ -288,7 +292,6 @@
 							command = vscode.commands.registerCommand(
 								'deno.cache',
 								(uris: DocumentUri[] = []) => {
-									console.log('cache', uris)
 									languageClient.sendRequest(new RequestType('deno/cache'), {
 										referrer: { uri },
 										uris: uris.map((uri) => ({ uri }))
@@ -337,7 +340,6 @@
 				let ending = c == path_splitted.length - 1 ? '' : '/'
 				importMap['imports'][key] = `${root}/${url}${ending}`
 			}
-			console.log(importMap)
 			const encodedImportMap = 'data:text/plain;base64,' + btoa(JSON.stringify(importMap))
 			await connectToLanguageServer(
 				`${wsProtocol}://${$page.url.host}/ws/deno`,
@@ -465,6 +467,13 @@
 				}
 			}
 		}, 5000)
+	}
+
+	let pathTimeout: NodeJS.Timeout | undefined = undefined
+	function handlePathChance() {
+		initialPath = path
+		pathTimeout && clearTimeout(pathTimeout)
+		pathTimeout = setTimeout(reloadWebsocket, 3000)
 	}
 
 	async function closeWebsockets() {
