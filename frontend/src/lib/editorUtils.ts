@@ -60,7 +60,7 @@ export function langToExt(lang: string): string {
 		case 'bash':
 			return 'sh'
 		case 'deno':
-			return 'deno'
+			return 'ts'
 		default:
 			return 'unknown'
 	}

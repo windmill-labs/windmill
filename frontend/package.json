@@ -26,7 +26,7 @@
 		"@types/d3-zoom": "^3.0.2",
 		"@types/lodash": "^4.14.191",
 		"@types/node": "^18.11.18",
-		"@types/vscode": "~1.74.0",
+		"@types/vscode": "~1.76.0",
 		"@typescript-eslint/eslint-plugin": "^5.49.0",
 		"@typescript-eslint/parser": "^5.48.0",
 		"@zerodevx/svelte-toast": "^0.8.1",
@@ -36,7 +36,7 @@
 		"eslint": "^8.28.0",
 		"eslint-config-prettier": "^8.6.0",
 		"eslint-plugin-svelte3": "^4.0.0",
-		"monaco-editor-workers": "0.34.2",
+		"monaco-editor-workers": "0.36.0",
 		"ol": "^7.2.2",
 		"openapi-typescript-codegen": "^0.23.0",
 		"path-browserify": "^1.0.1",
@@ -84,16 +84,16 @@
 		"highlight.js": "^11.7.0",
 		"lodash": "^4.17.21",
 		"lucide-svelte": "^0.115.0",
-		"monaco-editor": "0.34.1",
-		"monaco-languageclient": "5.0.0-next.3",
+		"monaco-editor": "0.36.1",
+		"monaco-languageclient": "5.0.1",
 		"svelte-autosize": "^1.0.1",
 		"svelte-chartjs": "^3.1.0",
 		"svelte-portal": "^2.2.0",
 		"svelte-select": "^5.3.1",
 		"svelte-timezone-picker": "^2.0.3",
 		"tailwind-merge": "^1.9.1",
-		"vscode-languageclient": "~8.0.2",
-		"vscode-ws-jsonrpc": "3.0.0-next.1"
+		"vscode-languageclient": "^8.1.0",
+		"vscode-ws-jsonrpc": "3.0.0"
 	},
 	"peerDependencies": {
 		"svelte": "^3.55.1"

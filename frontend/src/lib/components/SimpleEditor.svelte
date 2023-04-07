@@ -2,17 +2,17 @@
 	import { browser } from '$app/environment'
 
 	import { createHash, editorConfig, langToExt, updateOptions } from '$lib/editorUtils'
+	import 'monaco-editor/esm/vs/editor/edcore.main'
 	import {
 		editor as meditor,
 		KeyCode,
 		KeyMod,
-		Uri as mUri
-	} from 'monaco-editor/esm/vs/editor/edcore.main'
+		Uri as mUri,
+		languages
+	} from 'monaco-editor/esm/vs/editor/editor.api'
 	import 'monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
 	import 'monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution'
-	import * as typescript from 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
-	import * as json from 'monaco-editor/esm/vs/language/json/monaco.contribution'
 
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 
@@ -30,13 +30,13 @@
 	})
 	meditor.setTheme('myTheme')
 
-	typescript.javascriptDefaults.setCompilerOptions({
-		target: typescript.ScriptTarget.Latest,
+	languages.typescript.javascriptDefaults.setCompilerOptions({
+		target: languages.typescript.ScriptTarget.Latest,
 		allowNonTsExtensions: true,
 		noLib: true
 	})
 
-	json.jsonDefaults.setDiagnosticsOptions({
+	languages.json.jsonDefaults.setDiagnosticsOptions({
 		validate: true,
 		allowComments: false,
 		schemas: [],
@@ -84,7 +84,7 @@
 	export function format() {
 		if (editor) {
 			code = getCode()
-			editor.getAction('editor.action.formatDocument').run()
+			editor.getAction('editor.action.formatDocument')?.run()
 			if (formatAction) {
 				formatAction()
 				code = getCode()
@@ -162,7 +162,7 @@
 		if (lang == 'javascript') {
 			const stdLib = { content: libStdContent, filePath: 'es5.d.ts' }
 			if (extraLib != '') {
-				typescript.javascriptDefaults.setExtraLibs([
+				languages.typescript.javascriptDefaults.setExtraLibs([
 					{
 						content: extraLib,
 						filePath: 'windmill.d.ts'
@@ -170,7 +170,7 @@
 					stdLib
 				])
 			} else {
-				typescript.javascriptDefaults.setExtraLibs([stdLib])
+				languages.typescript.javascriptDefaults.setExtraLibs([stdLib])
 			}
 		}
 	}
