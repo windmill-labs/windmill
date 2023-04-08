@@ -19,7 +19,7 @@
 		xl: 'text-xl'
 	}
 
-	const { selected, update } = getContext<TabsContext>('Tabs')
+	const { selected, update, hashNavigation } = getContext<TabsContext>('Tabs')
 </script>
 
 <button
@@ -33,7 +33,13 @@
 		$selected?.startsWith(value) ? selectedClass : ''
 	)}
 	style={`${style} ${$selected?.startsWith(value) ? selectedStyle : ''}`}
-	on:click={() => update(value)}
+	on:click={() => {
+		if (hashNavigation) {
+			window.location.hash = value
+		} else {
+			update(value)
+		}
+	}}
 	on:pointerdown|stopPropagation
 >
 	<slot />

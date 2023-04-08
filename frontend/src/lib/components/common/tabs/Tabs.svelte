@@ -2,6 +2,7 @@
 	export type TabsContext = {
 		selected: Writable<string>
 		update: (value: string) => void
+		hashNavigation: boolean
 	}
 </script>
 
@@ -18,6 +19,8 @@
 	export { c as class }
 	export let wrapperClass = ''
 	export let style = ''
+	export let hashNavigation = false
+	export let dflt: string | undefined = undefined
 
 	$: selected && updateSelected()
 
@@ -30,13 +33,30 @@
 		update: (value: string) => {
 			selectedStore.set(value)
 			selected = value
-		}
+		},
+		hashNavigation
 	})
 
 	function updateSelected() {
 		selectedStore.set(selected)
 	}
+
+	function hashChange() {
+		if (hashNavigation) {
+			const hash = window.location.hash
+			if (hash) {
+				const id = hash.replace('#', '')
+				selectedStore.set(id)
+				selected = id
+			} else if (dflt) {
+				selectedStore.set(dflt)
+				selected = dflt
+			}
+		}
+	}
 </script>
+
+<svelte:window on:hashchange={hashChange} />
 
 <div class="overflow-x-auto {wrapperClass}">
 	<div

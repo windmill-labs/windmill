@@ -161,7 +161,7 @@
 					isEditor={false}
 					context={{
 						username: $userStore?.username ?? 'anonymous',
-						email: $userStore?.email ?? 'anonymous',
+						email: $userStore?.email ?? 'anonymous'
 					}}
 					summary={appViewerApp?.app.summary ?? ''}
 					noBackend
@@ -194,7 +194,7 @@
 
 		{#if !$userStore?.operator}
 			<div class="w-full overflow-auto scrollbar-hidden">
-				<Tabs bind:selected={tab}>
+				<Tabs dflt="workspace" hashNavigation bind:selected={tab}>
 					<Tab size="md" value="workspace">
 						<div class="flex gap-2 items-center my-1">
 							<Building size={18} />
