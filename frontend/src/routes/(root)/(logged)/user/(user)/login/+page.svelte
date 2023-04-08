@@ -204,7 +204,7 @@
 			{/if}
 
 			{#if showPassword}
-				<div class="mt-6">
+				<div>
 					<div class="space-y-6">
 						{#if isCloudHosted()}
 							<p class="text-xs text-gray-500 italic pb-6">
@@ -216,7 +216,7 @@
 							<label for="email" class="block text-sm font-medium leading-6 text-gray-900">
 								Email
 							</label>
-							<div class="mt-1">
+							<div>
 								<input
 									type="email"
 									bind:value={email}
@@ -231,7 +231,7 @@
 							<label for="password" class="block text-sm font-medium leading-6 text-gray-900">
 								Password
 							</label>
-							<div class="mt-1">
+							<div>
 								<input
 									on:keyup={handleKeyUp}
 									bind:value={password}
@@ -243,7 +243,7 @@
 							</div>
 						</div>
 
-						<div>
+						<div class="pt-2">
 							<button
 								on:click={login}
 								disabled={!email || !password}

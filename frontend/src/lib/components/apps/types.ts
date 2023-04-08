@@ -114,7 +114,9 @@ export type App = {
 		inlineScript: InlineScript | undefined
 		fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
 		autoRefresh?: boolean
+		//deprecated and to be removed after migration
 		doNotRecomputeOnInputChanged?: boolean
+		recomputeOnInputChanged?: boolean
 	}>
 	css?: Partial<Record<AppCssItemName, Record<string, ComponentCssProperty>>>
 	subgrids?: Record<string, GridItem[]>

@@ -31,7 +31,7 @@
 	export let render: boolean
 	export let outputs: { result: Output<any>; loading: Output<boolean> }
 	export let extraKey = ''
-	export let doNotRecomputeOnInputChanged: boolean = false
+	export let recomputeOnInputChanged: boolean = false
 	export let loading = false
 	export let recomputableByRefreshButton: boolean = true
 
@@ -99,7 +99,8 @@
 		runnable && runnable.type === 'runnableByName' ? runnable.inlineScript?.refreshOn ?? [] : []
 
 	function refreshIfAutoRefresh(_src: string) {
-		const refreshEnabled = autoRefresh && (!doNotRecomputeOnInputChanged || refreshOn?.length > 0)
+		const refreshEnabled =
+			autoRefresh && ((recomputeOnInputChanged ?? true) || refreshOn?.length > 0)
 		if (refreshEnabled && $worldStore.initialized) {
 			setDebouncedExecute()
 		}

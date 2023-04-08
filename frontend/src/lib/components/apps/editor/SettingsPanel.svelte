@@ -102,7 +102,8 @@
 					fields={hiddenInlineScript.script.fields}
 					autoRefresh={hiddenInlineScript.script.autoRefresh}
 					id={`bg_${hiddenInlineScript.index}`}
-					bind:doNotRecomputeOnInputChanged={hiddenInlineScript.script.doNotRecomputeOnInputChanged}
+					bind:recomputeOnInputChanged={hiddenInlineScript.script.recomputeOnInputChanged}
+					doNotRecomputeOnInputChanged={hiddenInlineScript.script.doNotRecomputeOnInputChanged}
 					bind:inlineScript={hiddenInlineScript.script.inlineScript}
 				/>
 			{:else}

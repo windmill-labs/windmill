@@ -169,7 +169,7 @@
 				inlineScript={script.inlineScript}
 				name={script.name}
 				fields={script.fields}
-				doNotRecomputeOnInputChanged={script.doNotRecomputeOnInputChanged ?? false}
+				recomputeOnInputChanged={script.recomputeOnInputChanged ?? true}
 				recomputableByRefreshButton={script.autoRefresh ?? false}
 			/>
 		{/if}

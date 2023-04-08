@@ -127,25 +127,16 @@
 				css?.input?.style}
 			{value}
 			{placeholder}
-			on:click={() => {
-				if (!$connectingInput.opened) {
-					$selectedComponent = [id]
-				}
-			}}
 			on:focus={() => {
 				if (!$connectingInput.opened) {
 					$selectedComponent = [id]
 				}
-			}}
-			floatingConfig={{
-				strategy: 'fixed'
 			}}
 		>
 			<div slot="item" let:item>
 				{#if create}
 					{item.created ? 'Add new: ' : ''}
 				{/if}
-
 				{item.label}
 			</div>
 		</Select>
