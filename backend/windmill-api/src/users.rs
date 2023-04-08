@@ -1894,6 +1894,17 @@ pub async fn delete_expired_items_perdiodically(
             Err(e) => tracing::error!("Error deleting token: {}", e.to_string()),
         }
 
+        let pip_resolution_r = sqlx::query_scalar!(
+            "DELETE FROM pip_resolution_cache WHERE expiration <= now() RETURNING hash",
+        )
+        .fetch_all(db)
+        .await;
+
+        match pip_resolution_r {
+            Ok(res) => tracing::debug!("deleted {} pip_resolution: {:?}", res.len(), res),
+            Err(e) => tracing::error!("Error deleting pip_resolution: {}", e.to_string()),
+        }
+
         let magic_links_deleted_r: std::result::Result<Vec<String>, _> = sqlx::query_scalar(
             "DELETE FROM magic_link WHERE expiration <= now()
         RETURNING concat(substring(token for 10), '*****')",

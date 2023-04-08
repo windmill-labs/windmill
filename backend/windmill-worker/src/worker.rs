@@ -25,7 +25,7 @@ use windmill_common::{
     error::{self, to_anyhow, Error},
     flows::{FlowModuleValue, FlowValue},
     scripts::{ScriptHash, ScriptLang},
-    utils::rd_string,
+    utils::{rd_string, calculate_hash},
     variables, BASE_URL, users::SUPERADMIN_SECRET_EMAIL, IS_READY,
 };
 use windmill_queue::{canceled_job_to_result, get_queued_job, pull, JobKind, QueuedJob, CLOUD_HOSTED};
@@ -2281,6 +2281,14 @@ async fn pip_compile(
     logs.push_str(&format!("\nresolving dependencies..."));
     set_logs(logs, job_id, db).await;
     logs.push_str(&format!("\ncontent of requirements:\n{}", requirements));
+    let req_hash = calculate_hash(&requirements) ;
+    if let Some(cached) = sqlx::query_scalar!(
+        "SELECT lockfile FROM pip_resolution_cache WHERE hash = $1",
+        req_hash    
+    ).fetch_optional(db).await? {
+        logs.push_str(&format!("\nfound cached resolution"));
+        return Ok(cached);
+    }
     let file = "requirements.in";
     let requirements = if let Some(pip_local_dependencies) = PIP_LOCAL_DEPENDENCIES.as_ref() {
         let deps = pip_local_dependencies.clone();
@@ -2316,12 +2324,18 @@ async fn pip_compile(
     let mut file = File::open(path_lock).await?;
     let mut req_content = "".to_string();
     file.read_to_string(&mut req_content).await?;
-    Ok(req_content
+    let lockfile = req_content
         .lines()
         .filter(|x| !x.trim_start().starts_with('#'))
         .map(|x| x.to_string())
         .collect::<Vec<String>>()
-        .join("\n"))
+        .join("\n");
+    sqlx::query!(
+        "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() - ('3 days')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = $2",
+        req_hash,
+        lockfile
+    ).fetch_optional(db).await?;
+    Ok(lockfile)
 }
 
 async fn install_go_dependencies(
