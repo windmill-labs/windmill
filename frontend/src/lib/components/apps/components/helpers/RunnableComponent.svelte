@@ -155,6 +155,8 @@
 	}
 
 	async function executeComponent(noToast = false, inlineScriptOverride?: InlineScript) {
+		console.debug('execute', id)
+
 		if (runnable?.type === 'runnableByName' && runnable.inlineScript?.language === 'frontend') {
 			loading = true
 			try {
