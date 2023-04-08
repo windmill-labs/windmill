@@ -86,9 +86,13 @@
 	export let fixedOverflowWidgets = true
 	export let path: string = randomHash()
 
+	if (path == '' || path == undefined || path.startsWith('/')) {
+		path = randomHash()
+	}
+
 	let initialPath: string = path
 
-	$: path != initialPath && handlePathChance()
+	$: path != initialPath && handlePathChange()
 
 	let websockets: [MonacoLanguageClient, WebSocket][] = []
 	let websocketInterval: NodeJS.Timer | undefined
@@ -311,36 +315,40 @@
 		}
 
 		const wsProtocol = $page.url.protocol == 'https:' ? 'wss' : 'ws'
+
+		let encodedImportMap = ''
 		if (lang == 'typescript') {
-			let expiration = new Date()
-			expiration.setHours(expiration.getHours() + 2)
-			const token = await UserService.createToken({
-				requestBody: { label: 'Ephemeral lsp token', expiration: expiration.toISOString() }
-			})
-			let root =
-				$page.url.protocol +
-				'//' +
-				$page.url.host +
-				'/api/scripts_u/tokened_raw/' +
-				$workspaceStore +
-				'/' +
-				token
-			const importMap = {
-				imports: {
-					'file:///': root + '/'
+			if (path && path.split('/').length > 2) {
+				let expiration = new Date()
+				expiration.setHours(expiration.getHours() + 2)
+				const token = await UserService.createToken({
+					requestBody: { label: 'Ephemeral lsp token', expiration: expiration.toISOString() }
+				})
+				let root =
+					$page.url.protocol +
+					'//' +
+					$page.url.host +
+					'/api/scripts_u/tokened_raw/' +
+					$workspaceStore +
+					'/' +
+					token
+				const importMap = {
+					imports: {
+						'file:///': root + '/'
+					}
 				}
-			}
-			let path_splitted = path.split('/')
-			for (let c = 0; c < path_splitted.length; c++) {
-				let key = 'file://./'
-				for (let i = 0; i < c; i++) {
-					key += '../'
+				let path_splitted = path.split('/')
+				for (let c = 0; c < path_splitted.length; c++) {
+					let key = 'file://./'
+					for (let i = 0; i < c; i++) {
+						key += '../'
+					}
+					let url = path_splitted.slice(0, -c - 1).join('/')
+					let ending = c == path_splitted.length - 1 ? '' : '/'
+					importMap['imports'][key] = `${root}/${url}${ending}`
 				}
-				let url = path_splitted.slice(0, -c - 1).join('/')
-				let ending = c == path_splitted.length - 1 ? '' : '/'
-				importMap['imports'][key] = `${root}/${url}${ending}`
+				encodedImportMap = 'data:text/plain;base64,' + btoa(JSON.stringify(importMap))
 			}
-			const encodedImportMap = 'data:text/plain;base64,' + btoa(JSON.stringify(importMap))
 			await connectToLanguageServer(
 				`${wsProtocol}://${$page.url.host}/ws/deno`,
 				'deno',
@@ -470,7 +478,7 @@
 	}
 
 	let pathTimeout: NodeJS.Timeout | undefined = undefined
-	function handlePathChance() {
+	function handlePathChange() {
 		initialPath = path
 		pathTimeout && clearTimeout(pathTimeout)
 		pathTimeout = setTimeout(reloadWebsocket, 3000)
