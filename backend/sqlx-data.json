@@ -1319,6 +1319,24 @@
     },
     "query": "SELECT workspace_id, name, display_name, owners, extra_perms FROM folder WHERE name = $1 AND workspace_id = $2"
   },
+  "399a8337a2488fa2ce3da2ef3281a34f8f96ee0d833c2fe3c22a0aa43e306f09": {
+    "describe": {
+      "columns": [
+        {
+          "name": "hash",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": []
+      }
+    },
+    "query": "DELETE FROM pip_resolution_cache WHERE expiration <= now() RETURNING hash"
+  },
   "39bae7dff750565183ac3893b51a8846d7db2f130a6795b54ef94acc232dec8b": {
     "describe": {
       "columns": [
@@ -3008,6 +3026,26 @@
     },
     "query": "SELECT workspace_id, name, display_name, owners, extra_perms FROM folder WHERE workspace_id = $1 ORDER BY name desc LIMIT $2 OFFSET $3"
   },
+  "866b26e56fd376368c759db6eee13f92373e308f584903121b4546ad51aef86e": {
+    "describe": {
+      "columns": [
+        {
+          "name": "lockfile",
+          "ordinal": 0,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT lockfile FROM pip_resolution_cache WHERE hash = $1"
+  },
   "8876fa929ffb175cd976a2bca1195704aa9fe7215013ae29e49ef15cb201ba57": {
     "describe": {
       "columns": [],
@@ -3835,6 +3873,19 @@
       }
     },
     "query": "SELECT app.id, app.path, app.summary, app.versions, app.policy,\n        app.extra_perms, app_version.value, \n        app_version.created_at, app_version.created_by from app, app_version \n        WHERE app.id = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]"
+  },
+  "9baf1f88ab6c1df642cf8f0f49805ccac3e48cce1f0e184fb9db78536a8ca7b0": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Text"
+        ]
+      }
+    },
+    "query": "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() - ('3 days')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = $2"
   },
   "9db64c9ff790d8c833c1e831a87803c32103ce9de68cc9c08d6f56cc988d7e37": {
     "describe": {
