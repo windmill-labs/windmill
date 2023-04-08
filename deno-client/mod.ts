@@ -80,6 +80,31 @@ export async function getResource(
   }
 }
 
+/**
+ * Get the full resource value by path
+ * @param path path of the resource,  default to internal state path
+ * @param undefinedIfEmpty if the resource does not exist, return undefined instead of throwing an error
+ * @returns full resource
+ */
+export async function getFullResource(
+  path?: string,
+  undefinedIfEmpty?: boolean
+): Promise<any> {
+  const workspace = getWorkspace();
+  path = path ?? getStatePath();
+  try {
+    const resource = await ResourceService.getResource({ workspace, path });
+    const value = await _transformLeaf(resource.value);
+    return { ...resource, value };
+  } catch (e: any) {
+    if (undefinedIfEmpty && e.status === 404) {
+      return undefined;
+    } else {
+      throw Error(`Resource not found at ${path} or not visible to you`);
+    }
+  }
+}
+
 export function getStatePath(): string {
   const state_path = Deno.env.get("WM_STATE_PATH");
   if (state_path === undefined) {
