@@ -1,7 +1,6 @@
-version: '3.7'
+version: "3.7"
 
 services:
-
   db:
     image: postgres:14
     restart: unless-stopped
@@ -13,7 +12,7 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: windmill
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -27,7 +26,7 @@ services:
       - 8000
     environment:
       - DATABASE_URL=postgres://postgres:${DB_PASSWORD}@db/windmill?sslmode=disable
-      - BASE_URL=http://${WM_BASE_URL}
+      - BASE_URL=${WM_BASE_URL}
       - RUST_LOG=info
       ## You can set the number of workers to > 0 and not need any separate worker service
       - NUM_WORKERS=0
@@ -37,8 +36,8 @@ services:
       db:
         condition: service_healthy
     # volumes:
-      # - ./oauth.json/:/usr/src/app/oauth.json
-      
+    # - ./oauth.json/:/usr/src/app/oauth.json
+
   windmill_worker:
     image: ghcr.io/windmill-labs/windmill:main
     deploy:
@@ -46,7 +45,7 @@ services:
     restart: unless-stopped
     environment:
       - DATABASE_URL=postgres://postgres:${DB_PASSWORD}@db/windmill?sslmode=disable
-      - BASE_URL=http://${WM_BASE_URL}
+      - BASE_URL=${WM_BASE_URL}
       - BASE_INTERNAL_URL=http://windmill_server:8000
       - RUST_LOG=info
       - NUM_WORKERS=1
@@ -77,7 +76,7 @@ services:
       - 80:80
       - 443:443
     environment:
-      - BASE_URL=${WM_BASE_URL}
+      - BASE_URL=${CADDY_REVERSE_PROXY}
 
 volumes:
   db_data: null
