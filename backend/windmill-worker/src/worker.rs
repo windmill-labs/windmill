@@ -339,7 +339,6 @@ const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT: &str = include_str!("../nsjail/download
 const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str = include_str!("../nsjail/run.python3.config.proto");
 const NSJAIL_CONFIG_RUN_GO_CONTENT: &str = include_str!("../nsjail/run.go.config.proto");
 const NSJAIL_CONFIG_RUN_BASH_CONTENT: &str = include_str!("../nsjail/run.bash.config.proto");
-const NSJAIL_CONFIG_RUN_DENO_CONTENT: &str = include_str!("../nsjail/run.deno.config.proto");
 
 const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
 
@@ -1274,7 +1273,6 @@ mount {{
                 token,
                 job_dir,
                 &inner_content,
-                &shared_mount,
                 base_internal_url,
                 worker_name
             )
@@ -1633,7 +1631,6 @@ async fn handle_deno_job(
     token: String,
     job_dir: &str,
     inner_content: &String,
-    shared_mount: &str,
     base_internal_url: &str,
     worker_name: &str
 ) -> error::Result<serde_json::Value> {
@@ -1698,47 +1695,6 @@ run().catch(async (e) => {{
     //do not cache local dependencies
     let reload = format!("--reload={base_internal_url}");
     let child = async {
-        Ok(if !*DISABLE_NSJAIL {
-            let _ = write_file(
-                job_dir,
-                "run.config.proto",
-                &NSJAIL_CONFIG_RUN_DENO_CONTENT
-                    .replace("{JOB_DIR}", job_dir)
-                    .replace("{CACHE_DIR}", DENO_CACHE_DIR)
-                    .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                    .replace("{SHARED_MOUNT}", shared_mount),
-            )
-            .await?;
-            let mut args = Vec::new();
-            args.push("--config");
-            args.push("run.config.proto");
-            args.push("--");
-            args.push(DENO_PATH.as_str());
-            args.push("run");
-
-            args.push("--import-map");
-            args.push("/tmp/import_map.json");
-            args.push(&reload);
-            args.push("--unstable");
-            if let Some(deno_flags) = DENO_FLAGS.as_ref() {
-                for flag in deno_flags {
-                    args.push(flag);
-                }
-            } else {
-                args.push("-A");
-            }
-            args.push("/tmp/wrapper.ts");
-
-            Command::new(NSJAIL_PATH.as_str())
-                .current_dir(job_dir)
-                .env_clear()
-                .envs(reserved_variables)
-                .envs(common_deno_proc_envs)
-                .args(args)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()?
-        } else {
             let mut args = Vec::new();
             let script_path = format!("{job_dir}/wrapper.ts");
             let import_map_path = format!("{job_dir}/import_map.json");
@@ -1751,6 +1707,11 @@ run().catch(async (e) => {{
                 for flag in deno_flags {
                     args.push(flag);
                 }
+            } else if !*DISABLE_NSJAIL {
+                args.push("--allow-net");
+                args.push("--allow-read=./");
+                args.push("--allow-write=./");
+                args.push("--allow-env");
             } else {
                 args.push("-A");
             }
@@ -1764,12 +1725,11 @@ run().catch(async (e) => {{
                 .args(args)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
-                .spawn()?
-        }) as error::Result<_>
+                .spawn()
     }
     .instrument(trace_span!("create_deno_jail"))
     .await?;
-    handle_child(&job.id, db, logs, child, !*DISABLE_NSJAIL, worker_name, &job.workspace_id).await?;
+    handle_child(&job.id, db, logs, child, false, worker_name, &job.workspace_id).await?;
     read_result(job_dir).await
 }
 
