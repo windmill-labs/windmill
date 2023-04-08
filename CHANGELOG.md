@@ -1,6 +1,40 @@
 # Changelog
 
 
+## [1.86.0](https://github.com/windmill-labs/windmill/compare/v1.85.0...v1.86.0) (2023-04-08)
+
+
+### Features
+
+* **backend:** add /ready endpoint for workers ([94eecea](https://github.com/windmill-labs/windmill/commit/94eecea02b6295ad5674db4b010bf6ab7984fa17))
+* **backend:** add GET endpoint to trigger scripts ([15c75d9](https://github.com/windmill-labs/windmill/commit/15c75d9d00a69ae97123ed371b9657e298345bdb))
+* **backend:** lowercase all emails in relevant endpoints ([#1361](https://github.com/windmill-labs/windmill/issues/1361)) ([7f9050b](https://github.com/windmill-labs/windmill/commit/7f9050b285cf8f7f6baf05452b673f58988c452c))
+* **cli:** add getFullResource ([3a232db](https://github.com/windmill-labs/windmill/commit/3a232dbb5792c28b26747e1ba260fffcdd4a8416))
+* do cache bucket syncing in background + check tar before pushing it ([#1360](https://github.com/windmill-labs/windmill/issues/1360)) ([3e5ff86](https://github.com/windmill-labs/windmill/commit/3e5ff8682a298ba9e59b2662c4c04c5698447204))
+* **frontend:** add flow expand button ([34a8b01](https://github.com/windmill-labs/windmill/commit/34a8b01b762c0b210d76101e7da7bd2397258e8d))
+* **frontend:** add impersonate api + local resolution of import by lsp v0 ([7675f08](https://github.com/windmill-labs/windmill/commit/7675f08b7bfe319e496a86a7ef1ab7cc8c1d12d2))
+* **frontend:** add workspace to ctx ([8f7a11b](https://github.com/windmill-labs/windmill/commit/8f7a11b8964e2c3405ce3689f9cf2298f9e71c75))
+* **frontend:** Improve login + toasts ([#1363](https://github.com/windmill-labs/windmill/issues/1363)) ([92be102](https://github.com/windmill-labs/windmill/commit/92be102a070b1f17b9d3e40524cd21b54301b5a7))
+* **frontend:** make script editor a single page ([b84be60](https://github.com/windmill-labs/windmill/commit/b84be60c53ca1ef65826123f39099d33c1f549c0))
+* **frontend:** Tone down text + display whole text ([#1366](https://github.com/windmill-labs/windmill/issues/1366)) ([f214d5f](https://github.com/windmill-labs/windmill/commit/f214d5f96b6ac26cd3ef90a6ab696a6dfe02b3f0))
+* improved cron/schedule editor ([#1362](https://github.com/windmill-labs/windmill/issues/1362)) ([17176bb](https://github.com/windmill-labs/windmill/commit/17176bb8d112b35228ce9183f4b2f81abe9e5b6e))
+
+
+### Bug Fixes
+
+* **backend:** allow cors ([8a594a8](https://github.com/windmill-labs/windmill/commit/8a594a89adba9915508884f900f58c4ab53cdfec))
+* **backend:** allow longer name/company ([eff61bb](https://github.com/windmill-labs/windmill/commit/eff61bb8d3496bc1c5be4b1051f99ed4470a47ff))
+* **backend:** always flush bash output ([517b2c9](https://github.com/windmill-labs/windmill/commit/517b2c9cca54628c8ee692d65c05bc2513eaaf22))
+* **backend:** always flush bash output ([7a9091f](https://github.com/windmill-labs/windmill/commit/7a9091fed6aa99201b75bab88d4faddbe041eee4))
+* **backend:** inline script app python fix ([8c72722](https://github.com/windmill-labs/windmill/commit/8c72722710db8e3720b01180b504cbc66e79f5ca))
+* **frontend:** Add FlowGraph display on Safari ([#1351](https://github.com/windmill-labs/windmill/issues/1351)) ([2819b09](https://github.com/windmill-labs/windmill/commit/2819b09ce5011a467e994ee8b1f09cf33145003d))
+* **frontend:** Fix button poppup ([#1368](https://github.com/windmill-labs/windmill/issues/1368)) ([a344928](https://github.com/windmill-labs/windmill/commit/a344928f251d697f53e40c517b0b86bd90e0ad52))
+* **frontend:** Fix connected property ([#1371](https://github.com/windmill-labs/windmill/issues/1371)) ([4af39f0](https://github.com/windmill-labs/windmill/commit/4af39f081bf3d07aaade39e5a5a221741fe8f973))
+* **frontend:** Fix flow templateEditor ([#1367](https://github.com/windmill-labs/windmill/issues/1367)) ([51fc436](https://github.com/windmill-labs/windmill/commit/51fc436456104c2d6a3cd6f6d62f08929e40d450))
+* **frontend:** make croninput a builder rather than a tab ([266b5b0](https://github.com/windmill-labs/windmill/commit/266b5b00da3bd7643eaa5dba1b8c1456f11c5e30))
+* **frontend:** Minor fixes ([#1374](https://github.com/windmill-labs/windmill/issues/1374)) ([76a2a1d](https://github.com/windmill-labs/windmill/commit/76a2a1db363facbaf9a0e9618f169d6cc66e946f))
+* no need to map internal ports to hosts ([#1365](https://github.com/windmill-labs/windmill/issues/1365)) ([4ec035b](https://github.com/windmill-labs/windmill/commit/4ec035b09a58f8859bc576b03c24cc73f335f32d))
+
 ## [1.85.0](https://github.com/windmill-labs/windmill/compare/v1.84.1...v1.85.0) (2023-04-03)
 
 
