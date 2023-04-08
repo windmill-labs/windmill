@@ -30,6 +30,12 @@
 	function clear() {
 		appInput = clearResultAppInput(appInput)
 	}
+
+	if (appInput.recomputeOnInputChanged === undefined) {
+		appInput.recomputeOnInputChanged = true
+	} else if (appInput.doNotRecomputeOnInputChanged == true) {
+		appInput.recomputeOnInputChanged = false
+	}
 </script>
 
 <div class="flex justify-between w-full items-center gap-1">
@@ -40,7 +46,7 @@
 			{appInput.runnable.path}
 		{/if}
 	</span>
-	<div class="flex gap-1  justify-center">
+	<div class="flex gap-1 justify-center">
 		{#if appInput.runnable?.type === 'runnableByName' && appInput.runnable.inlineScript}
 			<Button size="xs" color="light" variant="border" on:click={detach}>
 				Detach&nbsp;
@@ -102,11 +108,9 @@
 		<div class="flex items-center">
 			<Toggle
 				size="xs"
-				color="red"
-				bind:checked={appInput.doNotRecomputeOnInputChanged}
-				options={{ right: 'do NOT recompute on input changes' }}
+				bind:checked={appInput.recomputeOnInputChanged}
+				options={{ right: 'recompute on any input changes' }}
 			/>
-			<Tooltip>If not toggled, whenever an input is changed, the script will be re-run.</Tooltip>
 		</div>
 	{/if}
 
@@ -115,7 +119,7 @@
 			bind:runnable={appInput.runnable}
 			{appComponent}
 			fields={appInput.fields}
-			doNotRecomputeOnInputChanged={appInput.doNotRecomputeOnInputChanged}
+			recomputeOnInputChanged={appInput.recomputeOnInputChanged}
 		/>
 	</div>
 {/if}

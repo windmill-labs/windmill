@@ -7,7 +7,6 @@
 	} from '$lib/components/apps/inputType'
 	import type { InlineScript } from '$lib/components/apps/types'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	import TriggerBadgesList from './TriggerBadgesList.svelte'
 	import { getDependencies } from './triggerListUtils'
@@ -16,7 +15,16 @@
 	export let autoRefresh: boolean = false
 	export let id: string
 	export let inlineScript: InlineScript
-	export let doNotRecomputeOnInputChanged: boolean = false
+	export let recomputeOnInputChanged: boolean | undefined = true
+	export let doNotRecomputeOnInputChanged: undefined | boolean = undefined
+
+	if (doNotRecomputeOnInputChanged == true) {
+		recomputeOnInputChanged = false
+	}
+
+	if (recomputeOnInputChanged == undefined) {
+		recomputeOnInputChanged = true
+	}
 
 	$: dependencies = getDependencies(fields)
 </script>
@@ -25,11 +33,9 @@
 	<div class="flex items-center px-1">
 		<Toggle
 			size="xs"
-			color="red"
-			bind:checked={doNotRecomputeOnInputChanged}
-			options={{ right: 'do NOT recompute on input changes' }}
+			bind:checked={recomputeOnInputChanged}
+			options={{ right: 'recompute on any input changes' }}
 		/>
-		<Tooltip>If not toggled, whenever an input is changed, the script will be re-run.</Tooltip>
 	</div>
 {/if}
 
@@ -38,5 +44,5 @@
 	{id}
 	inputDependencies={dependencies}
 	onLoad={autoRefresh}
-	{doNotRecomputeOnInputChanged}
+	{recomputeOnInputChanged}
 />

@@ -87,7 +87,7 @@
 			<RecomputeAllComponents />
 		{/if}
 		<div class="flex text-2xs text-gray-600 gap-1 items-center">
-			<div class="py-2 pr-2  text-gray-600 flex gap-2 items-center">
+			<div class="py-2 pr-2 text-gray-600 flex gap-2 items-center">
 				Hide bar on view
 				<input class="windmillapp" type="checkbox" bind:checked={$app.norefreshbar} />
 			</div>
@@ -164,7 +164,7 @@
 				inlineScript={script.inlineScript}
 				name={script.name}
 				fields={script.fields}
-				doNotRecomputeOnInputChanged={script.doNotRecomputeOnInputChanged ?? false}
+				recomputeOnInputChanged={script.recomputeOnInputChanged ?? true}
 				recomputableByRefreshButton={script.autoRefresh ?? false}
 			/>
 		{/if}
