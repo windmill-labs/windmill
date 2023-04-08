@@ -141,8 +141,8 @@
 		<span class="font-mono">{version}</span>
 	</div>
 	<div class="sm:mx-auto sm:w-full sm:max-w-md">
-		<div class="mx-auto flex justify-center animate-[spin_50s_linear_infinite]">
-			<WindmillIcon height="80px" width="80px" />
+		<div class="mx-auto flex justify-center">
+			<WindmillIcon height="80px" width="80px" spin="slow" />
 		</div>
 		<h2 class="mt-6 text-center text-3xl font-bold tracking-tight text-gray-900">
 			Login or sign up

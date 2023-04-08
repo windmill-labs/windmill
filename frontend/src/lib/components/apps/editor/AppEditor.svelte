@@ -43,6 +43,7 @@
 	import ConnectionInstructions from './ConnectionInstructions.svelte'
 	import SettingsPanel from './SettingsPanel.svelte'
 	import { secondaryMenu, SecondaryMenu } from './settingsPanel/secondaryMenu'
+	import Popover from '../../Popover.svelte'
 
 	export let app: App
 	export let path: string
@@ -270,23 +271,31 @@
 					</Pane>
 					<Pane size={22} minSize={5} maxSize={33}>
 						<div class="relative flex flex-col h-full">
-							<Tabs bind:selected={selectedTab} wrapperClass="!h-[40px]" class="!h-full">
-								<Tab value="insert" size="xs">
-									<div class="m-1 center-center gap-1">
-										<Plus size={18} />
-									</div>
-								</Tab>
-								<Tab value="settings" size="xs">
-									<div class="m-1 center-center gap-1">
-										<Component size={18} />
-										<span>Component</span>
-									</div>
-								</Tab>
-								<Tab value="css" size="xs">
-									<div class="m-1 center-center gap-1">
-										<Paintbrush size={18} />
-									</div>
-								</Tab>
+							<Tabs bind:selected={selectedTab} wrapperClass="!min-h-[42px]" class="!h-full">
+								<Popover disapperTimoout={0} notClickable placement="bottom">
+									<svelte:fragment slot="text">Component library</svelte:fragment>
+									<Tab value="insert" size="xs" class="h-full">
+										<div class="m-1 center-center">
+											<Plus size={18} />
+										</div>
+									</Tab>
+								</Popover>
+								<Popover disapperTimoout={0} notClickable placement="bottom">
+									<svelte:fragment slot="text">Component settings</svelte:fragment>
+									<Tab value="settings" size="xs" class="h-full">
+										<div class="m-1 center-center">
+											<Component size={18} />
+										</div>
+									</Tab>
+								</Popover>
+								<Popover disapperTimoout={0} notClickable placement="bottom">
+									<svelte:fragment slot="text">Global styling</svelte:fragment>
+									<Tab value="css" size="xs" class="h-full">
+										<div class="m-1 center-center">
+											<Paintbrush size={18} />
+										</div>
+									</Tab>
+								</Popover>
 								<div slot="content" class="h-full overflow-y-auto">
 									<TabContent class="overflow-auto h-full" value="settings">
 										{#if $selectedComponent !== undefined}

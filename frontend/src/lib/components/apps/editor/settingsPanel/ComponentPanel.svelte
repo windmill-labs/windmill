@@ -247,7 +247,7 @@
 
 		{#if Object.keys(ccomponents[component.type].customCss ?? {}).length > 0}
 			<PanelSection title="Styling">
-				<div slot="action">
+				<div slot="action" class="flex justify-end flex-wrap gap-1">
 					<Button
 						color="light"
 						size="xs"
