@@ -23,11 +23,22 @@
 
 {#if componentInput.fieldType !== 'any'}
 	<div class="w-full">
-		<div class="overflow-x-auto" bind:clientWidth>
+		<div class="mx-auto" bind:clientWidth>
 			<ToggleButtonGroup on:selected={() => onchange?.()} bind:selected={componentInput.type}>
 				{#if componentInput.fieldType === 'template'}
-					<ToggleButton position="left" value="template" size="xs" disable={disableStatic}>
-						{brackets}&nbsp;<span class="hidden lg:block">Template</span>
+					<ToggleButton
+						title={`Templated string (use \$\{<output>.x\} )`}
+						position="left"
+						value="template"
+						size="xs"
+						disable={disableStatic}
+					>
+						<span class="font-mono text-2xs h-3 -mt-0.5">
+							{brackets}
+						</span>
+						{#if clientWidth > 250}
+							&nbsp;Template
+						{/if}
 					</ToggleButton>
 				{:else}
 					<ToggleButton
@@ -39,31 +50,31 @@
 						disable={disableStatic}
 					>
 						{#if clientWidth > 250}
-							<span class="hidden lg:block">Static</span>
+							Static
 						{/if}
 					</ToggleButton>
 				{/if}
 
 				<ToggleButton
-					title="Connect"
+					title="Connect to an output"
 					value="connected"
 					position="center"
 					startIcon={{ icon: faArrowRight }}
 					size="xs"
 				>
 					{#if clientWidth > 250}
-						<span class="hidden lg:block">Connect</span>
+						Connect
 					{/if}
 				</ToggleButton>
 				<ToggleButton
-					title="Compute"
+					title="Compute it with a script/flow"
 					position="right"
 					value="runnable"
 					startIcon={{ icon: faCode }}
 					size="xs"
 				>
 					{#if clientWidth > 250}
-						<span class="hidden lg:block">Compute</span>
+						Compute
 					{/if}
 				</ToggleButton>
 			</ToggleButtonGroup>

@@ -186,14 +186,19 @@ compiling from source or using without a postgres super user, see
 
 ### Docker compose
 
-`docker compose up` with the following docker-compose is sufficient:
-<https://github.com/windmill-labs/windmill/blob/main/docker-compose.yml>
+```
+curl https://github.com/windmill-labs/windmill/blob/main/docker-compose.yml -o docker-compose.yml
+curl https://github.com/windmill-labs/windmill/blob/main/CaddyFile -o Caddyfile
+curl https://github.com/windmill-labs/windmill/blob/main/.env -o .env
+
+docker compose up -d --pull always
+```
 
 Go to http://localhost et voilà :)
 
 The default super-admin user is: admin@windmill.dev / changeme
 
-From there, you can create other users (do not forget to change the password!)
+From there, you can follow the setup app and creat other users.
 
 ### Kubernetes (k8s) and Helm charts
 
