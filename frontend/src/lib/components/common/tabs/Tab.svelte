@@ -22,8 +22,7 @@
 	const { selected, update } = getContext<TabsContext>('Tabs')
 </script>
 
-<!-- svelte-ignore a11y-click-events-have-key-events -->
-<div
+<button
 	class={twMerge(
 		'border-b-2 py-1 px-4 cursor-pointer transition-all z-10 ease-linear font-medium',
 		$selected?.startsWith(value)
@@ -38,4 +37,4 @@
 	on:pointerdown|stopPropagation
 >
 	<slot />
-</div>
+</button>

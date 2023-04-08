@@ -31,7 +31,7 @@
 
 	const rd = $page.url.searchParams.get('rd')
 
-	$: if(userSettings && $page.url.hash === USER_SETTINGS_HASH) {
+	$: if (userSettings && $page.url.hash === USER_SETTINGS_HASH) {
 		userSettings.openDrawer()
 	}
 
@@ -86,7 +86,7 @@
 
 <CenteredModal title="Select a workspace" subtitle="Logged in as {$usersWorkspaceStore?.email}">
 	<h2 class="mb-4 inline-flex gap-2"
-		>Workspaces{#if loading}<WindmillIcon class="animate-[spin_5s_linear_infinite]" />
+		>Workspaces{#if loading}<WindmillIcon spin="fast" />
 		{/if}
 	</h2>
 
@@ -125,7 +125,7 @@
 		{#each workspaces.filter((x) => x.id != 'admins') as workspace}
 			<label class="block pb-2">
 				<button
-					class="block w-full mx-auto py-1 px-2 rounded-md border border-gray-300 
+					class="block w-full mx-auto py-1 px-2 rounded-md border border-gray-300
 				shadow-sm text-sm font-normal mt-1 hover:ring-1 hover:ring-indigo-300"
 					on:click={async () => {
 						workspaceStore.set(workspace.id)
@@ -161,7 +161,7 @@
 		{/each}
 	{/if}
 
-	<div class="flex flex-row-reverse  pt-4">
+	<div class="flex flex-row-reverse pt-4">
 		<Button
 			size="sm"
 			href="/user/create_workspace{rd ? `?rd=${encodeURIComponent(rd)}` : ''}"
@@ -176,7 +176,7 @@
 	{/if}
 	{#each invites as invite}
 		<div
-			class="w-full mx-auto py-1 px-2 rounded-md border border-gray-300 shadow-sm 
+			class="w-full mx-auto py-1 px-2 rounded-md border border-gray-300 shadow-sm
 			text-sm mt-1 flex flex-row justify-between items-center"
 		>
 			<div class="grow">

@@ -184,9 +184,10 @@
 						<Button on:click={testJobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
 							<WindmillIcon
 								white={true}
-								class="animate-[spin_5s_linear_infinite] mr-2 text-white"
+								class="mr-2 text-white"
 								height="20px"
 								width="20px"
+								spin="fast"
 							/>
 							Cancel
 						</Button>
