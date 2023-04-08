@@ -941,8 +941,8 @@ async fn insert_initial_ping(
 }
 
 
-fn extract_error_value(log_lines: &str) -> serde_json::Value {
-    return json!({"message": log_lines.to_string().trim().to_string(), "name": "ExecutionErr"});
+fn extract_error_value(log_lines: &str, i: i32) -> serde_json::Value {
+    return json!({"message": format!("ExitCode: {i}, last log lines: {}", log_lines.to_string().trim().to_string()), "name": "ExecutionErr"});
 }
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_queued_job(
@@ -1064,7 +1064,7 @@ async fn handle_queued_job(
                 }
                 Err(e) => {
                     let error_value = match e {
-                        Error::ExitStatus(_) => {
+                        Error::ExitStatus(i) => {
                             let res = read_result(job_dir).await.ok();
 
                             if res.is_some() && res.clone().unwrap().is_object() {
@@ -1082,7 +1082,7 @@ async fn handle_queued_job(
                                     .last()
                                     .unwrap_or(&logs);
 
-                                extract_error_value(log_lines)
+                                extract_error_value(log_lines, i)
                             }
                         }
                         err @ _ => {
