@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use serde::Serialize;
 use tokio::{select, sync::mpsc, time::interval};
+use windmill_common::METRICS_ENABLED;
 
 use crate::db::DB;
 
@@ -89,9 +90,9 @@ impl WebhookShared {
                             };
                             let webook_opt = url_guard.value();
                             if let Some(url) = webook_opt {
-                                let timer = WEBHOOK_REQUEST_COUNT.start_timer();
+                                let timer = if *METRICS_ENABLED { Some(WEBHOOK_REQUEST_COUNT.start_timer()) } else { None };
                                 let _ = client.post(url).json(&message).send().await;
-                                timer.stop_and_record();
+                                timer.map(|x| x.stop_and_record());
                                 drop(url_guard);
                             }
                         },

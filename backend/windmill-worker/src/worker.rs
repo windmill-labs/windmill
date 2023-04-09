@@ -27,7 +27,7 @@ use windmill_common::{
     flows::{FlowModuleValue, FlowValue},
     scripts::{ScriptHash, ScriptLang},
     utils::{rd_string, calculate_hash},
-    variables, BASE_URL, users::SUPERADMIN_SECRET_EMAIL, IS_READY,
+    variables, BASE_URL, users::SUPERADMIN_SECRET_EMAIL, IS_READY, METRICS_ENABLED,
 };
 use windmill_queue::{canceled_job_to_result, get_queued_job, pull, JobKind, QueuedJob, CLOUD_HOSTED};
 
@@ -610,8 +610,9 @@ pub async fn run_worker(
 
     let mut jobs_executed = 0;
 
-
-    WORKER_STARTED.inc();
+    if *METRICS_ENABLED {
+        WORKER_STARTED.inc();
+    }
 
     let (_copy_bucket_tx, mut _copy_bucket_rx) = mpsc::channel::<()>(2);
 
@@ -644,13 +645,14 @@ pub async fn run_worker(
 
     
     loop {
-        worker_busy.set(0);
-
-        uptime_metric.inc_by(
-            (((Instant::now() - start_time).as_millis() as f64)/1000.0 - uptime_metric.get())
-                .try_into()
-                .unwrap(),
-        );
+        if *METRICS_ENABLED {
+            worker_busy.set(0);
+            uptime_metric.inc_by(
+                (((Instant::now() - start_time).as_millis() as f64)/1000.0 - uptime_metric.get())
+                    .try_into()
+                    .unwrap(),
+            );
+        }
 
 
         let do_break = async {
@@ -707,10 +709,12 @@ pub async fn run_worker(
                         .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string())))
                     },
                     (job, timer) = {
-                        let timer = worker_pull_duration.start_timer(); 
+                        let timer = if *METRICS_ENABLED { Some(worker_pull_duration.start_timer()) } else { None }; 
                         pull(&db, WHITELIST_WORKSPACES.clone(), BLACKLIST_WORKSPACES.clone()).map(|x| (x, timer)) } => {
-                        let duration_pull_s = timer.stop_and_record();
-                        worker_pull_duration_counter.inc_by(duration_pull_s);
+                        timer.map(|timer| {
+                            let duration_pull_s = timer.stop_and_record();
+                            worker_pull_duration_counter.inc_by(duration_pull_s);
+                        });
                         (false, job)
                     },
                 }
@@ -718,8 +722,9 @@ pub async fn run_worker(
             if do_break {
                 return true;
             }
-
-            worker_busy.set(1);
+            if *METRICS_ENABLED {
+                worker_busy.set(1);
+            }
             match next_job {
                 Ok(Some(job)) => {
                     let label_values = [
@@ -732,9 +737,11 @@ pub async fn run_worker(
                         .start_timer();
 
                     jobs_executed += 1;
-                    worker_execution_count
-                        .with_label_values(label_values.as_slice())
-                        .inc();
+                    if *METRICS_ENABLED {
+                        worker_execution_count
+                            .with_label_values(label_values.as_slice())
+                            .inc();
+                    }
 
                     let metrics = Metrics {
                         worker_execution_failed: worker_execution_failed
@@ -825,12 +832,12 @@ pub async fn run_worker(
                     }
                 }
                 Ok(None) => {
-
-                    let _timer = worker_sleep_duration
-                        .start_timer();
+                    let _timer =  if *METRICS_ENABLED { Some(worker_sleep_duration.start_timer()) } else { None };
                     tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE)).await;
-                    let duration = _timer.stop_and_record();
-                    worker_sleep_duration_counter.inc_by(duration);
+                    _timer.map(|timer| {
+                        let duration = timer.stop_and_record();
+                        worker_sleep_duration_counter.inc_by(duration);
+                    });
                 }
                 Err(err) => {
                     tracing::error!(worker = %worker_name, "run_worker: pulling jobs: {}", err);
@@ -1225,7 +1232,7 @@ async fn handle_code_execution_job(
         job.id
     );
 
-    let shared_mount = if job.same_worker {
+    let shared_mount = if job.same_worker && job.language != Some(ScriptLang::Deno) {
         format!(
             r#"
 mount {{
@@ -1639,16 +1646,19 @@ async fn handle_deno_job(
     base_internal_url: &str,
     worker_name: &str
 ) -> error::Result<serde_json::Value> {
+    // let mut start = Instant::now();
     logs.push_str("\n\n--- DENO CODE EXECUTION ---\n");
     set_logs(logs, &job.id, db).await;
-
-    // TODO: Separately cache dependencies here using `deno cache --reload --lock=lock.json src/deps.ts` (https://deno.land/manual@v1.27.0/linking_to_external_code/integrity_checking)
-    // Then require caching below using --cached-only. This makes it so we require zero network interaction when running the process below
-
+    
+    // logs.push_str(format!("st: {:?}\n", start.elapsed().as_millis()).as_str());
+    // start = Instant::now();
     let _ = write_file(job_dir, "main.ts", inner_content).await?;
+
     let sig = trace_span!("parse_deno_signature")
-        .in_scope(|| windmill_parser_ts::parse_deno_signature(inner_content))?;
+        .in_scope(|| windmill_parser_ts::parse_deno_signature(inner_content, true))?;
+
     create_args_and_out_file(client, job, job_dir).await?;
+
     let spread = sig.args.into_iter().map(|x| x.name).join(",");
     let wrapper_content: String = format!(
         r#"
@@ -1734,8 +1744,14 @@ run().catch(async (e) => {{
     }
     .instrument(trace_span!("create_deno_jail"))
     .await?;
+    // logs.push_str(format!("prepare: {:?}\n", start.elapsed().as_millis()).as_str());
+    // start = Instant::now();
     handle_child(&job.id, db, logs, child, false, worker_name, &job.workspace_id).await?;
-    read_result(job_dir).await
+    // logs.push_str(format!("execute: {:?}\n", start.elapsed().as_millis()).as_str());
+    // start = Instant::now();
+    let r = read_result(job_dir).await;
+    // logs.push_str(format!("rr: {:?}\n", start.elapsed().as_millis()).as_str());
+    r
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -2906,7 +2922,9 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str) {
             .ok()
             .unwrap_or_else(|| vec![]);
 
-        QUEUE_ZOMBIE_RESTART_COUNT.inc_by(restarted.len() as _);
+        if *METRICS_ENABLED {
+            QUEUE_ZOMBIE_RESTART_COUNT.inc_by(restarted.len() as _);
+        }
         for r in restarted {
             tracing::info!(
                 "restarted zombie job {} {} {}",
@@ -2931,7 +2949,9 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str) {
         .ok()
         .unwrap_or_else(|| vec![]);
 
-    QUEUE_ZOMBIE_DELETE_COUNT.inc_by(timeouts.len() as _);
+    if *METRICS_ENABLED {
+        QUEUE_ZOMBIE_DELETE_COUNT.inc_by(timeouts.len() as _);
+    }
     for job in timeouts {
         tracing::info!(
             "timedout zombie job {} {}",

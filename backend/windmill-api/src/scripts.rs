@@ -829,7 +829,7 @@ async fn parse_python_code_to_jsonschema(Json(code): Json<String>) -> Json<SigPa
 }
 
 async fn parse_deno_code_to_jsonschema(Json(code): Json<String>) -> Json<SigParsing> {
-    result_to_sig_parsing(windmill_parser_ts::parse_deno_signature(&code))
+    result_to_sig_parsing(windmill_parser_ts::parse_deno_signature(&code, false))
 }
 async fn parse_go_code_to_jsonschema(Json(code): Json<String>) -> Json<SigParsing> {
     result_to_sig_parsing(windmill_parser_go::parse_go_sig(&code))
