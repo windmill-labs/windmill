@@ -32,7 +32,14 @@
 
 	async function loadScript() {
 		if (hash) {
-			script = await ScriptService.getScriptByHash({ workspace: $workspaceStore!, hash })
+			;[script, job_inputs] = await Promise.all([
+				ScriptService.getScriptByHash({ workspace: $workspaceStore!, hash }),
+				await ScriptService.getInputHistory({
+					workspace: $workspaceStore!,
+					hash,
+					perPage: 10
+				})
+			])
 
 			if (script.schema == undefined) {
 				script.schema = emptySchema()
@@ -49,12 +56,6 @@
 			} else {
 				topHash = undefined
 			}
-
-			job_inputs = await ScriptService.getInputHistory({
-				workspace: $workspaceStore!,
-				hash,
-				perPage: 10
-			})
 
 			can_write =
 				script.workspace_id == $workspaceStore &&
