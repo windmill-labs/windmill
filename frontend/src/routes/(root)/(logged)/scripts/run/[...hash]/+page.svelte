@@ -32,14 +32,7 @@
 
 	async function loadScript() {
 		if (hash) {
-			;[script, job_inputs] = await Promise.all([
-				ScriptService.getScriptByHash({ workspace: $workspaceStore!, hash }),
-				await ScriptService.getInputHistory({
-					workspace: $workspaceStore!,
-					hash,
-					perPage: 10
-				})
-			])
+			script = await ScriptService.getScriptByHash({ workspace: $workspaceStore!, hash })
 
 			if (script.schema == undefined) {
 				script.schema = emptySchema()
@@ -63,6 +56,14 @@
 		} else {
 			sendUserToast(`Failed to fetch script hash from URL`, true)
 		}
+	}
+
+	async function loadInputHistory() {
+		job_inputs = await ScriptService.getInputHistory({
+			workspace: $workspaceStore!,
+			hash,
+			perPage: 10
+		})
 	}
 
 	let loading = false
@@ -91,6 +92,7 @@
 	$: {
 		if ($workspaceStore && hash) {
 			loadScript()
+			loadInputHistory()
 		}
 	}
 
