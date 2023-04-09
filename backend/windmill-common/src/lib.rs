@@ -30,6 +30,17 @@ pub const DEFAULT_MAX_CONNECTIONS_SERVER: u32 = 50;
 pub const DEFAULT_MAX_CONNECTIONS_WORKER: u32 = 3;
 
 lazy_static::lazy_static! {
+    pub static ref METRICS_ADDR: Option<SocketAddr> = std::env::var("METRICS_ADDR")
+    .ok()
+    .map(|s| {
+        s.parse::<bool>()
+            .map(|b| b.then(|| SocketAddr::from(([0, 0, 0, 0], 8001))))
+            .or_else(|_| s.parse::<SocketAddr>().map(Some))
+    })
+    .transpose().ok()
+    .flatten()
+    .flatten();
+    pub static ref METRICS_ENABLED: bool = METRICS_ADDR.is_some();
     pub static ref BASE_URL: String = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost".to_string());
     pub static ref IS_READY: Arc<std::sync::atomic::AtomicBool> = Arc::new(std::sync::atomic::AtomicBool::new(false));
 }

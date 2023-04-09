@@ -9,7 +9,9 @@
 use sqlx::{Pool, Postgres, Transaction};
 use tracing::instrument;
 use uuid::Uuid;
-use windmill_common::{error::Error, flow_status::FlowStatusModule, schedule::Schedule};
+use windmill_common::{
+    error::Error, flow_status::FlowStatusModule, schedule::Schedule, METRICS_ENABLED,
+};
 use windmill_queue::{delete_job, schedule::get_schedule_opt, JobKind, QueuedJob, CLOUD_HOSTED};
 
 #[instrument(level = "trace", skip_all)]
@@ -20,7 +22,9 @@ pub async fn add_completed_job_error(
     e: serde_json::Value,
     metrics: Option<crate::worker::Metrics>,
 ) -> Result<serde_json::Value, Error> {
-    metrics.map(|m| m.worker_execution_failed.inc());
+    if *METRICS_ENABLED {
+        metrics.map(|m| m.worker_execution_failed.inc());
+    }
     let result = serde_json::json!({ "error": e });
     let _ = add_completed_job(db, &queued_job, false, false, result.clone(), logs).await?;
     Ok(result)
