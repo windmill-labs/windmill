@@ -28,11 +28,7 @@ name = "windmill"
 path = "./src/main.rs"
 
 [features]
-enterprise = [
-    "windmill-worker/enterprise",
-    "windmill-queue/enterprise",
-    "windmill-api/enterprise",
-]
+enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise"]
 
 [dependencies]
 anyhow.workspace = true
@@ -155,3 +151,4 @@ async-stripe = { version = "0.14", features = [
 ] }
 async_zip = { version = "0.0.11", features = ["full"] }
 once_cell = "1.17.1"
+gosyn = "0.2.2"
