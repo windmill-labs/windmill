@@ -1225,7 +1225,7 @@ async fn handle_code_execution_job(
         job.id
     );
 
-    let shared_mount = if job.same_worker {
+    let shared_mount = if job.same_worker && job.language != Some(ScriptLang::Deno) {
         format!(
             r#"
 mount {{
@@ -1639,16 +1639,19 @@ async fn handle_deno_job(
     base_internal_url: &str,
     worker_name: &str
 ) -> error::Result<serde_json::Value> {
+    // let mut start = Instant::now();
     logs.push_str("\n\n--- DENO CODE EXECUTION ---\n");
     set_logs(logs, &job.id, db).await;
-
-    // TODO: Separately cache dependencies here using `deno cache --reload --lock=lock.json src/deps.ts` (https://deno.land/manual@v1.27.0/linking_to_external_code/integrity_checking)
-    // Then require caching below using --cached-only. This makes it so we require zero network interaction when running the process below
-
+    
+    // logs.push_str(format!("st: {:?}\n", start.elapsed().as_millis()).as_str());
+    // start = Instant::now();
     let _ = write_file(job_dir, "main.ts", inner_content).await?;
+
     let sig = trace_span!("parse_deno_signature")
-        .in_scope(|| windmill_parser_ts::parse_deno_signature(inner_content))?;
+        .in_scope(|| windmill_parser_ts::parse_deno_signature(inner_content, true))?;
+
     create_args_and_out_file(client, job, job_dir).await?;
+
     let spread = sig.args.into_iter().map(|x| x.name).join(",");
     let wrapper_content: String = format!(
         r#"
@@ -1734,8 +1737,14 @@ run().catch(async (e) => {{
     }
     .instrument(trace_span!("create_deno_jail"))
     .await?;
+    // logs.push_str(format!("prepare: {:?}\n", start.elapsed().as_millis()).as_str());
+    // start = Instant::now();
     handle_child(&job.id, db, logs, child, false, worker_name, &job.workspace_id).await?;
-    read_result(job_dir).await
+    // logs.push_str(format!("execute: {:?}\n", start.elapsed().as_millis()).as_str());
+    // start = Instant::now();
+    let r = read_result(job_dir).await;
+    // logs.push_str(format!("rr: {:?}\n", start.elapsed().as_millis()).as_str());
+    r
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
