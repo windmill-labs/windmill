@@ -14,6 +14,7 @@ use once_cell::sync::OnceCell;
 use regex::Regex;
 use sqlx::{Pool, Postgres, Transaction};
 use windmill_api_client::Client;
+use windmill_parser_go::parse_go_imports;
 use std::{
     borrow::Borrow, collections::HashMap, io, os::unix::process::ExitStatusExt, panic,
     process::Stdio, time::Duration, sync::atomic::Ordering,
@@ -340,7 +341,7 @@ const NSJAIL_CONFIG_RUN_BASH_CONTENT: &str = include_str!("../nsjail/run.bash.co
 
 const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
 
-const GO_REQ_SPLITTER: &str = "//go.sum";
+const GO_REQ_SPLITTER: &str = "//go.sum\n";
 
 #[derive(Clone)]
 pub struct Metrics {
@@ -1319,6 +1320,20 @@ mount {{
     result
 }
 
+async fn gen_go_mod(inner_content: &str, job_dir: &str, requirements: &str) -> error::Result<(bool, bool)> {
+    gen_go_mymod(inner_content, job_dir).await?;
+
+    let md = requirements
+        .split_once(GO_REQ_SPLITTER);
+    if let Some((req, sum)) = md {
+        write_file(job_dir, "go.mod", &req).await?;
+        write_file(job_dir, "go.sum", &sum).await?;
+        Ok((true, true))
+    } else {
+        write_file(job_dir, "go.mod", &requirements).await?;
+        Ok((true, false))
+    }
+}
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_go_job(
     logs: &mut String,
@@ -1335,19 +1350,10 @@ async fn handle_go_job(
 ) -> Result<serde_json::Value, Error> {
     //go does not like executing modules at temp root
     let job_dir = &format!("{job_dir}/go");
-    let skip_go_mod = if let Some(requirements) = requirements_o {
-        gen_go_mymod(inner_content, job_dir).await?;
-
-        // TODO: remove after some time in favor of just requirements
-        // this is just migration code from a time we also stored go.sum
-        let md = requirements
-            .split_once(GO_REQ_SPLITTER)
-            .map(|x| x.0)
-            .unwrap_or(&requirements);
-        write_file(job_dir, "go.mod", &md).await?;
-        true
+    let (skip_go_mod, skip_tidy) = if let Some(requirements) = requirements_o {
+        gen_go_mod(inner_content, job_dir, &requirements).await?
     } else {
-        false
+        (false, false)
     };
     logs.push_str("\n\n--- GO DEPENDENCIES SETUP ---\n");
     set_logs(logs, &job.id, db).await;
@@ -1360,6 +1366,7 @@ async fn handle_go_job(
         db,
         true,
         skip_go_mod,
+        skip_tidy,
         worker_name,
         &job.workspace_id,
     )
@@ -2256,6 +2263,7 @@ async fn capture_dependency_job(
                 db,
                 false,
                 false,
+                false,
                 worker_name,
                 w_id
             )
@@ -2331,7 +2339,7 @@ async fn pip_compile(
         .collect::<Vec<String>>()
         .join("\n");
     sqlx::query!(
-        "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() - ('3 days')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = $2",
+        "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() + ('3 days')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = $2",
         req_hash,
         lockfile
     ).fetch_optional(db).await?;
@@ -2344,8 +2352,9 @@ async fn install_go_dependencies(
     logs: &mut String,
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
-    preview: bool,
+    non_dep_job: bool,
     skip_go_mod: bool,
+    has_sum: bool,
     worker_name: &str,
     w_id: &str
 ) -> error::Result<String> {
@@ -2360,10 +2369,39 @@ async fn install_go_dependencies(
 
         handle_child(job_id, db, logs,   child, false, worker_name, w_id).await?;
     }
+
+    let mut new_lockfile = false;
+
+    let hash = if !has_sum {
+        calculate_hash(parse_go_imports(&code)?.iter().join("\n").as_str())
+    } else {
+        "".to_string()
+    };
+
+    let mut skip_tidy = has_sum;
+
+    if !has_sum {
+        if let Some(cached) = sqlx::query_scalar!(
+            "SELECT lockfile FROM pip_resolution_cache WHERE hash = $1",
+            hash
+        ).fetch_optional(db).await? {
+            logs.push_str(&format!("\nfound cached resolution"));
+            gen_go_mod(code, job_dir, &cached).await?;
+            skip_tidy = true;
+            new_lockfile = false;
+        } else {
+            new_lockfile = true;
+        }
+    }
+    let mod_command = if skip_tidy {
+        "download"
+    } else {
+        "tidy"
+    };
     let child = Command::new(GO_PATH.as_str())
         .current_dir(job_dir)
         .env("GOPATH", GO_CACHE_DIR)
-        .args(vec!["mod", "tidy"])
+        .args(vec!["mod", mod_command])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
@@ -2371,14 +2409,28 @@ async fn install_go_dependencies(
         .await
         .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
 
-    if preview {
-        Ok(String::new())
+    if (!new_lockfile || has_sum) && non_dep_job{
+        return Ok("".to_string());
+    }
+
+
+    let mut req_content = "".to_string();
+
+    let mut file = File::open(format!("{job_dir}/go.mod")).await?;
+    file.read_to_string(&mut req_content).await?;
+    req_content.push_str(GO_REQ_SPLITTER);
+    let mut file = File::open(format!("{job_dir}/go.sum")).await?;
+    file.read_to_string(&mut req_content).await?;
+    
+    if non_dep_job {
+        sqlx::query!(
+            "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() + ('3 days')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = $2",
+            hash,
+            req_content
+        ).fetch_optional(db).await?;
+
+        return Ok(String::new())
     } else {
-        let mut req_content = "".to_string();
-
-        let mut file = File::open(format!("{job_dir}/go.mod")).await?;
-        file.read_to_string(&mut req_content).await?;
-
         Ok(req_content)
     }
 }

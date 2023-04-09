@@ -1808,6 +1808,19 @@
     },
     "query": "\n            UPDATE queue\n               SET flow_status = JSONB_SET(flow_status, ARRAY['step'], $1)\n             WHERE id = $2\n            "
   },
+  "4fb3881cdbb4b9e93e28f460a9b3715bdc6a52b76c89f3a3913023b13c4e085c": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Text"
+        ]
+      }
+    },
+    "query": "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() + ('3 days')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = $2"
+  },
   "5061c0d054bf4f028e7fe51a8f9389024c6ae4492755cadac0f7167e5300bda0": {
     "describe": {
       "columns": [],
@@ -3873,19 +3886,6 @@
       }
     },
     "query": "SELECT app.id, app.path, app.summary, app.versions, app.policy,\n        app.extra_perms, app_version.value, \n        app_version.created_at, app_version.created_by from app, app_version \n        WHERE app.id = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]"
-  },
-  "9baf1f88ab6c1df642cf8f0f49805ccac3e48cce1f0e184fb9db78536a8ca7b0": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Text"
-        ]
-      }
-    },
-    "query": "INSERT INTO pip_resolution_cache (hash, lockfile, expiration) VALUES ($1, $2, now() - ('3 days')::interval) ON CONFLICT (hash) DO UPDATE SET lockfile = $2"
   },
   "9db64c9ff790d8c833c1e831a87803c32103ce9de68cc9c08d6f56cc988d7e37": {
     "describe": {

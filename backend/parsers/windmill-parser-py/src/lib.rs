@@ -218,7 +218,7 @@ pub fn parse_python_imports(code: &str) -> error::Result<Vec<String>> {
         let ast = parser::parse_program(code, "main.py").map_err(|e| {
             error::Error::ExecutionErr(format!("Error parsing code: {}", e.to_string()))
         })?;
-        let imports = ast
+        let mut imports: Vec<String> = ast
             .into_iter()
             .filter_map(|x| match x {
                 Located { node, .. } => match node {
@@ -250,7 +250,7 @@ pub fn parse_python_imports(code: &str) -> error::Result<Vec<String>> {
             .filter(|x| !STDIMPORTS.contains(&x.as_str()))
             .unique()
             .collect();
-
+        imports.sort();
         Ok(imports)
     }
 }
@@ -460,7 +460,7 @@ def main():
 ";
         let r = parse_python_imports(code)?;
         // println!("{}", serde_json::to_string(&r)?);
-        assert_eq!(r, vec!["wmill", "zanzibar", "matplotlib", "requests"]);
+        assert_eq!(r, vec!["matplotlib", "requests", "wmill", "zanzibar"]);
         Ok(())
     }
 
