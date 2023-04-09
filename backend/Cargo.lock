@@ -4873,6 +4873,7 @@ dependencies = [
  "rand 0.8.5",
  "reqwest",
  "rsa",
+ "serde",
  "serde_json",
  "sha2 0.10.6",
  "sqlx",
