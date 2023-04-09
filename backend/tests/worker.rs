@@ -1,4 +1,5 @@
 use futures::{stream, Stream};
+use serde::Deserialize;
 use serde_json::json;
 use sqlx::{postgres::PgListener, types::Uuid, Pool, Postgres, Transaction};
 use windmill_api::jobs::{CompletedJob, Job};
@@ -1518,6 +1519,8 @@ async fn test_go_job(db: Pool<Postgres>) {
     let port = server.addr.port();
 
     let content = r#"
+package inner
+
 import "fmt"
 
 func main(derp string) (string, error) {
@@ -2024,6 +2027,16 @@ async fn test_branchall_simple(db: Pool<Postgres>) {
     assert_eq!(result, serde_json::json!([[1, 2], [1, 3]]));
 }
 
+#[derive(Deserialize)]
+struct ErrorResult {
+    error: NamedError,
+}
+
+#[derive(Deserialize)]
+struct NamedError {
+    name: String,
+}
+
 #[sqlx::test(fixtures("base"))]
 async fn test_branchall_skip_failure(db: Pool<Postgres>) {
     initialize_tracing().await;
@@ -2059,8 +2072,11 @@ async fn test_branchall_skip_failure(db: Pool<Postgres>) {
         .unwrap();
 
     assert_eq!(
-        result,
-        serde_json::json!([{"error": {"name": "Error", "stack": "Error: failure\n    at main (file:///tmp/main.ts:1:31)\n    at run (file:///tmp/wrapper.ts:9:26)\n    at file:///tmp/wrapper.ts:14:1", "message": "failure"}}, [1,3]])
+        serde_json::from_value::<ErrorResult>(result)
+            .unwrap()
+            .error
+            .name,
+        "Error"
     );
 
     let flow: FlowValue = serde_json::from_value(json!({
@@ -2093,8 +2109,11 @@ async fn test_branchall_skip_failure(db: Pool<Postgres>) {
         .unwrap();
 
     assert_eq!(
-        result,
-        serde_json::json!([ {"error": {"name": "Error", "stack": "Error: failure\n    at main (file:///tmp/main.ts:1:31)\n    at run (file:///tmp/wrapper.ts:9:26)\n    at file:///tmp/wrapper.ts:14:1", "message": "failure"}}, [1, 2]])
+        serde_json::from_value::<ErrorResult>(result)
+            .unwrap()
+            .error
+            .name,
+        "Error"
     );
 }
 

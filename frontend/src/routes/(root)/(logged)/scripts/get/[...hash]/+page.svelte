@@ -331,7 +331,7 @@
 						startIcon={{ icon: faArrowLeft }}
 						href="/scripts/get/{script.parent_hashes[0]}?workspace_id={$workspaceStore}"
 						dropdownItems={script.parent_hashes.map((hash) => ({
-							href: `/scripts/get/${hash}?workspace_id={$workspaceStore}`,
+							href: `/scripts/get/${hash}?workspace_id=${$workspaceStore}`,
 							label: hash
 						}))}
 					>
