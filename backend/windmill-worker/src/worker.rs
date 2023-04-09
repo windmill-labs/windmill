@@ -17,7 +17,7 @@ use windmill_api_client::Client;
 use windmill_parser_go::parse_go_imports;
 use std::{
     borrow::Borrow, collections::HashMap, io, os::unix::process::ExitStatusExt, panic,
-    process::Stdio, time::Duration, sync::atomic::Ordering,
+    process::Stdio, time::{Duration, SystemTime}, sync::atomic::Ordering,
 };
 use tracing::{trace_span, Instrument};
 use uuid::Uuid;
@@ -727,6 +727,8 @@ pub async fn run_worker(
             }
             match next_job {
                 Ok(Some(job)) => {
+                    println!("{:?}",  SystemTime::now());
+
                     let label_values = [
                         &job.workspace_id,
                         job.language.as_ref().map(|l| l.as_str()).unwrap_or(""),
@@ -757,6 +759,7 @@ pub async fn run_worker(
                         .create(&job_dir)
                         .await
                         .expect("could not create job dir");
+                    println!("dir creation {:?}",  SystemTime::now());
 
                     let same_worker = job.same_worker;
 
@@ -782,6 +785,8 @@ pub async fn run_worker(
                             .expect("could not create shared dir");
                     }
                     let tx = db.begin().await.expect("could not start token transaction");
+                    println!("bef token: {:?}",  SystemTime::now());
+
                     let (tx, token) = create_token_for_owner(
                         tx,
                         &job.workspace_id,
@@ -792,6 +797,8 @@ pub async fn run_worker(
                     )
                     .await.expect("could not create job token");
                     tx.commit().await.expect("could not commit job token");
+                    println!("create token for owner {:?}",  SystemTime::now());
+
                     let authed_client = AuthedClient { base_internal_url: base_internal_url.to_string(), token: token.clone(), workspace: job.workspace_id.to_string(), client: OnceCell::new() };
                     let is_flow = job.job_kind == JobKind::Flow || job.job_kind == JobKind::FlowPreview || job.job_kind == JobKind::FlowDependencies;
 
@@ -988,6 +995,7 @@ async fn handle_queued_job(
         }
         _ => {
             let mut logs = "".to_string();
+            println!("handle queue {:?}",  SystemTime::now());
             if let Some(log_str) = &job.logs {
                 logs.push_str(&log_str);
             }
@@ -1047,6 +1055,7 @@ async fn handle_queued_job(
 
             match result {
                 Ok(r) => {
+                    println!("bef completed job{:?}",  SystemTime::now());
                     add_completed_job(db, &job, true, false, r.clone(), logs).await?;
                     if job.is_flow_step {
                         if let Some(parent_job) = job.parent_job {
@@ -1247,6 +1256,8 @@ mount {{
         "".to_string()
     };
 
+    println!("handle lang job {:?}",  SystemTime::now());
+
     let result: error::Result<serde_json::Value> = match language {
         None => {
             return Err(Error::ExecutionErr(
@@ -1324,6 +1335,8 @@ mount {{
         &lang_str,
         job.id
     );
+    println!("handled job: {:?}",  SystemTime::now());
+
     result
 }
 
