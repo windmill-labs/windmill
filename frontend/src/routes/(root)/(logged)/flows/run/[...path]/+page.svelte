@@ -163,4 +163,4 @@
 	</div>
 </div>
 
-<SavedInputs {path} on:selected_args={(e) => (args = e.detail)} />
+<SavedInputs flow_path={path} on:selected_args={(e) => (args = e.detail)} />

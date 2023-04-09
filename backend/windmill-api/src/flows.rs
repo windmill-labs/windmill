@@ -6,14 +6,21 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use hyper::StatusCode;
-use sql_builder::prelude::*;
-
+use crate::{
+    db::{UserDB, DB},
+    jobs::JobArgs,
+    schedule::clear_schedule,
+    users::{maybe_refresh_folders, require_owner_of_path, Authed},
+    webhook_util::{WebhookMessage, WebhookShared},
+    HTTP_CLIENT,
+};
 use axum::{
     extract::{Extension, Path, Query},
     routing::{delete, get, post},
     Json, Router,
 };
+use hyper::StatusCode;
+use sql_builder::prelude::*;
 use sql_builder::SqlBuilder;
 use sqlx::{Postgres, Transaction};
 use windmill_audit::{audit_log, ActionKind};
@@ -27,14 +34,6 @@ use windmill_common::{
 };
 use windmill_queue::{push, schedule::push_scheduled_job, JobPayload};
 
-use crate::{
-    db::{UserDB, DB},
-    schedule::clear_schedule,
-    users::{maybe_refresh_folders, require_owner_of_path, Authed},
-    webhook_util::{WebhookMessage, WebhookShared},
-    HTTP_CLIENT,
-};
-
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_flows))
@@ -45,6 +44,7 @@ pub fn workspaced_service() -> Router {
         .route("/get/*path", get(get_flow_by_path))
         .route("/exists/*path", get(exists_flow_by_path))
         .route("/list_paths", get(list_paths))
+        .route("/input_history/p/*path", get(get_input_history_by_path))
 }
 
 pub fn global_service() -> Router {
@@ -534,6 +534,30 @@ async fn delete_flow_by_path(
     );
 
     Ok(format!("Flow {path} deleted"))
+}
+
+async fn get_input_history_by_path(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+    Query(pagination): Query<Pagination>,
+) -> JsonResult<Vec<JobArgs>> {
+    let path = path.to_path();
+    let (per_page, offset) = paginate(pagination);
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    let rows = sqlx::query_as::<_, JobArgs>("select distinct on (args) created_by, started_at, args from completed_job where script_path = $1 and workspace_id = $2 and job_kind = 'flow' order by args, started_at desc limit $3 offset $4")
+        .bind(&path)
+        .bind(&w_id)
+        .bind(per_page as i32)
+        .bind(offset as i32)
+        .fetch_all(&mut tx)
+        .await?;
+
+    tx.commit().await?;
+
+    Ok(Json(rows))
 }
 
 #[cfg(test)]

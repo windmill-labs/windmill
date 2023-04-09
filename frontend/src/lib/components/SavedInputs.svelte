@@ -1,34 +1,41 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { JobService, type JobInput } from '$lib/gen/index.js'
+	import { FlowService, ScriptService, type JobArgs } from '$lib/gen/index.js'
 	import { workspaceStore } from '$lib/stores.js'
 	import { displayDate } from '$lib/utils.js'
 	import { createEventDispatcher } from 'svelte'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 
 	export let hash: string | undefined = ''
-	export let path: string | undefined = ''
-	let job_inputs: JobInput[] = []
+	export let script_path: string | undefined = ''
+	export let flow_path: string | undefined = ''
+	let jobArgs: JobArgs[] = []
 	let selected_args = {}
 
 	async function loadInputHistory() {
 		if (hash) {
-			job_inputs = await JobService.getInputHistoryByHash({
+			jobArgs = await ScriptService.getScriptInputHistoryByHash({
 				workspace: $workspaceStore!,
 				hash,
 				perPage: 10
 			})
-		} else if (path) {
-			job_inputs = await JobService.getInputHistoryByPath({
+		} else if (script_path) {
+			jobArgs = await ScriptService.getScriptInputHistoryByPath({
 				workspace: $workspaceStore!,
-				path,
+				path: script_path,
+				perPage: 10
+			})
+		} else if (flow_path) {
+			jobArgs = await FlowService.getFlowInputHistoryByPath({
+				workspace: $workspaceStore!,
+				path: flow_path,
 				perPage: 10
 			})
 		}
 	}
 
 	$: {
-		if ($workspaceStore && (hash || path)) {
+		if ($workspaceStore && (hash || script_path || flow_path)) {
 			loadInputHistory()
 		}
 	}
@@ -45,8 +52,8 @@
 		<h2>Previous Inputs</h2>
 
 		<div class="w-full flex flex-col gap-2 p-2 h-full overflow-y-auto overflow-x-hidden">
-			{#if job_inputs.length > 0}
-				{#each job_inputs as { created_by, started_at, args }}
+			{#if jobArgs.length > 0}
+				{#each jobArgs as { created_by, started_at, args }}
 					<Button color="blue" btnClasses="w-full" on:click={() => (selected_args = args)}>
 						<div class="w-full h-full items-center flex gap-4">
 							<small>{displayDate(started_at)}</small>
