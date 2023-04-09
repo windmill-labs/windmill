@@ -2125,6 +2125,27 @@ paths:
                 items:
                   type: string
 
+  /w/{workspace}/scripts/input_history/h/{hash}:
+    get:
+      summary: list inputs for previous completed jobs
+      operationId: getInputHistory
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptHash"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: input history for completed jobs with this script hash
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/JobInput"
+
   /w/{workspace}/scripts/create:
     post:
       summary: create script
@@ -4874,6 +4895,21 @@ components:
     ScriptArgs:
       type: object
       additionalProperties: {}
+
+    JobInput:
+      type: object
+      properties:
+        created_by:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+        args:
+          type: object
+      required:
+        - created_by
+        - started_at
+        - args
 
     QueuedJob:
       type: object
