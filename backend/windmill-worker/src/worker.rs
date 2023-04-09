@@ -12,7 +12,7 @@ use itertools::Itertools;
 use lazy_static::lazy_static;
 use once_cell::sync::OnceCell;
 use regex::Regex;
-use sqlx::{Pool, Postgres, Transaction};
+use sqlx::{Pool, Postgres};
 use windmill_api_client::Client;
 use windmill_parser_go::parse_go_imports;
 use std::{
@@ -289,18 +289,18 @@ async fn move_tmp_cache_to_cache() -> Result<()> {
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
-pub async fn create_token_for_owner<'c>(
-    mut tx: Transaction<'c, Postgres>,
+pub async fn create_token_for_owner(
+    db: &Pool<Postgres>,
     w_id: &str,
     owner: &str,
     label: &str,
     expires_in: i32,
     email: &str,
-) -> error::Result<(Transaction<'c, Postgres>, String)> {
+) -> error::Result<String> {
     // TODO: Bad implementation. We should not have access to this DB here.
     let token: String = rd_string(30);
     let is_super_admin = sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", email)
-            .fetch_optional(&mut tx)
+            .fetch_optional(db)
             .await?
             .unwrap_or(false) || email == SUPERADMIN_SECRET_EMAIL;
 
@@ -316,9 +316,9 @@ pub async fn create_token_for_owner<'c>(
         is_super_admin,
         email
     )
-    .execute(&mut tx)
+    .execute(db)
     .await?;
-    Ok((tx, token))
+    Ok(token)
 }
 
 const TMP_DIR: &str = "/tmp/windmill";
@@ -727,6 +727,8 @@ pub async fn run_worker(
             }
             match next_job {
                 Ok(Some(job)) => {
+                    let (token_tx, mut token_rx) = broadcast::channel::<()>(1);
+
                     let label_values = [
                         &job.workspace_id,
                         job.language.as_ref().map(|l| l.as_str()).unwrap_or(""),
@@ -781,9 +783,8 @@ pub async fn run_worker(
                             .await
                             .expect("could not create shared dir");
                     }
-                    let tx = db.begin().await.expect("could not start token transaction");
-                    let (tx, token) = create_token_for_owner(
-                        tx,
+                    let token = create_token_for_owner(
+                        &db,
                         &job.workspace_id,
                         &job.permissioned_as,
                         "ephemeral-script",
@@ -791,7 +792,6 @@ pub async fn run_worker(
                         &job.email,
                     )
                     .await.expect("could not create job token");
-                    tx.commit().await.expect("could not commit job token");
                     let authed_client = AuthedClient { base_internal_url: base_internal_url.to_string(), token: token.clone(), workspace: job.workspace_id.to_string(), client: OnceCell::new() };
                     let is_flow = job.job_kind == JobKind::Flow || job.job_kind == JobKind::FlowPreview || job.job_kind == JobKind::FlowDependencies;
 
@@ -2962,9 +2962,8 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str) {
         // since the job is unrecoverable, the same worker queue should never be sent anything
         let (same_worker_tx_never_used, _same_worker_rx_never_used) = mpsc::channel::<Uuid>(1);
 
-        let tx = db.begin().await.expect("could not start token transaction");
-        let (tx, token) = create_token_for_owner(
-            tx,
+        let token = create_token_for_owner(
+            &db,
             &job.workspace_id,
             &job.permissioned_as,
             "ephemeral-zombie-jobs",
@@ -2973,7 +2972,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str) {
         )
         .await
         .expect("could not create job token");
-        tx.commit().await.expect("could not commit job token");
+
         let client = AuthedClient { base_internal_url: base_internal_url.to_string(), token: token.clone(), workspace: job.workspace_id.to_string(), client: OnceCell::new() };
 
         let last_ping = job.last_ping.clone();
