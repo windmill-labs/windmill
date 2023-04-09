@@ -1,17 +1,16 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
-	import { Alert, Badge, Button, Kbd, Skeleton } from '$lib/components/common'
-	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
+	import SavedInputs from '$lib/components/SavedInputs.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
-	import { JobService, ScriptService, type Script, type JobInput } from '$lib/gen'
+	import { Alert, Badge, Button, Kbd, Skeleton } from '$lib/components/common'
+	import { JobService, ScriptService, type Script } from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import {
 		canWrite,
 		defaultIfEmptyString,
-		displayDate,
 		displayDaysAgo,
 		emptySchema,
 		emptyString,
@@ -22,8 +21,6 @@
 
 	$: hash = $page.params.hash
 	let script: Script | undefined
-	let job_inputs: JobInput[] = []
-	let selectedArgs = {}
 	let runForm: RunForm | undefined
 	let isValid = true
 	let can_write = false
@@ -58,14 +55,6 @@
 		}
 	}
 
-	async function loadInputHistory() {
-		job_inputs = await ScriptService.getInputHistory({
-			workspace: $workspaceStore!,
-			hash,
-			perPage: 10
-		})
-	}
-
 	let loading = false
 	async function runScript(
 		scheduledForStr: string | undefined,
@@ -92,7 +81,6 @@
 	$: {
 		if ($workspaceStore && hash) {
 			loadScript()
-			loadInputHistory()
 		}
 	}
 
@@ -231,48 +219,4 @@
 	</div>
 </div>
 
-<div class="fixed right-0 top-0 bottom-0 w-80 h-full grid grid-rows-2 bg-gray-50 border-l">
-	<div class="w-full flex flex-col gap-4 p-4">
-		<h2>Previous Inputs</h2>
-
-		<div class="w-full flex flex-col gap-2 p-2 h-full overflow-y-auto overflow-x-hidden">
-			{#if job_inputs.length > 0}
-				{#each job_inputs as { created_by, started_at, args }}
-					<Button color="blue" btnClasses="w-full" on:click={() => (selectedArgs = args)}>
-						<div class="w-full h-full items-center flex gap-4">
-							<small>{displayDate(started_at)}</small>
-							<small class="w-[160px] overflow-x-hidden text-ellipsis text-left">
-								{created_by}
-							</small>
-						</div>
-					</Button>
-				{/each}
-			{:else}
-				<div class="text-center text-gray-500">No previous inputs</div>
-			{/if}
-		</div>
-	</div>
-
-	<div class="w-full flex flex-col gap-4 p-4 border-t">
-		<h2>Preview</h2>
-
-		<div class="w-full h-full overflow-auto">
-			{#if Object.keys(selectedArgs).length > 0}
-				<ObjectViewer json={selectedArgs} />
-			{:else}
-				<div class="text-center text-gray-500">Select an Input to preview scripts arguments</div>
-			{/if}
-		</div>
-	</div>
-
-	<div class="w-full flex flex-col p-4 border-t">
-		<Button
-			color="blue"
-			btnClasses="w-full"
-			on:click={() => (args = selectedArgs)}
-			disabled={Object.keys(selectedArgs).length === 0}
-		>
-			Use Input
-		</Button>
-	</div>
-</div>
+<SavedInputs {hash} on:selected_args={(e) => (args = e.detail)} />

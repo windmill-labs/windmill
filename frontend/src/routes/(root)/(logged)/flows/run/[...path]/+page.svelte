@@ -1,5 +1,12 @@
 <script lang="ts">
+	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
+	import SavedInputs from '$lib/components/SavedInputs.svelte'
+	import RunForm from '$lib/components/RunForm.svelte'
+	import SharedBadge from '$lib/components/SharedBadge.svelte'
+	import { Button, Kbd, Skeleton } from '$lib/components/common'
+	import { FlowService, JobService, type Flow } from '$lib/gen'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import {
 		canWrite,
 		defaultIfEmptyString,
@@ -7,20 +14,14 @@
 		emptyString,
 		sendUserToast
 	} from '$lib/utils'
-	import { FlowService, type Flow, JobService } from '$lib/gen'
-	import { goto } from '$app/navigation'
-	import { userStore, workspaceStore } from '$lib/stores'
-	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import RunForm from '$lib/components/RunForm.svelte'
-	import { Button, Kbd, Skeleton } from '$lib/components/common'
 	import { faEye, faPen, faPlay } from '@fortawesome/free-solid-svg-icons'
-	import SharedBadge from '$lib/components/SharedBadge.svelte'
 
 	const path = $page.params.path
 	let flow: Flow | undefined
 	let runForm: RunForm | undefined
 	let isValid = true
 	let can_write = false
+	let args: object = {}
 
 	async function loadFlow() {
 		try {
@@ -79,82 +80,87 @@
 
 <svelte:window on:keydown={onKeyDown} />
 
-<CenteredPage>
-	{#if flow}
-		<div class="flex flex-row flex-wrap justify-between gap-4 mb-6">
-			<div class="w-full">
-				<div class="flex flex-col mt-6 mb-2 w-full">
-					<div
-						class="flex flex-row-reverse w-full flex-wrap md:flex-nowrap justify-between gap-x-1"
-					>
-						<div class="flex flex-row gap-4">
-							{#if !$userStore?.operator && can_write}
-								<div>
+<div class="w-full flex justify-center pb-8 pr-80">
+	<div class="w-full max-w-6xl px-4 sm:px-6 md:px-8">
+		{#if flow}
+			<div class="flex flex-row flex-wrap justify-between gap-4 mb-6">
+				<div class="w-full">
+					<div class="flex flex-col mt-6 mb-2 w-full">
+						<div
+							class="flex flex-row-reverse w-full flex-wrap md:flex-nowrap justify-between gap-x-1"
+						>
+							<div class="flex flex-row gap-4">
+								{#if !$userStore?.operator && can_write}
+									<div>
+										<Button
+											size="sm"
+											startIcon={{ icon: faPen }}
+											disabled={flow == undefined}
+											variant="border"
+											href="/flows/edit/{flow?.path}">Edit</Button
+										>
+									</div>
+								{/if}
+								<div class="md:pr-4">
 									<Button
 										size="sm"
-										startIcon={{ icon: faPen }}
+										startIcon={{ icon: faEye }}
 										disabled={flow == undefined}
+										btnClasses="mr-4"
 										variant="border"
-										href="/flows/edit/{flow?.path}">Edit</Button
+										href="/flows/get/{flow?.path}?workspace_id={$workspaceStore}">View flow</Button
 									>
 								</div>
-							{/if}
-							<div class="md:pr-4">
-								<Button
-									size="sm"
-									startIcon={{ icon: faEye }}
-									disabled={flow == undefined}
-									btnClasses="mr-4"
-									variant="border"
-									href="/flows/get/{flow?.path}?workspace_id={$workspaceStore}">View flow</Button
-								>
+								<div>
+									<Button
+										startIcon={{ icon: faPlay }}
+										disabled={runForm == undefined || !isValid}
+										on:click={() => runForm?.run()}>Run <Kbd class="ml-2">Ctrl+Enter</Kbd></Button
+									>
+								</div>
 							</div>
-							<div>
-								<Button
-									startIcon={{ icon: faPlay }}
-									disabled={runForm == undefined || !isValid}
-									on:click={() => runForm?.run()}>Run <Kbd class="ml-2">Ctrl+Enter</Kbd></Button
-								>
-							</div>
-						</div>
-						<div class="flex flex-col">
-							<h1 class="break-words py-2 mr-2">
-								{defaultIfEmptyString(flow.summary, flow.path)}
-							</h1>
-							{#if !emptyString(flow.summary)}
-								<h2 class="font-bold pb-4">{flow.path}</h2>
-							{/if}
-						</div></div
-					>
-					<div class="flex items-center gap-2">
-						<span class="text-sm text-gray-500">
-							{#if flow}
-								Edited {displayDaysAgo(flow.edited_at || '')} by {flow.edited_by || 'unknown'}
-							{/if}
-						</span>
+							<div class="flex flex-col">
+								<h1 class="break-words py-2 mr-2">
+									{defaultIfEmptyString(flow.summary, flow.path)}
+								</h1>
+								{#if !emptyString(flow.summary)}
+									<h2 class="font-bold pb-4">{flow.path}</h2>
+								{/if}
+							</div></div
+						>
+						<div class="flex items-center gap-2">
+							<span class="text-sm text-gray-500">
+								{#if flow}
+									Edited {displayDaysAgo(flow.edited_at || '')} by {flow.edited_by || 'unknown'}
+								{/if}
+							</span>
 
-						<SharedBadge canWrite={can_write} extraPerms={flow?.extra_perms ?? {}} />
+							<SharedBadge canWrite={can_write} extraPerms={flow?.extra_perms ?? {}} />
+						</div>
 					</div>
 				</div>
+				{#if !emptyString(flow.description)}
+					<div class="prose text-sm box max-w-6xl w-full mt-8">
+						{defaultIfEmptyString(flow.description, 'No description')}
+					</div>
+				{/if}
 			</div>
-			{#if !emptyString(flow.description)}
-				<div class="prose text-sm box max-w-6xl w-full mt-8">
-					{defaultIfEmptyString(flow.description, 'No description')}
-				</div>
-			{/if}
-		</div>
-		<RunForm
-			{loading}
-			autofocus
-			bind:this={runForm}
-			bind:isValid
-			detailed={false}
-			runnable={flow}
-			runAction={runFlow}
-			viewCliRun
-			isFlow
-		/>
-	{:else}
-		<Skeleton layout={[2, [3], 1, [2], 4, [4], 3, [8]]} />
-	{/if}
-</CenteredPage>
+			<RunForm
+				{loading}
+				autofocus
+				bind:this={runForm}
+				bind:isValid
+				detailed={false}
+				runnable={flow}
+				runAction={runFlow}
+				viewCliRun
+				isFlow
+				bind:args
+			/>
+		{:else}
+			<Skeleton layout={[2, [3], 1, [2], 4, [4], 3, [8]]} />
+		{/if}
+	</div>
+</div>
+
+<SavedInputs {path} on:selected_args={(e) => (args = e.detail)} />

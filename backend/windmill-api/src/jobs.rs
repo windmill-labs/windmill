@@ -6,6 +6,12 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use crate::{
+    db::{UserDB, DB},
+    users::{require_owner_of_path, Authed, OptAuthed},
+    variables::get_workspace_key,
+    BASE_URL,
+};
 use anyhow::Context;
 use axum::{
     extract::{FromRequest, Json, Path, Query},
@@ -14,6 +20,7 @@ use axum::{
     Extension, Router,
 };
 use base64::Engine;
+use chrono::{DateTime, Utc};
 use hmac::Mac;
 use hyper::{HeaderMap, Request, StatusCode};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -31,13 +38,6 @@ use windmill_common::{
     utils::{not_found_if_none, now_from_db, paginate, require_admin, Pagination, StripPath},
 };
 use windmill_queue::{get_queued_job, push, JobKind, JobPayload, QueuedJob, RawCode};
-
-use crate::{
-    db::{UserDB, DB},
-    users::{require_owner_of_path, Authed, OptAuthed},
-    variables::get_workspace_key,
-    BASE_URL,
-};
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -75,6 +75,11 @@ pub fn workspaced_service() -> Router {
         )
         .route("/resume_urls/:job_id/:resume_id", get(get_resume_urls))
         .route("/result_by_id/:job_id/:node_id", get(get_result_by_id))
+        .route("/input_history/h/:hash", get(get_input_history_by_hash))
+        .route(
+            "/input_history/p/*script_path",
+            get(get_input_history_by_path),
+        )
 }
 
 pub fn global_service() -> Router {
@@ -1966,4 +1971,57 @@ async fn delete_completed_job(
 
     tx.commit().await?;
     Ok(Json(job))
+}
+
+#[derive(Debug, sqlx::FromRow, Serialize)]
+struct JobArgs {
+    created_by: String,
+    started_at: DateTime<Utc>,
+    args: serde_json::Value,
+}
+
+async fn get_input_history_by_hash(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, hash)): Path<(String, ScriptHash)>,
+    Query(pagination): Query<Pagination>,
+) -> error::JsonResult<Vec<JobArgs>> {
+    let (per_page, offset) = paginate(pagination);
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    let rows = sqlx::query_as::<_, JobArgs>("select distinct on (args) created_by, started_at, args from completed_job where script_hash = $1 and workspace_id = $2 order by args, started_at desc limit $3 offset $4")
+        .bind(&hash.0)
+        .bind(&w_id)
+        .bind(per_page as i32)
+        .bind(offset as i32)
+        .fetch_all(&mut tx)
+        .await?;
+
+    tx.commit().await?;
+
+    Ok(Json(rows))
+}
+
+async fn get_input_history_by_path(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, hash)): Path<(String, StripPath)>,
+    Query(pagination): Query<Pagination>,
+) -> error::JsonResult<Vec<JobArgs>> {
+    let (per_page, offset) = paginate(pagination);
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    let rows = sqlx::query_as::<_, JobArgs>("select distinct on (args) created_by, started_at, args from completed_job where script_path = $1 and workspace_id = $2 order by args, started_at desc limit $3 offset $4")
+        .bind(&hash.0)
+        .bind(&w_id)
+        .bind(per_page as i32)
+        .bind(offset as i32)
+        .fetch_all(&mut tx)
+        .await?;
+
+    tx.commit().await?;
+
+    Ok(Json(rows))
 }

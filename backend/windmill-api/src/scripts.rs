@@ -6,11 +6,6 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use chrono::{DateTime, Utc};
-use sql_builder::prelude::*;
-use windmill_audit::{audit_log, ActionKind};
-use windmill_parser::MainArgSignature;
-
 use crate::{
     db::{UserDB, DB},
     schedule::clear_schedule,
@@ -26,6 +21,7 @@ use axum::{
 use hyper::StatusCode;
 use serde::Serialize;
 use serde_json::json;
+use sql_builder::prelude::*;
 use sql_builder::SqlBuilder;
 use sqlx::{FromRow, Postgres, Transaction};
 use std::{
@@ -33,6 +29,7 @@ use std::{
     hash::{Hash, Hasher},
     sync::Arc,
 };
+use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{Error, JsonResult, Result},
     schedule::Schedule,
@@ -45,6 +42,7 @@ use windmill_common::{
         list_elems_from_hub, not_found_if_none, paginate, require_admin, Pagination, StripPath,
     },
 };
+use windmill_parser::MainArgSignature;
 use windmill_queue::{self, schedule::push_scheduled_job};
 
 const MAX_HASH_HISTORY_LENGTH_STORED: usize = 20;
@@ -85,7 +83,6 @@ pub fn workspaced_service() -> Router {
         .route("/raw/h/:hash", get(raw_script_by_hash))
         .route("/deployment_status/h/:hash", get(get_deployment_status))
         .route("/list_paths", get(list_paths))
-        .route("/input_history/h/:hash", get(get_input_history))
 }
 
 async fn list_scripts(
@@ -781,33 +778,6 @@ async fn delete_script_by_path(
     );
 
     Ok(Json(script))
-}
-
-#[derive(Debug, sqlx::FromRow, Serialize)]
-struct JobInput {
-    created_by: String,
-    started_at: DateTime<Utc>,
-    args: serde_json::Value,
-}
-
-async fn get_input_history(
-    authed: Authed,
-    Extension(user_db): Extension<UserDB>,
-    Path((w_id, hash)): Path<(String, ScriptHash)>,
-    Query(pagination): Query<Pagination>,
-) -> JsonResult<Vec<JobInput>> {
-    let (per_page, offset) = paginate(pagination);
-
-    let mut tx = user_db.begin(&authed).await?;
-    let rows = sqlx::query_as::<_, JobInput>("select distinct on (args) created_by, started_at, args from completed_job where script_hash = $1 and workspace_id = $2 order by args, started_at desc limit $3 offset $4")
-        .bind(&hash.0)
-        .bind(&w_id)
-        .bind(per_page as i32)
-        .bind(offset as i32)
-        .fetch_all(&mut tx)
-        .await?;
-    tx.commit().await?;
-    Ok(Json(rows))
 }
 
 #[derive(Debug, Serialize)]

@@ -2125,27 +2125,6 @@ paths:
                 items:
                   type: string
 
-  /w/{workspace}/scripts/input_history/h/{hash}:
-    get:
-      summary: list inputs for previous completed jobs
-      operationId: getInputHistory
-      tags:
-        - script
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/ScriptHash"
-        - $ref: "#/components/parameters/Page"
-        - $ref: "#/components/parameters/PerPage"
-      responses:
-        "200":
-          description: input history for completed jobs with this script hash
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/JobInput"
-
   /w/{workspace}/scripts/create:
     post:
       summary: create script
@@ -3770,6 +3749,48 @@ paths:
                 required:
                   - job
                   - approvers
+
+  /w/{workspace}/jobs/input_history/h/{hash}:
+    get:
+      summary: list inputs for previous completed jobs
+      operationId: getInputHistoryByHash
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptHash"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: input history for completed jobs with this script hash
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/JobInput"
+
+  /w/{workspace}/jobs/input_history/p/{path}:
+    get:
+      summary: list inputs for previous completed jobs
+      operationId: getInputHistoryByPath
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: input history for completed jobs with this script path
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/JobInput"
 
   /schedules/preview:
     post:
