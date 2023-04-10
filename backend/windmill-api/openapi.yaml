@@ -2475,7 +2475,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/JobArgs"
+                  $ref: "#/components/schemas/Input"
 
   /w/{workspace}/scripts/input_history/p/{path}:
     get:
@@ -2496,7 +2496,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/JobArgs"
+                  $ref: "#/components/schemas/Input"
 
   /w/{workspace}/jobs/run/p/{path}:
     post:
@@ -2843,7 +2843,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/JobArgs"
+                  $ref: "#/components/schemas/Input"
 
   /w/{workspace}/apps/list:
     get:
@@ -4938,9 +4938,11 @@ components:
       type: object
       additionalProperties: {}
 
-    JobArgs:
+    Input:
       type: object
       properties:
+        name:
+          type: string
         created_by:
           type: string
         started_at:
@@ -4949,6 +4951,7 @@ components:
         args:
           type: object
       required:
+        - name
         - created_by
         - started_at
         - args
