@@ -290,13 +290,10 @@ async fn move_tmp_cache_to_cache() -> Result<()> {
 
 pub async fn create_token_for_owner_in_bg(db: &Pool<Postgres>, job: &QueuedJob) -> Arc<RwLock<String>> {
     let rw_lock = Arc::new(RwLock::new(String::new()));
-
-    let locked = rw_lock.write().await;
+    let mut locked = rw_lock.clone().write_owned().await;
     let db = db.clone();
     let job = job.clone();
-    let rw_lock2 = rw_lock.clone();
     tokio::spawn(async move {
-        let mut locked = rw_lock2.write().await;
         let job = job.clone();
         let token = create_token_for_owner(
             &db.clone(),
@@ -309,7 +306,6 @@ pub async fn create_token_for_owner_in_bg(db: &Pool<Postgres>, job: &QueuedJob) 
         .await.expect("could not create job token");
         *locked = token;
     });
-    drop(locked);
     return rw_lock;
 }
 
