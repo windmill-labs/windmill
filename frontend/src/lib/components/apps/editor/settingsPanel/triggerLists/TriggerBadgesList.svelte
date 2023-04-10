@@ -12,6 +12,7 @@
 	export let onLoad: boolean = false
 	export let id: string | undefined = undefined
 	export let recomputeOnInputChanged: boolean = false
+	export let autoRefresh: boolean = false
 
 	const colors = {
 		red: 'text-red-800 border-red-600 bg-red-100',
@@ -130,7 +131,8 @@
 			</div>
 		{/if}
 	{/if}
-	{#if frontendDependencies && !recomputeOnInputChanged}
+
+	{#if frontendDependencies && !autoRefresh}
 		<div class="w-full">
 			<div class="flex justify-between items-center">
 				<div class="text-xs font-semibold text-slate-800 mb-1">Change on values</div>
