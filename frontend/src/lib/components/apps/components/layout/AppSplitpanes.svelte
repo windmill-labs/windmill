@@ -6,6 +6,7 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { deepEqual } from 'fast-equals'
 	import { initOutput } from '../../editor/appUtils'
+	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
 	export let id: string
 	export let componentContainerHeight: number
@@ -64,6 +65,8 @@
 		}
 	}
 </script>
+
+<InitializeComponent {id} />
 
 <div class="h-full w-full border" on:pointerdown={onFocus}>
 	<Splitpanes {horizontal}>

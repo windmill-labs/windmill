@@ -23,7 +23,7 @@
 
 	type Tab = 'hubscripts' | 'hubflows' | 'hubapps' | 'workspace'
 
-	let tab: Tab = 'workspace'
+	let tab: Tab = (window.location.hash?.replace('#', '') as Tab | undefined) ?? 'workspace'
 	let filter: string = ''
 
 	let flowViewer: Drawer

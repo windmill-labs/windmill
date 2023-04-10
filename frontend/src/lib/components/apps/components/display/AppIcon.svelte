@@ -5,6 +5,7 @@
 	import { concatCustomCss } from '../../utils'
 	import { AlignWrapper, InputValue } from '../helpers'
 	import { loadIcon } from '../icon'
+	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
 	export let id: string
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = 'left'
@@ -37,6 +38,8 @@
 <InputValue {id} input={configuration.size} bind:value={size} />
 <InputValue {id} input={configuration.color} bind:value={color} />
 <InputValue {id} input={configuration.strokeWidth} bind:value={strokeWidth} />
+
+<InitializeComponent {id} />
 
 <AlignWrapper
 	{render}

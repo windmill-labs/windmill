@@ -453,7 +453,6 @@ export function initOutput<I extends Record<string, any>>(
 	id: string,
 	init: I
 ): Outputtable<I> {
-	world.initializedOutputs += 1
 	if (!world) {
 		return {} as any
 	}

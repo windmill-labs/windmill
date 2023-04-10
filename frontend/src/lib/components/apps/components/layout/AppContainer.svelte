@@ -4,6 +4,7 @@
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { concatCustomCss } from '../../utils'
+	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
 	export let id: string
 	export let componentContainerHeight: number
@@ -25,6 +26,8 @@
 
 	$: css = concatCustomCss($app.css?.containercomponent, customCss)
 </script>
+
+<InitializeComponent {id} />
 
 <div class="w-full h-full">
 	{#if $app.subgrids?.[`${id}-0`]}
