@@ -89,7 +89,7 @@
 		"svelte-autosize": "^1.0.1",
 		"svelte-chartjs": "^3.1.0",
 		"svelte-portal": "^2.2.0",
-		"svelte-select": "^5.3.1",
+		"svelte-select": "^5.6.0",
 		"svelte-timezone-picker": "^2.0.3",
 		"tailwind-merge": "^1.9.1",
 		"vscode-languageclient": "^8.1.0",
