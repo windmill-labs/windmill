@@ -32,7 +32,8 @@ use windmill_audit::{audit_log, ActionKind};
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::utils::{not_found_if_none, now_from_db};
 
-use crate::users::{truncate_token, Authed, NEW_USER_WEBHOOK};
+use crate::users::{truncate_token, Authed};
+use crate::webhook_util::{InstanceEvent, WebhookShared};
 use crate::workspaces::invite_user_to_all_auto_invite_worspaces;
 use crate::{
     db::{UserDB, DB},
@@ -815,6 +816,7 @@ async fn login_callback(
     Path(client_name): Path<String>,
     cookies: Cookies,
     Extension(db): Extension<DB>,
+    Extension(webhook): Extension<WebhookShared>,
     Json(callback): Json<OAuthCallback>,
 ) -> error::Result<String> {
     let client_w_config = &OAUTH_CLIENTS
@@ -940,14 +942,7 @@ async fn login_callback(
         }
         tx.commit().await?;
 
-        if let Some(new_user_webhook) = NEW_USER_WEBHOOK.clone() {
-            let _ = HTTP_CLIENT
-                .post(&new_user_webhook)
-                .json(&serde_json::json!({"email" : &email, "event": "oauth_signup"}))
-                .send()
-                .await
-                .map_err(|e| tracing::error!("Error sending new user webhook: {}", e.to_string()));
-        }
+        webhook.send_instance_event(InstanceEvent::UserSignupOAuth { email: email.clone() });
 
         Ok("Successfully logged in".to_string())
     } else {

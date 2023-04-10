@@ -317,16 +317,28 @@
 							></span
 						>
 
-						<div class="flex flex-row gap-1 w-full">
+						<div class="flex flex-row items-center gap-1 w-full">
 							<select class="grow w-full" {disabled} bind:value={meta.owner}>
 								{#each folders as { name, write }}
 									<option disabled={!write}>{name}{write ? '' : ' (read-only)'}</option>
 								{/each}
 							</select>
-							<Button variant="border" size="xs" on:click={viewFolder.openDrawer}>
+							<Button
+								title="View folder"
+								btnClasses="!p-1.5"
+								variant="border"
+								size="xs"
+								on:click={viewFolder.openDrawer}
+							>
 								<Icon scale={0.8} data={faEye} /></Button
 							>
-							<Button variant="border" size="xs" on:click={newFolder.openDrawer}>
+							<Button
+								title="New folder"
+								btnClasses="!p-1.5"
+								variant="border"
+								size="xs"
+								on:click={newFolder.openDrawer}
+							>
 								<Icon scale={0.8} data={faPlus} /></Button
 							></div
 						>

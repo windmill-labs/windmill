@@ -12,8 +12,9 @@ use crate::{
     db::{UserDB, DB},
     folders::get_folders_for_user,
     utils::require_super_admin,
+    webhook_util::{InstanceEvent, WebhookShared},
     workspaces::invite_user_to_all_auto_invite_worspaces,
-    COOKIE_DOMAIN, HTTP_CLIENT, IS_SECURE,
+    COOKIE_DOMAIN, IS_SECURE,
 };
 use argon2::{password_hash::SaltString, Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use axum::{
@@ -1037,6 +1038,7 @@ lazy_static! {
 
 async fn accept_invite(
     Authed { email, .. }: Authed,
+    Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Json(nu): Json<AcceptInvite>,
 ) -> Result<(StatusCode, String)> {
@@ -1082,6 +1084,11 @@ async fn accept_invite(
     }
 
     if is_some {
+        webhook.send_instance_event(InstanceEvent::UserJoinedWorkspace {
+            email: email.clone(),
+            workspace: nu.workspace_id.clone(),
+            username: nu.username.clone(),
+        });
         Ok((
             StatusCode::CREATED,
             format!(
@@ -1322,6 +1329,7 @@ lazy_static::lazy_static! {
 async fn create_user(
     Authed { email, .. }: Authed,
     Extension(db): Extension<DB>,
+    Extension(webhook): Extension<WebhookShared>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
     Json(mut nu): Json<NewUser>,
 ) -> Result<(StatusCode, String)> {
@@ -1362,19 +1370,9 @@ async fn create_user(
     .await?;
     tx.commit().await?;
 
-    if let Some(new_user_webhook) = NEW_USER_WEBHOOK.clone() {
-        let _ = HTTP_CLIENT
-            .post(&new_user_webhook)
-            .json(
-                &serde_json::json!({"email" : &nu.email, "name": &nu.name, "event": "global_add"}),
-            )
-            .send()
-            .await
-            .map_err(|e| tracing::error!("Error sending new user webhook: {}", e.to_string()));
-    }
-
     invite_user_to_all_auto_invite_worspaces(&db, &nu.email).await?;
 
+    webhook.send_instance_event(InstanceEvent::UserAdded { email: nu.email.clone() });
     Ok((StatusCode::CREATED, format!("email {} created", nu.email)))
 }
 

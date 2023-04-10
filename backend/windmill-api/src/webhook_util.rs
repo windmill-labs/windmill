@@ -13,6 +13,26 @@ lazy_static::lazy_static! {
         "Histogram of webhook requests made"
     )
     .unwrap();
+
+    pub static ref INSTANCE_EVENTS_WEBHOOK: Option<String> = std::env::var("INSTANCE_EVENTS_WEBHOOK").ok();
+
+}
+
+pub enum WebhookPayload {
+    WorkspaceEvent(String, WebhookMessage),
+    InstanceEvent(InstanceEvent),
+}
+
+#[derive(Serialize)]
+#[serde(tag = "type")]
+pub enum InstanceEvent {
+    UserSignupOAuth { email: String },
+    UserAdded { email: String },
+    // UserDeleted { email: String },
+    // UserDeletedWorkspace { workspace: String, email: String },
+    UserAddedWorkspace { workspace: String, email: String },
+    UserInvitedWorkspace { workspace: String, email: String },
+    UserJoinedWorkspace { workspace: String, email: String, username: String },
 }
 
 #[derive(Serialize)]
@@ -46,12 +66,12 @@ pub enum WebhookMessage {
 
 #[derive(Clone)]
 pub struct WebhookShared {
-    pub channel: mpsc::UnboundedSender<(String, WebhookMessage)>,
+    pub channel: mpsc::UnboundedSender<WebhookPayload>,
 }
 
 impl WebhookShared {
     pub fn new(mut shutdown_rx: tokio::sync::broadcast::Receiver<()>, db: DB) -> Self {
-        let (tx, mut rx) = mpsc::unbounded_channel::<(String, WebhookMessage)>();
+        let (tx, mut rx) = mpsc::unbounded_channel::<WebhookPayload>();
         let _process = tokio::spawn(async move {
             let client = reqwest::Client::builder()
                 // TODO: investigate pool timeouts and such if TCP load is high
@@ -66,7 +86,7 @@ impl WebhookShared {
                     biased;
                     _ = shutdown_rx.recv() => break,
                     r = rx.recv() => match r {
-                        Some((workspace_id, message)) => {
+                        Some(WebhookPayload::WorkspaceEvent(workspace_id, message)) => {
                             let url_guard = match cache.get(&workspace_id).await {
                                 Some(guard) => {
                                     guard
@@ -96,6 +116,13 @@ impl WebhookShared {
                                 drop(url_guard);
                             }
                         },
+                        Some(WebhookPayload::InstanceEvent(event)) => {
+                            if *METRICS_ENABLED { Some(WEBHOOK_REQUEST_COUNT.start_timer()) } else { None };
+                            let r = client.post(INSTANCE_EVENTS_WEBHOOK.as_ref().unwrap()).json(&event).send().await;
+                            if let Err(e) = r {
+                                tracing::error!("Error sending instance event: {}", e);
+                            }
+                        },
                         None => break,
                     },
                     _ = futures::future::poll_fn(|cx| cache_purge_interval.poll_tick(cx)) => {
@@ -110,6 +137,16 @@ impl WebhookShared {
     }
 
     pub fn send_message(&self, workspace_id: String, message: WebhookMessage) {
-        let _ = self.channel.send((workspace_id.clone(), message));
+        let _ = self.channel.send(WebhookPayload::WorkspaceEvent(
+            workspace_id.clone(),
+            message,
+        ));
+    }
+
+    pub fn send_instance_event(&self, event: InstanceEvent) {
+        if INSTANCE_EVENTS_WEBHOOK.is_none() {
+            return;
+        }
+        let _ = self.channel.send(WebhookPayload::InstanceEvent(event));
     }
 }
