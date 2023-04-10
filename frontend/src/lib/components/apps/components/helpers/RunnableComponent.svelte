@@ -8,7 +8,7 @@
 	import { classNames, defaultIfEmptyString, emptySchema, sendUserToast } from '$lib/utils'
 	import { deepEqual } from 'fast-equals'
 	import { Bug } from 'lucide-svelte'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy } from 'svelte'
 	import type { AppInputs, Runnable } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppViewerContext, InlineScript } from '../../types'
@@ -58,6 +58,16 @@
 			await executeComponent(true, inlineScript)
 		}
 	}
+
+	if (!$worldStore.initializedComponents.includes(id)) {
+		console.log('adding', id)
+		$worldStore.initializedComponents = [...$worldStore.initializedComponents, id]
+	}
+
+	onDestroy(() => {
+		$worldStore.initializedComponents = $worldStore.initializedComponents.filter((c) => c !== id)
+	})
+
 	$runnableComponents = $runnableComponents
 
 	let args: Record<string, any> | undefined = undefined

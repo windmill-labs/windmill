@@ -14,7 +14,7 @@
 	let firstLoad = false
 
 	$: !firstLoad &&
-		$worldStore.initializedOutputs ==
+		$worldStore.initializedComponents?.length ==
 			allItems($app.grid, $app.subgrids).length + $app.hiddenInlineScripts.length &&
 		refresh()
 	$: componentNumber = Object.values($runnableComponents).filter((x) => x.autoRefresh).length
@@ -39,6 +39,7 @@
 	}
 
 	function refresh() {
+		console.log('refresh')
 		if (!firstLoad) {
 			$worldStore.initialized = true
 			firstLoad = true
