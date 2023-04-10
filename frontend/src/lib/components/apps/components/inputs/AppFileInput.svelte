@@ -20,11 +20,11 @@
 	let text: string | undefined = undefined
 
 	let outputs = initOutput($worldStore, id, {
-		result: [] as string[] | undefined
+		result: [] as { name: string; data: string }[] | undefined
 	})
 
 	// Receives Base64 encoded strings from the input component
-	async function handleChange(files: string[] | undefined) {
+	async function handleChange(files: { name: string; data: string }[] | undefined) {
 		outputs?.result.set(files)
 	}
 
@@ -43,6 +43,7 @@
 			accept={acceptedFileTypes?.length ? acceptedFileTypes?.join(', ') : undefined}
 			multiple={allowMultiple}
 			convertTo="base64"
+			returnFileNames
 			on:change={({ detail }) => {
 				handleChange(detail)
 			}}
