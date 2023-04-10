@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::time::SystemTime;
+// use std::time::SystemTime;
 
 use sqlx::{Pool, Postgres, Transaction};
 use tracing::instrument;
@@ -159,7 +159,7 @@ pub async fn add_completed_job(
     .execute(&mut tx)
     .await
     .map_err(|e| Error::InternalErr(format!("Could not add completed job {job_id}: {e}")))?;
-    println!("{:?}", SystemTime::now());
+    // println!("{:?}", SystemTime::now());
 
     let _ = delete_job(db, &queued_job.workspace_id, job_id).await?;
     if !queued_job.is_flow_step
