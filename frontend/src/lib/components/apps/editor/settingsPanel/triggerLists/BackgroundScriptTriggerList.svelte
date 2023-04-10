@@ -45,5 +45,4 @@
 	inputDependencies={dependencies}
 	onLoad={autoRefresh}
 	{recomputeOnInputChanged}
-	{autoRefresh}
 />

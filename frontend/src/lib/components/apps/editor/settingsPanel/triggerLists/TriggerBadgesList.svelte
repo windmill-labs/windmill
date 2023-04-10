@@ -12,7 +12,6 @@
 	export let onLoad: boolean = false
 	export let id: string | undefined = undefined
 	export let recomputeOnInputChanged: boolean = false
-	export let autoRefresh: boolean = false
 
 	const colors = {
 		red: 'text-red-800 border-red-600 bg-red-100',
