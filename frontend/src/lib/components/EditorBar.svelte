@@ -4,7 +4,7 @@
 
 <script lang="ts">
 	import { ResourceService, VariableService } from '$lib/gen'
-	import { getScriptByPath, sendUserToast } from '$lib/utils'
+	import { getModifierKey, getScriptByPath, sendUserToast } from '$lib/utils'
 
 	import {
 		faBroom,
@@ -365,10 +365,12 @@
 					{iconOnly}
 					startIcon={{ icon: faBroom }}
 				>
-					Format (Ctrl+S)
+					Format ({getModifierKey()}+S)
 				</Button>
 				<svelte:fragment slot="text">
-					Format <Kbd class="!text-gray-800">Ctrl</Kbd> + <Kbd class="!text-gray-800">S</Kbd>
+					Format <Kbd class="!text-gray-800">{getModifierKey()}</Kbd> + <Kbd class="!text-gray-800">
+						S
+					</Kbd>
 				</svelte:fragment>
 			</Popover>
 		</div>

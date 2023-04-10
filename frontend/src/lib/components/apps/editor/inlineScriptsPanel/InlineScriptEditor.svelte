@@ -9,7 +9,7 @@
 	import type { Schema } from '$lib/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Editor from '$lib/components/Editor.svelte'
-	import { emptySchema, isMac, scriptLangToEditorLang } from '$lib/utils'
+	import { emptySchema, getModifierKey, scriptLangToEditorLang } from '$lib/utils'
 	import Popover from '../../../Popover.svelte'
 	import { computeFields } from './utils'
 	import { deepEqual } from 'fast-equals'
@@ -176,7 +176,7 @@
 						Format
 
 						<div class="flex flex-row items-center gap-1">
-							<Kbd>{isMac() ? '⌘' : 'CTRL'}</Kbd>
+							<Kbd>{getModifierKey()}</Kbd>
 							<Kbd>S</Kbd>
 						</div>
 					</div>
@@ -198,7 +198,7 @@
 							Run
 
 							<div class="flex flex-row items-center gap-1">
-								<Kbd>{isMac() ? '⌘' : 'CTRL'}</Kbd>
+								<Kbd>{getModifierKey()}</Kbd>
 								<Kbd>
 									<div class="h-4 flex items-center justify-center">
 										<CornerDownLeft size={10} />
