@@ -8,6 +8,7 @@
 	import RunnableComponent from './RunnableComponent.svelte'
 	import { goto } from '$app/navigation'
 	import { sendUserToast } from '$lib/utils'
+	import InitializeComponent from './InitializeComponent.svelte'
 
 	export let componentInput: AppInput | undefined
 	export let id: string
@@ -96,6 +97,7 @@
 </script>
 
 {#if componentInput === undefined}
+	<InitializeComponent {id} />
 	<slot />
 {:else if componentInput.type === 'runnable' && isRunnableDefined(componentInput)}
 	<RunnableComponent

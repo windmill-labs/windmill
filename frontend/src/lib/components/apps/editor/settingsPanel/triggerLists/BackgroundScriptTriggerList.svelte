@@ -18,8 +18,10 @@
 	export let recomputeOnInputChanged: boolean | undefined = true
 	export let doNotRecomputeOnInputChanged: undefined | boolean = undefined
 
-	if (doNotRecomputeOnInputChanged == true) {
-		recomputeOnInputChanged = false
+	//TODO: remove after migration is done
+	if (doNotRecomputeOnInputChanged != undefined) {
+		recomputeOnInputChanged = !doNotRecomputeOnInputChanged
+		doNotRecomputeOnInputChanged = undefined
 	}
 
 	if (recomputeOnInputChanged == undefined) {

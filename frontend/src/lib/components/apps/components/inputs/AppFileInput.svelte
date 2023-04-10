@@ -6,6 +6,7 @@
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import InputValue from '../helpers/InputValue.svelte'
+	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -33,6 +34,8 @@
 <InputValue {id} input={configuration.acceptedFileTypes} bind:value={acceptedFileTypes} />
 <InputValue {id} input={configuration.allowMultiple} bind:value={allowMultiple} />
 <InputValue {id} input={configuration.text} bind:value={text} />
+
+<InitializeComponent {id} />
 
 {#if render}
 	<div class="w-full h-full p-1">

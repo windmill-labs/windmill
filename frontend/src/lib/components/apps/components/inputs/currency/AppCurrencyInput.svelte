@@ -7,6 +7,7 @@
 	import AlignWrapper from '../../helpers/AlignWrapper.svelte'
 	import InputValue from '../../helpers/InputValue.svelte'
 	import CurrencyInput from './CurrencyInput.svelte'
+	import InitializeComponent from '../../helpers/InitializeComponent.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -47,6 +48,8 @@
 <InputValue {id} input={configuration.isNegativeAllowed} bind:value={isNegativeAllowed} />
 <InputValue {id} input={configuration.currency} bind:value={currency} />
 <InputValue {id} input={configuration.locale} bind:value={locale} />
+
+<InitializeComponent {id} />
 
 <AlignWrapper {render} {verticalAlignment}>
 	{#key isNegativeAllowed}

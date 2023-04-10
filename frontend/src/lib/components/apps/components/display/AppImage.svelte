@@ -7,6 +7,7 @@
 	import { concatCustomCss } from '../../utils'
 	import Loader from '../helpers/Loader.svelte'
 	import ResolveConfig from '../helpers/ResolveConfig.svelte'
+	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -30,6 +31,8 @@
 
 	$: css = concatCustomCss($app.css?.imagecomponent, customCss)
 </script>
+
+<InitializeComponent {id} />
 
 {#each Object.keys(components['imagecomponent'].initialData.configuration) as key (key)}
 	<ResolveConfig

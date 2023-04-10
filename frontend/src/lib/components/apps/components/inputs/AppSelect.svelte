@@ -8,6 +8,7 @@
 	import InputValue from '../helpers/InputValue.svelte'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '../../../../defaults'
 	import { initOutput } from '../../editor/appUtils'
+	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -102,6 +103,8 @@
 <InputValue {id} input={configuration.placeholder} bind:value={placeholder} />
 <InputValue {id} input={configuration.defaultValue} bind:value={defaultValue} />
 <InputValue {id} input={configuration.create} bind:value={create} />
+
+<InitializeComponent {id} />
 
 <AlignWrapper {render} {horizontalAlignment} {verticalAlignment}>
 	<div
