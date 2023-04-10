@@ -80,6 +80,7 @@
 		worldStore,
 		app: appStore,
 		summary: summaryStore,
+		initialized: writable({ initialized: false, initializedComponents: [] }),
 		selectedComponent,
 		mode,
 		connectingInput,

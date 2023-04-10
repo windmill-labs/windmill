@@ -133,6 +133,10 @@ export type AppViewerContext = {
 	worldStore: Writable<World>
 	app: Writable<App>
 	summary: Writable<string>
+	initialized: Writable<{
+		initializedComponents: string[]
+		initialized: boolean
+	}>
 	selectedComponent: Writable<string[] | undefined>
 	mode: Writable<EditorMode>
 	connectingInput: Writable<ConnectingInput>

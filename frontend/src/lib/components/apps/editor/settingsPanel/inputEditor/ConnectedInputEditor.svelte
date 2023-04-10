@@ -21,9 +21,9 @@
 				input: undefined,
 				hoveredComponent: undefined
 			}
+			$app = $app
+			$worldStore = $worldStore
 		}
-		$app = $app
-		$worldStore = $worldStore
 	}
 
 	$: $connectingInput && applyConnection()

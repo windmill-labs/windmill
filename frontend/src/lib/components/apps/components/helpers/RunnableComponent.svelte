@@ -48,7 +48,8 @@
 		mode,
 		stateId,
 		state,
-		componentControl
+		componentControl,
+		initialized
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const dispatch = createEventDispatcher()
@@ -61,12 +62,12 @@
 		}
 	}
 
-	if (!$worldStore.initializedComponents.includes(id)) {
-		$worldStore.initializedComponents = [...$worldStore.initializedComponents, id]
+	if (!$initialized.initializedComponents.includes(id)) {
+		$initialized.initializedComponents = [...$initialized.initializedComponents, id]
 	}
 
 	onDestroy(() => {
-		$worldStore.initializedComponents = $worldStore.initializedComponents.filter((c) => c !== id)
+		$initialized.initializedComponents = $initialized.initializedComponents.filter((c) => c !== id)
 	})
 
 	$runnableComponents = $runnableComponents
@@ -112,7 +113,7 @@
 	function refreshIfAutoRefresh(_src: string) {
 		const refreshEnabled =
 			autoRefresh && ((recomputeOnInputChanged ?? true) || refreshOn?.length > 0)
-		if (refreshEnabled && $worldStore.initialized) {
+		if (refreshEnabled && $initialized.initialized) {
 			setDebouncedExecute()
 		}
 	}
