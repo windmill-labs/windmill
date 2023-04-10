@@ -1682,67 +1682,98 @@ async fn handle_deno_job(
     base_internal_url: &str,
     worker_name: &str
 ) -> error::Result<serde_json::Value> {
-    let mut start = Instant::now();
+
+    // let mut start = Instant::now();
     logs.push_str("\n\n--- DENO CODE EXECUTION ---\n");
-    set_logs(logs, &job.id, db).await;
+
+    let logs_to_set = logs.clone();
+    let id = job.id.clone();
+    let db2 = db.clone();
+
+    let set_logs_f = async {
+        set_logs(&logs_to_set, &id, &db2).await;
+        Ok(()) as error::Result<()>
+    };
     
-    logs.push_str(format!("st: {:?}\n", start.elapsed().as_millis()).as_str());
-    start = Instant::now();
-    let _ = write_file(job_dir, "main.ts", inner_content).await?;
+    let write_main_f = write_file(job_dir, "main.ts", inner_content);
 
-    let spread =  windmill_parser_ts::parse_deno_signature(inner_content, true)?.args.into_iter().map(|x| x.name).join(",");
-    let wrapper_content: String = format!(
-        r#"
-import {{ main }} from "./main.ts";
+    let write_wrapper_f = async {
+        // let mut start = Instant::now();
+        let spread =  windmill_parser_ts::parse_deno_signature(inner_content, true)?.args.into_iter().map(|x| x.name).join(",");
+        // logs.push_str(format!("infer args: {:?}\n", start.elapsed().as_micros()).as_str());
+        let wrapper_content: String = format!(
+            r#"
+    import {{ main }} from "./main.ts";
 
-const args = await Deno.readTextFile("args.json")
-    .then(JSON.parse)
-    .then(({{ {spread} }}) => [ {spread} ])
+    const args = await Deno.readTextFile("args.json")
+        .then(JSON.parse)
+        .then(({{ {spread} }}) => [ {spread} ])
 
-async function run() {{
-    let res: any = await main(...args);
-    const res_json = JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value);
-    await Deno.writeTextFile("result.json", res_json);
-    Deno.exit(0);
-}}
-run().catch(async (e) => {{
-    await Deno.writeTextFile("result.json", JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
-    Deno.exit(1);
-}});
-"#,
-    );
-    let w_id = job.workspace_id.clone();
-    let script_path_split = job.script_path().split("/");
-    let script_path_parts_len = script_path_split.clone().count();
-    let mut relative_mounts = "".to_string();
-    for c in 0..script_path_parts_len {
-        relative_mounts += ",\n          ";
-        relative_mounts += &format!("\"./{}\": \"{base_internal_url}/api/w/{w_id}/scripts/raw/p/{}{}\"",
-            (0..c).map(|_| "../").join(""),
-            &script_path_split.clone().take(script_path_parts_len - c - 1).join("/"),
-            if c == script_path_parts_len - 1 { "" } else { "/" },
+    async function run() {{
+        let res: any = await main(...args);
+        const res_json = JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value);
+        await Deno.writeTextFile("result.json", res_json);
+        Deno.exit(0);
+    }}
+    run().catch(async (e) => {{
+        await Deno.writeTextFile("result.json", JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
+        Deno.exit(1);
+    }});
+    "#,
         );
-    }
-    write_file(job_dir, "wrapper.ts", &wrapper_content).await?;
-    let import_map = format!(
-        r#"{{
-        "imports": {{
-          "/": "{base_internal_url}/api/w/{w_id}/scripts/raw/p/",
-          "./wrapper.ts": "./wrapper.ts",
-          "./main.ts": "./main.ts"{relative_mounts}
-        }}
-      }}"#,
-    );
-    write_file(job_dir, "import_map.json", &import_map).await?;
+        write_file(job_dir, "wrapper.ts", &wrapper_content).await?;
+        Ok(()) as error::Result<()>
+    };
 
+    let write_import_map_f = async {
+        let w_id = job.workspace_id.clone();
+        let script_path_split = job.script_path().split("/");
+        let script_path_parts_len = script_path_split.clone().count();
+        let mut relative_mounts = "".to_string();
+        for c in 0..script_path_parts_len {
+            relative_mounts += ",\n          ";
+            relative_mounts += &format!("\"./{}\": \"{base_internal_url}/api/w/{w_id}/scripts/raw/p/{}{}\"",
+                (0..c).map(|_| "../").join(""),
+                &script_path_split.clone().take(script_path_parts_len - c - 1).join("/"),
+                if c == script_path_parts_len - 1 { "" } else { "/" },
+            );
+        }
+        let import_map = format!(
+            r#"{{
+            "imports": {{
+              "/": "{base_internal_url}/api/w/{w_id}/scripts/raw/p/",
+              "./wrapper.ts": "./wrapper.ts",
+              "./main.ts": "./main.ts"{relative_mounts}
+            }}
+          }}"#,
+        );
+        write_file(job_dir, "import_map.json", &import_map).await?;
+        Ok(()) as error::Result<()>
+    };
 
+    let reserved_variables_args_out_f = async {
+        let client = client.get_authed().await;
+        let args_and_out_f = async {
+            create_args_and_out_file(&client, job, job_dir).await?;
+            Ok(()) as Result<()>
+        };
+        let reserved_variables_f = async {
+            let mut vars = get_reserved_variables(job, &client.token, db).await?;
+            vars.insert("RUST_LOG".to_string(), "info".to_string());
+            Ok(vars) as Result<HashMap<String, String>>
+        };
+        let (_, reserved_variables) = tokio::try_join!(args_and_out_f, reserved_variables_f)?;
+        Ok((reserved_variables, client.token)) as error::Result<(HashMap<String, String>, String)>
+    };
 
-    let client = client.get_authed().await;
-    create_args_and_out_file(&client, job, job_dir).await?;
-    let mut reserved_variables = get_reserved_variables(job, &client.token, db).await?;
-    reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
-    
-    let common_deno_proc_envs = get_common_deno_proc_envs(&client.token, base_internal_url);
+    let (_, (reserved_variables, token), _, _, _) = tokio::try_join!(
+        set_logs_f,
+        reserved_variables_args_out_f,
+        write_main_f,
+        write_wrapper_f,
+        write_import_map_f)?;
+
+    let common_deno_proc_envs = get_common_deno_proc_envs(&token, base_internal_url);
 
     //do not cache local dependencies
     let reload = format!("--reload={base_internal_url}");
@@ -1779,16 +1810,12 @@ run().catch(async (e) => {{
                 .stderr(Stdio::piped())
                 .spawn()
     }
-    .instrument(trace_span!("create_deno_jail"))
     .await?;
-    logs.push_str(format!("prepare: {:?}\n", start.elapsed().as_millis()).as_str());
-    start = Instant::now();
+    // logs.push_str(format!("prepare: {:?}\n", start.elapsed().as_micros()).as_str());
+    // start = Instant::now();
     handle_child(&job.id, db, logs, child, false, worker_name, &job.workspace_id).await?;
-    logs.push_str(format!("execute: {:?}\n", start.elapsed().as_millis()).as_str());
-    start = Instant::now();
-    let r = read_result(job_dir).await;
-    logs.push_str(format!("rr: {:?}\n", start.elapsed().as_millis()).as_str());
-    r
+    // logs.push_str(format!("execute: {:?}\n", start.elapsed().as_millis()).as_str());
+    read_result(job_dir).await
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
