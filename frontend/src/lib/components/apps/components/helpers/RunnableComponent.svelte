@@ -31,7 +31,7 @@
 	export let render: boolean
 	export let outputs: { result: Output<any>; loading: Output<boolean> }
 	export let extraKey = ''
-	export let recomputeOnInputChanged: boolean = false
+	export let recomputeOnInputChanged: boolean = true
 	export let loading = false
 	export let recomputableByRefreshButton: boolean = true
 	export let refreshOnStart: boolean = false
