@@ -3,15 +3,15 @@
 	import type { AppViewerContext } from '../../types'
 
 	export let id: string
-	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { initialized } = getContext<AppViewerContext>('AppViewerContext')
 
 	onMount(() => {
-		if (!$worldStore.initializedComponents.includes(id)) {
-			$worldStore.initializedComponents = [...$worldStore.initializedComponents, id]
+		if (!$initialized.initializedComponents.includes(id)) {
+			$initialized.initializedComponents = [...$initialized.initializedComponents, id]
 		}
 	})
 
 	onDestroy(() => {
-		$worldStore.initializedComponents = $worldStore.initializedComponents.filter((c) => c !== id)
+		$initialized.initializedComponents = $initialized.initializedComponents.filter((c) => c !== id)
 	})
 </script>

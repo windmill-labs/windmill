@@ -48,6 +48,7 @@
 		if (firstDebounce) {
 			firstDebounce = false
 			cb()
+			return
 		}
 		if (timeout) {
 			clearTimeout(timeout)
