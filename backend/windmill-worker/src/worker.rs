@@ -17,7 +17,7 @@ use windmill_api_client::Client;
 use windmill_parser_go::parse_go_imports;
 use std::{
     borrow::Borrow, collections::HashMap, io, os::unix::process::ExitStatusExt, panic,
-    process::Stdio, time::{Duration, SystemTime}, sync::atomic::Ordering,
+    process::Stdio, time::{Duration}, sync::atomic::Ordering,
     sync::{Arc},
 };
 use tracing::{trace_span, Instrument};
@@ -581,30 +581,33 @@ pub async fn run_worker(
     .unwrap();
 
 
-    let worker_execution_duration = prometheus::register_histogram_vec!(
+    let all_langs = [
+        None, 
+        Some(ScriptLang::Python3),
+        Some(ScriptLang::Deno),
+        Some(ScriptLang::Go),
+        Some(ScriptLang::Bash)];
+
+    let worker_execution_duration: HashMap<_, _>  = all_langs.clone().into_iter().map(|x| (x.clone(), prometheus::register_histogram!(
         prometheus::HistogramOpts::new(
             "worker_execution_duration",
             "Duration between receiving a job and completing it",
         )
-        .const_label("name", &worker_name),
-        &["workspace_id", "language"],
-    )
-    .expect("register prometheus metric");
-
-    let worker_execution_duration_counter = prometheus::register_counter!(prometheus::opts!(
-        "worker_execution_duration_counter",
-        "Total number of seconds spent executing jobs"
-    )
-        .const_label("name", &worker_name))
-        .expect("register prometheus metric");
+        .const_label("name", &worker_name)
+        .const_label("language", x.map(|x| x.as_str()).unwrap_or("none")))
+        .expect("register prometheus metric"))
+    ).collect();
 
 
-    let worker_sleep_duration = prometheus::register_histogram!(prometheus::HistogramOpts::new(
-        "worker_sleep_duration",
-        "Duration sleeping waiting for job",
-    )
-    .const_label("name", &worker_name),)
-    .expect("register prometheus metric");
+    let worker_execution_duration_counter: HashMap<_, _>  = all_langs.clone().into_iter().map(|x| (x.clone(), prometheus::register_counter!(
+        prometheus::Opts::new(
+            "worker_execution_duration_counter",
+            "Total number of seconds spent executing jobs"
+        )
+        .const_label("name", &worker_name)
+        .const_label("language", x.map(|x| x.as_str()).unwrap_or("none")))
+        .expect("register prometheus metric"))
+    ).collect();
 
 
     let worker_sleep_duration_counter = prometheus::register_counter!(prometheus::opts!(
@@ -629,19 +632,24 @@ pub async fn run_worker(
         .const_label("name", &worker_name))
         .expect("register prometheus metric");
 
-    let worker_execution_failed = prometheus::register_int_counter_vec!(
-        prometheus::Opts::new("worker_execution_failed", "Number of failed jobs",)
-            .const_label("name", &worker_name),
-        &["workspace_id", "language"],
-    )
-    .expect("register prometheus metric");
+    let worker_execution_failed: HashMap<_, _>  = all_langs.clone().into_iter().map(|x| (x.clone(), prometheus::register_int_counter!(
+        prometheus::Opts::new(
+            "worker_execution_failed", "Number of failed jobs",
+        )
+        .const_label("name", &worker_name)
+        .const_label("language", x.map(|x| x.as_str()).unwrap_or("none")))
+        .expect("register prometheus metric"))
+    ).collect();
 
-    let worker_execution_count = prometheus::register_int_counter_vec!(
-        prometheus::Opts::new("worker_execution_count", "Number of executed jobs",)
-            .const_label("name", &worker_name),
-        &["workspace_id", "language"],
-    )
-    .expect("register prometheus metric");
+
+    let worker_execution_count: HashMap<_, _> = all_langs.into_iter().map(|x| (x.clone(), prometheus::register_int_counter!(
+        prometheus::Opts::new(
+            "worker_execution_count", "Number of executed jobs"
+        )
+        .const_label("name", &worker_name)
+        .const_label("language", x.map(|x| x.as_str()).unwrap_or("none")))
+        .expect("register prometheus metric"))
+    ).collect();
 
     let worker_busy: prometheus::IntGauge = prometheus::register_int_gauge!(prometheus::Opts::new(
         "worker_busy",
@@ -690,7 +698,7 @@ pub async fn run_worker(
         if *METRICS_ENABLED {
             worker_busy.set(0);
             uptime_metric.inc_by(
-                (((Instant::now() - start_time).as_millis() as f64)/1000.0 - uptime_metric.get())
+                ((start_time.elapsed().as_millis() as f64)/1000.0 - uptime_metric.get())
                     .try_into()
                     .unwrap(),
             );
@@ -769,28 +777,27 @@ pub async fn run_worker(
             }
             match next_job {
                 Ok(Some(job)) => {
-                    println!("{:?}",  SystemTime::now());
+                    // println!("{:?}",  SystemTime::now());
 
                     let token = create_token_for_owner_in_bg(&db, &job).await;
-                    let label_values = [
-                        &job.workspace_id,
-                        job.language.as_ref().map(|l| l.as_str()).unwrap_or(""),
-                    ];
-
+                    let language = job.language.clone();
                     let _timer = worker_execution_duration
-                        .with_label_values(label_values.as_slice())
+                        .get(&language)
+                        .expect("no timer found")
                         .start_timer();
 
                     jobs_executed += 1;
                     if *METRICS_ENABLED {
                         worker_execution_count
-                            .with_label_values(label_values.as_slice())
+                            .get(&language)
+                            .expect("no timer found")
                             .inc();
                     }
 
                     let metrics = Metrics {
                         worker_execution_failed: worker_execution_failed
-                            .with_label_values(label_values.as_slice()),
+                            .get(&language)
+                            .expect("no timer found").clone(),
                     };
 
                     let job_root = job.root_job.map(|x| x.to_string()).unwrap_or_else(|| "none".to_string());
@@ -802,7 +809,6 @@ pub async fn run_worker(
                         .create(&job_dir)
                         .await
                         .expect("could not create job dir");
-                    println!("dir creation {:?}",  SystemTime::now());
 
                     let same_worker = job.same_worker;
 
@@ -827,7 +833,6 @@ pub async fn run_worker(
                             .await
                             .expect("could not create shared dir");
                     }
-                    println!("bef token: {:?}",  SystemTime::now());
 
                     let authed_client = AuthedClientBackgroundTask { base_internal_url: base_internal_url.to_string(), token: token, workspace: job.workspace_id.to_string(), client: OnceCell::new() };
                     let is_flow = job.job_kind == JobKind::Flow || job.job_kind == JobKind::FlowPreview || job.job_kind == JobKind::FlowDependencies;
@@ -861,17 +866,19 @@ pub async fn run_worker(
                     };
 
                     let duration = _timer.stop_and_record();
-                    worker_execution_duration_counter.inc_by(duration);
+                    worker_execution_duration_counter
+                        .get(&language)
+                        .expect("no timer found").inc_by(duration);
 
                     if !*KEEP_JOB_DIR && !(is_flow && same_worker) {
                         let _ = tokio::fs::remove_dir_all(job_dir).await;
                     }
                 }
                 Ok(None) => {
-                    let _timer =  if *METRICS_ENABLED { Some(worker_sleep_duration.start_timer()) } else { None };
+                    let _timer =  if *METRICS_ENABLED { Some(Instant::now()) } else { None };
                     tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE)).await;
                     _timer.map(|timer| {
-                        let duration = timer.stop_and_record();
+                        let duration = timer.elapsed().as_secs_f64();
                         worker_sleep_duration_counter.inc_by(duration);
                     });
                 }
@@ -1023,7 +1030,7 @@ async fn handle_queued_job(
         }
         _ => {
             let mut logs = "".to_string();
-            println!("handle queue {:?}",  SystemTime::now());
+            // println!("handle queue {:?}",  SystemTime::now());
             if let Some(log_str) = &job.logs {
                 logs.push_str(&log_str);
             }
@@ -1083,7 +1090,7 @@ async fn handle_queued_job(
             let client = &client.get_authed().await;
             match result {
                 Ok(r) => {
-                    println!("bef completed job{:?}",  SystemTime::now());
+                    // println!("bef completed job{:?}",  SystemTime::now());
                     add_completed_job(db, &job, true, false, r.clone(), logs).await?;
                     if job.is_flow_step {
                         if let Some(parent_job) = job.parent_job {
@@ -1283,7 +1290,7 @@ mount {{
         "".to_string()
     };
 
-    println!("handle lang job {:?}",  SystemTime::now());
+    // println!("handle lang job {:?}",  SystemTime::now());
 
     let result: error::Result<serde_json::Value> = match language {
         None => {
@@ -1359,7 +1366,7 @@ mount {{
         &lang_str,
         job.id
     );
-    println!("handled job: {:?}",  SystemTime::now());
+    // println!("handled job: {:?}",  SystemTime::now());
 
     result
 }

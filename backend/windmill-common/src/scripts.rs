@@ -17,7 +17,7 @@ use serde_json::to_string_pretty;
 
 use crate::utils::StripPath;
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Hash)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Hash, Eq)]
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
 #[cfg_attr(
     feature = "sqlx",
