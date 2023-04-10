@@ -39,15 +39,19 @@
 	}
 
 	function refresh() {
-		console.log('refresh')
+		let isFirstLoad = false
 		if (!firstLoad) {
 			$worldStore.initialized = true
 			firstLoad = true
+			isFirstLoad = true
 		}
 		loading = true
 		Promise.all(
 			Object.keys($runnableComponents).map((id) => {
-				if (!$runnableComponents?.[id]?.autoRefresh) {
+				if (
+					!$runnableComponents?.[id]?.autoRefresh &&
+					(!isFirstLoad || !$runnableComponents?.[id]?.refreshOnStart)
+				) {
 					return
 				}
 				return $runnableComponents?.[id]?.cb?.()

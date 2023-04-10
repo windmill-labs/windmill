@@ -34,6 +34,7 @@
 	export let recomputeOnInputChanged: boolean = false
 	export let loading = false
 	export let recomputableByRefreshButton: boolean = true
+	export let refreshOnStart: boolean = false
 
 	const {
 		worldStore,
@@ -54,13 +55,13 @@
 
 	$runnableComponents[id] = {
 		autoRefresh: autoRefresh && recomputableByRefreshButton,
+		refreshOnStart,
 		cb: async (inlineScript?: InlineScript) => {
 			await executeComponent(true, inlineScript)
 		}
 	}
 
 	if (!$worldStore.initializedComponents.includes(id)) {
-		console.log('adding', id)
 		$worldStore.initializedComponents = [...$worldStore.initializedComponents, id]
 	}
 

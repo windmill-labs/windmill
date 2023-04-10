@@ -138,7 +138,14 @@ export type AppViewerContext = {
 	connectingInput: Writable<ConnectingInput>
 	breakpoint: Writable<EditorBreakpoint>
 	runnableComponents: Writable<
-		Record<string, { autoRefresh: boolean; cb: (inlineScript?: InlineScript) => Promise<void> }>
+		Record<
+			string,
+			{
+				autoRefresh: boolean
+				refreshOnStart?: boolean
+				cb: (inlineScript?: InlineScript) => Promise<void>
+			}
+		>
 	>
 	staticExporter: Writable<Record<string, () => any>>
 	appPath: string
