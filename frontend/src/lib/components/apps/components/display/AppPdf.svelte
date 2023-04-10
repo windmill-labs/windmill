@@ -11,6 +11,7 @@
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import InputValue from '../helpers/InputValue.svelte'
+	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -191,6 +192,8 @@
 
 <InputValue {id} input={configuration.source} bind:value={source} />
 <InputValue {id} input={configuration.zoom} bind:value={zoom} />
+
+<InitializeComponent {id} />
 
 {#if render}
 	<div class="relative flex flex-col w-full h-full bg-gray-100">

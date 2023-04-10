@@ -6,6 +6,7 @@
 	import { concatCustomCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
+	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -40,6 +41,8 @@
 <InputValue {id} input={configuration.minDate} bind:value={minValue} />
 <InputValue {id} input={configuration.maxDate} bind:value={maxValue} />
 <InputValue {id} input={configuration.defaultValue} bind:value={defaultValue} />
+
+<InitializeComponent {id} />
 
 <AlignWrapper {render} {verticalAlignment}>
 	{#if inputType === 'date'}

@@ -7,6 +7,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { concatCustomCss } from '../../utils'
 	import { initOutput } from '../../editor/appUtils'
+	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -59,6 +60,7 @@
 	input={configuration.defaultValue}
 	bind:value={values[0]}
 />
+<InitializeComponent {id} />
 
 <AlignWrapper {render} {verticalAlignment}>
 	<div class="flex items-center w-full gap-1 px-1">
