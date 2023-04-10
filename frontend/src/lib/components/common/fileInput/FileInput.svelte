@@ -6,6 +6,8 @@
 	import { twMerge } from 'tailwind-merge'
 	import type { ReadFileAs } from './model'
 
+	type ConvertedFile = string | ArrayBuffer | null
+
 	let c = ''
 	export { c as class }
 	export let style = ''
@@ -14,6 +16,7 @@
 	export let convertTo: ReadFileAs | undefined = undefined
 	export let hideIcon = false
 	export let iconSize = 36
+	export let returnFileNames = false
 	const dispatch = createEventDispatcher()
 	let input: HTMLInputElement
 	let files: File[] | undefined = undefined
@@ -77,7 +80,12 @@
 
 		if (convertTo && files) {
 			const promises = files.map(convertFile)
-			const converted = await Promise.all(promises)
+			let converted: ConvertedFile[] | { name: string; data: ConvertedFile }[] = await Promise.all(
+				promises
+			)
+			if (returnFileNames) {
+				converted = converted.map((c, i) => ({ name: files![i].name, data: c }))
+			}
 			dispatch('change', converted)
 		} else {
 			dispatch('change', files)
