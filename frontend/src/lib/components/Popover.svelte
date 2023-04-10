@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createPopperActions } from 'svelte-popperjs'
+	import { createPopperActions, type PopperOptions } from 'svelte-popperjs'
 	import type { PopoverPlacement } from './Popover.model'
 
 	export let placement: PopoverPlacement = 'auto'
@@ -9,28 +9,16 @@
 	export let disapperTimoout = 100
 
 	const [popperRef, popperContent] = createPopperActions({ placement })
-	const betterPreventOverflow = (options) => ({
-		name: 'preventOverflow',
-		options,
-		effect: ({ state }) => {
-			const { padding = 0 } = options
 
-			state.elements.popper.style.maxWidth = `calc(100vw - ${padding * 2}px)`
-		}
-	})
-	const extraOpts = {
+	const popperOptions: PopperOptions<{}> = {
+		placement: 'bottom-end',
+		strategy: 'fixed',
 		modifiers: [
-			betterPreventOverflow({ padding: 10 }),
-			{
-				name: 'offset',
-				options: {
-					offset: [8, 8]
-				}
-			},
+			{ name: 'offset', options: { offset: [8, 8] } },
 			{
 				name: 'arrow',
 				options: {
-					padding: 10 // 5px from the edges of the popper
+					padding: 10
 				}
 			}
 		]
@@ -59,10 +47,10 @@
 {/if}
 {#if showTooltip && !disablePopup}
 	<div
-		use:popperContent={extraOpts}
+		use:popperContent={popperOptions}
 		on:mouseenter={open}
 		on:mouseleave={close}
-		class="z-50  py-2 px-3 rounded-md  text-sm font-normal !text-gray-300 bg-gray-800
+		class="z-50 py-2 px-3 rounded-md text-sm font-normal !text-gray-300 bg-gray-800
 		whitespace-normal text-left {popupClass}"
 	>
 		<div class="max-w-sm">

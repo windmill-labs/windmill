@@ -13,7 +13,6 @@
 
 	function selectComponent(e: PointerEvent, id: string) {
 		if (!$connectingInput.opened) {
-			e.stopPropagation()
 			selectId(e, id, selectedComponent, $app)
 			if ($focusedGrid?.parentComponentId != id) {
 				$focusedGrid = undefined
