@@ -112,7 +112,7 @@ Windmill Community Edition {GIT_VERSION}
         "INCLUDE_HEADERS",
         "WHITELIST_WORKSPACES",
         "BLACKLIST_WORKSPACES",
-        "NEW_USER_WEBHOOK",
+        "INSTANCE_EVENTS_WEBHOOK",
         "CLOUD_HOSTED",
     ]);
 
