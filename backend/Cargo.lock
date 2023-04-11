@@ -263,7 +263,7 @@ checksum = "0e97ce7de6cf12de5d7226c73f5ba9811622f4db3a5b91b55c53e987e5f91cba"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.13",
+ "syn 2.0.14",
 ]
 
 [[package]]
@@ -340,7 +340,7 @@ checksum = "b9ccdd8f2a161be9bd5c023df56f1b2a0bd1d83872ae53b71a84a12c9bf6e842"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.13",
+ "syn 2.0.14",
 ]
 
 [[package]]
@@ -381,9 +381,9 @@ checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
 
 [[package]]
 name = "axum"
-version = "0.6.12"
+version = "0.6.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "349f8ccfd9221ee7d1f3d4b33e1f8319b3a81ed8f61f2ea40b37b859794b4491"
+checksum = "6e5abc76e6ef57bf438c067d2898481475994102eeb5d662a0b2162d0c2fdcf1"
 dependencies = [
  "async-trait",
  "axum-core",
@@ -414,9 +414,9 @@ dependencies = [
 
 [[package]]
 name = "axum-core"
-version = "0.3.3"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2f958c80c248b34b9a877a643811be8dbca03ca5ba827f2b63baf3a81e5fc4e"
+checksum = "759fa577a247914fd3f7f76d62972792636412fbfd634cd452f6a385a74d2d2c"
 dependencies = [
  "async-trait",
  "bytes",
@@ -716,7 +716,7 @@ dependencies = [
  "heck",
  "proc-macro2",
  "quote",
- "syn 2.0.13",
+ "syn 2.0.14",
 ]
 
 [[package]]
@@ -955,7 +955,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "scratch",
- "syn 2.0.13",
+ "syn 2.0.14",
 ]
 
 [[package]]
@@ -972,7 +972,7 @@ checksum = "2345488264226bf682893e25de0769f3360aac9957980ec49361b083ddaa5bc5"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.13",
+ "syn 2.0.14",
 ]
 
 [[package]]
@@ -1426,7 +1426,7 @@ checksum = "89ca545a94061b6365f2c7355b4b32bd20df3ff95f02da9329b34ccc3bd6ee72"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.13",
+ "syn 2.0.14",
 ]
 
 [[package]]
@@ -2436,7 +2436,7 @@ checksum = "a948666b637a0f465e8564c73e89d4dde00d72d4d473cc972f390fc3dcee7d9c"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.13",
+ "syn 2.0.14",
 ]
 
 [[package]]
@@ -2827,7 +2827,7 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
- "syn 2.0.13",
+ "syn 2.0.14",
  "thiserror",
  "typify",
  "unicode-ident",
@@ -2847,7 +2847,7 @@ dependencies = [
  "serde_json",
  "serde_tokenstream",
  "serde_yaml",
- "syn 2.0.13",
+ "syn 2.0.14",
 ]
 
 [[package]]
@@ -3491,7 +3491,7 @@ checksum = "291a097c63d8497e00160b166a967a4a79c64f3facdd01cbd7502231688d77df"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.13",
+ "syn 2.0.14",
 ]
 
 [[package]]
@@ -3557,7 +3557,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "serde",
- "syn 2.0.13",
+ "syn 2.0.14",
 ]
 
 [[package]]
@@ -4129,9 +4129,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "2.0.13"
+version = "2.0.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4c9da457c5285ac1f936ebd076af6dac17a61cfe7826f2076b4d015cf47bc8ec"
+checksum = "fcf316d5356ed6847742d036f8a39c3b8435cac10bd528a4bd461928a6ab34d5"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4194,7 +4194,7 @@ checksum = "f9456a42c5b0d803c8cd86e73dd7cc9edd429499f37a3550d286d5e86720569f"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.13",
+ "syn 2.0.14",
 ]
 
 [[package]]
@@ -4308,7 +4308,7 @@ checksum = "61a573bdc87985e9d6ddeed1b3d864e8a302c847e40d647746df2f1de209d1ce"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.13",
+ "syn 2.0.14",
 ]
 
 [[package]]
@@ -4621,7 +4621,7 @@ dependencies = [
  "regress",
  "schemars",
  "serde_json",
- "syn 2.0.13",
+ "syn 2.0.14",
  "thiserror",
  "unicode-ident",
 ]
@@ -4637,7 +4637,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_tokenstream",
- "syn 2.0.13",
+ "syn 2.0.14",
  "typify-impl",
 ]
 
@@ -5096,7 +5096,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.86.0"
+version = "1.87.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -5126,7 +5126,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.86.0"
+version = "1.87.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -5184,7 +5184,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.86.0"
+version = "1.87.0"
 dependencies = [
  "base64 0.21.0",
  "chrono",
@@ -5199,7 +5199,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.86.0"
+version = "1.87.0"
 dependencies = [
  "chrono",
  "serde",
@@ -5212,7 +5212,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.86.0"
+version = "1.87.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -5237,7 +5237,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.86.0"
+version = "1.87.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -5245,7 +5245,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.86.0"
+version = "1.87.0"
 dependencies = [
  "anyhow",
  "itertools",
@@ -5260,7 +5260,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.86.0"
+version = "1.87.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -5273,7 +5273,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.86.0"
+version = "1.87.0"
 dependencies = [
  "anyhow",
  "itertools",
@@ -5288,7 +5288,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.86.0"
+version = "1.87.0"
 dependencies = [
  "anyhow",
  "deno_core",
@@ -5302,7 +5302,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.86.0"
+version = "1.87.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5329,7 +5329,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.86.0"
+version = "1.87.0"
 dependencies = [
  "anyhow",
  "async-recursion",
