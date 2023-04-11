@@ -3,7 +3,7 @@
 	import { InputService, type Input, RunnableType, type CreateInput } from '$lib/gen/index.js'
 	import { workspaceStore } from '$lib/stores.js'
 	import { displayDate, sendUserToast } from '$lib/utils.js'
-	import { faSave, faTrash } from '@fortawesome/free-solid-svg-icons'
+	import { faEdit, faSave, faTrash } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
@@ -27,7 +27,11 @@
 	export let args: object
 
 	let previousInputs: Input[] = []
-	let savedInputs: Input[] = []
+	interface EditableInput extends Input {
+		isEditing?: boolean
+		isSaving?: boolean
+	}
+	let savedInputs: EditableInput[] = []
 
 	let selectedInput: Input | null
 
@@ -79,6 +83,25 @@
 		}
 
 		savingInputs = false
+	}
+
+	async function updateInput(input: EditableInput) {
+		input.isSaving = true
+
+		try {
+			await InputService.updateInput({
+				workspace: $workspaceStore!,
+				requestBody: {
+					id: input.id,
+					name: input.name
+				}
+			})
+		} catch (err) {
+			console.error(err)
+			sendUserToast(`Failed to update Input: ${err}`, true)
+		}
+
+		input.isSaving = false
 	}
 
 	async function deleteInput(input: Input) {
@@ -135,23 +158,63 @@
 							<Button
 								color={selectedInput === i ? 'gray' : 'light'}
 								btnClasses="w-full group h-12"
-								on:click={() => (selectedInput = i)}
+								on:click={() => {
+									if (!i.isEditing) {
+										if (selectedInput === i) {
+											selectedInput = null
+										} else {
+											selectedInput = i
+										}
+									}
+								}}
 							>
-								<div class="w-full h-full items-center justify-between flex gap-4 min-w-0">
-									<small
-										class="whitespace-nowrap overflow-hidden text-ellipsis flex-shrink text-left"
-									>
-										{i.name}
-									</small>
+								<div class="w-full h-full items-center justify-between flex gap-1 min-w-0">
+									{#if i.isEditing}
+										<form
+											on:submit={() => {
+												updateInput(i)
+												i.isEditing = false
+												i.isSaving = false
+											}}
+											class="w-full"
+										>
+											<input type="text" bind:value={i.name} class="text-gray-700" />
+										</form>
+									{:else}
+										<small
+											class="whitespace-nowrap overflow-hidden text-ellipsis flex-shrink text-left"
+										>
+											{i.name}
+										</small>
+									{/if}
 
-									<Button
-										startIcon={{ icon: faTrash }}
-										iconOnly={true}
-										color="red"
-										size="xs"
-										btnClasses="group-hover:block hidden"
-										on:click={() => deleteInput(i)}
-									/>
+									<div class="flex gap-1">
+										<Button
+											startIcon={{ icon: i.isEditing ? faSave : faEdit }}
+											loading={i.isSaving}
+											iconOnly={true}
+											color="gray"
+											size="xs"
+											btnClasses={i.isEditing ? 'block' : 'group-hover:block hidden'}
+											on:click={(e) => {
+												e.stopPropagation()
+												i.isEditing = !i.isEditing
+												if (!i.isEditing) {
+													updateInput(i)
+													i.isSaving = false
+												}
+											}}
+										/>
+
+										<Button
+											startIcon={{ icon: faTrash }}
+											iconOnly={true}
+											color="red"
+											size="xs"
+											btnClasses={i.isEditing ? 'block' : 'group-hover:block hidden'}
+											on:click={() => deleteInput(i)}
+										/>
+									</div>
 								</div>
 							</Button>
 						{/each}
@@ -172,7 +235,13 @@
 							<Button
 								color={selectedInput === i ? 'gray' : 'light'}
 								btnClasses="w-full h-12"
-								on:click={() => (selectedInput = i)}
+								on:click={() => {
+									if (selectedInput === i) {
+										selectedInput = null
+									} else {
+										selectedInput = i
+									}
+								}}
 							>
 								<div class="w-full h-full items-center flex gap-4 min-w-0">
 									<small
