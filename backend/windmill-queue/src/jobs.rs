@@ -25,6 +25,8 @@ use windmill_common::{
     METRICS_ENABLED,
 };
 
+use crate::QueueTransaction;
+
 lazy_static::lazy_static! {
     pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
         .user_agent("windmill/beta")
@@ -52,13 +54,15 @@ lazy_static::lazy_static! {
 
 const MAX_FREE_EXECS: i32 = 1000;
 const MAX_FREE_CONCURRENT_RUNS: i32 = 15;
+const RSMQ_MAIN_QUEUE: &'static str = "main_queue";
 
-pub async fn cancel_job<'c>(
+pub async fn cancel_job<'c, R: rsmq_async::RsmqConnection + Clone>(
     username: &str,
     reason: Option<String>,
     id: Uuid,
     w_id: &str,
     mut tx: Transaction<'c, Postgres>,
+    rsmq: Option<R>,
     force_rerun: bool,
 ) -> error::Result<(Transaction<'c, Postgres>, Option<Uuid>)> {
     let job_option = sqlx::query_scalar!(
@@ -72,6 +76,12 @@ pub async fn cancel_job<'c>(
     )
     .fetch_optional(&mut tx)
     .await?;
+    if let Some(mut rsmq) = rsmq {
+        rsmq.change_message_visibility(RSMQ_MAIN_QUEUE, &id.to_string(), 0)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+    }
+
     let mut jobs = job_option.map(|j| vec![j]).unwrap_or_default();
     while !jobs.is_empty() {
         let p_job = jobs.pop();
@@ -91,10 +101,11 @@ pub async fn cancel_job<'c>(
     Ok((tx, job_option))
 }
 
-pub async fn pull(
+pub async fn pull<R: rsmq_async::RsmqConnection + Clone>(
     db: &Pool<Postgres>,
     whitelist_workspaces: Option<Vec<String>>,
     blacklist_workspaces: Option<Vec<String>>,
+    rsmq: Option<R>,
 ) -> windmill_common::error::Result<Option<QueuedJob>> {
     let mut workspaces_filter = String::new();
     if let Some(whitelist) = whitelist_workspaces {
@@ -106,6 +117,9 @@ pub async fn pull(
                 .collect::<Vec<String>>()
                 .join(",")
         ));
+        if let Some(_rsmq) = rsmq {
+            todo!("REDIS: Implement workspace filters for redis");
+        }
     }
     if let Some(blacklist) = blacklist_workspaces {
         workspaces_filter.push_str(&format!(
@@ -116,16 +130,50 @@ pub async fn pull(
                 .collect::<Vec<String>>()
                 .join(",")
         ));
+        if let Some(_rsmq) = rsmq {
+            todo!("REDIS: Implement workspace filters for redis");
+        }
     }
-    /* Jobs can be started if they:
-     * - haven't been started before,
-     *   running = false
-     * - are flows with a step that needed resume,
-     *   suspend_until is non-null
-     *   and suspend = 0 when the resume messages are received
-     *   or suspend_until <= now() if it has timed out */
-    let job: Option<QueuedJob> = sqlx::query_as::<_, QueuedJob>(&format!(
-        "UPDATE queue
+
+    let job: Option<QueuedJob> = if let Some(mut rsmq) = rsmq {
+        // TODO: REDIS: Race conditions / replace last_ping
+        let msg = rsmq
+            .pop_message::<Vec<u8>>(RSMQ_MAIN_QUEUE)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+
+        if let Some(msg) = msg {
+            let uuid = Uuid::from_bytes_le(
+                msg.message
+                    .try_into()
+                    .map_err(|_| anyhow::anyhow!("Failed to parsed Redis message"))?,
+            );
+
+            sqlx::query_as::<_, QueuedJob>(
+                "UPDATE queue
+            SET running = true
+            , started_at = coalesce(started_at, now())
+            , last_ping = now()
+            , suspend_until = null
+            WHERE id = $1
+            RETURNING *",
+            )
+            .bind(uuid)
+            .fetch_optional(db)
+            .await?
+        } else {
+            None
+        }
+    } else {
+        /* Jobs can be started if they:
+         * - haven't been started before,
+         *   running = false
+         * - are flows with a step that needed resume,
+         *   suspend_until is non-null
+         *   and suspend = 0 when the resume messages are received
+         *   or suspend_until <= now() if it has timed out */
+        sqlx::query_as::<_, QueuedJob>(&format!(
+            "UPDATE queue
             SET running = true
               , started_at = coalesce(started_at, now())
               , last_ping = now()
@@ -143,9 +191,10 @@ pub async fn pull(
                 LIMIT 1
             )
             RETURNING *"
-    ))
-    .fetch_optional(db)
-    .await?;
+        ))
+        .fetch_optional(db)
+        .await?
+    };
 
     if job.is_some() && *METRICS_ENABLED {
         QUEUE_PULL_COUNT.inc();
@@ -207,11 +256,11 @@ pub async fn get_result_by_id(
 }
 
 #[instrument(level = "trace", skip_all)]
-pub async fn delete_job(
-    db: &Pool<Postgres>,
+pub async fn delete_job<'c, R: rsmq_async::RsmqConnection + Clone + Send>(
+    mut tx: QueueTransaction<'c, R>,
     w_id: &str,
     job_id: Uuid,
-) -> windmill_common::error::Result<()> {
+) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
     if *METRICS_ENABLED {
         QUEUE_DELETE_COUNT.inc();
     }
@@ -220,13 +269,13 @@ pub async fn delete_job(
         w_id,
         job_id
     )
-    .fetch_one(db)
+    .fetch_one(&mut tx)
     .await
     .map_err(|e| Error::InternalErr(format!("Error during deletion of job {job_id}: {e}")))?
     .unwrap_or(0)
         == 1;
     tracing::debug!("Job {job_id} deleted: {job_removed}");
-    Ok(())
+    Ok(tx)
 }
 
 pub async fn get_queued_job<'c>(
@@ -245,9 +294,9 @@ pub async fn get_queued_job<'c>(
     Ok(r)
 }
 
-#[instrument(level = "trace", skip_all)]
-pub async fn push<'c>(
-    mut tx: Transaction<'c, Postgres>,
+// #[instrument(level = "trace", skip_all)]
+pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
+    mut tx: QueueTransaction<'c, R>,
     workspace_id: &str,
     job_payload: JobPayload,
     args: serde_json::Map<String, serde_json::Value>,
@@ -262,8 +311,7 @@ pub async fn push<'c>(
     mut same_worker: bool,
     pre_run_error: Option<&windmill_common::error::Error>,
     visible_to_owner: bool,
-) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
-    let scheduled_for = scheduled_for_o.unwrap_or_else(chrono::Utc::now);
+) -> Result<(Uuid, QueueTransaction<'c, R>), Error> {
     let args_json = serde_json::Value::Object(args);
     let job_id: Uuid = Ulid::new().into();
 
@@ -515,7 +563,7 @@ pub async fn push<'c>(
             (workspace_id, id, running, parent_job, created_by, permissioned_as, scheduled_for, 
                 script_hash, script_path, raw_code, raw_lock, args, job_kind, schedule_path, raw_flow, \
          flow_status, is_flow_step, language, started_at, same_worker, pre_run_error, email, visible_to_owner, root_job)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22, $23) \
+            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, now()), $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22, $23) \
          RETURNING id",
         workspace_id,
         job_id,
@@ -523,7 +571,7 @@ pub async fn push<'c>(
         parent_job,
         user,
         permissioned_as,
-        scheduled_for,
+        scheduled_for_o,
         script_hash,
         script_path.clone(),
         raw_code,
@@ -582,6 +630,10 @@ pub async fn push<'c>(
         .instrument(tracing::info_span!("job_run", email = &email))
         .await?;
     }
+    if let Some(ref mut rsmq) = tx.rsmq {
+        rsmq.send_message(job_id.to_bytes_le().to_vec(), scheduled_for_o);
+    }
+
     Ok((uuid, tx))
 }
 

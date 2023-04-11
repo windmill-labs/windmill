@@ -32,7 +32,8 @@ use windmill_audit::{audit_log, ActionKind};
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::utils::{not_found_if_none, now_from_db};
 
-use crate::users::{truncate_token, Authed, NEW_USER_WEBHOOK};
+use crate::users::{truncate_token, Authed};
+use crate::webhook_util::{InstanceEvent, WebhookShared};
 use crate::workspaces::invite_user_to_all_auto_invite_worspaces;
 use crate::{
     db::{UserDB, DB},
@@ -43,7 +44,7 @@ use crate::{BASE_URL, HTTP_CLIENT, IS_SECURE, OAUTH_CLIENTS, SLACK_SIGNING_SECRE
 use windmill_common::error::{self, to_anyhow, Error};
 use windmill_common::oauth2::*;
 
-use windmill_queue::JobPayload;
+use windmill_queue::{JobPayload, QueueTransaction};
 
 use std::{fs, str};
 
@@ -728,6 +729,7 @@ where
 async fn slack_command(
     SlackSig { sig, ts }: SlackSig,
     Extension(db): Extension<DB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     body: Bytes,
 ) -> error::Result<String> {
     let form: SlackCommand = serde_urlencoded::from_bytes(&body)
@@ -740,7 +742,7 @@ async fn slack_command(
         }
     }
 
-    let mut tx = db.begin().await?;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, db.begin().await?).into();
     let settings = sqlx::query_as!(
         WorkspaceSettings,
         "SELECT * FROM workspace_settings WHERE slack_team_id = $1",
@@ -756,7 +758,7 @@ async fn slack_command(
             } else {
                 let path = path.strip_prefix("script/").unwrap_or_else(|| path);
                 let script_hash = windmill_common::get_latest_hash_for_path(
-                    &mut tx,
+                    tx.transaction_mut(),
                     &settings.workspace_id,
                     path,
                 )
@@ -788,14 +790,15 @@ async fn slack_command(
                 true,
             )
             .await?;
-            tx.commit().await?;
             let url = BASE_URL.to_owned();
+            tx.commit().await?;
             return Ok(format!(
                 "Job launched. See details at {url}/run/{uuid}?workspace={}",
                 &settings.workspace_id
             ));
         }
     }
+    tx.commit().await?;
 
     return Ok(format!(
         "workspace not properly configured (did you set the script to trigger in the settings?)"
@@ -815,6 +818,7 @@ async fn login_callback(
     Path(client_name): Path<String>,
     cookies: Cookies,
     Extension(db): Extension<DB>,
+    Extension(webhook): Extension<WebhookShared>,
     Json(callback): Json<OAuthCallback>,
 ) -> error::Result<String> {
     let client_w_config = &OAUTH_CLIENTS
@@ -940,14 +944,7 @@ async fn login_callback(
         }
         tx.commit().await?;
 
-        if let Some(new_user_webhook) = NEW_USER_WEBHOOK.clone() {
-            let _ = HTTP_CLIENT
-                .post(&new_user_webhook)
-                .json(&serde_json::json!({"email" : &email, "event": "oauth_signup"}))
-                .send()
-                .await
-                .map_err(|e| tracing::error!("Error sending new user webhook: {}", e.to_string()));
-        }
+        webhook.send_instance_event(InstanceEvent::UserSignupOAuth { email: email.clone() });
 
         Ok("Successfully logged in".to_string())
     } else {

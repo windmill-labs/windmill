@@ -49,7 +49,39 @@ async fn main() -> anyhow::Result<()> {
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(false);
 
+    let rsmq_config = std::env::var("REDIS_URL").ok().map(|x| {
+        let url = x.parse::<url::Url>().unwrap();
+        let mut config = rsmq_async::RsmqOptions { ..Default::default() };
+
+        config.host = url.host_str().expect("redis host required").to_owned();
+        config.password = url.password().map(|s| s.to_owned());
+        config.db = url
+            .path_segments()
+            .and_then(|mut segments| segments.next())
+            .and_then(|segment| segment.parse().ok())
+            .unwrap_or(0);
+        config.ns = url
+            .query_pairs()
+            .find(|s| s.0 == "rsmq_namespace")
+            .map(|s| s.1)
+            .unwrap_or(std::borrow::Cow::Borrowed("rsmq"))
+            .into_owned();
+        config.port = url.port().unwrap_or(6379).to_string();
+
+        config
+    });
+
     let db = windmill_common::connect_db(server_mode).await?;
+
+    let rsmq = if let Some(config) = rsmq_config {
+        let mut rsmq = rsmq_async::MultiplexedRsmq::new(config).await.unwrap();
+
+        let _ = rsmq_async::RsmqConnection::create_queue(&mut rsmq, "main_queue", None, None, None)
+            .await;
+        Some(rsmq)
+    } else {
+        None
+    };
 
     if server_mode {
         windmill_api::migrate_db(&db).await?;
@@ -112,16 +144,17 @@ Windmill Community Edition {GIT_VERSION}
         "INCLUDE_HEADERS",
         "WHITELIST_WORKSPACES",
         "BLACKLIST_WORKSPACES",
-        "NEW_USER_WEBHOOK",
+        "INSTANCE_EVENTS_WEBHOOK",
         "CLOUD_HOSTED",
     ]);
 
     if server_mode || num_workers > 0 {
         let addr = SocketAddr::from((server_bind_address, port));
 
+        let rsmq2 = rsmq.clone();
         let server_f = async {
             if server_mode {
-                windmill_api::run_server(db.clone(), addr, rx.resubscribe()).await?;
+                windmill_api::run_server(db.clone(), rsmq2, addr, rx.resubscribe()).await?;
             }
             Ok(()) as anyhow::Result<()>
         };
@@ -133,15 +166,17 @@ Windmill Community Edition {GIT_VERSION}
                     rx.resubscribe(),
                     num_workers,
                     base_internal_url.clone(),
+                    rsmq.clone(),
                 )
                 .await?;
             }
             Ok(()) as anyhow::Result<()>
         };
 
+        let rsmq2 = rsmq.clone();
         let monitor_f = async {
             if server_mode {
-                monitor_db(&db, rx.resubscribe(), &base_internal_url);
+                monitor_db(&db, rx.resubscribe(), &base_internal_url, rsmq2);
             }
             Ok(()) as anyhow::Result<()>
         };
@@ -181,10 +216,11 @@ fn display_config(envs: Vec<&str>) {
     )
 }
 
-pub fn monitor_db(
+pub fn monitor_db<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(
     db: &Pool<Postgres>,
     rx: tokio::sync::broadcast::Receiver<()>,
     base_internal_url: &str,
+    rsmq: Option<R>,
 ) {
     let db1 = db.clone();
     let db2 = db.clone();
@@ -192,16 +228,17 @@ pub fn monitor_db(
     let rx2 = rx.resubscribe();
     let base_internal_url = base_internal_url.to_string();
     tokio::spawn(async move {
-        windmill_worker::handle_zombie_jobs_periodically(&db1, rx, &base_internal_url).await
+        windmill_worker::handle_zombie_jobs_periodically(&db1, rx, &base_internal_url, rsmq).await
     });
     tokio::spawn(async move { windmill_api::delete_expired_items_perdiodically(&db2, rx2).await });
 }
 
-pub async fn run_workers(
+pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(
     db: Pool<Postgres>,
     rx: tokio::sync::broadcast::Receiver<()>,
     num_workers: i32,
     base_internal_url: String,
+    rsmq: Option<R>,
 ) -> anyhow::Result<()> {
     let license_key = std::env::var("LICENSE_KEY").ok();
     #[cfg(feature = "enterprise")]
@@ -231,6 +268,7 @@ pub async fn run_workers(
         let ip = ip.clone();
         let rx = rx.resubscribe();
         let base_internal_url = base_internal_url.clone();
+        let rsmq2 = rsmq.clone();
         handles.push(tokio::spawn(monitor.instrument(async move {
             tracing::info!(worker = %worker_name, "starting worker");
             windmill_worker::run_worker(
@@ -241,6 +279,7 @@ pub async fn run_workers(
                 &ip,
                 rx,
                 &base_internal_url,
+                rsmq2,
             )
             .await
         })));

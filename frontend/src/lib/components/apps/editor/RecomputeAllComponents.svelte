@@ -6,7 +6,7 @@
 	import type { AppViewerContext } from '../types'
 	import { allItems } from '../utils'
 
-	const { runnableComponents, app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { runnableComponents, app, initialized } = getContext<AppViewerContext>('AppViewerContext')
 	let loading: boolean = false
 	let timeout: NodeJS.Timer | undefined = undefined
 	let interval: number | undefined = undefined
@@ -14,7 +14,7 @@
 	let firstLoad = false
 
 	$: !firstLoad &&
-		$worldStore.initializedOutputs ==
+		$initialized.initializedComponents?.length ==
 			allItems($app.grid, $app.subgrids).length + $app.hiddenInlineScripts.length &&
 		refresh()
 	$: componentNumber = Object.values($runnableComponents).filter((x) => x.autoRefresh).length
@@ -39,14 +39,19 @@
 	}
 
 	function refresh() {
+		let isFirstLoad = false
 		if (!firstLoad) {
-			$worldStore.initialized = true
+			$initialized.initialized = true
 			firstLoad = true
+			isFirstLoad = true
 		}
 		loading = true
 		Promise.all(
 			Object.keys($runnableComponents).map((id) => {
-				if (!$runnableComponents?.[id]?.autoRefresh) {
+				if (
+					!$runnableComponents?.[id]?.autoRefresh &&
+					(!isFirstLoad || !$runnableComponents?.[id]?.refreshOnStart)
+				) {
 					return
 				}
 				return $runnableComponents?.[id]?.cb?.()

@@ -48,6 +48,7 @@
 	const parentWidth = writable(0)
 	setContext<AppViewerContext>('AppViewerContext', {
 		worldStore: buildWorld(context),
+		initialized: writable({ initialized: false, initializedComponents: [] }),
 		app: appStore,
 		summary: writable(summary),
 		selectedComponent,

@@ -13,6 +13,7 @@
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'
 	import CapturePayload from './flows/content/CapturePayload.svelte'
 	import { Loader2 } from 'lucide-svelte'
+	import { getModifierKey } from '$lib/utils'
 
 	let capturePayload: CapturePayload
 	export let previewMode: 'upTo' | 'whole'
@@ -75,7 +76,7 @@
 		if (open) {
 			switch (event.key) {
 				case 'Enter':
-					if (event.ctrlKey) {
+					if (event.ctrlKey || event.metaKey) {
 						event.preventDefault()
 						runPreview($previewArgs)
 					}
@@ -134,7 +135,7 @@
 				btnClasses="w-full max-w-lg"
 				on:click={() => runPreview($previewArgs)}
 			>
-				Test flow <Kbd class="ml-2">Ctrl+Enter</Kbd>
+				Test flow <Kbd class="ml-2">{getModifierKey()}+Enter</Kbd>
 			</Button>
 		{/if}
 		<Button

@@ -8,6 +8,7 @@
 	import RunnableComponent from './RunnableComponent.svelte'
 	import { goto } from '$app/navigation'
 	import { sendUserToast } from '$lib/utils'
+	import InitializeComponent from './InitializeComponent.svelte'
 
 	export let componentInput: AppInput | undefined
 	export let id: string
@@ -39,6 +40,7 @@
 	export let recomputeIds: string[] = []
 	export let outputs: { result: Output<any>; loading: Output<boolean> }
 	export let extraKey: string | undefined = undefined
+	export let refreshOnStart: boolean = false
 
 	const { staticExporter, noBackend, componentControl, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -96,9 +98,11 @@
 </script>
 
 {#if componentInput === undefined}
+	<InitializeComponent {id} />
 	<slot />
 {:else if componentInput.type === 'runnable' && isRunnableDefined(componentInput)}
 	<RunnableComponent
+		{refreshOnStart}
 		{extraKey}
 		bind:loading
 		bind:this={runnableComponent}

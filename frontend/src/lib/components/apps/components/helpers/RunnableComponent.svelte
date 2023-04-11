@@ -8,7 +8,7 @@
 	import { classNames, defaultIfEmptyString, emptySchema, sendUserToast } from '$lib/utils'
 	import { deepEqual } from 'fast-equals'
 	import { Bug } from 'lucide-svelte'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy } from 'svelte'
 	import type { AppInputs, Runnable } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppViewerContext, InlineScript } from '../../types'
@@ -31,9 +31,10 @@
 	export let render: boolean
 	export let outputs: { result: Output<any>; loading: Output<boolean> }
 	export let extraKey = ''
-	export let recomputeOnInputChanged: boolean = false
+	export let recomputeOnInputChanged: boolean = true
 	export let loading = false
 	export let recomputableByRefreshButton: boolean = true
+	export let refreshOnStart: boolean = false
 
 	const {
 		worldStore,
@@ -47,17 +48,28 @@
 		mode,
 		stateId,
 		state,
-		componentControl
+		componentControl,
+		initialized
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const dispatch = createEventDispatcher()
 
 	$runnableComponents[id] = {
 		autoRefresh: autoRefresh && recomputableByRefreshButton,
+		refreshOnStart,
 		cb: async (inlineScript?: InlineScript) => {
 			await executeComponent(true, inlineScript)
 		}
 	}
+
+	if (!$initialized.initializedComponents.includes(id)) {
+		$initialized.initializedComponents = [...$initialized.initializedComponents, id]
+	}
+
+	onDestroy(() => {
+		$initialized.initializedComponents = $initialized.initializedComponents.filter((c) => c !== id)
+	})
+
 	$runnableComponents = $runnableComponents
 
 	let args: Record<string, any> | undefined = undefined
@@ -101,7 +113,7 @@
 	function refreshIfAutoRefresh(_src: string) {
 		const refreshEnabled =
 			autoRefresh && ((recomputeOnInputChanged ?? true) || refreshOn?.length > 0)
-		if (refreshEnabled && $worldStore.initialized) {
+		if (refreshEnabled && $initialized.initialized) {
 			setDebouncedExecute()
 		}
 	}

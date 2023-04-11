@@ -3957,76 +3957,6 @@
     },
     "query": "SELECT content FROM script WHERE path = $1 AND workspace_id = $2 AND\n         created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND archived = false AND workspace_id = $2)"
   },
-  "a1c41bbeb2d64fa1e7dfd2ed053191a1de5d786ae8c22e225e450865ecac94e9": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Uuid"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Uuid",
-          "Bool",
-          "Uuid",
-          "Varchar",
-          "Varchar",
-          "Timestamptz",
-          "Int8",
-          "Varchar",
-          "Text",
-          "Text",
-          "Jsonb",
-          {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "script",
-                  "preview",
-                  "flow",
-                  "dependencies",
-                  "flowpreview",
-                  "script_hub",
-                  "identity",
-                  "flowdependencies"
-                ]
-              },
-              "name": "job_kind"
-            }
-          },
-          "Varchar",
-          "Jsonb",
-          "Jsonb",
-          "Bool",
-          {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "python3",
-                  "deno",
-                  "go",
-                  "bash"
-                ]
-              },
-              "name": "script_lang"
-            }
-          },
-          "Bool",
-          "Text",
-          "Varchar",
-          "Bool",
-          "Uuid"
-        ]
-      }
-    },
-    "query": "INSERT INTO queue\n            (workspace_id, id, running, parent_job, created_by, permissioned_as, scheduled_for, \n                script_hash, script_path, raw_code, raw_lock, args, job_kind, schedule_path, raw_flow, flow_status, is_flow_step, language, started_at, same_worker, pre_run_error, email, visible_to_owner, root_job)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22, $23) RETURNING id"
-  },
   "a227548b6604c56bfc15eb780bd8ee72a89dc6701a50f5048e928bd87baa7b9a": {
     "describe": {
       "columns": [
@@ -5035,6 +4965,26 @@
       }
     },
     "query": "\n        INSERT INTO resume_job\n                    (id, resume_id, job, flow, value, approver)\n             VALUES ($1, $2, $3, $4, $5, $6)\n        "
+  },
+  "c4fb68ce79c1cec23cadc515285578ca18398504cf703091d06191ff68d95399": {
+    "describe": {
+      "columns": [
+        {
+          "name": "database_length!",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT coalesce(COUNT(*), 0) as \"database_length!\" FROM queue WHERE workspace_id = $1"
   },
   "c59dd666b9a316c027e8c319b80ccbab3a220d93b64357981bd4a03324dad1d0": {
     "describe": {
@@ -6121,6 +6071,76 @@
       }
     },
     "query": "SELECT EXISTS(SELECT 1 FROM schedule WHERE path = $1 AND workspace_id = $2)"
+  },
+  "f014bbaecaa09840c6b66d8b58b942fcf9827a7dfd9450f225fddd2b404c4f36": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Uuid",
+          "Bool",
+          "Uuid",
+          "Varchar",
+          "Varchar",
+          "Timestamptz",
+          "Int8",
+          "Varchar",
+          "Text",
+          "Text",
+          "Jsonb",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "script",
+                  "preview",
+                  "flow",
+                  "dependencies",
+                  "flowpreview",
+                  "script_hub",
+                  "identity",
+                  "flowdependencies"
+                ]
+              },
+              "name": "job_kind"
+            }
+          },
+          "Varchar",
+          "Jsonb",
+          "Jsonb",
+          "Bool",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "python3",
+                  "deno",
+                  "go",
+                  "bash"
+                ]
+              },
+              "name": "script_lang"
+            }
+          },
+          "Bool",
+          "Text",
+          "Varchar",
+          "Bool",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "INSERT INTO queue\n            (workspace_id, id, running, parent_job, created_by, permissioned_as, scheduled_for, \n                script_hash, script_path, raw_code, raw_lock, args, job_kind, schedule_path, raw_flow, flow_status, is_flow_step, language, started_at, same_worker, pre_run_error, email, visible_to_owner, root_job)\n            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, now()), $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22, $23) RETURNING id"
   },
   "f056b5f3e66a764748925f1bfd3180923fde8c7fdf69088d0e4a5555cc049545": {
     "describe": {

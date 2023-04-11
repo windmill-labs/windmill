@@ -8,9 +8,9 @@
 <!-- Generator: Adobe Illustrator 26.5.0, SVG Export Plug-In . SVG Version: 6.00 Build 0)  -->
 <svg
 	class={$$props.class}
-	class:animate-[spin-counter-clockwise_5s_linear_infinite]={spin === 'fast'}
-	class:animate-[spin-counter-clockwise_15s_linear_infinite]={spin === 'medium'}
-	class:animate-[spin-counter-clockwise_50s_linear_infinite]={spin === 'slow'}
+	class:animate-[spin_5s_linear_infinite]={spin === 'fast'}
+	class:animate-[spin_15s_linear_infinite]={spin === 'medium'}
+	class:animate-[spin_50s_linear_infinite]={spin === 'slow'}
 	version="1.1"
 	id="Calque_1"
 	xmlns="http://www.w3.org/2000/svg"

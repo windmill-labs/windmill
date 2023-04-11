@@ -70,10 +70,10 @@ https://user-images.githubusercontent.com/275584/218350457-bc2fdc3b-e667-4da5-a2
 
 3. Make it flow! You can chain your scripts or scripts made by the community
    shared on [WindmillHub](https://hub.windmill.dev).
-   ![Step 4](./imgs/windmill-flow.png)
+   ![Step 3](./imgs/windmill-flow.png)
 
 4. Build complex UI on top of your scripts and flows.
-   ![Step 5](./imgs/windmill-builder.png)
+   ![Step 4](./imgs/windmill-builder.png)
 
 Scripts and flows can also be triggered by a cron schedule '_/5 _ \* \* \*' or
 through webhooks.
@@ -123,7 +123,7 @@ instance from local commands. See
 ### Running scripts locally
 
 You can run your script locally easily, you simply need to pass the right
-environment variables for the `wmill` client library to fetch resource and
+environment variables for the `wmill` client library to fetch resources and
 variables from your instance if necessary. See more:
 <https://docs.windmill.dev/docs/advanced/local_development/>
 
@@ -332,7 +332,7 @@ it being synced automatically everyday.
 | INCLUDE_HEADERS           | None                   | Whitelist of headers that are passed to jobs as args (separated by a comma)                                                                                                                        | Server                |
 | WHITELIST_WORKSPACES      | None                   | Whitelist of workspaces this worker takes job from                                                                                                                                                 | Worker                |
 | BLACKLIST_WORKSPACES      | None                   | Blacklist of workspaces this worker takes job from                                                                                                                                                 | Worker                |
-| NEW_USER_WEBHOOK          | None                   | Webhook to notify of a new user added, signup/invite. Can hook back to windmill to send emails                                                                                                     | Server                |
+| INSTANCE_EVENTS_WEBHOOK   | None                   | Webhook to notify of events such as new user added, signup/invite. Can hook back to windmill to send emails                                                                                        | Server                |
 
 ## Run a local dev setup
 

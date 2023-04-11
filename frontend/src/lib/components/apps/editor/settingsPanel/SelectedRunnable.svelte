@@ -31,10 +31,15 @@
 		appInput = clearResultAppInput(appInput)
 	}
 
-	if (appInput.recomputeOnInputChanged === undefined) {
-		appInput.recomputeOnInputChanged = true
-	} else if (appInput.doNotRecomputeOnInputChanged == true) {
-		appInput.recomputeOnInputChanged = false
+	$: {
+		if (appInput.recomputeOnInputChanged === undefined) {
+			appInput.recomputeOnInputChanged = true
+		}
+		//TODO: remove after migration is done
+		if (appInput.doNotRecomputeOnInputChanged != undefined) {
+			appInput.recomputeOnInputChanged = !appInput.doNotRecomputeOnInputChanged
+			appInput.doNotRecomputeOnInputChanged = undefined
+		}
 	}
 </script>
 

@@ -2,7 +2,7 @@
 	import type { Schema } from '$lib/common'
 	import { ScriptService, type FlowModule, type InputTransform, type Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { getScriptByPath } from '$lib/utils'
+	import { getModifierKey, getScriptByPath } from '$lib/utils'
 	import { Loader2 } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -86,7 +86,7 @@
 			runnable={{ summary: mod.summary ?? '', schema, description: '' }}
 			runAction={(_, args) => runTest(args)}
 			schedulable={false}
-			buttonText="Test (Ctrl+Enter)"
+			buttonText={`Test (${getModifierKey()}+Enter)`}
 			detailed={false}
 			topButton
 			bind:args={stepArgs}

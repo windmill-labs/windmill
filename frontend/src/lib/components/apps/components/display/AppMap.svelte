@@ -11,6 +11,7 @@
 	import { Point } from 'ol/geom'
 	import { defaults as defaultControls } from 'ol/control'
 	import { findGridItem, initOutput } from '../../editor/appUtils'
+	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
 	interface Marker {
 		lon: number
@@ -192,6 +193,8 @@
 <InputValue {id} input={configuration.latitude} bind:value={latitude} />
 <InputValue {id} input={configuration.zoom} bind:value={zoom} />
 <InputValue {id} input={configuration.markers} bind:value={markers} />
+
+<InitializeComponent {id} />
 
 {#if render}
 	<div class="relative h-full w-full">

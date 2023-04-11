@@ -52,8 +52,8 @@ pub fn paginate(pagination: Pagination) -> (usize, usize) {
 }
 
 #[cfg(feature = "sqlx")]
-pub async fn now_from_db<'c>(
-    db: &mut sqlx::Transaction<'c, sqlx::Postgres>,
+pub async fn now_from_db<'c, E: sqlx::PgExecutor<'c>>(
+    db: E,
 ) -> Result<chrono::DateTime<chrono::Utc>> {
     Ok(sqlx::query_scalar!("SELECT now()")
         .fetch_one(db)

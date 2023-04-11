@@ -24,8 +24,6 @@ export type World = {
 	connect: <T>(inputSpec: AppInput, next: (x: T) => void, id?: string) => Input<T>
 	stateId: Writable<number>
 	newOutput: <T>(id: string, name: string, previousValue: T) => Output<T>
-	initializedOutputs: number
-	initialized: boolean
 }
 
 export function buildWorld(context: Record<string, any>): Writable<World> {
@@ -59,9 +57,7 @@ export function buildWorld(context: Record<string, any>): Writable<World> {
 		outputsById,
 		connect: newWorld.connect,
 		stateId,
-		newOutput,
-		initializedOutputs: 0,
-		initialized: false
+		newOutput
 	})
 	return writableWorld
 }

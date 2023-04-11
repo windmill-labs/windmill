@@ -43,7 +43,7 @@ use windmill_common::{
     },
 };
 use windmill_parser::MainArgSignature;
-use windmill_queue::{self, schedule::push_scheduled_job};
+use windmill_queue::{self, schedule::push_scheduled_job, QueueTransaction};
 
 const MAX_HASH_HISTORY_LENGTH_STORED: usize = 20;
 
@@ -193,6 +193,7 @@ fn hash_script(ns: &NewScript) -> i64 {
 async fn create_script(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
@@ -200,14 +201,14 @@ async fn create_script(
 ) -> Result<(StatusCode, String)> {
     let hash = ScriptHash(hash_script(&ns));
     let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
 
     if sqlx::query_scalar!(
         "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2",
         hash.0,
         &w_id
     )
-    .fetch_optional(&mut tx)
+    .fetch_optional(tx.transaction_mut())
     .await?
     .is_some()
     {
@@ -268,7 +269,7 @@ async fn create_script(
                 )));
             };
 
-            let ps = get_script_by_hash_internal(&mut tx, &w_id, p_hash).await?;
+            let ps = get_script_by_hash_internal(tx.transaction_mut(), &w_id, p_hash).await?;
 
             if ps.path != ns.path {
                 if !authed.is_admin {
@@ -363,43 +364,13 @@ async fn create_script(
         .await?;
 
         for schedule in schedulables {
-            clear_schedule(&mut tx, &schedule.path, false).await?;
+            clear_schedule(tx.transaction_mut(), &schedule.path, false).await?;
 
             if schedule.enabled {
                 tx = push_scheduled_job(tx, schedule).await?;
             }
         }
     }
-
-    let mut tx = if needs_lock_gen {
-        let dependencies = match ns.language {
-            ScriptLang::Python3 => {
-                windmill_parser_py::parse_python_imports(&ns.content)?.join("\n")
-            }
-            _ => ns.content,
-        };
-        let (_, tx) = windmill_queue::push(
-            tx,
-            &w_id,
-            windmill_queue::JobPayload::Dependencies { hash, dependencies, language: ns.language },
-            serde_json::Map::new(),
-            &authed.username,
-            &authed.email,
-            username_to_permissioned_as(&authed.username),
-            None,
-            None,
-            None,
-            None,
-            false,
-            false,
-            None,
-            true,
-        )
-        .await?;
-        tx
-    } else {
-        tx
-    };
 
     if p_hashes.is_some() && !p_hashes.unwrap().is_empty() {
         audit_log(
@@ -415,7 +386,7 @@ async fn create_script(
         webhook.send_message(
             w_id.clone(),
             WebhookMessage::UpdateScript {
-                workspace: w_id,
+                workspace: w_id.clone(),
                 path: ns.path.clone(),
                 hash: hash.to_string(),
             },
@@ -440,11 +411,39 @@ async fn create_script(
         webhook.send_message(
             w_id.clone(),
             WebhookMessage::CreateScript {
-                workspace: w_id,
+                workspace: w_id.clone(),
                 path: ns.path.clone(),
                 hash: hash.to_string(),
             },
         );
+    }
+
+    if needs_lock_gen {
+        let dependencies = match ns.language {
+            ScriptLang::Python3 => {
+                windmill_parser_py::parse_python_imports(&ns.content)?.join("\n")
+            }
+            _ => ns.content,
+        };
+        let (_, new_tx) = windmill_queue::push(
+            tx,
+            &w_id,
+            windmill_queue::JobPayload::Dependencies { hash, dependencies, language: ns.language },
+            serde_json::Map::new(),
+            &authed.username,
+            &authed.email,
+            username_to_permissioned_as(&authed.username),
+            None,
+            None,
+            None,
+            None,
+            false,
+            false,
+            None,
+            true,
+        )
+        .await?;
+        tx = new_tx;
     }
 
     tx.commit().await?;

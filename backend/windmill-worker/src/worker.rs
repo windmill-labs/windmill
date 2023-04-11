@@ -12,12 +12,13 @@ use itertools::Itertools;
 use lazy_static::lazy_static;
 use once_cell::sync::OnceCell;
 use regex::Regex;
-use sqlx::{Pool, Postgres, Transaction};
+use sqlx::{Pool, Postgres};
 use windmill_api_client::Client;
 use windmill_parser_go::parse_go_imports;
 use std::{
     borrow::Borrow, collections::HashMap, io, os::unix::process::ExitStatusExt, panic,
-    process::Stdio, time::Duration, sync::atomic::Ordering,
+    process::Stdio, time::{Duration}, sync::atomic::Ordering,
+    sync::{Arc},
 };
 use tracing::{trace_span, Instrument};
 use uuid::Uuid;
@@ -38,9 +39,9 @@ use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     process::{Child, Command},
     sync::{
-        mpsc::{self, Sender},  watch, broadcast
+        mpsc::{self, Sender},  watch, broadcast, RwLock
     },
-    time::{interval, sleep, Instant, MissedTickBehavior},
+    time::{interval, sleep, Instant, MissedTickBehavior}
 };
 
 use futures::{
@@ -288,19 +289,40 @@ async fn move_tmp_cache_to_cache() -> Result<()> {
     Ok(())
 }
 
+pub async fn create_token_for_owner_in_bg(db: &Pool<Postgres>, job: &QueuedJob) -> Arc<RwLock<String>> {
+    let rw_lock = Arc::new(RwLock::new(String::new()));
+    let mut locked = rw_lock.clone().write_owned().await;
+    let db = db.clone();
+    let job = job.clone();
+    tokio::spawn(async move {
+        let job = job.clone();
+        let token = create_token_for_owner(
+            &db.clone(),
+            &job.workspace_id,
+            &job.permissioned_as,
+            "ephemeral-script",
+            *SESSION_TOKEN_EXPIRY,
+            &job.email,
+        )
+        .await.expect("could not create job token");
+        *locked = token;
+    });
+    return rw_lock;
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
-pub async fn create_token_for_owner<'c>(
-    mut tx: Transaction<'c, Postgres>,
+pub async fn create_token_for_owner(
+    db: &Pool<Postgres>,
     w_id: &str,
     owner: &str,
     label: &str,
     expires_in: i32,
     email: &str,
-) -> error::Result<(Transaction<'c, Postgres>, String)> {
+) -> error::Result<String> {
     // TODO: Bad implementation. We should not have access to this DB here.
     let token: String = rd_string(30);
     let is_super_admin = sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", email)
-            .fetch_optional(&mut tx)
+            .fetch_optional(db)
             .await?
             .unwrap_or(false) || email == SUPERADMIN_SECRET_EMAIL;
 
@@ -316,9 +338,9 @@ pub async fn create_token_for_owner<'c>(
         is_super_admin,
         email
     )
-    .execute(&mut tx)
+    .execute(db)
     .await?;
-    Ok((tx, token))
+    Ok(token)
 }
 
 const TMP_DIR: &str = "/tmp/windmill";
@@ -474,6 +496,26 @@ lazy_static::lazy_static! {
 //only matter if CLOUD_HOSTED
 const MAX_RESULT_SIZE: usize = 1024 * 1024 * 2; // 2MB
 
+pub struct AuthedClientBackgroundTask {
+    pub base_internal_url: String,
+    pub workspace: String,
+    pub token: Arc<RwLock<String>>,
+    pub client: OnceCell<Client>
+}
+
+impl AuthedClientBackgroundTask {
+    pub async fn get_authed(&self) -> AuthedClient {
+        return AuthedClient {
+            base_internal_url: self.base_internal_url.clone(),
+            workspace: self.workspace.clone(),
+            token: self.get_token().await,
+            client: self.client.clone()
+        }
+    }
+    pub async fn get_token(&self) -> String {
+        return self.token.read().await.clone();
+    }
+}
 #[derive(Clone)]
 pub struct AuthedClient {
     pub base_internal_url: String,
@@ -491,8 +533,8 @@ impl AuthedClient {
 }
 
 
-#[tracing::instrument(level = "trace")]
-pub async fn run_worker(
+#[tracing::instrument(skip(rsmq), level = "trace")]
+pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     db: &Pool<Postgres>,
     worker_instance: &str,
     worker_name: String,
@@ -500,8 +542,8 @@ pub async fn run_worker(
     ip: &str,
     mut rx: tokio::sync::broadcast::Receiver<()>,
     base_internal_url: &str,
+    rsmq: Option<R>,
 ) {
-
     #[cfg(not(feature = "enterprise"))]
     if !*DISABLE_NSJAIL {
         tracing::warn!(
@@ -539,30 +581,33 @@ pub async fn run_worker(
     .unwrap();
 
 
-    let worker_execution_duration = prometheus::register_histogram_vec!(
+    let all_langs = [
+        None, 
+        Some(ScriptLang::Python3),
+        Some(ScriptLang::Deno),
+        Some(ScriptLang::Go),
+        Some(ScriptLang::Bash)];
+
+    let worker_execution_duration: HashMap<_, _>  = all_langs.clone().into_iter().map(|x| (x.clone(), prometheus::register_histogram!(
         prometheus::HistogramOpts::new(
             "worker_execution_duration",
             "Duration between receiving a job and completing it",
         )
-        .const_label("name", &worker_name),
-        &["workspace_id", "language"],
-    )
-    .expect("register prometheus metric");
-
-    let worker_execution_duration_counter = prometheus::register_counter!(prometheus::opts!(
-        "worker_execution_duration_counter",
-        "Total number of seconds spent executing jobs"
-    )
-        .const_label("name", &worker_name))
-        .expect("register prometheus metric");
+        .const_label("name", &worker_name)
+        .const_label("language", x.map(|x| x.as_str()).unwrap_or("none")))
+        .expect("register prometheus metric"))
+    ).collect();
 
 
-    let worker_sleep_duration = prometheus::register_histogram!(prometheus::HistogramOpts::new(
-        "worker_sleep_duration",
-        "Duration sleeping waiting for job",
-    )
-    .const_label("name", &worker_name),)
-    .expect("register prometheus metric");
+    let worker_execution_duration_counter: HashMap<_, _>  = all_langs.clone().into_iter().map(|x| (x.clone(), prometheus::register_counter!(
+        prometheus::Opts::new(
+            "worker_execution_duration_counter",
+            "Total number of seconds spent executing jobs"
+        )
+        .const_label("name", &worker_name)
+        .const_label("language", x.map(|x| x.as_str()).unwrap_or("none")))
+        .expect("register prometheus metric"))
+    ).collect();
 
 
     let worker_sleep_duration_counter = prometheus::register_counter!(prometheus::opts!(
@@ -587,19 +632,24 @@ pub async fn run_worker(
         .const_label("name", &worker_name))
         .expect("register prometheus metric");
 
-    let worker_execution_failed = prometheus::register_int_counter_vec!(
-        prometheus::Opts::new("worker_execution_failed", "Number of failed jobs",)
-            .const_label("name", &worker_name),
-        &["workspace_id", "language"],
-    )
-    .expect("register prometheus metric");
+    let worker_execution_failed: HashMap<_, _>  = all_langs.clone().into_iter().map(|x| (x.clone(), prometheus::register_int_counter!(
+        prometheus::Opts::new(
+            "worker_execution_failed", "Number of failed jobs",
+        )
+        .const_label("name", &worker_name)
+        .const_label("language", x.map(|x| x.as_str()).unwrap_or("none")))
+        .expect("register prometheus metric"))
+    ).collect();
 
-    let worker_execution_count = prometheus::register_int_counter_vec!(
-        prometheus::Opts::new("worker_execution_count", "Number of executed jobs",)
-            .const_label("name", &worker_name),
-        &["workspace_id", "language"],
-    )
-    .expect("register prometheus metric");
+
+    let worker_execution_count: HashMap<_, _> = all_langs.into_iter().map(|x| (x.clone(), prometheus::register_int_counter!(
+        prometheus::Opts::new(
+            "worker_execution_count", "Number of executed jobs"
+        )
+        .const_label("name", &worker_name)
+        .const_label("language", x.map(|x| x.as_str()).unwrap_or("none")))
+        .expect("register prometheus metric"))
+    ).collect();
 
     let worker_busy: prometheus::IntGauge = prometheus::register_int_gauge!(prometheus::Opts::new(
         "worker_busy",
@@ -648,7 +698,7 @@ pub async fn run_worker(
         if *METRICS_ENABLED {
             worker_busy.set(0);
             uptime_metric.inc_by(
-                (((Instant::now() - start_time).as_millis() as f64)/1000.0 - uptime_metric.get())
+                ((start_time.elapsed().as_millis() as f64)/1000.0 - uptime_metric.get())
                     .try_into()
                     .unwrap(),
             );
@@ -710,7 +760,8 @@ pub async fn run_worker(
                     },
                     (job, timer) = {
                         let timer = if *METRICS_ENABLED { Some(worker_pull_duration.start_timer()) } else { None }; 
-                        pull(&db, WHITELIST_WORKSPACES.clone(), BLACKLIST_WORKSPACES.clone()).map(|x| (x, timer)) } => {
+                        pull(&db, WHITELIST_WORKSPACES.clone(), BLACKLIST_WORKSPACES.clone(), rsmq.clone()).map(|x| (x, timer)) 
+                    } => {
                         timer.map(|timer| {
                             let duration_pull_s = timer.stop_and_record();
                             worker_pull_duration_counter.inc_by(duration_pull_s);
@@ -719,6 +770,7 @@ pub async fn run_worker(
                     },
                 }
             }.instrument(trace_span!("worker_get_next_job")).await;
+
             if do_break {
                 return true;
             }
@@ -727,26 +779,30 @@ pub async fn run_worker(
             }
             match next_job {
                 Ok(Some(job)) => {
-                    let label_values = [
-                        &job.workspace_id,
-                        job.language.as_ref().map(|l| l.as_str()).unwrap_or(""),
-                    ];
+                    // println!("{:?}",  SystemTime::now());
 
+                    let token = create_token_for_owner_in_bg(&db, &job).await;
+                    let language = job.language.clone();
                     let _timer = worker_execution_duration
-                        .with_label_values(label_values.as_slice())
+                        .get(&language)
+                        .expect("no timer found")
                         .start_timer();
 
                     jobs_executed += 1;
                     if *METRICS_ENABLED {
                         worker_execution_count
-                            .with_label_values(label_values.as_slice())
+                            .get(&language)
+                            .expect("no timer found")
                             .inc();
                     }
 
-                    let metrics = Metrics {
-                        worker_execution_failed: worker_execution_failed
-                            .with_label_values(label_values.as_slice()),
-                    };
+                    let metrics = if *METRICS_ENABLED {
+                        Some(Metrics {
+                            worker_execution_failed: worker_execution_failed
+                                .get(&language)
+                                .expect("no timer found").clone(),
+                        }) 
+                    } else { None };
 
                     let job_root = job.root_job.map(|x| x.to_string()).unwrap_or_else(|| "none".to_string());
                     tracing::info!(worker = %worker_name, id = %job.id, root_id = %job_root, "fetched job {}, root job: {}", job.id, job_root);
@@ -781,61 +837,54 @@ pub async fn run_worker(
                             .await
                             .expect("could not create shared dir");
                     }
-                    let tx = db.begin().await.expect("could not start token transaction");
-                    let (tx, token) = create_token_for_owner(
-                        tx,
-                        &job.workspace_id,
-                        &job.permissioned_as,
-                        "ephemeral-script",
-                        *SESSION_TOKEN_EXPIRY,
-                        &job.email,
-                    )
-                    .await.expect("could not create job token");
-                    tx.commit().await.expect("could not commit job token");
-                    let authed_client = AuthedClient { base_internal_url: base_internal_url.to_string(), token: token.clone(), workspace: job.workspace_id.to_string(), client: OnceCell::new() };
+
+                    let authed_client = AuthedClientBackgroundTask { base_internal_url: base_internal_url.to_string(), token: token, workspace: job.workspace_id.to_string(), client: OnceCell::new() };
                     let is_flow = job.job_kind == JobKind::Flow || job.job_kind == JobKind::FlowPreview || job.job_kind == JobKind::FlowDependencies;
 
                     if let Some(err) = handle_queued_job(
                         job.clone(),
                         db,
                         &authed_client,
-                        token,
                         &worker_name,
                         &worker_dir,
                         &job_dir,
                         metrics.clone(),
                         same_worker_tx.clone(),
-                        base_internal_url
+                        base_internal_url,
+                        rsmq.clone()
                     )
                     .await
                     .err()
                     {
                         handle_job_error(
                             db,
-                            &authed_client,
+                            &authed_client.get_authed().await,
                             job,
                             err,
-                            Some(metrics),
+                            metrics,
                             false,
                             same_worker_tx.clone(),
                             &worker_dir,
-                            base_internal_url
+                            base_internal_url,
+                            rsmq.clone()
                         )
                         .await;
                     };
 
                     let duration = _timer.stop_and_record();
-                    worker_execution_duration_counter.inc_by(duration);
+                    worker_execution_duration_counter
+                        .get(&language)
+                        .expect("no timer found").inc_by(duration);
 
                     if !*KEEP_JOB_DIR && !(is_flow && same_worker) {
                         let _ = tokio::fs::remove_dir_all(job_dir).await;
                     }
                 }
                 Ok(None) => {
-                    let _timer =  if *METRICS_ENABLED { Some(worker_sleep_duration.start_timer()) } else { None };
+                    let _timer =  if *METRICS_ENABLED { Some(Instant::now()) } else { None };
                     tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE)).await;
                     _timer.map(|timer| {
-                        let duration = timer.stop_and_record();
+                        let duration = timer.elapsed().as_secs_f64();
                         worker_sleep_duration_counter.inc_by(duration);
                     });
                 }
@@ -854,7 +903,7 @@ pub async fn run_worker(
     }
 }
 
-async fn handle_job_error(
+async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     db: &Pool<Postgres>,
     client: &AuthedClient,
     job: QueuedJob,
@@ -864,12 +913,14 @@ async fn handle_job_error(
     same_worker_tx: Sender<Uuid>,
     worker_dir: &str,
     base_internal_url: &str,
+    rsmq: Option<R>,
 ) {
     let err = match err {
         Error::JsonErr(err) => err,
         _ => json!({"message": err.to_string(), "name": "InternalErr"}),
     };
 
+    let rsmq_2 = rsmq.clone();
     let update_job_future = || {
         add_completed_job_error(
             db,
@@ -877,15 +928,16 @@ async fn handle_job_error(
             format!("Unexpected error during job execution:\n{err}"),
             err.clone(),
             metrics.clone(),
+            rsmq_2,
         )
     };
 
-    if job.is_flow_step || job.job_kind == JobKind::FlowPreview || job.job_kind == JobKind::Flow {
-        let (flow, job_status_to_update) = if let Some(parent_job_id) = job.parent_job {
+    let update_job_future = if job.is_flow_step || job.job_kind == JobKind::FlowPreview || job.job_kind == JobKind::Flow {
+        let (flow, job_status_to_update, update_job_future) = if let Some(parent_job_id) = job.parent_job {
             let _ = update_job_future().await;
-            (parent_job_id, job.id)
+            (parent_job_id, job.id, None)
         } else {
-            (job.id, Uuid::nil())
+            (job.id, Uuid::nil(), Some(update_job_future))
         };
 
         let updated_flow = update_flow_status_after_job_completion(
@@ -902,7 +954,7 @@ async fn handle_job_error(
             worker_dir,
             None,
             base_internal_url,
-            
+            rsmq.clone(),
         )
         .await;
 
@@ -918,15 +970,20 @@ async fn handle_job_error(
                             format!("Unexpected error during flow job error handling:\n{err}"),
                             json!({"message": err.to_string(), "name": "InternalErr"}),
                             metrics.clone(),
+                            rsmq,
                         )
                         .await;
                     }
                 }
             }
         }
-    }
-    if job.parent_job.is_none() {
-        let _ = update_job_future().await;
+
+        update_job_future
+    } else {
+        Some(update_job_future)
+    };
+    if let Some(f) = update_job_future {
+        let _ = f().await;
     }
     tracing::error!(job_id = %job.id, "error handling job: {err:#?} {} {} {}", job.id, job.workspace_id, job.created_by);
 }
@@ -953,17 +1010,17 @@ fn extract_error_value(log_lines: &str, i: i32) -> serde_json::Value {
     return json!({"message": format!("ExitCode: {i}, last log lines: {}", log_lines.to_string().trim().to_string()), "name": "ExecutionErr"});
 }
 #[tracing::instrument(level = "trace", skip_all)]
-async fn handle_queued_job(
+async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     job: QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClient,
-    token: String,
+    client: &AuthedClientBackgroundTask,
     worker_name: &str,
     worker_dir: &str,
     job_dir: &str,
-    metrics: Metrics,
+    metrics: Option<Metrics>,
     same_worker_tx: Sender<Uuid>,
     base_internal_url: &str,
+    rsmq: Option<R>,
 ) -> windmill_common::error::Result<()> {
     if job.canceled {
         return Err(Error::JsonErr(canceled_job_to_result(&job)))?;
@@ -978,16 +1035,18 @@ async fn handle_queued_job(
             handle_flow(
                 &job,
                 db,
-                client,
+                &client.get_authed().await,
                 args,
                 same_worker_tx,
                 worker_dir,
-                base_internal_url
+                base_internal_url,
+                rsmq,
             )
             .await?;
         }
         _ => {
             let mut logs = "".to_string();
+            // println!("handle queue {:?}",  SystemTime::now());
             if let Some(log_str) = &job.logs {
                 logs.push_str(&log_str);
             }
@@ -1034,7 +1093,6 @@ async fn handle_queued_job(
                         &job,
                         db,
                         client,
-                        token,
                         job_dir,
                         worker_dir,
                         &mut logs,
@@ -1045,9 +1103,11 @@ async fn handle_queued_job(
                 }
             };
 
+            let client = &client.get_authed().await;
             match result {
                 Ok(r) => {
-                    add_completed_job(db, &job, true, false, r.clone(), logs).await?;
+                    // println!("bef completed job{:?}",  SystemTime::now());
+                    add_completed_job(db, &job, true, false, r.clone(), logs, rsmq.clone()).await?;
                     if job.is_flow_step {
                         if let Some(parent_job) = job.parent_job {
                             update_flow_status_after_job_completion(
@@ -1058,13 +1118,13 @@ async fn handle_queued_job(
                                 &job.workspace_id,
                                 true,
                                 r,
-                                Some(metrics.clone()),
+                                metrics.clone(),
                                 false,
                                 same_worker_tx.clone(),
                                 worker_dir,
                                 None,
                                 base_internal_url,
-                        
+                                rsmq.clone()
                             )
                             .await?;
                         }
@@ -1099,7 +1159,7 @@ async fn handle_queued_job(
                     };
 
                     let result =
-                        add_completed_job_error(db, &job, logs, error_value, Some(metrics.clone()))
+                        add_completed_job_error(db, &job, logs, error_value, metrics.clone(), rsmq.clone())
                             .await?;
                     if job.is_flow_step {
                         if let Some(parent_job) = job.parent_job {
@@ -1111,13 +1171,13 @@ async fn handle_queued_job(
                                 &job.workspace_id,
                                 false,
                                 result,
-                                Some(metrics),
+                                metrics,
                                 false,
                                 same_worker_tx,
                                 worker_dir,
                                 None,
                                 base_internal_url,
-                                
+                                rsmq
                             )
                             .await?;
                         }
@@ -1188,8 +1248,7 @@ async fn transform_json_value(
 async fn handle_code_execution_job(
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClient,
-    token: String,
+    client: &AuthedClientBackgroundTask,
     job_dir: &str,
     worker_dir: &str,
     logs: &mut String,
@@ -1247,6 +1306,8 @@ mount {{
         "".to_string()
     };
 
+    // println!("handle lang job {:?}",  SystemTime::now());
+
     let result: error::Result<serde_json::Value> = match language {
         None => {
             return Err(Error::ExecutionErr(
@@ -1263,7 +1324,6 @@ mount {{
                 logs,
                 db,
                 client,
-                token,
                 &inner_content,
                 &shared_mount,
                 base_internal_url,
@@ -1276,7 +1336,6 @@ mount {{
                 job,
                 db,
                 client,
-                token,
                 job_dir,
                 &inner_content,
                 base_internal_url,
@@ -1290,7 +1349,6 @@ mount {{
                 job,
                 db,
                 client,
-                token,
                 &inner_content,
                 job_dir,
                 requirements_o,
@@ -1305,7 +1363,7 @@ mount {{
                 logs,
                 job,
                 db,
-                token,
+                client,
                 &inner_content,
                 job_dir,
                 &shared_mount,
@@ -1324,6 +1382,8 @@ mount {{
         &lang_str,
         job.id
     );
+    // println!("handled job: {:?}",  SystemTime::now());
+
     result
 }
 
@@ -1346,8 +1406,7 @@ async fn handle_go_job(
     logs: &mut String,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClient,
-    token: String,
+    client: &AuthedClientBackgroundTask,
     inner_content: &str,
     job_dir: &str,
     requirements_o: Option<String>,
@@ -1362,6 +1421,7 @@ async fn handle_go_job(
     } else {
         (false, false)
     };
+
     logs.push_str("\n\n--- GO DEPENDENCIES SETUP ---\n");
     set_logs(logs, &job.id, db).await;
 
@@ -1381,6 +1441,7 @@ async fn handle_go_job(
 
     logs.push_str("\n\n--- GO CODE EXECUTION ---\n");
     set_logs(logs, &job.id, db).await;
+    let client = &client.get_authed().await;
     create_args_and_out_file(client, job, job_dir).await?;
     {
         let sig = windmill_parser_go::parse_go_sig(&inner_content)?;
@@ -1468,7 +1529,7 @@ func Run(req Req) (interface{{}}, error){{
             write_file(&format!("{job_dir}/inner"), "runner.go", &runner_content).await?;
         }
     }
-    let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
+    let mut reserved_variables = get_reserved_variables(job, &client.token, db).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
     let child = if !*DISABLE_NSJAIL {
@@ -1528,7 +1589,7 @@ async fn handle_bash_job(
     logs: &mut String,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    token: String,
+    client: &AuthedClientBackgroundTask,
     content: &str,
     job_dir: &str,
     shared_mount: &str,
@@ -1538,7 +1599,7 @@ async fn handle_bash_job(
     logs.push_str("\n\n--- BASH CODE EXECUTION ---\n");
     set_logs(logs, &job.id, db).await;
     write_file(job_dir, "main.sh", &format!("{content}\necho \"\"\nsync\necho \"\"")).await?;
-
+    let token = client.get_token().await;
     let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
@@ -1639,74 +1700,105 @@ async fn handle_deno_job(
     logs: &mut String,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClient,
-    token: String,
+    client: &AuthedClientBackgroundTask,
     job_dir: &str,
     inner_content: &String,
     base_internal_url: &str,
     worker_name: &str
 ) -> error::Result<serde_json::Value> {
+
     // let mut start = Instant::now();
     logs.push_str("\n\n--- DENO CODE EXECUTION ---\n");
-    set_logs(logs, &job.id, db).await;
+
+    let logs_to_set = logs.clone();
+    let id = job.id.clone();
+    let db2 = db.clone();
+
+    let set_logs_f = async {
+        set_logs(&logs_to_set, &id, &db2).await;
+        Ok(()) as error::Result<()>
+    };
     
-    // logs.push_str(format!("st: {:?}\n", start.elapsed().as_millis()).as_str());
-    // start = Instant::now();
-    let _ = write_file(job_dir, "main.ts", inner_content).await?;
+    let write_main_f = write_file(job_dir, "main.ts", inner_content);
 
-    let sig = trace_span!("parse_deno_signature")
-        .in_scope(|| windmill_parser_ts::parse_deno_signature(inner_content, true))?;
+    let write_wrapper_f = async {
+        // let mut start = Instant::now();
+        let spread =  windmill_parser_ts::parse_deno_signature(inner_content, true)?.args.into_iter().map(|x| x.name).join(",");
+        // logs.push_str(format!("infer args: {:?}\n", start.elapsed().as_micros()).as_str());
+        let wrapper_content: String = format!(
+            r#"
+    import {{ main }} from "./main.ts";
 
-    create_args_and_out_file(client, job, job_dir).await?;
+    const args = await Deno.readTextFile("args.json")
+        .then(JSON.parse)
+        .then(({{ {spread} }}) => [ {spread} ])
 
-    let spread = sig.args.into_iter().map(|x| x.name).join(",");
-    let wrapper_content: String = format!(
-        r#"
-import {{ main }} from "./main.ts";
-
-const args = await Deno.readTextFile("args.json")
-    .then(JSON.parse)
-    .then(({{ {spread} }}) => [ {spread} ])
-
-async function run() {{
-    let res: any = await main(...args);
-    const res_json = JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value);
-    await Deno.writeTextFile("result.json", res_json);
-    Deno.exit(0);
-}}
-run().catch(async (e) => {{
-    await Deno.writeTextFile("result.json", JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
-    Deno.exit(1);
-}});
-"#,
-    );
-    let w_id = job.workspace_id.clone();
-    let script_path_split = job.script_path().split("/");
-    let script_path_parts_len = script_path_split.clone().count();
-    let mut relative_mounts = "".to_string();
-    for c in 0..script_path_parts_len {
-        relative_mounts += ",\n          ";
-        relative_mounts += &format!("\"./{}\": \"{base_internal_url}/api/w/{w_id}/scripts/raw/p/{}{}\"",
-            (0..c).map(|_| "../").join(""),
-            &script_path_split.clone().take(script_path_parts_len - c - 1).join("/"),
-            if c == script_path_parts_len - 1 { "" } else { "/" },
+    async function run() {{
+        let res: any = await main(...args);
+        const res_json = JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value);
+        await Deno.writeTextFile("result.json", res_json);
+        Deno.exit(0);
+    }}
+    run().catch(async (e) => {{
+        await Deno.writeTextFile("result.json", JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
+        Deno.exit(1);
+    }});
+    "#,
         );
-    }
-    write_file(job_dir, "wrapper.ts", &wrapper_content).await?;
-    let import_map = format!(
-        r#"{{
-        "imports": {{
-          "/": "{base_internal_url}/api/w/{w_id}/scripts/raw/p/",
-          "./wrapper.ts": "./wrapper.ts",
-          "./main.ts": "./main.ts"{relative_mounts}
-        }}
-      }}"#,
-    );
-    write_file(job_dir, "import_map.json", &import_map).await?;
-    let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
-    reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
+        write_file(job_dir, "wrapper.ts", &wrapper_content).await?;
+        Ok(()) as error::Result<()>
+    };
+
+    let write_import_map_f = async {
+        let w_id = job.workspace_id.clone();
+        let script_path_split = job.script_path().split("/");
+        let script_path_parts_len = script_path_split.clone().count();
+        let mut relative_mounts = "".to_string();
+        for c in 0..script_path_parts_len {
+            relative_mounts += ",\n          ";
+            relative_mounts += &format!("\"./{}\": \"{base_internal_url}/api/w/{w_id}/scripts/raw/p/{}{}\"",
+                (0..c).map(|_| "../").join(""),
+                &script_path_split.clone().take(script_path_parts_len - c - 1).join("/"),
+                if c == script_path_parts_len - 1 { "" } else { "/" },
+            );
+        }
+        let import_map = format!(
+            r#"{{
+            "imports": {{
+              "/": "{base_internal_url}/api/w/{w_id}/scripts/raw/p/",
+              "./wrapper.ts": "./wrapper.ts",
+              "./main.ts": "./main.ts"{relative_mounts}
+            }}
+          }}"#,
+        );
+        write_file(job_dir, "import_map.json", &import_map).await?;
+        Ok(()) as error::Result<()>
+    };
+
+    let reserved_variables_args_out_f = async {
+        let client = client.get_authed().await;
+        let args_and_out_f = async {
+            create_args_and_out_file(&client, job, job_dir).await?;
+            Ok(()) as Result<()>
+        };
+        let reserved_variables_f = async {
+            let mut vars = get_reserved_variables(job, &client.token, db).await?;
+            vars.insert("RUST_LOG".to_string(), "info".to_string());
+            Ok(vars) as Result<HashMap<String, String>>
+        };
+        let (_, reserved_variables) = tokio::try_join!(args_and_out_f, reserved_variables_f)?;
+        Ok((reserved_variables, client.token)) as error::Result<(HashMap<String, String>, String)>
+    };
+
+    let (_, (reserved_variables, token), _, _, _) = tokio::try_join!(
+        set_logs_f,
+        reserved_variables_args_out_f,
+        write_main_f,
+        write_wrapper_f,
+        write_import_map_f)?;
 
     let common_deno_proc_envs = get_common_deno_proc_envs(&token, base_internal_url);
+
     //do not cache local dependencies
     let reload = format!("--reload={base_internal_url}");
     let child = async {
@@ -1742,16 +1834,12 @@ run().catch(async (e) => {{
                 .stderr(Stdio::piped())
                 .spawn()
     }
-    .instrument(trace_span!("create_deno_jail"))
     .await?;
-    // logs.push_str(format!("prepare: {:?}\n", start.elapsed().as_millis()).as_str());
+    // logs.push_str(format!("prepare: {:?}\n", start.elapsed().as_micros()).as_str());
     // start = Instant::now();
     handle_child(&job.id, db, logs, child, false, worker_name, &job.workspace_id).await?;
     // logs.push_str(format!("execute: {:?}\n", start.elapsed().as_millis()).as_str());
-    // start = Instant::now();
-    let r = read_result(job_dir).await;
-    // logs.push_str(format!("rr: {:?}\n", start.elapsed().as_millis()).as_str());
-    r
+    read_result(job_dir).await
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -1784,8 +1872,7 @@ async fn handle_python_job(
     job: &QueuedJob,
     logs: &mut String,
     db: &sqlx::Pool<sqlx::Postgres>,
-    client: &AuthedClient,
-    token: String,
+    client: &AuthedClientBackgroundTask,
     inner_content: &String,
     shared_mount: &str,
     base_internal_url: &str
@@ -1878,7 +1965,8 @@ async fn handle_python_job(
         })
         .collect::<Vec<String>>()
         .join("");
-    create_args_and_out_file(client, job, job_dir).await?;
+    let client = client.get_authed().await;
+    create_args_and_out_file(&client, job, job_dir).await?;
 
     let import_loader = if relative_imports {
         "import loader"
@@ -1955,7 +2043,7 @@ except Exception as e:
     );
     write_file(job_dir, "wrapper.py", &wrapper_content).await?;
 
-    let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
+    let mut reserved_variables = get_reserved_variables(job, &client.token, db).await?;
     let additional_python_paths_folders = additional_python_paths.iter().join(":");
     if !*DISABLE_NSJAIL {
         let shared_deps = additional_python_paths
@@ -2409,6 +2497,7 @@ async fn install_go_dependencies(
             new_lockfile = true;
         }
     }
+
     let mod_command = if skip_tidy {
         "download"
     } else {
@@ -2435,8 +2524,11 @@ async fn install_go_dependencies(
     let mut file = File::open(format!("{job_dir}/go.mod")).await?;
     file.read_to_string(&mut req_content).await?;
     req_content.push_str(GO_REQ_SPLITTER);
-    let mut file = File::open(format!("{job_dir}/go.sum")).await?;
-    file.read_to_string(&mut req_content).await?;
+    let sum_path = format!("{job_dir}/go.sum");
+    if tokio::fs::metadata(&sum_path).await.is_ok() {
+        let mut file = File::open(sum_path).await?;
+        file.read_to_string(&mut req_content).await?;
+    }
     
     if non_dep_job {
         sqlx::query!(
@@ -2891,13 +2983,14 @@ async fn append_logs(job_id: uuid::Uuid, logs: impl AsRef<str>, db: impl Borrow<
     }
 }
 
-pub async fn handle_zombie_jobs_periodically(
+pub async fn handle_zombie_jobs_periodically<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     db: &Pool<Postgres>,
     mut rx: tokio::sync::broadcast::Receiver<()>,
     base_internal_url: &str,
+    rsmq: Option<R>,
 ) {
     loop {
-        handle_zombie_jobs(db, base_internal_url).await;
+        handle_zombie_jobs(db, base_internal_url, rsmq.clone()).await;
 
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_secs(30))    => (),
@@ -2909,7 +3002,7 @@ pub async fn handle_zombie_jobs_periodically(
     }
 }
 
-async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str) {
+async fn handle_zombie_jobs<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(db: &Pool<Postgres>, base_internal_url: &str, rsmq: Option<R>) {
     if *RESTART_ZOMBIE_JOBS {
         let restarted = sqlx::query!(
                 "UPDATE queue SET running = false, started_at = null, logs = logs || '\nRestarted job after not receiving job''s ping for too long the ' || now() || '\n\n' WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 AND job_kind != $3 AND same_worker = false RETURNING id, workspace_id, last_ping",
@@ -2962,9 +3055,8 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str) {
         // since the job is unrecoverable, the same worker queue should never be sent anything
         let (same_worker_tx_never_used, _same_worker_rx_never_used) = mpsc::channel::<Uuid>(1);
 
-        let tx = db.begin().await.expect("could not start token transaction");
-        let (tx, token) = create_token_for_owner(
-            tx,
+        let token = create_token_for_owner(
+            &db,
             &job.workspace_id,
             &job.permissioned_as,
             "ephemeral-zombie-jobs",
@@ -2973,8 +3065,8 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str) {
         )
         .await
         .expect("could not create job token");
-        tx.commit().await.expect("could not commit job token");
-        let client = AuthedClient { base_internal_url: base_internal_url.to_string(), token: token.clone(), workspace: job.workspace_id.to_string(), client: OnceCell::new() };
+
+        let client = AuthedClient { base_internal_url: base_internal_url.to_string(), token, workspace: job.workspace_id.to_string(), client: OnceCell::new() };
 
         let last_ping = job.last_ping.clone();
         let _ = handle_job_error(
@@ -2988,6 +3080,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str) {
             same_worker_tx_never_used,
             "",
             base_internal_url,
+            rsmq.clone()
         )
         .await;
     }

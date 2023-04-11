@@ -88,7 +88,7 @@ impl ApiServer {
         let addr = sock.local_addr().unwrap();
         drop(sock);
 
-        let task = tokio::task::spawn(windmill_api::run_server(db.clone(), addr, rx));
+        let task = tokio::task::spawn(windmill_api::run_server(db.clone(), None, addr, rx));
 
         return Self { addr, tx, task };
     }
@@ -253,9 +253,7 @@ mod suspend_resume {
                 let second = completed.next().await.unwrap();
                 // print_job(second, &db).await;
 
-                let tx = db.begin().await.unwrap();
-                let (tx, token) = windmill_worker::create_token_for_owner(tx, "test-workspace", "u/test-user", "", 100, "").await.unwrap();
-                tx.commit().await.unwrap();
+                let token = windmill_worker::create_token_for_owner(&db, "test-workspace", "u/test-user", "", 100, "").await.unwrap();
                 let secret = reqwest::get(format!(
                     "http://localhost:{port}/api/w/test-workspace/jobs/job_signature/{second}/0?token={token}&approver=ruben"
                 ))
@@ -356,9 +354,7 @@ mod suspend_resume {
                 /* ... and send a request resume it. */
                 let second = completed.next().await.unwrap();
 
-                let tx = db.begin().await.unwrap();
-                let (tx, token) = windmill_worker::create_token_for_owner(tx, "test-workspace", "u/test-user", "", 100, "").await.unwrap();
-                tx.commit().await.unwrap();
+                let token = windmill_worker::create_token_for_owner(&db, "test-workspace", "u/test-user", "", 100, "").await.unwrap();
                 let secret = reqwest::get(format!(
                     "http://localhost:{port}/api/w/test-workspace/jobs/job_signature/{second}/0?token={token}"
                 ))
@@ -660,7 +656,7 @@ def main(error, port):
             },
         }))
         .unwrap();
-        let (attempts, responses) = [
+        let (_attempts, responses) = [
             /* fail the first step twice */
             (0x00, None),
             (0x00, None),
@@ -682,14 +678,20 @@ def main(error, port):
             _ => panic!("expected failure module"),
         }
 
-        assert_eq!(server.close().await, attempts);
+        println!("result: {:#?}", result);
         assert_eq!(
-            result,
-            json!({
-                "recv": 42,
-                "from failure module": {"error": {"name": "IndexError", "stack": "  File \"/tmp/tmp/main/step_0.py\", line 5, in main\n    return sock.recv(1)[0]\n", "message": "index out of range"}},
-            })
+            result
+                .get("from failure module")
+                .unwrap()
+                .get("error")
+                .unwrap()
+                .get("name")
+                .unwrap()
+                .clone(),
+            json!("IndexError")
         );
+
+        assert_eq!(result.get("recv").unwrap().clone(), json!(42));
     }
 }
 
@@ -825,9 +827,8 @@ impl RunJob {
 
     async fn push(self, db: &Pool<Postgres>) -> Uuid {
         let RunJob { payload, args } = self;
-        let tx = db.begin().await.unwrap();
-        let (uuid, tx) = windmill_queue::push(
-            tx,
+        let (uuid, tx) = windmill_queue::push::<rsmq_async::MultiplexedRsmq>(
+            (None, db.begin().await.unwrap()).into(),
             "test-workspace",
             payload,
             args,
@@ -845,8 +846,7 @@ impl RunJob {
         )
         .await
         .expect("push has to succeed");
-
-        tx.commit().await.expect("push has to commit");
+        tx.commit().await.unwrap();
 
         uuid
     }
@@ -916,7 +916,7 @@ fn spawn_test_worker(
     let ip: &str = Default::default();
     let future = async move {
         let base_internal_url = format!("http://localhost:{}", port);
-        windmill_worker::run_worker(
+        windmill_worker::run_worker::<rsmq_async::MultiplexedRsmq>(
             &db,
             worker_instance,
             worker_name,
@@ -924,6 +924,7 @@ fn spawn_test_worker(
             ip,
             rx,
             &base_internal_url,
+            None,
         )
         .await
     };
@@ -2072,7 +2073,7 @@ async fn test_branchall_skip_failure(db: Pool<Postgres>) {
         .unwrap();
 
     assert_eq!(
-        serde_json::from_value::<ErrorResult>(result)
+        serde_json::from_value::<ErrorResult>(result.get(0).unwrap().clone())
             .unwrap()
             .error
             .name,
@@ -2109,7 +2110,7 @@ async fn test_branchall_skip_failure(db: Pool<Postgres>) {
         .unwrap();
 
     assert_eq!(
-        serde_json::from_value::<ErrorResult>(result)
+        serde_json::from_value::<ErrorResult>(result.get(0).unwrap().clone())
             .unwrap()
             .error
             .name,

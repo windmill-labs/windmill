@@ -36,7 +36,9 @@ use windmill_common::{
     users::username_to_permissioned_as,
     utils::{not_found_if_none, now_from_db, paginate, require_admin, Pagination, StripPath},
 };
-use windmill_queue::{get_queued_job, push, JobKind, JobPayload, QueuedJob, RawCode};
+use windmill_queue::{
+    get_queued_job, push, JobKind, JobPayload, QueueTransaction, QueuedJob, RawCode,
+};
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -63,6 +65,7 @@ pub fn workspaced_service() -> Router {
         .route("/run/preview_flow", post(run_preview_flow_job))
         .route("/list", get(list_jobs))
         .route("/queue/list", get(list_queue_jobs))
+        .route("/queue/count", get(count_queue_jobs))
         .route("/completed/list", get(list_completed_jobs))
         .route("/completed/get/:id", get(get_completed_job))
         .route("/completed/get_result/:id", get(get_completed_job_result))
@@ -113,6 +116,7 @@ async fn get_result_by_id(
 }
 
 async fn cancel_job_api(
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
@@ -126,7 +130,7 @@ async fn cancel_job_api(
     };
 
     let (mut tx, job_option) =
-        windmill_queue::cancel_job(&username, reason, id, &w_id, tx, false).await?;
+        windmill_queue::cancel_job(&username, reason, id, &w_id, tx, rsmq, false).await?;
 
     if let Some(id) = job_option {
         audit_log(
@@ -155,6 +159,7 @@ async fn cancel_job_api(
 }
 
 async fn force_cancel(
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
@@ -168,7 +173,7 @@ async fn force_cancel(
     };
 
     let (mut tx, job_option) =
-        windmill_queue::cancel_job(&username, reason, id, &w_id, tx, true).await?;
+        windmill_queue::cancel_job(&username, reason, id, &w_id, tx, rsmq, true).await?;
 
     if let Some(id) = job_option {
         audit_log(
@@ -495,6 +500,26 @@ async fn list_queue_jobs(
     Ok(Json(jobs))
 }
 
+#[derive(Serialize, Debug, FromRow)]
+struct QueueStats {
+    database_length: i64,
+}
+
+async fn count_queue_jobs(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> error::JsonResult<QueueStats> {
+    Ok(Json(
+        sqlx::query_as!(
+            QueueStats,
+            "SELECT coalesce(COUNT(*), 0) as \"database_length!\" FROM queue WHERE workspace_id = $1",
+            w_id
+        )
+        .fetch_one(&db)
+        .await?,
+    ))
+}
+
 async fn list_jobs(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
@@ -792,6 +817,7 @@ async fn get_suspended_flow_info<'c>(
 pub async fn cancel_suspended_job(
     /* unauthed */
     Extension(db): Extension<DB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, job, resume_id, secret)): Path<(String, Uuid, u32, String)>,
     Query(approver): Query<QueryApprover>,
 ) -> error::Result<String> {
@@ -814,6 +840,7 @@ pub async fn cancel_suspended_job(
         parent_flow,
         &w_id,
         tx,
+        rsmq,
         false,
     )
     .await?;
@@ -1207,14 +1234,15 @@ fn decode_payload<D: DeserializeOwned>(t: String) -> anyhow::Result<D> {
 pub async fn run_flow_by_path(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
     Json(args): Json<Option<serde_json::Map<String, serde_json::Value>>>,
 ) -> error::Result<(StatusCode, String)> {
     let flow_path = flow_path.to_path();
-    let mut tx = user_db.begin(&authed).await?;
-    let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
+    let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
 
     let (uuid, tx) = push(
@@ -1242,15 +1270,16 @@ pub async fn run_flow_by_path(
 pub async fn run_job_by_path(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
     Json(args): Json<Option<serde_json::Map<String, serde_json::Value>>>,
 ) -> error::Result<(StatusCode, String)> {
     let script_path = script_path.to_path();
-    let mut tx = user_db.begin(&authed).await?;
-    let job_payload = script_path_to_payload(script_path, &mut tx, &w_id).await?;
-    let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
+    let job_payload = script_path_to_payload(script_path, tx.transaction_mut(), &w_id).await?;
+    let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
 
     let (uuid, tx) = push(
@@ -1392,6 +1421,7 @@ lazy_static::lazy_static! {
 
 pub async fn run_wait_result_job_by_path_get(
     authed: Authed,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
@@ -1410,8 +1440,8 @@ pub async fn run_wait_result_job_by_path_get(
 
     check_queue_too_long(db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
     let script_path = script_path.to_path();
-    let mut tx = user_db.clone().begin(&authed).await?;
-    let job_payload = script_path_to_payload(script_path, &mut tx, &w_id).await?;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
+    let job_payload = script_path_to_payload(script_path, tx.transaction_mut(), &w_id).await?;
 
     let (uuid, tx) = push(
         tx,
@@ -1446,6 +1476,7 @@ pub async fn run_wait_result_job_by_path_get(
 pub async fn run_wait_result_job_by_path(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(db): Extension<DB>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
@@ -1454,8 +1485,8 @@ pub async fn run_wait_result_job_by_path(
 ) -> error::JsonResult<serde_json::Value> {
     check_queue_too_long(db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
     let script_path = script_path.to_path();
-    let mut tx = user_db.clone().begin(&authed).await?;
-    let job_payload = script_path_to_payload(script_path, &mut tx, &w_id).await?;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
+    let job_payload = script_path_to_payload(script_path, tx.transaction_mut(), &w_id).await?;
 
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
 
@@ -1492,6 +1523,7 @@ pub async fn run_wait_result_job_by_path(
 pub async fn run_wait_result_job_by_hash(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(db): Extension<DB>,
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     Query(run_query): Query<RunJobQuery>,
@@ -1501,8 +1533,9 @@ pub async fn run_wait_result_job_by_hash(
     check_queue_too_long(db, run_query.queue_limit).await?;
 
     let hash = script_hash.0;
-    let mut tx = user_db.clone().begin(&authed).await?;
-    let path = get_path_for_hash(&mut tx, &w_id, hash).await?;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
+    let path = get_path_for_hash(tx.transaction_mut(), &w_id, hash).await?;
+
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
 
     let (uuid, tx) = push(
@@ -1538,6 +1571,7 @@ pub async fn run_wait_result_job_by_hash(
 pub async fn run_wait_result_flow_by_path(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(db): Extension<DB>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Query(run_query): Query<RunJobQuery>,
@@ -1547,8 +1581,8 @@ pub async fn run_wait_result_flow_by_path(
     check_queue_too_long(db, run_query.queue_limit).await?;
 
     let flow_path = flow_path.to_path();
-    let mut tx = user_db.clone().begin(&authed).await?;
-    let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
+    let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
 
     let (uuid, tx) = push(
@@ -1569,7 +1603,6 @@ pub async fn run_wait_result_flow_by_path(
         !run_query.invisible_to_owner.unwrap_or(false),
     )
     .await?;
-
     tx.commit().await?;
 
     run_wait_result(
@@ -1600,13 +1633,14 @@ pub async fn script_path_to_payload<'c>(
 async fn run_preview_job(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path(w_id): Path<String>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
     Json(preview): Json<Preview>,
 ) -> error::Result<(StatusCode, String)> {
-    let mut tx = user_db.begin(&authed).await?;
-    let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
+    let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, preview.args.unwrap_or_default());
 
     let (uuid, tx) = push(
@@ -1633,19 +1667,21 @@ async fn run_preview_job(
     )
     .await?;
     tx.commit().await?;
+
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
 async fn run_preview_flow_job(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path(w_id): Path<String>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
     Json(raw_flow): Json<PreviewFlow>,
 ) -> error::Result<(StatusCode, String)> {
-    let mut tx = user_db.begin(&authed).await?;
-    let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
+    let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, raw_flow.args.unwrap_or_default());
 
     let (uuid, tx) = push(
@@ -1667,21 +1703,23 @@ async fn run_preview_flow_job(
     )
     .await?;
     tx.commit().await?;
+
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
 pub async fn run_job_by_hash(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     Query(run_query): Query<RunJobQuery>,
     headers: HeaderMap,
     Json(args): Json<Option<serde_json::Map<String, serde_json::Value>>>,
 ) -> error::Result<(StatusCode, String)> {
     let hash = script_hash.0;
-    let mut tx = user_db.begin(&authed).await?;
-    let path = get_path_for_hash(&mut tx, &w_id, hash).await?;
-    let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
+    let path = get_path_for_hash(tx.transaction_mut(), &w_id, hash).await?;
+    let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
 
     let (uuid, tx) = push(
@@ -1703,6 +1741,7 @@ pub async fn run_job_by_hash(
     )
     .await?;
     tx.commit().await?;
+
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 

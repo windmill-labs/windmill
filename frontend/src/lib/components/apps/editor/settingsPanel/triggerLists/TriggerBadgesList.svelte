@@ -130,7 +130,8 @@
 			</div>
 		{/if}
 	{/if}
-	{#if frontendDependencies && !recomputeOnInputChanged}
+
+	{#if frontendDependencies && recomputeOnInputChanged}
 		<div class="w-full">
 			<div class="flex justify-between items-center">
 				<div class="text-xs font-semibold text-slate-800 mb-1">Change on values</div>
