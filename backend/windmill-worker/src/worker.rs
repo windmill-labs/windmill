@@ -1030,6 +1030,7 @@ fn extract_error_value(log_lines: &str, i: i32) -> serde_json::Value {
     return json!({"message": format!("ExitCode: {i}, last log lines:\n{}", log_lines.to_string().trim().to_string()), "name": "ExecutionErr"});
 }
 
+#[derive(Debug, Clone)]
 struct JobCompleted {
     job: QueuedJob,
     result: serde_json::Value,
@@ -1157,7 +1158,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                         }
                     } else {
                         // in the happy path and if job not a flow step, we can delegate updating the completed job in the background
-                        Arc::new(job_completed_tx.send(JobCompleted{job,result:r,logs:logs,}).await);
+                        job_completed_tx.send(JobCompleted{job,result:r,logs:logs,}).await.expect("send job completed");
                         
                     }
                 }
