@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext, onDestroy, onMount } from 'svelte'
+	import { getContext } from 'svelte'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppViewerContext } from '../../types'
@@ -13,17 +13,6 @@
 
 	// Sync the result to the output
 	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
-
-	onMount(() => {
-		if (!$worldStore.initializedComponents.includes(id)) {
-			console.log('adding', id)
-			$worldStore.initializedComponents = [...$worldStore.initializedComponents, id]
-		}
-	})
-
-	onDestroy(() => {
-		$worldStore.initializedComponents = $worldStore.initializedComponents.filter((c) => c !== id)
-	})
 
 	$: outputs = $worldStore?.outputsById?.[id] as {
 		loading: Output<boolean>
