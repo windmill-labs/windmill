@@ -117,6 +117,7 @@ export type App = {
 		//deprecated and to be removed after migration
 		doNotRecomputeOnInputChanged?: boolean
 		recomputeOnInputChanged?: boolean
+		noBackendValue?: any
 	}>
 	css?: Partial<Record<AppCssItemName, Record<string, ComponentCssProperty>>>
 	subgrids?: Record<string, GridItem[]>
