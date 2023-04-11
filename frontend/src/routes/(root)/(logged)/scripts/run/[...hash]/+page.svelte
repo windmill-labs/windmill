@@ -14,6 +14,7 @@
 		displayDaysAgo,
 		emptySchema,
 		emptyString,
+		getModifierKey,
 		sendUserToast,
 		truncateHash
 	} from '$lib/utils'
@@ -83,7 +84,7 @@
 	function onKeyDown(event: KeyboardEvent) {
 		switch (event.key) {
 			case 'Enter':
-				if (event.ctrlKey) {
+				if (event.ctrlKey || event.metaKey) {
 					if (isValid) {
 						event.preventDefault()
 						runForm?.run()
@@ -137,8 +138,10 @@
 								<Button
 									startIcon={{ icon: faPlay }}
 									disabled={runForm == undefined || !isValid}
-									on:click={() => runForm?.run()}>Run <Kbd class="ml-2">Ctrl+Enter</Kbd></Button
+									on:click={() => runForm?.run()}
 								>
+									Run <Kbd class="ml-2">{getModifierKey()}+Enter</Kbd>
+								</Button>
 							</div>
 						</div>
 						<div class="flex flex-col grow">

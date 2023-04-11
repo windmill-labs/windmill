@@ -217,20 +217,20 @@
 
 		switch (event.key) {
 			case 'Z':
-				if (event.ctrlKey) {
+				if (event.ctrlKey || event.metaKey) {
 					$flowStore = redo(history)
 					event.preventDefault()
 				}
 				break
 			case 'z':
-				if (event.ctrlKey) {
+				if (event.ctrlKey || event.metaKey) {
 					$flowStore = undo(history, $flowStore)
 					$selectedIdStore = 'Input'
 					event.preventDefault()
 				}
 				break
 			case 's':
-				if (event.ctrlKey) {
+				if (event.ctrlKey || event.metaKey) {
 					saveFlow(false)
 					event.preventDefault()
 				}
