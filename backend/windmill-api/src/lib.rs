@@ -81,6 +81,7 @@ lazy_static::lazy_static! {
 
 pub async fn run_server(
     db: DB,
+    rsmq: Option<rsmq_async::MultiplexedRsmq>,
     addr: SocketAddr,
     mut rx: tokio::sync::broadcast::Receiver<()>,
 ) -> anyhow::Result<()> {
@@ -100,6 +101,7 @@ pub async fn run_server(
                 .on_request(()),
         )
         .layer(Extension(db.clone()))
+        .layer(Extension(rsmq))
         .layer(Extension(user_db))
         .layer(Extension(auth_cache.clone()))
         .layer(CookieManagerLayer::new())

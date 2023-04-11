@@ -25,7 +25,7 @@ use windmill_common::{
         http_get_from_hub, list_elems_from_hub, not_found_if_none, paginate, Pagination, StripPath,
     },
 };
-use windmill_queue::{push, schedule::push_scheduled_job, JobPayload};
+use windmill_queue::{push, schedule::push_scheduled_job, JobPayload, QueueTransaction};
 
 use crate::{
     db::{UserDB, DB},
@@ -180,6 +180,7 @@ async fn create_flow(
     authed: Authed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
     Json(nf): Json<NewFlow>,
@@ -187,10 +188,10 @@ async fn create_flow(
     // cron::Schedule::from_str(&ns.schedule).map_err(|e| error::Error::BadRequest(e.to_string()))?;
     let authed = maybe_refresh_folders(&nf.path, &w_id, authed, &db).await;
 
-    let mut tx = user_db.clone().begin(&authed).await?;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
 
-    check_path_conflict(&mut tx, &w_id, &nf.path).await?;
-    check_schedule_conflict(&mut tx, &w_id, &nf.path).await?;
+    check_path_conflict(tx.transaction_mut(), &w_id, &nf.path).await?;
+    check_schedule_conflict(tx.transaction_mut(), &w_id, &nf.path).await?;
 
     sqlx::query!(
         "INSERT INTO flow (workspace_id, path, summary, description, value, edited_by, edited_at, \
@@ -222,13 +223,11 @@ async fn create_flow(
     )
     .await?;
 
-    tx.commit().await?;
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::CreateFlow { workspace: w_id.clone(), path: nf.path.clone() },
     );
 
-    let tx = user_db.begin(&authed).await?;
     let (dependency_job_uuid, mut tx) = push(
         tx,
         &w_id,
@@ -247,6 +246,7 @@ async fn create_flow(
         true,
     )
     .await?;
+
     sqlx::query!(
         "UPDATE flow SET dependency_job = $1 WHERE path = $2 AND workspace_id = $3",
         dependency_job_uuid,
@@ -286,6 +286,7 @@ async fn check_schedule_conflict<'c>(
 async fn update_flow(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
@@ -294,9 +295,9 @@ async fn update_flow(
     let flow_path = flow_path.to_path();
     let authed = maybe_refresh_folders(&flow_path, &w_id, authed, &db).await;
 
-    let mut tx = user_db.clone().begin(&authed).await?;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
 
-    check_schedule_conflict(&mut tx, &w_id, flow_path).await?;
+    check_schedule_conflict(tx.transaction_mut(), &w_id, flow_path).await?;
 
     let schema = nf.schema.map(|x| x.0);
     let old_dep_job = sqlx::query_scalar!(
@@ -323,13 +324,13 @@ async fn update_flow(
     .await?;
 
     if nf.path != flow_path {
-        check_schedule_conflict(&mut tx, &w_id, &nf.path).await?;
+        check_schedule_conflict(tx.transaction_mut(), &w_id, &nf.path).await?;
 
         if !authed.is_admin {
             require_owner_of_path(&w_id, &authed.username, &authed.groups, &flow_path, &db).await?;
         }
 
-        let mut schedulables = sqlx::query_as!(
+        let mut schedulables: Vec<Schedule> = sqlx::query_as!(
             Schedule,
                 "UPDATE schedule SET script_path = $1 WHERE script_path = $2 AND path != $2 AND workspace_id = $3 AND is_flow IS true RETURNING *",
                 nf.path,
@@ -352,32 +353,32 @@ async fn update_flow(
             schedulables.push(schedule);
         }
 
-        for schedule in schedulables {
-            clear_schedule(&mut tx, flow_path, true).await?;
+        for schedule in schedulables.into_iter() {
+            // TODO: Why is this in the loop in the first place? Seems like it's just doing nothing after the first iteration? Should this use schedule.path?
+            clear_schedule(tx.transaction_mut(), flow_path, true).await?;
 
             if schedule.enabled {
                 tx = push_scheduled_job(tx, schedule).await?;
             }
         }
+
+        audit_log(
+            &mut tx,
+            &authed.username,
+            "flows.update",
+            ActionKind::Create,
+            &w_id,
+            Some(&nf.path.to_string()),
+            Some(
+                [Some(("flow", nf.path.as_str()))]
+                    .into_iter()
+                    .flatten()
+                    .collect(),
+            ),
+        )
+        .await?;
     }
 
-    audit_log(
-        &mut tx,
-        &authed.username,
-        "flows.update",
-        ActionKind::Create,
-        &w_id,
-        Some(&nf.path.to_string()),
-        Some(
-            [Some(("flow", nf.path.as_str()))]
-                .into_iter()
-                .flatten()
-                .collect(),
-        ),
-    )
-    .await?;
-
-    tx.commit().await?;
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::UpdateFlow {
@@ -387,7 +388,6 @@ async fn update_flow(
         },
     );
 
-    let tx = user_db.begin(&authed).await?;
     let (dependency_job_uuid, mut tx) = push(
         tx,
         &w_id,

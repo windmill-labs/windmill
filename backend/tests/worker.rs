@@ -88,7 +88,7 @@ impl ApiServer {
         let addr = sock.local_addr().unwrap();
         drop(sock);
 
-        let task = tokio::task::spawn(windmill_api::run_server(db.clone(), addr, rx));
+        let task = tokio::task::spawn(windmill_api::run_server(db.clone(), None, addr, rx));
 
         return Self { addr, tx, task };
     }
@@ -827,9 +827,8 @@ impl RunJob {
 
     async fn push(self, db: &Pool<Postgres>) -> Uuid {
         let RunJob { payload, args } = self;
-        let tx = db.begin().await.unwrap();
-        let (uuid, tx) = windmill_queue::push(
-            tx,
+        let (uuid, tx) = windmill_queue::push::<rsmq_async::MultiplexedRsmq>(
+            (None, db.begin().await.unwrap()).into(),
             "test-workspace",
             payload,
             args,
@@ -847,8 +846,7 @@ impl RunJob {
         )
         .await
         .expect("push has to succeed");
-
-        tx.commit().await.expect("push has to commit");
+        tx.commit().await.unwrap();
 
         uuid
     }
@@ -918,7 +916,7 @@ fn spawn_test_worker(
     let ip: &str = Default::default();
     let future = async move {
         let base_internal_url = format!("http://localhost:{}", port);
-        windmill_worker::run_worker(
+        windmill_worker::run_worker::<rsmq_async::MultiplexedRsmq>(
             &db,
             worker_instance,
             worker_name,
@@ -926,6 +924,7 @@ fn spawn_test_worker(
             ip,
             rx,
             &base_internal_url,
+            None,
         )
         .await
     };

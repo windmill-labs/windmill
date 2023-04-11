@@ -13,6 +13,8 @@ const promise = new Promise<{
   continous: boolean;
   max_per_worker: number;
   custom: Action | undefined;
+  server: string;
+  token: string;
 }>((resolve, _reject) => {
   self.onmessage = (evt) => {
     const sharedConfig = evt.data;
@@ -24,6 +26,8 @@ const promise = new Promise<{
       continous: sharedConfig.continous,
       max_per_worker: sharedConfig.max_per_worker,
       custom: sharedConfig.custom,
+      server: sharedConfig.server,
+      token: sharedConfig.token,
     };
     self.name = "Worker " + sharedConfig.i;
     resolve(config);
@@ -46,19 +50,20 @@ const updateStatusInterval = setInterval(() => {
 }, 100);
 
 while (cont) {
-  const queue_length = (
-    await windmill.JobService.listQueue({ workspace: config.workspace_id })
-  ).length;
-  if (queue_length > 500) {
+  const queue_length = (await (await fetch(
+    config.server + "/api/w/" + config.workspace_id + "/jobs/queue/count",
+    { headers: { ["Authorization"]: "Bearer " + config.token } },
+  )).json()).database_length;
+  if (queue_length > 2500) {
     console.log(
-      `queue length: ${queue_length} > 500. waiting...                                                            `
+      `queue length: ${queue_length} > 2500. waiting...                                                            `,
     );
     await sleep(0.5);
     continue;
   }
   if (
     (total_spawned * 1000) / (Date.now() - start_time) >
-    config.per_worker_throughput
+      config.per_worker_throughput
   ) {
     console.log("at maximum throughput. waiting...");
     await sleep(0.1);
@@ -138,13 +143,13 @@ while (outstanding.length > 0 && Date.now() < end_time) {
     await Deno.stdout.write(
       enc(
         `uuid: ${uuid}, queue length: ${
-          (
-            await windmill.JobService.listQueue({
-              workspace: config.workspace_id,
-            })
-          ).length
-        }                                                                                   \r`
-      )
+          (await (await fetch(
+            config.server + "/api/w/" + config.workspace_id +
+              "/jobs/queue/count",
+            { headers: { ["Authorization"]: "Bearer " + config.token } },
+          )).json()).database_length
+        }                                                                                   \r`,
+      ),
     );
   } else if (!config.useFlows) {
     r = r as api.CompletedJob;
@@ -156,7 +161,7 @@ while (outstanding.length > 0 && Date.now() < end_time) {
             " != " +
             uuid +
             "job: \n" +
-            JSON.stringify(r, null, 2)
+            JSON.stringify(r, null, 2),
         );
         incorrect_results++;
       }
