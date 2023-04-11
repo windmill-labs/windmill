@@ -28,6 +28,7 @@
 					properties={schema.properties[argName].properties}
 					itemsType={schema.properties[argName].items}
 					extra={schema.properties[argName]}
+					on:inputClicked
 				/>
 			{/if}
 		</div>

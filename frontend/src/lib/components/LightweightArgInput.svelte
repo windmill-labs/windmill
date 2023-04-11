@@ -308,7 +308,9 @@
 								: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
 							placeholder={defaultValue ?? ''}
 							bind:value
-							on:pointerdown|stopPropagation
+							on:pointerdown|stopPropagation={(e) => {
+								dispatch('inputClicked', e)
+							}}
 						/>
 					</div>
 				</div>
