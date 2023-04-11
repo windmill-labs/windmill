@@ -138,8 +138,8 @@
 	<Splitpanes horizontal={true}>
 		<Pane>
 			<div class="w-full flex flex-col gap-4 p-4">
-				<div class="w-full flex justify-between items-center">
-					<span class="text-sm font-extrabold">Saved Inputs</span>
+				<div class="w-full flex justify-between items-center gap-4 flex-wrap">
+					<span class="text-sm font-extrabold flex-shrink-0">Saved Inputs</span>
 					<Button
 						on:click={() => saveInput(args)}
 						disabled={!isValid}
