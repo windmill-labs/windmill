@@ -15,6 +15,7 @@
 	import { computeGlobalContext, eval_like } from './eval'
 	import InputValue from './InputValue.svelte'
 	import RefreshButton from './RefreshButton.svelte'
+	import { selectId } from '../../editor/appUtils'
 
 	// Component props
 	export let id: string
@@ -49,7 +50,10 @@
 		stateId,
 		state,
 		componentControl,
-		initialized
+		initialized,
+		selectedComponent,
+		app,
+		connectingInput
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const dispatch = createEventDispatcher()
@@ -331,6 +335,11 @@
 			$errorByComponent = $errorByComponent
 		}
 	}
+
+	function handleInputClick(e: CustomEvent) {
+		const event = e as unknown as PointerEvent
+		!$connectingInput.opened && selectId(event, id, selectedComponent, $app)
+	}
 </script>
 
 {#each Object.entries(fields ?? {}) as [key, v] (key)}
@@ -377,7 +386,11 @@
 	<div class="h-full flex relative flex-row flex-wrap {wrapperClass}" style={wrapperStyle}>
 		{#if (autoRefresh || forceSchemaDisplay) && schemaStripped && Object.keys(schemaStripped?.properties ?? {}).length > 0}
 			<div class="px-2 h-fit min-h-0">
-				<LightweightSchemaForm schema={schemaStripped} bind:args />
+				<LightweightSchemaForm
+					schema={schemaStripped}
+					bind:args
+					on:inputClicked={handleInputClick}
+				/>
 			</div>
 		{/if}
 
