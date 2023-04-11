@@ -1,7 +1,7 @@
 # Changelog
 
 
-## [2.0.0](https://github.com/windmill-labs/windmill/compare/v1.86.0...v2.0.0) (2023-04-11)
+## [1.87.0](https://github.com/windmill-labs/windmill/compare/v1.86.0...v2.0.0) (2023-04-11)
 
 
 ### ⚠ BREAKING CHANGES
