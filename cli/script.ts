@@ -142,6 +142,7 @@ export async function handleFile(
             typed.summary === remote.summary &&
             typed.is_template === remote.is_template &&
             typed.kind == remote.kind &&
+            !remote.archived &&
             remote?.lock == typed.lock?.join("\n") &&
             JSON.stringify(typed.schema) == JSON.stringify(remote.schema))
         ) {
