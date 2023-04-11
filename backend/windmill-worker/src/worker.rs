@@ -1407,6 +1407,7 @@ async fn handle_go_job(
     } else {
         (false, false)
     };
+
     logs.push_str("\n\n--- GO DEPENDENCIES SETUP ---\n");
     set_logs(logs, &job.id, db).await;
 
@@ -2482,6 +2483,7 @@ async fn install_go_dependencies(
             new_lockfile = true;
         }
     }
+
     let mod_command = if skip_tidy {
         "download"
     } else {
@@ -2508,8 +2510,11 @@ async fn install_go_dependencies(
     let mut file = File::open(format!("{job_dir}/go.mod")).await?;
     file.read_to_string(&mut req_content).await?;
     req_content.push_str(GO_REQ_SPLITTER);
-    let mut file = File::open(format!("{job_dir}/go.sum")).await?;
-    file.read_to_string(&mut req_content).await?;
+    let sum_path = format!("{job_dir}/go.sum");
+    if tokio::fs::metadata(&sum_path).await.is_ok() {
+        let mut file = File::open(sum_path).await?;
+        file.read_to_string(&mut req_content).await?;
+    }
     
     if non_dep_job {
         sqlx::query!(
