@@ -37,7 +37,7 @@ use windmill_common::{
         http_get_from_hub, list_elems_from_hub, not_found_if_none, paginate, Pagination, StripPath,
     },
 };
-use windmill_queue::{push, JobPayload, RawCode};
+use windmill_queue::{push, JobPayload, QueueTransaction, RawCode};
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -565,6 +565,7 @@ fn digest(code: &str) -> String {
 async fn execute_component(
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(payload): Json<ExecuteApp>,
 ) -> Result<String> {
@@ -583,7 +584,7 @@ async fn execute_component(
     };
 
     let path = path.to_path();
-    let mut tx = db.begin().await?;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, db.begin().await?).into();
 
     let policy = if let Some(static_fields) = payload.clone().force_viewer_static_fields {
         let mut hm = HashMap::new();
@@ -652,8 +653,12 @@ async fn execute_component(
         }
         ExecuteApp { args, raw_code: None, path: Some(path), .. } => {
             let payload = if path.starts_with("script/") {
-                script_path_to_payload(path.strip_prefix("script/").unwrap(), &mut tx, &w_id)
-                    .await?
+                script_path_to_payload(
+                    path.strip_prefix("script/").unwrap(),
+                    tx.transaction_mut(),
+                    &w_id,
+                )
+                .await?
             } else if path.starts_with("flow/") {
                 JobPayload::Flow(path.strip_prefix("flow/").unwrap().to_string())
             } else {
@@ -686,8 +691,8 @@ async fn execute_component(
         true,
     )
     .await?;
-
     tx.commit().await?;
+
     Ok(uuid.to_string())
 }
 

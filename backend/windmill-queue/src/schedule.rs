@@ -15,11 +15,12 @@ use windmill_common::{
     users::username_to_permissioned_as,
     utils::{now_from_db, StripPath},
 };
+use crate::{QueueTransaction};
 
-pub async fn push_scheduled_job<'c>(
-    mut tx: Transaction<'c, Postgres>,
+pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
+    mut tx: QueueTransaction<'c, R>,
     schedule: Schedule,
-) -> Result<Transaction<'c, Postgres>> {
+) -> Result<QueueTransaction<'c, R>> {
     let sched = cron::Schedule::from_str(&schedule.schedule)
         .map_err(|e| error::Error::BadRequest(e.to_string()))?;
 
@@ -70,7 +71,7 @@ pub async fn push_scheduled_job<'c>(
     } else {
         JobPayload::ScriptHash {
             hash: windmill_common::get_latest_hash_for_path(
-                &mut tx,
+                tx.transaction_mut(),
                 &schedule.workspace_id,
                 &schedule.script_path,
             )
@@ -79,7 +80,15 @@ pub async fn push_scheduled_job<'c>(
         }
     };
 
-    let (_, mut tx) = push(
+    sqlx::query!(
+        "UPDATE schedule SET error = NULL WHERE workspace_id = $1 AND path = $2",
+        &schedule.workspace_id,
+        &schedule.path
+    )
+    .execute(&mut tx)
+    .await?;
+
+    let (_, tx) = push(
         tx,
         &schedule.workspace_id,
         payload,
@@ -97,14 +106,7 @@ pub async fn push_scheduled_job<'c>(
         true,
     )
     .await?;
-    sqlx::query!(
-        "UPDATE schedule SET error = NULL WHERE workspace_id = $1 AND path = $2",
-        &schedule.workspace_id,
-        &schedule.path
-    )
-    .execute(&mut tx)
-    .await?;
-    Ok(tx)
+    Ok(tx) // TODO: Bubble up pushed UUID from here
 }
 
 pub async fn get_schedule_opt<'c>(
