@@ -69,8 +69,10 @@
 		}
 	}
 	function conditionalClosed() {
-		if (isFocusContained()) return
-		closed()
+		setTimeout(() => {
+			if (isFocusContained()) return
+			closed()
+		}, 0)
 	}
 	function openFocusOut() {
 		stateMachine.setState('open-focus-out')
@@ -80,11 +82,12 @@
 	}
 
 	function keyDown(event: KeyboardEvent & { currentTarget: EventTarget & Window }) {
-		const modifiers = ['Shift', 'Control', 'Command', 'Alt']
+		const modifiers = ['Shift', 'Control', 'Command', 'Alt', 'Meta']
 		// Prevent closing the popup when the only key pressed is a modifier key
 		if (modifiers.includes(event.key) || $stateMachine.currentState === 'closed') return
 		if (event.key === 'Escape') {
-			return (<HTMLElement>document.activeElement)?.blur()
+			;(<HTMLElement>document.activeElement)?.blur()
+			return conditionalClosed()
 		}
 
 		const prev = ['Up', 'Left']
