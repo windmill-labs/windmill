@@ -103,6 +103,11 @@ fn parse_param(x: Param, cm: &Lrc<SourceMap>, skip_dflt: bool) -> error::Result<
                     Expr::Lit(Lit::Str(Str { value, .. })) => {
                         Some(Value::String(value.to_string()))
                     }
+                    Expr::Lit(Lit::Num(Number { value, .. }))
+                        if (value == (value as u64) as f64) =>
+                    {
+                        Some(serde_json::json!(value as u64))
+                    }
                     Expr::Lit(Lit::Num(Number { value, .. })) => Some(serde_json::json!(value)),
                     Expr::Lit(Lit::BigInt(BigInt { value, .. })) => Some(serde_json::json!(value)),
                     Expr::Lit(Lit::Bool(Bool { value, .. })) => Some(Value::Bool(value)),

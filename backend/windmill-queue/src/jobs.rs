@@ -312,7 +312,6 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     pre_run_error: Option<&windmill_common::error::Error>,
     visible_to_owner: bool,
 ) -> Result<(Uuid, QueueTransaction<'c, R>), Error> {
-    let scheduled_for = scheduled_for_o.unwrap_or_else(chrono::Utc::now);
     let args_json = serde_json::Value::Object(args);
     let job_id: Uuid = Ulid::new().into();
 
@@ -564,7 +563,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
             (workspace_id, id, running, parent_job, created_by, permissioned_as, scheduled_for, 
                 script_hash, script_path, raw_code, raw_lock, args, job_kind, schedule_path, raw_flow, \
          flow_status, is_flow_step, language, started_at, same_worker, pre_run_error, email, visible_to_owner, root_job)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22, $23) \
+            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, now()), $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22, $23) \
          RETURNING id",
         workspace_id,
         job_id,
@@ -572,7 +571,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         parent_job,
         user,
         permissioned_as,
-        scheduled_for,
+        scheduled_for_o,
         script_hash,
         script_path.clone(),
         raw_code,

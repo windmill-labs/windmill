@@ -257,20 +257,20 @@
 
 		switch (event.key) {
 			case 'Z':
-				if (event.ctrlKey) {
+				if (event.ctrlKey || event.metaKey) {
 					$app = redo(history)
 					event.preventDefault()
 				}
 				break
 			case 'z':
-				if (event.ctrlKey) {
+				if (event.ctrlKey || event.metaKey) {
 					$app = undo(history, $app)
 
 					event.preventDefault()
 				}
 				break
 			case 's':
-				if (event.ctrlKey) {
+				if (event.ctrlKey || event.metaKey) {
 					save()
 					event.preventDefault()
 				}
