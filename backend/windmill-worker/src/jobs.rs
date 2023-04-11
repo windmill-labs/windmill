@@ -6,13 +6,15 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use sqlx::{Pool, Postgres, Transaction};
+use sqlx::{Pool, Postgres};
 use tracing::instrument;
 use uuid::Uuid;
 use windmill_common::{
     error::Error, flow_status::FlowStatusModule, schedule::Schedule, METRICS_ENABLED,
 };
-use windmill_queue::{delete_job, schedule::get_schedule_opt, QueueTransaction, JobKind, QueuedJob, CLOUD_HOSTED};
+use windmill_queue::{
+    delete_job, schedule::get_schedule_opt, JobKind, QueueTransaction, QueuedJob, CLOUD_HOSTED,
+};
 
 #[instrument(level = "trace", skip_all)]
 pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Send>(

@@ -760,7 +760,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                     },
                     (job, timer) = {
                         let timer = if *METRICS_ENABLED { Some(worker_pull_duration.start_timer()) } else { None }; 
-                        pull(&db, WHITELIST_WORKSPACES.clone(), BLACKLIST_WORKSPACES.clone(), rsmq.clone()).map(|x| (x, timer)) } => {
+                        pull(&db, WHITELIST_WORKSPACES.clone(), BLACKLIST_WORKSPACES.clone(), rsmq.clone()).map(|x| (x, timer)) 
                     } => {
                         timer.map(|timer| {
                             let duration_pull_s = timer.stop_and_record();
@@ -1107,7 +1107,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             match result {
                 Ok(r) => {
                     // println!("bef completed job{:?}",  SystemTime::now());
-                    add_completed_job(db, &job, true, false, r.clone(), logs).await?;
+                    add_completed_job(db, &job, true, false, r.clone(), logs, rsmq.clone()).await?;
                     if job.is_flow_step {
                         if let Some(parent_job) = job.parent_job {
                             update_flow_status_after_job_completion(

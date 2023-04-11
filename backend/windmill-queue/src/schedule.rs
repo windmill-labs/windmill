@@ -15,7 +15,7 @@ use windmill_common::{
     users::username_to_permissioned_as,
     utils::{now_from_db, StripPath},
 };
-use crate::{push, JobPayload, QueueTransaction};
+use crate::{QueueTransaction};
 
 pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     mut tx: QueueTransaction<'c, R>,
