@@ -12,7 +12,7 @@ export {
 	PYTHON_FAILURE_MODULE_CODE
 }
 
-export const DENO_INIT_CODE = `// Ctrl+. to cache dependencies on imports hover, Ctrl+S to format.
+export const DENO_INIT_CODE = `// Ctrl/CMD+. to cache dependencies on imports hover, Ctrl/CMD+S to format.
 
 // import { toWords } from "npm:number-to-words@1"
 // import * as wmill from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts"
