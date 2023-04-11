@@ -31,11 +31,13 @@ use windmill_common::{
 type DB = sqlx::Pool<sqlx::Postgres>;
 
 use windmill_queue::{
-    canceled_job_to_result, get_queued_job, push, JobPayload, QueuedJob, RawCode,
+    canceled_job_to_result, get_queued_job, push, JobPayload, QueueTransaction, QueuedJob, RawCode,
 };
 
 // #[instrument(level = "trace", skip_all)]
-pub async fn update_flow_status_after_job_completion(
+pub async fn update_flow_status_after_job_completion<
+    R: rsmq_async::RsmqConnection + Send + Sync + Clone,
+>(
     db: &DB,
     client: &AuthedClient,
     flow: uuid::Uuid,
@@ -49,6 +51,7 @@ pub async fn update_flow_status_after_job_completion(
     worker_dir: &str,
     stop_early_override: Option<bool>,
     base_internal_url: &str,
+    rsmq: Option<R>,
 ) -> error::Result<()> {
     // this is manual tailrecursion because async_recursion blows up the stack
     let mut depth = 0;
@@ -67,6 +70,7 @@ pub async fn update_flow_status_after_job_completion(
         stop_early_override,
         base_internal_url,
         depth,
+        rsmq.clone(),
     )
     .await?;
     while let Some(nrec) = rec {
@@ -86,6 +90,7 @@ pub async fn update_flow_status_after_job_completion(
             nrec.stop_early_override,
             base_internal_url,
             depth,
+            rsmq.clone(),
         )
         .await?;
     }
@@ -99,7 +104,9 @@ pub struct RecUpdateFlowStatusAfterJobCompletion {
     stop_early_override: Option<bool>,
 }
 // #[instrument(level = "trace", skip_all)]
-pub async fn update_flow_status_after_job_completion_internal(
+pub async fn update_flow_status_after_job_completion_internal<
+    R: rsmq_async::RsmqConnection + Send + Sync + Clone,
+>(
     db: &DB,
     client: &AuthedClient,
     flow: uuid::Uuid,
@@ -114,11 +121,12 @@ pub async fn update_flow_status_after_job_completion_internal(
     stop_early_override: Option<bool>,
     base_internal_url: &str,
     depth: u8,
+    rsmq: Option<R>,
 ) -> error::Result<Option<RecUpdateFlowStatusAfterJobCompletion>> {
     let (should_continue_flow, flow_job, stop_early, skip_if_stop_early, nresult) = {
         tracing::debug!("UPDATE FLOW STATUS: {flow:?} {success} {result:?} {w_id} {depth}");
 
-        let mut tx = db.begin().await?;
+        let mut tx: QueueTransaction<'_, _> = (rsmq.clone(), db.begin().await?).into();
 
         let old_status_json = sqlx::query_scalar!(
             "SELECT flow_status FROM queue WHERE id = $1 AND workspace_id = $2",
@@ -154,7 +162,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             module_status,
             FlowStatusModule::InProgress { iterator: Some(_), .. }
         ) {
-            compute_skip_loop_failures(flow, old_status.step, &mut tx)
+            compute_skip_loop_failures(flow, old_status.step, tx.transaction_mut())
                 .await?
                 .unwrap_or(false)
         } else {
@@ -197,9 +205,11 @@ pub async fn update_flow_status_after_job_completion_internal(
             FlowStatusModule::InProgress {
                 branchall: Some(BranchAllStatus { branch, .. }),
                 ..
-            } => compute_skip_branchall_failure(flow, old_status.step, *branch, &mut tx)
-                .await?
-                .unwrap_or(false),
+            } => {
+                compute_skip_branchall_failure(flow, old_status.step, *branch, tx.transaction_mut())
+                    .await?
+                    .unwrap_or(false)
+            }
             _ => false,
         };
 
@@ -461,7 +471,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             .context("remove flow status retry")?;
         }
 
-        let flow_job = get_queued_job(flow, w_id, &mut tx)
+        let flow_job = get_queued_job(flow, w_id, tx.transaction_mut())
             .await?
             .ok_or_else(|| Error::InternalErr(format!("requiring flow to be in the queue")))?;
 
@@ -503,7 +513,9 @@ pub async fn update_flow_status_after_job_completion_internal(
             {
                 true
             }
-            false if has_failure_module(flow, &mut tx).await? && !is_failure_step => true,
+            false if has_failure_module(flow, tx.transaction_mut()).await? && !is_failure_step => {
+                true
+            }
             false => false,
         };
 
@@ -548,6 +560,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 logs,
                 canceled_job_to_result(&flow_job),
                 metrics.clone(),
+                rsmq.clone(),
             )
             .await?;
         } else {
@@ -558,6 +571,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 stop_early && skip_if_stop_early,
                 nresult.clone(),
                 logs,
+                rsmq.clone(),
             )
             .await?;
         }
@@ -571,6 +585,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             same_worker_tx.clone(),
             worker_dir,
             base_internal_url,
+            rsmq.clone(),
         )
         .await
         {
@@ -581,6 +596,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     "Unexpected error during flow chaining:\n".to_string(),
                     json!({"message": err.to_string(), "name": "InternalError"}),
                     metrics.clone(),
+                    rsmq.clone(),
                 )
                 .await;
                 true
@@ -831,7 +847,7 @@ async fn transform_input(
 }
 
 #[instrument(level = "trace", skip_all)]
-pub async fn handle_flow(
+pub async fn handle_flow<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     flow_job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClient,
@@ -839,6 +855,7 @@ pub async fn handle_flow(
     same_worker_tx: Sender<Uuid>,
     worker_dir: &str,
     base_internal_url: &str,
+    rsmq: Option<R>,
 ) -> anyhow::Result<()> {
     let value = flow_job
         .raw_flow
@@ -862,6 +879,7 @@ pub async fn handle_flow(
         same_worker_tx,
         worker_dir,
         base_internal_url,
+        rsmq,
     )
     .await?;
     Ok(())
@@ -869,7 +887,7 @@ pub async fn handle_flow(
 
 #[async_recursion]
 // #[instrument(level = "trace", skip_all)]
-async fn push_next_flow_job(
+async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     flow_job: &QueuedJob,
     mut status: FlowStatus,
     flow: FlowValue,
@@ -879,6 +897,7 @@ async fn push_next_flow_job(
     same_worker_tx: Sender<Uuid>,
     worker_dir: &str,
     base_internal_url: &str,
+    rsmq: Option<R>,
 ) -> error::Result<()> {
     let job_root = flow_job
         .root_job
@@ -915,6 +934,7 @@ async fn push_next_flow_job(
             worker_dir,
             None,
             base_internal_url,
+            rsmq,
         )
         .await;
     }
@@ -1085,7 +1105,7 @@ async fn push_next_flow_job(
                 let logs = "Timed out waiting to be resumed".to_string();
                 let result = json!({ "error": {"message": logs, "name": "SuspendedTimeout"}});
                 let _uuid =
-                    add_completed_job(db, &flow_job, success, skipped, result, logs).await?;
+                    add_completed_job(db, &flow_job, success, skipped, result, logs, rsmq).await?;
 
                 return Ok(());
             }
@@ -1286,7 +1306,7 @@ async fn push_next_flow_job(
         flow.same_worker && module.suspend.is_none() && module.sleep.is_none();
 
     /* Finally, push the job into the queue */
-    let mut tx = db.begin().await?;
+    let mut tx = (rsmq.clone(), db.begin().await?).into();
     let mut uuids = vec![];
 
     let len = match &job_payloads {
@@ -1452,7 +1472,7 @@ async fn push_next_flow_job(
             json!(i),
             flow_job.id
         )
-        .execute(&mut tx)
+        .execute(db)
         .await?;
     } else {
         sqlx::query!(
@@ -1468,7 +1488,7 @@ async fn push_next_flow_job(
             json!(i),
             flow_job.id
         )
-        .execute(&mut tx)
+        .execute(db)
         .await?;
     };
 

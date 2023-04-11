@@ -25,7 +25,7 @@ use windmill_common::{
     schedule::Schedule,
     utils::{not_found_if_none, paginate, Pagination, StripPath},
 };
-use windmill_queue::{self, schedule::push_scheduled_job, JobKind};
+use windmill_queue::{self, schedule::push_scheduled_job, JobKind, QueueTransaction};
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -79,15 +79,23 @@ async fn create_schedule(
     authed: Authed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path(w_id): Path<String>,
     Json(ns): Json<NewSchedule>,
 ) -> Result<String> {
     let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
 
-    let mut tx = user_db.begin(&authed).await?;
     cron::Schedule::from_str(&ns.schedule).map_err(|e| Error::BadRequest(e.to_string()))?;
-    check_path_conflict(&mut tx, &w_id, &ns.path).await?;
-    check_flow_conflict(&mut tx, &w_id, &ns.path, ns.is_flow, &ns.script_path).await?;
+    check_path_conflict(tx.transaction_mut(), &w_id, &ns.path).await?;
+    check_flow_conflict(
+        tx.transaction_mut(),
+        &w_id,
+        &ns.path,
+        ns.is_flow,
+        &ns.script_path,
+    )
+    .await?;
 
     let schedule = sqlx::query_as!(
         Schedule,
@@ -139,14 +147,15 @@ async fn edit_schedule(
     authed: Authed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(es): Json<EditSchedule>,
 ) -> Result<String> {
     let path = path.to_path();
 
     let authed = maybe_refresh_folders(&path, &w_id, authed, &db).await;
-
-    let mut tx = user_db.begin(&authed).await?;
+      let mut tx: QueueTransaction<'_, rsmq_async::MultiplexedRsmq> =
+        (rsmq, user_db.begin(&authed).await?).into();
 
     cron::Schedule::from_str(&es.schedule).map_err(|e| Error::BadRequest(e.to_string()))?;
 
@@ -158,7 +167,7 @@ async fn edit_schedule(
     .fetch_one(&mut tx)
     .await?;
 
-    clear_schedule(&mut tx, path, is_flow).await?;
+    clear_schedule(tx.transaction_mut(), path, is_flow).await?;
     let schedule = sqlx::query_as!(
         Schedule,
         "UPDATE schedule SET schedule = $1, timezone = $2, args = $3 WHERE path \
@@ -172,10 +181,6 @@ async fn edit_schedule(
     .fetch_one(&mut tx)
     .await
     .map_err(|e| Error::InternalErr(format!("updating schedule in {w_id}: {e}")))?;
-
-    if schedule.enabled {
-        tx = push_scheduled_job(tx, schedule).await?;
-    }
 
     audit_log(
         &mut tx,
@@ -192,6 +197,10 @@ async fn edit_schedule(
         ),
     )
     .await?;
+
+    if schedule.enabled {
+        tx = push_scheduled_job(tx, schedule).await?;
+    }
     tx.commit().await?;
 
     Ok(path.to_string())
@@ -270,10 +279,12 @@ pub async fn preview_schedule(
 pub async fn set_enabled(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(payload): Json<SetEnabled>,
 ) -> Result<String> {
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx: QueueTransaction<'_, rsmq_async::MultiplexedRsmq> =
+        (rsmq, user_db.begin(&authed).await?).into();
     let path = path.to_path();
     let schedule_o = sqlx::query_as!(
         Schedule,
@@ -288,11 +299,8 @@ pub async fn set_enabled(
 
     let schedule = not_found_if_none(schedule_o, "Schedule", path)?;
 
-    clear_schedule(&mut tx, path, schedule.is_flow).await?;
+    clear_schedule(tx.transaction_mut(), path, schedule.is_flow).await?;
 
-    if payload.enabled {
-        tx = push_scheduled_job(tx, schedule).await?;
-    }
     audit_log(
         &mut tx,
         &authed.username,
@@ -303,7 +311,12 @@ pub async fn set_enabled(
         Some([("enabled", payload.enabled.to_string().as_ref())].into()),
     )
     .await?;
+
+    if payload.enabled {
+        tx = push_scheduled_job(tx, schedule).await?;
+    }
     tx.commit().await?;
+
     Ok(format!(
         "succesfully updated schedule at path {} to status {}",
         path, payload.enabled
