@@ -128,6 +128,8 @@ Windmill Community Edition {GIT_VERSION}
         "PYTHON_PATH",
         "DENO_PATH",
         "GO_PATH",
+        "GOPRIVATE",
+        "NETRC",
         "PIP_INDEX_URL",
         "PIP_EXTRA_INDEX_URL",
         "PIP_TRUSTED_HOST",
