@@ -14,7 +14,6 @@
 	export let recomputeOnInputChanged: boolean = false
 
 	const colors = {
-		red: 'text-red-800 border-red-600 bg-red-100',
 		green: 'text-green-800 border-green-600 bg-green-100',
 		indigo: 'text-indigo-800 border-indigo-600 bg-indigo-100',
 		blue: 'text-blue-800 border-blue-600 bg-blue-100'
@@ -159,7 +158,7 @@
 			</div>
 			<div class="flex flex-row gap-2 flex-wrap">
 				{#each frontendDependencies as label, index}
-					<span class={classNames(badgeClass, colors['red'])}>
+					<span class={classNames(badgeClass, colors['blue'])}>
 						{label}
 						<button
 							on:click={() => deleteDep(index)}

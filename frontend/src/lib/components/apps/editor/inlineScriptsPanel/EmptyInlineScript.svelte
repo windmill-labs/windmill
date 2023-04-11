@@ -150,7 +150,7 @@
 				startIcon={{ icon: faCodeBranch }}
 				btnClasses="truncate"
 			>
-				fork a detached script
+				Copy a script
 			</Button>
 			<Button
 				on:click={() => dispatch('delete')}

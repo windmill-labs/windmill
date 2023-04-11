@@ -14,8 +14,14 @@
 
 	function deleteBackgroundScript(index: number) {
 		// remove the script from the array at the index
-		$app.hiddenInlineScripts.splice(index, 1)
-		$app.hiddenInlineScripts = [...$app.hiddenInlineScripts]
+		if ($app.hiddenInlineScripts.length - 1 == index) {
+			$app.hiddenInlineScripts.splice(index, 1)
+			$app.hiddenInlineScripts = [...$app.hiddenInlineScripts]
+		} else {
+			$app.hiddenInlineScripts[index].inlineScript = undefined
+			$app.hiddenInlineScripts[index].name = `Background Script ${index}`
+			$app.hiddenInlineScripts = $app.hiddenInlineScripts
+		}
 
 		delete $runnableComponents[`bg_${index}`]
 	}
