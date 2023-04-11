@@ -1,6 +1,39 @@
 # Changelog
 
 
+## [2.0.0](https://github.com/windmill-labs/windmill/compare/v1.86.0...v2.0.0) (2023-04-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* **frontend:** Add option to return file names ([#1380](https://github.com/windmill-labs/windmill/issues/1380))
+
+### Features
+
+* **backend:** add instance events webhook ([f2d3c82](https://github.com/windmill-labs/windmill/commit/f2d3c8208b6daa49f304f355752145de47138a3c))
+* **backend:** extend cached resolution for go ([dac61d1](https://github.com/windmill-labs/windmill/commit/dac61d1c982576d7589e16ab01c8cc8bad6e1686))
+* **backend:** Redis based queue ([#1324](https://github.com/windmill-labs/windmill/issues/1324)) ([d45e6c9](https://github.com/windmill-labs/windmill/commit/d45e6c94abed609357b18d4daa7de6b2ea0ba978))
+* **frontend:** Add option to return file names ([#1380](https://github.com/windmill-labs/windmill/issues/1380)) ([3dabac1](https://github.com/windmill-labs/windmill/commit/3dabac153f302f48210d15ebaec514e72717300f))
+* **python:** cache dependency resolution ([facb670](https://github.com/windmill-labs/windmill/commit/facb67093ce7d3b0874d0d559fb272ed822ce360))
+
+
+### Bug Fixes
+
+* **backend:** nested deno relative imports ([955a213](https://github.com/windmill-labs/windmill/commit/955a213a504c1f3b8811c930823e87fe7dba101a))
+* **cli:** overwrite archived scripts ([1f705ca](https://github.com/windmill-labs/windmill/commit/1f705cab2ce8c79829f22fc6af9e06ecba7450b1))
+* **frontend:** Add missing stopPropagation ([#1394](https://github.com/windmill-labs/windmill/issues/1394)) ([58d4b55](https://github.com/windmill-labs/windmill/commit/58d4b556ebbd76c6f07f1a16d601a9d824b99f7e))
+* **frontend:** fix app init issue ([d0e0e1f](https://github.com/windmill-labs/windmill/commit/d0e0e1fdf27d9a7fb86c66e43398786b64d8b6b7))
+* **frontend:** Fix frontend dependencies ([#1379](https://github.com/windmill-labs/windmill/issues/1379)) ([8e9c491](https://github.com/windmill-labs/windmill/commit/8e9c49165060a4a7f831b8be075593f89d867784))
+* **frontend:** Fix icon picker input ([#1389](https://github.com/windmill-labs/windmill/issues/1389)) ([8a44f8e](https://github.com/windmill-labs/windmill/commit/8a44f8e7796f13698e2a99af9f3772f5e676604b))
+* **frontend:** Fix mac shortcuts ([#1381](https://github.com/windmill-labs/windmill/issues/1381)) ([41831d5](https://github.com/windmill-labs/windmill/commit/41831d58ed593bb283600b76170f6e76783e0eae))
+* **frontend:** fix popover configuration to avoid content shift ([#1377](https://github.com/windmill-labs/windmill/issues/1377)) ([2031e1e](https://github.com/windmill-labs/windmill/commit/2031e1ebd0dc020da104ee84a0294c86babcefaf))
+* **frontend:** remove stopPropagation that was preventing components dnd ([#1378](https://github.com/windmill-labs/windmill/issues/1378)) ([de8dc1e](https://github.com/windmill-labs/windmill/commit/de8dc1e9cd7beea2ce62656e9e7676214f77a110))
+
+
+### Performance Improvements
+
+* parallelize more operations for deno jobs ([e911869](https://github.com/windmill-labs/windmill/commit/e911869d990956463834ac9ff35c52ba8236e362))
+
 ## [1.86.0](https://github.com/windmill-labs/windmill/compare/v1.85.0...v1.86.0) (2023-04-08)
 
 
