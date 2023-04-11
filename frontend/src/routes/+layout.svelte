@@ -28,12 +28,6 @@
 </div>
 
 <style>
-	:root {
-		--toastBackground: #eff6ff;
-		--toastBarBackground: #eff6ff;
-		--toastColor: #123456;
-	}
-
 	.wrap {
 		display: contents;
 		font-family: 'Inter', sans-serif;

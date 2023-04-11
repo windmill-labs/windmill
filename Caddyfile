@@ -1,15 +1,5 @@
-
-{
-        auto_https off
-}
-
-http://{$BASE_URL} {
+{$BASE_URL} {
         bind {$ADDRESS}
         reverse_proxy /ws/* http://lsp:3001
         reverse_proxy /* http://windmill_server:8000
-}
-
-https://{$BASE_URL}  {  
-  bind {$ADDRESS}
-  reverse_proxy /ws/* http://lsp:3001
 }

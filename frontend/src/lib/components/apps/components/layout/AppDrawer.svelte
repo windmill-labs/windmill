@@ -9,6 +9,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { AlignWrapper } from '../helpers'
 	import { initOutput } from '../../editor/appUtils'
+	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
 	export let customCss: ComponentCustomCSS<'drawercomponent'> | undefined = undefined
 	export let id: string
@@ -69,6 +70,8 @@
 <InputValue {id} input={configuration.color} bind:value={color} />
 <InputValue {id} input={configuration.size} bind:value={size} />
 <InputValue {id} input={configuration.fillContainer} bind:value={fillContainer} />
+
+<InitializeComponent {id} />
 
 <Portal target="#app-editor-top-level-drawer">
 	<Drawer let:open bind:this={appDrawer} size="800px" alwaysOpen positionClass="!absolute">

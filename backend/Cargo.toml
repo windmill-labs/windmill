@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.85.0"
+version = "1.86.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -19,7 +19,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.85.0"
+version = "1.86.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -28,11 +28,7 @@ name = "windmill"
 path = "./src/main.rs"
 
 [features]
-enterprise = [
-    "windmill-worker/enterprise",
-    "windmill-queue/enterprise",
-    "windmill-api/enterprise",
-]
+enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise"]
 
 [dependencies]
 anyhow.workspace = true
@@ -55,11 +51,13 @@ sha2.workspace = true
 rsmq_async.workspace = true
 url.workspace = true
 
+
 [dev-dependencies]
 serde_json.workspace = true
 reqwest.workspace = true
 windmill-queue.workspace = true
 axum.workspace = true
+serde.workspace = true
 
 [workspace.dependencies]
 windmill-api = { path = "./windmill-api" }
@@ -158,7 +156,7 @@ async-stripe = { version = "0.14", features = [
 ] }
 async_zip = { version = "0.0.11", features = ["full"] }
 once_cell = "1.17.1"
-rsmq_async = { version = "5.1.2" }
+rsmq_async = { version = "5.1.5" }
+gosyn = "0.2.2"
 
 [patch.crates-io]
-rsmq_async = { git = 'https://github.com/HurricanKai/rsmq-async-rs.git' }

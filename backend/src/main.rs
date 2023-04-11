@@ -10,7 +10,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use git_version::git_version;
 use sqlx::{Pool, Postgres};
-use windmill_common::utils::rd_string;
+use windmill_common::{utils::rd_string, METRICS_ADDR};
 
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 const DEFAULT_NUM_WORKERS: usize = 3;
@@ -30,15 +30,7 @@ async fn main() -> anyhow::Result<()> {
         .and_then(|x| x.parse::<i32>().ok())
         .unwrap_or(DEFAULT_NUM_WORKERS as i32);
 
-    let metrics_addr: Option<SocketAddr> = std::env::var("METRICS_ADDR")
-        .ok()
-        .map(|s| {
-            s.parse::<bool>()
-                .map(|b| b.then(|| SocketAddr::from(([0, 0, 0, 0], 8001))))
-                .or_else(|_| s.parse::<SocketAddr>().map(Some))
-        })
-        .transpose()?
-        .flatten();
+    let metrics_addr: Option<SocketAddr> = *METRICS_ADDR;
 
     let server_bind_address: IpAddr = std::env::var("SERVER_BIND_ADDR")
         .ok()
@@ -152,7 +144,7 @@ Windmill Community Edition {GIT_VERSION}
         "INCLUDE_HEADERS",
         "WHITELIST_WORKSPACES",
         "BLACKLIST_WORKSPACES",
-        "NEW_USER_WEBHOOK",
+        "INSTANCE_EVENTS_WEBHOOK",
         "CLOUD_HOSTED",
     ]);
 

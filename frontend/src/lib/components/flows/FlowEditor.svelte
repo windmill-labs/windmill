@@ -32,9 +32,9 @@
 		</Pane>
 		<Pane class="drop-shadow-2xl" size={100 - size} minSize={40}>
 			{#if loading}
-				<div class="w-full h-full ">
+				<div class="w-full h-full">
 					<div class="block m-auto mt-40 w-10">
-						<WindmillIcon class="animate-[spin_6s_linear_infinite]" height="40px" width="40px" />
+						<WindmillIcon height="40px" width="40px" spin="fast" />
 					</div>
 				</div>
 			{:else}

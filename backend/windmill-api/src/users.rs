@@ -12,8 +12,9 @@ use crate::{
     db::{UserDB, DB},
     folders::get_folders_for_user,
     utils::require_super_admin,
+    webhook_util::{InstanceEvent, WebhookShared},
     workspaces::invite_user_to_all_auto_invite_worspaces,
-    COOKIE_DOMAIN, HTTP_CLIENT, IS_SECURE,
+    COOKIE_DOMAIN, IS_SECURE,
 };
 use argon2::{password_hash::SaltString, Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use axum::{
@@ -76,6 +77,7 @@ pub fn global_service() -> Router {
         .route("/tokens/create", post(create_token))
         .route("/tokens/delete/:token_prefix", delete(delete_token))
         .route("/tokens/list", get(list_tokens))
+        .route("/tokens/impersonate", post(impersonate))
         .route("/usage", get(get_usage))
     // .route("/list_invite_codes", get(list_invite_codes))
     // .route("/create_invite_code", post(create_invite_code))
@@ -593,6 +595,7 @@ pub struct TruncatedToken {
 pub struct NewToken {
     pub label: Option<String>,
     pub expiration: Option<chrono::DateTime<chrono::Utc>>,
+    pub impersonate_email: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1035,6 +1038,7 @@ lazy_static! {
 
 async fn accept_invite(
     Authed { email, .. }: Authed,
+    Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Json(nu): Json<AcceptInvite>,
 ) -> Result<(StatusCode, String)> {
@@ -1080,6 +1084,11 @@ async fn accept_invite(
     }
 
     if is_some {
+        webhook.send_instance_event(InstanceEvent::UserJoinedWorkspace {
+            email: email.clone(),
+            workspace: nu.workspace_id.clone(),
+            username: nu.username.clone(),
+        });
         Ok((
             StatusCode::CREATED,
             format!(
@@ -1320,6 +1329,7 @@ lazy_static::lazy_static! {
 async fn create_user(
     Authed { email, .. }: Authed,
     Extension(db): Extension<DB>,
+    Extension(webhook): Extension<WebhookShared>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
     Json(mut nu): Json<NewUser>,
 ) -> Result<(StatusCode, String)> {
@@ -1360,19 +1370,9 @@ async fn create_user(
     .await?;
     tx.commit().await?;
 
-    if let Some(new_user_webhook) = NEW_USER_WEBHOOK.clone() {
-        let _ = HTTP_CLIENT
-            .post(&new_user_webhook)
-            .json(
-                &serde_json::json!({"email" : &nu.email, "name": &nu.name, "event": "global_add"}),
-            )
-            .send()
-            .await
-            .map_err(|e| tracing::error!("Error sending new user webhook: {}", e.to_string()));
-    }
-
     invite_user_to_all_auto_invite_worspaces(&db, &nu.email).await?;
 
+    webhook.send_instance_event(InstanceEvent::UserAdded { email: nu.email.clone() });
     Ok((StatusCode::CREATED, format!("email {} created", nu.email)))
 }
 
@@ -1740,6 +1740,58 @@ async fn create_token(
     Ok((StatusCode::CREATED, token))
 }
 
+async fn impersonate(
+    Extension(db): Extension<DB>,
+    Authed { email, username, .. }: Authed,
+    Json(new_token): Json<NewToken>,
+) -> Result<(StatusCode, String)> {
+    let token = rd_string(30);
+    let mut tx = db.begin().await?;
+    require_super_admin(&mut tx, &email).await?;
+
+    if new_token.impersonate_email.is_none() {
+        return Err(Error::BadRequest(
+            "impersonate_username is required".to_string(),
+        ));
+    }
+
+    let impersonated = new_token.impersonate_email.unwrap();
+
+    let is_super_admin = sqlx::query_scalar!(
+        "SELECT super_admin FROM password WHERE email = $1",
+        impersonated
+    )
+    .fetch_optional(&mut tx)
+    .await?
+    .unwrap_or(false);
+    sqlx::query!(
+        "INSERT INTO token
+            (token, email, label, expiration, super_admin)
+            VALUES ($1, $2, $3, $4, $5)",
+        token,
+        impersonated,
+        new_token.label,
+        new_token.expiration,
+        is_super_admin
+    )
+    .execute(&mut tx)
+    .await?;
+
+    audit_log(
+        &mut tx,
+        &username,
+        "users.impersonate",
+        ActionKind::Delete,
+        &"global",
+        Some(&token[0..10]),
+        Some([("impersonated", &format!("{impersonated}")[..])].into()),
+    )
+    .instrument(tracing::info_span!("token", email = &impersonated))
+    .await?;
+    tx.commit().await?;
+    Ok((StatusCode::CREATED, token))
+}
+
 async fn list_tokens(
     Extension(db): Extension<DB>,
     Authed { email, .. }: Authed,
@@ -1838,6 +1890,17 @@ pub async fn delete_expired_items_perdiodically(
         match tokens_deleted_r {
             Ok(tokens) => tracing::debug!("deleted {} tokens: {:?}", tokens.len(), tokens),
             Err(e) => tracing::error!("Error deleting token: {}", e.to_string()),
+        }
+
+        let pip_resolution_r = sqlx::query_scalar!(
+            "DELETE FROM pip_resolution_cache WHERE expiration <= now() RETURNING hash",
+        )
+        .fetch_all(db)
+        .await;
+
+        match pip_resolution_r {
+            Ok(res) => tracing::debug!("deleted {} pip_resolution: {:?}", res.len(), res),
+            Err(e) => tracing::error!("Error deleting pip_resolution: {}", e.to_string()),
         }
 
         let magic_links_deleted_r: std::result::Result<Vec<String>, _> = sqlx::query_scalar(

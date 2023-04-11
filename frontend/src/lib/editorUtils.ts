@@ -27,7 +27,7 @@ export function editorConfig(
 			enabled: true
 		},
 		suggest: {
-			showKeywords: false
+			showKeywords: true
 		},
 		bracketPairColorization: {
 			enabled: true
@@ -59,6 +59,8 @@ export function langToExt(lang: string): string {
 			return 'go'
 		case 'bash':
 			return 'sh'
+		case 'deno':
+			return 'ts'
 		default:
 			return 'unknown'
 	}

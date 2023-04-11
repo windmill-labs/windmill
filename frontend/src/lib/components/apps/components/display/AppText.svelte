@@ -226,7 +226,7 @@
 							)}
 						>
 							{String(result)}
-							{#if resolvedConfig.tooltip != ''}
+							{#if resolvedConfig.tooltip && resolvedConfig.tooltip != ''}
 								<Tooltip>{resolvedConfig.tooltip}</Tooltip>
 							{/if}
 							{#if resolvedConfig.copyButton && result}

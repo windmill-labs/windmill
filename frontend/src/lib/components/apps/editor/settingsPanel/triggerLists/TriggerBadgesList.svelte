@@ -11,7 +11,7 @@
 	export let onClick: boolean = false
 	export let onLoad: boolean = false
 	export let id: string | undefined = undefined
-	export let doNotRecomputeOnInputChanged: boolean = false
+	export let recomputeOnInputChanged: boolean = false
 
 	const colors = {
 		red: 'text-red-800 border-red-600 bg-red-100',
@@ -84,11 +84,11 @@
 
 <div class="flex w-full flex-col items-start gap-2 mt-2 mb-1">
 	{#if recomputedBadges.length === 0 && !onLoad && !onClick && inputDependencies?.length === 0 && !frontendDependencies}
-		<p class="text-xs font-semibold text-slate-800 ">
+		<p class="text-xs font-semibold text-slate-800">
 			This script has no triggers. It will never run.
 		</p>
 	{:else}
-		<div class="text-sm font-semibold text-gray-800 ">Triggered by</div>
+		<div class="text-sm font-semibold text-gray-800">Triggered by</div>
 
 		{#if onLoad || onClick}
 			<div class="w-full">
@@ -104,7 +104,7 @@
 				</div>
 			</div>
 		{/if}
-		{#if inputDependencies.length > 0 && !doNotRecomputeOnInputChanged}
+		{#if inputDependencies.length > 0 && (recomputeOnInputChanged ?? true)}
 			<div class="w-full">
 				<div class="flex justify-between items-center mb-1">
 					<div class="text-xs font-semibold text-slate-800">Change on values</div>
@@ -130,7 +130,8 @@
 			</div>
 		{/if}
 	{/if}
-	{#if frontendDependencies && !doNotRecomputeOnInputChanged}
+
+	{#if frontendDependencies && recomputeOnInputChanged}
 		<div class="w-full">
 			<div class="flex justify-between items-center">
 				<div class="text-xs font-semibold text-slate-800 mb-1">Change on values</div>

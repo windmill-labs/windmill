@@ -22,6 +22,7 @@ use windmill_common::{
     flows::{FlowModule, FlowModuleValue, FlowValue},
     scripts::{get_full_hub_script_by_path, HubScript, ScriptHash, ScriptLang},
     utils::StripPath,
+    METRICS_ENABLED,
 };
 
 use crate::QueueTransaction;
@@ -195,7 +196,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Clone>(
         .await?
     };
 
-    if job.is_some() {
+    if job.is_some() && *METRICS_ENABLED {
         QUEUE_PULL_COUNT.inc();
     }
 
@@ -260,8 +261,9 @@ pub async fn delete_job<'c, R: rsmq_async::RsmqConnection + Clone + Send>(
     w_id: &str,
     job_id: Uuid,
 ) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
-    QUEUE_DELETE_COUNT.inc();
-    // We can't delete the redis message here - we don't know the message id. A worker will pick it up & notice it no longer exists.
+    if *METRICS_ENABLED {
+        QUEUE_DELETE_COUNT.inc();
+    }
     let job_removed = sqlx::query_scalar!(
         "DELETE FROM queue WHERE workspace_id = $1 AND id = $2 RETURNING 1",
         w_id,
@@ -592,7 +594,9 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     .await
     .map_err(|e| Error::InternalErr(format!("Could not insert into queue {job_id}: {e}")))?;
     // TODO: technically the job isn't queued yet, as the transaction can be rolled back. Should be solved when moving these metrics to the queue abstraction.
-    QUEUE_PUSH_COUNT.inc();
+    if *METRICS_ENABLED {
+        QUEUE_PUSH_COUNT.inc();
+    }
 
     {
         let uuid_string = job_id.to_string();

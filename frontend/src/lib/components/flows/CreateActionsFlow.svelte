@@ -2,12 +2,11 @@
 	import { goto } from '$app/navigation'
 	import { faBarsStaggered, faPlus } from '@fortawesome/free-solid-svg-icons'
 
-	import { Button, ButtonPopup, ButtonPopupItem } from '$lib/components/common'
+	import { Button } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { importFlowStore } from '$lib/components/flows/flowStore'
-	import { Icon } from 'svelte-awesome'
 
 	let drawer: Drawer | undefined = undefined
 	let pendingJson: string
@@ -21,19 +20,21 @@
 
 <!-- Buttons -->
 <div class="flex flex-row gap-2">
-	<ButtonPopup
+	<Button
 		size="sm"
 		spacingSize="xl"
 		startIcon={{ icon: faPlus }}
+		endIcon={{ icon: faBarsStaggered }}
 		href="/flows/add?nodraft=true"
+		dropdownItems={[
+			{
+				label: 'Import from raw JSON',
+				onClick: () => drawer?.toggleDrawer?.()
+			}
+		]}
 	>
-		<svelte:fragment slot="main"
-			>Flow <Icon data={faBarsStaggered} scale={0.8} class="ml-1.5" />
-		</svelte:fragment>
-		<ButtonPopupItem on:click={() => drawer?.toggleDrawer?.()}>
-			Import from raw JSON
-		</ButtonPopupItem>
-	</ButtonPopup>
+		Flow
+	</Button>
 </div>
 
 <!-- Raw JSON -->

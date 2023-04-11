@@ -216,6 +216,7 @@
 		<div class="border h-full">
 			{#if inlineScript.language != 'frontend'}
 				<Editor
+					path={inlineScript.path}
 					bind:this={editor}
 					class="flex flex-1 grow h-full"
 					lang={scriptLangToEditorLang(inlineScript?.language)}

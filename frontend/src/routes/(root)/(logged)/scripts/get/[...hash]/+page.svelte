@@ -35,16 +35,7 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { onDestroy } from 'svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import {
-		Badge,
-		Tabs,
-		Tab,
-		TabContent,
-		Button,
-		Alert,
-		ButtonPopup,
-		ButtonPopupItem
-	} from '$lib/components/common'
+	import { Badge, Tabs, Tab, TabContent, Button, Alert } from '$lib/components/common'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import UserSettings from '$lib/components/UserSettings.svelte'
 	import Icon from 'svelte-awesome'
@@ -333,26 +324,19 @@
 					on:click={() => webhookElem.scrollIntoView()}>Webhooks</Button
 				>
 				{#if Array.isArray(script.parent_hashes) && script.parent_hashes.length > 0}
-					<ButtonPopup
+					<Button
 						color="dark"
 						variant="contained"
 						size="xs"
 						startIcon={{ icon: faArrowLeft }}
 						href="/scripts/get/{script.parent_hashes[0]}?workspace_id={$workspaceStore}"
+						dropdownItems={script.parent_hashes.map((hash) => ({
+							href: `/scripts/get/${hash}?workspace_id=${$workspaceStore}`,
+							label: hash
+						}))}
 					>
-						<svelte:fragment slot="main">
-							Previous version ({script.parent_hashes.length})
-						</svelte:fragment>
-
-						{#each script.parent_hashes as hash}
-							<ButtonPopupItem
-								href="/scripts/get/{hash}?workspace_id={$workspaceStore}"
-								btnClasses="!m-0"
-							>
-								{hash}
-							</ButtonPopupItem>
-						{/each}
-					</ButtonPopup>
+						Previous version ({script.parent_hashes.length})
+					</Button>
 				{/if}
 			</div>
 

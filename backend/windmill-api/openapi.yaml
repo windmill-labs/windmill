@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.85.0
+  version: 1.86.0
   title: Windmill API
 
   contact:
@@ -1040,6 +1040,27 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/NewToken"
+      responses:
+        "201":
+          description: token created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /users/tokens/impersonate:
+    post:
+      summary: create token to impersonate a user (require superadmin)
+      operationId: createTokenImpersonate
+      tags:
+        - user
+      requestBody:
+        description: new token
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewTokenImpersonate"
       responses:
         "201":
           description: token created
@@ -2335,6 +2356,24 @@ paths:
         - script
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: script content
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /scripts_u/tokened_raw/{workspace}/{token}/{path}:
+    get:
+      summary: raw script by path with a token (mostly used by lsp to be used with import maps to resolve scripts)
+      operationId: rawScriptByPathTokened
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Token"
         - $ref: "#/components/parameters/ScriptPath"
       responses:
         "200":
@@ -4535,6 +4574,12 @@ components:
       required: true
       schema:
         type: string
+    Token:
+      name: token
+      in: path
+      required: true
+      schema:
+        type: string
     AccountId:
       name: id
       in: path
@@ -5131,6 +5176,19 @@ components:
         expiration:
           type: string
           format: date-time
+
+    NewTokenImpersonate:
+      type: object
+      properties:
+        label:
+          type: string
+        expiration:
+          type: string
+          format: date-time
+        impersonate_email:
+          type: string
+      required:
+        - impersonate_email
 
     ListableVariable:
       type: object

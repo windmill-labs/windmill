@@ -3,12 +3,12 @@
 	import { page } from '$app/stores'
 	import { faGithub, faGitlab, faGoogle, faMicrosoft } from '@fortawesome/free-brands-svg-icons'
 	import { onMount } from 'svelte'
-	import { OauthService, UserService, WorkspaceService } from '$lib/gen'
+	import { OauthService, SettingsService, UserService, WorkspaceService } from '$lib/gen'
 	import { clearStores, usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
-	import { isCloudHosted, sendUserToast } from '$lib/utils'
-	import CenteredModal from '$lib/components/CenteredModal.svelte'
+	import { classNames, isCloudHosted, sendUserToast } from '$lib/utils'
 	import { getUserExt, refreshSuperadmin } from '$lib/user'
 	import { Button, Skeleton } from '$lib/components/common'
+	import { WindmillIcon } from '$lib/components/icons'
 
 	let email = $page.url.searchParams.get('email') ?? ''
 	let password = $page.url.searchParams.get('password') ?? ''
@@ -128,94 +128,146 @@
 	$: if (error) {
 		sendUserToast(error, true)
 	}
+
+	let version = ''
+
+	onMount(async () => {
+		version = await SettingsService.backendVersion()
+	})
 </script>
 
-<!-- Enable submit form on enter -->
-<CenteredModal title={isCloudHosted() ? 'Login/Signup' : 'Login'}>
-	{#if isCloudHosted()}
-		<div class="text-center -mt-4">
-			<span class=" text-gray-600 text-sm"
-				>Login or sign up (no cc required) with any of the methods below</span
-			>
-		</div>
-	{/if}
-	<div class="justify-center text-center flex flex-col">
-		{#if !logins}
-			{#each Array(4) as _}
-				<Skeleton layout={[0.5, [2.375]]} />
-			{/each}
-		{:else}
-			{#each providers as { type, icon, name }}
-				{#if logins.includes(type)}
-					<Button
-						color="dark"
-						variant="border"
-						endIcon={{ icon }}
-						btnClasses="mt-2 w-full !border-gray-300"
-						on:click={() => storeRedirect(type)}
-					>
-						{name}
-					</Button>
-				{/if}
-			{/each}
-
-			{#each logins.filter((x) => !providersType.includes(x)) as login}
-				<Button
-					color="dark"
-					variant="border"
-					btnClasses="mt-2 w-full !border-gray-300"
-					on:click={() => storeRedirect(login)}
-				>
-					{login}
-				</Button>
-			{/each}
-		{/if}
+<div class="flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative bg-gray-50 h-screen">
+	<div class="absolute top-0 right-0 text-2xs text-gray-800 italic px-3 py-1">
+		<span class="font-mono">{version}</span>
 	</div>
-	<div class="center-center my-6">
-		<Button
-			size="xs"
-			color="blue"
-			variant="border"
-			btnClasses="!border-none"
-			on:click={() => {
-				showPassword = !showPassword
-			}}
-		>
-			Login without third-party
-		</Button>
-	</div>
-	{#if showPassword}
-		<div>
-			{#if isCloudHosted()}
-				<p class="text-xs text-gray-500 italic pb-6">
-					To get credentials without the OAuth providers above, send an email at
-					contact@windmill.dev
-				</p>
-			{/if}
-			<label class="block pb-2">
-				<span class="text-gray-700 text-sm">Email</span>
-				<input type="email" bind:value={email} id="email" />
-			</label>
-			<label class="block">
-				<span class="text-gray-700 text-sm">Password</span>
-				<input type="password" on:keyup={handleKeyUp} bind:value={password} id="password" />
-			</label>
-			<div class="flex justify-end pt-4">
-				<Button id="login2" on:click={login}>Login</Button>
-			</div>
+	<div class="sm:mx-auto sm:w-full sm:max-w-md">
+		<div class="mx-auto flex justify-center">
+			<WindmillIcon height="80px" width="80px" spin="slow" />
 		</div>
-	{/if}
-
-	{#if isCloudHosted()}
-		<p class="text-2xs text-gray-500 italic mt-10 text-center">
-			By logging in, you agree to our
-			<a href="https://docs.windmill.dev/terms_of_service" target="_blank" rel="noreferrer">
-				Terms of Service
-			</a>
-			and
-			<a href="https://docs.windmill.dev/privacy_policy" target="_blank" rel="noreferrer">
-				Privacy Policy
-			</a>
+		<h2 class="mt-6 text-center text-3xl font-bold tracking-tight text-gray-900">
+			Login or sign up
+		</h2>
+		<p class="mt-2 text-center text-sm text-gray-600">
+			Login or sign up (no cc required) with any of the methods below
 		</p>
-	{/if}
-</CenteredModal>
+	</div>
+
+	<div
+		class={classNames('mt-8 sm:mx-auto sm:w-full sm:max-w-xl', showPassword ? 'mb-16' : 'mb-48')}
+	>
+		<div class="bg-white px-4 py-8 shadow md:border sm:rounded-lg sm:px-10">
+			<div class="grid grid-cols-2 gap-4">
+				{#if !logins}
+					{#each Array(4) as _}
+						<Skeleton layout={[0.5, [2.375]]} />
+					{/each}
+				{:else}
+					{#each providers as { type, icon, name }}
+						{#if logins.includes(type)}
+							<Button
+								color="dark"
+								variant="border"
+								endIcon={{ icon }}
+								btnClasses="w-full !border-gray-300"
+								on:click={() => storeRedirect(type)}
+							>
+								{name}
+							</Button>
+						{/if}
+					{/each}
+					{#each logins.filter((x) => !providersType.includes(x)) as login}
+						<Button
+							color="dark"
+							variant="border"
+							btnClasses="mt-2 w-full !border-gray-300"
+							on:click={() => storeRedirect(login)}
+						>
+							{login}
+						</Button>
+					{/each}
+				{/if}
+			</div>
+			{#if logins && logins.length > 0}
+				<div class={classNames('center-center', logins.length > 0 ? 'mt-6' : '')}>
+					<Button
+						size="xs"
+						color="blue"
+						variant="border"
+						btnClasses="!border-none"
+						on:click={() => {
+							showPassword = !showPassword
+						}}
+					>
+						Login without third-party
+					</Button>
+				</div>
+			{/if}
+
+			{#if showPassword}
+				<div>
+					<div class="space-y-6">
+						{#if isCloudHosted()}
+							<p class="text-xs text-gray-500 italic pb-6">
+								To get credentials without the OAuth providers above, send an email at
+								contact@windmill.dev
+							</p>
+						{/if}
+						<div>
+							<label for="email" class="block text-sm font-medium leading-6 text-gray-900">
+								Email
+							</label>
+							<div>
+								<input
+									type="email"
+									bind:value={email}
+									id="email"
+									autocomplete="email"
+									class="block w-full rounded-md border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-frost-600 sm:text-sm sm:leading-6"
+								/>
+							</div>
+						</div>
+
+						<div>
+							<label for="password" class="block text-sm font-medium leading-6 text-gray-900">
+								Password
+							</label>
+							<div>
+								<input
+									on:keyup={handleKeyUp}
+									bind:value={password}
+									id="password"
+									type="password"
+									autocomplete="current-password"
+									class="block w-full rounded-md border-0 py-1.5 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-frost-600 sm:text-sm sm:leading-6"
+								/>
+							</div>
+						</div>
+
+						<div class="pt-2">
+							<button
+								on:click={login}
+								disabled={!email || !password}
+								class="flex w-full justify-center rounded-md bg-frost-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-frost-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-frost-600"
+							>
+								Sign in
+							</button>
+						</div>
+					</div>
+
+					{#if isCloudHosted()}
+						<p class="text-2xs text-gray-500 italic mt-10 text-center">
+							By logging in, you agree to our
+							<a href="https://docs.windmill.dev/terms_of_service" target="_blank" rel="noreferrer">
+								Terms of Service
+							</a>
+							and
+							<a href="https://docs.windmill.dev/privacy_policy" target="_blank" rel="noreferrer">
+								Privacy Policy
+							</a>
+						</p>
+					{/if}
+				</div>
+			{/if}
+		</div>
+	</div>
+</div>

@@ -48,6 +48,7 @@
 	const parentWidth = writable(0)
 	setContext<AppViewerContext>('AppViewerContext', {
 		worldStore: buildWorld(context),
+		initialized: writable({ initialized: false, initializedComponents: [] }),
 		app: appStore,
 		summary: writable(summary),
 		selectedComponent,
@@ -169,7 +170,7 @@
 				inlineScript={script.inlineScript}
 				name={script.name}
 				fields={script.fields}
-				doNotRecomputeOnInputChanged={script.doNotRecomputeOnInputChanged ?? false}
+				recomputeOnInputChanged={script.recomputeOnInputChanged ?? true}
 				recomputableByRefreshButton={script.autoRefresh ?? false}
 			/>
 		{/if}

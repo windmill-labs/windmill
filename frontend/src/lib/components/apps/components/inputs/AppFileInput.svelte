@@ -6,6 +6,7 @@
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import InputValue from '../helpers/InputValue.svelte'
+	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -19,11 +20,11 @@
 	let text: string | undefined = undefined
 
 	let outputs = initOutput($worldStore, id, {
-		result: [] as string[] | undefined
+		result: [] as { name: string; data: string }[] | undefined
 	})
 
 	// Receives Base64 encoded strings from the input component
-	async function handleChange(files: string[] | undefined) {
+	async function handleChange(files: { name: string; data: string }[] | undefined) {
 		outputs?.result.set(files)
 	}
 
@@ -34,12 +35,15 @@
 <InputValue {id} input={configuration.allowMultiple} bind:value={allowMultiple} />
 <InputValue {id} input={configuration.text} bind:value={text} />
 
+<InitializeComponent {id} />
+
 {#if render}
 	<div class="w-full h-full p-1">
 		<FileInput
 			accept={acceptedFileTypes?.length ? acceptedFileTypes?.join(', ') : undefined}
 			multiple={allowMultiple}
 			convertTo="base64"
+			returnFileNames
 			on:change={({ detail }) => {
 				handleChange(detail)
 			}}

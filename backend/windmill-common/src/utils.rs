@@ -8,6 +8,7 @@
 
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 
 use crate::error::{Error, Result};
 
@@ -117,4 +118,10 @@ pub fn rd_string(len: usize) -> String {
         .take(len)
         .map(char::from)
         .collect()
+}
+
+pub fn calculate_hash(s: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(s);
+    format!("{:x}", hasher.finalize())
 }

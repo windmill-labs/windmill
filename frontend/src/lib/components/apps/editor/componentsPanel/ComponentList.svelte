@@ -64,21 +64,6 @@
 			</button>
 		{/if}
 	</div>
-	<!-- {#if $focusedGrid}
-		<Badge color="indigo" baseClass="w-full">
-			<div class="flex flex-row gap-2 justify-center items-center">
-				<div>{`Subgrid: ${$focusedGrid.parentComponentId} (${$focusedGrid.subGridIndex})`}</div>
-				<button
-					on:click={() => {
-						$selectedComponent = undefined
-						$focusedGrid = undefined
-					}}
-				>
-					<X size={14} />
-				</button>
-			</div>
-		</Badge>
-	{/if} -->
 </section>
 
 <div class="relative">
@@ -102,7 +87,8 @@
 										<button
 											on:click={() => addComponent(item)}
 											title={componentsRecord[item].name}
-											class="transition-all border w-20 shadow-sm h-16 p-2 flex flex-col gap-2 items-center justify-center bg-white rounded-md hover:bg-gray-100 duration-200 hover:border-blue-500"
+											class="transition-all border w-20 shadow-sm h-16 p-2 flex flex-col gap-2 items-center
+											justify-center bg-white rounded-md hover:bg-blue-50 duration-200 hover:border-blue-500"
 										>
 											<svelte:component this={componentsRecord[item].icon} class="text-gray-600" />
 										</button>

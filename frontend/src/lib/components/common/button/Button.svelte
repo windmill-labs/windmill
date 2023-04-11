@@ -4,14 +4,16 @@
 	import { ButtonType } from './model'
 	import { goto } from '$app/navigation'
 	import { Loader2 } from 'lucide-svelte'
-
 	import { twMerge } from 'tailwind-merge'
+	import ButtonDropdown from './ButtonDropdown.svelte'
+	import { MenuItem } from '@rgossiaux/svelte-headlessui'
 
 	export let size: ButtonType.Size = 'md'
 	export let spacingSize: ButtonType.Size = size
 	export let color: ButtonType.Color = 'blue'
 	export let variant: ButtonType.Variant = 'contained'
 	export let btnClasses: string = ''
+	export let wrapperClasses: string = ''
 	export let disabled: boolean = false
 	export let href: string | undefined = undefined
 	export let target: ButtonType.Target = '_self'
@@ -25,6 +27,13 @@
 	export let loading = false
 	export let title: string | undefined = undefined
 	export let style: string = ''
+
+	type MenuItem = {
+		label: string
+		onClick?: () => void
+		href?: string
+	}
+	export let dropdownItems: MenuItem[] | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 	// Order of classes: border, border modifier, bg, bg modifier, text, text modifier, everything else
@@ -77,7 +86,7 @@
 			ButtonType.FontSizeClasses[size],
 			ButtonType.SpacingClasses[spacingSize][variant],
 			'focus:ring-2 font-semibold',
-			'rounded-md',
+			dropdownItems ? 'rounded-l-md h-full' : 'rounded-md',
 			'justify-center items-center text-center whitespace-nowrap inline-flex',
 			btnClasses,
 			disabled ? '!bg-gray-300 !text-gray-600 !cursor-not-allowed' : '',
@@ -113,28 +122,46 @@
 	$: endIconClass = twMerge(iconOnly ? undefined : isSmall ? 'ml-1' : 'ml-2', endIcon?.classes)
 </script>
 
-<svelte:element
-	this={href ? 'a' : 'button'}
-	bind:this={element}
-	on:pointerdown
-	on:click={onClick}
-	on:focus
-	on:blur
-	{...buttonProps}
-	disabled={disabled || loading}
-	type="submit"
-	{style}
->
-	{#if loading}
-		<Loader2 class="animate-spin mr-1" size={14} />
-	{:else if startIcon}
-		<Icon data={startIcon.icon} class={startIconClass} scale={ButtonType.IconScale[size]} />
-	{/if}
+<div class="{dropdownItems ? 'flex flex-row divide-x divide-frost-600' : ''} {wrapperClasses}">
+	<svelte:element
+		this={href ? 'a' : 'button'}
+		bind:this={element}
+		on:pointerdown
+		on:click={onClick}
+		on:focus
+		on:blur
+		{...buttonProps}
+		disabled={disabled || loading}
+		type="submit"
+		{style}
+	>
+		{#if loading}
+			<Loader2 class="animate-spin mr-1" size={14} />
+		{:else if startIcon}
+			<Icon data={startIcon.icon} class={startIconClass} scale={ButtonType.IconScale[size]} />
+		{/if}
 
-	{#if !iconOnly}
-		<slot />
+		{#if !iconOnly}
+			<slot />
+		{/if}
+		{#if endIcon}
+			<Icon data={endIcon.icon} class={endIconClass} scale={ButtonType.IconScale[size]} />
+		{/if}
+	</svelte:element>
+
+	{#if dropdownItems}
+		<div class={twMerge(buttonProps.class, 'rounded-r-md rounded-l-none m-0 p-0 h-auto')}>
+			<ButtonDropdown>
+				<svelte:fragment slot="items">
+					{#each dropdownItems as item}
+						<MenuItem on:click={item.onClick} href={item.href}>
+							<div class="!text-gray-700 px-4 py-2 my-1 cursor-pointer hover:bg-gray-100 !text-sm">
+								{item.label}
+							</div>
+						</MenuItem>
+					{/each}
+				</svelte:fragment>
+			</ButtonDropdown>
+		</div>
 	{/if}
-	{#if endIcon}
-		<Icon data={endIcon.icon} class={endIconClass} scale={ButtonType.IconScale[size]} />
-	{/if}
-</svelte:element>
+</div>

@@ -243,7 +243,7 @@
 					}}
 				/>
 			</div>
-			<div class="flex flex-row gap-x-2 w-full mb-2">
+			<div class="flex flex-row gap-x-2 w-full mb-2 mt-4">
 				<div class="relative w-full"
 					><span class="text-xs absolute -top-4">min datetime</span>
 					<input type="text" value={minTs ?? 'zoom x axis to set min (drag with ctrl)'} disabled />

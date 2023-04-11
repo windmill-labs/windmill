@@ -357,6 +357,14 @@ const config = {
 				fhd: '1900px',
 				qhd: '2500px',
 				'4k': '3800px'
+			},
+			animation: {
+				'spin-counter-clockwise': 'spin-counter-clockwise 1s linear infinite'
+			},
+			keyframes: {
+				'spin-counter-clockwise': {
+					to: { transform: 'rotate(-360deg)' }
+				}
 			}
 		}
 	},

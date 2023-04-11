@@ -6,6 +6,7 @@
 	import { concatCustomCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
+	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -43,6 +44,8 @@
 <InputValue {id} input={configuration.max} bind:value={max} />
 <InputValue {id} input={configuration.placeholder} bind:value={placeholder} />
 <InputValue {id} input={configuration.defaultValue} bind:value={defaultValue} />
+
+<InitializeComponent {id} />
 
 <AlignWrapper {render} {verticalAlignment}>
 	<input

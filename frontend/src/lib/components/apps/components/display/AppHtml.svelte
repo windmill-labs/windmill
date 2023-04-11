@@ -12,7 +12,8 @@
 	export let customCss: ComponentCustomCSS<'htmlcomponent'> | undefined = undefined
 	export let render: boolean
 
-	const { app, worldStore, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, selectedComponent, mode } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	const outputs = initOutput($worldStore, id, {
 		result: undefined,
@@ -34,10 +35,13 @@
 	bind:clientHeight={h}
 	bind:clientWidth={w}
 >
-	<button
-		class="absolute bottom-0 left-0 text-xs border px-2 py-0.5 bg-white/80"
-		on:click={() => ($selectedComponent = [id])}>Select</button
-	>
+	{#if $mode == 'dnd'}
+		<button
+			class="absolute bottom-0 left-0 text-xs border px-2 py-0.5 bg-white/80"
+			on:click={() => ($selectedComponent = [id])}>Select</button
+		>
+	{/if}
+
 	<RunnableWrapper
 		{outputs}
 		{render}
@@ -55,7 +59,7 @@
 				title="sandbox"
 				srcdoc={result
 					? '<scr' + `ipt type="application/javascript" src="/tailwind.js"></script>` + result
-					: 'No html'}
+					: ''}
 			/>
 		{/key}
 		<!-- svelte-ignore a11y-click-events-have-key-events -->

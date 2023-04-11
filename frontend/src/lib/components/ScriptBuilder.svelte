@@ -10,7 +10,7 @@
 	import ScriptEditor from './ScriptEditor.svelte'
 	import ScriptSchema from './ScriptSchema.svelte'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
-	import { Badge, Button, ButtonPopup, ButtonPopupItem, Drawer } from './common'
+	import { Badge, Button, Drawer } from './common'
 	import { faSave } from '@fortawesome/free-solid-svg-icons'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 	import type { SupportedLanguage } from '$lib/common'
@@ -31,6 +31,7 @@
 	let advancedOpen = false
 
 	let editor: Editor | undefined = undefined
+	let scriptEditor: ScriptEditor | undefined = undefined
 
 	export function setCode(code: string): void {
 		editor?.setCode(code)
@@ -79,6 +80,7 @@
 		template: 'pgsql' | 'mysql' | 'script'
 	) {
 		script.content = initialCode(language, kind, template)
+		scriptEditor?.inferSchema(script.content, language)
 	}
 
 	async function editScript(leave: boolean): Promise<void> {
@@ -123,10 +125,26 @@
 		}
 		loadingSave = false
 	}
+
+	const dropdownItems: Array<{ label: string; onClick: () => void }> = [
+		{
+			label: 'Save and leave',
+			onClick: () => editScript(true)
+		}
+	]
+
+	if (initialPath != '') {
+		dropdownItems.push({
+			label: 'Fork',
+			onClick: () => {
+				window.open(`/scripts/add?template=${initialPath}`)
+			}
+		})
+	}
 </script>
 
 {#if !$userStore?.operator}
-	<Drawer placement="right" open={metadataOpen} size="800px">
+	<Drawer placement="right" bind:open={metadataOpen} size="800px">
 		<DrawerContent title="Metadata" on:close={() => (metadataOpen = false)}>
 			<h2 class="border-b pb-1 mb-4">Path</h2>
 			<Path
@@ -177,7 +195,7 @@
 					disabled={lockedLanguage}
 					on:click={() => {
 						template = 'pgsql'
-						initContent(script.language, script.kind, template)
+						initContent(Script.language.DENO, script.kind, template)
 						script.language = Script.language.DENO
 					}}
 				>
@@ -267,28 +285,21 @@
 					>
 						Customise
 					</Button>
-					<ButtonPopup
+					<Button
 						color="dark"
 						loading={loadingSave}
 						size="sm"
 						startIcon={{ icon: faSave }}
 						on:click={() => editScript(false)}
+						{dropdownItems}
 					>
-						<svelte:fragment slot="main">Save</svelte:fragment>
-						<ButtonPopupItem on:click={() => editScript(true)}>Save and exit</ButtonPopupItem>
-						{#if initialPath != ''}
-							<ButtonPopupItem
-								on:click={() => {
-									window.open(`/scripts/add?template=${initialPath}`)
-								}}>Fork</ButtonPopupItem
-							>
-						{/if}
-					</ButtonPopup>
+						Save
+					</Button>
 				</div>
 			</div>
 		</div>
 
-		<Drawer open={advancedOpen} size="800px">
+		<Drawer bind:open={advancedOpen} size="800px">
 			<DrawerContent title="Customise" on:close={() => (advancedOpen = false)}>
 				<h2 class="border-b pb-1 mb-4"
 					>Script Kind &nbsp;<Tooltip
@@ -331,6 +342,7 @@
 		</Drawer>
 		<ScriptEditor
 			bind:editor
+			bind:this={scriptEditor}
 			bind:schema={script.schema}
 			path={script.path}
 			bind:code={script.content}

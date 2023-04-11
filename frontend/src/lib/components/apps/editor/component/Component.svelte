@@ -94,7 +94,7 @@
 	{/if}
 
 	{#if ismoving}
-		<div class="absolute -top-8 w-40 ">
+		<div class="absolute -top-8 w-40">
 			<button
 				class="border p-0.5 text-xs"
 				on:click={() => {
@@ -464,5 +464,18 @@
 	</div>
 </div>
 {#if initializing}
-	<div class="absolute inset-0 center-center flex-col bg- border animate-skeleton" />
+	<!-- svelte-ignore a11y-mouse-events-have-key-events -->
+	<div
+		on:mouseover|stopPropagation={() => {
+			if (component.id !== $hoverStore) {
+				$hoverStore = component.id
+			}
+		}}
+		on:mouseout|stopPropagation={() => {
+			if ($hoverStore !== undefined) {
+				$hoverStore = undefined
+			}
+		}}
+		class="absolute inset-0 center-center flex-col bg- border animate-skeleton"
+	/>
 {/if}
