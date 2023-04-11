@@ -53,7 +53,9 @@
 		result = componentInput?.['value']
 	}
 	onMount(() => {
-		$staticExporter[id] = () => result
+		$staticExporter[id] = () => {
+			return result
+		}
 	})
 
 	function isRunnableDefined(componentInput) {

@@ -172,6 +172,7 @@
 				fields={script.fields}
 				recomputeOnInputChanged={script.recomputeOnInputChanged ?? true}
 				recomputableByRefreshButton={script.autoRefresh ?? false}
+				noBackendValue={script.noBackendValue}
 			/>
 		{/if}
 	{/each}

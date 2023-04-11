@@ -160,12 +160,17 @@ export function toStatic(
 	summary: string
 ): { app: App; summary: string } {
 	const newApp: App = JSON.parse(JSON.stringify(app))
-	newApp.grid.forEach((x) => {
+	allItems(newApp.grid, newApp.subgrids).forEach((x) => {
 		let c: AppComponent = x.data
 		if (c.componentInput?.type == 'runnable') {
 			c.componentInput.value = staticExporter[x.id]()
 		}
 	})
+
+	newApp.hiddenInlineScripts?.forEach((x, i) => {
+		x.noBackendValue = staticExporter[`bg_` + i]()
+	})
+
 	return { app: newApp, summary }
 }
 

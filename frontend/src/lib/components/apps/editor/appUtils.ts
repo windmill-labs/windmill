@@ -53,13 +53,14 @@ export function selectId(
 	app: App
 ) {
 	// this ensure handleClickOutside are triggered
-	window.dispatchEvent(
-		new MouseEvent('click', {
-			view: window,
-			bubbles: true,
-			cancelable: true
-		})
-	)
+	let event = new MouseEvent('click', {
+		view: window,
+		bubbles: true,
+		cancelable: true,
+		relatedTarget: e.target
+	})
+	window.dispatchEvent(event)
+
 	if (e.shiftKey) {
 		selectedComponent.update((old) => {
 			if (old && old?.[0]) {
