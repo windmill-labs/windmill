@@ -381,9 +381,9 @@ checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
 
 [[package]]
 name = "axum"
-version = "0.6.12"
+version = "0.6.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "349f8ccfd9221ee7d1f3d4b33e1f8319b3a81ed8f61f2ea40b37b859794b4491"
+checksum = "6e5abc76e6ef57bf438c067d2898481475994102eeb5d662a0b2162d0c2fdcf1"
 dependencies = [
  "async-trait",
  "axum-core",
@@ -414,9 +414,9 @@ dependencies = [
 
 [[package]]
 name = "axum-core"
-version = "0.3.3"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2f958c80c248b34b9a877a643811be8dbca03ca5ba827f2b63baf3a81e5fc4e"
+checksum = "759fa577a247914fd3f7f76d62972792636412fbfd634cd452f6a385a74d2d2c"
 dependencies = [
  "async-trait",
  "bytes",
@@ -5096,7 +5096,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "2.0.0"
+version = "1.87.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -5126,7 +5126,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "2.0.0"
+version = "1.87.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -5184,7 +5184,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "2.0.0"
+version = "1.87.0"
 dependencies = [
  "base64 0.21.0",
  "chrono",
@@ -5199,7 +5199,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "2.0.0"
+version = "1.87.0"
 dependencies = [
  "chrono",
  "serde",
@@ -5212,7 +5212,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "2.0.0"
+version = "1.87.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -5237,7 +5237,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "2.0.0"
+version = "1.87.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -5245,7 +5245,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "2.0.0"
+version = "1.87.0"
 dependencies = [
  "anyhow",
  "itertools",
@@ -5260,7 +5260,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "2.0.0"
+version = "1.87.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -5273,7 +5273,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "2.0.0"
+version = "1.87.0"
 dependencies = [
  "anyhow",
  "itertools",
@@ -5288,7 +5288,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "2.0.0"
+version = "1.87.0"
 dependencies = [
  "anyhow",
  "deno_core",
@@ -5302,7 +5302,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "2.0.0"
+version = "1.87.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5329,7 +5329,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "2.0.0"
+version = "1.87.0"
 dependencies = [
  "anyhow",
  "async-recursion",
