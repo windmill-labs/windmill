@@ -1007,7 +1007,7 @@ async fn insert_initial_ping(
 
 
 fn extract_error_value(log_lines: &str, i: i32) -> serde_json::Value {
-    return json!({"message": format!("ExitCode: {i}, last log lines: {}", log_lines.to_string().trim().to_string()), "name": "ExecutionErr"});
+    return json!({"message": format!("ExitCode: {i}, last log lines:\n{}", log_lines.to_string().trim().to_string()), "name": "ExecutionErr"});
 }
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
@@ -1765,6 +1765,8 @@ async fn handle_deno_job(
         let import_map = format!(
             r#"{{
             "imports": {{
+              "{base_internal_url}/api/w/{w_id}/scripts/raw/p/": "{base_internal_url}/api/w/{w_id}/scripts/raw/p/",
+              "{base_internal_url}": "{base_internal_url}/api/w/{w_id}/scripts/raw/p/",
               "/": "{base_internal_url}/api/w/{w_id}/scripts/raw/p/",
               "./wrapper.ts": "./wrapper.ts",
               "./main.ts": "./main.ts"{relative_mounts}
