@@ -20,7 +20,6 @@ use axum::{
     Extension, Router,
 };
 use base64::Engine;
-use chrono::{DateTime, Utc};
 use hmac::Mac;
 use hyper::{HeaderMap, Request, StatusCode};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -1966,11 +1965,4 @@ async fn delete_completed_job(
 
     tx.commit().await?;
     Ok(Json(job))
-}
-
-#[derive(Debug, sqlx::FromRow, Serialize)]
-pub struct JobArgs {
-    created_by: String,
-    started_at: DateTime<Utc>,
-    args: serde_json::Value,
 }

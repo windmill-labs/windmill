@@ -8,7 +8,6 @@
 
 use crate::{
     db::{UserDB, DB},
-    jobs::JobArgs,
     schedule::clear_schedule,
     users::{maybe_refresh_folders, require_owner_of_path, AuthCache, Authed},
     webhook_util::{WebhookMessage, WebhookShared},
@@ -84,8 +83,6 @@ pub fn workspaced_service() -> Router {
         .route("/raw/h/:hash", get(raw_script_by_hash))
         .route("/deployment_status/h/:hash", get(get_deployment_status))
         .route("/list_paths", get(list_paths))
-        .route("/input_history/h/:hash", get(get_input_history_by_hash))
-        .route("/input_history/p/*path", get(get_input_history_by_path))
 }
 
 async fn list_scripts(
@@ -810,51 +807,4 @@ async fn parse_go_code_to_jsonschema(Json(code): Json<String>) -> Json<SigParsin
 
 async fn parse_bash_code_to_jsonschema(Json(code): Json<String>) -> Json<SigParsing> {
     result_to_sig_parsing(windmill_parser_bash::parse_bash_sig(&code))
-}
-
-async fn get_input_history_by_hash(
-    authed: Authed,
-    Extension(user_db): Extension<UserDB>,
-    Path((w_id, hash)): Path<(String, ScriptHash)>,
-    Query(pagination): Query<Pagination>,
-) -> JsonResult<Vec<JobArgs>> {
-    let (per_page, offset) = paginate(pagination);
-
-    let mut tx = user_db.begin(&authed).await?;
-
-    let rows = sqlx::query_as::<_, JobArgs>("select distinct on (args) created_by, started_at, args from completed_job where script_hash = $1 and workspace_id = $2 and job_kind = 'script' order by args, started_at desc limit $3 offset $4")
-        .bind(&hash.0)
-        .bind(&w_id)
-        .bind(per_page as i32)
-        .bind(offset as i32)
-        .fetch_all(&mut tx)
-        .await?;
-
-    tx.commit().await?;
-
-    Ok(Json(rows))
-}
-
-async fn get_input_history_by_path(
-    authed: Authed,
-    Extension(user_db): Extension<UserDB>,
-    Path((w_id, path)): Path<(String, StripPath)>,
-    Query(pagination): Query<Pagination>,
-) -> JsonResult<Vec<JobArgs>> {
-    let path = path.to_path();
-    let (per_page, offset) = paginate(pagination);
-
-    let mut tx = user_db.begin(&authed).await?;
-
-    let rows = sqlx::query_as::<_, JobArgs>("select distinct on (args) created_by, started_at, args from completed_job where script_path = $1 and workspace_id = $2 and job_kind = 'script' order by args, started_at desc limit $3 offset $4")
-        .bind(&path)
-        .bind(&w_id)
-        .bind(per_page as i32)
-        .bind(offset as i32)
-        .fetch_all(&mut tx)
-        .await?;
-
-    tx.commit().await?;
-
-    Ok(Json(rows))
 }

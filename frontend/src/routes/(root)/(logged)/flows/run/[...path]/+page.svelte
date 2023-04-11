@@ -15,6 +15,8 @@
 		sendUserToast
 	} from '$lib/utils'
 	import { faEye, faPen, faPlay } from '@fortawesome/free-solid-svg-icons'
+	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
 
 	const path = $page.params.path
 	let flow: Flow | undefined
@@ -80,87 +82,95 @@
 
 <svelte:window on:keydown={onKeyDown} />
 
-<div class="w-full flex justify-center pb-8 pr-80">
-	<div class="w-full max-w-6xl px-4 sm:px-6 md:px-8">
-		{#if flow}
-			<div class="flex flex-row flex-wrap justify-between gap-4 mb-6">
-				<div class="w-full">
-					<div class="flex flex-col mt-6 mb-2 w-full">
-						<div
-							class="flex flex-row-reverse w-full flex-wrap md:flex-nowrap justify-between gap-x-1"
-						>
-							<div class="flex flex-row gap-4">
-								{#if !$userStore?.operator && can_write}
-									<div>
-										<Button
-											size="sm"
-											startIcon={{ icon: faPen }}
-											disabled={flow == undefined}
-											variant="border"
-											href="/flows/edit/{flow?.path}">Edit</Button
-										>
+<SplitPanesWrapper class="h-screen">
+	<Splitpanes>
+		<Pane class="px-4 flex justify-center">
+			<div class="w-full max-w-4xl flex flex-col">
+				{#if flow}
+					<div class="flex flex-row flex-wrap justify-between gap-4 mb-6">
+						<div class="w-full">
+							<div class="flex flex-col mt-6 mb-2 w-full">
+								<div
+									class="flex flex-row-reverse w-full flex-wrap md:flex-nowrap justify-between gap-x-1"
+								>
+									<div class="flex flex-row gap-4">
+										{#if !$userStore?.operator && can_write}
+											<div>
+												<Button
+													size="sm"
+													startIcon={{ icon: faPen }}
+													disabled={flow == undefined}
+													variant="border"
+													href="/flows/edit/{flow?.path}">Edit</Button
+												>
+											</div>
+										{/if}
+										<div class="md:pr-4">
+											<Button
+												size="sm"
+												startIcon={{ icon: faEye }}
+												disabled={flow == undefined}
+												btnClasses="mr-4"
+												variant="border"
+												href="/flows/get/{flow?.path}?workspace_id={$workspaceStore}"
+												>View flow</Button
+											>
+										</div>
+										<div>
+											<Button
+												startIcon={{ icon: faPlay }}
+												disabled={runForm == undefined || !isValid}
+												on:click={() => runForm?.run()}
+												>Run <Kbd class="ml-2">Ctrl+Enter</Kbd></Button
+											>
+										</div>
 									</div>
-								{/if}
-								<div class="md:pr-4">
-									<Button
-										size="sm"
-										startIcon={{ icon: faEye }}
-										disabled={flow == undefined}
-										btnClasses="mr-4"
-										variant="border"
-										href="/flows/get/{flow?.path}?workspace_id={$workspaceStore}">View flow</Button
-									>
-								</div>
-								<div>
-									<Button
-										startIcon={{ icon: faPlay }}
-										disabled={runForm == undefined || !isValid}
-										on:click={() => runForm?.run()}>Run <Kbd class="ml-2">Ctrl+Enter</Kbd></Button
-									>
+									<div class="flex flex-col">
+										<h1 class="break-words py-2 mr-2">
+											{defaultIfEmptyString(flow.summary, flow.path)}
+										</h1>
+										{#if !emptyString(flow.summary)}
+											<h2 class="font-bold pb-4">{flow.path}</h2>
+										{/if}
+									</div></div
+								>
+								<div class="flex items-center gap-2">
+									<span class="text-sm text-gray-500">
+										{#if flow}
+											Edited {displayDaysAgo(flow.edited_at || '')} by {flow.edited_by || 'unknown'}
+										{/if}
+									</span>
+
+									<SharedBadge canWrite={can_write} extraPerms={flow?.extra_perms ?? {}} />
 								</div>
 							</div>
-							<div class="flex flex-col">
-								<h1 class="break-words py-2 mr-2">
-									{defaultIfEmptyString(flow.summary, flow.path)}
-								</h1>
-								{#if !emptyString(flow.summary)}
-									<h2 class="font-bold pb-4">{flow.path}</h2>
-								{/if}
-							</div></div
-						>
-						<div class="flex items-center gap-2">
-							<span class="text-sm text-gray-500">
-								{#if flow}
-									Edited {displayDaysAgo(flow.edited_at || '')} by {flow.edited_by || 'unknown'}
-								{/if}
-							</span>
-
-							<SharedBadge canWrite={can_write} extraPerms={flow?.extra_perms ?? {}} />
 						</div>
+						{#if !emptyString(flow.description)}
+							<div class="prose text-sm box max-w-6xl w-full mt-8">
+								{defaultIfEmptyString(flow.description, 'No description')}
+							</div>
+						{/if}
 					</div>
-				</div>
-				{#if !emptyString(flow.description)}
-					<div class="prose text-sm box max-w-6xl w-full mt-8">
-						{defaultIfEmptyString(flow.description, 'No description')}
-					</div>
+					<RunForm
+						{loading}
+						autofocus
+						bind:this={runForm}
+						bind:isValid
+						detailed={false}
+						runnable={flow}
+						runAction={runFlow}
+						viewCliRun
+						isFlow
+						bind:args
+					/>
+				{:else}
+					<Skeleton layout={[2, [3], 1, [2], 4, [4], 3, [8]]} />
 				{/if}
 			</div>
-			<RunForm
-				{loading}
-				autofocus
-				bind:this={runForm}
-				bind:isValid
-				detailed={false}
-				runnable={flow}
-				runAction={runFlow}
-				viewCliRun
-				isFlow
-				bind:args
-			/>
-		{:else}
-			<Skeleton layout={[2, [3], 1, [2], 4, [4], 3, [8]]} />
-		{/if}
-	</div>
-</div>
+		</Pane>
 
-<SavedInputs flow_path={path} {isValid} {args} on:selected_args={(e) => (args = e.detail)} />
+		<Pane size={30}>
+			<SavedInputs flowPath={path} {isValid} {args} on:selected_args={(e) => (args = e.detail)} />
+		</Pane>
+	</Splitpanes>
+</SplitPanesWrapper>

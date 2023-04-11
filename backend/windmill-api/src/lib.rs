@@ -7,6 +7,13 @@
  */
 
 use crate::oauth2::AllClients;
+use crate::{
+    db::UserDB,
+    oauth2::{build_oauth_clients, SlackVerifier},
+    tracing_init::{MyMakeSpan, MyOnResponse},
+    users::{Authed, OptAuthed},
+    webhook_util::WebhookShared,
+};
 use argon2::Argon2;
 use axum::{middleware::from_extractor, routing::get, Extension, Router};
 use db::DB;
@@ -22,14 +29,6 @@ use tower_http::{
 };
 use windmill_common::utils::rd_string;
 
-use crate::{
-    db::UserDB,
-    oauth2::{build_oauth_clients, SlackVerifier},
-    tracing_init::{MyMakeSpan, MyOnResponse},
-    users::{Authed, OptAuthed},
-    webhook_util::WebhookShared,
-};
-
 mod apps;
 mod audit;
 mod capture;
@@ -39,6 +38,7 @@ mod flows;
 mod folders;
 mod granular_acls;
 mod groups;
+mod inputs;
 pub mod jobs;
 mod oauth2;
 mod resources;
@@ -117,25 +117,27 @@ pub async fn run_server(
                 .nest(
                     "/w/:workspace_id",
                     Router::new()
-                        .nest("/scripts", scripts::workspaced_service())
+                        // Reordered alphabetically
+                        .nest("/acls", granular_acls::workspaced_service())
+                        .nest("/apps", apps::workspaced_service())
+                        .nest("/audit", audit::workspaced_service())
+                        .nest("/capture", capture::workspaced_service())
+                        .nest("/favorites", favorite::workspaced_service())
+                        .nest("/flows", flows::workspaced_service())
+                        .nest("/folders", folders::workspaced_service())
+                        .nest("/groups", groups::workspaced_service())
+                        .nest("/inputs", inputs::workspaced_service())
                         .nest("/jobs", jobs::workspaced_service().layer(cors.clone()))
+                        .nest("/oauth", oauth2::workspaced_service())
+                        .nest("/resources", resources::workspaced_service())
+                        .nest("/schedules", schedule::workspaced_service())
+                        .nest("/scripts", scripts::workspaced_service())
                         .nest(
                             "/users",
                             users::workspaced_service().layer(Extension(argon2.clone())),
                         )
                         .nest("/variables", variables::workspaced_service())
-                        .nest("/oauth", oauth2::workspaced_service())
-                        .nest("/resources", resources::workspaced_service())
-                        .nest("/schedules", schedule::workspaced_service())
-                        .nest("/groups", groups::workspaced_service())
-                        .nest("/audit", audit::workspaced_service())
-                        .nest("/acls", granular_acls::workspaced_service())
-                        .nest("/workspaces", workspaces::workspaced_service())
-                        .nest("/apps", apps::workspaced_service())
-                        .nest("/flows", flows::workspaced_service())
-                        .nest("/capture", capture::workspaced_service())
-                        .nest("/favorites", favorite::workspaced_service())
-                        .nest("/folders", folders::workspaced_service()),
+                        .nest("/workspaces", workspaces::workspaced_service()),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(

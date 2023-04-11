@@ -1,17 +1,26 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import { FlowService, ScriptService, type Input } from '$lib/gen/index.js'
+	import { InputService, type Input, RunnableType, type CreateInput } from '$lib/gen/index.js'
 	import { workspaceStore } from '$lib/stores.js'
-	import { displayDate } from '$lib/utils.js'
+	import { displayDate, sendUserToast } from '$lib/utils.js'
+	import { faSave, faTrash } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import SplitPanesWrapper from './splitPanes/SplitPanesWrapper.svelte'
-	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { faSave, faTrash } from '@fortawesome/free-solid-svg-icons'
 
-	export let hash: string | undefined = ''
-	export let script_path: string | undefined = ''
-	export let flow_path: string | undefined = ''
+	export let scriptHash: string | null = null
+	export let scriptPath: string | null = null
+	export let flowPath: string | null = null
+
+	let runnableId: string | undefined = scriptHash || scriptPath || flowPath || undefined
+	let runnableType: RunnableType | undefined = scriptHash
+		? RunnableType.SCRIPT_HASH
+		: scriptPath
+		? RunnableType.SCRIPT_PATH
+		: flowPath
+		? RunnableType.FLOW_PATH
+		: undefined
 
 	// Are the current Inputs valid and able to be saved?
 	export let isValid: boolean
@@ -23,37 +32,21 @@
 	let selectedInput: Input | null
 
 	async function loadInputHistory() {
-		if (hash) {
-			previousInputs = await ScriptService.getScriptInputHistoryByHash({
-				workspace: $workspaceStore!,
-				hash,
-				perPage: 10
-			})
-		} else if (script_path) {
-			previousInputs = await ScriptService.getScriptInputHistoryByPath({
-				workspace: $workspaceStore!,
-				path: script_path,
-				perPage: 10
-			})
-		} else if (flow_path) {
-			previousInputs = await FlowService.getFlowInputHistoryByPath({
-				workspace: $workspaceStore!,
-				path: flow_path,
-				perPage: 10
-			})
-		}
+		previousInputs = await InputService.getInputHistory({
+			workspace: $workspaceStore!,
+			runnableId,
+			runnableType,
+			perPage: 10
+		})
 	}
 
-	$: {
-		if ($workspaceStore && (hash || script_path || flow_path)) {
-			loadInputHistory()
-		}
-	}
-
-	const dispatch = createEventDispatcher()
-
-	const selectArgs = (selected_args: object) => {
-		dispatch('selected_args', selected_args)
+	async function loadSavedInputs() {
+		savedInputs = await InputService.listInputs({
+			workspace: $workspaceStore!,
+			runnableId,
+			runnableType,
+			perPage: 10
+		})
 	}
 
 	let savingInputs = false
@@ -61,42 +54,60 @@
 	async function saveInput(args: object) {
 		savingInputs = true
 
-		savedInputs.push({
+		const requestBody: CreateInput = {
 			name: 'Saved ' + displayDate(new Date()),
 			args,
-			created_by: 'You',
-			started_at: 'Just now'
-		})
-		savedInputs = [...savedInputs]
+			created_by: 'You'
+		}
 
-		// if (hash) {
-		// 	await ScriptService.saveScriptInputsByHash({
-		// 		workspace: $workspaceStore!,
-		// 		hash,
-		// 		args
-		// 	})
-		// } else if (script_path) {
-		// 	await ScriptService.saveScriptInputsByPath({
-		// 		workspace: $workspaceStore!,
-		// 		path: script_path,
-		// 		args
-		// 	})
-		// } else if (flow_path) {
-		// 	await FlowService.saveFlowInputsByPath({
-		// 		workspace: $workspaceStore!,
-		// 		path: flow_path,
-		// 		args
-		// 	})
-		// }
+		try {
+			let id = await InputService.createInput({
+				workspace: $workspaceStore!,
+				runnableId,
+				runnableType,
+				requestBody
+			})
+
+			const input = {
+				id,
+				...requestBody
+			}
+			savedInputs = [input, ...savedInputs]
+		} catch (err) {
+			console.error(err)
+			sendUserToast(`Failed to save Input: ${err}`, true)
+		}
 
 		savingInputs = false
 	}
 
 	async function deleteInput(input: Input) {
-		savedInputs = savedInputs.filter((i) => i !== input)
-		if (selectedInput === input) {
-			selectedInput = null
+		try {
+			await InputService.deleteInput({
+				workspace: $workspaceStore!,
+				input: input.id
+			})
+			savedInputs = savedInputs.filter((i) => i.id !== input.id)
+			if (selectedInput === input) {
+				selectedInput = null
+			}
+		} catch (err) {
+			console.error(err)
+			sendUserToast(`Failed to delete Input: ${err}`, true)
 		}
+	}
+
+	$: {
+		if ($workspaceStore && (scriptHash || scriptPath || flowPath)) {
+			loadInputHistory()
+			loadSavedInputs()
+		}
+	}
+
+	const dispatch = createEventDispatcher()
+
+	const selectArgs = (selected_args: object) => {
+		dispatch('selected_args', selected_args)
 	}
 </script>
 
@@ -164,11 +175,10 @@
 								on:click={() => (selectedInput = i)}
 							>
 								<div class="w-full h-full items-center flex gap-4 min-w-0">
-									<small>{displayDate(i.started_at)}</small>
 									<small
 										class="whitespace-nowrap overflow-hidden text-ellipsis flex-shrink text-left"
 									>
-										{i.created_by}
+										{i.name}
 									</small>
 								</div>
 							</Button>
