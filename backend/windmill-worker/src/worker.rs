@@ -411,6 +411,8 @@ lazy_static::lazy_static! {
     static ref PATH_ENV: String = std::env::var("PATH").unwrap_or_else(|_| String::new());
     static ref HOME_ENV: String = std::env::var("HOME").unwrap_or_else(|_| String::new());
     static ref PIP_INDEX_URL: Option<String> = std::env::var("PIP_INDEX_URL").ok();
+    static ref GOPRIVATE: Option<String> = std::env::var("GOPRIVATE").ok();
+    static ref NETRC: Option<String> = std::env::var("NETRC").ok();
     static ref PIP_EXTRA_INDEX_URL: Option<String> = std::env::var("PIP_EXTRA_INDEX_URL").ok();
     static ref PIP_TRUSTED_HOST: Option<String> = std::env::var("PIP_TRUSTED_HOST").ok();
     static ref DENO_AUTH_TOKENS: String = std::env::var("DENO_AUTH_TOKENS")
@@ -1567,6 +1569,9 @@ func Run(req Req) (interface{{}}, error){{
             .stderr(Stdio::piped())
             .spawn()?
     } else {
+        if let Some(ref netrc) = *NETRC {
+            write_file(&HOME_ENV, ".netrc", netrc).await?;
+        }
         Command::new(GO_PATH.as_str())
             .current_dir(job_dir)
             .env_clear()
@@ -1574,6 +1579,7 @@ func Run(req Req) (interface{{}}, error){{
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("GOPATH", GO_CACHE_DIR)
+            .env("GOPRIVATE", GOPRIVATE.as_ref().unwrap_or(&String::new()))
             .env("HOME", HOME_ENV.as_str())
             .args(vec!["run", "main.go"])
             .stdout(Stdio::piped())
