@@ -31,9 +31,10 @@
 	export let render: boolean
 	export let outputs: { result: Output<any>; loading: Output<boolean> }
 	export let extraKey = ''
-	export let recomputeOnInputChanged: boolean = false
+	export let recomputeOnInputChanged: boolean = true
 	export let loading = false
 	export let recomputableByRefreshButton: boolean = true
+	export let refreshOnStart: boolean = false
 
 	const {
 		worldStore,
@@ -47,25 +48,26 @@
 		mode,
 		stateId,
 		state,
-		componentControl
+		componentControl,
+		initialized
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const dispatch = createEventDispatcher()
 
 	$runnableComponents[id] = {
 		autoRefresh: autoRefresh && recomputableByRefreshButton,
+		refreshOnStart,
 		cb: async (inlineScript?: InlineScript) => {
 			await executeComponent(true, inlineScript)
 		}
 	}
 
-	if (!$worldStore.initializedComponents.includes(id)) {
-		console.log('adding', id)
-		$worldStore.initializedComponents = [...$worldStore.initializedComponents, id]
+	if (!$initialized.initializedComponents.includes(id)) {
+		$initialized.initializedComponents = [...$initialized.initializedComponents, id]
 	}
 
 	onDestroy(() => {
-		$worldStore.initializedComponents = $worldStore.initializedComponents.filter((c) => c !== id)
+		$initialized.initializedComponents = $initialized.initializedComponents.filter((c) => c !== id)
 	})
 
 	$runnableComponents = $runnableComponents
@@ -111,7 +113,7 @@
 	function refreshIfAutoRefresh(_src: string) {
 		const refreshEnabled =
 			autoRefresh && ((recomputeOnInputChanged ?? true) || refreshOn?.length > 0)
-		if (refreshEnabled && $worldStore.initialized) {
+		if (refreshEnabled && $initialized.initialized) {
 			setDebouncedExecute()
 		}
 	}

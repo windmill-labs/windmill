@@ -40,6 +40,7 @@
 	export let recomputeIds: string[] = []
 	export let outputs: { result: Output<any>; loading: Output<boolean> }
 	export let extraKey: string | undefined = undefined
+	export let refreshOnStart: boolean = false
 
 	const { staticExporter, noBackend, componentControl, runnableComponents } =
 		getContext<AppViewerContext>('AppViewerContext')
@@ -101,6 +102,7 @@
 	<slot />
 {:else if componentInput.type === 'runnable' && isRunnableDefined(componentInput)}
 	<RunnableComponent
+		{refreshOnStart}
 		{extraKey}
 		bind:loading
 		bind:this={runnableComponent}

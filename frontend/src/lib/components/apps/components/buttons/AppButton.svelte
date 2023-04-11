@@ -67,8 +67,6 @@
 		}
 	}
 
-	$: resolvedConfig?.triggerOnAppLoad && runnableComponent?.runComponent()
-
 	let errors: Record<string, string> = {}
 	$: errorsMessage = Object.values(errors)
 		.filter((x) => x != '')
@@ -119,6 +117,7 @@
 	{render}
 	{outputs}
 	{extraKey}
+	refreshOnStart={resolvedConfig.triggerOnAppLoad}
 >
 	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
 		{#if errorsMessage}

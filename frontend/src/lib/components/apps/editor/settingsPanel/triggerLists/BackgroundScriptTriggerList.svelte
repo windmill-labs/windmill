@@ -19,13 +19,15 @@
 	export let doNotRecomputeOnInputChanged: undefined | boolean = undefined
 
 	//TODO: remove after migration is done
-	if (doNotRecomputeOnInputChanged != undefined) {
-		recomputeOnInputChanged = !doNotRecomputeOnInputChanged
-		doNotRecomputeOnInputChanged = undefined
-	}
+	$: {
+		if (doNotRecomputeOnInputChanged != undefined) {
+			recomputeOnInputChanged = !doNotRecomputeOnInputChanged
+			doNotRecomputeOnInputChanged = undefined
+		}
 
-	if (recomputeOnInputChanged == undefined) {
-		recomputeOnInputChanged = true
+		if (recomputeOnInputChanged == undefined) {
+			recomputeOnInputChanged = true
+		}
 	}
 
 	$: dependencies = getDependencies(fields)

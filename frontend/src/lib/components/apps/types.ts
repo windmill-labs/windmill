@@ -133,12 +133,23 @@ export type AppViewerContext = {
 	worldStore: Writable<World>
 	app: Writable<App>
 	summary: Writable<string>
+	initialized: Writable<{
+		initializedComponents: string[]
+		initialized: boolean
+	}>
 	selectedComponent: Writable<string[] | undefined>
 	mode: Writable<EditorMode>
 	connectingInput: Writable<ConnectingInput>
 	breakpoint: Writable<EditorBreakpoint>
 	runnableComponents: Writable<
-		Record<string, { autoRefresh: boolean; cb: (inlineScript?: InlineScript) => Promise<void> }>
+		Record<
+			string,
+			{
+				autoRefresh: boolean
+				refreshOnStart?: boolean
+				cb: (inlineScript?: InlineScript) => Promise<void>
+			}
+		>
 	>
 	staticExporter: Writable<Record<string, () => any>>
 	appPath: string

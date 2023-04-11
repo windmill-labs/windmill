@@ -41,8 +41,15 @@
 	$: stateId = $worldStore?.stateId
 
 	let timeout: NodeJS.Timeout | undefined = undefined
+
+	let firstDebounce = true
 	const debounce_ms = 50
 	function debounce(cb: () => Promise<void>) {
+		if (firstDebounce) {
+			firstDebounce = false
+			cb()
+			return
+		}
 		if (timeout) {
 			clearTimeout(timeout)
 		}
