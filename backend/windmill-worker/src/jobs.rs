@@ -223,14 +223,17 @@ pub async fn schedule_again_if_scheduled<'c, R: rsmq_async::RsmqConnection + Clo
     script_path: &str,
     w_id: &str,
 ) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
-    let schedule = get_schedule_opt(tx.transaction_mut(), w_id, schedule_path)
-        .await?
-        .ok_or_else(|| {
-            Error::InternalErr(format!(
-                "Could not find schedule {:?} for workspace {}",
-                schedule_path, w_id
-            ))
-        })?;
+    let schedule = get_schedule_opt(tx.transaction_mut(), w_id, schedule_path).await?;
+
+    if schedule.is_none() {
+        tracing::error!(
+            "Schedule {schedule_path} in {w_id} not found. Impossible to schedule again"
+        );
+        return Ok(tx);
+    }
+
+    let schedule = schedule.unwrap();
+
     if schedule.enabled && script_path == schedule.script_path {
         let res = windmill_queue::schedule::push_scheduled_job(
             tx,
