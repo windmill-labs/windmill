@@ -21,6 +21,8 @@
 	} from '$lib/utils'
 	import { faEye, faPen, faPlay } from '@fortawesome/free-solid-svg-icons'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import { tweened } from 'svelte/motion'
+	import { cubicOut } from 'svelte/easing'
 
 	$: hash = $page.params.hash
 	let script: Script | undefined
@@ -101,13 +103,18 @@
 				break
 		}
 	}
+
+	let savedInputPaneSize = tweened(0, {
+		duration: 200,
+		easing: cubicOut
+	})
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
 
 <SplitPanesWrapper class="h-screen">
 	<Splitpanes>
-		<Pane class="px-4 flex justify-center">
+		<Pane class="px-4 flex justify-center" size={100 - $savedInputPaneSize} minSize={50}>
 			<div class="w-full max-w-4xl flex flex-col">
 				{#if script}
 					<div class="flex flex-col justify-between gap-4 mb-6">
@@ -230,7 +237,7 @@
 			</div>
 		</Pane>
 
-		<Pane size={0}>
+		<Pane size={$savedInputPaneSize}>
 			<SavedInputs scriptHash={hash} {isValid} {args} on:selected_args={(e) => (args = e.detail)} />
 		</Pane>
 	</Splitpanes>

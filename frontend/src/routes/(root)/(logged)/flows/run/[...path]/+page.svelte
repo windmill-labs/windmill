@@ -15,12 +15,7 @@
 		getModifierKey,
 		sendUserToast
 	} from '$lib/utils'
-	import {
-		faAmericanSignLanguageInterpreting,
-		faEye,
-		faPen,
-		faPlay
-	} from '@fortawesome/free-solid-svg-icons'
+	import { faEye, faPen, faPlay } from '@fortawesome/free-solid-svg-icons'
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { tweened } from 'svelte/motion'
@@ -132,7 +127,6 @@
 											</Button>
 											<Button
 												size="sm"
-												startIcon={{ icon: faAmericanSignLanguageInterpreting }}
 												disabled={flow == undefined}
 												variant="border"
 												on:click={() => {
@@ -194,9 +188,7 @@
 			</div>
 		</Pane>
 		<Pane size={$savedInputPaneSize}>
-			{#if $savedInputPaneSize > 20}
-				<SavedInputs flowPath={path} {isValid} {args} on:selected_args={(e) => (args = e.detail)} />
-			{/if}
+			<SavedInputs flowPath={path} {isValid} {args} on:selected_args={(e) => (args = e.detail)} />
 		</Pane>
 	</Splitpanes>
 </SplitPanesWrapper>

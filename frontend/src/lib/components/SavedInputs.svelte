@@ -2,7 +2,7 @@
 	import { Button } from '$lib/components/common'
 	import { InputService, type Input, RunnableType, type CreateInput } from '$lib/gen/index.js'
 	import { workspaceStore } from '$lib/stores.js'
-	import { displayDate, sendUserToast } from '$lib/utils.js'
+	import { classNames, displayDate, sendUserToast } from '$lib/utils.js'
 	import { faEdit, faSave, faTrash } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -153,13 +153,14 @@
 					</Button>
 				</div>
 
-				<div class="w-full flex flex-col gap-2 h-full overflow-y-auto">
+				<div class="w-full flex flex-col gap-2 h-full overflow-y-auto p">
 					{#if savedInputs.length > 0}
 						{#each savedInputs as i}
-							<Button
-								color={selectedInput === i ? 'dark' : 'light'}
-								variant="border"
-								btnClasses="w-full group h-12"
+							<button
+								class={classNames(
+									`w-full flex items-center group justify-between gap-4 py-2 px-4 text-left border rounded-md hover:bg-gray-100 transition-a h-12`,
+									selectedInput === i ? 'border-blue-500 bg-blue-50' : ''
+								)}
 								on:click={() => {
 									if (!i.isEditing) {
 										if (selectedInput === i) {
@@ -197,6 +198,7 @@
 											iconOnly={true}
 											color="gray"
 											size="xs"
+											variant="border"
 											btnClasses={i.isEditing ? 'block' : 'group-hover:block hidden'}
 											on:click={(e) => {
 												e.stopPropagation()
@@ -213,12 +215,13 @@
 											iconOnly={true}
 											color="red"
 											size="xs"
+											variant="border"
 											btnClasses={i.isEditing ? 'block' : 'group-hover:block hidden'}
 											on:click={() => deleteInput(i)}
 										/>
 									</div>
 								</div>
-							</Button>
+							</button>
 						{/each}
 					{:else}
 						<div class="text-center text-gray-500">No saved Inputs</div>
@@ -231,12 +234,14 @@
 			<div class="w-full flex flex-col gap-4 p-4">
 				<span class="text-sm font-extrabold">Previous Inputs</span>
 
-				<div class="w-full flex flex-col gap-2 p-0 h-full overflow-y-auto">
+				<div class="w-full flex flex-col gap-1 p-0 h-full overflow-y-auto">
 					{#if previousInputs.length > 0}
 						{#each previousInputs as i}
-							<Button
-								color={selectedInput === i ? 'gray' : 'light'}
-								btnClasses="w-full h-12"
+							<button
+								class={classNames(
+									`w-full flex items-center justify-between gap-4 py-2 px-4 text-left border rounded-sm hover:bg-gray-100 transition-a`,
+									selectedInput === i ? 'border-blue-500 bg-blue-50' : ''
+								)}
 								on:click={() => {
 									if (selectedInput === i) {
 										selectedInput = null
@@ -252,7 +257,7 @@
 										{i.name}
 									</small>
 								</div>
-							</Button>
+							</button>
 						{/each}
 					{:else}
 						<div class="text-center text-gray-500">No previous Inputs</div>
@@ -262,12 +267,14 @@
 		</Pane>
 
 		<Pane class="flex flex-col justify-between">
-			<div class="w-full flex flex-col gap-4 p-4">
+			<div class="w-full flex flex-col gap-4 p-4 h-full">
 				<span class="text-sm font-extrabold">Preview</span>
 
 				<div class="w-full h-full overflow-auto">
 					{#if Object.keys(selectedInput?.args || {}).length > 0}
-						<ObjectViewer json={selectedInput?.args} />
+						<div class="border h-full p-2">
+							<ObjectViewer json={selectedInput?.args} />
+						</div>
 					{:else}
 						<div class="text-center text-gray-500">
 							Select an Input to preview scripts arguments
