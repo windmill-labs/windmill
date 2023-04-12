@@ -1814,6 +1814,7 @@ async fn handle_deno_job(
             let script_path = format!("{job_dir}/wrapper.ts");
             let import_map_path = format!("{job_dir}/import_map.json");
             args.push("run");
+            args.push("--no-check");
             args.push("--import-map");
             args.push(&import_map_path);
             args.push(&reload);
