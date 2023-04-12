@@ -6,10 +6,6 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use sql_builder::prelude::*;
-use windmill_audit::{audit_log, ActionKind};
-use windmill_parser::MainArgSignature;
-
 use crate::{
     db::{UserDB, DB},
     schedule::clear_schedule,
@@ -25,6 +21,7 @@ use axum::{
 use hyper::StatusCode;
 use serde::Serialize;
 use serde_json::json;
+use sql_builder::prelude::*;
 use sql_builder::SqlBuilder;
 use sqlx::{FromRow, Postgres, Transaction};
 use std::{
@@ -32,6 +29,7 @@ use std::{
     hash::{Hash, Hasher},
     sync::Arc,
 };
+use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{Error, JsonResult, Result},
     schedule::Schedule,
@@ -44,6 +42,7 @@ use windmill_common::{
         list_elems_from_hub, not_found_if_none, paginate, require_admin, Pagination, StripPath,
     },
 };
+use windmill_parser::MainArgSignature;
 use windmill_queue::{self, schedule::push_scheduled_job, QueueTransaction};
 
 const MAX_HASH_HISTORY_LENGTH_STORED: usize = 20;
@@ -85,6 +84,7 @@ pub fn workspaced_service() -> Router {
         .route("/deployment_status/h/:hash", get(get_deployment_status))
         .route("/list_paths", get(list_paths))
 }
+
 async fn list_scripts(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
