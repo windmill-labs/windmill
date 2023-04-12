@@ -22,7 +22,6 @@
 		app,
 		mode,
 		connectingInput,
-		runnableComponents,
 		summary,
 		focusedGrid,
 		parentWidth,
@@ -38,40 +37,6 @@
 		$allIdsInPath = ($selectedComponent ?? [])
 			.flatMap((id) => dfs($app.grid, id, $app.subgrids ?? {}))
 			.filter((x) => x != undefined) as string[]
-	}
-
-	function removeGridElement(component) {
-		if (component) {
-			$app.grid = $app.grid.filter((gridComponent) => {
-				if (gridComponent.data.id === component.id) {
-					if (
-						gridComponent.data.componentInput?.type === 'runnable' &&
-						gridComponent.data.componentInput?.runnable?.type === 'runnableByName' &&
-						gridComponent.data.componentInput?.runnable.inlineScript
-					) {
-						const { name, inlineScript } = gridComponent.data.componentInput?.runnable
-
-						if (!$app.unusedInlineScripts) {
-							$app.unusedInlineScripts = []
-						}
-
-						$app.unusedInlineScripts.push({
-							name,
-							inlineScript
-						})
-
-						$app = $app
-					}
-				}
-
-				return gridComponent.data.id !== component?.id
-			})
-
-			delete $runnableComponents[component.id]
-			$runnableComponents = $runnableComponents
-
-			$selectedComponent = undefined
-		}
 	}
 </script>
 
@@ -135,7 +100,6 @@
 						component={dataItem.data}
 						selected={Boolean($selectedComponent?.includes(dataItem.id))}
 						locked={isFixed(dataItem)}
-						on:delete={() => removeGridElement(dataItem.data)}
 						on:lock={() => {
 							const gridItem = findGridItem($app, dataItem.id)
 							if (gridItem) {
