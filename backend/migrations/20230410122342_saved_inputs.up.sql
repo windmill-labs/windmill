@@ -1,0 +1,13 @@
+CREATE TYPE RUNNABLE_TYPE AS ENUM ('ScriptHash', 'ScriptPath', 'FlowPath');
+
+CREATE TABLE IF NOT EXISTS input (
+  id UUID PRIMARY KEY,
+  workspace_id VARCHAR(50) NOT NULL REFERENCES workspace(id),
+  runnable_id VARCHAR(255) NOT NULL,
+  runnable_type RUNNABLE_TYPE NOT NULL,
+  name TEXT NOT NULL,
+  args JSONB NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+  created_by VARCHAR(50) NOT NULL,
+  is_public BOOLEAN NOT NULL DEFAULT FALSE
+);

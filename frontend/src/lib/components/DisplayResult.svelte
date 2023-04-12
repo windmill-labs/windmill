@@ -101,8 +101,8 @@
 			>{/if}{#if typeof result == 'object' && Object.keys(result).length > 0}<div
 				class="mb-2 w-full text-sm text-gray-700 relative"
 				>The result keys are: <b>{truncate(Object.keys(result).join(', '), 50)}</b>
-				<div class="text-gray-500 text-sm absolute top-6 right-0">
-					<button on:click={jsonViewer.openDrawer}>Expand JSON</button>
+				<div class="text-gray-500 text-xs absolute top-5 right-0">
+					<button on:click={jsonViewer.openDrawer}>Expand</button>
 				</div></div
 			>{/if}{#if !forceJson && resultKind == 'table-col'}<div
 				class="grid grid-flow-col-dense border border-gray-200 rounded-md"

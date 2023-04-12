@@ -22,18 +22,17 @@
 <div
 	class="pointer-events-auto w-full max-w-sm overflow-hidden bg-white shadow-lg ring-1 ring-black ring-opacity-5 border"
 >
-	<div class="p-4">
+	<div class="p-2 min-h-[60px]">
 		<div class="flex items-start">
-			<div class="flex-shrink-0">
+			<div class="flex-shrink-0 mt-0.5">
 				{#if error}
-					<XCircleIcon class="h-6 w-6 text-red-400" />
+					<XCircleIcon class="h-4 w-4 text-red-400" />
 				{:else}
-					<CheckCircle2 class="h-6 w-6 text-green-400" />
+					<CheckCircle2 class="h-4 w-4 text-green-400" />
 				{/if}
 			</div>
-			<div class="ml-3 w-0 flex-1 pt-0.5">
-				<p class="text-sm font-medium text-gray-900">{error ? 'Error' : 'Success'}</p>
-				<p class="mt-1 text-sm text-gray-500">{message}</p>
+			<div class="ml-3 w-0 flex-1">
+				<p class="text-sm text-gray-500">{message}</p>
 			</div>
 			<div class="ml-4 flex flex-shrink-0">
 				<button
