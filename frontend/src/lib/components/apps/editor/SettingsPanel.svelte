@@ -107,7 +107,7 @@
 					bind:inlineScript={hiddenInlineScript.script.inlineScript}
 				/>
 			{:else}
-				<span class="text-gray-600 text-xs">No hiddenInlineScript.script defined</span>
+				<span class="text-gray-600 text-xs">No script defined</span>
 			{/if}
 		</div>
 		{#if Object.keys(hiddenInlineScript.script.fields).length > 0}
