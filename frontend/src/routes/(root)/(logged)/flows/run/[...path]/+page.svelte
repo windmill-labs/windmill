@@ -124,7 +124,7 @@
 												variant="border"
 												href="/flows/get/{flow?.path}?workspace_id={$workspaceStore}"
 											>
-												View flow
+												Flow
 											</Button>
 
 											<Button
@@ -164,6 +164,7 @@
 					<div class="flex justify-end">
 						<Button
 							size="xs"
+							variant="border"
 							disabled={flow == undefined}
 							color="dark"
 							on:click={() => {
@@ -172,7 +173,7 @@
 							}}
 						>
 							<div class="flex flex-row gap-2 items-center">
-								{$savedInputPaneSize === 0 ? 'Open input explorer' : 'Close input explorer'}
+								{$savedInputPaneSize === 0 ? 'Open input library' : 'Close input library'}
 								{#if $savedInputPaneSize === 0}
 									<ArrowRightIcon class="w-4 h-4" />
 								{:else}

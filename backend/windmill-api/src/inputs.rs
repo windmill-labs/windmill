@@ -46,6 +46,7 @@ pub struct InputRow {
     pub args: Value,
     pub created_at: DateTime<Utc>,
     pub created_by: String,
+    pub is_public: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, sqlx::Type)]
@@ -94,8 +95,10 @@ pub struct RunnableParams {
 pub struct Input {
     id: Uuid,
     name: String,
+    created_at: chrono::DateTime<chrono::Utc>,
     args: serde_json::Value,
     created_by: String,
+    is_public: bool,
 }
 
 async fn get_input_history(
@@ -140,11 +143,13 @@ async fn get_input_history(
             id: row.id,
             name: format!(
                 "{} {}",
-                row.started_at.format("%H:%M %-d/%-m"),
+                row.created_at.format("%H:%M %-d/%-m"),
                 row.created_by
             ),
+            created_at: row.created_at,
             args: row.args.unwrap_or(serde_json::json!({})),
             created_by: row.created_by,
+            is_public: true,
         });
     }
 
@@ -165,11 +170,13 @@ async fn list_saved_inputs(
     let rows = sqlx::query_as::<_, InputRow>(
         "select * from input \
          where runnable_id = $1 and runnable_type = $2 and workspace_id = $3 \
-         order by created_at desc limit $4 offset $5",
+         and is_public IS true OR created_by = $4 \
+         order by created_at desc limit $5 offset $6",
     )
     .bind(&r.runnable_id)
     .bind(&r.runnable_type)
     .bind(&w_id)
+    .bind(&authed.username)
     .bind(per_page as i32)
     .bind(offset as i32)
     .fetch_all(&mut tx)
@@ -185,6 +192,8 @@ async fn list_saved_inputs(
             name: row.name,
             args: row.args,
             created_by: row.created_by,
+            created_at: row.created_at,
+            is_public: row.is_public,
         })
     }
 
@@ -195,7 +204,6 @@ async fn list_saved_inputs(
 pub struct CreateInput {
     name: String,
     args: serde_json::Value,
-    created_by: String,
 }
 
 async fn create_input(
@@ -231,6 +239,7 @@ async fn create_input(
 pub struct UpdateInput {
     id: Uuid,
     name: String,
+    is_public: bool,
 }
 
 async fn update_input(
@@ -241,8 +250,9 @@ async fn update_input(
 ) -> JsonResult<String> {
     let mut tx = user_db.begin(&authed).await?;
 
-    sqlx::query("UPDATE input SET name = $1 WHERE id = $2 and workspace_id = $3")
+    sqlx::query("UPDATE input SET name = $1, is_public = $2 WHERE id = $3 and workspace_id = $4")
         .bind(&input.name)
+        .bind(&input.is_public)
         .bind(&input.id)
         .bind(&w_id)
         .execute(&mut tx)

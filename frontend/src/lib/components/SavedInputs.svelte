@@ -1,14 +1,15 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import { InputService, type Input, RunnableType, type CreateInput } from '$lib/gen/index.js'
-	import { workspaceStore } from '$lib/stores.js'
-	import { classNames, displayDate, sendUserToast } from '$lib/utils.js'
+	import { userStore, workspaceStore } from '$lib/stores.js'
+	import { classNames, displayDate, displayDaysAgo, sendUserToast } from '$lib/utils.js'
 	import { faSave } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
-	import SplitPanesWrapper from './splitPanes/SplitPanesWrapper.svelte'
-	import { ArrowLeftIcon, Edit, X, SaveIcon } from 'lucide-svelte'
+	import { ArrowLeftIcon, Edit, X } from 'lucide-svelte'
+	import Toggle from './Toggle.svelte'
+	import Tooltip from './Tooltip.svelte'
 
 	export let scriptHash: string | null = null
 	export let scriptPath: string | null = null
@@ -61,8 +62,7 @@
 
 		const requestBody: CreateInput = {
 			name: 'Saved ' + displayDate(new Date()),
-			args,
-			created_by: 'You'
+			args
 		}
 
 		try {
@@ -75,6 +75,9 @@
 
 			const input = {
 				id,
+				created_by: '',
+				created_at: new Date().toISOString(),
+				is_public: false,
 				...requestBody
 			}
 			savedInputs = [input, ...savedInputs]
@@ -94,7 +97,8 @@
 				workspace: $workspaceStore!,
 				requestBody: {
 					id: input.id,
-					name: input.name
+					name: input.name,
+					is_public: input.is_public
 				}
 			})
 		} catch (err) {
@@ -135,12 +139,16 @@
 	}
 </script>
 
-<SplitPanesWrapper>
+<div class="min-w-[300px] h-full">
 	<Splitpanes horizontal={true}>
 		<Pane>
 			<div class="w-full flex flex-col gap-4 p-4">
 				<div class="w-full flex justify-between items-center gap-4 flex-wrap">
-					<span class="text-sm font-extrabold flex-shrink-0">Saved Inputs</span>
+					<span class="text-sm font-extrabold flex-shrink-0"
+						>Saved Inputs <Tooltip
+							>Shared tooltips are available to anyone with access to the script</Tooltip
+						></span
+					>
 					<Button
 						on:click={() => saveInput(args)}
 						disabled={!isValid}
@@ -158,7 +166,7 @@
 						{#each savedInputs as i}
 							<button
 								class={classNames(
-									`w-full flex items-center group justify-between gap-4 py-2 px-4 text-left border rounded-md hover:bg-gray-100 transition-a h-12`,
+									`w-full flex items-center group justify-between gap-4 py-2 px-4 text-left border rounded-md hover:bg-gray-100 transition-all`,
 									selectedInput === i ? 'border-blue-500 bg-blue-50' : ''
 								)}
 								on:click={() => {
@@ -190,42 +198,53 @@
 											{i.name}
 										</small>
 									{/if}
-
-									<div class="flex gap-1">
-										<Button
-											loading={i.isSaving}
-											color="gray"
-											size="xs"
-											variant="border"
-											spacingSize="xs2"
-											btnClasses={i.isEditing ? 'block' : 'group-hover:block hidden'}
-											on:click={(e) => {
-												e.stopPropagation()
-												i.isEditing = !i.isEditing
-												if (!i.isEditing) {
-													updateInput(i)
-													i.isSaving = false
-												}
-											}}
-										>
-											{#if i.isEditing}
-												<SaveIcon class="w-4 h-4" />
-											{:else}
-												<Edit class="w-4 h-4" />
+									{#if i.created_by == $userStore?.username || $userStore?.is_admin || $userStore?.is_super_admin}
+										<div class="items-center flex gap-2">
+											{#if !i.isEditing}
+												<div class="group-hover:block hidden -my-2">
+													<Toggle
+														size="xs"
+														options={{ right: 'shared' }}
+														bind:checked={i.is_public}
+														on:change={() => {
+															updateInput(i)
+														}}
+													/>
+												</div>
 											{/if}
-										</Button>
 
-										<Button
-											color="red"
-											size="xs"
-											spacingSize="xs2"
-											variant="border"
-											btnClasses={i.isEditing ? 'block' : 'group-hover:block hidden'}
-											on:click={() => deleteInput(i)}
-										>
-											<X class="w-4 h-4" />
-										</Button>
-									</div>
+											<Button
+												loading={i.isSaving}
+												color="gray"
+												size="xs"
+												variant="border"
+												spacingSize="xs2"
+												btnClasses={'group-hover:block hidden'}
+												on:click={(e) => {
+													e.stopPropagation()
+													i.isEditing = !i.isEditing
+													if (!i.isEditing) {
+														updateInput(i)
+														i.isSaving = false
+													}
+												}}
+											>
+												<Edit class="w-4 h-4" />
+											</Button>
+											<Button
+												color="red"
+												size="xs"
+												spacingSize="xs2"
+												variant="border"
+												btnClasses={i.isEditing ? 'block' : 'group-hover:block hidden'}
+												on:click={() => deleteInput(i)}
+											>
+												<X class="w-4 h-4" />
+											</Button>
+										</div>
+									{:else}
+										<span class="text-xs text-gray-600">By {i.created_by}</span>
+									{/if}
 								</div>
 							</button>
 						{/each}
@@ -260,7 +279,7 @@
 									<small
 										class="whitespace-nowrap overflow-hidden text-ellipsis flex-shrink text-left"
 									>
-										{i.name}
+										{displayDaysAgo(i.created_at)} by {i.created_by}
 									</small>
 								</div>
 							</button>
@@ -304,4 +323,4 @@
 			</div>
 		</Pane>
 	</Splitpanes>
-</SplitPanesWrapper>
+</div>

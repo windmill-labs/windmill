@@ -149,7 +149,7 @@
 												disabled={script == undefined}
 												variant="border"
 												href="/scripts/get/{script?.hash}?workspace_id={$workspaceStore}"
-												>View</Button
+												>Script</Button
 											>
 										</div>
 										<div>
@@ -221,6 +221,7 @@
 					{:else}
 						<div class="flex justify-end">
 							<Button
+								variant="border"
 								size="xs"
 								color="dark"
 								on:click={() => {
@@ -229,7 +230,7 @@
 								}}
 							>
 								<div class="flex flex-row gap-2 items-center">
-									{$savedInputPaneSize === 0 ? 'Open input explorer' : 'Close input explorer'}
+									{$savedInputPaneSize === 0 ? 'Open input library' : 'Close input library'}
 									{#if $savedInputPaneSize === 0}
 										<ArrowRightIcon class="w-4 h-4" />
 									{:else}

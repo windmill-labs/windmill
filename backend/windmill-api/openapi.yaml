@@ -5018,11 +5018,18 @@ components:
           type: object
         created_by:
           type: string
+        created_at:
+          type: string
+          format: date-time
+        is_public:
+          type: boolean
       required:
         - id
         - name
         - args
         - created_by
+        - created_at
+        - is_public
 
     CreateInput:
       type: object
@@ -5031,8 +5038,6 @@ components:
           type: string
         args:
           type: object
-        created_by:
-          type: string
       required:
         - name
         - args
@@ -5045,9 +5050,12 @@ components:
           type: string
         name:
           type: string
+        is_public:
+          type: boolean
       required:
         - id
         - name
+        - is_public
 
     RunnableType:
       type: string

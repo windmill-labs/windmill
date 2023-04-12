@@ -11,9 +11,11 @@
 
 <div
 	class={'bg-white py-3 ' +
-		(stickToTop ? 'lg:sticky lg:top-0 z-[500] border-b border-gray-200 border-opacity-0 duration-300 '
-			+ (scrollY >= 30 ? 'border-opacity-100 ' : '') : '')
-			+ ($$props.class || '')}
+		(stickToTop
+			? 'lg:sticky lg:top-0 z-[500] border-b border-gray-200 border-opacity-0 duration-300 ' +
+			  (scrollY >= 30 ? 'border-opacity-100 ' : '')
+			: '') +
+		($$props.class || '')}
 >
 	<div class={'w-full flex flex-wrap justify-between items-center gap-4 ' + wide}>
 		<div class="flex flex-wrap items-center gap-2">
@@ -26,7 +28,7 @@
 				<slot name="middle" />
 			{/if}
 		</div>
-		<div class="flex flex-wrap items-center gap-2">
+		<div class="flex flex-wrap items-center gap-2 lg:gap-4">
 			{#if $$slots.right}
 				<slot name="right" />
 			{/if}
