@@ -26,6 +26,7 @@
 <PanelSection
 	title="Recompute others"
 	tooltip="Select components to recompute after running this script"
+	documentationLink="https://docs.windmill.dev/docs/apps/app_settings#recompute-others"
 >
 	{#if Object.keys($runnableComponents ?? {}).filter((id) => id !== ownId).length > 0}
 		<table class="divide-y divide-gray-300 border w-full">
@@ -45,7 +46,7 @@
 						<td class="whitespace-nowrap px-4 py-2 text-xs">
 							<Badge color="dark-indigo">{id}</Badge>
 						</td>
-						<td class="relative whitespace-nowrap px-4 py-2 ">
+						<td class="relative whitespace-nowrap px-4 py-2">
 							<input
 								class="windmillapp"
 								type="checkbox"
