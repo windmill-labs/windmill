@@ -59,6 +59,7 @@
 		push(history, $app)
 
 		if (componentSettings?.item.id) {
+			delete $worldStore.outputsById[componentSettings?.item.id]
 			$errorByComponent = clearErrorByComponentId(componentSettings?.item.id, $errorByComponent)
 			$jobs = clearJobsByComponentId(componentSettings?.item.id, $jobs)
 

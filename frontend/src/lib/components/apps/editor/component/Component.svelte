@@ -79,7 +79,6 @@
 			{component}
 			{selected}
 			shouldHideActions={$connectingInput.opened}
-			on:delete
 			on:lock
 			on:expand
 			{locked}
