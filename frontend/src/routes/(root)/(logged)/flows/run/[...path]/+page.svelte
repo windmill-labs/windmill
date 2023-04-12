@@ -20,6 +20,7 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { tweened } from 'svelte/motion'
 	import { cubicOut } from 'svelte/easing'
+	import { ArrowLeftIcon, ArrowRightIcon } from 'lucide-svelte'
 
 	const path = $page.params.path
 	let flow: Flow | undefined
@@ -125,17 +126,7 @@
 											>
 												View flow
 											</Button>
-											<Button
-												size="sm"
-												disabled={flow == undefined}
-												variant="border"
-												on:click={() => {
-													//savedInputPaneSize = savedInputPaneSize == 0 ? 30 : 0
-													savedInputPaneSize.set($savedInputPaneSize === 0 ? 30 : 0)
-												}}
-											>
-												Saved Inputs
-											</Button>
+
 											<Button
 												startIcon={{ icon: faPlay }}
 												disabled={runForm == undefined || !isValid}
@@ -169,6 +160,26 @@
 								{defaultIfEmptyString(flow.description, 'No description')}
 							</div>
 						{/if}
+					</div>
+					<div class="flex justify-end">
+						<Button
+							size="xs"
+							disabled={flow == undefined}
+							color="dark"
+							on:click={() => {
+								//savedInputPaneSize = savedInputPaneSize == 0 ? 30 : 0
+								savedInputPaneSize.set($savedInputPaneSize === 0 ? 30 : 0)
+							}}
+						>
+							<div class="flex flex-row gap-2 items-center">
+								{$savedInputPaneSize === 0 ? 'Open input explorer' : 'Close input explorer'}
+								{#if $savedInputPaneSize === 0}
+									<ArrowRightIcon class="w-4 h-4" />
+								{:else}
+									<ArrowLeftIcon class="w-4 h-4" />
+								{/if}
+							</div>
+						</Button>
 					</div>
 					<RunForm
 						{loading}

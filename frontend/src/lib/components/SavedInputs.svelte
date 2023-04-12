@@ -3,12 +3,12 @@
 	import { InputService, type Input, RunnableType, type CreateInput } from '$lib/gen/index.js'
 	import { workspaceStore } from '$lib/stores.js'
 	import { classNames, displayDate, sendUserToast } from '$lib/utils.js'
-	import { faEdit, faSave, faTrash } from '@fortawesome/free-solid-svg-icons'
+	import { faSave } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import SplitPanesWrapper from './splitPanes/SplitPanesWrapper.svelte'
-	import { ArrowLeftIcon } from 'lucide-svelte'
+	import { ArrowLeftIcon, Edit, X, SaveIcon } from 'lucide-svelte'
 
 	export let scriptHash: string | null = null
 	export let scriptPath: string | null = null
@@ -193,12 +193,11 @@
 
 									<div class="flex gap-1">
 										<Button
-											startIcon={{ icon: i.isEditing ? faSave : faEdit }}
 											loading={i.isSaving}
-											iconOnly={true}
 											color="gray"
 											size="xs"
 											variant="border"
+											spacingSize="xs2"
 											btnClasses={i.isEditing ? 'block' : 'group-hover:block hidden'}
 											on:click={(e) => {
 												e.stopPropagation()
@@ -208,17 +207,24 @@
 													i.isSaving = false
 												}
 											}}
-										/>
+										>
+											{#if i.isEditing}
+												<SaveIcon class="w-4 h-4" />
+											{:else}
+												<Edit class="w-4 h-4" />
+											{/if}
+										</Button>
 
 										<Button
-											startIcon={{ icon: faTrash }}
-											iconOnly={true}
 											color="red"
 											size="xs"
+											spacingSize="xs2"
 											variant="border"
 											btnClasses={i.isEditing ? 'block' : 'group-hover:block hidden'}
 											on:click={() => deleteInput(i)}
-										/>
+										>
+											<X class="w-4 h-4" />
+										</Button>
 									</div>
 								</div>
 							</button>

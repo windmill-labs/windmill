@@ -23,6 +23,7 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { tweened } from 'svelte/motion'
 	import { cubicOut } from 'svelte/easing'
+	import { ArrowLeftIcon, ArrowRightIcon } from 'lucide-svelte'
 
 	$: hash = $page.params.hash
 	let script: Script | undefined
@@ -113,7 +114,7 @@
 <svelte:window on:keydown={onKeyDown} />
 
 <SplitPanesWrapper class="h-screen">
-	<Splitpanes>
+	<Splitpanes class="overflow-hidden">
 		<Pane class="px-4 flex justify-center" size={100 - $savedInputPaneSize} minSize={50}>
 			<div class="w-full max-w-4xl flex flex-col">
 				{#if script}
@@ -218,6 +219,26 @@
 							<p>Refresh this page in a few seconds.</p>
 						</div>
 					{:else}
+						<div class="flex justify-end">
+							<Button
+								size="xs"
+								color="dark"
+								on:click={() => {
+									//savedInputPaneSize = savedInputPaneSize == 0 ? 30 : 0
+									savedInputPaneSize.set($savedInputPaneSize === 0 ? 30 : 0)
+								}}
+							>
+								<div class="flex flex-row gap-2 items-center">
+									{$savedInputPaneSize === 0 ? 'Open input explorer' : 'Close input explorer'}
+									{#if $savedInputPaneSize === 0}
+										<ArrowRightIcon class="w-4 h-4" />
+									{:else}
+										<ArrowLeftIcon class="w-4 h-4" />
+									{/if}
+								</div>
+							</Button>
+						</div>
+
 						<RunForm
 							{loading}
 							autofocus
