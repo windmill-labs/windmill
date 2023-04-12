@@ -8,6 +8,7 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import SplitPanesWrapper from './splitPanes/SplitPanesWrapper.svelte'
+	import { ArrowLeftIcon } from 'lucide-svelte'
 
 	export let scriptHash: string | null = null
 	export let scriptPath: string | null = null
@@ -152,11 +153,12 @@
 					</Button>
 				</div>
 
-				<div class="w-full flex flex-col gap-2 p-2 h-full overflow-y-auto">
+				<div class="w-full flex flex-col gap-2 h-full overflow-y-auto">
 					{#if savedInputs.length > 0}
 						{#each savedInputs as i}
 							<Button
-								color={selectedInput === i ? 'gray' : 'light'}
+								color={selectedInput === i ? 'dark' : 'light'}
+								variant="border"
 								btnClasses="w-full group h-12"
 								on:click={() => {
 									if (!i.isEditing) {
@@ -229,7 +231,7 @@
 			<div class="w-full flex flex-col gap-4 p-4">
 				<span class="text-sm font-extrabold">Previous Inputs</span>
 
-				<div class="w-full flex flex-col gap-2 p-2 h-full overflow-y-auto">
+				<div class="w-full flex flex-col gap-2 p-0 h-full overflow-y-auto">
 					{#if previousInputs.length > 0}
 						{#each previousInputs as i}
 							<Button
@@ -278,9 +280,12 @@
 				<Button
 					color="blue"
 					btnClasses="w-full"
+					size="sm"
+					spacingSize="xl"
 					on:click={() => selectArgs(selectedInput?.args)}
 					disabled={Object.keys(selectedInput?.args || {}).length === 0}
 				>
+					<ArrowLeftIcon class="w-4 h-4 mr-2" />
 					Use Input
 				</Button>
 			</div>

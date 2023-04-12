@@ -15,9 +15,16 @@
 		getModifierKey,
 		sendUserToast
 	} from '$lib/utils'
-	import { faEye, faPen, faPlay } from '@fortawesome/free-solid-svg-icons'
+	import {
+		faAmericanSignLanguageInterpreting,
+		faEye,
+		faPen,
+		faPlay
+	} from '@fortawesome/free-solid-svg-icons'
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import { tweened } from 'svelte/motion'
+	import { cubicOut } from 'svelte/easing'
 
 	const path = $page.params.path
 	let flow: Flow | undefined
@@ -79,13 +86,18 @@
 				break
 		}
 	}
+
+	let savedInputPaneSize = tweened(0, {
+		duration: 200,
+		easing: cubicOut
+	})
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
 
 <SplitPanesWrapper class="h-screen">
-	<Splitpanes>
-		<Pane class="px-4 flex justify-center">
+	<Splitpanes class="overflow-hidden">
+		<Pane class="px-4 flex justify-center" size={100 - $savedInputPaneSize} minSize={50}>
 			<div class="w-full max-w-4xl flex flex-col">
 				{#if flow}
 					<div class="flex flex-row flex-wrap justify-between gap-4 mb-6">
@@ -95,29 +107,41 @@
 									class="flex flex-row-reverse w-full flex-wrap md:flex-nowrap justify-between gap-x-1"
 								>
 									<div class="flex flex-row gap-4">
-										{#if !$userStore?.operator && can_write}
-											<div>
-												<Button
-													size="sm"
-													startIcon={{ icon: faPen }}
-													disabled={flow == undefined}
-													variant="border"
-													href="/flows/edit/{flow?.path}">Edit</Button
-												>
-											</div>
-										{/if}
-										<div class="md:pr-4">
+										<div class="flex flex-row items-center gap-2">
+											{#if !$userStore?.operator && can_write}
+												<div>
+													<Button
+														size="sm"
+														startIcon={{ icon: faPen }}
+														disabled={flow == undefined}
+														variant="border"
+														href="/flows/edit/{flow?.path}"
+													>
+														Edit
+													</Button>
+												</div>
+											{/if}
 											<Button
 												size="sm"
 												startIcon={{ icon: faEye }}
 												disabled={flow == undefined}
-												btnClasses="mr-4"
 												variant="border"
 												href="/flows/get/{flow?.path}?workspace_id={$workspaceStore}"
-												>View flow</Button
 											>
-										</div>
-										<div>
+												View flow
+											</Button>
+											<Button
+												size="sm"
+												startIcon={{ icon: faAmericanSignLanguageInterpreting }}
+												disabled={flow == undefined}
+												variant="border"
+												on:click={() => {
+													//savedInputPaneSize = savedInputPaneSize == 0 ? 30 : 0
+													savedInputPaneSize.set($savedInputPaneSize === 0 ? 30 : 0)
+												}}
+											>
+												Saved Inputs
+											</Button>
 											<Button
 												startIcon={{ icon: faPlay }}
 												disabled={runForm == undefined || !isValid}
@@ -169,9 +193,10 @@
 				{/if}
 			</div>
 		</Pane>
-
-		<Pane size={30}>
-			<SavedInputs flowPath={path} {isValid} {args} on:selected_args={(e) => (args = e.detail)} />
+		<Pane size={$savedInputPaneSize}>
+			{#if $savedInputPaneSize > 20}
+				<SavedInputs flowPath={path} {isValid} {args} on:selected_args={(e) => (args = e.detail)} />
+			{/if}
 		</Pane>
 	</Splitpanes>
 </SplitPanesWrapper>

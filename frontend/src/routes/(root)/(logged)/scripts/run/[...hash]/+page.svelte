@@ -230,7 +230,7 @@
 			</div>
 		</Pane>
 
-		<Pane size={30}>
+		<Pane size={0}>
 			<SavedInputs scriptHash={hash} {isValid} {args} on:selected_args={(e) => (args = e.detail)} />
 		</Pane>
 	</Splitpanes>
