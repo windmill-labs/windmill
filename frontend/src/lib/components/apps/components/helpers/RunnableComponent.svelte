@@ -190,7 +190,7 @@
 
 				$state = $state
 			} catch (e) {
-				sendUserToast('Error running frontend script: ' + e.message, true)
+				sendUserToast(`Error running frontend script ${id}: ` + e.message, true)
 
 				// Manually add a fake job to the job list to show the error
 
@@ -206,8 +206,7 @@
 			}
 			loading = false
 			return
-		}
-		if (noBackend) {
+		} else if (noBackend) {
 			if (!noToast) {
 				sendUserToast('This app is not connected to a windmill backend, it is a static preview')
 			}

@@ -32,7 +32,10 @@ export function dfs(
 	for (const item of grid) {
 		if (item.id === id) {
 			return [id]
-		} else if (item.data.type == 'tablecomponent' && item.data.actionButtons.find((x) => x.id)) {
+		} else if (
+			item.data.type == 'tablecomponent' &&
+			item.data.actionButtons.find((x) => id == x.id)
+		) {
 			return [item.id, id]
 		} else {
 			for (let i = 0; i < (item.data.numberOfSubgrids ?? 0); i++) {
@@ -133,11 +136,14 @@ export function findGridItem(app: App, id: string): GridItem | undefined {
 }
 
 export function getNextGridItemId(app: App): string {
-	const subgridsKeys = allItems(app.grid, app.subgrids).map((x) => x.id)
-	const withoutDash = subgridsKeys.map((element) => element.split('-')[0])
-	const id = getNextId([...new Set(withoutDash)])
-
-	return id
+	const allIds = allItems(app.grid, app.subgrids).flatMap((x) => {
+		if (x.data.type === 'tablecomponent') {
+			return [x.id, ...x.data.actionButtons.map((x) => x.id)]
+		} else {
+			return [x.id]
+		}
+	})
+	return getNextId(allIds)
 }
 
 export function getAllRecomputeIdsForComponent(app: App, id: string | undefined) {

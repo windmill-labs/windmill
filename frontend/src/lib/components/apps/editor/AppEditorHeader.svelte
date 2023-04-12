@@ -25,7 +25,6 @@
 		faClipboard,
 		faExternalLink,
 		faFileExport,
-		faGlobe,
 		faSave
 	} from '@fortawesome/free-solid-svg-icons'
 	import {
@@ -42,7 +41,7 @@
 	import { getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { appToHubUrl, classNames, copyToClipboard, sendUserToast } from '../../../utils'
+	import { classNames, copyToClipboard, sendUserToast } from '../../../utils'
 	import type {
 		AppInput,
 		ConnectedAppInput,
@@ -607,14 +606,14 @@
 						appExport.open($app)
 					}
 				},
-				{
-					displayName: 'Publish to Hub',
-					icon: faGlobe,
-					action: () => {
-						const url = appToHubUrl(toStatic($app, $staticExporter, $summary))
-						window.open(url.toString(), '_blank')
-					}
-				},
+				// {
+				// 	displayName: 'Publish to Hub',
+				// 	icon: faGlobe,
+				// 	action: () => {
+				// 		const url = appToHubUrl(toStatic($app, $staticExporter, $summary))
+				// 		window.open(url.toString(), '_blank')
+				// 	}
+				// },
 				{
 					displayName: 'Hub compatible JSON',
 					icon: faFileExport,

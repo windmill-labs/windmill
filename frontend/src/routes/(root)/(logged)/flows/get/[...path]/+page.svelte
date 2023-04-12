@@ -8,7 +8,6 @@
 		displayDaysAgo,
 		emptyString,
 		encodeState,
-		flowToHubUrl,
 		sendUserToast
 	} from '$lib/utils'
 	import {
@@ -19,7 +18,6 @@
 		faClipboard,
 		faCodeFork,
 		faEdit,
-		faGlobe,
 		faList,
 		faPlay,
 		faShare,
@@ -249,7 +247,7 @@
 				{/if}
 
 				<div class="flex gap-2 flex-wrap mt-2">
-					<Button
+					<!-- <Button
 						target="_blank"
 						href={flowToHubUrl(flow).toString()}
 						variant="border"
@@ -258,7 +256,7 @@
 						startIcon={{ icon: faGlobe }}
 					>
 						Publish to Hub
-					</Button>
+					</Button> -->
 					<Button
 						on:click={() => shareModal.openDrawer(flow?.path ?? '', 'flow')}
 						variant="border"
