@@ -156,13 +156,13 @@
 					</Button>
 				{/if}
 			</div>
-			<div class="flex flex-row gap-2 flex-wrap">
+			<div class="flex flex-row gap-2 flex-wrap mt-2">
 				{#each frontendDependencies as label, index}
 					<span class={classNames(badgeClass, colors['blue'])}>
 						{label}
 						<button
 							on:click={() => deleteDep(index)}
-							class="bg-red-300 cursor-pointer hover:bg-red-400 ml-1 rounded-md"
+							class="bg-blue-300 cursor-pointer hover:bg-blue-400 ml-1 rounded-md"
 						>
 							<X size={18} class="p-0.5" />
 						</button>

@@ -12,7 +12,7 @@
 	export let first: boolean = false
 </script>
 
-<OutputHeader selectable={false} {id} {name} color="blue" {first}>
+<OutputHeader renamable={false} selectable={true} {id} {name} color="blue" {first}>
 	<ComponentOutputViewer
 		componentId={id}
 		on:select={({ detail }) => {

@@ -6,6 +6,8 @@
 	import { getContext } from 'svelte'
 	import { allsubIds, findGridItem } from '../../appUtils'
 	import IdEditor from './IdEditor.svelte'
+	import type { AppComponent } from '../../component'
+	import type { Runnable } from '$lib/components/apps/inputType'
 
 	export let id: string
 	export let name: string
@@ -13,6 +15,7 @@
 	export let nested: boolean = false
 	export let color: 'blue' | 'indigo' = 'indigo'
 	export let selectable: boolean = true
+	export let renamable: boolean = true
 
 	const { manuallyOpened, search, hasResult } = getContext<ContextPanelContext>('ContextPanel')
 
@@ -47,66 +50,102 @@
 	}
 
 	function renameId(newId: string): void {
-		{
-			const item = findGridItem($app, id)
-			if (item) {
-				item.data.id = newId
-				item.id = newId
-			}
-			const oldSubgrids = Object.keys($app.subgrids ?? {}).filter((subgrid) =>
-				subgrid.startsWith(id + '-')
-			)
-			oldSubgrids.forEach((subgrid) => {
-				if ($app.subgrids) {
-					$app.subgrids[subgrid.replace(id, newId)] = $app.subgrids[subgrid]
-					delete $app.subgrids[subgrid]
-				}
-			})
-			allItems($app.grid, $app.subgrids).forEach((item) => {
-				if (item.data.componentInput?.type == 'connected') {
-					if (item.data.componentInput.connection?.componentId === id) {
-						item.data.componentInput.connection.componentId = newId
-					}
-				} else if (item.data.componentInput?.type == 'runnable') {
-					if (
-						item.data.componentInput?.runnable?.type === 'runnableByName' &&
-						item.data.componentInput?.runnable?.inlineScript?.refreshOn
-							?.map((x) => x.id)
-							?.includes(id)
-					) {
-						item.data.componentInput.runnable.inlineScript.refreshOn =
-							item.data.componentInput.runnable.inlineScript.refreshOn.map((x) => {
-								if (x.id === id) {
-									return {
-										id: newId,
-										key: x.key
-									}
-								}
-								return x
-							})
-					}
-				}
+		const item = findGridItem($app, id)
 
-				Object.values(item.data.configuration ?? {}).forEach((config) => {
-					if (config.type === 'connected') {
-						if (config.connection?.componentId === id) {
-							config.connection.componentId = newId
-						}
-					} else if (config.type == 'oneOf') {
-						Object.values(config.configuration ?? {}).forEach((choices) => {
-							Object.values(choices).forEach((c) => {
-								if (c.type === 'connected') {
-									if (c.connection?.componentId === id) {
-										c.connection.componentId = newId
-									}
-								}
-							})
-						})
-					}
+		if (!item) {
+			return
+		}
+		item.data.id = newId
+		item.id = newId
+
+		const oldSubgrids = Object.keys($app.subgrids ?? {}).filter((subgrid) =>
+			subgrid.startsWith(id + '-')
+		)
+
+		oldSubgrids.forEach((subgrid) => {
+			if ($app.subgrids) {
+				$app.subgrids[subgrid.replace(id, newId)] = $app.subgrids[subgrid]
+				delete $app.subgrids[subgrid]
+			}
+		})
+
+		function propagateRename(from: string, to: string) {
+			allItems($app.grid, $app.subgrids).forEach((item) => {
+				renameComponent(from, to, item.data)
+			})
+
+			$app.hiddenInlineScripts.forEach((x) => {
+				console.log('process', x.name, id)
+				processRunnable(from, to, {
+					name: x.name,
+					inlineScript: x.inlineScript,
+					type: 'runnableByName'
 				})
 			})
-			$app = $app
-			$selectedComponent = [newId]
+		}
+		propagateRename(id, newId)
+		if (item?.data.type == 'tablecomponent') {
+			for (let c of item.data.actionButtons) {
+				let old = c.id
+				c.id = c.id.replace(id + '_', newId + '_')
+				propagateRename(old, c.id)
+			}
+		}
+
+		$app = $app
+		$selectedComponent = [newId]
+	}
+
+	function renameComponent(from: string, to: string, data: AppComponent) {
+		if (data.type == 'tablecomponent') {
+			for (let c of data.actionButtons) {
+				renameComponent(from, to, c)
+			}
+		}
+		let componentInput = data.componentInput
+		if (componentInput?.type == 'connected') {
+			if (componentInput.connection?.componentId === from) {
+				componentInput.connection.componentId = to
+			}
+		} else if (componentInput?.type == 'runnable') {
+			processRunnable(from, to, componentInput.runnable)
+		}
+
+		Object.values(data.configuration ?? {}).forEach((config) => {
+			if (config.type === 'connected') {
+				if (config.connection?.componentId === from) {
+					config.connection.componentId = to
+				}
+			} else if (config.type == 'oneOf') {
+				Object.values(config.configuration ?? {}).forEach((choices) => {
+					Object.values(choices).forEach((c) => {
+						if (c.type === 'connected') {
+							if (c.connection?.componentId === id) {
+								c.connection.componentId = to
+							}
+						}
+					})
+				})
+			}
+		})
+	}
+
+	function processRunnable(from: string, to: string, runnable: Runnable) {
+		if (
+			runnable?.type === 'runnableByName' &&
+			runnable?.inlineScript?.refreshOn?.find((x) => x.id === from)
+		) {
+			console.log('processss')
+			runnable.inlineScript.refreshOn = runnable.inlineScript.refreshOn.map((x) => {
+				console.log('renaming', x)
+				if (x.id === from) {
+					return {
+						id: to,
+						key: x.key
+					}
+				}
+				return x
+			})
 		}
 	}
 </script>
@@ -161,7 +200,7 @@
 					</div>
 				{/if}
 			</button>
-			{#if selectable && ($selectedComponent?.includes(id) || $hoverStore === id)}
+			{#if selectable && renamable && ($selectedComponent?.includes(id) || $hoverStore === id)}
 				<IdEditor
 					{id}
 					on:selected={() => ($selectedComponent = [id])}
