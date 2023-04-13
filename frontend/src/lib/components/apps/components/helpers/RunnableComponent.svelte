@@ -11,7 +11,7 @@
 	import { createEventDispatcher, getContext, onDestroy } from 'svelte'
 	import type { AppInputs, Runnable } from '../../inputType'
 	import type { Output } from '../../rx'
-	import type { AppViewerContext, InlineScript } from '../../types'
+	import type { AppViewerContext, CancelablePromise, InlineScript } from '../../types'
 	import { computeGlobalContext, eval_like } from './eval'
 	import InputValue from './InputValue.svelte'
 	import RefreshButton from './RefreshButton.svelte'
@@ -58,12 +58,29 @@
 
 	const dispatch = createEventDispatcher()
 
+	let donePromise: (() => void) | undefined = undefined
+
+	const cancellableRun: (inlineScript?: InlineScript) => CancelablePromise<void> = (
+		inlineScript?: InlineScript
+	) => {
+		let rejectCb: (err: Error) => void
+		let p: Partial<CancelablePromise<void>> = new Promise<void>((resolve, reject) => {
+			rejectCb = reject
+			donePromise = resolve
+			executeComponent(true, inlineScript).catch(reject)
+		})
+		p.cancel = () => {
+			testJobLoader?.cancelJob()
+			loading = false
+			rejectCb(new Error('Canceled'))
+		}
+		return p as CancelablePromise<void>
+	}
+
 	$runnableComponents[id] = {
 		autoRefresh: autoRefresh && recomputableByRefreshButton,
 		refreshOnStart,
-		cb: async (inlineScript?: InlineScript) => {
-			await executeComponent(true, inlineScript)
-		}
+		cb: cancellableRun
 	}
 
 	if (!$initialized.initializedComponents.includes(id)) {
@@ -372,6 +389,7 @@
 			if (startedAt > lastStartedAt) {
 				lastStartedAt = startedAt
 				setResult(e.detail.result)
+				donePromise?.()
 			}
 		}
 		loading = false
