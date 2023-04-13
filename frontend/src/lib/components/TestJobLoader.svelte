@@ -198,3 +198,19 @@
 		currentId = undefined
 	})
 </script>
+
+<slot
+	{job}
+	{isLoading}
+	{workspaceOverride}
+	{notfound}
+	{abstractRun}
+	{runScriptByPath}
+	{runFlowByPath}
+	{runPreview}
+	{cancelJob}
+	{clearCurrentJob}
+	{watchJob}
+	{loadTestJob}
+	{syncer}
+/>
