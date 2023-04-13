@@ -130,6 +130,10 @@ export type ConnectingInput = {
 	hoveredComponent: string | undefined
 }
 
+export interface CancelablePromise<T> extends Promise<T> {
+	cancel: () => void
+}
+
 export type AppViewerContext = {
 	worldStore: Writable<World>
 	app: Writable<App>
@@ -148,7 +152,7 @@ export type AppViewerContext = {
 			{
 				autoRefresh: boolean
 				refreshOnStart?: boolean
-				cb: (inlineScript?: InlineScript) => Promise<void>
+				cb: (inlineScript?: InlineScript) => CancelablePromise<void>
 			}
 		>
 	>
