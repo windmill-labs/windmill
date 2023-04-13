@@ -57,7 +57,7 @@ use crate::{
     jobs::{add_completed_job, add_completed_job_error},
     worker_flow::{
         handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress,
-    }, python_executor::{create_dependencies_dir, pip_compile, handle_python_job}, common::{read_result, set_logs}, global_cache::{move_tmp_cache_to_cache}, go_executor::{handle_go_job, install_go_dependencies},
+    }, python_executor::{create_dependencies_dir, pip_compile, handle_python_job, handle_python_reqs}, common::{read_result, set_logs}, global_cache::{move_tmp_cache_to_cache}, go_executor::{handle_go_job, install_go_dependencies},
 };
 
 
@@ -131,8 +131,6 @@ pub const GO_TMP_CACHE_DIR: &str = concatcp!(ROOT_TMP_CACHE_DIR, "go");
 
 const NUM_SECS_PING: u64 = 5;
 
-#[cfg(feature = "enterprise")]
-const NUM_SECS_SYNC: u64 = 60 * 10;
 
 const INCLUDE_DEPS_PY_SH_CONTENT: &str = include_str!("../nsjail/download_deps.py.sh");
 const NSJAIL_CONFIG_RUN_BASH_CONTENT: &str = include_str!("../nsjail/run.bash.config.proto");
@@ -225,6 +223,12 @@ lazy_static::lazy_static! {
     static ref TIMEOUT_DURATION: Duration = Duration::from_secs(*TIMEOUT as u64);
 
     pub static ref SESSION_TOKEN_EXPIRY: i32 = (*TIMEOUT as i32) * 2;
+
+    pub static ref GLOBAL_CACHE_INTERVAL: u64 = std::env::var("GLOBAL_CACHE_INTERVAL")
+        .ok()
+        .and_then(|x| x.parse::<u64>().ok())
+        .unwrap_or(60 * 10);
+
 }
 
 //only matter if CLOUD_HOSTED
@@ -421,7 +425,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
 
     #[cfg(feature = "enterprise")]
     let mut last_sync =
-        Instant::now() + Duration::from_secs(rand::thread_rng().gen_range(0..NUM_SECS_SYNC));
+        Instant::now() + Duration::from_secs(rand::thread_rng().gen_range(0..*GLOBAL_CACHE_INTERVAL));
 
     let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<Uuid>(5);
 
@@ -456,7 +460,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             }
 
             #[cfg(feature = "enterprise")]
-            if initialized_cache && last_sync.elapsed().as_secs() > NUM_SECS_SYNC {
+            if initialized_cache && last_sync.elapsed().as_secs() > *GLOBAL_CACHE_INTERVAL {
                 if let Some(ref s) = S3_CACHE_BUCKET.clone() {
                     copy_cache_from_bucket(&s, None).await;
                     copy_cache_to_bucket(&s).await;
@@ -1572,7 +1576,24 @@ async fn capture_dependency_job(
     match job_language {
         ScriptLang::Python3 => {
             create_dependencies_dir(job_dir).await;
-            pip_compile(job_id, job_raw_code, logs, job_dir, db, worker_name, w_id).await
+            let req = pip_compile(job_id, job_raw_code, logs, job_dir, db, worker_name, w_id).await;
+            // install the dependencies to pre-fill the cache
+            if let Ok(req) = req.as_ref() {
+                handle_python_reqs(
+                    req
+                        .split("\n")
+                        .filter(|x| !x.starts_with("--"))
+                        .collect(),
+                    job_id,
+                    w_id,
+                    logs,
+                    db,
+                    worker_name,
+                    job_dir,
+                )
+                .await?;
+            }
+            req
         }
         ScriptLang::Go => {
             install_go_dependencies(

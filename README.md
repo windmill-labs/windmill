@@ -334,7 +334,8 @@ it being synced automatically everyday.
 | INCLUDE_HEADERS           | None                   | Whitelist of headers that are passed to jobs as args (separated by a comma)                                                                                                                        | Server                |
 | WHITELIST_WORKSPACES      | None                   | Whitelist of workspaces this worker takes job from                                                                                                                                                 | Worker                |
 | BLACKLIST_WORKSPACES      | None                   | Blacklist of workspaces this worker takes job from                                                                                                                                                 | Worker                |
-| INSTANCE_EVENTS_WEBHOOK   | None                   | Webhook to notify of events such as new user added, signup/invite. Can hook back to windmill to send emails                                                                                        | Server                |
+| INSTANCE_EVENTS_WEBHOOK   | None                   | Webhook to notify of events such as new user added, signup/invite. Can hook back to windmill to send emails                                                                                        |
+| GLOBAL_CACHE_INTERVAL     | 10\*60                 | (Enterprise Edition only) Interval in seconds in between bucket sync of the cache. This interval \* 2 is the time at which you're guaranteed all the worker's caches are synced together.          | Worker                |
 
 ## Run a local dev setup
 
