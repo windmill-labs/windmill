@@ -79,7 +79,7 @@ async fn copy_cache_from_bucket(bucket: &str, tx: Option<Sender<()>>) -> Option:
             .arg("--size-only")
             .arg("--fast-list")
             .arg("--exclude")
-            .arg(format!("\"{TAR_CACHE_FILENAME}\""))
+            .arg(format!("\"{TAR_CACHE_FILENAME},/deno/gen/file/**\""))
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .spawn()
@@ -128,7 +128,7 @@ async fn copy_cache_to_bucket(bucket: &str) {
         .arg("--size-only")
         .arg("--fast-list")
         .arg("--exclude")
-        .arg(format!("\"{TAR_CACHE_FILENAME}\""))
+        .arg(format!("\"{TAR_CACHE_FILENAME},/deno/gen/file/**\""))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .spawn()
@@ -1810,10 +1810,11 @@ async fn handle_deno_job(
     //do not cache local dependencies
     let reload = format!("--reload={base_internal_url}");
     let child = async {
-            let mut args = Vec::new();
             let script_path = format!("{job_dir}/wrapper.ts");
             let import_map_path = format!("{job_dir}/import_map.json");
+            let mut args = Vec::new();
             args.push("run");
+            args.push("--no-check");
             args.push("--import-map");
             args.push(&import_map_path);
             args.push(&reload);

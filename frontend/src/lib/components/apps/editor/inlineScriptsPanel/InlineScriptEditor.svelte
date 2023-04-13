@@ -87,22 +87,6 @@
 		inlineScript?.language == 'frontend' && worldStore
 			? buildExtraLib($worldStore?.outputsById ?? {}, id, false, $state, true)
 			: undefined
-
-	let refreshOn: string = inlineScript?.refreshOn?.map((x) => `${x.id}.${x.key}`).join(' ') ?? ''
-
-	$: handleRefreshOn(refreshOn)
-
-	function handleRefreshOn(refreshOn: string) {
-		if (refreshOn && refreshOn != '' && inlineScript) {
-			inlineScript.refreshOn = refreshOn
-				.split(' ')
-				.filter((x) => x.split('.').length == 2)
-				.map((x) => {
-					const [id, key] = x.split('.')
-					return { id, key }
-				})
-		}
-	}
 </script>
 
 {#if inlineScript}
