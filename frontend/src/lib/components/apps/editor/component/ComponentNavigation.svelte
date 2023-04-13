@@ -11,7 +11,7 @@
 	import { sendUserToast } from '$lib/utils'
 	import { gridColumns } from '../../gridUtils'
 
-	const { app, selectedComponent, worldStore, focusedGrid, componentControl } =
+	const { app, selectedComponent, focusedGrid, componentControl } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	const { history, movingcomponents } = getContext<AppEditorContext>('AppEditorContext')
@@ -209,7 +209,6 @@
 			$selectedComponent = nitems.map((x) => x)
 		}
 
-		$worldStore = $worldStore
 		$app = $app
 	}
 

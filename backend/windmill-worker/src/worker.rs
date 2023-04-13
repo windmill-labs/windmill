@@ -1810,9 +1810,9 @@ async fn handle_deno_job(
     //do not cache local dependencies
     let reload = format!("--reload={base_internal_url}");
     let child = async {
-            let mut args = Vec::new();
             let script_path = format!("{job_dir}/wrapper.ts");
             let import_map_path = format!("{job_dir}/import_map.json");
+            let mut args = Vec::new();
             args.push("run");
             args.push("--no-check");
             args.push("--import-map");

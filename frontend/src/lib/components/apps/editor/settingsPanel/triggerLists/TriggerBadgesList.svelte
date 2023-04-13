@@ -21,7 +21,7 @@
 
 	let badgeClass = 'inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border'
 
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
 	const { connectingInput } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -60,7 +60,6 @@
 				hoveredComponent: undefined
 			}
 			$app = $app
-			$worldStore = $worldStore
 		}
 	}
 
