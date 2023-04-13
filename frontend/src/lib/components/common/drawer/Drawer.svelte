@@ -100,6 +100,7 @@
 		z-index: -1;
 		transition: z-index var(--duration) step-end;
 		overflow: clip;
+		pointer-events: none;
 	}
 
 	.drawer.open {
@@ -107,6 +108,7 @@
 		width: 100%;
 		z-index: 1002;
 		transition: z-index var(--duration) step-start;
+		pointer-events: auto;
 	}
 
 	.overlay {

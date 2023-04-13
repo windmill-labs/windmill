@@ -55,7 +55,23 @@
 			border-gray-400 flex justify-start items-start w-[600px] max-w-full h-60 overflow-hidden"
 		>
 			<div class="w-1/2 h-full overflow-auto px-2">
-				<JobArgs {args} tableClass="!pt-0" />
+				<!-- <tr>
+					<th>Argument</th>
+					<th>Value</th>
+				</tr>
+				<tbody>
+					{#if args && Object.keys(args).length > 0}
+						{#each Object.entries(args) as [arg, value]}
+							<tr>
+								<td class="font-semibold">{arg}</td>
+								<td><ArgInfo {value} /></td>
+							</tr>
+						{/each}
+					{:else if args}
+						<tr><div class="text-gray-600 pt-2 pl-1 text-sm">No arguments</div></tr>
+					{/if}
+				</tbody> -->
+				<JobArgs {args} tableClass="!pt-0 !min-w-0 !block" />
 			</div>
 			<div class="w-1/2 h-full overflow-auto p-2">
 				<DisplayResult {result} />
