@@ -46,18 +46,19 @@
 		)
 	).sort() as string[]
 
-	$: prefilteredItems = appFilter
-		? (items ?? []).filter((i) => {
-				if (i.itemType === 'script' && itemKind === 'script') {
-					return i.data.app == appFilter
-				} else if (i.itemType === 'flow' && appFilter && itemKind === 'flow') {
-					return i.data.apps.includes(appFilter)
-				} else if (i.itemType === 'app' && appFilter && itemKind === 'app') {
-					return i.data.apps.includes(appFilter)
-				}
-				return false
-		  })
-		: items ?? []
+	$: prefilteredItems =
+		appFilter && itemKind
+			? (items ?? []).filter((i) => {
+					if (i.itemType === 'script' && itemKind === 'script') {
+						return i.data.app == appFilter
+					} else if (i.itemType === 'flow' && appFilter && itemKind === 'flow') {
+						return i.data.apps.includes(appFilter)
+					} else if (i.itemType === 'app' && appFilter && itemKind === 'app') {
+						return i.data.apps.includes(appFilter)
+					}
+					return false
+			  })
+			: items ?? []
 
 	onMount(async () => {
 		await loadHubScripts()
@@ -66,7 +67,7 @@
 	})
 </script>
 
-<SearchItems {filter} items={prefilteredItems} bind:filteredItems f={(x) => x.summary} />
+<SearchItems {filter} items={prefilteredItems} bind:filteredItems f={(x) => x.data.summary} />
 <div class="w-full flex mt-1 items-center gap-2">
 	<ToggleButtonGroup bind:selected={itemKind}>
 		<ToggleButton light position="left" value="all" size="sm">All</ToggleButton>
