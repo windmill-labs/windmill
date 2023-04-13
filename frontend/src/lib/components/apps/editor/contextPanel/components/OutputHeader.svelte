@@ -135,9 +135,7 @@
 			runnable?.type === 'runnableByName' &&
 			runnable?.inlineScript?.refreshOn?.find((x) => x.id === from)
 		) {
-			console.log('processss')
 			runnable.inlineScript.refreshOn = runnable.inlineScript.refreshOn.map((x) => {
-				console.log('renaming', x)
 				if (x.id === from) {
 					return {
 						id: to,
