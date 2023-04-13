@@ -1,3 +1,7 @@
+<script context="module" lang="ts">
+	const openStore = writable('')
+</script>
+
 <script lang="ts">
 	import { tick } from 'svelte'
 	import { fade } from 'svelte/transition'
@@ -5,13 +9,14 @@
 	import TestJobLoader from '../TestJobLoader.svelte'
 	import DisplayResult from '../DisplayResult.svelte'
 	import JobArgs from '../JobArgs.svelte'
+	import { writable } from 'svelte/store'
 
 	export let job: Job
-	let open = false
 	let timeout: NodeJS.Timeout | undefined
 	let watchJob: (id: string) => Promise<void>
 	let result: any, args: Job['args']
 
+	$: open = $openStore === job.id
 	$: loaded = result && args
 
 	function setValues(event: { detail: Job }) {
@@ -19,15 +24,19 @@
 		args = event.detail.args
 	}
 
+	async function instantOpen() {
+		openStore.set(job.id)
+		if (!loaded) {
+			await tick()
+			watchJob && watchJob(job.id)
+		}
+	}
+
 	function staggeredOpen() {
 		timeout = setTimeout(
 			async () => {
-				open = true
 				timeout = undefined
-				if (!loaded) {
-					await tick()
-					watchJob && watchJob(job.id)
-				}
+				await instantOpen()
 			},
 			loaded ? 300 : 500
 		)
@@ -38,14 +47,22 @@
 			clearTimeout(timeout)
 			timeout = undefined
 		}
-		open = false
+		if (open) {
+			openStore.set('')
+		}
 	}
 </script>
 
 <TestJobLoader {job} bind:watchJob on:done={setValues} />
 <svelte:window on:keydown={({ key }) => ['Escape', 'Esc'].includes(key) && close()} />
 
-<div on:mouseenter={staggeredOpen} on:mouseleave={close} class="relative">
+<div
+	on:mouseenter={staggeredOpen}
+	on:mouseleave={close}
+	on:focusin={instantOpen}
+	on:focusout={close}
+	class="relative"
+>
 	<slot {open} />
 	{#if open && loaded}
 		<div
