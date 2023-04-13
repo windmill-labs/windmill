@@ -23,9 +23,9 @@ use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{Error, JsonResult, Result},
     schedule::Schedule,
-    utils::{not_found_if_none, paginate, Pagination, StripPath},
+    utils::{not_found_if_none, paginate, Pagination, StripPath}, jobs::JobKind,
 };
-use windmill_queue::{self, schedule::push_scheduled_job, JobKind, QueueTransaction};
+use windmill_queue::{self, schedule::push_scheduled_job, QueueTransaction};
 
 pub fn workspaced_service() -> Router {
     Router::new()

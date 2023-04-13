@@ -29,9 +29,9 @@ use windmill_common::{
     schedule::Schedule,
     utils::{
         http_get_from_hub, list_elems_from_hub, not_found_if_none, paginate, Pagination, StripPath,
-    },
+    }, jobs::JobPayload,
 };
-use windmill_queue::{push, schedule::push_scheduled_job, JobPayload, QueueTransaction};
+use windmill_queue::{push, schedule::push_scheduled_job, QueueTransaction};
 
 pub fn workspaced_service() -> Router {
     Router::new()

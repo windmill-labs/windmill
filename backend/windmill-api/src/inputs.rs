@@ -22,11 +22,10 @@ use std::{
 };
 use windmill_common::{
     error::JsonResult,
+    jobs::JobKind,
     scripts::to_i64,
     utils::{paginate, Pagination},
 };
-use windmill_queue::JobKind;
-
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/history", get(get_input_history))
