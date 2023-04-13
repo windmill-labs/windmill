@@ -50,11 +50,6 @@
 	let path = $page.params.path
 	let shareModal: ShareModal
 
-	let queryId = $page.url.searchParams.get('workspace_id')
-	if (queryId && queryId != $workspaceStore) {
-		$workspaceStore = $page.url.searchParams.get('workspace_id')!
-	}
-
 	$: {
 		if ($workspaceStore && $userStore) {
 			loadFlow()
@@ -159,7 +154,7 @@
 <MoveDrawer
 	bind:this={moveDrawer}
 	on:update={async (e) => {
-		await goto('/flows/get/' + e.detail + `?workspace_id=${$workspaceStore}`)
+		await goto('/flows/get/' + e.detail + `?workspace=${$workspaceStore}`)
 		loadFlow()
 		loadSchedule()
 	}}

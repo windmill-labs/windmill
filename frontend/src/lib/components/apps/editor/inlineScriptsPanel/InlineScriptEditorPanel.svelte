@@ -149,7 +149,7 @@
 			/>
 		{/if}
 	{:else if componentInput?.runnable?.type === 'runnableByPath' && componentInput?.runnable?.path}
-		<div class="p-2 h-full flex flex-col gap-2 ">
+		<div class="p-2 h-full flex flex-col gap-2">
 			{#if componentInput.runnable.runType == 'script' || componentInput.runnable.runType == 'hubscript'}
 				<div>
 					<Button
@@ -218,8 +218,7 @@
 								startIcon={{ icon: faEye }}
 								endIcon={{ icon: faExternalLinkAlt }}
 								target="_blank"
-								href="/flows/get/{componentInput?.['runnable']
-									?.path}?workspace_id={$workspaceStore}"
+								href="/flows/get/{componentInput?.['runnable']?.path}?workspace={$workspaceStore}"
 							>
 								Details page
 							</Button>
