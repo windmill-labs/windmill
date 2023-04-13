@@ -508,7 +508,7 @@
 	async function loadMonaco() {
 		const model = meditor.createModel(code, lang, mUri.parse(uri))
 
-		model.updateOptions(updateOptions)
+		model.updateOptions(lang == 'python' ? { tabSize: 4, insertSpaces: true } : updateOptions)
 		editor = meditor.create(divEl as HTMLDivElement, {
 			...editorConfig(model, code, lang, automaticLayout, fixedOverflowWidgets),
 			overflowWidgetsDomNode: widgets,
