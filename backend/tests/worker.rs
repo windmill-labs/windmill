@@ -6,9 +6,10 @@ use windmill_api::jobs::{CompletedJob, Job};
 use windmill_common::{
     flow_status::{FlowStatus, FlowStatusModule},
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform},
+    jobs::{JobPayload, RawCode},
     scripts::ScriptLang,
 };
-use windmill_queue::{get_queued_job, JobPayload, RawCode};
+use windmill_queue::get_queued_job;
 
 async fn initialize_tracing() {
     use std::sync::Once;
@@ -128,8 +129,7 @@ mod suspend_resume {
     use futures::{Stream, StreamExt};
     use serde_json::json;
     use sqlx::{query_scalar, types::Uuid};
-    use windmill_common::flows::FlowValue;
-    use windmill_queue::JobPayload;
+    use windmill_common::{flows::FlowValue, jobs::JobPayload};
 
     use super::*;
 
@@ -393,7 +393,6 @@ mod retry {
     use serde_json::json;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use windmill_common::flows::FlowValue;
-    use windmill_queue::JobPayload;
 
     use super::*;
 

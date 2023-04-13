@@ -32,6 +32,7 @@ use std::{
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{Error, JsonResult, Result},
+    jobs::JobPayload,
     schedule::Schedule,
     scripts::{
         to_i64, HubScript, ListScriptQuery, ListableScript, NewScript, Script, ScriptHash,
@@ -428,7 +429,7 @@ async fn create_script(
         let (_, new_tx) = windmill_queue::push(
             tx,
             &w_id,
-            windmill_queue::JobPayload::Dependencies { hash, dependencies, language: ns.language },
+            JobPayload::Dependencies { hash, dependencies, language: ns.language },
             serde_json::Map::new(),
             &authed.username,
             &authed.email,

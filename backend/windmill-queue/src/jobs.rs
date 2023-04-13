@@ -10,7 +10,6 @@ use std::collections::HashMap;
 
 use anyhow::Context;
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres, Transaction};
 use tracing::{instrument, Instrument};
 use ulid::Ulid;
@@ -20,6 +19,7 @@ use windmill_common::{
     error::{self, Error},
     flow_status::{FlowStatus, JobResult, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL},
     flows::{FlowModule, FlowModuleValue, FlowValue},
+    jobs::{JobKind, JobPayload, QueuedJob, RawCode},
     scripts::{get_full_hub_script_by_path, HubScript, ScriptHash, ScriptLang},
     utils::StripPath,
     METRICS_ENABLED,
@@ -654,118 +654,4 @@ pub async fn get_hub_script(
     get_full_hub_script_by_path(email, StripPath(path), client)
         .await
         .map(|e| e)
-}
-
-#[derive(Debug, sqlx::FromRow, Serialize, Clone)]
-pub struct QueuedJob {
-    pub workspace_id: String,
-    pub id: Uuid,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub parent_job: Option<Uuid>,
-    pub created_by: String,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub started_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub scheduled_for: chrono::DateTime<chrono::Utc>,
-    pub running: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub script_hash: Option<ScriptHash>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub script_path: Option<String>,
-    pub args: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub logs: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub raw_code: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub raw_lock: Option<String>,
-    pub canceled: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub canceled_by: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub canceled_reason: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_ping: Option<chrono::DateTime<chrono::Utc>>,
-    pub job_kind: JobKind,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub schedule_path: Option<String>,
-    pub permissioned_as: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub flow_status: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub raw_flow: Option<serde_json::Value>,
-    pub is_flow_step: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub language: Option<ScriptLang>,
-    pub same_worker: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub pre_run_error: Option<String>,
-    pub email: String,
-    pub visible_to_owner: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub suspend: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mem_peak: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub root_job: Option<Uuid>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub leaf_jobs: Option<serde_json::Value>,
-}
-
-impl QueuedJob {
-    pub fn script_path(&self) -> &str {
-        self.script_path
-            .as_ref()
-            .map(String::as_str)
-            .unwrap_or("tmp/main")
-    }
-}
-
-impl QueuedJob {
-    pub fn parse_raw_flow(&self) -> Option<FlowValue> {
-        self.raw_flow
-            .as_ref()
-            .and_then(|v| serde_json::from_value::<FlowValue>(v.clone()).ok())
-    }
-
-    pub fn parse_flow_status(&self) -> Option<FlowStatus> {
-        self.flow_status
-            .as_ref()
-            .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok())
-    }
-}
-
-#[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Clone)]
-#[sqlx(type_name = "JOB_KIND", rename_all = "lowercase")]
-#[serde(rename_all(serialize = "lowercase"))]
-pub enum JobKind {
-    Script,
-    #[allow(non_camel_case_types)]
-    Script_Hub,
-    Preview,
-    Dependencies,
-    Flow,
-    FlowPreview,
-    Identity,
-    FlowDependencies,
-}
-
-#[derive(Debug, Clone)]
-pub enum JobPayload {
-    ScriptHub { path: String },
-    ScriptHash { hash: ScriptHash, path: String },
-    Code(RawCode),
-    Dependencies { hash: ScriptHash, dependencies: String, language: ScriptLang },
-    FlowDependencies { path: String },
-    Flow(String),
-    RawFlow { value: FlowValue, path: Option<String> },
-    Identity,
-}
-
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct RawCode {
-    pub content: String,
-    pub path: Option<String>,
-    pub language: ScriptLang,
-    pub lock: Option<String>,
 }
