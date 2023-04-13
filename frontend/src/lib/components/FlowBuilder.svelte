@@ -118,10 +118,10 @@
 			}
 			loadingSave = false
 			if (leave) {
-				goto(`/flows/get/${$flowStore.path}?workspace_id=${$workspaceStore}`)
+				goto(`/flows/get/${$flowStore.path}?workspace=${$workspaceStore}`)
 			} else if (initialPath !== $flowStore.path) {
 				initialPath = $flowStore.path
-				goto(`/flows/edit/${$flowStore.path}?workspace_id=${$workspaceStore}`)
+				goto(`/flows/edit/${$flowStore.path}?workspace=${$workspaceStore}`)
 			}
 		} catch (err) {
 			sendUserToast(`The flow could not be saved: ${err.body}`, true)

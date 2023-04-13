@@ -148,7 +148,7 @@
 												startIcon={{ icon: faEye }}
 												disabled={script == undefined}
 												variant="border"
-												href="/scripts/get/{script?.hash}?workspace_id={$workspaceStore}"
+												href="/scripts/get/{script?.hash}?workspace={$workspaceStore}"
 												>Script</Button
 											>
 										</div>
