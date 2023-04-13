@@ -1642,7 +1642,7 @@ Hello \${ctx.username}
 					fieldType: 'text',
 					fileUpload: {
 						accept: 'application/pdf',
-						convertTo: 'buffer'
+						convertTo: 'base64'
 					}
 				},
 				zoom: {
