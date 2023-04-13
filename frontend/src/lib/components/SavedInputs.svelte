@@ -142,7 +142,7 @@
 <div class="min-w-[300px] h-full">
 	<Splitpanes horizontal={true}>
 		<Pane>
-			<div class="w-full flex flex-col gap-4 p-4">
+			<div class="w-full flex flex-col gap-4 p-2">
 				<div class="w-full flex justify-between items-center gap-4 flex-wrap">
 					<span class="text-sm font-extrabold flex-shrink-0"
 						>Saved Inputs <Tooltip
@@ -256,7 +256,7 @@
 		</Pane>
 
 		<Pane>
-			<div class="w-full flex flex-col gap-4 p-4">
+			<div class="w-full flex flex-col gap-4 p-2">
 				<span class="text-sm font-extrabold">Previous Inputs</span>
 
 				<div class="w-full flex flex-col gap-1 p-0 h-full overflow-y-auto">
@@ -291,35 +291,37 @@
 			</div>
 		</Pane>
 
-		<Pane class="flex flex-col justify-between">
-			<div class="w-full flex flex-col gap-4 p-4 h-full">
-				<span class="text-sm font-extrabold">Preview</span>
+		<Pane>
+			<div class="h-full overflow-hidden min-h-0 flex flex-col justify-between">
+				<div class="w-full flex flex-col min-h-0 gap-2 px-2 py-2 grow">
+					<div class="text-sm font-extrabold">Preview</div>
 
-				<div class="w-full h-full overflow-auto">
-					{#if Object.keys(selectedInput?.args || {}).length > 0}
-						<div class="border h-full p-2">
-							<ObjectViewer json={selectedInput?.args} />
-						</div>
-					{:else}
-						<div class="text-center text-gray-500">
-							Select an Input to preview scripts arguments
-						</div>
-					{/if}
+					<div class="w-full min-h-0 grow overflow-auto">
+						{#if Object.keys(selectedInput?.args || {}).length > 0}
+							<div class="border overflow-auto h-full p-2">
+								<ObjectViewer json={selectedInput?.args} />
+							</div>
+						{:else}
+							<div class="text-center text-gray-500">
+								Select an Input to preview scripts arguments
+							</div>
+						{/if}
+					</div>
 				</div>
-			</div>
 
-			<div class="w-full flex flex-col p-4">
-				<Button
-					color="blue"
-					btnClasses="w-full"
-					size="sm"
-					spacingSize="xl"
-					on:click={() => selectArgs(selectedInput?.args)}
-					disabled={Object.keys(selectedInput?.args || {}).length === 0}
-				>
-					<ArrowLeftIcon class="w-4 h-4 mr-2" />
-					Use Input
-				</Button>
+				<div class="w-full flex flex-col px-2 pb-2">
+					<Button
+						color="blue"
+						btnClasses="w-full"
+						size="sm"
+						spacingSize="xl"
+						on:click={() => selectArgs(selectedInput?.args)}
+						disabled={Object.keys(selectedInput?.args || {}).length === 0}
+					>
+						<ArrowLeftIcon class="w-4 h-4 mr-2" />
+						Use Input
+					</Button>
+				</div>
 			</div>
 		</Pane>
 	</Splitpanes>

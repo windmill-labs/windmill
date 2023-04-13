@@ -112,9 +112,9 @@ async fn get_input_history(
     let mut tx = user_db.begin(&authed).await?;
 
     let sql = &format!(
-        "select distinct on (args) * from completed_job \
+        "select * from (select distinct on (args) * from completed_job \
         where {} = $1 and job_kind = $2 and workspace_id = $3 \
-        order by args, started_at desc limit $4 offset $5",
+        order by args, started_at desc limit $4 offset $5) t ORDER BY started_at desc",
         r.runnable_type.column_name()
     );
 
