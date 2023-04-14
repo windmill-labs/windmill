@@ -12,12 +12,16 @@
 	import { writable } from 'svelte/store'
 	import LogViewer from '../LogViewer.svelte'
 
+	const POPUP_HEIGHT = 240 as const
+
 	export let job: Job | undefined
 	let timeout: NodeJS.Timeout | undefined
 	let watchJob: (id: string) => Promise<void>
 	let args = job?.args
 	let result: any
 	let loaded = false
+	let wrapper: HTMLElement
+	let popupOnTop = true
 
 	$: open = $openStore === job?.id
 	$: completed = job?.type === Job.type.COMPLETED_JOB
@@ -27,6 +31,7 @@
 		if (!job) {
 			return
 		}
+		popupOnTop = wrapper.getBoundingClientRect().top > POPUP_HEIGHT
 		openStore.set(job.id)
 		if (!loaded) {
 			await tick()
@@ -40,7 +45,7 @@
 				timeout = undefined
 				await instantOpen()
 			},
-			loaded ? 300 : 500
+			loaded ? 100 : 300
 		)
 	}
 
@@ -69,14 +74,16 @@
 	on:mouseleave={close}
 	on:focusin={instantOpen}
 	on:focusout={close}
+	bind:this={wrapper}
 	class="relative"
 >
 	<slot {open} />
 	{#if open}
 		<div
 			transition:fade={{ duration: 100 }}
-			class="absolute z-50 bottom-[65px] left-4 bg-white rounded border border-gray-300 shadow-xl
-			flex justify-start items-start w-[600px] max-w-full h-60 overflow-hidden duration-100"
+			class="absolute z-50 {popupOnTop ? 'bottom-[65px]' : 'top-[65px]'} left-4 bg-white rounded
+			border border-gray-300 shadow-xl flex justify-start items-start w-[600px] max-w-full h-60
+			overflow-hidden"
 		>
 			<div class="w-1/2 h-full overflow-auto px-2">
 				<JobArgs {args} tableClass="!pt-0 !min-w-0 !block" />
