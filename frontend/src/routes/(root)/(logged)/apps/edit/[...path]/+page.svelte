@@ -7,7 +7,7 @@
 	import { goto } from '$app/navigation'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 
-	let app: AppWithLastVersion | undefined = undefined
+	$: app = undefined as AppWithLastVersion | undefined
 	let path = $page.params.path
 
 	let nodraft = $page.url.searchParams.get('nodraft')
@@ -22,10 +22,23 @@
 			workspace: $workspaceStore!
 		})
 
+		const tempValue = app.value
+
 		const initialState = nodraft ? undefined : localStorage.getItem(`app-${$page.params.path}`)
 		let stateLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
+
 		if (stateLoadedFromUrl) {
-			sendUserToast('App restored from draft')
+			sendUserToast('App restored from draft', false, [
+				{
+					label: 'Cancel',
+					callback: () => {
+						if (app) {
+							app.value = tempValue
+							app = app
+						}
+					}
+				}
+			])
 			app.value = stateLoadedFromUrl
 		}
 		$dirtyStore = false

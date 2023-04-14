@@ -1,11 +1,14 @@
 <script lang="ts">
+	import type { ToastAction } from '$lib/utils'
 	import { toast } from '@zerodevx/svelte-toast'
 	import { CheckCircle2, XCircleIcon } from 'lucide-svelte'
 	import { onMount } from 'svelte'
+	import Button from './common/button/Button.svelte'
 
 	export let message: string
 	export let toastId: string
 	export let error: boolean = false
+	export let actions: ToastAction[] = []
 
 	function handleClose() {
 		toast.pop(toastId)
@@ -33,6 +36,13 @@
 			</div>
 			<div class="ml-3 w-0 flex-1">
 				<p class="text-sm text-gray-500">{message}</p>
+				<div class="mt-2 flex flex-row gap-2 h-15">
+					{#each actions as action, index (index)}
+						<Button on:click={action.callback} class="text-sm !text-black">
+							{action.label}
+						</Button>
+					{/each}
+				</div>
 			</div>
 			<div class="ml-4 flex flex-shrink-0">
 				<button

@@ -87,13 +87,23 @@ export function getToday() {
 	return today
 }
 
-export function sendUserToast(message: string, error: boolean = false): void {
+export type ToastAction = {
+	label: string
+	callback: () => void
+}
+
+export function sendUserToast(
+	message: string,
+	error: boolean = false,
+	actions: ToastAction[] = []
+): void {
 	toast.push({
 		component: {
 			src: Toast,
 			props: {
 				message,
-				error
+				error,
+				actions
 			},
 			sendIdTo: 'toastId'
 		},
