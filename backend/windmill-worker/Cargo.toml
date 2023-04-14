@@ -50,3 +50,7 @@ git-version.workspace = true
 dyn-iter.workspace = true
 once_cell.workspace = true
 rsmq_async.workspace = true
+deno.workspace = true
+deno_lockfile.workspace = true
+deno_runtime.workspace = true
+tracing-log.workspace = true

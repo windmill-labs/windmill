@@ -13,7 +13,7 @@ use once_cell::sync::OnceCell;
 use sqlx::{Pool, Postgres};
 use windmill_api_client::Client;
 use std::{
-    borrow::Borrow, collections::HashMap, io, os::unix::process::ExitStatusExt, panic,
+    borrow::Borrow, collections::{HashMap, BTreeMap}, io, os::unix::process::ExitStatusExt, panic,
     process::Stdio, time::{Duration}, sync::atomic::Ordering,
     sync::{Arc},
 };
@@ -38,12 +38,12 @@ use tokio::{
     sync::{
         mpsc::{self, Sender},  watch, broadcast, RwLock
     },
-    time::{interval, sleep, Instant, MissedTickBehavior}
+    time::{interval, sleep, Instant, MissedTickBehavior}, task::futures::TaskLocalFuture
 };
 
 use futures::{
     future::{self, ready, FutureExt},
-    stream, StreamExt,
+    stream::{self, FuturesUnordered}, StreamExt,
 };
 
 use async_recursion::async_recursion;
@@ -524,6 +524,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             }
             match next_job {
                 Ok(Some(job)) => {
+                    println!("Job AA {}", job.id);
                     // println!("{:?}",  SystemTime::now());
 
                     let token = create_token_for_owner_in_bg(&db, &job).await;
@@ -1240,6 +1241,22 @@ fn get_common_deno_proc_envs(token: &str, base_internal_url: &str) -> HashMap<St
     return deno_envs;
 }
 
+async fn run_deno_cli(args: Vec<String>) -> std::result::Result<i32, anyhow::Error> {
+    let flags = deno_cli::args::flags_from_vec(args).expect("Args are built by the app and should always be valid");
+
+    deno_cli::util::v8::init_v8_flags(&flags.v8_flags, deno_cli::util::v8::get_v8_flags_from_env());
+
+    let _ = tracing_log::LogTracer::init();
+    // deno_cli::util::logger::init(flags.log_level);
+
+    let deno_cli::args::flags::DenoSubcommand::Run(run_flags) = flags.subcommand.clone() else {
+        unreachable!("Flags should always be set to run");
+    };
+
+    debug_assert!(!run_flags.is_stdin());
+    deno_cli::tools::run::run_script(flags).await
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_deno_job(
     logs: &mut String,
@@ -1272,6 +1289,7 @@ async fn handle_deno_job(
         // logs.push_str(format!("infer args: {:?}\n", start.elapsed().as_micros()).as_str());
         let wrapper_content: String = format!(
             r#"
+    Deno.chdir("{job_dir}")
     import {{ main }} from "./main.ts";
 
     const args = await Deno.readTextFile("args.json")
@@ -1282,11 +1300,10 @@ async fn handle_deno_job(
         let res: any = await main(...args);
         const res_json = JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value);
         await Deno.writeTextFile("result.json", res_json);
-        Deno.exit(0);
     }}
     run().catch(async (e) => {{
         await Deno.writeTextFile("result.json", JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
-        Deno.exit(1);
+        throw e;
     }});
     "#,
         );
@@ -1348,45 +1365,56 @@ async fn handle_deno_job(
 
     //do not cache local dependencies
     let reload = format!("--reload={base_internal_url}");
-    let child = async {
-            let script_path = format!("{job_dir}/wrapper.ts");
-            let import_map_path = format!("{job_dir}/import_map.json");
-            let mut args = Vec::with_capacity(12);
-            args.push("run");
-            args.push("--no-check");
-            args.push("--import-map");
-            args.push(&import_map_path);
-            args.push(&reload);
-            args.push("--unstable");
-            if let Some(deno_flags) = DENO_FLAGS.as_ref() {
-                for flag in deno_flags {
-                    args.push(flag);
-                }
-            } else if !*DISABLE_NSJAIL {
-                args.push("--allow-net");
-                args.push("--allow-read=./");
-                args.push("--allow-write=./");
-                args.push("--allow-env");
-            } else {
-                args.push("-A");
+    let child_fut= async {
+        let mut args: Vec<String> = Vec::new();
+        let script_path = format!("{job_dir}/wrapper.ts");
+        let import_map_path = format!("{job_dir}/import_map.json");
+        args.push("deno".to_owned());
+        args.push("run".to_owned());
+        args.push("--import-map".to_owned());
+        args.push(import_map_path);
+        args.push(reload);
+        args.push("--unstable".to_owned());
+        if let Some(deno_flags) = DENO_FLAGS.as_ref() {
+            for flag in deno_flags {
+                args.push(flag.clone());
             }
-            args.push(&script_path);
-            Command::new(DENO_PATH.as_str())
-                .current_dir(job_dir)
-                .env_clear()
-                .envs(reserved_variables)
-                .envs(common_deno_proc_envs)
-                .env("DENO_DIR", DENO_CACHE_DIR)
-                .args(args)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-    }
-    .await?;
-    // logs.push_str(format!("prepare: {:?}\n", start.elapsed().as_micros()).as_str());
-    // start = Instant::now();
-    handle_child(&job.id, db, logs, child, false, worker_name, &job.workspace_id).await?;
-    // logs.push_str(format!("execute: {:?}\n", start.elapsed().as_millis()).as_str());
+        } else if !*DISABLE_NSJAIL {
+            args.push("--allow-net".to_owned());
+            args.push(format!("--allow-read={job_dir}"));
+            args.push(format!("--allow-write={job_dir}"));
+            args.push("--allow-env".to_owned());
+        } else {
+            args.push("-A".to_owned());
+        }
+        args.push(script_path);
+        // TODO(deno): Handle environment variables
+        // TODO(deno): Handle current dir
+        // TODO(deno): Handle stdout / stdin / stderr
+
+        // run non-'static !Send !Sync deno future. bit annoying but works.
+        let handle = tokio::runtime::Handle::current();
+        let (deno_done_sender, deno_done_receiver) = tokio::sync::oneshot::channel();
+
+        let handle = std::thread::spawn(move || {
+            let _ = tracing_log::LogTracer::init(); // TODO: I don't think this works. Not really what we want anyways
+            // let _guard = handle.enter();
+            let fut = run_deno_cli(args);
+            handle.block_on(fut).unwrap();
+            deno_done_sender.send(()).unwrap();
+        });
+
+        tracing::info!("Thread running, waiting for complete");
+        let () = deno_done_receiver.await.unwrap();
+        tracing::info!("Got response, waiting for thread to close");
+        let () = handle.join().unwrap(); // this won't actually block, as the thread should already be finished.
+    };
+
+    child_fut.await;
+
+    // TODO(deno): Handle log streaming
+    // handle_child(&job.id, db, logs, child, false, worker_name, &job.workspace_id).await?;
+
     read_result(job_dir).await
 }
 

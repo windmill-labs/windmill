@@ -28,7 +28,11 @@ name = "windmill"
 path = "./src/main.rs"
 
 [features]
-enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise"]
+enterprise = [
+    "windmill-worker/enterprise",
+    "windmill-queue/enterprise",
+    "windmill-api/enterprise",
+]
 
 [dependencies]
 anyhow.workspace = true
@@ -127,9 +131,9 @@ itertools = "^0"
 regex = "^1"
 deno_core = "^0"
 async-recursion = "^1"
-swc_common = "0.29.39"
-swc_ecma_parser = "0.128.2"
-swc_ecma_ast = "0.98.1"
+swc_common = "0.31.1"
+swc_ecma_parser = "0.133.4"
+swc_ecma_ast = "0.103.1"
 base64 = "0.21.0"
 unicode-general-category = "^0"
 hmac = "0.12.1"
@@ -158,9 +162,18 @@ async-stripe = { version = "0.14", features = [
     "runtime-tokio-hyper",
     "checkout",
 ] }
-async_zip = { version = "0.0.11", features = ["full"] }
+async_zip = { version = "0.0.11", features = [
+    "fs",
+    "deflate",
+    "bzip2",
+    "lzma",
+    "zstd",
+    "xz",
+] }
 once_cell = "1.17.1"
 rsmq_async = { version = "5.1.5" }
 gosyn = "0.2.2"
-
-[patch.crates-io]
+deno = { path = "../../projects/deno/cli" }
+deno_lockfile = "0.13.0"
+deno_runtime = { path = "../../projects/deno/runtime" }
+tracing-log = "0.1.3"
