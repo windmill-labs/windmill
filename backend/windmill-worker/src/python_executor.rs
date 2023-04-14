@@ -11,7 +11,8 @@ use tokio::{
 use uuid::Uuid;
 use windmill_common::{
     error::{self, Error},
-    utils::calculate_hash, jobs::QueuedJob,
+    jobs::QueuedJob,
+    utils::calculate_hash,
 };
 
 lazy_static::lazy_static! {
@@ -192,7 +193,8 @@ pub async fn handle_python_job(
                 .split("\n")
                 .filter(|x| !x.starts_with("--"))
                 .collect(),
-            job,
+            &job.id,
+            &job.workspace_id,
             logs,
             db,
             worker_name,
@@ -423,9 +425,10 @@ mount {{
     read_result(job_dir).await
 }
 
-async fn handle_python_reqs(
+pub async fn handle_python_reqs(
     requirements: Vec<&str>,
-    job: &QueuedJob,
+    job_id: &Uuid,
+    w_id: &str,
     logs: &mut String,
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
@@ -458,16 +461,16 @@ async fn handle_python_reqs(
 
         tracing::info!(
             worker_name = %worker_name,
-            job_id = %job.id,
-            workspace_id = %job.workspace_id,
+            job_id = %job_id,
+            workspace_id = %w_id,
             "started setup python dependencies"
         );
 
         let child = if !*DISABLE_NSJAIL {
             tracing::info!(
                 worker_name = %worker_name,
-                job_id = %job.id,
-                workspace_id = %job.workspace_id,
+                job_id = %job_id,
+                workspace_id = %w_id,
                 "starting nsjail"
             );
             let mut vars = vars.clone();
@@ -515,23 +518,14 @@ async fn handle_python_reqs(
                 .spawn()?
         };
 
-        let child = handle_child(
-            &job.id,
-            db,
-            logs,
-            child,
-            false,
-            worker_name,
-            &job.workspace_id,
-        )
-        .await;
+        let child = handle_child(&job_id, db, logs, child, false, worker_name, &w_id).await;
         tracing::info!(
             worker_name = %worker_name,
-            job_id = %job.id,
-            workspace_id = %job.workspace_id,
+            job_id = %job_id,
+            workspace_id = %w_id,
             is_ok = child.is_ok(),
             "finished setting up python dependencies {}",
-            job.id
+            job_id
         );
         child?;
 

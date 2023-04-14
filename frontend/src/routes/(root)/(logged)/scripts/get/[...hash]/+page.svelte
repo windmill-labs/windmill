@@ -57,10 +57,6 @@
 
 	let shareModal: ShareModal
 
-	let queryId = $page.url.searchParams.get('workspace_id')
-	if (queryId && queryId != $workspaceStore) {
-		$workspaceStore = $page.url.searchParams.get('workspace_id')!
-	}
 
 	$: loading = !script
 	$: if ($workspaceStore) {
@@ -179,7 +175,7 @@
 <MoveDrawer
 	bind:this={moveDrawer}
 	on:update={async (e) => {
-		await goto('/scripts/get/' + e.detail + `?workspace_id=${$workspaceStore}`)
+		await goto('/scripts/get/' + e.detail + `?workspace=${$workspaceStore}`)
 		loadScript($page.params.hash)
 	}}
 />
@@ -329,9 +325,9 @@
 						variant="contained"
 						size="xs"
 						startIcon={{ icon: faArrowLeft }}
-						href="/scripts/get/{script.parent_hashes[0]}?workspace_id={$workspaceStore}"
+						href="/scripts/get/{script.parent_hashes[0]}?workspace={$workspaceStore}"
 						dropdownItems={script.parent_hashes.map((hash) => ({
-							href: `/scripts/get/${hash}?workspace_id=${$workspaceStore}`,
+							href: `/scripts/get/${hash}?workspace=${$workspaceStore}`,
 							label: hash
 						}))}
 					>
@@ -352,7 +348,7 @@
 					{#if topHash}
 						<Alert type="warning" title="Not HEAD">
 							This hash is not HEAD (latest non-archived version at this path) :
-							<a href="/scripts/get/{topHash}?workspace_id={$workspaceStore}"
+							<a href="/scripts/get/{topHash}?workspace={$workspaceStore}"
 								>Go to the HEAD of this path</a
 							>
 						</Alert>

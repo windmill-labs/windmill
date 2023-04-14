@@ -122,7 +122,7 @@
 												startIcon={{ icon: faEye }}
 												disabled={flow == undefined}
 												variant="border"
-												href="/flows/get/{flow?.path}?workspace_id={$workspaceStore}"
+												href="/flows/get/{flow?.path}?workspace={$workspaceStore}"
 											>
 												Flow
 											</Button>

@@ -29,6 +29,13 @@
 		goto('/user/login')
 	}
 
+	$: {
+		let queryWorkspace = $page.url.searchParams.get('workspace')
+		if (queryWorkspace) {
+			$workspaceStore = queryWorkspace
+		}
+	}
+
 	$: if (userSettings && $page.url.hash === USER_SETTINGS_HASH) {
 		userSettings.openDrawer()
 	} else if (superadminSettings && $page.url.hash === SUPERADMIN_SETTINGS_HASH) {

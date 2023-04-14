@@ -13,7 +13,7 @@
 	import UploadInputEditor from './inputEditor/UploadInputEditor.svelte'
 	import { getContext } from 'svelte'
 	import type { AppViewerContext, RichConfiguration } from '../../types'
-	import type { InputType } from '../../inputType'
+	import type { InputType, UploadAppInput } from '../../inputType'
 
 	export let id: string
 	export let componentInput: RichConfiguration
@@ -28,7 +28,7 @@
 	export let subFieldType: InputType | undefined
 	export let format: string | undefined
 	export let selectOptions: string[] | undefined
-	export let fileUpload: { accept: string; convertTo: string } | undefined = undefined
+	export let fileUpload: UploadAppInput['fileUpload'] | undefined = undefined
 	export let placeholder: string | undefined
 
 	const { connectingInput } = getContext<AppViewerContext>('AppViewerContext')
@@ -139,7 +139,7 @@
 		{:else if componentInput?.type === 'eval'}
 			<EvalInputEditor {hasRows} {id} bind:componentInput />
 		{:else if componentInput?.type === 'upload'}
-			<UploadInputEditor bind:componentInput />
+			<UploadInputEditor bind:componentInput {fileUpload} />
 		{:else if componentInput?.type === 'user'}
 			<span class="text-2xs italic text-gray-600">Field's value is set by the user</span>
 		{/if}

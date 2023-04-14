@@ -114,7 +114,7 @@
 			})
 			if (leave) {
 				history.replaceState(history.state, '', `/scripts/edit/${newHash}`)
-				goto(`/scripts/get/${newHash}?workspace_id=${$workspaceStore}`)
+				goto(`/scripts/get/${newHash}?workspace=${$workspaceStore}`)
 			} else {
 				await goto(`/scripts/edit/${newHash}`)
 				script.hash = newHash
