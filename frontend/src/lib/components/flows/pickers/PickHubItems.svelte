@@ -46,19 +46,18 @@
 		)
 	).sort() as string[]
 
-	$: prefilteredItems =
-		appFilter && itemKind
-			? (items ?? []).filter((i) => {
-					if (i.itemType === 'script' && itemKind === 'script') {
-						return i.data.app == appFilter
-					} else if (i.itemType === 'flow' && appFilter && itemKind === 'flow') {
-						return i.data.apps.includes(appFilter)
-					} else if (i.itemType === 'app' && appFilter && itemKind === 'app') {
-						return i.data.apps.includes(appFilter)
-					}
-					return false
-			  })
-			: items ?? []
+	$: prefilteredItems = appFilter
+		? (items ?? []).filter((i) => {
+				if (i.itemType === 'script') {
+					return i.data.app === appFilter
+				} else if (i.itemType === 'flow' && appFilter) {
+					return i.data.apps.includes(appFilter)
+				} else if (i.itemType === 'app' && appFilter) {
+					return i.data.apps.includes(appFilter)
+				}
+				return false
+		  })
+		: items ?? []
 
 	onMount(async () => {
 		await loadHubScripts()
