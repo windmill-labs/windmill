@@ -22,11 +22,10 @@ use std::{
 };
 use windmill_common::{
     error::JsonResult,
+    jobs::JobKind,
     scripts::to_i64,
     utils::{paginate, Pagination},
 };
-use windmill_queue::JobKind;
-
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/history", get(get_input_history))
@@ -113,9 +112,9 @@ async fn get_input_history(
     let mut tx = user_db.begin(&authed).await?;
 
     let sql = &format!(
-        "select distinct on (args) * from completed_job \
+        "select * from (select distinct on (args) * from completed_job \
         where {} = $1 and job_kind = $2 and workspace_id = $3 \
-        order by args, started_at desc limit $4 offset $5",
+        order by args, started_at desc) t ORDER BY started_at desc limit $4 offset $5",
         r.runnable_type.column_name()
     );
 

@@ -81,6 +81,7 @@
 	$: buttonProps = {
 		id,
 		class: twMerge(
+			'w-full',
 			colorVariants?.[color]?.[variant],
 			variant === 'border' ? 'border' : '',
 			ButtonType.FontSizeClasses[size],
@@ -90,7 +91,7 @@
 			'justify-center items-center text-center whitespace-nowrap inline-flex',
 			btnClasses,
 			disabled ? '!bg-gray-300 !text-gray-600 !cursor-not-allowed' : '',
-			'transition-all'
+			'transition-all '
 		),
 		href,
 		target,
@@ -122,7 +123,7 @@
 	$: endIconClass = twMerge(iconOnly ? undefined : isSmall ? 'ml-1' : 'ml-2', endIcon?.classes)
 </script>
 
-<div class="{dropdownItems ? 'flex flex-row divide-x divide-frost-600' : ''} {wrapperClasses}">
+<div class="{dropdownItems ? ' divide-x divide-frost-600' : ''} {wrapperClasses} flex flex-row">
 	<svelte:element
 		this={href ? 'a' : 'button'}
 		bind:this={element}

@@ -32,12 +32,13 @@ use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     apps::ListAppQuery,
     error::{to_anyhow, Error, JsonResult, Result},
+    jobs::{JobPayload, RawCode},
     users::username_to_permissioned_as,
     utils::{
         http_get_from_hub, list_elems_from_hub, not_found_if_none, paginate, Pagination, StripPath,
     },
 };
-use windmill_queue::{push, JobPayload, QueueTransaction, RawCode};
+use windmill_queue::{push, QueueTransaction};
 
 pub fn workspaced_service() -> Router {
     Router::new()

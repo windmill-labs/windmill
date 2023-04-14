@@ -29,6 +29,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
 use tower_cookies::{Cookie, Cookies};
 use windmill_audit::{audit_log, ActionKind};
+use windmill_common::jobs::JobPayload;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::utils::{not_found_if_none, now_from_db};
 
@@ -44,7 +45,7 @@ use crate::{BASE_URL, HTTP_CLIENT, IS_SECURE, OAUTH_CLIENTS, SLACK_SIGNING_SECRE
 use windmill_common::error::{self, to_anyhow, Error};
 use windmill_common::oauth2::*;
 
-use windmill_queue::{JobPayload, QueueTransaction};
+use windmill_queue::QueueTransaction;
 
 use std::{fs, str};
 

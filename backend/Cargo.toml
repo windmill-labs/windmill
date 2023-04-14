@@ -50,6 +50,10 @@ base64.workspace = true
 sha2.workspace = true
 rsmq_async.workspace = true
 url.workspace = true
+lazy_static.workspace = true
+once_cell.workspace = true
+prometheus.workspace = true
+uuid.workspace = true
 
 
 [dev-dependencies]
