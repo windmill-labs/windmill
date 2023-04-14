@@ -101,6 +101,46 @@ impl QueuedJob {
     }
 }
 
+impl Default for QueuedJob {
+    fn default() -> Self {
+        Self {
+            workspace_id: "".to_string(),
+            id: Uuid::default(),
+            parent_job: None,
+            created_by: "".to_string(),
+            created_at: chrono::Utc::now(),
+            started_at: None,
+            scheduled_for: chrono::Utc::now(),
+            running: false,
+            script_hash: None,
+            script_path: None,
+            args: None,
+            logs: None,
+            raw_code: None,
+            raw_lock: None,
+            canceled: false,
+            canceled_by: None,
+            canceled_reason: None,
+            last_ping: None,
+            job_kind: JobKind::Identity,
+            schedule_path: None,
+            permissioned_as: "".to_string(),
+            flow_status: None,
+            raw_flow: None,
+            is_flow_step: false,
+            language: None,
+            same_worker: false,
+            pre_run_error: None,
+            email: "".to_string(),
+            visible_to_owner: false,
+            suspend: None,
+            mem_peak: None,
+            root_job: None,
+            leaf_jobs: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum JobPayload {
     ScriptHub { path: String },

@@ -19,11 +19,6 @@
 		can_write = canWrite(app?.path, app?.extra_perms!, $userStore)
 	}
 
-	let queryId = $page.url.searchParams.get('workspace_id')
-	if (queryId && queryId != $workspaceStore) {
-		$workspaceStore = $page.url.searchParams.get('workspace_id')!
-	}
-
 	$: if ($workspaceStore && $page.params.path) {
 		loadApp()
 	}

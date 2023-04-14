@@ -57,29 +57,32 @@ use crate::{
     jobs::{add_completed_job, add_completed_job_error},
     worker_flow::{
         handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress,
-    }, python_executor::{create_dependencies_dir, pip_compile, handle_python_job}, common::{read_result, set_logs}, global_cache::{move_tmp_cache_to_cache}, go_executor::{handle_go_job, install_go_dependencies},
+    }, python_executor::{create_dependencies_dir, pip_compile, handle_python_job, handle_python_reqs}, common::{read_result, set_logs}, global_cache::{move_tmp_cache_to_cache}, go_executor::{handle_go_job, install_go_dependencies},
 };
 
 
 
 pub async fn create_token_for_owner_in_bg(db: &Pool<Postgres>, job: &QueuedJob) -> Arc<RwLock<String>> {
     let rw_lock = Arc::new(RwLock::new(String::new()));
-    let mut locked = rw_lock.clone().write_owned().await;
-    let db = db.clone();
-    let job = job.clone();
-    tokio::spawn(async move {
+    // skipping test runs
+    if job.workspace_id != "" {
+        let mut locked = rw_lock.clone().write_owned().await;
+        let db = db.clone();
         let job = job.clone();
-        let token = create_token_for_owner(
-            &db.clone(),
-            &job.workspace_id,
-            &job.permissioned_as,
-            "ephemeral-script",
-            *SESSION_TOKEN_EXPIRY,
-            &job.email,
-        )
-        .await.expect("could not create job token");
-        *locked = token;
-    });
+        tokio::spawn(async move {
+            let job = job.clone();
+            let token = create_token_for_owner(
+                &db.clone(),
+                &job.workspace_id,
+                &job.permissioned_as,
+                "ephemeral-script",
+                *SESSION_TOKEN_EXPIRY,
+                &job.email,
+            )
+            .await.expect("could not create job token");
+            *locked = token;
+        });
+    };
     return rw_lock;
 }
 
@@ -128,8 +131,6 @@ pub const GO_TMP_CACHE_DIR: &str = concatcp!(ROOT_TMP_CACHE_DIR, "go");
 
 const NUM_SECS_PING: u64 = 5;
 
-#[cfg(feature = "enterprise")]
-const NUM_SECS_SYNC: u64 = 60 * 10;
 
 const INCLUDE_DEPS_PY_SH_CONTENT: &str = include_str!("../nsjail/download_deps.py.sh");
 const NSJAIL_CONFIG_RUN_BASH_CONTENT: &str = include_str!("../nsjail/run.bash.config.proto");
@@ -222,6 +223,12 @@ lazy_static::lazy_static! {
     static ref TIMEOUT_DURATION: Duration = Duration::from_secs(*TIMEOUT as u64);
 
     pub static ref SESSION_TOKEN_EXPIRY: i32 = (*TIMEOUT as i32) * 2;
+
+    pub static ref GLOBAL_CACHE_INTERVAL: u64 = std::env::var("GLOBAL_CACHE_INTERVAL")
+        .ok()
+        .and_then(|x| x.parse::<u64>().ok())
+        .unwrap_or(60 * 10);
+
 }
 
 //only matter if CLOUD_HOSTED
@@ -418,13 +425,15 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
 
     #[cfg(feature = "enterprise")]
     let mut last_sync =
-        Instant::now() + Duration::from_secs(rand::thread_rng().gen_range(0..NUM_SECS_SYNC));
+        Instant::now() + Duration::from_secs(rand::thread_rng().gen_range(0..*GLOBAL_CACHE_INTERVAL));
 
     let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<Uuid>(5);
 
+
     tracing::info!(worker = %worker_name, "listening for jobs");
 
-    
+    let mut first_run = true;
+
     loop {
         if *METRICS_ENABLED {
             worker_busy.set(0);
@@ -451,7 +460,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             }
 
             #[cfg(feature = "enterprise")]
-            if initialized_cache && last_sync.elapsed().as_secs() > NUM_SECS_SYNC {
+            if initialized_cache && last_sync.elapsed().as_secs() > *GLOBAL_CACHE_INTERVAL {
                 if let Some(ref s) = S3_CACHE_BUCKET.clone() {
                     copy_cache_from_bucket(&s, None).await;
                     copy_cache_to_bucket(&s).await;
@@ -464,44 +473,49 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                 last_sync = Instant::now();
             }
 
-            let (do_break, next_job) = async {
-                tokio::select! {
-                    biased;
-                    _ = rx.recv() => {
-                        if let Some(copy_cache_from_bucket_handle) = copy_cache_from_bucket_handle.as_ref() {
-                            copy_cache_from_bucket_handle.abort();
-                        }
-                        println!("received killpill for worker {}", i_worker);
-                        (true, Ok(None))
-                    },
-                    _ = _copy_bucket_rx.recv() => {
-                        if let Err(e) = move_tmp_cache_to_cache().await {
-                            tracing::error!(worker = %worker_name, "failed to sync tmp cache to cache: {}", e);
-                        }
-                        copy_cache_from_bucket_handle = None;
-                        initialized_cache = true;
-                        (false, Ok(None))
-                    },
-                    Some(job_id) = same_worker_rx.recv() => {
-                        (false, sqlx::query_as::<_, QueuedJob>("SELECT * FROM queue WHERE id = $1")
-                        .bind(job_id)
-                        .fetch_optional(db)
-                        .await
-                        .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string())))
-                    },
-                    (job, timer) = {
-                        let timer = if *METRICS_ENABLED { Some(worker_pull_duration.start_timer()) } else { None }; 
-                        pull(&db, WHITELIST_WORKSPACES.clone(), BLACKLIST_WORKSPACES.clone(), rsmq.clone()).map(|x| (x, timer)) 
-                    } => {
-                        timer.map(|timer| {
-                            let duration_pull_s = timer.stop_and_record();
-                            worker_pull_duration_counter.inc_by(duration_pull_s);
-                        });
-                        (false, job)
-                    },
-                }
-            }.instrument(trace_span!("worker_get_next_job")).await;
+            let (do_break, next_job) = if first_run { 
+                (false, Ok(Some(QueuedJob::default())))
+            } else {
+                async {
+                    tokio::select! {
+                        biased;
+                        _ = rx.recv() => {
+                            if let Some(copy_cache_from_bucket_handle) = copy_cache_from_bucket_handle.as_ref() {
+                                copy_cache_from_bucket_handle.abort();
+                            }
+                            println!("received killpill for worker {}", i_worker);
+                            (true, Ok(None))
+                        },
+                        _ = _copy_bucket_rx.recv() => {
+                            if let Err(e) = move_tmp_cache_to_cache().await {
+                                tracing::error!(worker = %worker_name, "failed to sync tmp cache to cache: {}", e);
+                            }
+                            copy_cache_from_bucket_handle = None;
+                            initialized_cache = true;
+                            (false, Ok(None))
+                        },
+                        Some(job_id) = same_worker_rx.recv() => {
+                            (false, sqlx::query_as::<_, QueuedJob>("SELECT * FROM queue WHERE id = $1")
+                            .bind(job_id)
+                            .fetch_optional(db)
+                            .await
+                            .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string())))
+                        },
+                        (job, timer) = {
+                            let timer = if *METRICS_ENABLED { Some(worker_pull_duration.start_timer()) } else { None }; 
+                            pull(&db, WHITELIST_WORKSPACES.clone(), BLACKLIST_WORKSPACES.clone(), rsmq.clone()).map(|x| (x, timer)) 
+                        } => {
+                            timer.map(|timer| {
+                                let duration_pull_s = timer.stop_and_record();
+                                worker_pull_duration_counter.inc_by(duration_pull_s);
+                            });
+                            (false, job)
+                        },
+                    }
+                }.await
+            };
 
+            first_run = false;
             if do_break {
                 return true;
             }
@@ -569,7 +583,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                             .expect("could not create shared dir");
                     }
 
-                    let authed_client = AuthedClientBackgroundTask { base_internal_url: base_internal_url.to_string(), token: token, workspace: job.workspace_id.to_string(), client: OnceCell::new() };
+                    let authed_client = AuthedClientBackgroundTask { base_internal_url: base_internal_url.to_string(), token, workspace: job.workspace_id.to_string(), client: OnceCell::new() };
                     let is_flow = job.job_kind == JobKind::Flow || job.job_kind == JobKind::FlowPreview || job.job_kind == JobKind::FlowDependencies;
 
                     if let Some(err) = handle_queued_job(
@@ -834,6 +848,10 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                 }
             };
 
+            //it's a test job, no need to update the db
+            if job.workspace_id == "" {
+                return Ok(());
+            }
             let client = &client.get_authed().await;
             match result {
                 Ok(r) => {
@@ -1558,7 +1576,24 @@ async fn capture_dependency_job(
     match job_language {
         ScriptLang::Python3 => {
             create_dependencies_dir(job_dir).await;
-            pip_compile(job_id, job_raw_code, logs, job_dir, db, worker_name, w_id).await
+            let req = pip_compile(job_id, job_raw_code, logs, job_dir, db, worker_name, w_id).await;
+            // install the dependencies to pre-fill the cache
+            if let Ok(req) = req.as_ref() {
+                handle_python_reqs(
+                    req
+                        .split("\n")
+                        .filter(|x| !x.starts_with("--"))
+                        .collect(),
+                    job_id,
+                    w_id,
+                    logs,
+                    db,
+                    worker_name,
+                    job_dir,
+                )
+                .await?;
+            }
+            req
         }
         ScriptLang::Go => {
             install_go_dependencies(

@@ -79,16 +79,18 @@
 
 	function getMarkerArray(): Marker[] | undefined {
 		let array: Marker[] | undefined = undefined
-		if (typeof markers === 'string') {
-			try {
-				array = JSON.parse(markers)
-			} catch (e) {
-				return undefined
+		try {
+			if (typeof markers === 'string') {
+				const json = JSON.parse(markers)
+				array = Array.isArray(json) ? json : [json]
+			} else {
+				array = markers
 			}
-		} else {
-			array = markers
+			return array?.filter((m) => !isNaN(+m.lat) && !isNaN(+m.lon))
+		} catch (error) {
+			console.log(error)
+			return undefined
 		}
-		return array?.filter((m) => !isNaN(+m.lat) && !isNaN(+m.lon))
 	}
 
 	function createMarkerLayers() {
