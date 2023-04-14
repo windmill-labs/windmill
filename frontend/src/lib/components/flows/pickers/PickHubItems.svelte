@@ -46,18 +46,22 @@
 		)
 	).sort() as string[]
 
-	$: prefilteredItems = appFilter
-		? (items ?? []).filter((i) => {
-				if (i.itemType === 'script') {
-					return i.data.app === appFilter
-				} else if (i.itemType === 'flow' && appFilter) {
-					return i.data.apps.includes(appFilter)
-				} else if (i.itemType === 'app' && appFilter) {
-					return i.data.apps.includes(appFilter)
-				}
-				return false
-		  })
-		: items ?? []
+	$: prefilteredItems =
+		appFilter || itemKind
+			? items.filter((i) => {
+					if (itemKind !== 'all' && i.itemType !== itemKind) {
+						return false
+					}
+					if (i.itemType === 'script' && appFilter) {
+						return i.data.app === appFilter
+					} else if (i.itemType === 'flow' && appFilter) {
+						return i.data.apps.includes(appFilter)
+					} else if (i.itemType === 'app' && appFilter) {
+						return i.data.apps.includes(appFilter)
+					}
+					return true
+			  })
+			: items
 
 	onMount(async () => {
 		await loadHubScripts()
@@ -95,7 +99,7 @@
 
 <ListFilters filters={apps} bind:selectedFilter={appFilter} resourceType />
 
-{#if prefilteredItems.length}
+{#if Array.isArray(prefilteredItems)}
 	{#if filteredItems.length == 0}
 		<NoItemFound />
 	{:else}
