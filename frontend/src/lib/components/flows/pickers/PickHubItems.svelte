@@ -16,7 +16,7 @@
 
 	export let filter = ''
 
-	let itemKind: 'script' | 'flow' | 'app' | 'all' = 'all'
+	let itemKind: 'script' | 'flow' | 'app' = 'app'
 	const dispatch = createEventDispatcher()
 	let filteredItems: (HubItem & { marked?: string })[] = []
 	let appFilter: string | undefined = undefined
@@ -49,7 +49,7 @@
 	$: prefilteredItems =
 		appFilter || itemKind
 			? items.filter((i) => {
-					if (itemKind !== 'all' && i.itemType !== itemKind) {
+					if (i.itemType !== itemKind) {
 						return false
 					}
 					if (i.itemType === 'script' && appFilter) {
@@ -73,8 +73,7 @@
 <SearchItems {filter} items={prefilteredItems} bind:filteredItems f={(x) => x.data.summary} />
 <div class="w-full flex mt-1 items-center gap-2">
 	<ToggleButtonGroup bind:selected={itemKind}>
-		<ToggleButton light position="left" value="all" size="sm">All</ToggleButton>
-		<ToggleButton light position="center" value="script" size="sm">
+		<ToggleButton light position="left" value="script" size="sm">
 			<div class="flex gap-1 items-center">
 				<Code2 size={16} />
 				Scripts
@@ -93,8 +92,8 @@
 			</div>
 		</ToggleButton>
 	</ToggleButtonGroup>
-	<slot />
 	<input type="text" placeholder="Search Hub Items" bind:value={filter} class="text-2xl grow" />
+	<slot />
 </div>
 
 <ListFilters filters={apps} bind:selectedFilter={appFilter} resourceType />
