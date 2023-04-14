@@ -6,8 +6,10 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use crate::{push, JobPayload};
+use crate::push;
+use crate::QueueTransaction;
 use sqlx::{query_scalar, Postgres, Transaction};
+use windmill_common::jobs::JobPayload;
 use std::str::FromStr;
 use windmill_common::{
     error::{self, Result},
@@ -15,7 +17,6 @@ use windmill_common::{
     users::username_to_permissioned_as,
     utils::{now_from_db, StripPath},
 };
-use crate::{QueueTransaction};
 
 pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     mut tx: QueueTransaction<'c, R>,

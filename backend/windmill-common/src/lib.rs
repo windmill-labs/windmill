@@ -15,6 +15,7 @@ pub mod error;
 pub mod external_ip;
 pub mod flow_status;
 pub mod flows;
+pub mod jobs;
 pub mod more_serde;
 pub mod oauth2;
 pub mod schedule;
