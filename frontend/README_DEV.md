@@ -17,7 +17,7 @@ In the root folder:
 
 ```bash
 docker build . -t windmill
-docker compose -f docker-compose-dev.yml up db windmill_server windmill_worker
+docker compose up db windmill_server windmill_worker
 ```
 
 ### 2. Backend is run by cargo
@@ -91,7 +91,7 @@ docker-compose up db
 In the backend folder:
 
 ```bash
-DATABASE_URL=postgres://postgres:changeme@127.0.0.1:5432/windmill?sslmode=disable cargo run
+DATABASE_URL=postgres://postgres:changeme@127.0.0.1:5433/windmill?sslmode=disable cargo run
 ```
 
 You can now access [http://127.0.0.1:8000](http://127.0.0.1:8000).
