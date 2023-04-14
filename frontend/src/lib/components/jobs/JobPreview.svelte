@@ -74,16 +74,16 @@
 	<slot {open} />
 	{#if open}
 		<div
-			transition:fade={{ duration: 200 }}
-			class="absolute z-50 bottom-[71px] left-0 bg-white rounded-lg rounded-b-none border-x border-t
-			border-gray-400 flex justify-start items-start w-[600px] max-w-full h-60 overflow-hidden"
+			transition:fade={{ duration: 100 }}
+			class="absolute z-50 bottom-[65px] left-4 bg-white rounded border border-gray-300 shadow-xl
+			flex justify-start items-start w-[600px] max-w-full h-60 overflow-hidden duration-100"
 		>
 			<div class="w-1/2 h-full overflow-auto px-2">
 				<JobArgs {args} tableClass="!pt-0 !min-w-0 !block" />
 			</div>
 			<div class="w-1/2 h-full overflow-auto p-2">
 				{#if completed}
-					<DisplayResult {result} />
+					<DisplayResult {result} disableExpand />
 				{:else}
 					<div class="text-sm font-semibold text-gray-600 mb-1"> Job is still running </div>
 					<LogViewer content={logs} isLoading wrapperClass="!h-[calc(100%-24px)]" />
