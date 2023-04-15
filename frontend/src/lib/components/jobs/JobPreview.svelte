@@ -111,7 +111,11 @@
 					<DisplayResult {result} disableExpand />
 				{:else if running}
 					<div class="text-sm font-semibold text-gray-600 mb-1"> Job is still running </div>
-					<LogViewer content={logs} isLoading wrapperClass="!h-[calc(100%-24px)]" />
+					<LogViewer
+						content={logs}
+						isLoading
+						wrapperClass={scheduled ? '!h-[calc(100%-68px)]' : '!h-[calc(100%-24px)]'}
+					/>
 				{/if}
 			</div>
 		</div>
