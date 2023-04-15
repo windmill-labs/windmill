@@ -524,7 +524,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             }
             match next_job {
                 Ok(Some(job)) => {
-                    println!("Job AA {}", job.id);
                     // println!("{:?}",  SystemTime::now());
 
                     let token = create_token_for_owner_in_bg(&db, &job).await;
@@ -1246,15 +1245,28 @@ async fn run_deno_cli(args: Vec<String>) -> std::result::Result<i32, anyhow::Err
 
     deno_cli::util::v8::init_v8_flags(&flags.v8_flags, deno_cli::util::v8::get_v8_flags_from_env());
 
-    let _ = tracing_log::LogTracer::init();
+    let _ = tracing_log::LogTracer::init(); // TODO: I don't think this works. Not really what we want anyways
     // deno_cli::util::logger::init(flags.log_level);
 
     let deno_cli::args::flags::DenoSubcommand::Run(run_flags) = flags.subcommand.clone() else {
         unreachable!("Flags should always be set to run");
     };
 
-    debug_assert!(!run_flags.is_stdin());
-    deno_cli::tools::run::run_script(flags).await
+  // TODO(bartlomieju): actually I think it will also fail if there's an import
+  // map specified and bare specifier is used on the command line - this should
+  // probably call `ProcState::resolve` instead
+  let ps = deno_cli::proc_state::ProcState::build(flags).await?;
+
+  let main_module = ps.options.resolve_main_module()?;
+
+  let permissions = deno_runtime::permissions::PermissionsContainer::new(deno_runtime::permissions::Permissions::from_options(
+    &ps.options.permissions_options(),
+  )?);
+  let mut worker = deno_cli::worker::create_main_worker(&ps, main_module, permissions).await?;
+
+  let exit_code = worker.run().await?;
+
+  Ok(exit_code)
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -1397,7 +1409,6 @@ async fn handle_deno_job(
         let (deno_done_sender, deno_done_receiver) = tokio::sync::oneshot::channel();
 
         let handle = std::thread::spawn(move || {
-            let _ = tracing_log::LogTracer::init(); // TODO: I don't think this works. Not really what we want anyways
             // let _guard = handle.enter();
             let fut = run_deno_cli(args);
             handle.block_on(fut).unwrap();
