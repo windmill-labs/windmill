@@ -67,7 +67,7 @@
 <ScheduleEditor on:update={() => goto('/schedules')} bind:this={scheduleEditor} />
 
 <JobPreview {job}>
-	<div class="border border-gray-400 rounded py-4 h-[72px]">
+	<div class="border border-gray-400 rounded py-4">
 		<div class="grid grid-cols-1 lg:grid-cols-4 w-full gap-4">
 			<div class="flex-col col-span-2">
 				<div class="flex flex-row text-sm">
