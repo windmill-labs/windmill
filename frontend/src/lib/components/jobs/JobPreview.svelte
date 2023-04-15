@@ -1,5 +1,5 @@
 <script context="module" lang="ts">
-	const openStore = writable('')
+	export const openStore = writable('')
 </script>
 
 <script lang="ts">
@@ -11,6 +11,7 @@
 	import JobArgs from '../JobArgs.svelte'
 	import { writable } from 'svelte/store'
 	import LogViewer from '../LogViewer.svelte'
+	import { forLater } from '$lib/utils'
 
 	const POPUP_HEIGHT = 240 as const
 
@@ -27,7 +28,6 @@
 	$: open = $openStore === job?.id
 	$: completed = job?.type === Job.type.COMPLETED_JOB
 	$: running = job && `running` in job ? job.running : false
-	$: scheduled = job?.type === Job.type.QUEUED_JOB
 	$: logs = job?.logs || logs
 
 	async function instantOpen() {
@@ -92,7 +92,7 @@
 	<slot {open} />
 	{#if open}
 		<div
-			transition:fade={{ duration: 100 }}
+			transition:fade|local={{ duration: 100 }}
 			class="absolute z-50 {popupOnTop ? 'bottom-[65px]' : 'top-[65px]'} left-4 bg-white rounded
 			border border-gray-300 shadow-xl flex justify-start items-start w-[600px] max-w-full h-60
 			overflow-hidden"
@@ -101,9 +101,9 @@
 				<JobArgs {args} tableClass="!pt-0 !min-w-0 !block" />
 			</div>
 			<div class="w-1/2 h-full overflow-auto p-2">
-				{#if scheduled}
+				{#if job && 'scheduled_for' in job && !job.running && job.scheduled_for && forLater(job.scheduled_for)}
 					<div class="text-sm font-semibold text-gray-600 mb-1">
-						<div>{running ? 'Next job' : 'Job'} is scheduled for</div>
+						<div>Job is scheduled for</div>
 						<div>{new Date(job?.['scheduled_for']).toLocaleString()}</div>
 					</div>
 				{/if}
@@ -111,11 +111,7 @@
 					<DisplayResult {result} disableExpand />
 				{:else if running}
 					<div class="text-sm font-semibold text-gray-600 mb-1"> Job is still running </div>
-					<LogViewer
-						content={logs}
-						isLoading
-						wrapperClass={scheduled ? '!h-[calc(100%-68px)]' : '!h-[calc(100%-24px)]'}
-					/>
+					<LogViewer content={logs} isLoading />
 				{/if}
 			</div>
 		</div>

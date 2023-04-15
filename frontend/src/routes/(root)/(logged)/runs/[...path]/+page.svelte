@@ -20,6 +20,7 @@
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 	import Slider from '$lib/components/Slider.svelte'
 	import JsonEditor from '$lib/components/apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
+	import { openStore } from '$lib/components/jobs/JobPreview.svelte'
 
 	let jobs: Job[] | undefined
 	let error: Error | undefined
@@ -136,6 +137,7 @@
 	let sync = true
 	onMount(() => {
 		loadPaths()
+		$openStore = ''
 		intervalId = setInterval(syncer, 5000)
 		document.addEventListener('visibilitychange', () => {
 			if (document.hidden) {
