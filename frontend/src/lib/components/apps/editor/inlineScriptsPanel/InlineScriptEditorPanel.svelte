@@ -67,12 +67,15 @@
 	}
 
 	async function refreshFlow(x: RunnableByPath) {
-		const schema = (await loadSchema($workspaceStore ?? '', x.path, 'flow')) ?? emptySchema()
-		x.schema = schema
 		if (componentInput?.type == 'runnable') {
-			componentInput.fields = computeFields(schema, false, componentInput.fields)
+			const schema = (await loadSchema($workspaceStore ?? '', x.path, 'flow')) ?? emptySchema()
+			x.schema = schema
+			const nfields = computeFields(schema, false, componentInput.fields)
+			if (!deepEqual(componentInput.fields, nfields)) {
+				componentInput.fields = nfields
+				componentInput = componentInput
+			}
 		}
-		componentInput = componentInput
 	}
 	$: if (
 		componentInput &&
