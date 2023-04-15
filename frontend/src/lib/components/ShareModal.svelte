@@ -38,13 +38,14 @@
 		loadAcls()
 		loadGroups()
 		loadUsernames()
-		await loadOwner()
+		loadOwner()
 		drawer.openDrawer()
 	}
 
 	async function loadOwner() {
-		own = await isOwner(path, $userStore!, $workspaceStore!)
+		own = isOwner(path, $userStore!, $workspaceStore!)
 	}
+
 	async function loadAcls() {
 		acls = Object.entries(
 			await GranularAclService.getGranularAcls({ workspace: $workspaceStore!, path, kind })

@@ -15,6 +15,7 @@ export interface UserExt {
 	groups: string[]
 	pgroups: string[]
 	folders: string[]
+	folders_owners: string[]
 }
 
 let persistedWorkspace = browser && localStorage.getItem('workspace')

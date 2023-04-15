@@ -27,12 +27,12 @@
 		kind = kind_l
 		initialPath = initialPath_l
 		summary = summary_l
-		await loadOwner()
+		loadOwner()
 		drawer.openDrawer()
 	}
 
-	async function loadOwner() {
-		own = await isOwner(initialPath, $userStore!, $workspaceStore!)
+	function loadOwner() {
+		own = isOwner(initialPath, $userStore!, $workspaceStore!)
 	}
 
 	async function updatePath() {

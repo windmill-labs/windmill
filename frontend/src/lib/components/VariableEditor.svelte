@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { canWrite, sendUserToast } from '$lib/utils'
+	import { canWrite, isOwner, sendUserToast } from '$lib/utils'
 	import { VariableService } from '$lib/gen'
 	import Path from './Path.svelte'
 	import { createEventDispatcher } from 'svelte'
@@ -145,7 +145,7 @@
 					{/if}
 					<span class="font-semibold text-gray-700">Path</span>
 					<Path
-						disabled={!can_write}
+						disabled={initialPath != '' && !isOwner(initialPath, $userStore, $workspaceStore)}
 						bind:error={pathError}
 						bind:path
 						{initialPath}

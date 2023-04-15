@@ -16,7 +16,7 @@
 			<span class="font-semibold truncate text-gray-800">{title ?? ''}</span>
 		</div>
 		{#if $$slots.actions}
-			<div class="flex gap-1 items-center justify-end">
+			<div class="flex gap-2 items-center justify-end">
 				<slot name="actions" />
 			</div>
 		{/if}

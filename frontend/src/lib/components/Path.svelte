@@ -337,6 +337,7 @@
 								btnClasses="!p-1.5"
 								variant="border"
 								size="xs"
+								{disabled}
 								on:click={newFolder.openDrawer}
 							>
 								<Icon scale={0.8} data={faPlus} /></Button

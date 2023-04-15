@@ -273,10 +273,7 @@ async fn create_script(
             let ps = get_script_by_hash_internal(tx.transaction_mut(), &w_id, p_hash).await?;
 
             if ps.path != ns.path {
-                if !authed.is_admin {
-                    require_owner_of_path(&w_id, &authed.username, &authed.groups, &ps.path, &db)
-                        .await?;
-                }
+                require_owner_of_path(&authed, &ps.path)?;
             }
 
             let ph = {
@@ -636,6 +633,8 @@ async fn archive_script_by_path(
 ) -> Result<()> {
     let path = path.to_path();
     let mut tx = user_db.begin(&authed).await?;
+
+    require_owner_of_path(&authed, path)?;
 
     let hash: i64 = sqlx::query_scalar!(
         "UPDATE script SET archived = true WHERE path = $1 AND workspace_id = $2 RETURNING hash",

@@ -19,6 +19,7 @@ use axum::{
     Json, Router,
 };
 use hyper::StatusCode;
+use serde::Deserialize;
 use sql_builder::prelude::*;
 use sql_builder::SqlBuilder;
 use sqlx::{Postgres, Transaction};
@@ -26,10 +27,11 @@ use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{self, to_anyhow, Error, JsonResult, Result},
     flows::{Flow, ListFlowQuery, ListableFlow, NewFlow},
+    jobs::JobPayload,
     schedule::Schedule,
     utils::{
         http_get_from_hub, list_elems_from_hub, not_found_if_none, paginate, Pagination, StripPath,
-    }, jobs::JobPayload,
+    },
 };
 use windmill_queue::{push, schedule::push_scheduled_job, QueueTransaction};
 
@@ -85,9 +87,8 @@ async fn list_flows(
         .limit(per_page)
         .clone();
 
-    if !lq.show_archived.unwrap_or(false) {
-        sqlb.and_where_eq("archived", false);
-    }
+    sqlb.and_where_eq("archived", lq.show_archived.unwrap_or(false));
+
     if let Some(ps) = &lq.path_start {
         sqlb.and_where_like_left("path", "?".bind(ps));
     }
@@ -325,7 +326,7 @@ async fn update_flow(
         check_schedule_conflict(tx.transaction_mut(), &w_id, &nf.path).await?;
 
         if !authed.is_admin {
-            require_owner_of_path(&w_id, &authed.username, &authed.groups, &flow_path, &db).await?;
+            require_owner_of_path(&authed, flow_path)?;
         }
 
         let mut schedulables: Vec<Schedule> = sqlx::query_as!(
@@ -462,17 +463,24 @@ async fn exists_flow_by_path(
     Ok(Json(exists))
 }
 
+#[derive(Deserialize)]
+struct Archived {
+    archived: Option<bool>,
+}
+
 async fn archive_flow_by_path(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    Json(archived): Json<Archived>,
 ) -> Result<String> {
     let path = path.to_path();
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
-        "UPDATE flow SET archived = true WHERE path = $1 AND workspace_id = $2",
+        "UPDATE flow SET archived = $1 WHERE path = $2 AND workspace_id = $3",
+        archived.archived.unwrap_or(true),
         path,
         &w_id
     )
