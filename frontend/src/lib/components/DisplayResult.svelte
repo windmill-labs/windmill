@@ -11,6 +11,7 @@
 	export let result: any
 	export let requireHtmlApproval = false
 	export let filename: string | undefined = undefined
+	export let disableExpand = false
 
 	let resultKind:
 		| 'json'
@@ -101,10 +102,12 @@
 			>{/if}{#if typeof result == 'object' && Object.keys(result).length > 0}<div
 				class="mb-2 w-full text-sm text-gray-700 relative"
 				>The result keys are: <b>{truncate(Object.keys(result).join(', '), 50)}</b>
-				<div class="text-gray-500 text-xs absolute top-5 right-0">
-					<button on:click={jsonViewer.openDrawer}>Expand</button>
-				</div></div
-			>{/if}{#if !forceJson && resultKind == 'table-col'}<div
+				{#if !disableExpand}
+					<div class="text-gray-500 text-xs absolute top-5 right-0">
+						<button on:click={jsonViewer.openDrawer}>Expand</button>
+					</div>
+				{/if}
+			</div>{/if}{#if !forceJson && resultKind == 'table-col'}<div
 				class="grid grid-flow-col-dense border border-gray-200 rounded-md"
 			>
 				{#each Object.keys(result) as col}
@@ -245,19 +248,21 @@
 	{/if}
 </div>
 
-<Portal>
-	<Drawer bind:this={jsonViewer} size="900px">
-		<DrawerContent title="Expanded Result" on:close={jsonViewer.closeDrawer}>
-			<svelte:fragment slot="actions">
-				<Button
-					on:click={() => copyToClipboard(JSON.stringify(result, null, 4))}
-					color="light"
-					size="xs"
-				>
-					<div class="flex gap-2 items-center">Copy to clipboard <ClipboardCopy /> </div>
-				</Button>
-			</svelte:fragment>
-			<Highlight language={json} code={JSON.stringify(result, null, 4).replace(/\\n/g, '\n')} />
-		</DrawerContent>
-	</Drawer>
-</Portal>
+{#if !disableExpand}
+	<Portal>
+		<Drawer bind:this={jsonViewer} size="900px">
+			<DrawerContent title="Expanded Result" on:close={jsonViewer.closeDrawer}>
+				<svelte:fragment slot="actions">
+					<Button
+						on:click={() => copyToClipboard(JSON.stringify(result, null, 4))}
+						color="light"
+						size="xs"
+					>
+						<div class="flex gap-2 items-center">Copy to clipboard <ClipboardCopy /> </div>
+					</Button>
+				</svelte:fragment>
+				<Highlight language={json} code={JSON.stringify(result, null, 4).replace(/\\n/g, '\n')} />
+			</DrawerContent>
+		</Drawer>
+	</Portal>
+{/if}
