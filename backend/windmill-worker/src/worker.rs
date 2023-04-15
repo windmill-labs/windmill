@@ -13,7 +13,7 @@ use once_cell::sync::OnceCell;
 use sqlx::{Pool, Postgres};
 use windmill_api_client::Client;
 use std::{
-    borrow::Borrow, collections::{HashMap, BTreeMap}, io, os::unix::process::ExitStatusExt, panic,
+    borrow::Borrow, collections::HashMap, io, os::unix::process::ExitStatusExt, panic,
     process::Stdio, time::{Duration}, sync::atomic::Ordering,
     sync::{Arc},
 };
@@ -38,12 +38,12 @@ use tokio::{
     sync::{
         mpsc::{self, Sender},  watch, broadcast, RwLock
     },
-    time::{interval, sleep, Instant, MissedTickBehavior}, task::futures::TaskLocalFuture
+    time::{interval, sleep, Instant, MissedTickBehavior}
 };
 
 use futures::{
     future::{self, ready, FutureExt},
-    stream::{self, FuturesUnordered}, StreamExt,
+    stream, StreamExt,
 };
 
 use async_recursion::async_recursion;
@@ -1240,6 +1240,149 @@ fn get_common_deno_proc_envs(token: &str, base_internal_url: &str) -> HashMap<St
     return deno_envs;
 }
 
+fn create_web_worker_callback(
+  _ps: deno_cli::proc_state::ProcState,
+  _stdio: deno_runtime::deno_io::Stdio,
+) -> Arc<deno_runtime::ops::worker_host::CreateWebWorkerCb> {
+    // TODO: Implement this based on https://github.com/denoland/deno/blob/d07aa4a0723b04583b7cb1e09152457d866d13d3/cli/worker.rs#L643
+    Arc::new(move |_args| {
+        todo!("Web worker support")
+    })
+}
+
+fn create_web_worker_preload_module_callback() -> Arc<deno_runtime::ops::worker_host::WorkerEventCb> {
+  Arc::new(move |worker| {
+    let fut = async move { Ok(worker) };
+    futures::task::LocalFutureObj::new(Box::new(fut))
+  })
+}
+
+fn create_web_worker_pre_execute_module_callback(
+  ps: deno_cli::proc_state::ProcState,
+) -> Arc<deno_runtime::ops::worker_host::WorkerEventCb> {
+  Arc::new(move |mut worker| {
+    let ps = ps.clone();
+    let fut = async move {
+      // this will be up to date after pre-load
+      if ps.npm_resolver.has_packages() {
+        deno_runtime::deno_node::initialize_runtime(
+          &mut worker.js_runtime,
+          ps.options.has_node_modules_dir(),
+          None,
+        )?;
+      }
+
+      Ok(worker)
+    };
+    futures::task::LocalFutureObj::new(Box::new(fut))
+  })
+}
+
+// TODO: Add deno ops here, could for example completely isolate API calls & prevent leaking the token entirely
+fn make_windmill_deno_exts() -> Vec<deno_runtime::deno_core::Extension> {
+    vec![]
+}
+
+// Adapted from https://github.com/denoland/deno/blob/d07aa4a0723b04583b7cb1e09152457d866d13d3/cli/worker.rs#L437 with modifications (primarily removing non-deno entrypoint)
+async fn create_main_worker(ps: &deno_cli::proc_state::ProcState, main_module: deno_core::url::Url, permissions: deno_runtime::permissions::PermissionsContainer, stdio: deno_runtime::deno_io::Stdio) -> Result<deno_cli::worker::CliMainWorker> {
+    let mut custom_extensions: Vec<deno_runtime::deno_core::Extension> = make_windmill_deno_exts();
+
+    let module_loader = deno_cli::module_loader::CliModuleLoader::new(
+        ps.clone(),
+        deno_runtime::permissions::PermissionsContainer::allow_all(),
+        permissions.clone(),
+    );
+
+    let maybe_inspector_server = ps.maybe_inspector_server.clone();
+
+    let create_web_worker_cb =
+        create_web_worker_callback(ps.clone(), stdio.clone());
+    let web_worker_preload_module_cb =
+        create_web_worker_preload_module_callback();
+    let web_worker_pre_execute_module_cb =
+        create_web_worker_pre_execute_module_callback(ps.clone());
+
+    let maybe_storage_key = ps.options.resolve_storage_key(&main_module);
+    let origin_storage_dir = maybe_storage_key.as_ref().map(|key| {
+        ps.dir
+        .origin_data_folder_path()
+        .join(deno_cli::util::checksum::gen(&[key.as_bytes()]))
+    });
+    let cache_storage_dir = maybe_storage_key.map(|key| {
+        // DENO_TODO(@satyarohith): storage quota management
+        // Note: we currently use temp_dir() to avoid managing storage size.
+        std::env::temp_dir()
+        .join("deno_cache")
+        .join(deno_cli::util::checksum::gen(&[key.as_bytes()]))
+    });
+
+    let mut extensions = deno_cli::ops::cli_exts(ps.clone());
+    extensions.append(&mut custom_extensions);
+
+    let options = deno_runtime::worker::WorkerOptions {
+        bootstrap: deno_runtime::BootstrapOptions {
+        args: ps.options.argv().clone(),
+        cpu_count: std::thread::available_parallelism()
+            .map(|p| p.get())
+            .unwrap_or(1),
+        debug_flag: false,
+        enable_testing_features: ps.options.enable_testing_features(),
+        locale: deno_core::v8::icu::get_language_tag(),
+        location: ps.options.location_flag().clone(),
+        no_color: !deno_runtime::colors::use_color(),
+        is_tty: deno_runtime::colors::is_tty(),
+        runtime_version: deno_cli::version::deno().to_string(),
+        ts_version: deno_cli::version::TYPESCRIPT.to_string(),
+        unstable: ps.options.unstable(),
+        user_agent: deno_cli::version::get_user_agent().to_string(),
+        inspect: ps.options.is_inspecting(),
+        },
+        extensions,
+        startup_snapshot: Some(deno_cli::js::deno_isolate_init()),
+        unsafely_ignore_certificate_errors: ps
+        .options
+        .unsafely_ignore_certificate_errors()
+        .clone(),
+        root_cert_store: Some(ps.root_cert_store.clone()),
+        seed: ps.options.seed(),
+        source_map_getter: Some(Box::new(module_loader.clone())),
+        format_js_error_fn: Some(Arc::new(deno_runtime::fmt_errors::format_js_error)),
+        create_web_worker_cb,
+        web_worker_preload_module_cb,
+        web_worker_pre_execute_module_cb,
+        maybe_inspector_server,
+        should_break_on_first_statement: ps.options.inspect_brk().is_some(),
+        should_wait_for_inspector_session: ps.options.inspect_wait().is_some(),
+        module_loader,
+        npm_resolver: Some(std::rc::Rc::new(ps.npm_resolver.clone())),
+        get_error_class_fn: Some(&deno_cli::errors::get_error_class_name),
+        cache_storage_dir,
+        origin_storage_dir,
+        blob_store: ps.blob_store.clone(),
+        broadcast_channel: ps.broadcast_channel.clone(),
+        shared_array_buffer_store: Some(ps.shared_array_buffer_store.clone()),
+        compiled_wasm_module_store: Some(ps.compiled_wasm_module_store.clone()),
+        stdio,
+    };
+
+    let worker = deno_runtime::worker::MainWorker::bootstrap_from_options(
+        main_module.clone(),
+        permissions,
+        options,
+    );
+
+    Ok(deno_cli::worker::CliMainWorker {
+        main_module,
+        is_main_cjs: false,
+        worker,
+        ps: ps.clone(),
+        js_run_tests_callback: None,
+        js_run_benchmarks_callback: None,
+        js_enable_test_callback: None,
+        js_enable_bench_callback: None,
+    })
+}
+
 async fn run_deno_cli(args: Vec<String>) -> std::result::Result<i32, anyhow::Error> {
     let flags = deno_cli::args::flags_from_vec(args).expect("Args are built by the app and should always be valid");
 
@@ -1264,8 +1407,17 @@ async fn run_deno_cli(args: Vec<String>) -> std::result::Result<i32, anyhow::Err
     let permissions = deno_runtime::permissions::PermissionsContainer::new(deno_runtime::permissions::Permissions::from_options(
         &ps.options.permissions_options(),
     )?);
-    let mut worker = deno_cli::worker::create_main_worker(&ps, main_module, permissions).await?;
+    // TODO: Handle log streaming here
+    // This may require either streaming through a file (which is ugly)
+    // or changing a bit of code in deno to use streams internally (given this is in deno_runtime, this maybe hard. Investigate.)
+    let stdio = deno_runtime::deno_io::Stdio {
+        stdin: deno_runtime::deno_io::StdioPipe::Inherit,
+        stdout: deno_runtime::deno_io::StdioPipe::Inherit,
+        stderr: deno_runtime::deno_io::StdioPipe::Inherit,
+    };
 
+    let mut worker = create_main_worker(&ps, main_module, permissions, stdio).await?;
+ 
     let exit_code = worker.run().await?;
 
     Ok(exit_code)
