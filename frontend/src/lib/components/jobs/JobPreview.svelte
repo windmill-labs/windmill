@@ -103,7 +103,7 @@
 			<div class="w-1/2 h-full overflow-auto p-2">
 				{#if scheduled}
 					<div class="text-sm font-semibold text-gray-600 mb-1">
-						<div>Next job is scheduled for</div>
+						<div>{running ? 'Next job' : 'Job'} is scheduled for</div>
 						<div>{new Date(job?.['scheduled_for']).toLocaleString()}</div>
 					</div>
 				{/if}
