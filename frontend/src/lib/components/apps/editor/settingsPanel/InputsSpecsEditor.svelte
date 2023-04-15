@@ -30,7 +30,6 @@
 				/>
 			{:else}
 				{@const meta = inputSpecsConfiguration?.[k]}
-				<!-- {JSON.stringify(meta)} -->
 				<InputsSpecEditor
 					key={k}
 					bind:componentInput={inputSpecs[k]}

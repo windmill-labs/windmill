@@ -19,6 +19,7 @@ use tokio::sync::mpsc::Sender;
 use tracing::instrument;
 use uuid::Uuid;
 use windmill_common::flow_status::{FlowStatusModuleWParent, Iterator, JobResult};
+use windmill_common::jobs::{QueuedJob, JobPayload, RawCode};
 use windmill_common::{
     error::{self, to_anyhow, Error},
     flow_status::{
@@ -30,9 +31,7 @@ use windmill_common::{
 
 type DB = sqlx::Pool<sqlx::Postgres>;
 
-use windmill_queue::{
-    canceled_job_to_result, get_queued_job, push, JobPayload, QueueTransaction, QueuedJob, RawCode,
-};
+use windmill_queue::{canceled_job_to_result, get_queued_job, push, QueueTransaction};
 
 // #[instrument(level = "trace", skip_all)]
 pub async fn update_flow_status_after_job_completion<

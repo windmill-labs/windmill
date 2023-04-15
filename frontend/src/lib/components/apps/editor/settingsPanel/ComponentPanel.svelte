@@ -59,6 +59,7 @@
 		push(history, $app)
 
 		if (componentSettings?.item.id) {
+			delete $worldStore.outputsById[componentSettings?.item.id]
 			$errorByComponent = clearErrorByComponentId(componentSettings?.item.id, $errorByComponent)
 			$jobs = clearJobsByComponentId(componentSettings?.item.id, $jobs)
 
@@ -235,7 +236,6 @@
 			<TableActions id={component.id} bind:components={componentSettings.item.data.actionButtons} />
 		{/if}
 
-		<AlignmentEditor bind:component={componentSettings.item.data} />
 		{#if componentSettings.item.data.type === 'buttoncomponent' || componentSettings.item.data.type === 'formcomponent' || componentSettings.item.data.type === 'formbuttoncomponent'}
 			<Recompute
 				bind:recomputeIds={componentSettings.item.data.recomputeIds}
@@ -244,6 +244,7 @@
 		{/if}
 
 		<div class="grow shrink" />
+		<AlignmentEditor bind:component={componentSettings.item.data} />
 
 		{#if Object.keys(ccomponents[component.type].customCss ?? {}).length > 0}
 			<PanelSection title="Styling">

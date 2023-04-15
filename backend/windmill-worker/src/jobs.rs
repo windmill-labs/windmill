@@ -10,11 +10,13 @@ use sqlx::{Pool, Postgres};
 use tracing::instrument;
 use uuid::Uuid;
 use windmill_common::{
-    error::Error, flow_status::FlowStatusModule, schedule::Schedule, METRICS_ENABLED,
+    error::Error,
+    flow_status::FlowStatusModule,
+    jobs::{JobKind, QueuedJob},
+    schedule::Schedule,
+    METRICS_ENABLED,
 };
-use windmill_queue::{
-    delete_job, schedule::get_schedule_opt, JobKind, QueueTransaction, QueuedJob, CLOUD_HOSTED,
-};
+use windmill_queue::{delete_job, schedule::get_schedule_opt, QueueTransaction, CLOUD_HOSTED};
 
 #[instrument(level = "trace", skip_all)]
 pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Send>(
@@ -223,14 +225,17 @@ pub async fn schedule_again_if_scheduled<'c, R: rsmq_async::RsmqConnection + Clo
     script_path: &str,
     w_id: &str,
 ) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
-    let schedule = get_schedule_opt(tx.transaction_mut(), w_id, schedule_path)
-        .await?
-        .ok_or_else(|| {
-            Error::InternalErr(format!(
-                "Could not find schedule {:?} for workspace {}",
-                schedule_path, w_id
-            ))
-        })?;
+    let schedule = get_schedule_opt(tx.transaction_mut(), w_id, schedule_path).await?;
+
+    if schedule.is_none() {
+        tracing::error!(
+            "Schedule {schedule_path} in {w_id} not found. Impossible to schedule again"
+        );
+        return Ok(tx);
+    }
+
+    let schedule = schedule.unwrap();
+
     if schedule.enabled && script_path == schedule.script_path {
         let res = windmill_queue::schedule::push_scheduled_job(
             tx,

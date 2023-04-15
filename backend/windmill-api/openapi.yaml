@@ -2782,6 +2782,27 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/flows/input_history/p/{path}:
+    get:
+      summary: list inputs for previous completed flow jobs
+      operationId: getFlowInputHistoryByPath
+      tags:
+        - flow
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: input history for completed jobs with this flow path
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Input"
+
   /w/{workspace}/apps/list:
     get:
       summary: list all available apps
@@ -3321,23 +3342,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Job"
-
-  # /w/{workspace}/jobs/flow/current_state/{id}:
-  #   get:
-  #     summary: get flow current step state
-  #     operationId: getJob
-  #     tags:
-  #       - job
-  #     parameters:
-  #       - $ref: "#/components/parameters/WorkspaceId"
-  #       - $ref: "#/components/parameters/JobId"
-  #     responses:
-  #       "200":
-  #         description: state details
-  #         content:
-  #           application/json:
-  #             schema:
-  #               type: string
 
   /w/{workspace}/jobs_u/getupdate/{id}:
     get:
@@ -4558,6 +4562,118 @@ paths:
         "200":
           description: unstar item
 
+  /w/{workspace}/inputs/history:
+    get:
+      summary: List Inputs used in previously completed jobs
+      operationId: getInputHistory
+      tags:
+        - input
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/RunnableId"
+        - $ref: "#/components/parameters/RunnableType"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: Input history for completed jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Input"
+
+  /w/{workspace}/inputs/list:
+    get:
+      summary: List saved Inputs for a Runnable
+      operationId: listInputs
+      tags:
+        - input
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/RunnableId"
+        - $ref: "#/components/parameters/RunnableType"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: Saved Inputs for a Runnable
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Input"
+
+  /w/{workspace}/inputs/create:
+    post:
+      summary: Create an Input for future use in a script or flow
+      operationId: createInput
+      tags:
+        - input
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/RunnableId"
+        - $ref: "#/components/parameters/RunnableType"
+      requestBody:
+        description: Input
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateInput"
+      responses:
+        "201":
+          description: Input created
+          content:
+            text/plain:
+              schema:
+                type: string
+                format: uuid
+
+  /w/{workspace}/inputs/update:
+    post:
+      summary: Update an Input
+      operationId: updateInput
+      tags:
+        - input
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: UpdateInput
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateInput"
+      responses:
+        "201":
+          description: Input updated
+          content:
+            text/plain:
+              schema:
+                type: string
+                format: uuid
+
+  /w/{workspace}/inputs/delete/{input}:
+    post:
+      summary: Delete a Saved Input
+      operationId: deleteInput
+      tags:
+        - input
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/InputId"
+      responses:
+        "200":
+          description: Input deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+                format: uuid
+
 components:
   securitySchemes:
     bearerAuth:
@@ -4567,6 +4683,7 @@ components:
       type: apiKey
       in: cookie
       name: token
+
   parameters:
     WorkspaceId:
       name: workspace
@@ -4685,7 +4802,6 @@ components:
       in: query
       schema:
         type: string
-
     ScriptStartPath:
       name: script_path_start
       description: mask to filter matching starting path
@@ -4742,7 +4858,6 @@ components:
       in: query
       schema:
         type: string
-
     ResultFilter:
       name: result
       description: filter on jobs containing those result as a json subset (@> in postgres)
@@ -4802,9 +4917,26 @@ components:
       #     type: string
       #     enum: ["preview", "script", "dependencies"]
       # explode: false
+    RunnableId:
+      name: runnable_id
+      in: query
+      schema:
+        type: string
+    RunnableType:
+      name: runnable_type
+      in: query
+      schema:
+        $ref: "#/components/schemas/RunnableType"
+    InputId:
+      name: input
+      in: path
+      required: true
+      schema:
+        type: string
 
   schemas:
     $ref: "../../openflow.openapi.yaml#/components/schemas"
+
     Script:
       type: object
       properties:
@@ -4874,6 +5006,60 @@ components:
     ScriptArgs:
       type: object
       additionalProperties: {}
+
+    Input:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        args:
+          type: object
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        is_public:
+          type: boolean
+      required:
+        - id
+        - name
+        - args
+        - created_by
+        - created_at
+        - is_public
+
+    CreateInput:
+      type: object
+      properties:
+        name:
+          type: string
+        args:
+          type: object
+      required:
+        - name
+        - args
+        - created_by
+
+    UpdateInput:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        is_public:
+          type: boolean
+      required:
+        - id
+        - name
+        - is_public
+
+    RunnableType:
+      type: string
+      enum: ["ScriptHash", "ScriptPath", "FlowPath"]
 
     QueuedJob:
       type: object
@@ -5896,6 +6082,7 @@ components:
         - extra_perms
         - edited_at
         - execution_mode
+
     AppWithLastVersion:
       type: object
       properties:

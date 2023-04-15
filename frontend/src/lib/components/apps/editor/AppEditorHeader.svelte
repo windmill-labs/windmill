@@ -25,7 +25,6 @@
 		faClipboard,
 		faExternalLink,
 		faFileExport,
-		faGlobe,
 		faSave
 	} from '@fortawesome/free-solid-svg-icons'
 	import {
@@ -42,7 +41,7 @@
 	import { getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { appToHubUrl, classNames, copyToClipboard, sendUserToast } from '../../../utils'
+	import { classNames, copyToClipboard, sendUserToast } from '../../../utils'
 	import type {
 		AppInput,
 		ConnectedAppInput,
@@ -397,7 +396,7 @@
 								<Skeleton layout={[[40]]} />
 							{/if}
 						{:else}
-							<div class="flex flex-col h-full w-full gap-4 mb-4">
+							<div class="flex flex-col h-full w-full gap-4 p-2 mb-4">
 								{#if job?.['running']}
 									<div class="flex flex-row-reverse w-full">
 										<Button
@@ -405,6 +404,8 @@
 											variant="border"
 											on:click={() => testJobLoader?.cancelJob()}
 										>
+											<Loader2 size={14} class="animate-spin mr-2" />
+
 											Cancel
 										</Button>
 									</div>
@@ -607,14 +608,14 @@
 						appExport.open($app)
 					}
 				},
-				{
-					displayName: 'Publish to Hub',
-					icon: faGlobe,
-					action: () => {
-						const url = appToHubUrl(toStatic($app, $staticExporter, $summary))
-						window.open(url.toString(), '_blank')
-					}
-				},
+				// {
+				// 	displayName: 'Publish to Hub',
+				// 	icon: faGlobe,
+				// 	action: () => {
+				// 		const url = appToHubUrl(toStatic($app, $staticExporter, $summary))
+				// 		window.open(url.toString(), '_blank')
+				// 	}
+				// },
 				{
 					displayName: 'Hub compatible JSON',
 					icon: faFileExport,
@@ -634,7 +635,12 @@
 		</span>
 		<span class="hidden md:inline">
 			<Button
-				on:click={() => (jobsDrawerOpen = true)}
+				on:click={() => {
+					if (selectedJobId == undefined && $jobs.length > 0) {
+						selectedJobId = $jobs[0].job
+					}
+					jobsDrawerOpen = true
+				}}
 				color={hasErrors ? 'red' : 'light'}
 				size="xs"
 				variant="border"

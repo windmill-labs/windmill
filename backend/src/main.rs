@@ -9,6 +9,7 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use git_version::git_version;
+use monitor::handle_zombie_jobs_periodically;
 use sqlx::{Pool, Postgres};
 use windmill_common::{utils::rd_string, METRICS_ADDR};
 
@@ -18,6 +19,7 @@ const DEFAULT_PORT: u16 = 8000;
 const DEFAULT_SERVER_BIND_ADDR: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
 
 mod ee;
+mod monitor;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -230,7 +232,7 @@ pub fn monitor_db<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>
     let rx2 = rx.resubscribe();
     let base_internal_url = base_internal_url.to_string();
     tokio::spawn(async move {
-        windmill_worker::handle_zombie_jobs_periodically(&db1, rx, &base_internal_url, rsmq).await
+        handle_zombie_jobs_periodically(&db1, rx, &base_internal_url, rsmq).await
     });
     tokio::spawn(async move { windmill_api::delete_expired_items_perdiodically(&db2, rx2).await });
 }

@@ -142,7 +142,9 @@
 				{#if resolvedConfig.beforeIcon && beforeIconComponent}
 					<svelte:component this={beforeIconComponent} size={14} />
 				{/if}
-				<div>{resolvedConfig.label}</div>
+				{#if resolvedConfig.label && resolvedConfig.label?.length > 0}
+					<div>{resolvedConfig.label}</div>
+				{/if}
 				{#if resolvedConfig.afterIcon && afterIconComponent}
 					<svelte:component this={afterIconComponent} size={14} />
 				{/if}

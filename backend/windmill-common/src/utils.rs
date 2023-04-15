@@ -6,11 +6,10 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use rand::{distributions::Alphanumeric, thread_rng, Rng};
-use serde::Deserialize;
-use sha2::{Digest, Sha256};
-
 use crate::error::{Error, Result};
+use rand::{distributions::Alphanumeric, thread_rng, Rng};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 pub const MAX_PER_PAGE: usize = 10000;
 pub const DEFAULT_PER_PAGE: usize = 1000;
@@ -20,7 +19,8 @@ pub struct Pagination {
     pub page: Option<usize>,
     pub per_page: Option<usize>,
 }
-#[derive(Deserialize)]
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct StripPath(pub String);
 
 impl StripPath {

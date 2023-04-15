@@ -2,8 +2,8 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import type { Preview } from '$lib/gen'
 	import { createEventDispatcher, getContext, onMount } from 'svelte'
-	import type { AppViewerContext, InlineScript } from '../../types'
-	import { CornerDownLeft, Maximize2, Trash2 } from 'lucide-svelte'
+	import type { AppViewerContext, CancelablePromise, InlineScript } from '../../types'
+	import { CornerDownLeft, Loader2, Maximize2, Trash2 } from 'lucide-svelte'
 	import InlineScriptEditorDrawer from './InlineScriptEditorDrawer.svelte'
 	import { inferArgs } from '$lib/infer'
 	import type { Schema } from '$lib/common'
@@ -88,21 +88,7 @@
 			? buildExtraLib($worldStore?.outputsById ?? {}, id, false, $state, true)
 			: undefined
 
-	let refreshOn: string = inlineScript?.refreshOn?.map((x) => `${x.id}.${x.key}`).join(' ') ?? ''
-
-	$: handleRefreshOn(refreshOn)
-
-	function handleRefreshOn(refreshOn: string) {
-		if (refreshOn && refreshOn != '' && inlineScript) {
-			inlineScript.refreshOn = refreshOn
-				.split(' ')
-				.filter((x) => x.split('.').length == 2)
-				.map((x) => {
-					const [id, key] = x.split('.')
-					return { id, key }
-				})
-		}
-	}
+	let cancelable: CancelablePromise<void> | undefined = undefined
 </script>
 
 {#if inlineScript}
@@ -182,31 +168,52 @@
 					</div>
 				</Button>
 				{#if $runnableComponents[id] != undefined}
-					<Button
-						loading={runLoading}
-						size="xs"
-						color="dark"
-						variant="border"
-						btnClasses="!px-2 !py-1 !bg-gray-700 !text-white hover:!bg-gray-900"
-						on:click={async () => {
-							runLoading = true
-							await $runnableComponents[id]?.cb?.(!transformer ? inlineScript : undefined)
-							runLoading = false
-						}}
-					>
-						<div class="flex flex-row gap-1 items-center">
-							Run
+					{#if !runLoading}
+						<Button
+							loading={runLoading}
+							size="xs"
+							color="dark"
+							variant="border"
+							btnClasses="!px-2 !py-1 !bg-gray-700 !text-white hover:!bg-gray-900"
+							on:click={async () => {
+								runLoading = true
+								try {
+									cancelable = $runnableComponents[id]?.cb?.(
+										!transformer ? inlineScript : undefined
+									)
+									await cancelable
+								} catch {}
+								runLoading = false
+							}}
+						>
+							<div class="flex flex-row gap-1 items-center">
+								Run
 
-							<div class="flex flex-row items-center gap-1">
-								<Kbd>{getModifierKey()}</Kbd>
-								<Kbd>
-									<div class="h-4 flex items-center justify-center">
-										<CornerDownLeft size={10} />
-									</div>
-								</Kbd>
+								<div class="flex flex-row items-center gap-1">
+									<Kbd>{getModifierKey()}</Kbd>
+									<Kbd>
+										<div class="h-4 flex items-center justify-center">
+											<CornerDownLeft size={10} />
+										</div>
+									</Kbd>
+								</div>
 							</div>
-						</div>
-					</Button>
+						</Button>
+					{:else}
+						<Button
+							size="xs"
+							color="red"
+							variant="border"
+							btnClasses="!px-2 !py-1.5"
+							on:click={async () => {
+								cancelable?.cancel()
+								runLoading = false
+							}}
+						>
+							<Loader2 size={14} class="animate-spin mr-2" />
+							Cancel
+						</Button>
+					{/if}
 				{/if}
 			</div>
 		</div>

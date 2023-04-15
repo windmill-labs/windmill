@@ -3,17 +3,18 @@
 	import type { UploadAppInput } from '../../../inputType'
 
 	export let componentInput: UploadAppInput | undefined
+	export let fileUpload: UploadAppInput['fileUpload'] | undefined
 </script>
 
 <FileInput
-	accept={componentInput?.fileUpload?.accept}
-	multiple={componentInput?.fileUpload?.multiple}
-	convertTo={componentInput?.fileUpload?.convertTo}
+	accept={fileUpload?.accept}
+	multiple={fileUpload?.multiple}
+	convertTo={fileUpload?.convertTo}
 	iconSize={24}
 	class="text-sm py-4"
 	on:change={({ detail }) => {
 		if (componentInput) {
-			componentInput.value = componentInput?.fileUpload?.multiple ? detail : detail?.[0]
+			componentInput.value = fileUpload?.multiple ? detail : detail?.[0]
 		}
 	}}
 >
