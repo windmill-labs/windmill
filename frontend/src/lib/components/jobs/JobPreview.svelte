@@ -3,7 +3,7 @@
 </script>
 
 <script lang="ts">
-	import { tick } from 'svelte'
+	import { onDestroy, tick } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import { Job } from '../../gen'
 	import TestJobLoader from '../TestJobLoader.svelte'
@@ -16,6 +16,7 @@
 
 	export let job: Job | undefined
 	let timeout: NodeJS.Timeout | undefined
+	let loadDelay: NodeJS.Timeout | undefined
 	let watchJob: (id: string) => Promise<void>
 	let args = job?.args
 	let result: any
@@ -25,6 +26,7 @@
 
 	$: open = $openStore === job?.id
 	$: completed = job?.type === Job.type.COMPLETED_JOB
+	$: scheduled = job?.type === Job.type.QUEUED_JOB
 	$: logs = job?.logs || logs
 
 	async function instantOpen() {
@@ -34,8 +36,20 @@
 		popupOnTop = wrapper.getBoundingClientRect().top > POPUP_HEIGHT
 		openStore.set(job.id)
 		if (!loaded) {
-			await tick()
-			watchJob && watchJob(job.id)
+			if (scheduled && 'scheduled_for' in job && job.scheduled_for) {
+				if (loadDelay) {
+					return
+				}
+				const time = new Date(job.scheduled_for).getTime() - Date.now()
+				loadDelay = setTimeout(async () => {
+					await tick()
+					job && watchJob && watchJob(job.id)
+					loadDelay = undefined
+				}, time)
+			} else {
+				await tick()
+				watchJob && watchJob(job.id)
+			}
 		}
 	}
 
@@ -64,6 +78,11 @@
 		result = job['result']
 		loaded = true
 	}
+
+	onDestroy(() => {
+		timeout && clearTimeout(timeout)
+		loadDelay && clearTimeout(loadDelay)
+	})
 </script>
 
 <svelte:window on:keydown={({ key }) => ['Escape', 'Esc'].includes(key) && close()} />
@@ -91,6 +110,11 @@
 			<div class="w-1/2 h-full overflow-auto p-2">
 				{#if completed}
 					<DisplayResult {result} disableExpand />
+				{:else if scheduled}
+					<div class="text-sm font-semibold text-gray-600 mb-1">
+						<div>Job is scheduled for</div>
+						<div>{new Date(job?.['scheduled_for']).toLocaleString()}</div>
+					</div>
 				{:else}
 					<div class="text-sm font-semibold text-gray-600 mb-1"> Job is still running </div>
 					<LogViewer content={logs} isLoading wrapperClass="!h-[calc(100%-24px)]" />
