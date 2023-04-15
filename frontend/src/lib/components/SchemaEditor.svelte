@@ -103,10 +103,7 @@
 				schema.required.includes(argName)
 			)
 			oldArgName = argName
-
-			setTimeout(() => {
-				schemaModal.openDrawer()
-			})
+			schemaModal.openDrawer()
 		} else {
 			sendUserToast(`This argument does not exist and can't be edited`, true)
 		}
