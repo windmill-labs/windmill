@@ -30,12 +30,10 @@ export async function loadSchema(path: string, hash?: string): Promise<Schema> {
 	}
 }
 
-
 export async function loadSchemaFlow(path: string): Promise<Schema> {
 	const flow = await FlowService.getFlowByPath({
 		workspace: get(workspaceStore)!,
 		path: path ?? ''
 	})
 	return flow.schema
-
 }
