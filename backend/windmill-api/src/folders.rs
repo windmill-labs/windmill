@@ -22,13 +22,13 @@ use lazy_static::lazy_static;
 use regex::Regex;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
-    error::{self, to_anyhow, Error, JsonResult, Result},
+    error::{self, to_anyhow, JsonResult, Result},
     users::username_to_permissioned_as,
     utils::{not_found_if_none, paginate, Pagination},
 };
 
 use serde::{Deserialize, Serialize};
-use sqlx::{query_scalar, FromRow, Postgres, Transaction};
+use sqlx::{FromRow, Postgres, Transaction};
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -41,7 +41,7 @@ pub fn workspaced_service() -> Router {
         .route("/delete/:name", delete(delete_folder))
         .route("/addowner/:name", post(add_owner))
         .route("/removeowner/:name", post(remove_owner))
-        .route("/is_owner/*path", get(is_owner))
+        .route("/is_owner/*path", get(is_owner_api))
 }
 
 #[derive(FromRow, Serialize, Deserialize, Clone)]
@@ -219,47 +219,29 @@ async fn create_folder(
     Ok(format!("Created folder {}", ng.name))
 }
 
-pub async fn is_owner(
-    Authed { username, is_admin, groups, .. }: Authed,
-    Extension(db): Extension<DB>,
-    Path((w_id, name)): Path<(String, String)>,
+pub async fn is_owner_api(
+    authed: Authed,
+    Path((_w_id, name)): Path<(String, String)>,
 ) -> JsonResult<bool> {
-    if is_admin {
-        Ok(Json(true))
+    Ok(Json(is_owner(&authed, &name)))
+}
+
+pub fn is_owner(Authed { is_admin, folders, .. }: &Authed, name: &str) -> bool {
+    if *is_admin {
+        true
     } else {
-        Ok(Json(
-            require_is_owner(&name, &username, &groups, &w_id, &db)
-                .await
-                .is_ok(),
-        ))
+        folders.into_iter().any(|x| x.0 == name && x.2)
     }
 }
 
-pub async fn require_is_owner(
-    folder_name: &str,
-    username: &str,
-    groups: &Vec<String>,
-    w_id: &str,
-    db: &DB,
-) -> Result<()> {
-    let is_owner = query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM folder WHERE CONCAT('u/', $1::text) = ANY(owners) AND name = $2 AND workspace_id = $4) OR exists(
-            SELECT 1 FROM folder, unnest(folder.owners) as o
-            WHERE o = ANY($3::text[]) AND folder.name = $2 AND folder.workspace_id = $4)",
-        username,
-        folder_name,
-        groups,
-        w_id,
-    ).fetch_one(db)
-    .await?
-    .unwrap_or(false);
-    if !is_owner {
-        Err(Error::BadRequest(format!(
-            "{} is not an owner of {} and hence is not authorized to perform this operation",
-            username, folder_name
-        )))
-    } else {
+pub fn require_is_owner(authed: &Authed, name: &str) -> Result<()> {
+    if is_owner(authed, name) {
         Ok(())
+    } else {
+        Err(windmill_common::error::Error::NotAuthorized(format!(
+            "You are not owner of the folder {}",
+            name
+        )))
     }
 }
 
@@ -491,7 +473,6 @@ async fn delete_folder(
 
 async fn add_owner(
     authed: Authed,
-    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,
@@ -500,9 +481,7 @@ async fn add_owner(
     let mut tx = user_db.begin(&authed).await?;
 
     not_found_if_none(get_folderopt(&mut tx, &w_id, &name).await?, "Folder", &name)?;
-    if !authed.is_admin {
-        require_is_owner(&name, &authed.username, &authed.groups, &w_id, &db).await?;
-    }
+    require_is_owner(&authed, &name)?;
 
     sqlx::query!(
         "UPDATE folder SET owners = array_append(owners, $1) WHERE name = $2 AND workspace_id = $3 AND NOT $1 = ANY(owners) RETURNING name",
@@ -538,14 +517,14 @@ pub async fn get_folders_for_user(
     username: &str,
     groups: &[String],
     db: &DB,
-) -> Result<Vec<(String, bool)>> {
+) -> Result<Vec<(String, bool, bool)>> {
     let mut perms = groups
         .into_iter()
         .map(|x| format!("g/{}", x))
         .collect::<Vec<_>>();
     perms.insert(0, format!("u/{}", username));
     let folders = sqlx::query!(
-        "SELECT name, (EXISTS (SELECT 1 FROM (SELECT key, value FROM jsonb_each_text(extra_perms) WHERE key = ANY($1)) t  WHERE value::boolean IS true)) as write  FROM folder
+        "SELECT name, (EXISTS (SELECT 1 FROM (SELECT key, value FROM jsonb_each_text(extra_perms) WHERE key = ANY($1)) t  WHERE value::boolean IS true)) as write, $1 && owners::text[] as owner  FROM folder
         WHERE extra_perms ?| $1  AND workspace_id = $2",
         &perms[..],
         w_id,
@@ -553,7 +532,7 @@ pub async fn get_folders_for_user(
     .fetch_all(db)
     .await?
     .into_iter()
-    .map(|x| (x.name, x.write.unwrap_or(false)))
+    .map(|x| (x.name, x.write.unwrap_or(false), x.owner.unwrap_or(false)))
     .collect();
 
     Ok(folders)
@@ -561,7 +540,6 @@ pub async fn get_folders_for_user(
 
 async fn remove_owner(
     authed: Authed,
-    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,
@@ -570,9 +548,7 @@ async fn remove_owner(
     let mut tx = user_db.begin(&authed).await?;
 
     not_found_if_none(get_folderopt(&mut tx, &w_id, &name).await?, "Folder", &name)?;
-    if !authed.is_admin {
-        require_is_owner(&name, &authed.username, &authed.groups, &w_id, &db).await?;
-    }
+    require_is_owner(&authed, &name)?;
 
     sqlx::query!(
         "UPDATE folder SET owners = array_remove(owners, $1) WHERE name = $2 AND workspace_id = $3 RETURNING name",

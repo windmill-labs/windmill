@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
 	import { ResourceService, type Resource } from '$lib/gen'
-	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
+	import { canWrite, emptyString, isOwner, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import { Alert, Button, Drawer, Skeleton } from './common'
 	import Path from './Path.svelte'
@@ -141,7 +141,7 @@
 						</div>
 					{/if}
 					<Path
-						disabled={!can_write}
+						disabled={initialPath != '' && !isOwner(initialPath, $userStore, $workspaceStore)}
 						bind:path
 						{initialPath}
 						namePlaceholder="resource"
