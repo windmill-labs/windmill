@@ -6,6 +6,7 @@
 	export let isLoading: boolean
 	export let duration: number | undefined = undefined
 	export let mem: number | undefined = undefined
+	export let wrapperClass = ''
 
 	let scroll = true
 	let div: HTMLElement | null = null
@@ -33,7 +34,7 @@
 	</DrawerContent>
 </Drawer>
 
-<div class="relative w-full h-full">
+<div class="relative w-full h-full {wrapperClass}">
 	<div bind:this={div} class="w-full h-full overflow-auto bg-gray-50 relative">
 		<div
 			class="sticky top-0 right-0 w-full flex flex-row-reverse justify-between text-gray-500 text-sm bg-gray-50/20"
