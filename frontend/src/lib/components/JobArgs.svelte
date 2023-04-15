@@ -4,9 +4,10 @@
 	import TableCustom from './TableCustom.svelte'
 
 	export let args: any
+	export let tableClass = ''
 </script>
 
-<TableCustom class="py-2">
+<TableCustom class="py-2 {tableClass}">
 	<tr slot="header-row">
 		<th>Argument</th>
 		<th>Value</th>
