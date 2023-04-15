@@ -85,6 +85,7 @@
 			modalProperty = Object.assign({}, DEFAULT_PROPERTY)
 			editing = false
 			oldArgName = undefined
+
 			schemaModal.closeDrawer()
 		}
 		schema = schema
@@ -264,7 +265,7 @@
 			{#if !emptyString(error)}<span class="text-red-400">{error}</span>{:else}<div
 					class="py-6"
 				/>{/if}
-			<div class="border rounded  p-2">
+			<div class="border rounded p-2">
 				<SimpleEditor
 					fixedOverflowWidgets={false}
 					on:change={() => {
