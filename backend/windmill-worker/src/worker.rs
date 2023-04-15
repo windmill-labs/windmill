@@ -1252,21 +1252,23 @@ async fn run_deno_cli(args: Vec<String>) -> std::result::Result<i32, anyhow::Err
         unreachable!("Flags should always be set to run");
     };
 
-  // TODO(bartlomieju): actually I think it will also fail if there's an import
-  // map specified and bare specifier is used on the command line - this should
-  // probably call `ProcState::resolve` instead
-  let ps = deno_cli::proc_state::ProcState::build(flags).await?;
+    // TODO: Set initial_cwd here.
+    // Info: ProcState::build() is just ProcState::from_options(Arc::new(CliOptions::from_flags(flags)))
+    // CliOptions::from_flags(flags) will internall retreive the cwd, and overall doesn't do much relevant (to us) work.
+    // Can probably manually build CliOptions or ProcState
+    let ps = deno_cli::proc_state::ProcState::build(flags).await?;
 
-  let main_module = ps.options.resolve_main_module()?;
+    let main_module = deno_core::resolve_url_or_path(&run_flags.script, ps.options.initial_cwd())
+            .map_err(deno_core::error::AnyError::from)?;
 
-  let permissions = deno_runtime::permissions::PermissionsContainer::new(deno_runtime::permissions::Permissions::from_options(
-    &ps.options.permissions_options(),
-  )?);
-  let mut worker = deno_cli::worker::create_main_worker(&ps, main_module, permissions).await?;
+    let permissions = deno_runtime::permissions::PermissionsContainer::new(deno_runtime::permissions::Permissions::from_options(
+        &ps.options.permissions_options(),
+    )?);
+    let mut worker = deno_cli::worker::create_main_worker(&ps, main_module, permissions).await?;
 
-  let exit_code = worker.run().await?;
+    let exit_code = worker.run().await?;
 
-  Ok(exit_code)
+    Ok(exit_code)
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
