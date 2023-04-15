@@ -272,7 +272,7 @@ impl AuthedClient {
 
 
 #[tracing::instrument(skip(rsmq), level = "trace")]
-pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
+pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(
     db: &Pool<Postgres>,
     worker_instance: &str,
     worker_name: String,
@@ -429,9 +429,21 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
 
     let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<Uuid>(5);
 
+    let (job_completed_tx, mut job_completed_rx) = mpsc::channel::<JobCompleted>(10);
 
+    let db2 = db.clone();
+    let rsmq2 = rsmq.clone();
+    let worker_name2 = worker_name.clone();
+    let send_result = tokio::spawn(async move {
+        while let Some(JobCompleted { job, logs, result}) = job_completed_rx.recv().await {
+            if let Err(e) = add_completed_job(&db2, &job, true, false, result, logs, rsmq2.clone()).await {
+                tracing::error!(worker = %worker_name2, "failed to add completed job: {}", e);
+            }
+        }
+    });
+    
     tracing::info!(worker = %worker_name, "listening for jobs");
-
+    
     let mut first_run = true;
 
     loop {
@@ -596,7 +608,8 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                         metrics.clone(),
                         same_worker_tx.clone(),
                         base_internal_url,
-                        rsmq.clone()
+                        rsmq.clone(),
+                        job_completed_tx.clone(),
                     )
                     .await
                     .err()
@@ -646,6 +659,11 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             break;
         }
     }
+
+    drop(job_completed_tx);
+
+    send_result.await.expect("send result failed");
+
 }
 
 pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
@@ -754,6 +772,13 @@ async fn insert_initial_ping(
 fn extract_error_value(log_lines: &str, i: i32) -> serde_json::Value {
     return json!({"message": format!("ExitCode: {i}, last log lines:\n{}", log_lines.to_string().trim().to_string()), "name": "ExecutionErr"});
 }
+
+#[derive(Debug, Clone)]
+struct JobCompleted {
+    job: QueuedJob,
+    result: serde_json::Value,
+    logs: String,
+}
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     job: QueuedJob,
@@ -766,6 +791,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     same_worker_tx: Sender<Uuid>,
     base_internal_url: &str,
     rsmq: Option<R>,
+    job_completed_tx: Sender<JobCompleted>,
 ) -> windmill_common::error::Result<()> {
     if job.canceled {
         return Err(Error::JsonErr(canceled_job_to_result(&job)))?;
@@ -856,8 +882,8 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             match result {
                 Ok(r) => {
                     // println!("bef completed job{:?}",  SystemTime::now());
-                    add_completed_job(db, &job, true, false, r.clone(), logs, rsmq.clone()).await?;
                     if job.is_flow_step {
+                        add_completed_job(db, &job, true, false, r.clone(), logs, rsmq.clone()).await?;
                         if let Some(parent_job) = job.parent_job {
                             update_flow_status_after_job_completion(
                                 db,
@@ -877,6 +903,10 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                             )
                             .await?;
                         }
+                    } else {
+                        // in the happy path and if job not a flow step, we can delegate updating the completed job in the background
+                        job_completed_tx.send(JobCompleted{job,result:r,logs:logs,}).await.expect("send job completed");
+                        
                     }
                 }
                 Err(e) => {
