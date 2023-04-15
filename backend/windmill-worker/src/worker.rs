@@ -1319,40 +1319,36 @@ async fn create_main_worker(ps: &deno_cli::proc_state::ProcState, main_module: d
     let mut extensions = deno_cli::ops::cli_exts(ps.clone());
     extensions.append(&mut custom_extensions);
 
+
     let options = deno_runtime::worker::WorkerOptions {
         bootstrap: deno_runtime::BootstrapOptions {
-        args: ps.options.argv().clone(),
-        cpu_count: std::thread::available_parallelism()
-            .map(|p| p.get())
-            .unwrap_or(1),
-        debug_flag: false,
-        enable_testing_features: ps.options.enable_testing_features(),
-        locale: deno_core::v8::icu::get_language_tag(),
-        location: ps.options.location_flag().clone(),
-        no_color: !deno_runtime::colors::use_color(),
-        is_tty: deno_runtime::colors::is_tty(),
-        runtime_version: deno_cli::version::deno().to_string(),
-        ts_version: deno_cli::version::TYPESCRIPT.to_string(),
-        unstable: ps.options.unstable(),
-        user_agent: deno_cli::version::get_user_agent().to_string(),
-        inspect: ps.options.is_inspecting(),
+            args: ps.options.argv().clone(),
+            cpu_count: 1,
+            debug_flag: false,
+            enable_testing_features: ps.options.enable_testing_features(),
+            locale: "en".to_owned(),
+            location: None,
+            no_color: true,
+            is_tty: false,
+            runtime_version: deno_cli::version::deno().to_string(),
+            ts_version: deno_cli::version::TYPESCRIPT.to_string(),
+            unstable: true,
+            user_agent: format!("Windmill/{}; {}", env!("CARGO_PKG_VERSION"), deno_cli::version::get_user_agent()),
+            inspect: false,
         },
         extensions,
         startup_snapshot: Some(deno_cli::js::deno_isolate_init()),
-        unsafely_ignore_certificate_errors: ps
-        .options
-        .unsafely_ignore_certificate_errors()
-        .clone(),
+        unsafely_ignore_certificate_errors: None,
         root_cert_store: Some(ps.root_cert_store.clone()),
-        seed: ps.options.seed(),
+        seed: None,
         source_map_getter: Some(Box::new(module_loader.clone())),
         format_js_error_fn: Some(Arc::new(deno_runtime::fmt_errors::format_js_error)),
         create_web_worker_cb,
         web_worker_preload_module_cb,
         web_worker_pre_execute_module_cb,
         maybe_inspector_server,
-        should_break_on_first_statement: ps.options.inspect_brk().is_some(),
-        should_wait_for_inspector_session: ps.options.inspect_wait().is_some(),
+        should_break_on_first_statement: false,
+        should_wait_for_inspector_session: false,
         module_loader,
         npm_resolver: Some(std::rc::Rc::new(ps.npm_resolver.clone())),
         get_error_class_fn: Some(&deno_cli::errors::get_error_class_name),
@@ -1540,7 +1536,6 @@ async fn handle_deno_job(
         args.push("--import-map".to_owned());
         args.push(import_map_path);
         args.push(reload);
-        args.push("--unstable".to_owned());
         if let Some(deno_flags) = DENO_FLAGS.as_ref() {
             for flag in deno_flags {
                 args.push(flag.clone());
