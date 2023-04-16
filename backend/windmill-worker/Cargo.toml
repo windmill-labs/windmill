@@ -23,6 +23,7 @@ windmill-common = { workspace = true, features = [
     "tracing_init",
 ] }
 windmill-api-client.workspace = true
+windmill-deno.workspace = true
 windmill-parser.workspace = true
 windmill-parser-ts.workspace = true
 windmill-parser-go.workspace = true
@@ -50,7 +51,3 @@ git-version.workspace = true
 dyn-iter.workspace = true
 once_cell.workspace = true
 rsmq_async.workspace = true
-deno.workspace = true
-deno_lockfile.workspace = true
-deno_runtime.workspace = true
-tracing-log.workspace = true

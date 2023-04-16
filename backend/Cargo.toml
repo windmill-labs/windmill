@@ -12,6 +12,7 @@ members = [
     "./windmill-common",
     "./windmill-audit",
     "./windmill-api-client",
+    "./windmill-deno",
     "./parsers/windmill-parser",
     "./parsers/windmill-parser-ts",
     "./parsers/windmill-parser-go",
@@ -74,6 +75,7 @@ windmill-queue = { path = "./windmill-queue" }
 windmill-worker = { path = "./windmill-worker" }
 windmill-common = { path = "./windmill-common" }
 windmill-audit = { path = "./windmill-audit" }
+windmill-deno = { path = "./windmill-deno" }
 windmill-parser = { path = "./parsers/windmill-parser" }
 windmill-parser-ts = { path = "./parsers/windmill-parser-ts" }
 windmill-parser-py = { path = "./parsers/windmill-parser-py" }

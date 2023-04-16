@@ -8000,6 +8000,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "windmill-deno"
+version = "1.87.0"
+dependencies = [
+ "anyhow",
+ "deno",
+ "deno_core 0.179.0",
+ "deno_lockfile",
+ "deno_runtime",
+ "futures",
+ "tracing-log",
+]
+
+[[package]]
 name = "windmill-parser"
 version = "1.87.0"
 dependencies = [
@@ -8099,10 +8112,7 @@ dependencies = [
  "async-recursion",
  "chrono",
  "const_format",
- "deno",
  "deno_core 0.179.0",
- "deno_lockfile",
- "deno_runtime",
  "dotenv",
  "dyn-iter",
  "futures",
@@ -8119,11 +8129,11 @@ dependencies = [
  "sqlx",
  "tokio",
  "tracing",
- "tracing-log",
  "uuid 1.3.1",
  "windmill-api-client",
  "windmill-audit",
  "windmill-common",
+ "windmill-deno",
  "windmill-parser",
  "windmill-parser-bash",
  "windmill-parser-go",

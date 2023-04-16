@@ -1,0 +1,18 @@
+[package]
+name = "windmill-deno"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_deno"
+path = "src/lib.rs"
+
+[dependencies]
+deno.workspace = true
+deno_lockfile.workspace = true
+deno_runtime.workspace = true
+tracing-log.workspace = true
+futures.workspace = true
+anyhow.workspace = true
+deno_core.workspace = true
