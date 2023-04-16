@@ -1379,7 +1379,17 @@ async fn create_main_worker(ps: &deno_cli::proc_state::ProcState, main_module: d
     })
 }
 
-async fn run_deno_cli(args: Vec<String>) -> std::result::Result<i32, anyhow::Error> {
+fn make_cli_options(flags: deno_cli::args::Flags, job_dir: &str) -> Result<deno_cli::args::CliOptions> {
+    deno_cli::args::CliOptions::new(
+      flags,
+      job_dir.into(),
+      None,
+      None,
+      None,
+    )
+}
+
+async fn run_deno_cli(args: Vec<String>, job_dir: &str) -> std::result::Result<i32, anyhow::Error> {
     let flags = deno_cli::args::flags_from_vec(args).expect("Args are built by the app and should always be valid");
 
     deno_cli::util::v8::init_v8_flags(&flags.v8_flags, deno_cli::util::v8::get_v8_flags_from_env());
@@ -1395,7 +1405,7 @@ async fn run_deno_cli(args: Vec<String>) -> std::result::Result<i32, anyhow::Err
     // Info: ProcState::build() is just ProcState::from_options(Arc::new(CliOptions::from_flags(flags)))
     // CliOptions::from_flags(flags) will internall retreive the cwd, and overall doesn't do much relevant (to us) work.
     // Can probably manually build CliOptions or ProcState
-    let ps = deno_cli::proc_state::ProcState::build(flags).await?;
+    let ps = deno_cli::proc_state::ProcState::from_options(Arc::new(make_cli_options(flags, job_dir)?)).await?;
 
     let main_module = deno_core::resolve_url_or_path(&run_flags.script, ps.options.initial_cwd())
             .map_err(deno_core::error::AnyError::from)?;
@@ -1557,9 +1567,10 @@ async fn handle_deno_job(
         let handle = tokio::runtime::Handle::current();
         let (deno_done_sender, deno_done_receiver) = tokio::sync::oneshot::channel();
 
+        let job_dir_owned = job_dir.to_owned();
         let handle = std::thread::spawn(move || {
             // let _guard = handle.enter();
-            let fut = run_deno_cli(args);
+            let fut = run_deno_cli(args, &job_dir_owned);
             handle.block_on(fut).unwrap();
             deno_done_sender.send(()).unwrap();
         });
