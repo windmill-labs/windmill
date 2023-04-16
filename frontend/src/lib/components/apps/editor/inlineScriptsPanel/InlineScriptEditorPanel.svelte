@@ -77,6 +77,7 @@
 			}
 		}
 	}
+
 	$: if (
 		componentInput &&
 		componentInput.type == 'runnable' &&

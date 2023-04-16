@@ -20,6 +20,7 @@
 	import type { FlowEditorContext } from './flows/types'
 	import { cleanInputs } from './flows/utils'
 	import { Pen } from 'lucide-svelte'
+	import Kbd from './common/kbd/Kbd.svelte'
 
 	export let initialPath: string = ''
 	export let selectedId: string | undefined
@@ -362,6 +363,7 @@
 				<FlowPreviewButtons />
 				<div class="center-center">
 					<Button
+						title="Ctrl/Cmd + S"
 						loading={loadingSave}
 						size="xs"
 						startIcon={{ icon: faSave }}

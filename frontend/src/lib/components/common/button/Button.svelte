@@ -33,7 +33,15 @@
 		onClick?: () => void
 		href?: string
 	}
-	export let dropdownItems: MenuItem[] | undefined = undefined
+	export let dropdownItems: MenuItem[] | (() => MenuItem[]) | undefined = undefined
+
+	function computeDropdowns(): MenuItem[] | undefined {
+		if (typeof dropdownItems === 'function') {
+			return dropdownItems()
+		} else {
+			return dropdownItems
+		}
+	}
 
 	const dispatch = createEventDispatcher()
 	// Order of classes: border, border modifier, bg, bg modifier, text, text modifier, everything else
@@ -80,19 +88,6 @@
 
 	$: buttonProps = {
 		id,
-		class: twMerge(
-			'w-full',
-			colorVariants?.[color]?.[variant],
-			variant === 'border' ? 'border' : '',
-			ButtonType.FontSizeClasses[size],
-			ButtonType.SpacingClasses[spacingSize][variant],
-			'focus:ring-2 font-semibold',
-			dropdownItems ? 'rounded-l-md h-full' : 'rounded-md',
-			'justify-center items-center text-center whitespace-nowrap inline-flex',
-			btnClasses,
-			disabled ? '!bg-gray-300 !text-gray-600 !cursor-not-allowed' : '',
-			'transition-all '
-		),
 		href,
 		target,
 		tabindex: disabled ? -1 : 0,
@@ -121,6 +116,21 @@
 	$: isSmall = size === 'xs' || size === 'sm'
 	$: startIconClass = twMerge(iconOnly ? undefined : isSmall ? 'mr-1' : 'mr-2', startIcon?.classes)
 	$: endIconClass = twMerge(iconOnly ? undefined : isSmall ? 'ml-1' : 'ml-2', endIcon?.classes)
+
+	function computeClass() {
+		return twMerge(
+			'w-full',
+			colorVariants?.[color]?.[variant],
+			variant === 'border' ? 'border' : '',
+			ButtonType.FontSizeClasses[size],
+			ButtonType.SpacingClasses[spacingSize][variant],
+			'focus:ring-2 font-semibold',
+			dropdownItems ? 'rounded-l-md h-full' : 'rounded-md',
+			'justify-center items-center text-center whitespace-nowrap inline-flex',
+			btnClasses,
+			'transition-all '
+		)
+	}
 </script>
 
 <div class="{dropdownItems ? ' divide-x divide-frost-600' : ''} {wrapperClasses} flex flex-row">
@@ -131,6 +141,10 @@
 		on:click={onClick}
 		on:focus
 		on:blur
+		class={twMerge(
+			computeClass(),
+			disabled ? '!bg-gray-300 !text-gray-600 !cursor-not-allowed' : ''
+		)}
 		{...buttonProps}
 		disabled={disabled || loading}
 		type="submit"
@@ -151,12 +165,14 @@
 	</svelte:element>
 
 	{#if dropdownItems}
-		<div class={twMerge(buttonProps.class, 'rounded-r-md rounded-l-none m-0 p-0 h-auto')}>
+		<div class={twMerge(computeClass(), 'rounded-r-md rounded-l-none m-0 p-0 h-auto')}>
 			<ButtonDropdown>
 				<svelte:fragment slot="items">
-					{#each dropdownItems as item}
+					{#each computeDropdowns() ?? [] as item}
 						<MenuItem on:click={item.onClick} href={item.href}>
-							<div class="!text-gray-700 px-4 py-2 my-1 cursor-pointer hover:bg-gray-100 !text-sm">
+							<div
+								class="!text-gray-700 text-left px-4 py-2 my-1 cursor-pointer hover:bg-gray-100 !text-sm"
+							>
 								{item.label}
 							</div>
 						</MenuItem>

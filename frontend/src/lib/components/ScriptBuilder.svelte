@@ -83,6 +83,17 @@
 		scriptEditor?.inferSchema(script.content, language)
 	}
 
+	async function leaveF(leave: boolean, newHash: string) {
+		if (leave) {
+			history.replaceState(history.state, '', `/scripts/edit/${newHash}`)
+			goto(`/scripts/get/${newHash}?workspace=${$workspaceStore}`)
+		} else {
+			await goto(`/scripts/edit/${newHash}`)
+			script.hash = newHash
+			topHash = undefined
+		}
+	}
+
 	async function editScript(leave: boolean): Promise<void> {
 		loadingSave = true
 		try {
@@ -112,34 +123,37 @@
 					kind: script.kind
 				}
 			})
-			if (leave) {
-				history.replaceState(history.state, '', `/scripts/edit/${newHash}`)
-				goto(`/scripts/get/${newHash}?workspace=${$workspaceStore}`)
-			} else {
-				await goto(`/scripts/edit/${newHash}`)
-				script.hash = newHash
-				topHash = undefined
-			}
+			leaveF(leave, newHash)
 		} catch (error) {
 			sendUserToast(`Error while saving the script: ${error.body || error.message}`, true)
 		}
 		loadingSave = false
 	}
 
-	const dropdownItems: Array<{ label: string; onClick: () => void }> = [
-		{
-			label: 'Save and leave',
-			onClick: () => editScript(true)
-		}
-	]
+	function computeDropdownItems() {
+		let dropdownItems: { label: string; onClick: () => void }[] = []
 
-	if (initialPath != '') {
+		if ($dirtyStore) {
+			dropdownItems.push({
+				label: 'Save and see details',
+				onClick: () => editScript(true)
+			})
+		}
+
 		dropdownItems.push({
-			label: 'Fork',
-			onClick: () => {
-				window.open(`/scripts/add?template=${initialPath}`)
-			}
+			label: 'See details',
+			onClick: () => leaveF(true, script.hash)
 		})
+
+		if (initialPath != '') {
+			dropdownItems.push({
+				label: 'Fork',
+				onClick: () => {
+					window.open(`/scripts/add?template=${initialPath}`)
+				}
+			})
+		}
+		return dropdownItems
 	}
 </script>
 
@@ -286,12 +300,13 @@
 						Customise
 					</Button>
 					<Button
+						disabled={!$dirtyStore}
 						color="dark"
 						loading={loadingSave}
 						size="sm"
 						startIcon={{ icon: faSave }}
 						on:click={() => editScript(false)}
-						{dropdownItems}
+						dropdownItems={computeDropdownItems}
 					>
 						Save
 					</Button>
