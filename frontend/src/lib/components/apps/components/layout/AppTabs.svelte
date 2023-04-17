@@ -32,6 +32,7 @@
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	let selected: string = tabs[0]
+	let selectedIndex: number = 0
 	let tabHeight: number = 0
 
 	let outputs = initOutput($worldStore, id, {
@@ -73,7 +74,11 @@
 	}
 
 	$: selected != undefined && handleTabSelection()
-	let selectedIndex = tabs?.indexOf(selected) ?? -1
+	$: {
+		const index = tabs.indexOf(selected)
+		selectedIndex = index === -1 ? selectedIndex : index
+		selected = tabs[selectedIndex]
+	}
 	$: css = concatCustomCss($app.css?.tabscomponent, customCss)
 </script>
 
