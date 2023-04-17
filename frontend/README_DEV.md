@@ -28,27 +28,29 @@ docker compose up db windmill_server windmill_worker
 - Install llvm
 
   **On OSX:**
+
   ```bash
   brew install llvm caddy gsed
-  
+
   # make LLVM tools available on PATH
   echo 'export PATH="/opt/homebrew/opt/llvm/bin:$PATH"' >> ~/.zshrc
-  
+
   # now, restart your shell. You should now have the `lld` binary on your PATH.
   ```
+
 - To test that you have Rust and Cargo installed run `cargo --version`
 
 - In your terminal, go to the backend directory and run `cargo build`
 - Run `cargo run`
 
 **Known issue on M1 Mac while running `cargo build`**
+
 - You may encounter `linking with cc failed` build time error.
 - To solve this run:
   ```bash
   echo 'export RUSTFLAGS="-L/opt/homebrew/opt/libomp/lib"' >> ~/.zshrc
   source ~/.zshrc
   ```
-
 
 **Do a Frontend Build**
 
@@ -70,11 +72,14 @@ npm run build
 ```
 
 **Known issue while running `npm run build`**
+
 - You may encounter `FATAL ERROR: Ineffective mark-compacts near heap limit Allocation failed - JavaScript heap out of memory` error.
 - To solve this run:
+
 ```bash
 export NODE_OPTIONS=--max_old_space_size=8096
 ```
+
 - run `npm run build` again
 
 In the root folder:
@@ -146,13 +151,13 @@ Recommended config for VS Code:
 
 - turn _format on save_ on
 
-
 ## Building
 
 The project is built with [SvelteKit](https://kit.svelte.dev/) and uses as output static files.
 There are others adapters for sveltekit, but we use the static adapter.
 
 To build the frontend as static assets, use:
+
 ```
 npm run build
 ```
@@ -160,10 +165,11 @@ npm run build
 The output is in the `build` folder.
 
 The default build assume you serve every non static files as the 200.html file which is catchall. If you prefer a normal layout, you can use:
+
 ```
 NOTCATCHALL=true npm run build
 ```
+
 which will generate an index.html and allow you to serve the frontend with any static server.
 
 Env variables used for build are set in .env file. See [https://vitejs.dev/guide/env-and-mode.html#env-files](https://vitejs.dev/guide/env-and-mode.html#env-files) for more details.
-
