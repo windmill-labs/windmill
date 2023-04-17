@@ -146,7 +146,7 @@
 					if (previewJobUpdates.new_logs) {
 						job.logs = (job?.logs ?? '').concat(previewJobUpdates.new_logs)
 					}
-					if (previewJobUpdates.mem_peak) {
+					if (previewJobUpdates.mem_peak && job) {
 						job.mem_peak = previewJobUpdates.mem_peak
 					}
 					if ((previewJobUpdates.running ?? false) || (previewJobUpdates.completed ?? false)) {
@@ -198,3 +198,19 @@
 		currentId = undefined
 	})
 </script>
+
+<slot
+	{job}
+	{isLoading}
+	{workspaceOverride}
+	{notfound}
+	{abstractRun}
+	{runScriptByPath}
+	{runFlowByPath}
+	{runPreview}
+	{cancelJob}
+	{clearCurrentJob}
+	{watchJob}
+	{loadTestJob}
+	{syncer}
+/>

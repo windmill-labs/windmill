@@ -2,7 +2,12 @@
 	const apiTokenApps: Record<string, { img?: string; instructions: string[]; key?: string }> = {
 		airtable: {
 			img: '/airtable_connect.png',
-			instructions: ['Click on the top-right avatar', 'Click on Account', 'Find "Api"']
+			instructions: [
+				'Click to <a href="https://airtable.com/create/tokens" target="_blank" rel=”noopener noreferrer”>https://airtable.com/create/tokens</a>',
+				'Click on "Create new token"',
+				'Set a name, specify the scopes or the access level and click on "Create token"',
+				'Copy the token'
+			]
 		},
 		discord_webhook: {
 			img: '/discord_webhook.png',
@@ -456,7 +461,7 @@
 				>
 			{/if}
 		{/if}
-		<div slot="actions">
+		<div slot="actions" class="flex gap-1">
 			{#if step > 1 && !no_back}
 				<Button variant="border" on:click={back}>Back</Button>
 			{/if}

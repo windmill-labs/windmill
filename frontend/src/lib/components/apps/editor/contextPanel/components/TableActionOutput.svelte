@@ -11,7 +11,7 @@
 	export let first: boolean = false
 </script>
 
-<OutputHeader {id} name={'Table action'} {first}>
+<OutputHeader renamable={false} {id} name={'Table action'} {first}>
 	<ComponentOutputViewer
 		componentId={id}
 		on:select={({ detail }) => {

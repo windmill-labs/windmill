@@ -359,7 +359,8 @@ pub struct Authed {
     pub username: String,
     pub is_admin: bool,
     pub groups: Vec<String>,
-    pub folders: Vec<(String, bool)>,
+    // (folder name, can write, is owner)
+    pub folders: Vec<(String, bool, bool)>,
 }
 
 pub async fn maybe_refresh_folders(path: &str, w_id: &str, authed: Authed, db: &DB) -> Authed {
@@ -369,7 +370,7 @@ pub async fn maybe_refresh_folders(path: &str, w_id: &str, authed: Authed, db: &
     let splitted = path.split('/').collect::<Vec<_>>();
     if splitted.len() >= 2
         && splitted[0] == "f"
-        && !authed.folders.iter().any(|(f, _)| f == splitted[1])
+        && !authed.folders.iter().any(|(f, _, _)| f == splitted[1])
     {
         let name = &authed.username;
         let groups = get_groups_for_user(w_id, name, db)
@@ -509,6 +510,7 @@ pub struct UserInfo {
     pub disabled: bool,
     pub role: Option<String>,
     pub folders: Vec<String>,
+    pub folders_owners: Vec<String>,
 }
 
 #[derive(FromRow, Serialize)]
@@ -808,8 +810,13 @@ async fn whoami(
             disabled: false,
             role: Some("superadmin".to_string()),
             folders: folders
+                .clone()
                 .into_iter()
                 .filter_map(|x| if x.1 { Some(x.0) } else { None })
+                .collect(),
+            folders_owners: folders
+                .into_iter()
+                .filter_map(|x| if x.2 { Some(x.0) } else { None })
                 .collect(),
         }))
     }
@@ -896,8 +903,13 @@ async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo
         disabled: usr.disabled,
         role: usr.role,
         folders: folders
+            .clone()
             .into_iter()
             .filter_map(|x| if x.1 { Some(x.0) } else { None })
+            .collect(),
+        folders_owners: folders
+            .into_iter()
+            .filter_map(|x| if x.2 { Some(x.0) } else { None })
             .collect(),
     }))
 }
@@ -913,47 +925,42 @@ pub async fn get_groups_for_user(w_id: &str, username: &str, db: &DB) -> Result<
     Ok(groups)
 }
 pub async fn is_owner_of_path(
-    Authed { username, is_admin, groups, .. }: Authed,
-    Extension(db): Extension<DB>,
-    Path((w_id, path)): Path<(String, StripPath)>,
+    authed: Authed,
+    Path((_w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<bool> {
     let path = path.to_path();
-    if is_admin {
+    if authed.is_admin {
         Ok(Json(true))
     } else {
-        Ok(Json(
-            require_owner_of_path(&w_id, &username, &groups, path, &db)
-                .await
-                .is_ok(),
-        ))
+        Ok(Json(require_owner_of_path(&authed, path).is_ok()))
     }
 }
 
-pub async fn require_owner_of_path(
-    w_id: &str,
-    username: &str,
-    groups: &Vec<String>,
-    path: &str,
-    db: &DB,
-) -> Result<()> {
+pub fn require_owner_of_path(authed: &Authed, path: &str) -> Result<()> {
     if !path.is_empty() {
         let splitted = path.split("/").collect::<Vec<&str>>();
         if splitted[0] == "u" {
-            if splitted[1] == username {
-                return Ok(());
+            if splitted[1] == authed.username {
+                Ok(())
             } else {
-                return Err(Error::BadRequest(format!(
+                Err(Error::BadRequest(format!(
                     "only the owner {} is authorized to perform this operation",
                     splitted[1]
-                )));
+                )))
             }
-        } else if splitted[0] == "g" {
-            return crate::groups::require_is_owner(splitted[1], username, groups, w_id, db).await;
         } else if splitted[0] == "f" {
-            return crate::folders::require_is_owner(splitted[1], username, groups, w_id, db).await;
+            crate::folders::require_is_owner(authed, splitted[1])
+        } else {
+            Err(Error::BadRequest(format!(
+                "Not recognized path kind: {}",
+                path
+            )))
         }
+    } else {
+        Err(Error::BadRequest(format!(
+            "Cannot be owner of an empty path"
+        )))
     }
-    Err(Error::BadRequest(format!("not recognized owner kind")))
 }
 
 async fn whois(

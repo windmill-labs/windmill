@@ -34,9 +34,6 @@
 	import Dropdown from '$lib/components/Dropdown.svelte'
 	import { goto } from '$app/navigation'
 
-	$: workspace_id = $page.url.searchParams.get('workspace') ?? $workspaceStore
-	$: not_same_workspace = workspace_id !== $workspaceStore
-
 	let job: Job | undefined
 	const iconScale = 1
 
@@ -50,17 +47,17 @@
 	const SMALL_ICON_SCALE = 0.7
 
 	async function deleteCompletedJob(id: string): Promise<void> {
-		await JobService.deleteCompletedJob({ workspace: workspace_id!, id })
+		await JobService.deleteCompletedJob({ workspace: $workspaceStore!, id })
 		getLogs()
 	}
 
 	async function cancelJob(id: string) {
 		try {
 			if (forceCancel) {
-				await JobService.forceCancelQueuedJob({ workspace: workspace_id!, id, requestBody: {} })
+				await JobService.forceCancelQueuedJob({ workspace: $workspaceStore!, id, requestBody: {} })
 				setTimeout(getLogs, 5000)
 			} else {
-				await JobService.cancelQueuedJob({ workspace: workspace_id!, id, requestBody: {} })
+				await JobService.cancelQueuedJob({ workspace: $workspaceStore!, id, requestBody: {} })
 			}
 			sendUserToast(`job ${id} canceled`)
 		} catch (err) {
@@ -83,7 +80,7 @@
 	}
 
 	$: {
-		if (workspace_id && $page.params.run && testJobLoader) {
+		if ($workspaceStore && $page.params.run && testJobLoader) {
 			forceCancel = false
 			getLogs()
 		}
@@ -98,19 +95,24 @@
 	bind:this={testJobLoader}
 	bind:isLoading={testIsLoading}
 	bind:job
-	workspaceOverride={workspace_id}
+	workspaceOverride={$workspaceStore}
 	bind:notfound
 />
 
 {#if notfound}
 	<CenteredPage>
 		<div class="flex flex-col gap-6">
-			<h1 class="text-red-400 mt-6">Job {$page.params.run} not found in {workspace_id}</h1>
+			<h1 class="text-red-400 mt-6">Job {$page.params.run} not found in {$workspaceStore}</h1>
 			<h2>Are you in the right workspace?</h2>
 			<div class="flex flex-col gap-2">
 				{#each $userWorkspaces as workspace}
 					<div>
-						<Button variant="border" href="/run/{$page.params.run}?workspace={workspace.id}">
+						<Button
+							variant="border"
+							on:click={() => {
+								goto(`/run/${$page.params.run}?workspace=${workspace.id}`)
+							}}
+						>
 							See in {workspace.name}
 						</Button>
 					</div>
@@ -149,7 +151,6 @@
 						delete
 					</Dropdown>
 					<Button
-						disabled={not_same_workspace}
 						href={runsHref}
 						variant="border"
 						color="blue"
@@ -169,7 +170,6 @@
 				{#if isRunning}
 					{#if !forceCancel}
 						<Button
-							disabled={not_same_workspace}
 							color="red"
 							size="md"
 							startIcon={{ icon: faTimesCircle }}
@@ -186,7 +186,6 @@
 						</Button>
 					{:else}
 						<Button
-							disabled={not_same_workspace}
 							color="red"
 							size="md"
 							startIcon={{ icon: faTimesCircle }}
@@ -200,17 +199,11 @@
 						</Button>
 					{/if}
 				{/if}
-				{#if not_same_workspace}
-					<span class="text-red-500 text-sm"
-						>Disabled because job from a different workspace {workspace_id} (current: {$workspaceStore})</span
-					>
-				{/if}
 				<Button
 					on:click|once={() => {
 						$runFormStore = job?.args
 						goto(`${stem}/run/${route}`)
 					}}
-					disabled={not_same_workspace}
 					color="blue"
 					size="md"
 					startIcon={{ icon: faRefresh }}>Run again</Button
@@ -218,7 +211,6 @@
 				{#if !$userStore?.operator}
 					{#if canWrite(job?.script_path ?? '', {}, $userStore)}
 						<Button
-							disabled={not_same_workspace}
 							on:click|once={() => {
 								$runFormStore = job?.args
 								goto(`${stem}/edit/${route}${isScript ? `` : `?nodraft=true`}`)
@@ -229,13 +221,7 @@
 						>
 					{/if}
 				{/if}
-				<Button
-					disabled={not_same_workspace}
-					href={viewHref}
-					color="blue"
-					size="md"
-					startIcon={{ icon: faScroll }}
-				>
+				<Button href={viewHref} color="blue" size="md" startIcon={{ icon: faScroll }}>
 					View {job?.job_kind}
 				</Button>
 			</svelte:fragment>
@@ -292,7 +278,7 @@
 					{/if}
 					{job.script_path ?? (job.job_kind == 'dependencies' ? 'lock dependencies' : 'No path')}
 					{#if job.script_hash}
-						<a href="/scripts/get/{job.script_hash}?workspace_id={workspace_id}}"
+						<a href="/scripts/get/{job.script_hash}?$workspaceStore={$workspaceStore}}"
 							><Badge color="gray">{truncateHash(job.script_hash)}</Badge></a
 						>
 					{/if}
@@ -371,7 +357,7 @@
 					on:jobsLoaded={({ detail }) => {
 						job = detail
 					}}
-					workspaceId={workspace_id}
+					workspaceId={$workspaceStore}
 				/>
 			</div>
 		{/if}

@@ -380,9 +380,8 @@ async fn update_variable(
     if let Some(npath) = ns.path {
         if npath != path {
             check_path_conflict(&mut tx, &w_id, &npath).await?;
-            if !authed.is_admin {
-                require_owner_of_path(&w_id, &authed.username, &authed.groups, &path, &db).await?;
-            }
+            require_owner_of_path(&authed, path)?;
+
             let mut v = sqlx::query_scalar!(
                 "SELECT value FROM resource  WHERE path = $1 AND workspace_id = $2",
                 path,

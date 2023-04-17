@@ -14,6 +14,20 @@
     },
     "query": "UPDATE usr SET disabled = $1 WHERE username = $2 AND workspace_id = $3"
   },
+  "01576057b71e32e20a1702b2c89c380eee422060a65b475d7cda8b199d70842e": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Bool",
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE flow SET archived = $1 WHERE path = $2 AND workspace_id = $3"
+  },
   "019258392434b3c8dfabfe53d61ad766626fe4ad67f101c1a58c9c9524531621": {
     "describe": {
       "columns": [
@@ -2260,19 +2274,6 @@
       }
     },
     "query": "SELECT language as \"language: ScriptLang\" FROM script WHERE hash = $1 AND workspace_id = $2"
-  },
-  "63f330e98051ae9d0cf5617a553f769cc98b05fdc8643839b504023b26f38aab": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Text"
-        ]
-      }
-    },
-    "query": "UPDATE flow SET archived = true WHERE path = $1 AND workspace_id = $2"
   },
   "64920b845c0ce81fb99497c03b249bb6cb06581079b5fc5bea5ddd8e7a895b79": {
     "describe": {
@@ -5265,6 +5266,39 @@
     },
     "query": "SELECT count(path) FROM app WHERE path LIKE 'f/' || $1 || '%'  AND workspace_id = $2"
   },
+  "d243064655e45a3898e39ed151416e4e63ec19292cedddfb408d026cf5218f09": {
+    "describe": {
+      "columns": [
+        {
+          "name": "name",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "write",
+          "ordinal": 1,
+          "type_info": "Bool"
+        },
+        {
+          "name": "owner",
+          "ordinal": 2,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        false,
+        null,
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "TextArray",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT name, (EXISTS (SELECT 1 FROM (SELECT key, value FROM jsonb_each_text(extra_perms) WHERE key = ANY($1)) t  WHERE value::boolean IS true)) as write, $1 && owners::text[] as owner  FROM folder\n        WHERE extra_perms ?| $1  AND workspace_id = $2"
+  },
   "d47bff7d6b54cd6da8bb330f7321c37af5dcbd76f9acad73b5ba1b8a4afb5091": {
     "describe": {
       "columns": [
@@ -5887,29 +5921,6 @@
     },
     "query": "INSERT INTO schedule (workspace_id, path, schedule, timezone, edited_by, script_path, is_flow, args, enabled, email) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *"
   },
-  "ebc06efe51532f7f60e98f62d09a3453fc1d97d93e96ec849eac96dca05236f0": {
-    "describe": {
-      "columns": [
-        {
-          "name": "?column?",
-          "ordinal": 0,
-          "type_info": "Bool"
-        }
-      ],
-      "nullable": [
-        null
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Text",
-          "TextArray",
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT EXISTS(SELECT 1 FROM folder WHERE CONCAT('u/', $1::text) = ANY(owners) AND name = $2 AND workspace_id = $4) OR exists(\n            SELECT 1 FROM folder, unnest(folder.owners) as o\n            WHERE o = ANY($3::text[]) AND folder.name = $2 AND folder.workspace_id = $4)"
-  },
   "ec85a425f88044c6ed4f8fcea223c28eb9fb8c16c89a52d4c4552bd149badafa": {
     "describe": {
       "columns": [
@@ -6196,33 +6207,6 @@
       }
     },
     "query": "DELETE FROM usr_to_group WHERE usr = $1 AND group_ = $2 AND workspace_id = $3"
-  },
-  "f418ad25df9bd0a85c7210c4ea0f44c3b6e8c0810b49e325fd0698259f0bb1a3": {
-    "describe": {
-      "columns": [
-        {
-          "name": "name",
-          "ordinal": 0,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "write",
-          "ordinal": 1,
-          "type_info": "Bool"
-        }
-      ],
-      "nullable": [
-        false,
-        null
-      ],
-      "parameters": {
-        "Left": [
-          "TextArray",
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT name, (EXISTS (SELECT 1 FROM (SELECT key, value FROM jsonb_each_text(extra_perms) WHERE key = ANY($1)) t  WHERE value::boolean IS true)) as write  FROM folder\n        WHERE extra_perms ?| $1  AND workspace_id = $2"
   },
   "f4849960aff7387cb6b130d2bc62dbfce45209fbbccf3b4b9b13019e0cd55ddb": {
     "describe": {

@@ -220,21 +220,23 @@
 							</div>
 						{/each}
 					</div>
-					<Button
-						variant="border"
-						color="blue"
-						size="sm"
-						btnClasses="mt-1"
-						on:click={() => {
-							if (value == undefined || !Array.isArray(value)) {
-								value = []
-							}
-							value = value.concat('')
-						}}
-					>
-						<Icon data={faPlus} class="mr-2" />
-						Add item
-					</Button>
+					<div class="flex">
+						<Button
+							variant="border"
+							color="blue"
+							size="sm"
+							btnClasses="mt-1"
+							on:click={() => {
+								if (value == undefined || !Array.isArray(value)) {
+									value = []
+								}
+								value = value.concat('')
+							}}
+						>
+							<Icon data={faPlus} class="mr-2" />
+							Add item
+						</Button>
+					</div>
 					<span class="ml-2">
 						{(value ?? []).length} item{(value ?? []).length > 1 ? 's' : ''}
 					</span>

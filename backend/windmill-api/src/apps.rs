@@ -32,12 +32,13 @@ use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     apps::ListAppQuery,
     error::{to_anyhow, Error, JsonResult, Result},
+    jobs::{JobPayload, RawCode},
     users::username_to_permissioned_as,
     utils::{
         http_get_from_hub, list_elems_from_hub, not_found_if_none, paginate, Pagination, StripPath,
     },
 };
-use windmill_queue::{push, JobPayload, QueueTransaction, RawCode};
+use windmill_queue::{push, QueueTransaction};
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -441,7 +442,6 @@ async fn update_app(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
-    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(ns): Json<EditApp>,
 ) -> Result<String> {
@@ -458,10 +458,7 @@ async fn update_app(
 
         if let Some(npath) = &ns.path {
             if npath != path {
-                if !authed.is_admin {
-                    require_owner_of_path(&w_id, &authed.username, &authed.groups, &path, &db)
-                        .await?;
-                }
+                require_owner_of_path(&authed, path)?;
             }
             sqlb.set_str("path", npath);
         }
