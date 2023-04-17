@@ -569,7 +569,7 @@
 		callback: (editor: meditor.IStandaloneCodeEditor) => void,
 		keybindings: number[] = []
 	) {
-		editor.addAction({
+		editor?.addAction({
 			id,
 			label,
 			keybindings,
