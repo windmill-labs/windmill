@@ -12,6 +12,7 @@
 	import type { Schema } from '$lib/common'
 	import { getAllScriptNames, loadSchema, schemaToInputsSpec } from '$lib/components/apps/utils'
 	import { emptySchema } from '$lib/utils'
+	import PickHubItems from '$lib/components/flows/pickers/PickHubItems.svelte'
 
 	type Tab = 'hubscripts' | 'workspacescripts' | 'workspaceflows' | 'inlinescripts'
 
@@ -165,7 +166,11 @@
 						{:else if tab == 'workspaceflows'}
 							<WorkspaceFlowList on:pick={(e) => pickFlow(e.detail)} />
 						{:else if tab == 'hubscripts'}
-							<PickHubScript bind:filter on:pick={(e) => pickHubScript(e.detail.path)} />
+							<PickHubItems
+								bind:filter
+								on:pickScript={(e) => pickHubScript(e.detail.path)}
+								selectedKind="script"
+							/>
 						{/if}
 					</div>
 				</div>

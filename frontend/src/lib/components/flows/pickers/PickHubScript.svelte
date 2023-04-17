@@ -6,8 +6,8 @@
 	import type { HubScript } from '$lib/stores'
 
 	export let kind: 'script' | 'trigger' | 'approval' | 'failure' = 'script'
-
 	export let item: HubScript & { marked?: string }
+
 	const dispatch = createEventDispatcher()
 </script>
 

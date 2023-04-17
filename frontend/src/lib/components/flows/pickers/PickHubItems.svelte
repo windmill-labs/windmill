@@ -15,6 +15,8 @@
 	import { Icon } from 'svelte-awesome'
 
 	export let filter = ''
+	export let selectedKind: 'script' | 'flow' | 'app' | undefined = undefined
+	export let kind: 'script' | 'trigger' | 'approval' | 'failure' | undefined = undefined
 
 	let itemKind: 'script' | 'flow' | 'app' = 'app'
 	const dispatch = createEventDispatcher()
@@ -52,6 +54,11 @@
 					if (i.itemType !== itemKind) {
 						return false
 					}
+
+					if (selectedKind && i.itemType !== selectedKind) {
+						return false
+					}
+
 					if (i.itemType === 'script' && appFilter) {
 						return i.data.app === appFilter
 					} else if (i.itemType === 'flow' && appFilter) {
@@ -72,26 +79,28 @@
 
 <SearchItems {filter} items={prefilteredItems} bind:filteredItems f={(x) => x.data.summary} />
 <div class="w-full flex mt-1 items-center gap-2">
-	<ToggleButtonGroup bind:selected={itemKind}>
-		<ToggleButton light position="left" value="script" size="sm">
-			<div class="flex gap-1 items-center">
-				<Code2 size={16} />
-				Scripts
-			</div>
-		</ToggleButton>
-		<ToggleButton light position="center" value="flow" size="sm">
-			<div class="flex gap-1 items-center">
-				<Icon data={faBarsStaggered} scale={0.8} class="mr-1" />
-				Flows
-			</div>
-		</ToggleButton>
-		<ToggleButton light position="right" value="app" size="sm">
-			<div class="flex gap-1 items-center">
-				<LayoutDashboard size={16} />
-				Apps
-			</div>
-		</ToggleButton>
-	</ToggleButtonGroup>
+	{#if selectedKind === undefined}
+		<ToggleButtonGroup bind:selected={itemKind}>
+			<ToggleButton light position="left" value="script" size="sm">
+				<div class="flex gap-1 items-center">
+					<Code2 size={16} />
+					Scripts
+				</div>
+			</ToggleButton>
+			<ToggleButton light position="center" value="flow" size="sm">
+				<div class="flex gap-1 items-center">
+					<Icon data={faBarsStaggered} scale={0.8} class="mr-1" />
+					Flows
+				</div>
+			</ToggleButton>
+			<ToggleButton light position="right" value="app" size="sm">
+				<div class="flex gap-1 items-center">
+					<LayoutDashboard size={16} />
+					Apps
+				</div>
+			</ToggleButton>
+		</ToggleButtonGroup>
+	{/if}
 	<input type="text" placeholder="Search Hub Items" bind:value={filter} class="text-2xl grow" />
 	<slot />
 </div>
@@ -106,7 +115,11 @@
 			{#each filteredItems as item, index (index)}
 				<li class="flex flex-row w-full">
 					{#if item.itemType === 'script'}
-						<PickHubScript item={item.data} on:pick={() => dispatch('pickScript', item.data)} />
+						<PickHubScript
+							item={item.data}
+							on:pick={() => dispatch('pickScript', item.data)}
+							{kind}
+						/>
 					{:else if item.itemType === 'flow'}
 						<PickHubFlow item={item.data} on:pick={() => dispatch('pickFlow', item.data)} />
 					{:else if item.itemType === 'app'}
