@@ -73,7 +73,7 @@
 		"@leeoniya/ufuzzy": "^1.0.6",
 		"@popperjs/core": "^2.11.6",
 		"@redocly/json-to-json-schema": "^0.0.1",
-		"@tanstack/svelte-table": "^8.7.6",
+		"@tanstack/svelte-table": "^8.8.5",
 		"ag-grid-svelte": "^0.1.4",
 		"chart.js": "^3.9.1",
 		"chartjs-adapter-date-fns": "^3.0.0",
