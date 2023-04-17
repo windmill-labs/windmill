@@ -8,3 +8,4 @@ CaddyfileRemoteRuben
 tests-out/
 storageState.json
 .env.production
+dist/
