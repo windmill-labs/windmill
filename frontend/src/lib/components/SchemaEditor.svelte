@@ -15,6 +15,8 @@
 
 	const dispatch = createEventDispatcher()
 
+	const moveAnimationDuration = 500
+
 	export let schema: Schema = emptySchema()
 	if (!schema) {
 		schema = emptySchema()
@@ -153,7 +155,7 @@
 		isAnimated = true
 		setTimeout(() => {
 			isAnimated = false
-		}, 500)
+		}, moveAnimationDuration)
 		const entries = Object.entries(schema.properties)
 		var element = entries[i]
 		entries.splice(i, 1)
@@ -247,7 +249,7 @@
 						</tr>
 						<tbody slot="body">
 							{#each schemaPropertiesToDisplay(schema) as displayInfo, i (displayInfo.name)}
-								<tr animate:flip={{duration:500}}>
+								<tr animate:flip={{duration:moveAnimationDuration}}>
 									<PropertyRow
 										{displayInfo}
 										{isAnimated}
