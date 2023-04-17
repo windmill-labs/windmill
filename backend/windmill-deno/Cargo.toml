@@ -18,3 +18,11 @@ anyhow.workspace = true
 deno_core.workspace = true
 deno_ast.workspace = true
 deno_graph.workspace = true
+
+[dev-dependencies]
+criterion = { version = "0.4", features = ["html_reports", "async_tokio"] }
+tokio.workspace = true
+
+[[bench]]
+name = "single_job"
+harness = false
