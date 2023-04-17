@@ -311,21 +311,23 @@
 							{/if}
 						{/key}
 					</div>
-					<Button
-						variant="border"
-						color="dark"
-						size="xs"
-						btnClasses="mt-1"
-						on:click={() => {
-							if (value == undefined || !Array.isArray(value)) {
-								value = []
-							}
-							value = value.concat('')
-						}}
-					>
-						<Icon data={faPlus} class="mr-2" />
-						Add item
-					</Button>
+					<div class="flex mt-2">
+						<Button
+							variant="border"
+							color="dark"
+							size="xs"
+							btnClasses="mt-1"
+							on:click={() => {
+								if (value == undefined || !Array.isArray(value)) {
+									value = []
+								}
+								value = value.concat('')
+							}}
+						>
+							<Icon data={faPlus} class="mr-2" />
+							Add item
+						</Button>
+					</div>
 				</div>
 			{:else if inputCat == 'resource-object'}
 				<ObjectResourceInput {format} bind:value />

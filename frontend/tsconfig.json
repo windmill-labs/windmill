@@ -2,7 +2,7 @@
 	"compilerOptions": {
 		"moduleResolution": "node",
 		"module": "esnext",
-		"lib": ["esnext", "DOM"],
+		"lib": ["es2021", "DOM"],
 		"target": "esnext",
 		"preserveValueImports": true,
 		"outDir": "build",

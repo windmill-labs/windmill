@@ -23,7 +23,7 @@
 
 	async function loadFolders(): Promise<void> {
 		folders = (await FolderService.listFolders({ workspace: $workspaceStore! })).map((x) => {
-			return { canWrite: canWrite(x.name, x.extra_perms ?? {}, $userStore), ...x }
+			return { canWrite: canWrite('f/' + x.name, x.extra_perms ?? {}, $userStore), ...x }
 		})
 	}
 

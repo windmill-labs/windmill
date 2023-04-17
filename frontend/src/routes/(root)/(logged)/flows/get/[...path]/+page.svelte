@@ -26,7 +26,7 @@
 
 	import { goto } from '$app/navigation'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Badge, Button, Skeleton } from '$lib/components/common'
+	import { Alert, Badge, Button, Skeleton } from '$lib/components/common'
 	import CronInput from '$lib/components/CronInput.svelte'
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
@@ -75,7 +75,11 @@
 	}
 
 	async function archiveFlow(): Promise<void> {
-		await FlowService.archiveFlowByPath({ workspace: $workspaceStore!, path })
+		await FlowService.archiveFlowByPath({
+			workspace: $workspaceStore!,
+			path,
+			requestBody: { archived: !flow?.archived }
+		})
 		loadFlow()
 	}
 
@@ -235,10 +239,8 @@
 				>
 
 				{#if flow.archived}
-					<div class="bg-red-100 border-l-4 border-red-500 text-orange-700 p-4" role="alert">
-						<p class="font-bold">Archived</p>
-						<p>This flow was archived</p>
-					</div>
+					<div class="mt-2" />
+					<Alert type="error" title="Archived">This flow was archived</Alert>
 				{/if}
 
 				<div class="flex gap-2 flex-wrap mt-2">
@@ -358,7 +360,7 @@
 				</div>
 
 				<div class="flex flex-col gap-2 mt-2">
-					<div>
+					<div class="flex">
 						<Button
 							color="light"
 							size="sm"
@@ -424,9 +426,9 @@
 							color="red"
 							size="md"
 							startIcon={{ icon: faArchive }}
-							disabled={flow.archived || !can_write}
+							disabled={!can_write}
 						>
-							Archive
+							{flow.archived ? 'Unarchive' : 'Archive'}
 						</Button>
 						<Button
 							on:click={() => flow?.path && deleteFlow()}
@@ -434,7 +436,7 @@
 							color="red"
 							size="md"
 							startIcon={{ icon: faTrash }}
-							disabled={flow.archived || !can_write}
+							disabled={!can_write}
 						>
 							Delete
 						</Button>

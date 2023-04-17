@@ -16,8 +16,7 @@
 		emptySchema,
 		emptyString,
 		getModifierKey,
-		sendUserToast,
-		truncateHash
+		sendUserToast
 	} from '$lib/utils'
 	import { faEye, faPen, faPlay } from '@fortawesome/free-solid-svg-icons'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -48,7 +47,9 @@
 					workspace: $workspaceStore!,
 					path: script.path
 				}).catch((_) => console.error('this script has no non-archived version'))
-				topHash = script_by_path?.hash
+				if (script_by_path?.hash != script.hash) {
+					topHash = script_by_path?.hash
+				}
 			} else {
 				topHash = undefined
 			}
@@ -120,10 +121,15 @@
 				{#if script}
 					<div class="flex flex-col justify-between gap-4 mb-6">
 						{#if topHash}
+							<div class="mt-2" />
 							<Alert type="warning" title="Not HEAD">
 								This hash is not HEAD (latest non-archived version at this path) :
 								<a href="/scripts/run/{topHash}">Go to the HEAD of this path</a>
 							</Alert>
+						{:else if script.archived}
+							<div class="mt-2" />
+
+							<Alert type="error" title="Archived">This path was archived</Alert>
 						{/if}
 						<div class="w-full">
 							<div class="flex flex-col mt-6 mb-2 w-full">
@@ -167,20 +173,17 @@
 											{defaultIfEmptyString(script.summary, script.path)}
 										</h1>
 										{#if !emptyString(script.summary)}
-											<h2 class="font-bold pb-4">{script.path}</h2>
+											<h2 class="font-normal text-gray-500 pb-2">{script.path}</h2>
 										{/if}
 									</div>
 								</div>
 								<div class="flex items-center gap-2">
-									<span class="text-sm text-gray-500">
+									<span class="text-xs text-gray-500">
 										{#if script}
 											Edited {displayDaysAgo(script.created_at || '')} by {script.created_by ||
 												'unknown'}
 										{/if}
 									</span>
-									<Badge color="dark-gray">
-										{truncateHash(script?.hash ?? '')}
-									</Badge>
 									{#if script?.is_template}
 										<Badge color="blue">Template</Badge>
 									{/if}
