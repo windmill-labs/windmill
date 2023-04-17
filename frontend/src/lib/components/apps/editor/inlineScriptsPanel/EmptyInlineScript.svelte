@@ -2,7 +2,6 @@
 	import type { Schema } from '$lib/common'
 	import { Button, Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
 	import FlowScriptPicker from '$lib/components/flows/pickers/FlowScriptPicker.svelte'
-	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { Script, type Preview } from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
@@ -16,6 +15,7 @@
 	import { defaultCode } from '../component'
 	import InlineScriptList from '../settingsPanel/mainInput/InlineScriptList.svelte'
 	import WorkspaceScriptList from '../settingsPanel/mainInput/WorkspaceScriptList.svelte'
+	import PickHubItems from '$lib/components/flows/pickers/PickHubItems.svelte'
 
 	export let name: string
 	export let componentType: string | undefined = undefined
@@ -130,7 +130,11 @@
 						{:else if tab == 'workspacescripts'}
 							<WorkspaceScriptList on:pick={(e) => pickScript(e.detail)} />
 						{:else if tab == 'hubscripts'}
-							<PickHubScript bind:filter on:pick={(e) => pickHubScript(e.detail.path)} />
+							<PickHubItems
+								selectedKind="script"
+								bind:filter
+								on:pickScript={(e) => pickHubScript(e.detail.path)}
+							/>
 						{/if}
 					</div>
 				</div>

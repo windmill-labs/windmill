@@ -52,17 +52,42 @@ export const userWorkspaces: Readable<
 		return originalWorkspaces
 	}
 })
-export const hubScripts = writable<
-	| Array<{
-			path: string
-			summary: string
-			approved: boolean
-			kind: string
-			app: string
-			ask_id: number
-	  }>
-	| undefined
->(undefined)
+
+export type HubScript = {
+	path: string
+	summary: string
+	approved: boolean
+	kind: string
+	app: string
+	ask_id: number
+}
+
+export type HubFlow = {
+	id: number
+	flow_id: number
+	summary: string
+	apps: string[]
+	approved: boolean
+	votes: number
+}
+
+export type HubApp = {
+	id: number
+	app_id: number
+	summary: string
+	apps: Array<string>
+	approved: boolean
+	votes: number
+}
+
+export type HubItem =
+	| { itemType: 'script'; data: HubScript & { marked?: string } }
+	| { itemType: 'flow'; data: HubFlow & { marked?: string } }
+	| { itemType: 'app'; data: HubApp & { marked?: string } }
+
+export const hubScripts = writable<Array<HubScript> | undefined>(undefined)
+export const hubFlows = writable<Array<HubFlow> | undefined>(undefined)
+export const hubApps = writable<Array<HubApp> | undefined>(undefined)
 
 if (browser) {
 	workspaceStore.subscribe(async (workspace) => {
