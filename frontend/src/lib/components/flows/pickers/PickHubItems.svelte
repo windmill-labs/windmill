@@ -70,10 +70,19 @@
 			  })
 			: items
 
-	onMount(async () => {
-		await loadHubScripts()
-		$hubFlows = await loadHubFlows()
+	let notLoaded = true
+	async function loadApps() {
 		$hubApps = await loadHubApps()
+		notLoaded = false
+	}
+
+	async function loadFlows() {
+		loadHubFlows()
+	}
+	onMount(async () => {
+		loadHubScripts()
+		loadApps()
+		loadFlows()
 	})
 </script>
 
@@ -108,7 +117,11 @@
 <ListFilters filters={apps} bind:selectedFilter={appFilter} resourceType />
 
 {#if Array.isArray(prefilteredItems)}
-	{#if filteredItems.length == 0}
+	{#if notLoaded}
+		{#each Array(10).fill(0) as _}
+			<Skeleton layout={[[4], 0.5]} />
+		{/each}
+	{:else if filteredItems.length == 0}
 		<NoItemFound />
 	{:else}
 		<ul class="divide-y divide-gray-200 border rounded-md">
