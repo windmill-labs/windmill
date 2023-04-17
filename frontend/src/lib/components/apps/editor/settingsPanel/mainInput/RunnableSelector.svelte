@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { faMousePointer, faPlus } from '@fortawesome/free-solid-svg-icons'
 	import { Button, Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
-	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
 	import { Building, Globe2 } from 'lucide-svelte'
 	import InlineScriptList from './InlineScriptList.svelte'
 	import type { ResultAppInput } from '$lib/components/apps/inputType'
