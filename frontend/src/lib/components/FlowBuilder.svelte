@@ -20,7 +20,6 @@
 	import type { FlowEditorContext } from './flows/types'
 	import { cleanInputs } from './flows/utils'
 	import { Pen } from 'lucide-svelte'
-	import Kbd from './common/kbd/Kbd.svelte'
 
 	export let initialPath: string = ''
 	export let selectedId: string | undefined
