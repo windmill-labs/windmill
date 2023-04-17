@@ -442,7 +442,6 @@ async fn update_app(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
-    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(ns): Json<EditApp>,
 ) -> Result<String> {
@@ -459,10 +458,7 @@ async fn update_app(
 
         if let Some(npath) = &ns.path {
             if npath != path {
-                if !authed.is_admin {
-                    require_owner_of_path(&w_id, &authed.username, &authed.groups, &path, &db)
-                        .await?;
-                }
+                require_owner_of_path(&authed, path)?;
             }
             sqlb.set_str("path", npath);
         }

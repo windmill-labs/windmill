@@ -10,7 +10,6 @@
 
 	let kind: 'none' | 'pattern' | 'enum' | 'resource' | 'format' | 'base64' = computeKind()
 	let patternStr: string = pattern ?? ''
-
 	let resource: string | undefined
 
 	const FORMATS = [
@@ -78,8 +77,8 @@
 <div class="my-2" />
 
 {#if kind == 'pattern'}
-	<label for="input" class="mb-2 text-gray-700 text-xs"
-		>Pattern (Regex)
+	<label for="input" class="mb-2 text-gray-700 text-xs">
+		Pattern (Regex)
 		<div class="flex flex-row">
 			<input
 				id="input"
@@ -94,8 +93,10 @@
 				btnClasses="mx-2 mb-1"
 				on:click={() => {
 					patternStr = ''
-				}}>clear</Button
+				}}
 			>
+				clear
+			</Button>
 		</div>
 	</label>
 {:else if kind == 'enum'}

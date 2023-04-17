@@ -11,39 +11,43 @@
 	let reason = ''
 
 	$: {
-		let username = $userStore?.username ?? ''
-		let pgroups = $userStore?.pgroups ?? []
-		let pusername = `u/${username}`
-		let extraPermsKeys = Object.keys(extraPerms)
-
-		if (pusername in extraPermsKeys) {
-			if (extraPerms[pusername]) {
-				kind = 'write'
-			} else {
-				kind = 'read'
-			}
-			reason = 'This item was shared to you personally'
+		if ($userStore?.is_admin || $userStore?.is_super_admin) {
+			kind = undefined
 		} else {
-			let writeGroup = pgroups.find((x) => extraPermsKeys.includes(x) && extraPerms[x])
-			if (writeGroup) {
-				kind = 'write'
-				reason = `This item was write shared to the group ${writeGroup} which you are a member of`
-			} else {
-				let readGroup = pgroups.find((x) => extraPermsKeys.includes(x))
-				if (readGroup) {
-					kind = 'read'
-					reason = `This item was read-only shared to the group ${readGroup} which you are a member of`
+			let username = $userStore?.username ?? ''
+			let pgroups = $userStore?.pgroups ?? []
+			let pusername = `u/${username}`
+			let extraPermsKeys = Object.keys(extraPerms)
+
+			if (pusername in extraPermsKeys) {
+				if (extraPerms[pusername]) {
+					kind = 'write'
 				} else {
-					kind = undefined
+					kind = 'read'
+				}
+				reason = 'This item was shared to you personally'
+			} else {
+				let writeGroup = pgroups.find((x) => extraPermsKeys.includes(x) && extraPerms[x])
+				if (writeGroup) {
+					kind = 'write'
+					reason = `This item was write shared to the group ${writeGroup} which you are a member of`
+				} else {
+					let readGroup = pgroups.find((x) => extraPermsKeys.includes(x))
+					if (readGroup) {
+						kind = 'read'
+						reason = `This item was read-only shared to the group ${readGroup} which you are a member of`
+					} else {
+						kind = undefined
+					}
 				}
 			}
-		}
-		if (kind == 'read' && canWrite) {
-			kind = undefined
-		}
-		if (kind == undefined && !canWrite) {
-			kind = 'read'
-			reason = ''
+			if (kind == 'read' && canWrite) {
+				kind = undefined
+			}
+			if (kind == undefined && !canWrite) {
+				kind = 'read'
+				reason = ''
+			}
 		}
 	}
 </script>

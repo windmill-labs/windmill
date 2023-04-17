@@ -27,12 +27,12 @@
 		kind = kind_l
 		initialPath = initialPath_l
 		summary = summary_l
-		await loadOwner()
+		loadOwner()
 		drawer.openDrawer()
 	}
 
-	async function loadOwner() {
-		own = await isOwner(initialPath, $userStore!, $workspaceStore!)
+	function loadOwner() {
+		own = isOwner(initialPath, $userStore!, $workspaceStore!)
 	}
 
 	async function updatePath() {
@@ -85,14 +85,12 @@
 
 <Drawer bind:this={drawer}>
 	<DrawerContent title="Move/Rename {initialPath}" on:close={drawer.closeDrawer}>
-		<h1 class="mb-2">Move/Rename {initialPath}</h1>
-
 		{#if !own}
 			<Alert type="warning" title="Not owner"
 				>Since you do not own this item, you cannot move this item (you can however fork it)</Alert
 			>
 		{/if}
-		<h2 class="border-b pb-1 mt-8 mb-4">Summary</h2>
+		<h2 class="border-b pb-1 mt-2 mb-4">Summary</h2>
 		<input
 			type="text"
 			bind:value={summary}
@@ -100,9 +98,10 @@
 			disabled={!own}
 		/>
 
-		<h2 class="border-b pb-1 mt-8 mb-4">Path</h2>
+		<h2 class="border-b pb-1 mt-10 mb-4">Path</h2>
 		<div class="flex flex-col mb-2 gap-6">
 			<Path disabled={!own} {kind} {initialPath} bind:path />
+			<div class="mt-4" />
 			<Button disabled={!own} on:click={updatePath}>Move/Rename</Button>
 			<div />
 		</div>

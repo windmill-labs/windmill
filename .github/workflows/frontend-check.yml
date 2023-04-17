@@ -4,6 +4,8 @@ on:
     types: [opened,synchronize,reopened,closed]
     paths:
       - "frontend/**"
+  merge_group:
+
 jobs:
   npm_check:
     runs-on: ubuntu-latest
