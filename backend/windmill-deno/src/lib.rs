@@ -1,6 +1,8 @@
 use anyhow::Result;
 use std::sync::Arc;
 
+mod module_loader;
+
 fn create_web_worker_callback(
     _ps: deno_cli::proc_state::ProcState,
     _stdio: deno_runtime::deno_io::Stdio,
@@ -52,7 +54,7 @@ async fn create_main_worker(
 ) -> Result<(deno_core::url::Url, deno_runtime::worker::MainWorker)> {
     let mut custom_extensions: Vec<deno_runtime::deno_core::Extension> = make_windmill_deno_exts();
 
-    let module_loader = deno_cli::module_loader::CliModuleLoader::new(
+    let module_loader = module_loader::WindmillModuleLoader::new(
         ps.clone(),
         deno_runtime::permissions::PermissionsContainer::allow_all(),
         permissions.clone(),
@@ -79,7 +81,8 @@ async fn create_main_worker(
             .join(deno_cli::util::checksum::gen(&[key.as_bytes()]))
     });
 
-    let mut extensions = deno_cli::ops::cli_exts(ps.clone());
+    let mut extensions = Vec::new();
+    // extensions.append(&mut deno_cli::ops::cli_exts(ps.clone()));
     extensions.append(&mut custom_extensions);
 
     let options = deno_runtime::worker::WorkerOptions {
