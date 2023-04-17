@@ -174,10 +174,10 @@ async_zip = { version = "0.0.11", features = [
 once_cell = "1.17.1"
 rsmq_async = { version = "5.1.5" }
 gosyn = "0.2.2"
-deno = { path = "../../projects/deno/cli" }
+deno = { path = "../deno/cli" }
 deno_lockfile = "0.13.0"
-deno_runtime = { path = "../../projects/deno/runtime" }
+deno_runtime = { path = "../deno/runtime" }
 deno_ast = "0.25.0"
 tracing-log = "0.1.3"
 deno_graph = "0.47.1"
-deno_core = { path = "../../projects/deno/core" }
+deno_core = { path = "../deno/core" }

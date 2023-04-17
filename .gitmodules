@@ -1,0 +1,3 @@
+[submodule "deno"]
+	path = deno
+	url = https://github.com/HurricanKai/deno
