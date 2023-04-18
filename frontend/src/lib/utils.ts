@@ -752,3 +752,14 @@ export function sortObject<T>(o: T & object): T {
 			return obj
 		}, {}) as T
 }
+
+export function generateRandomString(): string {
+	let chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+	let result = ''
+
+	for (let i = 0; i < 24; i++) {
+		result += chars.charAt(Math.floor(Math.random() * chars.length))
+	}
+
+	return result
+}
