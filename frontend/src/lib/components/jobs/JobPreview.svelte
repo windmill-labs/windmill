@@ -45,6 +45,9 @@
 
 	function staggeredOpen() {
 		hovered = true
+		if (timeout) {
+			clearTimeout(timeout)
+		}
 		timeout = setTimeout(
 			async () => {
 				timeout = undefined
@@ -65,6 +68,17 @@
 		}
 	}
 
+	function staggeredClose() {
+		hovered = false
+		timeout = setTimeout(
+			async () => {
+				timeout = undefined
+				close()
+			},
+			loaded ? 100 : 300
+		)
+	}
+
 	function onDone(event: { detail: Job }) {
 		job = event.detail
 		result = job['result']
@@ -83,7 +97,7 @@
 
 <div
 	on:mouseenter={staggeredOpen}
-	on:mouseleave={close}
+	on:mouseleave={staggeredClose}
 	on:focusin={instantOpen}
 	on:focusout={close}
 	bind:this={wrapper}
