@@ -51,13 +51,13 @@ use async_recursion::async_recursion;
 use rand::Rng;
 
 #[cfg(feature = "enterprise")]
-use crate::global_cache::{copy_cache_from_bucket_as_tar, copy_cache_from_bucket, copy_cache_to_bucket, copy_cache_to_bucket_as_tar};
+use crate::global_cache::{copy_cache_from_bucket_as_tar};
 
 use crate::{
     jobs::{add_completed_job, add_completed_job_error},
     worker_flow::{
         handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress,
-    }, python_executor::{create_dependencies_dir, pip_compile, handle_python_job, handle_python_reqs}, common::{read_result, set_logs}, global_cache::{move_tmp_cache_to_cache}, go_executor::{handle_go_job, install_go_dependencies},
+    }, python_executor::{create_dependencies_dir, pip_compile, handle_python_job, handle_python_reqs}, common::{read_result, set_logs}, global_cache::{cache_global, copy_cache_to_tmp_cache, copy_tmp_cache_to_cache}, go_executor::{handle_go_job, install_go_dependencies},
 };
 
 
@@ -119,7 +119,7 @@ pub async fn create_token_for_owner(
     Ok(token)
 }
 
-const TMP_DIR: &str = "/tmp/windmill";
+pub const TMP_DIR: &str = "/tmp/windmill";
 pub const ROOT_CACHE_DIR: &str = "/tmp/windmill/cache/";
 pub const ROOT_TMP_CACHE_DIR: &str = "/tmp/windmill/tmpcache/";
 pub const PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "pip");
@@ -167,10 +167,6 @@ lazy_static::lazy_static! {
     .and_then(|x| x.parse::<bool>().ok())
     .unwrap_or(false);
 
-    static ref S3_CACHE_BUCKET: Option<String> = std::env::var("S3_CACHE_BUCKET")
-    .ok()
-    .map(|e| Some(e))
-    .unwrap_or(None);
 
     pub static ref DENO_PATH: String = std::env::var("DENO_PATH").unwrap_or_else(|_| "/usr/bin/deno".to_string());
     pub static ref NSJAIL_PATH: String = std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
@@ -199,7 +195,7 @@ lazy_static::lazy_static! {
         .ok()
         .map(|x| x.split(',').map(|x| x.to_string()).collect());
 
-    static ref TAR_CACHE_RATE: i32 = std::env::var("TAR_CACHE_RATE")
+    pub static ref TAR_CACHE_RATE: i32 = std::env::var("TAR_CACHE_RATE")
         .ok()
         .and_then(|x| x.parse::<i32>().ok())
         .unwrap_or(100);
@@ -228,6 +224,11 @@ lazy_static::lazy_static! {
         .ok()
         .and_then(|x| x.parse::<u64>().ok())
         .unwrap_or(60 * 10);
+
+    pub static ref S3_CACHE_BUCKET: Option<String> = std::env::var("S3_CACHE_BUCKET")
+        .ok()
+        .map(|e| Some(e))
+        .unwrap_or(None);
 
 }
 
@@ -294,7 +295,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
     tracing::debug!(worker_dir = %worker_dir, worker_name = %worker_name, "Creating worker dir");
 
-    for x in [&worker_dir, ROOT_TMP_CACHE_DIR, PIP_CACHE_DIR, DENO_CACHE_DIR, GO_CACHE_DIR] {
+    for x in [&worker_dir, PIP_CACHE_DIR, DENO_CACHE_DIR, GO_CACHE_DIR] {
         DirBuilder::new()
             .recursive(true)
             .create(x)
@@ -402,24 +403,17 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         WORKER_STARTED.inc();
     }
 
-    let (_copy_bucket_tx, mut _copy_bucket_rx) = mpsc::channel::<()>(2);
+    let (copy_to_bucket_tx, mut copy_to_bucket_rx) = mpsc::channel::<()>(2);
 
     let mut copy_cache_from_bucket_handle: Option<tokio::task::JoinHandle<()>> = None;
-
-    let mut initialized_cache = false;
 
     #[cfg(feature = "enterprise")]
     if i_worker == 1 {
         if let Some(ref s) = S3_CACHE_BUCKET.clone() {
             // We try to download the entire cache as a tar, it is much faster over S3
-            if !copy_cache_from_bucket_as_tar(&s).await {
-                // We revert to copying the cache from the bucket
-                copy_cache_from_bucket_handle = copy_cache_from_bucket(&s, Some(_copy_bucket_tx.clone())).await;
-            } else {
-                initialized_cache = true;
-            }
+            copy_cache_from_bucket_as_tar(&s).await;
         }
-    }
+    };
 
     IS_READY.store(true, Ordering::Relaxed);
 
@@ -458,6 +452,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             );
         }
 
+        let copy_tx = copy_to_bucket_tx.clone();
 
         let do_break = async {
             if last_ping.elapsed().as_secs() > NUM_SECS_PING {
@@ -474,18 +469,25 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             }
 
             #[cfg(feature = "enterprise")]
-            if initialized_cache && last_sync.elapsed().as_secs() > *GLOBAL_CACHE_INTERVAL && i_worker == 1  {
-                if let Some(ref s) = S3_CACHE_BUCKET.clone() {
-                    copy_cache_from_bucket(&s, None).await;
-                    copy_cache_to_bucket(&s).await;
-                    
-                    // this is to prevent excessive tar upload. 1/100*15min = each worker sync its tar once per day on average
-                    if rand::thread_rng().gen_range(0..*TAR_CACHE_RATE) == 0 {
-                        copy_cache_to_bucket_as_tar(&s).await;
+            if i_worker == 1 && S3_CACHE_BUCKET.is_some() {
+                if last_sync.elapsed().as_secs() > *GLOBAL_CACHE_INTERVAL &&
+                    (copy_cache_from_bucket_handle.is_none() || copy_cache_from_bucket_handle.as_ref().unwrap().is_finished()) {
+                    tracing::info!("Started syncing cache");
+                    last_sync = Instant::now();
+                    if let Err(e) = copy_cache_to_tmp_cache().await {
+                        tracing::error!("failed to copy cache to tmp cache: {}", e);
+                    } else {
+                        copy_cache_from_bucket_handle = Some(tokio::task::spawn(async move {
+                            if let Some(ref s) = S3_CACHE_BUCKET.clone() {
+                                if let Err(e) = cache_global(s, copy_tx).await { 
+                                    tracing::error!("failed to sync cache: {}", e);
+                                }
+                            }
+                        }));
                     }
                 }
-                last_sync = Instant::now();
             }
+
 
             let (do_break, next_job) = if first_run { 
                 (false, Ok(Some(QueuedJob::default())))
@@ -495,17 +497,17 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                         biased;
                         _ = rx.recv() => {
                             if let Some(copy_cache_from_bucket_handle) = copy_cache_from_bucket_handle.as_ref() {
-                                copy_cache_from_bucket_handle.abort();
+                                if !copy_cache_from_bucket_handle.is_finished() {
+                                    copy_cache_from_bucket_handle.abort();
+                                }
                             }
                             println!("received killpill for worker {}", i_worker);
                             (true, Ok(None))
                         },
-                        _ = _copy_bucket_rx.recv() => {
-                            if let Err(e) = move_tmp_cache_to_cache().await {
+                        _ = copy_to_bucket_rx.recv() => {
+                            if let Err(e) = copy_tmp_cache_to_cache().await {
                                 tracing::error!(worker = %worker_name, "failed to sync tmp cache to cache: {}", e);
                             }
-                            copy_cache_from_bucket_handle = None;
-                            initialized_cache = true;
                             (false, Ok(None))
                         },
                         Some(job_id) = same_worker_rx.recv() => {
@@ -1419,6 +1421,9 @@ async fn handle_deno_job(
     // start = Instant::now();
     handle_child(&job.id, db, logs, child, false, worker_name, &job.workspace_id, "deno run").await?;
     // logs.push_str(format!("execute: {:?}\n", start.elapsed().as_millis()).as_str());
+    if let Err(e) = tokio::fs::remove_dir_all(format!("{DENO_CACHE_DIR}/gen/file/{job_dir}")).await {
+        tracing::error!("failed to remove deno gen tmp cache dir: {}", e);
+    }
     read_result(job_dir).await
 }
 
