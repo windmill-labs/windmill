@@ -110,6 +110,8 @@
 		duration: 200,
 		easing: cubicOut
 	})
+
+	let reloadArgs = 0
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
@@ -242,19 +244,20 @@
 								</div>
 							</Button>
 						</div>
-
-						<RunForm
-							{loading}
-							autofocus
-							detailed={false}
-							bind:isValid
-							bind:this={runForm}
-							runnable={script}
-							runAction={runScript}
-							viewCliRun
-							isFlow={false}
-							bind:args
-						/>
+						{#key reloadArgs}
+							<RunForm
+								{loading}
+								autofocus
+								detailed={false}
+								bind:isValid
+								bind:this={runForm}
+								runnable={script}
+								runAction={runScript}
+								viewCliRun
+								isFlow={false}
+								bind:args
+							/>
+						{/key}
 					{/if}
 				{:else}
 					<Skeleton layout={[2, [3], 1, [2], 4, [4], 3, [8]]} />
@@ -263,7 +266,15 @@
 		</Pane>
 
 		<Pane size={$savedInputPaneSize}>
-			<SavedInputs scriptHash={hash} {isValid} {args} on:selected_args={(e) => (args = e.detail)} />
+			<SavedInputs
+				scriptHash={hash}
+				{isValid}
+				{args}
+				on:selected_args={(e) => {
+					args = JSON.parse(JSON.stringify(e.detail))
+					reloadArgs += 1
+				}}
+			/>
 		</Pane>
 	</Splitpanes>
 </SplitPanesWrapper>
