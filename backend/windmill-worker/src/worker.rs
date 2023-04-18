@@ -47,18 +47,20 @@ use futures::{
 };
 
 use async_recursion::async_recursion;
+
 #[cfg(feature = "enterprise")]
 use rand::Rng;
 
 #[cfg(feature = "enterprise")]
-use crate::global_cache::{copy_cache_from_bucket_as_tar};
+use crate::global_cache::{copy_cache_from_bucket_as_tar, copy_cache_to_tmp_cache, cache_global, copy_tmp_cache_to_cache};
 
 use crate::{
     jobs::{add_completed_job, add_completed_job_error},
     worker_flow::{
         handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress,
-    }, python_executor::{create_dependencies_dir, pip_compile, handle_python_job, handle_python_reqs}, common::{read_result, set_logs}, global_cache::{cache_global, copy_cache_to_tmp_cache, copy_tmp_cache_to_cache}, go_executor::{handle_go_job, install_go_dependencies},
+    }, python_executor::{create_dependencies_dir, pip_compile, handle_python_job, handle_python_reqs}, common::{read_result, set_logs}, go_executor::{handle_go_job, install_go_dependencies},
 };
+
 
 
 
@@ -403,6 +405,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
         WORKER_STARTED.inc();
     }
 
+
     let (copy_to_bucket_tx, mut copy_to_bucket_rx) = mpsc::channel::<()>(2);
 
     let mut copy_cache_from_bucket_handle: Option<tokio::task::JoinHandle<()>> = None;
@@ -452,6 +455,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             );
         }
 
+        #[cfg(feature = "enterprise")]
         let copy_tx = copy_to_bucket_tx.clone();
 
         let do_break = async {
@@ -505,6 +509,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                             (true, Ok(None))
                         },
                         _ = copy_to_bucket_rx.recv() => {
+                            #[cfg(feature = "enterprise")]
                             if let Err(e) = copy_tmp_cache_to_cache().await {
                                 tracing::error!(worker = %worker_name, "failed to sync tmp cache to cache: {}", e);
                             }
