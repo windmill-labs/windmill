@@ -150,6 +150,7 @@ Windmill Community Edition {GIT_VERSION}
         "BLACKLIST_WORKSPACES",
         "INSTANCE_EVENTS_WEBHOOK",
         "CLOUD_HOSTED",
+        "GLOBAL_CACHE_INTERVAL",
     ]);
 
     if server_mode || num_workers > 0 {
