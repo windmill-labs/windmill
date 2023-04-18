@@ -40,7 +40,19 @@
 		loading = true
 		let flow: Flow
 		if (stateLoadedFromUrl != undefined && stateLoadedFromUrl?.flow?.path == $page.params.path) {
-			sendUserToast('Flow restored from draft')
+			sendUserToast('Flow restored from draft', false, [
+				{
+					label: 'Restore last saved version instead',
+					callback: () => {
+						FlowService.getFlowByPath({
+							workspace: $workspaceStore!,
+							path: $page.params.path
+						}).then((flow) => {
+							$flowStore = flow
+						})
+					}
+				}
+			])
 			flow = stateLoadedFromUrl.flow
 		} else {
 			flow = await FlowService.getFlowByPath({
