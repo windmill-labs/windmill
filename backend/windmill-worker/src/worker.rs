@@ -409,13 +409,15 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let mut initialized_cache = false;
 
     #[cfg(feature = "enterprise")]
-    if let Some(ref s) = S3_CACHE_BUCKET.clone() {
-        // We try to download the entire cache as a tar, it is much faster over S3
-        if !copy_cache_from_bucket_as_tar(&s).await {
-            // We revert to copying the cache from the bucket
-            copy_cache_from_bucket_handle = copy_cache_from_bucket(&s, Some(_copy_bucket_tx.clone())).await;
-        } else {
-            initialized_cache = true;
+    if i_worker == 1 {
+        if let Some(ref s) = S3_CACHE_BUCKET.clone() {
+            // We try to download the entire cache as a tar, it is much faster over S3
+            if !copy_cache_from_bucket_as_tar(&s).await {
+                // We revert to copying the cache from the bucket
+                copy_cache_from_bucket_handle = copy_cache_from_bucket(&s, Some(_copy_bucket_tx.clone())).await;
+            } else {
+                initialized_cache = true;
+            }
         }
     }
 
@@ -472,13 +474,13 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             }
 
             #[cfg(feature = "enterprise")]
-            if initialized_cache && last_sync.elapsed().as_secs() > *GLOBAL_CACHE_INTERVAL {
+            if initialized_cache && last_sync.elapsed().as_secs() > *GLOBAL_CACHE_INTERVAL && i_worker == 1  {
                 if let Some(ref s) = S3_CACHE_BUCKET.clone() {
                     copy_cache_from_bucket(&s, None).await;
                     copy_cache_to_bucket(&s).await;
                     
                     // this is to prevent excessive tar upload. 1/100*15min = each worker sync its tar once per day on average
-                    if rand::thread_rng().gen_range(0..*TAR_CACHE_RATE) == 1 {
+                    if rand::thread_rng().gen_range(0..*TAR_CACHE_RATE) == 0 {
                         copy_cache_to_bucket_as_tar(&s).await;
                     }
                 }
