@@ -189,6 +189,7 @@ func Run(req Req) (interface{{}}, error){{
             false,
             worker_name,
             &job.workspace_id,
+            "go build",
         )
         .await?;
 
@@ -228,6 +229,7 @@ func Run(req Req) (interface{{}}, error){{
         !*DISABLE_NSJAIL,
         worker_name,
         &job.workspace_id,
+        "go run",
     )
     .await?;
     read_result(job_dir).await
@@ -272,7 +274,7 @@ pub async fn install_go_dependencies(
             .stderr(Stdio::piped())
             .spawn()?;
 
-        handle_child(job_id, db, logs, child, false, worker_name, w_id).await?;
+        handle_child(job_id, db, logs, child, false, worker_name, w_id, "go init").await?;
     }
 
     let mut new_lockfile = false;
@@ -310,9 +312,18 @@ pub async fn install_go_dependencies(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
-    handle_child(job_id, db, logs, child, false, worker_name, &w_id)
-        .await
-        .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
+    handle_child(
+        job_id,
+        db,
+        logs,
+        child,
+        false,
+        worker_name,
+        &w_id,
+        &format!("go {mod_command}"),
+    )
+    .await
+    .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
 
     if (!new_lockfile || has_sum) && non_dep_job {
         return Ok("".to_string());
