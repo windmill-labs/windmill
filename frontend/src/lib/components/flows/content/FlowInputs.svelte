@@ -7,8 +7,8 @@
 	import { faBolt, faCheck, faCode } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import FlowScriptPicker from '../pickers/FlowScriptPicker.svelte'
+	import PickHubScript from '../pickers/PickHubScript.svelte'
 	import WorkspaceScriptPicker from '../pickers/WorkspaceScriptPicker.svelte'
-	import PickHubItems from '../pickers/PickHubItems.svelte'
 
 	export let failureModule: boolean
 	export let shouldDisableTriggerScripts: boolean = false
@@ -157,9 +157,9 @@
 			>Use pre-made <span class="text-blue-500">{kind == 'script' ? 'action' : kind}</span> script</h3
 		>
 		{#if pick_existing == 'hub'}
-			<PickHubItems bind:filter {kind} on:pickScript={() => dispatch('pick')}>
+			<PickHubScript bind:filter {kind} on:pick>
 				<ToggleHubWorkspace bind:selected={pick_existing} />
-			</PickHubItems>
+			</PickHubScript>
 		{:else}
 			<WorkspaceScriptPicker displayLock bind:filter {kind} on:pick>
 				<ToggleHubWorkspace bind:selected={pick_existing} />
