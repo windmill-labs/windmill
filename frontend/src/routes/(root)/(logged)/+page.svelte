@@ -21,11 +21,14 @@
 	import { writable } from 'svelte/store'
 	import type { EditorBreakpoint } from '$lib/components/apps/types'
 
-	type Tab = 'hubscripts' | 'hubflows' | 'hubapps' | 'workspace'
+	type Tab = 'hub' | 'workspace'
 
 	let tab: Tab = window.location.hash?.includes('#')
 		? (window.location.hash?.replace('#', '') as Tab)
 		: 'workspace'
+
+	let subtab: 'flows' | 'scripts' | 'apps' = 'flows'
+
 	let filter: string = ''
 
 	let flowViewer: Drawer
@@ -203,22 +206,10 @@
 							Workspace
 						</div>
 					</Tab>
-					<Tab size="md" value="hubscripts">
+					<Tab size="md" value="hub">
 						<div class="flex gap-2 items-center my-1">
 							<Globe2 size={18} />
-							Hub Scripts
-						</div>
-					</Tab>
-					<Tab size="md" value="hubflows">
-						<div class="flex gap-2 items-center my-1">
-							<Globe2 size={18} />
-							Hub Flows
-						</div>
-					</Tab>
-					<Tab size="md" value="hubapps">
-						<div class="flex gap-2 items-center my-1">
-							<Globe2 size={18} />
-							Hub Apps
+							Hub
 						</div>
 					</Tab>
 				</Tabs>
@@ -227,24 +218,48 @@
 		<div class="my-2" />
 		<div class="flex flex-col gap-y-16">
 			<div class="flex flex-col">
-				{#if tab == 'hubscripts'}
-					<PickHubScript bind:filter on:pick={(e) => viewCode(e.detail)}
-						><Button target="_blank" href="https://hub.windmill.dev" variant="border" color="light"
-							>Go to Hub</Button
-						></PickHubScript
-					>
-				{:else if tab == 'hubflows'}
-					<PickHubFlow bind:filter on:pick={(e) => viewFlow(e.detail)}
-						><Button target="_blank" href="https://hub.windmill.dev" variant="border" color="light"
-							>Go to Hub</Button
-						></PickHubFlow
-					>
-				{:else if tab == 'hubapps'}
-					<PickHubApp bind:filter on:pick={(e) => viewApp(e.detail)}
-						><Button target="_blank" href="https://hub.windmill.dev" variant="border" color="light"
-							>Go to Hub</Button
-						></PickHubApp
-					>
+				{#if tab == 'hub'}
+					<Tabs bind:selected={subtab}>
+						<Tab size="md" value="scripts">
+							<div class="flex gap-2 items-center my-1"> Scripts </div>
+						</Tab>
+						<Tab size="md" value="flows">
+							<div class="flex gap-2 items-center my-1"> Flows </div>
+						</Tab>
+						<Tab size="md" value="apps">
+							<div class="flex gap-2 items-center my-1"> Apps </div>
+						</Tab>
+					</Tabs>
+					<div class="my-2" />
+
+					{#if subtab == 'scripts'}
+						<PickHubScript bind:filter on:pick={(e) => viewCode(e.detail)}
+							><Button
+								target="_blank"
+								href="https://hub.windmill.dev"
+								variant="border"
+								color="light">Go to Hub</Button
+							></PickHubScript
+						>
+					{:else if subtab == 'flows'}
+						<PickHubFlow bind:filter on:pick={(e) => viewFlow(e.detail)}
+							><Button
+								target="_blank"
+								href="https://hub.windmill.dev"
+								variant="border"
+								color="light">Go to Hub</Button
+							></PickHubFlow
+						>
+					{:else if subtab == 'apps'}
+						<PickHubApp bind:filter on:pick={(e) => viewApp(e.detail)}
+							><Button
+								target="_blank"
+								href="https://hub.windmill.dev"
+								variant="border"
+								color="light">Go to Hub</Button
+							></PickHubApp
+						>
+					{/if}
 				{/if}
 			</div>
 		</div>
