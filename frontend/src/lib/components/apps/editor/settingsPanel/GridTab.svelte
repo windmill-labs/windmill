@@ -7,9 +7,16 @@
 	import { deleteGridItem } from '../appUtils'
 	import type { AppComponent } from '../component'
 	import PanelSection from './common/PanelSection.svelte'
+	import { dndzone } from 'svelte-dnd-action'
+	import { generateRandomString } from '$lib/utils'
+	import { GripVertical } from 'lucide-svelte'
 
 	export let tabs: string[]
 	export let component: AppComponent
+
+	let items = tabs.map((tab, index) => {
+		return { value: tab, id: generateRandomString(), originalIndex: index }
+	})
 
 	const { app, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -23,6 +30,15 @@
 
 		$app.subgrids[`${component.id}-${numberOfTabs}`] = []
 		component.numberOfSubgrids = tabs.length
+
+		items = [
+			...items,
+			{
+				value: tabs[tabs.length - 1],
+				id: generateRandomString(),
+				originalIndex: tabs.length - 1
+			}
+		]
 	}
 
 	function deleteSubgrid(index: number) {
@@ -41,6 +57,56 @@
 		tabs = tabs
 		component.numberOfSubgrids = tabs.length
 		$app = $app
+
+		// Remove the corresponding item from the items array
+		items = items.filter((item) => item.originalIndex !== index)
+
+		// Update the originalIndex of the remaining items
+		items.forEach((item, i) => {
+			item.originalIndex = i
+		})
+	}
+
+	function handleConsider(e) {
+		const { items: newItems } = e.detail
+		items = newItems
+	}
+
+	function handleFinalize(e) {
+		const { items: newItems } = e.detail
+
+		items = newItems
+		tabs = items.map((item) => item.value)
+
+		const oldSubgrids = { ...$app.subgrids }
+		const newSubgrids = { ...oldSubgrids }
+
+		items.forEach((item, newIndex) => {
+			const oldIndex = item.originalIndex
+			const newKey = `${component.id}-${newIndex}`
+			const oldKey = `${component.id}-${oldIndex}`
+
+			if (oldSubgrids.hasOwnProperty(oldKey)) {
+				newSubgrids[newKey] = oldSubgrids[oldKey]
+			} else {
+				delete newSubgrids[newKey]
+			}
+		})
+
+		$app.subgrids = newSubgrids
+		$app = $app
+	}
+
+	let dragDisabled = true
+
+	function startDrag(e) {
+		// preventing default to prevent lag on touch devices (because of the browser checking for screen scrolling)
+		e.preventDefault()
+		dragDisabled = false
+	}
+
+	function handleKeyDown(e) {
+		if ((e.key === 'Enter' || e.key === ' ') && dragDisabled) dragDisabled = false
 	}
 </script>
 
@@ -49,15 +115,35 @@
 		<span class="text-xs text-gray-500">No Tabs</span>
 	{/if}
 	<div class="w-full flex gap-2 flex-col mt-2">
-		{#each tabs as value, index (index)}
-			<div class="w-full flex flex-row gap-2 items-center relative">
-				<input on:keydown|stopPropagation type="text" bind:value />
+		<section
+			use:dndzone={{
+				items,
+				flipDurationMs: 200,
+				dropTargetStyle: {}
+			}}
+			on:consider={handleConsider}
+			on:finalize={handleFinalize}
+		>
+			{#each items as item, index (item.id)}
+				<div class="w-full flex flex-row gap-2 items-center relative my-1">
+					<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
+					<div
+						tabindex={dragDisabled ? 0 : -1}
+						class="w-4 h-4"
+						on:mousedown={startDrag}
+						on:touchstart={startDrag}
+						on:keydown={handleKeyDown}
+					>
+						<GripVertical size={16} />
+					</div>
+					<input on:keydown|stopPropagation type="text" bind:value={item.value} />
 
-				<div class="absolute right-1">
-					<CloseButton noBg on:close={() => deleteSubgrid(index)} />
+					<div class="absolute right-1">
+						<CloseButton noBg on:close={() => deleteSubgrid(index)} />
+					</div>
 				</div>
-			</div>
-		{/each}
+			{/each}
+		</section>
 		<Button
 			size="xs"
 			color="light"

@@ -7,6 +7,7 @@
 	import SubTypeEditor from './SubTypeEditor.svelte'
 	import { flip } from 'svelte/animate'
 	import { dndzone, SOURCES, TRIGGERS } from 'svelte-dnd-action'
+	import { generateRandomString } from '$lib/utils'
 
 	const flipDurationMs = 200
 
@@ -52,8 +53,7 @@
 		if (componentInput.value) {
 			items.push({
 				value: componentInput.value[componentInput.value.length - 1],
-				id: generateRandomString(),
-				originalIndex: componentInput.value.length - 1
+				id: generateRandomString()
 			})
 		}
 	}
@@ -63,30 +63,10 @@
 			componentInput.value.splice(index, 1)
 			redraw = redraw + 1
 			dispatch('deleteArrayItem', { index })
-
-			// Remove the corresponding item from the items array
-			items = items.filter((item) => item.originalIndex !== index)
-
-			// Update the originalIndex of the remaining items
-			items.forEach((item, i) => {
-				item.originalIndex = i
-			})
 		}
 	}
 
 	let redraw = 0
-
-	function generateRandomString() {
-		let chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-		let result = ''
-
-		for (let i = 0; i < 24; i++) {
-			result += chars.charAt(Math.floor(Math.random() * chars.length))
-		}
-
-		return result
-	}
-
 	let dragDisabled = true
 
 	function handleConsider(e) {
@@ -130,7 +110,7 @@
 
 	let items =
 		componentInput.value?.map((item, index) => {
-			return { value: item, id: generateRandomString(), originalIndex: index }
+			return { value: item, id: generateRandomString() }
 		}) ?? []
 </script>
 
