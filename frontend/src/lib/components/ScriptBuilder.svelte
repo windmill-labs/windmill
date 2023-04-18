@@ -191,9 +191,13 @@
 						color={isPicked ? 'blue' : 'dark'}
 						btnClasses={isPicked ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
 						on:click={() => {
+							let lastTemplate = template
 							template = 'script'
 							initContent(lang, script.kind, template)
 							script.language = lang
+							if (lastTemplate != template) {
+								setCode(script.content)
+							}
 						}}
 						disabled={lockedLanguage}
 					>
@@ -208,9 +212,13 @@
 					btnClasses={template == 'pgsql' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
 					disabled={lockedLanguage}
 					on:click={() => {
+						let lastTemplate = template
 						template = 'pgsql'
 						initContent(Script.language.DENO, script.kind, template)
 						script.language = Script.language.DENO
+						if (lastTemplate != template) {
+							setCode(script.content)
+						}
 					}}
 				>
 					<LanguageIcon lang="pgsql" /><span class="ml-2 py-2">PostgreSQL</span>

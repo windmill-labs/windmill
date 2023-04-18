@@ -20,7 +20,7 @@ export const DENO_INIT_CODE = `// Ctrl/CMD+. to cache dependencies on imports ho
 export async function main(
   a: number,
   b: "my" | "enum",
-  //c: Resource<'postgresql'>,
+  //c: wmill.Resource<'postgresql'>,
   d = "inferred type string from default arg",
   e = { nested: "object" },
   //e: wmill.Base64
