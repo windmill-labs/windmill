@@ -18,7 +18,8 @@
 		return { value: tab, id: generateRandomString(), originalIndex: index }
 	})
 
-	const { app, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, runnableComponents, componentControl } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	function addTab() {
 		const numberOfTabs = tabs.length
@@ -78,35 +79,43 @@
 		items = newItems
 		tabs = items.map((item) => item.value)
 
-		const oldSubgrids = { ...$app.subgrids }
-		const newSubgrids = { ...oldSubgrids }
-
-		items.forEach((item, newIndex) => {
-			const oldIndex = item.originalIndex
-			const newKey = `${component.id}-${newIndex}`
-			const oldKey = `${component.id}-${oldIndex}`
-
-			if (oldSubgrids.hasOwnProperty(oldKey)) {
-				newSubgrids[newKey] = oldSubgrids[oldKey]
-			} else {
-				delete newSubgrids[newKey]
+		// if the originalIndex are not in order, we should swap the subgrids
+		if (items.some((item, index) => item.originalIndex !== index)) {
+			const newSubgrids = {}
+			for (let i = 0; i < tabs.length; i++) {
+				newSubgrids[`${component.id}-${i}`] =
+					$app!.subgrids![`${component.id}-${items[i].originalIndex}`] ?? []
 			}
-		})
 
-		$app.subgrids = newSubgrids
-		$app = $app
+			// update originalIndex
+			items.forEach((item, i) => {
+				item.originalIndex = i
+			})
+
+			$app!.subgrids = {
+				...$app!.subgrids,
+				...newSubgrids
+			}
+			$app = $app
+
+			const targetIndex = items.findIndex((i) => i.id === e.detail.info.id)
+			$componentControl[component.id]?.setTab?.(targetIndex)
+		}
 	}
 
 	let dragDisabled = true
 
-	function startDrag(e) {
+	function startDrag(e, index) {
 		// preventing default to prevent lag on touch devices (because of the browser checking for screen scrolling)
 		e.preventDefault()
+
 		dragDisabled = false
 	}
 
 	function handleKeyDown(e) {
-		if ((e.key === 'Enter' || e.key === ' ') && dragDisabled) dragDisabled = false
+		if ((e.key === 'Enter' || e.key === ' ') && dragDisabled) {
+			dragDisabled = false
+		}
 	}
 </script>
 
@@ -130,13 +139,13 @@
 					<div
 						tabindex={dragDisabled ? 0 : -1}
 						class="w-4 h-4"
-						on:mousedown={startDrag}
-						on:touchstart={startDrag}
+						on:mousedown={(e) => startDrag(e, index)}
+						on:touchstart={(e) => startDrag(e, index)}
 						on:keydown={handleKeyDown}
 					>
 						<GripVertical size={16} />
 					</div>
-					<input on:keydown|stopPropagation type="text" bind:value={item.value} />
+					<input on:keydown|stopPropagation type="text" bind:value={tabs[index]} />
 
 					<div class="absolute right-1">
 						<CloseButton noBg on:close={() => deleteSubgrid(index)} />
