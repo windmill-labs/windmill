@@ -41,7 +41,7 @@
 			const actions: ToastAction[] = []
 			if (JSON.stringify(app.value) !== JSON.stringify(stateLoadedFromUrl)) {
 				actions.push({
-					label: 'Cancel',
+					label: 'Load from last save instead',
 					callback: () => {
 						restoreTempValue(tempValue)
 					}
