@@ -3,17 +3,27 @@
 	import { AppService, AppWithLastVersion } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { page } from '$app/stores'
-	import { decodeState, sendUserToast } from '$lib/utils'
+	import { decodeState, sendUserToast, type ToastAction } from '$lib/utils'
 	import { goto } from '$app/navigation'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 
 	$: app = undefined as AppWithLastVersion | undefined
+
+	let redraw = 0
 	let path = $page.params.path
 
 	let nodraft = $page.url.searchParams.get('nodraft')
 
 	if (nodraft) {
 		goto('?', { replaceState: true })
+	}
+
+	function restoreTempValue(tempValue) {
+		if (app) {
+			app.value = tempValue
+			app = app
+			redraw++
+		}
 	}
 
 	async function loadApp(): Promise<void> {
@@ -28,17 +38,17 @@
 		let stateLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
 
 		if (stateLoadedFromUrl) {
-			sendUserToast('App restored from draft', false, [
-				{
+			const actions: ToastAction[] = []
+			if (JSON.stringify(app.value) !== JSON.stringify(stateLoadedFromUrl)) {
+				actions.push({
 					label: 'Cancel',
 					callback: () => {
-						if (app) {
-							app.value = tempValue
-							app = app
-						}
+						restoreTempValue(tempValue)
 					}
-				}
-			])
+				})
+			}
+
+			sendUserToast('App restored from draft', false, actions)
 			app.value = stateLoadedFromUrl
 		}
 		$dirtyStore = false
@@ -51,8 +61,10 @@
 	}
 </script>
 
-{#if app}
-	<div class="h-screen">
-		<AppEditor summary={app.summary} app={app.value} path={app.path} policy={app.policy} />
-	</div>
-{/if}
+{#key redraw}
+	{#if app}
+		<div class="h-screen">
+			<AppEditor summary={app.summary} app={app.value} path={app.path} policy={app.policy} />
+		</div>
+	{/if}
+{/key}

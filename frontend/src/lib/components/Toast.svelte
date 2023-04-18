@@ -38,7 +38,13 @@
 				<p class="text-sm text-gray-500">{message}</p>
 				<div class="mt-2 flex flex-row gap-2 h-15">
 					{#each actions as action, index (index)}
-						<Button on:click={action.callback} class="text-sm !text-black">
+						<Button
+							on:click={() => {
+								action.callback()
+								toast.pop(toastId)
+							}}
+							class="text-sm !text-black"
+						>
 							{action.label}
 						</Button>
 					{/each}
