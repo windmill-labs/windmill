@@ -143,6 +143,15 @@
 		>
 			{#each items as item, index (item.id)}
 				<div class="w-full flex flex-row gap-2 items-center relative my-1">
+					<input
+						on:keydown|stopPropagation
+						on:input={(e) => updateItemValue(index, e)}
+						type="text"
+						bind:value={tabs[index]}
+					/>
+					<div class="absolute right-6">
+						<CloseButton noBg on:close={() => deleteSubgrid(index)} />
+					</div>
 					<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
 					<div
 						tabindex={dragDisabled ? 0 : -1}
@@ -152,15 +161,6 @@
 						on:keydown={handleKeyDown}
 					>
 						<GripVertical size={16} />
-					</div>
-					<input
-						on:keydown|stopPropagation
-						on:input={(e) => updateItemValue(index, e)}
-						type="text"
-						bind:value={tabs[index]}
-					/>
-					<div class="absolute right-1">
-						<CloseButton noBg on:close={() => deleteSubgrid(index)} />
 					</div>
 				</div>
 			{/each}

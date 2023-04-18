@@ -114,7 +114,9 @@
 			return { value: item, id: generateRandomString() }
 		}) ?? []
 
-	$: if (componentInput.value) {
+	$: items && handleItemsChange()
+
+	function handleItemsChange() {
 		componentInput.value = items.map((item) => item.value)
 	}
 </script>
