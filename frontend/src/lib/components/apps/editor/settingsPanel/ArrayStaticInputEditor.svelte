@@ -61,6 +61,7 @@
 	function deleteElementByType(index: number) {
 		if (componentInput.value) {
 			componentInput.value.splice(index, 1)
+			items.splice(index, 1) // Add this
 			redraw = redraw + 1
 			dispatch('deleteArrayItem', { index })
 		}
@@ -112,6 +113,10 @@
 		componentInput.value?.map((item, index) => {
 			return { value: item, id: generateRandomString() }
 		}) ?? []
+
+	$: if (componentInput.value) {
+		componentInput.value = items.map((item) => item.value)
+	}
 </script>
 
 <div class="flex gap-2 flex-col mt-2">
@@ -132,11 +137,7 @@
 						<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
 
 						<div class="flex flex-row gap-2 items-center relative my-1">
-							<SubTypeEditor
-								{subFieldType}
-								bind:componentInput
-								bind:value={componentInput.value[index]}
-							/>
+							<SubTypeEditor {subFieldType} bind:componentInput bind:value={item.value} />
 							<div class="flex justify-between flex-col items-center">
 								<div
 									tabindex={dragDisabled ? 0 : -1}
