@@ -3,10 +3,13 @@ import wmill
 
 # You can import any PyPi package. 
 # See here for more info: https://docs.windmill.dev/docs/advanced/imports#python
-# Ctrl+S to format the code. Autocompletion available.
+
+# you can use typed resources by doing a type alias to dict
+#postgresql = dict
 
 def main(
     no_default: str,
+    #db: postgresql,
     name="Nicolas Bourbaki",
     age=42,
     obj: dict = {"even": "dicts"},
