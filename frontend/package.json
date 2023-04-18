@@ -1,6 +1,6 @@
 {
 	"name": "windmill",
-	"version": "1.87.0",
+	"version": "1.88.1",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -9,7 +9,7 @@
 		"check:watch": "svelte-check --tsconfig ./tsconfig.json --watch",
 		"lint": "prettier --ignore-path .gitignore --check --plugin-search-dir=. . && eslint --ignore-path .gitignore .",
 		"format": "prettier --ignore-path .gitignore --write --plugin-search-dir=. .",
-		"package": "svelte-package && cd package && rm README.md && rm README_DEV.md && sed -i -e 's/windmill/windmill-components/g' package.json",
+		"package": "svelte-package",
 		"generate-backend-client": "openapi --input ../backend/windmill-api/openapi.yaml --output ./src/lib/gen --useOptions && sed -i '213 i \\    request.referrerPolicy = \"no-referrer\"\n' src/lib/gen/core/request.ts",
 		"pretest": "tsc --incremental -p tests/tsconfig.json",
 		"test": "playwright test --config=tests-out/playwright.config.js"
@@ -17,9 +17,9 @@
 	"devDependencies": {
 		"@playwright/test": "^1.31.1",
 		"@rgossiaux/svelte-headlessui": "^1.0.2",
-		"@sveltejs/adapter-static": "^2.0.1",
-		"@sveltejs/kit": "^1.0.0-next.589",
-		"@sveltejs/package": "^1.0.2",
+		"@sveltejs/adapter-static": "^2.0.2",
+		"@sveltejs/kit": "^1.15.6",
+		"@sveltejs/package": "^2.0.2",
 		"@tailwindcss/forms": "^0.5.3",
 		"@tailwindcss/typography": "^0.5.8",
 		"@types/d3": "^7.4.0",
@@ -28,7 +28,7 @@
 		"@types/node": "^18.11.18",
 		"@types/vscode": "~1.77.0",
 		"@typescript-eslint/eslint-plugin": "^5.49.0",
-		"@typescript-eslint/parser": "^5.48.0",
+		"@typescript-eslint/parser": "^5.59.0",
 		"@zerodevx/svelte-toast": "^0.8.1",
 		"autoprefixer": "^10.4.13",
 		"cssnano": "^6.0.0",
@@ -36,7 +36,7 @@
 		"eslint": "^8.38.0",
 		"eslint-config-prettier": "^8.6.0",
 		"eslint-plugin-svelte3": "^4.0.0",
-		"monaco-editor-workers": "0.36.0",
+		"monaco-editor-workers": "0.37.0",
 		"ol": "^7.2.2",
 		"openapi-typescript-codegen": "^0.23.0",
 		"path-browserify": "^1.0.1",
@@ -47,11 +47,11 @@
 		"prettier-plugin-svelte": "^2.9.0",
 		"simple-svelte-autocomplete": "^2.5.1",
 		"style-to-object": "^0.4.1",
-		"stylelint-config-recommended": "^9.0.0",
+		"stylelint-config-recommended": "^12.0.0",
 		"svelte": "^3.55.1",
 		"svelte-awesome": "^3.2.0",
 		"svelte-awesome-color-picker": "^2.4.1",
-		"svelte-check": "^3.0.2",
+		"svelte-check": "^3.2.0",
 		"svelte-highlight": "^7.2.1",
 		"svelte-multiselect": "^8.6.0",
 		"svelte-overlay": "^1.4.1",
@@ -62,7 +62,7 @@
 		"svelte2tsx": "^0.6.11",
 		"tailwindcss": "^3.2.2",
 		"tslib": "^2.4.1",
-		"typescript": "^4.9.3",
+		"typescript": "^5.0.4",
 		"vite": "^4.0.4",
 		"yootils": "^0.3.1"
 	},
@@ -73,7 +73,7 @@
 		"@leeoniya/ufuzzy": "^1.0.6",
 		"@popperjs/core": "^2.11.6",
 		"@redocly/json-to-json-schema": "^0.0.1",
-		"@tanstack/svelte-table": "^8.7.6",
+		"@tanstack/svelte-table": "^8.8.5",
 		"ag-grid-svelte": "^0.1.4",
 		"chart.js": "^3.9.1",
 		"chartjs-adapter-date-fns": "^3.0.0",
@@ -96,6 +96,17 @@
 		"vscode-ws-jsonrpc": "3.0.0"
 	},
 	"peerDependencies": {
+		"@sveltejs/kit": "^1.15.6",
 		"svelte": "^3.55.1"
-	}
+	},
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"svelte": "./dist/index.js"
+		}
+	},
+	"files": [
+		"dist"
+	],
+	"license": "Apache-2.0"
 }

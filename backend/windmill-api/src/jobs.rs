@@ -626,7 +626,7 @@ async fn list_jobs(
 pub async fn resume_suspended_flow_as_owner(
     authed: Authed,
     Extension(db): Extension<DB>,
-    Path((w_id, flow_id)): Path<(String, Uuid)>,
+    Path((_w_id, flow_id)): Path<(String, Uuid)>,
     QueryOrBody(value): QueryOrBody<serde_json::Value>,
 ) -> error::Result<StatusCode> {
     let value = value.unwrap_or(serde_json::Value::Null);
@@ -634,16 +634,11 @@ pub async fn resume_suspended_flow_as_owner(
 
     let (flow, job_id) = get_suspended_flow_info(flow_id, &mut tx).await?;
 
-    if !authed.is_admin {
-        require_owner_of_path(
-            &w_id,
-            &authed.username,
-            &authed.groups,
-            &flow.script_path.clone().unwrap_or_else(|| String::new()),
-            &db,
-        )
-        .await?;
-    }
+    require_owner_of_path(
+        &authed,
+        &flow.script_path.clone().unwrap_or_else(|| String::new()),
+    )?;
+
     insert_resume_job(0, job_id, &flow, value, Some(authed.username), &mut tx).await?;
 
     resume_immediately_if_relevant(flow, job_id, &mut tx).await?;

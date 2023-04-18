@@ -1,14 +1,6 @@
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
 import { goto } from '$app/navigation'
-import {
-	AppService,
-	type Flow,
-	FlowService,
-	Script,
-	ScriptService,
-	type User,
-	UserService
-} from '$lib/gen'
+import { AppService, type Flow, FlowService, Script, ScriptService, type User } from '$lib/gen'
 import { toast } from '@zerodevx/svelte-toast'
 import type { Schema, SupportedLanguage } from './common'
 import { hubScripts, type UserExt, workspaceStore } from './stores'
@@ -199,16 +191,27 @@ export function removeItemAll<T>(arr: T[], value: T) {
 	return arr
 }
 
-export async function isOwner(path: string, user: UserExt, workspace: string): Promise<boolean> {
-	if (user.is_admin && (workspace == 'starter' || workspace == 'admin') && user.is_super_admin) {
-		return true
-	} else if (workspace == 'starter' || workspace == 'admin') {
+export function isOwner(
+	path: string,
+	user: UserExt | undefined,
+	workspace: string | undefined
+): boolean {
+	if (!user || !workspace) {
 		return false
+	}
+	if (user.is_super_admin) {
+		return true
+	}
+	if (workspace == 'admin') {
+		return false
+	} else if (user.is_admin) {
+		return true
+	} else if (path.startsWith('u/' + user.username + '/')) {
+		return true
+	} else if (path.startsWith('f/')) {
+		return user.folders_owners.some((x) => path.startsWith('f/' + x + '/'))
 	} else {
-		return await UserService.isOwnerOfPath({
-			path: path,
-			workspace: workspace
-		})
+		return false
 	}
 }
 
@@ -237,6 +240,9 @@ export function canWrite(
 	extra_perms: Record<string, boolean>,
 	user?: UserExt
 ): boolean {
+	if (user?.is_admin || user?.is_super_admin) {
+		return true
+	}
 	let keys = Object.keys(extra_perms)
 	if (!user) {
 		return false

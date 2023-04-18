@@ -43,25 +43,29 @@ async fn add_granular_acl(
     Json(GranularAcl { owner, write }): Json<GranularAcl>,
 ) -> Result<String> {
     let path = path.to_path();
+
     let (kind, path) = path
         .split_once('/')
         .ok_or_else(|| Error::BadRequest("Invalid path or kind".to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
 
-    if !authed.is_admin {
-        if kind == "folder" {
-            crate::folders::require_is_owner(&path, &authed.username, &authed.groups, &w_id, &db)
-                .await?;
-        } else if kind == "group_" {
-        } else {
-            require_owner_of_path(&w_id, &authed.username, &authed.groups, &path, &db).await?;
-        }
-    }
     let identifier = if kind == "group_" || kind == "folder" {
         "name"
     } else {
         "path"
     };
+
+    if !authed.is_admin {
+        if kind == "folder" {
+            crate::folders::require_is_owner(&authed, path)?;
+        } else if kind == "group_" {
+            crate::groups::require_is_owner(path, &authed.username, &authed.groups, &w_id, &db)
+                .await?;
+        } else {
+            require_owner_of_path(&authed, path)?;
+        }
+    }
+
     let obj_o = sqlx::query_scalar::<_, serde_json::Value>(&format!(
         "UPDATE {kind} SET extra_perms = jsonb_set(extra_perms, '{{\"{owner}\"}}', to_jsonb($1), \
          true) WHERE {identifier} = $2 AND workspace_id = $3 RETURNING extra_perms"
@@ -86,12 +90,22 @@ async fn remove_granular_acl(
     Json(GranularAcl { owner, write: _ }): Json<GranularAcl>,
 ) -> Result<String> {
     let path = path.to_path();
-    if !authed.is_admin {
-        require_owner_of_path(&w_id, &authed.username, &authed.groups, &path, &db).await?;
-    }
+
     let (kind, path) = path
         .split_once('/')
         .ok_or_else(|| Error::BadRequest("Invalid path or kind".to_string()))?;
+
+    if !authed.is_admin {
+        if kind == "folder" {
+            crate::folders::require_is_owner(&authed, path)?;
+        } else if kind == "group_" {
+            crate::groups::require_is_owner(path, &authed.username, &authed.groups, &w_id, &db)
+                .await?;
+        } else {
+            require_owner_of_path(&authed, path)?;
+        }
+    }
+
     let mut tx = user_db.begin(&authed).await?;
 
     let identifier = if kind == "group_" || kind == "folder" {
@@ -99,6 +113,11 @@ async fn remove_granular_acl(
     } else {
         "path"
     };
+
+    if identifier == "path" {
+        require_owner_of_path(&authed, path)?;
+    }
+
     let obj_o = sqlx::query_scalar::<_, serde_json::Value>(&format!(
         "UPDATE {kind} SET extra_perms = extra_perms - $1 WHERE {identifier} = $2 AND \
          workspace_id = $3 RETURNING extra_perms"

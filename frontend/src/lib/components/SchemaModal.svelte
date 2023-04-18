@@ -30,6 +30,7 @@
 			default: schema.default,
 			contentEncoding: schema.contentEncoding,
 			format: schema.format,
+			enum_: schema.enum,
 			required
 		}
 	}
@@ -90,6 +91,7 @@
 		property.selectedType = DEFAULT_PROPERTY.selectedType
 		property.format = undefined
 		resource_type = undefined
+
 		drawer.closeDrawer()
 	}
 
@@ -209,7 +211,6 @@
 				</div>
 			{/if}
 		</div>
-
 		<svelte:fragment slot="actions">
 			<Button
 				color="blue"

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.87.0
+  version: 1.88.1
   title: Windmill API
 
   contact:
@@ -2757,6 +2757,16 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
+      requestBody:
+        description: archiveFlow
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                archived:
+                  type: boolean
       responses:
         "200":
           description: flow archived
@@ -5280,6 +5290,10 @@ components:
           type: array
           items:
             type: string
+        folders_owners:
+          type: array
+          items:
+            type: string
         usage:
           $ref: "#/components/schemas/Usage"
       required:
@@ -5291,6 +5305,7 @@ components:
         - operator
         - disabled
         - folders
+        - folders_owners
 
     Usage:
       type: object

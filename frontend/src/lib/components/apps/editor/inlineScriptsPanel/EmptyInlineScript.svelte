@@ -150,7 +150,7 @@
 				startIcon={{ icon: faCodeBranch }}
 				btnClasses="truncate"
 			>
-				Copy a script
+				Fork a workspace or hub script
 			</Button>
 			<Button
 				on:click={() => dispatch('delete')}

@@ -158,8 +158,8 @@
 		timeout && clearTimeout(timeout)
 	})
 
-	async function loadOwner(path: string) {
-		is_owner = await isOwner(path, $userStore!, workspaceId ?? $workspaceStore!)
+	function loadOwner(path: string) {
+		is_owner = isOwner(path, $userStore!, workspaceId ?? $workspaceStore!)
 	}
 
 	let selected: 'graph' | 'sequence' = 'graph'
