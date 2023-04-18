@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.88.1](https://github.com/windmill-labs/windmill/compare/v1.88.0...v1.88.1) (2023-04-18)
+
+
+### Bug Fixes
+
+* **frontend:** fix hub list ([1144329](https://github.com/windmill-labs/windmill/commit/1144329972fb61e2df62873ca1e485c88fabc478))
+
 ## [1.88.0](https://github.com/windmill-labs/windmill/compare/v1.87.0...v1.88.0) (2023-04-17)
 
 
