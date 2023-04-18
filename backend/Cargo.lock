@@ -2782,7 +2782,7 @@ dependencies = [
 [[package]]
 name = "progenitor"
 version = "0.2.1-dev"
-source = "git+https://github.com/oxidecomputer/progenitor#c8f5c0e0384c2e16b1079cb94db4fcd870fc8e66"
+source = "git+https://github.com/oxidecomputer/progenitor#b969813fd7933b1caffd8357ac1f88606410c74d"
 dependencies = [
  "anyhow",
  "built",
@@ -2800,7 +2800,7 @@ dependencies = [
 [[package]]
 name = "progenitor-client"
 version = "0.2.1-dev"
-source = "git+https://github.com/oxidecomputer/progenitor#c8f5c0e0384c2e16b1079cb94db4fcd870fc8e66"
+source = "git+https://github.com/oxidecomputer/progenitor#b969813fd7933b1caffd8357ac1f88606410c74d"
 dependencies = [
  "bytes",
  "futures-core",
@@ -2814,7 +2814,7 @@ dependencies = [
 [[package]]
 name = "progenitor-impl"
 version = "0.2.1-dev"
-source = "git+https://github.com/oxidecomputer/progenitor#c8f5c0e0384c2e16b1079cb94db4fcd870fc8e66"
+source = "git+https://github.com/oxidecomputer/progenitor#b969813fd7933b1caffd8357ac1f88606410c74d"
 dependencies = [
  "getopts",
  "heck",
@@ -2836,7 +2836,7 @@ dependencies = [
 [[package]]
 name = "progenitor-macro"
 version = "0.2.1-dev"
-source = "git+https://github.com/oxidecomputer/progenitor#c8f5c0e0384c2e16b1079cb94db4fcd870fc8e66"
+source = "git+https://github.com/oxidecomputer/progenitor#b969813fd7933b1caffd8357ac1f88606410c74d"
 dependencies = [
  "openapiv3",
  "proc-macro2",
@@ -4603,7 +4603,7 @@ checksum = "497961ef93d974e23eb6f433eb5fe1b7930b659f06d12dec6fc44a8f554c0bba"
 [[package]]
 name = "typify"
 version = "0.0.12-dev"
-source = "git+https://github.com/oxidecomputer/typify#7393e427c34f10fef45f02df5c906a1e925929f8"
+source = "git+https://github.com/oxidecomputer/typify#26efa84c0fbc185d3c48a5a82298e4341a0998c9"
 dependencies = [
  "typify-impl",
  "typify-macro",
@@ -4612,7 +4612,7 @@ dependencies = [
 [[package]]
 name = "typify-impl"
 version = "0.0.12-dev"
-source = "git+https://github.com/oxidecomputer/typify#7393e427c34f10fef45f02df5c906a1e925929f8"
+source = "git+https://github.com/oxidecomputer/typify#26efa84c0fbc185d3c48a5a82298e4341a0998c9"
 dependencies = [
  "heck",
  "log",
@@ -4629,7 +4629,7 @@ dependencies = [
 [[package]]
 name = "typify-macro"
 version = "0.0.12-dev"
-source = "git+https://github.com/oxidecomputer/typify#7393e427c34f10fef45f02df5c906a1e925929f8"
+source = "git+https://github.com/oxidecomputer/typify#26efa84c0fbc185d3c48a5a82298e4341a0998c9"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5096,7 +5096,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.88.0"
+version = "1.88.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -5130,7 +5130,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.88.0"
+version = "1.88.1"
 dependencies = [
  "anyhow",
  "argon2",
@@ -5188,7 +5188,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.88.0"
+version = "1.88.1"
 dependencies = [
  "base64 0.21.0",
  "chrono",
@@ -5203,7 +5203,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.88.0"
+version = "1.88.1"
 dependencies = [
  "chrono",
  "serde",
@@ -5216,7 +5216,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.88.0"
+version = "1.88.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -5241,7 +5241,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.88.0"
+version = "1.88.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -5249,7 +5249,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.88.0"
+version = "1.88.1"
 dependencies = [
  "anyhow",
  "itertools",
@@ -5264,7 +5264,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.88.0"
+version = "1.88.1"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -5277,7 +5277,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.88.0"
+version = "1.88.1"
 dependencies = [
  "anyhow",
  "itertools",
@@ -5292,7 +5292,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.88.0"
+version = "1.88.1"
 dependencies = [
  "anyhow",
  "deno_core",
@@ -5306,7 +5306,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.88.0"
+version = "1.88.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5333,7 +5333,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.88.0"
+version = "1.88.1"
 dependencies = [
  "anyhow",
  "async-recursion",
