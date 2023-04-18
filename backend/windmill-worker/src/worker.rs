@@ -1241,7 +1241,7 @@ async fn handle_bash_job(
             .stderr(Stdio::piped())
             .spawn()?
     };
-    handle_child(&job.id, db, logs,  child, !*DISABLE_NSJAIL, worker_name, &job.workspace_id).await?;
+    handle_child(&job.id, db, logs,  child, !*DISABLE_NSJAIL, worker_name, &job.workspace_id, "bash run").await?;
     //for now bash jobs have an empty result object
     Ok(serde_json::json!(logs
         .lines()
@@ -1415,7 +1415,7 @@ async fn handle_deno_job(
     .await?;
     // logs.push_str(format!("prepare: {:?}\n", start.elapsed().as_micros()).as_str());
     // start = Instant::now();
-    handle_child(&job.id, db, logs, child, false, worker_name, &job.workspace_id).await?;
+    handle_child(&job.id, db, logs, child, false, worker_name, &job.workspace_id, "deno run").await?;
     // logs.push_str(format!("execute: {:?}\n", start.elapsed().as_millis()).as_str());
     read_result(job_dir).await
 }
@@ -1722,7 +1722,9 @@ pub async fn handle_child(
     nsjail: bool,
     worker_name: &str,
     _w_id: &str,
+    child_name: &str,
 ) -> error::Result<()> {
+    let start = Instant::now();
     let update_job_interval = Duration::from_millis(500);
     let write_logs_delay = Duration::from_millis(500);
 
@@ -1956,6 +1958,7 @@ pub async fn handle_child(
 
     let (wait_result, _) = tokio::join!(wait_on_child, lines);
 
+    tracing::info!(%job_id, "child process '{child_name}' for {job_id} took {}ms", start.elapsed().as_millis());
     match wait_result {
         _ if *too_many_logs.borrow() => Err(Error::ExecutionErr(format!(
             "logs or result reached limit. (current max size: {MAX_RESULT_SIZE} characters)"
