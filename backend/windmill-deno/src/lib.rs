@@ -174,9 +174,12 @@ fn make_cli_options(
 pub async fn run_deno_cli(
     args: Vec<String>,
     job_dir: &str,
+    cache_dir: &str,
 ) -> std::result::Result<i32, anyhow::Error> {
-    let flags = deno_cli::args::flags_from_vec(args)
+    let mut flags = deno_cli::args::flags_from_vec(args)
         .expect("Args are built by the app and should always be valid");
+
+    flags.cache_path = Some(cache_dir.into());
 
     deno_cli::util::v8::init_v8_flags(&flags.v8_flags, deno_cli::util::v8::get_v8_flags_from_env());
 

@@ -1381,7 +1381,7 @@ async fn handle_deno_job(
         let job_dir_owned = job_dir.to_owned();
         let handle = std::thread::spawn(move || {
             // let _guard = handle.enter();
-            let fut = windmill_deno::run_deno_cli(args, &job_dir_owned);
+            let fut = windmill_deno::run_deno_cli(args, &job_dir_owned, DENO_CACHE_DIR);
             handle.block_on(fut).unwrap();
             deno_done_sender.send(()).unwrap();
         });
