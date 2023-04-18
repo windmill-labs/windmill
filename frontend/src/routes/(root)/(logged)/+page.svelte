@@ -8,19 +8,20 @@
 	import { getScriptByPath } from '$lib/utils'
 	import type { HubItem } from '$lib/components/flows/pickers/model'
 	import { faCodeFork } from '@fortawesome/free-solid-svg-icons'
-
+	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
+	import PickHubFlow from '$lib/components/flows/pickers/PickHubFlow.svelte'
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import { Building, Globe2 } from 'lucide-svelte'
 
 	import ItemsList from '$lib/components/home/ItemsList.svelte'
 	import CreateActionsApp from '$lib/components/flows/CreateActionsApp.svelte'
+	import PickHubApp from '$lib/components/flows/pickers/PickHubApp.svelte'
 	import AppPreview from '$lib/components/apps/editor/AppPreview.svelte'
 	import { writable } from 'svelte/store'
 	import type { EditorBreakpoint } from '$lib/components/apps/types'
-	import PickHubItems from '$lib/components/flows/pickers/PickHubItems.svelte'
 
-	type Tab = 'hub' | 'workspace'
+	type Tab = 'hubscripts' | 'hubflows' | 'hubapps' | 'workspace'
 
 	let tab: Tab = window.location.hash?.includes('#')
 		? (window.location.hash?.replace('#', '') as Tab)
@@ -202,10 +203,22 @@
 							Workspace
 						</div>
 					</Tab>
-					<Tab size="md" value="hub">
+					<Tab size="md" value="hubscripts">
 						<div class="flex gap-2 items-center my-1">
 							<Globe2 size={18} />
-							Hub
+							Hub Scripts
+						</div>
+					</Tab>
+					<Tab size="md" value="hubflows">
+						<div class="flex gap-2 items-center my-1">
+							<Globe2 size={18} />
+							Hub Flows
+						</div>
+					</Tab>
+					<Tab size="md" value="hubapps">
+						<div class="flex gap-2 items-center my-1">
+							<Globe2 size={18} />
+							Hub Apps
 						</div>
 					</Tab>
 				</Tabs>
@@ -214,17 +227,24 @@
 		<div class="my-2" />
 		<div class="flex flex-col gap-y-16">
 			<div class="flex flex-col">
-				{#if tab == 'hub'}
-					<PickHubItems
-						bind:filter
-						on:pickApp={(e) => viewApp(e.detail)}
-						on:pickFlow={(e) => viewFlow(e.detail)}
-						on:pickScript={(e) => viewCode(e.detail)}
+				{#if tab == 'hubscripts'}
+					<PickHubScript bind:filter on:pick={(e) => viewCode(e.detail)}
+						><Button target="_blank" href="https://hub.windmill.dev" variant="border" color="light"
+							>Go to Hub</Button
+						></PickHubScript
 					>
-						<Button target="_blank" href="https://hub.windmill.dev" variant="border" color="light">
-							Go to Hub
-						</Button>
-					</PickHubItems>
+				{:else if tab == 'hubflows'}
+					<PickHubFlow bind:filter on:pick={(e) => viewFlow(e.detail)}
+						><Button target="_blank" href="https://hub.windmill.dev" variant="border" color="light"
+							>Go to Hub</Button
+						></PickHubFlow
+					>
+				{:else if tab == 'hubapps'}
+					<PickHubApp bind:filter on:pick={(e) => viewApp(e.detail)}
+						><Button target="_blank" href="https://hub.windmill.dev" variant="border" color="light"
+							>Go to Hub</Button
+						></PickHubApp
+					>
 				{/if}
 			</div>
 		</div>

@@ -26,11 +26,11 @@
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import { Badge, Drawer } from './common'
 	import WorkspaceScriptPicker from './flows/pickers/WorkspaceScriptPicker.svelte'
+	import PickHubScript from './flows/pickers/PickHubScript.svelte'
 	import ToggleHubWorkspace from './ToggleHubWorkspace.svelte'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import Popover from './Popover.svelte'
 	import Kbd from './common/kbd/Kbd.svelte'
-	import PickHubItems from './flows/pickers/PickHubItems.svelte'
 
 	export let lang: 'python3' | 'deno' | 'go' | 'bash'
 	export let editor: Editor | undefined
@@ -86,9 +86,9 @@
 <Drawer bind:this={scriptPicker} size="900px">
 	<DrawerContent title="Code" on:close={scriptPicker.closeDrawer}>
 		{#if pick_existing == 'hub'}
-			<PickHubItems bind:filter {kind} on:pickScript={onScriptPick} selectedKind="script">
+			<PickHubScript bind:filter {kind} on:pick={onScriptPick}>
 				<ToggleHubWorkspace bind:selected={pick_existing} />
-			</PickHubItems>
+			</PickHubScript>
 		{:else}
 			<WorkspaceScriptPicker bind:filter {kind} on:pick={onScriptPick}>
 				<ToggleHubWorkspace bind:selected={pick_existing} />
