@@ -1,13 +1,16 @@
 #[cfg(feature = "enterprise")]
-use crate::{DENO_TMP_CACHE_DIR, GO_TMP_CACHE_DIR, PIP_TMP_CACHE_DIR};
-
 use crate::{ROOT_CACHE_DIR, ROOT_TMP_CACHE_DIR, TAR_CACHE_RATE, TMP_DIR};
+#[cfg(feature = "enterprise")]
 use itertools::Itertools;
+#[cfg(feature = "enterprise")]
 use rand::Rng;
+#[cfg(feature = "enterprise")]
 use std::process::Stdio;
 
 #[cfg(feature = "enterprise")]
 use tokio::{process::Command, sync::mpsc::Sender, time::Instant};
+
+#[cfg(feature = "enterprise")]
 use windmill_common::error;
 
 #[cfg(feature = "enterprise")]
@@ -42,7 +45,7 @@ pub async fn copy_cache_from_bucket(bucket: &str, tx: Sender<()>) -> error::Resu
             "--size-only",
             "--fast-list",
             "--exclude",
-            &format!("\"{TAR_CACHE_FILENAME},/deno/gen/file/**\""),
+            &format!("\"/{TAR_CACHE_FILENAME},/deno/gen/file/**\""),
         ],
     )
     .await
@@ -76,7 +79,7 @@ pub async fn copy_cache_to_bucket(bucket: &str) -> error::Result<()> {
             "--size-only",
             "--fast-list",
             "--exclude",
-            &format!("\"{TAR_CACHE_FILENAME},/deno/gen/file/**\""),
+            &format!("\"/{TAR_CACHE_FILENAME},/deno/gen/file/**\""),
         ],
     )
     .await
@@ -203,6 +206,7 @@ pub async fn copy_cache_from_bucket_as_tar(bucket: &str) {
             tracing::info!(error = %e, "Could not remove root tmp cache dir");
         }
     }
+
     tokio::fs::create_dir_all(&ROOT_TMP_CACHE_DIR)
         .await
         .expect("Could not create root tmp cache dir");
@@ -211,19 +215,13 @@ pub async fn copy_cache_from_bucket_as_tar(bucket: &str) {
         if let Err(e) = execute_command(
             TMP_DIR,
             "cp",
-            vec!["-e", &format!("{ROOT_CACHE_DIR}/{x}"), &ROOT_TMP_CACHE_DIR],
+            vec!["-r", &format!("{ROOT_CACHE_DIR}{x}"), &ROOT_TMP_CACHE_DIR],
         )
         .await
         {
             tracing::info!(error = %e, "Could not copy root dir to tmp root dir");
         }
     }
-    tokio::fs::rename(
-        &format!("{ROOT_CACHE_DIR}/{TAR_CACHE_FILENAME}"),
-        &format!("{ROOT_CACHE_DIR}/{TAR_CACHE_FILENAME}"),
-    )
-    .await
-    .expect("Could not rename tar cache");
 }
 
 // async fn check_if_bucket_syncable(bucket: &str) -> bool {
@@ -240,6 +238,7 @@ pub async fn copy_cache_from_bucket_as_tar(bucket: &str) {
 //     return true;
 // }
 
+#[cfg(feature = "enterprise")]
 pub async fn copy_tmp_cache_to_cache() -> error::Result<()> {
     let start: Instant = Instant::now();
     execute_command(
@@ -255,6 +254,7 @@ pub async fn copy_tmp_cache_to_cache() -> error::Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "enterprise")]
 pub async fn copy_cache_to_tmp_cache() -> error::Result<()> {
     let start: Instant = Instant::now();
     execute_command(
@@ -270,6 +270,7 @@ pub async fn copy_cache_to_tmp_cache() -> error::Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "enterprise")]
 pub async fn execute_command(dir: &str, command: &str, args: Vec<&str>) -> error::Result<()> {
     match Command::new(command)
         .current_dir(dir)
