@@ -155,7 +155,7 @@
 	{:else if componentInput?.runnable?.type === 'runnableByPath' && componentInput?.runnable?.path}
 		<div class="p-2 h-full flex flex-col gap-2">
 			{#if componentInput.runnable.runType == 'script' || componentInput.runnable.runType == 'hubscript'}
-				<div>
+				<div class="flex flex-row">
 					<Button
 						size="xs"
 						startIcon={{ icon: faCodeBranch }}
