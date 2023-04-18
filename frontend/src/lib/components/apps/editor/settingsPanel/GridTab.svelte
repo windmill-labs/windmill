@@ -2,7 +2,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import CloseButton from '$lib/components/common/CloseButton.svelte'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
-	import { getContext } from 'svelte'
+	import { getContext, tick } from 'svelte'
 	import type { AppViewerContext } from '../../types'
 	import { deleteGridItem } from '../appUtils'
 	import type { AppComponent } from '../component'
@@ -68,12 +68,18 @@
 		})
 	}
 
-	function handleConsider(e) {
+	function handleConsider(e: CustomEvent): void {
 		const { items: newItems } = e.detail
+
 		items = newItems
 	}
 
-	function handleFinalize(e) {
+	function updateItemValue(index: number, e: Event): void {
+		const newValue = (e.target as HTMLInputElement).value
+		items[index].value = newValue
+		items = [...items]
+	}
+	function handleFinalize(e: CustomEvent) {
 		const { items: newItems } = e.detail
 
 		items = newItems
@@ -98,22 +104,24 @@
 			}
 			$app = $app
 
-			const targetIndex = items.findIndex((i) => i.id === e.detail.info.id)
-			$componentControl[component.id]?.setTab?.(targetIndex)
+			tick().then(() => {
+				const targetIndex = items.findIndex((i) => i.id === e.detail.info.id)
+				$componentControl[component.id]?.setTab?.(targetIndex)
+			})
 		}
+
+		dragDisabled = true
 	}
 
 	let dragDisabled = true
 
-	function startDrag(e, index) {
-		// preventing default to prevent lag on touch devices (because of the browser checking for screen scrolling)
-		e.preventDefault()
-
+	function startDrag(event) {
+		event.preventDefault()
 		dragDisabled = false
 	}
 
-	function handleKeyDown(e) {
-		if ((e.key === 'Enter' || e.key === ' ') && dragDisabled) {
+	function handleKeyDown(event: KeyboardEvent): void {
+		if ((event.key === 'Enter' || event.key === ' ') && dragDisabled) {
 			dragDisabled = false
 		}
 	}
@@ -139,14 +147,18 @@
 					<div
 						tabindex={dragDisabled ? 0 : -1}
 						class="w-4 h-4"
-						on:mousedown={(e) => startDrag(e, index)}
-						on:touchstart={(e) => startDrag(e, index)}
+						on:mousedown={startDrag}
+						on:touchstart={startDrag}
 						on:keydown={handleKeyDown}
 					>
 						<GripVertical size={16} />
 					</div>
-					<input on:keydown|stopPropagation type="text" bind:value={tabs[index]} />
-
+					<input
+						on:keydown|stopPropagation
+						on:input={(e) => updateItemValue(index, e)}
+						type="text"
+						bind:value={tabs[index]}
+					/>
 					<div class="absolute right-1">
 						<CloseButton noBg on:close={() => deleteSubgrid(index)} />
 					</div>
