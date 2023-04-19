@@ -88,7 +88,6 @@
 				...x
 			}
 		})
-		console.log('set loading=false')
 		loading = false
 	}
 
@@ -102,7 +101,6 @@
 				...app
 			}
 		})
-		console.log('set loading=false')
 		loading = false
 	}
 
@@ -218,8 +216,6 @@
 	$: items && resetScroll()
 
 	let archived = false
-
-	console.log(`filteredItems=${filteredItems.length}`)
 </script>
 
 <SearchItems
