@@ -47,7 +47,7 @@
 		subkind: 'pgsql' | 'mysql' | undefined = undefined
 	) {
 		const content =
-			defaultCode(componentType ?? '', language) ??
+			defaultCode(componentType ?? '', subkind || language) ??
 			initialCode(language, Script.kind.SCRIPT, subkind ?? 'flow')
 
 		return newInlineScript(content, language, path)
