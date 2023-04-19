@@ -89,7 +89,7 @@
 			.filter((x) => x != undefined) as string[]
 	}
 
-	$: width = $breakpoint === 'sm' ? 'max-w-[640px]' : 'w-full '
+	$: width = $breakpoint === 'sm' ? 'max-w-[640px]' : 'w-full min-w-[710px]'
 	$: lockedClasses = isLocked ? '!max-h-[400px] overflow-hidden pointer-events-none' : ''
 </script>
 
