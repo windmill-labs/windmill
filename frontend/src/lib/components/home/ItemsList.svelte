@@ -70,7 +70,6 @@
 				...script
 			}
 		})
-		console.log('set loading=false')
 		loading = false
 	}
 
