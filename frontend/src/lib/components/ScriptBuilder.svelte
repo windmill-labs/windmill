@@ -19,6 +19,7 @@
 	import { Pen } from 'lucide-svelte'
 	import autosize from 'svelte-autosize'
 	import type Editor from './Editor.svelte'
+	import { SCRIPT_SHOW_BASH, SCRIPT_SHOW_GO, SCRIPT_SHOW_PSQL, SCRIPT_CUSTOMISE_SHOW_KIND } from '$lib/consts'
 
 	export let script: Script
 	export let initialPath: string = ''
@@ -39,10 +40,14 @@
 
 	const langs: [string, SupportedLanguage][] = [
 		['Typescript', Script.language.DENO],
-		['Python', Script.language.PYTHON3],
-		['Go', Script.language.GO],
-		['Bash', Script.language.BASH]
+		['Python', Script.language.PYTHON3]
 	]
+	if(SCRIPT_SHOW_GO) {
+		langs.push(['Go', Script.language.GO])
+	}
+	if(SCRIPT_SHOW_BASH) {
+		langs.push(['Bash', Script.language.BASH])
+	}
 	const scriptKindOptions: { value: Script.kind; title: string; desc?: string }[] = [
 		{
 			value: Script.kind.SCRIPT,
@@ -205,6 +210,7 @@
 						<span class="ml-2 py-2">{label}</span>
 					</Button>
 				{/each}
+				{#if SCRIPT_SHOW_PSQL}
 				<Button
 					size="sm"
 					variant="border"
@@ -223,6 +229,7 @@
 				>
 					<LanguageIcon lang="pgsql" /><span class="ml-2 py-2">PostgreSQL</span>
 				</Button>
+				{/if}
 				<!-- <Button
 					size="sm"
 					variant="border"
@@ -324,6 +331,7 @@
 
 		<Drawer bind:open={advancedOpen} size="800px">
 			<DrawerContent title="Customise" on:close={() => (advancedOpen = false)}>
+				{#if SCRIPT_CUSTOMISE_SHOW_KIND}
 				<h2 class="border-b pb-1 mb-4"
 					>Script Kind &nbsp;<Tooltip
 						>Tag this script's purpose within flows such that it is available as the corresponding
@@ -354,6 +362,7 @@
 						</Button>
 					{/each}
 				</div>
+				{/if}
 				<h2 class="border-b pb-1 mt-10 mb-4"
 					>Arguments &nbsp;<Tooltip
 						>The arguments are synced with the main signature but you may refine the parts that

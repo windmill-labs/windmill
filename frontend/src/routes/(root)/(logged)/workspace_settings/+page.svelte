@@ -14,6 +14,7 @@
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { WORKSPACE_SHOW_SLACK_CMD, WORKSPACE_SHOW_WEBHOOK_CLI_SYNC } from '$lib/consts'
 	import type { User } from '$lib/gen'
 	import {
 		OauthService,
@@ -206,9 +207,11 @@
 				<Tab size="md" value="users">
 					<div class="flex gap-2 items-center my-1"> Users & Invites </div>
 				</Tab>
+				{#if WORKSPACE_SHOW_SLACK_CMD}
 				<Tab size="md" value="slack">
 					<div class="flex gap-2 items-center my-1"> Slack Command </div>
 				</Tab>
+				{/if}
 				{#if isCloudHosted()}
 					<Tab size="md" value="premium">
 						<div class="flex gap-2 items-center my-1"> Premium Plans </div>
@@ -217,9 +220,11 @@
 				<Tab size="md" value="export_delete">
 					<div class="flex gap-2 items-center my-1"> Export & Delete Workspace </div>
 				</Tab>
+				{#if WORKSPACE_SHOW_WEBHOOK_CLI_SYNC}
 				<Tab size="md" value="webhook">
 					<div class="flex gap-2 items-center my-1">Webhook for CLI Sync</div>
 				</Tab>
+				{/if}
 			</Tabs>
 		</div>
 		{#if tab == 'users'}
