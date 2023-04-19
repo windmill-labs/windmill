@@ -386,9 +386,8 @@ async fn update_resource(
         if npath != path {
             check_path_conflict(&mut tx, &w_id, &npath).await?;
 
-            if !authed.is_admin {
-                require_owner_of_path(&w_id, &authed.username, &authed.groups, &path, &db).await?;
-            }
+            require_owner_of_path(&authed, path)?;
+
             sqlx::query!(
                 "UPDATE variable SET path = $1 WHERE path = $2 AND workspace_id = $3",
                 npath,

@@ -28,7 +28,7 @@
 			<ScriptEditor
 				noSyncFromGithub
 				lang={inlineScript.language}
-				path={inlineScript.path}
+				path={inlineScript.path ? inlineScript.path + '_fullscreen' : undefined}
 				fixedOverflowWidgets={false}
 				bind:code={inlineScript.content}
 				bind:schema={inlineScript.schema}

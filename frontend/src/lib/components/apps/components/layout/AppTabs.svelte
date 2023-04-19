@@ -69,6 +69,7 @@
 		},
 		setTab: (tab: number) => {
 			selected = tabs[tab]
+			handleTabSelection()
 		}
 	}
 

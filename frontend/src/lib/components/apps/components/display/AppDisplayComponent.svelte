@@ -44,7 +44,7 @@
 				customCss?.container?.style
 			)}
 			class={twMerge(
-				'p-2 grow',
+				'p-2 grow overflow-auto',
 				$app.css?.['displaycomponent']?.['container']?.class,
 				customCss?.container?.class
 			)}

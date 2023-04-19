@@ -150,7 +150,7 @@
 				startIcon={{ icon: faCodeBranch }}
 				btnClasses="truncate"
 			>
-				Copy a script
+				Fork a workspace or hub script
 			</Button>
 			<Button
 				on:click={() => dispatch('delete')}
@@ -191,11 +191,12 @@
 		/> -->
 	</div>
 	<div>
-		<div class="text-xs mb-1 mt-2"
-			>Script executed in the client's browser directly:&nbsp;<Tooltip
-				>Frontend scripts are executed in the browser and can manipulate the app context directly</Tooltip
-			></div
-		>
+		<div class="text-xs mb-1 mt-2">
+			Script executed in the client's browser directly:&nbsp;
+			<Tooltip documentationLink="https://docs.windmill.dev/docs/apps/app-runnable#frontend-script">
+				Frontend scripts are executed in the browser and can manipulate the app context directly
+			</Tooltip>
+		</div>
 		<FlowScriptPicker
 			label={`JavaScript`}
 			lang="javascript"

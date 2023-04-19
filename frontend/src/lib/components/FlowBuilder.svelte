@@ -362,6 +362,7 @@
 				<FlowPreviewButtons />
 				<div class="center-center">
 					<Button
+						title="Ctrl/Cmd + S"
 						loading={loadingSave}
 						size="xs"
 						startIcon={{ icon: faSave }}

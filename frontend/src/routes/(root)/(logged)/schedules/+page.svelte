@@ -92,7 +92,7 @@
 							<td class="!px-0 text-center">
 								<SharedBadge {canWrite} extraPerms={extra_perms} />
 							</td>
-							<td class="max-w-sm">
+							<td class="max-w-sm min-w-[100px]">
 								<button
 									class="break-all text-left text-sm text-blue-600 font-normal"
 									on:click={() => scheduleEditor?.openEdit(path, is_flow)}
@@ -100,9 +100,9 @@
 									{path}
 								</button>
 							</td>
-							<td>
+							<td class="">
 								<div class="inline-flex flex-row gap-x-2 align-middle w-full">
-									<div class="grow">
+									<div class="grow !min-w-[100px]">
 										<a
 											class="text-sm break-all"
 											href="{is_flow ? '/flows/get' : '/scripts/get'}/{script_path}"
@@ -157,7 +157,7 @@
 									}}
 								/>
 							</td>
-							<td>
+							<td class="min-w-[100px]">
 								<span class="text-2xs">By {edited_by} <br />the {displayDate(edited_at)}</span>
 							</td>
 							<td>
