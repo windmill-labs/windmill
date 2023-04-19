@@ -1,7 +1,10 @@
+use std::sync::Arc;
+
 use futures::{stream, Stream};
 use serde::Deserialize;
 use serde_json::json;
 use sqlx::{postgres::PgListener, types::Uuid, Pool, Postgres, Transaction};
+use tokio::sync::RwLock;
 use windmill_api::jobs::{CompletedJob, Job};
 use windmill_common::{
     flow_status::{FlowStatus, FlowStatusModule},
@@ -911,7 +914,6 @@ fn spawn_test_worker(
     let db = db.to_owned();
     let worker_instance: &str = "test worker instance";
     let worker_name: String = next_worker_name();
-    let i_worker: u64 = Default::default();
     let ip: &str = Default::default();
     let future = async move {
         let base_internal_url = format!("http://localhost:{}", port);
@@ -919,11 +921,13 @@ fn spawn_test_worker(
             &db,
             worker_instance,
             worker_name,
-            i_worker,
+            1,
+            1,
             ip,
             rx,
             &base_internal_url,
             None,
+            RwLock::new(Arc::new(None)),
         )
         .await
     };
