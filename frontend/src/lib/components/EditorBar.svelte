@@ -31,6 +31,7 @@
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import Popover from './Popover.svelte'
 	import Kbd from './common/kbd/Kbd.svelte'
+	import { SCRIPT_EDITOR_SHOW_EXPLORE_OTHER_SCRIPTS } from '$lib/consts'
 
 	export let lang: 'python3' | 'deno' | 'go' | 'bash'
 	export let editor: Editor | undefined
@@ -382,6 +383,7 @@
 		class="px-1"
 		disablePopup={!iconOnly}
 	>
+		{#if SCRIPT_EDITOR_SHOW_EXPLORE_OTHER_SCRIPTS}
 		<Button
 			btnClasses="!font-medium"
 			size="xs"
@@ -393,6 +395,7 @@
 		>
 			Explore other scripts
 		</Button>
+		{/if}
 		<svelte:fragment slot="text">Script</svelte:fragment>
 	</Popover>
 </div>
