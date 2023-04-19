@@ -14,7 +14,7 @@ use sqlx::{Pool, Postgres};
 use windmill_api_client::Client;
 use std::{
     borrow::Borrow, collections::HashMap, io, os::unix::process::ExitStatusExt, panic,
-    process::Stdio, time::{Duration}, sync::atomic::Ordering,
+    process::Stdio, time::{Duration},
     sync::{Arc},
 };
 use tracing::{trace_span, Instrument};
@@ -25,7 +25,7 @@ use windmill_common::{
     flows::{FlowModuleValue, FlowValue},
     scripts::{ScriptHash, ScriptLang},
     utils::{rd_string},
-    variables, BASE_URL, users::SUPERADMIN_SECRET_EMAIL, IS_READY, METRICS_ENABLED, jobs::{JobKind, QueuedJob},
+    variables, BASE_URL, users::SUPERADMIN_SECRET_EMAIL, METRICS_ENABLED, jobs::{JobKind, QueuedJob},
 };
 use windmill_queue::{canceled_job_to_result, get_queued_job, pull, CLOUD_HOSTED};
 
@@ -36,7 +36,7 @@ use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     process::{Child, Command},
     sync::{
-        mpsc::{self, Sender},  watch, broadcast, RwLock
+        mpsc::{self, Sender},  watch, broadcast, RwLock, Barrier
     },
     time::{interval, sleep, Instant, MissedTickBehavior}
 };
@@ -52,7 +52,7 @@ use async_recursion::async_recursion;
 use rand::Rng;
 
 #[cfg(feature = "enterprise")]
-use crate::global_cache::{copy_cache_from_bucket_as_tar, copy_cache_to_tmp_cache, cache_global, copy_tmp_cache_to_cache};
+use crate::global_cache::{copy_cache_to_tmp_cache, cache_global, copy_tmp_cache_to_cache};
 
 use crate::{
     jobs::{add_completed_job, add_completed_job_error},
@@ -274,16 +274,17 @@ impl AuthedClient {
 }
 
 
-#[tracing::instrument(skip(rsmq), level = "trace")]
 pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(
     db: &Pool<Postgres>,
     worker_instance: &str,
     worker_name: String,
     i_worker: u64,
+    num_workers: u32,
     ip: &str,
     mut rx: tokio::sync::broadcast::Receiver<()>,
     base_internal_url: &str,
     rsmq: Option<R>,
+    sync_barrier: RwLock<Arc<Option<Barrier>>>,
 ) {
     #[cfg(not(feature = "enterprise"))]
     if !*DISABLE_NSJAIL {
@@ -410,16 +411,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
     let mut copy_cache_from_bucket_handle: Option<tokio::task::JoinHandle<()>> = None;
 
-    #[cfg(feature = "enterprise")]
-    if i_worker == 1 {
-        if let Some(ref s) = S3_CACHE_BUCKET.clone() {
-            // We try to download the entire cache as a tar, it is much faster over S3
-            copy_cache_from_bucket_as_tar(&s).await;
-        }
-    };
-
-    IS_READY.store(true, Ordering::Relaxed);
-
     tracing::info!(worker = %worker_name, "starting worker");
 
     #[cfg(feature = "enterprise")]
@@ -445,6 +436,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     
     let mut first_run = true;
 
+    // let mut barrier = Arc::new();
     loop {
         if *METRICS_ENABLED {
             worker_busy.set(0);
@@ -492,7 +484,15 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 }
             }
 
-
+            #[cfg(feature = "enterprise")]
+            if num_workers > 1 {
+                let read_barrier = sync_barrier.read().await;
+                let barrier = read_barrier.clone();
+                if let Some(b) = barrier.as_ref() {
+                    b.wait().await;
+                };
+            }
+            
             let (do_break, next_job) = if first_run { 
                 (false, Ok(Some(QueuedJob::default())))
             } else {
@@ -509,6 +509,15 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                             (true, Ok(None))
                         },
                         _ = copy_to_bucket_rx.recv() => {
+                            if num_workers > 1 {
+                                let mut barrier = sync_barrier.write().await;
+                                let arc_barrier = Arc::new(Some(tokio::sync::Barrier::new(num_workers as usize)));
+                                *barrier = arc_barrier.clone();
+                                if let Some(b) = arc_barrier.as_ref() {
+                                    b.wait().await;
+                                };
+                            }
+                            //Arc::new(tokio::sync::Barrier::new(num_workers as usize + 1));
                             #[cfg(feature = "enterprise")]
                             if let Err(e) = copy_tmp_cache_to_cache().await {
                                 tracing::error!(worker = %worker_name, "failed to sync tmp cache to cache: {}", e);
