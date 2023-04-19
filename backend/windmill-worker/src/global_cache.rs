@@ -131,7 +131,7 @@ pub async fn copy_cache_to_bucket_as_tar(bucket: &str) {
             "copyto",
             &format!("{ROOT_TMP_CACHE_DIR}{TAR_CACHE_FILENAME}"),
             &format!(":s3,env_auth=true:{bucket}/{TAR_CACHE_FILENAME}"),
-            "-vv",
+            "-v",
             "--size-only",
             "--fast-list",
         ],
@@ -160,6 +160,17 @@ pub async fn copy_cache_from_bucket_as_tar(bucket: &str) {
     use tokio::fs::metadata;
 
     tracing::info!("Copying cache from bucket {bucket} as tar");
+
+    if metadata(&ROOT_TMP_CACHE_DIR).await.is_ok() {
+        if let Err(e) = tokio::fs::remove_dir_all(&ROOT_TMP_CACHE_DIR).await {
+            tracing::info!(error = %e, "Could not remove root tmp cache dir");
+        }
+    }
+
+    tokio::fs::create_dir_all(&ROOT_TMP_CACHE_DIR)
+        .await
+        .expect("Could not create root tmp cache dir");
+
     let elapsed = Instant::now();
 
     if let Err(e) = execute_command(
@@ -169,7 +180,7 @@ pub async fn copy_cache_from_bucket_as_tar(bucket: &str) {
             "copyto",
             &format!(":s3,env_auth=true:{bucket}/{TAR_CACHE_FILENAME}"),
             &format!("{ROOT_CACHE_DIR}{TAR_CACHE_FILENAME}"),
-            "-vv",
+            "-v",
             "--size-only",
             "--fast-list",
         ],
@@ -191,6 +202,12 @@ pub async fn copy_cache_from_bucket_as_tar(bucket: &str) {
         return;
     }
 
+    if let Err(e) =
+        tokio::fs::remove_dir_all(format!("{ROOT_CACHE_DIR}deno/gen/file/tmp/windmill")).await
+    {
+        tracing::info!("Failed to remove tmp gen windmill. Error: {:?}", e);
+    };
+
     if let Err(e) = tokio::fs::remove_file(format!("{ROOT_CACHE_DIR}{TAR_CACHE_FILENAME}")).await {
         tracing::info!("Failed to remove tar cache. Error: {:?}", e);
         return;
@@ -200,16 +217,6 @@ pub async fn copy_cache_from_bucket_as_tar(bucket: &str) {
         "Finished copying cache from bucket {bucket} as tar, took: {:?}s",
         elapsed.elapsed().as_secs()
     );
-
-    if metadata(&ROOT_TMP_CACHE_DIR).await.is_ok() {
-        if let Err(e) = tokio::fs::remove_dir_all(&ROOT_TMP_CACHE_DIR).await {
-            tracing::info!(error = %e, "Could not remove root tmp cache dir");
-        }
-    }
-
-    tokio::fs::create_dir_all(&ROOT_TMP_CACHE_DIR)
-        .await
-        .expect("Could not create root tmp cache dir");
 
     for x in ["deno", "go", "pip"] {
         if let Err(e) = execute_command(
