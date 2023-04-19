@@ -29,7 +29,7 @@
 				variant="border"
 				size="sm"
 				startIcon={{ icon: faClipboard }}
-				btnClasses="absolute top-2 right-2"
+				btnClasses="absolute top-2 right-2 w-min"
 			>
 				Copy content
 			</Button>

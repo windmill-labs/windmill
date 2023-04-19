@@ -55,7 +55,24 @@
 			$importFlowStore = undefined
 			sendUserToast('Flow loaded from JSON')
 		} else if (!templatePath && !hubId && state) {
-			sendUserToast('Flow restored from draft')
+			sendUserToast('Flow restored from draft', false, [
+				{
+					label: 'Start from blank instead',
+					callback: () => {
+						$flowStore = {
+							summary: '',
+							value: { modules: [] },
+							path: '',
+							edited_at: '',
+							edited_by: '',
+							archived: false,
+							extra_perms: {},
+							schema: emptySchema()
+						}
+					}
+				}
+			])
+
 			flow = state.flow
 			state?.selectedId && (selectedId = state?.selectedId)
 		} else {
