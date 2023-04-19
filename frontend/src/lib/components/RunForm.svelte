@@ -19,6 +19,7 @@
 	import Toggle from './Toggle.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import CollapseLink from './CollapseLink.svelte'
+	import { SCRIPT_VIEW_SHOW_RUN_FROM_CLI, SCRIPT_VIEW_SHOW_SCHEDULE_RUN_LATER } from '$lib/consts'
 
 	export let runnable:
 		| {
@@ -141,6 +142,7 @@
 		<CollapseLink text="Advanced">
 			<div class="flex flex-col gap-4 mt-2 border p-2">
 				<div class="flex flex-col gap-2">
+					{#if SCRIPT_VIEW_SHOW_SCHEDULE_RUN_LATER}
 					<div class="flex">
 						<Button
 							color="light"
@@ -151,6 +153,7 @@
 							Schedule to run later
 						</Button>
 					</div>
+					{/if}
 					{#if viewOptions}
 						<div transition:slide|local class="mt-6">
 							<div class="border rounded-md p-3 pt-4">
@@ -222,6 +225,7 @@
 	{#if viewCliRun}
 		<div>
 			<div class="my-20" />
+			{#if SCRIPT_VIEW_SHOW_RUN_FROM_CLI}
 			<div class="flex">
 				<Button
 					color="light"
@@ -232,6 +236,7 @@
 					Run it from the CLI
 				</Button>
 			</div>
+			{/if}
 			{#if viewCliOptions}
 				<div transition:slide|local class="mt-2 px-4 pt-2">
 					<InlineCodeCopy content={cliCommand} />

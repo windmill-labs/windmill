@@ -15,6 +15,8 @@
 	import FlowRow from '$lib/components/common/table/FlowRow.svelte'
 	import ScriptRow from '$lib/components/common/table/ScriptRow.svelte'
 
+	import { HOME_SEARCH_SHOW_FLOW, HOME_SEARCH_PLACEHOLDER } from '$lib/consts'
+
 	import { faBarsStaggered } from '@fortawesome/free-solid-svg-icons'
 	import { Icon } from 'svelte-awesome'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
@@ -68,7 +70,7 @@
 				...script
 			}
 		})
-
+		console.log('set loading=false')
 		loading = false
 	}
 
@@ -87,6 +89,7 @@
 				...x
 			}
 		})
+		console.log('set loading=false')
 		loading = false
 	}
 
@@ -100,7 +103,7 @@
 				...app
 			}
 		})
-
+		console.log('set loading=false')
 		loading = false
 	}
 
@@ -216,6 +219,8 @@
 	$: items && resetScroll()
 
 	let archived = false
+
+	console.log(`filteredItems=${filteredItems.length}`)
 </script>
 
 <SearchItems
@@ -255,12 +260,14 @@
 						Scripts
 					</div>
 				</ToggleButton>
+				{#if HOME_SEARCH_SHOW_FLOW}
 				<ToggleButton light position="center" value="flow" size="sm">
 					<div class="flex gap-1 items-center">
 						<Icon data={faBarsStaggered} scale={0.8} class="mr-1" />
 						Flows
 					</div>
 				</ToggleButton>
+				{/if}
 				<ToggleButton light position="right" value="app" size="sm">
 					<div class="flex gap-1 items-center">
 						<LayoutDashboard size={16} />
@@ -274,7 +281,7 @@
 			<!-- svelte-ignore a11y-autofocus -->
 			<input
 				autofocus
-				placeholder="Search Scripts, Flows & Apps"
+				placeholder={HOME_SEARCH_PLACEHOLDER}
 				bind:value={filter}
 				class="bg-white !h-10 !px-4 !pr-10 !rounded-lg text-sm focus:outline-none"
 			/>
