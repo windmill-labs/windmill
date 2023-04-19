@@ -117,20 +117,18 @@
 	$: startIconClass = twMerge(iconOnly ? undefined : isSmall ? 'mr-1' : 'mr-2', startIcon?.classes)
 	$: endIconClass = twMerge(iconOnly ? undefined : isSmall ? 'ml-1' : 'ml-2', endIcon?.classes)
 
-	function computeClass() {
-		return twMerge(
-			'w-full',
-			colorVariants?.[color]?.[variant],
-			variant === 'border' ? 'border' : '',
-			ButtonType.FontSizeClasses[size],
-			ButtonType.SpacingClasses[spacingSize][variant],
-			'focus:ring-2 font-semibold',
-			dropdownItems ? 'rounded-l-md h-full' : 'rounded-md',
-			'justify-center items-center text-center whitespace-nowrap inline-flex',
-			btnClasses,
-			'transition-all '
-		)
-	}
+	$: buttonClass = twMerge(
+		'w-full',
+		colorVariants?.[color]?.[variant],
+		variant === 'border' ? 'border' : '',
+		ButtonType.FontSizeClasses[size],
+		ButtonType.SpacingClasses[spacingSize][variant],
+		'focus:ring-2 font-semibold',
+		dropdownItems ? 'rounded-l-md h-full' : 'rounded-md',
+		'justify-center items-center text-center whitespace-nowrap inline-flex',
+		btnClasses,
+		'transition-all '
+	)
 </script>
 
 <div class="{dropdownItems ? ' divide-x divide-frost-600' : ''} {wrapperClasses} flex flex-row">
@@ -141,10 +139,7 @@
 		on:click={onClick}
 		on:focus
 		on:blur
-		class={twMerge(
-			computeClass(),
-			disabled ? '!bg-gray-300 !text-gray-600 !cursor-not-allowed' : ''
-		)}
+		class={twMerge(buttonClass, disabled ? '!bg-gray-300 !text-gray-600 !cursor-not-allowed' : '')}
 		{...buttonProps}
 		disabled={disabled || loading}
 		type="submit"
@@ -165,7 +160,7 @@
 	</svelte:element>
 
 	{#if dropdownItems}
-		<div class={twMerge(computeClass(), 'rounded-r-md rounded-l-none m-0 p-0 h-auto')}>
+		<div class={twMerge(buttonClass, 'rounded-r-md rounded-l-none m-0 p-0 h-auto')}>
 			<ButtonDropdown>
 				<svelte:fragment slot="items">
 					{#each computeDropdowns() ?? [] as item}

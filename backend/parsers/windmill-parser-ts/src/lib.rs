@@ -268,7 +268,7 @@ fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
 pub fn eval_sync(code: &str) -> Result<serde_json::Value, String> {
     let mut context = JsRuntime::new(RuntimeOptions::default());
     let code = format!("let x = {}; x", code);
-    let res = context.execute_script("<anon>", code);
+    let res = context.execute_script("<anon>", code.into());
     match res {
         Ok(global) => {
             let scope = &mut context.handle_scope();

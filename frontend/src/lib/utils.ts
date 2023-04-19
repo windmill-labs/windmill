@@ -79,13 +79,23 @@ export function getToday() {
 	return today
 }
 
-export function sendUserToast(message: string, error: boolean = false): void {
+export type ToastAction = {
+	label: string
+	callback: () => void
+}
+
+export function sendUserToast(
+	message: string,
+	error: boolean = false,
+	actions: ToastAction[] = []
+): void {
 	toast.push({
 		component: {
 			src: Toast,
 			props: {
 				message,
-				error
+				error,
+				actions
 			},
 			sendIdTo: 'toastId'
 		},
@@ -741,4 +751,15 @@ export function sortObject<T>(o: T & object): T {
 			obj[key] = obj[key]
 			return obj
 		}, {}) as T
+}
+
+export function generateRandomString(): string {
+	let chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+	let result = ''
+
+	for (let i = 0; i < 24; i++) {
+		result += chars.charAt(Math.floor(Math.random() * chars.length))
+	}
+
+	return result
 }

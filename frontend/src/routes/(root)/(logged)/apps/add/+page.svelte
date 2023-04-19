@@ -74,7 +74,20 @@
 			sendUserToast('App loaded from Hub')
 			goto('?', { replaceState: true })
 		} else if (!templatePath && !hubId && state) {
-			sendUserToast('App restored from draft')
+			sendUserToast('App restored from draft', false, [
+				{
+					label: 'Start from blank',
+					callback: () => {
+						value = {
+							grid: [],
+							fullscreen: false,
+							unusedInlineScripts: [],
+							hiddenInlineScripts: [],
+							css: {}
+						}
+					}
+				}
+			])
 			value = decodeState(state)
 		}
 	}
