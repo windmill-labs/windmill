@@ -99,14 +99,14 @@
 
 <div class="relative">
 	<div
-		class="{$$props.class} {lockedClasses} h-full
-	w-full {app.fullscreen ? '' : 'max-w-6xl'} mx-auto"
+		class="{$$props.class} {lockedClasses} {width} h-full {app.fullscreen
+			? ''
+			: 'max-w-6xl'} mx-auto"
 	>
 		{#if $appStore.grid}
 			<div
 				class={classNames(
 					'mx-auto',
-					width,
 					$appStore?.norefreshbar ? 'invisible h-0 overflow-hidden' : ''
 				)}
 			>
