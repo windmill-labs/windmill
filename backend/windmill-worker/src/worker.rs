@@ -271,7 +271,7 @@ impl AuthedClient {
 }
 
 
-#[tracing::instrument(skip(rsmq), level = "trace")]
+#[tracing::instrument(skip(rsmq, deno_runner_pool), level = "trace")]
 pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     db: &Pool<Postgres>,
     worker_instance: &str,
@@ -281,6 +281,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     mut rx: tokio::sync::broadcast::Receiver<()>,
     base_internal_url: &str,
     rsmq: Option<R>,
+    deno_runner_pool: &windmill_deno::runner::DenoRunnerPool,
 ) {
     #[cfg(not(feature = "enterprise"))]
     if !*DISABLE_NSJAIL {
@@ -428,7 +429,6 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
         Instant::now() + Duration::from_secs(rand::thread_rng().gen_range(0..*GLOBAL_CACHE_INTERVAL));
 
     let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<Uuid>(5);
-
 
     tracing::info!(worker = %worker_name, "listening for jobs");
 
@@ -587,6 +587,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                     let is_flow = job.job_kind == JobKind::Flow || job.job_kind == JobKind::FlowPreview || job.job_kind == JobKind::FlowDependencies;
 
                     if let Some(err) = handle_queued_job(
+                        deno_runner_pool,
                         job.clone(),
                         db,
                         &authed_client,
@@ -756,6 +757,7 @@ fn extract_error_value(log_lines: &str, i: i32) -> serde_json::Value {
 }
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
+    deno_runner_pool: &windmill_deno::runner::DenoRunnerPool,
     job: QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
@@ -835,6 +837,7 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                 },
                 _ => {
                     handle_code_execution_job(
+                        deno_runner_pool,
                         &job,
                         db,
                         client,
@@ -995,6 +998,7 @@ async fn transform_json_value(
 
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_code_execution_job(
+    deno_runner_pool: &windmill_deno::runner::DenoRunnerPool,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
@@ -1002,8 +1006,7 @@ async fn handle_code_execution_job(
     worker_dir: &str,
     logs: &mut String,
     base_internal_url: &str,
-    worker_name: &str
-
+    worker_name: &str,
 ) -> error::Result<serde_json::Value> {
     let (inner_content, requirements_o, language) = match job.job_kind {
         JobKind::Preview | JobKind::Script_Hub => (
@@ -1081,6 +1084,7 @@ mount {{
         }
         Some(ScriptLang::Deno) => {
             handle_deno_job(
+                deno_runner_pool,
                 logs,
                 job,
                 db,
@@ -1242,6 +1246,7 @@ fn get_common_deno_proc_envs(token: &str, base_internal_url: &str) -> HashMap<St
 
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_deno_job(
+    deno_runner_pool: &windmill_deno::runner::DenoRunnerPool,
     logs: &mut String,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -1272,7 +1277,7 @@ async fn handle_deno_job(
         // logs.push_str(format!("infer args: {:?}\n", start.elapsed().as_micros()).as_str());
         let wrapper_content: String = format!(
             r#"
-    Deno.chdir("{job_dir}")
+    Deno.chdir("{job_dir}");
     import {{ main }} from "./main.ts";
 
     const args = await Deno.readTextFile("args.json")
@@ -1285,7 +1290,7 @@ async fn handle_deno_job(
         await Deno.writeTextFile("result.json", res_json);
     }}
     run().catch(async (e) => {{
-        await Deno.writeTextFile("result.json", JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
+        try {{ await Deno.writeTextFile("result.json", JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }})); }} catch {{ }}
         throw e;
     }});
     "#,
@@ -1374,22 +1379,7 @@ async fn handle_deno_job(
         // TODO(deno): Handle current dir
         // TODO(deno): Handle stdout / stdin / stderr
 
-        // run non-'static !Send !Sync deno future. bit annoying but works.
-        let handle = tokio::runtime::Handle::current();
-        let (deno_done_sender, deno_done_receiver) = tokio::sync::oneshot::channel();
-
-        let job_dir_owned = job_dir.to_owned();
-        let handle = std::thread::spawn(move || {
-            // let _guard = handle.enter();
-            let fut = windmill_deno::run_deno_cli(args, &job_dir_owned, DENO_CACHE_DIR);
-            handle.block_on(fut).unwrap();
-            deno_done_sender.send(()).unwrap();
-        });
-
-        tracing::info!("Thread running, waiting for complete");
-        let () = deno_done_receiver.await.unwrap();
-        tracing::info!("Got response, waiting for thread to close");
-        let () = handle.join().unwrap(); // this won't actually block, as the thread should already be finished.
+        deno_runner_pool.run_job(args, job_dir.to_owned(), DENO_CACHE_DIR.to_owned()).await.unwrap();
     };
 
     child_fut.await;

@@ -2,6 +2,7 @@ use anyhow::Result;
 use std::sync::Arc;
 
 mod module_loader;
+pub mod runner;
 
 fn create_web_worker_callback(
     _ps: deno_cli::proc_state::ProcState,

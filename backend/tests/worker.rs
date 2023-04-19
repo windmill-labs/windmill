@@ -924,6 +924,7 @@ fn spawn_test_worker(
             rx,
             &base_internal_url,
             None,
+            &windmill_deno::runner::DenoRunnerPool::new(),
         )
         .await
     };

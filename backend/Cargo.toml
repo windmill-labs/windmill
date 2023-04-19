@@ -42,6 +42,7 @@ dotenv.workspace = true
 windmill-common = { workspace = true, features = ["tracing_init"] }
 windmill-api.workspace = true
 windmill-api-client.workspace = true
+windmill-deno.workspace = true
 windmill-worker.workspace = true
 futures.workspace = true
 tracing.workspace = true
@@ -181,3 +182,5 @@ deno_ast = "0.25.0"
 tracing-log = "0.1.3"
 deno_graph = "0.47.1"
 deno_core = { path = "../deno/core" }
+deadpool = "0.9.5"
+async-trait = "0.1.68"

@@ -111,7 +111,8 @@ while (cont) {
       workspace: config.workspace_id,
       requestBody: {
         language: api.Preview.language.DENO,
-        content: 'export function main(){ return Deno.env.get("WM_JOB_ID"); }',
+        content:
+          'export async function main(){ await fetch("https://speed.hetzner.de/100MB.bin"); return Deno.env.get("WM_JOB_ID"); }',
         args: {},
       },
     });

@@ -253,6 +253,8 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
         panic!("License key is required ONLY for the enterprise edition");
     }
 
+    let deno_runner_pool = std::sync::Arc::new(windmill_deno::runner::DenoRunnerPool::new()); // TODO: This arc is sort of unecessary, but I can't be bothered explaining that to rust
+
     let instance_name = rd_string(5);
     let monitor = tokio_metrics::TaskMonitor::new();
 
@@ -273,6 +275,7 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
         let rx = rx.resubscribe();
         let base_internal_url = base_internal_url.clone();
         let rsmq2 = rsmq.clone();
+        let deno_runner_pool = deno_runner_pool.clone();
         handles.push(tokio::spawn(monitor.instrument(async move {
             tracing::info!(worker = %worker_name, "starting worker");
             windmill_worker::run_worker(
@@ -284,6 +287,7 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
                 rx,
                 &base_internal_url,
                 rsmq2,
+                deno_runner_pool.as_ref(),
             )
             .await
         })));

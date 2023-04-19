@@ -1,7 +1,9 @@
+use std::time::Duration;
+
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
-async fn run_job() -> i32 {
-    let job_dir = "/tmp/windmill_bench";
+async fn run_job(runner: &windmill_deno::runner::DenoRunnerPool) -> i32 {
+    let job_dir = "/tmp/windmill_bench".to_owned();
     let args = vec![
         "deno".to_owned(),
         "run".to_owned(),
@@ -14,7 +16,8 @@ async fn run_job() -> i32 {
         "--allow-env".to_owned(),
         "./main.ts".to_owned(),
     ];
-    windmill_deno::run_deno_cli(args, job_dir, "/tmp/windmill_bench_cache")
+    runner
+        .run_job(args, job_dir, "/tmp/windmill_bench_cache".to_owned())
         .await
         .unwrap()
 }
@@ -24,9 +27,18 @@ fn criterion_benchmark(c: &mut Criterion) {
     std::fs::write("/tmp/windmill_bench/main.ts", b"").unwrap();
     std::fs::write("/tmp/windmill_bench/importmap.json", b"{}").unwrap();
     let runtime = tokio::runtime::Runtime::new().unwrap();
+    let runner = runtime.block_on(async move { windmill_deno::runner::DenoRunnerPool::new() });
 
-    c.bench_function("run job", |b| b.to_async(&runtime).iter(|| run_job()));
+    c.bench_function("run job", |b| {
+        b.to_async(&runtime).iter(|| run_job(&runner))
+    });
 }
 
-criterion_group!(benches, criterion_benchmark);
+criterion_group!(
+    name = benches;
+    config = Criterion::default()
+        .warm_up_time(Duration::from_secs(5))
+        .measurement_time(Duration::from_secs(60));
+    targets = criterion_benchmark
+);
 criterion_main!(benches);
