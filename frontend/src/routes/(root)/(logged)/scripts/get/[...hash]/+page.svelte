@@ -46,7 +46,7 @@
 	import { Loader2 } from 'lucide-svelte'
 	import { slide } from 'svelte/transition'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
-	import { DEFAULT_WEBHOOK_TYPE } from '$lib/consts'
+	import { DEFAULT_WEBHOOK_TYPE, SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB, SCRIPT_VIEW_SHOW_SCHEDULE } from '$lib/consts'
 
 	let userSettings: UserSettings
 	let script: Script | undefined
@@ -266,6 +266,7 @@
 			</div>
 
 			<div class="flex gap-2 flex-wrap mt-4">
+				{#if SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB}
 				<Button
 					disabled={deploymentInProgress}
 					target="_blank"
@@ -285,6 +286,7 @@
 				>
 					Publish to Hub
 				</Button>
+				{/if}
 				<Button
 					on:click={() => shareModal.openDrawer(script?.path ?? '', 'script')}
 					variant="border"
@@ -295,6 +297,7 @@
 				>
 					Share
 				</Button>
+				{#if SCRIPT_VIEW_SHOW_SCHEDULE}
 				<Button
 					on:click={() => scheduleEditor?.openNew(false, script?.path ?? '')}
 					variant="border"
@@ -304,6 +307,7 @@
 				>
 					Schedule
 				</Button>
+				{/if}
 				<Button
 					on:click={() => moveDrawer.openDrawer(script?.path ?? '', script?.summary, 'script')}
 					variant="border"

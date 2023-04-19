@@ -20,6 +20,7 @@
 	import AppPreview from '$lib/components/apps/editor/AppPreview.svelte'
 	import { writable } from 'svelte/store'
 	import type { EditorBreakpoint } from '$lib/components/apps/types'
+	import { HOME_SHOW_HUB, HOME_SHOW_CREATE_FLOW } from '$lib/consts'
 
 	type Tab = 'hubscripts' | 'hubflows' | 'hubapps' | 'workspace'
 
@@ -188,7 +189,7 @@
 				{#if !$userStore?.operator}
 					<span class="text-sm text-gray-500">Create a new:</span>
 					<CreateActionsScript />
-					<CreateActionsFlow />
+					{#if HOME_SHOW_CREATE_FLOW}<CreateActionsFlow />{/if}
 					<CreateActionsApp />
 				{/if}
 			</div>
@@ -203,6 +204,7 @@
 							Workspace
 						</div>
 					</Tab>
+					{#if HOME_SHOW_HUB}
 					<Tab size="md" value="hubscripts">
 						<div class="flex gap-2 items-center my-1">
 							<Globe2 size={18} />
@@ -221,6 +223,7 @@
 							Hub Apps
 						</div>
 					</Tab>
+					{/if}
 				</Tabs>
 			</div>
 		{/if}
