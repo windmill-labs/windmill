@@ -3,7 +3,7 @@
 	import Icon from 'svelte-awesome'
 	import type { PopoverPlacement } from './Popover.model'
 	import Popover from './Popover.svelte'
-	import { FileText } from 'lucide-svelte'
+	import { ExternalLink } from 'lucide-svelte'
 
 	export let light = false
 	export let scale = 0.8
@@ -23,10 +23,10 @@
 	<svelte:fragment slot="text">
 		<slot />
 		{#if documentationLink}
-			<a href={documentationLink} target="_blank" class="text-white text-xs">
+			<a href={documentationLink} target="_blank" class="text-blue-300 text-xs">
 				<div class="flex flex-row gap-2 mt-4">
-					Documentation
-					<FileText size="16" />
+					See documentation
+					<ExternalLink size="16" />
 				</div>
 			</a>
 		{/if}
