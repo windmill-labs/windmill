@@ -1,7 +1,6 @@
 import type { AppComponent } from '.'
 
 export function defaultCode(component: string, language: string): string | undefined {
-	console.log(language)
 	return DEFAULT_CODES[component]?.[language]
 }
 
