@@ -31,13 +31,14 @@
 </script>
 
 <div class="flex flex-col items-start space-y-1 {$$props.class}">
-	<h2 class="mt-2"
-		>Retries <Tooltip>
+	<h2>
+		Retries
+		<Tooltip>
 			If defined, upon error this step will be retried with a delay and a maximum number of attempts
 			as defined below. If both static and exponential delay is defined, the static delay attempts
-			are tried before the exponential ones.</Tooltip
-		></h2
-	>
+			are tried before the exponential ones.
+		</Tooltip>
+	</h2>
 
 	<Toggle
 		checked={isConstantRetryEnabled}
