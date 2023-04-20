@@ -14,9 +14,16 @@ use std::{
 use git_version::git_version;
 use monitor::handle_zombie_jobs_periodically;
 use sqlx::{Pool, Postgres};
-use tokio::{fs::DirBuilder, sync::RwLock};
+use tokio::{
+    fs::{metadata, DirBuilder},
+    join,
+    sync::RwLock,
+};
 use windmill_common::{utils::rd_string, IS_READY, METRICS_ADDR};
-use windmill_worker::{DENO_CACHE_DIR, GO_CACHE_DIR, PIP_CACHE_DIR, S3_CACHE_BUCKET};
+use windmill_worker::{
+    DENO_CACHE_DIR, DENO_TMP_CACHE_DIR, GO_CACHE_DIR, GO_TMP_CACHE_DIR, PIP_CACHE_DIR,
+    ROOT_TMP_CACHE_DIR, S3_CACHE_BUCKET, TAR_PIP_TMP_CACHE_DIR,
+};
 
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 const DEFAULT_NUM_WORKERS: usize = 3;
@@ -271,7 +278,20 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
 
     let mut handles = Vec::with_capacity(num_workers as usize);
 
-    for x in [PIP_CACHE_DIR, DENO_CACHE_DIR, GO_CACHE_DIR] {
+    if metadata(&ROOT_TMP_CACHE_DIR).await.is_ok() {
+        if let Err(e) = tokio::fs::remove_dir_all(&ROOT_TMP_CACHE_DIR).await {
+            tracing::info!(error = %e, "Could not remove root tmp cache dir");
+        }
+    }
+
+    for x in [
+        PIP_CACHE_DIR,
+        DENO_CACHE_DIR,
+        GO_CACHE_DIR,
+        TAR_PIP_TMP_CACHE_DIR,
+        DENO_TMP_CACHE_DIR,
+        GO_TMP_CACHE_DIR,
+    ] {
         DirBuilder::new()
             .recursive(true)
             .create(x)
@@ -281,8 +301,10 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
 
     #[cfg(feature = "enterprise")]
     if let Some(ref s) = S3_CACHE_BUCKET.clone() {
-        // We donwload the entire cache as tar
-        windmill_worker::copy_cache_from_bucket_as_tar(&s).await;
+        join!(
+            windmill_worker::copy_denogo_cache_from_bucket_as_tar(&s),
+            windmill_worker::copy_all_piptars_from_bucket(&s)
+        );
     }
 
     IS_READY.store(true, Ordering::Relaxed);
