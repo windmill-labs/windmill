@@ -242,7 +242,7 @@
 			<Popover
 				notClickable
 				placement="bottom"
-				disapperTimeout={0}
+				disappearTimeout={0}
 				class="pr-1"
 				disablePopup={!iconOnly}
 			>
@@ -262,7 +262,7 @@
 			<Popover
 				notClickable
 				placement="bottom"
-				disapperTimeout={0}
+				disappearTimeout={0}
 				class="px-1"
 				disablePopup={!iconOnly}
 			>
@@ -282,7 +282,7 @@
 			<Popover
 				notClickable
 				placement="bottom"
-				disapperTimeout={0}
+				disappearTimeout={0}
 				class="px-1"
 				disablePopup={!iconOnly}
 			>
@@ -302,7 +302,7 @@
 			<Popover
 				notClickable
 				placement="bottom"
-				disapperTimeout={0}
+				disappearTimeout={0}
 				class="px-1"
 				disablePopup={!iconOnly}
 			>
@@ -322,7 +322,7 @@
 			<Popover
 				notClickable
 				placement="bottom"
-				disapperTimeout={0}
+				disappearTimeout={0}
 				class="px-1"
 				disablePopup={!iconOnly}
 			>
@@ -353,7 +353,7 @@
 			<Popover
 				notClickable
 				placement="bottom"
-				disapperTimeout={0}
+				disappearTimeout={0}
 				class="px-1"
 				disablePopup={!iconOnly}
 			>
@@ -379,7 +379,7 @@
 	<Popover
 		notClickable
 		placement="bottom"
-		disapperTimeout={0}
+		disappearTimeout={0}
 		class="px-1"
 		disablePopup={!iconOnly}
 	>

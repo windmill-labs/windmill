@@ -15,7 +15,7 @@
 	const { select, selected } = getContext<ToggleButtonContext>('ToggleButtonGroup')
 </script>
 
-<Popover notClickable class="flex" disablePopup={tooltip === undefined} disapperTimeout={0}>
+<Popover notClickable class="flex" disablePopup={tooltip === undefined} disappearTimeout={0}>
 	<Tab
 		{disabled}
 		class={twMerge(

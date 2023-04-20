@@ -6,7 +6,7 @@
 	export let notClickable = false
 	export let popupClass = ''
 	export let disablePopup = false
-	export let disapperTimeout = 100
+	export let disappearTimeout = 100
 
 	const [popperRef, popperContent] = createPopperActions({ placement })
 
@@ -32,7 +32,7 @@
 		showTooltip = true
 	}
 	function close() {
-		timeout = setTimeout(() => (showTooltip = false), disapperTimeout)
+		timeout = setTimeout(() => (showTooltip = false), disappearTimeout)
 	}
 </script>
 
