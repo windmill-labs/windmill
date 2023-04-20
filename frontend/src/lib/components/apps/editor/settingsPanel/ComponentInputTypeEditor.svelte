@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { ToggleButton, ToggleButtonGroup } from '$lib/components/common'
-	import { faArrowRight, faCode, faPen } from '@fortawesome/free-solid-svg-icons'
+	import { faArrowRight, faPen } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext } from '../../types'
+	import { FunctionSquare } from 'lucide-svelte'
 
 	export let componentInput: AppInput
 	export let disableStatic: boolean = false
@@ -70,12 +71,14 @@
 					title="Compute it with a script/flow"
 					position="right"
 					value="runnable"
-					startIcon={{ icon: faCode }}
 					size="xs"
 				>
-					{#if clientWidth > 250}
-						Compute
-					{/if}
+					<div class="flex flex-row gap-1 items-center">
+						<FunctionSquare size="14" />
+						{#if clientWidth > 250}
+							Compute
+						{/if}
+					</div>
 				</ToggleButton>
 			</ToggleButtonGroup>
 		</div>

@@ -7,9 +7,9 @@
 	import type { AppEditorContext, AppViewerContext } from '$lib/components/apps/types'
 	import IconSelectInput from './IconSelectInput.svelte'
 	import ColorInput from './ColorInput.svelte'
-	import { Icon } from 'svelte-awesome'
-	import { faDollarSign } from '@fortawesome/free-solid-svg-icons'
 	import TabSelectInput from './TabSelectInput.svelte'
+	import { CurlyBraces } from 'lucide-svelte'
+	import Popover from '$lib/components/Popover.svelte'
 
 	export let componentInput: StaticInput<any> | undefined
 	export let fieldType: InputType | undefined = undefined
@@ -110,17 +110,18 @@
 	{:else if fieldType === 'array'}
 		<ArrayStaticInputEditor {subFieldType} bind:componentInput on:deleteArrayItem />
 	{:else}
-		<div class="flex gap-1">
+		<div class="flex gap-1 relative">
 			<input
 				on:keydown|stopPropagation
 				type="text"
 				placeholder={placeholder ?? 'Static value'}
 				bind:value={componentInput.value}
+				class="!pr-12"
 			/>
 			{#if !noVariablePicker}
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<div
-					class="min-w-min min-h-[34px] items-center leading-4 px-3 text-gray-600 cursor-pointer border border-gray-700 rounded center-center"
+					class="absolute right-1 top-1 bottom-1 min-w-min !px-2 items-center text-gray-800 bg-gray-100 border rounded center-center hover:bg-gray-300 transition-all cursor-pointer"
 					on:click={() => {
 						$pickVariableCallback = (variable) => {
 							if (componentInput) {
@@ -129,7 +130,10 @@
 						}
 					}}
 				>
-					<Icon data={faDollarSign} />
+					<Popover notClickable>
+						<CurlyBraces size={14} />
+						<svelte:fragment slot="text">Insert a variable</svelte:fragment>
+					</Popover>
 				</div>
 			{/if}
 		</div>

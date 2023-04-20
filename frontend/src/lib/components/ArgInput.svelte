@@ -425,8 +425,10 @@
 										on:click={() => {
 											pickForField = label
 											itemPicker?.openDrawer?.()
-										}}><Icon data={faDollarSign} /></div
+										}}
 									>
+										<Icon data={faDollarSign} />
+									</div>
 								</div>
 							{/if}
 						{/if}
