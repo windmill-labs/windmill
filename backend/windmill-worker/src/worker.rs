@@ -1470,7 +1470,7 @@ async fn handle_deno_job(
     };
 
     // TODO(deno): Handle log streaming
-    handle_child(&job.id, db, logs, JobChild::SignalChild(completion_signal, Some(our_stdio), Some(cancellation_signal)), false, worker_name, &job.workspace_id).await?;
+    handle_child(&job.id, db, logs, JobChild::SignalChild(completion_signal, Some(our_stdio), Some(cancellation_signal)), false, worker_name, &job.workspace_id, "deno run").await?;
     if let Err(e) = tokio::fs::remove_dir_all(format!("{DENO_CACHE_DIR}/gen/file/{job_dir}")).await {
         tracing::error!("failed to remove deno gen tmp cache dir: {}", e);
     }
