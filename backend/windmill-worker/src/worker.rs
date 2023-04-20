@@ -232,6 +232,8 @@ lazy_static::lazy_static! {
         .map(|e| Some(e))
         .unwrap_or(None);
 
+    pub static ref CAN_PULL: Arc<RwLock<()>> = Arc::new(RwLock::new(()));
+
 }
 
 //only matter if CLOUD_HOSTED
@@ -284,7 +286,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     mut rx: tokio::sync::broadcast::Receiver<()>,
     base_internal_url: &str,
     rsmq: Option<R>,
-    sync_barrier: RwLock<Arc<Option<Barrier>>>,
+    sync_barrier: Arc<RwLock<Option<Barrier>>>,
 ) {
     #[cfg(not(feature = "enterprise"))]
     if !*DISABLE_NSJAIL {
@@ -298,13 +300,11 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
     tracing::debug!(worker_dir = %worker_dir, worker_name = %worker_name, "Creating worker dir");
 
-    for x in [&worker_dir, PIP_CACHE_DIR, DENO_CACHE_DIR, GO_CACHE_DIR] {
-        DirBuilder::new()
-            .recursive(true)
-            .create(x)
-            .await
-            .expect("could not create initial worker dir");
-    }
+    DirBuilder::new()
+        .recursive(true)
+        .create(&worker_dir)
+        .await
+        .expect("could not create initial worker dir");
 
     let _ = write_file(
         &worker_dir,
@@ -468,8 +468,15 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             if i_worker == 1 && S3_CACHE_BUCKET.is_some() {
                 if last_sync.elapsed().as_secs() > *GLOBAL_CACHE_INTERVAL &&
                     (copy_cache_from_bucket_handle.is_none() || copy_cache_from_bucket_handle.as_ref().unwrap().is_finished()) {
+
+                    tracing::debug!("CAN PULL LOCK START");
+                    let _lock = CAN_PULL.write().await;
+
                     tracing::info!("Started syncing cache");
                     last_sync = Instant::now();
+                    if num_workers > 1 {
+                        create_barrier_for_all_workers(num_workers, sync_barrier.clone()).await;
+                    }
                     if let Err(e) = copy_cache_to_tmp_cache().await {
                         tracing::error!("failed to copy cache to tmp cache: {}", e);
                     } else {
@@ -484,12 +491,20 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                 }
             }
 
+            // The barrier is to avoid the sync to bucket syncing partial folders
             #[cfg(feature = "enterprise")]
-            if num_workers > 1 {
+            if num_workers > 1 && S3_CACHE_BUCKET.is_some()  {
                 let read_barrier = sync_barrier.read().await;
-                let barrier = read_barrier.clone();
-                if let Some(b) = barrier.as_ref() {
+                if let Some(b) = read_barrier.as_ref() {
+                    tracing::debug!("worker #{i_worker} waiting for barrier");
                     b.wait().await;
+                    tracing::debug!("worker #{i_worker} done waiting for barrier");
+                    drop(read_barrier);
+                    // wait for barrier to be reset
+                    let _ = CAN_PULL.read().await;
+                    tracing::debug!("worker #{i_worker} done waiting for lock");
+                } else {
+                    tracing::debug!("worker #{i_worker} no barrier");
                 };
             }
             
@@ -509,19 +524,17 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                             (true, Ok(None))
                         },
                         _ = copy_to_bucket_rx.recv() => {
+                            tracing::debug!("CAN PULL LOCK START");
+                            let _lock = CAN_PULL.write().await;
                             if num_workers > 1 {
-                                let mut barrier = sync_barrier.write().await;
-                                let arc_barrier = Arc::new(Some(tokio::sync::Barrier::new(num_workers as usize)));
-                                *barrier = arc_barrier.clone();
-                                if let Some(b) = arc_barrier.as_ref() {
-                                    b.wait().await;
-                                };
+                                create_barrier_for_all_workers(num_workers, sync_barrier.clone()).await;
                             }
                             //Arc::new(tokio::sync::Barrier::new(num_workers as usize + 1));
                             #[cfg(feature = "enterprise")]
                             if let Err(e) = copy_tmp_cache_to_cache().await {
                                 tracing::error!(worker = %worker_name, "failed to sync tmp cache to cache: {}", e);
                             }
+                            tracing::debug!("CAN PULL LOCK END");
                             (false, Ok(None))
                         },
                         Some(job_id) = same_worker_rx.recv() => {
@@ -580,7 +593,12 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     } else { None };
 
                     let job_root = job.root_job.map(|x| x.to_string()).unwrap_or_else(|| "none".to_string());
-                    tracing::info!(worker = %worker_name, id = %job.id, root_id = %job_root, "fetched job {}, root job: {}", job.id, job_root);
+
+                    if job.id == Uuid::nil() {
+                        tracing::info!(worker = %worker_name, "running warmup job");
+                    } else {
+                        tracing::info!(worker = %worker_name, id = %job.id, root_id = %job_root, "fetched job {}, root job: {}", job.id, job_root);
+                    }
 
                     let job_dir = format!("{worker_dir}/{}", job.id);
 
@@ -684,6 +702,21 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
 
 }
 
+pub async fn create_barrier_for_all_workers(num_workers: u32, sync_barrier: Arc<RwLock<Option<tokio::sync::Barrier>>>) {
+    tracing::debug!("acquiring write lock");
+    let mut barrier = sync_barrier.write().await;
+    *barrier = Some(tokio::sync::Barrier::new(num_workers as usize));
+    drop(barrier);
+    tracing::debug!("dropped write lock");
+    if let Some(b) = sync_barrier.read().await.as_ref() {
+        tracing::debug!("leader worker waiting for barrier");
+        b.wait().await;
+        tracing::debug!("leader worker done waiting for barrier");
+    };
+    let mut barrier = sync_barrier.write().await;
+    *barrier = None;
+    tracing::debug!("leader worker done waiting for");
+}
 pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     db: &Pool<Postgres>,
     client: &AuthedClient,
@@ -862,10 +895,10 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             logs.push_str(&format!("job {} on worker {}\n", &job.id, &worker_name));
             let result = match job.job_kind {
                 JobKind::Dependencies => {
-                    handle_dependency_job(&job, &mut logs, job_dir, db, worker_name).await
+                    handle_dependency_job(&job, &mut logs, job_dir, db, worker_name, worker_dir).await
                 }
                 JobKind::FlowDependencies => {
-                    handle_flow_dependency_job(&job, &mut logs, job_dir, db, worker_name)
+                    handle_flow_dependency_job(&job, &mut logs, job_dir, db, worker_name, worker_dir)
                         .await
                         .map(|()| Value::Null)
                 }
@@ -1468,6 +1501,7 @@ async fn handle_dependency_job(
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
+    worker_dir: &str,
 ) -> error::Result<serde_json::Value> {
     let content = capture_dependency_job(
         &job.id,
@@ -1485,6 +1519,7 @@ async fn handle_dependency_job(
         db,
         worker_name,
         &job.workspace_id,
+        worker_dir,
     )
     .await;
     match content {
@@ -1520,6 +1555,7 @@ async fn handle_flow_dependency_job(
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
+    worker_dir: &str,
 ) -> error::Result<()> {
     let path = job.script_path.clone().ok_or_else(|| {
         error::Error::InternalErr(
@@ -1552,6 +1588,7 @@ async fn handle_flow_dependency_job(
             db,
             worker_name,
             &job.workspace_id,
+            worker_dir,
         )
         .await;
         match new_lock {
@@ -1623,6 +1660,7 @@ async fn capture_dependency_job(
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
     w_id: &str,
+    worker_dir: &str,
 ) -> error::Result<String> {
     match job_language {
         ScriptLang::Python3 => {
@@ -1641,6 +1679,7 @@ async fn capture_dependency_job(
                     db,
                     worker_name,
                     job_dir,
+                    worker_dir,
                 )
                 .await?;
             }

@@ -14,9 +14,9 @@ use std::{
 use git_version::git_version;
 use monitor::handle_zombie_jobs_periodically;
 use sqlx::{Pool, Postgres};
-use tokio::sync::RwLock;
+use tokio::{fs::DirBuilder, sync::RwLock};
 use windmill_common::{utils::rd_string, IS_READY, METRICS_ADDR};
-use windmill_worker::S3_CACHE_BUCKET;
+use windmill_worker::{DENO_CACHE_DIR, GO_CACHE_DIR, PIP_CACHE_DIR, S3_CACHE_BUCKET};
 
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 const DEFAULT_NUM_WORKERS: usize = 3;
@@ -271,6 +271,14 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
 
     let mut handles = Vec::with_capacity(num_workers as usize);
 
+    for x in [PIP_CACHE_DIR, DENO_CACHE_DIR, GO_CACHE_DIR] {
+        DirBuilder::new()
+            .recursive(true)
+            .create(x)
+            .await
+            .expect("could not create initial worker dir");
+    }
+
     #[cfg(feature = "enterprise")]
     if let Some(ref s) = S3_CACHE_BUCKET.clone() {
         // We donwload the entire cache as tar
@@ -278,7 +286,7 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
     }
 
     IS_READY.store(true, Ordering::Relaxed);
-
+    let sync_barrier = Arc::new(RwLock::new(None));
     for i in 1..(num_workers + 1) {
         let db1 = db.clone();
         let instance_name = instance_name.clone();
@@ -287,6 +295,7 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
         let rx = rx.resubscribe();
         let base_internal_url = base_internal_url.clone();
         let rsmq2 = rsmq.clone();
+        let sync_barrier = sync_barrier.clone();
         handles.push(tokio::spawn(monitor.instrument(async move {
             tracing::info!(worker = %worker_name, "starting worker");
             windmill_worker::run_worker(
@@ -299,7 +308,7 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
                 rx,
                 &base_internal_url,
                 rsmq2,
-                RwLock::new(Arc::new(None)),
+                sync_barrier,
             )
             .await
         })));

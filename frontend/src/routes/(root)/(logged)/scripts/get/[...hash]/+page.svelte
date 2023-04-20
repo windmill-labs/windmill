@@ -46,7 +46,15 @@
 	import { Loader2 } from 'lucide-svelte'
 	import { slide } from 'svelte/transition'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
-	import { DEFAULT_WEBHOOK_TYPE } from '$lib/consts'
+	import {
+		DEFAULT_WEBHOOK_TYPE,
+		SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB,
+		SCRIPT_VIEW_SHOW_SCHEDULE,
+		SCRIPT_VIEW_SHOW_EXAMPLE_CURL,
+		SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON,
+		SCRIPT_VIEW_WEBHOOK_INFO_LINK,
+		SCRIPT_VIEW_WEBHOOK_INFO_TIP
+	} from '$lib/consts'
 
 	let userSettings: UserSettings
 	let script: Script | undefined
@@ -282,6 +290,7 @@
 			</div>
 
 			<div class="flex gap-2 flex-wrap mt-4">
+				{#if SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB}
 				<Button
 					disabled={deploymentInProgress}
 					target="_blank"
@@ -301,6 +310,7 @@
 				>
 					Publish to Hub
 				</Button>
+				{/if}
 				<Button
 					on:click={() => shareModal.openDrawer(script?.path ?? '', 'script')}
 					variant="border"
@@ -311,6 +321,7 @@
 				>
 					Share
 				</Button>
+				{#if SCRIPT_VIEW_SHOW_SCHEDULE}
 				<Button
 					on:click={() => scheduleEditor?.openNew(false, script?.path ?? '')}
 					variant="border"
@@ -320,6 +331,7 @@
 				>
 					Schedule
 				</Button>
+				{/if}
 				<Button
 					on:click={() => moveDrawer.openDrawer(script?.path ?? '', script?.summary, 'script')}
 					variant="border"
@@ -450,10 +462,8 @@
 				<h3 bind:this={webhookElem} id="webhooks">
 					Webhooks
 					<Tooltip>
-						Pass the input as a json payload, the token as a Bearer token (header: 'Authorization:
-						Bearer XXXX') or as query arg `?token=XXX`, and pass as header: 'Content-Type:
-						application/json'
-						<a href="https://docs.windmill.dev/docs/core_concepts/webhooks" class="text-blue-500">
+						{SCRIPT_VIEW_WEBHOOK_INFO_TIP}
+						<a href={SCRIPT_VIEW_WEBHOOK_INFO_LINK} class="text-blue-500">
 							See docs
 						</a>
 					</Tooltip>
@@ -505,11 +515,14 @@
 										</li>
 									{/each}
 								</ul>
+								{#if SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON}
 								<div class="flex flex-row-reverse mt-2">
 									<Button size="xs" on:click={userSettings.openDrawer}>Create token</Button>
 								</div>
+								{/if}
 							</TabContent>
 						{/each}
+						{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL}
 						<div class="flex">
 							<Button
 								color="light"
@@ -520,6 +533,7 @@
 								See example curl command
 							</Button>
 						</div>
+						{/if}
 						{#if viewWebhookCommand}
 							<div transition:slide|local class="px-4">
 								<!-- svelte-ignore a11y-click-events-have-key-events -->

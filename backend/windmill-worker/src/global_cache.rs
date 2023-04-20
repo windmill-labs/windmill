@@ -45,7 +45,9 @@ pub async fn copy_cache_from_bucket(bucket: &str, tx: Sender<()>) -> error::Resu
             "--size-only",
             "--fast-list",
             "--exclude",
-            &format!("\"/{TAR_CACHE_FILENAME},/deno/gen/file/**\""),
+            &format!("deno/gen/file/tmp/windmill/**"),
+            "--exclude",
+            &format!("{TAR_CACHE_FILENAME}"),
         ],
     )
     .await
@@ -79,7 +81,9 @@ pub async fn copy_cache_to_bucket(bucket: &str) -> error::Result<()> {
             "--size-only",
             "--fast-list",
             "--exclude",
-            &format!("\"/{TAR_CACHE_FILENAME},/deno/gen/file/**\""),
+            &format!("deno/gen/file/tmp/windmill/**"),
+            "--exclude",
+            &format!("{TAR_CACHE_FILENAME}"),
         ],
     )
     .await
@@ -251,7 +255,13 @@ pub async fn copy_tmp_cache_to_cache() -> error::Result<()> {
     execute_command(
         TMP_DIR,
         "rclone",
-        vec!["sync", ROOT_TMP_CACHE_DIR, ROOT_CACHE_DIR],
+        vec![
+            "sync",
+            ROOT_TMP_CACHE_DIR,
+            ROOT_CACHE_DIR,
+            "--exclude",
+            TAR_CACHE_FILENAME,
+        ],
     )
     .await?;
     tracing::info!(
@@ -267,7 +277,13 @@ pub async fn copy_cache_to_tmp_cache() -> error::Result<()> {
     execute_command(
         TMP_DIR,
         "rclone",
-        vec!["sync", ROOT_CACHE_DIR, ROOT_TMP_CACHE_DIR],
+        vec![
+            "sync",
+            ROOT_CACHE_DIR,
+            ROOT_TMP_CACHE_DIR,
+            "--exclude",
+            TAR_CACHE_FILENAME,
+        ],
     )
     .await?;
     tracing::info!(
