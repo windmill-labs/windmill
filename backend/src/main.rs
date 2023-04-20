@@ -21,8 +21,8 @@ use tokio::{
 };
 use windmill_common::{utils::rd_string, IS_READY, METRICS_ADDR};
 use windmill_worker::{
-    untar_all_piptars, DENO_CACHE_DIR, DENO_TMP_CACHE_DIR, GO_CACHE_DIR, GO_TMP_CACHE_DIR,
-    PIP_CACHE_DIR, ROOT_TMP_CACHE_DIR, S3_CACHE_BUCKET, TAR_PIP_TMP_CACHE_DIR,
+    DENO_CACHE_DIR, DENO_TMP_CACHE_DIR, GO_CACHE_DIR, GO_TMP_CACHE_DIR, PIP_CACHE_DIR,
+    ROOT_TMP_CACHE_DIR, S3_CACHE_BUCKET, TAR_PIP_TMP_CACHE_DIR,
 };
 
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
@@ -305,7 +305,7 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
             windmill_worker::copy_denogo_cache_from_bucket_as_tar(&s),
             windmill_worker::copy_all_piptars_from_bucket(&s)
         );
-        if let Err(e) = untar_all_piptars().await {
+        if let Err(e) = windmill_worker::untar_all_piptars().await {
             tracing::info!("Failed to untar piptars. Error: {:?}", e);
         }
     }
