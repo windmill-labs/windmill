@@ -2,7 +2,7 @@
 	import { isCodeInjection } from '$lib/components/flows/utils'
 	import { deepEqual } from 'fast-equals'
 	import { createEventDispatcher, getContext, onDestroy } from 'svelte'
-	import type { AppInput, EvalAppInput, RichAppInput, UploadAppInput } from '../../inputType'
+	import type { AppInput, EvalAppInput, UploadAppInput } from '../../inputType'
 	import type { AppViewerContext, RichConfiguration } from '../../types'
 	import { accessPropertyByPath } from '../../utils'
 	import { computeGlobalContext, eval_like } from './eval'
@@ -16,7 +16,7 @@
 	export let extraContext: Record<string, any> = {}
 	export let key: string = ''
 
-	const { componentControl } = getContext<AppViewerContext>('AppViewerContext')
+	const { componentControl, runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 
 	const dispatch = createEventDispatcher()
 
@@ -41,8 +41,15 @@
 	$: stateId = $worldStore?.stateId
 
 	let timeout: NodeJS.Timeout | undefined = undefined
+
+	let firstDebounce = true
 	const debounce_ms = 50
 	function debounce(cb: () => Promise<void>) {
+		if (firstDebounce) {
+			firstDebounce = false
+			cb()
+			return
+		}
 		if (timeout) {
 			clearTimeout(timeout)
 		}
@@ -85,12 +92,13 @@
 		try {
 			const r = await eval_like(
 				input.expr,
-				computeGlobalContext($worldStore, id, extraContext),
+				computeGlobalContext($worldStore, extraContext),
 				true,
 				$state,
 				$mode == 'dnd',
 				$componentControl,
-				$worldStore
+				$worldStore,
+				$runnableComponents
 			)
 			error = ''
 			return r
@@ -101,16 +109,18 @@
 	}
 
 	async function getValue(input: AppInput) {
+		if (!input) return
 		if (input.type === 'template' && isCodeInjection(input.eval)) {
 			try {
 				const r = await eval_like(
 					'`' + input.eval + '`',
-					computeGlobalContext($worldStore, id, extraContext),
+					computeGlobalContext($worldStore, extraContext),
 					true,
 					$state,
 					$mode == 'dnd',
 					$componentControl,
-					$worldStore
+					$worldStore,
+					$runnableComponents
 				)
 				error = ''
 				return r

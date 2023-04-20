@@ -1,7 +1,8 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { faClose, faEdit } from '@fortawesome/free-solid-svg-icons'
+	import { faClose } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { ResultAppInput } from '../../inputType'
 	import type { AppEditorContext, AppViewerContext } from '../../types'
@@ -29,6 +30,17 @@
 	function clear() {
 		appInput = clearResultAppInput(appInput)
 	}
+
+	$: {
+		if (appInput.recomputeOnInputChanged === undefined) {
+			appInput.recomputeOnInputChanged = true
+		}
+		//TODO: remove after migration is done
+		if (appInput.doNotRecomputeOnInputChanged != undefined) {
+			appInput.recomputeOnInputChanged = !appInput.doNotRecomputeOnInputChanged
+			appInput.doNotRecomputeOnInputChanged = undefined
+		}
+	}
 </script>
 
 <div class="flex justify-between w-full items-center gap-1">
@@ -39,7 +51,7 @@
 			{appInput.runnable.path}
 		{/if}
 	</span>
-	<div class="flex gap-1  justify-center">
+	<div class="flex gap-1 justify-center">
 		{#if appInput.runnable?.type === 'runnableByName' && appInput.runnable.inlineScript}
 			<Button size="xs" color="light" variant="border" on:click={detach}>
 				Detach&nbsp;
@@ -97,11 +109,22 @@
 </div>
 
 {#if appInput.runnable?.type === 'runnableByName' && appInput.runnable.inlineScript}
+	{#if !['buttoncomponent', 'formbuttoncomponent', 'formcomponent'].includes(appComponent.type)}
+		<div class="flex items-center">
+			<Toggle
+				size="xs"
+				bind:checked={appInput.recomputeOnInputChanged}
+				options={{ right: 'recompute on any input changes' }}
+			/>
+		</div>
+	{/if}
+
 	<div>
 		<ComponentTriggerList
 			bind:runnable={appInput.runnable}
 			{appComponent}
 			fields={appInput.fields}
+			recomputeOnInputChanged={appInput.recomputeOnInputChanged}
 		/>
 	</div>
 {/if}

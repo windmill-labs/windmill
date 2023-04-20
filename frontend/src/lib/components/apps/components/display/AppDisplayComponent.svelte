@@ -28,22 +28,28 @@
 </script>
 
 <RunnableWrapper {outputs} {render} {componentInput} {id} bind:initializing bind:result>
-	<div
-		class={twMerge(
-			'w-full border-b px-2 text-xs p-1 font-semibold bg-gray-500 text-white rounded-t-sm',
-			$app.css?.['displaycomponent']?.['header']?.class,
-			customCss?.header?.class
-		)}
-	>
-		Results
-	</div>
-	<div
-		class={twMerge(
-			'p-2',
-			$app.css?.['displaycomponent']?.['container']?.class,
-			customCss?.container?.class
-		)}
-	>
-		<DisplayResult {result} {requireHtmlApproval} />
+	<div class="flex flex-col w-full h-full">
+		<div
+			class={twMerge(
+				'w-full border-b px-2 text-xs p-1 font-semibold bg-gray-500 text-white rounded-t-sm',
+				$app.css?.['displaycomponent']?.['header']?.class,
+				customCss?.header?.class
+			)}
+		>
+			Results
+		</div>
+		<div
+			style={twMerge(
+				$app.css?.['displaycomponent']?.['container']?.style,
+				customCss?.container?.style
+			)}
+			class={twMerge(
+				'p-2 grow overflow-auto',
+				$app.css?.['displaycomponent']?.['container']?.class,
+				customCss?.container?.class
+			)}
+		>
+			<DisplayResult {result} {requireHtmlApproval} />
+		</div>
 	</div>
 </RunnableWrapper>

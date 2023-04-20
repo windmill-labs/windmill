@@ -1,11 +1,10 @@
 <script lang="ts">
-	import { Loader2 } from 'lucide-svelte'
 	import { getContext } from 'svelte'
-	import { fade } from 'svelte/transition'
 	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppViewerContext } from '../../types'
 	import InputValue from './InputValue.svelte'
+	import InitializeComponent from './InitializeComponent.svelte'
 
 	export let componentInput: AppInput
 	export let id: string
@@ -26,6 +25,8 @@
 
 	$: result && outputs && setOutput(result)
 </script>
+
+<InitializeComponent {id} />
 
 {#if componentInput.type !== 'runnable'}
 	<InputValue {id} input={componentInput} bind:value={result} />

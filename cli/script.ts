@@ -55,14 +55,11 @@ export class ScriptFile {
 }
 
 type PushOptions = GlobalOptions;
-async function push(
-  opts: PushOptions,
-  filePath: string,
-  remotePath: string,
-  contentPath?: string
-) {
+async function push(opts: PushOptions, filePath: string) {
   const workspace = await resolveWorkspace(opts);
-  if (!(await validatePath(opts, remotePath))) {
+  const remotePath = filePath.split(".")[0];
+
+  if (!validatePath(remotePath)) {
     return;
   }
 
@@ -70,17 +67,18 @@ async function push(
   if (!fstat.isFile) {
     throw new Error("file path must refer to a file.");
   }
-  if (!contentPath) {
+  let contentPath: string;
+  let metaPath: string | undefined;
+  if (filePath.endsWith(".script.json")) {
+    metaPath = filePath;
     contentPath = await findContentFile(filePath);
   } else {
-    const fstat = await Deno.stat(filePath);
-    if (!fstat.isFile) {
-      throw new Error("content path must refer to a file.");
-    }
+    contentPath = filePath;
+    metaPath = undefined;
   }
 
   await requireLogin(opts);
-  await pushScript(filePath, contentPath, workspace.workspaceId, remotePath);
+  await pushScript(metaPath, contentPath, workspace.workspaceId, remotePath);
   console.log(colors.bold.underline.green(`Script ${remotePath} pushed`));
 }
 
@@ -144,6 +142,7 @@ export async function handleFile(
             typed.summary === remote.summary &&
             typed.is_template === remote.is_template &&
             typed.kind == remote.kind &&
+            !remote.archived &&
             remote?.lock == typed.lock?.join("\n") &&
             JSON.stringify(typed.schema) == JSON.stringify(remote.schema))
         ) {
@@ -181,15 +180,15 @@ export async function handleFile(
         workspace: workspace,
         requestBody: {
           content,
-          description: typed.description,
+          description: typed?.description ?? "",
           language,
           path: remotePath,
-          summary: typed.summary,
-          is_template: typed.is_template,
-          kind: typed.kind,
-          lock: typed.lock,
+          summary: typed?.summary ?? "",
+          is_template: typed?.is_template,
+          kind: typed?.kind,
+          lock: typed?.lock,
           parent_hash: undefined,
-          schema: typed.schema,
+          schema: typed?.schema,
         },
       });
       console.log(
@@ -254,18 +253,20 @@ export function inferContentTypeFromFilePath(
 }
 
 export async function pushScript(
-  filePath: string,
+  filePath: string | undefined,
   contentPath: string,
   workspace: string,
   remotePath: string
 ) {
-  const data = decoverto
-    .type(ScriptFile)
-    .rawToInstance(await Deno.readTextFile(filePath));
+  const data = filePath
+    ? decoverto
+        .type(ScriptFile)
+        .rawToInstance(await Deno.readTextFile(filePath))
+    : undefined;
   const content = await Deno.readTextFile(contentPath);
 
   const language = inferContentTypeFromFilePath(contentPath);
-  let parent_hash = data.parent_hash;
+  let parent_hash = data?.parent_hash;
   if (!parent_hash) {
     try {
       parent_hash = (
@@ -284,15 +285,15 @@ export async function pushScript(
     workspace: workspace,
     requestBody: {
       path: remotePath,
-      summary: data.summary,
+      summary: data?.summary ?? "",
       content: content,
-      description: data.description,
+      description: data?.description ?? "",
       language: language,
-      is_template: data.is_template,
-      kind: data.kind,
-      lock: data.lock,
+      is_template: data?.is_template,
+      kind: data?.kind,
+      lock: data?.lock,
       parent_hash: parent_hash,
-      schema: data.schema,
+      schema: data?.schema,
     },
   });
 }
@@ -484,17 +485,17 @@ const command = new Command()
   .action(list as any)
   .command(
     "push",
-    "push a local script spec. This overrides any remote versions."
+    "push a local script spec. This overrides any remote versions. Can use a script file (.ts, .js, .py, .sh) or a script spec file (.json). "
   )
-  .arguments("<file_path:string> <remote_path:string> [content_path:string]")
+  .arguments("<file_path:file>")
   .action(push as any)
   .command("show", "show a scripts content")
-  .arguments("<path:string>")
+  .arguments("<path:file>")
   .action(show as any)
   .command("run", "run a script by path")
-  .arguments("<path:string>")
+  .arguments("<path:file>")
   .option(
-    "-d --data <data:string>",
+    "-d --data <data:file>",
     "Inputs specified as a JSON string or a file using @<filename> or stdin using @-."
   )
   .option(

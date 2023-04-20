@@ -1,15 +1,11 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
-	import type {
-		AppViewerContext,
-		ComponentCustomCSS,
-		RichConfiguration,
-		RichConfigurations
-	} from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import { AlignWrapper, InputValue } from '../helpers'
 	import { loadIcon } from '../icon'
+	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
 	export let id: string
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = 'left'
@@ -42,6 +38,8 @@
 <InputValue {id} input={configuration.size} bind:value={size} />
 <InputValue {id} input={configuration.color} bind:value={color} />
 <InputValue {id} input={configuration.strokeWidth} bind:value={strokeWidth} />
+
+<InitializeComponent {id} />
 
 <AlignWrapper
 	{render}

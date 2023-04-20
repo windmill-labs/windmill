@@ -9,28 +9,46 @@
 	import Path from './Path.svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
 	import ScriptSchema from './ScriptSchema.svelte'
-	import CenteredPage from './CenteredPage.svelte'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
-	import { Button, ButtonPopup, ButtonPopupItem, Kbd } from './common'
-	import { faPen, faSave } from '@fortawesome/free-solid-svg-icons'
-	import Breadcrumb from './common/breadcrumb/Breadcrumb.svelte'
+	import { Badge, Button, Drawer } from './common'
+	import { faSave } from '@fortawesome/free-solid-svg-icons'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 	import type { SupportedLanguage } from '$lib/common'
 	import Tooltip from './Tooltip.svelte'
-	import SettingSection from './SettingSection.svelte'
+	import DrawerContent from './common/drawer/DrawerContent.svelte'
+	import { Pen } from 'lucide-svelte'
+	import autosize from 'svelte-autosize'
+	import type Editor from './Editor.svelte'
+	import { SCRIPT_SHOW_BASH, SCRIPT_SHOW_GO, SCRIPT_SHOW_PSQL, SCRIPT_CUSTOMISE_SHOW_KIND } from '$lib/consts'
 
 	export let script: Script
 	export let initialPath: string = ''
 	export let template: 'pgsql' | 'mysql' | 'script' = 'script'
 	export let initialArgs: Record<string, any> = {}
 	export let lockedLanguage = false
+	export let topHash: string | undefined = undefined
+	export let showMeta: boolean = false
+
+	let metadataOpen = showMeta || (initialPath == '' && $page.url.searchParams.get('state') == undefined)
+	let advancedOpen = false
+
+	let editor: Editor | undefined = undefined
+	let scriptEditor: ScriptEditor | undefined = undefined
+
+	export function setCode(code: string): void {
+		editor?.setCode(code)
+	}
 
 	const langs: [string, SupportedLanguage][] = [
 		['Typescript', Script.language.DENO],
-		['Python', Script.language.PYTHON3],
-		['Go', Script.language.GO],
-		['Bash', Script.language.BASH]
+		['Python', Script.language.PYTHON3]
 	]
+	if(SCRIPT_SHOW_GO) {
+		langs.push(['Go', Script.language.GO])
+	}
+	if(SCRIPT_SHOW_BASH) {
+		langs.push(['Bash', Script.language.BASH])
+	}
 	const scriptKindOptions: { value: Script.kind; title: string; desc?: string }[] = [
 		{
 			value: Script.kind.SCRIPT,
@@ -54,12 +72,9 @@
 	]
 
 	let pathError = ''
-	let summaryC: HTMLInputElement | undefined = undefined
-	let pathC: Path | undefined = undefined
 	let loadingSave = false
 
 	$: setQueryWithoutLoad($page.url, [{ key: 'state', value: encodeState(script) }])
-	$: step = Number($page.url.searchParams.get('step')) || 1
 
 	if (script.content == '') {
 		initContent(script.language, script.kind, template)
@@ -71,6 +86,18 @@
 		template: 'pgsql' | 'mysql' | 'script'
 	) {
 		script.content = initialCode(language, kind, template)
+		scriptEditor?.inferSchema(script.content, language)
+	}
+
+	async function leaveF(leave: boolean, newHash: string) {
+		if (leave) {
+			history.replaceState(history.state, '', `/scripts/edit/${newHash}`)
+			goto(`/scripts/get/${newHash}?workspace=${$workspaceStore}`)
+		} else {
+			await goto(`/scripts/edit/${newHash}`)
+			script.hash = newHash
+			topHash = undefined
+		}
 	}
 
 	async function editScript(leave: boolean): Promise<void> {
@@ -84,8 +111,7 @@
 				await inferArgs(script.language, script.content, script.schema)
 			} catch (error) {
 				sendUserToast(
-					`Impossible to infer the schema. Assuming this is a script without main function`,
-					true
+					`The main signature was not parsable. This script is considered to be without main function`
 				)
 			}
 
@@ -96,263 +122,268 @@
 					summary: script.summary,
 					description: script.description ?? '',
 					content: script.content,
-					parent_hash: script.hash != '' ? script.hash : undefined,
+					parent_hash: script.hash != '' ? topHash ?? script.hash : undefined,
 					schema: script.schema,
 					is_template: script.is_template,
 					language: script.language,
 					kind: script.kind
 				}
 			})
-			if (leave) {
-				history.replaceState(history.state, '', `/scripts/edit/${newHash}?step=2`)
-				goto(`/scripts/get/${newHash}?workspace_id=${$workspaceStore}`)
-			} else {
-				await goto(`/scripts/edit/${newHash}?step=2`)
-				script.hash = newHash
-			}
+			leaveF(leave, newHash)
 		} catch (error) {
-			sendUserToast(`Impossible to save the script: ${error.body || error.message}`, true)
+			sendUserToast(`Error while saving the script: ${error.body || error.message}`, true)
 		}
 		loadingSave = false
 	}
 
-	async function changeStep(step: number) {
-		if (step > 1) {
-			script.schema = script.schema ?? emptySchema()
-			try {
-				await inferArgs(script.language, script.content, script.schema)
-			} catch (error) {
-				console.info(
-					'Impossible to infer the schema. Assuming this is a script without main function'
-				)
-			}
-		}
-		goto(`?step=${step}`)
-	}
+	function computeDropdownItems() {
+		let dropdownItems: { label: string; onClick: () => void }[] = []
 
-	$: kind = script.kind as 'script' | 'trigger' | 'approval' | undefined
-
-	function onKeyDown(event: KeyboardEvent) {
-		if (event.key == 'Enter' && step == 1) {
-			changeStep(2)
+		if ($dirtyStore) {
+			dropdownItems.push({
+				label: 'Save and see details',
+				onClick: () => editScript(true)
+			})
 		}
+
+		dropdownItems.push({
+			label: 'See details',
+			onClick: () => leaveF(true, script.hash)
+		})
+
+		if (initialPath != '') {
+			dropdownItems.push({
+				label: 'Fork',
+				onClick: () => {
+					window.open(`/scripts/add?template=${initialPath}`)
+				}
+			})
+		}
+		return dropdownItems
 	}
 </script>
 
 {#if !$userStore?.operator}
-	<div class="flex flex-col h-screen">
-		<!-- Nav between steps-->
-		<div class="flex flex-col w-full px-2 py-1  border-b shadow-sm">
-			<div
-				class="justify-between flex flex-row w-full items-center overflow-x-auto scrollbar-hidden px-2"
-			>
-				<div class="flex flex-row py-1">
-					<Breadcrumb
-						items={['Metadata', 'Code', 'Advanced']}
-						selectedIndex={step}
-						on:select={(e) => changeStep(e.detail.index + 1)}
-						disabled={pathError != ''}
-					>
-						<svelte:fragment slot="separator">/</svelte:fragment>
-					</Breadcrumb>
-				</div>
+	<Drawer placement="right" bind:open={metadataOpen} size="800px">
+		<DrawerContent title="Metadata" on:close={() => (metadataOpen = false)}>
+			<h2 class="border-b pb-1 mb-4">Path</h2>
+			<Path
+				bind:error={pathError}
+				bind:path={script.path}
+				{initialPath}
+				namePlaceholder="script"
+				kind="script"
+			/>
+			<h2 class="border-b pb-1 mt-10 mb-4">Summary</h2>
 
-				<div class="gap-1 flex-row hidden md:flex shrink overflow-hidden">
-					<Button
-						btnClasses="hidden lg:inline-flex"
-						startIcon={{ icon: faPen }}
-						variant="contained"
-						color="light"
-						size="xs"
-						on:click={async () => {
-							await changeStep(1)
-							setTimeout(() => pathC?.focus(), 100)
-						}}
-					>
-						{script.path}
-					</Button>
+			<input
+				type="text"
+				bind:value={script.summary}
+				placeholder="Short summary to be displayed when listed"
+			/>
+			<h2 class="border-b pb-1 mt-10 mb-4">Language</h2>
 
-					<Button
-						startIcon={{ icon: faPen }}
-						variant="contained"
-						color="light"
-						size="xs"
-						on:click={async () => {
-							await changeStep(1)
-							setTimeout(() => summaryC?.focus(), 100)
-						}}
-					>
-						<div class="max-w-[10em] !truncate">
-							{script.summary == '' || !script.summary ? 'No summary' : script.summary}
-						</div>
-					</Button>
+			{#if lockedLanguage}
+				<div class="text-sm text-gray-600 italic mb-2">
+					As a forked script, the language '{script.language}' cannot be modified.
 				</div>
-				<div class="flex flex-row gap-x-2">
+			{/if}
+			<div class="flex flex-row gap-2 flex-wrap">
+				{#each langs as [label, lang]}
+					{@const isPicked = script.language == lang && template == 'script'}
 					<Button
+						size="sm"
 						variant="border"
-						size="sm"
-						btnClasses={step == 1 ? 'hidden sm:invisible' : ''}
-						on:click={() => changeStep(step - 1)}
+						color={isPicked ? 'blue' : 'dark'}
+						btnClasses={isPicked ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+						on:click={() => {
+							let lastTemplate = template
+							template = 'script'
+							initContent(lang, script.kind, template)
+							script.language = lang
+							if (lastTemplate != template) {
+								setCode(script.content)
+							}
+						}}
+						disabled={lockedLanguage}
 					>
-						Back
+						<LanguageIcon {lang} />
+						<span class="ml-2 py-2">{label}</span>
+					</Button>
+				{/each}
+				{#if SCRIPT_SHOW_PSQL}
+				<Button
+					size="sm"
+					variant="border"
+					color={template == 'pgsql' ? 'blue' : 'dark'}
+					btnClasses={template == 'pgsql' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+					disabled={lockedLanguage}
+					on:click={() => {
+						let lastTemplate = template
+						template = 'pgsql'
+						initContent(Script.language.DENO, script.kind, template)
+						script.language = Script.language.DENO
+						if (lastTemplate != template) {
+							setCode(script.content)
+						}
+					}}
+				>
+					<LanguageIcon lang="pgsql" /><span class="ml-2 py-2">PostgreSQL</span>
+				</Button>
+				{/if}
+				<!-- <Button
+					size="sm"
+					variant="border"
+					color={template == 'mysql' ? 'blue' : 'dark'}
+					btnClasses={template == 'mysql' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+					on:click={() => {
+						script.language = Script.language.DENO
+						template = 'mysql'
+						initContent(script.language, script.kind, template)
+					}}
+				>
+					<LanguageIcon lang="mysql" /><span class="ml-2 py-2">MySQL</span>
+				</Button> -->
+			</div>
+
+			<h2 class="border-b pb-1 mt-10 mb-4">Description</h2>
+			<textarea
+				use:autosize
+				bind:value={script.description}
+				placeholder="Edit description"
+				class="text-sm"
+			/>
+		</DrawerContent>
+	</Drawer>
+
+	<div class="flex flex-col h-screen">
+		<div class="flex flex-col w-full px-2 py-1 border-b shadow-sm">
+			<div class="justify-between flex gap-8 w-full items-center px-2">
+				<div class="min-w-64 w-full max-w-md">
+					<input
+						type="text"
+						placeholder="Script summary"
+						class="text-sm w-full font-semibold"
+						bind:value={script.summary}
+					/>
+				</div>
+				<div class="gap-4 flex">
+					<div class="flex justify-start w-full">
+						<div>
+							<button
+								on:click={async () => {
+									metadataOpen = true
+								}}
+							>
+								<Badge
+									color="gray"
+									class="center-center !bg-gray-300 !text-gray-600 !h-[28px]  !w-[70px] rounded-r-none"
+								>
+									<Pen size={12} class="mr-2" /> Path
+								</Badge>
+							</button>
+						</div>
+						<input
+							type="text"
+							readonly
+							value={script.path}
+							size={script.path?.length || 50}
+							class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 !rounded-l-none"
+							on:focus={({ currentTarget }) => {
+								currentTarget.select()
+							}}
+						/>
+					</div>
+				</div>
+				<div class="center-center">
+					<button
+						on:click={async () => {
+							metadataOpen = true
+						}}
+					>
+						<LanguageIcon lang={script.language} />
+					</button>
+				</div>
+				<div class="flex flex-row gap-x-4">
+					<Button
+						color="dark"
+						variant="border"
+						size="xs"
+						on:click={() => {
+							advancedOpen = true
+						}}
+					>
+						Customise
 					</Button>
 					<Button
-						size="sm"
-						variant={step == 1 ? 'contained' : 'border'}
-						btnClasses={step == 3 ? 'invisible' : 'inline-flex gap-2'}
-						disabled={step === 1 && pathError !== ''}
-						on:click={() => changeStep(step + 1)}
-					>
-						Next {#if step == 1}<Kbd>Enter</Kbd>{/if}
-					</Button>
-					<ButtonPopup
+						disabled={!$dirtyStore}
+						color="dark"
 						loading={loadingSave}
 						size="sm"
-						variant={step == 1 ? 'border' : 'contained'}
-						disabled={step === 1 && pathError !== ''}
 						startIcon={{ icon: faSave }}
 						on:click={() => editScript(false)}
+						dropdownItems={computeDropdownItems}
 					>
-						<svelte:fragment slot="main">Save</svelte:fragment>
-						<ButtonPopupItem on:click={() => editScript(true)}>Save and exit</ButtonPopupItem>
-						{#if initialPath != ''}
-							<ButtonPopupItem
-								on:click={() => {
-									window.open(`/scripts/add?template=${initialPath}`)
-								}}>Fork</ButtonPopupItem
-							>
-						{/if}
-					</ButtonPopup>
+						Save
+					</Button>
 				</div>
 			</div>
 		</div>
 
-		<!-- metadata -->
-		{#if step === 1}
-			<CenteredPage>
-				<SettingSection title="Path" element="h2">
-					<Path
-						bind:this={pathC}
-						bind:error={pathError}
-						bind:path={script.path}
-						{initialPath}
-						on:enter={() => changeStep(2)}
-						namePlaceholder="script"
-						kind="script"
-					/>
-				</SettingSection>
-				<SettingSection title="Summary" element="h2">
-					<input
-						type="text"
-						bind:this={summaryC}
-						bind:value={script.summary}
-						placeholder="Short summary to be displayed when listed"
-					/>
-				</SettingSection>
-				<SettingSection title="Language" element="h2">
-					{#if lockedLanguage}
-						<div class="text-sm text-gray-600 italic mb-2">
-							As a forked script, the language '{script.language}' cannot be modified.
-						</div>
-					{/if}
-					<div class="flex flex-row gap-2 flex-wrap">
-						{#each langs as [label, lang]}
-							{@const isPicked = script.language == lang && template == 'script'}
-							<Button
-								size="sm"
-								variant="border"
-								color={isPicked ? 'blue' : 'dark'}
-								btnClasses={isPicked ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
-								on:click={() => {
-									script.language = lang
-									template = 'script'
-									initContent(lang, script.kind, template)
-								}}
-								disabled={lockedLanguage}
-							>
-								<LanguageIcon {lang} />
-								<span class="ml-2 py-2">{label}</span>
-							</Button>
-						{/each}
+		<Drawer bind:open={advancedOpen} size="800px">
+			<DrawerContent title="Customise" on:close={() => (advancedOpen = false)}>
+				{#if SCRIPT_CUSTOMISE_SHOW_KIND}
+				<h2 class="border-b pb-1 mb-4"
+					>Script Kind &nbsp;<Tooltip
+						>Tag this script's purpose within flows such that it is available as the corresponding
+						action.</Tooltip
+					></h2
+				>
+				<div class="flex flex-wrap gap-2">
+					{#each scriptKindOptions as { value, title, desc }}
+						{@const isPicked = script.kind === value}
 						<Button
 							size="sm"
 							variant="border"
-							color={template == 'pgsql' ? 'blue' : 'dark'}
-							btnClasses={template == 'pgsql' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
-							disabled={lockedLanguage}
+							color={isPicked ? 'blue' : 'dark'}
+							btnClasses="font-medium {isPicked ? '!bg-blue-50/75' : ''}"
 							on:click={() => {
-								script.language = Script.language.DENO
-								template = 'pgsql'
-								initContent(script.language, script.kind, template)
+								template = 'script'
+								script.kind = value
+								initContent(script.language, value, template)
+								setCode(script.content)
 							}}
 						>
-							<LanguageIcon lang="pgsql" /><span class="ml-2 py-2">PostgreSQL</span>
+							{title}
+							{#if desc}
+								<Tooltip class="mb-0.5 ml-1">
+									{desc}
+								</Tooltip>
+							{/if}
 						</Button>
-						<!-- <Button
-							size="sm"
-							variant="border"
-							color={template == 'mysql' ? 'blue' : 'dark'}
-							btnClasses={template == 'mysql' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
-							on:click={() => {
-								script.language = Script.language.DENO
-								template = 'mysql'
-								initContent(script.language, script.kind, template)
-							}}
-						>
-							<LanguageIcon lang="mysql" /><span class="ml-2 py-2">MySQL</span>
-						</Button> -->
-					</div>
-				</SettingSection>
-				<SettingSection
-					title="Script kind"
-					element="h3"
-					tooltip="Tag this script as having a specific purpose inside flows. If it won't be used in flows,
-				you don't have to worry about this."
-					accordion
+					{/each}
+				</div>
+				{/if}
+				<h2 class="border-b pb-1 mt-10 mb-4"
+					>Arguments &nbsp;<Tooltip
+						>The arguments are synced with the main signature but you may refine the parts that
+						cannot be inferred from the type directly.</Tooltip
+					></h2
 				>
-					<div class="flex flex-wrap gap-2">
-						{#each scriptKindOptions as { value, title, desc }}
-							{@const isPicked = script.kind === value}
-							<Button
-								size="sm"
-								variant="border"
-								color={isPicked ? 'blue' : 'dark'}
-								btnClasses="font-medium {isPicked ? '!bg-blue-50/75' : ''}"
-								on:click={() => {
-									template = 'script'
-									script.kind = value
-									initContent(script.language, value, template)
-								}}
-								disabled={lockedLanguage}
-							>
-								{title}
-								{#if desc}
-									<Tooltip class="mb-0.5 ml-1">
-										{desc}
-									</Tooltip>
-								{/if}
-							</Button>
-						{/each}
-					</div>
-				</SettingSection>
-			</CenteredPage>
-		{:else if step === 2}
-			<ScriptEditor
-				bind:schema={script.schema}
-				path={script.path}
-				bind:code={script.content}
-				lang={script.language}
-				{initialArgs}
-				{kind}
-			/>
-		{:else if step === 3}
-			<CenteredPage>
-				<ScriptSchema bind:description={script.description} bind:schema={script.schema} />
-			</CenteredPage>
-		{/if}
+				<ScriptSchema bind:schema={script.schema} />
+			</DrawerContent>
+		</Drawer>
+		<ScriptEditor
+			bind:editor
+			bind:this={scriptEditor}
+			bind:schema={script.schema}
+			path={script.path}
+			bind:code={script.content}
+			lang={script.language}
+			{initialArgs}
+			kind={script.kind}
+		/>
 	</div>
 {:else}
 	Script Builder not available to operators
 {/if}
-
-<svelte:window on:keydown={onKeyDown} />

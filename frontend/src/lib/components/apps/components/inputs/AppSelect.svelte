@@ -8,6 +8,7 @@
 	import InputValue from '../helpers/InputValue.svelte'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '../../../../defaults'
 	import { initOutput } from '../../editor/appUtils'
+	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -22,7 +23,7 @@
 	let placeholder: string = 'Select an item'
 
 	let outputs = initOutput($worldStore, id, {
-		result: undefined
+		result: undefined as string | undefined
 	})
 
 	let value: string | undefined = outputs?.result.peak()
@@ -40,16 +41,20 @@
 					}
 			  })
 			: []
+		let rawValue
 		if (defaultValue) {
-			value = JSON.stringify(defaultValue)
+			rawValue = defaultValue
 		} else if (listItems.length > 0) {
-			value = listItems[0]?.value
+			rawValue = items[0].value
+		}
+		if (rawValue) {
+			value = JSON.stringify(rawValue)
+			outputs?.result.set(rawValue)
 		}
 	}
 
 	function onChange(e: CustomEvent) {
 		e?.stopPropagation()
-		window.dispatchEvent(new Event('pointerup'))
 
 		if (create) {
 			listItems = listItems.map((i) => {
@@ -62,7 +67,7 @@
 		try {
 			result = JSON.parse(e.detail?.['value'])
 		} catch (_) {}
-		value = result
+		value = e.detail?.['value']
 		outputs?.result.set(result)
 	}
 
@@ -99,8 +104,18 @@
 <InputValue {id} input={configuration.defaultValue} bind:value={defaultValue} />
 <InputValue {id} input={configuration.create} bind:value={create} />
 
+<InitializeComponent {id} />
+
 <AlignWrapper {render} {horizontalAlignment} {verticalAlignment}>
-	<div class="app-select w-full mx-0.5" style="height: 34px;" on:pointerdown|stopPropagation>
+	<div
+		class="app-select w-full"
+		style="height: 34px;"
+		on:pointerdown={(e) => {
+			if (!e.shiftKey) {
+				e.stopPropagation()
+			}
+		}}
+	>
 		<Select
 			--border-radius="0"
 			--border-color="#999"
@@ -115,23 +130,16 @@
 				css?.input?.style}
 			{value}
 			{placeholder}
-			on:click={() => {
-				if (!$connectingInput.opened) {
-					$selectedComponent = id
-				}
-			}}
 			on:focus={() => {
-				$selectedComponent = id
-			}}
-			floatingConfig={{
-				strategy: 'fixed'
+				if (!$connectingInput.opened) {
+					$selectedComponent = [id]
+				}
 			}}
 		>
 			<div slot="item" let:item>
 				{#if create}
 					{item.created ? 'Add new: ' : ''}
 				{/if}
-
 				{item.label}
 			</div>
 		</Select>

@@ -23,7 +23,9 @@
 <input
 	bind:value
 	{placeholder}
+	on:pointerdown|stopPropagation
 	on:keyup={debounce}
+	on:keydown|stopPropagation
 	class={parentClass}
 	{...$$restProps}
 />

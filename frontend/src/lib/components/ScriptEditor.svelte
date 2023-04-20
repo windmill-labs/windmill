@@ -23,17 +23,15 @@
 	export let code: string
 	export let path: string | undefined
 	export let lang: Preview.language
-	export let kind: 'script' | 'trigger' | 'approval' | undefined = undefined
+	export let kind: string | undefined = undefined
 	export let initialArgs: Record<string, any> = {}
 	export let fixedOverflowWidgets = true
 	export let noSyncFromGithub = false
+	export let editor: Editor | undefined = undefined
 
 	let websocketAlive = { pyright: false, black: false, deno: false, go: false }
 
 	let width = 1200
-
-	// Internal state
-	let editor: Editor
 
 	let testJobLoader: TestJobLoader
 
@@ -70,7 +68,7 @@
 		})
 	}
 
-	async function inferSchema(code: string) {
+	export async function inferSchema(code: string, nlang?: 'go' | 'bash' | 'python3' | 'deno') {
 		schema = schema ?? emptySchema()
 		let isDefault: string[] = []
 		Object.entries(args).forEach(([k, v]) => {
@@ -80,10 +78,9 @@
 		})
 
 		try {
-			await inferArgs(lang, code, schema)
+			await inferArgs(nlang ?? lang, code, schema)
 			validCode = true
 		} catch (e) {
-			console.error("Couldn't infer args", e)
 			validCode = false
 		}
 
@@ -103,6 +100,10 @@
 		inferSchema(code)
 		loadPastTests()
 	})
+
+	function asKind(str: string | undefined) {
+		return str as 'script' | 'approval' | 'trigger' | undefined
+	}
 </script>
 
 <TestJobLoader
@@ -122,7 +123,7 @@
 			{editor}
 			{lang}
 			{websocketAlive}
-			{kind}
+			kind={asKind(kind)}
 		/>
 		{#if !noSyncFromGithub}
 			<div class="py-1">
@@ -145,37 +146,35 @@
 <SplitPanesWrapper>
 	<Splitpanes class="!overflow-visible">
 		<Pane size={60} minSize={10} class="!overflow-visible">
-			<div
-				class="pl-2 h-full !overflow-visible"
-				on:mouseleave={() => {
-					inferSchema(code)
-				}}
-			>
-				<Editor
-					bind:code
-					bind:websocketAlive
-					bind:this={editor}
-					on:change={(e) => {
-						inferSchema(e.detail)
-					}}
-					cmdEnterAction={async () => {
-						await inferSchema(code)
-						runTest()
-					}}
-					formatAction={async () => {
-						await inferSchema(code)
-						try {
-							localStorage.setItem(path ?? 'last_save', code)
-						} catch (e) {
-							console.error('Could not save last_save to local storage', e)
-						}
-						lastSave = code
-					}}
-					class="flex flex-1 h-full !overflow-visible"
-					lang={scriptLangToEditorLang(lang)}
-					automaticLayout={true}
-					{fixedOverflowWidgets}
-				/>
+			<div class="pl-2 h-full !overflow-visible">
+				{#key lang}
+					<Editor
+						{path}
+						bind:code
+						bind:websocketAlive
+						bind:this={editor}
+						on:change={(e) => {
+							inferSchema(e.detail)
+						}}
+						cmdEnterAction={async () => {
+							await inferSchema(code)
+							runTest()
+						}}
+						formatAction={async () => {
+							await inferSchema(code)
+							try {
+								localStorage.setItem(path ?? 'last_save', code)
+							} catch (e) {
+								console.error('Could not save last_save to local storage', e)
+							}
+							lastSave = code
+						}}
+						class="flex flex-1 h-full !overflow-visible"
+						lang={scriptLangToEditorLang(lang)}
+						automaticLayout={true}
+						{fixedOverflowWidgets}
+					/>
+				{/key}
 			</div>
 		</Pane>
 		<Pane size={40} minSize={10}>
@@ -185,9 +184,10 @@
 						<Button on:click={testJobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
 							<WindmillIcon
 								white={true}
-								class="animate-[spin_5s_linear_infinite] mr-2 text-white"
+								class="mr-2 text-white"
 								height="20px"
 								width="20px"
+								spin="fast"
 							/>
 							Cancel
 						</Button>

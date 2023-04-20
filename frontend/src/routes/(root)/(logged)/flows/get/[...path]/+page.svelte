@@ -2,46 +2,44 @@
 	import { page } from '$app/stores'
 	import { FlowService, JobService, ScheduleService, type Flow, type Schedule } from '$lib/gen'
 	import {
-		displayDaysAgo,
 		canWrite,
-		sendUserToast,
-		defaultIfEmptyString,
-		flowToHubUrl,
 		copyToClipboard,
+		defaultIfEmptyString,
+		displayDaysAgo,
 		emptyString,
-		encodeState
+		encodeState,
+		sendUserToast
 	} from '$lib/utils'
 	import {
-		faPlay,
-		faEdit,
 		faArchive,
-		faList,
 		faCalendar,
-		faShare,
-		faGlobe,
-		faCodeFork,
-		faClipboard,
-		faChevronUp,
 		faChevronDown,
+		faChevronUp,
+		faClipboard,
+		faCodeFork,
+		faEdit,
+		faList,
+		faPlay,
+		faShare,
 		faTrash
 	} from '@fortawesome/free-solid-svg-icons'
 
-	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { goto } from '$app/navigation'
+	import CenteredPage from '$lib/components/CenteredPage.svelte'
+	import { Alert, Badge, Button, Skeleton } from '$lib/components/common'
+	import CronInput from '$lib/components/CronInput.svelte'
+	import FlowViewer from '$lib/components/FlowViewer.svelte'
+	import JobArgs from '$lib/components/JobArgs.svelte'
+	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
+	import RunForm from '$lib/components/RunForm.svelte'
+	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
-	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import FlowViewer from '$lib/components/FlowViewer.svelte'
-	import { Button, ActionRow, Skeleton, Badge } from '$lib/components/common'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 	import UserSettings from '$lib/components/UserSettings.svelte'
-	import JobArgs from '$lib/components/JobArgs.svelte'
-	import CronInput from '$lib/components/CronInput.svelte'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import Icon from 'svelte-awesome'
-	import RunForm from '$lib/components/RunForm.svelte'
-	import { goto } from '$app/navigation'
-	import ScheduleEditor from '$lib/components/ScheduleEditor.svelte'
 	import { slide } from 'svelte/transition'
-	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 
 	let userSettings: UserSettings
 
@@ -51,11 +49,6 @@
 
 	let path = $page.params.path
 	let shareModal: ShareModal
-
-	let queryId = $page.url.searchParams.get('workspace_id')
-	if (queryId && queryId != $workspaceStore) {
-		$workspaceStore = $page.url.searchParams.get('workspace_id')!
-	}
 
 	$: {
 		if ($workspaceStore && $userStore) {
@@ -82,7 +75,11 @@
 	}
 
 	async function archiveFlow(): Promise<void> {
-		await FlowService.archiveFlowByPath({ workspace: $workspaceStore!, path })
+		await FlowService.archiveFlowByPath({
+			workspace: $workspaceStore!,
+			path,
+			requestBody: { archived: !flow?.archived }
+		})
 		loadFlow()
 	}
 
@@ -114,7 +111,6 @@
 	$: urlAsync = `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run/f/${flow?.path}`
 	$: urlSync = `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run_wait_result/f/${flow?.path}`
 
-	let runForm: RunForm | undefined
 	let isValid = true
 	let loading = false
 
@@ -162,7 +158,7 @@
 <MoveDrawer
 	bind:this={moveDrawer}
 	on:update={async (e) => {
-		await goto('/flows/get/' + e.detail + `?workspace_id=${$workspaceStore}`)
+		await goto('/flows/get/' + e.detail + `?workspace=${$workspaceStore}`)
 		loadFlow()
 		loadSchedule()
 	}}
@@ -243,14 +239,12 @@
 				>
 
 				{#if flow.archived}
-					<div class="bg-red-100 border-l-4 border-red-500 text-orange-700 p-4" role="alert">
-						<p class="font-bold">Archived</p>
-						<p>This flow was archived</p>
-					</div>
+					<div class="mt-2" />
+					<Alert type="error" title="Archived">This flow was archived</Alert>
 				{/if}
 
 				<div class="flex gap-2 flex-wrap mt-2">
-					<Button
+					<!-- <Button
 						target="_blank"
 						href={flowToHubUrl(flow).toString()}
 						variant="border"
@@ -259,7 +253,7 @@
 						startIcon={{ icon: faGlobe }}
 					>
 						Publish to Hub
-					</Button>
+					</Button> -->
 					<Button
 						on:click={() => shareModal.openDrawer(flow?.path ?? '', 'flow')}
 						variant="border"
@@ -303,7 +297,6 @@
 						autofocus
 						detailed={false}
 						bind:isValid
-						bind:this={runForm}
 						runnable={flow}
 						runAction={runFlow}
 						bind:args
@@ -328,7 +321,7 @@
 						></Tooltip
 					></h2
 				>
-				<div class="box max-w-2xl">
+				<div class="box max-w-5xl">
 					<div class="flex w-full flex-justify-between mb-1">
 						<a
 							on:click={(e) => {
@@ -367,7 +360,7 @@
 				</div>
 
 				<div class="flex flex-col gap-2 mt-2">
-					<div>
+					<div class="flex">
 						<Button
 							color="light"
 							size="sm"
@@ -379,7 +372,8 @@
 					</div>
 					{#if viewWebhookCommand}
 						<div transition:slide|local class="px-4">
-							<pre class="bg-gray-700 text-gray-100 p-2  font-mono text-sm whitespace-pre-wrap"
+							<!-- svelte-ignore a11y-click-events-have-key-events -->
+							<pre class="bg-gray-700 text-gray-100 p-2 font-mono text-sm whitespace-pre-wrap"
 								>{curlCommand} <span
 									on:click={() => copyToClipboard(curlCommand)}
 									class="cursor-pointer ml-2"><Icon data={faClipboard} /></span
@@ -412,8 +406,12 @@
 						<div class="max-w-lg">
 							<JobArgs args={schedule.args ?? {}} />
 						</div>
-						<div class="box max-w-lg mt-2">
-							<CronInput disabled={true} schedule={schedule.schedule} />
+						<div class="box max-w-5xl mt-2">
+							<CronInput
+								disabled={true}
+								schedule={schedule.schedule}
+								timezone={schedule.timezone}
+							/>
 						</div>
 					</div>
 				{/if}
@@ -428,9 +426,9 @@
 							color="red"
 							size="md"
 							startIcon={{ icon: faArchive }}
-							disabled={flow.archived || !can_write}
+							disabled={!can_write}
 						>
-							Archive
+							{flow.archived ? 'Unarchive' : 'Archive'}
 						</Button>
 						<Button
 							on:click={() => flow?.path && deleteFlow()}
@@ -438,7 +436,7 @@
 							color="red"
 							size="md"
 							startIcon={{ icon: faTrash }}
-							disabled={flow.archived || !can_write}
+							disabled={!can_write}
 						>
 							Delete
 						</Button>

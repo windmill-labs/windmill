@@ -20,6 +20,7 @@
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 	import Slider from '$lib/components/Slider.svelte'
 	import JsonEditor from '$lib/components/apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
+	import { openStore } from '$lib/components/jobs/JobPreview.svelte'
 
 	let jobs: Job[] | undefined
 	let error: Error | undefined
@@ -136,6 +137,7 @@
 	let sync = true
 	onMount(() => {
 		loadPaths()
+		$openStore = ''
 		intervalId = setInterval(syncer, 5000)
 		document.addEventListener('visibilitychange', () => {
 			if (document.hidden) {
@@ -243,7 +245,7 @@
 					}}
 				/>
 			</div>
-			<div class="flex flex-row gap-x-2 w-full mb-2">
+			<div class="flex flex-row gap-x-2 w-full mb-2 mt-4">
 				<div class="relative w-full"
 					><span class="text-xs absolute -top-4">min datetime</span>
 					<input type="text" value={minTs ?? 'zoom x axis to set min (drag with ctrl)'} disabled />
@@ -253,7 +255,7 @@
 					<input type="text" value={maxTs ?? 'zoom x axis to set max'} disabled />
 				</div>
 			</div>
-			<div class="grid grid-cols-1 md:grid-cols-3 gap-2 mb-2 w-full flex-wrap">
+			<div class="grid grid-cols-1 lg:grid-cols-3 gap-2 mb-2 w-full flex-wrap">
 				<div>
 					<div class="flex flex-row gap-x-2">
 						{#key path}

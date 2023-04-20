@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
+	import { getContext, onMount } from 'svelte'
 	import { initOutput } from '../../editor/appUtils'
 	import type {
 		ConnectedAppInput,
@@ -14,14 +14,22 @@
 	export let name: string
 	export let inlineScript: InlineScript | undefined
 	export let fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
-	export let autoRefresh: boolean
+	export let recomputeOnInputChanged: boolean
+	export let recomputableByRefreshButton: boolean
+	export let noBackendValue: any = undefined
 
-	let result: any = undefined
+	const { worldStore, staticExporter, noBackend } = getContext<AppViewerContext>('AppViewerContext')
 
-	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	let result: any = noBackend ? noBackendValue : undefined
+
+	onMount(() => {
+		$staticExporter[id] = () => {
+			return result
+		}
+	})
 
 	let outputs = initOutput($worldStore, id, {
-		result: undefined,
+		result: result,
 		loading: false
 	})
 </script>
@@ -30,7 +38,8 @@
 	render={false}
 	{id}
 	{fields}
-	{autoRefresh}
+	autoRefresh={true}
+	{recomputeOnInputChanged}
 	bind:result
 	transformer={undefined}
 	runnable={{
@@ -39,8 +48,8 @@
 		type: 'runnableByName'
 	}}
 	wrapperClass="hidden"
-	recomputable
 	{outputs}
+	{recomputableByRefreshButton}
 >
 	<slot />
 </RunnableComponent>

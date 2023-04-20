@@ -1,7 +1,6 @@
 <script lang="ts">
-	import { getContext, afterUpdate } from 'svelte'
-	import type { App, AppEditorContext, AppViewerContext } from '../types'
-	import { classNames } from '$lib/utils'
+	import { getContext } from 'svelte'
+	import type { AppEditorContext, AppViewerContext } from '../types'
 	import { columnConfiguration, isFixed, toggleFixed } from '../gridUtils'
 	import { twMerge } from 'tailwind-merge'
 
@@ -10,8 +9,11 @@
 	import HiddenComponent from '../components/helpers/HiddenComponent.svelte'
 	import Component from './component/Component.svelte'
 	import { push } from '$lib/history'
-	import { expandGriditem, findGridItem } from './appUtils'
+	import { dfs, expandGriditem, findGridItem } from './appUtils'
 	import Grid from '../svelte-grid/Grid.svelte'
+	import { deepEqual } from 'fast-equals'
+	import ComponentWrapper from './component/ComponentWrapper.svelte'
+	import { classNames } from '$lib/utils'
 
 	export let policy: Policy
 
@@ -20,56 +22,21 @@
 		app,
 		mode,
 		connectingInput,
-		runnableComponents,
 		summary,
 		focusedGrid,
 		parentWidth,
-		breakpoint
+		breakpoint,
+		allIdsInPath
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const { history } = getContext<AppEditorContext>('AppEditorContext')
 
-	function removeGridElement(component) {
-		if (component) {
-			$app.grid = $app.grid.filter((gridComponent) => {
-				if (gridComponent.data.id === component.id) {
-					if (
-						gridComponent.data.componentInput?.type === 'runnable' &&
-						gridComponent.data.componentInput?.runnable?.type === 'runnableByName' &&
-						gridComponent.data.componentInput?.runnable.inlineScript
-					) {
-						const { name, inlineScript } = gridComponent.data.componentInput?.runnable
-
-						if (!$app.unusedInlineScripts) {
-							$app.unusedInlineScripts = []
-						}
-
-						$app.unusedInlineScripts.push({
-							name,
-							inlineScript
-						})
-
-						$app = $app
-					}
-				}
-
-				return gridComponent.data.id !== component?.id
-			})
-
-			delete $runnableComponents[component.id]
-			$runnableComponents = $runnableComponents
-
-			$selectedComponent = undefined
-		}
-	}
-
-	function selectComponent(id: string) {
-		if (!$connectingInput.opened) {
-			$selectedComponent = id
-			if ($focusedGrid?.parentComponentId != id) {
-				$focusedGrid = undefined
-			}
-		}
+	let previousSelectedIds: string[] | undefined = undefined
+	$: if (!deepEqual(previousSelectedIds, $selectedComponent)) {
+		previousSelectedIds = $selectedComponent
+		$allIdsInPath = ($selectedComponent ?? [])
+			.flatMap((id) => dfs($app.grid, id, $app.subgrids ?? {}))
+			.filter((x) => x != undefined) as string[]
 	}
 </script>
 
@@ -84,8 +51,14 @@
 		{#if !$connectingInput.opened}
 			<RecomputeAllComponents />
 		{/if}
-		<div class="text-2xs text-gray-600">
-			{policy.on_behalf_of ? `on behalf of ${policy.on_behalf_of_email}` : ''}
+		<div class="flex text-2xs text-gray-600 gap-1 items-center">
+			<div class="py-2 pr-2 text-gray-600 flex gap-2 items-center">
+				Hide bar on view
+				<input class="windmillapp" type="checkbox" bind:checked={$app.norefreshbar} />
+			</div>
+			<div>
+				{policy.on_behalf_of ? `on behalf of ${policy.on_behalf_of_email}` : ''}
+			</div>
 		</div>
 	</div>
 
@@ -101,7 +74,8 @@
 	>
 		<div class={!$focusedGrid && $mode !== 'preview' ? 'border-gray-400 border border-dashed' : ''}>
 			<Grid
-				onTopId={$selectedComponent}
+				allIdsInPath={$allIdsInPath}
+				selectedIds={$selectedComponent}
 				items={$app.grid}
 				on:redraw={(e) => {
 					push(history, $app)
@@ -113,34 +87,19 @@
 				fastStart={true}
 				gap={[4, 2]}
 			>
-				<!-- svelte-ignore a11y-click-events-have-key-events -->
-				{#if $connectingInput.opened}
-					<div
-						on:pointerenter={() => ($connectingInput.hoveredComponent = dataItem.id)}
-						on:pointerleave={() => ($connectingInput.hoveredComponent = undefined)}
-						class="absolute w-full h-full bg-black border-2 bg-opacity-25 z-20 flex justify-center items-center"
-					/>
-					<div
-						style="transform: translate(-50%, -50%);"
-						class="absolute w-fit justify-center bg-indigo-500/90 left-[50%] top-[50%] z-50 px-6 rounded border text-white py-2 text-5xl center-center"
-					>
-						{dataItem.id}
-					</div>
-				{/if}
-				<!-- svelte-ignore a11y-click-events-have-key-events -->
-				<div
-					on:pointerdown={() => selectComponent(dataItem.id)}
+				<ComponentWrapper
+					id={dataItem.id}
+					type={dataItem.data.type}
 					class={classNames(
 						'h-full w-full center-center',
-						$selectedComponent === dataItem.id ? 'active-grid-item' : ''
+						Boolean($selectedComponent?.includes(dataItem.id)) ? 'active-grid-item' : ''
 					)}
 				>
 					<Component
 						render={true}
 						component={dataItem.data}
-						selected={$selectedComponent === dataItem.id}
+						selected={Boolean($selectedComponent?.includes(dataItem.id))}
 						locked={isFixed(dataItem)}
-						on:delete={() => removeGridElement(dataItem.data)}
 						on:lock={() => {
 							const gridItem = findGridItem($app, dataItem.id)
 							if (gridItem) {
@@ -150,13 +109,12 @@
 						}}
 						on:expand={() => {
 							push(history, $app)
-							$selectedComponent = dataItem.id
+							$selectedComponent = [dataItem.id]
 							expandGriditem($app.grid, dataItem.id, $breakpoint)
-							console.log('expand')
 							$app = $app
 						}}
 					/>
-				</div>
+				</ComponentWrapper>
 			</Grid>
 		</div>
 	</div>
@@ -170,7 +128,8 @@
 				inlineScript={script.inlineScript}
 				name={script.name}
 				fields={script.fields}
-				autoRefresh={script.autoRefresh ?? true}
+				recomputeOnInputChanged={script.recomputeOnInputChanged ?? true}
+				recomputableByRefreshButton={script.autoRefresh ?? false}
 			/>
 		{/if}
 	{/each}

@@ -1,14 +1,13 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import Select from 'svelte-select'
-	import type { AppInput } from '../../inputType'
-	import type { Output } from '../../rx'
+	import { SELECT_INPUT_DEFAULT_STYLE } from '../../../../defaults'
+	import { initOutput } from '../../editor/appUtils'
 	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { concatCustomCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
-	import { SELECT_INPUT_DEFAULT_STYLE } from '../../../../defaults'
-	import { initOutput } from '../../editor/appUtils'
+	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -51,14 +50,24 @@
 
 	$: value && outputs?.result.set(value.map((v) => v.value))
 
-	$: css = concatCustomCss($app.css?.selectcomponent, customCss)
+	$: css = concatCustomCss($app.css?.multiselectcomponent, customCss)
 </script>
 
 <InputValue {id} input={configuration.items} bind:value={labels} />
 <InputValue {id} input={configuration.placeholder} bind:value={placeholder} />
 
+<InitializeComponent {id} />
+
 <AlignWrapper {render} {horizontalAlignment} {verticalAlignment}>
-	<div class="app-select w-full mx-0.5" style="height: 34px" on:pointerdown|stopPropagation>
+	<div
+		class="app-select w-full"
+		style="height: 100%; overflow: auto;"
+		on:pointerdown={(e) => {
+			if (!e.shiftKey) {
+				e.stopPropagation()
+			}
+		}}
+	>
 		{#if !value || Array.isArray(value)}
 			<Select
 				--border-radius="0"
@@ -67,18 +76,20 @@
 				on:change={(e) => e.stopPropagation()}
 				{items}
 				inputStyles={SELECT_INPUT_DEFAULT_STYLE.inputStyles}
-				containerStyles={'border-color: #999;' +
+				containerStyles={'border-color: #999; min-height: 100%;' +
 					SELECT_INPUT_DEFAULT_STYLE.containerStyles +
 					css?.input?.style}
 				bind:value
 				{placeholder}
 				on:click={() => {
 					if (!$connectingInput.opened) {
-						$selectedComponent = id
+						$selectedComponent = [id]
 					}
 				}}
 				on:focus={() => {
-					$selectedComponent = id
+					if (!$connectingInput.opened) {
+						$selectedComponent = [id]
+					}
 				}}
 				floatingConfig={{
 					strategy: 'fixed'

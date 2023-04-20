@@ -32,12 +32,13 @@ use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     apps::ListAppQuery,
     error::{to_anyhow, Error, JsonResult, Result},
+    jobs::{JobPayload, RawCode},
     users::username_to_permissioned_as,
     utils::{
         http_get_from_hub, list_elems_from_hub, not_found_if_none, paginate, Pagination, StripPath,
     },
 };
-use windmill_queue::{push, JobPayload, RawCode};
+use windmill_queue::{push, QueueTransaction};
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -320,6 +321,10 @@ async fn create_app(
     app.policy.on_behalf_of = Some(username_to_permissioned_as(&authed.username));
     app.policy.on_behalf_of_email = Some(authed.email);
 
+    if &app.path == "" {
+        return Err(Error::BadRequest("App path cannot be empty".to_string()));
+    }
+
     let id = sqlx::query_scalar!(
         "INSERT INTO app
             (workspace_id, path, summary, policy, versions)
@@ -437,7 +442,6 @@ async fn update_app(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
-    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(ns): Json<EditApp>,
 ) -> Result<String> {
@@ -454,10 +458,7 @@ async fn update_app(
 
         if let Some(npath) = &ns.path {
             if npath != path {
-                if !authed.is_admin {
-                    require_owner_of_path(&w_id, &authed.username, &authed.groups, &path, &db)
-                        .await?;
-                }
+                require_owner_of_path(&authed, path)?;
             }
             sqlb.set_str("path", npath);
         }
@@ -561,6 +562,7 @@ fn digest(code: &str) -> String {
 async fn execute_component(
     OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(payload): Json<ExecuteApp>,
 ) -> Result<String> {
@@ -579,7 +581,7 @@ async fn execute_component(
     };
 
     let path = path.to_path();
-    let mut tx = db.begin().await?;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, db.begin().await?).into();
 
     let policy = if let Some(static_fields) = payload.clone().force_viewer_static_fields {
         let mut hm = HashMap::new();
@@ -648,8 +650,12 @@ async fn execute_component(
         }
         ExecuteApp { args, raw_code: None, path: Some(path), .. } => {
             let payload = if path.starts_with("script/") {
-                script_path_to_payload(path.strip_prefix("script/").unwrap(), &mut tx, &w_id)
-                    .await?
+                script_path_to_payload(
+                    path.strip_prefix("script/").unwrap(),
+                    tx.transaction_mut(),
+                    &w_id,
+                )
+                .await?
             } else if path.starts_with("flow/") {
                 JobPayload::Flow(path.strip_prefix("flow/").unwrap().to_string())
             } else {
@@ -682,8 +688,8 @@ async fn execute_component(
         true,
     )
     .await?;
-
     tx.commit().await?;
+
     Ok(uuid.to_string())
 }
 

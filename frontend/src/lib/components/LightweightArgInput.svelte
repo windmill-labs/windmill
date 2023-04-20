@@ -29,7 +29,7 @@
 	export let maxRows = 10
 	export let enum_: string[] | undefined = undefined
 	export let itemsType:
-		| { type?: 'string' | 'number' | 'bytes'; contentEncoding?: 'base64' }
+		| { type?: 'string' | 'number' | 'bytes' | 'object'; contentEncoding?: 'base64' }
 		| undefined = undefined
 	export let displayHeader = true
 	export let properties: { [name: string]: SchemaProperty } | undefined = undefined
@@ -138,7 +138,7 @@
 <div class="flex flex-col w-full min-w-[250px]">
 	<div>
 		{#if displayHeader}
-			<FieldHeader {label} {required} {type} {contentEncoding} {format} {itemsType} />
+			<FieldHeader {label} {required} {type} {contentEncoding} {format} />
 		{/if}
 
 		{#if description}
@@ -161,7 +161,6 @@
 				{:else}
 					<input
 						on:focus={(e) => {
-							window.dispatchEvent(new Event('pointerup'))
 							dispatch('focus')
 						}}
 						type="number"
@@ -172,14 +171,12 @@
 						bind:value
 						min={extra['min']}
 						max={extra['max']}
-						on:input={() => dispatch('input', { value, isRaw: true })}
 					/>
 				{/if}
 			{:else if inputCat == 'boolean'}
 				<Toggle
 					on:pointerdown={(e) => {
 						e?.stopPropagation()
-						window.dispatchEvent(new Event('pointerup'))
 					}}
 					class={valid
 						? ''
@@ -223,21 +220,23 @@
 							</div>
 						{/each}
 					</div>
-					<Button
-						variant="border"
-						color="blue"
-						size="sm"
-						btnClasses="mt-1"
-						on:click={() => {
-							if (value == undefined || !Array.isArray(value)) {
-								value = []
-							}
-							value = value.concat('')
-						}}
-					>
-						<Icon data={faPlus} class="mr-2" />
-						Add item
-					</Button>
+					<div class="flex">
+						<Button
+							variant="border"
+							color="blue"
+							size="sm"
+							btnClasses="mt-1"
+							on:click={() => {
+								if (value == undefined || !Array.isArray(value)) {
+									value = []
+								}
+								value = value.concat('')
+							}}
+						>
+							<Icon data={faPlus} class="mr-2" />
+							Add item
+						</Button>
+					</div>
 					<span class="ml-2">
 						{(value ?? []).length} item{(value ?? []).length > 1 ? 's' : ''}
 					</span>
@@ -256,14 +255,10 @@
 					<textarea
 						bind:this={el}
 						on:focus={(e) => {
-							window.dispatchEvent(new Event('pointerup'))
 							dispatch('focus')
 						}}
 						use:autosize
 						style="max-height: {maxHeight}"
-						on:input={() => {
-							dispatch('input', { rawValue: value, isRaw: false })
-						}}
 						class="col-span-10 {valid
 							? ''
 							: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
@@ -274,7 +269,6 @@
 			{:else if inputCat == 'enum'}
 				<select
 					on:focus={(e) => {
-						window.dispatchEvent(new Event('pointerup'))
 						dispatch('focus')
 					}}
 					class="px-6"
@@ -307,10 +301,8 @@
 							rows="1"
 							bind:this={el}
 							on:focus={(e) => {
-								window.dispatchEvent(new Event('pointerup'))
 								dispatch('focus')
 							}}
-							on:blur={() => dispatch('blur')}
 							use:autosize
 							type="text"
 							class="col-span-10 {valid
@@ -318,8 +310,8 @@
 								: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
 							placeholder={defaultValue ?? ''}
 							bind:value
-							on:input={() => {
-								dispatch('input', { rawValue: value, isRaw: false })
+							on:pointerdown|stopPropagation={(e) => {
+								dispatch('inputClicked', e)
 							}}
 						/>
 					</div>
@@ -327,5 +319,14 @@
 			{/if}
 			<slot name="actions" />
 		</div>
+		{#if error && error != ''}
+			<div class="text-right text-xs text-red-600">
+				{#if error === ''}
+					&nbsp;
+				{:else}
+					{error}
+				{/if}
+			</div>
+		{/if}
 	</div>
 </div>

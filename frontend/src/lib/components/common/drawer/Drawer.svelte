@@ -70,20 +70,19 @@
 	$: !open ? setTimeout(() => (timeout = true), durationMs) : (timeout = false)
 	onMount(() => {
 		mounted = true
-		scrollLock(open)
 	})
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
 
 <aside
-	class="drawer {$$props.class} {$$props.positionClass}"
+	class="drawer {$$props.class ?? ''} {$$props.positionClass ?? ''}"
 	class:open
 	class:close={!open && timeout}
 	{style}
 >
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
-	<div class="overlay {$$props.positionClass}" on:click={handleClickAway} />
+	<div class="overlay {$$props.positionClass ?? ''}" on:click={handleClickAway} />
 	<div class="panel {placement} {$$props.positionClass}" class:size>
 		{#if open || !timeout || alwaysOpen}
 			<slot {open} />
@@ -101,6 +100,7 @@
 		z-index: -1;
 		transition: z-index var(--duration) step-end;
 		overflow: clip;
+		pointer-events: none;
 	}
 
 	.drawer.open {
@@ -108,6 +108,7 @@
 		width: 100%;
 		z-index: 1002;
 		transition: z-index var(--duration) step-start;
+		pointer-events: auto;
 	}
 
 	.overlay {

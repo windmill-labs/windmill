@@ -28,6 +28,7 @@
 	import { check } from 'svelte-awesome/icons'
 	import { Badge } from '../common'
 	import ScheduleEditor from '../ScheduleEditor.svelte'
+	import JobPreview from './JobPreview.svelte'
 
 	const SMALL_ICON_SCALE = 0.7
 
@@ -72,7 +73,7 @@
 				{#if job === undefined}
 					No job found
 				{:else}
-					<div class="block text-center align-middle  px-6">
+					<div class="block text-center align-middle px-6">
 						{#if 'success' in job && job.success}
 							{#if job.is_skipped}
 								<Icon
@@ -121,25 +122,27 @@
 					</div>
 
 					<div class="flex flex-row space-x-2">
-						<div class="whitespace-nowrap">
-							{#if job.script_path}
-								<a href="/run/{job.id}?workspace={job.workspace_id}">{job.script_path} </a>
-							{:else if 'job_kind' in job && job.job_kind == 'preview'}
-								<a href="/run/{job.id}?workspace={job.workspace_id}">Preview without path </a>
-							{:else if 'job_kind' in job && job.job_kind == 'dependencies'}
-								<a href="/run/{job.id}?workspace={job.workspace_id}"
-									>lock deps of {truncateHash(job.script_hash ?? '')}</a
+						<JobPreview {job}>
+							<div class="whitespace-nowrap">
+								{#if job.script_path}
+									<a href="/run/{job.id}?workspace={job.workspace_id}">{job.script_path} </a>
+								{:else if 'job_kind' in job && job.job_kind == 'preview'}
+									<a href="/run/{job.id}?workspace={job.workspace_id}">Preview without path </a>
+								{:else if 'job_kind' in job && job.job_kind == 'dependencies'}
+									<a href="/run/{job.id}?workspace={job.workspace_id}"
+										>lock deps of {truncateHash(job.script_hash ?? '')}</a
+									>
+								{:else if 'job_kind' in job && job.job_kind == 'identity'}
+									<a href="/run/{job.id}?workspace={job.workspace_id}">no op</a>
+								{/if}
+								<button
+									class="ml-1"
+									on:click={() => {
+										goto(`/runs/${job.script_path}?${$page.url.searchParams.toString()}`)
+									}}><Badge><Icon scale={0.7} data={faSearch} /></Badge></button
 								>
-							{:else if 'job_kind' in job && job.job_kind == 'identity'}
-								<a href="/run/{job.id}?workspace={job.workspace_id}">no op</a>
-							{/if}
-							<button
-								class="ml-1"
-								on:click={() => {
-									goto(`/runs/${job.script_path}?${$page.url.searchParams.toString()}`)
-								}}><Badge><Icon scale={0.7} data={faSearch} /></Badge></button
-							>
-						</div>
+							</div>
+						</JobPreview>
 						<div class="whitespace-nowrap">
 							{#if 'job_kind' in job}<a href="/run/{job.id}"
 									><Badge color="blue">{job.job_kind}</Badge></a
@@ -154,7 +157,7 @@
 					</div>
 				{/if}
 			</div>
-			<div class="pl-14 italic text-gray-500 text-2xs  whitespace-nowrap overflow-hidden"
+			<div class="pl-14 italic text-gray-500 text-2xs whitespace-nowrap overflow-hidden"
 				>{truncateRev(job.id, 8, '')}</div
 			>
 		</div>
@@ -197,7 +200,7 @@
 					<div class="inline-flex gap-1">
 						<CalendarClock size={13} class="-ml-0.5" />
 						<span>
-							<span class="bg-blue-200 text-gray-700 text-xs rounded px-1 ">Scheduled</span>
+							<span class="bg-blue-200 text-gray-700 text-xs rounded px-1">Scheduled</span>
 							for {displayDate(job.scheduled_for ?? '')}
 						</span>
 					</div>
@@ -206,7 +209,7 @@
 						<Icon class="text-gray-700" data={faClock} scale={SMALL_ICON_SCALE} /><span
 							class="mx-2"
 						>
-							<span class="bg-blue-200 text-gray-700 text-xs rounded px-1 "
+							<span class="bg-blue-200 text-gray-700 text-xs rounded px-1"
 								>Waiting for an executor</span
 							>
 						</span>

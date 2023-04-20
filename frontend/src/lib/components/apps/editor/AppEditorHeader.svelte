@@ -1,15 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
-	import {
-		Alert,
-		Badge,
-		ButtonPopup,
-		ButtonPopupItem,
-		Drawer,
-		DrawerContent,
-		UndoRedo
-	} from '$lib/components/common'
+	import { Alert, Badge, Drawer, DrawerContent, UndoRedo } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
@@ -18,7 +10,6 @@
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import Dropdown from '$lib/components/Dropdown.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
-	import { idMutex } from '$lib/components/flows/flowStateUtils'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
@@ -34,7 +25,6 @@
 		faClipboard,
 		faExternalLink,
 		faFileExport,
-		faGlobe,
 		faSave
 	} from '@fortawesome/free-solid-svg-icons'
 	import {
@@ -43,18 +33,15 @@
 		Eye,
 		Laptop2,
 		Loader2,
-		MoreVertical,
 		Pencil,
-		Redo,
 		SlidersHorizontal,
 		Smartphone,
-		Undo,
 		X
 	} from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { appToHubUrl, classNames, copyToClipboard, sendUserToast } from '../../../utils'
+	import { classNames, copyToClipboard, sendUserToast } from '../../../utils'
 	import type {
 		AppInput,
 		ConnectedAppInput,
@@ -245,29 +232,44 @@
 	let job: Job | undefined = undefined
 	let testIsLoading = false
 
-	$: selectedJobId && testJobLoader?.watchJob(selectedJobId)
+	$: selectedJobId && !selectedJobId?.includes('Frontend') && testJobLoader?.watchJob(selectedJobId)
+
+	$: if (selectedJobId?.includes('Frontend') && selectedJobId) {
+		job = undefined
+	}
+
 	$: hasErrors = Object.keys($errorByComponent).length > 0
 
 	let lock = false
 	function onKeyDown(event: KeyboardEvent) {
 		if (lock) return
+
+		let classes = event.target?.['className']
+		if (
+			(typeof classes === 'string' && classes.includes('inputarea')) ||
+			['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName!)
+		) {
+			return
+		}
+
 		lock = true
+
 		switch (event.key) {
 			case 'Z':
-				if (event.ctrlKey) {
+				if (event.ctrlKey || event.metaKey) {
 					$app = redo(history)
 					event.preventDefault()
 				}
 				break
 			case 'z':
-				if (event.ctrlKey) {
+				if (event.ctrlKey || event.metaKey) {
 					$app = undo(history, $app)
 
 					event.preventDefault()
 				}
 				break
 			case 's':
-				if (event.ctrlKey) {
+				if (event.ctrlKey || event.metaKey) {
 					save()
 					event.preventDefault()
 				}
@@ -332,7 +334,7 @@
 				<PanelSection title="Past Runs">
 					<div class="flex flex-col gap-2 w-full">
 						{#if $jobs.length > 0}
-							<div class="flex gap-2 flex-col ">
+							<div class="flex gap-2 flex-col">
 								{#each $jobs ?? [] as { job, component } (job)}
 									<!-- svelte-ignore a11y-click-events-have-key-events -->
 									<div
@@ -360,9 +362,41 @@
 				<div class="h-full w-full overflow-auto">
 					{#if selectedJobId}
 						{#if !job}
-							<Skeleton layout={[[40]]} />
+							{@const jobResult = $jobs.find((j) => j.job == selectedJobId)}
+
+							{#if jobResult?.error !== undefined}
+								<Splitpanes horizontal class="grow border w-full">
+									<Pane size={50} minSize={10}>
+										<LogViewer
+											content={`Logs are avaiable in the browser console directly`}
+											isLoading={false}
+										/>
+									</Pane>
+									<Pane size={50} minSize={10} class="text-sm text-gray-600">
+										<pre class="overflow-x-auto break-words relative h-full px-2">
+											<DisplayResult result={{ error: { name: 'Frontend execution error', message: jobResult.error } }} />
+										</pre>
+									</Pane>
+								</Splitpanes>
+							{:else if jobResult?.result !== undefined}
+								<Splitpanes horizontal class="grow border w-full">
+									<Pane size={50} minSize={10}>
+										<LogViewer
+											content={`Logs are avaiable in the browser console directly`}
+											isLoading={false}
+										/>
+									</Pane>
+									<Pane size={50} minSize={10} class="text-sm text-gray-600">
+										<pre class="overflow-x-auto break-words relative h-full px-2">
+											<DisplayResult result={jobResult.result} />
+										</pre>
+									</Pane>
+								</Splitpanes>
+							{:else}
+								<Skeleton layout={[[40]]} />
+							{/if}
 						{:else}
-							<div class="flex flex-col h-full w-full gap-4 mb-4">
+							<div class="flex flex-col h-full w-full gap-4 p-2 mb-4">
 								{#if job?.['running']}
 									<div class="flex flex-row-reverse w-full">
 										<Button
@@ -370,6 +404,8 @@
 											variant="border"
 											on:click={() => testJobLoader?.cancelJob()}
 										>
+											<Loader2 size={14} class="animate-spin mr-2" />
+
 											Cancel
 										</Button>
 									</div>
@@ -476,10 +512,15 @@
 </Drawer>
 
 <div
-	class="border-b flex flex-row justify-between py-1 gap-4  gap-y-2 px-3 items-center overflow-y-visible"
+	class="border-b flex flex-row justify-between py-1 gap-4 gap-y-2 px-3 items-center overflow-y-visible"
 >
 	<div class="min-w-64 w-64">
-		<input type="text" placeholder="App summary" class="text-sm w-full" bind:value={$summary} />
+		<input
+			type="text"
+			placeholder="App summary"
+			class="text-sm w-full font-semibold"
+			bind:value={$summary}
+		/>
 	</div>
 	<UndoRedo
 		undoProps={{ disabled: $history?.index === 0 }}
@@ -567,14 +608,14 @@
 						appExport.open($app)
 					}
 				},
-				{
-					displayName: 'Publish to Hub',
-					icon: faGlobe,
-					action: () => {
-						const url = appToHubUrl(toStatic($app, $staticExporter, $summary))
-						window.open(url.toString(), '_blank')
-					}
-				},
+				// {
+				// 	displayName: 'Publish to Hub',
+				// 	icon: faGlobe,
+				// 	action: () => {
+				// 		const url = appToHubUrl(toStatic($app, $staticExporter, $summary))
+				// 		window.open(url.toString(), '_blank')
+				// 	}
+				// },
 				{
 					displayName: 'Hub compatible JSON',
 					icon: faFileExport,
@@ -594,7 +635,12 @@
 		</span>
 		<span class="hidden md:inline">
 			<Button
-				on:click={() => (jobsDrawerOpen = true)}
+				on:click={() => {
+					if (selectedJobId == undefined && $jobs.length > 0) {
+						selectedJobId = $jobs[0].job
+					}
+					jobsDrawerOpen = true
+				}}
 				color={hasErrors ? 'red' : 'light'}
 				size="xs"
 				variant="border"
@@ -624,20 +670,23 @@
 				<span class="hidden md:inline">Save</span>
 			</Button>
 		{:else}
-			<ButtonPopup
+			<Button
 				loading={loading.save}
 				startIcon={{ icon: faSave }}
 				on:click={save}
 				color="dark"
 				size="xs"
+				dropdownItems={[
+					{
+						label: 'Fork',
+						onClick: () => {
+							window.open(`/apps/add?template=${appPath}`)
+						}
+					}
+				]}
 			>
-				<svelte:fragment slot="main">Save</svelte:fragment>
-				<ButtonPopupItem
-					on:click={() => {
-						window.open(`/apps/add?template=${appPath}`)
-					}}>Fork</ButtonPopupItem
-				>
-			</ButtonPopup>
+				Save
+			</Button>
 		{/if}
 	</div>
 </div>

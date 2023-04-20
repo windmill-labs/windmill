@@ -6,13 +6,10 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use sql_builder::prelude::*;
-use windmill_audit::{audit_log, ActionKind};
-
 use crate::{
     db::{UserDB, DB},
     schedule::clear_schedule,
-    users::{require_owner_of_path, Authed},
+    users::{maybe_refresh_folders, require_owner_of_path, AuthCache, Authed},
     webhook_util::{WebhookMessage, WebhookShared},
     HTTP_CLIENT,
 };
@@ -24,14 +21,18 @@ use axum::{
 use hyper::StatusCode;
 use serde::Serialize;
 use serde_json::json;
+use sql_builder::prelude::*;
 use sql_builder::SqlBuilder;
 use sqlx::{FromRow, Postgres, Transaction};
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
+    sync::Arc,
 };
+use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{Error, JsonResult, Result},
+    jobs::JobPayload,
     schedule::Schedule,
     scripts::{
         to_i64, HubScript, ListScriptQuery, ListableScript, NewScript, Script, ScriptHash,
@@ -42,7 +43,8 @@ use windmill_common::{
         list_elems_from_hub, not_found_if_none, paginate, require_admin, Pagination, StripPath,
     },
 };
-use windmill_queue::{self, schedule::push_scheduled_job};
+use windmill_parser::MainArgSignature;
+use windmill_queue::{self, schedule::push_scheduled_job, QueueTransaction};
 
 const MAX_HASH_HISTORY_LENGTH_STORED: usize = 20;
 
@@ -58,6 +60,13 @@ pub fn global_service() -> Router {
         .route("/hub/list", get(list_hub_scripts))
         .route("/hub/get/*path", get(get_hub_script_by_path))
         .route("/hub/get_full/*path", get(get_full_hub_script_by_path))
+}
+
+pub fn global_unauthed_service() -> Router {
+    Router::new().route(
+        "/tokened_raw/:workspace/:token/*path",
+        get(get_tokened_raw_script_by_path),
+    )
 }
 
 pub fn workspaced_service() -> Router {
@@ -76,6 +85,7 @@ pub fn workspaced_service() -> Router {
         .route("/deployment_status/h/:hash", get(get_deployment_status))
         .route("/list_paths", get(list_paths))
 }
+
 async fn list_scripts(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
@@ -184,20 +194,22 @@ fn hash_script(ns: &NewScript) -> i64 {
 async fn create_script(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(ns): Json<NewScript>,
 ) -> Result<(StatusCode, String)> {
     let hash = ScriptHash(hash_script(&ns));
-    let mut tx = user_db.begin(&authed).await?;
+    let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
 
     if sqlx::query_scalar!(
         "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2",
         hash.0,
         &w_id
     )
-    .fetch_optional(&mut tx)
+    .fetch_optional(tx.transaction_mut())
     .await?
     .is_some()
     {
@@ -258,13 +270,10 @@ async fn create_script(
                 )));
             };
 
-            let ps = get_script_by_hash_internal(&mut tx, &w_id, p_hash).await?;
+            let ps = get_script_by_hash_internal(tx.transaction_mut(), &w_id, p_hash).await?;
 
             if ps.path != ns.path {
-                if !authed.is_admin {
-                    require_owner_of_path(&w_id, &authed.username, &authed.groups, &ps.path, &db)
-                        .await?;
-                }
+                require_owner_of_path(&authed, &ps.path)?;
             }
 
             let ph = {
@@ -353,43 +362,13 @@ async fn create_script(
         .await?;
 
         for schedule in schedulables {
-            clear_schedule(&mut tx, &schedule.path, false).await?;
+            clear_schedule(tx.transaction_mut(), &schedule.path, false).await?;
 
             if schedule.enabled {
                 tx = push_scheduled_job(tx, schedule).await?;
             }
         }
     }
-
-    let mut tx = if needs_lock_gen {
-        let dependencies = match ns.language {
-            ScriptLang::Python3 => {
-                windmill_parser_py::parse_python_imports(&ns.content)?.join("\n")
-            }
-            _ => ns.content,
-        };
-        let (_, tx) = windmill_queue::push(
-            tx,
-            &w_id,
-            windmill_queue::JobPayload::Dependencies { hash, dependencies, language: ns.language },
-            serde_json::Map::new(),
-            &authed.username,
-            &authed.email,
-            username_to_permissioned_as(&authed.username),
-            None,
-            None,
-            None,
-            None,
-            false,
-            false,
-            None,
-            true,
-        )
-        .await?;
-        tx
-    } else {
-        tx
-    };
 
     if p_hashes.is_some() && !p_hashes.unwrap().is_empty() {
         audit_log(
@@ -405,7 +384,7 @@ async fn create_script(
         webhook.send_message(
             w_id.clone(),
             WebhookMessage::UpdateScript {
-                workspace: w_id,
+                workspace: w_id.clone(),
                 path: ns.path.clone(),
                 hash: hash.to_string(),
             },
@@ -430,11 +409,39 @@ async fn create_script(
         webhook.send_message(
             w_id.clone(),
             WebhookMessage::CreateScript {
-                workspace: w_id,
+                workspace: w_id.clone(),
                 path: ns.path.clone(),
                 hash: hash.to_string(),
             },
         );
+    }
+
+    if needs_lock_gen {
+        let dependencies = match ns.language {
+            ScriptLang::Python3 => {
+                windmill_parser_py::parse_python_imports(&ns.content)?.join("\n")
+            }
+            _ => ns.content,
+        };
+        let (_, new_tx) = windmill_queue::push(
+            tx,
+            &w_id,
+            JobPayload::Dependencies { hash, dependencies, language: ns.language },
+            serde_json::Map::new(),
+            &authed.username,
+            &authed.email,
+            username_to_permissioned_as(&authed.username),
+            None,
+            None,
+            None,
+            None,
+            false,
+            false,
+            None,
+            true,
+        )
+        .await?;
+        tx = new_tx;
     }
 
     tx.commit().await?;
@@ -494,6 +501,18 @@ async fn list_paths(
     tx.commit().await?;
 
     Ok(Json(scripts))
+}
+
+async fn get_tokened_raw_script_by_path(
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, token, path)): Path<(String, String, StripPath)>,
+    Extension(cache): Extension<Arc<AuthCache>>,
+) -> Result<String> {
+    let authed = cache
+        .get_authed(Some(w_id.clone()), &token)
+        .await
+        .ok_or_else(|| Error::NotAuthorized("Invalid token".to_string()))?;
+    return raw_script_by_path(authed, Extension(user_db), Path((w_id, path))).await;
 }
 
 async fn raw_script_by_path(
@@ -556,11 +575,10 @@ async fn get_script_by_hash_internal<'c>(
 }
 
 async fn get_script_by_hash(
-    authed: Authed,
-    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, hash)): Path<(String, ScriptHash)>,
 ) -> JsonResult<Script> {
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx = db.begin().await?;
     let r = get_script_by_hash_internal(&mut tx, &w_id, &hash).await?;
     tx.commit().await?;
 
@@ -568,11 +586,10 @@ async fn get_script_by_hash(
 }
 
 async fn raw_script_by_hash(
-    authed: Authed,
-    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, hash_str)): Path<(String, String)>,
 ) -> Result<String> {
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx = db.begin().await?;
     let hash = ScriptHash(to_i64(hash_str.strip_suffix(".ts").ok_or_else(|| {
         Error::BadRequest("Raw script path must end with .ts".to_string())
     })?)?);
@@ -588,11 +605,10 @@ struct DeploymentStatus {
     lock_error_logs: Option<String>,
 }
 async fn get_deployment_status(
-    authed: Authed,
-    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, hash)): Path<(String, ScriptHash)>,
 ) -> JsonResult<DeploymentStatus> {
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx = db.begin().await?;
     let status_o: Option<DeploymentStatus> = sqlx::query_as!(
         DeploymentStatus,
         "SELECT lock, lock_error_logs FROM script WHERE hash = $1 AND workspace_id = $2",
@@ -617,6 +633,8 @@ async fn archive_script_by_path(
 ) -> Result<()> {
     let path = path.to_path();
     let mut tx = user_db.begin(&authed).await?;
+
+    require_owner_of_path(&authed, path)?;
 
     let hash: i64 = sqlx::query_scalar!(
         "UPDATE script SET archived = true WHERE path = $1 AND workspace_id = $2 RETURNING hash",
@@ -761,25 +779,31 @@ async fn delete_script_by_path(
     Ok(Json(script))
 }
 
-async fn parse_python_code_to_jsonschema(
-    Json(code): Json<String>,
-) -> JsonResult<windmill_parser::MainArgSignature> {
-    windmill_parser_py::parse_python_signature(&code).map(Json)
+#[derive(Debug, Serialize)]
+#[serde(tag = "type")]
+enum SigParsing {
+    Valid(MainArgSignature),
+    Invalid { error: String },
 }
 
-async fn parse_deno_code_to_jsonschema(
-    Json(code): Json<String>,
-) -> JsonResult<windmill_parser::MainArgSignature> {
-    windmill_parser_ts::parse_deno_signature(&code).map(Json)
-}
-async fn parse_go_code_to_jsonschema(
-    Json(code): Json<String>,
-) -> JsonResult<windmill_parser::MainArgSignature> {
-    windmill_parser_go::parse_go_sig(&code).map(Json)
+fn result_to_sig_parsing(result: Result<MainArgSignature>) -> Json<SigParsing> {
+    match result {
+        Ok(sig) => Json(SigParsing::Valid(sig)),
+        Err(e) => Json(SigParsing::Invalid { error: e.to_string() }),
+    }
 }
 
-async fn parse_bash_code_to_jsonschema(
-    Json(code): Json<String>,
-) -> JsonResult<windmill_parser::MainArgSignature> {
-    windmill_parser_bash::parse_bash_sig(&code).map(Json)
+async fn parse_python_code_to_jsonschema(Json(code): Json<String>) -> Json<SigParsing> {
+    result_to_sig_parsing(windmill_parser_py::parse_python_signature(&code))
+}
+
+async fn parse_deno_code_to_jsonschema(Json(code): Json<String>) -> Json<SigParsing> {
+    result_to_sig_parsing(windmill_parser_ts::parse_deno_signature(&code, false))
+}
+async fn parse_go_code_to_jsonschema(Json(code): Json<String>) -> Json<SigParsing> {
+    result_to_sig_parsing(windmill_parser_go::parse_go_sig(&code))
+}
+
+async fn parse_bash_code_to_jsonschema(Json(code): Json<String>) -> Json<SigParsing> {
+    result_to_sig_parsing(windmill_parser_bash::parse_bash_sig(&code))
 }

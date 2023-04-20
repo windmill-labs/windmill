@@ -7,17 +7,6 @@
  */
 
 use crate::oauth2::AllClients;
-use argon2::Argon2;
-use axum::{middleware::from_extractor, routing::get, Extension, Router};
-use db::DB;
-use git_version::git_version;
-use reqwest::Client;
-use std::{net::SocketAddr, sync::Arc};
-use tower::ServiceBuilder;
-use tower_cookies::CookieManagerLayer;
-use tower_http::trace::TraceLayer;
-use windmill_common::utils::rd_string;
-
 use crate::{
     db::UserDB,
     oauth2::{build_oauth_clients, SlackVerifier},
@@ -25,6 +14,20 @@ use crate::{
     users::{Authed, OptAuthed},
     webhook_util::WebhookShared,
 };
+use argon2::Argon2;
+use axum::{middleware::from_extractor, routing::get, Extension, Router};
+use db::DB;
+use git_version::git_version;
+use hyper::Method;
+use reqwest::Client;
+use std::{net::SocketAddr, sync::Arc};
+use tower::ServiceBuilder;
+use tower_cookies::CookieManagerLayer;
+use tower_http::{
+    cors::{Any, CorsLayer},
+    trace::TraceLayer,
+};
+use windmill_common::utils::rd_string;
 
 mod apps;
 mod audit;
@@ -35,6 +38,7 @@ mod flows;
 mod folders;
 mod granular_acls;
 mod groups;
+mod inputs;
 pub mod jobs;
 mod oauth2;
 mod resources;
@@ -77,6 +81,7 @@ lazy_static::lazy_static! {
 
 pub async fn run_server(
     db: DB,
+    rsmq: Option<rsmq_async::MultiplexedRsmq>,
     addr: SocketAddr,
     mut rx: tokio::sync::broadcast::Receiver<()>,
 ) -> anyhow::Result<()> {
@@ -96,10 +101,16 @@ pub async fn run_server(
                 .on_request(()),
         )
         .layer(Extension(db.clone()))
+        .layer(Extension(rsmq))
         .layer(Extension(user_db))
         .layer(Extension(auth_cache.clone()))
         .layer(CookieManagerLayer::new())
         .layer(Extension(WebhookShared::new(rx.resubscribe(), db.clone())));
+
+    let cors = CorsLayer::new()
+        .allow_methods([Method::GET, Method::POST])
+        .allow_origin(Any);
+
     // build our application with a route
     let app = Router::new()
         .nest(
@@ -108,25 +119,27 @@ pub async fn run_server(
                 .nest(
                     "/w/:workspace_id",
                     Router::new()
+                        // Reordered alphabetically
+                        .nest("/acls", granular_acls::workspaced_service())
+                        .nest("/apps", apps::workspaced_service())
+                        .nest("/audit", audit::workspaced_service())
+                        .nest("/capture", capture::workspaced_service())
+                        .nest("/favorites", favorite::workspaced_service())
+                        .nest("/flows", flows::workspaced_service())
+                        .nest("/folders", folders::workspaced_service())
+                        .nest("/groups", groups::workspaced_service())
+                        .nest("/inputs", inputs::workspaced_service())
+                        .nest("/jobs", jobs::workspaced_service().layer(cors.clone()))
+                        .nest("/oauth", oauth2::workspaced_service())
+                        .nest("/resources", resources::workspaced_service())
+                        .nest("/schedules", schedule::workspaced_service())
                         .nest("/scripts", scripts::workspaced_service())
-                        .nest("/jobs", jobs::workspaced_service())
                         .nest(
                             "/users",
                             users::workspaced_service().layer(Extension(argon2.clone())),
                         )
                         .nest("/variables", variables::workspaced_service())
-                        .nest("/oauth", oauth2::workspaced_service())
-                        .nest("/resources", resources::workspaced_service())
-                        .nest("/schedules", schedule::workspaced_service())
-                        .nest("/groups", groups::workspaced_service())
-                        .nest("/audit", audit::workspaced_service())
-                        .nest("/acls", granular_acls::workspaced_service())
-                        .nest("/workspaces", workspaces::workspaced_service())
-                        .nest("/apps", apps::workspaced_service())
-                        .nest("/flows", flows::workspaced_service())
-                        .nest("/capture", capture::workspaced_service())
-                        .nest("/favorites", favorite::workspaced_service())
-                        .nest("/folders", folders::workspaced_service()),
+                        .nest("/workspaces", workspaces::workspaced_service()),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(
@@ -136,16 +149,25 @@ pub async fn run_server(
                 .nest("/workers", worker_ping::global_service())
                 .nest("/scripts", scripts::global_service())
                 .nest("/flows", flows::global_service())
-                .nest("/apps", apps::global_service())
+                .nest("/apps", apps::global_service().layer(cors.clone()))
                 .nest("/schedules", schedule::global_service())
                 .route_layer(from_extractor::<Authed>())
                 .route_layer(from_extractor::<users::Tokened>())
+                .nest("/scripts_u", scripts::global_unauthed_service())
                 .nest(
                     "/w/:workspace_id/apps_u",
-                    apps::unauthed_service().layer(from_extractor::<OptAuthed>()),
+                    apps::unauthed_service()
+                        .layer(from_extractor::<OptAuthed>())
+                        .layer(cors.clone()),
                 )
-                .nest("/w/:workspace_id/jobs_u", jobs::global_service())
-                .nest("/w/:workspace_id/capture_u", capture::global_service())
+                .nest(
+                    "/w/:workspace_id/jobs_u",
+                    jobs::global_service().layer(cors.clone()),
+                )
+                .nest(
+                    "/w/:workspace_id/capture_u",
+                    capture::global_service().layer(cors),
+                )
                 .nest(
                     "/auth",
                     users::make_unauthed_service().layer(Extension(argon2)),

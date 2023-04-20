@@ -122,7 +122,7 @@
 	export let canvasId: string
 	export let edgeId: string
 	const store = findStore(canvasId)
-	const { nodesStore, edgesStore, anchorsStore } = store
+	const { edgesStore } = store
 	let edge
 	$: edge = $edgesStore[edgeId]
 

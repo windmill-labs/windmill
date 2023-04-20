@@ -7,7 +7,7 @@
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 	import { FlowService, type Flow } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { sendUserToast } from '$lib/utils'
+	import { isOwner, sendUserToast } from '$lib/utils'
 	import {
 		faArchive,
 		faCalendarAlt,
@@ -20,7 +20,6 @@
 		faShare,
 		faTrashAlt
 	} from '@fortawesome/free-solid-svg-icons'
-	import { MoreVertical } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Badge from '../badge/Badge.svelte'
 	import Button from '../button/Button.svelte'
@@ -37,9 +36,13 @@
 
 	const dispatch = createEventDispatcher()
 
-	async function archiveFlow(path: string): Promise<void> {
+	async function archiveFlow(path: string, archived: boolean): Promise<void> {
 		try {
-			await FlowService.archiveFlowByPath({ workspace: $workspaceStore!, path })
+			await FlowService.archiveFlowByPath({
+				workspace: $workspaceStore!,
+				path,
+				requestBody: { archived }
+			})
 			dispatch('change')
 			sendUserToast(`Archived flow ${path}`)
 		} catch (err) {
@@ -108,7 +111,7 @@
 			{/if}
 
 			<Button
-				href="/flows/get/{path}?workspace_id={$workspaceStore}"
+				href="/flows/get/{path}?workspace={$workspaceStore}"
 				color="light"
 				variant="border"
 				size="xs"
@@ -130,76 +133,79 @@
 
 		<Dropdown
 			placement="bottom-end"
-			dropdownItems={[
-				{
-					displayName: 'View flow',
-					icon: faEye,
-					href: `/flows/get/${path}?workspace_id=${$workspaceStore}`
-				},
-				{
-					displayName: 'Edit',
-					icon: faEdit,
-					href: `/flows/edit/${path}?nodraft=true`,
-					disabled: !canWrite || archived
-				},
-				{
-					displayName: 'Use as template/Fork',
-					icon: faCodeFork,
-					href: `/flows/add?template=${path}`
-				},
-				{
-					displayName: 'View runs',
-					icon: faList,
-					href: `/runs/${path}`
-				},
-				{
-					displayName: 'Move/Rename',
-					icon: faFileExport,
-					action: () => {
-						moveDrawer.openDrawer(path, summary, 'flow')
+			dropdownItems={() => {
+				let owner = isOwner(path, $userStore, $workspaceStore)
+				return [
+					{
+						displayName: 'View flow',
+						icon: faEye,
+						href: `/flows/get/${path}?workspace=${$workspaceStore}`
 					},
-					disabled: !canWrite || archived
-				},
-				{
-					displayName: 'Schedule',
-					icon: faCalendarAlt,
-					action: () => {
-						scheduleEditor.openNew(true, path)
+					{
+						displayName: 'Edit',
+						icon: faEdit,
+						href: `/flows/edit/${path}?nodraft=true`,
+						disabled: !canWrite || archived
 					},
-					disabled: archived
-				},
-				{
-					displayName: canWrite ? 'Share' : 'See Permissions',
-					icon: faShare,
-					action: () => {
-						shareModal.openDrawer && shareModal.openDrawer(path, 'flow')
-					}
-				},
-				{
-					displayName: 'Archive',
-					icon: faArchive,
-					action: () => {
-						path ? archiveFlow(path) : null
+					{
+						displayName: 'Use as template/Fork',
+						icon: faCodeFork,
+						href: `/flows/add?template=${path}`
 					},
-					type: 'delete',
-					disabled: !canWrite || archived
-				},
-				{
-					displayName: 'Delete',
-					icon: faTrashAlt,
-					action: (event) => {
-						if (event?.shiftKey) {
-							deleteFlow(path)
-						} else {
-							deleteConfirmedCallback = () => {
-								deleteFlow(path)
-							}
+					{
+						displayName: 'View runs',
+						icon: faList,
+						href: `/runs/${path}`
+					},
+					{
+						displayName: 'Move/Rename',
+						icon: faFileExport,
+						action: () => {
+							moveDrawer.openDrawer(path, summary, 'flow')
+						},
+						disabled: !owner || archived
+					},
+					{
+						displayName: 'Schedule',
+						icon: faCalendarAlt,
+						action: () => {
+							scheduleEditor.openNew(true, path)
+						},
+						disabled: archived
+					},
+					{
+						displayName: owner ? 'Share' : 'See Permissions',
+						icon: faShare,
+						action: () => {
+							shareModal.openDrawer && shareModal.openDrawer(path, 'flow')
 						}
 					},
-					type: 'delete',
-					disabled: !canWrite
-				}
-			]}
+					{
+						displayName: archived ? 'Unarchive' : 'Archive',
+						icon: faArchive,
+						action: () => {
+							path && archiveFlow(path, !archived)
+						},
+						type: 'delete',
+						disabled: !owner
+					},
+					{
+						displayName: 'Delete',
+						icon: faTrashAlt,
+						action: (event) => {
+							if (event?.shiftKey) {
+								deleteFlow(path)
+							} else {
+								deleteConfirmedCallback = () => {
+									deleteFlow(path)
+								}
+							}
+						},
+						type: 'delete',
+						disabled: !owner
+					}
+				]
+			}}
 		/>
 	</svelte:fragment>
 </Row>

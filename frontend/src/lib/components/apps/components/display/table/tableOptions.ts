@@ -10,7 +10,7 @@ const tableOptions: TableOptions<Record<string, any>> = {
 		pagination: {
 			pageSize: 25
 		}
-	},
+	}
 }
 
 export { tableOptions }

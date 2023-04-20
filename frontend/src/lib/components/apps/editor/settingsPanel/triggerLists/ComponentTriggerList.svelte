@@ -16,6 +16,7 @@
 	export let fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
 	export let appComponent: AppComponent
 	export let runnable: RunnableByName
+	export let recomputeOnInputChanged: boolean = false
 
 	const onClick = ['buttoncomponent', 'formbuttoncomponent', 'formcomponent'].includes(
 		appComponent.type
@@ -24,15 +25,15 @@
 	$: onLoad =
 		!onClick ||
 		(appComponent?.configuration?.triggerOnAppLoad != undefined &&
-			appComponent?.configuration?.triggerOnAppLoad?.ctype === undefined &&
 			appComponent.configuration.triggerOnAppLoad.type == 'static' &&
 			appComponent.configuration.triggerOnAppLoad.value)
 </script>
 
 <TriggerBadgesList
-	inputDependencies={getDependencies(fields)}
+	inputDependencies={onClick ? [] : getDependencies(fields)}
 	bind:inlineScript={runnable.inlineScript}
 	{onLoad}
-	id={$selectedComponent}
+	{recomputeOnInputChanged}
+	id={$selectedComponent?.[0]}
 	{onClick}
 />

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.79.0
+  version: 1.88.1
   title: Windmill API
 
   contact:
@@ -117,9 +117,10 @@ paths:
       responses:
         "200":
           description: >
-            Successfully authenticated.
-            The session ID is returned in a cookie named `token` and as plaintext response.
-            Preferred method of authorization is through the bearer token. The cookie is only for browser convenience.
+            Successfully authenticated. The session ID is returned in a cookie
+            named `token` and as plaintext response. Preferred method of
+            authorization is through the bearer token. The cookie is only for
+            browser convenience.
 
           headers:
             Set-Cookie:
@@ -1047,6 +1048,27 @@ paths:
               schema:
                 type: string
 
+  /users/tokens/impersonate:
+    post:
+      summary: create token to impersonate a user (require superadmin)
+      operationId: createTokenImpersonate
+      tags:
+        - user
+      requestBody:
+        description: new token
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewTokenImpersonate"
+      responses:
+        "201":
+          description: token created
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /users/tokens/delete/{token_prefix}:
     delete:
       summary: delete token
@@ -1257,9 +1279,10 @@ paths:
       responses:
         "200":
           description: >
-            Successfully authenticated.
-            The session ID is returned in a cookie named `token` and as plaintext response.
-            Preferred method of authorization is through the bearer token. The cookie is only for browser convenience.
+            Successfully authenticated. The session ID is returned in a cookie
+            named `token` and as plaintext response. Preferred method of
+            authorization is through the bearer token. The cookie is only for
+            browser convenience.
 
           headers:
             Set-Cookie:
@@ -2342,6 +2365,24 @@ paths:
               schema:
                 type: string
 
+  /scripts_u/tokened_raw/{workspace}/{token}/{path}:
+    get:
+      summary: raw script by path with a token (mostly used by lsp to be used with import maps to resolve scripts)
+      operationId: rawScriptByPathTokened
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Token"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: script content
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/scripts/exists/p/{path}:
     get:
       summary: exists script by path
@@ -2467,17 +2508,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
-        - name: scheduled_for
-          description: when to schedule this job (leave empty for immediate run)
-          in: query
-          schema:
-            type: string
-            format: date-time
-        - name: scheduled_in_secs
-          description: schedule the script to execute in the number of seconds starting now
-          in: query
-          schema:
-            type: integer
         - $ref: "#/components/parameters/ParentJob"
         - $ref: "#/components/parameters/IncludeHeader"
         - $ref: "#/components/parameters/QueueLimit"
@@ -2497,6 +2527,26 @@ paths:
             application/json:
               schema: {}
 
+    get:
+      summary: run script by path with get
+      operationId: runWaitResultScriptByPathGet
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+        - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/IncludeHeader"
+        - $ref: "#/components/parameters/QueueLimit"
+        - $ref: "#/components/parameters/Payload"
+
+      responses:
+        "200":
+          description: job result
+          content:
+            application/json:
+              schema: {}
+
   /w/{workspace}/jobs/run_wait_result/f/{path}:
     post:
       summary: run flow by path and wait until completion
@@ -2506,17 +2556,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
-        - name: scheduled_for
-          description: when to schedule this job (leave empty for immediate run)
-          in: query
-          schema:
-            type: string
-            format: date-time
-        - name: scheduled_in_secs
-          description: schedule the script to execute in the number of seconds starting now
-          in: query
-          schema:
-            type: integer
         - $ref: "#/components/parameters/IncludeHeader"
         - $ref: "#/components/parameters/QueueLimit"
 
@@ -2718,6 +2757,16 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
+      requestBody:
+        description: archiveFlow
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                archived:
+                  type: boolean
       responses:
         "200":
           description: flow archived
@@ -2742,6 +2791,27 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/flows/input_history/p/{path}:
+    get:
+      summary: list inputs for previous completed flow jobs
+      operationId: getFlowInputHistoryByPath
+      tags:
+        - flow
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: input history for completed jobs with this flow path
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Input"
 
   /w/{workspace}/apps/list:
     get:
@@ -3283,23 +3353,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/Job"
 
-  # /w/{workspace}/jobs/flow/current_state/{id}:
-  #   get:
-  #     summary: get flow current step state
-  #     operationId: getJob
-  #     tags:
-  #       - job
-  #     parameters:
-  #       - $ref: "#/components/parameters/WorkspaceId"
-  #       - $ref: "#/components/parameters/JobId"
-  #     responses:
-  #       "200":
-  #         description: state details
-  #         content:
-  #           application/json:
-  #             schema:
-  #               type: string
-
   /w/{workspace}/jobs_u/getupdate/{id}:
     get:
       summary: get job updates
@@ -3385,10 +3438,38 @@ paths:
               schema:
                 $ref: "#/components/schemas/CompletedJob"
 
-  /w/{workspace}/jobs/queue/cancel/{id}:
+  /w/{workspace}/jobs_u/queue/cancel/{id}:
     post:
       summary: cancel queued job
       operationId: cancelQueuedJob
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      requestBody:
+        description: reason
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+
+      responses:
+        "200":
+          description: job canceled
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/jobs_u/queue/force_cancel/{id}:
+    post:
+      summary: force cancel queued job
+      operationId: forceCancelQueuedJob
       tags:
         - job
       parameters:
@@ -3485,6 +3566,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/JobId"
+        - $ref: "#/components/parameters/Payload"
         - name: resume_id
           in: path
           required: true
@@ -3698,13 +3780,14 @@ paths:
               properties:
                 schedule:
                   type: string
-                offset:
-                  type: integer
+                timezone:
+                  type: string
               required:
                 - schedule
+                - timezone
       responses:
         "200":
-          description: the preview of the next 10 time this schedule would apply to
+          description: List of 5 estimated upcoming execution events (in UTC)
           content:
             application/json:
               schema:
@@ -4489,6 +4572,118 @@ paths:
         "200":
           description: unstar item
 
+  /w/{workspace}/inputs/history:
+    get:
+      summary: List Inputs used in previously completed jobs
+      operationId: getInputHistory
+      tags:
+        - input
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/RunnableId"
+        - $ref: "#/components/parameters/RunnableType"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: Input history for completed jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Input"
+
+  /w/{workspace}/inputs/list:
+    get:
+      summary: List saved Inputs for a Runnable
+      operationId: listInputs
+      tags:
+        - input
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/RunnableId"
+        - $ref: "#/components/parameters/RunnableType"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: Saved Inputs for a Runnable
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Input"
+
+  /w/{workspace}/inputs/create:
+    post:
+      summary: Create an Input for future use in a script or flow
+      operationId: createInput
+      tags:
+        - input
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/RunnableId"
+        - $ref: "#/components/parameters/RunnableType"
+      requestBody:
+        description: Input
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateInput"
+      responses:
+        "201":
+          description: Input created
+          content:
+            text/plain:
+              schema:
+                type: string
+                format: uuid
+
+  /w/{workspace}/inputs/update:
+    post:
+      summary: Update an Input
+      operationId: updateInput
+      tags:
+        - input
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: UpdateInput
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateInput"
+      responses:
+        "201":
+          description: Input updated
+          content:
+            text/plain:
+              schema:
+                type: string
+                format: uuid
+
+  /w/{workspace}/inputs/delete/{input}:
+    post:
+      summary: Delete a Saved Input
+      operationId: deleteInput
+      tags:
+        - input
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/InputId"
+      responses:
+        "200":
+          description: Input deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+                format: uuid
+
 components:
   securitySchemes:
     bearerAuth:
@@ -4498,9 +4693,16 @@ components:
       type: apiKey
       in: cookie
       name: token
+
   parameters:
     WorkspaceId:
       name: workspace
+      in: path
+      required: true
+      schema:
+        type: string
+    Token:
+      name: token
       in: path
       required: true
       schema:
@@ -4580,7 +4782,9 @@ components:
         type: string
     ParentJob:
       name: parent_job
-      description: The parent job that is at the origin and responsible for the execution of this script if any
+      description:
+        The parent job that is at the origin and responsible for the execution
+        of this script if any
       in: query
       schema:
         type: string
@@ -4600,7 +4804,14 @@ components:
       in: query
       schema:
         type: string
-
+    Payload:
+      name: payload
+      description: |
+        The base64 encoded payload that has been encoded as a JSON. e.g how to encode such payload encodeURIComponent
+        `encodeURIComponent(btoa(JSON.stringify({a: 2})))`
+      in: query
+      schema:
+        type: string
     ScriptStartPath:
       name: script_path_start
       description: mask to filter matching starting path
@@ -4657,7 +4868,6 @@ components:
       in: query
       schema:
         type: string
-
     ResultFilter:
       name: result
       description: filter on jobs containing those result as a json subset (@> in postgres)
@@ -4705,7 +4915,9 @@ components:
         enum: [Create, Update, Delete, Execute]
     JobKinds:
       name: job_kinds
-      description: filter on job kind (values 'preview', 'script', 'dependencies', 'flow') separated by,
+      description:
+        filter on job kind (values 'preview', 'script', 'dependencies', 'flow')
+        separated by,
       in: query
       schema:
         type: string
@@ -4715,9 +4927,26 @@ components:
       #     type: string
       #     enum: ["preview", "script", "dependencies"]
       # explode: false
+    RunnableId:
+      name: runnable_id
+      in: query
+      schema:
+        type: string
+    RunnableType:
+      name: runnable_type
+      in: query
+      schema:
+        $ref: "#/components/schemas/RunnableType"
+    InputId:
+      name: input
+      in: path
+      required: true
+      schema:
+        type: string
 
   schemas:
     $ref: "../../openflow.openapi.yaml#/components/schemas"
+
     Script:
       type: object
       properties:
@@ -4787,6 +5016,60 @@ components:
     ScriptArgs:
       type: object
       additionalProperties: {}
+
+    Input:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        args:
+          type: object
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        is_public:
+          type: boolean
+      required:
+        - id
+        - name
+        - args
+        - created_by
+        - created_at
+        - is_public
+
+    CreateInput:
+      type: object
+      properties:
+        name:
+          type: string
+        args:
+          type: object
+      required:
+        - name
+        - args
+        - created_by
+
+    UpdateInput:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        is_public:
+          type: boolean
+      required:
+        - id
+        - name
+        - is_public
+
+    RunnableType:
+      type: string
+      enum: ["ScriptHash", "ScriptPath", "FlowPath"]
 
     QueuedJob:
       type: object
@@ -5007,6 +5290,10 @@ components:
           type: array
           items:
             type: string
+        folders_owners:
+          type: array
+          items:
+            type: string
         usage:
           $ref: "#/components/schemas/Usage"
       required:
@@ -5018,6 +5305,7 @@ components:
         - operator
         - disabled
         - folders
+        - folders_owners
 
     Usage:
       type: object
@@ -5089,6 +5377,19 @@ components:
         expiration:
           type: string
           format: date-time
+
+    NewTokenImpersonate:
+      type: object
+      properties:
+        label:
+          type: string
+        expiration:
+          type: string
+          format: date-time
+        impersonate_email:
+          type: string
+      required:
+        - impersonate_email
 
     ListableVariable:
       type: object
@@ -5215,6 +5516,11 @@ components:
     MainArgSignature:
       type: object
       properties:
+        type:
+          type: string
+          enum: ["Valid", "Invalid"]
+        error:
+          type: string
         star_args:
           type: boolean
         star_kwargs:
@@ -5324,6 +5630,8 @@ components:
         - star_args
         - start_kwargs
         - args
+        - type
+        - error
 
     Preview:
       type: object
@@ -5458,8 +5766,8 @@ components:
           format: date-time
         schedule:
           type: string
-        offset_:
-          type: integer
+        timezone:
+          type: string
         enabled:
           type: boolean
         script_path:
@@ -5482,7 +5790,7 @@ components:
         - edited_at
         - schedule
         - script_path
-        - offset_
+        - timezone
         - extra_perms
         - is_flow
         - enabled
@@ -5495,8 +5803,8 @@ components:
           type: string
         schedule:
           type: string
-        offset:
-          type: integer
+        timezone:
+          type: string
         script_path:
           type: string
         is_flow:
@@ -5508,6 +5816,7 @@ components:
       required:
         - path
         - schedule
+        - timezone
         - script_path
         - is_flow
         - args
@@ -5517,10 +5826,13 @@ components:
       properties:
         schedule:
           type: string
+        timezone:
+          type: string
         args:
           $ref: "#/components/schemas/ScriptArgs"
       required:
         - schedule
+        - timezone
         - script_path
         - is_flow
         - args
@@ -5785,6 +6097,7 @@ components:
         - extra_perms
         - edited_at
         - execution_mode
+
     AppWithLastVersion:
       type: object
       properties:

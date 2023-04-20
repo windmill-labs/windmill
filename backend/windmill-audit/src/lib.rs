@@ -41,8 +41,8 @@ pub struct AuditLog {
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
-pub async fn audit_log<'c>(
-    db: &mut Transaction<'c, Postgres>,
+pub async fn audit_log<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+    db: E,
     username: &str,
     operation: &str,
     action_kind: ActionKind,

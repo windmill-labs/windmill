@@ -6,14 +6,16 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use anyhow::Result;
 use const_format::concatcp;
 use itertools::Itertools;
-use lazy_static::lazy_static;
-use regex::Regex;
-use sqlx::{Pool, Postgres, Transaction};
+use once_cell::sync::OnceCell;
+use sqlx::{Pool, Postgres};
+use windmill_api_client::Client;
 use std::{
     borrow::Borrow, collections::HashMap, io, os::unix::process::ExitStatusExt, panic,
-    process::Stdio, time::Duration,
+    process::Stdio, time::{Duration},
+    sync::{Arc},
 };
 use tracing::{trace_span, Instrument};
 use uuid::Uuid;
@@ -22,21 +24,21 @@ use windmill_common::{
     error::{self, to_anyhow, Error},
     flows::{FlowModuleValue, FlowValue},
     scripts::{ScriptHash, ScriptLang},
-    utils::rd_string,
-    variables, BASE_URL,
+    utils::{rd_string},
+    variables, BASE_URL, users::SUPERADMIN_SECRET_EMAIL, METRICS_ENABLED, jobs::{JobKind, QueuedJob},
 };
-use windmill_queue::{canceled_job_to_result, get_queued_job, pull, JobKind, QueuedJob, CLOUD_HOSTED};
+use windmill_queue::{canceled_job_to_result, get_queued_job, pull, CLOUD_HOSTED};
 
 use serde_json::{json, Value};
 
 use tokio::{
     fs::{metadata, symlink, DirBuilder, File},
-    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     process::{Child, Command},
     sync::{
-        mpsc::{self, Sender},  watch, broadcast,
+        mpsc::{self, Sender},  watch, broadcast, RwLock, Barrier
     },
-    time::{interval, sleep, Instant, MissedTickBehavior},
+    time::{interval, sleep, Instant, MissedTickBehavior}
 };
 
 use futures::{
@@ -46,200 +48,61 @@ use futures::{
 
 use async_recursion::async_recursion;
 
-use crate::{
-    jobs::{add_completed_job, add_completed_job_error},
-    worker_flow::{
-        handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress,
-    },
-};
-
 #[cfg(feature = "enterprise")]
 use rand::Rng;
 
 #[cfg(feature = "enterprise")]
-const TAR_CACHE_FILENAME: &str = "entirecache.tar";
+use crate::global_cache::{copy_cache_to_tmp_cache, cache_global, copy_tmp_cache_to_cache};
 
-#[cfg(feature = "enterprise")]
-async fn copy_cache_from_bucket(bucket: &str) {
-    tracing::info!("Copying cache from bucket {bucket}");
-    let elapsed = Instant::now();
+use crate::{
+    jobs::{add_completed_job, add_completed_job_error},
+    worker_flow::{
+        handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress,
+    }, python_executor::{create_dependencies_dir, pip_compile, handle_python_job, handle_python_reqs}, common::{read_result, set_logs}, go_executor::{handle_go_job, install_go_dependencies},
+};
 
-    match Command::new("rclone")
-        .arg("copy")
-        .arg(format!(":s3,env_auth=true:{bucket}"))
-        .arg(ROOT_CACHE_DIR)
-        .arg("--size-only")
-        .arg("--fast-list")
-        .arg("--exclude")
-        .arg(format!("\"{TAR_CACHE_FILENAME}\""))
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .spawn()
-    {
-        Ok(mut h) => {
-            h.wait().await.unwrap();
-        }
-        Err(e) => tracing::warn!("Failed to run periodic job pull. Error: {:?}", e),
-    }
-    tracing::info!(
-        "Finished copying cache from bucket {bucket}, took {:?}s",
-        elapsed.elapsed().as_secs()
-    );
 
-    for x in [PIP_CACHE_DIR, DENO_CACHE_DIR, GO_CACHE_DIR] {
-        DirBuilder::new()
-            .recursive(true)
-            .create(x)
-            .await
-            .expect("could not create initial worker dir");
-    }
-}
 
-#[cfg(feature = "enterprise")]
-async fn copy_cache_to_bucket(bucket: &str) {
-    tracing::info!("Copying cache to bucket {bucket}");
-    let elapsed = Instant::now();
-    match Command::new("rclone")
-        .arg("copy")
-        .arg(ROOT_CACHE_DIR)
-        .arg(format!(":s3,env_auth=true:{bucket}"))
-        .arg("--size-only")
-        .arg("--fast-list")
-        .arg("--exclude")
-        .arg(format!("\"{TAR_CACHE_FILENAME}\""))
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .spawn()
-    {
-        Ok(mut h) => {
-            h.wait().await.unwrap();
-        }
-        Err(e) => tracing::warn!("Failed to run periodic job push. Error: {:?}", e),
-    }
-    tracing::info!(
-        "Finished copying cache to bucket {bucket}, took: {:?}s",
-        elapsed.elapsed().as_secs()
-    );
-}
 
-#[cfg(feature = "enterprise")]
-async fn copy_cache_to_bucket_as_tar(bucket: &str) {
-    tracing::info!("Copying cache to bucket {bucket} as tar");
-    let elapsed = Instant::now();
-
-    match Command::new("tar")
-        .current_dir(ROOT_CACHE_DIR)
-        .arg("-c")
-        .arg("-f")
-        .arg(format!("{ROOT_CACHE_DIR}{TAR_CACHE_FILENAME}"))
-        .args(&["pip", "go", "deno"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .spawn()
-    {
-        Ok(mut h) => {
-            if !h.wait().await.unwrap().success() {
-                tracing::warn!("Failed to tar cache");
-                return;
-            }
-        }
-        Err(e) => {
-            tracing::warn!("Failed tar cache. Error: {e:?}");
-            return;
-        }
-    }
-
-    match Command::new("rclone")
-        .current_dir(ROOT_CACHE_DIR)
-        .arg("copyto")
-        .arg(TAR_CACHE_FILENAME)
-        .arg(format!(":s3,env_auth=true:{bucket}/{TAR_CACHE_FILENAME}"))
-        .arg("--size-only")
-        .arg("--fast-list")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .spawn()
-    {
-        Ok(mut h) => {
-            h.wait().await.unwrap();
-        }
-        Err(e) => tracing::warn!("Failed to copying tar cache to bucket. Error: {:?}", e),
-    }
-    tracing::info!(
-        "Finished copying cache to bucket {bucket} as tar, took: {:?}s",
-        elapsed.elapsed().as_secs()
-    );
-}
-
-#[cfg(feature = "enterprise")]
-async fn copy_cache_from_bucket_as_tar(bucket: &str) -> bool {
-    tracing::info!("Copying cache from bucket {bucket} as tar");
-    let elapsed = Instant::now();
-
-    match Command::new("rclone")
-        .arg("copyto")
-        .arg(format!(":s3,env_auth=true:{bucket}/{TAR_CACHE_FILENAME}"))
-        .arg(format!("{ROOT_CACHE_DIR}{TAR_CACHE_FILENAME}"))
-        .arg("--size-only")
-        .arg("--fast-list")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .spawn()
-    {
-        Ok(mut h) => {
-            if !h.wait().await.unwrap().success() {
-                tracing::warn!("Failed to download tar cache");
-                return false;
-            }
-        }
-        Err(e) => {
-            tracing::warn!("Failed to download tar cache. Error: {e:?}");
-            return false;
-        }
-    }
-
-    match Command::new("tar")
-        .current_dir(ROOT_CACHE_DIR)
-        .arg("-xpvf")
-        .arg(format!("{ROOT_CACHE_DIR}/{TAR_CACHE_FILENAME}"))
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .spawn()
-    {
-        Ok(mut h) => {
-            if !h.wait().await.unwrap().success() {
-                tracing::warn!("Failed to untar cache");
-                return false;
-            }
-        }
-        Err(e) => {
-            tracing::warn!("Failed untar cache. Error: {e:?}");
-            return false;
-        }
-    }
-
-    tracing::info!(
-        "Finished copying cache from bucket {bucket} as tar, took: {:?}s",
-        elapsed.elapsed().as_secs()
-    );
-    return true;
+pub async fn create_token_for_owner_in_bg(db: &Pool<Postgres>, job: &QueuedJob) -> Arc<RwLock<String>> {
+    let rw_lock = Arc::new(RwLock::new(String::new()));
+    // skipping test runs
+    if job.workspace_id != "" {
+        let mut locked = rw_lock.clone().write_owned().await;
+        let db = db.clone();
+        let job = job.clone();
+        tokio::spawn(async move {
+            let job = job.clone();
+            let token = create_token_for_owner(
+                &db.clone(),
+                &job.workspace_id,
+                &job.permissioned_as,
+                "ephemeral-script",
+                *SESSION_TOKEN_EXPIRY,
+                &job.email,
+            )
+            .await.expect("could not create job token");
+            *locked = token;
+        });
+    };
+    return rw_lock;
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
-pub async fn create_token_for_owner<'c>(
-    mut tx: Transaction<'c, Postgres>,
+pub async fn create_token_for_owner(
+    db: &Pool<Postgres>,
     w_id: &str,
     owner: &str,
     label: &str,
     expires_in: i32,
     email: &str,
-) -> error::Result<(Transaction<'c, Postgres>, String)> {
+) -> error::Result<String> {
     // TODO: Bad implementation. We should not have access to this DB here.
     let token: String = rd_string(30);
     let is_super_admin = sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", email)
-            .fetch_optional(&mut tx)
+            .fetch_optional(db)
             .await?
-            .unwrap_or(false);
+            .unwrap_or(false) || email == SUPERADMIN_SECRET_EMAIL;
 
     sqlx::query_scalar!(
         "INSERT INTO token
@@ -253,29 +116,27 @@ pub async fn create_token_for_owner<'c>(
         is_super_admin,
         email
     )
-    .execute(&mut tx)
+    .execute(db)
     .await?;
-    Ok((tx, token))
+    Ok(token)
 }
 
-const TMP_DIR: &str = "/tmp/windmill";
-const ROOT_CACHE_DIR: &str = "/tmp/windmill/cache/";
-const PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "pip");
-const DENO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "deno");
-const GO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "go");
+pub const TMP_DIR: &str = "/tmp/windmill";
+pub const ROOT_CACHE_DIR: &str = "/tmp/windmill/cache/";
+pub const ROOT_TMP_CACHE_DIR: &str = "/tmp/windmill/tmpcache/";
+pub const PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "pip");
+pub const DENO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "deno");
+pub const GO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "go");
+pub const TAR_PIP_TMP_CACHE_DIR: &str = concatcp!(ROOT_TMP_CACHE_DIR, "tar/pip");
+pub const DENO_TMP_CACHE_DIR: &str = concatcp!(ROOT_TMP_CACHE_DIR, "deno");
+pub const GO_TMP_CACHE_DIR: &str = concatcp!(ROOT_TMP_CACHE_DIR, "go");
+
 const NUM_SECS_PING: u64 = 5;
-const NUM_SECS_SYNC: u64 = 60 * 10;
+
 
 const INCLUDE_DEPS_PY_SH_CONTENT: &str = include_str!("../nsjail/download_deps.py.sh");
-const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT: &str = include_str!("../nsjail/download.py.config.proto");
-const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str = include_str!("../nsjail/run.python3.config.proto");
-const NSJAIL_CONFIG_RUN_GO_CONTENT: &str = include_str!("../nsjail/run.go.config.proto");
 const NSJAIL_CONFIG_RUN_BASH_CONTENT: &str = include_str!("../nsjail/run.bash.config.proto");
-const NSJAIL_CONFIG_RUN_DENO_CONTENT: &str = include_str!("../nsjail/run.deno.config.proto");
 
-const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
-
-const GO_REQ_SPLITTER: &str = "//go.sum";
 
 #[derive(Clone)]
 pub struct Metrics {
@@ -287,67 +148,48 @@ pub const DEFAULT_TIMEOUT: u16 = 300;
 pub const DEFAULT_SLEEP_QUEUE: u64 = 50;
 
 lazy_static::lazy_static! {
-    
-
 
     static ref SLEEP_QUEUE: u64 = std::env::var("SLEEP_QUEUE")
     .ok()
     .and_then(|x| x.parse::<u64>().ok())
     .unwrap_or(DEFAULT_SLEEP_QUEUE);
 
-    static ref DISABLE_NUSER: bool = std::env::var("DISABLE_NUSER")
+    pub static ref DISABLE_NUSER: bool = std::env::var("DISABLE_NUSER")
     .ok()
     .and_then(|x| x.parse::<bool>().ok())
     .unwrap_or(false);
 
-    static ref DISABLE_NSJAIL: bool = std::env::var("DISABLE_NSJAIL")
-    .ok()
-    .and_then(|x| x.parse::<bool>().ok())
-    .unwrap_or(true);
+    pub static ref DISABLE_NSJAIL: bool = std::env::var("DISABLE_NSJAIL")
+        .ok()
+        .and_then(|x| x.parse::<bool>().ok())
+        .unwrap_or(true);
 
     pub static ref KEEP_JOB_DIR: bool = std::env::var("KEEP_JOB_DIR")
     .ok()
     .and_then(|x| x.parse::<bool>().ok())
     .unwrap_or(false);
 
-    static ref S3_CACHE_BUCKET: Option<String> = std::env::var("S3_CACHE_BUCKET")
-    .ok()
-    .map(|e| Some(e))
-    .unwrap_or(None);
 
-    static ref DENO_PATH: String = std::env::var("DENO_PATH").unwrap_or_else(|_| "/usr/bin/deno".to_string());
-    static ref GO_PATH: String = std::env::var("GO_PATH").unwrap_or_else(|_| "/usr/bin/go".to_string());
-    static ref PYTHON_PATH: String =
-        std::env::var("PYTHON_PATH").unwrap_or_else(|_| "/usr/local/bin/python3".to_string());
-    static ref NSJAIL_PATH: String = std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
-    static ref PATH_ENV: String = std::env::var("PATH").unwrap_or_else(|_| String::new());
-    static ref HOME_ENV: String = std::env::var("HOME").unwrap_or_else(|_| String::new());
-    static ref PIP_INDEX_URL: Option<String> = std::env::var("PIP_INDEX_URL").ok();
-    static ref PIP_EXTRA_INDEX_URL: Option<String> = std::env::var("PIP_EXTRA_INDEX_URL").ok();
-    static ref PIP_TRUSTED_HOST: Option<String> = std::env::var("PIP_TRUSTED_HOST").ok();
+    pub static ref DENO_PATH: String = std::env::var("DENO_PATH").unwrap_or_else(|_| "/usr/bin/deno".to_string());
+    pub static ref NSJAIL_PATH: String = std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
+    pub static ref PATH_ENV: String = std::env::var("PATH").unwrap_or_else(|_| String::new());
+    pub static ref HOME_ENV: String = std::env::var("HOME").unwrap_or_else(|_| String::new());
+    pub static ref GOPRIVATE: Option<String> = std::env::var("GOPRIVATE").ok();
+    pub static ref NETRC: Option<String> = std::env::var("NETRC").ok();
+
     static ref DENO_AUTH_TOKENS: String = std::env::var("DENO_AUTH_TOKENS")
         .ok()
         .map(|x| format!(";{x}"))
         .unwrap_or_else(|| String::new());
-    static ref NPM_CONFIG_REGISTRY: Option<String> = std::env::var("NPM_CONFIG_REGISTRY").ok();
-    
 
+    static ref NPM_CONFIG_REGISTRY: Option<String> = std::env::var("NPM_CONFIG_REGISTRY").ok();
 
     static ref DENO_FLAGS: Option<Vec<String>> = std::env::var("DENO_FLAGS")
         .ok()
         .map(|x| x.split(' ').map(|x| x.to_string()).collect());
         
-    static ref PIP_LOCAL_DEPENDENCIES: Option<Vec<String>> = {
-        let pip_local_dependencies = std::env::var("PIP_LOCAL_DEPENDENCIES")
-            .ok()
-            .map(|x| x.split(',').map(|x| x.to_string()).collect());
-        if pip_local_dependencies == Some(vec!["".to_string()]) {
-            None
-        } else {
-            pip_local_dependencies
-        }
-    
-    };
+
+
     static ref WHITELIST_WORKSPACES: Option<Vec<String>> = std::env::var("WHITELIST_WORKSPACES")
         .ok()
         .map(|x| x.split(',').map(|x| x.to_string()).collect());
@@ -355,31 +197,17 @@ lazy_static::lazy_static! {
         .ok()
         .map(|x| x.split(',').map(|x| x.to_string()).collect());
 
-    static ref TAR_CACHE_RATE: i32 = std::env::var("TAR_CACHE_RATE")
+    pub static ref TAR_CACHE_RATE: i32 = std::env::var("TAR_CACHE_RATE")
         .ok()
         .and_then(|x| x.parse::<i32>().ok())
         .unwrap_or(100);
-
-    static ref ADDITIONAL_PYTHON_PATHS: Option<Vec<String>> = std::env::var("ADDITIONAL_PYTHON_PATHS")
-        .ok()
-        .map(|x| x.split(':').map(|x| x.to_string()).collect());
-
 
     static ref WORKER_STARTED: prometheus::IntGauge = prometheus::register_int_gauge!(
         "worker_started",
         "Total number of workers started."
     )
     .unwrap();
-    static ref QUEUE_ZOMBIE_RESTART_COUNT: prometheus::IntCounter = prometheus::register_int_counter!(
-        "queue_zombie_restart_count",
-        "Total number of jobs restarted due to ping timeout."
-    )
-    .unwrap();
-    static ref QUEUE_ZOMBIE_DELETE_COUNT: prometheus::IntCounter = prometheus::register_int_counter!(
-        "queue_zombie_delete_count",
-        "Total number of jobs deleted due to their ping timing out in an unrecoverable state."
-    )
-    .unwrap();
+
     static ref WORKER_UPTIME_OPTS: prometheus::Opts = prometheus::opts!(
         "worker_uptime",
         "Total number of seconds since the worker has started"
@@ -389,30 +217,77 @@ lazy_static::lazy_static! {
         .ok()
         .and_then(|x| x.parse::<u16>().ok())
         .unwrap_or(DEFAULT_TIMEOUT as u16);
+
     static ref TIMEOUT_DURATION: Duration = Duration::from_secs(*TIMEOUT as u64);
 
+    pub static ref SESSION_TOKEN_EXPIRY: i32 = (*TIMEOUT as i32) * 2;
 
-    static ref ZOMBIE_JOB_TIMEOUT: String = (*TIMEOUT as u32 * 5).to_string();
+    pub static ref GLOBAL_CACHE_INTERVAL: u64 = std::env::var("GLOBAL_CACHE_INTERVAL")
+        .ok()
+        .and_then(|x| x.parse::<u64>().ok())
+        .unwrap_or(60 * 10);
 
-    static ref SESSION_TOKEN_EXPIRY: i32 = (*TIMEOUT as i32) * 2;
+    pub static ref S3_CACHE_BUCKET: Option<String> = std::env::var("S3_CACHE_BUCKET")
+        .ok()
+        .map(|e| Some(e))
+        .unwrap_or(None);
+
+    pub static ref CAN_PULL: Arc<RwLock<()>> = Arc::new(RwLock::new(()));
+
 }
 
 //only matter if CLOUD_HOSTED
-const MAX_RESULT_SIZE: usize = 1024 * 1024 * 2; // 2MB
+pub const MAX_RESULT_SIZE: usize = 1024 * 1024 * 2; // 2MB
+
+pub struct AuthedClientBackgroundTask {
+    pub base_internal_url: String,
+    pub workspace: String,
+    pub token: Arc<RwLock<String>>,
+    pub client: OnceCell<Client>
+}
+
+impl AuthedClientBackgroundTask {
+    pub async fn get_authed(&self) -> AuthedClient {
+        return AuthedClient {
+            base_internal_url: self.base_internal_url.clone(),
+            workspace: self.workspace.clone(),
+            token: self.get_token().await,
+            client: self.client.clone()
+        }
+    }
+    pub async fn get_token(&self) -> String {
+        return self.token.read().await.clone();
+    }
+}
+#[derive(Clone)]
+pub struct AuthedClient {
+    pub base_internal_url: String,
+    pub workspace: String,
+    pub token: String,
+    pub client: OnceCell<Client>
+}
+
+impl AuthedClient {
+    pub fn get_client(&self) -> &Client {
+        return self.client.get_or_init(|| {
+            windmill_api_client::create_client(&self.base_internal_url, self.token.clone())
+        });
+    }
+}
 
 
-
-#[tracing::instrument(level = "trace")]
-pub async fn run_worker(
+pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(
     db: &Pool<Postgres>,
     worker_instance: &str,
     worker_name: String,
     i_worker: u64,
+    num_workers: u32,
     ip: &str,
     mut rx: tokio::sync::broadcast::Receiver<()>,
     base_internal_url: &str,
+    rsmq: Option<R>,
+    sync_barrier: Arc<RwLock<Option<Barrier>>>,
 ) {
-
     #[cfg(not(feature = "enterprise"))]
     if !*DISABLE_NSJAIL {
         tracing::warn!(
@@ -425,13 +300,11 @@ pub async fn run_worker(
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
     tracing::debug!(worker_dir = %worker_dir, worker_name = %worker_name, "Creating worker dir");
 
-    for x in [&worker_dir, PIP_CACHE_DIR, DENO_CACHE_DIR, GO_CACHE_DIR] {
-        DirBuilder::new()
-            .recursive(true)
-            .create(x)
-            .await
-            .expect("could not create initial worker dir");
-    }
+    DirBuilder::new()
+        .recursive(true)
+        .create(&worker_dir)
+        .await
+        .expect("could not create initial worker dir");
 
     let _ = write_file(
         &worker_dir,
@@ -440,7 +313,7 @@ pub async fn run_worker(
     )
     .await;
 
-    let mut last_ping = Instant::now() - Duration::from_secs(NUM_SECS_SYNC + 1);
+    let mut last_ping = Instant::now() - Duration::from_secs(NUM_SECS_PING + 1);
 
     insert_initial_ping(worker_instance, &worker_name, ip, db).await;
 
@@ -450,30 +323,33 @@ pub async fn run_worker(
     .unwrap();
 
 
-    let worker_execution_duration = prometheus::register_histogram_vec!(
+    let all_langs = [
+        None, 
+        Some(ScriptLang::Python3),
+        Some(ScriptLang::Deno),
+        Some(ScriptLang::Go),
+        Some(ScriptLang::Bash)];
+
+    let worker_execution_duration: HashMap<_, _>  = all_langs.clone().into_iter().map(|x| (x.clone(), prometheus::register_histogram!(
         prometheus::HistogramOpts::new(
             "worker_execution_duration",
             "Duration between receiving a job and completing it",
         )
-        .const_label("name", &worker_name),
-        &["workspace_id", "language"],
-    )
-    .expect("register prometheus metric");
-
-    let worker_execution_duration_counter = prometheus::register_counter!(prometheus::opts!(
-        "worker_execution_duration_counter",
-        "Total number of seconds spent executing jobs"
-    )
-        .const_label("name", &worker_name))
-        .expect("register prometheus metric");
+        .const_label("name", &worker_name)
+        .const_label("language", x.map(|x| x.as_str()).unwrap_or("none")))
+        .expect("register prometheus metric"))
+    ).collect();
 
 
-    let worker_sleep_duration = prometheus::register_histogram!(prometheus::HistogramOpts::new(
-        "worker_sleep_duration",
-        "Duration sleeping waiting for job",
-    )
-    .const_label("name", &worker_name),)
-    .expect("register prometheus metric");
+    let worker_execution_duration_counter: HashMap<_, _>  = all_langs.clone().into_iter().map(|x| (x.clone(), prometheus::register_counter!(
+        prometheus::Opts::new(
+            "worker_execution_duration_counter",
+            "Total number of seconds spent executing jobs"
+        )
+        .const_label("name", &worker_name)
+        .const_label("language", x.map(|x| x.as_str()).unwrap_or("none")))
+        .expect("register prometheus metric"))
+    ).collect();
 
 
     let worker_sleep_duration_counter = prometheus::register_counter!(prometheus::opts!(
@@ -498,19 +374,24 @@ pub async fn run_worker(
         .const_label("name", &worker_name))
         .expect("register prometheus metric");
 
-    let worker_execution_failed = prometheus::register_int_counter_vec!(
-        prometheus::Opts::new("worker_execution_failed", "Number of failed jobs",)
-            .const_label("name", &worker_name),
-        &["workspace_id", "language"],
-    )
-    .expect("register prometheus metric");
+    let worker_execution_failed: HashMap<_, _>  = all_langs.clone().into_iter().map(|x| (x.clone(), prometheus::register_int_counter!(
+        prometheus::Opts::new(
+            "worker_execution_failed", "Number of failed jobs",
+        )
+        .const_label("name", &worker_name)
+        .const_label("language", x.map(|x| x.as_str()).unwrap_or("none")))
+        .expect("register prometheus metric"))
+    ).collect();
 
-    let worker_execution_count = prometheus::register_int_counter_vec!(
-        prometheus::Opts::new("worker_execution_count", "Number of executed jobs",)
-            .const_label("name", &worker_name),
-        &["workspace_id", "language"],
-    )
-    .expect("register prometheus metric");
+
+    let worker_execution_count: HashMap<_, _> = all_langs.into_iter().map(|x| (x.clone(), prometheus::register_int_counter!(
+        prometheus::Opts::new(
+            "worker_execution_count", "Number of executed jobs"
+        )
+        .const_label("name", &worker_name)
+        .const_label("language", x.map(|x| x.as_str()).unwrap_or("none")))
+        .expect("register prometheus metric"))
+    ).collect();
 
     let worker_busy: prometheus::IntGauge = prometheus::register_int_gauge!(prometheus::Opts::new(
         "worker_busy",
@@ -521,35 +402,53 @@ pub async fn run_worker(
 
     let mut jobs_executed = 0;
 
-
-    WORKER_STARTED.inc();
-
-    #[cfg(feature = "enterprise")]
-    if let Some(ref s) = S3_CACHE_BUCKET.clone() {
-        // We try to download the entire cache as a tar, it is much faster over S3
-        if !copy_cache_from_bucket_as_tar(&s).await {
-            // We revert to copying the cache from the bucket
-            copy_cache_from_bucket(&s).await;
-        }
+    if *METRICS_ENABLED {
+        WORKER_STARTED.inc();
     }
+
+
+    let (copy_to_bucket_tx, mut copy_to_bucket_rx) = mpsc::channel::<()>(2);
+
+    let mut copy_cache_from_bucket_handle: Option<tokio::task::JoinHandle<()>> = None;
+
+    tracing::info!(worker = %worker_name, "starting worker");
 
     #[cfg(feature = "enterprise")]
     let mut last_sync =
-        Instant::now() + Duration::from_secs(rand::thread_rng().gen_range(0..NUM_SECS_SYNC));
+        Instant::now() + Duration::from_secs(rand::thread_rng().gen_range(0..*GLOBAL_CACHE_INTERVAL));
 
     let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<Uuid>(5);
 
+    let (job_completed_tx, mut job_completed_rx) = mpsc::channel::<JobCompleted>(10);
+
+    let db2 = db.clone();
+    let rsmq2 = rsmq.clone();
+    let worker_name2 = worker_name.clone();
+    let send_result = tokio::spawn(async move {
+        while let Some(JobCompleted { job, logs, result}) = job_completed_rx.recv().await {
+            if let Err(e) = add_completed_job(&db2, &job, true, false, result, logs, rsmq2.clone()).await {
+                tracing::error!(worker = %worker_name2, "failed to add completed job: {}", e);
+            }
+        }
+    });
+    
     tracing::info!(worker = %worker_name, "listening for jobs");
+    
+    let mut first_run = true;
 
+    // let mut barrier = Arc::new();
     loop {
-        worker_busy.set(0);
+        if *METRICS_ENABLED {
+            worker_busy.set(0);
+            uptime_metric.inc_by(
+                ((start_time.elapsed().as_millis() as f64)/1000.0 - uptime_metric.get())
+                    .try_into()
+                    .unwrap(),
+            );
+        }
 
-        uptime_metric.inc_by(
-            (((Instant::now() - start_time).as_millis() as f64)/1000.0 - uptime_metric.get())
-                .try_into()
-                .unwrap(),
-        );
-
+        #[cfg(feature = "enterprise")]
+        let copy_tx = copy_to_bucket_tx.clone();
 
         let do_break = async {
             if last_ping.elapsed().as_secs() > NUM_SECS_PING {
@@ -566,67 +465,140 @@ pub async fn run_worker(
             }
 
             #[cfg(feature = "enterprise")]
-            if last_sync.elapsed().as_secs() > NUM_SECS_SYNC {
-                if let Some(ref s) = S3_CACHE_BUCKET.clone() {
-                    copy_cache_from_bucket(&s).await;
-                    copy_cache_to_bucket(&s).await;
-                    if rand::thread_rng().gen_range(0..*TAR_CACHE_RATE) == 1 {
-                        copy_cache_to_bucket_as_tar(&s).await;
+            if i_worker == 1 && S3_CACHE_BUCKET.is_some() {
+                if last_sync.elapsed().as_secs() > *GLOBAL_CACHE_INTERVAL &&
+                    (copy_cache_from_bucket_handle.is_none() || copy_cache_from_bucket_handle.as_ref().unwrap().is_finished()) {
+
+                    tracing::debug!("CAN PULL LOCK START");
+                    let _lock = CAN_PULL.write().await;
+
+                    tracing::info!("Started syncing cache");
+                    last_sync = Instant::now();
+                    if num_workers > 1 {
+                        create_barrier_for_all_workers(num_workers, sync_barrier.clone()).await;
+                    }
+                    if let Err(e) = copy_cache_to_tmp_cache().await {
+                        tracing::error!("failed to copy cache to tmp cache: {}", e);
+                    } else {
+                        copy_cache_from_bucket_handle = Some(tokio::task::spawn(async move {
+                            if let Some(ref s) = S3_CACHE_BUCKET.clone() {
+                                if let Err(e) = cache_global(s, copy_tx).await { 
+                                    tracing::error!("failed to sync cache: {}", e);
+                                }
+                            }
+                        }));
                     }
                 }
-                last_sync = Instant::now();
             }
 
-            let (do_break, next_job) = async {
-                tokio::select! {
-                    biased;
-                    _ = rx.recv() => {
-                        println!("received killpill for worker {}", i_worker);
-                        (true, Ok(None))
-                    },
-                    Some(job_id) = same_worker_rx.recv() => {
-                        (false, sqlx::query_as::<_, QueuedJob>("SELECT * FROM queue WHERE id = $1")
-                        .bind(job_id)
-                        .fetch_optional(db)
-                        .await
-                        .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string())))
-                    },
-                    (job, timer) = {
-                        let timer = worker_pull_duration.start_timer(); 
-                        pull(&db, WHITELIST_WORKSPACES.clone(), BLACKLIST_WORKSPACES.clone()).map(|x| (x, timer)) } => {
-                        let duration_pull_s = timer.stop_and_record();
-                        worker_pull_duration_counter.inc_by(duration_pull_s);
-                        (false, job)
-                    },
-                }
-            }.instrument(trace_span!("worker_get_next_job")).await;
+            // The barrier is to avoid the sync to bucket syncing partial folders
+            #[cfg(feature = "enterprise")]
+            if num_workers > 1 && S3_CACHE_BUCKET.is_some()  {
+                let read_barrier = sync_barrier.read().await;
+                if let Some(b) = read_barrier.as_ref() {
+                    tracing::debug!("worker #{i_worker} waiting for barrier");
+                    b.wait().await;
+                    tracing::debug!("worker #{i_worker} done waiting for barrier");
+                    drop(read_barrier);
+                    // wait for barrier to be reset
+                    let _ = CAN_PULL.read().await;
+                    tracing::debug!("worker #{i_worker} done waiting for lock");
+                } else {
+                    tracing::debug!("worker #{i_worker} no barrier");
+                };
+            }
+            
+            let (do_break, next_job) = if first_run { 
+                (false, Ok(Some(QueuedJob::default())))
+            } else {
+                async {
+                    tokio::select! {
+                        biased;
+                        _ = rx.recv() => {
+                            if let Some(copy_cache_from_bucket_handle) = copy_cache_from_bucket_handle.as_ref() {
+                                if !copy_cache_from_bucket_handle.is_finished() {
+                                    copy_cache_from_bucket_handle.abort();
+                                }
+                            }
+                            println!("received killpill for worker {}", i_worker);
+                            (true, Ok(None))
+                        },
+                        _ = copy_to_bucket_rx.recv() => {
+                            tracing::debug!("CAN PULL LOCK START");
+                            let _lock = CAN_PULL.write().await;
+                            if num_workers > 1 {
+                                create_barrier_for_all_workers(num_workers, sync_barrier.clone()).await;
+                            }
+                            //Arc::new(tokio::sync::Barrier::new(num_workers as usize + 1));
+                            #[cfg(feature = "enterprise")]
+                            if let Err(e) = copy_tmp_cache_to_cache().await {
+                                tracing::error!(worker = %worker_name, "failed to sync tmp cache to cache: {}", e);
+                            }
+                            tracing::debug!("CAN PULL LOCK END");
+                            (false, Ok(None))
+                        },
+                        Some(job_id) = same_worker_rx.recv() => {
+                            (false, sqlx::query_as::<_, QueuedJob>("SELECT * FROM queue WHERE id = $1")
+                            .bind(job_id)
+                            .fetch_optional(db)
+                            .await
+                            .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string())))
+                        },
+                        (job, timer) = {
+                            let timer = if *METRICS_ENABLED { Some(worker_pull_duration.start_timer()) } else { None }; 
+                            pull(&db, WHITELIST_WORKSPACES.clone(), BLACKLIST_WORKSPACES.clone(), rsmq.clone()).map(|x| (x, timer)) 
+                        } => {
+                            timer.map(|timer| {
+                                let duration_pull_s = timer.stop_and_record();
+                                worker_pull_duration_counter.inc_by(duration_pull_s);
+                            });
+                            (false, job)
+                        },
+                    }
+                }.await
+            };
+
+            first_run = false;
             if do_break {
                 return true;
             }
-
-            worker_busy.set(1);
+            if *METRICS_ENABLED {
+                worker_busy.set(1);
+            }
             match next_job {
                 Ok(Some(job)) => {
-                    let label_values = [
-                        &job.workspace_id,
-                        job.language.as_ref().map(|l| l.as_str()).unwrap_or(""),
-                    ];
+                    // println!("{:?}",  SystemTime::now());
 
+                    let token = create_token_for_owner_in_bg(&db, &job).await;
+                    let language = job.language.clone();
                     let _timer = worker_execution_duration
-                        .with_label_values(label_values.as_slice())
+                        .get(&language)
+                        .expect("no timer found")
                         .start_timer();
 
                     jobs_executed += 1;
-                    worker_execution_count
-                        .with_label_values(label_values.as_slice())
-                        .inc();
+                    if *METRICS_ENABLED {
+                        worker_execution_count
+                            .get(&language)
+                            .expect("no timer found")
+                            .inc();
+                    }
 
-                    let metrics = Metrics {
-                        worker_execution_failed: worker_execution_failed
-                            .with_label_values(label_values.as_slice()),
-                    };
+                    let metrics = if *METRICS_ENABLED {
+                        Some(Metrics {
+                            worker_execution_failed: worker_execution_failed
+                                .get(&language)
+                                .expect("no timer found").clone(),
+                        }) 
+                    } else { None };
 
-                    tracing::info!(worker = %worker_name, id = %job.id, "fetched job {}", job.id);
+                    let job_root = job.root_job.map(|x| x.to_string()).unwrap_or_else(|| "none".to_string());
+
+                    if job.id == Uuid::nil() {
+                        tracing::info!(worker = %worker_name, "running warmup job");
+                    } else {
+                        tracing::info!(worker = %worker_name, id = %job.id, root_id = %job_root, "fetched job {}, root job: {}", job.id, job_root);
+                    }
 
                     let job_dir = format!("{worker_dir}/{}", job.id);
 
@@ -658,63 +630,57 @@ pub async fn run_worker(
                             .await
                             .expect("could not create shared dir");
                     }
-                    let tx = db.begin().await.expect("could not start token transaction");
-                    let (tx, token) = create_token_for_owner(
-                        tx,
-                        &job.workspace_id,
-                        &job.permissioned_as,
-                        "ephemeral-script",
-                        *SESSION_TOKEN_EXPIRY,
-                        &job.email,
-                    )
-                    .await.expect("could not create job token");
-                    tx.commit().await.expect("could not commit job token");
-                    let job_client = windmill_api_client::create_client(base_internal_url, token.clone());
+
+                    let authed_client = AuthedClientBackgroundTask { base_internal_url: base_internal_url.to_string(), token, workspace: job.workspace_id.to_string(), client: OnceCell::new() };
                     let is_flow = job.job_kind == JobKind::Flow || job.job_kind == JobKind::FlowPreview || job.job_kind == JobKind::FlowDependencies;
 
                     if let Some(err) = handle_queued_job(
                         job.clone(),
                         db,
-                        &job_client,
-                        token,
+                        &authed_client,
                         &worker_name,
                         &worker_dir,
                         &job_dir,
                         metrics.clone(),
                         same_worker_tx.clone(),
-                        base_internal_url
+                        base_internal_url,
+                        rsmq.clone(),
+                        job_completed_tx.clone(),
                     )
                     .await
                     .err()
                     {
                         handle_job_error(
                             db,
-                            &job_client,
+                            &authed_client.get_authed().await,
                             job,
                             err,
-                            Some(metrics),
+                            metrics,
                             false,
                             same_worker_tx.clone(),
                             &worker_dir,
-                            base_internal_url
+                            base_internal_url,
+                            rsmq.clone()
                         )
                         .await;
                     };
 
                     let duration = _timer.stop_and_record();
-                    worker_execution_duration_counter.inc_by(duration);
+                    worker_execution_duration_counter
+                        .get(&language)
+                        .expect("no timer found").inc_by(duration);
 
                     if !*KEEP_JOB_DIR && !(is_flow && same_worker) {
                         let _ = tokio::fs::remove_dir_all(job_dir).await;
                     }
                 }
                 Ok(None) => {
-
-                    let _timer = worker_sleep_duration
-                        .start_timer();
+                    let _timer =  if *METRICS_ENABLED { Some(Instant::now()) } else { None };
                     tokio::time::sleep(Duration::from_millis(*SLEEP_QUEUE)).await;
-                    let duration = _timer.stop_and_record();
-                    worker_sleep_duration_counter.inc_by(duration);
+                    _timer.map(|timer| {
+                        let duration = timer.elapsed().as_secs_f64();
+                        worker_sleep_duration_counter.inc_by(duration);
+                    });
                 }
                 Err(err) => {
                     tracing::error!(worker = %worker_name, "run_worker: pulling jobs: {}", err);
@@ -729,11 +695,31 @@ pub async fn run_worker(
             break;
         }
     }
+
+    drop(job_completed_tx);
+
+    send_result.await.expect("send result failed");
+
 }
 
-async fn handle_job_error(
+pub async fn create_barrier_for_all_workers(num_workers: u32, sync_barrier: Arc<RwLock<Option<tokio::sync::Barrier>>>) {
+    tracing::debug!("acquiring write lock");
+    let mut barrier = sync_barrier.write().await;
+    *barrier = Some(tokio::sync::Barrier::new(num_workers as usize));
+    drop(barrier);
+    tracing::debug!("dropped write lock");
+    if let Some(b) = sync_barrier.read().await.as_ref() {
+        tracing::debug!("leader worker waiting for barrier");
+        b.wait().await;
+        tracing::debug!("leader worker done waiting for barrier");
+    };
+    let mut barrier = sync_barrier.write().await;
+    *barrier = None;
+    tracing::debug!("leader worker done waiting for");
+}
+pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     db: &Pool<Postgres>,
-    client: &windmill_api_client::Client,
+    client: &AuthedClient,
     job: QueuedJob,
     err: Error,
     metrics: Option<Metrics>,
@@ -741,12 +727,14 @@ async fn handle_job_error(
     same_worker_tx: Sender<Uuid>,
     worker_dir: &str,
     base_internal_url: &str,
+    rsmq: Option<R>,
 ) {
     let err = match err {
         Error::JsonErr(err) => err,
         _ => json!({"message": err.to_string(), "name": "InternalErr"}),
     };
 
+    let rsmq_2 = rsmq.clone();
     let update_job_future = || {
         add_completed_job_error(
             db,
@@ -754,15 +742,16 @@ async fn handle_job_error(
             format!("Unexpected error during job execution:\n{err}"),
             err.clone(),
             metrics.clone(),
+            rsmq_2,
         )
     };
 
-    if job.is_flow_step || job.job_kind == JobKind::FlowPreview || job.job_kind == JobKind::Flow {
-        let (flow, job_status_to_update) = if let Some(parent_job_id) = job.parent_job {
+    let update_job_future = if job.is_flow_step || job.job_kind == JobKind::FlowPreview || job.job_kind == JobKind::Flow {
+        let (flow, job_status_to_update, update_job_future) = if let Some(parent_job_id) = job.parent_job {
             let _ = update_job_future().await;
-            (parent_job_id, job.id)
+            (parent_job_id, job.id, None)
         } else {
-            (job.id, Uuid::nil())
+            (job.id, Uuid::nil(), Some(update_job_future))
         };
 
         let updated_flow = update_flow_status_after_job_completion(
@@ -778,7 +767,8 @@ async fn handle_job_error(
             same_worker_tx,
             worker_dir,
             None,
-            base_internal_url
+            base_internal_url,
+            rsmq.clone(),
         )
         .await;
 
@@ -794,15 +784,20 @@ async fn handle_job_error(
                             format!("Unexpected error during flow job error handling:\n{err}"),
                             json!({"message": err.to_string(), "name": "InternalErr"}),
                             metrics.clone(),
+                            rsmq,
                         )
                         .await;
                     }
                 }
             }
         }
-    }
-    if job.parent_job.is_none() {
-        let _ = update_job_future().await;
+
+        update_job_future
+    } else {
+        Some(update_job_future)
+    };
+    if let Some(f) = update_job_future {
+        let _ = f().await;
     }
     tracing::error!(job_id = %job.id, "error handling job: {err:#?} {} {} {}", job.id, job.workspace_id, job.created_by);
 }
@@ -825,21 +820,29 @@ async fn insert_initial_ping(
 }
 
 
-fn extract_error_value(log_lines: &str) -> serde_json::Value {
-    return json!({"message": log_lines.to_string().trim().to_string(), "name": "ExecutionErr"});
+fn extract_error_value(log_lines: &str, i: i32) -> serde_json::Value {
+    return json!({"message": format!("ExitCode: {i}, last log lines:\n{}", log_lines.to_string().trim().to_string()), "name": "ExecutionErr"});
+}
+
+#[derive(Debug, Clone)]
+struct JobCompleted {
+    job: QueuedJob,
+    result: serde_json::Value,
+    logs: String,
 }
 #[tracing::instrument(level = "trace", skip_all)]
-async fn handle_queued_job(
+async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     job: QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    client: &windmill_api_client::Client,
-    token: String,
+    client: &AuthedClientBackgroundTask,
     worker_name: &str,
     worker_dir: &str,
     job_dir: &str,
-    metrics: Metrics,
+    metrics: Option<Metrics>,
     same_worker_tx: Sender<Uuid>,
     base_internal_url: &str,
+    rsmq: Option<R>,
+    job_completed_tx: Sender<JobCompleted>,
 ) -> windmill_common::error::Result<()> {
     if job.canceled {
         return Err(Error::JsonErr(canceled_job_to_result(&job)))?;
@@ -854,16 +857,21 @@ async fn handle_queued_job(
             handle_flow(
                 &job,
                 db,
-                client,
+                &client.get_authed().await,
                 args,
                 same_worker_tx,
                 worker_dir,
-                base_internal_url
+                base_internal_url,
+                rsmq,
             )
             .await?;
         }
         _ => {
             let mut logs = "".to_string();
+            // println!("handle queue {:?}",  SystemTime::now());
+            if let Some(log_str) = &job.logs {
+                logs.push_str(&log_str);
+            }
 
             if job.is_flow_step {
                 update_flow_status_in_progress(
@@ -887,10 +895,10 @@ async fn handle_queued_job(
             logs.push_str(&format!("job {} on worker {}\n", &job.id, &worker_name));
             let result = match job.job_kind {
                 JobKind::Dependencies => {
-                    handle_dependency_job(&job, &mut logs, job_dir, db, worker_name).await
+                    handle_dependency_job(&job, &mut logs, job_dir, db, worker_name, worker_dir).await
                 }
                 JobKind::FlowDependencies => {
-                    handle_flow_dependency_job(&job, &mut logs, job_dir, db, worker_name)
+                    handle_flow_dependency_job(&job, &mut logs, job_dir, db, worker_name, worker_dir)
                         .await
                         .map(|()| Value::Null)
                 }
@@ -907,7 +915,6 @@ async fn handle_queued_job(
                         &job,
                         db,
                         client,
-                        token,
                         job_dir,
                         worker_dir,
                         &mut logs,
@@ -918,10 +925,16 @@ async fn handle_queued_job(
                 }
             };
 
+            //it's a test job, no need to update the db
+            if job.workspace_id == "" {
+                return Ok(());
+            }
+            let client = &client.get_authed().await;
             match result {
                 Ok(r) => {
-                    add_completed_job(db, &job, true, false, r.clone(), logs).await?;
+                    // println!("bef completed job{:?}",  SystemTime::now());
                     if job.is_flow_step {
+                        add_completed_job(db, &job, true, false, r.clone(), logs, rsmq.clone()).await?;
                         if let Some(parent_job) = job.parent_job {
                             update_flow_status_after_job_completion(
                                 db,
@@ -931,20 +944,25 @@ async fn handle_queued_job(
                                 &job.workspace_id,
                                 true,
                                 r,
-                                Some(metrics.clone()),
+                                metrics.clone(),
                                 false,
                                 same_worker_tx.clone(),
                                 worker_dir,
                                 None,
-                                base_internal_url
+                                base_internal_url,
+                                rsmq.clone()
                             )
                             .await?;
                         }
+                    } else {
+                        // in the happy path and if job not a flow step, we can delegate updating the completed job in the background
+                        job_completed_tx.send(JobCompleted{job,result:r,logs:logs,}).await.expect("send job completed");
+                        
                     }
                 }
                 Err(e) => {
                     let error_value = match e {
-                        Error::ExitStatus(_) => {
+                        Error::ExitStatus(i) => {
                             let res = read_result(job_dir).await.ok();
 
                             if res.is_some() && res.clone().unwrap().is_object() {
@@ -962,7 +980,7 @@ async fn handle_queued_job(
                                     .last()
                                     .unwrap_or(&logs);
 
-                                extract_error_value(log_lines)
+                                extract_error_value(log_lines, i)
                             }
                         }
                         err @ _ => {
@@ -971,7 +989,7 @@ async fn handle_queued_job(
                     };
 
                     let result =
-                        add_completed_job_error(db, &job, logs, error_value, Some(metrics.clone()))
+                        add_completed_job_error(db, &job, logs, error_value, metrics.clone(), rsmq.clone())
                             .await?;
                     if job.is_flow_step {
                         if let Some(parent_job) = job.parent_job {
@@ -983,12 +1001,13 @@ async fn handle_queued_job(
                                 &job.workspace_id,
                                 false,
                                 result,
-                                Some(metrics),
+                                metrics,
                                 false,
                                 same_worker_tx,
                                 worker_dir,
                                 None,
-                                base_internal_url
+                                base_internal_url,
+                                rsmq
                             )
                             .await?;
                         }
@@ -1001,7 +1020,7 @@ async fn handle_queued_job(
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
-async fn write_file(dir: &str, path: &str, content: &str) -> error::Result<File> {
+pub async fn write_file(dir: &str, path: &str, content: &str) -> error::Result<File> {
     let path = format!("{}/{}", dir, path);
     let mut file = File::create(&path).await?;
     file.write_all(content.as_bytes()).await?;
@@ -1012,14 +1031,14 @@ async fn write_file(dir: &str, path: &str, content: &str) -> error::Result<File>
 #[async_recursion]
 async fn transform_json_value(
     name: &str,
-    client: &windmill_api_client::Client,
+    client: &AuthedClient,
     workspace: &str,
     v: Value,
 ) -> error::Result<Value> {
     match v {
         Value::String(y) if y.starts_with("$var:") => {
             let path = y.strip_prefix("$var:").unwrap();
-            let v = client
+            let v = client.get_client()
                 .get_variable(workspace, path, Some(true))
                 .await
                 .map_err(|_| Error::NotFound(format!("Variable {path} not found for `{name}`")))
@@ -1035,7 +1054,7 @@ async fn transform_json_value(
                     "Argument `{name}` is an invalid resource path: {path}",
                 )));
             }
-            let v = client
+            let v = client.get_client()
                 .get_resource_value(workspace, path)
                 .await
                 .map_err(|_| Error::NotFound(format!("Resource {path} not found for `{name}`")))?
@@ -1059,8 +1078,7 @@ async fn transform_json_value(
 async fn handle_code_execution_job(
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    client: &windmill_api_client::Client,
-    token: String,
+    client: &AuthedClientBackgroundTask,
     job_dir: &str,
     worker_dir: &str,
     logs: &mut String,
@@ -1103,7 +1121,7 @@ async fn handle_code_execution_job(
         job.id
     );
 
-    let shared_mount = if job.same_worker {
+    let shared_mount = if job.same_worker && job.language != Some(ScriptLang::Deno) {
         format!(
             r#"
 mount {{
@@ -1117,6 +1135,8 @@ mount {{
     } else {
         "".to_string()
     };
+
+    // println!("handle lang job {:?}",  SystemTime::now());
 
     let result: error::Result<serde_json::Value> = match language {
         None => {
@@ -1134,7 +1154,6 @@ mount {{
                 logs,
                 db,
                 client,
-                token,
                 &inner_content,
                 &shared_mount,
                 base_internal_url,
@@ -1147,11 +1166,8 @@ mount {{
                 job,
                 db,
                 client,
-                token,
                 job_dir,
                 &inner_content,
-                &shared_mount,
-                requirements_o,
                 base_internal_url,
                 worker_name
             )
@@ -1163,7 +1179,6 @@ mount {{
                 job,
                 db,
                 client,
-                token,
                 &inner_content,
                 job_dir,
                 requirements_o,
@@ -1178,7 +1193,7 @@ mount {{
                 logs,
                 job,
                 db,
-                token,
+                client,
                 &inner_content,
                 job_dir,
                 &shared_mount,
@@ -1197,204 +1212,18 @@ mount {{
         &lang_str,
         job.id
     );
+    // println!("handled job: {:?}",  SystemTime::now());
+
     result
 }
 
-#[tracing::instrument(level = "trace", skip_all)]
-async fn handle_go_job(
-    logs: &mut String,
-    job: &QueuedJob,
-    db: &sqlx::Pool<sqlx::Postgres>,
-    client: &windmill_api_client::Client,
-    token: String,
-    inner_content: &str,
-    job_dir: &str,
-    requirements_o: Option<String>,
-    shared_mount: &str,
-    base_internal_url: &str,
-    worker_name: &str,
-) -> Result<serde_json::Value, Error> {
-    //go does not like executing modules at temp root
-    let job_dir = &format!("{job_dir}/go");
-    let skip_go_mod = if let Some(requirements) = requirements_o {
-        gen_go_mymod(inner_content, job_dir).await?;
-
-        // TODO: remove after some time in favor of just requirements
-        // this is just migration code from a time we also stored go.sum
-        let md = requirements
-            .split_once(GO_REQ_SPLITTER)
-            .map(|x| x.0)
-            .unwrap_or(&requirements);
-        write_file(job_dir, "go.mod", &md).await?;
-        true
-    } else {
-        false
-    };
-    logs.push_str("\n\n--- GO DEPENDENCIES SETUP ---\n");
-    set_logs(logs, &job.id, db).await;
-
-    install_go_dependencies(
-        &job.id,
-        inner_content,
-        logs,
-        job_dir,
-        db,
-        true,
-        skip_go_mod,
-        worker_name
-    )
-    .await?;
-
-    logs.push_str("\n\n--- GO CODE EXECUTION ---\n");
-    set_logs(logs, &job.id, db).await;
-    create_args_and_out_file(client, job, job_dir).await?;
-    {
-        let sig = windmill_parser_go::parse_go_sig(&inner_content)?;
-        drop(inner_content);
-
-        const WRAPPER_CONTENT: &str = r#"package main
-
-import (
-    "encoding/json"
-    "os"
-    "fmt"
-    "mymod/inner"
-)
-
-func main() {{
-
-    dat, err := os.ReadFile("args.json")
-    if err != nil {{
-        fmt.Println(err)
-        os.Exit(1)
-    }}
-
-    var req inner.Req
-
-    if err := json.Unmarshal(dat, &req); err != nil {{
-        fmt.Println(err)
-        os.Exit(1)
-    }}
-
-    res, err := inner.Run(req)
-    if err != nil {{
-        fmt.Println(err)
-        os.Exit(1)
-    }}
-    res_json, err := json.Marshal(res)
-    if err != nil {{
-        fmt.Println(err)
-        os.Exit(1)
-    }}
-    f, err := os.OpenFile("result.json", os.O_APPEND|os.O_WRONLY, os.ModeAppend)
-    if err != nil {{
-        fmt.Println(err)
-        os.Exit(1)
-    }}
-    _, err = f.WriteString(string(res_json))
-    if err != nil {{
-        fmt.Println(err)
-        os.Exit(1)
-    }}
-}}"#;
-
-        write_file(job_dir, "main.go", WRAPPER_CONTENT).await?;
-
-        {
-            let spread = &sig
-                .args
-                .clone()
-                .into_iter()
-                .map(|x| format!("req.{}", capitalize(&x.name)))
-                .join(", ");
-            let req_body = &sig
-                .args
-                .into_iter()
-                .map(|x| {
-                    format!(
-                        "{} {} `json:\"{}\"`",
-                        capitalize(&x.name),
-                        windmill_parser_go::otyp_to_string(x.otyp),
-                        x.name
-                    )
-                })
-                .join("\n");
-            let runner_content: String = format!(
-                r#"package inner
-type Req struct {{
-    {req_body}
-}}
-
-func Run(req Req) (interface{{}}, error){{
-    return main({spread})
-}}
-
-"#,
-            );
-            write_file(&format!("{job_dir}/inner"), "runner.go", &runner_content).await?;
-        }
-    }
-    let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
-    reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
-
-    let child = if !*DISABLE_NSJAIL {
-        let _ = write_file(
-            job_dir,
-            "run.config.proto",
-            &NSJAIL_CONFIG_RUN_GO_CONTENT
-                .replace("{JOB_DIR}", job_dir)
-                .replace("{CACHE_DIR}", GO_CACHE_DIR)
-                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                .replace("{SHARED_MOUNT}", shared_mount),
-        )
-        .await?;
-        let build_go = Command::new(GO_PATH.as_str())
-            .current_dir(job_dir)
-            .env_clear()
-            .env("PATH", PATH_ENV.as_str())
-            .env("BASE_INTERNAL_URL", base_internal_url)
-            .env("GOPATH", GO_CACHE_DIR)
-            .env("HOME", HOME_ENV.as_str())
-            .args(vec!["build", "main.go"])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
-        handle_child(&job.id, db, logs,  build_go, false, worker_name).await?;
-
-        Command::new(NSJAIL_PATH.as_str())
-            .current_dir(job_dir)
-            .env_clear()
-            .envs(reserved_variables)
-            .env("PATH", PATH_ENV.as_str())
-            .env("BASE_INTERNAL_URL", base_internal_url)
-            .args(vec!["--config", "run.config.proto", "--", "/tmp/go/main"])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?
-    } else {
-        Command::new(GO_PATH.as_str())
-            .current_dir(job_dir)
-            .env_clear()
-            .envs(reserved_variables)
-            .env("PATH", PATH_ENV.as_str())
-            .env("BASE_INTERNAL_URL", base_internal_url)
-            .env("GOPATH", GO_CACHE_DIR)
-            .env("HOME", HOME_ENV.as_str())
-            .args(vec!["run", "main.go"])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?
-    };
-    handle_child(&job.id, db, logs, child, !*DISABLE_NSJAIL, worker_name).await?;
-    read_result(job_dir).await
-}
 
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_bash_job(
     logs: &mut String,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    token: String,
+    client: &AuthedClientBackgroundTask,
     content: &str,
     job_dir: &str,
     shared_mount: &str,
@@ -1403,8 +1232,8 @@ async fn handle_bash_job(
 ) -> Result<serde_json::Value, Error> {
     logs.push_str("\n\n--- BASH CODE EXECUTION ---\n");
     set_logs(logs, &job.id, db).await;
-    write_file(job_dir, "main.sh", content).await?;
-
+    write_file(job_dir, "main.sh", &format!("{content}\nsleep 0.02")).await?;
+    let token = client.get_token().await;
     let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
@@ -1436,7 +1265,7 @@ async fn handle_bash_job(
                 .replace("{SHARED_MOUNT}", shared_mount),
         )
         .await?;
-        let mut cmd_args = vec!["--config", "run.config.proto", "--", "/bin/sh", "main.sh"];
+        let mut cmd_args = vec!["--config", "run.config.proto", "--", "/bin/bash", "main.sh"];
         cmd_args.extend(args);
         Command::new(NSJAIL_PATH.as_str())
             .current_dir(job_dir)
@@ -1451,7 +1280,7 @@ async fn handle_bash_job(
     } else {
         let mut cmd_args = vec!["main.sh"];
         cmd_args.extend(&args);
-        Command::new("/bin/sh")
+        Command::new("/bin/bash")
             .current_dir(job_dir)
             .env_clear()
             .envs(reserved_variables)
@@ -1463,21 +1292,13 @@ async fn handle_bash_job(
             .stderr(Stdio::piped())
             .spawn()?
     };
-    handle_child(&job.id, db, logs,  child, !*DISABLE_NSJAIL, worker_name).await?;
+    handle_child(&job.id, db, logs,  child, !*DISABLE_NSJAIL, worker_name, &job.workspace_id, "bash run").await?;
     //for now bash jobs have an empty result object
     Ok(serde_json::json!(logs
         .lines()
         .last()
         .map(|x| x.to_string())
         .unwrap_or_else(String::new)))
-}
-
-fn capitalize(s: &str) -> String {
-    let mut c = s.chars();
-    match c.next() {
-        None => String::new(),
-        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-    }
 }
 
 fn get_common_deno_proc_envs(token: &str, base_internal_url: &str) -> HashMap<String, String> {
@@ -1505,117 +1326,115 @@ async fn handle_deno_job(
     logs: &mut String,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    client: &windmill_api_client::Client,
-    token: String,
+    client: &AuthedClientBackgroundTask,
     job_dir: &str,
     inner_content: &String,
-    shared_mount: &str,
-    lockfile: Option<String>,
     base_internal_url: &str,
     worker_name: &str
 ) -> error::Result<serde_json::Value> {
+
+    // let mut start = Instant::now();
     logs.push_str("\n\n--- DENO CODE EXECUTION ---\n");
-    set_logs(logs, &job.id, db).await;
-    let lockfile = lockfile.and_then(|e| if e.starts_with("{") { Some(e) } else { None });
-    let _ = write_file(
-        job_dir,
-        "lock.json",
-        &lockfile.clone().unwrap_or("".to_string()),
-    )
-    .await?;
-    // TODO: Separately cache dependencies here using `deno cache --reload --lock=lock.json src/deps.ts` (https://deno.land/manual@v1.27.0/linking_to_external_code/integrity_checking)
-    // Then require caching below using --cached-only. This makes it so we require zero network interaction when running the process below
 
-    let _ = write_file(job_dir, "inner.ts", inner_content).await?;
-    let sig = trace_span!("parse_deno_signature")
-        .in_scope(|| windmill_parser_ts::parse_deno_signature(inner_content))?;
-    create_args_and_out_file(client, job, job_dir).await?;
-    let spread = sig.args.into_iter().map(|x| x.name).join(",");
-    let wrapper_content: String = format!(
-        r#"
-import {{ main }} from "./inner.ts";
+    let logs_to_set = logs.clone();
+    let id = job.id.clone();
+    let db2 = db.clone();
 
-const args = await Deno.readTextFile("args.json")
-    .then(JSON.parse)
-    .then(({{ {spread} }}) => [ {spread} ])
+    let set_logs_f = async {
+        set_logs(&logs_to_set, &id, &db2).await;
+        Ok(()) as error::Result<()>
+    };
+    
+    let write_main_f = write_file(job_dir, "main.ts", inner_content);
 
-async function run() {{
-    let res: any = await main(...args);
-    const res_json = JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value);
-    await Deno.writeTextFile("result.json", res_json);
-    Deno.exit(0);
-}}
-run().catch(async (e) => {{
-    await Deno.writeTextFile("result.json", JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
-    Deno.exit(1);
-}});
-"#,
-    );
-    write_file(job_dir, "main.ts", &wrapper_content).await?;
-    let w_id = job.workspace_id.clone();
-    let import_map = format!(
-        r#"{{
-        "imports": {{
-          "/": "{base_internal_url}/api/w/{w_id}/scripts/raw/p/",
-          "./": "./"
-        }}
-      }}"#
-    );
-    write_file(job_dir, "import_map.json", &import_map).await?;
-    let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
-    reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
+    let write_wrapper_f = async {
+        // let mut start = Instant::now();
+        let spread =  windmill_parser_ts::parse_deno_signature(inner_content, true)?.args.into_iter().map(|x| x.name).join(",");
+        // logs.push_str(format!("infer args: {:?}\n", start.elapsed().as_micros()).as_str());
+        let wrapper_content: String = format!(
+            r#"
+    import {{ main }} from "./main.ts";
+
+    const args = await Deno.readTextFile("args.json")
+        .then(JSON.parse)
+        .then(({{ {spread} }}) => [ {spread} ])
+
+    async function run() {{
+        let res: any = await main(...args);
+        const res_json = JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value);
+        await Deno.writeTextFile("result.json", res_json);
+        Deno.exit(0);
+    }}
+    run().catch(async (e) => {{
+        await Deno.writeTextFile("result.json", JSON.stringify({{ message: e.message, name: e.name, stack: e.stack }}));
+        Deno.exit(1);
+    }});
+    "#,
+        );
+        write_file(job_dir, "wrapper.ts", &wrapper_content).await?;
+        Ok(()) as error::Result<()>
+    };
+
+    let write_import_map_f = async {
+        let w_id = job.workspace_id.clone();
+        let script_path_split = job.script_path().split("/");
+        let script_path_parts_len = script_path_split.clone().count();
+        let mut relative_mounts = "".to_string();
+        for c in 0..script_path_parts_len {
+            relative_mounts += ",\n          ";
+            relative_mounts += &format!("\"./{}\": \"{base_internal_url}/api/w/{w_id}/scripts/raw/p/{}{}\"",
+                (0..c).map(|_| "../").join(""),
+                &script_path_split.clone().take(script_path_parts_len - c - 1).join("/"),
+                if c == script_path_parts_len - 1 { "" } else { "/" },
+            );
+        }
+        let import_map = format!(
+            r#"{{
+            "imports": {{
+              "{base_internal_url}/api/w/{w_id}/scripts/raw/p/": "{base_internal_url}/api/w/{w_id}/scripts/raw/p/",
+              "{base_internal_url}": "{base_internal_url}/api/w/{w_id}/scripts/raw/p/",
+              "/": "{base_internal_url}/api/w/{w_id}/scripts/raw/p/",
+              "./wrapper.ts": "./wrapper.ts",
+              "./main.ts": "./main.ts"{relative_mounts}
+            }}
+          }}"#,
+        );
+        write_file(job_dir, "import_map.json", &import_map).await?;
+        Ok(()) as error::Result<()>
+    };
+
+    let reserved_variables_args_out_f = async {
+        let client = client.get_authed().await;
+        let args_and_out_f = async {
+            create_args_and_out_file(&client, job, job_dir).await?;
+            Ok(()) as Result<()>
+        };
+        let reserved_variables_f = async {
+            let mut vars = get_reserved_variables(job, &client.token, db).await?;
+            vars.insert("RUST_LOG".to_string(), "info".to_string());
+            Ok(vars) as Result<HashMap<String, String>>
+        };
+        let (_, reserved_variables) = tokio::try_join!(args_and_out_f, reserved_variables_f)?;
+        Ok((reserved_variables, client.token)) as error::Result<(HashMap<String, String>, String)>
+    };
+
+    let (_, (reserved_variables, token), _, _, _) = tokio::try_join!(
+        set_logs_f,
+        reserved_variables_args_out_f,
+        write_main_f,
+        write_wrapper_f,
+        write_import_map_f)?;
 
     let common_deno_proc_envs = get_common_deno_proc_envs(&token, base_internal_url);
+
     //do not cache local dependencies
     let reload = format!("--reload={base_internal_url}");
     let child = async {
-        Ok(if !*DISABLE_NSJAIL {
-            let _ = write_file(
-                job_dir,
-                "run.config.proto",
-                &NSJAIL_CONFIG_RUN_DENO_CONTENT
-                    .replace("{JOB_DIR}", job_dir)
-                    .replace("{CACHE_DIR}", DENO_CACHE_DIR)
-                    .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                    .replace("{SHARED_MOUNT}", shared_mount),
-            )
-            .await?;
-            let mut args = Vec::new();
-            args.push("--config");
-            args.push("run.config.proto");
-            args.push("--");
-            args.push(DENO_PATH.as_str());
-            args.push("run");
-            if lockfile.is_some() {
-                args.push("--lock=/tmp/lock.json");
-            }
-            args.push("--import-map");
-            args.push("/tmp/import_map.json");
-            args.push(&reload);
-            args.push("--unstable");
-            if let Some(deno_flags) = DENO_FLAGS.as_ref() {
-                for flag in deno_flags {
-                    args.push(flag);
-                }
-            } else {
-                args.push("-A");
-            }
-            args.push("/tmp/main.ts");
-
-            Command::new(NSJAIL_PATH.as_str())
-                .current_dir(job_dir)
-                .env_clear()
-                .envs(reserved_variables)
-                .envs(common_deno_proc_envs)
-                .args(args)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()?
-        } else {
-            let mut args = Vec::new();
-            let script_path = format!("{job_dir}/main.ts");
+            let script_path = format!("{job_dir}/wrapper.ts");
             let import_map_path = format!("{job_dir}/import_map.json");
+            let mut args = Vec::with_capacity(12);
             args.push("run");
+            args.push("--no-check");
             args.push("--import-map");
             args.push(&import_map_path);
             args.push(&reload);
@@ -1624,6 +1443,11 @@ run().catch(async (e) => {{
                 for flag in deno_flags {
                     args.push(flag);
                 }
+            } else if !*DISABLE_NSJAIL {
+                args.push("--allow-net");
+                args.push("--allow-read=./");
+                args.push("--allow-write=./");
+                args.push("--allow-env");
             } else {
                 args.push("-A");
             }
@@ -1637,18 +1461,22 @@ run().catch(async (e) => {{
                 .args(args)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
-                .spawn()?
-        }) as error::Result<_>
+                .spawn()
     }
-    .instrument(trace_span!("create_deno_jail"))
     .await?;
-    handle_child(&job.id, db, logs, child, !*DISABLE_NSJAIL, worker_name).await?;
+    // logs.push_str(format!("prepare: {:?}\n", start.elapsed().as_micros()).as_str());
+    // start = Instant::now();
+    handle_child(&job.id, db, logs, child, false, worker_name, &job.workspace_id, "deno run").await?;
+    // logs.push_str(format!("execute: {:?}\n", start.elapsed().as_millis()).as_str());
+    if let Err(e) = tokio::fs::remove_dir_all(format!("{DENO_CACHE_DIR}/gen/file/{job_dir}")).await {
+        tracing::error!("failed to remove deno gen tmp cache dir: {}", e);
+    }
     read_result(job_dir).await
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
-async fn create_args_and_out_file(
-    client: &windmill_api_client::Client,
+pub async fn create_args_and_out_file(
+    client: &AuthedClient,
     job: &QueuedJob,
     job_dir: &str,
 ) -> Result<(), Error> {
@@ -1663,277 +1491,8 @@ async fn create_args_and_out_file(
     Ok(())
 }
 
-lazy_static! {
-    static ref RELATIVE_IMPORT_REGEX: Regex = Regex::new(r#"(import|from)\s(u|f)\."#).unwrap();
-}
 
-#[tracing::instrument(level = "trace", skip_all)]
-async fn handle_python_job(
-    requirements_o: Option<String>,
-    job_dir: &str,
-    worker_dir: &str,
-    worker_name: &str,
-    job: &QueuedJob,
-    logs: &mut String,
-    db: &sqlx::Pool<sqlx::Postgres>,
-    client: &windmill_api_client::Client,
-    token: String,
-    inner_content: &String,
-    shared_mount: &str,
-    base_internal_url: &str,
-) -> error::Result<serde_json::Value> {
-    create_dependencies_dir(job_dir).await;
 
-    let mut additional_python_paths: Vec<String> =
-        ADDITIONAL_PYTHON_PATHS.to_owned().unwrap_or_else(|| vec![]);
-
-    let requirements = match requirements_o {
-        Some(r) => r,
-        None => {
-            let requirements = windmill_parser_py::parse_python_imports(&inner_content)?.join("\n");
-            if requirements.is_empty() {
-                "".to_string()
-            } else {
-                pip_compile(&job.id, &requirements, logs, job_dir, db, worker_name)
-                    .await
-                    .map_err(|e| {
-                        Error::ExecutionErr(format!("pip compile failed: {}", e.to_string()))
-                    })?
-            }
-        }
-    };
-
-    if requirements.len() > 0 {
-        if !*DISABLE_NSJAIL {
-            let _ = write_file(
-                job_dir,
-                "download.config.proto",
-                &NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT
-                    .replace("{WORKER_DIR}", &worker_dir)
-                    .replace("{CACHE_DIR}", PIP_CACHE_DIR)
-                    .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
-            )
-            .await?;
-        }
-
-        additional_python_paths = handle_python_reqs(
-            requirements
-                .split("\n")
-                .filter(|x| !x.starts_with("--"))
-                .collect(),
-            job,
-            logs,
-            db,
-            worker_name,
-            job_dir,
-        )
-        .await?;
-    }
-    logs.push_str("\n\n--- PYTHON CODE EXECUTION ---\n");
-
-    set_logs(logs, &job.id, db).await;
-
-    let relative_imports = RELATIVE_IMPORT_REGEX.is_match(&inner_content);
-
-    let _ = write_file(job_dir, "inner.py", inner_content).await?;
-    if relative_imports {
-        let _ = write_file(job_dir, "loader.py", RELATIVE_PYTHON_LOADER).await?;
-    }
-
-    let sig = windmill_parser_py::parse_python_signature(inner_content)?;
-    let transforms = sig
-        .args
-        .iter()
-        .map(|x| match x.typ {
-            windmill_parser::Typ::Bytes => {
-                format!(
-                    "if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    \
-                                     kwargs[\"{}\"] = base64.b64decode(kwargs[\"{}\"])\n",
-                    x.name, x.name, x.name, x.name
-                )
-            }
-            windmill_parser::Typ::Datetime => {
-                format!(
-                    "if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    \
-                                     kwargs[\"{}\"] = datetime.strptime(kwargs[\"{}\"], \
-                                     '%Y-%m-%dT%H:%M')\n",
-                    x.name, x.name, x.name, x.name
-                )
-            }
-            _ => "".to_string(),
-        })
-        .collect::<Vec<String>>()
-        .join("");
-    create_args_and_out_file(client, job, job_dir).await?;
-
-    let import_loader = if relative_imports {
-        "import loader"
-    } else {
-        ""
-    };
-    let import_base64 = if sig
-        .args
-        .iter()
-        .any(|x| x.typ == windmill_parser::Typ::Bytes)
-    {
-        "import base64"
-    } else {
-        ""
-    };
-    let import_datetime = if sig
-        .args
-        .iter()
-        .any(|x| x.typ == windmill_parser::Typ::Datetime)
-    {
-        "from datetime import datetime"
-    } else {
-        ""
-    };
-    let spread = if sig.star_kwargs {
-        "args = kwargs".to_string()
-    } else {
-        sig.args
-            .into_iter()
-            .map(|x| format!("args[\"{}\"] = kwargs.get(\"{}\")", x.name, x.name))
-            .join("\n")
-    };
-
-    let wrapper_content: String = format!(
-        r#"
-import json
-{import_loader}
-{import_base64}
-{import_datetime}
-import traceback
-import sys
-
-inner_script = __import__("inner")
-
-with open("args.json") as f:
-    kwargs = json.load(f, strict=False)
-args = {{}}
-{spread}
-{transforms}
-for k, v in list(args.items()):
-    if v == '<function call>':
-        del args[k]
-
-try:
-    res = inner_script.main(**args)
-    if type(res).__name__ == 'DataFrame':
-        res = res.values.tolist()
-    res_json = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
-    with open("result.json", 'w') as f:
-        f.write(res_json)
-except Exception as e:
-    exc_type, exc_value, exc_traceback = sys.exc_info()
-    tb = traceback.format_tb(exc_traceback)
-    with open("result.json", 'w') as f:
-        err_json = json.dumps({{ "message": str(e), "name": e.__class__.__name__, "stack": '\n'.join(tb[1:])  }}, separators=(',', ':'), default=str).replace('\n', '')
-        f.write(err_json)
-        sys.exit(1)
-"#,
-    );
-    write_file(job_dir, "main.py", &wrapper_content).await?;
-
-    let mut reserved_variables = get_reserved_variables(job, &token, db).await?;
-    let additional_python_paths_folders = additional_python_paths.iter().join(":");
-    if !*DISABLE_NSJAIL {
-        let shared_deps = additional_python_paths
-            .into_iter()
-            .map(|pp| {
-                format!(
-                    r#"
-mount {{
-    src: "{pp}"
-    dst: "{pp}"
-    is_bind: true
-    rw: false
-}}
-        "#
-                )
-            })
-            .join("\n");
-        let _ = write_file(
-            job_dir,
-            "run.config.proto",
-            &NSJAIL_CONFIG_RUN_PYTHON3_CONTENT
-                .replace("{JOB_DIR}", job_dir)
-                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                .replace("{SHARED_MOUNT}", shared_mount)
-                .replace("{SHARED_DEPENDENCIES}", shared_deps.as_str())
-                .replace(
-                    "{ADDITIONAL_PYTHON_PATHS}",
-                    additional_python_paths_folders.as_str(),
-                ),
-        )
-        .await?;
-    } else {
-        reserved_variables.insert("PYTHONPATH".to_string(), additional_python_paths_folders);
-    }
-
-    tracing::info!(
-        worker_name = %worker_name,
-        job_id = %job.id,
-        workspace_id = %job.workspace_id,
-        "started python code execution {}",
-        job.id
-    );
-    let child = if !*DISABLE_NSJAIL {
-        Command::new(NSJAIL_PATH.as_str())
-            .current_dir(job_dir)
-            .env_clear()
-            // inject PYTHONPATH here - for some reason I had to do it in nsjail conf
-            .envs(reserved_variables)
-            .env("PATH", PATH_ENV.as_str())
-            .env("BASE_INTERNAL_URL", base_internal_url)
-            .args(vec![
-                "--config",
-                "run.config.proto",
-                "--",
-                PYTHON_PATH.as_str(),
-                "-u",
-                "/tmp/main.py",
-            ])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?
-    } else {
-        Command::new(PYTHON_PATH.as_str())
-            .current_dir(job_dir)
-            .env_clear()
-            .envs(reserved_variables)
-            .env("PATH", PATH_ENV.as_str())
-            .env("BASE_INTERNAL_URL", base_internal_url)
-            .args(vec!["-u", "main.py"])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?
-    };
-
-    handle_child(&job.id, db, logs, child, !*DISABLE_NSJAIL, worker_name).await?;
-    read_result(job_dir).await
-}
-
-async fn create_dependencies_dir(job_dir: &str) {
-    DirBuilder::new()
-        .recursive(true)
-        .create(&format!("{job_dir}/dependencies"))
-        .await
-        .expect("could not create dependencies dir");
-}
-
-async fn read_result(job_dir: &str) -> error::Result<serde_json::Value> {
-    let mut file = File::open(format!("{job_dir}/result.json")).await?;
-    let mut content = "".to_string();
-    file.read_to_string(&mut content).await?;
-    if *CLOUD_HOSTED && content.len() > MAX_RESULT_SIZE {
-        return Err(Error::ExecutionErr("Result is too large for the cloud app (limit 2MB). 
-        If using this script as part of the flow, use the shared folder to pass heavy data between steps.".to_owned()));
-    }
-    serde_json::from_str(&content)
-        .map_err(|e| Error::ExecutionErr(format!("Error parsing result: {e}")))
-}
 
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_dependency_job(
@@ -1942,6 +1501,7 @@ async fn handle_dependency_job(
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
+    worker_dir: &str,
 ) -> error::Result<serde_json::Value> {
     let content = capture_dependency_job(
         &job.id,
@@ -1957,7 +1517,9 @@ async fn handle_dependency_job(
         logs,
         job_dir,
         db,
-        worker_name
+        worker_name,
+        &job.workspace_id,
+        worker_dir,
     )
     .await;
     match content {
@@ -1993,6 +1555,7 @@ async fn handle_flow_dependency_job(
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
+    worker_dir: &str,
 ) -> error::Result<()> {
     let path = job.script_path.clone().ok_or_else(|| {
         error::Error::InternalErr(
@@ -2023,7 +1586,9 @@ async fn handle_flow_dependency_job(
             logs,
             job_dir,
             db,
-            worker_name
+            worker_name,
+            &job.workspace_id,
+            worker_dir,
         )
         .await;
         match new_lock {
@@ -2086,52 +1651,6 @@ async fn handle_flow_dependency_job(
     Ok(())
 }
 
-// #[cfg(not(feature = "deno-lock"))]
-// async fn generate_deno_lock(
-//     _job_id: &Uuid,
-//     _code: &str,
-//     _logs: &mut String,
-//     _job_dir: &str,
-//     _db: &sqlx::Pool<sqlx::Postgres>,
-//     _timeout: i32,
-// ) -> error::Result<String> {
-//     Ok(String::new())
-// }
-
-// #[cfg(feature = "deno-lock")]
-// async fn generate_deno_lock(
-//     job_id: &Uuid,
-//     code: &str,
-//     logs: &mut String,
-//     job_dir: &str,
-//     db: &sqlx::Pool<sqlx::Postgres>,
-//     timeout: i32,
-// ) -> error::Result<String> {
-//     let _ = write_file(job_dir, "main.ts", code).await?;
-
-//     let child = Command::new(deno_path)
-//         .current_dir(job_dir)
-//         .args(vec![
-//             "cache",
-//             "--unstable",
-//             "--lock=lock.json",
-//             "--lock-write",
-//             "main.ts",
-//         ])
-//         .env("NO_COLOR", "1")
-//         .stdout(Stdio::piped())
-//         .stderr(Stdio::piped())
-//         .spawn()?;
-
-//     handle_child(job_id, db, logs, timeout, child).await?;
-
-//     let path_lock = format!("{job_dir}/lock.json");
-//     let mut file = File::open(path_lock).await?;
-//     let mut req_content = "".to_string();
-//     file.read_to_string(&mut req_content).await?;
-//     Ok(req_content)
-// }
-
 async fn capture_dependency_job(
     job_id: &Uuid,
     job_language: &ScriptLang,
@@ -2139,12 +1658,32 @@ async fn capture_dependency_job(
     logs: &mut String,
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
-    worker_name: &str
+    worker_name: &str,
+    w_id: &str,
+    worker_dir: &str,
 ) -> error::Result<String> {
     match job_language {
         ScriptLang::Python3 => {
             create_dependencies_dir(job_dir).await;
-            pip_compile(job_id, job_raw_code, logs, job_dir, db, worker_name).await
+            let req = pip_compile(job_id, job_raw_code, logs, job_dir, db, worker_name, w_id).await;
+            // install the dependencies to pre-fill the cache
+            if let Ok(req) = req.as_ref() {
+                handle_python_reqs(
+                    req
+                        .split("\n")
+                        .filter(|x| !x.starts_with("--"))
+                        .collect(),
+                    job_id,
+                    w_id,
+                    logs,
+                    db,
+                    worker_name,
+                    job_dir,
+                    worker_dir,
+                )
+                .await?;
+            }
+            req
         }
         ScriptLang::Go => {
             install_go_dependencies(
@@ -2155,7 +1694,9 @@ async fn capture_dependency_job(
                 db,
                 false,
                 false,
-                worker_name
+                false,
+                worker_name,
+                w_id
             )
             .await
         }
@@ -2167,124 +1708,9 @@ async fn capture_dependency_job(
     }
 }
 
-async fn pip_compile(
-    job_id: &Uuid,
-    requirements: &str,
-    logs: &mut String,
-    job_dir: &str,
-    db: &Pool<Postgres>,
-    worker_name: &str
-) -> error::Result<String> {
-    logs.push_str(&format!("\nresolving dependencies..."));
-    set_logs(logs, job_id, db).await;
-    logs.push_str(&format!("\ncontent of requirements:\n{}", requirements));
-    let file = "requirements.in";
-    let requirements = if let Some(pip_local_dependencies) = PIP_LOCAL_DEPENDENCIES.as_ref() {
-        let deps = pip_local_dependencies.clone();
-        requirements
-            .lines()
-            .filter(|s| !deps.contains(&s.to_string()))
-            .join("\n")
-    } else {
-        requirements.to_string()
-    };
-    write_file(job_dir, file, &requirements).await?;
-
-    let mut args = vec!["-q", "--no-header", file, "--resolver=backtracking"];
-    if let Some(url) = PIP_EXTRA_INDEX_URL.as_ref() {
-        args.extend(["--extra-index-url", url]);
-    }
-    if let Some(url) = PIP_INDEX_URL.as_ref() {
-        args.extend(["--index-url", url]);
-    }
-    if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
-        args.extend(["--trusted-host", host]);
-    }
-    let child = Command::new("pip-compile")
-        .current_dir(job_dir)
-        .args(args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
-    handle_child(job_id, db, logs,  child, false, worker_name)
-        .await
-        .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
-    let path_lock = format!("{job_dir}/requirements.txt");
-    let mut file = File::open(path_lock).await?;
-    let mut req_content = "".to_string();
-    file.read_to_string(&mut req_content).await?;
-    Ok(req_content
-        .lines()
-        .filter(|x| !x.trim_start().starts_with('#'))
-        .map(|x| x.to_string())
-        .collect::<Vec<String>>()
-        .join("\n"))
-}
-
-async fn install_go_dependencies(
-    job_id: &Uuid,
-    code: &str,
-    logs: &mut String,
-    job_dir: &str,
-    db: &sqlx::Pool<sqlx::Postgres>,
-    preview: bool,
-    skip_go_mod: bool,
-    worker_name: &str
-) -> error::Result<String> {
-    if !skip_go_mod {
-        gen_go_mymod(code, job_dir).await?;
-        let child = Command::new("go")
-            .current_dir(job_dir)
-            .args(vec!["mod", "init", "mymod"])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
-
-        handle_child(job_id, db, logs,   child, false, worker_name).await?;
-    }
-    let child = Command::new(GO_PATH.as_str())
-        .current_dir(job_dir)
-        .args(vec!["mod", "tidy"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
-    handle_child(job_id, db, logs,  child, false, worker_name)
-        .await
-        .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
-
-    if preview {
-        Ok(String::new())
-    } else {
-        let mut req_content = "".to_string();
-
-        let mut file = File::open(format!("{job_dir}/go.mod")).await?;
-        file.read_to_string(&mut req_content).await?;
-
-        Ok(req_content)
-    }
-}
-
-async fn gen_go_mymod(code: &str, job_dir: &str) -> error::Result<()> {
-    let code = if code.trim_start().starts_with("package") {
-        code.to_string()
-    } else {
-        format!("package inner; {code}")
-    };
-
-    let mymod_dir = format!("{job_dir}/inner");
-    DirBuilder::new()
-        .recursive(true)
-        .create(&mymod_dir)
-        .await
-        .expect("could not create go's mymod dir");
-
-    write_file(&mymod_dir, "inner_main.go", &code).await?;
-
-    Ok(())
-}
 
 #[tracing::instrument(level = "trace", skip_all)]
-async fn get_reserved_variables(
+pub async fn get_reserved_variables(
     job: &QueuedJob,
     token: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -2348,18 +1774,22 @@ async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {
 /// - update "queue"."last_ping" every five seconds
 /// - kill process if we exceed timeout or "queue"."canceled" is set
 #[tracing::instrument(level = "trace", skip_all)]
-async fn handle_child(
+pub async fn handle_child(
     job_id: &Uuid,
     db: &Pool<Postgres>,
     logs: &mut String,
     mut child: Child,
     nsjail: bool,
     worker_name: &str,
+    _w_id: &str,
+    child_name: &str,
 ) -> error::Result<()> {
+    let start = Instant::now();
     let update_job_interval = Duration::from_millis(500);
     let write_logs_delay = Duration::from_millis(500);
 
     let pid = child.id();
+    #[cfg(target_os = "linux")]
     if let Some(pid) = pid {
         //set the highest oom priority
         let mut file = File::create(format!("/proc/{pid}/oom_score_adj")).await?;
@@ -2430,11 +1860,29 @@ async fn handle_child(
     let wait_on_child = async {
         let db = db.clone();
 
+        #[cfg(not(feature = "enterprise"))]
+        let timeout_duration = *TIMEOUT_DURATION;
+
+        #[cfg(feature = "enterprise")]
+        let premium_workspace = *CLOUD_HOSTED && sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", _w_id)
+            .fetch_one(&db)
+            .await
+            .map_err(|e| {
+                tracing::error!(%e, "error getting premium workspace for job {job_id}: {e}");
+            }).unwrap_or(false);
+        
+        #[cfg(feature = "enterprise")]
+        let timeout_duration = if premium_workspace {
+            *TIMEOUT_DURATION*6 //30mins
+        } else {
+            *TIMEOUT_DURATION
+        };
+
         let kill_reason = tokio::select! {
             biased;
             result = child.wait() => return result.map(Ok),
             Ok(()) = too_many_logs.changed() => KillReason::TooManyLogs,
-            _ = sleep(*TIMEOUT_DURATION) => KillReason::Timeout,
+            _ = sleep(timeout_duration) => KillReason::Timeout,
             _ = update_job => KillReason::Cancelled,
         };
         tx.send(()).expect("rx should never be dropped");
@@ -2570,6 +2018,7 @@ async fn handle_child(
 
     let (wait_result, _) = tokio::join!(wait_on_child, lines);
 
+    tracing::info!(%job_id, "child process '{child_name}' for {job_id} took {}ms", start.elapsed().as_millis());
     match wait_result {
         _ if *too_many_logs.borrow() => Err(Error::ExecutionErr(format!(
             "logs or result reached limit. (current max size: {MAX_RESULT_SIZE} characters)"
@@ -2650,20 +2099,7 @@ fn append_with_limit(dst: &mut String, src: &str, limit: &mut usize) {
     }
 }
 
-#[tracing::instrument(level = "trace", skip_all)]
-async fn set_logs(logs: &str, id: &uuid::Uuid, db: &Pool<Postgres>) {
-    if sqlx::query!(
-        "UPDATE queue SET logs = $1 WHERE id = $2",
-        logs.to_owned(),
-        id
-    )
-    .execute(db)
-    .await
-    .is_err()
-    {
-        tracing::error!(%id, "error updating logs for id {id}")
-    };
-}
+
 
 /* TODO retry this? */
 #[tracing::instrument(level = "trace", skip_all)]
@@ -2682,201 +2118,4 @@ async fn append_logs(job_id: uuid::Uuid, logs: impl AsRef<str>, db: impl Borrow<
     {
         tracing::error!(%job_id, %err, "error updating logs for job {job_id}: {err}");
     }
-}
-
-pub async fn handle_zombie_jobs_periodically(
-    db: &Pool<Postgres>,
-    mut rx: tokio::sync::broadcast::Receiver<()>,
-    base_internal_url: &str,
-) {
-    loop {
-        handle_zombie_jobs(db, base_internal_url).await;
-
-        tokio::select! {
-            _ = tokio::time::sleep(Duration::from_secs(60))    => (),
-            _ = rx.recv() => {
-                    println!("received killpill for monitor job");
-                    break;
-            }
-        }
-    }
-}
-
-async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str) {
-    let restarted = sqlx::query!(
-            "UPDATE queue SET running = false WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 AND same_worker = false RETURNING id, workspace_id, last_ping",
-            *ZOMBIE_JOB_TIMEOUT,
-            JobKind::Flow: JobKind,
-        )
-        .fetch_all(db)
-        .await
-        .ok()
-        .unwrap_or_else(|| vec![]);
-
-    QUEUE_ZOMBIE_RESTART_COUNT.inc_by(restarted.len() as _);
-    for r in restarted {
-        tracing::info!(
-            "restarted zombie job {} {} {}",
-            r.id,
-            r.workspace_id,
-            r.last_ping
-        );
-    }
-
-    let timeouts = sqlx::query_as::<_, QueuedJob>(
-            "SELECT * FROM queue WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 AND same_worker = true",
-        )
-        .bind(ZOMBIE_JOB_TIMEOUT.as_str())
-        .bind(JobKind::Flow)
-        .fetch_all(db)
-        .await
-        .ok()
-        .unwrap_or_else(|| vec![]);
-
-    QUEUE_ZOMBIE_DELETE_COUNT.inc_by(timeouts.len() as _);
-    for job in timeouts {
-        tracing::info!(
-            "timedouts zombie same_worker job {} {}",
-            job.id,
-            job.workspace_id,
-        );
-
-        // since the job is unrecoverable, the same worker queue should never be sent anything
-        let (same_worker_tx_never_used, _same_worker_rx_never_used) = mpsc::channel::<Uuid>(1);
-
-        let tx = db.begin().await.expect("could not start token transaction");
-        let (tx, token) = create_token_for_owner(
-            tx,
-            &job.workspace_id,
-            &job.permissioned_as,
-            "ephemeral-zombie-jobs",
-            *SESSION_TOKEN_EXPIRY,
-            &job.email,
-        )
-        .await
-        .expect("could not create job token");
-        tx.commit().await.expect("could not commit job token");
-        let client = windmill_api_client::create_client(base_internal_url, token.clone());
-
-        let _ = handle_job_error(
-            db,
-            &client,
-            job,
-            error::Error::ExecutionErr("Same worker job timed out".to_string()),
-            None,
-            true,
-            same_worker_tx_never_used,
-            "",
-            base_internal_url,
-        )
-        .await;
-    }
-}
-
-async fn handle_python_reqs(
-    requirements: Vec<&str>,
-    job: &QueuedJob,
-    logs: &mut String,
-    db: &sqlx::Pool<sqlx::Postgres>,
-    worker_name: &str,
-    job_dir: &str,
-) -> error::Result<Vec<String>> {
-    let mut req_paths: Vec<String> = vec![];
-    let mut vars = vec![("PATH", PATH_ENV.as_str())];
-    if !*DISABLE_NSJAIL {
-        if let Some(url) = PIP_EXTRA_INDEX_URL.as_ref() {
-            vars.push(("EXTRA_INDEX_URL", url));
-        }
-        if let Some(url) = PIP_INDEX_URL.as_ref() {
-            vars.push(("INDEX_URL", url));
-        }
-        if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
-            vars.push(("TRUSTED_HOST", host));
-        }
-    };
-
-    for req in requirements {
-        // todo: handle many reqs
-        let venv_p = format!("{PIP_CACHE_DIR}/{req}");
-        if metadata(&venv_p).await.is_ok() {
-            req_paths.push(venv_p);
-            continue;
-        }
-
-        logs.push_str("\n--- PIP INSTALL ---\n");
-        logs.push_str(&format!("\n{req} is being installed for the first time.\n It will be cached for all ulterior uses."));
-
-        tracing::info!(
-            worker_name = %worker_name,
-            job_id = %job.id,
-            workspace_id = %job.workspace_id,
-            "started setup python dependencies"
-        );
-
-        let child = if !*DISABLE_NSJAIL {
-            tracing::info!(
-                worker_name = %worker_name,
-                job_id = %job.id,
-                workspace_id = %job.workspace_id,
-                "starting nsjail"
-            );
-            let mut vars = vars.clone();
-            let req = req.to_string();
-            vars.push(("REQ", &req));
-            vars.push(("TARGET", &venv_p));
-            Command::new(NSJAIL_PATH.as_str())
-                .current_dir(job_dir)
-                .env_clear()
-                .envs(vars)
-                .args(vec!["--config", "download.config.proto"])
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()?
-        } else {
-            let mut args = vec![
-                "-m",
-                "pip",
-                "install",
-                &req,
-                "-I",
-                "--no-deps",
-                "--no-color",
-                "--isolated",
-                "--no-warn-conflicts",
-                "--disable-pip-version-check",
-                "-t",
-                venv_p.as_str(),
-            ];
-            if let Some(url) = PIP_EXTRA_INDEX_URL.as_ref() {
-                args.extend(["--extra-index-url", url]);
-            }
-            if let Some(url) = PIP_INDEX_URL.as_ref() {
-                args.extend(["--index-url", url]);
-            }
-            if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
-                args.extend(["--trusted-host", &host]);
-            }
-            Command::new(PYTHON_PATH.as_str())
-                .env_clear()
-                .env("PATH", PATH_ENV.as_str())
-                .args(args)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()?
-        };
-
-        let child = handle_child(&job.id, db, logs, child, false, worker_name).await;
-        tracing::info!(
-            worker_name = %worker_name,
-            job_id = %job.id,
-            workspace_id = %job.workspace_id,
-            is_ok = child.is_ok(),
-            "finished setting up python dependencies {}",
-            job.id
-        );
-        child?;
-
-        req_paths.push(venv_p);
-    }
-    Ok(req_paths)
 }

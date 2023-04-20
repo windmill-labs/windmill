@@ -85,7 +85,7 @@ COPY .git/ .git/
 RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release --features "$features"
 
 
-FROM python:3.11.2-slim-buster
+FROM python:3.11.3-slim-buster
 ARG TARGETPLATFORM
 
 ARG APP=/usr/src/app
@@ -124,6 +124,7 @@ ENV TZ=Etc/UTC
 
 RUN /usr/local/bin/python3 -m pip install pip-tools
 
+COPY --from=frontend /frontend/build /static_frontend
 COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
 
 COPY --from=nsjail /nsjail/nsjail /bin/nsjail

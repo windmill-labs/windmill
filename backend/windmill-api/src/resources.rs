@@ -8,7 +8,7 @@
 
 use crate::{
     db::{UserDB, DB},
-    users::{require_owner_of_path, Authed},
+    users::{maybe_refresh_folders, require_owner_of_path, Authed},
     webhook_util::{WebhookMessage, WebhookShared},
 };
 use axum::{
@@ -264,9 +264,12 @@ async fn create_resource(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
+    Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(resource): Json<CreateResource>,
 ) -> Result<(StatusCode, String)> {
+    let authed = maybe_refresh_folders(&resource.path, &w_id, authed, &db).await;
+
     let mut tx = user_db.begin(&authed).await?;
 
     check_path_conflict(&mut tx, &w_id, &resource.path).await?;
@@ -375,6 +378,7 @@ async fn update_resource(
     }
 
     sqlb.returning("path");
+    let authed = maybe_refresh_folders(path, &w_id, authed, &db).await;
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -382,9 +386,8 @@ async fn update_resource(
         if npath != path {
             check_path_conflict(&mut tx, &w_id, &npath).await?;
 
-            if !authed.is_admin {
-                require_owner_of_path(&w_id, &authed.username, &authed.groups, &path, &db).await?;
-            }
+            require_owner_of_path(&authed, path)?;
+
             sqlx::query!(
                 "UPDATE variable SET path = $1 WHERE path = $2 AND workspace_id = $3",
                 npath,

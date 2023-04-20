@@ -9,15 +9,19 @@
 	const rd = $page.url.searchParams.get('rd')
 
 	onMount(async () => {
-		await clearUser()
+		try {
+			await clearUser()
+		} catch (err) {
+			console.error(err)
+		}
 		goto(rd ?? '/user/login')
 	})
 </script>
 
 <CenteredModal title="Logging out">
-	<div class="w-full ">
+	<div class="w-full">
 		<div class="block m-auto w-20">
-			<WindmillIcon class="animate-[spin_6s_linear_infinite]" height="80px" width="80px" />
+			<WindmillIcon height="80px" width="80px" spin="fast" />
 		</div>
 	</div>
 </CenteredModal>

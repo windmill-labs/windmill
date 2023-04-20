@@ -1,8 +1,3 @@
-<script context="module">
-	export const ssr = false
-	export const prerender = false
-</script>
-
 <script lang="ts">
 	import { page } from '$app/stores'
 
@@ -33,12 +28,6 @@
 </div>
 
 <style>
-	:root {
-		--toastBackground: #eff6ff;
-		--toastBarBackground: #eff6ff;
-		--toastColor: #123456;
-	}
-
 	.wrap {
 		display: contents;
 		font-family: 'Inter', sans-serif;

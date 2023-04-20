@@ -1,14 +1,14 @@
 <script lang="ts">
-	import { ResourceService, type Resource } from '$lib/gen'
+	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { faPen, faPlus, faRotateRight } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import { Button } from './common'
 	import Select from 'svelte-select'
-	import AppConnect from './AppConnect.svelte'
-	import ResourceEditor from './ResourceEditor.svelte'
 	import { SELECT_INPUT_DEFAULT_STYLE } from '../defaults'
+	import AppConnect from './AppConnect.svelte'
+	import { Button } from './common'
+	import ResourceEditor from './ResourceEditor.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -24,6 +24,7 @@
 			  }
 			: undefined
 
+	console.log(valueSelect)
 	let collection = [valueSelect]
 
 	async function loadResources(resourceType: string | undefined) {

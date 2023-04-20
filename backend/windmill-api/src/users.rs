@@ -12,8 +12,9 @@ use crate::{
     db::{UserDB, DB},
     folders::get_folders_for_user,
     utils::require_super_admin,
+    webhook_util::{InstanceEvent, WebhookShared},
     workspaces::invite_user_to_all_auto_invite_worspaces,
-    COOKIE_DOMAIN, HTTP_CLIENT, IS_SECURE,
+    COOKIE_DOMAIN, IS_SECURE,
 };
 use argon2::{password_hash::SaltString, Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use axum::{
@@ -25,7 +26,9 @@ use axum::{
     Json, Router,
 };
 use hyper::{header::LOCATION, StatusCode};
+use lazy_static::lazy_static;
 use rand::rngs::OsRng;
+use regex::Regex;
 use retainer::Cache;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -35,6 +38,7 @@ use tracing::{Instrument, Span};
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{self, Error, JsonResult, Result},
+    users::SUPERADMIN_SECRET_EMAIL,
     utils::{not_found_if_none, rd_string, require_admin, Pagination, StripPath},
 };
 use windmill_queue::CLOUD_HOSTED;
@@ -73,6 +77,7 @@ pub fn global_service() -> Router {
         .route("/tokens/create", post(create_token))
         .route("/tokens/delete/:token_prefix", delete(delete_token))
         .route("/tokens/list", get(list_tokens))
+        .route("/tokens/impersonate", post(impersonate))
         .route("/usage", get(get_usage))
     // .route("/list_invite_codes", get(list_invite_codes))
     // .route("/create_invite_code", post(create_invite_code))
@@ -97,6 +102,10 @@ pub struct AuthCache {
 impl AuthCache {
     pub fn new(db: DB, superadmin_secret: Option<String>) -> Self {
         AuthCache { cache: Cache::new(), db, superadmin_secret }
+    }
+
+    pub async fn invalidate(&self, w_id: &str, token: String) {
+        self.cache.remove(&(w_id.to_string(), token)).await;
     }
 
     pub async fn get_authed(&self, w_id: Option<String>, token: &str) -> Option<Authed> {
@@ -266,7 +275,7 @@ impl AuthCache {
                     .unwrap_or(false)
                 {
                     Some(Authed {
-                        email: "superadmin_secret@windmill.dev".to_string(),
+                        email: SUPERADMIN_SECRET_EMAIL.to_string(),
                         username: "superadmin_secret".to_string(),
                         is_admin: true,
                         groups: Vec::new(),
@@ -350,7 +359,33 @@ pub struct Authed {
     pub username: String,
     pub is_admin: bool,
     pub groups: Vec<String>,
-    pub folders: Vec<(String, bool)>,
+    // (folder name, can write, is owner)
+    pub folders: Vec<(String, bool, bool)>,
+}
+
+pub async fn maybe_refresh_folders(path: &str, w_id: &str, authed: Authed, db: &DB) -> Authed {
+    if authed.is_admin {
+        return authed;
+    }
+    let splitted = path.split('/').collect::<Vec<_>>();
+    if splitted.len() >= 2
+        && splitted[0] == "f"
+        && !authed.folders.iter().any(|(f, _, _)| f == splitted[1])
+    {
+        let name = &authed.username;
+        let groups = get_groups_for_user(w_id, name, db)
+            .await
+            .ok()
+            .unwrap_or_default();
+
+        let folders = get_folders_for_user(w_id, name, &groups, db)
+            .await
+            .ok()
+            .unwrap_or_default();
+        Authed { folders, ..authed }
+    } else {
+        authed
+    }
 }
 
 #[async_trait]
@@ -475,6 +510,7 @@ pub struct UserInfo {
     pub disabled: bool,
     pub role: Option<String>,
     pub folders: Vec<String>,
+    pub folders_owners: Vec<String>,
 }
 
 #[derive(FromRow, Serialize)]
@@ -561,6 +597,7 @@ pub struct TruncatedToken {
 pub struct NewToken {
     pub label: Option<String>,
     pub expiration: Option<chrono::DateTime<chrono::Utc>>,
+    pub impersonate_email: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -773,8 +810,13 @@ async fn whoami(
             disabled: false,
             role: Some("superadmin".to_string()),
             folders: folders
+                .clone()
                 .into_iter()
                 .filter_map(|x| if x.1 { Some(x.0) } else { None })
+                .collect(),
+            folders_owners: folders
+                .into_iter()
+                .filter_map(|x| if x.2 { Some(x.0) } else { None })
                 .collect(),
         }))
     }
@@ -861,8 +903,13 @@ async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo
         disabled: usr.disabled,
         role: usr.role,
         folders: folders
+            .clone()
             .into_iter()
             .filter_map(|x| if x.1 { Some(x.0) } else { None })
+            .collect(),
+        folders_owners: folders
+            .into_iter()
+            .filter_map(|x| if x.2 { Some(x.0) } else { None })
             .collect(),
     }))
 }
@@ -878,47 +925,45 @@ pub async fn get_groups_for_user(w_id: &str, username: &str, db: &DB) -> Result<
     Ok(groups)
 }
 pub async fn is_owner_of_path(
-    Authed { username, is_admin, groups, .. }: Authed,
-    Extension(db): Extension<DB>,
-    Path((w_id, path)): Path<(String, StripPath)>,
+    authed: Authed,
+    Path((_w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<bool> {
     let path = path.to_path();
-    if is_admin {
+    if authed.is_admin {
         Ok(Json(true))
     } else {
-        Ok(Json(
-            require_owner_of_path(&w_id, &username, &groups, path, &db)
-                .await
-                .is_ok(),
-        ))
+        Ok(Json(require_owner_of_path(&authed, path).is_ok()))
     }
 }
 
-pub async fn require_owner_of_path(
-    w_id: &str,
-    username: &str,
-    groups: &Vec<String>,
-    path: &str,
-    db: &DB,
-) -> Result<()> {
+pub fn require_owner_of_path(authed: &Authed, path: &str) -> Result<()> {
+    if authed.is_admin {
+        return Ok(());
+    }
     if !path.is_empty() {
         let splitted = path.split("/").collect::<Vec<&str>>();
         if splitted[0] == "u" {
-            if splitted[1] == username {
-                return Ok(());
+            if splitted[1] == authed.username {
+                Ok(())
             } else {
-                return Err(Error::BadRequest(format!(
+                Err(Error::BadRequest(format!(
                     "only the owner {} is authorized to perform this operation",
                     splitted[1]
-                )));
+                )))
             }
-        } else if splitted[0] == "g" {
-            return crate::groups::require_is_owner(splitted[1], username, groups, w_id, db).await;
         } else if splitted[0] == "f" {
-            return crate::folders::require_is_owner(splitted[1], username, groups, w_id, db).await;
+            crate::folders::require_is_owner(authed, splitted[1])
+        } else {
+            Err(Error::BadRequest(format!(
+                "Not recognized path kind: {}",
+                path
+            )))
         }
+    } else {
+        Err(Error::BadRequest(format!(
+            "Cannot be owner of an empty path"
+        )))
     }
-    Err(Error::BadRequest(format!("not recognized owner kind")))
 }
 
 async fn whois(
@@ -997,14 +1042,22 @@ async fn decline_invite(
     }
 }
 
+lazy_static! {
+    pub static ref VALID_USERNAME: Regex = Regex::new(r#"^[a-zA-Z_0-9]+$"#).unwrap();
+}
+
 async fn accept_invite(
     Authed { email, .. }: Authed,
+    Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Json(nu): Json<AcceptInvite>,
 ) -> Result<(StatusCode, String)> {
-    if &nu.username == "bot" {
-        return Err(Error::BadRequest("bot is a reserved username".to_string()));
+    if !VALID_USERNAME.is_match(&nu.username) {
+        return Err(windmill_common::error::Error::BadRequest(format!(
+            "Usermame can only contain alphanumeric characters and underscores"
+        )));
     }
+
     let mut tx = db.begin().await?;
 
     let r = sqlx::query!(
@@ -1041,6 +1094,11 @@ async fn accept_invite(
     }
 
     if is_some {
+        webhook.send_instance_event(InstanceEvent::UserJoinedWorkspace {
+            email: email.clone(),
+            workspace: nu.workspace_id.clone(),
+            username: nu.username.clone(),
+        });
         Ok((
             StatusCode::CREATED,
             format!(
@@ -1074,6 +1132,12 @@ async fn add_user_to_workspace<'c>(
         return Err(Error::BadRequest(format!(
             "user with username {} already exists in workspace {}",
             username, w_id
+        )));
+    }
+
+    if !VALID_USERNAME.is_match(username) {
+        return Err(windmill_common::error::Error::BadRequest(format!(
+            "Usermame can only contain alphanumeric characters and underscores"
         )));
     }
 
@@ -1275,12 +1339,20 @@ lazy_static::lazy_static! {
 async fn create_user(
     Authed { email, .. }: Authed,
     Extension(db): Extension<DB>,
+    Extension(webhook): Extension<WebhookShared>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
-    Json(nu): Json<NewUser>,
+    Json(mut nu): Json<NewUser>,
 ) -> Result<(StatusCode, String)> {
     let mut tx = db.begin().await?;
 
     require_super_admin(&mut tx, &email).await?;
+    nu.email = nu.email.to_lowercase();
+
+    if nu.email == SUPERADMIN_SECRET_EMAIL {
+        return Err(Error::BadRequest(
+            "The superadmin email is a reserved email".into(),
+        ));
+    }
 
     sqlx::query!(
         "INSERT INTO password(email, verified, password_hash, login_type, super_admin, name, \
@@ -1308,19 +1380,9 @@ async fn create_user(
     .await?;
     tx.commit().await?;
 
-    if let Some(new_user_webhook) = NEW_USER_WEBHOOK.clone() {
-        let _ = HTTP_CLIENT
-            .post(&new_user_webhook)
-            .json(
-                &serde_json::json!({"email" : &nu.email, "name": &nu.name, "event": "global_add"}),
-            )
-            .send()
-            .await
-            .map_err(|e| tracing::error!("Error sending new user webhook: {}", e.to_string()));
-    }
-
     invite_user_to_all_auto_invite_worspaces(&db, &nu.email).await?;
 
+    webhook.send_instance_event(InstanceEvent::UserAdded { email: nu.email.clone() });
     Ok((StatusCode::CREATED, format!("email {} created", nu.email)))
 }
 
@@ -1566,7 +1628,7 @@ async fn login(
     Json(Login { email, password }): Json<Login>,
 ) -> Result<String> {
     let mut tx = db.begin().await?;
-
+    let email = email.to_lowercase();
     let email_w_h: Option<(String, String, bool, bool)> = sqlx::query_as(
         "SELECT email, password_hash, super_admin, first_time_user FROM password WHERE email = $1 AND login_type = \
          'password'",
@@ -1688,6 +1750,58 @@ async fn create_token(
     Ok((StatusCode::CREATED, token))
 }
 
+async fn impersonate(
+    Extension(db): Extension<DB>,
+    Authed { email, username, .. }: Authed,
+    Json(new_token): Json<NewToken>,
+) -> Result<(StatusCode, String)> {
+    let token = rd_string(30);
+    let mut tx = db.begin().await?;
+    require_super_admin(&mut tx, &email).await?;
+
+    if new_token.impersonate_email.is_none() {
+        return Err(Error::BadRequest(
+            "impersonate_username is required".to_string(),
+        ));
+    }
+
+    let impersonated = new_token.impersonate_email.unwrap();
+
+    let is_super_admin = sqlx::query_scalar!(
+        "SELECT super_admin FROM password WHERE email = $1",
+        impersonated
+    )
+    .fetch_optional(&mut tx)
+    .await?
+    .unwrap_or(false);
+    sqlx::query!(
+        "INSERT INTO token
+            (token, email, label, expiration, super_admin)
+            VALUES ($1, $2, $3, $4, $5)",
+        token,
+        impersonated,
+        new_token.label,
+        new_token.expiration,
+        is_super_admin
+    )
+    .execute(&mut tx)
+    .await?;
+
+    audit_log(
+        &mut tx,
+        &username,
+        "users.impersonate",
+        ActionKind::Delete,
+        &"global",
+        Some(&token[0..10]),
+        Some([("impersonated", &format!("{impersonated}")[..])].into()),
+    )
+    .instrument(tracing::info_span!("token", email = &impersonated))
+    .await?;
+    tx.commit().await?;
+    Ok((StatusCode::CREATED, token))
+}
+
 async fn list_tokens(
     Extension(db): Extension<DB>,
     Authed { email, .. }: Authed,
@@ -1786,6 +1900,17 @@ pub async fn delete_expired_items_perdiodically(
         match tokens_deleted_r {
             Ok(tokens) => tracing::debug!("deleted {} tokens: {:?}", tokens.len(), tokens),
             Err(e) => tracing::error!("Error deleting token: {}", e.to_string()),
+        }
+
+        let pip_resolution_r = sqlx::query_scalar!(
+            "DELETE FROM pip_resolution_cache WHERE expiration <= now() RETURNING hash",
+        )
+        .fetch_all(db)
+        .await;
+
+        match pip_resolution_r {
+            Ok(res) => tracing::debug!("deleted {} pip_resolution: {:?}", res.len(), res),
+            Err(e) => tracing::error!("Error deleting pip_resolution: {}", e.to_string()),
         }
 
         let magic_links_deleted_r: std::result::Result<Vec<String>, _> = sqlx::query_scalar(

@@ -1,29 +1,32 @@
+<script lang="ts" context="module">
+	const lastMetaUsed = writable<Meta | undefined>(undefined)
+</script>
+
 <script lang="ts">
-	import { type Meta, pathToMeta } from '$lib/common'
+	import { pathToMeta, type Meta } from '$lib/common'
 
 	import {
 		AppService,
 		FlowService,
 		FolderService,
-		GroupService,
 		ResourceService,
 		ScheduleService,
 		ScriptService,
 		VariableService
 	} from '$lib/gen'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
-	import { createEventDispatcher } from 'svelte'
-	import Required from './Required.svelte'
-	import { Button, Drawer, DrawerContent } from './common'
 	import { faEye, faPlus } from '@fortawesome/free-solid-svg-icons'
-	import ToggleButtonGroup from './common/toggleButton/ToggleButtonGroup.svelte'
-	import ToggleButton from './common/toggleButton/ToggleButton.svelte'
+	import { createEventDispatcher } from 'svelte'
 	import { Icon } from 'svelte-awesome'
-	import Tooltip from './Tooltip.svelte'
-	import FolderEditor from './FolderEditor.svelte'
-	import GroupEditor from './GroupEditor.svelte'
-	import { random_adj } from './random_positive_adjetive'
+	import { writable } from 'svelte/store'
+	import { Button, Drawer, DrawerContent } from './common'
 	import Badge from './common/badge/Badge.svelte'
+	import ToggleButton from './common/toggleButton/ToggleButton.svelte'
+	import ToggleButtonGroup from './common/toggleButton/ToggleButtonGroup.svelte'
+	import FolderEditor from './FolderEditor.svelte'
+	import { random_adj } from './random_positive_adjetive'
+	import Required from './Required.svelte'
+	import Tooltip from './Tooltip.svelte'
 
 	type PathKind = 'resource' | 'script' | 'variable' | 'flow' | 'schedule' | 'app'
 	let meta: Meta | undefined = undefined
@@ -40,8 +43,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	let folders: string[] = []
-	let groups: string[] = []
+	let folders: { name: string; write: boolean }[] = []
 
 	$: meta && onMetaChange()
 
@@ -49,6 +51,10 @@
 		if (meta) {
 			path = metaToPath(meta)
 			validate(meta, path, kind)
+			$lastMetaUsed = {
+				...meta,
+				name: ''
+			}
 		}
 	}
 
@@ -71,14 +77,17 @@
 
 	export async function reset() {
 		if (path == '' || path == 'u//') {
-			meta = {
-				ownerKind: 'user',
-				name: random_adj() + '_' + namePlaceholder,
-				owner: ''
+			if ($lastMetaUsed == undefined) {
+				meta = {
+					ownerKind: 'user',
+					name: random_adj() + '_' + namePlaceholder,
+					owner: ''
+				}
+
+				meta.owner = $userStore!.username.split('@')[0].replace(/[^a-zA-Z0-9]/g, '')
+			} else {
+				meta = { ...$lastMetaUsed, name: random_adj() + '_' + namePlaceholder }
 			}
-
-			meta.owner = $userStore!.username.split('@')[0]
-
 			let newMeta = { ...meta }
 			while (await pathExists(metaToPath(newMeta), kind)) {
 				disabled = true
@@ -95,30 +104,26 @@
 	}
 
 	async function loadFolders(): Promise<void> {
-		let initialFolders: string[] = []
+		let initialFolders: { name: string; write: boolean }[] = []
 		let initialFolder = ''
 		if (initialPath?.split('/')?.[0] == 'f') {
 			initialFolder = initialPath?.split('/')?.[1]
-			initialFolders.push(initialFolder)
+			initialFolders.push({ name: initialFolder, write: true })
 		}
 		folders = initialFolders.concat(
 			(
 				await FolderService.listFolderNames({
 					workspace: $workspaceStore!
 				})
-			).filter((x) => x != initialFolder)
-		)
-	}
-
-	async function loadGroups(): Promise<void> {
-		let initialGroups: string[] = []
-		if (initialPath?.split('/')?.[0] == 'f') {
-			initialGroups.push(initialPath?.split('/')?.[1])
-		}
-		groups = initialGroups.concat(
-			await GroupService.listGroupNames({
-				workspace: $workspaceStore!
-			})
+			)
+				.filter((x) => x != initialFolder)
+				.map((x) => ({
+					name: x,
+					write:
+						($userStore?.folders?.includes(x) == true ?? false) ||
+						($userStore?.is_admin ?? false) ||
+						($userStore?.is_super_admin ?? false)
+				}))
 		)
 	}
 
@@ -194,7 +199,6 @@
 	$: {
 		if ($workspaceStore && $userStore) {
 			loadFolders()
-			loadGroups()
 			initPath()
 		}
 	}
@@ -224,55 +228,13 @@
 			requestBody: { name: newFolderName }
 		})
 		folderCreated = newFolderName
+		$userStore?.folders?.push(newFolderName)
+		loadFolders()
 		if (meta) {
 			meta.owner = newFolderName
 		}
-		loadFolders()
-	}
-
-	let newGroup: Drawer
-	let viewGroup: Drawer
-	let newGroupName: string
-	let groupCreated: string | undefined = undefined
-
-	async function addGroup() {
-		await GroupService.createGroup({
-			workspace: $workspaceStore ?? '',
-			requestBody: { name: newGroupName }
-		})
-		groupCreated = newGroupName
-		if (meta) {
-			meta.owner = newGroupName
-		}
-		loadGroups()
 	}
 </script>
-
-<Drawer bind:this={newGroup}>
-	<DrawerContent
-		title="New Folder"
-		on:close={() => {
-			newGroup.closeDrawer()
-			groupCreated = undefined
-		}}
-	>
-		<div class="flex flex-row">
-			<input class="mr-2" placeholder="New group name" bind:value={newGroupName} />
-			<Button size="md" endIcon={{ icon: faPlus }} disabled={!newGroupName} on:click={addGroup}>
-				New&nbsp;group
-			</Button>
-		</div>
-		{#if groupCreated}
-			<div class="mt-8" />
-			<GroupEditor name={groupCreated} />
-		{/if}
-	</DrawerContent>
-</Drawer>
-<Drawer bind:this={viewGroup}>
-	<DrawerContent title="Folder {meta?.owner}" on:close={viewGroup.closeDrawer}>
-		<GroupEditor name={meta?.owner ?? ''} />
-	</DrawerContent>
-</Drawer>
 
 <Drawer bind:this={newFolder}>
 	<DrawerContent
@@ -310,6 +272,7 @@
 	<div class="flex flex-col sm:flex-row items-center gap-2 sm:gap-4 pb-0 mb-1">
 		{#if meta != undefined}
 			<div class="flex gap-4 shrink">
+				<!-- svelte-ignore a11y-label-has-associated-control -->
 				<label class="block">
 					<span class="text-gray-700 text-sm whitespace-nowrap">Owner</span>
 
@@ -354,37 +317,29 @@
 							></span
 						>
 
-						<div class="flex flex-row gap-1 w-full">
+						<div class="flex flex-row items-center gap-1 w-full">
 							<select class="grow w-full" {disabled} bind:value={meta.owner}>
-								{#each folders as f}
-									<option>{f}</option>
+								{#each folders as { name, write }}
+									<option disabled={!write}>{name}{write ? '' : ' (read-only)'}</option>
 								{/each}
 							</select>
-							<Button variant="border" size="xs" on:click={viewFolder.openDrawer}>
+							<Button
+								title="View folder"
+								btnClasses="!p-1.5"
+								variant="border"
+								size="xs"
+								on:click={viewFolder.openDrawer}
+							>
 								<Icon scale={0.8} data={faEye} /></Button
 							>
-							<Button variant="border" size="xs" on:click={newFolder.openDrawer}>
-								<Icon scale={0.8} data={faPlus} /></Button
-							></div
-						>
-					</label>
-				{:else if meta.ownerKind === 'group'}
-					<label class="block grow w-48">
-						<span class="text-gray-700 text-sm"
-							>Group <Tooltip>Item will be owned by the group and hence all its member</Tooltip
-							></span
-						>
-
-						<div class="flex flex-row gap-1">
-							<select class="grow w-full" {disabled} bind:value={meta.owner}>
-								{#each groups as g}
-									<option>{g}</option>
-								{/each}
-							</select>
-							<Button variant="border" size="xs" on:click={viewGroup.openDrawer}>
-								<Icon scale={0.8} data={faEye} /></Button
+							<Button
+								title="New folder"
+								btnClasses="!p-1.5"
+								variant="border"
+								size="xs"
+								{disabled}
+								on:click={newFolder.openDrawer}
 							>
-							<Button variant="border" size="xs" on:click={newGroup.openDrawer}>
 								<Icon scale={0.8} data={faPlus} /></Button
 							></div
 						>
@@ -396,6 +351,7 @@
 					Name
 					<Required required={true} />
 				</span>
+				<!-- svelte-ignore a11y-autofocus -->
 				<input
 					{disabled}
 					type="text"

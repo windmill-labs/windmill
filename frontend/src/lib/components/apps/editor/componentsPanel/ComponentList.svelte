@@ -14,10 +14,8 @@
 	import { X } from 'lucide-svelte'
 	import { push } from '$lib/history'
 	import { flip } from 'svelte/animate'
-	import { Badge } from '$lib/components/common'
 
-	const { app, selectedComponent, focusedGrid, worldStore } =
-		getContext<AppViewerContext>('AppViewerContext')
+	const { app, selectedComponent, focusedGrid } = getContext<AppViewerContext>('AppViewerContext')
 
 	const { history } = getContext<AppEditorContext>('AppEditorContext')
 
@@ -32,8 +30,8 @@
 			$focusedGrid
 		)
 
-		$selectedComponent = id
-		$worldStore = $worldStore
+		$selectedComponent = [id]
+		$app = $app
 	}
 
 	let search = ''
@@ -64,21 +62,6 @@
 			</button>
 		{/if}
 	</div>
-	<!-- {#if $focusedGrid}
-		<Badge color="indigo" baseClass="w-full">
-			<div class="flex flex-row gap-2 justify-center items-center">
-				<div>{`Subgrid: ${$focusedGrid.parentComponentId} (${$focusedGrid.subGridIndex})`}</div>
-				<button
-					on:click={() => {
-						$selectedComponent = undefined
-						$focusedGrid = undefined
-					}}
-				>
-					<X size={14} />
-				</button>
-			</div>
-		</Badge>
-	{/if} -->
 </section>
 
 <div class="relative">
@@ -96,20 +79,21 @@
 				{#if components.length}
 					<div transition:slide|local={{ duration: 100 }}>
 						<ListItem title={`${title} (${components.length})`}>
-							<div class="flex flex-wrap gap-2 py-2">
+							<div class="flex flex-wrap gap-3 py-2">
 								{#each components as item (item)}
-									<button
-										animate:flip={{ duration: 100 }}
-										on:click={() => addComponent(item)}
-										title={componentsRecord[item].name}
-										class="border w-24 shadow-sm h-16 p-2 flex flex-col gap-2 items-center
-										justify-center bg-white rounded-md hover:bg-gray-100 duration-200"
-									>
-										<svelte:component this={componentsRecord[item].icon} />
-										<div class="text-xs w-full text-center ellipsize">
+									<div animate:flip={{ duration: 100 }} class="w-20">
+										<button
+											on:click={() => addComponent(item)}
+											title={componentsRecord[item].name}
+											class="transition-all border w-20 shadow-sm h-16 p-2 flex flex-col gap-2 items-center
+											justify-center bg-white rounded-md hover:bg-blue-50 duration-200 hover:border-blue-500"
+										>
+											<svelte:component this={componentsRecord[item].icon} class="text-gray-600" />
+										</button>
+										<div class="text-xs text-center flex-wrap text-gray-600 mt-1">
 											{componentsRecord[item].name}
 										</div>
-									</button>
+									</div>
 								{/each}
 							</div>
 						</ListItem>

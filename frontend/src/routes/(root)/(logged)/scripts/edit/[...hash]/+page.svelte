@@ -2,19 +2,25 @@
 	import { ScriptService, type Script } from '$lib/gen'
 
 	import { page } from '$app/stores'
-	import { workspaceStore } from '$lib/stores'
+	import { runFormStore, workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
-	import { decodeArgs, decodeState } from '$lib/utils'
-	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
+	import { decodeState } from '$lib/utils'
 
 	const initialState = $page.url.searchParams.get('state')
-	const initialArgs = decodeArgs($page.url.searchParams.get('args') ?? undefined)
+	let initialArgs = {}
+	if ($runFormStore) {
+		initialArgs = $runFormStore
+		$runFormStore = undefined
+	}
+	let topHash = $page.url.searchParams.get('topHash') ?? undefined
 
 	let scriptLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
 
 	let script: Script | undefined
 
 	let initialPath: string = ''
+
+	let scriptBuilder: ScriptBuilder | undefined = undefined
 
 	async function loadScript(): Promise<void> {
 		script =
@@ -24,8 +30,10 @@
 						workspace: $workspaceStore!,
 						hash: $page.params.hash
 				  })
-		initialPath = script!.path
-		$dirtyStore = false
+		if (script) {
+			initialPath = script.path
+			scriptBuilder?.setCode(script.content)
+		}
 	}
 
 	$: {
@@ -36,5 +44,5 @@
 </script>
 
 {#if script}
-	<ScriptBuilder {initialPath} {script} {initialArgs} />
+	<ScriptBuilder bind:this={scriptBuilder} bind:topHash {initialPath} {script} {initialArgs} />
 {/if}

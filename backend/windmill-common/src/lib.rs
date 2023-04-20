@@ -15,6 +15,7 @@ pub mod error;
 pub mod external_ip;
 pub mod flow_status;
 pub mod flows;
+pub mod jobs;
 pub mod more_serde;
 pub mod oauth2;
 pub mod schedule;
@@ -30,7 +31,19 @@ pub const DEFAULT_MAX_CONNECTIONS_SERVER: u32 = 50;
 pub const DEFAULT_MAX_CONNECTIONS_WORKER: u32 = 3;
 
 lazy_static::lazy_static! {
+    pub static ref METRICS_ADDR: Option<SocketAddr> = std::env::var("METRICS_ADDR")
+    .ok()
+    .map(|s| {
+        s.parse::<bool>()
+            .map(|b| b.then(|| SocketAddr::from(([0, 0, 0, 0], 8001))))
+            .or_else(|_| s.parse::<SocketAddr>().map(Some))
+    })
+    .transpose().ok()
+    .flatten()
+    .flatten();
+    pub static ref METRICS_ENABLED: bool = METRICS_ADDR.is_some();
     pub static ref BASE_URL: String = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost".to_string());
+    pub static ref IS_READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 }
 
 #[cfg(feature = "tokio")]
@@ -58,14 +71,31 @@ pub async fn shutdown_signal(tx: tokio::sync::broadcast::Sender<()>) -> anyhow::
 pub async fn serve_metrics(
     addr: SocketAddr,
     mut rx: tokio::sync::broadcast::Receiver<()>,
+    ready_worker_endpoint: bool,
 ) -> Result<(), hyper::Error> {
+    use std::sync::atomic::Ordering;
+
     use axum::{routing::get, Router};
-    axum::Server::bind(&addr)
-        .serve(
-            Router::new()
-                .route("/metrics", get(metrics))
-                .into_make_service(),
+    use hyper::StatusCode;
+    let router = Router::new().route("/metrics", get(metrics));
+
+    let router = if ready_worker_endpoint {
+        router.route(
+            "/ready",
+            get(|| async {
+                if IS_READY.load(Ordering::Relaxed) {
+                    (StatusCode::OK, "ready")
+                } else {
+                    (StatusCode::INTERNAL_SERVER_ERROR, "not ready")
+                }
+            }),
         )
+    } else {
+        router
+    };
+
+    axum::Server::bind(&addr)
+        .serve(router.into_make_service())
         .with_graceful_shutdown(async {
             rx.recv().await.ok();
             println!("Graceful shutdown of metrics");

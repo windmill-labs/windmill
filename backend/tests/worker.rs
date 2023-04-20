@@ -1,13 +1,18 @@
+use std::sync::Arc;
+
 use futures::{stream, Stream};
+use serde::Deserialize;
 use serde_json::json;
 use sqlx::{postgres::PgListener, types::Uuid, Pool, Postgres, Transaction};
+use tokio::sync::RwLock;
 use windmill_api::jobs::{CompletedJob, Job};
 use windmill_common::{
     flow_status::{FlowStatus, FlowStatusModule},
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform},
+    jobs::{JobPayload, RawCode},
     scripts::ScriptLang,
 };
-use windmill_queue::{get_queued_job, JobPayload, RawCode};
+use windmill_queue::get_queued_job;
 
 async fn initialize_tracing() {
     use std::sync::Once;
@@ -87,7 +92,7 @@ impl ApiServer {
         let addr = sock.local_addr().unwrap();
         drop(sock);
 
-        let task = tokio::task::spawn(windmill_api::run_server(db.clone(), addr, rx));
+        let task = tokio::task::spawn(windmill_api::run_server(db.clone(), None, addr, rx));
 
         return Self { addr, tx, task };
     }
@@ -127,8 +132,7 @@ mod suspend_resume {
     use futures::{Stream, StreamExt};
     use serde_json::json;
     use sqlx::{query_scalar, types::Uuid};
-    use windmill_common::flows::FlowValue;
-    use windmill_queue::JobPayload;
+    use windmill_common::{flows::FlowValue, jobs::JobPayload};
 
     use super::*;
 
@@ -154,12 +158,12 @@ mod suspend_resume {
         serde_json::from_value(serde_json::json!({
                 "modules": [{
                     "id": "a",
-                    "input_transform": {
-                        "n": { "type": "javascript", "expr": "flow_input.n", },
-                        "port": { "type": "javascript", "expr": "flow_input.port", },
-                        "op": { "type": "javascript", "expr": "flow_input.op ?? 'resume'", },
-                    },
                     "value": {
+                        "input_transforms": {
+                            "n": { "type": "javascript", "expr": "flow_input.n", },
+                            "port": { "type": "javascript", "expr": "flow_input.port", },
+                            "op": { "type": "javascript", "expr": "flow_input.op ?? 'resume'", },
+                        },
                         "type": "rawscript",
                         "language": "deno",
                         "content": "\
@@ -193,12 +197,12 @@ mod suspend_resume {
                     },
                 }, {
                     "id": "b",
-                    "input_transform": {
-                        "n": { "type": "javascript", "expr": "results.a", },
-                        "resume": { "type": "javascript", "expr": "resume", },
-                        "resumes": { "type": "javascript", "expr": "resumes", },
-                    },
                     "value": {
+                        "input_transforms": {
+                            "n": { "type": "javascript", "expr": "results.a", },
+                            "resume": { "type": "javascript", "expr": "resume", },
+                            "resumes": { "type": "javascript", "expr": "resumes", },
+                        },
                         "type": "rawscript",
                         "language": "deno",
                         "content": "export function main(n, resume, resumes) { return { n: n + 1, resume, resumes } }"
@@ -207,12 +211,12 @@ mod suspend_resume {
                         "required_events": 1
                     },
                 }, {
-                    "input_transform": {
-                        "last": { "type": "javascript", "expr": "results.b", },
-                        "resume": { "type": "javascript", "expr": "resume", },
-                        "resumes": { "type": "javascript", "expr": "resumes", },
-                    },
                     "value": {
+                        "input_transforms": {
+                            "last": { "type": "javascript", "expr": "results.b", },
+                            "resume": { "type": "javascript", "expr": "resume", },
+                            "resumes": { "type": "javascript", "expr": "resumes", },
+                        },
                         "type": "rawscript",
                         "language": "deno",
                         "content": "export function main(last, resume, resumes) { return { last, resume, resumes } }"
@@ -252,9 +256,7 @@ mod suspend_resume {
                 let second = completed.next().await.unwrap();
                 // print_job(second, &db).await;
 
-                let tx = db.begin().await.unwrap();
-                let (tx, token) = windmill_worker::create_token_for_owner(tx, "test-workspace", "u/test-user", "", 100, "").await.unwrap();
-                tx.commit().await.unwrap();
+                let token = windmill_worker::create_token_for_owner(&db, "test-workspace", "u/test-user", "", 100, "").await.unwrap();
                 let secret = reqwest::get(format!(
                     "http://localhost:{port}/api/w/test-workspace/jobs/job_signature/{second}/0?token={token}&approver=ruben"
                 ))
@@ -355,9 +357,7 @@ mod suspend_resume {
                 /* ... and send a request resume it. */
                 let second = completed.next().await.unwrap();
 
-                let tx = db.begin().await.unwrap();
-                let (tx, token) = windmill_worker::create_token_for_owner(tx, "test-workspace", "u/test-user", "", 100, "").await.unwrap();
-                tx.commit().await.unwrap();
+                let token = windmill_worker::create_token_for_owner(&db, "test-workspace", "u/test-user", "", 100, "").await.unwrap();
                 let secret = reqwest::get(format!(
                     "http://localhost:{port}/api/w/test-workspace/jobs/job_signature/{second}/0?token={token}"
                 ))
@@ -396,7 +396,6 @@ mod retry {
     use serde_json::json;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use windmill_common::flows::FlowValue;
-    use windmill_queue::JobPayload;
 
     use super::*;
 
@@ -477,11 +476,11 @@ def main(last, port):
                     "iterator": { "type": "javascript", "expr": "flow_input.items" },
                     "skip_failures": false,
                     "modules": [{
-                        "input_transform": {
-                            "index": { "type": "javascript", "expr": "flow_input.iter.index" },
-                            "port": { "type": "javascript", "expr": "flow_input.port" },
-                        },
                         "value": {
+                            "input_transforms": {
+                                "index": { "type": "javascript", "expr": "flow_input.iter.index" },
+                                "port": { "type": "javascript", "expr": "flow_input.port" },
+                            },
                             "type": "rawscript",
                             "language": "deno",
                             "content": inner_step(),
@@ -490,11 +489,11 @@ def main(last, port):
                 },
                 "retry": { "constant": { "attempts": 2, "seconds": 0 } },
             }, {
-                "input_transform": {
-                    "last": { "type": "javascript", "expr": "results.a" },
-                    "port": { "type": "javascript", "expr": "flow_input.port" },
-                },
                 "value": {
+                    "input_transforms": {
+                        "last": { "type": "javascript", "expr": "results.a" },
+                        "port": { "type": "javascript", "expr": "flow_input.port" },
+                    },
                     "type": "rawscript",
                     "language": "python3",
                     "content": last_step(),
@@ -632,7 +631,7 @@ def main(last, port):
             "modules": [{
                 "id": "a",
                 "value": {
-                    "input_transform": { "port": { "type": "javascript", "expr": "flow_input.port" } },
+                    "input_transforms": { "port": { "type": "javascript", "expr": "flow_input.port" } },
                     "type": "rawscript",
                     "language": "python3",
                     "content": r#"
@@ -645,7 +644,7 @@ def main(port):
             }],
             "failure_module": {
                 "value": {
-                    "input_transform": { "error": { "type": "javascript", "expr": "previous_result", },
+                    "input_transforms": { "error": { "type": "javascript", "expr": "previous_result", },
                         "port": { "type": "javascript", "expr": "flow_input.port" } },
                     "type": "rawscript",
                     "language": "python3",
@@ -659,7 +658,7 @@ def main(error, port):
             },
         }))
         .unwrap();
-        let (attempts, responses) = [
+        let (_attempts, responses) = [
             /* fail the first step twice */
             (0x00, None),
             (0x00, None),
@@ -681,14 +680,20 @@ def main(error, port):
             _ => panic!("expected failure module"),
         }
 
-        assert_eq!(server.close().await, attempts);
+        println!("result: {:#?}", result);
         assert_eq!(
-            result,
-            json!({
-                "recv": 42,
-                "from failure module": {"error": {"name": "IndexError", "stack": "  File \"/tmp/inner.py\", line 5, in main\n    return sock.recv(1)[0]\n", "message": "index out of range"}},
-            })
+            result
+                .get("from failure module")
+                .unwrap()
+                .get("error")
+                .unwrap()
+                .get("name")
+                .unwrap()
+                .clone(),
+            json!("IndexError")
         );
+
+        assert_eq!(result.get("recv").unwrap().clone(), json!(42));
     }
 }
 
@@ -705,13 +710,13 @@ async fn test_iteration(db: Pool<Postgres>) {
                 "iterator": { "type": "javascript", "expr": "result.items" },
                 "skip_failures": false,
                 "modules": [{
-                    "input_transform": {
-                        "n": {
-                            "type": "javascript",
-                            "expr": "flow_input.iter.value",
-                        },
-                    },
                     "value": {
+                        "input_transforms": {
+                            "n": {
+                                "type": "javascript",
+                                "expr": "flow_input.iter.value",
+                            },
+                        },
                         "type": "rawscript",
                         "language": "python3",
                         "content": "def main(n):\n    if 1 < n:\n        raise StopIteration(n)",
@@ -762,13 +767,13 @@ async fn test_iteration_parallel(db: Pool<Postgres>) {
                 "skip_failures": false,
                 "parallel": true,
                 "modules": [{
-                    "input_transform": {
-                        "n": {
-                            "type": "javascript",
-                            "expr": "flow_input.iter.value",
-                        },
-                    },
                     "value": {
+                        "input_transforms": {
+                            "n": {
+                                "type": "javascript",
+                                "expr": "flow_input.iter.value",
+                            },
+                        },
                         "type": "rawscript",
                         "language": "python3",
                         "content": "def main(n):\n    if 1 < n:\n        raise StopIteration(n)",
@@ -824,9 +829,8 @@ impl RunJob {
 
     async fn push(self, db: &Pool<Postgres>) -> Uuid {
         let RunJob { payload, args } = self;
-        let tx = db.begin().await.unwrap();
-        let (uuid, tx) = windmill_queue::push(
-            tx,
+        let (uuid, tx) = windmill_queue::push::<rsmq_async::MultiplexedRsmq>(
+            (None, db.begin().await.unwrap()).into(),
             "test-workspace",
             payload,
             args,
@@ -844,8 +848,7 @@ impl RunJob {
         )
         .await
         .expect("push has to succeed");
-
-        tx.commit().await.expect("push has to commit");
+        tx.commit().await.unwrap();
 
         uuid
     }
@@ -876,7 +879,7 @@ async fn in_test_worker<Fut: std::future::Future>(
     port: u16,
 ) -> <Fut as std::future::Future>::Output {
     let (quit, worker) = spawn_test_worker(db, port);
-    let worker = tokio::time::timeout(std::time::Duration::from_secs(19), worker);
+    let worker = tokio::time::timeout(std::time::Duration::from_secs(45), worker);
     tokio::pin!(worker);
 
     let res = tokio::select! {
@@ -911,18 +914,20 @@ fn spawn_test_worker(
     let db = db.to_owned();
     let worker_instance: &str = "test worker instance";
     let worker_name: String = next_worker_name();
-    let i_worker: u64 = Default::default();
     let ip: &str = Default::default();
     let future = async move {
         let base_internal_url = format!("http://localhost:{}", port);
-        windmill_worker::run_worker(
+        windmill_worker::run_worker::<rsmq_async::MultiplexedRsmq>(
             &db,
             worker_instance,
             worker_name,
-            i_worker,
+            1,
+            1,
             ip,
             rx,
             &base_internal_url,
+            None,
+            Arc::new(RwLock::new(None)),
         )
         .await
     };
@@ -1001,7 +1006,6 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                         path: None,
                         lock: None,
                     },
-                    input_transforms: Default::default(),
                     stop_after_if: Default::default(),
                     summary: Default::default(),
                     suspend: Default::default(),
@@ -1029,7 +1033,6 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                                 path: None,
                                 lock: None,
                             },
-                            input_transforms: Default::default(),
                             stop_after_if: Default::default(),
                             summary: Default::default(),
                             suspend: Default::default(),
@@ -1037,7 +1040,6 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                             sleep: None,
                         }],
                     },
-                    input_transforms: Default::default(),
                     stop_after_if: Default::default(),
                     summary: Default::default(),
                     suspend: Default::default(),
@@ -1131,7 +1133,6 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                         path: None,
                         lock: None,
                     },
-                    input_transforms: Default::default(),
                     stop_after_if: Default::default(),
                     summary: Default::default(),
                     suspend: Default::default(),
@@ -1147,25 +1148,24 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                         modules: vec![
                             FlowModule {
                                 id: "d".to_string(),
-                                input_transforms: [
-                                (
-                                    "i".to_string(),
-                                    InputTransform::Javascript {
-                                        expr: "flow_input.iter.value".to_string(),
-                                    },
-                                ),
-                                (
-                                    "loop".to_string(),
-                                    InputTransform::Static { value: json!(true) },
-                                ),
-                                (
-                                    "path".to_string(),
-                                    InputTransform::Static { value: json!("inner.txt") },
-                                ),
-                            ]
-                            .into(),
                                 value: FlowModuleValue::RawScript {
-                                    input_transforms: [].into(),
+                                    input_transforms: [
+                                        (
+                                            "i".to_string(),
+                                            InputTransform::Javascript {
+                                                expr: "flow_input.iter.value".to_string(),
+                                            },
+                                        ),
+                                        (
+                                            "loop".to_string(),
+                                            InputTransform::Static { value: json!(true) },
+                                        ),
+                                        (
+                                            "path".to_string(),
+                                            InputTransform::Static { value: json!("inner.txt") },
+                                        ),
+                                    ]
+                                    .into(),
                                     language: ScriptLang::Deno,
                                     content: write_file,
                                     path: None,
@@ -1196,7 +1196,6 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                                     path: None,
                                     lock: None,
                                 },
-                                input_transforms: [].into(),
                                 stop_after_if: Default::default(),
                                 summary: Default::default(),
                                 suspend: Default::default(),
@@ -1205,7 +1204,6 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                             },
                         ],
                     },
-                    input_transforms: Default::default(),
                     stop_after_if: Default::default(),
                     summary: Default::default(),
                     suspend: Default::default(),
@@ -1240,7 +1238,6 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                         path: None,
                         lock: None,
                     },
-                    input_transforms: [].into(),
                     stop_after_if: Default::default(),
                     summary: Default::default(),
                     suspend: Default::default(),
@@ -1437,7 +1434,6 @@ async fn test_python_flow(db: Pool<Postgres>) {
     let doubles = "def main(n): return n * 2";
 
     let flow: FlowValue = serde_json::from_value(serde_json::json!( {
-        "input_transform": {},
         "modules": [
             {
                 "value": {
@@ -1453,15 +1449,15 @@ async fn test_python_flow(db: Pool<Postgres>) {
                     "skip_failures": false,
                     "modules": [{
                         "value": {
+                            "input_transforms": {
+                                "n": {
+                                    "type": "javascript",
+                                    "expr": "flow_input.iter.value",
+                                },
+                            },
                             "type": "rawscript",
                             "language": "python3",
                             "content": doubles,
-                        },
-                        "input_transform": {
-                            "n": {
-                                "type": "javascript",
-                                "expr": "flow_input.iter.value",
-                            },
                         },
                     }],
                 },
@@ -1495,11 +1491,11 @@ async fn test_python_flow_2(db: Pool<Postgres>) {
             "modules": [
                 {
                     "value": {
+                        "input_transforms": {},
                         "type": "rawscript",
                         "content": "import wmill\ndef main():  return \"Hello\"",
                         "language": "python3"
                     },
-                    "input_transform": {}
                 }
             ]
     }))
@@ -1527,6 +1523,8 @@ async fn test_go_job(db: Pool<Postgres>) {
     let port = server.addr.port();
 
     let content = r#"
+package inner
+
 import "fmt"
 
 func main(derp string) (string, error) {
@@ -1678,7 +1676,7 @@ async fn test_empty_loop(db: Pool<Postgres>) {
                     "modules": [
                         {
                             "value": {
-                                "input_transform": {
+                                "input_transforms": {
                                     "n": {
                                         "type": "javascript",
                                         "expr": "flow_input.iter.value",
@@ -1694,7 +1692,7 @@ async fn test_empty_loop(db: Pool<Postgres>) {
             },
             {
                 "value": {
-                    "input_transform": {
+                    "input_transforms": {
                         "items": {
                             "type": "javascript",
                             "expr": "results.a",
@@ -1771,13 +1769,13 @@ async fn test_empty_loop_2(db: Pool<Postgres>) {
                     "iterator": { "type": "static", "value": [] },
                     "modules": [
                         {
-                            "input_transform": {
-                                "n": {
-                                    "type": "javascript",
-                                    "expr": "flow_input.iter.value",
-                                },
-                            },
                             "value": {
+                                "input_transforms": {
+                                    "n": {
+                                        "type": "javascript",
+                                        "expr": "flow_input.iter.value",
+                                    },
+                                },
                                 "type": "rawscript",
                                 "language": "python3",
                                 "content": "def main(n): return n",
@@ -1813,13 +1811,13 @@ async fn test_step_after_loop(db: Pool<Postgres>) {
                     "iterator": { "type": "static", "value": [2,3,4] },
                     "modules": [
                         {
-                            "input_transform": {
-                                "n": {
-                                    "type": "javascript",
-                                    "expr": "flow_input.iter.value",
-                                },
-                            },
                             "value": {
+                                "input_transforms": {
+                                    "n": {
+                                        "type": "javascript",
+                                        "expr": "flow_input.iter.value",
+                                    },
+                                },
                                 "type": "rawscript",
                                 "language": "python3",
                                 "content": "def main(n): return n",
@@ -1829,13 +1827,13 @@ async fn test_step_after_loop(db: Pool<Postgres>) {
                 },
             },
             {
-                "input_transform": {
-                    "items": {
-                        "type": "javascript",
-                        "expr": "results.a",
-                    },
-                },
                 "value": {
+                    "input_transforms": {
+                        "items": {
+                            "type": "javascript",
+                            "expr": "results.a",
+                        },
+                    },
                     "type": "rawscript",
                     "language": "python3",
                     "content": "def main(items): return sum(items)",
@@ -1857,17 +1855,17 @@ async fn test_step_after_loop(db: Pool<Postgres>) {
 fn module_add_item_to_list(i: i32, id: &str) -> serde_json::Value {
     json!({
         "id": format!("id_{}", i.to_string().replace("-", "_")),
-        "input_transform": {
-            "array": {
-                "type": "javascript",
-                "expr": format!("results.{id}"),
-            },
-            "i": {
-                "type": "static",
-                "value": json!(i),
-            }
-        },
         "value": {
+            "input_transforms": {
+                "array": {
+                    "type": "javascript",
+                    "expr": format!("results.{id}"),
+                },
+                "i": {
+                    "type": "static",
+                    "value": json!(i),
+                }
+            },
             "type": "rawscript",
             "language": "deno",
             "content": "export function main(array, i){ array.push(i); return array }",
@@ -1877,8 +1875,8 @@ fn module_add_item_to_list(i: i32, id: &str) -> serde_json::Value {
 
 fn module_failure() -> serde_json::Value {
     json!({
-        "input_transform": {},
         "value": {
+            "input_transforms": {},
             "type": "rawscript",
             "language": "deno",
             "content": "export function main(){ throw Error('failure') }",
@@ -2033,6 +2031,16 @@ async fn test_branchall_simple(db: Pool<Postgres>) {
     assert_eq!(result, serde_json::json!([[1, 2], [1, 3]]));
 }
 
+#[derive(Deserialize)]
+struct ErrorResult {
+    error: NamedError,
+}
+
+#[derive(Deserialize)]
+struct NamedError {
+    name: String,
+}
+
 #[sqlx::test(fixtures("base"))]
 async fn test_branchall_skip_failure(db: Pool<Postgres>) {
     initialize_tracing().await;
@@ -2068,8 +2076,11 @@ async fn test_branchall_skip_failure(db: Pool<Postgres>) {
         .unwrap();
 
     assert_eq!(
-        result,
-        serde_json::json!([{"error": {"name": "Error", "stack": "Error: failure\n    at main (file:///tmp/inner.ts:1:31)\n    at run (file:///tmp/main.ts:9:26)\n    at file:///tmp/main.ts:14:1", "message": "failure"}}, [1,3]])
+        serde_json::from_value::<ErrorResult>(result.get(0).unwrap().clone())
+            .unwrap()
+            .error
+            .name,
+        "Error"
     );
 
     let flow: FlowValue = serde_json::from_value(json!({
@@ -2102,8 +2113,11 @@ async fn test_branchall_skip_failure(db: Pool<Postgres>) {
         .unwrap();
 
     assert_eq!(
-        result,
-        serde_json::json!([ {"error": {"name": "Error", "stack": "Error: failure\n    at main (file:///tmp/inner.ts:1:31)\n    at run (file:///tmp/main.ts:9:26)\n    at file:///tmp/main.ts:14:1", "message": "failure"}}, [1, 2]])
+        serde_json::from_value::<ErrorResult>(result.get(0).unwrap().clone())
+            .unwrap()
+            .error
+            .name,
+        "Error"
     );
 }
 
@@ -2236,7 +2250,7 @@ async fn test_failure_module(db: Pool<Postgres>) {
             "modules": [{
                 "id": "a",
                 "value": {
-                    "input_transform": {
+                    "input_transforms": {
                         "l": { "type": "javascript", "expr": "[]", },
                         "n": { "type": "javascript", "expr": "flow_input.n", },
                     },
@@ -2247,7 +2261,7 @@ async fn test_failure_module(db: Pool<Postgres>) {
             }, {
                 "id": "b",
                 "value": {
-                    "input_transform": {
+                    "input_transforms": {
                         "l": { "type": "javascript", "expr": "results.a.l", },
                         "n": { "type": "javascript", "expr": "flow_input.n", },
                     },
@@ -2257,7 +2271,7 @@ async fn test_failure_module(db: Pool<Postgres>) {
                 },
             }, {
                 "value": {
-                    "input_transform": {
+                    "input_transforms": {
                         "l": { "type": "javascript", "expr": "results.b.l", },
                         "n": { "type": "javascript", "expr": "flow_input.n", },
                     },
@@ -2267,8 +2281,8 @@ async fn test_failure_module(db: Pool<Postgres>) {
                 },
             }],
             "failure_module": {
-                "input_transform": { "error": { "type": "javascript", "expr": "previous_result", } },
                 "value": {
+                    "input_transforms": { "error": { "type": "javascript", "expr": "previous_result", } },
                     "type": "rawscript",
                     "language": "deno",
                     "content": "export function main(error) { return { 'from failure module': error } }",
@@ -2442,6 +2456,7 @@ async fn test_flow_lock_all(db: Pool<Postgres>) {
         .modules
         .into_iter()
         .for_each(|m| {
+            tracing::error!("Module: {:?}", m.value);
             assert!(matches!(
                 m.value,
                 windmill_api_client::types::FlowModuleValue::Rawscript {

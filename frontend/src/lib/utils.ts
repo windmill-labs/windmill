@@ -1,19 +1,12 @@
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
 import { goto } from '$app/navigation'
-import {
-	AppService,
-	FlowService,
-	Script,
-	ScriptService,
-	UserService,
-	type Flow,
-	type User
-} from '$lib/gen'
+import { AppService, type Flow, FlowService, Script, ScriptService, type User } from '$lib/gen'
 import { toast } from '@zerodevx/svelte-toast'
 import type { Schema, SupportedLanguage } from './common'
-import { hubScripts, workspaceStore, type UserExt } from './stores'
+import { hubScripts, type UserExt, workspaceStore } from './stores'
 import { page } from '$app/stores'
 import { get } from 'svelte/store'
+import Toast from '$lib/components/Toast.svelte'
 
 export function validateUsername(username: string): string {
 	if (username != '' && !/^\w+$/.test(username)) {
@@ -86,15 +79,33 @@ export function getToday() {
 	return today
 }
 
-export function sendUserToast(message: string, error: boolean = false): void {
-	if (error) {
-		toast.push(message, {
-			theme: {
-				'--toastBackground': '#FEE2E2',
-				'--toastBarBackground': '#FEE2E2'
-			}
-		})
-	} else toast.push(message)
+export type ToastAction = {
+	label: string
+	callback: () => void
+}
+
+export function sendUserToast(
+	message: string,
+	error: boolean = false,
+	actions: ToastAction[] = []
+): void {
+	toast.push({
+		component: {
+			src: Toast,
+			props: {
+				message,
+				error,
+				actions
+			},
+			sendIdTo: 'toastId'
+		},
+		dismissable: false,
+		initial: 0,
+		theme: {
+			'--toastPadding': '0',
+			'--toastMsgPadding': '0'
+		}
+	})
 }
 
 export function truncateHash(hash: string): string {
@@ -180,13 +191,27 @@ export function removeItemAll<T>(arr: T[], value: T) {
 	return arr
 }
 
-export async function isOwner(path: string, user: UserExt, workspace: string): Promise<boolean> {
-	if (user.is_admin && (workspace == 'starter' || workspace == 'admin') && user.is_super_admin) {
-		return true
-	} else if (workspace == 'starter' || workspace == 'admin') {
+export function isOwner(
+	path: string,
+	user: UserExt | undefined,
+	workspace: string | undefined
+): boolean {
+	if (!user || !workspace) {
 		return false
+	}
+	if (user.is_super_admin) {
+		return true
+	}
+	if (workspace == 'admin') {
+		return false
+	} else if (user.is_admin) {
+		return true
+	} else if (path.startsWith('u/' + user.username + '/')) {
+		return true
+	} else if (path.startsWith('f/')) {
+		return user.folders_owners.some((x) => path.startsWith('f/' + x + '/'))
 	} else {
-		return await UserService.isOwnerOfPath({ path: path, workspace: workspace })
+		return false
 	}
 }
 
@@ -215,6 +240,9 @@ export function canWrite(
 	extra_perms: Record<string, boolean>,
 	user?: UserExt
 ): boolean {
+	if (user?.is_admin || user?.is_super_admin) {
+		return true
+	}
 	let keys = Object.keys(extra_perms)
 	if (!user) {
 		return false
@@ -486,7 +514,7 @@ export function scriptPathToHref(path: string): string {
 	if (path.startsWith('hub/')) {
 		return 'https://hub.windmill.dev/from_version/' + path.substring(4)
 	} else {
-		return `/scripts/get/${path}?workspace_id=${get(workspaceStore)}`
+		return `/scripts/get/${path}?workspace=${get(workspaceStore)}`
 	}
 }
 
@@ -623,9 +651,7 @@ export function classNames(...classes: Array<string | undefined>): string {
 	return classes.filter(Boolean).join(' ')
 }
 
-export function scriptLangToEditorLang(
-	lang: Script.language
-): 'typescript' | 'python' | 'go' | 'shell' {
+export function scriptLangToEditorLang(lang: Script.language) {
 	if (lang == 'deno') {
 		return 'typescript'
 	} else if (lang == 'python3') {
@@ -712,4 +738,28 @@ export function isMac(): boolean {
 
 export function getModifierKey(): string {
 	return isMac() ? '⌘' : 'CTRL'
+}
+
+export function isValidHexColor(color: string): boolean {
+	return /^#(([A-F0-9]{2}){3,4}|[A-F0-9]{3})$/i.test(color)
+}
+
+export function sortObject<T>(o: T & object): T {
+	return Object.keys(o)
+		.sort()
+		.reduce((obj, key) => {
+			obj[key] = obj[key]
+			return obj
+		}, {}) as T
+}
+
+export function generateRandomString(): string {
+	let chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
+	let result = ''
+
+	for (let i = 0; i < 24; i++) {
+		result += chars.charAt(Math.floor(Math.random() * chars.length))
+	}
+
+	return result
 }

@@ -11,9 +11,9 @@
 	export let onClick: boolean = false
 	export let onLoad: boolean = false
 	export let id: string | undefined = undefined
+	export let recomputeOnInputChanged: boolean = false
 
 	const colors = {
-		red: 'text-red-800 border-red-600 bg-red-100',
 		green: 'text-green-800 border-green-600 bg-green-100',
 		indigo: 'text-indigo-800 border-indigo-600 bg-indigo-100',
 		blue: 'text-blue-800 border-blue-600 bg-blue-100'
@@ -21,8 +21,7 @@
 
 	let badgeClass = 'inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border'
 
-	const recomputedBadges: string[] = []
-	const { app, selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
+	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
 	const { connectingInput } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -60,6 +59,7 @@
 				input: undefined,
 				hoveredComponent: undefined
 			}
+			$app = $app
 		}
 	}
 
@@ -70,15 +70,7 @@
 
 	$: $connectingInput && applyConnection()
 
-	$: if ($app && $selectedComponent && id) {
-		const recomputeIds = getAllRecomputeIdsForComponent($app, id)
-
-		if ($selectedComponent && recomputeIds) {
-			recomputeIds.forEach((x) => {
-				recomputedBadges.push(x)
-			})
-		}
-	}
+	$: recomputedBadges = getAllRecomputeIdsForComponent($app, id)
 
 	function deleteDep(index: number) {
 		if (inlineScript) {
@@ -90,11 +82,11 @@
 
 <div class="flex w-full flex-col items-start gap-2 mt-2 mb-1">
 	{#if recomputedBadges.length === 0 && !onLoad && !onClick && inputDependencies?.length === 0 && !frontendDependencies}
-		<p class="text-xs font-semibold text-slate-800 ">
+		<p class="text-xs font-semibold text-slate-800">
 			This script has no triggers. It will never run.
 		</p>
 	{:else}
-		<div class="text-sm font-semibold text-gray-800 ">Triggered by</div>
+		<div class="text-sm font-semibold text-gray-800">Triggered by</div>
 
 		{#if onLoad || onClick}
 			<div class="w-full">
@@ -110,7 +102,7 @@
 				</div>
 			</div>
 		{/if}
-		{#if inputDependencies.length > 0}
+		{#if inputDependencies.length > 0 && (recomputeOnInputChanged ?? true)}
 			<div class="w-full">
 				<div class="flex justify-between items-center mb-1">
 					<div class="text-xs font-semibold text-slate-800">Change on values</div>
@@ -136,7 +128,8 @@
 			</div>
 		{/if}
 	{/if}
-	{#if frontendDependencies}
+
+	{#if frontendDependencies && recomputeOnInputChanged}
 		<div class="w-full">
 			<div class="flex justify-between items-center">
 				<div class="text-xs font-semibold text-slate-800 mb-1">Change on values</div>
@@ -162,13 +155,13 @@
 					</Button>
 				{/if}
 			</div>
-			<div class="flex flex-row gap-2 flex-wrap">
+			<div class="flex flex-row gap-2 flex-wrap mt-2">
 				{#each frontendDependencies as label, index}
-					<span class={classNames(badgeClass, colors['red'])}>
+					<span class={classNames(badgeClass, colors['blue'])}>
 						{label}
 						<button
 							on:click={() => deleteDep(index)}
-							class="bg-red-300 cursor-pointer hover:bg-red-400 ml-1 rounded-md"
+							class="bg-blue-300 cursor-pointer hover:bg-blue-400 ml-1 rounded-md"
 						>
 							<X size={18} class="p-0.5" />
 						</button>

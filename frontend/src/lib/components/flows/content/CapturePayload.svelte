@@ -85,11 +85,9 @@
 		</div>
 		<div class="items-center flex flex-row gap-x-2 text-xs text-gray-600">
 			Listening for new requests
-			<WindmillIcon
-				class="animate-[pulse_5s_linear_infinite] animate-[spin_5s_linear_infinite]"
-			/></div
+			<WindmillIcon class="animate-[pulse_5s_linear_infinite]" spin="fast" /></div
 		>
-		<div class="box p-2 my-2  mb-4">
+		<div class="box p-2 my-2 mb-4">
 			<ObjectViewer topBrackets={true} json={captureInput} />
 		</div>
 		<svelte:fragment slot="actions">

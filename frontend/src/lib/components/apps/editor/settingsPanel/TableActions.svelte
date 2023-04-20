@@ -1,13 +1,17 @@
 <script lang="ts">
 	import { Badge } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { getNextId } from '$lib/components/flows/flowStateUtils'
+	import { getNextId } from '$lib/components/flows/idUtils'
 	import { classNames } from '$lib/utils'
 	import { faPlus, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
 	import type { AppViewerContext, BaseAppComponent } from '../../types'
-	import { appComponentFromType } from '../appUtils'
+	import {
+		appComponentFromType,
+		clearErrorByComponentId,
+		clearJobsByComponentId
+	} from '../appUtils'
 	import type { ButtonComponent } from '../component'
 	import PanelSection from './common/PanelSection.svelte'
 	import TableActionLabel from './TableActionLabel.svelte'
@@ -15,7 +19,8 @@
 	export let components: (BaseAppComponent & ButtonComponent)[]
 	export let id: string
 
-	const { selectedComponent } = getContext<AppViewerContext>('AppViewerContext')
+	const { selectedComponent, app, errorByComponent, jobs } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	function addComponent() {
 		const actionId = getNextId(components.map((x) => x.id.split('_')[1]))
@@ -25,11 +30,17 @@
 			recomputeIds: []
 		}
 		components = [...components, newComponent]
+		$app = $app
 	}
 
 	function deleteComponent(cid: string) {
 		components = components.filter((x) => x.id !== cid)
-		$selectedComponent = id
+
+		$errorByComponent = clearErrorByComponentId(cid, $errorByComponent)
+		$jobs = clearJobsByComponentId(cid, $jobs)
+
+		$selectedComponent = [id]
+		$app = $app
 	}
 </script>
 
@@ -53,10 +64,10 @@
 			class={classNames(
 				'w-full text-xs font-bold gap-1 truncate py-1.5 px-2 cursor-pointer transition-all justify-between flex items-center border border-gray-3 rounded-md',
 				'bg-white border-gray-300  hover:bg-gray-100 focus:bg-gray-100 text-gray-700',
-				$selectedComponent === component.id ? 'outline outline-blue-500 bg-red-400' : ''
+				$selectedComponent?.includes(component.id) ? 'outline outline-blue-500 bg-red-400' : ''
 			)}
 			on:click={() => {
-				$selectedComponent = component.id
+				$selectedComponent = [component.id]
 			}}
 			on:keypress
 		>

@@ -6,10 +6,10 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use rand::{distributions::Alphanumeric, thread_rng, Rng};
-use serde::Deserialize;
-
 use crate::error::{Error, Result};
+use rand::{distributions::Alphanumeric, thread_rng, Rng};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 pub const MAX_PER_PAGE: usize = 10000;
 pub const DEFAULT_PER_PAGE: usize = 1000;
@@ -19,7 +19,8 @@ pub struct Pagination {
     pub page: Option<usize>,
     pub per_page: Option<usize>,
 }
-#[derive(Deserialize)]
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct StripPath(pub String);
 
 impl StripPath {
@@ -51,8 +52,8 @@ pub fn paginate(pagination: Pagination) -> (usize, usize) {
 }
 
 #[cfg(feature = "sqlx")]
-pub async fn now_from_db<'c>(
-    db: &mut sqlx::Transaction<'c, sqlx::Postgres>,
+pub async fn now_from_db<'c, E: sqlx::PgExecutor<'c>>(
+    db: E,
 ) -> Result<chrono::DateTime<chrono::Utc>> {
     Ok(sqlx::query_scalar!("SELECT now()")
         .fetch_one(db)
@@ -117,4 +118,10 @@ pub fn rd_string(len: usize) -> String {
         .take(len)
         .map(char::from)
         .collect()
+}
+
+pub fn calculate_hash(s: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(s);
+    format!("{:x}", hasher.finalize())
 }

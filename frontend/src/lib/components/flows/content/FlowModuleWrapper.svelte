@@ -46,7 +46,6 @@
 
 		{#if flowModule.value.flow}
 			<FlowInputsFlow
-				failureModule={$selectedId === 'failure'}
 				on:pick={async ({ detail }) => {
 					const { path, summary } = detail
 					const [module, state] = await pickFlow(path, summary, flowModule.id)

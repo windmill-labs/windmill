@@ -1,8 +1,8 @@
 import type { ReadFileAs } from '../common/fileInput/model'
-import type { staticValues } from './editor/componentsPanel/componentStaticValues'
 import type { InlineScript } from './types'
 
 export type InputType =
+	| 'integer'
 	| 'text'
 	| 'textarea'
 	| 'template'
@@ -18,6 +18,8 @@ export type InputType =
 	| 'array'
 	| 'any'
 	| 'labeledresource'
+	| 'labeledselect'
+	| 'tab-select'
 
 // Connection to an output of another component
 // defined by the id of the component and the path of the output
@@ -87,6 +89,9 @@ export type ResultInput = {
 	fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
 	type: 'runnable'
 	value?: any
+	// kept for migration purposes
+	doNotRecomputeOnInputChanged?: boolean
+	recomputeOnInputChanged?: boolean
 }
 
 type AppInputSpec<T extends InputType, U, V extends InputType = never> = (
@@ -121,11 +126,8 @@ type InputConfiguration<T extends InputType, V extends InputType> = {
 	}
 }
 
-type StaticOptions = {
-	/**
-	 * One of the keys of `staticValues` from `lib/components/apps/editor/componentsPanel/componentStaticValues`
-	 */
-	optionValuesKey: keyof typeof staticValues
+export type StaticOptions = {
+	selectOptions: readonly string[] | readonly { value: string; label: string }[]
 }
 
 export type AppInput =
@@ -140,12 +142,6 @@ export type AppInput =
 	| AppInputSpec<'any', any>
 	| AppInputSpec<'object', Record<string | number, any>>
 	| AppInputSpec<'object', string>
-	| (AppInputSpec<'select', string> & {
-			/**
-			 * One of the keys of `staticValues` from `lib/components/apps/editor/componentsPanel/componentStaticValues`
-			 */
-			optionValuesKey: keyof typeof staticValues
-	  })
 	| (AppInputSpec<'select', string> & StaticOptions)
 	| AppInputSpec<'icon-select', string>
 	| AppInputSpec<'color', string>
@@ -157,12 +153,12 @@ export type AppInput =
 	| AppInputSpec<'array', string[], 'time'>
 	| AppInputSpec<'array', string[], 'datetime'>
 	| AppInputSpec<'array', object[], 'object'>
-	| (AppInputSpec<'array', string[], 'select'> & {
-			optionValuesKey: keyof typeof staticValues
-	  })
 	| (AppInputSpec<'array', string[], 'select'> & StaticOptions)
 	| AppInputSpec<'array', object[], 'labeledresource'>
+	| AppInputSpec<'array', object[], 'labeledselect'>
+	| AppInputSpec<'labeledselect', object>
 	| AppInputSpec<'labeledresource', object>
+	| AppInputSpec<'array', object[], 'tab-select'>
 
 export type RowAppInput = Extract<AppInput, { type: 'row' }>
 export type StaticAppInput = Extract<AppInput, { type: 'static' }>

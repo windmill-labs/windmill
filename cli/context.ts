@@ -117,22 +117,8 @@ export async function tryResolveVersion(
   }
 }
 
-export async function validatePath(
-  opts: GlobalOptions,
-  path: string
-): Promise<boolean> {
-  const backendVersion = await tryResolveVersion(opts);
-  if (path.startsWith("f")) {
-    if (!backendVersion || backendVersion >= 1550) {
-      return true;
-    }
-    console.log(
-      `Attempting to use folders, but the current remote does not have support. Remote version is ${backendVersion} but folders are supported from 1560.`
-    );
-    return false;
-  }
-
-  if (!(path.startsWith("g") || path.startsWith("u"))) {
+export function validatePath(path: string): boolean {
+  if (!(path.startsWith("g") || path.startsWith("u") || path.startsWith("f"))) {
     console.log(
       colors.red(
         "Given remote path looks invalid. Remote paths are typically of the form <u|g|f>/<username|group|folder>/..."

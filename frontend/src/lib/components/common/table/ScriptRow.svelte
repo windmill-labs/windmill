@@ -8,7 +8,7 @@
 
 	import { ScriptService, type Script } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { capitalize, sendUserToast } from '$lib/utils'
+	import { capitalize, isOwner, sendUserToast } from '$lib/utils'
 	import {
 		faArchive,
 		faCalendarAlt,
@@ -21,7 +21,6 @@
 		faShare,
 		faTrashAlt
 	} from '@fortawesome/free-solid-svg-icons'
-	import { MoreVertical } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Badge from '../badge/Badge.svelte'
 	import Button from '../button/Button.svelte'
@@ -54,6 +53,20 @@
 		await ScriptService.archiveScriptByPath({ workspace: $workspaceStore!, path })
 		dispatch('change')
 		sendUserToast(`Archived script ${path}`)
+	}
+
+	async function unarchiveScript(path: string): Promise<void> {
+		const r = await ScriptService.getScriptByPath({ workspace: $workspaceStore!, path })
+		await ScriptService.createScript({
+			workspace: $workspaceStore!,
+			requestBody: {
+				...r,
+				parent_hash: r.hash,
+				lock: r.lock?.split('\n')
+			}
+		})
+		dispatch('change')
+		sendUserToast(`Unarchived script ${path}`)
 	}
 
 	async function deleteScript(path: string): Promise<void> {
@@ -104,7 +117,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: faEdit }}
-							href="/scripts/edit/{hash}?step=2"
+							href="/scripts/edit/{hash}"
 						>
 							Edit
 						</Button>
@@ -125,7 +138,7 @@
 			{/if}
 
 			<Button
-				href="/scripts/get/{hash}?workspace_id={$workspaceStore}"
+				href="/scripts/get/{hash}?workspace={$workspaceStore}"
 				color="light"
 				variant="border"
 				size="xs"
@@ -146,88 +159,91 @@
 		</span>
 		<Dropdown
 			placement="bottom-end"
-			dropdownItems={[
-				{
-					displayName: 'View script',
-					icon: faEye,
-					href: `/scripts/get/${hash}?workspace_id=${$workspaceStore}`
-				},
+			dropdownItems={() => {
+				let owner = isOwner(path, $userStore, $workspaceStore)
+				return [
+					{
+						displayName: 'View script',
+						icon: faEye,
+						href: `/scripts/get/${hash}?workspace=${$workspaceStore}`
+					},
 
-				{
-					displayName: 'Edit',
-					icon: faEdit,
-					href: `/scripts/edit/${hash}`,
-					disabled: !canWrite || archived
-				},
-				{
-					displayName: 'Edit code',
-					icon: faEdit,
-					href: `/scripts/edit/${hash}?step=2`,
-					disabled: !canWrite || archived
-				},
-				{
-					displayName: 'Use as template',
-					icon: faCodeFork,
-					href: `/scripts/add?template=${path}`
-				},
-				{
-					displayName: 'Move/Rename',
-					icon: faFileExport,
-					action: () => {
-						moveDrawer.openDrawer(path, summary, 'script')
+					{
+						displayName: 'Edit',
+						icon: faEdit,
+						href: `/scripts/edit/${hash}`,
+						disabled: !canWrite || archived
 					},
-					disabled: !canWrite || archived
-				},
-				{
-					displayName: 'View runs',
-					icon: faList,
-					href: `/runs/${path}`
-				},
-				{
-					displayName: 'Schedule',
-					icon: faCalendarAlt,
-					action: () => {
-						scheduleEditor.openNew(false, path)
+					{
+						displayName: 'Edit code',
+						icon: faEdit,
+						href: `/scripts/edit/${hash}`,
+						disabled: !canWrite || archived
 					},
-					disabled: archived
-				},
-				{
-					displayName: canWrite ? 'Share' : 'See Permissions',
-					icon: faShare,
-					action: () => {
-						shareModal.openDrawer && shareModal.openDrawer(path, 'script')
+					{
+						displayName: 'Use as template',
+						icon: faCodeFork,
+						href: `/scripts/add?template=${path}`
 					},
-					disabled: archived
-				},
-				{
-					displayName: 'Archive',
-					icon: faArchive,
-					action: () => {
-						path ? archiveScript(path) : null
+					{
+						displayName: 'Move/Rename',
+						icon: faFileExport,
+						action: () => {
+							moveDrawer.openDrawer(path, summary, 'script')
+						},
+						disabled: !owner || archived
 					},
-					type: 'delete',
-					disabled: !canWrite || archived
-				},
-				...($userStore?.is_admin || $userStore?.is_super_admin
-					? []
-					: [
-							{
-								displayName: 'Delete',
-								icon: faTrashAlt,
-								action: (event) => {
-									if (event?.shiftKey) {
-										deleteScript(path)
-									} else {
-										deleteConfirmedCallback = () => {
+					{
+						displayName: 'View runs',
+						icon: faList,
+						href: `/runs/${path}`
+					},
+					{
+						displayName: 'Schedule',
+						icon: faCalendarAlt,
+						action: () => {
+							scheduleEditor.openNew(false, path)
+						},
+						disabled: archived
+					},
+					{
+						displayName: owner ? 'Share' : 'See Permissions',
+						icon: faShare,
+						action: () => {
+							shareModal.openDrawer && shareModal.openDrawer(path, 'script')
+						},
+						disabled: archived
+					},
+					{
+						displayName: archived ? 'Unarchive' : 'Archive',
+						icon: faArchive,
+						action: () => {
+							archived ? path && unarchiveScript(path) : path && archiveScript(path)
+						},
+						type: 'delete',
+						disabled: !owner
+					},
+					...($userStore?.is_admin || $userStore?.is_super_admin
+						? [
+								{
+									displayName: 'Delete',
+									icon: faTrashAlt,
+									action: (event) => {
+										if (event?.shiftKey) {
 											deleteScript(path)
+										} else {
+											deleteConfirmedCallback = () => {
+												deleteScript(path)
+											}
 										}
-									}
-								},
-								type: dlt,
-								disabled: !canWrite
-							}
-					  ])
-			]}
+									},
+									type: dlt,
+									disabled: !canWrite
+								}
+						  ]
+						: [])
+				]
+			}}
 		/>
 	</svelte:fragment>
 </Row>

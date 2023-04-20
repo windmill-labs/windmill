@@ -1,17 +1,17 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
 	import { ScriptService, type FlowModule, type InputTransform, type Job } from '$lib/gen'
-	import { getScriptByPath, sendUserToast, truncateRev } from '$lib/utils'
-	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import RunForm from './RunForm.svelte'
-	import TestJobLoader from './TestJobLoader.svelte'
-	import LogViewer from './LogViewer.svelte'
-	import DisplayResult from './DisplayResult.svelte'
-	import Button from './common/button/Button.svelte'
 	import { workspaceStore } from '$lib/stores'
+	import { getModifierKey, getScriptByPath } from '$lib/utils'
 	import { Loader2 } from 'lucide-svelte'
 	import { getContext } from 'svelte'
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import Button from './common/button/Button.svelte'
+	import DisplayResult from './DisplayResult.svelte'
 	import type { FlowEditorContext } from './flows/types'
+	import LogViewer from './LogViewer.svelte'
+	import RunForm from './RunForm.svelte'
+	import TestJobLoader from './TestJobLoader.svelte'
 
 	export let mod: FlowModule
 	export let schema: Schema
@@ -43,14 +43,14 @@
 
 	export async function runTest(args: any) {
 		const val = mod.value
-		let jobId: string | undefined = undefined
+		// let jobId: string | undefined = undefined
 		if (val.type == 'rawscript') {
-			jobId = await testJobLoader?.runPreview(val.path, val.content, val.language, args)
+			await testJobLoader?.runPreview(val.path, val.content, val.language, args)
 		} else if (val.type == 'script') {
 			const script = val.hash
 				? await ScriptService.getScriptByHash({ workspace: $workspaceStore!, hash: val.hash })
 				: await getScriptByPath(val.path)
-			jobId = await testJobLoader?.runPreview(val.path, script.content, script.language, args)
+			await testJobLoader?.runPreview(val.path, script.content, script.language, args)
 		} else {
 			throw Error('not testable module type')
 		}
@@ -86,7 +86,7 @@
 			runnable={{ summary: mod.summary ?? '', schema, description: '' }}
 			runAction={(_, args) => runTest(args)}
 			schedulable={false}
-			buttonText="Test (Ctrl+Enter)"
+			buttonText={`Test (${getModifierKey()}+Enter)`}
 			detailed={false}
 			topButton
 			bind:args={stepArgs}

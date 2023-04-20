@@ -6,9 +6,11 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::collections::HashMap;
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
-use deno_core::{op, serde_v8, v8, v8::IsolateHandle, Extension, JsRuntime, RuntimeOptions};
+use deno_core::{
+    op, serde_v8, v8, v8::IsolateHandle, Extension, JsRuntime, OpState, RuntimeOptions,
+};
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -17,10 +19,7 @@ use tokio::{sync::oneshot, time::timeout};
 use uuid::Uuid;
 use windmill_common::{error::Error, flow_status::JobResult};
 
-pub struct EvalCreds {
-    pub workspace: String,
-    pub token: String,
-}
+use crate::AuthedClient;
 
 #[derive(Debug, Clone)]
 pub struct IdContext {
@@ -29,22 +28,23 @@ pub struct IdContext {
     pub previous_id: String,
 }
 
+pub struct OptAuthedClient(Option<AuthedClient>);
 pub async fn eval_timeout(
     expr: String,
     env: Vec<(String, serde_json::Value)>,
-    creds: Option<EvalCreds>,
+    authed_client: Option<&AuthedClient>,
     by_id: Option<IdContext>,
-    base_internal_url: &str,
 ) -> anyhow::Result<serde_json::Value> {
     let expr2 = expr.clone();
     let (sender, mut receiver) = oneshot::channel::<IsolateHandle>();
-    let base_internal_url: String = base_internal_url.to_string();
+    let has_client = authed_client.is_some();
+    let authed_client = authed_client.cloned();
     timeout(
-        std::time::Duration::from_millis(3000),
+        std::time::Duration::from_millis(10000),
         tokio::task::spawn_blocking(move || {
             let mut ops = vec![];
 
-            if creds.is_some() {
+            if authed_client.is_some() {
                 ops.extend([
                     // An op for summing an array of numbers
                     // The op-layer automatically deserializes inputs
@@ -54,7 +54,7 @@ pub async fn eval_timeout(
                 ])
             }
 
-            if by_id.is_some() {
+            if by_id.is_some() && authed_client.is_some() {
                 ops.push(op_get_result::decl());
                 ops.push(op_get_id::decl());
             }
@@ -68,6 +68,11 @@ pub async fn eval_timeout(
             };
 
             let mut js_runtime = JsRuntime::new(options);
+            {
+                let op_state = js_runtime.op_state();
+                let mut op_state = op_state.borrow_mut();
+                op_state.put(OptAuthedClient(authed_client.clone()));
+            }
 
             sender
                 .send(js_runtime.v8_isolate().thread_safe_handle())
@@ -86,14 +91,7 @@ pub async fn eval_timeout(
 
             let expr = replace_with_await_result(expr);
 
-            let r = runtime.block_on(eval(
-                &mut js_runtime,
-                &expr,
-                env,
-                creds,
-                by_id,
-                &base_internal_url,
-            ))?;
+            let r = runtime.block_on(eval(&mut js_runtime, &expr, env, by_id, has_client))?;
 
             Ok(r) as anyhow::Result<Value>
         }),
@@ -104,7 +102,7 @@ pub async fn eval_timeout(
             isolate.terminate_execution();
         };
         Error::ExecutionErr(format!(
-            "The expression of evaluation `{expr2}` took too long to execute (>3000ms)"
+            "The expression of evaluation `{expr2}` took too long to execute (>10000ms)"
         ))
     })??
 }
@@ -150,9 +148,8 @@ async fn eval(
     context: &mut JsRuntime,
     expr: &str,
     env: Vec<(String, serde_json::Value)>,
-    creds: Option<EvalCreds>,
     by_id: Option<IdContext>,
-    base_internal_url: &str,
+    has_client: bool,
 ) -> anyhow::Result<serde_json::Value> {
     let exprs = expr
         .trim()
@@ -169,7 +166,7 @@ async fn eval(
             exprs.last().unwrap()
         )
     };
-    let (api_code, by_id_code) = if let Some(EvalCreds { workspace, token }) = creds {
+    let (api_code, by_id_code) = if has_client {
         let by_id_code = if let Some(by_id) = by_id {
             format!(
                 r#"
@@ -186,12 +183,12 @@ async function result_by_id(node_id) {{
         }}
     }} else {{
         let flow_job_id = "{}";
-        return await Deno.core.opAsync("op_get_id", [workspace, flow_job_id, token, base_url, node_id]);
+        return await Deno.core.opAsync("op_get_id", [ flow_job_id, node_id]);
     }}
 }}
 
 async function get_result(id) {{
-    return await Deno.core.opAsync("op_get_result", [workspace, id, token, base_url]);
+    return await Deno.core.opAsync("op_get_result", [id]);
 }}
 const results = new Proxy({{}}, {{
     get: function(target, name, receiver) {{
@@ -222,17 +219,13 @@ const results = new Proxy({{}}, {{
 
         let api_code = format!(
             r#"
-let workspace = "{workspace}";
-let base_url = "{}";
-let token = "{token}";
 async function variable(path) {{
-    return await Deno.core.opAsync("op_variable", [workspace, path, token, base_url]);
+    return await Deno.core.opAsync("op_variable", [path]);
 }}
 async function resource(path) {{
-    return await Deno.core.opAsync("op_resource", [workspace, path, token, base_url]);
+    return await Deno.core.opAsync("op_resource", [path]);
 }}
         "#,
-            base_internal_url,
         );
         (api_code, by_id_code)
     } else {
@@ -259,7 +252,7 @@ async function resource(path) {{
             .join(""),
     );
     tracing::debug!("{}", code);
-    let global = context.execute_script("<anon>", &code)?;
+    let global = context.execute_script("<anon>", code.into())?;
     let global = context.resolve_value(global).await?;
 
     let scope = &mut context.handle_scope();
@@ -281,59 +274,83 @@ async function resource(path) {{
 
 // TODO: Can we a) share the api configuration here somehow or b) just implement this natively in deno, via the deno client?
 #[op]
-async fn op_variable(args: Vec<String>) -> Result<String, anyhow::Error> {
-    let workspace = &args[0];
-    let path = &args[1];
-    let token = &args[2];
-    let base_url = &args[3];
-    let client = windmill_api_client::create_client(base_url, token.clone());
-    let result = client.get_variable(workspace, path, None).await?;
-    Ok(result.into_inner().value.unwrap_or_else(|| "".to_owned()))
+async fn op_variable(
+    op_state: Rc<RefCell<OpState>>,
+    args: Vec<String>,
+) -> Result<String, anyhow::Error> {
+    let path = &args[0];
+    let client = op_state.borrow().borrow::<OptAuthedClient>().0.clone();
+    if let Some(client) = client {
+        let result = client
+            .get_client()
+            .get_variable(&client.workspace, path, None)
+            .await?;
+        Ok(result.into_inner().value.unwrap_or_else(|| "".to_owned()))
+    } else {
+        anyhow::bail!("No client found in op state");
+    }
 }
 
 #[op]
-async fn op_get_result(args: Vec<String>) -> Result<serde_json::Value, anyhow::Error> {
-    let workspace = &args[0];
-    let id = &args[1];
-    let token = &args[2];
-    let base_url = &args[3];
-    let client = windmill_api_client::create_client(base_url, token.clone());
-    let result = client
-        .get_completed_job_result(workspace, &id.parse()?)
-        .await?
-        .clone();
-    Ok(serde_json::json!(result))
+async fn op_get_result(
+    op_state: Rc<RefCell<OpState>>,
+    args: Vec<String>,
+) -> Result<serde_json::Value, anyhow::Error> {
+    let id = &args[0];
+    let client = op_state.borrow().borrow::<OptAuthedClient>().0.clone();
+    if let Some(client) = client {
+        let result = client
+            .get_client()
+            .get_completed_job_result(&client.workspace, &id.parse()?)
+            .await?
+            .clone();
+        Ok(serde_json::json!(result))
+    } else {
+        anyhow::bail!("No client found in op state");
+    }
 }
 
 #[op]
-async fn op_get_id(args: Vec<String>) -> Result<Option<serde_json::Value>, anyhow::Error> {
-    let workspace = &args[0];
-    let flow_job_id = &args[1];
-    let token = &args[2];
-    let base_url = &args[3];
-    let node_id = &args[4];
+async fn op_get_id(
+    op_state: Rc<RefCell<OpState>>,
+    args: Vec<String>,
+) -> Result<Option<serde_json::Value>, anyhow::Error> {
+    let flow_job_id = &args[0];
+    let node_id = &args[1];
 
-    let client = windmill_api_client::create_client(base_url, token.clone());
-    let result = client
-        .result_by_id(workspace, flow_job_id, node_id)
-        .await
-        .map_or(None, |e| Some(e.into_inner()));
-
-    Ok(result)
+    let client = op_state.borrow().borrow::<OptAuthedClient>().0.clone();
+    if let Some(client) = client {
+        let result = client
+            .get_client()
+            .result_by_id(&client.workspace, flow_job_id, node_id)
+            .await
+            .map_or(None, |e| Some(e.into_inner()));
+        Ok(result)
+    } else {
+        anyhow::bail!("No client found in op state");
+    }
 }
 
 #[op]
-async fn op_resource(args: Vec<String>) -> Result<serde_json::Value, anyhow::Error> {
-    let workspace = &args[0];
-    let path = &args[1];
-    let token = &args[2];
-    let base_url = &args[3];
-    let client = windmill_api_client::create_client(base_url, token.clone());
-    let result = client.get_resource(workspace, path).await?;
-    Ok(result
-        .into_inner()
-        .value
-        .unwrap_or_else(|| serde_json::json!({})))
+async fn op_resource(
+    op_state: Rc<RefCell<OpState>>,
+    args: Vec<String>,
+) -> Result<serde_json::Value, anyhow::Error> {
+    let path = &args[0];
+
+    let client = op_state.borrow().borrow::<OptAuthedClient>().0.clone();
+    if let Some(client) = client {
+        let result = client
+            .get_client()
+            .get_resource(&client.workspace, path)
+            .await?;
+        Ok(result
+            .into_inner()
+            .value
+            .unwrap_or_else(|| serde_json::json!({})))
+    } else {
+        anyhow::bail!("No client found in op state");
+    }
 }
 
 #[cfg(test)]
@@ -353,7 +370,7 @@ mod tests {
         let code = "value.test + params.test";
 
         let mut runtime = JsRuntime::new(RuntimeOptions::default());
-        let res = eval(&mut runtime, code, env, None, None, String::new().as_str()).await?;
+        let res = eval(&mut runtime, code, env, None, false).await?;
         assert_eq!(res, json!(4));
         Ok(())
     }
@@ -366,7 +383,7 @@ mod tests {
 multiline template`";
 
         let mut runtime = JsRuntime::new(RuntimeOptions::default());
-        let res = eval(&mut runtime, code, env, None, None, String::new().as_str()).await?;
+        let res = eval(&mut runtime, code, env, None, false).await?;
         assert_eq!(res, json!("my 5\nmultiline template"));
         Ok(())
     }
@@ -379,7 +396,7 @@ multiline template`";
         ];
         let code = r#"params.test"#;
 
-        let res = eval_timeout(code.to_string(), env, None, None, String::new().as_str()).await?;
+        let res = eval_timeout(code.to_string(), env, None, None).await?;
         assert_eq!(res, json!(2));
         Ok(())
     }

@@ -1,14 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { JobService, Job } from '$lib/gen'
-	import {
-		canWrite,
-		displayDate,
-		encodeState,
-		forLater,
-		sendUserToast,
-		truncateHash
-	} from '$lib/utils'
+	import { canWrite, displayDate, forLater, sendUserToast, truncateHash } from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
 	import {
@@ -25,7 +18,7 @@
 		faFastForward
 	} from '@fortawesome/free-solid-svg-icons'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
-	import { superadmin, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { runFormStore, superadmin, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
@@ -39,9 +32,7 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import Dropdown from '$lib/components/Dropdown.svelte'
-
-	$: workspace_id = $page.url.searchParams.get('workspace') ?? $workspaceStore
-	$: not_same_workspace = workspace_id !== $workspaceStore
+	import { goto } from '$app/navigation'
 
 	let job: Job | undefined
 	const iconScale = 1
@@ -56,13 +47,18 @@
 	const SMALL_ICON_SCALE = 0.7
 
 	async function deleteCompletedJob(id: string): Promise<void> {
-		await JobService.deleteCompletedJob({ workspace: workspace_id!, id })
+		await JobService.deleteCompletedJob({ workspace: $workspaceStore!, id })
 		getLogs()
 	}
 
 	async function cancelJob(id: string) {
 		try {
-			await JobService.cancelQueuedJob({ workspace: workspace_id!, id, requestBody: {} })
+			if (forceCancel) {
+				await JobService.forceCancelQueuedJob({ workspace: $workspaceStore!, id, requestBody: {} })
+				setTimeout(getLogs, 5000)
+			} else {
+				await JobService.cancelQueuedJob({ workspace: $workspaceStore!, id, requestBody: {} })
+			}
 			sendUserToast(`job ${id} canceled`)
 		} catch (err) {
 			sendUserToast('could not cancel job', true)
@@ -84,11 +80,14 @@
 	}
 
 	$: {
-		if (workspace_id && $page.params.run && testJobLoader) {
+		if ($workspaceStore && $page.params.run && testJobLoader) {
+			forceCancel = false
 			getLogs()
 		}
 	}
 	let notfound = false
+
+	let forceCancel = false
 </script>
 
 <TestJobLoader
@@ -96,19 +95,24 @@
 	bind:this={testJobLoader}
 	bind:isLoading={testIsLoading}
 	bind:job
-	workspaceOverride={workspace_id}
+	workspaceOverride={$workspaceStore}
 	bind:notfound
 />
 
 {#if notfound}
 	<CenteredPage>
 		<div class="flex flex-col gap-6">
-			<h1 class="text-red-400 mt-6">Job {$page.params.run} not found in {workspace_id}</h1>
+			<h1 class="text-red-400 mt-6">Job {$page.params.run} not found in {$workspaceStore}</h1>
 			<h2>Are you in the right workspace?</h2>
 			<div class="flex flex-col gap-2">
 				{#each $userWorkspaces as workspace}
 					<div>
-						<Button variant="border" href="/run/{$page.params.run}?workspace={workspace.id}">
+						<Button
+							variant="border"
+							on:click={() => {
+								goto(`/run/${$page.params.run}?workspace=${workspace.id}`)
+							}}
+						>
 							See in {workspace.name}
 						</Button>
 					</div>
@@ -147,7 +151,6 @@
 						delete
 					</Dropdown>
 					<Button
-						disabled={not_same_workspace}
 						href={runsHref}
 						variant="border"
 						color="blue"
@@ -162,43 +165,45 @@
 				{@const stem = `/${job?.job_kind}s`}
 				{@const isScript = job?.job_kind === 'script'}
 				{@const route = isScript ? job?.script_hash : job?.script_path}
-				{@const runHref = `${stem}/run/${route}${
-					job?.args ? '?args=' + encodeURIComponent(encodeState(job?.args)) : ''
-				}`}
-				{@const editHref = `${stem}/edit/${route}${
-					isScript
-						? `?step=2${job?.args ? `&args=${encodeURIComponent(encodeState(job?.args))}` : ''}`
-						: `${
-								job?.args
-									? `?args=${encodeURIComponent(encodeState(job?.args))}&nodraft=true`
-									: '?nodraft=true'
-						  }`
-				}`}
 				{@const isRunning = job && 'running' in job && job.running}
 				{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
 				{#if isRunning}
-					<Button
-						disabled={not_same_workspace}
-						color="red"
-						size="md"
-						startIcon={{ icon: faTimesCircle }}
-						on:click|once={() => {
-							if (job?.id) {
-								cancelJob(job?.id)
-							}
-						}}
-					>
-						Cancel
-					</Button>
-				{/if}
-				{#if not_same_workspace}
-					<span class="text-red-500 text-sm"
-						>Disabled because job from a different workspace {workspace_id} (current: {$workspaceStore})</span
-					>
+					{#if !forceCancel}
+						<Button
+							color="red"
+							size="md"
+							startIcon={{ icon: faTimesCircle }}
+							on:click|once={() => {
+								if (job?.id) {
+									cancelJob(job?.id)
+									setTimeout(() => {
+										forceCancel = true
+									}, 3001)
+								}
+							}}
+						>
+							Cancel
+						</Button>
+					{:else}
+						<Button
+							color="red"
+							size="md"
+							startIcon={{ icon: faTimesCircle }}
+							on:click|once={() => {
+								if (job?.id) {
+									cancelJob(job?.id)
+								}
+							}}
+						>
+							Force Cancel
+						</Button>
+					{/if}
 				{/if}
 				<Button
-					href={runHref}
-					disabled={isRunning || not_same_workspace}
+					on:click|once={() => {
+						$runFormStore = job?.args
+						goto(`${stem}/run/${route}`)
+					}}
 					color="blue"
 					size="md"
 					startIcon={{ icon: faRefresh }}>Run again</Button
@@ -206,21 +211,17 @@
 				{#if !$userStore?.operator}
 					{#if canWrite(job?.script_path ?? '', {}, $userStore)}
 						<Button
-							disabled={not_same_workspace}
-							href={editHref}
+							on:click|once={() => {
+								$runFormStore = job?.args
+								goto(`${stem}/edit/${route}${isScript ? `` : `?nodraft=true`}`)
+							}}
 							color="blue"
 							size="md"
 							startIcon={{ icon: faEdit }}>Edit</Button
 						>
 					{/if}
 				{/if}
-				<Button
-					disabled={not_same_workspace}
-					href={viewHref}
-					color="blue"
-					size="md"
-					startIcon={{ icon: faScroll }}
-				>
+				<Button href={viewHref} color="blue" size="md" startIcon={{ icon: faScroll }}>
 					View {job?.job_kind}
 				</Button>
 			</svelte:fragment>
@@ -277,7 +278,7 @@
 					{/if}
 					{job.script_path ?? (job.job_kind == 'dependencies' ? 'lock dependencies' : 'No path')}
 					{#if job.script_hash}
-						<a href="/scripts/get/{job.script_hash}?workspace_id={workspace_id}}"
+						<a href="/scripts/get/{job.script_hash}?$workspaceStore={$workspaceStore}}"
 							><Badge color="gray">{truncateHash(job.script_hash)}</Badge></a
 						>
 					{/if}
@@ -356,6 +357,7 @@
 					on:jobsLoaded={({ detail }) => {
 						job = detail
 					}}
+					workspaceId={$workspaceStore}
 				/>
 			</div>
 		{/if}

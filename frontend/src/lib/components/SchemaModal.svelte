@@ -2,7 +2,7 @@
 	import type { SchemaProperty } from '$lib/common'
 
 	export const ARG_TYPES = ['integer', 'number', 'string', 'boolean', 'object', 'array'] as const
-	export type ArgType = typeof ARG_TYPES[number]
+	export type ArgType = (typeof ARG_TYPES)[number]
 
 	export interface ModalSchemaProperty {
 		selectedType?: string
@@ -30,6 +30,7 @@
 			default: schema.default,
 			contentEncoding: schema.contentEncoding,
 			format: schema.format,
+			enum_: schema.enum,
 			required
 		}
 	}
@@ -90,6 +91,7 @@
 		property.selectedType = DEFAULT_PROPERTY.selectedType
 		property.format = undefined
 		resource_type = undefined
+
 		drawer.closeDrawer()
 	}
 
@@ -115,6 +117,7 @@
 						Name
 						<Required required={true} />
 					</div>
+					<!-- svelte-ignore a11y-autofocus -->
 					<input
 						autofocus
 						autocomplete="off"
@@ -208,7 +211,6 @@
 				</div>
 			{/if}
 		</div>
-
 		<svelte:fragment slot="actions">
 			<Button
 				color="blue"

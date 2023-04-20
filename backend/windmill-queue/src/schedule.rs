@@ -6,10 +6,11 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::str::FromStr;
-
-use chrono::Duration;
+use crate::push;
+use crate::QueueTransaction;
 use sqlx::{query_scalar, Postgres, Transaction};
+use windmill_common::jobs::JobPayload;
+use std::str::FromStr;
 use windmill_common::{
     error::{self, Result},
     schedule::Schedule,
@@ -17,22 +18,28 @@ use windmill_common::{
     utils::{now_from_db, StripPath},
 };
 
-use crate::{push, JobPayload};
-
-pub async fn push_scheduled_job<'c>(
-    mut tx: Transaction<'c, Postgres>,
+pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
+    mut tx: QueueTransaction<'c, R>,
     schedule: Schedule,
-) -> Result<Transaction<'c, Postgres>> {
+) -> Result<QueueTransaction<'c, R>> {
     let sched = cron::Schedule::from_str(&schedule.schedule)
         .map_err(|e| error::Error::BadRequest(e.to_string()))?;
 
-    let offset = Duration::minutes(schedule.offset_.into());
-    let now = now_from_db(&mut tx).await?;
+    let tz = chrono_tz::Tz::from_str(&schedule.timezone)
+        .map_err(|e| error::Error::BadRequest(e.to_string()))?;
+
+    let now = now_from_db(&mut tx).await?.with_timezone(&tz);
+
     let next = sched
-        .after(&(now - offset + Duration::seconds(1)))
+        .after(&now)
         .next()
-        .expect("a schedule should have a next event")
-        + offset;
+        .expect("a schedule should have a next event");
+
+    // println!("next event ({:?}): {}", tz, next);
+    // println!("next event(UTC): {}", next.with_timezone(&chrono::Utc));
+
+    // Scheduled events must be stored in the database in UTC
+    let next = next.with_timezone(&chrono::Utc);
 
     let already_exists: bool = query_scalar!(
         "SELECT EXISTS (SELECT 1 FROM queue WHERE workspace_id = $1 AND schedule_path = $2 AND scheduled_for = $3)",
@@ -65,7 +72,7 @@ pub async fn push_scheduled_job<'c>(
     } else {
         JobPayload::ScriptHash {
             hash: windmill_common::get_latest_hash_for_path(
-                &mut tx,
+                tx.transaction_mut(),
                 &schedule.workspace_id,
                 &schedule.script_path,
             )
@@ -74,7 +81,15 @@ pub async fn push_scheduled_job<'c>(
         }
     };
 
-    let (_, mut tx) = push(
+    sqlx::query!(
+        "UPDATE schedule SET error = NULL WHERE workspace_id = $1 AND path = $2",
+        &schedule.workspace_id,
+        &schedule.path
+    )
+    .execute(&mut tx)
+    .await?;
+
+    let (_, tx) = push(
         tx,
         &schedule.workspace_id,
         payload,
@@ -92,14 +107,7 @@ pub async fn push_scheduled_job<'c>(
         true,
     )
     .await?;
-    sqlx::query!(
-        "UPDATE schedule SET error = NULL WHERE workspace_id = $1 AND path = $2",
-        &schedule.workspace_id,
-        &schedule.path
-    )
-    .execute(&mut tx)
-    .await?;
-    Ok(tx)
+    Ok(tx) // TODO: Bubble up pushed UUID from here
 }
 
 pub async fn get_schedule_opt<'c>(

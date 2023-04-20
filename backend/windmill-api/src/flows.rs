@@ -6,34 +6,34 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use hyper::StatusCode;
-use sql_builder::prelude::*;
-
+use crate::{
+    db::{UserDB, DB},
+    schedule::clear_schedule,
+    users::{maybe_refresh_folders, require_owner_of_path, Authed},
+    webhook_util::{WebhookMessage, WebhookShared},
+    HTTP_CLIENT,
+};
 use axum::{
     extract::{Extension, Path, Query},
     routing::{delete, get, post},
     Json, Router,
 };
+use hyper::StatusCode;
+use serde::Deserialize;
+use sql_builder::prelude::*;
 use sql_builder::SqlBuilder;
 use sqlx::{Postgres, Transaction};
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{self, to_anyhow, Error, JsonResult, Result},
     flows::{Flow, ListFlowQuery, ListableFlow, NewFlow},
+    jobs::JobPayload,
     schedule::Schedule,
     utils::{
         http_get_from_hub, list_elems_from_hub, not_found_if_none, paginate, Pagination, StripPath,
     },
 };
-use windmill_queue::{push, schedule::push_scheduled_job, JobPayload};
-
-use crate::{
-    db::{UserDB, DB},
-    schedule::clear_schedule,
-    users::{require_owner_of_path, Authed},
-    webhook_util::{WebhookMessage, WebhookShared},
-    HTTP_CLIENT,
-};
+use windmill_queue::{push, schedule::push_scheduled_job, QueueTransaction};
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -87,9 +87,8 @@ async fn list_flows(
         .limit(per_page)
         .clone();
 
-    if !lq.show_archived.unwrap_or(false) {
-        sqlb.and_where_eq("archived", false);
-    }
+    sqlb.and_where_eq("archived", lq.show_archived.unwrap_or(false));
+
     if let Some(ps) = &lq.path_start {
         sqlb.and_where_like_left("path", "?".bind(ps));
     }
@@ -178,16 +177,20 @@ async fn check_path_conflict<'c>(
 
 async fn create_flow(
     authed: Authed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
     Json(nf): Json<NewFlow>,
 ) -> Result<(StatusCode, String)> {
     // cron::Schedule::from_str(&ns.schedule).map_err(|e| error::Error::BadRequest(e.to_string()))?;
-    let mut tx = user_db.clone().begin(&authed).await?;
+    let authed = maybe_refresh_folders(&nf.path, &w_id, authed, &db).await;
 
-    check_path_conflict(&mut tx, &w_id, &nf.path).await?;
-    check_schedule_conflict(&mut tx, &w_id, &nf.path).await?;
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
+
+    check_path_conflict(tx.transaction_mut(), &w_id, &nf.path).await?;
+    check_schedule_conflict(tx.transaction_mut(), &w_id, &nf.path).await?;
 
     sqlx::query!(
         "INSERT INTO flow (workspace_id, path, summary, description, value, edited_by, edited_at, \
@@ -219,13 +222,11 @@ async fn create_flow(
     )
     .await?;
 
-    tx.commit().await?;
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::CreateFlow { workspace: w_id.clone(), path: nf.path.clone() },
     );
 
-    let tx = user_db.begin(&authed).await?;
     let (dependency_job_uuid, mut tx) = push(
         tx,
         &w_id,
@@ -244,6 +245,7 @@ async fn create_flow(
         true,
     )
     .await?;
+
     sqlx::query!(
         "UPDATE flow SET dependency_job = $1 WHERE path = $2 AND workspace_id = $3",
         dependency_job_uuid,
@@ -283,15 +285,18 @@ async fn check_schedule_conflict<'c>(
 async fn update_flow(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
+    Extension(rsmq): Extension<Option<rsmq_async::MultiplexedRsmq>>,
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Json(nf): Json<NewFlow>,
 ) -> Result<String> {
-    let mut tx = user_db.clone().begin(&authed).await?;
-
     let flow_path = flow_path.to_path();
-    check_schedule_conflict(&mut tx, &w_id, flow_path).await?;
+    let authed = maybe_refresh_folders(&flow_path, &w_id, authed, &db).await;
+
+    let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
+
+    check_schedule_conflict(tx.transaction_mut(), &w_id, flow_path).await?;
 
     let schema = nf.schema.map(|x| x.0);
     let old_dep_job = sqlx::query_scalar!(
@@ -318,13 +323,13 @@ async fn update_flow(
     .await?;
 
     if nf.path != flow_path {
-        check_schedule_conflict(&mut tx, &w_id, &nf.path).await?;
+        check_schedule_conflict(tx.transaction_mut(), &w_id, &nf.path).await?;
 
         if !authed.is_admin {
-            require_owner_of_path(&w_id, &authed.username, &authed.groups, &flow_path, &db).await?;
+            require_owner_of_path(&authed, flow_path)?;
         }
 
-        let mut schedulables = sqlx::query_as!(
+        let mut schedulables: Vec<Schedule> = sqlx::query_as!(
             Schedule,
                 "UPDATE schedule SET script_path = $1 WHERE script_path = $2 AND path != $2 AND workspace_id = $3 AND is_flow IS true RETURNING *",
                 nf.path,
@@ -347,32 +352,32 @@ async fn update_flow(
             schedulables.push(schedule);
         }
 
-        for schedule in schedulables {
-            clear_schedule(&mut tx, flow_path, true).await?;
+        for schedule in schedulables.into_iter() {
+            // TODO: Why is this in the loop in the first place? Seems like it's just doing nothing after the first iteration? Should this use schedule.path?
+            clear_schedule(tx.transaction_mut(), flow_path, true).await?;
 
             if schedule.enabled {
                 tx = push_scheduled_job(tx, schedule).await?;
             }
         }
+
+        audit_log(
+            &mut tx,
+            &authed.username,
+            "flows.update",
+            ActionKind::Create,
+            &w_id,
+            Some(&nf.path.to_string()),
+            Some(
+                [Some(("flow", nf.path.as_str()))]
+                    .into_iter()
+                    .flatten()
+                    .collect(),
+            ),
+        )
+        .await?;
     }
 
-    audit_log(
-        &mut tx,
-        &authed.username,
-        "flows.update",
-        ActionKind::Create,
-        &w_id,
-        Some(&nf.path.to_string()),
-        Some(
-            [Some(("flow", nf.path.as_str()))]
-                .into_iter()
-                .flatten()
-                .collect(),
-        ),
-    )
-    .await?;
-
-    tx.commit().await?;
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::UpdateFlow {
@@ -382,7 +387,6 @@ async fn update_flow(
         },
     );
 
-    let tx = user_db.begin(&authed).await?;
     let (dependency_job_uuid, mut tx) = push(
         tx,
         &w_id,
@@ -459,17 +463,24 @@ async fn exists_flow_by_path(
     Ok(Json(exists))
 }
 
+#[derive(Deserialize)]
+struct Archived {
+    archived: Option<bool>,
+}
+
 async fn archive_flow_by_path(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    Json(archived): Json<Archived>,
 ) -> Result<String> {
     let path = path.to_path();
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
-        "UPDATE flow SET archived = true WHERE path = $1 AND workspace_id = $2",
+        "UPDATE flow SET archived = $1 WHERE path = $2 AND workspace_id = $3",
+        archived.archived.unwrap_or(true),
         path,
         &w_id
     )
@@ -552,7 +563,6 @@ mod tests {
             modules: vec![
                 FlowModule {
                     id: "a".to_string(),
-                    input_transforms: [].into(),
                     value: FlowModuleValue::Script {
                         path: "test".to_string(),
                         input_transforms: [(
@@ -570,7 +580,6 @@ mod tests {
                 },
                 FlowModule {
                     id: "b".to_string(),
-                    input_transforms: HashMap::new(),
                     value: FlowModuleValue::RawScript {
                         input_transforms: HashMap::new(),
                         content: "test".to_string(),
@@ -589,7 +598,6 @@ mod tests {
                 },
                 FlowModule {
                     id: "c".to_string(),
-                    input_transforms: HashMap::new(),
                     value: FlowModuleValue::ForloopFlow {
                         iterator: InputTransform::Static { value: serde_json::json!([1, 2, 3]) },
                         modules: vec![],
@@ -608,7 +616,6 @@ mod tests {
             ],
             failure_module: Some(FlowModule {
                 id: "d".to_string(),
-                input_transforms: HashMap::new(),
                 value: FlowModuleValue::Script {
                     path: "test".to_string(),
                     input_transforms: HashMap::new(),
@@ -629,7 +636,6 @@ mod tests {
           "modules": [
             {
               "id": "a",
-              "input_transforms": {},
               "value": {
                 "input_transforms": {
                     "test": {
@@ -643,7 +649,6 @@ mod tests {
             },
             {
               "id": "b",
-              "input_transforms": {},
               "value": {
                 "input_transforms": {},
                 "type": "rawscript",
@@ -657,7 +662,6 @@ mod tests {
             },
             {
               "id": "c",
-              "input_transforms": {},
               "value": {
                 "type": "forloopflow",
                 "iterator": {
@@ -680,7 +684,6 @@ mod tests {
           ],
           "failure_module": {
             "id": "d",
-            "input_transforms": {},
             "value": {
               "input_transforms": {},
               "type": "script",
@@ -693,31 +696,6 @@ mod tests {
           }
         });
         assert_eq!(dbg!(serde_json::json!(fv)), dbg!(expect));
-    }
-
-    #[test]
-    fn test_back_compat() {
-        /* renamed input_transform -> input_transforms but should deserialize old name */
-        let s = r#"
-        {
-            "value": {
-                "type": "rawscript",
-                "content": "def main(n): return",
-                "language": "python3"
-            },
-            "input_transform": {
-                "n": {
-                    "expr": "flow_input.iter.value",
-                    "type": "javascript"
-                }
-            }
-        }
-        "#;
-        let module: FlowModule = serde_json::from_str(s).unwrap();
-        assert_eq!(
-            module.input_transforms["n"],
-            InputTransform::Javascript { expr: "flow_input.iter.value".to_string() }
-        );
     }
 
     #[test]

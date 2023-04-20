@@ -9,6 +9,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { AlignWrapper } from '../helpers'
 	import { initOutput } from '../../editor/appUtils'
+	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
 	export let customCss: ComponentCustomCSS<'drawercomponent'> | undefined = undefined
 	export let id: string
@@ -18,7 +19,7 @@
 	export let noWFull = false
 	export let render: boolean
 
-	const { app, focusedGrid, selectedComponent, worldStore } =
+	const { app, focusedGrid, selectedComponent, worldStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	//used so that we can count number of outputs setup for first refresh
@@ -47,7 +48,6 @@
 			{disabled}
 			on:pointerdown={(e) => {
 				e?.stopPropagation()
-				window.dispatchEvent(new Event('pointerup'))
 			}}
 			on:click={async (e) => {
 				$focusedGrid = {
@@ -71,6 +71,8 @@
 <InputValue {id} input={configuration.size} bind:value={size} />
 <InputValue {id} input={configuration.fillContainer} bind:value={fillContainer} />
 
+<InitializeComponent {id} />
+
 <Portal target="#app-editor-top-level-drawer">
 	<Drawer let:open bind:this={appDrawer} size="800px" alwaysOpen positionClass="!absolute">
 		<DrawerContent
@@ -80,19 +82,39 @@
 				$focusedGrid = undefined
 			}}
 		>
-			{#if $app.subgrids?.[`${id}-0`]}
-				<SubGridEditor
-					visible={open && render}
-					{id}
-					class={css?.container?.class}
-					style={css?.container?.style}
-					subGridId={`${id}-0`}
-					containerHeight={1200}
-					on:focus={() => {
-						$selectedComponent = id
-					}}
-				/>
-			{/if}
+			<div
+				class="h-full"
+				on:pointerdown={(e) => {
+					e?.stopPropagation()
+					if (!$connectingInput.opened) {
+						$selectedComponent = [id]
+						$focusedGrid = {
+							parentComponentId: id,
+							subGridIndex: 0
+						}
+					}
+				}}
+			>
+				{#if $app.subgrids?.[`${id}-0`]}
+					<SubGridEditor
+						visible={open && render}
+						{id}
+						class={css?.container?.class}
+						style={css?.container?.style}
+						subGridId={`${id}-0`}
+						containerHeight={1200}
+						on:focus={() => {
+							if (!$connectingInput.opened) {
+								$selectedComponent = [id]
+								$focusedGrid = {
+									parentComponentId: id,
+									subGridIndex: 0
+								}
+							}
+						}}
+					/>
+				{/if}
+			</div>
 		</DrawerContent>
 	</Drawer>
 </Portal>

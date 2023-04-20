@@ -6,27 +6,46 @@
 	import { isScriptByNameDefined, isScriptByPathDefined } from '../../utils'
 	import NonRunnableComponent from './NonRunnableComponent.svelte'
 	import RunnableComponent from './RunnableComponent.svelte'
+	import { goto } from '$app/navigation'
+	import { sendUserToast } from '$lib/utils'
+	import InitializeComponent from './InitializeComponent.svelte'
 
 	export let componentInput: AppInput | undefined
 	export let id: string
 	export let result: any = undefined
 	export let initializing: boolean = true
-
+	export let loading: boolean = false
 	export let extraQueryParams: Record<string, any> = {}
 	export let autoRefresh: boolean = true
 	export let runnableComponent: RunnableComponent | undefined = undefined
 	export let forceSchemaDisplay: boolean = false
 	export let runnableClass = ''
 	export let runnableStyle = ''
-	export let goto: string | undefined = undefined
-	export let gotoNewTab: boolean | undefined = undefined
+	export let doOnSuccess:
+		| {
+				selected: 'gotoUrl' | 'none' | 'setTab' | 'sendToast'
+				configuration: {
+					gotoUrl: { url: string | undefined; newTab: boolean | undefined }
+					setTab: {
+						setTab: { id: string; index: number }[] | undefined
+					}
+					sendToast: {
+						message: string | undefined
+					}
+				}
+		  }
+		| undefined = undefined
+
 	export let render: boolean
 	export let recomputeIds: string[] = []
 	export let outputs: { result: Output<any>; loading: Output<boolean> }
+	export let extraKey: string | undefined = undefined
+	export let refreshOnStart: boolean = false
 
-	const { staticExporter, noBackend } = getContext<AppViewerContext>('AppViewerContext')
+	const { staticExporter, noBackend, componentControl, runnableComponents } =
+		getContext<AppViewerContext>('AppViewerContext')
 
-	$: if (initializing && result) {
+	$: if (initializing && result != undefined) {
 		initializing = false
 	}
 
@@ -34,27 +53,67 @@
 		result = componentInput?.['value']
 	}
 	onMount(() => {
-		$staticExporter[id] = () => result
+		$staticExporter[id] = () => {
+			return result
+		}
 	})
 
 	function isRunnableDefined(componentInput) {
 		return isScriptByNameDefined(componentInput) || isScriptByPathDefined(componentInput)
 	}
+
+	export function onSuccess() {
+		if (recomputeIds) {
+			recomputeIds.forEach((id) => $runnableComponents?.[id]?.cb())
+		}
+		if (!doOnSuccess) return
+
+		if (doOnSuccess.selected == 'none') return
+
+		if (doOnSuccess.selected == 'setTab') {
+			if (Array.isArray(doOnSuccess.configuration.setTab.setTab)) {
+				doOnSuccess.configuration.setTab?.setTab?.forEach((tab) => {
+					if (tab) {
+						const { id, index } = tab
+						$componentControl[id].setTab?.(index)
+					}
+				})
+			}
+		} else if (
+			doOnSuccess.selected == 'gotoUrl' &&
+			doOnSuccess.configuration.gotoUrl.url &&
+			doOnSuccess.configuration.gotoUrl.url != ''
+		) {
+			if (doOnSuccess.configuration.gotoUrl.newTab) {
+				window.open(doOnSuccess.configuration.gotoUrl.url, '_blank')
+			} else {
+				goto(doOnSuccess.configuration.gotoUrl.url)
+			}
+		} else if (
+			doOnSuccess.selected == 'sendToast' &&
+			doOnSuccess.configuration.sendToast.message &&
+			doOnSuccess.configuration.sendToast.message != ''
+		) {
+			sendUserToast(doOnSuccess.configuration.sendToast.message)
+		}
+	}
 </script>
 
 {#if componentInput === undefined}
+	<InitializeComponent {id} />
 	<slot />
 {:else if componentInput.type === 'runnable' && isRunnableDefined(componentInput)}
 	<RunnableComponent
-		{recomputeIds}
-		gotoUrl={goto}
-		{gotoNewTab}
+		{refreshOnStart}
+		{extraKey}
+		bind:loading
 		bind:this={runnableComponent}
 		fields={componentInput.fields}
 		bind:result
 		runnable={componentInput.runnable}
 		transformer={componentInput.transformer}
 		{autoRefresh}
+		bind:recomputeOnInputChanged={componentInput.recomputeOnInputChanged}
 		{id}
 		{extraQueryParams}
 		{forceSchemaDisplay}
@@ -62,6 +121,7 @@
 		wrapperClass={runnableClass}
 		wrapperStyle={runnableStyle}
 		{render}
+		on:success={onSuccess}
 		{outputs}
 	>
 		<slot />

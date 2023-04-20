@@ -5,19 +5,30 @@
 	import FlowPathViewer from '$lib/components/flows/content/FlowPathViewer.svelte'
 	import { inferArgs } from '$lib/infer'
 	import { workspaceStore } from '$lib/stores'
-	import { emptySchema, getScriptByPath } from '$lib/utils'
-	import { faCodeBranch, faExternalLinkAlt, faEye, faPen } from '@fortawesome/free-solid-svg-icons'
+	import { emptySchema, getScriptByPath, sendUserToast } from '$lib/utils'
+	import {
+		faCodeBranch,
+		faExternalLinkAlt,
+		faEye,
+		faPen,
+		faRefresh
+	} from '@fortawesome/free-solid-svg-icons'
 	import type { AppInput, RunnableByPath } from '../../inputType'
-	import { clearResultAppInput } from '../../utils'
+	import { clearResultAppInput, loadSchema } from '../../utils'
 	import EmptyInlineScript from './EmptyInlineScript.svelte'
 	import InlineScriptEditor from './InlineScriptEditor.svelte'
 	import { computeFields } from './utils'
 	import { deepEqual } from 'fast-equals'
+	import { getContext } from 'svelte'
+	import type { AppViewerContext } from '../../types'
 
 	export let componentInput: AppInput | undefined
 	export let defaultUserInput = false
+	export let componentType: string
 	export let id: string
 	export let transformer: boolean
+
+	const { app, stateId } = getContext<AppViewerContext>('AppViewerContext')
 
 	async function fork(path: string) {
 		let { content, language, schema } = await getScriptByPath(path)
@@ -55,13 +66,28 @@
 		}
 	}
 
+	async function refreshFlow(x: RunnableByPath) {
+		if (componentInput?.type == 'runnable') {
+			const schema = (await loadSchema($workspaceStore ?? '', x.path, 'flow')) ?? emptySchema()
+			if (!deepEqual(x.schema, schema)) {
+				x.schema = schema
+				const nfields = computeFields(schema, false, componentInput.fields)
+				componentInput.fields = nfields
+				componentInput = componentInput
+			}
+		}
+	}
+
 	$: if (
 		componentInput &&
 		componentInput.type == 'runnable' &&
-		componentInput?.runnable?.type === 'runnableByPath' &&
-		componentInput.runnable.runType == 'script'
+		componentInput?.runnable?.type === 'runnableByPath'
 	) {
-		refreshScript(componentInput.runnable)
+		if (componentInput.runnable.runType == 'script') {
+			refreshScript(componentInput.runnable)
+		} else if (componentInput.runnable.runType == 'flow') {
+			refreshFlow(componentInput.runnable)
+		}
 	}
 
 	function deleteInlineScript() {
@@ -93,8 +119,8 @@
 			}}
 		/>
 	{:else}
-		<span class="px-2 text-gray-600"
-			>Selected editor component is a transformer but component has no transformer
+		<span class="px-2 text-gray-600">
+			Selected editor component is a transformer but component has no transformer
 		</span>
 	{/if}
 {:else if componentInput && componentInput.type == 'runnable'}
@@ -111,7 +137,7 @@
 			/>
 		{:else}
 			<EmptyInlineScript
-				{id}
+				{componentType}
 				name={componentInput.runnable.name}
 				on:delete={deleteInlineScript}
 				on:new={(e) => {
@@ -121,14 +147,15 @@
 						componentInput?.runnable?.type === 'runnableByName'
 					) {
 						componentInput.runnable.inlineScript = e.detail
+						$app = $app
 					}
 				}}
 			/>
 		{/if}
 	{:else if componentInput?.runnable?.type === 'runnableByPath' && componentInput?.runnable?.path}
-		<div class="p-2 h-full flex flex-col gap-2 ">
+		<div class="p-2 h-full flex flex-col gap-2">
 			{#if componentInput.runnable.runType == 'script' || componentInput.runnable.runType == 'hubscript'}
-				<div>
+				<div class="flex flex-row">
 					<Button
 						size="xs"
 						startIcon={{ icon: faCodeBranch }}
@@ -139,6 +166,7 @@
 								componentInput.runnable?.type === 'runnableByPath'
 							) {
 								fork(componentInput.runnable.path)
+								$app = $app
 							}
 						}}
 					>
@@ -146,39 +174,64 @@
 					</Button>
 				</div>
 			{/if}
-			<div class="border w-full">
-				{#if componentInput.runnable.runType == 'script' || componentInput.runnable.runType == 'hubscript'}
-					<FlowModuleScript path={componentInput.runnable.path} />
-				{:else if componentInput.runnable.runType == 'flow'}
-					<div class="py-1 flex gap-2 w-full flex-row-reverse">
-						<Button
-							size="xs"
-							startIcon={{ icon: faEye }}
-							on:click={() => {
-								flowPath = componentInput?.['runnable']?.path
-								drawerFlowViewer.openDrawer()
-							}}>Expand</Button
-						>
-						<Button
-							size="xs"
-							startIcon={{ icon: faPen }}
-							endIcon={{ icon: faExternalLinkAlt }}
-							target="_blank"
-							href="/flows/edit/{componentInput?.['runnable']?.path}?nodraft=true">Edit</Button
-						>
-						<Button
-							size="xs"
-							startIcon={{ icon: faEye }}
-							endIcon={{ icon: faExternalLinkAlt }}
-							target="_blank"
-							href="/flows/get/{componentInput?.['runnable']?.path}?workspace_id={$workspaceStore}"
-							>Details page</Button
-						>
-					</div>
-					<FlowPathViewer path={componentInput.runnable.path} />
-				{:else}
-					Unrecognized runType {componentInput.runnable.runType}
-				{/if}
+			<div class="w-full">
+				{#key $stateId}
+					{#if componentInput.runnable.runType == 'script' || componentInput.runnable.runType == 'hubscript'}
+						<FlowModuleScript path={componentInput.runnable.path} />
+					{:else if componentInput.runnable.runType == 'flow'}
+						<div class="pb-2 flex gap-2 w-full flex-row-reverse">
+							<Button
+								size="xs"
+								startIcon={{ icon: faRefresh }}
+								on:click={() => {
+									if (
+										componentInput?.type == 'runnable' &&
+										componentInput.runnable?.type === 'runnableByPath'
+									) {
+										sendUserToast('Refreshing inputs')
+										if (componentInput.runnable.runType == 'script') {
+											refreshScript(componentInput.runnable)
+										} else if (componentInput.runnable.runType == 'flow') {
+											refreshFlow(componentInput.runnable)
+										}
+										$stateId = $stateId + 1
+									}
+								}}
+							>
+								Refresh
+							</Button>
+							<Button
+								size="xs"
+								startIcon={{ icon: faEye }}
+								on:click={() => {
+									flowPath = componentInput?.['runnable']?.path
+									drawerFlowViewer.openDrawer()
+								}}
+							>
+								Expand
+							</Button>
+							<Button
+								size="xs"
+								startIcon={{ icon: faPen }}
+								endIcon={{ icon: faExternalLinkAlt }}
+								target="_blank"
+								href="/flows/edit/{componentInput?.['runnable']?.path}?nodraft=true">Edit</Button
+							>
+							<Button
+								size="xs"
+								startIcon={{ icon: faEye }}
+								endIcon={{ icon: faExternalLinkAlt }}
+								target="_blank"
+								href="/flows/get/{componentInput?.['runnable']?.path}?workspace={$workspaceStore}"
+							>
+								Details page
+							</Button>
+						</div>
+						<FlowPathViewer path={componentInput.runnable.path} />
+					{:else}
+						Unrecognized runType {componentInput.runnable.runType}
+					{/if}
+				{/key}
 			</div>
 		</div>
 	{/if}

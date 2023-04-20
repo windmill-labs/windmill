@@ -10,7 +10,6 @@ const config = {
 			postcss: true
 		})
 	],
-
 	kit: {
 		adapter:
 			process.env.CLOUDFLARE || process.env.NOCATCHALL

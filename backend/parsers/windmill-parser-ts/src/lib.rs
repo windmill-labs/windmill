@@ -6,21 +6,22 @@
  * LICENSE-AGPL for a copy of the license.
  */
 use deno_core::{serde_v8, v8, JsRuntime, RuntimeOptions};
+use serde_json::Value;
 use windmill_common::error;
 use windmill_parser::{json_to_typ, Arg, MainArgSignature, ObjectProperty, Typ};
 
-use swc_common::{sync::Lrc, FileName, SourceMap, SourceMapper, Spanned};
+use swc_common::{sync::Lrc, FileName, SourceMap, SourceMapper, Span, Spanned};
 use swc_ecma_ast::{
     ArrayLit, AssignPat, BigInt, BindingIdent, Bool, Decl, ExportDecl, Expr, FnDecl, Ident, Lit,
-    ModuleDecl, ModuleItem, Number, ObjectLit, Pat, Str, TsArrayType, TsEntityName, TsKeywordType,
-    TsKeywordTypeKind, TsLit, TsLitType, TsOptionalType, TsPropertySignature, TsType,
-    TsTypeElement, TsTypeLit, TsTypeRef, TsUnionOrIntersectionType, TsUnionType,
+    ModuleDecl, ModuleItem, Number, ObjectLit, Param, Pat, Str, TsArrayType, TsEntityName,
+    TsKeywordType, TsKeywordTypeKind, TsLit, TsLitType, TsOptionalType, TsPropertySignature,
+    TsType, TsTypeElement, TsTypeLit, TsTypeRef, TsUnionOrIntersectionType, TsUnionType,
 };
 use swc_ecma_parser::{lexer::Lexer, Parser, StringInput, Syntax, TsConfig};
 
-pub fn parse_deno_signature(code: &str) -> error::Result<MainArgSignature> {
+pub fn parse_deno_signature(code: &str, skip_dflt: bool) -> error::Result<MainArgSignature> {
     let cm: Lrc<SourceMap> = Default::default();
-    let fm = cm.new_source_file(FileName::Custom("test.ts".into()), code.into());
+    let fm = cm.new_source_file(FileName::Custom("main.ts".into()), code.into());
     let lexer = Lexer::new(
         // We want to parse ecmascript
         Syntax::Typescript(TsConfig::default()),
@@ -54,65 +55,17 @@ pub fn parse_deno_signature(code: &str) -> error::Result<MainArgSignature> {
         })) if &sym.to_string() == "main" => Some(function.params),
         _ => None,
     });
+
     if let Some(params) = params {
-        Ok(MainArgSignature {
+        let r = MainArgSignature {
             star_args: false,
             star_kwargs: false,
             args: params
                 .into_iter()
-                .map(|x| match x.pat {
-                    Pat::Ident(ident) => {
-                        let (name, typ, nullable) = binding_ident_to_arg(&ident);
-                        Ok(Arg {
-                            otyp: None,
-                            name,
-                            typ,
-                            default: None,
-                            has_default: ident.id.optional || nullable,
-                        })
-                    }
-                    Pat::Assign(AssignPat { left, right, .. }) => {
-                        let (name, mut typ, _nullable) =
-                            left.as_ident().map(binding_ident_to_arg).ok_or_else(|| {
-                                error::Error::ExecutionErr(format!(
-                                    "parameter syntax unsupported: `{}`",
-                                    cm.span_to_snippet(left.span())
-                                        .unwrap_or_else(|_| cm.span_to_string(left.span()))
-                                ))
-                            })?;
-
-                        let span = match *right {
-                            Expr::Lit(Lit::Str(Str { span, .. })) => Some(span),
-                            Expr::Lit(Lit::Num(Number { span, .. })) => Some(span),
-                            Expr::Lit(Lit::BigInt(BigInt { span, .. })) => Some(span),
-                            Expr::Lit(Lit::Bool(Bool { span, .. })) => Some(span),
-                            Expr::Object(ObjectLit { span, .. }) => Some(span),
-                            Expr::Array(ArrayLit { span, .. }) => Some(span),
-                            _ => None,
-                        };
-                        let expr = span
-                            .and_then(|x| cm.span_to_snippet(x).ok())
-                            .map(|x| serde_json::from_str(&x).map_err(|_| x));
-
-                        let default = match expr.clone() {
-                            Some(Ok(x)) => Some(x),
-                            Some(Err(x)) => eval_sync(&x).ok(),
-                            None => None,
-                        };
-
-                        if typ == Typ::Unknown && default.is_some() {
-                            typ = json_to_typ(default.as_ref().unwrap());
-                        }
-                        Ok(Arg { otyp: None, name, typ, default, has_default: true })
-                    }
-                    _ => Err(error::Error::ExecutionErr(format!(
-                        "parameter syntax unsupported: `{}`",
-                        cm.span_to_snippet(x.span())
-                            .unwrap_or_else(|_| cm.span_to_string(x.span()))
-                    ))),
-                })
+                .map(|x| parse_param(x, &cm, skip_dflt))
                 .collect::<Result<Vec<Arg>, error::Error>>()?,
-        })
+        };
+        Ok(r)
     } else {
         Err(error::Error::ExecutionErr(
             "main function was not findable (expected to find 'export function main(...)'"
@@ -121,6 +74,75 @@ pub fn parse_deno_signature(code: &str) -> error::Result<MainArgSignature> {
     }
 }
 
+fn parse_param(x: Param, cm: &Lrc<SourceMap>, skip_dflt: bool) -> error::Result<Arg> {
+    let r = match x.pat {
+        Pat::Ident(ident) => {
+            let (name, typ, nullable) = binding_ident_to_arg(&ident);
+            Ok(Arg {
+                otyp: None,
+                name,
+                typ,
+                default: None,
+                has_default: ident.id.optional || nullable,
+            })
+        }
+        Pat::Assign(AssignPat { left, right, .. }) => {
+            let (name, mut typ, _nullable) =
+                left.as_ident().map(binding_ident_to_arg).ok_or_else(|| {
+                    error::Error::ExecutionErr(format!(
+                        "parameter syntax unsupported: `{}`",
+                        cm.span_to_snippet(left.span())
+                            .unwrap_or_else(|_| cm.span_to_string(left.span()))
+                    ))
+                })?;
+
+            let dflt = if skip_dflt {
+                None
+            } else {
+                match *right {
+                    Expr::Lit(Lit::Str(Str { value, .. })) => {
+                        Some(Value::String(value.to_string()))
+                    }
+                    Expr::Lit(Lit::Num(Number { value, .. }))
+                        if (value == (value as u64) as f64) =>
+                    {
+                        Some(serde_json::json!(value as u64))
+                    }
+                    Expr::Lit(Lit::Num(Number { value, .. })) => Some(serde_json::json!(value)),
+                    Expr::Lit(Lit::BigInt(BigInt { value, .. })) => Some(serde_json::json!(value)),
+                    Expr::Lit(Lit::Bool(Bool { value, .. })) => Some(Value::Bool(value)),
+                    Expr::Object(ObjectLit { span, .. }) => eval_span(span, cm),
+                    Expr::Array(ArrayLit { span, .. }) => eval_span(span, cm),
+                    _ => None,
+                }
+            };
+
+            if typ == Typ::Unknown && dflt.is_some() {
+                typ = json_to_typ(dflt.as_ref().unwrap());
+            }
+            Ok(Arg { otyp: None, name, typ, default: dflt, has_default: true })
+        }
+        _ => Err(error::Error::ExecutionErr(format!(
+            "parameter syntax unsupported: `{}`",
+            cm.span_to_snippet(x.span())
+                .unwrap_or_else(|_| cm.span_to_string(x.span()))
+        ))),
+    };
+    r
+}
+
+fn eval_span(span: Span, cm: &Lrc<SourceMap>) -> Option<Value> {
+    let expr = cm
+        .span_to_snippet(span)
+        .ok()
+        .map(|x| serde_json::from_str(&x).map_err(|_| x));
+
+    match expr {
+        Some(Ok(x)) => Some(x),
+        Some(Err(x)) => eval_sync(&x).ok(),
+        None => None,
+    }
+}
 fn binding_ident_to_arg(BindingIdent { id, type_ann }: &BindingIdent) -> (String, Typ, bool) {
     let (typ, nullable) = type_ann
         .as_ref()
@@ -246,7 +268,7 @@ fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
 pub fn eval_sync(code: &str) -> Result<serde_json::Value, String> {
     let mut context = JsRuntime::new(RuntimeOptions::default());
     let code = format!("let x = {}; x", code);
-    let res = context.execute_script("<anon>", &code);
+    let res = context.execute_script("<anon>", code.into());
     match res {
         Ok(global) => {
             let scope = &mut context.handle_scope();
@@ -282,7 +304,7 @@ export function main(test1?: string, test2: string = \"burkina\",
 }
 ";
         assert_eq!(
-            parse_deno_signature(code)?,
+            parse_deno_signature(code, false)?,
             MainArgSignature {
                 star_args: false,
                 star_kwargs: false,
@@ -394,7 +416,7 @@ export function main(test2 = \"burkina\",
 }
 ";
         assert_eq!(
-            parse_deno_signature(code)?,
+            parse_deno_signature(code, false)?,
             MainArgSignature {
                 star_args: false,
                 star_kwargs: false,

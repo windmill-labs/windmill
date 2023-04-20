@@ -4,7 +4,7 @@
 
 <script lang="ts">
 	import { ResourceService, VariableService } from '$lib/gen'
-	import { getScriptByPath, sendUserToast } from '$lib/utils'
+	import { getModifierKey, getScriptByPath, sendUserToast } from '$lib/utils'
 
 	import {
 		faBroom,
@@ -31,9 +31,10 @@
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import Popover from './Popover.svelte'
 	import Kbd from './common/kbd/Kbd.svelte'
+	import { SCRIPT_EDITOR_SHOW_EXPLORE_OTHER_SCRIPTS } from '$lib/consts'
 
 	export let lang: 'python3' | 'deno' | 'go' | 'bash'
-	export let editor: Editor
+	export let editor: Editor | undefined
 	export let websocketAlive: { pyright: boolean; black: boolean; deno: boolean; go: boolean }
 	export let iconOnly: boolean = false
 	export let validCode: boolean = true
@@ -50,10 +51,10 @@
 		undefined
 
 	function addEditorActions() {
-		editor.addAction('insert-variable', 'Windmill: Insert variable', () => {
+		editor?.addAction('insert-variable', 'Windmill: Insert variable', () => {
 			variablePicker.openDrawer()
 		})
-		editor.addAction('insert-resource', 'Windmill: Insert resource', () => {
+		editor?.addAction('insert-resource', 'Windmill: Insert resource', () => {
 			resourcePicker.openDrawer()
 		})
 	}
@@ -79,6 +80,8 @@
 		codeViewer?.openDrawer?.()
 		codeObj = await getScriptByPath(e.detail.path ?? '')
 	}
+
+	let version = __pkg__.version
 </script>
 
 <Drawer bind:this={scriptPicker} size="900px">
@@ -108,6 +111,7 @@
 <ItemPicker
 	bind:this={contextualVariablePicker}
 	pickCallback={(path, name) => {
+		if (!editor) return
 		if (lang == 'deno') {
 			editor.insertAtCursor(`Deno.env.get('${name}')`)
 		} else if (lang == 'python3') {
@@ -133,10 +137,11 @@
 <ItemPicker
 	bind:this={variablePicker}
 	pickCallback={(path, name) => {
+		if (!editor) return
 		if (lang == 'deno') {
 			if (!editor.getCode().includes('import * as wmill from')) {
 				editor.insertAtBeginning(
-					`import * as wmill from 'https://deno.land/x/windmill@v${__pkg__.version}/mod.ts'\n`
+					`import * as wmill from 'https://deno.land/x/windmill@v${version}/mod.ts'\n`
 				)
 			}
 			editor.insertAtCursor(`(await wmill.getVariable('${path}'))`)
@@ -180,10 +185,11 @@
 <ItemPicker
 	bind:this={resourcePicker}
 	pickCallback={(path, _) => {
+		if (!editor) return
 		if (lang == 'deno') {
 			if (!editor.getCode().includes('import * as wmill from')) {
 				editor.insertAtBeginning(
-					`import * as wmill from 'https://deno.land/x/windmill@v${__pkg__.version}/mod.ts'\n`
+					`import * as wmill from 'https://deno.land/x/windmill@v${version}/mod.ts'\n`
 				)
 			}
 			editor.insertAtCursor(`(await wmill.getResource('${path}'))`)
@@ -233,7 +239,13 @@
 			{validCode ? 'Valid' : 'Invalid'}
 		</Badge>
 		<div class="flex items-center divide-x">
-			<Popover notClickable placement="bottom" disapperTimoout={0} class="pr-1" disablePopup={!iconOnly}>
+			<Popover
+				notClickable
+				placement="bottom"
+				disapperTimoout={0}
+				class="pr-1"
+				disablePopup={!iconOnly}
+			>
 				<Button
 					color="light"
 					btnClasses="!font-medium !h-full"
@@ -245,11 +257,15 @@
 				>
 					+Context Var
 				</Button>
-				<svelte:fragment slot="text">
-					Add context variable
-				</svelte:fragment>
+				<svelte:fragment slot="text">Add context variable</svelte:fragment>
 			</Popover>
-			<Popover notClickable placement="bottom" disapperTimoout={0} class="px-1" disablePopup={!iconOnly}>
+			<Popover
+				notClickable
+				placement="bottom"
+				disapperTimoout={0}
+				class="px-1"
+				disablePopup={!iconOnly}
+			>
 				<Button
 					color="light"
 					btnClasses="!font-medium !h-full"
@@ -261,11 +277,15 @@
 				>
 					+Variable
 				</Button>
-				<svelte:fragment slot="text">
-					Add variable
-				</svelte:fragment>
+				<svelte:fragment slot="text">Add variable</svelte:fragment>
 			</Popover>
-			<Popover notClickable placement="bottom" disapperTimoout={0} class="px-1" disablePopup={!iconOnly}>
+			<Popover
+				notClickable
+				placement="bottom"
+				disapperTimoout={0}
+				class="px-1"
+				disablePopup={!iconOnly}
+			>
 				<Button
 					btnClasses="!font-medium !h-full"
 					size="xs"
@@ -277,33 +297,41 @@
 				>
 					+Resource
 				</Button>
-				<svelte:fragment slot="text">
-					Add resource
-				</svelte:fragment>
+				<svelte:fragment slot="text">Add resource</svelte:fragment>
 			</Popover>
-			<Popover notClickable placement="bottom" disapperTimoout={0} class="px-1" disablePopup={!iconOnly}>
+			<Popover
+				notClickable
+				placement="bottom"
+				disapperTimoout={0}
+				class="px-1"
+				disablePopup={!iconOnly}
+			>
 				<Button
 					btnClasses="!font-medium !h-full"
 					size="xs"
 					spacingSize="md"
 					color="light"
-					on:click={editor.clearContent}
+					on:click={editor?.clearContent}
 					{iconOnly}
 					startIcon={{ icon: faRotateLeft }}
 				>
 					Reset
 				</Button>
-				<svelte:fragment slot="text">
-					Reset
-				</svelte:fragment>
+				<svelte:fragment slot="text">Reset</svelte:fragment>
 			</Popover>
-			<Popover notClickable placement="bottom" disapperTimoout={0} class="px-1" disablePopup={!iconOnly}>
+			<Popover
+				notClickable
+				placement="bottom"
+				disapperTimoout={0}
+				class="px-1"
+				disablePopup={!iconOnly}
+			>
 				<Button
 					btnClasses="!font-medium !h-full"
 					size="xs"
 					spacingSize="md"
 					color="light"
-					on:click={editor.reloadWebsocket}
+					on:click={editor?.reloadWebsocket}
 					startIcon={{ icon: faRotate }}
 				>
 					{#if !iconOnly}
@@ -320,29 +348,42 @@
 						{/if}
 					</span>
 				</Button>
-				<svelte:fragment slot="text">
-					Reload assistant
-				</svelte:fragment>
+				<svelte:fragment slot="text">Reload assistant</svelte:fragment>
 			</Popover>
-			<Popover notClickable placement="bottom" disapperTimoout={0} class="px-1" disablePopup={!iconOnly}>
+			<Popover
+				notClickable
+				placement="bottom"
+				disapperTimoout={0}
+				class="px-1"
+				disablePopup={!iconOnly}
+			>
 				<Button
 					btnClasses="!font-medium"
 					size="xs"
 					spacingSize="md"
 					color="light"
-					on:click={editor.format}
+					on:click={editor?.format}
 					{iconOnly}
 					startIcon={{ icon: faBroom }}
 				>
-					Format (Ctrl+S)
+					Format ({getModifierKey()}+S)
 				</Button>
 				<svelte:fragment slot="text">
-					Format <Kbd class="!text-gray-800">Ctrl</Kbd> + <Kbd class="!text-gray-800">S</Kbd>
+					Format <Kbd class="!text-gray-800">{getModifierKey()}</Kbd> + <Kbd class="!text-gray-800">
+						S
+					</Kbd>
 				</svelte:fragment>
 			</Popover>
 		</div>
 	</div>
-	<Popover notClickable placement="bottom" disapperTimoout={0} class="px-1" disablePopup={!iconOnly}>
+	<Popover
+		notClickable
+		placement="bottom"
+		disapperTimoout={0}
+		class="px-1"
+		disablePopup={!iconOnly}
+	>
+		{#if SCRIPT_EDITOR_SHOW_EXPLORE_OTHER_SCRIPTS}
 		<Button
 			btnClasses="!font-medium"
 			size="xs"
@@ -352,15 +393,14 @@
 			{iconOnly}
 			startIcon={{ icon: faEye }}
 		>
-			Script
+			Explore other scripts
 		</Button>
-		<svelte:fragment slot="text">
-			Script
-		</svelte:fragment>
+		{/if}
+		<svelte:fragment slot="text">Script</svelte:fragment>
 	</Popover>
 </div>
 
-<style>
+<style lang="postcss">
 	span.green {
 		@apply text-green-600 animate-[pulse_5s_ease-in-out_infinite];
 	}

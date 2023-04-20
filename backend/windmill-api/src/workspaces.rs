@@ -16,9 +16,10 @@ use crate::{
     db::{UserDB, DB},
     folders::Folder,
     resources::{Resource, ResourceType},
-    users::{Authed, WorkspaceInvite, NEW_USER_WEBHOOK},
+    users::{Authed, WorkspaceInvite, VALID_USERNAME},
     utils::require_super_admin,
-    HTTP_CLIENT,
+    variables::build_crypt,
+    webhook_util::{InstanceEvent, WebhookShared},
 };
 #[cfg(feature = "enterprise")]
 use axum::response::Redirect;
@@ -30,6 +31,7 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
+use magic_crypt::MagicCryptTrait;
 #[cfg(feature = "enterprise")]
 use stripe::CustomerId;
 use windmill_audit::{audit_log, ActionKind};
@@ -941,10 +943,13 @@ pub async fn invite_user_to_all_auto_invite_worspaces(db: &DB, email: &str) -> R
 async fn invite_user(
     Authed { username, is_admin, .. }: Authed,
     Extension(db): Extension<DB>,
+    Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
-    Json(nu): Json<NewWorkspaceInvite>,
+    Json(mut nu): Json<NewWorkspaceInvite>,
 ) -> Result<(StatusCode, String)> {
     require_admin(is_admin, &username)?;
+
+    nu.email = nu.email.to_lowercase();
 
     let mut tx = db.begin().await?;
 
@@ -962,14 +967,10 @@ async fn invite_user(
 
     tx.commit().await?;
 
-    if let Some(new_user_webhook) = NEW_USER_WEBHOOK.clone() {
-        let _ = &HTTP_CLIENT
-            .post(&new_user_webhook)
-            .json(&serde_json::json!({"email" : &nu.email, "event": "workspace_invite"}))
-            .send()
-            .await
-            .map_err(|e| tracing::error!("Error sending new user webhook: {}", e.to_string()));
-    }
+    webhook.send_instance_event(InstanceEvent::UserInvitedWorkspace {
+        email: nu.email.clone(),
+        workspace: w_id,
+    });
 
     Ok((
         StatusCode::CREATED,
@@ -980,12 +981,19 @@ async fn invite_user(
 async fn add_user(
     Authed { username, is_admin, .. }: Authed,
     Extension(db): Extension<DB>,
+    Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
-    Json(nu): Json<NewWorkspaceUser>,
+    Json(mut nu): Json<NewWorkspaceUser>,
 ) -> Result<(StatusCode, String)> {
     require_admin(is_admin, &username)?;
+    nu.email = nu.email.to_lowercase();
 
     let mut tx = db.begin().await?;
+    if !VALID_USERNAME.is_match(&nu.username) {
+        return Err(windmill_common::error::Error::BadRequest(format!(
+            "Usermame can only contain alphanumeric characters and underscores"
+        )));
+    }
 
     sqlx::query!(
         "INSERT INTO usr
@@ -1000,16 +1008,22 @@ async fn add_user(
     .execute(&mut tx)
     .await?;
 
+    sqlx::query_as!(
+        Group,
+        "INSERT INTO usr_to_group (workspace_id, usr, group_) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+        &w_id,
+        nu.username,
+        "all",
+    )
+    .execute(&mut tx)
+    .await?;
+
     tx.commit().await?;
 
-    if let Some(new_user_webhook) = NEW_USER_WEBHOOK.clone() {
-        let _ = HTTP_CLIENT
-            .post(&new_user_webhook)
-            .json(&serde_json::json!({"email" : &nu.email, "event": "workspace_add"}))
-            .send()
-            .await
-            .map_err(|e| tracing::error!("Error sending new user webhook: {}", e.to_string()));
-    }
+    webhook.send_instance_event(InstanceEvent::UserAddedWorkspace {
+        workspace: w_id.clone(),
+        email: nu.email.clone(),
+    });
 
     Ok((
         StatusCode::CREATED,
@@ -1125,6 +1139,7 @@ impl ArchiveImpl {
 #[derive(Deserialize)]
 struct ArchiveQueryParams {
     archive_type: Option<String>,
+    plain_secret: Option<bool>,
 }
 
 #[inline]
@@ -1170,7 +1185,7 @@ async fn tarball_workspace(
     authed: Authed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Query(ArchiveQueryParams { archive_type }): Query<ArchiveQueryParams>,
+    Query(ArchiveQueryParams { archive_type, plain_secret }): Query<ArchiveQueryParams>,
 ) -> Result<([(headers::HeaderName, String); 2], impl IntoResponse)> {
     require_admin(authed.is_admin, &authed.username)?;
 
@@ -1307,7 +1322,15 @@ async fn tarball_workspace(
         .fetch_all(&db)
         .await?;
 
-        for var in variables {
+        let mc = build_crypt(&mut db.begin().await?, &w_id).await?;
+
+        for mut var in variables {
+            if plain_secret.unwrap_or(false) && var.value.is_some() && var.is_secret {
+                var.value = Some(
+                    mc.decrypt_base64_to_string(var.value.unwrap())
+                        .map_err(|e| Error::InternalErr(e.to_string()))?,
+                );
+            }
             let var_str = &to_string_without_metadata(&var, false).unwrap();
             archive
                 .write_to_archive(&var_str, &format!("{}.variable.json", var.path))

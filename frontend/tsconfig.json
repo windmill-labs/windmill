@@ -2,10 +2,12 @@
 	"compilerOptions": {
 		"moduleResolution": "node",
 		"module": "esnext",
-		"lib": ["esnext", "DOM"],
+		"lib": ["es2021", "DOM"],
 		"target": "esnext",
 		"preserveValueImports": true,
 		"outDir": "build",
+		"noUnusedLocals": true,
+		// "noUnusedParameters": true,
 
 		/**
 			svelte-preprocess cannot figure out whether you have a value or a type, so tell TypeScript

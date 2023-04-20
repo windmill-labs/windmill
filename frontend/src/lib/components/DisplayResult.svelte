@@ -6,9 +6,12 @@
 	import { Button, Drawer, DrawerContent } from './common'
 	import autosize from 'svelte-autosize'
 	import { ClipboardCopy } from 'lucide-svelte'
+	import Portal from 'svelte-portal'
 
 	export let result: any
 	export let requireHtmlApproval = false
+	export let filename: string | undefined = undefined
+	export let disableExpand = false
 
 	let resultKind:
 		| 'json'
@@ -91,40 +94,25 @@
 	let jsonViewer: Drawer
 </script>
 
-<Drawer bind:this={jsonViewer} size="900px">
-	<DrawerContent title="Expanded Result" on:close={jsonViewer.closeDrawer}>
-		<svelte:fragment slot="actions">
-			<Button
-				on:click={() => copyToClipboard(JSON.stringify(result, null, 4))}
-				color="light"
-				size="xs"
-			>
-				<div class="flex gap-2 items-center">Copy to clipboard <ClipboardCopy /> </div>
-			</Button>
-		</svelte:fragment>
-		<Highlight language={json} code={JSON.stringify(result, null, 4).replace(/\\n/g, '\n')} />
-	</DrawerContent>
-</Drawer>
-
 <div class="inline-highlight">
 	{#if result != undefined}
 		{#if resultKind && resultKind != 'json'}
 			<div class="mb-2 text-gray-500 text-sm bg-gray-50/20">
 				as JSON&nbsp;<input class="windmillapp" type="checkbox" bind:checked={forceJson} /></div
 			>{/if}{#if typeof result == 'object' && Object.keys(result).length > 0}<div
-				class="mb-2 min-w-[360px] text-sm text-gray-700 relative"
+				class="mb-2 w-full text-sm text-gray-700 relative"
 				>The result keys are: <b>{truncate(Object.keys(result).join(', '), 50)}</b>
-				<div class="text-gray-500 text-sm  absolute top-0 right-2">
-					<button on:click={jsonViewer.openDrawer}>Expand JSON</button>
-				</div></div
-			>{/if}{#if !forceJson && resultKind == 'table-col'}<div
-				class="grid grid-flow-col-dense border border-gray-200 rounded-md "
+				{#if !disableExpand}
+					<div class="text-gray-500 text-xs absolute top-5 right-0">
+						<button on:click={jsonViewer.openDrawer}>Expand</button>
+					</div>
+				{/if}
+			</div>{/if}{#if !forceJson && resultKind == 'table-col'}<div
+				class="grid grid-flow-col-dense border border-gray-200 rounded-md"
 			>
 				{#each Object.keys(result) as col}
 					<div class="flex flex-col max-h-40 min-w-full">
-						<div
-							class="px-12 text-left uppercase border-b bg-gray-50 overflow-hidden rounded-t-md "
-						>
+						<div class="px-12 text-left uppercase border-b bg-gray-50 overflow-hidden rounded-t-md">
 							{col}
 						</div>
 						{#if Array.isArray(result[col])}
@@ -138,7 +126,7 @@
 				{/each}
 			</div>
 		{:else if !forceJson && resultKind == 'table-row'}<div
-				class="grid grid-flow-col-dense border border-gray-200 "
+				class="grid grid-flow-col-dense border border-gray-200"
 			>
 				<TableCustom>
 					<tbody slot="body">
@@ -245,9 +233,36 @@
 				>
 			</div>
 		{:else}
-			<Highlight language={json} code={JSON.stringify(result, null, 4).replace(/\\n/g, '\n')} />
+			{@const jsonStr = JSON.stringify(result, null, 4).replace(/\\n/g, '\n')}
+			{#if jsonStr.length > 10000}
+				JSON too large. <a
+					download="{filename ?? 'result'}.json"
+					href="data:text/json;charset=utf-8,{encodeURIComponent(jsonStr)}">Download</a
+				>
+			{:else}
+				<Highlight language={json} code={jsonStr} />
+			{/if}
 		{/if}
 	{:else}
 		<div class="text-gray-500 text-sm">No result: {JSON.stringify(result)}</div>
 	{/if}
 </div>
+
+{#if !disableExpand}
+	<Portal>
+		<Drawer bind:this={jsonViewer} size="900px">
+			<DrawerContent title="Expanded Result" on:close={jsonViewer.closeDrawer}>
+				<svelte:fragment slot="actions">
+					<Button
+						on:click={() => copyToClipboard(JSON.stringify(result, null, 4))}
+						color="light"
+						size="xs"
+					>
+						<div class="flex gap-2 items-center">Copy to clipboard <ClipboardCopy /> </div>
+					</Button>
+				</svelte:fragment>
+				<Highlight language={json} code={JSON.stringify(result, null, 4).replace(/\\n/g, '\n')} />
+			</DrawerContent>
+		</Drawer>
+	</Portal>
+{/if}

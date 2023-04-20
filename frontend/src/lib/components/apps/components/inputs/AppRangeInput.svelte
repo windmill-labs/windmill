@@ -1,14 +1,13 @@
 <script lang="ts">
-	import RangeSlider from 'svelte-range-slider-pips'
 	import { getContext } from 'svelte'
-	import type { AppInput } from '../../inputType'
-	import type { Output } from '../../rx'
-	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
-	import AlignWrapper from '../helpers/AlignWrapper.svelte'
-	import InputValue from '../helpers/InputValue.svelte'
-	import { concatCustomCss } from '../../utils'
+	import RangeSlider from 'svelte-range-slider-pips'
 	import { twMerge } from 'tailwind-merge'
 	import { initOutput } from '../../editor/appUtils'
+	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
+	import { concatCustomCss } from '../../utils'
+	import AlignWrapper from '../helpers/AlignWrapper.svelte'
+	import InputValue from '../helpers/InputValue.svelte'
+	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -55,6 +54,8 @@
 	input={configuration.defaultHigh}
 	bind:value={values[1]}
 />
+
+<InitializeComponent {id} />
 
 <AlignWrapper {render} {verticalAlignment}>
 	<div class="flex flex-col w-full">

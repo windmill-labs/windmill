@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.79.0
+  version: 1.88.1
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -75,11 +75,6 @@ components:
       properties:
         id:
           type: string
-        # to be removed in favor of raw/script input_transforms once migration is over
-        input_transforms:
-          type: object
-          additionalProperties:
-            $ref: "#/components/schemas/InputTransform"
         value:
           $ref: "#/components/schemas/FlowModuleValue"
         stop_after_if:
@@ -327,7 +322,7 @@ components:
           type: boolean
       required:
         - type
-        
+
     FlowStatus:
       type: object
       properties:
@@ -344,7 +339,7 @@ components:
               properties:
                 parent_module:
                   type: string
-                  
+
         retry:
           type: object
           properties:

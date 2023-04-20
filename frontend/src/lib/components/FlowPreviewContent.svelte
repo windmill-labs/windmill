@@ -13,6 +13,7 @@
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'
 	import CapturePayload from './flows/content/CapturePayload.svelte'
 	import { Loader2 } from 'lucide-svelte'
+	import { getModifierKey } from '$lib/utils'
 
 	let capturePayload: CapturePayload
 	export let previewMode: 'upTo' | 'whole'
@@ -75,7 +76,7 @@
 		if (open) {
 			switch (event.key) {
 				case 'Enter':
-					if (event.ctrlKey) {
+					if (event.ctrlKey || event.metaKey) {
 						event.preventDefault()
 						runPreview($previewArgs)
 					}
@@ -95,12 +96,14 @@
 
 <div class="flex divide-y flex-col space-y-2 h-screen bg-white px-6 py-2 w-full">
 	<div class="flex flex-row justify-between w-full items-center gap-x-2">
-		<button
-			on:click={() => dispatch('close')}
-			class="hover:bg-gray-200 bg-gray-100 rounded-full w-16 h-8 flex items-center justify-center transition-all"
-		>
-			<Icon data={faClose} class="text-gray-500" />
-		</button>
+		<div class="w-8">
+			<button
+				on:click={() => dispatch('close')}
+				class="hover:bg-gray-200 bg-gray-100 rounded-full w-8 h-8 flex items-center justify-center transition-all"
+			>
+				<Icon data={faClose} class="text-gray-500" />
+			</button>
+		</div>
 
 		{#if isRunning}
 			<Button
@@ -132,21 +135,21 @@
 				btnClasses="w-full max-w-lg"
 				on:click={() => runPreview($previewArgs)}
 			>
-				Test flow <Kbd class="ml-2">Ctrl+Enter</Kbd>
+				Test flow <Kbd class="ml-2">{getModifierKey()}+Enter</Kbd>
 			</Button>
 		{/if}
 		<Button
-			btnClasses="h-full"
+			btnClasses="h-full truncate"
 			size="sm"
 			variant="border"
 			on:click={() => {
 				capturePayload.openDrawer()
-			}}>Fill test args from a request</Button
+			}}>Fill args from a request</Button
 		>
 	</div>
 	<FlowProgressBar {job} bind:reset={jobProgressReset} />
 
-	<div class="overflow-y-auto grow  divide-y divide-gray-600 pr-4">
+	<div class="overflow-y-auto grow divide-y divide-gray-600 pr-4">
 		<div class="max-h-1/2 overflow-auto border-b border-gray-700">
 			<SchemaForm
 				noVariablePicker

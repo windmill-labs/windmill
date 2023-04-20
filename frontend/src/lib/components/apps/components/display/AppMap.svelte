@@ -1,12 +1,7 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import { concatCustomCss } from '../../utils'
-	import type {
-		AppViewerContext,
-		ComponentCustomCSS,
-		RichConfiguration,
-		RichConfigurations
-	} from '../../types'
+	import type { AppViewerContext, ComponentCustomCSS, RichConfigurations } from '../../types'
 	import { InputValue } from '../helpers'
 	import { twMerge } from 'tailwind-merge'
 	import { Map, View, Feature } from 'ol'
@@ -16,6 +11,7 @@
 	import { Point } from 'ol/geom'
 	import { defaults as defaultControls } from 'ol/control'
 	import { findGridItem, initOutput } from '../../editor/appUtils'
+	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
 	interface Marker {
 		lon: number
@@ -69,7 +65,7 @@
 
 	function selectComponent() {
 		if (!$connectingInput.opened) {
-			$selectedComponent = id
+			$selectedComponent = [id]
 			$focusedGrid = undefined
 		}
 	}
@@ -83,16 +79,18 @@
 
 	function getMarkerArray(): Marker[] | undefined {
 		let array: Marker[] | undefined = undefined
-		if (typeof markers === 'string') {
-			try {
-				array = JSON.parse(markers)
-			} catch (e) {
-				return undefined
+		try {
+			if (typeof markers === 'string') {
+				const json = JSON.parse(markers)
+				array = Array.isArray(json) ? json : [json]
+			} else {
+				array = markers
 			}
-		} else {
-			array = markers
+			return array?.filter((m) => !isNaN(+m.lat) && !isNaN(+m.lon))
+		} catch (error) {
+			console.log(error)
+			return undefined
 		}
-		return array?.filter((m) => !isNaN(+m.lat) && !isNaN(+m.lon))
 	}
 
 	function createMarkerLayers() {
@@ -197,6 +195,8 @@
 <InputValue {id} input={configuration.latitude} bind:value={latitude} />
 <InputValue {id} input={configuration.zoom} bind:value={zoom} />
 <InputValue {id} input={configuration.markers} bind:value={markers} />
+
+<InitializeComponent {id} />
 
 {#if render}
 	<div class="relative h-full w-full">

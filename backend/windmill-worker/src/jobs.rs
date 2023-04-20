@@ -6,23 +6,32 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use sqlx::{Pool, Postgres, Transaction};
+use sqlx::{Pool, Postgres};
 use tracing::instrument;
 use uuid::Uuid;
-use windmill_common::{error::Error, flow_status::FlowStatusModule, schedule::Schedule};
-use windmill_queue::{delete_job, schedule::get_schedule_opt, JobKind, QueuedJob};
+use windmill_common::{
+    error::Error,
+    flow_status::FlowStatusModule,
+    jobs::{JobKind, QueuedJob},
+    schedule::Schedule,
+    METRICS_ENABLED,
+};
+use windmill_queue::{delete_job, schedule::get_schedule_opt, QueueTransaction, CLOUD_HOSTED};
 
 #[instrument(level = "trace", skip_all)]
-pub async fn add_completed_job_error(
+pub async fn add_completed_job_error<R: rsmq_async::RsmqConnection + Clone + Send>(
     db: &Pool<Postgres>,
     queued_job: &QueuedJob,
     logs: String,
     e: serde_json::Value,
     metrics: Option<crate::worker::Metrics>,
+    rsmq: Option<R>,
 ) -> Result<serde_json::Value, Error> {
-    metrics.map(|m| m.worker_execution_failed.inc());
+    if *METRICS_ENABLED {
+        metrics.map(|m| m.worker_execution_failed.inc());
+    }
     let result = serde_json::json!({ "error": e });
-    let _ = add_completed_job(db, &queued_job, false, false, result.clone(), logs).await?;
+    let _ = add_completed_job(db, &queued_job, false, false, result.clone(), logs, rsmq).await?;
     Ok(result)
 }
 
@@ -45,13 +54,14 @@ fn flatten_jobs(modules: Vec<FlowStatusModule>) -> Vec<Uuid> {
 }
 
 #[instrument(level = "trace", skip_all)]
-pub async fn add_completed_job(
+pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
     db: &Pool<Postgres>,
     queued_job: &QueuedJob,
     success: bool,
     skipped: bool,
     result: serde_json::Value,
     logs: String,
+    rsmq: Option<R>,
 ) -> Result<Uuid, Error> {
     let duration =
         if queued_job.job_kind == JobKind::Flow || queued_job.job_kind == JobKind::FlowPreview {
@@ -83,7 +93,7 @@ pub async fn add_completed_job(
         .ok()
         .flatten()
         .flatten();
-    let mut tx = db.begin().await?;
+    let mut tx: QueueTransaction<'_, R> = (rsmq, db.begin().await?).into();
     let job_id = queued_job.id.clone();
     sqlx::query!(
         "INSERT INTO completed_job AS cj
@@ -153,7 +163,7 @@ pub async fn add_completed_job(
     .execute(&mut tx)
     .await
     .map_err(|e| Error::InternalErr(format!("Could not add completed job {job_id}: {e}")))?;
-    let _ = delete_job(db, &queued_job.workspace_id, job_id).await?;
+    tx = delete_job(tx, &queued_job.workspace_id, job_id).await?;
     if !queued_job.is_flow_step
         && queued_job.job_kind != JobKind::Flow
         && queued_job.job_kind != JobKind::FlowPreview
@@ -175,8 +185,8 @@ pub async fn add_completed_job(
         let additional_usage = duration.unwrap() as i32 / 1000;
 
         let w_id = &queued_job.workspace_id;
-        let premium_workspace =
-            sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", w_id)
+        let premium_workspace = *CLOUD_HOSTED
+            && sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", w_id)
                 .fetch_one(db)
                 .await
                 .map_err(|e| Error::InternalErr(format!("fetching if {w_id} is premium: {e}")))?;
@@ -208,21 +218,24 @@ pub async fn add_completed_job(
 }
 
 #[instrument(level = "trace", skip_all)]
-pub async fn schedule_again_if_scheduled<'c>(
-    mut tx: Transaction<'c, Postgres>,
+pub async fn schedule_again_if_scheduled<'c, R: rsmq_async::RsmqConnection + Clone + Send + 'c>(
+    mut tx: QueueTransaction<'c, R>,
     db: &Pool<Postgres>,
     schedule_path: &str,
     script_path: &str,
     w_id: &str,
-) -> windmill_common::error::Result<Transaction<'c, Postgres>> {
-    let schedule = get_schedule_opt(&mut tx, w_id, schedule_path)
-        .await?
-        .ok_or_else(|| {
-            Error::InternalErr(format!(
-                "Could not find schedule {:?} for workspace {}",
-                schedule_path, w_id
-            ))
-        })?;
+) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
+    let schedule = get_schedule_opt(tx.transaction_mut(), w_id, schedule_path).await?;
+
+    if schedule.is_none() {
+        tracing::error!(
+            "Schedule {schedule_path} in {w_id} not found. Impossible to schedule again"
+        );
+        return Ok(tx);
+    }
+
+    let schedule = schedule.unwrap();
+
     if schedule.enabled && script_path == schedule.script_path {
         let res = windmill_queue::schedule::push_scheduled_job(
             tx,
@@ -232,7 +245,7 @@ pub async fn schedule_again_if_scheduled<'c>(
                 edited_by: schedule.edited_by,
                 edited_at: schedule.edited_at,
                 schedule: schedule.schedule,
-                offset_: schedule.offset_,
+                timezone: schedule.timezone,
                 enabled: schedule.enabled,
                 script_path: schedule.script_path,
                 is_flow: schedule.is_flow,

@@ -6,6 +6,7 @@
 	import { concatCustomCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
+	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -44,11 +45,14 @@
 <InputValue {id} input={configuration.placeholder} bind:value={placeholder} />
 <InputValue {id} input={configuration.defaultValue} bind:value={defaultValue} />
 
+<InitializeComponent {id} />
+
 <AlignWrapper {render} {verticalAlignment}>
 	<input
-		on:focus={() => ($selectedComponent = id)}
+		on:pointerdown|stopPropagation={() => ($selectedComponent = [id])}
+		on:focus={() => ($selectedComponent = [id])}
 		class={twMerge(
-			'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2 mx-0.5',
+			'windmillapp w-full py-1.5 text-sm focus:ring-indigo-100 px-2',
 			css?.input?.class ?? ''
 		)}
 		style={css?.input?.style ?? ''}

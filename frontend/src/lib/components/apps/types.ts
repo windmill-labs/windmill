@@ -29,6 +29,7 @@ export type Aligned = {
 export interface GeneralAppInput {
 	onlyStatic?: boolean
 	tooltip?: string
+	placeholder?: string
 }
 
 export type ComponentCssProperty = {
@@ -51,14 +52,14 @@ export type Configuration =
 
 export type StaticConfiguration = GeneralAppInput & StaticAppInput
 export type RichConfigurationT<T> =
-	| (T & { ctype?: undefined })
+	| (T & { type: AppInput['type'] })
 	| {
-			ctype: 'oneOf'
+			type: 'oneOf'
 			selected: string
+			tooltip?: string
+			labels?: Record<string, string>
 			configuration: Record<string, Record<string, T>>
 	  }
-	| { ctype: 'group'; title: string; configuration: Record<string, T> }
-
 export type RichConfiguration = RichConfigurationT<Configuration>
 export type RichConfigurations = Record<string, RichConfiguration>
 
@@ -98,9 +99,12 @@ export type InlineScript = {
 	refreshOn?: { id: string; key: string }[]
 }
 
+export type AppCssItemName = 'viewer' | 'grid' | AppComponent['type']
+
 export type App = {
 	grid: GridItem[]
 	fullscreen: boolean
+	norefreshbar?: boolean
 	unusedInlineScripts: Array<{
 		name: string
 		inlineScript: InlineScript
@@ -110,10 +114,12 @@ export type App = {
 		inlineScript: InlineScript | undefined
 		fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
 		autoRefresh?: boolean
+		//deprecated and to be removed after migration
+		doNotRecomputeOnInputChanged?: boolean
+		recomputeOnInputChanged?: boolean
+		noBackendValue?: any
 	}>
-	css?: Partial<
-		Record<'viewer' | 'grid' | AppComponent['type'], Record<string, ComponentCssProperty>>
-	>
+	css?: Partial<Record<AppCssItemName, Record<string, ComponentCssProperty>>>
 	subgrids?: Record<string, GridItem[]>
 }
 
@@ -124,21 +130,38 @@ export type ConnectingInput = {
 	hoveredComponent: string | undefined
 }
 
+export interface CancelablePromise<T> extends Promise<T> {
+	cancel: () => void
+}
+
 export type AppViewerContext = {
 	worldStore: Writable<World>
 	app: Writable<App>
 	summary: Writable<string>
-	selectedComponent: Writable<string | undefined>
+	initialized: Writable<{
+		initializedComponents: string[]
+		initialized: boolean
+	}>
+	selectedComponent: Writable<string[] | undefined>
 	mode: Writable<EditorMode>
 	connectingInput: Writable<ConnectingInput>
 	breakpoint: Writable<EditorBreakpoint>
-	runnableComponents: Writable<Record<string, (inlineScript?: InlineScript) => Promise<void>>>
+	runnableComponents: Writable<
+		Record<
+			string,
+			{
+				autoRefresh: boolean
+				refreshOnStart?: boolean
+				cb: (inlineScript?: InlineScript) => CancelablePromise<void>
+			}
+		>
+	>
 	staticExporter: Writable<Record<string, () => any>>
 	appPath: string
 	workspace: string
 	onchange: (() => void) | undefined
 	isEditor: boolean
-	jobs: Writable<{ job: string; component: string }[]>
+	jobs: Writable<{ job: string; component: string; result?: string; error?: string }[]>
 	noBackend: boolean
 	errorByComponent: Writable<Record<string, { error: string; componentId: string }>>
 	openDebugRun: Writable<((componentID: string) => void) | undefined>
@@ -153,10 +176,13 @@ export type AppViewerContext = {
 				left?: () => boolean
 				right?: (skipTableActions?: boolean | undefined) => string | boolean
 				setTab?: (index: number) => void
+				agGrid?: { api: any; columnApi: any }
+				setCode?: (value: string) => void
 			}
 		>
 	>
 	hoverStore: Writable<string | undefined>
+	allIdsInPath: Writable<string[]>
 }
 
 export type AppEditorContext = {
@@ -164,7 +190,7 @@ export type AppEditorContext = {
 	pickVariableCallback: Writable<((path: string) => void) | undefined>
 	ontextfocus: Writable<(() => void) | undefined>
 	selectedComponentInEditor: Writable<string | undefined>
-	movingcomponent: Writable<string | undefined>
+	movingcomponents: Writable<string[] | undefined>
 }
 
 export type FocusedGrid = { parentComponentId: string; subGridIndex: number }
@@ -178,6 +204,5 @@ type ComponentID = string
 export type ContextPanelContext = {
 	search: Writable<string>
 	manuallyOpened: Writable<Record<string, boolean>>
-	expanded: Writable<boolean>
 	hasResult: Writable<Record<string, boolean>>
 }

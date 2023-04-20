@@ -2,11 +2,17 @@ import type { Schema } from '$lib/common'
 import { FlowService, ScriptService } from '$lib/gen'
 import { inferArgs } from '$lib/infer'
 import { emptySchema } from '$lib/utils'
-import type { AppComponent, components } from './editor/component'
-import type { App, ComponentCssProperty, ComponentCustomCSS, GridItem } from './types'
 import { twMerge } from 'tailwind-merge'
+import type { AppComponent } from './editor/component'
 import type { AppInput, InputType, ResultAppInput, StaticAppInput } from './inputType'
 import type { Output } from './rx'
+import type {
+	App,
+	ComponentCssProperty,
+	GridItem,
+	HorizontalAlignment,
+	VerticalAlignment
+} from './types'
 
 export function allItems(
 	grid: GridItem[],
@@ -99,6 +105,8 @@ export function fieldTypeToTsType(inputType: InputType): string {
 	switch (inputType) {
 		case 'number':
 			return 'number'
+		case 'integer':
+			return 'number'
 		case 'boolean':
 			return 'boolean'
 		case 'object':
@@ -107,6 +115,8 @@ export function fieldTypeToTsType(inputType: InputType): string {
 			return 'array'
 		case 'any':
 			return 'any'
+		case 'tab-select':
+			return 'Tab'
 		default:
 			return 'string'
 	}
@@ -150,12 +160,17 @@ export function toStatic(
 	summary: string
 ): { app: App; summary: string } {
 	const newApp: App = JSON.parse(JSON.stringify(app))
-	newApp.grid.forEach((x) => {
+	allItems(newApp.grid, newApp.subgrids).forEach((x) => {
 		let c: AppComponent = x.data
 		if (c.componentInput?.type == 'runnable') {
 			c.componentInput.value = staticExporter[x.id]()
 		}
 	})
+
+	newApp.hiddenInlineScripts?.forEach((x, i) => {
+		x.noBackendValue = staticExporter[`bg_` + i]()
+	})
+
 	return { app: newApp, summary }
 }
 
@@ -181,6 +196,8 @@ ${
 	goto
 		? `declare async function goto(path: string, newTab?: boolean): Promise<void>;
 declare function setTab(id: string, index: string): void;
+declare function recompute(id: string): void;
+declare function getAgGrid(id: string): {api: any, columnApi: any} | undefined;
 `
 		: ''
 }
@@ -255,4 +272,24 @@ export function concatCustomCss<T extends Record<string, ComponentCssProperty>>(
 			]
 		})
 	) as T
+}
+
+export function tailwindHorizontalAlignment(alignment?: HorizontalAlignment) {
+	if (!alignment) return ''
+	const classes: Record<HorizontalAlignment, string> = {
+		left: 'justify-start',
+		center: 'justify-center',
+		right: 'justify-end'
+	}
+	return classes[alignment]
+}
+
+export function tailwindVerticalAlignment(alignment?: VerticalAlignment) {
+	if (!alignment) return ''
+	const classes: Record<VerticalAlignment, string> = {
+		top: 'items-start',
+		center: 'items-center',
+		bottom: 'items-end'
+	}
+	return classes[alignment]
 }

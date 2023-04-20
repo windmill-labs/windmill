@@ -6,6 +6,7 @@
 	import { concatCustomCss } from '../../utils'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
+	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
 	export let id: string
 	export let configuration: RichConfigurations
@@ -41,17 +42,19 @@
 <InputValue {id} input={configuration.maxDate} bind:value={maxValue} />
 <InputValue {id} input={configuration.defaultValue} bind:value={defaultValue} />
 
+<InitializeComponent {id} />
+
 <AlignWrapper {render} {verticalAlignment}>
 	{#if inputType === 'date'}
 		<input
-			on:focus={() => ($selectedComponent = id)}
+			on:focus={() => ($selectedComponent = [id])}
 			on:pointerdown|stopPropagation
 			type="date"
 			bind:value
 			min={minValue}
 			max={maxValue}
 			placeholder="Type..."
-			class={twMerge('mx-0.5', css?.input?.class ?? '')}
+			class={twMerge(css?.input?.class ?? '')}
 			style={css?.input?.style ?? ''}
 		/>
 	{/if}

@@ -17,7 +17,7 @@
 
 <div class="h-full overflow-hidden border-t">
 	<Splitpanes>
-		<Pane {size} minSize={15} class="h-full">
+		<Pane {size} minSize={15} class="h-full relative z-0">
 			<div class="grow overflow-auto bg-gray h-full bg-gray-50 relative">
 				{#if loading}
 					<div class="p-2 pt-10">
@@ -30,11 +30,11 @@
 				{/if}
 			</div>
 		</Pane>
-		<Pane class="drop-shadow-2xl" size={100 - size} minSize={40}>
+		<Pane class="relative z-10" size={100 - size} minSize={40}>
 			{#if loading}
-				<div class="w-full h-full ">
+				<div class="w-full h-full">
 					<div class="block m-auto mt-40 w-10">
-						<WindmillIcon class="animate-[spin_6s_linear_infinite]" height="40px" width="40px" />
+						<WindmillIcon height="40px" width="40px" spin="fast" />
 					</div>
 				</div>
 			{:else}

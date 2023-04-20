@@ -12,8 +12,8 @@ const config = {
 			? [
 					{ pattern: /^m(\w?)-.*$/ },
 					{ pattern: /^p(\w?)-.*$/ },
-					{ pattern: /^shadow-.*$/ },
 					{ pattern: /^rounded-.*$/ },
+					{ pattern: /^shadow-.*$/, variants: ['hover'] },
 					{ pattern: /^text-[^/]*$/, variants: ['hover', 'active', 'focus'] },
 					{ pattern: /^bg-[^/]*$/, variants: ['hover', 'active', 'focus'] },
 					{ pattern: /^border-[^/]*$/, variants: ['hover', 'active', 'focus'] },
@@ -357,6 +357,14 @@ const config = {
 				fhd: '1900px',
 				qhd: '2500px',
 				'4k': '3800px'
+			},
+			animation: {
+				'spin-counter-clockwise': 'spin-counter-clockwise 1s linear infinite'
+			},
+			keyframes: {
+				'spin-counter-clockwise': {
+					to: { transform: 'rotate(-360deg)' }
+				}
 			}
 		}
 	},
@@ -482,6 +490,46 @@ const config = {
 					fontFamily: theme('fontFamily.mono'),
 					fontSize: theme('fontSize.sm') + ' !important',
 					lineHeight: theme('lineHeight.4') + ' !important'
+				},
+				'.h1-textarea': {
+					fontSize: '24px !important',
+					fontWeight: `${theme('fontWeight.extrabold')} !important`,
+					lineHeight: '1.05 !important',
+					color: theme('!colors.gray.800'),
+					[`@media (min-width: ${theme('screens.lg')})`]: {
+						fontSize: '26px !important'
+					},
+					[`@media (min-width: ${theme('screens.fhd')})`]: {
+						fontSize: '29px !important'
+					},
+					[`@media (min-width: ${theme('screens.qhd')})`]: {
+						fontSize: '34px !important'
+					}
+				},
+				'.h3-textarea': {
+					fontSize: '18px !important',
+					fontWeight: `${theme('fontWeight.bold')} !important`,
+					lineHeight: '1.2 !important',
+					color: theme('!colors.gray.600'),
+					[`@media (min-width: ${theme('screens.fhd')})`]: {
+						fontSize: '20px !important'
+					},
+					[`@media (min-width: ${theme('screens.qhd')})`]: {
+						fontSize: '22px !important'
+					}
+				},
+				'.p-textarea': {
+					fontSize: '16px !important',
+					fontWeight: `${theme('fontWeight.normal')} !important`,
+					lineHeight: '1.5 !important',
+					color: theme('!colors.gray.600'),
+					[`@media (min-width: ${theme('screens.fhd')})`]: {
+						fontSize: '18px !important'
+					},
+
+					[`@media (min-width: ${theme('screens.qhd')})`]: {
+						fontSize: '20px !important'
+					}
 				}
 			})
 			addComponents({
@@ -506,7 +554,7 @@ const config = {
 						color: theme('colors.gray.700')
 					},
 					'& tbody > :not([hidden]) ~ :not([hidden])': {
-						borderTop: `1px solid ${theme('colors.gray.200')}`,
+						borderTop: `1px solid ${theme('colors.gray.200')}`
 					},
 					'& tbody > tr:hover': {
 						backgroundColor: theme('colors.gray.50')

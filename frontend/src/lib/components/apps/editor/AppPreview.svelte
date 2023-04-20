@@ -4,7 +4,6 @@
 	import { buildWorld } from '../rx'
 	import type {
 		App,
-		AppEditorContext,
 		AppViewerContext,
 		ConnectingInput,
 		EditorBreakpoint,
@@ -20,6 +19,8 @@
 	import { twMerge } from 'tailwind-merge'
 	import { columnConfiguration } from '../gridUtils'
 	import { HiddenComponent } from '../components'
+	import { deepEqual } from 'fast-equals'
+	import { dfs } from './appUtils'
 
 	export let app: App
 	export let appPath: string
@@ -33,7 +34,7 @@
 	export let isLocked = false
 
 	const appStore = writable<App>(app)
-	const selectedComponent = writable<string | undefined>(undefined)
+	const selectedComponent = writable<string[] | undefined>(undefined)
 	const mode = writable<EditorMode>('preview')
 
 	const connectingInput = writable<ConnectingInput>({
@@ -42,18 +43,19 @@
 		hoveredComponent: undefined
 	})
 
-	const runnableComponents = writable<Record<string, () => Promise<void>>>({})
+	const allIdsInPath = writable<string[]>([])
 
 	const parentWidth = writable(0)
 	setContext<AppViewerContext>('AppViewerContext', {
 		worldStore: buildWorld(context),
+		initialized: writable({ initialized: false, initializedComponents: [] }),
 		app: appStore,
 		summary: writable(summary),
 		selectedComponent,
 		mode,
 		connectingInput,
 		breakpoint,
-		runnableComponents,
+		runnableComponents: writable({}),
 		appPath,
 		workspace,
 		onchange: undefined,
@@ -68,17 +70,26 @@
 		parentWidth,
 		state: writable({}),
 		componentControl: writable({}),
-		hoverStore: writable(undefined)
+		hoverStore: writable(undefined),
+		allIdsInPath
 	})
 
-	let ncontext = context
+	let ncontext: any = { ...context, workspace }
 
 	function hashchange(e: HashChangeEvent) {
 		ncontext.hash = e.newURL.split('#')[1]
 		ncontext = ncontext
 	}
 
-	$: width = $breakpoint === 'sm' ? 'max-w-[640px]' : 'w-full '
+	let previousSelectedIds: string[] | undefined = undefined
+	$: if (!deepEqual(previousSelectedIds, $selectedComponent)) {
+		previousSelectedIds = $selectedComponent
+		$allIdsInPath = ($selectedComponent ?? [])
+			.flatMap((id) => dfs(app.grid, id, app.subgrids ?? {}))
+			.filter((x) => x != undefined) as string[]
+	}
+
+	$: width = $breakpoint === 'sm' ? 'max-w-[640px]' : 'w-full min-w-[710px]'
 	$: lockedClasses = isLocked ? '!max-h-[400px] overflow-hidden pointer-events-none' : ''
 </script>
 
@@ -88,14 +99,19 @@
 
 <div class="relative">
 	<div
-		class="{$$props.class} {lockedClasses} h-full 
-	w-full {app.fullscreen ? '' : 'max-w-6xl'} mx-auto"
+		class="{$$props.class} {lockedClasses} {width} h-full {app.fullscreen
+			? ''
+			: 'max-w-6xl'} mx-auto"
 	>
 		{#if $appStore.grid}
-			<div class={classNames('mx-auto', width)}>
+			<div
+				class={classNames(
+					'mx-auto',
+					$appStore?.norefreshbar ? 'invisible h-0 overflow-hidden' : ''
+				)}
+			>
 				<div
-					class="w-full sticky top-0 flex justify-between border-b bg-gray-50 px-4 py-1 items-center gap-4"
-					style="z-index: 1000;"
+					class="w-full sticky z-[1001] top-0 flex justify-between border-b bg-gray-50 px-4 py-1 items-center gap-4"
 				>
 					<h2 class="truncate">{summary}</h2>
 					<RecomputeAllComponents />
@@ -105,6 +121,7 @@
 				</div>
 			</div>
 		{/if}
+
 		<div
 			style={app.css?.['app']?.['grid']?.style}
 			class={twMerge('px-4 pt-4 pb-2 overflow-visible', app.css?.['app']?.['grid']?.class ?? '')}
@@ -112,7 +129,7 @@
 		>
 			<div>
 				<GridViewer
-					onTopId={$selectedComponent}
+					allIdsInPath={$allIdsInPath}
 					items={app.grid}
 					let:dataItem
 					rowHeight={36}
@@ -122,7 +139,7 @@
 					<!-- svelte-ignore a11y-click-events-have-key-events -->
 					<div
 						class={'h-full w-full center-center'}
-						on:pointerdown={() => ($selectedComponent = dataItem.id)}
+						on:pointerdown={() => ($selectedComponent = [dataItem.id])}
 					>
 						<Component render={true} component={dataItem.data} selected={false} locked={true} />
 					</div>
@@ -153,7 +170,9 @@
 				inlineScript={script.inlineScript}
 				name={script.name}
 				fields={script.fields}
-				autoRefresh={script.autoRefresh ?? true}
+				recomputeOnInputChanged={script.recomputeOnInputChanged ?? true}
+				recomputableByRefreshButton={script.autoRefresh ?? false}
+				noBackendValue={script.noBackendValue}
 			/>
 		{/if}
 	{/each}

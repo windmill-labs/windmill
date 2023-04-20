@@ -1,3 +1,4 @@
 {
-  "python.analysis.typeCheckingMode": "basic"
+  "python.analysis.typeCheckingMode": "basic",
+  "rust-analyzer.linkedProjects": ["./windmill-common/Cargo.toml"]
 }

@@ -13,8 +13,11 @@
 
 	const templatePath = $page.url.searchParams.get('template')
 	const hubPath = $page.url.searchParams.get('hub')
+	const showMeta = /true|1/i.test($page.url.searchParams.get('show_meta') ?? '0')
 
 	const initialState = $page.url.searchParams.get('state')
+
+	let scriptBuilder: ScriptBuilder | undefined = undefined
 
 	let script: Script =
 		initialState != undefined
@@ -46,6 +49,7 @@
 			script.content = template.content
 			script.schema = template.schema
 			script.language = template.language
+			scriptBuilder?.setCode(script.content)
 		}
 	}
 
@@ -58,6 +62,7 @@
 			script.content = content
 			script.summary = summary ?? ''
 			script.language = language as Script.language
+			scriptBuilder?.setCode(script.content)
 		}
 	}
 
@@ -71,4 +76,9 @@
 	$dirtyStore = true
 </script>
 
-<ScriptBuilder lockedLanguage={templatePath != null || hubPath != null} {script} />
+<ScriptBuilder
+	bind:this={scriptBuilder}
+	lockedLanguage={templatePath != null || hubPath != null}
+	{script}
+	{showMeta}
+/>

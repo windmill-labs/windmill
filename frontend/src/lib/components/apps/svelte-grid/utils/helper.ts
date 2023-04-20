@@ -1,5 +1,5 @@
+import { adjust, findFreeSpaceForItem } from './item'
 import { makeMatrixFromItems } from './matrix'
-import { findFreeSpaceForItem, normalize, adjust } from './item'
 import { getRowsCount } from './other'
 
 function makeItem(item) {
@@ -16,10 +16,6 @@ function makeItem(item) {
 }
 
 const gridHelp = {
-	normalize(items, col) {
-		return normalize(items, col)
-	},
-
 	adjust(items, col) {
 		return adjust(items, col)
 	},

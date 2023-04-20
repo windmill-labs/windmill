@@ -1,18 +1,18 @@
 <script lang="ts">
-	import { type Resource, ResourceService, type ResourceType, VariableService } from '$lib/gen'
-	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
-	import { createEventDispatcher } from 'svelte'
 	import type { Schema } from '$lib/common'
+	import { ResourceService, type Resource } from '$lib/gen'
+	import { canWrite, emptyString, isOwner, sendUserToast } from '$lib/utils'
+	import { createEventDispatcher } from 'svelte'
+	import { Alert, Button, Drawer, Skeleton } from './common'
 	import Path from './Path.svelte'
 	import Required from './Required.svelte'
-	import { Alert, Button, Drawer, Skeleton } from './common'
 
 	import { userStore, workspaceStore } from '$lib/stores'
-	import DrawerContent from './common/drawer/DrawerContent.svelte'
-	import autosize from 'svelte-autosize'
-	import SimpleEditor from './SimpleEditor.svelte'
 	import { faSave } from '@fortawesome/free-solid-svg-icons'
+	import autosize from 'svelte-autosize'
+	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import SchemaForm from './SchemaForm.svelte'
+	import SimpleEditor from './SimpleEditor.svelte'
 	import Toggle from './Toggle.svelte'
 
 	let path = ''
@@ -131,7 +131,7 @@
 		on:close={drawer.closeDrawer}
 	>
 		<div>
-			<div class="flex flex-col gap-3 py-3  text-gray-700">
+			<div class="flex flex-col gap-3 py-3 text-gray-700">
 				<div>
 					{#if !can_write}
 						<div class="m-2">
@@ -141,7 +141,7 @@
 						</div>
 					{/if}
 					<Path
-						disabled={!can_write}
+						disabled={initialPath != '' && !isOwner(initialPath, $userStore, $workspaceStore)}
 						bind:path
 						{initialPath}
 						namePlaceholder="resource"

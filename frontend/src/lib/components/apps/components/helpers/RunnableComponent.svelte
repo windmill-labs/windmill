@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
 	import type { Schema } from '$lib/common'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import LightweightSchemaForm from '$lib/components/LightweightSchemaForm.svelte'
@@ -9,13 +8,14 @@
 	import { classNames, defaultIfEmptyString, emptySchema, sendUserToast } from '$lib/utils'
 	import { deepEqual } from 'fast-equals'
 	import { Bug } from 'lucide-svelte'
-	import { getContext } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy } from 'svelte'
 	import type { AppInputs, Runnable } from '../../inputType'
 	import type { Output } from '../../rx'
-	import type { AppViewerContext, InlineScript } from '../../types'
+	import type { AppViewerContext, CancelablePromise, InlineScript } from '../../types'
 	import { computeGlobalContext, eval_like } from './eval'
 	import InputValue from './InputValue.svelte'
 	import RefreshButton from './RefreshButton.svelte'
+	import { selectId } from '../../editor/appUtils'
 
 	// Component props
 	export let id: string
@@ -29,12 +29,13 @@
 	export let wrapperClass = ''
 	export let wrapperStyle = ''
 	export let initializing: boolean | undefined = undefined
-	export let gotoUrl: string | undefined = undefined
-	export let gotoNewTab: boolean | undefined = undefined
 	export let render: boolean
-	export let recomputable: boolean = false
-	export let recomputeIds: string[] = []
 	export let outputs: { result: Output<any>; loading: Output<boolean> }
+	export let extraKey = ''
+	export let recomputeOnInputChanged: boolean = true
+	export let loading = false
+	export let recomputableByRefreshButton: boolean = true
+	export let refreshOnStart: boolean = false
 
 	const {
 		worldStore,
@@ -48,20 +49,56 @@
 		mode,
 		stateId,
 		state,
-		componentControl
+		componentControl,
+		initialized,
+		selectedComponent,
+		app,
+		connectingInput
 	} = getContext<AppViewerContext>('AppViewerContext')
 
-	if (recomputable || autoRefresh) {
-		$runnableComponents[id] = async (inlineScript?: InlineScript) => {
-			await executeComponent(true, inlineScript)
+	const dispatch = createEventDispatcher()
+
+	let donePromise: (() => void) | undefined = undefined
+
+	const cancellableRun: (inlineScript?: InlineScript) => CancelablePromise<void> = (
+		inlineScript?: InlineScript
+	) => {
+		let rejectCb: (err: Error) => void
+		let p: Partial<CancelablePromise<void>> = new Promise<void>((resolve, reject) => {
+			rejectCb = reject
+			donePromise = resolve
+			executeComponent(true, inlineScript).catch(reject)
+		})
+		p.cancel = () => {
+			testJobLoader?.cancelJob()
+			loading = false
+			rejectCb(new Error('Canceled'))
 		}
-		$runnableComponents = $runnableComponents
+		return p as CancelablePromise<void>
 	}
+
+	$runnableComponents[id] = {
+		autoRefresh: autoRefresh && recomputableByRefreshButton,
+		refreshOnStart,
+		cb: cancellableRun
+	}
+
+	if (!$initialized.initializedComponents.includes(id)) {
+		$initialized.initializedComponents = [...$initialized.initializedComponents, id]
+	}
+
+	onDestroy(() => {
+		$initialized.initializedComponents = $initialized.initializedComponents.filter((c) => c !== id)
+	})
+
+	$runnableComponents = $runnableComponents
 
 	let args: Record<string, any> | undefined = undefined
 	let testIsLoading = false
 	let runnableInputValues: Record<string, any> = {}
 	let executeTimeout: NodeJS.Timeout | undefined = undefined
+
+	$: outputs.loading?.set(loading)
 
 	function setDebouncedExecute() {
 		executeTimeout && clearTimeout(executeTimeout)
@@ -91,8 +128,13 @@
 		testJobLoader &&
 		refreshIfAutoRefresh('arg changed')
 
+	$: refreshOn =
+		runnable && runnable.type === 'runnableByName' ? runnable.inlineScript?.refreshOn ?? [] : []
+
 	function refreshIfAutoRefresh(_src: string) {
-		if (autoRefresh && $worldStore.initialized) {
+		const refreshEnabled =
+			autoRefresh && ((recomputeOnInputChanged ?? true) || refreshOn?.length > 0)
+		if (refreshEnabled && $initialized.initialized) {
 			setDebouncedExecute()
 		}
 	}
@@ -136,28 +178,52 @@
 		return schemaStripped as Schema
 	}
 
+	function generateNextFrontendJobId() {
+		const prefix = 'Frontend: '
+		let nextJobNumber = 1
+		while ($jobs.find((j) => j.job === `${prefix}#${nextJobNumber}`)) {
+			nextJobNumber++
+		}
+		return `${prefix}#${nextJobNumber}`
+	}
+
 	async function executeComponent(noToast = false, inlineScriptOverride?: InlineScript) {
+		console.debug('execute', id)
+
 		if (runnable?.type === 'runnableByName' && runnable.inlineScript?.language === 'frontend') {
-			outputs.loading?.set(true)
+			loading = true
 			try {
 				const r = await eval_like(
 					runnable.inlineScript?.content,
-					computeGlobalContext($worldStore, id, {}),
+					computeGlobalContext($worldStore, {}),
 					false,
 					$state,
 					$mode == 'dnd',
 					$componentControl,
-					$worldStore
+					$worldStore,
+					$runnableComponents
 				)
 				await setResult(r)
+
 				$state = $state
 			} catch (e) {
-				sendUserToast('Error running frontend script: ' + e.message, true)
+				sendUserToast(`Error running frontend script ${id}: ` + e.message, true)
+
+				// Manually add a fake job to the job list to show the error
+
+				const job = generateNextFrontendJobId()
+				const error = e.body ?? e.message
+
+				$errorByComponent[job] = {
+					error,
+					componentId: id
+				}
+
+				$jobs = [{ job, component: id, error }, ...$jobs]
 			}
-			outputs.loading?.set(false)
+			loading = false
 			return
-		}
-		if (noBackend) {
+		} else if (noBackend) {
 			if (!noToast) {
 				sendUserToast('This app is not connected to a windmill backend, it is a static preview')
 			}
@@ -167,7 +233,7 @@
 			return
 		}
 
-		outputs.loading?.set(true)
+		loading = true
 
 		try {
 			let njob = await testJobLoader?.abstractRun(() => {
@@ -216,12 +282,17 @@
 				$jobs = [{ job: njob, component: id }, ...$jobs]
 			}
 		} catch (e) {
-			outputs.loading?.set(false)
+			setResult({ error: e.body ?? e.message })
+			loading = false
 		}
 	}
 
 	export async function runComponent() {
-		await executeComponent()
+		try {
+			await executeComponent()
+		} catch (e) {
+			setResult({ error: e.body ?? e.message })
+		}
 	}
 
 	let lastStartedAt: number = Date.now()
@@ -236,24 +307,41 @@
 	}
 
 	async function setResult(res: any) {
+		const hasRes = res !== undefined && res !== null
+
 		if (transformer) {
 			$worldStore.newOutput(id, 'raw', res)
 			res = await eval_like(
 				transformer.content,
-				computeGlobalContext($worldStore, id, { result: res }),
+				computeGlobalContext($worldStore, { result: res }),
 				false,
 				$state,
 				$mode == 'dnd',
 				$componentControl,
-				$worldStore
+				$worldStore,
+				$runnableComponents
 			)
+
+			if (hasRes && res === undefined) {
+				res = {
+					error: {
+						name: 'TransformerError',
+						message: 'An error occured in the transformer',
+						stack: 'Transformer returned undefined'
+					}
+				}
+			}
 		}
+
 		outputs.result?.set(res)
 
 		result = res
 		if (res?.error) {
 			recordError(res.error)
+		} else {
+			dispatch('success')
 		}
+
 		const previousJobId = Object.keys($errorByComponent).find(
 			(key) => $errorByComponent[key].componentId === id
 		)
@@ -262,33 +350,28 @@
 			delete $errorByComponent[previousJobId]
 			$errorByComponent = $errorByComponent
 		}
-		if (gotoUrl && gotoUrl != '' && result?.error == undefined) {
-			if (gotoNewTab) {
-				window.open(gotoUrl, '_blank')
-			} else {
-				goto(gotoUrl)
-			}
-		}
+	}
 
-		if (recomputeIds) {
-			recomputeIds.map((id) => $runnableComponents?.[id]?.())
-		}
+	function handleInputClick(e: CustomEvent) {
+		const event = e as unknown as PointerEvent
+		!$connectingInput.opened && selectId(event, id, selectedComponent, $app)
 	}
 </script>
 
-<!-- {#if runnable?.type == 'runnableByName'}
-	{runnable?.inlineScript?.content}
-{/if} -->
-
 {#each Object.entries(fields ?? {}) as [key, v] (key)}
 	{#if v.type != 'static' && v.type != 'user'}
-		<InputValue {key} {id} input={fields[key]} bind:value={runnableInputValues[key]} />
+		<InputValue
+			key={key + extraKey}
+			{id}
+			input={fields[key]}
+			bind:value={runnableInputValues[key]}
+		/>
 	{/if}
 {/each}
 
 {#if runnable?.type == 'runnableByName' && runnable.inlineScript?.language == 'frontend'}
 	{#each runnable.inlineScript.refreshOn ?? [] as { id: tid, key } (`${tid}-${key}`)}
-		{@const fkey = `${tid}-${key}`}
+		{@const fkey = `${tid}-${key}${extraKey}`}
 		<InputValue
 			{id}
 			key={fkey}
@@ -306,9 +389,10 @@
 			if (startedAt > lastStartedAt) {
 				lastStartedAt = startedAt
 				setResult(e.detail.result)
+				donePromise?.()
 			}
 		}
-		outputs.loading?.set(false)
+		loading = false
 	}}
 	bind:isLoading={testIsLoading}
 	bind:job={testJob}
@@ -319,7 +403,11 @@
 	<div class="h-full flex relative flex-row flex-wrap {wrapperClass}" style={wrapperStyle}>
 		{#if (autoRefresh || forceSchemaDisplay) && schemaStripped && Object.keys(schemaStripped?.properties ?? {}).length > 0}
 			<div class="px-2 h-fit min-h-0">
-				<LightweightSchemaForm schema={schemaStripped} bind:args />
+				<LightweightSchemaForm
+					schema={schemaStripped}
+					bind:args
+					on:inputClicked={handleInputClick}
+				/>
 			</div>
 		{/if}
 
@@ -359,7 +447,7 @@
 		{/if}
 		{#if !initializing && autoRefresh === true}
 			<div class="flex absolute top-1 right-1 z-50">
-				<RefreshButton componentId={id} />
+				<RefreshButton {loading} componentId={id} />
 			</div>
 		{/if}
 	</div>

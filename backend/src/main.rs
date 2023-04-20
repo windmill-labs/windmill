@@ -6,11 +6,24 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::{
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    sync::{atomic::Ordering, Arc},
+};
 
 use git_version::git_version;
+use monitor::handle_zombie_jobs_periodically;
 use sqlx::{Pool, Postgres};
-use windmill_common::utils::rd_string;
+use tokio::{
+    fs::{metadata, DirBuilder},
+    join,
+    sync::RwLock,
+};
+use windmill_common::{utils::rd_string, IS_READY, METRICS_ADDR};
+use windmill_worker::{
+    DENO_CACHE_DIR, DENO_TMP_CACHE_DIR, GO_CACHE_DIR, GO_TMP_CACHE_DIR, PIP_CACHE_DIR,
+    ROOT_TMP_CACHE_DIR, S3_CACHE_BUCKET, TAR_PIP_TMP_CACHE_DIR,
+};
 
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 const DEFAULT_NUM_WORKERS: usize = 3;
@@ -18,6 +31,7 @@ const DEFAULT_PORT: u16 = 8000;
 const DEFAULT_SERVER_BIND_ADDR: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
 
 mod ee;
+mod monitor;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -30,19 +44,11 @@ async fn main() -> anyhow::Result<()> {
         .and_then(|x| x.parse::<i32>().ok())
         .unwrap_or(DEFAULT_NUM_WORKERS as i32);
 
-    let metrics_addr: Option<SocketAddr> = std::env::var("METRICS_ADDR")
-        .ok()
-        .map(|s| {
-            s.parse::<bool>()
-                .map(|b| b.then(|| SocketAddr::from(([0, 0, 0, 0], 8001))))
-                .or_else(|_| s.parse::<SocketAddr>().map(Some))
-        })
-        .transpose()?
-        .flatten();
+    let metrics_addr: Option<SocketAddr> = *METRICS_ADDR;
 
     let server_bind_address: IpAddr = std::env::var("SERVER_BIND_ADDR")
         .ok()
-        .and_then(|x| x.parse().ok() )
+        .and_then(|x| x.parse().ok())
         .unwrap_or(IpAddr::from(DEFAULT_SERVER_BIND_ADDR));
 
     let port: u16 = std::env::var("PORT")
@@ -57,7 +63,39 @@ async fn main() -> anyhow::Result<()> {
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(false);
 
+    let rsmq_config = std::env::var("REDIS_URL").ok().map(|x| {
+        let url = x.parse::<url::Url>().unwrap();
+        let mut config = rsmq_async::RsmqOptions { ..Default::default() };
+
+        config.host = url.host_str().expect("redis host required").to_owned();
+        config.password = url.password().map(|s| s.to_owned());
+        config.db = url
+            .path_segments()
+            .and_then(|mut segments| segments.next())
+            .and_then(|segment| segment.parse().ok())
+            .unwrap_or(0);
+        config.ns = url
+            .query_pairs()
+            .find(|s| s.0 == "rsmq_namespace")
+            .map(|s| s.1)
+            .unwrap_or(std::borrow::Cow::Borrowed("rsmq"))
+            .into_owned();
+        config.port = url.port().unwrap_or(6379).to_string();
+
+        config
+    });
+
     let db = windmill_common::connect_db(server_mode).await?;
+
+    let rsmq = if let Some(config) = rsmq_config {
+        let mut rsmq = rsmq_async::MultiplexedRsmq::new(config).await.unwrap();
+
+        let _ = rsmq_async::RsmqConnection::create_queue(&mut rsmq, "main_queue", None, None, None)
+            .await;
+        Some(rsmq)
+    } else {
+        None
+    };
 
     if server_mode {
         windmill_api::migrate_db(&db).await?;
@@ -91,6 +129,8 @@ Windmill Community Edition {GIT_VERSION}
         "BASE_URL",
         "BASE_INTERNAL_URL",
         "TIMEOUT",
+        "ZOMBIE_JOB_TIMEOUT",
+        "RESTART_ZOMBIE_JOBS",
         "SLEEP_QUEUE",
         "MAX_LOG_SIZE",
         "SERVER_BIND_ADDR",
@@ -102,6 +142,8 @@ Windmill Community Edition {GIT_VERSION}
         "PYTHON_PATH",
         "DENO_PATH",
         "GO_PATH",
+        "GOPRIVATE",
+        "NETRC",
         "PIP_INDEX_URL",
         "PIP_EXTRA_INDEX_URL",
         "PIP_TRUSTED_HOST",
@@ -118,16 +160,18 @@ Windmill Community Edition {GIT_VERSION}
         "INCLUDE_HEADERS",
         "WHITELIST_WORKSPACES",
         "BLACKLIST_WORKSPACES",
-        "NEW_USER_WEBHOOK",
+        "INSTANCE_EVENTS_WEBHOOK",
         "CLOUD_HOSTED",
+        "GLOBAL_CACHE_INTERVAL",
     ]);
 
     if server_mode || num_workers > 0 {
         let addr = SocketAddr::from((server_bind_address, port));
 
+        let rsmq2 = rsmq.clone();
         let server_f = async {
             if server_mode {
-                windmill_api::run_server(db.clone(), addr, rx.resubscribe()).await?;
+                windmill_api::run_server(db.clone(), rsmq2, addr, rx.resubscribe()).await?;
             }
             Ok(()) as anyhow::Result<()>
         };
@@ -139,29 +183,35 @@ Windmill Community Edition {GIT_VERSION}
                     rx.resubscribe(),
                     num_workers,
                     base_internal_url.clone(),
+                    rsmq.clone(),
                 )
                 .await?;
             }
             Ok(()) as anyhow::Result<()>
         };
 
+        let rsmq2 = rsmq.clone();
         let monitor_f = async {
             if server_mode {
-                monitor_db(&db, rx.resubscribe(), &base_internal_url);
+                monitor_db(&db, rx.resubscribe(), &base_internal_url, rsmq2);
             }
             Ok(()) as anyhow::Result<()>
         };
 
         let metrics_f = async {
             match metrics_addr {
-                Some(addr) => windmill_common::serve_metrics(addr, rx.resubscribe())
-                    .await
-                    .map_err(anyhow::Error::from),
+                Some(addr) => {
+                    windmill_common::serve_metrics(addr, rx.resubscribe(), num_workers > 0)
+                        .await
+                        .map_err(anyhow::Error::from)
+                }
                 None => Ok(()),
             }
         };
 
         futures::try_join!(shutdown_signal, server_f, metrics_f, workers_f, monitor_f)?;
+    } else {
+        tracing::info!("Nothing to do, exiting.");
     }
     Ok(())
 }
@@ -183,10 +233,11 @@ fn display_config(envs: Vec<&str>) {
     )
 }
 
-pub fn monitor_db(
+pub fn monitor_db<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(
     db: &Pool<Postgres>,
     rx: tokio::sync::broadcast::Receiver<()>,
     base_internal_url: &str,
+    rsmq: Option<R>,
 ) {
     let db1 = db.clone();
     let db2 = db.clone();
@@ -194,16 +245,17 @@ pub fn monitor_db(
     let rx2 = rx.resubscribe();
     let base_internal_url = base_internal_url.to_string();
     tokio::spawn(async move {
-        windmill_worker::handle_zombie_jobs_periodically(&db1, rx, &base_internal_url).await
+        handle_zombie_jobs_periodically(&db1, rx, &base_internal_url, rsmq).await
     });
     tokio::spawn(async move { windmill_api::delete_expired_items_perdiodically(&db2, rx2).await });
 }
 
-pub async fn run_workers(
+pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(
     db: Pool<Postgres>,
     rx: tokio::sync::broadcast::Receiver<()>,
     num_workers: i32,
     base_internal_url: String,
+    rsmq: Option<R>,
 ) -> anyhow::Result<()> {
     let license_key = std::env::var("LICENSE_KEY").ok();
     #[cfg(feature = "enterprise")]
@@ -226,6 +278,40 @@ pub async fn run_workers(
 
     let mut handles = Vec::with_capacity(num_workers as usize);
 
+    if metadata(&ROOT_TMP_CACHE_DIR).await.is_ok() {
+        if let Err(e) = tokio::fs::remove_dir_all(&ROOT_TMP_CACHE_DIR).await {
+            tracing::info!(error = %e, "Could not remove root tmp cache dir");
+        }
+    }
+
+    for x in [
+        PIP_CACHE_DIR,
+        DENO_CACHE_DIR,
+        GO_CACHE_DIR,
+        TAR_PIP_TMP_CACHE_DIR,
+        DENO_TMP_CACHE_DIR,
+        GO_TMP_CACHE_DIR,
+    ] {
+        DirBuilder::new()
+            .recursive(true)
+            .create(x)
+            .await
+            .expect("could not create initial worker dir");
+    }
+
+    #[cfg(feature = "enterprise")]
+    if let Some(ref s) = S3_CACHE_BUCKET.clone() {
+        join!(
+            windmill_worker::copy_denogo_cache_from_bucket_as_tar(&s),
+            windmill_worker::copy_all_piptars_from_bucket(&s)
+        );
+        if let Err(e) = windmill_worker::untar_all_piptars().await {
+            tracing::info!("Failed to untar piptars. Error: {:?}", e);
+        }
+    }
+
+    IS_READY.store(true, Ordering::Relaxed);
+    let sync_barrier = Arc::new(RwLock::new(None));
     for i in 1..(num_workers + 1) {
         let db1 = db.clone();
         let instance_name = instance_name.clone();
@@ -233,6 +319,8 @@ pub async fn run_workers(
         let ip = ip.clone();
         let rx = rx.resubscribe();
         let base_internal_url = base_internal_url.clone();
+        let rsmq2 = rsmq.clone();
+        let sync_barrier = sync_barrier.clone();
         handles.push(tokio::spawn(monitor.instrument(async move {
             tracing::info!(worker = %worker_name, "starting worker");
             windmill_worker::run_worker(
@@ -240,9 +328,12 @@ pub async fn run_workers(
                 &instance_name,
                 worker_name,
                 i as u64,
+                num_workers as u32,
                 &ip,
                 rx,
                 &base_internal_url,
+                rsmq2,
+                sync_barrier,
             )
             .await
         })));

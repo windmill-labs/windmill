@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { AppInput, StaticInput } from '../../../inputType'
+	import type { StaticInput } from '../../../inputType'
 	import { Loader2, X } from 'lucide-svelte'
 	import { Popup } from '../../../../common'
 	import { fade } from 'svelte/transition'
@@ -45,8 +45,9 @@
 
 	function select(label: string) {
 		componentInput.value = label
-		if ((document.activeElement as HTMLElement)?.blur) {
-			;(document.activeElement as HTMLElement).blur()
+		const elem = document.activeElement as HTMLElement
+		if (elem.blur) {
+			elem.blur()
 		}
 	}
 </script>
@@ -77,6 +78,7 @@
 {#if anchor}
 	<Popup
 		ref={anchor}
+		closeOn={[]}
 		options={{ placement: 'bottom' }}
 		bind:open={openPopup}
 		let:close
@@ -86,7 +88,11 @@
 			<div class="max-w-xs shadow-[0_10px_40px_-5px_rgba(0,0,0,0.25)] bg-white rounded-md p-2">
 				{#if filteredItems}
 					<input
-						on:keydown|stopPropagation
+						on:keydown={(event) => {
+							if (!['ArrowDown', 'ArrowUp'].includes(event.key)) {
+								event.stopPropagation()
+							}
+						}}
 						bind:value={search}
 						type="text"
 						placeholder="Search"
@@ -102,8 +108,8 @@
 									select(label)
 									close()
 								}}
-								class="w-full center-center flex-col font-normal p-1 
-									hover:bg-gray-100 focus:bg-gray-100 rounded duration-200 
+								class="w-full center-center flex-col font-normal p-1
+									hover:bg-gray-100 focus:bg-gray-100 rounded duration-200
 									{label === componentInput.value ? 'text-blue-600 bg-blue-50 pointer-events-none' : ''}"
 							>
 								<svelte:component this={icon} size={22} />

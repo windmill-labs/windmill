@@ -20,10 +20,16 @@
 	import AppPreview from '$lib/components/apps/editor/AppPreview.svelte'
 	import { writable } from 'svelte/store'
 	import type { EditorBreakpoint } from '$lib/components/apps/types'
+	import { HOME_SHOW_HUB, HOME_SHOW_CREATE_FLOW, HOME_SHOW_CREATE_APP } from '$lib/consts'
 
-	type Tab = 'hubscripts' | 'hubflows' | 'hubapps' | 'workspace'
+	type Tab = 'hub' | 'workspace'
 
-	let tab: Tab = 'workspace'
+	let tab: Tab = window.location.hash?.includes('#')
+		? (window.location.hash?.replace('#', '') as Tab)
+		: 'workspace'
+
+	let subtab: 'flows' | 'scripts' | 'apps' = 'flows'
+
 	let filter: string = ''
 
 	let flowViewer: Drawer
@@ -71,6 +77,7 @@
 				variant="contained"
 				color="light"
 				size="xs"
+				target="_blank"
 			>
 				<div class="flex gap-2 items-center">
 					<Globe2 size={18} />
@@ -99,6 +106,7 @@
 				variant="contained"
 				color="light"
 				size="xs"
+				target="_blank"
 			>
 				<div class="flex gap-2 items-center">
 					<Globe2 size={18} />
@@ -117,9 +125,7 @@
 		</svelte:fragment>
 
 		{#if flowViewerFlow?.flow}
-			<div class="p-4">
-				<FlowViewer flow={flowViewerFlow.flow} />
-			</div>
+			<FlowViewer flow={flowViewerFlow.flow} />
 		{/if}
 	</DrawerContent>
 </Drawer>
@@ -132,6 +138,7 @@
 				variant="contained"
 				color="light"
 				size="xs"
+				target="_blank"
 			>
 				<div class="flex gap-2 items-center">
 					<Globe2 size={18} />
@@ -185,63 +192,77 @@
 				{#if !$userStore?.operator}
 					<span class="text-sm text-gray-500">Create a new:</span>
 					<CreateActionsScript />
-					<CreateActionsFlow />
-					<CreateActionsApp />
+					{#if HOME_SHOW_CREATE_FLOW}<CreateActionsFlow />{/if}
+					{#if HOME_SHOW_CREATE_APP}<CreateActionsApp />{/if}
 				{/if}
 			</div>
 		</PageHeader>
 
 		{#if !$userStore?.operator}
 			<div class="w-full overflow-auto scrollbar-hidden">
-				<Tabs bind:selected={tab}>
+				<Tabs dflt="workspace" hashNavigation bind:selected={tab}>
 					<Tab size="md" value="workspace">
 						<div class="flex gap-2 items-center my-1">
 							<Building size={18} />
 							Workspace
 						</div>
 					</Tab>
-					<Tab size="md" value="hubscripts">
+					{#if HOME_SHOW_HUB}
+					<Tab size="md" value="hub">
 						<div class="flex gap-2 items-center my-1">
 							<Globe2 size={18} />
-							Hub Scripts
+							Hub
 						</div>
 					</Tab>
-					<Tab size="md" value="hubflows">
-						<div class="flex gap-2 items-center my-1">
-							<Globe2 size={18} />
-							Hub Flows
-						</div>
-					</Tab>
-					<Tab size="md" value="hubapps">
-						<div class="flex gap-2 items-center my-1">
-							<Globe2 size={18} />
-							Hub Apps
-						</div>
-					</Tab>
+					{/if}
 				</Tabs>
 			</div>
 		{/if}
 		<div class="my-2" />
 		<div class="flex flex-col gap-y-16">
 			<div class="flex flex-col">
-				{#if tab == 'hubscripts'}
-					<PickHubScript bind:filter on:pick={(e) => viewCode(e.detail)}
-						><Button target="_blank" href="https://hub.windmill.dev" variant="border" color="dark"
-							>Go to Hub</Button
-						></PickHubScript
-					>
-				{:else if tab == 'hubflows'}
-					<PickHubFlow bind:filter on:pick={(e) => viewFlow(e.detail)}
-						><Button target="_blank" href="https://hub.windmill.dev" variant="border" color="dark"
-							>Go to Hub</Button
-						></PickHubFlow
-					>
-				{:else if tab == 'hubapps'}
-					<PickHubApp bind:filter on:pick={(e) => viewApp(e.detail)}
-						><Button target="_blank" href="https://hub.windmill.dev" variant="border" color="dark"
-							>Go to Hub</Button
-						></PickHubApp
-					>
+				{#if tab == 'hub'}
+					<Tabs bind:selected={subtab}>
+						<Tab size="md" value="scripts">
+							<div class="flex gap-2 items-center my-1"> Scripts </div>
+						</Tab>
+						<Tab size="md" value="flows">
+							<div class="flex gap-2 items-center my-1"> Flows </div>
+						</Tab>
+						<Tab size="md" value="apps">
+							<div class="flex gap-2 items-center my-1"> Apps </div>
+						</Tab>
+					</Tabs>
+					<div class="my-2" />
+
+					{#if subtab == 'scripts'}
+						<PickHubScript bind:filter on:pick={(e) => viewCode(e.detail)}
+							><Button
+								target="_blank"
+								href="https://hub.windmill.dev"
+								variant="border"
+								color="light">Go to Hub</Button
+							></PickHubScript
+						>
+					{:else if subtab == 'flows'}
+						<PickHubFlow bind:filter on:pick={(e) => viewFlow(e.detail)}
+							><Button
+								target="_blank"
+								href="https://hub.windmill.dev"
+								variant="border"
+								color="light">Go to Hub</Button
+							></PickHubFlow
+						>
+					{:else if subtab == 'apps'}
+						<PickHubApp bind:filter on:pick={(e) => viewApp(e.detail)}
+							><Button
+								target="_blank"
+								href="https://hub.windmill.dev"
+								variant="border"
+								color="light">Go to Hub</Button
+							></PickHubApp
+						>
+					{/if}
 				{/if}
 			</div>
 		</div>

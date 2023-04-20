@@ -6,6 +6,7 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { deepEqual } from 'fast-equals'
 	import { initOutput } from '../../editor/appUtils'
+	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
 	export let id: string
 	export let componentContainerHeight: number
@@ -16,7 +17,7 @@
 	export let panes: number[]
 	export let render: boolean
 
-	const { app, focusedGrid, selectedComponent, componentControl, worldStore } =
+	const { app, focusedGrid, selectedComponent, componentControl, worldStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	//used so that we can count number of outputs setup for first refresh
@@ -29,7 +30,6 @@
 		}
 	}
 
-	$: $selectedComponent === id && onFocus()
 	$: css = concatCustomCss($app.css?.containercomponent, customCss)
 
 	$componentControl[id] = {
@@ -66,6 +66,8 @@
 	}
 </script>
 
+<InitializeComponent {id} />
+
 <div class="h-full w-full border" on:pointerdown={onFocus}>
 	<Splitpanes {horizontal}>
 		{#each sumedup as paneSize, index (index)}
@@ -73,7 +75,7 @@
 				<div
 					class="w-full h-full"
 					on:pointerdown|stopPropagation={() => {
-						$selectedComponent = id
+						$selectedComponent = [id]
 						$focusedGrid = {
 							parentComponentId: id,
 							subGridIndex: index
@@ -90,10 +92,12 @@
 							subGridId={`${id}-${index}`}
 							containerHeight={horizontal ? undefined : componentContainerHeight - 8}
 							on:focus={() => {
-								$selectedComponent = id
-								$focusedGrid = {
-									parentComponentId: id,
-									subGridIndex: index
+								if (!$connectingInput.opened) {
+									$selectedComponent = [id]
+									$focusedGrid = {
+										parentComponentId: id,
+										subGridIndex: index
+									}
 								}
 							}}
 						/>

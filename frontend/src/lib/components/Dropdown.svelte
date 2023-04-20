@@ -11,13 +11,21 @@
 	type Side = 'top' | 'bottom'
 	type Placement = `${Side}-${Alignment}`
 
-	export let dropdownItems: DropdownItem[]
+	export let dropdownItems: DropdownItem[] | (() => DropdownItem[]) = []
 	export let name: string | undefined = undefined
 	export let placement: Placement = 'bottom-start'
 	export let btnClasses = ''
 	$: buttonClass = twMerge('!border-0 bg-transparent !p-[6px]', btnClasses)
 
 	const dispatch = createEventDispatcher()
+
+	function computeDropdowns(): DropdownItem[] {
+		if (typeof dropdownItems === 'function') {
+			return dropdownItems()
+		} else {
+			return dropdownItems
+		}
+	}
 </script>
 
 <Menu {placement} let:close>
@@ -37,7 +45,7 @@
 		{/if}
 	</Button>
 	{#if dropdownItems}
-		{#each dropdownItems as item, i}
+		{#each computeDropdowns() as item, i}
 			{#if item.action}
 				<button
 					on:click|preventDefault|stopPropagation={(event) => {
@@ -47,8 +55,8 @@
 							dispatch('click', { item: item?.eventName })
 						}
 					}}
-					class="block w-full  whitespace-nowrap hover:drop-shadow-sm hover:bg-gray-50 hover:bg-opacity-30
-					 px-4 py-2 text-sm text-gray-700 text-left 
+					class="block w-full whitespace-nowrap hover:drop-shadow-sm hover:bg-gray-50 hover:bg-opacity-30
+					 px-4 py-2 text-sm text-gray-700 text-left
 					 {item.disabled ? 'bg-gray-200' : ''}
 					 {item.separatorTop ? 'border-t' : ''} {item.separatorBottom ? 'border-b' : ''} {item.type ==
 					'delete'
@@ -72,7 +80,7 @@
 				<a
 					href={item.href}
 					on:click|stopPropagation|preventDefault={() => goto(item.href ?? '')}
-					class="block w-full px-4 font-semibold text-left  py-2 text-sm text-gray-700 hover:drop-shadow-sm hover:bg-gray-50 hover:bg-opacity-30
+					class="block w-full px-4 font-semibold text-left py-2 text-sm text-gray-700 hover:drop-shadow-sm hover:bg-gray-50 hover:bg-opacity-30
 					{item.disabled ? 'bg-gray-200' : ''}"
 					role="menuitem"
 					tabindex="-1"
@@ -89,9 +97,10 @@
 					{item.displayName}
 				</a>
 			{:else}
+				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<span
-					class:bg-gray-50={item.disabled}
-					class="block  text-left px-4 py-2 text-sm text-gray-700 cursor-auto"
+					class:bg-gray-200={item.disabled}
+					class="block font-semibold text-left px-4 py-2 text-sm text-gray-700 cursor-auto"
 					role="menuitem"
 					tabindex="-1"
 					id="user-menu-item-{name}-{i}}"

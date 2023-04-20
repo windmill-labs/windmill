@@ -10,7 +10,6 @@ use std::collections::HashMap;
 
 use anyhow::Context;
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres, Transaction};
 use tracing::{instrument, Instrument};
 use ulid::Ulid;
@@ -20,9 +19,13 @@ use windmill_common::{
     error::{self, Error},
     flow_status::{FlowStatus, JobResult, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL},
     flows::{FlowModule, FlowModuleValue, FlowValue},
+    jobs::{JobKind, JobPayload, QueuedJob, RawCode},
     scripts::{get_full_hub_script_by_path, HubScript, ScriptHash, ScriptLang},
     utils::StripPath,
+    METRICS_ENABLED,
 };
+
+use crate::QueueTransaction;
 
 lazy_static::lazy_static! {
     pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
@@ -51,32 +54,43 @@ lazy_static::lazy_static! {
 
 const MAX_FREE_EXECS: i32 = 1000;
 const MAX_FREE_CONCURRENT_RUNS: i32 = 15;
+const RSMQ_MAIN_QUEUE: &'static str = "main_queue";
 
-pub async fn cancel_job<'c>(
+pub async fn cancel_job<'c, R: rsmq_async::RsmqConnection + Clone>(
     username: &str,
     reason: Option<String>,
     id: Uuid,
     w_id: &str,
     mut tx: Transaction<'c, Postgres>,
+    rsmq: Option<R>,
+    force_rerun: bool,
 ) -> error::Result<(Transaction<'c, Postgres>, Option<Uuid>)> {
     let job_option = sqlx::query_scalar!(
-        "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 \
-         AND workspace_id = $4 RETURNING id",
+        "UPDATE queue SET  canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0, running = CASE WHEN $3 THEN false ELSE running END  WHERE id = $4 \
+         AND workspace_id = $5 RETURNING id",
         username,
         reason,
+        force_rerun,
         id,
         w_id
     )
     .fetch_optional(&mut tx)
     .await?;
+    if let Some(mut rsmq) = rsmq {
+        rsmq.change_message_visibility(RSMQ_MAIN_QUEUE, &id.to_string(), 0)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+    }
+
     let mut jobs = job_option.map(|j| vec![j]).unwrap_or_default();
     while !jobs.is_empty() {
         let p_job = jobs.pop();
         let new_jobs = sqlx::query_scalar!(
-            "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2 WHERE parent_job = $3 \
-             AND workspace_id = $4 RETURNING id",
+            "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, running = CASE WHEN $3 THEN false ELSE running END WHERE parent_job = $4 \
+             AND workspace_id = $5 RETURNING id",
             username,
             reason,
+            force_rerun,
             p_job,
             w_id
         )
@@ -87,10 +101,11 @@ pub async fn cancel_job<'c>(
     Ok((tx, job_option))
 }
 
-pub async fn pull(
+pub async fn pull<R: rsmq_async::RsmqConnection + Clone>(
     db: &Pool<Postgres>,
     whitelist_workspaces: Option<Vec<String>>,
     blacklist_workspaces: Option<Vec<String>>,
+    rsmq: Option<R>,
 ) -> windmill_common::error::Result<Option<QueuedJob>> {
     let mut workspaces_filter = String::new();
     if let Some(whitelist) = whitelist_workspaces {
@@ -102,6 +117,9 @@ pub async fn pull(
                 .collect::<Vec<String>>()
                 .join(",")
         ));
+        if let Some(_rsmq) = rsmq {
+            todo!("REDIS: Implement workspace filters for redis");
+        }
     }
     if let Some(blacklist) = blacklist_workspaces {
         workspaces_filter.push_str(&format!(
@@ -112,16 +130,50 @@ pub async fn pull(
                 .collect::<Vec<String>>()
                 .join(",")
         ));
+        if let Some(_rsmq) = rsmq {
+            todo!("REDIS: Implement workspace filters for redis");
+        }
     }
-    /* Jobs can be started if they:
-     * - haven't been started before,
-     *   running = false
-     * - are flows with a step that needed resume,
-     *   suspend_until is non-null
-     *   and suspend = 0 when the resume messages are received
-     *   or suspend_until <= now() if it has timed out */
-    let job: Option<QueuedJob> = sqlx::query_as::<_, QueuedJob>(&format!(
-        "UPDATE queue
+
+    let job: Option<QueuedJob> = if let Some(mut rsmq) = rsmq {
+        // TODO: REDIS: Race conditions / replace last_ping
+        let msg = rsmq
+            .pop_message::<Vec<u8>>(RSMQ_MAIN_QUEUE)
+            .await
+            .map_err(|e| anyhow::anyhow!(e))?;
+
+        if let Some(msg) = msg {
+            let uuid = Uuid::from_bytes_le(
+                msg.message
+                    .try_into()
+                    .map_err(|_| anyhow::anyhow!("Failed to parsed Redis message"))?,
+            );
+
+            sqlx::query_as::<_, QueuedJob>(
+                "UPDATE queue
+            SET running = true
+            , started_at = coalesce(started_at, now())
+            , last_ping = now()
+            , suspend_until = null
+            WHERE id = $1
+            RETURNING *",
+            )
+            .bind(uuid)
+            .fetch_optional(db)
+            .await?
+        } else {
+            None
+        }
+    } else {
+        /* Jobs can be started if they:
+         * - haven't been started before,
+         *   running = false
+         * - are flows with a step that needed resume,
+         *   suspend_until is non-null
+         *   and suspend = 0 when the resume messages are received
+         *   or suspend_until <= now() if it has timed out */
+        sqlx::query_as::<_, QueuedJob>(&format!(
+            "UPDATE queue
             SET running = true
               , started_at = coalesce(started_at, now())
               , last_ping = now()
@@ -139,11 +191,12 @@ pub async fn pull(
                 LIMIT 1
             )
             RETURNING *"
-    ))
-    .fetch_optional(db)
-    .await?;
+        ))
+        .fetch_optional(db)
+        .await?
+    };
 
-    if job.is_some() {
+    if job.is_some() && *METRICS_ENABLED {
         QUEUE_PULL_COUNT.inc();
     }
 
@@ -203,24 +256,26 @@ pub async fn get_result_by_id(
 }
 
 #[instrument(level = "trace", skip_all)]
-pub async fn delete_job(
-    db: &Pool<Postgres>,
+pub async fn delete_job<'c, R: rsmq_async::RsmqConnection + Clone + Send>(
+    mut tx: QueueTransaction<'c, R>,
     w_id: &str,
     job_id: Uuid,
-) -> windmill_common::error::Result<()> {
-    QUEUE_DELETE_COUNT.inc();
+) -> windmill_common::error::Result<QueueTransaction<'c, R>> {
+    if *METRICS_ENABLED {
+        QUEUE_DELETE_COUNT.inc();
+    }
     let job_removed = sqlx::query_scalar!(
         "DELETE FROM queue WHERE workspace_id = $1 AND id = $2 RETURNING 1",
         w_id,
         job_id
     )
-    .fetch_one(db)
+    .fetch_one(&mut tx)
     .await
     .map_err(|e| Error::InternalErr(format!("Error during deletion of job {job_id}: {e}")))?
     .unwrap_or(0)
         == 1;
     tracing::debug!("Job {job_id} deleted: {job_removed}");
-    Ok(())
+    Ok(tx)
 }
 
 pub async fn get_queued_job<'c>(
@@ -239,9 +294,9 @@ pub async fn get_queued_job<'c>(
     Ok(r)
 }
 
-#[instrument(level = "trace", skip_all)]
-pub async fn push<'c>(
-    mut tx: Transaction<'c, Postgres>,
+// #[instrument(level = "trace", skip_all)]
+pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
+    mut tx: QueueTransaction<'c, R>,
     workspace_id: &str,
     job_payload: JobPayload,
     args: serde_json::Map<String, serde_json::Value>,
@@ -256,14 +311,13 @@ pub async fn push<'c>(
     mut same_worker: bool,
     pre_run_error: Option<&windmill_common::error::Error>,
     visible_to_owner: bool,
-) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
-    let scheduled_for = scheduled_for_o.unwrap_or_else(chrono::Utc::now);
+) -> Result<(Uuid, QueueTransaction<'c, R>), Error> {
     let args_json = serde_json::Value::Object(args);
     let job_id: Uuid = Ulid::new().into();
 
     if cfg!(feature = "enterprise") {
-        let premium_workspace =
-            sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", workspace_id)
+        let premium_workspace = *CLOUD_HOSTED
+            && sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", workspace_id)
                 .fetch_one(&mut tx)
                 .await
                 .map_err(|e| {
@@ -486,7 +540,6 @@ pub async fn push<'c>(
             modules.push(FlowModule {
                 id: format!("{}-v", flow.modules[flow.modules.len() - 1].id),
                 value: FlowModuleValue::Identity,
-                input_transforms: HashMap::new(),
                 stop_after_if: None,
                 summary: Some(
                     "Virtual module needed for suspend/sleep when last module".to_string(),
@@ -510,7 +563,7 @@ pub async fn push<'c>(
             (workspace_id, id, running, parent_job, created_by, permissioned_as, scheduled_for, 
                 script_hash, script_path, raw_code, raw_lock, args, job_kind, schedule_path, raw_flow, \
          flow_status, is_flow_step, language, started_at, same_worker, pre_run_error, email, visible_to_owner, root_job)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22, $23) \
+            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, now()), $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22, $23) \
          RETURNING id",
         workspace_id,
         job_id,
@@ -518,7 +571,7 @@ pub async fn push<'c>(
         parent_job,
         user,
         permissioned_as,
-        scheduled_for,
+        scheduled_for_o,
         script_hash,
         script_path.clone(),
         raw_code,
@@ -540,7 +593,9 @@ pub async fn push<'c>(
     .await
     .map_err(|e| Error::InternalErr(format!("Could not insert into queue {job_id}: {e}")))?;
     // TODO: technically the job isn't queued yet, as the transaction can be rolled back. Should be solved when moving these metrics to the queue abstraction.
-    QUEUE_PUSH_COUNT.inc();
+    if *METRICS_ENABLED {
+        QUEUE_PUSH_COUNT.inc();
+    }
 
     {
         let uuid_string = job_id.to_string();
@@ -575,6 +630,10 @@ pub async fn push<'c>(
         .instrument(tracing::info_span!("job_run", email = &email))
         .await?;
     }
+    if let Some(ref mut rsmq) = tx.rsmq {
+        rsmq.send_message(job_id.to_bytes_le().to_vec(), scheduled_for_o);
+    }
+
     Ok((uuid, tx))
 }
 
@@ -595,118 +654,4 @@ pub async fn get_hub_script(
     get_full_hub_script_by_path(email, StripPath(path), client)
         .await
         .map(|e| e)
-}
-
-#[derive(Debug, sqlx::FromRow, Serialize, Clone)]
-pub struct QueuedJob {
-    pub workspace_id: String,
-    pub id: Uuid,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub parent_job: Option<Uuid>,
-    pub created_by: String,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub started_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub scheduled_for: chrono::DateTime<chrono::Utc>,
-    pub running: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub script_hash: Option<ScriptHash>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub script_path: Option<String>,
-    pub args: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub logs: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub raw_code: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub raw_lock: Option<String>,
-    pub canceled: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub canceled_by: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub canceled_reason: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_ping: Option<chrono::DateTime<chrono::Utc>>,
-    pub job_kind: JobKind,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub schedule_path: Option<String>,
-    pub permissioned_as: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub flow_status: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub raw_flow: Option<serde_json::Value>,
-    pub is_flow_step: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub language: Option<ScriptLang>,
-    pub same_worker: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub pre_run_error: Option<String>,
-    pub email: String,
-    pub visible_to_owner: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub suspend: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mem_peak: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub root_job: Option<Uuid>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub leaf_jobs: Option<serde_json::Value>,
-}
-
-impl QueuedJob {
-    pub fn script_path(&self) -> &str {
-        self.script_path
-            .as_ref()
-            .map(String::as_str)
-            .unwrap_or("NO_FLOW_PATH")
-    }
-}
-
-impl QueuedJob {
-    pub fn parse_raw_flow(&self) -> Option<FlowValue> {
-        self.raw_flow
-            .as_ref()
-            .and_then(|v| serde_json::from_value::<FlowValue>(v.clone()).ok())
-    }
-
-    pub fn parse_flow_status(&self) -> Option<FlowStatus> {
-        self.flow_status
-            .as_ref()
-            .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok())
-    }
-}
-
-#[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Clone)]
-#[sqlx(type_name = "JOB_KIND", rename_all = "lowercase")]
-#[serde(rename_all(serialize = "lowercase"))]
-pub enum JobKind {
-    Script,
-    #[allow(non_camel_case_types)]
-    Script_Hub,
-    Preview,
-    Dependencies,
-    Flow,
-    FlowPreview,
-    Identity,
-    FlowDependencies,
-}
-
-#[derive(Debug, Clone)]
-pub enum JobPayload {
-    ScriptHub { path: String },
-    ScriptHash { hash: ScriptHash, path: String },
-    Code(RawCode),
-    Dependencies { hash: ScriptHash, dependencies: String, language: ScriptLang },
-    FlowDependencies { path: String },
-    Flow(String),
-    RawFlow { value: FlowValue, path: Option<String> },
-    Identity,
-}
-
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct RawCode {
-    pub content: String,
-    pub path: Option<String>,
-    pub language: ScriptLang,
-    pub lock: Option<String>,
 }

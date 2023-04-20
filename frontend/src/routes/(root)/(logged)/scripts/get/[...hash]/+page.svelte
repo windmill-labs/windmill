@@ -35,16 +35,7 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { onDestroy } from 'svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import {
-		Badge,
-		Tabs,
-		Tab,
-		TabContent,
-		Button,
-		Alert,
-		ButtonPopup,
-		ButtonPopupItem
-	} from '$lib/components/common'
+	import { Badge, Tabs, Tab, TabContent, Button, Alert } from '$lib/components/common'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import UserSettings from '$lib/components/UserSettings.svelte'
 	import Icon from 'svelte-awesome'
@@ -55,7 +46,15 @@
 	import { Loader2 } from 'lucide-svelte'
 	import { slide } from 'svelte/transition'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
-	import { DEFAULT_WEBHOOK_TYPE } from '$lib/consts'
+	import {
+		DEFAULT_WEBHOOK_TYPE,
+		SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB,
+		SCRIPT_VIEW_SHOW_SCHEDULE,
+		SCRIPT_VIEW_SHOW_EXAMPLE_CURL,
+		SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON,
+		SCRIPT_VIEW_WEBHOOK_INFO_LINK,
+		SCRIPT_VIEW_WEBHOOK_INFO_TIP
+	} from '$lib/consts'
 
 	let userSettings: UserSettings
 	let script: Script | undefined
@@ -65,11 +64,6 @@
 	let intervalId: NodeJS.Timer
 
 	let shareModal: ShareModal
-
-	let queryId = $page.url.searchParams.get('workspace_id')
-	if (queryId && queryId != $workspaceStore) {
-		$workspaceStore = $page.url.searchParams.get('workspace_id')!
-	}
 
 	$: loading = !script
 	$: if ($workspaceStore) {
@@ -82,7 +76,8 @@
 		},
 		sync: {
 			hash: `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run_wait_result/h/${script?.hash}`,
-			path: `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run_wait_result/p/${script?.path}`
+			path: `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run_wait_result/p/${script?.path}`,
+			get_path: `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run_wait_result/p/${script?.path}`
 		}
 	}
 
@@ -99,6 +94,21 @@
 	async function archiveScript(hash: string): Promise<void> {
 		await ScriptService.archiveScriptByHash({ workspace: $workspaceStore!, hash })
 		loadScript(hash)
+	}
+
+	async function unarchiveScript(hash: string): Promise<void> {
+		const r = await ScriptService.getScriptByHash({ workspace: $workspaceStore!, hash })
+		const ns = await ScriptService.createScript({
+			workspace: $workspaceStore!,
+			requestBody: {
+				...r,
+				parent_hash: hash,
+				lock: r.lock?.split('\n')
+			}
+		})
+		sendUserToast(`Unarchived script`)
+		loadScript(ns)
+		goto(`/scripts/get/${ns}`)
 	}
 
 	async function syncer(): Promise<void> {
@@ -131,7 +141,9 @@
 				workspace: $workspaceStore!,
 				path: script.path
 			}).catch((_) => console.error('this script has no non-archived version'))
-			topHash = script_by_path?.hash
+			if (script_by_path?.hash != script.hash) {
+				topHash = script_by_path?.hash
+			}
 		} else {
 			topHash = undefined
 		}
@@ -147,7 +159,6 @@
 	})
 
 	let isValid = true
-	let runForm: RunForm | undefined
 
 	let runLoading = false
 	async function runScript(
@@ -188,7 +199,7 @@
 <MoveDrawer
 	bind:this={moveDrawer}
 	on:update={async (e) => {
-		await goto('/scripts/get/' + e.detail + `?workspace_id=${$workspaceStore}`)
+		await goto('/scripts/get/' + e.detail + `?workspace=${$workspaceStore}`)
 		loadScript($page.params.hash)
 	}}
 />
@@ -214,7 +225,9 @@
 					</Button>
 					{#if !$userStore?.operator}
 						<Button
-							href={`/scripts/edit/${script.hash}?step=2&args=${encodeState(args)}`}
+							href={`/scripts/edit/${script.hash}?args=${encodeState(args)}${
+								topHash ? '&topHash=' + topHash : ''
+							}`}
 							color="blue"
 							size="md"
 							startIcon={{ icon: faEdit }}
@@ -277,6 +290,7 @@
 			</div>
 
 			<div class="flex gap-2 flex-wrap mt-4">
+				{#if SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB}
 				<Button
 					disabled={deploymentInProgress}
 					target="_blank"
@@ -296,6 +310,7 @@
 				>
 					Publish to Hub
 				</Button>
+				{/if}
 				<Button
 					on:click={() => shareModal.openDrawer(script?.path ?? '', 'script')}
 					variant="border"
@@ -306,6 +321,7 @@
 				>
 					Share
 				</Button>
+				{#if SCRIPT_VIEW_SHOW_SCHEDULE}
 				<Button
 					on:click={() => scheduleEditor?.openNew(false, script?.path ?? '')}
 					variant="border"
@@ -315,6 +331,7 @@
 				>
 					Schedule
 				</Button>
+				{/if}
 				<Button
 					on:click={() => moveDrawer.openDrawer(script?.path ?? '', script?.summary, 'script')}
 					variant="border"
@@ -331,26 +348,19 @@
 					on:click={() => webhookElem.scrollIntoView()}>Webhooks</Button
 				>
 				{#if Array.isArray(script.parent_hashes) && script.parent_hashes.length > 0}
-					<ButtonPopup
+					<Button
 						color="dark"
 						variant="contained"
 						size="xs"
 						startIcon={{ icon: faArrowLeft }}
-						href="/scripts/get/{script.parent_hashes[0]}?workspace_id={$workspaceStore}"
+						href="/scripts/get/{script.parent_hashes[0]}?workspace={$workspaceStore}"
+						dropdownItems={script.parent_hashes.map((hash) => ({
+							href: `/scripts/get/${hash}?workspace=${$workspaceStore}`,
+							label: hash
+						}))}
 					>
-						<svelte:fragment slot="main">
-							Previous version ({script.parent_hashes.length})
-						</svelte:fragment>
-
-						{#each script.parent_hashes as hash}
-							<ButtonPopupItem
-								href="/scripts/get/{hash}?workspace_id={$workspaceStore}"
-								btnClasses="!m-0"
-							>
-								{hash}
-							</ButtonPopupItem>
-						{/each}
-					</ButtonPopup>
+						Previous version ({script.parent_hashes.length})
+					</Button>
 				{/if}
 			</div>
 
@@ -364,15 +374,16 @@
 						</div>
 					{/if}
 					{#if topHash}
+						<div class="mt-2" />
 						<Alert type="warning" title="Not HEAD">
 							This hash is not HEAD (latest non-archived version at this path) :
-							<a href="/scripts/get/{topHash}?workspace_id={$workspaceStore}"
+							<a href="/scripts/get/{topHash}?workspace={$workspaceStore}"
 								>Go to the HEAD of this path</a
 							>
 						</Alert>
 					{/if}
 					{#if script.archived && !topHash}
-						<Alert type="error" title="Archived">This version was archived</Alert>
+						<Alert type="error" title="Archived">This path was archived</Alert>
 					{/if}
 					{#if script.deleted}
 						<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4" role="alert">
@@ -390,7 +401,6 @@
 						autofocus
 						detailed={false}
 						bind:isValid
-						bind:this={runForm}
 						runnable={script}
 						runAction={runScript}
 						bind:args
@@ -452,9 +462,8 @@
 				<h3 bind:this={webhookElem} id="webhooks">
 					Webhooks
 					<Tooltip>
-						Pass the input as a json payload, the token as a Bearer token or as query arg
-						`?token=XXX` and pass as header: 'Content-Type: application/json'
-						<a href="https://docs.windmill.dev/docs/core_concepts/webhooks" class="text-blue-500">
+						{SCRIPT_VIEW_WEBHOOK_INFO_TIP}
+						<a href={SCRIPT_VIEW_WEBHOOK_INFO_LINK} class="text-blue-500">
 							See docs
 						</a>
 					</Tooltip>
@@ -484,28 +493,51 @@
 													<Icon data={faClipboard} />
 												</span>
 											</a>
-											<Badge color="dark-gray" capitalize>
-												{type}
-											</Badge>
+											{#if type == 'get_path'}
+												<div class="flex flex-row gap-1">
+													<Badge>GET</Badge>
+													<Tooltip
+														>This webhook unlike the others which are all POST takes in a GET
+														request. The payload must be passed as the query arg `payload` and
+														encoded in JSON first, then in an URL safe base64. e.g:
+														`encodeURIComponent(btoa(JSON.stringify({'{a: 2}'})))` `
+													</Tooltip>
+												</div>
+											{:else}
+												<div class="flex flex-row gap-1">
+													<Badge>POST</Badge>
+
+													<Badge color="dark-gray" capitalize>
+														{type}
+													</Badge>
+												</div>
+											{/if}
 										</li>
 									{/each}
 								</ul>
+								{#if SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON}
 								<div class="flex flex-row-reverse mt-2">
 									<Button size="xs" on:click={userSettings.openDrawer}>Create token</Button>
 								</div>
+								{/if}
 							</TabContent>
 						{/each}
-						<Button
-							color="light"
-							size="sm"
-							endIcon={{ icon: viewWebhookCommand ? faChevronUp : faChevronDown }}
-							on:click={() => (viewWebhookCommand = !viewWebhookCommand)}
-						>
-							See example curl command
-						</Button>
+						{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL}
+						<div class="flex">
+							<Button
+								color="light"
+								size="sm"
+								endIcon={{ icon: viewWebhookCommand ? faChevronUp : faChevronDown }}
+								on:click={() => (viewWebhookCommand = !viewWebhookCommand)}
+							>
+								See example curl command
+							</Button>
+						</div>
+						{/if}
 						{#if viewWebhookCommand}
 							<div transition:slide|local class="px-4">
-								<pre class="bg-gray-700 text-gray-100 p-2  font-mono text-sm whitespace-pre-wrap"
+								<!-- svelte-ignore a11y-click-events-have-key-events -->
+								<pre class="bg-gray-700 text-gray-100 p-2 font-mono text-sm whitespace-pre-wrap"
 									>{curlCommand} <span
 										on:click={() => copyToClipboard(curlCommand)}
 										class="cursor-pointer ml-2"><Icon data={faClipboard} /></span
@@ -535,17 +567,31 @@
 							</Button>
 							<span slot="text">require to be admin</span>
 						</Popover>
-						<Button
-							size="xs"
-							on:click={() => {
-								script?.hash && archiveScript(script.hash)
-							}}
-							color="red"
-							variant="border"
-							startIcon={{ icon: faArchive }}
-						>
-							Archive
-						</Button>
+						{#if script.archived}
+							<Button
+								size="xs"
+								on:click={() => {
+									script?.hash && unarchiveScript(script.hash)
+								}}
+								color="red"
+								variant="border"
+								startIcon={{ icon: faArchive }}
+							>
+								Unarchive
+							</Button>
+						{:else}
+							<Button
+								size="xs"
+								on:click={() => {
+									script?.hash && archiveScript(script.hash)
+								}}
+								color="red"
+								variant="border"
+								startIcon={{ icon: faArchive }}
+							>
+								Archive
+							</Button>
+						{/if}
 					</div>
 				{/if}
 			</div>

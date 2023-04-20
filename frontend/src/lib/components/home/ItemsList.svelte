@@ -1,27 +1,29 @@
 <script lang="ts">
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
+	import { Alert, Badge, Skeleton, ToggleButton, ToggleButtonGroup } from '$lib/components/common'
+	import ShareModal from '$lib/components/ShareModal.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 	import { AppService, FlowService, ListableApp, Script, ScriptService, type Flow } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { Alert, Badge, Skeleton, ToggleButton, ToggleButtonGroup } from '$lib/components/common'
 	import { canWrite } from '$lib/utils'
-	import ShareModal from '$lib/components/ShareModal.svelte'
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import { Code2, LayoutDashboard } from 'lucide-svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
 
 	export let filter = ''
 
-	import ScriptRow from '$lib/components/common/table/ScriptRow.svelte'
-	import FlowRow from '$lib/components/common/table/FlowRow.svelte'
 	import AppRow from '$lib/components/common/table/AppRow.svelte'
+	import FlowRow from '$lib/components/common/table/FlowRow.svelte'
+	import ScriptRow from '$lib/components/common/table/ScriptRow.svelte'
 
-	import NoItemFound from './NoItemFound.svelte'
-	import ListFilters from './ListFilters.svelte'
-	import SearchItems from '../SearchItems.svelte'
-	import { Icon } from 'svelte-awesome'
+	import { HOME_SEARCH_SHOW_FLOW, HOME_SEARCH_PLACEHOLDER } from '$lib/consts'
+
 	import { faBarsStaggered } from '@fortawesome/free-solid-svg-icons'
-	import MoveDrawer from '../MoveDrawer.svelte'
+	import { Icon } from 'svelte-awesome'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
+	import MoveDrawer from '../MoveDrawer.svelte'
+	import SearchItems from '../SearchItems.svelte'
+	import ListFilters from './ListFilters.svelte'
+	import NoItemFound from './NoItemFound.svelte'
 
 	type TableItem<T, U extends 'script' | 'flow' | 'app'> = T & {
 		canWrite: boolean
@@ -68,7 +70,6 @@
 				...script
 			}
 		})
-
 		loading = false
 	}
 
@@ -100,7 +101,6 @@
 				...app
 			}
 		})
-
 		loading = false
 	}
 
@@ -255,12 +255,14 @@
 						Scripts
 					</div>
 				</ToggleButton>
+				{#if HOME_SEARCH_SHOW_FLOW}
 				<ToggleButton light position="center" value="flow" size="sm">
 					<div class="flex gap-1 items-center">
 						<Icon data={faBarsStaggered} scale={0.8} class="mr-1" />
 						Flows
 					</div>
 				</ToggleButton>
+				{/if}
 				<ToggleButton light position="right" value="app" size="sm">
 					<div class="flex gap-1 items-center">
 						<LayoutDashboard size={16} />
@@ -274,7 +276,7 @@
 			<!-- svelte-ignore a11y-autofocus -->
 			<input
 				autofocus
-				placeholder="Search Scripts, Flows & Apps"
+				placeholder={HOME_SEARCH_PLACEHOLDER}
 				bind:value={filter}
 				class="bg-white !h-10 !px-4 !pr-10 !rounded-lg text-sm focus:outline-none"
 			/>
@@ -302,7 +304,10 @@
 	</div>
 	<div class="relative">
 		<ListFilters bind:selectedFilter={ownerFilter} filters={owners} />
-		{#if !loading && filteredItems?.length}
+		{#if filteredItems?.length == 0}
+			<div class="mt-10" />
+		{/if}
+		{#if !loading}
 			<div class="absolute -bottom-2 right-0 bg-white/90">
 				<Toggle size="xs" bind:checked={archived} options={{ right: 'Show archived' }} /></div
 			>
@@ -320,7 +325,7 @@
 		{:else}
 			<div class="border rounded-md divide-y divide-gray-200">
 				<!-- <VirtualList {items} let:item bind:start bind:end> -->
-				{#each (items ?? []).slice(0, nbDisplayed) as item, i (item.type + '/' + item.path + (item.summary ?? ''))}
+				{#each (items ?? []).slice(0, nbDisplayed) as item (item.type + '/' + item.path)}
 					{#if item.type == 'script'}
 						<ScriptRow
 							bind:deleteConfirmedCallback

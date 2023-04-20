@@ -21,6 +21,7 @@
 				input: undefined,
 				hoveredComponent: undefined
 			}
+			$app = $app
 		}
 	}
 

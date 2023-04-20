@@ -2,7 +2,12 @@
 	const apiTokenApps: Record<string, { img?: string; instructions: string[]; key?: string }> = {
 		airtable: {
 			img: '/airtable_connect.png',
-			instructions: ['Click on the top-right avatar', 'Click on Account', 'Find "Api"']
+			instructions: [
+				'Click to <a href="https://airtable.com/create/tokens" target="_blank" rel=”noopener noreferrer”>https://airtable.com/create/tokens</a>',
+				'Click on "Create new token"',
+				'Set a name, specify the scopes or the access level and click on "Create token"',
+				'Copy the token'
+			]
 		},
 		discord_webhook: {
 			img: '/discord_webhook.png',
@@ -370,7 +375,7 @@
 			<h2 class="mt-8 mb-4">Non OAuth APIs & Resources</h2>
 			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 				{#if filteredConnectsManual}
-					{#each filteredConnectsManual as [key, instructions]}
+					{#each filteredConnectsManual as [key, _]}
 						<Button
 							size="sm"
 							variant="border"
@@ -414,7 +419,7 @@
 				</div>
 				{#if apiTokenApps[resource_type].img}
 					<div class="mt-4 w-full overflow-hidden">
-						<img class="m-auto  max-h-60" alt="connect" src={apiTokenApps[resource_type].img} />
+						<img class="m-auto max-h-60" alt="connect" src={apiTokenApps[resource_type].img} />
 					</div>
 				{/if}
 			{/if}
@@ -456,7 +461,7 @@
 				>
 			{/if}
 		{/if}
-		<div slot="actions">
+		<div slot="actions" class="flex gap-1">
 			{#if step > 1 && !no_back}
 				<Button variant="border" on:click={back}>Back</Button>
 			{/if}

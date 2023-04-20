@@ -15,6 +15,7 @@
 	import { faDiscord, faGithub } from '@fortawesome/free-brands-svg-icons'
 	import MenuLink from './MenuLink.svelte'
 	import { userStore } from '$lib/stores'
+	import { SIDEBAR_SHOW_SCHEDULES } from '$lib/consts'
 
 	const mainMenuLinks = [
 		{ label: 'Home', href: '/', icon: faHomeAlt },
@@ -24,7 +25,7 @@
 	]
 
 	$: secondaryMenuLinks = [
-		{ label: 'Schedules', href: '/schedules', icon: faCalendar, disabled: $userStore?.operator },
+		{ label: 'Schedules', href: '/schedules', icon: faCalendar, disabled: !SIDEBAR_SHOW_SCHEDULES || $userStore?.operator },
 		{ label: 'Folders', href: '/folders', icon: faFolderOpen, disabled: $userStore?.operator },
 		{ label: 'Groups', href: '/groups', icon: faUsersCog, disabled: $userStore?.operator },
 		{ label: 'Audit Logs', href: '/audit_logs', icon: faEye, disabled: $userStore?.operator },

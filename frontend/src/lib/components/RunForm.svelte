@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { page } from '$app/stores'
 	import {
-		decodeArgs,
 		defaultIfEmptyString,
 		displayDaysAgo,
 		emptyString,
@@ -10,16 +8,18 @@
 	} from '$lib/utils'
 	import { slide } from 'svelte/transition'
 
-	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
-	import SchemaForm from './SchemaForm.svelte'
 	import type { Schema } from '$lib/common'
+	import { runFormStore, userStore } from '$lib/stores'
+	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
+	import CliHelpBox from './CliHelpBox.svelte'
 	import { Badge, Button } from './common'
+	import InlineCodeCopy from './InlineCodeCopy.svelte'
+	import SchemaForm from './SchemaForm.svelte'
 	import SharedBadge from './SharedBadge.svelte'
 	import Toggle from './Toggle.svelte'
-	import { userStore } from '$lib/stores'
 	import Tooltip from './Tooltip.svelte'
-	import CliHelpBox from './CliHelpBox.svelte'
-	import InlineCodeCopy from './InlineCodeCopy.svelte'
+	import CollapseLink from './CollapseLink.svelte'
+	import { SCRIPT_VIEW_SHOW_RUN_FROM_CLI, SCRIPT_VIEW_SHOW_SCHEDULE_RUN_LATER } from '$lib/consts'
 
 	export let runnable:
 		| {
@@ -51,7 +51,12 @@
 	export let viewCliRun = false
 	export let isFlow: boolean
 
-	export let args: Record<string, any> = decodeArgs($page.url.searchParams.get('args') ?? undefined)
+	export let args: Record<string, any> = {}
+
+	if ($runFormStore) {
+		args = $runFormStore
+		$runFormStore = undefined
+	}
 
 	export function run() {
 		runAction(scheduledForStr, args, invisible_to_owner)
@@ -133,62 +138,69 @@
 		<div class="text-xs text-gray-600">No schema</div>
 	{/if}
 	{#if schedulable}
-		<div class="flex gap-2 items-start flex-wrap justify-between mt-2 md:mt-6 mb-6">
-			<div class="flex flex-col">
-				<div>
-					<Button
-						color="light"
-						size="sm"
-						endIcon={{ icon: viewOptions ? faChevronUp : faChevronDown }}
-						on:click={() => (viewOptions = !viewOptions)}
-					>
-						Schedule to run later
-					</Button>
-				</div>
-				{#if viewOptions}
-					<div transition:slide|local class="mt-6">
-						<div class="border rounded-md p-3 pt-4">
-							<div class="flex flex-row items-end">
-								<div class="w-max md:w-2/3 mt-2 mb-1">
-									<label for="run-time" />
-									<input
-										class="inline-block"
-										type="datetime-local"
-										id="run-time"
-										name="run-scheduled-time"
-										bind:value={scheduledForStr}
-										min={getToday().toISOString().slice(0, 16)}
-									/>
+		<div class="mt-10" />
+		<CollapseLink text="Advanced">
+			<div class="flex flex-col gap-4 mt-2 border p-2">
+				<div class="flex flex-col gap-2">
+					{#if SCRIPT_VIEW_SHOW_SCHEDULE_RUN_LATER}
+					<div class="flex">
+						<Button
+							color="light"
+							size="sm"
+							endIcon={{ icon: viewOptions ? faChevronUp : faChevronDown }}
+							on:click={() => (viewOptions = !viewOptions)}
+						>
+							Schedule to run later
+						</Button>
+					</div>
+					{/if}
+					{#if viewOptions}
+						<div transition:slide|local class="mt-6">
+							<div class="border rounded-md p-3 pt-4">
+								<div class="flex flex-row items-end">
+									<div class="w-max md:w-2/3 mt-2 mb-1">
+										<label for="run-time" />
+										<input
+											class="inline-block"
+											type="datetime-local"
+											id="run-time"
+											name="run-scheduled-time"
+											bind:value={scheduledForStr}
+											min={getToday().toISOString().slice(0, 16)}
+										/>
+									</div>
+									<Button
+										variant="border"
+										color="blue"
+										size="sm"
+										btnClasses="mx-2 mb-1"
+										on:click={() => {
+											scheduledForStr = undefined
+										}}
+									>
+										Clear
+									</Button>
 								</div>
-								<Button
-									variant="border"
-									color="blue"
-									size="sm"
-									btnClasses="mx-2 mb-1"
-									on:click={() => {
-										scheduledForStr = undefined
-									}}
-								>
-									Clear
-								</Button>
 							</div>
 						</div>
+					{/if}
+				</div>
+				{#if runnable?.path?.startsWith(`u/${$userStore?.username}`) != true && (runnable?.path?.split('/')?.length ?? 0) > 2}
+					<div class="flex items-center gap-1">
+						<Toggle
+							options={{
+								right: `make run invisible to others`
+							}}
+							bind:checked={invisible_to_owner}
+						/>
+						<Tooltip
+							>By default, runs are visible to the owner(s) of the script or flow being triggered</Tooltip
+						>
 					</div>
 				{/if}
 			</div>
-			{#if runnable?.path?.startsWith(`u/${$userStore?.username}`) != true && (runnable?.path?.split('/')?.length ?? 0) > 2}
-				<div class="flex items-center gap-1">
-					<Toggle
-						options={{
-							right: `make run invisible to others`
-						}}
-						bind:checked={invisible_to_owner}
-					/>
-					<Tooltip
-						>By default, runs are visible to the owner(s) of the script or flow being triggered</Tooltip
-					>
-				</div>
-			{/if}
+		</CollapseLink>
+		<div class="flex gap-2 items-start flex-wrap justify-between mt-2 md:mt-6 mb-6">
 			<div class="flex-row-reverse flex grow">
 				<Button
 					{loading}
@@ -211,20 +223,26 @@
 	{/if}
 
 	{#if viewCliRun}
-		<div class="my-10" />
-		<Button
-			color="light"
-			size="xs"
-			endIcon={{ icon: viewCliOptions ? faChevronUp : faChevronDown }}
-			on:click={() => (viewCliOptions = !viewCliOptions)}
-		>
-			Run it from the CLI
-		</Button>
-		{#if viewCliOptions}
-			<div transition:slide|local class="mt-2 px-4 pt-2">
-				<InlineCodeCopy content={cliCommand} />
-				<CliHelpBox />
+		<div>
+			<div class="my-20" />
+			{#if SCRIPT_VIEW_SHOW_RUN_FROM_CLI}
+			<div class="flex">
+				<Button
+					color="light"
+					size="xs"
+					endIcon={{ icon: viewCliOptions ? faChevronUp : faChevronDown }}
+					on:click={() => (viewCliOptions = !viewCliOptions)}
+				>
+					Run it from the CLI
+				</Button>
 			</div>
-		{/if}
+			{/if}
+			{#if viewCliOptions}
+				<div transition:slide|local class="mt-2 px-4 pt-2">
+					<InlineCodeCopy content={cliCommand} />
+					<CliHelpBox />
+				</div>
+			{/if}
+		</div>
 	{/if}
 </div>

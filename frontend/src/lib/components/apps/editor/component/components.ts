@@ -1,5 +1,7 @@
 import type { IntRange } from '../../../../common'
 import type { NARROW_GRID_COLUMNS, WIDE_GRID_COLUMNS } from '../../gridUtils'
+import { BUTTON_COLORS } from '../../../common'
+
 import { defaultAlignement } from '../componentsPanel/componentDefaultProps'
 import {
 	BarChart4,
@@ -39,7 +41,6 @@ import type {
 	BaseAppComponent,
 	ComponentCustomCSS,
 	GridItem,
-	RichConfigurations,
 	StaticRichConfigurations
 } from '../../types'
 import type { Size } from '../../svelte-grid/types'
@@ -49,8 +50,13 @@ export type BaseComponent<T extends string> = {
 	type: T
 }
 
+type ClickableComponent = {
+	recomputeIds: string[] | undefined
+}
+
 export type TextComponent = BaseComponent<'textcomponent'>
 export type TextInputComponent = BaseComponent<'textinputcomponent'>
+export type TextareaInputComponent = BaseComponent<'textareainputcomponent'>
 export type PasswordInputComponent = BaseComponent<'passwordinputcomponent'>
 export type EmailInputComponent = BaseComponent<'emailinputcomponent'>
 export type DateInputComponent = BaseComponent<'dateinputcomponent'>
@@ -62,15 +68,10 @@ export type HtmlComponent = BaseComponent<'htmlcomponent'>
 export type VegaLiteComponent = BaseComponent<'vegalitecomponent'>
 export type PlotlyComponent = BaseComponent<'plotlycomponent'>
 export type TimeseriesComponent = BaseComponent<'timeseriescomponent'>
-export type ButtonComponent = BaseComponent<'buttoncomponent'> & {
-	recomputeIds: string[] | undefined
-}
-export type FormComponent = BaseComponent<'formcomponent'> & {
-	recomputeIds: string[] | undefined
-}
-export type FormButtonComponent = BaseComponent<'formbuttoncomponent'> & {
-	recomputeIds: string[] | undefined
-}
+export type ButtonComponent = BaseComponent<'buttoncomponent'> & ClickableComponent
+export type FormComponent = BaseComponent<'formcomponent'> & ClickableComponent
+export type FormButtonComponent = BaseComponent<'formbuttoncomponent'> & ClickableComponent
+
 export type RunFormComponent = BaseComponent<'runformcomponent'>
 export type BarChartComponent = BaseComponent<'barchartcomponent'>
 export type PieChartComponent = BaseComponent<'piechartcomponent'>
@@ -108,6 +109,7 @@ export type PdfComponent = BaseComponent<'pdfcomponent'>
 export type TypedComponent =
 	| DisplayComponent
 	| TextInputComponent
+	| TextareaInputComponent
 	| PasswordInputComponent
 	| EmailInputComponent
 	| DateInputComponent
@@ -173,7 +175,6 @@ export type AppComponentConfig<T extends TypedComponent['type']> = {
 	 *
 	 * *For example when the component has a popup like `Select`*
 	 */
-	softWrap?: boolean
 	initialData: InitialAppComponent
 	customCss: ComponentCustomCSS<T>
 }
@@ -189,12 +190,113 @@ export interface InitialAppComponent extends Partial<Aligned> {
 	panes?: number[]
 }
 
+const buttonColorOptions = [...BUTTON_COLORS]
+
+export const selectOptions = {
+	buttonColorOptions,
+	tabsKindOptions: ['tabs', 'sidebar', 'invisibleOnView'],
+	buttonSizeOptions: ['xs', 'sm', 'md', 'lg', 'xl'],
+	tableSearchOptions: ['By Component', 'By Runnable', 'Disabled'],
+	chartThemeOptions: ['theme1', 'theme2', 'theme3'],
+	textStyleOptions: ['Title', 'Subtitle', 'Body', 'Label', 'Caption'],
+	currencyOptions: ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY', 'CNY', 'INR', 'BRL'],
+	localeOptions: [
+		'en-US',
+		'en-GB',
+		'en-IE',
+		'de-DE',
+		'fr-FR',
+		'br-FR',
+		'ja-JP',
+		'pt-TL',
+		'fr-CA',
+		'en-CA'
+	],
+	objectFitOptions: ['contain', 'cover', 'fill'],
+	splitPanelOptions: ['2', '3', '4']
+}
+
+const onSuccessClick = {
+	type: 'oneOf',
+	tooltip: 'Action to perform on success',
+	selected: 'none',
+	labels: {
+		none: 'Do nothing',
+		gotoUrl: 'Go to an url',
+		setTab: 'Set the tab of a tabs component',
+		sendToast: 'Display a toast notification'
+	},
+	configuration: {
+		none: {},
+		gotoUrl: {
+			url: {
+				tooltip: 'Go to the given url, absolute or relative',
+				fieldType: 'text',
+				type: 'static',
+				value: '',
+				placeholder: '/apps/get/foo'
+			},
+			newTab: {
+				tooltip: 'Open the url in a new tab',
+				fieldType: 'boolean',
+				type: 'static',
+				value: true
+			}
+		},
+		setTab: {
+			setTab: {
+				type: 'static',
+				value: [] as Array<{ id: string; index: number }>,
+				fieldType: 'array',
+				subFieldType: 'tab-select',
+				tooltip: 'Set the tabs id and index to go to on success'
+			}
+		},
+		sendToast: {
+			message: {
+				tooltip: 'The message of the toast to diplay',
+				fieldType: 'text',
+				type: 'static',
+				value: '',
+				placeholder: 'Hello there'
+			}
+		}
+	}
+} as const
+
+const paginationOneOf = {
+	type: 'oneOf',
+	selected: 'auto',
+	labels: {
+		auto: 'Auto',
+		manual: 'Manual'
+	},
+	configuration: {
+		auto: {
+			pageSize: {
+				type: 'static',
+				fieldType: 'number',
+				value: 20,
+				onlyStatic: true,
+				tooltip: 'Number of rows per page'
+			}
+		},
+		manual: {
+			pageCount: {
+				type: 'static',
+				fieldType: 'number',
+				value: -1,
+				tooltip: 'Number of pages (-1 if you do not know)'
+			}
+		}
+	}
+} as const
+
 export const components = {
 	displaycomponent: {
 		name: 'Rich Result',
 		icon: Monitor,
 		dims: '2:8-6:8' as AppComponentDimensions,
-		softWrap: false,
 		customCss: {
 			header: { class: '', style: '' },
 			container: { class: '', style: '' }
@@ -212,7 +314,7 @@ export const components = {
 		name: 'Container',
 		icon: BoxSelect,
 		dims: '2:8-6:8' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			container: { class: '', style: '' }
 		},
@@ -226,7 +328,7 @@ export const components = {
 		name: 'Text',
 		icon: Type,
 		dims: '1:1-3:1' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			text: { class: '', style: '' }
 		},
@@ -244,8 +346,8 @@ export const components = {
 					fieldType: 'select',
 					type: 'static',
 					onlyStatic: true,
-					optionValuesKey: 'textStyleOptions',
-					value: 'Body'
+					selectOptions: selectOptions.textStyleOptions,
+					value: 'Body' as 'Title' | 'Subtitle' | 'Body' | 'Label' | 'Caption'
 				},
 				copyButton: {
 					type: 'static',
@@ -267,7 +369,7 @@ export const components = {
 		name: 'Button',
 		icon: Inspect,
 		dims: '1:1-2:1' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			button: { style: '', class: '' }
 		},
@@ -290,14 +392,14 @@ export const components = {
 					fieldType: 'select',
 					type: 'static',
 					onlyStatic: true,
-					optionValuesKey: 'buttonColorOptions',
+					selectOptions: selectOptions.buttonColorOptions,
 					value: 'blue'
 				},
 				size: {
 					fieldType: 'select',
 					type: 'static',
 					onlyStatic: true,
-					optionValuesKey: 'buttonSizeOptions',
+					selectOptions: selectOptions.buttonSizeOptions,
 					value: 'xs'
 				},
 				fillContainer: {
@@ -311,18 +413,7 @@ export const components = {
 					type: 'eval',
 					expr: 'false'
 				},
-				goto: {
-					tooltip: 'Go to an url on success if not empty',
-					fieldType: 'text',
-					type: 'static',
-					value: ''
-				},
-				gotoNewTab: {
-					tooltip: 'Go to an url on a new tab',
-					fieldType: 'boolean',
-					type: 'static',
-					value: true
-				},
+				onSuccess: onSuccessClick,
 				beforeIcon: {
 					type: 'static',
 					value: undefined,
@@ -372,21 +463,16 @@ export const components = {
 					type: 'static',
 					onlyStatic: true,
 					value: 'dark',
-					optionValuesKey: 'buttonColorOptions'
+					selectOptions: selectOptions.buttonColorOptions
 				},
 				size: {
 					fieldType: 'select',
 					type: 'static',
 					value: 'xs',
 					onlyStatic: true,
-					optionValuesKey: 'buttonSizeOptions'
+					selectOptions: selectOptions.buttonSizeOptions
 				},
-				goto: {
-					tooltip: 'Go to an url on success if not empty',
-					fieldType: 'text',
-					type: 'static',
-					value: ''
-				}
+				onSuccess: onSuccessClick
 			}
 		}
 	},
@@ -419,14 +505,20 @@ export const components = {
 					type: 'static',
 					onlyStatic: true,
 					value: 'dark',
-					optionValuesKey: 'buttonColorOptions'
+					selectOptions: buttonColorOptions
 				},
 				size: {
 					fieldType: 'select',
 					type: 'static',
 					value: 'xs',
 					onlyStatic: true,
-					optionValuesKey: 'buttonSizeOptions'
+					selectOptions: selectOptions.buttonSizeOptions
+				},
+				onSuccess: onSuccessClick,
+				disabled: {
+					fieldType: 'boolean',
+					type: 'eval',
+					expr: 'false'
 				}
 			}
 		}
@@ -444,7 +536,7 @@ export const components = {
 					type: 'static',
 					onlyStatic: true,
 					fieldType: 'select',
-					optionValuesKey: 'chartThemeOptions',
+					selectOptions: selectOptions.chartThemeOptions,
 					value: 'theme1'
 				},
 				doughnutStyle: {
@@ -474,7 +566,7 @@ export const components = {
 					type: 'static',
 					onlyStatic: true,
 					fieldType: 'select',
-					optionValuesKey: 'chartThemeOptions',
+					selectOptions: selectOptions.chartThemeOptions,
 					value: 'theme1'
 				},
 				line: {
@@ -495,7 +587,7 @@ export const components = {
 		name: 'HTML',
 		icon: Code2,
 		dims: '1:2-1:2' as AppComponentDimensions,
-		softWrap: false,
+
 		customCss: {
 			container: { class: '', style: '' }
 		},
@@ -517,7 +609,7 @@ Hello \${ctx.username}
 		name: 'Vega Lite',
 		icon: PieChart,
 		dims: '2:8-6:8' as AppComponentDimensions,
-		softWrap: false,
+
 		customCss: {},
 		initialData: {
 			componentInput: {
@@ -554,7 +646,7 @@ Hello \${ctx.username}
 		name: 'Plotly',
 		icon: PieChart,
 		dims: '2:8-6:8' as AppComponentDimensions,
-		softWrap: false,
+
 		customCss: {},
 		initialData: {
 			componentInput: {
@@ -572,7 +664,16 @@ Hello \${ctx.username}
 					}
 				}
 			},
-			configuration: {}
+			configuration: {
+				layout: {
+					type: 'static',
+					fieldType: 'object',
+					value: {},
+					tooltip:
+						'Layout options for the plot. See https://plotly.com/javascript/reference/layout/ for more information',
+					onlyStatic: true
+				}
+			}
 		}
 	},
 	timeseriescomponent: {
@@ -713,9 +814,10 @@ Hello \${ctx.username}
 					fieldType: 'select',
 					type: 'static',
 					onlyStatic: true,
-					optionValuesKey: 'tableSearchOptions',
-					value: 'Disabled'
-				}
+					selectOptions: selectOptions.tableSearchOptions,
+					value: 'Disabled' as string
+				},
+				pagination: paginationOneOf
 			},
 			componentInput: {
 				type: 'static',
@@ -762,13 +864,6 @@ Hello \${ctx.username}
 					fieldType: 'boolean',
 					value: false,
 					onlyStatic: true
-				},
-				pageSize: {
-					type: 'static',
-					fieldType: 'number',
-					value: 10,
-					onlyStatic: true,
-					tooltip: 'Number of rows per page'
 				}
 			},
 			componentInput: {
@@ -794,7 +889,7 @@ Hello \${ctx.username}
 		name: 'Toggle',
 		icon: ToggleLeft,
 		dims: '1:1-2:1' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			text: { class: '', style: '' }
 		},
@@ -819,7 +914,7 @@ Hello \${ctx.username}
 		name: 'Text Input',
 		icon: TextCursorInput,
 		dims: '2:1-2:1' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			input: { class: '', style: '' }
 		},
@@ -841,11 +936,36 @@ Hello \${ctx.username}
 			}
 		}
 	},
+	textareainputcomponent: {
+		name: 'Textarea',
+		icon: TextCursorInput,
+		dims: '2:1-2:1' as AppComponentDimensions,
+
+		customCss: {
+			input: { class: '', style: '' }
+		},
+		initialData: {
+			componentInput: undefined,
+			configuration: {
+				placeholder: {
+					type: 'static',
+					value: 'Type...',
+					fieldType: 'text',
+					onlyStatic: true
+				},
+				defaultValue: {
+					type: 'static',
+					value: undefined,
+					fieldType: 'text'
+				}
+			}
+		}
+	},
 	selectcomponent: {
 		name: 'Select',
 		icon: List,
 		dims: '2:1-3:1' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			input: { style: '' }
 		},
@@ -856,7 +976,7 @@ Hello \${ctx.username}
 				items: {
 					type: 'static',
 					fieldType: 'array',
-					subFieldType: 'object',
+					subFieldType: 'labeledselect',
 					value: [
 						{ value: 'foo', label: 'Foo' },
 						{ value: 'bar', label: 'Bar' }
@@ -887,12 +1007,11 @@ Hello \${ctx.username}
 		name: 'Multi Select',
 		icon: List,
 		dims: '2:1-3:1' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			input: { style: '' }
 		},
 		initialData: {
-			verticalAlignment: 'center',
 			componentInput: undefined,
 			configuration: {
 				items: {
@@ -914,7 +1033,7 @@ Hello \${ctx.username}
 		name: 'Resource Select',
 		icon: List,
 		dims: '2:1-3:1' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			input: { style: '' }
 		},
@@ -941,7 +1060,7 @@ Hello \${ctx.username}
 		name: 'Number',
 		icon: Binary,
 		dims: '2:1-3:1' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			input: { class: '', style: '' }
 		},
@@ -983,7 +1102,7 @@ Hello \${ctx.username}
 		name: 'Currency',
 		icon: DollarSign,
 		dims: '2:1-3:1' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			input: { class: '', style: '' }
 		},
@@ -1007,14 +1126,14 @@ Hello \${ctx.username}
 					value: 'USD',
 					fieldType: 'select',
 					onlyStatic: true,
-					optionValuesKey: 'currencyOptions'
+					selectOptions: selectOptions.currencyOptions
 				},
 				locale: {
 					type: 'static',
 					value: 'en-US',
 					fieldType: 'select',
 					onlyStatic: true,
-					optionValuesKey: 'localeOptions',
+					selectOptions: selectOptions.localeOptions,
 					tooltip: 'Currency format'
 				}
 			}
@@ -1024,7 +1143,7 @@ Hello \${ctx.username}
 		name: 'Slider',
 		icon: SlidersHorizontal,
 		dims: '3:1-4:1' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			bar: { style: '' },
 			handle: { style: '' },
@@ -1064,7 +1183,7 @@ Hello \${ctx.username}
 		name: 'Range',
 		icon: SlidersHorizontal,
 		dims: '3:2-4:2' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			handles: { style: '' },
 			bar: { style: '' },
@@ -1108,7 +1227,7 @@ Hello \${ctx.username}
 		name: 'Password',
 		icon: Lock,
 		dims: '2:1-3:1' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			input: { class: '', style: '' }
 		},
@@ -1129,7 +1248,7 @@ Hello \${ctx.username}
 		name: 'Email Input',
 		icon: AtSignIcon,
 		dims: '2:1-3:1' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			input: { class: '', style: '' }
 		},
@@ -1155,7 +1274,7 @@ Hello \${ctx.username}
 		name: 'Date',
 		icon: Calendar,
 		dims: '2:1-3:1' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			input: { class: '', style: '' }
 		},
@@ -1185,7 +1304,7 @@ Hello \${ctx.username}
 		name: 'Tabs',
 		icon: ListOrdered,
 		dims: '2:8-6:8' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			tabRow: { class: '', style: '' },
 			allTabs: { class: '', style: '' },
@@ -1198,8 +1317,8 @@ Hello \${ctx.username}
 					fieldType: 'select',
 					type: 'static',
 					onlyStatic: true,
-					optionValuesKey: 'tabsKindOptions',
-					value: 'tabs'
+					selectOptions: selectOptions.tabsKindOptions,
+					value: 'tabs' as string
 				}
 			},
 			componentInput: undefined,
@@ -1212,7 +1331,7 @@ Hello \${ctx.username}
 		name: 'Icon',
 		icon: Smile,
 		dims: '1:3-1:2' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			container: { class: '', style: '' },
 			icon: { class: '', style: '' }
@@ -1356,7 +1475,7 @@ Hello \${ctx.username}
 					fieldType: 'select',
 					type: 'static',
 					onlyStatic: true,
-					optionValuesKey: 'objectFitOptions',
+					selectOptions: selectOptions.objectFitOptions,
 					value: 'contain'
 				},
 				altText: {
@@ -1373,7 +1492,7 @@ Hello \${ctx.username}
 		name: 'Drawer',
 		icon: SidebarClose,
 		dims: '1:1-2:1' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			container: { class: '', style: '' }
 		},
@@ -1396,14 +1515,14 @@ Hello \${ctx.username}
 					fieldType: 'select',
 					type: 'static',
 					onlyStatic: true,
-					optionValuesKey: 'buttonColorOptions',
+					selectOptions: buttonColorOptions,
 					value: 'blue'
 				},
 				size: {
 					fieldType: 'select',
 					type: 'static',
 					onlyStatic: true,
-					optionValuesKey: 'buttonSizeOptions',
+					selectOptions: selectOptions.buttonSizeOptions,
 					value: 'xs'
 				},
 				fillContainer: {
@@ -1480,7 +1599,7 @@ Hello \${ctx.username}
 		name: 'Vertical Split Panes',
 		icon: FlipHorizontal,
 		dims: '2:8-6:8' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			container: { class: '', style: '' }
 		},
@@ -1496,7 +1615,7 @@ Hello \${ctx.username}
 		name: 'Horizontal Split Panes',
 		icon: FlipVertical,
 		dims: '2:8-6:8' as AppComponentDimensions,
-		softWrap: true,
+
 		customCss: {
 			container: { class: '', style: '' }
 		},
@@ -1523,7 +1642,7 @@ Hello \${ctx.username}
 					fieldType: 'text',
 					fileUpload: {
 						accept: 'application/pdf',
-						convertTo: 'buffer'
+						convertTo: 'base64'
 					}
 				},
 				zoom: {
@@ -1535,30 +1654,6 @@ Hello \${ctx.username}
 		}
 	}
 } as const
-
-export const configurationKeys: Record<AppComponent['type'], string[]> = Object.fromEntries(
-	Object.entries(components)
-		.map(([k, v]) => [
-			k,
-			[
-				...new Set(
-					Object.entries(v.initialData.configuration).flatMap(([k, v]) => {
-						if (!v.ctype) {
-							return [k]
-						} else if (v.ctype == 'oneOf') {
-							return [
-								k,
-								...Object.values(v.configuration ?? {}).flatMap((v) => Object.keys(v ?? {}))
-							]
-						} else if (v.ctype == 'group') {
-							return Object.keys(v.configuration ?? {})
-						}
-					})
-				)
-			]
-		])
-		.filter(([k, v]) => v != undefined)
-)
 
 export const ccomponents: {
 	[Property in keyof typeof components]: AppComponentConfig<Property>

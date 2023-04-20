@@ -9,7 +9,7 @@
 use crate::{
     db::{UserDB, DB},
     oauth2::_refresh_token,
-    users::{require_owner_of_path, Authed},
+    users::{maybe_refresh_folders, require_owner_of_path, Authed},
     webhook_util::{WebhookMessage, WebhookShared},
 };
 /*
@@ -206,12 +206,15 @@ async fn check_path_conflict<'c>(
 
 async fn create_variable(
     authed: Authed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
     Query(AlreadyEncrypted { already_encrypted }): Query<AlreadyEncrypted>,
     Json(variable): Json<CreateVariable>,
 ) -> Result<(StatusCode, String)> {
+    let authed = maybe_refresh_folders(&variable.path, &w_id, authed, &db).await;
+
     let mut tx = user_db.begin(&authed).await?;
 
     check_path_conflict(&mut tx, &w_id, &variable.path).await?;
@@ -330,6 +333,7 @@ async fn update_variable(
     use sql_builder::prelude::*;
 
     let path = path.to_path();
+    let authed = maybe_refresh_folders(&path, &w_id, authed, &db).await;
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -376,9 +380,8 @@ async fn update_variable(
     if let Some(npath) = ns.path {
         if npath != path {
             check_path_conflict(&mut tx, &w_id, &npath).await?;
-            if !authed.is_admin {
-                require_owner_of_path(&w_id, &authed.username, &authed.groups, &path, &db).await?;
-            }
+            require_owner_of_path(&authed, path)?;
+
             let mut v = sqlx::query_scalar!(
                 "SELECT value FROM resource  WHERE path = $1 AND workspace_id = $2",
                 path,

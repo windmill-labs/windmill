@@ -6,9 +6,12 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::{collections::HashMap, time::Duration};
+use std::{
+    collections::{BTreeMap, HashMap},
+    time::Duration,
+};
 
-use serde::{self, Deserialize, Serialize};
+use serde::{self, Deserialize, Serialize, Serializer};
 
 use crate::{
     more_serde::{
@@ -149,9 +152,6 @@ pub struct Suspend {
 pub struct FlowModule {
     #[serde(default = "default_id")]
     pub id: String,
-    #[serde(default)]
-    #[serde(alias = "input_transform")]
-    pub input_transforms: HashMap<String, InputTransform>,
     pub value: FlowModuleValue,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_after_if: Option<StopAfterIf>,
@@ -245,7 +245,7 @@ pub enum FlowModuleValue {
     },
     RawScript {
         #[serde(default)]
-        #[serde(alias = "input_transform")]
+        #[serde(alias = "input_transform", serialize_with = "ordered_map")]
         input_transforms: HashMap<String, InputTransform>,
         content: String,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -255,6 +255,14 @@ pub enum FlowModuleValue {
         language: ScriptLang,
     },
     Identity,
+}
+
+fn ordered_map<S>(value: &HashMap<String, InputTransform>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let ordered: BTreeMap<_, _> = value.iter().collect();
+    ordered.serialize(serializer)
 }
 
 #[derive(Deserialize)]

@@ -2,7 +2,6 @@
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import type Editor from '$lib/components/Editor.svelte'
 	import ScriptEditor from '$lib/components/ScriptEditor.svelte'
-	import type { Preview } from '$lib/gen'
 	import { faSave } from '@fortawesome/free-solid-svg-icons'
 	import type { InlineScript } from '../../types'
 
@@ -29,7 +28,7 @@
 			<ScriptEditor
 				noSyncFromGithub
 				lang={inlineScript.language}
-				path={inlineScript.path}
+				path={inlineScript.path ? inlineScript.path + '_fullscreen' : undefined}
 				fixedOverflowWidgets={false}
 				bind:code={inlineScript.content}
 				bind:schema={inlineScript.schema}

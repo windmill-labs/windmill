@@ -1,7 +1,7 @@
 <svelte:options accessors />
 
 <script lang="ts">
-	import { onDestroy } from 'svelte'
+	import { createEventDispatcher, onDestroy } from 'svelte'
 	import { slide, type TransitionConfig } from 'svelte/transition'
 	import { createPopperActions, type PopperOptions } from 'svelte-popperjs'
 	import { clickOutside } from '../../../utils'
@@ -15,6 +15,7 @@
 	export let closeOn: (keyof HTMLElementEventMap)[] = ['blur']
 	export let innerClasses = ''
 	export let outerClasses = ''
+	export let wrapperClasses = ''
 	export let transition: (node: Element, params?: Record<string, any>) => TransitionConfig = slide
 	export { openFocusIn as open, closed as close }
 
@@ -28,6 +29,7 @@
 	})
 
 	const [popperRef, popperContent, getInstance] = createPopperActions()
+	const dispatch = createEventDispatcher()
 	let popup: HTMLElement | undefined
 	let focusableElements: HTMLElement[]
 
@@ -59,14 +61,18 @@
 		if ($stateMachine.currentState === 'open-focus-out') {
 			setTimeout(() => {
 				stateMachine.setState('closed')
+				dispatch('close')
 			}, 0)
 		} else {
 			stateMachine.setState('closed')
+			dispatch('close')
 		}
 	}
 	function conditionalClosed() {
-		if (isFocusContained()) return
-		closed()
+		setTimeout(() => {
+			if (isFocusContained()) return
+			closed()
+		}, 0)
 	}
 	function openFocusOut() {
 		stateMachine.setState('open-focus-out')
@@ -76,11 +82,12 @@
 	}
 
 	function keyDown(event: KeyboardEvent & { currentTarget: EventTarget & Window }) {
-		const modifiers = ['Shift', 'Control', 'Command', 'Alt']
+		const modifiers = ['Shift', 'Control', 'Command', 'Alt', 'Meta']
 		// Prevent closing the popup when the only key pressed is a modifier key
 		if (modifiers.includes(event.key) || $stateMachine.currentState === 'closed') return
 		if (event.key === 'Escape') {
-			return (<HTMLElement>document.activeElement)?.blur()
+			;(<HTMLElement>document.activeElement)?.blur()
+			return conditionalClosed()
 		}
 
 		const prev = ['Up', 'Left']
@@ -148,7 +155,7 @@
 <svelte:window on:keydown={keyDown} />
 
 <div
-	class="z-50"
+	class="z-50 {wrapperClasses}"
 	bind:this={popup}
 	use:popperContent={options}
 	use:clickOutside
@@ -157,7 +164,7 @@
 	aria-expanded={$stateMachine.currentState !== 'closed'}
 >
 	{#if $stateMachine.currentState !== 'closed'}
-		<div transition:transition|local={{ duration: 200 }} class={outerClasses}>
+		<div transition:transition|local={{ duration: 100 }} class={outerClasses}>
 			<div class={innerClasses}>
 				<slot open={openFocusIn} close={closed} />
 			</div>

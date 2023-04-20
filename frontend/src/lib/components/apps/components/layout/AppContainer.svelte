@@ -4,13 +4,14 @@
 	import SubGridEditor from '../../editor/SubGridEditor.svelte'
 	import type { AppViewerContext, ComponentCustomCSS } from '../../types'
 	import { concatCustomCss } from '../../utils'
+	import InitializeComponent from '../helpers/InitializeComponent.svelte'
 
 	export let id: string
 	export let componentContainerHeight: number
 	export let customCss: ComponentCustomCSS<'containercomponent'> | undefined = undefined
 	export let render: boolean
 
-	const { app, focusedGrid, selectedComponent, worldStore } =
+	const { app, focusedGrid, selectedComponent, worldStore, connectingInput } =
 		getContext<AppViewerContext>('AppViewerContext')
 
 	//used so that we can count number of outputs setup for first refresh
@@ -23,10 +24,10 @@
 		}
 	}
 
-	$: $selectedComponent === id && onFocus()
-
 	$: css = concatCustomCss($app.css?.containercomponent, customCss)
 </script>
+
+<InitializeComponent {id} />
 
 <div class="w-full h-full">
 	{#if $app.subgrids?.[`${id}-0`]}
@@ -38,7 +39,10 @@
 			subGridId={`${id}-0`}
 			containerHeight={componentContainerHeight}
 			on:focus={() => {
-				$selectedComponent = id
+				if (!$connectingInput.opened) {
+					$selectedComponent = [id]
+				}
+				onFocus()
 			}}
 		/>
 	{/if}

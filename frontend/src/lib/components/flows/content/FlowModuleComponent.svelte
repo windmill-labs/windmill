@@ -179,33 +179,32 @@
 				<Splitpanes horizontal>
 					<Pane size={isScript ? 30 : 50} minSize={20}>
 						{#if value.type === 'rawscript'}
-							<div class="h-full">
-								<Editor
-									bind:websocketAlive
-									bind:this={editor}
-									class="h-full px-2"
-									bind:code={value.content}
-									deno={value.language === RawScript.language.DENO}
-									lang={scriptLangToEditorLang(value.language)}
-									automaticLayout={true}
-									cmdEnterAction={async () => {
-										selected = 'test'
-										if (value.type === 'rawscript') {
-											value.content = editor.getCode()
-										}
-										await reload(flowModule)
-										modulePreview?.runTestWithStepArgs()
-									}}
-									on:change={async (event) => {
-										if (flowModule.value.type === 'rawscript') {
-											flowModule.value.content = event.detail
-										}
-										await reload(flowModule)
-									}}
-									formatAction={() => reload(flowModule)}
-									fixedOverflowWidgets
-								/>
-							</div>
+							<Editor
+								path={value['path']}
+								bind:websocketAlive
+								bind:this={editor}
+								class="h-full relative"
+								bind:code={value.content}
+								deno={value.language === RawScript.language.DENO}
+								lang={scriptLangToEditorLang(value.language)}
+								automaticLayout={true}
+								cmdEnterAction={async () => {
+									selected = 'test'
+									if (value.type === 'rawscript') {
+										value.content = editor.getCode()
+									}
+									await reload(flowModule)
+									modulePreview?.runTestWithStepArgs()
+								}}
+								on:change={async (event) => {
+									if (flowModule.value.type === 'rawscript') {
+										flowModule.value.content = event.detail
+									}
+									await reload(flowModule)
+								}}
+								formatAction={() => reload(flowModule)}
+								fixedOverflowWidgets={true}
+							/>
 						{:else if value.type === 'script'}
 							{#key forceReload}
 								<FlowModuleScript path={value.path} hash={value.hash} />
@@ -264,7 +263,7 @@
 										<FlowModuleSleep previousModuleId={previousModule?.id} bind:flowModule />
 									</div>
 								{:else if selected === 'advanced-same_worker'}
-									<div class="p-4  h-full overflow-auto">
+									<div class="p-4 h-full overflow-auto">
 										<Alert type="info" title="Share a directory between steps">
 											If shared directory is set, will share a folder that will be mounted on
 											`./shared` for each of them to pass data between each other.

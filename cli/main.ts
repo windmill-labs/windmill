@@ -5,6 +5,7 @@ import {
   UpgradeCommand,
 } from "./deps.ts";
 import flow from "./flow.ts";
+import app from "./apps.ts";
 import script from "./script.ts";
 import workspace from "./workspace.ts";
 import resource from "./resource.ts";
@@ -18,7 +19,7 @@ import sync from "./sync.ts";
 import { tryResolveVersion } from "./context.ts";
 import { GlobalOptions } from "./types.ts";
 
-export const VERSION = "v1.77.0";
+export const VERSION = "v1.88.1";
 
 let command: any = new Command()
   .name("wmill")
@@ -32,6 +33,7 @@ let command: any = new Command()
     "Specify an API token. This will override any stored token."
   )
   .version(VERSION)
+  .command("app", app)
   .command("flow", flow)
   .command("script", script)
   .command("workspace", workspace)

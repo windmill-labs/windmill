@@ -1,10 +1,12 @@
 <script lang="ts" context="module">
-	import getMessageServiceOverride from 'vscode/service-override/messages'
+	import getDialogServiceOverride from 'vscode/service-override/dialogs'
+	import getNotificationServiceOverride from 'vscode/service-override/notifications'
 	import { StandaloneServices } from 'vscode/services'
 
 	try {
 		StandaloneServices?.initialize({
-			...getMessageServiceOverride(document.body)
+			...getNotificationServiceOverride(document.body),
+			...getDialogServiceOverride()
 		})
 	} catch (e) {
 		console.error(e)
@@ -12,35 +14,34 @@
 </script>
 
 <script lang="ts">
-	import { browser, dev } from '$app/environment'
+	import { browser } from '$app/environment'
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/utils'
 
-	import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
-	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
-
-	import { buildWorkerDefinition } from 'monaco-editor-workers'
-	import type {
-		Disposable,
-		DocumentUri,
-		MessageTransports,
-		MonacoLanguageClient
-	} from 'monaco-languageclient'
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 
-	import { languages, editor as meditor, KeyCode, KeyMod, Uri as mUri } from 'monaco-editor'
-
-	languages.typescript.typescriptDefaults.setCompilerOptions({
-		target: languages.typescript.ScriptTarget.Latest,
-		allowNonTsExtensions: true,
-		noLib: true
+	import 'monaco-editor/esm/vs/editor/edcore.main'
+	import {
+		editor as meditor,
+		KeyCode,
+		KeyMod,
+		Uri as mUri,
+		languages
+	} from 'monaco-editor/esm/vs/editor/editor.api'
+	import 'monaco-editor/esm/vs/basic-languages/python/python.contribution'
+	import 'monaco-editor/esm/vs/basic-languages/go/go.contribution'
+	import 'monaco-editor/esm/vs/basic-languages/shell/shell.contribution'
+	import 'monaco-editor/esm/vs/basic-languages/typescript/typescript.contribution'
+	import 'monaco-editor/esm/vs/language/typescript/monaco.contribution'
+	import { MonacoLanguageClient, MonacoServices } from 'monaco-languageclient'
+	import { toSocket, WebSocketMessageReader, WebSocketMessageWriter } from 'vscode-ws-jsonrpc'
+	import { CloseAction, ErrorAction, RequestType } from 'vscode-languageclient'
+	import * as vscode from 'vscode'
+	languages.typescript.typescriptDefaults.setModeConfiguration({
+		completionItems: false,
+		definitions: false,
+		hovers: false
 	})
-	languages.typescript.typescriptDefaults.setDiagnosticsOptions({
-		noSemanticValidation: true,
-		noSuggestionDiagnostics: true,
-		noSyntaxValidation: true
-	})
-	languages.typescript.typescriptDefaults.setExtraLibs([])
 
 	meditor.defineTheme('myTheme', {
 		base: 'vs',
@@ -54,31 +55,44 @@
 	meditor.setTheme('myTheme')
 
 	import {
-		BASH_INIT_CODE,
-		DENO_INIT_CODE_CLEAR,
-		GO_INIT_CODE,
-		PYTHON_INIT_CODE_CLEAR
-	} from '$lib/script_helpers'
-	import {
 		createHash as randomHash,
 		editorConfig,
 		langToExt,
 		updateOptions
 	} from '$lib/editorUtils'
+	import {
+		BASH_INIT_CODE,
+		DENO_INIT_CODE_CLEAR,
+		GO_INIT_CODE,
+		PYTHON_INIT_CODE_CLEAR
+	} from '$lib/script_helpers'
+	import type { Disposable } from 'vscode'
+	import type { DocumentUri, MessageTransports } from 'vscode-languageclient'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
+	import { buildWorkerDefinition } from './build_workers'
+	import { workspaceStore } from '$lib/stores'
+	import { UserService } from '$lib/gen'
 
 	let divEl: HTMLDivElement | null = null
 	let editor: meditor.IStandaloneCodeEditor
 
 	export let lang: 'typescript' | 'python' | 'go' | 'shell'
 	export let code: string = ''
-	export let hash: string = randomHash()
 	export let cmdEnterAction: (() => void) | undefined = undefined
 	export let formatAction: (() => void) | undefined = undefined
 	export let automaticLayout = true
 	export let websocketAlive = { pyright: false, black: false, deno: false, go: false }
 	export let shouldBindKey: boolean = true
 	export let fixedOverflowWidgets = true
+	export let path: string = randomHash()
+
+	if (path == '' || path == undefined || path.startsWith('/')) {
+		path = randomHash()
+	}
+
+	let initialPath: string = path
+
+	$: path != initialPath && handlePathChange()
 
 	let websockets: [MonacoLanguageClient, WebSocket][] = []
 	let websocketInterval: NodeJS.Timer | undefined
@@ -87,28 +101,12 @@
 	let disposeMethod: () => void | undefined
 	const dispatch = createEventDispatcher()
 
-	const uri = `file:///tmp/monaco/${hash}.${langToExt(lang)}`
+	const uri =
+		lang == 'go' ? `file:///tmp/monaco/${randomHash()}.go` : `file:///${path}.${langToExt(lang)}`
 
-	if (browser) {
-		if (dev) {
-			buildWorkerDefinition(
-				'../../../node_modules/monaco-editor-workers/dist/workers',
-				import.meta.url,
-				false
-			)
-		} else {
-			// @ts-ignore
-			self.MonacoEnvironment = {
-				getWorker: function (_moduleId: any, label: string) {
-					if (label === 'typescript' || label === 'javascript') {
-						return new tsWorker()
-					} else {
-						return new editorWorker()
-					}
-				}
-			}
-		}
-	}
+	// if (lang != 'typescript') {
+	buildWorkerDefinition('../../../workers', import.meta.url, false)
+	// }
 
 	export function getCode(): string {
 		return editor?.getValue() ?? ''
@@ -136,27 +134,31 @@
 		}
 	}
 
-	export function setCode(ncode: string): void {
+	export function setCode(ncode: string, noHistory: boolean = false): void {
 		code = ncode
-		if (editor?.getModel()) {
-			// editor.setValue(ncode)
-			editor.pushUndoStop()
+		if (noHistory) {
+			editor?.setValue(ncode)
+		} else {
+			if (editor?.getModel()) {
+				// editor.setValue(ncode)
+				editor.pushUndoStop()
 
-			editor.executeEdits('set', [
-				{
-					range: editor.getModel()!.getFullModelRange(), // full range
-					text: ncode
-				}
-			])
+				editor.executeEdits('set', [
+					{
+						range: editor.getModel()!.getFullModelRange(), // full range
+						text: ncode
+					}
+				])
 
-			editor.pushUndoStop()
+				editor.pushUndoStop()
+			}
 		}
 	}
 
 	export function format() {
 		if (editor) {
 			code = getCode()
-			editor.getAction('editor.action.formatDocument').run()
+			editor?.getAction('editor.action.formatDocument')?.run()
 			if (formatAction) {
 				formatAction()
 			}
@@ -182,22 +184,14 @@
 
 	export async function reloadWebsocket() {
 		await closeWebsockets()
-		const { MonacoLanguageClient } = await import('monaco-languageclient')
-		const { CloseAction, ErrorAction } = await import('vscode-languageclient')
-		const { toSocket, WebSocketMessageReader, WebSocketMessageWriter } = await import(
-			'vscode-ws-jsonrpc'
-		)
-		const vscode = await import('vscode')
-		const { RequestType } = await import('vscode-jsonrpc')
-		// install Monaco language client services
-		const { MonacoServices } = await import('monaco-languageclient')
 
 		monacoServices = MonacoServices.install()
 
 		function createLanguageClient(
 			transports: MessageTransports,
 			name: string,
-			initializationOptions?: any
+			initializationOptions: any,
+			middlewareOptions: ((params, token, next) => any) | undefined
 		) {
 			const client = new MonacoLanguageClient({
 				name: name,
@@ -216,13 +210,11 @@
 					initializationOptions,
 					middleware: {
 						workspace: {
-							configuration: (params, token, configuration) => {
-								return [
-									{
-										enable: true
-									}
-								]
-							}
+							configuration:
+								middlewareOptions ??
+								((params, token, next) => {
+									return [{ enabled: true }]
+								})
 						}
 					}
 				},
@@ -235,7 +227,12 @@
 			return client
 		}
 
-		async function connectToLanguageServer(url: string, name: string, options?: any) {
+		async function connectToLanguageServer(
+			url: string,
+			name: string,
+			initOptions: any,
+			middlewareOptions: any
+		) {
 			try {
 				const webSocket = new WebSocket(url)
 
@@ -243,7 +240,15 @@
 					const socket = toSocket(webSocket)
 					const reader = new WebSocketMessageReader(socket)
 					const writer = new WebSocketMessageWriter(socket)
-					const languageClient = createLanguageClient({ reader, writer }, name, options)
+					const languageClient = createLanguageClient(
+						{ reader, writer },
+						name,
+						initOptions,
+						middlewareOptions
+					)
+					// if (middlewareOptions != undefined) {
+					// 	languageClient.registerNotUsedFeatures()
+					// }
 					websockets.push([languageClient, webSocket])
 
 					// HACK ALERT: for some reasons, the client need to be restarted to take into account the 'go get <dep>' command
@@ -273,12 +278,13 @@
 					})
 
 					try {
-						console.log('started client')
+						console.log('starting client')
 						await languageClient.start()
+						console.log('started client')
 					} catch (err) {
 						console.log('err at client')
 						console.error(err)
-						throw new Error(err)
+						return
 					}
 
 					lastWsAttempt = new Date()
@@ -309,64 +315,138 @@
 		}
 
 		const wsProtocol = $page.url.protocol == 'https:' ? 'wss' : 'ws'
+
+		let encodedImportMap = ''
 		if (lang == 'typescript') {
-			await connectToLanguageServer(`${wsProtocol}://${$page.url.host}/ws/deno`, 'deno', {
-				certificateStores: null,
-				enablePaths: [],
-				config: null,
-				importMap: null,
-				internalDebug: false,
-				lint: false,
-				path: null,
-				tlsCertificate: null,
-				unsafelyIgnoreCertificateErrors: null,
-				unstable: true,
-				enable: true,
-				cache: null,
-				codeLens: {
-					implementations: true,
-					references: true
-				},
-				suggest: {
-					autoImports: true,
-					completeFunctionCalls: false,
-					names: true,
-					paths: true,
+			if (path && path.split('/').length > 2) {
+				let expiration = new Date()
+				expiration.setHours(expiration.getHours() + 2)
+				const token = await UserService.createToken({
+					requestBody: { label: 'Ephemeral lsp token', expiration: expiration.toISOString() }
+				})
+				let root =
+					$page.url.protocol +
+					'//' +
+					$page.url.host +
+					'/api/scripts_u/tokened_raw/' +
+					$workspaceStore +
+					'/' +
+					token
+				const importMap = {
 					imports: {
-						autoDiscover: true,
-						hosts: {
-							'https://deno.land': true
+						'file:///': root + '/'
+					}
+				}
+				let path_splitted = path.split('/')
+				for (let c = 0; c < path_splitted.length; c++) {
+					let key = 'file://./'
+					for (let i = 0; i < c; i++) {
+						key += '../'
+					}
+					let url = path_splitted.slice(0, -c - 1).join('/')
+					let ending = c == path_splitted.length - 1 ? '' : '/'
+					importMap['imports'][key] = `${root}/${url}${ending}`
+				}
+				encodedImportMap = 'data:text/plain;base64,' + btoa(JSON.stringify(importMap))
+			}
+			await connectToLanguageServer(
+				`${wsProtocol}://${$page.url.host}/ws/deno`,
+				'deno',
+				{
+					certificateStores: null,
+					enablePaths: [],
+					config: null,
+					importMap: encodedImportMap,
+					internalDebug: false,
+					lint: false,
+					path: null,
+					tlsCertificate: null,
+					unsafelyIgnoreCertificateErrors: null,
+					unstable: true,
+					enable: true,
+					codeLens: {
+						implementations: true,
+						references: true,
+						referencesAllFunction: false
+					},
+					suggest: {
+						autoImports: true,
+						completeFunctionCalls: false,
+						names: true,
+						paths: true,
+						imports: {
+							autoDiscover: true,
+							hosts: {
+								'https://deno.land': true
+							}
 						}
 					}
+				},
+				() => {
+					return [
+						{
+							enable: true
+						}
+					]
 				}
-			})
+			)
 		} else if (lang === 'python') {
-			await connectToLanguageServer(`${wsProtocol}://${$page.url.host}/ws/pyright`, 'pyright', {
-				executionEnvironments: [
-					{
-						root: '/tmp/pyright',
-						pythonVersion: '3.7',
-						pythonPlatform: 'platform',
-						extraPaths: []
+			await connectToLanguageServer(
+				`${wsProtocol}://${$page.url.host}/ws/pyright`,
+				'pyright',
+				{},
+				(params, token, next) => {
+					if (params.items.find((x) => x.section === 'python')) {
+						return [
+							{
+								analysis: {
+									useLibraryCodeForTypes: true,
+									autoImportCompletions: true,
+									diagnosticSeverityOverrides: { reportMissingImports: 'none' },
+									typeCheckingMode: 'basic'
+								}
+							}
+						]
 					}
-				]
-			})
+					if (params.items.find((x) => x.section === 'python.analysis')) {
+						return [
+							{
+								useLibraryCodeForTypes: true,
+								autoImportCompletions: true,
+								diagnosticSeverityOverrides: { reportMissingImports: 'none' },
+								typeCheckingMode: 'basic'
+							}
+						]
+					}
+					return next(params, token)
+				}
+			)
 
-			connectToLanguageServer(`${wsProtocol}://${$page.url.host}/ws/black`, 'black', {
-				formatters: {
-					black: {
-						command: 'black',
-						args: ['--quiet', '-']
+			connectToLanguageServer(
+				`${wsProtocol}://${$page.url.host}/ws/black`,
+				'black',
+				{
+					formatters: {
+						black: {
+							command: 'black',
+							args: ['--quiet', '-']
+						}
+					},
+					formatFiletypes: {
+						python: 'black'
 					}
 				},
-				formatFiletypes: {
-					python: 'black'
-				}
-			})
+				undefined
+			)
 		} else if (lang === 'go') {
-			connectToLanguageServer(`${wsProtocol}://${$page.url.host}/ws/go`, 'go', {
-				'build.allowImplicitNetworkAccess': true
-			})
+			connectToLanguageServer(
+				`${wsProtocol}://${$page.url.host}/ws/go`,
+				'go',
+				{
+					'build.allowImplicitNetworkAccess': true
+				},
+				undefined
+			)
 		}
 
 		websocketInterval && clearInterval(websocketInterval)
@@ -397,6 +477,13 @@
 		}, 5000)
 	}
 
+	let pathTimeout: NodeJS.Timeout | undefined = undefined
+	function handlePathChange() {
+		initialPath = path
+		pathTimeout && clearTimeout(pathTimeout)
+		pathTimeout = setTimeout(reloadWebsocket, 3000)
+	}
+
 	async function closeWebsockets() {
 		command && command.dispose()
 		command = undefined
@@ -417,12 +504,14 @@
 		websocketInterval && clearInterval(websocketInterval)
 	}
 
+	let widgets: HTMLElement | undefined = document.getElementById('monaco-widgets-root') ?? undefined
 	async function loadMonaco() {
 		const model = meditor.createModel(code, lang, mUri.parse(uri))
 
-		model.updateOptions(updateOptions)
+		model.updateOptions(lang == 'python' ? { tabSize: 4, insertSpaces: true } : updateOptions)
 		editor = meditor.create(divEl as HTMLDivElement, {
 			...editorConfig(model, code, lang, automaticLayout, fixedOverflowWidgets),
+			overflowWidgetsDomNode: widgets,
 			tabSize: lang == 'python' ? 4 : 2
 		})
 
@@ -461,10 +550,6 @@
 			}
 		})
 
-		editor.onDidBlurEditorText(() => {
-			dispatch('blur')
-		})
-
 		reloadWebsocket()
 
 		return () => {
@@ -484,7 +569,7 @@
 		callback: (editor: meditor.IStandaloneCodeEditor) => void,
 		keybindings: number[] = []
 	) {
-		editor.addAction({
+		editor?.addAction({
 			id,
 			label,
 			keybindings,
@@ -510,7 +595,7 @@
 
 <div bind:this={divEl} class="{$$props.class} editor" />
 
-<style>
+<style lang="postcss">
 	.editor {
 		@apply p-0 border rounded-md border-gray-50;
 	}

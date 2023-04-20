@@ -6,6 +6,7 @@
 	export let noPadding: boolean = false
 	export let titlePadding: string = ''
 	export let tooltip = ''
+	export let documentationLink: string | undefined = undefined
 </script>
 
 <div
@@ -21,7 +22,7 @@
 				{title}
 			</span>
 			{#if tooltip}
-				<Tooltip light>
+				<Tooltip light {documentationLink}>
 					{tooltip}
 				</Tooltip>
 			{/if}
