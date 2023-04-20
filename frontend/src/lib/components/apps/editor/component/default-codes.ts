@@ -24,7 +24,7 @@ export const DEFAULT_CODES: Partial<
 			"age": 84
 		}
 	]
-	}`,
+}`,
 		python3: `def main():
 	return [
 		{
@@ -92,7 +92,7 @@ export async function main(db: Resource<"postgresql"> = "$res:f/examples/demodb"
 	const query = await pgSql(db)\`SELECT * FROM demo;\`;
 	return {
 		data: query.rows.map((row) => row['0']),
-		labels: query.rows.map((row) => row['1'].slice(0, 6))
+		labels: query.rows.map((row) => row['1']?.slice(0, 6))
 	};
 }`
 	},
@@ -168,7 +168,7 @@ export async function main(db: Resource<"postgresql"> = "$res:f/examples/demodb"
 	return {
 		data: {
 			values: query.rows.map((row) => {
-				row['1'] = row['1'].slice(0, 6);
+				row['1'] = row['1']?.slice(0, 6);
 				return row;
 			})
 		},
@@ -215,7 +215,7 @@ export async function main(db: Resource<"postgresql"> = "$res:f/examples/demodb"
 	const query = await pgSql(db)\`SELECT * FROM demo;\`;
 	return {
 		type: 'bar',
-		x: query.rows.map((row) => row['1'].slice(0, 6)),
+		x: query.rows.map((row) => row['1']?.slice(0, 6)),
 		y: query.rows.map((row) => row['0']),
 		marker: {
 			color: '#C8A2C8',
@@ -263,7 +263,7 @@ export async function main(db: Resource<"postgresql"> = "$res:f/examples/demodb"
 	const query = await pgSql(db)\`SELECT * FROM demo;\`;
 	return {
 		data: query.rows.map((row) => row['0']),
-		labels: query.rows.map((row) => row['1'].slice(0, 6))
+		labels: query.rows.map((row) => row['1']?.slice(0, 6))
 	};
 }`
 	},
