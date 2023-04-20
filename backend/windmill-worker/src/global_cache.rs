@@ -491,6 +491,8 @@ pub async fn copy_cache_to_tmp_cache() -> error::Result<()> {
             TAR_CACHE_FILENAME,
             "--exclude",
             &format!("pip/**"),
+            "--exclude",
+            &format!("deno/gen/file/tmp/windmill/**"),
         ],
     )
     .await?;
