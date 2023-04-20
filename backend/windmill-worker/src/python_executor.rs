@@ -45,12 +45,14 @@ const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT: &str = include_str!("../nsjail/download
 const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str = include_str!("../nsjail/run.python3.config.proto");
 const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
 
+#[cfg(feature = "enterprise")]
+use crate::global_cache::{build_tar_and_push, pull_from_tar};
+
 use crate::{
     common::{read_result, set_logs},
-    create_args_and_out_file, get_reserved_variables,
-    global_cache::{build_tar_and_push, pull_from_tar},
-    handle_child, write_file, AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER,
-    NSJAIL_PATH, PATH_ENV, PIP_CACHE_DIR, S3_CACHE_BUCKET,
+    create_args_and_out_file, get_reserved_variables, handle_child, write_file,
+    AuthedClientBackgroundTask, DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV,
+    PIP_CACHE_DIR, S3_CACHE_BUCKET,
 };
 
 pub async fn create_dependencies_dir(job_dir: &str) {
@@ -466,6 +468,7 @@ pub async fn handle_python_reqs(
             continue;
         }
 
+        #[cfg(feature = "enterprise")]
         if let Some(ref bucket) = *S3_CACHE_BUCKET {
             if pull_from_tar(bucket, venv_p.clone()).await.is_ok() {
                 req_paths.push(venv_p.clone());
@@ -555,6 +558,8 @@ pub async fn handle_python_reqs(
             job_id
         );
         child?;
+
+        #[cfg(feature = "enterprise")]
         if let Some(ref bucket) = *S3_CACHE_BUCKET {
             let venv_p = venv_p.clone();
             tokio::spawn(build_tar_and_push(bucket, venv_p));
