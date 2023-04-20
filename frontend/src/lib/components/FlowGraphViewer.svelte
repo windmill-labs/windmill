@@ -102,29 +102,43 @@
 			{:else if stepDetail == 'Result'}
 				<p class="font-medium text-gray-600 text-center pt-4 pb-8"> End of the flow </p>
 			{:else if typeof stepDetail != 'string' && stepDetail.value}
-				<div class="sticky top-0 bg-white w-full flex items-center py-2">
-					{#if stepDetail.id}
-						<Badge color="indigo">
-							{stepDetail.id}
-						</Badge>
-					{/if}
-					<span class="ml-2 font-medium text-lg">
-						{#if stepDetail.summary}
-							{stepDetail.summary}
-						{:else if stepDetail.value.type == 'identity'}
-							Identity
-						{:else if stepDetail.value.type == 'forloopflow'}
-							For loop
-						{:else if stepDetail.value.type == 'branchall'}
-							Run all branches
-						{:else if stepDetail.value.type == 'branchone'}
-							Run one branch
-						{:else if stepDetail.value.type == 'flow'}
-							Inner flow
-						{:else}
-							Anonymous step
+				<div class="">
+					<div class="sticky top-0 bg-white w-full flex items-center py-2">
+						{#if stepDetail.id}
+							<Badge color="indigo">
+								{stepDetail.id}
+							</Badge>
 						{/if}
-					</span>
+						<span class="ml-2 font-medium text-lg">
+							{#if stepDetail.summary}
+								{stepDetail.summary}
+							{:else if stepDetail.value.type == 'identity'}
+								Identity
+							{:else if stepDetail.value.type == 'forloopflow'}
+								For loop
+							{:else if stepDetail.value.type == 'branchall'}
+								Run all branches
+							{:else if stepDetail.value.type == 'branchone'}
+								Run one branch
+							{:else if stepDetail.value.type == 'flow'}
+								Inner flow
+							{:else}
+								Anonymous step
+							{/if}
+						</span>
+					</div>
+					{#if stepDetail.value.type == 'script'}
+						<div class="pb-2">
+							<a
+								rel="noreferrer"
+								target="_blank"
+								href={scriptPathToHref(stepDetail?.value?.path ?? '')}
+								class=""
+							>
+								<IconedPath path={stepDetail?.value?.path ?? ''} />
+							</a>
+						</div>
+					{/if}
 				</div>
 				{#if stepDetail.value.type == 'identity'}
 					<p class="font-medium text-gray-600 text-center pt-4 pb-8">
@@ -148,16 +162,6 @@
 						</div>
 					</div>
 				{:else if stepDetail.value.type == 'script'}
-					<div>
-						<a
-							rel="noreferrer"
-							target="_blank"
-							href={scriptPathToHref(stepDetail?.value?.path ?? '')}
-							class=""
-						>
-							<IconedPath path={stepDetail?.value?.path ?? ''} />
-						</a>
-					</div>
 					<div class="text-2xs">
 						<h3 class="mb-2 font-semibold">Step Inputs</h3>
 						<InputTransformsViewer inputTransforms={stepDetail?.value?.input_transforms ?? {}} />
