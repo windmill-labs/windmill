@@ -27,8 +27,9 @@
 	export let initialArgs: Record<string, any> = {}
 	export let lockedLanguage = false
 	export let topHash: string | undefined = undefined
+	export let showMeta: boolean = false
 
-	let metadataOpen = initialPath == '' && $page.url.searchParams.get('state') == undefined
+	let metadataOpen = showMeta || (initialPath == '' && $page.url.searchParams.get('state') == undefined)
 	let advancedOpen = false
 
 	let editor: Editor | undefined = undefined

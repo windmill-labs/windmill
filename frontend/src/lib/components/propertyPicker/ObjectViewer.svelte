@@ -65,7 +65,7 @@
 			}`}
 		>
 			{#each keys.length > keyLimit ? keys.slice(0, keyLimit) : keys as key, index (key)}
-				<li class="">
+				<li class="pb-1 last-of-type:pb-0">
 					<button on:click={() => selectProp(key, key)} class="whitespace-nowrap">
 						{#if topLevelNode}
 							<Badge baseClass="border border-blue-600" color="indigo">{key}</Badge>
