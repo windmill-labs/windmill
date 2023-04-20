@@ -1,11 +1,15 @@
-<script>
+<script lang="ts">
 	import { Menu, Transition, MenuButton, MenuItems } from '@rgossiaux/svelte-headlessui'
-	import { ChevronDown } from 'lucide-svelte'
+	import { History } from 'lucide-svelte'
+	import type { AppEditorContext } from '../types'
+	import { getContext } from 'svelte'
+
+	const { app } = getContext<AppEditorContext>('AppEditorContext')
 </script>
 
 <Menu let:open as="div" class="relative z-50 flex w-full h-full">
 	<MenuButton class="h-full w-full px-2">
-		<ChevronDown class="w-5 h-5" />
+		<History class="w-5 h-5" />
 	</MenuButton>
 	<Transition
 		show={open}

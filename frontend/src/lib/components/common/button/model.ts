@@ -3,7 +3,7 @@ export const BUTTON_COLORS = ['blue', 'red', 'dark', 'light', 'green', 'gray', '
 export namespace ButtonType {
 	export type Size = 'xs2' | 'xs' | 'sm' | 'md' | 'lg' | 'xl'
 	export type Color = (typeof BUTTON_COLORS)[number]
-	export type Variant = 'contained' | 'border'
+	export type Variant = 'contained' | 'border' | 'divider'
 	export type Target = '_self' | '_blank'
 	export type Element = HTMLButtonElement | HTMLAnchorElement
 	export interface Icon {

@@ -1,8 +1,7 @@
 <script lang="ts">
-	import { Badge, ToggleButton, ToggleButtonGroup } from '$lib/components/common'
-	import { addWhitespaceBeforeCapitals, capitalize } from '$lib/utils'
+	import { ToggleButton, ToggleButtonGroup } from '$lib/components/common'
+	import { addWhitespaceBeforeCapitals, capitalize, classNames } from '$lib/utils'
 	import { faArrowRight, faPen, faUpload, faUser } from '@fortawesome/free-solid-svg-icons'
-	import { fieldTypeToTsType } from '../../utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 
@@ -30,6 +29,7 @@
 	export let selectOptions: string[] | undefined
 	export let fileUpload: UploadAppInput['fileUpload'] | undefined = undefined
 	export let placeholder: string | undefined
+	export let customTitle: string | undefined = undefined
 
 	const { connectingInput } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -43,10 +43,19 @@
 </script>
 
 {#if !(resourceOnly && (fieldType !== 'object' || !format?.startsWith('resource-')))}
-	<div class="flex flex-col gap-1">
+	<div
+		class={classNames(
+			'flex gap-1',
+			onlyStatic ? 'flex-row items-center justify-between' : 'flex-col'
+		)}
+	>
 		<div class="flex justify-between items-end gap-1">
-			<span class="text-sm font-semibold truncate">
-				{shouldCapitalize ? capitalize(addWhitespaceBeforeCapitals(key)) : key}
+			<span class="text-xs font-semibold truncate text-gray-800">
+				{customTitle
+					? customTitle
+					: shouldCapitalize
+					? capitalize(addWhitespaceBeforeCapitals(key))
+					: key}
 				{#if tooltip}
 					<Tooltip>
 						{tooltip}
@@ -54,13 +63,7 @@
 				{/if}
 			</span>
 
-			<div class="flex gap-x-2 gap-y-1 flex-wrap justify-end items-center">
-				<Badge color="blue">
-					{fieldType === 'array' && subFieldType
-						? `${capitalize(fieldTypeToTsType(subFieldType))}[]`
-						: capitalize(fieldTypeToTsType(fieldType))}
-				</Badge>
-
+			<div class={classNames('flex gap-x-2 gap-y-1 flex-wrap justify-end items-center')}>
 				{#if !onlyStatic && componentInput?.type && componentInput.type != 'eval'}
 					<ToggleButtonGroup
 						bind:selected={componentInput.type}
@@ -128,14 +131,16 @@
 		{:else if componentInput?.type === 'row'}
 			<RowInputEditor bind:componentInput />
 		{:else if componentInput?.type === 'static'}
-			<StaticInputEditor
-				{fieldType}
-				{subFieldType}
-				{selectOptions}
-				{format}
-				{placeholder}
-				bind:componentInput
-			/>
+			<div class={onlyStatic ? 'w-2/3 flex justify-end' : 'w-full'}>
+				<StaticInputEditor
+					{fieldType}
+					{subFieldType}
+					{selectOptions}
+					{format}
+					{placeholder}
+					bind:componentInput
+				/>
+			</div>
 		{:else if componentInput?.type === 'eval'}
 			<EvalInputEditor {hasRows} {id} bind:componentInput />
 		{:else if componentInput?.type === 'upload'}

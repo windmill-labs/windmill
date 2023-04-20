@@ -60,12 +60,12 @@
 		{/if}
 		{#if level == 0 && topBrackets}<span class="h-0">{openBracket}</span>{/if}
 		<ul
-			class={`w-full ${
-				level === 0 ? 'border-none pl-2' : 'border-l border-dotted border-gray-200 pl-2'
+			class={`w-full pl-2 py-1 ${
+				level === 0 ? 'border-none' : 'border-l border-dotted border-gray-200'
 			}`}
 		>
 			{#each keys.length > keyLimit ? keys.slice(0, keyLimit) : keys as key, index (key)}
-				<li class="pt-1">
+				<li class="">
 					<button on:click={() => selectProp(key, key)} class="whitespace-nowrap">
 						{#if topLevelNode}
 							<Badge baseClass="border border-blue-600" color="indigo">{key}</Badge>
@@ -73,7 +73,7 @@
 							<span
 								class="key {pureViewer
 									? 'cursor-auto'
-									: 'border border-gray-300'} font-normal rounded px-1 hover:bg-blue-100"
+									: 'border border-gray-300'} font-semibold rounded px-1 hover:bg-blue-100 text-2xs text-gray-800"
 							>
 								{!isArray ? key : index}</span
 							>
@@ -113,9 +113,9 @@
 				</li>
 			{/each}
 			{#if keys.length > keyLimit}
-				<button on:click={() => (keyLimit += 100)} class="text-xs py-2 text-blue-600"
-					>{keyLimit}/{keys.length}: Load 100 more...</button
-				>
+				<button on:click={() => (keyLimit += 100)} class="text-xs py-2 text-blue-600">
+					{keyLimit}/{keys.length}: Load 100 more...
+				</button>
 			{/if}
 		</ul>
 		{#if level == 0 && topBrackets}<span class="h-0">{closeBracket}</span>{/if}
@@ -136,7 +136,7 @@
 {:else if topBrackets}
 	<span class="text-black">{openBracket}{closeBracket}</span>
 {:else}
-	<span class="text-gray-600 text-xs ml-2">No items</span>
+	<span class="text-gray-400 text-xs ml-2">No items</span>
 {/if}
 
 <style lang="postcss">

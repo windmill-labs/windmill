@@ -17,7 +17,7 @@
 	import AlignmentEditor from './AlignmentEditor.svelte'
 	import RunnableInputEditor from './inputEditor/RunnableInputEditor.svelte'
 	import TemplateEditor from '$lib/components/TemplateEditor.svelte'
-	import { ccomponents } from '../component'
+	import { COMPONENT_SETS, ccomponents } from '../component'
 	import CssProperty from '../componentsPanel/CssProperty.svelte'
 	import GridTab from './GridTab.svelte'
 	import { clearErrorByComponentId, clearJobsByComponentId, deleteGridItem } from '../appUtils'
@@ -116,6 +116,10 @@
 		: undefined
 
 	$: componentSettings?.item?.data && ($app = $app)
+
+	const hasInteraction = componentSettings?.item.data.type
+		? COMPONENT_SETS[1].components.includes(componentSettings?.item.data.type)
+		: false
 </script>
 
 <svelte:window on:keydown={keydown} />
@@ -124,7 +128,7 @@
 	{@const component = componentSettings.item.data}
 	<div class="flex min-h-full flex-col min-w-[150px] w-full divide-y">
 		{#if component.componentInput}
-			<PanelSection title="Data Source">
+			<PanelSection title={hasInteraction ? 'Event handler' : 'Data source'}>
 				<svelte:fragment slot="action">
 					<span
 						class={classNames(

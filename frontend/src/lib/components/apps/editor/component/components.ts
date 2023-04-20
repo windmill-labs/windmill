@@ -413,7 +413,6 @@ export const components = {
 					type: 'eval',
 					expr: 'false'
 				},
-				onSuccess: onSuccessClick,
 				beforeIcon: {
 					type: 'static',
 					value: undefined,
@@ -431,7 +430,8 @@ export const components = {
 					value: false,
 					fieldType: 'boolean',
 					onlyStatic: true
-				}
+				},
+				onSuccess: onSuccessClick
 			}
 		}
 	},
@@ -987,7 +987,8 @@ Hello \${ctx.username}
 					fieldType: 'boolean',
 					value: false,
 					onlyStatic: true,
-					tooltip: 'Allows user to manually add new value'
+					tooltip: 'Allows user to manually add new value',
+					customTitle: 'Manually add new value '
 				},
 				placeholder: {
 					type: 'static',

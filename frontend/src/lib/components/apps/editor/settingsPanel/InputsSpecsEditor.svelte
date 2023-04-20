@@ -46,6 +46,7 @@
 					onlyStatic={meta?.['onlyStatic']}
 					fileUpload={meta?.['fileUpload']}
 					placeholder={meta?.['placeholder']}
+					customTitle={meta?.['customTitle']}
 				/>
 			{/if}
 		{/each}

@@ -16,28 +16,11 @@
 	import Path from '$lib/components/Path.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { AppService, Job, Policy } from '$lib/gen'
 	import { redo, undo } from '$lib/history'
 	import { workspaceStore } from '$lib/stores'
-	import {
-		faBug,
-		faClipboard,
-		faExternalLink,
-		faFileExport,
-		faSave
-	} from '@fortawesome/free-solid-svg-icons'
-	import {
-		AlignHorizontalSpaceAround,
-		Expand,
-		Eye,
-		Laptop2,
-		Loader2,
-		Pencil,
-		SlidersHorizontal,
-		Smartphone,
-		X
-	} from 'lucide-svelte'
+	import { faClipboard, faFileExport, faSave, faSlidersH } from '@fortawesome/free-solid-svg-icons'
+	import { Bug, Eye, Laptop2, Loader2, Smartphone } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -76,9 +59,7 @@
 		jobs,
 		staticExporter,
 		errorByComponent,
-		openDebugRun,
-		focusedGrid,
-		selectedComponent
+		openDebugRun
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const { history } = getContext<AppEditorContext>('AppEditorContext')
@@ -532,108 +513,30 @@
 			$app = redo(history)
 		}}
 	/>
-	<div class="flex gap-4 items-center grow justify-center">
-		<div>
-			<ToggleButtonGroup bind:selected={$mode}>
-				<ToggleButton position="left" value="dnd" size="xs">
-					<div class="inline-flex gap-1 items-center">
-						<Pencil size={14} />
-						<span class="hidden lg:inline">Editor</span>
-					</div>
-				</ToggleButton>
-				<ToggleButton position="right" value="preview" size="xs">
-					<div class="inline-flex gap-1 items-center">
-						<Eye size={14} /> <span class="hidden lg:inline">Preview</span>
-					</div>
-				</ToggleButton>
-			</ToggleButtonGroup>
-		</div>
-		<div>
-			<ToggleButtonGroup bind:selected={$breakpoint}>
-				<ToggleButton position="left" value="sm" size="xs">
-					<Smartphone size={14} />
-				</ToggleButton>
-				<ToggleButton position="right" value="lg" size="xs">
-					<Laptop2 size={14} />
-				</ToggleButton>
-			</ToggleButtonGroup>
-		</div>
-
-		<div class="hidden lg:block">
-			{#if $app}
-				<ToggleButtonGroup bind:selected={$app.fullscreen}>
-					<ToggleButton position="left" value={false} size="xs">
-						<div class="flex gap-1 justify-start items-center">
-							<AlignHorizontalSpaceAround size={14} />
-							<Tooltip light class="mb-0.5">
-								The max width is 1168px and the content stay centered instead of taking the full
-								page width
-							</Tooltip>
-						</div>
-					</ToggleButton>
-					<ToggleButton position="right" value={true} size="xs">
-						<Expand size={14} />
-					</ToggleButton>
-				</ToggleButtonGroup>
-			{/if}
-		</div>
+	<div>
+		<ToggleButtonGroup bind:selected={$breakpoint}>
+			<ToggleButton position="left" value="sm" size="xs">
+				<Smartphone size={14} />
+			</ToggleButton>
+			<ToggleButton position="right" value="lg" size="xs">
+				<Laptop2 size={14} />
+			</ToggleButton>
+		</ToggleButtonGroup>
 	</div>
-	{#if $focusedGrid !== undefined}
-		<div class="hidden lg:block">
-			<Badge color="indigo">
-				<div class="flex flex-row gap-2 justify-center items-center">
-					<div>{`Subgrid: ${$focusedGrid.parentComponentId} (${$focusedGrid.subGridIndex})`}</div>
-					<button
-						on:click={() => {
-							$selectedComponent = undefined
-							$focusedGrid = undefined
-						}}
-					>
-						<X size={14} />
-					</button>
-				</div>
-			</Badge>
-		</div>
-	{/if}
+	<div class="flex gap-4 items-center grow justify-center">
+		<div class="hidden lg:block" />
+	</div>
 
 	<div class="flex flex-row gap-2 justify-end items-center overflow-visible">
-		<Dropdown
-			placement="bottom-end"
-			btnClasses="hidden lg:block"
-			dropdownItems={[
-				{
-					displayName: 'JSON',
-					icon: faFileExport,
-					action: () => {
-						appExport.open($app)
-					}
-				},
-				// {
-				// 	displayName: 'Publish to Hub',
-				// 	icon: faGlobe,
-				// 	action: () => {
-				// 		const url = appToHubUrl(toStatic($app, $staticExporter, $summary))
-				// 		window.open(url.toString(), '_blank')
-				// 	}
-				// },
-				{
-					displayName: 'Hub compatible JSON',
-					icon: faFileExport,
-					action: () => {
-						appExport.open(toStatic($app, $staticExporter, $summary).app)
-					}
-				}
-			]}
-		/>
-		<span class="hidden md:inline">
-			<Button on:click={() => (inputsDrawerOpen = true)} color="light" size="xs" variant="border">
-				<span class="flex gap-2">
-					<SlidersHorizontal size={14} />
-					App inputs
-				</span>
-			</Button>
-		</span>
-		<span class="hidden md:inline">
+		<div class="hidden md:inline relative overflow-visible">
+			{#if hasErrors}
+				<span
+					class="animate-ping absolute inline-flex rounded-full bg-red-600 h-2 w-2 z-50 -right-0.5 -top-0.5"
+				/>
+				<span
+					class=" absolute inline-flex rounded-full bg-red-600 h-2 w-2 z-50 -right-0.5 -top-0.5"
+				/>
+			{/if}
 			<Button
 				on:click={() => {
 					if (selectedJobId == undefined && $jobs.length > 0) {
@@ -644,20 +547,25 @@
 				color={hasErrors ? 'red' : 'light'}
 				size="xs"
 				variant="border"
-				startIcon={{ icon: faBug }}
+				btnClasses="relative"
 			>
-				<span class="hidden xl:inline">Debug Runs</span>
+				<Bug size={14} />
 			</Button>
-		</span>
+		</div>
 		<AppExportButton bind:this={appExport} />
+
 		<Button
-			on:click={() => (publishDrawerOpen = true)}
-			color="light"
+			loading={loading.save}
+			on:click={() => {
+				$mode = $mode === 'dnd' ? 'preview' : 'dnd'
+			}}
+			color={$mode === 'dnd' ? 'light' : 'blue'}
 			size="xs"
 			variant="border"
-			startIcon={{ icon: faExternalLink }}
 		>
-			<span class="hidden xl:inline">Publish</span>
+			<div class="inline-flex gap-1 items-center">
+				<Eye size={14} /> <span class="hidden lg:inline">Preview</span>
+			</div>
 		</Button>
 		{#if appPath == ''}
 			<Button
@@ -682,11 +590,52 @@
 						onClick: () => {
 							window.open(`/apps/add?template=${appPath}`)
 						}
+					},
+					{
+						label: 'Publish',
+						onClick: () => {
+							publishDrawerOpen = true
+						}
 					}
 				]}
 			>
 				Save
 			</Button>
 		{/if}
+		<Dropdown
+			placement="bottom-end"
+			btnClasses="!border !rounded-md"
+			dropdownItems={[
+				{
+					displayName: 'JSON',
+					icon: faFileExport,
+					action: () => {
+						appExport.open($app)
+					}
+				},
+				// {
+				// 	displayName: 'Publish to Hub',
+				// 	icon: faGlobe,
+				// 	action: () => {
+				// 		const url = appToHubUrl(toStatic($app, $staticExporter, $summary))
+				// 		window.open(url.toString(), '_blank')
+				// 	}
+				// },
+				{
+					displayName: 'Hub compatible JSON',
+					icon: faFileExport,
+					action: () => {
+						appExport.open(toStatic($app, $staticExporter, $summary).app)
+					}
+				},
+				{
+					displayName: 'App Inputs',
+					icon: faSlidersH,
+					action: () => {
+						inputsDrawerOpen = true
+					}
+				}
+			]}
+		/>
 	</div>
 </div>

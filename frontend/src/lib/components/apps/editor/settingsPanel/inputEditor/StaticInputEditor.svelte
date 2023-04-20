@@ -1,5 +1,4 @@
 <script lang="ts">
-	import Toggle from '$lib/components/Toggle.svelte'
 	import type { InputType, StaticInput, StaticOptions } from '../../../inputType'
 	import ArrayStaticInputEditor from '../ArrayStaticInputEditor.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
@@ -35,7 +34,7 @@
 	{:else if fieldType === 'date'}
 		<input on:keydown|stopPropagation type="date" bind:value={componentInput.value} />
 	{:else if fieldType === 'boolean'}
-		<Toggle bind:checked={componentInput.value} />
+		<input type="checkbox" class="!w-4 !h-4 !rounded-sm" bind:checked={componentInput.value} />
 	{:else if fieldType === 'select' && selectOptions}
 		<select on:keydown|stopPropagation on:keydown|stopPropagation bind:value={componentInput.value}>
 			{#each selectOptions ?? [] as option}
@@ -129,7 +128,8 @@
 							}
 						}
 					}}
-					><Icon data={faDollarSign} />
+				>
+					<Icon data={faDollarSign} />
 				</div>
 			{/if}
 		</div>

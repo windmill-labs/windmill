@@ -30,6 +30,7 @@ export interface GeneralAppInput {
 	onlyStatic?: boolean
 	tooltip?: string
 	placeholder?: string
+	customTitle?: string
 }
 
 export type ComponentCssProperty = {
