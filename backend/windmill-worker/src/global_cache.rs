@@ -440,7 +440,8 @@ pub async fn untar_all_piptars() -> error::Result<()> {
     let mut entries = fs::read_dir(TAR_PIP_TMP_CACHE_DIR).await?;
     while let Some(entry) = entries.next_entry().await? {
         if let Err(e) = {
-            let path = entry.file_name().into_string().expect("Invalid path");
+            let entry_path = entry.path();
+            let path = entry_path.to_str().expect("Could not convert path to str");
             let folder = format!(
                 "{PIP_CACHE_DIR}/{}",
                 path.split('/')
@@ -473,7 +474,7 @@ pub async fn extract_pip_tar(tar: &str, folder: &str) -> error::Result<()> {
     let start: Instant = Instant::now();
     fs::create_dir(&folder).await?;
     if let Err(e) = execute_command(&folder, "tar", vec!["-xpvf", tar]).await {
-        tracing::info!("Failed to untar cache. Error: {:?}", e);
+        tracing::info!("Failed to untar piptar. Error: {:?}", e);
         return Err(e);
     }
     tracing::info!(
