@@ -22,6 +22,9 @@ tokio.workspace = true
 deadpool.workspace = true
 async-trait.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+unix-named-pipe.workspace = true
+
 [dev-dependencies]
 criterion = { version = "0.4", features = ["html_reports", "async_tokio"] }
 

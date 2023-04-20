@@ -287,7 +287,7 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
                 rx,
                 &base_internal_url,
                 rsmq2,
-                deno_runner_pool.as_ref(),
+                deno_runner_pool.clone(),
             )
             .await
         })));

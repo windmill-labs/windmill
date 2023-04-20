@@ -185,7 +185,7 @@ func Run(req Req) (interface{{}}, error){{
             &job.id,
             db,
             logs,
-            build_go,
+            crate::worker::JobChild::ProcessChild(build_go),
             false,
             worker_name,
             &job.workspace_id,
@@ -224,7 +224,7 @@ func Run(req Req) (interface{{}}, error){{
         &job.id,
         db,
         logs,
-        child,
+        crate::worker::JobChild::ProcessChild(child),
         !*DISABLE_NSJAIL,
         worker_name,
         &job.workspace_id,
@@ -272,7 +272,16 @@ pub async fn install_go_dependencies(
             .stderr(Stdio::piped())
             .spawn()?;
 
-        handle_child(job_id, db, logs, child, false, worker_name, w_id).await?;
+        handle_child(
+            job_id,
+            db,
+            logs,
+            crate::worker::JobChild::ProcessChild(child),
+            false,
+            worker_name,
+            w_id,
+        )
+        .await?;
     }
 
     let mut new_lockfile = false;
@@ -310,9 +319,17 @@ pub async fn install_go_dependencies(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
-    handle_child(job_id, db, logs, child, false, worker_name, &w_id)
-        .await
-        .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
+    handle_child(
+        job_id,
+        db,
+        logs,
+        crate::worker::JobChild::ProcessChild(child),
+        false,
+        worker_name,
+        &w_id,
+    )
+    .await
+    .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
 
     if (!new_lockfile || has_sum) && non_dep_job {
         return Ok("".to_string());

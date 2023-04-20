@@ -111,9 +111,17 @@ pub async fn pip_compile(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
-    handle_child(job_id, db, logs, child, false, worker_name, &w_id)
-        .await
-        .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
+    handle_child(
+        job_id,
+        db,
+        logs,
+        crate::worker::JobChild::ProcessChild(child),
+        false,
+        worker_name,
+        &w_id,
+    )
+    .await
+    .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
     let path_lock = format!("{job_dir}/requirements.txt");
     let mut file = File::open(path_lock).await?;
     let mut req_content = "".to_string();
@@ -416,7 +424,7 @@ mount {{
         &job.id,
         db,
         logs,
-        child,
+        crate::worker::JobChild::ProcessChild(child),
         !*DISABLE_NSJAIL,
         worker_name,
         &job.workspace_id,
@@ -518,7 +526,16 @@ pub async fn handle_python_reqs(
                 .spawn()?
         };
 
-        let child = handle_child(&job_id, db, logs, child, false, worker_name, &w_id).await;
+        let child = handle_child(
+            &job_id,
+            db,
+            logs,
+            crate::worker::JobChild::ProcessChild(child),
+            false,
+            worker_name,
+            &w_id,
+        )
+        .await;
         tracing::info!(
             worker_name = %worker_name,
             job_id = %job_id,

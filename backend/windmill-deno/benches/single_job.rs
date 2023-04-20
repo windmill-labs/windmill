@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 
 async fn run_job(runner: &windmill_deno::runner::DenoRunnerPool) -> i32 {
     let job_dir = "/tmp/windmill_bench".to_owned();
@@ -17,7 +17,12 @@ async fn run_job(runner: &windmill_deno::runner::DenoRunnerPool) -> i32 {
         "./main.ts".to_owned(),
     ];
     runner
-        .run_job(args, job_dir, "/tmp/windmill_bench_cache".to_owned())
+        .run_job(
+            args,
+            job_dir,
+            "/tmp/windmill_bench_cache".to_owned(),
+            Default::default(),
+        )
         .await
         .unwrap()
 }

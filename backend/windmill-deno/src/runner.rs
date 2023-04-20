@@ -41,10 +41,11 @@ impl DenoRunnerPool {
         args: Vec<String>,
         job_dir: String,
         cache_dir: String,
+        stdio: deno_runtime::deno_io::Stdio,
     ) -> Result<i32, anyhow::Error> {
         let runner = self.0.get().await.map_err(|e| anyhow!(e))?;
 
-        runner.run_job(args, job_dir, cache_dir).await
+        runner.run_job(args, job_dir, cache_dir, stdio).await
     }
 
     pub fn new() -> Self {
@@ -61,15 +62,14 @@ pub struct DenoRunner {
     handle: std::thread::JoinHandle<()>,
 }
 
-#[derive(Debug)]
 struct DenoJob {
     notification: tokio::sync::oneshot::Sender<Result<i32, anyhow::Error>>,
     args: Vec<String>,
     job_dir: String,
     cache_dir: String,
+    stdio: deno_runtime::deno_io::Stdio,
 }
 
-#[derive(Debug)]
 enum Message {
     Job(DenoJob),
     Recycle,
@@ -91,7 +91,9 @@ impl DenoRunner {
                     };
                     // Run deno job
                     handle.block_on(async move {
-                        let res = crate::run_deno_cli(job.args, &job.job_dir, &job.cache_dir).await;
+                        let res =
+                            crate::run_deno_cli(job.args, &job.job_dir, &job.cache_dir, job.stdio)
+                                .await;
                         job.notification.send(res).unwrap()
                     });
                     let Some(Message::Recycle) = receiver.blocking_recv() else {
@@ -110,6 +112,7 @@ impl DenoRunner {
         args: Vec<String>,
         job_dir: String,
         cache_dir: String,
+        stdio: deno_runtime::deno_io::Stdio,
     ) -> Result<i32, anyhow::Error> {
         let (sender, receiver) = tokio::sync::oneshot::channel();
 
@@ -119,14 +122,19 @@ impl DenoRunner {
                 args,
                 job_dir,
                 cache_dir,
+                stdio,
             }))
+            .map_err(|_| ())
             .unwrap();
 
         receiver.await.unwrap()
     }
 
     async fn recycle(&self) {
-        self.job_sender.send(Message::Recycle).unwrap();
+        self.job_sender
+            .send(Message::Recycle)
+            .map_err(|_| ())
+            .unwrap();
     }
 
     fn is_up(&self) -> bool {

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 mod module_loader;
 pub mod runner;
@@ -172,10 +172,19 @@ fn make_cli_options(
     deno_cli::args::CliOptions::new(flags, job_dir.into(), None, None, None)
 }
 
+pub struct WatcherPipes {
+    #[cfg(unix)]
+    // NOTE: stdout & stderr should only be read from!!
+    pub stdout: tokio::net::unix::pipe::Receiver,
+    #[cfg(unix)]
+    pub stderr: tokio::net::unix::pipe::Receiver,
+}
+
 pub async fn run_deno_cli(
     args: Vec<String>,
     job_dir: &str,
     cache_dir: &str,
+    stdio: deno_runtime::deno_io::Stdio,
 ) -> std::result::Result<i32, anyhow::Error> {
     let mut flags = deno_cli::args::flags_from_vec(args)
         .expect("Args are built by the app and should always be valid");
@@ -191,10 +200,6 @@ pub async fn run_deno_cli(
         unreachable!("Flags should always be set to run");
     };
 
-    // TODO: Set initial_cwd here.
-    // Info: ProcState::build() is just ProcState::from_options(Arc::new(CliOptions::from_flags(flags)))
-    // CliOptions::from_flags(flags) will internall retreive the cwd, and overall doesn't do much relevant (to us) work.
-    // Can probably manually build CliOptions or ProcState
     let ps =
         deno_cli::proc_state::ProcState::from_options(Arc::new(make_cli_options(flags, job_dir)?))
             .await?;
@@ -205,14 +210,6 @@ pub async fn run_deno_cli(
     let permissions = deno_runtime::permissions::PermissionsContainer::new(
         deno_runtime::permissions::Permissions::from_options(&ps.options.permissions_options())?,
     );
-    // TODO: Handle log streaming here
-    // This may require either streaming through a file (which is ugly)
-    // or changing a bit of code in deno to use streams internally (given this is in deno_runtime, this maybe hard. Investigate.)
-    let stdio = deno_runtime::deno_io::Stdio {
-        stdin: deno_runtime::deno_io::StdioPipe::Inherit,
-        stdout: deno_runtime::deno_io::StdioPipe::Inherit,
-        stderr: deno_runtime::deno_io::StdioPipe::Inherit,
-    };
 
     let (main_module, mut worker) =
         create_main_worker(&ps, main_module, permissions, stdio).await?;
@@ -220,4 +217,38 @@ pub async fn run_deno_cli(
     let exit_code = run_main(&main_module, &mut worker, &ps).await?;
 
     Ok(exit_code)
+}
+
+pub fn make_stdio(job_dir: &str) -> anyhow::Result<(deno_runtime::deno_io::Stdio, WatcherPipes)> {
+    if cfg!(unix) {
+        let path: PathBuf = job_dir.into();
+        let mut stdout = path.clone();
+        stdout.push("stdout.pipe");
+        let mut stderr = path;
+        stderr.push("stderr.pipe");
+
+        unix_named_pipe::create(stdout.as_path(), None)?;
+        unix_named_pipe::create(stderr.as_path(), None)?;
+
+        println!("opening read stdio {stdout:?} {stderr:?}");
+
+        let stderr_reader =
+            tokio::net::unix::pipe::OpenOptions::new().open_receiver(stderr.as_path())?;
+        let stdout_reader =
+            tokio::net::unix::pipe::OpenOptions::new().open_receiver(stdout.as_path())?;
+
+        let stdout_writer = unix_named_pipe::open_write(stdout.as_path())?;
+        let stderr_writer = unix_named_pipe::open_write(stderr.as_path())?;
+
+        Ok((
+            deno_runtime::deno_io::Stdio {
+                stdin: deno_runtime::deno_io::StdioPipe::File(std::fs::File::open("/dev/zero")?),
+                stdout: deno_runtime::deno_io::StdioPipe::File(stdout_writer),
+                stderr: deno_runtime::deno_io::StdioPipe::File(stderr_writer),
+            },
+            WatcherPipes { stdout: stdout_reader, stderr: stderr_reader },
+        ))
+    } else {
+        todo!("Cannot create pipes for this target")
+    }
 }

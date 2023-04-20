@@ -281,7 +281,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
     mut rx: tokio::sync::broadcast::Receiver<()>,
     base_internal_url: &str,
     rsmq: Option<R>,
-    deno_runner_pool: &windmill_deno::runner::DenoRunnerPool,
+    deno_runner_pool: Arc<windmill_deno::runner::DenoRunnerPool>,
 ) {
     #[cfg(not(feature = "enterprise"))]
     if !*DISABLE_NSJAIL {
@@ -587,7 +587,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
                     let is_flow = job.job_kind == JobKind::Flow || job.job_kind == JobKind::FlowPreview || job.job_kind == JobKind::FlowDependencies;
 
                     if let Some(err) = handle_queued_job(
-                        deno_runner_pool,
+                        deno_runner_pool.clone(),
                         job.clone(),
                         db,
                         &authed_client,
@@ -757,7 +757,7 @@ fn extract_error_value(log_lines: &str, i: i32) -> serde_json::Value {
 }
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
-    deno_runner_pool: &windmill_deno::runner::DenoRunnerPool,
+    deno_runner_pool: Arc<windmill_deno::runner::DenoRunnerPool>,
     job: QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
@@ -998,7 +998,7 @@ async fn transform_json_value(
 
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_code_execution_job(
-    deno_runner_pool: &windmill_deno::runner::DenoRunnerPool,
+    deno_runner_pool: Arc<windmill_deno::runner::DenoRunnerPool>,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &AuthedClientBackgroundTask,
@@ -1215,7 +1215,7 @@ async fn handle_bash_job(
             .stderr(Stdio::piped())
             .spawn()?
     };
-    handle_child(&job.id, db, logs,  child, !*DISABLE_NSJAIL, worker_name, &job.workspace_id).await?;
+    handle_child(&job.id, db, logs, JobChild::ProcessChild(child), !*DISABLE_NSJAIL, worker_name, &job.workspace_id).await?;
     //for now bash jobs have an empty result object
     Ok(serde_json::json!(logs
         .lines()
@@ -1246,7 +1246,7 @@ fn get_common_deno_proc_envs(token: &str, base_internal_url: &str) -> HashMap<St
 
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_deno_job(
-    deno_runner_pool: &windmill_deno::runner::DenoRunnerPool,
+    deno_runner_pool: Arc<windmill_deno::runner::DenoRunnerPool>,
     logs: &mut String,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -1256,6 +1256,7 @@ async fn handle_deno_job(
     base_internal_url: &str,
     worker_name: &str
 ) -> error::Result<serde_json::Value> {
+    let job_dir_owned = job_dir.to_owned();
 
     // let mut start = Instant::now();
     logs.push_str("\n\n--- DENO CODE EXECUTION ---\n");
@@ -1351,12 +1352,15 @@ async fn handle_deno_job(
 
     let common_deno_proc_envs = get_common_deno_proc_envs(&token, base_internal_url);
 
+    let (deno_stdio, our_stdio) = windmill_deno::make_stdio(job_dir)?;
+
     //do not cache local dependencies
     let reload = format!("--reload={base_internal_url}");
-    let child_fut= async {
+    let child_fut= async move {
+        let deno_pool_2 = deno_runner_pool.clone();
         let mut args: Vec<String> = Vec::new();
-        let script_path = format!("{job_dir}/wrapper.ts");
-        let import_map_path = format!("{job_dir}/import_map.json");
+        let script_path = format!("{job_dir_owned}/wrapper.ts");
+        let import_map_path = format!("{job_dir_owned}/import_map.json");
         args.push("deno".to_owned());
         args.push("run".to_owned());
         args.push("--import-map".to_owned());
@@ -1368,8 +1372,8 @@ async fn handle_deno_job(
             }
         } else if !*DISABLE_NSJAIL {
             args.push("--allow-net".to_owned());
-            args.push(format!("--allow-read={job_dir}"));
-            args.push(format!("--allow-write={job_dir}"));
+            args.push(format!("--allow-read={job_dir_owned}"));
+            args.push(format!("--allow-write={job_dir_owned}"));
             args.push("--allow-env".to_owned());
         } else {
             args.push("-A".to_owned());
@@ -1379,13 +1383,11 @@ async fn handle_deno_job(
         // TODO(deno): Handle current dir
         // TODO(deno): Handle stdout / stdin / stderr
 
-        deno_runner_pool.run_job(args, job_dir.to_owned(), DENO_CACHE_DIR.to_owned()).await.unwrap();
+        deno_pool_2.as_ref().run_job(args, job_dir_owned, DENO_CACHE_DIR.to_owned(), deno_stdio).await
     };
 
-    child_fut.await;
-
     // TODO(deno): Handle log streaming
-    // handle_child(&job.id, db, logs, child, false, worker_name, &job.workspace_id).await?;
+    handle_child(&job.id, db, logs, JobChild::FutFileChild(Some(child_fut.boxed()), Some(our_stdio)), false, worker_name, &job.workspace_id).await?;
 
     read_result(job_dir).await
 }
@@ -1657,6 +1659,7 @@ async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {
     if pid.is_none() {
         return -1
     }
+
     let pid = if nsjail {
         // This is a bit hacky, but the process id of the nsjail process is the pid of nsjail + 1. 
         // Ideally, we would get the number from fork() itself. This works in MOST cases.
@@ -1677,18 +1680,24 @@ async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {
         -3
     }
 }
+
+pub enum JobChild {
+    ProcessChild(tokio::process::Child),
+    FutFileChild(Option<std::pin::Pin<Box<dyn futures::Future<Output = Result<i32, anyhow::Error>> + Send>>>, Option<windmill_deno::WatcherPipes>),
+}
+
 /// - wait until child exits and return with exit status
 /// - read lines from stdout and stderr and append them to the "queue"."logs"
 ///   quitting early if output exceedes MAX_LOG_SIZE characters (not bytes)
 /// - update the `last_line` and `logs` strings with the program output
 /// - update "queue"."last_ping" every five seconds
-/// - kill process if we exceed timeout or "queue"."canceled" is set
+/// - kill process / cancel future if we exceed timeout or "queue"."canceled" is set
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_child(
     job_id: &Uuid,
     db: &Pool<Postgres>,
     logs: &mut String,
-    mut child: Child,
+    mut child: JobChild,
     nsjail: bool,
     worker_name: &str,
     _w_id: &str,
@@ -1696,7 +1705,13 @@ pub async fn handle_child(
     let update_job_interval = Duration::from_millis(500);
     let write_logs_delay = Duration::from_millis(500);
 
-    let pid = child.id();
+    let pid = if let JobChild::ProcessChild(child) = &child {
+        child.id()
+    }
+    else {
+        None
+    };
+
     #[cfg(target_os = "linux")]
     if let Some(pid) = pid {
         //set the highest oom priority
@@ -1713,7 +1728,6 @@ pub async fn handle_child(
     let output = child_joined_output_stream(&mut child);
 
     let job_id = job_id.clone();
-
 
     /* the cancellation future is polled on by `wait_on_child` while
      * waiting for the child to exit normally */
@@ -1786,9 +1800,17 @@ pub async fn handle_child(
             *TIMEOUT_DURATION
         };
 
+        let child_wait = match &mut child {
+            JobChild::ProcessChild(child) => async { child.wait().await.map_err(|e| anyhow::anyhow!(e)) }.boxed(),
+            JobChild::FutFileChild(f, _) => {
+                let f = f.take().unwrap();
+                async { f.await.map_err(|e| anyhow::anyhow!(e)).map(std::process::ExitStatus::from_raw) }.boxed()
+            },
+        };
+
         let kill_reason = tokio::select! {
             biased;
-            result = child.wait() => return result.map(Ok),
+            result = child_wait => return result.map(Ok),
             Ok(()) = too_many_logs.changed() => KillReason::TooManyLogs,
             _ = sleep(timeout_duration) => KillReason::Timeout,
             _ = update_job => KillReason::Cancelled,
@@ -1816,10 +1838,19 @@ pub async fn handle_child(
                 }
             }
         };
+
+        async fn make_child_kill(child: &mut JobChild) -> Result<(), anyhow::Error> {
+            match child {
+                JobChild::ProcessChild(e) => e.kill().await.map_err(|e| anyhow::anyhow!(e)),
+                JobChild::FutFileChild(_, _) => todo!(),
+            }
+        }
+
+        let child_kill = make_child_kill(&mut child);
         
         /* send SIGKILL and reap child process */
-        let (_, kill) = future::join(set_reason, child.kill()).await;
-        kill.map(|()| Err(kill_reason))
+        let (_, kill): (_, Result<(), anyhow::Error>) = future::join(set_reason, child_kill).await;
+        kill.map(|()| Err(kill_reason)).map_err(|e| anyhow::anyhow!(e))
     };
 
     /* a future that reads output from the child and appends to the database */
@@ -1955,21 +1986,32 @@ pub async fn handle_child(
 ///
 /// builds a stream joining both stdout and stderr each read line by line
 fn child_joined_output_stream(
-    child: &mut Child,
-) -> impl stream::FusedStream<Item = io::Result<String>> {
-    let stderr = child
-        .stderr
-        .take()
-        .expect("child did not have a handle to stdout");
+    child: &mut JobChild,
+) -> std::pin::Pin<Box<dyn futures::Stream<Item = std::result::Result<String, io::Error>> + Send>> {
+    match child {
+        JobChild::ProcessChild(child) => {
+            let stderr = child
+                .stderr
+                .take()
+                .expect("child did not have a handle to stdout");
 
-    let stdout = child
-        .stdout
-        .take()
-        .expect("child did not have a handle to stdout");
+            let stdout = child
+                .stdout
+                .take()
+                .expect("child did not have a handle to stdout");
 
-    let stdout = BufReader::new(stdout).lines();
-    let stderr = BufReader::new(stderr).lines();
-    stream::select(lines_to_stream(stderr), lines_to_stream(stdout))
+            let stdout = BufReader::new(stdout).lines();
+            let stderr = BufReader::new(stderr).lines();
+            stream::select(lines_to_stream(stderr), lines_to_stream(stdout)).boxed()
+        }
+        JobChild::FutFileChild(_, pipes) => {
+            let pipes = pipes.take().unwrap();
+            let stdout = BufReader::new(pipes.stdout).lines();
+            let stderr = BufReader::new(pipes.stderr).lines();
+            stream::select(lines_to_stream(stderr), lines_to_stream(stdout)).boxed()
+        },
+    }
+
 }
 
 fn lines_to_stream<R: tokio::io::AsyncBufRead + Unpin>(
