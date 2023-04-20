@@ -895,10 +895,10 @@ async fn handle_queued_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>(
             logs.push_str(&format!("job {} on worker {}\n", &job.id, &worker_name));
             let result = match job.job_kind {
                 JobKind::Dependencies => {
-                    handle_dependency_job(&job, &mut logs, job_dir, db, worker_name).await
+                    handle_dependency_job(&job, &mut logs, job_dir, db, worker_name, worker_dir).await
                 }
                 JobKind::FlowDependencies => {
-                    handle_flow_dependency_job(&job, &mut logs, job_dir, db, worker_name)
+                    handle_flow_dependency_job(&job, &mut logs, job_dir, db, worker_name, worker_dir)
                         .await
                         .map(|()| Value::Null)
                 }
@@ -1501,6 +1501,7 @@ async fn handle_dependency_job(
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
+    worker_dir: &str,
 ) -> error::Result<serde_json::Value> {
     let content = capture_dependency_job(
         &job.id,
@@ -1518,6 +1519,7 @@ async fn handle_dependency_job(
         db,
         worker_name,
         &job.workspace_id,
+        worker_dir,
     )
     .await;
     match content {
@@ -1553,6 +1555,7 @@ async fn handle_flow_dependency_job(
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
+    worker_dir: &str,
 ) -> error::Result<()> {
     let path = job.script_path.clone().ok_or_else(|| {
         error::Error::InternalErr(
@@ -1585,6 +1588,7 @@ async fn handle_flow_dependency_job(
             db,
             worker_name,
             &job.workspace_id,
+            worker_dir,
         )
         .await;
         match new_lock {
@@ -1656,6 +1660,7 @@ async fn capture_dependency_job(
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
     w_id: &str,
+    worker_dir: &str,
 ) -> error::Result<String> {
     match job_language {
         ScriptLang::Python3 => {
@@ -1674,6 +1679,7 @@ async fn capture_dependency_job(
                     db,
                     worker_name,
                     job_dir,
+                    worker_dir,
                 )
                 .await?;
             }
