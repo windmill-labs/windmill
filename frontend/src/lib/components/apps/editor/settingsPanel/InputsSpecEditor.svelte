@@ -1,9 +1,6 @@
 <script lang="ts">
-	import { ToggleButton, ToggleButtonGroup } from '$lib/components/common'
 	import { addWhitespaceBeforeCapitals, capitalize, classNames } from '$lib/utils'
-	import { faArrowRight, faPen, faUpload, faUser } from '@fortawesome/free-solid-svg-icons'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import Popover from '$lib/components/Popover.svelte'
 
 	import ConnectedInputEditor from './inputEditor/ConnectedInputEditor.svelte'
 	import EvalInputEditor from './inputEditor/EvalInputEditor.svelte'
@@ -13,6 +10,9 @@
 	import { getContext } from 'svelte'
 	import type { AppViewerContext, RichConfiguration } from '../../types'
 	import type { InputType, UploadAppInput } from '../../inputType'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import { Pen, Plug2, Upload, User } from 'lucide-svelte'
 
 	export let id: string
 	export let componentInput: RichConfiguration
@@ -66,6 +66,7 @@
 			<div class={classNames('flex gap-x-2 gap-y-1 flex-wrap justify-end items-center')}>
 				{#if !onlyStatic && componentInput?.type && componentInput.type != 'eval'}
 					<ToggleButtonGroup
+						class="h-7"
 						bind:selected={componentInput.type}
 						on:selected={(e) => {
 							if (e.detail == 'connected' && !componentInput['connection']) {
@@ -77,50 +78,14 @@
 							}
 						}}
 					>
-						<Popover placement="bottom" notClickable disapperTimoout={0}>
-							<ToggleButton
-								position="left"
-								value="static"
-								startIcon={{ icon: faPen }}
-								size="xs"
-								iconOnly
-							/>
-							<svelte:fragment slot="text">Static</svelte:fragment>
-						</Popover>
+						<ToggleButton value="static" icon={Pen} iconOnly tooltip="Static" />
 						{#if userInputEnabled && !format?.startsWith('resource-')}
-							<Popover placement="bottom" notClickable disapperTimoout={0}>
-								<ToggleButton
-									position="center"
-									value="user"
-									startIcon={{ icon: faUser }}
-									size="xs"
-									iconOnly
-								/>
-								<svelte:fragment slot="text">User Input</svelte:fragment>
-							</Popover>
+							<ToggleButton value="user" icon={User} iconOnly tooltip="User Input" />
 						{/if}
 						{#if fileUpload}
-							<Popover placement="bottom" notClickable disapperTimoout={0}>
-								<ToggleButton
-									position="center"
-									value="upload"
-									startIcon={{ icon: faUpload }}
-									size="xs"
-									iconOnly
-								/>
-								<svelte:fragment slot="text">Upload</svelte:fragment>
-							</Popover>
+							<ToggleButton value="upload" icon={Upload} iconOnly tooltip="Upload" />
 						{/if}
-						<Popover placement="bottom" notClickable disapperTimoout={0}>
-							<ToggleButton
-								position="right"
-								value="connected"
-								startIcon={{ icon: faArrowRight }}
-								size="xs"
-								iconOnly
-							/>
-							<svelte:fragment slot="text">Connect</svelte:fragment>
-						</Popover>
+						<ToggleButton value="connected" icon={Plug2} iconOnly tooltip="Connect" />
 					</ToggleButtonGroup>
 				{/if}
 			</div>

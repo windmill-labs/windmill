@@ -8,9 +8,8 @@
 	import TableActions from './TableActions.svelte'
 	import StaticInputEditor from './inputEditor/StaticInputEditor.svelte'
 	import ConnectedInputEditor from './inputEditor/ConnectedInputEditor.svelte'
-	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import { capitalize, classNames, getModifierKey, isMac } from '$lib/utils'
-	import { buildExtraLib, fieldTypeToTsType } from '../../utils'
+	import { classNames, getModifierKey, isMac } from '$lib/utils'
+	import { buildExtraLib } from '../../utils'
 	import Recompute from './Recompute.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ComponentInputTypeEditor from './ComponentInputTypeEditor.svelte'
@@ -138,14 +137,6 @@
 					>
 						{`${component.id}`}
 					</span>
-					{#if component.componentInput.fieldType !== 'any'}
-						<Badge color="blue">
-							{component.componentInput.fieldType === 'array' &&
-							component.componentInput.subFieldType
-								? `${capitalize(fieldTypeToTsType(component.componentInput.subFieldType))}[]`
-								: capitalize(fieldTypeToTsType(component.componentInput.fieldType))}
-						</Badge>
-					{/if}
 				</svelte:fragment>
 
 				{#if componentSettings.item.data.componentInput}

@@ -49,7 +49,7 @@
 						</div>
 						<div class="flex flex-col gap-1">
 							{#if quickStyleProperties?.length}
-								<Popover placement="bottom" notClickable disapperTimoout={0}>
+								<Popover placement="bottom" notClickable disapperTimeout={0}>
 									<Button
 										variant="border"
 										color="light"

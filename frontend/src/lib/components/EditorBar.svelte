@@ -242,7 +242,7 @@
 			<Popover
 				notClickable
 				placement="bottom"
-				disapperTimoout={0}
+				disapperTimeout={0}
 				class="pr-1"
 				disablePopup={!iconOnly}
 			>
@@ -262,7 +262,7 @@
 			<Popover
 				notClickable
 				placement="bottom"
-				disapperTimoout={0}
+				disapperTimeout={0}
 				class="px-1"
 				disablePopup={!iconOnly}
 			>
@@ -282,7 +282,7 @@
 			<Popover
 				notClickable
 				placement="bottom"
-				disapperTimoout={0}
+				disapperTimeout={0}
 				class="px-1"
 				disablePopup={!iconOnly}
 			>
@@ -302,7 +302,7 @@
 			<Popover
 				notClickable
 				placement="bottom"
-				disapperTimoout={0}
+				disapperTimeout={0}
 				class="px-1"
 				disablePopup={!iconOnly}
 			>
@@ -322,7 +322,7 @@
 			<Popover
 				notClickable
 				placement="bottom"
-				disapperTimoout={0}
+				disapperTimeout={0}
 				class="px-1"
 				disablePopup={!iconOnly}
 			>
@@ -353,7 +353,7 @@
 			<Popover
 				notClickable
 				placement="bottom"
-				disapperTimoout={0}
+				disapperTimeout={0}
 				class="px-1"
 				disablePopup={!iconOnly}
 			>
@@ -379,22 +379,22 @@
 	<Popover
 		notClickable
 		placement="bottom"
-		disapperTimoout={0}
+		disapperTimeout={0}
 		class="px-1"
 		disablePopup={!iconOnly}
 	>
 		{#if SCRIPT_EDITOR_SHOW_EXPLORE_OTHER_SCRIPTS}
-		<Button
-			btnClasses="!font-medium"
-			size="xs"
-			spacingSize="md"
-			color="light"
-			on:click={scriptPicker.openDrawer}
-			{iconOnly}
-			startIcon={{ icon: faEye }}
-		>
-			Explore other scripts
-		</Button>
+			<Button
+				btnClasses="!font-medium"
+				size="xs"
+				spacingSize="md"
+				color="light"
+				on:click={scriptPicker.openDrawer}
+				{iconOnly}
+				startIcon={{ icon: faEye }}
+			>
+				Explore other scripts
+			</Button>
 		{/if}
 		<svelte:fragment slot="text">Script</svelte:fragment>
 	</Popover>

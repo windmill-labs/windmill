@@ -1,10 +1,11 @@
 <script lang="ts">
-	import { ToggleButton, ToggleButtonGroup } from '$lib/components/common'
-	import { faArrowRight, faPen } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { AppInput } from '../../inputType'
 	import type { AppViewerContext } from '../../types'
-	import { FunctionSquare } from 'lucide-svelte'
+	import { CurlyBraces, FunctionSquare, Pen, Plug2 } from 'lucide-svelte'
+
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
 	export let componentInput: AppInput
 	export let disableStatic: boolean = false
@@ -17,8 +18,6 @@
 		componentInput['eval'] = componentInput.value
 	}
 
-	const brackets = '${}'
-
 	let clientWidth: number
 </script>
 
@@ -28,58 +27,36 @@
 			<ToggleButtonGroup on:selected={() => onchange?.()} bind:selected={componentInput.type}>
 				{#if componentInput.fieldType === 'template'}
 					<ToggleButton
-						title={`Templated string (use \$\{<output>.x\} )`}
-						position="left"
+						tooltip={`Templated string (use \$\{<output>.x\} )`}
 						value="template"
-						size="xs"
-						disable={disableStatic}
-					>
-						<span class="font-mono text-2xs h-3 -mt-0.5">
-							{brackets}
-						</span>
-						{#if clientWidth > 250}
-							&nbsp;Template
-						{/if}
-					</ToggleButton>
+						disabled={disableStatic}
+						icon={CurlyBraces}
+						label="Template"
+					/>
 				{:else}
 					<ToggleButton
-						title="Static"
-						position="left"
+						label="Static"
 						value="static"
-						startIcon={{ icon: faPen }}
-						size="xs"
-						disable={disableStatic}
-					>
-						{#if clientWidth > 250}
-							Static
-						{/if}
-					</ToggleButton>
+						disabled={disableStatic}
+						iconOnly={clientWidth < 250}
+						icon={Pen}
+					/>
 				{/if}
 
 				<ToggleButton
-					title="Connect to an output"
+					tooltip="Connect to an output"
 					value="connected"
-					position="center"
-					startIcon={{ icon: faArrowRight }}
-					size="xs"
-				>
-					{#if clientWidth > 250}
-						Connect
-					{/if}
-				</ToggleButton>
+					icon={Plug2}
+					iconOnly={clientWidth < 250}
+					label="Connect"
+				/>
 				<ToggleButton
-					title="Compute it with a script/flow"
-					position="right"
+					tooltip="Compute it with a script/flow"
 					value="runnable"
-					size="xs"
-				>
-					<div class="flex flex-row gap-1 items-center">
-						<FunctionSquare size="14" />
-						{#if clientWidth > 250}
-							Compute
-						{/if}
-					</div>
-				</ToggleButton>
+					icon={FunctionSquare}
+					iconOnly={clientWidth < 250}
+					label="Compute"
+				/>
 			</ToggleButtonGroup>
 		</div>
 	</div>

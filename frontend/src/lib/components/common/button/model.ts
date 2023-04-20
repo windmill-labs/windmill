@@ -1,3 +1,5 @@
+import { divide } from 'lodash'
+
 export const BUTTON_COLORS = ['blue', 'red', 'dark', 'light', 'green', 'gray', 'none'] as const
 
 export namespace ButtonType {
@@ -23,27 +25,33 @@ export namespace ButtonType {
 	export const SpacingClasses: Record<ButtonType.Size, Record<ButtonType.Variant, string>> = {
 		xs2: {
 			border: 'px-2 py-[4px]',
-			contained: 'px-2 py-[4px]'
+			contained: 'px-2 py-[4px]',
+			divider: ''
 		},
 		xs: {
 			border: 'px-3 py-[6px]',
-			contained: 'px-3 py-[7px]'
+			contained: 'px-3 py-[7px]',
+			divider: ''
 		},
 		sm: {
 			border: 'px-3 py-[6px]',
-			contained: 'px-3 py-[7px]'
+			contained: 'px-3 py-[7px]',
+			divider: ''
 		},
 		md: {
 			border: 'px-3 py-[6px]',
-			contained: 'px-3 py-[7px]'
+			contained: 'px-3 py-[7px]',
+			divider: ''
 		},
 		lg: {
 			border: 'px-4 py-[8px]',
-			contained: 'px-4 py-[9px]'
+			contained: 'px-4 py-[9px]',
+			divider: ''
 		},
 		xl: {
 			border: 'px-4 py-[8px]',
-			contained: 'px-4 py-[9px]'
+			contained: 'px-4 py-[9px]',
+			divider: ''
 		}
 	} as const
 

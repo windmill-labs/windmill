@@ -5,8 +5,6 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
-	import ToggleButton from '$lib/components/common/toggleButton/ToggleButton.svelte'
-	import ToggleButtonGroup from '$lib/components/common/toggleButton/ToggleButtonGroup.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import Dropdown from '$lib/components/Dropdown.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
@@ -45,9 +43,10 @@
 	import AppInputs from './AppInputs.svelte'
 	import type { AppComponent } from './component/components'
 	import PanelSection from './settingsPanel/common/PanelSection.svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
-
 	import PreviewToggle from './PreviewToggle.svelte'
+
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
 	async function hash(message) {
 		const msgUint8 = new TextEncoder().encode(message) // encode as (utf-8) Uint8Array
@@ -305,8 +304,10 @@
 			<Button
 				startIcon={{ icon: faSave }}
 				disabled={pathError != ''}
-				on:click={() => createApp(newPath)}>Create app</Button
+				on:click={() => createApp(newPath)}
 			>
+				Create app
+			</Button>
 		</div>
 	</DrawerContent>
 </Drawer>
@@ -502,7 +503,7 @@
 </Drawer>
 
 <div
-	class="border-b flex flex-row justify-between py-1 gap-4 gap-y-2 px-3 items-center overflow-y-visible"
+	class="border-b flex flex-row justify-between py-1 gap-2 gap-y-2 px-3 items-center overflow-y-visible"
 >
 	<div class="min-w-64 w-64">
 		<input
@@ -524,29 +525,19 @@
 	/>
 
 	<div>
-		<ToggleButtonGroup bind:selected={$breakpoint}>
-			<ToggleButton position="left" value="sm" size="xs">
-				<Smartphone size={14} />
-			</ToggleButton>
-			<ToggleButton position="right" value="lg" size="xs">
-				<Laptop2 size={14} />
-			</ToggleButton>
+		<ToggleButtonGroup class="h-[30px]" bind:selected={$breakpoint}>
+			<ToggleButton icon={Smartphone} value="sm" />
+			<ToggleButton icon={Laptop2} value="lg" />
 		</ToggleButtonGroup>
 	</div>
 	{#if $app}
-		<ToggleButtonGroup bind:selected={$app.fullscreen}>
-			<ToggleButton position="left" value={false} size="xs">
-				<div class="flex gap-1 justify-start items-center">
-					<AlignHorizontalSpaceAround size={14} />
-					<Tooltip light class="mb-0.5">
-						The max width is 1168px and the content stay centered instead of taking the full page
-						width
-					</Tooltip>
-				</div>
-			</ToggleButton>
-			<ToggleButton position="right" value={true} size="xs">
-				<Expand size={14} />
-			</ToggleButton>
+		<ToggleButtonGroup class="h-[30px]" bind:selected={$app.fullscreen}>
+			<ToggleButton
+				icon={AlignHorizontalSpaceAround}
+				value={false}
+				tooltip="The max width is 1168px and the content stay centered instead of taking the full page width"
+			/>
+			<ToggleButton icon={Expand} value={true} />
 		</ToggleButtonGroup>
 	{/if}
 	<div class="flex gap-4 items-center grow justify-center">

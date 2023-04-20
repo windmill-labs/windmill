@@ -273,7 +273,7 @@
 					<Pane size={22} minSize={5} maxSize={33}>
 						<div class="relative flex flex-col h-full">
 							<Tabs bind:selected={selectedTab} wrapperClass="!min-h-[42px]" class="!h-full">
-								<Popover disapperTimoout={0} notClickable placement="bottom">
+								<Popover disapperTimeout={0} notClickable placement="bottom">
 									<svelte:fragment slot="text">Component library</svelte:fragment>
 									<Tab value="insert" size="xs" class="h-full">
 										<div class="m-1 center-center">
@@ -281,7 +281,7 @@
 										</div>
 									</Tab>
 								</Popover>
-								<Popover disapperTimoout={0} notClickable placement="bottom">
+								<Popover disapperTimeout={0} notClickable placement="bottom">
 									<svelte:fragment slot="text">Component settings</svelte:fragment>
 									<Tab value="settings" size="xs" class="h-full">
 										<div class="m-1 center-center">
@@ -289,7 +289,7 @@
 										</div>
 									</Tab>
 								</Popover>
-								<Popover disapperTimoout={0} notClickable placement="bottom">
+								<Popover disapperTimeout={0} notClickable placement="bottom">
 									<svelte:fragment slot="text">Global styling</svelte:fragment>
 									<Tab value="css" size="xs" class="h-full">
 										<div class="m-1 center-center">
