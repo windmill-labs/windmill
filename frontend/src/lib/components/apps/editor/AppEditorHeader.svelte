@@ -20,7 +20,14 @@
 	import { redo, undo } from '$lib/history'
 	import { workspaceStore } from '$lib/stores'
 	import { faClipboard, faFileExport, faSave, faSlidersH } from '@fortawesome/free-solid-svg-icons'
-	import { Bug, Eye, Laptop2, Loader2, Smartphone } from 'lucide-svelte'
+	import {
+		AlignHorizontalSpaceAround,
+		Bug,
+		Expand,
+		Laptop2,
+		Loader2,
+		Smartphone
+	} from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -38,6 +45,9 @@
 	import AppInputs from './AppInputs.svelte'
 	import type { AppComponent } from './component/components'
 	import PanelSection from './settingsPanel/common/PanelSection.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
+
+	import PreviewToggle from './PreviewToggle.svelte'
 
 	async function hash(message) {
 		const msgUint8 = new TextEncoder().encode(message) // encode as (utf-8) Uint8Array
@@ -53,7 +63,6 @@
 	const {
 		app,
 		summary,
-		mode,
 		breakpoint,
 		appPath,
 		jobs,
@@ -513,6 +522,7 @@
 			$app = redo(history)
 		}}
 	/>
+
 	<div>
 		<ToggleButtonGroup bind:selected={$breakpoint}>
 			<ToggleButton position="left" value="sm" size="xs">
@@ -523,6 +533,22 @@
 			</ToggleButton>
 		</ToggleButtonGroup>
 	</div>
+	{#if $app}
+		<ToggleButtonGroup bind:selected={$app.fullscreen}>
+			<ToggleButton position="left" value={false} size="xs">
+				<div class="flex gap-1 justify-start items-center">
+					<AlignHorizontalSpaceAround size={14} />
+					<Tooltip light class="mb-0.5">
+						The max width is 1168px and the content stay centered instead of taking the full page
+						width
+					</Tooltip>
+				</div>
+			</ToggleButton>
+			<ToggleButton position="right" value={true} size="xs">
+				<Expand size={14} />
+			</ToggleButton>
+		</ToggleButtonGroup>
+	{/if}
 	<div class="flex gap-4 items-center grow justify-center">
 		<div class="hidden lg:block" />
 	</div>
@@ -549,24 +575,15 @@
 				variant="border"
 				btnClasses="relative"
 			>
-				<Bug size={14} />
+				<div class="flex flex-row gap-1 items-center">
+					<Bug size={14} />
+					<div> Debug runs </div>
+				</div>
 			</Button>
 		</div>
 		<AppExportButton bind:this={appExport} />
 
-		<Button
-			loading={loading.save}
-			on:click={() => {
-				$mode = $mode === 'dnd' ? 'preview' : 'dnd'
-			}}
-			color={$mode === 'dnd' ? 'light' : 'blue'}
-			size="xs"
-			variant="border"
-		>
-			<div class="inline-flex gap-1 items-center">
-				<Eye size={14} /> <span class="hidden lg:inline">Preview</span>
-			</div>
-		</Button>
+		<PreviewToggle loading={loading.save} />
 		{#if appPath == ''}
 			<Button
 				loading={loading.save}

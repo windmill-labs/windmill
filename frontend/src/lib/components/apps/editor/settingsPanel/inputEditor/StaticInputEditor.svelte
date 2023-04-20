@@ -8,7 +8,7 @@
 	import IconSelectInput from './IconSelectInput.svelte'
 	import ColorInput from './ColorInput.svelte'
 	import TabSelectInput from './TabSelectInput.svelte'
-	import { CurlyBraces } from 'lucide-svelte'
+	import { DollarSign } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
 
 	export let componentInput: StaticInput<any> | undefined
@@ -131,7 +131,7 @@
 					}}
 				>
 					<Popover notClickable>
-						<CurlyBraces size={14} />
+						<DollarSign size={14} />
 						<svelte:fragment slot="text">Insert a variable</svelte:fragment>
 					</Popover>
 				</div>

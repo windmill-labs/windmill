@@ -14,9 +14,6 @@
 	import { deepEqual } from 'fast-equals'
 	import ComponentWrapper from './component/ComponentWrapper.svelte'
 	import { classNames } from '$lib/utils'
-	import { ToggleButtonGroup, ToggleButton } from '$lib/components/common'
-	import { AlignHorizontalSpaceAround, Expand } from 'lucide-svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	export let policy: Policy
 
@@ -50,22 +47,6 @@
 			: 'bg-gray-50 '} px-4 py-1 items-center gap-4"
 		style="z-index: 1000;"
 	>
-		{#if $app}
-			<ToggleButtonGroup bind:selected={$app.fullscreen}>
-				<ToggleButton position="left" value={false} size="xs">
-					<div class="flex gap-1 justify-start items-center">
-						<AlignHorizontalSpaceAround size={14} />
-						<Tooltip light class="mb-0.5">
-							The max width is 1168px and the content stay centered instead of taking the full page
-							width
-						</Tooltip>
-					</div>
-				</ToggleButton>
-				<ToggleButton position="right" value={true} size="xs">
-					<Expand size={14} />
-				</ToggleButton>
-			</ToggleButtonGroup>
-		{/if}
 		<h2 class="truncate">{$summary}</h2>
 		{#if !$connectingInput.opened}
 			<RecomputeAllComponents />

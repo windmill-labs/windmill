@@ -247,7 +247,6 @@
 			/>
 		{/if}
 
-		<div class="grow shrink" />
 		<AlignmentEditor bind:component={componentSettings.item.data} />
 
 		{#if Object.keys(ccomponents[component.type].customCss ?? {}).length > 0}
