@@ -13,7 +13,7 @@
 
 	const templatePath = $page.url.searchParams.get('template')
 	const hubPath = $page.url.searchParams.get('hub')
-	const showMeta = /true|1/i.test($page.url.searchParams.get('showMeta') ?? '0')
+	const showMeta = /true|1/i.test($page.url.searchParams.get('show_meta') ?? '0')
 
 	const initialState = $page.url.searchParams.get('state')
 
