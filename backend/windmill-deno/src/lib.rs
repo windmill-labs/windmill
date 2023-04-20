@@ -140,11 +140,18 @@ async fn create_main_worker(
     Ok((main_module, worker))
 }
 
-async fn run_main(
+/// Returns whether to continue
+async fn run_once(worker: &mut deno_runtime::worker::MainWorker) -> anyhow::Result<bool> {
+    worker.run_event_loop(false).await?;
+
+    Ok(worker.dispatch_beforeunload_event(deno_core::located_script_name!())?)
+}
+
+async fn pre_run(
     main_module: &deno_core::url::Url,
     worker: &mut deno_runtime::worker::MainWorker,
     ps: &deno_cli::proc_state::ProcState,
-) -> Result<i32> {
+) -> anyhow::Result<()> {
     let id = worker.preload_main_module(&main_module).await?;
     if ps.npm_resolver.has_packages() || ps.graph().has_node_specifier {
         deno_runtime::deno_node::initialize_runtime(&mut worker.js_runtime, false, None)?;
@@ -153,13 +160,10 @@ async fn run_main(
 
     worker.dispatch_load_event(deno_core::located_script_name!())?;
 
-    loop {
-        worker.run_event_loop(false).await?;
-        if !worker.dispatch_beforeunload_event(deno_core::located_script_name!())? {
-            break;
-        }
-    }
+    Ok(())
+}
 
+async fn post_run(worker: &mut deno_runtime::worker::MainWorker) -> anyhow::Result<i32> {
     worker.dispatch_unload_event(deno_core::located_script_name!())?;
 
     Ok(worker.exit_code())
@@ -180,12 +184,19 @@ pub struct WatcherPipes {
     pub stderr: tokio::net::unix::pipe::Receiver,
 }
 
-pub async fn run_deno_cli(
+async fn prepare_run(
     args: Vec<String>,
     job_dir: &str,
     cache_dir: &str,
     stdio: deno_runtime::deno_io::Stdio,
-) -> std::result::Result<i32, anyhow::Error> {
+) -> std::result::Result<
+    (
+        deno_core::url::Url,
+        deno_runtime::worker::MainWorker,
+        deno_cli::proc_state::ProcState,
+    ),
+    anyhow::Error,
+> {
     let mut flags = deno_cli::args::flags_from_vec(args)
         .expect("Args are built by the app and should always be valid");
 
@@ -211,12 +222,9 @@ pub async fn run_deno_cli(
         deno_runtime::permissions::Permissions::from_options(&ps.options.permissions_options())?,
     );
 
-    let (main_module, mut worker) =
-        create_main_worker(&ps, main_module, permissions, stdio).await?;
+    let (main_module, worker) = create_main_worker(&ps, main_module, permissions, stdio).await?;
 
-    let exit_code = run_main(&main_module, &mut worker, &ps).await?;
-
-    Ok(exit_code)
+    Ok((main_module, worker, ps))
 }
 
 pub fn make_stdio(job_dir: &str) -> anyhow::Result<(deno_runtime::deno_io::Stdio, WatcherPipes)> {

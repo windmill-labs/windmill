@@ -16,7 +16,7 @@ async fn run_job(runner: &windmill_deno::runner::DenoRunnerPool) -> i32 {
         "--allow-env".to_owned(),
         "./main.ts".to_owned(),
     ];
-    runner
+    let (receiver, _) = runner
         .run_job(
             args,
             job_dir,
@@ -24,7 +24,9 @@ async fn run_job(runner: &windmill_deno::runner::DenoRunnerPool) -> i32 {
             Default::default(),
         )
         .await
-        .unwrap()
+        .unwrap();
+
+    receiver.await.unwrap().unwrap()
 }
 
 fn criterion_benchmark(c: &mut Criterion) {

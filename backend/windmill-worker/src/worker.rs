@@ -1356,7 +1356,7 @@ async fn handle_deno_job(
 
     //do not cache local dependencies
     let reload = format!("--reload={base_internal_url}");
-    let child_fut= async move {
+    let (completion_signal, cancellation_signal) = {
         let deno_pool_2 = deno_runner_pool.clone();
         let mut args: Vec<String> = Vec::new();
         let script_path = format!("{job_dir_owned}/wrapper.ts");
@@ -1383,11 +1383,11 @@ async fn handle_deno_job(
         // TODO(deno): Handle current dir
         // TODO(deno): Handle stdout / stdin / stderr
 
-        deno_pool_2.as_ref().run_job(args, job_dir_owned, DENO_CACHE_DIR.to_owned(), deno_stdio).await
+        deno_pool_2.as_ref().run_job(args, job_dir_owned, DENO_CACHE_DIR.to_owned(), deno_stdio).await?
     };
 
     // TODO(deno): Handle log streaming
-    handle_child(&job.id, db, logs, JobChild::FutFileChild(Some(child_fut.boxed()), Some(our_stdio)), false, worker_name, &job.workspace_id).await?;
+    handle_child(&job.id, db, logs, JobChild::SignalChild(completion_signal, Some(our_stdio), Some(cancellation_signal)), false, worker_name, &job.workspace_id).await?;
 
     read_result(job_dir).await
 }
@@ -1683,7 +1683,7 @@ async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {
 
 pub enum JobChild {
     ProcessChild(tokio::process::Child),
-    FutFileChild(Option<std::pin::Pin<Box<dyn futures::Future<Output = Result<i32, anyhow::Error>> + Send>>>, Option<windmill_deno::WatcherPipes>),
+    SignalChild(tokio::sync::oneshot::Receiver<Result<i32, anyhow::Error>>, Option<windmill_deno::WatcherPipes>, Option<tokio::sync::oneshot::Sender<()>>),
 }
 
 /// - wait until child exits and return with exit status
@@ -1802,9 +1802,8 @@ pub async fn handle_child(
 
         let child_wait = match &mut child {
             JobChild::ProcessChild(child) => async { child.wait().await.map_err(|e| anyhow::anyhow!(e)) }.boxed(),
-            JobChild::FutFileChild(f, _) => {
-                let f = f.take().unwrap();
-                async { f.await.map_err(|e| anyhow::anyhow!(e)).map(std::process::ExitStatus::from_raw) }.boxed()
+            JobChild::SignalChild(completion_signal, _, _) => {
+                async { completion_signal.await?.map_err(|e| anyhow::anyhow!(e)).map(std::process::ExitStatus::from_raw) }.boxed()
             },
         };
 
@@ -1842,7 +1841,11 @@ pub async fn handle_child(
         async fn make_child_kill(child: &mut JobChild) -> Result<(), anyhow::Error> {
             match child {
                 JobChild::ProcessChild(e) => e.kill().await.map_err(|e| anyhow::anyhow!(e)),
-                JobChild::FutFileChild(_, _) => todo!(),
+                JobChild::SignalChild(completion_signal, _, cancellation_sender) => {
+                    cancellation_sender.take().expect("SignalChild can only be cancelled once!").send(()).unwrap();
+                    let _ = completion_signal.await;
+                    Ok(())
+                },
             }
         }
 
@@ -2004,7 +2007,7 @@ fn child_joined_output_stream(
             let stderr = BufReader::new(stderr).lines();
             stream::select(lines_to_stream(stderr), lines_to_stream(stdout)).boxed()
         }
-        JobChild::FutFileChild(_, pipes) => {
+        JobChild::SignalChild(_, pipes, _) => {
             let pipes = pipes.take().unwrap();
             let stdout = BufReader::new(pipes.stdout).lines();
             let stderr = BufReader::new(pipes.stderr).lines();

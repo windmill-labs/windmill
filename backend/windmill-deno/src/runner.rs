@@ -42,10 +42,16 @@ impl DenoRunnerPool {
         job_dir: String,
         cache_dir: String,
         stdio: deno_runtime::deno_io::Stdio,
-    ) -> Result<i32, anyhow::Error> {
+    ) -> Result<
+        (
+            tokio::sync::oneshot::Receiver<Result<i32, anyhow::Error>>,
+            tokio::sync::oneshot::Sender<()>,
+        ),
+        anyhow::Error,
+    > {
         let runner = self.0.get().await.map_err(|e| anyhow!(e))?;
 
-        runner.run_job(args, job_dir, cache_dir, stdio).await
+        Ok(runner.run_job(args, job_dir, cache_dir, stdio))
     }
 
     pub fn new() -> Self {
@@ -63,7 +69,8 @@ pub struct DenoRunner {
 }
 
 struct DenoJob {
-    notification: tokio::sync::oneshot::Sender<Result<i32, anyhow::Error>>,
+    completion_sender: tokio::sync::oneshot::Sender<Result<i32, anyhow::Error>>,
+    cancellation_receiver: tokio::sync::oneshot::Receiver<()>,
     args: Vec<String>,
     job_dir: String,
     cache_dir: String,
@@ -91,10 +98,48 @@ impl DenoRunner {
                     };
                     // Run deno job
                     handle.block_on(async move {
-                        let res =
-                            crate::run_deno_cli(job.args, &job.job_dir, &job.cache_dir, job.stdio)
-                                .await;
-                        job.notification.send(res).unwrap()
+                        async fn inner_run(
+                            mut cancellation_receiver: tokio::sync::oneshot::Receiver<()>,
+                            args: Vec<String>,
+                            job_dir: String,
+                            cache_dir: String,
+                            stdio: deno_runtime::deno_io::Stdio,
+                        ) -> anyhow::Result<i32> {
+                            let (main_module, mut worker, ps) =
+                                crate::prepare_run(args, &job_dir, &cache_dir, stdio).await?;
+
+                            if let Ok(()) = cancellation_receiver.try_recv() {
+                                return Err(anyhow::anyhow!("Job has been cancelled!"));
+                            }
+
+                            crate::pre_run(&main_module, &mut worker, &ps).await?;
+
+                            loop {
+                                if let Ok(()) = cancellation_receiver.try_recv() {
+                                    return Err(anyhow::anyhow!("Job has been cancelled!"));
+                                }
+                                if !crate::run_once(&mut worker).await? {
+                                    break;
+                                }
+                            }
+
+                            // At this point, cancelling would be stupid. Just finish the job
+                            let res = crate::post_run(&mut worker).await?;
+
+                            Ok(res)
+                        }
+                        job.completion_sender
+                            .send(
+                                inner_run(
+                                    job.cancellation_receiver,
+                                    job.args,
+                                    job.job_dir,
+                                    job.cache_dir,
+                                    job.stdio,
+                                )
+                                .await,
+                            )
+                            .unwrap()
                     });
                     let Some(Message::Recycle) = receiver.blocking_recv() else {
                         break;
@@ -107,18 +152,23 @@ impl DenoRunner {
         Self { job_sender, handle }
     }
 
-    async fn run_job(
+    fn run_job(
         &self,
         args: Vec<String>,
         job_dir: String,
         cache_dir: String,
         stdio: deno_runtime::deno_io::Stdio,
-    ) -> Result<i32, anyhow::Error> {
-        let (sender, receiver) = tokio::sync::oneshot::channel();
+    ) -> (
+        tokio::sync::oneshot::Receiver<Result<i32, anyhow::Error>>,
+        tokio::sync::oneshot::Sender<()>,
+    ) {
+        let (completion_sender, completion_receiver) = tokio::sync::oneshot::channel();
+        let (cancellation_sender, cancellation_receiver) = tokio::sync::oneshot::channel();
 
         self.job_sender
             .send(Message::Job(DenoJob {
-                notification: sender,
+                completion_sender,
+                cancellation_receiver,
                 args,
                 job_dir,
                 cache_dir,
@@ -127,7 +177,7 @@ impl DenoRunner {
             .map_err(|_| ())
             .unwrap();
 
-        receiver.await.unwrap()
+        (completion_receiver, cancellation_sender)
     }
 
     async fn recycle(&self) {
