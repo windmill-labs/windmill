@@ -2,6 +2,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { FlowModule } from '$lib/gen'
+	import { SecondsInput } from '../../common'
 
 	export let flowModule: FlowModule
 
@@ -56,13 +57,13 @@
 	{#if flowModule.retry?.constant}
 		<span class="text-xs font-bold">Attempts</span>
 		<input bind:value={flowModule.retry.constant.attempts} type="number" />
-		<span class="text-xs font-bold">Delay (seconds)</span>
-		<input bind:value={flowModule.retry.constant.seconds} type="number" />
+		<span class="text-xs font-bold">Delay</span>
+		<SecondsInput bind:seconds={flowModule.retry.constant.seconds} />
 	{:else}
 		<span class="text-xs font-bold">Attempts</span>
 		<input type="number" disabled />
-		<span class="text-xs font-bold">Delay (seconds)</span>
-		<input type="number" disabled />
+		<span class="text-xs font-bold">Delay</span>
+		<SecondsInput disabled />
 	{/if}
 
 	<Toggle
@@ -85,15 +86,14 @@
 		<span class="text-xs text-gray-500">additional delay = multiplier * base ^ (# attempts)</span>
 		<input bind:value={flowModule.retry.exponential.multiplier} type="number" />
 		<span class="text-xs font-bold">Base</span>
-		<input bind:value={flowModule.retry.exponential.seconds} type="number" />
+		<SecondsInput bind:seconds={flowModule.retry.exponential.seconds} />
 	{:else}
 		<span class="text-xs font-bold">Attempts</span>
 		<input type="number" disabled />
 		<span class="text-xs font-bold">Mulitplier</span>
-		<span class="text-xs text-gray-500">additional delay = multiplier * seconds ^ (# attempts)</span
-		>
+		<span class="text-xs text-gray-500">additional delay = multiplier * base ^ (# attempts)</span>
 		<input type="number" disabled />
 		<span class="text-xs font-bold">Base</span>
-		<input type="number" disabled />
+		<SecondsInput disabled />
 	{/if}
 </div>

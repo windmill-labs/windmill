@@ -4,6 +4,7 @@
 
 	import type { FlowModule } from '$lib/gen'
 	import { emptySchema } from '$lib/utils'
+	import { SecondsInput } from '../../common'
 
 	export let flowModule: FlowModule
 
@@ -50,11 +51,11 @@
 		<input type="number" disabled />
 	{/if}
 
-	<span class="text-xs font-bold">Timeout (in seconds)</span>
+	<span class="text-xs font-bold">Timeout</span>
 
 	{#if flowModule.suspend}
-		<input bind:value={flowModule.suspend.timeout} type="number" min="1" placeholder="1800" />
+		<SecondsInput bind:seconds={flowModule.suspend.timeout} />
 	{:else}
-		<input type="number" disabled />
+		<SecondsInput disabled />
 	{/if}
 </div>
