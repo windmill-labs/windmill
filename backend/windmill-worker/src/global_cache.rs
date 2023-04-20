@@ -190,6 +190,8 @@ pub async fn copy_cache_to_bucket(bucket: &str) -> error::Result<()> {
             &format!("{TAR_CACHE_FILENAME}"),
             "--exclude",
             &format!("pip/**"),
+            "--exclude",
+            &format!("tar/**"),
         ],
     )
     .await
