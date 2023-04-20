@@ -148,13 +148,15 @@ pub async fn copy_cache_from_bucket(bucket: &str, tx: Sender<()>) -> error::Resu
             "--size-only",
             "--fast-list",
             "--filter",
+            "- deno/gen/file/tmp/windmill/**",
+            "--filter",
             "+ deno/**",
             "--filter",
             "+ go/**",
             "--filter",
             "+ tar/**",
             "--filter",
-            "- deno/gen/file/tmp/windmill/**",
+            "- *",
         ],
     )
     .await
@@ -188,11 +190,13 @@ pub async fn copy_cache_to_bucket(bucket: &str) -> error::Result<()> {
             "--size-only",
             "--fast-list",
             "--filter",
+            "- deno/gen/file/tmp/windmill/**",
+            "--filter",
             "+ deno/**",
             "--filter",
             "+ go/**",
             "--filter",
-            "- deno/gen/file/tmp/windmill/**",
+            "- *",
         ],
     )
     .await
@@ -395,11 +399,13 @@ pub async fn copy_tmp_cache_to_cache() -> error::Result<()> {
             ROOT_TMP_CACHE_DIR,
             ROOT_CACHE_DIR,
             "--filter",
+            "- deno/gen/file/tmp/windmill/**",
+            "--filter",
             "+ deno/**",
             "--filter",
             "+ go/**",
             "--filter",
-            "- deno/gen/file/tmp/windmill/**",
+            "- *",
         ],
     )
     .await?;
@@ -488,11 +494,13 @@ pub async fn copy_cache_to_tmp_cache() -> error::Result<()> {
             ROOT_CACHE_DIR,
             ROOT_TMP_CACHE_DIR,
             "--filter",
+            "- deno/gen/file/tmp/windmill/**",
+            "--filter",
             "+ deno/**",
             "--filter",
             "+ go/**",
             "--filter",
-            "- deno/gen/file/tmp/windmill/**",
+            "- *",
         ],
     )
     .await?;
