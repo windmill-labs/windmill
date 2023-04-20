@@ -8,6 +8,15 @@
 	import FieldHeader from './FieldHeader.svelte'
 	import { copyToClipboard } from '../utils'
 	import FlowGraphViewer from './FlowGraphViewer.svelte'
+	import { setContext } from 'svelte'
+	import {
+		SVELVET_CONTEXT_KEY,
+		type SvelvetSettingsContext
+	} from './graph/svelvet/container/models'
+
+	setContext<SvelvetSettingsContext>(SVELVET_CONTEXT_KEY, {
+		fullHeight: true
+	})
 
 	export let flow: {
 		summary: string
@@ -40,7 +49,7 @@
 
 <Tabs bind:selected={tab}>
 	<Tab value="ui">Graph</Tab>
-	<Tab value="json">Json</Tab>
+	<Tab value="json">JSON</Tab>
 	<Tab value="schema">Input Schema</Tab>
 
 	<svelte:fragment slot="content">
@@ -79,7 +88,7 @@
 			</div>
 		</TabContent>
 		<TabContent value="json">
-			<div class="relative">
+			<div class="relative pt-2">
 				<Button
 					on:click={() => copyToClipboard(JSON.stringify(flowFiltered, null, 4))}
 					color="dark"
@@ -90,7 +99,11 @@
 				>
 					Copy content
 				</Button>
-				<Highlight language={json} code={JSON.stringify(flowFiltered, null, 4)} />
+				<Highlight
+					language={json}
+					code={JSON.stringify(flowFiltered, null, 4)}
+					class="overflow-auto"
+				/>
 			</div>
 		</TabContent>
 		<TabContent value="schema">

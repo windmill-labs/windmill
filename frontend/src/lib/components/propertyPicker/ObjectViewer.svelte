@@ -65,7 +65,7 @@
 			}`}
 		>
 			{#each keys.length > keyLimit ? keys.slice(0, keyLimit) : keys as key, index (key)}
-				<li class="pt-1">
+				<li class="pb-1 last-of-type:pb-0">
 					<button on:click={() => selectProp(key, key)} class="whitespace-nowrap">
 						{#if topLevelNode}
 							<Badge baseClass="border border-blue-600" color="indigo">{key}</Badge>
@@ -136,7 +136,7 @@
 {:else if topBrackets}
 	<span class="text-black">{openBracket}{closeBracket}</span>
 {:else}
-	<span class="text-gray-600 text-xs ml-2">No items</span>
+	<span class="text-gray-500 text-xs ml-2">No items</span>
 {/if}
 
 <style lang="postcss">
