@@ -415,16 +415,9 @@ pub async fn copy_tmp_cache_to_cache() -> error::Result<()> {
         start.elapsed().as_millis(),
     );
 
-    let start = Instant::now();
-
     if let Err(e) = untar_all_piptars().await {
         tracing::info!("Failed to untar piptars. Error: {:?}", e);
     }
-
-    tracing::info!(
-        "Finished untarring all piptars took: {:?}s",
-        start.elapsed().as_secs()
-    );
 
     Ok(())
 }
@@ -461,7 +454,7 @@ pub async fn untar_all_piptars() -> error::Result<()> {
     }
 
     tracing::info!(
-        "Finished copying local tmp cache to local cache. Took {}ms",
+        "Finished untarring all piptars. Took {}ms",
         start.elapsed().as_millis(),
     );
     Ok(())
