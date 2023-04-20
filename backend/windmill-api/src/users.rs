@@ -937,6 +937,9 @@ pub async fn is_owner_of_path(
 }
 
 pub fn require_owner_of_path(authed: &Authed, path: &str) -> Result<()> {
+    if authed.is_admin {
+        return Ok(());
+    }
     if !path.is_empty() {
         let splitted = path.split("/").collect::<Vec<&str>>();
         if splitted[0] == "u" {
