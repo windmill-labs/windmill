@@ -26,7 +26,7 @@ pub async fn build_tar_and_push(bucket: &str, folder: String) -> error::Result<(
     if let Err(e) = execute_command(
         ROOT_TMP_CACHE_DIR,
         "tar",
-        vec!["-c", "-f", &tar_path, &folder],
+        vec!["-c", "-f", &tar_path, "-C", &folder, "."],
     )
     .await
     {
@@ -112,7 +112,7 @@ pub async fn pull_from_tar(bucket: &str, folder: String) -> error::Result<()> {
 
     extract_pip_tar(&target, &folder).await?;
     tracing::info!(
-        "Finished pulling and extracting {folder_name} from took {:?}ms",
+        "Finished pulling and extracting {folder_name}. Took {:?}ms",
         start.elapsed().as_millis()
     );
 
@@ -147,12 +147,16 @@ pub async fn copy_cache_from_bucket(bucket: &str, tx: Sender<()>) -> error::Resu
             &ROOT_TMP_CACHE_DIR,
             "--size-only",
             "--fast-list",
-            "--exclude",
-            &format!("deno/gen/file/tmp/windmill/**"),
-            "--exclude",
-            &format!("pip/**"),
-            "--exclude",
-            &format!("{TAR_CACHE_FILENAME}"),
+            "--filter",
+            "- deno/gen/file/tmp/windmill/**",
+            "--filter",
+            "+ deno/**",
+            "--filter",
+            "+ go/**",
+            "--filter",
+            "+ tar/**",
+            "--filter",
+            "- *",
         ],
     )
     .await
@@ -185,14 +189,14 @@ pub async fn copy_cache_to_bucket(bucket: &str) -> error::Result<()> {
             &format!(":s3,env_auth=true:{bucket}"),
             "--size-only",
             "--fast-list",
-            "--exclude",
-            &format!("deno/gen/file/tmp/windmill/**"),
-            "--exclude",
-            &format!("{TAR_CACHE_FILENAME}"),
-            "--exclude",
-            &format!("pip/**"),
-            "--exclude",
-            &format!("tar/**"),
+            "--filter",
+            "- deno/gen/file/tmp/windmill/**",
+            "--filter",
+            "+ deno/**",
+            "--filter",
+            "+ go/**",
+            "--filter",
+            "- *",
         ],
     )
     .await
@@ -394,12 +398,14 @@ pub async fn copy_tmp_cache_to_cache() -> error::Result<()> {
             "sync",
             ROOT_TMP_CACHE_DIR,
             ROOT_CACHE_DIR,
-            "--exclude",
-            TAR_CACHE_FILENAME,
-            "--exclude",
-            &format!("pip/**"),
-            "--exclude",
-            &format!("tar/**"),
+            "--filter",
+            "- deno/gen/file/tmp/windmill/**",
+            "--filter",
+            "+ deno/**",
+            "--filter",
+            "+ go/**",
+            "--filter",
+            "- *",
         ],
     )
     .await?;
@@ -434,7 +440,8 @@ pub async fn untar_all_piptars() -> error::Result<()> {
     let mut entries = fs::read_dir(TAR_PIP_TMP_CACHE_DIR).await?;
     while let Some(entry) = entries.next_entry().await? {
         if let Err(e) = {
-            let path = entry.file_name().into_string().expect("Invalid path");
+            let entry_path = entry.path();
+            let path = entry_path.to_str().expect("Could not convert path to str");
             let folder = format!(
                 "{PIP_CACHE_DIR}/{}",
                 path.split('/')
@@ -467,7 +474,7 @@ pub async fn extract_pip_tar(tar: &str, folder: &str) -> error::Result<()> {
     let start: Instant = Instant::now();
     fs::create_dir(&folder).await?;
     if let Err(e) = execute_command(&folder, "tar", vec!["-xpvf", tar]).await {
-        tracing::info!("Failed to untar cache. Error: {:?}", e);
+        tracing::info!("Failed to untar piptar. Error: {:?}", e);
         return Err(e);
     }
     tracing::info!(
@@ -487,12 +494,14 @@ pub async fn copy_cache_to_tmp_cache() -> error::Result<()> {
             "sync",
             ROOT_CACHE_DIR,
             ROOT_TMP_CACHE_DIR,
-            "--exclude",
-            TAR_CACHE_FILENAME,
-            "--exclude",
-            &format!("pip/**"),
-            "--exclude",
-            &format!("deno/gen/file/tmp/windmill/**"),
+            "--filter",
+            "- deno/gen/file/tmp/windmill/**",
+            "--filter",
+            "+ deno/**",
+            "--filter",
+            "+ go/**",
+            "--filter",
+            "- *",
         ],
     )
     .await?;
