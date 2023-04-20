@@ -26,7 +26,7 @@ pub async fn build_tar_and_push(bucket: &str, folder: String) -> error::Result<(
     if let Err(e) = execute_command(
         ROOT_TMP_CACHE_DIR,
         "tar",
-        vec!["-c", "-f", &tar_path, &folder],
+        vec!["-c", "-f", &tar_path, "-C", &folder, "."],
     )
     .await
     {
@@ -112,7 +112,7 @@ pub async fn pull_from_tar(bucket: &str, folder: String) -> error::Result<()> {
 
     extract_pip_tar(&target, &folder).await?;
     tracing::info!(
-        "Finished pulling and extracting {folder_name} from took {:?}ms",
+        "Finished pulling and extracting {folder_name}. Took {:?}ms",
         start.elapsed().as_millis()
     );
 
