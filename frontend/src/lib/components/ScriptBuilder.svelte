@@ -19,6 +19,7 @@
 	import { Pen } from 'lucide-svelte'
 	import autosize from 'svelte-autosize'
 	import type Editor from './Editor.svelte'
+	import { SCRIPT_SHOW_BASH, SCRIPT_SHOW_GO, SCRIPT_SHOW_PSQL, SCRIPT_CUSTOMISE_SHOW_KIND } from '$lib/consts'
 
 	export let script: Script
 	export let initialPath: string = ''
@@ -39,10 +40,14 @@
 
 	const langs: [string, SupportedLanguage][] = [
 		['Typescript', Script.language.DENO],
-		['Python', Script.language.PYTHON3],
-		['Go', Script.language.GO],
-		['Bash', Script.language.BASH]
+		['Python', Script.language.PYTHON3]
 	]
+	if(SCRIPT_SHOW_GO) {
+		langs.push(['Go', Script.language.GO])
+	}
+	if(SCRIPT_SHOW_BASH) {
+		langs.push(['Bash', Script.language.BASH])
+	}
 	const scriptKindOptions: { value: Script.kind; title: string; desc?: string }[] = [
 		{
 			value: Script.kind.SCRIPT,
@@ -83,6 +88,17 @@
 		scriptEditor?.inferSchema(script.content, language)
 	}
 
+	async function leaveF(leave: boolean, newHash: string) {
+		if (leave) {
+			history.replaceState(history.state, '', `/scripts/edit/${newHash}`)
+			goto(`/scripts/get/${newHash}?workspace=${$workspaceStore}`)
+		} else {
+			await goto(`/scripts/edit/${newHash}`)
+			script.hash = newHash
+			topHash = undefined
+		}
+	}
+
 	async function editScript(leave: boolean): Promise<void> {
 		loadingSave = true
 		try {
@@ -112,34 +128,37 @@
 					kind: script.kind
 				}
 			})
-			if (leave) {
-				history.replaceState(history.state, '', `/scripts/edit/${newHash}`)
-				goto(`/scripts/get/${newHash}?workspace=${$workspaceStore}`)
-			} else {
-				await goto(`/scripts/edit/${newHash}`)
-				script.hash = newHash
-				topHash = undefined
-			}
+			leaveF(leave, newHash)
 		} catch (error) {
 			sendUserToast(`Error while saving the script: ${error.body || error.message}`, true)
 		}
 		loadingSave = false
 	}
 
-	const dropdownItems: Array<{ label: string; onClick: () => void }> = [
-		{
-			label: 'Save and leave',
-			onClick: () => editScript(true)
-		}
-	]
+	function computeDropdownItems() {
+		let dropdownItems: { label: string; onClick: () => void }[] = []
 
-	if (initialPath != '') {
+		if ($dirtyStore) {
+			dropdownItems.push({
+				label: 'Save and see details',
+				onClick: () => editScript(true)
+			})
+		}
+
 		dropdownItems.push({
-			label: 'Fork',
-			onClick: () => {
-				window.open(`/scripts/add?template=${initialPath}`)
-			}
+			label: 'See details',
+			onClick: () => leaveF(true, script.hash)
 		})
+
+		if (initialPath != '') {
+			dropdownItems.push({
+				label: 'Fork',
+				onClick: () => {
+					window.open(`/scripts/add?template=${initialPath}`)
+				}
+			})
+		}
+		return dropdownItems
 	}
 </script>
 
@@ -177,9 +196,13 @@
 						color={isPicked ? 'blue' : 'dark'}
 						btnClasses={isPicked ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
 						on:click={() => {
+							let lastTemplate = template
 							template = 'script'
 							initContent(lang, script.kind, template)
 							script.language = lang
+							if (lastTemplate != template) {
+								setCode(script.content)
+							}
 						}}
 						disabled={lockedLanguage}
 					>
@@ -187,6 +210,7 @@
 						<span class="ml-2 py-2">{label}</span>
 					</Button>
 				{/each}
+				{#if SCRIPT_SHOW_PSQL}
 				<Button
 					size="sm"
 					variant="border"
@@ -194,13 +218,18 @@
 					btnClasses={template == 'pgsql' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
 					disabled={lockedLanguage}
 					on:click={() => {
+						let lastTemplate = template
 						template = 'pgsql'
 						initContent(Script.language.DENO, script.kind, template)
 						script.language = Script.language.DENO
+						if (lastTemplate != template) {
+							setCode(script.content)
+						}
 					}}
 				>
 					<LanguageIcon lang="pgsql" /><span class="ml-2 py-2">PostgreSQL</span>
 				</Button>
+				{/if}
 				<!-- <Button
 					size="sm"
 					variant="border"
@@ -286,12 +315,13 @@
 						Customise
 					</Button>
 					<Button
+						disabled={!$dirtyStore}
 						color="dark"
 						loading={loadingSave}
 						size="sm"
 						startIcon={{ icon: faSave }}
 						on:click={() => editScript(false)}
-						{dropdownItems}
+						dropdownItems={computeDropdownItems}
 					>
 						Save
 					</Button>
@@ -301,6 +331,7 @@
 
 		<Drawer bind:open={advancedOpen} size="800px">
 			<DrawerContent title="Customise" on:close={() => (advancedOpen = false)}>
+				{#if SCRIPT_CUSTOMISE_SHOW_KIND}
 				<h2 class="border-b pb-1 mb-4"
 					>Script Kind &nbsp;<Tooltip
 						>Tag this script's purpose within flows such that it is available as the corresponding
@@ -331,6 +362,7 @@
 						</Button>
 					{/each}
 				</div>
+				{/if}
 				<h2 class="border-b pb-1 mt-10 mb-4"
 					>Arguments &nbsp;<Tooltip
 						>The arguments are synced with the main signature but you may refine the parts that

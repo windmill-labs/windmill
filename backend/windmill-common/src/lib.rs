@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::{net::SocketAddr, sync::Arc};
+use std::net::SocketAddr;
 
 use error::Error;
 
@@ -43,7 +43,7 @@ lazy_static::lazy_static! {
     .flatten();
     pub static ref METRICS_ENABLED: bool = METRICS_ADDR.is_some();
     pub static ref BASE_URL: String = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost".to_string());
-    pub static ref IS_READY: Arc<std::sync::atomic::AtomicBool> = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    pub static ref IS_READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 }
 
 #[cfg(feature = "tokio")]

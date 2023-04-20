@@ -11,10 +11,16 @@
 //! For users writing scripts to access their infrastructure with firewalls requiring incoming
 //! connections to be from whitelisted IP addresses.
 
+use std::time::Duration;
+
 use reqwest::Result;
 
 pub async fn get_ip() -> Result<String> {
-    reqwest::get("https://hub.windmill.dev/getip")
+    reqwest::ClientBuilder::new()
+        .timeout(Duration::from_secs(3))
+        .build()?
+        .get("https://hub.windmill.dev/getip")
+        .send()
         .await?
         .error_for_status()?
         .text()

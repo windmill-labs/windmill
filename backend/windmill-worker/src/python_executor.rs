@@ -119,6 +119,7 @@ pub async fn pip_compile(
         false,
         worker_name,
         &w_id,
+        "pip-compile"
     )
     .await
     .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
@@ -184,18 +185,6 @@ pub async fn handle_python_job(
     };
 
     if requirements.len() > 0 {
-        if !*DISABLE_NSJAIL {
-            let _ = write_file(
-                job_dir,
-                "download.config.proto",
-                &NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT
-                    .replace("{WORKER_DIR}", &worker_dir)
-                    .replace("{CACHE_DIR}", PIP_CACHE_DIR)
-                    .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
-            )
-            .await?;
-        }
-
         additional_python_paths = handle_python_reqs(
             requirements
                 .split("\n")
@@ -207,6 +196,7 @@ pub async fn handle_python_job(
             db,
             worker_name,
             job_dir,
+            worker_dir,
         )
         .await?;
     }
@@ -428,6 +418,7 @@ mount {{
         !*DISABLE_NSJAIL,
         worker_name,
         &job.workspace_id,
+        "python run",
     )
     .await?;
     read_result(job_dir).await
@@ -441,6 +432,7 @@ pub async fn handle_python_reqs(
     db: &sqlx::Pool<sqlx::Postgres>,
     worker_name: &str,
     job_dir: &str,
+    worker_dir: &str,
 ) -> error::Result<Vec<String>> {
     let mut req_paths: Vec<String> = vec![];
     let mut vars = vec![("PATH", PATH_ENV.as_str())];
@@ -454,6 +446,15 @@ pub async fn handle_python_reqs(
         if let Some(host) = PIP_TRUSTED_HOST.as_ref() {
             vars.push(("TRUSTED_HOST", host));
         }
+        let _ = write_file(
+            job_dir,
+            "download.config.proto",
+            &NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT
+                .replace("{WORKER_DIR}", &worker_dir)
+                .replace("{CACHE_DIR}", PIP_CACHE_DIR)
+                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
+        )
+        .await?;
     };
 
     for req in requirements {
@@ -534,6 +535,7 @@ pub async fn handle_python_reqs(
             false,
             worker_name,
             &w_id,
+            &format!("pip install {req}")
         )
         .await;
         tracing::info!(

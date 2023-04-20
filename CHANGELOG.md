@@ -1,6 +1,39 @@
 # Changelog
 
 
+## [1.88.1](https://github.com/windmill-labs/windmill/compare/v1.88.0...v1.88.1) (2023-04-18)
+
+
+### Bug Fixes
+
+* **frontend:** fix hub list ([1144329](https://github.com/windmill-labs/windmill/commit/1144329972fb61e2df62873ca1e485c88fabc478))
+
+## [1.88.0](https://github.com/windmill-labs/windmill/compare/v1.87.0...v1.88.0) (2023-04-17)
+
+
+### Features
+
+* **backend:** install python scripts on save ([cb7e686](https://github.com/windmill-labs/windmill/commit/cb7e686dd95397d5b37edd5aac50b6d1429c4a71))
+* **frontend:** Add runs preview popup ([#1405](https://github.com/windmill-labs/windmill/issues/1405)) ([4ab023f](https://github.com/windmill-labs/windmill/commit/4ab023f95085958ab1ad01dc249d308c7ebf423e))
+* **frontend:** cancellable inline script editor run ([e828d26](https://github.com/windmill-labs/windmill/commit/e828d2673e62e95e5e1235eeca8107ac7cfb7e45))
+* **frontend:** Remove gap when button label is empty ([#1402](https://github.com/windmill-labs/windmill/issues/1402)) ([568f59e](https://github.com/windmill-labs/windmill/commit/568f59eefb104047b8ef063f273fe238075d6407))
+* **frontend:** Unify main lists ([#1406](https://github.com/windmill-labs/windmill/issues/1406)) ([48bbbd0](https://github.com/windmill-labs/windmill/commit/48bbbd0e872a12ed1c562a6d14967a2a0f7c4735))
+* **frontend:** Update airtable instructions ([#1403](https://github.com/windmill-labs/windmill/issues/1403)) ([7dc7ece](https://github.com/windmill-labs/windmill/commit/7dc7ecef55b465fc096f71fc9de5c8b543136ff7))
+* inputs library on run page ([92a2934](https://github.com/windmill-labs/windmill/commit/92a293488e8e58350229931ab69f7924d58474be))
+
+
+### Bug Fixes
+
+* **backend:** deno uses --no-check ([a5499c2](https://github.com/windmill-labs/windmill/commit/a5499c26f3ebd8b07541a7e0cbf33a7008a8f476))
+* **backend:** do not fail on schedule not existing anymore ([a5f6d73](https://github.com/windmill-labs/windmill/commit/a5f6d73f7d53d7af9d285a85460509763263c508))
+* **frontend:** Fix app file uploads ([#1408](https://github.com/windmill-labs/windmill/issues/1408)) ([ac489ac](https://github.com/windmill-labs/windmill/commit/ac489ac2da0fbf01f5e2877612c14cfaf1ef79c2))
+* **frontend:** fix buttons width ([#1407](https://github.com/windmill-labs/windmill/issues/1407)) ([75a0482](https://github.com/windmill-labs/windmill/commit/75a0482ef046dd7e30f6d6039dbc66880182dc5e))
+* **frontend:** fix enum sync ([#1410](https://github.com/windmill-labs/windmill/issues/1410)) ([98060ce](https://github.com/windmill-labs/windmill/commit/98060ce55d5efa59a8989cf9357935976d57650b))
+* **frontend:** Handle scheduled runs in preview ([#1413](https://github.com/windmill-labs/windmill/issues/1413)) ([accdc1a](https://github.com/windmill-labs/windmill/commit/accdc1ac59ce9611f66567222a73995d3c0a3f9d))
+* **frontend:** Keep selected tab during renaming ([#1409](https://github.com/windmill-labs/windmill/issues/1409)) ([82cd048](https://github.com/windmill-labs/windmill/commit/82cd048ef4d08f31660f6f31a96940676a28996c))
+* **frontend:** Queued-running jobs preview ([#1414](https://github.com/windmill-labs/windmill/issues/1414)) ([b2a40a0](https://github.com/windmill-labs/windmill/commit/b2a40a05805344c1c34f2ba917b4cdd52dfffc3f))
+* **frontend:** Remove output when deleting a component ([#1397](https://github.com/windmill-labs/windmill/issues/1397)) ([6aa1008](https://github.com/windmill-labs/windmill/commit/6aa100893352870d5a99fdd56d7f1425a221a273))
+
 ## [1.87.0](https://github.com/windmill-labs/windmill/compare/v1.86.0...v2.0.0) (2023-04-11)
 
 

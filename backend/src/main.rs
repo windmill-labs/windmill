@@ -6,12 +6,17 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::{
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    sync::{atomic::Ordering, Arc},
+};
 
 use git_version::git_version;
 use monitor::handle_zombie_jobs_periodically;
 use sqlx::{Pool, Postgres};
-use windmill_common::{utils::rd_string, METRICS_ADDR};
+use tokio::{fs::DirBuilder, sync::RwLock};
+use windmill_common::{utils::rd_string, IS_READY, METRICS_ADDR};
+use windmill_worker::{DENO_CACHE_DIR, GO_CACHE_DIR, PIP_CACHE_DIR, S3_CACHE_BUCKET};
 
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 const DEFAULT_NUM_WORKERS: usize = 3;
@@ -150,6 +155,7 @@ Windmill Community Edition {GIT_VERSION}
         "BLACKLIST_WORKSPACES",
         "INSTANCE_EVENTS_WEBHOOK",
         "CLOUD_HOSTED",
+        "GLOBAL_CACHE_INTERVAL",
     ]);
 
     if server_mode || num_workers > 0 {
@@ -267,6 +273,22 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
 
     let mut handles = Vec::with_capacity(num_workers as usize);
 
+    for x in [PIP_CACHE_DIR, DENO_CACHE_DIR, GO_CACHE_DIR] {
+        DirBuilder::new()
+            .recursive(true)
+            .create(x)
+            .await
+            .expect("could not create initial worker dir");
+    }
+
+    #[cfg(feature = "enterprise")]
+    if let Some(ref s) = S3_CACHE_BUCKET.clone() {
+        // We donwload the entire cache as tar
+        windmill_worker::copy_cache_from_bucket_as_tar(&s).await;
+    }
+
+    IS_READY.store(true, Ordering::Relaxed);
+    let sync_barrier = Arc::new(RwLock::new(None));
     for i in 1..(num_workers + 1) {
         let db1 = db.clone();
         let instance_name = instance_name.clone();
@@ -276,6 +298,7 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
         let base_internal_url = base_internal_url.clone();
         let rsmq2 = rsmq.clone();
         let deno_runner_pool = deno_runner_pool.clone();
+        let sync_barrier = sync_barrier.clone();
         handles.push(tokio::spawn(monitor.instrument(async move {
             tracing::info!(worker = %worker_name, "starting worker");
             windmill_worker::run_worker(
@@ -283,11 +306,13 @@ pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + '
                 &instance_name,
                 worker_name,
                 i as u64,
+                num_workers as u32,
                 &ip,
                 rx,
                 &base_internal_url,
                 rsmq2,
                 deno_runner_pool.clone(),
+                sync_barrier,
             )
             .await
         })));

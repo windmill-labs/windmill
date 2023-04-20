@@ -189,6 +189,7 @@ func Run(req Req) (interface{{}}, error){{
             false,
             worker_name,
             &job.workspace_id,
+            "go build",
         )
         .await?;
 
@@ -228,6 +229,7 @@ func Run(req Req) (interface{{}}, error){{
         !*DISABLE_NSJAIL,
         worker_name,
         &job.workspace_id,
+        "go run",
     )
     .await?;
     read_result(job_dir).await
@@ -280,6 +282,7 @@ pub async fn install_go_dependencies(
             false,
             worker_name,
             w_id,
+            "go init"
         )
         .await?;
     }
@@ -327,6 +330,7 @@ pub async fn install_go_dependencies(
         false,
         worker_name,
         &w_id,
+        &format!("go {mod_command}")
     )
     .await
     .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;

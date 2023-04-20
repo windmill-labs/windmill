@@ -16,7 +16,7 @@
 	import type { ContextualVariable, ListableVariable } from '$lib/gen'
 	import { OauthService, VariableService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, sendUserToast, truncate } from '$lib/utils'
+	import { canWrite, isOwner, sendUserToast, truncate } from '$lib/utils'
 	import {
 		faChain,
 		faCircle,
@@ -280,55 +280,58 @@
 								<td>
 									<Dropdown
 										placement="bottom-end"
-										dropdownItems={[
-											{
-												displayName: 'Edit',
-												icon: faEdit,
-												action: () => variableEditor.editVariable(path),
-												disabled: !canWrite
-											},
-											{
-												displayName: 'Delete',
-												icon: faTrash,
-												type: 'delete',
-												action: (event) => {
-													if (event?.shiftKey) {
-														deleteVariable(path, account)
-													} else {
-														deleteConfirmedCallback = () => {
+										dropdownItems={() => {
+											let owner = isOwner(path, $userStore, $workspaceStore)
+											return [
+												{
+													displayName: 'Edit',
+													icon: faEdit,
+													action: () => variableEditor.editVariable(path),
+													disabled: !canWrite
+												},
+												{
+													displayName: 'Delete',
+													icon: faTrash,
+													type: 'delete',
+													action: (event) => {
+														if (event?.shiftKey) {
 															deleteVariable(path, account)
-														}
-													}
-												},
-												disabled: !canWrite
-											},
-											{
-												displayName: canWrite ? 'Share' : 'See Permissions',
-												action: () => {
-													shareModal.openDrawer(path, 'variable')
-												},
-												icon: faShare
-											},
-											...(account != undefined
-												? [
-														{
-															displayName: 'Refresh token',
-															icon: faRefresh,
-															action: async () => {
-																await OauthService.refreshToken({
-																	workspace: $workspaceStore ?? '',
-																	id: account ?? 0,
-																	requestBody: {
-																		path
-																	}
-																})
-																sendUserToast('Token refreshed')
-																loadVariables()
+														} else {
+															deleteConfirmedCallback = () => {
+																deleteVariable(path, account)
 															}
 														}
-												  ]
-												: [])
-										]}
+													},
+													disabled: !owner
+												},
+												{
+													displayName: owner ? 'Share' : 'See Permissions',
+													action: () => {
+														shareModal.openDrawer(path, 'variable')
+													},
+													icon: faShare
+												},
+												...(account != undefined
+													? [
+															{
+																displayName: 'Refresh token',
+																icon: faRefresh,
+																action: async () => {
+																	await OauthService.refreshToken({
+																		workspace: $workspaceStore ?? '',
+																		id: account ?? 0,
+																		requestBody: {
+																			path
+																		}
+																	})
+																	sendUserToast('Token refreshed')
+																	loadVariables()
+																}
+															}
+													  ]
+													: [])
+											]
+										}}
 									/>
 								</td>
 							</tr>
