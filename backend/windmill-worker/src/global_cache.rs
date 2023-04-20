@@ -52,6 +52,7 @@ pub async fn build_tar_and_push(bucket: &str, folder: String) -> error::Result<(
             "-v",
             "--size-only",
             "--fast-list",
+            "--s3-no-check-bucket",
         ],
     )
     .await
@@ -245,6 +246,7 @@ pub async fn copy_cache_to_bucket_as_tar(bucket: &str) {
             "-v",
             "--size-only",
             "--fast-list",
+            "--s3-no-check-bucket",
         ],
     )
     .await
