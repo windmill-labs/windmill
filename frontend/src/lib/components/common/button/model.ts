@@ -1,5 +1,3 @@
-import { divide } from 'lodash'
-
 export const BUTTON_COLORS = ['blue', 'red', 'dark', 'light', 'green', 'gray', 'none'] as const
 
 export namespace ButtonType {
