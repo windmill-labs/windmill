@@ -105,6 +105,11 @@
 		}
 	}
 
+	function selectAdvanced(subtab: string) {
+		selected = 'advanced'
+		advancedSelected = subtab
+	}
+
 	afterUpdate(() => {
 		totalTopGap = 0
 		if (!(wrapper && panes)) return
@@ -128,10 +133,10 @@
 			<svelte:fragment slot="header">
 				<FlowModuleHeader
 					bind:module={flowModule}
-					on:toggleSuspend={() => (selected = 'advanced-suspend')}
-					on:toggleSleep={() => (selected = 'advanced-sleep')}
-					on:toggleRetry={() => (selected = 'advanced-retries')}
-					on:toggleStopAfterIf={() => (selected = 'advanced-early-stop')}
+					on:toggleSuspend={() => selectAdvanced('suspend')}
+					on:toggleSleep={() => selectAdvanced('sleep')}
+					on:toggleRetry={() => selectAdvanced('retries')}
+					on:toggleStopAfterIf={() => selectAdvanced('early-stop')}
 					on:fork={async () => {
 						const [module, state] = await fork(flowModule)
 						flowModule = module
