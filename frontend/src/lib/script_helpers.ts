@@ -101,6 +101,7 @@ export async function main(
   )\`INSERT INTO demo VALUES (\${key}, \${value}) RETURNING *\`;
   return query.rows;
 
+}
 	/**
 	// The following code accepts raw queries. The code above is recommended because it uses SQL prepared statement.
 	import { pgClient, type Resource, type Sql } from "https://deno.land/x/windmill@v1.88.1/mod.ts";
@@ -117,7 +118,7 @@ export async function main(
 	}
    */
 	
-}`
+`
 
 export const MYSQL_INIT_CODE = `import {
   mySql,
