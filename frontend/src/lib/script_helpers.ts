@@ -100,7 +100,25 @@ export async function main(
     db,
   )\`INSERT INTO demo VALUES (\${key}, \${value}) RETURNING *\`;
   return query.rows;
-}`
+
+}
+	/**
+	// The following code accepts raw queries. The code above is recommended because it uses SQL prepared statement.
+	import { pgClient, type Resource, type Sql } from "https://deno.land/x/windmill@v1.88.1/mod.ts";
+
+	export async function main(
+		db: Resource<"postgresql">,
+		query: Sql = "SELECT * FROM demo;",
+	) {
+		if(!query) {
+			throw Error('Query must not be empty.')
+		}
+		const { rows } = await pgClient(db).queryObject(query);
+		return rows;
+	}
+   */
+	
+`
 
 export const MYSQL_INIT_CODE = `import {
   mySql,
@@ -117,6 +135,37 @@ export async function main(
     db
   )\`INSERT INTO demo VALUES (\${key}, \${value})\`;
   return query.rows;
+}`
+
+export const FETCH_INIT_CODE = `export async function main(
+	url: string | undefined,
+	method: string = 'GET',
+	body: Object = {},
+	headers: Record<string, string> = {}
+): Promise<Response | null> {
+	if (!url) {
+		console.error('Error: URL is undefined')
+		return null
+	}
+
+	const requestOptions: RequestInit = {
+		method: method || 'GET',
+		headers: headers || {}
+	}
+
+	if (requestOptions.method !== 'GET' && requestOptions.method !== 'HEAD' && body !== undefined) {
+		requestOptions.body = JSON.stringify(body)
+		requestOptions.headers = {
+			'Content-Type': 'application/json',
+			...requestOptions.headers
+		}
+	}
+
+	return await fetch(url, requestOptions)
+		.then((res) => res.json())
+		.catch(() => {
+			throw new Error('An error occured')
+		})
 }`
 
 export const BASH_INIT_CODE = `# arguments of the form X="$I" are parsed as parameters X of type string
@@ -202,7 +251,7 @@ export function isInitialCode(content: string): boolean {
 export function initialCode(
 	language: 'deno' | 'python3' | 'go' | 'bash',
 	kind: Script.kind,
-	subkind: 'pgsql' | 'mysql' | 'flow' | 'script' | undefined
+	subkind: 'pgsql' | 'mysql' | 'flow' | 'script' | 'fetch' | undefined
 ): string {
 	if (language === 'deno') {
 		if (kind === 'trigger') {
@@ -214,6 +263,8 @@ export function initialCode(
 				return POSTGRES_INIT_CODE
 			} else if (subkind === 'mysql') {
 				return MYSQL_INIT_CODE
+			} else if (subkind === 'fetch') {
+				return FETCH_INIT_CODE
 			} else {
 				return DENO_INIT_CODE
 			}
