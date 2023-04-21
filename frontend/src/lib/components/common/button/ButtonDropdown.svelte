@@ -17,9 +17,11 @@
 		leaveTo="transform opacity-0 scale-95"
 	>
 		<MenuItems
-			class="absolute right-0 z-50 mt-2 w-56 origin-top-right top-8 divide-y divide-gray-100 rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none"
+			class="absolute border right-0 z-50 mt-2 w-56 origin-top-right top-8 rounded-md bg-white shadow-md focus:outline-none"
 		>
-			<slot name="items" />
+			<div class="my-1">
+				<slot name="items" />
+			</div>
 		</MenuItems>
 	</Transition>
 </Menu>

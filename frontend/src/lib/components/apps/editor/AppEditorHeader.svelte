@@ -5,8 +5,6 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
-	import ToggleButton from '$lib/components/common/toggleButton/ToggleButton.svelte'
-	import ToggleButtonGroup from '$lib/components/common/toggleButton/ToggleButtonGroup.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import Dropdown from '$lib/components/Dropdown.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
@@ -16,27 +14,17 @@
 	import Path from '$lib/components/Path.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { AppService, Job, Policy } from '$lib/gen'
 	import { redo, undo } from '$lib/history'
 	import { workspaceStore } from '$lib/stores'
-	import {
-		faBug,
-		faClipboard,
-		faExternalLink,
-		faFileExport,
-		faSave
-	} from '@fortawesome/free-solid-svg-icons'
+	import { faClipboard, faFileExport, faSave, faSlidersH } from '@fortawesome/free-solid-svg-icons'
 	import {
 		AlignHorizontalSpaceAround,
+		Bug,
 		Expand,
-		Eye,
 		Laptop2,
 		Loader2,
-		Pencil,
-		SlidersHorizontal,
-		Smartphone,
-		X
+		Smartphone
 	} from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { Icon } from 'svelte-awesome'
@@ -55,6 +43,10 @@
 	import AppInputs from './AppInputs.svelte'
 	import type { AppComponent } from './component/components'
 	import PanelSection from './settingsPanel/common/PanelSection.svelte'
+	import PreviewToggle from './PreviewToggle.svelte'
+
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
 	async function hash(message) {
 		const msgUint8 = new TextEncoder().encode(message) // encode as (utf-8) Uint8Array
@@ -70,15 +62,12 @@
 	const {
 		app,
 		summary,
-		mode,
 		breakpoint,
 		appPath,
 		jobs,
 		staticExporter,
 		errorByComponent,
-		openDebugRun,
-		focusedGrid,
-		selectedComponent
+		openDebugRun
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const { history } = getContext<AppEditorContext>('AppEditorContext')
@@ -315,8 +304,10 @@
 			<Button
 				startIcon={{ icon: faSave }}
 				disabled={pathError != ''}
-				on:click={() => createApp(newPath)}>Create app</Button
+				on:click={() => createApp(newPath)}
 			>
+				Create app
+			</Button>
 		</div>
 	</DrawerContent>
 </Drawer>
@@ -512,7 +503,7 @@
 </Drawer>
 
 <div
-	class="border-b flex flex-row justify-between py-1 gap-4 gap-y-2 px-3 items-center overflow-y-visible"
+	class="border-b flex flex-row justify-between py-1 gap-2 gap-y-2 px-2 items-center overflow-y-visible"
 >
 	<div class="min-w-64 w-64">
 		<input
@@ -522,84 +513,40 @@
 			bind:value={$summary}
 		/>
 	</div>
-	<UndoRedo
-		undoProps={{ disabled: $history?.index === 0 }}
-		redoProps={{ disabled: $history && $history?.index === $history.history.length - 1 }}
-		on:undo={() => {
-			$app = undo(history, $app)
-		}}
-		on:redo={() => {
-			$app = redo(history)
-		}}
-	/>
-	<div class="flex gap-4 items-center grow justify-center">
-		<div>
-			<ToggleButtonGroup bind:selected={$mode}>
-				<ToggleButton position="left" value="dnd" size="xs">
-					<div class="inline-flex gap-1 items-center">
-						<Pencil size={14} />
-						<span class="hidden lg:inline">Editor</span>
-					</div>
-				</ToggleButton>
-				<ToggleButton position="right" value="preview" size="xs">
-					<div class="inline-flex gap-1 items-center">
-						<Eye size={14} /> <span class="hidden lg:inline">Preview</span>
-					</div>
-				</ToggleButton>
-			</ToggleButtonGroup>
-		</div>
-		<div>
-			<ToggleButtonGroup bind:selected={$breakpoint}>
-				<ToggleButton position="left" value="sm" size="xs">
-					<Smartphone size={14} />
-				</ToggleButton>
-				<ToggleButton position="right" value="lg" size="xs">
-					<Laptop2 size={14} />
-				</ToggleButton>
-			</ToggleButtonGroup>
-		</div>
+	<div class="flex gap-4 items-center justify-center">
+		<UndoRedo
+			undoProps={{ disabled: $history?.index === 0 }}
+			redoProps={{ disabled: $history && $history?.index === $history.history.length - 1 }}
+			on:undo={() => {
+				$app = undo(history, $app)
+			}}
+			on:redo={() => {
+				$app = redo(history)
+			}}
+		/>
 
-		<div class="hidden lg:block">
-			{#if $app}
-				<ToggleButtonGroup bind:selected={$app.fullscreen}>
-					<ToggleButton position="left" value={false} size="xs">
-						<div class="flex gap-1 justify-start items-center">
-							<AlignHorizontalSpaceAround size={14} />
-							<Tooltip light class="mb-0.5">
-								The max width is 1168px and the content stay centered instead of taking the full
-								page width
-							</Tooltip>
-						</div>
-					</ToggleButton>
-					<ToggleButton position="right" value={true} size="xs">
-						<Expand size={14} />
-					</ToggleButton>
-				</ToggleButtonGroup>
-			{/if}
+		<div>
+			<ToggleButtonGroup class="h-[30px]" bind:selected={$breakpoint}>
+				<ToggleButton icon={Smartphone} value="sm" />
+				<ToggleButton icon={Laptop2} value="lg" />
+			</ToggleButtonGroup>
 		</div>
+		{#if $app}
+			<ToggleButtonGroup class="h-[30px]" bind:selected={$app.fullscreen}>
+				<ToggleButton
+					icon={AlignHorizontalSpaceAround}
+					value={false}
+					tooltip="The max width is 1168px and the content stay centered instead of taking the full page width"
+				/>
+				<ToggleButton icon={Expand} value={true} />
+			</ToggleButtonGroup>
+		{/if}
 	</div>
-	{#if $focusedGrid !== undefined}
-		<div class="hidden lg:block">
-			<Badge color="indigo">
-				<div class="flex flex-row gap-2 justify-center items-center">
-					<div>{`Subgrid: ${$focusedGrid.parentComponentId} (${$focusedGrid.subGridIndex})`}</div>
-					<button
-						on:click={() => {
-							$selectedComponent = undefined
-							$focusedGrid = undefined
-						}}
-					>
-						<X size={14} />
-					</button>
-				</div>
-			</Badge>
-		</div>
-	{/if}
 
 	<div class="flex flex-row gap-2 justify-end items-center overflow-visible">
 		<Dropdown
 			placement="bottom-end"
-			btnClasses="hidden lg:block"
+			btnClasses="!border !rounded-md"
 			dropdownItems={[
 				{
 					displayName: 'JSON',
@@ -622,18 +569,25 @@
 					action: () => {
 						appExport.open(toStatic($app, $staticExporter, $summary).app)
 					}
+				},
+				{
+					displayName: 'App Inputs',
+					icon: faSlidersH,
+					action: () => {
+						inputsDrawerOpen = true
+					}
 				}
 			]}
 		/>
-		<span class="hidden md:inline">
-			<Button on:click={() => (inputsDrawerOpen = true)} color="light" size="xs" variant="border">
-				<span class="flex gap-2">
-					<SlidersHorizontal size={14} />
-					App inputs
-				</span>
-			</Button>
-		</span>
-		<span class="hidden md:inline">
+		<div class="hidden md:inline relative overflow-visible">
+			{#if hasErrors}
+				<span
+					class="animate-ping absolute inline-flex rounded-full bg-red-600 h-2 w-2 z-50 -right-0.5 -top-0.5"
+				/>
+				<span
+					class=" absolute inline-flex rounded-full bg-red-600 h-2 w-2 z-50 -right-0.5 -top-0.5"
+				/>
+			{/if}
 			<Button
 				on:click={() => {
 					if (selectedJobId == undefined && $jobs.length > 0) {
@@ -644,21 +598,17 @@
 				color={hasErrors ? 'red' : 'light'}
 				size="xs"
 				variant="border"
-				startIcon={{ icon: faBug }}
+				btnClasses="relative"
 			>
-				<span class="hidden xl:inline">Debug Runs</span>
+				<div class="flex flex-row gap-1 items-center">
+					<Bug size={14} />
+					<div> Debug runs </div>
+				</div>
 			</Button>
-		</span>
+		</div>
 		<AppExportButton bind:this={appExport} />
-		<Button
-			on:click={() => (publishDrawerOpen = true)}
-			color="light"
-			size="xs"
-			variant="border"
-			startIcon={{ icon: faExternalLink }}
-		>
-			<span class="hidden xl:inline">Publish</span>
-		</Button>
+
+		<PreviewToggle loading={loading.save} />
 		{#if appPath == ''}
 			<Button
 				loading={loading.save}
@@ -681,6 +631,12 @@
 						label: 'Fork',
 						onClick: () => {
 							window.open(`/apps/add?template=${appPath}`)
+						}
+					},
+					{
+						label: 'Publish',
+						onClick: () => {
+							publishDrawerOpen = true
 						}
 					}
 				]}

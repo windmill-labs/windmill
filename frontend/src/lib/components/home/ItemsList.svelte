@@ -1,6 +1,6 @@
 <script lang="ts">
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Badge, Skeleton, ToggleButton, ToggleButtonGroup } from '$lib/components/common'
+	import { Alert, Badge, Skeleton } from '$lib/components/common'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { AppService, FlowService, ListableApp, Script, ScriptService, type Flow } from '$lib/gen'
@@ -17,13 +17,14 @@
 
 	import { HOME_SEARCH_SHOW_FLOW, HOME_SEARCH_PLACEHOLDER } from '$lib/consts'
 
-	import { faBarsStaggered } from '@fortawesome/free-solid-svg-icons'
-	import { Icon } from 'svelte-awesome'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import MoveDrawer from '../MoveDrawer.svelte'
 	import SearchItems from '../SearchItems.svelte'
 	import ListFilters from './ListFilters.svelte'
 	import NoItemFound from './NoItemFound.svelte'
+	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
+	import FlowIcon from './FlowIcon.svelte'
 
 	type TableItem<T, U extends 'script' | 'flow' | 'app'> = T & {
 		canWrite: boolean
@@ -247,28 +248,25 @@
 <CenteredPage>
 	<div class="flex flex-wrap gap-2 items-center justify-between w-full">
 		<div class="flex justify-start">
-			<ToggleButtonGroup bind:selected={itemKind}>
-				<ToggleButton light position="left" value="all" size="sm">All</ToggleButton>
-				<ToggleButton light position="center" value="script" size="sm">
-					<div class="flex gap-1 items-center">
-						<Code2 size={16} />
-						Scripts
-					</div>
-				</ToggleButton>
+			<ToggleButtonGroup bind:selected={itemKind} class="h-10">
+				<ToggleButton value="all" label="All" class="text-sm px-4 py-2" />
+				<ToggleButton value="script" icon={Code2} label="Scripts" class="text-sm px-4 py-2" />
 				{#if HOME_SEARCH_SHOW_FLOW}
-				<ToggleButton light position="center" value="flow" size="sm">
-					<div class="flex gap-1 items-center">
-						<Icon data={faBarsStaggered} scale={0.8} class="mr-1" />
-						Flows
-					</div>
-				</ToggleButton>
+					<ToggleButton
+						value="flow"
+						label="Flows"
+						icon={FlowIcon}
+						class="text-sm px-4 py-2"
+						selectedColor="#14b8a6"
+					/>
 				{/if}
-				<ToggleButton light position="right" value="app" size="sm">
-					<div class="flex gap-1 items-center">
-						<LayoutDashboard size={16} />
-						Apps
-					</div>
-				</ToggleButton>
+				<ToggleButton
+					value="app"
+					label="Apps"
+					icon={LayoutDashboard}
+					class="text-sm px-4 py-2"
+					selectedColor="#fb923c"
+				/>
 			</ToggleButtonGroup>
 		</div>
 

@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { ToggleButton, ToggleButtonGroup } from '$lib/components/common'
 	import {
 		AlignCenterHorizontal,
 		AlignCenterVertical,
@@ -12,6 +11,8 @@
 	import type { AppViewerContext } from '../../types'
 	import type { AppComponent } from '../component'
 	import PanelSection from './common/PanelSection.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -20,45 +21,33 @@
 
 {#if component.horizontalAlignment || component.verticalAlignment}
 	<PanelSection title="Alignment">
-		<div class="flex flex-wrap gap-2">
+		<div class="flex flex-col gap-2 w-full">
 			{#if component.horizontalAlignment}
-				<div class="flex flex-col gap-0.5">
+				<div class="flex flex-row justify-between items-center">
 					<div class="text-xs font-semibold">Horizontal</div>
 					<div>
 						<ToggleButtonGroup
 							on:selected={() => (component = component)}
 							bind:selected={component.horizontalAlignment}
 						>
-							<ToggleButton position="left" value="left" size="xs">
-								<AlignStartVertical size={16} />
-							</ToggleButton>
-							<ToggleButton position="center" value="center" size="xs">
-								<AlignCenterVertical size={16} />
-							</ToggleButton>
-							<ToggleButton position="right" value="right" size="xs">
-								<AlignEndVertical size={16} />
-							</ToggleButton>
+							<ToggleButton value="left" icon={AlignStartVertical} />
+							<ToggleButton value="center" icon={AlignCenterVertical} />
+							<ToggleButton value="right" icon={AlignEndVertical} />
 						</ToggleButtonGroup>
 					</div>
 				</div>
 			{/if}
 			{#if component.type !== 'formcomponent' && component.verticalAlignment}
-				<div class="flex flex-col gap-0.5">
+				<div class="flex flex-row justify-between items-center">
 					<div class="text-xs font-semibold">Vertical</div>
 					<div>
 						<ToggleButtonGroup
 							on:selected={() => ($app = $app)}
 							bind:selected={component.verticalAlignment}
 						>
-							<ToggleButton position="left" value="top" size="xs">
-								<AlignStartHorizontal size={16} />
-							</ToggleButton>
-							<ToggleButton position="center" value="center" size="xs">
-								<AlignCenterHorizontal size={16} />
-							</ToggleButton>
-							<ToggleButton position="right" value="bottom" size="xs">
-								<AlignEndHorizontal size={16} />
-							</ToggleButton>
+							<ToggleButton value="top" icon={AlignStartHorizontal} />
+							<ToggleButton value="center" icon={AlignCenterHorizontal} />
+							<ToggleButton value="bottom" icon={AlignEndHorizontal} />
 						</ToggleButtonGroup>
 					</div>
 				</div>
