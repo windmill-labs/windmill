@@ -27,6 +27,7 @@
 	export let variableEditor: VariableEditor | undefined = undefined
 	export let itemPicker: ItemPicker | undefined = undefined
 	export let noDynamicToggle = false
+	export let argExtra: Record<string, any> = {}
 
 	let monaco: SimpleEditor | undefined = undefined
 	let monacoTemplate: TemplateEditor | undefined = undefined
@@ -236,7 +237,7 @@
 
 	<div class="max-w-xs" />
 	<div
-		class="relative mb-6 {$propPickerConfig?.propName == argName
+		class="relative {$propPickerConfig?.propName == argName
 			? 'outline outline-offset-0 outline-2 outline-blue-500 rounded-md'
 			: ''}"
 	>
@@ -280,6 +281,7 @@
 				bind:itemsType={schema.properties[argName].items}
 				properties={schema.properties[argName].properties}
 				displayHeader={false}
+				extra={argExtra}
 				{variableEditor}
 				{itemPicker}
 				bind:pickForField
