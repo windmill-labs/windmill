@@ -161,7 +161,7 @@ pub async fn copy_cache_from_bucket(bucket: &str, tx: Sender<()>) -> error::Resu
     )
     .await
     {
-        tracing::info!("Failed to to copy cache from bucket. Error: {:?}", e);
+        tracing::info!("Failed to copy cache from bucket. Error: {:?}", e);
         return Err(e);
     }
 
@@ -201,7 +201,7 @@ pub async fn copy_cache_to_bucket(bucket: &str) -> error::Result<()> {
     )
     .await
     {
-        tracing::info!("Failed to to copy cache to bucket. Error: {:?}", e);
+        tracing::info!("Failed to copy cache to bucket. Error: {:?}", e);
         return Err(e);
     }
     tracing::info!(
@@ -451,9 +451,10 @@ pub async fn extract_pip_tar(tar: &str, folder: &str) -> error::Result<()> {
     use tokio::fs;
 
     let start: Instant = Instant::now();
-    fs::create_dir(&folder).await?;
+    fs::create_dir_all(&folder).await?;
     if let Err(e) = execute_command(&folder, "tar", vec!["-xpvf", tar]).await {
         tracing::info!("Failed to untar piptar. Error: {:?}", e);
+        fs::remove_dir_all(&folder).await?;
         return Err(e);
     }
     tracing::info!(
