@@ -311,6 +311,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     mut same_worker: bool,
     pre_run_error: Option<&windmill_common::error::Error>,
     visible_to_owner: bool,
+    tag: Option<String>,
 ) -> Result<(Uuid, QueueTransaction<'c, R>), Error> {
     let args_json = serde_json::Value::Object(args);
     let job_id: Uuid = Ulid::new().into();
@@ -558,12 +559,20 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
 
     let flow_status = raw_flow.as_ref().map(FlowStatus::new);
 
+    let tag = tag.unwrap_or_else(|| {
+        language
+            .as_ref()
+            .map(|x| x.as_str())
+            .unwrap_or_else(|| "other")
+            .to_string()
+    });
+
     let uuid = sqlx::query_scalar!(
         "INSERT INTO queue
             (workspace_id, id, running, parent_job, created_by, permissioned_as, scheduled_for, 
                 script_hash, script_path, raw_code, raw_lock, args, job_kind, schedule_path, raw_flow, \
-         flow_status, is_flow_step, language, started_at, same_worker, pre_run_error, email, visible_to_owner, root_job)
-            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, now()), $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22, $23) \
+         flow_status, is_flow_step, language, started_at, same_worker, pre_run_error, email, visible_to_owner, root_job, tag)
+            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, now()), $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19, $20, $21, $22, $23, $24) \
          RETURNING id",
         workspace_id,
         job_id,
@@ -587,7 +596,8 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         pre_run_error.map(|e| e.to_string()),
         email,
         visible_to_owner,
-        root_job
+        root_job,
+        tag
     )
     .fetch_one(&mut tx)
     .await

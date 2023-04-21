@@ -330,8 +330,8 @@ async fn create_script(
     //::text::json is to ensure we use serde_json with preserve order
     sqlx::query!(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, \
-         content, created_by, schema, is_template, extra_perms, lock, language, kind) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14)",
+         content, created_by, schema, is_template, extra_perms, lock, language, kind, tag) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15)",
         &w_id,
         &hash.0,
         ns.path,
@@ -346,6 +346,7 @@ async fn create_script(
         lock,
         ns.language: ScriptLang,
         ns.kind.unwrap_or(ScriptKind::Script): ScriptKind,
+        ns.tag,
     )
     .execute(&mut tx)
     .await?;

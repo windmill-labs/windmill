@@ -1255,6 +1255,7 @@ pub async fn run_flow_by_path(
         false,
         None,
         !run_query.invisible_to_owner.unwrap_or(false),
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -1272,7 +1273,8 @@ pub async fn run_job_by_path(
 ) -> error::Result<(StatusCode, String)> {
     let script_path = script_path.to_path();
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
-    let job_payload = script_path_to_payload(script_path, tx.transaction_mut(), &w_id).await?;
+    let (job_payload, tag) =
+        script_path_to_payload(script_path, tx.transaction_mut(), &w_id).await?;
     let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
 
@@ -1292,6 +1294,7 @@ pub async fn run_job_by_path(
         false,
         None,
         !run_query.invisible_to_owner.unwrap_or(false),
+        tag,
     )
     .await?;
     tx.commit().await?;

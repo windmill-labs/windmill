@@ -234,6 +234,11 @@ lazy_static::lazy_static! {
 
     pub static ref CAN_PULL: Arc<RwLock<()>> = Arc::new(RwLock::new(()));
 
+    pub static ref ACCEPTED_TAGS: Vec<String> = std::env::var("WORKER_TAGS")
+        .ok()
+        .map(|x| x.split(',').map(|x| x.to_string()).collect())
+        .unwrap_or_else(|| vec!["deno".to_string(), "python3".to_string(), "go".to_string(), "bash".to_string(), "other".to_string()]);
+
 }
 
 //only matter if CLOUD_HOSTED
