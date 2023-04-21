@@ -31,7 +31,7 @@ use windmill_common::{
     error::{self, to_anyhow, Error},
     flow_status::{Approval, FlowStatus, FlowStatusModule},
     flows::FlowValue,
-    jobs::{JobKind, JobPayload, QueuedJob, RawCode},
+    jobs::{script_path_to_payload, JobKind, JobPayload, QueuedJob, RawCode},
     oauth2::HmacSha256,
     scripts::{ScriptHash, ScriptLang},
     users::username_to_permissioned_as,
@@ -1607,21 +1607,6 @@ pub async fn run_wait_result_flow_by_path(
         Path((w_id, flow_path)),
     )
     .await
-}
-
-// a similar function exists on the worker
-pub async fn script_path_to_payload<'c>(
-    script_path: &str,
-    db: &mut Transaction<'c, Postgres>,
-    w_id: &String,
-) -> std::result::Result<JobPayload, Error> {
-    let job_payload = if script_path.starts_with("hub/") {
-        JobPayload::ScriptHub { path: script_path.to_owned() }
-    } else {
-        let script_hash = windmill_common::get_latest_hash_for_path(db, w_id, script_path).await?;
-        JobPayload::ScriptHash { hash: script_hash, path: script_path.to_owned() }
-    };
-    Ok(job_payload)
 }
 
 async fn run_preview_job(
