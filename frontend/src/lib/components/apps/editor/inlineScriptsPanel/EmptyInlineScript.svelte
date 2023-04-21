@@ -44,7 +44,7 @@
 	async function createInlineScriptByLanguage(
 		language: Preview.language,
 		path: string,
-		subkind: 'pgsql' | 'mysql' | undefined = undefined
+		subkind: 'pgsql' | 'mysql' | 'fetch' | undefined = undefined
 	) {
 		const content =
 			defaultCode(componentType ?? '', subkind || language) ??
@@ -139,7 +139,7 @@
 	</DrawerContent>
 </Drawer>
 
-<div class="flex flex-col px-4 py-2 gap-2 text-sm" in:fly={{ duration: 50 }}>
+<div class="flex flex-col px-4 gap-2 text-sm" in:fly={{ duration: 50 }}>
 	<div class="mt-4 flex justify-between gap-8 mb-2">
 		<div class="font-bold items-baseline">Choose a language:</div>
 		<div class="flex gap-2">
@@ -163,61 +163,77 @@
 			</Button>
 		</div>
 	</div>
-	<div class="flex gap-2 flex-row flex-wrap">
-		{#each langs as lang}
-			<FlowScriptPicker
-				label={capitalize(lang)}
-				{lang}
-				on:click={() => {
-					createInlineScriptByLanguage(lang, name)
-				}}
-			/>
-		{/each}
 
-		<FlowScriptPicker
-			label={`PostgreSQL`}
-			lang="pgsql"
-			on:click={() => {
-				createInlineScriptByLanguage(Script.language.DENO, name, 'pgsql')
-			}}
-		/>
+	<div class="flex flex-row w-full justify-between">
+		<div class="">
+			<div class="mb-1 text-sm font-semibold">Backend</div>
 
-		<!-- <FlowScriptPicker
-			label={`MySQL`}
-			lang="mysql"
-			on:click={() => {
-				createInlineScriptByLanguage(Script.language.DENO, name, 'mysql')
-			}}
-		/> -->
-	</div>
-	<div>
-		<div class="text-xs mb-1 mt-2">
-			Script executed in the client's browser directly:&nbsp;
-			<Tooltip documentationLink="https://docs.windmill.dev/docs/apps/app-runnable#frontend-script">
-				Frontend scripts are executed in the browser and can manipulate the app context directly
-			</Tooltip>
+			<div class="flex gap-2 flex-row flex-wrap">
+				{#each langs as lang}
+					<FlowScriptPicker
+						label={lang === 'deno' ? 'Typescript' : capitalize(lang)}
+						{lang}
+						on:click={() => {
+							createInlineScriptByLanguage(lang, name)
+						}}
+					/>
+				{/each}
+			</div>
+
+			<div class="mt-4 mb-2 text-sm">Typescript templates</div>
+
+			<div class="flex gap-2 flex-row flex-wrap mb-4">
+				<FlowScriptPicker
+					label={`PostgreSQL`}
+					lang="pgsql"
+					on:click={() => {
+						createInlineScriptByLanguage(Script.language.DENO, name, 'pgsql')
+					}}
+				/>
+
+				<FlowScriptPicker
+					label={`HTTP`}
+					lang="fetch"
+					on:click={() => {
+						createInlineScriptByLanguage(Script.language.DENO, name, 'fetch')
+					}}
+				/>
+			</div>
 		</div>
-		<FlowScriptPicker
-			label={`JavaScript`}
-			lang="javascript"
-			on:click={() => {
-				const newInlineScript = {
-					content: `// read outputs and ctx
-console.log(ctx.email)
+		<div class="">
+			<div class="mb-1 text-sm font-semibold">
+				Frontend
+				<Tooltip
+					documentationLink="https://docs.windmill.dev/docs/apps/app-runnable#frontend-script"
+				>
+					Frontend scripts are executed in the browser and can manipulate the app context directly
+				</Tooltip>
+			</div>
 
-// access a global state store
-if (!state.foo) { state.foo = 0 }
-state.foo += 1
-
-// you can also navigate (goto), recompute a script (recompute), or set a tab (setTab)
-
-return state.foo`,
-					language: 'frontend',
-					path: 'frontend script',
-					schema: undefined
-				}
-				dispatch('new', newInlineScript)
-			}}
-		/>
+			<div>
+				<FlowScriptPicker
+					label={`JavaScript`}
+					lang="javascript"
+					on:click={() => {
+						const newInlineScript = {
+							content: `// read outputs and ctx
+				console.log(ctx.email)
+				
+				// access a global state store
+				if (!state.foo) { state.foo = 0 }
+				state.foo += 1
+				
+				// you can also navigate (goto), recompute a script (recompute), or set a tab (setTab)
+				
+				return state.foo`,
+							language: 'frontend',
+							path: 'frontend script',
+							schema: undefined
+						}
+						dispatch('new', newInlineScript)
+					}}
+				/>
+			</div>
+		</div>
 	</div>
 </div>
