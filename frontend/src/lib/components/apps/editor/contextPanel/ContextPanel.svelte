@@ -12,11 +12,12 @@
 	import OutputHeader from './components/OutputHeader.svelte'
 
 	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
-
 	const { search } = getContext<ContextPanelContext>('ContextPanel')
+
+	let hasState: boolean = false
 </script>
 
-<PanelSection noPadding titlePadding="px-1.5 pt-2" title="Outputs">
+<PanelSection noPadding titlePadding="px-2 pt-2" title="Outputs">
 	<div
 		class={classNames(
 			'bg-white w-full h-full z-30',
@@ -28,15 +29,15 @@
 				<div class="relative w-full">
 					<input
 						bind:value={$search}
-						class="px-2 pb-1 border border-gray-300 rounded-sm {search ? 'pr-8' : ''}"
+						class="!border-gray-200 !rounded-md !text-xs !pr-6"
 						placeholder="Search outputs..."
 					/>
-					{#if search}
+					{#if $search !== ''}
 						<button
-							class="absolute right-2 top-1/2 transform -translate-y-1/2 hover:bg-gray-200 rounded-full p-0.5"
+							class="absolute right-2 top-1/2 transform -translate-y-1/2 hover:bg-gray-500 bg-gray-300 transition-all rounded-full p-0.5"
 							on:click|stopPropagation|preventDefault={() => ($search = '')}
 						>
-							<X size="14" />
+							<X size="10" color="white" />
 						</button>
 					{/if}
 				</div>
@@ -44,7 +45,7 @@
 
 			<div class="flex flex-col gap-4">
 				<div>
-					<span class="text-xs font-bold p-2">State & Context</span>
+					<span class="text-xs font-semibold text-gray-800 p-2">State & Context</span>
 
 					<OutputHeader selectable={false} id={'ctx'} name={'App Context'} first color="blue">
 						<ComponentOutputViewer
@@ -55,8 +56,15 @@
 						/>
 					</OutputHeader>
 
-					<OutputHeader selectable={false} id={'state'} name={'State'} color="blue">
+					<OutputHeader
+						selectable={false}
+						id={'state'}
+						name={'State'}
+						color="blue"
+						disabled={!hasState}
+					>
 						<ComponentOutputViewer
+							bind:hasContent={hasState}
 							componentId={'state'}
 							on:select={({ detail }) => {
 								$connectingInput = connectInput($connectingInput, 'state', detail)
@@ -66,16 +74,14 @@
 				</div>
 
 				<div>
-					<span class="text-sm font-bold p-2">Components</span>
+					<span class="text-xs font-semibold text-gray-800 p-2">Components</span>
 					{#each $app.grid as gridItem, index (gridItem.id)}
 						<ComponentOutput {gridItem} first={index === 0} />
 					{/each}
 				</div>
 				<div>
-					<span class="text-sm font-bold p-2">Background scripts</span>
-					<div class="border-t">
-						<BackgroundScriptsOutput />
-					</div>
+					<span class="text-xs font-semibold text-gray-800 p-2">Background scripts</span>
+					<BackgroundScriptsOutput />
 				</div>
 			</div>
 		</div>

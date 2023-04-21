@@ -9,8 +9,8 @@
 use crate::push;
 use crate::QueueTransaction;
 use sqlx::{query_scalar, Postgres, Transaction};
-use windmill_common::jobs::JobPayload;
 use std::str::FromStr;
+use windmill_common::jobs::JobPayload;
 use windmill_common::{
     error::{self, Result},
     schedule::Schedule,
@@ -71,7 +71,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         JobPayload::Flow(schedule.script_path)
     } else {
         JobPayload::ScriptHash {
-            hash: windmill_common::get_latest_hash_for_path(
+            hash: windmill_common::get_latest_deployed_hash_for_path(
                 tx.transaction_mut(),
                 &schedule.workspace_id,
                 &schedule.script_path,

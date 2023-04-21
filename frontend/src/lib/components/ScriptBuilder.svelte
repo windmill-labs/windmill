@@ -19,7 +19,12 @@
 	import { Pen } from 'lucide-svelte'
 	import autosize from 'svelte-autosize'
 	import type Editor from './Editor.svelte'
-	import { SCRIPT_SHOW_BASH, SCRIPT_SHOW_GO, SCRIPT_SHOW_PSQL, SCRIPT_CUSTOMISE_SHOW_KIND } from '$lib/consts'
+	import {
+		SCRIPT_SHOW_BASH,
+		SCRIPT_SHOW_GO,
+		SCRIPT_SHOW_PSQL,
+		SCRIPT_CUSTOMISE_SHOW_KIND
+	} from '$lib/consts'
 
 	export let script: Script
 	export let initialPath: string = ''
@@ -29,7 +34,8 @@
 	export let topHash: string | undefined = undefined
 	export let showMeta: boolean = false
 
-	let metadataOpen = showMeta || (initialPath == '' && $page.url.searchParams.get('state') == undefined)
+	let metadataOpen =
+		showMeta || (initialPath == '' && $page.url.searchParams.get('state') == undefined)
 	let advancedOpen = false
 
 	let editor: Editor | undefined = undefined
@@ -43,10 +49,10 @@
 		['Typescript', Script.language.DENO],
 		['Python', Script.language.PYTHON3]
 	]
-	if(SCRIPT_SHOW_GO) {
+	if (SCRIPT_SHOW_GO) {
 		langs.push(['Go', Script.language.GO])
 	}
-	if(SCRIPT_SHOW_BASH) {
+	if (SCRIPT_SHOW_BASH) {
 		langs.push(['Bash', Script.language.BASH])
 	}
 	const scriptKindOptions: { value: Script.kind; title: string; desc?: string }[] = [
@@ -212,24 +218,24 @@
 					</Button>
 				{/each}
 				{#if SCRIPT_SHOW_PSQL}
-				<Button
-					size="sm"
-					variant="border"
-					color={template == 'pgsql' ? 'blue' : 'dark'}
-					btnClasses={template == 'pgsql' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
-					disabled={lockedLanguage}
-					on:click={() => {
-						let lastTemplate = template
-						template = 'pgsql'
-						initContent(Script.language.DENO, script.kind, template)
-						script.language = Script.language.DENO
-						if (lastTemplate != template) {
-							setCode(script.content)
-						}
-					}}
-				>
-					<LanguageIcon lang="pgsql" /><span class="ml-2 py-2">PostgreSQL</span>
-				</Button>
+					<Button
+						size="sm"
+						variant="border"
+						color={template == 'pgsql' ? 'blue' : 'dark'}
+						btnClasses={template == 'pgsql' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+						disabled={lockedLanguage}
+						on:click={() => {
+							let lastTemplate = template
+							template = 'pgsql'
+							initContent(Script.language.DENO, script.kind, template)
+							script.language = Script.language.DENO
+							if (lastTemplate != template) {
+								setCode(script.content)
+							}
+						}}
+					>
+						<LanguageIcon lang="pgsql" /><span class="ml-2 py-2">PostgreSQL</span>
+					</Button>
 				{/if}
 				<!-- <Button
 					size="sm"
@@ -333,36 +339,37 @@
 		<Drawer bind:open={advancedOpen} size="800px">
 			<DrawerContent title="Customise" on:close={() => (advancedOpen = false)}>
 				{#if SCRIPT_CUSTOMISE_SHOW_KIND}
-				<h2 class="border-b pb-1 mb-4"
-					>Script Kind &nbsp;<Tooltip
-						>Tag this script's purpose within flows such that it is available as the corresponding
-						action.</Tooltip
-					></h2
-				>
-				<div class="flex flex-wrap gap-2">
-					{#each scriptKindOptions as { value, title, desc }}
-						{@const isPicked = script.kind === value}
-						<Button
-							size="sm"
-							variant="border"
-							color={isPicked ? 'blue' : 'dark'}
-							btnClasses="font-medium {isPicked ? '!bg-blue-50/75' : ''}"
-							on:click={() => {
-								template = 'script'
-								script.kind = value
-								initContent(script.language, value, template)
-								setCode(script.content)
-							}}
-						>
-							{title}
-							{#if desc}
-								<Tooltip class="mb-0.5 ml-1">
-									{desc}
-								</Tooltip>
-							{/if}
-						</Button>
-					{/each}
-				</div>
+					<h2 class="border-b pb-1 mb-4">
+						Script kind &nbsp;
+						<Tooltip>
+							Tag this script's purpose within flows such that it is available as the corresponding
+							action.
+						</Tooltip>
+					</h2>
+					<div class="flex flex-wrap gap-2">
+						{#each scriptKindOptions as { value, title, desc }}
+							{@const isPicked = script.kind === value}
+							<Button
+								size="sm"
+								variant="border"
+								color={isPicked ? 'blue' : 'dark'}
+								btnClasses="font-medium {isPicked ? '!bg-blue-50/75' : ''}"
+								on:click={() => {
+									template = 'script'
+									script.kind = value
+									initContent(script.language, value, template)
+									setCode(script.content)
+								}}
+							>
+								{title}
+								{#if desc}
+									<Tooltip class="mb-0.5 ml-1">
+										{desc}
+									</Tooltip>
+								{/if}
+							</Button>
+						{/each}
+					</div>
 				{/if}
 				<h2 class="border-b pb-1 mt-10 mb-4"
 					>Arguments &nbsp;<Tooltip

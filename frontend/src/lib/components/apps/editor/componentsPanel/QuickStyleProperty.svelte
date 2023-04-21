@@ -44,7 +44,7 @@
 		{#if type === StylePropertyType.color}
 			<ColorInput bind:value />
 			{#each $styleStore.topColors as color}
-				<Popover placement="bottom" notClickable disapperTimoout={0} class="flex">
+				<Popover placement="bottom" notClickable disappearTimeout={0} class="flex">
 					<Button
 						color="light"
 						size="xs"
@@ -111,7 +111,7 @@
 			</ClearableInput>
 		{:else if type === StylePropertyType.text}
 			{#each prop.value?.['options'] || [] as option}
-				<Popover placement="bottom" notClickable disapperTimoout={0}>
+				<Popover placement="bottom" notClickable disappearTimeout={0}>
 					<Button
 						color={value === option.text ? 'dark' : 'light'}
 						size="xs"

@@ -30,7 +30,8 @@
 			<div class="flex justify-between items-center bg-white gap-1 px-3 py-2">
 				<Button
 					color="light"
-					size="xs"
+					size="xs2"
+					spacingSize="xs"
 					variant="border"
 					startIcon={{ icon: faChevronLeft }}
 					on:click={secondaryMenu.close}

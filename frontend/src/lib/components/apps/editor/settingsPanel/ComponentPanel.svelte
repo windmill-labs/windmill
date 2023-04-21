@@ -8,16 +8,15 @@
 	import TableActions from './TableActions.svelte'
 	import StaticInputEditor from './inputEditor/StaticInputEditor.svelte'
 	import ConnectedInputEditor from './inputEditor/ConnectedInputEditor.svelte'
-	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import { capitalize, classNames, getModifierKey, isMac } from '$lib/utils'
-	import { buildExtraLib, fieldTypeToTsType } from '../../utils'
+	import { classNames, getModifierKey, isMac } from '$lib/utils'
+	import { buildExtraLib } from '../../utils'
 	import Recompute from './Recompute.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ComponentInputTypeEditor from './ComponentInputTypeEditor.svelte'
 	import AlignmentEditor from './AlignmentEditor.svelte'
 	import RunnableInputEditor from './inputEditor/RunnableInputEditor.svelte'
 	import TemplateEditor from '$lib/components/TemplateEditor.svelte'
-	import { ccomponents } from '../component'
+	import { COMPONENT_SETS, ccomponents } from '../component'
 	import CssProperty from '../componentsPanel/CssProperty.svelte'
 	import GridTab from './GridTab.svelte'
 	import { clearErrorByComponentId, clearJobsByComponentId, deleteGridItem } from '../appUtils'
@@ -116,6 +115,10 @@
 		: undefined
 
 	$: componentSettings?.item?.data && ($app = $app)
+
+	const hasInteraction = componentSettings?.item.data.type
+		? COMPONENT_SETS[1].components.includes(componentSettings?.item.data.type)
+		: false
 </script>
 
 <svelte:window on:keydown={keydown} />
@@ -124,7 +127,7 @@
 	{@const component = componentSettings.item.data}
 	<div class="flex min-h-full flex-col min-w-[150px] w-full divide-y">
 		{#if component.componentInput}
-			<PanelSection title="Data Source">
+			<PanelSection title={hasInteraction ? 'Event handler' : 'Data source'}>
 				<svelte:fragment slot="action">
 					<span
 						class={classNames(
@@ -134,14 +137,6 @@
 					>
 						{`${component.id}`}
 					</span>
-					{#if component.componentInput.fieldType !== 'any'}
-						<Badge color="blue">
-							{component.componentInput.fieldType === 'array' &&
-							component.componentInput.subFieldType
-								? `${capitalize(fieldTypeToTsType(component.componentInput.subFieldType))}[]`
-								: capitalize(fieldTypeToTsType(component.componentInput.fieldType))}
-						</Badge>
-					{/if}
 				</svelte:fragment>
 
 				{#if componentSettings.item.data.componentInput}
@@ -200,6 +195,7 @@
 									<InputsSpecsEditor
 										id={component.id}
 										shouldCapitalize={false}
+										displayType
 										bind:inputSpecs={componentSettings.item.data.componentInput.fields}
 										userInputEnabled={component.type === 'formcomponent' ||
 											component.type === 'formbuttoncomponent'}
@@ -244,6 +240,7 @@
 		{/if}
 
 		<div class="grow shrink" />
+
 		<AlignmentEditor bind:component={componentSettings.item.data} />
 
 		{#if Object.keys(ccomponents[component.type].customCss ?? {}).length > 0}

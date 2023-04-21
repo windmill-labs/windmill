@@ -177,7 +177,7 @@
 <div class="flex flex-col gap-2">
 	<Button
 		on:click={createScript}
-		size="sm"
+		size="xs"
 		color="light"
 		variant="border"
 		startIcon={{ icon: faPlus }}
@@ -187,8 +187,9 @@
 	</Button>
 	<Button
 		on:click={() => picker?.openDrawer()}
-		size="sm"
+		size="xs"
 		color="blue"
+		variant="border"
 		startIcon={{ icon: faMousePointer }}
 		btnClasses="truncate w-full"
 	>

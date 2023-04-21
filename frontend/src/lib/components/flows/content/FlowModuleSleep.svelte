@@ -3,12 +3,12 @@
 	import type SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-
 	import type { FlowModule } from '$lib/gen'
 	import { emptySchema } from '$lib/utils'
 	import { getContext } from 'svelte'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import type { FlowEditorContext } from '../types'
+	import { SecondsInput } from '../../common'
 
 	export let flowModule: FlowModule
 	export let previousModuleId: string | undefined
@@ -17,8 +17,7 @@
 
 	let schema = emptySchema()
 	schema.properties['sleep'] = {
-		type: 'number',
-		description: 'Sleep time in seconds'
+		type: 'number'
 	}
 
 	let editor: SimpleEditor | undefined = undefined
@@ -28,13 +27,14 @@
 	$: isSleepEnabled = Boolean(flowModule.sleep)
 </script>
 
-<h2 class="mt-2"
-	>Sleep<Tooltip>
+<h2>
+	Sleep
+	<Tooltip>
 		If defined, at the end of the step, the flow will sleep for a number of seconds before
 		scheduling the next job (if any, no effect if the step is the last one). Sleeping is passive and
-		does not consume any resources.</Tooltip
-	></h2
->
+		does not consume any resources.
+	</Tooltip>
+</h2>
 <Toggle
 	checked={isSleepEnabled}
 	on:change={() => {
@@ -52,8 +52,7 @@
 	}}
 />
 <div>
-	<span class="text-xs font-bold">Sleep for duration (seconds)</span>
-
+	<span class="text-xs font-bold">Sleep for duration</span>
 	{#if flowModule.sleep && schema.properties['sleep']}
 		<div class="border">
 			<PropPickerWrapper
@@ -71,10 +70,11 @@
 					argName="sleep"
 					{schema}
 					{previousModuleId}
+					argExtra={{ seconds: true }}
 				/>
 			</PropPickerWrapper>
 		</div>
 	{:else}
-		<input type="number" disabled />
+		<SecondsInput disabled />
 	{/if}
 </div>
