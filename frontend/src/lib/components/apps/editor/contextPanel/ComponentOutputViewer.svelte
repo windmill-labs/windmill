@@ -6,8 +6,9 @@
 	import { recursivelyFilterKeyInJSON as recursivelyFilterInJSON } from '../appUtils'
 
 	export let componentId: string
+	export let hasContent: boolean = false
 
-	const { worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { worldStore, connectingInput } = getContext<AppViewerContext>('AppViewerContext')
 	const { search, hasResult } = getContext<ContextPanelContext>('ContextPanel')
 
 	let object = {}
@@ -19,6 +20,9 @@
 				output?.subscribe({
 					id: 'alloutputs' + componentId + '-' + k,
 					next: (value) => {
+						if (!hasContent) {
+							hasContent = true
+						}
 						object[k] = value
 					}
 				})
@@ -33,7 +37,12 @@
 
 {#if object != undefined && Object.keys(object).length > 0}
 	{#if $hasResult[componentId] || $search == ''}
-		<ObjectViewer json={filtered} on:select topBrackets={false} />
+		<ObjectViewer
+			json={filtered}
+			on:select
+			topBrackets={false}
+			pureViewer={!$connectingInput.opened}
+		/>
 	{:else if $search.length > 0}
 		<div class="text-xs pl-2 text-gray-600">No results</div>
 	{:else}

@@ -16,6 +16,7 @@
 	export let color: 'blue' | 'indigo' = 'indigo'
 	export let selectable: boolean = true
 	export let renamable: boolean = true
+	export let disabled: boolean = false
 
 	const { manuallyOpened, search, hasResult } = getContext<ContextPanelContext>('ContextPanel')
 
@@ -30,8 +31,8 @@
 	$: open = $allIdsInPath.includes(id) || $manuallyOpened[id] || inSearch
 
 	const hoverColor = {
-		blue: 'hover:bg-blue-300 hover:text-blue-600',
-		indigo: 'hover:bg-indigo-300 hover:text-indigo-600'
+		blue: 'hover:bg-blue-100 hover:text-blue-500',
+		indigo: 'hover:bg-indigo-100 hover:text-indigo-500'
 	}
 
 	const openBackground = {
@@ -40,8 +41,8 @@
 	}
 
 	const manuallyOpenColor = {
-		blue: 'text-blue-600',
-		indigo: 'text-indigo-600'
+		blue: 'text-gray-900 bg-gray-300 rounded-sm',
+		indigo: 'text-gray-900 bg-gray-300 rounded-sm'
 	}
 
 	const idClass = {
@@ -163,7 +164,7 @@
 			}
 		}}
 		class={classNames(
-			'flex items-center justify-between p-1 cursor-pointer border-b gap-1 truncate',
+			'flex items-center justify-between p-1 cursor-pointer gap-1 truncate',
 			hoverColor[color],
 			$selectedComponent?.includes(id)
 				? openBackground[color]
@@ -171,10 +172,13 @@
 				? 'bg-orange-300 '
 				: 'bg-white',
 			first ? 'border-t' : '',
-			nested ? 'border-l' : ''
+			nested ? 'border-l' : '',
+			'transition-all'
 		)}
 		on:click={() => {
-			$manuallyOpened[id] = $manuallyOpened[id] != undefined ? !$manuallyOpened[id] : true
+			if (!disabled) {
+				$manuallyOpened[id] = $manuallyOpened[id] != undefined ? !$manuallyOpened[id] : true
+			}
 		}}
 	>
 		<div class="flex">
@@ -208,13 +212,15 @@
 		</div>
 		<div class="text-2xs font-bold flex flex-row gap-2 items-center truncate">
 			{name}
-			{#if !open}
-				<ChevronDown size={14} />
-			{:else if $manuallyOpened[id]}
-				<ChevronUp size={14} class={manuallyOpenColor[color]} strokeWidth={4} />
-			{:else}
-				<ChevronUp size={14} />
-			{/if}
+			<div class={classNames('bg-gray-200 rounded-sm')}>
+				{#if !open}
+					<ChevronDown size={14} color="gray" />
+				{:else if $manuallyOpened[id]}
+					<ChevronUp size={14} class={manuallyOpenColor[color]} strokeWidth={4} />
+				{:else}
+					<ChevronUp size={14} color="gray" />
+				{/if}
+			</div>
 		</div>
 	</div>
 	<div
@@ -223,7 +229,7 @@
 			? '  bg-orange-100/40'
 			: ''}"
 	>
-		<div class={classNames(nested ? 'border-l ml-2' : '')}>
+		<div class={classNames(nested ? 'border-l ml-2' : '', open ? 'border-t' : '')}>
 			<slot />
 		</div>
 	</div>

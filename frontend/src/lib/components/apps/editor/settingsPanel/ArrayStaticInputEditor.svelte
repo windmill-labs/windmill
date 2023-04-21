@@ -7,7 +7,7 @@
 	import SubTypeEditor from './SubTypeEditor.svelte'
 	import { flip } from 'svelte/animate'
 	import { dndzone, SOURCES, TRIGGERS } from 'svelte-dnd-action'
-	import { generateRandomString } from '$lib/utils'
+	import { generateRandomString, pluralize } from '$lib/utils'
 
 	const flipDurationMs = 200
 
@@ -124,6 +124,7 @@
 <div class="flex gap-2 flex-col mt-2">
 	{#key redraw}
 		{#if Array.isArray(items) && componentInput.value}
+			<div class="text-xs text-gray-600 font-semibold">{pluralize(items.length, 'item')}</div>
 			<section
 				use:dndzone={{
 					items,

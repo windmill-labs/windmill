@@ -31,7 +31,7 @@
 <Menu {placement} let:close>
 	<Button
 		nonCaptureEvent
-		color="dark"
+		color="light"
 		variant="border"
 		size="xs"
 		btnClasses={buttonClass}
@@ -39,7 +39,7 @@
 		slot="trigger"
 	>
 		{#if !$$slots.default}
-			<MoreVertical size={20} />
+			<MoreVertical size={16} />
 		{:else}
 			<slot />
 		{/if}
