@@ -13,6 +13,8 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { Pen, Plug2, Upload, User } from 'lucide-svelte'
+	import { Badge } from '$lib/components/common'
+	import { fieldTypeToTsType } from '../../utils'
 
 	export let id: string
 	export let componentInput: RichConfiguration
@@ -30,6 +32,7 @@
 	export let fileUpload: UploadAppInput['fileUpload'] | undefined = undefined
 	export let placeholder: string | undefined
 	export let customTitle: string | undefined = undefined
+	export let displayType: boolean = false
 
 	const { connectingInput } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -49,19 +52,28 @@
 			onlyStatic ? 'flex-row items-center justify-between' : 'flex-col'
 		)}
 	>
-		<div class="flex justify-between items-end gap-1">
-			<span class="text-xs font-semibold truncate text-gray-800">
-				{customTitle
-					? customTitle
-					: shouldCapitalize
-					? capitalize(addWhitespaceBeforeCapitals(key))
-					: key}
-				{#if tooltip}
-					<Tooltip>
-						{tooltip}
-					</Tooltip>
+		<div class="flex justify-between items-end">
+			<div class="flex flex-row gap-4 items-center">
+				<span class="text-xs font-semibold truncate text-gray-800">
+					{customTitle
+						? customTitle
+						: shouldCapitalize
+						? capitalize(addWhitespaceBeforeCapitals(key))
+						: key}
+					{#if tooltip}
+						<Tooltip>
+							{tooltip}
+						</Tooltip>
+					{/if}
+				</span>
+				{#if displayType}
+					<div class="text-xs text-gray-500">
+						{fieldType === 'array' && subFieldType
+							? `${fieldTypeToTsType(subFieldType)}[]`
+							: fieldTypeToTsType(fieldType)}
+					</div>
 				{/if}
-			</span>
+			</div>
 
 			<div class={classNames('flex gap-x-2 gap-y-1 flex-wrap justify-end items-center')}>
 				{#if !onlyStatic && componentInput?.type && componentInput.type != 'eval'}

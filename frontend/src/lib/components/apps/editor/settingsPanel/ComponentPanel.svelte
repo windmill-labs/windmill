@@ -195,6 +195,7 @@
 									<InputsSpecsEditor
 										id={component.id}
 										shouldCapitalize={false}
+										displayType
 										bind:inputSpecs={componentSettings.item.data.componentInput.fields}
 										userInputEnabled={component.type === 'formcomponent' ||
 											component.type === 'formbuttoncomponent'}

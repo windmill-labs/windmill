@@ -11,6 +11,7 @@
 	export let shouldCapitalize: boolean = true
 	export let rowColumns = false
 	export let resourceOnly = false
+	export let displayType = false
 </script>
 
 {#if inputSpecs}
@@ -47,6 +48,7 @@
 					fileUpload={meta?.['fileUpload']}
 					placeholder={meta?.['placeholder']}
 					customTitle={meta?.['customTitle']}
+					{displayType}
 				/>
 			{/if}
 		{/each}
