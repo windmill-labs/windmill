@@ -238,6 +238,18 @@
     },
     "query": "SELECT script_path FROM queue WHERE id = $1"
   },
+  "062859f1d0e5cfba3115f4241115753b86a4ad239708851c998ff5620ebca5b8": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "UPDATE queue SET last_ping = now() WHERE id = $1"
+  },
   "0715955b7e98cc669a88eca6556cd46b7f9c07fcf32a24f85b69720b54e6e95f": {
     "describe": {
       "columns": [
@@ -3148,6 +3160,27 @@
     },
     "query": "DELETE FROM usr_to_group WHERE workspace_id = $1"
   },
+  "897523b3096f22d1fdc877cb2501ead81589ad3eb851459b8b3764833261f7fa": {
+    "describe": {
+      "columns": [
+        {
+          "name": "hash",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "select hash from script where path = $1 AND workspace_id = $2 AND\n    created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND\n    deleted = false AND archived = false AND lock IS not NULL AND lock_error_logs IS NULL)"
+  },
   "8a80333c2fbf7b50fed305882de6e4ffda985d5c648cd617add6c9e6a9c03f34": {
     "describe": {
       "columns": [],
@@ -5128,27 +5161,6 @@
       }
     },
     "query": "INSERT INTO group_\n            VALUES ($1, 'all', 'The group that always contains all users of this workspace')"
-  },
-  "cb9b85cba9feec1ed8543718fba2856cf1aed6239ed9a2173ebb66f4a2697df2": {
-    "describe": {
-      "columns": [
-        {
-          "name": "hash",
-          "ordinal": 0,
-          "type_info": "Int8"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Text"
-        ]
-      }
-    },
-    "query": "select hash from script where path = $1 AND workspace_id = $2 AND\n    created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2) AND\n    deleted = false"
   },
   "d0308abac80575038203b60bb66d3b39b586939da0421a595e47c7a759616431": {
     "describe": {

@@ -69,12 +69,13 @@
 	<div class="w-full"><div class="mx-auto w-0">&downarrow;</div></div>
 	<div class="flex gap-1 justify-between items-center">
 		<span class="text-xs font-semibold truncate">
-			Transformer &nbsp;<Tooltip
-				>A transformer is an optional frontend script that is executed right after the component's
+			Transformer &nbsp;
+			<Tooltip>
+				A transformer is an optional frontend script that is executed right after the component's
 				script whose purpose is to do lightweight transformation in the browser. It takes the
-				previous computation's result as `result`</Tooltip
-			></span
-		>
+				previous computation's result as `result`
+			</Tooltip>
+		</span>
 		<div class="flex gap-1">
 			{#if !appInput.transformer}
 				<div>
@@ -88,8 +89,10 @@
 								content: 'return result'
 							}
 							$selectedComponentInEditor = appComponent.id + '_transformer'
-						}}>Add Transformer</Button
+						}}
 					>
+						Add Transformer
+					</Button>
 				</div>
 			{:else}
 				<Button
@@ -108,17 +111,16 @@
 	>
 </div>
 
-{#if appInput.runnable?.type === 'runnableByName' && appInput.runnable.inlineScript}
-	{#if !['buttoncomponent', 'formbuttoncomponent', 'formcomponent'].includes(appComponent.type)}
-		<div class="flex items-center">
-			<Toggle
-				size="xs"
-				bind:checked={appInput.recomputeOnInputChanged}
-				options={{ right: 'recompute on any input changes' }}
-			/>
-		</div>
-	{/if}
-
+{#if !['buttoncomponent', 'formbuttoncomponent', 'formcomponent'].includes(appComponent.type)}
+	<div class="flex items-center">
+		<Toggle
+			size="xs"
+			bind:checked={appInput.recomputeOnInputChanged}
+			options={{ right: 'recompute on any input changes' }}
+		/>
+	</div>
+{/if}
+{#if appInput.runnable?.type === 'runnableByName'}
 	<div>
 		<ComponentTriggerList
 			bind:runnable={appInput.runnable}

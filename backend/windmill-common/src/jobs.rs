@@ -1,9 +1,12 @@
 use serde::{Deserialize, Serialize};
+use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::{
+    error,
     flow_status::FlowStatus,
     flows::FlowValue,
+    get_latest_deployed_hash_for_path,
     scripts::{ScriptHash, ScriptLang},
 };
 
@@ -159,4 +162,18 @@ pub struct RawCode {
     pub path: Option<String>,
     pub language: ScriptLang,
     pub lock: Option<String>,
+}
+
+pub async fn script_path_to_payload<'c>(
+    script_path: &str,
+    db: &mut Transaction<'c, Postgres>,
+    w_id: &String,
+) -> error::Result<JobPayload> {
+    let job_payload = if script_path.starts_with("hub/") {
+        JobPayload::ScriptHub { path: script_path.to_owned() }
+    } else {
+        let script_hash = get_latest_deployed_hash_for_path(db, w_id, script_path).await?;
+        JobPayload::ScriptHash { hash: script_hash, path: script_path.to_owned() }
+    };
+    Ok(job_payload)
 }

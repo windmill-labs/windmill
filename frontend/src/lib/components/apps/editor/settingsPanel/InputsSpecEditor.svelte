@@ -1,10 +1,6 @@
 <script lang="ts">
-	import { Badge, ToggleButton, ToggleButtonGroup } from '$lib/components/common'
-	import { addWhitespaceBeforeCapitals, capitalize } from '$lib/utils'
-	import { faArrowRight, faPen, faUpload, faUser } from '@fortawesome/free-solid-svg-icons'
-	import { fieldTypeToTsType } from '../../utils'
+	import { addWhitespaceBeforeCapitals, capitalize, classNames } from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import Popover from '$lib/components/Popover.svelte'
 
 	import ConnectedInputEditor from './inputEditor/ConnectedInputEditor.svelte'
 	import EvalInputEditor from './inputEditor/EvalInputEditor.svelte'
@@ -14,6 +10,10 @@
 	import { getContext } from 'svelte'
 	import type { AppViewerContext, RichConfiguration } from '../../types'
 	import type { InputType, UploadAppInput } from '../../inputType'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import { Pen, Plug2, Upload, User } from 'lucide-svelte'
+	import { fieldTypeToTsType } from '../../utils'
 
 	export let id: string
 	export let componentInput: RichConfiguration
@@ -30,6 +30,8 @@
 	export let selectOptions: string[] | undefined
 	export let fileUpload: UploadAppInput['fileUpload'] | undefined = undefined
 	export let placeholder: string | undefined
+	export let customTitle: string | undefined = undefined
+	export let displayType: boolean = false
 
 	const { connectingInput } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -43,26 +45,39 @@
 </script>
 
 {#if !(resourceOnly && (fieldType !== 'object' || !format?.startsWith('resource-')))}
-	<div class="flex flex-col gap-1">
-		<div class="flex justify-between items-end gap-1">
-			<span class="text-sm font-semibold truncate">
-				{shouldCapitalize ? capitalize(addWhitespaceBeforeCapitals(key)) : key}
-				{#if tooltip}
-					<Tooltip>
-						{tooltip}
-					</Tooltip>
+	<div
+		class={classNames(
+			'flex gap-1',
+			onlyStatic ? 'flex-row items-center justify-between' : 'flex-col'
+		)}
+	>
+		<div class="flex justify-between items-end">
+			<div class="flex flex-row gap-4 items-center">
+				<span class="text-xs font-semibold truncate text-gray-800">
+					{customTitle
+						? customTitle
+						: shouldCapitalize
+						? capitalize(addWhitespaceBeforeCapitals(key))
+						: key}
+					{#if tooltip}
+						<Tooltip>
+							{tooltip}
+						</Tooltip>
+					{/if}
+				</span>
+				{#if displayType}
+					<div class="text-xs text-gray-500">
+						{fieldType === 'array' && subFieldType
+							? `${fieldTypeToTsType(subFieldType)}[]`
+							: fieldTypeToTsType(fieldType)}
+					</div>
 				{/if}
-			</span>
+			</div>
 
-			<div class="flex gap-x-2 gap-y-1 flex-wrap justify-end items-center">
-				<Badge color="blue">
-					{fieldType === 'array' && subFieldType
-						? `${capitalize(fieldTypeToTsType(subFieldType))}[]`
-						: capitalize(fieldTypeToTsType(fieldType))}
-				</Badge>
-
+			<div class={classNames('flex gap-x-2 gap-y-1 flex-wrap justify-end items-center')}>
 				{#if !onlyStatic && componentInput?.type && componentInput.type != 'eval'}
 					<ToggleButtonGroup
+						class="h-7"
 						bind:selected={componentInput.type}
 						on:selected={(e) => {
 							if (e.detail == 'connected' && !componentInput['connection']) {
@@ -74,50 +89,14 @@
 							}
 						}}
 					>
-						<Popover placement="bottom" notClickable disapperTimoout={0}>
-							<ToggleButton
-								position="left"
-								value="static"
-								startIcon={{ icon: faPen }}
-								size="xs"
-								iconOnly
-							/>
-							<svelte:fragment slot="text">Static</svelte:fragment>
-						</Popover>
+						<ToggleButton value="static" icon={Pen} iconOnly tooltip="Static" />
 						{#if userInputEnabled && !format?.startsWith('resource-')}
-							<Popover placement="bottom" notClickable disapperTimoout={0}>
-								<ToggleButton
-									position="center"
-									value="user"
-									startIcon={{ icon: faUser }}
-									size="xs"
-									iconOnly
-								/>
-								<svelte:fragment slot="text">User Input</svelte:fragment>
-							</Popover>
+							<ToggleButton value="user" icon={User} iconOnly tooltip="User Input" />
 						{/if}
 						{#if fileUpload}
-							<Popover placement="bottom" notClickable disapperTimoout={0}>
-								<ToggleButton
-									position="center"
-									value="upload"
-									startIcon={{ icon: faUpload }}
-									size="xs"
-									iconOnly
-								/>
-								<svelte:fragment slot="text">Upload</svelte:fragment>
-							</Popover>
+							<ToggleButton value="upload" icon={Upload} iconOnly tooltip="Upload" />
 						{/if}
-						<Popover placement="bottom" notClickable disapperTimoout={0}>
-							<ToggleButton
-								position="right"
-								value="connected"
-								startIcon={{ icon: faArrowRight }}
-								size="xs"
-								iconOnly
-							/>
-							<svelte:fragment slot="text">Connect</svelte:fragment>
-						</Popover>
+						<ToggleButton value="connected" icon={Plug2} iconOnly tooltip="Connect" />
 					</ToggleButtonGroup>
 				{/if}
 			</div>
@@ -128,14 +107,16 @@
 		{:else if componentInput?.type === 'row'}
 			<RowInputEditor bind:componentInput />
 		{:else if componentInput?.type === 'static'}
-			<StaticInputEditor
-				{fieldType}
-				{subFieldType}
-				{selectOptions}
-				{format}
-				{placeholder}
-				bind:componentInput
-			/>
+			<div class={onlyStatic ? 'w-2/3 flex justify-end' : 'w-full'}>
+				<StaticInputEditor
+					{fieldType}
+					{subFieldType}
+					{selectOptions}
+					{format}
+					{placeholder}
+					bind:componentInput
+				/>
+			</div>
 		{:else if componentInput?.type === 'eval'}
 			<EvalInputEditor {hasRows} {id} bind:componentInput />
 		{:else if componentInput?.type === 'upload'}

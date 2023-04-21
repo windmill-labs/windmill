@@ -26,7 +26,7 @@ pub async fn build_tar_and_push(bucket: &str, folder: String) -> error::Result<(
     if let Err(e) = execute_command(
         ROOT_TMP_CACHE_DIR,
         "tar",
-        vec!["-c", "-f", &tar_path, &folder],
+        vec!["-c", "-f", &tar_path, "-C", &folder, "."],
     )
     .await
     {
@@ -112,7 +112,7 @@ pub async fn pull_from_tar(bucket: &str, folder: String) -> error::Result<()> {
 
     extract_pip_tar(&target, &folder).await?;
     tracing::info!(
-        "Finished pulling and extracting {folder_name} from took {:?}ms",
+        "Finished pulling and extracting {folder_name}. Took {:?}ms",
         start.elapsed().as_millis()
     );
 
@@ -147,12 +147,16 @@ pub async fn copy_cache_from_bucket(bucket: &str, tx: Sender<()>) -> error::Resu
             &ROOT_TMP_CACHE_DIR,
             "--size-only",
             "--fast-list",
-            "--exclude",
-            &format!("deno/gen/file/tmp/windmill/**"),
-            "--exclude",
-            &format!("pip/**"),
-            "--exclude",
-            &format!("{TAR_CACHE_FILENAME}"),
+            "--filter",
+            "- deno/gen/file/**",
+            "--filter",
+            "+ deno/**",
+            "--filter",
+            "+ go/**",
+            "--filter",
+            "+ tar/**",
+            "--filter",
+            "- *",
         ],
     )
     .await
@@ -185,14 +189,14 @@ pub async fn copy_cache_to_bucket(bucket: &str) -> error::Result<()> {
             &format!(":s3,env_auth=true:{bucket}"),
             "--size-only",
             "--fast-list",
-            "--exclude",
-            &format!("deno/gen/file/tmp/windmill/**"),
-            "--exclude",
-            &format!("{TAR_CACHE_FILENAME}"),
-            "--exclude",
-            &format!("pip/**"),
-            "--exclude",
-            &format!("tar/**"),
+            "--filter",
+            "- deno/gen/file/**",
+            "--filter",
+            "+ deno/**",
+            "--filter",
+            "+ go/**",
+            "--filter",
+            "- *",
         ],
     )
     .await
@@ -277,12 +281,12 @@ pub async fn copy_denogo_cache_from_bucket_as_tar(bucket: &str) {
     let start: Instant = Instant::now();
 
     if let Err(e) = execute_command(
-        ROOT_CACHE_DIR,
+        ROOT_TMP_CACHE_DIR,
         "rclone",
         vec![
             "copyto",
             &format!(":s3,env_auth=true:{bucket}/{TAR_CACHE_FILENAME}"),
-            &format!("{ROOT_CACHE_DIR}{TAR_CACHE_FILENAME}"),
+            &format!("{ROOT_TMP_CACHE_DIR}{TAR_CACHE_FILENAME}"),
             "-v",
             "--size-only",
             "--fast-list",
@@ -297,7 +301,10 @@ pub async fn copy_denogo_cache_from_bucket_as_tar(bucket: &str) {
     if let Err(e) = execute_command(
         ROOT_CACHE_DIR,
         "tar",
-        vec!["-xpvf", &format!("{ROOT_CACHE_DIR}{TAR_CACHE_FILENAME}")],
+        vec![
+            "-xpvf",
+            &format!("{ROOT_TMP_CACHE_DIR}{TAR_CACHE_FILENAME}"),
+        ],
     )
     .await
     {
@@ -305,37 +312,20 @@ pub async fn copy_denogo_cache_from_bucket_as_tar(bucket: &str) {
         return;
     }
 
-    let denogen = format!("{ROOT_CACHE_DIR}deno/gen/file/tmp/windmill");
+    let denogen = format!("{ROOT_TMP_CACHE_DIR}deno/gen/file");
     if metadata(&denogen).await.is_ok() {
         let _ = tokio::fs::remove_dir_all(denogen).await;
     }
 
-    if let Err(e) = tokio::fs::remove_file(format!("{ROOT_CACHE_DIR}{TAR_CACHE_FILENAME}")).await {
+    if let Err(e) =
+        tokio::fs::remove_file(format!("{ROOT_TMP_CACHE_DIR}{TAR_CACHE_FILENAME}")).await
+    {
         tracing::info!("Failed to remove denotar cache. Error: {:?}", e);
         return;
     };
 
     tracing::info!(
         "Finished copying denogotar from bucket {bucket} as tar, took: {:?}s",
-        start.elapsed().as_secs()
-    );
-
-    tracing::info!("Copying denogo cache from bucket {bucket} as tar");
-
-    let start: Instant = Instant::now();
-    for x in ["deno", "go"] {
-        if let Err(e) = execute_command(
-            TMP_DIR,
-            "cp",
-            vec!["-r", &format!("{ROOT_CACHE_DIR}{x}"), &ROOT_TMP_CACHE_DIR],
-        )
-        .await
-        {
-            tracing::info!(error = %e, "Could not copy root dir to tmp root dir");
-        }
-    }
-    tracing::info!(
-        "Finished copying untarred denogo to tmp cache, took: {:?}s",
         start.elapsed().as_secs()
     );
 }
@@ -394,12 +384,14 @@ pub async fn copy_tmp_cache_to_cache() -> error::Result<()> {
             "sync",
             ROOT_TMP_CACHE_DIR,
             ROOT_CACHE_DIR,
-            "--exclude",
-            TAR_CACHE_FILENAME,
-            "--exclude",
-            &format!("pip/**"),
-            "--exclude",
-            &format!("tar/**"),
+            "--filter",
+            "- deno/gen/file/**",
+            "--filter",
+            "+ deno/**",
+            "--filter",
+            "+ go/**",
+            "--filter",
+            "- *",
         ],
     )
     .await?;
@@ -409,16 +401,9 @@ pub async fn copy_tmp_cache_to_cache() -> error::Result<()> {
         start.elapsed().as_millis(),
     );
 
-    let start = Instant::now();
-
     if let Err(e) = untar_all_piptars().await {
         tracing::info!("Failed to untar piptars. Error: {:?}", e);
     }
-
-    tracing::info!(
-        "Finished untarring all piptars took: {:?}s",
-        start.elapsed().as_secs()
-    );
 
     Ok(())
 }
@@ -434,7 +419,8 @@ pub async fn untar_all_piptars() -> error::Result<()> {
     let mut entries = fs::read_dir(TAR_PIP_TMP_CACHE_DIR).await?;
     while let Some(entry) = entries.next_entry().await? {
         if let Err(e) = {
-            let path = entry.file_name().into_string().expect("Invalid path");
+            let entry_path = entry.path();
+            let path = entry_path.to_str().expect("Could not convert path to str");
             let folder = format!(
                 "{PIP_CACHE_DIR}/{}",
                 path.split('/')
@@ -454,7 +440,7 @@ pub async fn untar_all_piptars() -> error::Result<()> {
     }
 
     tracing::info!(
-        "Finished copying local tmp cache to local cache. Took {}ms",
+        "Finished untarring all piptars. Took {}ms",
         start.elapsed().as_millis(),
     );
     Ok(())
@@ -467,7 +453,7 @@ pub async fn extract_pip_tar(tar: &str, folder: &str) -> error::Result<()> {
     let start: Instant = Instant::now();
     fs::create_dir(&folder).await?;
     if let Err(e) = execute_command(&folder, "tar", vec!["-xpvf", tar]).await {
-        tracing::info!("Failed to untar cache. Error: {:?}", e);
+        tracing::info!("Failed to untar piptar. Error: {:?}", e);
         return Err(e);
     }
     tracing::info!(
@@ -487,12 +473,14 @@ pub async fn copy_cache_to_tmp_cache() -> error::Result<()> {
             "sync",
             ROOT_CACHE_DIR,
             ROOT_TMP_CACHE_DIR,
-            "--exclude",
-            TAR_CACHE_FILENAME,
-            "--exclude",
-            &format!("pip/**"),
-            "--exclude",
-            &format!("deno/gen/file/tmp/windmill/**"),
+            "--filter",
+            "- deno/gen/file/**",
+            "--filter",
+            "+ deno/**",
+            "--filter",
+            "+ go/**",
+            "--filter",
+            "- *",
         ],
     )
     .await?;
