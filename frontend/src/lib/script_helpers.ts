@@ -125,7 +125,6 @@ export const FETCH_INIT_CODE = `export async function main(
 	body: Object = {},
 	headers: Record<string, string> = {}
 ): Promise<Response | null> {
-	console.log(url, body, headers, method)
 	if (!url) {
 		console.error('Error: URL is undefined')
 		return null

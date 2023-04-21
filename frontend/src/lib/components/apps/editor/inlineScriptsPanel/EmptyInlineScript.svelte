@@ -171,7 +171,7 @@
 			<div class="flex gap-2 flex-row flex-wrap">
 				{#each langs as lang}
 					<FlowScriptPicker
-						label={capitalize(lang)}
+						label={lang === 'deno' ? 'Typescript' : capitalize(lang)}
 						{lang}
 						on:click={() => {
 							createInlineScriptByLanguage(lang, name)
