@@ -19,7 +19,7 @@ use tokio::sync::mpsc::Sender;
 use tracing::instrument;
 use uuid::Uuid;
 use windmill_common::flow_status::{FlowStatusModuleWParent, Iterator, JobResult};
-use windmill_common::jobs::{QueuedJob, JobPayload, RawCode};
+use windmill_common::jobs::{script_path_to_payload, JobPayload, QueuedJob, RawCode};
 use windmill_common::{
     error::{self, to_anyhow, Error},
     flow_status::{
@@ -1612,22 +1612,6 @@ enum ContinuePayload {
 enum NextFlowTransform {
     EmptyInnerFlows,
     Continue(ContinuePayload, NextStatus),
-}
-
-// a similar function exists on the backend
-// TODO: rewrite this to use an endpoint in the backend directly, instead of checking for hub itself, and then using the API
-async fn script_path_to_payload<'c>(
-    script_path: &str,
-    db: &mut sqlx::Transaction<'c, sqlx::Postgres>,
-    w_id: &String,
-) -> Result<JobPayload, Error> {
-    let job_payload = if script_path.starts_with("hub/") {
-        JobPayload::ScriptHub { path: script_path.to_owned() }
-    } else {
-        let script_hash = windmill_common::get_latest_hash_for_path(db, w_id, script_path).await?;
-        JobPayload::ScriptHash { hash: script_hash, path: script_path.to_owned() }
-    };
-    Ok(job_payload)
 }
 
 async fn compute_next_flow_transform<'c>(

@@ -758,7 +758,7 @@ async fn slack_command(
                 JobPayload::Flow(path.to_string())
             } else {
                 let path = path.strip_prefix("script/").unwrap_or_else(|| path);
-                let script_hash = windmill_common::get_latest_hash_for_path(
+                let script_hash = windmill_common::get_latest_deployed_hash_for_path(
                     tx.transaction_mut(),
                     &settings.workspace_id,
                     path,
