@@ -176,7 +176,7 @@
 						<MenuItem on:click={item.onClick} href={item.href}>
 							<div
 								class={classNames(
-									'!text-gray-600 text-left px-4 py-2 gap-2 cursor-pointer hover:bg-gray-100 !text-xs font-normal'
+									'!text-gray-600 text-left px-4 py-2 gap-2 cursor-pointer hover:bg-gray-100 !text-xs font-semibold'
 								)}
 							>
 								{#if item.icon}

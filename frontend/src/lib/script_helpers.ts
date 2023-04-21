@@ -119,6 +119,38 @@ export async function main(
   return query.rows;
 }`
 
+export const FETCH_INIT_CODE = `export async function main(
+	url: string | undefined,
+	method: string = 'GET',
+	body: Object = {},
+	headers: Record<string, string> = {}
+): Promise<Response | null> {
+	console.log(url, body, headers, method)
+	if (!url) {
+		console.error('Error: URL is undefined')
+		return null
+	}
+
+	const requestOptions: RequestInit = {
+		method: method || 'GET',
+		headers: headers || {}
+	}
+
+	if (requestOptions.method !== 'GET' && requestOptions.method !== 'HEAD' && body !== undefined) {
+		requestOptions.body = JSON.stringify(body)
+		requestOptions.headers = {
+			'Content-Type': 'application/json',
+			...requestOptions.headers
+		}
+	}
+
+	return await fetch(url, requestOptions)
+		.then((res) => res.json())
+		.catch(() => {
+			throw new Error('An error occured')
+		})
+}`
+
 export const BASH_INIT_CODE = `# arguments of the form X="$I" are parsed as parameters X of type string
 msg="$1"
 dflt="\${2:-default value}"
@@ -202,7 +234,7 @@ export function isInitialCode(content: string): boolean {
 export function initialCode(
 	language: 'deno' | 'python3' | 'go' | 'bash',
 	kind: Script.kind,
-	subkind: 'pgsql' | 'mysql' | 'flow' | 'script' | undefined
+	subkind: 'pgsql' | 'mysql' | 'flow' | 'script' | 'fetch' | undefined
 ): string {
 	if (language === 'deno') {
 		if (kind === 'trigger') {
@@ -214,6 +246,8 @@ export function initialCode(
 				return POSTGRES_INIT_CODE
 			} else if (subkind === 'mysql') {
 				return MYSQL_INIT_CODE
+			} else if (subkind === 'fetch') {
+				return FETCH_INIT_CODE
 			} else {
 				return DENO_INIT_CODE
 			}
