@@ -78,7 +78,7 @@ pub async fn pull_from_tar(bucket: &str, folder: String) -> error::Result<()> {
 
     let start = Instant::now();
     let tar_path = format!("tar/pip/{folder_name}.tar");
-    let target = format!("{ROOT_TMP_CACHE_DIR}/{tar_path}");
+    let target = format!("{ROOT_TMP_CACHE_DIR}/{tar_path}.single");
     if let Err(e) = execute_command(
         ROOT_TMP_CACHE_DIR,
         "rclone",
@@ -111,6 +111,7 @@ pub async fn pull_from_tar(bucket: &str, folder: String) -> error::Result<()> {
     }
 
     extract_pip_tar(&target, &folder).await?;
+    tokio::fs::remove_file(&target).await?;
     tracing::info!(
         "Finished pulling and extracting {folder_name}. Took {:?}ms",
         start.elapsed().as_millis()
