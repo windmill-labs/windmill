@@ -60,12 +60,12 @@
 		{/if}
 		{#if level == 0 && topBrackets}<span class="h-0">{openBracket}</span>{/if}
 		<ul
-			class={`w-full pl-2 py-1 ${
+			class={`w-full pl-2 ${
 				level === 0 ? 'border-none' : 'border-l border-dotted border-gray-200'
 			}`}
 		>
 			{#each keys.length > keyLimit ? keys.slice(0, keyLimit) : keys as key, index (key)}
-				<li class="pb-1 last-of-type:pb-0">
+				<li>
 					<button on:click={() => selectProp(key, key)} class="whitespace-nowrap">
 						{#if topLevelNode}
 							<Badge baseClass="border border-blue-600" color="indigo">{key}</Badge>

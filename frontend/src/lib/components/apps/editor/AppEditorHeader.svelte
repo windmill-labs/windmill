@@ -24,7 +24,6 @@
 		Expand,
 		Laptop2,
 		Loader2,
-		Pen,
 		Smartphone
 	} from 'lucide-svelte'
 	import { getContext } from 'svelte'
@@ -507,58 +506,79 @@
 	class="border-b flex flex-row justify-between py-1 gap-2 gap-y-2 px-2 items-center overflow-y-visible"
 >
 	<div class="min-w-64 w-64">
-		<div class="flex justify-start w-full">
-			<div class="">
-				<Badge
-					color="gray"
-					class="center-center !bg-gray-300 !text-gray-600 !h-[28px] rounded-r-none"
-				>
-					<div class="flex flex-row gap-2 w-full items-center">
-						<Pen size={12} />
-						Summary
-					</div>
-				</Badge>
-			</div>
-			<input
-				type="text"
-				placeholder="App summary"
-				bind:value={$summary}
-				class="!text-xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 !rounded-l-none"
-			/>
-		</div>
+		<input
+			type="text"
+			placeholder="App summary"
+			class="text-sm w-full font-semibold"
+			bind:value={$summary}
+		/>
 	</div>
-	<UndoRedo
-		undoProps={{ disabled: $history?.index === 0 }}
-		redoProps={{ disabled: $history && $history?.index === $history.history.length - 1 }}
-		on:undo={() => {
-			$app = undo(history, $app)
-		}}
-		on:redo={() => {
-			$app = redo(history)
-		}}
-	/>
+	<div class="flex gap-4 items-center justify-center">
+		<UndoRedo
+			undoProps={{ disabled: $history?.index === 0 }}
+			redoProps={{ disabled: $history && $history?.index === $history.history.length - 1 }}
+			on:undo={() => {
+				$app = undo(history, $app)
+			}}
+			on:redo={() => {
+				$app = redo(history)
+			}}
+		/>
 
-	<div>
-		<ToggleButtonGroup class="h-[30px]" bind:selected={$breakpoint}>
-			<ToggleButton icon={Smartphone} value="sm" />
-			<ToggleButton icon={Laptop2} value="lg" />
-		</ToggleButtonGroup>
-	</div>
-	{#if $app}
-		<ToggleButtonGroup class="h-[30px]" bind:selected={$app.fullscreen}>
-			<ToggleButton
-				icon={AlignHorizontalSpaceAround}
-				value={false}
-				tooltip="The max width is 1168px and the content stay centered instead of taking the full page width"
-			/>
-			<ToggleButton icon={Expand} value={true} />
-		</ToggleButtonGroup>
-	{/if}
-	<div class="flex gap-4 items-center grow justify-center">
-		<div class="hidden lg:block" />
+		<div>
+			<ToggleButtonGroup class="h-[30px]" bind:selected={$breakpoint}>
+				<ToggleButton icon={Smartphone} value="sm" />
+				<ToggleButton icon={Laptop2} value="lg" />
+			</ToggleButtonGroup>
+		</div>
+		{#if $app}
+			<ToggleButtonGroup class="h-[30px]" bind:selected={$app.fullscreen}>
+				<ToggleButton
+					icon={AlignHorizontalSpaceAround}
+					value={false}
+					tooltip="The max width is 1168px and the content stay centered instead of taking the full page width"
+				/>
+				<ToggleButton icon={Expand} value={true} />
+			</ToggleButtonGroup>
+		{/if}
 	</div>
 
 	<div class="flex flex-row gap-2 justify-end items-center overflow-visible">
+		<Dropdown
+			placement="bottom-end"
+			btnClasses="!border !rounded-md"
+			dropdownItems={[
+				{
+					displayName: 'JSON',
+					icon: faFileExport,
+					action: () => {
+						appExport.open($app)
+					}
+				},
+				// {
+				// 	displayName: 'Publish to Hub',
+				// 	icon: faGlobe,
+				// 	action: () => {
+				// 		const url = appToHubUrl(toStatic($app, $staticExporter, $summary))
+				// 		window.open(url.toString(), '_blank')
+				// 	}
+				// },
+				{
+					displayName: 'Hub compatible JSON',
+					icon: faFileExport,
+					action: () => {
+						appExport.open(toStatic($app, $staticExporter, $summary).app)
+					}
+				},
+				{
+					displayName: 'App Inputs',
+					icon: faSlidersH,
+					action: () => {
+						inputsDrawerOpen = true
+					}
+				}
+			]}
+		/>
 		<div class="hidden md:inline relative overflow-visible">
 			{#if hasErrors}
 				<span
@@ -624,40 +644,5 @@
 				Save
 			</Button>
 		{/if}
-		<Dropdown
-			placement="bottom-end"
-			btnClasses="!border !rounded-md"
-			dropdownItems={[
-				{
-					displayName: 'JSON',
-					icon: faFileExport,
-					action: () => {
-						appExport.open($app)
-					}
-				},
-				// {
-				// 	displayName: 'Publish to Hub',
-				// 	icon: faGlobe,
-				// 	action: () => {
-				// 		const url = appToHubUrl(toStatic($app, $staticExporter, $summary))
-				// 		window.open(url.toString(), '_blank')
-				// 	}
-				// },
-				{
-					displayName: 'Hub compatible JSON',
-					icon: faFileExport,
-					action: () => {
-						appExport.open(toStatic($app, $staticExporter, $summary).app)
-					}
-				},
-				{
-					displayName: 'App Inputs',
-					icon: faSlidersH,
-					action: () => {
-						inputsDrawerOpen = true
-					}
-				}
-			]}
-		/>
 	</div>
 </div>
