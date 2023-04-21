@@ -15,7 +15,7 @@ use windmill_api_client::Client;
 use std::{
     borrow::Borrow, collections::HashMap, io, os::unix::process::ExitStatusExt, panic,
     process::Stdio, time::{Duration},
-    sync::{Arc},
+    sync::{Arc, atomic::Ordering},
 };
 use tracing::{trace_span, Instrument};
 use uuid::Uuid;
@@ -25,7 +25,7 @@ use windmill_common::{
     flows::{FlowModuleValue, FlowValue},
     scripts::{ScriptHash, ScriptLang},
     utils::{rd_string},
-    variables, BASE_URL, users::SUPERADMIN_SECRET_EMAIL, METRICS_ENABLED, jobs::{JobKind, QueuedJob},
+    variables, BASE_URL, users::SUPERADMIN_SECRET_EMAIL, METRICS_ENABLED, jobs::{JobKind, QueuedJob}, IS_READY,
 };
 use windmill_queue::{canceled_job_to_result, get_queued_job, pull, CLOUD_HOSTED};
 
@@ -52,7 +52,7 @@ use async_recursion::async_recursion;
 use rand::Rng;
 
 #[cfg(feature = "enterprise")]
-use crate::global_cache::{copy_cache_to_tmp_cache, cache_global, copy_tmp_cache_to_cache};
+use crate::global_cache::{copy_cache_to_tmp_cache, cache_global, copy_tmp_cache_to_cache, copy_denogo_cache_from_bucket_as_tar, copy_all_piptars_from_bucket};
 
 use crate::{
     jobs::{add_completed_job, add_completed_job_error},
@@ -417,6 +417,34 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
     let mut last_sync =
         Instant::now() + Duration::from_secs(rand::thread_rng().gen_range(0..*GLOBAL_CACHE_INTERVAL));
 
+    #[cfg(feature = "enterprise")]
+    let mut handles = Vec::with_capacity(2);
+
+    #[cfg(feature = "enterprise")]
+    if i_worker == 1 {
+        if let Some(ref s) = S3_CACHE_BUCKET.clone() {
+            let bucket = s.to_string();
+            let copy_to_bucket_tx2 = copy_to_bucket_tx.clone();
+            let worker_name2 = worker_name.clone();
+
+            handles.push(tokio::task::spawn(async move {
+                tracing::info!(worker = %worker_name2, "Started initial denogo tar sync in background");
+                copy_denogo_cache_from_bucket_as_tar(&bucket).await;
+                let _ = copy_to_bucket_tx2.send(()).await;
+            }));
+
+            let bucket = s.to_string();
+            let copy_to_bucket_tx = copy_to_bucket_tx.clone();
+            let worker_name = worker_name.clone();
+
+            handles.push(tokio::task::spawn(async move {
+                tracing::info!(worker = %worker_name, "Started initial piptars cache sync in background");
+                copy_all_piptars_from_bucket(&bucket).await;
+                let _ = copy_to_bucket_tx.send(()).await;
+            }));
+        }
+    }
+
     let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<Uuid>(5);
 
     let (job_completed_tx, mut job_completed_rx) = mpsc::channel::<JobCompleted>(10);
@@ -515,16 +543,23 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     tokio::select! {
                         biased;
                         _ = rx.recv() => {
+                            #[cfg(feature = "enterprise")]
                             if let Some(copy_cache_from_bucket_handle) = copy_cache_from_bucket_handle.as_ref() {
                                 if !copy_cache_from_bucket_handle.is_finished() {
                                     copy_cache_from_bucket_handle.abort();
+                                }
+                            }
+                            #[cfg(feature = "enterprise")]
+                            for handle in &handles {
+                                if !handle.is_finished() {
+                                    handle.abort();
                                 }
                             }
                             println!("received killpill for worker {}", i_worker);
                             (true, Ok(None))
                         },
                         _ = copy_to_bucket_rx.recv() => {
-                            tracing::debug!("CAN PULL LOCK START");
+                            tracing::debug!("can_pull lock start");
                             let _lock = CAN_PULL.write().await;
                             if num_workers > 1 {
                                 create_barrier_for_all_workers(num_workers, sync_barrier.clone()).await;
@@ -534,7 +569,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                             if let Err(e) = copy_tmp_cache_to_cache().await {
                                 tracing::error!(worker = %worker_name, "failed to sync tmp cache to cache: {}", e);
                             }
-                            tracing::debug!("CAN PULL LOCK END");
+                            tracing::debug!("can_pull lock end");
                             (false, Ok(None))
                         },
                         Some(job_id) = same_worker_rx.recv() => {
@@ -559,6 +594,8 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             };
 
             first_run = false;
+            IS_READY.store(true, Ordering::Relaxed);
+
             if do_break {
                 return true;
             }
