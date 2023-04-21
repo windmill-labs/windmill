@@ -44,6 +44,7 @@
 	let modulePreview: ModulePreview
 	let websocketAlive = { pyright: false, black: false, deno: false, go: false }
 	let selected = 'inputs'
+	let advancedSelected = 'retries'
 	let wrapper: HTMLDivElement
 	let panes: HTMLElement
 	let totalTopGap = 0
@@ -104,6 +105,11 @@
 		}
 	}
 
+	function selectAdvanced(subtab: string) {
+		selected = 'advanced'
+		advancedSelected = subtab
+	}
+
 	afterUpdate(() => {
 		totalTopGap = 0
 		if (!(wrapper && panes)) return
@@ -127,10 +133,10 @@
 			<svelte:fragment slot="header">
 				<FlowModuleHeader
 					bind:module={flowModule}
-					on:toggleSuspend={() => (selected = 'advanced-suspend')}
-					on:toggleSleep={() => (selected = 'advanced-sleep')}
-					on:toggleRetry={() => (selected = 'advanced-retries')}
-					on:toggleStopAfterIf={() => (selected = 'advanced-early-stop')}
+					on:toggleSuspend={() => selectAdvanced('suspend')}
+					on:toggleSleep={() => selectAdvanced('sleep')}
+					on:toggleRetry={() => selectAdvanced('retries')}
+					on:toggleStopAfterIf={() => selectAdvanced('early-stop')}
 					on:fork={async () => {
 						const [module, state] = await fork(flowModule)
 						flowModule = module
@@ -217,7 +223,7 @@
 						<Tabs bind:selected>
 							<Tab value="inputs"><span class="font-semibold">Step Input</span></Tab>
 							<Tab value="test"><span class="font-semibold text-md">Test this step</span></Tab>
-							<Tab value="advanced-retries">Advanced</Tab>
+							<Tab value="advanced">Advanced</Tab>
 						</Tabs>
 						<div class="h-[calc(100%-32px)]">
 							{#if selected === 'inputs'}
@@ -240,42 +246,44 @@
 									mod={flowModule}
 									schema={$flowStateStore[$selectedId]?.schema ?? {}}
 								/>
-							{:else if selected.startsWith('advanced')}
-								<Tabs bind:selected>
-									<Tab value="advanced-retries">Retries</Tab>
+							{:else if selected === 'advanced'}
+								<Tabs bind:selected={advancedSelected}>
+									<Tab value="retries">Retries</Tab>
 									{#if !$selectedId.includes('failure')}
-										<Tab value="advanced-early-stop">Early Stop/Break</Tab>
-										<Tab value="advanced-suspend">Suspend</Tab>
-										<Tab value="advanced-sleep">Sleep</Tab>
-										<Tab value="advanced-same_worker">Shared Directory</Tab>
+										<Tab value="early-stop">Early Stop/Break</Tab>
+										<Tab value="suspend">Suspend</Tab>
+										<Tab value="sleep">Sleep</Tab>
+										<Tab value="same_worker">Shared Directory</Tab>
 									{/if}
 								</Tabs>
-								{#if selected === 'advanced-retries'}
-									<FlowRetries bind:flowModule class="px-4 pb-4 h-full overflow-auto" />
-								{:else if selected === 'advanced-early-stop'}
-									<FlowModuleEarlyStop bind:flowModule class="px-4 pb-4 h-full overflow-auto" />
-								{:else if selected === 'advanced-suspend'}
-									<div class="px-4 pb-4 h-full overflow-auto">
-										<FlowModuleSuspend bind:flowModule />
-									</div>
-								{:else if selected === 'advanced-sleep'}
-									<div class="px-4 pb-4 h-full overflow-auto">
-										<FlowModuleSleep previousModuleId={previousModule?.id} bind:flowModule />
-									</div>
-								{:else if selected === 'advanced-same_worker'}
-									<div class="p-4 h-full overflow-auto">
-										<Alert type="info" title="Share a directory between steps">
-											If shared directory is set, will share a folder that will be mounted on
-											`./shared` for each of them to pass data between each other.
-										</Alert>
-										<Button
-											btnClasses="mt-4"
-											on:click={() => {
-												$selectedId = 'settings-same-worker'
-											}}>Set shared directory in the flow settings</Button
-										>
-									</div>
-								{/if}
+								<div class="h-[calc(100%-32px)] overflow-auto p-4">
+									{#if advancedSelected === 'retries'}
+										<FlowRetries bind:flowModule />
+									{:else if advancedSelected === 'early-stop'}
+										<FlowModuleEarlyStop bind:flowModule />
+									{:else if advancedSelected === 'suspend'}
+										<div>
+											<FlowModuleSuspend bind:flowModule />
+										</div>
+									{:else if advancedSelected === 'sleep'}
+										<div>
+											<FlowModuleSleep previousModuleId={previousModule?.id} bind:flowModule />
+										</div>
+									{:else if advancedSelected === 'same_worker'}
+										<div>
+											<Alert type="info" title="Share a directory between steps">
+												If shared directory is set, will share a folder that will be mounted on
+												`./shared` for each of them to pass data between each other.
+											</Alert>
+											<Button
+												btnClasses="mt-4"
+												on:click={() => {
+													$selectedId = 'settings-same-worker'
+												}}>Set shared directory in the flow settings</Button
+											>
+										</div>
+									{/if}
+								</div>
 							{/if}
 						</div>
 					</Pane>

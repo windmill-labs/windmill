@@ -14,7 +14,7 @@
 	import Icon from 'svelte-awesome'
 	import { fade } from 'svelte/transition'
 	import JsonEditor from './apps/editor/settingsPanel/inputEditor/JsonEditor.svelte'
-	import { Badge, Button } from './common'
+	import { Badge, Button, SecondsInput } from './common'
 	import FieldHeader from './FieldHeader.svelte'
 	import type ItemPicker from './ItemPicker.svelte'
 	import NumberTypeNarrowing from './NumberTypeNarrowing.svelte'
@@ -236,12 +236,12 @@
 						<span>{extra['max']}</span>
 						<span class="mx-2"><Badge large color="blue">{value}</Badge></span>
 					</div>
+				{:else if extra['seconds'] !== undefined}
+					<SecondsInput bind:seconds={value} on:focus />
 				{:else}
 					<input
 						{autofocus}
-						on:focus={(e) => {
-							dispatch('focus')
-						}}
+						on:focus
 						{disabled}
 						type="number"
 						class={valid
