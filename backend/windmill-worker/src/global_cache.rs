@@ -281,12 +281,12 @@ pub async fn copy_denogo_cache_from_bucket_as_tar(bucket: &str) {
     let start: Instant = Instant::now();
 
     if let Err(e) = execute_command(
-        ROOT_CACHE_DIR,
+        ROOT_TMP_CACHE_DIR,
         "rclone",
         vec![
             "copyto",
             &format!(":s3,env_auth=true:{bucket}/{TAR_CACHE_FILENAME}"),
-            &format!("{ROOT_CACHE_DIR}{TAR_CACHE_FILENAME}"),
+            &format!("{ROOT_TMP_CACHE_DIR}{TAR_CACHE_FILENAME}"),
             "-v",
             "--size-only",
             "--fast-list",
@@ -301,7 +301,10 @@ pub async fn copy_denogo_cache_from_bucket_as_tar(bucket: &str) {
     if let Err(e) = execute_command(
         ROOT_CACHE_DIR,
         "tar",
-        vec!["-xpvf", &format!("{ROOT_CACHE_DIR}{TAR_CACHE_FILENAME}")],
+        vec![
+            "-xpvf",
+            &format!("{ROOT_TMP_CACHE_DIR}{TAR_CACHE_FILENAME}"),
+        ],
     )
     .await
     {
@@ -309,37 +312,20 @@ pub async fn copy_denogo_cache_from_bucket_as_tar(bucket: &str) {
         return;
     }
 
-    let denogen = format!("{ROOT_CACHE_DIR}deno/gen/file/tmp/windmill");
+    let denogen = format!("{ROOT_TMP_CACHE_DIR}deno/gen/file/tmp/windmill");
     if metadata(&denogen).await.is_ok() {
         let _ = tokio::fs::remove_dir_all(denogen).await;
     }
 
-    if let Err(e) = tokio::fs::remove_file(format!("{ROOT_CACHE_DIR}{TAR_CACHE_FILENAME}")).await {
+    if let Err(e) =
+        tokio::fs::remove_file(format!("{ROOT_TMP_CACHE_DIR}{TAR_CACHE_FILENAME}")).await
+    {
         tracing::info!("Failed to remove denotar cache. Error: {:?}", e);
         return;
     };
 
     tracing::info!(
         "Finished copying denogotar from bucket {bucket} as tar, took: {:?}s",
-        start.elapsed().as_secs()
-    );
-
-    tracing::info!("Copying denogo cache from bucket {bucket} as tar");
-
-    let start: Instant = Instant::now();
-    for x in ["deno", "go"] {
-        if let Err(e) = execute_command(
-            TMP_DIR,
-            "cp",
-            vec!["-r", &format!("{ROOT_CACHE_DIR}{x}"), &ROOT_TMP_CACHE_DIR],
-        )
-        .await
-        {
-            tracing::info!(error = %e, "Could not copy root dir to tmp root dir");
-        }
-    }
-    tracing::info!(
-        "Finished copying untarred denogo to tmp cache, took: {:?}s",
         start.elapsed().as_secs()
     );
 }
