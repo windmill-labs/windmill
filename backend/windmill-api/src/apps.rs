@@ -9,7 +9,6 @@ use std::collections::HashMap;
  */
 use crate::{
     db::{UserDB, DB},
-    jobs::script_path_to_payload,
     users::{require_owner_of_path, Authed, OptAuthed},
     variables::build_crypt,
     webhook_util::{WebhookMessage, WebhookShared},
@@ -32,7 +31,7 @@ use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     apps::ListAppQuery,
     error::{to_anyhow, Error, JsonResult, Result},
-    jobs::{JobPayload, RawCode},
+    jobs::{JobPayload, RawCode, script_path_to_payload},
     users::username_to_permissioned_as,
     utils::{
         http_get_from_hub, list_elems_from_hub, not_found_if_none, paginate, Pagination, StripPath,

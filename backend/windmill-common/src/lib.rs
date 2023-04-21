@@ -147,16 +147,15 @@ pub async fn connect(
         .map_err(|err| Error::ConnectingToDatabase(err.to_string()))
 }
 
-// TODO: Move this elsewhere
-pub async fn get_latest_hash_for_path<'c>(
+pub async fn get_latest_deployed_hash_for_path<'c>(
     db: &mut sqlx::Transaction<'c, sqlx::Postgres>,
     w_id: &str,
     script_path: &str,
 ) -> error::Result<scripts::ScriptHash> {
     let script_hash_o = sqlx::query_scalar!(
         "select hash from script where path = $1 AND workspace_id = $2 AND
-    created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2) AND
-    deleted = false",
+    created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND
+    deleted = false AND archived = false AND lock IS not NULL AND lock_error_logs IS NULL)",
         script_path,
         w_id
     )
