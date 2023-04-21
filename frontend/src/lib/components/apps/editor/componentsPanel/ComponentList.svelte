@@ -50,15 +50,16 @@
 	<div class="relative">
 		<input
 			bind:value={search}
-			class="px-2 py-1 border border-gray-300 rounded-sm {search ? 'pr-8' : ''}"
+			class="px-2 py-1 border border-gray-300 rounded-sm !pr-6"
 			placeholder="Search components..."
 		/>
-		{#if search}
+
+		{#if search !== ''}
 			<button
-				class="absolute right-2 top-1/2 transform -translate-y-1/2 hover:bg-gray-200 rounded-full p-0.5"
+				class="absolute right-2 top-1/2 transform -translate-y-1/2 hover:bg-gray-500 bg-gray-300 transition-all rounded-full p-0.5"
 				on:click|stopPropagation|preventDefault={() => (search = '')}
 			>
-				<X size="14" />
+				<X size="10" color="white" />
 			</button>
 		{/if}
 	</div>

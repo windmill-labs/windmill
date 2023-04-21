@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { addWhitespaceBeforeCapitals, capitalize } from '$lib/utils'
 	import type { RichConfiguration } from '../../types'
 	import InputsSpecEditor from './InputsSpecEditor.svelte'
 
@@ -30,9 +31,12 @@
 </script>
 
 <div class="p-2 border">
-	<h4 class="mb-2"
-		>{key}&nbsp;{#if tooltip}<Tooltip>{tooltip}</Tooltip>{/if}</h4
-	>
+	<div class="mb-2 text-sm font-semibold">
+		{capitalize(addWhitespaceBeforeCapitals(key))}&nbsp;
+		{#if tooltip}
+			<Tooltip>{tooltip}</Tooltip>
+		{/if}
+	</div>
 	<select
 		class="w-full border border-gray-300 rounded-md p-2"
 		value={oneOf.selected}
@@ -44,7 +48,9 @@
 			<option value={choice}>{labels?.[choice] ?? choice}</option>
 		{/each}
 	</select>
-	<div class="mb-4" />
+	{#if oneOf.selected !== 'none'}
+		<div class="mb-4" />
+	{/if}
 	<div class="flex flex-col gap-4">
 		{#each Object.keys(inputSpecsConfiguration?.[oneOf.selected] ?? {}) as nestedKey}
 			{@const config = inputSpecsConfiguration?.[oneOf.selected]?.[nestedKey]}
@@ -63,6 +69,7 @@
 					selectOptions={config?.['selectOptions']}
 					placeholder={config?.['placeholder']}
 					onlyStatic={config?.['onlyStatic']}
+					customTitle={config?.['customTitle']}
 				/>
 			{/if}
 		{/each}

@@ -1,9 +1,10 @@
 <script lang="ts">
 	import type { AppViewerContext } from '../../../types'
 	import { Badge, Button } from '$lib/components/common'
-	import { faArrowRight, faClose } from '@fortawesome/free-solid-svg-icons'
+	import { faClose } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { ConnectedAppInput } from '../../../inputType'
+	import { Plug } from 'lucide-svelte'
 
 	export let componentInput: ConnectedAppInput
 
@@ -29,18 +30,14 @@
 </script>
 
 {#if componentInput.connection}
-	<div class="flex justify-between w-full gap-1">
-		<span class="text-xs">Status</span>
-		<Badge color="green">Connected</Badge>
+	<div class="flex justify-between w-full items-center">
+		<span class="text-xs">Connection</span>
+		<div>
+			<Badge color="indigo">{componentInput.connection.componentId}</Badge>
+			<Badge color="indigo">{componentInput.connection.path}</Badge>
+		</div>
 	</div>
-	<div class="flex justify-between w-full">
-		<span class="text-xs">Component</span>
-		<Badge color="indigo">{componentInput.connection.componentId}</Badge>
-	</div>
-	<div class="flex justify-between w-full">
-		<span class="text-xs">Path</span>
-		<Badge color="indigo">{componentInput.connection.path}</Badge>
-	</div>
+
 	<Button
 		size="xs"
 		startIcon={{ icon: faClose }}
@@ -56,14 +53,8 @@
 		Disconnect
 	</Button>
 {:else}
-	<div class="flex justify-between w-full gap-1">
-		<span class="text-xs">Status</span>
-		<Badge color="yellow">Not connected</Badge>
-	</div>
 	<Button
 		size="xs"
-		endIcon={{ icon: faArrowRight }}
-		color="blue"
 		on:click={() => {
 			if (componentInput.type === 'connected') {
 				$connectingInput = {
@@ -74,6 +65,9 @@
 			}
 		}}
 	>
-		Connect
+		<div class="flex flex-row gap-1 items-center">
+			<span>Connect</span>
+			<Plug size={14} />
+		</div>
 	</Button>
 {/if}

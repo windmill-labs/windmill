@@ -413,7 +413,6 @@ export const components = {
 					type: 'eval',
 					expr: 'false'
 				},
-				onSuccess: onSuccessClick,
 				beforeIcon: {
 					type: 'static',
 					value: undefined,
@@ -431,7 +430,8 @@ export const components = {
 					value: false,
 					fieldType: 'boolean',
 					onlyStatic: true
-				}
+				},
+				onSuccess: onSuccessClick
 			}
 		}
 	},
@@ -815,7 +815,9 @@ Hello \${ctx.username}
 					type: 'static',
 					onlyStatic: true,
 					selectOptions: selectOptions.tableSearchOptions,
-					value: 'Disabled' as string
+					value: 'Disabled' as string,
+					tooltip:
+						'Search can be configured in the following ways: Disabled: The search is disabled,By Runnable: The search is done in the backend, or by component: The search is done in the frontend.'
 				},
 				pagination: paginationOneOf
 			},
@@ -987,7 +989,8 @@ Hello \${ctx.username}
 					fieldType: 'boolean',
 					value: false,
 					onlyStatic: true,
-					tooltip: 'Allows user to manually add new value'
+					tooltip: 'Allows user to manually add new value',
+					customTitle: 'Manually add new value '
 				},
 				placeholder: {
 					type: 'static',
