@@ -9,8 +9,9 @@
 	export let label: string | undefined = undefined
 	export let iconOnly: boolean = false
 	export let tooltip: string | undefined = undefined
-	export let icon: any
+	export let icon: any | undefined = undefined
 	export let disabled: boolean = false
+	export let selectedColor: string = '#3b82f6'
 
 	const { select, selected } = getContext<ToggleButtonContext>('ToggleButtonGroup')
 </script>
@@ -20,12 +21,17 @@
 		{disabled}
 		class={twMerge(
 			'px-2 py-1 rounded-md transition-all text-xs flex gap-1 flex-row items-center',
-			$selected === value ? 'bg-white shadow-md text-gray-800' : 'text-gray-600 hover:bg-gray-200'
+			$selected === value ? 'bg-white shadow-md text-gray-800' : 'text-gray-600 hover:bg-gray-200',
+			$$props.class
 		)}
 		on:click={() => select(value)}
 	>
 		{#if icon}
-			<svelte:component this={icon} size={14} color={$selected === value ? '#3b82f6' : '#9CA3AF'} />
+			<svelte:component
+				this={icon}
+				size={14}
+				color={$selected === value ? selectedColor : '#9CA3AF'}
+			/>
 		{/if}
 		{#if label && !iconOnly}
 			{label}

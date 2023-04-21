@@ -24,6 +24,7 @@
 		Expand,
 		Laptop2,
 		Loader2,
+		Pen,
 		Smartphone
 	} from 'lucide-svelte'
 	import { getContext } from 'svelte'
@@ -503,15 +504,28 @@
 </Drawer>
 
 <div
-	class="border-b flex flex-row justify-between py-1 gap-2 gap-y-2 px-3 items-center overflow-y-visible"
+	class="border-b flex flex-row justify-between py-1 gap-2 gap-y-2 px-2 items-center overflow-y-visible"
 >
 	<div class="min-w-64 w-64">
-		<input
-			type="text"
-			placeholder="App summary"
-			class="text-sm w-full font-semibold"
-			bind:value={$summary}
-		/>
+		<div class="flex justify-start w-full">
+			<div class="">
+				<Badge
+					color="gray"
+					class="center-center !bg-gray-300 !text-gray-600 !h-[28px] rounded-r-none"
+				>
+					<div class="flex flex-row gap-2 w-full items-center">
+						<Pen size={12} />
+						Summary
+					</div>
+				</Badge>
+			</div>
+			<input
+				type="text"
+				placeholder="App summary"
+				bind:value={$summary}
+				class="!text-xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 !rounded-l-none"
+			/>
+		</div>
 	</div>
 	<UndoRedo
 		undoProps={{ disabled: $history?.index === 0 }}
