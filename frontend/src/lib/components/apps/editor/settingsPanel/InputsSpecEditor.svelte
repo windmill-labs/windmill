@@ -13,7 +13,6 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { Pen, Plug2, Upload, User } from 'lucide-svelte'
-	import { Badge } from '$lib/components/common'
 	import { fieldTypeToTsType } from '../../utils'
 
 	export let id: string
