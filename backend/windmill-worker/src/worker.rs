@@ -38,7 +38,7 @@ use tokio::{
     sync::{
         mpsc::{self, Sender},  watch, broadcast, RwLock, Barrier
     },
-    time::{interval, sleep, Instant, MissedTickBehavior}
+    time::{interval, sleep, Instant, MissedTickBehavior}, join
 };
 
 use futures::{
@@ -433,19 +433,9 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
             let worker_name2 = worker_name.clone();
 
             handles.push(tokio::task::spawn(async move {
-                tracing::info!(worker = %worker_name2, "Started initial denogo tar sync in background");
-                copy_denogo_cache_from_bucket_as_tar(&bucket).await;
+                tracing::info!(worker = %worker_name2, "Started initial sync in background");
+                join!(copy_denogo_cache_from_bucket_as_tar(&bucket), copy_all_piptars_from_bucket(&bucket));
                 let _ = copy_to_bucket_tx2.send(()).await;
-            }));
-
-            let bucket = s.to_string();
-            let copy_to_bucket_tx = copy_to_bucket_tx.clone();
-            let worker_name = worker_name.clone();
-
-            handles.push(tokio::task::spawn(async move {
-                tracing::info!(worker = %worker_name, "Started initial piptars cache sync in background");
-                copy_all_piptars_from_bucket(&bucket).await;
-                let _ = copy_to_bucket_tx.send(()).await;
             }));
         }
     }

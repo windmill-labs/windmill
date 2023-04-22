@@ -4,6 +4,7 @@
 
 	import type { FlowModule } from '$lib/gen'
 	import { emptySchema } from '$lib/utils'
+	import { SecondsInput } from '../../common'
 
 	export let flowModule: FlowModule
 
@@ -16,14 +17,15 @@
 	$: isSuspendEnabled = Boolean(flowModule.suspend)
 </script>
 
-<h2 class="mt-2"
-	>Suspend<Tooltip>
+<h2>
+	Suspend
+	<Tooltip>
 		If defined, at the end of the step, the flow will be suspended until it receives external
 		requests to be resumed or canceled. This is most useful to implement approval steps but can be
 		used flexibly for other purpose. To get the resume urls, use `wmill.getResumeUrls()` in
-		Typescript, or `wmill.get_resume_urls()` in Python.</Tooltip
-	></h2
->
+		Typescript, or `wmill.get_resume_urls()` in Python.
+	</Tooltip>
+</h2>
 <Toggle
 	checked={isSuspendEnabled}
 	on:change={() => {
@@ -49,11 +51,11 @@
 		<input type="number" disabled />
 	{/if}
 
-	<span class="text-xs font-bold">Timeout (in seconds)</span>
+	<span class="text-xs font-bold">Timeout</span>
 
 	{#if flowModule.suspend}
-		<input bind:value={flowModule.suspend.timeout} type="number" min="1" placeholder="1800" />
+		<SecondsInput bind:seconds={flowModule.suspend.timeout} />
 	{:else}
-		<input type="number" disabled />
+		<SecondsInput disabled />
 	{/if}
 </div>
