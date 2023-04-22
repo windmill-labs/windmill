@@ -20,5 +20,7 @@ RUN pipenv install
 
 COPY pyls_launcher.py .
 
+EXPOSE 3001
+
 CMD ["python3" ,"pyls_launcher.py"]
 
