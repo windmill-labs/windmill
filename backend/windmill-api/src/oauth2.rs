@@ -754,8 +754,8 @@ async fn slack_command(
 
     if let Some(settings) = settings {
         if let Some(path) = &settings.slack_command_script {
-            let payload = if let Some(path) = path.strip_prefix("flow/") {
-                JobPayload::Flow(path.to_string())
+            let (payload, tag) = if let Some(path) = path.strip_prefix("flow/") {
+                (JobPayload::Flow(path.to_string()), tag)
             } else {
                 let path = path.strip_prefix("script/").unwrap_or_else(|| path);
                 let script_hash = windmill_common::get_latest_deployed_hash_for_path(

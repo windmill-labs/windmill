@@ -36,7 +36,7 @@ use windmill_common::{
     schedule::Schedule,
     scripts::{
         to_i64, HubScript, ListScriptQuery, ListableScript, NewScript, Script, ScriptHash,
-        ScriptKind, ScriptLang,
+        ScriptLang,
     },
     users::username_to_permissioned_as,
     utils::{
@@ -440,6 +440,7 @@ async fn create_script(
             false,
             None,
             true,
+            None,
         )
         .await?;
         tx = new_tx;
