@@ -271,7 +271,8 @@
 
 			<h2 class="border-b pb-1 mt-10 mb-4"
 				>Worker group tag <Tooltip
-					>The script will always be executed on a worker configured to accept this tag. For
+					documentationLink="https://docs.windmill.dev/docs/core_concepts/worker_groups"
+					>The script will be executed on a worker configured to accept its worker group tag. For
 					instance, you could setup an "highmem", or "gpu" worker group.</Tooltip
 				></h2
 			>
@@ -288,6 +289,8 @@
 						>
 							{#if script.tag}
 								<option value="">reset to default</option>
+							{:else}
+								<option value="" disabled selected>Worker Group</option>
 							{/if}
 							{#each $workerTags ?? [] as tag (tag)}
 								<option value={tag}>{tag}</option>
