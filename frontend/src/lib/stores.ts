@@ -20,6 +20,7 @@ export interface UserExt {
 
 let persistedWorkspace = browser && localStorage.getItem('workspace')
 
+export const workerTags = writable<string[] | undefined>(undefined)
 export const usageStore = writable<number>(0)
 export const runFormStore = writable<any>()
 export const oauthStore = writable<TokenResponse | undefined>(undefined)

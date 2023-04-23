@@ -523,6 +523,7 @@ export async function getScriptByPath(path: string): Promise<{
 	language: SupportedLanguage
 	schema: any
 	description: string
+	tag: string | undefined
 }> {
 	if (path.startsWith('hub/')) {
 		const { content, language, schema } = await ScriptService.getHubScriptByPath({ path })
@@ -531,7 +532,8 @@ export async function getScriptByPath(path: string): Promise<{
 			content,
 			language: language as SupportedLanguage,
 			schema,
-			description: ''
+			description: '',
+			tag: undefined
 		}
 	} else {
 		const script = await ScriptService.getScriptByPath({
@@ -542,7 +544,8 @@ export async function getScriptByPath(path: string): Promise<{
 			content: script.content,
 			language: script.language,
 			schema: script.schema,
-			description: script.description
+			description: script.description,
+			tag: script.tag
 		}
 	}
 }

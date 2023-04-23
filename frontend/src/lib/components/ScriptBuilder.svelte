@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { Script, ScriptService } from '$lib/gen'
+	import { Script, ScriptService, WorkerService } from '$lib/gen'
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { userStore, workerTags, workspaceStore } from '$lib/stores'
 	import { emptySchema, encodeState, sendUserToast, setQueryWithoutLoad } from '$lib/utils'
 	import Path from './Path.svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
@@ -40,6 +40,14 @@
 
 	let editor: Editor | undefined = undefined
 	let scriptEditor: ScriptEditor | undefined = undefined
+
+	loadWorkerGroups()
+
+	async function loadWorkerGroups() {
+		if (!$workerTags) {
+			$workerTags = await WorkerService.getCustomTags()
+		}
+	}
 
 	export function setCode(code: string): void {
 		editor?.setCode(code)
@@ -132,7 +140,8 @@
 					schema: script.schema,
 					is_template: script.is_template,
 					language: script.language,
-					kind: script.kind
+					kind: script.kind,
+					tag: script.tag
 				}
 			})
 			leaveF(leave, newHash)
@@ -256,9 +265,44 @@
 			<textarea
 				use:autosize
 				bind:value={script.description}
-				placeholder="Edit description"
+				placeholder="Description displayed in the details page"
 				class="text-sm"
 			/>
+
+			<h2 class="border-b pb-1 mt-10 mb-4"
+				>Worker group tag <Tooltip
+					documentationLink="https://docs.windmill.dev/docs/core_concepts/worker_groups"
+					>The script will be executed on a worker configured to accept its worker group tag. For
+					instance, you could setup an "highmem", or "gpu" worker group.</Tooltip
+				></h2
+			>
+			<div class="max-w-sm">
+				{#if $workerTags}
+					{#if $workerTags?.length > 0}
+						<select
+							bind:value={script.tag}
+							on:change={(e) => {
+								if (script.tag == '') {
+									script.tag = undefined
+								}
+							}}
+						>
+							{#if script.tag}
+								<option value="">reset to default</option>
+							{:else}
+								<option value="" disabled selected>Worker Group</option>
+							{/if}
+							{#each $workerTags ?? [] as tag (tag)}
+								<option value={tag}>{tag}</option>
+							{/each}
+						</select>
+					{:else}
+						<div class="text-sm text-gray-600 italic mb-2">
+							No custom worker group defined on this instance
+						</div>
+					{/if}
+				{/if}
+			</div>
 		</DrawerContent>
 	</Drawer>
 
@@ -322,7 +366,6 @@
 						Customise
 					</Button>
 					<Button
-						disabled={!$dirtyStore}
 						color="dark"
 						loading={loadingSave}
 						size="sm"
@@ -389,6 +432,7 @@
 			lang={script.language}
 			{initialArgs}
 			kind={script.kind}
+			tag={script.tag}
 		/>
 	</div>
 {:else}
