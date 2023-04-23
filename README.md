@@ -187,9 +187,9 @@ compiling from source or using without a postgres super user, see
 ### Docker compose
 
 ```
-curl https://github.com/windmill-labs/windmill/blob/main/docker-compose.yml -o docker-compose.yml
-curl https://github.com/windmill-labs/windmill/blob/main/CaddyFile -o Caddyfile
-curl https://github.com/windmill-labs/windmill/blob/main/.env -o .env
+curl https://raw.githubusercontent.com/windmill-labs/windmill/main/docker-compose.yml -o docker-compose.yml
+curl https://raw.githubusercontent.com/windmill-labs/windmill/main/Caddyfile -o Caddyfile
+curl https://raw.githubusercontent.com/windmill-labs/windmill/main/.env -o .env
 
 docker compose up -d --pull always
 ```
