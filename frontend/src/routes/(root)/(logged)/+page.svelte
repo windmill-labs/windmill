@@ -28,7 +28,7 @@
 		? (window.location.hash?.replace('#', '') as Tab)
 		: 'workspace'
 
-	let subtab: 'flows' | 'scripts' | 'apps' = 'flows'
+	let subtab: 'flows' | 'scripts' | 'apps' = 'apps'
 
 	let filter: string = ''
 
@@ -208,12 +208,12 @@
 						</div>
 					</Tab>
 					{#if HOME_SHOW_HUB}
-					<Tab size="md" value="hub">
-						<div class="flex gap-2 items-center my-1">
-							<Globe2 size={18} />
-							Hub
-						</div>
-					</Tab>
+						<Tab size="md" value="hub">
+							<div class="flex gap-2 items-center my-1">
+								<Globe2 size={18} />
+								Hub
+							</div>
+						</Tab>
 					{/if}
 				</Tabs>
 			</div>
