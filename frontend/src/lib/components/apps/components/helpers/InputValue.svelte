@@ -142,17 +142,12 @@
 				return
 			}
 
-			const { path } = connection
+			let { path }: { path: string } = connection
 
-			const hasSubPath = ['.', '['].some((x) => path.includes(x))
-
-			if (hasSubPath) {
-				const realPath = path
-					.replace(/\[(\w+)\]/g, '.$1')
-					.split('.')
-					.slice(1)
-					.join('.')
-
+			path = path.replace(/\[(\d+)\]/g, '.$1').replace(/\[\"(.*)\"\]/g, '.$1')
+			let splitPoint = path.indexOf('.')
+			if (splitPoint != -1) {
+				const realPath = path.substring(splitPoint + 1)
 				value = accessPropertyByPath<T>(newValue, realPath)
 			} else {
 				value = newValue

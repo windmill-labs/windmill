@@ -81,12 +81,7 @@ export function schemaToInputsSpec(
 	}, {})
 }
 
-export function accessPropertyByPath<T>(object: T, path: string): T | undefined {
-	// convert indexes to properties
-	path = path.replace(/\[(\w+)\]/g, '.$1')
-	// strip a leading dot
-	path = path.replace(/^\./, '')
-
+export function accessPropertyByPath<T>(object: T, path: string): any {
 	let a = path.split('.')
 
 	for (let i = 0, depth = a.length; i < depth; ++i) {
