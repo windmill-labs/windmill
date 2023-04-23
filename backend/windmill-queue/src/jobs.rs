@@ -329,7 +329,7 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     mut same_worker: bool,
     pre_run_error: Option<&windmill_common::error::Error>,
     visible_to_owner: bool,
-    tag: Option<String>,
+    mut tag: Option<String>,
 ) -> Result<(Uuid, QueueTransaction<'c, R>), Error> {
     let args_json = serde_json::Value::Object(args);
     let job_id: Uuid = Ulid::new().into();
@@ -587,6 +587,9 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
     } else if job_kind == JobKind::Script_Hub {
         "hub".to_string()
     } else {
+        if tag == Some("".to_string()) {
+            tag = None;
+        }
         tag.unwrap_or_else(|| {
             language
                 .as_ref()

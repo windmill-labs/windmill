@@ -39,6 +39,7 @@ use windmill_common::{
 };
 use windmill_queue::{get_queued_job, push, QueueTransaction};
 
+
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/run/f/*script_path", post(run_flow_by_path))

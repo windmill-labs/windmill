@@ -46,6 +46,13 @@ use windmill_common::{
 use windmill_parser::MainArgSignature;
 use windmill_queue::{self, schedule::push_scheduled_job, QueueTransaction};
 
+lazy_static::lazy_static! {
+    pub static ref CUSTOM_TAGS: Vec<String> = std::env::var("CUSTOM_TAGS")
+        .ok()
+        .map(|x| x.split(',').map(|x| x.to_string()).collect::<Vec<_>>()).unwrap_or_default();
+
+}
+
 const MAX_HASH_HISTORY_LENGTH_STORED: usize = 20;
 
 pub fn global_service() -> Router {
@@ -60,11 +67,6 @@ pub fn global_service() -> Router {
         .route("/hub/list", get(list_hub_scripts))
         .route("/hub/get/*path", get(get_hub_script_by_path))
         .route("/hub/get_full/*path", get(get_full_hub_script_by_path))
-        .route(
-            "/python/tojsonschema",
-            post(parse_python_code_to_jsonschema),
-        )
-        .route("/get_worker_tags", get(get_worker_tags))
 }
 
 pub fn global_unauthed_service() -> Router {
@@ -814,8 +816,4 @@ async fn parse_go_code_to_jsonschema(Json(code): Json<String>) -> Json<SigParsin
 
 async fn parse_bash_code_to_jsonschema(Json(code): Json<String>) -> Json<SigParsing> {
     result_to_sig_parsing(windmill_parser_bash::parse_bash_sig(&code))
-}
-
-async fn get_worker_tags() -> Vec<String> {
-    return;
 }
