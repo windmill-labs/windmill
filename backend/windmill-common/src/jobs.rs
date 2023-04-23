@@ -182,3 +182,18 @@ pub async fn script_path_to_payload<'c>(
     };
     Ok((job_payload, tag))
 }
+
+pub async fn script_hash_to_tag<'c>(
+    script_hash: &ScriptHash,
+    db: &mut Transaction<'c, Postgres>,
+    w_id: &String,
+) -> error::Result<Option<Tag>> {
+    Ok(sqlx::query_scalar!(
+        "select tag from script where hash = $1 AND workspace_id = $2",
+        script_hash.0,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten())
+}

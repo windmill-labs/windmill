@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 
 use anyhow::Context;
+use itertools::Itertools;
 use reqwest::Client;
 use sqlx::{Pool, Postgres, Transaction};
 use tracing::{instrument, Instrument};
@@ -50,6 +51,20 @@ lazy_static::lazy_static! {
     .unwrap();
     pub static ref CLOUD_HOSTED: bool = std::env::var("CLOUD_HOSTED").is_ok();
 
+    pub static ref ACCEPTED_TAGS: Vec<String> = std::env::var("WORKER_TAGS")
+        .ok()
+        .map(|x| x.split(',').map(|x| x.to_string()).collect())
+        .unwrap_or_else(|| vec![
+            "deno".to_string(),
+            "python3".to_string(),
+            "go".to_string(),
+            "bash".to_string(),
+            "dependency".to_string(),
+            "flow".to_string(),
+            "hub".to_string()]);
+
+    pub static ref ACCEPTED_TAGS_FILTER: String = format!(" AND ({})",
+        ACCEPTED_TAGS.clone().into_iter().map(|x| format!("(tag = '{x}')")).join(" OR "));
 }
 
 const MAX_FREE_EXECS: i32 = 1000;
@@ -165,6 +180,7 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Clone>(
             None
         }
     } else {
+        let accepted_tags_filter = &*ACCEPTED_TAGS_FILTER;
         /* Jobs can be started if they:
          * - haven't been started before,
          *   running = false
@@ -185,7 +201,9 @@ pub async fn pull<R: rsmq_async::RsmqConnection + Clone>(
                        AND scheduled_for <= now())
                    OR (suspend_until IS NOT NULL
                        AND (   suspend <= 0
-                            OR suspend_until <= now()))) {workspaces_filter}
+                            OR suspend_until <= now()))) 
+                    {workspaces_filter}
+                    {accepted_tags_filter}
                 ORDER BY scheduled_for
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
@@ -559,13 +577,24 @@ pub async fn push<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
 
     let flow_status = raw_flow.as_ref().map(FlowStatus::new);
 
-    let tag = tag.unwrap_or_else(|| {
-        language
-            .as_ref()
-            .map(|x| x.as_str())
-            .unwrap_or_else(|| "other")
-            .to_string()
-    });
+    let tag = if job_kind == JobKind::Dependencies || job_kind == JobKind::FlowDependencies {
+        "dependency".to_string()
+    } else if job_kind == JobKind::Flow || job_kind == JobKind::FlowPreview {
+        "flow".to_string()
+    } else if job_kind == JobKind::Identity {
+        // identity is a light script, deno is too
+        "deno".to_string()
+    } else if job_kind == JobKind::Script_Hub {
+        "hub".to_string()
+    } else {
+        tag.unwrap_or_else(|| {
+            language
+                .as_ref()
+                .map(|x| x.as_str())
+                .unwrap_or_else(|| "deno")
+                .to_string()
+        })
+    };
 
     let uuid = sqlx::query_scalar!(
         "INSERT INTO queue

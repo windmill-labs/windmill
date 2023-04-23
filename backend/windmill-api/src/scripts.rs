@@ -36,7 +36,7 @@ use windmill_common::{
     schedule::Schedule,
     scripts::{
         to_i64, HubScript, ListScriptQuery, ListableScript, NewScript, Script, ScriptHash,
-        ScriptLang,
+        ScriptKind, ScriptLang,
     },
     users::username_to_permissioned_as,
     utils::{
@@ -60,6 +60,11 @@ pub fn global_service() -> Router {
         .route("/hub/list", get(list_hub_scripts))
         .route("/hub/get/*path", get(get_hub_script_by_path))
         .route("/hub/get_full/*path", get(get_full_hub_script_by_path))
+        .route(
+            "/python/tojsonschema",
+            post(parse_python_code_to_jsonschema),
+        )
+        .route("/get_worker_tags", get(get_worker_tags))
 }
 
 pub fn global_unauthed_service() -> Router {
@@ -113,6 +118,7 @@ async fn list_scripts(
             "language",
             "kind",
             "favorite.path IS NOT NULL as starred",
+            "tag"
         ])
         .left()
         .join("favorite")
@@ -808,4 +814,8 @@ async fn parse_go_code_to_jsonschema(Json(code): Json<String>) -> Json<SigParsin
 
 async fn parse_bash_code_to_jsonschema(Json(code): Json<String>) -> Json<SigParsing> {
     result_to_sig_parsing(windmill_parser_bash::parse_bash_sig(&code))
+}
+
+async fn get_worker_tags() -> Vec<String> {
+    return;
 }

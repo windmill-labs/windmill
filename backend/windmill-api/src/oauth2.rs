@@ -755,16 +755,19 @@ async fn slack_command(
     if let Some(settings) = settings {
         if let Some(path) = &settings.slack_command_script {
             let (payload, tag) = if let Some(path) = path.strip_prefix("flow/") {
-                (JobPayload::Flow(path.to_string()), tag)
+                (JobPayload::Flow(path.to_string()), None)
             } else {
                 let path = path.strip_prefix("script/").unwrap_or_else(|| path);
-                let script_hash = windmill_common::get_latest_deployed_hash_for_path(
+                let (script_hash, tag) = windmill_common::get_latest_deployed_hash_for_path(
                     tx.transaction_mut(),
                     &settings.workspace_id,
                     path,
                 )
                 .await?;
-                JobPayload::ScriptHash { hash: script_hash, path: path.to_owned() }
+                (
+                    JobPayload::ScriptHash { hash: script_hash, path: path.to_owned() },
+                    tag,
+                )
             };
             let mut map = serde_json::Map::new();
             map.insert("text".to_string(), serde_json::Value::String(form.text));
@@ -789,6 +792,7 @@ async fn slack_command(
                 false,
                 None,
                 true,
+                tag,
             )
             .await?;
             let url = BASE_URL.to_owned();

@@ -220,6 +220,26 @@ pub async fn get_path_for_hash<'c>(
     Ok(path)
 }
 
+pub async fn get_path_and_tag_for_hash<'c>(
+    db: &mut Transaction<'c, Postgres>,
+    w_id: &str,
+    hash: i64,
+) -> error::Result<(String, Option<String>)> {
+    let script = sqlx::query!(
+        "select path, tag from script where hash = $1 AND workspace_id = $2",
+        hash,
+        w_id
+    )
+    .fetch_one(db)
+    .await
+    .map_err(|e| {
+        Error::InternalErr(format!(
+            "querying getting path for hash {hash} in {w_id}: {e}"
+        ))
+    })?;
+    Ok((script.path, script.tag))
+}
+
 async fn get_job(
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
@@ -573,6 +593,7 @@ async fn list_jobs(
             "visible_to_owner",
             "suspend",
             "mem_peak",
+            "tag",
         ],
     );
     let sqlc = list_completed_jobs_query(
@@ -608,6 +629,7 @@ async fn list_jobs(
             "visible_to_owner",
             "null as suspend",
             "mem_peak",
+            "tag",
         ],
     );
     let sql = format!(
@@ -1170,6 +1192,7 @@ struct Preview {
     path: Option<String>,
     args: Option<serde_json::Map<String, serde_json::Value>>,
     language: ScriptLang,
+    tag: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -1438,7 +1461,8 @@ pub async fn run_wait_result_job_by_path_get(
     check_queue_too_long(db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
     let script_path = script_path.to_path();
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
-    let job_payload = script_path_to_payload(script_path, tx.transaction_mut(), &w_id).await?;
+    let (job_payload, tag) =
+        script_path_to_payload(script_path, tx.transaction_mut(), &w_id).await?;
 
     let (uuid, tx) = push(
         tx,
@@ -1456,6 +1480,7 @@ pub async fn run_wait_result_job_by_path_get(
         false,
         None,
         !run_query.invisible_to_owner.unwrap_or(false),
+        tag,
     )
     .await?;
     tx.commit().await?;
@@ -1483,7 +1508,8 @@ pub async fn run_wait_result_job_by_path(
     check_queue_too_long(db, QUEUE_LIMIT_WAIT_RESULT.or(run_query.queue_limit)).await?;
     let script_path = script_path.to_path();
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
-    let job_payload = script_path_to_payload(script_path, tx.transaction_mut(), &w_id).await?;
+    let (job_payload, tag) =
+        script_path_to_payload(script_path, tx.transaction_mut(), &w_id).await?;
 
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
 
@@ -1503,6 +1529,7 @@ pub async fn run_wait_result_job_by_path(
         false,
         None,
         !run_query.invisible_to_owner.unwrap_or(false),
+        tag,
     )
     .await?;
     tx.commit().await?;
@@ -1531,7 +1558,7 @@ pub async fn run_wait_result_job_by_hash(
 
     let hash = script_hash.0;
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.clone().begin(&authed).await?).into();
-    let path = get_path_for_hash(tx.transaction_mut(), &w_id, hash).await?;
+    let (path, tag) = get_path_and_tag_for_hash(tx.transaction_mut(), &w_id, hash).await?;
 
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
 
@@ -1551,6 +1578,7 @@ pub async fn run_wait_result_job_by_hash(
         false,
         None,
         !run_query.invisible_to_owner.unwrap_or(false),
+        tag,
     )
     .await?;
     tx.commit().await?;
@@ -1598,6 +1626,7 @@ pub async fn run_wait_result_flow_by_path(
         false,
         None,
         !run_query.invisible_to_owner.unwrap_or(false),
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -1646,6 +1675,7 @@ async fn run_preview_job(
         false,
         None,
         true,
+        preview.tag,
     )
     .await?;
     tx.commit().await?;
@@ -1682,6 +1712,7 @@ async fn run_preview_flow_job(
         false,
         None,
         true,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -1700,7 +1731,7 @@ pub async fn run_job_by_hash(
 ) -> error::Result<(StatusCode, String)> {
     let hash = script_hash.0;
     let mut tx: QueueTransaction<'_, _> = (rsmq, user_db.begin(&authed).await?).into();
-    let path = get_path_for_hash(tx.transaction_mut(), &w_id, hash).await?;
+    let (path, tag) = get_path_and_tag_for_hash(tx.transaction_mut(), &w_id, hash).await?;
     let scheduled_for = run_query.get_scheduled_for(tx.transaction_mut()).await?;
     let args = run_query.add_include_headers(headers, args.unwrap_or_default());
 
@@ -1720,6 +1751,7 @@ pub async fn run_job_by_hash(
         false,
         None,
         !run_query.invisible_to_owner.unwrap_or(false),
+        tag,
     )
     .await?;
     tx.commit().await?;
@@ -1912,6 +1944,7 @@ async fn list_completed_jobs(
             "email",
             "visible_to_owner",
             "mem_peak",
+            "tag",
         ],
     )
     .sql()?;
