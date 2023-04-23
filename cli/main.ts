@@ -19,7 +19,7 @@ import sync from "./sync.ts";
 import { tryResolveVersion } from "./context.ts";
 import { GlobalOptions } from "./types.ts";
 
-export const VERSION = "v1.88.1";
+export const VERSION = "v1.89.0";
 
 let command: any = new Command()
   .name("wmill")
