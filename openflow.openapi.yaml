@@ -183,6 +183,8 @@ components:
           type: string
           enum:
             - rawscript
+        tag:
+          type: string
       required:
         - type
         - content
