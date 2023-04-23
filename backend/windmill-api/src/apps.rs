@@ -31,7 +31,7 @@ use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     apps::ListAppQuery,
     error::{to_anyhow, Error, JsonResult, Result},
-    jobs::{JobPayload, RawCode, script_path_to_payload},
+    jobs::{script_path_to_payload, JobPayload, RawCode},
     users::username_to_permissioned_as,
     utils::{
         http_get_from_hub, list_elems_from_hub, not_found_if_none, paginate, Pagination, StripPath,
@@ -639,16 +639,16 @@ async fn execute_component(
         }
     };
 
-    let (job_payload, args) = match &payload {
+    let (job_payload, args, tag) = match &payload {
         ExecuteApp { args, raw_code: Some(raw_code), path: None, .. } => {
             let content = &raw_code.content;
             let payload = JobPayload::Code(raw_code.clone());
             let path = digest(content);
             let args = build_args(policy, path, args)?;
-            (payload, args)
+            (payload, args, None)
         }
         ExecuteApp { args, raw_code: None, path: Some(path), .. } => {
-            let payload = if path.starts_with("script/") {
+            let (payload, tag) = if path.starts_with("script/") {
                 script_path_to_payload(
                     path.strip_prefix("script/").unwrap(),
                     tx.transaction_mut(),
@@ -656,7 +656,10 @@ async fn execute_component(
                 )
                 .await?
             } else if path.starts_with("flow/") {
-                JobPayload::Flow(path.strip_prefix("flow/").unwrap().to_string())
+                (
+                    JobPayload::Flow(path.strip_prefix("flow/").unwrap().to_string()),
+                    None,
+                )
             } else {
                 return Err(Error::BadRequest(format!(
                     "path must start with script/ or flow/ (got {})",
@@ -664,7 +667,7 @@ async fn execute_component(
                 )));
             };
             let args = build_args(policy, path.to_string(), args)?;
-            (payload, args)
+            (payload, args, tag)
         }
         _ => unreachable!(),
     };
@@ -685,6 +688,7 @@ async fn execute_component(
         false,
         None,
         true,
+        tag,
     )
     .await?;
     tx.commit().await?;

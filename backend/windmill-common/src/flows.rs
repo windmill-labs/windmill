@@ -252,6 +252,8 @@ pub enum FlowModuleValue {
         lock: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         path: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        tag: Option<String>,
         language: ScriptLang,
     },
     Identity,

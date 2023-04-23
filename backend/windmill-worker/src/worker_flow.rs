@@ -19,7 +19,9 @@ use tokio::sync::mpsc::Sender;
 use tracing::instrument;
 use uuid::Uuid;
 use windmill_common::flow_status::{FlowStatusModuleWParent, Iterator, JobResult};
-use windmill_common::jobs::{script_path_to_payload, JobPayload, QueuedJob, RawCode};
+use windmill_common::jobs::{
+    script_hash_to_tag, script_path_to_payload, JobPayload, QueuedJob, RawCode,
+};
 use windmill_common::{
     error::{self, to_anyhow, Error},
     flow_status::{
@@ -1314,7 +1316,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         ContinuePayload::ForloopJobs { n, .. } => *n,
     };
     for i in (0..len).into_iter() {
-        let payload = match &job_payloads {
+        let payload_tag = match &job_payloads {
             ContinuePayload::SingleJob(payload) => payload.clone(),
             ContinuePayload::BranchAllJobs(payloads) => payloads[i].clone(),
             ContinuePayload::ForloopJobs { modules, .. } => {
@@ -1323,13 +1325,16 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
                     failure_module.id_append(&format!("{}/{}", status.step, i));
                     fm = Some(failure_module);
                 }
-                JobPayload::RawFlow {
-                    value: FlowValue {
-                        modules: (*modules).clone(),
-                        failure_module: fm.clone(),
-                        same_worker: flow.same_worker,
+                JobPayloadWithTag {
+                    payload: JobPayload::RawFlow {
+                        value: FlowValue {
+                            modules: (*modules).clone(),
+                            failure_module: fm.clone(),
+                            same_worker: flow.same_worker,
+                        },
+                        path: Some(format!("{}/loop-{}", flow_job.script_path(), i)),
                     },
-                    path: Some(format!("{}/loop-{}", flow_job.script_path(), i)),
+                    tag: None,
                 }
             }
         };
@@ -1369,10 +1374,11 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
         } else {
             flow_job.root_job.or_else(|| Some(flow_job.id))
         };
+
         let (uuid, inner_tx) = push(
             tx,
             &flow_job.workspace_id,
-            payload,
+            payload_tag.payload,
             ok.unwrap_or_else(|| Map::new()),
             &flow_job.created_by,
             &flow_job.email,
@@ -1385,6 +1391,7 @@ async fn push_next_flow_job<R: rsmq_async::RsmqConnection + Send + Sync + Clone>
             continue_on_same_worker,
             err,
             flow_job.visible_to_owner,
+            payload_tag.tag,
         )
         .await?;
         tx = inner_tx;
@@ -1603,10 +1610,15 @@ enum NextStatus {
     },
 }
 
+#[derive(Clone)]
+struct JobPayloadWithTag {
+    payload: JobPayload,
+    tag: Option<String>,
+}
 enum ContinuePayload {
-    SingleJob(JobPayload),
+    SingleJob(JobPayloadWithTag),
     ForloopJobs { n: usize, modules: Vec<FlowModule> },
-    BranchAllJobs(Vec<JobPayload>),
+    BranchAllJobs(Vec<JobPayloadWithTag>),
 }
 
 enum NextFlowTransform {
@@ -1630,7 +1642,10 @@ async fn compute_next_flow_transform<'c>(
         FlowModuleValue::Identity => Ok((
             tx,
             NextFlowTransform::Continue(
-                ContinuePayload::SingleJob(JobPayload::Identity),
+                ContinuePayload::SingleJob(JobPayloadWithTag {
+                    payload: JobPayload::Identity,
+                    tag: None,
+                }),
                 NextStatus::NextStep,
             ),
         )),
@@ -1639,41 +1654,46 @@ async fn compute_next_flow_transform<'c>(
             Ok((
                 tx,
                 NextFlowTransform::Continue(
-                    ContinuePayload::SingleJob(payload),
+                    ContinuePayload::SingleJob(JobPayloadWithTag { payload, tag: None }),
                     NextStatus::NextStep,
                 ),
             ))
         }
         FlowModuleValue::Script { path: script_path, hash: script_hash, .. } => {
-            let payload = if script_hash.is_none() {
+            let (payload, tag) = if script_hash.is_none() {
                 script_path_to_payload(script_path, &mut tx, &flow_job.workspace_id).await?
             } else {
-                JobPayload::ScriptHash {
-                    hash: script_hash.clone().unwrap(),
-                    path: script_path.to_owned(),
-                }
+                let hash = script_hash.clone().unwrap();
+                let tag = script_hash_to_tag(&hash, &mut tx, &flow_job.workspace_id).await?;
+                (
+                    JobPayload::ScriptHash { hash, path: script_path.to_owned() },
+                    tag,
+                )
             };
             Ok((
                 tx,
                 NextFlowTransform::Continue(
-                    ContinuePayload::SingleJob(payload),
+                    ContinuePayload::SingleJob(JobPayloadWithTag { payload, tag }),
                     NextStatus::NextStep,
                 ),
             ))
         }
-        FlowModuleValue::RawScript { path, content, language, lock, .. } => {
+        FlowModuleValue::RawScript { path, content, language, lock, tag, .. } => {
             let path = path
                 .clone()
                 .or_else(|| Some(format!("{}/step-{}", flow_job.script_path(), status.step)));
             Ok((
                 tx,
                 NextFlowTransform::Continue(
-                    ContinuePayload::SingleJob(JobPayload::Code(RawCode {
-                        path,
-                        content: content.clone(),
-                        language: language.clone(),
-                        lock: lock.clone(),
-                    })),
+                    ContinuePayload::SingleJob(JobPayloadWithTag {
+                        payload: JobPayload::Code(RawCode {
+                            path,
+                            content: content.clone(),
+                            language: language.clone(),
+                            lock: lock.clone(),
+                        }),
+                        tag: tag.clone(),
+                    }),
                     NextStatus::NextStep,
                 ),
             ))
@@ -1771,13 +1791,20 @@ async fn compute_next_flow_transform<'c>(
                     Ok((
                         tx,
                         NextFlowTransform::Continue(
-                            ContinuePayload::SingleJob(JobPayload::RawFlow {
-                                value: FlowValue {
-                                    modules: (*modules).clone(),
-                                    failure_module: fm,
-                                    same_worker: flow.same_worker,
+                            ContinuePayload::SingleJob(JobPayloadWithTag {
+                                payload: JobPayload::RawFlow {
+                                    value: FlowValue {
+                                        modules: (*modules).clone(),
+                                        failure_module: fm,
+                                        same_worker: flow.same_worker,
+                                    },
+                                    path: Some(format!(
+                                        "{}/loop-{}",
+                                        flow_job.script_path(),
+                                        ns.index
+                                    )),
                                 },
-                                path: Some(format!("{}/loop-{}", flow_job.script_path(), ns.index)),
+                                tag: None,
                             }),
                             NextStatus::NextLoopIteration(ns),
                         ),
@@ -1850,17 +1877,20 @@ async fn compute_next_flow_transform<'c>(
             Ok((
                 tx,
                 NextFlowTransform::Continue(
-                    ContinuePayload::SingleJob(JobPayload::RawFlow {
-                        value: FlowValue {
-                            modules,
-                            failure_module: fm,
-                            same_worker: flow.same_worker,
+                    ContinuePayload::SingleJob(JobPayloadWithTag {
+                        payload: JobPayload::RawFlow {
+                            value: FlowValue {
+                                modules,
+                                failure_module: fm,
+                                same_worker: flow.same_worker,
+                            },
+                            path: Some(format!(
+                                "{}/branchone-{}",
+                                flow_job.script_path(),
+                                status.step
+                            )),
                         },
-                        path: Some(format!(
-                            "{}/branchone-{}",
-                            flow_job.script_path(),
-                            status.step
-                        )),
+                        tag: None,
                     }),
                     NextStatus::BranchChosen(branch),
                 ),
@@ -1890,17 +1920,20 @@ async fn compute_next_flow_transform<'c>(
                                                     .id_append(&format!("{}/{i}", status.step));
                                                 fm = Some(failure_module);
                                             }
-                                            JobPayload::RawFlow {
-                                                value: FlowValue {
-                                                    modules: b.modules.clone(),
-                                                    failure_module: fm.clone(),
-                                                    same_worker: flow.same_worker,
+                                            JobPayloadWithTag {
+                                                payload: JobPayload::RawFlow {
+                                                    value: FlowValue {
+                                                        modules: b.modules.clone(),
+                                                        failure_module: fm.clone(),
+                                                        same_worker: flow.same_worker,
+                                                    },
+                                                    path: Some(format!(
+                                                        "{}/branchall-{}",
+                                                        flow_job.script_path(),
+                                                        i
+                                                    )),
                                                 },
-                                                path: Some(format!(
-                                                    "{}/branchall-{}",
-                                                    flow_job.script_path(),
-                                                    i
-                                                )),
+                                                tag: None,
                                             }
                                         })
                                         .collect(),
@@ -1961,17 +1994,20 @@ async fn compute_next_flow_transform<'c>(
             Ok((
                 tx,
                 NextFlowTransform::Continue(
-                    ContinuePayload::SingleJob(JobPayload::RawFlow {
-                        value: FlowValue {
-                            modules,
-                            failure_module: fm.clone(),
-                            same_worker: flow.same_worker,
+                    ContinuePayload::SingleJob(JobPayloadWithTag {
+                        payload: JobPayload::RawFlow {
+                            value: FlowValue {
+                                modules,
+                                failure_module: fm.clone(),
+                                same_worker: flow.same_worker,
+                            },
+                            path: Some(format!(
+                                "{}/branchall-{}",
+                                flow_job.script_path(),
+                                branch_status.branch
+                            )),
                         },
-                        path: Some(format!(
-                            "{}/branchall-{}",
-                            flow_job.script_path(),
-                            branch_status.branch
-                        )),
+                        tag: None,
                     }),
                     NextStatus::NextBranchStep(NextBranch { status: branch_status, flow_jobs }),
                 ),

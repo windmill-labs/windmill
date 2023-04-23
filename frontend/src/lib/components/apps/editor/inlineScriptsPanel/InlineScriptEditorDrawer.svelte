@@ -32,6 +32,7 @@
 				fixedOverflowWidgets={false}
 				bind:code={inlineScript.content}
 				bind:schema={inlineScript.schema}
+				tag={undefined}
 			/>
 		{/if}
 		<svelte:fragment slot="actions">

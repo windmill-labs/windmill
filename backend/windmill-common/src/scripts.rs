@@ -136,6 +136,7 @@ pub struct Script {
     pub lock_error_logs: Option<String>,
     pub language: ScriptLang,
     pub kind: ScriptKind,
+    pub tag: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -157,6 +158,7 @@ pub struct ListableScript {
     pub language: ScriptLang,
     pub kind: ScriptKind,
     pub starred: bool,
+    pub tag: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -186,6 +188,7 @@ pub struct NewScript {
     pub lock: Option<Vec<String>>,
     pub language: ScriptLang,
     pub kind: Option<ScriptKind>,
+    pub tag: Option<String>,
 }
 
 #[derive(Deserialize)]

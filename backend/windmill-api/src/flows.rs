@@ -243,6 +243,7 @@ async fn create_flow(
         false,
         None,
         true,
+        None,
     )
     .await?;
 
@@ -403,6 +404,7 @@ async fn update_flow(
         false,
         None,
         true,
+        None,
     )
     .await?;
     sqlx::query!(
@@ -586,6 +588,7 @@ mod tests {
                         language: scripts::ScriptLang::Deno,
                         path: None,
                         lock: None,
+                        tag: None,
                     },
                     stop_after_if: Some(StopAfterIf {
                         expr: "foo = 'bar'".to_string(),

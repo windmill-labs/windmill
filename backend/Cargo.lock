@@ -5315,6 +5315,7 @@ dependencies = [
  "futures-core",
  "hex",
  "hmac",
+ "itertools",
  "lazy_static",
  "prometheus",
  "reqwest",

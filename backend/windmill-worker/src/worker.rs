@@ -233,7 +233,6 @@ lazy_static::lazy_static! {
         .unwrap_or(None);
 
     pub static ref CAN_PULL: Arc<RwLock<()>> = Arc::new(RwLock::new(()));
-
 }
 
 //only matter if CLOUD_HOSTED
@@ -710,7 +709,7 @@ pub async fn run_worker<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 's
                     });
                 }
                 Err(err) => {
-                    tracing::error!(worker = %worker_name, "run_worker: pulling jobs: {}", err);
+                    tracing::error!(worker = %worker_name, "Failed to pull jobs: {}", err);
                 }
             };
 
@@ -826,7 +825,7 @@ pub async fn handle_job_error<R: rsmq_async::RsmqConnection + Send + Sync + Clon
     if let Some(f) = update_job_future {
         let _ = f().await;
     }
-    tracing::error!(job_id = %job.id, "error handling job: {err:#?} {} {} {}", job.id, job.workspace_id, job.created_by);
+    tracing::error!(job_id = %job.id, "error handling job: {err:?} {} {} {}", job.id, job.workspace_id, job.created_by);
 }
 
 async fn insert_initial_ping(
@@ -1597,7 +1596,7 @@ async fn handle_flow_dependency_job(
     let mut flow = serde_json::from_value::<FlowValue>(raw_flow).map_err(to_anyhow)?;
     let mut new_flow_modules = Vec::new();
     for mut e in flow.modules.into_iter() {
-        let FlowModuleValue::RawScript { lock: _, path, content, language, input_transforms} = e.value else {
+        let FlowModuleValue::RawScript { lock: _, path, content, language, input_transforms, tag} = e.value else {
             new_flow_modules.push(e);
             continue;
         };
@@ -1626,6 +1625,7 @@ async fn handle_flow_dependency_job(
                     input_transforms,
                     content,
                     language,
+                    tag
                 };
                 new_flow_modules.push(e);
                 continue;
@@ -1645,6 +1645,7 @@ async fn handle_flow_dependency_job(
                     input_transforms,
                     content,
                     language,
+                    tag
                 };
                 new_flow_modules.push(e);
                 continue;
