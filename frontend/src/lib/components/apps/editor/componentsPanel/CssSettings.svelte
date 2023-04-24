@@ -1,13 +1,14 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import { LayoutDashboardIcon, MousePointer2, CurlyBraces, X } from 'lucide-svelte'
+	import { LayoutDashboardIcon, MousePointer2, CurlyBraces } from 'lucide-svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { emptyString } from '$lib/utils'
-	import { Tab, TabContent, Tabs } from '../../../common'
+	import { ClearableInput, Tab, TabContent, Tabs } from '../../../common'
 	import type { AppViewerContext } from '../../types'
 	import ListItem from './ListItem.svelte'
 	import CssProperty from './CssProperty.svelte'
 	import { ccomponents, components } from '../component'
+	import { slide } from 'svelte/transition'
 
 	const STATIC_ELEMENTS = ['app'] as const
 	const TITLE_PREFIX = 'Css.' as const
@@ -27,6 +28,7 @@
 
 	$: rawCode && parseJson()
 	let jsonError = ''
+	let jsonErrorHeight: number
 
 	function parseJson() {
 		try {
@@ -67,8 +69,8 @@
 	let search = ''
 </script>
 
-<div class="w-full text-lg font-semibold text-center text-gray-600 p-2">Global Styling</div>
-<Tabs selected="ui" on:selected={(e) => switchTab(e.detail === 'json')} class="relative">
+<!-- <div class="w-full text-lg font-semibold text-center text-gray-600 p-2">Global Styling</div> -->
+<Tabs selected="ui" on:selected={(e) => switchTab(e.detail === 'json')} class="h-full">
 	<Tab value="ui" size="xs" class="w-1/2">
 		<div class="m-1 center-center">
 			<MousePointer2 size={16} />
@@ -81,24 +83,10 @@
 			<span class="pl-1">JSON</span>
 		</div>
 	</Tab>
-	<div slot="content" class="h-full overflow-y-auto">
+	<div slot="content" class="h-[calc(100%-35px)] overflow-auto">
 		<TabContent value="ui">
-			<div class="sticky top-0 left-0 w-full bg-white p-2">
-				<div class="relative">
-					<input
-						bind:value={search}
-						class="px-2 pb-1 border border-gray-300 rounded-sm {search ? 'pr-8' : ''}"
-						placeholder="Search..."
-					/>
-					{#if search}
-						<button
-							class="absolute right-2 top-1/2 transform -translate-y-1/2 hover:bg-gray-200 rounded-full p-0.5"
-							on:click|stopPropagation|preventDefault={() => (search = '')}
-						>
-							<X size="14" />
-						</button>
-					{/if}
-				</div>
+			<div class="sticky z-10 top-0 left-0 w-full bg-white p-2">
+				<ClearableInput bind:value={search} placeholder="Search..." />
 			</div>
 			{#each search != '' ? entries.filter((x) => x.name
 							.toLowerCase()
@@ -139,22 +127,18 @@
 				{/if}
 			{/each}
 		</TabContent>
-		<TabContent value="json">
+		<TabContent value="json" class="h-full">
 			{#if !emptyString(jsonError)}
-				<span class="text-red-400 text-xs mb-1 flex flex-row-reverse">
+				<div
+					transition:slide={{ duration: 200 }}
+					bind:clientHeight={jsonErrorHeight}
+					class="text-red-500 text-xs p-1"
+				>
 					{jsonError}
-				</span>
-			{:else}
-				<div class="py-2" />
+				</div>
 			{/if}
-			<div class="h-full w-full py-1">
-				<SimpleEditor
-					autoHeight
-					class="editor"
-					lang="json"
-					bind:code={rawCode}
-					fixedOverflowWidgets={false}
-				/>
+			<div style="height: calc(100% - {jsonErrorHeight || 0}px);">
+				<SimpleEditor class="h-full" lang="json" bind:code={rawCode} fixedOverflowWidgets={false} />
 			</div>
 		</TabContent>
 	</div>

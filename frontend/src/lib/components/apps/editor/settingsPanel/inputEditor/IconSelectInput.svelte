@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { StaticInput } from '../../../inputType'
-	import { Loader2, X } from 'lucide-svelte'
-	import { Popup } from '../../../../common'
+	import { Loader2 } from 'lucide-svelte'
+	import { ClearableInput, Popup } from '../../../../common'
 	import { fade } from 'svelte/transition'
 
 	export let componentInput: StaticInput<string>
@@ -52,11 +52,11 @@
 	}
 </script>
 
-<div class="relative">
-	<input
+<div bind:this={anchor} class="relative">
+	<ClearableInput
 		readonly
 		value={formatName(componentInput.value)}
-		bind:this={anchor}
+		on:change={({ detail }) => (componentInput.value = detail)}
 		on:focus={getData}
 		class="!pr-6"
 	/>
@@ -64,22 +64,13 @@
 		<div class="center-center absolute right-2 top-1/2 transform -translate-y-1/2 p-0.5">
 			<Loader2 class="animate-spin" size={16} />
 		</div>
-	{:else if componentInput.value}
-		<button
-			class="absolute right-2 top-1/2 transform -translate-y-1/2 hover:bg-gray-500 bg-gray-300 transition-all rounded-full p-0.5"
-			on:click|stopPropagation|preventDefault={() => (componentInput.value = undefined)}
-			title="Clear"
-			aria-label="Clear"
-		>
-			<X size="10" color="white" />
-		</button>
 	{/if}
 </div>
 {#if anchor}
 	<Popup
 		ref={anchor}
 		closeOn={[]}
-		options={{ placement: 'bottom' }}
+		options={{ placement: 'bottom', modifiers: [{ name: 'offset', options: { offset: [0, 6] } }] }}
 		bind:open={openPopup}
 		let:close
 		transition={fade}
