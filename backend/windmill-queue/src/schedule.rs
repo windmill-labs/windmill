@@ -67,18 +67,19 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         }
     }
 
-    let payload = if schedule.is_flow {
-        JobPayload::Flow(schedule.script_path)
+    let (payload, tag) = if schedule.is_flow {
+        (JobPayload::Flow(schedule.script_path), None)
     } else {
-        JobPayload::ScriptHash {
-            hash: windmill_common::get_latest_deployed_hash_for_path(
-                tx.transaction_mut(),
-                &schedule.workspace_id,
-                &schedule.script_path,
-            )
-            .await?,
-            path: schedule.script_path,
-        }
+        let (hash, tag) = windmill_common::get_latest_deployed_hash_for_path(
+            tx.transaction_mut(),
+            &schedule.workspace_id,
+            &schedule.script_path,
+        )
+        .await?;
+        (
+            JobPayload::ScriptHash { hash, path: schedule.script_path },
+            tag,
+        )
     };
 
     sqlx::query!(
@@ -105,6 +106,7 @@ pub async fn push_scheduled_job<'c, R: rsmq_async::RsmqConnection + Send + 'c>(
         false,
         None,
         true,
+        tag,
     )
     .await?;
     Ok(tx) // TODO: Bubble up pushed UUID from here

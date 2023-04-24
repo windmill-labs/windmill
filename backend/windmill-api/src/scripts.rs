@@ -46,6 +46,13 @@ use windmill_common::{
 use windmill_parser::MainArgSignature;
 use windmill_queue::{self, schedule::push_scheduled_job, QueueTransaction};
 
+lazy_static::lazy_static! {
+    pub static ref CUSTOM_TAGS: Vec<String> = std::env::var("CUSTOM_TAGS")
+        .ok()
+        .map(|x| x.split(',').map(|x| x.to_string()).collect::<Vec<_>>()).unwrap_or_default();
+
+}
+
 const MAX_HASH_HISTORY_LENGTH_STORED: usize = 20;
 
 pub fn global_service() -> Router {
@@ -113,6 +120,7 @@ async fn list_scripts(
             "language",
             "kind",
             "favorite.path IS NOT NULL as starred",
+            "tag"
         ])
         .left()
         .join("favorite")
@@ -330,8 +338,8 @@ async fn create_script(
     //::text::json is to ensure we use serde_json with preserve order
     sqlx::query!(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, \
-         content, created_by, schema, is_template, extra_perms, lock, language, kind) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14)",
+         content, created_by, schema, is_template, extra_perms, lock, language, kind, tag) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15)",
         &w_id,
         &hash.0,
         ns.path,
@@ -346,6 +354,7 @@ async fn create_script(
         lock,
         ns.language: ScriptLang,
         ns.kind.unwrap_or(ScriptKind::Script): ScriptKind,
+        ns.tag,
     )
     .execute(&mut tx)
     .await?;
@@ -439,6 +448,7 @@ async fn create_script(
             false,
             None,
             true,
+            None,
         )
         .await?;
         tx = new_tx;

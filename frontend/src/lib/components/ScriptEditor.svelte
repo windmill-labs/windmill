@@ -24,6 +24,7 @@
 	export let path: string | undefined
 	export let lang: Preview.language
 	export let kind: string | undefined = undefined
+	export let tag: string | undefined
 	export let initialArgs: Record<string, any> = {}
 	export let fixedOverflowWidgets = true
 	export let noSyncFromGithub = false
@@ -56,7 +57,7 @@
 	}
 
 	function runTest() {
-		testJobLoader.runPreview(path, code, lang, args)
+		testJobLoader.runPreview(path, code, lang, args, tag)
 	}
 
 	async function loadPastTests(): Promise<void> {

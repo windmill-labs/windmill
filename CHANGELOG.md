@@ -1,6 +1,36 @@
 # Changelog
 
 
+## [1.89.0](https://github.com/windmill-labs/windmill/compare/v1.88.1...v1.89.0) (2023-04-23)
+
+
+### Features
+
+* **backend:** global cache refactor for pip using tar for each dependency ([#1443](https://github.com/windmill-labs/windmill/issues/1443)) ([369dd0d](https://github.com/windmill-labs/windmill/commit/369dd0dac61e5430856ed9abf7129bbad3b75860))
+* **backend:** only run fully deployed scripts ([3d031c7](https://github.com/windmill-labs/windmill/commit/3d031c701705459f418b11d2ca83e71943e4079b))
+* **backend:** worker groups ([#1452](https://github.com/windmill-labs/windmill/issues/1452)) ([722783f](https://github.com/windmill-labs/windmill/commit/722783f7f630e3123ffd2605deb21a915188bd20))
+* **backend:** workers are instantly ready and sync with global cache in background ([670ba51](https://github.com/windmill-labs/windmill/commit/670ba51d9bd9a9a0b07a2ed064c316234bb5819d))
+* **ee:** sync cache in background ([c919827](https://github.com/windmill-labs/windmill/commit/c919827cf8eb9437b6d9bd57b3d3ad883a66de3b))
+* **ee:** sync cache in background ([0e77e37](https://github.com/windmill-labs/windmill/commit/0e77e37fbddbb517d5e1b1f07a27a40b63371439))
+* **frontend:** Add documentation links ([#1399](https://github.com/windmill-labs/windmill/issues/1399)) ([36acbf7](https://github.com/windmill-labs/windmill/commit/36acbf793b6714dffe4dbb0e2501b9438f034858))
+* **frontend:** Add seconds input ([#1445](https://github.com/windmill-labs/windmill/issues/1445)) ([30bf7ad](https://github.com/windmill-labs/windmill/commit/30bf7ad3e9785420b4dcd814ce3c7a444d23cc9f))
+* **frontend:** add toast actions ([#1411](https://github.com/windmill-labs/windmill/issues/1411)) ([d173232](https://github.com/windmill-labs/windmill/commit/d17323286a05aa0b1680ef94d7058d2c8902782f))
+* **frontend:** reorder array items in app editor ([#1426](https://github.com/windmill-labs/windmill/issues/1426)) ([3615fb2](https://github.com/windmill-labs/windmill/commit/3615fb26fb91d64626d82ace6e6275e424ece832))
+* **frontend:** support showing metadata on script add via query param ([#1438](https://github.com/windmill-labs/windmill/issues/1438)) ([3c98452](https://github.com/windmill-labs/windmill/commit/3c98452f50913ef639eba96996f3a6c80508bd63))
+
+
+### Bug Fixes
+
+* **backend:** avoid potential conflict between pull from tar and background sync ([d76e907](https://github.com/windmill-labs/windmill/commit/d76e90757e209263da7f79fa85052969e7efd63d))
+* **backend:** global cache synco only start if all piptars have been downloaded ([5f8a730](https://github.com/windmill-labs/windmill/commit/5f8a730fdfbb9e3d518555f7272a3bb297725f28))
+* **frontend:** App color picker overflow issue ([#1449](https://github.com/windmill-labs/windmill/issues/1449)) ([32903d2](https://github.com/windmill-labs/windmill/commit/32903d2839a082d53168bb9177fc88f6ab0ec482))
+* **frontend:** fix copy content button width ([#1428](https://github.com/windmill-labs/windmill/issues/1428)) ([d96d4a5](https://github.com/windmill-labs/windmill/commit/d96d4a524edebea65bc602194c8f11f5d69e920a))
+* **frontend:** Minor update of app default codes ([#1440](https://github.com/windmill-labs/windmill/issues/1440)) ([fe75aa1](https://github.com/windmill-labs/windmill/commit/fe75aa18f2f27745db35329aa60938694640a8c6))
+* **frontend:** Update app default codes ([#1432](https://github.com/windmill-labs/windmill/issues/1432)) ([c8acfbc](https://github.com/windmill-labs/windmill/commit/c8acfbc1ff0f6c23e5a2229ca83a3b09eec826c3))
+* **frontend:** Update app mobile preview width ([#1431](https://github.com/windmill-labs/windmill/issues/1431)) ([1764613](https://github.com/windmill-labs/windmill/commit/17646130bcf8cf646a4ccdfa39f9a8791876a137))
+* **frontend:** Update flow tooltip z-indexes ([#1433](https://github.com/windmill-labs/windmill/issues/1433)) ([17cb8fc](https://github.com/windmill-labs/windmill/commit/17cb8fc3fa0b39a9750e61ca2731a15bbda690ec))
+* **frontend:** Update flow viewer styling ([#1441](https://github.com/windmill-labs/windmill/issues/1441)) ([46a29b5](https://github.com/windmill-labs/windmill/commit/46a29b5d27b8d9f7ea38c1063fc081ed5933db5d))
+
 ## [1.88.1](https://github.com/windmill-labs/windmill/compare/v1.88.0...v1.88.1) (2023-04-18)
 
 

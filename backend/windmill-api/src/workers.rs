@@ -21,7 +21,16 @@ use windmill_common::{
 };
 
 pub fn global_service() -> Router {
-    Router::new().route("/list", get(list_worker_pings))
+    Router::new()
+        .route("/list", get(list_worker_pings))
+        .route("/custom_tags", get(get_custom_tags))
+}
+
+lazy_static::lazy_static! {
+    pub static ref CUSTOM_TAGS: Vec<String> = std::env::var("CUSTOM_TAGS")
+        .ok()
+        .map(|x| x.split(',').map(|x| x.to_string()).collect::<Vec<_>>()).unwrap_or_default();
+
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -53,4 +62,8 @@ async fn list_worker_pings(
     .await?;
     tx.commit().await?;
     Ok(Json(rows))
+}
+
+async fn get_custom_tags() -> Json<Vec<String>> {
+    Json(CUSTOM_TAGS.clone())
 }

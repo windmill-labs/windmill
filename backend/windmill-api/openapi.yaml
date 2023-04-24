@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.88.1
+  version: 1.89.0
   title: Windmill API
 
   contact:
@@ -2165,6 +2165,8 @@ paths:
                 kind:
                   type: string
                   enum: [script, failure, trigger, command, approval]
+                tag:
+                  type: string
               required:
                 - path
                 - summary
@@ -2178,6 +2180,22 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /workers/custom_tags:
+    get:
+      summary: get all instance custom tags (tags are used to dispatch jobs to different worker groups)
+      operationId: getCustomTags
+      tags:
+        - worker
+      responses:
+        "200":
+          description: list of custom tags
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
 
   /scripts/python/tojsonschema:
     post:
@@ -4997,6 +5015,8 @@ components:
           enum: [script, failure, trigger, command, approval]
         starred:
           type: boolean
+        tag:
+          type: string
       required:
         - hash
         - path
@@ -5148,6 +5168,8 @@ components:
           type: boolean
         mem_peak:
           type: integer
+        tag:
+          type: string
       required:
         - id
         - running
@@ -5157,6 +5179,7 @@ components:
         - is_flow_step
         - email
         - visible_to_owner
+        - tag
 
     CompletedJob:
       type: object
@@ -5236,6 +5259,8 @@ components:
           type: boolean
         mem_peak:
           type: integer
+        tag:
+          type: string
       required:
         - id
         - created_by
@@ -5250,6 +5275,7 @@ components:
         - is_skipped
         - email
         - visible_to_owner
+        - tag
 
     Job:
       allOf:
@@ -5645,6 +5671,8 @@ components:
         language:
           type: string
           enum: [python3, deno, go, bash]
+        tag:
+          type: string
 
       required:
         - content

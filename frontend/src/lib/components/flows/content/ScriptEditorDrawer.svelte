@@ -91,6 +91,7 @@
 					fixedOverflowWidgets={false}
 					bind:code={script.content}
 					bind:schema={script.schema}
+					tag={undefined}
 				/>
 			{/key}
 		{:else}

@@ -1,17 +1,26 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
-	import type { FlowModule } from '$lib/gen'
+	import { WorkerService, type FlowModule } from '$lib/gen'
 	import { faCodeBranch, faPen, faSave } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import { Bed, PhoneIncoming, Repeat, Square } from 'lucide-svelte'
 	import Popover from '../../Popover.svelte'
 	import type { FlowEditorContext } from '../types'
 	import { getLatestHashForScript, sendUserToast } from '$lib/utils'
+	import { workerTags } from '$lib/stores'
 
 	export let module: FlowModule
 	const { scriptEditorDrawer } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const dispatch = createEventDispatcher()
+
+	loadWorkerGroups()
+
+	async function loadWorkerGroups() {
+		if (!$workerTags) {
+			$workerTags = await WorkerService.getCustomTags()
+		}
+	}
 
 	$: moduleRetry = module.retry?.constant || module.retry?.exponential
 </script>
@@ -99,6 +108,32 @@
 	{/if}
 
 	{#if module.value.type === 'rawscript'}
+		{#if $workerTags}
+			{#if $workerTags?.length > 0}
+				<div class="w-40">
+					<select
+						placeholder="Worker group"
+						bind:value={module.value.tag}
+						on:change={(e) => {
+							if (module.value.type === 'rawscript') {
+								if (module.value.tag == '') {
+									module.value.tag = undefined
+								}
+							}
+						}}
+					>
+						{#if module.value.tag}
+							<option value="">reset to default</option>
+						{:else}
+							<option value="" disabled selected>Worker Group</option>
+						{/if}
+						{#each $workerTags ?? [] as tag (tag)}
+							<option value={tag}>{tag}</option>
+						{/each}
+					</select>
+				</div>
+			{/if}
+		{/if}
 		<Button
 			size="xs"
 			color="light"

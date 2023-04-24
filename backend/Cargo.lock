@@ -54,9 +54,9 @@ dependencies = [
 
 [[package]]
 name = "aho-corasick"
-version = "0.7.20"
+version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc936419f96fa211c1b9166887b38e5e40b19958e5b895be7c1f93adec7071ac"
+checksum = "67fc08ce920c31afb70f013dcce1bfc3a3195de6a228474e45e1f145b36f8d04"
 dependencies = [
  "memchr",
 ]
@@ -390,9 +390,9 @@ checksum = "d468802bab17cbc0cc575e9b053f41e72aa36bfa6b7f55e3529ffa43161b97fa"
 
 [[package]]
 name = "axum"
-version = "0.6.15"
+version = "0.6.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b32c5ea3aabaf4deb5f5ced2d688ec0844c881c9e6c696a8b769a05fc691e62"
+checksum = "113713495a32dd0ab52baf5c10044725aa3aec00b31beda84218e469029b72a3"
 dependencies = [
  "async-trait",
  "axum-core",
@@ -581,9 +581,9 @@ dependencies = [
 
 [[package]]
 name = "bumpalo"
-version = "3.12.0"
+version = "3.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d261e256854913907f67ed06efbc3338dfe6179796deefc1ff763fc1aee5535"
+checksum = "9b1ce199063694f33ffb7dd4e0ee620741495c32833cde5aa08f02a0bf96f0c8"
 
 [[package]]
 name = "byteorder"
@@ -694,9 +694,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.2.2"
+version = "4.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b802d85aaf3a1cdb02b224ba472ebdea62014fccfcb269b95a4d76443b5ee5a"
+checksum = "956ac1f6381d8d82ab4684768f89c0ea3afe66925ceadb4eeb3fc452ffc55d62"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -705,9 +705,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.2.2"
+version = "4.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14a1a858f532119338887a4b8e1af9c60de8249cd7bafd68036a489e261e37b6"
+checksum = "84080e799e54cff944f4b4a4b0e71630b0e0443b25b985175c7dddc1a859b749"
 dependencies = [
  "anstream",
  "anstyle",
@@ -835,9 +835,9 @@ checksum = "e496a50fda8aacccc86d7529e2c1e0892dbd0f898a6b5645b5561b89c3210efa"
 
 [[package]]
 name = "cpufeatures"
-version = "0.2.6"
+version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "280a9f2d8b3a38871a3c8a46fb80db65e5e5ed97da80c4d08bf27fb63e35e181"
+checksum = "3e4c1eaa2012c47becbbad2ab175484c2a84d1185b566fb2cc5b8707343dfe58"
 dependencies = [
  "libc",
 ]
@@ -1970,7 +1970,7 @@ dependencies = [
  "petgraph",
  "pico-args",
  "regex",
- "regex-syntax",
+ "regex-syntax 0.6.29",
  "string_cache",
  "term",
  "tiny-keccak",
@@ -2070,9 +2070,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.141"
+version = "0.2.142"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3304a64d199bb964be99741b7a14d26972741915b3649639149b2479bb46f4b5"
+checksum = "6a987beff54b60ffa6d51982e1aa1146bc42f19bd26be28b0586f252fccf5317"
 
 [[package]]
 name = "libgit2-sys"
@@ -2115,9 +2115,9 @@ dependencies = [
 
 [[package]]
 name = "linux-raw-sys"
-version = "0.3.1"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d59d8c75012853d2e872fb56bc8a2e53718e2cafe1a4c823143141c6d90c322f"
+checksum = "36eb31c1778188ae1e64398743890d0877fef36d11521ac60406b42016e8c2cf"
 
 [[package]]
 name = "lock_api"
@@ -2415,9 +2415,9 @@ dependencies = [
 
 [[package]]
 name = "openssl"
-version = "0.10.50"
+version = "0.10.51"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e30d8bc91859781f0a943411186324d580f2bbeb71b452fe91ae344806af3f1"
+checksum = "97ea2d98598bf9ada7ea6ee8a30fb74f9156b63bbe495d64ec2b87c269d2dda3"
 dependencies = [
  "bitflags",
  "cfg-if",
@@ -2447,9 +2447,9 @@ checksum = "ff011a302c396a5197692431fc1948019154afc178baf7d8e37367442a4601cf"
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.85"
+version = "0.9.86"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d3d193fb1488ad46ffe3aaabc912cc931d02ee8518fe2959aea8ef52718b0c0"
+checksum = "992bac49bdbab4423199c654a5515bd2a6c6a23bf03f2dd3bdb7e5ae6259bc69"
 dependencies = [
  "cc",
  "libc",
@@ -2728,9 +2728,9 @@ dependencies = [
 
 [[package]]
 name = "polling"
-version = "2.7.0"
+version = "2.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4be1c66a6add46bff50935c313dae30a5030cf8385c5206e8a95e9e9def974aa"
+checksum = "4b2d323e8ca7996b3e23126511a523f7e62924d93ecd5ae73b333815b0eb3dce"
 dependencies = [
  "autocfg",
  "bitflags",
@@ -2782,7 +2782,7 @@ dependencies = [
 [[package]]
 name = "progenitor"
 version = "0.2.1-dev"
-source = "git+https://github.com/oxidecomputer/progenitor#b969813fd7933b1caffd8357ac1f88606410c74d"
+source = "git+https://github.com/oxidecomputer/progenitor#4c16647cac40305f94d5175017d37942ddb944b8"
 dependencies = [
  "anyhow",
  "built",
@@ -2800,7 +2800,7 @@ dependencies = [
 [[package]]
 name = "progenitor-client"
 version = "0.2.1-dev"
-source = "git+https://github.com/oxidecomputer/progenitor#b969813fd7933b1caffd8357ac1f88606410c74d"
+source = "git+https://github.com/oxidecomputer/progenitor#4c16647cac40305f94d5175017d37942ddb944b8"
 dependencies = [
  "bytes",
  "futures-core",
@@ -2814,7 +2814,7 @@ dependencies = [
 [[package]]
 name = "progenitor-impl"
 version = "0.2.1-dev"
-source = "git+https://github.com/oxidecomputer/progenitor#b969813fd7933b1caffd8357ac1f88606410c74d"
+source = "git+https://github.com/oxidecomputer/progenitor#4c16647cac40305f94d5175017d37942ddb944b8"
 dependencies = [
  "getopts",
  "heck",
@@ -2836,7 +2836,7 @@ dependencies = [
 [[package]]
 name = "progenitor-macro"
 version = "0.2.1-dev"
-source = "git+https://github.com/oxidecomputer/progenitor#b969813fd7933b1caffd8357ac1f88606410c74d"
+source = "git+https://github.com/oxidecomputer/progenitor#4c16647cac40305f94d5175017d37942ddb944b8"
 dependencies = [
  "openapiv3",
  "proc-macro2",
@@ -3017,13 +3017,13 @@ dependencies = [
 
 [[package]]
 name = "regex"
-version = "1.7.3"
+version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b1f693b24f6ac912f4893ef08244d70b6067480d2f1a46e950c9691e6749d1d"
+checksum = "af83e617f331cc6ae2da5443c602dfa5af81e517212d9d611a5b3ba1777b5370"
 dependencies = [
  "aho-corasick",
  "memchr",
- "regex-syntax",
+ "regex-syntax 0.7.1",
 ]
 
 [[package]]
@@ -3032,7 +3032,7 @@ version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c230d73fb8d8c1b9c0b3135c5142a8acee3a0558fb8db5cf1cb65f8d7862132"
 dependencies = [
- "regex-syntax",
+ "regex-syntax 0.6.29",
 ]
 
 [[package]]
@@ -3040,6 +3040,12 @@ name = "regex-syntax"
 version = "0.6.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f162c6dd7b008981e4d40210aca20b4bd0f9b60ca9271061b07f78537722f2e1"
+
+[[package]]
+name = "regex-syntax"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5996294f19bd3aae0453a862ad728f60e6600695733dd5df01da90c54363a3c"
 
 [[package]]
 name = "regress"
@@ -3226,9 +3232,9 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "0.37.11"
+version = "0.37.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85597d61f83914ddeba6a47b3b8ffe7365107221c2e557ed94426489fefb5f77"
+checksum = "d9b864d3c18a5785a05953adeed93e2dca37ed30f18e69bba9f30079d51f363f"
 dependencies = [
  "bitflags",
  "errno",
@@ -3262,7 +3268,7 @@ dependencies = [
 [[package]]
 name = "rustpython-ast"
 version = "0.2.0"
-source = "git+https://github.com/RustPython/RustPython#5f17d281a6f23848e211fdc58979327d1e6a5a30"
+source = "git+https://github.com/RustPython/RustPython#4e0890a50daf7f301f85a98d5a1ef9cb256619e3"
 dependencies = [
  "num-bigint",
  "rustpython-compiler-core",
@@ -3271,7 +3277,7 @@ dependencies = [
 [[package]]
 name = "rustpython-compiler-core"
 version = "0.2.0"
-source = "git+https://github.com/RustPython/RustPython#5f17d281a6f23848e211fdc58979327d1e6a5a30"
+source = "git+https://github.com/RustPython/RustPython#4e0890a50daf7f301f85a98d5a1ef9cb256619e3"
 dependencies = [
  "bitflags",
  "bstr",
@@ -3284,7 +3290,7 @@ dependencies = [
 [[package]]
 name = "rustpython-parser"
 version = "0.2.0"
-source = "git+https://github.com/RustPython/RustPython#5f17d281a6f23848e211fdc58979327d1e6a5a30"
+source = "git+https://github.com/RustPython/RustPython#4e0890a50daf7f301f85a98d5a1ef9cb256619e3"
 dependencies = [
  "ahash 0.7.6",
  "anyhow",
@@ -4543,9 +4549,9 @@ dependencies = [
 
 [[package]]
 name = "tracing-subscriber"
-version = "0.3.16"
+version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a6176eae26dd70d0c919749377897b54a9276bd7061339665dd68777926b5a70"
+checksum = "30a651bc37f915e81f087d86e62a18eec5f79550c7faff886f7090b4ea757c77"
 dependencies = [
  "matchers",
  "nu-ansi-term",
@@ -5096,7 +5102,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.88.1"
+version = "1.89.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -5130,7 +5136,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.88.1"
+version = "1.89.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -5188,7 +5194,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.88.1"
+version = "1.89.0"
 dependencies = [
  "base64 0.21.0",
  "chrono",
@@ -5203,7 +5209,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.88.1"
+version = "1.89.0"
 dependencies = [
  "chrono",
  "serde",
@@ -5216,7 +5222,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.88.1"
+version = "1.89.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -5241,7 +5247,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.88.1"
+version = "1.89.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -5249,7 +5255,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.88.1"
+version = "1.89.0"
 dependencies = [
  "anyhow",
  "itertools",
@@ -5264,7 +5270,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.88.1"
+version = "1.89.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -5277,7 +5283,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.88.1"
+version = "1.89.0"
 dependencies = [
  "anyhow",
  "itertools",
@@ -5292,7 +5298,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.88.1"
+version = "1.89.0"
 dependencies = [
  "anyhow",
  "deno_core",
@@ -5306,7 +5312,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.88.1"
+version = "1.89.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -5315,6 +5321,7 @@ dependencies = [
  "futures-core",
  "hex",
  "hmac",
+ "itertools",
  "lazy_static",
  "prometheus",
  "reqwest",
@@ -5333,7 +5340,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.88.1"
+version = "1.89.0"
 dependencies = [
  "anyhow",
  "async-recursion",

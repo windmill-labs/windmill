@@ -69,13 +69,13 @@
 
 <div class="w-full text-lg font-semibold text-center text-gray-600 p-2">Global Styling</div>
 <Tabs selected="ui" on:selected={(e) => switchTab(e.detail === 'json')} class="relative">
-	<Tab value="ui" size="xs" class="grow">
+	<Tab value="ui" size="xs" class="w-1/2">
 		<div class="m-1 center-center">
 			<MousePointer2 size={16} />
 			<span class="pl-1">UI</span>
 		</div>
 	</Tab>
-	<Tab value="json" size="xs" class="grow">
+	<Tab value="json" size="xs" class="w-1/2">
 		<div class="m-1 center-center">
 			<CurlyBraces size={16} />
 			<span class="pl-1">JSON</span>

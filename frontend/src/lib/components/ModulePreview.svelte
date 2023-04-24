@@ -45,12 +45,12 @@
 		const val = mod.value
 		// let jobId: string | undefined = undefined
 		if (val.type == 'rawscript') {
-			await testJobLoader?.runPreview(val.path, val.content, val.language, args)
+			await testJobLoader?.runPreview(val.path, val.content, val.language, args, val.tag)
 		} else if (val.type == 'script') {
 			const script = val.hash
 				? await ScriptService.getScriptByHash({ workspace: $workspaceStore!, hash: val.hash })
 				: await getScriptByPath(val.path)
-			await testJobLoader?.runPreview(val.path, script.content, script.language, args)
+			await testJobLoader?.runPreview(val.path, script.content, script.language, args, script.tag)
 		} else {
 			throw Error('not testable module type')
 		}

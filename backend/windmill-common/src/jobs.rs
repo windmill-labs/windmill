@@ -164,16 +164,36 @@ pub struct RawCode {
     pub lock: Option<String>,
 }
 
+type Tag = String;
+
 pub async fn script_path_to_payload<'c>(
     script_path: &str,
     db: &mut Transaction<'c, Postgres>,
     w_id: &String,
-) -> error::Result<JobPayload> {
-    let job_payload = if script_path.starts_with("hub/") {
-        JobPayload::ScriptHub { path: script_path.to_owned() }
+) -> error::Result<(JobPayload, Option<Tag>)> {
+    let (job_payload, tag) = if script_path.starts_with("hub/") {
+        (JobPayload::ScriptHub { path: script_path.to_owned() }, None)
     } else {
-        let script_hash = get_latest_deployed_hash_for_path(db, w_id, script_path).await?;
-        JobPayload::ScriptHash { hash: script_hash, path: script_path.to_owned() }
+        let (script_hash, tag) = get_latest_deployed_hash_for_path(db, w_id, script_path).await?;
+        (
+            JobPayload::ScriptHash { hash: script_hash, path: script_path.to_owned() },
+            tag,
+        )
     };
-    Ok(job_payload)
+    Ok((job_payload, tag))
+}
+
+pub async fn script_hash_to_tag<'c>(
+    script_hash: &ScriptHash,
+    db: &mut Transaction<'c, Postgres>,
+    w_id: &String,
+) -> error::Result<Option<Tag>> {
+    Ok(sqlx::query_scalar!(
+        "select tag from script where hash = $1 AND workspace_id = $2",
+        script_hash.0,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten())
 }

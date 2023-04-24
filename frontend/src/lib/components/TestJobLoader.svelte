@@ -80,7 +80,8 @@
 		path: string | undefined,
 		code: string,
 		lang: 'deno' | 'go' | 'python3' | 'bash',
-		args: Record<string, any>
+		args: Record<string, any>,
+		tag: string | undefined
 	): Promise<string> {
 		return abstractRun(() =>
 			JobService.runScriptPreview({
@@ -89,7 +90,8 @@
 					path,
 					content: code,
 					args,
-					language: lang as Preview.language
+					language: lang as Preview.language,
+					tag
 				}
 			})
 		)
