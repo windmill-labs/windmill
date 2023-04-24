@@ -70,13 +70,18 @@
 	<Popup
 		ref={anchor}
 		closeOn={[]}
-		options={{ placement: 'bottom', modifiers: [{ name: 'offset', options: { offset: [0, 6] } }] }}
+		options={{
+			placement: 'bottom-start',
+			strategy: 'fixed',
+			modifiers: [{ name: 'offset', options: { offset: [0, 6] } }]
+		}}
 		bind:open={openPopup}
 		let:close
 		transition={fade}
+		wrapperClasses=" z-[1002]"
 	>
 		{#if !loading}
-			<div class="max-w-xs shadow-[0_10px_40px_-5px_rgba(0,0,0,0.25)] bg-white rounded-md p-2">
+			<div class="w-72 shadow-[0_10px_40px_-5px_rgba(0,0,0,0.25)] bg-white rounded-md p-2">
 				{#if filteredItems}
 					<input
 						on:keydown={(event) => {
