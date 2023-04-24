@@ -63,7 +63,7 @@
 		"tailwindcss": "^3.2.2",
 		"tslib": "^2.4.1",
 		"typescript": "^5.0.4",
-		"vite": "^4.0.4",
+		"vite": "^4.3.1",
 		"yootils": "^0.3.1"
 	},
 	"type": "module",
