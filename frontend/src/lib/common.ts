@@ -10,7 +10,7 @@ export interface PropertyDisplayInfo {
 	property: SchemaProperty
 	name: string
 	isRequired: boolean
-	depth: number
+	path: string[]
 	index: number
 	propertiesNumber: number
 }

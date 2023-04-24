@@ -16,7 +16,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	const moveAnimationDuration = 500
+	const moveAnimationDuration = 300
 
 	export let schema: Schema = emptySchema()
 	if (!schema) {
@@ -168,35 +168,42 @@
 	let error = ''
 
 	function schemaPropertiesToDisplay(schema: Schema): PropertyDisplayInfo[] {
-		return propertiesToDisplay(schema.properties, schema.required, 0)
+		return propertiesToDisplay(schema.properties, schema.required, [])
 	}
 
 	function propertiesToDisplay(
 		properties: { [name: string]: SchemaProperty },
 		required: string[],
-		depth: number
+		path: string[]
 	): PropertyDisplayInfo[] {
 		return Object.entries(properties)
 			.map(([name, property], index) => {
 				const isRequired = required.includes(name)
-				const displayProperty = {
-					property,
-					name,
-					isRequired,
-					depth,
-					index,
+				const displayInfo = {
+					property: property,
+					name: name,
+					isRequired: isRequired,
+					path: path,
+					index: index,
 					propertiesNumber: Object.entries(properties).length
 				}
 				if (property.type === 'object') {
+					const newPath = [...path, name]
 					return [
-						displayProperty,
-						...propertiesToDisplay(property.properties || {}, property.required || [], depth + 1)
+						displayInfo,
+						...propertiesToDisplay(property.properties || {}, property.required || [], newPath)
 					]
 				} else {
-					return [displayProperty]
+					return [displayInfo]
 				}
 			})
 			.flat()
+	}
+
+	/* Small hash function to generate a unique key for each property */
+	function displayInfoKey(displayInfo: PropertyDisplayInfo): string {
+		const pathLengthString = displayInfo.path.length.toString()
+		return pathLengthString + [...displayInfo.path, displayInfo.name].join(pathLengthString)
 	}
 </script>
 
@@ -250,7 +257,7 @@
 							<th />
 						</tr>
 						<tbody slot="body">
-							{#each schemaPropertiesToDisplay(schema) as displayInfo (displayInfo.name)}
+							{#each schemaPropertiesToDisplay(schema) as displayInfo (displayInfoKey(displayInfo))}
 								<tr animate:flip={{ duration: moveAnimationDuration }}>
 									<PropertyRow
 										{displayInfo}

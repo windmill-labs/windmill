@@ -8,6 +8,8 @@
 	export let displayInfo: PropertyDisplayInfo
 	export let isAnimated: boolean
 
+	let depth = displayInfo.path.length
+
 	const dispatch = createEventDispatcher()
 
 	function startEditArgument(name: string) {
@@ -22,10 +24,10 @@
 		dispatch('changePosition', { i, up })
 	}
 
-	const indentClass = displayInfo.depth > 0 ? `ml-${4 * displayInfo.depth}` : ''
+	const indentClass = depth > 0 ? `ml-${4 * depth}` : ''
 </script>
 
-<td class="font-bold"><span class="{indentClass}">{displayInfo.name}</span></td>
+<td class="font-bold"><span class={indentClass}>{displayInfo.name}</span></td>
 <td>
 	<SchemaEditorProperty property={displayInfo.property} />
 </td>
@@ -37,7 +39,7 @@
 	{/if}</td
 >
 <td class="justify-end flex">
-	{#if displayInfo.depth === 0}
+	{#if depth === 0}
 		{#if displayInfo.index > 0}
 			<button
 				on:click={() => changePosition(displayInfo.index, true)}
