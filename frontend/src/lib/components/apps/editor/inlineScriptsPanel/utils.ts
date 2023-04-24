@@ -31,6 +31,9 @@ export function computeFields(schema: Schema, defaultUserInput: boolean, fields:
 				fieldTypeToTsType(newInput.fieldType) !== fieldTypeToTsType(oldInput.fieldType) ||
 				newInput.format !== oldInput.format ||
 				newInput.subFieldType !== oldInput.subFieldType ||
+				// An input became a select
+				(newInput.fieldType === 'select' && oldInput.fieldType !== 'select') ||
+				// The input was already a select, but the values changed
 				(newInput.fieldType === 'select' &&
 					oldInput.fieldType === 'select' &&
 					JSON.stringify(newInput.selectOptions) !== JSON.stringify(oldInput.selectOptions))
