@@ -83,7 +83,7 @@
 		"fast-equals": "^4.0.3",
 		"highlight.js": "^11.7.0",
 		"lodash": "^4.17.21",
-		"lucide-svelte": "^0.115.0",
+		"lucide-svelte": "^0.176.0",
 		"monaco-editor": "0.36.1",
 		"monaco-languageclient": "5.0.1",
 		"svelte-autosize": "^1.0.1",
