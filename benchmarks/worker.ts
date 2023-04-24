@@ -112,7 +112,7 @@ while (cont) {
       requestBody: {
         language: api.Preview.language.DENO,
         content:
-          'export async function main(){ await fetch("https://speed.hetzner.de/100MB.bin"); return Deno.env.get("WM_JOB_ID"); }',
+          'export async function main(){ return Deno.env.get("WM_JOB_ID"); }',
         args: {},
       },
     });

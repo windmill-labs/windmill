@@ -205,7 +205,7 @@ impl WindmillWorker {
             crate::ops::os::deno_os::init_ops(exit_code.clone(), options.env_vars),
             ops::permissions::deno_permissions::init_ops(),
             ops::process::deno_process::init_ops(),
-            ops::signal::deno_signal::init_ops(),
+            crate::ops::signal::deno_signal::init_ops(),
             ops::tty::deno_tty::init_ops(),
             ops::http::deno_http_runtime::init_ops(),
             deno_permissions_worker::init_ops(permissions, unstable, enable_testing_features),
