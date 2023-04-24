@@ -39,7 +39,6 @@ use windmill_common::{
 };
 use windmill_queue::{get_queued_job, push, QueueTransaction};
 
-
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/run/f/*script_path", post(run_flow_by_path))
@@ -327,6 +326,7 @@ pub struct CompletedJob {
     pub visible_to_owner: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mem_peak: Option<i32>,
+    pub tag: String,
 }
 
 #[derive(Deserialize, Clone)]
@@ -1107,6 +1107,7 @@ struct UnifiedJob {
     visible_to_owner: bool,
     suspend: Option<i32>,
     mem_peak: Option<i32>,
+    tag: String,
 }
 
 impl From<UnifiedJob> for Job {
@@ -1142,6 +1143,7 @@ impl From<UnifiedJob> for Job {
                 email: uj.email,
                 visible_to_owner: uj.visible_to_owner,
                 mem_peak: uj.mem_peak,
+                tag: uj.tag,
             }),
             "QueuedJob" => Job::QueuedJob(QueuedJob {
                 workspace_id: uj.workspace_id,
@@ -1177,6 +1179,7 @@ impl From<UnifiedJob> for Job {
                 mem_peak: uj.mem_peak,
                 root_job: None,
                 leaf_jobs: None,
+                tag: uj.tag,
             }),
             t => panic!("job type {} not valid", t),
         }
