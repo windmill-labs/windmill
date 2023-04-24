@@ -25,7 +25,7 @@ impl Resource for FakeSignalResource {
 }
 
 #[op]
-fn op_signal_bind(state: &mut OpState, sig: &str) -> Result<ResourceId, AnyError> {
+fn op_signal_bind(state: &mut OpState, _sig: &str) -> Result<ResourceId, AnyError> {
     let rid = state.resource_table.add(FakeSignalResource);
     Ok(rid)
 }

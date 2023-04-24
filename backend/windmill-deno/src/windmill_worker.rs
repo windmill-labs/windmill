@@ -118,7 +118,7 @@ impl WindmillWorker {
     pub fn boostrap_from_options(
         main_module: ModuleSpecifier,
         permissions: PermissionsContainer,
-        mut options: WorkerOptions,
+        options: WorkerOptions,
     ) -> Self {
         deno_core::extension!(deno_permissions_worker,
           options = {
@@ -128,8 +128,8 @@ impl WindmillWorker {
           },
           state = |state, options| {
             state.put::<PermissionsContainer>(options.permissions);
-            state.put(ops::UnstableChecker { unstable: options.unstable });
-            state.put(ops::TestingFeaturesEnabled(options.enable_testing_features));
+            state.put(ops::UnstableChecker { unstable: options.unstable });  // This causes panics
+            state.put(ops::TestingFeaturesEnabled(options.enable_testing_features)); // This causes panics (sometimes?)
           },
         );
 
@@ -142,9 +142,13 @@ impl WindmillWorker {
             CreateCache(Arc::new(create_cache_fn))
         });
 
+        if !unstable {
+            tracing::warn!("Unstable deno features are disabled. Users using unstable features may kill the parent process without warning!");
+        }
+
         // NOTE(bartlomieju): ordering is important here, keep it in sync with
         // `runtime/build.rs`, `runtime/web_worker.rs` and `cli/build.rs`!
-        let mut extensions = vec![
+        let extensions = vec![
             // Web APIs
             deno_webidl::deno_webidl::init_ops(),
             deno_console::deno_console::init_ops(),
@@ -171,17 +175,20 @@ impl WindmillWorker {
             deno_webstorage::deno_webstorage::init_ops(options.origin_storage_dir.clone()),
             deno_crypto::deno_crypto::init_ops(options.seed),
             deno_broadcast_channel::deno_broadcast_channel::init_ops(
+                // TODO: May kill the process if unstable: false
                 options.broadcast_channel.clone(),
                 unstable,
             ),
-            deno_ffi::deno_ffi::init_ops::<PermissionsContainer>(unstable),
+            deno_ffi::deno_ffi::init_ops::<PermissionsContainer>(unstable), // TODO: May kill the process if unstable: false
             deno_net::deno_net::init_ops::<PermissionsContainer>(
+                // TODO: May kill the process if unstable: false
                 options.root_cert_store.clone(),
                 unstable,
                 options.unsafely_ignore_certificate_errors.clone(),
             ),
             deno_tls::deno_tls::init_ops(),
             deno_kv::deno_kv::init_ops(
+                // TODO: May kill the process if unstable: false
                 SqliteDbHandler::<PermissionsContainer>::new(options.origin_storage_dir.clone()),
                 unstable,
             ),
@@ -196,6 +203,7 @@ impl WindmillWorker {
             // Ops from this crate
             ops::runtime::deno_runtime::init_ops(main_module.clone()),
             ops::worker_host::deno_worker_host::init_ops(
+                // TODO: May kill the process if unstable: false (yes even though we don't pass unstable directly)
                 options.create_web_worker_cb.clone(),
                 options.web_worker_preload_module_cb.clone(),
                 options.web_worker_pre_execute_module_cb.clone(),
@@ -204,10 +212,10 @@ impl WindmillWorker {
             ops::fs_events::deno_fs_events::init_ops(),
             crate::ops::os::deno_os::init_ops(exit_code.clone(), options.env_vars),
             ops::permissions::deno_permissions::init_ops(),
-            ops::process::deno_process::init_ops(),
+            ops::process::deno_process::init_ops(), // TODO: May kill the process if unstable: false (yes even though we don't pass unstable directly)
             crate::ops::signal::deno_signal::init_ops(),
             ops::tty::deno_tty::init_ops(),
-            ops::http::deno_http_runtime::init_ops(),
+            ops::http::deno_http_runtime::init_ops(), // TODO: May kill the process if unstable: false (yes even though we don't pass unstable directly)
             deno_permissions_worker::init_ops(permissions, unstable, enable_testing_features),
         ];
 
