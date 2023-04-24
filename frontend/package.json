@@ -92,7 +92,7 @@
 		"svelte-portal": "^2.2.0",
 		"svelte-select": "^5.6.0",
 		"svelte-timezone-picker": "^2.0.3",
-		"tailwind-merge": "^1.9.1",
+		"tailwind-merge": "^1.12.0",
 		"vscode-languageclient": "^8.1.0",
 		"vscode-ws-jsonrpc": "3.0.0"
 	},
