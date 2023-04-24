@@ -250,8 +250,8 @@
 							<th />
 						</tr>
 						<tbody slot="body">
-							{#each schemaPropertiesToDisplay(schema) as displayInfo, i (displayInfo.name)}
-								<tr animate:flip={{duration:moveAnimationDuration}}>
+							{#each schemaPropertiesToDisplay(schema) as displayInfo (displayInfo.name)}
+								<tr animate:flip={{ duration: moveAnimationDuration }}>
 									<PropertyRow
 										{displayInfo}
 										{isAnimated}
