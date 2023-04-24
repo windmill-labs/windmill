@@ -251,9 +251,8 @@
 						<tr slot="header-row">
 							<th>Name</th>
 							<th>Type</th>
-							<th>Description</th>
 							<th>Default</th>
-							<th>Required</th>
+							<th>Description</th>
 							<th />
 						</tr>
 						<tbody slot="body">

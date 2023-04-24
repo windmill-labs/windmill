@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Required from './Required.svelte'
 	import type { PropertyDisplayInfo } from '$lib/common'
 	import { createEventDispatcher } from 'svelte'
 	import { faPen, faTrash } from '@fortawesome/free-solid-svg-icons'
@@ -9,6 +10,7 @@
 	export let isAnimated: boolean
 
 	let depth = displayInfo.path.length
+	const required = displayInfo.isRequired
 
 	const dispatch = createEventDispatcher()
 
@@ -27,17 +29,18 @@
 	const indentClass = depth > 0 ? `ml-${4 * depth}` : ''
 </script>
 
-<td class="font-bold"><span class={indentClass}>{displayInfo.name}</span></td>
+<td class="font-bold">
+	<span class={indentClass}>
+		{displayInfo.name}
+		<Required {required} class="!ml-0" />
+	</span>
+</td>
 <td>
 	<SchemaEditorProperty property={displayInfo.property} />
 </td>
-<td>{displayInfo.property.description ?? ''}</td>
 <td>{displayInfo.property.default ? JSON.stringify(displayInfo.property.default) : ''}</td>
-<td
-	>{#if displayInfo.isRequired}
-		<span class="text-red-600 font-bold text-lg">*</span>
-	{/if}</td
->
+<td>{displayInfo.property.description ?? ''}</td>
+<td />
 <td class="justify-end flex">
 	{#if depth === 0}
 		{#if displayInfo.index > 0}
