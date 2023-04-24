@@ -22,18 +22,12 @@
 	}
 </script>
 
-<CenteredModal title="Authorize this request for a Token">
-	<p class="text-center text-lg">
+<CenteredModal title="Authorize login request">
+	<p class="text-center text-lg mb-6">
 		Token will be posted to your local machine to port {port}
 	</p>
-	<div class="flex flex-row justify-between pt-4 gap-x-1">
-		<Button variant="border" size="sm" href="/">Decline</Button>
-		<button
-			class="place-items-end bg-blue-500 hover:bg-blue-700 text-white font-bold py-1 px-2 border rounded"
-			type="button"
-			on:click={authorizeToken}
-		>
-			Authorize
-		</button>
+	<div class="flex flex-row justify-around pt-4 gap-x-1">
+		<Button variant="border" color="dark" size="sm" href="/">Decline</Button>
+		<Button variant="contained" color="blue" size="sm" on:click={authorizeToken}>Authorize</Button>
 	</div>
 </CenteredModal>
