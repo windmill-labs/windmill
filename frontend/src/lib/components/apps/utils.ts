@@ -77,6 +77,14 @@ export function schemaToInputsSpec(
 			format: property.format
 		}
 
+		if (Array.isArray(property.enum)) {
+			accu[key] = {
+				...accu[key],
+				selectOptions: property.enum,
+				fieldType: 'select'
+			}
+		}
+
 		return accu
 	}, {})
 }
