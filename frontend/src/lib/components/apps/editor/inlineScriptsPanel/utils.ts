@@ -30,7 +30,10 @@ export function computeFields(schema: Schema, defaultUserInput: boolean, fields:
 			if (
 				fieldTypeToTsType(newInput.fieldType) !== fieldTypeToTsType(oldInput.fieldType) ||
 				newInput.format !== oldInput.format ||
-				newInput.subFieldType !== oldInput.subFieldType
+				newInput.subFieldType !== oldInput.subFieldType ||
+				(newInput.fieldType === 'select' &&
+					oldInput.fieldType === 'select' &&
+					JSON.stringify(newInput.selectOptions) !== JSON.stringify(oldInput.selectOptions))
 			) {
 				result[key] = newInput
 			} else {
