@@ -61,7 +61,8 @@ lazy_static::lazy_static! {
             "bash".to_string(),
             "dependency".to_string(),
             "flow".to_string(),
-            "hub".to_string()]);
+            "hub".to_string(),
+            "other".to_string()]);
 
     pub static ref ACCEPTED_TAGS_FILTER: String = format!(" AND ({})",
         ACCEPTED_TAGS.clone().into_iter().map(|x| format!("(tag = '{x}')")).join(" OR "));
