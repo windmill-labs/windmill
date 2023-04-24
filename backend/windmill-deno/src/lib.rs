@@ -1,8 +1,12 @@
 use anyhow::Result;
 use std::{path::PathBuf, sync::Arc};
+use windmill_worker::WindmillWorker;
 
 mod module_loader;
+mod ops;
 pub mod runner;
+mod windmill_worker;
+mod windmillfs;
 
 fn create_web_worker_callback(
     _ps: deno_cli::proc_state::ProcState,
@@ -41,27 +45,18 @@ fn create_web_worker_pre_execute_module_callback(
     })
 }
 
-// TODO: Add deno ops here, could for example completely isolate API calls & prevent leaking the token entirely
-fn make_windmill_deno_exts() -> Vec<deno_runtime::deno_core::Extension> {
-    vec![]
-}
-
 // Adapted from https://github.com/denoland/deno/blob/d07aa4a0723b04583b7cb1e09152457d866d13d3/cli/worker.rs#L437 with modifications (primarily removing non-deno entrypoint)
 async fn create_main_worker(
     ps: &deno_cli::proc_state::ProcState,
     main_module: deno_core::url::Url,
     permissions: deno_runtime::permissions::PermissionsContainer,
     stdio: deno_runtime::deno_io::Stdio,
-) -> Result<(deno_core::url::Url, deno_runtime::worker::MainWorker)> {
-    let mut custom_extensions: Vec<deno_runtime::deno_core::Extension> = make_windmill_deno_exts();
-
+) -> Result<(deno_core::url::Url, WindmillWorker)> {
     let module_loader = module_loader::WindmillModuleLoader::new(
         ps.clone(),
         deno_runtime::permissions::PermissionsContainer::allow_all(),
         permissions.clone(),
     );
-
-    let maybe_inspector_server = ps.maybe_inspector_server.clone();
 
     let create_web_worker_cb = create_web_worker_callback(ps.clone(), stdio.clone());
     let web_worker_preload_module_cb = create_web_worker_preload_module_callback();
@@ -82,11 +77,7 @@ async fn create_main_worker(
             .join(deno_cli::util::checksum::gen(&[key.as_bytes()]))
     });
 
-    let mut extensions = Vec::new();
-    // extensions.append(&mut deno_cli::ops::cli_exts(ps.clone()));
-    extensions.append(&mut custom_extensions);
-
-    let options = deno_runtime::worker::WorkerOptions {
+    let options = windmill_worker::WorkerOptions {
         bootstrap: deno_runtime::BootstrapOptions {
             args: ps.options.argv().clone(),
             cpu_count: 1,
@@ -106,7 +97,6 @@ async fn create_main_worker(
             ),
             inspect: false,
         },
-        extensions,
         startup_snapshot: Some(deno_cli::js::deno_isolate_init()),
         unsafely_ignore_certificate_errors: None,
         root_cert_store: Some(ps.root_cert_store.clone()),
@@ -116,9 +106,6 @@ async fn create_main_worker(
         create_web_worker_cb,
         web_worker_preload_module_cb,
         web_worker_pre_execute_module_cb,
-        maybe_inspector_server,
-        should_break_on_first_statement: false,
-        should_wait_for_inspector_session: false,
         module_loader,
         npm_resolver: Some(std::rc::Rc::new(ps.npm_resolver.clone())),
         get_error_class_fn: Some(&deno_cli::errors::get_error_class_name),
@@ -129,27 +116,25 @@ async fn create_main_worker(
         shared_array_buffer_store: Some(ps.shared_array_buffer_store.clone()),
         compiled_wasm_module_store: Some(ps.compiled_wasm_module_store.clone()),
         stdio,
+        base_dir: ps.options.initial_cwd().into(),
+        env_vars: std::collections::HashMap::new(),
     };
 
-    let worker = deno_runtime::worker::MainWorker::bootstrap_from_options(
-        main_module.clone(),
-        permissions,
-        options,
-    );
+    let worker = WindmillWorker::boostrap_from_options(main_module.clone(), permissions, options);
 
     Ok((main_module, worker))
 }
 
 /// Returns whether to continue
-async fn run_once(worker: &mut deno_runtime::worker::MainWorker) -> anyhow::Result<bool> {
-    worker.run_event_loop(false).await?;
+async fn run_once(worker: &mut WindmillWorker) -> anyhow::Result<bool> {
+    worker.run_event_loop().await?;
 
     Ok(worker.dispatch_beforeunload_event(deno_core::located_script_name!())?)
 }
 
 async fn pre_run(
     main_module: &deno_core::url::Url,
-    worker: &mut deno_runtime::worker::MainWorker,
+    worker: &mut WindmillWorker,
     ps: &deno_cli::proc_state::ProcState,
 ) -> anyhow::Result<()> {
     let id = worker.preload_main_module(&main_module).await?;
@@ -163,7 +148,7 @@ async fn pre_run(
     Ok(())
 }
 
-async fn post_run(worker: &mut deno_runtime::worker::MainWorker) -> anyhow::Result<i32> {
+async fn post_run(worker: &mut WindmillWorker) -> anyhow::Result<i32> {
     worker.dispatch_unload_event(deno_core::located_script_name!())?;
 
     Ok(worker.exit_code())
@@ -192,7 +177,7 @@ async fn prepare_run(
 ) -> std::result::Result<
     (
         deno_core::url::Url,
-        deno_runtime::worker::MainWorker,
+        WindmillWorker,
         deno_cli::proc_state::ProcState,
     ),
     anyhow::Error,

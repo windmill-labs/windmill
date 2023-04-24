@@ -185,3 +185,7 @@ deno_core = { path = "../deno/core" }
 deadpool = "0.9.5"
 async-trait = "0.1.68"
 unix-named-pipe = "0.2.0"
+libc = "0.2.141"
+deno_fs = { path = "../deno/ext/fs" }
+filetime = "0.2.21"
+nix = "0.26.2"

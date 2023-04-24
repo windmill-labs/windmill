@@ -21,6 +21,11 @@ deno_graph.workspace = true
 tokio.workspace = true
 deadpool.workspace = true
 async-trait.workspace = true
+serde.workspace = true
+libc.workspace = true
+deno_fs.workspace = true
+filetime.workspace = true
+nix.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 unix-named-pipe.workspace = true

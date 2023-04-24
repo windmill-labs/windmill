@@ -1573,7 +1573,7 @@ dependencies = [
  "lsp-types",
  "monch",
  "napi_sym",
- "nix",
+ "nix 0.24.2",
  "notify",
  "once_cell",
  "os_pipe",
@@ -1800,7 +1800,7 @@ dependencies = [
  "fs3",
  "libc",
  "log",
- "nix",
+ "nix 0.24.2",
  "rand 0.8.5",
  "serde",
  "tokio",
@@ -1861,7 +1861,7 @@ name = "deno_io"
 version = "0.8.0"
 dependencies = [
  "deno_core",
- "nix",
+ "nix 0.24.2",
  "once_cell",
  "tokio",
  "winapi",
@@ -2037,7 +2037,7 @@ dependencies = [
  "libc",
  "log",
  "netif",
- "nix",
+ "nix 0.24.2",
  "notify",
  "ntapi",
  "once_cell",
@@ -4022,6 +4022,15 @@ dependencies = [
 
 [[package]]
 name = "memoffset"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5de893c32cde5f383baa4c04c5d6dbdd735cfd4a794b0debdb2bb1b421da5ff4"
+dependencies = [
+ "autocfg",
+]
+
+[[package]]
+name = "memoffset"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d61c719bcfbcf5d62b3a09efa6088de8c54bc0bfcd3ea7ae39fcc186108b8de1"
@@ -4142,6 +4151,20 @@ dependencies = [
  "cfg-if",
  "libc",
  "memoffset 0.6.5",
+]
+
+[[package]]
+name = "nix"
+version = "0.26.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bfdda3d196821d6af13126e40375cdf7da646a96114af134d5f417a9a1dc8e1a"
+dependencies = [
+ "bitflags 1.3.2",
+ "cfg-if",
+ "libc",
+ "memoffset 0.7.1",
+ "pin-utils",
+ "static_assertions",
 ]
 
 [[package]]
@@ -5560,7 +5583,7 @@ dependencies = [
  "libc",
  "log",
  "memchr",
- "nix",
+ "nix 0.24.2",
  "radix_trie",
  "scopeguard",
  "unicode-segmentation",
@@ -8277,10 +8300,15 @@ dependencies = [
  "deno",
  "deno_ast",
  "deno_core",
+ "deno_fs",
  "deno_graph",
  "deno_lockfile",
  "deno_runtime",
+ "filetime",
  "futures",
+ "libc",
+ "nix 0.26.2",
+ "serde",
  "tokio",
  "tracing-log",
  "unix-named-pipe",
