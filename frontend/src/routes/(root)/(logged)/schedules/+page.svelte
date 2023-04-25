@@ -17,6 +17,7 @@
 		faCircle,
 		faEdit,
 		faList,
+		faPlay,
 		faPlus,
 		faShare,
 		faToggleOff,
@@ -207,6 +208,11 @@
 												displayName: 'View Runs',
 												icon: faList,
 												href: '/runs/' + path
+											},
+											{
+												displayName: 'Run now',
+												icon: faPlay,
+												action: () => {}
 											},
 											{
 												displayName: canWrite ? 'Share' : 'See Permissions',
