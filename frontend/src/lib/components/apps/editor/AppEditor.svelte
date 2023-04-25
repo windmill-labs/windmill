@@ -297,7 +297,7 @@
 										</div>
 									</Tab>
 								</Popover>
-								<div slot="content" class="relative h-full overflow-y-auto">
+								<div slot="content" class="h-full overflow-y-auto">
 									<TabContent class="overflow-auto h-full" value="settings">
 										{#if $selectedComponent !== undefined}
 											<SettingsPanel />

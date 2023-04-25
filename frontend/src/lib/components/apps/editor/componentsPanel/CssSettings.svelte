@@ -84,48 +84,50 @@
 		</div>
 	</Tab>
 	<div slot="content" class="h-[calc(100%-35px)] overflow-auto">
-		<TabContent value="ui">
-			<div class="sticky z-10 top-0 left-0 w-full bg-white p-2">
+		<TabContent value="ui" class="h-full">
+			<div class="p-2">
 				<ClearableInput bind:value={search} placeholder="Search..." />
 			</div>
-			{#each search != '' ? entries.filter((x) => x.name
-							.toLowerCase()
-							.includes(search.toLowerCase())) : entries as { type, name, icon, ids } (name)}
-				{#if ids.length > 0}
-					<ListItem
-						title={name}
-						prefix={TITLE_PREFIX}
-						on:open={(e) => {
-							if ($app.css != undefined) {
-								if (e.detail && $app.css[type] == undefined) {
-									$app.css[type] = Object.fromEntries(ids.map(({ id }) => [id, {}]))
+			<div class="h-[calc(100%-50px)] overflow-auto relative">
+				{#each search != '' ? entries.filter((x) => x.name
+								.toLowerCase()
+								.includes(search.toLowerCase())) : entries as { type, name, icon, ids } (name)}
+					{#if ids.length > 0}
+						<ListItem
+							title={name}
+							prefix={TITLE_PREFIX}
+							on:open={(e) => {
+								if ($app.css != undefined) {
+									if (e.detail && $app.css[type] == undefined) {
+										$app.css[type] = Object.fromEntries(ids.map(({ id }) => [id, {}]))
+									}
 								}
-							}
-						}}
-					>
-						<div slot="title" class="flex items-center">
-							<svelte:component this={icon} size={18} />
-							<span class="ml-1">
-								{name}
-							</span>
-						</div>
-						<div class="pb-2">
-							{#each ids as { id, forceStyle, forceClass }}
-								<div class="mb-3">
-									{#if $app?.css?.[type]}
-										<CssProperty
-											{forceClass}
-											{forceStyle}
-											name={id}
-											bind:value={$app.css[type][id]}
-										/>
-									{/if}
-								</div>
-							{/each}
-						</div>
-					</ListItem>
-				{/if}
-			{/each}
+							}}
+						>
+							<div slot="title" class="flex items-center">
+								<svelte:component this={icon} size={18} />
+								<span class="ml-1">
+									{name}
+								</span>
+							</div>
+							<div class="pb-2">
+								{#each ids as { id, forceStyle, forceClass }}
+									<div class="mb-3">
+										{#if $app?.css?.[type]}
+											<CssProperty
+												{forceClass}
+												{forceStyle}
+												name={id}
+												bind:value={$app.css[type][id]}
+											/>
+										{/if}
+									</div>
+								{/each}
+							</div>
+						</ListItem>
+					{/if}
+				{/each}
+			</div>
 		</TabContent>
 		<TabContent value="json" class="h-full">
 			{#if !emptyString(jsonError)}
