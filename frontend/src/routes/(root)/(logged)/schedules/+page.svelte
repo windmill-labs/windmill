@@ -239,7 +239,7 @@
 												displayName: 'Run now',
 												icon: faPlay,
 												action: () => {
-													runScheduleNow(is_flow ? path : script_path, args, is_flow)
+													runScheduleNow(script_path, args, is_flow)
 												}
 											},
 											{
