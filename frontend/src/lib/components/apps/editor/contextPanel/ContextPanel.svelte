@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
-	import { X } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 
 	import type { AppViewerContext, ContextPanelContext } from '../../types'
@@ -10,6 +9,7 @@
 	import ComponentOutputViewer from './ComponentOutputViewer.svelte'
 	import BackgroundScriptsOutput from './components/BackgroundScriptsOutput.svelte'
 	import OutputHeader from './components/OutputHeader.svelte'
+	import { ClearableInput } from '../../../common'
 
 	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
 	const { search } = getContext<ContextPanelContext>('ContextPanel')
@@ -26,21 +26,7 @@
 	>
 		<div class="min-w-[150px]">
 			<div class="sticky z-10 top-0 left-0 w-full bg-white p-1.5">
-				<div class="relative w-full">
-					<input
-						bind:value={$search}
-						class="!border-gray-200 !rounded-md !text-xs !pr-6"
-						placeholder="Search outputs..."
-					/>
-					{#if $search !== ''}
-						<button
-							class="absolute right-2 top-1/2 transform -translate-y-1/2 hover:bg-gray-500 bg-gray-300 transition-all rounded-full p-0.5"
-							on:click|stopPropagation|preventDefault={() => ($search = '')}
-						>
-							<X size="10" color="white" />
-						</button>
-					{/if}
-				</div>
+				<ClearableInput bind:value={$search} placeholder="Search outputs..." />
 			</div>
 
 			<div class="flex flex-col gap-4">
