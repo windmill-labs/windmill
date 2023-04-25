@@ -206,8 +206,6 @@
 				)
 				await setResult(r)
 
-				donePromise?.()
-
 				$state = $state
 			} catch (e) {
 				sendUserToast(`Error running frontend script ${id}: ` + e.message, true)
@@ -353,6 +351,8 @@
 			delete $errorByComponent[previousJobId]
 			$errorByComponent = $errorByComponent
 		}
+
+		donePromise?.()
 	}
 
 	function handleInputClick(e: CustomEvent) {
@@ -392,7 +392,6 @@
 			if (startedAt > lastStartedAt) {
 				lastStartedAt = startedAt
 				setResult(e.detail.result)
-				donePromise?.()
 			}
 		}
 		loading = false
