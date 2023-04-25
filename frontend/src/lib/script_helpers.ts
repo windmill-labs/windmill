@@ -139,7 +139,7 @@ export async function main(
 
 export const FETCH_INIT_CODE = `export async function main(
 	url: string | undefined,
-	method: string = 'GET',
+	method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'OPTIONS' = 'GET',
 	body: Object = {},
 	headers: Record<string, string> = {}
 ): Promise<Response | null> {
