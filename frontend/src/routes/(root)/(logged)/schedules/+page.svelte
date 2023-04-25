@@ -61,14 +61,19 @@
 	): Promise<void> {
 		try {
 			const runByPath = isFlow ? JobService.runFlowByPath : JobService.runScriptByPath
-			let run = runByPath({
+
+			const run = await runByPath({
 				path,
 				requestBody: args ?? {},
 				workspace: $workspaceStore!
 			})
-			await goto('/run/' + run + '?workspace=' + $workspaceStore)
 
-			sendUserToast(`Schedule ${path} will run now`)
+			sendUserToast(`Schedule ${path} will run now`, false, [
+				{
+					label: 'Go to the run page',
+					callback: () => goto('/run/' + run + '?workspace=' + $workspaceStore)
+				}
+			])
 		} catch (err) {
 			sendUserToast(`Cannot run schedule now: ${err.body}`, true)
 		}
