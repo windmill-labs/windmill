@@ -38,7 +38,7 @@
 		onClick(!inter)
 	}
 
-	function refresh() {
+	async function refresh() {
 		let isFirstLoad = false
 		if (!firstLoad) {
 			$initialized.initialized = true
@@ -46,19 +46,23 @@
 			isFirstLoad = true
 		}
 		loading = true
-		Promise.all(
-			Object.keys($runnableComponents).map((id) => {
+
+		const promises = Object.keys($runnableComponents)
+			.map((id) => {
 				if (
 					!$runnableComponents?.[id]?.autoRefresh &&
 					(!isFirstLoad || !$runnableComponents?.[id]?.refreshOnStart)
 				) {
 					return
 				}
+
 				return $runnableComponents?.[id]?.cb?.()
 			})
-		).finally(() => {
-			loading = false
-		})
+			.filter(Boolean)
+
+		await Promise.all(promises)
+
+		loading = false
 	}
 
 	function visChange() {

@@ -67,13 +67,14 @@
 		let p: Partial<CancelablePromise<void>> = new Promise<void>((resolve, reject) => {
 			rejectCb = reject
 			donePromise = resolve
-			executeComponent(true, inlineScript).catch(reject)
+			executeComponent(true, inlineScript).catch(reject).finally(resolve)
 		})
 		p.cancel = () => {
 			testJobLoader?.cancelJob()
 			loading = false
 			rejectCb(new Error('Canceled'))
 		}
+
 		return p as CancelablePromise<void>
 	}
 

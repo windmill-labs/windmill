@@ -19,8 +19,6 @@
 	$: componentSettings = findComponentSettings($app, $selectedComponent?.[0])
 	$: tableActionSettings = findTableActionSettings($app, $selectedComponent?.[0])
 
-	$: console.log({ hiddenInlineScript, componentSettings, tableActionSettings })
-
 	function findTableActionSettings(app: App, id: string | undefined) {
 		return allItems(app.grid, app.subgrids)
 			.map((x) => {
@@ -85,20 +83,18 @@
 	{/key}
 {:else if hiddenInlineScript}
 	<div class="min-h-full flex flex-col divide-y">
-		{#if hiddenInlineScript.script.inlineScript?.language !== 'frontend'}
-			<PanelSection title={`Configuration`}>
-				<div class="flex items-center">
-					<Toggle
-						bind:checked={hiddenInlineScript.script.autoRefresh}
-						options={{ right: 'Run on start and app refresh' }}
-					/>
-					<Tooltip>
-						You may want to disable this so that the background script is only triggered by changes
-						to other values or triggered by another computation on a button (See 'Recompute Others')
-					</Tooltip>
-				</div>
-			</PanelSection>
-		{/if}
+		<PanelSection title={`Configuration`}>
+			<div class="flex items-center">
+				<Toggle
+					bind:checked={hiddenInlineScript.script.autoRefresh}
+					options={{ right: 'Run on start and app refresh' }}
+				/>
+				<Tooltip>
+					You may want to disable this so that the background script is only triggered by changes to
+					other values or triggered by another computation on a button (See 'Recompute Others')
+				</Tooltip>
+			</div>
+		</PanelSection>
 
 		<div class="p-2">
 			{#if hiddenInlineScript.script.inlineScript}
