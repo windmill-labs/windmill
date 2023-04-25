@@ -162,6 +162,8 @@ Windmill Community Edition {GIT_VERSION}
         "INSTANCE_EVENTS_WEBHOOK",
         "CLOUD_HOSTED",
         "GLOBAL_CACHE_INTERVAL",
+        "WORKER_TAGS",
+        "CUSTOM_TAGS",
     ]);
 
     if server_mode || num_workers > 0 {

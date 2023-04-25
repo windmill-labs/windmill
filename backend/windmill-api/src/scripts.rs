@@ -49,7 +49,7 @@ use windmill_queue::{self, schedule::push_scheduled_job, QueueTransaction};
 lazy_static::lazy_static! {
     pub static ref CUSTOM_TAGS: Vec<String> = std::env::var("CUSTOM_TAGS")
         .ok()
-        .map(|x| x.split(',').map(|x| x.to_string()).collect::<Vec<_>>()).unwrap_or_default();
+        .map(|x| x.split(',').map(|x| x.to_string()).filter(|x| !x.is_empty()).collect::<Vec<_>>()).unwrap_or_default();
 
 }
 
