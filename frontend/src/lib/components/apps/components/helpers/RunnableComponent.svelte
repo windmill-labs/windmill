@@ -67,7 +67,7 @@
 		let p: Partial<CancelablePromise<void>> = new Promise<void>((resolve, reject) => {
 			rejectCb = reject
 			donePromise = resolve
-			executeComponent(true, inlineScript).catch(reject).finally(resolve)
+			executeComponent(true, inlineScript).catch(reject)
 		})
 		p.cancel = () => {
 			testJobLoader?.cancelJob()
@@ -205,6 +205,8 @@
 					$runnableComponents
 				)
 				await setResult(r)
+
+				donePromise?.()
 
 				$state = $state
 			} catch (e) {
