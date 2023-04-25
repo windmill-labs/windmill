@@ -35,5 +35,10 @@
 	{onLoad}
 	{recomputeOnInputChanged}
 	id={$selectedComponent?.[0]}
+	shouldHideAddDependencyButton={[
+		'buttoncomponent',
+		'formcomponent',
+		'formbuttoncomponent'
+	].includes(appComponent.type)}
 	{onClick}
 />

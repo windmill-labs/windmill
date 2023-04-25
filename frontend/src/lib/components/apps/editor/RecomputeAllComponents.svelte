@@ -46,17 +46,21 @@
 			isFirstLoad = true
 		}
 		loading = true
-		Promise.all(
-			Object.keys($runnableComponents).map((id) => {
+
+		const promises = Object.keys($runnableComponents)
+			.map((id) => {
 				if (
 					!$runnableComponents?.[id]?.autoRefresh &&
 					(!isFirstLoad || !$runnableComponents?.[id]?.refreshOnStart)
 				) {
 					return
 				}
+
 				return $runnableComponents?.[id]?.cb?.()
 			})
-		).finally(() => {
+			.filter(Boolean)
+
+		Promise.all(promises).finally(() => {
 			loading = false
 		})
 	}
