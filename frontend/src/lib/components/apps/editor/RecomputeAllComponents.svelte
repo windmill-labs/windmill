@@ -38,7 +38,7 @@
 		onClick(!inter)
 	}
 
-	async function refresh() {
+	function refresh() {
 		let isFirstLoad = false
 		if (!firstLoad) {
 			$initialized.initialized = true
@@ -60,9 +60,9 @@
 			})
 			.filter(Boolean)
 
-		await Promise.all(promises)
-
-		loading = false
+		Promise.all(promises).finally(() => {
+			loading = false
+		})
 	}
 
 	function visChange() {
