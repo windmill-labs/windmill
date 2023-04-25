@@ -193,10 +193,10 @@
 				<div class="mb-8" />
 			{/if}
 
-			<h2 class="border-b pb-1 mb-2">
-				<span class="mr-1">Schedule</span>
+			<div class="flex flex-row items-center mb-2 gap-1">
+				<div class="text-xl font-extrabold">Schedule</div>
 				<Tooltip>Schedules use CRON syntax. Seconds are mandatory.</Tooltip>
-			</h2>
+			</div>
 
 			<CronInput disabled={!can_write} bind:schedule bind:timezone bind:validCRON />
 
