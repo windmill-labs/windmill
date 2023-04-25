@@ -11,9 +11,9 @@
 	} from '../component'
 	import ListItem from './ListItem.svelte'
 	import { appComponentFromType, insertNewGridItem } from '../appUtils'
-	import { X } from 'lucide-svelte'
 	import { push } from '$lib/history'
 	import { flip } from 'svelte/animate'
+	import { ClearableInput } from '../../../common'
 
 	const { app, selectedComponent, focusedGrid } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -47,22 +47,7 @@
 </script>
 
 <section class="p-2 sticky bg-white w-full z-10 top-0">
-	<div class="relative">
-		<input
-			bind:value={search}
-			class="px-2 py-1 border border-gray-300 rounded-sm !pr-6"
-			placeholder="Search components..."
-		/>
-
-		{#if search !== ''}
-			<button
-				class="absolute right-2 top-1/2 transform -translate-y-1/2 hover:bg-gray-500 bg-gray-300 transition-all rounded-full p-0.5"
-				on:click|stopPropagation|preventDefault={() => (search = '')}
-			>
-				<X size="10" color="white" />
-			</button>
-		{/if}
-	</div>
+	<ClearableInput bind:value={search} placeholder="Search components..." />
 </section>
 
 <div class="relative">

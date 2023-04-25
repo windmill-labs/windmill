@@ -46,7 +46,7 @@
 	}
 
 	.color-picker-input span > div.wrapper {
-		box-shadow: 0 5px 30px -5px rgba(0, 0, 0, 0.25) !important;
+		box-shadow: 0 10px 40px -5px rgba(0, 0, 0, 0.25) !important;
 		border-style: none !important;
 		border-radius: 0.375rem !important;
 		top: 6px !important;
