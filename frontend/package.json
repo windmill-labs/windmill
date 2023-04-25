@@ -9,27 +9,27 @@
 		"check:watch": "svelte-check --tsconfig ./tsconfig.json --watch",
 		"lint": "prettier --ignore-path .gitignore --check --plugin-search-dir=. . && eslint --ignore-path .gitignore .",
 		"format": "prettier --ignore-path .gitignore --write --plugin-search-dir=. .",
-		"package": "svelte-package",
+		"package": "svelte-package -o package",
 		"generate-backend-client": "openapi --input ../backend/windmill-api/openapi.yaml --output ./src/lib/gen --useOptions && sed -i '213 i \\    request.referrerPolicy = \"no-referrer\"\n' src/lib/gen/core/request.ts",
 		"pretest": "tsc --incremental -p tests/tsconfig.json",
 		"test": "playwright test --config=tests-out/playwright.config.js"
 	},
 	"devDependencies": {
-		"@playwright/test": "^1.31.1",
+		"@playwright/test": "^1.32.3",
 		"@rgossiaux/svelte-headlessui": "^1.0.2",
 		"@sveltejs/adapter-static": "^2.0.2",
 		"@sveltejs/kit": "^1.15.6",
-		"@sveltejs/package": "^2.0.2",
+		"@sveltejs/package": "^2.0.0",
 		"@tailwindcss/forms": "^0.5.3",
 		"@tailwindcss/typography": "^0.5.8",
 		"@types/d3": "^7.4.0",
 		"@types/d3-zoom": "^3.0.2",
-		"@types/lodash": "^4.14.191",
-		"@types/node": "^18.11.18",
+		"@types/lodash": "^4.14.194",
+		"@types/node": "^18.16.0",
 		"@types/vscode": "~1.77.0",
-		"@typescript-eslint/eslint-plugin": "^5.49.0",
-		"@typescript-eslint/parser": "^5.59.0",
-		"@zerodevx/svelte-toast": "^0.8.1",
+		"@typescript-eslint/eslint-plugin": "^5.59.1",
+		"@typescript-eslint/parser": "^5.59.1",
+		"@zerodevx/svelte-toast": "^0.9.3",
 		"autoprefixer": "^10.4.13",
 		"cssnano": "^6.0.0",
 		"d3-dag": "^0.11.5",
@@ -41,7 +41,7 @@
 		"openapi-typescript-codegen": "^0.23.0",
 		"path-browserify": "^1.0.1",
 		"pdfjs-dist": "^3.5.141",
-		"postcss": "^8.4.18",
+		"postcss": "^8.4.23",
 		"postcss-load-config": "^4.0.1",
 		"prettier": "^2.8.3",
 		"prettier-plugin-svelte": "^2.9.0",
@@ -63,7 +63,7 @@
 		"tailwindcss": "^3.2.2",
 		"tslib": "^2.4.1",
 		"typescript": "^5.0.4",
-		"vite": "^4.0.4",
+		"vite": "^4.3.1",
 		"yootils": "^0.3.1"
 	},
 	"type": "module",
@@ -83,7 +83,7 @@
 		"fast-equals": "^4.0.3",
 		"highlight.js": "^11.7.0",
 		"lodash": "^4.17.21",
-		"lucide-svelte": "^0.115.0",
+		"lucide-svelte": "^0.176.0",
 		"monaco-editor": "0.36.1",
 		"monaco-languageclient": "5.0.1",
 		"svelte-autosize": "^1.0.1",
@@ -92,7 +92,7 @@
 		"svelte-portal": "^2.2.0",
 		"svelte-select": "^5.6.0",
 		"svelte-timezone-picker": "^2.0.3",
-		"tailwind-merge": "^1.9.1",
+		"tailwind-merge": "^1.12.0",
 		"vscode-languageclient": "^8.1.0",
 		"vscode-ws-jsonrpc": "3.0.0"
 	},
@@ -101,13 +101,153 @@
 		"svelte": "^3.55.1"
 	},
 	"exports": {
+		"./package.json": "./package.json",
 		".": {
 			"types": "./dist/index.d.ts",
 			"svelte": "./dist/index.js"
+		},
+		"./assets/app.css": "./package/assets/app.css",
+		"./components/IconedResourceType.svelte": {
+			"types": "./package/components/IconedResourceType.svelte.d.ts",
+			"svelte": "./package/components/IconedResourceType.svelte",
+			"default": "./package/components/IconedResourceType.svelte"
+		},
+		"./components/common/drawer/Drawer.svelte": {
+			"types": "./package/components/common/drawer/Drawer.svelte.d.ts",
+			"svelte": "./package/components/common/drawer/Drawer.svelte",
+			"default": "./package/components/common/drawer/Drawer.svelte"
+		},
+		"./components/common/drawer/DrawerContent.svelte": {
+			"types": "./package/components/common/drawer/DrawerContent.svelte.d.ts",
+			"svelte": "./package/components/common/drawer/DrawerContent.svelte",
+			"default": "./package/components/common/drawer/DrawerContent.svelte"
+		},
+		"./components/common/button/Button.svelte": {
+			"types": "./package/components/common/button/Button.svelte.d.ts",
+			"svelte": "./package/components/common/button/Button.svelte",
+			"default": "./package/components/common/button/Button.svelte"
+		},
+		"./components/RadioButton.svelte": {
+			"types": "./package/components/RadioButton.svelte.d.ts",
+			"svelte": "./package/components/RadioButton.svelte",
+			"default": "./package/components/RadioButton.svelte"
+		},
+		"./components/common/tabs/Tabs.svelte": {
+			"types": "./package/components/common/tabs/Tabs.svelte.d.ts",
+			"svelte": "./package/components/common/tabs/Tabs.svelte",
+			"default": "./package/components/common/tabs/Tabs.svelte"
+		},
+		"./components/common/tabs/Tab.svelte": {
+			"types": "./package/components/common/tabs/Tab.svelte.d.ts",
+			"svelte": "./package/components/common/tabs/Tab.svelte",
+			"default": "./package/components/common/tabs/Tab.svelte"
+		},
+		"./components/common/alert/Alert.svelte": {
+			"types": "./package/components/common/alert/Alert.svelte.d.ts",
+			"svelte": "./package/components/common/alert/Alert.svelte",
+			"default": "./package/components/common/alert/Alert.svelte"
+		},
+		"./components/apps/editor/AppPreview.svelte": {
+			"types": "./package/components/apps/editor/AppPreview.svelte.d.ts",
+			"svelte": "./package/components/apps/editor/AppPreview.svelte",
+			"default": "./package/components/apps/editor/AppPreview.svelte"
+		},
+		"./components/FlowViewer.svelte": {
+			"types": "./package/components/FlowViewer.svelte.d.ts",
+			"svelte": "./package/components/FlowViewer.svelte",
+			"default": "./package/components/FlowViewer.svelte"
+		},
+		"./components/SchemaViewer.svelte": {
+			"types": "./package/components/SchemaViewer.svelte.d.ts",
+			"svelte": "./package/components/SchemaViewer.svelte",
+			"default": "./package/components/SchemaViewer.svelte"
+		},
+		"./components/SchemaEditor.svelte": {
+			"types": "./package/components/SchemaEditor.svelte.d.ts",
+			"svelte": "./package/components/SchemaEditor.svelte",
+			"default": "./package/components/SchemaEditor.svelte"
+		},
+		"./common": {
+			"types": "./package/common.d.ts",
+			"default": "./package/common.js"
+		},
+		"./components/icons": {
+			"types": "./package/components/icons/index.d.ts",
+			"svelte": "./package/components/icons/index.js",
+			"default": "./package/components/icons/index.js"
+		},
+		"./components/apps/inputType": {
+			"types": "./package/components/apps/inputType.d.ts",
+			"default": "./package/components/apps/inputType.js"
+		},
+		"./components/apps/types": {
+			"types": "./package/components/apps/types.d.ts",
+			"default": "./package/components/apps/types.js"
+		},
+		"./components/apps/editor/inlineScriptsPanel/utils": {
+			"types": "./package/components/apps/editor/inlineScriptsPanel/utils.d.ts",
+			"default": "./package/components/apps/editor/inlineScriptsPanel/utils.js"
 		}
 	},
 	"files": [
-		"dist"
+		"dist",
+		"package"
 	],
-	"license": "Apache-2.0"
+	"license": "Apache-2.0",
+	"svelte": "./dist/index.js",
+	"typesVersions": {
+		">4.0": {
+			"components/IconedResourceType.svelte": [
+				"./package/components/IconedResourceType.svelte.d.ts"
+			],
+			"components/common/drawer/Drawer.svelte": [
+				"./package/components/common/drawer/Drawer.svelte.d.ts"
+			],
+			"components/common/drawer/DrawerContent.svelte": [
+				"./package/components/common/drawer/DrawerContent.svelte.d.ts"
+			],
+			"components/common/button/Button.svelte": [
+				"./package/components/common/button/Button.svelte.d.ts"
+			],
+			"components/RadioButton.svelte": [
+				"./package/components/RadioButton.svelte.d.ts"
+			],
+			"components/common/tabs/Tabs.svelte": [
+				"./package/components/common/tabs/Tabs.svelte.d.ts"
+			],
+			"components/common/tabs/Tab.svelte": [
+				"./package/components/common/tabs/Tab.svelte.d.ts"
+			],
+			"components/common/alert/Alert.svelte": [
+				"./package/components/common/alert/Alert.svelte.d.ts"
+			],
+			"components/apps/editor/AppPreview.svelte": [
+				"./package/components/apps/editor/AppPreview.svelte.d.ts"
+			],
+			"components/FlowViewer.svelte": [
+				"./package/components/FlowViewer.svelte.d.ts"
+			],
+			"components/SchemaViewer.svelte": [
+				"./package/components/SchemaViewer.svelte.d.ts"
+			],
+			"components/SchemaEditor.svelte": [
+				"./package/components/SchemaEditor.svelte.d.ts"
+			],
+			"common": [
+				"./package/common.d.ts"
+			],
+			"components/icons": [
+				"./package/components/icons/index.d.ts"
+			],
+			"components/apps/inputType": [
+				"./package/components/apps/inputType.d.ts"
+			],
+			"components/apps/types": [
+				"./package/components/apps/types.d.ts"
+			],
+			"components/apps/editor/inlineScriptsPanel/utils": [
+				"./package/components/apps/editor/inlineScriptsPanel/utils.d.ts"
+			]
+		}
+	}
 }
