@@ -70,53 +70,63 @@ pub async fn build_tar_and_push(bucket: &str, folder: String) -> error::Result<(
 }
 
 #[cfg(feature = "enterprise")]
-pub async fn pull_from_tar(bucket: &str, folder: String) -> error::Result<()> {
+pub async fn pull_from_tar(
+    bucket: &str,
+    folders: Vec<&str>,
+    logs: &mut String,
+) -> error::Result<()> {
     use tokio::fs::metadata;
-    let folder_name = folder.split("/").last().unwrap();
 
-    tracing::info!("Attempting to pull piptar {folder_name} from bucket");
+    use crate::PIP_CACHE_DIR;
 
     let start = Instant::now();
-    let tar_path = format!("tar/pip/{folder_name}.tar");
-    let target = format!("{ROOT_TMP_CACHE_DIR}/{tar_path}.single");
-    if let Err(e) = execute_command(
-        ROOT_TMP_CACHE_DIR,
-        "rclone",
-        vec![
-            "copyto",
-            &format!(":s3,env_auth=true:{bucket}/{tar_path}"),
-            &target,
-            "-v",
-            "--size-only",
-            "--fast-list",
-        ],
-    )
-    .await
-    {
-        tracing::info!(
-            "Failed to copy tar {folder_name} from bucket. Error: {:?}",
-            e
-        );
-        return Err(e);
+
+    for folder in folders.clone() {
+        let folder = folder.to_string();
+        tracing::info!("Attempting to pull piptar {folder} from bucket");
+
+        let tar_path = format!("tar/pip/{folder}.tar");
+        let target = format!("{ROOT_TMP_CACHE_DIR}/{tar_path}.single");
+        let bucket = bucket.to_string();
+        let mut handles = vec![];
+        handles.push(tokio::spawn(async move {
+            if let Err(e) = execute_command(
+                ROOT_TMP_CACHE_DIR,
+                "rclone",
+                vec![
+                    "copyto",
+                    &format!(":s3,env_auth=true:{bucket}/{tar_path}"),
+                    &target,
+                    "-v",
+                    "--size-only",
+                    "--fast-list",
+                ],
+            )
+            .await
+            {
+                tracing::info!("Failed to copy tar {folder} from bucket. Error: {:?}", e);
+            }
+        }));
+        for handle in handles {
+            handle.await.unwrap();
+        }
     }
 
-    if metadata(&target).await.is_err() {
-        tracing::info!(
-            "piptar {folder_name} not found in bucket. Took {:?}ms",
-            start.elapsed().as_millis()
-        );
-        return Err(error::Error::ExecutionErr(format!(
-            "tar {folder_name} does not exist in bucket"
-        )));
-    }
+    for folder in folders.clone() {
+        let venv_p: String = format!("{PIP_CACHE_DIR}/{folder}");
 
-    extract_pip_tar(&target, &folder).await?;
-    tokio::fs::remove_file(&target).await?;
+        let tar_path = format!("tar/pip/{folder}.tar");
+        let target = format!("{ROOT_TMP_CACHE_DIR}/{tar_path}.single");
+        if metadata(&target).await.is_ok() {
+            logs.push_str(&format!("\nPulled {folder} from global cache"));
+            extract_pip_tar(&target, &venv_p).await?;
+            tokio::fs::remove_file(&target).await?;
+        }
+    }
     tracing::info!(
-        "Finished pulling and extracting {folder_name}. Took {:?}ms",
+        "Finished pulling and extracting {folders:?}. Took {:?}ms",
         start.elapsed().as_millis()
     );
-
     Ok(())
 }
 

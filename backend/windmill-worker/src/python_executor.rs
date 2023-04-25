@@ -460,33 +460,49 @@ pub async fn handle_python_reqs(
         .await?;
     };
 
+    let mut not_local = vec![];
     for req in requirements {
-        // todo: handle many reqs
-        let venv_p = format!("{PIP_CACHE_DIR}/{req}");
+        let venv_p: String = format!("{PIP_CACHE_DIR}/{req}");
+        req_paths.push(venv_p.clone());
         if metadata(&venv_p).await.is_ok() {
-            req_paths.push(venv_p);
+            continue;
+        } else {
+            not_local.push(req);
+        }
+    }
+
+    #[cfg(feature = "enterprise")]
+    if let Some(ref bucket) = *S3_CACHE_BUCKET {
+        sqlx::query_scalar!("UPDATE queue SET last_ping = now() WHERE id = $1", job_id)
+            .execute(db)
+            .await?;
+        if let Err(e) = pull_from_tar(bucket, not_local.clone(), logs).await {
+            tracing::error!(
+                worker_name = %worker_name,
+                job_id = %job_id,
+                workspace_id = %w_id,
+                "failed to pull from tar: {}",
+                e
+            );
+        }
+    }
+
+    for req in not_local {
+        let venv_p: String = format!("{PIP_CACHE_DIR}/{req}");
+
+        #[cfg(feature = "enterprise")]
+        if metadata(&venv_p).await.is_ok() {
             continue;
         }
 
-        #[cfg(feature = "enterprise")]
-        if let Some(ref bucket) = *S3_CACHE_BUCKET {
-            sqlx::query_scalar!("UPDATE queue SET last_ping = now() WHERE id = $1", job_id)
-                .execute(db)
-                .await?;
-            if pull_from_tar(bucket, venv_p.clone()).await.is_ok() {
-                req_paths.push(venv_p.clone());
-                continue;
-            }
-        }
-
-        logs.push_str("\n--- PIP INSTALL ---\n");
+        logs.push_str("\n\n--- PIP INSTALL ---\n");
         logs.push_str(&format!("\n{req} is being installed for the first time.\n It will be cached for all ulterior uses."));
 
         tracing::info!(
             worker_name = %worker_name,
             job_id = %job_id,
             workspace_id = %w_id,
-            "started setup python dependencies"
+            "started setup python req {req}"
         );
 
         let child = if !*DISABLE_NSJAIL {
@@ -567,7 +583,6 @@ pub async fn handle_python_reqs(
             let venv_p = venv_p.clone();
             tokio::spawn(build_tar_and_push(bucket, venv_p));
         }
-        req_paths.push(venv_p);
     }
     Ok(req_paths)
 }
