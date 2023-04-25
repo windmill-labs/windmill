@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ScheduleService, type Schedule } from '$lib/gen'
+	import { ScheduleService, type Schedule, JobService, type ScriptArgs } from '$lib/gen'
 	import { canWrite, displayDate, sendUserToast } from '$lib/utils'
 
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -25,6 +25,7 @@
 		faTrash
 	} from '@fortawesome/free-solid-svg-icons'
 	import { Icon } from 'svelte-awesome'
+	import { goto } from '$app/navigation'
 
 	type ScheduleW = Schedule & { canWrite: boolean }
 
@@ -50,6 +51,26 @@
 		} catch (err) {
 			sendUserToast(`Cannot ` + (enabled ? 'enable' : 'disable') + ` schedule: ${err.body}`, true)
 			loadSchedules()
+		}
+	}
+
+	async function runScheduleNow(
+		path: string,
+		args: ScriptArgs | undefined,
+		isFlow: boolean
+	): Promise<void> {
+		try {
+			const runByPath = isFlow ? JobService.runFlowByPath : JobService.runScriptByPath
+			let run = runByPath({
+				path,
+				requestBody: args ?? {},
+				workspace: $workspaceStore!
+			})
+			await goto('/run/' + run + '?workspace=' + $workspaceStore)
+
+			sendUserToast(`Schedule ${path} will run now`)
+		} catch (err) {
+			sendUserToast(`Cannot run schedule now: ${err.body}`, true)
 		}
 	}
 
@@ -88,7 +109,7 @@
 					<th />
 				</tr>
 				<tbody slot="body">
-					{#each schedules as { path, error, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite }}
+					{#each schedules as { path, error, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, args }}
 						<tr class={enabled ? '' : 'bg-gray-50'}>
 							<td class="!px-0 text-center">
 								<SharedBadge {canWrite} extraPerms={extra_perms} />
@@ -212,7 +233,9 @@
 											{
 												displayName: 'Run now',
 												icon: faPlay,
-												action: () => {}
+												action: () => {
+													runScheduleNow(path, args, is_flow)
+												}
 											},
 											{
 												displayName: canWrite ? 'Share' : 'See Permissions',
