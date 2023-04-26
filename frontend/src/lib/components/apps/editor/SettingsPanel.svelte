@@ -1,5 +1,4 @@
 <script lang="ts">
-	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { getContext } from 'svelte'
 	import type { App, AppViewerContext } from '../types'
 	import { allItems } from '../utils'
@@ -7,9 +6,7 @@
 	import PanelSection from './settingsPanel/common/PanelSection.svelte'
 	import ComponentPanel from './settingsPanel/ComponentPanel.svelte'
 	import InputsSpecsEditor from './settingsPanel/InputsSpecsEditor.svelte'
-	import BackgroundScriptTriggerList from './settingsPanel/triggerLists/BackgroundScriptTriggerList.svelte'
-	import { FunctionSquare } from 'lucide-svelte'
-	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import BackgroundScriptSettings from './settingsPanel/script/BackgroundScriptSettings.svelte'
 
 	const { selectedComponent, app, stateId } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -83,60 +80,9 @@
 		/>
 	{/key}
 {:else if hiddenInlineScript}
-	<div class="border-b border-gray-100 flex flex-row p-2 items-center justify-between">
-		<div class="flex flex-row gap-2 items-center">
-			<FunctionSquare size={16} color="blue" />
-			<span class="text-xs">{hiddenInlineScript.script.name}</span>
-		</div>
-		<Badge color="indigo">
-			{hiddenInlineScript.script.inlineScript?.language === 'frontend' ? 'Frontend' : 'Backend'}
-		</Badge>
-	</div>
-	<div class="flex flex-col divide-y">
-		<PanelSection title={`Run configuration`}>
-			<div class="flex items-center justify-between w-full">
-				<div class="flex flex-row items-center gap-2 text-xs">
-					Run on start and app refresh
-					<Tooltip>
-						You may want to disable this so that the background script is only triggered by changes
-						to other values or triggered by another computation on a button (See 'Recompute Others')
-					</Tooltip>
-				</div>
-				<input
-					type="checkbox"
-					bind:checked={hiddenInlineScript.script.autoRefresh}
-					class="!w-4 !h-4 !rounded-sm"
-				/>
-			</div>
+	<BackgroundScriptSettings bind:script={hiddenInlineScript.script} />
 
-			{#if hiddenInlineScript.script.inlineScript?.language !== 'frontend'}
-				<div class="flex items-center justify-between w-full">
-					<div class="flex flex-row items-center gap-2 text-xs">
-						Recompute on any input changes
-					</div>
-					<input
-						type="checkbox"
-						bind:checked={hiddenInlineScript.script.recomputeOnInputChanged}
-						class="!w-4 !h-4 !rounded-sm"
-					/>
-				</div>
-			{/if}
-		</PanelSection>
-
-		<div class="p-2">
-			{#if hiddenInlineScript.script.inlineScript}
-				<BackgroundScriptTriggerList
-					fields={hiddenInlineScript.script.fields}
-					autoRefresh={hiddenInlineScript.script.autoRefresh}
-					id={`bg_${hiddenInlineScript.index}`}
-					bind:recomputeOnInputChanged={hiddenInlineScript.script.recomputeOnInputChanged}
-					bind:doNotRecomputeOnInputChanged={hiddenInlineScript.script.doNotRecomputeOnInputChanged}
-					bind:inlineScript={hiddenInlineScript.script.inlineScript}
-				/>
-			{:else}
-				<span class="text-gray-600 text-xs">No script defined</span>
-			{/if}
-		</div>
+	<div>
 		{#if Object.keys(hiddenInlineScript.script.fields).length > 0}
 			<PanelSection title={`Inputs`}>
 				{#key $stateId}
