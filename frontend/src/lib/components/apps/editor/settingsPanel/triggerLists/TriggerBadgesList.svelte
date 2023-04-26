@@ -81,14 +81,12 @@
 	}
 </script>
 
-<div class="flex w-full flex-col items-start gap-2 mt-2 mb-1">
-	{#if recomputedBadges.length === 0 && !onLoad && !onClick && inputDependencies?.length === 0 && !frontendDependencies}
-		<p class="text-xs font-semibold text-slate-800">
-			This script has no triggers. It will never run.
-		</p>
-	{:else}
-		<div class="text-sm font-semibold text-gray-800">Triggered by</div>
+<div class="flex w-full flex-col items-start gap-2 mt-2 mb-1 p-1">
+	<div class="text-sm font-semibold text-gray-800">Triggered by</div>
 
+	{#if recomputedBadges.length === 0 && !onLoad && !onClick && inputDependencies?.length === 0 && !frontendDependencies}
+		<p class="text-xs text-slate-800"> This script has no triggers. It will never run. </p>
+	{:else}
 		{#if onLoad || onClick}
 			<div class="w-full">
 				<div class="text-xs font-semibold text-slate-800 mb-1">Events</div>
@@ -132,14 +130,15 @@
 
 	{#if frontendDependencies && recomputeOnInputChanged}
 		<div class="w-full">
+			{#if frontendDependencies.length === 0 && !onClick && !onLoad}
+				<p class="text-xs text-slate-800 mb-2"> This script has no triggers. It will never run. </p>
+			{/if}
 			<div class="flex justify-between items-center">
-				<div class="text-xs font-semibold text-slate-800 mb-1">Change on values</div>
+				<div class="text-xs font-semibold text-slate-800">Change on values</div>
 				{#if inlineScript?.language === 'frontend' && !shouldHideAddDependencyButton}
 					<Button
-						variant="border"
-						size="xs"
-						color="light"
-						btnClasses="!px-1 !py-0.5"
+						size="xs2"
+						color="dark"
 						on:click={() => {
 							addingDependency = true
 							$connectingInput = {
@@ -158,7 +157,7 @@
 			</div>
 			<div class="flex flex-row gap-2 flex-wrap mt-2">
 				{#each frontendDependencies as label, index}
-					<span class={classNames(badgeClass, colors['blue'])}>
+					<span class={classNames(badgeClass, colors['blue'], 'rounded-md')}>
 						{label}
 						<button
 							on:click={() => deleteDep(index)}

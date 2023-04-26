@@ -17,13 +17,13 @@
 	export let appComponent: AppComponent
 	export let runnable: RunnableByName
 	export let recomputeOnInputChanged: boolean = false
+	export let autoRefresh: boolean = false
 
 	const onClick = ['buttoncomponent', 'formbuttoncomponent', 'formcomponent'].includes(
 		appComponent.type
 	)
-
-	$: onLoad =
-		!onClick ||
+	$: onLoad = onClick
+	!onClick ||
 		(appComponent?.configuration?.triggerOnAppLoad != undefined &&
 			appComponent.configuration.triggerOnAppLoad.type == 'static' &&
 			appComponent.configuration.triggerOnAppLoad.value)

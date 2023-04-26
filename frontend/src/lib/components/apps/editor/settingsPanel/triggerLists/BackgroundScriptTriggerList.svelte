@@ -6,7 +6,6 @@
 		UserAppInput
 	} from '$lib/components/apps/inputType'
 	import type { InlineScript } from '$lib/components/apps/types'
-	import Toggle from '$lib/components/Toggle.svelte'
 
 	import TriggerBadgesList from './TriggerBadgesList.svelte'
 	import { getDependencies } from './triggerListUtils'
@@ -32,16 +31,6 @@
 
 	$: dependencies = getDependencies(fields)
 </script>
-
-{#if inlineScript.language !== 'frontend'}
-	<div class="flex items-center px-1">
-		<Toggle
-			size="xs"
-			bind:checked={recomputeOnInputChanged}
-			options={{ right: 'recompute on any input changes' }}
-		/>
-	</div>
-{/if}
 
 <TriggerBadgesList
 	bind:inlineScript
