@@ -546,7 +546,7 @@
 	<div class="flex flex-row gap-2 justify-end items-center overflow-visible">
 		<Dropdown
 			placement="bottom-end"
-			btnClasses="!border !rounded-md"
+			btnClasses="!rounded-md"
 			dropdownItems={[
 				{
 					displayName: 'JSON',
