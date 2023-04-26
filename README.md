@@ -338,6 +338,7 @@ it being synced automatically everyday.
 | GLOBAL_CACHE_INTERVAL     | 10\*60                                     | (Enterprise Edition only) Interval in seconds in between bucket sync of the cache. This interval \* 2 is the time at which you're guaranteed all the worker's caches are synced together.          | Worker                |
 | WORKER_TAGS               | 'deno,go,python3,bash,flow,hub,dependency' | The worker groups assigned to that workers                                                                                                                                                         | Worker                |
 | CUSTOM_TAGS               | None                                       | The custom tags assignable to scripts.                                                                                                                                                             | Server                |
+| JOB_RETENTION_SECS        | 60*60*24\*60 //60 days                     | The time in seconds after which jobs get deleted. Set to 0 or -1 to never delete                                                                                                                   | Server                |
 
 ## Run a local dev setup
 
