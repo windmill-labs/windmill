@@ -144,7 +144,7 @@ pub struct Metrics {
 }
 
 
-pub const DEFAULT_TIMEOUT: u16 = 300;
+pub const DEFAULT_TIMEOUT: u64 = 300;
 pub const DEFAULT_SLEEP_QUEUE: u64 = 50;
 
 lazy_static::lazy_static! {
@@ -213,12 +213,12 @@ lazy_static::lazy_static! {
         "Total number of seconds since the worker has started"
     );
 
-    static ref TIMEOUT: u16 = std::env::var("TIMEOUT")
+    static ref TIMEOUT: u64 = std::env::var("TIMEOUT")
         .ok()
-        .and_then(|x| x.parse::<u16>().ok())
-        .unwrap_or(DEFAULT_TIMEOUT as u16);
+        .and_then(|x| x.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_TIMEOUT);
 
-    static ref TIMEOUT_DURATION: Duration = Duration::from_secs(*TIMEOUT as u64);
+    static ref TIMEOUT_DURATION: Duration = Duration::from_secs(*TIMEOUT);
 
     pub static ref SESSION_TOKEN_EXPIRY: i32 = (*TIMEOUT as i32) * 2;
 
