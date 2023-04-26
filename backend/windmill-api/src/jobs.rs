@@ -39,7 +39,6 @@ use windmill_common::{
 };
 use windmill_queue::{get_queued_job, push, QueueTransaction};
 
-
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/run/f/*script_path", post(run_flow_by_path))
@@ -1370,11 +1369,9 @@ async fn run_wait_result<T>(
 ) -> error::JsonResult<serde_json::Value> {
     let mut result = None;
     let iters = if timeout <= 0 {
-        20
-    } else if timeout <= 1 {
-        timeout * 10
+        40
     } else {
-        10 + ((timeout - 1) * 2)
+        20 + ((timeout - 1) * 5)
     };
     let mut g = Guard {
         done: false,
@@ -1398,7 +1395,8 @@ async fn run_wait_result<T>(
         if result.is_some() {
             break;
         }
-        let delay = if i < 10 { 100 } else { 500 };
+        //for the first 10 seconds, we poll every 50ms, then every 200ms
+        let delay = if i < 200 { 50 } else { 200 };
         tokio::time::sleep(core::time::Duration::from_millis(delay)).await;
     }
     if let Some(result) = result {
