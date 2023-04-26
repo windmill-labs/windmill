@@ -311,7 +311,7 @@
 									<TabContent value="insert">
 										<ComponentList />
 									</TabContent>
-									<TabContent value="css">
+									<TabContent value="css" class="h-full">
 										<CssSettings />
 									</TabContent>
 								</div>

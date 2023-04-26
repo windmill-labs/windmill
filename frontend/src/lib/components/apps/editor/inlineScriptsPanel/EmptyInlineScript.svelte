@@ -217,15 +217,15 @@
 					on:click={() => {
 						const newInlineScript = {
 							content: `// read outputs and ctx
-				console.log(ctx.email)
-				
-				// access a global state store
-				if (!state.foo) { state.foo = 0 }
-				state.foo += 1
-				
-				// you can also navigate (goto), recompute a script (recompute), or set a tab (setTab)
-				
-				return state.foo`,
+console.log(ctx.email)
+
+// access a global state store
+if (!state.foo) { state.foo = 0 }
+state.foo += 1
+
+// you can also navigate (goto), recompute a script (recompute), or set a tab (setTab)
+
+return state.foo`,
 							language: 'frontend',
 							path: 'frontend script',
 							schema: undefined

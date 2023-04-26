@@ -92,7 +92,7 @@ export const POSTGRES_INIT_CODE = `import {
 
 //PG parameterized statement. No SQL injection is possible.
 export async function main(
-  db: Resource<"postgresql"> = "$res:g/all/demodb",
+  db: Resource<"postgresql"> = "$res:f/examples/demodb",
   key: number,
   value: string,
 ) {
@@ -139,7 +139,7 @@ export async function main(
 
 export const FETCH_INIT_CODE = `export async function main(
 	url: string | undefined,
-	method: string = 'GET',
+	method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'OPTIONS' = 'GET',
 	body: Object = {},
 	headers: Record<string, string> = {}
 ): Promise<Response | null> {

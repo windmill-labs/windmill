@@ -12,6 +12,7 @@
 	export let onLoad: boolean = false
 	export let id: string | undefined = undefined
 	export let recomputeOnInputChanged: boolean = false
+	export let shouldHideAddDependencyButton: boolean = false
 
 	const colors = {
 		green: 'text-green-800 border-green-600 bg-green-100',
@@ -133,7 +134,7 @@
 		<div class="w-full">
 			<div class="flex justify-between items-center">
 				<div class="text-xs font-semibold text-slate-800 mb-1">Change on values</div>
-				{#if inlineScript?.language === 'frontend'}
+				{#if inlineScript?.language === 'frontend' && !shouldHideAddDependencyButton}
 					<Button
 						variant="border"
 						size="xs"

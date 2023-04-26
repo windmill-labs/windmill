@@ -74,6 +74,7 @@
 			loading = false
 			rejectCb(new Error('Canceled'))
 		}
+
 		return p as CancelablePromise<void>
 	}
 
@@ -350,6 +351,8 @@
 			delete $errorByComponent[previousJobId]
 			$errorByComponent = $errorByComponent
 		}
+
+		donePromise?.()
 	}
 
 	function handleInputClick(e: CustomEvent) {
@@ -389,7 +392,6 @@
 			if (startedAt > lastStartedAt) {
 				lastStartedAt = startedAt
 				setResult(e.detail.result)
-				donePromise?.()
 			}
 		}
 		loading = false

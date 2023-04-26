@@ -10,6 +10,7 @@
 	export let wrapperClass = ''
 	export let buttonClass = ''
 	const dispatch = createEventDispatcher()
+	let isHovered = false
 
 	$: isNumeric = ['number', 'range'].includes(type)
 	$: dispatch('change', value)
@@ -23,7 +24,11 @@
 	}
 </script>
 
-<div class="relative grow {wrapperClass}">
+<div
+	class="relative grow {wrapperClass}"
+	on:mouseenter={() => (isHovered = true)}
+	on:mouseleave={() => (isHovered = false)}
+>
 	{#if type === 'textarea'}
 		<textarea
 			{value}
@@ -47,14 +52,15 @@
 			on:blur
 		/>
 	{/if}
-	{#if value}
+	{#if value && isHovered}
 		<button
-			transition:fade|local={{ duration: 100 }}
-			class="absolute z-10 top-1.5 right-1 rounded-full p-1 bg-white/60 duration-200 hover:bg-gray-200 {buttonClass}"
+			transition:fade|local={{ duration: 80 }}
+			class="absolute z-10 top-[9.5px] right-2 rounded-full p-0.5 text-white bg-gray-300
+			duration-200 hover:bg-gray-600 focus:bg-gray-600 {buttonClass}"
 			aria-label="Clear"
 			on:click|preventDefault|stopPropagation={clear}
 		>
-			<X size={14} />
+			<X size={11} class="" />
 		</button>
 	{/if}
 	<slot />
