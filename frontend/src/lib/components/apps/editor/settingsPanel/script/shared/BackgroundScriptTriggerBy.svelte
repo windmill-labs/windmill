@@ -31,7 +31,6 @@
 	let addingDependency: boolean = false
 
 	function applyConnection() {
-		debugger
 		if (!$connectingInput.opened && $connectingInput.input !== undefined && addingDependency) {
 			if ($connectingInput.input.connection) {
 				const x = {

@@ -80,7 +80,10 @@
 		/>
 	{/key}
 {:else if hiddenInlineScript}
-	<BackgroundScriptSettings bind:script={hiddenInlineScript.script} />
+	<BackgroundScriptSettings
+		bind:script={hiddenInlineScript.script}
+		id={`bg_${hiddenInlineScript.index}`}
+	/>
 
 	<div>
 		{#if Object.keys(hiddenInlineScript.script.fields).length > 0}
