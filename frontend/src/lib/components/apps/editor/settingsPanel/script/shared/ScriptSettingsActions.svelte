@@ -14,10 +14,10 @@
 
 <div class="flex flex-row gap-2 justify-end">
 	{#each actions as action, index (index)}
-		<Button color={action.color} on:click={action.callback} size="xs">
+		<Button color={action.color} on:click={action.callback} size="xs" variant="border">
 			<div class="flex flex-row gap-1 items-center">
 				{#if action.icon}
-					<action.icon size={16} />
+					<svelte:component this={action.icon} size={16} />
 				{/if}
 				{action.label}
 			</div>

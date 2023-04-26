@@ -3,14 +3,14 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { classNames } from '$lib/utils'
 	import type { AppComponent } from '../../../component'
-	import { getAllTriggerEvents, getAllChangeEvents, isTriggerable } from '../utils'
+	import { getAllTriggerEvents, isTriggerable, getDependencies } from '../utils'
 	import ScriptSettingsSection from './ScriptSettingsSection.svelte'
 
 	export let appComponent: AppComponent
 	export let appInput: ResultAppInput
 
 	$: triggerEvents = getAllTriggerEvents(appComponent, appInput.autoRefresh)
-	$: changeEvents = getAllChangeEvents(appInput, appComponent)
+	$: changeEvents = getDependencies(appInput.fields)
 	$: hasNoTriggers =
 		triggerEvents.length === 0 && (changeEvents.length === 0 || !appInput.recomputeOnInputChanged)
 

@@ -31,6 +31,7 @@
 		appComponent.componentInput?.type === 'runnable' &&
 		$runnableComponents?.[appComponent.id]?.autoRefresh !==
 			appComponent.componentInput.autoRefresh &&
+		!isTriggerable(appComponent.type) &&
 		appComponent.componentInput.autoRefresh !== undefined
 	) {
 		$runnableComponents[appComponent.id] = {

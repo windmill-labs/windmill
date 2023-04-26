@@ -2,8 +2,8 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ScriptSettingsSection from './ScriptSettingsSection.svelte'
 
-	export let autoRefresh: boolean | undefined = true
-	export let recomputeOnInputChanged: boolean | undefined = true
+	export let autoRefresh: boolean | undefined = false
+	export let recomputeOnInputChanged: boolean | undefined = false
 	export let canConfigureRecomputeOnInputChanged: boolean = true
 	export let canConfigureRunOnStart: boolean = true
 </script>

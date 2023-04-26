@@ -61,15 +61,3 @@ export function getAllTriggerEvents(
 
 	return events
 }
-
-export function getAllChangeEvents(appInput: ResultAppInput, appComponent: AppComponent): string[] {
-	const events: string[] = []
-
-	Object.keys(appInput.fields ?? {}).forEach((key) => {
-		if (appInput.fields[key].type === 'connected') {
-			events.push(key)
-		}
-	})
-
-	return events
-}

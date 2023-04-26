@@ -100,7 +100,11 @@
 	}
 
 	$: currentAutoRefresh =
-		componentInput?.type === 'runnable' ? componentInput.autoRefresh : autoRefresh
+		autoRefresh !== undefined
+			? autoRefresh
+			: componentInput?.type === 'runnable'
+			? componentInput.autoRefresh
+			: false
 </script>
 
 {#if componentInput === undefined}
