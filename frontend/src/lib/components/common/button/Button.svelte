@@ -69,13 +69,13 @@
 		},
 		green: {
 			border:
-				'border-green-800 hover:border-green-700 bg-white hover:bg-green-100 text-green-600 hover:text-green-700 focus:ring-green-300',
+				'border-green-600 hover:border-green-700 bg-white hover:bg-green-100 text-green-600 hover:text-green-700 focus:ring-green-300',
 			contained: 'bg-green-600 hover:bg-green-700 text-white focus:ring-green-300',
 			divider: 'divide-x divide-green-700'
 		},
 		dark: {
 			border:
-				'border-gray-600 hover:border-gray-900 focus:border-gray-900 bg-white hover:bg-gray-200 focus:bg-gray-200 text-gray-800 hover:text-gray-900 focus:text-gray-900 focus:ring-gray-300',
+				'border-gray-800 hover:border-gray-900 focus:border-gray-900 bg-white hover:bg-gray-200 focus:bg-gray-200 text-gray-800 hover:text-gray-900 focus:text-gray-900 focus:ring-gray-300',
 			contained: 'bg-gray-700 hover:bg-gray-900 focus:bg-gray-900 text-white focus:ring-gray-300',
 			divider: 'divide-x divide-gray-800'
 		},
