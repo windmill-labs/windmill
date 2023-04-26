@@ -38,4 +38,8 @@
 			{/if}
 		</div>
 	</ScriptSettingsSection>
+{:else}
+	<ScriptSettingsSection title="Run configuration">
+		<div class="text-xs"> Triggerable component runs only when an interaction happens. </div>
+	</ScriptSettingsSection>
 {/if}

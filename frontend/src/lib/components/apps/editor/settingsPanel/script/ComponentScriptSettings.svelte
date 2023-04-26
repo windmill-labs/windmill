@@ -40,7 +40,7 @@
 		bind:autoRefresh={appInput.autoRefresh}
 		bind:recomputeOnInputChanged={appInput.recomputeOnInputChanged}
 		canConfigureRecomputeOnInputChanged={!isTriggerable(appComponent.type)}
-		canConfigureRunOnStart={isFrontend(runnable)}
+		canConfigureRunOnStart={!isTriggerable(appComponent.type)}
 	/>
 	<ComponentScriptTriggerBy {appComponent} {appInput} />
 </div>
