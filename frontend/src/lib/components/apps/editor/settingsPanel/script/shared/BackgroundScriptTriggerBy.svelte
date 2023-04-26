@@ -11,7 +11,7 @@
 	export let script: HiddenInlineScript
 	export let recomputeOnInputChanged: boolean | undefined = undefined
 
-	const isFrontend = script.inlineScript?.language === 'frontend'
+	$: isFrontend = script.inlineScript?.language === 'frontend'
 
 	$: triggerEvents = script.autoRefresh ? ['start', 'refresh'] : []
 	$: changeEvents = getDependencies(script.fields)

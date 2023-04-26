@@ -22,8 +22,6 @@
 
 	let runnable = appInput.runnable
 
-	runnable?.type === 'runnableByName'
-
 	export let actions: ActionType[] = []
 </script>
 
@@ -42,6 +40,7 @@
 		bind:autoRefresh={appInput.autoRefresh}
 		bind:recomputeOnInputChanged={appInput.recomputeOnInputChanged}
 		canConfigureRecomputeOnInputChanged={!isTriggerable(appComponent.type)}
+		canConfigureRunOnStart={isFrontend(runnable)}
 	/>
 	<ComponentScriptTriggerBy {appComponent} {appInput} />
 </div>
