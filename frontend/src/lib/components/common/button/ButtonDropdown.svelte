@@ -3,7 +3,7 @@
 	import { ChevronDown } from 'lucide-svelte'
 </script>
 
-<Menu let:open as="div" class="relative flex w-full h-full">
+<Menu let:open as="div" class="relative hover:z-50 flex w-full h-full">
 	<MenuButton class="h-full w-full px-2">
 		<ChevronDown class="w-5 h-5" />
 	</MenuButton>
