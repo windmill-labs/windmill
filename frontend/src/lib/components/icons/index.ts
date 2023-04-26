@@ -46,6 +46,19 @@ import WebdavIcon from './WebdavIcon.svelte'
 import ZammadIcon from './ZammadIcon.svelte'
 import SurrealdbIcon from './SurrealdbIcon.svelte'
 import SquareIcon from './SquareIcon.svelte'
+import ActivitypubIcon from './ActivitypubIcon.svelte'
+import AwsEcrIcon from './AwsEcrIcon.svelte'
+import CalcomIcon from './CalcomIcon.svelte'
+import ClickupIcon from './ClickupIcon.svelte'
+import CloudflareIcon from './CloudflareIcon.svelte'
+import FirebaseIcon from './FirebaseIcon.svelte'
+import GoogleFormsIcon from './GoogleFormsIcon.svelte'
+import JiraIcon from './JiraIcon.svelte'
+import NotionIcon from './NotionIcon.svelte'
+import PineconeIcon from './PineconeIcon.svelte'
+import RssIcon from './RssIcon.svelte'
+import ShopifyIcon from './ShopifyIcon.svelte'
+import TypeformIcon from './TypeformIcon.svelte'
 
 export const APP_TO_ICON_COMPONENT = {
 	postgresql: PostgresIcon,
@@ -99,6 +112,19 @@ export const APP_TO_ICON_COMPONENT = {
 	zammad: ZammadIcon,
 	nextcloud: NextcloudIcon,
 	surrealdb: SurrealdbIcon,
+	activitypub: ActivitypubIcon,
+	aws_ecr: AwsEcrIcon,
+	calcom: CalcomIcon,
+	clickup: ClickupIcon,
+	cloudflare: CloudflareIcon,
+	firebase: FirebaseIcon,
+	gforms: GoogleFormsIcon,
+	jira: JiraIcon,
+	notion: NotionIcon,
+	pinecone: PineconeIcon,
+	rss: RssIcon,
+	shopify: ShopifyIcon,
+	typeform: TypeformIcon
 } as const
 
 export {
@@ -146,4 +172,17 @@ export {
 	NextcloudIcon,
 	SendflakeIcon,
 	SurrealdbIcon,
+	ActivitypubIcon,
+	AwsEcrIcon,
+	CalcomIcon,
+	ClickupIcon,
+	CloudflareIcon,
+	FirebaseIcon,
+	GoogleFormsIcon,
+	JiraIcon,
+	NotionIcon,
+	PineconeIcon,
+	RssIcon,
+	ShopifyIcon,
+	TypeformIcon
 }
