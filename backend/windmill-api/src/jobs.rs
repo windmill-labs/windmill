@@ -1400,7 +1400,6 @@ async fn run_wait_result<T>(
             break;
         }
 
-        //for the first 10 seconds, we poll every 50ms, then every 200ms
         let delay = if accumulated_delay <= fast_poll_duration {
             *WAIT_RESULT_FAST_POLL_INTERVAL_MS
         } else {
