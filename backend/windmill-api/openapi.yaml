@@ -3261,6 +3261,7 @@ paths:
         - $ref: "#/components/parameters/Running"
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/ResultFilter"
+        - $ref: "#/components/parameters/Tag"
       responses:
         "200":
           description: All available queued jobs
@@ -3291,6 +3292,7 @@ paths:
         - $ref: "#/components/parameters/JobKinds"
         - $ref: "#/components/parameters/ArgsFilter"
         - $ref: "#/components/parameters/ResultFilter"
+        - $ref: "#/components/parameters/Tag"
         - name: is_skipped
           description: is the job skipped
           in: query
@@ -3328,6 +3330,7 @@ paths:
         - $ref: "#/components/parameters/StartedAfter"
         - $ref: "#/components/parameters/JobKinds"
         - $ref: "#/components/parameters/ArgsFilter"
+        - $ref: "#/components/parameters/Tag"
         - $ref: "#/components/parameters/ResultFilter"
         - name: is_skipped
           description: is the job skipped
@@ -4883,6 +4886,12 @@ components:
     ArgsFilter:
       name: args
       description: filter on jobs containing those args as a json subset (@> in postgres)
+      in: query
+      schema:
+        type: string
+    Tag:
+      name: tag
+      description: filter on jobs with a given tag/worker group
       in: query
       schema:
         type: string

@@ -411,6 +411,7 @@ pub struct ListQueueQuery {
     pub suspended: Option<bool>,
     // filter by matching a subset of the args using base64 encoded json subset
     pub args: Option<String>,
+    pub tag: Option<String>,
 }
 
 fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> SqlBuilder {
@@ -432,6 +433,9 @@ fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> Sq
     }
     if let Some(cb) = &lq.created_by {
         sqlb.and_where_eq("created_by", "?".bind(cb));
+    }
+    if let Some(t) = &lq.tag {
+        sqlb.and_where_eq("tag", "?".bind(t));
     }
     if let Some(r) = &lq.running {
         sqlb.and_where_eq("running", &r);
@@ -565,6 +569,7 @@ async fn list_jobs(
             job_kinds: lq.job_kinds,
             suspended: lq.suspended,
             args: lq.args,
+            tag: lq.tag,
         },
         &[
             "'QueuedJob' as typ",
@@ -1869,6 +1874,9 @@ fn list_completed_jobs_query(
     if let Some(h) = &lq.script_hash {
         sqlb.and_where_eq("script_hash", "?".bind(h));
     }
+    if let Some(t) = &lq.tag {
+        sqlb.and_where_eq("tag", "?".bind(t));
+    }
     if let Some(cb) = &lq.created_by {
         sqlb.and_where_eq("created_by", "?".bind(cb));
     }
@@ -1926,6 +1934,7 @@ pub struct ListCompletedQuery {
     pub args: Option<String>,
     // filter by matching a subset of the result using base64 encoded json subset
     pub result: Option<String>,
+    pub tag: Option<String>,
 }
 
 async fn list_completed_jobs(
