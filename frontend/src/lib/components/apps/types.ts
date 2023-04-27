@@ -181,6 +181,7 @@ export type AppViewerContext = {
 				setTab?: (index: number) => void
 				agGrid?: { api: any; columnApi: any }
 				setCode?: (value: string) => void
+				onDelete?: () => void
 			}
 		>
 	>
