@@ -3,30 +3,17 @@
 	import { Badge, Button } from '$lib/components/common'
 	import { faClose } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
-	import type { ConnectedAppInput } from '../../../inputType'
+	import type { ConnectedAppInput, InputConnection } from '../../../inputType'
 	import { Plug } from 'lucide-svelte'
 
 	export let componentInput: ConnectedAppInput
 
 	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
 
-	function applyConnection() {
-		if (
-			!$connectingInput.opened &&
-			$connectingInput.input !== undefined &&
-			!componentInput.connection
-		) {
-			componentInput.connection = $connectingInput.input.connection
-			$connectingInput = {
-				opened: false,
-				input: undefined,
-				hoveredComponent: undefined
-			}
-			$app = $app
-		}
+	function applyConnection(connection: InputConnection) {
+		componentInput.connection = connection
+		$app = $app
 	}
-
-	$: $connectingInput && applyConnection()
 </script>
 
 {#if componentInput.connection}
@@ -60,7 +47,8 @@
 				$connectingInput = {
 					opened: true,
 					input: undefined,
-					hoveredComponent: undefined
+					hoveredComponent: undefined,
+					onConnect: applyConnection
 				}
 			}
 		}}
