@@ -9,6 +9,7 @@ import type {
 	ConnectedAppInput,
 	ConnectedInput,
 	EvalAppInput,
+	InputConnection,
 	ResultAppInput,
 	RowAppInput,
 	StaticAppInput,
@@ -131,6 +132,7 @@ export type ConnectingInput = {
 	input?: ConnectedInput
 	sourceName?: string
 	hoveredComponent: string | undefined
+	onConnect?: ((connection: InputConnection) => void) | undefined
 }
 
 export interface CancelablePromise<T> extends Promise<T> {
