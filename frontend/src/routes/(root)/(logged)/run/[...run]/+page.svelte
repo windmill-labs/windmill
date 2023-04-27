@@ -282,10 +282,10 @@
 							><Badge color="gray">{truncateHash(job.script_hash)}</Badge></a
 						>
 					{/if}
-					{#if job.tag}
-						<Badge color="blue">Worker group: {job.tag}</Badge>
-					{/if}
 					{#if job && 'job_kind' in job}<Badge baseClass="ml-2" color="blue">{job.job_kind}</Badge>
+					{/if}
+					{#if job.tag && !['deno', 'python3', 'flow', 'other', 'go', 'bash'].includes(job.tag)}
+						<Badge color="indigo">Worker group: {job.tag}</Badge>
 					{/if}
 					{#if !job.visible_to_owner}<Badge color="red"
 							>only visible to you <Tooltip
