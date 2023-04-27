@@ -3,6 +3,7 @@
 
 	export let title: string
 	export let tooltip: string = ''
+	export let documentationLink: string | undefined = undefined
 	export let primary: boolean = true
 </script>
 
@@ -10,8 +11,8 @@
 	{#if primary}
 		<span class="flex items-center space-x-2 mb-2">
 			<h1>{title}</h1>
-			{#if tooltip}
-				<Tooltip scale={0.9}>{tooltip}</Tooltip>
+			{#if tooltip || documentationLink}
+				<Tooltip {documentationLink} scale={0.9}>{tooltip}</Tooltip>
 			{/if}
 		</span>
 	{:else}
