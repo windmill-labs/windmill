@@ -30,15 +30,7 @@
 			isLoading = true
 			clearCurrentJob()
 			const startedAt = Date.now()
-			let testId: string | undefined = undefined
-			try {
-				testId = await fn()
-			} catch (err) {
-				// if error happens on submitting the job, reset UI state so the user can try again
-				isLoading = false
-				job = undefined
-				throw err
-			}
+			const testId = await fn()
 
 			if (lastStartedAt < startedAt) {
 				lastStartedAt = startedAt
@@ -54,6 +46,9 @@
 			}
 			return testId
 		} catch (err) {
+			// if error happens on submitting the job, reset UI state so the user can try again
+			isLoading = false
+			job = undefined
 			throw err
 		}
 	}
