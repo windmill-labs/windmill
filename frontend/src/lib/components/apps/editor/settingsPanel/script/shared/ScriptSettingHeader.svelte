@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { FunctionSquare } from 'lucide-svelte'
-	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import type { ActionType } from '../ComponentScriptSettings.svelte'
+	import ScriptSettingsActions from './ScriptSettingsActions.svelte'
 
-	export let badgeLabel: string
 	export let name: string
+	export let actions: ActionType[] = []
 </script>
 
 <div class="flex flex-row p-2 border-gray-200 justify-between bg-blue-50/60">
@@ -14,7 +15,5 @@
 		</span>
 	</div>
 
-	<Badge color="blue">
-		{badgeLabel}
-	</Badge>
+	<ScriptSettingsActions {actions} />
 </div>

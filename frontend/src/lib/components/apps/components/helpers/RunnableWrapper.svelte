@@ -98,13 +98,6 @@
 			sendUserToast(doOnSuccess.configuration.sendToast.message)
 		}
 	}
-
-	$: currentAutoRefresh =
-		autoRefresh !== undefined
-			? autoRefresh
-			: componentInput?.type === 'runnable'
-			? componentInput.autoRefresh
-			: false
 </script>
 
 {#if componentInput === undefined}
@@ -120,7 +113,11 @@
 		bind:result
 		runnable={componentInput.runnable}
 		transformer={componentInput.transformer}
-		autoRefresh={currentAutoRefresh}
+		autoRefresh={autoRefresh !== undefined
+			? autoRefresh
+			: componentInput?.type === 'runnable'
+			? componentInput.autoRefresh
+			: false}
 		bind:recomputeOnInputChanged={componentInput.recomputeOnInputChanged}
 		{id}
 		{extraQueryParams}

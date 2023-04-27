@@ -1,11 +1,14 @@
 <script lang="ts">
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { createEventDispatcher } from 'svelte'
 	import ScriptSettingsSection from './ScriptSettingsSection.svelte'
 
 	export let autoRefresh: boolean | undefined = false
 	export let recomputeOnInputChanged: boolean | undefined = false
 	export let canConfigureRecomputeOnInputChanged: boolean = true
 	export let canConfigureRunOnStart: boolean = true
+
+	const dispatch = createEventDispatcher()
 </script>
 
 {#if canConfigureRecomputeOnInputChanged || canConfigureRunOnStart}
@@ -21,7 +24,14 @@
 							'Recompute Others')
 						</Tooltip>
 					</div>
-					<input type="checkbox" bind:checked={autoRefresh} class="!w-4 !h-4 !rounded-sm" />
+					<input
+						type="checkbox"
+						bind:checked={autoRefresh}
+						class="!w-4 !h-4 !rounded-sm"
+						on:click={() => {
+							dispatch('updateAutoRefresh')
+						}}
+					/>
 				</div>
 			{/if}
 			{#if recomputeOnInputChanged !== undefined && canConfigureRecomputeOnInputChanged}

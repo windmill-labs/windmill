@@ -1,4 +1,4 @@
-import type { ResultAppInput, Runnable } from '$lib/components/apps/inputType'
+import type { Runnable } from '$lib/components/apps/inputType'
 import type { AppComponent } from '../../component'
 import type {
 	StaticAppInput,

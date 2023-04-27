@@ -9,28 +9,25 @@
 	export let id: string
 
 	const { runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
-
-	// If the script's autoRefresh value is different from the one in $runnableComponents, update $runnableComponents
-	$: if (
-		$runnableComponents?.[id]?.autoRefresh !== script.autoRefresh &&
-		script.autoRefresh !== undefined
-	) {
-		$runnableComponents[id] = {
-			...$runnableComponents[id],
-			autoRefresh: script.autoRefresh
-		}
-	}
 </script>
 
 <div class={'border-y border-gray-200 divide-y'}>
-	<ScriptSettingHeader
-		name={script.name}
-		badgeLabel={script.inlineScript?.language === 'frontend' ? 'Frontend' : 'Backend'}
-	/>
+	<ScriptSettingHeader name={script.name} />
 	<ScriptRunConfiguration
 		bind:autoRefresh={script.autoRefresh}
 		bind:recomputeOnInputChanged={script.recomputeOnInputChanged}
 		canConfigureRecomputeOnInputChanged={script.inlineScript?.language !== 'frontend'}
+		on:updateAutoRefresh={() => {
+			if (
+				$runnableComponents?.[id]?.autoRefresh !== script.autoRefresh &&
+				script.autoRefresh !== undefined
+			) {
+				$runnableComponents[id] = {
+					...$runnableComponents[id],
+					autoRefresh: script.autoRefresh
+				}
+			}
+		}}
 	/>
 	<BackgroundScriptTriggerBy bind:script recomputeOnInputChanged={script.recomputeOnInputChanged} />
 </div>
