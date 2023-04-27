@@ -16,6 +16,7 @@ use monitor::handle_zombie_jobs_periodically;
 use sqlx::{Pool, Postgres};
 use tokio::{
     fs::{metadata, DirBuilder},
+    join,
     sync::RwLock,
 };
 use windmill_common::{utils::rd_string, METRICS_ADDR};
@@ -162,6 +163,12 @@ Windmill Community Edition {GIT_VERSION}
         "INSTANCE_EVENTS_WEBHOOK",
         "CLOUD_HOSTED",
         "GLOBAL_CACHE_INTERVAL",
+        "WORKER_TAGS",
+        "CUSTOM_TAGS",
+        "JOB_RETENTION_SECS",
+        "WAIT_RESULT_FAST_POLL_DURATION_SECS",
+        "WAIT_RESULT_SLOW_POLL_INTERVAL_MS",
+        "WAIT_RESULT_FAST_POLL_INTERVAL_MS",
     ]);
 
     if server_mode || num_workers > 0 {
@@ -244,9 +251,11 @@ pub fn monitor_db<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>
     let rx2 = rx.resubscribe();
     let base_internal_url = base_internal_url.to_string();
     tokio::spawn(async move {
-        handle_zombie_jobs_periodically(&db1, rx, &base_internal_url, rsmq).await
+        join!(
+            handle_zombie_jobs_periodically(&db1, rx, &base_internal_url, rsmq),
+            windmill_api::delete_expired_items_perdiodically(&db2, rx2)
+        );
     });
-    tokio::spawn(async move { windmill_api::delete_expired_items_perdiodically(&db2, rx2).await });
 }
 
 pub async fn run_workers<R: rsmq_async::RsmqConnection + Send + Sync + Clone + 'static>(

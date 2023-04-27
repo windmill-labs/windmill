@@ -12,7 +12,7 @@
 	import { findStore } from '../../store/controllers/storeApi'
 
 	import { onDestroy } from 'svelte'
-	import { Expand } from 'lucide-svelte'
+	import { Expand, Minus, Plus } from 'lucide-svelte'
 
 	//these are typscripted as any, however they have been transformed inside of store.ts
 	export let canvasId: string
@@ -199,34 +199,31 @@
 	</svg>
 </div>
 <div id="buttons">
-	<button title="Zoom In" id="zoom_in">+</button>
-	<button title="Zoom Out" id="zoom_out">-</button>
+	<button title="Zoom In" id="zoom_in">
+		<Plus size="14" class="flex justify-start m-1" />
+	</button>
+	<button title="Zoom Out" id="zoom_out">
+		<Minus size="14" class="flex justify-start m-1" />
+	</button>
 	{#if download}
-		<button title="Download" id="download" on:click={() => dispatch('expand')}
-			><Expand size="15" /></button
-		>
+		<button on:click={() => dispatch('expand')}>
+			<Expand size="14" class="flex justify-start m-1" />
+		</button>
 	{/if}
 </div>
 
 <style>
 	#buttons {
 		position: absolute;
-		top: 4px;
-		right: 10px;
+		top: 8px;
+		right: 8px;
 		z-index: 20;
 	}
-	#buttons > #download {
-		padding: 0;
-		padding-left: 3.5px;
-	}
+
 	#buttons > button {
 		border-radius: 4px;
 		background-color: white;
-		border: #999 solid 1px;
-		padding-right: 4px;
-		padding-left: 4px;
-		width: 24px;
-		height: 24px;
+		border: #bbb solid 1px;
 	}
 
 	.Nodes {

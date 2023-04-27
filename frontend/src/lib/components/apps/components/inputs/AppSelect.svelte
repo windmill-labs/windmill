@@ -42,12 +42,12 @@
 			  })
 			: []
 		let rawValue
-		if (defaultValue) {
+		if (defaultValue !== undefined) {
 			rawValue = defaultValue
 		} else if (listItems.length > 0) {
 			rawValue = items[0].value
 		}
-		if (rawValue) {
+		if (rawValue !== undefined) {
 			value = JSON.stringify(rawValue)
 			outputs?.result.set(rawValue)
 		}
