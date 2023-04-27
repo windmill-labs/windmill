@@ -46,7 +46,8 @@
 		stateId,
 		state,
 		errorByComponent,
-		jobs
+		jobs,
+		componentControl
 	} = getContext<AppViewerContext>('AppViewerContext')
 
 	const { history, ontextfocus, movingcomponents } =
@@ -56,6 +57,12 @@
 
 	function removeGridElement() {
 		push(history, $app)
+
+		const id = componentSettings?.item?.id
+		const onDelete = id ? $componentControl[id]?.onDelete : undefined
+		if (onDelete) {
+			onDelete()
+		}
 
 		if (componentSettings?.item.id) {
 			delete $worldStore.outputsById[componentSettings?.item.id]
