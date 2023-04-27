@@ -593,6 +593,10 @@ export function connectInput(
 	path: string
 ): ConnectingInput {
 	if (connectingInput) {
+		if (connectingInput.onConnect) {
+			connectingInput.onConnect({ componentId, path })
+		}
+
 		connectingInput = {
 			opened: false,
 			input: {
@@ -602,7 +606,8 @@ export function connectInput(
 				},
 				type: 'connected'
 			},
-			hoveredComponent: undefined
+			hoveredComponent: undefined,
+			onConnect: undefined
 		}
 	}
 
