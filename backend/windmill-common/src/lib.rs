@@ -47,7 +47,10 @@ lazy_static::lazy_static! {
 }
 
 #[cfg(feature = "tokio")]
-pub async fn shutdown_signal(tx: tokio::sync::broadcast::Sender<()>) -> anyhow::Result<()> {
+pub async fn shutdown_signal(
+    tx: tokio::sync::broadcast::Sender<()>,
+    mut rx: tokio::sync::broadcast::Receiver<()>,
+) -> anyhow::Result<()> {
     use std::io;
     use tokio::signal::unix::SignalKind;
 
@@ -61,6 +64,9 @@ pub async fn shutdown_signal(tx: tokio::sync::broadcast::Sender<()>) -> anyhow::
     tokio::select! {
         _ = terminate() => {},
         _ = tokio::signal::ctrl_c() => {},
+        _ = rx.recv() => {
+            tracing::info!("shutdown monitor received killpill");
+        },
     }
     println!("signal received, starting graceful shutdown");
     let _ = tx.send(());
@@ -168,7 +174,6 @@ pub async fn get_latest_deployed_hash_for_path<'c>(
 
     Ok((scripts::ScriptHash(script.hash), script.tag))
 }
-
 
 pub async fn get_latest_hash_for_path<'c>(
     db: &mut sqlx::Transaction<'c, sqlx::Postgres>,
