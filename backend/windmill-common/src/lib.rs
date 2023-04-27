@@ -168,3 +168,24 @@ pub async fn get_latest_deployed_hash_for_path<'c>(
 
     Ok((scripts::ScriptHash(script.hash), script.tag))
 }
+
+
+pub async fn get_latest_hash_for_path<'c>(
+    db: &mut sqlx::Transaction<'c, sqlx::Postgres>,
+    w_id: &str,
+    script_path: &str,
+) -> error::Result<(scripts::ScriptHash, Option<Tag>)> {
+    let r_o = sqlx::query!(
+        "select hash, tag from script where path = $1 AND workspace_id = $2 AND
+    created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND
+    deleted = false AND archived = false)",
+        script_path,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let script = utils::not_found_if_none(r_o, "script", script_path)?;
+
+    Ok((scripts::ScriptHash(script.hash), script.tag))
+}

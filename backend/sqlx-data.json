@@ -5308,6 +5308,33 @@
     },
     "query": "INSERT INTO group_\n            VALUES ($1, 'all', 'The group that always contains all users of this workspace')"
   },
+  "cd9c254f43fa689245a7e42fe9127d4a53e12fa85e14ae4ab9c1b23691cfdcae": {
+    "describe": {
+      "columns": [
+        {
+          "name": "hash",
+          "ordinal": 0,
+          "type_info": "Int8"
+        },
+        {
+          "name": "tag",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "select hash, tag from script where path = $1 AND workspace_id = $2 AND\n    created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND workspace_id = $2 AND\n    deleted = false AND archived = false)"
+  },
   "d0308abac80575038203b60bb66d3b39b586939da0421a595e47c7a759616431": {
     "describe": {
       "columns": [],
