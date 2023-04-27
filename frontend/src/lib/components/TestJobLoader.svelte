@@ -46,6 +46,10 @@
 			}
 			return testId
 		} catch (err) {
+			// if error happens on submitting the job, reset UI state so the user can try again
+			isLoading = false
+			currentId = undefined
+			job = undefined
 			throw err
 		}
 	}
