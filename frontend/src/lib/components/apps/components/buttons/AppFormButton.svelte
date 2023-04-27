@@ -27,7 +27,13 @@
 	export let customCss: ComponentCustomCSS<'formbuttoncomponent'> | undefined = undefined
 	export let render: boolean
 
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, componentControl } = getContext<AppViewerContext>('AppViewerContext')
+
+	$componentControl[id] = {
+		onDelete: () => {
+			getModal().close()
+		}
+	}
 
 	let outputs = initOutput($worldStore, id, {
 		result: undefined,
@@ -56,16 +62,7 @@
 	$: css = concatCustomCss($app?.css?.formbuttoncomponent, customCss)
 	let runnableWrapper: RunnableWrapper
 	let loading = false
-
-	function keydown(event: KeyboardEvent) {
-		const { key } = event
-		if (key === 'Delete') {
-			getModal().close()
-		}
-	}
 </script>
-
-<svelte:window on:keydown={keydown} />
 
 {#each Object.keys(components['formbuttoncomponent'].initialData.configuration) as key (key)}
 	<ResolveConfig
