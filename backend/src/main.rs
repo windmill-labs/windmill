@@ -166,6 +166,9 @@ Windmill Community Edition {GIT_VERSION}
         "WORKER_TAGS",
         "CUSTOM_TAGS",
         "JOB_RETENTION_SECS",
+        "WAIT_RESULT_FAST_POLL_DURATION_SECS",
+        "WAIT_RESULT_SLOW_POLL_INTERVAL_MS",
+        "WAIT_RESULT_FAST_POLL_INTERVAL_MS",
     ]);
 
     if server_mode || num_workers > 0 {
