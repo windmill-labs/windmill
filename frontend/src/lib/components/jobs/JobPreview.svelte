@@ -26,35 +26,22 @@
 	let popupOnTop = true
 
 	$: open = $openStore === job?.id
-	$: completed = job?.type === Job.type.COMPLETED_JOB
-	$: running = job && `running` in job ? job.running : false
-	$: logs = job?.logs || logs
 
 	async function instantOpen() {
-		hovered = true
-		if (!job) {
-			return
+		if (!open) {
+			hovered = true
+			if (!job) {
+				return
+			}
+			popupOnTop = wrapper.getBoundingClientRect().top > POPUP_HEIGHT
+			openStore.set(job.id)
+			if (!loaded) {
+				await tick()
+				watchJob && watchJob(job.id)
+			}
+		} else {
+			timeout && clearTimeout(timeout)
 		}
-		popupOnTop = wrapper.getBoundingClientRect().top > POPUP_HEIGHT
-		openStore.set(job.id)
-		if (!loaded) {
-			await tick()
-			watchJob && watchJob(job.id)
-		}
-	}
-
-	function staggeredOpen() {
-		hovered = true
-		if (timeout) {
-			clearTimeout(timeout)
-		}
-		timeout = setTimeout(
-			async () => {
-				timeout = undefined
-				await instantOpen()
-			},
-			loaded ? 100 : 300
-		)
 	}
 
 	function close() {
@@ -70,6 +57,9 @@
 
 	function staggeredClose() {
 		hovered = false
+		if (timeout) {
+			clearTimeout(timeout)
+		}
 		timeout = setTimeout(
 			async () => {
 				timeout = undefined
@@ -96,17 +86,15 @@
 {/if}
 
 <div
-	on:mouseenter={staggeredOpen}
+	on:mouseenter={instantOpen}
 	on:mouseleave={staggeredClose}
-	on:focusin={instantOpen}
-	on:focusout={close}
 	bind:this={wrapper}
 	class="relative"
 >
 	<slot {open} />
 	{#if open}
 		<div
-			transition:fade|local={{ duration: 100 }}
+			transition:fade|local={{ duration: 50 }}
 			class="absolute z-50 {popupOnTop ? 'bottom-[35px]' : 'top-[35px]'} -left-10 bg-white rounded
 			border border-gray-300 shadow-xl flex justify-start items-start w-[600px] h-80
 			overflow-hidden"
@@ -121,11 +109,11 @@
 						<div>{new Date(job?.['scheduled_for']).toLocaleString()}</div>
 					</div>
 				{/if}
-				{#if completed}
+				{#if job?.type === Job.type.COMPLETED_JOB}
 					<DisplayResult {result} disableExpand />
-				{:else if running}
+				{:else if job && `running` in job ? job.running : false}
 					<div class="text-sm font-semibold text-gray-600 mb-1"> Job is still running </div>
-					<LogViewer content={logs} isLoading />
+					<LogViewer content={job?.logs} isLoading />
 				{/if}
 			</div>
 		</div>
