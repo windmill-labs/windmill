@@ -10,9 +10,60 @@ import {
 import { inferArgs } from '$lib/infer'
 import { loadSchema, loadSchemaFlow } from '$lib/scripts'
 import { workspaceStore } from '$lib/stores'
-import { emptySchema } from '$lib/utils'
+import { emptySchema, sendUserToast } from '$lib/utils'
 import { get } from 'svelte/store'
 import type { FlowModuleState } from './flowState'
+import type { PickableProperties } from './previousResults'
+
+function create_context_function_template(eval_string: string, context: Record<string, any>) {
+	return `
+return function (context) {
+"use strict";
+${
+	Object.keys(context).length > 0
+		? `let ${Object.keys(context).map((key) => ` ${key} = context['${key}']`)};`
+		: ``
+}
+return ${eval_string}
+}`
+}
+
+function make_context_evaluator(eval_string, context): (context) => any {
+	let template = create_context_function_template(eval_string, context)
+	let functor = Function(template)
+	return functor()
+}
+
+export function evalValue(
+	k: string,
+	mod: FlowModule,
+	testStepStore: Record<string, any>,
+	pickableProperties: PickableProperties | undefined,
+	showError: boolean
+) {
+	let inputTransforms = (mod.value['input_transforms'] ?? {}) as Record<string, InputTransform>
+	let v = testStepStore[mod.id]?.[k]
+	let t = inputTransforms?.[k]
+	if (!v) {
+		if (t.type == 'static') {
+			v = t.value
+		} else {
+			try {
+				let context = {
+					flow_input: pickableProperties?.flow_input,
+					results: pickableProperties?.priorIds
+				}
+				v = make_context_evaluator(t.expr, context)(context)
+			} catch (e) {
+				if (showError) {
+					sendUserToast(`Error evaluating ${k}: ${e.message}`, true)
+				}
+				v = undefined
+			}
+		}
+	}
+	return v
+}
 
 export function cleanInputs(flow: Flow | any): Flow {
 	const newFlow: Flow = JSON.parse(JSON.stringify(flow))

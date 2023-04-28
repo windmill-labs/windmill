@@ -5,14 +5,21 @@
 	import { Plug } from 'lucide-svelte'
 	import ArgInput from './ArgInput.svelte'
 	import { Button } from './common'
+	import { getContext } from 'svelte'
+	import type { FlowEditorContext } from './flows/types'
+	import { evalValue } from './flows/utils'
+	import type { FlowModule } from '$lib/gen'
+	import type { PickableProperties } from './flows/previousResults'
 
 	export let schema: Schema
 	export let args: Record<string, any> = {}
+	export let mod: FlowModule
+	export let pickableProperties: PickableProperties | undefined
 
 	export let isValid: boolean = true
 	export let autofocus = false
-	export let plugForField: string | undefined = undefined
-	export let currentConnection: string | undefined = undefined
+
+	const { testStepStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let inputCheck: { [id: string]: boolean } = {}
 	$: isValid = allTrue(inputCheck) ?? false
@@ -39,19 +46,13 @@
 			removeExtraKey()
 		}
 	}
-	$: disabled = false
 
-	function plugIt() {
-		// const ctx = getContext<PropPickerWrapperContext>('propPickerWrapper')
-		// if (ctx) {
-		//     ctx.plugForField = plugForField
-		//     ctx.plugIt()
-		// }
+	function plugIt(argName: string) {
+		args[argName] = evalValue(argName, mod, testStepStore, pickableProperties, true)
 	}
 </script>
 
 <div class="w-full pt-4">
-	{plugForField}
 	{#if keys.length > 0}
 		{#each keys as argName, i (argName)}
 			{#if Object.keys(schema.properties ?? {}).includes(argName)}
@@ -78,12 +79,11 @@
 					{/if}
 					<div>
 						<Button
-							{disabled}
-							on:click={plugIt}
+							on:click={() => plugIt(argName)}
 							size="sm"
 							variant="border"
 							color="light"
-							title="Reuse state"><Plug size={14} /></Button
+							title="Eval input component"><Plug size={14} /></Button
 						>
 					</div>
 				</div>

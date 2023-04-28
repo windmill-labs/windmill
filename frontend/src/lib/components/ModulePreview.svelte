@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import { ScriptService, type FlowModule, type InputTransform, type Job } from '$lib/gen'
+	import { ScriptService, type FlowModule, type Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { getModifierKey, getScriptByPath } from '$lib/utils'
 	import { Loader2 } from 'lucide-svelte'
@@ -13,9 +13,12 @@
 	import TestJobLoader from './TestJobLoader.svelte'
 	import ModulePreviewForm from './ModulePreviewForm.svelte'
 	import { Kbd } from './common'
+	import { evalValue } from './flows/utils'
+	import type { PickableProperties } from './flows/previousResults'
 
 	export let mod: FlowModule
 	export let schema: Schema
+	export let pickableProperties: PickableProperties | undefined
 
 	const { flowStore, flowStateStore, testStepStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
@@ -25,18 +28,12 @@
 	let testIsLoading = false
 	let testJob: Job | undefined = undefined
 
-	let stepArgs: Record<string, any> | undefined =
-		$testStepStore[mod.id] ??
-		Object.entries(mod.value['input_transforms'] ?? {}).reduce((acc, [k, v]) => {
-			let t = v as InputTransform
-			if (t.type == 'static') {
-				acc[k] = t.value
-				return acc
-			} else {
-				acc[k] = { type: 'connection', expr: t.expr }
-				return acc
-			}
-		}, {})
+	let stepArgs: Record<string, any> | undefined = Object.fromEntries(
+		Object.keys(schema.properties).map((k) => [
+			k,
+			evalValue(k, mod, $testStepStore, pickableProperties, false)
+		])
+	)
 
 	$: $testStepStore[mod.id] = stepArgs
 
@@ -61,7 +58,7 @@
 
 	function jobDone() {
 		if (testJob && !testJob.canceled && testJob.type == 'CompletedJob' && `result` in testJob) {
-			if ($flowStateStore[mod.id]?.previewResult) {
+			if ($flowStateStore[mod.id]) {
 				$flowStateStore[mod.id].previewResult = testJob.result
 				$flowStateStore = $flowStateStore
 			}
@@ -94,7 +91,7 @@
 			>
 		{/if}
 
-		<ModulePreviewForm on:plug {schema} bind:args={stepArgs} />
+		<ModulePreviewForm {pickableProperties} {mod} {schema} bind:args={stepArgs} />
 	</Pane>
 	<Pane size={50} minSize={20}>
 		<Splitpanes horizontal>

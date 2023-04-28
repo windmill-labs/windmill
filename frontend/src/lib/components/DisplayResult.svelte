@@ -262,7 +262,15 @@
 						<div class="flex gap-2 items-center">Copy to clipboard <ClipboardCopy /> </div>
 					</Button>
 				</svelte:fragment>
-				<Highlight language={json} code={JSON.stringify(result, null, 4).replace(/\\n/g, '\n')} />
+				{@const str = JSON.stringify(result, null, 4).replace(/\\n/g, '\n')}
+				{#if str.length > 100000}
+					JSON too large. <a
+						download="{filename ?? 'result'}.json"
+						href="data:text/json;charset=utf-8,{encodeURIComponent(str)}">Download</a
+					>
+				{:else}
+					<Highlight language={json} code={JSON.stringify(result, null, 4).replace(/\\n/g, '\n')} />
+				{/if}
 			</DrawerContent>
 		</Drawer>
 	</Portal>
