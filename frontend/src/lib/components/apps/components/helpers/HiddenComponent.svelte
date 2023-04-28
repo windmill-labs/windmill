@@ -14,8 +14,7 @@
 	export let name: string
 	export let inlineScript: InlineScript | undefined
 	export let fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
-	export let recomputeOnInputChanged: boolean
-	export let recomputableByRefreshButton: boolean
+	export let autoRefresh: boolean
 	export let noBackendValue: any = undefined
 
 	const { worldStore, staticExporter, noBackend } = getContext<AppViewerContext>('AppViewerContext')
@@ -38,8 +37,7 @@
 	render={false}
 	{id}
 	{fields}
-	autoRefresh={true}
-	{recomputeOnInputChanged}
+	{autoRefresh}
 	bind:result
 	transformer={undefined}
 	runnable={{
@@ -49,7 +47,6 @@
 	}}
 	wrapperClass="hidden"
 	{outputs}
-	{recomputableByRefreshButton}
 >
 	<slot />
 </RunnableComponent>

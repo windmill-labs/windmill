@@ -34,7 +34,6 @@
 	export let extraKey = ''
 	export let recomputeOnInputChanged: boolean = true
 	export let loading = false
-	export let recomputableByRefreshButton: boolean = true
 	export let refreshOnStart: boolean = false
 
 	const {
@@ -353,7 +352,7 @@
 		const emptyScript = runnable?.type === 'runnableByName' && !runnable.inlineScript
 
 		$runnableComponents[id] = {
-			autoRefresh: autoRefresh && recomputableByRefreshButton && !emptyScript,
+			autoRefresh: autoRefresh && !emptyScript,
 			refreshOnStart: refreshOnStart && !emptyScript,
 			cb: cancellableRun
 		}
