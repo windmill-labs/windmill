@@ -16,6 +16,8 @@
 	export let noItemMessage = 'There are no items in the list'
 	/** Displayed if the search returns no items. */
 	export let buttons: Record<string, (x: string) => void> = {}
+	export let tooltip: string = ''
+	export let documentationLink: string | undefined = undefined
 
 	let loading = false
 	let items: Item[] | undefined = []
@@ -48,7 +50,7 @@
 />
 
 <Drawer bind:this={drawer} size="600px">
-	<DrawerContent overflow_y={false} title="Search {itemName}s" on:close={drawer.closeDrawer}>
+	<DrawerContent {tooltip} {documentationLink} overflow_y={false} title="Search {itemName}s" on:close={drawer.closeDrawer}>
 		<div class="w-full h-full flex flex-col">
 			<div class="w-12/12 pb-4">
 				<input
