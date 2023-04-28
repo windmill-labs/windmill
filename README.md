@@ -342,6 +342,7 @@ it being synced automatically everyday.
 | WAIT_RESULT_FAST_POLL_INTERVAL_MS   | 50                                         | The time in between polling for the run_wait_result endpoints in fast poll mode                                                                                                                    | Server                |
 | WAIT_RESULT_SLOW_POLL_INTERVAL_MS   | 200                                        | The time in between polling for the run_wait_result endpoints in fast poll mode                                                                                                                    | Server                |
 | WAIT_RESULT_FAST_POLL_DURATION_SECS | 2                                          | The duration of fast poll mode before switching to slow poll                                                                                                                                       | Server                |
+| EXIT_AFTER_NO_JOB_FOR_SECS          | None                                       | Exit worker if no job is received after duration in secs if defined                                                                                                                                | Worker                |
 
 ## Run a local dev setup
 

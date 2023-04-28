@@ -146,10 +146,10 @@
 	}
 
 	.val.undefined {
-		@apply text-red-500;
+		@apply text-gray-600;
 	}
 	.val.null {
-		@apply text-red-500;
+		@apply text-gray-600;
 	}
 	.val.string {
 		@apply text-green-600;
