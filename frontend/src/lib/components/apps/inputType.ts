@@ -92,6 +92,7 @@ export type ResultInput = {
 	// kept for migration purposes
 	doNotRecomputeOnInputChanged?: boolean
 	recomputeOnInputChanged?: boolean
+	autoRefresh?: boolean
 }
 
 type AppInputSpec<T extends InputType, U, V extends InputType = never> = (

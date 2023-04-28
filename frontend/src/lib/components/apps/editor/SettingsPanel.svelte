@@ -1,6 +1,4 @@
 <script lang="ts">
-	import Toggle from '$lib/components/Toggle.svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { getContext } from 'svelte'
 	import type { App, AppViewerContext } from '../types'
 	import { allItems } from '../utils'
@@ -8,7 +6,7 @@
 	import PanelSection from './settingsPanel/common/PanelSection.svelte'
 	import ComponentPanel from './settingsPanel/ComponentPanel.svelte'
 	import InputsSpecsEditor from './settingsPanel/InputsSpecsEditor.svelte'
-	import BackgroundScriptTriggerList from './settingsPanel/triggerLists/BackgroundScriptTriggerList.svelte'
+	import BackgroundScriptSettings from './settingsPanel/script/BackgroundScriptSettings.svelte'
 
 	const { selectedComponent, app, stateId } = getContext<AppViewerContext>('AppViewerContext')
 
@@ -54,6 +52,22 @@
 
 		return undefined
 	}
+
+	$: {
+		if (hiddenInlineScript && hiddenInlineScript?.script.recomputeOnInputChanged === undefined) {
+			hiddenInlineScript.script.recomputeOnInputChanged = true
+		}
+
+		//TODO: remove after migration is done
+		if (
+			hiddenInlineScript &&
+			hiddenInlineScript?.script.doNotRecomputeOnInputChanged != undefined
+		) {
+			hiddenInlineScript.script.recomputeOnInputChanged =
+				!hiddenInlineScript.script.doNotRecomputeOnInputChanged
+			hiddenInlineScript.script.doNotRecomputeOnInputChanged = undefined
+		}
+	}
 </script>
 
 {#if componentSettings}
@@ -82,34 +96,12 @@
 		/>
 	{/key}
 {:else if hiddenInlineScript}
-	<div class="min-h-full flex flex-col divide-y">
-		<PanelSection title={`Configuration`}>
-			<div class="flex items-center">
-				<Toggle
-					bind:checked={hiddenInlineScript.script.autoRefresh}
-					options={{ right: 'Run on start and app refresh' }}
-				/>
-				<Tooltip>
-					You may want to disable this so that the background script is only triggered by changes to
-					other values or triggered by another computation on a button (See 'Recompute Others')
-				</Tooltip>
-			</div>
-		</PanelSection>
+	<BackgroundScriptSettings
+		bind:script={hiddenInlineScript.script}
+		id={`bg_${hiddenInlineScript.index}`}
+	/>
 
-		<div class="p-2">
-			{#if hiddenInlineScript.script.inlineScript}
-				<BackgroundScriptTriggerList
-					fields={hiddenInlineScript.script.fields}
-					autoRefresh={hiddenInlineScript.script.autoRefresh}
-					id={`bg_${hiddenInlineScript.index}`}
-					bind:recomputeOnInputChanged={hiddenInlineScript.script.recomputeOnInputChanged}
-					bind:doNotRecomputeOnInputChanged={hiddenInlineScript.script.doNotRecomputeOnInputChanged}
-					bind:inlineScript={hiddenInlineScript.script.inlineScript}
-				/>
-			{:else}
-				<span class="text-gray-600 text-xs">No script defined</span>
-			{/if}
-		</div>
+	<div>
 		{#if Object.keys(hiddenInlineScript.script.fields).length > 0}
 			<PanelSection title={`Inputs`}>
 				{#key $stateId}
@@ -122,6 +114,13 @@
 				{/key}
 			</PanelSection>
 		{/if}
+
+		{#if hiddenInlineScript.script.inlineScript?.language === 'frontend'}
+			<PanelSection title={`Inputs`}>
+				<div class="text-xs"> Frontend cannot have inputs </div>
+			</PanelSection>
+		{/if}
+
 		<div class="grow shrink" />
 	</div>
 {/if}
