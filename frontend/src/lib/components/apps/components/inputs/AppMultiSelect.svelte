@@ -48,7 +48,7 @@
 		}
 	}
 
-	$: value && outputs?.result.set(value.map((v) => v.value))
+	$: value ? outputs?.result.set(value.map((v) => v.value)) : outputs?.result.set([])
 
 	$: css = concatCustomCss($app.css?.multiselectcomponent, customCss)
 </script>

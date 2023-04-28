@@ -171,7 +171,7 @@
 				name={script.name}
 				fields={script.fields}
 				recomputeOnInputChanged={script.recomputeOnInputChanged ?? true}
-				recomputableByRefreshButton={script.autoRefresh ?? false}
+				autoRefresh={script.autoRefresh ?? false}
 				noBackendValue={script.noBackendValue}
 			/>
 		{/if}

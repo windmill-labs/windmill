@@ -8,28 +8,29 @@
 
 	export let script: HiddenInlineScript
 	export let id: string
-	export let hasScript: boolean
 
 	const { runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
+
+	function updateAutoRefresh() {
+		const autoRefresh = script.autoRefresh
+		if ($runnableComponents?.[id]?.autoRefresh !== autoRefresh && autoRefresh !== undefined) {
+			$runnableComponents[id] = {
+				...$runnableComponents[id],
+				autoRefresh
+			}
+		}
+	}
 </script>
 
 <div class={'border-y border-gray-200 divide-y'}>
 	<ScriptSettingHeader name={script.name} />
 
-	{#if hasScript}
+	{#if script.inlineScript}
 		<ScriptRunConfiguration
 			bind:autoRefresh={script.autoRefresh}
 			bind:recomputeOnInputChanged={script.recomputeOnInputChanged}
 			canConfigureRecomputeOnInputChanged={script.inlineScript?.language !== 'frontend'}
-			on:updateAutoRefresh={() => {
-				const autoRefresh = script.autoRefresh
-				if ($runnableComponents?.[id]?.autoRefresh !== autoRefresh && autoRefresh !== undefined) {
-					$runnableComponents[id] = {
-						...$runnableComponents[id],
-						autoRefresh
-					}
-				}
-			}}
+			on:updateAutoRefresh={updateAutoRefresh}
 		/>
 		<BackgroundScriptTriggerBy
 			bind:script
