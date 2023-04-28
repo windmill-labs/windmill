@@ -15,7 +15,7 @@
 	import type { AppComponent } from '../../component'
 	import ScriptTransformer from './shared/ScriptTransformer.svelte'
 	import ScriptRunConfiguration from './shared/ScriptRunConfiguration.svelte'
-	import ComponentScriptTriggerBy from './shared/ComponentScriptTriggerBy.svelte'
+	import ScriptTriggers from './shared/ScriptTriggers.svelte'
 	import ScriptSettingHeader from './shared/ScriptSettingHeader.svelte'
 	import { getContext } from 'svelte'
 	import type { AppViewerContext } from '$lib/components/apps/types'
@@ -67,7 +67,7 @@
 				}
 			}}
 		/>
-		<ComponentScriptTriggerBy {appComponent} {appInput} />
+		<ScriptTriggers {appComponent} {appInput} />
 	{:else}
 		<ScriptSettingsSection title="Language selection">
 			<div class="text-xs"> Please configure the language in the inline script panel </div>

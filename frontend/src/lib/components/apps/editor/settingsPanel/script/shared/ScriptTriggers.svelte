@@ -1,28 +1,36 @@
 <script lang="ts">
-	import type { AppViewerContext, HiddenInlineScript } from '$lib/components/apps/types'
+	import type {
+		ConnectedAppInput,
+		InputConnection,
+		RowAppInput,
+		StaticAppInput,
+		UserAppInput
+	} from '$lib/components/apps/inputType'
+	import { Button } from '$lib/components/common'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
-	import Button from '$lib/components/common/button/Button.svelte'
 	import { classNames } from '$lib/utils'
 	import { Plus, X } from 'lucide-svelte'
+	import { getDependencies } from '../utils'
 	import ScriptSettingsSection from './ScriptSettingsSection.svelte'
 	import { getContext } from 'svelte'
-	import type { InputConnection } from '$lib/components/apps/inputType'
-	import { getDependencies } from '../utils'
+	import type { AppViewerContext, InlineScript } from '$lib/components/apps/types'
 
-	export let script: HiddenInlineScript
-	export let recomputeOnInputChanged: boolean | undefined = undefined
+	export let inlineScript: InlineScript | undefined
+	export let triggerEvents: string[]
+	export let isTriggerable: boolean = false
+	export let fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
 
-	$: isFrontend = script.inlineScript?.language === 'frontend'
-	$: triggerEvents = script.autoRefresh ? ['start', 'refresh'] : []
+	$: isFrontend = inlineScript?.language === 'frontend'
+
 	$: changeEvents = isFrontend
-		? script.inlineScript?.refreshOn
-			? script.inlineScript.refreshOn.map((x) => `${x.id} - ${x.key}`)
+		? inlineScript?.refreshOn
+			? inlineScript.refreshOn.map((x) => `${x.id} - ${x.key}`)
 			: []
-		: getDependencies(script.fields)
+		: getDependencies(fields)
 
-	$: hasNoTriggers =
-		triggerEvents.length === 0 && (changeEvents.length === 0 || !recomputeOnInputChanged)
+	$: hasNoTriggers = triggerEvents.length === 0 && changeEvents.length === 0
 
+	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
 	const badgeClass = 'inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border'
 	const colors = {
 		green: 'text-green-800 border-green-600 bg-green-100',
@@ -30,30 +38,27 @@
 		blue: 'text-blue-800 border-blue-600 bg-blue-100'
 	}
 
-	const { app } = getContext<AppViewerContext>('AppViewerContext')
-	const { connectingInput } = getContext<AppViewerContext>('AppViewerContext')
-
 	function applyConnection(connection: InputConnection) {
 		const refresh = {
 			id: connection.componentId,
 			key: connection.path
 		}
 
-		if (!script.inlineScript) {
+		if (!inlineScript) {
 			return
 		}
 
-		if (script.inlineScript.refreshOn?.find((y) => y.id === refresh.id && y.key === refresh.key)) {
+		if (inlineScript.refreshOn?.find((y) => y.id === refresh.id && y.key === refresh.key)) {
 			return
 		}
 
-		if (!script.inlineScript.refreshOn) {
-			script.inlineScript.refreshOn = [refresh]
+		if (!inlineScript.refreshOn) {
+			inlineScript.refreshOn = [refresh]
 		} else {
-			script.inlineScript.refreshOn.push(refresh)
+			inlineScript.refreshOn.push(refresh)
 		}
 
-		script.inlineScript = JSON.parse(JSON.stringify(script.inlineScript))
+		inlineScript = JSON.parse(JSON.stringify(inlineScript))
 		$app = $app
 	}
 </script>
@@ -94,7 +99,8 @@
 				{/each}
 			</div>
 		{/if}
-		{#if changeEvents.length > 0 && (recomputeOnInputChanged || isFrontend)}
+
+		{#if changeEvents.length > 0 && !isTriggerable}
 			<div class="text-xs font-semibold text-slate-800 mb-1 mt-2">Change on value</div>
 			<div class="flex flex-row gap-2 flex-wrap">
 				{#each changeEvents as changeEvent}
@@ -104,19 +110,19 @@
 							<button
 								class="bg-blue-300 ml-2 p-0.5 rounded-md hover:bg-blue-400 cursor-pointer"
 								on:click={() => {
-									if (script.inlineScript?.refreshOn) {
-										script.inlineScript.refreshOn = script.inlineScript.refreshOn.filter(
+									if (inlineScript) {
+										inlineScript.refreshOn = inlineScript.refreshOn?.filter(
 											(x) => `${x.id} - ${x.key}` !== changeEvent
 										)
-										script.inlineScript = JSON.parse(JSON.stringify(script.inlineScript))
+										inlineScript = JSON.parse(JSON.stringify(inlineScript))
+										$app = $app
 									}
 								}}
 							>
 								<X size="14" />
 							</button>
-						{/if}
-					</span>
-					<!-- delete button -->
+						{/if}</span
+					>
 				{/each}
 			</div>
 		{/if}

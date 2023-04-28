@@ -2,7 +2,7 @@
 	import ScriptSettingHeader from './shared/ScriptSettingHeader.svelte'
 	import type { AppViewerContext, HiddenInlineScript } from '$lib/components/apps/types'
 	import ScriptRunConfiguration from './shared/ScriptRunConfiguration.svelte'
-	import BackgroundScriptTriggerBy from './shared/BackgroundScriptTriggerBy.svelte'
+	import ScriptTriggers from './shared/ScriptTriggers.svelte'
 	import { getContext } from 'svelte'
 	import ScriptSettingsSection from './shared/ScriptSettingsSection.svelte'
 
@@ -31,7 +31,7 @@
 				}
 			}}
 		/>
-		<BackgroundScriptTriggerBy
+		<ScriptTriggers
 			bind:script
 			recomputeOnInputChanged={script.recomputeOnInputChanged}
 		/>
