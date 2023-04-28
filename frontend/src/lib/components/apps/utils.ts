@@ -131,7 +131,7 @@ export function isScriptByNameDefined(appInput: AppInput | undefined): boolean {
 	}
 
 	if (appInput.type === 'runnable' && appInput.runnable?.type == 'runnableByName') {
-		return appInput.runnable?.name != undefined
+		return appInput.runnable?.name != undefined && appInput.runnable.inlineScript != undefined
 	}
 
 	return false
