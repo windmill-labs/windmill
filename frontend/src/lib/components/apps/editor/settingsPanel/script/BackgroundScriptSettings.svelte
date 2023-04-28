@@ -4,28 +4,40 @@
 	import ScriptRunConfiguration from './shared/ScriptRunConfiguration.svelte'
 	import BackgroundScriptTriggerBy from './shared/BackgroundScriptTriggerBy.svelte'
 	import { getContext } from 'svelte'
+	import ScriptSettingsSection from './shared/ScriptSettingsSection.svelte'
 
 	export let script: HiddenInlineScript
 	export let id: string
+	export let hasScript: boolean
 
 	const { runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 </script>
 
 <div class={'border-y border-gray-200 divide-y'}>
 	<ScriptSettingHeader name={script.name} />
-	<ScriptRunConfiguration
-		bind:autoRefresh={script.autoRefresh}
-		bind:recomputeOnInputChanged={script.recomputeOnInputChanged}
-		canConfigureRecomputeOnInputChanged={script.inlineScript?.language !== 'frontend'}
-		on:updateAutoRefresh={() => {
-			const autoRefresh = !script.autoRefresh
-			if ($runnableComponents?.[id]?.autoRefresh !== autoRefresh && autoRefresh !== undefined) {
-				$runnableComponents[id] = {
-					...$runnableComponents[id],
-					autoRefresh
+
+	{#if hasScript}
+		<ScriptRunConfiguration
+			bind:autoRefresh={script.autoRefresh}
+			bind:recomputeOnInputChanged={script.recomputeOnInputChanged}
+			canConfigureRecomputeOnInputChanged={script.inlineScript?.language !== 'frontend'}
+			on:updateAutoRefresh={() => {
+				const autoRefresh = !script.autoRefresh
+				if ($runnableComponents?.[id]?.autoRefresh !== autoRefresh && autoRefresh !== undefined) {
+					$runnableComponents[id] = {
+						...$runnableComponents[id],
+						autoRefresh
+					}
 				}
-			}
-		}}
-	/>
-	<BackgroundScriptTriggerBy bind:script recomputeOnInputChanged={script.recomputeOnInputChanged} />
+			}}
+		/>
+		<BackgroundScriptTriggerBy
+			bind:script
+			recomputeOnInputChanged={script.recomputeOnInputChanged}
+		/>
+	{:else}
+		<ScriptSettingsSection title="Language selection">
+			<div class="text-xs"> Please configure the language in the inline script panel </div>
+		</ScriptSettingsSection>
+	{/if}
 </div>

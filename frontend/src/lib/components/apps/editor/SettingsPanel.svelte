@@ -68,6 +68,8 @@
 			hiddenInlineScript.script.doNotRecomputeOnInputChanged = undefined
 		}
 	}
+
+	$: hasScript = hiddenInlineScript?.script?.inlineScript != undefined
 </script>
 
 {#if componentSettings}
@@ -99,6 +101,7 @@
 	<BackgroundScriptSettings
 		bind:script={hiddenInlineScript.script}
 		id={`bg_${hiddenInlineScript.index}`}
+		{hasScript}
 	/>
 
 	<div>
@@ -114,13 +117,6 @@
 				{/key}
 			</PanelSection>
 		{/if}
-
-		{#if hiddenInlineScript.script.inlineScript?.language === 'frontend'}
-			<PanelSection title={`Inputs`}>
-				<div class="text-xs"> Frontend cannot have inputs </div>
-			</PanelSection>
-		{/if}
-
 		<div class="grow shrink" />
 	</div>
 {/if}
