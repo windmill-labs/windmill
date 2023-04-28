@@ -8,7 +8,7 @@
 	import { classNames, defaultIfEmptyString, emptySchema, sendUserToast } from '$lib/utils'
 	import { deepEqual } from 'fast-equals'
 	import { Bug } from 'lucide-svelte'
-	import { createEventDispatcher, getContext, onDestroy } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy, onMount } from 'svelte'
 	import type { AppInputs, Runnable } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppViewerContext, CancelablePromise, InlineScript } from '../../types'
@@ -34,7 +34,6 @@
 	export let extraKey = ''
 	export let recomputeOnInputChanged: boolean = true
 	export let loading = false
-	export let recomputableByRefreshButton: boolean = true
 	export let refreshOnStart: boolean = false
 
 	const {
@@ -59,38 +58,6 @@
 	const dispatch = createEventDispatcher()
 
 	let donePromise: (() => void) | undefined = undefined
-
-	const cancellableRun: (inlineScript?: InlineScript) => CancelablePromise<void> = (
-		inlineScript?: InlineScript
-	) => {
-		let rejectCb: (err: Error) => void
-		let p: Partial<CancelablePromise<void>> = new Promise<void>((resolve, reject) => {
-			rejectCb = reject
-			donePromise = resolve
-			executeComponent(true, inlineScript).catch(reject)
-		})
-		p.cancel = () => {
-			testJobLoader?.cancelJob()
-			loading = false
-			rejectCb(new Error('Canceled'))
-		}
-
-		return p as CancelablePromise<void>
-	}
-
-	$runnableComponents[id] = {
-		autoRefresh: autoRefresh && recomputableByRefreshButton,
-		refreshOnStart,
-		cb: cancellableRun
-	}
-
-	if (!$initialized.initializedComponents.includes(id)) {
-		$initialized.initializedComponents = [...$initialized.initializedComponents, id]
-	}
-
-	onDestroy(() => {
-		$initialized.initializedComponents = $initialized.initializedComponents.filter((c) => c !== id)
-	})
 
 	$runnableComponents = $runnableComponents
 
@@ -189,8 +156,6 @@
 	}
 
 	async function executeComponent(noToast = false, inlineScriptOverride?: InlineScript) {
-		console.debug('execute', id)
-
 		if (runnable?.type === 'runnableByName' && runnable.inlineScript?.language === 'frontend') {
 			loading = true
 			try {
@@ -231,6 +196,11 @@
 			return
 		}
 		if (runnable?.type === 'runnableByName' && !runnable.inlineScript) {
+			return
+		}
+
+		if (!testJobLoader) {
+			console.warn('No test job loader')
 			return
 		}
 
@@ -359,6 +329,40 @@
 		const event = e as unknown as PointerEvent
 		!$connectingInput.opened && selectId(event, id, selectedComponent, $app)
 	}
+
+	onMount(() => {
+		const cancellableRun: (inlineScript?: InlineScript) => CancelablePromise<void> = (
+			inlineScript?: InlineScript
+		) => {
+			let rejectCb: (err: Error) => void
+			let p: Partial<CancelablePromise<void>> = new Promise<void>((resolve, reject) => {
+				rejectCb = reject
+				donePromise = resolve
+				executeComponent(true, inlineScript).catch(reject)
+			})
+			p.cancel = () => {
+				testJobLoader?.cancelJob()
+				loading = false
+				rejectCb(new Error('Canceled'))
+			}
+
+			return p as CancelablePromise<void>
+		}
+
+		$runnableComponents[id] = {
+			autoRefresh: autoRefresh,
+			refreshOnStart: refreshOnStart,
+			cb: cancellableRun
+		}
+
+		if (!$initialized.initializedComponents.includes(id)) {
+			$initialized.initializedComponents = [...$initialized.initializedComponents, id]
+		}
+	})
+
+	onDestroy(() => {
+		$initialized.initializedComponents = $initialized.initializedComponents.filter((c) => c !== id)
+	})
 </script>
 
 {#each Object.entries(fields ?? {}) as [key, v] (key)}

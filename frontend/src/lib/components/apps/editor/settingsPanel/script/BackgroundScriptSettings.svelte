@@ -1,0 +1,44 @@
+<script lang="ts">
+	import ScriptSettingHeader from './shared/ScriptSettingHeader.svelte'
+	import type { AppViewerContext, HiddenInlineScript } from '$lib/components/apps/types'
+	import ScriptRunConfiguration from './shared/ScriptRunConfiguration.svelte'
+	import BackgroundScriptTriggerBy from './shared/BackgroundScriptTriggerBy.svelte'
+	import { getContext } from 'svelte'
+	import ScriptSettingsSection from './shared/ScriptSettingsSection.svelte'
+
+	export let script: HiddenInlineScript
+	export let id: string
+
+	const { runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
+
+	function updateAutoRefresh() {
+		const autoRefresh = script.autoRefresh
+		if ($runnableComponents?.[id]?.autoRefresh !== autoRefresh && autoRefresh !== undefined) {
+			$runnableComponents[id] = {
+				...$runnableComponents[id],
+				autoRefresh
+			}
+		}
+	}
+</script>
+
+<div class={'border-y border-gray-200 divide-y'}>
+	<ScriptSettingHeader name={script.name} />
+
+	{#if script.inlineScript}
+		<ScriptRunConfiguration
+			bind:autoRefresh={script.autoRefresh}
+			bind:recomputeOnInputChanged={script.recomputeOnInputChanged}
+			canConfigureRecomputeOnInputChanged={script.inlineScript?.language !== 'frontend'}
+			on:updateAutoRefresh={updateAutoRefresh}
+		/>
+		<BackgroundScriptTriggerBy
+			bind:script
+			recomputeOnInputChanged={script.recomputeOnInputChanged}
+		/>
+	{:else}
+		<ScriptSettingsSection title="Language selection">
+			<div class="text-xs"> Please configure the language in the inline script panel </div>
+		</ScriptSettingsSection>
+	{/if}
+</div>

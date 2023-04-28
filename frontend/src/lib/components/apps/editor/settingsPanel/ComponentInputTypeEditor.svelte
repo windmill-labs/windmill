@@ -43,15 +43,8 @@
 					/>
 				{/if}
 
+				<ToggleButton value="connected" icon={Plug2} iconOnly={clientWidth < 250} label="Connect" />
 				<ToggleButton
-					tooltip="Connect to an output"
-					value="connected"
-					icon={Plug2}
-					iconOnly={clientWidth < 250}
-					label="Connect"
-				/>
-				<ToggleButton
-					tooltip="Compute it with a script/flow"
 					value="runnable"
 					icon={FunctionSquare}
 					iconOnly={clientWidth < 250}

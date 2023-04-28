@@ -118,6 +118,7 @@
 	{outputs}
 	{extraKey}
 	refreshOnStart={resolvedConfig.triggerOnAppLoad}
+	triggerable
 >
 	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
 		{#if errorsMessage}

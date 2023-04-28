@@ -326,6 +326,7 @@ pub struct CompletedJob {
     pub visible_to_owner: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mem_peak: Option<i32>,
+    pub tag: String,
 }
 
 #[derive(Deserialize, Clone)]
@@ -410,6 +411,7 @@ pub struct ListQueueQuery {
     pub suspended: Option<bool>,
     // filter by matching a subset of the args using base64 encoded json subset
     pub args: Option<String>,
+    pub tag: Option<String>,
 }
 
 fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> SqlBuilder {
@@ -431,6 +433,9 @@ fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> Sq
     }
     if let Some(cb) = &lq.created_by {
         sqlb.and_where_eq("created_by", "?".bind(cb));
+    }
+    if let Some(t) = &lq.tag {
+        sqlb.and_where_eq("tag", "?".bind(t));
     }
     if let Some(r) = &lq.running {
         sqlb.and_where_eq("running", &r);
@@ -564,6 +569,7 @@ async fn list_jobs(
             job_kinds: lq.job_kinds,
             suspended: lq.suspended,
             args: lq.args,
+            tag: lq.tag,
         },
         &[
             "'QueuedJob' as typ",
@@ -1106,6 +1112,7 @@ struct UnifiedJob {
     visible_to_owner: bool,
     suspend: Option<i32>,
     mem_peak: Option<i32>,
+    tag: String,
 }
 
 impl From<UnifiedJob> for Job {
@@ -1141,6 +1148,7 @@ impl From<UnifiedJob> for Job {
                 email: uj.email,
                 visible_to_owner: uj.visible_to_owner,
                 mem_peak: uj.mem_peak,
+                tag: uj.tag,
             }),
             "QueuedJob" => Job::QueuedJob(QueuedJob {
                 workspace_id: uj.workspace_id,
@@ -1176,6 +1184,7 @@ impl From<UnifiedJob> for Job {
                 mem_peak: uj.mem_peak,
                 root_job: None,
                 leaf_jobs: None,
+                tag: uj.tag,
             }),
             t => panic!("job type {} not valid", t),
         }
@@ -1865,6 +1874,9 @@ fn list_completed_jobs_query(
     if let Some(h) = &lq.script_hash {
         sqlb.and_where_eq("script_hash", "?".bind(h));
     }
+    if let Some(t) = &lq.tag {
+        sqlb.and_where_eq("tag", "?".bind(t));
+    }
     if let Some(cb) = &lq.created_by {
         sqlb.and_where_eq("created_by", "?".bind(cb));
     }
@@ -1922,6 +1934,7 @@ pub struct ListCompletedQuery {
     pub args: Option<String>,
     // filter by matching a subset of the result using base64 encoded json subset
     pub result: Option<String>,
+    pub tag: Option<String>,
 }
 
 async fn list_completed_jobs(
