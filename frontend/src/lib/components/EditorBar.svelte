@@ -129,6 +129,9 @@
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
+	tooltip="Contextual Variables are variables whose values are contextual to the Script
+	execution. They are are automatically set by Windmill."
+	documentationLink="https://docs.windmill.dev/docs/core_concepts/variables_and_secrets#contextual-variables"
 	itemName="Contextual Variable"
 	extraField="name"
 	loadItems={loadContextualVariables}
@@ -162,6 +165,8 @@
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
+	tooltip="Variables are dynamic values that have a key associated to them and can be retrieved during the execution of a Script or Flow."
+	documentationLink="https://docs.windmill.dev/docs/core_concepts/variables_and_secrets"
 	itemName="Variable"
 	extraField="path"
 	loadItems={loadVariables}
@@ -210,6 +215,8 @@
 		}
 		sendUserToast(`${path} inserted at cursor`)
 	}}
+	tooltip="Resources represent connections to third party systems. Resources are a good way to define a connection to a frequently used third party system such as a database."
+	documentationLink="https://docs.windmill.dev/docs/core_concepts/resources_and_types"
 	itemName="Resource"
 	buttons={{ 'Edit/View': (x) => resourceEditor.initEdit(x) }}
 	extraField="description"

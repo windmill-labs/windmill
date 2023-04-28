@@ -89,7 +89,7 @@
 
 <ScheduleEditor on:update={loadSchedules} bind:this={scheduleEditor} />
 <CenteredPage>
-	<PageHeader title="Schedules" tooltip="Trigger Scripts and Flows according to a cron schedule">
+	<PageHeader title="Schedules" tooltip="Trigger Scripts and Flows according to a cron schedule" documentationLink="https://docs.windmill.dev/docs/core_concepts/scheduling">
 		<Button size="md" startIcon={{ icon: faPlus }} on:click={() => scheduleEditor.openNew(false)}>
 			New&nbsp;schedule
 		</Button>

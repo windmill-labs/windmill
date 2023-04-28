@@ -337,6 +337,7 @@
 	<PageHeader
 		title="Resources"
 		tooltip="Save and permission rich objects (JSON) including credentials obtained through OAuth."
+		documentationLink="https://docs.windmill.dev/docs/core_concepts/resources_and_types"
 	>
 		<div class="flex flex-row justify-end gap-4">
 			<Button variant="border" size="md" startIcon={{ icon: faPlus }} on:click={startNewType}
@@ -356,7 +357,7 @@
 		</Tab>
 		<Tab size="md" value="types">
 			<div class="flex gap-2 items-center my-1">
-				Resource Types <Tooltip
+				Resource Types <Tooltip documentationLink="https://docs.windmill.dev/docs/core_concepts/resources_and_types"
 					>Every resources have Resource Types attached to them which contains its schema and make
 					it easy in scripts and flows to accept only resources of a specific resource type</Tooltip
 				>

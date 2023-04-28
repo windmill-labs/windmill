@@ -11,14 +11,14 @@
 	{#if primary}
 		<span class="flex items-center space-x-2 mb-2">
 			<h1>{title}</h1>
-			{#if tooltip || documentationLink}
+			{#if tooltip != '' || documentationLink}
 				<Tooltip {documentationLink} scale={0.9}>{tooltip}</Tooltip>
 			{/if}
 		</span>
 	{:else}
 		<span class="flex items-center space-x-2">
 			<h2>{title}</h2>
-			{#if tooltip}
+			{#if tooltip != '' || documentationLink}
 				<Tooltip>{tooltip}</Tooltip>
 			{/if}
 		</span>

@@ -63,7 +63,7 @@
 	if (SCRIPT_SHOW_BASH) {
 		langs.push(['Bash', Script.language.BASH])
 	}
-	const scriptKindOptions: { value: Script.kind; title: string; desc?: string }[] = [
+	const scriptKindOptions: { value: Script.kind; title: string; desc?: string; documentationLink?: string; }[] = [
 		{
 			value: Script.kind.SCRIPT,
 			title: 'Action'
@@ -71,17 +71,21 @@
 		{
 			value: Script.kind.TRIGGER,
 			title: 'Trigger',
-			desc: 'First module of flows to trigger them based on external changes. These kind of scripts are usually running on a schedule to periodically look for changes.'
+			desc: 'First module of flows to trigger them based on external changes. These kind of scripts are usually running on a schedule to periodically look for changes.',
+			documentationLink:"https://docs.windmill.dev/docs/flows/flow_trigger"
+
 		},
 		{
 			value: Script.kind.APPROVAL,
 			title: 'Approval',
-			desc: 'Send notifications externally to ask for approval to continue a flow.'
+			desc: 'Send notifications externally to ask for approval to continue a flow.',
+			documentationLink:"https://docs.windmill.dev/docs/flows/flow_approval"
 		},
 		{
 			value: Script.kind.FAILURE,
 			title: 'Error Handler',
-			desc: 'Handle errors in flows after all retry attempts have been exhausted.'
+			desc: 'Handle errors in flows after all retry attempts have been exhausted.',
+			documentationLink:"https://docs.windmill.dev/docs/flows/flow_error_handler"
 		}
 	]
 
@@ -390,7 +394,7 @@
 						</Tooltip>
 					</h2>
 					<div class="flex flex-wrap gap-2">
-						{#each scriptKindOptions as { value, title, desc }}
+						{#each scriptKindOptions as { value, title, desc, documentationLink }}
 							{@const isPicked = script.kind === value}
 							<Button
 								size="sm"
@@ -406,7 +410,7 @@
 							>
 								{title}
 								{#if desc}
-									<Tooltip class="mb-0.5 ml-1">
+									<Tooltip {documentationLink} class="mb-0.5 ml-1">
 										{desc}
 									</Tooltip>
 								{/if}
