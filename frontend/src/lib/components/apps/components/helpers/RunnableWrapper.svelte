@@ -60,7 +60,10 @@
 	})
 
 	function isRunnableDefined(componentInput) {
-		return isScriptByNameDefined(componentInput) || isScriptByPathDefined(componentInput)
+		return (
+			isScriptByNameDefined(componentInput) ||
+			(isScriptByPathDefined(componentInput) && componentInput.runnable.inlineScript != undefined)
+		)
 	}
 
 	export function onSuccess() {
