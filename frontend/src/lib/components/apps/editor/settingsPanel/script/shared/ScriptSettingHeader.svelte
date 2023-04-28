@@ -9,7 +9,7 @@
 
 <div class="flex flex-row p-2 border-gray-200 justify-between bg-blue-50/60">
 	<div class="flex flex-row gap-2 items-center">
-		<FunctionSquare size={16} color="blue" />
+		<FunctionSquare size={16} color="#3b82f6" />
 		<span class="text-xs font-semibold truncate">
 			{name}
 		</span>

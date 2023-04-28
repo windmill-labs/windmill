@@ -22,7 +22,7 @@
 			bind:recomputeOnInputChanged={script.recomputeOnInputChanged}
 			canConfigureRecomputeOnInputChanged={script.inlineScript?.language !== 'frontend'}
 			on:updateAutoRefresh={() => {
-				const autoRefresh = !script.autoRefresh
+				const autoRefresh = script.autoRefresh
 				if ($runnableComponents?.[id]?.autoRefresh !== autoRefresh && autoRefresh !== undefined) {
 					$runnableComponents[id] = {
 						...$runnableComponents[id],
