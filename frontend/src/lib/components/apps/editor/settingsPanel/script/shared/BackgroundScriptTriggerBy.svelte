@@ -69,7 +69,7 @@
 	$: $connectingInput && applyConnection()
 </script>
 
-<ScriptSettingsSection title="Trigger by">
+<ScriptSettingsSection title="Triggers">
 	{#if isFrontend}
 		<div class="flex mb-4">
 			<Button

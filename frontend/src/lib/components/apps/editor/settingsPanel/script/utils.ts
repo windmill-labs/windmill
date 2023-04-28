@@ -54,7 +54,7 @@ export function getAllTriggerEvents(
 		if (triggerOnAppLoad) {
 			events.push('start')
 		}
-	} else if (autoRefresh && !isTriggerableComponent) {
+	} else if (autoRefresh) {
 		events.push('start')
 		events.push('refresh')
 	}

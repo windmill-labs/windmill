@@ -22,7 +22,7 @@
 	}
 </script>
 
-<ScriptSettingsSection title="Trigger by">
+<ScriptSettingsSection title="Triggers">
 	{#if hasNoTriggers}
 		<Alert type="warning" title="No triggers" size="xs">
 			This script has no triggers. It will never run.
