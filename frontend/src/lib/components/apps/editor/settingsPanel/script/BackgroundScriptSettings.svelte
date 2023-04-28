@@ -27,5 +27,5 @@
 			}
 		}}
 	/>
-	<BackgroundScriptTriggerBy bind:script recomputeOnInputChanged={script.recomputeOnInputChanged} />
+	<BackgroundScriptTriggerBy bind:script />
 </div>

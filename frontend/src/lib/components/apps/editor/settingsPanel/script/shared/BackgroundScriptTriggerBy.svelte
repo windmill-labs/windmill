@@ -6,18 +6,20 @@
 	import { Plus, X } from 'lucide-svelte'
 	import ScriptSettingsSection from './ScriptSettingsSection.svelte'
 	import { getContext } from 'svelte'
+	import type { InputConnection } from '$lib/components/apps/inputType'
+	import { getDependencies } from '../utils'
 
 	export let script: HiddenInlineScript
-	export let recomputeOnInputChanged: boolean | undefined = undefined
 
 	$: isFrontend = script.inlineScript?.language === 'frontend'
 	$: triggerEvents = script.autoRefresh ? ['start', 'refresh'] : []
-	$: changeEvents = script.inlineScript?.refreshOn
-		? script.inlineScript.refreshOn.map((x) => `${x.id} - ${x.key}`)
-		: []
+	$: changeEvents = isFrontend
+		? script.inlineScript?.refreshOn
+			? script.inlineScript.refreshOn.map((x) => `${x.id} - ${x.key}`)
+			: []
+		: getDependencies(script.fields)
 
-	$: hasNoTriggers =
-		triggerEvents.length === 0 && (changeEvents.length === 0 || !recomputeOnInputChanged)
+	$: hasNoTriggers = triggerEvents.length === 0 && changeEvents.length === 0
 
 	const badgeClass = 'inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border'
 	const colors = {
@@ -29,44 +31,29 @@
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
 	const { connectingInput } = getContext<AppViewerContext>('AppViewerContext')
 
-	let addingDependency: boolean = false
-
-	function applyConnection() {
-		if (!$connectingInput.opened && $connectingInput.input !== undefined && addingDependency) {
-			if ($connectingInput.input.connection) {
-				const x = {
-					id: $connectingInput.input.connection.componentId,
-					key: $connectingInput.input.connection.path
-				}
-
-				if (!script.inlineScript) {
-					return
-				}
-
-				if (script.inlineScript.refreshOn?.find((y) => y.id === x.id && y.key === x.key)) {
-					return
-				}
-
-				if (!script.inlineScript.refreshOn) {
-					script.inlineScript.refreshOn = [x]
-				} else {
-					script.inlineScript.refreshOn.push(x)
-				}
-
-				script.inlineScript = JSON.parse(JSON.stringify(script.inlineScript))
-
-				addingDependency = false
-			}
-
-			$connectingInput = {
-				opened: false,
-				input: undefined,
-				hoveredComponent: undefined
-			}
-			$app = $app
+	function applyConnection(connection: InputConnection) {
+		const refresh = {
+			id: connection.componentId,
+			key: connection.path
 		}
+
+		if (!script.inlineScript) {
+			return
+		}
+
+		if (script.inlineScript.refreshOn?.find((y) => y.id === refresh.id && y.key === refresh.key)) {
+			return
+		}
+
+		if (!script.inlineScript.refreshOn) {
+			script.inlineScript.refreshOn = [refresh]
+		} else {
+			script.inlineScript.refreshOn.push(refresh)
+		}
+
+		script.inlineScript = JSON.parse(JSON.stringify(script.inlineScript))
+		$app = $app
 	}
-	$: $connectingInput && applyConnection()
 </script>
 
 <ScriptSettingsSection title="Triggers">
@@ -76,11 +63,11 @@
 				size="xs2"
 				color="dark"
 				on:click={() => {
-					addingDependency = true
 					$connectingInput = {
 						opened: true,
 						input: undefined,
-						hoveredComponent: undefined
+						hoveredComponent: undefined,
+						onConnect: applyConnection
 					}
 				}}
 			>
@@ -105,25 +92,27 @@
 				{/each}
 			</div>
 		{/if}
-		{#if changeEvents.length > 0 && recomputeOnInputChanged}
+		{#if changeEvents.length > 0}
 			<div class="text-xs font-semibold text-slate-800 mb-1 mt-2">Change on value</div>
 			<div class="flex flex-row gap-2 flex-wrap">
 				{#each changeEvents as changeEvent}
 					<span class={classNames(badgeClass, colors['blue'])}>
 						{changeEvent}
-						<button
-							class="bg-blue-300 ml-2 p-0.5 rounded-md hover:bg-blue-400 cursor-pointer"
-							on:click={() => {
-								if (script.inlineScript?.refreshOn) {
-									script.inlineScript.refreshOn = script.inlineScript.refreshOn.filter(
-										(x) => `${x.id} - ${x.key}` !== changeEvent
-									)
-									script.inlineScript = JSON.parse(JSON.stringify(script.inlineScript))
-								}
-							}}
-						>
-							<X size="14" />
-						</button>
+						{#if isFrontend}
+							<button
+								class="bg-blue-300 ml-2 p-0.5 rounded-md hover:bg-blue-400 cursor-pointer"
+								on:click={() => {
+									if (script.inlineScript?.refreshOn) {
+										script.inlineScript.refreshOn = script.inlineScript.refreshOn.filter(
+											(x) => `${x.id} - ${x.key}` !== changeEvent
+										)
+										script.inlineScript = JSON.parse(JSON.stringify(script.inlineScript))
+									}
+								}}
+							>
+								<X size="14" />
+							</button>
+						{/if}
 					</span>
 					<!-- delete button -->
 				{/each}
