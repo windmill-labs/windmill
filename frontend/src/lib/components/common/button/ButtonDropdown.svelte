@@ -9,10 +9,10 @@
 	</MenuButton>
 	<Transition
 		show={open}
-		enter="transition ease-out duration-75"
+		enter="transition ease-out duration-[25ms]"
 		enterFrom="transform opacity-0 scale-95"
 		enterTo="transform opacity-100 scale-100"
-		leave="transition ease-in duration-75"
+		leave="transition ease-in duration-[25ms]"
 		leaveFrom="transform opacity-100 scale-100"
 		leaveTo="transform opacity-0 scale-95"
 	>
