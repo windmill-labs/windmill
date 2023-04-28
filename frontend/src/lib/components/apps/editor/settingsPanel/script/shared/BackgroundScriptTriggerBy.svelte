@@ -20,7 +20,8 @@
 			: []
 		: getDependencies(script.fields)
 
-	$: hasNoTriggers = triggerEvents.length === 0 && changeEvents.length === 0
+	$: hasNoTriggers =
+		triggerEvents.length === 0 && (changeEvents.length === 0 || !recomputeOnInputChanged)
 
 	const badgeClass = 'inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium border'
 	const colors = {
