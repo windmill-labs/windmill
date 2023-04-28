@@ -10,7 +10,7 @@
 <script lang="ts">
 	import type { ResultAppInput } from '$lib/components/apps/inputType'
 	import type { ButtonType } from '$lib/components/common/button/model'
-	import { isTriggerable } from './utils'
+	import { isFrontend, isTriggerable } from './utils'
 
 	import type { AppComponent } from '../../component'
 	import ScriptTransformer from './shared/ScriptTransformer.svelte'
@@ -44,7 +44,8 @@
 	{#if hasScript}
 		<ScriptTransformer bind:appInput bind:appComponent />
 		<ScriptRunConfiguration
-			canConfigureRecomputeOnInputChanged={!isTriggerable(appComponent.type)}
+			canConfigureRecomputeOnInputChanged={!isTriggerable(appComponent.type) &&
+				!isFrontend(runnable)}
 			canConfigureRunOnStart={!isTriggerable(appComponent.type)}
 			bind:autoRefresh={appInput.autoRefresh}
 			bind:recomputeOnInputChanged={appInput.recomputeOnInputChanged}
