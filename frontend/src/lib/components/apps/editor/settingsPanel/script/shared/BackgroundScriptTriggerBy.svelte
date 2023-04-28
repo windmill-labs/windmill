@@ -10,6 +10,7 @@
 	import { getDependencies } from '../utils'
 
 	export let script: HiddenInlineScript
+	export let recomputeOnInputChanged: boolean | undefined = undefined
 
 	$: isFrontend = script.inlineScript?.language === 'frontend'
 	$: triggerEvents = script.autoRefresh ? ['start', 'refresh'] : []
@@ -92,7 +93,7 @@
 				{/each}
 			</div>
 		{/if}
-		{#if changeEvents.length > 0}
+		{#if changeEvents.length > 0 && (recomputeOnInputChanged || isFrontend)}
 			<div class="text-xs font-semibold text-slate-800 mb-1 mt-2">Change on value</div>
 			<div class="flex flex-row gap-2 flex-wrap">
 				{#each changeEvents as changeEvent}
