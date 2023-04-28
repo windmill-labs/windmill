@@ -203,7 +203,8 @@
 			</div>
 		{:else if !forceJson && resultKind == 'error'}<div>
 				<span class="text-red-500 font-semibold text-sm whitespace-pre-wrap"
-					>{result.error.name}: {result.error.message}</span
+					>{#if result.error.name || result.error.message}{result.error.name}: {result.error
+							.message}{:else}{JSON.stringify(result.error, null, 4)}{/if}</span
 				>
 				<pre class="text-sm whitespace-pre-wrap text-gray-900">{result.error.stack ?? ''}</pre>
 			</div>
@@ -261,7 +262,15 @@
 						<div class="flex gap-2 items-center">Copy to clipboard <ClipboardCopy /> </div>
 					</Button>
 				</svelte:fragment>
-				<Highlight language={json} code={JSON.stringify(result, null, 4).replace(/\\n/g, '\n')} />
+				{@const str = JSON.stringify(result, null, 4).replace(/\\n/g, '\n')}
+				{#if str.length > 100000}
+					JSON too large. <a
+						download="{filename ?? 'result'}.json"
+						href="data:text/json;charset=utf-8,{encodeURIComponent(str)}">Download</a
+					>
+				{:else}
+					<Highlight language={json} code={JSON.stringify(result, null, 4).replace(/\\n/g, '\n')} />
+				{/if}
 			</DrawerContent>
 		</Drawer>
 	</Portal>

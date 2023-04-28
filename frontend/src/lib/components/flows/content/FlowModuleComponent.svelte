@@ -242,6 +242,7 @@
 								</div>
 							{:else if selected === 'test'}
 								<ModulePreview
+									pickableProperties={stepPropPicker.pickableProperties}
 									bind:this={modulePreview}
 									mod={flowModule}
 									schema={$flowStateStore[$selectedId]?.schema ?? {}}
