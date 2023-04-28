@@ -12,6 +12,8 @@
 	$: isFrontend =
 		appInput.runnable?.type == 'runnableByName' &&
 		appInput.runnable?.inlineScript?.language === 'frontend'
+	$: shoudlDisplayChangeEvents =
+		appInput.recomputeOnInputChanged && !isTriggerable(appComponent.type)
 </script>
 
 {#if appInput?.runnable?.type === 'runnableByName'}
@@ -20,15 +22,13 @@
 		dependencies={getDependencies(appInput.fields)}
 		{isFrontend}
 		{triggerEvents}
-		shoudlDisplayChangeEvents={appInput.recomputeOnInputChanged &&
-			!isTriggerable(appComponent.type)}
+		{shoudlDisplayChangeEvents}
 	/>
 {:else}
 	<ScriptTriggers
 		dependencies={getDependencies(appInput.fields)}
 		{triggerEvents}
 		{isFrontend}
-		shoudlDisplayChangeEvents={appInput.recomputeOnInputChanged &&
-			!isTriggerable(appComponent.type)}
+		{shoudlDisplayChangeEvents}
 	/>
 {/if}

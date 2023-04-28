@@ -8,7 +8,6 @@
 
 	export let script: HiddenInlineScript
 	export let id: string
-	export let hasScript: boolean
 
 	const { runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 </script>
@@ -16,7 +15,7 @@
 <div class={'border-y border-gray-200 divide-y'}>
 	<ScriptSettingHeader name={script.name} />
 
-	{#if hasScript}
+	{#if script.inlineScript}
 		<ScriptRunConfiguration
 			bind:autoRefresh={script.autoRefresh}
 			bind:recomputeOnInputChanged={script.recomputeOnInputChanged}

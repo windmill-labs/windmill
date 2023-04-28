@@ -350,9 +350,11 @@
 			return p as CancelablePromise<void>
 		}
 
+		const emptyScript = runnable?.type === 'runnableByName' && !runnable.inlineScript
+
 		$runnableComponents[id] = {
-			autoRefresh: autoRefresh && recomputableByRefreshButton,
-			refreshOnStart,
+			autoRefresh: autoRefresh && recomputableByRefreshButton && !emptyScript,
+			refreshOnStart: refreshOnStart && !emptyScript,
 			cb: cancellableRun
 		}
 

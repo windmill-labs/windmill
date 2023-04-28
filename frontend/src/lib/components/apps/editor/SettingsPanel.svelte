@@ -68,8 +68,6 @@
 			hiddenInlineScript.script.doNotRecomputeOnInputChanged = undefined
 		}
 	}
-
-	$: hasScript = hiddenInlineScript?.script?.inlineScript != undefined
 </script>
 
 {#if componentSettings}
@@ -101,7 +99,6 @@
 	<BackgroundScriptSettings
 		bind:script={hiddenInlineScript.script}
 		id={`bg_${hiddenInlineScript.index}`}
-		{hasScript}
 	/>
 
 	<div>
