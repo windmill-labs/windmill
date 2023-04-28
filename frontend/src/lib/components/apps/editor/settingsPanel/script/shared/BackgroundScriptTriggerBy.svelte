@@ -3,17 +3,19 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { classNames } from '$lib/utils'
-	import { Plus } from 'lucide-svelte'
+	import { Plus, X } from 'lucide-svelte'
 	import ScriptSettingsSection from './ScriptSettingsSection.svelte'
 	import { getContext } from 'svelte'
-	import { getDependencies } from '../utils'
 
 	export let script: HiddenInlineScript
 	export let recomputeOnInputChanged: boolean | undefined = undefined
 
 	$: isFrontend = script.inlineScript?.language === 'frontend'
 	$: triggerEvents = script.autoRefresh ? ['start', 'refresh'] : []
-	$: changeEvents = getDependencies(script.fields)
+	$: changeEvents = script.inlineScript?.refreshOn
+		? script.inlineScript.refreshOn.map((x) => `${x.id} - ${x.key}`)
+		: []
+
 	$: hasNoTriggers =
 		triggerEvents.length === 0 && (changeEvents.length === 0 || !recomputeOnInputChanged)
 
@@ -90,7 +92,7 @@
 			</Button>
 		</div>
 	{/if}
-	{#if hasNoTriggers && !isFrontend}
+	{#if hasNoTriggers}
 		<Alert type="warning" title="No triggers" size="xs">
 			This script has no triggers. It will never run.
 		</Alert>
@@ -107,7 +109,23 @@
 			<div class="text-xs font-semibold text-slate-800 mb-1 mt-2">Change on value</div>
 			<div class="flex flex-row gap-2 flex-wrap">
 				{#each changeEvents as changeEvent}
-					<span class={classNames(badgeClass, colors['blue'])}>{changeEvent}</span>
+					<span class={classNames(badgeClass, colors['blue'])}>
+						{changeEvent}
+						<button
+							class="bg-blue-300 ml-2 p-0.5 rounded-md hover:bg-blue-400 cursor-pointer"
+							on:click={() => {
+								if (script.inlineScript?.refreshOn) {
+									script.inlineScript.refreshOn = script.inlineScript.refreshOn.filter(
+										(x) => `${x.id} - ${x.key}` !== changeEvent
+									)
+									script.inlineScript = JSON.parse(JSON.stringify(script.inlineScript))
+								}
+							}}
+						>
+							<X size="14" />
+						</button>
+					</span>
+					<!-- delete button -->
 				{/each}
 			</div>
 		{/if}
