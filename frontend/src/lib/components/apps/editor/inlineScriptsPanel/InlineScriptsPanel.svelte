@@ -14,7 +14,7 @@
 
 	function deleteBackgroundScript(index: number) {
 		// remove the script from the array at the index
-		if ($app.hiddenInlineScripts[index]) {
+		if ($app.hiddenInlineScripts.length - 1 == index) {
 			$app.hiddenInlineScripts.splice(index, 1)
 			$app.hiddenInlineScripts = [...$app.hiddenInlineScripts]
 		} else {
