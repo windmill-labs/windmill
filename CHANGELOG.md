@@ -1,6 +1,37 @@
 # Changelog
 
 
+## [1.90.0](https://github.com/windmill-labs/windmill/compare/v1.89.0...v1.90.0) (2023-04-28)
+
+
+### Features
+
+* **backend:** add EXIT_AFTER_NO_JOB_FOR_SECS for ephemeral workers ([de9abd1](https://github.com/windmill-labs/windmill/commit/de9abd129db13dcdf0e69e2c1e2d3aa558fb783a))
+* **backend:** add JOB_RETENTION_SECS to delete completed jobs completed after expiration period ([0b7bad3](https://github.com/windmill-labs/windmill/commit/0b7bad3816e61841ef4765db7881227274c20b23))
+* **backend:** expose tag in the job  ([#1486](https://github.com/windmill-labs/windmill/issues/1486)) ([324d4f5](https://github.com/windmill-labs/windmill/commit/324d4f5e9e89e6de600e882f23bf545c0b1dc539))
+* **frontend:** adapt style ([#1488](https://github.com/windmill-labs/windmill/issues/1488)) ([41a24ec](https://github.com/windmill-labs/windmill/commit/41a24ecd36d9cc537cbd1dd0cd1de6f689be1b8c))
+* **frontend:** add an eval input component for flow ([#1494](https://github.com/windmill-labs/windmill/issues/1494)) ([2815f1e](https://github.com/windmill-labs/windmill/commit/2815f1ec71177bb6e89d0d62a8df89030d37b1fc))
+* **frontend:** Add new integration icons ([#1479](https://github.com/windmill-labs/windmill/issues/1479)) ([7adacd4](https://github.com/windmill-labs/windmill/commit/7adacd4c9f03d17b47abc515bc391e348a7e6ec1))
+* **frontend:** refactor inline script ([#1480](https://github.com/windmill-labs/windmill/issues/1480)) ([05c837e](https://github.com/windmill-labs/windmill/commit/05c837e64f61bfb22ae1f80263deb1c879030985))
+* **frontend:** Schedules run now ([#1475](https://github.com/windmill-labs/windmill/issues/1475)) ([47f0f35](https://github.com/windmill-labs/windmill/commit/47f0f35236e02958f6bc00b5652e06e25eabeaf5))
+* **frontend:** Small style fix ([#1473](https://github.com/windmill-labs/windmill/issues/1473)) ([7ad496a](https://github.com/windmill-labs/windmill/commit/7ad496ad3f746ffd782856a35c1456999792fa94))
+* **frontend:** Support TS union type with a select field ([#1457](https://github.com/windmill-labs/windmill/issues/1457)) ([8b76324](https://github.com/windmill-labs/windmill/commit/8b763249cb1360c122cc81d50a1a95d1ad3ddd5b))
+
+
+### Bug Fixes
+
+* **frontend:** Allow 0 as select default value ([#1474](https://github.com/windmill-labs/windmill/issues/1474)) ([d8529ff](https://github.com/windmill-labs/windmill/commit/d8529ff3ed6168de60bb24626a3e36ab4beae15c))
+* **frontend:** close the modal before deleting a form modal ([#1484](https://github.com/windmill-labs/windmill/issues/1484)) ([430c733](https://github.com/windmill-labs/windmill/commit/430c73399b7e1524ee81d0ce8d7d2eaf16117f9a))
+* **frontend:** fix apply connection ([#1487](https://github.com/windmill-labs/windmill/issues/1487)) ([cf59cc0](https://github.com/windmill-labs/windmill/commit/cf59cc04efb853fe06a23042115128689b5d26ee))
+* **frontend:** Fix frontend script ([#1476](https://github.com/windmill-labs/windmill/issues/1476)) ([b60a7f6](https://github.com/windmill-labs/windmill/commit/b60a7f63d04b1fc851479060e77613c77d20198a))
+* **frontend:** fix recomputa all ([#1491](https://github.com/windmill-labs/windmill/issues/1491)) ([fb05a09](https://github.com/windmill-labs/windmill/commit/fb05a09955f937000fbba0826c03c52e65aa146e))
+* **frontend:** Flow editor design updates ([#1477](https://github.com/windmill-labs/windmill/issues/1477)) ([50d814c](https://github.com/windmill-labs/windmill/commit/50d814c3dc55841b16cd1df8ae86d021de4e880c))
+* **frontend:** Minor app editor updates ([#1458](https://github.com/windmill-labs/windmill/issues/1458)) ([8fd10b1](https://github.com/windmill-labs/windmill/commit/8fd10b1f5813b3f4200a980de4a85e7d701660a7))
+* **frontend:** register applyConnection as a callback to remove unnecessary reactivit ([#1485](https://github.com/windmill-labs/windmill/issues/1485)) ([d915f6b](https://github.com/windmill-labs/windmill/commit/d915f6b004ea7cc27a3c55b3504df902f5db1aef))
+* **frontend:** reset ui job loading state when submitting preview job triggers error ([#1483](https://github.com/windmill-labs/windmill/issues/1483)) ([6f8616f](https://github.com/windmill-labs/windmill/commit/6f8616fb273b1f4a1489878a617d239f30ecb1c0))
+* **frontend:** Update CLI login request styling ([#1454](https://github.com/windmill-labs/windmill/issues/1454)) ([c77393c](https://github.com/windmill-labs/windmill/commit/c77393c15444868308b44a72bee89e49fc23d80f))
+* **frontend:** Update direct exports ([#1456](https://github.com/windmill-labs/windmill/issues/1456)) ([4a2af13](https://github.com/windmill-labs/windmill/commit/4a2af1359ee29001236591f685cacfa9df6715df))
+
 ## [1.89.0](https://github.com/windmill-labs/windmill/compare/v1.88.1...v1.89.0) (2023-04-23)
 
 
