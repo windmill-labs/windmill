@@ -57,6 +57,7 @@
 	export let itemPicker: ItemPicker | undefined = undefined
 	export let noMargin = false
 	export let extra: Record<string, any> = {}
+	export let minW = true
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
@@ -141,6 +142,12 @@
 		}
 	}
 
+	function onKeyDown(e: KeyboardEvent) {
+		if ((e.ctrlKey || e.metaKey) && e.key == 'Enter') {
+			return
+		}
+		e.stopPropagation()
+	}
 	$: {
 		if (value == undefined || value == null) {
 			value = defaultValue
@@ -165,7 +172,7 @@
 </script>
 
 <!-- svelte-ignore a11y-autofocus -->
-<div class="flex flex-col w-full min-w-[250px]">
+<div class="flex flex-col w-full {minW ? 'min-w-[250px]' : ''}">
 	<div>
 		{#if displayHeader}
 			<FieldHeader {label} {required} {type} {contentEncoding} {format} />
@@ -192,7 +199,7 @@
 								use:autosize
 								rows="1"
 								bind:value={description}
-								on:keydown|stopPropagation
+								on:keydown={onKeyDown}
 								placeholder="Field description"
 							/>
 							{#if type == 'string' && format != 'date-time'}
@@ -408,7 +415,7 @@
 									dispatch('focus')
 								}}
 								use:autosize
-								on:keydown|stopPropagation
+								on:keydown={onKeyDown}
 								type="text"
 								{disabled}
 								class="col-span-10 {valid

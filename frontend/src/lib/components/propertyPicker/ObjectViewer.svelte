@@ -136,7 +136,7 @@
 {:else if topBrackets}
 	<span class="text-black">{openBracket}{closeBracket}</span>
 {:else}
-	<span class="text-gray-400 text-xs ml-2">No items</span>
+	<span class="text-gray-400 text-xs ml-2">No items ([])</span>
 {/if}
 
 <style lang="postcss">
