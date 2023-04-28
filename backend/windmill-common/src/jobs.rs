@@ -79,6 +79,7 @@ pub struct QueuedJob {
     pub root_job: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub leaf_jobs: Option<serde_json::Value>,
+    pub tag: String,
 }
 
 impl QueuedJob {
@@ -140,6 +141,7 @@ impl Default for QueuedJob {
             mem_peak: None,
             root_job: None,
             leaf_jobs: None,
+            tag: "deno".to_string(),
         }
     }
 }

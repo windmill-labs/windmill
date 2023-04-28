@@ -144,7 +144,7 @@
 	}).format
 </script>
 
-<div class="w-full flex space-x-16 p-4">
+<div class="w-full flex space-x-16">
 	<div class="w-full flex flex-col space-y-2">
 		<div class="w-full flex flex-col gap-1">
 			<small class="font-bold">Cron</small>
@@ -318,7 +318,7 @@
 			<small>Estimated upcoming events ({timezone})</small>
 			<div class="flex flex-col rounded-md p-4 border text-gray-600">
 				{#each preview as date}
-					<div class="flex items-center space-x-2">
+					<div class="flex items-center space-x-2 text-sm">
 						<span>{dateFormatter(new Date(date))}</span>
 					</div>
 				{/each}

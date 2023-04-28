@@ -126,9 +126,10 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
                    , email
                    , visible_to_owner
                    , mem_peak
+                   , tag
                 )
             VALUES ($1, $2, $3, $4, $5, $6, COALESCE($26, (EXTRACT('epoch' FROM (now())) - EXTRACT('epoch' FROM (COALESCE($6, now()))))*1000), $7, $8, $9,\
-                    $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $27, $28, $29)
+                    $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $27, $28, $29, $30)
          ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12)",
         queued_job.workspace_id,
         queued_job.id,
@@ -158,7 +159,8 @@ pub async fn add_completed_job<R: rsmq_async::RsmqConnection + Clone + Send>(
         duration: Option<i64>,
         queued_job.email,
         queued_job.visible_to_owner,
-        mem_peak
+        mem_peak,
+        queued_job.tag,
     )
     .execute(&mut tx)
     .await

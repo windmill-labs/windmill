@@ -39,7 +39,6 @@ use windmill_common::{
 };
 use windmill_queue::{get_queued_job, push, QueueTransaction};
 
-
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/run/f/*script_path", post(run_flow_by_path))
@@ -327,6 +326,7 @@ pub struct CompletedJob {
     pub visible_to_owner: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mem_peak: Option<i32>,
+    pub tag: String,
 }
 
 #[derive(Deserialize, Clone)]
@@ -411,6 +411,7 @@ pub struct ListQueueQuery {
     pub suspended: Option<bool>,
     // filter by matching a subset of the args using base64 encoded json subset
     pub args: Option<String>,
+    pub tag: Option<String>,
 }
 
 fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> SqlBuilder {
@@ -432,6 +433,9 @@ fn list_queue_jobs_query(w_id: &str, lq: &ListQueueQuery, fields: &[&str]) -> Sq
     }
     if let Some(cb) = &lq.created_by {
         sqlb.and_where_eq("created_by", "?".bind(cb));
+    }
+    if let Some(t) = &lq.tag {
+        sqlb.and_where_eq("tag", "?".bind(t));
     }
     if let Some(r) = &lq.running {
         sqlb.and_where_eq("running", &r);
@@ -565,6 +569,7 @@ async fn list_jobs(
             job_kinds: lq.job_kinds,
             suspended: lq.suspended,
             args: lq.args,
+            tag: lq.tag,
         },
         &[
             "'QueuedJob' as typ",
@@ -1107,6 +1112,7 @@ struct UnifiedJob {
     visible_to_owner: bool,
     suspend: Option<i32>,
     mem_peak: Option<i32>,
+    tag: String,
 }
 
 impl From<UnifiedJob> for Job {
@@ -1142,6 +1148,7 @@ impl From<UnifiedJob> for Job {
                 email: uj.email,
                 visible_to_owner: uj.visible_to_owner,
                 mem_peak: uj.mem_peak,
+                tag: uj.tag,
             }),
             "QueuedJob" => Job::QueuedJob(QueuedJob {
                 workspace_id: uj.workspace_id,
@@ -1177,6 +1184,7 @@ impl From<UnifiedJob> for Job {
                 mem_peak: uj.mem_peak,
                 root_job: None,
                 leaf_jobs: None,
+                tag: uj.tag,
             }),
             t => panic!("job type {} not valid", t),
         }
@@ -1368,14 +1376,13 @@ async fn run_wait_result<T>(
     uuid: Uuid,
     Path((w_id, _)): Path<(String, T)>,
 ) -> error::JsonResult<serde_json::Value> {
-    let mut result = None;
-    let iters = if timeout <= 0 {
-        20
-    } else if timeout <= 1 {
-        timeout * 10
+    let mut result;
+    let timeout_ms = if timeout <= 0 {
+        2000
     } else {
-        10 + ((timeout - 1) * 2)
+        (timeout * 1000) as u64
     };
+
     let mut g = Guard {
         done: false,
         id: uuid,
@@ -1383,7 +1390,10 @@ async fn run_wait_result<T>(
         db: user_db.clone(),
         authed: authed.clone(),
     };
-    for i in 0..iters {
+
+    let fast_poll_duration = *WAIT_RESULT_FAST_POLL_DURATION_SECS as u64 * 1000;
+    let mut accumulated_delay = 0 as u64;
+    loop {
         let mut tx = user_db.clone().begin(&authed).await?;
         result = sqlx::query_scalar!(
             "SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2",
@@ -1398,7 +1408,16 @@ async fn run_wait_result<T>(
         if result.is_some() {
             break;
         }
-        let delay = if i < 10 { 100 } else { 500 };
+
+        let delay = if accumulated_delay <= fast_poll_duration {
+            *WAIT_RESULT_FAST_POLL_INTERVAL_MS
+        } else {
+            *WAIT_RESULT_SLOW_POLL_INTERVAL_MS
+        };
+        accumulated_delay += delay;
+        if accumulated_delay > timeout_ms {
+            break;
+        };
         tokio::time::sleep(core::time::Duration::from_millis(delay)).await;
     }
     if let Some(result) = result {
@@ -1438,6 +1457,18 @@ lazy_static::lazy_static! {
         .ok()
         .and_then(|x| x.parse().ok())
         .unwrap_or(20);
+    pub static ref WAIT_RESULT_FAST_POLL_INTERVAL_MS: u64 = std::env::var("WAIT_RESULT_FAST_POLL_INTERVAL_MS")
+        .ok()
+        .and_then(|x| x.parse().ok())
+        .unwrap_or(50);
+    pub static ref WAIT_RESULT_FAST_POLL_DURATION_SECS: u16 = std::env::var("WAIT_RESULT_FAST_POLL_DURATION_SECS")
+        .ok()
+        .and_then(|x| x.parse().ok())
+        .unwrap_or(2);
+    pub static ref WAIT_RESULT_SLOW_POLL_INTERVAL_MS: u64 = std::env::var("WAIT_RESULT_SLOW_POLL_INTERVAL_MS")
+        .ok()
+        .and_then(|x| x.parse().ok())
+        .unwrap_or(200);
 }
 
 pub async fn run_wait_result_job_by_path_get(
@@ -1843,6 +1874,9 @@ fn list_completed_jobs_query(
     if let Some(h) = &lq.script_hash {
         sqlb.and_where_eq("script_hash", "?".bind(h));
     }
+    if let Some(t) = &lq.tag {
+        sqlb.and_where_eq("tag", "?".bind(t));
+    }
     if let Some(cb) = &lq.created_by {
         sqlb.and_where_eq("created_by", "?".bind(cb));
     }
@@ -1900,6 +1934,7 @@ pub struct ListCompletedQuery {
     pub args: Option<String>,
     // filter by matching a subset of the result using base64 encoded json subset
     pub result: Option<String>,
+    pub tag: Option<String>,
 }
 
 async fn list_completed_jobs(

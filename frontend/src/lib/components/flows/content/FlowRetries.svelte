@@ -2,6 +2,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { FlowModule } from '$lib/gen'
+	import { SecondsInput } from '$lib/components/common'
 
 	export let flowModule: FlowModule
 
@@ -30,7 +31,7 @@
 	$: isExponentialRetryEnabled = Boolean(flowModule.retry?.exponential)
 </script>
 
-<div class={$$props.class}>
+<div class="h-full flex flex-col {$$props.class ?? ''}">
 	<h2>
 		Retries
 		<Tooltip>
@@ -40,8 +41,8 @@
 		</Tooltip>
 	</h2>
 
-	<div class="flex">
-		<div class="w-1/2 mr-2">
+	<div class="flex h-[calc(100%-22px)]">
+		<div class="w-1/2 h-full overflow-auto pr-2">
 			<div class="pt-4">
 				<Toggle
 					checked={isConstantRetryEnabled}
@@ -60,13 +61,13 @@
 			{#if flowModule.retry?.constant}
 				<div class="text-xs font-bold !mt-2">Attempts</div>
 				<input bind:value={flowModule.retry.constant.attempts} type="number" />
-				<div class="text-xs font-bold !mt-2">Delay (in seconds)</div>
-				<input bind:value={flowModule.retry.constant.seconds} type="number" />
+				<div class="text-xs font-bold !mt-2">Delay</div>
+				<SecondsInput bind:seconds={flowModule.retry.constant.seconds} />
 			{:else}
 				<div class="text-xs font-bold !mt-2">Attempts</div>
 				<input type="number" disabled />
-				<div class="text-xs font-bold !mt-2">Delay (in seconds)</div>
-				<input type="number" disabled />
+				<div class="text-xs font-bold !mt-2">Delay</div>
+				<SecondsInput disabled />
 			{/if}
 			<div class="pt-6">
 				<Toggle
@@ -101,7 +102,7 @@
 				<input type="number" disabled />
 			{/if}
 		</div>
-		<div class="w-1/2 ml-2">
+		<div class="w-1/2 h-full overflow-auto pl-2">
 			{#if true}
 				{@const { attempts: cAttempts, seconds: cSeconds } = flowModule.retry?.constant || {}}
 				{@const {
@@ -115,14 +116,12 @@
 					(_, i) => (multiplier || 0) * (eSeconds || 0) ** (i + cArray.length + 1)
 				)}
 				{@const array = [...cArray, ...eArray]}
-				<div
-					class="bg-gray-50 border border-gray-300 rounded max-h-[431px] overflow-auto px-4 py-2"
-				>
+				<div class="bg-gray-50 border border-gray-300 rounded px-4 py-2">
 					<div class="text-xs font-medium mb-2">Retry attempts</div>
 					{#if array.length > 0}
 						<table class="text-xs">
 							<tr>
-								<td class="font-semibold pr-1">1:</td>
+								<td class="font-semibold pr-1 pb-1">1:</td>
 								<td class="pb-1">After {array[0]} second{array[0] === 1 ? '' : 's'}</td>
 							</tr>
 							{#each array.slice(1) as delay, i}

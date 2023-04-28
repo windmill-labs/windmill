@@ -1044,6 +1044,11 @@ async fn decline_invite(
 
 lazy_static! {
     pub static ref VALID_USERNAME: Regex = Regex::new(r#"^[a-zA-Z_0-9]+$"#).unwrap();
+
+    pub static ref JOB_RETENTION_SECS: u32 = std::env::var("JOB_RETENTION_SECS")
+    .ok()
+    .and_then(|x| x.parse::<u32>().ok())
+    .unwrap_or(60 * 60 * 24 * 60); // 60 days
 }
 
 async fn accept_invite(
@@ -1913,16 +1918,24 @@ pub async fn delete_expired_items_perdiodically(
             Err(e) => tracing::error!("Error deleting pip_resolution: {}", e.to_string()),
         }
 
-        let magic_links_deleted_r: std::result::Result<Vec<String>, _> = sqlx::query_scalar(
-            "DELETE FROM magic_link WHERE expiration <= now()
-        RETURNING concat(substring(token for 10), '*****')",
-        )
-        .fetch_all(db)
-        .await;
+        if *JOB_RETENTION_SECS > 0 {
+            let deleted_jobs = sqlx::query_scalar!(
+                "DELETE FROM completed_job WHERE started_at + ((duration_ms/1000 + $1) || ' s')::interval <= now() RETURNING id",
+                *JOB_RETENTION_SECS as i64
+            )
+            .fetch_all(db)
+            .await;
 
-        match magic_links_deleted_r {
-            Ok(tokens) => tracing::debug!("deleted {} tokens: {:?}", tokens.len(), tokens),
-            Err(e) => tracing::error!("Error deleting token: {}", e.to_string()),
+            match deleted_jobs {
+                Ok(deleted_jobs) => {
+                    tracing::info!(
+                        "deleted {} jobs completed JOB_RETENTION_SECS ago: {:?}",
+                        deleted_jobs.len(),
+                        deleted_jobs
+                    )
+                }
+                Err(e) => tracing::error!("Error deleting jobs: {}", e.to_string()),
+            }
         }
 
         tokio::select! {

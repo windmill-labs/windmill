@@ -161,7 +161,7 @@ declare function variable(path: string): string;
 
 /**
 * get resource at path
-* @param {string} path - path of the resource (e.g: g/all/my_resource)
+* @param {string} path - path of the resource (e.g: f/examples/my_resource)
 */
 declare function resource(path: string): any;
 

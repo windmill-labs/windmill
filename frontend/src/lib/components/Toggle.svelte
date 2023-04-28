@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { classNames } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 
@@ -20,14 +21,14 @@
 <span class="{$$props.class} z-auto">
 	<label
 		for={id}
-		class="inline-flex items-center mt-2 duration-200 {disabled
+		class="inline-flex items-center mt-2 duration-50 {disabled
 			? 'grayscale opacity-50'
 			: 'cursor-pointer'}"
 	>
 		{#if Boolean(options?.left)}
 			<span
 				class={twMerge(
-					'mr-2 font-medium duration-200',
+					'mr-2 font-medium duration-50',
 					disabled ? 'text-gray-500' : 'text-gray-900',
 					size === 'xs' ? 'text-xs' : 'text-sm',
 					textClass
@@ -53,18 +54,19 @@
 				}}
 			/>
 			<div
-				class="w-11 h-6 bg-gray-200 rounded-full peer peer-focus:ring-4 peer-focus:ring-blue-300
-				peer-checked:after:translate-x-full peer-checked:after:border-white after:content-['']
-				after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300
-				after:border after:rounded-full after:h-5 after:w-5 after:transition-all {color == 'red'
-					? 'peer-checked:bg-red-600'
-					: 'peer-checked:bg-blue-600'}"
+				class={classNames(
+					"transition-all bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute  after:bg-white after:border-white after:border after:rounded-full after:transition-all ",
+					color == 'red' ? 'peer-checked:bg-red-600' : 'peer-checked:bg-blue-600',
+					size === 'sm'
+						? 'w-11 h-6 after:top-0.5 after:left-[2px] after:h-5 after:w-5'
+						: 'w-7 h-4 after:top-0.5 after:left-[2px] after:h-3 after:w-3'
+				)}
 			/>
 		</div>
 		{#if Boolean(options?.right)}
 			<span
 				class={twMerge(
-					'ml-2 font-medium duration-200',
+					'ml-2 font-medium duration-50',
 					disabled ? 'text-gray-500' : 'text-gray-900',
 					size === 'xs' ? 'text-xs' : 'text-sm',
 					textClass

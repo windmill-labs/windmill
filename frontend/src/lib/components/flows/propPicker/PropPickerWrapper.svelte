@@ -55,7 +55,7 @@
 	on:click_outside={() => propPickerConfig.set(undefined)}
 >
 	<Splitpanes>
-		<Pane minSize={20} size={60} class="relative p-4 !transition-none">
+		<Pane minSize={20} size={60} class="relative p-2 !transition-none">
 			<slot />
 		</Pane>
 		<Pane

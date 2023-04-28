@@ -11,6 +11,7 @@
 	import InitializeComponent from './InitializeComponent.svelte'
 
 	export let componentInput: AppInput | undefined
+
 	export let id: string
 	export let result: any = undefined
 	export let initializing: boolean = true
@@ -112,7 +113,11 @@
 		bind:result
 		runnable={componentInput.runnable}
 		transformer={componentInput.transformer}
-		{autoRefresh}
+		autoRefresh={autoRefresh !== undefined
+			? autoRefresh
+			: componentInput?.type === 'runnable'
+			? componentInput.autoRefresh
+			: false}
 		bind:recomputeOnInputChanged={componentInput.recomputeOnInputChanged}
 		{id}
 		{extraQueryParams}

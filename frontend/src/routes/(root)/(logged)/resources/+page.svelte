@@ -26,7 +26,14 @@
 	import type { ResourceType } from '$lib/gen'
 	import { OauthService, ResourceService, type ListableResource } from '$lib/gen'
 	import { oauthStore, userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, emptySchema, removeMarkdown, sendUserToast, truncate } from '$lib/utils'
+	import {
+		canWrite,
+		classNames,
+		emptySchema,
+		removeMarkdown,
+		sendUserToast,
+		truncate
+	} from '$lib/utils'
 	import {
 		faChain,
 		faCircle,
@@ -261,28 +268,39 @@
 		</svelte:fragment>
 		<div class="flex flex-col gap-6">
 			<label for="inp">
-				<div class="mb-1 font-semibold text-gray-700">Name<Required required={true} /></div>
+				<div class="mb-1 font-semibold text-gray-700 gap-1 flex flex-row items-center"
+					>Name<Required required={true} /><Tooltip>
+						Resource types are synchronized with the official types on the hub regularly. The `c_`
+						prefix is to avoid name clashes with them.
+					</Tooltip></div
+				>
 				<div class="flex flex-row items-center gap-x-4">
-					{#if !disableCustomPrefix}
-						<span
-							class="border border-gray-700 rounded p-1 -mr-6 text-sm bg-gray-200 inline-block w-8"
-							>c_</span
-						>
-					{/if}
+					<div class="flex flex-row items-center">
+						{#if !disableCustomPrefix}
+							<span
+								class="border border-gray-200 rounded-l py-1 text-sm bg-gray-200 inline-block w-8 h-8 px-2"
+							>
+								c_
+							</span>
+						{/if}
 
-					<div class="inline-block">
-						<input id="inp" type="text" bind:value={newResourceType.name} />
+						<div class="inline-block">
+							<input
+								id="inp"
+								type="text"
+								bind:value={newResourceType.name}
+								class={classNames(
+									'!h-8  !border !border-gray-200',
+									!disableCustomPrefix ? '!rounded-l-none' : ''
+								)}
+							/>
+						</div>
 					</div>
-
 					{#if $userStore?.is_admin || $userStore?.is_super_admin}
 						<Toggle
 							bind:checked={disableCustomPrefix}
 							options={{ right: 'disable c_ prefix (admin only)' }}
 						/>
-						<Tooltip
-							>Resource types are synchronized with the official types on the hub regularly. The
-							`c_` prefix is to avoid name clashes with them.</Tooltip
-						>
 					{/if}
 				</div>
 			</label>

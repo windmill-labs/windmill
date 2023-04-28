@@ -9,6 +9,7 @@ import type {
 	ConnectedAppInput,
 	ConnectedInput,
 	EvalAppInput,
+	InputConnection,
 	ResultAppInput,
 	RowAppInput,
 	StaticAppInput,
@@ -102,6 +103,17 @@ export type InlineScript = {
 
 export type AppCssItemName = 'viewer' | 'grid' | AppComponent['type']
 
+export type HiddenInlineScript = {
+	name: string
+	inlineScript: InlineScript | undefined
+	fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
+	autoRefresh?: boolean
+	//deprecated and to be removed after migration
+	doNotRecomputeOnInputChanged?: boolean
+	recomputeOnInputChanged?: boolean
+	noBackendValue?: any
+}
+
 export type App = {
 	grid: GridItem[]
 	fullscreen: boolean
@@ -110,16 +122,7 @@ export type App = {
 		name: string
 		inlineScript: InlineScript
 	}>
-	hiddenInlineScripts: Array<{
-		name: string
-		inlineScript: InlineScript | undefined
-		fields: Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
-		autoRefresh?: boolean
-		//deprecated and to be removed after migration
-		doNotRecomputeOnInputChanged?: boolean
-		recomputeOnInputChanged?: boolean
-		noBackendValue?: any
-	}>
+	hiddenInlineScripts: Array<HiddenInlineScript>
 	css?: Partial<Record<AppCssItemName, Record<string, ComponentCssProperty>>>
 	subgrids?: Record<string, GridItem[]>
 }
@@ -129,6 +132,7 @@ export type ConnectingInput = {
 	input?: ConnectedInput
 	sourceName?: string
 	hoveredComponent: string | undefined
+	onConnect?: ((connection: InputConnection) => void) | undefined
 }
 
 export interface CancelablePromise<T> extends Promise<T> {
@@ -179,6 +183,7 @@ export type AppViewerContext = {
 				setTab?: (index: number) => void
 				agGrid?: { api: any; columnApi: any }
 				setCode?: (value: string) => void
+				onDelete?: () => void
 			}
 		>
 	>

@@ -9,7 +9,7 @@
 	import UploadInputEditor from './inputEditor/UploadInputEditor.svelte'
 	import { getContext } from 'svelte'
 	import type { AppViewerContext, RichConfiguration } from '../../types'
-	import type { InputType, UploadAppInput } from '../../inputType'
+	import type { InputConnection, InputType, UploadAppInput } from '../../inputType'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { Pen, Plug2, Upload, User } from 'lucide-svelte'
@@ -33,7 +33,14 @@
 	export let customTitle: string | undefined = undefined
 	export let displayType: boolean = false
 
-	const { connectingInput } = getContext<AppViewerContext>('AppViewerContext')
+	const { connectingInput, app } = getContext<AppViewerContext>('AppViewerContext')
+
+	function applyConnection(connection: InputConnection) {
+		if (componentInput.type === 'connected') {
+			componentInput.connection = connection
+			$app = $app
+		}
+	}
 
 	$: if (componentInput == undefined) {
 		//@ts-ignore
@@ -84,7 +91,8 @@
 								$connectingInput = {
 									opened: true,
 									input: undefined,
-									hoveredComponent: undefined
+									hoveredComponent: undefined,
+									onConnect: applyConnection
 								}
 							}
 						}}

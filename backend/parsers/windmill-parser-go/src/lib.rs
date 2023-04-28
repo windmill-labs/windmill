@@ -96,7 +96,7 @@ fn parse_go_typ(typ: &Expression) -> (Option<String>, Typ) {
                         .as_ref()
                         .and_then(|x| x.value.strip_prefix("`json:\""))
                         .and_then(|x| x.strip_suffix("\"`"))
-                        .and_then(|x| x.split(',').last().map(|x| x.to_string()));
+                        .and_then(|x| x.split(',').next().map(|x| x.to_string()));
                     let (otyp, typ) = parse_go_typ(&field.typ);
                     let name = get_name(field);
                     let key = json_tag.unwrap_or_else(|| name.to_string());
