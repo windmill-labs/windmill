@@ -106,6 +106,7 @@
 	<PageHeader
 		title="Variables"
 		tooltip="Save and permission strings to be reused in Scripts and Flows."
+		documentationLink="https://docs.windmill.dev/docs/core_concepts/variables_and_secrets"
 	>
 		<div class="flex flex-row justify-end">
 			<Button size="md" startIcon={{ icon: faPlus }} on:click={() => variableEditor.initNew()}>

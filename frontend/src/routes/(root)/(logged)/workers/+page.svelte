@@ -51,6 +51,7 @@
 		title="Workers"
 		tooltip="The workers are the dutiful servants that execute your scripts.
 		 This page enables you to know their IP in case you need whitelisting and also display liveness information"
+		documentationLink="https://docs.windmill.dev/docs/core_concepts/worker_groups"
 	/>
 
 	{#if workers != undefined}
