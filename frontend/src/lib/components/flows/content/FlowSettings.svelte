@@ -66,12 +66,39 @@
 									/>
 								</span>
 							</label>
-							<Slider text="How to trigger from external events?">
+							<Slider text="How to trigger flows?">
 								<div class="text-sm text-gray-600 border p-4">
-									There are 2 ways to trigger a flow based on external events:
+									On-demand:
 									<ul class="pt-4">
-										<li
-											>1. Send a webhook after each event:
+										<li>
+											1. <a
+												href="https://docs.windmill.dev/docs/core_concepts/auto_generated_uis"
+												target="_blank">Auto-generated UIs</a
+											>
+										</li>
+										<li>
+											2. <a href="/apps/add?nodraft=true" target="_blank"> App Editor</a> for customized-UIs
+										</li>
+										<li>
+											3. <a href="/schedules" target="_blank">Scheduling</a>
+										</li>
+										<li>
+											4. <a href="https://docs.windmill.dev/docs/advanced/cli" target="_blank"
+												>Windmill CLI</a
+											>
+										</li>
+										<br />
+										<li class="mt-2">
+											<div class="flex flex-col gap-2">
+												<p> From external events: </p>
+											</div>
+										</li>
+										<li class="mt-2">
+											5. Send a <a
+												href="https://docs.windmill.dev/docs/core_concepts/webhooks"
+												target="_blank">webhook</a
+											>
+											after each event:
 											<ul class="list-disc pl-4"
 												><li
 													>Async <Tooltip
@@ -107,26 +134,24 @@
 														</span>
 													</a>
 												</li>
-											</ul>
-										</li>
-										<li class="mt-2">
-											<div class="flex flex-col gap-2">
-												<p>
-													2. Use a trigger script and schedule this flow to run as frequently as
-													needed and compare a state persisted in Windmill to the state of the
-													external system. If a difference is detected, then the rest of the flow is
-													triggered. Oftentimes, the second step of a flow is a for-loop that will
-													iterate over every elements. When using a trigger, a default schedule will
-													be created.
-												</p>
-												<div>
-													<img
-														class="shadow-lg border rounded"
-														alt="static button"
-														src="/trigger_button.png"
-													/>
-												</div>
-											</div>
+											</ul></li
+										>
+										<br />
+										<li>
+											6. Use a <a
+												href="https://docs.windmill.dev/docs/flows/flow_trigger"
+												target="_blank">trigger script</a
+											>
+											and schedule this flow to run as frequently as needed and compare a state persisted
+											in Windmill to the state of the external system. If a difference is detected, then
+											the rest of the flow is triggered. Oftentimes, the second step of a flow is a for-loop
+											that will iterate over every elements. When using a trigger, a default schedule
+											will be created.
+											<img
+												class="shadow-lg border rounded"
+												alt="static button"
+												src="/trigger_button.png"
+											/>
 										</li></ul
 									>
 								</div>
@@ -134,7 +159,11 @@
 						</div>
 					</TabContent>
 					<TabContent value="settings-schedule" class="p-4">
-						<Alert type="info" title="Primary Schedule">
+						<Alert
+							type="info"
+							title="Primary Schedule"
+							documentationLink="https://docs.windmill.dev/docs/core_concepts/scheduling"
+						>
 							Flows can be triggered by any schedules, their webhooks or their UI but they only have
 							only one primary schedules with which they share the same path. The primary schedule
 							can be set here.

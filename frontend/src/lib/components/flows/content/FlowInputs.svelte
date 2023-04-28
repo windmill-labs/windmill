@@ -48,19 +48,18 @@
 								size="sm"
 								startIcon={{ icon: faBolt }}
 							>
-								Trigger &nbsp;<Tooltip>
+								Trigger &nbsp;<Tooltip documentationLink="https://docs.windmill.dev/docs/flows/flow_trigger">
 									Used as a first step most commonly with a state and a schedule to watch for
-									changes on an external system, compute the diff since last time, set the new
+									changes on an external system, compute the diff since last time and set the new
 									state. The diffs are then treated one by one with a for-loop.
 								</Tooltip>
 							</ToggleButton>
 						{/if}
 						<ToggleButton position="right" value="approval" size="sm" startIcon={{ icon: faCheck }}>
-							Approval &nbsp;<Tooltip>
+							Approval &nbsp;<Tooltip documentationLink="https://docs.windmill.dev/docs/flows/flow_approval">
 								An approval step will suspend the execution of a flow until it has been approved
 								through the resume endpoints or the approval page by and solely by the recipients of
-								those secret urls. Use `wmill.getResumeUrls()` in Typescript or
-								`wmill.get_resume_urls()` in Python from the wmill client to generate those URLs.
+								those secret urls.
 							</Tooltip>
 						</ToggleButton>
 					</ToggleButtonGroup>
@@ -76,7 +75,9 @@
 		{/if}
 		<h3 class="pb-2 pt-4">
 			Inline new <span class="text-blue-500">{kind == 'script' ? 'action' : kind}</span> script
-			<Tooltip>
+			<Tooltip
+			documentationLink="https://docs.windmill.dev/docs/flows/flow_error_handler"
+			>
 				Embed a script directly inside a flow instead of saving the script into your workspace for
 				reuse. You can always save an inline script to your workspace later.
 			</Tooltip>
