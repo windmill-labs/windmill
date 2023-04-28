@@ -116,11 +116,9 @@
 		bind:result
 		runnable={componentInput.runnable}
 		transformer={componentInput.transformer}
-		autoRefresh={autoRefresh !== undefined
+		autoRefresh={componentInput.autoRefresh === undefined
 			? autoRefresh
-			: componentInput?.type === 'runnable'
-			? componentInput.autoRefresh
-			: false}
+			: componentInput.autoRefresh}
 		bind:recomputeOnInputChanged={componentInput.recomputeOnInputChanged}
 		{id}
 		{extraQueryParams}

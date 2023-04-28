@@ -29,6 +29,23 @@
 
 	const { runnableComponents } = getContext<AppViewerContext>('AppViewerContext')
 	export let actions: ActionType[] = []
+
+	function updateAutoRefresh() {
+		const autoRefresh =
+			appComponent.componentInput?.type === 'runnable' && appComponent?.componentInput?.autoRefresh
+
+		if (
+			appComponent.componentInput?.type === 'runnable' &&
+			$runnableComponents?.[appComponent.id]?.autoRefresh !== autoRefresh &&
+			!isTriggerable(appComponent.type) &&
+			autoRefresh !== undefined
+		) {
+			$runnableComponents[appComponent.id] = {
+				...$runnableComponents[appComponent.id],
+				autoRefresh
+			}
+		}
+	}
 </script>
 
 <div class={'border border-gray-200 divide-y'}>
@@ -49,23 +66,7 @@
 			canConfigureRunOnStart={!isTriggerable(appComponent.type)}
 			bind:autoRefresh={appInput.autoRefresh}
 			bind:recomputeOnInputChanged={appInput.recomputeOnInputChanged}
-			on:updateAutoRefresh={() => {
-				const autoRefresh =
-					appComponent.componentInput?.type === 'runnable' &&
-					appComponent?.componentInput?.autoRefresh
-
-				if (
-					appComponent.componentInput?.type === 'runnable' &&
-					$runnableComponents?.[appComponent.id]?.autoRefresh !== autoRefresh &&
-					!isTriggerable(appComponent.type) &&
-					autoRefresh !== undefined
-				) {
-					$runnableComponents[appComponent.id] = {
-						...$runnableComponents[appComponent.id],
-						autoRefresh
-					}
-				}
-			}}
+			on:updateAutoRefresh={updateAutoRefresh}
 		/>
 		<ComponentScriptTriggerBy {appComponent} {appInput} />
 	{:else}
