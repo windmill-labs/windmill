@@ -69,7 +69,7 @@
 
 <ScriptSettingsSection title="Trigger by">
 	{#if isFrontend}
-		<div class="flex">
+		<div class="flex mb-4">
 			<Button
 				size="xs2"
 				color="dark"

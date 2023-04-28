@@ -4,7 +4,7 @@
 	import type { AppViewerContext } from '../../types'
 	import { clearResultAppInput } from '../../utils'
 	import type { AppComponent } from '../component'
-	import ComponentScriptSettings from './script/ComponentScriptSettings.svelte'
+	import ComponentScriptSettings, { type ActionType } from './script/ComponentScriptSettings.svelte'
 	import { ExternalLink, X } from 'lucide-svelte'
 
 	const { app } = getContext<AppViewerContext>('AppViewerContext')
@@ -41,23 +41,40 @@
 			appInput.doNotRecomputeOnInputChanged = undefined
 		}
 	}
+
+	$: hasScript =
+		appInput?.runnable?.type === 'runnableByPath' ||
+		(appInput?.runnable?.type === 'runnableByName' && appInput.runnable?.inlineScript !== undefined)
+
+	function getActions(hasScript: boolean): ActionType[] {
+		if (hasScript) {
+			return [
+				{
+					label: 'Detach',
+					icon: ExternalLink,
+					color: 'light',
+					callback: detach
+				},
+				{
+					label: 'Clear',
+					icon: X,
+					color: 'red',
+					callback: clear
+				}
+			]
+		} else {
+			return [
+				{
+					label: 'Clear',
+					icon: X,
+					color: 'red',
+					callback: clear
+				}
+			]
+		}
+	}
+
+	$: actions = getActions(hasScript)
 </script>
 
-<ComponentScriptSettings
-	bind:appInput
-	bind:appComponent
-	actions={[
-		{
-			label: 'Detach',
-			icon: ExternalLink,
-			color: 'light',
-			callback: detach
-		},
-		{
-			label: 'Clear',
-			icon: X,
-			color: 'red',
-			callback: clear
-		}
-	]}
-/>
+<ComponentScriptSettings bind:appInput bind:appComponent {hasScript} {actions} />

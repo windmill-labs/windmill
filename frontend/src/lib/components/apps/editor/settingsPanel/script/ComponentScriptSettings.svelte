@@ -19,9 +19,11 @@
 	import ScriptSettingHeader from './shared/ScriptSettingHeader.svelte'
 	import { getContext } from 'svelte'
 	import type { AppViewerContext } from '$lib/components/apps/types'
+	import ScriptSettingsSection from './shared/ScriptSettingsSection.svelte'
 
 	export let appInput: ResultAppInput
 	export let appComponent: AppComponent
+	export let hasScript: boolean
 
 	let runnable = appInput.runnable
 
@@ -38,30 +40,37 @@
 			: ''}
 		{actions}
 	/>
-	<ScriptTransformer bind:appInput bind:appComponent />
-	<ScriptRunConfiguration
-		bind:autoRefresh={appInput.autoRefresh}
-		bind:recomputeOnInputChanged={appInput.recomputeOnInputChanged}
-		canConfigureRecomputeOnInputChanged={!isTriggerable(appComponent.type)}
-		canConfigureRunOnStart={!isTriggerable(appComponent.type)}
-		on:updateAutoRefresh={() => {
-			const autoRefresh = !(
-				appComponent.componentInput?.type === 'runnable' &&
-				appComponent?.componentInput?.autoRefresh
-			)
 
-			if (
-				appComponent.componentInput?.type === 'runnable' &&
-				$runnableComponents?.[appComponent.id]?.autoRefresh !== autoRefresh &&
-				!isTriggerable(appComponent.type) &&
-				autoRefresh !== undefined
-			) {
-				$runnableComponents[appComponent.id] = {
-					...$runnableComponents[appComponent.id],
-					autoRefresh
+	{#if hasScript}
+		<ScriptTransformer bind:appInput bind:appComponent />
+		<ScriptRunConfiguration
+			canConfigureRecomputeOnInputChanged={!isTriggerable(appComponent.type)}
+			canConfigureRunOnStart={!isTriggerable(appComponent.type)}
+			bind:autoRefresh={appInput.autoRefresh}
+			bind:recomputeOnInputChanged={appInput.recomputeOnInputChanged}
+			on:updateAutoRefresh={() => {
+				const autoRefresh = !(
+					appComponent.componentInput?.type === 'runnable' &&
+					appComponent?.componentInput?.autoRefresh
+				)
+
+				if (
+					appComponent.componentInput?.type === 'runnable' &&
+					$runnableComponents?.[appComponent.id]?.autoRefresh !== autoRefresh &&
+					!isTriggerable(appComponent.type) &&
+					autoRefresh !== undefined
+				) {
+					$runnableComponents[appComponent.id] = {
+						...$runnableComponents[appComponent.id],
+						autoRefresh
+					}
 				}
-			}
-		}}
-	/>
-	<ComponentScriptTriggerBy {appComponent} {appInput} />
+			}}
+		/>
+		<ComponentScriptTriggerBy {appComponent} {appInput} />
+	{:else}
+		<ScriptSettingsSection title="Language selection">
+			<div class="text-xs"> Please configure the language in the inline script panel </div>
+		</ScriptSettingsSection>
+	{/if}
 </div>
