@@ -68,8 +68,9 @@
 
 	function isRunnableDefined(componentInput) {
 		return (
-			isScriptByNameDefined(componentInput) ||
-			(isScriptByPathDefined(componentInput) && componentInput.runnable.inlineScript != undefined)
+			(isScriptByNameDefined(componentInput) &&
+				componentInput.runnable.inlineScript != undefined) ||
+			isScriptByPathDefined(componentInput)
 		)
 	}
 
