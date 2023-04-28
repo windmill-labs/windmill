@@ -172,14 +172,16 @@
 			<span class="font-bold text-sm">Variables </span>
 			<div class="overflow-y-auto mb-2">
 				{#if displayVariable}
-					<Button
-						color="light"
-						size="xs"
-						variant="border"
-						on:click={() => {
-							displayVariable = false
-						}}>-</Button
-					>
+					<div class="flex">
+						<Button
+							color="light"
+							size="xs"
+							variant="border"
+							on:click={() => {
+								displayVariable = false
+							}}>-</Button
+						>
+					</div>
 					<ObjectViewer
 						allowCopy={false}
 						pureViewer={!$propPickerConfig}

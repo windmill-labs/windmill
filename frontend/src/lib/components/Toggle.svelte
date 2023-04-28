@@ -2,10 +2,12 @@
 	import { classNames } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
+	import Tooltip from './Tooltip.svelte'
 
 	export let options: {
 		left?: string
 		right?: string
+		rightTooltip?: string
 	} = {}
 	export let checked: boolean = false
 	export let disabled = false
@@ -74,6 +76,9 @@
 				style={textStyle}
 			>
 				{options?.right}
+				{#if options?.rightTooltip}
+					<Tooltip>{options?.rightTooltip}</Tooltip>
+				{/if}
 			</span>
 		{/if}
 	</label>

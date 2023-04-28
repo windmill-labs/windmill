@@ -18,12 +18,14 @@
 	import { copyToClipboard } from '$lib/utils'
 	import { Icon } from 'svelte-awesome'
 	import { faClipboard } from '@fortawesome/free-solid-svg-icons'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	const { selectedId, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let initialPath: string
 
 	$: url = `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run/f/${$flowStore?.path}`
+	$: syncedUrl = `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run_wait_result/f/${$flowStore?.path}`
 </script>
 
 <div class="h-full overflow-hidden">
@@ -69,19 +71,43 @@
 									There are 2 ways to trigger a flow based on external events:
 									<ul class="pt-4">
 										<li
-											>1. Send a webhook after each event: <a
-												on:click={(e) => {
-													e.preventDefault()
-													copyToClipboard(url)
-												}}
-												href={$page.url.protocol + '//' + url}
-												class="whitespace-nowrap text-ellipsis overflow-hidden mr-1"
-											>
-												{url}
-												<span class="text-gray-700 ml-2">
-													<Icon data={faClipboard} />
-												</span>
-											</a>
+											>1. Send a webhook after each event:
+											<ul class="list-disc pl-4"
+												><li
+													>Async <Tooltip
+														>Return an uuid instantly that you can use to fetch status and result</Tooltip
+													>:
+													<a
+														on:click={(e) => {
+															e.preventDefault()
+															copyToClipboard(url)
+														}}
+														href={$page.url.protocol + '//' + url}
+														class="whitespace-nowrap text-ellipsis overflow-hidden mr-1"
+													>
+														{url}
+														<span class="text-gray-700 ml-2">
+															<Icon data={faClipboard} />
+														</span>
+													</a>
+												</li>
+												<li
+													>Sync <Tooltip>Wait for result within a timeout of 20s</Tooltip>:
+													<a
+														on:click={(e) => {
+															e.preventDefault()
+															copyToClipboard(syncedUrl)
+														}}
+														href={$page.url.protocol + '//' + syncedUrl}
+														class="whitespace-nowrap text-ellipsis overflow-hidden mr-1"
+													>
+														{syncedUrl}
+														<span class="text-gray-700 ml-2">
+															<Icon data={faClipboard} />
+														</span>
+													</a>
+												</li>
+											</ul>
 										</li>
 										<li class="mt-2">
 											<div class="flex flex-col gap-2">

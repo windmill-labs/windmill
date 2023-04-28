@@ -63,6 +63,9 @@
 		if (onDeleteComponentControl) {
 			onDeleteComponentControl()
 		}
+		if (onDelete) {
+			onDelete()
+		}
 
 		if (componentSettings?.item.id) {
 			delete $worldStore.outputsById[componentSettings?.item.id]

@@ -10,8 +10,9 @@
 	import DisplayResult from './DisplayResult.svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import LogViewer from './LogViewer.svelte'
-	import RunForm from './RunForm.svelte'
 	import TestJobLoader from './TestJobLoader.svelte'
+	import ModulePreviewForm from './ModulePreviewForm.svelte'
+	import { Kbd } from './common'
 
 	export let mod: FlowModule
 	export let schema: Schema
@@ -31,8 +32,10 @@
 			if (t.type == 'static') {
 				acc[k] = t.value
 				return acc
+			} else {
+				acc[k] = { type: 'connection', expr: t.expr }
+				return acc
 			}
-			return acc
 		}, {})
 
 	$: $testStepStore[mod.id] = stepArgs
@@ -80,24 +83,18 @@
 			>
 		{/if}
 
-		<RunForm
-			noVariablePicker
-			loading={testIsLoading}
-			runnable={{ summary: mod.summary ?? '', schema, description: '' }}
-			runAction={(_, args) => runTest(args)}
-			schedulable={false}
-			buttonText={`Test (${getModifierKey()}+Enter)`}
-			detailed={false}
-			topButton
-			bind:args={stepArgs}
-			isFlow={false}
-		/>
 		{#if testIsLoading}
-			<Button on:click={testJobLoader?.cancelJob} btnClasses="w-full mt-4" color="red" size="sm">
-				<Loader2 class="animate-spin mr-1" />
+			<Button on:click={testJobLoader?.cancelJob} btnClasses="w-full" color="red" size="sm">
+				<Loader2 size={16} class="animate-spin mr-1" />
 				Cancel
 			</Button>
+		{:else}
+			<Button btnClasses="w-full truncate" size="sm" on:click={() => runTest(stepArgs)}
+				>Run&nbsp;<Kbd>{getModifierKey()}</Kbd>+<Kbd>Enter</Kbd></Button
+			>
 		{/if}
+
+		<ModulePreviewForm on:plug {schema} bind:args={stepArgs} />
 	</Pane>
 	<Pane size={50} minSize={20}>
 		<Splitpanes horizontal>
