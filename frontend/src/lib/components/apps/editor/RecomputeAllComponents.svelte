@@ -49,6 +49,8 @@
 
 		const promises = Object.keys($runnableComponents)
 			.map((id) => {
+				console.log('REFRESH', $runnableComponents?.[id], isFirstLoad)
+
 				if (
 					!$runnableComponents?.[id]?.autoRefresh &&
 					(!isFirstLoad || !$runnableComponents?.[id]?.refreshOnStart)

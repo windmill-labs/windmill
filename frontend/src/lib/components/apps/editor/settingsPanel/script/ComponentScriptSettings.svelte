@@ -45,16 +45,20 @@
 		canConfigureRecomputeOnInputChanged={!isTriggerable(appComponent.type)}
 		canConfigureRunOnStart={!isTriggerable(appComponent.type)}
 		on:updateAutoRefresh={() => {
+			const autoRefresh = !(
+				appComponent.componentInput?.type === 'runnable' &&
+				appComponent?.componentInput?.autoRefresh
+			)
+
 			if (
 				appComponent.componentInput?.type === 'runnable' &&
-				$runnableComponents?.[appComponent.id]?.autoRefresh !==
-					appComponent.componentInput.autoRefresh &&
+				$runnableComponents?.[appComponent.id]?.autoRefresh !== autoRefresh &&
 				!isTriggerable(appComponent.type) &&
-				appComponent.componentInput.autoRefresh !== undefined
+				autoRefresh !== undefined
 			) {
 				$runnableComponents[appComponent.id] = {
 					...$runnableComponents[appComponent.id],
-					autoRefresh: appComponent.componentInput.autoRefresh
+					autoRefresh
 				}
 			}
 		}}

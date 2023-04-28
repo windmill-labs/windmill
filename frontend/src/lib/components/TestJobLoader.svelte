@@ -32,6 +32,8 @@
 			const startedAt = Date.now()
 			const testId = await fn()
 
+			console.log('oaiusd')
+
 			if (lastStartedAt < startedAt) {
 				lastStartedAt = startedAt
 				if (testId) {
