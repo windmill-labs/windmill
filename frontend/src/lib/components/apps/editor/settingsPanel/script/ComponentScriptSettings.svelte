@@ -49,10 +49,9 @@
 			bind:autoRefresh={appInput.autoRefresh}
 			bind:recomputeOnInputChanged={appInput.recomputeOnInputChanged}
 			on:updateAutoRefresh={() => {
-				const autoRefresh = !(
+				const autoRefresh =
 					appComponent.componentInput?.type === 'runnable' &&
 					appComponent?.componentInput?.autoRefresh
-				)
 
 				if (
 					appComponent.componentInput?.type === 'runnable' &&
