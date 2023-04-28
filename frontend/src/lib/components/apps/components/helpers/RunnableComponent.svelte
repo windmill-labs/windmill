@@ -349,8 +349,6 @@
 			return p as CancelablePromise<void>
 		}
 
-		console.log({ autoRefresh, refreshOnStart, id })
-
 		$runnableComponents[id] = {
 			autoRefresh: autoRefresh,
 			refreshOnStart: refreshOnStart,
