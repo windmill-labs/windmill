@@ -26,11 +26,11 @@
 		dispatch('changePosition', { i, up })
 	}
 
-	const indentClass = depth > 0 ? `ml-${4 * depth}` : ''
+	const indentStyle = depth > 0 ? `margin-left :${depth}rem` : ''
 </script>
 
 <td class="font-bold">
-	<span class={indentClass}>
+	<span style={indentStyle}>
 		{displayInfo.name}
 		<Required {required} class="!ml-0" />
 	</span>
