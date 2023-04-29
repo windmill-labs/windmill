@@ -1956,9 +1956,9 @@ dependencies = [
 
 [[package]]
 name = "lalrpop"
-version = "0.19.11"
+version = "0.19.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71fd655b367a6d0085d39f876fdf374280fb67d22777f03146458da3674a91d0"
+checksum = "0a1cbf952127589f2851ab2046af368fd20645491bb4b376f04b7f94d7a9837b"
 dependencies = [
  "ascii-canvas",
  "bit-set",
@@ -1978,9 +1978,9 @@ dependencies = [
 
 [[package]]
 name = "lalrpop-util"
-version = "0.19.11"
+version = "0.19.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6cd450093375e310f899866aff9f67830a30f971c4c296753dd121b2c16b0ded"
+checksum = "d3c48237b9604c5a4702de6b824e02006c3214327564636aef27c1028a8fa0ed"
 dependencies = [
  "regex",
 ]
@@ -3226,9 +3226,9 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "0.37.15"
+version = "0.37.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a0661814f891c57c930a610266415528da53c4933e6dea5fb350cbfe048a9ece"
+checksum = "bc809f704c03a812ac71f22456c857be34185cac691a4316f27ab0f633bb9009"
 dependencies = [
  "bitflags",
  "errno",
@@ -3346,7 +3346,7 @@ dependencies = [
  "schemars_derive",
  "serde",
  "serde_json",
- "uuid 1.3.1",
+ "uuid 1.3.2",
 ]
 
 [[package]]
@@ -3843,7 +3843,7 @@ dependencies = [
  "thiserror",
  "tokio-stream",
  "url",
- "uuid 1.3.1",
+ "uuid 1.3.2",
  "webpki-roots",
  "whoami",
 ]
@@ -4488,10 +4488,11 @@ checksum = "b6bc1c9ce2b5135ac7f93c72918fc37feb872bdc6a5533a8b85eb4b86bfdae52"
 
 [[package]]
 name = "tracing"
-version = "0.1.38"
+version = "0.1.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf9cf6a813d3f40c88b0b6b6f29a5c95c6cdbf97c1f9cc53fb820200f5ad814d"
+checksum = "8ce8c33a8d48bd45d624a6e523445fd21ec13d3653cd51f681abf67418f54eb8"
 dependencies = [
+ "cfg-if",
  "log",
  "pin-project-lite",
  "tracing-attributes",
@@ -4653,7 +4654,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13a3aaa69b04e5b66cc27309710a569ea23593612387d67daaf102e73aa974fd"
 dependencies = [
  "rand 0.8.5",
- "uuid 1.3.1",
+ "uuid 1.3.2",
 ]
 
 [[package]]
@@ -4841,9 +4842,9 @@ dependencies = [
 
 [[package]]
 name = "uuid"
-version = "1.3.1"
+version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b55a3fef2a1e3b3a00ce878640918820d3c51081576ac657d23af9fc7928fdb"
+checksum = "4dad5567ad0cf5b760e5665964bec1b47dfd077ba8a2544b513f3556d3d239a2"
 dependencies = [
  "getrandom 0.2.9",
  "serde",
@@ -5119,7 +5120,7 @@ dependencies = [
  "tokio-metrics",
  "tracing",
  "url",
- "uuid 1.3.1",
+ "uuid 1.3.2",
  "windmill-api",
  "windmill-api-client",
  "windmill-common",
@@ -5197,7 +5198,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "uuid 1.3.1",
+ "uuid 1.3.2",
 ]
 
 [[package]]
@@ -5235,7 +5236,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "uuid 1.3.1",
+ "uuid 1.3.2",
 ]
 
 [[package]]
@@ -5326,7 +5327,7 @@ dependencies = [
  "tokio",
  "tracing",
  "ulid",
- "uuid 1.3.1",
+ "uuid 1.3.2",
  "windmill-audit",
  "windmill-common",
 ]
@@ -5356,7 +5357,7 @@ dependencies = [
  "sqlx",
  "tokio",
  "tracing",
- "uuid 1.3.1",
+ "uuid 1.3.2",
  "windmill-api-client",
  "windmill-audit",
  "windmill-common",
