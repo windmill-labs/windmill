@@ -98,7 +98,7 @@
 					disabled: !canWrite
 				},
 				{
-					displayName: 'Use as template',
+					displayName: 'Duplicate/Fork',
 					icon: faCodeFork,
 					href: `/apps/add?template=${path}`
 				},

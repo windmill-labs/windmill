@@ -148,7 +148,7 @@
 						disabled: !canWrite || archived
 					},
 					{
-						displayName: 'Use as template/Fork',
+						displayName: 'Duplicate/Fork',
 						icon: faCodeFork,
 						href: `/flows/add?template=${path}`
 					},
