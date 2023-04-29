@@ -59,7 +59,10 @@
 		push(history, $app)
 
 		const id = componentSettings?.item?.id
-		const onDelete = id ? $componentControl[id]?.onDelete : undefined
+		const onDeleteComponentControl = id ? $componentControl[id]?.onDelete : undefined
+		if (onDeleteComponentControl) {
+			onDeleteComponentControl()
+		}
 		if (onDelete) {
 			onDelete()
 		}

@@ -8,10 +8,13 @@
 	} from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import type { AlertType } from './model'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	export let type: AlertType = 'info'
 	export let title: string
 	export let notRounded = false
+	export let tooltip: string = ''
+	export let documentationLink: string | undefined = undefined
 
 	export let size: 'xs' | 'sm' = 'sm'
 
@@ -71,7 +74,9 @@
 					classes[type].titleClass
 				)}
 			>
-				{title}
+				{title}&nbsp;{#if tooltip != '' || documentationLink}
+				<Tooltip {documentationLink} scale={0.9}>{tooltip}</Tooltip>
+			{/if}
 			</span>
 			<div
 				class={classNames(

@@ -21,5 +21,7 @@ rand.workspace = true
 base64.workspace = true
 
 [build-dependencies]
+prettyplease = "0.1.25"
 progenitor = { git = "https://github.com/oxidecomputer/progenitor" }
 serde_json = "1.0"
+syn = "1.0"
