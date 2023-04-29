@@ -181,7 +181,7 @@
 						disabled: !canWrite || archived
 					},
 					{
-						displayName: 'Use as template',
+						displayName: 'Duplicate/Fork',
 						icon: faCodeFork,
 						href: `/scripts/add?template=${path}`
 					},
