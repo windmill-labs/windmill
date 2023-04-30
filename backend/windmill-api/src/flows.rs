@@ -329,62 +329,62 @@ async fn update_flow(
         if !authed.is_admin {
             require_owner_of_path(&authed, flow_path)?;
         }
+    }
 
-        let mut schedulables: Vec<Schedule> = sqlx::query_as!(
-            Schedule,
-                "UPDATE schedule SET script_path = $1 WHERE script_path = $2 AND path != $2 AND workspace_id = $3 AND is_flow IS true RETURNING *",
-                nf.path,
-                flow_path,
-                w_id,
-            )
-            .fetch_all(&mut tx)
-            .await?;
-
-        let schedule = sqlx::query_as!(Schedule,
-            "UPDATE schedule SET path = $1, script_path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow IS true RETURNING *",
+    let mut schedulables: Vec<Schedule> = sqlx::query_as!(
+        Schedule,
+            "UPDATE schedule SET script_path = $1 WHERE script_path = $2 AND path != $2 AND workspace_id = $3 AND is_flow IS true RETURNING *",
             nf.path,
             flow_path,
             w_id,
         )
-        .fetch_optional(&mut tx)
+        .fetch_all(&mut tx)
         .await?;
 
-        if let Some(schedule) = schedule {
-            schedulables.push(schedule);
-        }
+    let schedule = sqlx::query_as!(Schedule,
+        "UPDATE schedule SET path = $1, script_path = $1 WHERE path = $2 AND workspace_id = $3 AND is_flow IS true RETURNING *",
+        nf.path,
+        flow_path,
+        w_id,
+    )
+    .fetch_optional(&mut tx)
+    .await?;
 
-        for schedule in schedulables.into_iter() {
-            clear_schedule(tx.transaction_mut(), &schedule.path, true).await?;
-
-            if schedule.enabled {
-                tx = push_scheduled_job(tx, schedule).await?;
-            }
-        }
-
-        sqlx::query!(
-            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow'",
-            nf.path,
-            &w_id
-        )
-        .execute(&mut tx)
-        .await?;
-
-        audit_log(
-            &mut tx,
-            &authed.username,
-            "flows.update",
-            ActionKind::Create,
-            &w_id,
-            Some(&nf.path.to_string()),
-            Some(
-                [Some(("flow", nf.path.as_str()))]
-                    .into_iter()
-                    .flatten()
-                    .collect(),
-            ),
-        )
-        .await?;
+    if let Some(schedule) = schedule {
+        schedulables.push(schedule);
     }
+
+    for schedule in schedulables.into_iter() {
+        clear_schedule(tx.transaction_mut(), &schedule.path, true).await?;
+
+        if schedule.enabled {
+            tx = push_scheduled_job(tx, schedule).await?;
+        }
+    }
+
+    sqlx::query!(
+        "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow'",
+        nf.path,
+        &w_id
+    )
+    .execute(&mut tx)
+    .await?;
+
+    audit_log(
+        &mut tx,
+        &authed.username,
+        "flows.update",
+        ActionKind::Create,
+        &w_id,
+        Some(&nf.path.to_string()),
+        Some(
+            [Some(("flow", nf.path.as_str()))]
+                .into_iter()
+                .flatten()
+                .collect(),
+        ),
+    )
+    .await?;
 
     webhook.send_message(
         w_id.clone(),
