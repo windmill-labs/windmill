@@ -146,7 +146,7 @@
 													startIcon={{ icon: faPen }}
 													disabled={script == undefined}
 													variant="border"
-													href="/scripts/edit/{script?.hash}">Edit</Button
+													href="/scripts/edit/{script?.path}">Edit</Button
 												>
 											</div>
 										{/if}

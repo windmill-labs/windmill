@@ -87,7 +87,7 @@
 			</Button>
 		{:else}
 			<Button btnClasses="w-full truncate" size="sm" on:click={() => runTest(stepArgs)}
-				>Run&nbsp;<Kbd>{getModifierKey()}</Kbd>+<Kbd>Enter</Kbd></Button
+				>Run&nbsp;<Kbd small>{getModifierKey()}</Kbd><Kbd small>Enter</Kbd></Button
 			>
 		{/if}
 

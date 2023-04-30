@@ -8,7 +8,7 @@
 
 	import { ScriptService, type Script } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { capitalize, isOwner, sendUserToast } from '$lib/utils'
+	import { isOwner, sendUserToast } from '$lib/utils'
 	import {
 		faArchive,
 		faCalendarAlt,
@@ -26,6 +26,7 @@
 	import Button from '../button/Button.svelte'
 	import LanguageBadge from './LanguageBadge.svelte'
 	import Row from './Row.svelte'
+	import DraftBadge from '$lib/components/DraftBadge.svelte'
 
 	export let script: Script & { canWrite: boolean }
 	export let marked: string | undefined
@@ -42,9 +43,9 @@
 		extra_perms,
 		canWrite,
 		lock_error_logs,
-		kind,
-		workspace_id,
-		archived
+		archived,
+		has_draft,
+		draft_only
 	} = script
 
 	const dispatch = createEventDispatcher()
@@ -88,16 +89,15 @@
 	{path}
 	{summary}
 	{starred}
-	workspaceId={workspace_id ?? $workspaceStore ?? ''}
+	workspaceId={$workspaceStore ?? ''}
 	on:change
+	canFavorite={!draft_only}
 >
 	<svelte:fragment slot="badges">
 		<SharedBadge {canWrite} extraPerms={extra_perms} />
+		<DraftBadge {has_draft} {draft_only} />
 		{#if lock_error_logs}
 			<Badge color="red" baseClass="border border-red-200">Deployment failed</Badge>
-		{/if}
-		{#if kind !== 'script'}
-			<Badge color="gray" baseClass="border">{capitalize(kind)}</Badge>
 		{/if}
 
 		{#if archived}
@@ -117,7 +117,7 @@
 							size="xs"
 							variant="border"
 							startIcon={{ icon: faEdit }}
-							href="/scripts/edit/{hash}"
+							href="/scripts/edit/{path}"
 						>
 							Edit
 						</Button>
@@ -137,30 +137,51 @@
 				{/if}
 			{/if}
 
-			<Button
-				href="/scripts/get/{hash}?workspace={$workspaceStore}"
-				color="light"
-				variant="border"
-				size="xs"
-				spacingSize="md"
-				startIcon={{ icon: faEye }}
-			>
-				Detail
-			</Button>
-			<Button
-				href="/scripts/run/{hash}"
-				color="dark"
-				size="xs"
-				spacingSize="md"
-				endIcon={{ icon: faPlay }}
-			>
-				Run
-			</Button>
+			{#if !draft_only}
+				<Button
+					href="/scripts/get/{hash}?workspace={$workspaceStore}"
+					color="light"
+					variant="border"
+					size="xs"
+					spacingSize="md"
+					startIcon={{ icon: faEye }}
+				>
+					Detail
+				</Button>
+				<Button
+					href="/scripts/run/{hash}"
+					color="dark"
+					size="xs"
+					spacingSize="md"
+					endIcon={{ icon: faPlay }}
+				>
+					Run
+				</Button>
+			{/if}
 		</span>
 		<Dropdown
 			placement="bottom-end"
 			dropdownItems={() => {
 				let owner = isOwner(path, $userStore, $workspaceStore)
+				if (draft_only) {
+					return [
+						{
+							displayName: 'Delete',
+							icon: faTrashAlt,
+							action: (event) => {
+								if (event?.shiftKey) {
+									deleteScript(path)
+								} else {
+									deleteConfirmedCallback = () => {
+										deleteScript(path)
+									}
+								}
+							},
+							type: dlt,
+							disabled: !canWrite
+						}
+					]
+				}
 				return [
 					{
 						displayName: 'View script',
@@ -171,13 +192,7 @@
 					{
 						displayName: 'Edit',
 						icon: faEdit,
-						href: `/scripts/edit/${hash}`,
-						disabled: !canWrite || archived
-					},
-					{
-						displayName: 'Edit code',
-						icon: faEdit,
-						href: `/scripts/edit/${hash}`,
+						href: `/scripts/edit/${path}`,
 						disabled: !canWrite || archived
 					},
 					{

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import ScriptEditor from '$lib/components/ScriptEditor.svelte'
-	import { ScriptService, type Preview } from '$lib/gen'
+	import { ScriptService, type Preview, Script } from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { workspaceStore } from '$lib/stores'
 	import { emptySchema, sendUserToast } from '$lib/utils'
@@ -62,7 +62,7 @@
 						schema: script.schema,
 						is_template: false,
 						language: script.language,
-						kind: script.kind
+						kind: script.kind as Script.kind | undefined
 					}
 				})
 				callback?.()

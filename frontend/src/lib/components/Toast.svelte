@@ -25,8 +25,8 @@
 <div
 	class="pointer-events-auto w-full max-w-sm overflow-hidden bg-white shadow-lg ring-1 ring-black ring-opacity-5 border"
 >
-	<div class="p-2 min-h-[60px]">
-		<div class="flex items-start">
+	<div class="p-2 min-h-[60px] flex flex-col">
+		<div class="flex items-start w-full">
 			<div class="flex-shrink-0 mt-0.5">
 				{#if error}
 					<XCircleIcon class="h-4 w-4 text-red-400" />
@@ -34,21 +34,8 @@
 					<CheckCircle2 class="h-4 w-4 text-green-400" />
 				{/if}
 			</div>
-			<div class="ml-3 w-0 flex-1">
+			<div class="ml-3 flex-1 w-0">
 				<p class="text-sm text-gray-500">{message}</p>
-				<div class="mt-2 flex flex-row gap-2 h-15">
-					{#each actions as action, index (index)}
-						<Button
-							on:click={() => {
-								action.callback()
-								toast.pop(toastId)
-							}}
-							class="text-sm !text-black"
-						>
-							{action.label}
-						</Button>
-					{/each}
-				</div>
 			</div>
 			<div class="ml-4 flex flex-shrink-0">
 				<button
@@ -64,6 +51,19 @@
 					</svg>
 				</button>
 			</div>
+		</div>
+		<div class="mt-2 flex flex-row gap-2 h-15">
+			{#each actions as action, index (index)}
+				<Button
+					on:click={() => {
+						action.callback()
+						toast.pop(toastId)
+					}}
+					class="text-sm !text-black"
+				>
+					{action.label}
+				</Button>
+			{/each}
 		</div>
 	</div>
 </div>
