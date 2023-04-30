@@ -48,6 +48,6 @@
 	}}
 >
 	<div class="flex flex-col w-full space-y-4">
-		<span> Are you sure you want to discard the changes you have made? </span>
+		<span>Are you sure you want to discard the changes you have made? </span>
 	</div>
 </ConfirmationModal>
