@@ -4,10 +4,9 @@
 
 <script lang="ts">
 	import { ResourceService, VariableService } from '$lib/gen'
-	import { getModifierKey, getScriptByPath, sendUserToast } from '$lib/utils'
+	import { getScriptByPath, sendUserToast } from '$lib/utils'
 
 	import {
-		faBroom,
 		faCube,
 		faDollarSign,
 		faEye,
@@ -30,7 +29,6 @@
 	import ToggleHubWorkspace from './ToggleHubWorkspace.svelte'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import Popover from './Popover.svelte'
-	import Kbd from './common/kbd/Kbd.svelte'
 	import { SCRIPT_EDITOR_SHOW_EXPLORE_OTHER_SCRIPTS } from '$lib/consts'
 
 	export let lang: 'python3' | 'deno' | 'go' | 'bash'
@@ -357,7 +355,7 @@
 				</Button>
 				<svelte:fragment slot="text">Reload assistant</svelte:fragment>
 			</Popover>
-			<Popover
+			<!-- <Popover
 				notClickable
 				placement="bottom"
 				disappearTimeout={0}
@@ -380,7 +378,7 @@
 						S
 					</Kbd>
 				</svelte:fragment>
-			</Popover>
+			</Popover> -->
 		</div>
 	</div>
 	<Popover

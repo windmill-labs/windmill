@@ -225,8 +225,8 @@
 					</Button>
 					{#if !$userStore?.operator}
 						<Button
-							href={`/scripts/edit/${script.hash}?args=${encodeState(args)}${
-								topHash ? '&topHash=' + topHash : ''
+							href={`/scripts/edit/${script.path}?args=${encodeState(args)}${
+								topHash ? `&hash=${script.hash}&topHash=` + topHash : ''
 							}`}
 							color="blue"
 							size="md"
@@ -291,25 +291,25 @@
 
 			<div class="flex gap-2 flex-wrap mt-4">
 				{#if SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB}
-				<Button
-					disabled={deploymentInProgress}
-					target="_blank"
-					href={scriptToHubUrl(
-						script.content,
-						script.summary,
-						script.description ?? '',
-						script.kind,
-						script.language,
-						script.schema,
-						script.language == 'deno' ? '' : script.lock
-					).toString()}
-					variant="border"
-					color="light"
-					size="xs"
-					startIcon={{ icon: faGlobe }}
-				>
-					Publish to Hub
-				</Button>
+					<Button
+						disabled={deploymentInProgress}
+						target="_blank"
+						href={scriptToHubUrl(
+							script.content,
+							script.summary,
+							script.description ?? '',
+							script.kind,
+							script.language,
+							script.schema,
+							script.language == 'deno' ? '' : script.lock
+						).toString()}
+						variant="border"
+						color="light"
+						size="xs"
+						startIcon={{ icon: faGlobe }}
+					>
+						Publish to Hub
+					</Button>
 				{/if}
 				<Button
 					on:click={() => shareModal.openDrawer(script?.path ?? '', 'script')}
@@ -322,15 +322,15 @@
 					Share
 				</Button>
 				{#if SCRIPT_VIEW_SHOW_SCHEDULE}
-				<Button
-					on:click={() => scheduleEditor?.openNew(false, script?.path ?? '')}
-					variant="border"
-					color="light"
-					size="xs"
-					startIcon={{ icon: faCalendar }}
-				>
-					Schedule
-				</Button>
+					<Button
+						on:click={() => scheduleEditor?.openNew(false, script?.path ?? '')}
+						variant="border"
+						color="light"
+						size="xs"
+						startIcon={{ icon: faCalendar }}
+					>
+						Schedule
+					</Button>
 				{/if}
 				<Button
 					on:click={() => moveDrawer.openDrawer(script?.path ?? '', script?.summary, 'script')}
@@ -463,9 +463,7 @@
 					Webhooks
 					<Tooltip>
 						{SCRIPT_VIEW_WEBHOOK_INFO_TIP}
-						<a href={SCRIPT_VIEW_WEBHOOK_INFO_LINK} class="text-blue-500">
-							See docs
-						</a>
+						<a href={SCRIPT_VIEW_WEBHOOK_INFO_LINK} class="text-blue-500"> See docs </a>
 					</Tooltip>
 				</h3>
 				<Skeleton {loading} layout={[[8.5]]} />
@@ -516,23 +514,23 @@
 									{/each}
 								</ul>
 								{#if SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON}
-								<div class="flex flex-row-reverse mt-2">
-									<Button size="xs" on:click={userSettings.openDrawer}>Create token</Button>
-								</div>
+									<div class="flex flex-row-reverse mt-2">
+										<Button size="xs" on:click={userSettings.openDrawer}>Create token</Button>
+									</div>
 								{/if}
 							</TabContent>
 						{/each}
 						{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL}
-						<div class="flex">
-							<Button
-								color="light"
-								size="sm"
-								endIcon={{ icon: viewWebhookCommand ? faChevronUp : faChevronDown }}
-								on:click={() => (viewWebhookCommand = !viewWebhookCommand)}
-							>
-								See example curl command
-							</Button>
-						</div>
+							<div class="flex">
+								<Button
+									color="light"
+									size="sm"
+									endIcon={{ icon: viewWebhookCommand ? faChevronUp : faChevronDown }}
+									on:click={() => (viewWebhookCommand = !viewWebhookCommand)}
+								>
+									See example curl command
+								</Button>
+							</div>
 						{/if}
 						{#if viewWebhookCommand}
 							<div transition:slide|local class="px-4">

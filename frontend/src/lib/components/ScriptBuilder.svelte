@@ -1,16 +1,22 @@
 <script lang="ts">
-	import { Script, ScriptService, WorkerService } from '$lib/gen'
+	import { DraftService, NewScript, Script, ScriptService, WorkerService } from '$lib/gen'
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
 	import { inferArgs } from '$lib/infer'
 	import { initialCode } from '$lib/script_helpers'
 	import { userStore, workerTags, workspaceStore } from '$lib/stores'
-	import { emptySchema, encodeState, sendUserToast, setQueryWithoutLoad } from '$lib/utils'
+	import {
+		emptySchema,
+		encodeState,
+		getModifierKey,
+		sendUserToast,
+		setQueryWithoutLoad
+	} from '$lib/utils'
 	import Path from './Path.svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
 	import ScriptSchema from './ScriptSchema.svelte'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
-	import { Badge, Button, Drawer } from './common'
+	import { Badge, Button, Drawer, Kbd } from './common'
 	import { faSave } from '@fortawesome/free-solid-svg-icons'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 	import type { SupportedLanguage } from '$lib/common'
@@ -25,8 +31,9 @@
 		SCRIPT_SHOW_PSQL,
 		SCRIPT_CUSTOMISE_SHOW_KIND
 	} from '$lib/consts'
+	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 
-	export let script: Script
+	export let script: NewScript
 	export let initialPath: string = ''
 	export let template: 'pgsql' | 'mysql' | 'script' = 'script'
 	export let initialArgs: Record<string, any> = {}
@@ -63,7 +70,12 @@
 	if (SCRIPT_SHOW_BASH) {
 		langs.push(['Bash', Script.language.BASH])
 	}
-	const scriptKindOptions: { value: Script.kind; title: string; desc?: string; documentationLink?: string; }[] = [
+	const scriptKindOptions: {
+		value: Script.kind
+		title: string
+		desc?: string
+		documentationLink?: string
+	}[] = [
 		{
 			value: Script.kind.SCRIPT,
 			title: 'Action'
@@ -72,25 +84,25 @@
 			value: Script.kind.TRIGGER,
 			title: 'Trigger',
 			desc: 'First module of flows to trigger them based on external changes. These kind of scripts are usually running on a schedule to periodically look for changes.',
-			documentationLink:"https://docs.windmill.dev/docs/flows/flow_trigger"
-
+			documentationLink: 'https://docs.windmill.dev/docs/flows/flow_trigger'
 		},
 		{
 			value: Script.kind.APPROVAL,
 			title: 'Approval',
 			desc: 'Send notifications externally to ask for approval to continue a flow.',
-			documentationLink:"https://docs.windmill.dev/docs/flows/flow_approval"
+			documentationLink: 'https://docs.windmill.dev/docs/flows/flow_approval'
 		},
 		{
 			value: Script.kind.FAILURE,
 			title: 'Error Handler',
 			desc: 'Handle errors in flows after all retry attempts have been exhausted.',
-			documentationLink:"https://docs.windmill.dev/docs/flows/flow_error_handler"
+			documentationLink: 'https://docs.windmill.dev/docs/flows/flow_error_handler'
 		}
 	]
 
 	let pathError = ''
 	let loadingSave = false
+	let loadingDraft = false
 
 	$: setQueryWithoutLoad($page.url, [{ key: 'state', value: encodeState(script) }])
 
@@ -100,25 +112,14 @@
 
 	function initContent(
 		language: 'deno' | 'python3' | 'go' | 'bash',
-		kind: Script.kind,
+		kind: Script.kind | undefined,
 		template: 'pgsql' | 'mysql' | 'script'
 	) {
 		script.content = initialCode(language, kind, template)
 		scriptEditor?.inferSchema(script.content, language)
 	}
 
-	async function leaveF(leave: boolean, newHash: string) {
-		if (leave) {
-			history.replaceState(history.state, '', `/scripts/edit/${newHash}`)
-			goto(`/scripts/get/${newHash}?workspace=${$workspaceStore}`)
-		} else {
-			await goto(`/scripts/edit/${newHash}`)
-			script.hash = newHash
-			topHash = undefined
-		}
-	}
-
-	async function editScript(leave: boolean): Promise<void> {
+	async function editScript(): Promise<void> {
 		loadingSave = true
 		try {
 			$dirtyStore = false
@@ -140,7 +141,7 @@
 					summary: script.summary,
 					description: script.description ?? '',
 					content: script.content,
-					parent_hash: script.hash != '' ? topHash ?? script.hash : undefined,
+					parent_hash: topHash,
 					schema: script.schema,
 					is_template: script.is_template,
 					language: script.language,
@@ -148,40 +149,96 @@
 					tag: script.tag
 				}
 			})
-			leaveF(leave, newHash)
+			goto(`/scripts/get/${newHash}?workspace=${$workspaceStore}`)
 		} catch (error) {
 			sendUserToast(`Error while saving the script: ${error.body || error.message}`, true)
 		}
 		loadingSave = false
 	}
 
-	function computeDropdownItems() {
-		let dropdownItems: { label: string; onClick: () => void }[] = []
+	async function saveDraft(): Promise<void> {
+		loadingDraft = true
+		try {
+			$dirtyStore = false
+			localStorage.removeItem(script.path)
 
-		if ($dirtyStore) {
-			dropdownItems.push({
-				label: 'Save and see details',
-				onClick: () => editScript(true)
+			script.schema = script.schema ?? emptySchema()
+			try {
+				await inferArgs(script.language, script.content, script.schema)
+			} catch (error) {
+				sendUserToast(
+					`The main signature was not parsable. This script is considered to be without main function`
+				)
+			}
+
+			if (initialPath == '') {
+				await ScriptService.createScript({
+					workspace: $workspaceStore!,
+					requestBody: {
+						path: script.path,
+						summary: script.summary,
+						description: script.description ?? '',
+						content: script.content,
+						schema: script.schema,
+						is_template: script.is_template,
+						language: script.language,
+						kind: script.kind,
+						tag: script.tag,
+						draft_only: true
+					}
+				})
+			}
+			await DraftService.createDraft({
+				workspace: $workspaceStore!,
+				requestBody: { path: script.path, typ: 'script', value: script }
 			})
+			if (initialPath == '') {
+				goto(`/scripts/edit/${script.path}`)
+			}
+			sendUserToast('Saved as draft')
+		} catch (error) {
+			sendUserToast(
+				`Error while saving the script as a draft: ${error.body || error.message}`,
+				true
+			)
 		}
+		loadingDraft = false
+	}
 
-		dropdownItems.push({
-			label: 'See details',
-			onClick: () => leaveF(true, script.hash)
-		})
-
-		if (initialPath != '') {
-			dropdownItems.push({
+	function computeDropdownItems() {
+		let dropdownItems: { label: string; onClick: () => void }[] = [
+			{
 				label: 'Fork',
 				onClick: () => {
 					window.open(`/scripts/add?template=${initialPath}`)
 				}
-			})
-		}
+			},
+			{
+				label: 'Exit & See details',
+				onClick: () => {
+					goto(`/scripts/get/${initialPath}?workspace=${$workspaceStore}`)
+				}
+			}
+		]
+
 		return dropdownItems
+	}
+
+	function onKeyDown(event: KeyboardEvent) {
+		switch (event.key) {
+			case 's':
+				if (event.ctrlKey || event.metaKey) {
+					saveDraft()
+					event.preventDefault()
+				}
+				break
+		}
 	}
 </script>
 
+<svelte:window on:keydown={onKeyDown} />
+
+<UnsavedConfirmationModal />
 {#if !$userStore?.operator}
 	<Drawer placement="right" bind:open={metadataOpen} size="800px">
 		<DrawerContent title="Metadata" on:close={() => (metadataOpen = false)}>
@@ -371,13 +428,23 @@
 					</Button>
 					<Button
 						color="dark"
+						loading={loadingDraft}
+						size="sm"
+						startIcon={{ icon: faSave }}
+						on:click={() => saveDraft()}
+					>
+						Save as draft&nbsp;<Kbd>{getModifierKey()}</Kbd>
+						<Kbd>S</Kbd>
+					</Button>
+					<Button
+						color="dark"
 						loading={loadingSave}
 						size="sm"
 						startIcon={{ icon: faSave }}
-						on:click={() => editScript(false)}
-						dropdownItems={computeDropdownItems}
+						on:click={() => editScript()}
+						dropdownItems={initialPath != '' ? computeDropdownItems : undefined}
 					>
-						Save
+						Deploy
 					</Button>
 				</div>
 			</div>
@@ -428,6 +495,9 @@
 			</DrawerContent>
 		</Drawer>
 		<ScriptEditor
+			on:format={() => {
+				saveDraft()
+			}}
 			bind:editor
 			bind:this={scriptEditor}
 			bind:schema={script.schema}

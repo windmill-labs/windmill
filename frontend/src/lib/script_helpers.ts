@@ -1,4 +1,4 @@
-import type { Script } from './gen'
+import { Script } from './gen'
 
 import PYTHON_INIT_CODE from '$lib/init_scripts/python_init_code'
 import PYTHON_INIT_CODE_CLEAR from '$lib/init_scripts/python_init_code_clear'
@@ -12,7 +12,7 @@ export {
 	PYTHON_FAILURE_MODULE_CODE
 }
 
-export const DENO_INIT_CODE = `// Ctrl/CMD+. to cache dependencies on imports hover, Ctrl/CMD+S to format.
+export const DENO_INIT_CODE = `// Ctrl/CMD+. to cache dependencies on imports hover.
 
 // import { toWords } from "npm:number-to-words@1"
 // import * as wmill from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts"
@@ -250,9 +250,12 @@ export function isInitialCode(content: string): boolean {
 
 export function initialCode(
 	language: 'deno' | 'python3' | 'go' | 'bash',
-	kind: Script.kind,
+	kind: Script.kind | undefined,
 	subkind: 'pgsql' | 'mysql' | 'flow' | 'script' | 'fetch' | undefined
 ): string {
+	if (!kind) {
+		kind = Script.kind.SCRIPT
+	}
 	if (language === 'deno') {
 		if (kind === 'trigger') {
 			return DENO_INIT_CODE_TRIGGER

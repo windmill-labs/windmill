@@ -692,6 +692,32 @@
     },
     "query": "SELECT * FROM workspace_settings WHERE workspace_id = $1"
   },
+  "17c2a1abcff52cfb39ae55cfafb6b5945bb87eebfdb2e030e7de3db938d0c6c9": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Jsonb",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "script",
+                  "flow",
+                  "app"
+                ]
+              },
+              "name": "draft_type"
+            }
+          }
+        ]
+      }
+    },
+    "query": "INSERT INTO draft\n            (workspace_id, path, value, typ)\n            VALUES ($1, $2, $3, $4)\n            ON CONFLICT (workspace_id, path, typ) DO UPDATE SET value = $3"
+  },
   "187a27d18f78f068319a0ec684f71a76c49dd09c5c74c2c777e35233c4f5a281": {
     "describe": {
       "columns": [
@@ -1459,6 +1485,19 @@
     },
     "query": "DELETE FROM pip_resolution_cache WHERE expiration <= now() RETURNING hash"
   },
+  "39a72ff9bd2ab9bdf59a73ea32821645ce8b1bbcaccee13fb4f2c0eed28a6096": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app'"
+  },
   "39bae7dff750565183ac3893b51a8846d7db2f130a6795b54ef94acc232dec8b": {
     "describe": {
       "columns": [
@@ -1503,6 +1542,19 @@
       }
     },
     "query": "DELETE FROM folder WHERE workspace_id = $1"
+  },
+  "3d04f6c1a77c9a0bcc999913d6df253b58b82c09fe23a6ab99b5af78d4604732": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script'"
   },
   "3d363466d79075df3f74f946eff43ca89faefca3bcdf2c533425ca3868b0369a": {
     "describe": {
@@ -2169,6 +2221,19 @@
     },
     "query": "INSERT INTO token\n            (token, email, label, expiration, super_admin)\n            VALUES ($1, $2, $3, $4, $5)"
   },
+  "567ded2a717af9370a80c00bdb50d965fba9a3422c58e67ed2ed06dd107ae139": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM script WHERE hash = $1 AND workspace_id = $2"
+  },
   "56839d3aec6c0177d14589aedda8d5c431d841b6d5d0d99ce3836bb42d4d83d9": {
     "describe": {
       "columns": [
@@ -2355,57 +2420,6 @@
       }
     },
     "query": "SELECT language as \"language: ScriptLang\" FROM script WHERE hash = $1 AND workspace_id = $2"
-  },
-  "63ab3bad7ab712f8050648851d8c69a1e8071060c2db57a7d2aa42e0361e2c18": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Int8",
-          "Varchar",
-          "Int8Array",
-          "Text",
-          "Text",
-          "Text",
-          "Varchar",
-          "Text",
-          "Bool",
-          "Jsonb",
-          "Text",
-          {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "python3",
-                  "deno",
-                  "go",
-                  "bash"
-                ]
-              },
-              "name": "script_lang"
-            }
-          },
-          {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "script",
-                  "trigger",
-                  "failure",
-                  "command",
-                  "approval"
-                ]
-              },
-              "name": "script_kind"
-            }
-          },
-          "Varchar"
-        ]
-      }
-    },
-    "query": "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, content, created_by, schema, is_template, extra_perms, lock, language, kind, tag) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15)"
   },
   "64920b845c0ce81fb99497c03b249bb6cb06581079b5fc5bea5ddd8e7a895b79": {
     "describe": {
@@ -3220,6 +3234,19 @@
     },
     "query": "SELECT workspace_id, name, display_name, owners, extra_perms FROM folder WHERE workspace_id = $1 ORDER BY name desc LIMIT $2 OFFSET $3"
   },
+  "855427180b549115923e57cdde6fa2780069b049948bae4140e866c570977a90": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow'"
+  },
   "866b26e56fd376368c759db6eee13f92373e308f584903121b4546ad51aef86e": {
     "describe": {
       "columns": [
@@ -3677,6 +3704,58 @@
     },
     "query": "SELECT email, login_type::TEXT, super_admin, verified, name, company FROM password WHERE email = $1"
   },
+  "90c5f1eea5d2cceb157ce0667a625f0fa4506961e2ad181765022a20b11d314d": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Int8",
+          "Varchar",
+          "Int8Array",
+          "Text",
+          "Text",
+          "Text",
+          "Varchar",
+          "Text",
+          "Bool",
+          "Jsonb",
+          "Text",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "python3",
+                  "deno",
+                  "go",
+                  "bash"
+                ]
+              },
+              "name": "script_lang"
+            }
+          },
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "script",
+                  "trigger",
+                  "failure",
+                  "command",
+                  "approval"
+                ]
+              },
+              "name": "script_kind"
+            }
+          },
+          "Varchar",
+          "Bool"
+        ]
+      }
+    },
+    "query": "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, draft_only) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16)"
+  },
   "911b1e1f2a5ba6d5159916e5598020e680c45043b0736ad0153ee261a151dd90": {
     "describe": {
       "columns": [
@@ -3958,6 +4037,27 @@
       }
     },
     "query": "UPDATE schedule SET enabled = $1, email = $2 WHERE path = $3 AND workspace_id = $4 RETURNING *"
+  },
+  "97966407e9f1fa80fd227f75686cc9ecbb767c69ee294638c1c0957f29fd440f": {
+    "describe": {
+      "columns": [
+        {
+          "name": "draft_only",
+          "ordinal": 0,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT draft_only FROM script WHERE path = $1 AND workspace_id = $2"
   },
   "97e364c703bdcdfb5345810659cbe0477a28b8199ef0b297f9a22c88a43b6b5c": {
     "describe": {

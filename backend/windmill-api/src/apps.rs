@@ -517,6 +517,15 @@ async fn update_app(
         .execute(&mut tx)
         .await?;
     }
+
+    sqlx::query!(
+        "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'app'",
+        path,
+        &w_id
+    )
+    .execute(&mut tx)
+    .await?;
+
     audit_log(
         &mut tx,
         &authed.username,

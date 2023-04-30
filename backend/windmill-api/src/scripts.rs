@@ -35,7 +35,7 @@ use windmill_common::{
     jobs::JobPayload,
     schedule::Schedule,
     scripts::{
-        to_i64, HubScript, ListScriptQuery, ListableScript, NewScript, Script, ScriptHash,
+        to_i64, HubScript, ListScriptQuery, ListableScript, NewScript, Schema, Script, ScriptHash,
         ScriptKind, ScriptLang,
     },
     users::username_to_permissioned_as,
@@ -54,6 +54,21 @@ lazy_static::lazy_static! {
 }
 
 const MAX_HASH_HISTORY_LENGTH_STORED: usize = 20;
+
+#[derive(Serialize, sqlx::FromRow)]
+pub struct ScriptWDraft {
+    pub hash: ScriptHash,
+    pub path: String,
+    pub summary: String,
+    pub description: String,
+    pub content: String,
+    pub language: ScriptLang,
+    pub kind: ScriptKind,
+    pub tag: Option<String>,
+    pub draft: Option<serde_json::Value>,
+    pub schema: Option<Schema>,
+    pub draft_only: Option<bool>,
+}
 
 pub fn global_service() -> Router {
     Router::new()
@@ -81,6 +96,7 @@ pub fn workspaced_service() -> Router {
         .route("/list", get(list_scripts))
         .route("/create", post(create_script))
         .route("/archive/p/*path", post(archive_script_by_path))
+        .route("/get/draft/*path", get(get_script_by_path_w_draft))
         .route("/get/p/*path", get(get_script_by_path))
         .route("/raw/p/*path", get(raw_script_by_path))
         .route("/exists/p/*path", get(exists_script_by_path))
@@ -104,29 +120,29 @@ async fn list_scripts(
 
     let mut sqlb = SqlBuilder::select_from("script as o")
         .fields(&[
-            "o.workspace_id",
             "hash",
             "o.path",
-            "array_remove(array[parent_hashes[1]], NULL) as parent_hashes",
             "summary",
-            "description",
-            "created_by",
-            "created_at",
+            "COALESCE(draft.created_at, o.created_at) as created_at",
             "archived",
-            "deleted",
-            "is_template",
             "extra_perms",
-            "CASE WHEN lock_error_logs IS NOT NULL THEN 'error' ELSE null END as lock_error_logs",
+            "CASE WHEN lock_error_logs IS NOT NULL THEN true ELSE false END as has_deploy_errors",
             "language",
-            "kind",
             "favorite.path IS NOT NULL as starred",
-            "tag"
+            "tag",
+            "draft.path IS NOT NULL as has_draft",
+            "draft_only"
         ])
         .left()
         .join("favorite")
         .on(
             "favorite.favorite_kind = 'script' AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = ?"
                 .bind(&authed.username),
+        )
+        .left()
+        .join("draft")
+        .on(
+            "draft.path = o.path AND draft.workspace_id = o.workspace_id AND draft.typ = 'script'"
         )
         .order_desc("favorite.path IS NOT NULL")
         .order_by("created_at", lq.order_desc.unwrap_or(true))
@@ -243,10 +259,20 @@ async fn create_script(
     }
     let parent_hashes_and_perms: Option<ParentInfo> = match (&ns.parent_hash, clashing_script) {
         (None, None) => Ok(None),
-        (None, Some(s)) => Err(Error::BadRequest(format!(
+        (None, Some(s)) if !s.draft_only.unwrap_or(false) => Err(Error::BadRequest(format!(
             "Path conflict for {} with non-archived hash {}",
             &ns.path, &s.hash
         ))),
+        (None, Some(s)) => {
+            sqlx::query!(
+                "DELETE FROM script WHERE hash = $1 AND workspace_id = $2",
+                s.hash.0,
+                &w_id
+            )
+            .execute(&mut tx)
+            .await?;
+            Ok(None)
+        }
         (Some(p_hash), o) => {
             if sqlx::query_scalar!(
                 "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2",
@@ -338,8 +364,8 @@ async fn create_script(
     //::text::json is to ensure we use serde_json with preserve order
     sqlx::query!(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, \
-         content, created_by, schema, is_template, extra_perms, lock, language, kind, tag) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15)",
+         content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, draft_only) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16)",
         &w_id,
         &hash.0,
         ns.path,
@@ -355,6 +381,15 @@ async fn create_script(
         ns.language: ScriptLang,
         ns.kind.unwrap_or(ScriptKind::Script): ScriptKind,
         ns.tag,
+        ns.draft_only
+    )
+    .execute(&mut tx)
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'script'",
+        ns.path,
+        &w_id
     )
     .execute(&mut tx)
     .await?;
@@ -483,6 +518,31 @@ async fn get_script_by_path(
     let script_o = sqlx::query_as::<_, Script>(
         "SELECT * FROM script WHERE path = $1 AND workspace_id = $2 \
          AND created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND \
+         workspace_id = $2)",
+    )
+    .bind(path)
+    .bind(w_id)
+    .fetch_optional(&mut tx)
+    .await?;
+    tx.commit().await?;
+
+    let script = not_found_if_none(script_o, "Script", path)?;
+    Ok(Json(script))
+}
+
+async fn get_script_by_path_w_draft(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<ScriptWDraft> {
+    let path = path.to_path();
+    let mut tx = user_db.begin(&authed).await?;
+
+    let script_o = sqlx::query_as::<_, ScriptWDraft>(
+        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, draft.value as draft FROM script LEFT JOIN draft ON 
+         script.path = draft.path AND script.workspace_id = draft.workspace_id AND draft.typ = 'script'
+         WHERE script.path = $1 AND script.workspace_id = $2 \
+         AND script.created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND \
          workspace_id = $2)",
     )
     .bind(path)
@@ -759,7 +819,19 @@ async fn delete_script_by_path(
     let mut tx = user_db.begin(&authed).await?;
     let path = path.to_path();
 
-    require_admin(authed.is_admin, &authed.username)?;
+    let draft_only = sqlx::query_scalar!(
+        "SELECT draft_only FROM script WHERE path = $1 AND workspace_id = $2",
+        path,
+        w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(false);
+
+    if !draft_only {
+        require_admin(authed.is_admin, &authed.username)?;
+    }
+
     let script = sqlx::query_scalar!(
         "DELETE FROM script WHERE path = $1 AND workspace_id = $2 RETURNING path",
         path,

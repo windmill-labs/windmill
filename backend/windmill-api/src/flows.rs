@@ -354,13 +354,20 @@ async fn update_flow(
         }
 
         for schedule in schedulables.into_iter() {
-            // TODO: Why is this in the loop in the first place? Seems like it's just doing nothing after the first iteration? Should this use schedule.path?
-            clear_schedule(tx.transaction_mut(), flow_path, true).await?;
+            clear_schedule(tx.transaction_mut(), &schedule.path, true).await?;
 
             if schedule.enabled {
                 tx = push_scheduled_job(tx, schedule).await?;
             }
         }
+
+        sqlx::query!(
+            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow'",
+            nf.path,
+            &w_id
+        )
+        .execute(&mut tx)
+        .await?;
 
         audit_log(
             &mut tx,

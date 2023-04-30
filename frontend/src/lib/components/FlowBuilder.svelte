@@ -8,7 +8,7 @@
 	import { setContext } from 'svelte'
 	import { writable, type Writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
-	import { Badge, Button, UndoRedo } from './common'
+	import { Badge, Button, Kbd, UndoRedo } from './common'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
 	import FlowEditor from './flows/FlowEditor.svelte'
 	import ScriptEditorDrawer from './flows/content/ScriptEditorDrawer.svelte'
@@ -369,7 +369,7 @@
 						on:click={() => saveFlow(false)}
 						{dropdownItems}
 					>
-						Save
+						Save&nbsp;<Kbd small>Ctrl</Kbd><Kbd small>S</Kbd>
 					</Button>
 				</div>
 			</div>
