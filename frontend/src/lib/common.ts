@@ -6,6 +6,15 @@ export type ActionKind = 'Create' | 'Update' | 'Delete' | 'Execute'
 
 export type SupportedLanguage = Script.language
 
+export interface PropertyDisplayInfo {
+	property: SchemaProperty
+	name: string
+	isRequired: boolean
+	path: string[]
+	index: number
+	propertiesNumber: number
+}
+
 export interface SchemaProperty {
 	type: string | undefined
 	description: string
@@ -16,6 +25,7 @@ export interface SchemaProperty {
 	format?: string
 	items?: { type?: 'string' | 'number' | 'bytes' | 'object'; contentEncoding?: 'base64' }
 	properties?: { [name: string]: SchemaProperty }
+	required?: string[]
 }
 
 export type Schema = {
