@@ -13,6 +13,7 @@
 	export let isFrontend: boolean = false
 	export let dependencies: string[] = []
 	export let shoudlDisplayChangeEvents: boolean = false
+	export let isTriggerable: boolean = false
 
 	$: changeEvents = isFrontend
 		? inlineScript?.refreshOn
@@ -55,7 +56,7 @@
 </script>
 
 <ScriptSettingsSection title="Triggers">
-	{#if isFrontend}
+	{#if isFrontend && !isTriggerable}
 		<div class="flex mb-4">
 			<Button
 				size="xs2"
